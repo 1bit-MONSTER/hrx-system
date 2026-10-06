@@ -35,6 +35,7 @@
 #include "loom/import/cxx/control/analysis.h"
 #include "loom/import/cxx/source/attributes.h"
 #include "loom/import/cxx/source/error.h"
+#include "loom/import/cxx/source/expressions.h"
 #include "loom/import/cxx/source/locations.h"
 #include "loom/import/cxx/source/source.h"
 #include "loom/import/cxx/symbol/functions.h"
@@ -158,7 +159,8 @@ class Translator {
 
   loom_value_id_t name(loom_value_id_t value, const std::string& hint) {
     // A C++ alias of an existing SSA value keeps the original value's name.
-    if (loom_module_value(module_, value)->name_id == LOOM_STRING_ID_INVALID) {
+    if (!hint.empty() &&
+        loom_module_value(module_, value)->name_id == LOOM_STRING_ID_INVALID) {
       check(loom_module_set_value_name(module_, value, string(hint)));
     }
     return value;
@@ -337,27 +339,26 @@ class Translator {
       if (!initializer) {
         return;
       }
-      auto* elements = cxx::Initializer(initializer).expressionListSlot();
-      if (!elements) {
+      cxx::Initializer source(initializer);
+      if (source.form() != cxx::InitializerForm::kList &&
+          source.form() != cxx::InitializerForm::kParen) {
         fail(owner, "automatic arrays require element-wise initialization");
       }
+      auto elements = source.arguments();
       auto* element_type =
           unit_.typeTraits().get_element_type(variable->type());
-      auto* next = *elements;
       // The source frontend supplies conversions and explicit element order.
       // Each store precedes the next clause, which may read this same array.
       // Omitted trivial elements are value-initialized, unlike a declaration
       // without an initializer.
       for (size_t index = 0; index < array->size(); ++index) {
         auto value =
-            next ? expression(next->value).ssa()
-                 : initialize(array->elementType(), nullptr, owner).ssa();
+            index < elements.size()
+                ? expression(elements[index]).ssa()
+                : initialize(array->elementType(), nullptr, owner).ssa();
         access.index = scalars_.integer(index, LOOM_SCALAR_TYPE_INDEX,
                                         locations_.get(owner));
         storage_.store(access, value, element_type, owner);
-        if (next) {
-          next = next->next;
-        }
       }
       return;
     }
@@ -380,11 +381,12 @@ class Translator {
         name(expression(initializer), cxx::to_string(variable->name()));
   }
 
-  void initialize_condition(cxx::VariableSymbol* variable) {
-    if (!variable) {
+  void initialize_condition(cxx::ExpressionAST* expression) {
+    auto* declaration = condition_declaration(expression);
+    if (!declaration) {
       return;
     }
-    auto* declaration = control_->condition_declaration(variable);
+    auto* variable = declaration->symbol;
     reject_misplaced_binding_attributes(unit_, diagnostics_,
                                         declaration->attributeList);
     reject_misplaced_binding_declarator(unit_, diagnostics_,
@@ -406,7 +408,7 @@ class Translator {
       if (branch->initializer) {
         statement(branch->initializer);
       }
-      initialize_condition(branch->decisionVariable);
+      initialize_condition(branch->condition);
       ast = *branch->constexprValue ? branch->statement : branch->elseStatement;
     }
     return ast;
@@ -416,7 +418,7 @@ class Translator {
     if (branch->initializer) {
       statement(branch->initializer);
     }
-    initialize_condition(branch->decisionVariable);
+    initialize_condition(branch->condition);
     return expression(branch->condition).ssa();
   }
 
@@ -514,7 +516,7 @@ class Translator {
   }
 
   StorageProjection pointer_expression(cxx::ExpressionAST* ast) {
-    auto* source = cxx::Initializer::stripImplicitCasts(ast);
+    auto* source = strip_implicit_casts(ast);
     if (unit_.typeTraits().is_array(source->type)) {
       // Direct array indexing retains its enclosing lvalue's alignment. An
       // actual pointer value, including an explicit cast or call result, starts
@@ -579,7 +581,7 @@ class Translator {
   }
 
   StorageProjection object_address(cxx::ExpressionAST* ast) {
-    ast = cxx::Initializer::stripImplicitCasts(ast);
+    ast = strip_implicit_casts(ast);
     if (auto* nested = cxx::ast_cast<cxx::NestedExpressionAST>(ast)) {
       return object_address(nested->expression);
     }
@@ -1032,8 +1034,15 @@ class Translator {
             !unit_.typeTraits().is_volatile(variable->type()) &&
             (variable->isConstexpr() ||
              unit_.typeTraits().is_const(variable->type()))) {
-          return name(constant(*variable->constValue(), ast),
-                      cxx::to_string(variable->name()));
+          cxx::ASTInterpreter interpreter(&unit_);
+          if (auto value = interpreter.evaluate(ast)) {
+            auto result = constant(*value, ast);
+            // A reference parameter names its source object, not the value
+            // produced by reading that object in this expression.
+            return unit_.typeTraits().is_reference(variable->type())
+                       ? result
+                       : name(result, cxx::to_string(variable->name()));
+          }
         }
       }
       if (cxx::symbol_cast<cxx::FieldSymbol>(id->symbol)) {
@@ -1189,10 +1198,10 @@ class Translator {
                          ast);
       }
       if (unary->op == cxx::TokenKind::T_AMP) {
-        auto* operand = cxx::Initializer::stripImplicitCasts(unary->expression);
+        auto* operand = strip_implicit_casts(unary->expression);
         while (auto* nested =
                    cxx::ast_cast<cxx::NestedExpressionAST>(operand)) {
-          operand = cxx::Initializer::stripImplicitCasts(nested->expression);
+          operand = strip_implicit_casts(nested->expression);
         }
         if (auto* dereference = cxx::ast_cast<cxx::UnaryExpressionAST>(operand);
             dereference && !dereference->symbol &&
@@ -1628,7 +1637,7 @@ class Translator {
             "loop scheduling requires a nonwrapping unsigned counted for loop");
       }
       conditional_loop(ast, loop->condition, loop->statement, loop->expression,
-                       LoopTest::BeforeBody, loop->decisionVariable);
+                       LoopTest::BeforeBody);
       return;
     }
     if (auto* loop = cxx::ast_cast<cxx::WhileStatementAST>(ast)) {
@@ -1636,7 +1645,7 @@ class Translator {
         fail(ast, "loop scheduling requires a counted for loop");
       }
       conditional_loop(ast, loop->condition, loop->statement, nullptr,
-                       LoopTest::BeforeBody, loop->decisionVariable);
+                       LoopTest::BeforeBody);
       return;
     }
     if (auto* loop = cxx::ast_cast<cxx::DoStatementAST>(ast)) {
@@ -1644,7 +1653,7 @@ class Translator {
         fail(ast, "loop scheduling requires a counted for loop");
       }
       conditional_loop(ast, loop->expression, loop->statement, nullptr,
-                       LoopTest::AfterBody, nullptr);
+                       LoopTest::AfterBody);
       return;
     }
     if (auto* expression_statement =
@@ -1666,8 +1675,10 @@ class Translator {
   void conditional_loop(cxx::StatementAST* ast,
                         cxx::ExpressionAST* condition_expression,
                         cxx::StatementAST* body, cxx::ExpressionAST* step,
-                        LoopTest test, cxx::VariableSymbol* decision) {
-    initialize_condition(decision);
+                        LoopTest test) {
+    auto* declaration = condition_declaration(condition_expression);
+    auto* decision = declaration ? declaration->symbol : nullptr;
+    initialize_condition(declaration);
     auto written = live_mutations(ast);
     if (decision && values_.contains(decision)) {
       std::erase(written, decision);
@@ -1706,7 +1717,7 @@ class Translator {
     // A decision object is recreated after the body and for-loop increment.
     // The preheader supplied its first value, so every check sees a real value.
     if (decision) {
-      auto value = expression(decision->initializer());
+      auto value = expression(declaration->initializer);
       if (auto found = locals_.find(decision); found != locals_.end()) {
         storage_.store({found->second.view, std::nullopt}, value.ssa(),
                        decision->type(), ast);

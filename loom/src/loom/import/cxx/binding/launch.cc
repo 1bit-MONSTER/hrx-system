@@ -30,13 +30,14 @@ LaunchContracts::Dimensions LaunchContracts::parse(
     for (auto* expression : cxx::ListView{clause->expressionList}) {
       auto evaluated = interpreter.evaluate(expression);
       auto* value =
-          evaluated ? std::get_if<std::intmax_t>(&*evaluated) : nullptr;
-      if (count == expected || !value || *value <= 0 || *value > INT32_MAX) {
+          evaluated ? std::get_if<cxx::ConstInt>(&*evaluated) : nullptr;
+      if (count == expected || !value || value->isNegative() ||
+          value->isZero() || value->toUWide() > INT32_MAX) {
         diagnostics_.reject(unit_, attribute,
                             "launch dimensions require positive i32 integer "
                             "constant expressions");
       }
-      values[count++] = static_cast<int32_t>(*value);
+      values[count++] = static_cast<int32_t>(value->toUIntMax());
     }
   }
   if (count != expected) {

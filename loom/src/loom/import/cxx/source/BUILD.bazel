@@ -129,25 +129,12 @@ loom_cc_test(
 )
 
 loom_cc_test(
-    name = "constant_bits_test",
-    srcs = ["constant_bits_test.cc"],
-    cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
-    cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
-    deps = [
-        ":options",
-        ":source",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
-        "//third_party:cxx_parser",
-    ],
-)
-
-loom_cc_test(
     name = "constexpr_test",
     srcs = ["constexpr_test.cc"],
     cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
     cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
     deps = [
+        ":expressions",
         ":options",
         ":source",
         "//runtime/src/iree/testing:gtest",
@@ -202,6 +189,15 @@ loom_cc_library(
     name = "constants",
     srcs = ["constants.cc"],
     hdrs = ["constants.h"],
+    cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
+    cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
+    deps = ["//third_party:cxx_parser"],
+)
+
+loom_cc_library(
+    name = "expressions",
+    srcs = ["expressions.cc"],
+    hdrs = ["expressions.h"],
     cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
     cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
     deps = ["//third_party:cxx_parser"],

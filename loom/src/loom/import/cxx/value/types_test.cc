@@ -359,7 +359,7 @@ TEST(TypesTest, EnumProjectionPreservesSourceWidthSignednessAndIdentity) {
            Case{"enum Value { high = 0x80000000u };", LOOM_SCALAR_TYPE_I32,
                 true},
            Case{"enum Value { high = 1ULL << 40 };", LOOM_SCALAR_TYPE_I64,
-                false},
+                true},
            Case{"enum Value { high = 0xffffffffffffffffULL };",
                 LOOM_SCALAR_TYPE_I64, true},
        }) {

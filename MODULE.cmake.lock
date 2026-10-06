@@ -131,63 +131,13 @@ set(IREE_DEP_CXX_VERSION "")
 set(IREE_DEP_CXX_DEV_DEPENDENCY "FALSE")
 set(IREE_DEP_CXX_SOURCE_URL "")
 set(IREE_DEP_CXX_URLS
-  "https://github.com/robertoraggi/cplusplus/archive/bccf4d1e2d266b3d5d770c49e9eac59a2eab34b9.tar.gz"
+  "https://github.com/benvanik/cplusplus/archive/78f8fdcd8163f144395bb81429101b4758c27c1f.tar.gz"
 )
-set(IREE_DEP_CXX_SHA256 "39e18971b03f3b5ae2afc8cb9313bcccaf6a51176a94eb57cb8fa4e683ef290b")
-set(IREE_DEP_CXX_STRIP_PREFIX "cplusplus-bccf4d1e2d266b3d5d770c49e9eac59a2eab34b9")
+set(IREE_DEP_CXX_SHA256 "595babe37979016a84af6054f928dbc4895cc7a37588ca82ccfc93e81bbdc7f7")
+set(IREE_DEP_CXX_STRIP_PREFIX "cplusplus-78f8fdcd8163f144395bb81429101b4758c27c1f")
 set(IREE_DEP_CXX_BUILD_FILE "//build_tools/third_party/cxx:cxx.BUILD.bazel")
-set(IREE_DEP_CXX_PATCHES
-  "//build_tools/third_party/cxx:braced_vector_initialization.patch"
-  "//build_tools/third_party/cxx:builtin_macro_locations.patch"
-  "//build_tools/third_party/cxx:constant_arithmetic.patch"
-  "//build_tools/third_party/cxx:enum_semantics.patch"
-  "//build_tools/third_party/cxx:include_continuation.patch"
-  "//build_tools/third_party/cxx:include_paths.patch"
-  "//build_tools/third_party/cxx:macro_operator_locations.patch"
-  "//build_tools/third_party/cxx:member_definition_attributes.patch"
-  "//build_tools/third_party/cxx:packed_bitfields.patch"
-  "//build_tools/third_party/cxx:packed_records.patch"
-  "//build_tools/third_party/cxx:aligned_records.patch"
-  "//build_tools/third_party/cxx:packed_enums.patch"
-  "//build_tools/third_party/cxx:bitfield_attributes.patch"
-  "//build_tools/third_party/cxx:record_layout_owner.patch"
-  "//build_tools/third_party/cxx:compound_offsetof.patch"
-  "//build_tools/third_party/cxx:template_lookahead.patch"
-  "//build_tools/third_party/cxx:constexpr_branches.patch"
-  "//build_tools/third_party/cxx:qualified_template_calls.patch"
-  "//build_tools/third_party/cxx:initializer_dependencies.patch"
-  "//build_tools/third_party/cxx:condition_declarations.patch"
-  "//build_tools/third_party/cxx:unsigned_complement.patch"
-  "//build_tools/third_party/cxx:float16_semantics.patch"
-  "//build_tools/third_party/cxx:bfloat16_semantics.patch"
-  "//build_tools/third_party/cxx:float8_semantics.patch"
-  "//build_tools/third_party/cxx:vector_constants.patch"
-  "//build_tools/third_party/cxx:vector_conversion.patch"
-  "//build_tools/third_party/cxx:auto_deduction.patch"
-  "//build_tools/third_party/cxx:vector_list_conversion.patch"
-  "//build_tools/third_party/cxx:using_directive_attributes.patch"
-  "//build_tools/third_party/cxx:constant_archive.patch"
-  "//build_tools/third_party/cxx:constexpr_bitcast.patch"
-  "//build_tools/third_party/cxx:list_initialization_diagnostics.patch"
-  "//build_tools/third_party/cxx:builtin_class_conversions.patch"
-  "//build_tools/third_party/cxx:constant_template_conversions.patch"
-  "//build_tools/third_party/cxx:reference_template_arguments.patch"
-  "//build_tools/third_party/cxx:interpreter_frame_stability.patch"
-  "//build_tools/third_party/cxx:semantic_model_generation.patch"
-  "//build_tools/third_party/cxx:reference_parameter_binding.patch"
-  "//build_tools/third_party/cxx:rooted_subobject_addresses.patch"
-  "//build_tools/third_party/cxx:selected_subobject_paths.patch"
-  "//build_tools/third_party/cxx:aggregate_member_defaults.patch"
-  "//build_tools/third_party/cxx:aggregate_initialization_failures.patch"
-  "//build_tools/third_party/cxx:constant_object_initialization.patch"
-  "//build_tools/third_party/cxx:const_default_initialization.patch"
-  "//build_tools/third_party/cxx:structural_template_values.patch"
-  "//build_tools/third_party/cxx:constant_aggregate_loads.patch"
-  "//build_tools/third_party/cxx:automatic_scope_teardown.patch"
-)
-set(IREE_DEP_CXX_PATCH_ARGS
-  "-p1"
-)
+set(IREE_DEP_CXX_PATCHES "")
+set(IREE_DEP_CXX_PATCH_ARGS "")
 
 set(IREE_DEP_RDMA_CORE_HEADERS_KIND "http_archive")
 set(IREE_DEP_RDMA_CORE_HEADERS_OWNER "shared")

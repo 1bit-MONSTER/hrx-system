@@ -83,6 +83,7 @@ loom_cc_library(
         "//loom/src/loom/import/cxx/source:catalog",
         "//loom/src/loom/import/cxx/source:constants",
         "//loom/src/loom/import/cxx/source:error",
+        "//loom/src/loom/import/cxx/source:expressions",
         "//loom/src/loom/import/cxx/source:locations",
         "//loom/src/loom/import/cxx/source:options",
         "//loom/src/loom/import/cxx/symbol:functions",

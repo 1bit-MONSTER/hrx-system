@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "iree/testing/gtest.h"
+#include "loom/import/cxx/source/expressions.h"
 #include "loom/import/cxx/source/source.h"
 
 namespace loom::cxx_import {
@@ -32,38 +33,16 @@ class BranchVisitor final : public cxx::ASTVisitor {
 
 class DecisionVisitor final : public cxx::ASTVisitor {
  public:
-  void visit(cxx::IfStatementAST* ast) override {
-    if (ast->decisionVariable) {
-      variables.push_back(ast->decisionVariable);
-    }
-    cxx::ASTVisitor::visit(ast);
-  }
-  void visit(cxx::SwitchStatementAST* ast) override {
-    if (ast->decisionVariable) {
-      variables.push_back(ast->decisionVariable);
-    }
-    cxx::ASTVisitor::visit(ast);
-  }
-  void visit(cxx::WhileStatementAST* ast) override {
-    if (ast->decisionVariable) {
-      variables.push_back(ast->decisionVariable);
-    }
-    cxx::ASTVisitor::visit(ast);
-  }
-  void visit(cxx::ForStatementAST* ast) override {
-    if (ast->decisionVariable) {
-      variables.push_back(ast->decisionVariable);
-    }
-    cxx::ASTVisitor::visit(ast);
-  }
   void visit(cxx::ConditionExpressionAST* ast) override {
+    variables.push_back(ast->symbol);
     declarations.push_back(ast);
+    cxx::ASTVisitor::visit(ast);
   }
   void visit(cxx::IdExpressionAST* ast) override {
     references.push_back(ast->symbol);
   }
 
-  // Statements retain the same symbols as their nested declaration syntax.
+  // Declaration expressions retain their owned decision symbols.
   std::vector<cxx::VariableSymbol*> variables;
   // Original declaration nodes under contextual conversions, borrowed from AST.
   std::vector<cxx::ConditionExpressionAST*> declarations;
@@ -111,13 +90,15 @@ TEST(ConstexprTest, SelectionSurvivesSourceDestructionArchivesAndClones) {
     EXPECT_EQ(visitor.branches[3]->constexprValue, std::nullopt);
     EXPECT_TRUE(visitor.branches[3]->constexprLoc);
     auto* selected = visitor.branches[0];
-    ASSERT_NE(selected->decisionVariable, nullptr);
+    auto* selected_condition = condition_declaration(selected->condition);
+    ASSERT_NE(selected_condition, nullptr);
+    ASSERT_NE(selected_condition->symbol, nullptr);
     DecisionVisitor decisions;
     decisions.accept(selected->condition);
     ASSERT_EQ(decisions.declarations.size(), 1u);
-    EXPECT_EQ(decisions.declarations[0]->symbol, selected->decisionVariable);
-    EXPECT_NE(selected->decisionVariable->initializer(), nullptr);
-    EXPECT_EQ(visitor.branches[1]->decisionVariable, nullptr);
+    EXPECT_EQ(decisions.declarations[0], selected_condition);
+    EXPECT_NE(selected_condition->initializer, nullptr);
+    EXPECT_EQ(condition_declaration(visitor.branches[1]->condition), nullptr);
     DecisionVisitor all_decisions;
     all_decisions.accept(ast);
     ASSERT_EQ(all_decisions.variables.size(), 4u);
@@ -160,17 +141,20 @@ TEST(ConstexprTest, InstantiationRetainsSelectionAndOmitsTheDiscardedArm) {
     visitor.accept(function->declaration());
     ASSERT_EQ(visitor.branches.size(), 1u);
     auto* branch = visitor.branches.front();
-    ASSERT_NE(branch->decisionVariable, nullptr);
-    EXPECT_NE(branch->decisionVariable, primary.branches[0]->decisionVariable);
+    auto* condition = condition_declaration(branch->condition);
+    auto* primary_condition =
+        condition_declaration(primary.branches[0]->condition);
+    ASSERT_NE(condition, nullptr);
+    ASSERT_NE(primary_condition, nullptr);
+    EXPECT_NE(condition->symbol, primary_condition->symbol);
     DecisionVisitor decisions;
     decisions.accept(branch->condition);
     ASSERT_EQ(decisions.declarations.size(), 1u);
-    EXPECT_EQ(decisions.declarations[0]->symbol, branch->decisionVariable);
+    EXPECT_EQ(decisions.declarations[0], condition);
     DecisionVisitor initializer;
-    initializer.accept(branch->decisionVariable->initializer());
-    EXPECT_NE(
-        std::ranges::find(initializer.references, branch->decisionVariable),
-        initializer.references.end());
+    initializer.accept(condition->initializer);
+    EXPECT_NE(std::ranges::find(initializer.references, condition->symbol),
+              initializer.references.end());
     ASSERT_TRUE(branch->constexprValue.has_value());
     selections.push_back(*branch->constexprValue);
     EXPECT_EQ(branch->statement != nullptr, *branch->constexprValue);

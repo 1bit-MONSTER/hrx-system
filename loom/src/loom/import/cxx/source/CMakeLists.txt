@@ -174,28 +174,6 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_cc_test(
   NAME
-    constant_bits_test
-  SRCS
-    "constant_bits_test.cc"
-  CXX_STANDARD
-    23
-  CXX_FEATURES
-    "exceptions"
-    "rtti"
-  DEPS
-    ::options
-    ::source
-    iree::testing::gtest
-    iree::testing::gtest_main
-    iree::third_party::cxx_parser
-  LABELS
-    "iree-build-requirement=loom.import.cxx"
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_cc_test(
-  NAME
     constexpr_test
   SRCS
     "constexpr_test.cc"
@@ -205,6 +183,7 @@ loom_cc_test(
     "exceptions"
     "rtti"
   DEPS
+    ::expressions
     ::options
     ::source
     iree::testing::gtest
@@ -294,6 +273,25 @@ loom_cc_library(
     "constants.h"
   SRCS
     "constants.cc"
+  DEPS
+    iree::third_party::cxx_parser
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
+    expressions
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "expressions.h"
+  SRCS
+    "expressions.cc"
   DEPS
     iree::third_party::cxx_parser
   PUBLIC

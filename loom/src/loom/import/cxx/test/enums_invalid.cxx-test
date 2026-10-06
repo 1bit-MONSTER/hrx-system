@@ -1,12 +1,12 @@
 // RUN: verify
 // INPUT: cxx data-model=lp64
-// ERROR@+1: PARSE/036 "enumerator initializer must have integral or unscoped enum type"
+// ERROR@+1: PARSE/036 "enumerator initializer must have integral or unscoped enumeration type"
 enum E { invalid = 2.5 };
 
 // ====
 // INPUT: cxx data-model=lp64
 int value = 2;
-// ERROR@+1: PARSE/036 "enumerator initializer is not a constant expression"
+// ERROR@+1: PARSE/036 "enumerator initializer is not an integral constant expression"
 enum E { invalid = value };
 
 // ====
@@ -46,45 +46,45 @@ enum class E : bool { invalid = 2 };
 
 // ====
 // INPUT: cxx data-model=lp64
-// ERROR@+1: PARSE/036 "implicit enumerator value is not representable in the underlying type"
+// ERROR@+1: PARSE/036 "incremented enumerator value is not representable in the underlying type"
 enum class E : unsigned char { last = 255, invalid };
 
 // ====
 // INPUT: cxx data-model=lp64
-// ERROR@+1: PARSE/036 "implicit enumerator value is not representable in the underlying type"
+// ERROR@+1: PARSE/036 "incremented enumerator value is not representable in the underlying type"
 enum class E : signed char { last = 127, invalid };
 
 // ====
 // INPUT: cxx data-model=lp64
-// ERROR@+1: PARSE/036 "implicit enumerator value is not representable in the underlying type"
+// ERROR@+1: PARSE/036 "incremented enumerator value is not representable in the underlying type"
 enum class E : bool { no, yes, invalid };
 
 // ====
 // INPUT: cxx data-model=lp64
-// ERROR@+1: PARSE/036 "implicit enumerator value is not representable in the underlying type"
+// ERROR@+1: PARSE/036 "incremented enumerator value is not representable in the underlying type"
 enum class E { last = 2147483647, invalid };
 
 // ====
 // INPUT: cxx data-model=lp64
-// ERROR@+1: PARSE/036 "implicit enumerator value exceeds the integer range"
+// ERROR@+1: PARSE/036 "no integral type can represent the incremented enumerator value"
 enum E { last = 0xffffffffffffffffULL, invalid };
 
 // ====
 // INPUT: cxx data-model=lp64
-// ERROR@+1: PARSE/036 "no integer type can represent all enumerator values"
+// ERROR@+1: PARSE/036 "no integral type can represent all enumerator values"
 enum E { negative = -1, large = 0xffffffffffffffffULL };
 
 // ====
 // INPUT: cxx data-model=lp64
 enum class E { first };
-// ERROR@+1: PARSE/036 "enumerator initializer must have integral or unscoped enum type"
+// ERROR@+1: PARSE/036 "enumerator initializer must have integral or unscoped enumeration type"
 enum F { invalid = E::first };
 
 // ====
 // INPUT: cxx data-model=lp64
 template <unsigned V>
 constexpr unsigned value() {
-  // ERROR@+1: PARSE/036 "implicit enumerator value is not representable in the underlying type"
+  // ERROR@+1: PARSE/036 "incremented enumerator value is not representable in the underlying type"
   enum class E : unsigned char { first = V, next };
   return unsigned(E::next);
 }
@@ -93,13 +93,13 @@ static_assert(value<255>() == 256);
 
 // ====
 // INPUT: cxx data-model=llp64
-// ERROR@+1: PARSE/036 "enumerator initializer must have integral or unscoped enum type"
+// ERROR@+1: PARSE/036 "enumerator initializer must have integral or unscoped enumeration type"
 enum E { invalid = 2.5 };
 
 // ====
 // INPUT: cxx data-model=llp64
 int value = 2;
-// ERROR@+1: PARSE/036 "enumerator initializer is not a constant expression"
+// ERROR@+1: PARSE/036 "enumerator initializer is not an integral constant expression"
 enum E { invalid = value };
 
 // ====
@@ -139,45 +139,45 @@ enum class E : bool { invalid = 2 };
 
 // ====
 // INPUT: cxx data-model=llp64
-// ERROR@+1: PARSE/036 "implicit enumerator value is not representable in the underlying type"
+// ERROR@+1: PARSE/036 "incremented enumerator value is not representable in the underlying type"
 enum class E : unsigned char { last = 255, invalid };
 
 // ====
 // INPUT: cxx data-model=llp64
-// ERROR@+1: PARSE/036 "implicit enumerator value is not representable in the underlying type"
+// ERROR@+1: PARSE/036 "incremented enumerator value is not representable in the underlying type"
 enum class E : signed char { last = 127, invalid };
 
 // ====
 // INPUT: cxx data-model=llp64
-// ERROR@+1: PARSE/036 "implicit enumerator value is not representable in the underlying type"
+// ERROR@+1: PARSE/036 "incremented enumerator value is not representable in the underlying type"
 enum class E : bool { no, yes, invalid };
 
 // ====
 // INPUT: cxx data-model=llp64
-// ERROR@+1: PARSE/036 "implicit enumerator value is not representable in the underlying type"
+// ERROR@+1: PARSE/036 "incremented enumerator value is not representable in the underlying type"
 enum class E { last = 2147483647, invalid };
 
 // ====
 // INPUT: cxx data-model=llp64
-// ERROR@+1: PARSE/036 "implicit enumerator value exceeds the integer range"
+// ERROR@+1: PARSE/036 "no integral type can represent the incremented enumerator value"
 enum E { last = 0xffffffffffffffffULL, invalid };
 
 // ====
 // INPUT: cxx data-model=llp64
-// ERROR@+1: PARSE/036 "no integer type can represent all enumerator values"
+// ERROR@+1: PARSE/036 "no integral type can represent all enumerator values"
 enum E { negative = -1, large = 0xffffffffffffffffULL };
 
 // ====
 // INPUT: cxx data-model=llp64
 enum class E { first };
-// ERROR@+1: PARSE/036 "enumerator initializer must have integral or unscoped enum type"
+// ERROR@+1: PARSE/036 "enumerator initializer must have integral or unscoped enumeration type"
 enum F { invalid = E::first };
 
 // ====
 // INPUT: cxx data-model=llp64
 template <unsigned V>
 constexpr unsigned value() {
-  // ERROR@+1: PARSE/036 "implicit enumerator value is not representable in the underlying type"
+  // ERROR@+1: PARSE/036 "incremented enumerator value is not representable in the underlying type"
   enum class E : unsigned char { first = V, next };
   return unsigned(E::next);
 }
@@ -186,13 +186,13 @@ static_assert(value<255>() == 256);
 
 // ====
 // INPUT: cxx data-model=ilp32
-// ERROR@+1: PARSE/036 "enumerator initializer must have integral or unscoped enum type"
+// ERROR@+1: PARSE/036 "enumerator initializer must have integral or unscoped enumeration type"
 enum E { invalid = 2.5 };
 
 // ====
 // INPUT: cxx data-model=ilp32
 int value = 2;
-// ERROR@+1: PARSE/036 "enumerator initializer is not a constant expression"
+// ERROR@+1: PARSE/036 "enumerator initializer is not an integral constant expression"
 enum E { invalid = value };
 
 // ====
@@ -232,45 +232,45 @@ enum class E : bool { invalid = 2 };
 
 // ====
 // INPUT: cxx data-model=ilp32
-// ERROR@+1: PARSE/036 "implicit enumerator value is not representable in the underlying type"
+// ERROR@+1: PARSE/036 "incremented enumerator value is not representable in the underlying type"
 enum class E : unsigned char { last = 255, invalid };
 
 // ====
 // INPUT: cxx data-model=ilp32
-// ERROR@+1: PARSE/036 "implicit enumerator value is not representable in the underlying type"
+// ERROR@+1: PARSE/036 "incremented enumerator value is not representable in the underlying type"
 enum class E : signed char { last = 127, invalid };
 
 // ====
 // INPUT: cxx data-model=ilp32
-// ERROR@+1: PARSE/036 "implicit enumerator value is not representable in the underlying type"
+// ERROR@+1: PARSE/036 "incremented enumerator value is not representable in the underlying type"
 enum class E : bool { no, yes, invalid };
 
 // ====
 // INPUT: cxx data-model=ilp32
-// ERROR@+1: PARSE/036 "implicit enumerator value is not representable in the underlying type"
+// ERROR@+1: PARSE/036 "incremented enumerator value is not representable in the underlying type"
 enum class E { last = 2147483647, invalid };
 
 // ====
 // INPUT: cxx data-model=ilp32
-// ERROR@+1: PARSE/036 "implicit enumerator value exceeds the integer range"
+// ERROR@+1: PARSE/036 "no integral type can represent the incremented enumerator value"
 enum E { last = 0xffffffffffffffffULL, invalid };
 
 // ====
 // INPUT: cxx data-model=ilp32
-// ERROR@+1: PARSE/036 "no integer type can represent all enumerator values"
+// ERROR@+1: PARSE/036 "no integral type can represent all enumerator values"
 enum E { negative = -1, large = 0xffffffffffffffffULL };
 
 // ====
 // INPUT: cxx data-model=ilp32
 enum class E { first };
-// ERROR@+1: PARSE/036 "enumerator initializer must have integral or unscoped enum type"
+// ERROR@+1: PARSE/036 "enumerator initializer must have integral or unscoped enumeration type"
 enum F { invalid = E::first };
 
 // ====
 // INPUT: cxx data-model=ilp32
 template <unsigned V>
 constexpr unsigned value() {
-  // ERROR@+1: PARSE/036 "implicit enumerator value is not representable in the underlying type"
+  // ERROR@+1: PARSE/036 "incremented enumerator value is not representable in the underlying type"
   enum class E : unsigned char { first = V, next };
   return unsigned(E::next);
 }

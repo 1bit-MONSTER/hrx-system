@@ -7,6 +7,7 @@
 #include "loom/import/cxx/binding/atomic.h"
 
 #include <cxx/ast.h>
+#include <cxx/const_value.h>
 #include <cxx/names.h>
 #include <cxx/symbols.h>
 #include <cxx/types.h>
@@ -41,12 +42,12 @@ void read_selectors(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
   }
   for (size_t index = 0; index < selectors.size(); ++index) {
     auto value = cxx::template_argument_value(arguments[index]);
-    auto* number = value ? std::get_if<std::intmax_t>(&*value) : nullptr;
-    if (!number || *number < 0 || *number > UINT8_MAX) {
+    auto* number = value ? std::get_if<cxx::ConstInt>(&*value) : nullptr;
+    if (!number || number->isNegative() || number->toUWide() > UINT8_MAX) {
       diagnostics.reject(unit, owner,
                          "atomic selectors require constant enum values");
     }
-    selectors[index] = static_cast<uint8_t>(*number);
+    selectors[index] = static_cast<uint8_t>(number->toUIntMax());
   }
 }
 

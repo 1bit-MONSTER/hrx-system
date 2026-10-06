@@ -9,6 +9,7 @@
 #include <cxx/ast.h>
 #include <cxx/memory_layout.h>
 #include <cxx/preprocessor.h>
+#include <cxx/triple.h>
 
 #include <filesystem>
 #include <fstream>
@@ -107,7 +108,7 @@ class SourceToolchain final : public cxx::Toolchain {
  public:
   SourceToolchain(cxx::Preprocessor* preprocessor,
                   const loom_cxx_import_options_t& options)
-      : cxx::Toolchain(preprocessor) {
+      : cxx::Toolchain(preprocessor, cxx::Triple{string(options.triple)}) {
     auto spelling = options.standard.size ? string(options.standard) : "c++26";
     auto* standard = cxx::findLanguageStandard(spelling);
     if (!standard) {
@@ -231,7 +232,6 @@ static void parse_source(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
                          iree_string_view_t source, iree_string_view_t filename,
                          const loom_cxx_import_options_t& options) {
   auto* preprocessor = unit.preprocessor();
-  preprocessor->setCanResolveFiles(false);
   for (size_t i = 0; i < options.include_path_count; ++i) {
     preprocessor->addUserIncludePath(string(options.include_paths[i]));
   }
@@ -295,7 +295,8 @@ static void parse_source(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
   }
   unit.endPreprocessing();
   diagnostics.finish();
-  unit.parse({.checkTypes = true, .validateAst = true});
+  unit.parse(
+      {.analysisMode = cxx::ParserAnalysisMode::kFull, .validateAst = true});
   diagnostics.finish();
 }
 

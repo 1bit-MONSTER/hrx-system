@@ -95,6 +95,7 @@ loom_cc_library(
     iree::third_party::cxx_parser
     loom::import::cxx::source
     loom::import::cxx::source::constants
+    loom::import::cxx::source::expressions
     loom::ir
   PUBLIC
 )

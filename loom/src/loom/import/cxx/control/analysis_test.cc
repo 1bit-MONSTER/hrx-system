@@ -7,13 +7,13 @@
 #include "loom/import/cxx/control/analysis.h"
 
 #include <cxx/ast.h>
-#include <cxx/initialization.h>
 #include <cxx/names.h>
 #include <cxx/symbols.h>
 
 #include <algorithm>
 
 #include "iree/testing/gtest.h"
+#include "loom/import/cxx/source/expressions.h"
 #include "loom/import/cxx/source/source.h"
 
 namespace loom::cxx_import {
@@ -178,12 +178,10 @@ TEST(ControlFlowTest, DecisionSyntaxAndInitializerWritesStayWithTheBinding) {
   for (auto* statement : cxx::ListView{body->statementList}) {
     auto* branch = cxx::ast_cast<cxx::IfStatementAST>(statement);
     ASSERT_NE(branch, nullptr);
-    auto* declaration =
-        analysis.condition_declaration(branch->decisionVariable);
+    auto* declaration = condition_declaration(branch->condition);
     ASSERT_NE(declaration, nullptr);
-    EXPECT_EQ(declaration->symbol, branch->decisionVariable);
-    EXPECT_EQ(declaration->initializer,
-              branch->decisionVariable->initializer());
+    ASSERT_NE(declaration->symbol, nullptr);
+    EXPECT_EQ(declaration->initializer, declaration->symbol->initializer());
     auto writes = analysis.written(branch);
     ASSERT_FALSE(writes.empty());
     EXPECT_EQ(writes.front(), function->symbol->parameters()[0]);
@@ -372,7 +370,7 @@ TEST(ControlFlowTest, ConditionalValuesRetainOrderedBindingMutations) {
       cxx::ast_cast<cxx::ReturnStatementAST>(body->statementList->value);
   ASSERT_NE(ret, nullptr);
   auto* select = cxx::ast_cast<cxx::ConditionalExpressionAST>(
-      cxx::Initializer::stripImplicitCasts(ret->expression));
+      strip_implicit_casts(ret->expression));
   ASSERT_NE(select, nullptr);
   Types types(source.unit(), source.diagnostics());
   ControlFlow analysis(source.unit(), source.diagnostics(), types, body);
@@ -383,8 +381,8 @@ TEST(ControlFlowTest, ConditionalValuesRetainOrderedBindingMutations) {
   EXPECT_EQ(writes[1], parameters[0]);
   EXPECT_EQ(writes[2], parameters[1]);
   for (auto* arm : {select->iftrueExpression, select->iffalseExpression}) {
-    auto* nested = cxx::ast_cast<cxx::NestedExpressionAST>(
-        cxx::Initializer::stripImplicitCasts(arm));
+    auto* nested =
+        cxx::ast_cast<cxx::NestedExpressionAST>(strip_implicit_casts(arm));
     ASSERT_NE(nested, nullptr);
     auto arm_writes = analysis.written(nested->expression);
     ASSERT_EQ(arm_writes.size(), 2u);

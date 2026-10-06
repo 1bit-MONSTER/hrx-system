@@ -52,6 +52,14 @@ static constexpr unsigned update() {
 static_assert(update() == 16);
 
 // ====
+// A static reference member preserves the complete referenced array.
+constexpr unsigned storage[4] = {3, 5, 7, 9};
+struct Table {
+  static constexpr const unsigned (&entries)[4] = storage;
+};
+static_assert(Table::entries[2] == 7);
+
+// ====
 // Nested arrays and record elements remain aggregate values at each level.
 struct Cell { unsigned value; };
 struct Table { Cell cells[2]; unsigned rows[2][2]; };
