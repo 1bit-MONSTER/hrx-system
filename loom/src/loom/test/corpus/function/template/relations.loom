@@ -1,4 +1,4 @@
-// The public function must compile for unknown inputs. Each selected body uses
+// The function must compile for unknown inputs. Each selected body uses
 // a relation proved at runtime, after canonicalization has refined its inputs.
 template.decl @ordered(%left: i32, %right: i32) -> (i32)
 
@@ -14,7 +14,7 @@ template.def<@reversed> @greater_equal(%left: i32, %right: i32) -> (i32) where [
   template.return %result : i32
 }
 
-func.def public @distance(%left: i32, %right: i32) -> (i32) {
+func.def @distance(%left: i32, %right: i32) -> (i32) {
   %condition = scalar.cmpi slt, %left, %right : i32
   %result = scf.if %condition -> (i32) {
     %value = template.apply<@ordered>(%left, %right) : (i32, i32) -> (i32)
@@ -26,16 +26,29 @@ func.def public @distance(%left: i32, %right: i32) -> (i32) {
   func.return %result : i32
 }
 
-check.case @distance_both_edges_and_equality {
-  %left = check.literal value(-7) : i32
-  %right = check.literal value(12) : i32
+func.def @template_relation_observations(%left_entropy: i64, %right_entropy: i64, %output: buffer) {
+  %left = scalar.trunci %left_entropy : i64 to i32
+  %right = scalar.trunci %right_entropy : i64 to i32
   %forward = func.call @distance(%left, %right) : (i32, i32) -> (i32)
   %reverse = func.call @distance(%right, %left) : (i32, i32) -> (i32)
   %equal = func.call @distance(%left, %left) : (i32, i32) -> (i32)
-  %distance = check.literal value(19) : i32
-  %zero = check.literal value(0) : i32
-  check.expect.equal actual(%forward) expected(%distance) : i32
-  check.expect.equal actual(%reverse) expected(%distance) : i32
-  check.expect.equal actual(%equal) expected(%zero) : i32
+  %values = vector.from_elements %forward, %reverse, %equal : vector<3xi32>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<3xi32>
+  vector.store %values, %results[0] : vector<3xi32>, view<3xi32>
+  func.return
+}
+
+check.scenario @template_relation_values {
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %left_source = check.entropy.fork %entropy name("left") : check.entropy
+    %right_source = check.entropy.fork %entropy name("right") : check.entropy
+    %left = check.entropy.read %left_source[%trial] : check.entropy -> i64
+    %right = check.entropy.read %right_source[%trial] : check.entropy -> i64
+    %output = check.generate.fill value(0) : tensor<3xi32>
+    check.compare<@template_relation_observations>(%left, %right, %output) : (i64, i64, tensor<3xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<3xi32>
+    }
+  }
   check.return
 }

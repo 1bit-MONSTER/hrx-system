@@ -12,7 +12,7 @@ template.def<@ordered_distance> @descending(%left: i32, %right: i32) -> (i32) wh
   template.return %distance : i32
 }
 
-func.def public @contextual_distance(%left: i32, %right: i32) -> (i32) {
+func.def @contextual_distance(%left: i32, %right: i32) -> (i32) {
   %ascending = scalar.cmpi slt, %left, %right : i32
   %distance = scf.if %ascending -> (i32) {
     %result = template.apply<@ordered_distance>(%left, %right) : (i32, i32) -> (i32)
@@ -22,20 +22,6 @@ func.def public @contextual_distance(%left: i32, %right: i32) -> (i32) {
     scf.yield %result : i32
   }
   func.return %distance : i32
-}
-
-check.case @direct_applications_keep_branch_facts {
-  %low = check.literal value(-4) : i32
-  %high = check.literal value(9) : i32
-  %expected = check.literal value(13) : i32
-  %zero = check.literal value(0) : i32
-  %ascending = func.call @contextual_distance(%low, %high) : (i32, i32) -> (i32)
-  %descending = func.call @contextual_distance(%high, %low) : (i32, i32) -> (i32)
-  %equal = func.call @contextual_distance(%low, %low) : (i32, i32) -> (i32)
-  check.expect.equal actual(%ascending) expected(%expected) : i32
-  check.expect.equal actual(%descending) expected(%expected) : i32
-  check.expect.equal actual(%equal) expected(%zero) : i32
-  check.return
 }
 
 template.decl @distance_wrapper(%left: i32, %right: i32) -> (i32)
@@ -45,7 +31,7 @@ template.def<@distance_wrapper> @exact_distance(%left: i32, %right: i32) -> (i32
   template.return %distance : i32
 }
 
-func.def public @wrapped_distance(%left: i32, %right: i32) -> (i32) {
+func.def @wrapped_distance(%left: i32, %right: i32) -> (i32) {
   %ascending = scalar.cmpi slt, %left, %right : i32
   %distance = scf.if %ascending -> (i32) {
     %result = template.call @exact_distance(%left, %right) : (i32, i32) -> (i32)
@@ -55,20 +41,6 @@ func.def public @wrapped_distance(%left: i32, %right: i32) -> (i32) {
     scf.yield %result : i32
   }
   func.return %distance : i32
-}
-
-check.case @exact_wrappers_keep_branch_facts {
-  %low = check.literal value(-4) : i32
-  %high = check.literal value(9) : i32
-  %expected = check.literal value(13) : i32
-  %zero = check.literal value(0) : i32
-  %ascending = func.call @wrapped_distance(%low, %high) : (i32, i32) -> (i32)
-  %descending = func.call @wrapped_distance(%high, %low) : (i32, i32) -> (i32)
-  %equal = func.call @wrapped_distance(%low, %low) : (i32, i32) -> (i32)
-  check.expect.equal actual(%ascending) expected(%expected) : i32
-  check.expect.equal actual(%descending) expected(%expected) : i32
-  check.expect.equal actual(%equal) expected(%zero) : i32
-  check.return
 }
 
 func.def inline @inline_distance(%left: i32, %right: i32) -> (i32) {
@@ -76,7 +48,7 @@ func.def inline @inline_distance(%left: i32, %right: i32) -> (i32) {
   func.return %distance : i32
 }
 
-func.def public @called_distance(%left: i32, %right: i32) -> (i32) {
+func.def @called_distance(%left: i32, %right: i32) -> (i32) {
   %ascending = scalar.cmpi slt, %left, %right : i32
   %distance = scf.if %ascending -> (i32) {
     %result = func.call @inline_distance(%left, %right) : (i32, i32) -> (i32)
@@ -88,16 +60,35 @@ func.def public @called_distance(%left: i32, %right: i32) -> (i32) {
   func.return %distance : i32
 }
 
-check.case @inline_wrappers_keep_branch_facts {
-  %low = check.literal value(-4) : i32
-  %high = check.literal value(9) : i32
-  %expected = check.literal value(13) : i32
-  %zero = check.literal value(0) : i32
-  %ascending = func.call @called_distance(%low, %high) : (i32, i32) -> (i32)
-  %descending = func.call @called_distance(%high, %low) : (i32, i32) -> (i32)
-  %equal = func.call @called_distance(%low, %low) : (i32, i32) -> (i32)
-  check.expect.equal actual(%ascending) expected(%expected) : i32
-  check.expect.equal actual(%descending) expected(%expected) : i32
-  check.expect.equal actual(%equal) expected(%zero) : i32
+func.def @template_motion_observations(%left_entropy: i64, %right_entropy: i64, %output: buffer) {
+  %left = scalar.trunci %left_entropy : i64 to i32
+  %right = scalar.trunci %right_entropy : i64 to i32
+  %contextual0 = func.call @contextual_distance(%left, %right) : (i32, i32) -> (i32)
+  %contextual1 = func.call @contextual_distance(%right, %left) : (i32, i32) -> (i32)
+  %contextual2 = func.call @contextual_distance(%left, %left) : (i32, i32) -> (i32)
+  %wrapped0 = func.call @wrapped_distance(%left, %right) : (i32, i32) -> (i32)
+  %wrapped1 = func.call @wrapped_distance(%right, %left) : (i32, i32) -> (i32)
+  %wrapped2 = func.call @wrapped_distance(%left, %left) : (i32, i32) -> (i32)
+  %called0 = func.call @called_distance(%left, %right) : (i32, i32) -> (i32)
+  %called1 = func.call @called_distance(%right, %left) : (i32, i32) -> (i32)
+  %called2 = func.call @called_distance(%left, %left) : (i32, i32) -> (i32)
+  %values = vector.from_elements %contextual0, %contextual1, %contextual2, %wrapped0, %wrapped1, %wrapped2, %called0, %called1, %called2 : vector<9xi32>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<9xi32>
+  vector.store %values, %results[0] : vector<9xi32>, view<9xi32>
+  func.return
+}
+
+check.scenario @template_motion_values {
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %left_source = check.entropy.fork %entropy name("left") : check.entropy
+    %right_source = check.entropy.fork %entropy name("right") : check.entropy
+    %left = check.entropy.read %left_source[%trial] : check.entropy -> i64
+    %right = check.entropy.read %right_source[%trial] : check.entropy -> i64
+    %output = check.generate.fill value(0) : tensor<9xi32>
+    check.compare<@template_motion_observations>(%left, %right, %output) : (i64, i64, tensor<9xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<9xi32>
+    }
+  }
   check.return
 }

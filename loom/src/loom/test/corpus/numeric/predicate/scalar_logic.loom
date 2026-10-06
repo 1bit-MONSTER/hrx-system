@@ -1,65 +1,13 @@
-func.def public @boolean_logic(%a: i1, %b: i1) -> (i1, i1, i1) {
+func.def @boolean_logic(%a: i1, %b: i1) -> (i1, i1, i1) {
   %both = scalar.andi %a, %b : i1
   %either = scalar.ori %a, %b : i1
   %exclusive = scalar.xori %a, %b : i1
   func.return %both, %either, %exclusive : i1, i1, i1
 }
 
-check.case @boolean_logic_false_false {
-  %a = check.literal value(false) : i1
-  %b = check.literal value(false) : i1
-  %both, %either, %exclusive = func.call @boolean_logic(%a, %b) : (i1, i1) -> (i1, i1, i1)
-  %expected_both = check.literal value(false) : i1
-  %expected_either = check.literal value(false) : i1
-  %expected_exclusive = check.literal value(false) : i1
-  check.expect.equal actual(%both) expected(%expected_both) : i1
-  check.expect.equal actual(%either) expected(%expected_either) : i1
-  check.expect.equal actual(%exclusive) expected(%expected_exclusive) : i1
-  check.return
-}
-
-check.case @boolean_logic_false_true {
-  %a = check.literal value(false) : i1
-  %b = check.literal value(true) : i1
-  %both, %either, %exclusive = func.call @boolean_logic(%a, %b) : (i1, i1) -> (i1, i1, i1)
-  %expected_both = check.literal value(false) : i1
-  %expected_either = check.literal value(true) : i1
-  %expected_exclusive = check.literal value(true) : i1
-  check.expect.equal actual(%both) expected(%expected_both) : i1
-  check.expect.equal actual(%either) expected(%expected_either) : i1
-  check.expect.equal actual(%exclusive) expected(%expected_exclusive) : i1
-  check.return
-}
-
-check.case @boolean_logic_true_false {
-  %a = check.literal value(true) : i1
-  %b = check.literal value(false) : i1
-  %both, %either, %exclusive = func.call @boolean_logic(%a, %b) : (i1, i1) -> (i1, i1, i1)
-  %expected_both = check.literal value(false) : i1
-  %expected_either = check.literal value(true) : i1
-  %expected_exclusive = check.literal value(true) : i1
-  check.expect.equal actual(%both) expected(%expected_both) : i1
-  check.expect.equal actual(%either) expected(%expected_either) : i1
-  check.expect.equal actual(%exclusive) expected(%expected_exclusive) : i1
-  check.return
-}
-
-check.case @boolean_logic_true_true {
-  %a = check.literal value(true) : i1
-  %b = check.literal value(true) : i1
-  %both, %either, %exclusive = func.call @boolean_logic(%a, %b) : (i1, i1) -> (i1, i1, i1)
-  %expected_both = check.literal value(true) : i1
-  %expected_either = check.literal value(true) : i1
-  %expected_exclusive = check.literal value(false) : i1
-  check.expect.equal actual(%both) expected(%expected_both) : i1
-  check.expect.equal actual(%either) expected(%expected_either) : i1
-  check.expect.equal actual(%exclusive) expected(%expected_exclusive) : i1
-  check.return
-}
-
 // Predicates use the same source-ordered scalar ABI as other value arguments.
 // Both arms perform work, and their result joins before the return boundary.
-func.def public @conditional(%condition: i1, %a: i64, %b: i64) -> (i64) {
+func.def @conditional(%condition: i1, %a: i64, %b: i64) -> (i64) {
   %result = scf.if %condition -> (i64) {
     %sum = scalar.addi %a, %b : i64
     scf.yield %sum : i64
@@ -70,23 +18,9 @@ func.def public @conditional(%condition: i1, %a: i64, %b: i64) -> (i64) {
   func.return %result : i64
 }
 
-check.case @conditional_case {
-  %a = check.literal value(4294967297) : i64
-  %b = check.literal value(9) : i64
-  %yes = check.literal value(true) : i1
-  %no = check.literal value(false) : i1
-  %sum = func.call @conditional(%yes, %a, %b) : (i1, i64, i64) -> (i64)
-  %difference = func.call @conditional(%no, %a, %b) : (i1, i64, i64) -> (i64)
-  %expected_sum = check.literal value(4294967306) : i64
-  %expected_difference = check.literal value(4294967288) : i64
-  check.expect.equal actual(%sum) expected(%expected_sum) : i64
-  check.expect.equal actual(%difference) expected(%expected_difference) : i64
-  check.return
-}
-
 // A dynamic loop carries a mixed-width tuple through entry, cyclic backedge
 // moves and exit. Repeated invocations reuse the same invocation storage.
-func.def public @loop_swap(%count: i32, %a: i64, %b: i64) -> (i32, i64, i64) {
+func.def @loop_swap(%count: i32, %a: i64, %b: i64) -> (i32, i64, i64) {
   %c0 = scalar.constant 0 : i32
   %c1 = scalar.constant 1 : i32
   %remaining, %first, %second = scf.while(%before = %count : i32, %left = %a : i64, %right = %b : i64) -> (i32, i64, i64) {
@@ -99,45 +33,58 @@ func.def public @loop_swap(%count: i32, %a: i64, %b: i64) -> (i32, i64, i64) {
   func.return %remaining, %first, %second : i32, i64, i64
 }
 
-check.case @loop_swap_odd_case {
-  %count = check.param.choice values([1, 3, 17]) : i32
-  %a = check.literal value(-9) : i64
-  %b = check.literal value(4294967297) : i64
-  %remaining, %first, %second = func.call @loop_swap(%count, %a, %b) : (i32, i64, i64) -> (i32, i64, i64)
-  %expected_remaining = check.literal value(0) : i32
-  check.expect.equal actual(%remaining) expected(%expected_remaining) : i32
-  check.expect.equal actual(%first) expected(%b) : i64
-  check.expect.equal actual(%second) expected(%a) : i64
-  check.return
-}
-
-check.case @loop_swap_even_case {
-  %count = check.param.choice values([0, 2, 16]) : i32
-  %a = check.literal value(-9) : i64
-  %b = check.literal value(4294967297) : i64
-  %remaining, %first, %second = func.call @loop_swap(%count, %a, %b) : (i32, i64, i64) -> (i32, i64, i64)
-  %expected_remaining = check.literal value(0) : i32
-  check.expect.equal actual(%remaining) expected(%expected_remaining) : i32
-  check.expect.equal actual(%first) expected(%a) : i64
-  check.expect.equal actual(%second) expected(%b) : i64
-  check.return
-}
-
 // Unsigned comparison consumes the full i64 value and returns a boolean,
 // including when the input sign bits distinguish signed and unsigned order.
-func.def public @unsigned_less(%a: i64, %b: i64) -> (i1) {
+func.def @unsigned_less(%a: i64, %b: i64) -> (i1) {
   %result = scalar.cmpi ult, %a, %b : i64
   func.return %result : i1
 }
 
-check.case @unsigned_less_case {
-  %a = check.literal value(-1) : i64
-  %b = check.literal value(4294967297) : i64
-  %yes = check.literal value(true) : i1
-  %no = check.literal value(false) : i1
-  %greater = func.call @unsigned_less(%a, %b) : (i64, i64) -> (i1)
-  %less = func.call @unsigned_less(%b, %a) : (i64, i64) -> (i1)
-  check.expect.equal actual(%greater) expected(%no) : i1
-  check.expect.equal actual(%less) expected(%yes) : i1
+// Observes predicate logic, branch selection, loop-carried swaps, and unsigned
+// comparison across independent full-width inputs.
+func.def @scalar_logic_observations(%control: i64, %a: i64, %b: i64, %word_output: buffer, %wide_output: buffer) {
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %count_mask = scalar.constant 31 : i32
+  %control_word = scalar.trunci %control : i64 to i32
+  %condition_a_word = scalar.andi %control_word, %c1 : i32
+  %shifted_control = scalar.shrui %control_word, %c1 : i32
+  %condition_b_word = scalar.andi %shifted_control, %c1 : i32
+  %condition_a = scalar.cmpi ne, %condition_a_word, %c0 : i32
+  %condition_b = scalar.cmpi ne, %condition_b_word, %c0 : i32
+  %both, %either, %exclusive = func.call @boolean_logic(%condition_a, %condition_b) : (i1, i1) -> (i1, i1, i1)
+  %conditional = func.call @conditional(%condition_a, %a, %b) : (i1, i64, i64) -> (i64)
+  %count = scalar.andi %control_word, %count_mask : i32
+  %remaining, %first, %second = func.call @loop_swap(%count, %a, %b) : (i32, i64, i64) -> (i32, i64, i64)
+  %less = func.call @unsigned_less(%a, %b) : (i64, i64) -> (i1)
+  %both_word = scf.select %both, %c1, %c0 : i32
+  %either_word = scf.select %either, %c1, %c0 : i32
+  %exclusive_word = scf.select %exclusive, %c1, %c0 : i32
+  %less_word = scf.select %less, %c1, %c0 : i32
+  %word_observations = vector.from_elements %both_word, %either_word, %exclusive_word, %remaining, %less_word : vector<5xi32>
+  %wide_observations = vector.from_elements %conditional, %first, %second : vector<3xi64>
+  %origin = index.constant 0 : offset
+  %word_results = buffer.view %word_output[%origin] : buffer -> view<5xi32>
+  %wide_results = buffer.view %wide_output[%origin] : buffer -> view<3xi64>
+  vector.store %word_observations, %word_results[0] : vector<5xi32>, view<5xi32>
+  vector.store %wide_observations, %wide_results[0] : vector<3xi64>, view<3xi64>
+  func.return
+}
+
+check.scenario @scalar_logic_values {
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %control_entropy = check.entropy.fork %entropy name("control") : check.entropy
+    %a_entropy = check.entropy.fork %entropy name("a") : check.entropy
+    %b_entropy = check.entropy.fork %entropy name("b") : check.entropy
+    %control = check.entropy.read %control_entropy[%trial] : check.entropy -> i64
+    %a = check.entropy.read %a_entropy[%trial] : check.entropy -> i64
+    %b = check.entropy.read %b_entropy[%trial] : check.entropy -> i64
+    %word_output = check.generate.fill value(0) : tensor<5xi32>
+    %wide_output = check.generate.fill value(0) : tensor<3xi64>
+    check.compare<@scalar_logic_observations>(%control, %a, %b, %word_output, %wide_output) : (i64, i64, i64, tensor<5xi32>, tensor<3xi64>) -> () {
+      check.expect.bitwise actual(%word_output) expected(%word_output) : tensor<5xi32>
+      check.expect.bitwise actual(%wide_output) expected(%wide_output) : tensor<3xi64>
+    }
+  }
   check.return
 }

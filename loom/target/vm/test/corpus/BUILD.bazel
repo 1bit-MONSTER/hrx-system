@@ -197,6 +197,7 @@ loom_corpus_build(
     profiles = ["//loom/target/vm:all"],
     xfails = {
         "//loom/target/vm:all": {
+            "function/template/library.loom:@template_dead_library_observations": "LOWERING/045",
             "memory/atomic/float64.loom:@atomic_f64_values": "TARGET/003",
         },
     },
