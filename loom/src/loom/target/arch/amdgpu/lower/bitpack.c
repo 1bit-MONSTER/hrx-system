@@ -337,7 +337,8 @@ static iree_status_t loom_amdgpu_extract_sgpr_bitfield(
       mode == LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_SIGN_EXTEND
           ? LOOM_AMDGPU_DESCRIPTOR_REF_S_BFE_I32_LIT
           : LOOM_AMDGPU_DESCRIPTOR_REF_S_BFE_U32_LIT;
-  const uint32_t control = bit_offset | (bit_count << 8u);
+  // S_BFE places the offset in bits 4:0 and width in 22:16.
+  const uint32_t control = bit_offset | (bit_count << 16u);
   loom_named_attr_t attrs[1] = {0};
   iree_host_size_t attr_count = 0;
   IREE_RETURN_IF_ERROR(

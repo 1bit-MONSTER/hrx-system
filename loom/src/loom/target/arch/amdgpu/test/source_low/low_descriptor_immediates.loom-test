@@ -59,8 +59,8 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @vop3_cmp_f32_inline_sourc
 amdgpu.target<gfx1100> @gfx11_target
 
 low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @sop2_bfe_literal_control(%value: reg<amdgpu.sgpr>) asm {
-  %signed = s_bfe_i32_lit %value, 2056
-  %unsigned = s_bfe_u32_lit %value, 1028
+  %signed = s_bfe_i32_lit %value, 524296
+  %unsigned = s_bfe_u32_lit %value, 262148
   return
 }
 

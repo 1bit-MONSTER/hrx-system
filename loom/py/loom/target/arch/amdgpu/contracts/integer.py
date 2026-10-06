@@ -1054,10 +1054,11 @@ def _i32_bitfield_extract_rules(
                     operands={"value": ValueRef.operand("source")},
                     results={"dst": _RESULT},
                     immediates={
+                        # S_BFE places the offset in bits 4:0 and width in 22:16.
                         "imm32": AttrProject.attrs_pack_consecutive(
                             "offset",
                             count=2,
-                            bit_width=8,
+                            bit_width=16,
                         )
                     },
                     form=DescriptorEmitForm.OP,

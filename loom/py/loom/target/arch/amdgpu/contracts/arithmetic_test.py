@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from loom.dialect.index import defs as index
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
+from loom.dialect.scalar import bitwise as scalar_bitwise
 from loom.dialect.vector import defs as vector
 from loom.dsl import Op
 from loom.target.arch.amdgpu.contracts.arithmetic import (
@@ -24,6 +25,7 @@ from loom.target.contracts import (
     LOWER_RULE_FLAG_CONTRACT_ONLY,
     CompiledLowerRuleSet,
     GuardKind,
+    LowerAttrCopyKind,
     LowerRule,
     SourceValueKind,
     TypePattern,
@@ -154,6 +156,27 @@ def test_signed_bitfield_extract_rules_try_native_bfe_before_shift_pair() -> Non
             )
         ]
     )
+
+
+def test_scalar_bitfield_controls_use_isa_offset_and_width_fields() -> None:
+    compiled = _compiled_integer_rules()
+    for source_op, descriptor_key in (
+        (scalar_bitwise.scalar_bitfield_extractu, "amdgpu.s_bfe_u32.lit"),
+        (scalar_bitwise.scalar_bitfield_extracts, "amdgpu.s_bfe_i32.lit"),
+    ):
+        matching_rules = [
+            rule
+            for rule in _rules_for_source_op(compiled, source_op)
+            if _rule_descriptor_keys(compiled, rule) == (descriptor_key,)
+        ]
+        assert len(matching_rules) == 1
+        emit = compiled.emits[matching_rules[0].emit_start]
+        assert emit.attr_copy_count == 1
+        control = compiled.attr_copies[emit.attr_copy_start]
+        assert control.kind == LowerAttrCopyKind.ATTRS_PACK_CONSECUTIVE
+        assert control.source_attr_index == 0
+        assert control.source_element_count == 2
+        assert control.source_element_bit_width == 16
 
 
 def test_bitfield_insert_rules_try_native_bfi_before_mask_merge_fallback() -> None:
