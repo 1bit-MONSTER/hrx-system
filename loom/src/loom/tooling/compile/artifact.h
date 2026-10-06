@@ -45,8 +45,6 @@ static inline const loom_target_bundle_t* loom_artifact_target_bundle(
 
 // Loadable artifact bytes produced for an already-selected target.
 typedef struct loom_artifact_t {
-  // Provider-facing target key used to emit the artifact.
-  iree_string_view_t target_key;
   // Durable target-neutral bundle resolved for the artifact.
   const loom_target_bundle_t* target_bundle;
   // Target-native artifact format.

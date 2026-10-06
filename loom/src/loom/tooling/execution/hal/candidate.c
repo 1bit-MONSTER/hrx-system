@@ -40,7 +40,7 @@ static void loom_run_hal_candidate_record_report_status(
   report->backend_name = artifact_provider->name;
   report->target_family_name = artifact_provider->target_profile_type->name;
   if (candidate->compiled) {
-    report->target_key = candidate->artifact.target_key;
+    report->target_key = candidate->device_target.artifact_target.target_key;
     report->artifact_format = loom_target_artifact_format_name(
         candidate->artifact.target_artifact_format);
     if (candidate->artifact.executable_data != NULL) {

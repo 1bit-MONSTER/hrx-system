@@ -144,7 +144,6 @@ iree_status_t FakeHalEmitArtifact(const loom_artifact_provider_t* provider,
     return status;
   }
   *out_artifact = (loom_artifact_t){
-      /*.target_key=*/IREE_SVL("fake-hal-target"),
       /*.target_bundle=*/&kFakeTargetBundle,
       /*.target_artifact_format=*/LOOM_TARGET_ARTIFACT_FORMAT_ELF,
       /*.target_artifact_data=*/storage->target_artifact,
@@ -273,8 +272,6 @@ TEST_F(HalCandidateTest, EmitHalExecutableCandidate) {
             &kFakeTargetBundle);
   const loom_artifact_t& artifact = candidate.artifact;
   EXPECT_EQ(artifact.target_bundle, &kFakeTargetBundle);
-  EXPECT_TRUE(
-      iree_string_view_equal(artifact.target_key, IREE_SV("fake-hal-target")));
   EXPECT_EQ(artifact.target_artifact_format, LOOM_TARGET_ARTIFACT_FORMAT_ELF);
   ASSERT_NE(artifact.target_artifact_data, nullptr);
   testing::ByteSequenceClone target_artifact(iree_allocator_system());
@@ -295,8 +292,7 @@ TEST_F(HalCandidateTest, EmitHalExecutableCandidate) {
             LOOM_TARGET_COMPILE_ARTIFACT_KIND_HAL_EXECUTABLE);
   EXPECT_EQ(report.status_code, IREE_STATUS_OK);
   EXPECT_TRUE(iree_string_view_equal(report.backend_name, IREE_SV("fake-hal")));
-  EXPECT_TRUE(
-      iree_string_view_equal(report.target_key, IREE_SV("fake-hal-target")));
+  EXPECT_TRUE(iree_string_view_equal(report.target_key, IREE_SV("fake-hal")));
   EXPECT_TRUE(iree_string_view_equal(report.artifact_format, IREE_SV("elf")));
   EXPECT_EQ(report.artifact_size, sizeof(kFakeHalExecutableData));
 

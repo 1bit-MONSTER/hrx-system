@@ -101,7 +101,6 @@ static iree_status_t loom_spirv_artifact_provider_emit_entries(
   }
   if (iree_status_is_ok(status) && module_emitted) {
     *out_artifact = (loom_artifact_t){
-        .target_key = target->target_key,
         .target_bundle = &storage->target_bundle_storage.bundle,
         .target_artifact_format =
             storage->target_artifact.target_artifact_format,
