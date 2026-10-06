@@ -1,7 +1,7 @@
 // A read-only fence orders observations without completing earlier reads.
 // The load observes saturation at stage 7, the store at stage 1. A later
 // saturation write must retain the load's six-cycle read-to-write separation.
-// RUN: with-checks emit low-schedule-json @state_read_fence strategy=source
+// RUN: emit low-schedule-query @state_read_fence strategy=source order=* issue=* kind=state consumer=* edge=order:1:2,state:1:3
 
 low.func.def target<amd.xdna.aie2p.core> @state_read_fence(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>, %value: reg<aie2p.mbms>, %shift: reg<aie2p.es>) -> (reg<aie2p.mbms>) asm {
   set.saturation 0
@@ -12,17 +12,23 @@ low.func.def target<amd.xdna.aie2p.core> @state_read_fence(%input: reg<aie2p.ep>
 }
 
 // ----
-CHECK: *"index":1,"block":0,"source_ordinal":1,"scheduled_ordinal":1,"issue_cycle":1,*
-CHECK: *"index":2,"block":0,"source_ordinal":2,"scheduled_ordinal":2,"issue_cycle":2,*
-CHECK: *"index":3,"block":0,"source_ordinal":3,"scheduled_ordinal":3,"issue_cycle":7,*
-CHECK: *{"from":1,"to":2,"kind":"order",*"minimum_issue_separation_cycles":0,"separation_source":"structural"*
-CHECK: *{"from":1,"to":3,"kind":"state",*"producer_event":"amd.xdna.aie2p.operand.read.c7.none",*"consumer_event":"amd.xdna.aie2p.operand.write.c1.none","minimum_issue_separation_cycles":6,*
+block 0 order: 0, 1, 2, 3, 4
+node 0 issue-cycle: 0
+node 1 issue-cycle: 1
+node 2 issue-cycle: 2
+node 3 issue-cycle: 7
+node 4 issue-cycle: 10
+node 1 <- 0
+node 2 <- 0
+node 3 <- 0, 1, 2
+edge order 1 -> 2: separation=0 source=structural quality=unknown producer-event=amd.xdna.aie2p.operand.read.c7.none consumer-event=amd.xdna.aie2p.operand.read.c1.none
+edge state 1 -> 3: separation=6 source=event-pair quality=exact producer-event=amd.xdna.aie2p.operand.read.c7.none consumer-event=amd.xdna.aie2p.operand.write.c1.none
 
 // ====
 
 // A state value need not have a same-block writer for its readers to retain
 // their timing across a fence. The first write still follows every live read.
-// RUN: with-checks emit low-schedule-json @live_in_state_read_fence strategy=source
+// RUN: emit low-schedule-query @live_in_state_read_fence strategy=source order=* issue=* kind=state consumer=* edge=state:0:2
 
 low.func.def target<amd.xdna.aie2p.core> @live_in_state_read_fence(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>, %value: reg<aie2p.mbms>, %shift: reg<aie2p.es>) -> (reg<aie2p.mbms>) asm {
   %loaded = vlda.ups.2x.w-to-b.unsigned %shift, %input, 0
@@ -32,15 +38,19 @@ low.func.def target<amd.xdna.aie2p.core> @live_in_state_read_fence(%input: reg<a
 }
 
 // ----
-CHECK: *"index":0,"block":0,"source_ordinal":0,"scheduled_ordinal":0,"issue_cycle":0,*
-CHECK: *"index":2,"block":0,"source_ordinal":2,"scheduled_ordinal":2,"issue_cycle":6,*
-CHECK: *{"from":0,"to":2,"kind":"state",*"producer_event":"amd.xdna.aie2p.operand.read.c7.none",*"consumer_event":"amd.xdna.aie2p.operand.write.c1.none","minimum_issue_separation_cycles":6,*
+block 0 order: 0, 1, 2, 3
+node 0 issue-cycle: 0
+node 1 issue-cycle: 1
+node 2 issue-cycle: 6
+node 3 issue-cycle: 9
+node 2 <- 0, 1
+edge state 0 -> 2: separation=6 source=event-pair quality=exact producer-event=amd.xdna.aie2p.operand.read.c7.none consumer-event=amd.xdna.aie2p.operand.write.c1.none
 
 // ====
 
 // Each fence orders only readers since the previous fence. Earlier readers
 // retain timing edges to the writer, not all-to-all order edges to fences.
-// RUN: with-checks emit low-schedule-json @successive_state_read_fences strategy=source
+// RUN: emit low-schedule-query @successive_state_read_fences strategy=source order=* issue=* kind=state consumer=* edge=state:1:6,order:3:4,order:4:5,order:1:4,order:1:5,order:2:5,order:3:5
 
 low.func.def target<amd.xdna.aie2p.core> @successive_state_read_fences(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>, %value: reg<aie2p.mbms>, %shift: reg<aie2p.es>) -> (reg<aie2p.mbms>, reg<aie2p.vec256>) asm {
   set.saturation 0
@@ -54,19 +64,34 @@ low.func.def target<amd.xdna.aie2p.core> @successive_state_read_fences(%input: r
 }
 
 // ----
-CHECK: *{"from":1,"to":6,"kind":"state",*"producer_event":"amd.xdna.aie2p.operand.read.c7.none",*"consumer_event":"amd.xdna.aie2p.operand.write.c1.none","minimum_issue_separation_cycles":6,*
-CHECK: *{"from":3,"to":4,"kind":"order",*"minimum_issue_separation_cycles":0,"separation_source":"structural"*
-CHECK: *{"from":4,"to":5,"kind":"order",*"minimum_issue_separation_cycles":0,"separation_source":"structural"*
-CHECK-NOT: *{"from":1,"to":4,"kind":"order",*
-CHECK-NOT: *{"from":1,"to":5,"kind":"order",*
-CHECK-NOT: *{"from":2,"to":5,"kind":"order",*
-CHECK-NOT: *{"from":3,"to":5,"kind":"order",*
+block 0 order: 0, 1, 2, 3, 4, 5, 6, 7
+node 0 issue-cycle: 0
+node 1 issue-cycle: 1
+node 2 issue-cycle: 2
+node 3 issue-cycle: 3
+node 4 issue-cycle: 4
+node 5 issue-cycle: 5
+node 6 issue-cycle: 7
+node 7 issue-cycle: 10
+node 1 <- 0
+node 2 <- 0
+node 3 <- 0
+node 4 <- 0
+node 5 <- 0
+node 6 <- 0, 1, 2, 3, 4, 5
+edge state 1 -> 6: separation=6 source=event-pair quality=exact producer-event=amd.xdna.aie2p.operand.read.c7.none consumer-event=amd.xdna.aie2p.operand.write.c1.none
+edge order 3 -> 4: separation=0 source=structural quality=unknown producer-event=amd.xdna.aie2p.operand.read.c1.none consumer-event=amd.xdna.aie2p.operand.read.c1.none
+edge order 4 -> 5: separation=0 source=structural quality=unknown producer-event=amd.xdna.aie2p.operand.read.c1.none consumer-event=amd.xdna.aie2p.operand.read.c1.none
+edge order 1 -> 4: none
+edge order 1 -> 5: none
+edge order 2 -> 5: none
+edge order 3 -> 5: none
 
 // ====
 
 // An actual write retires the reader list. Later fences and writes describe
 // the new state version without adding edges from an already consumed reader.
-// RUN: with-checks emit low-schedule-json @state_write_retires_readers strategy=source
+// RUN: emit low-schedule-query @state_write_retires_readers strategy=source order=* issue=* kind=state consumer=* edge=state:1:3,state:4:5,state:1:5
 
 low.func.def target<amd.xdna.aie2p.core> @state_write_retires_readers(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>, %value: reg<aie2p.mbms>, %shift: reg<aie2p.es>) -> (reg<aie2p.mbms>) asm {
   set.saturation 0
@@ -79,9 +104,22 @@ low.func.def target<amd.xdna.aie2p.core> @state_write_retires_readers(%input: re
 }
 
 // ----
-CHECK: *{"from":1,"to":3,"kind":"state",*"minimum_issue_separation_cycles":6,*
-CHECK: *{"from":4,"to":5,"kind":"state",*"producer_event":"amd.xdna.aie2p.operand.read.c1.none",*"consumer_event":"amd.xdna.aie2p.operand.write.c1.none","minimum_issue_separation_cycles":0,*
-CHECK-NOT: *{"from":1,"to":5,"kind":"state",*
+block 0 order: 0, 1, 2, 3, 4, 5, 6
+node 0 issue-cycle: 0
+node 1 issue-cycle: 1
+node 2 issue-cycle: 2
+node 3 issue-cycle: 7
+node 4 issue-cycle: 8
+node 5 issue-cycle: 9
+node 6 issue-cycle: 10
+node 1 <- 0
+node 2 <- 0
+node 3 <- 0, 1, 2
+node 4 <- 3
+node 5 <- 3, 4
+edge state 1 -> 3: separation=6 source=event-pair quality=exact producer-event=amd.xdna.aie2p.operand.read.c7.none consumer-event=amd.xdna.aie2p.operand.write.c1.none
+edge state 4 -> 5: separation=0 source=event-pair quality=exact producer-event=amd.xdna.aie2p.operand.read.c1.none consumer-event=amd.xdna.aie2p.operand.write.c1.none
+edge state 1 -> 5: none
 
 // ====
 

@@ -30,6 +30,15 @@ typedef struct loom_check_test_schedule_dependency_query_t {
   int32_t minimum_issue_separation_cycles;
 } loom_check_test_schedule_dependency_query_t;
 
+typedef struct loom_check_test_schedule_edge_query_t {
+  // Dependency relation selected by the RUN line.
+  loom_check_test_schedule_dependency_query_t dependency;
+  // Source-order producer node selected by the RUN line.
+  uint32_t producer_node;
+  // Source-order consumer node selected by the RUN line.
+  uint32_t consumer_node;
+} loom_check_test_schedule_edge_query_t;
+
 typedef struct loom_check_test_schedule_options_t {
   // Module-local target-low function symbol selected by the RUN line.
   iree_string_view_t function_symbol_name;
@@ -41,6 +50,10 @@ typedef struct loom_check_test_schedule_options_t {
   iree_string_view_t issue_nodes;
   // Comma-separated source nodes whose selected descriptors are requested.
   iree_string_view_t descriptor_nodes;
+  // Comma-separated dependency edges whose effective timing is requested.
+  iree_string_view_t dependency_edges;
+  // Register class whose scheduled pressure summary is requested.
+  iree_string_view_t pressure_register_class;
   // Producer and consumer source nodes whose dependency timing is requested.
   uint32_t timing_producer_node;
   uint32_t timing_consumer_node;
@@ -168,6 +181,50 @@ static iree_status_t loom_check_test_schedule_parse_timing_edge(
   return iree_ok_status();
 }
 
+static iree_status_t loom_check_test_schedule_parse_edge_query(
+    iree_string_view_t value,
+    loom_check_test_schedule_edge_query_t* out_query) {
+  *out_query = (loom_check_test_schedule_edge_query_t){0};
+  iree_string_view_t kind = iree_string_view_empty();
+  iree_string_view_t nodes = iree_string_view_empty();
+  iree_string_view_split(value, ':', &kind, &nodes);
+  iree_string_view_t producer = iree_string_view_empty();
+  iree_string_view_t consumer = iree_string_view_empty();
+  iree_string_view_split(nodes, ':', &producer, &consumer);
+  kind = iree_string_view_trim(kind);
+  producer = iree_string_view_trim(producer);
+  consumer = iree_string_view_trim(consumer);
+  if (iree_string_view_is_empty(kind) || iree_string_view_is_empty(producer) ||
+      iree_string_view_is_empty(consumer) ||
+      iree_string_view_find_char(consumer, ':', 0) != IREE_STRING_VIEW_NPOS ||
+      !iree_string_view_atoi_uint32(producer, &out_query->producer_node) ||
+      !iree_string_view_atoi_uint32(consumer, &out_query->consumer_node)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "low-schedule-query option 'edge' expected "
+                            "<kind>:<producer>:<consumer>, got '%.*s'",
+                            (int)value.size, value.data);
+  }
+  return loom_check_test_schedule_parse_dependency_kind(kind,
+                                                        &out_query->dependency);
+}
+
+static iree_status_t loom_check_test_schedule_validate_edge_list(
+    iree_string_view_t value) {
+  if (iree_string_view_is_empty(value)) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "low-schedule-query option 'edge' requires a dependency edge list");
+  }
+  while (!iree_string_view_is_empty(value)) {
+    iree_string_view_t token = iree_string_view_empty();
+    iree_string_view_split(value, ',', &token, &value);
+    loom_check_test_schedule_edge_query_t query;
+    IREE_RETURN_IF_ERROR(loom_check_test_schedule_parse_edge_query(
+        iree_string_view_trim(token), &query));
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_check_test_schedule_parse_option(
     iree_string_view_t token, loom_check_test_schedule_options_t* options) {
   iree_string_view_t name = iree_string_view_empty();
@@ -222,6 +279,30 @@ static iree_status_t loom_check_test_schedule_parse_option(
     options->flags |= LOOM_CHECK_TEST_SCHEDULE_OPTION_FLAG_HAS_DIAGNOSTICS;
     return iree_ok_status();
   }
+  if (iree_string_view_equal(name, IREE_SV("edge"))) {
+    if (!iree_string_view_is_empty(options->dependency_edges)) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "duplicate low-schedule-query option 'edge'");
+    }
+    IREE_RETURN_IF_ERROR(loom_check_test_schedule_validate_edge_list(value));
+    options->dependency_edges = value;
+    return iree_ok_status();
+  }
+  if (iree_string_view_equal(name, IREE_SV("scheduled-pressure"))) {
+    if (!iree_string_view_is_empty(options->pressure_register_class)) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "duplicate low-schedule-query option 'scheduled-pressure'");
+    }
+    if (iree_string_view_is_empty(value)) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "low-schedule-query option 'scheduled-pressure' requires a "
+          "register class name");
+    }
+    options->pressure_register_class = value;
+    return iree_ok_status();
+  }
   iree_string_view_t* node_list = NULL;
   if (iree_string_view_equal(name, IREE_SV("consumer"))) {
     node_list = &options->consumer_nodes;
@@ -242,8 +323,11 @@ static iree_status_t loom_check_test_schedule_parse_option(
                             "duplicate low-schedule-query option '%.*s'",
                             (int)name.size, name.data);
   }
-  if (!iree_string_view_equal(name, IREE_SV("consumer")) ||
-      !iree_string_view_equal(value, IREE_SV("*"))) {
+  const bool supports_all_nodes =
+      iree_string_view_equal(name, IREE_SV("consumer")) ||
+      iree_string_view_equal(name, IREE_SV("order")) ||
+      iree_string_view_equal(name, IREE_SV("issue"));
+  if (!supports_all_nodes || !iree_string_view_equal(value, IREE_SV("*"))) {
     IREE_RETURN_IF_ERROR(
         loom_check_test_schedule_validate_node_list(name, value));
   }
@@ -297,11 +381,13 @@ static iree_status_t loom_check_test_schedule_parse_options(
   if (!has_consumers && !has_timing &&
       iree_string_view_is_empty(out_options->order_nodes) &&
       iree_string_view_is_empty(out_options->issue_nodes) &&
-      iree_string_view_is_empty(out_options->descriptor_nodes)) {
+      iree_string_view_is_empty(out_options->descriptor_nodes) &&
+      iree_string_view_is_empty(out_options->dependency_edges) &&
+      iree_string_view_is_empty(out_options->pressure_register_class)) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "low-schedule-query requires option 'consumer', 'order', 'issue', "
-        "'descriptor', or 'timing'");
+        "'descriptor', 'edge', 'timing', or 'scheduled-pressure'");
   }
   return iree_ok_status();
 }
@@ -320,8 +406,31 @@ static iree_string_view_t loom_check_test_schedule_separation_source_name(
   }
 }
 
+static iree_string_view_t loom_check_test_schedule_dependency_query_name(
+    const loom_check_test_schedule_dependency_query_t* query) {
+  switch (query->kind) {
+    case LOOM_LOW_SCHEDULE_DEPENDENCY_SSA:
+      return IREE_SV("ssa");
+    case LOOM_LOW_SCHEDULE_DEPENDENCY_EFFECT:
+      return IREE_SV("effect");
+    case LOOM_LOW_SCHEDULE_DEPENDENCY_STATE:
+      return IREE_SV("state");
+    case LOOM_LOW_SCHEDULE_DEPENDENCY_STORAGE:
+      return query->minimum_issue_separation_cycles > 0
+                 ? IREE_SV("storage-lifetime")
+                 : IREE_SV("storage");
+    case LOOM_LOW_SCHEDULE_DEPENDENCY_ORDER:
+      return IREE_SV("order");
+    default:
+      return IREE_SV("unknown");
+  }
+}
+
 static bool loom_check_test_schedule_node_list_contains(iree_string_view_t list,
                                                         uint32_t node) {
+  if (iree_string_view_equal(list, IREE_SV("*"))) {
+    return true;
+  }
   uint32_t candidate = 0;
   while (loom_check_test_schedule_consume_node(&list, &candidate)) {
     if (candidate == node) {
@@ -337,10 +446,12 @@ static iree_status_t loom_check_test_schedule_append_order(
   if (iree_string_view_is_empty(selected)) {
     return iree_ok_status();
   }
-  iree_host_size_t selected_count = 0;
+  const bool select_all = iree_string_view_equal(selected, IREE_SV("*"));
+  iree_host_size_t selected_count = select_all ? schedule->node_count : 0;
   iree_string_view_t remaining = selected;
   uint32_t node_index = 0;
-  while (loom_check_test_schedule_consume_node(&remaining, &node_index)) {
+  while (!select_all &&
+         loom_check_test_schedule_consume_node(&remaining, &node_index)) {
     if (node_index >= schedule->node_count) {
       return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                               "low-schedule-query order node %" PRIu32
@@ -353,12 +464,14 @@ static iree_status_t loom_check_test_schedule_append_order(
   iree_host_size_t emitted_count = 0;
   for (uint32_t block_index = 0; block_index < schedule->block_count;
        ++block_index) {
-    bool block_selected = false;
-    remaining = selected;
-    while (loom_check_test_schedule_consume_node(&remaining, &node_index)) {
-      if (schedule->nodes[node_index].block_index == block_index) {
-        block_selected = true;
-        break;
+    bool block_selected = select_all;
+    if (!select_all) {
+      remaining = selected;
+      while (loom_check_test_schedule_consume_node(&remaining, &node_index)) {
+        if (schedule->nodes[node_index].block_index == block_index) {
+          block_selected = true;
+          break;
+        }
       }
     }
     if (!block_selected) {
@@ -432,6 +545,16 @@ static iree_status_t loom_check_test_schedule_append_predecessors(
 static iree_status_t loom_check_test_schedule_append_issue_cycles(
     const loom_low_schedule_table_t* schedule, iree_string_view_t selected,
     iree_string_builder_t* builder) {
+  const bool select_all = iree_string_view_equal(selected, IREE_SV("*"));
+  if (select_all) {
+    for (uint32_t node_index = 0; node_index < schedule->node_count;
+         ++node_index) {
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+          builder, "node %" PRIu32 " issue-cycle: %" PRIu32 "\n", node_index,
+          schedule->nodes[node_index].issue_cycle));
+    }
+    return iree_ok_status();
+  }
   uint32_t node_index = 0;
   while (loom_check_test_schedule_consume_node(&selected, &node_index)) {
     if (node_index >= schedule->node_count) {
@@ -568,10 +691,129 @@ static iree_status_t loom_check_test_schedule_append_timing(
       separation_source.data, (int)model_quality.size, model_quality.data);
 }
 
+static iree_status_t loom_check_test_schedule_append_edges(
+    const loom_low_schedule_table_t* schedule, iree_string_view_t edges,
+    iree_string_builder_t* builder) {
+  while (!iree_string_view_is_empty(edges)) {
+    iree_string_view_t token = iree_string_view_empty();
+    iree_string_view_split(edges, ',', &token, &edges);
+    loom_check_test_schedule_edge_query_t query;
+    IREE_RETURN_IF_ERROR(loom_check_test_schedule_parse_edge_query(
+        iree_string_view_trim(token), &query));
+    if (query.producer_node >= schedule->node_count ||
+        query.consumer_node >= schedule->node_count) {
+      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                              "low-schedule-query edge %" PRIu32 ":%" PRIu32
+                              " is out of range for %" PRIhsz " nodes",
+                              query.producer_node, query.consumer_node,
+                              schedule->node_count);
+    }
+    const loom_low_schedule_dependency_t* match = NULL;
+    for (iree_host_size_t i = 0; i < schedule->dependencies.count; ++i) {
+      const loom_low_schedule_dependency_t* dependency =
+          loom_low_schedule_dependency_graph_at(&schedule->dependencies,
+                                                (uint32_t)i);
+      if (dependency->kind != query.dependency.kind ||
+          dependency->minimum_issue_separation_cycles <
+              query.dependency.minimum_issue_separation_cycles ||
+          dependency->producer_node != query.producer_node ||
+          dependency->consumer_node != query.consumer_node) {
+        continue;
+      }
+      if (match == NULL || dependency->minimum_issue_separation_cycles >
+                               match->minimum_issue_separation_cycles) {
+        match = dependency;
+      }
+    }
+    const iree_string_view_t kind =
+        loom_check_test_schedule_dependency_query_name(&query.dependency);
+    if (match == NULL) {
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+          builder, "edge %.*s %" PRIu32 " -> %" PRIu32 ": none\n",
+          (int)kind.size, kind.data, query.producer_node, query.consumer_node));
+      continue;
+    }
+    iree_string_view_t producer_event =
+        loom_low_descriptor_set_timing_event_name(
+            schedule->target.descriptor_set, match->producer_event_id);
+    iree_string_view_t consumer_event =
+        loom_low_descriptor_set_timing_event_name(
+            schedule->target.descriptor_set, match->consumer_event_id);
+    if (iree_string_view_is_empty(producer_event)) {
+      producer_event = IREE_SV("<none>");
+    }
+    if (iree_string_view_is_empty(consumer_event)) {
+      consumer_event = IREE_SV("<none>");
+    }
+    const iree_string_view_t separation_source =
+        loom_check_test_schedule_separation_source_name(
+            match->separation_source);
+    const iree_string_view_t model_quality = loom_low_model_quality_name(
+        (loom_low_model_quality_t)match->model_quality);
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+        builder,
+        "edge %.*s %" PRIu32 " -> %" PRIu32 ": separation=%" PRId32
+        " source=%.*s quality=%.*s producer-event=%.*s "
+        "consumer-event=%.*s\n",
+        (int)kind.size, kind.data, query.producer_node, query.consumer_node,
+        match->minimum_issue_separation_cycles, (int)separation_source.size,
+        separation_source.data, (int)model_quality.size, model_quality.data,
+        (int)producer_event.size, producer_event.data, (int)consumer_event.size,
+        consumer_event.data));
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_check_test_schedule_append_pressure(
+    const loom_low_schedule_table_t* schedule,
+    const loom_liveness_analysis_t* scheduled_liveness,
+    iree_string_view_t register_class_name, iree_string_builder_t* builder) {
+  if (iree_string_view_is_empty(register_class_name)) {
+    return iree_ok_status();
+  }
+  uint16_t register_class_id = LOOM_LOW_REG_CLASS_NONE;
+  if (!loom_low_descriptor_set_lookup_register_class(
+          schedule->target.descriptor_set, register_class_name,
+          &register_class_id, NULL)) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "low-schedule-query scheduled-pressure register class '%.*s' is not "
+        "defined by the selected target",
+        (int)register_class_name.size, register_class_name.data);
+  }
+  const loom_liveness_pressure_summary_t* match = NULL;
+  for (iree_host_size_t i = 0; i < scheduled_liveness->pressure_summary_count;
+       ++i) {
+    const loom_liveness_pressure_summary_t* summary =
+        &scheduled_liveness->pressure_summaries[i];
+    if (summary->value_class.type_kind != LOOM_TYPE_REGISTER ||
+        summary->value_class.register_descriptor_set_stable_id !=
+            schedule->target.descriptor_set->stable_id ||
+        summary->value_class.register_class_id != register_class_id) {
+      continue;
+    }
+    IREE_ASSERT(match == NULL);
+    match = summary;
+  }
+  if (match == NULL) {
+    return iree_string_builder_append_format(
+        builder, "scheduled pressure %.*s: none\n",
+        (int)register_class_name.size, register_class_name.data);
+  }
+  return iree_string_builder_append_format(
+      builder,
+      "scheduled pressure %.*s: peak-live-units=%" PRIu32
+      " peak-live-values=%" PRIu32 "\n",
+      (int)register_class_name.size, register_class_name.data,
+      match->peak_live_units, match->peak_live_values);
+}
+
 static iree_status_t loom_check_test_schedule_build(
     const loom_check_emit_provider_request_t* request,
     const loom_check_test_schedule_options_t* options,
-    loom_low_schedule_table_t* out_schedule, bool* out_accepted) {
+    loom_low_schedule_table_t* out_schedule,
+    loom_liveness_analysis_t* out_scheduled_liveness, bool* out_accepted) {
+  *out_scheduled_liveness = (loom_liveness_analysis_t){0};
   *out_accepted = false;
   loom_check_diagnostic_emitter_capture_t diagnostic_capture = {
       .diagnostic_collector = request->diagnostic_collector,
@@ -613,6 +855,13 @@ static iree_status_t loom_check_test_schedule_build(
     status = loom_low_schedule_function(&model, &schedule_options,
                                         request->case_arena, out_schedule);
   }
+  if (iree_status_is_ok(status) && out_schedule->error_count == 0 &&
+      !iree_string_view_is_empty(options->pressure_register_class)) {
+    status = loom_liveness_analyze_local_value_domain_with_dataflow(
+        &model.value_domain, &model.liveness_dataflow,
+        out_schedule->operation_order, request->case_arena,
+        out_scheduled_liveness);
+  }
   if (iree_status_is_ok(status)) {
     *out_accepted = out_schedule->error_count == 0;
   }
@@ -629,9 +878,10 @@ static iree_status_t loom_check_test_schedule_execute(
       loom_check_test_schedule_parse_options(request, &options));
 
   loom_low_schedule_table_t schedule = {0};
+  loom_liveness_analysis_t scheduled_liveness = {0};
   bool schedule_accepted = false;
   IREE_RETURN_IF_ERROR(loom_check_test_schedule_build(
-      request, &options, &schedule, &schedule_accepted));
+      request, &options, &schedule, &scheduled_liveness, &schedule_accepted));
   if (request->diagnostic_collector != NULL &&
       loom_check_diagnostic_collector_has_error(
           request->diagnostic_collector)) {
@@ -647,6 +897,9 @@ static iree_status_t loom_check_test_schedule_execute(
       &schedule, options.issue_nodes, &request->result->actual_output));
   IREE_RETURN_IF_ERROR(loom_check_test_schedule_append_descriptors(
       &schedule, options.descriptor_nodes, &request->result->actual_output));
+  IREE_RETURN_IF_ERROR(loom_check_test_schedule_append_pressure(
+      &schedule, &scheduled_liveness, options.pressure_register_class,
+      &request->result->actual_output));
   if (iree_string_view_equal(options.consumer_nodes, IREE_SV("*"))) {
     IREE_RETURN_IF_ERROR(loom_check_test_schedule_append_all_predecessors(
         &schedule, &options.dependency_query, &request->result->actual_output));
@@ -659,8 +912,10 @@ static iree_status_t loom_check_test_schedule_execute(
           &request->result->actual_output));
     }
   }
-  return loom_check_test_schedule_append_timing(
-      &schedule, &options, &request->result->actual_output);
+  IREE_RETURN_IF_ERROR(loom_check_test_schedule_append_timing(
+      &schedule, &options, &request->result->actual_output));
+  return loom_check_test_schedule_append_edges(
+      &schedule, options.dependency_edges, &request->result->actual_output);
 }
 
 static iree_status_t loom_check_test_schedule_append_names(
