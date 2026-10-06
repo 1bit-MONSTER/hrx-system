@@ -1,6 +1,6 @@
 // Scheduling selects independent load ports; the add and store wait for their
 // operands. Both loads initially name port A.
-// RUN: with-checks emit low-schedule-json @vector_add strategy=resource-stall
+// RUN: emit low-schedule-query @vector_add strategy=resource-stall order=* issue=*
 
 low.func.def target<amd.xdna.aie2p.core> @vector_add(%lhs_ptr: reg<aie2p.ep>, %rhs_ptr: reg<aie2p.ep>, %out_ptr: reg<aie2p.ep>) asm {
   %lhs = vlda.512.i32x16 %lhs_ptr, 0
@@ -11,15 +11,17 @@ low.func.def target<amd.xdna.aie2p.core> @vector_add(%lhs_ptr: reg<aie2p.ep>, %r
 }
 
 // ----
-CHECK: *"index":0,"block":0,"source_ordinal":0,"scheduled_ordinal":0,"issue_cycle":0,*
-CHECK: *"index":1,"block":0,"source_ordinal":1,"scheduled_ordinal":1,"issue_cycle":0,*
-CHECK: *"index":2,"block":0,"source_ordinal":2,"scheduled_ordinal":2,"issue_cycle":7,*
-CHECK: *"index":3,"block":0,"source_ordinal":3,"scheduled_ordinal":3,"issue_cycle":9,*
+block 0 order: 0, 1, 2, 3, 4
+node 0 issue-cycle: 0
+node 1 issue-cycle: 0
+node 2 issue-cycle: 7
+node 3 issue-cycle: 9
+node 4 issue-cycle: 10
 
 // ====
 
 // Lock acquires and the following load observe four-cycle memory separation.
-// RUN: with-checks emit low-schedule-json @lock_then_load strategy=source
+// RUN: emit low-schedule-query @lock_then_load strategy=source order=* issue=*
 
 low.func.def target<amd.xdna.aie2p.core> @lock_then_load(%lock_value: reg<aie2p.er>, %source: reg<aie2p.ep>) asm {
   acq %lock_value, 5
@@ -29,14 +31,16 @@ low.func.def target<amd.xdna.aie2p.core> @lock_then_load(%lock_value: reg<aie2p.
 }
 
 // ----
-CHECK: *"index":0,"block":0,"source_ordinal":0,"scheduled_ordinal":0,"issue_cycle":0,*
-CHECK: *"index":1,"block":0,"source_ordinal":1,"scheduled_ordinal":1,"issue_cycle":4,*
-CHECK: *"index":2,"block":0,"source_ordinal":2,"scheduled_ordinal":2,"issue_cycle":8,*
+block 0 order: 0, 1, 2, 3
+node 0 issue-cycle: 0
+node 1 issue-cycle: 4
+node 2 issue-cycle: 8
+node 3 issue-cycle: 9
 
 // ====
 
 // An acquire drains before the successor memory operation.
-// RUN: with-checks emit low-schedule-json @lock_then_load_edge strategy=source
+// RUN: emit low-schedule-query @lock_then_load_edge strategy=source order=* issue=*
 
 low.func.def target<amd.xdna.aie2p.core> @lock_then_load_edge(%lock_value: reg<aie2p.er>, %source: reg<aie2p.ep>) asm {
   acq %lock_value, 5
@@ -47,13 +51,17 @@ low.func.def target<amd.xdna.aie2p.core> @lock_then_load_edge(%lock_value: reg<a
 }
 
 // ----
-CHECK: *"index":1,"block":0,"source_ordinal":1,"scheduled_ordinal":1,"issue_cycle":4,*
-CHECK: *"index":2,"block":1,"source_ordinal":2,"scheduled_ordinal":0,"issue_cycle":0,*
+block 0 order: 0, 1
+block 1 order: 2, 3
+node 0 issue-cycle: 0
+node 1 issue-cycle: 4
+node 2 issue-cycle: 0
+node 3 issue-cycle: 1
 
 // ====
 
 // A load drains before the successor lock operation.
-// RUN: with-checks emit low-schedule-json @load_then_lock_edge strategy=source
+// RUN: emit low-schedule-query @load_then_lock_edge strategy=source order=* issue=*
 
 low.func.def target<amd.xdna.aie2p.core> @load_then_lock_edge(%lock_value: reg<aie2p.er>, %source: reg<aie2p.ep>) asm {
   %value = vlda.acc %source, 0
@@ -64,13 +72,17 @@ low.func.def target<amd.xdna.aie2p.core> @load_then_lock_edge(%lock_value: reg<a
 }
 
 // ----
-CHECK: *"index":1,"block":0,"source_ordinal":1,"scheduled_ordinal":1,"issue_cycle":4,*
-CHECK: *"index":2,"block":1,"source_ordinal":2,"scheduled_ordinal":0,"issue_cycle":0,*
+block 0 order: 0, 1
+block 1 order: 2, 3
+node 0 issue-cycle: 0
+node 1 issue-cycle: 4
+node 2 issue-cycle: 0
+node 3 issue-cycle: 1
 
 // ====
 
 // Lock timing is preserved across the control-flow boundary.
-// RUN: with-checks emit low-schedule-json @lock_then_lock_edge strategy=source
+// RUN: emit low-schedule-query @lock_then_lock_edge strategy=source order=* issue=*
 
 low.func.def target<amd.xdna.aie2p.core> @lock_then_lock_edge(%lock_value: reg<aie2p.er>) asm {
   acq %lock_value, 5
@@ -81,14 +93,18 @@ low.func.def target<amd.xdna.aie2p.core> @lock_then_lock_edge(%lock_value: reg<a
 }
 
 // ----
-CHECK: *"index":1,"block":0,"source_ordinal":1,"scheduled_ordinal":1,"issue_cycle":4,*
-CHECK: *"index":2,"block":1,"source_ordinal":2,"scheduled_ordinal":0,"issue_cycle":0,*
+block 0 order: 0, 1
+block 1 order: 2, 3
+node 0 issue-cycle: 0
+node 1 issue-cycle: 4
+node 2 issue-cycle: 0
+node 3 issue-cycle: 1
 
 // ====
 
 // A release retains load/store and lock timing while independent scalar work
 // crosses it to fill the load's latency.
-// RUN: with-checks emit low-schedule-json @release_exposes_independent_work strategy=resource-stall
+// RUN: emit low-schedule-query @release_exposes_independent_work strategy=resource-stall order=* issue=* kind=effect consumer=* edge=effect:0:1,effect:1:3
 
 low.func.def target<amd.xdna.aie2p.core> @release_exposes_independent_work(%lock_value: reg<aie2p.er>, %source: reg<aie2p.ep>, %output: reg<aie2p.ep>, %seed: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
   %value = vlda.512.i32x16 %source, 0
@@ -99,17 +115,23 @@ low.func.def target<amd.xdna.aie2p.core> @release_exposes_independent_work(%lock
 }
 
 // ----
-CHECK: *"source_order_boundaries":[4]*
-CHECK: *"scheduled_node_indices":[0,2,1,3,4]*
-CHECK: *{"from":0,"to":1,"kind":"effect",*"minimum_issue_separation_cycles":4,*
-CHECK: *{"from":1,"to":3,"kind":"effect",*"minimum_issue_separation_cycles":4,*
+block 0 order: 0, 2, 1, 3, 4
+node 0 issue-cycle: 0
+node 1 issue-cycle: 4
+node 2 issue-cycle: 0
+node 3 issue-cycle: 8
+node 4 issue-cycle: 9
+node 1 <- 0
+node 3 <- 0, 1
+edge effect 0 -> 1: separation=4 source=event-pair quality=exact producer-event=amd.xdna.aie2p.memory.read.c5 consumer-event=amd.xdna.aie2p.lock.stall.c2
+edge effect 1 -> 3: separation=4 source=event-pair quality=exact producer-event=amd.xdna.aie2p.lock.resume.c8 consumer-event=amd.xdna.aie2p.memory.write.c5
 
 // ====
 
 // The exceptional-value tail of scalar F32 multiplication uses r27 for each
 // predicate. Completing scalar packing is not enough to open a later predicate:
 // its selection still needs earlier selections using the same register.
-// RUN: with-checks emit low-schedule-json @multiply_special_values strategy=resource-stall
+// RUN: emit low-schedule-query @multiply_special_values strategy=resource-stall scheduled-pressure=aie2p.mr27_select
 
 low.func.def target<amd.xdna.aie2p.core> @multiply_special_values(%left_magnitude: reg<aie2p.er>, %infinity: reg<aie2p.er>, %right_magnitude: reg<aie2p.er>, %right_is_zero: reg<aie2p.er>, %quiet_nan: reg<aie2p.er>, %signed_infinity: reg<aie2p.er>, %left_is_zero: reg<aie2p.er>, %finite_product: reg<aie2p.er>, %left_bits: reg<aie2p.er>, %quiet_bit: reg<aie2p.er>, %right_bits: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
   %left_is_infinite = eq %left_magnitude, %infinity
@@ -134,7 +156,7 @@ low.func.def target<amd.xdna.aie2p.core> @multiply_special_values(%left_magnitud
 }
 
 // ----
-CHECK: *"register_class_id":34},"peak_live_units":1,"peak_live_values":1,*
+scheduled pressure aie2p.mr27_select: peak-live-units=1 peak-live-values=1
 
 // ====
 

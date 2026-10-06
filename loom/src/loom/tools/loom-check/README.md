@@ -101,10 +101,13 @@ scheduled order of those source nodes, `issue=0,1,2` reports their issue cycles,
 and `descriptor=0,1` reports their selected descriptors. Dependency queries use
 `kind=state consumer=7,8` for exact predecessor sets or `kind=state timing=0:7`
 for one edge's separation and timing model. The node indices refer to source
-order, before scheduling. These compact outputs use ordinary exact goldens.
+order, before scheduling. `scheduled-pressure=test.i32` runs the production
+liveness analysis in the selected schedule order and reports that register
+class's exact peak live units and values. These compact outputs use ordinary
+exact goldens.
 
-Schedule queries build an emission frame, including allocation. Tests of
-unavoidable register debt or explicit residency cliffs instead use
+Schedule queries build the production function model and scheduler directly.
+Tests of unavoidable register debt or explicit residency cliffs use
 `emit low-schedule-json ... diagnostics=candidates output=none` with inline
 decision annotations. `emit low-allocation ... diagnostics=placement-decisions`
 similarly checks storage affinities directly instead of pinning incidental
