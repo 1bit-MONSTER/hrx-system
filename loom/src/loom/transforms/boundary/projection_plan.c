@@ -69,6 +69,24 @@ static bool loom_boundary_projection_supports_loop_slots(
       plan, LOOM_BOUNDARY_PROJECTION_SLOT_LOOP_STATE);
 }
 
+static bool loom_boundary_projection_supports_function_local_slots(
+    const loom_boundary_projection_plan_t* plan,
+    const loom_boundary_projection_function_t* function) {
+  const loom_boundary_projection_slot_role_bits_t local_role_bits =
+      LOOM_BOUNDARY_PROJECTION_SLOT_ROLE_BIT(
+          LOOM_BOUNDARY_PROJECTION_SLOT_BLOCK_ARGUMENT) |
+      LOOM_BOUNDARY_PROJECTION_SLOT_ROLE_BIT(
+          LOOM_BOUNDARY_PROJECTION_SLOT_LOOP_STATE);
+  for (iree_host_size_t i = 0; i < plan->rules.count; ++i) {
+    const loom_boundary_projection_rule_t* rule = plan->rules.values[i];
+    if (iree_any_bit_set(rule->slot_role_bits, local_role_bits) &&
+        loom_boundary_projection_rule_applies(rule, plan, function)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static iree_host_size_t loom_boundary_projection_rule_index(
     const loom_boundary_projection_plan_t* plan,
     const loom_boundary_projection_rule_t* rule) {
@@ -336,7 +354,13 @@ static iree_status_t loom_boundary_projection_plan_function_signature(
     if (!body_descriptor ||
         body_descriptor->terminator == LOOM_OP_KIND_UNKNOWN ||
         function.op->region_count != 1 || body_region_index != 0) {
-      out_function->selected = false;
+      // Callable signature projection requires the operation itself to be the
+      // one-region callable contract that the replacement path rebuilds. Keep
+      // independent CFG and LoopLike projection available in function-like
+      // operations with additional regions, such as kernel.def.
+      out_function->selected =
+          loom_boundary_projection_supports_function_local_slots(plan,
+                                                                 out_function);
       return iree_ok_status();
     }
     out_function->return_kind = body_descriptor->terminator;

@@ -445,6 +445,7 @@ loom_cc_library(
     loom::target::arch::amdgpu::descriptors::low_registry
     loom::target::arch::amdgpu::diagnostics::packet_diagnostics
     loom::target::arch::amdgpu::lower
+    loom::target::arch::amdgpu::lower::kinds
     loom::target::arch::amdgpu::ops
     loom::target::provider
   PUBLIC

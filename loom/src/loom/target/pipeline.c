@@ -613,6 +613,8 @@ static iree_status_t loom_target_pipeline_build_source_low_body(
     IREE_RETURN_IF_ERROR(loom_pass_ir_build_if_changed(
         builder, loom_target_pipeline_build_cleanup_target_functions, NULL,
         &bank_sroa_changed_op));
+    IREE_RETURN_IF_ERROR(loom_target_pipeline_build_run(
+        builder, IREE_SV("project-loop-boundary-representations")));
     IREE_RETURN_IF_ERROR(loom_target_pipeline_build_for_target_functions(
         builder,
         loom_target_pipeline_build_cfg_source_finalization_after_bank_sroa,

@@ -87,6 +87,14 @@ typedef enum loom_target_view_boundary_carrier_e {
   LOOM_TARGET_VIEW_BOUNDARY_CARRIER_BUFFER_OFFSET = 1,
 } loom_target_view_boundary_carrier_t;
 
+// Physical carrier for lane predicates that cross structured loop boundaries.
+typedef enum loom_target_loop_predicate_carrier_e {
+  // Preserve the semantic i1 value for target-selected direct lowering.
+  LOOM_TARGET_LOOP_PREDICATE_CARRIER_DIRECT = 0,
+  // Transport each lane's Boolean value as an i32 zero-or-one word.
+  LOOM_TARGET_LOOP_PREDICATE_CARRIER_I32 = 1,
+} loom_target_loop_predicate_carrier_t;
+
 // Selects Low call policy for one caller's resolved target context.
 //
 // The query is intentionally per resolved caller rather than per module: one
@@ -343,6 +351,12 @@ struct loom_target_provider_t {
   // Physical carrier requested for source views that remain at retained
   // function or CFG boundaries after common-root transport.
   loom_target_view_boundary_carrier_t view_boundary_carrier;
+  // Physical carrier requested for lane predicates that cross structured loop
+  // boundaries.
+  loom_target_loop_predicate_carrier_t loop_predicate_carrier;
+  // Maximum number of elements in a vector predicate loop carrier. Zero
+  // disables vector predicate projection for this target.
+  uint32_t loop_predicate_max_vector_element_count;
   // Target-family fact representation owned by this provider. This is required
   // for providers with authored target definitions but no structured profile.
   // When |profile_type| is also present, both must name the same fact type.

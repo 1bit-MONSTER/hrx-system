@@ -177,7 +177,7 @@ func.def public target(@carrier_target) @reports_composed_rules(%first: buffer, 
 
 // ----
 CHECK: *"changed":true,*
-CHECK: *"cfg-edges-rewritten":2,"loops-rewritten":0,"layout-projections":1,"layout-components":1,"view-projections":1,"view-components":2}*
+CHECK: *"cfg-edges-rewritten":2,"loops-rewritten":0,"loop-predicate-projections":0,"loop-predicate-components":0,"layout-projections":1,"layout-components":1,"view-projections":1,"view-components":2}*
 
 // ====
 
@@ -246,4 +246,357 @@ func.def public target(@carrier_target) @reports_condition_loop_layout(%input: b
 
 // ----
 CHECK: *"changed":true,*
-CHECK: *"cfg-edges-rewritten":0,"loops-rewritten":1,"layout-projections":3,"layout-components":3,"view-projections":0,"view-components":0}*
+CHECK: *"cfg-edges-rewritten":0,"loops-rewritten":1,"loop-predicate-projections":0,"loop-predicate-components":0,"layout-projections":3,"layout-components":3,"view-projections":0,"view-components":0}*
+
+// ====
+// Callable-signature projection does not own multi-region kernel signatures,
+// but independent projections inside the launch body must still run.
+// RUN: pass specialize-target-callgraph,project-boundary-representations
+
+test.target<low_core> @carrier_target {abi = hal_kernel, subgroup_size = 64}
+
+kernel.def target(@carrier_target) @kernel_local_loop_layout() {
+  %c1 = index.constant 1 : index
+  %size = index.constant 64 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%size, %c1, %c1) : index
+} launch() {
+  %lane = kernel.subgroup.lane.id : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %stride = index.add %lane, %c1 : index
+  %initial_layout = encoding.layout.strided [%stride, 1] : encoding<layout>
+  %result_layout = scf.for %i = [%c0 to %c1 step %c1](%layout = %initial_layout : encoding<layout>) -> (encoding<layout>) {
+    scf.yield %layout : encoding<layout>
+  }
+  test.use %result_layout : encoding<layout>
+  kernel.return
+}
+
+// ----
+test.target<low_core> @carrier_target {abi = hal_kernel, subgroup_size = 64}
+
+kernel.def target(@carrier_target) @kernel_local_loop_layout() {
+  %c1 = index.constant 1 : index
+  %size = index.constant 64 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%size, %c1, %c1) : index
+} launch() {
+  %lane = kernel.subgroup.lane.id : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %stride = index.add %lane, %c1 : index
+  %initial_layout = encoding.layout.strided [%stride, 1] : encoding<layout>
+  %result_layout_stride_0 = scf.for %i = [%c0 to %c1 step %c1](%layout_stride_0 = %stride : index) -> (index) {
+    %layout = encoding.layout.strided [%layout_stride_0, 1] : encoding<layout>
+    scf.yield %layout_stride_0 : index
+  }
+  %result_layout = encoding.layout.strided [%result_layout_stride_0, 1] : encoding<layout>
+  test.use %result_layout : encoding<layout>
+  kernel.return
+}
+
+// ====
+// RUN: pass specialize-target-callgraph,project-loop-boundary-representations
+
+test.target<low_core> @carrier_target {abi = hal_kernel, subgroup_size = 64}
+
+kernel.def target(@carrier_target) @condition_predicate_payload() {
+  %c1 = index.constant 1 : index
+  %size = index.constant 64 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%size, %c1, %c1) : index
+} launch() {
+  %limit = kernel.subgroup.lane.id : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %terminal, %at_limit = scf.while(%i = %c0 : index) -> (index, i1) {
+    %continue = index.cmp ult, %i, %limit : index
+    %at = index.cmp eq, %i, %limit : index
+    scf.condition %continue, %i, %at : i1, index, i1
+  } do(%body_i: index, %body_at: i1) {
+    %next = index.add %body_i, %c1 : index
+    scf.yield %next : index
+  }
+  test.use %terminal, %at_limit : index, i1
+  kernel.return
+}
+
+// ----
+test.target<low_core> @carrier_target {abi = hal_kernel, subgroup_size = 64}
+
+kernel.def target(@carrier_target) @condition_predicate_payload() {
+  %c1 = index.constant 1 : index
+  %size = index.constant 64 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%size, %c1, %c1) : index
+} launch() {
+  %limit = kernel.subgroup.lane.id : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %terminal, %at_limit_word = scf.while(%i = %c0 : index) -> (index, i32) {
+    %continue = index.cmp ult, %i, %limit : index
+    %at = index.cmp eq, %i, %limit : index
+    %18 = scalar.constant 1 : i32
+    %19 = scalar.constant 0 : i32
+    %20 = scf.select %at, %18, %19 : i32
+    scf.condition %continue, %i, %20 : i1, index, i32
+  } do(%body_i: index, %body_at_word: i32) {
+    %21 = scalar.constant 0 : i32
+    %body_at = scalar.cmpi ne, %body_at_word, %21 : i32
+    %next = index.add %body_i, %c1 : index
+    scf.yield %next : index
+  }
+  %23 = scalar.constant 0 : i32
+  %at_limit = scalar.cmpi ne, %at_limit_word, %23 : i32
+  test.use %terminal, %at_limit : index, i1
+  kernel.return
+}
+
+// ====
+// RUN: pass specialize-target-callgraph,project-boundary-representations
+
+test.target<low_core> @carrier_target {abi = hal_kernel, subgroup_size = 64}
+
+kernel.def target(@carrier_target) @recurring_predicate() {
+  %c1 = index.constant 1 : index
+  %size = index.constant 64 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%size, %c1, %c1) : index
+} launch() {
+  %limit = kernel.subgroup.lane.id : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %disabled = scalar.constant false : i1
+  %terminal, %last = scf.while(%i = %c0 : index, %flag = %disabled : i1) -> (index, i1) {
+    %continue = index.cmp ult, %i, %limit : index
+    scf.condition %continue, %i, %flag : i1, index, i1
+  } do(%body_i: index, %body_flag: i1) {
+    %next = index.add %body_i, %c1 : index
+    %at_limit = index.cmp eq, %next, %limit : index
+    scf.yield %next, %at_limit : index, i1
+  }
+  test.use %terminal, %last : index, i1
+  kernel.return
+}
+
+// ----
+test.target<low_core> @carrier_target {abi = hal_kernel, subgroup_size = 64}
+
+kernel.def target(@carrier_target) @recurring_predicate() {
+  %c1 = index.constant 1 : index
+  %size = index.constant 64 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%size, %c1, %c1) : index
+} launch() {
+  %limit = kernel.subgroup.lane.id : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %disabled = scalar.constant false : i1
+  %15 = scalar.constant 1 : i32
+  %16 = scalar.constant 0 : i32
+  %17 = scf.select %disabled, %15, %16 : i32
+  %terminal, %last_word = scf.while(%i = %c0 : index, %flag_word = %17 : i32) -> (index, i32) {
+    %27 = scalar.constant 0 : i32
+    %flag = scalar.cmpi ne, %flag_word, %27 : i32
+    %continue = index.cmp ult, %i, %limit : index
+    scf.condition %continue, %i, %flag_word : i1, index, i32
+  } do(%body_i: index, %body_flag_word: i32) {
+    %29 = scalar.constant 0 : i32
+    %body_flag = scalar.cmpi ne, %body_flag_word, %29 : i32
+    %next = index.add %body_i, %c1 : index
+    %at_limit = index.cmp eq, %next, %limit : index
+    %24 = scalar.constant 1 : i32
+    %25 = scalar.constant 0 : i32
+    %26 = scf.select %at_limit, %24, %25 : i32
+    scf.yield %next, %26 : index, i32
+  }
+  %31 = scalar.constant 0 : i32
+  %last = scalar.cmpi ne, %last_word, %31 : i32
+  test.use %terminal, %last : index, i1
+  kernel.return
+}
+
+// ====
+// A static multi-rank predicate vector uses the same-shaped word carrier. The
+// target's existing mask select and payload comparison perform the two
+// representation conversions without flattening the vector shape.
+// RUN: pass specialize-target-callgraph,project-boundary-representations
+
+test.target<low_core> @carrier_target {abi = hal_kernel, subgroup_size = 64}
+
+kernel.def target(@carrier_target) @recurring_predicate_vector() {
+  %c1 = index.constant 1 : index
+  %size = index.constant 64 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%size, %c1, %c1) : index
+} launch() {
+  %limit = kernel.subgroup.lane.id : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %disabled = vector.constant false : vector<1x2xi1>
+  %terminal, %last = scf.while(%i = %c0 : index, %flags = %disabled : vector<1x2xi1>) -> (index, vector<1x2xi1>) {
+    %continue = index.cmp ult, %i, %limit : index
+    scf.condition %continue, %i, %flags : i1, index, vector<1x2xi1>
+  } do(%body_i: index, %body_flags: vector<1x2xi1>) {
+    %next = index.add %body_i, %c1 : index
+    %at_limit = index.cmp eq, %next, %limit : index
+    %before_limit = index.cmp ult, %next, %limit : index
+    %next_flags = vector.from_elements %at_limit, %before_limit : vector<1x2xi1>
+    scf.yield %next, %next_flags : index, vector<1x2xi1>
+  }
+  test.use %terminal, %last : index, vector<1x2xi1>
+  kernel.return
+}
+
+// ----
+test.target<low_core> @carrier_target {abi = hal_kernel, subgroup_size = 64}
+
+kernel.def target(@carrier_target) @recurring_predicate_vector() {
+  %c1 = index.constant 1 : index
+  %size = index.constant 64 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%size, %c1, %c1) : index
+} launch() {
+  %limit = kernel.subgroup.lane.id : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %disabled = vector.constant false : vector<1x2xi1>
+  %17 = vector.constant 1 : vector<1x2xi32>
+  %18 = vector.constant 0 : vector<1x2xi32>
+  %19 = vector.select %disabled, %17, %18 : vector<1x2xi32>
+  %terminal, %last_word = scf.while(%i = %c0 : index, %flags_word = %19 : vector<1x2xi32>) -> (index, vector<1x2xi32>) {
+    %29 = vector.constant 0 : vector<1x2xi32>
+    %flags = vector.cmpi ne, %flags_word, %29 : vector<1x2xi32> -> vector<1x2xi1>
+    %continue = index.cmp ult, %i, %limit : index
+    scf.condition %continue, %i, %flags_word : i1, index, vector<1x2xi32>
+  } do(%body_i: index, %body_flags_word: vector<1x2xi32>) {
+    %31 = vector.constant 0 : vector<1x2xi32>
+    %body_flags = vector.cmpi ne, %body_flags_word, %31 : vector<1x2xi32> -> vector<1x2xi1>
+    %next = index.add %body_i, %c1 : index
+    %at_limit = index.cmp eq, %next, %limit : index
+    %before_limit = index.cmp ult, %next, %limit : index
+    %next_flags = vector.from_elements %at_limit, %before_limit : vector<1x2xi1>
+    %26 = vector.constant 1 : vector<1x2xi32>
+    %27 = vector.constant 0 : vector<1x2xi32>
+    %28 = vector.select %next_flags, %26, %27 : vector<1x2xi32>
+    scf.yield %next, %28 : index, vector<1x2xi32>
+  }
+  %33 = vector.constant 0 : vector<1x2xi32>
+  %last = vector.cmpi ne, %last_word, %33 : vector<1x2xi32> -> vector<1x2xi1>
+  test.use %terminal, %last : index, vector<1x2xi1>
+  kernel.return
+}
+
+// ====
+// The target carrier bound is inclusive: the largest supported vector is
+// projected while the first larger vector remains in its logical form.
+// RUN: pass specialize-target-callgraph,project-boundary-representations
+
+test.target<low_core> @carrier_target
+
+func.def public target(@carrier_target) @predicate_vector_carrier_bound() {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %within_bound = vector.constant false : vector<4x8xi1>
+  %above_bound = vector.constant false : vector<3x11xi1>
+  %within_result, %above_result = scf.for %i = [%c0 to %c1 step %c1](%within = %within_bound : vector<4x8xi1>, %above = %above_bound : vector<3x11xi1>) -> (vector<4x8xi1>, vector<3x11xi1>) {
+    scf.yield %within, %above : vector<4x8xi1>, vector<3x11xi1>
+  }
+  test.use %within_result, %above_result : vector<4x8xi1>, vector<3x11xi1>
+  func.return
+}
+
+// ----
+test.target<low_core> @carrier_target
+
+func.def public target(@carrier_target) @predicate_vector_carrier_bound() {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %within_bound = vector.constant false : vector<4x8xi1>
+  %above_bound = vector.constant false : vector<3x11xi1>
+  %9 = vector.constant 1 : vector<4x8xi32>
+  %10 = vector.constant 0 : vector<4x8xi32>
+  %11 = vector.select %within_bound, %9, %10 : vector<4x8xi32>
+  %within_result_word, %above_result = scf.for %i = [%c0 to %c1 step %c1](%within_word = %11 : vector<4x8xi32>, %above = %above_bound : vector<3x11xi1>) -> (vector<4x8xi32>, vector<3x11xi1>) {
+    %17 = vector.constant 0 : vector<4x8xi32>
+    %within = vector.cmpi ne, %within_word, %17 : vector<4x8xi32> -> vector<4x8xi1>
+    scf.yield %within_word, %above : vector<4x8xi32>, vector<3x11xi1>
+  }
+  %19 = vector.constant 0 : vector<4x8xi32>
+  %within_result = vector.cmpi ne, %within_result_word, %19 : vector<4x8xi32> -> vector<4x8xi1>
+  test.use %within_result, %above_result : vector<4x8xi1>, vector<3x11xi1>
+  func.return
+}
+
+// ====
+// Unknown distribution is not a uniformity proof. A loop block argument may
+// need native lane-mask storage and therefore uses the durable carrier.
+// RUN: pass specialize-target-callgraph,project-boundary-representations
+
+test.target<low_core> @carrier_target
+
+func.def public target(@carrier_target) @unknown_predicate_uses_word(%limit: index, %seed: i1) -> (i1) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %last = scf.for %i = [%c0 to %limit step %c1](%flag = %seed : i1) -> (i1) {
+    scf.yield %flag : i1
+  }
+  func.return %last : i1
+}
+
+// ----
+test.target<low_core> @carrier_target
+
+func.def public target(@carrier_target) @unknown_predicate_uses_word(%limit: index, %seed: i1) -> (i1) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %8 = scalar.constant 1 : i32
+  %9 = scalar.constant 0 : i32
+  %10 = scf.select %seed, %8, %9 : i32
+  %last_word = scf.for %i = [%c0 to %limit step %c1](%flag_word = %10 : i32) -> (i32) {
+    %14 = scalar.constant 0 : i32
+    %flag = scalar.cmpi ne, %flag_word, %14 : i32
+    scf.yield %flag_word : i32
+  }
+  %16 = scalar.constant 0 : i32
+  %last = scalar.cmpi ne, %last_word, %16 : i32
+  func.return %last : i1
+}
+
+// ====
+// RUN: pass specialize-target-callgraph,project-boundary-representations
+
+test.target<low_core> @carrier_target
+
+func.def public target(@carrier_target) @uniform_predicate_untouched() -> (i1) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %disabled = scalar.constant false : i1
+  %last = scf.for %i = [%c0 to %c1 step %c1](%flag = %disabled : i1) -> (i1) {
+    scf.yield %flag : i1
+  }
+  func.return %last : i1
+}
+
+// ----
+test.target<low_core> @carrier_target
+
+func.def public target(@carrier_target) @uniform_predicate_untouched() -> (i1) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %disabled = scalar.constant false : i1
+  %last = scf.for %i = [%c0 to %c1 step %c1](%flag = %disabled : i1) -> (i1) {
+    scf.yield %flag : i1
+  }
+  func.return %last : i1
+}
+
+// ====
+// RUN: with-checks pass-report specialize-target-callgraph,project-loop-boundary-representations
+test.target<low_core> @carrier_target
+
+func.def public target(@carrier_target) @reports_predicate_loop(%limit: index, %seed: i1) -> (i1) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %last = scf.for %i = [%c0 to %limit step %c1](%flag = %seed : i1) -> (i1) {
+    scf.yield %flag : i1
+  }
+  func.return %last : i1
+}
+
+// ----
+CHECK: *"loops-rewritten":1,*
+CHECK: *"loop-predicate-projections":2,"loop-predicate-components":2,*

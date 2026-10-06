@@ -85,12 +85,24 @@ loom_cc_test(
 
 loom_cc_library(
     name = "projection",
-    srcs = ["projection.c"],
-    hdrs = ["projection.h"],
+    srcs = [
+        "loop_predicate_projection.c",
+        "projection.c",
+    ],
+    hdrs = [
+        "loop_predicate_projection.h",
+        "projection.h",
+    ],
     deps = [
         ":projection_core",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/scf",
+        "//loom/src/loom/ops/vector",
         "//loom/src/loom/pass:types",
+        "//loom/src/loom/target:function_version",
         "//loom/src/loom/target:pass_environment",
+        "//loom/src/loom/target:provider",
         "//loom/src/loom/transforms/encoding:layout_projection",
         "//loom/src/loom/transforms/view:boundary_projection",
         "//runtime/src/iree/base",
