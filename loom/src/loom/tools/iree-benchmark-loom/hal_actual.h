@@ -24,7 +24,7 @@ extern "C" {
 typedef struct iree_benchmark_loom_options_t iree_benchmark_loom_options_t;
 
 // Initializes a benchmark-owned HAL actual provider for one candidate.
-iree_status_t iree_benchmark_loom_hal_actual_provider_initialize(
+void iree_benchmark_loom_hal_actual_provider_initialize(
     iree_benchmark_loom_hal_context_t* context, loom_run_session_t* session,
     const loom_run_module_t* run_module,
     const iree_benchmark_loom_options_t* benchmark_options,

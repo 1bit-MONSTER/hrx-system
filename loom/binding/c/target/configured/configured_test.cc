@@ -10,25 +10,7 @@
 
 #include "iree/testing/gtest.h"
 #include "loom/binding/c/src/target.h"
-
-#ifndef LOOMC_CONFIGURED_HAVE_AMDGPU
-#define LOOMC_CONFIGURED_HAVE_AMDGPU 0
-#endif  // LOOMC_CONFIGURED_HAVE_AMDGPU
-#ifndef LOOMC_CONFIGURED_HAVE_SPIRV
-#define LOOMC_CONFIGURED_HAVE_SPIRV 0
-#endif  // LOOMC_CONFIGURED_HAVE_SPIRV
-#ifndef LOOMC_CONFIGURED_HAVE_VM
-#define LOOMC_CONFIGURED_HAVE_VM 0
-#endif  // LOOMC_CONFIGURED_HAVE_VM
-#ifndef LOOMC_CONFIGURED_HAVE_WASM
-#define LOOMC_CONFIGURED_HAVE_WASM 0
-#endif  // LOOMC_CONFIGURED_HAVE_WASM
-#ifndef LOOMC_CONFIGURED_HAVE_XDNA
-#define LOOMC_CONFIGURED_HAVE_XDNA 0
-#endif  // LOOMC_CONFIGURED_HAVE_XDNA
-#ifndef LOOMC_CONFIGURED_HAVE_X86
-#define LOOMC_CONFIGURED_HAVE_X86 0
-#endif  // LOOMC_CONFIGURED_HAVE_X86
+#include "loom/target/configured/compiler_provider_set.h"
 
 namespace {
 
@@ -38,7 +20,7 @@ struct TargetEnvironmentDeleter {
   }
 };
 
-TEST(ConfiguredTargetTest, ContainsSelectedEmitters) {
+TEST(ConfiguredTargetTest, BorrowsConfiguredCompilerProviders) {
   loomc_target_environment_t* raw_environment = nullptr;
   loomc_status_t status = loomc_target_environment_create_configured(
       loomc_allocator_system(), &raw_environment);
@@ -49,24 +31,8 @@ TEST(ConfiguredTargetTest, ContainsSelectedEmitters) {
   const loom_target_environment_t* internal_environment =
       loomc_target_environment_loom_target_environment(environment.get());
   ASSERT_NE(internal_environment, nullptr);
-  EXPECT_EQ(loom_target_environment_lookup_emitter(
-                internal_environment, IREE_SV("amdgpu-hsaco")) != nullptr,
-            static_cast<bool>(LOOMC_CONFIGURED_HAVE_AMDGPU));
-  EXPECT_EQ(loom_target_environment_lookup_emitter(internal_environment,
-                                                   IREE_SV("spirv")) != nullptr,
-            static_cast<bool>(LOOMC_CONFIGURED_HAVE_SPIRV));
-  EXPECT_EQ(loom_target_environment_lookup_emitter(internal_environment,
-                                                   IREE_SV("vm")) != nullptr,
-            static_cast<bool>(LOOMC_CONFIGURED_HAVE_VM));
-  EXPECT_EQ(loom_target_environment_lookup_emitter(
-                internal_environment, IREE_SV("wasm-binary")) != nullptr,
-            static_cast<bool>(LOOMC_CONFIGURED_HAVE_WASM));
-  EXPECT_EQ(loom_target_environment_lookup_emitter(internal_environment,
-                                                   IREE_SV("xdna")) != nullptr,
-            static_cast<bool>(LOOMC_CONFIGURED_HAVE_XDNA));
-  EXPECT_EQ(loom_target_environment_lookup_emitter(
-                internal_environment, IREE_SV("x86-elf")) != nullptr,
-            static_cast<bool>(LOOMC_CONFIGURED_HAVE_X86));
+  EXPECT_EQ(internal_environment->provider_set,
+            loom_configured_compiler_provider_set());
 }
 
 }  // namespace

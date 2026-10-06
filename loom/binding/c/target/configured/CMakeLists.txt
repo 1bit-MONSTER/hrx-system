@@ -9,96 +9,31 @@
 
 iree_add_all_subdirs()
 
-set(_configured_platform_copts "")
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
-  list(APPEND _configured_platform_copts "-DLOOMC_CONFIGURED_HAVE_AMDGPU=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-  list(APPEND _configured_platform_copts "-DLOOMC_CONFIGURED_HAVE_SPIRV=1")
-endif()
-if(LOOM_TARGET_ARCH_VM)
-  list(APPEND _configured_platform_copts "-DLOOMC_CONFIGURED_HAVE_VM=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-  list(APPEND _configured_platform_copts "-DLOOMC_CONFIGURED_HAVE_WASM=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
-  list(APPEND _configured_platform_copts "-DLOOMC_CONFIGURED_HAVE_XDNA=1")
-endif()
-if(LOOM_TARGET_ARCH_X86)
-  list(APPEND _configured_platform_copts "-DLOOMC_CONFIGURED_HAVE_X86=1")
-endif()
-set(_configured_platform_deps "")
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
-  list(APPEND _configured_platform_deps loom::binding::c::target::amdgpu)
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-  list(APPEND _configured_platform_deps loom::binding::c::target::spirv)
-endif()
-if(LOOM_TARGET_ARCH_VM)
-  list(APPEND _configured_platform_deps loom::binding::c::target::vm)
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-  list(APPEND _configured_platform_deps loom::binding::c::target::wasm)
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
-  list(APPEND _configured_platform_deps loom::binding::c::target::amd::xdna)
-endif()
-if(LOOM_TARGET_ARCH_X86)
-  list(APPEND _configured_platform_deps loom::target::arch::x86::compiler_provider)
-endif()
 loom_cc_library(
   NAME
     configured
-  COPTS
-    ${_configured_platform_copts}
   HDRS
     "${PROJECT_SOURCE_DIR}/loom/binding/c/include/loomc/target/configured.h"
   SRCS
     "configured.c"
   DEPS
-    iree::base
-    iree::base::threading
     loom::binding::c::loomc
-    loom::binding::c::target::provider_set
-    loom::target::provider
-    ${_configured_platform_deps}
+    loom::target::configured::compiler_provider_set
   ALWAYSLINK
   PUBLIC
 )
 
-set(_configured_test_platform_copts "")
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
-  list(APPEND _configured_test_platform_copts "-DLOOMC_CONFIGURED_HAVE_AMDGPU=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-  list(APPEND _configured_test_platform_copts "-DLOOMC_CONFIGURED_HAVE_SPIRV=1")
-endif()
-if(LOOM_TARGET_ARCH_VM)
-  list(APPEND _configured_test_platform_copts "-DLOOMC_CONFIGURED_HAVE_VM=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-  list(APPEND _configured_test_platform_copts "-DLOOMC_CONFIGURED_HAVE_WASM=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
-  list(APPEND _configured_test_platform_copts "-DLOOMC_CONFIGURED_HAVE_XDNA=1")
-endif()
-if(LOOM_TARGET_ARCH_X86)
-  list(APPEND _configured_test_platform_copts "-DLOOMC_CONFIGURED_HAVE_X86=1")
-endif()
 loom_cc_test(
   NAME
     configured_test
   SRCS
     "configured_test.cc"
-  COPTS
-    ${_configured_test_platform_copts}
   DEPS
     ::configured
     iree::testing::gtest
     iree::testing::gtest_main
     loom::binding::c::loomc
-    loom::target::provider
+    loom::target::configured::compiler_provider_set
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

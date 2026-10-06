@@ -232,7 +232,7 @@ loom_cc_library(
     srcs = ["compiler_provider.c"],
     hdrs = ["compiler_provider.h"],
     visibility = _SPIRV_C_API_VISIBILITY + [
-        "//loom/src/loom/tooling/compile:__pkg__",
+        "//loom/src/loom/target/configured:__pkg__",
     ],
     deps = [
         ":facts",

@@ -523,10 +523,8 @@ int iree_run_loom_main(int argc, char** argv,
         &compile_report_options);
   }
   if (iree_status_is_ok(status)) {
-    status = loom_compile_report_capture_initialize(
-        &compile_report_options, allocator, &compile_report_capture);
-  }
-  if (iree_status_is_ok(status)) {
+    loom_compile_report_capture_initialize(&compile_report_options, allocator,
+                                           &compile_report_capture);
     loom_compile_report_capture_configure_compile_options(
         &compile_report_capture, &compile_options);
   }

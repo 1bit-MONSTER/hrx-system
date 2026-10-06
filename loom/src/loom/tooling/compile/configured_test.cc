@@ -7,22 +7,8 @@
 #include "loom/tooling/compile/configured.h"
 
 #include "iree/testing/gtest.h"
-
-#ifndef LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS
-#define LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS 0
-#endif  // LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS
-#ifndef LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
-#define LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS 0
-#endif  // LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
-#ifndef LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
-#define LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS 0
-#endif  // LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
-#ifndef LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
-#define LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS 0
-#endif  // LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
-#ifndef LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
-#define LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS 0
-#endif  // LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
+#include "loom/target/configured/compiler_provider_set.h"
+#include "loom/target/configured/provider_set.h"
 
 namespace loom {
 namespace {
@@ -33,35 +19,26 @@ TEST(ConfiguredCompileTest, ReturnsStableCompleteEnvironment) {
   ASSERT_NE(environment, nullptr);
   EXPECT_EQ(environment, loom_tooling_configured_compile_environment());
   ASSERT_NE(environment->target_environment, nullptr);
-  ASSERT_NE(environment->target_environment->provider_set, nullptr);
-  EXPECT_GT(environment->target_environment->provider_set->provider_count, 0u);
   EXPECT_NE(environment->cleanup_pattern_provider_set, nullptr);
 
-  const bool has_amdgpu_emitter =
-      loom_target_environment_lookup_emitter(
-          environment->target_environment, IREE_SV("amdgpu-hsaco")) != nullptr;
-  const bool has_spirv_emitter =
-      loom_target_environment_lookup_emitter(environment->target_environment,
-                                             IREE_SV("spirv")) != nullptr;
-  const bool has_vm_emitter =
-      loom_target_environment_lookup_emitter(environment->target_environment,
-                                             IREE_SV("vm")) != nullptr;
-  const bool has_wasm_emitter =
-      loom_target_environment_lookup_emitter(environment->target_environment,
-                                             IREE_SV("wasm-binary")) != nullptr;
-  const bool has_xdna_emitter =
-      loom_target_environment_lookup_emitter(environment->target_environment,
-                                             IREE_SV("xdna")) != nullptr;
-  EXPECT_EQ(has_amdgpu_emitter,
-            static_cast<bool>(LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS));
-  EXPECT_EQ(has_spirv_emitter,
-            static_cast<bool>(LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS));
-  EXPECT_EQ(has_vm_emitter,
-            static_cast<bool>(LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS));
-  EXPECT_EQ(has_wasm_emitter,
-            static_cast<bool>(LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS));
-  EXPECT_EQ(has_xdna_emitter,
-            static_cast<bool>(LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS));
+  const loom_target_provider_set_t* target_provider_set =
+      loom_configured_target_provider_set();
+  const loom_target_provider_set_t* emitter_provider_set =
+      loom_configured_emitter_provider_set();
+  const loom_target_provider_set_t* environment_provider_set =
+      environment->target_environment->provider_set;
+  ASSERT_EQ(environment_provider_set->provider_count,
+            target_provider_set->provider_count +
+                emitter_provider_set->provider_count);
+  for (iree_host_size_t i = 0; i < target_provider_set->provider_count; ++i) {
+    EXPECT_EQ(environment_provider_set->providers[i],
+              target_provider_set->providers[i]);
+  }
+  for (iree_host_size_t i = 0; i < emitter_provider_set->provider_count; ++i) {
+    EXPECT_EQ(environment_provider_set
+                  ->providers[target_provider_set->provider_count + i],
+              emitter_provider_set->providers[i]);
+  }
 }
 
 }  // namespace

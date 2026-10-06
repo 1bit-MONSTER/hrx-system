@@ -13,7 +13,7 @@
 #include "loom/tools/iree-benchmark-loom/module_query.h"
 #include "loom/tools/iree-benchmark-loom/options.h"
 
-iree_status_t iree_benchmark_loom_hal_actual_provider_initialize(
+void iree_benchmark_loom_hal_actual_provider_initialize(
     iree_benchmark_loom_hal_context_t* context, loom_run_session_t* session,
     const loom_run_module_t* run_module,
     const iree_benchmark_loom_options_t* benchmark_options,
@@ -33,48 +33,39 @@ iree_status_t iree_benchmark_loom_hal_actual_provider_initialize(
   if (artifact_manifest_options != NULL) {
     artifact_manifest = *artifact_manifest_options;
   }
-  iree_status_t status = loom_compile_report_capture_initialize(
-      compile_report_options, host_allocator,
-      &out_provider->compile_report_capture);
-  if (iree_status_is_ok(status)) {
-    out_provider->compile_report_capture_initialized = true;
-    loom_compile_options_t report_options = {0};
-    loom_compile_options_initialize(&report_options);
-    loom_compile_report_capture_configure_compile_options(
-        &out_provider->compile_report_capture, &report_options);
-    loom_compile_artifact_flags_t artifact_flags = 0;
-    if (context->artifact_bundle != NULL && context->artifact_bundle->enabled &&
-        context->artifact_bundle->policy >=
-            IREE_BENCHMARK_LOOM_ARTIFACT_BUNDLE_POLICY_DEBUG) {
-      artifact_flags |= LOOM_COMPILE_ARTIFACT_FLAG_TARGET_LISTING;
-    }
-    loom_run_hal_testbench_actual_provider_options_t provider_options = {
-        .context = &context->execution,
-        .session = session,
-        .target_environment = context->configuration->target_environment,
-        .run_module = run_module,
-        .pipeline = benchmark_options->pipeline,
-        .target = benchmark_options->target,
-        .sanitizer = benchmark_options->sanitizer,
-        .config_set = context->config_set,
-        .kernel_launch = kernel_launch,
-        .diagnostic_sink =
-            (loom_diagnostic_sink_t){
-                .fn = iree_benchmark_loom_diagnostic_capture_sink,
-                .user_data = &out_provider->diagnostics,
-            },
-        .report = report_options.report,
-        .artifact_flags = artifact_flags,
-        .artifact_manifest = artifact_manifest,
-    };
-    loom_run_hal_testbench_actual_provider_initialize(&provider_options,
-                                                      &out_provider->execution);
-  } else {
-    iree_benchmark_loom_diagnostic_capture_deinitialize(
-        &out_provider->diagnostics);
-    *out_provider = (iree_benchmark_loom_hal_actual_provider_t){0};
+  loom_compile_report_capture_initialize(compile_report_options, host_allocator,
+                                         &out_provider->compile_report_capture);
+  loom_compile_options_t report_options = {0};
+  loom_compile_options_initialize(&report_options);
+  loom_compile_report_capture_configure_compile_options(
+      &out_provider->compile_report_capture, &report_options);
+  loom_compile_artifact_flags_t artifact_flags = 0;
+  if (context->artifact_bundle != NULL && context->artifact_bundle->enabled &&
+      context->artifact_bundle->policy >=
+          IREE_BENCHMARK_LOOM_ARTIFACT_BUNDLE_POLICY_DEBUG) {
+    artifact_flags |= LOOM_COMPILE_ARTIFACT_FLAG_TARGET_LISTING;
   }
-  return status;
+  loom_run_hal_testbench_actual_provider_options_t provider_options = {
+      .context = &context->execution,
+      .session = session,
+      .target_environment = context->configuration->target_environment,
+      .run_module = run_module,
+      .pipeline = benchmark_options->pipeline,
+      .target = benchmark_options->target,
+      .sanitizer = benchmark_options->sanitizer,
+      .config_set = context->config_set,
+      .kernel_launch = kernel_launch,
+      .diagnostic_sink =
+          (loom_diagnostic_sink_t){
+              .fn = iree_benchmark_loom_diagnostic_capture_sink,
+              .user_data = &out_provider->diagnostics,
+          },
+      .report = report_options.report,
+      .artifact_flags = artifact_flags,
+      .artifact_manifest = artifact_manifest,
+  };
+  loom_run_hal_testbench_actual_provider_initialize(&provider_options,
+                                                    &out_provider->execution);
 }
 
 void iree_benchmark_loom_hal_actual_provider_deinitialize(
@@ -87,9 +78,7 @@ void iree_benchmark_loom_hal_actual_provider_deinitialize(
     return;
   }
   loom_run_hal_testbench_actual_provider_deinitialize(&provider->execution);
-  if (provider->compile_report_capture_initialized) {
-    loom_compile_report_capture_deinitialize(&provider->compile_report_capture);
-  }
+  loom_compile_report_capture_deinitialize(&provider->compile_report_capture);
   iree_allocator_t host_allocator = provider->context->execution.host_allocator;
   iree_allocator_free(host_allocator, provider->hal_executable_path_storage);
   iree_allocator_free(host_allocator, provider->target_artifact_path_storage);
@@ -151,12 +140,10 @@ iree_status_t iree_benchmark_loom_hal_actual_sequence_initialize(
           run_module->module, invocation->callee_ref, &artifact_path_suffix);
     }
     if (iree_status_is_ok(status)) {
-      status = iree_benchmark_loom_hal_actual_provider_initialize(
+      iree_benchmark_loom_hal_actual_provider_initialize(
           context, session, run_module, benchmark_options, invocation,
           artifact_path_suffix, compile_report_options,
           artifact_manifest_options, &out_sequence->providers[provider_index]);
-    }
-    if (iree_status_is_ok(status)) {
       out_sequence->provider_count = ++provider_index;
     }
   }
