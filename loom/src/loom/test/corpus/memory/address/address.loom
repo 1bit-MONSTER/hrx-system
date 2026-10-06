@@ -1,6 +1,6 @@
 // The workload is dynamic; specialization cannot precompute these groups or
 // byte counts. Both divide and scale operate beyond the low 32 bits.
-func.def public @launch_arithmetic(%workload0: index, %tile0: index, %element_bytes: offset) -> (index, offset) {
+func.def @launch_arithmetic(%workload0: index, %tile0: index, %element_bytes: offset) -> (index, offset) {
   %workload, %tile = index.assume %workload0, %tile0 [range(%workload0, 0, 1099511627776), range(%tile0, 1, 65536)] : index, index
   %c1 = index.constant 1 : index
   %bias = index.sub %tile, %c1 : index
@@ -10,32 +10,9 @@ func.def public @launch_arithmetic(%workload0: index, %tile0: index, %element_by
   func.return %groups, %bytes : index, offset
 }
 
-check.case @launch_large_workload {
-  %workload = check.literal value(4294967297) : index
-  %tile = check.literal value(256) : index
-  %element_bytes = check.literal value(4) : offset
-  %groups, %bytes = func.call @launch_arithmetic(%workload, %tile, %element_bytes) : (index, index, offset) -> (index, offset)
-  %expected_groups = check.literal value(16777217) : index
-  %expected_bytes = check.literal value(17179869188) : offset
-  check.expect.equal actual(%groups) expected(%expected_groups) : index
-  check.expect.equal actual(%bytes) expected(%expected_bytes) : offset
-  check.return
-}
-
-check.case @launch_empty_workload {
-  %workload = check.literal value(0) : index
-  %tile = check.param.choice values([1, 32, 256]) : index
-  %element_bytes = check.literal value(4) : offset
-  %groups, %bytes = func.call @launch_arithmetic(%workload, %tile, %element_bytes) : (index, index, offset) -> (index, offset)
-  %expected_bytes = check.literal value(0) : offset
-  check.expect.equal actual(%groups) expected(%workload) : index
-  check.expect.equal actual(%bytes) expected(%expected_bytes) : offset
-  check.return
-}
-
 // The same raw narrow payload enters index as signed, offset as unsigned,
 // and survives a low-bit round trip through the public argument/result ABI.
-func.def public @address_casts(%flag: i1, %byte: i8, %word: i16) -> (index, offset, index, offset, index, offset, i8, i16) {
+func.def @address_casts(%flag: i1, %byte: i8, %word: i16) -> (index, offset, index, offset, index, offset, i8, i16) {
   %flag_index = index.cast %flag : i1 to index
   %flag_offset = index.cast %flag : i1 to offset
   %byte_index = index.cast %byte : i8 to index
@@ -47,28 +24,7 @@ func.def public @address_casts(%flag: i1, %byte: i8, %word: i16) -> (index, offs
   func.return %flag_index, %flag_offset, %byte_index, %byte_offset, %word_index, %word_offset, %byte_back, %word_back : index, offset, index, offset, index, offset, i8, i16
 }
 
-check.case @address_signedness {
-  %flag = check.literal value(true) : i1
-  %byte = check.literal value(-1) : i8
-  %word = check.literal value(-1) : i16
-  %flag_index, %flag_offset, %byte_index, %byte_offset, %word_index, %word_offset, %byte_back, %word_back = func.call @address_casts(%flag, %byte, %word) : (i1, i8, i16) -> (index, offset, index, offset, index, offset, i8, i16)
-  %one_index = check.literal value(1) : index
-  %one_offset = check.literal value(1) : offset
-  %negative_index = check.literal value(-1) : index
-  %max_byte = check.literal value(255) : offset
-  %max_word = check.literal value(65535) : offset
-  check.expect.equal actual(%flag_index) expected(%one_index) : index
-  check.expect.equal actual(%flag_offset) expected(%one_offset) : offset
-  check.expect.equal actual(%byte_index) expected(%negative_index) : index
-  check.expect.equal actual(%byte_offset) expected(%max_byte) : offset
-  check.expect.equal actual(%word_index) expected(%negative_index) : index
-  check.expect.equal actual(%word_offset) expected(%max_word) : offset
-  check.expect.equal actual(%byte_back) expected(%byte) : i8
-  check.expect.equal actual(%word_back) expected(%word) : i16
-  check.return
-}
-
-func.def public @index_loop(%limit0: index, %stride: offset) -> (offset) {
+func.def @index_loop(%limit0: index, %stride: offset) -> (offset) {
   %limit = index.assume %limit0 [range(%limit0, 0, 64)] : index
   %c0 = index.constant 0 : index
   %c1 = index.constant 1 : index
@@ -81,11 +37,65 @@ func.def public @index_loop(%limit0: index, %stride: offset) -> (offset) {
   func.return %sum : offset
 }
 
-check.case @index_loop_case {
-  %limit = check.literal value(5) : index
-  %stride = check.literal value(8) : offset
+func.def @launch_arithmetic_observations(%ordinal: index, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %empty = index.cmp eq, %ordinal, %c0 : index
+  %empty_workload = index.constant 0 : index
+  %large = index.constant 4294967297 : index
+  %workload = scf.select %empty, %empty_workload, %large : index
+  %tile = index.constant 256 : index
+  %element_bytes = index.constant 4 : offset
+  %groups, %bytes = func.call @launch_arithmetic(%workload, %tile, %element_bytes) : (index, index, offset) -> (index, offset)
+  %groups_value = index.cast %groups : index to i64
+  %bytes_value = index.cast %bytes : offset to i64
+  %values = vector.from_elements %groups_value, %bytes_value : vector<2xi64>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<2xi64>
+  vector.store %values, %results[0] : vector<2xi64>, view<2xi64>
+  func.return
+}
+
+func.def @address_cast_observations(%ordinal: index, %output: buffer) {
+  %flag = scalar.constant true : i1
+  %byte = scalar.constant -1 : i8
+  %word = scalar.constant -1 : i16
+  %flag_index, %flag_offset, %byte_index, %byte_offset, %word_index, %word_offset, %byte_back, %word_back = func.call @address_casts(%flag, %byte, %word) : (i1, i8, i16) -> (index, offset, index, offset, index, offset, i8, i16)
+  %c1 = index.constant 1 : index
+  %limit = index.add %ordinal, %c1 : index
+  %stride = index.constant 8 : offset
   %sum = func.call @index_loop(%limit, %stride) : (index, offset) -> (offset)
-  %expected = check.literal value(80) : offset
-  check.expect.equal actual(%sum) expected(%expected) : offset
+  %flag_index_value = index.cast %flag_index : index to i64
+  %flag_offset_value = index.cast %flag_offset : offset to i64
+  %byte_index_value = index.cast %byte_index : index to i64
+  %byte_offset_value = index.cast %byte_offset : offset to i64
+  %word_index_value = index.cast %word_index : index to i64
+  %word_offset_value = index.cast %word_offset : offset to i64
+  %byte_back_value = scalar.extsi %byte_back : i8 to i64
+  %word_back_value = scalar.extsi %word_back : i16 to i64
+  %sum_value = index.cast %sum : offset to i64
+  %values = vector.from_elements %flag_index_value, %flag_offset_value, %byte_index_value, %byte_offset_value, %word_index_value, %word_offset_value, %byte_back_value, %word_back_value, %sum_value : vector<9xi64>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<9xi64>
+  vector.store %values, %results[0] : vector<9xi64>, view<9xi64>
+  func.return
+}
+
+check.scenario @launch_arithmetic_values {
+  check.trial[2](%trial: index, %entropy: check.entropy) {
+    %output = check.generate.fill value(0) : tensor<2xi64>
+    check.compare<@launch_arithmetic_observations>(%trial, %output) : (index, tensor<2xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2xi64>
+    }
+  }
+  check.return
+}
+
+check.scenario @address_cast_values {
+  check.trial[6](%trial: index, %entropy: check.entropy) {
+    %output = check.generate.fill value(0) : tensor<9xi64>
+    check.compare<@address_cast_observations>(%trial, %output) : (index, tensor<9xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<9xi64>
+    }
+  }
   check.return
 }

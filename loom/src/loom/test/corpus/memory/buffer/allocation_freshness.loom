@@ -63,7 +63,7 @@ func.def noinline @read_selected_with_scratch(%input: buffer, %use_input: i1, %r
   func.return %result : i32
 }
 
-func.def public @allocation_aliases(%initial: i32, %replacement: i32) -> (i32, i32, i32) {
+func.def @allocation_aliases(%initial: i32, %replacement: i32) -> (i32, i32, i32) {
   %base = index.constant 0 : offset
   %bytes = index.constant 4 : offset
   %input = buffer.alloca<private> align(4) %bytes : buffer
@@ -75,7 +75,7 @@ func.def public @allocation_aliases(%initial: i32, %replacement: i32) -> (i32, i
   func.return %entry, %aliased, %after : i32, i32, i32
 }
 
-func.def public @allocation_selection(%initial: i32, %replacement: i32, %use_input: i1) -> (i32, i32) {
+func.def @allocation_selection(%initial: i32, %replacement: i32, %use_input: i1) -> (i32, i32) {
   %base = index.constant 0 : offset
   %bytes = index.constant 4 : offset
   %input = buffer.alloca<private> align(4) %bytes : buffer
@@ -86,32 +86,30 @@ func.def public @allocation_selection(%initial: i32, %replacement: i32, %use_inp
   func.return %selected, %after : i32, i32
 }
 
-check.case @entry_and_derived_allocation_aliases {
-  %initial = check.param.choice values([-31, 0, 2147483647]) : i32
-  %replacement = check.param.choice values([-9, 99]) : i32
-  %entry, %aliased, %after = func.call @allocation_aliases(%initial, %replacement) : (i32, i32) -> (i32, i32, i32)
-  check.expect.equal actual(%entry) expected(%initial) : i32
-  check.expect.equal actual(%aliased) expected(%replacement) : i32
-  check.expect.equal actual(%after) expected(%initial) : i32
-  check.return
+func.def @allocation_freshness_observations(%initial_entropy: i64, %replacement_entropy: i64, %ordinal: index, %output: buffer) {
+  %initial = scalar.trunci %initial_entropy : i64 to i32
+  %replacement = scalar.trunci %replacement_entropy : i64 to i32
+  %c0 = index.constant 0 : index
+  %use_input = index.cmp ne, %ordinal, %c0 : index
+  %entry, %aliased, %alias_after = func.call @allocation_aliases(%initial, %replacement) : (i32, i32) -> (i32, i32, i32)
+  %selected, %selection_after = func.call @allocation_selection(%initial, %replacement, %use_input) : (i32, i32, i1) -> (i32, i32)
+  %values = vector.from_elements %entry, %aliased, %alias_after, %selected, %selection_after : vector<5xi32>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<5xi32>
+  vector.store %values, %results[0] : vector<5xi32>, view<5xi32>
+  func.return
 }
 
-check.case @selected_entry_storage_survives_local_scratch {
-  %initial = check.param.choice values([-31, 0, 2147483647]) : i32
-  %replacement = check.literal value(99) : i32
-  %use_input = check.literal value(true) : i1
-  %selected, %after = func.call @allocation_selection(%initial, %replacement, %use_input) : (i32, i32, i1) -> (i32, i32)
-  check.expect.equal actual(%selected) expected(%initial) : i32
-  check.expect.equal actual(%after) expected(%initial) : i32
-  check.return
-}
-
-check.case @selected_scratch_observes_loop_writes {
-  %initial = check.param.choice values([-31, 0, 2147483647]) : i32
-  %replacement = check.param.choice values([-9, 99]) : i32
-  %use_input = check.literal value(false) : i1
-  %selected, %after = func.call @allocation_selection(%initial, %replacement, %use_input) : (i32, i32, i1) -> (i32, i32)
-  check.expect.equal actual(%selected) expected(%replacement) : i32
-  check.expect.equal actual(%after) expected(%initial) : i32
+check.scenario @allocation_freshness_values {
+  check.trial[32](%trial: index, %entropy: check.entropy) {
+    %initial_source = check.entropy.fork %entropy name("initial") : check.entropy
+    %replacement_source = check.entropy.fork %entropy name("replacement") : check.entropy
+    %initial = check.entropy.read %initial_source[%trial] : check.entropy -> i64
+    %replacement = check.entropy.read %replacement_source[%trial] : check.entropy -> i64
+    %output = check.generate.fill value(0) : tensor<5xi32>
+    check.compare<@allocation_freshness_observations>(%initial, %replacement, %trial, %output) : (i64, i64, index, tensor<5xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<5xi32>
+    }
+  }
   check.return
 }

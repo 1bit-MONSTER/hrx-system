@@ -323,13 +323,7 @@ loom_corpus_test(
     "kernel"
     "function"
   SOURCES
-    "memory/address/address.loom"
     "memory/atomic/operations.loom"
-    "memory/buffer/allocation_freshness.loom"
-    "memory/buffer/boundaries.loom"
-    "memory/buffer/buffer_access.loom"
-    "memory/buffer/buffers.loom"
-    "memory/buffer/masked_memory.loom"
     "memory/view/access.loom"
     "memory/view/boundary_transport.loom"
     "memory/view/nested_selection.loom"

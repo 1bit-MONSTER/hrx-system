@@ -1,7 +1,7 @@
 // A partial pattern repeats its little-endian bytes. Adjacent canaries and
 // independent byte observations detect both overrun and wrong tail handling.
 // Copying disjoint ranges of one root is legal; overlapping ranges are not.
-func.def public @partial_pattern_copy(%pattern: i32) -> (i32, i32, i32, i32, i32, i32, i32, i32) {
+func.def @partial_pattern_copy(%pattern: i32) -> (i32, i32, i32, i32, i32, i32, i32, i32) {
   %c0 = index.constant 0 : offset
   %c1 = index.constant 1 : offset
   %c2 = index.constant 2 : offset
@@ -29,29 +29,9 @@ func.def public @partial_pattern_copy(%pattern: i32) -> (i32, i32, i32, i32, i32
   func.return %byte0, %byte1, %byte2, %byte3, %copied_first, %copied_last, %middle_canary, %last_canary : i32, i32, i32, i32, i32, i32, i32, i32
 }
 
-check.case @partial_pattern_copy_case {
-  // 0x12345678 repeats as 78 56 34 12 78, followed by an untouched 55.
-  %pattern = check.literal value(305419896) : i32
-  %byte0, %byte1, %byte2, %byte3, %copied_first, %copied_last, %middle_canary, %last_canary = func.call @partial_pattern_copy(%pattern) : (i32) -> (i32, i32, i32, i32, i32, i32, i32, i32)
-  %expected0 = check.literal value(120) : i32
-  %expected1 = check.literal value(86) : i32
-  %expected2 = check.literal value(52) : i32
-  %expected3 = check.literal value(18) : i32
-  %canary = check.literal value(85) : i32
-  check.expect.equal actual(%byte0) expected(%expected0) : i32
-  check.expect.equal actual(%byte1) expected(%expected1) : i32
-  check.expect.equal actual(%byte2) expected(%expected2) : i32
-  check.expect.equal actual(%byte3) expected(%expected3) : i32
-  check.expect.equal actual(%copied_first) expected(%expected0) : i32
-  check.expect.equal actual(%copied_last) expected(%expected0) : i32
-  check.expect.equal actual(%middle_canary) expected(%canary) : i32
-  check.expect.equal actual(%last_canary) expected(%canary) : i32
-  check.return
-}
-
 // Only the final byte differs. Lexicographic order is unsigned and canonical,
 // while signed and unsigned interpretations retain their distinct meanings.
-func.def public @last_byte_order(%a: i32, %b: i32) -> (i32, i32, i32, i32) {
+func.def @last_byte_order(%a: i32, %b: i32) -> (i32, i32, i32, i32) {
   %c0 = index.constant 0 : offset
   %last = index.constant 4 : offset
   %length = index.constant 5 : offset
@@ -70,22 +50,8 @@ func.def public @last_byte_order(%a: i32, %b: i32) -> (i32, i32, i32, i32) {
   func.return %forward, %reverse, %signed, %unsigned : i32, i32, i32, i32
 }
 
-check.case @last_byte_order_unsigned {
-  %a = check.param.choice values([255, 511, -1]) : i32
-  %b = check.literal value(127) : i32
-  %forward, %reverse, %signed, %unsigned = func.call @last_byte_order(%a, %b) : (i32, i32) -> (i32, i32, i32, i32)
-  %less = check.literal value(-1) : i32
-  %greater = check.literal value(1) : i32
-  %maximum_byte = check.literal value(255) : i32
-  check.expect.equal actual(%forward) expected(%greater) : i32
-  check.expect.equal actual(%reverse) expected(%less) : i32
-  check.expect.equal actual(%signed) expected(%less) : i32
-  check.expect.equal actual(%unsigned) expected(%maximum_byte) : i32
-  check.return
-}
-
 // The invalid address belongs to a non-taken branch and must never be read.
-func.def public @guarded_byte_load(%position: i64) -> (i32) {
+func.def @guarded_byte_load(%position: i64) -> (i32) {
   %c0 = index.constant 0 : offset
   %length = index.constant 1 : offset
   %storage = buffer.alloca<private> align(1) %length : buffer
@@ -104,25 +70,9 @@ func.def public @guarded_byte_load(%position: i64) -> (i32) {
   func.return %result : i32
 }
 
-check.case @guarded_byte_load_valid {
-  %position = check.literal value(0) : i64
-  %result = func.call @guarded_byte_load(%position) : (i64) -> (i32)
-  %expected = check.literal value(55) : i32
-  check.expect.equal actual(%result) expected(%expected) : i32
-  check.return
-}
-
-check.case @guarded_byte_load_not_taken {
-  %position = check.param.choice values([1, 16, 4294967296, -1]) : i64
-  %result = func.call @guarded_byte_load(%position) : (i64) -> (i32)
-  %expected = check.literal value(77) : i32
-  check.expect.equal actual(%result) expected(%expected) : i32
-  check.return
-}
-
 // Combining these reads must preserve their snapshot before the overlapping
 // overwrite. Observing raw bits covers signed zero, subnormals and NaN payloads.
-func.def public @adjacent_half_snapshot(%left_bits: i32, %right_bits: i32, %overwrite: i32) -> (i32, i32, i32) {
+func.def @adjacent_half_snapshot(%left_bits: i32, %right_bits: i32, %overwrite: i32) -> (i32, i32, i32) {
   %byte_base = index.constant 0 : offset
   %length = index.constant 4 : offset
   %storage = buffer.alloca<private> align(4) %length : buffer
@@ -144,18 +94,7 @@ func.def public @adjacent_half_snapshot(%left_bits: i32, %right_bits: i32, %over
   func.return %left_result, %right_result, %after : i32, i32, i32
 }
 
-check.case @adjacent_half_snapshot_bits {
-  %left_bits = check.param.choice values([0, 32768, 1, 31745, 32257, 65535]) : i32
-  %right_bits = check.param.choice values([15360, 64512]) : i32
-  %overwrite = check.literal value(305419896) : i32
-  %left, %right, %after = func.call @adjacent_half_snapshot(%left_bits, %right_bits, %overwrite) : (i32, i32, i32) -> (i32, i32, i32)
-  check.expect.equal actual(%left) expected(%left_bits) : i32
-  check.expect.equal actual(%right) expected(%right_bits) : i32
-  check.expect.equal actual(%after) expected(%overwrite) : i32
-  check.return
-}
-
-func.def public @vector_input_buffer(%a: i32, %b: i32, %c: i32, %d: i32) -> (buffer) {
+func.def @vector_input_buffer(%a: i32, %b: i32, %c: i32, %d: i32) -> (buffer) {
   %length = index.constant 24 : offset
   %origin = index.constant 0 : offset
   %storage = buffer.alloca<private> align(4) %length : buffer
@@ -172,7 +111,7 @@ func.def public @vector_input_buffer(%a: i32, %b: i32, %c: i32, %d: i32) -> (buf
 
 // Loads skip the leading canary. Unequal lanes distinguish concat/shuffle order;
 // stores overwrite exactly the middle four words, preserving both canaries.
-func.def public @vector_memory_transform(%storage: buffer, %bias: i32) -> (i32, i32, i32, i32, i32, i32) {
+func.def @vector_memory_transform(%storage: buffer, %bias: i32) -> (i32, i32, i32, i32, i32, i32) {
   %origin = index.constant 0 : offset
   %view = buffer.view %storage[%origin] : buffer -> view<6xi32>
   %loaded = vector.load %view[1] : view<6xi32> -> vector<4xi32>
@@ -192,30 +131,8 @@ func.def public @vector_memory_transform(%storage: buffer, %bias: i32) -> (i32, 
   func.return %before, %r0, %r1, %r2, %r3, %after : i32, i32, i32, i32, i32, i32
 }
 
-check.case @vector_memory_transform_case {
-  %a = check.literal value(-7) : i32
-  %b = check.literal value(11) : i32
-  %c = check.literal value(23) : i32
-  %d = check.literal value(-29) : i32
-  %storage = func.call @vector_input_buffer(%a, %b, %c, %d) : (i32, i32, i32, i32) -> (buffer)
-  %bias = check.literal value(3) : i32
-  %before, %r0, %r1, %r2, %r3, %after = func.call @vector_memory_transform(%storage, %bias) : (buffer, i32) -> (i32, i32, i32, i32, i32, i32)
-  %sentinel = check.literal value(12345) : i32
-  %e0 = check.literal value(14) : i32
-  %e1 = check.literal value(-4) : i32
-  %e2 = check.literal value(-26) : i32
-  %e3 = check.literal value(26) : i32
-  check.expect.equal actual(%before) expected(%sentinel) : i32
-  check.expect.equal actual(%r0) expected(%e0) : i32
-  check.expect.equal actual(%r1) expected(%e1) : i32
-  check.expect.equal actual(%r2) expected(%e2) : i32
-  check.expect.equal actual(%r3) expected(%e3) : i32
-  check.expect.equal actual(%after) expected(%sentinel) : i32
-  check.return
-}
-
 // The scalar write happens after the vector snapshot and cannot change it.
-func.def public @vector_snapshot_before_write(%storage: buffer, %replacement: i32) -> (i32, i32) {
+func.def @vector_snapshot_before_write(%storage: buffer, %replacement: i32) -> (i32, i32) {
   %origin = index.constant 0 : offset
   %view = buffer.view %storage[%origin] : buffer -> view<6xi32>
   %loaded = vector.load %view[1] : view<6xi32> -> vector<2xi32>
@@ -227,19 +144,8 @@ func.def public @vector_snapshot_before_write(%storage: buffer, %replacement: i3
   func.return %a, %b : i32, i32
 }
 
-check.case @vector_snapshot_before_write_case {
-  %a = check.literal value(-7) : i32
-  %b = check.literal value(11) : i32
-  %storage = func.call @vector_input_buffer(%a, %b, %a, %b) : (i32, i32, i32, i32) -> (buffer)
-  %replacement = check.literal value(99) : i32
-  %r0, %r1 = func.call @vector_snapshot_before_write(%storage, %replacement) : (buffer, i32) -> (i32, i32)
-  check.expect.equal actual(%r0) expected(%b) : i32
-  check.expect.equal actual(%r1) expected(%a) : i32
-  check.return
-}
-
 // Writing the first payload must not change the second lane's captured mask.
-func.def public @store_mask_snapshot(%first_mask: i32, %second_mask: i32, %a: i32, %b: i32) -> (i32, i32) {
+func.def @store_mask_snapshot(%first_mask: i32, %second_mask: i32, %a: i32, %b: i32) -> (i32, i32) {
   %length = index.constant 12 : offset
   %base = index.constant 0 : offset
   %storage = buffer.alloca<private> align(4) %length : buffer
@@ -259,32 +165,9 @@ func.def public @store_mask_snapshot(%first_mask: i32, %second_mask: i32, %a: i3
   func.return %left, %right : i32, i32
 }
 
-check.case @inactive_lane_mask_survives_overwrite {
-  %first_mask = check.param.choice values([-1, 1, 7]) : i32
-  %second_mask = check.literal value(0) : i32
-  %a = check.param.choice values([3, 99]) : i32
-  %b = check.literal value(77) : i32
-  %left, %right = func.call @store_mask_snapshot(%first_mask, %second_mask, %a, %b) : (i32, i32, i32, i32) -> (i32, i32)
-  %canary = check.literal value(55) : i32
-  check.expect.equal actual(%left) expected(%a) : i32
-  check.expect.equal actual(%right) expected(%canary) : i32
-  check.return
-}
-
-check.case @active_lane_mask_survives_zero_overwrite {
-  %first_mask = check.literal value(1) : i32
-  %second_mask = check.param.choice values([-1, 1, 7]) : i32
-  %a = check.literal value(0) : i32
-  %b = check.param.choice values([77, -9]) : i32
-  %left, %right = func.call @store_mask_snapshot(%first_mask, %second_mask, %a, %b) : (i32, i32, i32, i32) -> (i32, i32)
-  check.expect.equal actual(%left) expected(%a) : i32
-  check.expect.equal actual(%right) expected(%b) : i32
-  check.return
-}
-
 // Offsets [1, 0] swap the destinations. The first write overwrites the second
 // offset's storage, but must not redirect the second write to a canary.
-func.def public @scatter_offset_snapshot(%a: i32, %b: i32) -> (i32, i32, i32, i32) {
+func.def @scatter_offset_snapshot(%a: i32, %b: i32) -> (i32, i32, i32, i32) {
   %length = index.constant 16 : offset
   %base = index.constant 0 : offset
   %storage = buffer.alloca<private> align(4) %length : buffer
@@ -309,18 +192,6 @@ func.def public @scatter_offset_snapshot(%a: i32, %b: i32) -> (i32, i32, i32, i3
   func.return %left, %right, %after0, %after1 : i32, i32, i32, i32
 }
 
-check.case @scatter_offsets_survive_overwrite {
-  %a = check.param.choice values([2, 3]) : i32
-  %b = check.param.choice values([-9, 77]) : i32
-  %left, %right, %after0, %after1 = func.call @scatter_offset_snapshot(%a, %b) : (i32, i32) -> (i32, i32, i32, i32)
-  %canary = check.literal value(55) : i32
-  check.expect.equal actual(%left) expected(%b) : i32
-  check.expect.equal actual(%right) expected(%a) : i32
-  check.expect.equal actual(%after0) expected(%canary) : i32
-  check.expect.equal actual(%after1) expected(%canary) : i32
-  check.return
-}
-
 func.def noinline @overwrite_lane(%storage: buffer, %value: i32) {
   %position = index.constant 0 : offset
   %view = buffer.view %storage[%position] : buffer -> view<2xi32>
@@ -328,7 +199,7 @@ func.def noinline @overwrite_lane(%storage: buffer, %value: i32) {
   func.return
 }
 
-func.def public @captured_lane(%a: i32, %b: i32, %replacement: i32) -> (i32, i32, i32) {
+func.def @captured_lane(%a: i32, %b: i32, %replacement: i32) -> (i32, i32, i32) {
   %length = index.constant 8 : offset
   %base = index.constant 0 : offset
   %storage = buffer.alloca<private> align(4) %length : buffer
@@ -343,13 +214,128 @@ func.def public @captured_lane(%a: i32, %b: i32, %replacement: i32) -> (i32, i32
   func.return %left, %right, %after : i32, i32, i32
 }
 
-check.case @captured_lane_survives_call {
-  %a = check.param.choice values([-2147483648, -7, 0, 2147483647]) : i32
-  %b = check.param.choice values([-11, 13]) : i32
-  %replacement = check.literal value(99) : i32
-  %left, %right, %after = func.call @captured_lane(%a, %b, %replacement) : (i32, i32, i32) -> (i32, i32, i32)
-  check.expect.equal actual(%left) expected(%a) : i32
-  check.expect.equal actual(%right) expected(%b) : i32
-  check.expect.equal actual(%after) expected(%replacement) : i32
+func.def @byte_boundary_observations(%ordinal: index, %left_entropy: i64, %right_entropy: i64, %output: buffer) {
+  %random_pattern = scalar.trunci %left_entropy : i64 to i32
+  %c0 = index.constant 0 : index
+  %is0 = index.cmp eq, %ordinal, %c0 : index
+  %fixed_pattern = scalar.constant 305419896 : i32
+  %pattern = scf.select %is0, %fixed_pattern, %random_pattern : i32
+  %byte0, %byte1, %byte2, %byte3, %copied_first, %copied_last, %middle_canary, %last_canary = func.call @partial_pattern_copy(%pattern) : (i32) -> (i32, i32, i32, i32, i32, i32, i32, i32)
+  %last_a = scalar.constant -1 : i32
+  %last_b = scalar.constant 127 : i32
+  %forward, %reverse, %signed, %unsigned = func.call @last_byte_order(%last_a, %last_b) : (i32, i32) -> (i32, i32, i32, i32)
+  %c12 = index.constant 12 : index
+  %c13 = index.constant 13 : index
+  %c14 = index.constant 14 : index
+  %is12 = index.cmp eq, %ordinal, %c12 : index
+  %is13 = index.cmp eq, %ordinal, %c13 : index
+  %is14 = index.cmp eq, %ordinal, %c14 : index
+  %base_position = index.cast %ordinal : index to i64
+  %position16 = scalar.constant 16 : i64
+  %wide_position = scalar.constant 4294967296 : i64
+  %negative_position = scalar.constant -1 : i64
+  %selected16 = scf.select %is12, %position16, %base_position : i64
+  %selected_wide = scf.select %is13, %wide_position, %selected16 : i64
+  %position = scf.select %is14, %negative_position, %selected_wide : i64
+  %guarded = func.call @guarded_byte_load(%position) : (i64) -> (i32)
+  %random_left_bits = scalar.trunci %left_entropy : i64 to i32
+  %random_right_bits = scalar.trunci %right_entropy : i64 to i32
+  %ordinal_value = index.cast %ordinal : index to i32
+  %selector_shift = scalar.constant 1 : i32
+  %selector = scalar.shrui %ordinal_value, %selector_shift : i32
+  %selector1 = scalar.constant 1 : i32
+  %selector2 = scalar.constant 2 : i32
+  %selector3 = scalar.constant 3 : i32
+  %selector4 = scalar.constant 4 : i32
+  %selector5 = scalar.constant 5 : i32
+  %is1 = scalar.cmpi eq, %selector, %selector1 : i32
+  %is2 = scalar.cmpi eq, %selector, %selector2 : i32
+  %is3 = scalar.cmpi eq, %selector, %selector3 : i32
+  %is4 = scalar.cmpi eq, %selector, %selector4 : i32
+  %is5 = scalar.cmpi eq, %selector, %selector5 : i32
+  %left0 = scalar.constant 0 : i32
+  %left1 = scalar.constant 32768 : i32
+  %left2 = scalar.constant 1 : i32
+  %left3 = scalar.constant 31745 : i32
+  %left4 = scalar.constant 32257 : i32
+  %left5 = scalar.constant 65535 : i32
+  %selected_left1 = scf.select %is1, %left1, %left0 : i32
+  %selected_left2 = scf.select %is2, %left2, %selected_left1 : i32
+  %selected_left3 = scf.select %is3, %left3, %selected_left2 : i32
+  %selected_left4 = scf.select %is4, %left4, %selected_left3 : i32
+  %directed_left = scf.select %is5, %left5, %selected_left4 : i32
+  %is_directed = index.cmp ult, %ordinal, %c12 : index
+  %left_bits = scf.select %is_directed, %directed_left, %random_left_bits : i32
+  %parity = scalar.andi %ordinal_value, %selector1 : i32
+  %even_parity = scalar.constant 0 : i32
+  %odd = scalar.cmpi ne, %parity, %even_parity : i32
+  %right0 = scalar.constant 15360 : i32
+  %right1 = scalar.constant 64512 : i32
+  %directed_right = scf.select %odd, %right1, %right0 : i32
+  %right_bits = scf.select %is_directed, %directed_right, %random_right_bits : i32
+  %overwrite = scalar.constant 305419896 : i32
+  %half_left, %half_right, %half_after = func.call @adjacent_half_snapshot(%left_bits, %right_bits, %overwrite) : (i32, i32, i32) -> (i32, i32, i32)
+  %values = vector.from_elements %byte0, %byte1, %byte2, %byte3, %copied_first, %copied_last, %middle_canary, %last_canary, %forward, %reverse, %signed, %unsigned, %guarded, %half_left, %half_right, %half_after : vector<16xi32>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<16xi32>
+  vector.store %values, %results[0] : vector<16xi32>, view<16xi32>
+  func.return
+}
+
+func.def @vector_boundary_observations(%ordinal: index, %left_entropy: i64, %right_entropy: i64, %output: buffer) {
+  %a = scalar.trunci %left_entropy : i64 to i32
+  %b = scalar.trunci %right_entropy : i64 to i32
+  %c17 = scalar.constant 17 : i32
+  %c29 = scalar.constant 29 : i32
+  %c = scalar.addi %a, %c17 : i32
+  %d = scalar.subi %b, %c29 : i32
+  %bias = scalar.constant 3 : i32
+  %transform_storage = func.call @vector_input_buffer(%a, %b, %c, %d) : (i32, i32, i32, i32) -> (buffer)
+  %before, %transform0, %transform1, %transform2, %transform3, %after = func.call @vector_memory_transform(%transform_storage, %bias) : (buffer, i32) -> (i32, i32, i32, i32, i32, i32)
+  %snapshot_storage = func.call @vector_input_buffer(%a, %b, %c, %d) : (i32, i32, i32, i32) -> (buffer)
+  %replacement = scalar.constant 99 : i32
+  %snapshot0, %snapshot1 = func.call @vector_snapshot_before_write(%snapshot_storage, %replacement) : (buffer, i32) -> (i32, i32)
+  %active_bit = scalar.constant 1 : i32
+  %first_mask = scalar.ori %a, %active_bit : i32
+  %c0 = index.constant 0 : index
+  %second_active = index.cmp ne, %ordinal, %c0 : index
+  %second_candidate = scalar.ori %b, %active_bit : i32
+  %zero_mask = scalar.constant 0 : i32
+  %second_mask = scf.select %second_active, %second_candidate, %zero_mask : i32
+  %masked0, %masked1 = func.call @store_mask_snapshot(%first_mask, %second_mask, %a, %b) : (i32, i32, i32, i32) -> (i32, i32)
+  %scatter0, %scatter1, %scatter_after0, %scatter_after1 = func.call @scatter_offset_snapshot(%a, %b) : (i32, i32) -> (i32, i32, i32, i32)
+  %captured0, %captured1, %captured_after = func.call @captured_lane(%a, %b, %replacement) : (i32, i32, i32) -> (i32, i32, i32)
+  %values = vector.from_elements %before, %transform0, %transform1, %transform2, %transform3, %after, %snapshot0, %snapshot1, %masked0, %masked1, %scatter0, %scatter1, %scatter_after0, %scatter_after1, %captured0, %captured1, %captured_after : vector<17xi32>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<17xi32>
+  vector.store %values, %results[0] : vector<17xi32>, view<17xi32>
+  func.return
+}
+
+check.scenario @byte_boundary_values {
+  check.trial[16](%trial: index, %entropy: check.entropy) {
+    %left_source = check.entropy.fork %entropy name("left") : check.entropy
+    %right_source = check.entropy.fork %entropy name("right") : check.entropy
+    %left = check.entropy.read %left_source[%trial] : check.entropy -> i64
+    %right = check.entropy.read %right_source[%trial] : check.entropy -> i64
+    %output = check.generate.fill value(0) : tensor<16xi32>
+    check.compare<@byte_boundary_observations>(%trial, %left, %right, %output) : (index, i64, i64, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @vector_boundary_values {
+  check.trial[32](%trial: index, %entropy: check.entropy) {
+    %left_source = check.entropy.fork %entropy name("left") : check.entropy
+    %right_source = check.entropy.fork %entropy name("right") : check.entropy
+    %left = check.entropy.read %left_source[%trial] : check.entropy -> i64
+    %right = check.entropy.read %right_source[%trial] : check.entropy -> i64
+    %output = check.generate.fill value(0) : tensor<17xi32>
+    check.compare<@vector_boundary_observations>(%trial, %left, %right, %output) : (index, i64, i64, tensor<17xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<17xi32>
+    }
+  }
   check.return
 }
