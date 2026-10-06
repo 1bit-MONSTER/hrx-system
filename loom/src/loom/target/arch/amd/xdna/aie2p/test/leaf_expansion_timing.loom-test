@@ -222,10 +222,10 @@ coissued components: 2
 // ====
 
 // Four live C fragments leave one DM for both loaded A packets. Publication
-// retains the old BFP read before the new writes, and native issue preserves
-// that accepted order even when a signed anti-dependency latency would permit
-// backfilling the overwrite. The complete bytes bind both load pairs, both
-// conversions and return timing without another accumulator allocation.
+// retains the old BFP read before the new writes. The replacement loads may
+// issue earlier because their delayed writes preserve that observation order.
+// The complete bytes bind both load pairs, both conversions and return timing
+// without another accumulator allocation.
 // RUN: emit aie2p-leaf @delayed_accumulator_reuse report=code
 
 low.func.def target<amd.xdna.aie2p.core> @delayed_accumulator_reuse(%first: reg<aie2p.ep>, %second: reg<aie2p.ep>, %c00: reg<aie2p.mbms x4>, %c01: reg<aie2p.mbms x4>, %c10: reg<aie2p.mbms x4>, %c11: reg<aie2p.mbms x4>) -> (reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mexa>, reg<aie2p.mexa>) asm {
@@ -242,7 +242,7 @@ low.func.def target<amd.xdna.aie2p.core> @delayed_accumulator_reuse(%first: reg<
 }
 
 // ----
-code: 54 31 60 7f c5 00 98 6b 16 00 00 00 00 00 00 00 00 00 00 00 00 00 0c 6c 14 70 c5 20 98 6b 16 01 00 00 00 00 00 00 00 00 18 00 28 10 00 00 18 36 8a 08 00 00 00 00 00 00
+code: 54 31 60 7f c5 00 98 6b 16 00 98 2b 06 01 98 6b 16 01 00 00 00 00 00 00 00 00 5c 00 50 c0 46 01 00 00 18 36 8a 08 00 00 00 00 00 00
 
 // ====
 

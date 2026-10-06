@@ -1676,23 +1676,6 @@ def _endpoint_itinerary(endpoint: tuple[int, str | None]) -> Itinerary:
     )
 
 
-def _physical_war_separation(producer: Itinerary, consumer: Itinerary) -> int:
-    # The signed LLVM anti-dependency latency assumes that its scheduler
-    # preserves topological issue order. Loom's physical issuer can backfill a
-    # later accepted instruction into an earlier issue cycle, so preserve the
-    # accepted read-before-overwrite order in the shared event table.
-    return max(
-        0,
-        dependency_separation(
-            producer,
-            0,
-            consumer,
-            0,
-            DependencyKind.WAR,
-        ),
-    )
-
-
 def _event_separations() -> tuple[EventSeparation, ...]:
     result = []
     endpoint_itineraries = {
@@ -1719,9 +1702,12 @@ def _event_separations() -> tuple[EventSeparation, ...]:
                     EventSeparation(
                         _register_event_name("read", *producer),
                         _register_event_name("write", *consumer),
-                        _physical_war_separation(
+                        dependency_separation(
                             producer_itinerary,
+                            0,
                             consumer_itinerary,
+                            0,
+                            DependencyKind.WAR,
                         ),
                         ModelQuality.EXACT,
                     ),
