@@ -83,8 +83,8 @@ func.def @scalar_f32_observations(%ordinal: index, %input: buffer, %round_inputs
   func.return
 }
 
-// Ordinary finite values own the shared numeric contract. Target Low tests own
-// NaN payloads, infinities, subnormals, signed zero, and exact instruction use.
+// Random ordinary finite values exercise the broad shared numeric contract.
+// Directed representation boundaries have independent scenarios below.
 check.scenario @scalar_f32_values {
   check.trial[64](%trial: index, %entropy: check.entropy) {
     %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
@@ -99,6 +99,168 @@ check.scenario @scalar_f32_values {
       check.expect.bitwise actual(%predicate_output) expected(%predicate_output) : tensor<2xi32>
       check.expect.bitwise actual(%input) expected(%expected_input) : tensor<4xf32>
       check.expect.bitwise actual(%round_inputs) expected(%expected_round_inputs) : tensor<64xf32>
+    }
+  }
+  check.return
+}
+
+// Observes the f32 denormal environment through dynamic scalar arguments.
+// Addition and subtraction consume signed subnormal inputs; multiplication and
+// exact division produce signed subnormal results. The rounding pair lands on
+// the minimum normal encoding from opposite signs.
+func.def @scalar_f32_denormal_observations(%positive_min_subnormal_bits: i32, %negative_min_subnormal_bits: i32, %positive_min_normal_bits: i32, %negative_min_normal_bits: i32, %positive_round_bits: i32, %negative_round_bits: i32, %positive_one_bits: i32, %negative_one_bits: i32, %output: buffer) {
+  %positive_min_subnormal = scalar.bitcast %positive_min_subnormal_bits : i32 to f32
+  %negative_min_subnormal = scalar.bitcast %negative_min_subnormal_bits : i32 to f32
+  %positive_min_normal = scalar.bitcast %positive_min_normal_bits : i32 to f32
+  %negative_min_normal = scalar.bitcast %negative_min_normal_bits : i32 to f32
+  %positive_round = scalar.bitcast %positive_round_bits : i32 to f32
+  %negative_round = scalar.bitcast %negative_round_bits : i32 to f32
+  %positive_one = scalar.bitcast %positive_one_bits : i32 to f32
+  %negative_one = scalar.bitcast %negative_one_bits : i32 to f32
+  %quarter_bits = scalar.constant 1048576000 : i32
+  %quarter = scalar.bitcast %quarter_bits : i32 to f32
+  %divisor_bits = scalar.constant 1082130432 : i32
+  %divisor = scalar.bitcast %divisor_bits : i32 to f32
+
+  %positive_add = scalar.addf %positive_min_subnormal, %positive_min_subnormal : f32
+  %negative_add = scalar.addf %negative_min_subnormal, %negative_min_subnormal : f32
+  %positive_subtract = scalar.subf %positive_min_subnormal, %negative_min_subnormal : f32
+  %negative_subtract = scalar.subf %negative_min_subnormal, %positive_min_subnormal : f32
+  %positive_product = scalar.mulf %positive_min_normal, %quarter : f32
+  %negative_product = scalar.mulf %negative_min_normal, %quarter : f32
+  %positive_rounded = scalar.mulf %positive_round, %quarter : f32
+  %negative_rounded = scalar.mulf %negative_round, %quarter : f32
+  %positive_control = scalar.mulf %positive_one, %quarter : f32
+  %negative_control = scalar.mulf %negative_one, %quarter : f32
+  %positive_quotient = scalar.divf %positive_min_normal, %divisor : f32
+  %negative_quotient = scalar.divf %negative_min_normal, %divisor : f32
+  %positive_add_bits = scalar.bitcast %positive_add : f32 to i32
+  %negative_add_bits = scalar.bitcast %negative_add : f32 to i32
+  %positive_subtract_bits = scalar.bitcast %positive_subtract : f32 to i32
+  %negative_subtract_bits = scalar.bitcast %negative_subtract : f32 to i32
+  %positive_product_bits = scalar.bitcast %positive_product : f32 to i32
+  %negative_product_bits = scalar.bitcast %negative_product : f32 to i32
+  %positive_rounded_bits = scalar.bitcast %positive_rounded : f32 to i32
+  %negative_rounded_bits = scalar.bitcast %negative_rounded : f32 to i32
+  %positive_control_bits = scalar.bitcast %positive_control : f32 to i32
+  %negative_control_bits = scalar.bitcast %negative_control : f32 to i32
+  %positive_quotient_bits = scalar.bitcast %positive_quotient : f32 to i32
+  %negative_quotient_bits = scalar.bitcast %negative_quotient : f32 to i32
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<12xi32>
+  view.store %positive_add_bits, %results[0] : i32, view<12xi32>
+  view.store %negative_add_bits, %results[1] : i32, view<12xi32>
+  view.store %positive_subtract_bits, %results[2] : i32, view<12xi32>
+  view.store %negative_subtract_bits, %results[3] : i32, view<12xi32>
+  view.store %positive_product_bits, %results[4] : i32, view<12xi32>
+  view.store %negative_product_bits, %results[5] : i32, view<12xi32>
+  view.store %positive_rounded_bits, %results[6] : i32, view<12xi32>
+  view.store %negative_rounded_bits, %results[7] : i32, view<12xi32>
+  view.store %positive_control_bits, %results[8] : i32, view<12xi32>
+  view.store %negative_control_bits, %results[9] : i32, view<12xi32>
+  view.store %positive_quotient_bits, %results[10] : i32, view<12xi32>
+  view.store %negative_quotient_bits, %results[11] : i32, view<12xi32>
+  func.return
+}
+
+// Provides bit-exact results independently of target floating-point behavior.
+func.def @scalar_f32_denormal_bits_oracle(%positive_min_subnormal_bits: i32, %negative_min_subnormal_bits: i32, %positive_min_normal_bits: i32, %negative_min_normal_bits: i32, %positive_round_bits: i32, %negative_round_bits: i32, %positive_one_bits: i32, %negative_one_bits: i32, %output: buffer) {
+  %positive_two_subnormals = scalar.constant 2 : i32
+  %negative_two_subnormals = scalar.constant -2147483646 : i32
+  %positive_quarter_min_normal = scalar.constant 2097152 : i32
+  %negative_quarter_min_normal = scalar.constant -2145386496 : i32
+  %positive_min_normal = scalar.constant 8388608 : i32
+  %negative_min_normal = scalar.constant -2139095040 : i32
+  %positive_quarter = scalar.constant 1048576000 : i32
+  %negative_quarter = scalar.constant -1098907648 : i32
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<12xi32>
+  view.store %positive_two_subnormals, %results[0] : i32, view<12xi32>
+  view.store %negative_two_subnormals, %results[1] : i32, view<12xi32>
+  view.store %positive_two_subnormals, %results[2] : i32, view<12xi32>
+  view.store %negative_two_subnormals, %results[3] : i32, view<12xi32>
+  view.store %positive_quarter_min_normal, %results[4] : i32, view<12xi32>
+  view.store %negative_quarter_min_normal, %results[5] : i32, view<12xi32>
+  view.store %positive_min_normal, %results[6] : i32, view<12xi32>
+  view.store %negative_min_normal, %results[7] : i32, view<12xi32>
+  view.store %positive_quarter, %results[8] : i32, view<12xi32>
+  view.store %negative_quarter, %results[9] : i32, view<12xi32>
+  view.store %positive_quarter_min_normal, %results[10] : i32, view<12xi32>
+  view.store %negative_quarter_min_normal, %results[11] : i32, view<12xi32>
+  func.return
+}
+
+check.scenario @scalar_f32_denormal_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %positive_min_subnormal = check.literal value(1) : i32
+    %negative_min_subnormal = check.literal value(-2147483647) : i32
+    %positive_min_normal = check.literal value(8388608) : i32
+    %negative_min_normal = check.literal value(-2139095040) : i32
+    %positive_round = check.literal value(25165823) : i32
+    %negative_round = check.literal value(-2122317825) : i32
+    %positive_one = check.literal value(1065353216) : i32
+    %negative_one = check.literal value(-1082130432) : i32
+    %storage = check.generate.fill value(-559038737) : tensor<20xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<20xi32> -> tensor<4xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<20xi32> -> tensor<12xi32>
+    %suffix = check.tensor.view %storage offset(64) : tensor<20xi32> -> tensor<4xi32>
+    %guard = check.generate.fill value(-559038737) : tensor<4xi32>
+    check.compare<@scalar_f32_denormal_observations, @scalar_f32_denormal_bits_oracle>(%positive_min_subnormal, %negative_min_subnormal, %positive_min_normal, %negative_min_normal, %positive_round, %negative_round, %positive_one, %negative_one, %output) : (i32, i32, i32, i32, i32, i32, i32, i32, tensor<12xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<12xi32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi32>
+    }
+  }
+  check.return
+}
+
+// Fused multiply-add has its own target contract and is kept separate so a
+// target without exact FMA support still executes the ordinary arithmetic
+// denormal scenario above.
+func.def @scalar_f32_denormal_fma_observations(%positive_min_subnormal_bits: i32, %negative_min_subnormal_bits: i32, %positive_min_normal_bits: i32, %negative_min_normal_bits: i32, %output: buffer) {
+  %positive_min_subnormal = scalar.bitcast %positive_min_subnormal_bits : i32 to f32
+  %negative_min_subnormal = scalar.bitcast %negative_min_subnormal_bits : i32 to f32
+  %positive_min_normal = scalar.bitcast %positive_min_normal_bits : i32 to f32
+  %negative_min_normal = scalar.bitcast %negative_min_normal_bits : i32 to f32
+  %quarter_bits = scalar.constant 1048576000 : i32
+  %quarter = scalar.bitcast %quarter_bits : i32 to f32
+  %positive_fused = scalar.fmaf %positive_min_normal, %quarter, %positive_min_subnormal : f32
+  %negative_fused = scalar.fmaf %negative_min_normal, %quarter, %negative_min_subnormal : f32
+  %positive_fused_bits = scalar.bitcast %positive_fused : f32 to i32
+  %negative_fused_bits = scalar.bitcast %negative_fused : f32 to i32
+
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<2xi32>
+  view.store %positive_fused_bits, %results[0] : i32, view<2xi32>
+  view.store %negative_fused_bits, %results[1] : i32, view<2xi32>
+  func.return
+}
+
+func.def @scalar_f32_denormal_fma_bits_oracle(%positive_min_subnormal_bits: i32, %negative_min_subnormal_bits: i32, %positive_min_normal_bits: i32, %negative_min_normal_bits: i32, %output: buffer) {
+  %positive_fused = scalar.constant 2097153 : i32
+  %negative_fused = scalar.constant -2145386495 : i32
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<2xi32>
+  view.store %positive_fused, %results[0] : i32, view<2xi32>
+  view.store %negative_fused, %results[1] : i32, view<2xi32>
+  func.return
+}
+
+check.scenario @scalar_f32_denormal_fma_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %positive_min_subnormal = check.literal value(1) : i32
+    %negative_min_subnormal = check.literal value(-2147483647) : i32
+    %positive_min_normal = check.literal value(8388608) : i32
+    %negative_min_normal = check.literal value(-2139095040) : i32
+    %storage = check.generate.fill value(-559038737) : tensor<10xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<10xi32> -> tensor<4xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<10xi32> -> tensor<2xi32>
+    %suffix = check.tensor.view %storage offset(24) : tensor<10xi32> -> tensor<4xi32>
+    %guard = check.generate.fill value(-559038737) : tensor<4xi32>
+    check.compare<@scalar_f32_denormal_fma_observations, @scalar_f32_denormal_fma_bits_oracle>(%positive_min_subnormal, %negative_min_subnormal, %positive_min_normal, %negative_min_normal, %output) : (i32, i32, i32, i32, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2xi32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi32>
     }
   }
   check.return

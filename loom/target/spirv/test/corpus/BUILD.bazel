@@ -480,6 +480,8 @@ _SPIRV_EXECUTION_XFAILS = {
     "numeric/float/extrema.loom:@float_extrema_signaling_lhs": "TARGET/003",
     "numeric/float/extrema.loom:@float_extrema_signaling_rhs": "TARGET/003",
     "numeric/float/extrema.loom:@float_extrema_subnormals": "TARGET/003",
+    "numeric/float/scalar_f32.loom:@scalar_f32_denormal_fma_values": "TARGET/001",
+    "numeric/float/scalar_f32.loom:@scalar_f32_denormal_values": "EXPECT/002",
     "numeric/float/scalar_f32.loom:@scalar_f32_values": "LOWERING/036",
     "numeric/integer/constant_unsigned_division.loom:@constant_index_boundary_division_values": "TARGET/005",
     "numeric/integer/wide/observations.loom:@wide_dynamic_lane_values": "TARGET/004",
