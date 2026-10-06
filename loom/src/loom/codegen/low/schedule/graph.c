@@ -432,14 +432,11 @@ static iree_status_t loom_low_schedule_add_state_read(
     loom_low_schedule_build_state_t* state,
     loom_low_schedule_state_access_t access, uint16_t reg_class_id) {
   if (state->state_read_record_count >= state->state_read_record_capacity) {
-    iree_host_size_t new_capacity = state->state_read_record_capacity == 0
-                                        ? 16
-                                        : state->state_read_record_capacity * 2;
     IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-        state->scratch_arena, state->state_read_record_count, new_capacity,
-        sizeof(*state->state_read_records), &new_capacity,
+        state->scratch_arena, state->state_read_record_count,
+        /*minimum_capacity=*/16, sizeof(*state->state_read_records),
+        &state->state_read_record_capacity,
         (void**)&state->state_read_records));
-    state->state_read_record_capacity = new_capacity;
   }
   state->state_read_records[state->state_read_record_count] =
       (loom_low_schedule_state_read_record_t){
@@ -465,15 +462,11 @@ static iree_status_t loom_low_schedule_add_state_chain_read(
   }
   if (state->state_chain_read_record_count >=
       state->state_chain_read_record_capacity) {
-    iree_host_size_t new_capacity =
-        state->state_chain_read_record_capacity == 0
-            ? 16
-            : state->state_chain_read_record_capacity * 2;
     IREE_RETURN_IF_ERROR(iree_arena_grow_array(
         state->scratch_arena, state->state_chain_read_record_count,
-        new_capacity, sizeof(*state->state_chain_read_records), &new_capacity,
+        /*minimum_capacity=*/16, sizeof(*state->state_chain_read_records),
+        &state->state_chain_read_record_capacity,
         (void**)&state->state_chain_read_records));
-    state->state_chain_read_record_capacity = new_capacity;
   }
   state->state_chain_read_records[state->state_chain_read_record_count] =
       (loom_low_schedule_state_chain_read_record_t){
@@ -607,15 +600,11 @@ static iree_status_t loom_low_schedule_record_storage_read(
   }
   if (state->storage_reads.record_count >=
       state->storage_reads.record_capacity) {
-    iree_host_size_t new_capacity =
-        state->storage_reads.record_capacity == 0
-            ? 16
-            : state->storage_reads.record_capacity * 2;
     IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-        state->scratch_arena, state->storage_reads.record_count, new_capacity,
-        sizeof(*state->storage_reads.records), &new_capacity,
+        state->scratch_arena, state->storage_reads.record_count,
+        /*minimum_capacity=*/16, sizeof(*state->storage_reads.records),
+        &state->storage_reads.record_capacity,
         (void**)&state->storage_reads.records));
-    state->storage_reads.record_capacity = new_capacity;
   }
   state->storage_reads.records[state->storage_reads.record_count] =
       (loom_low_schedule_storage_read_record_t){

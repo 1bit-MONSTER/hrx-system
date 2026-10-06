@@ -288,6 +288,9 @@ iree_status_t iree_arena_allocate_array_aligned(iree_arena_allocator_t* arena,
 // function returns without allocating or copying and leaves the pointer and
 // capacity unchanged.
 //
+// |*inout_capacity| is the number of elements actually allocated at
+// |*inout_ptr|. A requested capacity belongs only in |minimum_capacity|.
+//
 // When growth is required the new capacity is
 // max(|minimum_capacity|, |*inout_capacity| * 2).
 // On successful growth |*inout_capacity| is updated and |*inout_ptr| points to

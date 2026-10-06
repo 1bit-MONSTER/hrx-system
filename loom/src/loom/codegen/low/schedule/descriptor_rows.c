@@ -73,13 +73,10 @@ static iree_status_t loom_low_schedule_append_hazard_gap(
     loom_low_schedule_build_state_t* state,
     loom_low_schedule_hazard_gap_t hazard_gap) {
   if (state->hazard_gap_count >= state->hazard_gap_capacity) {
-    iree_host_size_t new_capacity =
-        state->hazard_gap_capacity == 0 ? 4 : state->hazard_gap_capacity * 2;
-    IREE_RETURN_IF_ERROR(
-        iree_arena_grow_array(state->arena, state->hazard_gap_count,
-                              new_capacity, sizeof(*state->hazard_gaps),
-                              &new_capacity, (void**)&state->hazard_gaps));
-    state->hazard_gap_capacity = new_capacity;
+    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+        state->arena, state->hazard_gap_count, /*minimum_capacity=*/4,
+        sizeof(*state->hazard_gaps), &state->hazard_gap_capacity,
+        (void**)&state->hazard_gaps));
   }
   state->hazard_gaps[state->hazard_gap_count++] = hazard_gap;
   return iree_ok_status();
@@ -104,14 +101,10 @@ static iree_status_t loom_low_schedule_update_hazard_state(
   }
 
   if (state->hazard_state_count >= state->hazard_state_capacity) {
-    iree_host_size_t new_capacity = state->hazard_state_capacity == 0
-                                        ? 4
-                                        : state->hazard_state_capacity * 2;
-    IREE_RETURN_IF_ERROR(
-        iree_arena_grow_array(state->scratch_arena, state->hazard_state_count,
-                              new_capacity, sizeof(*state->hazard_states),
-                              &new_capacity, (void**)&state->hazard_states));
-    state->hazard_state_capacity = new_capacity;
+    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+        state->scratch_arena, state->hazard_state_count,
+        /*minimum_capacity=*/4, sizeof(*state->hazard_states),
+        &state->hazard_state_capacity, (void**)&state->hazard_states));
   }
   state->hazard_states[state->hazard_state_count++] =
       (loom_low_schedule_hazard_state_t){
