@@ -1,0 +1,71 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//libamdf/build_tools/bazel:cc.bzl", "amdf_cc_library")
+load("//libamdf/build_tools/bazel:cts.bzl", "amdf_cts_test_suite")
+load("//loom/build_tools/amdgpu:target_config.bzl", "LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITIES")
+
+package(
+    default_visibility = ["//visibility:private"],
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+exports_files(["README.md"])
+
+# The file-I/O programs use RDNA PM4 and compile only RDNA descriptor sets.
+_RDNA_COMPATIBILITY = {
+    "//loom/config/target/amdgpu:" + capability: []
+    for capability in LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITIES
+    if capability.startswith("descriptor_set_rdna")
+}
+
+_RDNA_COMPATIBILITY["//conditions:default"] = ["@platforms//:incompatible"]
+
+amdf_cc_library(
+    name = "file_io_fixture",
+    testonly = True,
+    srcs = ["file_io_fixture.cc"],
+    hdrs = ["file_io_fixture.h"],
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    deps = [
+        "//libamdf/cts/gpu/kernels:kernel",
+        "//libamdf/cts/gpu/pm4:dispatch_fixture",
+        "//libamdf/cts/gpu/pm4/encoding:commands",
+        "//third_party:google_test",
+        "//third_party:linux_io_uapi",
+    ],
+)
+
+amdf_cts_test_suite(
+    name = "file_io",
+    srcs = [
+        "file_gather_test.cc",
+        "file_io_test.cc",
+        "file_latency_test.cc",
+    ],
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ] + select(_RDNA_COMPATIBILITY),
+    visibility = ["//visibility:public"],
+    deps = [
+        ":file_io_fixture",
+        "//libamdf/cts/gpu/kernels:file_demand",
+        "//libamdf/cts/gpu/kernels:file_demand_kernels",
+        "//libamdf/cts/gpu/kernels:file_exchange",
+        "//libamdf/cts/gpu/kernels:file_exchange_kernels",
+        "//libamdf/cts/gpu/kernels:file_gather",
+        "//libamdf/cts/gpu/kernels:file_gather_kernels",
+        "//libamdf/cts/gpu/kernels:file_latency",
+        "//libamdf/cts/gpu/kernels:file_latency_kernels",
+        "//third_party:google_test",
+        "//third_party:linux_amdgpu_uapi",
+    ],
+)

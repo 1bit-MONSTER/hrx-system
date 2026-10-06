@@ -2529,6 +2529,7 @@ def test_feedback_control_descriptors_cover_execution_families() -> None:
                 _assert_s_sendmsg_low_asm_form(descriptor)
 
         assert "amdgpu.s_sendmsg_rtn_b32" not in descriptors
+        assert "amdgpu.s_sendmsg_rtn_b64" not in descriptors
 
     for overlays in (
         _gfx11_core_overlays(),
@@ -2539,24 +2540,29 @@ def test_feedback_control_descriptors_cover_execution_families() -> None:
         for descriptor_key in (
             "amdgpu.s_sendmsg",
             "amdgpu.s_sendmsg_rtn_b32",
+            "amdgpu.s_sendmsg_rtn_b64",
             "amdgpu.s_sethalt",
             "amdgpu.s_trap",
         ):
             descriptor = descriptors[descriptor_key]
             assert descriptor.schedule_class == (
                 _SCHEDULE_MESSAGE
-                if descriptor_key in ("amdgpu.s_sendmsg", "amdgpu.s_sendmsg_rtn_b32")
+                if descriptor_key.startswith("amdgpu.s_sendmsg")
                 else _SCHEDULE_MODE_CONTROL
             )
             assert descriptor.semantic_tag.startswith("control.")
             if descriptor_key == "amdgpu.s_sendmsg":
                 _assert_s_sendmsg_low_asm_form(descriptor)
 
-        assert descriptors["amdgpu.s_sendmsg_rtn_b32"].immediate_fields == ("SSRC0",)
-        message_immediate = descriptors["amdgpu.s_sendmsg_rtn_b32"].immediates[0]
-        assert message_immediate.field_name == "message"
-        assert message_immediate.bit_width == 8
-        assert message_immediate.unsigned_max >= 128
+        for bits in (32, 64):
+            descriptor = descriptors[f"amdgpu.s_sendmsg_rtn_b{bits}"]
+            assert descriptor.immediate_fields == ("SSRC0",)
+            message_immediate = descriptor.immediates[0]
+            assert message_immediate.field_name == "message"
+            assert message_immediate.bit_width == 8
+            assert message_immediate.unsigned_max >= 128
+            assert descriptor.operands[0].descriptor_operand.unit_count == bits // 32
+            assert descriptor.effects == descriptors["amdgpu.s_sendmsg_rtn_b32"].effects
 
 
 def test_scalar_carry_forms_preserve_native_unsigned_addition() -> None:

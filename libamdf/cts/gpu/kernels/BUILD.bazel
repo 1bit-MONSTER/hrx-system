@@ -29,6 +29,10 @@ exports_files([
     "completed_tick_rdna4_gfx125x.loom",
     "completed_tick_rdna4_gfx1251.loom",
     "completed_tick_rdna4_gfx1250_a0.loom",
+    "file_demand.loom",
+    "file_exchange.loom",
+    "file_gather.loom",
+    "file_latency.loom",
     "geometry_ids.loom",
     "lds_exchange.loom",
     "pattern_fill_unaligned.loom",
@@ -55,7 +59,7 @@ _KERNEL_TARGETS = sorted([
     if not target.endswith("-generic")
 ])
 
-# Resident GPU/XDNA programs are submitted through the RDNA PM4 path.
+# Resident exchange programs are submitted through the RDNA PM4 path.
 _RDNA_KERNEL_TARGETS = [target for target in _KERNEL_TARGETS if not target.startswith("gfx9")]
 
 _KERNEL_TARGETS_BY_CAPABILITY = {
@@ -176,6 +180,62 @@ amdf_cts_gpu_kernel_set(
     targets = _RDNA_KERNEL_TARGETS,
 )
 
+amdf_cc_library(
+    name = "file_exchange",
+    testonly = True,
+    hdrs = ["file_exchange.h"],
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "file_exchange_kernels",
+    srcs = ["file_exchange.loom"],
+    entry_point = "file_exchange",
+    namespace = "kernels::file_exchange",
+    targets = _RDNA_KERNEL_TARGETS,
+)
+
+amdf_cc_library(
+    name = "file_gather",
+    testonly = True,
+    hdrs = ["file_gather.h"],
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "file_gather_kernels",
+    srcs = ["file_gather.loom"],
+    entry_point = "file_gather",
+    namespace = "kernels::file_gather",
+    targets = _RDNA_KERNEL_TARGETS,
+)
+
+amdf_cc_library(
+    name = "file_latency",
+    testonly = True,
+    hdrs = ["file_latency.h"],
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "file_latency_kernels",
+    srcs = _COMPLETED_TICK_SRCS + ["file_latency.loom"],
+    entry_point = "file_latency",
+    namespace = "kernels::file_latency",
+    targets = _RDNA_KERNEL_TARGETS,
+)
+
+amdf_cc_library(
+    name = "file_demand",
+    testonly = True,
+    hdrs = ["file_demand.h"],
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "file_demand_kernels",
+    srcs = _COMPLETED_TICK_SRCS + ["file_demand.loom"],
+    entry_point = "file_demand",
+    namespace = "kernels::file_demand",
+    targets = _RDNA_KERNEL_TARGETS,
+)
+
 amdf_cts_gpu_kernel_set(
     name = "resident_channels_kernels",
     srcs = _COMPLETED_TICK_SRCS + ["resident_channels.loom"],
@@ -254,6 +314,14 @@ amdf_cc_library(
     srcs = ["resident_kernel_test.cc"],
     target_compatible_with = select(_RDNA_DESCRIPTOR_CONFIGS),
     deps = [
+        ":file_demand",
+        ":file_demand_kernels",
+        ":file_exchange",
+        ":file_exchange_kernels",
+        ":file_gather",
+        ":file_gather_kernels",
+        ":file_latency",
+        ":file_latency_kernels",
         ":product_test",
         ":resident_channels",
         ":resident_channels_kernels",

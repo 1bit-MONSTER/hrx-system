@@ -30,6 +30,48 @@ allocation addresses directly. The caller checks the required wave32,
 kernarg-pointer, group-X and local-X initial-register contract, with no
 private or group storage. [PM4 dispatch contract](../../../../docs/reference/amd/gpu/pm4/dispatch.md)
 
+[file_exchange.loom](file_exchange.loom) owns an initially empty Linux io_uring
+SQ/CQ for one finite invocation. It reads a response-selected file block,
+transforms its words, writes another block, and reloads that block into a
+different payload window. The [native file I/O cases](../linux/io_uring/README.md)
+check complete transcripts, payload guards, native error results and final
+file contents. The kernel uses system release/acquire for intermediate ring
+and payload handoffs; its outer PM4 stream owns startup and final completion.
+
+[file_gather.loom](file_gather.loom) extends that native boundary to three I/O
+credits, a key-based duplicate join and a delayed final reader. Two independent
+streams recycle their own slots while the shared source stays live; each
+consumer writes scattered file blocks and reloads into a different pool bank.
+Native CQ tags identify slot and ticket, while per-request completion frontiers
+let the [concurrent oracle](../linux/io_uring/file_gather_test.cc) check reuse
+and error drain without assuming FIFO completion. The
+[typed state and arguments](file_gather.h) define bounded transcript extents;
+full journals stop issuance and drain instead of overrunning oracle storage.
+Logical consumers remain in one invocation, not separate matmul workgroups.
+
+[file_latency.loom](file_latency.loom) provides a matched native/host-relayed
+measurement workload with up to four completion-driven streams. It probes
+returned bytes to choose subsequent file keys, records reference-clock
+intervals, and supports read-only or scattered read/write/reload chains.
+The [latency oracle](../linux/io_uring/file_latency_test.cc) checks causal
+results, complete final buffers and file contents, and same-shader-clock
+interval bounds. Full-width endpoint samples disambiguate compact request
+timestamps without assuming an epoch relationship with the driver's clock.
+Its [measurement contract](../linux/io_uring/README.md#completion-driven-latency-comparison)
+separates ordinary correctness runs from optimized, isolated comparisons.
+
+[file_demand.loom](file_demand.loom) separates scheduled logical arrivals from
+finite payload credits. One GPU owner hashes keys, coalesces immutable reads,
+publishes native requests and retires ready readers without a batch join.
+Scattered KV chains retain a credit through writeback and reload. Its journal
+records offered arrival, admission, usable-data probing and final release;
+generation checks prevent reusing backing before the final reader retires.
+The [scheduled-demand cases](../linux/io_uring/README.md#scheduled-demand-and-bounded-backing)
+offer bursts of 32 through 256 requests and compare four transports plus a
+paced native wake policy. A separately submitted instance can perform
+independent arithmetic while I/O progresses. It is a bounded ownership and
+latency experiment, not a model kernel or production storage scheduler.
+
 The [GPU/XDNA shader recipe](../../interop/gpu/xdna/recipes/README.md) selects
 the same transform set by physical endpoint identity and uses the selected
 resources unchanged through USER or KERNEL PM4
@@ -201,8 +243,9 @@ The shared [clock declaration](completed_tick.loom) uses ordinary Loom templates
 with one provider module per physical instruction representation. The
 [build declarations](BUILD.bazel) include only providers whose descriptor sets
 are linked into Loom. The selected template drains the resident
-program's vector loads and stores before sampling the low 32 bits of the
-reference clock, then waits for the message result. These are raw ticks,
+program's vector loads and stores before sampling the reference clock, then
+waits for the message result. Compact request samples use the low 32 bits;
+full-width interval endpoints establish their wrap bound. These are raw ticks,
 independent of the caller's release/acquire visibility operations. The complete
 program is linked from authored source; runtime selection never patches code.
 

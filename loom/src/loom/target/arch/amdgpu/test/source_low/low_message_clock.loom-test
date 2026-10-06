@@ -1,0 +1,364 @@
+// Copyright 2026 The IREE Authors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// RUN: emit amdgpu-assembly @clock_words strategy=source fixed=%narrow:physical_register:0:1 fixed=%wide:physical_register:2:2 fixed=%low:physical_register:4:1 fixed=%high:physical_register:5:1
+
+// Both halves of the wide asynchronous result must be complete before use.
+amdgpu.target<gfx1100> @gpu
+
+low.func.def target<amdgpu.rdna3.core>(@gpu) @clock_words() -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %narrow = s_sendmsg_rtn_b32 {message = 131}
+  %wide = s_sendmsg_rtn_b64 {message = 131}
+  %low_word = slice %wide[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %high_word = slice %wide[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %low = s_xor_b32 %low_word, %narrow
+  %high = s_xor_b32 %high_word, %narrow
+  return %low, %high
+}
+
+// ----
+  s_sendmsg_rtn_b32 s0, message(131)
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_sendmsg_rtn_b64 s[2:3], message(131)
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_xor_b32 s4, s2, s0
+  s_xor_b32 s5, s3, s0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-native-words @clock_words strategy=source fixed=%narrow:physical_register:0:1 fixed=%wide:physical_register:2:2 fixed=%low:physical_register:4:1 fixed=%high:physical_register:5:1
+
+// Both halves of the wide asynchronous result must be complete before use.
+amdgpu.target<gfx1100> @gpu
+
+low.func.def target<amdgpu.rdna3.core>(@gpu) @clock_words() -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %narrow = s_sendmsg_rtn_b32 {message = 131}
+  %wide = s_sendmsg_rtn_b64 {message = 131}
+  %low_word = slice %wide[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %high_word = slice %wide[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %low = s_xor_b32 %low_word, %narrow
+  %high = s_xor_b32 %high_word, %narrow
+  return %low, %high
+}
+
+// ----
+0xBE804C83
+0xBF89FC07
+0xBE824D83
+0xBF89FC07
+0x8D040002
+0x8D050003
+0xBFB00000
+
+// ====
+
+// RUN: emit amdgpu-assembly @clock_words strategy=source fixed=%narrow:physical_register:0:1 fixed=%wide:physical_register:2:2 fixed=%low:physical_register:4:1 fixed=%high:physical_register:5:1
+
+// Both halves of the wide asynchronous result must be complete before use.
+amdgpu.target<gfx1151> @gpu
+
+low.func.def target<amdgpu.rdna3_5.core>(@gpu) @clock_words() -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %narrow = s_sendmsg_rtn_b32 {message = 131}
+  %wide = s_sendmsg_rtn_b64 {message = 131}
+  %low_word = slice %wide[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %high_word = slice %wide[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %low = s_xor_b32 %low_word, %narrow
+  %high = s_xor_b32 %high_word, %narrow
+  return %low, %high
+}
+
+// ----
+  s_sendmsg_rtn_b32 s0, message(131)
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_sendmsg_rtn_b64 s[2:3], message(131)
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_xor_b32 s4, s2, s0
+  s_xor_b32 s5, s3, s0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-native-words @clock_words strategy=source fixed=%narrow:physical_register:0:1 fixed=%wide:physical_register:2:2 fixed=%low:physical_register:4:1 fixed=%high:physical_register:5:1
+
+// Both halves of the wide asynchronous result must be complete before use.
+amdgpu.target<gfx1151> @gpu
+
+low.func.def target<amdgpu.rdna3_5.core>(@gpu) @clock_words() -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %narrow = s_sendmsg_rtn_b32 {message = 131}
+  %wide = s_sendmsg_rtn_b64 {message = 131}
+  %low_word = slice %wide[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %high_word = slice %wide[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %low = s_xor_b32 %low_word, %narrow
+  %high = s_xor_b32 %high_word, %narrow
+  return %low, %high
+}
+
+// ----
+0xBE804C83
+0xBF89FC07
+0xBE824D83
+0xBF89FC07
+0x8D040002
+0x8D050003
+0xBFB00000
+
+// ====
+
+// RUN: emit amdgpu-assembly @clock_words strategy=source fixed=%narrow:physical_register:0:1 fixed=%wide:physical_register:2:2 fixed=%low:physical_register:4:1 fixed=%high:physical_register:5:1
+
+// Both halves of the wide asynchronous result must be complete before use.
+amdgpu.target<gfx1170> @gpu
+
+low.func.def target<amdgpu.rdna4m.core>(@gpu) @clock_words() -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %narrow = s_sendmsg_rtn_b32 {message = 131}
+  %wide = s_sendmsg_rtn_b64 {message = 131}
+  %low_word = slice %wide[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %high_word = slice %wide[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %low = s_xor_b32 %low_word, %narrow
+  %high = s_xor_b32 %high_word, %narrow
+  return %low, %high
+}
+
+// ----
+  s_sendmsg_rtn_b32 s0, message(131)
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_sendmsg_rtn_b64 s[2:3], message(131)
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_xor_b32 s4, s2, s0
+  s_xor_b32 s5, s3, s0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-native-words @clock_words strategy=source fixed=%narrow:physical_register:0:1 fixed=%wide:physical_register:2:2 fixed=%low:physical_register:4:1 fixed=%high:physical_register:5:1
+
+// Both halves of the wide asynchronous result must be complete before use.
+amdgpu.target<gfx1170> @gpu
+
+low.func.def target<amdgpu.rdna4m.core>(@gpu) @clock_words() -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %narrow = s_sendmsg_rtn_b32 {message = 131}
+  %wide = s_sendmsg_rtn_b64 {message = 131}
+  %low_word = slice %wide[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %high_word = slice %wide[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %low = s_xor_b32 %low_word, %narrow
+  %high = s_xor_b32 %high_word, %narrow
+  return %low, %high
+}
+
+// ----
+0xBE804C83
+0xBF89FC07
+0xBE824D83
+0xBF89FC07
+0x8D040002
+0x8D050003
+0xBFB00000
+
+// ====
+
+// RUN: emit amdgpu-assembly @clock_words strategy=source fixed=%narrow:physical_register:0:1 fixed=%wide:physical_register:2:2 fixed=%low:physical_register:4:1 fixed=%high:physical_register:5:1
+
+// Both halves of the wide asynchronous result must be complete before use.
+amdgpu.target<gfx1200> @gpu
+
+low.func.def target<amdgpu.rdna4.core>(@gpu) @clock_words() -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %narrow = s_sendmsg_rtn_b32 {message = 131}
+  %wide = s_sendmsg_rtn_b64 {message = 131}
+  %low_word = slice %wide[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %high_word = slice %wide[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %low = s_xor_b32 %low_word, %narrow
+  %high = s_xor_b32 %high_word, %narrow
+  return %low, %high
+}
+
+// ----
+  s_sendmsg_rtn_b32 s0, message(131)
+  s_wait_kmcnt kmcnt(0)
+  s_sendmsg_rtn_b64 s[2:3], message(131)
+  s_wait_kmcnt kmcnt(0)
+  s_xor_b32 s4, s2, s0
+  s_xor_b32 s5, s3, s0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-native-words @clock_words strategy=source fixed=%narrow:physical_register:0:1 fixed=%wide:physical_register:2:2 fixed=%low:physical_register:4:1 fixed=%high:physical_register:5:1
+
+// Both halves of the wide asynchronous result must be complete before use.
+amdgpu.target<gfx1200> @gpu
+
+low.func.def target<amdgpu.rdna4.core>(@gpu) @clock_words() -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %narrow = s_sendmsg_rtn_b32 {message = 131}
+  %wide = s_sendmsg_rtn_b64 {message = 131}
+  %low_word = slice %wide[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %high_word = slice %wide[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %low = s_xor_b32 %low_word, %narrow
+  %high = s_xor_b32 %high_word, %narrow
+  return %low, %high
+}
+
+// ----
+0xBE804C83
+0xBFC70000
+0xBE824D83
+0xBFC70000
+0x8D040002
+0x8D050003
+0xBFB00000
+
+// ====
+
+// RUN: emit amdgpu-assembly @clock_words strategy=source fixed=%narrow:physical_register:0:1 fixed=%wide:physical_register:2:2 fixed=%low:physical_register:4:1 fixed=%high:physical_register:5:1
+
+// Both halves of the wide asynchronous result must be complete before use.
+amdgpu.target<gfx1250> @gpu
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@gpu) @clock_words() -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %narrow = s_sendmsg_rtn_b32 {message = 131}
+  %wide = s_sendmsg_rtn_b64 {message = 131}
+  %low_word = slice %wide[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %high_word = slice %wide[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %low = s_xor_b32 %low_word, %narrow
+  %high = s_xor_b32 %high_word, %narrow
+  return %low, %high
+}
+
+// ----
+  s_sendmsg_rtn_b32 s0, message(131)
+  s_wait_kmcnt kmcnt(0)
+  s_sendmsg_rtn_b64 s[2:3], message(131)
+  s_wait_kmcnt kmcnt(0)
+  s_xor_b32 s4, s2, s0
+  s_xor_b32 s5, s3, s0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-native-words @clock_words strategy=source fixed=%narrow:physical_register:0:1 fixed=%wide:physical_register:2:2 fixed=%low:physical_register:4:1 fixed=%high:physical_register:5:1
+
+// Both halves of the wide asynchronous result must be complete before use.
+amdgpu.target<gfx1250> @gpu
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@gpu) @clock_words() -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %narrow = s_sendmsg_rtn_b32 {message = 131}
+  %wide = s_sendmsg_rtn_b64 {message = 131}
+  %low_word = slice %wide[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %high_word = slice %wide[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %low = s_xor_b32 %low_word, %narrow
+  %high = s_xor_b32 %high_word, %narrow
+  return %low, %high
+}
+
+// ----
+0xBE804C83
+0xBFC70000
+0xBE824D83
+0xBFC70000
+0x8D040002
+0x8D050003
+0xBFB00000
+
+// ====
+
+// RUN: emit amdgpu-assembly @clock_words strategy=source fixed=%narrow:physical_register:0:1 fixed=%wide:physical_register:2:2 fixed=%low:physical_register:4:1 fixed=%high:physical_register:5:1
+
+// Both halves of the wide asynchronous result must be complete before use.
+amdgpu.target<gfx1251> @gpu
+
+low.func.def target<amdgpu.rdna4.gfx1251.core>(@gpu) @clock_words() -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %narrow = s_sendmsg_rtn_b32 {message = 131}
+  %wide = s_sendmsg_rtn_b64 {message = 131}
+  %low_word = slice %wide[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %high_word = slice %wide[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %low = s_xor_b32 %low_word, %narrow
+  %high = s_xor_b32 %high_word, %narrow
+  return %low, %high
+}
+
+// ----
+  s_sendmsg_rtn_b32 s0, message(131)
+  s_wait_kmcnt kmcnt(0)
+  s_sendmsg_rtn_b64 s[2:3], message(131)
+  s_wait_kmcnt kmcnt(0)
+  s_xor_b32 s4, s2, s0
+  s_xor_b32 s5, s3, s0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-native-words @clock_words strategy=source fixed=%narrow:physical_register:0:1 fixed=%wide:physical_register:2:2 fixed=%low:physical_register:4:1 fixed=%high:physical_register:5:1
+
+// Both halves of the wide asynchronous result must be complete before use.
+amdgpu.target<gfx1251> @gpu
+
+low.func.def target<amdgpu.rdna4.gfx1251.core>(@gpu) @clock_words() -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %narrow = s_sendmsg_rtn_b32 {message = 131}
+  %wide = s_sendmsg_rtn_b64 {message = 131}
+  %low_word = slice %wide[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %high_word = slice %wide[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %low = s_xor_b32 %low_word, %narrow
+  %high = s_xor_b32 %high_word, %narrow
+  return %low, %high
+}
+
+// ----
+0xBE804C83
+0xBFC70000
+0xBE824D83
+0xBFC70000
+0x8D040002
+0x8D050003
+0xBFB00000
+
+// ====
+
+// RUN: emit amdgpu-assembly @clock_words strategy=source fixed=%narrow:physical_register:0:1 fixed=%wide:physical_register:2:2 fixed=%low:physical_register:4:1 fixed=%high:physical_register:5:1
+
+// Both halves of the wide asynchronous result must be complete before use.
+amdgpu.target<gfx1250-a0> @gpu
+
+low.func.def target<amdgpu.rdna4.gfx1250_a0.core>(@gpu) @clock_words() -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %narrow = s_sendmsg_rtn_b32 {message = 131}
+  %wide = s_sendmsg_rtn_b64 {message = 131}
+  %low_word = slice %wide[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %high_word = slice %wide[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %low = s_xor_b32 %low_word, %narrow
+  %high = s_xor_b32 %high_word, %narrow
+  return %low, %high
+}
+
+// ----
+  s_sendmsg_rtn_b32 s0, message(131)
+  s_wait_kmcnt kmcnt(0)
+  s_sendmsg_rtn_b64 s[2:3], message(131)
+  s_wait_kmcnt kmcnt(0)
+  s_xor_b32 s4, s2, s0
+  s_xor_b32 s5, s3, s0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-native-words @clock_words strategy=source fixed=%narrow:physical_register:0:1 fixed=%wide:physical_register:2:2 fixed=%low:physical_register:4:1 fixed=%high:physical_register:5:1
+
+// Both halves of the wide asynchronous result must be complete before use.
+amdgpu.target<gfx1250-a0> @gpu
+
+low.func.def target<amdgpu.rdna4.gfx1250_a0.core>(@gpu) @clock_words() -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %narrow = s_sendmsg_rtn_b32 {message = 131}
+  %wide = s_sendmsg_rtn_b64 {message = 131}
+  %low_word = slice %wide[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %high_word = slice %wide[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %low = s_xor_b32 %low_word, %narrow
+  %high = s_xor_b32 %high_word, %narrow
+  return %low, %high
+}
+
+// ----
+0xBE804C83
+0xBFC70000
+0xBE824D83
+0xBFC70000
+0x8D040002
+0x8D050003
+0xBFB00000

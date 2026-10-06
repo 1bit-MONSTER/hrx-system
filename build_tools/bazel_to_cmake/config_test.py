@@ -629,23 +629,28 @@ cc_library(
         self.assertNotIn("$<TARGET_FILE:", converter.body)
 
     def test_c_embed_data_srcs_preserve_source_file_labels(self):
-        repo_root = Path(__file__).resolve().parents[2]
-        converter = SimpleNamespace(body="")
-        functions = bazel_to_cmake_converter.BuildFileFunctions(
-            converter=converter,
-            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
-            build_dir="runtime/src/iree/hal/drivers/task/executable/elf/testdata",
-            repo_root=str(repo_root),
-        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repo_root = Path(temporary_directory)
+            package = "runtime/src/iree/hal/drivers/task/executable/elf/testdata"
+            source_directory = repo_root / package
+            source_directory.mkdir(parents=True)
+            (source_directory / "elementwise_mul_library.c").touch()
+            converter = SimpleNamespace(body="")
+            functions = bazel_to_cmake_converter.BuildFileFunctions(
+                converter=converter,
+                targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
+                build_dir=package,
+                repo_root=str(repo_root),
+            )
 
-        functions.iree_c_embed_data(
-            name="elementwise_mul_source",
-            srcs=[":elementwise_mul_library.c"],
-            c_file_output="elementwise_mul_source.c",
-            h_file_output="elementwise_mul_source.h",
-            testonly=True,
-            flatten=True,
-        )
+            functions.iree_c_embed_data(
+                name="elementwise_mul_source",
+                srcs=[":elementwise_mul_library.c"],
+                c_file_output="elementwise_mul_source.c",
+                h_file_output="elementwise_mul_source.h",
+                testonly=True,
+                flatten=True,
+            )
 
         self.assertIn(
             '"${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/drivers/task/executable/elf/testdata/'
