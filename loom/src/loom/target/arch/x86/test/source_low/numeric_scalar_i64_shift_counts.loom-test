@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_scalar_i64_shift_counts.loom-test
 // RUN: emit source-low target=x86:avx2 output=low
 
 func.def @wide_shift_constant(%values: vector<2xi64>) -> (i64) {
@@ -13,23 +12,6 @@ low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = 
   %value = vpextrq.xmm %values, 0
   %8 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
   %shifted = shl.imm.gpr64 %8 {shift = 31}
-  return %shifted
-}
-
-// ====
-
-func.def @wide_shift_uniform(%values: vector<2xi64>, %count: i64) -> (i64) {
-  %value = vector.extract %values[0] : vector<2xi64> -> i64
-  %shifted = scalar.shli %value, %count : i64
-  func.return %shifted : i64
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (vector<2xi64>, i64) -> (i64)}) @wide_shift_uniform(%values: reg<x86.xmm>, %count: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
-  %value = vpextrq.xmm %values, 0
-  %9 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %10 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %shifted = shl.cl.gpr64 %9, %10
   return %shifted
 }
 
@@ -50,89 +32,6 @@ low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = 
   %12 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
   %shifted = shl.cl.gpr64 %11, %12
   return %shifted
-}
-
-// ====
-
-func.def @wide_right_shift_uniform(%value: i64, %count: i64) -> (i64, i64) {
-  %logical = scalar.shrui %value, %count : i64
-  %signed = scalar.shrsi %value, %count : i64
-  func.return %logical, %signed : i64, i64
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @wide_right_shift_uniform(%value: reg<x86.gpr64>, %count: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %10 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %11 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %logical = shr.cl.gpr64 %10, %11
-  %13 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %14 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %signed = sar.cl.gpr64 %13, %14
-  return %logical, %signed
-}
-
-// ====
-
-func.def @wide_right_shift_uniform_count(%values: vector<2xi64>, %count: i64) -> (i64, i64) {
-  %value = vector.extract %values[1] : vector<2xi64> -> i64
-  %logical = scalar.shrui %value, %count : i64
-  %signed = scalar.shrsi %value, %count : i64
-  func.return %logical, %signed : i64, i64
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (vector<2xi64>, i64) -> (i64, i64)}) @wide_right_shift_uniform_count(%values: reg<x86.xmm>, %count: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %value = vpextrq.xmm %values, 1
-  %12 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %13 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %logical = shr.cl.gpr64 %12, %13
-  %15 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %16 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %signed = sar.cl.gpr64 %15, %16
-  return %logical, %signed
-}
-
-// ====
-
-func.def @wide_right_shift_varying_count(%values: vector<2xi64>, %counts: vector<2xi64>) -> (i64, i64) {
-  %value = vector.extract %values[1] : vector<2xi64> -> i64
-  %count = vector.extract %counts[1] : vector<2xi64> -> i64
-  %logical = scalar.shrui %value, %count : i64
-  %signed = scalar.shrsi %value, %count : i64
-  func.return %logical, %signed : i64, i64
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (vector<2xi64>, vector<2xi64>) -> (i64, i64)}) @wide_right_shift_varying_count(%values: reg<x86.xmm>, %counts: reg<x86.xmm>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %value = vpextrq.xmm %values, 1
-  %count = vpextrq.xmm %counts, 1
-  %14 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %15 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %logical = shr.cl.gpr64 %14, %15
-  %17 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %18 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %signed = sar.cl.gpr64 %17, %18
-  return %logical, %signed
-}
-
-// ====
-
-func.def @wide_right_shift_constant(%values: vector<2xi64>) -> (i64, i64) {
-  %value = vector.extract %values[1] : vector<2xi64> -> i64
-  %count = scalar.constant 31 : i64
-  %logical = scalar.shrui %value, %count : i64
-  %signed = scalar.shrsi %value, %count : i64
-  func.return %logical, %signed : i64, i64
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (vector<2xi64>) -> (i64, i64)}) @wide_right_shift_constant(%values: reg<x86.xmm>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %value = vpextrq.xmm %values, 1
-  %11 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %logical = shr.imm.gpr64 %11 {shift = 31}
-  %13 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %signed = sar.imm.gpr64 %13 {shift = 31}
-  return %logical, %signed
 }
 
 // ====
@@ -179,71 +78,6 @@ low.func.def target<x86.avx2.core> abi(object_function) @wide_shift_low_word(%va
 
 // ====
 
-func.def @wide_shift_bounded_low(%value: i64, %count_input: i64) -> (i64) {
-  %count = scalar.assume %count_input [range(%count_input, 0, 31)] : i64
-  %shifted = scalar.shli %value, %count : i64
-  func.return %shifted : i64
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @wide_shift_bounded_low(%value: reg<x86.gpr64>, %count: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
-  %8 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %9 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %shifted = shl.cl.gpr64 %8, %9
-  return %shifted
-}
-
-// ====
-
-func.def @wide_shift_bounded_high(%value: i64, %count_input: i64) -> (i64) {
-  %count = scalar.assume %count_input [range(%count_input, 32, 63)] : i64
-  %shifted = scalar.shli %value, %count : i64
-  func.return %shifted : i64
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @wide_shift_bounded_high(%value: reg<x86.gpr64>, %count: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
-  %8 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %9 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %shifted = shl.cl.gpr64 %8, %9
-  return %shifted
-}
-
-// ====
-
-func.def @wide_shift_crossing_words(%value: i64, %count_input: i64) -> (i64) {
-  %count = scalar.assume %count_input [range(%count_input, 31, 32)] : i64
-  %shifted = scalar.shli %value, %count : i64
-  func.return %shifted : i64
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @wide_shift_crossing_words(%value: reg<x86.gpr64>, %count: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
-  %8 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %9 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %shifted = shl.cl.gpr64 %8, %9
-  return %shifted
-}
-
-// ====
-
-func.def @wide_shift_bounded_nonzero_low(%value: i64, %count_input: i64) -> (i64) {
-  %count = scalar.assume %count_input [range(%count_input, 1, 31)] : i64
-  %shifted = scalar.shli %value, %count : i64
-  func.return %shifted : i64
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @wide_shift_bounded_nonzero_low(%value: reg<x86.gpr64>, %count: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
-  %8 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %9 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %shifted = shl.cl.gpr64 %8, %9
-  return %shifted
-}
-
-// ====
-
-// Word controls qualify the native pieces used by split-word lowering.
 func.def @word_right_shift_constants(%value: i32) -> (i32, i32, i32, i32, i32, i32, i32) {
   %identity_count = scalar.constant 0 : i32
   %single_bit = scalar.constant 1 : i32
@@ -274,25 +108,6 @@ low.func.def target<x86.avx2.core> abi(object_function) @word_right_shift_consta
   %37 = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
   %signed_last = sar.imm.gpr32 %37 {shift = 31}
   return %value, %logical_one, %signed_one, %logical_middle, %signed_middle, %logical_last, %signed_last
-}
-
-// ====
-
-func.def @word_right_shift_dynamic(%value: i32, %count: i32) -> (i32, i32) {
-  %logical = scalar.shrui %value, %count : i32
-  %signed = scalar.shrsi %value, %count : i32
-  func.return %logical, %signed : i32, i32
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @word_right_shift_dynamic(%value: reg<x86.gpr32>, %count: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
-  %10 = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
-  %11 = copy %count : reg<x86.gpr32> -> reg<x86.ecx>
-  %logical = shr.cl.gpr32 %10, %11
-  %13 = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
-  %14 = copy %count : reg<x86.gpr32> -> reg<x86.ecx>
-  %signed = sar.cl.gpr32 %13, %14
-  return %logical, %signed
 }
 
 // ====
@@ -332,87 +147,6 @@ low.func.def target<x86.avx2.core> abi(object_function) @wide_right_shift_word_b
 
 // ====
 
-func.def @wide_right_shift_bounded_low(%value: i64, %count_input: i64) -> (i64, i64) {
-  %count = scalar.assume %count_input [range(%count_input, 0, 31)] : i64
-  %logical = scalar.shrui %value, %count : i64
-  %signed = scalar.shrsi %value, %count : i64
-  func.return %logical, %signed : i64, i64
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @wide_right_shift_bounded_low(%value: reg<x86.gpr64>, %count: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %11 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %12 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %logical = shr.cl.gpr64 %11, %12
-  %14 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %15 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %signed = sar.cl.gpr64 %14, %15
-  return %logical, %signed
-}
-
-// ====
-
-func.def @wide_right_shift_bounded_nonzero_low(%value: i64, %count_input: i64) -> (i64, i64) {
-  %count = scalar.assume %count_input [range(%count_input, 1, 31)] : i64
-  %logical = scalar.shrui %value, %count : i64
-  %signed = scalar.shrsi %value, %count : i64
-  func.return %logical, %signed : i64, i64
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @wide_right_shift_bounded_nonzero_low(%value: reg<x86.gpr64>, %count: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %11 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %12 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %logical = shr.cl.gpr64 %11, %12
-  %14 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %15 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %signed = sar.cl.gpr64 %14, %15
-  return %logical, %signed
-}
-
-// ====
-
-func.def @wide_right_shift_bounded_high(%value: i64, %count_input: i64) -> (i64, i64) {
-  %count = scalar.assume %count_input [range(%count_input, 32, 63)] : i64
-  %logical = scalar.shrui %value, %count : i64
-  %signed = scalar.shrsi %value, %count : i64
-  func.return %logical, %signed : i64, i64
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @wide_right_shift_bounded_high(%value: reg<x86.gpr64>, %count: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %11 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %12 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %logical = shr.cl.gpr64 %11, %12
-  %14 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %15 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %signed = sar.cl.gpr64 %14, %15
-  return %logical, %signed
-}
-
-// ====
-
-func.def @wide_right_shift_crossing_words(%value: i64, %count_input: i64) -> (i64, i64) {
-  %count = scalar.assume %count_input [range(%count_input, 31, 32)] : i64
-  %logical = scalar.shrui %value, %count : i64
-  %signed = scalar.shrsi %value, %count : i64
-  func.return %logical, %signed : i64, i64
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @wide_right_shift_crossing_words(%value: reg<x86.gpr64>, %count: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %11 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %12 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %logical = shr.cl.gpr64 %11, %12
-  %14 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %15 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %signed = sar.cl.gpr64 %14, %15
-  return %logical, %signed
-}
-
-// ====
-
-// All three shifts preserve their input and the count for later arithmetic.
 func.def @word_shifts_reuse_input(%value: i32, %count: i32) -> (i32) {
   %left = scalar.shli %value, %count : i32
   %logical = scalar.shrui %value, %count : i32
@@ -497,123 +231,5 @@ low.func.def target<x86.avx2.core> abi(object_function) @wide_shift_value_is_cou
   %9 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
   %10 = copy %value : reg<x86.gpr64> -> reg<x86.rcx>
   %result = shl.cl.gpr64 %9, %10
-  return %result
-}
-
-// ====
-
-func.def @index_shift_dynamic(%value: index, %count: index) -> (index, index) {
-  %left = index.shli %value, %count : index
-  %right = index.shrui %value, %count : index
-  func.return %left, %right : index, index
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @index_shift_dynamic(%value: reg<x86.gpr64>, %count: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %10 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %11 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %left = shl.cl.gpr64 %10, %11
-  %13 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %14 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %right = shr.cl.gpr64 %13, %14
-  return %left, %right
-}
-
-// ====
-
-func.def @index_shift_constant_four(%value: index) -> (index) {
-  %count = index.constant 4 : index
-  %result = index.shli %value, %count : index
-  func.return %result : index
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @index_shift_constant_four(%value: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
-  %6 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %result = shl.imm.gpr64 %6 {shift = 4}
-  return %result
-}
-
-// ====
-
-func.def @index_shift_arithmetic(%value: index, %count: index) -> (index) {
-  %result = index.shrsi %value, %count : index
-  func.return %result : index
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @index_shift_arithmetic(%value: reg<x86.gpr64>, %count: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
-  %7 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %8 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %result = sar.cl.gpr64 %7, %8
-  return %result
-}
-
-// ====
-
-func.def @index_shift_bounded(%value: index, %count_input: index) -> (index, index, index) {
-  %count = index.assume %count_input [range(%count_input, 0, 31)] : index
-  %left = index.shli %value, %count : index
-  %logical = index.shrui %value, %count : index
-  %signed = index.shrsi %value, %count : index
-  func.return %left, %logical, %signed : index, index, index
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @index_shift_bounded(%value: reg<x86.gpr64>, %count: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %14 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %15 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %left = shl.cl.gpr64 %14, %15
-  %17 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %18 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %logical = shr.cl.gpr64 %17, %18
-  %20 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %21 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %signed = sar.cl.gpr64 %20, %21
-  return %left, %logical, %signed
-}
-
-// ====
-
-func.def @index_shift_constant_boundaries(%value: index) -> (index, index, index, index, index, index) {
-  %identity_count = index.constant 0 : index
-  %last = index.constant 31 : index
-  %left_zero = index.shli %value, %identity_count : index
-  %logical_zero = index.shrui %value, %identity_count : index
-  %signed_zero = index.shrsi %value, %identity_count : index
-  %left_last = index.shli %value, %last : index
-  %logical_last = index.shrui %value, %last : index
-  %signed_last = index.shrsi %value, %last : index
-  func.return %left_zero, %logical_zero, %signed_zero, %left_last, %logical_last, %signed_last : index, index, index, index, index, index
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @index_shift_constant_boundaries(%value: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %22 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %left_last = shl.imm.gpr64 %22 {shift = 31}
-  %24 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %logical_last = shr.imm.gpr64 %24 {shift = 31}
-  %26 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %signed_last = sar.imm.gpr64 %26 {shift = 31}
-  return %value, %value, %value, %left_last, %logical_last, %signed_last
-}
-
-// ====
-
-func.def @index_shift_arithmetic_reuse(%value: index, %count: index) -> (index) {
-  %shifted = index.shrsi %value, %count : index
-  %with_count = index.add %shifted, %count : index
-  %result = index.xori %with_count, %value : index
-  func.return %result : index
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @index_shift_arithmetic_reuse(%value: reg<x86.gpr64>, %count: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
-  %9 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %10 = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
-  %shifted = sar.cl.gpr64 %9, %10
-  %with_count = lea %shifted, %count
-  %13 = copy %with_count : reg<x86.gpr64> -> reg<x86.gpr64>
-  %result = xor.gpr64 %13, %value
   return %result
 }

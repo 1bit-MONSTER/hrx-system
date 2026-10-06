@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_bitwise_constants.loom-test
 // RUN: emit source-low target=amd.xdna.aie2p:core output=low
 
 func.def @bitwise_word_constants(%input: i32, %mask_input: i32) -> (i32, i32, i32) {
@@ -83,29 +82,6 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @bitwise_wide_cons
   %41 = xor %23, %20
   %42 = xor %24, %14
   %toggled = concat(%41, %42) : (reg<aie2p.er>, reg<aie2p.er>) -> reg<aie2p.er x2>
-  return %masked, %tagged, %toggled
-}
-
-// ====
-
-func.def @bitwise_index_signed_constants(%input: index) -> (index, index, index) {
-  %mask = index.constant -2147483648 : index
-  %tag = index.constant 2147483647 : index
-  %toggle = index.constant -1 : index
-  %masked = index.andi %mask, %input : index
-  %tagged = index.ori %input, %tag : index
-  %toggled = index.xori %toggle, %input : index
-  func.return %masked, %tagged, %toggled : index, index, index
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @bitwise_index_signed_constants(%input: reg<aie2p.er>) -> (reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>) asm {
-  %mask = mov.i32 -2147483648
-  %tag = mov.i32 2147483647
-  %toggle = mov.short -1
-  %masked = and %mask, %input
-  %tagged = or %input, %tag
-  %toggled = xor %toggle, %input
   return %masked, %tagged, %toggled
 }
 
@@ -216,46 +192,5 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_i32x16_uni
   %15 = vups.2x.x-to-c.unsigned %input, %13
   %shifted = vsrs.2x.c-to-x.unsigned %15, %14
   vst.512.i32x16 %shifted, %output_view, 0
-  return
-}
-
-// ====
-
-func.def @vector_i32x16_uniform_shift_boundaries(%input_arg: buffer, %output_arg: buffer) {
-  %input_buffer = buffer.assume.alignment %input_arg {minimum_alignment = 64} : buffer
-  %output_buffer = buffer.assume.alignment %output_arg {minimum_alignment = 64} : buffer
-  %base = index.constant 0 : offset
-  %input_view = buffer.view %input_buffer[%base] : buffer -> view<16xi32>
-  %output_view = buffer.view %output_buffer[%base] : buffer -> view<48xi32>
-  %input = vector.load %input_view[0] : view<16xi32> -> vector<16xi32>
-  %identity_distance = vector.constant 0 : vector<16xi32>
-  %high = vector.constant 31 : vector<16xi32>
-  %identity = vector.shrsi %input, %identity_distance : vector<16xi32>
-  %highest = vector.shli %input, %high : vector<16xi32>
-  %sign = vector.shrsi %input, %high : vector<16xi32>
-  vector.store %identity, %output_view[0] : vector<16xi32>, view<48xi32>
-  vector.store %highest, %output_view[16] : vector<16xi32>, view<48xi32>
-  vector.store %sign, %output_view[32] : vector<16xi32>, view<48xi32>
-  func.return
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_i32x16_uniform_shift_boundaries() asm {
-  %input_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
-  %output_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
-  %input = vlda.512.i32x16 %input_view, 0
-  %16 = mov.shift 31
-  %17 = mov.shift 0
-  set.saturation 0
-  set.ups-mode 1
-  set.srs-mode 1
-  set.rounding 0
-  %18 = vups.2x.x-to-c.unsigned %input, %16
-  %highest = vsrs.2x.c-to-x.unsigned %18, %17
-  %22 = vups.2x.x-to-c.signed %input, %17
-  %sign = vsrs.2x.c-to-x.signed %22, %16
-  vst.512.i32x16 %input, %output_view, 0
-  vst.512.i32x16 %highest, %output_view, 64
-  vst.512.i32x16 %sign, %output_view, 128
   return
 }

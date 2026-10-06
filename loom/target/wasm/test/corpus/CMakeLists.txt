@@ -810,6 +810,7 @@ loom_corpus_test(
     "numeric/predicate/selection.loom"
     "numeric/predicate/truncation.loom"
     "numeric/predicate/vector_logic.loom"
+    "numeric/vector/constants.loom"
     "numeric/vector/f32.loom"
     "numeric/vector/floating.loom"
     "numeric/vector/float_comparison.loom"
