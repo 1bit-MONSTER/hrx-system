@@ -287,7 +287,6 @@ pass.pipeline<module> @debug pipeline {
   loom_run_one_shot_result_initialize(iree_allocator_system(), &result);
   const loom_run_one_shot_request_t request = {
       /*.session=*/&session_,
-      /*.target_environment=*/&target_environment_,
       /*.pipeline=*/IREE_SV("@debug"),
       /*.target=*/IREE_SV("fake:forced"),
       /*.run_module=*/&run_module,

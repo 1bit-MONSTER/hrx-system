@@ -19,7 +19,6 @@ extern "C" {
 #endif
 
 typedef struct loom_compile_report_capture_t loom_compile_report_capture_t;
-typedef struct loom_target_environment_t loom_target_environment_t;
 
 enum {
   // Maximum number of HAL dispatch constants accepted by the one-shot front
@@ -84,8 +83,6 @@ struct loom_run_one_shot_probe_request_t {
 struct loom_run_one_shot_request_t {
   // Execution session owning compiler registries and transient block storage.
   loom_run_session_t* session;
-  // Target environment used to resolve explicit target profiles.
-  const loom_target_environment_t* target_environment;
   // User-selected pass pipeline.
   iree_string_view_t pipeline;
   // Optional explicit `family:selector` compiler target.

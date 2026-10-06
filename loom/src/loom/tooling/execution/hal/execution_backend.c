@@ -113,13 +113,13 @@ static iree_status_t loom_run_hal_execution_backend_select_device_target(
     return iree_ok_status();
   }
 
-  if (request->target_environment == NULL) {
+  if (request->session->target_environment == NULL) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
         "explicit HAL target selection requires a target environment");
   }
   return loom_device_provider_select_explicit_target(
-      device_provider, runtime, request->target_environment,
+      device_provider, runtime, request->session->target_environment,
       target_specification, out_target);
 }
 
@@ -144,7 +144,7 @@ static iree_status_t loom_run_hal_execution_backend_run_pipeline(
   }
   pipeline_options.target_pipeline_options =
       compile_options->target_pipeline_options;
-  pipeline_options.target_environment = request->target_environment;
+  pipeline_options.target_environment = request->session->target_environment;
   pipeline_options.target_specializations =
       (loom_target_specialization_request_list_t){
           .values = &specialization_request,
@@ -209,7 +209,8 @@ iree_status_t loom_run_hal_execution_backend_probe(
 iree_status_t loom_run_hal_execution_backend_run_one_shot(
     const loom_run_execution_backend_t* backend,
     const loom_run_one_shot_request_t* request) {
-  if (request->session == NULL || request->target_environment == NULL) {
+  if (request->session == NULL ||
+      request->session->target_environment == NULL) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
         "HAL compilation requires a session and target environment");

@@ -538,7 +538,6 @@ int iree_run_loom_main(int argc, char** argv,
   if (iree_status_is_ok(status)) {
     const loom_run_one_shot_request_t run_request = {
         .session = &session,
-        .target_environment = configuration->target_environment,
         .pipeline = iree_make_cstring_view(FLAG_pipeline),
         .target = iree_make_cstring_view(FLAG_target),
         .run_module = &run_module,
