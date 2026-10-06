@@ -640,6 +640,7 @@ loom_cc_benchmark(
     ::allocation
     ::function_model
     ::placement
+    ::storage_lease
     ::text_asm
     ::verify
     iree::base
@@ -647,6 +648,7 @@ loom_cc_benchmark(
     iree::testing::benchmark_main
     loom::analysis::liveness
     loom::codegen::low::allocation::unit_liveness
+    loom::codegen::low::schedule
     loom::format::text::parser
     loom::ir
     loom::ops::func
@@ -654,6 +656,7 @@ loom_cc_benchmark(
     loom::ops::target
     loom::ops::test
     loom::target::test::low_registry
+    loom::verify
   ARGS
     "--benchmark_filter=.*/length:(8|64)/components:(1|16)/width:(1|4)"
   TESTONLY

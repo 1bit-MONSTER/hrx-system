@@ -63,7 +63,8 @@ TEST(LowAllocationActiveUnitTest, FindsAndRemovesIndexedConflicts) {
 
   loom_low_allocation_active_unit_index_t index = {};
   IREE_ASSERT_OK(loom_low_allocation_active_unit_index_initialize(
-      IREE_ARRAYSIZE(assignments), /*unit_capacity=*/32, &arena, &index));
+      &descriptor_set, IREE_ARRAYSIZE(assignments), /*unit_capacity=*/32,
+      &arena, &index));
   EXPECT_TRUE(loom_low_allocation_active_unit_index_is_enabled(&index));
 
   loom_low_allocation_active_unit_index_insert_assignment(
@@ -137,7 +138,7 @@ TEST(LowAllocationActiveUnitTest, RecyclesEntriesAcrossAssignmentLifetimes) {
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
   loom_low_allocation_active_unit_index_t index = {};
   IREE_ASSERT_OK(loom_low_allocation_active_unit_index_initialize(
-      kAssignmentCount, kUnitCount, &arena, &index));
+      &descriptor_set, kAssignmentCount, kUnitCount, &arena, &index));
   const iree_host_size_t initialized_bytes = arena.used_allocation_size;
   for (uint32_t i = 0; i < kAssignmentCount; ++i) {
     if (i >= kUnitCount) {
@@ -168,6 +169,254 @@ TEST(LowAllocationActiveUnitTest, RecyclesEntriesAcrossAssignmentLifetimes) {
   EXPECT_EQ(index.active_entry_count, 0u);
   EXPECT_EQ(index.entry_count, kUnitCount);
   EXPECT_EQ(arena.used_allocation_size, initialized_bytes);
+
+  iree_arena_deinitialize(&arena);
+  iree_arena_block_pool_deinitialize(&block_pool);
+}
+
+TEST(LowAllocationActiveUnitTest, OrdersOnlyDefiniteContinuousScalarConflicts) {
+  iree_arena_block_pool_t block_pool;
+  iree_arena_block_pool_initialize(/*block_size=*/4096, iree_allocator_system(),
+                                   &block_pool);
+  iree_arena_allocator_t arena;
+  iree_arena_initialize(&block_pool, &arena);
+
+  loom_low_reg_class_t reg_classes[2] = {};
+  reg_classes[0].alias_set_id = 1;
+  reg_classes[1].alias_set_id = 1;
+  const loom_low_descriptor_set_t descriptor_set =
+      DescriptorSet(reg_classes, IREE_ARRAYSIZE(reg_classes));
+  loom_low_allocation_assignment_t assignments[] = {
+      Assignment(1, 0, 0, 10, 0, 1, 0), Assignment(2, 0, 0, 10, 1, 1, 0),
+      Assignment(3, 0, 0, 10, 2, 1, 0), Assignment(4, 0, 0, 10, 4, 1, 0),
+      Assignment(5, 0, 0, 10, 6, 1, 0), Assignment(6, 0, 0, 10, 5, 1, 0),
+      Assignment(7, 1, 0, 10, 5, 1, 0), Assignment(8, 0, 0, 10, 7, 1, 0),
+      Assignment(9, 0, 0, 10, 8, 1, 0),
+  };
+  assignments[7].liveness_segments = {/*.start=*/0, /*.count=*/1};
+  assignments[8].location_kind = LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID;
+
+  loom_low_allocation_active_unit_index_t index = {};
+  IREE_ASSERT_OK(loom_low_allocation_active_unit_index_initialize(
+      &descriptor_set, IREE_ARRAYSIZE(assignments), /*unit_capacity=*/32,
+      &arena, &index));
+  for (uint32_t i : {0u, 1u, 2u, 3u, 4u}) {
+    loom_low_allocation_active_unit_index_insert_assignment(
+        &index, &descriptor_set, assignments, IREE_ARRAYSIZE(assignments), i);
+  }
+
+  loom_low_allocation_assignment_t candidate =
+      Assignment(100, 0, 5, 12, 0, 1, 0);
+  ASSERT_TRUE(loom_low_allocation_active_unit_index_can_order_candidate(
+      &index, &candidate));
+  uint32_t base = UINT32_MAX;
+  EXPECT_TRUE(loom_low_allocation_active_unit_index_find_unoccupied_location(
+      &index, &candidate, 0, 10, LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING,
+      &base));
+  EXPECT_EQ(base, 3u);
+  EXPECT_TRUE(loom_low_allocation_active_unit_index_find_unoccupied_location(
+      &index, &candidate, 0, 6, LOOM_LOW_ALLOCATION_LOCATION_SEARCH_DESCENDING,
+      &base));
+  EXPECT_EQ(base, 5u);
+
+  // Aliasing classes and duplicate owners share one definite location. It is
+  // released only after the last owner leaves the active set.
+  loom_low_allocation_active_unit_index_insert_assignment(
+      &index, &descriptor_set, assignments, IREE_ARRAYSIZE(assignments), 5);
+  loom_low_allocation_active_unit_index_insert_assignment(
+      &index, &descriptor_set, assignments, IREE_ARRAYSIZE(assignments), 6);
+  candidate.descriptor_reg_class_id = 1;
+  const bool found_dense_gap =
+      loom_low_allocation_active_unit_index_find_unoccupied_location(
+          &index, &candidate, 4, 6,
+          LOOM_LOW_ALLOCATION_LOCATION_SEARCH_DESCENDING, &base);
+  EXPECT_FALSE(found_dense_gap) << base;
+  loom_low_allocation_active_unit_index_remove_assignment(
+      &index, assignments, IREE_ARRAYSIZE(assignments), 5);
+  EXPECT_FALSE(loom_low_allocation_active_unit_index_find_unoccupied_location(
+      &index, &candidate, 5, 5, LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING,
+      &base));
+  loom_low_allocation_active_unit_index_remove_assignment(
+      &index, assignments, IREE_ARRAYSIZE(assignments), 6);
+  EXPECT_TRUE(loom_low_allocation_active_unit_index_find_unoccupied_location(
+      &index, &candidate, 5, 5, LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING,
+      &base));
+  EXPECT_EQ(base, 5u);
+
+  // Sparse reservations are still checked by the full conflict predicate;
+  // the ordered index never treats them as a definite active conflict.
+  loom_low_allocation_active_unit_index_insert_assignment(
+      &index, &descriptor_set, assignments, IREE_ARRAYSIZE(assignments), 7);
+  candidate.descriptor_reg_class_id = 0;
+  EXPECT_TRUE(loom_low_allocation_active_unit_index_find_unoccupied_location(
+      &index, &candidate, 7, 7, LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING,
+      &base));
+  EXPECT_EQ(base, 7u);
+
+  // Location kinds have independent ordered domains.
+  loom_low_allocation_active_unit_index_insert_assignment(
+      &index, &descriptor_set, assignments, IREE_ARRAYSIZE(assignments), 8);
+  candidate.location_kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER;
+  EXPECT_TRUE(loom_low_allocation_active_unit_index_find_unoccupied_location(
+      &index, &candidate, 8, 8, LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING,
+      &base));
+  candidate.location_kind = LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID;
+  EXPECT_FALSE(loom_low_allocation_active_unit_index_find_unoccupied_location(
+      &index, &candidate, 8, 8, LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING,
+      &base));
+
+  candidate.location_count = candidate.unit_count = 2;
+  EXPECT_FALSE(loom_low_allocation_active_unit_index_can_order_candidate(
+      &index, &candidate));
+
+  iree_arena_deinitialize(&arena);
+  iree_arena_block_pool_deinitialize(&block_pool);
+}
+
+TEST(LowAllocationActiveUnitTest,
+     OrderedLocationsMatchExhaustiveGapQueriesAcrossUpdates) {
+  iree_arena_block_pool_t block_pool;
+  iree_arena_block_pool_initialize(/*block_size=*/4096, iree_allocator_system(),
+                                   &block_pool);
+  iree_arena_allocator_t arena;
+  iree_arena_initialize(&block_pool, &arena);
+
+  constexpr uint32_t kLocationCount = 64;
+  const loom_low_reg_class_t reg_classes[1] = {};
+  const loom_low_descriptor_set_t descriptor_set =
+      DescriptorSet(reg_classes, IREE_ARRAYSIZE(reg_classes));
+  loom_low_allocation_assignment_t assignments[kLocationCount];
+  for (uint32_t i = 0; i < kLocationCount; ++i) {
+    assignments[i] = Assignment(
+        /*value_id=*/i + 1, /*descriptor_reg_class_id=*/0,
+        /*start_point=*/0, /*end_point=*/10,
+        /*location_base=*/(i * 37u) % kLocationCount,
+        /*location_count=*/1, /*unit_point_start=*/0);
+  }
+
+  loom_low_allocation_active_unit_index_t index = {};
+  IREE_ASSERT_OK(loom_low_allocation_active_unit_index_initialize(
+      &descriptor_set, IREE_ARRAYSIZE(assignments),
+      /*unit_capacity=*/kLocationCount, &arena, &index));
+  loom_low_allocation_assignment_t candidate =
+      Assignment(100, 0, 5, 12, 0, 1, 0);
+  bool occupied[kLocationCount] = {};
+
+  auto verify_all_ranges = [&]() {
+    for (uint32_t minimum = 0; minimum < kLocationCount; ++minimum) {
+      for (uint32_t maximum = minimum; maximum < kLocationCount; ++maximum) {
+        uint32_t expected_ascending = minimum;
+        while (expected_ascending <= maximum && occupied[expected_ascending]) {
+          ++expected_ascending;
+        }
+        uint32_t actual = UINT32_MAX;
+        const bool found_ascending =
+            loom_low_allocation_active_unit_index_find_unoccupied_location(
+                &index, &candidate, minimum, maximum,
+                LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING, &actual);
+        EXPECT_EQ(found_ascending, expected_ascending <= maximum)
+            << "range [" << minimum << ", " << maximum << "]";
+        if (found_ascending) {
+          EXPECT_EQ(actual, expected_ascending)
+              << "range [" << minimum << ", " << maximum << "]";
+        }
+
+        uint32_t expected_descending = maximum;
+        while (expected_descending >= minimum &&
+               occupied[expected_descending]) {
+          if (expected_descending == 0) {
+            break;
+          }
+          --expected_descending;
+        }
+        const bool expected_descending_found =
+            !occupied[expected_descending] && expected_descending >= minimum;
+        actual = UINT32_MAX;
+        const bool found_descending =
+            loom_low_allocation_active_unit_index_find_unoccupied_location(
+                &index, &candidate, minimum, maximum,
+                LOOM_LOW_ALLOCATION_LOCATION_SEARCH_DESCENDING, &actual);
+        EXPECT_EQ(found_descending, expected_descending_found)
+            << "range [" << minimum << ", " << maximum << "]";
+        if (found_descending) {
+          EXPECT_EQ(actual, expected_descending)
+              << "range [" << minimum << ", " << maximum << "]";
+        }
+      }
+    }
+  };
+
+  for (uint32_t i = 0; i < kLocationCount; ++i) {
+    loom_low_allocation_active_unit_index_insert_assignment(
+        &index, &descriptor_set, assignments, IREE_ARRAYSIZE(assignments), i);
+    occupied[assignments[i].location_base] = true;
+    if (i == 0 || i == 15 || i == 31 || i == kLocationCount - 1) {
+      verify_all_ranges();
+    }
+  }
+  for (uint32_t i = 0; i < kLocationCount; ++i) {
+    const uint32_t assignment_index = (i * 29u) % kLocationCount;
+    loom_low_allocation_active_unit_index_remove_assignment(
+        &index, assignments, IREE_ARRAYSIZE(assignments), assignment_index);
+    occupied[assignments[assignment_index].location_base] = false;
+    if (i == 15 || i == 31 || i == kLocationCount - 1) {
+      verify_all_ranges();
+    }
+  }
+
+  iree_arena_deinitialize(&arena);
+  iree_arena_block_pool_deinitialize(&block_pool);
+}
+
+TEST(LowAllocationActiveUnitTest, OrderedLocationsHandleUint32Boundaries) {
+  iree_arena_block_pool_t block_pool;
+  iree_arena_block_pool_initialize(/*block_size=*/4096, iree_allocator_system(),
+                                   &block_pool);
+  iree_arena_allocator_t arena;
+  iree_arena_initialize(&block_pool, &arena);
+
+  const loom_low_reg_class_t reg_classes[1] = {};
+  const loom_low_descriptor_set_t descriptor_set =
+      DescriptorSet(reg_classes, IREE_ARRAYSIZE(reg_classes));
+  const loom_low_allocation_assignment_t assignments[] = {
+      Assignment(1, 0, 0, 10, 0, 1, 0),
+      Assignment(2, 0, 0, 10, 1, 1, 0),
+      Assignment(3, 0, 0, 10, UINT32_MAX - 1u, 1, 0),
+      Assignment(4, 0, 0, 10, UINT32_MAX, 1, 0),
+  };
+  loom_low_allocation_active_unit_index_t index = {};
+  IREE_ASSERT_OK(loom_low_allocation_active_unit_index_initialize(
+      &descriptor_set, IREE_ARRAYSIZE(assignments), /*unit_capacity=*/32,
+      &arena, &index));
+  for (uint32_t i = 0; i < IREE_ARRAYSIZE(assignments); ++i) {
+    loom_low_allocation_active_unit_index_insert_assignment(
+        &index, &descriptor_set, assignments, IREE_ARRAYSIZE(assignments), i);
+  }
+  loom_low_allocation_assignment_t candidate =
+      Assignment(100, 0, 5, 12, 0, 1, 0);
+  uint32_t base = UINT32_MAX;
+  EXPECT_TRUE(loom_low_allocation_active_unit_index_find_unoccupied_location(
+      &index, &candidate, 0, UINT32_MAX,
+      LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING, &base));
+  EXPECT_EQ(base, 2u);
+  EXPECT_TRUE(loom_low_allocation_active_unit_index_find_unoccupied_location(
+      &index, &candidate, 0, UINT32_MAX,
+      LOOM_LOW_ALLOCATION_LOCATION_SEARCH_DESCENDING, &base));
+  EXPECT_EQ(base, UINT32_MAX - 2u);
+  EXPECT_FALSE(loom_low_allocation_active_unit_index_find_unoccupied_location(
+      &index, &candidate, UINT32_MAX - 1u, UINT32_MAX,
+      LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING, &base));
+  EXPECT_FALSE(loom_low_allocation_active_unit_index_find_unoccupied_location(
+      &index, &candidate, UINT32_MAX - 1u, UINT32_MAX,
+      LOOM_LOW_ALLOCATION_LOCATION_SEARCH_DESCENDING, &base));
+
+  loom_low_allocation_active_unit_index_remove_assignment(
+      &index, assignments, IREE_ARRAYSIZE(assignments),
+      /*assignment_index=*/2);
+  EXPECT_TRUE(loom_low_allocation_active_unit_index_find_unoccupied_location(
+      &index, &candidate, UINT32_MAX - 1u, UINT32_MAX,
+      LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING, &base));
+  EXPECT_EQ(base, UINT32_MAX - 1u);
 
   iree_arena_deinitialize(&arena);
   iree_arena_block_pool_deinitialize(&block_pool);
@@ -205,7 +454,8 @@ TEST(LowAllocationActiveUnitTest, RefinesIndexedConflictByUnitStart) {
 
   loom_low_allocation_active_unit_index_t index = {};
   IREE_ASSERT_OK(loom_low_allocation_active_unit_index_initialize(
-      IREE_ARRAYSIZE(assignments), /*unit_capacity=*/32, &arena, &index));
+      &descriptor_set, IREE_ARRAYSIZE(assignments), /*unit_capacity=*/32,
+      &arena, &index));
   loom_low_allocation_active_unit_index_insert_assignment(
       &index, &descriptor_set, assignments, IREE_ARRAYSIZE(assignments),
       /*assignment_index=*/0);
@@ -242,7 +492,8 @@ TEST(LowAllocationActiveUnitTest, StoresEntirePlannedSpan) {
 
   loom_low_allocation_active_unit_index_t index = {};
   IREE_ASSERT_OK(loom_low_allocation_active_unit_index_initialize(
-      /*assignment_capacity=*/1, /*unit_capacity=*/33, &arena, &index));
+      &descriptor_set, /*assignment_capacity=*/1, /*unit_capacity=*/33, &arena,
+      &index));
   loom_low_allocation_active_unit_index_insert_assignment(
       &index, &descriptor_set, &assignment, /*assignment_count=*/1,
       /*assignment_index=*/0);
@@ -260,15 +511,17 @@ TEST(LowAllocationActiveUnitTest, RejectsUnrepresentableCapacity) {
   iree_arena_block_pool_initialize(4096, iree_allocator_system(), &block_pool);
   iree_arena_allocator_t arena;
   iree_arena_initialize(&block_pool, &arena);
+  const loom_low_descriptor_set_t descriptor_set = {};
   loom_low_allocation_active_unit_index_t index = {};
   IREE_EXPECT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED,
                         loom_low_allocation_active_unit_index_initialize(
-                            /*assignment_capacity=*/1,
+                            &descriptor_set, /*assignment_capacity=*/1,
                             /*unit_capacity=*/UINT32_MAX, &arena, &index));
   EXPECT_EQ(arena.used_allocation_size, 0u);
   EXPECT_FALSE(loom_low_allocation_active_unit_index_is_enabled(&index));
   IREE_ASSERT_OK(loom_low_allocation_active_unit_index_initialize(
-      /*assignment_capacity=*/1, /*unit_capacity=*/1, &arena, &index));
+      &descriptor_set, /*assignment_capacity=*/1, /*unit_capacity=*/1, &arena,
+      &index));
   EXPECT_EQ(arena.used_allocation_size, 0u);
   EXPECT_FALSE(loom_low_allocation_active_unit_index_is_enabled(&index));
   iree_arena_deinitialize(&arena);
@@ -350,7 +603,8 @@ TEST(LowAllocationActiveUnitTest, IndexesExplicitRegisterAtomicUnits) {
 
   loom_low_allocation_active_unit_index_t index = {};
   IREE_ASSERT_OK(loom_low_allocation_active_unit_index_initialize(
-      IREE_ARRAYSIZE(assignments), /*unit_capacity=*/32, &arena, &index));
+      &descriptor_set, IREE_ARRAYSIZE(assignments), /*unit_capacity=*/32,
+      &arena, &index));
   loom_low_allocation_active_unit_index_insert_assignment(
       &index, &descriptor_set, assignments, IREE_ARRAYSIZE(assignments),
       /*assignment_index=*/0);

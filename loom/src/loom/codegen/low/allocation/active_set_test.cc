@@ -64,7 +64,7 @@ TEST(LowAllocationActiveSetTest, ExpiresAndRemovesIndexedUnits) {
 
   loom_low_allocation_active_set_t active_set = {};
   IREE_ASSERT_OK(loom_low_allocation_active_set_initialize(
-      IREE_ARRAYSIZE(assignments),
+      &descriptor_set, IREE_ARRAYSIZE(assignments),
       /*program_point_count=*/11, /*unit_capacity=*/32, &arena, &active_set));
   loom_low_allocation_active_set_insert(
       &active_set, &descriptor_set, assignments, IREE_ARRAYSIZE(assignments),
@@ -143,7 +143,7 @@ TEST(LowAllocationActiveSetTest,
       DescriptorSet(reg_classes, IREE_ARRAYSIZE(reg_classes));
   loom_low_allocation_active_set_t active_set = {};
   IREE_ASSERT_OK(loom_low_allocation_active_set_initialize(
-      kAssignmentCount, kLastEndPoint + 1,
+      &descriptor_set, kAssignmentCount, kLastEndPoint + 1,
       /*unit_capacity=*/kAssignmentCount, &arena, &active_set));
   const iree_host_size_t initialized_bytes = arena.used_allocation_size;
   for (uint32_t i = 0; i < kAssignmentCount; ++i) {
@@ -207,7 +207,7 @@ TEST(LowAllocationActiveSetTest, ReusesStorageBeforeRemovedLifetimeExpires) {
     unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
     loom_low_allocation_active_set_t active_set = {};
     IREE_ASSERT_OK(loom_low_allocation_active_set_initialize(
-        IREE_ARRAYSIZE(assignments),
+        &descriptor_set, IREE_ARRAYSIZE(assignments),
         /*program_point_count=*/9, unit_capacity, &arena, &active_set));
     loom_low_allocation_active_set_insert(
         &active_set, &descriptor_set, assignments, IREE_ARRAYSIZE(assignments),
@@ -288,7 +288,7 @@ TEST(LowAllocationActiveSetTest, ProjectsSparseScalarConflictsAcrossAliases) {
   unit_liveness.storage_segments.entries = segments;
   loom_low_allocation_active_set_t active_set = {};
   IREE_ASSERT_OK(loom_low_allocation_active_set_initialize(
-      IREE_ARRAYSIZE(assignments), /*program_point_count=*/13,
+      &descriptor_set, IREE_ARRAYSIZE(assignments), /*program_point_count=*/13,
       /*unit_capacity=*/32, &arena, &active_set));
   for (uint32_t i = 0; i < IREE_ARRAYSIZE(assignments); ++i) {
     loom_low_allocation_active_set_insert(&active_set, &descriptor_set,

@@ -33,6 +33,7 @@ _LOW_OPS_VISIBILITY = [
     "//loom/src/loom/tooling/target/vm:__pkg__",
     "//loom/src/loom/tooling/target/wasm:__pkg__",
     "//loom/src/loom/tools/loom-check:__pkg__",
+    "//loom/src/loom/transforms/cleanup:__pkg__",
     "//loom/src/loom/transforms/cfg:__pkg__",
     "//loom/src/loom/transforms/symbol:__pkg__",
     "//loom/src/loom/verify:__pkg__",

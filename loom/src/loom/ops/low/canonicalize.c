@@ -204,6 +204,17 @@ static iree_status_t loom_low_slice_canonicalize_nested_slice(
   }
 
   const loom_value_id_t inner_source = loom_low_slice_source(inner_slice_op);
+  loom_op_t* inner_source_op = loom_low_defining_op(rewriter, inner_source);
+  if (loom_low_slice_isa(inner_source_op)) {
+    const int64_t parent_offset = loom_low_slice_offset(inner_source_op);
+    if (parent_offset >= 0 && inner_offset <= INT64_MAX - parent_offset) {
+      // Let the producer compose first. Replacing it re-enqueues this user,
+      // which then observes the producer's final source and rewrites once.
+      // Composing consumers first rebuilds every retained suffix of a nested
+      // chain and makes both rewrite work and arena growth quadratic.
+      return iree_ok_status();
+    }
+  }
   const int64_t combined_offset = inner_offset + outer_offset;
   IREE_RETURN_IF_ERROR(loom_low_slice_replace_at(
       op, rewriter, inner_slice_op, inner_source, combined_offset));

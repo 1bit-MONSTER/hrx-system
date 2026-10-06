@@ -10,6 +10,7 @@
 #include "loom/codegen/low/allocation/active_capacity.h"
 #include "loom/codegen/low/allocation/active_set.h"
 #include "loom/codegen/low/allocation/coalescing.h"
+#include "loom/codegen/low/allocation/fixed_storage_index.h"
 #include "loom/codegen/low/allocation/interval_order.h"
 #include "loom/codegen/low/allocation/live_range.h"
 #include "loom/codegen/low/allocation/physical_domains.h"
@@ -46,6 +47,8 @@ typedef struct loom_low_allocation_interval_assignment_state_t {
   loom_consumption_region_query_t nested_consumption_query;
   // Assignment-index window still live at the current interval start.
   loom_low_allocation_active_set_t active;
+  // Monotone fixed-claim availability cursor for this assignment attempt.
+  loom_low_allocation_fixed_availability_t fixed_availability;
   // Victim-search arrays reused after each selected set has been consumed.
   loom_low_allocation_search_workspace_t search_workspace;
   // Cached predicted spill traffic, dense by liveness value ordinal.
@@ -106,6 +109,9 @@ loom_low_allocation_interval_assignment_search_context(
       .preferences = state->context->preferences,
       .preference_workspace = &state->preference_workspace,
       .active_set = &state->active,
+      .fixed_availability = state->fixed_availability.group_count != 0
+                                ? &state->fixed_availability
+                                : NULL,
       .storage_leases = state->context->storage_leases,
       .required_register_values = state->context->required_register_values,
       .spill_traffic_by_value_ordinal = state->spill_traffic_by_value_ordinal,
@@ -731,8 +737,12 @@ loom_low_allocation_interval_assignment_initialize_result_storage(
         state->context->unit_liveness, state->context->placement,
         state->scratch_arena->block_pool, &capacity));
     IREE_RETURN_IF_ERROR(loom_low_allocation_active_set_initialize(
-        order->interval_count, capacity.program_point_count,
-        capacity.unit_count, state->scratch_arena, &state->active));
+        state->context->target->descriptor_set, order->interval_count,
+        capacity.program_point_count, capacity.unit_count, state->scratch_arena,
+        &state->active));
+    IREE_RETURN_IF_ERROR(loom_low_allocation_fixed_availability_initialize(
+        state->context->target_constraints, state->scratch_arena,
+        &state->fixed_availability));
   }
 
   state->result.assignment_map = (loom_low_allocation_assignment_map_t){

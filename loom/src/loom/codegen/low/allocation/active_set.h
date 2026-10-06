@@ -54,6 +54,7 @@ typedef struct loom_low_allocation_active_set_t {
 // |unit_capacity| active unit-index entries. All inserted assignments must end
 // before |program_point_count|.
 iree_status_t loom_low_allocation_active_set_initialize(
+    const loom_low_descriptor_set_t* descriptor_set,
     iree_host_size_t assignment_capacity, iree_host_size_t program_point_count,
     iree_host_size_t unit_capacity, iree_arena_allocator_t* arena,
     loom_low_allocation_active_set_t* out_active_set);

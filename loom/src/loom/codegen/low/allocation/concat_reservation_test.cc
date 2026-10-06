@@ -198,8 +198,8 @@ TEST(LowAllocationConcatReservationTest, ChoosesOnlyLegalAssemblies) {
       unit_values[3].acquisition_start_point = future_start;
       unit_start_points[8] = unit_start_points[9] = future_start;
       loom_low_allocation_active_set_t active_set = {};
-      IREE_CHECK_OK(loom_low_allocation_active_set_initialize(1, 16, 16, &arena,
-                                                              &active_set));
+      IREE_CHECK_OK(loom_low_allocation_active_set_initialize(
+          &descriptors, 1, 16, 16, &arena, &active_set));
       loom_low_allocation_active_set_insert(&active_set, &descriptors, &future,
                                             1, 0);
       context.active_set = &active_set;
@@ -237,8 +237,8 @@ TEST(LowAllocationConcatReservationTest, ChoosesOnlyLegalAssemblies) {
   future.location_base = 2;
   high_water[0] = 4;
   loom_low_allocation_active_set_t active_set = {};
-  IREE_ASSERT_OK(loom_low_allocation_active_set_initialize(1, 16, 16, &arena,
-                                                           &active_set));
+  IREE_ASSERT_OK(loom_low_allocation_active_set_initialize(
+      &descriptors, 1, 16, 16, &arena, &active_set));
   loom_low_allocation_active_set_insert(&active_set, &descriptors, &future, 1,
                                         0);
   context.active_set = &active_set;
@@ -270,8 +270,8 @@ TEST(LowAllocationConcatReservationTest, ChoosesOnlyLegalAssemblies) {
   future.start_point = intervals[3].start_point = 5;
   unit_start_points[8] = unit_start_points[9] = 5;
   loom_low_allocation_active_set_t window_active_set = {};
-  IREE_ASSERT_OK(loom_low_allocation_active_set_initialize(1, 16, 16, &arena,
-                                                           &window_active_set));
+  IREE_ASSERT_OK(loom_low_allocation_active_set_initialize(
+      &descriptors, 1, 16, 16, &arena, &window_active_set));
   loom_low_allocation_active_set_insert(&window_active_set, &descriptors,
                                         &future, 1, 0);
   context.active_set = &window_active_set;

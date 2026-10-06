@@ -56,6 +56,11 @@ from loom.target.low_descriptors import (
     ScheduleClass,
     ScheduleClassFlag,
     SpillSlotSpace,
+    StorageLease,
+    StorageLeaseAttachment,
+    StorageLeaseFlag,
+    StorageLeaseKind,
+    StorageLeaseReleaseScope,
     TimingEvent,
 )
 
@@ -1812,6 +1817,36 @@ TEST_LOW_STORE_V4I32_DESCRIPTOR = Descriptor(
     flags=(DescriptorFlag.SIDE_EFFECTING,),
 )
 
+TEST_LOW_LEASED_CONSUME_I32_DESCRIPTOR = Descriptor(
+    key="test.leased.consume.i32",
+    mnemonic="test.leased.consume.i32",
+    semantic_tag="test.storage_lease.consume.i32",
+    operands=(_i32_operand("value"),),
+    asm_forms=_asm(operands=("value",)),
+    schedule_class=_SCHEDULE_STORE,
+    storage_leases=(
+        StorageLease(
+            kind=StorageLeaseKind.SOURCE_READ,
+            attachment=StorageLeaseAttachment.OPERAND,
+            attachment_index=0,
+            unit_offset=0,
+            unit_count=1,
+            release_scope=StorageLeaseReleaseScope.PROGRESS_CLASS,
+            release_class_id=1,
+            release_class_name="test.async",
+            release_action_id=1,
+            release_action_name="test.wait",
+            release_reason_id=1,
+            release_reason_name="test.source_reuse",
+            flags=(
+                StorageLeaseFlag.STARTS_AT_ISSUE,
+                StorageLeaseFlag.MAY_CARRY_ACROSS_BOUNDARY,
+            ),
+        ),
+    ),
+    flags=(DescriptorFlag.SIDE_EFFECTING,),
+)
+
 TEST_LOW_SCHEDULE_ALTERNATIVE_STORE_B_V4I32_DESCRIPTOR = Descriptor(
     key="test.schedule.alternative.store.b.v4i32",
     mnemonic="test.schedule.alternative.store.b.v4i32",
@@ -2567,6 +2602,7 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_LOAD_INDEX_ORDERED_V4I32_DESCRIPTOR,
         TEST_LOW_LOAD_INDEX_V4F32_DESCRIPTOR,
         TEST_LOW_STORE_V4I32_DESCRIPTOR,
+        TEST_LOW_LEASED_CONSUME_I32_DESCRIPTOR,
         TEST_LOW_SCHEDULE_ALTERNATIVE_STORE_A_V4I32_DESCRIPTOR,
         TEST_LOW_SCHEDULE_ALTERNATIVE_STORE_B_V4I32_DESCRIPTOR,
         TEST_LOW_STORE_V4F32_DESCRIPTOR,
