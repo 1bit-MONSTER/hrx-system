@@ -4,12 +4,51 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+import dataclasses
+import importlib.util
 import os
 import re
 
 import bazel_to_cmake_config
 import bazel_to_cmake_converter
 import bazel_to_cmake_requirements
+from loom_binary import LoomBinaryBuildFileFunctions
+
+
+def _load_loom_corpus_build_file_functions():
+    module_path = os.path.join(
+        os.path.dirname(__file__),
+        "build_tools",
+        "bazel_to_cmake",
+        "loom_corpus.py",
+    )
+    spec = importlib.util.spec_from_file_location(
+        "loom_bazel_to_cmake_corpus",
+        module_path,
+    )
+    if not spec or not spec.loader:
+        raise RuntimeError(f"could not load Loom corpus converter from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.LoomCorpusBuildFileFunctions
+
+
+LoomCorpusBuildFileFunctions = _load_loom_corpus_build_file_functions()
+
+
+@dataclasses.dataclass(frozen=True)
+class _LoomExecutionProfile:
+    kind: str
+    name: str
+    target_family: str
+    target_class: str
+    executor: str
+    runner: str | None
+    runner_args: list[str] | None
+    build_requirements: list
+    run_requirements: list
+    resource_group: str | None
+    tags: list[str]
 
 
 def _load_generated_amdgpu_target_config():
@@ -81,10 +120,16 @@ _GENERATED_ROOTPATH_PATTERN = re.compile(r"\$\(rootpath ([^)]+)\)")
 _GENERATED_LOCATION_PATTERN = re.compile(r"\$\(location ([^)]+)\)")
 
 
-class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
+class LoomBuildFileFunctions(
+    LoomCorpusBuildFileFunctions,
+    LoomBinaryBuildFileFunctions,
+    bazel_to_cmake_converter.BuildFileFunctions,
+):
     def _declarative_load_bindings(self):
         return {
             **super()._declarative_load_bindings(),
+            "loom_corpus_catalog": self.loom_corpus_catalog,
+            "loom_corpus_manifest": self.loom_corpus_manifest,
             "loom_execution_profile": self.loom_execution_profile,
         }
 
@@ -109,6 +154,11 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         self._loom_amdgpu_descriptor_set_capabilities_by_storage_generator_target = (
             _LOOM_AMDGPU_TARGET_CONFIG[
                 "LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITIES_BY_STORAGE_GENERATOR_TARGET"
+            ]
+        )
+        self._loom_amdgpu_target_capabilities_by_representation_capability = (
+            _LOOM_AMDGPU_TARGET_CONFIG[
+                "LOOM_AMDGPU_TARGET_CAPABILITIES_BY_REPRESENTATION_CAPABILITY"
             ]
         )
         self._loom_requirement_policy = bazel_to_cmake_requirements.load_project_policy(
@@ -203,6 +253,23 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             + ")\n\n"
         )
 
+    def loom_target_set(self, name, targets, allow_empty=False, **kwargs):
+        self._check_no_unhandled_kwargs("loom_target_set", kwargs)
+        targets_block, variable_block = self._convert_platform_select_deps(
+            name,
+            targets,
+            "TARGETS",
+            target_transform=self._loom_target_identity_label,
+        )
+        self._converter.body += (
+            variable_block
+            + "loom_target_set(\n"
+            + self._convert_string_arg_block("NAME", name)
+            + ("  ALLOW_EMPTY\n" if allow_empty else "")
+            + targets_block
+            + ")\n\n"
+        )
+
     def loom_amdgpu_target_profile(
         self, name, target, target_compatible_with=None, **kwargs
     ):
@@ -220,12 +287,6 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             ],
             **kwargs,
         )
-
-    def loom_kernel_binary(self, name, tags=None, **kwargs):
-        if not self._should_skip_target(tags=tags):
-            raise NotImplementedError(
-                f"loom_kernel_binary requires a CMake projection: {name}"
-            )
 
     def loom_module(
         self,
@@ -345,24 +406,26 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         target_class,
         executor,
         runner_args=None,
+        runner=None,
         build_requirements=None,
         run_requirements=None,
         resource_group=None,
         tags=None,
     ):
         self._reject_workload_args(name, runner_args)
-        return {
-            "kind": "loom_execution_profile",
-            "name": name,
-            "target_family": target_family,
-            "target_class": target_class,
-            "executor": executor,
-            "runner_args": runner_args,
-            "build_requirements": build_requirements or [],
-            "run_requirements": run_requirements or [],
-            "resource_group": resource_group,
-            "tags": tags or [],
-        }
+        return _LoomExecutionProfile(
+            kind="loom_execution_profile",
+            name=name,
+            target_family=target_family,
+            target_class=target_class,
+            executor=executor,
+            runner=runner,
+            runner_args=runner_args,
+            build_requirements=build_requirements or [],
+            run_requirements=run_requirements or [],
+            resource_group=resource_group,
+            tags=tags or [],
+        )
 
     @staticmethod
     def _loom_test_name_suffix(value):
@@ -445,6 +508,7 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         variants=None,
         execution_profiles=None,
         compile_targets=None,
+        benchmark_smoke=True,
         tags=None,
         target_compatible_with=None,
         **kwargs,
@@ -493,15 +557,15 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             )
             execution_names = set()
             for profile in execution_profiles or []:
-                if profile.get("kind") != "loom_execution_profile":
+                if profile.kind != "loom_execution_profile":
                     raise ValueError(
                         f"{name} execution profile was not created by loom_execution_profile"
                     )
-                suffix = self._loom_test_name_suffix(profile["name"])
+                suffix = self._loom_test_name_suffix(profile.name)
                 execution_name = f"{workload_name}_execute_{suffix}_test"
                 if execution_name in execution_names:
                     raise ValueError(
-                        f"{name} has colliding execution profiles: {profile['name']}"
+                        f"{name} has colliding execution profiles: {profile.name}"
                     )
                 execution_names.add(execution_name)
                 self._loom_execution_test(
@@ -509,6 +573,7 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
                     self._convert_single_target(module),
                     profile,
                     args,
+                    benchmark_smoke,
                     tags,
                     workload_args,
                 )
@@ -524,24 +589,33 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             )
         self._emit_platform_guard_end(target_compatible_with)
 
-    def _loom_execution_test(self, name, module, profile, args, tags, workload_args):
+    def _loom_execution_test(
+        self, name, module, profile, args, benchmark_smoke, tags, workload_args
+    ):
+        if profile.runner:
+            self._converter.body += (
+                f"# {name} uses the Bazel execution runner {profile.runner}; "
+                "no CMake execution target is available.\n\n"
+            )
+            return
         policy = bazel_to_cmake_requirements.CollectedPackagePolicy(
-            build_requirements=profile["build_requirements"],
-            run_requirements=profile["run_requirements"],
-            resource_group=profile["resource_group"],
+            build_requirements=profile.build_requirements,
+            run_requirements=profile.run_requirements,
+            resource_group=profile.resource_group,
         )
-        labels = list(tags or []) + profile["tags"]
+        labels = list(tags or []) + profile.tags
         labels.extend(policy.tags(include_run_requirements=True))
         labels.extend(
             [
-                "loom-execution-profile=" + profile["name"],
-                "loom-target-family=" + profile["target_family"],
-                "loom-target-class=" + profile["target_class"],
-                "loom-executor=" + profile["executor"],
+                "loom-execution-profile=" + profile.name,
+                "loom-target-family=" + profile.target_family,
+                "loom-target-class=" + profile.target_class,
+                "loom-executor=" + profile.executor,
             ]
         )
         blocks = [
             self._convert_string_arg_block("NAME", name, quote=False),
+            "  CORRECTNESS_ONLY\n" if not benchmark_smoke else "",
             self._convert_string_arg_block("MODULE", module),
             self._convert_string_list_block(
                 "ARGS", self._convert_test_location_args(args), sort=False
@@ -549,7 +623,7 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             self._convert_string_list_block(
                 "RUNNER_ARGS",
                 self._convert_test_location_args(
-                    (profile["runner_args"] or []) + workload_args or None
+                    (profile.runner_args or []) + workload_args or None
                 ),
                 sort=False,
             ),
@@ -584,16 +658,42 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
     def loom_amdgpu_target_config_settings(self, **kwargs):
         return None
 
-    def _loom_amdgpu_descriptor_set_config_label(self, capability):
+    def _loom_amdgpu_descriptor_set_config_label(self, capability, prefix=""):
         if capability not in self._loom_amdgpu_descriptor_set_capabilities:
             raise ValueError(
                 f"Unknown Loom AMDGPU descriptor-set capability: {capability}"
             )
+        if prefix:
+            capability = prefix + "_" + capability
         return "//loom/config/target/amdgpu:" + capability
+
+    def _loom_amdgpu_descriptor_set_capabilities_compatible_with(
+        self, capabilities, prefix=""
+    ):
+        compatibility = {
+            self._loom_amdgpu_descriptor_set_config_label(capability, prefix): []
+            for capability in capabilities
+        }
+        compatibility["//conditions:default"] = ["@platforms//:incompatible"]
+        return self.select(compatibility)
 
     def loom_amdgpu_descriptor_set_compatible_with(self, capability):
         return self.loom_config_compatible_with(
             [self._loom_amdgpu_descriptor_set_config_label(capability)]
+        )
+
+    def loom_amdgpu_iree_hal_representation_compatible_with(self, capability):
+        target_capabilities = (
+            self._loom_amdgpu_target_capabilities_by_representation_capability.get(
+                capability
+            )
+        )
+        if not target_capabilities:
+            raise ValueError(
+                f"Unknown Loom AMDGPU representation capability: {capability}"
+            )
+        return self._loom_amdgpu_descriptor_set_capabilities_compatible_with(
+            target_capabilities, prefix="iree_hal"
         )
 
     def loom_amdgpu_descriptor_table_compatible_with(self, storage_generator_target):
@@ -604,12 +704,9 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             raise ValueError(
                 f"Unknown AMDGPU descriptor storage target: {storage_generator_target}"
             )
-        compatibility = {
-            self._loom_amdgpu_descriptor_set_config_label(capability): []
-            for capability in capabilities
-        }
-        compatibility["//conditions:default"] = ["@platforms//:incompatible"]
-        return self.select(compatibility)
+        return self._loom_amdgpu_descriptor_set_capabilities_compatible_with(
+            capabilities
+        )
 
     def loom_amdgpu_selected_descriptor_set_defines(self):
         defines = []

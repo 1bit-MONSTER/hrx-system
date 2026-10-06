@@ -32,7 +32,8 @@ deployment-representative measurements retain the deployment's actual policy.
 | Scope-profile and visibility planning | Qualify a proposed consumer set and exact producer/consumer pair, using temporary host storage. | Device activation, native allocation, mapping and execution. This is not an allocation-free per-dispatch query. |
 | Device, memory, context and queue creation | Acquire the native resources, address mappings, residency, packet storage and completion objects required by the requested resource. | Deferring that resource's preparation to a metadata query or its first publication. |
 | Kernel publication | Claim publication, check pending capacity, resolve the caller-owned command range, fill required transport fields and publish natively. Capacity pressure can reclaim completed credits; XDNA also consumes completed command results before packet reuse. | Library locks, allocation, lazy setup, command parsing/copying, indirect-buffer scans and completion waits. |
-| Kernel progress observation | Read established retirement and cached terminal state without mutating either. | Native completion checks, command-result consumption, retirement, library locks, allocation, lazy setup, system calls and active polling. |
+| Read-only kernel status query | Read established retirement and cached terminal state without mutating either. | Native completion checks, command-result consumption, retirement, library locks, allocation, lazy setup, system calls and active polling. |
+| Explicit kernel progress refresh | Observe available native progress and consume completed command results without waiting for a particular submission. Native observation can require nonblocking system calls; result inspection scales with the newly completed prefix. | Allocation, resource creation, lazy setup, sleep and active polling. |
 | Explicit waiting | Refresh native progress, inspect command results and establish retirement; query clocks, poll within the requested budget, yield and enter native waits. | Allocation or first-wait resource creation. Wait-event serialization consumes the same deadline. |
 
 An address query indexes the memory's established access record and address
@@ -119,9 +120,12 @@ does not establish completion of the work they described.
 The wait path is deliberately different. Windows native waits reuse an event
 prepared during queue creation and serialize access to it. That serialization
 belongs to waiting, not submission or status sampling. Linux DRM progress
-without a mapped fence is refreshed by explicit waits, including a zero-time
-wait, or by submission under capacity pressure; the status method returns
-established retirement rather than hiding an ioctl.
+without a mapped fence is refreshed by `kernel_queue_refresh_status`, explicit
+waits, including a zero-time wait, or submission under capacity pressure.
+`kernel_queue_query_status` returns established retirement without entering
+the driver. Refresh is a separate synchronization operation: it checks newly
+completed command results and advances retirement, but success does not mean
+that every accepted command has completed.
 
 GPU user-queue status has another contract: it may query native queue or VM
 fault state. It is not interchangeable with the syscall-free kernel-queue
@@ -134,13 +138,10 @@ A HOST_API recipe can enter the driver. Submission may publish its small
 queue-owned transport packet, but does not publish the caller's instruction
 stream or every indirectly referenced data allocation on their behalf.
 
-## Checking an implementation
+## Measurement boundaries
 
-Functional conformance and performance evidence answer different questions.
-CTS checks public behavior and native execution. Source review follows each
-hot entry point through its provider, including failure and first-use paths,
-to establish where allocation, synchronization and driver calls occur.
 The [benchmarks](../benchmarks/README.md) measure separate memory lifecycle,
 publication-only and completed-operation boundaries. A completed-execution
 number cannot establish allocation-free publication, and a warm timing cannot
-establish the absence of lazy first-use work.
+establish the absence of lazy first-use work. The method contracts above apply
+to every path, independently of the workload or measurement interval.

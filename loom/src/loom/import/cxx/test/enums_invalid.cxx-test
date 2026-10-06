@@ -291,10 +291,3 @@ enum class E { value };
 enum class F { value };
 // ERROR@+1: PARSE/036 "invalid operands to binary expression ('::E' and '::F')"
 bool entry(E value) { return value == F::value; }
-
-// ====
-// INPUT: cxx
-// Boolean values have no byte-addressable source storage contract.
-enum class E : bool { no, yes };
-// ERROR@+1: LOWERING/059 "memory objects require non-boolean scalar, vector or plain record storage"
-E entry(const E* input) { return input[0]; }

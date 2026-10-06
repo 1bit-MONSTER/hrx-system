@@ -14,7 +14,9 @@ extern "C" {
 #endif
 
 // VM target definitions, descriptor tables, and shared-compiler policies.
-// Linking this provider does not link the VM runtime or its text tools.
+// Compiler tools producing VM images also compose the canonical module emitter;
+// linking this provider alone does not link program planning, the VM runtime,
+// or its text tools.
 extern const loom_target_provider_t loom_vm_target_provider;
 
 #ifdef __cplusplus

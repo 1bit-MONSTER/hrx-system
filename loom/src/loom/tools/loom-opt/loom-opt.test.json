@@ -67,6 +67,24 @@
       }
     },
     {
+      "name": "roundtrips portable command low IR",
+      "run": {
+        "tool": "loom-opt"
+      },
+      "stdin": {
+        "text": "low.func.def target<cmd.core> abi(command_program) @empty() asm {\n  return\n}\n"
+      },
+      "stdout": {
+        "contains": [
+          "low.func.def target<cmd.core> abi(command_program) @empty() {",
+          "low.return"
+        ]
+      },
+      "stderr": {
+        "empty": true
+      }
+    },
+    {
       "name": "dumps selected pass IR as JSONL",
       "run": {
         "tool": "loom-opt",
@@ -96,6 +114,24 @@
           "non_empty": true
         }
       ]
+    },
+    {
+      "name": "rejects result and pass trace output sharing stdout",
+      "run": {
+        "tool": "loom-opt",
+        "args": [
+          "--output=stdout",
+          "--dump-ir-after-all",
+          "--dump-ir-output=-"
+        ]
+      },
+      "exit": 1,
+      "stdout": {"empty": true},
+      "stderr": {
+        "contains": [
+          "--output and --dump-ir-output cannot both write to stdout"
+        ]
+      }
     },
     {
       "name": "dumps function pass IR as whole-module JSONL",

@@ -22,7 +22,7 @@ from loom.dsl import (
     TypeConstraint,
     type_constraint_name,
 )
-from loom.error.structure import ERR_STRUCTURE_007
+from loom.error.structure import ERR_STRUCTURE_007, ERR_STRUCTURE_008
 from loom.error.type import ERR_TYPE_001, ERR_TYPE_009, ERR_TYPE_013
 from loom.fields import FieldKind, FieldLayout, compute_layout, resolve_fields
 from loom.ir import (
@@ -268,7 +268,57 @@ class ModuleVerifier:
             and shape_ok
             and len(self.diagnostics.diagnostics) == initial_diagnostic_count
         ):
+            self._verify_func_like_exits(op_decl, operation, op_path)
+        if (
+            values_ok
+            and shape_ok
+            and len(self.diagnostics.diagnostics) == initial_diagnostic_count
+        ):
             self._verify_loop_type_scheme(op_decl, operation, op_path)
+
+    def _verify_func_like_exits(
+        self,
+        op_decl: Op,
+        operation: Operation,
+        path: str,
+    ) -> None:
+        """Verify each direct callable exit against the declared result tuple."""
+        layout = self.registry.layout(op_decl)
+        body_region_index = layout.func_body_region_index
+        if body_region_index is None or body_region_index >= len(operation.regions):
+            return
+
+        body = operation.regions[body_region_index]
+        exit_name = op_decl.regions[body_region_index].terminator
+        if exit_name is None:
+            return
+        for block_index, block in enumerate(body.blocks):
+            exit_op = block.ops[-1]
+            if exit_op.name != exit_name:
+                continue
+            exit_path = (
+                f"{path}.regions[{body_region_index}].blocks[{block_index}]"
+                f".ops[{len(block.ops) - 1}] {exit_op.name}"
+            )
+            if len(exit_op.operands) != len(operation.results):
+                self.diagnostics.error(
+                    "callable exit result count mismatch",
+                    source=exit_path,
+                    details=(
+                        f"exit has {len(exit_op.operands)} operands, expected "
+                        f"{len(operation.results)}",
+                    ),
+                    error_def=ERR_STRUCTURE_008,
+                )
+                continue
+            self._verify_remapped_type_tuple(
+                operation.results,
+                exit_op.operands,
+                path=exit_path,
+                relation="callable exit",
+                summary="callable exit type mismatch",
+                error_def=ERR_TYPE_009,
+            )
 
     def _verify_loop_type_scheme(
         self,
@@ -290,6 +340,8 @@ class ModuleVerifier:
 
         resolved = resolve_fields(self.registry.layout(op_decl), operation, self.module)
         result_ids = operation.results
+        iter_arg_ids = resolved.value_ids(loop_like.iter_args)
+        condition_loop = loop_like.condition_region is not None
         entry_ids_by_region: dict[str, list[int]] = {}
         entry_types_valid = True
         for region_name in (loop_like.body, loop_like.condition_region):
@@ -300,7 +352,10 @@ class ModuleVerifier:
                 return
             entry_ids = region.blocks[0].arg_ids
             offset = 1 if region_name == loop_like.body and loop_like.iv else 0
-            expected_count = len(result_ids) + offset
+            scheme_ids = result_ids
+            if condition_loop and region_name == loop_like.condition_region:
+                scheme_ids = iter_arg_ids
+            expected_count = len(scheme_ids) + offset
             if len(entry_ids) != expected_count:
                 self.diagnostics.error(
                     "loop region entry argument count mismatch",
@@ -331,8 +386,12 @@ class ModuleVerifier:
 
             carried_ids = entry_ids[offset:]
             entry_ids_by_region[region_name] = carried_ids
+            if condition_loop and region_name == loop_like.condition_region:
+                # Header types are an authored scheme. Its incoming edge is
+                # checked below after every header identity is available.
+                continue
             if self._verify_remapped_type_tuple(
-                result_ids,
+                scheme_ids,
                 carried_ids,
                 path=path,
                 relation=f"region '{region_name}' entry",
@@ -348,9 +407,12 @@ class ModuleVerifier:
         if not entry_types_valid:
             return
 
-        iter_arg_ids = resolved.value_ids(loop_like.iter_args)
+        initial_scheme_ids = result_ids
+        if condition_loop:
+            assert loop_like.condition_region is not None
+            initial_scheme_ids = entry_ids_by_region[loop_like.condition_region]
         if not self._verify_remapped_type_tuple(
-            result_ids,
+            initial_scheme_ids,
             iter_arg_ids,
             path=path,
             relation="initial loop-carried state",
@@ -361,8 +423,12 @@ class ModuleVerifier:
         body = resolved.region(loop_like.body)
         assert body is not None and body.blocks and body.blocks[0].ops
         yielded_ids = body.blocks[0].ops[-1].operands
+        yield_scheme_ids = result_ids
+        if condition_loop:
+            assert loop_like.condition_region is not None
+            yield_scheme_ids = entry_ids_by_region[loop_like.condition_region]
         if not self._verify_remapped_type_tuple(
-            result_ids,
+            yield_scheme_ids,
             yielded_ids,
             path=path,
             relation="yielded loop-carried state",
@@ -370,8 +436,9 @@ class ModuleVerifier:
         ):
             return
 
-        if loop_like.condition_region is None:
+        if not condition_loop:
             return
+        assert loop_like.condition_region is not None
         condition = resolved.region(loop_like.condition_region)
         assert condition is not None and condition.blocks and condition.blocks[0].ops
         forwarded_ids = condition.blocks[0].ops[-1].operands[1:]
@@ -397,6 +464,7 @@ class ModuleVerifier:
         path: str,
         relation: str,
         error_def: Any,
+        summary: str = "loop-carried type scheme mismatch",
         argument_offset: int = 0,
     ) -> bool:
         """Compare one dependent type tuple after positional SSA remapping."""
@@ -417,7 +485,7 @@ class ModuleVerifier:
             if identities.equal(expected_type, target.type):
                 continue
             self.diagnostics.error(
-                "loop-carried type scheme mismatch",
+                summary,
                 source=path,
                 details=(
                     f"{relation} value {index + argument_offset} does not "
@@ -995,6 +1063,21 @@ class ModuleVerifier:
                         source=path,
                         details=(f"expected ancestor op '{expected}'",),
                     )
+                case "HasAnyAncestor":
+                    if trait.args and any(
+                        operation.name in trait.args for operation in parent_stack
+                    ):
+                        continue
+                    # Templates and required-inline functions are verified
+                    # before their final placement context is known.
+                    if self._has_deferred_required_ancestor(parent_stack):
+                        continue
+                    expected = ", ".join(f"'{name}'" for name in trait.args)
+                    self.diagnostics.error(
+                        "op is missing required ancestor",
+                        source=path,
+                        details=(f"expected one of ancestor ops {expected}",),
+                    )
                 case "NoAncestor":
                     if not trait.args:
                         continue
@@ -1039,16 +1122,11 @@ class ModuleVerifier:
         *,
         parent_stack: tuple[Operation, ...],
     ) -> None:
-        function_body = None
-        if op_decl is not None:
-            function_body = next(
-                (
-                    interface.body
-                    for interface in op_decl.interfaces
-                    if isinstance(interface, FuncLikeInterface)
-                ),
-                None,
-            )
+        function_body_index = (
+            self.registry.layout(op_decl).func_body_region_index
+            if op_decl is not None
+            else None
+        )
         for region_index, region in enumerate(operation.regions):
             region_path = f"{path}.regions[{region_index}]"
             region_decl = (
@@ -1072,9 +1150,11 @@ class ModuleVerifier:
                     block,
                     f"{region_path}.blocks[{block_index}]",
                     region_blocks=region_blocks,
-                    function_entry=region.blocks[0]
-                    if region_decl is not None and region_decl.name == function_body
-                    else None,
+                    function_entry=(
+                        region.blocks[0]
+                        if region_index == function_body_index
+                        else None
+                    ),
                     region_terminator=region_decl.terminator
                     if region_decl is not None
                     else None,
@@ -1344,6 +1424,8 @@ def _shaped_satisfies_constraint(
         return shaped_type.element_type.kind in _FLOAT_SCALAR_KINDS
     if constraint == TypeConstraint.BITWISE_ELEMENT:
         return shaped_type.element_type.kind in _BITWISE_SCALAR_KINDS
+    if constraint == TypeConstraint.BYTE_PATTERN_ELEMENT:
+        return shaped_type.element_type.kind in _BYTE_PATTERN_SCALAR_KINDS
     if constraint == TypeConstraint.INDEX_OR_NON_I1_INTEGER_ELEMENT:
         return shaped_type.element_type.kind in _INDEX_OR_NON_I1_INTEGER_SCALAR_KINDS
     if constraint == TypeConstraint.I1_ELEMENT:

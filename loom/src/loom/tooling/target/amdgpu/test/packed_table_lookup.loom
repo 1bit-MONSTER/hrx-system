@@ -52,6 +52,5 @@ check.case public @packed_table_lookup {
   %guard = check.generate.fill value(91) : tensor<4xi8>
   check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi8>
   check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi8>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }

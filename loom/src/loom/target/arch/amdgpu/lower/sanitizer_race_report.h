@@ -93,7 +93,7 @@ typedef struct loom_amdgpu_sanitizer_race_report_island_t {
 } loom_amdgpu_sanitizer_race_report_island_t;
 
 typedef struct loom_amdgpu_sanitizer_race_report_failure_branch_t {
-  // Per-site cold block that canonicalizes report values and enters the island.
+  // Per-site cold block that forwards canonical report values to the island.
   loom_block_t* failure_block;
   // Hot continuation block reached when no race was observed.
   loom_block_t* continuation_block;
@@ -144,9 +144,9 @@ iree_status_t loom_amdgpu_build_sanitizer_race_report_island(
 
 // Terminates the current cold block with a branch into |island|.
 //
-// Values are converted to the island's canonical block-argument register
-// classes in the current block, so this should only be used on the
-// already-failing path.
+// Source and report values must already be canonical VGPR registers matching
+// the island block arguments. Long-lived uniform report metadata is converted
+// once at its owning producer boundary instead of at every failure site.
 iree_status_t loom_amdgpu_build_sanitizer_race_report_branch(
     loom_builder_t* builder, const loom_low_descriptor_set_t* descriptor_set,
     const loom_amdgpu_sanitizer_race_report_island_t* island,
@@ -160,8 +160,8 @@ iree_status_t loom_amdgpu_build_sanitizer_race_report_branch(
 // |failure_mask| must be an SGPRx2 native lane mask where set bits identify
 // lanes that observed a race. The hot block only compares the mask against zero
 // and conditionally branches. The per-site cold block narrows EXEC to the
-// failed lanes before converting the already-built report tuple to |island|
-// arguments. Since the island terminates the failed wave, the saved EXEC value
+// failed lanes before forwarding the already-canonical report tuple to
+// |island|. Since the island terminates the failed wave, the saved EXEC value
 // is intentionally not restored. Leaves the builder positioned at the
 // continuation block.
 iree_status_t loom_amdgpu_build_sanitizer_race_report_failure_mask_branch(

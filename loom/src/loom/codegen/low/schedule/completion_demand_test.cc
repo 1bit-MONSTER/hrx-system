@@ -63,6 +63,27 @@ class ScheduleCompletionDemandTest : public ::testing::Test {
         &index, nodes_.data(), domain_count, &arena_, &demand_));
   }
 
+  void Nominate(uint16_t domain, uint32_t consumer,
+                loom_low_schedule_completion_nomination_kind_t kind =
+                    LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_FINAL) {
+    loom_low_schedule_completion_demand_nominate(&demand_, kind, domain,
+                                                 consumer);
+  }
+
+  uint32_t Select(uint16_t domain,
+                  loom_low_schedule_completion_selection_kind_t kind =
+                      LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_FINAL) {
+    return loom_low_schedule_completion_demand_select(&demand_, nodes_.data(),
+                                                      kind, domain);
+  }
+
+  bool Contains(uint16_t domain, uint32_t node,
+                loom_low_schedule_completion_selection_kind_t kind =
+                    LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_FINAL) {
+    return loom_low_schedule_completion_demand_contains(&demand_, kind, domain,
+                                                        node);
+  }
+
   // Independent raw-edge traversal checks the grouped reverse index and the
   // incremental demand sets against the currently selected completion.
   std::vector<bool> ReferenceAncestors(uint32_t root) {
@@ -76,7 +97,6 @@ class ScheduleCompletionDemandTest : public ::testing::Test {
         const auto* edge = loom_low_schedule_dependency_graph_at(&graph_, i);
         const uint32_t producer = edge->producer_node;
         if (edge->consumer_node != consumer ||
-            edge->kind != LOOM_LOW_SCHEDULE_DEPENDENCY_SSA ||
             nodes_[producer].block_index != nodes_[consumer].block_index ||
             nodes_[producer].scheduled_ordinal != LOOM_LOW_SCHEDULE_NODE_NONE ||
             ancestors[producer]) {
@@ -89,15 +109,15 @@ class ScheduleCompletionDemandTest : public ::testing::Test {
     return ancestors;
   }
 
-  void ExpectAncestors(uint16_t domain, uint32_t root) {
+  void ExpectAncestors(uint16_t domain, uint32_t root,
+                       loom_low_schedule_completion_selection_kind_t kind =
+                           LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_FINAL) {
     const auto ancestors = ReferenceAncestors(root);
     for (uint32_t node = 0; node < nodes_.size(); ++node) {
       if (nodes_[node].scheduled_ordinal != LOOM_LOW_SCHEDULE_NODE_NONE) {
         continue;
       }
-      EXPECT_EQ(
-          loom_low_schedule_completion_demand_contains(&demand_, domain, node),
-          ancestors[node])
+      EXPECT_EQ(Contains(domain, node, kind), ancestors[node])
           << "domain " << domain << ", root " << root << ", node " << node;
     }
   }
@@ -122,43 +142,36 @@ class ScheduleCompletionDemandTest : public ::testing::Test {
 
 TEST_F(ScheduleCompletionDemandTest, PinsCompletionUntilItsConsumerRuns) {
   SetNodes(8);
-  Append(0, 2);
+  Append(0, 2, LOOM_LOW_SCHEDULE_DEPENDENCY_STATE);
   Append(1, 2);
-  Append(2, 5);
-  Append(3, 4);
-  Append(4, 5);
+  Append(2, 5, LOOM_LOW_SCHEDULE_DEPENDENCY_EFFECT);
+  Append(3, 4, LOOM_LOW_SCHEDULE_DEPENDENCY_ORDER);
+  Append(4, 5, LOOM_LOW_SCHEDULE_DEPENDENCY_STORAGE);
   Append(1, 6);
   Append(6, 7);
   Initialize(2);
   const auto allocation_size = arena_.used_allocation_size;
 
-  loom_low_schedule_completion_demand_nominate(&demand_, 0, 5);
-  EXPECT_EQ(
-      loom_low_schedule_completion_demand_select(&demand_, nodes_.data(), 0),
-      5u);
+  Nominate(0, 5);
+  EXPECT_EQ(Select(0), 5u);
   ExpectAncestors(0, 5);
-  loom_low_schedule_completion_demand_nominate(&demand_, 0, 7);
-  EXPECT_EQ(
-      loom_low_schedule_completion_demand_select(&demand_, nodes_.data(), 0),
-      5u);
+  Nominate(0, 7);
+  EXPECT_EQ(Select(0), 5u);
   ExpectAncestors(0, 5);
-  loom_low_schedule_completion_demand_nominate(&demand_, 1, 7);
-  EXPECT_EQ(
-      loom_low_schedule_completion_demand_select(&demand_, nodes_.data(), 1),
-      7u);
+  Nominate(1, 7);
+  EXPECT_EQ(Select(1), 7u);
   ExpectAncestors(1, 7);
 
   Complete(5);
-  EXPECT_EQ(
-      loom_low_schedule_completion_demand_select(&demand_, nodes_.data(), 0),
-      7u);
+  EXPECT_EQ(Select(0), 7u);
   ExpectAncestors(0, 7);
   ExpectAncestors(1, 7);
   EXPECT_EQ(arena_.used_allocation_size, allocation_size);
 }
 
-TEST_F(ScheduleCompletionDemandTest, FiltersDependenciesAndBlockBoundaries) {
-  SetNodes(8);
+TEST_F(ScheduleCompletionDemandTest,
+       RetainsReadinessDependenciesWithinBlockBoundaries) {
+  SetNodes(10);
   nodes_[0].block_index = 1;
   Append(0, 1);
   Append(1, 5);
@@ -167,16 +180,21 @@ TEST_F(ScheduleCompletionDemandTest, FiltersDependenciesAndBlockBoundaries) {
   Append(4, 5, LOOM_LOW_SCHEDULE_DEPENDENCY_EFFECT);
   Append(4, 5);
   Append(4, 5);
+  Append(7, 5, LOOM_LOW_SCHEDULE_DEPENDENCY_STATE);
+  Append(8, 7, LOOM_LOW_SCHEDULE_DEPENDENCY_ORDER);
   Append(5, 6);
   nodes_[4].scheduled_ordinal = 0;
   Initialize(1);
-  loom_low_schedule_completion_demand_nominate(&demand_, 0, 6);
-  EXPECT_EQ(
-      loom_low_schedule_completion_demand_select(&demand_, nodes_.data(), 0),
-      6u);
+  Nominate(0, 6);
+  EXPECT_EQ(Select(0), 6u);
   ExpectAncestors(0, 6);
-  EXPECT_FALSE(loom_low_schedule_completion_demand_contains(&demand_, 0, 4));
-  EXPECT_FALSE(loom_low_schedule_completion_demand_contains(&demand_, 0, 7));
+  EXPECT_FALSE(Contains(0, 0));
+  EXPECT_TRUE(Contains(0, 2));
+  EXPECT_TRUE(Contains(0, 3));
+  EXPECT_FALSE(Contains(0, 4));
+  EXPECT_TRUE(Contains(0, 7));
+  EXPECT_TRUE(Contains(0, 8));
+  EXPECT_FALSE(Contains(0, 9));
 }
 
 TEST_F(ScheduleCompletionDemandTest, ReusesDemandAcrossManyCompletions) {
@@ -188,15 +206,80 @@ TEST_F(ScheduleCompletionDemandTest, ReusesDemandAcrossManyCompletions) {
   const auto allocation_size = arena_.used_allocation_size;
   for (uint32_t root = 1; root < nodes_.size(); ++root) {
     for (uint16_t domain = 0; domain < 3; ++domain) {
-      loom_low_schedule_completion_demand_nominate(&demand_, domain, root);
-      EXPECT_EQ(loom_low_schedule_completion_demand_select(
-                    &demand_, nodes_.data(), domain),
-                root);
+      Nominate(domain, root);
+      EXPECT_EQ(Select(domain), root);
       ExpectAncestors(domain, root);
     }
     Complete(root);
   }
   EXPECT_EQ(arena_.used_allocation_size, allocation_size);
+}
+
+TEST_F(ScheduleCompletionDemandTest, SelectsFinalsInsidePinnedTransaction) {
+  SetNodes(9);
+  Append(0, 4);
+  Append(1, 4);
+  Append(2, 5);
+  Append(4, 8);
+  Append(5, 8);
+  Append(6, 8);
+  Initialize(1);
+
+  Nominate(0, 8, LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_TRANSACTION);
+  Nominate(0, 3);
+  Nominate(0, 4);
+  Nominate(0, 5);
+  EXPECT_EQ(Select(0, LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_TRANSACTION), 8u);
+  ExpectAncestors(0, 8, LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_TRANSACTION);
+
+  EXPECT_EQ(loom_low_schedule_completion_demand_select_transaction_final(
+                &demand_, nodes_.data(), 0),
+            4u);
+  ExpectAncestors(0, 4,
+                  LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_TRANSACTION_FINAL);
+  EXPECT_FALSE(
+      Contains(0, 3, LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_TRANSACTION_FINAL));
+
+  Complete(4);
+  EXPECT_EQ(loom_low_schedule_completion_demand_select_transaction_final(
+                &demand_, nodes_.data(), 0),
+            5u);
+  ExpectAncestors(0, 5,
+                  LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_TRANSACTION_FINAL);
+
+  Complete(5);
+  EXPECT_EQ(loom_low_schedule_completion_demand_select_transaction_final(
+                &demand_, nodes_.data(), 0),
+            LOOM_LOW_SCHEDULE_NODE_NONE);
+
+  Nominate(0, 6);
+  EXPECT_EQ(loom_low_schedule_completion_demand_select_transaction_final(
+                &demand_, nodes_.data(), 0),
+            6u);
+  ExpectAncestors(0, 6,
+                  LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_TRANSACTION_FINAL);
+  EXPECT_EQ(Select(0), 3u);
+}
+
+TEST_F(ScheduleCompletionDemandTest, RechecksFinalsWhenTransactionChanges) {
+  SetNodes(6);
+  Append(0, 2);
+  Append(3, 5);
+  Initialize(1);
+
+  Nominate(0, 2, LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_TRANSACTION);
+  Nominate(0, 5, LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_TRANSACTION);
+  Nominate(0, 3);
+  EXPECT_EQ(Select(0, LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_TRANSACTION), 2u);
+  EXPECT_EQ(loom_low_schedule_completion_demand_select_transaction_final(
+                &demand_, nodes_.data(), 0),
+            LOOM_LOW_SCHEDULE_NODE_NONE);
+
+  Complete(2);
+  EXPECT_EQ(Select(0, LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_TRANSACTION), 5u);
+  EXPECT_EQ(loom_low_schedule_completion_demand_select_transaction_final(
+                &demand_, nodes_.data(), 0),
+            3u);
 }
 
 TEST_F(ScheduleCompletionDemandTest, EmptyDomainsHaveNoDemandStorage) {
@@ -205,7 +288,7 @@ TEST_F(ScheduleCompletionDemandTest, EmptyDomainsHaveNoDemandStorage) {
   EXPECT_EQ(demand_.incoming_starts, nullptr);
   EXPECT_EQ(demand_.demanded_bits, nullptr);
   EXPECT_EQ(demand_.worklist, nullptr);
-  EXPECT_EQ(demand_.roots, nullptr);
+  EXPECT_EQ(demand_.domain_states, nullptr);
   EXPECT_EQ(demand_.nominations.bits, nullptr);
 }
 
@@ -215,22 +298,16 @@ TEST_F(ScheduleCompletionDemandTest, NominationsAreOrderedAcrossSummaryLevels) {
   Initialize(2);
   const auto allocation_size = arena_.used_allocation_size;
   for (uint32_t node : {4097u, 4096u, 4095u, 64u, 63u, 1u, 0u}) {
-    loom_low_schedule_completion_demand_nominate(&demand_, 0, node);
-    loom_low_schedule_completion_demand_nominate(&demand_, 0, node);
+    Nominate(0, node);
+    Nominate(0, node);
   }
-  loom_low_schedule_completion_demand_nominate(&demand_, 1, 4097);
+  Nominate(1, 4097);
   for (uint32_t node : {0u, 1u, 63u, 64u, 4095u, 4096u, 4097u}) {
-    EXPECT_EQ(
-        loom_low_schedule_completion_demand_select(&demand_, nodes_.data(), 0),
-        node);
+    EXPECT_EQ(Select(0), node);
     Complete(node);
   }
-  EXPECT_EQ(
-      loom_low_schedule_completion_demand_select(&demand_, nodes_.data(), 0),
-      LOOM_LOW_SCHEDULE_NODE_NONE);
-  EXPECT_EQ(
-      loom_low_schedule_completion_demand_select(&demand_, nodes_.data(), 1),
-      LOOM_LOW_SCHEDULE_NODE_NONE);
+  EXPECT_EQ(Select(0), LOOM_LOW_SCHEDULE_NODE_NONE);
+  EXPECT_EQ(Select(1), LOOM_LOW_SCHEDULE_NODE_NONE);
   EXPECT_EQ(arena_.used_allocation_size, allocation_size);
 }
 
@@ -238,22 +315,14 @@ TEST_F(ScheduleCompletionDemandTest,
        EarlierNominationDoesNotInterruptPinnedRoot) {
   SetNodes(65);
   Initialize(1);
-  loom_low_schedule_completion_demand_nominate(&demand_, 0, 64);
-  EXPECT_EQ(
-      loom_low_schedule_completion_demand_select(&demand_, nodes_.data(), 0),
-      64u);
-  loom_low_schedule_completion_demand_nominate(&demand_, 0, 1);
-  EXPECT_EQ(
-      loom_low_schedule_completion_demand_select(&demand_, nodes_.data(), 0),
-      64u);
+  Nominate(0, 64);
+  EXPECT_EQ(Select(0), 64u);
+  Nominate(0, 1);
+  EXPECT_EQ(Select(0), 64u);
   Complete(64);
-  EXPECT_EQ(
-      loom_low_schedule_completion_demand_select(&demand_, nodes_.data(), 0),
-      1u);
+  EXPECT_EQ(Select(0), 1u);
   Complete(1);
-  EXPECT_EQ(
-      loom_low_schedule_completion_demand_select(&demand_, nodes_.data(), 0),
-      LOOM_LOW_SCHEDULE_NODE_NONE);
+  EXPECT_EQ(Select(0), LOOM_LOW_SCHEDULE_NODE_NONE);
 }
 
 }  // namespace

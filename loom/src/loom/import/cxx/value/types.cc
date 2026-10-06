@@ -149,16 +149,20 @@ const EncodingPartition* Types::encoding(const cxx::ClassType* input,
   auto rank = cxx::template_argument_value(arguments[1]);
   auto role_value = role ? interpreter.toInt(*role) : std::nullopt;
   auto rank_value = rank ? interpreter.toInt(*rank) : std::nullopt;
-  if (!role_value || *role_value != 0 || !rank_value || *rank_value < 1 ||
-      *rank_value > LOOM_TYPE_MAX_RANK) {
+  bool layout = role_value == 0 && rank_value && *rank_value >= 1 &&
+                *rank_value <= LOOM_TYPE_MAX_RANK;
+  bool schema = role_value == 1 && rank_value == 0;
+  if (!layout && !schema) {
     diagnostics_.reject(
         unit_, owner,
-        "encoding values require the layout role and rank in [1, 15]");
+        "encoding values require layout rank in [1, 15] or schema rank zero");
   }
   auto result = std::make_unique<EncodingPartition>();
   result->kind = ValueKind::Encoding;
   result->component_count = 1;
   result->source = source;
+  result->role = layout ? LOOM_ENCODING_ROLE_ADDRESS_LAYOUT
+                        : LOOM_ENCODING_ROLE_STORAGE_SCHEMA;
   result->rank = static_cast<size_t>(*rank_value);
   auto* admitted = result.get();
   encodings_.emplace(source, std::move(result));
@@ -477,17 +481,19 @@ loom_type_t Types::get(const cxx::Type* input, cxx::AST* ast) {
     case cxx::TypeKind::kBoundedArray: {
       auto* array = cxx::type_cast<cxx::BoundedArrayType>(unqualified(input));
       auto element = get(array->elementType(), ast);
-      if (loom_type_kind(element) != LOOM_TYPE_SCALAR ||
-          loom_type_element_type(element) == LOOM_SCALAR_TYPE_I1) {
-        diagnostics_.reject(
-            unit_, ast,
-            "arrays require a supported non-boolean scalar element");
+      if (loom_type_kind(element) != LOOM_TYPE_SCALAR) {
+        diagnostics_.reject(unit_, ast,
+                            "arrays require a supported scalar element");
       }
       return loom_type_buffer();
     }
     case cxx::TypeKind::kPointer: {
       auto* pointer = cxx::type_cast<cxx::PointerType>(unqualified(input));
-      storage_size(pointer->elementType(), ast);
+      if (unit_.typeTraits().is_function(pointer->elementType())) {
+        diagnostics_.reject(
+            unit_, ast,
+            "function pointers have no object pointer representation");
+      }
       return loom_type_buffer();
     }
     case cxx::TypeKind::kClass: {
@@ -559,13 +565,11 @@ int64_t Types::storage_size(const cxx::Type* input, cxx::AST* owner) {
     require_record_storage(record, owner);
   } else {
     auto type = get(input, owner);
-    if ((loom_type_kind(type) != LOOM_TYPE_SCALAR &&
-         loom_type_kind(type) != LOOM_TYPE_VECTOR) ||
-        loom_type_element_type(type) == LOOM_SCALAR_TYPE_I1) {
+    if (loom_type_kind(type) != LOOM_TYPE_SCALAR &&
+        loom_type_kind(type) != LOOM_TYPE_VECTOR) {
       diagnostics_.reject(
           unit_, owner,
-          "memory objects require non-boolean scalar, vector or plain record "
-          "storage");
+          "memory objects require scalar, vector or plain record storage");
     }
   }
   auto bytes = unit_.control()->memoryLayout()->sizeOf(input);
@@ -655,8 +659,8 @@ void Types::append_bound(const cxx::Type* input, cxx::AST* owner,
       output.push_back(loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET));
       return;
     case ValueKind::Encoding:
-      output.push_back(
-          loom_type_encoding_with_role(LOOM_ENCODING_ROLE_ADDRESS_LAYOUT));
+      output.push_back(loom_type_encoding_with_role(
+          static_cast<const EncodingPartition&>(admitted).role));
       return;
     case ValueKind::Tensor:
       output.push_back(static_cast<const TensorPartition&>(admitted).type);

@@ -1,0 +1,827 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/packed_memory_values.loom-test
+// RUN: emit source-low target=vm:core output=low
+
+// Indexed vector elements preserve byte codes through integer promotion.
+func.def @uniform_table(%input: buffer, %codebook: buffer, %output: buffer, %position: index) {
+  %aligned = buffer.assume.alignment %codebook {minimum_alignment = 64} : buffer
+  %source, %table_source, %destination = buffer.assume.noalias %input, %aligned, %output : buffer, buffer, buffer
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%c0] : buffer -> view<32x4xi8>
+  %input_values = vector.load %source_view[%position, 0] : view<32x4xi8> -> vector<4xi8>
+  %mask = vector.constant 15 : vector<4xi8>
+  %indices = vector.andi %input_values, %mask : vector<4xi8>
+  %table_view = buffer.view %table_source[%c0] : buffer -> view<16xi8>
+  %table = vector.load %table_view[0] : view<16xi8> -> vector<16xi8>
+  %values = vector.table.lookup %table[%indices] : vector<16xi8>, vector<4xi8> -> vector<4xi8>
+  %output_view = buffer.view %destination[%c0] : buffer -> view<32x4xi8>
+  vector.store %values, %output_view[%position, 0] : vector<4xi8>, view<32x4xi8>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @uniform_table(%source_view: reg<vm.ref : buffer>, %table_view: reg<vm.ref : buffer>, %output_view: reg<vm.ref : buffer>, %position_bounded: reg<vm.value : i64>) asm {
+  %325 = constant.i64 2
+  %326 = constant.i64 2 : reg<vm.value>
+  %327 = integer.shift.left.i64 %position_bounded, %326
+  %328 = buffer.load %source_view, %327, %327, 0, "i8.x1" : reg<vm.value : i8>
+  %329 = constant.i64 1
+  %330 = constant.i64 4
+  %334 = integer.add.i64 %327, %329
+  %335 = buffer.load %source_view, %334, %334, 0, "i8.x1" : reg<vm.value : i8>
+  %339 = integer.add.i64 %327, %325
+  %340 = buffer.load %source_view, %339, %339, 0, "i8.x1" : reg<vm.value : i8>
+  %341 = constant.i64 3
+  %345 = integer.add.i64 %327, %341
+  %346 = buffer.load %source_view, %345, %345, 0, "i8.x1" : reg<vm.value : i8>
+  %347 = constant.i64 0
+  %348 = buffer.load %table_view, %347, %347, 0, "i8.x1" : reg<vm.value : i8>
+  %350 = buffer.load %table_view, %329, %329, 0, "i8.x1" : reg<vm.value : i8>
+  %352 = buffer.load %table_view, %325, %325, 0, "i8.x1" : reg<vm.value : i8>
+  %354 = buffer.load %table_view, %341, %341, 0, "i8.x1" : reg<vm.value : i8>
+  %356 = buffer.load %table_view, %330, %330, 0, "i8.x1" : reg<vm.value : i8>
+  %357 = constant.i64 5
+  %358 = buffer.load %table_view, %357, %357, 0, "i8.x1" : reg<vm.value : i8>
+  %359 = constant.i64 6
+  %360 = buffer.load %table_view, %359, %359, 0, "i8.x1" : reg<vm.value : i8>
+  %361 = constant.i64 7
+  %362 = buffer.load %table_view, %361, %361, 0, "i8.x1" : reg<vm.value : i8>
+  %363 = constant.i64 8
+  %364 = buffer.load %table_view, %363, %363, 0, "i8.x1" : reg<vm.value : i8>
+  %365 = constant.i64 9
+  %366 = buffer.load %table_view, %365, %365, 0, "i8.x1" : reg<vm.value : i8>
+  %367 = constant.i64 10
+  %368 = buffer.load %table_view, %367, %367, 0, "i8.x1" : reg<vm.value : i8>
+  %369 = constant.i64 11
+  %370 = buffer.load %table_view, %369, %369, 0, "i8.x1" : reg<vm.value : i8>
+  %371 = constant.i64 12
+  %372 = buffer.load %table_view, %371, %371, 0, "i8.x1" : reg<vm.value : i8>
+  %373 = constant.i64 13
+  %374 = buffer.load %table_view, %373, %373, 0, "i8.x1" : reg<vm.value : i8>
+  %375 = constant.i64 14
+  %376 = buffer.load %table_view, %375, %375, 0, "i8.x1" : reg<vm.value : i8>
+  %377 = constant.i64 15
+  %378 = buffer.load %table_view, %377, %377, 0, "i8.x1" : reg<vm.value : i8>
+  %379 = conversion.integer %328, "u8.to.i32" : reg<vm.value : i32>
+  %380 = constant.i32 15
+  %381 = integer.and.i32 %379, %380
+  %382 = conversion.integer %381, "i32.to.i8" : reg<vm.value : i8>
+  %383 = conversion.integer %382, "s8.to.i64"
+  %385 = integer.compare.i64 %383, %377, "eq"
+  %387 = integer.compare.i64 %383, %375, "eq"
+  %389 = integer.compare.i64 %383, %373, "eq"
+  %391 = integer.compare.i64 %383, %371, "eq"
+  %393 = integer.compare.i64 %383, %369, "eq"
+  %395 = integer.compare.i64 %383, %367, "eq"
+  %397 = integer.compare.i64 %383, %365, "eq"
+  %399 = integer.compare.i64 %383, %363, "eq"
+  %401 = integer.compare.i64 %383, %361, "eq"
+  %403 = integer.compare.i64 %383, %359, "eq"
+  %405 = integer.compare.i64 %383, %357, "eq"
+  %406 = integer.compare.i64 %383, %330, "eq"
+  %407 = integer.compare.i64 %383, %341, "eq"
+  %408 = integer.compare.i64 %383, %325, "eq"
+  %409 = integer.compare.i64 %383, %329, "eq"
+  %410 = value.select %409, %350, %348 : reg<vm.value : i8>
+  %411 = value.select %408, %352, %410 : reg<vm.value : i8>
+  %412 = value.select %407, %354, %411 : reg<vm.value : i8>
+  %413 = value.select %406, %356, %412 : reg<vm.value : i8>
+  %414 = value.select %405, %358, %413 : reg<vm.value : i8>
+  %415 = value.select %403, %360, %414 : reg<vm.value : i8>
+  %416 = value.select %401, %362, %415 : reg<vm.value : i8>
+  %417 = value.select %399, %364, %416 : reg<vm.value : i8>
+  %418 = value.select %397, %366, %417 : reg<vm.value : i8>
+  %419 = value.select %395, %368, %418 : reg<vm.value : i8>
+  %420 = value.select %393, %370, %419 : reg<vm.value : i8>
+  %421 = value.select %391, %372, %420 : reg<vm.value : i8>
+  %422 = value.select %389, %374, %421 : reg<vm.value : i8>
+  %423 = value.select %387, %376, %422 : reg<vm.value : i8>
+  %424 = value.select %385, %378, %423 : reg<vm.value : i8>
+  %425 = conversion.integer %335, "u8.to.i32" : reg<vm.value : i32>
+  %426 = integer.and.i32 %425, %380
+  %427 = conversion.integer %426, "i32.to.i8" : reg<vm.value : i8>
+  %428 = conversion.integer %427, "s8.to.i64"
+  %429 = integer.compare.i64 %428, %377, "eq"
+  %430 = integer.compare.i64 %428, %375, "eq"
+  %431 = integer.compare.i64 %428, %373, "eq"
+  %432 = integer.compare.i64 %428, %371, "eq"
+  %433 = integer.compare.i64 %428, %369, "eq"
+  %434 = integer.compare.i64 %428, %367, "eq"
+  %435 = integer.compare.i64 %428, %365, "eq"
+  %436 = integer.compare.i64 %428, %363, "eq"
+  %437 = integer.compare.i64 %428, %361, "eq"
+  %438 = integer.compare.i64 %428, %359, "eq"
+  %439 = integer.compare.i64 %428, %357, "eq"
+  %440 = integer.compare.i64 %428, %330, "eq"
+  %441 = integer.compare.i64 %428, %341, "eq"
+  %442 = integer.compare.i64 %428, %325, "eq"
+  %443 = integer.compare.i64 %428, %329, "eq"
+  %444 = value.select %443, %350, %348 : reg<vm.value : i8>
+  %445 = value.select %442, %352, %444 : reg<vm.value : i8>
+  %446 = value.select %441, %354, %445 : reg<vm.value : i8>
+  %447 = value.select %440, %356, %446 : reg<vm.value : i8>
+  %448 = value.select %439, %358, %447 : reg<vm.value : i8>
+  %449 = value.select %438, %360, %448 : reg<vm.value : i8>
+  %450 = value.select %437, %362, %449 : reg<vm.value : i8>
+  %451 = value.select %436, %364, %450 : reg<vm.value : i8>
+  %452 = value.select %435, %366, %451 : reg<vm.value : i8>
+  %453 = value.select %434, %368, %452 : reg<vm.value : i8>
+  %454 = value.select %433, %370, %453 : reg<vm.value : i8>
+  %455 = value.select %432, %372, %454 : reg<vm.value : i8>
+  %456 = value.select %431, %374, %455 : reg<vm.value : i8>
+  %457 = value.select %430, %376, %456 : reg<vm.value : i8>
+  %458 = value.select %429, %378, %457 : reg<vm.value : i8>
+  %459 = conversion.integer %340, "u8.to.i32" : reg<vm.value : i32>
+  %460 = integer.and.i32 %459, %380
+  %461 = conversion.integer %460, "i32.to.i8" : reg<vm.value : i8>
+  %462 = conversion.integer %461, "s8.to.i64"
+  %463 = integer.compare.i64 %462, %377, "eq"
+  %464 = integer.compare.i64 %462, %375, "eq"
+  %465 = integer.compare.i64 %462, %373, "eq"
+  %466 = integer.compare.i64 %462, %371, "eq"
+  %467 = integer.compare.i64 %462, %369, "eq"
+  %468 = integer.compare.i64 %462, %367, "eq"
+  %469 = integer.compare.i64 %462, %365, "eq"
+  %470 = integer.compare.i64 %462, %363, "eq"
+  %471 = integer.compare.i64 %462, %361, "eq"
+  %472 = integer.compare.i64 %462, %359, "eq"
+  %473 = integer.compare.i64 %462, %357, "eq"
+  %474 = integer.compare.i64 %462, %330, "eq"
+  %475 = integer.compare.i64 %462, %341, "eq"
+  %476 = integer.compare.i64 %462, %325, "eq"
+  %477 = integer.compare.i64 %462, %329, "eq"
+  %478 = value.select %477, %350, %348 : reg<vm.value : i8>
+  %479 = value.select %476, %352, %478 : reg<vm.value : i8>
+  %480 = value.select %475, %354, %479 : reg<vm.value : i8>
+  %481 = value.select %474, %356, %480 : reg<vm.value : i8>
+  %482 = value.select %473, %358, %481 : reg<vm.value : i8>
+  %483 = value.select %472, %360, %482 : reg<vm.value : i8>
+  %484 = value.select %471, %362, %483 : reg<vm.value : i8>
+  %485 = value.select %470, %364, %484 : reg<vm.value : i8>
+  %486 = value.select %469, %366, %485 : reg<vm.value : i8>
+  %487 = value.select %468, %368, %486 : reg<vm.value : i8>
+  %488 = value.select %467, %370, %487 : reg<vm.value : i8>
+  %489 = value.select %466, %372, %488 : reg<vm.value : i8>
+  %490 = value.select %465, %374, %489 : reg<vm.value : i8>
+  %491 = value.select %464, %376, %490 : reg<vm.value : i8>
+  %492 = value.select %463, %378, %491 : reg<vm.value : i8>
+  %493 = conversion.integer %346, "u8.to.i32" : reg<vm.value : i32>
+  %494 = integer.and.i32 %493, %380
+  %495 = conversion.integer %494, "i32.to.i8" : reg<vm.value : i8>
+  %496 = conversion.integer %495, "s8.to.i64"
+  %498 = integer.compare.i64 %496, %347, "eq"
+  %499 = value.select %498, %348, %378 : reg<vm.value : i8>
+  %500 = integer.compare.i64 %496, %329, "eq"
+  %501 = value.select %500, %350, %499 : reg<vm.value : i8>
+  %502 = integer.compare.i64 %496, %325, "eq"
+  %503 = value.select %502, %352, %501 : reg<vm.value : i8>
+  %504 = integer.compare.i64 %496, %341, "eq"
+  %505 = value.select %504, %354, %503 : reg<vm.value : i8>
+  %506 = integer.compare.i64 %496, %330, "eq"
+  %507 = value.select %506, %356, %505 : reg<vm.value : i8>
+  %508 = integer.compare.i64 %496, %357, "eq"
+  %509 = value.select %508, %358, %507 : reg<vm.value : i8>
+  %510 = integer.compare.i64 %496, %359, "eq"
+  %511 = value.select %510, %360, %509 : reg<vm.value : i8>
+  %512 = integer.compare.i64 %496, %361, "eq"
+  %513 = value.select %512, %362, %511 : reg<vm.value : i8>
+  %514 = integer.compare.i64 %496, %363, "eq"
+  %515 = value.select %514, %364, %513 : reg<vm.value : i8>
+  %516 = integer.compare.i64 %496, %365, "eq"
+  %517 = value.select %516, %366, %515 : reg<vm.value : i8>
+  %518 = integer.compare.i64 %496, %367, "eq"
+  %519 = value.select %518, %368, %517 : reg<vm.value : i8>
+  %520 = integer.compare.i64 %496, %369, "eq"
+  %521 = value.select %520, %370, %519 : reg<vm.value : i8>
+  %522 = integer.compare.i64 %496, %371, "eq"
+  %523 = value.select %522, %372, %521 : reg<vm.value : i8>
+  %524 = integer.compare.i64 %496, %373, "eq"
+  %525 = value.select %524, %374, %523 : reg<vm.value : i8>
+  %526 = integer.compare.i64 %496, %375, "eq"
+  %527 = value.select %526, %376, %525 : reg<vm.value : i8>
+  buffer.store %output_view, %327, %327, %424, 0, "i8.x1"
+  buffer.store %output_view, %334, %334, %458, 0, "i8.x1"
+  buffer.store %output_view, %339, %339, %492, 0, "i8.x1"
+  buffer.store %output_view, %345, %345, %527, 0, "i8.x1"
+  return
+}
+
+// ====
+
+func.def @uniform_i8(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%c0] : buffer -> view<8xi8>
+  %value = vector.load %source_view[0] : view<8xi8> -> vector<8xi8>
+  %result = vector.addi %value, %value : vector<8xi8>
+  %output_view = buffer.view %destination[%c0] : buffer -> view<8xi8>
+  vector.store %result, %output_view[0] : vector<8xi8>, view<8xi8>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @uniform_i8(%source_view: reg<vm.ref : buffer>, %output_view: reg<vm.ref : buffer>) asm {
+  %85 = constant.i64 0
+  %86 = buffer.load %source_view, %85, %85, 0, "i8.x1" : reg<vm.value : i8>
+  %87 = constant.i64 1
+  %88 = buffer.load %source_view, %87, %87, 0, "i8.x1" : reg<vm.value : i8>
+  %89 = constant.i64 2
+  %90 = buffer.load %source_view, %89, %89, 0, "i8.x1" : reg<vm.value : i8>
+  %91 = constant.i64 3
+  %92 = buffer.load %source_view, %91, %91, 0, "i8.x1" : reg<vm.value : i8>
+  %93 = constant.i64 4
+  %94 = buffer.load %source_view, %93, %93, 0, "i8.x1" : reg<vm.value : i8>
+  %95 = constant.i64 5
+  %96 = buffer.load %source_view, %95, %95, 0, "i8.x1" : reg<vm.value : i8>
+  %97 = constant.i64 6
+  %98 = buffer.load %source_view, %97, %97, 0, "i8.x1" : reg<vm.value : i8>
+  %99 = constant.i64 7
+  %100 = buffer.load %source_view, %99, %99, 0, "i8.x1" : reg<vm.value : i8>
+  %101 = conversion.integer %86, "u8.to.i32" : reg<vm.value : i32>
+  %102 = integer.add.i32 %101, %101
+  %103 = conversion.integer %102, "i32.to.i8" : reg<vm.value : i8>
+  %104 = conversion.integer %88, "u8.to.i32" : reg<vm.value : i32>
+  %105 = integer.add.i32 %104, %104
+  %106 = conversion.integer %105, "i32.to.i8" : reg<vm.value : i8>
+  %107 = conversion.integer %90, "u8.to.i32" : reg<vm.value : i32>
+  %108 = integer.add.i32 %107, %107
+  %109 = conversion.integer %108, "i32.to.i8" : reg<vm.value : i8>
+  %110 = conversion.integer %92, "u8.to.i32" : reg<vm.value : i32>
+  %111 = integer.add.i32 %110, %110
+  %112 = conversion.integer %111, "i32.to.i8" : reg<vm.value : i8>
+  %113 = conversion.integer %94, "u8.to.i32" : reg<vm.value : i32>
+  %114 = integer.add.i32 %113, %113
+  %115 = conversion.integer %114, "i32.to.i8" : reg<vm.value : i8>
+  %116 = conversion.integer %96, "u8.to.i32" : reg<vm.value : i32>
+  %117 = integer.add.i32 %116, %116
+  %118 = conversion.integer %117, "i32.to.i8" : reg<vm.value : i8>
+  %119 = conversion.integer %98, "u8.to.i32" : reg<vm.value : i32>
+  %120 = integer.add.i32 %119, %119
+  %121 = conversion.integer %120, "i32.to.i8" : reg<vm.value : i8>
+  %122 = conversion.integer %100, "u8.to.i32" : reg<vm.value : i32>
+  %123 = integer.add.i32 %122, %122
+  %124 = conversion.integer %123, "i32.to.i8" : reg<vm.value : i8>
+  buffer.store %output_view, %85, %85, %103, 0, "i8.x1"
+  buffer.store %output_view, %87, %87, %106, 0, "i8.x1"
+  buffer.store %output_view, %89, %89, %109, 0, "i8.x1"
+  buffer.store %output_view, %91, %91, %112, 0, "i8.x1"
+  buffer.store %output_view, %93, %93, %115, 0, "i8.x1"
+  buffer.store %output_view, %95, %95, %118, 0, "i8.x1"
+  buffer.store %output_view, %97, %97, %121, 0, "i8.x1"
+  buffer.store %output_view, %99, %99, %124, 0, "i8.x1"
+  return
+}
+
+// ====
+
+func.def @uniform_i16(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%c0] : buffer -> view<4xi16>
+  %value = vector.load %source_view[0] : view<4xi16> -> vector<4xi16>
+  %result = vector.addi %value, %value : vector<4xi16>
+  %output_view = buffer.view %destination[%c0] : buffer -> view<4xi16>
+  vector.store %result, %output_view[0] : vector<4xi16>, view<4xi16>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @uniform_i16(%source_view: reg<vm.ref : buffer>, %output_view: reg<vm.ref : buffer>) asm {
+  %49 = constant.i64 0
+  %50 = buffer.load %source_view, %49, %49, 0, "i16.x1" : reg<vm.value : i16>
+  %51 = constant.i64 2
+  %52 = buffer.load %source_view, %51, %51, 0, "i16.x1" : reg<vm.value : i16>
+  %53 = constant.i64 4
+  %54 = buffer.load %source_view, %53, %53, 0, "i16.x1" : reg<vm.value : i16>
+  %55 = constant.i64 6
+  %56 = buffer.load %source_view, %55, %55, 0, "i16.x1" : reg<vm.value : i16>
+  %57 = conversion.integer %50, "u16.to.i32" : reg<vm.value : i32>
+  %58 = integer.add.i32 %57, %57
+  %59 = conversion.integer %58, "i32.to.i16" : reg<vm.value : i16>
+  %60 = conversion.integer %52, "u16.to.i32" : reg<vm.value : i32>
+  %61 = integer.add.i32 %60, %60
+  %62 = conversion.integer %61, "i32.to.i16" : reg<vm.value : i16>
+  %63 = conversion.integer %54, "u16.to.i32" : reg<vm.value : i32>
+  %64 = integer.add.i32 %63, %63
+  %65 = conversion.integer %64, "i32.to.i16" : reg<vm.value : i16>
+  %66 = conversion.integer %56, "u16.to.i32" : reg<vm.value : i32>
+  %67 = integer.add.i32 %66, %66
+  %68 = conversion.integer %67, "i32.to.i16" : reg<vm.value : i16>
+  buffer.store %output_view, %49, %49, %59, 0, "i16.x1"
+  buffer.store %output_view, %51, %51, %62, 0, "i16.x1"
+  buffer.store %output_view, %53, %53, %65, 0, "i16.x1"
+  buffer.store %output_view, %55, %55, %68, 0, "i16.x1"
+  return
+}
+
+// ====
+
+func.def @uniform_f16(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%c0] : buffer -> view<4xf16>
+  %value = vector.load %source_view[0] : view<4xf16> -> vector<4xf16>
+  %result = vector.addf %value, %value : vector<4xf16>
+  %output_view = buffer.view %destination[%c0] : buffer -> view<4xf16>
+  vector.store %result, %output_view[0] : vector<4xf16>, view<4xf16>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @uniform_f16(%source_view: reg<vm.ref : buffer>, %output_view: reg<vm.ref : buffer>) asm {
+  %49 = constant.i64 0
+  %50 = buffer.load %source_view, %49, %49, 0, "i16.x1" : reg<vm.value : f16>
+  %51 = constant.i64 2
+  %52 = buffer.load %source_view, %51, %51, 0, "i16.x1" : reg<vm.value : f16>
+  %53 = constant.i64 4
+  %54 = buffer.load %source_view, %53, %53, 0, "i16.x1" : reg<vm.value : f16>
+  %55 = constant.i64 6
+  %56 = buffer.load %source_view, %55, %55, 0, "i16.x1" : reg<vm.value : f16>
+  %57 = conversion.float.extend %50, "f16.to.f32" : reg<vm.value : f32>
+  %58 = float.add.f32 %57, %57
+  %59 = conversion.float.truncate %58, "f32.to.f16" : reg<vm.value : f16>
+  %60 = conversion.float.extend %52, "f16.to.f32" : reg<vm.value : f32>
+  %61 = float.add.f32 %60, %60
+  %62 = conversion.float.truncate %61, "f32.to.f16" : reg<vm.value : f16>
+  %63 = conversion.float.extend %54, "f16.to.f32" : reg<vm.value : f32>
+  %64 = float.add.f32 %63, %63
+  %65 = conversion.float.truncate %64, "f32.to.f16" : reg<vm.value : f16>
+  %66 = conversion.float.extend %56, "f16.to.f32" : reg<vm.value : f32>
+  %67 = float.add.f32 %66, %66
+  %68 = conversion.float.truncate %67, "f32.to.f16" : reg<vm.value : f16>
+  buffer.store %output_view, %49, %49, %59, 0, "i16.x1"
+  buffer.store %output_view, %51, %51, %62, 0, "i16.x1"
+  buffer.store %output_view, %53, %53, %65, 0, "i16.x1"
+  buffer.store %output_view, %55, %55, %68, 0, "i16.x1"
+  return
+}
+
+// ====
+
+func.def @uniform_bf16(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%c0] : buffer -> view<4xbf16>
+  %value = vector.load %source_view[0] : view<4xbf16> -> vector<4xbf16>
+  %result = vector.extf %value : vector<4xbf16> to vector<4xf32>
+  %output_view = buffer.view %destination[%c0] : buffer -> view<4xf32>
+  vector.store %result, %output_view[0] : vector<4xf32>, view<4xf32>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @uniform_bf16(%source_view: reg<vm.ref : buffer>, %output_view: reg<vm.ref : buffer>) asm {
+  %29 = constant.i64 0
+  %30 = buffer.load %source_view, %29, %29, 0, "i16.x1" : reg<vm.value : bf16>
+  %31 = constant.i64 2
+  %32 = buffer.load %source_view, %31, %31, 0, "i16.x1" : reg<vm.value : bf16>
+  %33 = constant.i64 4
+  %34 = buffer.load %source_view, %33, %33, 0, "i16.x1" : reg<vm.value : bf16>
+  %35 = constant.i64 6
+  %36 = buffer.load %source_view, %35, %35, 0, "i16.x1" : reg<vm.value : bf16>
+  %37 = conversion.float.extend %30, "bf16.to.f32" : reg<vm.value : f32>
+  %38 = conversion.float.extend %32, "bf16.to.f32" : reg<vm.value : f32>
+  %39 = conversion.float.extend %34, "bf16.to.f32" : reg<vm.value : f32>
+  %40 = conversion.float.extend %36, "bf16.to.f32" : reg<vm.value : f32>
+  buffer.store %output_view, %29, %29, %37, 0, "i32.x1"
+  buffer.store %output_view, %33, %33, %38, 0, "i32.x1"
+  %43 = constant.i64 8
+  buffer.store %output_view, %43, %43, %39, 0, "i32.x1"
+  %44 = constant.i64 12
+  buffer.store %output_view, %44, %44, %40, 0, "i32.x1"
+  return
+}
+
+// ====
+
+func.def @uniform_f8E4M3(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%c0] : buffer -> view<8xf8E4M3>
+  %value = vector.load %source_view[0] : view<8xf8E4M3> -> vector<8xf8E4M3>
+  %result = vector.extf %value : vector<8xf8E4M3> to vector<8xf32>
+  %output_view = buffer.view %destination[%c0] : buffer -> view<8xf32>
+  vector.store %result, %output_view[0] : vector<8xf32>, view<8xf32>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @uniform_f8E4M3(%source_view: reg<vm.ref : buffer>, %output_view: reg<vm.ref : buffer>) asm {
+  %45 = constant.i64 0
+  %46 = buffer.load %source_view, %45, %45, 0, "i8.x1" : reg<vm.value : f8E4M3>
+  %47 = constant.i64 1
+  %48 = buffer.load %source_view, %47, %47, 0, "i8.x1" : reg<vm.value : f8E4M3>
+  %49 = constant.i64 2
+  %50 = buffer.load %source_view, %49, %49, 0, "i8.x1" : reg<vm.value : f8E4M3>
+  %51 = constant.i64 3
+  %52 = buffer.load %source_view, %51, %51, 0, "i8.x1" : reg<vm.value : f8E4M3>
+  %53 = constant.i64 4
+  %54 = buffer.load %source_view, %53, %53, 0, "i8.x1" : reg<vm.value : f8E4M3>
+  %55 = constant.i64 5
+  %56 = buffer.load %source_view, %55, %55, 0, "i8.x1" : reg<vm.value : f8E4M3>
+  %57 = constant.i64 6
+  %58 = buffer.load %source_view, %57, %57, 0, "i8.x1" : reg<vm.value : f8E4M3>
+  %59 = constant.i64 7
+  %60 = buffer.load %source_view, %59, %59, 0, "i8.x1" : reg<vm.value : f8E4M3>
+  %61 = conversion.float.extend %46, "f8e4m3.to.f32" : reg<vm.value : f32>
+  %62 = conversion.float.extend %48, "f8e4m3.to.f32" : reg<vm.value : f32>
+  %63 = conversion.float.extend %50, "f8e4m3.to.f32" : reg<vm.value : f32>
+  %64 = conversion.float.extend %52, "f8e4m3.to.f32" : reg<vm.value : f32>
+  %65 = conversion.float.extend %54, "f8e4m3.to.f32" : reg<vm.value : f32>
+  %66 = conversion.float.extend %56, "f8e4m3.to.f32" : reg<vm.value : f32>
+  %67 = conversion.float.extend %58, "f8e4m3.to.f32" : reg<vm.value : f32>
+  %68 = conversion.float.extend %60, "f8e4m3.to.f32" : reg<vm.value : f32>
+  buffer.store %output_view, %45, %45, %61, 0, "i32.x1"
+  buffer.store %output_view, %53, %53, %62, 0, "i32.x1"
+  %71 = constant.i64 8
+  buffer.store %output_view, %71, %71, %63, 0, "i32.x1"
+  %72 = constant.i64 12
+  buffer.store %output_view, %72, %72, %64, 0, "i32.x1"
+  %73 = constant.i64 16
+  buffer.store %output_view, %73, %73, %65, 0, "i32.x1"
+  %74 = constant.i64 20
+  buffer.store %output_view, %74, %74, %66, 0, "i32.x1"
+  %75 = constant.i64 24
+  buffer.store %output_view, %75, %75, %67, 0, "i32.x1"
+  %76 = constant.i64 28
+  buffer.store %output_view, %76, %76, %68, 0, "i32.x1"
+  return
+}
+
+// ====
+
+func.def @uniform_f8E5M2(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%c0] : buffer -> view<8xf8E5M2>
+  %value = vector.load %source_view[0] : view<8xf8E5M2> -> vector<8xf8E5M2>
+  %result = vector.extf %value : vector<8xf8E5M2> to vector<8xf32>
+  %output_view = buffer.view %destination[%c0] : buffer -> view<8xf32>
+  vector.store %result, %output_view[0] : vector<8xf32>, view<8xf32>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @uniform_f8E5M2(%source_view: reg<vm.ref : buffer>, %output_view: reg<vm.ref : buffer>) asm {
+  %45 = constant.i64 0
+  %46 = buffer.load %source_view, %45, %45, 0, "i8.x1" : reg<vm.value : f8E5M2>
+  %47 = constant.i64 1
+  %48 = buffer.load %source_view, %47, %47, 0, "i8.x1" : reg<vm.value : f8E5M2>
+  %49 = constant.i64 2
+  %50 = buffer.load %source_view, %49, %49, 0, "i8.x1" : reg<vm.value : f8E5M2>
+  %51 = constant.i64 3
+  %52 = buffer.load %source_view, %51, %51, 0, "i8.x1" : reg<vm.value : f8E5M2>
+  %53 = constant.i64 4
+  %54 = buffer.load %source_view, %53, %53, 0, "i8.x1" : reg<vm.value : f8E5M2>
+  %55 = constant.i64 5
+  %56 = buffer.load %source_view, %55, %55, 0, "i8.x1" : reg<vm.value : f8E5M2>
+  %57 = constant.i64 6
+  %58 = buffer.load %source_view, %57, %57, 0, "i8.x1" : reg<vm.value : f8E5M2>
+  %59 = constant.i64 7
+  %60 = buffer.load %source_view, %59, %59, 0, "i8.x1" : reg<vm.value : f8E5M2>
+  %61 = conversion.float.extend %46, "f8e5m2.to.f32" : reg<vm.value : f32>
+  %62 = conversion.float.extend %48, "f8e5m2.to.f32" : reg<vm.value : f32>
+  %63 = conversion.float.extend %50, "f8e5m2.to.f32" : reg<vm.value : f32>
+  %64 = conversion.float.extend %52, "f8e5m2.to.f32" : reg<vm.value : f32>
+  %65 = conversion.float.extend %54, "f8e5m2.to.f32" : reg<vm.value : f32>
+  %66 = conversion.float.extend %56, "f8e5m2.to.f32" : reg<vm.value : f32>
+  %67 = conversion.float.extend %58, "f8e5m2.to.f32" : reg<vm.value : f32>
+  %68 = conversion.float.extend %60, "f8e5m2.to.f32" : reg<vm.value : f32>
+  buffer.store %output_view, %45, %45, %61, 0, "i32.x1"
+  buffer.store %output_view, %53, %53, %62, 0, "i32.x1"
+  %71 = constant.i64 8
+  buffer.store %output_view, %71, %71, %63, 0, "i32.x1"
+  %72 = constant.i64 12
+  buffer.store %output_view, %72, %72, %64, 0, "i32.x1"
+  %73 = constant.i64 16
+  buffer.store %output_view, %73, %73, %65, 0, "i32.x1"
+  %74 = constant.i64 20
+  buffer.store %output_view, %74, %74, %66, 0, "i32.x1"
+  %75 = constant.i64 24
+  buffer.store %output_view, %75, %75, %67, 0, "i32.x1"
+  %76 = constant.i64 28
+  buffer.store %output_view, %76, %76, %68, 0, "i32.x1"
+  return
+}
+
+// ====
+
+func.def @uniform_f16_extf(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%c0] : buffer -> view<4xf16>
+  %value = vector.load %source_view[0] : view<4xf16> -> vector<4xf16>
+  %result = vector.extf %value : vector<4xf16> to vector<4xf32>
+  %output_view = buffer.view %destination[%c0] : buffer -> view<4xf32>
+  vector.store %result, %output_view[0] : vector<4xf32>, view<4xf32>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @uniform_f16_extf(%source_view: reg<vm.ref : buffer>, %output_view: reg<vm.ref : buffer>) asm {
+  %29 = constant.i64 0
+  %30 = buffer.load %source_view, %29, %29, 0, "i16.x1" : reg<vm.value : f16>
+  %31 = constant.i64 2
+  %32 = buffer.load %source_view, %31, %31, 0, "i16.x1" : reg<vm.value : f16>
+  %33 = constant.i64 4
+  %34 = buffer.load %source_view, %33, %33, 0, "i16.x1" : reg<vm.value : f16>
+  %35 = constant.i64 6
+  %36 = buffer.load %source_view, %35, %35, 0, "i16.x1" : reg<vm.value : f16>
+  %37 = conversion.float.extend %30, "f16.to.f32" : reg<vm.value : f32>
+  %38 = conversion.float.extend %32, "f16.to.f32" : reg<vm.value : f32>
+  %39 = conversion.float.extend %34, "f16.to.f32" : reg<vm.value : f32>
+  %40 = conversion.float.extend %36, "f16.to.f32" : reg<vm.value : f32>
+  buffer.store %output_view, %29, %29, %37, 0, "i32.x1"
+  buffer.store %output_view, %33, %33, %38, 0, "i32.x1"
+  %43 = constant.i64 8
+  buffer.store %output_view, %43, %43, %39, 0, "i32.x1"
+  %44 = constant.i64 12
+  buffer.store %output_view, %44, %44, %40, 0, "i32.x1"
+  return
+}
+
+// ====
+
+// An aligned buffer root retains the byte offset of the actual access.
+func.def @unaligned_bytes(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %start = index.constant 1 : offset
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%start] : buffer -> view<16xi8>
+  %value = vector.load %source_view[0] : view<16xi8> -> vector<16xi8>
+  %output_view = buffer.view %destination[%c0] : buffer -> view<16xi8>
+  vector.store %value, %output_view[0] : vector<16xi8>, view<16xi8>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @unaligned_bytes(%source_view: reg<vm.ref : buffer>, %output_view: reg<vm.ref : buffer>) asm {
+  %61 = constant.i64 1
+  %62 = buffer.load %source_view, %61, %61, 0, "i8.x1" : reg<vm.value : i8>
+  %63 = constant.i64 2
+  %64 = buffer.load %source_view, %63, %63, 0, "i8.x1" : reg<vm.value : i8>
+  %65 = constant.i64 3
+  %66 = buffer.load %source_view, %65, %65, 0, "i8.x1" : reg<vm.value : i8>
+  %67 = constant.i64 4
+  %68 = buffer.load %source_view, %67, %67, 0, "i8.x1" : reg<vm.value : i8>
+  %69 = constant.i64 5
+  %70 = buffer.load %source_view, %69, %69, 0, "i8.x1" : reg<vm.value : i8>
+  %71 = constant.i64 6
+  %72 = buffer.load %source_view, %71, %71, 0, "i8.x1" : reg<vm.value : i8>
+  %73 = constant.i64 7
+  %74 = buffer.load %source_view, %73, %73, 0, "i8.x1" : reg<vm.value : i8>
+  %75 = constant.i64 8
+  %76 = buffer.load %source_view, %75, %75, 0, "i8.x1" : reg<vm.value : i8>
+  %77 = constant.i64 9
+  %78 = buffer.load %source_view, %77, %77, 0, "i8.x1" : reg<vm.value : i8>
+  %79 = constant.i64 10
+  %80 = buffer.load %source_view, %79, %79, 0, "i8.x1" : reg<vm.value : i8>
+  %81 = constant.i64 11
+  %82 = buffer.load %source_view, %81, %81, 0, "i8.x1" : reg<vm.value : i8>
+  %83 = constant.i64 12
+  %84 = buffer.load %source_view, %83, %83, 0, "i8.x1" : reg<vm.value : i8>
+  %85 = constant.i64 13
+  %86 = buffer.load %source_view, %85, %85, 0, "i8.x1" : reg<vm.value : i8>
+  %87 = constant.i64 14
+  %88 = buffer.load %source_view, %87, %87, 0, "i8.x1" : reg<vm.value : i8>
+  %89 = constant.i64 15
+  %90 = buffer.load %source_view, %89, %89, 0, "i8.x1" : reg<vm.value : i8>
+  %91 = constant.i64 16
+  %92 = buffer.load %source_view, %91, %91, 0, "i8.x1" : reg<vm.value : i8>
+  %93 = constant.i64 0
+  buffer.store %output_view, %93, %93, %62, 0, "i8.x1"
+  buffer.store %output_view, %61, %61, %64, 0, "i8.x1"
+  buffer.store %output_view, %63, %63, %66, 0, "i8.x1"
+  buffer.store %output_view, %65, %65, %68, 0, "i8.x1"
+  buffer.store %output_view, %67, %67, %70, 0, "i8.x1"
+  buffer.store %output_view, %69, %69, %72, 0, "i8.x1"
+  buffer.store %output_view, %71, %71, %74, 0, "i8.x1"
+  buffer.store %output_view, %73, %73, %76, 0, "i8.x1"
+  buffer.store %output_view, %75, %75, %78, 0, "i8.x1"
+  buffer.store %output_view, %77, %77, %80, 0, "i8.x1"
+  buffer.store %output_view, %79, %79, %82, 0, "i8.x1"
+  buffer.store %output_view, %81, %81, %84, 0, "i8.x1"
+  buffer.store %output_view, %83, %83, %86, 0, "i8.x1"
+  buffer.store %output_view, %85, %85, %88, 0, "i8.x1"
+  buffer.store %output_view, %87, %87, %90, 0, "i8.x1"
+  buffer.store %output_view, %89, %89, %92, 0, "i8.x1"
+  return
+}
+
+// ====
+
+// A partial word must not read bytes beyond the requested payload.
+func.def @partial_bytes(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %start = index.constant 0 : offset
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%start] : buffer -> view<2xi8>
+  %value = vector.load %source_view[0] : view<2xi8> -> vector<2xi8>
+  %output_view = buffer.view %destination[%c0] : buffer -> view<2xi8>
+  vector.store %value, %output_view[0] : vector<2xi8>, view<2xi8>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @partial_bytes(%source_view: reg<vm.ref : buffer>, %output_view: reg<vm.ref : buffer>) asm {
+  %19 = constant.i64 0
+  %20 = buffer.load %source_view, %19, %19, 0, "i8.x1" : reg<vm.value : i8>
+  %21 = constant.i64 1
+  %22 = buffer.load %source_view, %21, %21, 0, "i8.x1" : reg<vm.value : i8>
+  buffer.store %output_view, %19, %19, %20, 0, "i8.x1"
+  buffer.store %output_view, %21, %21, %22, 0, "i8.x1"
+  return
+}
+
+// ====
+
+// Potentially aliasing writes prevent treating the input as stable.
+func.def @mutable_bytes(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %start = index.constant 0 : offset
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %aligned[%start] : buffer -> view<16xi8>
+  %value = vector.load %source_view[0] : view<16xi8> -> vector<16xi8>
+  %output_view = buffer.view %output[%c0] : buffer -> view<16xi8>
+  vector.store %value, %output_view[0] : vector<16xi8>, view<16xi8>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @mutable_bytes(%source_view: reg<vm.ref : buffer>, %output_view: reg<vm.ref : buffer>) asm {
+  %59 = constant.i64 0
+  %60 = buffer.load %source_view, %59, %59, 0, "i8.x1" : reg<vm.value : i8>
+  %61 = constant.i64 1
+  %62 = buffer.load %source_view, %61, %61, 0, "i8.x1" : reg<vm.value : i8>
+  %63 = constant.i64 2
+  %64 = buffer.load %source_view, %63, %63, 0, "i8.x1" : reg<vm.value : i8>
+  %65 = constant.i64 3
+  %66 = buffer.load %source_view, %65, %65, 0, "i8.x1" : reg<vm.value : i8>
+  %67 = constant.i64 4
+  %68 = buffer.load %source_view, %67, %67, 0, "i8.x1" : reg<vm.value : i8>
+  %69 = constant.i64 5
+  %70 = buffer.load %source_view, %69, %69, 0, "i8.x1" : reg<vm.value : i8>
+  %71 = constant.i64 6
+  %72 = buffer.load %source_view, %71, %71, 0, "i8.x1" : reg<vm.value : i8>
+  %73 = constant.i64 7
+  %74 = buffer.load %source_view, %73, %73, 0, "i8.x1" : reg<vm.value : i8>
+  %75 = constant.i64 8
+  %76 = buffer.load %source_view, %75, %75, 0, "i8.x1" : reg<vm.value : i8>
+  %77 = constant.i64 9
+  %78 = buffer.load %source_view, %77, %77, 0, "i8.x1" : reg<vm.value : i8>
+  %79 = constant.i64 10
+  %80 = buffer.load %source_view, %79, %79, 0, "i8.x1" : reg<vm.value : i8>
+  %81 = constant.i64 11
+  %82 = buffer.load %source_view, %81, %81, 0, "i8.x1" : reg<vm.value : i8>
+  %83 = constant.i64 12
+  %84 = buffer.load %source_view, %83, %83, 0, "i8.x1" : reg<vm.value : i8>
+  %85 = constant.i64 13
+  %86 = buffer.load %source_view, %85, %85, 0, "i8.x1" : reg<vm.value : i8>
+  %87 = constant.i64 14
+  %88 = buffer.load %source_view, %87, %87, 0, "i8.x1" : reg<vm.value : i8>
+  %89 = constant.i64 15
+  %90 = buffer.load %source_view, %89, %89, 0, "i8.x1" : reg<vm.value : i8>
+  buffer.store %output_view, %59, %59, %60, 0, "i8.x1"
+  buffer.store %output_view, %61, %61, %62, 0, "i8.x1"
+  buffer.store %output_view, %63, %63, %64, 0, "i8.x1"
+  buffer.store %output_view, %65, %65, %66, 0, "i8.x1"
+  buffer.store %output_view, %67, %67, %68, 0, "i8.x1"
+  buffer.store %output_view, %69, %69, %70, 0, "i8.x1"
+  buffer.store %output_view, %71, %71, %72, 0, "i8.x1"
+  buffer.store %output_view, %73, %73, %74, 0, "i8.x1"
+  buffer.store %output_view, %75, %75, %76, 0, "i8.x1"
+  buffer.store %output_view, %77, %77, %78, 0, "i8.x1"
+  buffer.store %output_view, %79, %79, %80, 0, "i8.x1"
+  buffer.store %output_view, %81, %81, %82, 0, "i8.x1"
+  buffer.store %output_view, %83, %83, %84, 0, "i8.x1"
+  buffer.store %output_view, %85, %85, %86, 0, "i8.x1"
+  buffer.store %output_view, %87, %87, %88, 0, "i8.x1"
+  buffer.store %output_view, %89, %89, %90, 0, "i8.x1"
+  return
+}
+
+// ====
+
+// Volatile retains both reads without requesting an acquire or cache policy.
+func.def @volatile_bytes(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %start = index.constant 0 : offset
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%start] : buffer -> view<16xi8>
+  %first = vector.load<volatile> %source_view[0] : view<16xi8> -> vector<16xi8>
+  %second = vector.load<volatile> %source_view[0] : view<16xi8> -> vector<16xi8>
+  %output_view = buffer.view %destination[%c0] : buffer -> view<32xi8>
+  vector.store %first, %output_view[0] : vector<16xi8>, view<32xi8>
+  vector.store %second, %output_view[16] : vector<16xi8>, view<32xi8>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @volatile_bytes(%source_view: reg<vm.ref : buffer>, %output_view: reg<vm.ref : buffer>) asm {
+  %111 = constant.i64 0
+  %112 = buffer.load<volatile> %source_view, %111, %111, 0, "i8.x1" : reg<vm.value : i8>
+  %113 = constant.i64 1
+  %114 = buffer.load<volatile> %source_view, %113, %113, 0, "i8.x1" : reg<vm.value : i8>
+  %115 = constant.i64 2
+  %116 = buffer.load<volatile> %source_view, %115, %115, 0, "i8.x1" : reg<vm.value : i8>
+  %117 = constant.i64 3
+  %118 = buffer.load<volatile> %source_view, %117, %117, 0, "i8.x1" : reg<vm.value : i8>
+  %119 = constant.i64 4
+  %120 = buffer.load<volatile> %source_view, %119, %119, 0, "i8.x1" : reg<vm.value : i8>
+  %121 = constant.i64 5
+  %122 = buffer.load<volatile> %source_view, %121, %121, 0, "i8.x1" : reg<vm.value : i8>
+  %123 = constant.i64 6
+  %124 = buffer.load<volatile> %source_view, %123, %123, 0, "i8.x1" : reg<vm.value : i8>
+  %125 = constant.i64 7
+  %126 = buffer.load<volatile> %source_view, %125, %125, 0, "i8.x1" : reg<vm.value : i8>
+  %127 = constant.i64 8
+  %128 = buffer.load<volatile> %source_view, %127, %127, 0, "i8.x1" : reg<vm.value : i8>
+  %129 = constant.i64 9
+  %130 = buffer.load<volatile> %source_view, %129, %129, 0, "i8.x1" : reg<vm.value : i8>
+  %131 = constant.i64 10
+  %132 = buffer.load<volatile> %source_view, %131, %131, 0, "i8.x1" : reg<vm.value : i8>
+  %133 = constant.i64 11
+  %134 = buffer.load<volatile> %source_view, %133, %133, 0, "i8.x1" : reg<vm.value : i8>
+  %135 = constant.i64 12
+  %136 = buffer.load<volatile> %source_view, %135, %135, 0, "i8.x1" : reg<vm.value : i8>
+  %137 = constant.i64 13
+  %138 = buffer.load<volatile> %source_view, %137, %137, 0, "i8.x1" : reg<vm.value : i8>
+  %139 = constant.i64 14
+  %140 = buffer.load<volatile> %source_view, %139, %139, 0, "i8.x1" : reg<vm.value : i8>
+  %141 = constant.i64 15
+  %142 = buffer.load<volatile> %source_view, %141, %141, 0, "i8.x1" : reg<vm.value : i8>
+  %144 = buffer.load<volatile> %source_view, %111, %111, 0, "i8.x1" : reg<vm.value : i8>
+  %146 = buffer.load<volatile> %source_view, %113, %113, 0, "i8.x1" : reg<vm.value : i8>
+  %148 = buffer.load<volatile> %source_view, %115, %115, 0, "i8.x1" : reg<vm.value : i8>
+  %150 = buffer.load<volatile> %source_view, %117, %117, 0, "i8.x1" : reg<vm.value : i8>
+  %152 = buffer.load<volatile> %source_view, %119, %119, 0, "i8.x1" : reg<vm.value : i8>
+  %154 = buffer.load<volatile> %source_view, %121, %121, 0, "i8.x1" : reg<vm.value : i8>
+  %156 = buffer.load<volatile> %source_view, %123, %123, 0, "i8.x1" : reg<vm.value : i8>
+  %158 = buffer.load<volatile> %source_view, %125, %125, 0, "i8.x1" : reg<vm.value : i8>
+  %160 = buffer.load<volatile> %source_view, %127, %127, 0, "i8.x1" : reg<vm.value : i8>
+  %162 = buffer.load<volatile> %source_view, %129, %129, 0, "i8.x1" : reg<vm.value : i8>
+  %164 = buffer.load<volatile> %source_view, %131, %131, 0, "i8.x1" : reg<vm.value : i8>
+  %166 = buffer.load<volatile> %source_view, %133, %133, 0, "i8.x1" : reg<vm.value : i8>
+  %168 = buffer.load<volatile> %source_view, %135, %135, 0, "i8.x1" : reg<vm.value : i8>
+  %170 = buffer.load<volatile> %source_view, %137, %137, 0, "i8.x1" : reg<vm.value : i8>
+  %172 = buffer.load<volatile> %source_view, %139, %139, 0, "i8.x1" : reg<vm.value : i8>
+  %174 = buffer.load<volatile> %source_view, %141, %141, 0, "i8.x1" : reg<vm.value : i8>
+  buffer.store %output_view, %111, %111, %112, 0, "i8.x1"
+  buffer.store %output_view, %113, %113, %114, 0, "i8.x1"
+  buffer.store %output_view, %115, %115, %116, 0, "i8.x1"
+  buffer.store %output_view, %117, %117, %118, 0, "i8.x1"
+  buffer.store %output_view, %119, %119, %120, 0, "i8.x1"
+  buffer.store %output_view, %121, %121, %122, 0, "i8.x1"
+  buffer.store %output_view, %123, %123, %124, 0, "i8.x1"
+  buffer.store %output_view, %125, %125, %126, 0, "i8.x1"
+  buffer.store %output_view, %127, %127, %128, 0, "i8.x1"
+  buffer.store %output_view, %129, %129, %130, 0, "i8.x1"
+  buffer.store %output_view, %131, %131, %132, 0, "i8.x1"
+  buffer.store %output_view, %133, %133, %134, 0, "i8.x1"
+  buffer.store %output_view, %135, %135, %136, 0, "i8.x1"
+  buffer.store %output_view, %137, %137, %138, 0, "i8.x1"
+  buffer.store %output_view, %139, %139, %140, 0, "i8.x1"
+  buffer.store %output_view, %141, %141, %142, 0, "i8.x1"
+  %191 = constant.i64 16
+  buffer.store %output_view, %191, %191, %144, 0, "i8.x1"
+  %192 = constant.i64 17
+  buffer.store %output_view, %192, %192, %146, 0, "i8.x1"
+  %193 = constant.i64 18
+  buffer.store %output_view, %193, %193, %148, 0, "i8.x1"
+  %194 = constant.i64 19
+  buffer.store %output_view, %194, %194, %150, 0, "i8.x1"
+  %195 = constant.i64 20
+  buffer.store %output_view, %195, %195, %152, 0, "i8.x1"
+  %196 = constant.i64 21
+  buffer.store %output_view, %196, %196, %154, 0, "i8.x1"
+  %197 = constant.i64 22
+  buffer.store %output_view, %197, %197, %156, 0, "i8.x1"
+  %198 = constant.i64 23
+  buffer.store %output_view, %198, %198, %158, 0, "i8.x1"
+  %199 = constant.i64 24
+  buffer.store %output_view, %199, %199, %160, 0, "i8.x1"
+  %200 = constant.i64 25
+  buffer.store %output_view, %200, %200, %162, 0, "i8.x1"
+  %201 = constant.i64 26
+  buffer.store %output_view, %201, %201, %164, 0, "i8.x1"
+  %202 = constant.i64 27
+  buffer.store %output_view, %202, %202, %166, 0, "i8.x1"
+  %203 = constant.i64 28
+  buffer.store %output_view, %203, %203, %168, 0, "i8.x1"
+  %204 = constant.i64 29
+  buffer.store %output_view, %204, %204, %170, 0, "i8.x1"
+  %205 = constant.i64 30
+  buffer.store %output_view, %205, %205, %172, 0, "i8.x1"
+  %206 = constant.i64 31
+  buffer.store %output_view, %206, %206, %174, 0, "i8.x1"
+  return
+}

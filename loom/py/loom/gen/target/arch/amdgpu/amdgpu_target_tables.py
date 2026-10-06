@@ -92,8 +92,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         _parse_isa_xml_paths(args.isa_xml),
         instruction_names_by_isa_key,
     )
+    generator_targets = tuple(dict.fromkeys(target for family in families for target in family.generator_targets))
     descriptor_sets_by_generator_target = build_amdgpu_core_descriptor_sets_from_specs(
-        tuple(target for family in families for target in family.generator_targets),
+        generator_targets,
         isa_specs,
     )
 

@@ -31,4 +31,29 @@ loom_target_profile(
     LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV
 )
 
+loom_target_profile(
+  NAME
+    "vulkan1.3+bda+subgroup32+ballot+hal"
+  FAMILY
+    "spirv"
+  SELECTOR
+    "vulkan1.3+bda+subgroup32+ballot+hal"
+  REQUIRES
+    LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV
+)
+
+set(_all_platform_targets "")
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+  list(APPEND _all_platform_targets loom::target::spirv::vulkan1.3+bda)
+  list(APPEND _all_platform_targets loom::target::spirv::vulkan1.3+bda+extended-types)
+  list(APPEND _all_platform_targets loom::target::spirv::vulkan1.3+bda+subgroup32+ballot+hal)
+endif()
+loom_target_set(
+  NAME
+    "all"
+  ALLOW_EMPTY
+  TARGETS
+    ${_all_platform_targets}
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

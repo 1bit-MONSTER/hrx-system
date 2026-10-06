@@ -23,6 +23,25 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    runtime_requirements
+  HDRS
+    "runtime_requirements.h"
+  SRCS
+    "runtime_requirements.c"
+  DEPS
+    ::options
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::ops::kernel
+    loom::ops::op_defs
+    loom::ops::sanitizer
+    loom::util::walk
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     pipeline_passes
   HDRS
     "pipeline_passes.h"
@@ -34,6 +53,7 @@ loom_cc_library(
     ::site_location
     ::site_payload
     iree::base
+    loom::decision::predicate
     loom::error::error_defs
     loom::ir
     loom::ops::index
@@ -46,6 +66,28 @@ loom_cc_library(
     loom::pass::registry
     loom::pass::types
     loom::pass::value_facts
+    loom::rewrite::rewriter
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    materialize_assertions
+  HDRS
+    "materialize_assertions.h"
+  SRCS
+    "materialize_assertions.c"
+  DEPS
+    iree::base
+    loom::error::error_defs
+    loom::ir
+    loom::ops::index
+    loom::ops::kernel
+    loom::ops::op_defs
+    loom::ops::sanitizer
+    loom::ops::scalar
+    loom::ops::view
+    loom::pass::types
     loom::rewrite::rewriter
   PUBLIC
 )
@@ -121,6 +163,7 @@ loom_cc_library(
     iree::base
     iree::base::internal::arena
     loom::ir
+    loom::ops::kernel
     loom::ops::op_defs
     loom::ops::sanitizer
     loom::util::walk
@@ -168,6 +211,23 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::ir
+    loom::ops::kernel
+    loom::ops::sanitizer
+    loom::ops::test
+)
+
+loom_cc_test(
+  NAME
+    runtime_requirements_test
+  SRCS
+    "runtime_requirements_test.cc"
+  DEPS
+    ::runtime_requirements
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::ir
+    loom::ops::kernel
     loom::ops::sanitizer
     loom::ops::test
 )

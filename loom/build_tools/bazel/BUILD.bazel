@@ -9,9 +9,29 @@ load(":loom_toolchain.bzl", "loom_tools_toolchains")
 
 package(default_visibility = ["//visibility:public"])
 
+# The hosted test runner compiles reference VM and inner WebAssembly products
+# but never opens a native HAL device. Keep that exact provider set in its WASI
+# binary regardless of the developer's native build configuration.
+platform(
+    name = "iree_test_loom_wasm32_wasi",
+    constraint_values = [
+        "@platforms//cpu:wasm32",
+        "@platforms//os:wasi",
+    ],
+    flags = [
+        "--//loom/config/execute:enable=",
+        "--//loom/config/import:enable=",
+        "--//loom/config/target:enable=vm,wasm",
+        "--//runtime/config/hal:drivers=",
+    ],
+)
+
 exports_files([
     "defs.bzl",
     "loom_binary.bzl",
+    "loom_corpus_build.bzl",
+    "loom_corpus_catalog.bzl",
+    "loom_corpus_execution.bzl",
     "loom_library.bzl",
     "loom_linking.bzl",
     "loom_module.bzl",

@@ -1,0 +1,70 @@
+// RUN: with-checks pass target-legalize{mode=eager,policy=reference-only}
+
+test.target<low_core> @target
+
+func.def target(@target) @atomic_attributes(%buffer: buffer, %value: vector<2xi64>, %expected: vector<2xi64>) -> (vector<2xi64>, vector<2xi64>) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<2x8xi64>
+  %negative = index.constant -1 : index
+  %positive = index.constant 1 : index
+  %offsets = vector.from_elements %negative, %positive : vector<2xindex>
+  vector.atomic.reduce<addi> %value, %view[1, 3][%offsets] {cache_scope = system, cache_temporal = non_temporal, ordering = release, scope = system} : vector<2xi64>, view<2x8xi64>, vector<2xindex>
+  %old = vector.atomic.rmw<xchgi> %value, %view[1, 3][%offsets] {cache_scope = device, cache_temporal = regular, ordering = seq_cst, scope = device} : vector<2xi64>, view<2x8xi64>, vector<2xindex>
+  %observed = vector.atomic.cmpxchg %expected, %value, %view[1, 3][%offsets] {cache_scope = device, cache_temporal = non_temporal, failure_ordering = acquire, scope = workgroup, success_ordering = acq_rel} : vector<2xi64>, view<2x8xi64>, vector<2xindex> -> vector<2xi64>
+  func.return %old, %observed : vector<2xi64>, vector<2xi64>
+}
+
+// ----
+CHECK-NOT: *vector.atomic.*
+CHECK: *view.atomic.cmpxchg*%view[1, 2]*{cache_scope = system, cache_temporal = non_temporal, failure_ordering = relaxed, scope = system, success_ordering = release}*
+CHECK: *view.atomic.cmpxchg*%view[1, 4]*{cache_scope = system, cache_temporal = non_temporal, failure_ordering = relaxed, scope = system, success_ordering = release}*
+CHECK: *view.atomic.cmpxchg*%view[1, 2]*{cache_scope = device, cache_temporal = regular, failure_ordering = seq_cst, scope = device, success_ordering = seq_cst}*
+CHECK: *view.atomic.cmpxchg*%view[1, 4]*{cache_scope = device, cache_temporal = regular, failure_ordering = seq_cst, scope = device, success_ordering = seq_cst}*
+CHECK: *%old = vector.insert*
+CHECK: *view.atomic.cmpxchg*%view[1, 2]*{cache_scope = device, cache_temporal = non_temporal, failure_ordering = acquire, scope = workgroup, success_ordering = acq_rel}*
+CHECK: *view.atomic.cmpxchg*%view[1, 4]*{cache_scope = device, cache_temporal = non_temporal, failure_ordering = acquire, scope = workgroup, success_ordering = acq_rel}*
+CHECK: *%observed = vector.insert*
+CHECK: *func.return %old, %observed*
+
+// ====
+
+test.target<low_core> @target
+
+func.def target(@target) @masked_atomic_attributes(%view: view<8xi32>, %value: vector<2xi32>, %offsets: vector<2xi32>, %mask: vector<2xi1>, %passthrough: vector<2xi32>) -> (vector<2xi32>) {
+  vector.atomic.reduce.mask<addi> %value, %view[3][%offsets], %mask {cache_scope = system, cache_temporal = non_temporal, ordering = release, scope = system} : vector<2xi32>, view<8xi32>, vector<2xi32>, vector<2xi1>
+  %old = vector.atomic.rmw.mask<xchgi> %value, %view[3][%offsets], %mask, %passthrough {cache_scope = device, cache_temporal = regular, ordering = acq_rel, scope = device} : vector<2xi32>, view<8xi32>, vector<2xi32>, vector<2xi1>, vector<2xi32>
+  func.return %old : vector<2xi32>
+}
+
+// ----
+CHECK-NOT: *vector.atomic.*
+CHECK: *scf.if*
+CHECK: *vector.extract %offsets[0]*
+CHECK: *view.atomic.cmpxchg*{cache_scope = system, cache_temporal = non_temporal, failure_ordering = relaxed, scope = system, success_ordering = release}*
+CHECK: *} else {
+CHECK: *scf.if*
+CHECK: *vector.extract %offsets[1]*
+CHECK: *view.atomic.cmpxchg*{cache_scope = system, cache_temporal = non_temporal, failure_ordering = relaxed, scope = system, success_ordering = release}*
+CHECK: *} else {
+CHECK: *scf.if*-> (i32)*
+CHECK: *vector.extract %offsets[0]*
+CHECK: *view.atomic.cmpxchg*{cache_scope = device, cache_temporal = regular, failure_ordering = acquire, scope = device, success_ordering = acq_rel}*
+CHECK: *} else {
+CHECK: *vector.extract %passthrough[0]*
+CHECK: *scf.if*-> (i32)*
+CHECK: *vector.extract %offsets[1]*
+CHECK: *view.atomic.cmpxchg*{cache_scope = device, cache_temporal = regular, failure_ordering = acquire, scope = device, success_ordering = acq_rel}*
+CHECK: *} else {
+CHECK: *vector.extract %passthrough[1]*
+CHECK: *%old = vector.insert*
+
+// ====
+// RUN: pass target-legalize{mode=final,policy=require-native}
+
+test.target<low_core> @target
+
+func.def target(@target) @require_native_atomic(%view: view<8xi32>, %value: vector<2xi32>, %offsets: vector<2xindex>) -> (vector<2xi32>) {
+  // ERROR@+1: TARGET/039 {source_contract="target.reference", matrix_constraint="reference.policy"}
+  %old = vector.atomic.rmw<addi> %value, %view[0][%offsets] {ordering = relaxed, scope = workgroup} : vector<2xi32>, view<8xi32>, vector<2xindex>
+  func.return %old : vector<2xi32>
+}

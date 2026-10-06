@@ -10,6 +10,23 @@
 
 #include "loom/util/stable_id.h"
 
+bool loom_low_operand_reads_after_write(
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_operand_t* operand, uint16_t reg_class_id,
+    uint32_t subgroup_size) {
+  for (uint16_t i = 0; i < operand->reg_class_alt_count; ++i) {
+    const loom_low_reg_class_alt_t* alternative =
+        &descriptor_set->reg_class_alts[operand->reg_class_alt_start + i];
+    if (alternative->reg_class_id == reg_class_id) {
+      return iree_any_bit_set(alternative->flags,
+                              LOOM_LOW_REG_CLASS_ALT_FLAG_LATE_READ) &&
+             (alternative->late_read_subgroup_size == 0 ||
+              alternative->late_read_subgroup_size == subgroup_size);
+    }
+  }
+  return false;
+}
+
 static iree_string_view_t loom_low_descriptor_set_string_view(
     const loom_low_descriptor_set_t* descriptor_set,
     loom_string_ref_t string_ref) {
@@ -496,7 +513,10 @@ uint32_t loom_low_descriptor_set_lookup_descriptor(
         descriptor_set, descriptor_ref->key_string_ref);
     const int comparison = iree_string_view_compare(descriptor_ref_key, key);
     if (comparison == 0) {
-      return descriptor_ref->descriptor_ordinal;
+      return descriptor_ref->descriptor_ordinal <
+                     descriptor_set->descriptor_count
+                 ? descriptor_ref->descriptor_ordinal
+                 : LOOM_LOW_DESCRIPTOR_ORDINAL_NONE;
     }
     if (comparison < 0) {
       low = mid + 1;

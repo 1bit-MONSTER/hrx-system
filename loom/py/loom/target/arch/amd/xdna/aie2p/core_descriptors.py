@@ -94,6 +94,37 @@ _MACHINE_IMMEDIATES = {
     immediate.name: immediate for immediate in CORE_MACHINE_TABLE.immediates
 }
 
+# Wide predicate vectors use ordered pairs of eL registers between structural
+# concat and slice operations. No native instruction encodes such a pair, so
+# the imported machine table has no aggregate register names for this storage.
+# These allocation-only aggregates give Low the physical tuple topology while
+# native instruction operands continue to consume the individual eL units.
+_PREDICATE_PAIR_VIEWS = tuple(
+    PhysicalRegisterView(
+        physical_register=f"predicate_pair{pair_index}",
+        reg_class="aie2p.elpredicate",
+        units=(f"l{register_index}", f"l{register_index + 1}"),
+    )
+    for pair_index, register_index in enumerate(range(8, 16, 2))
+)
+
+# Reserved sticky status registers from AIE2PRegisterInfo::isReservedStickyReg.
+# Native implicit definitions accumulate status; explicit definitions replace
+# it and must not acquire the commutative-update contract.
+_STICKY_STATUS_REGISTERS = frozenset(
+    (
+        "srSparse_of",
+        "srF2FFlags",
+        "srF2BFlags",
+        "srF2IFlags",
+        "srFPFlags",
+        "srSRS_of",
+        "srUPS_of",
+        "srFifo_of",
+        "srFifo_uf",
+    )
+)
+
 # LLVM's mW*/mX* names describe instruction-operand encoding roles, not
 # distinct storage domains. W registers are the architectural 256-bit storage
 # units. Each X register is an ordered pair of W subregisters and each Y
@@ -578,7 +609,7 @@ def _reg_classes() -> tuple[RegClass, ...]:
                     if machine_name == "eD"
                     else 0x3
                     if machine_name
-                    in ("eLPredicate", "eWL", "VEC256", "eLdFifoReg", "mStFifo")
+                    in ("eLPredicate", "VEC256", "eLdFifoReg", "mStFifo")
                     else 0x1
                 ),
                 physical_registers=machine_class.candidates,
@@ -619,14 +650,30 @@ def _reg_classes() -> tuple[RegClass, ...]:
 
 
 def _physical_registers() -> tuple[PhysicalRegister, ...]:
-    return tuple(
+    machine_registers = tuple(
         PhysicalRegister(register.name, register.atomic_units)
         for register in CORE_MACHINE_TABLE.physical_registers
     )
+    predicate_pairs = tuple(
+        PhysicalRegister(
+            view.physical_register,
+            tuple(
+                sorted(
+                    atomic_unit
+                    for unit in view.units
+                    for atomic_unit in _MACHINE_REGISTERS[unit].atomic_units
+                )
+            ),
+        )
+        for view in _PREDICATE_PAIR_VIEWS
+    )
+    return (*machine_registers, *predicate_pairs)
 
 
 def _physical_register_views() -> tuple[PhysicalRegisterView, ...]:
-    views: dict[tuple[str, str], PhysicalRegisterView] = {}
+    views = {
+        (view.physical_register, view.reg_class): view for view in _PREDICATE_PAIR_VIEWS
+    }
     for spec in descriptor_specs._DESCRIPTOR_SPECS:
         form = descriptor_specs._MACHINE_FORMS[spec.form_name]
         for operand in (*form.outputs, *form.inputs):
@@ -665,8 +712,6 @@ def _register_packing_resources() -> tuple[RegisterPackingResource, ...]:
         raise ValueError(
             "AIE2P VEC256 does not cover both W halves of every X register"
         )
-    if len(_MACHINE_CLASSES["eWL"].candidates) != x_register_count:
-        raise ValueError("AIE2P eWL does not cover one W half of every X register")
 
     physical_registers = {
         register.name: register for register in CORE_MACHINE_TABLE.physical_registers
@@ -701,7 +746,6 @@ def _register_packing_resources() -> tuple[RegisterPackingResource, ...]:
             name=f"{descriptor_specs._TARGET_KEY}.register.x.pairs",
             capacity=x_register_count,
             members=(
-                RegisterPackingResourceMember("aie2p.ewl"),
                 RegisterPackingResourceMember(
                     "aie2p.vec256",
                     register_unit_count=2,
@@ -841,11 +885,15 @@ def _low_operand(
     return Operand(
         field_name=operand.name,
         role=role,
-        reg_alts=(RegClassAlt(_operand_register_class(spec, operand)),),
+        reg_alts=(
+            RegClassAlt(
+                _operand_register_class(spec, operand),
+                register_part=register_parts.get(operand.name),
+            ),
+        ),
         unit_count=_operand_unit_count(spec, operand),
         encoding_field_id=encoding_field_id,
         encoding_adapter_id=encoding_adapter_id,
-        register_part=register_parts.get(operand.name),
         read_stage=read_stage,
         ready_stage=ready_stage,
         read_event=read_event,
@@ -885,9 +933,8 @@ def _storage_continuation_operand(
     return Operand(
         field_name="storage",
         role=OperandRole.OPERAND,
-        reg_alts=(RegClassAlt(part.reg_class),),
+        reg_alts=(RegClassAlt(part.reg_class, register_part=part.name),),
         flags=(OperandFlag.IMPLICIT, OperandFlag.STORAGE_CONTINUATION),
-        register_part=part.name,
     )
 
 
@@ -994,6 +1041,9 @@ def _implicit_operands(spec: descriptor_specs._DescriptorSpec) -> tuple[Operand,
         read_stage, ready_stage = _implicit_operand_stage(
             spec, register_name, is_definition=True
         )
+        flags = (OperandFlag.IMPLICIT, OperandFlag.STATE_WRITE)
+        if register_name in _STICKY_STATUS_REGISTERS:
+            flags += (OperandFlag.COMMUTATIVE_STATE_UPDATE,)
         result.append(
             Operand(
                 field_name=(
@@ -1008,7 +1058,7 @@ def _implicit_operands(spec: descriptor_specs._DescriptorSpec) -> tuple[Operand,
                         flags=(RegClassAltFlag.PHYSICAL_ONLY,),
                     ),
                 ),
-                flags=(OperandFlag.IMPLICIT, OperandFlag.STATE_WRITE),
+                flags=flags,
                 read_stage=read_stage,
                 ready_stage=ready_stage,
                 write_event=_register_timing_event(spec, operand_ordinal, "write"),
@@ -1048,9 +1098,11 @@ def _implicit_operands(spec: descriptor_specs._DescriptorSpec) -> tuple[Operand,
     return tuple(result)
 
 
-def _immediate(form_name: str, operand: MachineOperand) -> Immediate:
+def _immediate(
+    spec: descriptor_specs._DescriptorSpec, operand: MachineOperand
+) -> Immediate:
     immediate = _MACHINE_IMMEDIATES[operand.type_name]
-    if immediate.allows_symbol_reference:
+    if immediate.allows_symbol_reference or operand.name in spec.symbolic_immediates:
         kind = ImmediateKind.ORDINAL
         flags = (ImmediateFlag.SYMBOLIC,)
     elif immediate.is_signed:
@@ -1081,7 +1133,7 @@ def _immediate(form_name: str, operand: MachineOperand) -> Immediate:
         encoding_field_id=(
             _ENCODING_FIELD_IDS[operand.name]
             if operand.name
-            in {field.name for field in _INSTRUCTION_ENCODINGS[form_name].fields}
+            in {field.name for field in _INSTRUCTION_ENCODINGS[spec.form_name].fields}
             else 0
         ),
         encoding_id=_IMMEDIATE_IDS[operand.type_name],
@@ -1295,6 +1347,21 @@ def _descriptor(spec: descriptor_specs._DescriptorSpec) -> Descriptor:
             f"{form.name}: implicit inputs name unknown machine inputs "
             f"{sorted(unknown_implicit_inputs)}"
         )
+    if len(set(spec.symbolic_immediates)) != len(spec.symbolic_immediates):
+        raise ValueError(f"{form.name}: symbolic immediate names must be unique")
+    machine_immediate_names = {
+        operand.name
+        for operand in form.inputs
+        if operand.kind is MachineOperandKind.IMMEDIATE
+    }
+    unknown_symbolic_immediates = (
+        set(spec.symbolic_immediates) - machine_immediate_names
+    )
+    if unknown_symbolic_immediates:
+        raise ValueError(
+            f"{form.name}: symbolic immediates name unknown machine immediates "
+            f"{sorted(unknown_symbolic_immediates)}"
+        )
     implicit_inputs = tuple(
         operand for operand in form.inputs if operand.name in spec.implicit_inputs
     )
@@ -1355,7 +1422,7 @@ def _descriptor(spec: descriptor_specs._DescriptorSpec) -> Descriptor:
     # retains the machine operand order through its independent field mapping.
     immediates = tuple(
         sorted(
-            (_immediate(spec.form_name, operand) for operand in immediate_inputs),
+            (_immediate(spec, operand) for operand in immediate_inputs),
             key=lambda immediate: immediate.field_name,
         )
     )
@@ -1587,6 +1654,23 @@ def _endpoint_itinerary(endpoint: tuple[int, str | None]) -> Itinerary:
     )
 
 
+def _physical_war_separation(producer: Itinerary, consumer: Itinerary) -> int:
+    # The signed LLVM anti-dependency latency assumes that its scheduler
+    # preserves topological issue order. Loom's physical issuer can backfill a
+    # later accepted instruction into an earlier issue cycle, so preserve the
+    # accepted read-before-overwrite order in the shared event table.
+    return max(
+        0,
+        dependency_separation(
+            producer,
+            0,
+            consumer,
+            0,
+            DependencyKind.WAR,
+        ),
+    )
+
+
 def _event_separations() -> tuple[EventSeparation, ...]:
     result = []
     endpoint_itineraries = {
@@ -1613,12 +1697,9 @@ def _event_separations() -> tuple[EventSeparation, ...]:
                     EventSeparation(
                         _register_event_name("read", *producer),
                         _register_event_name("write", *consumer),
-                        dependency_separation(
+                        _physical_war_separation(
                             producer_itinerary,
-                            0,
                             consumer_itinerary,
-                            0,
-                            DependencyKind.WAR,
                         ),
                         ModelQuality.EXACT,
                     ),

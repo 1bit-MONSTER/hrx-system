@@ -1,0 +1,362 @@
+// Old values preserve every bit. Arithmetic NaNs retain their quiet bit while
+// their implementation-selected sign and payload are normalized.
+func.def inline @atomic_f64_result_bits(%value: f64) -> (i64) {
+  %bits = scalar.bitcast %value : f64 to i64
+  %quiet_bit = scalar.constant 2251799813685248 : i64
+  %exponent = scalar.constant 9218868437227405312 : i64
+  %nan = scalar.cmpf uno, %value, %value : f64
+  %quiet = scalar.andi %bits, %quiet_bit : i64
+  %tag = scalar.ori %quiet, %exponent : i64
+  %result = scf.select %nan, %tag, %bits : i64
+  func.return %result : i64
+}
+
+// Memory-space facts specialize this same update sequence for global, generic,
+// and workgroup storage. The first and last state words are untouched guards.
+func.def inline @atomic_f64_cells(%lhs_bits: i64, %rhs_bits: i64, %storage: buffer, %output: buffer, %output_base: offset) {
+  %base = index.constant 0 : offset
+  %state = buffer.view %storage[%base] : buffer -> view<12xf64>
+  %results = buffer.view %output[%output_base] : buffer -> view<17xi64>
+  %lhs = scalar.bitcast %lhs_bits : i64 to f64
+  %rhs = scalar.bitcast %rhs_bits : i64 to f64
+  view.store %lhs, %state[1] : f64, view<12xf64>
+  view.store %lhs, %state[2] : f64, view<12xf64>
+  %old_addf = view.atomic.rmw<addf, noftz> %rhs, %state[1] {ordering = acq_rel, scope = device} : f64, view<12xf64> -> f64
+  %old_addf_bits = scalar.bitcast %old_addf : f64 to i64
+  view.store %old_addf_bits, %results[1] : i64, view<17xi64>
+  view.atomic.reduce<addf, noftz> %rhs, %state[2] {ordering = release, scope = device} : f64, view<12xf64>
+  %addf_rmw_final = view.load %state[1] : view<12xf64> -> f64
+  %addf_rmw_bits = func.call @atomic_f64_result_bits(%addf_rmw_final) : (f64) -> (i64)
+  view.store %addf_rmw_bits, %results[6] : i64, view<17xi64>
+  %addf_reduce_final = view.load %state[2] : view<12xf64> -> f64
+  %addf_reduce_bits = func.call @atomic_f64_result_bits(%addf_reduce_final) : (f64) -> (i64)
+  view.store %addf_reduce_bits, %results[7] : i64, view<17xi64>
+  view.store %lhs, %state[3] : f64, view<12xf64>
+  view.store %lhs, %state[4] : f64, view<12xf64>
+  %old_minimumf = view.atomic.rmw<minimumf> %rhs, %state[3] {ordering = acq_rel, scope = device} : f64, view<12xf64> -> f64
+  %old_minimumf_bits = scalar.bitcast %old_minimumf : f64 to i64
+  view.store %old_minimumf_bits, %results[2] : i64, view<17xi64>
+  view.atomic.reduce<minimumf> %rhs, %state[4] {ordering = release, scope = device} : f64, view<12xf64>
+  %minimumf_rmw_final = view.load %state[3] : view<12xf64> -> f64
+  %minimumf_rmw_bits = func.call @atomic_f64_result_bits(%minimumf_rmw_final) : (f64) -> (i64)
+  view.store %minimumf_rmw_bits, %results[8] : i64, view<17xi64>
+  %minimumf_reduce_final = view.load %state[4] : view<12xf64> -> f64
+  %minimumf_reduce_bits = func.call @atomic_f64_result_bits(%minimumf_reduce_final) : (f64) -> (i64)
+  view.store %minimumf_reduce_bits, %results[9] : i64, view<17xi64>
+  view.store %lhs, %state[5] : f64, view<12xf64>
+  view.store %lhs, %state[6] : f64, view<12xf64>
+  %old_maximumf = view.atomic.rmw<maximumf> %rhs, %state[5] {ordering = acq_rel, scope = device} : f64, view<12xf64> -> f64
+  %old_maximumf_bits = scalar.bitcast %old_maximumf : f64 to i64
+  view.store %old_maximumf_bits, %results[3] : i64, view<17xi64>
+  view.atomic.reduce<maximumf> %rhs, %state[6] {ordering = release, scope = device} : f64, view<12xf64>
+  %maximumf_rmw_final = view.load %state[5] : view<12xf64> -> f64
+  %maximumf_rmw_bits = func.call @atomic_f64_result_bits(%maximumf_rmw_final) : (f64) -> (i64)
+  view.store %maximumf_rmw_bits, %results[10] : i64, view<17xi64>
+  %maximumf_reduce_final = view.load %state[6] : view<12xf64> -> f64
+  %maximumf_reduce_bits = func.call @atomic_f64_result_bits(%maximumf_reduce_final) : (f64) -> (i64)
+  view.store %maximumf_reduce_bits, %results[11] : i64, view<17xi64>
+  view.store %lhs, %state[7] : f64, view<12xf64>
+  view.store %lhs, %state[8] : f64, view<12xf64>
+  %old_minnumf = view.atomic.rmw<minnumf> %rhs, %state[7] {ordering = acq_rel, scope = device} : f64, view<12xf64> -> f64
+  %old_minnumf_bits = scalar.bitcast %old_minnumf : f64 to i64
+  view.store %old_minnumf_bits, %results[4] : i64, view<17xi64>
+  view.atomic.reduce<minnumf> %rhs, %state[8] {ordering = release, scope = device} : f64, view<12xf64>
+  %minnumf_rmw_final = view.load %state[7] : view<12xf64> -> f64
+  %minnumf_rmw_bits = func.call @atomic_f64_result_bits(%minnumf_rmw_final) : (f64) -> (i64)
+  view.store %minnumf_rmw_bits, %results[12] : i64, view<17xi64>
+  %minnumf_reduce_final = view.load %state[8] : view<12xf64> -> f64
+  %minnumf_reduce_bits = func.call @atomic_f64_result_bits(%minnumf_reduce_final) : (f64) -> (i64)
+  view.store %minnumf_reduce_bits, %results[13] : i64, view<17xi64>
+  view.store %lhs, %state[9] : f64, view<12xf64>
+  view.store %lhs, %state[10] : f64, view<12xf64>
+  %old_maxnumf = view.atomic.rmw<maxnumf> %rhs, %state[9] {ordering = acq_rel, scope = device} : f64, view<12xf64> -> f64
+  %old_maxnumf_bits = scalar.bitcast %old_maxnumf : f64 to i64
+  view.store %old_maxnumf_bits, %results[5] : i64, view<17xi64>
+  view.atomic.reduce<maxnumf> %rhs, %state[10] {ordering = release, scope = device} : f64, view<12xf64>
+  %maxnumf_rmw_final = view.load %state[9] : view<12xf64> -> f64
+  %maxnumf_rmw_bits = func.call @atomic_f64_result_bits(%maxnumf_rmw_final) : (f64) -> (i64)
+  view.store %maxnumf_rmw_bits, %results[14] : i64, view<17xi64>
+  %maxnumf_reduce_final = view.load %state[10] : view<12xf64> -> f64
+  %maxnumf_reduce_bits = func.call @atomic_f64_result_bits(%maxnumf_reduce_final) : (f64) -> (i64)
+  view.store %maxnumf_reduce_bits, %results[15] : i64, view<17xi64>
+  %first = view.load %state[0] : view<12xf64> -> f64
+  %last = view.load %state[11] : view<12xf64> -> f64
+  %first_bits = scalar.bitcast %first : f64 to i64
+  %last_bits = scalar.bitcast %last : f64 to i64
+  view.store %first_bits, %results[0] : i64, view<17xi64>
+  view.store %last_bits, %results[16] : i64, view<17xi64>
+  func.return
+}
+
+func.def @atomic_f64_values(%lhs_bits: i64, %rhs_bits: i64, %global_storage: buffer, %generic_storage: buffer, %output: buffer) {
+  %global_base = index.constant 0 : offset
+  %generic_base = index.constant 136 : offset
+  %workgroup_base = index.constant 272 : offset
+  %bytes = index.constant 96 : offset
+  %global = buffer.assume.memory_space<global> %global_storage : buffer
+  %generic = buffer.assume.memory_space<generic> %generic_storage : buffer
+  %scratch = buffer.alloca<workgroup> align(8) %bytes : buffer
+  %guards = buffer.view %scratch[%global_base] : buffer -> view<12xi64>
+  %guard = scalar.constant 77 : i64
+  view.store %guard, %guards[0] : i64, view<12xi64>
+  view.store %guard, %guards[11] : i64, view<12xi64>
+  func.call @atomic_f64_cells(%lhs_bits, %rhs_bits, %global, %output, %global_base) : (i64, i64, buffer, buffer, offset)
+  func.call @atomic_f64_cells(%lhs_bits, %rhs_bits, %generic, %output, %generic_base) : (i64, i64, buffer, buffer, offset)
+  func.call @atomic_f64_cells(%lhs_bits, %rhs_bits, %scratch, %output, %workgroup_base) : (i64, i64, buffer, buffer, offset)
+  func.return
+}
+
+// The oracle computes ordinary scalar expressions and the unchanged old bits;
+// it does not execute an atomic implementation or a compare-exchange loop.
+func.def inline @atomic_f64_cells_oracle(%lhs_bits: i64, %rhs_bits: i64, %output: buffer, %output_base: offset) {
+  %results = buffer.view %output[%output_base] : buffer -> view<17xi64>
+  %lhs = scalar.bitcast %lhs_bits : i64 to f64
+  %rhs = scalar.bitcast %rhs_bits : i64 to f64
+  %guard = scalar.constant 77 : i64
+  view.store %guard, %results[0] : i64, view<17xi64>
+  view.store %guard, %results[16] : i64, view<17xi64>
+  %addf = scalar.addf %lhs, %rhs : f64
+  %addf_bits = func.call @atomic_f64_result_bits(%addf) : (f64) -> (i64)
+  view.store %lhs_bits, %results[1] : i64, view<17xi64>
+  view.store %addf_bits, %results[6] : i64, view<17xi64>
+  view.store %addf_bits, %results[7] : i64, view<17xi64>
+  %minimumf = scalar.minimumf %lhs, %rhs : f64
+  %minimumf_bits = func.call @atomic_f64_result_bits(%minimumf) : (f64) -> (i64)
+  view.store %lhs_bits, %results[2] : i64, view<17xi64>
+  view.store %minimumf_bits, %results[8] : i64, view<17xi64>
+  view.store %minimumf_bits, %results[9] : i64, view<17xi64>
+  %maximumf = scalar.maximumf %lhs, %rhs : f64
+  %maximumf_bits = func.call @atomic_f64_result_bits(%maximumf) : (f64) -> (i64)
+  view.store %lhs_bits, %results[3] : i64, view<17xi64>
+  view.store %maximumf_bits, %results[10] : i64, view<17xi64>
+  view.store %maximumf_bits, %results[11] : i64, view<17xi64>
+  %minnumf = scalar.minnumf %lhs, %rhs : f64
+  %minnumf_bits = func.call @atomic_f64_result_bits(%minnumf) : (f64) -> (i64)
+  view.store %lhs_bits, %results[4] : i64, view<17xi64>
+  view.store %minnumf_bits, %results[12] : i64, view<17xi64>
+  view.store %minnumf_bits, %results[13] : i64, view<17xi64>
+  %maxnumf = scalar.maxnumf %lhs, %rhs : f64
+  %maxnumf_bits = func.call @atomic_f64_result_bits(%maxnumf) : (f64) -> (i64)
+  view.store %lhs_bits, %results[5] : i64, view<17xi64>
+  view.store %maxnumf_bits, %results[14] : i64, view<17xi64>
+  view.store %maxnumf_bits, %results[15] : i64, view<17xi64>
+  func.return
+}
+
+func.def @atomic_f64_values_oracle(%lhs_bits: i64, %rhs_bits: i64, %global_storage: buffer, %generic_storage: buffer, %output: buffer) {
+  %global_base = index.constant 0 : offset
+  %generic_base = index.constant 136 : offset
+  %workgroup_base = index.constant 272 : offset
+  func.call @atomic_f64_cells_oracle(%lhs_bits, %rhs_bits, %output, %global_base) : (i64, i64, buffer, offset)
+  func.call @atomic_f64_cells_oracle(%lhs_bits, %rhs_bits, %output, %generic_base) : (i64, i64, buffer, offset)
+  func.call @atomic_f64_cells_oracle(%lhs_bits, %rhs_bits, %output, %workgroup_base) : (i64, i64, buffer, offset)
+  func.return
+}
+
+check.scenario @atomic_f64_special_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(-4616189618054758400) : i64
+    %rhs = check.literal value(4611686018427387904) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(0) : i64
+    %rhs = check.literal value(-9223372036854775808) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(-9223372036854775808) : i64
+    %rhs = check.literal value(0) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(-9223372036854775808) : i64
+    %rhs = check.literal value(-9223372036854775808) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(9218868437227405312) : i64
+    %rhs = check.literal value(-4503599627370496) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(1) : i64
+    %rhs = check.literal value(-9223372036854775807) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(4503599627370496) : i64
+    %rhs = check.literal value(4503599627370495) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(4607182418800017408) : i64
+    %rhs = check.literal value(4368491638549381120) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(4607182418800017409) : i64
+    %rhs = check.literal value(4368491638549381120) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(9221120237041090851) : i64
+    %rhs = check.literal value(4611686018427387904) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(-2251799813684138) : i64
+    %rhs = check.literal value(4611686018427387904) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(9218868437227407241) : i64
+    %rhs = check.literal value(4611686018427387904) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(-4503599627367748) : i64
+    %rhs = check.literal value(4611686018427387904) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(4611686018427387904) : i64
+    %rhs = check.literal value(9221120237041090851) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(4611686018427387904) : i64
+    %rhs = check.literal value(-2251799813684138) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(4611686018427387904) : i64
+    %rhs = check.literal value(9218868437227407241) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(4611686018427387904) : i64
+    %rhs = check.literal value(-4503599627367748) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(9221120237041090851) : i64
+    %rhs = check.literal value(9218868437227407241) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(-4503599627367748) : i64
+    %rhs = check.literal value(-2251799813684138) : i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.return
+}
+
+check.scenario @atomic_f64_random_values {
+  check.trial[8](%trial: index, %entropy: check.entropy) {
+    %lhs = check.entropy.read %entropy[0] : check.entropy -> i64
+    %rhs = check.entropy.read %entropy[1] : check.entropy -> i64
+    %global = check.generate.fill value(77) : tensor<12xi64>
+    %generic = check.generate.fill value(77) : tensor<12xi64>
+    %output = check.generate.fill value(-1) : tensor<51xi64>
+    check.compare<@atomic_f64_values, @atomic_f64_values_oracle>(%lhs, %rhs, %global, %generic, %output) : (i64, i64, tensor<12xi64>, tensor<12xi64>, tensor<51xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<51xi64>
+    }
+  }
+  check.return
+}

@@ -1,0 +1,77 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_float_extrema.loom-test
+// RUN: emit source-low target=amdgpu:gfx1200 output=low
+
+func.def @float_extrema_f32(%lhs: f32, %rhs: f32) -> (f32, f32, f32, f32) {
+  %minimum = scalar.minimumf %lhs, %rhs : f32
+  %maximum = scalar.maximumf %lhs, %rhs : f32
+  %minnum = scalar.minnumf %lhs, %rhs : f32
+  %maxnum = scalar.maxnumf %lhs, %rhs : f32
+  func.return %minimum, %maximum, %minnum, %maxnum : f32, f32, f32, f32
+}
+
+// ----
+low.func.def target<amdgpu.rdna4.core> abi(hal_kernel) @float_extrema_f32(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %minimum = v_minimum_f32 %lhs, %rhs
+  %maximum = v_maximum_f32 %lhs, %rhs
+  %minnum = v_min_f32 %lhs, %rhs
+  %maxnum = v_max_f32 %lhs, %rhs
+  return %minimum, %maximum, %minnum, %maxnum
+}
+
+// ====
+
+func.def @float_extrema_uniform(%lhs_bits: i32, %rhs_bits: i32) -> (f32, f32) {
+  %lhs = scalar.bitcast %lhs_bits : i32 to f32
+  %rhs = scalar.bitcast %rhs_bits : i32 to f32
+  %minimum = scalar.minnumf %lhs, %rhs : f32
+  %maximum = scalar.maxnumf %lhs, %rhs : f32
+  func.return %minimum, %maximum : f32, f32
+}
+
+// ----
+low.func.def target<amdgpu.rdna4.core> abi(hal_kernel) @float_extrema_uniform(%lhs: reg<amdgpu.sgpr>, %rhs: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %minimum = s_min_f32 %lhs, %rhs
+  %maximum = s_max_f32 %lhs, %rhs
+  return %minimum, %maximum
+}
+
+// ====
+
+func.def @float_extrema_no_nan(%lhs: f32, %rhs: f32) -> (f32, f32, f32) {
+  %minimum = scalar.minnumf<nnan> %lhs, %rhs : f32
+  %maximum = scalar.maxnumf<nnan> %lhs, %rhs : f32
+  %upper_bound = scalar.constant 1.0 : f32
+  %bounded = scalar.minnumf<nnan> %lhs, %upper_bound : f32
+  func.return %minimum, %maximum, %bounded : f32, f32, f32
+}
+
+// ----
+low.func.def target<amdgpu.rdna4.core> abi(hal_kernel) @float_extrema_no_nan(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %minimum = v_min_f32 %lhs, %rhs
+  %maximum = v_max_f32 %lhs, %rhs
+  %bounded = v_min_f32_src0_inline %lhs, "f32_1_0"
+  return %minimum, %maximum, %bounded
+}
+
+// ====
+
+func.def @float_extrema_vector(%lhs: vector<2xf32>, %rhs: vector<2xf32>) -> (vector<2xf32>, vector<2xf32>) {
+  %minimum = vector.minnumf %lhs, %rhs : vector<2xf32>
+  %maximum = vector.maxnumf %lhs, %rhs : vector<2xf32>
+  func.return %minimum, %maximum : vector<2xf32>, vector<2xf32>
+}
+
+// ----
+low.func.def target<amdgpu.rdna4.core> abi(hal_kernel) @float_extrema_vector(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %10 = slice %lhs[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %11 = slice %rhs[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %12 = v_min_f32 %10, %11
+  %13 = slice %lhs[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %14 = slice %rhs[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %15 = v_min_f32 %13, %14
+  %minimum = concat(%12, %15) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %19 = v_max_f32 %10, %11
+  %22 = v_max_f32 %13, %14
+  %maximum = concat(%19, %22) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  return %minimum, %maximum
+}

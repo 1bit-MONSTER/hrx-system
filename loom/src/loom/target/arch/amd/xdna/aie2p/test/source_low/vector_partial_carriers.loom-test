@@ -1,0 +1,108 @@
+// RUN: with-checks emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @store_captured_i8x33(%value: vector<33xi8>, %output: buffer) {
+  %destination = buffer.assume.alignment %output {minimum_alignment = 64} : buffer
+  %origin = index.constant 0 : offset
+  %view = buffer.view %destination[%origin] : buffer -> view<33xi8>
+  vector.store %value, %view[0] : vector<33xi8>, view<33xi8>
+  func.return
+}
+
+// ----
+CHECK: * = slice %value[0] *
+CHECK: vst.256.i8x32 *, %view, 0
+CHECK: * = vextract.8.imm %value, 32
+CHECK: st.i8.index *, %view, *
+CHECK-NOT: *vinsert*
+
+// ====
+
+func.def @store_captured_i8x65(%value: vector<65xi8>, %output: buffer) {
+  %destination = buffer.assume.alignment %output {minimum_alignment = 64} : buffer
+  %origin = index.constant 0 : offset
+  %view = buffer.view %destination[%origin] : buffer -> view<65xi8>
+  vector.store %value, %view[0] : vector<65xi8>, view<65xi8>
+  func.return
+}
+
+// ----
+CHECK: * = slice %value[0] *
+CHECK: vst.512.i8x64 *, %view, 0
+CHECK: * = slice %value[2] *
+CHECK: * = vextract.8.imm *, 0
+CHECK: st.i8.index *, %view, *
+CHECK-NOT: *vinsert*
+
+// ====
+
+func.def @slice_i8x128_crossing(%value: vector<128xi8>) -> (vector<64xi8>) {
+  %result = vector.slice %value[63] : vector<128xi8> -> vector<64xi8>
+  func.return %result : vector<64xi8>
+}
+
+// ----
+CHECK: * = slice %value[0] *
+CHECK: * = slice %value[2] *
+CHECK: * = mova.i32 63
+CHECK: %result = vshift *
+CHECK: return %result
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+
+// ====
+
+aie2p.target<core> @target
+
+func.def target(@target) @store_snapshot_after_write(%input: buffer, %output: buffer) {
+  %input_aligned, %output_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %input_view = buffer.view %input_aligned[%origin] : buffer -> view<128xi8>
+  %output_view = buffer.view %output_aligned[%origin] : buffer -> view<128xi8>
+  %snapshot = vector.load %input_view[0] : view<128xi8> -> vector<128xi8>
+  %sentinel = vector.constant -91 : vector<64xi8>
+  vector.store<volatile> %sentinel, %input_view[0] : vector<64xi8>, view<128xi8>
+  vector.store<volatile> %sentinel, %input_view[64] : vector<64xi8>, view<128xi8>
+  vector.store %snapshot, %output_view[0] : vector<128xi8>, view<128xi8>
+  func.return
+}
+
+// ----
+CHECK: * = vlda.512.i8x64 %input_view, 0
+CHECK: * = vlda.512.i8x64 %input_view, 64
+CHECK: vst.512.i8x64.volatile<volatile> %sentinel, %input_view, 0
+CHECK: vst.512.i8x64.volatile<volatile> %sentinel, %input_view, 64
+CHECK: vst.512.i8x64 *, %output_view, 0
+CHECK: vst.512.i8x64 *, %output_view, 64
+
+// ====
+
+func.def @slice_i8x128_wide(%value: vector<128xi8>) -> (vector<96xi8>) {
+  %result = vector.slice %value[1] : vector<128xi8> -> vector<96xi8>
+  func.return %result : vector<96xi8>
+}
+
+// ----
+CHECK: * = slice %value[0] *
+CHECK: * = slice %value[2] *
+CHECK: * = mova.i32 1
+CHECK: * = vshift *
+CHECK: * = vshift *
+CHECK: %result = concat(*
+CHECK: return %result
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+
+// ====
+
+func.def @slice_i64x16_high(%value: vector<16xi64>) -> (vector<7xi64>) {
+  %result = vector.slice %value[9] : vector<16xi64> -> vector<7xi64>
+  func.return %result : vector<7xi64>
+}
+
+// ----
+CHECK: * = slice %value[2] *
+CHECK: * = mova.i32 8
+CHECK: %result = vshift *
+CHECK: return %result
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*

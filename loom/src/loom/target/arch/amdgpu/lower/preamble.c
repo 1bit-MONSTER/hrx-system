@@ -20,8 +20,10 @@
 #include "loom/target/arch/amdgpu/lower/legality.h"
 #include "loom/target/arch/amdgpu/lower/matrix_fragment_repack.h"
 #include "loom/target/arch/amdgpu/lower/sanitizer_race.h"
+#include "loom/target/arch/amdgpu/lower/source_alloca_layout.h"
 #include "loom/target/arch/amdgpu/lower/topology.h"
 #include "loom/target/arch/amdgpu/lower/types.h"
+#include "loom/target/arch/amdgpu/lower/workgroup_storage.h"
 #include "loom/target/arch/amdgpu/refs/target_refs.h"
 
 #define LOOM_AMDGPU_PACKED_WORKITEM_ID_DIMENSION_BITS 10u
@@ -1162,6 +1164,9 @@ static void loom_amdgpu_find_first_dynamic_count_ops(
 iree_status_t loom_amdgpu_emit_preamble(void* user_data,
                                         loom_low_lower_context_t* context) {
   (void)user_data;
+  const bool needs_sanitizer_report_coordinates =
+      loom_low_lower_context_sanitizer_reporting_mode(context) !=
+      LOOM_SANITIZER_REPORTING_MODE_TRAP;
   const loom_op_t* first_workitem_id_ops[LOOM_KERNEL_DIMENSION_COUNT_] = {0};
   const loom_op_t* first_workgroup_id_ops[LOOM_KERNEL_DIMENSION_COUNT_] = {0};
   const loom_op_t* first_cluster_id_ops[LOOM_KERNEL_DIMENSION_COUNT_] = {0};
@@ -1260,7 +1265,29 @@ iree_status_t loom_amdgpu_emit_preamble(void* user_data,
             context, source_op, LOOM_VALUE_ID_INVALID, first_workitem_id_ops);
         break;
       }
-      case LOOM_OP_SANITIZER_RACE_ACCESS: {
+      case LOOM_OP_KERNEL_ASSERT:
+      case LOOM_OP_SANITIZER_ASSERT_ACCESS:
+      case LOOM_OP_SANITIZER_ASSERT_ACCESSES: {
+        if (!needs_sanitizer_report_coordinates) {
+          break;
+        }
+        if (first_dispatch_ptr_op == NULL) {
+          first_dispatch_ptr_op = source_op;
+        }
+        if (first_workitem_id_ops[LOOM_KERNEL_DIMENSION_X] == NULL) {
+          first_workitem_id_ops[LOOM_KERNEL_DIMENSION_X] = source_op;
+        }
+        if (first_workgroup_id_ops[LOOM_KERNEL_DIMENSION_X] == NULL) {
+          first_workgroup_id_ops[LOOM_KERNEL_DIMENSION_X] = source_op;
+        }
+        break;
+      }
+      case LOOM_OP_SANITIZER_RACE_ACCESS:
+      case LOOM_OP_SANITIZER_RACE_FRAGMENT_ACCESS: {
+        if (plan.id == LOOM_OP_SANITIZER_RACE_FRAGMENT_ACCESS) {
+          loom_amdgpu_mark_lane_query_workitem_id_live_ins(
+              context, source_op, LOOM_VALUE_ID_INVALID, first_workitem_id_ops);
+        }
         if (first_dispatch_ptr_op == NULL) {
           first_dispatch_ptr_op = source_op;
         }
@@ -1824,6 +1851,7 @@ iree_status_t loom_amdgpu_emit_current_workgroup_linear_id(
 iree_status_t loom_amdgpu_emit_entry_setup(void* user_data,
                                            loom_low_lower_context_t* context) {
   (void)user_data;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_validate_workgroup_storage(context));
   IREE_RETURN_IF_ERROR(loom_amdgpu_cluster_preamble_emit_entry_setup(context));
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_source_alloca_layout_emit_low_storage_roots(context));

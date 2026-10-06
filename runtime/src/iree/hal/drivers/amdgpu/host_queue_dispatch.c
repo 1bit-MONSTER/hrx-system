@@ -910,6 +910,7 @@ static iree_status_t iree_hal_amdgpu_host_queue_submit_dispatch_packets(
       &dispatch_packet->dispatch, &dispatch_packet->extended_dispatch,
       &dispatch_params, plan->workgroup_cluster_count, &dispatch_header,
       &dispatch_setup);
+  uint16_t profile_harvest_setup = 0;
   uint16_t pre_dispatch_header = 0;
   uint16_t pre_dispatch_setup = 0;
   if (needs_gws_initialize) {
@@ -920,8 +921,7 @@ static iree_status_t iree_hal_amdgpu_host_queue_submit_dispatch_packets(
         &queue->transfer_context->kernels
              ->iree_hal_amdgpu_device_grid_sync_gws_initialize,
         plan->grid_sync_info.workgroup_count, &pre_dispatch_packet->dispatch,
-        pre_dispatch_kernarg_data);
-    pre_dispatch_setup = pre_dispatch_packet->dispatch.setup;
+        pre_dispatch_kernarg_data, &pre_dispatch_setup);
     const iree_hsa_fence_scope_t pre_dispatch_acquire_scope =
         iree_hal_amdgpu_host_queue_kernarg_acquire_scope(
             IREE_HSA_FENCE_SCOPE_AGENT);
@@ -938,8 +938,7 @@ static iree_status_t iree_hal_amdgpu_host_queue_submit_dispatch_packets(
         (const uint32_t*)(uintptr_t)workgroup_count_ptr,
         &dispatch_packet->dispatch, dispatch_header, dispatch_setup,
         implicit_args, &pre_dispatch_packet->dispatch,
-        pre_dispatch_kernarg_data);
-    pre_dispatch_setup = pre_dispatch_packet->dispatch.setup;
+        pre_dispatch_kernarg_data, &pre_dispatch_setup);
     const iree_hsa_fence_scope_t pre_dispatch_acquire_scope =
         iree_hal_amdgpu_host_queue_kernarg_acquire_scope(
             IREE_HSA_FENCE_SCOPE_AGENT);
@@ -964,7 +963,7 @@ static iree_status_t iree_hal_amdgpu_host_queue_submit_dispatch_packets(
             &queue->transfer_context->kernels
                  ->iree_hal_amdgpu_device_timestamp_harvest_dispatch_records,
             profile_events.event_count, &profile_harvest_packet->dispatch,
-            profile_harvest_kernarg_data);
+            profile_harvest_kernarg_data, &profile_harvest_setup);
     sources[0].completion_signal =
         iree_hal_amdgpu_host_queue_profiling_completion_signal_ptr(
             queue, profile_events.first_event_position);
@@ -1076,9 +1075,8 @@ static iree_status_t iree_hal_amdgpu_host_queue_submit_dispatch_packets(
         profile_completion_barrier_packet, profiling_completion_signal);
   }
   if (profile_dispatch_packet) {
-    iree_hal_amdgpu_aql_ring_commit(profile_harvest_packet,
-                                    profile_harvest_header,
-                                    profile_harvest_packet->dispatch.setup);
+    iree_hal_amdgpu_aql_ring_commit(
+        profile_harvest_packet, profile_harvest_header, profile_harvest_setup);
   }
   if (queue_device_event) {
     iree_hal_amdgpu_host_queue_commit_queue_device_end_packet(

@@ -253,6 +253,8 @@ static amdf_status_t amdf_memory_allocate(
     memory->accesses[i].info.ordinal = i;
     memory->accesses[i].native_profile_ordinal =
         plan->native_profiles[i].ordinal;
+    memory->accesses[i].describe_site =
+        plan->native_profiles[i].visibility.describe_site;
   }
   *out_memory = memory;
   return AMDF_STATUS_OK;
@@ -631,6 +633,7 @@ void AMDF_CALL amdf_external_memory_release(amdf_external_memory_t* value) {
 
 static amdf_status_t amdf_memory_describe_site(
     const amdf_memory_site_t* site, const amdf_memory_site_t* peer,
+    const amdf_memory_site_description_t* peer_description,
     amdf_memory_site_description_t* out_description) {
   if (site->kind == AMDF_MEMORY_SITE_KIND_DEVICE) {
     amdf_memory_t* memory = site->value.device.memory;
@@ -652,8 +655,9 @@ static amdf_status_t amdf_memory_describe_site(
       .flush = mapping->flush,
       .invalidate = mapping->invalidate,
   };
-  *out_description =
-      amdf_memory_describe_host_site(&host, mapping->flags, coherent);
+  *out_description = amdf_memory_describe_host_site(
+      &host, mapping->flags, coherent,
+      peer->kind == AMDF_MEMORY_SITE_KIND_DEVICE ? peer_description : NULL);
   return AMDF_STATUS_OK;
 }
 
@@ -700,18 +704,26 @@ amdf_memory_query_pair_info(const amdf_memory_site_t* producer_site,
     }
   }
 
-  amdf_memory_site_description_t producer = {0};
-  status = amdf_memory_describe_site(producer_site, consumer_site, &producer);
+  // Describe a device before its host peer so the host can use the qualified
+  // SYSTEM domain without querying the device a second time.
+  const bool consumer_first = producer_site->kind == AMDF_MEMORY_SITE_KIND_HOST;
+  const amdf_memory_site_t* first_site =
+      consumer_first ? consumer_site : producer_site;
+  const amdf_memory_site_t* second_site =
+      consumer_first ? producer_site : consumer_site;
+  amdf_memory_site_description_t first = {0};
+  status = amdf_memory_describe_site(first_site, second_site, NULL, &first);
   if (!amdf_status_is_ok(status)) {
     return status;
   }
-  amdf_memory_site_description_t consumer = {0};
-  status = amdf_memory_describe_site(consumer_site, producer_site, &consumer);
+  amdf_memory_site_description_t second = {0};
+  status = amdf_memory_describe_site(second_site, first_site, &first, &second);
   if (!amdf_status_is_ok(status)) {
     return status;
   }
 
-  return amdf_memory_pair_compose(&producer, &consumer, out_info);
+  return amdf_memory_pair_compose(consumer_first ? &second : &first,
+                                  consumer_first ? &first : &second, out_info);
 }
 
 amdf_status_t AMDF_CALL amdf_memory_map(amdf_memory_t* memory,

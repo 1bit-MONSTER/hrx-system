@@ -11,28 +11,27 @@
 
 #include "loom/codegen/low/descriptors.h"
 #include "loom/codegen/low/lower/lower.h"
-#include "loom/target/arch/amdgpu/lower/plan.h"
+#include "loom/target/arch/amdgpu/lower/fragment_memory/address.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef enum loom_amdgpu_memory_lane_source_e {
-  // Lane identity is the X workitem coordinate and must not wrap in a wave.
-  LOOM_AMDGPU_MEMORY_LANE_SOURCE_WORKITEM_X = 0,
-  // Lane identity is the target subgroup lane ID.
-  LOOM_AMDGPU_MEMORY_LANE_SOURCE_SUBGROUP_LANE = 1,
-} loom_amdgpu_memory_lane_source_t;
-
-// Proof that one source operation executes with a complete active subgroup.
-typedef struct loom_amdgpu_memory_full_subgroup_proof_t {
-  // Whether every lane in the target subgroup is proven active.
-  bool is_full_subgroup;
-  // Stable proof key when |is_full_subgroup| is true.
+// Proof of the exact active lanes shared by every subgroup at a source
+// operation.
+typedef struct loom_amdgpu_memory_subgroup_proof_t {
+  // Whether the same exact nonempty active set is proven for every subgroup.
+  bool is_proven;
+  // Active lanes below the target subgroup size when |is_proven| is true.
+  uint64_t active_lane_mask;
+  // Stable proof key when |is_proven| is true.
   iree_string_view_t proof;
-  // Stable reason key when |is_full_subgroup| is false.
+  // Stable reason key when |is_proven| is false.
   iree_string_view_t unknown_reason;
-} loom_amdgpu_memory_full_subgroup_proof_t;
+  // Fixed workgroup geometry covered by a successful proof. Native subgroups
+  // partition the X-fastest linear workitem sequence.
+  loom_target_workgroup_size_t workgroup_size;
+} loom_amdgpu_memory_subgroup_proof_t;
 
 // Calculates exact byte-interval geometry for the selected lanes of a compiled
 // fragment address layout. |active_lane_mask| must select at least one lane
@@ -43,14 +42,13 @@ void loom_amdgpu_memory_calculate_subgroup_geometry(
     uint32_t per_lane_packet_byte_count,
     loom_low_lower_memory_subgroup_access_report_t* out_report);
 
-// Proves that |source_op| executes with every target subgroup lane active.
+// Proves the exact active lanes of |source_op| across the fixed workgroup.
 //
 // Status reports only analysis allocation failures. An unproven active set is
 // returned as ordinary structured evidence in |out_proof|.
-iree_status_t loom_amdgpu_memory_prove_full_subgroup(
+iree_status_t loom_amdgpu_memory_prove_subgroup(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
-    uint8_t subgroup_size, loom_amdgpu_memory_lane_source_t lane_source,
-    loom_amdgpu_memory_full_subgroup_proof_t* out_proof);
+    uint8_t subgroup_size, loom_amdgpu_memory_subgroup_proof_t* out_proof);
 
 // Populates exact or explicitly unknown fragment subgroup address geometry.
 //
@@ -61,8 +59,7 @@ iree_status_t loom_amdgpu_fragment_memory_report_subgroup_access(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_matrix_fragment_layout_t* layout,
     const loom_amdgpu_fragment_memory_plan_t* plan,
-    const loom_amdgpu_fragment_memory_packet_plan_t* packet,
-    uint16_t element_index,
+    const loom_amdgpu_fragment_memory_packet_offset_t* runtime_offset,
     const loom_low_descriptor_memory_effect_summary_t* issued,
     loom_low_lower_memory_subgroup_access_report_t* out_report);
 

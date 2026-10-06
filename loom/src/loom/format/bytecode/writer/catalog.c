@@ -11,6 +11,7 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ir/parameterized_type.h"
+#include "loom/ir/structural_hash.h"
 #include "loom/ops/op_defs.h"
 
 uint8_t loom_bytecode_type_kind_byte(loom_type_kind_t kind) {
@@ -56,25 +57,146 @@ uint8_t loom_bytecode_type_kind_byte(loom_type_kind_t kind) {
 // Sentinel for "not yet assigned" in mapping arrays.
 #define LOOM_WRITER_ID_NONE UINT32_MAX
 
-// Appends a string_view to the ordered string list, growing if needed.
-static iree_status_t loom_bytecode_numbering_append_string(
-    loom_bytecode_numbering_t* numbering, iree_string_view_t view,
-    uint32_t* out_writer_id) {
-  if (numbering->strings.count >= numbering->strings.capacity) {
-    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-        numbering->arena, numbering->strings.count, /*minimum_capacity=*/16,
-        sizeof(iree_string_view_t), &numbering->strings.capacity,
-        (void**)&numbering->strings.values));
-  }
-  if (numbering->strings.count >= (1u << 24)) {
+// Number of module-to-writer string IDs in each projection segment.
+#define LOOM_BYTECODE_MODULE_STRING_ID_SEGMENT_CAPACITY 512u
+#define LOOM_BYTECODE_MODULE_STRING_ID_SEGMENT_SHIFT 9u
+#define LOOM_BYTECODE_MODULE_STRING_ID_SEGMENT_MASK \
+  (LOOM_BYTECODE_MODULE_STRING_ID_SEGMENT_CAPACITY - 1u)
+
+// Maximum module string count cheaper to scan than hash for borrowed views.
+#define LOOM_BYTECODE_LINEAR_MODULE_STRING_LIMIT 16u
+
+static_assert((1u << LOOM_BYTECODE_MODULE_STRING_ID_SEGMENT_SHIFT) ==
+                  LOOM_BYTECODE_MODULE_STRING_ID_SEGMENT_CAPACITY,
+              "writer string ID segment capacity must match its index shift");
+static_assert((uint64_t)LOOM_BYTECODE_MODULE_STRING_ID_SEGMENT_CAPACITY *
+                      LOOM_SEGMENTED_STORAGE_MAX_SEGMENT_COUNT >=
+                  UINT32_MAX,
+              "writer string ID storage must cover the module ID domain");
+
+// Ensures that one additional borrowed string view can be published.
+static iree_status_t loom_bytecode_numbering_reserve_string(
+    loom_bytecode_numbering_t* numbering) {
+  loom_string_table_t* table = &numbering->strings.table;
+  if (table->count >= (1u << 24)) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "bytecode string count exceeds format maximum "
                             "(16M)");
   }
-  uint32_t id = (uint32_t)numbering->strings.count;
-  numbering->strings.values[numbering->strings.count++] = view;
-  *out_writer_id = id;
+  if (table->count == loom_string_table_capacity(table)) {
+    void* segment = NULL;
+    IREE_RETURN_IF_ERROR(loom_segmented_storage_append(
+        &table->segments, numbering->arena, &segment));
+  }
   return iree_ok_status();
+}
+
+// Publishes one view after all fallible capacity preparation is complete.
+static uint32_t loom_bytecode_numbering_publish_string(
+    loom_bytecode_numbering_t* numbering, iree_string_view_t view) {
+  loom_string_table_t* table = &numbering->strings.table;
+  IREE_ASSERT(table->count < (1u << 24));
+  const uint32_t writer_id = (uint32_t)table->count;
+  loom_string_segment_t* segment =
+      (loom_string_segment_t*)loom_segmented_storage_segment(
+          &table->segments, writer_id >> LOOM_STRING_SEGMENT_SHIFT);
+  segment->entries[writer_id & LOOM_STRING_SEGMENT_MASK] = view;
+  ++table->count;
+  return writer_id;
+}
+
+// Appends one borrowed view to the ordered string catalog.
+static iree_status_t loom_bytecode_numbering_append_string(
+    loom_bytecode_numbering_t* numbering, iree_string_view_t view,
+    uint32_t* out_writer_id) {
+  IREE_RETURN_IF_ERROR(loom_bytecode_numbering_reserve_string(numbering));
+  *out_writer_id = loom_bytecode_numbering_publish_string(numbering, view);
+  return iree_ok_status();
+}
+
+// Returns the module-to-writer projection entry for |string_id|.
+static uint32_t* loom_bytecode_numbering_module_string_writer_id(
+    loom_bytecode_numbering_t* numbering, loom_string_id_t string_id) {
+  IREE_ASSERT(string_id < numbering->module->strings.count);
+  const uint32_t segment_index =
+      string_id >> LOOM_BYTECODE_MODULE_STRING_ID_SEGMENT_SHIFT;
+  uint32_t* segment = (uint32_t*)loom_segmented_storage_segment(
+      &numbering->strings.module_ids.segments, segment_index);
+  return &segment[string_id & LOOM_BYTECODE_MODULE_STRING_ID_SEGMENT_MASK];
+}
+
+typedef struct loom_bytecode_external_string_equal_context_t {
+  // Numbering context owning the external string index and catalog.
+  const loom_bytecode_numbering_t* numbering;
+  // Candidate borrowed string contents.
+  iree_string_view_t view;
+} loom_bytecode_external_string_equal_context_t;
+
+// Compares borrowed spellings without rereading identical static storage.
+static inline bool loom_bytecode_borrowed_string_equal(iree_string_view_t lhs,
+                                                       iree_string_view_t rhs) {
+  if (lhs.data == rhs.data) {
+    return lhs.size == rhs.size;
+  }
+  return iree_string_view_equal(lhs, rhs);
+}
+
+// Compares one candidate with an external catalog entry by writer ID.
+static bool loom_bytecode_external_string_equal(const void* context,
+                                                uint32_t writer_id) {
+  const loom_bytecode_external_string_equal_context_t* equal_context =
+      (const loom_bytecode_external_string_equal_context_t*)context;
+  return loom_bytecode_borrowed_string_equal(
+      loom_bytecode_numbering_string(equal_context->numbering, writer_id),
+      equal_context->view);
+}
+
+// Returns a process-local content hash for an external borrowed string.
+static uint32_t loom_bytecode_external_string_hash(iree_string_view_t view) {
+  return loom_structural_hash_finalize(loom_structural_hash_mix_bytes(
+      loom_structural_hash_initialize(), view.data, view.size));
+}
+
+// Finds a module-owned spelling with bounded small-table linear lookup.
+static loom_string_id_t loom_bytecode_numbering_lookup_module_string(
+    const loom_bytecode_numbering_t* numbering, iree_string_view_t view) {
+  const loom_string_table_t* table = &numbering->module->strings;
+  if (table->count <= LOOM_BYTECODE_LINEAR_MODULE_STRING_LIMIT) {
+    for (loom_string_id_t string_id = 0; string_id < table->count;
+         ++string_id) {
+      if (iree_string_view_equal(loom_string_table_get(table, string_id),
+                                 view)) {
+        return string_id;
+      }
+    }
+    return LOOM_STRING_ID_INVALID;
+  }
+  return loom_module_lookup_string(numbering->module, view);
+}
+
+// Publishes one entry in both directions of the symbol-order projection.
+static void loom_bytecode_numbering_publish_symbol_order(
+    loom_bytecode_numbering_t* numbering, loom_symbol_id_t module_symbol_id,
+    loom_symbol_id_t wire_ordinal) {
+  if (IREE_LIKELY(numbering->module->symbols.count <=
+                  LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_CAPACITY)) {
+    numbering->symbol_order.flat.module_ids[wire_ordinal] = module_symbol_id;
+    numbering->symbol_order.flat.wire_ordinals[module_symbol_id] = wire_ordinal;
+    return;
+  }
+  loom_bytecode_symbol_order_segment_t* wire_segment =
+      numbering->symbol_order
+          .segments[wire_ordinal >> LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_SHIFT];
+  wire_segment
+      ->module_ids[wire_ordinal & LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_MASK] =
+      module_symbol_id;
+  loom_bytecode_symbol_order_segment_t* module_segment =
+      numbering->symbol_order
+          .segments[module_symbol_id >>
+                    LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_SHIFT];
+  module_segment->wire_ordinals[module_symbol_id &
+                                LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_MASK] =
+      wire_ordinal;
 }
 
 // Builds the stable module-ID to presentation-ordered wire-ordinal mapping.
@@ -85,16 +207,36 @@ static iree_status_t loom_bytecode_numbering_initialize_symbol_order(
     return iree_ok_status();
   }
 
-  // Both directions share one dense arena allocation. Symbol IDs are bounded
-  // below LOOM_SYMBOL_ID_INVALID by module construction.
-  loom_symbol_id_t* storage = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_arena_allocate_array(numbering->arena, module->symbols.count,
-                                2 * sizeof(*storage), (void**)&storage));
-  numbering->symbol_order.module_ids = storage;
-  numbering->symbol_order.wire_ordinals = storage + module->symbols.count;
-  memset(numbering->symbol_order.wire_ordinals, 0xFF,
-         module->symbols.count * sizeof(*storage));
+  if (module->symbols.count <= LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_CAPACITY) {
+    // Preserve one direct projection for ordinary modules. The complete pair
+    // fits in one segment-sized arena allocation.
+    loom_symbol_id_t* storage = NULL;
+    IREE_RETURN_IF_ERROR(
+        iree_arena_allocate_array(numbering->arena, module->symbols.count,
+                                  2 * sizeof(*storage), (void**)&storage));
+    numbering->symbol_order.flat.module_ids = storage;
+    numbering->symbol_order.flat.wire_ordinals =
+        storage + module->symbols.count;
+    memset(numbering->symbol_order.flat.wire_ordinals, 0xFF,
+           module->symbols.count * sizeof(*storage));
+  } else {
+    // Both directions share pool-fitting segments. Symbol IDs are bounded
+    // below LOOM_SYMBOL_ID_INVALID by module construction.
+    const iree_host_size_t segment_count =
+        (module->symbols.count + LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_MASK) >>
+        LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_SHIFT;
+    IREE_RETURN_IF_ERROR(
+        iree_arena_allocate_array(numbering->arena, segment_count,
+                                  sizeof(*numbering->symbol_order.segments),
+                                  (void**)&numbering->symbol_order.segments));
+    for (iree_host_size_t i = 0; i < segment_count; ++i) {
+      loom_bytecode_symbol_order_segment_t* segment = NULL;
+      IREE_RETURN_IF_ERROR(iree_arena_allocate(
+          numbering->arena, sizeof(*segment), (void**)&segment));
+      numbering->symbol_order.segments[i] = segment;
+      memset(segment->wire_ordinals, 0xFF, sizeof(segment->wire_ordinals));
+    }
+  }
 
   loom_symbol_id_t wire_ordinal = 0;
   const loom_block_t* module_block =
@@ -109,10 +251,10 @@ static iree_status_t loom_bytecode_numbering_initialize_symbol_order(
     if (module->symbols.entries[symbol_id].defining_op != op) {
       continue;
     }
-    IREE_ASSERT_EQ(numbering->symbol_order.wire_ordinals[symbol_id],
+    IREE_ASSERT_EQ(loom_bytecode_wire_symbol_ordinal(numbering, symbol_id),
                    LOOM_SYMBOL_ID_INVALID);
-    numbering->symbol_order.module_ids[wire_ordinal] = symbol_id;
-    numbering->symbol_order.wire_ordinals[symbol_id] = wire_ordinal;
+    loom_bytecode_numbering_publish_symbol_order(numbering, symbol_id,
+                                                 wire_ordinal);
     ++wire_ordinal;
   }
 
@@ -120,12 +262,12 @@ static iree_status_t loom_bytecode_numbering_initialize_symbol_order(
   // anchor. Preserve their stable module-table order after all definitions.
   for (loom_symbol_id_t module_symbol_id = 0;
        module_symbol_id < module->symbols.count; ++module_symbol_id) {
-    if (numbering->symbol_order.wire_ordinals[module_symbol_id] !=
+    if (loom_bytecode_wire_symbol_ordinal(numbering, module_symbol_id) !=
         LOOM_SYMBOL_ID_INVALID) {
       continue;
     }
-    numbering->symbol_order.module_ids[wire_ordinal] = module_symbol_id;
-    numbering->symbol_order.wire_ordinals[module_symbol_id] = wire_ordinal;
+    loom_bytecode_numbering_publish_symbol_order(numbering, module_symbol_id,
+                                                 wire_ordinal);
     ++wire_ordinal;
   }
   IREE_ASSERT_EQ(wire_ordinal, module->symbols.count);
@@ -141,31 +283,44 @@ iree_status_t loom_bytecode_numbering_initialize(
   memset(numbering, 0, sizeof(*numbering));
   numbering->module = module;
   numbering->arena = arena;
+  loom_segmented_storage_initialize(
+      sizeof(loom_bytecode_value_scope_segment_t),
+      iree_alignof(loom_bytecode_value_scope_segment_t),
+      &numbering->value_scopes.segments);
+  loom_segmented_storage_initialize(
+      sizeof(loom_bytecode_global_value_segment_t),
+      iree_alignof(loom_bytecode_global_value_segment_t),
+      &numbering->global_values.segments);
+  loom_segmented_storage_initialize(sizeof(loom_string_segment_t),
+                                    iree_alignof(loom_string_segment_t),
+                                    &numbering->strings.table.segments);
+  loom_segmented_storage_initialize(
+      LOOM_BYTECODE_MODULE_STRING_ID_SEGMENT_CAPACITY * sizeof(uint32_t),
+      iree_alignof(uint32_t), &numbering->strings.module_ids.segments);
   IREE_RETURN_IF_ERROR(
       loom_bytecode_numbering_initialize_symbol_order(numbering));
 
-  // Module string map: parallel array for O(1) module_string_id → writer_id.
-  if (module->strings.count > 0) {
-    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        arena, module->strings.count, sizeof(uint32_t),
-        (void**)&numbering->strings.writer_ids_by_module_id));
-    memset(numbering->strings.writer_ids_by_module_id, 0xFF,
-           module->strings.count * sizeof(uint32_t));
+  // Module string map: segmented direct index for module ID to writer ID.
+  const iree_host_size_t module_string_segment_count =
+      (module->strings.count + LOOM_BYTECODE_MODULE_STRING_ID_SEGMENT_MASK) >>
+      LOOM_BYTECODE_MODULE_STRING_ID_SEGMENT_SHIFT;
+  for (iree_host_size_t i = 0; i < module_string_segment_count; ++i) {
+    void* segment = NULL;
+    IREE_RETURN_IF_ERROR(loom_segmented_storage_append(
+        &numbering->strings.module_ids.segments, arena, &segment));
+    memset(segment, 0xFF,
+           LOOM_BYTECODE_MODULE_STRING_ID_SEGMENT_CAPACITY * sizeof(uint32_t));
   }
-
   // Writer string id 0 is reserved as "no SSA name" in value definitions.
   // Keep the empty string in slot 0 so named values never alias the sentinel.
   uint32_t empty_string_writer_id = 0;
   IREE_RETURN_IF_ERROR(loom_bytecode_numbering_append_string(
       numbering, iree_string_view_empty(), &empty_string_writer_id));
-  if (numbering->strings.writer_ids_by_module_id != NULL) {
-    for (iree_host_size_t i = 0; i < module->strings.count; ++i) {
-      if (iree_string_view_is_empty(
-              loom_string_table_get(&module->strings, i))) {
-        numbering->strings.writer_ids_by_module_id[i] = empty_string_writer_id;
-        break;
-      }
-    }
+  const loom_string_id_t module_empty_string_id =
+      loom_module_lookup_string(module, iree_string_view_empty());
+  if (module_empty_string_id != LOOM_STRING_ID_INVALID) {
+    *loom_bytecode_numbering_module_string_writer_id(
+        numbering, module_empty_string_id) = empty_string_writer_id;
   }
 
   // Type map: parallel array for O(1) module_type_index → writer_type_id.
@@ -196,9 +351,10 @@ iree_status_t loom_bytecode_numbering_intern_module_string(
                             " strings)",
                             string_id, numbering->module->strings.count);
   }
-  if (numbering->strings.writer_ids_by_module_id[string_id] !=
-      LOOM_WRITER_ID_NONE) {
-    *out_writer_id = numbering->strings.writer_ids_by_module_id[string_id];
+  uint32_t* writer_id_entry =
+      loom_bytecode_numbering_module_string_writer_id(numbering, string_id);
+  if (*writer_id_entry != LOOM_WRITER_ID_NONE) {
+    *out_writer_id = *writer_id_entry;
     return iree_ok_status();
   }
   iree_string_view_t view =
@@ -206,7 +362,88 @@ iree_status_t loom_bytecode_numbering_intern_module_string(
   uint32_t writer_id = 0;
   IREE_RETURN_IF_ERROR(
       loom_bytecode_numbering_append_string(numbering, view, &writer_id));
-  numbering->strings.writer_ids_by_module_id[string_id] = writer_id;
+  *writer_id_entry = writer_id;
+  *out_writer_id = writer_id;
+  return iree_ok_status();
+}
+
+// Resolves an inline miss or any lookup after the external index is active.
+IREE_ATTRIBUTE_NOINLINE static iree_status_t
+loom_bytecode_numbering_intern_string_view_slow(
+    loom_bytecode_numbering_t* numbering, iree_string_view_t view,
+    uint32_t* out_writer_id) {
+  uint32_t hash = 0;
+  loom_intern_probe_t probe = {/*.index=*/UINT32_MAX, /*.slot=*/0};
+  if (numbering->strings.external.index.capacity != 0) {
+    hash = loom_bytecode_external_string_hash(view);
+    const loom_bytecode_external_string_equal_context_t equal_context = {
+        numbering,
+        view,
+    };
+    probe = loom_intern_table_probe(&numbering->strings.external.index, hash,
+                                    loom_bytecode_external_string_equal,
+                                    &equal_context);
+    if (probe.index != UINT32_MAX) {
+      *out_writer_id = probe.index;
+      return iree_ok_status();
+    }
+  }
+
+  // Module strings use the source module's canonical content index and retain
+  // first-use writer IDs independently of module intern order.
+  const loom_string_id_t module_string_id =
+      loom_bytecode_numbering_lookup_module_string(numbering, view);
+  if (module_string_id != LOOM_STRING_ID_INVALID) {
+    return loom_bytecode_numbering_intern_module_string(
+        numbering, module_string_id, out_writer_id);
+  }
+
+  // Prepare both owners before publishing an externally indexed catalog row.
+  IREE_RETURN_IF_ERROR(loom_bytecode_numbering_reserve_string(numbering));
+  iree_host_size_t slot = probe.slot;
+  if (numbering->strings.external.index.capacity == 0) {
+    if (numbering->strings.external.count <
+        LOOM_BYTECODE_INLINE_EXTERNAL_STRING_CAPACITY) {
+      const uint32_t writer_id =
+          loom_bytecode_numbering_publish_string(numbering, view);
+      const iree_host_size_t external_index =
+          numbering->strings.external.count++;
+      numbering->strings.external.inline_views[external_index] = view;
+      numbering->strings.external.inline_writer_ids[external_index] = writer_id;
+      *out_writer_id = writer_id;
+      return iree_ok_status();
+    }
+
+    // Initialize the index failure-atomically. This is the last fallible step;
+    // all retained inline rows and the first overflow row can then publish.
+    loom_intern_table_t* index = &numbering->strings.external.index;
+    IREE_RETURN_IF_ERROR(
+        loom_intern_table_initialize(numbering->arena,
+                                     loom_intern_table_capacity_for_entries(
+                                         numbering->strings.external.count + 1),
+                                     index));
+    for (iree_host_size_t i = 0; i < numbering->strings.external.count; ++i) {
+      const uint32_t existing_hash = loom_bytecode_external_string_hash(
+          numbering->strings.external.inline_views[i]);
+      const iree_host_size_t existing_slot =
+          loom_intern_table_find_empty_slot(index, existing_hash);
+      loom_intern_table_insert(
+          index, existing_slot, existing_hash,
+          numbering->strings.external.inline_writer_ids[i]);
+    }
+    hash = loom_bytecode_external_string_hash(view);
+    slot = loom_intern_table_find_empty_slot(index, hash);
+  } else {
+    IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
+        numbering->arena, &numbering->strings.external.index, hash,
+        /*insertion_count=*/1, &slot));
+  }
+
+  const uint32_t writer_id =
+      loom_bytecode_numbering_publish_string(numbering, view);
+  loom_intern_table_insert(&numbering->strings.external.index, slot, hash,
+                           writer_id);
+  ++numbering->strings.external.count;
   *out_writer_id = writer_id;
   return iree_ok_status();
 }
@@ -219,48 +456,28 @@ iree_status_t loom_bytecode_numbering_intern_string_view(
     *out_writer_id = 0;
     return iree_ok_status();
   }
-  // Check external strings first (linear scan, small list).
-  for (iree_host_size_t i = 0; i < numbering->strings.external.count; ++i) {
-    if (iree_string_view_equal(numbering->strings.external.values[i].view,
-                               view)) {
-      *out_writer_id = numbering->strings.external.values[i].writer_id;
-      return iree_ok_status();
+
+  // Tiny external catalogs stay as a bounded linear scan. Descriptor-heavy
+  // modules spill once to the content index before the scan could scale.
+  if (numbering->strings.external.index.capacity == 0) {
+    for (iree_host_size_t i = 0; i < numbering->strings.external.count; ++i) {
+      if (loom_bytecode_borrowed_string_equal(
+              numbering->strings.external.inline_views[i], view)) {
+        *out_writer_id = numbering->strings.external.inline_writer_ids[i];
+        return iree_ok_status();
+      }
     }
   }
-  // Also check if it happens to match a module string. Module strings are
-  // assigned in first-use order, not source intern-table order, so the bytecode
-  // stays canonical across text forms that intern strings differently.
-  for (iree_host_size_t i = 0; i < numbering->module->strings.count; ++i) {
-    if (iree_string_view_equal(
-            loom_string_table_get(&numbering->module->strings, i), view)) {
-      return loom_bytecode_numbering_intern_module_string(
-          numbering, (loom_string_id_t)i, out_writer_id);
-    }
-  }
-  // New external string.
-  uint32_t writer_id = 0;
-  IREE_RETURN_IF_ERROR(
-      loom_bytecode_numbering_append_string(numbering, view, &writer_id));
-  if (numbering->strings.external.count >=
-      numbering->strings.external.capacity) {
-    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-        numbering->arena, numbering->strings.external.count,
-        /*minimum_capacity=*/16, sizeof(loom_bytecode_external_string_t),
-        &numbering->strings.external.capacity,
-        (void**)&numbering->strings.external.values));
-  }
-  numbering->strings.external.values[numbering->strings.external.count++] =
-      (loom_bytecode_external_string_t){.view = view, .writer_id = writer_id};
-  *out_writer_id = writer_id;
-  return iree_ok_status();
+
+  return loom_bytecode_numbering_intern_string_view_slow(numbering, view,
+                                                         out_writer_id);
 }
 
 // Publishes a completed type only after its ordered catalog storage is ready.
 static iree_status_t loom_bytecode_numbering_append_type(
     loom_bytecode_numbering_t* numbering, loom_type_id_t module_index) {
-  const loom_bytecode_type_node_t* node = loom_bytecode_type_index_lookup_node(
-      &numbering->types.index,
-      loom_type_table_get(&numbering->module->types, module_index));
+  const loom_bytecode_type_node_t* node =
+      &numbering->types.index.nodes[module_index];
   if (node->has_bindings) {
     numbering->types.writer_ids_by_module_index[module_index] = UINT32_MAX - 1;
     return iree_ok_status();
@@ -629,13 +846,20 @@ enum loom_bytecode_catalog_frame_kind_e {
 typedef struct loom_bytecode_catalog_frame_t {
   // Immutable source payload selected by kind.
   union {
-    // Exact canonical source type and its immediate dependency slice.
-    const loom_bytecode_type_node_t* type;
+    // Canonical source type owning the immediate dependency slice.
+    loom_type_id_t type_id;
+    // Parameterized type payload and its family contract.
+    struct {
+      // Borrowed slots in declaration order.
+      const loom_attribute_t* values;
+      // Family owning slot names and presence requirements.
+      const loom_parameterized_type_descriptor_t* descriptor;
+    } type_parameters;
     // Attribute payloads and their field contracts.
     struct {
-      // Borrowed single value or contiguous parameter/array values.
+      // Borrowed single value or contiguous array elements.
       const loom_attribute_t* values;
-      // Field descriptor, or the first descriptor of type parameters.
+      // Field contract for the single value or parameterized array.
       const loom_attr_descriptor_t* descriptor;
     } attributes;
     // Parameterized attribute payloads after family resolution.
@@ -650,8 +874,6 @@ typedef struct loom_bytecode_catalog_frame_t {
   } value;
   // Next child edge, dictionary entry, array element or parameter.
   iree_host_size_t position;
-  // Owning type frame for retained TYPE edges, or SIZE_MAX for external roots.
-  iree_host_size_t owner;
   // Number of entries in a suspended aggregate.
   uint16_t count;
   // Continuation operation from loom_bytecode_catalog_frame_kind_e.
@@ -675,22 +897,22 @@ static iree_status_t loom_bytecode_catalog_push(
 // Begins a first-use type. Leaf and completed types need no continuation.
 static iree_status_t loom_bytecode_catalog_enter_type(
     loom_bytecode_numbering_t* numbering, iree_host_size_t* count,
-    const loom_bytecode_type_node_t* node) {
-  const loom_type_id_t module_index = node->module_index;
-  if (numbering->types.writer_ids_by_module_index[module_index] !=
+    loom_type_id_t type_id) {
+  if (numbering->types.writer_ids_by_module_index[type_id] !=
       LOOM_WRITER_ID_NONE) {
     return iree_ok_status();
   }
 
-  const loom_type_t type = node->type;
+  const loom_bytecode_type_node_t* node =
+      &numbering->types.index.nodes[type_id];
+  const loom_type_t type =
+      loom_type_table_get(&numbering->module->types, type_id);
   uint32_t unused_id = 0;
   if (loom_type_kind(type) == LOOM_TYPE_DIALECT) {
     const loom_string_id_t name_id = loom_type_dialect_name_id(type);
     if (name_id < numbering->module->strings.count) {
-      IREE_RETURN_IF_ERROR(loom_bytecode_numbering_intern_string_view(
-          numbering,
-          loom_string_table_get(&numbering->module->strings, name_id),
-          &unused_id));
+      IREE_RETURN_IF_ERROR(loom_bytecode_numbering_intern_module_string(
+          numbering, name_id, &unused_id));
     }
   }
   if (loom_type_kind(type) == LOOM_TYPE_PARAMETERIZED) {
@@ -714,16 +936,15 @@ static iree_status_t loom_bytecode_catalog_enter_type(
     }
     IREE_RETURN_IF_ERROR(loom_bytecode_numbering_intern_string_view(
         numbering, loom_bstring_view(descriptor->name), &unused_id));
-    const iree_host_size_t owner = *count;
     IREE_RETURN_IF_ERROR(loom_bytecode_catalog_push(
         numbering, count,
         (loom_bytecode_catalog_frame_t){
-            .value.type = node, .kind = LOOM_BYTECODE_CATALOG_TYPE_COMPLETE}));
+            .value.type_id = type_id,
+            .kind = LOOM_BYTECODE_CATALOG_TYPE_COMPLETE}));
     return loom_bytecode_catalog_push(
         numbering, count,
         (loom_bytecode_catalog_frame_t){
-            .value.attributes = {parameters, descriptor->parameter_descriptors},
-            .owner = owner,
+            .value.type_parameters = {parameters, descriptor},
             .count = parameter_count,
             .kind = LOOM_BYTECODE_CATALOG_TYPE_PARAMETERS});
   }
@@ -731,24 +952,22 @@ static iree_status_t loom_bytecode_catalog_enter_type(
   // requested types commonly have their entire dependency slice numbered.
   iree_host_size_t position = 0;
   while (position < node->dependencies.count) {
-    const uint32_t child =
+    const loom_type_id_t child =
         numbering->types.index
             .dependencies[node->dependencies.begin + position];
-    const loom_type_id_t child_module_index =
-        numbering->types.index.nodes[child].module_index;
-    if (numbering->types.writer_ids_by_module_index[child_module_index] ==
+    if (numbering->types.writer_ids_by_module_index[child] ==
         LOOM_WRITER_ID_NONE) {
       break;
     }
     ++position;
   }
   if (position == node->dependencies.count) {
-    return loom_bytecode_numbering_append_type(numbering, module_index);
+    return loom_bytecode_numbering_append_type(numbering, type_id);
   }
   return loom_bytecode_catalog_push(
       numbering, count,
       (loom_bytecode_catalog_frame_t){
-          .value.type = node,
+          .value.type_id = type_id,
           .position = position,
           .kind = LOOM_BYTECODE_CATALOG_TYPE_CHILDREN});
 }
@@ -765,22 +984,23 @@ static iree_status_t loom_bytecode_catalog_complete(
     uint32_t unused_id = 0;
     switch (frame.kind) {
       case LOOM_BYTECODE_CATALOG_TYPE_CHILDREN:
-      case LOOM_BYTECODE_CATALOG_TYPE_COMPLETE:
+      case LOOM_BYTECODE_CATALOG_TYPE_COMPLETE: {
+        const loom_bytecode_type_node_t* node =
+            &numbering->types.index.nodes[frame.value.type_id];
         if (frame.kind == LOOM_BYTECODE_CATALOG_TYPE_CHILDREN &&
-            frame.position < frame.value.type->dependencies.count) {
+            frame.position < node->dependencies.count) {
           ++numbering->traversal.frames[top].position;
-          const uint32_t child =
+          const loom_type_id_t child =
               numbering->types.index
-                  .dependencies[frame.value.type->dependencies.begin +
-                                frame.position];
-          status = loom_bytecode_catalog_enter_type(
-              numbering, &count, &numbering->types.index.nodes[child]);
+                  .dependencies[node->dependencies.begin + frame.position];
+          status = loom_bytecode_catalog_enter_type(numbering, &count, child);
           break;
         }
         --count;
-        status = loom_bytecode_numbering_append_type(
-            numbering, frame.value.type->module_index);
+        status =
+            loom_bytecode_numbering_append_type(numbering, frame.value.type_id);
         break;
+      }
       case LOOM_BYTECODE_CATALOG_TYPE_PARAMETERS:
       case LOOM_BYTECODE_CATALOG_ATTRIBUTE_PARAMETERS: {
         if (frame.position == frame.count) {
@@ -792,15 +1012,14 @@ static iree_status_t loom_bytecode_catalog_complete(
         const loom_attr_descriptor_t* descriptor = NULL;
         uint8_t aggregate_depth = 0;
         if (frame.kind == LOOM_BYTECODE_CATALOG_TYPE_PARAMETERS) {
-          value = &frame.value.attributes.values[frame.position];
-          descriptor = &frame.value.attributes.descriptor[frame.position];
+          const loom_parameterized_type_descriptor_t* family =
+              frame.value.type_parameters.descriptor;
+          value = &frame.value.type_parameters.values[frame.position];
+          descriptor = &family->parameter_descriptors[frame.position];
           if (loom_attr_is_absent(*value)) {
             if (iree_any_bit_set(descriptor->flags, LOOM_ATTR_OPTIONAL)) {
               break;
             }
-            const loom_parameterized_type_descriptor_t* family =
-                loom_type_parameterized_descriptor(
-                    numbering->traversal.frames[frame.owner].value.type->type);
             status = iree_make_status(
                 IREE_STATUS_INVALID_ARGUMENT,
                 "parameterized type '%.*s' has absent required parameter "
@@ -831,7 +1050,6 @@ static iree_status_t loom_bytecode_catalog_complete(
               numbering, &count,
               (loom_bytecode_catalog_frame_t){
                   .value.attributes = {value, descriptor},
-                  .owner = frame.owner,
                   .kind = LOOM_BYTECODE_CATALOG_ATTRIBUTE,
                   .aggregate_depth = aggregate_depth});
         }
@@ -863,7 +1081,6 @@ static iree_status_t loom_bytecode_catalog_complete(
               numbering, &count,
               (loom_bytecode_catalog_frame_t){
                   .value.attributes = {value, descriptor},
-                  .owner = frame.owner,
                   .kind = kind,
                   .aggregate_depth = frame.aggregate_depth + 1});
         }
@@ -902,7 +1119,6 @@ static iree_status_t loom_bytecode_catalog_complete(
                 numbering, &count,
                 (loom_bytecode_catalog_frame_t){
                     .value.parameters = {attr.parameterized_slots, family},
-                    .owner = frame.owner,
                     .count = family->parameter_count,
                     .kind = LOOM_BYTECODE_CATALOG_ATTRIBUTE_PARAMETERS,
                     .aggregate_depth = frame.aggregate_depth});
@@ -919,21 +1135,8 @@ static iree_status_t loom_bytecode_catalog_complete(
                   (unsigned)attr.type_id, numbering->module->types.count);
               break;
             }
-            const loom_bytecode_type_node_t* node = NULL;
-            if (frame.owner == SIZE_MAX) {
-              node = loom_bytecode_type_index_lookup_node(
-                  &numbering->types.index,
-                  loom_type_table_get(&numbering->module->types, attr.type_id));
-            } else {
-              loom_bytecode_catalog_frame_t* owner =
-                  &numbering->traversal.frames[frame.owner];
-              const uint32_t child =
-                  numbering->types.index
-                      .dependencies[owner->value.type->dependencies.begin +
-                                    owner->position++];
-              node = &numbering->types.index.nodes[child];
-            }
-            status = loom_bytecode_catalog_enter_type(numbering, &count, node);
+            status = loom_bytecode_catalog_enter_type(numbering, &count,
+                                                      attr.type_id);
             break;
           }
           case LOOM_ATTR_DICT:
@@ -949,7 +1152,6 @@ static iree_status_t loom_bytecode_catalog_complete(
                 numbering, &count,
                 (loom_bytecode_catalog_frame_t){
                     .value.dictionary = attr.dict_entries,
-                    .owner = frame.owner,
                     .count = attr.count,
                     .kind = LOOM_BYTECODE_CATALOG_DICTIONARY,
                     .aggregate_depth = frame.aggregate_depth});
@@ -976,7 +1178,6 @@ static iree_status_t loom_bytecode_catalog_complete(
                 numbering, &count,
                 (loom_bytecode_catalog_frame_t){
                     .value.attributes = {attr.parameterized_array, descriptor},
-                    .owner = frame.owner,
                     .count = attr.count,
                     .kind = LOOM_BYTECODE_CATALOG_PARAMETERIZED_ARRAY,
                     .aggregate_depth = frame.aggregate_depth});
@@ -993,12 +1194,26 @@ static iree_status_t loom_bytecode_catalog_complete(
   return status;
 }
 
+iree_status_t loom_bytecode_numbering_intern_module_type(
+    loom_bytecode_numbering_t* numbering, loom_type_id_t type_id,
+    uint32_t* out_writer_id) {
+  if (numbering->types.writer_ids_by_module_index[type_id] ==
+      LOOM_WRITER_ID_NONE) {
+    iree_host_size_t count = 0;
+    IREE_RETURN_IF_ERROR(
+        loom_bytecode_catalog_enter_type(numbering, &count, type_id));
+    IREE_RETURN_IF_ERROR(loom_bytecode_catalog_complete(numbering, count));
+  }
+  *out_writer_id = numbering->types.writer_ids_by_module_index[type_id];
+  return iree_ok_status();
+}
+
 iree_status_t loom_bytecode_numbering_intern_type(
     loom_bytecode_numbering_t* numbering, loom_type_t type,
-    uint32_t* out_writer_id, uint32_t* out_storage_node) {
-  const loom_bytecode_type_node_t* node =
-      loom_bytecode_type_index_lookup_node(&numbering->types.index, type);
-  if (!node) {
+    uint32_t* out_writer_id, loom_type_id_t* out_type_id) {
+  const loom_type_id_t type_id =
+      loom_bytecode_type_index_lookup(&numbering->types.index, type);
+  if (type_id == LOOM_TYPE_ID_INVALID) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "type not found in module type table (kind=%u, "
                             "rank=%u, module types=%" PRIhsz ")",
@@ -1006,17 +1221,10 @@ iree_status_t loom_bytecode_numbering_intern_type(
                             (unsigned)loom_type_rank(type),
                             numbering->module->types.count);
   }
-  const loom_type_id_t module_index = node->module_index;
-  if (numbering->types.writer_ids_by_module_index[module_index] ==
-      LOOM_WRITER_ID_NONE) {
-    iree_host_size_t count = 0;
-    IREE_RETURN_IF_ERROR(
-        loom_bytecode_catalog_enter_type(numbering, &count, node));
-    IREE_RETURN_IF_ERROR(loom_bytecode_catalog_complete(numbering, count));
-  }
-  *out_writer_id = numbering->types.writer_ids_by_module_index[module_index];
-  if (out_storage_node) {
-    *out_storage_node = (uint32_t)(node - numbering->types.index.nodes);
+  IREE_RETURN_IF_ERROR(loom_bytecode_numbering_intern_module_type(
+      numbering, type_id, out_writer_id));
+  if (out_type_id) {
+    *out_type_id = type_id;
   }
   return iree_ok_status();
 }
@@ -1038,7 +1246,6 @@ iree_status_t loom_bytecode_number_attr_value(
       loom_bytecode_catalog_push(numbering, &count,
                                  (loom_bytecode_catalog_frame_t){
                                      .value.attributes = {&attr, descriptor},
-                                     .owner = SIZE_MAX,
                                      .kind = LOOM_BYTECODE_CATALOG_ATTRIBUTE}));
   return loom_bytecode_catalog_complete(numbering, count);
 }

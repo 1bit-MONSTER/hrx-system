@@ -1,0 +1,196 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+func.def inline @f8e4m3_signed_bits(%input: f32) -> (i32) {
+  %narrow = scalar.fptrunc %input : f32 to f8E4M3
+  %bits = scalar.bitcast %narrow : f8E4M3 to i8
+  %result = scalar.extsi %bits : i8 to i32
+  func.return %result : i32
+}
+
+func.def inline @f8e5m2_signed_bits(%input: f32) -> (i32) {
+  %narrow = scalar.fptrunc %input : f32 to f8E5M2
+  %bits = scalar.bitcast %narrow : f8E5M2 to i8
+  %result = scalar.extsi %bits : i8 to i32
+  func.return %result : i32
+}
+
+func.def inline @f16_signed_bits(%input: f32) -> (i32) {
+  %narrow = scalar.fptrunc %input : f32 to f16
+  %bits = scalar.bitcast %narrow : f16 to i16
+  %result = scalar.extsi %bits : i16 to i32
+  func.return %result : i32
+}
+
+func.def inline @bf16_signed_bits(%input: f32) -> (i32) {
+  %narrow = scalar.fptrunc %input : f32 to bf16
+  %bits = scalar.bitcast %narrow : bf16 to i16
+  %result = scalar.extsi %bits : i16 to i32
+  func.return %result : i32
+}
+
+kernel.def @narrow_float_signed_bits() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%f8e4m3_positive_input: f32, %f8e5m2_positive_input: f32, %negative_zero_input: f32, %f16_positive_input: f32, %f16_negative_input: f32, %bf16_positive_input: f32, %bf16_negative_input: f32, %output: buffer) {
+  %f8e4m3_positive = func.call @f8e4m3_signed_bits(%f8e4m3_positive_input) : (f32) -> (i32)
+  %f8e4m3_negative_zero = func.call @f8e4m3_signed_bits(%negative_zero_input) : (f32) -> (i32)
+  %f8e5m2_positive = func.call @f8e5m2_signed_bits(%f8e5m2_positive_input) : (f32) -> (i32)
+  %f8e5m2_negative_zero = func.call @f8e5m2_signed_bits(%negative_zero_input) : (f32) -> (i32)
+  %f16_positive = func.call @f16_signed_bits(%f16_positive_input) : (f32) -> (i32)
+  %f16_negative = func.call @f16_signed_bits(%f16_negative_input) : (f32) -> (i32)
+  %bf16_positive = func.call @bf16_signed_bits(%bf16_positive_input) : (f32) -> (i32)
+  %bf16_negative = func.call @bf16_signed_bits(%bf16_negative_input) : (f32) -> (i32)
+  %base = index.constant 0 : offset
+  %global = buffer.assume.memory_space<global> %output : buffer
+  %output_view = buffer.view %global[%base] : buffer -> view<8xi32>
+  view.store %f8e4m3_positive, %output_view[0] : i32, view<8xi32>
+  view.store %f8e4m3_negative_zero, %output_view[1] : i32, view<8xi32>
+  view.store %f8e5m2_positive, %output_view[2] : i32, view<8xi32>
+  view.store %f8e5m2_negative_zero, %output_view[3] : i32, view<8xi32>
+  view.store %f16_positive, %output_view[4] : i32, view<8xi32>
+  view.store %f16_negative, %output_view[5] : i32, view<8xi32>
+  view.store %bf16_positive, %output_view[6] : i32, view<8xi32>
+  view.store %bf16_negative, %output_view[7] : i32, view<8xi32>
+  kernel.return
+}
+
+check.case public @narrow_float_signed_bits_case {
+  %f8e4m3_positive_input = check.literal value(1.125) : f32
+  %f8e5m2_positive_input = check.literal value(1.25) : f32
+  %negative_zero_input = check.literal value(-0.0) : f32
+  %f16_positive_input = check.literal value(1.0009765625) : f32
+  %f16_negative_input = check.literal value(-1.0009765625) : f32
+  %bf16_positive_input = check.literal value(1.0078125) : f32
+  %bf16_negative_input = check.literal value(-1.0078125) : f32
+  %output = check.generate.fill value(0) : tensor<8xi32>
+  kernel.launch @narrow_float_signed_bits(%f8e4m3_positive_input, %f8e5m2_positive_input, %negative_zero_input, %f16_positive_input, %f16_negative_input, %bf16_positive_input, %bf16_negative_input, %output) : (f32, f32, f32, f32, f32, f32, f32, tensor<8xi32>)
+  %f8e4m3_positive = check.tensor.view %output offset(0) : tensor<8xi32> -> tensor<1xi32>
+  %f8e4m3_positive_expected = check.generate.fill value(57) : tensor<1xi32>
+  check.expect.equal actual(%f8e4m3_positive) expected(%f8e4m3_positive_expected) : tensor<1xi32>
+  %f8_negative_zero_expected = check.generate.fill value(-128) : tensor<1xi32>
+  %f8e4m3_negative_zero = check.tensor.view %output offset(4) : tensor<8xi32> -> tensor<1xi32>
+  check.expect.equal actual(%f8e4m3_negative_zero) expected(%f8_negative_zero_expected) : tensor<1xi32>
+  %f8e5m2_positive = check.tensor.view %output offset(8) : tensor<8xi32> -> tensor<1xi32>
+  %f8e5m2_positive_expected = check.generate.fill value(61) : tensor<1xi32>
+  check.expect.equal actual(%f8e5m2_positive) expected(%f8e5m2_positive_expected) : tensor<1xi32>
+  %f8e5m2_negative_zero = check.tensor.view %output offset(12) : tensor<8xi32> -> tensor<1xi32>
+  check.expect.equal actual(%f8e5m2_negative_zero) expected(%f8_negative_zero_expected) : tensor<1xi32>
+  %f16_positive = check.tensor.view %output offset(16) : tensor<8xi32> -> tensor<1xi32>
+  %f16_positive_expected = check.generate.fill value(15361) : tensor<1xi32>
+  check.expect.equal actual(%f16_positive) expected(%f16_positive_expected) : tensor<1xi32>
+  %f16_negative = check.tensor.view %output offset(20) : tensor<8xi32> -> tensor<1xi32>
+  %f16_negative_expected = check.generate.fill value(-17407) : tensor<1xi32>
+  check.expect.equal actual(%f16_negative) expected(%f16_negative_expected) : tensor<1xi32>
+  %bf16_positive = check.tensor.view %output offset(24) : tensor<8xi32> -> tensor<1xi32>
+  %bf16_positive_expected = check.generate.fill value(16257) : tensor<1xi32>
+  check.expect.equal actual(%bf16_positive) expected(%bf16_positive_expected) : tensor<1xi32>
+  %bf16_negative = check.tensor.view %output offset(28) : tensor<8xi32> -> tensor<1xi32>
+  %bf16_negative_expected = check.generate.fill value(-16511) : tensor<1xi32>
+  check.expect.equal actual(%bf16_negative) expected(%bf16_negative_expected) : tensor<1xi32>
+  check.return
+}
+
+func.def inline @i16_add_carriers(%lhs: i16, %rhs: i16) -> (i32, i32) {
+  %sum = scalar.addi %lhs, %rhs : i16
+  %signed = scalar.extsi %sum : i16 to i32
+  %unsigned = scalar.extui %sum : i16 to i32
+  func.return %signed, %unsigned : i32, i32
+}
+
+func.def inline @i8_shift_carriers(%value: i8, %amount: i8) -> (i32, i32) {
+  %shifted = scalar.shli %value, %amount : i8
+  %signed = scalar.extsi %shifted : i8 to i32
+  %unsigned = scalar.extui %shifted : i8 to i32
+  func.return %signed, %unsigned : i32, i32
+}
+
+func.def inline @f16_bits_or_fallback(%input: f16, %choose_input: i1) -> (i32, f32) {
+  %bits = scalar.bitcast %input : f16 to i16
+  %fallback = scalar.constant -1 : i16
+  %selected = scf.select %choose_input, %bits, %fallback : i16
+  %integer = scalar.extui %selected : i16 to i32
+  %floating = scalar.uitofp %selected : i16 to f32
+  func.return %integer, %floating : i32, f32
+}
+
+func.def inline @i8_unsigned_extension_chain(%input: i8) -> (i32) {
+  %middle = scalar.extui %input : i8 to i16
+  %result = scalar.extui %middle : i16 to i32
+  func.return %result : i32
+}
+
+func.def inline @i16_argument_carriers(%input: i16) -> (i32, i32) {
+  %signed = scalar.extsi %input : i16 to i32
+  %unsigned = scalar.extui %input : i16 to i32
+  func.return %signed, %unsigned : i32, i32
+}
+
+kernel.def @narrow_integer_carriers() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%add_lhs_input: i32, %add_rhs_input: i32, %shift_value_input: i32, %shift_amount_input: i32, %fallback_input: f32, %choose_input: i32, %chain_input: i32, %argument_input: i32, %integer_output: buffer, %floating_output: buffer) {
+  %add_lhs = scalar.trunci %add_lhs_input : i32 to i16
+  %add_rhs = scalar.trunci %add_rhs_input : i32 to i16
+  %add_signed, %add_unsigned = func.call @i16_add_carriers(%add_lhs, %add_rhs) : (i16, i16) -> (i32, i32)
+  %shift_value = scalar.trunci %shift_value_input : i32 to i8
+  %shift_amount = scalar.trunci %shift_amount_input : i32 to i8
+  %shift_signed, %shift_unsigned = func.call @i8_shift_carriers(%shift_value, %shift_amount) : (i8, i8) -> (i32, i32)
+  %fallback_narrow = scalar.fptrunc %fallback_input : f32 to f16
+  %c0 = scalar.constant 0 : i32
+  %choose = scalar.cmpi ne, %choose_input, %c0 : i32
+  %fallback_integer, %fallback_floating = func.call @f16_bits_or_fallback(%fallback_narrow, %choose) : (f16, i1) -> (i32, f32)
+  %chain_narrow = scalar.trunci %chain_input : i32 to i8
+  %chain_result = func.call @i8_unsigned_extension_chain(%chain_narrow) : (i8) -> (i32)
+  %argument_narrow = scalar.trunci %argument_input : i32 to i16
+  %argument_signed, %argument_unsigned = func.call @i16_argument_carriers(%argument_narrow) : (i16) -> (i32, i32)
+  %base = index.constant 0 : offset
+  %integer_global = buffer.assume.memory_space<global> %integer_output : buffer
+  %integer_output_view = buffer.view %integer_global[%base] : buffer -> view<8xi32>
+  view.store %add_signed, %integer_output_view[0] : i32, view<8xi32>
+  view.store %add_unsigned, %integer_output_view[1] : i32, view<8xi32>
+  view.store %shift_signed, %integer_output_view[2] : i32, view<8xi32>
+  view.store %shift_unsigned, %integer_output_view[3] : i32, view<8xi32>
+  view.store %fallback_integer, %integer_output_view[4] : i32, view<8xi32>
+  view.store %chain_result, %integer_output_view[5] : i32, view<8xi32>
+  view.store %argument_signed, %integer_output_view[6] : i32, view<8xi32>
+  view.store %argument_unsigned, %integer_output_view[7] : i32, view<8xi32>
+  %floating_global = buffer.assume.memory_space<global> %floating_output : buffer
+  %floating_output_view = buffer.view %floating_global[%base] : buffer -> view<1xf32>
+  view.store %fallback_floating, %floating_output_view[0] : f32, view<1xf32>
+  kernel.return
+}
+
+check.case public @narrow_integer_carriers_case {
+  %add_lhs = check.literal value(32767) : i32
+  %add_rhs = check.literal value(1) : i32
+  %shift_value = check.literal value(64) : i32
+  %shift_amount = check.literal value(1) : i32
+  %fallback_input = check.literal value(1.0) : f32
+  %choose_input = check.literal value(0) : i32
+  %chain_input = check.literal value(-1) : i32
+  %argument_input = check.literal value(-32768) : i32
+  %integer_output = check.generate.fill value(0) : tensor<8xi32>
+  %floating_output = check.generate.fill value(0.0) : tensor<1xf32>
+  kernel.launch @narrow_integer_carriers(%add_lhs, %add_rhs, %shift_value, %shift_amount, %fallback_input, %choose_input, %chain_input, %argument_input, %integer_output, %floating_output) : (i32, i32, i32, i32, f32, i32, i32, i32, tensor<8xi32>, tensor<1xf32>)
+  %add = check.tensor.view %integer_output offset(0) : tensor<8xi32> -> tensor<2xi32>
+  %add_expected = check.generate.iota offset(-32768) step(65536) : tensor<2xi32>
+  check.expect.equal actual(%add) expected(%add_expected) : tensor<2xi32>
+  %shift = check.tensor.view %integer_output offset(8) : tensor<8xi32> -> tensor<2xi32>
+  %shift_expected = check.generate.iota offset(-128) step(256) : tensor<2xi32>
+  check.expect.equal actual(%shift) expected(%shift_expected) : tensor<2xi32>
+  %fallback_integer = check.tensor.view %integer_output offset(16) : tensor<8xi32> -> tensor<1xi32>
+  %fallback_integer_expected = check.generate.fill value(65535) : tensor<1xi32>
+  check.expect.equal actual(%fallback_integer) expected(%fallback_integer_expected) : tensor<1xi32>
+  %chain = check.tensor.view %integer_output offset(20) : tensor<8xi32> -> tensor<1xi32>
+  %chain_expected = check.generate.fill value(255) : tensor<1xi32>
+  check.expect.equal actual(%chain) expected(%chain_expected) : tensor<1xi32>
+  %argument = check.tensor.view %integer_output offset(24) : tensor<8xi32> -> tensor<2xi32>
+  check.expect.equal actual(%argument) expected(%add_expected) : tensor<2xi32>
+  %fallback_floating_expected = check.generate.fill value(65535.0) : tensor<1xf32>
+  check.expect.equal actual(%floating_output) expected(%fallback_floating_expected) : tensor<1xf32>
+  check.return
+}

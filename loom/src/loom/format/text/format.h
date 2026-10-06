@@ -816,10 +816,11 @@
 //             | 'range' '(' pred-arg ',' pred-arg ',' pred-arg ')'
 // unary-pred ::= 'pow2' | 'not_nan' | 'not_inf' | 'finite'
 // two-arg-pred ::= 'eq' | 'ne' | 'lt' | 'le' | 'gt' | 'ge'
+//                | 'ult' | 'ule' | 'ugt' | 'uge'
 //                | 'min' | 'max' | 'mul'
 // pred-arg  ::= SSA-VALUE | INTEGER
 //
-// Predicates constrain dim values in where clauses and assume ops.
+// Predicates constrain scalar values in where clauses and assume ops.
 //
 // Examples:
 //   mul(%M, 16)          %M is a multiple of 16.
@@ -831,6 +832,7 @@
 //   finite(%X)           %X is not NaN or infinity.
 //   eq(%M, %K)           %M == %K.
 //   ne(%M, 0)            %M != 0.
+//   ule(%M, %K)          sign-extended 64-bit carrier of %M is unsigned <= %K.
 //
 // ==========================================================================
 // Complete example

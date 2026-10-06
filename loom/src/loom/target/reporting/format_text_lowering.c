@@ -80,21 +80,28 @@ static iree_status_t
 loom_target_compile_report_append_source_low_memory_bank_service_text(
     const loom_target_compile_report_bank_service_t* bank_service,
     iree_string_builder_t* builder) {
-  if (iree_string_view_is_empty(bank_service->model_key)) {
+  if (iree_string_view_is_empty(bank_service->proof)) {
     return iree_ok_status();
+  }
+  if (iree_string_view_is_empty(bank_service->model_key)) {
+    return iree_string_builder_append_format(
+        builder,
+        " bank_service={proof:unmodeled,wave_size:%u,unknown_reason:%.*s}",
+        bank_service->wave_size, (int)bank_service->unknown_reason.size,
+        bank_service->unknown_reason.data);
   }
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       builder,
       " bank_service={proof:%.*s,model:%.*s,revision:%.*s,evidence:%.*s,"
       "request_policy:%.*s,wave_size:%u,bank_count:%u,bank_word_bytes:%u,"
-      "packet_bank_words:%u,phase_lane_counts:[",
+      "packet_bytes:%u,phase_lane_counts:[",
       (int)bank_service->proof.size, bank_service->proof.data,
       (int)bank_service->model_key.size, bank_service->model_key.data,
       (int)bank_service->model_revision.size, bank_service->model_revision.data,
       (int)bank_service->model_evidence.size, bank_service->model_evidence.data,
       (int)bank_service->request_policy.size, bank_service->request_policy.data,
       bank_service->wave_size, bank_service->bank_count,
-      bank_service->bank_word_byte_count, bank_service->packet_word_count));
+      bank_service->bank_word_byte_count, bank_service->packet_byte_count));
   for (uint8_t phase = 0; phase < bank_service->phase_count; ++phase) {
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
         builder, "%s%u", phase == 0 ? "" : ",",
@@ -151,14 +158,14 @@ loom_target_compile_report_append_source_low_memory_subgroup_access_text(
       builder,
       " subgroup_access={proof:%.*s,lane_address_proof:%.*s,"
       "active_lane_proof:%.*s,lane_mapping:%.*s,subgroup_size:%" PRIu8
-      ",per_lane_packet_bytes:%" PRIu32 ",linear_lane_stride_bytes:%" PRIu32
-      ",lane_terms:[",
+      ",active_lane_count:%" PRIu8 ",per_lane_packet_bytes:%" PRIu32
+      ",linear_lane_stride_bytes:%" PRIu32 ",lane_terms:[",
       (int)access->proof.size, access->proof.data,
       (int)access->lane_address_proof.size, access->lane_address_proof.data,
       (int)access->active_lane_proof.size, access->active_lane_proof.data,
       (int)access->lane_mapping.size, access->lane_mapping.data,
-      access->subgroup_size, access->per_lane_packet_byte_count,
-      access->linear_lane_byte_stride));
+      access->subgroup_size, access->active_lane_count,
+      access->per_lane_packet_byte_count, access->linear_lane_byte_stride));
   for (uint8_t i = 0; i < access->lane_term_count; ++i) {
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
         builder,
@@ -196,20 +203,21 @@ loom_target_compile_report_append_bank_service_summary_text_fields(
     iree_string_builder_t* builder) {
   return iree_string_builder_append_format(
       builder,
-      " modeled_packets=%" PRIu64 " exact_packets=%" PRIu64
-      " unknown_packets=%" PRIu64 " conflict_free_packets=%" PRIu64
-      " conflicted_packets=%" PRIu64 " structural_required_rounds=%" PRIu64
+      " unmodeled_packets=%" PRIu64 " modeled_packets=%" PRIu64
+      " exact_packets=%" PRIu64 " unknown_packets=%" PRIu64
+      " conflict_free_packets=%" PRIu64 " conflicted_packets=%" PRIu64
+      " structural_required_rounds=%" PRIu64
       " structural_uncontended_rounds=%" PRIu64
       " structural_extra_rounds=%" PRIu64
       " maximum_request_multiplicity=%" PRIu16 " dynamic_exact_packets=%" PRIu64
       " dynamic_unknown_packets=%" PRIu64 " dynamic_packets=%" PRIu64
       " dynamic_required_rounds=%" PRIu64 " dynamic_uncontended_rounds=%" PRIu64
       " dynamic_extra_rounds=%" PRIu64,
-      summary->modeled_packet_count, summary->exact_packet_count,
-      summary->unknown_packet_count, summary->conflict_free_packet_count,
-      summary->conflicted_packet_count, summary->required_round_count,
-      summary->uncontended_round_count, summary->extra_round_count,
-      summary->maximum_request_multiplicity,
+      summary->unmodeled_packet_count, summary->modeled_packet_count,
+      summary->exact_packet_count, summary->unknown_packet_count,
+      summary->conflict_free_packet_count, summary->conflicted_packet_count,
+      summary->required_round_count, summary->uncontended_round_count,
+      summary->extra_round_count, summary->maximum_request_multiplicity,
       summary->exact_dynamic_packet_count,
       summary->unknown_dynamic_packet_count, summary->dynamic_packet_count,
       summary->dynamic_required_round_count,
@@ -794,6 +802,117 @@ loom_target_compile_report_format_source_low_transform_rows(
   return iree_ok_status();
 }
 
+static iree_status_t
+loom_target_compile_report_append_source_boundary_projection_type(
+    iree_string_builder_t* builder,
+    const loom_target_compile_report_source_boundary_projection_row_t* row,
+    uint8_t first_axis) {
+  const iree_string_view_t element_type =
+      loom_target_compile_report_scalar_type_name(row->source_element_type);
+  if (first_axis == row->source_rank) {
+    return iree_string_builder_append_string(builder, element_type);
+  }
+  const iree_string_view_t type_kind =
+      loom_target_compile_report_type_kind_name(row->source_type_kind);
+  IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+      builder, "%.*s<", (int)type_kind.size, type_kind.data));
+  for (uint8_t axis = first_axis; axis < row->source_rank; ++axis) {
+    if (row->source_dimensions[axis] ==
+        LOOM_TARGET_COMPILE_REPORT_DIMENSION_DYNAMIC) {
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(builder, "?x"));
+    } else {
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+          builder, "%" PRId64 "x", row->source_dimensions[axis]));
+    }
+  }
+  return iree_string_builder_append_format(
+      builder, "%.*s>", (int)element_type.size, element_type.data);
+}
+
+static iree_status_t
+loom_target_compile_report_format_source_boundary_projection_rows(
+    const loom_target_compile_report_t* report,
+    iree_string_builder_t* builder) {
+  if (report->source_boundary_projection_rows.count == 0) {
+    return iree_ok_status();
+  }
+  iree_host_size_t selected_count = 0;
+  iree_host_size_t preserved_count = 0;
+  iree_host_size_t rejected_count = 0;
+  for (const loom_target_compile_report_vec_t* vec =
+           report->source_boundary_projection_rows.head;
+       vec != NULL; vec = vec->next) {
+    const loom_target_compile_report_source_boundary_projection_row_t* rows =
+        (const loom_target_compile_report_source_boundary_projection_row_t*)
+            loom_target_compile_report_vec_const_rows(vec);
+    for (iree_host_size_t i = 0; i < vec->count; ++i) {
+      selected_count +=
+          iree_string_view_equal(rows[i].outcome, IREE_SV("selected"));
+      preserved_count +=
+          iree_string_view_equal(rows[i].outcome, IREE_SV("preserved"));
+      rejected_count +=
+          iree_string_view_equal(rows[i].outcome, IREE_SV("rejected"));
+    }
+  }
+  IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+      builder,
+      "COMPILE-REPORT: source_boundary_projections rows=%" PRIhsz
+      " selected=%" PRIhsz " preserved=%" PRIhsz " rejected=%" PRIhsz "\n",
+      report->source_boundary_projection_rows.count, selected_count,
+      preserved_count, rejected_count));
+
+  iree_host_size_t row_index = 0;
+  for (const loom_target_compile_report_vec_t* vec =
+           report->source_boundary_projection_rows.head;
+       vec != NULL; vec = vec->next) {
+    const loom_target_compile_report_source_boundary_projection_row_t* rows =
+        (const loom_target_compile_report_source_boundary_projection_row_t*)
+            loom_target_compile_report_vec_const_rows(vec);
+    for (iree_host_size_t i = 0; i < vec->count; ++i, ++row_index) {
+      const loom_target_compile_report_source_boundary_projection_row_t* row =
+          &rows[i];
+      const iree_string_view_t function_name =
+          loom_target_compile_report_text_non_empty(row->function_name);
+      const iree_string_view_t source_op_name =
+          loom_target_compile_report_text_non_empty(row->source_op_name);
+      const iree_string_view_t projection_key =
+          loom_target_compile_report_text_non_empty(row->projection_key);
+      const iree_string_view_t boundary_key =
+          loom_target_compile_report_text_non_empty(row->boundary_key);
+      const iree_string_view_t outcome =
+          loom_target_compile_report_text_non_empty(row->outcome);
+      const iree_string_view_t reason =
+          loom_target_compile_report_text_non_empty(row->reason);
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+          builder,
+          "COMPILE-REPORT: source_boundary_projection[%" PRIhsz
+          "] function=%.*s source_op=%.*s projection=%.*s boundary=%.*s "
+          "outcome=%.*s reason=%.*s operation=%u source_value=%u "
+          "source_type=",
+          row_index, (int)function_name.size, function_name.data,
+          (int)source_op_name.size, source_op_name.data,
+          (int)projection_key.size, projection_key.data, (int)boundary_key.size,
+          boundary_key.data, (int)outcome.size, outcome.data, (int)reason.size,
+          reason.data, row->operation_ordinal, row->source_value_ordinal));
+      IREE_RETURN_IF_ERROR(
+          loom_target_compile_report_append_source_boundary_projection_type(
+              builder, row, 0));
+      if (row->component_count != 0) {
+        IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+            builder,
+            " prefix_rank=%u component_type=", row->projected_prefix_rank));
+        IREE_RETURN_IF_ERROR(
+            loom_target_compile_report_append_source_boundary_projection_type(
+                builder, row, row->projected_prefix_rank));
+        IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+            builder, " components=%u", row->component_count));
+      }
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(builder, "\n"));
+    }
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_target_compile_report_format_source_low_memory_rows(
     const loom_target_compile_report_t* report,
     iree_string_builder_t* builder) {
@@ -1126,21 +1245,31 @@ loom_target_compile_report_format_source_low_bank_service_summaries(
           builder, IREE_SV("packet"), row->packet_key));
       IREE_RETURN_IF_ERROR(loom_target_compile_report_text_append_string_field(
           builder, IREE_SV("strategy"), row->strategy_key));
-      IREE_RETURN_IF_ERROR(loom_target_compile_report_text_append_string_field(
-          builder, IREE_SV("model"), row->model_key));
-      IREE_RETURN_IF_ERROR(loom_target_compile_report_text_append_string_field(
-          builder, IREE_SV("model_revision"), row->model_revision));
-      IREE_RETURN_IF_ERROR(loom_target_compile_report_text_append_string_field(
-          builder, IREE_SV("model_evidence"), row->model_evidence));
-      IREE_RETURN_IF_ERROR(loom_target_compile_report_text_append_string_field(
-          builder, IREE_SV("request_policy"), row->request_policy));
-      IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
-          builder,
-          " wave_size=%" PRIu8 " banks=%" PRIu8 " bank_word_bytes=%" PRIu8
-          " packet_bank_words=%" PRIu8,
-          row->wave_size, row->bank_count, row->bank_word_byte_count,
-          row->packet_word_count));
-      if (row->summary.unknown_packet_count != 0) {
+      if (iree_string_view_is_empty(row->model_key)) {
+        IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+            builder, " model=unavailable wave_size=%u", row->wave_size));
+      } else {
+        IREE_RETURN_IF_ERROR(
+            loom_target_compile_report_text_append_string_field(
+                builder, IREE_SV("model"), row->model_key));
+        IREE_RETURN_IF_ERROR(
+            loom_target_compile_report_text_append_string_field(
+                builder, IREE_SV("model_revision"), row->model_revision));
+        IREE_RETURN_IF_ERROR(
+            loom_target_compile_report_text_append_string_field(
+                builder, IREE_SV("model_evidence"), row->model_evidence));
+        IREE_RETURN_IF_ERROR(
+            loom_target_compile_report_text_append_string_field(
+                builder, IREE_SV("request_policy"), row->request_policy));
+        IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+            builder,
+            " wave_size=%" PRIu8 " banks=%" PRIu8 " bank_word_bytes=%" PRIu8
+            " packet_bytes=%" PRIu8,
+            row->wave_size, row->bank_count, row->bank_word_byte_count,
+            row->packet_byte_count));
+      }
+      if (row->summary.unknown_packet_count != 0 ||
+          row->summary.unmodeled_packet_count != 0) {
         const iree_string_view_t unknown_reason =
             row->has_mixed_unknown_reasons
                 ? IREE_SV("mixed")
@@ -1353,6 +1482,9 @@ iree_status_t loom_target_compile_report_format_text_lowering_details(
   IREE_RETURN_IF_ERROR(
       loom_target_compile_report_format_source_low_transform_rows(report,
                                                                   builder));
+  IREE_RETURN_IF_ERROR(
+      loom_target_compile_report_format_source_boundary_projection_rows(
+          report, builder));
   IREE_RETURN_IF_ERROR(loom_target_compile_report_format_source_low_memory_rows(
       report, builder));
   IREE_RETURN_IF_ERROR(

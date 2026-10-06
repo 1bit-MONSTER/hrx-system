@@ -192,7 +192,7 @@ check.case @invoke {
   EXPECT_EQ(case_plan.invocations[1].attrs.count, 1u);
 
   loom_testbench_value_table_t table = {};
-  IREE_ASSERT_OK(loom_testbench_value_table_initialize(
+  IREE_ASSERT_OK(loom_testbench_value_table_initialize_case(
       module, &case_plan, iree_allocator_system(), &table));
   loom_testbench_value_materializer_options_t materializer_options = {};
   loom_testbench_value_materializer_options_initialize(&materializer_options);
@@ -282,7 +282,7 @@ check.case @invoke {
   EXPECT_EQ(schedule.max_result_count, 0u);
 
   loom_testbench_value_table_t table = {};
-  IREE_ASSERT_OK(loom_testbench_value_table_initialize(
+  IREE_ASSERT_OK(loom_testbench_value_table_initialize_case(
       module, &case_plan, iree_allocator_system(), &table));
   loom_testbench_value_materializer_options_t materializer_options = {};
   loom_testbench_value_materializer_options_initialize(&materializer_options);

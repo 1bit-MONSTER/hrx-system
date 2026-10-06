@@ -12,7 +12,7 @@ from collections.abc import Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum, unique
 
-from loom.dsl import Op
+from loom.dsl import EncodingOperandSummaryDef, Op
 from loom.errors import ErrorDef
 from loom.target.contracts.diagnostics import (
     DiagnosticParamKind,
@@ -46,6 +46,7 @@ class LowerEmitKind(Enum):
     REGISTER_SLICE = "register_slice"
     REGISTER_CONCAT = "register_concat"
     REGISTER_COPY = "register_copy"
+    REGISTER_MOVE = "register_move"
 
 
 @unique
@@ -74,6 +75,10 @@ class LowerAttrCopyKind(Enum):
     VALUE_FLOAT_BITS = "value_float_bits"
     VALUE_FLOAT_AS_F32_I32 = "value_float_as_f32_i32"
     VALUE_FLOAT_AS_F64_I32_WORD = "value_float_as_f64_i32_word"
+    VALUE_TYPE_STATIC_DIM_SCALED = "value_type_static_dim_scaled"
+    VALUE_TYPE_LITERAL_MINUS_STATIC_DIM_SCALED = (
+        "value_type_literal_minus_static_dim_scaled"
+    )
     I64_ARRAY_LANE_BYTE = "i64_array_lane_byte"
     SOURCE_MEMORY_STATIC_BYTE_OFFSET = "source_memory_static_byte_offset"
     SOURCE_MEMORY_STATIC_BYTE_OFFSET_PLUS_LITERAL = (
@@ -170,15 +175,48 @@ class LowerDiagnostic:
     target_context_param_count: int = 0
 
 
+@unique
+class SourceMemoryRejectionReason(Enum):
+    """Stable reason selecting a generated source-memory diagnostic."""
+
+    UNSUPPORTED_OP = "source_memory.unsupported_op"
+    DESCRIBE_FAILED = "source_memory.describe_failed"
+    LAYOUT = "source_memory.layout"
+    ELEMENT_WIDTH = "source_memory.element_width"
+    VECTOR_RANK = "source_memory.vector_rank"
+    VECTOR_LANE_COUNT = "source_memory.vector_lane_count"
+    VECTOR_AXIS_STRIDE = "source_memory.vector_axis_stride"
+    STATIC_OFFSET = "source_memory.static_offset"
+    DYNAMIC_INDEX_COUNT = "source_memory.dynamic_index_count"
+    DYNAMIC_AXIS = "source_memory.dynamic_axis"
+    DYNAMIC_STRIDE = "source_memory.dynamic_stride"
+    VIEW_SOURCE = "source_memory.view_source"
+    VIEW_BASE = "source_memory.view_base"
+    VIEW_BASE_OVERFLOW = "source_memory.view_base_overflow"
+    CACHE_POLICY = "source_memory.cache_policy"
+    REPRESENTABILITY = "source_memory.representability"
+    OPERATION_KIND = "source_memory.operation_kind"
+    ROOT_VALUE = "source_memory.root_value"
+    ROOT_KIND = "source_memory.root_kind"
+    MEMORY_SPACE = "source_memory.memory_space"
+    ELEMENT_BYTE_COUNT = "source_memory.element_byte_count"
+    VECTOR_LANE_BYTE_STRIDE = "source_memory.vector_lane_byte_stride"
+    MINIMUM_ALIGNMENT = "source_memory.minimum_alignment"
+    SOURCE_INDEX_PRESERVATION = "source_memory.source_index_preservation"
+    DYNAMIC_VIEW_BASE_TERM_COUNT = "source_memory.dynamic_view_base_term_count"
+    DYNAMIC_STRIDE_VALUES = "source_memory.dynamic_stride_values"
+    DYNAMIC_INDEX_SOURCE = "source_memory.dynamic_index_source"
+    ADDRESS_LAYOUT = "source_memory.address_layout"
+    BYTE_OFFSET_WIDTH = "source_memory.byte_offset_width"
+    ADDRESS_MATERIALIZATION = "source_memory.address_materialization"
+
+
 @dataclass(frozen=True, slots=True)
 class LowerSourceMemory:
     """Compiled source-memory constraint row."""
 
     constraint: SourceMemoryConstraint
-    diagnostic_index: int
-    dynamic_offset_diagnostic_index: int
-    address_layout_diagnostic_index: int = 0xFFFF
-    address_diagnostic_index: int = 0xFFFF
+    rejection_diagnostic_indices: tuple[int, ...]
     byte_offset_materializer: SourceMemoryByteOffsetMaterializer | None = None
     address_materializer: SourceMemoryAddressMaterializer | None = None
 
@@ -196,6 +234,7 @@ class LowerGuard:
     attr_kind: str | None = None
     u64: int = 0
     u64_c_expression: str | None = None
+    storage_operand_schema: EncodingOperandSummaryDef | None = None
     memory_spaces: tuple[str, ...] = ()
     descriptor: Descriptor | None = None
     register_class_id: int = 0
@@ -325,18 +364,23 @@ def _intern_program_rows[ProgramRowT: Hashable](
 
 
 def _append_interned_row_sequence[RowT](
-    rows: list[RowT], sequence: tuple[RowT, ...]
+    rows: list[RowT],
+    sequence: tuple[RowT, ...],
+    sequence_starts: dict[tuple[RowT, ...], int],
 ) -> int:
-    """Appends a row sequence unless an identical span already exists."""
+    """Returns one stable table span for each requested row sequence."""
 
-    if not sequence:
-        return 0
+    existing_start = sequence_starts.get(sequence)
+    if existing_start is not None:
+        return existing_start
     sequence_count = len(sequence)
     for start in range(len(rows) - sequence_count + 1):
         if tuple(rows[start : start + sequence_count]) == sequence:
+            sequence_starts[sequence] = start
             return start
     ordinal = len(rows)
     rows.extend(sequence)
+    sequence_starts[sequence] = ordinal
     return ordinal
 
 

@@ -64,6 +64,14 @@ const char* loom_predicate_kind_name(uint8_t kind) {
       return "not_inf";
     case LOOM_PREDICATE_FINITE:
       return "finite";
+    case LOOM_PREDICATE_ULT:
+      return "ult";
+    case LOOM_PREDICATE_ULE:
+      return "ule";
+    case LOOM_PREDICATE_UGT:
+      return "ugt";
+    case LOOM_PREDICATE_UGE:
+      return "uge";
     case LOOM_PREDICATE_COUNT_:
       return NULL;
   }
@@ -78,6 +86,10 @@ uint8_t loom_predicate_kind_argument_count(uint8_t kind) {
     case LOOM_PREDICATE_LE:
     case LOOM_PREDICATE_GT:
     case LOOM_PREDICATE_GE:
+    case LOOM_PREDICATE_ULT:
+    case LOOM_PREDICATE_ULE:
+    case LOOM_PREDICATE_UGT:
+    case LOOM_PREDICATE_UGE:
     case LOOM_PREDICATE_MUL:
     case LOOM_PREDICATE_MIN:
     case LOOM_PREDICATE_MAX:
@@ -111,6 +123,10 @@ bool loom_predicate_kind_accepts_value_type(uint8_t kind, loom_type_t type) {
   switch ((loom_predicate_kind_t)kind) {
     case LOOM_PREDICATE_EQ:
     case LOOM_PREDICATE_NE:
+      return scalar_type == LOOM_SCALAR_TYPE_INDEX ||
+             scalar_type == LOOM_SCALAR_TYPE_OFFSET ||
+             loom_scalar_type_is_integer(scalar_type) ||
+             loom_scalar_type_is_float(scalar_type);
     case LOOM_PREDICATE_LT:
     case LOOM_PREDICATE_LE:
     case LOOM_PREDICATE_GT:
@@ -123,6 +139,11 @@ bool loom_predicate_kind_accepts_value_type(uint8_t kind, loom_type_t type) {
       return scalar_type == LOOM_SCALAR_TYPE_INDEX ||
              scalar_type == LOOM_SCALAR_TYPE_OFFSET ||
              loom_scalar_type_is_integer(scalar_type);
+    case LOOM_PREDICATE_ULT:
+    case LOOM_PREDICATE_ULE:
+    case LOOM_PREDICATE_UGT:
+    case LOOM_PREDICATE_UGE:
+      return loom_scalar_type_is_integer(scalar_type);
     case LOOM_PREDICATE_NOT_NAN:
     case LOOM_PREDICATE_NOT_INF:
     case LOOM_PREDICATE_FINITE:

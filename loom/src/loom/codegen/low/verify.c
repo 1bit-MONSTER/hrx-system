@@ -11,6 +11,7 @@
 
 #include "iree/base/internal/arena.h"
 #include "loom/codegen/low/call_context.h"
+#include "loom/codegen/low/diagnostics.h"
 #include "loom/codegen/low/function.h"
 #include "loom/codegen/low/packet.h"
 #include "loom/codegen/low/register_parts.h"
@@ -170,36 +171,6 @@ iree_status_t loom_low_verify_context_emit(
     iree_host_size_t param_count) {
   return loom_low_verify_emit(context->function_state->state, op, error, params,
                               param_count, NULL, 0);
-}
-
-static iree_string_view_t loom_low_verify_symbol_name(
-    const loom_module_t* module, loom_symbol_ref_t ref) {
-  if (!loom_symbol_ref_is_valid(ref) || ref.module_id != 0 ||
-      ref.symbol_id >= module->symbols.count) {
-    return IREE_SV("<unnamed>");
-  }
-  const loom_symbol_t* symbol = &module->symbols.entries[ref.symbol_id];
-  if (symbol->name_id < module->strings.count) {
-    return loom_string_table_get(&module->strings, symbol->name_id);
-  }
-  return IREE_SV("<unnamed>");
-}
-
-static iree_string_view_t loom_low_verify_function_name(
-    const loom_module_t* module, const loom_op_t* low_func_op) {
-  if (loom_low_func_def_isa(low_func_op)) {
-    return loom_low_verify_symbol_name(module,
-                                       loom_low_func_def_callee(low_func_op));
-  }
-  if (loom_low_kernel_def_isa(low_func_op)) {
-    return loom_low_verify_symbol_name(module,
-                                       loom_low_kernel_def_callee(low_func_op));
-  }
-  if (loom_low_func_decl_isa(low_func_op)) {
-    return loom_low_verify_symbol_name(module,
-                                       loom_low_func_decl_callee(low_func_op));
-  }
-  return IREE_SV("<unnamed>");
 }
 
 static loom_region_t* loom_low_verify_function_body(
@@ -382,15 +353,15 @@ static iree_status_t loom_low_verify_emit_enum_domain_mismatch(
 
 static iree_status_t loom_low_verify_emit_constraint_type_mismatch(
     loom_low_function_verify_state_t* function_state, const loom_op_t* op,
-    const loom_low_packet_field_t* lhs_field,
-    const loom_low_packet_field_t* rhs_field) {
+    const loom_low_packet_field_t* lhs_field, loom_type_t lhs_type,
+    const loom_low_packet_field_t* rhs_field, loom_type_t rhs_type) {
   loom_diagnostic_param_t params[] = {
       loom_param_with_field_ref(loom_param_string(lhs_field->field_name),
                                 lhs_field->field_ref),
-      loom_param_type(lhs_field->type),
+      loom_param_type(lhs_type),
       loom_param_with_field_ref(loom_param_string(rhs_field->field_name),
                                 rhs_field->field_ref),
-      loom_param_type(rhs_field->type),
+      loom_param_type(rhs_type),
   };
   return loom_low_verify_emit(function_state->state, op, LOOM_ERR_TYPE_001,
                               params, IREE_ARRAYSIZE(params), NULL, 0);
@@ -822,7 +793,8 @@ static iree_status_t loom_low_verify_descriptor_immediates(
 static bool loom_low_verify_constraint_requires_matching_types(
     loom_low_constraint_kind_t kind) {
   return kind == LOOM_LOW_CONSTRAINT_KIND_TIED ||
-         kind == LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE;
+         kind == LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE ||
+         kind == LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE;
 }
 
 static iree_status_t loom_low_verify_descriptor_packet_operand_field(
@@ -1079,28 +1051,31 @@ static loom_low_register_part_mask_t
 loom_low_verify_descriptor_operand_part_mask(
     loom_low_function_verify_state_t* function_state,
     const loom_low_operand_t* descriptor_operand, loom_type_t actual_type) {
-  if (descriptor_operand->register_part_id == LOOM_LOW_REGISTER_PART_NONE) {
-    return loom_low_verify_register_full_mask_for_type(function_state,
-                                                       actual_type);
-  }
   if (!loom_low_type_is_register(actual_type)) {
     return 0;
   }
   const loom_low_descriptor_set_t* descriptor_set =
       function_state->target->descriptor_set;
-  IREE_ASSERT(descriptor_operand->register_part_id <
-                  descriptor_set->register_part_count,
-              "verified low descriptor operand register part");
-  const loom_low_register_part_t* register_part =
-      &descriptor_set->register_parts[descriptor_operand->register_part_id];
   uint16_t descriptor_register_class_id = LOOM_LOW_REG_CLASS_NONE;
+  const loom_low_reg_class_t* descriptor_register_class = NULL;
   bool found_descriptor_register_class =
       loom_low_register_type_resolver_try_resolve(
           &function_state->register_type_resolver, actual_type,
-          &descriptor_register_class_id, NULL);
-  IREE_ASSERT(found_descriptor_register_class &&
-                  descriptor_register_class_id == register_part->reg_class_id,
-              "verified low descriptor operand register-part class");
+          &descriptor_register_class_id, &descriptor_register_class);
+  IREE_ASSERT(found_descriptor_register_class,
+              "verified low descriptor operand register class");
+  const loom_low_reg_class_alt_t* alternative = loom_low_operand_reg_class_alt(
+      descriptor_set, descriptor_operand, descriptor_register_class_id);
+  IREE_ASSERT(alternative != NULL,
+              "verified low descriptor operand register-class alternative");
+  if (alternative->register_part_id == LOOM_LOW_REGISTER_PART_NONE) {
+    return descriptor_register_class->full_register_part_mask;
+  }
+  IREE_ASSERT_LT(alternative->register_part_id,
+                 descriptor_set->register_part_count);
+  const loom_low_register_part_t* register_part =
+      &descriptor_set->register_parts[alternative->register_part_id];
+  IREE_ASSERT_EQ(descriptor_register_class_id, register_part->reg_class_id);
   return register_part->mask;
 }
 
@@ -1256,28 +1231,19 @@ static iree_status_t loom_low_verify_function_register_values(
 
 static iree_status_t loom_low_verify_workgroup_storage_limit(
     loom_low_function_verify_state_t* function_state) {
-  const loom_target_bundle_t* bundle =
-      loom_low_resolved_target_bundle(function_state->target);
-  if (bundle == NULL) {
-    return iree_ok_status();
-  }
-  const uint64_t limit = bundle->snapshot->max_workgroup_storage_bytes;
-  if (limit == 0 || function_state->body == NULL ||
+  if (function_state->body == NULL ||
       loom_low_verify_should_stop(function_state->state)) {
     return iree_ok_status();
   }
-  if (function_state->storage_space_sizes.workgroup_bytes <= limit) {
-    return iree_ok_status();
-  }
-  const loom_diagnostic_param_t params[] = {
-      loom_param_string(function_state->function_name),
-      loom_param_string(bundle->name),
-      loom_param_u64(function_state->storage_space_sizes.workgroup_bytes),
-      loom_param_u64(limit),
+  const iree_diagnostic_emitter_t counting_emitter = {
+      .fn = loom_low_verify_counting_emitter,
+      .user_data = function_state->state,
   };
-  return loom_low_verify_emit(function_state->state,
-                              function_state->function_op, LOOM_ERR_TARGET_051,
-                              params, IREE_ARRAYSIZE(params), NULL, 0);
+  return loom_low_diagnostic_validate_workgroup_storage_limit(
+      function_state->state->module, function_state->function_op,
+      function_state->target,
+      function_state->storage_space_sizes.workgroup_bytes, counting_emitter,
+      /*out_valid=*/NULL);
 }
 
 static iree_status_t loom_low_verify_descriptor_register_field(
@@ -1388,6 +1354,7 @@ static iree_status_t loom_low_verify_descriptor_constraints(
     const loom_low_descriptor_t* descriptor) {
   const loom_low_descriptor_set_t* descriptor_set =
       function_state->target->descriptor_set;
+  uint16_t diagnosed_register_value_type_lhs = LOOM_LOW_ID_NONE;
   for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
     const uint32_t constraint_row = descriptor->constraint_start + i;
     if (constraint_row >= descriptor_set->constraint_count) {
@@ -1399,6 +1366,10 @@ static iree_status_t loom_low_verify_descriptor_constraints(
     const loom_low_constraint_t* constraint =
         &descriptor_set->constraints[constraint_row];
     if (!loom_low_verify_constraint_requires_matching_types(constraint->kind)) {
+      continue;
+    }
+    if (constraint->kind == LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE &&
+        constraint->lhs_operand_index == diagnosed_register_value_type_lhs) {
       continue;
     }
     if (constraint->rhs_operand_index == LOOM_LOW_ID_NONE) {
@@ -1416,11 +1387,29 @@ static iree_status_t loom_low_verify_descriptor_constraints(
     IREE_RETURN_IF_ERROR(loom_low_verify_descriptor_packet_field(
         function_state, op, descriptor, constraint->rhs_operand_index,
         &rhs_field));
-    if (loom_type_equal(lhs_field.type, rhs_field.type)) {
+    loom_type_t lhs_type = lhs_field.type;
+    loom_type_t rhs_type = rhs_field.type;
+    if (constraint->kind == LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE) {
+      const loom_type_t* lhs_value_type =
+          loom_type_register_value_type(lhs_field.type);
+      const loom_type_t* rhs_value_type =
+          loom_type_register_value_type(rhs_field.type);
+      // Register-field verification or target admission owns a missing carried
+      // type. This relation diagnoses disagreement between present payloads.
+      if (lhs_value_type == NULL || rhs_value_type == NULL) {
+        continue;
+      }
+      lhs_type = *lhs_value_type;
+      rhs_type = *rhs_value_type;
+    }
+    if (loom_type_equal(lhs_type, rhs_type)) {
       continue;
     }
     IREE_RETURN_IF_ERROR(loom_low_verify_emit_constraint_type_mismatch(
-        function_state, op, &lhs_field, &rhs_field));
+        function_state, op, &lhs_field, lhs_type, &rhs_field, rhs_type));
+    if (constraint->kind == LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE) {
+      diagnosed_register_value_type_lhs = constraint->lhs_operand_index;
+    }
     if (loom_low_verify_should_stop(function_state->state)) {
       return iree_ok_status();
     }
@@ -1710,6 +1699,10 @@ static iree_status_t loom_low_verify_descriptor_features(
     iree_string_view_t descriptor_key, uint16_t descriptor_attr_index,
     const loom_low_descriptor_t* descriptor) {
   const loom_low_resolved_target_t* target = function_state->target;
+  // Representation-only Low has no device feature facts to compare yet.
+  if (target->target_facts == NULL) {
+    return iree_ok_status();
+  }
   const loom_low_descriptor_set_t* descriptor_set = target->descriptor_set;
   for (uint16_t i = 0; i < descriptor->feature_mask_word_count; ++i) {
     const uint32_t feature_mask_row = descriptor->feature_mask_word_start + i;
@@ -2030,7 +2023,29 @@ static iree_status_t loom_low_verify_walk_op(void* user_data, loom_op_t* op,
       *out_result = LOOM_WALK_ABORT;
       return iree_ok_status();
     }
-    if (loom_low_func_call_isa(op)) {
+    if (loom_low_resource_isa(op)) {
+      IREE_RETURN_IF_ERROR(loom_low_verify_resource(function_state, op));
+    }
+    IREE_RETURN_IF_ERROR(
+        loom_low_verify_reference_source_preserving_ops(function_state, op));
+    IREE_RETURN_IF_ERROR(
+        loom_low_verify_structural_register_parts(function_state, op));
+    if (loom_traits_are_compile_time_only(op->traits) &&
+        loom_low_schedule_control_kind(op) != LOOM_LOW_SCHEDULE_CONTROL_NONE &&
+        !iree_any_bit_set(function_state->target->descriptor_set->flags,
+                          LOOM_LOW_DESCRIPTOR_SET_FLAG_NATIVE_SCHEDULING)) {
+      return loom_low_verify_emit_native_schedule_error(function_state, op);
+    }
+    const uint32_t provider_start_error_count =
+        function_state->state->result->error_count;
+    IREE_RETURN_IF_ERROR(
+        loom_low_verify_run_op_providers(function_state, &packet));
+    // Callee context only matters when the target admits calls. A target's
+    // unsupported-call diagnostic explains the required structural change;
+    // a callee-target mismatch would suggest a change that cannot fix it.
+    if (loom_low_func_call_isa(op) &&
+        function_state->state->result->error_count ==
+            provider_start_error_count) {
       IREE_RETURN_IF_ERROR(loom_low_verify_call_context(
           module, function_state->function_op, function_state->version,
           &function_state->state->function_version_snapshot, op,
@@ -2039,24 +2054,6 @@ static iree_status_t loom_low_verify_walk_op(void* user_data, loom_op_t* op,
               .user_data = function_state->state,
           }));
     }
-    if (loom_low_resource_isa(op)) {
-      IREE_RETURN_IF_ERROR(loom_low_verify_resource(function_state, op));
-    }
-    IREE_RETURN_IF_ERROR(
-        loom_low_verify_reference_source_preserving_ops(function_state, op));
-    IREE_RETURN_IF_ERROR(
-        loom_low_verify_structural_register_parts(function_state, op));
-    if (loom_traits_are_compile_time_only(op->traits)) {
-      if (loom_low_schedule_control_kind(op) !=
-              LOOM_LOW_SCHEDULE_CONTROL_NONE &&
-          !iree_any_bit_set(function_state->target->descriptor_set->flags,
-                            LOOM_LOW_DESCRIPTOR_SET_FLAG_NATIVE_SCHEDULING)) {
-        return loom_low_verify_emit_native_schedule_error(function_state, op);
-      }
-      return iree_ok_status();
-    }
-    IREE_RETURN_IF_ERROR(
-        loom_low_verify_run_op_providers(function_state, &packet));
     if (loom_low_verify_should_stop(function_state->state)) {
       *out_result = LOOM_WALK_ABORT;
     }
@@ -2139,7 +2136,7 @@ static iree_status_t loom_low_verify_function(loom_low_verify_state_t* state,
               .arena = &state->walk_arena,
           },
       .function_name =
-          loom_low_verify_function_name(state->module, low_func_op),
+          loom_low_diagnostic_function_name(state->module, low_func_op),
   };
   if (body &&
       (body->block_count != 1 ||

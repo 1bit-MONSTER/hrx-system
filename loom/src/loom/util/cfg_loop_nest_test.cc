@@ -77,6 +77,29 @@ TEST_F(CfgLoopNestTest, NestedSiblingAndSharedExits) {
   CheckOracle({{1}, {2}, {3, 6}, {2, 4}, {1, 5}, {6}, {}});
 }
 
+TEST_F(CfgLoopNestTest, CommonAndNestedExitOwnership) {
+  CfgGraph shared({{1}, {2, 4}, {3, 4}, {1}, {}});
+  const auto shared_nest = Build(shared);
+  ASSERT_EQ(shared_nest.loop_count, 1u);
+  EXPECT_EQ(shared_nest.loops[0].exits.count, 2u);
+  EXPECT_EQ(shared_nest.loops[0].direct_exit_count, 2u);
+  EXPECT_EQ(shared_nest.loops[0].continuation_index, 4u);
+  IREE_ASSERT_OK(testing::CheckLoopNest(shared_nest));
+
+  // The inner header's exit to block 6 also leaves the outer loop. The outer
+  // loop retains that shared continuation without calling the nested edge a
+  // directly sourced exit.
+  CfgGraph nested({{1}, {2, 6}, {3, 6}, {2, 4}, {1}, {}, {}});
+  const auto nested_nest = Build(nested);
+  ASSERT_EQ(nested_nest.loop_count, 2u);
+  const uint16_t outer_index = loom_cfg_loop_nest_innermost(&nested_nest, 1);
+  const auto& outer = nested_nest.loops[outer_index];
+  EXPECT_EQ(outer.exits.count, 2u);
+  EXPECT_EQ(outer.direct_exit_count, 1u);
+  EXPECT_EQ(outer.continuation_index, 6u);
+  IREE_ASSERT_OK(testing::CheckLoopNest(nested_nest));
+}
+
 TEST_F(CfgLoopNestTest, IrreducibleCyclesRetainNaturalSubloops) {
   CheckOracle({{1, 2}, {2, 3}, {1, 3}, {}});
   CheckOracle({{1, 2}, {3}, {3}, {4, 5}, {3, 1}, {2}});
@@ -181,6 +204,21 @@ TEST_F(CfgLoopNestTest, UnmodeledPathsDoNotProduceExactCounts) {
     EXPECT_FALSE(loom_cfg_loop_nest_calculate_block_execution_counts(
         &nest, trips.data(), counts.data()));
   }
+}
+
+TEST_F(CfgLoopNestTest, LoopMultipliersSurviveUnmodeledDiamond) {
+  // Block 1 is a four-trip loop header. Blocks 3 and 4 are alternatives in
+  // the loop body and block 5 is their common latch.
+  CfgGraph fixture({{1}, {2, 6}, {3, 4}, {5}, {5}, {1}, {}});
+  const auto nest = Build(fixture);
+  ASSERT_EQ(nest.loop_count, 1u);
+  const uint64_t trip_count = 4;
+  std::vector<uint64_t> multipliers(7);
+  EXPECT_TRUE(loom_cfg_loop_nest_calculate_block_multipliers(
+      &nest, &trip_count, multipliers.data()));
+  EXPECT_EQ(multipliers, (std::vector<uint64_t>{1, 5, 4, 4, 4, 4, 1}));
+  EXPECT_FALSE(loom_cfg_loop_nest_calculate_block_execution_counts(
+      &nest, &trip_count, multipliers.data()));
 }
 
 TEST_F(CfgLoopNestTest, UnreachableBranchesDoNotInvalidateCounts) {

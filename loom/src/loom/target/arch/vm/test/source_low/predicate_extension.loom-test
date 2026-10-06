@@ -1,0 +1,60 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/predicate_extension.loom-test
+// RUN: emit source-low target=vm:core output=low
+
+func.def @predicate_extension_i8(%condition: i1) -> (i8, i8) {
+  %signed = scalar.extsi %condition : i1 to i8
+  %unsigned = scalar.extui %condition : i1 to i8
+  func.return %signed, %unsigned : i8, i8
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @predicate_extension_i8(%condition: reg<vm.value : i1>) -> (reg<vm.value : i8>, reg<vm.value : i8>) asm {
+  %signed = conversion.integer %condition, "s1.to.i8" : reg<vm.value : i8>
+  %unsigned = conversion.integer %condition, "u1.to.i8" : reg<vm.value : i8>
+  return %signed, %unsigned
+}
+
+// ====
+
+func.def @predicate_extension_i16(%condition: i1) -> (i16, i16) {
+  %signed = scalar.extsi %condition : i1 to i16
+  %unsigned = scalar.extui %condition : i1 to i16
+  func.return %signed, %unsigned : i16, i16
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @predicate_extension_i16(%condition: reg<vm.value : i1>) -> (reg<vm.value : i16>, reg<vm.value : i16>) asm {
+  %signed = conversion.integer %condition, "s1.to.i16" : reg<vm.value : i16>
+  %unsigned = conversion.integer %condition, "u1.to.i16" : reg<vm.value : i16>
+  return %signed, %unsigned
+}
+
+// ====
+
+func.def @predicate_extension_i32(%condition: i1) -> (i32, i32) {
+  %signed = scalar.extsi %condition : i1 to i32
+  %unsigned = scalar.extui %condition : i1 to i32
+  func.return %signed, %unsigned : i32, i32
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @predicate_extension_i32(%condition: reg<vm.value : i1>) -> (reg<vm.value : i32>, reg<vm.value : i32>) asm {
+  %signed = conversion.integer %condition, "s1.to.i32" : reg<vm.value : i32>
+  %unsigned = conversion.integer %condition, "u1.to.i32" : reg<vm.value : i32>
+  return %signed, %unsigned
+}
+
+// ====
+
+func.def @predicate_extension_i64(%condition: i1) -> (i64, i64) {
+  %signed = scalar.extsi %condition : i1 to i64
+  %unsigned = scalar.extui %condition : i1 to i64
+  func.return %signed, %unsigned : i64, i64
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @predicate_extension_i64(%condition: reg<vm.value : i1>) -> (reg<vm.value : i64>, reg<vm.value : i64>) asm {
+  %signed = conversion.integer %condition, "s1.to.i64"
+  %unsigned = conversion.integer %condition, "u1.to.i64"
+  return %signed, %unsigned
+}

@@ -1,0 +1,15 @@
+// RUN: with-checks emit source-low target=amdgpu:gfx1200 output=low
+
+// gfx1200 widens FP8 through F32 because direct FP8-to-F16 conversion begins
+// with gfx12.5. Cleanup must preserve that target-selected conversion chain.
+func.def @float8_to_half(%e4m3: f8E4M3, %e5m2: f8E5M2) -> (f16, f16) {
+  %half_e4m3 = scalar.extf %e4m3 : f8E4M3 to f16
+  %half_e5m2 = scalar.extf %e5m2 : f8E5M2 to f16
+  func.return %half_e4m3, %half_e5m2 : f16, f16
+}
+
+// ----
+CHECK: %half_e4m3 = v_cvt_f16_f32 *
+CHECK: %half_e5m2 = v_cvt_f16_f32 *
+CHECK-NOT: *v_cvt_f16_fp8*
+CHECK-NOT: *v_cvt_f16_bf8*

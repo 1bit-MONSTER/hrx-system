@@ -286,15 +286,26 @@ shows runtime pitches through selections and loop recurrences.
 
 Streaming reductions, guarded ragged rows, and packed dequantization/dot loops
 are useful candidates. Ordinary loads and pure operations may contain nested
-`scf.if` and `scf.for`; each structured operation stays intact in its stage.
-Read-containing units require every capture, guard, inner bound, and initial
-value to be independent of the outer carried state. Pure inner loops may stay
-in the consumer and use that state. The
+`scf.if` and `scf.for`; each structured operation normally stays intact in its
+stage. A top-level conditional with reads in one branch may instead keep the
+natural guarded recurrence in source: the condition and independent read
+closure become a guarded producer, while the carried update remains the
+consumer. Read addresses and guards must still be independent of outer carried
+state. Pure inner loops may stay in the consumer and use that state. The
 [checked guarded-row motif](tune-loop-schedules.md#keep-guards-and-inner-loops-in-the-source)
-demonstrates independent inner and outer policies. Stores, ordered effects,
-`scf.while`, and explicit async groups have different scheduling requirements.
-Fixed-bound tiles can pipeline reads into a subgroup or workgroup reduction;
-the collective stays in a memory-pure consumer, separate from guarded loads.
+demonstrates independent inner and outer policies, while the
+[cooperative paged-attention motif](tune-loop-schedules.md#pipeline-cooperative-paged-attention)
+shows guarded K/V loads, a subgroup reduction, and online-softmax state in one
+authored conditional. Fixed-bound tiles can also
+read global inputs ahead of ordered workgroup stores, shared reads, and
+workgroup-memory barriers. A requested full linear inner unroll can expose
+mixed load/store units; read-only reductions and independent schedules retain
+their existing shape. The [workgroup-staging example](tune-loop-schedules.md#read-ahead-across-workgroup-staging)
+covers publication and reuse of one shared allocation. Global or unknown
+writes, global barriers, source-order fences, `scf.while`, and explicit async
+groups have different scheduling requirements. Fixed-bound tiles can pipeline
+reads into a subgroup or workgroup reduction; the collective stays in the
+memory-pure consumer even when it shares a guarded source branch with the loads.
 See the [participation contract](../guide/functions-and-control.md#pipeline-reads-ahead-of-ordered-computation)
 when the tile contains collectives.
 Unannotated loops receive no read-ahead transformation.
@@ -315,7 +326,8 @@ branch-payload copies. Check whether those blocks are steady backedges before
 changing the schedule. An explicit larger unroll factor with
 `schedule(recurrence)` can expose register reuse that carries pending loads
 across the backedge; confirm the native moves and wait counts as well as the
-source schedule.
+source schedule. The cited outstanding count is block-local; zero can still
+represent a required residual counter-epoch or control-flow hazard.
 
 The [loop-tuning walkthrough](tune-loop-schedules.md) supplies a vector-row motif
 with per-instance policies, checked row-sum and packed-dot experiment harnesses,
@@ -363,6 +375,19 @@ order without memory waits. Compare native waits and register use along with
 AMDGPU and x86 enforce the contract, while intermediate representations reject
 it when they cannot guarantee final instruction order.
 
+Repeated shared-memory reuse has a separate authoring choice. A full
+`kernel.barrier` keeps rendezvous at one source point; a matching
+`kernel.barrier.arrive` and `kernel.barrier.wait` pair can expose independent
+private work after the last shared read and before the next overwrite. Keep the
+portable algorithm behind one template contract, select a split provider only
+for targets with a native realization, and retain a complete-barrier fallback.
+The [checked split-barrier workflow](tune-loop-schedules.md#overlap-private-work-with-shared-tile-release)
+shows the source shape. In `loom-compile-report show`, confirm the complete,
+arrive, and wait plan keys and their dynamic counts. In native output, confirm
+read completion, signal, useful work, wait, and overwrite in that order, then
+compare registers, spills, residency, code size, and measured runtime with the
+full-barrier control.
+
 ## Ask the compiler before asking the GPU
 
 The baseline and candidate compile under the same root, workload,
@@ -385,6 +410,8 @@ loom-compile-report diff baseline.report.json candidate.report.json
 The report answers whether the candidate changed the intended mechanism:
 
 - which provider and source-to-Low plan were selected;
+- which loop-carried aggregates were decomposed, deliberately preserved, or
+  rejected at their source boundary;
 - which packed, vector, matrix, memory, and synchronization families remain;
 - scheduled pressure and final register allocation;
 - LDS, private memory, spills, and materialized reloads;
@@ -400,6 +427,15 @@ modeled tier earns a benchmark experiment rather than proving a performance win.
 An empty suggestion list means only that registered target diagnostics found
 no issue. It does not prove that the schedule matches an external oracle or
 that the hardware will prefer it.
+
+For a loop carrying a logical vector bank, inspect **Source boundary
+projections** before manually expanding the state. A selected row proves that
+the compiler already split fixed components; a preserved whole-value row may be
+the intended native fragment representation; and a rejected row names the
+access or transport condition that blocked decomposition. Source suggestions
+for dynamic, mixed-shape, and incompatible whole-bank uses are experiment
+proposals. Recompile and compare their final resource and runtime evidence
+before retaining the rewritten form.
 
 When the expected delta is absent, the candidate returns to source or becomes
 a standalone compiler reproducer. Repeated physical timing cannot make a

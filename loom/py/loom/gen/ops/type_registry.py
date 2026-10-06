@@ -155,13 +155,17 @@ def _translate_type_format_elements(
                     result.extend(translate(e))
                 result.append(f"{{LOOM_TYPE_FMT_KEYWORD, 0, {KEYWORD_MAP[')']}}}")
                 return result
-            case OptionalGroup(elements=elements, anchor=anchor):
+            case OptionalGroup(
+                elements=elements,
+                anchor=anchor,
+                inverted=inverted,
+            ):
                 anchor_idx = param_index(anchor)
                 inner = []
                 for e in elements:
                     inner.extend(translate(e))
                 skip_count = len(inner)
-                data = f"({skip_count} << 8) | {anchor_idx}"
+                data = f"LOOM_TYPE_FORMAT_OPTIONAL_DATA({skip_count}, {anchor_idx}, true)" if inverted else f"({skip_count} << 8) | {anchor_idx}"
                 result = [f"{{LOOM_TYPE_FMT_OPTIONAL, {anchor_idx}, {data}}}"]
                 result.extend(inner)
                 return result

@@ -102,6 +102,8 @@ iree_status_t loom_greedy_rewrite_run_region(
   loom_rewriter_attach_value_facts(&driver->rewriter, driver->fact_table);
   if (options) {
     driver->rewriter.materialize_constant = options->materialize_constant;
+    driver->rewriter.pending_exact_relations_callback =
+        options->pending_exact_relations_callback;
     driver->rewriter.math_policy = options->math_policy;
   }
   iree_status_t status = loom_rewriter_enable_worklist(&driver->rewriter);
@@ -180,11 +182,11 @@ iree_status_t loom_greedy_rewrite_run_region(
 }
 
 typedef struct loom_pattern_rewrite_state_t {
-  // Pattern array tried in declaration order.
-  const loom_pattern_t* patterns;
+  // Indexed pattern registry composed for this invocation.
+  const loom_rewrite_pattern_registry_t* registry;
 
-  // Number of patterns in patterns.
-  iree_host_size_t pattern_count;
+  // Invocation-owned state shared by registry callbacks.
+  void* context;
 } loom_pattern_rewrite_state_t;
 
 static iree_status_t loom_greedy_rewrite_patterns_op(
@@ -193,38 +195,30 @@ static iree_status_t loom_greedy_rewrite_patterns_op(
   *out_changed = false;
   loom_pattern_rewrite_state_t* state =
       (loom_pattern_rewrite_state_t*)user_data;
-  for (iree_host_size_t i = 0; i < state->pattern_count; ++i) {
-    const loom_pattern_t* pattern = &state->patterns[i];
-    if (pattern->root_kind != op->kind) {
-      continue;
-    }
-    driver->rewriter.flags = 0;
-    IREE_RETURN_IF_ERROR(
-        pattern->match_and_rewrite(pattern, op, &driver->rewriter));
-    loom_greedy_rewrite_result_record_rewriter_flags(result, &driver->rewriter);
-    if (iree_any_bit_set(driver->rewriter.flags, LOOM_REWRITER_FLAG_CHANGED)) {
-      loom_greedy_rewrite_result_record_change(
-          result, &driver->rewriter,
-          LOOM_GREEDY_REWRITE_CHANGE_FLAG_COUNT_MODIFIED_OP);
-      *out_changed = true;
-      return iree_ok_status();
-    }
+  driver->rewriter.flags = 0;
+  IREE_RETURN_IF_ERROR(loom_rewrite_pattern_registry_apply(
+      state->registry, state->context, op, &driver->rewriter, out_changed));
+  loom_greedy_rewrite_result_record_rewriter_flags(result, &driver->rewriter);
+  if (*out_changed) {
+    loom_greedy_rewrite_result_record_change(
+        result, &driver->rewriter,
+        LOOM_GREEDY_REWRITE_CHANGE_FLAG_COUNT_MODIFIED_OP);
   }
   return iree_ok_status();
 }
 
 iree_status_t loom_greedy_rewrite_run_patterns(
     loom_greedy_rewrite_driver_t* driver, loom_func_like_t function,
-    const loom_pattern_t* patterns, iree_host_size_t pattern_count,
-    const loom_greedy_rewrite_options_t* options,
+    const loom_rewrite_pattern_registry_t* pattern_registry,
+    void* pattern_context, const loom_greedy_rewrite_options_t* options,
     loom_greedy_rewrite_result_t* out_result) {
-  if (pattern_count > 0 && !patterns) {
+  if (pattern_registry == NULL) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "pattern array is required");
+                            "rewrite pattern registry is required");
   }
   loom_pattern_rewrite_state_t state = {
-      .patterns = patterns,
-      .pattern_count = pattern_count,
+      .registry = pattern_registry,
+      .context = pattern_context,
   };
   loom_greedy_rewrite_callbacks_t callbacks = {
       .user_data = &state,
@@ -235,12 +229,11 @@ iree_status_t loom_greedy_rewrite_run_patterns(
       &callbacks, out_result);
 }
 
-iree_status_t loom_greedy_rewrite(iree_arena_allocator_t* arena,
-                                  loom_module_t* module,
-                                  loom_func_like_t function,
-                                  const loom_pattern_t* patterns,
-                                  iree_host_size_t pattern_count,
-                                  const loom_rewrite_config_t* config) {
+iree_status_t loom_greedy_rewrite(
+    iree_arena_allocator_t* arena, loom_module_t* module,
+    loom_func_like_t function,
+    const loom_rewrite_pattern_registry_t* pattern_registry,
+    void* pattern_context, const loom_rewrite_config_t* config) {
   loom_greedy_rewrite_driver_t driver;
   loom_greedy_rewrite_driver_initialize(module, arena, /*fact_table=*/NULL,
                                         &driver);
@@ -248,7 +241,7 @@ iree_status_t loom_greedy_rewrite(iree_arena_allocator_t* arena,
       .max_iterations = config ? config->max_iterations : 0,
   };
   iree_status_t status = loom_greedy_rewrite_run_patterns(
-      &driver, function, patterns, pattern_count, &options, NULL);
+      &driver, function, pattern_registry, pattern_context, &options, NULL);
   loom_greedy_rewrite_driver_deinitialize(&driver);
   return status;
 }

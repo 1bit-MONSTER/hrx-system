@@ -1,0 +1,173 @@
+// Every byte encoding crosses scalar and packed conversion paths. Row scales
+// are runtime data; the oracle uses scalar arithmetic and independent stores.
+kernel.def @float8_dequantization() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %scales: buffer, %scalar_output: buffer, %vector_output: buffer, %bfloat_output: buffer, %decoded_output: buffer) {
+  %base = index.constant 0 : offset
+  %lane = kernel.workitem.id<x> : index
+  %e4_source = buffer.view %input[%base] : buffer -> view<64x4xf8E4M3>
+  %e5_source = buffer.view %input[%base] : buffer -> view<64x4xf8E5M2>
+  %scale_source = buffer.view %scales[%base] : buffer -> view<64xf32>
+  %scalar_result = buffer.view %scalar_output[%base] : buffer -> view<2x64x4xf32>
+  %vector_result = buffer.view %vector_output[%base] : buffer -> view<2x64x4xf32>
+  %bfloat_result = buffer.view %bfloat_output[%base] : buffer -> view<4x64x4xbf16>
+  %decoded_result = buffer.view %decoded_output[%base] : buffer -> view<64x4x2xf32>
+  %scale = view.load %scale_source[%lane] : view<64xf32> -> f32
+  %scale_vector = vector.splat %scale : vector<4xf32>
+  %e4 = vector.load %e4_source[%lane, 0] : view<64x4xf8E4M3> -> vector<4xf8E4M3>
+  %e5 = vector.load %e5_source[%lane, 0] : view<64x4xf8E5M2> -> vector<4xf8E5M2>
+  %e4_wide = vector.extf %e4 : vector<4xf8E4M3> to vector<4xf32>
+  %e5_wide = vector.extf %e5 : vector<4xf8E5M2> to vector<4xf32>
+  %e4_brain = vector.extf %e4 : vector<4xf8E4M3> to vector<4xbf16>
+  %e5_brain = vector.extf %e5 : vector<4xf8E5M2> to vector<4xbf16>
+  %e4_scaled = vector.mulf %e4_wide, %scale_vector : vector<4xf32>
+  %e5_scaled = vector.mulf %e5_wide, %scale_vector : vector<4xf32>
+  %e4_scaled_brain = vector.fptrunc %e4_scaled : vector<4xf32> to vector<4xbf16>
+  %e5_scaled_brain = vector.fptrunc %e5_scaled : vector<4xf32> to vector<4xbf16>
+  vector.store %e4_wide, %vector_result[0, %lane, 0] : vector<4xf32>, view<2x64x4xf32>
+  vector.store %e5_wide, %vector_result[1, %lane, 0] : vector<4xf32>, view<2x64x4xf32>
+  vector.store %e4_brain, %bfloat_result[0, %lane, 0] : vector<4xbf16>, view<4x64x4xbf16>
+  vector.store %e5_brain, %bfloat_result[1, %lane, 0] : vector<4xbf16>, view<4x64x4xbf16>
+  vector.store %e4_scaled_brain, %bfloat_result[2, %lane, 0] : vector<4xbf16>, view<4x64x4xbf16>
+  vector.store %e5_scaled_brain, %bfloat_result[3, %lane, 0] : vector<4xbf16>, view<4x64x4xbf16>
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %schema = encoding.define #encoding.f8e4m3<affine=scale_only, payload_elements=2, scale_format=f32, scale_group_elements=2, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %decode_scale = vector.splat %scale : vector<1xf32>
+  scf.for %column = [%begin to %end step %step] {
+    %e4_scalar = view.load %e4_source[%lane, %column] : view<64x4xf8E4M3> -> f8E4M3
+    %e5_scalar = view.load %e5_source[%lane, %column] : view<64x4xf8E5M2> -> f8E5M2
+    %e4_scalar_wide = scalar.extf %e4_scalar : f8E4M3 to f32
+    %e5_scalar_wide = scalar.extf %e5_scalar : f8E5M2 to f32
+    view.store %e4_scalar_wide, %scalar_result[0, %lane, %column] : f32, view<2x64x4xf32>
+    view.store %e5_scalar_wide, %scalar_result[1, %lane, %column] : f32, view<2x64x4xf32>
+    %payload = vector.splat %e4_scalar : vector<2xf8E4M3>
+    %decoded = vector.decode %payload using %schema {scale = %decode_scale : vector<1xf32>} : vector<2xf8E4M3>, encoding<schema> -> vector<2xf32>
+    vector.store %decoded, %decoded_result[%lane, %column, 0] : vector<2xf32>, view<64x4x2xf32>
+  }
+  kernel.return
+}
+
+func.def @float8_dequantization_oracle(%input: buffer, %scales: buffer, %scalar_output: buffer, %vector_output: buffer, %bfloat_output: buffer, %decoded_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %rows = index.constant 64 : index
+  %columns = index.constant 4 : index
+  %step = index.constant 1 : index
+  %e4_source = buffer.view %input[%base] : buffer -> view<64x4xf8E4M3>
+  %e5_source = buffer.view %input[%base] : buffer -> view<64x4xf8E5M2>
+  %bytes = buffer.view %input[%base] : buffer -> view<64x4xi8>
+  %scale_source = buffer.view %scales[%base] : buffer -> view<64xf32>
+  %scalar_result = buffer.view %scalar_output[%base] : buffer -> view<2x64x4xf32>
+  %vector_result = buffer.view %vector_output[%base] : buffer -> view<2x64x4xf32>
+  %bfloat_result = buffer.view %bfloat_output[%base] : buffer -> view<4x64x4xbf16>
+  %decoded_result = buffer.view %decoded_output[%base] : buffer -> view<64x4x2xf32>
+  %magnitude_mask = scalar.constant 127 : i32
+  %sign_mask = scalar.constant 128 : i32
+  %sign_shift = scalar.constant 24 : i32
+  %special_exponent = scalar.constant 120 : i32
+  %infinity_bits = scalar.constant 2139095040 : i32
+  %nan_bits = scalar.constant 2143289344 : i32
+  scf.for %row = [%begin to %rows step %step] {
+    %scale = view.load %scale_source[%row] : view<64xf32> -> f32
+    scf.for %column = [%begin to %columns step %step] {
+      %e4 = view.load %e4_source[%row, %column] : view<64x4xf8E4M3> -> f8E4M3
+      %e5 = view.load %e5_source[%row, %column] : view<64x4xf8E5M2> -> f8E5M2
+      %e4_wide = scalar.extf %e4 : f8E4M3 to f32
+      %e5_wide = scalar.extf %e5 : f8E5M2 to f32
+      %e4_brain = scalar.fptrunc %e4_wide : f32 to bf16
+      %e5_brain = scalar.fptrunc %e5_wide : f32 to bf16
+      %e4_scaled = scalar.mulf %e4_wide, %scale : f32
+      %e5_scaled = scalar.mulf %e5_wide, %scale : f32
+      %e4_scaled_brain = scalar.fptrunc %e4_scaled : f32 to bf16
+      %e5_scaled_brain = scalar.fptrunc %e5_scaled : f32 to bf16
+      view.store %e4_wide, %scalar_result[0, %row, %column] : f32, view<2x64x4xf32>
+      view.store %e5_wide, %scalar_result[1, %row, %column] : f32, view<2x64x4xf32>
+      view.store %e4_wide, %vector_result[0, %row, %column] : f32, view<2x64x4xf32>
+      view.store %e5_wide, %vector_result[1, %row, %column] : f32, view<2x64x4xf32>
+      view.store %e4_brain, %bfloat_result[0, %row, %column] : bf16, view<4x64x4xbf16>
+      view.store %e5_brain, %bfloat_result[1, %row, %column] : bf16, view<4x64x4xbf16>
+      view.store %e4_scaled_brain, %bfloat_result[2, %row, %column] : bf16, view<4x64x4xbf16>
+      view.store %e5_scaled_brain, %bfloat_result[3, %row, %column] : bf16, view<4x64x4xbf16>
+      // IEEE E4M3 reserves the top exponent; scalar E4M3FN uses it for finite
+      // values except the final NaN payload. Decode those IEEE cases explicitly.
+      %byte = view.load %bytes[%row, %column] : view<64x4xi8> -> i8
+      %bits = scalar.extui %byte : i8 to i32
+      %magnitude = scalar.andi %bits, %magnitude_mask : i32
+      %sign = scalar.andi %bits, %sign_mask : i32
+      %sign_bits = scalar.shli %sign, %sign_shift : i32
+      %is_special = scalar.cmpi uge, %magnitude, %special_exponent : i32
+      %is_infinity = scalar.cmpi eq, %magnitude, %special_exponent : i32
+      %special_bits = scf.select %is_infinity, %infinity_bits, %nan_bits : i32
+      %signed_bits = scalar.ori %special_bits, %sign_bits : i32
+      %special = scalar.bitcast %signed_bits : i32 to f32
+      %decode_value = scf.select %is_special, %special, %e4_wide : f32
+      %decoded = scalar.mulf %decode_value, %scale : f32
+      view.store %decoded, %decoded_result[%row, %column, 0] : f32, view<64x4x2xf32>
+      view.store %decoded, %decoded_result[%row, %column, 1] : f32, view<64x4x2xf32>
+    }
+  }
+  func.return
+}
+
+check.scenario @float8_dequantization_values {
+  check.trial[16](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+    %scales = check.generate.random.uniform seed(%seed) range(-2.0 to 2.0) : tensor<64xf32>
+    %scalar_storage = check.generate.fill value(-123.0) : tensor<520xf32>
+    %vector_storage = check.generate.fill value(-123.0) : tensor<520xf32>
+    %bfloat_storage = check.generate.fill value(-123.0) : tensor<1040xbf16>
+    %decoded_storage = check.generate.fill value(-123.0) : tensor<520xf32>
+    %scalar_output = check.tensor.view %scalar_storage offset(16) : tensor<520xf32> -> tensor<512xf32>
+    %vector_output = check.tensor.view %vector_storage offset(16) : tensor<520xf32> -> tensor<512xf32>
+    %bfloat_output = check.tensor.view %bfloat_storage offset(16) : tensor<1040xbf16> -> tensor<1024xbf16>
+    %decoded_output = check.tensor.view %decoded_storage offset(16) : tensor<520xf32> -> tensor<512xf32>
+    %e4_negative_zero = check.tensor.view %vector_output offset(0) : tensor<512xf32> -> tensor<1xf32>
+    %e4_positive_zero = check.tensor.view %vector_output offset(512) : tensor<512xf32> -> tensor<1xf32>
+    %e5_negative_zero = check.tensor.view %vector_output offset(1024) : tensor<512xf32> -> tensor<1xf32>
+    %e5_positive_zero = check.tensor.view %vector_output offset(1536) : tensor<512xf32> -> tensor<1xf32>
+    %scaled_zeros = check.tensor.view %decoded_output offset(0) : tensor<512xf32> -> tensor<2xf32>
+    %e4_bfloat_zero = check.tensor.view %bfloat_output offset(0) : tensor<1024xbf16> -> tensor<1xbf16>
+    %e5_bfloat_zero = check.tensor.view %bfloat_output offset(512) : tensor<1024xbf16> -> tensor<1xbf16>
+    %e4_scaled_zero = check.tensor.view %bfloat_output offset(1024) : tensor<1024xbf16> -> tensor<1xbf16>
+    %e5_scaled_zero = check.tensor.view %bfloat_output offset(1536) : tensor<1024xbf16> -> tensor<1xbf16>
+    check.compare<@float8_dequantization, @float8_dequantization_oracle>(%input, %scales, %scalar_output, %vector_output, %bfloat_output, %decoded_output) : (tensor<256xi8>, tensor<64xf32>, tensor<512xf32>, tensor<512xf32>, tensor<1024xbf16>, tensor<512xf32>) -> () {
+      check.expect.close actual(%scalar_storage) expected(%scalar_storage) atol(0.0) rtol(0.0) nan(same) : tensor<520xf32>
+      check.expect.close actual(%vector_storage) expected(%vector_storage) atol(0.0) rtol(0.0) nan(same) : tensor<520xf32>
+      check.expect.close actual(%bfloat_storage) expected(%bfloat_storage) atol(0.0) rtol(0.0) nan(same) : tensor<1040xbf16>
+      check.expect.close actual(%decoded_storage) expected(%decoded_storage) atol(0.0) rtol(0.0) nan(same) : tensor<520xf32>
+      check.expect.bitwise actual(%e4_negative_zero) expected(%e4_negative_zero) : tensor<1xf32>
+      check.expect.bitwise actual(%e4_positive_zero) expected(%e4_positive_zero) : tensor<1xf32>
+      check.expect.bitwise actual(%e5_negative_zero) expected(%e5_negative_zero) : tensor<1xf32>
+      check.expect.bitwise actual(%e5_positive_zero) expected(%e5_positive_zero) : tensor<1xf32>
+      check.expect.bitwise actual(%scaled_zeros) expected(%scaled_zeros) : tensor<2xf32>
+      check.expect.bitwise actual(%e4_bfloat_zero) expected(%e4_bfloat_zero) : tensor<1xbf16>
+      check.expect.bitwise actual(%e5_bfloat_zero) expected(%e5_bfloat_zero) : tensor<1xbf16>
+      check.expect.bitwise actual(%e4_scaled_zero) expected(%e4_scaled_zero) : tensor<1xbf16>
+      check.expect.bitwise actual(%e5_scaled_zero) expected(%e5_scaled_zero) : tensor<1xbf16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+    %scales = check.generate.iota offset(-2.0) step(1.0) period(5) : tensor<64xf32>
+    %scalar_storage = check.generate.fill value(-123.0) : tensor<520xf32>
+    %vector_storage = check.generate.fill value(-123.0) : tensor<520xf32>
+    %bfloat_storage = check.generate.fill value(-123.0) : tensor<1040xbf16>
+    %decoded_storage = check.generate.fill value(-123.0) : tensor<520xf32>
+    %scalar_output = check.tensor.view %scalar_storage offset(16) : tensor<520xf32> -> tensor<512xf32>
+    %vector_output = check.tensor.view %vector_storage offset(16) : tensor<520xf32> -> tensor<512xf32>
+    %bfloat_output = check.tensor.view %bfloat_storage offset(16) : tensor<1040xbf16> -> tensor<1024xbf16>
+    %decoded_output = check.tensor.view %decoded_storage offset(16) : tensor<520xf32> -> tensor<512xf32>
+    check.compare<@float8_dequantization, @float8_dequantization_oracle>(%input, %scales, %scalar_output, %vector_output, %bfloat_output, %decoded_output) : (tensor<256xi8>, tensor<64xf32>, tensor<512xf32>, tensor<512xf32>, tensor<1024xbf16>, tensor<512xf32>) -> () {
+      check.expect.close actual(%scalar_storage) expected(%scalar_storage) atol(0.0) rtol(0.0) nan(same) : tensor<520xf32>
+      check.expect.close actual(%vector_storage) expected(%vector_storage) atol(0.0) rtol(0.0) nan(same) : tensor<520xf32>
+      check.expect.close actual(%bfloat_storage) expected(%bfloat_storage) atol(0.0) rtol(0.0) nan(same) : tensor<1040xbf16>
+      check.expect.close actual(%decoded_storage) expected(%decoded_storage) atol(0.0) rtol(0.0) nan(same) : tensor<520xf32>
+    }
+  }
+  check.return
+}

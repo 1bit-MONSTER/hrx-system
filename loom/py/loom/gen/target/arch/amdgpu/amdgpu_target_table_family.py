@@ -14,9 +14,11 @@ from loom.target.arch.amdgpu.descriptors import (
     amdgpu_core_descriptor_set_instruction_names_by_isa_key,
 )
 from loom.target.arch.amdgpu.target_info import (
+    AMDGPU_DESCRIPTOR_SET_INFOS,
     AmdgpuDescriptorSetInfo,
     amdgpu_descriptor_set_info_by_generator_target,
     amdgpu_descriptor_set_storage_info_by_generator_target,
+    amdgpu_descriptor_set_supported_target_contract_keys,
     amdgpu_descriptor_set_view_infos_by_storage_generator_target,
 )
 
@@ -27,10 +29,15 @@ class AmdgpuTargetTableFamily:
 
     storage_info: AmdgpuDescriptorSetInfo
     view_infos: tuple[AmdgpuDescriptorSetInfo, ...]
+    representation_infos: tuple[AmdgpuDescriptorSetInfo, ...] = ()
+
+    @property
+    def descriptor_view_infos(self) -> tuple[AmdgpuDescriptorSetInfo, ...]:
+        return (*self.view_infos, *self.representation_infos)
 
     @property
     def descriptor_set_infos(self) -> tuple[AmdgpuDescriptorSetInfo, ...]:
-        return (self.storage_info, *self.view_infos)
+        return (self.storage_info, *self.descriptor_view_infos)
 
     @property
     def generator_targets(self) -> tuple[str, ...]:
@@ -46,9 +53,28 @@ def amdgpu_target_table_family(
     storage_info = amdgpu_descriptor_set_storage_info_by_generator_target(storage_generator_target)
     if storage_info != descriptor_set_info:
         raise ValueError(f"AMDGPU table target {storage_generator_target} is a view of storage target {storage_info.generator_target}")
+    view_infos = amdgpu_descriptor_set_view_infos_by_storage_generator_target(storage_generator_target)
+    family_contract_keys = {storage_info.key, *(info.key for info in view_infos)}
+    existing_generator_targets = {
+        storage_info.generator_target,
+        *(info.generator_target for info in view_infos),
+    }
+    representation_infos = tuple(
+        sorted(
+            (
+                info
+                for info in AMDGPU_DESCRIPTOR_SET_INFOS
+                if info.member_generator_targets
+                and info.generator_target not in existing_generator_targets
+                and family_contract_keys.intersection(amdgpu_descriptor_set_supported_target_contract_keys(info))
+            ),
+            key=lambda info: info.key,
+        )
+    )
     return AmdgpuTargetTableFamily(
         storage_info=storage_info,
-        view_infos=amdgpu_descriptor_set_view_infos_by_storage_generator_target(storage_generator_target),
+        view_infos=view_infos,
+        representation_infos=representation_infos,
     )
 
 

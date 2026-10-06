@@ -1,0 +1,22 @@
+// RUN: pass target-legalize{mode=final,policy=require-native}
+
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @require_native_vector_atomic(%view: view<2xi32>, %value: vector<2xi32>, %offsets: vector<2xindex>) {
+  // ERROR@+1: TARGET/039 {source_contract="target.reference", matrix_constraint="reference.policy"}
+  vector.atomic.reduce<addi> %value, %view[0][%offsets] {ordering = relaxed, scope = workgroup} : vector<2xi32>, view<2xi32>, vector<2xindex>
+  func.return
+}
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=none
+
+func.def @preservation_requires_device_support(%value: f32) {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<1xf32>
+  // ERROR@+1: TARGET/003 {constraint_key="descriptor_available", subject_name="spirv.atomic.reduce.fadd.cas_preserve.workgroup.f32.workgroup"}
+  view.atomic.reduce<addf, noftz> %value, %view[0] {ordering = relaxed, scope = workgroup} : f32, view<1xf32>
+  func.return
+}

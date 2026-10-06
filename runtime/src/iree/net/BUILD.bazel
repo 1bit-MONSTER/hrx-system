@@ -84,6 +84,16 @@ iree_runtime_cc_library(
 )
 
 iree_runtime_cc_library(
+    name = "direct_endpoint",
+    hdrs = ["direct_endpoint.h"],
+    deps = [
+        ":carrier",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+    ],
+)
+
+iree_runtime_cc_library(
     name = "session_bootstrap",
     srcs = ["session_bootstrap.c"],
     hdrs = ["session_bootstrap.h"],
@@ -128,6 +138,7 @@ iree_runtime_cc_library(
     name = "connection",
     hdrs = ["connection.h"],
     deps = [
+        ":direct_endpoint",
         ":message_endpoint",
         "//runtime/src/iree/async",
         "//runtime/src/iree/base",

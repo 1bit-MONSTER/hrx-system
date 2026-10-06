@@ -39,8 +39,14 @@ class _DescriptorSpec:
     operand_register_parts: tuple[tuple[str, str], ...] = ()
     # Native encoding adapters for the selected storage and register parts.
     encoding_adapter_overrides: tuple[tuple[str, str], ...] = ()
+    # Machine immediates that also accept unresolved Low symbol ordinals.
+    symbolic_immediates: tuple[str, ...] = ()
     # Disjoint part preserved through the first result's tied storage input.
     storage_continuation_part: str | None = None
+    # Result/input pairs constrained to the same storage.
+    tied_updates: tuple[tuple[str, str], ...] = ()
+    # Result/input pairs constrained as destructive same-storage updates.
+    destructive_updates: tuple[tuple[str, str], ...] = ()
     # Input aggregates updated by co-indexed native outputs. The first output
     # names the aggregate SSA result tied to the input's storage.
     aggregate_updates: tuple[tuple[str, tuple[str, ...]], ...] = ()

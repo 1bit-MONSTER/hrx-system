@@ -15,11 +15,16 @@ iree_py_library(
   SRCS
     "__init__.py"
     "atomic.py"
+    "bfloat.py"
     "descriptor_rule.py"
+    "extended_math.py"
+    "float8.py"
     "index.py"
     "logical_core.py"
     "memory.py"
     "ordinary_vector.py"
+    "predicate.py"
+    "subgroup.py"
   DEPS
     loom::py::loom::core
     loom::py::loom::dialect::buffer::buffer
@@ -34,12 +39,15 @@ iree_py_library(
     loom::py::loom::target::arch::spirv::builtins
     loom::py::loom::target::arch::spirv::cooperative_matrix
     loom::py::loom::target::arch::spirv::descriptors
+    loom::py::loom::target::arch::spirv::extended_math
     loom::py::loom::target::arch::spirv::ordinary_vector
     loom::py::loom::target::arch::spirv::scalar_alu
     loom::py::loom::target::arch::spirv::scalar_constant
     loom::py::loom::target::arch::spirv::scalar_conversion
     loom::py::loom::target::arch::spirv::scalar_memory
+    loom::py::loom::target::arch::spirv::subgroup
     loom::py::loom::target::contracts::contracts
+    loom::py::loom::target::emit::float_narrowing
 )
 
 iree_py_test(
@@ -89,9 +97,11 @@ iree_py_test(
   MAIN
     "../../../../tools/pytest_style_runner.py"
   SRCS
+    "float_narrowing_test.py"
     "index_test.py"
     "../../../../tools/pytest_style_runner.py"
   ARGS
+    "loom.target.arch.spirv.contracts.float_narrowing_test"
     "loom.target.arch.spirv.contracts.index_test"
   DEPS
     loom::py::loom::target::arch::spirv::contracts::contracts
@@ -99,6 +109,48 @@ iree_py_test(
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"
     "${PROJECT_SOURCE_DIR}"
+)
+
+iree_py_test(
+  NAME
+    extended_math_test
+  MAIN
+    "../../../../tools/pytest_style_runner.py"
+  SRCS
+    "extended_math_test.py"
+    "../../../../tools/pytest_style_runner.py"
+  ARGS
+    "loom.target.arch.spirv.contracts.extended_math_test"
+  DEPS
+    loom::py::loom::target::arch::spirv::contracts::contracts
+    loom::py::loom::target::arch::spirv::extended_math
+    loom::py::loom::target::contracts::contracts
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+)
+
+iree_py_test(
+  NAME
+    subgroup_test
+  MAIN
+    "../../../../tools/pytest_style_runner.py"
+  SRCS
+    "subgroup_test.py"
+    "../../../../tools/pytest_style_runner.py"
+  ARGS
+    "loom.target.arch.spirv.contracts.subgroup_test"
+  DEPS
+    loom::py::loom::target::arch::spirv::contracts::contracts
+    loom::py::loom::target::arch::spirv::subgroup
+    loom::py::loom::target::contracts::contracts
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+  TIMEOUT
+    60
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

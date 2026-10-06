@@ -58,6 +58,33 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "pipeline_snapshot",
+    srcs = ["pipeline_snapshot.c"],
+    hdrs = ["pipeline_snapshot.h"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//loom/src/loom/link:linker",
+        "//loom/src/loom/ops/pass",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_test(
+    name = "pipeline_snapshot_test",
+    srcs = ["pipeline_snapshot_test.cc"],
+    deps = [
+        ":pipeline_snapshot",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/pass",
+        "//loom/src/loom/pass/test:harness",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "builder",
     srcs = ["builder.c"],
     hdrs = ["builder.h"],
@@ -274,6 +301,7 @@ loom_cc_library(
         "//loom/src/loom/codegen/low/transforms:operand_forms",
         "//loom/src/loom/codegen/low/transforms/pipeline:source_to_low",
         "//loom/src/loom/codegen/low/transforms/pipeline:target_legalize",
+        "//loom/src/loom/sanitizer:materialize_assertions",
         "//loom/src/loom/sanitizer:pipeline_passes",
         "//loom/src/loom/sanitizer:race_insertion",
         "//loom/src/loom/target:callgraph_specialization",
@@ -287,6 +315,8 @@ loom_cc_library(
         "//loom/src/loom/transforms/cleanup:canonicalize",
         "//loom/src/loom/transforms/cleanup:cse",
         "//loom/src/loom/transforms/cleanup:dce",
+        "//loom/src/loom/transforms/cleanup:pass_environment",
+        "//loom/src/loom/transforms/cleanup:pass_requirements",
         "//loom/src/loom/transforms/cleanup:strip_hints",
         "//loom/src/loom/transforms/encoding:layout_transport",
         "//loom/src/loom/transforms/func:locations",
@@ -421,6 +451,8 @@ loom_cc_test(
         "//loom/src/loom/target:legalization",
         "//loom/src/loom/target:pass_environment",
         "//loom/src/loom/target:pass_requirements",
+        "//loom/src/loom/transforms/cleanup:pass_environment",
+        "//loom/src/loom/transforms/cleanup:pass_requirements",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],

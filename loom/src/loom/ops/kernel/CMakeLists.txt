@@ -50,6 +50,7 @@ loom_generated_cc_library(
     loom::ops::combining
     loom::ops::func
     loom::ops::func_symbol_facts
+    loom::ops::function_contract_verify
     loom::ops::index
     loom::ops::op_defs
     loom::ops::scf

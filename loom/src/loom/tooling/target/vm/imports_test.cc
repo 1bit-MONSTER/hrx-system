@@ -25,11 +25,12 @@
 #include "loom/ops/func/location_capture_test_data.h"
 #include "loom/ops/func/ops.h"
 #include "loom/ops/op_registry.h"
-#include "loom/target/arch/vm/module.h"
-#include "loom/target/arch/vm/provider.h"
+#include "loom/target/emit/vm/module_compiler.h"
+#include "loom/target/selection.h"
 #include "loom/tooling/compile/pipeline.h"
 #include "loom/tooling/input/input.h"
 #include "loom/tooling/target/vm/imports_bytecode.h"
+#include "loom/transforms/cleanup/configured.h"
 
 namespace {
 
@@ -355,11 +356,9 @@ class VMSourceCaptureTest : public VMImportsTest {
     iree_arena_block_pool_initialize(32 * 1024, iree_allocator_system(), &pool);
     iree_arena_allocator_t arena;
     iree_arena_initialize(&pool, &arena);
-    const loom_target_provider_t* providers[] = {&loom_vm_target_provider};
-    const auto provider_set = loom_target_provider_set_make(providers, 1);
     loom_target_environment_t environment;
-    IREE_ASSERT_OK(
-        loom_target_environment_initialize(&provider_set, &environment));
+    IREE_ASSERT_OK(loom_target_environment_initialize(
+        &loom_vm_compiler_provider_set, &environment));
     loom_context_t context;
     loom_context_initialize(iree_allocator_system(), &context);
     IREE_ASSERT_OK(loom_op_registry_register_all_dialects(&context));
@@ -431,9 +430,13 @@ class VMSourceCaptureTest : public VMImportsTest {
     loom_module_free(decoded);
     serialized.clear();
 
+    const loom_target_specification_t specification = {
+        /*.family=*/IREE_SVL("vm"),
+        /*.selector=*/IREE_SVL("core"),
+    };
     const loom_target_profile_t* profile = nullptr;
-    IREE_ASSERT_OK(
-        loom_vm_target_provider.select_profile(IREE_SV("core"), &profile));
+    IREE_ASSERT_OK(loom_target_environment_select_profile(
+        &environment, &specification, &profile));
     loom_target_low_descriptor_registry_t registry;
     IREE_ASSERT_OK(loom_target_environment_initialize_low_descriptor_registry(
         &environment, &registry));
@@ -444,6 +447,8 @@ class VMSourceCaptureTest : public VMImportsTest {
     loom_compile_pipeline_options_initialize(&options);
     options.target_environment = &environment;
     options.low_descriptor_registry = &registry;
+    options.cleanup_pattern_provider_set =
+        loom_cleanup_configured_pattern_provider_set();
     options.target_specializations = {&specialization, 1};
     loom_compile_pipeline_result_t pipeline;
     IREE_ASSERT_OK(
@@ -457,7 +462,10 @@ class VMSourceCaptureTest : public VMImportsTest {
     emission.scratch_arena = &arena;
     emission.allocator = iree_allocator_system();
     loom_target_emit_artifact_t artifact;
-    IREE_ASSERT_OK(loom_vm_module_emit(&emission, &artifact));
+    bool artifact_emitted = false;
+    IREE_ASSERT_OK(
+        loom_vm_module_emitter.emit(&emission, &artifact_emitted, &artifact));
+    ASSERT_TRUE(artifact_emitted);
     iree_byte_span_t image;
     IREE_ASSERT_OK(iree_byte_sequence_clone(artifact.contents,
                                             iree_allocator_system(), &image));

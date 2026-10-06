@@ -1,0 +1,110 @@
+// Exact four-group MXFP8 decoding through the public encoding schema.
+//
+// One packed scale word covers the minimum finite scale, identity, twice
+// identity, and NaN encodings. Keeping all four groups in one vector proves
+// both packed-byte selection and group-to-payload association.
+kernel.def @mxfp8_decode_four_e8m0_groups() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%payload_buffer: buffer, %scale_buffer: buffer, %f32_out_buffer: buffer, %bf16_out_buffer: buffer, %f16_out_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %origin = index.constant 0 : index
+  %payload_view = buffer.view %payload_buffer[%base] : buffer -> view<32xi8>
+  %scale_view = buffer.view %scale_buffer[%base] : buffer -> view<1xi32>
+  %f32_out_view = buffer.view %f32_out_buffer[%base] : buffer -> view<32xi32>
+  %bf16_out_view = buffer.view %bf16_out_buffer[%base] : buffer -> view<32xi16>
+  %f16_out_view = buffer.view %f16_out_buffer[%base] : buffer -> view<32xi16>
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=32, scale_format=e8m0, scale_group_elements=8, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %payload_bits = vector.load %payload_view[%origin] : view<32xi8> -> vector<32xi8>
+  %payload = vector.bitcast %payload_bits : vector<32xi8> to vector<32xf8E4M3>
+  %scale = vector.load %scale_view[%origin] : view<1xi32> -> vector<1xi32>
+
+  %f32 = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<32xf8E4M3>, encoding<schema> -> vector<32xf32>
+  %f32_bits = vector.bitcast %f32 : vector<32xf32> to vector<32xi32>
+  %f32_min_value = scalar.constant 4194304 : i32
+  %f32_identity_value = scalar.constant 1065353216 : i32
+  %f32_twice_value = scalar.constant 1073741824 : i32
+  %f32_nan_value = scalar.constant 2143289344 : i32
+  %f32_min = vector.splat %f32_min_value : vector<8xi32>
+  %f32_identity = vector.splat %f32_identity_value : vector<8xi32>
+  %f32_twice = vector.splat %f32_twice_value : vector<8xi32>
+  %f32_nan = vector.splat %f32_nan_value : vector<8xi32>
+  %expected_f32 = vector.concat<0> %f32_min, %f32_identity, %f32_twice, %f32_nan : vector<8xi32>, vector<8xi32>, vector<8xi32>, vector<8xi32> -> vector<32xi32>
+  %f32_difference = vector.xori %f32_bits, %expected_f32 : vector<32xi32>
+  vector.store %f32_difference, %f32_out_view[%origin] : vector<32xi32>, view<32xi32>
+
+  %bf16 = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<32xf8E4M3>, encoding<schema> -> vector<32xbf16>
+  %bf16_bits = vector.bitcast %bf16 : vector<32xbf16> to vector<32xi16>
+  %bf16_min_value = scalar.constant 64 : i16
+  %bf16_identity_value = scalar.constant 16256 : i16
+  %bf16_twice_value = scalar.constant 16384 : i16
+  %bf16_nan_value = scalar.constant 32704 : i16
+  %bf16_min = vector.splat %bf16_min_value : vector<8xi16>
+  %bf16_identity = vector.splat %bf16_identity_value : vector<8xi16>
+  %bf16_twice = vector.splat %bf16_twice_value : vector<8xi16>
+  %bf16_nan = vector.splat %bf16_nan_value : vector<8xi16>
+  %expected_bf16 = vector.concat<0> %bf16_min, %bf16_identity, %bf16_twice, %bf16_nan : vector<8xi16>, vector<8xi16>, vector<8xi16>, vector<8xi16> -> vector<32xi16>
+  %bf16_difference = vector.xori %bf16_bits, %expected_bf16 : vector<32xi16>
+  vector.store %bf16_difference, %bf16_out_view[%origin] : vector<32xi16>, view<32xi16>
+
+  %f16 = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<32xf8E4M3>, encoding<schema> -> vector<32xf16>
+  %f16_bits = vector.bitcast %f16 : vector<32xf16> to vector<32xi16>
+  %f16_min_value = scalar.constant 0 : i16
+  %f16_identity_value = scalar.constant 15360 : i16
+  %f16_twice_value = scalar.constant 16384 : i16
+  %f16_nan_value = scalar.constant 32256 : i16
+  %f16_min = vector.splat %f16_min_value : vector<8xi16>
+  %f16_identity = vector.splat %f16_identity_value : vector<8xi16>
+  %f16_twice = vector.splat %f16_twice_value : vector<8xi16>
+  %f16_nan = vector.splat %f16_nan_value : vector<8xi16>
+  %expected_f16 = vector.concat<0> %f16_min, %f16_identity, %f16_twice, %f16_nan : vector<8xi16>, vector<8xi16>, vector<8xi16>, vector<8xi16> -> vector<32xi16>
+  %f16_difference = vector.xori %f16_bits, %expected_f16 : vector<32xi16>
+  vector.store %f16_difference, %f16_out_view[%origin] : vector<32xi16>, view<32xi16>
+  kernel.return
+}
+
+check.case public @mxfp8_decode_four_e8m0_groups_case {
+  %payload = check.generate.fill value(56) : tensor<32xi8>
+  %scale = check.generate.fill value(-8356096) : tensor<1xi32>
+  %f32_output = check.generate.fill value(1) : tensor<32xi32>
+  %bf16_output = check.generate.fill value(1) : tensor<32xi16>
+  %f16_output = check.generate.fill value(1) : tensor<32xi16>
+  %expected_f32 = check.generate.fill value(0) : tensor<32xi32>
+  %expected_bf16 = check.generate.fill value(0) : tensor<32xi16>
+  %expected_f16 = check.generate.fill value(0) : tensor<32xi16>
+  kernel.launch @mxfp8_decode_four_e8m0_groups(%payload, %scale, %f32_output, %bf16_output, %f16_output) : (tensor<32xi8>, tensor<1xi32>, tensor<32xi32>, tensor<32xi16>, tensor<32xi16>)
+  check.expect.equal actual(%f32_output) expected(%expected_f32) : tensor<32xi32>
+  check.expect.equal actual(%bf16_output) expected(%expected_bf16) : tensor<32xi16>
+  check.expect.equal actual(%f16_output) expected(%expected_f16) : tensor<32xi16>
+  check.return
+}
+
+// One ordinary MXFP8 group shares one E8M0 scale across all 32 payload lanes.
+kernel.def @mxfp8_decode_one_e8m0_group() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%payload_buffer: buffer, %scale_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %origin = index.constant 0 : index
+  %payload_view = buffer.view %payload_buffer[%base] : buffer -> view<32xi8>
+  %scale_view = buffer.view %scale_buffer[%base] : buffer -> view<1xi32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<32xi16>
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=32, scale_format=e8m0, scale_group_elements=32, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %payload_bits = vector.load %payload_view[%origin] : view<32xi8> -> vector<32xi8>
+  %payload = vector.bitcast %payload_bits : vector<32xi8> to vector<32xf8E4M3>
+  %scale = vector.load %scale_view[%origin] : view<1xi32> -> vector<1xi32>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<32xf8E4M3>, encoding<schema> -> vector<32xbf16>
+  %decoded_bits = vector.bitcast %decoded : vector<32xbf16> to vector<32xi16>
+  vector.store %decoded_bits, %output_view[%origin] : vector<32xi16>, view<32xi16>
+  kernel.return
+}
+
+check.case public @mxfp8_decode_one_e8m0_group_case {
+  %payload = check.generate.fill value(56) : tensor<32xi8>
+  %scale = check.generate.fill value(127) : tensor<1xi32>
+  %output = check.generate.fill value(1) : tensor<32xi16>
+  %expected = check.generate.fill value(16256) : tensor<32xi16>
+  kernel.launch @mxfp8_decode_one_e8m0_group(%payload, %scale, %output) : (tensor<32xi8>, tensor<1xi32>, tensor<32xi16>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<32xi16>
+  check.return
+}

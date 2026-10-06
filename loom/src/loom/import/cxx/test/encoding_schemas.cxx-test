@@ -1,0 +1,129 @@
+// RUN: roundtrip
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+static_assert(__is_trivially_copyable(Schema));
+static_assert(sizeof(Schema) == sizeof(__SIZE_TYPE__));
+
+// Enum ordinals are source-local: the binding uses the family keywords.
+enum class Packing { little_endian_nibbles = 71 };
+enum class Format { e8m0 = 99 };
+enum class Affine { scale_only = 17 };
+enum class Topology { block_1d = 41 };
+struct Parameters {
+  unsigned payload_elements = 32;
+  unsigned payload_registers = (payload_elements + 7ull) / 8;
+  Packing payload_packing = Packing::little_endian_nibbles;
+  Format scale_format = Format::e8m0;
+  unsigned scale_group_elements = 32;
+  unsigned scale_operands = 1;
+  Affine affine = Affine::scale_only;
+  Topology scale_topology = Topology::block_1d;
+  bool zero_scale_fallback = true;
+};
+template <auto Parameters>
+[[loom::op("encoding.define", "encoding.f4e2m1")]] Schema define();
+
+// An uninstantiated definition does not admit its dependent result signature.
+template <class Unused>
+[[loom::op("encoding.define", "encoding.f8e4m3fn")]] Unused lazy();
+
+Schema group() { return define<Parameters{}>(); }
+Schema two_groups() {
+  return define<Parameters{.payload_elements = 64}>();
+}
+
+// ----
+func.def public @group() -> (encoding<schema>) {
+  %1 = encoding.define #encoding.f4e2m1<affine=scale_only, payload_elements=32, payload_packing=little_endian_nibbles, payload_registers=4, scale_format=e8m0, scale_group_elements=32, scale_operands=1, scale_topology=block_1d, zero_scale_fallback=true> : encoding<schema>
+  func.return %1 : encoding<schema>
+}
+
+func.def public @two_groups() -> (encoding<schema>) {
+  %3 = encoding.define #encoding.f4e2m1<affine=scale_only, payload_elements=64, payload_packing=little_endian_nibbles, payload_registers=8, scale_format=e8m0, scale_group_elements=32, scale_operands=1, scale_topology=block_1d, zero_scale_fallback=true> : encoding<schema>
+  func.return %3 : encoding<schema>
+}
+
+// ====
+// Schemas pass through ordinary helpers, record fields, and structured results.
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+struct Parameters { unsigned payload_elements; };
+template <Parameters Spec>
+[[loom::op("encoding.define", "encoding.f8e4m3fn")]] Schema define();
+struct Packet { Schema schema; unsigned count; };
+static Packet copy(Packet packet) { return packet; }
+Schema choose(bool first) {
+  Packet packet{define<Parameters{32}>(), 32};
+  if (!first) packet = {define<Parameters{64}>(), 64};
+  return copy(packet).schema;
+}
+
+// ----
+func.def public @choose(%first: i1) -> (encoding<schema>) {
+  %packet_schema$2 = encoding.define #encoding.f8e4m3fn<payload_elements=32> : encoding<schema>
+  %packet_count$3 = scalar.constant 32 : i32
+  %4 = scalar.constant 1 : i1
+  %5 = scalar.xori %first, %4 : i1
+  %packet_schema$6, %packet_count$7 = scf.if %5 -> (encoding<schema>, i32) {
+    %packet_schema = encoding.define #encoding.f8e4m3fn<payload_elements=64> : encoding<schema>
+    %packet_count = scalar.constant 64 : i32
+    scf.yield %packet_schema, %packet_count : encoding<schema>, i32
+  } else {
+    scf.yield %packet_schema$2, %packet_count$3 : encoding<schema>, i32
+  }
+  %10, %11 = func.call @copy(%packet_schema$6, %packet_count$7) : (encoding<schema>, i32) -> (encoding<schema>, i32)
+  func.return %10 : encoding<schema>
+}
+
+func.def @copy(%packet_schema: encoding<schema>, %packet_count: i32) -> (encoding<schema>, i32) {
+  func.return %packet_schema, %packet_count : encoding<schema>, i32
+}
+
+// ====
+// Layout and schema values retain distinct roles in one record and signature.
+#include <loomcxx/view.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+using Layout = loom::type::encoding<loom::encoding::role::layout>;
+struct Pair { Schema schema; Layout layout; };
+Pair retain(Pair value) { return value; }
+
+// ----
+func.def public @retain(%value_schema: encoding<schema>, %value_layout: encoding<layout>) -> (encoding<schema>, encoding<layout>) {
+  func.return %value_schema, %value_layout : encoding<schema>, encoding<layout>
+}
+
+// ====
+// The facade derives physical counts while preserving explicit overrides.
+#include <loomcxx/encoding.h>
+using Parameters = loom::encoding::f4e2m1;
+static_assert(Parameters{}.payload_registers == 4);
+static_assert(Parameters{.payload_elements = 8}.payload_registers == 1);
+static_assert(Parameters{.payload_elements = 9}.payload_registers == 2);
+static_assert(Parameters{.payload_elements = 65535}.payload_registers == 8192);
+static_assert(Parameters{.payload_elements = 64, .payload_registers = 16}
+                  .payload_registers == 16);
+loom::type::encoding<loom::encoding::role::schema> two_groups() {
+  return loom::encoding::define<Parameters{.payload_elements = 64}>();
+}
+
+// ----
+func.def public @two_groups() -> (encoding<schema>) {
+  %1 = encoding.define #encoding.f4e2m1<affine=scale_only, payload_elements=64, payload_packing=little_endian_nibbles, payload_registers=8, scale_format=e8m0, scale_group_elements=32, scale_operands=1, scale_topology=block_1d, zero_scale_fallback=true> : encoding<schema>
+  func.return %1 : encoding<schema>
+}
+
+// ====
+// Value initialization runs defaults inside nested configuration arrays.
+#include <loomcxx/encoding.h>
+struct Configuration {
+  loom::encoding::f4e2m1 groups[2];
+};
+loom::type::encoding<loom::encoding::role::schema> nested_group() {
+  return loom::encoding::define<Configuration().groups[1]>();
+}
+
+// ----
+func.def public @nested_group() -> (encoding<schema>) {
+  %1 = encoding.define #encoding.f4e2m1<affine=scale_only, payload_elements=32, payload_packing=little_endian_nibbles, payload_registers=4, scale_format=e8m0, scale_group_elements=32, scale_operands=1, scale_topology=block_1d, zero_scale_fallback=true> : encoding<schema>
+  func.return %1 : encoding<schema>
+}

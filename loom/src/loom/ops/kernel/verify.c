@@ -15,6 +15,7 @@
 #include "loom/ops/cache.h"
 #include "loom/ops/combining.h"
 #include "loom/ops/func/ops.h"
+#include "loom/ops/function_contract_verify.h"
 #include "loom/ops/kernel/ops.h"
 #include "loom/ops/op_defs.h"
 #include "loom/ops/target/facts.h"
@@ -112,18 +113,6 @@ static iree_status_t loom_kernel_emit_entry_related(
   return iree_diagnostic_emit(emitter, &emission);
 }
 
-static bool loom_kernel_entry_type_matches(
-    const loom_module_t* module, loom_type_t actual_type,
-    loom_type_t expected_type, const loom_type_value_remap_t* value_remap) {
-  const loom_type_kind_t actual_kind = loom_type_kind(actual_type);
-  if ((actual_kind == LOOM_TYPE_TENSOR || actual_kind == LOOM_TYPE_VIEW) &&
-      loom_type_kind(expected_type) == LOOM_TYPE_BUFFER) {
-    return true;
-  }
-  return loom_type_equal_after_value_remap(module, expected_type, actual_type,
-                                           value_remap);
-}
-
 static iree_status_t loom_kernel_verify_entry_operand_group(
     const loom_module_t* module, const loom_op_t* launch_op,
     const loom_op_t* definition_op, iree_diagnostic_emitter_t emitter,
@@ -153,8 +142,12 @@ static iree_status_t loom_kernel_verify_entry_operand_group(
         loom_module_value_type(module, actual_values.values[i]);
     loom_type_t expected_type =
         loom_module_value_type(module, expected_values[i]);
-    if (loom_kernel_entry_type_matches(module, actual_type, expected_type,
-                                       &value_remap)) {
+    bool matches = false;
+    IREE_RETURN_IF_ERROR(loom_function_call_argument_type_matches(
+        module, actual_type, expected_type, &value_remap,
+        LOOM_FUNCTION_CALL_ARGUMENT_MATCH_FLAG_ALLOW_BUFFER_MATERIALIZATION,
+        &matches));
+    if (matches) {
       continue;
     }
 
@@ -318,6 +311,12 @@ static bool loom_kernel_type_is_async_group(const loom_module_t* module,
                                             loom_type_t type) {
   return loom_kernel_type_is_opaque_dialect(module, type,
                                             IREE_SV("kernel.async.group"));
+}
+
+static bool loom_kernel_type_is_barrier_phase(const loom_module_t* module,
+                                              loom_type_t type) {
+  return loom_kernel_type_is_opaque_dialect(module, type,
+                                            IREE_SV("kernel.barrier.phase"));
 }
 
 static bool loom_kernel_type_is_tensor_lds_descriptor(
@@ -1061,7 +1060,7 @@ static iree_status_t loom_kernel_emit_barrier_control_constraint(
           ? IREE_SV("<unexposed>")
           : loom_kernel_value_name(module, failure->control_value);
   loom_diagnostic_param_t params[] = {
-      loom_param_string(IREE_SV("kernel.barrier")),
+      loom_param_string(loom_kernel_op_name(module, barrier_op)),
       loom_param_string(scope_name),
       loom_param_string(loom_control_uniformity_source_name(failure->source)),
       loom_param_string(control_value_name),
@@ -1074,12 +1073,27 @@ static iree_status_t loom_kernel_emit_barrier_control_constraint(
 }
 
 static loom_value_fact_uniform_scope_t
-loom_kernel_barrier_required_uniform_scope(const loom_op_t* barrier_op) {
-  if (!loom_kernel_barrier_isa(barrier_op)) {
+loom_kernel_barrier_required_uniform_scope(const loom_module_t* module,
+                                           const loom_op_t* barrier_op) {
+  loom_atomic_scope_t barrier_scope = LOOM_ATOMIC_SCOPE_COUNT_;
+  if (loom_kernel_barrier_isa(barrier_op)) {
+    barrier_scope = loom_kernel_barrier_scope(barrier_op);
+  } else if (loom_kernel_barrier_arrive_isa(barrier_op)) {
+    barrier_scope = loom_kernel_barrier_arrive_scope(barrier_op);
+  } else if (loom_kernel_barrier_wait_isa(barrier_op)) {
+    const loom_value_id_t phase_id = loom_kernel_barrier_wait_phase(barrier_op);
+    if (phase_id >= module->values.count) {
+      return LOOM_VALUE_FACT_UNIFORM_SCOPE_NONE;
+    }
+    const loom_value_t* phase = loom_module_value(module, phase_id);
+    const loom_op_t* arrival_op =
+        loom_value_is_block_arg(phase) ? NULL : loom_value_def_op(phase);
+    if (arrival_op && loom_kernel_barrier_arrive_isa(arrival_op)) {
+      barrier_scope = loom_kernel_barrier_arrive_scope(arrival_op);
+    }
+  } else {
     return LOOM_VALUE_FACT_UNIFORM_SCOPE_NONE;
   }
-  const loom_atomic_scope_t barrier_scope =
-      loom_kernel_barrier_scope(barrier_op);
   if (barrier_scope == LOOM_ATOMIC_SCOPE_SUBGROUP) {
     return LOOM_VALUE_FACT_UNIFORM_SCOPE_SUBGROUP;
   }
@@ -1170,7 +1184,7 @@ static iree_status_t loom_kernel_verify_barrier_control_walk(
   *out_result = LOOM_WALK_CONTINUE;
   loom_kernel_barrier_control_verifier_t* verifier = user_data;
   const loom_value_fact_uniform_scope_t required_scope =
-      loom_kernel_barrier_required_uniform_scope(op);
+      loom_kernel_barrier_required_uniform_scope(verifier->module, op);
   if (required_scope == LOOM_VALUE_FACT_UNIFORM_SCOPE_NONE) {
     return iree_ok_status();
   }
@@ -1213,9 +1227,16 @@ static iree_status_t loom_kernel_verify_barrier_controls(
 iree_status_t loom_kernel_def_verify(const loom_module_t* module,
                                      const loom_op_t* op,
                                      iree_diagnostic_emitter_t emitter) {
+  IREE_RETURN_IF_ERROR(loom_function_contract_verify(module, op, emitter));
   IREE_RETURN_IF_ERROR(
       loom_kernel_verify_launch_config_purity(module, op, emitter));
   return loom_kernel_verify_barrier_controls(module, op, emitter);
+}
+
+iree_status_t loom_kernel_decl_verify(const loom_module_t* module,
+                                      const loom_op_t* op,
+                                      iree_diagnostic_emitter_t emitter) {
+  return loom_function_contract_verify(module, op, emitter);
 }
 
 static bool loom_kernel_is_indirect_workgroup_count_type(loom_type_t type) {
@@ -1345,13 +1366,10 @@ iree_status_t loom_kernel_launch_schedule_verify(
   return iree_ok_status();
 }
 
-iree_status_t loom_kernel_barrier_verify(const loom_module_t* module,
-                                         const loom_op_t* op,
-                                         iree_diagnostic_emitter_t emitter) {
-  (void)module;
-
-  loom_value_fact_memory_space_t memory_space =
-      loom_kernel_barrier_memory_space(op);
+static iree_status_t loom_kernel_verify_barrier_attributes(
+    const loom_op_t* op, loom_value_fact_memory_space_t memory_space,
+    loom_atomic_ordering_t ordering, loom_atomic_scope_t scope,
+    iree_diagnostic_emitter_t emitter) {
   if (memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP &&
       memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL) {
     return loom_kernel_emit_attribute_value_constraint(
@@ -1359,7 +1377,6 @@ iree_status_t loom_kernel_barrier_verify(const loom_module_t* module,
         IREE_SV("workgroup or global memory space"));
   }
 
-  loom_atomic_ordering_t ordering = loom_kernel_barrier_ordering(op);
   const bool ordering_supported =
       memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP
           ? ordering == LOOM_ATOMIC_ORDERING_ACQ_REL
@@ -1375,7 +1392,80 @@ iree_status_t loom_kernel_barrier_verify(const loom_module_t* module,
                   "acquire, release, or acq_rel ordering for global memory"));
   }
 
+  if (scope != LOOM_ATOMIC_SCOPE_SUBGROUP &&
+      scope != LOOM_ATOMIC_SCOPE_WORKGROUP) {
+    return loom_kernel_emit_attribute_value_constraint(
+        emitter, op, IREE_SV("scope"), scope,
+        IREE_SV("subgroup or workgroup execution scope"));
+  }
+
   return iree_ok_status();
+}
+
+iree_status_t loom_kernel_barrier_verify(const loom_module_t* module,
+                                         const loom_op_t* op,
+                                         iree_diagnostic_emitter_t emitter) {
+  (void)module;
+  return loom_kernel_verify_barrier_attributes(
+      op, loom_kernel_barrier_memory_space(op),
+      loom_kernel_barrier_ordering(op), loom_kernel_barrier_scope(op), emitter);
+}
+
+iree_status_t loom_kernel_barrier_arrive_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter) {
+  IREE_RETURN_IF_ERROR(loom_kernel_verify_barrier_attributes(
+      op, loom_kernel_barrier_arrive_memory_space(op),
+      loom_kernel_barrier_arrive_ordering(op),
+      loom_kernel_barrier_arrive_scope(op), emitter));
+
+  const loom_value_id_t phase_id = loom_kernel_barrier_arrive_phase(op);
+  const loom_type_t phase_type = loom_module_value_type(module, phase_id);
+  if (!loom_kernel_type_is_barrier_phase(module, phase_type)) {
+    return loom_kernel_emit_result_constraint(emitter, op, IREE_SV("phase"),
+                                              phase_type,
+                                              IREE_SV("kernel.barrier.phase"));
+  }
+  if (phase_id >= module->values.count) {
+    return iree_ok_status();
+  }
+  const loom_value_t* phase = loom_module_value(module, phase_id);
+  if (phase->use_count != 1) {
+    return loom_kernel_emit_value_use_count_constraint(
+        module, emitter, op, phase_id, phase->use_count,
+        IREE_SV("exactly one kernel.barrier.wait use"));
+  }
+  const loom_op_t* user_op = loom_use_user_op(loom_value_uses(phase)[0]);
+  if (!loom_kernel_barrier_wait_isa(user_op)) {
+    return loom_kernel_emit_value_user_constraint(
+        module, emitter, op, phase_id, user_op,
+        IREE_SV("kernel.barrier.wait phase operand"));
+  }
+  return iree_ok_status();
+}
+
+iree_status_t loom_kernel_barrier_wait_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter) {
+  const loom_value_id_t phase_id = loom_kernel_barrier_wait_phase(op);
+  const loom_type_t phase_type = loom_module_value_type(module, phase_id);
+  if (!loom_kernel_type_is_barrier_phase(module, phase_type)) {
+    return loom_kernel_emit_operand_constraint(emitter, op, IREE_SV("phase"),
+                                               phase_type,
+                                               IREE_SV("kernel.barrier.phase"));
+  }
+  if (phase_id >= module->values.count) {
+    return iree_ok_status();
+  }
+  const loom_value_t* phase = loom_module_value(module, phase_id);
+  const loom_op_t* defining_op =
+      loom_value_is_block_arg(phase) ? NULL : loom_value_def_op(phase);
+  if (defining_op && loom_kernel_barrier_arrive_isa(defining_op)) {
+    return iree_ok_status();
+  }
+  return loom_kernel_emit_value_user_constraint(
+      module, emitter, op, phase_id, defining_op,
+      IREE_SV("kernel.barrier.arrive result"));
 }
 
 iree_status_t loom_kernel_tensor_lds_descriptor_verify(

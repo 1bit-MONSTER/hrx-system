@@ -41,8 +41,11 @@ void loom_spirv_target_profile_initialize(
 //
 // "vulkan1.3+bda" models the baseline Vulkan buffer-device-address environment.
 // "vulkan1.3+bda+extended-types" additionally requires f16/f64/i8/i16/bf16
-// arithmetic and narrow storage-buffer access. "vulkan1.3+bda+hal" selects
-// the baseline environment with the HAL kernel entry ABI.
+// arithmetic, F32 denorm preservation for exact BF16 widening, and narrow
+// storage-buffer access. "vulkan1.3+bda+hal" selects the baseline environment
+// with the HAL kernel entry ABI.
+// "vulkan1.3+bda+subgroup32+ballot+hal" additionally requires a fixed
+// subgroup size of 32 and subgroup ballot operations.
 //
 // The returned profile has process lifetime. Named profiles model static API
 // environments; device-discovered profiles may additionally carry dynamic

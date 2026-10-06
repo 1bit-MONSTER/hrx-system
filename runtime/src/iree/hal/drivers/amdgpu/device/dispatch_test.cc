@@ -36,16 +36,19 @@ TEST(DispatchTest, EmplacePacketPreservesZeroWorkgroupCounts) {
       MakeKernelArgs(/*kernel_object=*/0xBEEFu, /*kernarg_size=*/0,
                      /*kernarg_alignment=*/16);
   iree_hsa_kernel_dispatch_packet_t packet = {};
+  uint16_t setup = 0xBEEFu;
   packet.header = 0xFFFFu;
+  packet.setup = 0xA5A5u;
   alignas(16) std::array<uint8_t, 64> kernargs = {};
   const uint32_t workgroup_count[3] = {0, 2, 0};
 
   iree_hal_amdgpu_device_dispatch_emplace_packet(
       &kernel_args, workgroup_count,
-      /*dynamic_workgroup_local_memory=*/9, &packet, kernargs.data());
+      /*dynamic_workgroup_local_memory=*/9, &packet, kernargs.data(), &setup);
 
   EXPECT_EQ(packet.header, 0xFFFFu);
-  EXPECT_EQ(packet.setup, 3u);
+  EXPECT_EQ(packet.setup, 0xA5A5u);
+  EXPECT_EQ(setup, 3u);
   EXPECT_EQ(packet.workgroup_size[0], 4u);
   EXPECT_EQ(packet.workgroup_size[1], 5u);
   EXPECT_EQ(packet.workgroup_size[2], 6u);

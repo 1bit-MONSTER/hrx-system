@@ -138,7 +138,6 @@ func.def target(@workgroup_mixed_alias_target) @workgroup_mixed_alias_atomics(%v
                OpDecorate %_struct_6 Block
                OpDecorate %4 DescriptorSet 0
                OpDecorate %4 Binding 0
-               OpDecorate %_arr_int_uint_1 ArrayStride 4
         %int = OpTypeInt 32 1
       %int_0 = OpConstant %int 0
       %float = OpTypeFloat 32
@@ -251,7 +250,6 @@ func.def target(@workgroup_i64_target) @workgroup_i64_atomics(%value: i64) {
                OpDecorate %_struct_6 Block
                OpDecorate %4 DescriptorSet 0
                OpDecorate %4 Binding 0
-               OpDecorate %_arr_long_uint_1 ArrayStride 8
         %int = OpTypeInt 32 1
       %int_0 = OpConstant %int 0
        %long = OpTypeInt 64 1
@@ -657,7 +655,6 @@ func.def target(@workgroup_native_float_target) @workgroup_native_float_atomics(
                OpDecorate %_struct_6 Block
                OpDecorate %4 DescriptorSet 0
                OpDecorate %4 Binding 0
-               OpDecorate %_arr_float_uint_1 ArrayStride 4
         %int = OpTypeInt 32 1
       %int_0 = OpConstant %int 0
       %float = OpTypeFloat 32
@@ -931,7 +928,6 @@ func.def target(@workgroup_float_target) @workgroup_float_fallback(%value: f32) 
                OpDecorate %_struct_6 Block
                OpDecorate %4 DescriptorSet 0
                OpDecorate %4 Binding 0
-               OpDecorate %_arr_int_uint_1 ArrayStride 4
         %int = OpTypeInt 32 1
       %int_0 = OpConstant %int 0
       %float = OpTypeFloat 32

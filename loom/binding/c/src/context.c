@@ -10,6 +10,8 @@
 
 #include "iree/base/internal/atomics.h"
 #include "loom/ops/op_registry.h"
+#include "loom/transforms/cleanup/configured.h"
+#include "loom/transforms/cleanup/patterns.h"
 #include "loomc/iree.h"
 #include "target.h"
 
@@ -22,6 +24,8 @@ struct loomc_context_t {
   loom_context_t context;
   // Optional target environment registered into the context.
   loomc_target_environment_t* target_environment;
+  // Immutable cleanup pattern registry shared by all compiler invocations.
+  loom_cleanup_pattern_registry_storage_t cleanup_pattern_registry_storage;
 };
 
 static loomc_status_t loomc_context_validate_options(
@@ -44,6 +48,8 @@ static loomc_status_t loomc_context_validate_options(
 
 static void loomc_context_destroy(loomc_context_t* context) {
   loomc_allocator_t allocator = context->allocator;
+  loom_cleanup_pattern_registry_storage_deinitialize(
+      &context->cleanup_pattern_registry_storage);
   loom_context_deinitialize(&context->context);
   loomc_target_environment_release(context->target_environment);
   loomc_allocator_free(allocator, context);
@@ -70,8 +76,15 @@ loomc_status_t loomc_context_create(const loomc_context_options_t* options,
   context->allocator = allocator;
   loom_context_initialize(iree_allocator_from_loomc(allocator),
                           &context->context);
-  loomc_status_t status = loomc_status_from_iree(
-      loom_op_registry_register_all_dialects(&context->context));
+  loomc_status_t status =
+      loomc_status_from_iree(loom_cleanup_pattern_registry_storage_initialize(
+          loom_cleanup_configured_pattern_provider_set(),
+          iree_allocator_from_loomc(allocator),
+          &context->cleanup_pattern_registry_storage));
+  if (loomc_status_is_ok(status)) {
+    status = loomc_status_from_iree(
+        loom_op_registry_register_all_dialects(&context->context));
+  }
   if (loomc_status_is_ok(status) && target_environment != NULL) {
     status = loomc_target_environment_register_context(target_environment,
                                                        &context->context);
@@ -84,6 +97,8 @@ loomc_status_t loomc_context_create(const loomc_context_options_t* options,
     loomc_target_environment_retain(context->target_environment);
     *out_context = context;
   } else {
+    loom_cleanup_pattern_registry_storage_deinitialize(
+        &context->cleanup_pattern_registry_storage);
     loom_context_deinitialize(&context->context);
     loomc_allocator_free(allocator, context);
   }
@@ -119,5 +134,12 @@ const loomc_target_pass_environment_t* loomc_context_target_pass_environment(
     const loomc_context_t* context) {
   return context ? loomc_target_environment_pass_environment(
                        context->target_environment)
+                 : NULL;
+}
+
+const loom_cleanup_pattern_registry_t* loomc_context_cleanup_pattern_registry(
+    const loomc_context_t* context) {
+  return context ? loom_cleanup_pattern_registry_storage_registry(
+                       &context->cleanup_pattern_registry_storage)
                  : NULL;
 }

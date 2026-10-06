@@ -1,0 +1,23 @@
+aie2p.target<array> @array_target
+aie2p.target<core> @core_target
+
+pipeline.def<kernel> public retain target(@array_target) @select_packets() launch(%input: buffer, %output: buffer) {
+  %count = index.constant 2 : index
+  %zero = index.constant 0 : offset
+  %workers = group.create %count : index -> group
+  %input_view = buffer.view %input[%zero] : buffer -> view<2x5x256xi32>
+  %output_view = buffer.view %output[%zero] : buffer -> view<2x5x256xi32>
+  %packets = pipeline.scatter %input_view across %workers : view<2x5x256xi32>, group -> pipeline.flow<tile<256xi32>>
+  %results = pipeline.stage @select_entry on %workers(%packets) : (group, pipeline.flow<tile<256xi32>>) -> (pipeline.flow<tile<256xi32>>)
+  pipeline.write %results to %output_view : pipeline.flow<tile<256xi32>>, view<2x5x256xi32>
+  pipeline.return
+}
+
+func.def target(@core_target) @select_entry(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %zero = index.constant 0 : offset
+  func.call @select_buffers(%source, %zero, %destination, %zero) : (buffer, offset, buffer, offset)
+  func.return
+}
+
+func.decl @select_buffers(%input: buffer, %input_byte_offset: offset, %output: buffer, %output_byte_offset: offset)

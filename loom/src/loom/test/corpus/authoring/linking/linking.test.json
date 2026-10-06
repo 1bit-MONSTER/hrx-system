@@ -115,11 +115,9 @@
             "tool": "loom-compile",
             "args": [
               "{tmp}/linked.loombc",
-              "--product=kernel",
               "--format=amdgpu-hsaco",
               "--target=amdgpu:gfx1100",
-              "--output={tmp}/scale_i32.hal",
-              "--emit-target-artifact={tmp}/scale_i32.hsaco",
+              "--output={tmp}/scale_i32.hsaco",
               "--artifact-manifest=summary",
               "--compile-report=summary"
             ]
@@ -133,10 +131,6 @@
             }
           },
           "files": [
-            {
-              "path": "{tmp}/scale_i32.hal",
-              "non_empty": true
-            },
             {
               "path": "{tmp}/scale_i32.hsaco",
               "non_empty": true

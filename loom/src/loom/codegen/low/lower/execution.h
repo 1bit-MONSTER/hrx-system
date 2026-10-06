@@ -10,6 +10,7 @@
 #define LOOM_CODEGEN_LOW_LOWER_EXECUTION_H_
 
 #include "iree/base/api.h"
+#include "iree/base/bitmap.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,8 +21,10 @@ typedef struct loom_low_lower_context_t loom_low_lower_context_t;
 // Cached execution counts for the immutable source-function body. The owning
 // lowering context retains this state until function lowering completes.
 typedef struct loom_low_lower_execution_counts_t {
-  // Exact counts indexed by source body block ordinal, or NULL when unknown.
-  const uint64_t* blocks;
+  // Loop-derived multiplier indexed by source body block ordinal.
+  const uint64_t* block_multipliers;
+  // Blocks whose execution depends on an unmodeled control selector.
+  iree_bitmap_t unmodeled_blocks;
   // True after analysis has completed, including an unknown result.
   bool initialized;
 } loom_low_lower_execution_counts_t;
@@ -33,6 +36,13 @@ typedef struct loom_low_lower_execution_counts_t {
 // uncertainty about execution frequency, not an unsupported source program.
 iree_status_t loom_low_lower_source_block_execution_counts(
     loom_low_lower_context_t* context, const uint64_t** out_counts);
+
+// Returns the execution count for one source-function block when exact.
+// Branch-local blocks are unknown while blocks after proven reconvergence can
+// retain the multiplier contributed by enclosing fixed-trip loops.
+iree_status_t loom_low_lower_source_block_execution_count(
+    loom_low_lower_context_t* context, uint16_t block_index,
+    uint64_t* out_count, bool* out_exact);
 
 #ifdef __cplusplus
 }  // extern "C"

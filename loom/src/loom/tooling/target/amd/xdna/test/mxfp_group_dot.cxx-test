@@ -1,0 +1,15 @@
+// INPUT: cxx root=mxfp8_group_dot I=../../../../../import/cxx/test
+// RUN: with-checks emit source-low @mxfp8_group_dot target=amd.xdna.aie2p:core output=low
+
+#include "mxfp_group_dot.cxx"
+
+// The ordinary 32-value MXFP8 group stays in packet registers through decode
+// and reaches the existing native dot/reduction path without lane expansion.
+// ----
+CHECK: low.func.def public target<amd.xdna.aie2p.core> abi(object_function) @mxfp8_group_dot(%payload: reg<aie2p.vec256 x2>, %scale: reg<aie2p.vec256 x2>, %activations: reg<aie2p.vec256 x2>) -> (reg<aie2p.er>) asm {
+CHECK: * = vextract.32.imm %scale, 0
+CHECK: * = vfloor.s32.bf16 *
+CHECK: * = vmul.i16x32 *
+CHECK: * = vmac.bf16x32 *
+CHECK-NOT: * = vextract.8.imm %payload, *
+CHECK-NOT: * = vinsert.16.reg *

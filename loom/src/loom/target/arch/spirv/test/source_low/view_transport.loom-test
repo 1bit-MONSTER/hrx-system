@@ -100,34 +100,34 @@ low.func.def public target<spirv.logical.core> abi(shader_entry_point) @rotate_b
   %step = OpConstant.i32 1 : reg<spirv.id : index>
   %depth = OpConstant.i32 4
   %offset0 = OpConstant.offset64 0
-  %57 = OpPtrAccessChain.storage_buffer.i32.byte_offset %storage, %offset0
-  OpStore.storage_buffer.i32 %57, %seed
+  %59 = OpPtrAccessChain.storage_buffer.i32.byte_offset %storage, %offset0
+  OpStore.storage_buffer.i32 %59, %seed
   %offset1 = OpConstant.offset64 4
   %ordinal1 = OpConstant.i32 1
   %initial1 = OpIAdd %seed, %ordinal1
-  %62 = OpPtrAccessChain.storage_buffer.i32.byte_offset %storage, %offset1
-  OpStore.storage_buffer.i32 %62, %initial1
+  %64 = OpPtrAccessChain.storage_buffer.i32.byte_offset %storage, %offset1
+  OpStore.storage_buffer.i32 %64, %initial1
   %offset2 = OpConstant.offset64 8
   %ordinal2 = OpConstant.i32 2
   %initial2 = OpIAdd %seed, %ordinal2
-  %67 = OpPtrAccessChain.storage_buffer.i32.byte_offset %storage, %offset2
-  OpStore.storage_buffer.i32 %67, %initial2
+  %69 = OpPtrAccessChain.storage_buffer.i32.byte_offset %storage, %offset2
+  OpStore.storage_buffer.i32 %69, %initial2
   %offset3 = OpConstant.offset64 12
   %ordinal3 = OpConstant.i32 3
   %initial3 = OpIAdd %seed, %ordinal3
-  %72 = OpPtrAccessChain.storage_buffer.i32.byte_offset %storage, %offset3
-  OpStore.storage_buffer.i32 %72, %initial3
+  %74 = OpPtrAccessChain.storage_buffer.i32.byte_offset %storage, %offset3
+  OpStore.storage_buffer.i32 %74, %initial3
   %unroll = OpConstant.i32 2 : reg<spirv.id : index>
   %last0_offset, %last1_offset, %last2_offset, %last3_offset = low.scf.for signed [%begin to %count step %step] iter_args(%offset0: reg<spirv.offset64>, %offset1: reg<spirv.offset64>, %offset2: reg<spirv.offset64>, %offset3: reg<spirv.offset64>) -> (reg<spirv.offset64>, reg<spirv.offset64>, reg<spirv.offset64>, reg<spirv.offset64>) unroll(%unroll) do(%record: reg<spirv.id : index>, %current0_offset: reg<spirv.offset64>, %current1_offset: reg<spirv.offset64>, %current2_offset: reg<spirv.offset64>, %current3_offset: reg<spirv.offset64>) {
     %number = OpCopyObject.i32 %record
-    %future = OpIAdd %number, %depth
-    %value = OpIAdd %seed, %future
-    %86 = OpPtrAccessChain.storage_buffer.i32.byte_offset %storage, %current0_offset
-    OpStore.storage_buffer.i32 %86, %value
+    %86 = OpIAdd %number, %seed
+    %value = OpIAdd %86, %depth
+    %88 = OpPtrAccessChain.storage_buffer.i32.byte_offset %storage, %current0_offset
+    OpStore.storage_buffer.i32 %88, %value
     low.scf.yield %current1_offset, %current2_offset, %current3_offset, %current0_offset : reg<spirv.offset64>, reg<spirv.offset64>, reg<spirv.offset64>, reg<spirv.offset64>
   }
-  %87 = OpPtrAccessChain.storage_buffer.i32.byte_offset %storage, %last0_offset
-  %value0 = OpLoad.storage_buffer.i32 %87
+  %89 = OpPtrAccessChain.storage_buffer.i32.byte_offset %storage, %last0_offset
+  %value0 = OpLoad.storage_buffer.i32 %89
   return %value0
 }
 
@@ -175,4 +175,48 @@ low.func.def target<spirv.logical.core> abi(shader_entry_point) @correlated_dupl
   %sum2 = OpIAdd %sum1, %b_offset_value
   %sum3 = OpIAdd %sum2, %b_offset_value
   return %sum3
+}
+
+// ====
+
+// Dynamic view refinements used only by memory accesses remain structural
+// through nested control flow. Their source views need no target SSA storage.
+func.def @nested_dynamic_view_refinement(%input: buffer, %extent_input: index, %position_input: index, %condition: i1) -> (i32) {
+  %extent = index.assume %extent_input [range(%extent_input, 1, 128)] : index
+  %position = index.assume %position_input [range(%position_input, 0, 127), lt(%position_input, %extent)] : index
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 4} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<[%extent]xi32>
+  %result = scf.if %condition -> (i32) {
+    %refined_extent = index.assume %extent [gt(%extent, 0)] : index
+    %refined_view = view.refine %view : view<[%extent]xi32> -> view<[%refined_extent]xi32>
+    %second_extent = index.assume %refined_extent [gt(%refined_extent, 0)] : index
+    %second_view = view.refine %refined_view : view<[%refined_extent]xi32> -> view<[%second_extent]xi32>
+    %value = view.load %second_view[%position] : view<[%second_extent]xi32> -> i32
+    scf.yield %value : i32
+  } else {
+    %value = view.load %view[%position] : view<[%extent]xi32> -> i32
+    scf.yield %value : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @nested_dynamic_view_refinement(%aligned: reg<spirv.ptr.storage_buffer>, %second_extent: reg<spirv.id : index>, %position: reg<spirv.id : index>, %condition: reg<spirv.id : i1>) -> (reg<spirv.id : i32>) asm {
+  %result = low.scf.if %condition -> (reg<spirv.id : i32>) {
+    %23 = OpSConvert.i32.offset64 %position
+    %24 = OpConstant.offset64 4
+    %25 = OpIMul.offset64 %23, %24
+    %26 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %25
+    %value = OpLoad.storage_buffer.i32 %26
+    low.scf.yield %value : reg<spirv.id : i32>
+  } else {
+    %28 = OpSConvert.i32.offset64 %position
+    %29 = OpConstant.offset64 4
+    %30 = OpIMul.offset64 %28, %29
+    %31 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %30
+    %value = OpLoad.storage_buffer.i32 %31
+    low.scf.yield %value : reg<spirv.id : i32>
+  }
+  return %result
 }

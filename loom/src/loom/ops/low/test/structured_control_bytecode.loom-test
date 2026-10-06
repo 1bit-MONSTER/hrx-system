@@ -28,3 +28,16 @@ low.func.def target<test.low.core>(@test_target) @unsigned_counter_bytecode(%low
   }
   return
 }
+
+// ====
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @condition_payload_bytecode(%condition: reg<test.i32 : i1>, %init: reg<test.i32 : i32>, %bias: reg<test.i32 : i32>) -> (reg<test.i32 : i32>, reg<test.i32 : i32>) asm {
+  %state, %payload = low.scf.while(%before = %init : reg<test.i32 : i32>) -> (reg<test.i32 : i32>, reg<test.i32 : i32>) {
+    low.scf.condition %condition, %before, %bias : reg<test.i32 : i1>, reg<test.i32 : i32>, reg<test.i32 : i32>
+  } do(%body_state: reg<test.i32 : i32>, %body_payload: reg<test.i32 : i32>) {
+    low.scf.yield %body_state : reg<test.i32 : i32>
+  }
+  return %state, %payload
+}

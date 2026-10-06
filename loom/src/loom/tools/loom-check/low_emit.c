@@ -17,6 +17,26 @@
 #include "loom/ops/op_defs.h"
 #include "loom/tools/loom-check/diagnostics.h"
 
+iree_status_t loom_check_low_emit_fixed_value_spec_list_initialize(
+    iree_string_view_t options, iree_arena_allocator_t* arena,
+    loom_check_low_emit_fixed_value_spec_list_t* out_list) {
+  *out_list = (loom_check_low_emit_fixed_value_spec_list_t){0};
+  iree_host_size_t count = 0;
+  while (!iree_string_view_is_empty(options)) {
+    iree_string_view_t token;
+    iree_string_view_split(options, ' ', &token, &options);
+    iree_string_view_t name;
+    iree_string_view_split(token, '=', &name, NULL);
+    count +=
+        iree_string_view_equal(iree_string_view_trim(name), IREE_SV("fixed"));
+  }
+  if (count == 0) {
+    return iree_ok_status();
+  }
+  return iree_arena_allocate_array(arena, count, sizeof(*out_list->specs),
+                                   (void**)&out_list->specs);
+}
+
 iree_status_t loom_check_low_emit_parse_schedule_strategy(
     iree_string_view_t value, iree_string_view_t option_scope,
     loom_low_schedule_strategy_t* out_strategy) {
@@ -154,14 +174,7 @@ static iree_status_t loom_check_low_emit_parse_location_kind(
 
 iree_status_t loom_check_low_emit_parse_fixed_value_spec(
     iree_string_view_t value, iree_string_view_t option_scope,
-    loom_check_low_emit_fixed_value_spec_t* fixed_specs,
-    iree_host_size_t fixed_spec_capacity, iree_host_size_t* fixed_spec_count) {
-  if (*fixed_spec_count >= fixed_spec_capacity) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "too many %.*s fixed allocation values",
-                            (int)option_scope.size, option_scope.data);
-  }
-
+    loom_check_low_emit_fixed_value_spec_list_t* fixed_specs) {
   iree_string_view_t value_ref = iree_string_view_empty();
   iree_string_view_t kind_and_range = iree_string_view_empty();
   iree_string_view_split(value, ':', &value_ref, &kind_and_range);
@@ -217,12 +230,14 @@ iree_status_t loom_check_low_emit_parse_fixed_value_spec(
                             (int)option_scope.size, option_scope.data);
   }
 
-  fixed_specs[(*fixed_spec_count)++] = (loom_check_low_emit_fixed_value_spec_t){
-      .value_name = iree_string_view_substr(value_ref, 1, IREE_HOST_SIZE_MAX),
-      .location_kind = location_kind,
-      .location_base = location_base,
-      .location_count = location_count,
-  };
+  fixed_specs->specs[fixed_specs->count++] =
+      (loom_check_low_emit_fixed_value_spec_t){
+          .value_name =
+              iree_string_view_substr(value_ref, 1, IREE_HOST_SIZE_MAX),
+          .location_kind = location_kind,
+          .location_base = location_base,
+          .location_count = location_count,
+      };
   return iree_ok_status();
 }
 
@@ -230,17 +245,15 @@ iree_status_t loom_check_low_emit_parse_allocation_option(
     iree_string_view_t token, iree_string_view_t option_scope,
     loom_low_allocation_budget_t* budgets, iree_host_size_t budget_capacity,
     iree_host_size_t* budget_count,
-    loom_check_low_emit_fixed_value_spec_t* fixed_specs,
-    iree_host_size_t fixed_spec_capacity, iree_host_size_t* fixed_spec_count) {
+    loom_check_low_emit_fixed_value_spec_list_t* fixed_specs) {
   iree_string_view_t name = iree_string_view_empty();
   iree_string_view_t value = iree_string_view_empty();
   iree_string_view_split(token, '=', &name, &value);
   name = iree_string_view_trim(name);
   value = iree_string_view_trim(value);
   if (iree_string_view_equal(name, IREE_SV("fixed"))) {
-    return loom_check_low_emit_parse_fixed_value_spec(
-        value, option_scope, fixed_specs, fixed_spec_capacity,
-        fixed_spec_count);
+    return loom_check_low_emit_parse_fixed_value_spec(value, option_scope,
+                                                      fixed_specs);
   }
   return loom_check_low_emit_parse_allocation_budget(
       token, option_scope, budgets, budget_capacity, budget_count);
@@ -495,13 +508,14 @@ iree_status_t loom_check_low_emit_packetize_function(
     iree_host_size_t allocation_budget_count,
     const loom_check_low_emit_fixed_value_spec_t* allocation_fixed_specs,
     iree_host_size_t allocation_fixed_spec_count,
-    const loom_target_residency_model_t* residency_model,
+    loom_low_emission_frame_residency_query_fn_t residency_query,
     loom_low_schedule_pair_affinity_list_t schedule_pair_affinities,
     loom_low_schedule_structural_state_read_list_t
         schedule_structural_state_reads,
     const loom_low_storage_lease_provider_t* storage_lease_provider,
     const loom_low_emission_frame_spill_free_options_t* spill_free_options,
-    loom_low_emission_frame_t* out_frame) {
+    loom_low_emission_frame_t* out_frame, bool* out_accepted) {
+  *out_accepted = false;
   loom_check_diagnostic_emitter_capture_t diagnostic_capture = {
       .diagnostic_collector = request->diagnostic_collector,
       .module = request->module,
@@ -539,7 +553,7 @@ iree_status_t loom_check_low_emit_packetize_function(
       .schedule_strategy = schedule_strategy,
       .schedule_diagnostic_flags = schedule_diagnostic_flags,
       .allocation_diagnostic_flags = allocation_diagnostic_flags,
-      .residency_model = residency_model,
+      .residency_query = residency_query,
       .schedule_pair_affinities = schedule_pair_affinities,
       .schedule_structural_state_reads = schedule_structural_state_reads,
       .allocation_budgets = allocation_budgets,
@@ -553,9 +567,9 @@ iree_status_t loom_check_low_emit_packetize_function(
   if (spill_free_options != NULL) {
     return loom_low_emission_frame_build_spill_free(
         request->module, low_function, &frame_options, spill_free_options,
-        request->case_arena, out_frame);
+        request->case_arena, out_frame, out_accepted);
   }
   return loom_low_emission_frame_build(request->module, low_function,
                                        &frame_options, request->case_arena,
-                                       out_frame);
+                                       out_frame, out_accepted);
 }

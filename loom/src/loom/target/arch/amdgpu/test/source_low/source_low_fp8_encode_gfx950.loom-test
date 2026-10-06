@@ -147,3 +147,79 @@ low.func.def target<amdgpu.cdna4.core>(@target) abi(hal_kernel) @scalar_fptrunc_
   %7 = v_bfe_u32_offset_0_width_16_low16 %converted
   return %7
 }
+
+// ====
+
+amdgpu.target<gfx950> @target
+
+func.def target(@target) @store_scalar_float8(%input: f32, %output: buffer) {
+  %e4 = scalar.fptrunc %input : f32 to f8E4M3
+  %e5 = scalar.fptrunc %input : f32 to f8E5M2
+  %e4_base = index.constant 0 : offset
+  %e5_base = index.constant 1 : offset
+  %e4_view = buffer.view %output[%e4_base] : buffer -> view<1xf8E4M3>
+  %e5_view = buffer.view %output[%e5_base] : buffer -> view<1xf8E5M2>
+  view.store %e4, %e4_view[0] : f8E4M3, view<1xf8E4M3>
+  view.store %e5, %e5_view[0] : f8E5M2, view<1xf8E5M2>
+  func.return
+}
+
+// ----
+low.func.def target<amdgpu.cdna4.core>(@target) abi(hal_kernel) @store_scalar_float8(%input: reg<amdgpu.vgpr>) asm {
+  %e5_view = resource<hal_binding> {extent = 2, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %10 = v_mov_b32 1138753536
+  %11 = v_mov_b32 3286237184
+  %12 = v_med3_f32 %input, %10, %11
+  %13 = v_cmp_u_f32 %input, %input
+  %14 = v_cndmask_b32 %12, %input, %13
+  %e4 = v_cvt_pk_fp8_f32_low %14, %14
+  %e5 = v_cvt_pk_bf8_f32_low %input, %input
+  %20 = v_mov_b32 0
+  global_store_b8_saddr %20, %e4, %e5_view
+  global_store_b8_saddr %20, %e5, %e5_view {offset = 1}
+  return
+}
+
+// ====
+
+amdgpu.target<gfx950> @target
+
+func.def target(@target) @vector_sitofp_i8x4_to_fp8(%input: vector<4xi8>) -> (vector<4xf8E4M3>) {
+  %floats = vector.sitofp %input : vector<4xi8> to vector<4xf32>
+  %converted = vector.fptrunc %floats : vector<4xf32> to vector<4xf8E4M3>
+  func.return %converted : vector<4xf8E4M3>
+}
+
+// ----
+low.func.def target<amdgpu.cdna4.core>(@target) abi(hal_kernel) @vector_sitofp_i8x4_to_fp8(%input: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %6 = v_mov_b32_sdwa %input {dst_sel = 6, dst_unused = 0, src0_sel = 0, src0_sext = 1}
+  %7 = v_cvt_f32_i32 %6
+  %8 = v_mov_b32_sdwa %input {dst_sel = 6, dst_unused = 0, src0_sel = 1, src0_sext = 1}
+  %9 = v_cvt_f32_i32 %8
+  %10 = v_mov_b32_sdwa %input {dst_sel = 6, dst_unused = 0, src0_sel = 2, src0_sext = 1}
+  %11 = v_cvt_f32_i32 %10
+  %12 = v_mov_b32_sdwa %input {dst_sel = 6, dst_unused = 0, src0_sel = 3, src0_sext = 1}
+  %13 = v_cvt_f32_i32 %12
+  %19 = v_cvt_pk_fp8_f32_low %7, %9
+  %converted = v_cvt_pk_fp8_f32_high %19, %11, %13
+  return %converted
+}
+
+// ====
+
+amdgpu.target<gfx950> @target
+
+func.def target(@target) @scalar_sitofp_i8_to_fp8(%input: i8) -> (f8E4M3) {
+  %float = scalar.sitofp %input : i8 to f32
+  %converted = scalar.fptrunc %float : f32 to f8E4M3
+  func.return %converted : f8E4M3
+}
+
+// ----
+low.func.def target<amdgpu.cdna4.core>(@target) abi(hal_kernel) @scalar_sitofp_i8_to_fp8(%input: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %6 = v_mov_b32_sdwa %input {dst_sel = 6, dst_unused = 0, src0_sel = 0, src0_sext = 1}
+  %float = v_cvt_f32_i32 %6
+  %converted = v_cvt_pk_fp8_f32_low %float, %float
+  %9 = v_bfe_u32_offset_0_width_16_low16 %converted
+  return %9
+}

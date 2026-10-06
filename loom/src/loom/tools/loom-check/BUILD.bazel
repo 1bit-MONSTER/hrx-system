@@ -50,7 +50,7 @@ _EMIT_SPIRV_CHECK_COPTS = iree_select({
 
 _EMIT_SPIRV_CHECK_DEPS = iree_select({
     "//loom/config/emit:spirv": [
-        "//loom/src/loom/target/emit/spirv:check_provider",
+        "//loom/src/loom/tooling/target/spirv:check_provider",
     ],
     "//conditions:default": [],
 })
@@ -68,7 +68,7 @@ _TARGET_VM_CHECK_COPTS = iree_select({
 })
 
 _TARGET_VM_CHECK_DEPS = iree_select({
-    "//loom/config/target/arch:vm": ["//loom/src/loom/target/arch/vm:check"],
+    "//loom/config/target/arch:vm": ["//loom/src/loom/tooling/target/vm:check"],
     "//conditions:default": [],
 })
 
@@ -88,7 +88,7 @@ _EMIT_WASM_CHECK_COPTS = iree_select({
 
 _EMIT_WASM_CHECK_DEPS = iree_select({
     "//loom/config/emit:wasm": [
-        "//loom/src/loom/target/emit/wasm:check_provider",
+        "//loom/src/loom/tooling/target/wasm:check_provider",
     ],
     "//conditions:default": [],
 })
@@ -186,6 +186,7 @@ loom_cc_library(
         "//loom/src/loom/analysis:liveness",
         "//loom/src/loom/analysis:liveness_json",
         "//loom/src/loom/analysis:pipeline_plan",
+        "//loom/src/loom/codegen:pass_environment",
         "//loom/src/loom/codegen/low:allocation",
         "//loom/src/loom/codegen/low:allocation_json",
         "//loom/src/loom/codegen/low:descriptors",
@@ -199,7 +200,6 @@ loom_cc_library(
         "//loom/src/loom/codegen/low:verify",
         "//loom/src/loom/codegen/low/lower",
         "//loom/src/loom/codegen/low/pipeline:legalizer_registry",
-        "//loom/src/loom/codegen/low/pipeline:pass_environment",
         "//loom/src/loom/codegen/low/schedule",
         "//loom/src/loom/error:diagnostic",
         "//loom/src/loom/error:emitter",
@@ -241,6 +241,7 @@ loom_cc_library(
         "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tooling/input",
         "//loom/src/loom/tools/loom-format:convert",
+        "//loom/src/loom/transforms/cleanup:patterns",
         "//loom/src/loom/util:diff",
         "//loom/src/loom/util:fact_table",
         "//loom/src/loom/util:json",
@@ -292,6 +293,7 @@ loom_cc_test(
         "//loom/src/loom/target/test:lower",
         "//loom/src/loom/testing:context",
         "//loom/src/loom/testing:test_file",
+        "//loom/src/loom/transforms/cleanup:configured",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/base/internal:json",
@@ -391,10 +393,11 @@ loom_cc_library(
     deps = [
         ":execute",
         "//loom/src/loom/codegen/low:repr",
+        "//loom/src/loom/compile:request",
         "//loom/src/loom/link:linker",
         "//loom/src/loom/target:entry_selection",
         "//loom/src/loom/tooling/compile:configured",
-        "//loom/src/loom/tooling/compile:preparation",
+        "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tooling/config",
         "//runtime/src/iree/base",
     ],
@@ -477,6 +480,7 @@ loom_cc_library(
         "//loom/src/loom/target:provider",
         "//loom/src/loom/tooling/context",
         "//loom/src/loom/tooling/input",
+        "//loom/src/loom/transforms/cleanup:configured",
         "//runtime/src/iree/base",
     ],
 )

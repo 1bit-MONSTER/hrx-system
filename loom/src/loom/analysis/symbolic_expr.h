@@ -15,13 +15,19 @@
 // analysis fail; the defining SSA result remains a symbolic variable and range
 // facts stay attached. This lets consumers such as view alias analysis prove
 // the common affine cases while preserving a conservative escape hatch.
-// Address casts expand through their input only when its range proves the cast
-// preserves numeric value; truncation and unsigned reinterpretation otherwise
-// retain the cast result as a symbolic variable.
+// Integer and address casts expand through their input only when its range
+// proves the cast preserves numeric value; truncation and unsigned
+// reinterpretation otherwise retain the cast result as a symbolic variable.
 // Fixed-width arithmetic expands only when its mathematical range fits the
 // result domain or an explicit no-signed-wrap contract permits the relation.
+// Left shifts additionally require a valid exact shift amount.
 // Potentially wrapping results remain independent symbols, so integer-order
-// proofs cannot cancel arithmetic across a modular boundary.
+// proofs cannot cancel arithmetic across a modular boundary. A separate
+// optional congruence retains periodic relationships for disjointness queries
+// without weakening these exact-expression and materialization contracts.
+// Memoized summaries also retain exact nonnegative quotient/remainder
+// projections for numeric equality and coordinate evaluation. The original
+// quotient or remainder remains the materialized SSA term.
 //
 // Storage is caller-owned. The context memoizes value-to-expression queries and
 // owns a reusable scratch term buffer so fixed-point analyses can query without
@@ -47,6 +53,9 @@ extern "C" {
 #define LOOM_SYMBOLIC_EXPR_DEFAULT_TERM_LIMIT 64
 
 typedef struct loom_symbolic_expr_memo_entry_t loom_symbolic_expr_memo_entry_t;
+typedef struct loom_symbolic_expr_memo_chunk_t loom_symbolic_expr_memo_chunk_t;
+typedef struct loom_symbolic_congruence_t loom_symbolic_congruence_t;
+typedef struct loom_symbolic_projection_t loom_symbolic_projection_t;
 typedef struct loom_cfg_value_identity_table_t loom_cfg_value_identity_table_t;
 // A single coefficient times an SSA value.
 typedef struct loom_symbolic_term_t {
@@ -84,6 +93,10 @@ typedef struct loom_symbolic_expr_t {
 
   // Bitfield of loom_symbolic_expr_flag_bits_e.
   loom_symbolic_expr_flags_t flags;
+
+  // Optional producer-owned modular guarantee in addition to the exact terms.
+  // This never substitutes for an exact address or integer-order expression.
+  const loom_symbolic_congruence_t* congruence;
 } loom_symbolic_expr_t;
 
 // Stable summary for one analyzed SSA value.
@@ -94,6 +107,10 @@ typedef struct loom_symbolic_expr_summary_t {
   // SSA value exactly materializing expression's nonconstant terms, or
   // LOOM_VALUE_ID_INVALID when no such value was retained during expansion.
   loom_value_id_t materialized_dynamic_value_id;
+
+  // Optional exact digit function for this value. Materialized expression
+  // terms remain unchanged; proof consumers may query this retained relation.
+  const loom_symbolic_projection_t* projection;
 } loom_symbolic_expr_summary_t;
 
 // Memoized condition-refined facts for one SSA value. This state is owned by
@@ -136,20 +153,31 @@ typedef struct loom_symbolic_expr_context_t {
   // Maximum number of terms retained before degrading to facts-only.
   iree_host_size_t maximum_term_count;
 
-  // Memo entries indexed by storage ordinal.
-  loom_symbolic_expr_memo_entry_t* memo_entries;
+  // Live memo payloads reused across resets. Index cells are invalidated at
+  // reset; payload chunks retain their high-water capacity.
+  struct {
+    // Stable live entry by storage ordinal, or NULL when absent.
+    loom_symbolic_expr_memo_entry_t** entries;
+    // Number of initialized ordinal index cells.
+    iree_host_size_t capacity;
+    // First reusable chunk containing entries and their owning ordinals.
+    loom_symbolic_expr_memo_chunk_t* first;
+    // Chunk containing the live tail, used only while count is nonzero.
+    loom_symbolic_expr_memo_chunk_t* current;
+    // Number of initialized payload slots in the current epoch.
+    uint32_t count;
+  } memo;
 
-  // Allocated memo entry count.
-  iree_host_size_t memo_capacity;
-
-  // Storage ordinals whose memo entries are live in the current epoch.
-  loom_value_ordinal_t* touched_memo_ordinals;
-
-  // Number of populated entries in touched_memo_ordinals.
-  iree_host_size_t touched_memo_ordinal_count;
-
-  // Allocated entry count in touched_memo_ordinals.
-  iree_host_size_t touched_memo_ordinal_capacity;
+  // Exact digit proofs owned by this context. Only projected values allocate
+  // records; their memo slots retain indices into this array.
+  struct {
+    // Arena-owned records; growth preserves previously returned summaries.
+    loom_symbolic_projection_t* values;
+    // Number of records populated in the current epoch.
+    iree_host_size_t count;
+    // Allocated record count, retained across context resets.
+    iree_host_size_t capacity;
+  } projections;
 
   // Condition-refined fact memo entries indexed by storage ordinal.
   loom_symbolic_expr_condition_fact_memo_entry_t* condition_fact_memo_entries;
@@ -203,6 +231,13 @@ void loom_symbolic_expr_context_reset(loom_symbolic_expr_context_t* context);
 bool loom_symbolic_expr_context_try_lookup_summary(
     const loom_symbolic_expr_context_t* context, loom_value_id_t value_id,
     loom_symbolic_expr_summary_t* out_summary);
+
+// Returns the retained exact digit proof for an expression containing one
+// unscaled SSA term and no constant. Reads its canonical term's memo entry;
+// does not expand source IR or allocate storage.
+const loom_symbolic_projection_t* loom_symbolic_expr_lookup_projection(
+    const loom_symbolic_expr_context_t* context,
+    const loom_symbolic_expr_t* expression);
 
 // Constructs a facts-only expression. This is the conservative result for
 // unsupported nonlinear arithmetic when no precise SSA variable is available.

@@ -366,6 +366,20 @@ static void loom_verify_emit_placement_diagnostic(
                               IREE_ARRAYSIZE(params));
 }
 
+static void loom_verify_emit_named_placement_diagnostic(
+    loom_verify_state_t* state, const loom_op_t* op,
+    const loom_op_vtable_t* vtable, iree_string_view_t constraint_kind,
+    iree_string_view_t ancestor_names, iree_string_view_t actual_ancestor) {
+  loom_diagnostic_param_t params[] = {
+      loom_param_string(loom_op_vtable_name(vtable)),
+      loom_param_string(constraint_kind),
+      loom_param_string(ancestor_names),
+      loom_param_string(actual_ancestor),
+  };
+  loom_verify_emit_structured(state, op, LOOM_ERR_STRUCTURE_029, params,
+                              IREE_ARRAYSIZE(params));
+}
+
 void loom_verify_op_placement(loom_verify_state_t* state, const loom_op_t* op,
                               const loom_op_vtable_t* vtable) {
   if (iree_any_bit_set(vtable->traits, LOOM_TRAIT_MODULE_SCOPE) &&
@@ -405,6 +419,22 @@ void loom_verify_op_placement(loom_verify_state_t* state, const loom_op_t* op,
     loom_verify_emit_placement_diagnostic(
         state, op, vtable, IREE_SV("required"), ancestor_kind,
         loom_verify_parent_context_name(state, op));
+  }
+  if (placement->required_any_ancestor_count > 0) {
+    bool found_required_ancestor = false;
+    for (uint8_t i = 0; i < placement->required_any_ancestor_count; ++i) {
+      if (loom_verify_find_ancestor(op, placement->required_any_ancestors[i])) {
+        found_required_ancestor = true;
+        break;
+      }
+    }
+    if (!found_required_ancestor &&
+        !loom_verify_has_deferred_required_ancestor(state, op)) {
+      loom_verify_emit_named_placement_diagnostic(
+          state, op, vtable, IREE_SV("one-of-required"),
+          iree_make_cstring_view(placement->required_any_ancestor_names),
+          loom_verify_parent_context_name(state, op));
+    }
   }
   for (uint8_t i = 0; i < placement->forbidden_ancestor_count; ++i) {
     loom_op_kind_t ancestor_kind = placement->forbidden_ancestors[i];
@@ -733,6 +763,18 @@ static void loom_verify_predicate_list_attr(loom_verify_state_t* state,
          ++argument_index) {
       uint8_t tag = predicate->arg_tags[argument_index];
       if (tag > LOOM_PRED_ARG_NONE && tag < LOOM_PRED_ARG_COUNT_) {
+        if (tag == LOOM_PRED_ARG_VALUE &&
+            (predicate->args[argument_index] < 0 ||
+             predicate->args[argument_index] > UINT32_MAX ||
+             (loom_value_id_t)predicate->args[argument_index] >=
+                 state->module->values.count)) {
+          loom_diagnostic_param_t params[] = {
+              loom_param_u32((uint32_t)predicate->args[argument_index]),
+              loom_param_u32((uint32_t)state->module->values.count),
+          };
+          loom_verify_emit_structured(state, op, LOOM_ERR_DOMINANCE_003, params,
+                                      IREE_ARRAYSIZE(params));
+        }
         continue;
       }
       loom_diagnostic_param_t params[] = {
@@ -743,6 +785,44 @@ static void loom_verify_predicate_list_attr(loom_verify_state_t* state,
           loom_param_u32(LOOM_PRED_ARG_COUNT_),
       };
       loom_verify_emit_structured(state, op, LOOM_ERR_STRUCTURE_022, params,
+                                  IREE_ARRAYSIZE(params));
+    }
+
+    // Literal-only contradictions are malformed independently of the op that
+    // carries the predicate list. Keeping these invariants at the attribute
+    // boundary prevents individual fact consumers from assigning different
+    // meanings to the same predicate spelling.
+    uint8_t constrained_argument_index = UINT8_MAX;
+    int64_t constrained_argument_value = 0;
+    iree_string_view_t expected_constraint = iree_string_view_empty();
+    if (predicate->kind == LOOM_PREDICATE_MUL &&
+        predicate->arg_count == expected_argument_count &&
+        predicate->arg_tags[1] == LOOM_PRED_ARG_CONST &&
+        predicate->args[1] <= 0) {
+      constrained_argument_index = 1;
+      constrained_argument_value = predicate->args[1];
+      expected_constraint = IREE_SV("a positive divisor");
+    } else if (predicate->kind == LOOM_PREDICATE_RANGE &&
+               predicate->arg_count == expected_argument_count &&
+               predicate->arg_tags[1] == LOOM_PRED_ARG_CONST &&
+               predicate->arg_tags[2] == LOOM_PRED_ARG_CONST &&
+               predicate->args[1] > predicate->args[2]) {
+      constrained_argument_index = 2;
+      constrained_argument_value = predicate->args[2];
+      expected_constraint =
+          IREE_SV("a value greater than or equal to the lower bound");
+    }
+    if (constrained_argument_index != UINT8_MAX) {
+      char field_name[64];
+      iree_snprintf(field_name, sizeof(field_name), "%.*s[%u].arg[%u]",
+                    (int)name.size, name.data, predicate_index,
+                    constrained_argument_index);
+      loom_diagnostic_param_t params[] = {
+          loom_param_string(iree_make_cstring_view(field_name)),
+          loom_param_i64(constrained_argument_value),
+          loom_param_string(expected_constraint),
+      };
+      loom_verify_emit_structured(state, op, LOOM_ERR_STRUCTURE_014, params,
                                   IREE_ARRAYSIZE(params));
     }
   }

@@ -120,7 +120,7 @@ class LowLowerRuleEmitTest : public ::testing::Test {
   loom_low_lower_result_t result_ = {};
 };
 
-TEST_F(LowLowerRuleEmitTest, EmitsDescriptorAndRegisterCopyPrograms) {
+TEST_F(LowLowerRuleEmitTest, EmitsDescriptorAndRegisterTransferPrograms) {
   IREE_ASSERT_OK(
       loom_low_lower_function(module_, function_, &options_, &result_));
   ASSERT_EQ(result_.error_count, 0u);
@@ -135,6 +135,7 @@ TEST_F(LowLowerRuleEmitTest, EmitsDescriptorAndRegisterCopyPrograms) {
 
   loom_op_t* emitted_add = nullptr;
   loom_op_t* emitted_copy = nullptr;
+  loom_op_t* emitted_move = nullptr;
   loom_op_t* emitted_return = nullptr;
   loom_op_t* op = nullptr;
   loom_block_for_each_op(
@@ -146,12 +147,16 @@ TEST_F(LowLowerRuleEmitTest, EmitsDescriptorAndRegisterCopyPrograms) {
     } else if (loom_low_copy_isa(op)) {
       ASSERT_EQ(emitted_copy, nullptr);
       emitted_copy = op;
+    } else if (loom_low_move_isa(op)) {
+      ASSERT_EQ(emitted_move, nullptr);
+      emitted_move = op;
     } else if (loom_low_return_isa(op)) {
       emitted_return = op;
     }
   }
   ASSERT_NE(emitted_add, nullptr);
   ASSERT_NE(emitted_copy, nullptr);
+  ASSERT_NE(emitted_move, nullptr);
   ASSERT_NE(emitted_return, nullptr);
 
   const loom_value_slice_t operands = loom_low_op_operands(emitted_add);
@@ -161,14 +166,19 @@ TEST_F(LowLowerRuleEmitTest, EmitsDescriptorAndRegisterCopyPrograms) {
   const loom_value_slice_t results = loom_low_op_results(emitted_add);
   ASSERT_EQ(results.count, 1u);
   EXPECT_EQ(loom_low_copy_source(emitted_copy), results.values[0]);
+  EXPECT_EQ(loom_low_move_source(emitted_move),
+            loom_low_copy_result(emitted_copy));
   const loom_type_t copy_result_type =
       loom_module_value_type(module_, loom_low_copy_result(emitted_copy));
   EXPECT_FALSE(loom_type_equal(
       copy_result_type, loom_module_value_type(module_, results.values[0])));
+  EXPECT_TRUE(loom_type_equal(
+      copy_result_type,
+      loom_module_value_type(module_, loom_low_move_result(emitted_move))));
   const loom_value_slice_t return_values =
       loom_low_return_values(emitted_return);
   ASSERT_EQ(return_values.count, 1u);
-  EXPECT_EQ(return_values.values[0], loom_low_copy_result(emitted_copy));
+  EXPECT_EQ(return_values.values[0], loom_low_move_result(emitted_move));
 }
 
 }  // namespace

@@ -58,24 +58,24 @@ control-wait record=3 tile=(0,0) direction=stream-to-memory dma-channel=0 column
 control-relocation index=0 record=0 word=1 binding=0 addend=0 alignment=4
 
 resident-program workers=1
-resident worker=0 entry=@cross_bank_records$worker$0 tile=(0,2) code-bytes=74 resources=0 fixups=1
+resident worker=0 entry=@cross_bank_records$worker$0 tile=(0,2) code-bytes=68 resources=0 fixups=1
 
-low.func.def retain target<amd.xdna.aie2p.core>(@core_target) @cross_bank_records$worker$0() asm {
+low.func.def retain target<amd.xdna.aie2p.core> @cross_bank_records$worker$0() asm {
   %acquire_delta = mov.short -1
   %release_delta = mov.short 1
-  %22 = mov.local-address 458752
-  low.br ^_bb1(%22: reg<aie2p.ep>)
-^_bb1(%16: reg<aie2p.ep>):
+  %10 = mov.local-address 458752
+  low.br ^_bb1(%10: reg<aie2p.ep>)
+^_bb1(%4: reg<aie2p.ep>):
   acq %acquire_delta, 48
-  %output = copy %16 : reg<aie2p.ep> -> reg<aie2p.ep>
+  %output = copy %4 : reg<aie2p.ep> -> reg<aie2p.ep>
   %value = mov.short 7
   st %value, %output, 0
   rel %release_delta, 49
-  %18 = mov.address-to-scalar %16
-  %19 = mov.i32 16448
-  %20 = xor %18, %19
-  %21 = mov.scalar-to-address %20
-  low.br ^_bb1(%21: reg<aie2p.ep>)
+  %6 = mov.address-to-scalar %4
+  %7 = mov.i32 16448
+  %8 = xor %6, %7
+  %9 = mov.scalar-to-address %8
+  low.br ^_bb1(%9: reg<aie2p.ep>)
 }
 
 // ====
@@ -140,24 +140,24 @@ control-wait record=3 tile=(0,0) direction=stream-to-memory dma-channel=0 column
 control-relocation index=0 record=0 word=1 binding=0 addend=0 alignment=4
 
 resident-program workers=1
-resident worker=0 entry=@full_local_ring$worker$0 tile=(0,2) code-bytes=74 resources=0 fixups=1
+resident worker=0 entry=@full_local_ring$worker$0 tile=(0,2) code-bytes=68 resources=0 fixups=1
 
-low.func.def retain target<amd.xdna.aie2p.core>(@core_target) @full_local_ring$worker$0() asm {
+low.func.def retain target<amd.xdna.aie2p.core> @full_local_ring$worker$0() asm {
   %acquire_delta = mov.short -1
   %release_delta = mov.short 1
-  %22 = mov.local-address 458752
-  low.br ^_bb1(%22: reg<aie2p.ep>)
-^_bb1(%16: reg<aie2p.ep>):
+  %10 = mov.local-address 458752
+  low.br ^_bb1(%10: reg<aie2p.ep>)
+^_bb1(%4: reg<aie2p.ep>):
   acq %acquire_delta, 48
-  %output = copy %16 : reg<aie2p.ep> -> reg<aie2p.ep>
+  %output = copy %4 : reg<aie2p.ep> -> reg<aie2p.ep>
   %value = mov.short 7
   st %value, %output, 0
   rel %release_delta, 49
-  %18 = mov.address-to-scalar %16
-  %19 = mov.i32 32768
-  %20 = xor %18, %19
-  %21 = mov.scalar-to-address %20
-  low.br ^_bb1(%21: reg<aie2p.ep>)
+  %6 = mov.address-to-scalar %4
+  %7 = mov.i32 32768
+  %8 = xor %6, %7
+  %9 = mov.scalar-to-address %8
+  low.br ^_bb1(%9: reg<aie2p.ep>)
 }
 
 // ====
@@ -254,20 +254,20 @@ control-relocation index=0 record=0 word=1 binding=0 addend=0 alignment=4
 control-relocation index=1 record=3 word=1 binding=1 addend=0 alignment=4
 
 resident-program workers=1
-resident worker=0 entry=@occupied_bank_prefixes$worker$0 tile=(0,2) code-bytes=136 resources=0 fixups=2
+resident worker=0 entry=@occupied_bank_prefixes$worker$0 tile=(0,2) code-bytes=130 resources=0 fixups=2
 
-low.func.def retain target<amd.xdna.aie2p.core>(@core_target) @occupied_bank_prefixes$worker$0() asm {
+low.func.def retain target<amd.xdna.aie2p.core> @occupied_bank_prefixes$worker$0() asm {
   %allocation = storage {byte_alignment = 32768, byte_length = 20000} : low.storage<workgroup>
   %acquire_delta = mov.short -1
   %release_delta = mov.short 1
-  %38 = mov.local-address 458752
-  %39 = mov.local-address 393216
-  low.br ^_bb1(%38: reg<aie2p.ep>, %39: reg<aie2p.ep>)
-^_bb1(%26: reg<aie2p.ep>, %28: reg<aie2p.ep>):
+  %19 = mov.local-address 458752
+  %20 = mov.local-address 393216
+  low.br ^_bb1(%19: reg<aie2p.ep>, %20: reg<aie2p.ep>)
+^_bb1(%7: reg<aie2p.ep>, %9: reg<aie2p.ep>):
   acq %acquire_delta, 48
   acq %acquire_delta, 32
-  %small = copy %26 : reg<aie2p.ep> -> reg<aie2p.ep>
-  %output = copy %28 : reg<aie2p.ep> -> reg<aie2p.ep>
+  %small = copy %7 : reg<aie2p.ep> -> reg<aie2p.ep>
+  %output = copy %9 : reg<aie2p.ep> -> reg<aie2p.ep>
   %storage = storage_address %allocation : low.storage<workgroup> -> reg<aie2p.ep>
   %value = mov.short 7
   st %value, %output, 0
@@ -275,15 +275,15 @@ low.func.def retain target<amd.xdna.aie2p.core>(@core_target) @occupied_bank_pre
   st %value, %storage, 0
   rel %release_delta, 49
   rel %release_delta, 33
-  %30 = mov.address-to-scalar %26
-  %31 = mov.i32 16384
-  %32 = xor %30, %31
-  %33 = mov.scalar-to-address %32
-  %34 = mov.address-to-scalar %28
-  %35 = mov.i32 16448
-  %36 = xor %34, %35
-  %37 = mov.scalar-to-address %36
-  low.br ^_bb1(%33: reg<aie2p.ep>, %37: reg<aie2p.ep>)
+  %11 = mov.address-to-scalar %7
+  %12 = mov.i32 16384
+  %13 = xor %11, %12
+  %14 = mov.scalar-to-address %13
+  %15 = mov.address-to-scalar %9
+  %16 = mov.i32 16448
+  %17 = xor %15, %16
+  %18 = mov.scalar-to-address %17
+  low.br ^_bb1(%14: reg<aie2p.ep>, %18: reg<aie2p.ep>)
 }
 
 // ====
@@ -295,19 +295,21 @@ aie2p.target<array> @array_target
 
 aie2p.target<core> @core_target
 
-// ERROR@+1: TARGET/088 {channel="0", column="0", row="2", capacity="3", record_bytes="32768"}
 low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @oversized_ring() asm {
-  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
-  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
-  %capacity = constant.u32 3 : reg<aie2p.array.scalar : index>
-  %row = constant.u32 2 : reg<aie2p.array.scalar : index>
-  %group = group %one
-  %worker = worker %group, %zero, @write_records
+  %worker_count = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %worker_ordinal = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %channel_capacity = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %records_per_invocation = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %tile_column = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %worker_row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %workers = group %worker_count
+  %worker = worker %workers, %worker_ordinal, @write_records
   %binding = binding 0, "write"
   %sender = sender %worker, 0 : reg<aie2p.array.sender : tile<8192xi32>>
   %receiver = receiver %binding, 0 : reg<aie2p.array.receiver : tile<8192xi32>>
-  %channel = channel %sender, %receiver, %capacity, %one : reg<aie2p.array.channel : tile<8192xi32>>
-  constrain.location %worker, %zero, %row
+  // ERROR@+1: XDNA/006 {channel="0", column="0", row="2", capacity="3", record_bytes="32768", reason="no visible compute tile can host the sending DMA endpoint, ring, and locks"}
+  %channel = channel %sender, %receiver, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<8192xi32>>
+  constrain.location %worker, %tile_column, %worker_row
   return
 }
 
@@ -315,5 +317,46 @@ low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @wri
   %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %value = mov.short 7
   st %value, %output, 0
+  return
+}
+
+// ====
+
+// RUN: emit aie2p-array-plan @oversized_neighbor_ring
+
+// One full-width record fits the 64 KiB owner, but a two-record neighbor ring
+// cannot fit and is rejected at the channel that requested the resources.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @oversized_neighbor_ring() asm {
+  %worker_count = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %producer_ordinal = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %consumer_ordinal = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %channel_capacity = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %records_per_invocation = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %tile_column = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %producer_row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %consumer_row = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %workers = group %worker_count
+  %producer = worker %workers, %producer_ordinal, @produce_full_record
+  %consumer = worker %workers, %consumer_ordinal, @consume_full_record
+  %sender = sender %producer, 0 : reg<aie2p.array.sender : tile<16384xi32>>
+  %receiver = receiver %consumer, 0 : reg<aie2p.array.receiver : tile<16384xi32>>
+  // ERROR@+1: XDNA/006 {channel="0", column="0", row="2", capacity="2", record_bytes="65536", reason="the selected neighbor-memory owner cannot fit the channel ring"}
+  %channel = channel %sender, %receiver, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<16384xi32>>
+  constrain.location %producer, %tile_column, %producer_row
+  constrain.location %consumer, %tile_column, %consumer_row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @produce_full_record() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume_full_record() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   return
 }

@@ -2,16 +2,14 @@
   "version": 1,
   "cases": [
     {
-      "name": "compiles wave64 reductions to AMDGPU HAL artifact",
+      "name": "compiles wave64 reductions to AMDGPU HSACO",
       "run": {
         "tool": "loom-compile",
         "args": [
           "{srcdir}/wave64_reductions.loom",
-          "--product=kernel",
           "--format=amdgpu-hsaco",
           "--target=amdgpu:gfx1151",
-          "--output={tmp}/wave64_reductions.hal",
-          "--emit-target-artifact={tmp}/wave64_reductions.hsaco",
+          "--output={tmp}/wave64_reductions.hsaco",
           "--artifact-manifest=summary",
           "--compile-report=summary"
         ]
@@ -27,15 +25,11 @@
             "\"function\":\"wave64_workgroup_reduce_cross_wave\"",
             "\"local_memory_bytes\":8",
             "\"local_memory_bytes\":16",
-            "\"barrier_count\":1"
+            "\"execution_barrier_count\":1"
           ]
         }
       },
       "files": [
-        {
-          "path": "{tmp}/wave64_reductions.hal",
-          "non_empty": true
-        },
         {
           "path": "{tmp}/wave64_reductions.hsaco",
           "non_empty": true
@@ -52,16 +46,14 @@
       ]
     },
     {
-      "name": "compiles shared memory vector tile to AMDGPU HAL artifact",
+      "name": "compiles shared memory vector tile to AMDGPU HSACO",
       "run": {
         "tool": "loom-compile",
         "args": [
           "{srcdir}/shared_memory_vector_tile.loom",
-          "--product=kernel",
           "--format=amdgpu-hsaco",
           "--target=amdgpu:gfx11-generic",
-          "--output={tmp}/shared_memory_vector_tile.hal",
-          "--emit-target-artifact={tmp}/shared_memory_vector_tile.hsaco",
+          "--output={tmp}/shared_memory_vector_tile.hsaco",
           "--artifact-manifest=summary",
           "--compile-report=summary"
         ]
@@ -74,15 +66,11 @@
             "\"status\":{\"code\":0,\"name\":\"OK\"}",
             "\"local_memory_bytes\":1024",
             "\"local_memory_count\":2",
-            "\"barrier_count\":1"
+            "\"execution_barrier_count\":1"
           ]
         }
       },
       "files": [
-        {
-          "path": "{tmp}/shared_memory_vector_tile.hal",
-          "non_empty": true
-        },
         {
           "path": "{tmp}/shared_memory_vector_tile.hsaco",
           "non_empty": true
@@ -99,11 +87,9 @@
         "tool": "loom-compile",
         "args": [
           "{srcdir}/cluster_b128_multicast.loom",
-          "--product=kernel",
           "--format=amdgpu-hsaco",
           "--target=amdgpu:gfx1250",
-          "--output={tmp}/cluster_b128_multicast.hal",
-          "--emit-target-artifact={tmp}/cluster_b128_multicast.hsaco",
+          "--output={tmp}/cluster_b128_multicast.hsaco",
           "--artifact-manifest=summary",
           "--compile-report=summary"
         ]
@@ -117,15 +103,11 @@
             "\"cluster_size\":{\"x\":1,\"y\":2,\"z\":1,\"flat\":2}",
             "\"local_memory_bytes\":512",
             "\"explicit_action_count\":1",
-            "\"barrier_count\":0"
+            "\"execution_barrier_count\":0"
           ]
         }
       },
       "files": [
-        {
-          "path": "{tmp}/cluster_b128_multicast.hal",
-          "non_empty": true
-        },
         {
           "path": "{tmp}/cluster_b128_multicast.hsaco",
           "non_empty": true

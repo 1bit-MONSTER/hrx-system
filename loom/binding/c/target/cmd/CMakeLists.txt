@@ -27,6 +27,7 @@ loom_cc_library(
     loom::pass::builtin_registry
     loom::target::arch::cmd::artifact_builder
     loom::target::arch::cmd::artifact_set
+    loom::transforms::cleanup::configured
     loom::transforms::kernel::kernel_class_materializer
     loom::transforms::kernel::kernel_request_producer
   PUBLIC

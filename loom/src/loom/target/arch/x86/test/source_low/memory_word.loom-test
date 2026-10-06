@@ -1,0 +1,85 @@
+// RUN: with-checks emit source-low target=x86:avx2 output=low
+
+// Word vectors that fit in AVX2 registers remain SIMD transfers for every
+// 16-bit numeric format.
+func.def @copy_word_vectors(%input: buffer, %output: buffer) {
+  %half8_offset = index.constant 0 : offset
+  %bfloat8_offset = index.constant 16 : offset
+  %integer8_offset = index.constant 32 : offset
+  %half16_offset = index.constant 48 : offset
+  %bfloat16_offset = index.constant 80 : offset
+  %integer16_offset = index.constant 112 : offset
+  %source_half8 = buffer.view %input[%half8_offset] : buffer -> view<8xf16>
+  %source_bfloat8 = buffer.view %input[%bfloat8_offset] : buffer -> view<8xbf16>
+  %source_integer8 = buffer.view %input[%integer8_offset] : buffer -> view<8xi16>
+  %source_half16 = buffer.view %input[%half16_offset] : buffer -> view<16xf16>
+  %source_bfloat16 = buffer.view %input[%bfloat16_offset] : buffer -> view<16xbf16>
+  %source_integer16 = buffer.view %input[%integer16_offset] : buffer -> view<16xi16>
+  %target_half8 = buffer.view %output[%half8_offset] : buffer -> view<8xf16>
+  %target_bfloat8 = buffer.view %output[%bfloat8_offset] : buffer -> view<8xbf16>
+  %target_integer8 = buffer.view %output[%integer8_offset] : buffer -> view<8xi16>
+  %target_half16 = buffer.view %output[%half16_offset] : buffer -> view<16xf16>
+  %target_bfloat16 = buffer.view %output[%bfloat16_offset] : buffer -> view<16xbf16>
+  %target_integer16 = buffer.view %output[%integer16_offset] : buffer -> view<16xi16>
+  %half8 = vector.load %source_half8[0] : view<8xf16> -> vector<8xf16>
+  %bfloat8 = vector.load %source_bfloat8[0] : view<8xbf16> -> vector<8xbf16>
+  %integer8 = vector.load %source_integer8[0] : view<8xi16> -> vector<8xi16>
+  %half16 = vector.load %source_half16[0] : view<16xf16> -> vector<16xf16>
+  %bfloat16 = vector.load %source_bfloat16[0] : view<16xbf16> -> vector<16xbf16>
+  %integer16 = vector.load %source_integer16[0] : view<16xi16> -> vector<16xi16>
+  vector.store %half8, %target_half8[0] : vector<8xf16>, view<8xf16>
+  vector.store %bfloat8, %target_bfloat8[0] : vector<8xbf16>, view<8xbf16>
+  vector.store %integer8, %target_integer8[0] : vector<8xi16>, view<8xi16>
+  vector.store %half16, %target_half16[0] : vector<16xf16>, view<16xf16>
+  vector.store %bfloat16, %target_bfloat16[0] : vector<16xbf16>, view<16xbf16>
+  vector.store %integer16, %target_integer16[0] : vector<16xi16>, view<16xi16>
+  func.return
+}
+
+// ----
+CHECK: %half8 = vmovdqu32.load.xmm %input {disp32 = 0}
+CHECK: %bfloat8 = vmovdqu32.load.xmm %input {disp32 = 16}
+CHECK: %integer8 = vmovdqu32.load.xmm %input {disp32 = 32}
+CHECK: %half16 = vmovdqu32.load.ymm %input {disp32 = 48}
+CHECK: %bfloat16 = vmovdqu32.load.ymm %input {disp32 = 80}
+CHECK: %integer16 = vmovdqu32.load.ymm %input {disp32 = 112}
+CHECK: vmovdqu32.store.xmm %half8, %output {disp32 = 0}
+CHECK: vmovdqu32.store.xmm %bfloat8, %output {disp32 = 16}
+CHECK: vmovdqu32.store.xmm %integer8, %output {disp32 = 32}
+CHECK: vmovdqu32.store.ymm %half16, %output {disp32 = 48}
+CHECK: vmovdqu32.store.ymm %bfloat16, %output {disp32 = 80}
+CHECK: vmovdqu32.store.ymm %integer16, %output {disp32 = 112}
+CHECK-NOT: *movzx.load.u16*
+
+// ====
+
+// RUN: with-checks emit source-low target=x86:avx512 output=low
+
+// Full AVX512 word vectors use one register instead of scalarizing each lane.
+func.def @copy_word_vectors(%input: buffer, %output: buffer) {
+  %half_offset = index.constant 0 : offset
+  %bfloat_offset = index.constant 64 : offset
+  %integer_offset = index.constant 128 : offset
+  %source_half = buffer.view %input[%half_offset] : buffer -> view<32xf16>
+  %source_bfloat = buffer.view %input[%bfloat_offset] : buffer -> view<32xbf16>
+  %source_integer = buffer.view %input[%integer_offset] : buffer -> view<32xi16>
+  %target_half = buffer.view %output[%half_offset] : buffer -> view<32xf16>
+  %target_bfloat = buffer.view %output[%bfloat_offset] : buffer -> view<32xbf16>
+  %target_integer = buffer.view %output[%integer_offset] : buffer -> view<32xi16>
+  %half = vector.load %source_half[0] : view<32xf16> -> vector<32xf16>
+  %bfloat = vector.load %source_bfloat[0] : view<32xbf16> -> vector<32xbf16>
+  %integer = vector.load %source_integer[0] : view<32xi16> -> vector<32xi16>
+  vector.store %half, %target_half[0] : vector<32xf16>, view<32xf16>
+  vector.store %bfloat, %target_bfloat[0] : vector<32xbf16>, view<32xbf16>
+  vector.store %integer, %target_integer[0] : vector<32xi16>, view<32xi16>
+  func.return
+}
+
+// ----
+CHECK: %half = vmovdqu32.load %input {disp32 = 0}
+CHECK: %bfloat = vmovdqu32.load %input {disp32 = 64}
+CHECK: %integer = vmovdqu32.load %input {disp32 = 128}
+CHECK: vmovdqu32.store %half, %output {disp32 = 0}
+CHECK: vmovdqu32.store %bfloat, %output {disp32 = 64}
+CHECK: vmovdqu32.store %integer, %output {disp32 = 128}
+CHECK-NOT: *movzx.load.u16*

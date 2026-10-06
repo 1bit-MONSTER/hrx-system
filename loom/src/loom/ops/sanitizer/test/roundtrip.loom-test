@@ -50,6 +50,14 @@ func.def @race_access_roundtrip(%layout: encoding<layout>, %view: view<64xi32, %
 
 // ====
 
+func.def @race_fragment_access_roundtrip(%fragment: vector<8xf32>, %view: view<4x16x16xf32>, %block: index, %blocks: index, %rows: index, %columns: index) {
+  sanitizer.race.fragment_access<read> %fragment, %view[%block, 0, 0] shape [blocks(%blocks), %rows, %columns] {role = init} : vector<8xf32>, view<4x16x16xf32>
+  sanitizer.race.fragment_access<write> %fragment, %view[%block, 0, 0] shape [blocks(%blocks), %rows, %columns] {role = result} : vector<8xf32>, view<4x16x16xf32>
+  func.return
+}
+
+// ====
+
 func.def @race_sync_roundtrip() {
   sanitizer.race.sync<workgroup> scope(workgroup) ordering(acq_rel)
   func.return

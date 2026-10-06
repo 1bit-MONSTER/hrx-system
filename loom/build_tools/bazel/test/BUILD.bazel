@@ -11,22 +11,28 @@ load("//build_tools/bazel:executable.bzl", "iree_executable_test")
 load(
     "//loom/build_tools/bazel:defs.bzl",
     "loom_amdgpu_target_profile",
+    "loom_corpus_test",
+    "loom_execution_profile",
     "loom_kernel_binary",
     "loom_kernel_library",
     "loom_library",
     "loom_module",
     "loom_target_profile",
+    "loom_target_set",
     "loom_test",
     "loom_test_module",
 )
 load("//loom/build_tools/bazel:loom_check.bzl", "loom_check_test")
+load("//loom/build_tools/bazel/test/testdata/corpus:catalog.bzl", "TEST_CORPUS")
 load(
     ":loom_binary_rules_test.bzl",
     "loom_binary_rules_test_suite",
 )
 load(":loom_check_rules_test.bzl", "loom_check_rules_test_suite")
+load(":loom_corpus_rules_test.bzl", "loom_corpus_rules_test_suite")
 load(
     ":loom_library_rules_test.bzl",
+    "EXPLICIT_RUNNER_PROFILE",
     "REFERENCE_PROFILE",
     "SERIALIZED_REFERENCE_PROFILE",
     "loom_library_rules_test_suite",
@@ -47,6 +53,28 @@ loom_target_profile(
     name = "test_fake_profile",
     family = "FakeTargetFamily123",
     selector = "FakeTargetSelector123",
+)
+
+loom_target_set(
+    name = "test_target_set",
+    targets = [
+        ":test_fake_profile",
+        ":test_amdgpu_profile",
+    ],
+)
+
+loom_target_set(
+    name = "test_nested_target_set",
+    targets = [
+        ":test_fake_profile",
+        ":test_target_set",
+    ],
+)
+
+loom_target_set(
+    name = "test_empty_target_set",
+    allow_empty = True,
+    targets = [],
 )
 
 loom_kernel_library(
@@ -150,6 +178,7 @@ loom_test(
     args = ["--sample=0"],
     case = "benchmark_case",
     execution_profiles = [
+        EXPLICIT_RUNNER_PROFILE,
         REFERENCE_PROFILE,
         SERIALIZED_REFERENCE_PROFILE,
     ],
@@ -161,6 +190,44 @@ loom_test(
     },
 )
 
+loom_test(
+    name = "correctness_only_test",
+    benchmark_smoke = False,
+    case = "benchmark_case",
+    execution_profiles = [REFERENCE_PROFILE],
+    module = ":profiled_module",
+    tags = ["manual"],
+)
+
+loom_corpus_test(
+    name = "corpus_execution_fixture",
+    allowed_failures = {
+        "reference": {
+            "sample/other.loom:@other_case": "TARGET/003,EXPECT/003",
+        },
+    },
+    catalog = TEST_CORPUS,
+    execution_profiles = [loom_execution_profile(
+        name = "reference",
+        executor = "reference",
+        runner_args = ["--max-samples-per-case=1"],
+        target_class = "cpu",
+        target_family = "test",
+    )],
+    profile_sources = {
+        "reference": [
+            "sample/nested/fixture.loom",
+            "sample/other.loom",
+        ],
+    },
+    tags = ["manual"],
+    xfails = {
+        "reference": {
+            "sample/nested/fixture.loom:@fixture_cases": "TARGET/003,EXPECT/003",
+        },
+    },
+)
+
 loom_check_test(
     name = "loom_check_wrapper_subject",
     src = "roundtrip.loom-test",
@@ -169,6 +236,8 @@ loom_check_test(
 )
 
 loom_check_rules_test_suite(name = "loom_check_rules_tests")
+
+loom_corpus_rules_test_suite(name = "loom_corpus_rules_tests")
 
 loom_library_rules_test_suite(name = "loom_library_rules_tests")
 
@@ -275,6 +344,7 @@ test_suite(
         ":loom_binary_rules_tests",
         ":loom_check_rules_tests",
         ":loom_check_wrapper_direct_test",
+        ":loom_corpus_rules_tests",
         ":loom_library_aggregate_direct_test",
         ":loom_library_module_direct_test",
         ":loom_library_rules_tests",
@@ -283,7 +353,6 @@ test_suite(
         ":profiled_test",
         ":public_kernel_library_test",
         ":relocatable_library_direct_test",
-        "//loom/build_tools/bazel/test/testdata/command_binary:test",
         "//loom/build_tools/bazel/test/testdata/kernel_binary:test",
     ],
 )

@@ -76,6 +76,10 @@ endif()
 if(IREE_HAL_DRIVER_AMDGPU)
   add_subdirectory(amdgpu)
   list(APPEND _INIT_INTERNAL_DEPS iree::hal::drivers::amdgpu::registration)
+else()
+  # The AMDGPU ABI is also consumed by compiler-side layout verification and
+  # device code generation, independent of whether the host driver is built.
+  add_subdirectory(amdgpu/abi)
 endif()
 if(IREE_HAL_DRIVER_TASK)
   add_subdirectory(task)

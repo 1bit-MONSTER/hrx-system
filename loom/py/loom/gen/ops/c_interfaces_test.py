@@ -6,6 +6,8 @@
 
 """Declaration contracts required by generated interface consumers."""
 
+from dataclasses import replace
+
 import pytest
 
 from loom.assembly import AttrDict, Flags, FuncArgs, Ref
@@ -33,12 +35,13 @@ from loom.dsl import (
     Op,
     Operand,
     Reads,
+    RegionBranchInterface,
     RegionDef,
     Result,
     TargetFactSpecialization,
     TargetLikeInterface,
-    YieldCountMatchesResults,
-    YieldTypesMatchResults,
+    YieldCountMatches,
+    YieldTypesMatch,
 )
 from loom.gen.ops.c_metadata_tables import generate_tables_c
 
@@ -130,8 +133,8 @@ def _make_counted_loop_op(
     if constraints is None:
         constraints = [
             IterArgsMatchResults("iter_args", "results"),
-            YieldCountMatchesResults("body", "results"),
-            YieldTypesMatchResults("body", "results"),
+            YieldCountMatches("body", "results"),
+            YieldTypesMatch("body", "results"),
         ]
     return Op(
         "test.for",
@@ -156,6 +159,7 @@ def _make_counted_loop_op(
             LoopLikeInterface(
                 body="body",
                 iter_args="iter_args",
+                results="results",
                 iv="iv",
                 lower_bound="lower_bound",
                 upper_bound="upper_bound",
@@ -180,11 +184,11 @@ def test_generate_tables_rejects_loop_like_missing_yield_constraint() -> None:
     op = _make_counted_loop_op(
         constraints=[
             IterArgsMatchResults("iter_args", "results"),
-            YieldCountMatchesResults("body", "results"),
+            YieldCountMatches("body", "results"),
         ]
     )
 
-    with pytest.raises(ValueError, match=r"LoopLikeInterface on 'test\.for': requires YieldTypesMatchResults"):
+    with pytest.raises(ValueError, match=r"LoopLikeInterface on 'test\.for': requires YieldTypesMatch"):
         _generate_counted_loop_tables(op)
 
 
@@ -198,7 +202,7 @@ def test_generate_tables_rejects_loop_like_partial_counted_range() -> None:
 def test_generate_tables_rejects_loop_like_unprojected_body_state() -> None:
     op = _make_counted_loop_op(body_arg_source=None)
 
-    with pytest.raises(ValueError, match=r"LoopLikeInterface on 'test\.for': body 'body' must source carried arguments from 'iter_args'"):
+    with pytest.raises(ValueError, match=r"LoopLikeInterface on 'test\.for': counted body 'body' must source carried arguments from 'iter_args'"):
         _generate_counted_loop_tables(op)
 
 
@@ -209,6 +213,20 @@ def test_generate_tables_rejects_counted_loop_iv_type_mismatch() -> None:
         ValueError,
         match=r"LoopLikeInterface on 'test\.for': induction variable 'iv' "
         r"must use 'type_of:lower_bound'",
+    ):
+        _generate_counted_loop_tables(op)
+
+
+def test_generate_tables_rejects_counted_loop_with_hidden_region() -> None:
+    op = _make_counted_loop_op()
+    op = replace(
+        op,
+        regions=(*op.regions, RegionDef("hidden", single_block=True, terminator="test.yield")),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"LoopLikeInterface on 'test\.for': counted loops require exactly 1 region\(s\), got 2",
     ):
         _generate_counted_loop_tables(op)
 
@@ -229,7 +247,7 @@ def _make_condition_loop_op(*, constraints: list[Constraint]) -> Op:
                 "after",
                 single_block=True,
                 terminator="test.yield",
-                arg_source="iter_args",
+                arg_source="results",
             ),
         ],
         interfaces=[
@@ -237,6 +255,7 @@ def _make_condition_loop_op(*, constraints: list[Constraint]) -> Op:
                 body="after",
                 condition_region="before",
                 iter_args="iter_args",
+                results="results",
             )
         ],
         constraints=constraints,
@@ -245,11 +264,10 @@ def _make_condition_loop_op(*, constraints: list[Constraint]) -> Op:
 
 def _condition_loop_constraints() -> list[Constraint]:
     return [
-        IterArgsMatchResults("iter_args", "results"),
         ConditionForwardedCountMatchesBlockArgs("before", "after", "results"),
         ConditionForwardedTypesMatchBlockArgs("before", "after", "results"),
-        YieldCountMatchesResults("after", "results"),
-        YieldTypesMatchResults("after", "results"),
+        YieldCountMatches("after", "before"),
+        YieldTypesMatch("after", "before"),
     ]
 
 
@@ -274,7 +292,7 @@ def _generate_condition_loop_tables(op: Op) -> None:
 
 def test_generate_tables_rejects_incomplete_condition_loop_contract() -> None:
     constraints = _condition_loop_constraints()
-    constraints.pop(1)
+    constraints.pop(0)
     op = _make_condition_loop_op(constraints=constraints)
 
     with pytest.raises(
@@ -283,6 +301,78 @@ def test_generate_tables_rejects_incomplete_condition_loop_contract() -> None:
         r"ConditionForwardedCountMatchesBlockArgs",
     ):
         _generate_condition_loop_tables(op)
+
+
+def test_generate_tables_rejects_condition_loop_with_hidden_region() -> None:
+    op = _make_condition_loop_op(constraints=_condition_loop_constraints())
+    op = replace(
+        op,
+        regions=(*op.regions, RegionDef("hidden", single_block=True, terminator="test.yield")),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"LoopLikeInterface on 'test\.while': condition-controlled loops "
+        r"require exactly 2 region\(s\), got 3",
+    ):
+        _generate_condition_loop_tables(op)
+
+
+def test_generate_tables_rejects_condition_loop_using_body_as_condition() -> None:
+    op = _make_condition_loop_op(constraints=_condition_loop_constraints())
+    op = replace(
+        op,
+        interfaces=(
+            LoopLikeInterface(
+                body="after",
+                condition_region="after",
+                iter_args="iter_args",
+                results="results",
+            ),
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"LoopLikeInterface on 'test\.while': condition and body must be distinct regions",
+    ):
+        _generate_condition_loop_tables(op)
+
+
+def _region_branch_test_op(interface: RegionBranchInterface) -> Op:
+    return Op(
+        "test.branch",
+        group=Dialect("test"),
+        operands=[Operand("condition", INTEGER)],
+        regions=[RegionDef("then_region"), RegionDef("else_region")],
+        interfaces=[interface],
+    )
+
+
+def test_generate_tables_rejects_partial_boolean_region_branch_contract() -> None:
+    op = _region_branch_test_op(RegionBranchInterface(selector="condition", true_region="then_region"))
+
+    with pytest.raises(
+        ValueError,
+        match=r"RegionBranchInterface on 'test\.branch': true_region and false_region must be declared together",
+    ):
+        generate_tables_c("test", 0, [op])
+
+
+def test_generate_tables_rejects_aliased_boolean_region_branch_contract() -> None:
+    op = _region_branch_test_op(
+        RegionBranchInterface(
+            selector="condition",
+            true_region="then_region",
+            false_region="then_region",
+        )
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"RegionBranchInterface on 'test\.branch': true_region and false_region must be distinct",
+    ):
+        generate_tables_c("test", 0, [op])
 
 
 def _cache_policy_test_op(

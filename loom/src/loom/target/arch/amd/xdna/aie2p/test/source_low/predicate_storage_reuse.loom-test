@@ -1,0 +1,77 @@
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @predicate_and_reuse_rhs(%lhs: vector<1xi1>, %rhs: vector<1xi1>) -> (vector<1xi1>, vector<1xi1>) {
+  %result = vector.andi %lhs, %rhs : vector<1xi1>
+  func.return %result, %lhs : vector<1xi1>, vector<1xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_and_reuse_rhs(%lhs: reg<aie2p.elpredicate>, %rhs: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
+  %9 = predicate.and.low32.rhs_tied %lhs, %rhs
+  %result = predicate.and.high32.rhs_tied %lhs, %9
+  return %result, %lhs
+}
+
+// ====
+
+func.def @predicate_or_reuse_lhs(%lhs: vector<9xi1>, %rhs: vector<9xi1>) -> (vector<9xi1>, vector<9xi1>) {
+  %result = vector.ori %lhs, %rhs : vector<9xi1>
+  func.return %result, %rhs : vector<9xi1>, vector<9xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_or_reuse_lhs(%lhs: reg<aie2p.elpredicate>, %rhs: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
+  %9 = predicate.or.low32.rhs_tied %rhs, %lhs
+  %result = predicate.or.high32.rhs_tied %rhs, %9
+  return %result, %rhs
+}
+
+// ====
+
+func.def @predicate_xor_preserve_inputs(%lhs: vector<33xi1>, %rhs: vector<33xi1>) -> (vector<33xi1>, vector<33xi1>, vector<33xi1>) {
+  %result = vector.xori %lhs, %rhs : vector<33xi1>
+  func.return %result, %lhs, %rhs : vector<33xi1>, vector<33xi1>, vector<33xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_xor_preserve_inputs(%lhs: reg<aie2p.elpredicate>, %rhs: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
+  %11 = predicate.xor.low32 %lhs, %rhs
+  %result = predicate.xor.high32 %lhs, %rhs, %11
+  return %result, %lhs, %rhs
+}
+
+// ====
+
+func.def @predicate_select_reuse_true(%mask: vector<3x3xi1>, %true_value: vector<3x3xi1>, %false_value: vector<3x3xi1>) -> (vector<3x3xi1>, vector<3x3xi1>, vector<3x3xi1>) {
+  %selected = vector.select %mask, %true_value, %false_value : vector<3x3xi1>
+  func.return %selected, %mask, %false_value : vector<3x3xi1>, vector<3x3xi1>, vector<3x3xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_select_reuse_true(%mask: reg<aie2p.elpredicate>, %true_value: reg<aie2p.elpredicate>, %false_value: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
+  %13 = predicate.xor.low32.rhs_tied %false_value, %true_value
+  %14 = predicate.xor.high32.rhs_tied %false_value, %13
+  %15 = predicate.and.low32.rhs_tied %mask, %14
+  %16 = predicate.and.high32.rhs_tied %mask, %15
+  %17 = predicate.xor.low32.rhs_tied %false_value, %16
+  %selected = predicate.xor.high32.rhs_tied %false_value, %17
+  return %selected, %mask, %false_value
+}
+
+// ====
+
+func.def @predicate_select_preserve_true(%mask: vector<8x8xi1>, %true_value: vector<8x8xi1>, %false_value: vector<8x8xi1>) -> (vector<8x8xi1>, vector<8x8xi1>) {
+  %selected = vector.select %mask, %true_value, %false_value : vector<8x8xi1>
+  func.return %selected, %true_value : vector<8x8xi1>, vector<8x8xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_select_preserve_true(%mask: reg<aie2p.elpredicate>, %true_value: reg<aie2p.elpredicate>, %false_value: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
+  %11 = predicate.xor.low32 %false_value, %true_value
+  %12 = predicate.xor.high32 %false_value, %true_value, %11
+  %13 = predicate.and.low32.rhs_tied %mask, %12
+  %14 = predicate.and.high32.rhs_tied %mask, %13
+  %15 = predicate.xor.low32.rhs_tied %false_value, %14
+  %selected = predicate.xor.high32.rhs_tied %false_value, %15
+  return %selected, %true_value
+}

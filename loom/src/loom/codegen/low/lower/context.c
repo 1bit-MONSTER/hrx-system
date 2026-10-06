@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "loom/codegen/low/diagnostics.h"
+#include "loom/codegen/low/lower/realization.h"
 #include "loom/codegen/low/source_memory_plan.h"
 #include "loom/error/error_catalog.h"
 #include "loom/ir/context.h"
@@ -333,6 +334,7 @@ loom_symbolic_expr_context_t* loom_low_lower_context_symbolic_expr_context(
         loom_low_lower_context_module(context), &context->lowering.value_domain,
         loom_low_lower_context_fact_table(context), &context->function_arena,
         &analysis->expression_context);
+    analysis->expression_context.value_identities = &analysis->value_identities;
     analysis->phase = LOOM_LOW_LOWER_FUNCTION_ANALYSIS_EXPRESSIONS;
   }
   return &analysis->expression_context;
@@ -505,6 +507,24 @@ iree_status_t loom_low_lower_get_or_allocate_target_state(
   return iree_ok_status();
 }
 
+const void* loom_low_lower_lookup_target_state(
+    const loom_low_lower_context_t* context, const void* key,
+    iree_host_size_t data_length) {
+  IREE_ASSERT(key != NULL);
+  IREE_ASSERT_GT(data_length, 0);
+  for (iree_host_size_t i = 0; i < context->lowering.target_state_record_count;
+       ++i) {
+    const loom_low_lower_target_state_record_t* record =
+        &context->lowering.target_state_records[i];
+    if (record->key != key) {
+      continue;
+    }
+    IREE_ASSERT_EQ(record->data_length, data_length);
+    return record->data;
+  }
+  return NULL;
+}
+
 iree_status_t loom_low_lower_get_or_allocate_module_target_state(
     loom_low_lower_context_t* context, const void* key,
     iree_host_size_t data_length, void** out_data) {
@@ -672,6 +692,17 @@ iree_status_t loom_low_lower_lookup_successor_dest(
       context, source_successors[successor_index], out_low_dest);
 }
 
+bool loom_low_lower_source_op_is_callable_exit(
+    const loom_low_lower_context_t* context, const loom_op_t* source_op) {
+  if (source_op == NULL ||
+      source_op->kind != context->lowering.source_callable_exit_kind ||
+      source_op->parent_block == NULL) {
+    return false;
+  }
+  return source_op->parent_block->parent_region ==
+         loom_func_like_body(context->source_function);
+}
+
 iree_status_t loom_low_lower_materialize_structural_operand(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     iree_host_size_t operand_index, loom_value_id_t source_value_id,
@@ -702,17 +733,19 @@ iree_status_t loom_low_lower_remap_successor_args(
     loom_low_lower_context_t* context, const loom_op_t* source_terminator,
     uint8_t successor_index, loom_block_t* low_dest,
     const loom_value_id_t* source_args, uint16_t source_arg_count,
-    loom_value_id_t** out_low_args) {
-  *out_low_args = NULL;
-  if (source_arg_count == 0) {
-    IREE_ASSERT_EQ(low_dest->arg_count, 0);
+    loom_value_slice_t* out_low_args) {
+  *out_low_args = (loom_value_slice_t){0};
+  const uint16_t supplemental_count =
+      loom_low_lower_realization_edge_count(context, source_terminator);
+  const uint16_t low_arg_count = source_arg_count + supplemental_count;
+  IREE_ASSERT_EQ(low_arg_count, low_dest->arg_count);
+  if (low_arg_count == 0) {
     return iree_ok_status();
   }
-  IREE_ASSERT_EQ(source_arg_count, low_dest->arg_count);
 
   loom_value_id_t* low_args = NULL;
   IREE_RETURN_IF_ERROR(loom_low_lower_allocate_emission_array(
-      context, source_arg_count, sizeof(*low_args), (void**)&low_args));
+      context, low_arg_count, sizeof(*low_args), (void**)&low_args));
   for (uint16_t i = 0; i < source_arg_count; ++i) {
     IREE_RETURN_IF_ERROR(
         loom_low_lower_lookup_value(context, source_args[i], &low_args[i]));
@@ -739,7 +772,12 @@ iree_status_t loom_low_lower_remap_successor_args(
         context, source_terminator, i, source_args[i], required_type,
         &low_args[i]));
   }
-  *out_low_args = low_args;
+  if (supplemental_count != 0) {
+    loom_low_lower_realization_edge_values(context, source_terminator,
+                                           low_args + source_arg_count);
+  }
+  *out_low_args =
+      (loom_value_slice_t){.values = low_args, .count = low_arg_count};
   return iree_ok_status();
 }
 
@@ -751,16 +789,10 @@ iree_status_t loom_low_lower_interpose_successor_dest(
   IREE_ASSERT(source_terminator != NULL);
   IREE_ASSERT_LT(successor_index, source_terminator->successor_count);
   IREE_ASSERT(interposed_low_block != NULL);
-  if (loom_cfg_br_isa(source_terminator)) {
-    IREE_ASSERT_EQ(loom_cfg_br_args(source_terminator).count,
-                   interposed_low_block->arg_count);
-  } else {
-    IREE_ASSERT_EQ(interposed_low_block->arg_count, 0);
-  }
-
   loom_block_t* previous_low_dest = NULL;
   IREE_RETURN_IF_ERROR(loom_low_lower_lookup_successor_dest(
       context, source_terminator, successor_index, &previous_low_dest));
+  IREE_ASSERT_EQ(previous_low_dest->arg_count, interposed_low_block->arg_count);
 
   const uint16_t source_index = loom_low_lower_source_block_index(
       context, source_terminator->parent_block);

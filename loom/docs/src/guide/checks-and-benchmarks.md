@@ -2,17 +2,20 @@
 
 **Example files:** [`loom/docs/examples/guide/checks-and-benchmarks/`](https://github.com/ROCm/hrx-system/tree/main/loom/docs/examples/guide/checks-and-benchmarks)
 
-Loom correctness cases are programs, not runner metadata. A `check.case`
+Loom correctness records are programs, not runner metadata. A `check.case`
 constructs values, selects deterministic samples, invokes kernels or reference
 oracles, and states expectations in the same linked symbol graph as the code it
-tests. A `check.benchmark` names a slice of that proven workload rather than
-recreating setup in a second harness.
+tests. A `check.scenario` runs one unchanged subject through independent target
+and oracle profiles over a finite, deterministic trial domain. A
+`check.benchmark` names a slice of either proven workload rather than recreating
+setup in a second harness.
 
 In this chapter, you will learn:
 
 - how one case expands into deterministic concrete samples;
 - how tensors cross from host-side materialization into kernel buffer bindings;
 - where expected values and comparison policy belong;
+- how one scenario compares independent target and oracle realizations;
 - why requirements, configuration, and case parameters are different domains;
   and
 - how benchmark records preserve workload identity while tools own timing
@@ -181,16 +184,106 @@ The expectation operation records what equality means:
 | [`check.expect.bitwise`](../reference/dialects/check/ops/expect-bitwise.md) | Exact payload-bit identity. |
 | [`check.expect.close`](../reference/dialects/check/ops/expect-close.md) | Floating-point comparison with explicit absolute tolerance, relative tolerance, and NaN policy. |
 | [`check.expect.shape`](../reference/dialects/check/ops/expect-shape.md) | Exact static and dynamic dimensions. |
-| [`check.expect`](../reference/dialects/check/ops/expect.md) | A named pluggable validator with typed actual and expected values. |
 | [`check.expect.event`](../reference/dialects/check/ops/expect-event.md) | A provider-specific structured runtime event such as a sanitizer report. |
 
 Tolerance belongs in source because it is part of the operation's numeric
 contract. A benchmark or CI invocation may select a case, but it must not make a
 failing result pass by changing comparison thresholds out of band.
 
+Error and fatal device events fail every executed sample without an authored
+event expectation. Use `check.expect.event` only when successful execution is
+supposed to emit a structured event and the case must validate its payload.
+Such expectations require a positive count; additional or unmatched error
+events and event-capture overflow still fail the sample.
+
 [`check.file.write.npy`](../reference/dialects/check/ops/file-write-npy.md) can
 capture an actual value always or only on failure. This is an evidence output,
 not the oracle: checked source still states how success is decided.
+
+## A scenario compares independent executions
+
+[`check.scenario`](../reference/dialects/check/ops/scenario.md) describes a
+finite differential campaign around one or more ordinary Loom subjects. Each
+[`check.trial`](../reference/dialects/check/ops/trial.md) owns a runtime recipe
+and ends in exactly one action. [`check.compare`](../reference/dialects/check/ops/compare.md)
+executes the named subject through the target and oracle profiles, while
+[`check.invoke`](../reference/dialects/check/ops/invoke.md) executes only the
+target.
+
+`check.compare<@subject>` compiles the same semantic subject through both
+profiles. When the executable target and semantic oracle need different Loom
+subjects, `check.compare<@target, @target_oracle>` names them in execution
+order: the first subject produces `actual` observations and the second produces
+`expected` observations. Both subjects receive independent realizations of the
+same authored arguments and must satisfy their corresponding result signature.
+
+This scenario varies a deterministic word, calls the same resultless function
+in both profiles, and checks the complete mutable state. The linked production
+module supplies the function definition:
+
+```loom
+func.decl @advance(%state: buffer, %word: i64)
+
+check.scenario public @advance_sweep {
+  check.trial[32](%trial: index, %entropy: check.entropy) {
+    %input_entropy = check.entropy.fork %entropy name("input") : check.entropy
+    %word = check.entropy.read %input_entropy[%trial] : check.entropy -> i64
+    %state = check.generate.iota offset(0.0) step(0.25) : tensor<64xf32>
+    check.compare<@advance>(%state, %word) : (tensor<64xf32>, i64) -> () {
+      check.expect.close actual(%state) expected(%state) atol(1.0e-6) rtol(1.0e-5) nan(same) : tensor<64xf32>
+    }
+  }
+  check.return
+}
+```
+
+The trial ordinal and entropy identity are stable parts of the trial. Named
+[`check.entropy.fork`](../reference/dialects/check/ops/entropy-fork.md)
+operations split independent generator streams, and explicit
+[`check.entropy.read`](../reference/dialects/check/ops/entropy-read.md)
+ordinals make every value independent of traversal and batching order. A
+failure report carries the scenario, configuration ordinal, trial declaration,
+trial ordinal, and root entropy needed to reconstruct the same recipe.
+
+Target and oracle products are prepared before any trial-local value exists.
+For a comparison, the trial recipe then materializes twice. Both realizations
+have the same scalar values and alias topology, while every mutable allocation
+is independent. When a subject returns values, the `actual` and `expected`
+result groups spell its return signature beside the values used by the checks.
+Captured values such as `%state` select the corresponding target or oracle
+realization inside an expectation. Returned buffer references compare by
+allocation-relative identity; tensors and views compare their contents
+according to the chosen expectation.
+
+An optional configuration domain sits outside the runtime trials:
+
+```loom
+kernel.decl @configured_kernel(%configuration: index) launch()
+
+check.scenario @configured configure[4](%configuration: index, %configuration_entropy: check.entropy) {
+  check.trial[16](%trial: index, %trial_entropy: check.entropy) {
+    check.invoke<@configured_kernel>[%configuration]() : [index]() -> ()
+  }
+  check.return
+}
+```
+
+Values in square brackets are compile-visible kernel workloads or
+command/pipeline specialization values. Values in parentheses are runtime
+arguments. Each configuration prepares its product before the nested trials
+materialize, so a runtime input cannot silently specialize the target or
+oracle. Functions, kernels, command programs, and pipelines share this verified
+action shape. The selected execution profile determines which subject kinds it
+can prepare. The standard VM profile prepares functions; the standard HAL
+profile prepares kernels and resultless ordinary functions. Their differential
+intersection is therefore a resultless function today, while VM-to-VM and
+other profiles with result transport can compare explicit return values.
+
+`check.invoke` keeps target-only execution first class. Its result types remain
+explicit even though no result SSA values escape the terminal action. A
+scenario benchmark uses this same target-only interpretation after staging its
+inputs: oracle execution, comparison, and output readback stay outside the
+measured path.
 
 ## Requirements explain unavailable evidence
 

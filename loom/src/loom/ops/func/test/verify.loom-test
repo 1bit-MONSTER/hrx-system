@@ -49,7 +49,7 @@ func.def @constant_predicate(%value: i32) where [eq(4, %value)] {
 
 // Integer relation predicates require integer-domain signature values.
 // ERROR@+1: TYPE/003 {operand_name="predicates[0].arg[0]", actual_type="f32", expected_constraint="integer, index, or offset scalar"}
-func.def @integer_predicate_on_float(%value: f32) where [eq(%value, 4)] {
+func.def @integer_predicate_on_float(%value: f32) where [range(%value, 0, 4)] {
   func.return
 }
 

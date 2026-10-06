@@ -11,6 +11,8 @@
 
 #include <string>
 
+#include "iree/async/region.h"
+#include "iree/async/slab.h"
 #include "iree/base/api.h"
 #include "iree/net/transport_factory.h"
 
@@ -23,6 +25,14 @@ using CreateFactoryFn =
 
 // Produces one transport-specific address for a CTS operation.
 using MakeAddressFn = iree_status_t (*)(std::string* out_address);
+
+// Creates a factory and a compatible explicit registration for the supplied
+// slab. Both outputs transfer independent references; failure clears both.
+// Registration is setup work, shared across connections on this factory.
+using CreateRegisteredFactoryFn =
+    iree_status_t (*)(iree_async_slab_t* slab, iree_allocator_t host_allocator,
+                      iree_net_transport_factory_t** out_factory,
+                      iree_async_region_t** out_region);
 
 // Immutable backend configuration linked into one CTS executable.
 struct TransportBackend {
@@ -37,6 +47,9 @@ struct TransportBackend {
 
   // Produces an address suitable for listener creation.
   MakeAddressFn make_bind_address;
+
+  // Optional registered-placement setup; null for message-only carriers.
+  CreateRegisteredFactoryFn create_registered_factory = nullptr;
 };
 
 // Returns the backend descriptor supplied by the linked transport package.

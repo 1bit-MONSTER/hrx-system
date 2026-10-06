@@ -171,7 +171,7 @@ static void iree_hal_amdgpu_host_queue_prepare_timestamp_dispatch(
       &queue->transfer_context->kernels
            ->iree_hal_amdgpu_device_timestamp_capture_queue_tick,
       (iree_amdgpu_device_tick_t*)target_device_ptr, &dispatch_packet,
-      &kernargs);
+      &kernargs, &dispatch_packet.setup);
   dispatch_packet.kernarg_address = NULL;
 
   *out_dispatch_packet = dispatch_packet;

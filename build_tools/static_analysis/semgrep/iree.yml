@@ -34,3 +34,16 @@ rules:
         - /loom/src/loom/**/*_test.h
         - /libhrx/**/*test.cc
         - /libhrx/**/*_test.h
+
+  - id: iree.loom.target-diagnostics-are-target-generic
+    languages:
+      - python
+    severity: ERROR
+    message: >-
+      TARGET diagnostics are target-generic. Move architecture- or
+      vendor-specific semantics to the owning error domain.
+    pattern-regex: >-
+      (?i)\b(?:amd(?:gpu|gcn|64)?|rdna[0-9a-z._-]*|cdna[0-9a-z._-]*|gcn|gfx[0-9][0-9a-z._-]*|rocm|aie[0-9a-z._-]*|xdna[0-9a-z._-]*|x86[0-9a-z._-]*|sse[0-9a-z._-]*|avx[0-9a-z._-]*|wasm|webassembly|spir-?v|vulkan|nvidia|cuda|ptx|risc-?v|aarch64|arm(?:32|64)?|neon|intel|apple|metal)\b
+    paths:
+      include:
+        - /loom/py/loom/error/target.py

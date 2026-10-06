@@ -1,0 +1,162 @@
+// RUN: verify
+struct Descriptor {
+  unsigned payload_elements = 32;
+  unsigned payload_registers = payload_elements / 8;
+  unsigned pairs = this->payload_registers * 2;
+};
+static_assert(Descriptor{}.payload_registers == 4);
+static_assert(Descriptor{64}.payload_registers == 8);
+static_assert(Descriptor{.payload_elements = 64}.pairs == 16);
+static_assert(Descriptor{.payload_registers = 7}.pairs == 14);
+static_assert(Descriptor(48).payload_registers == 6);
+static_assert(Descriptor().payload_registers == 4);
+template <Descriptor Spec>
+constexpr unsigned count() { return Spec.pairs; }
+static_assert(count<Descriptor{.payload_elements = 64}>() == 16);
+
+// ====
+struct Descriptor {
+  unsigned elements;
+  unsigned words = this->elements / 8;
+};
+struct Outer {
+  unsigned elements;
+  constexpr unsigned compute() const {
+    Descriptor first{this->elements};
+    Descriptor second{.elements = this->elements * 2};
+    return first.words + second.words + this->elements;
+  }
+};
+static_assert(Outer{24}.compute() == 33);
+
+// ====
+struct Descriptor {
+  unsigned elements;
+  unsigned words = elements / 8;
+};
+struct Nested {
+  unsigned elements = 64;
+  Descriptor payload{this->elements};
+  unsigned words = payload.words;
+  unsigned echo = this->elements;
+};
+static_assert(Nested{}.words == 8);
+static_assert(Nested{.elements = 16}.words == 2);
+static_assert(Nested{.elements = 16}.echo == 16);
+template <Nested Spec>
+constexpr unsigned count() { return Spec.words + Spec.echo; }
+static_assert(count<Nested{.elements = 32}>() == 36);
+
+// ====
+struct Descriptor {
+  unsigned elements;
+  unsigned words = elements / 8;
+};
+struct Batch {
+  unsigned elements = 16;
+  Descriptor descriptors[2]{{elements}, {2 * elements}};
+  unsigned total = descriptors[0].words + descriptors[1].words;
+};
+static_assert(Batch{}.total == 6);
+static_assert(Batch{.elements = 32}.total == 12);
+
+// ====
+struct Descriptor {
+  unsigned elements = 32;
+  constexpr unsigned word_count() const { return this->elements / 8; }
+  unsigned words = word_count();
+  unsigned pair_count = words * 2;
+};
+static_assert(Descriptor{64}.words == 8);
+static_assert(Descriptor{64}.pair_count == 16);
+
+// ====
+struct Base { unsigned elements; };
+struct Descriptor : Base {
+  unsigned words = this->elements / 8;
+};
+static_assert(Descriptor{{48}}.words == 6);
+
+// ====
+struct Sequence {
+  unsigned count = 4;
+  unsigned next = ++count;
+  unsigned twice = count * 2;
+};
+static_assert(Sequence{}.count == 5);
+static_assert(Sequence{}.next == 5);
+static_assert(Sequence{}.twice == 10);
+
+// ====
+// Empty parentheses retain the default constructor's zero-initialization phase.
+struct ZeroPhase { unsigned copy = later; unsigned later; };
+constexpr ZeroPhase zero = ZeroPhase();
+static_assert(zero.copy == 0);
+static_assert(zero.later == 0);
+
+// ====
+// A later member's initializer does not make it readable before initialization.
+struct Later { unsigned first = second; unsigned second = 9; };
+// ERROR@+1: PARSE/036 "constexpr variable must be initialized"
+constexpr Later invalid{};
+
+// ====
+// A member is not part of the initialized prefix while its default is running.
+struct Self { unsigned value = value; };
+// ERROR@+1: PARSE/036 "constexpr variable must be initialized"
+constexpr Self invalid{};
+
+// ====
+// Only the selected default expression executes.
+struct Conditional {
+  bool read_later;
+  unsigned first = read_later ? second : 7;
+  unsigned second = 9;
+};
+constexpr Conditional valid{false};
+static_assert(valid.first == 7);
+// ERROR@+1: PARSE/036 "constexpr variable must be initialized"
+constexpr Conditional invalid{true};
+
+// ====
+// Explicit initialization bypasses the unreadable default completely.
+struct Self { unsigned value = value; };
+constexpr Self valid{.value = 11};
+static_assert(valid.value == 11);
+
+// ====
+// Defaults cannot make runtime global state constant.
+extern unsigned runtime_value;
+struct Descriptor { unsigned value = runtime_value; };
+// ERROR@+1: PARSE/036 "constexpr variable must be initialized"
+constexpr Descriptor invalid{};
+
+// ====
+// A failed temporary must not substitute the enclosing object's member.
+struct Descriptor {
+  unsigned divisor;
+  // WARNING@+1: PARSE/036 "invalid binary expression"
+  unsigned quotient = 32 / divisor;
+  constexpr unsigned read(unsigned value) const {
+    return Descriptor{value}.quotient;
+  }
+};
+constexpr Descriptor outer{8};
+static_assert(outer.read(16) == 2);
+// ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
+static_assert(outer.read(0) == 4);
+
+// ====
+unsigned runtime_value();
+struct Descriptor { unsigned value = runtime_value(); };
+// ERROR@+1: PARSE/036 "constexpr variable must be initialized"
+constexpr Descriptor invalid = Descriptor();
+
+// ====
+struct Descriptor {
+  unsigned divisor;
+  // WARNING@+1: PARSE/036 "invalid binary expression"
+  unsigned quotient = 32 / divisor;
+};
+// ERROR@+1: PARSE/036 "constexpr variable must be initialized"
+constexpr Descriptor invalid = Descriptor();

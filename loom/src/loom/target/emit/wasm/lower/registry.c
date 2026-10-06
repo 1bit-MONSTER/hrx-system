@@ -115,7 +115,8 @@ static iree_status_t loom_wasm_map_type(void* user_data,
                                         loom_type_t source_type,
                                         loom_type_t* out_low_type) {
   (void)user_data;
-  if (loom_wasm_type_is_i32_register(source_type)) {
+  if (loom_type_is_buffer(source_type) ||
+      loom_wasm_type_is_i32_register(source_type)) {
     return loom_wasm_make_i32_register_type(context, out_low_type);
   }
   if (loom_wasm_type_is_scalar_f32(source_type)) {
@@ -141,18 +142,6 @@ static iree_status_t loom_wasm_map_argument(
   (void)source_argument_index;
   loom_type_t source_type = loom_module_value_type(
       loom_low_lower_context_module(context), source_argument_id);
-  if (loom_type_is_buffer(source_type)) {
-    loom_type_t address_type = loom_type_none();
-    IREE_RETURN_IF_ERROR(
-        loom_wasm_make_i32_register_type(context, &address_type));
-    *out_argument = (loom_low_lower_abi_argument_t){
-        .kind = LOOM_LOW_LOWER_ABI_ARGUMENT_DIRECT,
-        .abi_type = address_type,
-        .resource_source_type = loom_type_none(),
-    };
-    return iree_ok_status();
-  }
-
   *out_argument = (loom_low_lower_abi_argument_t){
       .kind = LOOM_LOW_LOWER_ABI_ARGUMENT_DIRECT,
       .abi_type = loom_type_none(),

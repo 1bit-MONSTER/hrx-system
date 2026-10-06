@@ -14,6 +14,7 @@ loom_check_test_suite(
     test
   SRCS
     "legalize.loom-test"
+    "widen_f32_round.loom-test"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

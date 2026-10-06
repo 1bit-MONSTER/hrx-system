@@ -338,16 +338,8 @@ typedef struct iree_async_socket_recv_pool_operation_t {
 
 // Behavioral flags for send operations.
 //
-// Flag support by backend:
-//   Flag   generic | io_uring | IOCP | kqueue
-//   ─────────────────────────────────────────────
-//   MORE   yes     | yes      | yes  | yes
-//
-// Note: Zero-copy send is controlled at socket creation time via
-// IREE_ASYNC_SOCKET_OPTION_ZERO_COPY, not per-send. This matches the kernel
-// model where SO_ZEROCOPY is a socket option, and simplifies the API by
-// avoiding accidental performance pessimization (e.g., ZC on loopback).
-//
+// All backends accept these flags. The socket's ZERO_COPY option permits
+// copy avoidance; individual sends may suppress it without changing the socket.
 enum iree_async_socket_send_flag_bits_e {
   IREE_ASYNC_SOCKET_SEND_FLAG_NONE = 0u,
 
@@ -365,6 +357,14 @@ enum iree_async_socket_send_flag_bits_e {
   // Backends that retire storage with write progress deliver only the final
   // callback. Neither callback guarantees that the peer has consumed the data.
   IREE_ASYNC_SOCKET_SEND_FLAG_REPORT_PROGRESS = 1u << 1,
+
+  // Suppresses the socket's ZERO_COPY hint for this operation. Small or
+  // latency-sensitive sends can use kernel copying without page-retirement
+  // notifications. This does not make submit synchronous: source bytes and
+  // operation storage remain owned by the proactor until the final callback.
+  // Backends already using copied sends require no additional work.
+  // REPORT_PROGRESS produces no intermediate callback when this flag is set.
+  IREE_ASYNC_SOCKET_SEND_FLAG_NO_ZERO_COPY = 1u << 2,
 };
 typedef uint32_t iree_async_socket_send_flags_t;
 
@@ -407,7 +407,8 @@ typedef uint32_t iree_async_socket_send_flags_t;
 //   Create the socket with IREE_ASYNC_SOCKET_OPTION_ZERO_COPY and use
 //   registered buffers (via iree_async_proactor_register_slab) for DMA directly
 //   from application memory. The buffer must remain valid until the final
-//   callback fires. Zero-copy is a socket-level option, not a per-send flag.
+//   callback fires. NO_ZERO_COPY suppresses the socket hint for one send;
+//   copied and zero-copy sends may be mixed on the same socket.
 //
 // Scatter-gather semantics:
 //   Buffers are sent in order as a single logical message. Maximum scatter
@@ -439,7 +440,7 @@ typedef struct iree_async_socket_send_operation_t {
   iree_async_region_t*
       retained_buffer_regions[IREE_ASYNC_SOCKET_SCATTER_GATHER_MAX_BUFFERS];
 
-  // Behavioral flags controlling corking and progress reporting.
+  // Behavioral flags controlling corking, progress reporting, and copy policy.
   iree_async_socket_send_flags_t send_flags;
 
   // Result: total bytes sent across all buffer entries.

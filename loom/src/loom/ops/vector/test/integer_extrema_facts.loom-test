@@ -1,0 +1,67 @@
+// RUN: pass canonicalize
+
+func.def @boolean_lane_extrema() -> (vector<2xi1>, vector<2xi1>, vector<2xi1>, vector<2xi1>) {
+  %true = scalar.constant true : i1
+  %false = scalar.constant false : i1
+  %lhs = vector.from_elements %true, %false : vector<2xi1>
+  %rhs = vector.from_elements %false, %true : vector<2xi1>
+  %smin = vector.minsi %lhs, %rhs : vector<2xi1>
+  %smax = vector.maxsi %lhs, %rhs : vector<2xi1>
+  %umin = vector.minui %lhs, %rhs : vector<2xi1>
+  %umax = vector.maxui %lhs, %rhs : vector<2xi1>
+  func.return %smin, %smax, %umin, %umax : vector<2xi1>, vector<2xi1>, vector<2xi1>, vector<2xi1>
+}
+
+// ----
+func.def @boolean_lane_extrema() -> (vector<2xi1>, vector<2xi1>, vector<2xi1>, vector<2xi1>) {
+  %smin = vector.constant true : vector<2xi1>
+  %smax = vector.constant false : vector<2xi1>
+  %umin = vector.constant false : vector<2xi1>
+  %umax = vector.constant true : vector<2xi1>
+  func.return %smin, %smax, %umin, %umax : vector<2xi1>, vector<2xi1>, vector<2xi1>, vector<2xi1>
+}
+
+// ====
+
+func.def @boolean_reductions() -> (i1, i1, i1, i1) {
+  %true = scalar.constant true : i1
+  %false = scalar.constant false : i1
+  %values = vector.from_elements %true, %false : vector<2xi1>
+  %smin = vector.reduce<minsi> %values, %false : vector<2xi1>, i1
+  %smax = vector.reduce<maxsi> %values, %true : vector<2xi1>, i1
+  %umin = vector.reduce<minui> %values, %true : vector<2xi1>, i1
+  %umax = vector.reduce<maxui> %values, %false : vector<2xi1>, i1
+  func.return %smin, %smax, %umin, %umax : i1, i1, i1, i1
+}
+
+// ----
+func.def @boolean_reductions() -> (i1, i1, i1, i1) {
+  %smin = scalar.constant true : i1
+  %smax = scalar.constant false : i1
+  %umin = scalar.constant false : i1
+  %umax = scalar.constant true : i1
+  func.return %smin, %smax, %umin, %umax : i1, i1, i1, i1
+}
+
+// ====
+
+func.def @byte_reductions() -> (i8, i8, i8, i8) {
+  %negative = scalar.constant -128 : i8
+  %unsigned_maximum = scalar.constant -1 : i8
+  %c0 = scalar.constant 0 : i8
+  %values = vector.from_elements %negative, %unsigned_maximum, %c0 : vector<3xi8>
+  %smin = vector.reduce<minsi> %values, %c0 : vector<3xi8>, i8
+  %smax = vector.reduce<maxsi> %values, %negative : vector<3xi8>, i8
+  %umin = vector.reduce<minui> %values, %unsigned_maximum : vector<3xi8>, i8
+  %umax = vector.reduce<maxui> %values, %c0 : vector<3xi8>, i8
+  func.return %smin, %smax, %umin, %umax : i8, i8, i8, i8
+}
+
+// ----
+func.def @byte_reductions() -> (i8, i8, i8, i8) {
+  %smin = scalar.constant -128 : i8
+  %smax = scalar.constant 0 : i8
+  %umin = scalar.constant 0 : i8
+  %umax = scalar.constant -1 : i8
+  func.return %smin, %smax, %umin, %umax : i8, i8, i8, i8
+}

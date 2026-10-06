@@ -15,6 +15,7 @@
 #include "loom/ir/module.h"
 #include "loom/ir/types.h"
 #include "loom/ops/op_defs.h"
+#include "loom/ops/scalar/compare.h"
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/scf/ops.h"
 #include "loom/rewrite/rewriter.h"
@@ -228,6 +229,189 @@ static bool loom_scf_lookup_reachable_column_is_uniform(
 // scf.select
 //===----------------------------------------------------------------------===//
 
+iree_status_t loom_scf_select_combine_integer_extremum(
+    loom_op_t* op, loom_rewriter_t* rewriter, bool* out_changed) {
+  *out_changed = false;
+  const loom_value_t* condition =
+      loom_module_value(rewriter->module, loom_scf_select_condition(op));
+  if (loom_value_is_block_arg(condition)) {
+    return iree_ok_status();
+  }
+  loom_op_t* comparison = loom_value_def_op(condition);
+  if (!comparison || !loom_scalar_cmpi_isa(comparison)) {
+    return iree_ok_status();
+  }
+
+  loom_value_id_t lhs = loom_scalar_cmpi_lhs(comparison);
+  loom_value_id_t rhs = loom_scalar_cmpi_rhs(comparison);
+  loom_value_id_t true_value = loom_scf_select_true_value(op);
+  loom_value_id_t false_value = loom_scf_select_false_value(op);
+  uint8_t predicate = loom_scalar_cmpi_predicate(comparison);
+  if (true_value == rhs && false_value == lhs) {
+    predicate = loom_scalar_cmpi_swapped_predicate(predicate);
+  } else if (true_value != lhs || false_value != rhs) {
+    return iree_ok_status();
+  }
+
+  // The comparison already observes both inputs. Strict and inclusive order
+  // choose the same integer bits when they are equal, so neither changes the
+  // extrema's definedness or requires a range proof.
+  loom_builder_set_before(&rewriter->builder, op);
+  loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  loom_type_t type = loom_module_value_type(rewriter->module, true_value);
+  loom_op_t* extremum = NULL;
+  switch ((loom_scalar_cmpi_predicate_t)predicate) {
+    case LOOM_SCALAR_CMPI_PREDICATE_SLT:
+    case LOOM_SCALAR_CMPI_PREDICATE_SLE: {
+      IREE_RETURN_IF_ERROR(
+          loom_scalar_minsi_build(&rewriter->builder, true_value, false_value,
+                                  type, op->location, &extremum));
+      break;
+    }
+    case LOOM_SCALAR_CMPI_PREDICATE_SGT:
+    case LOOM_SCALAR_CMPI_PREDICATE_SGE: {
+      IREE_RETURN_IF_ERROR(
+          loom_scalar_maxsi_build(&rewriter->builder, true_value, false_value,
+                                  type, op->location, &extremum));
+      break;
+    }
+    case LOOM_SCALAR_CMPI_PREDICATE_ULT:
+    case LOOM_SCALAR_CMPI_PREDICATE_ULE: {
+      IREE_RETURN_IF_ERROR(
+          loom_scalar_minui_build(&rewriter->builder, true_value, false_value,
+                                  type, op->location, &extremum));
+      break;
+    }
+    case LOOM_SCALAR_CMPI_PREDICATE_UGT:
+    case LOOM_SCALAR_CMPI_PREDICATE_UGE: {
+      IREE_RETURN_IF_ERROR(
+          loom_scalar_maxui_build(&rewriter->builder, true_value, false_value,
+                                  type, op->location, &extremum));
+      break;
+    }
+    default:
+      return iree_ok_status();
+  }
+  loom_value_id_t replacement = loom_op_results(extremum)[0];
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_scf_replace_results_and_erase(op, rewriter, &replacement, 1));
+  *out_changed = true;
+  return iree_ok_status();
+}
+
+static bool loom_scf_is_boolean_complement(loom_rewriter_t* rewriter,
+                                           loom_value_id_t value,
+                                           loom_value_id_t other) {
+  const loom_value_t* definition = loom_module_value(rewriter->module, value);
+  if (loom_value_is_block_arg(definition)) {
+    return false;
+  }
+  const loom_op_t* producer = loom_value_def_op(definition);
+  if (!loom_scalar_xori_isa(producer)) {
+    return false;
+  }
+  const loom_value_id_t lhs = loom_scalar_xori_lhs(producer);
+  const loom_value_id_t rhs = loom_scalar_xori_rhs(producer);
+  loom_value_id_t complement = LOOM_VALUE_ID_INVALID;
+  if (lhs == other) {
+    complement = rhs;
+  } else if (rhs == other) {
+    complement = lhs;
+  } else {
+    return false;
+  }
+  bool is_true = false;
+  return loom_value_facts_as_exact_bool(
+             loom_rewriter_value_facts(rewriter, complement), &is_true) &&
+         is_true;
+}
+
+static iree_status_t loom_scf_select_replace_with_xori(
+    loom_op_t* op, loom_rewriter_t* rewriter, loom_value_id_t false_value) {
+  loom_builder_set_before(&rewriter->builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  loom_op_t* replacement_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_scalar_xori_build(
+      &rewriter->builder, loom_scf_select_condition(op), false_value,
+      loom_type_scalar(LOOM_SCALAR_TYPE_I1), op->location, &replacement_op));
+  loom_value_id_t replacement = loom_scalar_xori_result(replacement_op);
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  return loom_scf_replace_results_and_erase(op, rewriter, &replacement, 1);
+}
+
+// Both arm extensions must disappear when selection moves into the predicate
+// domain. Attribute and type references retain values independently of
+// operands.
+static const loom_op_t* loom_scf_owned_boolean_extension(
+    loom_rewriter_t* rewriter, loom_value_id_t value_id) {
+  const loom_value_t* value = loom_module_value(rewriter->module, value_id);
+  if (loom_value_is_block_arg(value)) {
+    return NULL;
+  }
+  const loom_op_t* producer = loom_value_def_op(value);
+  if (!loom_scalar_extui_isa(producer) && !loom_scalar_extsi_isa(producer)) {
+    return NULL;
+  }
+  const loom_type_t input_type = loom_module_value_type(
+      rewriter->module, loom_op_const_operands(producer)[0]);
+  if (loom_type_element_type(input_type) != LOOM_SCALAR_TYPE_I1 ||
+      !loom_value_has_single_use(value) ||
+      loom_value_has_attribute_uses(value) ||
+      loom_module_value_has_type_uses(rewriter->module, value_id)) {
+    return NULL;
+  }
+  return producer;
+}
+
+static iree_status_t loom_scf_select_extended_inversion(
+    loom_op_t* op, loom_rewriter_t* rewriter) {
+  const loom_op_t* true_extension = loom_scf_owned_boolean_extension(
+      rewriter, loom_scf_select_true_value(op));
+  if (!true_extension) {
+    return iree_ok_status();
+  }
+  const loom_op_t* false_extension = loom_scf_owned_boolean_extension(
+      rewriter, loom_scf_select_false_value(op));
+  if (!false_extension || true_extension->kind != false_extension->kind) {
+    return iree_ok_status();
+  }
+  const loom_value_id_t true_predicate =
+      loom_op_const_operands(true_extension)[0];
+  const loom_value_id_t false_predicate =
+      loom_op_const_operands(false_extension)[0];
+  if (!loom_scf_is_boolean_complement(rewriter, true_predicate,
+                                      false_predicate)) {
+    return iree_ok_status();
+  }
+
+  loom_builder_set_before(&rewriter->builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  const loom_type_t predicate_type = loom_type_scalar(LOOM_SCALAR_TYPE_I1);
+  const loom_type_t result_type =
+      loom_module_value_type(rewriter->module, loom_scf_select_result(op));
+  loom_op_t* exclusive = NULL;
+  IREE_RETURN_IF_ERROR(loom_scalar_xori_build(
+      &rewriter->builder, loom_scf_select_condition(op), false_predicate,
+      predicate_type, op->location, &exclusive));
+  loom_op_t* extension = NULL;
+  if (loom_scalar_extui_isa(true_extension)) {
+    IREE_RETURN_IF_ERROR(loom_scalar_extui_build(
+        &rewriter->builder, loom_scalar_xori_result(exclusive), predicate_type,
+        result_type, op->location, &extension));
+  } else {
+    IREE_RETURN_IF_ERROR(loom_scalar_extsi_build(
+        &rewriter->builder, loom_scalar_xori_result(exclusive), predicate_type,
+        result_type, op->location, &extension));
+  }
+  loom_value_id_t replacement = loom_op_results(extension)[0];
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  return loom_scf_replace_results_and_erase(op, rewriter, &replacement, 1);
+}
+
 iree_status_t loom_scf_select_canonicalize(loom_op_t* op,
                                            loom_rewriter_t* rewriter) {
   loom_value_id_t true_value = loom_scf_select_true_value(op);
@@ -237,16 +421,22 @@ iree_status_t loom_scf_select_canonicalize(loom_op_t* op,
   }
 
   bool condition = false;
-  if (!loom_value_facts_as_exact_bool(
+  if (loom_value_facts_as_exact_bool(
           loom_rewriter_value_facts(rewriter, loom_scf_select_condition(op)),
           &condition)) {
-    loom_value_id_t result = loom_scf_select_result(op);
-    loom_type_t result_type = loom_module_value_type(rewriter->module, result);
+    loom_value_id_t replacement = condition ? true_value : false_value;
+    return loom_scf_replace_results_and_erase(op, rewriter, &replacement, 1);
+  }
+
+  loom_type_t result_type =
+      loom_module_value_type(rewriter->module, loom_scf_select_result(op));
+  if (!loom_type_is_scalar(result_type)) {
+    return iree_ok_status();
+  }
+  if (loom_type_element_type(result_type) == LOOM_SCALAR_TYPE_I1) {
     bool true_arm = false;
     bool false_arm = false;
-    if (loom_type_is_scalar(result_type) &&
-        loom_type_element_type(result_type) == LOOM_SCALAR_TYPE_I1 &&
-        loom_value_facts_as_exact_bool(
+    if (loom_value_facts_as_exact_bool(
             loom_rewriter_value_facts(rewriter, true_value), &true_arm) &&
         loom_value_facts_as_exact_bool(
             loom_rewriter_value_facts(rewriter, false_value), &false_arm) &&
@@ -260,24 +450,19 @@ iree_status_t loom_scf_select_canonicalize(loom_op_t* op,
       // the complement when its operation belongs to the registered vocabulary.
       if (loom_context_resolve_op(rewriter->module->context,
                                   LOOM_OP_SCALAR_XORI)) {
-        loom_builder_set_before(&rewriter->builder, op);
-        loom_value_id_t value_checkpoint =
-            loom_rewriter_value_checkpoint(rewriter);
-        loom_op_t* inverse = NULL;
-        IREE_RETURN_IF_ERROR(loom_scalar_xori_build(
-            &rewriter->builder, condition_value, false_value, result_type,
-            op->location, &inverse));
-        loom_value_id_t replacement = loom_scalar_xori_result(inverse);
-        IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
-            rewriter, op, &replacement, 1, value_checkpoint));
-        return loom_scf_replace_results_and_erase(op, rewriter, &replacement,
-                                                  1);
+        return loom_scf_select_replace_with_xori(op, rewriter, false_value);
       }
+    }
+    // Selecting between a Boolean and its complement conditionally flips the
+    // false arm. Both arms observe the same value, so XOR preserves
+    // definedness.
+    if (loom_scf_is_boolean_complement(rewriter, true_value, false_value) ||
+        loom_scf_is_boolean_complement(rewriter, false_value, true_value)) {
+      return loom_scf_select_replace_with_xori(op, rewriter, false_value);
     }
     return iree_ok_status();
   }
-  loom_value_id_t replacement = condition ? true_value : false_value;
-  return loom_scf_replace_results_and_erase(op, rewriter, &replacement, 1);
+  return loom_scf_select_extended_inversion(op, rewriter);
 }
 
 //===----------------------------------------------------------------------===//

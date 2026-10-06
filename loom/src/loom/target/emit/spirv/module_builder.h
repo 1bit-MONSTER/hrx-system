@@ -17,6 +17,7 @@
 #define LOOM_TARGET_EMIT_SPIRV_MODULE_BUILDER_H_
 
 #include "iree/base/api.h"
+#include "loom/target/arch/spirv/extended_instruction.h"
 #include "loom/target/arch/spirv/features.h"
 #include "loom/target/emit/spirv/binary_writer.h"
 #include "loom/target/types.h"
@@ -73,6 +74,9 @@ typedef struct loom_spirv_module_builder_t {
   uint32_t id_bound;
   // Ordered logical section writers.
   loom_spirv_binary_writer_t sections[LOOM_SPIRV_MODULE_SECTION_COUNT];
+  // Interned result IDs indexed by extended-instruction set ordinal.
+  uint32_t
+      extended_instruction_set_ids[LOOM_SPIRV_EXTENDED_INSTRUCTION_SET_COUNT];
 } loom_spirv_module_builder_t;
 
 // Returns |module| as immutable bytes suitable for SPIR-V consumers.
@@ -118,6 +122,12 @@ loom_spirv_binary_writer_t* loom_spirv_module_builder_section(
 // Allocates one fresh SPIR-V result ID from |builder|'s dense ID space.
 uint32_t loom_spirv_module_builder_allocate_id(
     loom_spirv_module_builder_t* builder);
+
+// Imports |instruction_set| once per module and returns its stable result ID.
+iree_status_t loom_spirv_module_builder_import_extended_instruction_set(
+    loom_spirv_module_builder_t* builder,
+    loom_spirv_extended_instruction_set_t instruction_set,
+    uint32_t* out_result_id);
 
 // Raises the SPIR-V result-ID bound to cover caller-assigned IDs in
 // [1, |id_bound|). This supports deterministic target-lowering ID layouts.

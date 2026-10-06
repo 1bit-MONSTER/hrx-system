@@ -159,6 +159,7 @@ static iree_status_t iree_net_tcp_parse_address(
 
 static iree_async_socket_options_t iree_net_tcp_client_socket_options(void) {
   return IREE_ASYNC_SOCKET_OPTION_NO_DELAY |
+         IREE_ASYNC_SOCKET_OPTION_LOW_LATENCY_ACK |
          IREE_ASYNC_SOCKET_OPTION_KEEP_ALIVE |
          IREE_ASYNC_SOCKET_OPTION_ZERO_COPY;
 }

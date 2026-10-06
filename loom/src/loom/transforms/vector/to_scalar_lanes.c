@@ -738,6 +738,38 @@ iree_status_t loom_vector_to_scalar_build_lane(
       state, indices, out_lane);
 }
 
+// Peels one static vector.insert without constructing index terms. Static
+// insert chains are a common aggregate representation produced by reference
+// lowering, and walking them iteratively keeps lane lookup stack use
+// independent of the chain length.
+static bool loom_vector_to_scalar_peel_static_insert(
+    const loom_op_t* op, loom_value_id_t* inout_value,
+    loom_vector_to_scalar_index_list_t* inout_indices) {
+  if (!loom_vector_insert_isa(op) ||
+      loom_vector_to_scalar_indices_are_dynamic(*inout_indices)) {
+    return false;
+  }
+
+  const loom_attribute_t insert_indices = loom_vector_insert_static_indices(op);
+  for (uint16_t i = 0; i < insert_indices.count; ++i) {
+    const int64_t insert_index = insert_indices.i64_array[i];
+    if (insert_index == INT64_MIN) {
+      return false;
+    }
+    if (insert_index != inout_indices->static_indices[i]) {
+      *inout_value = loom_vector_insert_dest(op);
+      return true;
+    }
+  }
+
+  *inout_value = loom_vector_insert_value(op);
+  if (insert_indices.count != 0) {
+    inout_indices->static_indices += insert_indices.count;
+    inout_indices->rank -= (uint8_t)insert_indices.count;
+  }
+  return true;
+}
+
 bool loom_vector_to_scalar_can_materialize_def_lane(
     const loom_module_t* module, loom_value_id_t value,
     const loom_matrix_fragment_layout_t* matrix_fragment_layout,
@@ -1020,22 +1052,33 @@ iree_status_t loom_vector_to_scalar_try_materialize_def_lane(
     loom_type_t vector_type, loom_vector_to_scalar_index_list_t indices,
     bool* out_materialized, loom_value_id_t* out_lane) {
   *out_materialized = false;
+  const loom_module_t* module = state->rewriter->module;
+  loom_op_t* def_op = NULL;
+  loom_trait_flags_t traits = 0;
+  for (;;) {
+    def_op = loom_vector_to_scalar_value_def_op(module, value);
+    if (!def_op) {
+      return iree_ok_status();
+    }
+    traits = loom_op_effective_traits(module, def_op);
+    if (loom_traits_are_value_alias(traits)) {
+      IREE_ASSERT(def_op->operand_count >= 1);
+      IREE_ASSERT(def_op->result_count == 1);
+      value = loom_op_const_operands(def_op)[0];
+      continue;
+    }
+    if (!loom_vector_to_scalar_peel_static_insert(def_op, &value, &indices)) {
+      break;
+    }
+    vector_type = loom_module_value_type(module, value);
+    if (!loom_type_is_vector(vector_type)) {
+      *out_lane = value;
+      *out_materialized = true;
+      return iree_ok_status();
+    }
+  }
   IREE_RETURN_IF_ERROR(
       loom_vector_to_scalar_rematerialization_initialize(state));
-  loom_op_t* def_op =
-      loom_vector_to_scalar_value_def_op(state->rewriter->module, value);
-  if (!def_op) {
-    return iree_ok_status();
-  }
-  const loom_trait_flags_t traits =
-      loom_op_effective_traits(state->rewriter->module, def_op);
-  if (loom_traits_are_value_alias(traits)) {
-    IREE_ASSERT(def_op->operand_count >= 1);
-    IREE_ASSERT(def_op->result_count == 1);
-    return loom_vector_to_scalar_try_materialize_def_lane(
-        state, loom_op_const_operands(def_op)[0], vector_type, indices,
-        out_materialized, out_lane);
-  }
   bool can_rematerialize = false;
   IREE_RETURN_IF_ERROR(loom_vector_to_scalar_can_rematerialize_def_at_use(
       state, def_op, &can_rematerialize));

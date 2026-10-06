@@ -199,8 +199,10 @@ static iree_status_t loom_symbol_liveness_traverse_symbol(
     return iree_ok_status();
   }
 
+  const loom_symbol_reference_symbol_occurrences_t references =
+      loom_symbol_reference_table_symbol(state->references, symbol_id);
   loom_symbol_reference_occurrence_id_t edge_id =
-      state->references->symbols[symbol_id].first_outgoing_occurrence_id;
+      references.first_outgoing_occurrence_id;
   while (edge_id != LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID) {
     const loom_symbol_reference_occurrence_t* edge =
         loom_symbol_reference_table_occurrence(state->references, edge_id);
@@ -218,8 +220,7 @@ static iree_status_t loom_symbol_liveness_traverse_symbol(
     return iree_ok_status();
   }
   const loom_symbol_t* symbol = &state->module->symbols.entries[symbol_id];
-  loom_template_demand_id_t demand_id =
-      state->references->symbols[symbol_id].first_template_demand_id;
+  loom_template_demand_id_t demand_id = references.first_template_demand_id;
   while (demand_id != LOOM_TEMPLATE_DEMAND_ID_INVALID) {
     const loom_template_demand_t* demand =
         &state->references->template_demands.values[demand_id];
@@ -270,10 +271,6 @@ static iree_status_t loom_symbol_liveness_validate(
                             "symbol liveness reference table has %" PRIhsz
                             " symbols but module has %" PRIhsz " symbols",
                             references->symbol_count, module->symbols.count);
-  }
-  if (references->symbol_count > 0 && !references->symbols) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "symbol liveness reference symbols are NULL");
   }
   if (!arena) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,

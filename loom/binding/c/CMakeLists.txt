@@ -101,14 +101,15 @@ loom_cc_library(
     loom::analysis::symbol_value_constraints
     loom::codegen::low::launch_config_program
     loom::codegen::low::pipeline::legalizer_registry
-    loom::codegen::low::pipeline::pass_environment
     loom::codegen::low::repr
     loom::codegen::low::target_binding
     loom::codegen::low::text_asm
     loom::codegen::low::verify
+    loom::codegen::pass_environment
     loom::error::diagnostic
     loom::error::error_defs
     loom::error::renderer
+    loom::error::source
     loom::format::bytecode::format
     loom::format::bytecode::index
     loom::format::bytecode::reader
@@ -121,7 +122,6 @@ loom_cc_library(
     loom::link::dependency_analysis
     loom::link::dependency_report
     loom::link::index_materializer
-    loom::link::linker
     loom::link::materialization_environment
     loom::link::module_index
     loom::ops::func
@@ -134,6 +134,7 @@ loom_cc_library(
     loom::pass::builtin_registry
     loom::pass::environment
     loom::pass::interpreter
+    loom::pass::pipeline_snapshot
     loom::pass::program
     loom::pass::registry
     loom::pass::tooling
@@ -149,10 +150,12 @@ loom_cc_library(
     loom::target::reporting::artifact_manifest
     loom::target::reporting::format
     loom::target::reporting::report
+    loom::target::selection
     loom::target::specialization
     loom::target::types
-    loom::tooling::compile::pipeline
     loom::tooling::config
+    loom::transforms::cleanup::configured
+    loom::transforms::cleanup::patterns
     loom::util::json
     loom::util::stream
     loom::verify
@@ -332,6 +335,12 @@ _loomc_add_shared_component(loom_binding_c_loomc)
 _loomc_add_shared_component(loom_binding_c_target_iree_hal_iree_hal)
 if(LOOM_IMPORT_CXX)
   _loomc_add_shared_component(loom_binding_c_import_cxx_cxx)
+endif()
+if(LOOM_TARGET_ARCH_VM)
+  _loomc_add_shared_component(loom_binding_c_target_vm_vm)
+endif()
+if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+  _loomc_add_shared_component(loom_binding_c_target_wasm_wasm)
 endif()
 if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
   _loomc_add_shared_component(loom_binding_c_target_spirv_spirv)

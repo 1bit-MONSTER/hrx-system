@@ -114,6 +114,10 @@ static bool loom_parse_format_element_covers_attr(
       return LOOM_FORMAT_FUNC_ARGS_START_ATTR_INDEX(element->data) ==
                  attr_index ||
              LOOM_FORMAT_FUNC_ARGS_END_ATTR_INDEX(element->data) == attr_index;
+    case LOOM_FORMAT_KIND_BLOCK_ARGS:
+      return LOOM_FORMAT_BLOCK_ARGS_START_ATTR_INDEX(element->data) ==
+                 attr_index ||
+             LOOM_FORMAT_BLOCK_ARGS_END_ATTR_INDEX(element->data) == attr_index;
     case LOOM_FORMAT_KIND_ATTR_DICT:
       if (iree_any_bit_set(element->data, LOOM_ATTR_DICT_FORMAT_INLINE_ATTRS)) {
         return false;
@@ -477,7 +481,6 @@ iree_status_t loom_parse_format_attr_table(loom_parser_t* parser,
     IREE_RETURN_IF_ERROR(loom_parse_format_attr_table_row(
         parser, vtable, element, parsed, &value_count, &row_width));
     if (parser->error_count > errors_before) {
-      loom_parser_sync_to_brace(parser);
       return iree_ok_status();
     }
     if (!has_case_row_width) {
@@ -570,7 +573,6 @@ iree_status_t loom_parse_format_region_table(
     IREE_RETURN_IF_ERROR(
         loom_parse_region(parser, case_descriptor, &case_region));
     if (parser->error_count > errors_before) {
-      loom_parser_sync_to_brace(parser);
       return iree_ok_status();
     }
     uint8_t region_index = (uint8_t)(element->field_index + keys.count - 1);
@@ -638,7 +640,6 @@ static iree_status_t loom_parse_format_operand_dict_entries(
     if (previous) {
       IREE_RETURN_IF_ERROR(loom_parse_format_emit_duplicate_operand_dict_key(
           parser, key_token, previous->key_token));
-      loom_parser_sync_to_brace(parser);
       return iree_ok_status();
     }
 
@@ -655,7 +656,6 @@ static iree_status_t loom_parse_format_operand_dict_entries(
     IREE_RETURN_IF_ERROR(
         loom_parse_type(parser, LOOM_TYPE_PARSE_BODY, &annotated_type));
     if (parser->error_count > errors_before) {
-      loom_parser_sync_to_brace(parser);
       return iree_ok_status();
     }
 
@@ -663,7 +663,6 @@ static iree_status_t loom_parse_format_operand_dict_entries(
     if (!loom_type_equal(actual_type, annotated_type)) {
       IREE_RETURN_IF_ERROR(loom_parse_format_emit_operand_dict_type_mismatch(
           parser, key_token, value_token, actual_type, annotated_type));
-      loom_parser_sync_to_brace(parser);
       return iree_ok_status();
     }
 
@@ -779,13 +778,11 @@ iree_status_t loom_parse_format_inline_attr_dict(loom_parser_t* parser,
     if (!descriptor) {
       IREE_RETURN_IF_ERROR(
           loom_parse_format_emit_unknown_attr_name(parser, key_token));
-      loom_parser_sync_to_brace(parser);
       return iree_ok_status();
     }
     if (loom_parse_format_parsed_attr_present(parsed, attr_index)) {
       IREE_RETURN_IF_ERROR(
           loom_parse_format_emit_duplicate_attr_name(parser, key_token));
-      loom_parser_sync_to_brace(parser);
       return iree_ok_status();
     }
 
@@ -794,7 +791,6 @@ iree_status_t loom_parse_format_inline_attr_dict(loom_parser_t* parser,
     uint32_t attr_errors_before = parser->error_count;
     IREE_RETURN_IF_ERROR(loom_parse_attr_value(parser, descriptor, &attr));
     if (parser->error_count > attr_errors_before) {
-      loom_parser_sync_to_brace(parser);
       return iree_ok_status();
     }
 

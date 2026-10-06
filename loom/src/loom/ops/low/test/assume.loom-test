@@ -44,6 +44,46 @@ low.kernel.def target<test.low.core>(@target) @assume_type_mismatch(%value: reg<
 
 // ====
 
+// RUN: verify
+
+test.target<low_core> @target
+
+// Typed target registers expose their semantic value domain to the shared
+// predicate verifier.
+low.kernel.def target<test.low.core>(@target) @assume_typed_domain(%value: reg<test.i32 : f32>) asm {
+  // ERROR@+1: TYPE/003 {operand_name="predicates[0].arg[0]", actual_type="reg<test.i32 : f32>", expected_constraint="integer, index, or offset scalar"}
+  %bounded = low.assume %value [range(%value, 0, 16)] : reg<test.i32 : f32>
+  return
+}
+
+// ====
+
+// RUN: verify
+
+test.target<low_core> @target
+
+// Carrier-only registers retain target-proven predicates without inventing a
+// target-independent value type.
+low.kernel.def target<test.low.core>(@target) @assume_opaque_domain(%value: reg<test.i32>) asm {
+  %bounded = low.assume %value [range(%value, 0, 16)] : reg<test.i32>
+  return
+}
+
+// ====
+
+// RUN: verify
+
+test.target<low_core> @target
+
+// Low assumptions may retain target-proven facts about visible values without
+// requiring the fact to refine an identity result.
+low.kernel.def target<test.low.core>(@target) @assume_retains_external_fact(%value: reg<test.i32>, %external: reg<test.i32>) asm {
+  %bounded = low.assume %value [eq(%external, 4)] : reg<test.i32>
+  return
+}
+
+// ====
+
 // RUN: pass canonicalize
 
 test.target<low_core> @target

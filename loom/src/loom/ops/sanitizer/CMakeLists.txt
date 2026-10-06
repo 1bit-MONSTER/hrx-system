@@ -37,6 +37,7 @@ loom_generated_cc_library(
     "ops.inc"
   DEPS
     iree::base
+    loom::decision::predicate
     loom::error::emitter
     loom::error::error_defs
     loom::ir

@@ -1,0 +1,89 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/buffer_selection.loom-test
+// RUN: emit source-low target=spirv:vulkan1.3+bda+extended-types output=low control-flow=structured-low
+
+// A selected reference retains the ordinary buffer result ABI.
+// ERROR@+1: SPIRV/016 {function_name="choose_buffer", value_name="<unnamed>", actual_value_type="storage_buffer_address"}
+func.def @choose_buffer(%first: buffer, %second: buffer, %choose_first: i1) -> (buffer) {
+  %selected = scf.select %choose_first, %first, %second : buffer
+  func.return %selected : buffer
+}
+
+// ====
+
+// A selected reference remains a buffer for both reads and writes.
+func.def @exchange_selected_byte(%first: buffer, %second: buffer, %choose_first: i1, %position_input: offset, %replacement: i32) -> (i32) {
+  %position = index.assume %position_input [range(%position_input, 0, 1024)] : offset
+  %selected = scf.select %choose_first, %first, %second : buffer
+  %previous = buffer.load.i8.u %selected[%position]
+  buffer.store.i8 %replacement, %selected[%position]
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @exchange_selected_byte(%first: reg<spirv.ptr.storage_buffer>, %second: reg<spirv.ptr.storage_buffer>, %choose_first: reg<spirv.id : i1>, %position: reg<spirv.offset64>, %replacement: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  %selected = OpSelect.storage_buffer %choose_first, %first, %second
+  %16 = OpPtrAccessChain.storage_buffer.raw_u8.byte_offset %selected, %position
+  %17 = OpLoad.storage_buffer.raw_u8 %16
+  %18 = OpUConvert.raw_u8.u32 %17
+  %previous = OpBitcast.u32.i32 %18
+  %21 = OpBitcast.i32.u32 %replacement
+  %22 = OpUConvert.u32.raw_u8 %21
+  OpStore.storage_buffer.raw_u8 %16, %22
+  return %previous
+}
+
+// ====
+
+// Canonicalization may select the components independently, but both selections
+// retain the same condition and therefore the same complete coordinate.
+func.def @selected_buffer_coordinate(%first: buffer, %second: buffer, %first_origin_input: offset, %second_origin_input: offset, %choose_first: i1) -> (i32) {
+  %first_origin = index.assume %first_origin_input [range(%first_origin_input, 0, 1024)] : offset
+  %second_origin = index.assume %second_origin_input [range(%second_origin_input, 0, 1024)] : offset
+  %selected, %origin = scf.if %choose_first -> (buffer, offset) {
+    scf.yield %first, %first_origin : buffer, offset
+  } else {
+    scf.yield %second, %second_origin : buffer, offset
+  }
+  %value = buffer.load.i8.u %selected[%origin]
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @selected_buffer_coordinate(%first: reg<spirv.ptr.storage_buffer>, %second: reg<spirv.ptr.storage_buffer>, %first_origin: reg<spirv.offset64>, %second_origin: reg<spirv.offset64>, %choose_first: reg<spirv.id : i1>) -> (reg<spirv.id : i32>) asm {
+  %selected = OpSelect.storage_buffer %choose_first, %first, %second
+  %origin = OpSelect.offset64 %choose_first, %first_origin, %second_origin
+  %21 = OpPtrAccessChain.storage_buffer.raw_u8.byte_offset %selected, %origin
+  %22 = OpLoad.storage_buffer.raw_u8 %21
+  %23 = OpUConvert.raw_u8.u32 %22
+  %value = OpBitcast.u32.i32 %23
+  return %value
+}
+
+// ====
+
+// Rotating a reference and its origin carries both values over the same edge.
+func.def @rotate_buffer_coordinates(%first: buffer, %second: buffer, %first_origin_input: offset, %second_origin_input: offset, %count: index) -> (i32) {
+  %first_origin = index.assume %first_origin_input [range(%first_origin_input, 0, 1024)] : offset
+  %second_origin = index.assume %second_origin_input [range(%second_origin_input, 0, 1024)] : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %selected, %origin, %unused_buffer, %unused_origin = scf.for %i = [%begin to %count step %step](%current = %first : buffer, %current_origin = %first_origin : offset, %other = %second : buffer, %other_origin = %second_origin : offset) -> (buffer, offset, buffer, offset) {
+    scf.yield %other, %other_origin, %current, %current_origin : buffer, offset, buffer, offset
+  }
+  %value = buffer.load.i8.u %selected[%origin]
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @rotate_buffer_coordinates(%first: reg<spirv.ptr.storage_buffer>, %second: reg<spirv.ptr.storage_buffer>, %first_origin: reg<spirv.offset64>, %second_origin: reg<spirv.offset64>, %count: reg<spirv.id : index>) -> (reg<spirv.id : i32>) asm {
+  %begin = OpConstant.i32 0 : reg<spirv.id : index>
+  %step = OpConstant.i32 1 : reg<spirv.id : index>
+  %selected, %origin, %unused_buffer, %unused_origin = low.scf.for signed [%begin to %count step %step] iter_args(%first: reg<spirv.ptr.storage_buffer>, %first_origin: reg<spirv.offset64>, %second: reg<spirv.ptr.storage_buffer>, %second_origin: reg<spirv.offset64>) -> (reg<spirv.ptr.storage_buffer>, reg<spirv.offset64>, reg<spirv.ptr.storage_buffer>, reg<spirv.offset64>) do(%i: reg<spirv.id : index>, %current: reg<spirv.ptr.storage_buffer>, %current_origin: reg<spirv.offset64>, %other: reg<spirv.ptr.storage_buffer>, %other_origin: reg<spirv.offset64>) {
+    low.scf.yield %other, %other_origin, %current, %current_origin : reg<spirv.ptr.storage_buffer>, reg<spirv.offset64>, reg<spirv.ptr.storage_buffer>, reg<spirv.offset64>
+  }
+  %37 = OpPtrAccessChain.storage_buffer.raw_u8.byte_offset %selected, %origin
+  %38 = OpLoad.storage_buffer.raw_u8 %37
+  %39 = OpUConvert.raw_u8.u32 %38
+  %value = OpBitcast.u32.i32 %39
+  return %value
+}

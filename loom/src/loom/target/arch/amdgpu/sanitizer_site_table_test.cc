@@ -11,7 +11,7 @@
 #include "iree/base/string_view.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
-#include "loom/codegen/low/pipeline/pass_environment.h"
+#include "loom/codegen/pass_environment.h"
 #include "loom/format/text/parser.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
@@ -76,14 +76,20 @@ class AmdgpuSanitizerSiteTableTest : public ::testing::Test {
         loom_target_low_legality_provider_list_make(
             legality_providers, IREE_ARRAYSIZE(legality_providers));
 
-    loom_low_pass_environment_storage_t environment_storage;
+    const loom_codegen_pass_environment_options_t environment_options = {
+        /*.descriptor_registry=*/&low_registry_.registry,
+        /*.lower_policy_registry=*/&policy_registry_,
+        /*.legality_provider_list=*/&legality_provider_list,
+        /*.legalizer_registry=*/nullptr,
+        /*.math_policy_registry=*/nullptr,
+        /*.compile_report=*/nullptr,
+        /*.target_environment=*/nullptr,
+    };
+    loom_codegen_pass_environment_storage_t environment_storage;
     loom_pass_environment_t environment =
-        loom_low_pass_environment_storage_initialize(
-            &low_registry_.registry, &policy_registry_, &legality_provider_list,
-            /*legalizer_registry=*/nullptr,
-            /*math_policy_registry=*/nullptr, /*compile_report=*/nullptr,
-            /*target_environment=*/nullptr,
-            /*function_versions=*/nullptr, &environment_storage);
+        loom_codegen_pass_environment_storage_initialize(
+            &environment_options, /*function_versions=*/nullptr,
+            &environment_storage);
     loom_pass_tool_run_options_t run_options = {
         /*.registry=*/loom_pass_builtin_registry(),
         /*.environment=*/environment,

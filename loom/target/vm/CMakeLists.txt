@@ -20,4 +20,16 @@ loom_target_profile(
     LOOM_TARGET_ARCH_VM
 )
 
+set(_all_platform_targets "")
+if(LOOM_TARGET_ARCH_VM)
+  list(APPEND _all_platform_targets loom::target::vm::core)
+endif()
+loom_target_set(
+  NAME
+    "all"
+  ALLOW_EMPTY
+  TARGETS
+    ${_all_platform_targets}
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

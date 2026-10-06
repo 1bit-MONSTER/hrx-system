@@ -1,0 +1,12 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Samples the low 32 bits of the constant-frequency reference clock after the
+// resident program's prior vector loads and stores complete. Release/acquire
+// operations in the caller separately own visibility to the peer device.
+// Message 0x83 is RTN_GET_REALTIME. Its returned SGPR is asynchronous and must
+// be waited on through LGKM or KM, according to the selected instruction set.
+template.decl @completed_tick() -> (i32)

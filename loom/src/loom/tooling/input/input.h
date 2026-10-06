@@ -101,8 +101,8 @@ iree_status_t loom_input_provider_select(
     iree_string_view_t path, const loom_input_provider_t** out_provider);
 
 // Owns a loaded module and its source snapshots. It must stay at a stable
-// address until deinitialization. Source resolvers may be used by later passes
-// and module clones retaining the source table's ID assignments.
+// address until deinitialization. Source resolvers serve the owning module;
+// clones must project snapshots through their source-ID correspondence.
 typedef struct loom_input_module_t {
   // Owned module, or NULL when source admission did not produce one.
   loom_module_t* module;

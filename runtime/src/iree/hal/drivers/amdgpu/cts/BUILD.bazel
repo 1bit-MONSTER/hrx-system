@@ -225,7 +225,6 @@ iree_runtime_cc_library(
 
 iree_runtime_cc_test(
     name = "queue_cooperative_dispatch_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         ":cooperative_testdata_amdgpu",
@@ -233,13 +232,13 @@ iree_runtime_cc_test(
         "//runtime/src/iree/hal/cts/queue:queue_cooperative_dispatch_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "queue_execution_resource_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         ":queue_execution_resource_test",
@@ -247,13 +246,13 @@ iree_runtime_cc_test(
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "asan_executable_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":asan_executable_enabled_testdata_amdgpu",
         ":asan_executable_test",
@@ -261,6 +260,7 @@ iree_runtime_cc_test(
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
@@ -279,7 +279,6 @@ iree_runtime_cc_library(
 
 iree_runtime_cc_test(
     name = "sanitizer_executable_load_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":asan_executable_testdata_amdgpu",
         ":backends",
@@ -289,6 +288,7 @@ iree_runtime_cc_test(
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
@@ -308,7 +308,6 @@ iree_runtime_cc_library(
 
 iree_runtime_cc_test(
     name = "tsan_executable_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":sanitizer_backends",
         ":tsan_executable_enabled_testdata_amdgpu",
@@ -316,6 +315,7 @@ iree_runtime_cc_test(
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
@@ -336,7 +336,6 @@ iree_runtime_cc_library(
 
 iree_runtime_cc_test(
     name = "asan_allocation_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":asan_testdata_amdgpu",
         ":sanitizer_backends",
@@ -344,13 +343,13 @@ iree_runtime_cc_test(
         "//runtime/src/iree/hal/cts/sanitizer:asan_allocation_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "manual_asan_executable_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":asan_testdata_amdgpu",
         ":manual_asan_executable_test",
@@ -358,6 +357,7 @@ iree_runtime_cc_test(
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )

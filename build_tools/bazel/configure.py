@@ -25,7 +25,7 @@ LOOM_EMITTERS = ("amdgpu", "spirv", "wasm", "xdna")
 AMDF_FAMILIES = ("rdna", "cdna", "xdna")
 HOST_DRIVERS = ("task",)
 DEFAULT_LOOM_EXECUTE = LOOM_EXECUTE_SUBSTRATES
-DEFAULT_LOOM_TARGETS = ("amdgpu", "spirv", "xdna", "x86")
+DEFAULT_LOOM_TARGETS = ("amdgpu", "spirv", "vm", "xdna", "x86")
 
 SDK_DRIVER_PACKAGES = {
     "amdgpu": (
@@ -97,6 +97,7 @@ NATIVE_AMDF_ENABLED_FLAG = "--//libamdf/config:enabled"
 NATIVE_AMDF_FAMILIES_FLAG = "--//libamdf/config:families"
 NATIVE_VULKAN_ENABLED_FLAG = "--//build_tools/vulkan/config:enabled"
 NATIVE_D3D12_ENABLED_FLAG = "--//build_tools/d3d12/config:enabled"
+NATIVE_RDMA_ENABLED_FLAG = "--//runtime/config/net:rdma"
 NATIVE_REPO_ENV_PREFIX = "--repo_env="
 TRUE_VALUES = frozenset(("1", "ON", "TRUE", "YES"))
 FALSE_VALUES = frozenset(("0", "OFF", "FALSE", "NO"))
@@ -133,6 +134,10 @@ class ConfigRequest:
     d3d12_enabled: bool = True
     # Option spelling used for the D3D12 API selection.
     d3d12_source: str | None = None
+    # Explicit native RDMA support, independent of host carrier composition.
+    rdma_enabled: bool = False
+    # Option spelling used for native RDMA selection.
+    rdma_source: str | None = None
     rocm_path: str | None = None
 
     def set_driver(self, driver: str, enabled: bool) -> None:
@@ -299,6 +304,15 @@ class ConfigRequest:
             )
         self.amdf_build_source = source
         self.amdf_build = enabled
+
+    def set_rdma_enabled(self, enabled: bool, source: str) -> None:
+        if self.rdma_source is not None and self.rdma_source != source:
+            raise SystemExit(
+                "Do not mix portable -DIREE_NET_RDMA with the native "
+                f"{NATIVE_RDMA_ENABLED_FLAG}=... Bazel option."
+            )
+        self.rdma_source = source
+        self.rdma_enabled = enabled
 
     def set_amdf_family(self, family: str, enabled: bool) -> None:
         if self.amdf_family_source == "native":
@@ -526,6 +540,9 @@ def apply_define(request: ConfigRequest, define: str) -> None:
     if name == "IREE_ENABLE_D3D12":
         request.set_d3d12_enabled(parse_bool(name, value), "portable")
         return
+    if name == "IREE_NET_RDMA":
+        request.set_rdma_enabled(parse_bool(name, value), "portable")
+        return
     if name in AMDF_FAMILY_DEFINES:
         request.set_amdf_family(AMDF_FAMILY_DEFINES[name], parse_bool(name, value))
         return
@@ -615,6 +632,13 @@ def apply_native_bazel_arg(request: ConfigRequest, arg: str) -> None:
         return
     if arg == NATIVE_D3D12_ENABLED_FLAG:
         raise SystemExit(f"{NATIVE_D3D12_ENABLED_FLAG} must use --flag=value syntax.")
+    if arg.startswith(NATIVE_RDMA_ENABLED_FLAG + "="):
+        request.set_rdma_enabled(
+            parse_bool(NATIVE_RDMA_ENABLED_FLAG, arg.split("=", 1)[1]), "native"
+        )
+        return
+    if arg == NATIVE_RDMA_ENABLED_FLAG:
+        raise SystemExit(f"{NATIVE_RDMA_ENABLED_FLAG} must use --flag=value syntax.")
     if arg.startswith(NATIVE_REPO_ENV_PREFIX):
         repo_env = arg[len(NATIVE_REPO_ENV_PREFIX) :]
         if "=" not in repo_env:
@@ -744,6 +768,11 @@ def generate_config(args: argparse.Namespace) -> str:
         bazelrc_line(
             "build",
             NATIVE_D3D12_ENABLED_FLAG + "=" + str(request.d3d12_enabled).lower(),
+        ),
+        "",
+        "# Native RDMA resources; no host carrier is implicitly registered.",
+        bazelrc_line(
+            "build", NATIVE_RDMA_ENABLED_FLAG + "=" + str(request.rdma_enabled).lower()
         ),
         "",
         "# Source dependency mode.",

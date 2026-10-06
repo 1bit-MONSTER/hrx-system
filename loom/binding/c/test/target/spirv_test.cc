@@ -10,6 +10,7 @@
 #include <string>
 
 #include "iree/testing/gtest.h"
+#include "loomc/artifact_manifest.h"
 #include "loomc/compile.h"
 #include "loomc/compile_report.h"
 #include "loomc/context.h"
@@ -62,6 +63,19 @@ void ExpectSucceededResult(const loomc_result_t* result) {
     ADD_FAILURE() << ToString(diagnostic->message);
   }
   EXPECT_TRUE(loomc_result_succeeded(result));
+}
+
+const loomc_artifact_t* FindArtifact(const loomc_result_t* result,
+                                     loomc_artifact_kind_t kind,
+                                     const char* format) {
+  for (loomc_host_size_t i = 0; i < loomc_result_artifact_count(result); ++i) {
+    const loomc_artifact_t* artifact = loomc_result_artifact_at(result, i);
+    if (artifact != nullptr && artifact->kind == kind &&
+        ToString(artifact->format) == format) {
+      return artifact;
+    }
+  }
+  return nullptr;
 }
 
 TargetEnvironmentPtr CreateSpirvTargetEnvironment() {
@@ -201,7 +215,7 @@ TEST(TargetSpirvTest, CreatesTargetPipelinePassProgram) {
   ExpectSucceededResult(result_ptr.get());
 }
 
-TEST(TargetSpirvTest, ConfigIdentitySurvivesCloneAndResetsOnCompilation) {
+TEST(TargetSpirvTest, ConfigIdentitySurvivesCloneAndContinuedCompilation) {
   TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
   ContextPtr context = CreateSpirvContext(target_environment.get());
   loomc_workspace_t* raw_workspace = nullptr;
@@ -284,14 +298,9 @@ kernel.def target(@target) @configured() {
       ASSERT_EQ(ToString(report->format),
                 LOOMC_ARTIFACT_FORMAT_COMPILE_REPORT_JSON);
       const std::string json = ToString(report->contents);
-      if (invocation == 0) {
-        EXPECT_NE(json.find("\"key\":\"tile_size\",\"value\":\"32\""),
-                  std::string::npos)
-            << json;
-      } else {
-        EXPECT_EQ(json.find("\"key\":\"tile_size\""), std::string::npos)
-            << json;
-      }
+      EXPECT_NE(json.find("\"key\":\"tile_size\",\"value\":\"32\""),
+                std::string::npos)
+          << json;
       result.reset();
       loomc_workspace_trim(workspace.get());
     }
@@ -372,6 +381,82 @@ TEST(TargetSpirvTest, EmitsSpirvBinaryArtifact) {
     ExpectSucceededResult(result_ptr.get());
     ExpectSpirvArtifact(result_ptr.get(), "spirv_barriers.spv");
   }
+}
+
+TEST(TargetSpirvTest, EmitsArtifactManifestAndTargetReport) {
+  TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
+  ContextPtr context = CreateSpirvContext(target_environment.get());
+  loomc_workspace_t* workspace_handle = nullptr;
+  LOOMC_ASSERT_OK(loomc_workspace_create(nullptr, loomc_allocator_system(),
+                                         &workspace_handle));
+  WorkspacePtr workspace(workspace_handle);
+  ModulePtr module =
+      CreateBarrierSpirvLowModule(context.get(), workspace.get());
+
+  loomc_compile_report_options_t report_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_COMPILE_REPORT_OPTIONS,
+      /*.structure_size=*/sizeof(report_options),
+      /*.next=*/nullptr,
+      /*.mode=*/LOOMC_COMPILE_REPORT_MODE_DETAILS,
+  };
+  loomc_artifact_manifest_options_t manifest_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_ARTIFACT_MANIFEST_OPTIONS,
+      /*.structure_size=*/sizeof(manifest_options),
+      /*.next=*/&report_options,
+      /*.mode=*/LOOMC_ARTIFACT_MANIFEST_MODE_SUMMARY,
+  };
+  loomc_emit_options_t emit_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS,
+      /*.structure_size=*/sizeof(emit_options),
+      /*.next=*/&manifest_options,
+      /*.artifact_format=*/loomc_make_cstring_view(LOOMC_ARTIFACT_FORMAT_SPIRV),
+      /*.identifier=*/loomc_make_cstring_view("spirv_barriers.spv"),
+      /*.artifact_flags=*/LOOMC_EMIT_ARTIFACT_FLAG_PRIMARY,
+  };
+  loomc_result_t* result_handle = nullptr;
+  LOOMC_ASSERT_OK(loomc_emit_module(target_environment.get(), workspace.get(),
+                                    module.get(), &emit_options,
+                                    loomc_allocator_system(), &result_handle));
+  ResultPtr result(result_handle);
+  ExpectSucceededResult(result.get());
+
+  const loomc_artifact_t* manifest =
+      FindArtifact(result.get(), LOOMC_ARTIFACT_KIND_REPORT,
+                   LOOMC_ARTIFACT_FORMAT_ARTIFACT_MANIFEST_JSON);
+  ASSERT_NE(manifest, nullptr);
+  const std::string manifest_text = ToString(manifest->contents);
+  EXPECT_NE(manifest_text.find("\"format\":\"spirv-binary\""),
+            std::string::npos)
+      << manifest_text;
+  EXPECT_NE(manifest_text.find("\"name\":\"spirv_barriers.spv\""),
+            std::string::npos)
+      << manifest_text;
+  EXPECT_NE(manifest_text.find("\"targets\":[{\"name\":\"target\""),
+            std::string::npos)
+      << manifest_text;
+  EXPECT_NE(manifest_text.find("\"functions\":[{\"name\":\"spirv_barriers\""),
+            std::string::npos)
+      << manifest_text;
+
+  const loomc_artifact_t* report =
+      FindArtifact(result.get(), LOOMC_ARTIFACT_KIND_REPORT,
+                   LOOMC_ARTIFACT_FORMAT_COMPILE_REPORT_JSON);
+  ASSERT_NE(report, nullptr);
+  const std::string report_text = ToString(report->contents);
+  EXPECT_NE(report_text.find("\"artifact_kind\":\"target-artifact\""),
+            std::string::npos)
+      << report_text;
+  EXPECT_NE(report_text.find("\"backend\":\"spirv\""), std::string::npos)
+      << report_text;
+  EXPECT_NE(report_text.find("\"target_family\":\"spirv\""), std::string::npos)
+      << report_text;
+  EXPECT_NE(report_text.find("\"target_bundle\":\"target\""), std::string::npos)
+      << report_text;
+  EXPECT_NE(report_text.find("\"target_export\":\"spirv_barriers\""),
+            std::string::npos)
+      << report_text;
+  EXPECT_NE(report_text.find("\"target_config\":\"target\""), std::string::npos)
+      << report_text;
 }
 
 TEST(TargetSpirvTest, SerializesGenericTargetLowTextWhenRequested) {

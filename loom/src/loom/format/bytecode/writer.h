@@ -11,19 +11,19 @@
 //   2. For each function: intern signature, then stream body to IR
 //      section through a page-buffered writer. Numbering tables grow
 //      as new strings/types/ops are encountered.
-//   3. Write SYMBOLS (buffered for offset table patching), then
-//      reference sections (STRINGS, TYPES, OPS, etc.) from the
-//      now-complete numbering tables.
+//   3. Stream SYMBOLS and patch its leading offset tables in the seekable
+//      output, then write reference sections (STRINGS, TYPES, OPS, etc.) from
+//      the now-complete numbering tables.
 //   4. Seek back to patch the section directory and module length.
 //
 // The stream must be writable and seekable. Both iree_io_vec_stream_t
 // (in-memory, for tests) and iree_io_stdio_stream_t (files) support
 // this. Non-seekable consumers (network) wrap in a vec_stream.
 //
-// Section data is NOT buffered in memory (except SYMBOLS, which needs
-// internal offset table patching and remains compact). All other
-// sections stream directly through a 4KB page buffer to amortize
-// the iree_io_stream_write vtable dispatch cost.
+// Section data streams directly through a 4KB page buffer to amortize the
+// iree_io_stream_write vtable dispatch cost. Small independently bounded
+// record payloads may use temporary contiguous storage when their encoded
+// length prefixes must precede their contents.
 
 #ifndef LOOM_FORMAT_BYTECODE_WRITER_H_
 #define LOOM_FORMAT_BYTECODE_WRITER_H_

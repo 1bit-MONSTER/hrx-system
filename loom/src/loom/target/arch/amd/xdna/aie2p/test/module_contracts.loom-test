@@ -119,7 +119,7 @@ aie2p.target<core> @core_target
 low.func.decl target<amd.xdna.aie2p.core>(@core_target) @core_entry()
 
 low.func.def target<amd.xdna.aie2p.array>(@array_target) @cross_target_call() asm {
-  // ERROR@+1: TARGET/040 {op_name="low.func.call", field_name="callee", callee_target_name="core_target", caller_target_name="array_target"}
+  // ERROR@+1: XDNA/014 {op_name="low.func.call"}
   low.func.call @core_entry() : ()
   return
 }

@@ -117,8 +117,8 @@ loom_cc_library(
     loom::codegen::low::lower
     loom::codegen::low::lower::source_selection
     loom::codegen::low::pipeline
-    loom::codegen::low::pipeline::pass_environment
     loom::codegen::low::verify
+    loom::codegen::pass_environment
     loom::ir
     loom::ops::func
     loom::ops::low

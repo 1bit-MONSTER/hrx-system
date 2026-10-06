@@ -77,6 +77,27 @@ typedef struct loom_local_value_domain_register_state_t {
   iree_arena_allocator_t* arena;
 } loom_local_value_domain_register_state_t;
 
+// Acquisition can encounter a definition first as a forward CFG use or a type
+// dependency. Promote it into the definition prefix before publishing ordinals.
+static iree_status_t loom_local_value_domain_register_definition(
+    loom_local_value_domain_t* domain, iree_arena_allocator_t* arena,
+    loom_value_id_t value_id) {
+  loom_value_ordinal_t ordinal = LOOM_VALUE_ORDINAL_INVALID;
+  IREE_RETURN_IF_ERROR(loom_local_value_domain_register_value(
+      domain, arena, value_id, &ordinal));
+  const loom_value_ordinal_t definition_ordinal = domain->definition_count++;
+  if (ordinal != definition_ordinal) {
+    const loom_value_id_t capture = domain->value_ids[definition_ordinal];
+    domain->value_ids[ordinal] = capture;
+    domain->value_ids[definition_ordinal] = value_id;
+    loom_value_u32_scratch_store(&domain->module->scratch.values, capture,
+                                 ordinal);
+    loom_value_u32_scratch_store(&domain->module->scratch.values, value_id,
+                                 definition_ordinal);
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_local_value_domain_register_value_callback(
     void* user_data, loom_value_id_t value_id) {
   loom_local_value_domain_register_state_t* state =
@@ -208,9 +229,8 @@ static iree_status_t loom_local_value_domain_register_region_values(
   const loom_block_t* block = NULL;
   loom_region_for_each_block(domain->region, block) {
     for (uint16_t i = 0; i < block->arg_count; ++i) {
-      loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;
-      IREE_RETURN_IF_ERROR(loom_local_value_domain_register_value(
-          domain, arena, loom_block_arg_id(block, i), &value_ordinal));
+      IREE_RETURN_IF_ERROR(loom_local_value_domain_register_definition(
+          domain, arena, loom_block_arg_id(block, i)));
       IREE_RETURN_IF_ERROR(loom_local_value_domain_for_each_value_type_ref(
           domain->module, loom_block_arg_id(block, i), visitor));
     }
@@ -218,9 +238,8 @@ static iree_status_t loom_local_value_domain_register_region_values(
     loom_block_for_each_op(block, op) {
       const loom_value_id_t* results = loom_op_const_results(op);
       for (uint16_t i = 0; i < op->result_count; ++i) {
-        loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;
-        IREE_RETURN_IF_ERROR(loom_local_value_domain_register_value(
-            domain, arena, results[i], &value_ordinal));
+        IREE_RETURN_IF_ERROR(loom_local_value_domain_register_definition(
+            domain, arena, results[i]));
       }
       IREE_RETURN_IF_ERROR(
           loom_local_value_domain_for_each_op_use(domain->module, op, visitor));
@@ -245,9 +264,8 @@ static iree_status_t loom_local_value_domain_register_region_tree_values(
   const loom_block_t* block = NULL;
   loom_region_for_each_block(region, block) {
     for (uint16_t i = 0; i < block->arg_count; ++i) {
-      loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;
-      IREE_RETURN_IF_ERROR(loom_local_value_domain_register_value(
-          domain, arena, loom_block_arg_id(block, i), &value_ordinal));
+      IREE_RETURN_IF_ERROR(loom_local_value_domain_register_definition(
+          domain, arena, loom_block_arg_id(block, i)));
       IREE_RETURN_IF_ERROR(loom_local_value_domain_for_each_value_type_ref(
           domain->module, loom_block_arg_id(block, i), visitor));
     }
@@ -263,9 +281,8 @@ static iree_status_t loom_local_value_domain_register_region_tree_values(
       }
       const loom_value_id_t* results = loom_op_const_results(op);
       for (uint16_t i = 0; i < op->result_count; ++i) {
-        loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;
-        IREE_RETURN_IF_ERROR(loom_local_value_domain_register_value(
-            domain, arena, results[i], &value_ordinal));
+        IREE_RETURN_IF_ERROR(loom_local_value_domain_register_definition(
+            domain, arena, results[i]));
         IREE_RETURN_IF_ERROR(loom_local_value_domain_for_each_value_type_ref(
             domain->module, results[i], visitor));
       }

@@ -303,7 +303,7 @@ static iree_status_t loom_target_specialization_prepare_versions(
     loom_target_resolved_specialization_t* specializations,
     iree_host_size_t specialization_count,
     iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
-    uint32_t* out_error_count) {
+    iree_host_size_t first_target_context_ordinal, uint32_t* out_error_count) {
   *out_error_count = 0;
 
   for (iree_host_size_t i = 0; i < specialization_count; ++i) {
@@ -327,7 +327,7 @@ static iree_status_t loom_target_specialization_prepare_versions(
     }
   }
 
-  iree_host_size_t next_target_context_ordinal = 0;
+  iree_host_size_t next_target_context_ordinal = first_target_context_ordinal;
   for (iree_host_size_t i = 0; i < specialization_count; ++i) {
     loom_target_resolved_specialization_t* specialization = &specializations[i];
     const loom_target_facts_t* projected_profile_facts =
@@ -449,14 +449,16 @@ iree_status_t loom_target_specialize_functions(
     const loom_target_environment_t* environment, loom_module_t* module,
     loom_target_specialization_request_list_t requests,
     loom_target_declaration_binding_list_t bindings,
-    iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
-    loom_target_specialization_result_t* out_result) {
+    iree_diagnostic_emitter_t diagnostic_emitter,
+    loom_function_version_owner_t* inout_function_versions,
+    uint32_t* out_error_count) {
   IREE_ASSERT_ARGUMENT(environment);
   IREE_ASSERT_ARGUMENT(module);
-  IREE_ASSERT_ARGUMENT(arena);
-  IREE_ASSERT_ARGUMENT(out_result);
-  *out_result = (loom_target_specialization_result_t){0};
-  loom_function_version_owner_initialize(arena, &out_result->function_versions);
+  IREE_ASSERT_ARGUMENT(inout_function_versions);
+  IREE_ASSERT_ARGUMENT(inout_function_versions->arena);
+  IREE_ASSERT_ARGUMENT(out_error_count);
+  *out_error_count = 0;
+  iree_arena_allocator_t* arena = inout_function_versions->arena;
   if (requests.count != 0 && requests.values == NULL) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
@@ -509,6 +511,10 @@ iree_status_t loom_target_specialize_functions(
   if (specialization_count == 0) {
     return iree_ok_status();
   }
+
+  loom_target_function_version_snapshot_t previous_versions = {0};
+  IREE_RETURN_IF_ERROR(loom_target_function_version_snapshot_build(
+      module, &inout_function_versions->list, arena, &previous_versions));
 
   loom_target_resolved_specialization_t* specializations = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, specialization_count,
@@ -569,22 +575,55 @@ iree_status_t loom_target_specialize_functions(
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, specialization_count,
                                                  sizeof(*target_versions),
                                                  (void**)&target_versions));
-  IREE_RETURN_IF_ERROR(loom_function_version_owner_reserve(
-      &out_result->function_versions, specialization_count));
   for (iree_host_size_t i = 0; i < specialization_count; ++i) {
     specializations[i].version = &target_versions[i];
   }
 
   IREE_RETURN_IF_ERROR(loom_target_specialization_prepare_versions(
       module, specializations, specialization_count, diagnostic_emitter, arena,
-      &out_result->error_count));
-  if (out_result->error_count != 0) {
+      previous_versions.target_context_capacity, out_error_count));
+  if (*out_error_count != 0) {
     return iree_ok_status();
   }
 
+  iree_host_size_t appended_count = specialization_count;
+  if (inout_function_versions->list.count != 0) {
+    appended_count = 0;
+    for (iree_host_size_t i = 0; i < specialization_count; ++i) {
+      const loom_symbol_id_t symbol_id =
+          loom_func_like_callee(target_versions[i].base.function).symbol_id;
+      if (loom_target_function_version_snapshot_handle_at(&previous_versions,
+                                                          symbol_id) == NULL) {
+        ++appended_count;
+      }
+    }
+  }
+  iree_host_size_t required_capacity = 0;
+  if (!iree_host_size_checked_add(inout_function_versions->list.count,
+                                  appended_count, &required_capacity)) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "function-version count overflow");
+  }
+  IREE_RETURN_IF_ERROR(loom_function_version_owner_reserve(
+      inout_function_versions, required_capacity));
+
   for (iree_host_size_t i = 0; i < specialization_count; ++i) {
-    IREE_RETURN_IF_ERROR(loom_function_version_owner_append(
-        &out_result->function_versions, &target_versions[i].base));
+    loom_target_function_version_t* replacement = &target_versions[i];
+    const loom_symbol_id_t symbol_id =
+        loom_func_like_callee(replacement->base.function).symbol_id;
+    loom_target_function_version_t* existing =
+        loom_target_function_version_cast(
+            loom_target_function_version_snapshot_handle_at(&previous_versions,
+                                                            symbol_id));
+    if (existing == NULL) {
+      IREE_RETURN_IF_ERROR(loom_function_version_owner_append(
+          inout_function_versions, &replacement->base));
+      continue;
+    }
+    replacement->base.flags |= existing->base.flags;
+    replacement->loop_pipelines = existing->loop_pipelines;
+    replacement->memory_accesses = existing->memory_accesses;
+    *existing = *replacement;
   }
   return iree_ok_status();
 }

@@ -80,6 +80,19 @@ TEST(XdnaRegisterFactsTest, EncodesExactSignedAndUnsignedDomains) {
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_OUT_OF_RANGE,
       loom_xdna_register_field_encode(unsigned_field, 2, &bits));
+
+  EXPECT_EQ(loom_xdna_register_field_encode_admitted(signed_field, -1),
+            UINT32_C(0x00000FE0));
+  EXPECT_EQ(loom_xdna_register_field_encode_admitted(unsigned_field, 1), 1u);
+}
+
+TEST(XdnaRegisterFactsTest, ProjectsAdmittedIndexedAddress) {
+  const uint16_t indices[] = {3};
+  EXPECT_EQ(loom_xdna_register_field_address_admitted(
+                loom_xdna_npu2_array_family(),
+                LOOM_XDNA_REGISTER_FIELD_SHIM_NOC_DMA_BD_WORD7_VALID_BD, {2, 0},
+                indices),
+            (UINT64_C(2) << 25) | 0x1D07C);
 }
 
 TEST(XdnaRegisterFactsTest, ResolvesTwoDimensionalStreamSlotPattern) {

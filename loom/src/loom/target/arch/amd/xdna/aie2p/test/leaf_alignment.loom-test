@@ -1,0 +1,95 @@
+// Native jump destinations retain aligned entry points. Fallthrough-only
+// labels do not add padding. These code bytes precede target relocation.
+// RUN: emit aie2p-leaf @identical_next report=code
+
+// Both dynamic outcomes reach the adjacent block after an observable store.
+low.func.def target<amd.xdna.aie2p.core> @identical_next(%condition: reg<aie2p.er>, %value: reg<aie2p.er>, %output: reg<aie2p.ep>) asm {
+  %before = add %value, 1
+  st %before, %output, 0
+  low.cond_br %condition, ^next, ^next : reg<aie2p.er>
+^next:
+  %after = add %before, 1
+  st %after, %output, 4
+  return
+}
+
+// ----
+code: 18 07 00 10 98 11 04 08 00 00 00 00 00 00 18 07 00 10 5c 00 50 30 82 02 00 00 00 00 00 00 00 00 00 00
+
+// ====
+
+// RUN: emit aie2p-leaf @identical_nonnext report=code
+
+// Both outcomes return to the current resident worker, not a following block.
+low.func.def target<amd.xdna.aie2p.core> @identical_nonnext(%condition: reg<aie2p.er>, %value: reg<aie2p.er>, %output: reg<aie2p.ep>) asm {
+  low.br ^worker
+^worker:
+  st %value, %output, 0
+  low.cond_br %condition, ^worker, ^worker : reg<aie2p.er>
+}
+
+// ----
+code: 98 31 04 08 84 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+// ====
+
+// RUN: emit aie2p-leaf @neither_next report=code
+
+// Both distinct store arms follow the shared return in physical source order.
+low.func.def target<amd.xdna.aie2p.core> @neither_next(%condition: reg<aie2p.er>, %left_value: reg<aie2p.er>, %right_value: reg<aie2p.er>, %output: reg<aie2p.ep>) asm {
+  low.cond_br %condition, ^left, ^right : reg<aie2p.er>
+^join:
+  return
+^left:
+  st %left_value, %output, 0
+  low.br ^join
+^right:
+  st %right_value, %output, 0
+  low.br ^join
+}
+
+// ----
+code: 84 01 40 00 00 00 00 00 00 00 00 00 00 00 00 00 84 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 18 00 28 10 00 00 00 00 00 00 00 00 00 00 00 00 98 31 04 08 84 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 98 51 04 08 84 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+// ====
+
+// RUN: emit aie2p-leaf @targeted_empty_chain report=code
+
+// The taken destination and its adjacent successor have no edge arguments or
+// descriptor work. Their labels must alias the eventual store address.
+low.func.def target<amd.xdna.aie2p.core> @targeted_empty_chain(%condition: reg<aie2p.er>, %value: reg<aie2p.er>, %output: reg<aie2p.ep>) asm {
+  low.cond_br %condition, ^target, ^exit : reg<aie2p.er>
+^exit:
+  return
+^target:
+  low.br ^empty
+^empty:
+  low.br ^work
+^work:
+  st %value, %output, 0
+  low.br ^exit
+}
+
+// ----
+code: 84 01 40 00 00 00 00 00 00 00 00 00 00 00 00 00 18 00 28 10 00 00 00 00 00 00 00 00 00 00 00 00 98 31 04 08 84 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+// ====
+
+// The conditional branch's five delay packets lead directly into the
+// fallthrough backedge jump. Exit alignment follows that jump's delay window.
+// RUN: with-checks emit aie2p-leaf @countdown_store report=code
+
+low.func.def target<amd.xdna.aie2p.core> @countdown_store(%output: reg<aie2p.ep>, %count: reg<aie2p.er>) asm {
+  low.br ^loop(%count: reg<aie2p.er>)
+^loop(%remaining: reg<aie2p.er>):
+  %next = add %remaining, -1
+  st %next, %output, 0
+  low.cond_br %next, ^backedge, ^exit : reg<aie2p.er>
+^backedge:
+  low.br ^loop(%next: reg<aie2p.er>)
+^exit:
+  return
+}
+
+// ----
+CHECK: code: * 84 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 84 00 00 00 00 00 *

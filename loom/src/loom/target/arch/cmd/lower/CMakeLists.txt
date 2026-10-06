@@ -170,6 +170,7 @@ loom_cc_library(
     loom::pass::registry
     loom::target::arch::cmd::abi_layout
     loom::target::arch::cmd::program
+    loom::transforms::cleanup::pass_environment
     loom::transforms::kernel::kernel_request_producer
     loom::transforms::kernel::resolve_launches
     loom::transforms::symbol::template_expansion_pipeline
@@ -212,7 +213,7 @@ loom_cc_library(
     iree::base::core_headers
     iree::base::internal::arena
     loom::codegen::low::function
-    loom::codegen::low::target_binding
+    loom::codegen::low::representation_binding
     loom::ir
     loom::ops::low
     loom::target::arch::cmd::abi_layout
@@ -232,6 +233,7 @@ loom_cc_test(
     ::program_plan_index
     ::serialize
     iree::base
+    iree::base::core_headers
     iree::base::internal::arena
     iree::io::stream
     iree::testing::gtest
@@ -241,6 +243,7 @@ loom_cc_test(
     loom::format::text::parser
     loom::ir
     loom::link::module_index
+    loom::ops::index
     loom::ops::low
     loom::ops::op_registry
     loom::pass::builtin_registry
@@ -249,6 +252,7 @@ loom_cc_test(
     loom::target::arch::cmd::program
     loom::testing::diagnostic_matchers
     loom::testing::module_ptr
+    loom::transforms::cleanup::configured
     loom::verify
 )
 
@@ -270,6 +274,7 @@ loom_cc_benchmark(
     loom::link::planner
     loom::ops::op_registry
     loom::pass::builtin_registry
+    loom::transforms::cleanup::configured
     loom::verify
   TESTONLY
 )

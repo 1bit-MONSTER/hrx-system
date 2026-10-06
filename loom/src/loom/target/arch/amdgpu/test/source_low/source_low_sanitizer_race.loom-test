@@ -1,0 +1,68 @@
+// RUN: with-checks emit source-low output=low sanitizer=race sanitizer-reporting=trap
+
+amdgpu.target<gfx11-generic> @target {subgroup_size = 32}
+
+kernel.def target(@target) @race_wide_shared_store() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 8 : offset
+  %value = scalar.constant 1 : i64
+  %scratch = buffer.alloca<workgroup> align(8) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<1xi64>
+  view.store %value, %view[0] : i64, view<1xi64>
+  kernel.return
+}
+
+// ----
+// A physical access walks every runtime-selected shadow entry with one
+// per-lane Low CFG loop and one static observation body. The loop keeps the
+// source access width out of static code size and freezes lanes that have
+// already reached their terminal entry.
+CHECK: low.kernel.def * @race_wide_shared_store() asm {
+CHECK: *{symbol = @iree_tsan_config}
+CHECK: * = v_add_u32* *, 7
+CHECK: * = v_lshrrev_b32 *
+CHECK: * = v_add_u32* *, 1
+CHECK: low.br ^*(*reg<amdgpu.vgpr>*)
+CHECK: ^*(*reg<amdgpu.vgpr>*):
+CHECK: * = v_cmp_ne_i32 *
+CHECK: * = v_add_u32* *, 1
+CHECK: * = v_cndmask_b32 *
+CHECK: low.cond_br *
+CHECK: *, * = s_and_saveexec_b64 *
+CHECK: * = global_atomic_swap* *
+CHECK: s_mov_b64_exec *
+CHECK: low.br ^*(*reg<amdgpu.vgpr>*)
+CHECK: ds_write_b64 *
+CHECK-NOT: *sanitizer.race.access*
+
+// ====
+
+amdgpu.target<gfx11-generic> @target {subgroup_size = 32}
+
+kernel.def target(@target) @race_byte_shared_store() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 1 : offset
+  %value = scalar.constant 1 : i8
+  %scratch = buffer.alloca<workgroup> align(1) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<1xi8>
+  view.store %value, %view[0] : i8, view<1xi8>
+  kernel.return
+}
+
+// ----
+// A one-byte physical access has exactly one possible shadow entry and keeps
+// the loop machinery off its lowering path.
+CHECK: low.kernel.def * @race_byte_shared_store() asm {
+CHECK: *{symbol = @iree_tsan_config}
+CHECK: * = global_atomic_swap* *
+CHECK: ds_write_b8 *
+CHECK-NOT: * = v_cndmask_b32 *
+CHECK-NOT: *sanitizer.race.access*

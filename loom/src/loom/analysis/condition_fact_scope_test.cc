@@ -100,6 +100,60 @@ TEST(ConditionFactScopeTest, ContradictoryFragmentsRemainUnknown) {
       &child_scope, nullptr, &query, &result));
 }
 
+TEST(ConditionFactScopeTest, ProjectedFragmentExposesRangeAndRelationFacts) {
+  const loom_value_id_t value = 1;
+  loom_condition_integer_relation_t relations[] = {
+      {
+          /*.relation=*/LOOM_SYMBOLIC_INTEGER_RELATION_GE,
+          /*.left=*/ValueOperand(value),
+          /*.right=*/
+          {
+              /*.kind=*/LOOM_CONDITION_INTEGER_OPERAND_CONSTANT,
+              /*.value_id=*/LOOM_VALUE_ID_INVALID,
+              /*.constant=*/0,
+          },
+      },
+      {
+          /*.relation=*/LOOM_SYMBOLIC_INTEGER_RELATION_LT,
+          /*.left=*/ValueOperand(value),
+          /*.right=*/
+          {
+              /*.kind=*/LOOM_CONDITION_INTEGER_OPERAND_CONSTANT,
+              /*.value_id=*/LOOM_VALUE_ID_INVALID,
+              /*.constant=*/16,
+          },
+      },
+  };
+  loom_condition_edge_projection_t projection = {};
+  projection.source_derivation =
+      Derivation(relations, IREE_ARRAYSIZE(relations));
+  projection.visible_integer_relation_count = IREE_ARRAYSIZE(relations);
+  loom_condition_fact_scope_t scope = {};
+  loom_condition_fact_scope_initialize_projected(nullptr, &projection, &scope);
+
+  EXPECT_TRUE(loom_condition_fact_scope_has_integer_relations(&scope));
+  loom_value_facts_t value_facts = loom_value_facts_unknown();
+  EXPECT_TRUE(loom_condition_fact_scope_apply_to_value_facts(
+      &scope, nullptr, value, &value_facts));
+  EXPECT_EQ(value_facts.range_lo, 0);
+  EXPECT_EQ(value_facts.range_hi, 15);
+
+  const loom_condition_integer_relation_t query = {
+      /*.relation=*/LOOM_SYMBOLIC_INTEGER_RELATION_LT,
+      /*.left=*/ValueOperand(value),
+      /*.right=*/
+      {
+          /*.kind=*/LOOM_CONDITION_INTEGER_OPERAND_CONSTANT,
+          /*.value_id=*/LOOM_VALUE_ID_INVALID,
+          /*.constant=*/16,
+      },
+  };
+  bool result = false;
+  EXPECT_TRUE(loom_condition_fact_scope_proves_integer_relation(
+      &scope, nullptr, &query, &result));
+  EXPECT_TRUE(result);
+}
+
 static bool CountVisitedRelation(
     void* user_data, const loom_condition_integer_relation_t* relation) {
   (void)relation;

@@ -41,8 +41,9 @@ iree_status_t loom_tooling_source_storage_insert(
 // Copies captured snapshots through a producer-owned source correspondence.
 // |target_sources| is indexed by input source ID. Inputs with no snapshot need
 // no entry in |source_table|; invalid target IDs represent omitted sources.
+// All projections into |storage| belong to the same |target_module|.
 iree_status_t loom_tooling_source_storage_project(
-    loom_tooling_source_storage_t* storage,
+    loom_tooling_source_storage_t* storage, const loom_module_t* target_module,
     const loom_source_table_resolver_t* source_table,
     const loom_source_id_t* target_sources);
 

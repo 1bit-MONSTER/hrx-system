@@ -102,9 +102,8 @@ static loom_value_id_t loom_cfg_graph_selector_value(
     const loom_module_t* module, const loom_op_t* terminator,
     bool* inout_malformed) {
   const loom_op_vtable_t* vtable = loom_op_vtable(module, terminator);
-  if (!vtable ||
-      !iree_any_bit_set(vtable->control_flow_flags,
-                        LOOM_OP_CONTROL_FLOW_HAS_SUCCESSOR_SELECTOR)) {
+  if (!vtable || !iree_any_bit_set(vtable->vtable_flags,
+                                   LOOM_OP_VTABLE_HAS_SUCCESSOR_SELECTOR)) {
     return LOOM_VALUE_ID_INVALID;
   }
   uint16_t selector_index = vtable->successor_selector_operand_index;

@@ -6,7 +6,9 @@
 
 #include <assert.h>
 
+#include "buffer.h"
 #include "buffer_table.h"
+#include "device.h"
 #include "hrx_runtime.h"
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
@@ -15,6 +17,7 @@
 #include "iree/hal/drivers/task/executable/loaders/registration/init.h"
 #include "iree/hal/utils/resource_set.h"
 #include "iree_hal_compat.h"
+#include "runtime.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -473,46 +476,6 @@ iree_status_t hrx_graph_exec_instantiate_locked(
     hrx_graph_exec_t exec, hrx_graph_node_block_t* node_blocks,
     iree_host_size_t node_count);
 
-//===----------------------------------------------------------------------===//
-// Buffer
-//===----------------------------------------------------------------------===//
-
-// Buffer allocation.
-typedef struct hrx_buffer_s {
-  // References held by callers of the public buffer handle.
-  iree_atomic_ref_count_t ref_count;
-
-  // HAL buffer owning the underlying allocation.
-  iree_hal_buffer_t* hal_buffer;
-
-  // HAL pool that materialized |hal_buffer|.
-  iree_hal_pool_t* hal_pool;
-
-  // Device associated with the buffer's allocation.
-  hrx_device_t device;
-
-  // Memory properties selected for the allocation.
-  hrx_memory_type_t mem_type;
-
-  // User-visible allocation length in bytes.
-  size_t size;
-
-  // Optional bounded pool that charged |allocation_budget_size|.
-  hrx_mem_pool_t allocation_budget_pool;
-
-  // Bytes charged against |allocation_budget_pool|.
-  size_t allocation_budget_size;
-
-  // Active scoped mapping, valid only while |is_mapped| is true.
-  iree_hal_buffer_mapping_t mapping;
-
-  // True when |mapping| currently owns an active mapping.
-  bool is_mapped;
-
-  // Cached host pointer for the active mapping.
-  void* mapped_ptr;
-} hrx_buffer_s;
-
 // Memory pool (stream-ordered memory management).
 typedef struct hrx_mem_pool_s {
   // References held by public handles and bounded allocations.
@@ -629,28 +592,8 @@ hrx_shared_state_t* hrx_get_shared_state(void);
 hrx_gpu_state_t* hrx_get_gpu_state(void);
 hrx_cpu_state_t* hrx_get_cpu_state(void);
 
-// Returns the configured application event sink translated to the HAL event
-// ABI. Returns false when HRX would otherwise discard device events.
-bool hrx_runtime_try_get_hal_device_event_sink(
-    iree_hal_device_event_sink_t* out_sink);
-
-// Initializes GPU devices with one immutable HAL device-creation extension
-// chain. The chain and all transitively referenced provider data must remain
-// valid until hrx_gpu_shutdown().
-hrx_status_t hrx_gpu_initialize_with_device_extensions(
-    uint32_t flags,
-    const iree_hal_device_create_params_extension_t* device_extensions);
-
 // Ensure shared infrastructure is created (idempotent).
 hrx_status_t hrx_ensure_shared_state(void);
-
-// Queries immutable total device memory from the HAL device spec.
-//
-// Returns OK with |out_known| false when the HAL spec does not describe a
-// known total capacity. Returns an error only when the spec data is invalid or
-// cannot be represented.
-hrx_status_t hrx_device_query_total_memory_from_spec(
-    hrx_device_t device, bool* out_known, iree_device_size_t* out_total);
 
 // Returns whether a topology edge can provide read/write access to the
 // non-coherent allocation surface used for ordinary device allocations.

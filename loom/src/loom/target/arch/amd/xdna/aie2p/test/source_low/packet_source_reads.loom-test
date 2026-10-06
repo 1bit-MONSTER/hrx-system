@@ -1,0 +1,106 @@
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @volatile_copy_i32x32(%source: buffer, %destination: buffer) {
+  %source_local = buffer.assume.memory_space<workgroup> %source : buffer
+  %destination_local = buffer.assume.memory_space<workgroup> %destination : buffer
+  %source_aligned, %destination_aligned = buffer.assume.alignment %source_local, %destination_local {minimum_alignment = 64} : buffer, buffer
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source_aligned[%base] : buffer -> view<32xi32>
+  %destination_view = buffer.view %destination_aligned[%base] : buffer -> view<32xi32>
+  %observed = vector.load<volatile> %source_view[0] : view<32xi32> -> vector<32xi32>
+  vector.store<volatile> %observed, %destination_view[0] : vector<32xi32>, view<32xi32>
+  func.return
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @volatile_copy_i32x32() asm {
+  %source_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %15 = vlda.512.i32x16.volatile<volatile> %source_view, 0
+  %16 = vlda.512.i32x16.volatile<volatile> %source_view, 64
+  vst.512.i32x16.volatile<volatile> %15, %destination_view, 0
+  vst.512.i32x16.volatile<volatile> %16, %destination_view, 64
+  return
+}
+
+// ====
+
+func.def @volatile_reduce_i32x32(%source: buffer) -> (i32) {
+  %source_local = buffer.assume.memory_space<workgroup> %source : buffer
+  %source_aligned = buffer.assume.alignment %source_local {minimum_alignment = 64} : buffer
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source_aligned[%base] : buffer -> view<32xi32>
+  %observed = vector.load<volatile> %source_view[0] : view<32xi32> -> vector<32xi32>
+  %initial = scalar.constant 0 : i32
+  %sum = vector.reduce<addi> %observed, %initial : vector<32xi32>, i32
+  func.return %sum : i32
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @volatile_reduce_i32x32() -> (reg<aie2p.er>) asm {
+  %source_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %16 = vlda.512.i32x16.volatile<volatile> %source_view, 0
+  %17 = vlda.512.i32x16.volatile<volatile> %source_view, 64
+  %18 = vadd.32 %16, %17
+  %19 = mova.i32 11
+  %20 = vshuffle %18, %18, %19
+  %21 = vadd.32 %18, %20
+  %22 = mova.i32 9
+  %23 = vshuffle %21, %21, %22
+  %24 = vadd.32 %21, %23
+  %25 = mova.i32 7
+  %26 = vshuffle %24, %24, %25
+  %27 = vadd.32 %24, %26
+  %28 = mova.i32 5
+  %29 = vshuffle %27, %27, %28
+  %30 = vadd.32 %27, %29
+  %sum = vextract.32.imm %30, 0
+  return %sum
+}
+
+// ====
+
+func.def @preserve_outer_read(%source: buffer, %destination0: buffer, %destination1: buffer, %count: index, %replacement: i32) {
+  %base = index.constant 0 : offset
+  %source_local = buffer.assume.memory_space<workgroup> %source : buffer
+  %destination0_local = buffer.assume.memory_space<workgroup> %destination0 : buffer
+  %destination1_local = buffer.assume.memory_space<workgroup> %destination1 : buffer
+  %source_aligned, %destination0_aligned, %destination1_aligned = buffer.assume.alignment %source_local, %destination0_local, %destination1_local {minimum_alignment = 64} : buffer, buffer, buffer
+  %source_view = buffer.view %source_aligned[%base] : buffer -> view<32xi32>
+  %destination0_view = buffer.view %destination0_aligned[%base] : buffer -> view<32xi32>
+  %destination1_view = buffer.view %destination1_aligned[%base] : buffer -> view<32xi32>
+  %old = vector.load %source_view[0] : view<32xi32> -> vector<32xi32>
+  %lower = index.constant 0 : index
+  %step = index.constant 1 : index
+  scf.for %iteration = [%lower to %count step %step] {
+    view.store %replacement, %source_view[0] : i32, view<32xi32>
+    vector.store %old, %destination0_view[0] : vector<32xi32>, view<32xi32>
+    vector.store %old, %destination1_view[0] : vector<32xi32>, view<32xi32>
+  }
+  func.return
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @preserve_outer_read(%count: reg<aie2p.er>, %replacement: reg<aie2p.er>) asm {
+  %source_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination0_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %destination1_view = resource<native_pointer> {index = 2, source_type = buffer} : reg<aie2p.ep>
+  %32 = vlda.512.i32x16 %source_view, 0
+  %33 = vlda.512.i32x16 %source_view, 64
+  %lower = mov.short 0
+  %step = mov.short 1
+  low.br ^_bb1(%lower: reg<aie2p.er>)
+^_bb1(%iteration: reg<aie2p.er>):
+  %36 = lt %iteration, %count
+  low.cond_br %36, ^_bb2, ^_bb3 : reg<aie2p.er>
+^_bb2:
+  st %replacement, %source_view, 0
+  vst.512.i32x16 %32, %destination0_view, 0
+  vst.512.i32x16 %33, %destination0_view, 64
+  vst.512.i32x16 %32, %destination1_view, 0
+  vst.512.i32x16 %33, %destination1_view, 64
+  %37 = add.rr %iteration, %step
+  low.br ^_bb1(%37: reg<aie2p.er>)
+^_bb3:
+  return
+}

@@ -9,7 +9,7 @@
 
 iree_add_all_subdirs()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_cc_library(
   NAME
     artifact_provider
@@ -19,17 +19,14 @@ loom_cc_library(
     "artifact_provider.c"
   DEPS
     iree::base
-    loom::ir
     loom::target::arch::amdgpu::profile
-    loom::target::arch::amdgpu::runtime_requirements
     loom::target::emit::native::amdgpu::hal_kernel_library
-    loom::target::emit::native::amdgpu::runtime_globals
     loom::tooling::compile::artifact
   PUBLIC
 )
 endif()
 
-if(LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
+if(LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_cc_library(
   NAME
     device_provider
@@ -50,7 +47,7 @@ loom_cc_library(
 )
 endif()
 
-if(LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
+if(LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_cc_library(
   NAME
     execution_provider
@@ -68,7 +65,7 @@ loom_cc_library(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_cc_library(
   NAME
     testbench_requirements
@@ -86,7 +83,7 @@ loom_cc_library(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_cc_test(
   NAME
     artifact_provider_test
@@ -102,15 +99,12 @@ loom_cc_test(
     loom::format::text::parser
     loom::ir
     loom::ops::op_registry
-    loom::sanitizer::options
     loom::target::arch::amdgpu::artifact_key
     loom::target::arch::amdgpu::descriptors::low_registry
     loom::target::arch::amdgpu::ops
     loom::target::arch::amdgpu::profile
     loom::target::arch::amdgpu::target_info
-    loom::target::emit::native::amdgpu::runtime_globals
     loom::target::reporting::report
-    loom::testing::byte_sequence
     loom::testing::module_ptr
   LABELS
     "iree-build-requirement=loom.target.arch.amdgpu"
@@ -118,7 +112,7 @@ loom_cc_test(
 )
 endif()
 
-if(LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
+if(LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_cc_test(
   NAME
     device_provider_test

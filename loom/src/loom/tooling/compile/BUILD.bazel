@@ -26,6 +26,12 @@ _CONFIGURED_COMPILE_COPTS = (
         "//conditions:default": [],
     }) +
     iree_select({
+        "//loom/config/target/arch:vm": [
+            "-DLOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS=1",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
         "//loom/config/target:wasm_artifacts": [
             "-DLOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS=1",
         ],
@@ -42,25 +48,31 @@ _CONFIGURED_COMPILE_COPTS = (
 _CONFIGURED_COMPILE_DEPS = (
     iree_select({
         "//loom/config/target:amdgpu_artifacts": [
-            "//loom/src/loom/tooling/target/amdgpu:artifact_provider",
+            "//loom/src/loom/target/emit/native/amdgpu:hal_kernel_library",
         ],
         "//conditions:default": [],
     }) +
     iree_select({
         "//loom/config/target:spirv_artifacts": [
-            "//loom/src/loom/tooling/target/spirv:artifact_provider",
+            "//loom/src/loom/target/arch/spirv:compiler_provider",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target/arch:vm": [
+            "//loom/src/loom/target/emit/vm:module_compiler",
         ],
         "//conditions:default": [],
     }) +
     iree_select({
         "//loom/config/target:wasm_artifacts": [
-            "//loom/src/loom/target/emit/wasm:artifact_emitter",
+            "//loom/src/loom/target/emit/wasm:module_compiler",
         ],
         "//conditions:default": [],
     }) +
     iree_select({
         "//loom/config/target:xdna_artifacts": [
-            "//loom/src/loom/tooling/target/amd/xdna:artifact_provider",
+            "//loom/src/loom/target/arch/amd/xdna/aie2p:artifact",
         ],
         "//conditions:default": [],
     })
@@ -70,54 +82,6 @@ package(
     default_visibility = ["//visibility:public"],
     features = ["layering_check"],
     licenses = ["notice"],  # Apache 2.0
-)
-
-loom_cc_library(
-    name = "request",
-    srcs = ["request.c"],
-    hdrs = ["request.h"],
-    deps = [
-        ":artifact",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/ops:op_defs",
-        "//loom/src/loom/ops/pipeline",
-        "//loom/src/loom/target:entry_selection",
-        "//loom/src/loom/target:projection",
-        "//loom/src/loom/target:provider",
-        "//loom/src/loom/target:selection",
-        "//runtime/src/iree/base",
-    ],
-)
-
-loom_cc_library(
-    name = "preparation",
-    srcs = ["preparation.c"],
-    hdrs = ["preparation.h"],
-    deps = [
-        ":pipeline",
-        ":request",
-        "//loom/src/loom/link:linker",
-        "//loom/src/loom/ops:op_defs",
-        "//loom/src/loom/target:entry_selection",
-        "//loom/src/loom/target:module_specialization",
-    ],
-)
-
-loom_cc_test(
-    name = "request_test",
-    srcs = ["request_test.cc"],
-    deps = [
-        ":request",
-        "//loom/src/loom/format/text:parser",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/ops/low",
-        "//loom/src/loom/ops/target",
-        "//loom/src/loom/testing:context",
-        "//loom/src/loom/testing:module_ptr",
-        "//runtime/src/iree/base/internal:arena",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
-    ],
 )
 
 loom_cc_library(
@@ -158,13 +122,18 @@ loom_cc_library(
     hdrs = ["configured.h"],
     copts = _CONFIGURED_COMPILE_COPTS,
     deps = [
-        ":artifact",
         "//loom/src/loom/target:provider",
-        "//loom/src/loom/target/arch/cmd:provider",
         "//loom/src/loom/target/configured:provider_set",
+        "//loom/src/loom/transforms/cleanup:configured",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/threading",
     ] + _CONFIGURED_COMPILE_DEPS,
+)
+
+iree_assert_dependency_boundary(
+    name = "configured_has_no_tooling_target_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/tooling/target/..."],
+    target = ":configured",
 )
 
 loom_cc_test(
@@ -224,8 +193,8 @@ loom_cc_library(
     srcs = ["pipeline.c"],
     hdrs = ["pipeline.h"],
     deps = [
+        "//loom/src/loom/codegen:pass_environment",
         "//loom/src/loom/codegen/low/pipeline:legalizer_registry",
-        "//loom/src/loom/codegen/low/pipeline:pass_environment",
         "//loom/src/loom/error:diagnostic",
         "//loom/src/loom/error:source",
         "//loom/src/loom/ir",
@@ -244,6 +213,7 @@ loom_cc_library(
         "//loom/src/loom/target:specialization",
         "//loom/src/loom/target:types",
         "//loom/src/loom/target/reporting:report",
+        "//loom/src/loom/transforms/cleanup:patterns",
         "//loom/src/loom/verify",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",

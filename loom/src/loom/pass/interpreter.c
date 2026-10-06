@@ -1108,3 +1108,67 @@ iree_status_t loom_pass_interpreter_run_function(
   iree_fpu_state_pop(fpu_state);
   return status;
 }
+
+iree_status_t loom_pass_interpreter_run_program(
+    const loom_pass_program_t* program, loom_module_t* module,
+    const loom_pass_interpreter_options_t* options,
+    loom_pass_run_result_t* out_result) {
+  *out_result = (loom_pass_run_result_t){0};
+  if (program->root_kind == LOOM_PASS_MODULE) {
+    return loom_pass_interpreter_run_module(program, module, options,
+                                            out_result);
+  }
+  if (program->root_kind != LOOM_PASS_FUNCTION) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "unsupported pass pipeline root kind %d",
+                            (int)program->root_kind);
+  }
+
+  iree_arena_allocator_t snapshot_arena;
+  iree_arena_initialize(options->block_pool, &snapshot_arena);
+  uint16_t* symbol_ids = NULL;
+  iree_status_t status = iree_arena_allocate_array(
+      &snapshot_arena, module->symbols.count > 0 ? module->symbols.count : 1,
+      sizeof(*symbol_ids), (void**)&symbol_ids);
+  iree_host_size_t symbol_count = 0;
+  if (iree_status_is_ok(status)) {
+    for (iree_host_size_t i = 0; i < module->symbols.count; ++i) {
+      const loom_symbol_t* symbol = &module->symbols.entries[i];
+      if (!loom_symbol_implements(symbol, LOOM_SYMBOL_INTERFACE_FUNC_LIKE)) {
+        continue;
+      }
+      const loom_func_like_t function =
+          loom_func_like_cast(module, symbol->defining_op);
+      if (loom_func_like_body(function) != NULL) {
+        symbol_ids[symbol_count++] = (uint16_t)i;
+      }
+    }
+  }
+
+  for (iree_host_size_t i = 0; i < symbol_count && iree_status_is_ok(status) &&
+                               out_result->error_count == 0;
+       ++i) {
+    const uint16_t symbol_id = symbol_ids[i];
+    if (symbol_id >= module->symbols.count) {
+      continue;
+    }
+    const loom_symbol_t* symbol = &module->symbols.entries[symbol_id];
+    if (!loom_symbol_implements(symbol, LOOM_SYMBOL_INTERFACE_FUNC_LIKE)) {
+      continue;
+    }
+    const loom_func_like_t function =
+        loom_func_like_cast(module, symbol->defining_op);
+    if (loom_func_like_body(function) == NULL) {
+      continue;
+    }
+    loom_pass_run_result_t invocation_result = {0};
+    status = loom_pass_interpreter_run_function(program, module, function,
+                                                options, &invocation_result);
+    out_result->error_count += invocation_result.error_count;
+    out_result->warning_count += invocation_result.warning_count;
+    out_result->remark_count += invocation_result.remark_count;
+  }
+
+  iree_arena_deinitialize(&snapshot_arena);
+  return status;
+}

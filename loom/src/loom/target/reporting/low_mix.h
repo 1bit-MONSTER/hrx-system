@@ -7,6 +7,7 @@
 #ifndef LOOM_TARGET_REPORTING_LOW_MIX_H_
 #define LOOM_TARGET_REPORTING_LOW_MIX_H_
 
+#include "iree/base/bitmap.h"
 #include "loom/codegen/low/frame.h"
 #include "loom/target/reporting/report.h"
 #include "loom/util/fact_table.h"
@@ -21,11 +22,13 @@ typedef struct loom_target_compile_report_low_dynamic_context_t {
   iree_arena_allocator_t arena;
   // Value facts used to prove exact nested loop trip counts.
   loom_value_fact_table_t fact_table;
-  // Exact execution multiplier per scheduled low block.
+  // Loop-derived execution multiplier per scheduled Low block.
   uint64_t* block_multipliers;
+  // Low blocks whose execution depends on an unmodeled control selector.
+  iree_bitmap_t unmodeled_blocks;
   // True when |arena| was initialized and must be deinitialized.
   bool initialized;
-  // True when every loop/backedge needed for dynamic counts was modeled.
+  // True when the whole scheduled function has exact execution counts.
   bool exact;
 } loom_target_compile_report_low_dynamic_context_t;
 
@@ -59,9 +62,9 @@ bool loom_target_compile_report_accumulate_scaled_static_mix(
 
 // Returns the exact execution multiplier for |node| when one is known.
 bool loom_target_compile_report_low_node_execution_multiplier(
-    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
-    const uint64_t* block_multipliers, const loom_low_schedule_node_t* node,
-    uint64_t* out_multiplier);
+    const loom_module_t* module,
+    const loom_target_compile_report_low_dynamic_context_t* dynamic_context,
+    const loom_low_schedule_node_t* node, uint64_t* out_multiplier);
 
 // Records the static instruction mix of |frame|.
 void loom_target_compile_report_record_low_static_instruction_mix(

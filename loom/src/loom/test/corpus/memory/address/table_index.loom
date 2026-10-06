@@ -1,0 +1,111 @@
+// A byte and one high bit address a 512-entry table without a range assertion
+// or a clamp. Scalar and vector memory consumers use the same proven bound.
+kernel.def @lookup_scalar() {
+  %unit = index.constant 1 : index
+  %groups = index.constant 8 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%groups, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%low: buffer, %high: buffer, %table: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %width = index.constant 32 : index
+  %group = kernel.workgroup.id<x> : index
+  %lane = kernel.workitem.id<x> : index
+  %group_start = index.mul %group, %width : index
+  %position = index.add %group_start, %lane : index
+  %low_view = buffer.view %low[%base] : buffer -> view<256xi8>
+  %high_view = buffer.view %high[%base] : buffer -> view<256xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<512xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<256xi32>
+  %low_byte = view.load %low_view[%position] : view<256xi8> -> i8
+  %high_byte = view.load %high_view[%position] : view<256xi8> -> i8
+  %low_word = scalar.extui %low_byte : i8 to i32
+  %high_word = scalar.extui %high_byte : i8 to i32
+  %high_mask = scalar.constant 1 : i32
+  %high_shift = scalar.constant 8 : i32
+  %high_bit = scalar.andi %high_word, %high_mask : i32
+  %high_code = scalar.shli %high_bit, %high_shift : i32
+  %code = scalar.ori %low_word, %high_code : i32
+  %index = index.cast %code : i32 to index
+  %value = view.load %table_view[%index] : view<512xi32> -> i32
+  view.store %value, %output_view[%position] : i32, view<256xi32>
+  kernel.return
+}
+
+kernel.def @lookup_vector() {
+  %unit = index.constant 1 : index
+  %groups = index.constant 2 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%groups, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%low: buffer, %high: buffer, %table: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %origin = index.constant 0 : index
+  %width = index.constant 32 : index
+  %elements = index.constant 4 : index
+  %group = kernel.workgroup.id<x> : index
+  %lane = kernel.workitem.id<x> : index
+  %group_start = index.mul %group, %width : index
+  %thread = index.add %group_start, %lane : index
+  %position = index.mul %thread, %elements : index
+  %low_view = buffer.view %low[%base] : buffer -> view<256xi8>
+  %high_view = buffer.view %high[%base] : buffer -> view<256xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<512xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<256xi32>
+  %low_bytes = vector.load %low_view[%position] : view<256xi8> -> vector<4xi8>
+  %high_bytes = vector.load %high_view[%position] : view<256xi8> -> vector<4xi8>
+  %low_words = vector.extui %low_bytes : vector<4xi8> to vector<4xi32>
+  %high_words = vector.extui %high_bytes : vector<4xi8> to vector<4xi32>
+  %high_mask = vector.constant 1 : vector<4xi32>
+  %high_shift = vector.constant 8 : vector<4xi32>
+  %high_bits = vector.andi %high_words, %high_mask : vector<4xi32>
+  %high_codes = vector.shli %high_bits, %high_shift : vector<4xi32>
+  %codes = vector.ori %low_words, %high_codes : vector<4xi32>
+  %values = vector.gather %table_view[%origin][%codes] : view<512xi32>, vector<4xi32> -> vector<4xi32>
+  vector.store %values, %output_view[%position] : vector<4xi32>, view<256xi32>
+  kernel.return
+}
+
+check.case @bitwise_table_indices {
+  // Every byte pattern, including 0x80 and 0xff, is zero-extended. Nonzero
+  // discarded high-byte bits distinguish masking from shifting the whole byte.
+  %low = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+  %even_high = check.generate.fill value(-2) : tensor<256xi8>
+  %odd_high = check.generate.fill value(-1) : tensor<256xi8>
+  %table = check.generate.iota offset(-700001) step(17) : tensor<512xi32>
+  %storage = check.generate.fill value(-99) : tensor<1032xi32>
+  %scalar_low = check.tensor.view %storage offset(16) : tensor<1032xi32> -> tensor<256xi32>
+  %scalar_high = check.tensor.view %storage offset(1040) : tensor<1032xi32> -> tensor<256xi32>
+  %vector_low = check.tensor.view %storage offset(2064) : tensor<1032xi32> -> tensor<256xi32>
+  %vector_high = check.tensor.view %storage offset(3088) : tensor<1032xi32> -> tensor<256xi32>
+  kernel.launch @lookup_scalar(%low, %even_high, %table, %scalar_low) : (tensor<256xi8>, tensor<256xi8>, tensor<512xi32>, tensor<256xi32>)
+  kernel.launch @lookup_scalar(%low, %odd_high, %table, %scalar_high) : (tensor<256xi8>, tensor<256xi8>, tensor<512xi32>, tensor<256xi32>)
+  kernel.launch @lookup_vector(%low, %even_high, %table, %vector_low) : (tensor<256xi8>, tensor<256xi8>, tensor<512xi32>, tensor<256xi32>)
+  kernel.launch @lookup_vector(%low, %odd_high, %table, %vector_high) : (tensor<256xi8>, tensor<256xi8>, tensor<512xi32>, tensor<256xi32>)
+  // Signed byte order visits each table half in upper-quarter/lower-quarter
+  // order: [128, 255], [0, 127] or [384, 511], [256, 383].
+  %expected0 = check.generate.iota offset(-700001) step(17) : tensor<128xi32>
+  %expected1 = check.generate.iota offset(-697825) step(17) : tensor<128xi32>
+  %expected2 = check.generate.iota offset(-695649) step(17) : tensor<128xi32>
+  %expected3 = check.generate.iota offset(-693473) step(17) : tensor<128xi32>
+  %scalar_low_first = check.tensor.view %scalar_low offset(0) : tensor<256xi32> -> tensor<128xi32>
+  %scalar_low_last = check.tensor.view %scalar_low offset(512) : tensor<256xi32> -> tensor<128xi32>
+  %scalar_high_first = check.tensor.view %scalar_high offset(0) : tensor<256xi32> -> tensor<128xi32>
+  %scalar_high_last = check.tensor.view %scalar_high offset(512) : tensor<256xi32> -> tensor<128xi32>
+  %vector_low_first = check.tensor.view %vector_low offset(0) : tensor<256xi32> -> tensor<128xi32>
+  %vector_low_last = check.tensor.view %vector_low offset(512) : tensor<256xi32> -> tensor<128xi32>
+  %vector_high_first = check.tensor.view %vector_high offset(0) : tensor<256xi32> -> tensor<128xi32>
+  %vector_high_last = check.tensor.view %vector_high offset(512) : tensor<256xi32> -> tensor<128xi32>
+  check.expect.bitwise actual(%scalar_low_first) expected(%expected1) : tensor<128xi32>
+  check.expect.bitwise actual(%scalar_low_last) expected(%expected0) : tensor<128xi32>
+  check.expect.bitwise actual(%scalar_high_first) expected(%expected3) : tensor<128xi32>
+  check.expect.bitwise actual(%scalar_high_last) expected(%expected2) : tensor<128xi32>
+  check.expect.bitwise actual(%vector_low_first) expected(%expected1) : tensor<128xi32>
+  check.expect.bitwise actual(%vector_low_last) expected(%expected0) : tensor<128xi32>
+  check.expect.bitwise actual(%vector_high_first) expected(%expected3) : tensor<128xi32>
+  check.expect.bitwise actual(%vector_high_last) expected(%expected2) : tensor<128xi32>
+  %prefix = check.tensor.view %storage offset(0) : tensor<1032xi32> -> tensor<4xi32>
+  %suffix = check.tensor.view %storage offset(4112) : tensor<1032xi32> -> tensor<4xi32>
+  %guard = check.generate.fill value(-99) : tensor<4xi32>
+  check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi32>
+  check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi32>
+  check.return
+}

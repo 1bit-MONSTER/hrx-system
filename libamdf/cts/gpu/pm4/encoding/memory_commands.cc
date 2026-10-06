@@ -1,0 +1,69 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+#include "libamdf/cts/gpu/pm4/encoding/memory_commands.h"
+
+#include <cstring>
+
+namespace pm4 {
+
+size_t AtomicStore(uint32_t* words, uint64_t target_address, uint64_t value,
+                   AtomicStoreWidth width) {
+  words[0] = (3u << 30) | (7u << 16) | (0x1eu << 8);
+  // Single-pass command and LRU policy are zero; no retry/compare mode.
+  words[1] = static_cast<uint32_t>(width);
+  words[2] = static_cast<uint32_t>(target_address);
+  words[3] = static_cast<uint32_t>(target_address >> 32);
+  words[4] = static_cast<uint32_t>(value);
+  words[5] = static_cast<uint32_t>(value >> 32);
+  words[6] = 0;
+  words[7] = 0;
+  words[8] = 0;
+  return 9;
+}
+
+size_t CopyData(uint32_t* words, uint64_t source_address,
+                uint64_t target_address, CopyDataWidth width) {
+  // Type-3 COPY_DATA has six DWORDs, with its count excluding two DWORDs.
+  words[0] = (3u << 30) | (4u << 16) | (0x40u << 8);
+  // TC/L2 source and destination, default cache policy and write confirmation.
+  words[1] =
+      (2u << 0) | (2u << 8) | (1u << 20) | (static_cast<uint32_t>(width) << 16);
+  words[2] = static_cast<uint32_t>(source_address);
+  words[3] = static_cast<uint32_t>(source_address >> 32);
+  words[4] = static_cast<uint32_t>(target_address);
+  words[5] = static_cast<uint32_t>(target_address >> 32);
+  return 6;
+}
+
+size_t CopyGpuClock64(uint32_t* words, uint64_t target_address,
+                      CopyDataPolicy policy) {
+  words[0] = (3u << 30) | (4u << 16) | (0x40u << 8);
+  // GPU clock source, MEMORY destination, 64-bit count and confirmation.
+  // The two locality fields occupy the same bits across admitted targets.
+  words[1] = 9u | (5u << 8) | (static_cast<uint32_t>(policy) << 13) |
+             (1u << 16) | (1u << 20) | (static_cast<uint32_t>(policy) << 25);
+  words[2] = 0;
+  words[3] = 0;
+  words[4] = static_cast<uint32_t>(target_address);
+  words[5] = static_cast<uint32_t>(target_address >> 32);
+  return 6;
+}
+
+size_t WriteData(uint32_t* words, uint64_t target_address,
+                 const uint32_t* values, size_t value_count) {
+  // Four fixed DWORDs plus payload, with the type-3 count excluding two.
+  words[0] = (3u << 30) | (0x37u << 8) |
+             (static_cast<uint32_t>(value_count + 2) << 16);
+  // Incrementing TC/L2 destination, default cache policy and confirmation.
+  words[1] = (2u << 8) | (1u << 20);
+  words[2] = static_cast<uint32_t>(target_address);
+  words[3] = static_cast<uint32_t>(target_address >> 32);
+  std::memcpy(words + 4, values, value_count * sizeof(*values));
+  return 4 + value_count;
+}
+
+}  // namespace pm4

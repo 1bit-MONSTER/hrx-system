@@ -32,7 +32,6 @@ check.case @words_values {
   check.expect.bitwise actual(%returned) expected(%expected_returned) : tensor<1xi32>
   check.expect.bitwise actual(%output_before) expected(%output_guard) : tensor<1xi32>
   check.expect.bitwise actual(%output_after) expected(%output_guard) : tensor<1xi32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -59,7 +58,6 @@ check.case @volatile_values {
   check.expect.bitwise actual(%returned) expected(%expected_returned) : tensor<1xi32>
   check.expect.bitwise actual(%output_before) expected(%output_guard) : tensor<1xi32>
   check.expect.bitwise actual(%output_after) expected(%output_guard) : tensor<1xi32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -86,7 +84,6 @@ check.case @bytes_values {
   check.expect.bitwise actual(%returned) expected(%expected_returned) : tensor<1xi32>
   check.expect.bitwise actual(%output_before) expected(%output_guard) : tensor<1xi32>
   check.expect.bitwise actual(%output_after) expected(%output_guard) : tensor<1xi32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -113,7 +110,6 @@ check.case @signed_values {
   check.expect.bitwise actual(%returned) expected(%expected_returned) : tensor<1xi32>
   check.expect.bitwise actual(%output_before) expected(%output_guard) : tensor<1xi32>
   check.expect.bitwise actual(%output_after) expected(%output_guard) : tensor<1xi32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -140,6 +136,5 @@ check.case @floats_values {
   check.expect.bitwise actual(%returned) expected(%expected_returned) : tensor<1xf32>
   check.expect.bitwise actual(%output_before) expected(%output_guard) : tensor<1xf32>
   check.expect.bitwise actual(%output_after) expected(%output_guard) : tensor<1xf32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }

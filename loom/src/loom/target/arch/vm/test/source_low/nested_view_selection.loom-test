@@ -32,12 +32,12 @@ low.func.def target<vm.core> abi(vm_function) @derived_selection(%first_aligned:
 ^_bb2:
   low.br ^_bb3(%second_aligned: reg<vm.ref : buffer>, %base1: reg<vm.value : i64>)
 ^_bb3(%pair_root: reg<vm.ref : buffer>, %pair_offset: reg<vm.value : i64>):
-  %54 = constant.i64 2
-  %55 = integer.shift.left.i64 %position, %54
-  %56 = integer.add.i64 %pair_offset, %55
+  %53 = constant.i64 2
+  %54 = integer.shift.left.i64 %position, %53
+  %55 = integer.add.i64 %pair_offset, %54
   low.cond_br %select_pair, ^_bb4, ^_bb5 : reg<vm.value : i1>
 ^_bb4:
-  low.br ^_bb6(%pair_root: reg<vm.ref : buffer>, %56: reg<vm.value : i64>)
+  low.br ^_bb6(%pair_root: reg<vm.ref : buffer>, %55: reg<vm.value : i64>)
 ^_bb5:
   low.br ^_bb6(%third_aligned: reg<vm.ref : buffer>, %base2: reg<vm.value : i64>)
 ^_bb6(%selected: reg<vm.ref : buffer>, %selected_offset: reg<vm.value : i64>):

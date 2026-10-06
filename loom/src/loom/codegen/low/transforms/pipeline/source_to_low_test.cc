@@ -15,10 +15,10 @@
 #include "loom/codegen/low/lower/representation_projection.h"
 #include "loom/codegen/low/lower/rules.h"
 #include "loom/codegen/low/lower/source_selection.h"
-#include "loom/codegen/low/pipeline/pass_environment.h"
 #include "loom/codegen/low/text_asm.h"
 #include "loom/codegen/low/transforms/allocation.h"
 #include "loom/codegen/low/transforms/dce.h"
+#include "loom/codegen/pass_environment.h"
 #include "loom/error/error_catalog.h"
 #include "loom/format/text/parser.h"
 #include "loom/ir/context.h"
@@ -26,6 +26,7 @@
 #include "loom/ops/func/ops.h"
 #include "loom/ops/low/ops.h"
 #include "loom/ops/pass/ops.h"
+#include "loom/ops/sanitizer/ops.h"
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/target/facts.h"
 #include "loom/ops/target/ops.h"
@@ -104,6 +105,7 @@ class LowLowerPassTest : public ::testing::Test {
                                      &block_pool_);
     loom_context_initialize(iree_allocator_system(), &context_);
     RegisterDialect(LOOM_DIALECT_PASS, loom_pass_dialect_vtables);
+    RegisterDialect(LOOM_DIALECT_SANITIZER, loom_sanitizer_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_TARGET, loom_target_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_FUNC, loom_func_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_LOW, loom_low_dialect_vtables);
@@ -166,12 +168,20 @@ class LowLowerPassTest : public ::testing::Test {
     const loom_pass_info_t* pass_info = loom_low_source_to_low_pass_info();
     std::vector<uint8_t> statistic_storage(
         pass_info->statistic_layout->storage_size, 0);
-    loom_low_pass_environment_storage_t low_pass_environment_storage;
+    const loom_codegen_pass_environment_options_t environment_options = {
+        /*.descriptor_registry=*/&registry_.registry,
+        /*.lower_policy_registry=*/policy_registry,
+        /*.legality_provider_list=*/nullptr,
+        /*.legalizer_registry=*/nullptr,
+        /*.math_policy_registry=*/nullptr,
+        /*.compile_report=*/nullptr,
+        /*.target_environment=*/nullptr,
+    };
+    loom_codegen_pass_environment_storage_t codegen_environment_storage;
     loom_pass_environment_t environment =
-        loom_low_pass_environment_storage_initialize(
-            &registry_.registry, policy_registry, nullptr, nullptr, nullptr,
-            nullptr, /*target_environment=*/nullptr, function_versions,
-            &low_pass_environment_storage);
+        loom_codegen_pass_environment_storage_initialize(
+            &environment_options, function_versions,
+            &codegen_environment_storage);
     loom_pass_t pass = {};
     pass.info = pass_info;
     pass.module_run = loom_low_source_to_low_run;
@@ -279,12 +289,20 @@ class LowLowerPassTest : public ::testing::Test {
         /*.descriptor_count=*/IREE_ARRAYSIZE(kPassDescriptors),
     };
 
-    loom_low_pass_environment_storage_t low_pass_environment_storage;
+    const loom_codegen_pass_environment_options_t environment_options = {
+        /*.descriptor_registry=*/&registry_.registry,
+        /*.lower_policy_registry=*/&policy_registry_,
+        /*.legality_provider_list=*/nullptr,
+        /*.legalizer_registry=*/nullptr,
+        /*.math_policy_registry=*/nullptr,
+        /*.compile_report=*/nullptr,
+        /*.target_environment=*/nullptr,
+    };
+    loom_codegen_pass_environment_storage_t codegen_environment_storage;
     loom_pass_environment_t environment =
-        loom_low_pass_environment_storage_initialize(
-            &registry_.registry, &policy_registry_, nullptr, nullptr, nullptr,
-            nullptr, /*target_environment=*/nullptr, function_versions,
-            &low_pass_environment_storage);
+        loom_codegen_pass_environment_storage_initialize(
+            &environment_options, function_versions,
+            &codegen_environment_storage);
     loom_pass_tool_run_options_t run_options = {
         /*.registry=*/&kPassRegistry,
         /*.environment=*/environment,
@@ -317,12 +335,20 @@ class LowLowerPassTest : public ::testing::Test {
     const loom_pass_info_t* pass_info = loom_inline_callables_pass_info();
     std::vector<uint8_t> statistic_storage(
         pass_info->statistic_layout->storage_size, 0);
-    loom_low_pass_environment_storage_t low_pass_environment_storage;
+    const loom_codegen_pass_environment_options_t environment_options = {
+        /*.descriptor_registry=*/&registry_.registry,
+        /*.lower_policy_registry=*/&policy_registry_,
+        /*.legality_provider_list=*/nullptr,
+        /*.legalizer_registry=*/nullptr,
+        /*.math_policy_registry=*/nullptr,
+        /*.compile_report=*/nullptr,
+        /*.target_environment=*/nullptr,
+    };
+    loom_codegen_pass_environment_storage_t codegen_environment_storage;
     loom_pass_environment_t environment =
-        loom_low_pass_environment_storage_initialize(
-            &registry_.registry, &policy_registry_, nullptr, nullptr, nullptr,
-            nullptr, /*target_environment=*/nullptr, function_versions,
-            &low_pass_environment_storage);
+        loom_codegen_pass_environment_storage_initialize(
+            &environment_options, function_versions,
+            &codegen_environment_storage);
     loom_pass_t pass = {};
     pass.info = pass_info;
     pass.module_run = loom_inline_callables_run;
@@ -692,6 +718,27 @@ TEST_F(LowLowerPassTest,
       RunSourceToLow(&policy_registry, module.get(), &collector);
   EXPECT_EQ(collector.count, 0);
   IREE_ASSERT_OK(status);
+}
+
+TEST_F(LowLowerPassTest, EffectfulFactIdentityRequiresTargetContract) {
+  ModulePtr module = Parse(IREE_SV(
+      "test.target<low_core> @test_target\n"
+      "func.def target(@test_target) @assert_nonzero(%value: i32) -> (i32) {\n"
+      "  %checked = sanitizer.assert.value %value [ne(%value, 0)] : i32\n"
+      "  func.return %checked : i32\n"
+      "}\n"));
+
+  DiagnosticEmissionCollector collector;
+  IREE_ASSERT_OK(RunSourceToLow(&policy_registry_, module.get(), &collector));
+  ASSERT_EQ(collector.count, 1);
+  EXPECT_EQ(collector.last_error, LOOM_ERR_TARGET_001);
+
+  const loom_symbol_ref_t function_ref =
+      FindSymbolRef(module.get(), IREE_SV("assert_nonzero"));
+  const loom_op_t* function_op =
+      module->symbols.entries[function_ref.symbol_id].defining_op;
+  ASSERT_NE(function_op, nullptr);
+  EXPECT_TRUE(loom_func_def_isa(function_op));
 }
 
 TEST_F(LowLowerPassTest, InvokeNormalizesToDirectLowCallWithPolicyPreserved) {

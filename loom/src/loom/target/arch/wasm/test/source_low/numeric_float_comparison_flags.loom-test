@@ -1,7 +1,22 @@
 // TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_float_comparison_flags.loom-test
-// TEMPLATE-EXCLUDE: @non_nan_relations Scalar relational comparison lowering is not implemented for this profile.
 // TEMPLATE-EXCLUDE: @independent_nan_permissions This profile has no lowering for the nonconstant NaN classification controls.
 // RUN: emit source-low target=wasm:simd128 output=low
+
+func.def @non_nan_relations(%lhs: f32, %rhs: f32) -> (i1, i1, i1) {
+  %equal = scalar.cmpf<nnan> oeq, %lhs, %rhs : f32
+  %less = scalar.cmpf<nnan> olt, %lhs, %rhs : f32
+  %unordered_less = scalar.cmpf<nnan> ult, %lhs, %rhs : f32
+  func.return %equal, %less, %unordered_less : i1, i1, i1
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @non_nan_relations(%lhs: reg<wasm.f32>, %rhs: reg<wasm.f32>) -> (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) asm {
+  %equal = f32.eq %lhs, %rhs
+  %less = f32.lt %lhs, %rhs
+  return %equal, %less, %less
+}
+
+// ====
 
 func.def @non_nan_classifications(%lhs: f32, %rhs: f32) -> (i1, i1, i1) {
   %ordered = scalar.cmpf<nnan> ord, %lhs, %rhs : f32

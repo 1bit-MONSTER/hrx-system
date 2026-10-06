@@ -82,9 +82,10 @@ iree_status_t loom_tooling_source_storage_insert(
 }
 
 iree_status_t loom_tooling_source_storage_project(
-    loom_tooling_source_storage_t* storage,
+    loom_tooling_source_storage_t* storage, const loom_module_t* target_module,
     const loom_source_table_resolver_t* source_table,
     const loom_source_id_t* target_sources) {
+  storage->table.module = target_module;
   for (iree_host_size_t i = 0; i < source_table->count; ++i) {
     const loom_source_entry_t* entry = &source_table->entries[i];
     if (entry->source_id == LOOM_SOURCE_ID_INVALID) {

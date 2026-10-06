@@ -1,0 +1,233 @@
+// RUN: emit source-low target=spirv:vulkan1.3+bda+extended-types output=low control-flow=structured-low
+
+// A full Workgroup barrier ends the first root's memory lifetime, allowing the
+// larger second root to reuse the arena base.
+func.def @workgroup_barrier_reuses_peak_extent(%first_value: i32, %second_value: i32) -> (i32, i32) {
+  %base = index.constant 0 : offset
+  %first_bytes = index.constant 64 : offset
+  %second_bytes = index.constant 128 : offset
+  %first = buffer.alloca<workgroup> align(4) %first_bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  view.store %first_value, %first_view[0] : i32, view<1xi32>
+  %first_result = view.load %first_view[0] : view<1xi32> -> i32
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %second = buffer.alloca<workgroup> align(4) %second_bytes : buffer
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  view.store %second_value, %second_view[0] : i32, view<1xi32>
+  %second_result = view.load %second_view[0] : view<1xi32> -> i32
+  func.return %first_result, %second_result : i32, i32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @workgroup_barrier_reuses_peak_extent(%first_value: reg<spirv.id : i32>, %second_value: reg<spirv.id : i32>) -> (reg<spirv.id : i32>, reg<spirv.id : i32>) asm {
+  %second = storage {byte_alignment = 4, byte_length = 128} : low.storage<workgroup>
+  %first_view = storage_address %second : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
+  %19 = OpConstant.i32 0 : reg<spirv.id : index>
+  %20 = OpAccessChain.workgroup.i32.element_index %first_view, %19
+  OpStore.workgroup.i32 %20, %first_value
+  %first_result = OpLoad.workgroup.i32 %20
+  OpControlBarrier.workgroup.workgroup.acq_rel
+  %second_view = storage_address %second : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
+  %25 = OpConstant.i32 0 : reg<spirv.id : index>
+  %26 = OpAccessChain.workgroup.i32.element_index %second_view, %25
+  OpStore.workgroup.i32 %26, %second_value
+  %second_result = OpLoad.workgroup.i32 %26
+  return %first_result, %second_result
+}
+
+// ====
+
+// Concurrent roots occupy distinct ranges in the same typed arena. The second
+// root's 64-byte physical bias becomes an explicit 16-element coordinate.
+func.def @workgroup_overlapping_roots_keep_distinct_ranges(%first_value: i32, %second_value: i32) -> (i32, i32) {
+  %base = index.constant 0 : offset
+  %first_bytes = index.constant 64 : offset
+  %second_bytes = index.constant 128 : offset
+  %first = buffer.alloca<workgroup> align(4) %first_bytes : buffer
+  %second = buffer.alloca<workgroup> align(4) %second_bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  view.store %first_value, %first_view[0] : i32, view<1xi32>
+  view.store %second_value, %second_view[0] : i32, view<1xi32>
+  %first_result = view.load %first_view[0] : view<1xi32> -> i32
+  %second_result = view.load %second_view[0] : view<1xi32> -> i32
+  func.return %first_result, %second_result : i32, i32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @workgroup_overlapping_roots_keep_distinct_ranges(%first_value: reg<spirv.id : i32>, %second_value: reg<spirv.id : i32>) -> (reg<spirv.id : i32>, reg<spirv.id : i32>) asm {
+  %second = storage {byte_alignment = 4, byte_length = 192} : low.storage<workgroup>
+  %first_view = storage_address %second : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
+  %20 = OpConstant.i32 0 : reg<spirv.id : index>
+  %21 = OpAccessChain.workgroup.i32.element_index %first_view, %20
+  OpStore.workgroup.i32 %21, %first_value
+  %22 = OpConstant.i32 16 : reg<spirv.id : index>
+  %23 = OpAccessChain.workgroup.i32.element_index %first_view, %22
+  OpStore.workgroup.i32 %23, %second_value
+  %first_result = OpLoad.workgroup.i32 %21
+  %second_result = OpLoad.workgroup.i32 %23
+  return %first_result, %second_result
+}
+
+// ====
+
+// A subgroup barrier cannot prove disjoint Workgroup lifetimes.
+func.def @subgroup_barrier_keeps_workgroup_ranges_distinct(%first_value: i32, %second_value: i32) -> (i32, i32) {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 64 : offset
+  %first = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  view.store %first_value, %first_view[0] : i32, view<1xi32>
+  %first_result = view.load %first_view[0] : view<1xi32> -> i32
+  kernel.barrier<workgroup> scope(subgroup) ordering(acq_rel)
+  %second = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  view.store %second_value, %second_view[0] : i32, view<1xi32>
+  %second_result = view.load %second_view[0] : view<1xi32> -> i32
+  func.return %first_result, %second_result : i32, i32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @subgroup_barrier_keeps_workgroup_ranges_distinct(%first_value: reg<spirv.id : i32>, %second_value: reg<spirv.id : i32>) -> (reg<spirv.id : i32>, reg<spirv.id : i32>) asm {
+  %second = storage {byte_alignment = 4, byte_length = 128} : low.storage<workgroup>
+  %first_view = storage_address %second : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
+  %18 = OpConstant.i32 0 : reg<spirv.id : index>
+  %19 = OpAccessChain.workgroup.i32.element_index %first_view, %18
+  OpStore.workgroup.i32 %19, %first_value
+  %first_result = OpLoad.workgroup.i32 %19
+  OpControlBarrier.subgroup.workgroup.acq_rel
+  %second_view = storage_address %second : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
+  %24 = OpConstant.i32 16 : reg<spirv.id : index>
+  %25 = OpAccessChain.workgroup.i32.element_index %second_view, %24
+  OpStore.workgroup.i32 %25, %second_value
+  %second_result = OpLoad.workgroup.i32 %25
+  return %first_result, %second_result
+}
+
+// ====
+
+// Portable logical pointers retain one arena per exact scalar carrier even
+// when the source lifetimes do not overlap.
+func.def @different_scalar_carriers_keep_separate_arenas(%integer_value: i32, %float_value: f32) -> (i32, f32) {
+  %base = index.constant 0 : offset
+  %integer_bytes = index.constant 64 : offset
+  %float_bytes = index.constant 128 : offset
+  %integer = buffer.alloca<workgroup> align(4) %integer_bytes : buffer
+  %integer_view = buffer.view %integer[%base] : buffer -> view<1xi32>
+  view.store %integer_value, %integer_view[0] : i32, view<1xi32>
+  %integer_result = view.load %integer_view[0] : view<1xi32> -> i32
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %float = buffer.alloca<workgroup> align(4) %float_bytes : buffer
+  %float_view = buffer.view %float[%base] : buffer -> view<1xf32>
+  view.store %float_value, %float_view[0] : f32, view<1xf32>
+  %float_result = view.load %float_view[0] : view<1xf32> -> f32
+  func.return %integer_result, %float_result : i32, f32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @different_scalar_carriers_keep_separate_arenas(%integer_value: reg<spirv.id : i32>, %float_value: reg<spirv.id : f32>) -> (reg<spirv.id : i32>, reg<spirv.id : f32>) asm {
+  %integer = storage {byte_alignment = 4, byte_length = 64} : low.storage<workgroup>
+  %float = storage {byte_alignment = 4, byte_length = 128} : low.storage<workgroup>
+  %integer_view = storage_address %integer : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
+  %20 = OpConstant.i32 0 : reg<spirv.id : index>
+  %21 = OpAccessChain.workgroup.i32.element_index %integer_view, %20
+  OpStore.workgroup.i32 %21, %integer_value
+  %integer_result = OpLoad.workgroup.i32 %21
+  OpControlBarrier.workgroup.workgroup.acq_rel
+  %float_view = storage_address %float : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.f32>
+  %26 = OpConstant.i32 0 : reg<spirv.id : index>
+  %27 = OpAccessChain.workgroup.f32.element_index %float_view, %26
+  OpStore.workgroup.f32 %27, %float_value
+  %float_result = OpLoad.workgroup.f32 %27
+  return %integer_result, %float_result
+}
+
+// ====
+
+// A typed but footprint-free root must not increase physical Workgroup storage.
+func.def @unused_root_does_not_inflate_arena(%value: i32) -> (i32) {
+  %base = index.constant 0 : offset
+  %unused_bytes = index.constant 32768 : offset
+  %live_bytes = index.constant 64 : offset
+  %unused = buffer.alloca<workgroup> align(256) %unused_bytes : buffer
+  %unused_view = buffer.view %unused[%base] : buffer -> view<1xi32>
+  %live = buffer.alloca<workgroup> align(4) %live_bytes : buffer
+  %live_view = buffer.view %live[%base] : buffer -> view<1xi32>
+  view.store %value, %live_view[0] : i32, view<1xi32>
+  %result = view.load %live_view[0] : view<1xi32> -> i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @unused_root_does_not_inflate_arena(%value: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  %live = storage {byte_alignment = 4, byte_length = 64} : low.storage<workgroup>
+  %live_view = storage_address %live : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
+  %14 = OpConstant.i32 0 : reg<spirv.id : index>
+  %15 = OpAccessChain.workgroup.i32.element_index %live_view, %14
+  OpStore.workgroup.i32 %15, %value
+  %result = OpLoad.workgroup.i32 %15
+  return %result
+}
+
+// ====
+
+// Workgroup-uniform alternatives have disjoint lifetimes and share the arena
+// base even without a separating barrier.
+kernel.def @uniform_branches_reuse_same_range() {
+  %unit = index.constant 1 : index
+  %workgroup_count = index.constant 2 : index
+  kernel.launch.config workgroups(%workgroup_count, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%output: buffer) {
+  %workgroup = kernel.workgroup.id<x> : index
+  %first_workgroup = index.constant 0 : index
+  %base = index.constant 0 : offset
+  %first_bytes = index.constant 64 : offset
+  %second_bytes = index.constant 128 : offset
+  %first_value = scalar.constant 1 : i32
+  %second_value = scalar.constant 2 : i32
+  %is_first = index.cmp eq, %workgroup, %first_workgroup : index
+  %output_view = buffer.view %output[%base] : buffer -> view<2xi32>
+  scf.if %is_first {
+    %first = buffer.alloca<workgroup> align(4) %first_bytes : buffer
+    %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+    view.store %first_value, %first_view[0] : i32, view<1xi32>
+    %loaded = view.load %first_view[0] : view<1xi32> -> i32
+    view.store %loaded, %output_view[%workgroup] : i32, view<2xi32>
+  } else {
+    %second = buffer.alloca<workgroup> align(4) %second_bytes : buffer
+    %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+    view.store %second_value, %second_view[0] : i32, view<1xi32>
+    %loaded = view.load %second_view[0] : view<1xi32> -> i32
+    view.store %loaded, %output_view[%workgroup] : i32, view<2xi32>
+  }
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> workgroup_size(1, 1, 1) workgroup_count(2, 1, 1) @uniform_branches_reuse_same_range() asm {
+  %output = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %second = storage {byte_alignment = 4, byte_length = 128} : low.storage<workgroup>
+  %workgroup = OpLoadBuiltin.workgroup_id.x
+  %first_workgroup = OpConstant.i32 0 : reg<spirv.id : index>
+  %first_value = OpConstant.i32 1
+  %second_value = OpConstant.i32 2
+  %is_first = OpIEqual %workgroup, %first_workgroup
+  low.scf.if %is_first {
+    %first_view = storage_address %second : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
+    %31 = OpAccessChain.workgroup.i32.element_index %first_view, %first_workgroup
+    OpStore.workgroup.i32 %31, %first_value
+    %loaded = OpLoad.workgroup.i32 %31
+    %35 = OpConstant.offset64 0
+    %36 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %35
+    OpStore.storage_buffer.i32 %36, %loaded
+  } else {
+    %second_view = storage_address %second : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
+    %39 = OpAccessChain.workgroup.i32.element_index %second_view, %first_workgroup
+    OpStore.workgroup.i32 %39, %second_value
+    %loaded = OpLoad.workgroup.i32 %39
+    %43 = OpConstant.offset64 4
+    %44 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %43
+    OpStore.storage_buffer.i32 %44, %loaded
+  }
+  return
+}

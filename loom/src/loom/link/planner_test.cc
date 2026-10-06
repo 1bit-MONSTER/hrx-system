@@ -1886,6 +1886,86 @@ check.benchmark<@library_case> @library_benchmark
   EXPECT_FALSE(ContainsSymbol(plan.get(), library_benchmark));
 }
 
+TEST_F(LinkPlannerTest, StrippedInputTestsRetainTargetSubjects) {
+  const iree_string_view_t source = IREE_SV(R"(
+func.def @helper(%x: i32) -> (i32) {
+  func.return %x : i32
+}
+
+func.def @subject(%x: i32) -> (i32) {
+  %result = func.call @helper(%x) : (i32) -> (i32)
+  func.return %result : i32
+}
+
+func.def @oracle(%x: i32) -> (i32) {
+  func.return %x : i32
+}
+
+check.scenario @subject_scenario {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.literal value(1) : i32
+    check.compare<@subject, @oracle>(%input) : (i32) -> [actual(%actual: i32), expected(%expected: i32)] {
+      check.expect.equal actual(%actual) expected(%expected) : i32
+    }
+  }
+  check.return
+}
+)");
+  loom_module_t* module = Parse(source);
+  const std::vector<uint8_t> bytecode = WriteModule(module);
+
+  auto verify_index = [&](const loom_link_module_index_t* index) {
+    loom_link_plan_options_t options = {
+        /*.mode=*/LOOM_LINK_PLAN_LINK,
+    };
+    options.test_symbol_policy = LOOM_LINK_PLAN_TEST_SYMBOL_STRIP;
+    options.include_input_tests = true;
+    PlanPtr plan = BuildPlan(index, &options);
+
+    const loom_link_module_index_module_t* indexed_module =
+        loom_link_module_index_module_at(index, 0);
+    ASSERT_NE(indexed_module, nullptr);
+    const loom_link_module_index_symbol_t* helper =
+        loom_link_module_index_lookup_private(index, indexed_module,
+                                              IREE_SV("helper"));
+    const loom_link_module_index_symbol_t* subject =
+        loom_link_module_index_lookup_private(index, indexed_module,
+                                              IREE_SV("subject"));
+    const loom_link_module_index_symbol_t* oracle =
+        loom_link_module_index_lookup_private(index, indexed_module,
+                                              IREE_SV("oracle"));
+    const loom_link_module_index_symbol_t* scenario =
+        loom_link_module_index_lookup_private(index, indexed_module,
+                                              IREE_SV("subject_scenario"));
+
+    EXPECT_TRUE(ContainsSymbol(plan.get(), helper));
+    EXPECT_TRUE(ContainsSymbol(plan.get(), subject));
+    EXPECT_FALSE(ContainsSymbol(plan.get(), oracle));
+    EXPECT_FALSE(ContainsSymbol(plan.get(), scenario));
+    ASSERT_NE(FindPlannedSymbol(plan.get(), helper), nullptr);
+    ASSERT_NE(FindPlannedSymbol(plan.get(), subject), nullptr);
+    EXPECT_EQ(FindPlannedSymbol(plan.get(), helper)->reason,
+              LOOM_LINK_PLAN_LIVE_DEPENDENCY);
+    EXPECT_EQ(FindPlannedSymbol(plan.get(), subject)->reason,
+              LOOM_LINK_PLAN_LIVE_ROOT);
+  };
+
+  IndexPtr materialized_index = CreateIndex();
+  AddMaterialized(materialized_index.get(), module, IREE_SV("materialized"),
+                  LOOM_LINK_PROVIDER_ROLE_INPUT);
+  verify_index(materialized_index.get());
+
+  IndexPtr bytecode_index = CreateIndex();
+  AddBytecode(bytecode_index.get(), bytecode, IREE_SV("input.loombc"),
+              LOOM_LINK_PROVIDER_ROLE_INPUT);
+  verify_index(bytecode_index.get());
+
+  IndexPtr text_index = CreateIndex();
+  AddText(text_index.get(), source, IREE_SV("input.loom"),
+          LOOM_LINK_PROVIDER_ROLE_INPUT);
+  verify_index(text_index.get());
+}
+
 TEST_F(LinkPlannerTest, TestSymbolStripPolicyRejectsStrippedRoots) {
   loom_module_t* module = Parse(Fixture(
       IREE_SV("test_symbol_strip_policy_rejects_stripped_roots_module.loom")));

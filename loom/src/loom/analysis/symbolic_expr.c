@@ -8,10 +8,14 @@
 
 #include <string.h>
 
+#include "iree/base/internal/math.h"
 #include "loom/analysis/cfg_value_identity.h"
 #include "loom/analysis/condition_facts.h"
+#include "loom/analysis/symbolic_congruence.h"
+#include "loom/analysis/symbolic_projection.h"
 #include "loom/ir/attribute.h"
 #include "loom/ir/context.h"
+#include "loom/ops/index/carrier.h"
 #include "loom/ops/index/ops.h"
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/scf/ops.h"
@@ -25,17 +29,36 @@ enum loom_symbolic_expr_memo_state_e {
   LOOM_SYMBOLIC_EXPR_MEMO_EMPTY = 0,
   LOOM_SYMBOLIC_EXPR_MEMO_VISITING = 1,
   LOOM_SYMBOLIC_EXPR_MEMO_READY = 2,
+  LOOM_SYMBOLIC_EXPR_MEMO_PROJECTED = 3,
 };
 
 struct loom_symbolic_expr_memo_entry_t {
   // Current memo state for this value ID.
   uint8_t state;
 
-  // SSA value materializing only the expression's dynamic terms, or invalid.
-  loom_value_id_t materialized_dynamic_value_id;
+  // A projected value materializes itself: its exact expression is one SSA
+  // term with no constant. Its slot therefore needs only a projection index.
+  union {
+    // SSA value materializing the dynamic terms, or invalid, for READY.
+    loom_value_id_t materialized_dynamic_value_id;
+    // Index into context projections for PROJECTED.
+    uint32_t projection_index;
+  } result;
 
-  // Cached expression when state is LOOM_SYMBOLIC_EXPR_MEMO_READY.
+  // Cached expression when state is READY or PROJECTED.
   loom_symbolic_expr_t expression;
+};
+
+#define LOOM_SYMBOLIC_EXPR_MEMO_ENTRIES_PER_CHUNK 32u
+
+struct loom_symbolic_expr_memo_chunk_t {
+  // Next reusable chunk, or NULL at the retained high-water boundary.
+  loom_symbolic_expr_memo_chunk_t* next;
+  // Storage ordinal to invalidate for each entry in the current live prefix.
+  loom_value_ordinal_t ordinals[LOOM_SYMBOLIC_EXPR_MEMO_ENTRIES_PER_CHUNK];
+  // Payloads kept separate from ordinals to avoid per-entry alignment padding.
+  loom_symbolic_expr_memo_entry_t
+      entries[LOOM_SYMBOLIC_EXPR_MEMO_ENTRIES_PER_CHUNK];
 };
 
 static loom_value_ordinal_t loom_symbolic_expr_try_value_ordinal(
@@ -62,12 +85,35 @@ loom_symbolic_expr_ready_memo_entry(const loom_symbolic_expr_context_t* context,
   const loom_value_ordinal_t value_ordinal =
       loom_symbolic_expr_try_value_ordinal(context, value_id);
   if (value_ordinal == LOOM_VALUE_ORDINAL_INVALID ||
-      (iree_host_size_t)value_ordinal >= context->memo_capacity) {
+      (iree_host_size_t)value_ordinal >= context->memo.capacity) {
     return NULL;
   }
   const loom_symbolic_expr_memo_entry_t* entry =
-      &context->memo_entries[value_ordinal];
-  return entry->state == LOOM_SYMBOLIC_EXPR_MEMO_READY ? entry : NULL;
+      context->memo.entries[value_ordinal];
+  return entry && entry->state >= LOOM_SYMBOLIC_EXPR_MEMO_READY ? entry : NULL;
+}
+
+static loom_value_id_t loom_symbolic_expr_memo_materialized_dynamic_value(
+    const loom_symbolic_expr_memo_entry_t* entry, loom_value_id_t value_id) {
+  return IREE_UNLIKELY(entry->state == LOOM_SYMBOLIC_EXPR_MEMO_PROJECTED)
+             ? value_id
+             : entry->result.materialized_dynamic_value_id;
+}
+
+const loom_symbolic_projection_t* loom_symbolic_expr_lookup_projection(
+    const loom_symbolic_expr_context_t* context,
+    const loom_symbolic_expr_t* expression) {
+  if (context->projections.count == 0 ||
+      !loom_symbolic_expr_is_linear(expression) || expression->constant != 0 ||
+      expression->term_count != 1 || expression->terms[0].coefficient != 1) {
+    return NULL;
+  }
+  const loom_symbolic_expr_memo_entry_t* entry =
+      loom_symbolic_expr_ready_memo_entry(context,
+                                          expression->terms[0].value_id);
+  return entry && entry->state == LOOM_SYMBOLIC_EXPR_MEMO_PROJECTED
+             ? &context->projections.values[entry->result.projection_index]
+             : NULL;
 }
 
 static loom_value_facts_t loom_symbolic_expr_intersect_integer_facts(
@@ -113,13 +159,18 @@ void loom_symbolic_expr_context_initialize(
 }
 
 void loom_symbolic_expr_context_reset(loom_symbolic_expr_context_t* context) {
-  for (iree_host_size_t i = 0; i < context->touched_memo_ordinal_count; ++i) {
-    const loom_value_ordinal_t value_ordinal =
-        context->touched_memo_ordinals[i];
-    memset(&context->memo_entries[value_ordinal], 0,
-           sizeof(*context->memo_entries));
+  const loom_symbolic_expr_memo_chunk_t* chunk = context->memo.first;
+  for (uint32_t remaining = context->memo.count; remaining > 0;) {
+    const uint32_t count =
+        iree_min(remaining, LOOM_SYMBOLIC_EXPR_MEMO_ENTRIES_PER_CHUNK);
+    for (uint32_t i = 0; i < count; ++i) {
+      context->memo.entries[chunk->ordinals[i]] = NULL;
+    }
+    remaining -= count;
+    chunk = chunk->next;
   }
-  context->touched_memo_ordinal_count = 0;
+  context->memo.count = 0;
+  context->projections.count = 0;
   for (iree_host_size_t i = 0;
        i < context->touched_condition_fact_memo_ordinal_count; ++i) {
     const loom_value_ordinal_t value_ordinal =
@@ -140,45 +191,68 @@ bool loom_symbolic_expr_context_try_lookup_summary(
   }
   *out_summary = (loom_symbolic_expr_summary_t){
       .expression = entry->expression,
-      .materialized_dynamic_value_id = entry->materialized_dynamic_value_id,
+      .materialized_dynamic_value_id =
+          loom_symbolic_expr_memo_materialized_dynamic_value(entry, value_id),
+      .projection =
+          loom_symbolic_expr_lookup_projection(context, &entry->expression),
   };
   return true;
 }
 
-static iree_status_t loom_symbolic_expr_ensure_memo_capacity(
-    loom_symbolic_expr_context_t* context, iree_host_size_t minimum_capacity) {
-  if (minimum_capacity <= context->memo_capacity) {
-    return iree_ok_status();
+// Prepares the index and current chunk for an absent ordinal without publishing
+// a new live row. Allocation failures leave the current live prefix intact.
+static iree_status_t loom_symbolic_expr_prepare_memo_storage(
+    loom_symbolic_expr_context_t* context, loom_value_ordinal_t value_ordinal) {
+  if ((iree_host_size_t)value_ordinal >= context->memo.capacity) {
+    const iree_host_size_t old_capacity = context->memo.capacity;
+    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+        context->arena, old_capacity, (iree_host_size_t)value_ordinal + 1,
+        sizeof(*context->memo.entries), &context->memo.capacity,
+        (void**)&context->memo.entries));
+    memset(context->memo.entries + old_capacity, 0,
+           (context->memo.capacity - old_capacity) *
+               sizeof(*context->memo.entries));
   }
-  iree_host_size_t old_capacity = context->memo_capacity;
-  void* entries = context->memo_entries;
-  IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-      context->arena, context->memo_capacity, minimum_capacity,
-      sizeof(*context->memo_entries), &context->memo_capacity, &entries));
-  context->memo_entries = (loom_symbolic_expr_memo_entry_t*)entries;
-  memset(
-      context->memo_entries + old_capacity, 0,
-      (context->memo_capacity - old_capacity) * sizeof(*context->memo_entries));
+  if (context->memo.count % LOOM_SYMBOLIC_EXPR_MEMO_ENTRIES_PER_CHUNK == 0) {
+    loom_symbolic_expr_memo_chunk_t** link = context->memo.count == 0
+                                                 ? &context->memo.first
+                                                 : &context->memo.current->next;
+    if (*link == NULL) {
+      loom_symbolic_expr_memo_chunk_t* new_chunk = NULL;
+      IREE_RETURN_IF_ERROR(iree_arena_allocate(
+          context->arena, sizeof(*new_chunk), (void**)&new_chunk));
+      new_chunk->next = NULL;
+      *link = new_chunk;
+    }
+    context->memo.current = *link;
+  }
   return iree_ok_status();
 }
 
-static iree_status_t loom_symbolic_expr_touch_memo_ordinal(
-    loom_symbolic_expr_context_t* context, loom_value_ordinal_t value_ordinal) {
-  if (context->memo_entries[value_ordinal].state !=
-      LOOM_SYMBOLIC_EXPR_MEMO_EMPTY) {
+static iree_status_t loom_symbolic_expr_acquire_memo_entry(
+    loom_symbolic_expr_context_t* context, loom_value_ordinal_t value_ordinal,
+    loom_symbolic_expr_memo_entry_t** out_entry) {
+  const bool has_index =
+      (iree_host_size_t)value_ordinal < context->memo.capacity;
+  loom_symbolic_expr_memo_entry_t* entry =
+      has_index ? context->memo.entries[value_ordinal] : NULL;
+  if (entry != NULL) {
+    *out_entry = entry;
     return iree_ok_status();
   }
-  if (context->touched_memo_ordinal_count >=
-      context->touched_memo_ordinal_capacity) {
-    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-        context->arena, context->touched_memo_ordinal_count,
-        context->touched_memo_ordinal_count + 1,
-        sizeof(*context->touched_memo_ordinals),
-        &context->touched_memo_ordinal_capacity,
-        (void**)&context->touched_memo_ordinals));
+  const uint32_t slot =
+      context->memo.count % LOOM_SYMBOLIC_EXPR_MEMO_ENTRIES_PER_CHUNK;
+  if (IREE_UNLIKELY(!has_index || slot == 0)) {
+    IREE_RETURN_IF_ERROR(
+        loom_symbolic_expr_prepare_memo_storage(context, value_ordinal));
   }
-  context->touched_memo_ordinals[context->touched_memo_ordinal_count++] =
-      value_ordinal;
+  context->memo.current->ordinals[slot] = value_ordinal;
+  entry = &context->memo.current->entries[slot];
+  // No expression fields are read until a complete result becomes ready.
+  entry->state = LOOM_SYMBOLIC_EXPR_MEMO_EMPTY;
+  context->memo.entries[value_ordinal] = entry;
+  ++context->memo.count;
+  *out_entry = entry;
   return iree_ok_status();
 }
 
@@ -450,7 +524,7 @@ static iree_status_t loom_symbolic_expr_override_facts(
   return iree_ok_status();
 }
 
-static iree_status_t loom_symbolic_expr_add_or_sub(
+static iree_status_t loom_symbolic_expr_add_or_sub_exact(
     loom_symbolic_expr_context_t* context,
     const loom_symbolic_expr_t* left_expression,
     const loom_symbolic_expr_t* right_expression, bool subtract,
@@ -517,6 +591,25 @@ static iree_status_t loom_symbolic_expr_add_or_sub(
                                         facts, out_expression);
 }
 
+static iree_status_t loom_symbolic_expr_add_or_sub(
+    loom_symbolic_expr_context_t* context,
+    const loom_symbolic_expr_t* left_expression,
+    const loom_symbolic_expr_t* right_expression, bool subtract,
+    loom_symbolic_expr_t* out_expression) {
+  if (!left_expression->congruence && !right_expression->congruence) {
+    return loom_symbolic_expr_add_or_sub_exact(
+        context, left_expression, right_expression, subtract, out_expression);
+  }
+  // Callers may accumulate in place; retain both inputs before replacing
+  // output.
+  const loom_symbolic_expr_t left = *left_expression;
+  const loom_symbolic_expr_t right = *right_expression;
+  IREE_RETURN_IF_ERROR(loom_symbolic_expr_add_or_sub_exact(
+      context, &left, &right, subtract, out_expression));
+  return loom_symbolic_congruence_combine(context, &left, &right,
+                                          subtract ? -1 : 1, out_expression);
+}
+
 iree_status_t loom_symbolic_expr_add(
     loom_symbolic_expr_context_t* context,
     const loom_symbolic_expr_t* left_expression,
@@ -535,10 +628,10 @@ iree_status_t loom_symbolic_expr_sub(
                                        right_expression, true, out_expression);
 }
 
-iree_status_t loom_symbolic_expr_mul_i64(loom_symbolic_expr_context_t* context,
-                                         const loom_symbolic_expr_t* expression,
-                                         int64_t multiplier,
-                                         loom_symbolic_expr_t* out_expression) {
+static iree_status_t loom_symbolic_expr_mul_i64_exact(
+    loom_symbolic_expr_context_t* context,
+    const loom_symbolic_expr_t* expression, int64_t multiplier,
+    loom_symbolic_expr_t* out_expression) {
   loom_value_facts_t multiplier_facts = loom_value_facts_exact_i64(multiplier);
   loom_value_facts_t facts = {0};
   loom_value_facts_muli(&expression->facts, &multiplier_facts, &facts);
@@ -574,6 +667,21 @@ iree_status_t loom_symbolic_expr_mul_i64(loom_symbolic_expr_context_t* context,
   return loom_symbolic_expr_make_linear(
       context, constant, context->scratch_terms, expression->term_count, facts,
       out_expression);
+}
+
+iree_status_t loom_symbolic_expr_mul_i64(loom_symbolic_expr_context_t* context,
+                                         const loom_symbolic_expr_t* expression,
+                                         int64_t multiplier,
+                                         loom_symbolic_expr_t* out_expression) {
+  if (!expression->congruence) {
+    return loom_symbolic_expr_mul_i64_exact(context, expression, multiplier,
+                                            out_expression);
+  }
+  const loom_symbolic_expr_t input = *expression;
+  IREE_RETURN_IF_ERROR(loom_symbolic_expr_mul_i64_exact(
+      context, &input, multiplier, out_expression));
+  return loom_symbolic_congruence_scale(context, &input, multiplier,
+                                        out_expression);
 }
 
 static bool loom_symbolic_expr_constant_value(
@@ -623,9 +731,12 @@ static iree_status_t loom_symbolic_expr_attach_identity_relation_value(
   IREE_RETURN_IF_ERROR(loom_symbolic_expr_ensure_scratch_terms(context, 1));
   context->scratch_terms[0] = expression->terms[0];
   context->scratch_terms[0].relation_value_id = relation_value;
-  return loom_symbolic_expr_make_linear(context, expression->constant,
-                                        context->scratch_terms, 1,
-                                        expression->facts, expression);
+  const loom_symbolic_congruence_t* congruence = expression->congruence;
+  IREE_RETURN_IF_ERROR(loom_symbolic_expr_make_linear(
+      context, expression->constant, context->scratch_terms, 1,
+      expression->facts, expression));
+  expression->congruence = congruence;
+  return iree_ok_status();
 }
 
 typedef enum loom_symbolic_expr_expansion_kind_e {
@@ -638,6 +749,11 @@ typedef enum loom_symbolic_expr_expansion_kind_e {
   LOOM_SYMBOLIC_EXPR_EXPANSION_SHIFT_LEFT,
   LOOM_SYMBOLIC_EXPR_EXPANSION_NEGATE,
   LOOM_SYMBOLIC_EXPR_EXPANSION_SELECT,
+  LOOM_SYMBOLIC_EXPR_EXPANSION_QUOTIENT,
+  LOOM_SYMBOLIC_EXPR_EXPANSION_SHIFT_RIGHT,
+  LOOM_SYMBOLIC_EXPR_EXPANSION_REMAINDER,
+  LOOM_SYMBOLIC_EXPR_EXPANSION_UNSIGNED_REMAINDER,
+  LOOM_SYMBOLIC_EXPR_EXPANSION_MASK,
 } loom_symbolic_expr_expansion_kind_t;
 
 typedef enum loom_symbolic_expr_expansion_stage_e {
@@ -667,11 +783,19 @@ typedef struct loom_symbolic_expr_expansion_frame_t {
   // or zero for address arithmetic and operations with no signed wrap.
   uint8_t integer_bit_count;
 
+  // Whether retained holds a completed projection instead of a constant RHS.
+  bool has_projection;
+
   // Partial expression retained while a later operand is expanded.
   loom_symbolic_expr_t intermediate_expression;
 
-  // Exact shift amount retained while the shifted value is expanded.
-  int64_t shift_amount;
+  // Mutually exclusive data retained by the operation-specific expansion.
+  union {
+    // Exact divisor or shift amount retained while the left input is expanded.
+    int64_t constant_rhs;
+    // Completed digit proof index, valid when has_projection is true.
+    uint32_t projection_index;
+  } retained;
 } loom_symbolic_expr_expansion_frame_t;
 
 #define LOOM_SYMBOLIC_EXPR_EXPANSION_INLINE_FRAME_CAPACITY 8
@@ -693,13 +817,14 @@ static loom_value_id_t loom_symbolic_expr_expansion_materialized_dynamic_value(
     return frame->value_id;
   }
 
+  loom_value_id_t source_value = LOOM_VALUE_ID_INVALID;
   const loom_symbolic_expr_memo_entry_t* source_entry = NULL;
   switch (frame->kind) {
     case LOOM_SYMBOLIC_EXPR_EXPANSION_IDENTITY:
     case LOOM_SYMBOLIC_EXPR_EXPANSION_ASSUME:
     case LOOM_SYMBOLIC_EXPR_EXPANSION_SELECT:
-      source_entry = loom_symbolic_expr_ready_memo_entry(
-          context, frame->operand_values[0]);
+      source_value = frame->operand_values[0];
+      source_entry = loom_symbolic_expr_ready_memo_entry(context, source_value);
       break;
     case LOOM_SYMBOLIC_EXPR_EXPANSION_ADD: {
       const loom_symbolic_expr_memo_entry_t* left_entry =
@@ -709,8 +834,10 @@ static loom_value_id_t loom_symbolic_expr_expansion_materialized_dynamic_value(
           loom_symbolic_expr_ready_memo_entry(context,
                                               frame->operand_values[1]);
       if (loom_symbolic_expr_memo_entry_is_constant(left_entry)) {
+        source_value = frame->operand_values[1];
         source_entry = right_entry;
       } else if (loom_symbolic_expr_memo_entry_is_constant(right_entry)) {
+        source_value = frame->operand_values[0];
         source_entry = left_entry;
       }
       break;
@@ -720,8 +847,9 @@ static loom_value_id_t loom_symbolic_expr_expansion_materialized_dynamic_value(
           loom_symbolic_expr_ready_memo_entry(context,
                                               frame->operand_values[1]);
       if (loom_symbolic_expr_memo_entry_is_constant(right_entry)) {
-        source_entry = loom_symbolic_expr_ready_memo_entry(
-            context, frame->operand_values[0]);
+        source_value = frame->operand_values[0];
+        source_entry =
+            loom_symbolic_expr_ready_memo_entry(context, source_value);
       }
       break;
     }
@@ -729,10 +857,16 @@ static loom_value_id_t loom_symbolic_expr_expansion_materialized_dynamic_value(
     case LOOM_SYMBOLIC_EXPR_EXPANSION_MULTIPLY_ADD:
     case LOOM_SYMBOLIC_EXPR_EXPANSION_SHIFT_LEFT:
     case LOOM_SYMBOLIC_EXPR_EXPANSION_NEGATE:
+    case LOOM_SYMBOLIC_EXPR_EXPANSION_QUOTIENT:
+    case LOOM_SYMBOLIC_EXPR_EXPANSION_SHIFT_RIGHT:
+    case LOOM_SYMBOLIC_EXPR_EXPANSION_REMAINDER:
+    case LOOM_SYMBOLIC_EXPR_EXPANSION_UNSIGNED_REMAINDER:
+    case LOOM_SYMBOLIC_EXPR_EXPANSION_MASK:
       break;
   }
-  return source_entry != NULL ? source_entry->materialized_dynamic_value_id
-                              : LOOM_VALUE_ID_INVALID;
+  return source_entry ? loom_symbolic_expr_memo_materialized_dynamic_value(
+                            source_entry, source_value)
+                      : LOOM_VALUE_ID_INVALID;
 }
 
 static iree_status_t loom_symbolic_expr_expansion_request_value(
@@ -750,11 +884,10 @@ static iree_status_t loom_symbolic_expr_expansion_request_value(
   loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;
   IREE_RETURN_IF_ERROR(loom_symbolic_expr_resolve_value_ordinal(
       context, value_id, &value_ordinal));
-  IREE_RETURN_IF_ERROR(loom_symbolic_expr_ensure_memo_capacity(
-      context, (iree_host_size_t)value_ordinal + 1));
-  loom_symbolic_expr_memo_entry_t* memo_entry =
-      &context->memo_entries[value_ordinal];
-  if (memo_entry->state == LOOM_SYMBOLIC_EXPR_MEMO_READY) {
+  loom_symbolic_expr_memo_entry_t* memo_entry = NULL;
+  IREE_RETURN_IF_ERROR(loom_symbolic_expr_acquire_memo_entry(
+      context, value_ordinal, &memo_entry));
+  if (memo_entry->state >= LOOM_SYMBOLIC_EXPR_MEMO_READY) {
     *out_expression = memo_entry->expression;
     return iree_ok_status();
   }
@@ -770,8 +903,6 @@ static iree_status_t loom_symbolic_expr_expansion_request_value(
     *inout_frames = (loom_symbolic_expr_expansion_frame_t*)frames;
   }
 
-  IREE_RETURN_IF_ERROR(
-      loom_symbolic_expr_touch_memo_ordinal(context, value_ordinal));
   memo_entry->state = LOOM_SYMBOLIC_EXPR_MEMO_VISITING;
   (*inout_frames)[(*inout_frame_count)++] =
       (loom_symbolic_expr_expansion_frame_t){
@@ -833,6 +964,20 @@ static iree_status_t loom_symbolic_expr_expansion_prepare_frame(
     return loom_symbolic_expr_value(context, frame->value_id, out_expression);
   }
 
+  if (loom_traits_are_fact_identity(
+          loom_op_effective_traits(context->module, defining_op))) {
+    IREE_ASSERT_EQ(defining_op->operand_count, defining_op->result_count,
+                   "verified fact identity fields must have equal arity");
+    const uint16_t result_index = loom_value_def_index(value);
+    IREE_ASSERT(result_index < defining_op->result_count,
+                "fact identity result index must be in range");
+    frame->kind = LOOM_SYMBOLIC_EXPR_EXPANSION_ASSUME;
+    frame->operand_values[0] =
+        loom_op_const_operands(defining_op)[result_index];
+    frame->stage = LOOM_SYMBOLIC_EXPR_EXPANSION_STAGE_FIRST_OPERAND;
+    return iree_ok_status();
+  }
+
   switch (defining_op->kind) {
     case LOOM_OP_INDEX_CONSTANT: {
       loom_attribute_t value_attr = loom_index_constant_value(defining_op);
@@ -846,8 +991,11 @@ static iree_status_t loom_symbolic_expr_expansion_prepare_frame(
       *out_complete = true;
       break;
     }
-    case LOOM_OP_INDEX_CAST: {
-      const loom_value_id_t input = loom_index_cast_input(defining_op);
+    case LOOM_OP_INDEX_CAST:
+    case LOOM_OP_SCALAR_EXTSI:
+    case LOOM_OP_SCALAR_EXTUI:
+    case LOOM_OP_SCALAR_TRUNCI: {
+      const loom_value_id_t input = loom_op_const_operands(defining_op)[0];
       loom_value_facts_t input_facts;
       IREE_RETURN_IF_ERROR(loom_symbolic_expr_context_lookup_facts(
           context, input, &input_facts));
@@ -864,6 +1012,14 @@ static iree_status_t loom_symbolic_expr_expansion_prepare_frame(
       (void)loom_value_facts_scalar_type_domain(
           loom_type_element_type(value->type), &result_lower_bound,
           &result_upper_bound);
+      if (defining_op->kind == LOOM_OP_SCALAR_EXTUI) {
+        result_lower_bound = 0;
+      } else if (defining_op->kind == LOOM_OP_SCALAR_EXTSI &&
+                 loom_type_element_type(loom_module_value_type(
+                     context->module, input)) == LOOM_SCALAR_TYPE_I1) {
+        // Predicate facts use 0/1, but signed extension maps true to -1.
+        result_upper_bound = 0;
+      }
       // Narrowing and unsigned interpretation can change the numeric value.
       // Only a range contained in the destination domain makes this cast an
       // identity; otherwise its result remains an independent symbolic term.
@@ -877,18 +1033,38 @@ static iree_status_t loom_symbolic_expr_expansion_prepare_frame(
       frame->operand_values[0] = input;
       break;
     }
-    case LOOM_OP_INDEX_ASSUME: {
-      loom_value_slice_t values = loom_index_assume_values(defining_op);
-      uint16_t result_index = loom_value_def_index(value);
-      if (result_index >= values.count) {
-        *out_complete = true;
-        return loom_symbolic_expr_value(context, frame->value_id,
-                                        out_expression);
-      }
-      frame->kind = LOOM_SYMBOLIC_EXPR_EXPANSION_ASSUME;
-      frame->operand_values[0] = values.values[result_index];
+    case LOOM_OP_INDEX_DIV:
+    case LOOM_OP_SCALAR_DIVSI:
+    case LOOM_OP_SCALAR_DIVUI:
+      frame->kind = LOOM_SYMBOLIC_EXPR_EXPANSION_QUOTIENT;
+      frame->operand_values[0] = loom_op_const_operands(defining_op)[0];
+      frame->operand_values[1] = loom_op_const_operands(defining_op)[1];
       break;
-    }
+    case LOOM_OP_INDEX_SHRSI:
+    case LOOM_OP_INDEX_SHRUI:
+    case LOOM_OP_SCALAR_SHRSI:
+    case LOOM_OP_SCALAR_SHRUI:
+      frame->kind = LOOM_SYMBOLIC_EXPR_EXPANSION_SHIFT_RIGHT;
+      frame->operand_values[0] = loom_op_const_operands(defining_op)[0];
+      frame->operand_values[1] = loom_op_const_operands(defining_op)[1];
+      break;
+    case LOOM_OP_INDEX_REM:
+    case LOOM_OP_SCALAR_REMSI:
+      frame->kind = LOOM_SYMBOLIC_EXPR_EXPANSION_REMAINDER;
+      frame->operand_values[0] = loom_op_const_operands(defining_op)[0];
+      frame->operand_values[1] = loom_op_const_operands(defining_op)[1];
+      break;
+    case LOOM_OP_SCALAR_REMUI:
+      frame->kind = LOOM_SYMBOLIC_EXPR_EXPANSION_UNSIGNED_REMAINDER;
+      frame->operand_values[0] = loom_op_const_operands(defining_op)[0];
+      frame->operand_values[1] = loom_op_const_operands(defining_op)[1];
+      break;
+    case LOOM_OP_INDEX_ANDI:
+    case LOOM_OP_SCALAR_ANDI:
+      frame->kind = LOOM_SYMBOLIC_EXPR_EXPANSION_MASK;
+      frame->operand_values[0] = loom_op_const_operands(defining_op)[0];
+      frame->operand_values[1] = loom_op_const_operands(defining_op)[1];
+      break;
     case LOOM_OP_INDEX_ADD:
       frame->kind = LOOM_SYMBOLIC_EXPR_EXPANSION_ADD;
       frame->operand_values[0] = loom_index_add_lhs(defining_op);
@@ -947,6 +1123,11 @@ static iree_status_t loom_symbolic_expr_expansion_prepare_frame(
       frame->operand_values[0] = loom_scalar_muli_lhs(defining_op);
       frame->operand_values[1] = loom_scalar_muli_rhs(defining_op);
       break;
+    case LOOM_OP_SCALAR_SHLI:
+      frame->kind = LOOM_SYMBOLIC_EXPR_EXPANSION_SHIFT_LEFT;
+      frame->operand_values[0] = loom_scalar_shli_lhs(defining_op);
+      frame->operand_values[1] = loom_scalar_shli_rhs(defining_op);
+      break;
     case LOOM_OP_SCALAR_NEGI:
       frame->kind = LOOM_SYMBOLIC_EXPR_EXPANSION_NEGATE;
       frame->operand_values[0] = loom_scalar_negi_input(defining_op);
@@ -957,18 +1138,6 @@ static iree_status_t loom_symbolic_expr_expansion_prepare_frame(
       frame->operand_values[1] = loom_scalar_fmai_b(defining_op);
       frame->operand_values[2] = loom_scalar_fmai_c(defining_op);
       break;
-    case LOOM_OP_SCALAR_ASSUME: {
-      loom_value_slice_t values = loom_scalar_assume_values(defining_op);
-      uint16_t result_index = loom_value_def_index(value);
-      if (result_index >= values.count) {
-        *out_complete = true;
-        return loom_symbolic_expr_value(context, frame->value_id,
-                                        out_expression);
-      }
-      frame->kind = LOOM_SYMBOLIC_EXPR_EXPANSION_ASSUME;
-      frame->operand_values[0] = values.values[result_index];
-      break;
-    }
     case LOOM_OP_SCF_SELECT:
       frame->kind = LOOM_SYMBOLIC_EXPR_EXPANSION_SELECT;
       frame->operand_values[0] = loom_scf_select_condition(defining_op);
@@ -995,6 +1164,63 @@ static iree_status_t loom_symbolic_expr_expansion_prepare_frame(
           (uint8_t)loom_scalar_type_bitwidth(scalar_type);
     }
     frame->stage = LOOM_SYMBOLIC_EXPR_EXPANSION_STAGE_FIRST_OPERAND;
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_symbolic_expr_retain_projection(
+    loom_symbolic_expr_context_t* context,
+    loom_symbolic_expr_expansion_frame_t* frame, int64_t divisor) {
+  const loom_symbolic_expr_t* input = &frame->intermediate_expression;
+  if (!loom_symbolic_expr_is_linear(input) || input->term_count != 1 ||
+      input->terms[0].coefficient <= 0 || input->constant < 0 ||
+      !loom_value_facts_is_non_negative(input->facts) ||
+      input->facts.range_hi == INT64_MAX) {
+    return iree_ok_status();
+  }
+  const loom_scalar_type_t scalar_type = loom_type_element_type(
+      loom_module_value_type(context->module, frame->value_id));
+  const loom_fact_context_t* fact_context =
+      context->fact_table ? &context->fact_table->context : NULL;
+  if (scalar_type == LOOM_SCALAR_TYPE_INDEX &&
+      !loom_index_value_facts_fit_signed_target_carrier(
+          fact_context, scalar_type, input->facts)) {
+    return iree_ok_status();
+  }
+
+  loom_symbolic_projection_t projection = {
+      .value_id = input->terms[0].value_id,
+      .scale = input->terms[0].coefficient,
+      .offset = input->constant,
+      .divisor = 1,
+  };
+  if (projection.scale == 1 && projection.offset == 0) {
+    const loom_symbolic_projection_t* source =
+        loom_symbolic_expr_lookup_projection(context, input);
+    if (source) {
+      projection = *source;
+    }
+  }
+  bool represented = false;
+  if (frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_QUOTIENT ||
+      frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_SHIFT_RIGHT) {
+    represented =
+        loom_symbolic_projection_divide(&projection, divisor, &projection);
+  } else {
+    represented =
+        loom_symbolic_projection_remainder(&projection, divisor, &projection);
+  }
+  if (represented) {
+    if (context->projections.count == context->projections.capacity) {
+      IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+          context->arena, context->projections.count,
+          context->projections.count + 1, sizeof(*context->projections.values),
+          &context->projections.capacity,
+          (void**)&context->projections.values));
+    }
+    frame->retained.projection_index = (uint32_t)context->projections.count;
+    context->projections.values[context->projections.count++] = projection;
+    frame->has_projection = true;
   }
   return iree_ok_status();
 }
@@ -1040,6 +1266,9 @@ static iree_status_t loom_symbolic_expr_expansion_step(
           *out_complete = true;
           return iree_ok_status();
         }
+        case LOOM_SYMBOLIC_EXPR_EXPANSION_REMAINDER:
+        case LOOM_SYMBOLIC_EXPR_EXPANSION_UNSIGNED_REMAINDER:
+        case LOOM_SYMBOLIC_EXPR_EXPANSION_MASK:
         case LOOM_SYMBOLIC_EXPR_EXPANSION_ADD:
         case LOOM_SYMBOLIC_EXPR_EXPANSION_SUBTRACT:
         case LOOM_SYMBOLIC_EXPR_EXPANSION_MULTIPLY:
@@ -1055,6 +1284,8 @@ static iree_status_t loom_symbolic_expr_expansion_step(
           frame->stage = LOOM_SYMBOLIC_EXPR_EXPANSION_STAGE_SECOND_OPERAND;
           return iree_ok_status();
         }
+        case LOOM_SYMBOLIC_EXPR_EXPANSION_QUOTIENT:
+        case LOOM_SYMBOLIC_EXPR_EXPANSION_SHIFT_RIGHT:
         case LOOM_SYMBOLIC_EXPR_EXPANSION_SHIFT_LEFT: {
           IREE_RETURN_IF_ERROR(loom_symbolic_expr_expansion_request_value(
               context, transient_arena, frame->operand_values[1], inout_frames,
@@ -1063,13 +1294,34 @@ static iree_status_t loom_symbolic_expr_expansion_step(
           if (operand_pending) {
             return iree_ok_status();
           }
-          if (!loom_symbolic_expr_constant_value(&operand_expression,
-                                                 &frame->shift_amount) ||
-              frame->shift_amount < 0 || frame->shift_amount > 62) {
+          // An unsupported divisor cannot produce a digit proof. Establish
+          // the constant RHS before walking a potentially deep numerator.
+          int64_t constant_rhs = 0;
+          bool supported = loom_symbolic_expr_constant_value(
+              &operand_expression, &constant_rhs);
+          if (frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_QUOTIENT) {
+            supported = supported && constant_rhs > 0;
+          } else {
+            int32_t bit_count = frame->integer_bit_count;
+            if (bit_count == 0 &&
+                frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_SHIFT_RIGHT) {
+              bit_count = loom_index_target_carrier_bitwidth(
+                  context->fact_table ? &context->fact_table->context : NULL,
+                  LOOM_SCALAR_TYPE_INDEX);
+            }
+            supported = supported && constant_rhs >= 0 && constant_rhs <= 62 &&
+                        (bit_count == 0 || constant_rhs < bit_count);
+            if (supported &&
+                frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_SHIFT_RIGHT) {
+              constant_rhs = INT64_C(1) << constant_rhs;
+            }
+          }
+          if (!supported) {
             *out_complete = true;
             return loom_symbolic_expr_value(context, frame->value_id,
                                             out_expression);
           }
+          frame->retained.constant_rhs = constant_rhs;
           frame->stage = LOOM_SYMBOLIC_EXPR_EXPANSION_STAGE_SECOND_OPERAND;
           return iree_ok_status();
         }
@@ -1097,6 +1349,8 @@ static iree_status_t loom_symbolic_expr_expansion_step(
       break;
     case LOOM_SYMBOLIC_EXPR_EXPANSION_STAGE_SECOND_OPERAND: {
       if (frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_SHIFT_LEFT ||
+          frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_QUOTIENT ||
+          frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_SHIFT_RIGHT ||
           frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_SELECT) {
         IREE_RETURN_IF_ERROR(loom_symbolic_expr_expansion_request_value(
             context, transient_arena, frame->operand_values[0], inout_frames,
@@ -1107,8 +1361,15 @@ static iree_status_t loom_symbolic_expr_expansion_step(
         }
         if (frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_SHIFT_LEFT) {
           IREE_RETURN_IF_ERROR(loom_symbolic_expr_mul_i64(
-              context, &operand_expression, INT64_C(1) << frame->shift_amount,
-              out_expression));
+              context, &operand_expression,
+              INT64_C(1) << frame->retained.constant_rhs, out_expression));
+        } else if (frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_QUOTIENT ||
+                   frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_SHIFT_RIGHT) {
+          IREE_RETURN_IF_ERROR(loom_symbolic_expr_value(
+              context, frame->value_id, out_expression));
+          frame->intermediate_expression = operand_expression;
+          IREE_RETURN_IF_ERROR(loom_symbolic_expr_retain_projection(
+              context, frame, frame->retained.constant_rhs));
         } else {
           *out_expression = operand_expression;
         }
@@ -1122,6 +1383,40 @@ static iree_status_t loom_symbolic_expr_expansion_step(
           &operand_pending));
       if (operand_pending) {
         return iree_ok_status();
+      }
+      if (frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_REMAINDER ||
+          frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_UNSIGNED_REMAINDER ||
+          frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_MASK) {
+        *out_complete = true;
+        IREE_RETURN_IF_ERROR(
+            loom_symbolic_expr_value(context, frame->value_id, out_expression));
+        int64_t divisor = 0;
+        if (!loom_symbolic_expr_constant_value(&operand_expression, &divisor) ||
+            divisor <= 0) {
+          return iree_ok_status();
+        }
+        uint64_t modulus = (uint64_t)divisor;
+        if (frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_MASK) {
+          ++modulus;
+          if ((modulus & (modulus - 1)) != 0) {
+            return iree_ok_status();
+          }
+        }
+        if (modulus <= INT64_MAX) {
+          IREE_RETURN_IF_ERROR(loom_symbolic_expr_retain_projection(
+              context, frame, (int64_t)modulus));
+        }
+        if (frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_UNSIGNED_REMAINDER &&
+            frame->intermediate_expression.facts.range_lo < 0) {
+          // Unsigned interpretation can add 2^width to the signed expression.
+          // Only factors shared with that period survive the remainder.
+          modulus = frame->integer_bit_count == 64
+                        ? modulus & (UINT64_C(0) - modulus)
+                        : iree_math_gcd_u64(
+                              modulus, UINT64_C(1) << frame->integer_bit_count);
+        }
+        return loom_symbolic_congruence_restrict(
+            context, &frame->intermediate_expression, modulus, out_expression);
       }
       if (frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_ADD ||
           frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_SUBTRACT) {
@@ -1177,11 +1472,10 @@ iree_status_t loom_symbolic_expr_from_value(
   loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;
   IREE_RETURN_IF_ERROR(loom_symbolic_expr_resolve_value_ordinal(
       context, value_id, &value_ordinal));
-  IREE_RETURN_IF_ERROR(loom_symbolic_expr_ensure_memo_capacity(
-      context, (iree_host_size_t)value_ordinal + 1));
-  loom_symbolic_expr_memo_entry_t* entry =
-      &context->memo_entries[value_ordinal];
-  if (entry->state == LOOM_SYMBOLIC_EXPR_MEMO_READY) {
+  loom_symbolic_expr_memo_entry_t* entry = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_symbolic_expr_acquire_memo_entry(context, value_ordinal, &entry));
+  if (entry->state >= LOOM_SYMBOLIC_EXPR_MEMO_READY) {
     *out_expression = entry->expression;
     return iree_ok_status();
   }
@@ -1202,8 +1496,6 @@ iree_status_t loom_symbolic_expr_from_value(
   iree_arena_allocator_t transient_arena;
   iree_arena_initialize(context->arena->block_pool, &transient_arena);
 
-  IREE_RETURN_IF_ERROR(
-      loom_symbolic_expr_touch_memo_ordinal(context, value_ordinal));
   entry->state = LOOM_SYMBOLIC_EXPR_MEMO_VISITING;
   iree_status_t status = iree_ok_status();
   while (iree_status_is_ok(status) && frame_count > 0) {
@@ -1221,7 +1513,7 @@ iree_status_t loom_symbolic_expr_from_value(
     if (bit_count != 0) {
       // Check the mathematical result before replacing its facts with the
       // producer's wrapped range. A potentially wrapping result remains its
-      // own symbol; downstream comparisons cannot cancel across this boundary.
+      // own exact symbol; order proofs cannot cancel across this boundary.
       bool fits = bit_count == 1 ? loom_value_facts_fit_unsigned_bit_count(
                                        expression.facts, 1)
                                  : loom_value_facts_fit_signed_bit_count(
@@ -1236,11 +1528,22 @@ iree_status_t loom_symbolic_expr_from_value(
         fits = false;
       }
       if (!fits) {
+        frames[frame_count - 1].has_projection = false;
+        loom_symbolic_expr_t wrapped = {0};
+        // 2^64 is not representable as a modulus. Its factor 2^63 still
+        // preserves every smaller power-of-two period conservatively.
+        status = loom_symbolic_congruence_restrict(
+            context, &expression, UINT64_C(1) << iree_min(bit_count, 63),
+            &wrapped);
+        expression.congruence = wrapped.congruence;
         expression.flags &= ~LOOM_SYMBOLIC_EXPR_FLAG_LINEAR;
       }
     }
-    if (!loom_symbolic_expr_is_linear(&expression)) {
+    if (iree_status_is_ok(status) &&
+        !loom_symbolic_expr_is_linear(&expression)) {
+      const loom_symbolic_congruence_t* congruence = expression.congruence;
       status = loom_symbolic_expr_value(context, completed_value, &expression);
+      expression.congruence = congruence;
     }
     if (iree_status_is_ok(status)) {
       status = loom_symbolic_expr_override_facts(context, completed_value,
@@ -1248,22 +1551,27 @@ iree_status_t loom_symbolic_expr_from_value(
     }
     if (iree_status_is_ok(status)) {
       loom_symbolic_expr_memo_entry_t* completed_entry =
-          &context->memo_entries[frames[frame_count - 1].value_ordinal];
-      completed_entry->materialized_dynamic_value_id =
+          context->memo.entries[frames[frame_count - 1].value_ordinal];
+      completed_entry->result.materialized_dynamic_value_id =
           loom_symbolic_expr_expansion_materialized_dynamic_value(
               context, &frames[frame_count - 1], &expression);
-      completed_entry->expression = expression;
       completed_entry->state = LOOM_SYMBOLIC_EXPR_MEMO_READY;
+      completed_entry->expression = expression;
+      if (IREE_UNLIKELY(frames[frame_count - 1].has_projection)) {
+        completed_entry->result.projection_index =
+            frames[frame_count - 1].retained.projection_index;
+        completed_entry->state = LOOM_SYMBOLIC_EXPR_MEMO_PROJECTED;
+      }
       --frame_count;
     }
   }
 
   if (iree_status_is_ok(status)) {
-    *out_expression = context->memo_entries[value_ordinal].expression;
+    *out_expression = entry->expression;
   } else {
     for (iree_host_size_t i = 0; i < frame_count; ++i) {
       loom_symbolic_expr_memo_entry_t* pending_entry =
-          &context->memo_entries[frames[i].value_ordinal];
+          context->memo.entries[frames[i].value_ordinal];
       if (pending_entry->state == LOOM_SYMBOLIC_EXPR_MEMO_VISITING) {
         pending_entry->state = LOOM_SYMBOLIC_EXPR_MEMO_EMPTY;
       }

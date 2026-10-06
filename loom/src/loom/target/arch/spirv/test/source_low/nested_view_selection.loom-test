@@ -31,19 +31,18 @@ low.func.def target<spirv.logical.core> abi(shader_entry_point) @derived_selecti
   } else {
     low.scf.yield %second_aligned, %base1 : reg<spirv.ptr.storage_buffer>, reg<spirv.offset64>
   }
-  %46 = OpBitcast.offset64.i64 %pair_offset
-  %47 = OpSConvert.i32.i64 %position
-  %48 = OpConstant.i64 4
-  %49 = OpIMul.i64 %47, %48
-  %50 = OpIAdd.i64 %46, %49
-  %51 = OpBitcast.i64.offset64 %50
+  %45 = OpSConvert.i32.i64 %position
+  %46 = OpConstant.i64 4
+  %47 = OpIMul.i64 %45, %46
+  %48 = OpBitcast.i64.offset64 %47
+  %49 = OpIAdd.offset64 %pair_offset, %48
   %selected_root, %selected_offset = low.scf.if %select_pair -> (reg<spirv.ptr.storage_buffer>, reg<spirv.offset64>) {
-    low.scf.yield %pair_root, %51 : reg<spirv.ptr.storage_buffer>, reg<spirv.offset64>
+    low.scf.yield %pair_root, %49 : reg<spirv.ptr.storage_buffer>, reg<spirv.offset64>
   } else {
     low.scf.yield %third_aligned, %base2 : reg<spirv.ptr.storage_buffer>, reg<spirv.offset64>
   }
-  %54 = OpPtrAccessChain.storage_buffer.i32.byte_offset %selected_root, %selected_offset
-  %value = OpLoad.storage_buffer.i32 %54
+  %52 = OpPtrAccessChain.storage_buffer.i32.byte_offset %selected_root, %selected_offset
+  %value = OpLoad.storage_buffer.i32 %52
   return %value
 }
 

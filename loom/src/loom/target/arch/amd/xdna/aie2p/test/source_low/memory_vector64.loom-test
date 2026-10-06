@@ -1,0 +1,81 @@
+// RUN: with-checks emit source-low target=amd.xdna.aie2p:core output=low
+
+// A narrow transfer preserves its exact extent inside an ordinary X carrier.
+func.def @copy_i64x2(%input: buffer, %output: buffer) -> (vector<2xi64>) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 32} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %source_view = buffer.view %source[%origin] : buffer -> view<4xi64>
+  %destination_view = buffer.view %destination[%origin] : buffer -> view<4xi64>
+  %value = vector.load %source_view[2] : view<4xi64> -> vector<2xi64>
+  vector.store %value, %destination_view[0] : vector<2xi64>, view<4xi64>
+  func.return %value : vector<2xi64>
+}
+
+// ----
+CHECK: low.func.def * @copy_i64x2() -> (reg<aie2p.vec256 x2>) asm {
+CHECK: * = vlda.128.i64x2 %source_view, 16
+CHECK: vst.128.i64x2 *, %destination_view, 0
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+
+// ====
+
+// Volatile F64 memory remains a bit-preserving vector transfer.
+func.def @copy_f64x4_volatile(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %source_view = buffer.view %source[%origin] : buffer -> view<8xf64>
+  %destination_view = buffer.view %destination[%origin] : buffer -> view<8xf64>
+  %value = vector.load<volatile> %source_view[4] : view<8xf64> -> vector<4xf64>
+  vector.store<volatile> %value, %destination_view[0] : vector<4xf64>, view<8xf64>
+  func.return
+}
+
+// ----
+CHECK: * = vlda.256.f64x4.volatile<volatile> %source_view, 32
+CHECK: vst.256.f64x4.volatile<volatile> *, %destination_view, 0
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+
+// ====
+
+// Dynamic addressing preserves the full-width native form.
+func.def @copy_i64x8_dynamic(%input: buffer, %output: buffer, %position: offset) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %offset = index.assume %position [range(%position, 0, 4096), mul(%position, 64)] : offset
+  %source_view = buffer.view %source[%offset] : buffer -> view<8xi64>
+  %destination_view = buffer.view %destination[%offset] : buffer -> view<8xi64>
+  %value = vector.load %source_view[0] : view<8xi64> -> vector<8xi64>
+  vector.store %value, %destination_view[0] : vector<8xi64>, view<8xi64>
+  func.return
+}
+
+// ----
+CHECK: %value = vlda.512.i64x8.index %source_view, *
+CHECK: vst.512.i64x8.index %value, %destination_view, *
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+
+// ====
+
+// Sixteen-byte alignment requires two exact loads, composed without lane ops.
+func.def @copy_f64x4_aligned16(%input: buffer, %output: buffer) {
+  %source = buffer.assume.alignment %input {minimum_alignment = 16} : buffer
+  %destination = buffer.assume.alignment %output {minimum_alignment = 32} : buffer
+  %origin = index.constant 0 : offset
+  %source_view = buffer.view %source[%origin] : buffer -> view<8xf64>
+  %destination_view = buffer.view %destination[%origin] : buffer -> view<4xf64>
+  %value = vector.load %source_view[2] : view<8xf64> -> vector<4xf64>
+  vector.store %value, %destination_view[0] : vector<4xf64>, view<4xf64>
+  func.return
+}
+
+// ----
+CHECK: * = vlda.128.i8x16 %source_view, 16
+CHECK: * = vlda.128.i8x16 %source_view, 32
+CHECK: * = vshift *
+CHECK: * = vsel.32 *
+CHECK: vst.256.f64x4 *, %destination_view, 0
+CHECK-NOT: *vlda.256*
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*

@@ -14,6 +14,7 @@ package(
 
 _LOW_PASS_ENVIRONMENT_VISIBILITY = [
     "//loom/binding/c:__pkg__",
+    "//loom/src/loom/codegen:__pkg__",
     "//loom/src/loom/codegen/low/testing:__pkg__",
     "//loom/src/loom/codegen/low/transforms:__pkg__",
     "//loom/src/loom/codegen/low/transforms/pipeline:__pkg__",
@@ -22,6 +23,7 @@ _LOW_PASS_ENVIRONMENT_VISIBILITY = [
     "//loom/src/loom/target/arch/amdgpu/hal:__pkg__",
     "//loom/src/loom/transforms/cleanup:__pkg__",
     "//loom/src/loom/transforms/kernel:__pkg__",
+    "//loom/src/loom/transforms/vector:__pkg__",
     "//loom/src/loom/tooling/compile:__pkg__",
     "//loom/src/loom/tools/loom-check:__pkg__",
     "//loom/src/loom/tools/loom-opt:__pkg__",
@@ -51,6 +53,8 @@ loom_cc_library(
     deps = [
         "//loom/src/loom/target:legalization",
         "//loom/src/loom/transforms/buffer:target_legalization",
+        "//loom/src/loom/transforms/conversion:target_legalization",
+        "//loom/src/loom/transforms/math:legalize",
         "//loom/src/loom/transforms/scalar:target_legalization",
         "//loom/src/loom/transforms/vector:target_legalization",
         "//loom/src/loom/transforms/view:target_legalization",
@@ -83,9 +87,6 @@ loom_cc_library(
         "//loom/src/loom/codegen/low:descriptors",
         "//loom/src/loom/pass:environment",
         "//loom/src/loom/pass:types",
-        "//loom/src/loom/target:math_policy",
-        "//loom/src/loom/target:pass_environment",
-        "//loom/src/loom/target:types",
         "//runtime/src/iree/base",
     ],
 )

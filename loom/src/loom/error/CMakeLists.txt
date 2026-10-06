@@ -59,6 +59,7 @@ loom_cc_library(
   DEPS
     ::diagnostic
     iree::base
+    iree::base::internal::arena
     iree::base::internal::unicode
     loom::ir
   PUBLIC

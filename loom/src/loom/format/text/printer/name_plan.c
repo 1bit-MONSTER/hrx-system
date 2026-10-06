@@ -42,6 +42,13 @@ static const loom_op_vtable_t* loom_print_name_defining_op_vtable(
   return loom_context_resolve_op(module->context, op->kind);
 }
 
+static bool loom_print_name_has_local_signature_results(
+    const loom_op_vtable_t* vtable) {
+  return vtable &&
+         (iree_any_bit_set(vtable->traits, LOOM_TRAIT_SYMBOL_DEFINE) ||
+          loom_op_vtable_has_signature_only_results(vtable));
+}
+
 // Returns the parser scope that receives |value_id|'s printed definition.
 static const void* loom_print_name_parse_scope(const loom_module_t* module,
                                                loom_value_id_t value_id) {
@@ -58,7 +65,7 @@ static const void* loom_print_name_parse_scope(const loom_module_t* module,
   if (def_op) {
     const loom_op_vtable_t* vtable =
         loom_print_name_defining_op_vtable(module, def_op);
-    if (vtable && iree_any_bit_set(vtable->traits, LOOM_TRAIT_SYMBOL_DEFINE)) {
+    if (loom_print_name_has_local_signature_results(vtable)) {
       return (const void*)def_op;
     }
     loom_block_t* block = def_op->parent_block;
@@ -72,8 +79,7 @@ static const void* loom_print_name_parse_scope(const loom_module_t* module,
   loom_op_t* user_op = loom_use_user_op(uses[0]);
   const loom_op_vtable_t* user_vtable =
       loom_print_name_defining_op_vtable(module, user_op);
-  if (user_vtable &&
-      iree_any_bit_set(user_vtable->traits, LOOM_TRAIT_SYMBOL_DEFINE)) {
+  if (loom_print_name_has_local_signature_results(user_vtable)) {
     return (const void*)user_op;
   }
   loom_block_t* block = user_op ? user_op->parent_block : NULL;
@@ -194,7 +200,8 @@ static void loom_print_name_check_region_captures(
       loom_print_name_bind(state, loom_block_arg_id(block, i));
     }
     for (const loom_op_t* op = block->first_op; op; op = op->next_op) {
-      if (iree_any_bit_set(op->traits, LOOM_TRAIT_SYMBOL_DEFINE)) {
+      const loom_op_vtable_t* vtable = loom_op_vtable(state->module, op);
+      if (loom_print_name_has_local_signature_results(vtable)) {
         continue;
       }
       for (uint16_t i = 0; i < op->result_count; ++i) {
@@ -211,18 +218,20 @@ static void loom_print_name_check_region_captures(
       const iree_host_size_t signature_watermark = state->binding_count;
       const loom_value_id_t* operands = loom_op_const_operands(op);
       const loom_value_id_t* results = loom_op_const_results(op);
+      const loom_op_vtable_t* vtable = loom_op_vtable(state->module, op);
       const bool symbol =
           iree_any_bit_set(op->traits, LOOM_TRAIT_SYMBOL_DEFINE);
-      if (symbol) {
-        const loom_op_vtable_t* vtable = loom_op_vtable(state->module, op);
+      const bool local_signature_results =
+          loom_print_name_has_local_signature_results(vtable);
+      if (local_signature_results) {
         uint16_t argument_count = 0;
         const loom_value_id_t* arguments = NULL;
-        if (vtable && vtable->func_like) {
+        if (symbol && vtable && vtable->func_like) {
           arguments = loom_func_like_arg_ids(
               (loom_func_like_t){.op = (loom_op_t*)op,
                                  .vtable = vtable->func_like},
               &argument_count);
-        } else if (vtable && loom_op_vtable_owns_operands(vtable)) {
+        } else if (symbol && vtable && loom_op_vtable_owns_operands(vtable)) {
           arguments = operands;
           argument_count = op->operand_count;
         }

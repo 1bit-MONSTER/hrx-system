@@ -41,6 +41,26 @@ typedef struct PipelineRunCounts {
   int last_source_combination_ordinal = 0;
   // First target legalization pass that selects physical representations.
   int first_target_legalization_ordinal = 0;
+  // Number of sanitizer-driven vector-memory scalarization pass runs.
+  int vector_memory_to_scalar = 0;
+  // Lexical pass-run ordinal of vector-memory scalarization.
+  int vector_memory_to_scalar_ordinal = 0;
+  // Number of source-loop unrolling pass runs.
+  int source_loop_unrolling = 0;
+  // Lexical pass-run ordinal of source-loop unrolling.
+  int source_loop_unrolling_ordinal = 0;
+  // Number of vector-bank scalar replacement pass runs.
+  int vector_bank_sroa = 0;
+  // Lexical pass-run ordinal of vector-bank scalar replacement.
+  int vector_bank_sroa_ordinal = 0;
+  // Number of single-use read sinking pass runs.
+  int sink_single_use_reads = 0;
+  // Lexical pass-run ordinal of single-use read sinking.
+  int sink_single_use_reads_ordinal = 0;
+  // Number of structured-to-CFG lowering pass runs.
+  int scf_to_cfg = 0;
+  // Lexical pass-run ordinal of the first structured-to-CFG lowering.
+  int first_scf_to_cfg_ordinal = 0;
   // Number of composed boundary projection pass runs.
   int boundary_projection = 0;
   // Lexical pass-run ordinal of composed boundary projection.
@@ -60,14 +80,18 @@ typedef struct PipelineRunCounts {
       iree_string_view_empty();
   // Number of source assertion-insertion pass runs.
   int sanitizer_insert_assertions = 0;
+  // Lexical pass-run ordinal of source assertion insertion.
+  int sanitizer_insert_assertions_ordinal = 0;
   // Checks option on the source assertion-insertion pass.
   iree_string_view_t sanitizer_insert_checks = iree_string_view_empty();
   // Number of source race-observation pass runs.
   int sanitizer_insert_race_observations = 0;
   // Checks option on the source race-observation pass.
   iree_string_view_t sanitizer_insert_race_checks = iree_string_view_empty();
-  // Number of target-low assertion-materialization pass runs.
+  // Number of semantic assertion-materialization pass runs.
   int sanitizer_materialize_assertions = 0;
+  // Lexical pass-run ordinal of semantic assertion materialization.
+  int sanitizer_materialize_assertions_ordinal = 0;
   // Number of other sanitizer pass runs.
   int other_sanitizer_runs = 0;
 } PipelineRunCounts;
@@ -148,6 +172,24 @@ iree_status_t InspectPipelineRun(void* user_data, loom_op_t* op,
       counts->first_target_legalization_ordinal =
           count_context->current_run_ordinal;
     }
+  } else if (iree_string_view_equal(key, IREE_SV("vector-memory-to-scalar"))) {
+    ++counts->vector_memory_to_scalar;
+    counts->vector_memory_to_scalar_ordinal =
+        count_context->current_run_ordinal;
+  } else if (iree_string_view_equal(key, IREE_SV("unroll-scf-for"))) {
+    ++counts->source_loop_unrolling;
+    counts->source_loop_unrolling_ordinal = count_context->current_run_ordinal;
+  } else if (iree_string_view_equal(key, IREE_SV("sroa-vector-banks"))) {
+    ++counts->vector_bank_sroa;
+    counts->vector_bank_sroa_ordinal = count_context->current_run_ordinal;
+  } else if (iree_string_view_equal(key, IREE_SV("sink-single-use-reads"))) {
+    ++counts->sink_single_use_reads;
+    counts->sink_single_use_reads_ordinal = count_context->current_run_ordinal;
+  } else if (iree_string_view_equal(key, IREE_SV("scf-to-cfg"))) {
+    ++counts->scf_to_cfg;
+    if (counts->first_scf_to_cfg_ordinal == 0) {
+      counts->first_scf_to_cfg_ordinal = count_context->current_run_ordinal;
+    }
   } else if (iree_string_view_equal(
                  key, IREE_SV("project-boundary-representations"))) {
     ++counts->boundary_projection;
@@ -167,6 +209,8 @@ iree_status_t InspectPipelineRun(void* user_data, loom_op_t* op,
   } else if (iree_string_view_equal(key,
                                     IREE_SV("sanitizer-insert-assertions"))) {
     ++counts->sanitizer_insert_assertions;
+    counts->sanitizer_insert_assertions_ordinal =
+        count_context->current_run_ordinal;
     counts->sanitizer_insert_checks = FindStringOption(
         count_context->module, loom_pass_run_options(op), IREE_SV("checks"));
   } else if (iree_string_view_equal(
@@ -177,6 +221,8 @@ iree_status_t InspectPipelineRun(void* user_data, loom_op_t* op,
   } else if (iree_string_view_equal(
                  key, IREE_SV("sanitizer-materialize-assertions"))) {
     ++counts->sanitizer_materialize_assertions;
+    counts->sanitizer_materialize_assertions_ordinal =
+        count_context->current_run_ordinal;
   } else if (iree_string_view_starts_with(key, IREE_SV("sanitizer-"))) {
     ++counts->other_sanitizer_runs;
   }
@@ -239,7 +285,7 @@ class TargetPipelineTest : public ::testing::Test {
   loom_target_environment_t environment_;
 };
 
-TEST_F(TargetPipelineTest, ZeroChecksBuildsNoSanitizerPassSlots) {
+TEST_F(TargetPipelineTest, ZeroChecksStillMaterializesAuthoredAssertions) {
   ModulePtr module = AllocateModule(IREE_SV("pipeline"));
   const loom_target_pipeline_options_t options = {0};
 
@@ -264,6 +310,16 @@ TEST_F(TargetPipelineTest, ZeroChecksBuildsNoSanitizerPassSlots) {
             counts.last_source_combination_ordinal);
   EXPECT_LT(counts.last_source_combination_ordinal,
             counts.first_target_legalization_ordinal);
+  EXPECT_EQ(counts.source_loop_unrolling, 1);
+  EXPECT_EQ(counts.vector_bank_sroa, 1);
+  EXPECT_EQ(counts.sink_single_use_reads, 1);
+  EXPECT_GT(counts.scf_to_cfg, 0);
+  EXPECT_LT(counts.source_loop_unrolling_ordinal,
+            counts.vector_bank_sroa_ordinal);
+  EXPECT_LT(counts.vector_bank_sroa_ordinal,
+            counts.sink_single_use_reads_ordinal);
+  EXPECT_LT(counts.sink_single_use_reads_ordinal,
+            counts.first_scf_to_cfg_ordinal);
   EXPECT_LT(counts.first_target_legalization_ordinal,
             counts.boundary_projection_ordinal);
   EXPECT_LT(counts.boundary_projection_ordinal, counts.source_to_low_ordinal);
@@ -272,9 +328,14 @@ TEST_F(TargetPipelineTest, ZeroChecksBuildsNoSanitizerPassSlots) {
   EXPECT_TRUE(iree_string_view_is_empty(counts.source_to_low_diagnostics));
   EXPECT_TRUE(
       iree_string_view_is_empty(counts.source_to_low_sanitizer_reporting));
+  EXPECT_EQ(counts.vector_memory_to_scalar, 0);
   EXPECT_EQ(counts.sanitizer_insert_assertions, 0);
   EXPECT_EQ(counts.sanitizer_insert_race_observations, 0);
-  EXPECT_EQ(counts.sanitizer_materialize_assertions, 0);
+  EXPECT_EQ(counts.sanitizer_materialize_assertions, 1);
+  EXPECT_LT(counts.first_scf_to_cfg_ordinal,
+            counts.sanitizer_materialize_assertions_ordinal);
+  EXPECT_LT(counts.sanitizer_materialize_assertions_ordinal,
+            counts.boundary_projection_ordinal);
   EXPECT_EQ(counts.other_sanitizer_runs, 0);
 }
 
@@ -295,6 +356,7 @@ TEST_F(TargetPipelineTest, ExpandedSourceStopsBeforeCallgraphSpecialization) {
   EXPECT_EQ(counts.boundary_projection, 0);
   EXPECT_EQ(counts.source_to_low, 0);
   EXPECT_EQ(counts.symbol_dce, 0);
+  EXPECT_EQ(counts.sanitizer_materialize_assertions, 0);
 }
 
 TEST_F(TargetPipelineTest, DiagnosticArtifactsPreserveRawSourceBoundary) {
@@ -317,6 +379,7 @@ TEST_F(TargetPipelineTest, DiagnosticArtifactsPreserveRawSourceBoundary) {
             counts.boundary_projection_ordinal);
   EXPECT_LT(counts.boundary_projection_ordinal, counts.source_to_low_ordinal);
   EXPECT_LT(counts.source_to_low_ordinal, counts.last_target_inlining_ordinal);
+  EXPECT_EQ(counts.sanitizer_materialize_assertions, 0);
 }
 
 TEST_F(TargetPipelineTest, OperandFormDiagnosticsBuildsSourceToLowOption) {
@@ -338,7 +401,7 @@ TEST_F(TargetPipelineTest, OperandFormDiagnosticsBuildsSourceToLowOption) {
                                      IREE_SV("operand-forms")));
   EXPECT_EQ(counts.sanitizer_insert_assertions, 0);
   EXPECT_EQ(counts.sanitizer_insert_race_observations, 0);
-  EXPECT_EQ(counts.sanitizer_materialize_assertions, 0);
+  EXPECT_EQ(counts.sanitizer_materialize_assertions, 1);
   EXPECT_EQ(counts.other_sanitizer_runs, 0);
 }
 
@@ -367,7 +430,7 @@ TEST_F(TargetPipelineTest, TrapReportingBuildsSourceToLowOption) {
                                      IREE_SV("trap")));
   EXPECT_EQ(counts.sanitizer_insert_assertions, 0);
   EXPECT_EQ(counts.sanitizer_insert_race_observations, 0);
-  EXPECT_EQ(counts.sanitizer_materialize_assertions, 0);
+  EXPECT_EQ(counts.sanitizer_materialize_assertions, 1);
   EXPECT_EQ(counts.other_sanitizer_runs, 0);
 }
 
@@ -395,7 +458,7 @@ TEST_F(TargetPipelineTest, ReportOnlyBuildsSourceToLowOption) {
   EXPECT_TRUE(iree_string_view_equal(counts.source_to_low_sanitizer_reporting,
                                      IREE_SV("report-only")));
   EXPECT_EQ(counts.sanitizer_insert_assertions, 0);
-  EXPECT_EQ(counts.sanitizer_materialize_assertions, 0);
+  EXPECT_EQ(counts.sanitizer_materialize_assertions, 1);
   EXPECT_EQ(counts.other_sanitizer_runs, 0);
 }
 
@@ -421,11 +484,18 @@ TEST_F(TargetPipelineTest, EnabledChecksBuildSanitizerPassSlots) {
   EXPECT_EQ(counts.source_to_low, 1);
   EXPECT_TRUE(
       iree_string_view_is_empty(counts.source_to_low_sanitizer_reporting));
+  EXPECT_EQ(counts.vector_memory_to_scalar, 1);
   EXPECT_EQ(counts.sanitizer_insert_assertions, 1);
   EXPECT_TRUE(iree_string_view_equal(counts.sanitizer_insert_checks,
                                      IREE_SV("access|value|operation")));
   EXPECT_EQ(counts.sanitizer_insert_race_observations, 0);
   EXPECT_EQ(counts.sanitizer_materialize_assertions, 1);
+  EXPECT_LT(counts.sanitizer_insert_assertions_ordinal,
+            counts.sanitizer_materialize_assertions_ordinal);
+  EXPECT_LT(counts.vector_memory_to_scalar_ordinal,
+            counts.sanitizer_insert_assertions_ordinal);
+  EXPECT_LT(counts.sanitizer_materialize_assertions_ordinal,
+            counts.source_to_low_ordinal);
   EXPECT_EQ(counts.other_sanitizer_runs, 0);
 }
 
@@ -448,11 +518,12 @@ TEST_F(TargetPipelineTest, RaceChecksBuildRaceObservationPassSlot) {
 
   const PipelineRunCounts counts = CountPipelineRuns(module.get(), pipeline_op);
   EXPECT_EQ(counts.source_to_low, 1);
+  EXPECT_EQ(counts.vector_memory_to_scalar, 1);
   EXPECT_EQ(counts.sanitizer_insert_assertions, 0);
   EXPECT_EQ(counts.sanitizer_insert_race_observations, 1);
   EXPECT_TRUE(iree_string_view_equal(counts.sanitizer_insert_race_checks,
                                      IREE_SV("race")));
-  EXPECT_EQ(counts.sanitizer_materialize_assertions, 0);
+  EXPECT_EQ(counts.sanitizer_materialize_assertions, 1);
   EXPECT_EQ(counts.other_sanitizer_runs, 0);
 }
 

@@ -1,0 +1,59 @@
+// RUN: with-checks pass target-legalize{mode=eager,policy=require-native}
+
+amdgpu.target<gfx1200> @target
+
+func.def target(@target) @packed_native_policy(%input: buffer, %value: vector<2xf16>) -> (vector<2xf16>) {
+  %base = index.constant 0 : offset
+  %global = buffer.assume.memory_space<global> %input : buffer
+  %aligned = buffer.assume.alignment %global {minimum_alignment = 4} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<2xf16>
+  %origin = index.constant 0 : index
+  %stride = index.constant 1 : index
+  %offsets = vector.iota %origin step %stride : vector<2xindex>
+  %old = vector.atomic.rmw<addf> %value, %view[0][%offsets] {ordering = relaxed, scope = device} : vector<2xf16>, view<2xf16>, vector<2xindex>
+  func.return %old : vector<2xf16>
+}
+
+// ----
+CHECK: *%old = vector.atomic.rmw<addf>*
+CHECK-NOT: *view.atomic.*
+
+// ====
+// RUN: with-checks pass target-legalize{mode=eager,policy=reference-only}
+
+amdgpu.target<gfx1200> @target
+
+func.def target(@target) @packed_reference_policy(%input: buffer, %value: vector<2xf16>) -> (vector<2xf16>) {
+  %base = index.constant 0 : offset
+  %global = buffer.assume.memory_space<global> %input : buffer
+  %aligned = buffer.assume.alignment %global {minimum_alignment = 4} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<2xf16>
+  %origin = index.constant 0 : index
+  %stride = index.constant 1 : index
+  %offsets = vector.iota %origin step %stride : vector<2xindex>
+  %old = vector.atomic.rmw<addf> %value, %view[0][%offsets] {ordering = relaxed, scope = device} : vector<2xf16>, view<2xf16>, vector<2xindex>
+  func.return %old : vector<2xf16>
+}
+
+// ----
+CHECK-NOT: *vector.atomic.*
+CHECK: *view.atomic.cmpxchg*%view[0]*: f16, view<2xf16> -> f16
+CHECK: *view.atomic.cmpxchg*%view[1]*: f16, view<2xf16> -> f16
+
+// ====
+// RUN: pass target-legalize{mode=final,policy=require-native}
+
+amdgpu.target<gfx1200> @target
+
+func.def target(@target) @require_native_nonadjacent_half(%input: buffer, %value: vector<2xf16>) -> (vector<2xf16>) {
+  %base = index.constant 0 : offset
+  %global = buffer.assume.memory_space<global> %input : buffer
+  %aligned = buffer.assume.alignment %global {minimum_alignment = 4} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<3xf16>
+  %origin = index.constant 0 : index
+  %stride = index.constant 2 : index
+  %offsets = vector.iota %origin step %stride : vector<2xindex>
+  // ERROR@+1: AMDGPU/023 {constraint_key="atomic.shape"}
+  %old = vector.atomic.rmw<addf> %value, %view[0][%offsets] {ordering = relaxed, scope = device} : vector<2xf16>, view<3xf16>, vector<2xindex>
+  func.return %old : vector<2xf16>
+}

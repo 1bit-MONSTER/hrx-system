@@ -25,6 +25,7 @@ iree_c_embed_data(
         "//loom/src/loom/import/cxx/test:aiter_swiglu_f16.cxx",
         "//loom/src/loom/import/cxx/test:flash_attention.cxx",
         "//loom/src/loom/import/cxx/test:llama_rms_norm.cxx",
+        "//loom/src/loom/import/cxx/test:mxfp_group_dot.cxx",
     ],
     c_file_output = "kernels.c",
     flatten = True,

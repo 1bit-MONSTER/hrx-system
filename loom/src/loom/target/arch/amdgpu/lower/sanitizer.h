@@ -30,7 +30,7 @@ typedef struct loom_amdgpu_sanitizer_access_plan_t {
   // Flat application address plan selected from the asserted view access.
   loom_amdgpu_memory_access_t address;
   // Runtime access kind reported when the assertion fails.
-  loom_amdgpu_sanitizer_access_kind_t report_access_kind;
+  loom_amdgpu_asan_access_kind_t report_access_kind;
   // Number of application bytes covered by the assertion.
   uint32_t access_size;
   // Minimum byte alignment proven for each repeated access address.
@@ -40,6 +40,11 @@ typedef struct loom_amdgpu_sanitizer_access_plan_t {
   // Static byte stride between consecutive sub-access base addresses.
   uint64_t static_repeat_byte_stride;
 } loom_amdgpu_sanitizer_access_plan_t;
+
+typedef struct loom_amdgpu_kernel_assert_plan_t {
+  // Dense sanitizer site ID assigned during source-to-low planning.
+  loom_sanitizer_site_id_t site_id;
+} loom_amdgpu_kernel_assert_plan_t;
 
 // Resolves the shared AMDGPU feedback configuration symbol used by sanitizer
 // report producers.
@@ -54,6 +59,23 @@ iree_status_t loom_amdgpu_sanitizer_tsan_config_symbol(
 iree_status_t loom_amdgpu_sanitizer_site_id_for_op(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_sanitizer_site_id_t* out_site_id);
+
+// Selects AMDGPU failure semantics for kernel.assert.
+iree_status_t loom_amdgpu_select_kernel_assert_plan(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_amdgpu_kernel_assert_plan_t* out_plan, bool* out_selected);
+
+// Verifies kernel.assert legality for AMDGPU target-low selection.
+iree_status_t loom_amdgpu_low_legality_verify_kernel_assert(
+    const loom_target_low_legality_provider_t* provider,
+    loom_target_low_legality_context_t* context, const loom_op_t* op,
+    bool* out_handled);
+
+// Lowers kernel.assert to a hot predicate branch and a shared cold failure
+// island.
+iree_status_t loom_amdgpu_lower_kernel_assert(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_kernel_assert_plan_t* plan);
 
 // Selects an AMDGPU shadow-check lowering for sanitizer.assert.access or
 // sanitizer.assert.accesses.

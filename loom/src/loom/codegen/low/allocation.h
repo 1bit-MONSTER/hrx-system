@@ -30,12 +30,12 @@
 #include "loom/codegen/low/target_binding.h"
 #include "loom/error/emitter.h"
 #include "loom/ir/ir.h"
+#include "loom/target/residency.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-struct loom_target_residency_model_t;
 struct loom_low_schedule_table_t;
 
 // Options controlling allocation table construction.
@@ -60,9 +60,11 @@ typedef struct loom_low_allocation_options_t {
   // Structured diagnostic emitter for invalid input constraints. Planning
   // failures are retained in the table for allocation_diagnostics_emit.
   iree_diagnostic_emitter_t emitter;
-  // Optional target residency model. Direct resources are dense by descriptor
+  // Function-local residency view. Direct resources are dense by descriptor
   // register-class ID for the resolved low target.
-  const struct loom_target_residency_model_t* residency_model;
+  loom_target_residency_view_t residency;
+  // Immutable instruction preferences for the resolved descriptor set.
+  loom_low_placement_instruction_preferences_t instruction_preferences;
   // Borrowed bitmap indexed by module value ID. Set values require register
   // storage throughout allocation.
   iree_bitmap_t required_register_values;

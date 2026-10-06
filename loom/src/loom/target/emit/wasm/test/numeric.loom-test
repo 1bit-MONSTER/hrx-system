@@ -13,6 +13,22 @@ low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @remai
   return %remainder
 }
 
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @division32(%lhs: reg<wasm.i32>, %rhs: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) asm {
+  %signed_quotient = i32.div_s %lhs, %rhs
+  %unsigned_quotient = i32.div_u %lhs, %rhs
+  %signed_remainder = i32.rem_s %lhs, %rhs
+  %unsigned_remainder = i32.rem_u %lhs, %rhs
+  return %signed_quotient, %unsigned_quotient, %signed_remainder, %unsigned_remainder
+}
+
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @division64(%lhs: reg<wasm.i64>, %rhs: reg<wasm.i64>) -> (reg<wasm.i64>, reg<wasm.i64>, reg<wasm.i64>, reg<wasm.i64>) asm {
+  %signed_quotient = i64.div_s %lhs, %rhs
+  %unsigned_quotient = i64.div_u %lhs, %rhs
+  %signed_remainder = i64.rem_s %lhs, %rhs
+  %unsigned_remainder = i64.rem_u %lhs, %rhs
+  return %signed_quotient, %unsigned_quotient, %signed_remainder, %unsigned_remainder
+}
+
 low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @arithmetic32(%lhs: reg<wasm.i32>, %rhs: reg<wasm.i32>, %count: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) asm {
   %add = i32.add %lhs, %rhs
   %sub = i32.sub %lhs, %rhs
@@ -65,6 +81,69 @@ low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @compa
   %ge_s = i64.ge_s %lhs, %rhs
   %ge_u = i64.ge_u %lhs, %rhs
   return %eq, %ne, %lt_s, %lt_u, %gt_s, %gt_u, %le_s, %le_u, %ge_s, %ge_u
+}
+
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @arithmetic_f32(%lhs: reg<wasm.f32>, %rhs: reg<wasm.f32>) -> (reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>) asm {
+  %add = f32.add %lhs, %rhs
+  %sub = f32.sub %lhs, %rhs
+  %mul = f32.mul %lhs, %rhs
+  %div = f32.div %lhs, %rhs
+  %min = f32.min %lhs, %rhs
+  %max = f32.max %lhs, %rhs
+  %copysign = f32.copysign %lhs, %rhs
+  return %add, %sub, %mul, %div, %min, %max, %copysign
+}
+
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @unary_f32(%input: reg<wasm.f32>) -> (reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>) asm {
+  %abs = f32.abs %input
+  %neg = f32.neg %input
+  %ceil = f32.ceil %input
+  %floor = f32.floor %input
+  %trunc = f32.trunc %input
+  %nearest = f32.nearest %input
+  %sqrt = f32.sqrt %input
+  return %abs, %neg, %ceil, %floor, %trunc, %nearest, %sqrt
+}
+
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @compare_f32(%lhs: reg<wasm.f32>, %rhs: reg<wasm.f32>) -> (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) asm {
+  %eq = f32.eq %lhs, %rhs
+  %ne = f32.ne %lhs, %rhs
+  %lt = f32.lt %lhs, %rhs
+  %gt = f32.gt %lhs, %rhs
+  %le = f32.le %lhs, %rhs
+  %ge = f32.ge %lhs, %rhs
+  return %eq, %ne, %lt, %gt, %le, %ge
+}
+
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @arithmetic_f32x4(%lhs: reg<wasm.v128>, %rhs: reg<wasm.v128>) -> (reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>) asm {
+  %add = f32x4.add %lhs, %rhs
+  %sub = f32x4.sub %lhs, %rhs
+  %mul = f32x4.mul %lhs, %rhs
+  %div = f32x4.div %lhs, %rhs
+  %min = f32x4.min %lhs, %rhs
+  %max = f32x4.max %lhs, %rhs
+  return %add, %sub, %mul, %div, %min, %max
+}
+
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @unary_f32x4(%input: reg<wasm.v128>) -> (reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>) asm {
+  %abs = f32x4.abs %input
+  %neg = f32x4.neg %input
+  %ceil = f32x4.ceil %input
+  %floor = f32x4.floor %input
+  %trunc = f32x4.trunc %input
+  %nearest = f32x4.nearest %input
+  %sqrt = f32x4.sqrt %input
+  return %abs, %neg, %ceil, %floor, %trunc, %nearest, %sqrt
+}
+
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @compare_f32x4(%lhs: reg<wasm.v128>, %rhs: reg<wasm.v128>) -> (reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>) asm {
+  %eq = f32x4.eq %lhs, %rhs
+  %ne = f32x4.ne %lhs, %rhs
+  %lt = f32x4.lt %lhs, %rhs
+  %gt = f32x4.gt %lhs, %rhs
+  %le = f32x4.le %lhs, %rhs
+  %ge = f32x4.ge %lhs, %rhs
+  return %eq, %ne, %lt, %gt, %le, %ge
 }
 
 low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @lanes_i32(%first: reg<wasm.i32>, %last: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>) asm {
@@ -159,7 +238,13 @@ low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @widen
 
 // ----
 CHECK: Disassembly of section CODE:
+CHECK: i32.div_s
+CHECK: i32.div_u
+CHECK: i32.rem_s
 CHECK: i32.rem_u
+CHECK: i64.div_s
+CHECK: i64.div_u
+CHECK: i64.rem_s
 CHECK: i64.rem_u
 CHECK: i32.add
 CHECK: i32.sub
@@ -199,6 +284,45 @@ CHECK: i64.le_s
 CHECK: i64.le_u
 CHECK: i64.ge_s
 CHECK: i64.ge_u
+CHECK: f32.add
+CHECK: f32.sub
+CHECK: f32.mul
+CHECK: f32.div
+CHECK: f32.min
+CHECK: f32.max
+CHECK: f32.copysign
+CHECK: f32.abs
+CHECK: f32.neg
+CHECK: f32.ceil
+CHECK: f32.floor
+CHECK: f32.trunc
+CHECK: f32.nearest
+CHECK: f32.sqrt
+CHECK: f32.eq
+CHECK: f32.ne
+CHECK: f32.lt
+CHECK: f32.gt
+CHECK: f32.le
+CHECK: f32.ge
+CHECK: f32x4.add
+CHECK: f32x4.sub
+CHECK: f32x4.mul
+CHECK: f32x4.div
+CHECK: f32x4.min
+CHECK: f32x4.max
+CHECK: f32x4.abs
+CHECK: f32x4.neg
+CHECK: f32x4.ceil
+CHECK: f32x4.floor
+CHECK: f32x4.trunc
+CHECK: f32x4.nearest
+CHECK: f32x4.sqrt
+CHECK: f32x4.eq
+CHECK: f32x4.ne
+CHECK: f32x4.lt
+CHECK: f32x4.gt
+CHECK: f32x4.le
+CHECK: f32x4.ge
 CHECK: i32x4.splat
 CHECK: i32x4.replace_lane *3
 CHECK: i32x4.extract_lane *0

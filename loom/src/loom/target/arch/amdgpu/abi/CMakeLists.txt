@@ -29,6 +29,7 @@ loom_cc_test(
     "asan_test.cc"
   DEPS
     ::asan
+    iree::hal::drivers::amdgpu::abi
     iree::testing::gtest
     iree::testing::gtest_main
   LABELS
@@ -56,6 +57,7 @@ loom_cc_test(
     "feedback_test.cc"
   DEPS
     ::feedback
+    iree::hal::drivers::amdgpu::abi
     iree::testing::gtest
     iree::testing::gtest_main
   LABELS
@@ -72,6 +74,50 @@ loom_cc_library(
   DEPS
 
   PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_cc_test(
+  NAME
+    tsan_test
+  SRCS
+    "tsan_test.cc"
+  DEPS
+    ::tsan
+    iree::hal::drivers::amdgpu::abi
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.amdgpu"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_cc_library(
+  NAME
+    ubsan
+  HDRS
+    "ubsan.h"
+  DEPS
+
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_cc_test(
+  NAME
+    ubsan_test
+  SRCS
+    "ubsan_test.cc"
+  DEPS
+    ::ubsan
+    iree::hal::drivers::amdgpu::abi
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.amdgpu"
 )
 endif()
 

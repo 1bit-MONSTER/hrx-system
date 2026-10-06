@@ -16,6 +16,16 @@
 extern "C" {
 #endif
 
+// Returns true when |source_op| is a direct semantic CallLike operation owned
+// by common source-to-Low lowering. Callable operands and results must occupy
+// the complete flat operation boundary.
+bool loom_low_lower_source_call_is_structural(const loom_module_t* module,
+                                              const loom_op_t* source_op);
+
+// Lowers one direct semantic CallLike operation to low.func.call.
+iree_status_t loom_low_lower_source_call(loom_low_lower_context_t* context,
+                                         const loom_op_t* source_op);
+
 // Normalizes a source-typed low.invoke into a register-typed low.func.call.
 // Target selection has already projected the callee representation into the
 // caller's exact Low contract before function lowering begins.

@@ -7,6 +7,7 @@
 #include "loom/tooling/testbench/executor.h"
 
 #include <string>
+#include <vector>
 
 #include "iree/base/internal/arena.h"
 #include "iree/testing/gtest.h"
@@ -30,7 +31,32 @@ typedef struct DeltaProviderState {
   iree_host_size_t invocation_count;
   // Last i32 input observed by the provider.
   int32_t last_input;
+  // Device events published after a successful invocation.
+  const iree_hal_device_event_t* device_events;
+  // Number of entries in |device_events|.
+  iree_host_size_t device_event_count;
+  // Sink receiving entries from |device_events|.
+  iree_hal_device_event_sink_t device_event_sink;
 } DeltaProviderState;
+
+typedef struct DeviceEventExecutionResult {
+  // True when the sample passed every result policy.
+  bool passed;
+  // Number of captured device events.
+  iree_host_size_t captured_event_count;
+  // Number of device events lost by the capture sink.
+  iree_host_size_t dropped_event_count;
+  // Number of error events not matched by an explicit expectation.
+  iree_host_size_t unhandled_event_count;
+  // Number of authored expectations that passed.
+  iree_host_size_t passed_expectation_count;
+  // Number of authored expectations that failed.
+  iree_host_size_t failed_expectation_count;
+  // Expected flags copied in capture order.
+  std::vector<uint8_t> expected_events;
+  // Serialized sample report.
+  std::string json;
+} DeviceEventExecutionResult;
 
 class ExecutorTest : public ::testing::Test {
  protected:
@@ -108,6 +134,10 @@ class ExecutorTest : public ::testing::Test {
       return iree_make_status(IREE_STATUS_ABORTED,
                               "delta provider invocation failed");
     }
+    for (iree_host_size_t i = 0; i < state->device_event_count; ++i) {
+      iree_hal_device_event_sink_publish(state->device_event_sink,
+                                         &state->device_events[i]);
+    }
     out_results[0] = {};
     out_results[0].kind = LOOM_TESTBENCH_VALUE_KIND_SCALAR;
     out_results[0].scalar.kind = IREE_TOOLING_VALUE_KIND_I32;
@@ -142,6 +172,72 @@ class ExecutorTest : public ::testing::Test {
     std::string json(view.data, view.size);
     iree_string_builder_deinitialize(&builder);
     return json;
+  }
+
+  DeviceEventExecutionResult RunDeviceEventCase(
+      const char* expectation, const iree_hal_device_event_t* device_events,
+      iree_host_size_t device_event_count,
+      iree_host_size_t capture_capacity = 4) {
+    std::string source = R"(
+test.func @callee(%input: i32) -> (i32) {
+  test.yield %input : i32
+}
+
+check.case @device_events {
+  %input = check.literal value(5) : i32
+  %actual = test.invoke @callee(%input) : (i32) -> (i32)
+)";
+    source.append(expectation);
+    source.append(R"(  check.return
+}
+)");
+
+    loom_module_t* module = ParseModule(source.c_str());
+    loom_testbench_module_plan_t plan = PlanModule(module);
+    EXPECT_EQ(plan.issue_count, 0u);
+
+    loom_testbench_device_event_capture_t capture = {};
+    IREE_EXPECT_OK(loom_testbench_device_event_capture_initialize(
+        capture_capacity, iree_allocator_system(), &capture));
+    DeltaProviderState actual_state = {};
+    actual_state.device_events = device_events;
+    actual_state.device_event_count = device_event_count;
+    actual_state.device_event_sink =
+        loom_testbench_device_event_capture_sink(&capture);
+    loom_testbench_case_execution_options_t options = {};
+    loom_testbench_case_execution_options_initialize(&options);
+    options.invocation.function_call.invoke = ExecutorTest::InvokeDelta;
+    options.invocation.function_call.user_data = &actual_state;
+    options.device_event_capture = &capture;
+
+    loom_testbench_prepared_case_t prepared_case = {};
+    IREE_EXPECT_OK(loom_testbench_prepare_case_execution(
+        &options, &plan, 0, &execution_arena_, &prepared_case));
+    loom_testbench_case_executor_t executor = {};
+    IREE_EXPECT_OK(loom_testbench_case_executor_initialize(
+        &prepared_case, &options, &executor));
+    loom_testbench_case_sample_result_t sample_result = {};
+    IREE_EXPECT_OK(
+        loom_testbench_run_case_sample(&executor, 0, &sample_result));
+
+    DeviceEventExecutionResult result = {};
+    result.passed = sample_result.passed;
+    result.captured_event_count = sample_result.device_events->count;
+    result.dropped_event_count = sample_result.device_events->dropped_count;
+    result.unhandled_event_count = sample_result.unhandled_device_event_count;
+    result.passed_expectation_count =
+        sample_result.expectation_report->passed_count;
+    result.failed_expectation_count =
+        sample_result.expectation_report->failure_count;
+    result.expected_events.assign(
+        sample_result.expected_device_events,
+        sample_result.expected_device_events + result.captured_event_count);
+    result.json = WriteResultJson(sample_result);
+
+    loom_testbench_case_executor_deinitialize(&executor);
+    loom_testbench_device_event_capture_deinitialize(&capture);
+    loom_module_free(module);
+    return result;
   }
 
   iree_arena_block_pool_t block_pool_;
@@ -259,6 +355,100 @@ check.case @mismatch {
 
   loom_testbench_case_executor_deinitialize(&executor);
   loom_module_free(module);
+}
+
+TEST_F(ExecutorTest, PassesCleanExecutionWithDeviceEventCapture) {
+  DeviceEventExecutionResult result = RunDeviceEventCase("", nullptr, 0);
+
+  EXPECT_TRUE(result.passed);
+  EXPECT_EQ(result.captured_event_count, 0u);
+  EXPECT_EQ(result.unhandled_event_count, 0u);
+}
+
+TEST_F(ExecutorTest, FailsOnUnhandledDeviceError) {
+  iree_hal_device_event_site_t site = iree_hal_device_event_site_default();
+  site.site_id = 7;
+  site.source_file = IREE_SV("kernel.loom");
+  site.start_line = 42;
+  site.start_column = 3;
+  iree_hal_device_event_t event = iree_hal_device_event_default();
+  event.type = IREE_HAL_DEVICE_EVENT_TYPE_ASAN_REPORT;
+  event.severity = IREE_HAL_DEVICE_EVENT_SEVERITY_ERROR;
+  event.source.driver_id = IREE_SV("amdgpu");
+  event.site = &site;
+  DeviceEventExecutionResult result = RunDeviceEventCase("", &event, 1);
+
+  EXPECT_FALSE(result.passed);
+  EXPECT_EQ(result.captured_event_count, 1u);
+  EXPECT_EQ(result.unhandled_event_count, 1u);
+  EXPECT_THAT(result.json, ::testing::HasSubstr("\"type\":\"asan_report\""));
+  EXPECT_THAT(result.json, ::testing::HasSubstr("\"unhandled_error_count\":1"));
+  EXPECT_THAT(result.json,
+              ::testing::HasSubstr("\"source_file\":\"kernel.loom\""));
+  EXPECT_THAT(result.json, ::testing::HasSubstr("\"start_line\":42"));
+}
+
+TEST_F(ExecutorTest, PassesDeviceWarning) {
+  iree_hal_device_event_t event = iree_hal_device_event_default();
+  event.type = IREE_HAL_DEVICE_EVENT_TYPE_DRIVER_FAILURE;
+  event.severity = IREE_HAL_DEVICE_EVENT_SEVERITY_WARNING;
+  DeviceEventExecutionResult result = RunDeviceEventCase("", &event, 1);
+
+  EXPECT_TRUE(result.passed);
+  EXPECT_EQ(result.captured_event_count, 1u);
+  EXPECT_EQ(result.unhandled_event_count, 0u);
+}
+
+TEST_F(ExecutorTest, AccountsForExpectedDeviceError) {
+  iree_hal_device_event_t event = iree_hal_device_event_default();
+  event.type = IREE_HAL_DEVICE_EVENT_TYPE_ASAN_REPORT;
+  event.severity = IREE_HAL_DEVICE_EVENT_SEVERITY_ERROR;
+  DeviceEventExecutionResult result = RunDeviceEventCase(
+      "  check.expect.event<device> {type = \"asan_report\"}\n", &event, 1);
+
+  EXPECT_TRUE(result.passed);
+  EXPECT_EQ(result.passed_expectation_count, 1u);
+  EXPECT_EQ(result.unhandled_event_count, 0u);
+  ASSERT_EQ(result.expected_events.size(), 1u);
+  EXPECT_EQ(result.expected_events[0], 1u);
+  EXPECT_THAT(result.json,
+              ::testing::Not(::testing::HasSubstr("\"device_events\":")));
+}
+
+TEST_F(ExecutorTest, FailsOnDeviceErrorOutsideExpectedPattern) {
+  iree_hal_device_event_t events[2] = {
+      iree_hal_device_event_default(),
+      iree_hal_device_event_default(),
+  };
+  events[0].type = IREE_HAL_DEVICE_EVENT_TYPE_ASAN_REPORT;
+  events[0].severity = IREE_HAL_DEVICE_EVENT_SEVERITY_ERROR;
+  events[1].type = IREE_HAL_DEVICE_EVENT_TYPE_UBSAN_REPORT;
+  events[1].severity = IREE_HAL_DEVICE_EVENT_SEVERITY_ERROR;
+  DeviceEventExecutionResult result = RunDeviceEventCase(
+      "  check.expect.event<device> {type = \"asan_report\"}\n", events,
+      IREE_ARRAYSIZE(events));
+
+  EXPECT_FALSE(result.passed);
+  EXPECT_EQ(result.failed_expectation_count, 0u);
+  EXPECT_EQ(result.unhandled_event_count, 1u);
+  ASSERT_EQ(result.expected_events.size(), 2u);
+  EXPECT_EQ(result.expected_events[0], 1u);
+  EXPECT_EQ(result.expected_events[1], 0u);
+}
+
+TEST_F(ExecutorTest, FailsWhenDeviceEventCaptureOverflows) {
+  iree_hal_device_event_t events[2] = {
+      iree_hal_device_event_default(),
+      iree_hal_device_event_default(),
+  };
+  events[0].severity = IREE_HAL_DEVICE_EVENT_SEVERITY_INFO;
+  events[1].severity = IREE_HAL_DEVICE_EVENT_SEVERITY_INFO;
+  DeviceEventExecutionResult result =
+      RunDeviceEventCase("", events, IREE_ARRAYSIZE(events), 1);
+
+  EXPECT_FALSE(result.passed);
+  EXPECT_EQ(result.captured_event_count, 1u);
+  EXPECT_EQ(result.dropped_event_count, 1u);
 }
 
 TEST_F(ExecutorTest, AnnotatesProviderFailureWithCaseAndSample) {

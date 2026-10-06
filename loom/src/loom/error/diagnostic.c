@@ -46,6 +46,20 @@ static bool loom_source_range_has_text(const loom_source_range_t* range) {
   return range->source.size > 0 && range->start < range->source.size;
 }
 
+static iree_status_t loom_diagnostic_format_location(
+    const loom_source_range_t* range, loom_output_stream_t* stream) {
+  IREE_RETURN_IF_ERROR(loom_output_stream_write(stream, range->filename));
+  if (range->start_line) {
+    IREE_RETURN_IF_ERROR(loom_output_stream_write_format(stream, ":%" PRIu32,
+                                                         range->start_line));
+    if (range->start_column) {
+      IREE_RETURN_IF_ERROR(loom_output_stream_write_format(
+          stream, ":%" PRIu32, range->start_column));
+    }
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_diagnostic_format_source_block(
     const loom_source_range_t* range, const loom_highlight_range_t* highlights,
     iree_host_size_t highlight_count, loom_output_stream_t* stream) {
@@ -146,14 +160,10 @@ static iree_status_t loom_diagnostic_format_related_locations(
       IREE_RETURN_IF_ERROR(loom_output_stream_write(stream, related->label));
       IREE_RETURN_IF_ERROR(loom_output_stream_write_char(stream, ']'));
     }
-    if (loom_source_range_has_text(&related->source_location) &&
-        related->source_location.filename.size > 0) {
-      IREE_RETURN_IF_ERROR(loom_output_stream_write_format(
-          stream, ": %.*s:%" PRIu32 ":%" PRIu32,
-          (int)related->source_location.filename.size,
-          related->source_location.filename.data,
-          related->source_location.start_line,
-          related->source_location.start_column));
+    if (related->source_location.filename.size > 0) {
+      IREE_RETURN_IF_ERROR(loom_output_stream_write_cstring(stream, ": "));
+      IREE_RETURN_IF_ERROR(
+          loom_diagnostic_format_location(&related->source_location, stream));
     }
     IREE_RETURN_IF_ERROR(loom_output_stream_write_cstring(stream, "\n"));
     IREE_RETURN_IF_ERROR(loom_diagnostic_format_source_block(
@@ -193,6 +203,11 @@ iree_status_t loom_diagnostic_format_with_options(
     const loom_diagnostic_format_options_t* options,
     loom_output_stream_t* stream) {
   const loom_source_range_t* range = &diagnostic->origin;
+  const loom_source_range_t* location = range;
+  if (range->provenance == LOOM_SOURCE_PROVENANCE_PRINTED_IR_FALLBACK &&
+      diagnostic->source_location.filename.size > 0) {
+    location = &diagnostic->source_location;
+  }
   const char* severity_string =
       loom_diagnostic_severity_name(diagnostic->severity);
   bool has_source = loom_source_range_has_text(range);
@@ -204,11 +219,9 @@ iree_status_t loom_diagnostic_format_with_options(
   //   file:line:col: severity: message          (unstructured)
   //   severity: message                          (no source)
   //   severity: DOMAIN/CODE: message             (no source, structured)
-  if (has_source && range->filename.size > 0) {
-    IREE_RETURN_IF_ERROR(loom_output_stream_write(stream, range->filename));
-    IREE_RETURN_IF_ERROR(loom_output_stream_write_format(
-        stream, ":%" PRIu32 ":%" PRIu32 ": ", range->start_line,
-        range->start_column));
+  if (location->filename.size > 0) {
+    IREE_RETURN_IF_ERROR(loom_diagnostic_format_location(location, stream));
+    IREE_RETURN_IF_ERROR(loom_output_stream_write_cstring(stream, ": "));
   }
 
   IREE_RETURN_IF_ERROR(
@@ -243,6 +256,10 @@ iree_status_t loom_diagnostic_format_with_options(
     return loom_diagnostic_format_related_locations(diagnostic, stream);
   }
 
+  if (range->provenance == LOOM_SOURCE_PROVENANCE_PRINTED_IR_FALLBACK) {
+    IREE_RETURN_IF_ERROR(
+        loom_output_stream_write_cstring(stream, "  = note: current IR\n"));
+  }
   IREE_RETURN_IF_ERROR(loom_diagnostic_format_source_block(
       range, diagnostic->highlights, diagnostic->highlight_count, stream));
   IREE_RETURN_IF_ERROR(

@@ -6,18 +6,19 @@
 
 #include "loom/target/arch/spirv/module_contract.h"
 
-loom_spirv_module_contract_t loom_spirv_module_contract_from_target(
-    const loom_low_resolved_target_t* target) {
-  const loom_target_bundle_t* bundle = loom_low_resolved_target_bundle(target);
+loom_spirv_module_contract_t loom_spirv_module_contract_make(
+    iree_string_view_t target_name, const loom_target_bundle_t* target_bundle,
+    uint64_t descriptor_set_stable_id, iree_string_view_t contract_set_key,
+    uint64_t contract_feature_bits) {
   return (loom_spirv_module_contract_t){
-      .target_name = target->target_name,
-      .snapshot_name = bundle->snapshot->name,
-      .codegen_format = bundle->snapshot->codegen_format,
-      .artifact_format = bundle->snapshot->artifact_format,
-      .abi_kind = bundle->export_plan->abi_kind,
-      .descriptor_set_stable_id = target->descriptor_set->stable_id,
-      .contract_set_key = target->descriptor_set_key,
-      .contract_feature_bits = target->feature_bits,
+      .target_name = target_name,
+      .snapshot_name = target_bundle->snapshot->name,
+      .codegen_format = target_bundle->snapshot->codegen_format,
+      .artifact_format = target_bundle->snapshot->artifact_format,
+      .abi_kind = target_bundle->export_plan->abi_kind,
+      .descriptor_set_stable_id = descriptor_set_stable_id,
+      .contract_set_key = contract_set_key,
+      .contract_feature_bits = contract_feature_bits,
   };
 }
 

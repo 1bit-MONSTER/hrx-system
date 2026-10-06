@@ -1,0 +1,410 @@
+// Nibble values cross every packed output word before signed conversion.
+kernel.def @lookup_nibbles_4() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%input: buffer, %table: buffer, %bytes: buffer, %floats: buffer) {
+  %base = index.constant 0 : offset
+  %thread = kernel.workitem.id<x> : index
+  %input_view = buffer.view %input[%base] : buffer -> view<32x2xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<16xi8>
+  %byte_view = buffer.view %bytes[%base] : buffer -> view<32x4xi8>
+  %float_view = buffer.view %floats[%base] : buffer -> view<32x4xf32>
+  %packed = vector.load %input_view[%thread, 0] : view<32x2xi8> -> vector<2xi8>
+  %indices = vector.bitunpacku<4> %packed : vector<2xi8> -> vector<4xi8>
+  %entries = vector.load %table_view[0] : view<16xi8> -> vector<16xi8>
+  %values = vector.table.lookup %entries[%indices] : vector<16xi8>, vector<4xi8> -> vector<4xi8>
+  %converted = vector.sitofp %values : vector<4xi8> to vector<4xf32>
+  vector.store %values, %byte_view[%thread, 0] : vector<4xi8>, view<32x4xi8>
+  vector.store %converted, %float_view[%thread, 0] : vector<4xf32>, view<32x4xf32>
+  kernel.return
+}
+
+check.case public @nibble_lookup_4_consumers {
+  // Alternating 0x76543210 and 0xfedcba98 encodes all sixteen nibble values.
+  %input = check.generate.iota offset(1985229328) step(-2004318072) period(2) : tensor<16xi32>
+  %table = check.generate.iota offset(-127) step(16) : tensor<16xi8>
+  %bytes = check.generate.fill value(91) : tensor<128xi8>
+  %floats = check.generate.fill value(91.0) : tensor<128xf32>
+  kernel.launch @lookup_nibbles_4(%input, %table, %bytes, %floats) : (tensor<16xi32>, tensor<16xi8>, tensor<128xi8>, tensor<128xf32>)
+  %expected_bytes = check.generate.iota offset(-127) step(16) period(16) : tensor<128xi8>
+  %expected_floats = check.generate.iota offset(-127.0) step(16.0) period(16) : tensor<128xf32>
+  check.expect.bitwise actual(%bytes) expected(%expected_bytes) : tensor<128xi8>
+  check.expect.bitwise actual(%floats) expected(%expected_floats) : tensor<128xf32>
+  check.return
+}
+
+// Nibble values cross every packed output word before signed conversion.
+kernel.def @lookup_nibbles_8() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%input: buffer, %table: buffer, %bytes: buffer, %floats: buffer) {
+  %base = index.constant 0 : offset
+  %thread = kernel.workitem.id<x> : index
+  %input_view = buffer.view %input[%base] : buffer -> view<32x4xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<16xi8>
+  %byte_view = buffer.view %bytes[%base] : buffer -> view<32x8xi8>
+  %float_view = buffer.view %floats[%base] : buffer -> view<32x8xf32>
+  %packed = vector.load %input_view[%thread, 0] : view<32x4xi8> -> vector<4xi8>
+  %indices = vector.bitunpacku<4> %packed : vector<4xi8> -> vector<8xi8>
+  %entries = vector.load %table_view[0] : view<16xi8> -> vector<16xi8>
+  %values = vector.table.lookup %entries[%indices] : vector<16xi8>, vector<8xi8> -> vector<8xi8>
+  %converted = vector.sitofp %values : vector<8xi8> to vector<8xf32>
+  vector.store %values, %byte_view[%thread, 0] : vector<8xi8>, view<32x8xi8>
+  vector.store %converted, %float_view[%thread, 0] : vector<8xf32>, view<32x8xf32>
+  kernel.return
+}
+
+check.case public @nibble_lookup_8_consumers {
+  // Alternating 0x76543210 and 0xfedcba98 encodes all sixteen nibble values.
+  %input = check.generate.iota offset(1985229328) step(-2004318072) period(2) : tensor<32xi32>
+  %table = check.generate.iota offset(-127) step(16) : tensor<16xi8>
+  %bytes = check.generate.fill value(91) : tensor<256xi8>
+  %floats = check.generate.fill value(91.0) : tensor<256xf32>
+  kernel.launch @lookup_nibbles_8(%input, %table, %bytes, %floats) : (tensor<32xi32>, tensor<16xi8>, tensor<256xi8>, tensor<256xf32>)
+  %expected_bytes = check.generate.iota offset(-127) step(16) period(16) : tensor<256xi8>
+  %expected_floats = check.generate.iota offset(-127.0) step(16.0) period(16) : tensor<256xf32>
+  check.expect.bitwise actual(%bytes) expected(%expected_bytes) : tensor<256xi8>
+  check.expect.bitwise actual(%floats) expected(%expected_floats) : tensor<256xf32>
+  check.return
+}
+
+// Nibble values cross every packed output word before signed conversion.
+kernel.def @lookup_nibbles_16() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%input: buffer, %table: buffer, %bytes: buffer, %floats: buffer) {
+  %base = index.constant 0 : offset
+  %thread = kernel.workitem.id<x> : index
+  %input_view = buffer.view %input[%base] : buffer -> view<32x8xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<16xi8>
+  %byte_view = buffer.view %bytes[%base] : buffer -> view<32x16xi8>
+  %float_view = buffer.view %floats[%base] : buffer -> view<32x16xf32>
+  %packed = vector.load %input_view[%thread, 0] : view<32x8xi8> -> vector<8xi8>
+  %indices = vector.bitunpacku<4> %packed : vector<8xi8> -> vector<16xi8>
+  %entries = vector.load %table_view[0] : view<16xi8> -> vector<16xi8>
+  %values = vector.table.lookup %entries[%indices] : vector<16xi8>, vector<16xi8> -> vector<16xi8>
+  %converted = vector.sitofp %values : vector<16xi8> to vector<16xf32>
+  vector.store %values, %byte_view[%thread, 0] : vector<16xi8>, view<32x16xi8>
+  vector.store %converted, %float_view[%thread, 0] : vector<16xf32>, view<32x16xf32>
+  kernel.return
+}
+
+check.case public @nibble_lookup_16_consumers {
+  // Alternating 0x76543210 and 0xfedcba98 encodes all sixteen nibble values.
+  %input = check.generate.iota offset(1985229328) step(-2004318072) period(2) : tensor<64xi32>
+  %table = check.generate.iota offset(-127) step(16) : tensor<16xi8>
+  %bytes = check.generate.fill value(91) : tensor<512xi8>
+  %floats = check.generate.fill value(91.0) : tensor<512xf32>
+  kernel.launch @lookup_nibbles_16(%input, %table, %bytes, %floats) : (tensor<64xi32>, tensor<16xi8>, tensor<512xi8>, tensor<512xf32>)
+  %expected_bytes = check.generate.iota offset(-127) step(16) period(16) : tensor<512xi8>
+  %expected_floats = check.generate.iota offset(-127.0) step(16.0) period(16) : tensor<512xf32>
+  check.expect.bitwise actual(%bytes) expected(%expected_bytes) : tensor<512xi8>
+  check.expect.bitwise actual(%floats) expected(%expected_floats) : tensor<512xf32>
+  check.return
+}
+
+// Seventeen workitems exercise every table entry at every vector position.
+// Transposed stores are disjoint; 17 is one modulo both table sizes, so their
+// flattened expected values form simple periodic iotas.
+kernel.def @lookup_computed_1() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 17 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%short_table: buffer, %table: buffer, %short_output: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %thread = kernel.workitem.id<x> : index
+  %start = index.cast %thread : index to i8
+  %step = scalar.constant 1 : i8
+  %raw = vector.iota %start step %step : vector<1xi8>
+  %short_table_view = buffer.view %short_table[%base] : buffer -> view<4xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<16xi8>
+  %short_output_view = buffer.view %short_output[%base] : buffer -> view<17xi8>
+  %output_view = buffer.view %output[%base] : buffer -> view<17xi8>
+  %short_mask = vector.constant 3 : vector<1xi8>
+  %mask = vector.constant 15 : vector<1xi8>
+  %short_indices = vector.andi %raw, %short_mask : vector<1xi8>
+  %indices = vector.andi %raw, %mask : vector<1xi8>
+  %short_entries = vector.load %short_table_view[0] : view<4xi8> -> vector<4xi8>
+  %entries = vector.load %table_view[0] : view<16xi8> -> vector<16xi8>
+  %short_values = vector.table.lookup %short_entries[%short_indices] : vector<4xi8>, vector<1xi8> -> vector<1xi8>
+  %values = vector.table.lookup %entries[%indices] : vector<16xi8>, vector<1xi8> -> vector<1xi8>
+  %origin = scalar.constant 0 : i32
+  %stride = scalar.constant 17 : i32
+  %offsets = vector.iota %origin step %stride : vector<1xi32>
+  vector.scatter %short_values, %short_output_view[%thread][%offsets] : vector<1xi8>, view<17xi8>, vector<1xi32>
+  vector.scatter %values, %output_view[%thread][%offsets] : vector<1xi8>, view<17xi8>, vector<1xi32>
+  kernel.return
+}
+
+check.case public @computed_lookup_1 {
+  %short_table = check.generate.iota offset(-127) step(64) : tensor<4xi8>
+  %table = check.generate.iota offset(-127) step(16) : tensor<16xi8>
+  %short_output = check.generate.fill value(91) : tensor<17xi8>
+  %output = check.generate.fill value(91) : tensor<17xi8>
+  kernel.launch @lookup_computed_1(%short_table, %table, %short_output, %output) : (tensor<4xi8>, tensor<16xi8>, tensor<17xi8>, tensor<17xi8>)
+  %short_expected = check.generate.iota offset(-127) step(64) period(4) : tensor<17xi8>
+  %expected = check.generate.iota offset(-127) step(16) period(16) : tensor<17xi8>
+  check.expect.bitwise actual(%short_output) expected(%short_expected) : tensor<17xi8>
+  check.expect.bitwise actual(%output) expected(%expected) : tensor<17xi8>
+  check.return
+}
+
+kernel.def @lookup_computed_2() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 17 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%short_table: buffer, %table: buffer, %short_output: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %thread = kernel.workitem.id<x> : index
+  %start = index.cast %thread : index to i8
+  %step = scalar.constant 1 : i8
+  %raw = vector.iota %start step %step : vector<2xi8>
+  %short_table_view = buffer.view %short_table[%base] : buffer -> view<4xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<16xi8>
+  %short_output_view = buffer.view %short_output[%base] : buffer -> view<34xi8>
+  %output_view = buffer.view %output[%base] : buffer -> view<34xi8>
+  %short_mask = vector.constant 3 : vector<2xi8>
+  %mask = vector.constant 15 : vector<2xi8>
+  %short_indices = vector.andi %raw, %short_mask : vector<2xi8>
+  %indices = vector.andi %raw, %mask : vector<2xi8>
+  %short_entries = vector.load %short_table_view[0] : view<4xi8> -> vector<4xi8>
+  %entries = vector.load %table_view[0] : view<16xi8> -> vector<16xi8>
+  %short_values = vector.table.lookup %short_entries[%short_indices] : vector<4xi8>, vector<2xi8> -> vector<2xi8>
+  %values = vector.table.lookup %entries[%indices] : vector<16xi8>, vector<2xi8> -> vector<2xi8>
+  %origin = scalar.constant 0 : i32
+  %stride = scalar.constant 17 : i32
+  %offsets = vector.iota %origin step %stride : vector<2xi32>
+  vector.scatter %short_values, %short_output_view[%thread][%offsets] : vector<2xi8>, view<34xi8>, vector<2xi32>
+  vector.scatter %values, %output_view[%thread][%offsets] : vector<2xi8>, view<34xi8>, vector<2xi32>
+  kernel.return
+}
+
+check.case public @computed_lookup_2 {
+  %short_table = check.generate.iota offset(-127) step(64) : tensor<4xi8>
+  %table = check.generate.iota offset(-127) step(16) : tensor<16xi8>
+  %short_output = check.generate.fill value(91) : tensor<34xi8>
+  %output = check.generate.fill value(91) : tensor<34xi8>
+  kernel.launch @lookup_computed_2(%short_table, %table, %short_output, %output) : (tensor<4xi8>, tensor<16xi8>, tensor<34xi8>, tensor<34xi8>)
+  %short_expected = check.generate.iota offset(-127) step(64) period(4) : tensor<34xi8>
+  %expected = check.generate.iota offset(-127) step(16) period(16) : tensor<34xi8>
+  check.expect.bitwise actual(%short_output) expected(%short_expected) : tensor<34xi8>
+  check.expect.bitwise actual(%output) expected(%expected) : tensor<34xi8>
+  check.return
+}
+
+kernel.def @lookup_computed_3() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 17 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%short_table: buffer, %table: buffer, %short_output: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %thread = kernel.workitem.id<x> : index
+  %start = index.cast %thread : index to i8
+  %step = scalar.constant 1 : i8
+  %raw = vector.iota %start step %step : vector<3xi8>
+  %short_table_view = buffer.view %short_table[%base] : buffer -> view<4xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<16xi8>
+  %short_output_view = buffer.view %short_output[%base] : buffer -> view<51xi8>
+  %output_view = buffer.view %output[%base] : buffer -> view<51xi8>
+  %short_mask = vector.constant 3 : vector<3xi8>
+  %mask = vector.constant 15 : vector<3xi8>
+  %short_indices = vector.andi %raw, %short_mask : vector<3xi8>
+  %indices = vector.andi %raw, %mask : vector<3xi8>
+  %short_entries = vector.load %short_table_view[0] : view<4xi8> -> vector<4xi8>
+  %entries = vector.load %table_view[0] : view<16xi8> -> vector<16xi8>
+  %short_values = vector.table.lookup %short_entries[%short_indices] : vector<4xi8>, vector<3xi8> -> vector<3xi8>
+  %values = vector.table.lookup %entries[%indices] : vector<16xi8>, vector<3xi8> -> vector<3xi8>
+  %origin = scalar.constant 0 : i32
+  %stride = scalar.constant 17 : i32
+  %offsets = vector.iota %origin step %stride : vector<3xi32>
+  vector.scatter %short_values, %short_output_view[%thread][%offsets] : vector<3xi8>, view<51xi8>, vector<3xi32>
+  vector.scatter %values, %output_view[%thread][%offsets] : vector<3xi8>, view<51xi8>, vector<3xi32>
+  kernel.return
+}
+
+check.case public @computed_lookup_3 {
+  %short_table = check.generate.iota offset(-127) step(64) : tensor<4xi8>
+  %table = check.generate.iota offset(-127) step(16) : tensor<16xi8>
+  %short_output = check.generate.fill value(91) : tensor<51xi8>
+  %output = check.generate.fill value(91) : tensor<51xi8>
+  kernel.launch @lookup_computed_3(%short_table, %table, %short_output, %output) : (tensor<4xi8>, tensor<16xi8>, tensor<51xi8>, tensor<51xi8>)
+  %short_expected = check.generate.iota offset(-127) step(64) period(4) : tensor<51xi8>
+  %expected = check.generate.iota offset(-127) step(16) period(16) : tensor<51xi8>
+  check.expect.bitwise actual(%short_output) expected(%short_expected) : tensor<51xi8>
+  check.expect.bitwise actual(%output) expected(%expected) : tensor<51xi8>
+  check.return
+}
+
+kernel.def @lookup_computed_5() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 17 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%short_table: buffer, %table: buffer, %short_output: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %thread = kernel.workitem.id<x> : index
+  %start = index.cast %thread : index to i8
+  %step = scalar.constant 1 : i8
+  %raw = vector.iota %start step %step : vector<5xi8>
+  %short_table_view = buffer.view %short_table[%base] : buffer -> view<4xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<16xi8>
+  %short_output_view = buffer.view %short_output[%base] : buffer -> view<85xi8>
+  %output_view = buffer.view %output[%base] : buffer -> view<85xi8>
+  %short_mask = vector.constant 3 : vector<5xi8>
+  %mask = vector.constant 15 : vector<5xi8>
+  %short_indices = vector.andi %raw, %short_mask : vector<5xi8>
+  %indices = vector.andi %raw, %mask : vector<5xi8>
+  %short_entries = vector.load %short_table_view[0] : view<4xi8> -> vector<4xi8>
+  %entries = vector.load %table_view[0] : view<16xi8> -> vector<16xi8>
+  %short_values = vector.table.lookup %short_entries[%short_indices] : vector<4xi8>, vector<5xi8> -> vector<5xi8>
+  %values = vector.table.lookup %entries[%indices] : vector<16xi8>, vector<5xi8> -> vector<5xi8>
+  %origin = scalar.constant 0 : i32
+  %stride = scalar.constant 17 : i32
+  %offsets = vector.iota %origin step %stride : vector<5xi32>
+  vector.scatter %short_values, %short_output_view[%thread][%offsets] : vector<5xi8>, view<85xi8>, vector<5xi32>
+  vector.scatter %values, %output_view[%thread][%offsets] : vector<5xi8>, view<85xi8>, vector<5xi32>
+  kernel.return
+}
+
+check.case public @computed_lookup_5 {
+  %short_table = check.generate.iota offset(-127) step(64) : tensor<4xi8>
+  %table = check.generate.iota offset(-127) step(16) : tensor<16xi8>
+  %short_output = check.generate.fill value(91) : tensor<85xi8>
+  %output = check.generate.fill value(91) : tensor<85xi8>
+  kernel.launch @lookup_computed_5(%short_table, %table, %short_output, %output) : (tensor<4xi8>, tensor<16xi8>, tensor<85xi8>, tensor<85xi8>)
+  %short_expected = check.generate.iota offset(-127) step(64) period(4) : tensor<85xi8>
+  %expected = check.generate.iota offset(-127) step(16) period(16) : tensor<85xi8>
+  check.expect.bitwise actual(%short_output) expected(%short_expected) : tensor<85xi8>
+  check.expect.bitwise actual(%output) expected(%expected) : tensor<85xi8>
+  check.return
+}
+
+kernel.def @lookup_computed_63() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 17 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%table: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %thread = kernel.workitem.id<x> : index
+  %start = index.cast %thread : index to i8
+  %step = scalar.constant 1 : i8
+  %raw = vector.iota %start step %step : vector<63xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<16xi8>
+  %output_view = buffer.view %output[%base] : buffer -> view<1071xi8>
+  %mask = vector.constant 15 : vector<63xi8>
+  %indices = vector.andi %raw, %mask : vector<63xi8>
+  %entries = vector.load %table_view[0] : view<16xi8> -> vector<16xi8>
+  %values = vector.table.lookup %entries[%indices] : vector<16xi8>, vector<63xi8> -> vector<63xi8>
+  %origin = scalar.constant 0 : i32
+  %stride = scalar.constant 17 : i32
+  %offsets = vector.iota %origin step %stride : vector<63xi32>
+  vector.scatter %values, %output_view[%thread][%offsets] : vector<63xi8>, view<1071xi8>, vector<63xi32>
+  kernel.return
+}
+
+check.case public @computed_lookup_63 {
+  %table = check.generate.iota offset(-127) step(16) : tensor<16xi8>
+  %output = check.generate.fill value(91) : tensor<1071xi8>
+  kernel.launch @lookup_computed_63(%table, %output) : (tensor<16xi8>, tensor<1071xi8>)
+  %expected = check.generate.iota offset(-127) step(16) period(16) : tensor<1071xi8>
+  check.expect.bitwise actual(%output) expected(%expected) : tensor<1071xi8>
+  check.return
+}
+
+kernel.def @lookup_computed_64() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 17 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%table: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %thread = kernel.workitem.id<x> : index
+  %start = index.cast %thread : index to i8
+  %step = scalar.constant 1 : i8
+  %raw = vector.iota %start step %step : vector<64xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<16xi8>
+  %output_view = buffer.view %output[%base] : buffer -> view<1088xi8>
+  %mask = vector.constant 15 : vector<64xi8>
+  %indices = vector.andi %raw, %mask : vector<64xi8>
+  %entries = vector.load %table_view[0] : view<16xi8> -> vector<16xi8>
+  %values = vector.table.lookup %entries[%indices] : vector<16xi8>, vector<64xi8> -> vector<64xi8>
+  %origin = scalar.constant 0 : i32
+  %stride = scalar.constant 17 : i32
+  %offsets = vector.iota %origin step %stride : vector<64xi32>
+  vector.scatter %values, %output_view[%thread][%offsets] : vector<64xi8>, view<1088xi8>, vector<64xi32>
+  kernel.return
+}
+
+check.case public @computed_lookup_64 {
+  %table = check.generate.iota offset(-127) step(16) : tensor<16xi8>
+  %output = check.generate.fill value(91) : tensor<1088xi8>
+  kernel.launch @lookup_computed_64(%table, %output) : (tensor<16xi8>, tensor<1088xi8>)
+  %expected = check.generate.iota offset(-127) step(16) period(16) : tensor<1088xi8>
+  check.expect.bitwise actual(%output) expected(%expected) : tensor<1088xi8>
+  check.return
+}
+
+kernel.def @lookup_short_computed_63() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 17 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%table: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %thread = kernel.workitem.id<x> : index
+  %start = index.cast %thread : index to i8
+  %step = scalar.constant 1 : i8
+  %raw = vector.iota %start step %step : vector<63xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<4xi8>
+  %output_view = buffer.view %output[%base] : buffer -> view<1071xi8>
+  %mask = vector.constant 3 : vector<63xi8>
+  %indices = vector.andi %raw, %mask : vector<63xi8>
+  %entries = vector.load %table_view[0] : view<4xi8> -> vector<4xi8>
+  %values = vector.table.lookup %entries[%indices] : vector<4xi8>, vector<63xi8> -> vector<63xi8>
+  %origin = scalar.constant 0 : i32
+  %stride = scalar.constant 17 : i32
+  %offsets = vector.iota %origin step %stride : vector<63xi32>
+  vector.scatter %values, %output_view[%thread][%offsets] : vector<63xi8>, view<1071xi8>, vector<63xi32>
+  kernel.return
+}
+
+check.case public @computed_short_lookup_63 {
+  %table = check.generate.iota offset(-127) step(64) : tensor<4xi8>
+  %output = check.generate.fill value(91) : tensor<1071xi8>
+  kernel.launch @lookup_short_computed_63(%table, %output) : (tensor<4xi8>, tensor<1071xi8>)
+  %expected = check.generate.iota offset(-127) step(64) period(4) : tensor<1071xi8>
+  check.expect.bitwise actual(%output) expected(%expected) : tensor<1071xi8>
+  check.return
+}
+
+kernel.def @lookup_short_computed_64() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 17 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%table: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %thread = kernel.workitem.id<x> : index
+  %start = index.cast %thread : index to i8
+  %step = scalar.constant 1 : i8
+  %raw = vector.iota %start step %step : vector<64xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<4xi8>
+  %output_view = buffer.view %output[%base] : buffer -> view<1088xi8>
+  %mask = vector.constant 3 : vector<64xi8>
+  %indices = vector.andi %raw, %mask : vector<64xi8>
+  %entries = vector.load %table_view[0] : view<4xi8> -> vector<4xi8>
+  %values = vector.table.lookup %entries[%indices] : vector<4xi8>, vector<64xi8> -> vector<64xi8>
+  %origin = scalar.constant 0 : i32
+  %stride = scalar.constant 17 : i32
+  %offsets = vector.iota %origin step %stride : vector<64xi32>
+  vector.scatter %values, %output_view[%thread][%offsets] : vector<64xi8>, view<1088xi8>, vector<64xi32>
+  kernel.return
+}
+
+check.case public @computed_short_lookup_64 {
+  %table = check.generate.iota offset(-127) step(64) : tensor<4xi8>
+  %output = check.generate.fill value(91) : tensor<1088xi8>
+  kernel.launch @lookup_short_computed_64(%table, %output) : (tensor<4xi8>, tensor<1088xi8>)
+  %expected = check.generate.iota offset(-127) step(64) period(4) : tensor<1088xi8>
+  check.expect.bitwise actual(%output) expected(%expected) : tensor<1088xi8>
+  check.return
+}

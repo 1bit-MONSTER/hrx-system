@@ -19,14 +19,14 @@ void loom_amdgpu_wait_completion_analyze(
          ++slot) {
       last_producers[slot] = LOOM_LOW_SCHEDULE_NODE_NONE;
     }
-    uint32_t workgroup_write_counter_mask = 0;
+    uint32_t workgroup_access_counter_mask = 0;
     for (uint32_t i = 0; i < block->scheduled_node_count; ++i) {
       const uint32_t node_index =
           schedule->scheduled_node_indices[block->scheduled_node_start + i];
       loom_amdgpu_wait_completion_node_t* node = &nodes[node_index];
       uint32_t reset_counter_mask =
-          node->reset_counter_mask |
-          (node->workgroup_barrier_counter_mask & workgroup_write_counter_mask);
+          node->reset_counter_mask | (node->workgroup_barrier_counter_mask &
+                                      workgroup_access_counter_mask);
       for (uint32_t dependency_index = first_dependency_by_consumer[node_index];
            dependency_index != LOOM_LOW_SCHEDULE_NODE_NONE;
            dependency_index = dependencies[dependency_index].next_dependency) {
@@ -62,8 +62,8 @@ void loom_amdgpu_wait_completion_analyze(
           last_producers[slot] = node_index;
         }
       }
-      workgroup_write_counter_mask &= ~reset_counter_mask;
-      workgroup_write_counter_mask |= node->workgroup_write_counter_mask;
+      workgroup_access_counter_mask &= ~reset_counter_mask;
+      workgroup_access_counter_mask |= node->workgroup_access_counter_mask;
     }
     uint32_t completed_counter_mask = 0;
     for (uint32_t i = block->scheduled_node_count; i > 0; --i) {

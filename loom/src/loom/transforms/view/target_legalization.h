@@ -21,13 +21,6 @@ extern "C" {
 const loom_target_legalizer_provider_t* loom_view_target_legalizer_provider(
     void);
 
-// Rewrites a floating-point atomic add to a bitwise compare-exchange loop.
-// The caller must establish that the selected target lacks the native atomic
-// add but supports compare-exchange for the payload width.
-iree_status_t loom_view_target_legalize_atomic_addf_reference(
-    loom_target_legalization_context_t* context, loom_op_t* op,
-    loom_target_legalizer_result_t* out_result);
-
 #ifdef __cplusplus
 }
 #endif

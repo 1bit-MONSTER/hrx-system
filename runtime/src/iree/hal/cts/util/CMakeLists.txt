@@ -11,6 +11,20 @@ iree_add_all_subdirs()
 
 iree_cc_library(
   NAME
+    test_main
+  SRCS
+    "test_main.cc"
+  DEPS
+    ::registry
+    ::test_base
+    iree::base::tooling::flags
+    iree::testing::gtest
+  TESTONLY
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
     registry
   HDRS
     "registry.h"

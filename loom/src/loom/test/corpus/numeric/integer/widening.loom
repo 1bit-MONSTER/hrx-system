@@ -1,0 +1,180 @@
+func.def @widen_signed_word(%value: i32) -> (i64) {
+  %result = scalar.extsi %value : i32 to i64
+  func.return %result : i64
+}
+
+func.def @widen_unsigned_word(%value: i32) -> (i64) {
+  %result = scalar.extui %value : i32 to i64
+  func.return %result : i64
+}
+
+func.def @add_signed_word(%base: i64, %delta: i32) -> (i64) {
+  %wide_delta = scalar.extsi %delta : i32 to i64
+  %result = scalar.addi %base, %wide_delta : i64
+  func.return %result : i64
+}
+
+func.def @assemble_wide_word(%low: i32, %high: i32) -> (i64) {
+  %low_word = scalar.extui %low : i32 to i64
+  %high_word = scalar.extui %high : i32 to i64
+  %word_bits = scalar.constant 32 : i64
+  %high_half = scalar.shli %high_word, %word_bits : i64
+  %result = scalar.ori %low_word, %high_half : i64
+  func.return %result : i64
+}
+
+func.def @exchange_signed_position(%buffer: buffer, %position: i32, %replacement: i32) -> (i32) {
+  %bounded_position = scalar.assume %position [range(%position, -4, 4)] : i32
+  %wide_position = scalar.extsi %bounded_position : i32 to i64
+  %element_bytes = scalar.constant 4 : i64
+  %displacement = scalar.muli %wide_position, %element_bytes : i64
+  %center = scalar.constant 16 : i64
+  %wide_origin = scalar.addi %center, %displacement : i64
+  %origin = index.cast %wide_origin : i64 to offset
+  %view = buffer.view %buffer[%origin] : buffer -> view<1xi32>
+  %previous = view.load %view[0] : view<1xi32> -> i32
+  view.store %replacement, %view[0] : i32, view<1xi32>
+  func.return %previous : i32
+}
+
+// A word-sized record ordinal must be unsigned before forming a wide address.
+func.def @unsigned_record_address(%base: i64, %record: i32, %record_bytes: i64) -> (i64) {
+  %ordinal = scalar.extui %record : i32 to i64
+  %displacement = scalar.muli %ordinal, %record_bytes : i64
+  %address = scalar.addi %base, %displacement : i64
+  func.return %address : i64
+}
+
+// Wrapping the ordinal discards every upper bit of the incoming wide counter.
+func.def @wrapped_record_address(%base: i64, %counter: i64, %record_bytes: i64) -> (i64) {
+  %record = scalar.trunci %counter : i64 to i32
+  %ordinal = scalar.extui %record : i32 to i64
+  %displacement = scalar.muli %ordinal, %record_bytes : i64
+  %address = scalar.addi %base, %displacement : i64
+  func.return %address : i64
+}
+
+func.def @integer_widening_observations(%ordinal: index, %word_bits: i64, %high_bits: i64, %base: i64, %stride: i64, %memory: buffer, %wide_output: buffer, %word_output: buffer) {
+  %word = scalar.trunci %word_bits : i64 to i32
+  %high = scalar.trunci %high_bits : i64 to i32
+  %signed = func.call @widen_signed_word(%word) : (i32) -> (i64)
+  %unsigned = func.call @widen_unsigned_word(%word) : (i32) -> (i64)
+  %added = func.call @add_signed_word(%base, %word) : (i64, i32) -> (i64)
+  %assembled = func.call @assemble_wide_word(%word, %high) : (i32, i32) -> (i64)
+  %address = func.call @unsigned_record_address(%base, %word, %stride) : (i64, i32, i64) -> (i64)
+  %upper_mask = scalar.constant -4294967296 : i64
+  %upper = scalar.andi %high_bits, %upper_mask : i64
+  %counter = scalar.ori %upper, %unsigned : i64
+  %wrapped_address = func.call @wrapped_record_address(%base, %counter, %stride) : (i64, i64, i64) -> (i64)
+
+  %c9 = index.constant 9 : index
+  %bounded_ordinal = index.assume %ordinal [range(%ordinal, 0, 255)] : index
+  %position_index = index.rem %bounded_ordinal, %c9 : index
+  %position_unsigned = index.cast %position_index : index to i32
+  %c4 = scalar.constant 4 : i32
+  %position = scalar.subi %position_unsigned, %c4 : i32
+  %previous = func.call @exchange_signed_position(%memory, %position, %high) : (buffer, i32, i32) -> (i32)
+
+  %origin = index.constant 0 : offset
+  %wide_results = buffer.view %wide_output[%origin] : buffer -> view<6xi64>
+  view.store %signed, %wide_results[0] : i64, view<6xi64>
+  view.store %unsigned, %wide_results[1] : i64, view<6xi64>
+  view.store %added, %wide_results[2] : i64, view<6xi64>
+  view.store %assembled, %wide_results[3] : i64, view<6xi64>
+  view.store %address, %wide_results[4] : i64, view<6xi64>
+  view.store %wrapped_address, %wide_results[5] : i64, view<6xi64>
+  %word_results = buffer.view %word_output[%origin] : buffer -> view<4xi32>
+  view.store %previous, %word_results[0] : i32, view<4xi32>
+  view.store %high, %word_results[1] : i32, view<4xi32>
+  view.store %position, %word_results[2] : i32, view<4xi32>
+  view.store %word, %word_results[3] : i32, view<4xi32>
+  func.return
+}
+
+check.scenario @integer_widening_values {
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %word_entropy = check.entropy.fork %entropy name("word") : check.entropy
+    %high_entropy = check.entropy.fork %entropy name("high") : check.entropy
+    %base_entropy = check.entropy.fork %entropy name("base") : check.entropy
+    %stride_entropy = check.entropy.fork %entropy name("stride") : check.entropy
+    %word_bits = check.entropy.read %word_entropy[%trial] : check.entropy -> i64
+    %high_bits = check.entropy.read %high_entropy[%trial] : check.entropy -> i64
+    %base = check.entropy.read %base_entropy[%trial] : check.entropy -> i64
+    %stride = check.entropy.read %stride_entropy[%trial] : check.entropy -> i64
+    %memory_storage = check.generate.fill value(-123456789) : tensor<17xi32>
+    %memory = check.tensor.view %memory_storage offset(16) : tensor<17xi32> -> tensor<9xi32>
+    %memory_prefix = check.tensor.view %memory_storage offset(0) : tensor<17xi32> -> tensor<4xi32>
+    %memory_suffix = check.tensor.view %memory_storage offset(52) : tensor<17xi32> -> tensor<4xi32>
+    %memory_guard = check.generate.fill value(-123456789) : tensor<4xi32>
+    %wide_output = check.generate.fill value(-1) : tensor<6xi64>
+    %word_output = check.generate.fill value(-1) : tensor<4xi32>
+    check.compare<@integer_widening_observations>(%trial, %word_bits, %high_bits, %base, %stride, %memory, %wide_output, %word_output) : (index, i64, i64, i64, i64, tensor<9xi32>, tensor<6xi64>, tensor<4xi32>) -> () {
+      check.expect.bitwise actual(%memory_storage) expected(%memory_storage) : tensor<17xi32>
+      check.expect.bitwise actual(%wide_output) expected(%wide_output) : tensor<6xi64>
+      check.expect.bitwise actual(%word_output) expected(%word_output) : tensor<4xi32>
+      check.expect.bitwise actual(%memory_prefix) expected(%memory_guard) : tensor<4xi32>
+      check.expect.bitwise actual(%memory_suffix) expected(%memory_guard) : tensor<4xi32>
+    }
+  }
+  check.return
+}
+
+// Narrow arguments use their logical width across function calls. Runtime
+// inputs visit every byte and halfword payload before unsigned consumption.
+func.def @exchange_narrow_value(%storage: buffer, %byte_value: i8, %word_value: i16) -> (i32, i32) {
+  %byte_origin = index.constant 0 : offset
+  %word_origin = index.constant 2 : offset
+  %bytes = buffer.view %storage[%byte_origin] : buffer -> view<1xi8>
+  %words = buffer.view %storage[%word_origin] : buffer -> view<1xi16>
+  %previous_byte = view.load %bytes[0] : view<1xi8> -> i8
+  %previous_word = view.load %words[0] : view<1xi16> -> i16
+  view.store %byte_value, %bytes[0] : i8, view<1xi8>
+  view.store %word_value, %words[0] : i16, view<1xi16>
+  %previous_byte_bits = scalar.extui %previous_byte : i8 to i32
+  %previous_word_bits = scalar.extui %previous_word : i16 to i32
+  func.return %previous_byte_bits, %previous_word_bits : i32, i32
+}
+
+func.def @narrow_integer_observations(%byte_payloads: buffer, %word_payloads: buffer, %storage: buffer, %results: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 65536 : index
+  %step = index.constant 1 : index
+  %byte_period = index.constant 256 : index
+  %byte_payload_view = buffer.view %byte_payloads[%base] : buffer -> view<256xi8>
+  %word_payload_view = buffer.view %word_payloads[%base] : buffer -> view<65536xi16>
+  %result_view = buffer.view %results[%base] : buffer -> view<4x65536xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %byte_index = index.rem %i, %byte_period : index
+    %byte = view.load %byte_payload_view[%byte_index] : view<256xi8> -> i8
+    %word = view.load %word_payload_view[%i] : view<65536xi16> -> i16
+    %previous_byte, %previous_word = func.call @exchange_narrow_value(%storage, %byte, %word) : (buffer, i8, i16) -> (i32, i32)
+    %byte_bits = scalar.extui %byte : i8 to i32
+    %word_bits = scalar.extui %word : i16 to i32
+    view.store %previous_byte, %result_view[0, %i] : i32, view<4x65536xi32>
+    view.store %previous_word, %result_view[1, %i] : i32, view<4x65536xi32>
+    view.store %byte_bits, %result_view[2, %i] : i32, view<4x65536xi32>
+    view.store %word_bits, %result_view[3, %i] : i32, view<4x65536xi32>
+  }
+  func.return
+}
+
+check.scenario @narrow_integer_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %byte_payloads = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+    %expected_byte_payloads = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+    %word_payloads = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %expected_word_payloads = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %storage_owner = check.generate.fill value(-91) : tensor<12xi8>
+    %storage = check.tensor.view %storage_owner offset(4) : tensor<12xi8> -> tensor<4xi8>
+    %result_owner = check.generate.fill value(-123) : tensor<262152xi32>
+    %results = check.tensor.view %result_owner offset(16) : tensor<262152xi32> -> tensor<262144xi32>
+    check.compare<@narrow_integer_observations>(%byte_payloads, %word_payloads, %storage, %results) : (tensor<256xi8>, tensor<65536xi16>, tensor<4xi8>, tensor<262144xi32>) -> () {
+      check.expect.bitwise actual(%byte_payloads) expected(%expected_byte_payloads) : tensor<256xi8>
+      check.expect.bitwise actual(%word_payloads) expected(%expected_word_payloads) : tensor<65536xi16>
+      check.expect.bitwise actual(%storage_owner) expected(%storage_owner) : tensor<12xi8>
+      check.expect.bitwise actual(%result_owner) expected(%result_owner) : tensor<262152xi32>
+    }
+  }
+  check.return
+}

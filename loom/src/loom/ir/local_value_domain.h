@@ -40,6 +40,9 @@ typedef struct loom_local_value_domain_t {
   loom_value_id_t* value_ids;
   // Number of initialized value IDs in value_ids.
   loom_value_ordinal_t value_count;
+  // Prefix of value_ids defined in the region or region tree at acquisition.
+  // The remaining IDs are captures or values explicitly registered later.
+  loom_value_ordinal_t definition_count;
   // Allocated capacity of value_ids.
   iree_host_size_t value_capacity;
   // Domain lifecycle flags.
@@ -52,6 +55,9 @@ typedef struct loom_local_value_domain_t {
 // references carried by value types, and values captured by nested regions.
 // Rewriting frames that create new values while the domain is active must
 // explicitly register those values before indexing ordinal-keyed scratch.
+// The definition prefix describes the acquired source topology; moving or
+// inserting definitions does not update that snapshot. Ordinals remain stable
+// from acquisition until release, including across later registration.
 iree_status_t loom_local_value_domain_acquire_for_region(
     loom_module_t* module, const loom_region_t* region,
     iree_arena_allocator_t* arena, loom_local_value_domain_t* out_domain);

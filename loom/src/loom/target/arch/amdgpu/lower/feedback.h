@@ -413,11 +413,14 @@ iree_status_t loom_amdgpu_build_feedback_publish_packet(
 // Emits a terminal feedback packet producer.
 //
 // The builder must be positioned at the end of a target-low block. This helper
-// emits a cold CFG that loads the runtime feedback config, branches around
-// channel dereferences when feedback is disabled, reserves packet storage when
-// possible, writes and publishes one feedback packet on successful reservation,
-// and terminates the current wave on all paths. The builder is left in the
-// terminal block after the return terminator has been emitted.
+// accepts SGPR or VGPR source coordinates and canonicalizes the complete source
+// tuple to VGPRs once in the entry block so scalar metadata is not live through
+// the reservation and packet-production CFG. It then emits a cold CFG that
+// loads the runtime feedback config, branches around channel dereferences when
+// feedback is disabled, reserves packet storage when possible, writes and
+// publishes one feedback packet on successful reservation, and terminates the
+// current wave on all paths. The builder is left in the terminal block after
+// the return terminator has been emitted.
 iree_status_t loom_amdgpu_build_feedback_packet_producer_terminate(
     loom_builder_t* builder, const loom_low_descriptor_set_t* descriptor_set,
     loom_symbol_ref_t feedback_config_symbol,

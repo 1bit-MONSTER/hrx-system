@@ -1,0 +1,273 @@
+// RUN: pass unroll-scf-for
+
+// Invariant local choices retain interleaved stores.
+func.def public @invariant_choice(%a: buffer, %b: buffer, %choice: i32) {
+  %base = index.constant 0 : offset
+  %value0 = scalar.constant 1 : i32
+  %value1 = scalar.constant 2 : i32
+  %vec0 = vector.splat %value0 : vector<4xi32>
+  %vec1 = vector.splat %value1 : vector<4xi32>
+  %layout = encoding.layout.dense : encoding<layout>
+  %start = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%start to %end step %step] unroll schedule(interleaved) {
+    %first = scalar.cmpi ne, %choice, %value0 : i32
+    %left = scf.select %first, %a, %b : buffer
+    %right = scf.select %first, %b, %a : buffer
+    %left_unique, %right_unique = buffer.assume.noalias %left, %right : buffer, buffer
+    %left_view = buffer.view %left_unique[%base] : buffer -> view<4xi32, %layout>
+    %right_view = buffer.view %right_unique[%base] : buffer -> view<4xi32, %layout>
+    vector.store %vec0, %left_view[0] : vector<4xi32>, view<4xi32, %layout>
+    vector.store %vec1, %right_view[0] : vector<4xi32>, view<4xi32, %layout>
+  }
+  func.return
+}
+
+// ----
+func.def public @invariant_choice(%a: buffer, %b: buffer, %choice: i32) {
+  %base = index.constant 0 : offset
+  %value0 = scalar.constant 1 : i32
+  %value1 = scalar.constant 2 : i32
+  %vec0 = vector.splat %value0 : vector<4xi32>
+  %vec1 = vector.splat %value1 : vector<4xi32>
+  %layout = encoding.layout.dense : encoding<layout>
+  %start = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  %first = scalar.cmpi ne, %choice, %value0 : i32
+  %first_1 = scalar.cmpi ne, %choice, %value0 : i32
+  %left = scf.select %first, %a, %b : buffer
+  %left_1 = scf.select %first_1, %a, %b : buffer
+  %right = scf.select %first, %b, %a : buffer
+  %right_1 = scf.select %first_1, %b, %a : buffer
+  %left_unique, %right_unique = buffer.assume.noalias %left, %right : buffer, buffer
+  %left_unique_1, %right_unique_1 = buffer.assume.noalias %left_1, %right_1 : buffer, buffer
+  %left_view = buffer.view %left_unique[%base] : buffer -> view<4xi32, %layout>
+  %left_view_1 = buffer.view %left_unique_1[%base] : buffer -> view<4xi32, %layout>
+  %right_view = buffer.view %right_unique[%base] : buffer -> view<4xi32, %layout>
+  %right_view_1 = buffer.view %right_unique_1[%base] : buffer -> view<4xi32, %layout>
+  vector.store %vec0, %left_view[0] : vector<4xi32>, view<4xi32, %layout>
+  vector.store %vec0, %left_view_1[0] : vector<4xi32>, view<4xi32, %layout>
+  vector.store %vec1, %right_view[0] : vector<4xi32>, view<4xi32, %layout>
+  vector.store %vec1, %right_view_1[0] : vector<4xi32>, view<4xi32, %layout>
+  func.return
+}
+
+// ====
+
+// One invariant root makes its noalias promise apply across iterations.
+func.def public @one_varying_root(%a: buffer, %b: buffer, %c: buffer) {
+  %base = index.constant 0 : offset
+  %value0 = scalar.constant 1 : i32
+  %value1 = scalar.constant 2 : i32
+  %vec0 = vector.splat %value0 : vector<4xi32>
+  %vec1 = vector.splat %value1 : vector<4xi32>
+  %layout = encoding.layout.dense : encoding<layout>
+  %start = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%start to %end step %step] unroll schedule(interleaved) {
+    %first = index.cmp eq, %i, %start : index
+    %left = scf.select %first, %a, %b : buffer
+    %right = scf.select %first, %c, %c : buffer
+    %left_unique, %right_unique = buffer.assume.noalias %left, %right : buffer, buffer
+    %left_view = buffer.view %left_unique[%base] : buffer -> view<4xi32, %layout>
+    %right_view = buffer.view %right_unique[%base] : buffer -> view<4xi32, %layout>
+    vector.store %vec0, %left_view[0] : vector<4xi32>, view<4xi32, %layout>
+    vector.store %vec1, %right_view[0] : vector<4xi32>, view<4xi32, %layout>
+  }
+  func.return
+}
+
+// ----
+func.def public @one_varying_root(%a: buffer, %b: buffer, %c: buffer) {
+  %base = index.constant 0 : offset
+  %value0 = scalar.constant 1 : i32
+  %value1 = scalar.constant 2 : i32
+  %vec0 = vector.splat %value0 : vector<4xi32>
+  %vec1 = vector.splat %value1 : vector<4xi32>
+  %layout = encoding.layout.dense : encoding<layout>
+  %start = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  %i_0 = index.constant 0 : index
+  %i_1 = index.constant 1 : index
+  %first = index.cmp eq, %i_0, %start : index
+  %first_1 = index.cmp eq, %i_1, %start : index
+  %left = scf.select %first, %a, %b : buffer
+  %left_1 = scf.select %first_1, %a, %b : buffer
+  %right = scf.select %first, %c, %c : buffer
+  %right_1 = scf.select %first_1, %c, %c : buffer
+  %left_unique, %right_unique = buffer.assume.noalias %left, %right : buffer, buffer
+  %left_unique_1, %right_unique_1 = buffer.assume.noalias %left_1, %right_1 : buffer, buffer
+  %left_view = buffer.view %left_unique[%base] : buffer -> view<4xi32, %layout>
+  %left_view_1 = buffer.view %left_unique_1[%base] : buffer -> view<4xi32, %layout>
+  %right_view = buffer.view %right_unique[%base] : buffer -> view<4xi32, %layout>
+  %right_view_1 = buffer.view %right_unique_1[%base] : buffer -> view<4xi32, %layout>
+  vector.store %vec0, %left_view[0] : vector<4xi32>, view<4xi32, %layout>
+  vector.store %vec0, %left_view_1[0] : vector<4xi32>, view<4xi32, %layout>
+  vector.store %vec1, %right_view[0] : vector<4xi32>, view<4xi32, %layout>
+  vector.store %vec1, %right_view_1[0] : vector<4xi32>, view<4xi32, %layout>
+  func.return
+}
+
+// ====
+
+// A captured immutable input keeps derived offsets invariant.
+func.def public @readonly_choice(%input: buffer, %output: buffer) {
+  %input_unique, %output_unique = buffer.assume.noalias %input, %output : buffer, buffer
+  %origin = index.constant 0 : offset
+  %next_origin = index.constant 16 : offset
+  %first_value = scalar.constant 1 : i32
+  %second_value = scalar.constant 2 : i32
+  %vec_one = vector.splat %first_value : vector<4xi32>
+  %vec_two = vector.splat %second_value : vector<4xi32>
+  %layout = encoding.layout.dense : encoding<layout>
+  %start = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  %input_view = buffer.view %input_unique[%origin] : buffer -> view<1xi32>
+  scf.for %i = [%start to %end step %step] unroll schedule(interleaved) {
+    %choice = view.load %input_view[0] : view<1xi32> -> i32
+    %first = scalar.cmpi ne, %choice, %first_value : i32
+    %base = scf.select %first, %origin, %next_origin : offset
+    %view = buffer.view %output_unique[%base] : buffer -> view<8xi32, %layout>
+    vector.store %vec_one, %view[0] : vector<4xi32>, view<8xi32, %layout>
+    vector.store %vec_two, %view[4] : vector<4xi32>, view<8xi32, %layout>
+  }
+  func.return
+}
+
+// ----
+func.def public @readonly_choice(%input: buffer, %output: buffer) {
+  %input_unique, %output_unique = buffer.assume.noalias %input, %output : buffer, buffer
+  %origin = index.constant 0 : offset
+  %next_origin = index.constant 16 : offset
+  %first_value = scalar.constant 1 : i32
+  %second_value = scalar.constant 2 : i32
+  %vec_one = vector.splat %first_value : vector<4xi32>
+  %vec_two = vector.splat %second_value : vector<4xi32>
+  %layout = encoding.layout.dense : encoding<layout>
+  %start = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  %input_view = buffer.view %input_unique[%origin] : buffer -> view<1xi32>
+  %choice = view.load %input_view[0] : view<1xi32> -> i32
+  %choice_1 = view.load %input_view[0] : view<1xi32> -> i32
+  %first = scalar.cmpi ne, %choice, %first_value : i32
+  %first_1 = scalar.cmpi ne, %choice_1, %first_value : i32
+  %base = scf.select %first, %origin, %next_origin : offset
+  %base_1 = scf.select %first_1, %origin, %next_origin : offset
+  %view = buffer.view %output_unique[%base] : buffer -> view<8xi32, %layout>
+  %view_1 = buffer.view %output_unique[%base_1] : buffer -> view<8xi32, %layout>
+  vector.store %vec_one, %view[0] : vector<4xi32>, view<8xi32, %layout>
+  vector.store %vec_one, %view_1[0] : vector<4xi32>, view<8xi32, %layout>
+  vector.store %vec_two, %view[4] : vector<4xi32>, view<8xi32, %layout>
+  vector.store %vec_two, %view_1[4] : vector<4xi32>, view<8xi32, %layout>
+  func.return
+}
+
+// ====
+
+// Independent marginal ranges can be disjoint even when offsets vary.
+func.def public @separated_ranges(%output: buffer) {
+  %origin = index.constant 0 : offset
+  %origin_step = index.constant 4 : offset
+  %first_value = scalar.constant 1 : i32
+  %second_value = scalar.constant 2 : i32
+  %vec_one = vector.splat %first_value : vector<4xi32>
+  %vec_two = vector.splat %second_value : vector<4xi32>
+  %layout = encoding.layout.dense : encoding<layout>
+  %start = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%start to %end step %step] unroll schedule(interleaved) {
+    %first = index.cmp eq, %i, %start : index
+    %base = scf.select %first, %origin, %origin_step : offset
+    %view = buffer.view %output[%base] : buffer -> view<16xi32, %layout>
+    vector.store %vec_one, %view[0] : vector<4xi32>, view<16xi32, %layout>
+    vector.store %vec_two, %view[8] : vector<4xi32>, view<16xi32, %layout>
+  }
+  func.return
+}
+
+// ----
+func.def public @separated_ranges(%output: buffer) {
+  %origin = index.constant 0 : offset
+  %origin_step = index.constant 4 : offset
+  %first_value = scalar.constant 1 : i32
+  %second_value = scalar.constant 2 : i32
+  %vec_one = vector.splat %first_value : vector<4xi32>
+  %vec_two = vector.splat %second_value : vector<4xi32>
+  %layout = encoding.layout.dense : encoding<layout>
+  %start = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  %i_0 = index.constant 0 : index
+  %i_1 = index.constant 1 : index
+  %first = index.cmp eq, %i_0, %start : index
+  %first_1 = index.cmp eq, %i_1, %start : index
+  %base = scf.select %first, %origin, %origin_step : offset
+  %base_1 = scf.select %first_1, %origin, %origin_step : offset
+  %view = buffer.view %output[%base] : buffer -> view<16xi32, %layout>
+  %view_1 = buffer.view %output[%base_1] : buffer -> view<16xi32, %layout>
+  vector.store %vec_one, %view[0] : vector<4xi32>, view<16xi32, %layout>
+  vector.store %vec_one, %view_1[0] : vector<4xi32>, view<16xi32, %layout>
+  vector.store %vec_two, %view[8] : vector<4xi32>, view<16xi32, %layout>
+  vector.store %vec_two, %view_1[8] : vector<4xi32>, view<16xi32, %layout>
+  func.return
+}
+
+// ====
+
+// Distinct allocations retain independent storage.
+func.def public @fresh_roots() {
+  %base = index.constant 0 : offset
+  %value0 = scalar.constant 1 : i32
+  %value1 = scalar.constant 2 : i32
+  %vec0 = vector.splat %value0 : vector<4xi32>
+  %vec1 = vector.splat %value1 : vector<4xi32>
+  %layout = encoding.layout.dense : encoding<layout>
+  %start = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%start to %end step %step] unroll schedule(interleaved) {
+    %bytes = index.constant 16 : offset
+    %left_unique = buffer.alloca<private> align(16) %bytes : buffer
+    %right_unique = buffer.alloca<private> align(16) %bytes : buffer
+    %left_view = buffer.view %left_unique[%base] : buffer -> view<4xi32, %layout>
+    %right_view = buffer.view %right_unique[%base] : buffer -> view<4xi32, %layout>
+    vector.store %vec0, %left_view[0] : vector<4xi32>, view<4xi32, %layout>
+    vector.store %vec1, %right_view[0] : vector<4xi32>, view<4xi32, %layout>
+  }
+  func.return
+}
+
+// ----
+func.def public @fresh_roots() {
+  %base = index.constant 0 : offset
+  %value0 = scalar.constant 1 : i32
+  %value1 = scalar.constant 2 : i32
+  %vec0 = vector.splat %value0 : vector<4xi32>
+  %vec1 = vector.splat %value1 : vector<4xi32>
+  %layout = encoding.layout.dense : encoding<layout>
+  %start = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  %bytes = index.constant 16 : offset
+  %bytes_1 = index.constant 16 : offset
+  %left_unique = buffer.alloca<private> align(16) %bytes : buffer
+  %right_unique = buffer.alloca<private> align(16) %bytes : buffer
+  %left_view = buffer.view %left_unique[%base] : buffer -> view<4xi32, %layout>
+  %right_view = buffer.view %right_unique[%base] : buffer -> view<4xi32, %layout>
+  vector.store %vec0, %left_view[0] : vector<4xi32>, view<4xi32, %layout>
+  vector.store %vec1, %right_view[0] : vector<4xi32>, view<4xi32, %layout>
+  %left_unique_1 = buffer.alloca<private> align(16) %bytes_1 : buffer
+  %right_unique_1 = buffer.alloca<private> align(16) %bytes_1 : buffer
+  %left_view_1 = buffer.view %left_unique_1[%base] : buffer -> view<4xi32, %layout>
+  %right_view_1 = buffer.view %right_unique_1[%base] : buffer -> view<4xi32, %layout>
+  vector.store %vec0, %left_view_1[0] : vector<4xi32>, view<4xi32, %layout>
+  vector.store %vec1, %right_view_1[0] : vector<4xi32>, view<4xi32, %layout>
+  func.return
+}

@@ -17,6 +17,7 @@
 #include "loom/codegen/low/transforms/operand_forms.h"
 #include "loom/codegen/low/transforms/pipeline/source_to_low.h"
 #include "loom/codegen/low/transforms/pipeline/target_legalize.h"
+#include "loom/sanitizer/materialize_assertions.h"
 #include "loom/sanitizer/pipeline_passes.h"
 #include "loom/sanitizer/race_insertion.h"
 #include "loom/target/callgraph_specialization.h"
@@ -30,6 +31,8 @@
 #include "loom/transforms/cleanup/canonicalize.h"
 #include "loom/transforms/cleanup/cse.h"
 #include "loom/transforms/cleanup/dce.h"
+#include "loom/transforms/cleanup/pass_environment.h"
+#include "loom/transforms/cleanup/pass_requirements.h"
 #include "loom/transforms/cleanup/strip_hints.h"
 #include "loom/transforms/encoding/layout_transport.h"
 #include "loom/transforms/func/locations.h"
@@ -335,6 +338,15 @@ static const loom_pass_requirement_def_t kMutableFunctionVersionRequirements[] =
         },
 };
 
+static const loom_pass_requirement_def_t kSourceCombineRequirements[] = {
+    {
+        .capability_type = &loom_cleanup_pass_capability_type,
+        .key = IREE_SVL(LOOM_CLEANUP_PASS_REQUIREMENT_SOURCE_COMBINE_PATTERNS),
+        .description = IREE_SVL(
+            "Requires explicitly composed source-combine rewrite patterns."),
+    },
+};
+
 static const loom_pass_descriptor_t kBuiltinPassDescriptors[] = {
     {
         .key = IREE_SVL("branch-fusion"),
@@ -371,6 +383,8 @@ static const loom_pass_descriptor_t kBuiltinPassDescriptors[] = {
         .create = loom_canonicalizer_pass_create,
         .option_schema = kCanonicalizeOptionSchema,
         .option_schema_count = IREE_ARRAYSIZE(kCanonicalizeOptionSchema),
+        .requirement_defs = kSourceCombineRequirements,
+        .requirement_count = IREE_ARRAYSIZE(kSourceCombineRequirements),
     },
     {
         .key = IREE_SVL("cse"),
@@ -590,7 +604,7 @@ static const loom_pass_descriptor_t kBuiltinPassDescriptors[] = {
     {
         .key = IREE_SVL("sroa-vector-banks"),
         .info = loom_vector_bank_sroa_pass_info,
-        .function_run = loom_vector_bank_sroa_run,
+        .module_run = loom_vector_bank_sroa_run,
     },
     {
         .key = IREE_SVL("stage-loop-carried-fragments"),

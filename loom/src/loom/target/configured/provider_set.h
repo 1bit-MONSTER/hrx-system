@@ -4,7 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Target provider set selected by //loom/config/target.
+// Portable command provider plus concrete target providers selected by
+// //loom/config/target.
 
 #ifndef LOOM_TARGET_CONFIGURED_PROVIDER_SET_H_
 #define LOOM_TARGET_CONFIGURED_PROVIDER_SET_H_
@@ -15,7 +16,9 @@
 extern "C" {
 #endif
 
-// Returns the immutable configured target provider set.
+// Returns the immutable configured target provider set. The portable command
+// provider is always present because command programs are compiler products
+// independent of the selected concrete target architectures.
 const loom_target_provider_set_t* loom_configured_target_provider_set(void);
 
 #ifdef __cplusplus

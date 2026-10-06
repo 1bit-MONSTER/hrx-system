@@ -1,0 +1,21 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/predicate_bitwise.loom-test
+// TEMPLATE-EXCLUDE: @predicate_bitwise_single Wasm SIMD predicates have four rank-one 32-bit lanes.
+// TEMPLATE-EXCLUDE: @predicate_bitwise_partial Wasm SIMD predicates have four rank-one 32-bit lanes.
+// TEMPLATE-EXCLUDE: @predicate_bitwise_matrix Wasm SIMD predicates have four rank-one 32-bit lanes.
+// TEMPLATE-EXCLUDE: @predicate_bitwise_full Wasm SIMD predicates have four rank-one 32-bit lanes.
+// RUN: emit source-low target=wasm:simd128 output=low control-flow=structured-low
+
+func.def @predicate_bitwise_four(%lhs: vector<4xi1>, %rhs: vector<4xi1>) -> (vector<4xi1>, vector<4xi1>, vector<4xi1>) {
+  %and_result = vector.andi %lhs, %rhs : vector<4xi1>
+  %or_result = vector.ori %lhs, %rhs : vector<4xi1>
+  %xor_result = vector.xori %lhs, %rhs : vector<4xi1>
+  func.return %and_result, %or_result, %xor_result : vector<4xi1>, vector<4xi1>, vector<4xi1>
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @predicate_bitwise_four(%lhs: reg<wasm.v128>, %rhs: reg<wasm.v128>) -> (reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>) asm {
+  %and_result = v128.and %lhs, %rhs
+  %or_result = v128.or %lhs, %rhs
+  %xor_result = v128.xor %lhs, %rhs
+  return %and_result, %or_result, %xor_result
+}

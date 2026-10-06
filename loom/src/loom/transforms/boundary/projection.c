@@ -8,7 +8,7 @@
 
 #include "loom/target/pass_environment.h"
 #include "loom/transforms/boundary/projection_driver.h"
-#include "loom/transforms/encoding/cfg_layout_projection.h"
+#include "loom/transforms/encoding/layout_projection.h"
 #include "loom/transforms/view/boundary_projection.h"
 
 #define LOOM_BOUNDARY_PROJECTION_STATISTICS(V, statistics_type)  \
@@ -20,6 +20,8 @@
     "Number of returns rewritten.")                              \
   V(statistics_type, cfg_edges_rewritten, "cfg-edges-rewritten", \
     "Number of CFG successor payloads rewritten.")               \
+  V(statistics_type, loops_rewritten, "loops-rewritten",         \
+    "Number of LoopLike operations rewritten.")                  \
   V(statistics_type, layout_projections, "layout-projections",   \
     "Number of dynamic layouts projected to scalar components.") \
   V(statistics_type, layout_components, "layout-components",     \
@@ -57,6 +59,7 @@ iree_status_t loom_project_boundary_representations_run(loom_pass_t* pass,
 
   const loom_boundary_projection_rule_t* rules[] = {
       loom_cfg_layout_boundary_projection_rule(),
+      loom_loop_layout_boundary_projection_rule(),
       loom_view_boundary_projection_rule(),
   };
   loom_boundary_projection_statistics_t projection_statistics;
@@ -66,7 +69,7 @@ iree_status_t loom_project_boundary_representations_run(loom_pass_t* pass,
                                        .values = rules,
                                        .count = IREE_ARRAYSIZE(rules),
                                    },
-                                   &projection_statistics);
+                                   /*plan_sink=*/NULL, &projection_statistics);
 
   if (iree_status_is_ok(status)) {
     IREE_ASSERT_EQ(projection_statistics.rule_count, IREE_ARRAYSIZE(rules));
@@ -78,11 +81,14 @@ iree_status_t loom_project_boundary_representations_run(loom_pass_t* pass,
     statistics->returns_rewritten += projection_statistics.returns_rewritten;
     statistics->cfg_edges_rewritten +=
         projection_statistics.cfg_edges_rewritten;
+    statistics->loops_rewritten += projection_statistics.loops_rewritten;
     statistics->layout_projections +=
-        projection_statistics.rules[0].projections;
-    statistics->layout_components += projection_statistics.rules[0].components;
-    statistics->view_projections += projection_statistics.rules[1].projections;
-    statistics->view_components += projection_statistics.rules[1].components;
+        projection_statistics.rules[0].projections +
+        projection_statistics.rules[1].projections;
+    statistics->layout_components += projection_statistics.rules[0].components +
+                                     projection_statistics.rules[1].components;
+    statistics->view_projections += projection_statistics.rules[2].projections;
+    statistics->view_components += projection_statistics.rules[2].components;
   }
   return status;
 }

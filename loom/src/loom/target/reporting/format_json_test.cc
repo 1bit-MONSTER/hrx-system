@@ -316,6 +316,190 @@ TEST(CompileReportFormatTest, FormatsSourceLowTransformRowsJson) {
   loom_target_compile_report_deinitialize(&report);
 }
 
+TEST(CompileReportFormatTest, FormatsAndMergesSourceBoundaryProjectionRows) {
+  loom_target_compile_report_t entry = {};
+  loom_target_compile_report_initialize(&entry, iree_allocator_system());
+  loom_target_compile_report_source_boundary_projection_row_t selected = {};
+  selected.function_name = IREE_SVL("gdn");
+  selected.source_op_name = IREE_SVL("scf.for");
+  selected.source_op_kind = 42;
+  selected.projection_key = IREE_SVL("loop-vector-bank");
+  selected.boundary_key = IREE_SVL("loop_state");
+  selected.outcome = IREE_SVL("selected");
+  selected.reason = IREE_SVL("static_component_accesses");
+  selected.operation_ordinal = 3;
+  selected.source_value_ordinal = 1;
+  selected.source_type_kind = LOOM_TYPE_VECTOR;
+  selected.source_element_type = LOOM_SCALAR_TYPE_F32;
+  selected.source_rank = 2;
+  selected.projected_prefix_rank = 2;
+  selected.component_count = 16;
+  selected.source_dimensions[0] = 4;
+  selected.source_dimensions[1] = 4;
+  IREE_ASSERT_OK(
+      loom_target_compile_report_record_source_boundary_projection_row(
+          &entry, &selected));
+
+  loom_target_compile_report_source_boundary_projection_row_t preserved =
+      selected;
+  preserved.function_name = IREE_SVL("attention");
+  preserved.outcome = IREE_SVL("preserved");
+  preserved.reason = IREE_SVL("whole_value_use");
+  preserved.operation_ordinal = 0;
+  preserved.source_value_ordinal = 2;
+  preserved.source_rank = 1;
+  preserved.projected_prefix_rank = 0;
+  preserved.component_count = 0;
+  preserved.source_dimensions[0] = LOOM_TARGET_COMPILE_REPORT_DIMENSION_DYNAMIC;
+  preserved.source_dimensions[1] = 0;
+  IREE_ASSERT_OK(
+      loom_target_compile_report_record_source_boundary_projection_row(
+          &entry, &preserved));
+
+  loom_target_compile_report_source_boundary_projection_row_t rejected =
+      selected;
+  rejected.function_name = IREE_SVL("mixed");
+  rejected.outcome = IREE_SVL("rejected");
+  rejected.reason = IREE_SVL("inconsistent_component_access");
+  rejected.operation_ordinal = 1;
+  rejected.source_value_ordinal = 0;
+  rejected.source_rank = 2;
+  rejected.projected_prefix_rank = 1;
+  rejected.component_count = 2;
+  rejected.source_dimensions[0] = 2;
+  rejected.source_dimensions[1] = 4;
+  IREE_ASSERT_OK(
+      loom_target_compile_report_record_source_boundary_projection_row(
+          &entry, &rejected));
+
+  loom_target_compile_report_t report = {};
+  loom_target_compile_report_initialize(&report, iree_allocator_system());
+  IREE_ASSERT_OK(
+      loom_target_compile_report_record_entry_report(&report, &entry));
+  loom_target_compile_report_deinitialize(&entry);
+
+  iree_string_builder_t builder;
+  iree_string_builder_initialize(iree_allocator_system(), &builder);
+  loom_output_stream_t stream;
+  loom_output_stream_for_builder(&builder, &stream);
+  const loom_target_compile_report_format_options_t summary_options = {
+      /*.mode=*/LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_SUMMARY,
+  };
+  IREE_ASSERT_OK(loom_target_compile_report_format_json(
+      &report, &summary_options, &stream));
+  iree_string_view_t root =
+      ParseJsonDocument(iree_string_builder_view(&builder));
+  iree_string_view_t source_low = LookupObject(root, IREE_SV("source_low"));
+  iree_string_view_t projections =
+      LookupObject(source_low, IREE_SV("boundary_projections"));
+  ExpectObjectUint64Equals(projections, IREE_SV("count"), 3);
+  ExpectObjectUint64Equals(projections, IREE_SV("selected_count"), 1);
+  ExpectObjectUint64Equals(projections, IREE_SV("preserved_count"), 1);
+  ExpectObjectUint64Equals(projections, IREE_SV("rejected_count"), 1);
+  EXPECT_TRUE(
+      iree_string_view_is_empty(TryLookupObject(projections, IREE_SV("rows"))));
+  iree_string_builder_deinitialize(&builder);
+
+  iree_string_builder_initialize(iree_allocator_system(), &builder);
+  loom_output_stream_for_builder(&builder, &stream);
+  const loom_target_compile_report_format_options_t details_options = {
+      /*.mode=*/LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_DETAILS,
+  };
+  IREE_ASSERT_OK(loom_target_compile_report_format_json(
+      &report, &details_options, &stream));
+  root = ParseJsonDocument(iree_string_builder_view(&builder));
+  source_low = LookupObject(root, IREE_SV("source_low"));
+  projections = LookupObject(source_low, IREE_SV("boundary_projections"));
+  const iree_string_view_t rows = LookupObject(projections, IREE_SV("rows"));
+  ExpectArrayLength(rows, 3);
+  const iree_string_view_t selected_json = LookupArrayElement(rows, 0);
+  ExpectObjectValueEquals(selected_json, IREE_SV("function"), IREE_SV("gdn"));
+  ExpectObjectValueEquals(selected_json, IREE_SV("projection"),
+                          IREE_SV("loop-vector-bank"));
+  ExpectObjectValueEquals(selected_json, IREE_SV("boundary"),
+                          IREE_SV("loop_state"));
+  ExpectObjectValueEquals(selected_json, IREE_SV("outcome"),
+                          IREE_SV("selected"));
+  ExpectObjectValueEquals(selected_json, IREE_SV("reason"),
+                          IREE_SV("static_component_accesses"));
+  ExpectObjectUint64Equals(selected_json, IREE_SV("operation"), 3);
+  ExpectObjectUint64Equals(selected_json, IREE_SV("source_value"), 1);
+  ExpectObjectValueEquals(selected_json, IREE_SV("source_type"),
+                          IREE_SV("vector"));
+  ExpectObjectValueEquals(selected_json, IREE_SV("source_element"),
+                          IREE_SV("f32"));
+  ExpectObjectUint64Equals(selected_json, IREE_SV("source_rank"), 2);
+  const iree_string_view_t source_shape =
+      LookupObject(selected_json, IREE_SV("source_shape"));
+  ExpectArrayLength(source_shape, 2);
+  EXPECT_TRUE(iree_string_view_equal(LookupArrayElement(source_shape, 0),
+                                     IREE_SV("4")));
+  EXPECT_TRUE(iree_string_view_equal(LookupArrayElement(source_shape, 1),
+                                     IREE_SV("4")));
+  ExpectObjectUint64Equals(selected_json, IREE_SV("projected_prefix_rank"), 2);
+  ExpectObjectUint64Equals(selected_json, IREE_SV("component_count"), 16);
+  ExpectArrayLength(LookupObject(selected_json, IREE_SV("component_shape")), 0);
+
+  const iree_string_view_t preserved_json = LookupArrayElement(rows, 1);
+  ExpectObjectValueEquals(preserved_json, IREE_SV("outcome"),
+                          IREE_SV("preserved"));
+  ExpectObjectValueEquals(preserved_json, IREE_SV("reason"),
+                          IREE_SV("whole_value_use"));
+  const iree_string_view_t preserved_source_shape =
+      LookupObject(preserved_json, IREE_SV("source_shape"));
+  ExpectArrayLength(preserved_source_shape, 1);
+  EXPECT_TRUE(iree_string_view_equal(
+      LookupArrayElement(preserved_source_shape, 0), IREE_SV("-1")));
+  EXPECT_TRUE(iree_string_view_is_empty(
+      TryLookupObject(preserved_json, IREE_SV("component_shape"))));
+
+  const iree_string_view_t rejected_json = LookupArrayElement(rows, 2);
+  ExpectObjectValueEquals(rejected_json, IREE_SV("outcome"),
+                          IREE_SV("rejected"));
+  ExpectObjectValueEquals(rejected_json, IREE_SV("reason"),
+                          IREE_SV("inconsistent_component_access"));
+  const iree_string_view_t component_shape =
+      LookupObject(rejected_json, IREE_SV("component_shape"));
+  ExpectArrayLength(component_shape, 1);
+  EXPECT_TRUE(iree_string_view_equal(LookupArrayElement(component_shape, 0),
+                                     IREE_SV("4")));
+  iree_string_builder_deinitialize(&builder);
+
+  iree_string_builder_initialize(iree_allocator_system(), &builder);
+  IREE_ASSERT_OK(loom_target_compile_report_format_text(
+      &report, &details_options, &builder));
+  const iree_string_view_t text = iree_string_builder_view(&builder);
+  EXPECT_NE(iree_string_view_find(
+                text,
+                IREE_SV("source_boundary_projections rows=3 selected=1 "
+                        "preserved=1 rejected=1"),
+                0),
+            IREE_STRING_VIEW_NPOS);
+  EXPECT_NE(
+      iree_string_view_find(
+          text,
+          IREE_SV("source_boundary_projection[0] function=gdn "
+                  "source_op=scf.for projection=loop-vector-bank "
+                  "boundary=loop_state outcome=selected "
+                  "reason=static_component_accesses operation=3 "
+                  "source_value=1 source_type=vector<4x4xf32> prefix_rank=2 "
+                  "component_type=f32 components=16"),
+          0),
+      IREE_STRING_VIEW_NPOS);
+  EXPECT_NE(iree_string_view_find(
+                text,
+                IREE_SV("source_boundary_projection[1] function=attention "
+                        "source_op=scf.for projection=loop-vector-bank "
+                        "boundary=loop_state outcome=preserved "
+                        "reason=whole_value_use operation=0 source_value=2 "
+                        "source_type=vector<?xf32>"),
+                0),
+            IREE_STRING_VIEW_NPOS);
+  iree_string_builder_deinitialize(&builder);
+
+  loom_target_compile_report_deinitialize(&report);
+}
+
 TEST(CompileReportFormatTest, FormatsAndAggregatesLowPlanningStatistics) {
   loom_target_compile_report_t report;
   loom_target_compile_report_initialize(&report, iree_allocator_system());
@@ -329,6 +513,7 @@ TEST(CompileReportFormatTest, FormatsAndAggregatesLowPlanningStatistics) {
     planning->frame_build_count = i;
     planning->allocation_run_count = i + 1;
     planning->repair.iteration_count = i + 2;
+    planning->repair.retained_placement_count = i + 3;
     planning->memory.frame_arena.used_bytes_high_water = i * 100;
     planning->memory.frame_arena.owned_bytes_high_water = i * 200;
     planning->memory.block_system_allocation_count = i;
@@ -343,6 +528,8 @@ TEST(CompileReportFormatTest, FormatsAndAggregatesLowPlanningStatistics) {
   EXPECT_EQ(report.low_planning.frame_build_count, 3u);
   EXPECT_EQ(report.low_planning.allocation_run_count, 5u);
   EXPECT_EQ(report.low_planning.repair.iteration_count, 7u);
+  EXPECT_EQ(report.low_planning.repair.retained_placement_count, 9u);
+  EXPECT_EQ(report.low_planning.repair.rematerialized_operand_count, 0u);
   EXPECT_EQ(report.low_planning.memory.frame_arena.used_bytes_high_water, 200u);
   EXPECT_EQ(report.low_planning.memory.block_system_allocation_count, 3u);
 
@@ -362,6 +549,8 @@ TEST(CompileReportFormatTest, FormatsAndAggregatesLowPlanningStatistics) {
   ExpectObjectUint64Equals(planning, IREE_SV("allocation_run_count"), 5);
   const iree_string_view_t repair = LookupObject(planning, IREE_SV("repair"));
   ExpectObjectUint64Equals(repair, IREE_SV("iteration_count"), 7);
+  ExpectObjectUint64Equals(repair, IREE_SV("retained_placement_count"), 9);
+  ExpectObjectUint64Equals(repair, IREE_SV("rematerialized_operand_count"), 0);
   const iree_string_view_t memory = LookupObject(planning, IREE_SV("memory"));
   const iree_string_view_t frame_arena =
       LookupObject(memory, IREE_SV("frame_arena"));

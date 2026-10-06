@@ -47,6 +47,16 @@ def descriptor_constraints(
     operand_indices = {
         name: operand_index for operand_index, name in enumerate(operand_names)
     }
+    tied_updates = set(spec.tied_updates)
+    destructive_updates = set(spec.destructive_updates)
+    if len(tied_updates) != len(spec.tied_updates) or len(destructive_updates) != len(
+        spec.destructive_updates
+    ):
+        raise ValueError(f"{form.name}: descriptor update pairs must be unique")
+    if tied_updates & destructive_updates:
+        raise ValueError(
+            f"{form.name}: destructive updates already imply same-storage ties"
+        )
     result = [
         Constraint(
             ConstraintKind.TIED,
@@ -55,6 +65,33 @@ def descriptor_constraints(
         )
         for tie in form.ties
     ]
+    for result_name, input_name in spec.tied_updates:
+        if result_name not in operand_indices or input_name not in operand_indices:
+            raise ValueError(
+                f"{form.name}: tied update names unknown operands "
+                f"{result_name!r}, {input_name!r}"
+            )
+        result.append(
+            Constraint(
+                ConstraintKind.TIED,
+                operand_indices[result_name],
+                operand_indices[input_name],
+            )
+        )
+    for result_name, input_name in spec.destructive_updates:
+        if result_name not in operand_indices or input_name not in operand_indices:
+            raise ValueError(
+                f"{form.name}: destructive update names unknown operands "
+                f"{result_name!r}, {input_name!r}"
+            )
+        result_index = operand_indices[result_name]
+        input_index = operand_indices[input_name]
+        result.extend(
+            (
+                Constraint(ConstraintKind.TIED, result_index, input_index),
+                Constraint(ConstraintKind.DESTRUCTIVE, result_index, input_index),
+            )
+        )
     result.extend(
         Constraint(
             ConstraintKind.TIED,

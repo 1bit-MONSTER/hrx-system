@@ -6,6 +6,7 @@
 
 #include "loom/format/bytecode/reader/selected_tables.h"
 
+#include <string>
 #include <vector>
 
 #include "iree/testing/gtest.h"
@@ -288,6 +289,99 @@ TEST_F(BytecodeSelectedTablesTest, ReusesInheritedSourceWhenComposingLocation) {
   EXPECT_TRUE(iree_string_view_equal(module_->sources.entries[0], sources[0]));
 
   loom_bytecode_selected_table_materializer_deinitialize(&materializer);
+}
+
+TEST_F(BytecodeSelectedTablesTest, InterleavedReadersShareCurrentSourceNames) {
+  iree_string_view_t sources[] = {IREE_SV("first.loom"), IREE_SV("shared.loom"),
+                                  IREE_SV("last.loom")};
+  std::vector<uint8_t> bytecode;
+  loom_bytecode_table_entry_metadata_t locations[4] = {};
+  bytecode.insert(bytecode.end(), {LOOM_LOCATION_NONE, 0x00});
+  locations[0].entry_length = bytecode.size();
+  for (uint8_t i = 0; i < IREE_ARRAYSIZE(sources); ++i) {
+    locations[i + 1].entry_offset = bytecode.size();
+    bytecode.insert(bytecode.end(), {LOOM_LOCATION_FILE, 0x00, i, 1, 2, 3, 4});
+    locations[i + 1].entry_length =
+        bytecode.size() - locations[i + 1].entry_offset;
+  }
+  loom_bytecode_module_metadata_t metadata = {};
+  metadata.sources = {IREE_ARRAYSIZE(sources), sources};
+  metadata.locations = {IREE_ARRAYSIZE(locations), locations};
+  iree_string_view_t other_sources[] = {sources[1], sources[2], sources[0]};
+  loom_bytecode_module_metadata_t other_metadata = metadata;
+  other_metadata.sources = {IREE_ARRAYSIZE(other_sources), other_sources};
+  loom_bytecode_selected_table_materializer_t readers[2];
+  InitializeMaterializer(bytecode, &metadata, &readers[0]);
+  InitializeMaterializer(bytecode, &other_metadata, &readers[1]);
+
+  // Both readers start with an empty output. Each then reaches names added
+  // after initialization by the other reader, as retained contract readers do.
+  const uint32_t reader_ordinals[] = {0, 1, 0, 1, 0, 1};
+  const loom_location_id_t source_locations[] = {1, 1, 2, 3, 3, 2};
+  const loom_source_id_t expected_sources[] = {0, 1, 1, 0, 2, 2};
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(source_locations); ++i) {
+    loom_location_id_t location_id = LOOM_LOCATION_UNKNOWN;
+    IREE_ASSERT_OK(loom_bytecode_selected_table_materialize_location(
+        &readers[reader_ordinals[i]], source_locations[i], &location_id));
+    const auto* location =
+        loom_location_table_const_entry(&module_->locations, location_id);
+    EXPECT_EQ(location->file.source_id, expected_sources[i]);
+    EXPECT_EQ(location->file.start_line, 1u);
+    EXPECT_EQ(location->file.start_col, 2u);
+    EXPECT_EQ(location->file.end_line, 3u);
+    EXPECT_EQ(location->file.end_col, 4u);
+  }
+  EXPECT_EQ(module_->sources.count, IREE_ARRAYSIZE(sources));
+  loom_bytecode_selected_table_materializer_deinitialize(&readers[1]);
+  loom_bytecode_selected_table_materializer_deinitialize(&readers[0]);
+}
+
+TEST_F(BytecodeSelectedTablesTest, StandaloneSourcesStayUnindexedUntilShared) {
+  constexpr uint32_t kSourceCount = 128;
+  std::vector<std::string> names;
+  names.reserve(kSourceCount);
+  std::vector<iree_string_view_t> sources;
+  std::vector<loom_bytecode_table_entry_metadata_t> locations(1);
+  std::vector<uint8_t> bytecode = {LOOM_LOCATION_NONE, 0x00};
+  locations[0].entry_length = bytecode.size();
+  for (uint32_t i = 0; i < kSourceCount; ++i) {
+    names.push_back("source_" + std::to_string(i));
+    sources.push_back(
+        iree_make_string_view(names.back().data(), names.back().size()));
+    const auto offset = bytecode.size();
+    bytecode.insert(bytecode.end(), {LOOM_LOCATION_FILE, 0x00});
+    AppendUVarint(i, &bytecode);
+    bytecode.insert(bytecode.end(), {1, 2, 3, 4});
+    locations.push_back({offset, bytecode.size() - offset});
+  }
+  loom_bytecode_module_metadata_t metadata = {};
+  metadata.sources = {sources.size(), sources.data()};
+  metadata.locations = {locations.size(), locations.data()};
+  for (uint32_t reader = 0; reader < 3; ++reader) {
+    loom_bytecode_selected_table_materializer_t materializer;
+    InitializeMaterializer(bytecode, &metadata, &materializer);
+    const auto* previous_index = module_->sources.name_index;
+    for (uint32_t i = 0; i < kSourceCount; ++i) {
+      loom_location_id_t location_id = LOOM_LOCATION_UNKNOWN;
+      IREE_ASSERT_OK(loom_bytecode_selected_table_materialize_location(
+          &materializer, i + 1, &location_id));
+      EXPECT_EQ(
+          loom_location_table_const_entry(&module_->locations, location_id)
+              ->file.source_id,
+          i);
+    }
+    EXPECT_EQ(module_->sources.count, kSourceCount);
+    if (reader == 0) {
+      EXPECT_EQ(module_->sources.name_index, nullptr);
+    } else {
+      ASSERT_NE(module_->sources.name_index, nullptr);
+      EXPECT_EQ(module_->sources.name_index->count, kSourceCount);
+      if (reader == 2) {
+        EXPECT_EQ(module_->sources.name_index, previous_index);
+      }
+    }
+    loom_bytecode_selected_table_materializer_deinitialize(&materializer);
+  }
 }
 
 TEST_F(BytecodeSelectedTablesTest, ResolvesExternalSymbolsByDenseSourceIndex) {

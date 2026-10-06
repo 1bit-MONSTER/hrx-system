@@ -8,9 +8,9 @@
 //
 // A connection represents a logical link to a peer. It is produced by a
 // successful transport-factory connect or accept operation and owns the
-// message endpoints opened on that link. Transport implementations decide
-// whether endpoints are independent links or multiplexed streams; consumers
-// use the same borrowed endpoint interface in either case.
+// message and optional direct endpoints opened on that link. Implementations
+// decide whether endpoints are independent links or multiplexed streams;
+// consumers use the same borrowed endpoint interface in either case.
 //
 // Lifecycle:
 //   - Connection uses create/retain/release pattern.
@@ -26,6 +26,7 @@
 
 #include "iree/base/api.h"
 #include "iree/base/internal/atomics.h"
+#include "iree/net/direct_endpoint.h"
 #include "iree/net/message_endpoint.h"
 
 #ifdef __cplusplus
@@ -56,6 +57,18 @@ typedef struct iree_net_endpoint_ready_callback_t {
   // Opaque value passed to |fn|.
   void* user_data;
 } iree_net_endpoint_ready_callback_t;
+
+// Direct counterpart of the message-ready callback. The connection owns the
+// borrowed view; failure supplies self=NULL. The callback owns status.
+typedef void(IREE_API_PTR* iree_net_direct_endpoint_ready_fn_t)(
+    void* user_data, iree_status_t status, iree_net_direct_endpoint_t endpoint);
+
+typedef struct iree_net_direct_endpoint_ready_callback_t {
+  // Function invoked after native endpoint setup or terminal failure.
+  iree_net_direct_endpoint_ready_fn_t fn;
+  // Opaque value passed to fn.
+  void* user_data;
+} iree_net_direct_endpoint_ready_callback_t;
 
 // Callback function invoked when connection deactivation completes. All
 // carriers owned by the connection have been drained and are in the
@@ -108,6 +121,11 @@ struct iree_net_connection_vtable_t {
   // Begins asynchronously opening one borrowed message endpoint.
   iree_status_t (*open_endpoint)(iree_net_connection_t* connection,
                                  iree_net_endpoint_ready_callback_t callback);
+  // Optional registered-placement endpoint. NULL means unsupported; no staged
+  // emulation is implied. Shares the message endpoint ordinal namespace.
+  iree_status_t (*open_direct_endpoint)(
+      iree_net_connection_t* connection,
+      iree_net_direct_endpoint_ready_callback_t callback);
   // Returns the proactor that dispatches connection endpoint callbacks.
   // The proactor is borrowed — valid for the connection's lifetime.
   iree_async_proactor_t* (*proactor)(iree_net_connection_t* connection);
@@ -178,7 +196,7 @@ static inline void iree_net_connection_deactivate(
 // the underlying transport's multiplexing strategy.
 //
 // Accepted calls claim monotonically increasing endpoint ordinals. Peers must
-// open corresponding protocol endpoints in the same call order; callback
+// open corresponding endpoint kinds in the same call order; callback
 // delivery order does not define endpoint identity.
 //
 // The |callback| fires exactly once via the proactor when the endpoint is ready
@@ -196,6 +214,26 @@ static inline iree_status_t iree_net_connection_open_endpoint(
                             "endpoint ready callback is required");
   }
   return connection->vtable->open_endpoint(connection, callback);
+}
+
+// Opens a borrowed registered-placement endpoint, with the same asynchronous
+// readiness and connection-owned drain contract as open_endpoint. Message and
+// direct opens share the monotonically claimed ordinal namespace: peers must
+// agree on each ordinal's kind. Readiness does not activate the endpoint.
+// Unsupported transports return UNIMPLEMENTED synchronously, consume no slot
+// and owe no callback. They do not emulate direct placement through staging.
+static inline iree_status_t iree_net_connection_open_direct_endpoint(
+    iree_net_connection_t* connection,
+    iree_net_direct_endpoint_ready_callback_t callback) {
+  if (!callback.fn) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "direct endpoint ready callback is required");
+  }
+  if (!connection->vtable->open_direct_endpoint) {
+    return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
+                            "transport does not support direct endpoints");
+  }
+  return connection->vtable->open_direct_endpoint(connection, callback);
 }
 
 // Returns the maximum number of endpoint slots available on this connection.

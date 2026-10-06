@@ -31,7 +31,7 @@ _ATOMIC_KIND = {
     "and.b32": (AmdgpuAtomicKind.ANDI, AmdgpuAtomicValueKind.I32),
     "or.b32": (AmdgpuAtomicKind.ORI, AmdgpuAtomicValueKind.I32),
     "xor.b32": (AmdgpuAtomicKind.XORI, AmdgpuAtomicValueKind.I32),
-    "exchange.b32": (AmdgpuAtomicKind.XCHGI, AmdgpuAtomicValueKind.I32),
+    "exchange.b32": (AmdgpuAtomicKind.XCHGI, AmdgpuAtomicValueKind.B32),
     "add.u64": (AmdgpuAtomicKind.ADDI, AmdgpuAtomicValueKind.I64),
     "sub.u64": (AmdgpuAtomicKind.SUBI, AmdgpuAtomicValueKind.I64),
     "min.i64": (AmdgpuAtomicKind.MINSI, AmdgpuAtomicValueKind.I64),
@@ -41,10 +41,13 @@ _ATOMIC_KIND = {
     "and.b64": (AmdgpuAtomicKind.ANDI, AmdgpuAtomicValueKind.I64),
     "or.b64": (AmdgpuAtomicKind.ORI, AmdgpuAtomicValueKind.I64),
     "xor.b64": (AmdgpuAtomicKind.XORI, AmdgpuAtomicValueKind.I64),
-    "exchange.u64": (AmdgpuAtomicKind.XCHGI, AmdgpuAtomicValueKind.I64),
+    "exchange.b64": (AmdgpuAtomicKind.XCHGI, AmdgpuAtomicValueKind.B64),
     "add.f32": (AmdgpuAtomicKind.ADDF, AmdgpuAtomicValueKind.F32),
     "minnum.f32": (AmdgpuAtomicKind.MINNUMF, AmdgpuAtomicValueKind.F32),
     "maxnum.f32": (AmdgpuAtomicKind.MAXNUMF, AmdgpuAtomicValueKind.F32),
+    "add.f64": (AmdgpuAtomicKind.ADDF, AmdgpuAtomicValueKind.F64),
+    "minnum.f64": (AmdgpuAtomicKind.MINNUMF, AmdgpuAtomicValueKind.F64),
+    "maxnum.f64": (AmdgpuAtomicKind.MAXNUMF, AmdgpuAtomicValueKind.F64),
     "add.pk2.f16": (AmdgpuAtomicKind.ADDF, AmdgpuAtomicValueKind.PACKED_F16),
     "add.pk2.bf16": (
         AmdgpuAtomicKind.ADDF,
@@ -107,6 +110,7 @@ _L = AmdgpuMemoryDescriptorDomain.LDS
 _GF = AmdgpuMemoryDescriptorDomain.GLOBAL_FLAT
 _SM = AmdgpuMemoryDescriptorDomain.GLOBAL_SMEM
 _SC = AmdgpuMemoryDescriptorDomain.SCRATCH
+_F = AmdgpuMemoryDescriptorDomain.GENERIC_FLAT
 
 _AD = AmdgpuMemoryAddressForm.DEFAULT
 _BOZ = AmdgpuMemoryAddressForm.BUFFER_OFF_ZERO
@@ -220,6 +224,21 @@ _MEMORY_DESCRIPTOR_CANDIDATE_ROWS = (
     (_GF, _FL, _ST, 8, _V, _G, 2, "GLOBAL_STORE_B64"),
     (_GF, _FL, _ST, 12, _V, _G, 3, "GLOBAL_STORE_B96"),
     (_GF, _FL, _ST, 16, _V, _G, 4, "GLOBAL_STORE_B128"),
+    (_F, _FL, _LD, 1, _V, _G, 1, "FLAT_LOAD_I8"),
+    (_F, _FL, _LD, 1, _V, _U8, 1, "FLAT_LOAD_U8"),
+    (_F, _FL, _ST, 1, _V, _G, 1, "FLAT_STORE_B8"),
+    (_F, _FL, _LD, 2, _V, _F16, 1, "FLAT_LOAD_U16"),
+    (_F, _FL, _LD, 2, _V, _I16, 1, "FLAT_LOAD_I16"),
+    (_F, _FL, _LD, 2, _V, _G, 1, "FLAT_LOAD_U16"),
+    (_F, _FL, _ST, 2, _V, _G, 1, "FLAT_STORE_B16"),
+    (_F, _FL, _LD, 4, _V, _G, 1, "FLAT_LOAD_B32"),
+    (_F, _FL, _LD, 8, _V, _G, 2, "FLAT_LOAD_B64"),
+    (_F, _FL, _LD, 12, _V, _G, 3, "FLAT_LOAD_B96"),
+    (_F, _FL, _LD, 16, _V, _G, 4, "FLAT_LOAD_B128"),
+    (_F, _FL, _ST, 4, _V, _G, 1, "FLAT_STORE_B32"),
+    (_F, _FL, _ST, 8, _V, _G, 2, "FLAT_STORE_B64"),
+    (_F, _FL, _ST, 12, _V, _G, 3, "FLAT_STORE_B96"),
+    (_F, _FL, _ST, 16, _V, _G, 4, "FLAT_STORE_B128"),
     (_L, _AD, _LD, 1, _V, _G, 1, "DS_READ_U8"),
     (_L, _AD, _LD, 1, _V, _U8, 1, "DS_READ_U8"),
     (_L, _AD, _ST, 1, _V, _G, 1, "DS_WRITE_B8"),

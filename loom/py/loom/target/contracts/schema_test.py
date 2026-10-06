@@ -16,11 +16,13 @@ from loom.dialect.vector import defs as vector
 from loom.error.target import ERR_TARGET_003
 from loom.target.contracts import (
     AttrProject,
+    Buffer,
     ContractFragment,
     DescriptorRule,
     EmitDescriptorOp,
     EmitRegisterConcat,
     EmitRegisterCopy,
+    EmitRegisterMove,
     EmitRegisterSlice,
     Guard,
     OrdinalValueAliasRule,
@@ -228,6 +230,26 @@ def test_vector_static_element_range_requires_ordered_bounds() -> None:
         Vector("i32", minimum_static_elements=8, maximum_static_elements=4)
 
 
+def test_buffer_type_pattern_has_no_scalar_or_shape_constraint() -> None:
+    pattern = Buffer()
+    assert pattern.kind == "buffer"
+    assert pattern.elements == ()
+    for invalid in (
+        {"element": "i32"},
+        {"elements": ("i32",)},
+        {"lanes": 1},
+        {"dims": (1,)},
+        {"minimum_lanes": 1},
+        {"maximum_lanes": 1},
+        {"minimum_static_elements": 1},
+        {"maximum_static_elements": 1},
+    ):
+        with pytest.raises(
+            ValueError, match="buffer type patterns cannot constrain elements or shape"
+        ):
+            replace(pattern, **invalid)
+
+
 def test_view_type_pattern_accepts_exact_dimensions() -> None:
     pattern = View("f16", dims=(16, 32))
 
@@ -331,6 +353,78 @@ def test_structural_register_emits_validate_program_shape() -> None:
             ),
         )
 
+    fragment = ContractFragment(
+        name="register.copy.temporary-type",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=(
+            DescriptorRule(
+                source_op=scalar_analysis.scalar_assume,
+                emit=(
+                    EmitRegisterCopy(
+                        source=ValueRef.operand("values"),
+                        result=ValueRef.temporary("carrier"),
+                        result_type=Scalar("i32"),
+                    ),
+                    EmitRegisterMove(
+                        source=ValueRef.temporary("carrier"),
+                        result=ValueRef.temporary("reclassified"),
+                        result_type=ValueRef.temporary("carrier"),
+                    ),
+                ),
+            ),
+        ),
+    )
+    assert len(fragment.cases[0].emit) == 2
+
+    with pytest.raises(ValueError, match="register move source must bind a temporary"):
+        ContractFragment(
+            name="register.move.source-operand",
+            descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+            cases=(
+                DescriptorRule(
+                    source_op=scalar_analysis.scalar_assume,
+                    emit=(
+                        EmitRegisterMove(
+                            source=ValueRef.operand("values"),
+                            result=ValueRef.temporary("moved"),
+                            result_type=Scalar("i32"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="register copy source temporary 'carrier' is not defined",
+    ):
+        ContractFragment(
+            name="register.move.consumed-source",
+            descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+            cases=(
+                DescriptorRule(
+                    source_op=scalar_analysis.scalar_assume,
+                    emit=(
+                        EmitRegisterCopy(
+                            source=ValueRef.operand("values"),
+                            result=ValueRef.temporary("carrier"),
+                            result_type=Scalar("i32"),
+                        ),
+                        EmitRegisterMove(
+                            source=ValueRef.temporary("carrier"),
+                            result=ValueRef.temporary("moved"),
+                            result_type=ValueRef.temporary("carrier"),
+                        ),
+                        EmitRegisterCopy(
+                            source=ValueRef.temporary("carrier"),
+                            result=ValueRef.temporary("invalid"),
+                            result_type=Scalar("i32"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
 
 def test_ordinal_alias_rule_validates_variadic_identity_fields() -> None:
     table = ContractFragment(
@@ -390,6 +484,21 @@ def test_value_memory_space_guard_requires_known_unique_spaces() -> None:
         Guard.value_memory_space("result", ("device",))
     with pytest.raises(ValueError, match="repeats memory space 'global'"):
         Guard.value_memory_space("result", ("global", "global"))
+
+
+def test_target_subgroup_size_range_guard_requires_positive_u32_bounds() -> None:
+    guard = Guard.target_subgroup_size_range(1, 64)
+
+    assert guard.field == "subgroup_size"
+    assert guard.minimum == 1
+    assert guard.maximum == 64
+
+    with pytest.raises(ValueError, match="needs a positive u32 range"):
+        Guard.target_subgroup_size_range(0, 32)
+    with pytest.raises(ValueError, match="range minimum exceeds maximum"):
+        Guard.target_subgroup_size_range(64, 32)
+    with pytest.raises(ValueError, match="needs a positive u32 range"):
+        Guard.target_subgroup_size_range(1, 2**32)
 
 
 def test_recipe_rule_validates_guards() -> None:
@@ -732,6 +841,33 @@ def test_descriptor_rule_rejects_unknown_source_value_field() -> None:
                     source_op=vector.vector_extract,
                     descriptor=descriptor,
                     guards=[Guard.value_type("missing", Scalar("i32"))],
+                )
+            ],
+        )
+
+
+def test_descriptor_rule_rejects_element_on_nonvariadic_value() -> None:
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"vector.extract: guard value_type operand field 'source' "
+            r"is not variadic"
+        ),
+    ):
+        ContractFragment(
+            name="bad.source.element",
+            descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+            cases=[
+                DescriptorRule(
+                    source_op=vector.vector_extract,
+                    descriptor=TEST_LOW_EXTRACT_LANE_I32_DESCRIPTOR,
+                    guards=[
+                        Guard.value_type(
+                            "source",
+                            Vector("i32"),
+                            element=1,
+                        )
+                    ],
                 )
             ],
         )

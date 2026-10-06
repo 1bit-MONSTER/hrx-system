@@ -72,6 +72,7 @@ def _write_report(
         }
     if experimental_bank_conflict:
         bank_service = {
+            "unmodeled_packet_count": 0,
             "modeled_packet_count": 1,
             "exact_packet_count": 1,
             "unknown_packet_count": 0,
@@ -117,7 +118,7 @@ def _write_report(
                             "wave_size": 32,
                             "bank_count": 32,
                             "bank_word_bytes": 4,
-                            "packet_bank_words": 4,
+                            "packet_bytes": 16,
                         },
                         "summary": bank_service,
                     }
@@ -483,9 +484,9 @@ def test_suggest_json_reports_invalid_target_identity(
 @pytest.mark.parametrize(
     ("target_family", "target_key", "provider", "reason"),
     [
-        ("amdgpu", "gfx1151", "scf+amdgpu", None),
-        ("spirv", "vulkan", "scf", "unsupported_target_family"),
-        ("amdgpu", "gfx9999", "scf", "unknown_target_key"),
+        ("amdgpu", "gfx1151", "source+amdgpu", None),
+        ("spirv", "vulkan", "source", "unsupported_target_family"),
+        ("amdgpu", "gfx9999", "source", "unknown_target_key"),
     ],
 )
 def test_pipeline_show_and_suggest_preserve_target_availability(
@@ -529,6 +530,63 @@ def test_pipeline_show_and_suggest_preserve_target_availability(
     assert finding["evidence"]["source_low.loop_pipelines.rows[0].depth"] == 4
     assert finding["evidence"]["entries.rows[0].code_byte_count"] == 512
     assert "9 queued SSA values" in finding["action"]
+
+
+def test_boundary_projection_show_and_suggest_explain_source_experiment(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    report_path = tmp_path / "projection.json"
+    _write_report(report_path)
+    report = json.loads(report_path.read_text())
+    report["mode"] = "details"
+    report["source_low"] = {
+        "count": 0,
+        "rows": [],
+        "boundary_projections": {
+            "count": 1,
+            "selected_count": 0,
+            "preserved_count": 0,
+            "rejected_count": 1,
+            "rows": [
+                {
+                    "index": 0,
+                    "function": "kernel",
+                    "source_op": "scf.for",
+                    "source_op_kind": 1280,
+                    "projection": "loop-vector-bank",
+                    "boundary": "loop_state",
+                    "outcome": "rejected",
+                    "reason": "non_static_component_access",
+                    "operation": 0,
+                    "source_value": 1,
+                    "source_type_kind": 9,
+                    "source_type": "vector",
+                    "source_element_type": 12,
+                    "source_element": "f32",
+                    "source_rank": 1,
+                    "source_shape": [-1],
+                    "projected_prefix_rank": 0,
+                    "component_count": 0,
+                }
+            ],
+        },
+    }
+    report_path.write_text(json.dumps(report))
+
+    assert main(["show", str(report_path)]) == 0
+    show_text = capsys.readouterr().out
+    assert "Source boundary projections" in show_text
+    assert "rejected vector<?xf32> reason=non_static_component_access" in show_text
+
+    assert main(["suggest", str(report_path), "--format=json"]) == 0
+    view = json.loads(capsys.readouterr().out)
+    assert view["provider"] == "source+amdgpu"
+    (finding,) = view["findings"]
+    assert finding["id"] == "vector.compare_static_bank_access"
+    assert finding["evidence"][
+        "source_low.boundary_projections.rows[0].source_shape"
+    ] == [-1]
+    assert "does not by itself establish a performance gain" in finding["action"]
 
 
 def test_suggest_json_reports_unsupported_family_without_provider(

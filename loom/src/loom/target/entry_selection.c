@@ -104,11 +104,6 @@ static bool loom_target_entry_resolve_emission_location(
                            out_source_location)) {
     return false;
   }
-  if (out_source_location->provenance ==
-          LOOM_SOURCE_PROVENANCE_UNAVAILABLE_SOURCE &&
-      out_source_location->source.size > 0) {
-    out_source_location->provenance = LOOM_SOURCE_PROVENANCE_EXACT_SOURCE;
-  }
   return true;
 }
 
@@ -175,6 +170,10 @@ static iree_status_t loom_target_entry_emit_diagnostic(
       break;
     case LOOM_DIAGNOSTIC_COUNT_:
       break;
+  }
+
+  if (emitter->forwarding_emitter.fn != NULL) {
+    return iree_diagnostic_emit(emitter->forwarding_emitter, emission);
   }
 
   loom_diagnostic_related_location_t

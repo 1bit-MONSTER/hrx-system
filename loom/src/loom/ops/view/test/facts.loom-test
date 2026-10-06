@@ -124,6 +124,51 @@ kernel.def @kernel_reference_distribution(%buffer: buffer, %m: index) {
 
 // ====
 
+// RUN: with-checks pass canonicalize
+
+// Uniform addresses do not make concurrent atomic observations uniform. An
+// explicit subgroup broadcast establishes its own stronger result contract.
+kernel.def @atomic_observation_distribution() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%buffer32: buffer, %buffer64: buffer) {
+  %base = index.constant 0 : offset
+  %word32 = buffer.view %buffer32[%base] : buffer -> view<1xi32>
+  %word64 = buffer.view %buffer64[%base] : buffer -> view<1xi64>
+  %one32 = scalar.constant 1 : i32
+  %one64 = scalar.constant 1 : i64
+  %two32 = scalar.constant 2 : i32
+  %loaded32 = view.atomic.load %word32[0] {ordering = relaxed, scope = system} : view<1xi32> -> i32
+  %loaded64 = view.atomic.load %word64[0] {ordering = acquire, scope = device} : view<1xi64> -> i64
+  %updated = view.atomic.rmw<addi> %one64, %word64[0] {ordering = seq_cst, scope = system} : i64, view<1xi64> -> i64
+  %old = view.atomic.cmpxchg %one32, %two32, %word32[0] {failure_ordering = acquire, scope = workgroup, success_ordering = acq_rel} : i32, view<1xi32> -> i32
+  %success = scalar.cmpi eq, %old, %one32 : i32
+  %first = kernel.subgroup.broadcast.first %loaded32 : i32
+  %load32_varying = test.fact_lane_varying %loaded32 : i32 -> i1
+  %load64_varying = test.fact_lane_varying %loaded64 : i64 -> i1
+  %rmw_varying = test.fact_lane_varying %updated : i64 -> i1
+  %old_varying = test.fact_lane_varying %old : i32 -> i1
+  %success_varying = test.fact_lane_varying %success : i1 -> i1
+  %load_uniform = test.fact_subgroup_uniform %loaded32 : i32 -> i1
+  %first_uniform = test.fact_subgroup_uniform %first : i32 -> i1
+  %first_varying = test.fact_lane_varying %first : i32 -> i1
+  test.use %load32_varying, %load64_varying, %rmw_varying, %old_varying, %success_varying, %load_uniform, %first_uniform, %first_varying : i1, i1, i1, i1, i1, i1, i1, i1
+  kernel.return
+}
+
+// ----
+CHECK: %load32_varying = scalar.constant true : i1
+CHECK: %load64_varying = scalar.constant true : i1
+CHECK: %rmw_varying = scalar.constant true : i1
+CHECK: %old_varying = scalar.constant true : i1
+CHECK: %success_varying = scalar.constant true : i1
+CHECK: %load_uniform = scalar.constant false : i1
+CHECK: %first_uniform = scalar.constant true : i1
+CHECK: %first_varying = scalar.constant false : i1
+
+// ====
+
 // Scratch buffer roots seed extent, base alignment, memory-space, and non-null
 // facts. Views derived from them keep the root facts while computing their own
 // typed byte footprint.
@@ -304,8 +349,9 @@ func.def @subview_refine_preserves_memory_space() -> (i64, i64) {
   %layout = encoding.layout.dense : encoding<layout>
   %scratch = buffer.alloca<workgroup> align(128) %bytes : buffer
   %source = buffer.view %scratch[%base] : buffer -> view<16xf32, %layout>
-  %sub = view.subview %source[4] : view<16xf32, %layout> -> view<8xf32, %layout>
-  %refined = view.refine %sub : view<8xf32, %layout> -> view<4xf32, %layout>
+  %length = index.constant 4 : index
+  %sub = view.subview %source[4] : view<16xf32, %layout> -> view<[%length]xf32, %layout>
+  %refined = view.refine %sub : view<[%length]xf32, %layout> -> view<4xf32, %layout>
   %space = test.fact_view_memory_space %refined : view<4xf32, %layout> -> i64
   %root_align = test.fact_view_root_min_alignment %refined : view<4xf32, %layout> -> i64
   func.return %space, %root_align : i64, i64
@@ -667,5 +713,27 @@ func.def @bare_fp8_view_load_content_is_unknown(%buffer: buffer) -> (i1) {
   %view = buffer.view %buffer[%offset] : buffer -> view<4xf8E4M3>
   %value = view.load %view[0] : view<4xf8E4M3> -> f8E4M3
   %finite = scalar.isfinitef %value : f8E4M3
+  func.return %finite : i1
+}
+
+// ====
+
+// Storage content facts and a finite fallback retain their shared class.
+func.def @finite_storage_or_zero(%condition: i1, %buffer: buffer) -> (i1) {
+  %offset = index.constant 0 : offset
+  %layout = encoding.layout.dense : encoding<layout>
+  %schema = encoding.define #encoding.f8e5m2<rounding=finite_only> : encoding<schema>
+  %storage = encoding.define #encoding.storage {layout = %layout : encoding<layout>, schema = %schema : encoding<schema>} : encoding<storage>
+  %view = buffer.view %buffer[%offset] : buffer -> view<4xf8E5M2, %storage>
+  %loaded = view.load %view[0] : view<4xf8E5M2, %storage> -> f8E5M2
+  %c0 = scalar.constant 0.0 : f8E5M2
+  %value = scf.select %condition, %loaded, %c0 : f8E5M2
+  %finite = scalar.isfinitef %value : f8E5M2
+  func.return %finite : i1
+}
+
+// ----
+func.def @finite_storage_or_zero(%condition: i1, %buffer: buffer) -> (i1) {
+  %finite = scalar.constant true : i1
   func.return %finite : i1
 }

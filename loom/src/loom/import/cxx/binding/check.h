@@ -20,7 +20,16 @@ namespace loom::cxx_import {
 // observation operations. Declaration admission retains their concrete types
 // and kernel identity; check-body translation owns constant arguments and IR.
 struct CheckIntrinsic {
-  enum class Operation { Equal, Fill, Slice, Bitwise, Requires, Event, Launch };
+  enum class Operation {
+    Equal,
+    Close,
+    Fill,
+    Slice,
+    Bitwise,
+    Requires,
+    Event,
+    Launch
+  };
 
   static std::optional<Operation> parse_operation(std::string_view name);
   static std::optional<CheckIntrinsic> resolve(cxx::TranslationUnit& unit,
@@ -32,13 +41,13 @@ struct CheckIntrinsic {
 
   bool equivalent(const CheckIntrinsic& other) const;
   bool is_observation() const {
-    return operation == Operation::Equal || operation == Operation::Bitwise ||
-           operation == Operation::Event;
+    return operation == Operation::Equal || operation == Operation::Close ||
+           operation == Operation::Bitwise || operation == Operation::Event;
   }
 
   // Operation selected by the declaration's explicit binding.
   Operation operation;
-  // Admitted operand type for scalar equality.
+  // Admitted operand type for scalar observations.
   loom_type_t scalar_type = {};
   // Tensor source for slicing or observation, owned by Types.
   const TensorPartition* source_tensor = nullptr;

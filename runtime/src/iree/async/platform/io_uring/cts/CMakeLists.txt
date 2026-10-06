@@ -29,12 +29,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_cc_test(
   NAME
     buffer_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::buffer::all_tests
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::testing::gtest
   RESOURCE_GROUP
     io_uring
@@ -45,12 +44,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_cc_test(
   NAME
     local_stream_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::stream::local_stream_test
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::testing::gtest
 )
 endif()
@@ -59,12 +57,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_cc_test(
   NAME
     core_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::core::all_tests
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::testing::gtest
 )
 endif()
@@ -73,12 +70,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_cc_test(
   NAME
     event_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::event::all_tests
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::testing::gtest
 )
 endif()
@@ -87,12 +83,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_cc_test(
   NAME
     file_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::file::all_tests
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::testing::gtest
 )
 endif()
@@ -101,12 +96,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_cc_test(
   NAME
     futex_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::futex::all_tests
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::testing::gtest
 )
 endif()
@@ -115,12 +109,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_cc_test(
   NAME
     socket_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::socket::all_tests
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::testing::gtest
   RESOURCE_GROUP
     io_uring
@@ -131,12 +124,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_cc_test(
   NAME
     sync_notification_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::sync::notification_tests
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::testing::gtest
 )
 endif()
@@ -145,12 +137,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_cc_test(
   NAME
     sync_shared_notification_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::sync::shared_notification_tests
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::testing::gtest
 )
 endif()
@@ -159,12 +150,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_cc_test(
   NAME
     sync_platform_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::sync::platform_tests
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::testing::gtest
 )
 endif()
@@ -173,12 +163,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_cc_test(
   NAME
     sync_relay_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::sync::relay_tests
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::testing::gtest
 )
 endif()
@@ -187,12 +176,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_cc_test(
   NAME
     sync_semaphore_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::sync::semaphore_tests
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::testing::gtest
 )
 endif()

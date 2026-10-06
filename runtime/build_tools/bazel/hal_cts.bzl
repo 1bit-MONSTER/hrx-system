@@ -32,10 +32,7 @@ _EXECUTABLE_TEST_SUITES = [
 ]
 
 _COMMON_DEPS = [
-    "//runtime/src/iree/base/tooling:flags",
-    "//runtime/src/iree/hal/cts/util:registry",
-    "//runtime/src/iree/hal/cts/util:test_base",
-    "//runtime/src/iree/testing:gtest",
+    "//runtime/src/iree/hal/cts/util:test_main",
 ]
 
 _TEST_ATTRS = [
@@ -84,7 +81,6 @@ def _hal_cts_test(
     iree_runtime_cc_binary(
         name = binary_name,
         testonly = testonly,
-        srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
         deps = deps,
         **target_attrs
     )

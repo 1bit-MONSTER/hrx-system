@@ -7,20 +7,14 @@
 #include "loom/target/arch/spirv/lower/workgroup.h"
 
 #include <stdint.h>
-#include <string.h>
 
-#include "iree/base/internal/math.h"
+#include "loom/analysis/storage_layout.h"
+#include "loom/error/error_catalog.h"
 #include "loom/ir/facts.h"
-#include "loom/ir/local_value_domain.h"
 #include "loom/ir/module.h"
-#include "loom/ops/atomic.h"
 #include "loom/ops/buffer/ops.h"
 #include "loom/ops/low/ops.h"
-#include "loom/ops/view/ops.h"
-#include "loom/target/arch/spirv/features.h"
-#include "loom/target/arch/spirv/registers.h"
-#include "loom/target/arch/spirv/scalar_types.h"
-#include "loom/target/arch/spirv/value_types.h"
+#include "loom/target/arch/spirv/lower/workgroup_layout.h"
 #include "loom/util/fact_table.h"
 
 typedef enum loom_spirv_workgroup_plan_kind_e {
@@ -33,6 +27,8 @@ typedef struct loom_spirv_workgroup_alloca_plan_t {
   int64_t byte_length;
   // Static byte alignment of the Workgroup allocation.
   int64_t byte_alignment;
+  // Whether the allocation uses its scalar carrier's shared physical arena.
+  bool packed;
 } loom_spirv_workgroup_alloca_plan_t;
 
 typedef struct loom_spirv_workgroup_view_plan_t {
@@ -41,32 +37,6 @@ typedef struct loom_spirv_workgroup_view_plan_t {
   // Register class used for the Workgroup array base pointer.
   uint16_t array_pointer_reg_class_id;
 } loom_spirv_workgroup_view_plan_t;
-
-typedef struct loom_spirv_workgroup_root_carrier_t {
-  // Common bit width of every typed view over the allocation.
-  uint8_t bit_width;
-  // Floating-point carrier used when no access requires integer atomics.
-  loom_spirv_scalar_type_t float_scalar_type;
-  // Whether an access requires a same-width integer carrier.
-  bool requires_integer;
-  // Whether the allocation has views with incompatible bit widths.
-  bool incompatible;
-} loom_spirv_workgroup_root_carrier_t;
-
-typedef struct loom_spirv_workgroup_carrier_state_t {
-  // Function-local value domain covered by |scalar_types|.
-  const loom_local_value_domain_t* value_domain;
-  // Source facts used to select Workgroup allocations and aliases.
-  const loom_value_fact_table_t* fact_table;
-  // Feature set used to decide whether float atomics need integer fallback.
-  loom_spirv_feature_bits_t feature_bits;
-  // Selected scalar carrier indexed by function-local value ordinal.
-  loom_spirv_scalar_type_t* scalar_types;
-  // Number of entries allocated in |scalar_types|.
-  loom_value_ordinal_t scalar_type_count;
-} loom_spirv_workgroup_carrier_state_t;
-
-static const uint8_t kLoomSpirvWorkgroupCarrierStateKey;
 
 static bool loom_spirv_workgroup_i64_is_power_of_two(int64_t value) {
   return value > 0 && value <= UINT32_MAX &&
@@ -83,32 +53,6 @@ static iree_status_t loom_spirv_workgroup_emit_rejected(
                                                      field_name, type);
 }
 
-static bool loom_spirv_workgroup_view_scalar_type(
-    loom_type_t view_type, loom_spirv_scalar_type_t* out_scalar_type) {
-  *out_scalar_type = LOOM_SPIRV_SCALAR_TYPE_UNKNOWN;
-  if (!loom_type_is_view(view_type)) {
-    return false;
-  }
-  loom_spirv_value_type_t value_type = {0};
-  if (!loom_spirv_value_type_from_loom_type(
-          loom_type_scalar(loom_type_element_type(view_type)), &value_type) ||
-      value_type.value_class != LOOM_SPIRV_VALUE_CLASS_SCALAR) {
-    return false;
-  }
-  *out_scalar_type = value_type.scalar_type;
-  return true;
-}
-
-static bool loom_spirv_workgroup_view_root_is_alloca(
-    const loom_module_t* module, loom_value_id_t root_value_id) {
-  if (root_value_id >= module->values.count) {
-    return false;
-  }
-  const loom_value_t* root = loom_module_value(module, root_value_id);
-  return !loom_value_is_block_arg(root) &&
-         loom_buffer_alloca_isa(loom_value_def_op(root));
-}
-
 static bool loom_spirv_workgroup_view_reference(
     const loom_value_fact_table_t* fact_table, loom_value_id_t value_id,
     loom_value_fact_view_reference_t* out_reference) {
@@ -122,278 +66,6 @@ static bool loom_spirv_workgroup_view_reference(
       loom_value_fact_view_reference_resolve_root_value(*out_reference,
                                                         value_id);
   return out_reference->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP;
-}
-
-static loom_spirv_scalar_type_t loom_spirv_workgroup_signed_integer_carrier(
-    uint8_t bit_width) {
-  switch (bit_width) {
-    case 8:
-      return LOOM_SPIRV_SCALAR_TYPE_S8;
-    case 16:
-      return LOOM_SPIRV_SCALAR_TYPE_S16;
-    case 32:
-      return LOOM_SPIRV_SCALAR_TYPE_S32;
-    case 64:
-      return LOOM_SPIRV_SCALAR_TYPE_S64;
-    default:
-      return LOOM_SPIRV_SCALAR_TYPE_UNKNOWN;
-  }
-}
-
-static loom_spirv_feature_bits_t
-loom_spirv_workgroup_native_float_atomic_feature(
-    loom_spirv_scalar_type_t scalar_type, loom_atomic_kind_t atomic_kind) {
-  switch (atomic_kind) {
-    case LOOM_ATOMIC_KIND_XCHGF:
-      switch (scalar_type) {
-        case LOOM_SPIRV_SCALAR_TYPE_F16:
-          return LOOM_SPIRV_FEATURE_WORKGROUP_FLOAT16_ATOMICS;
-        case LOOM_SPIRV_SCALAR_TYPE_F32:
-          return LOOM_SPIRV_FEATURE_WORKGROUP_FLOAT32_ATOMICS;
-        case LOOM_SPIRV_SCALAR_TYPE_F64:
-          return LOOM_SPIRV_FEATURE_WORKGROUP_FLOAT64_ATOMICS;
-        default:
-          return 0;
-      }
-    case LOOM_ATOMIC_KIND_ADDF:
-      switch (scalar_type) {
-        case LOOM_SPIRV_SCALAR_TYPE_F16:
-          return LOOM_SPIRV_FEATURE_WORKGROUP_FLOAT16_ATOMIC_ADD;
-        case LOOM_SPIRV_SCALAR_TYPE_F32:
-          return LOOM_SPIRV_FEATURE_WORKGROUP_FLOAT32_ATOMIC_ADD;
-        case LOOM_SPIRV_SCALAR_TYPE_F64:
-          return LOOM_SPIRV_FEATURE_WORKGROUP_FLOAT64_ATOMIC_ADD;
-        default:
-          return 0;
-      }
-    default:
-      return 0;
-  }
-}
-
-static bool loom_spirv_workgroup_view_requires_integer_carrier(
-    const loom_module_t* module, loom_value_id_t value_id,
-    loom_spirv_scalar_type_t scalar_type,
-    loom_spirv_feature_bits_t feature_bits) {
-  const loom_value_t* value = loom_module_value(module, value_id);
-  const loom_use_t* use = NULL;
-  loom_value_for_each_use(value, use) {
-    const loom_op_t* user_op = loom_use_user_op(*use);
-    if (loom_view_atomic_cmpxchg_isa(user_op) &&
-        loom_view_atomic_cmpxchg_view(user_op) == value_id) {
-      return true;
-    }
-
-    loom_atomic_kind_t atomic_kind = LOOM_ATOMIC_KIND_COUNT_;
-    if (loom_view_atomic_reduce_isa(user_op) &&
-        loom_view_atomic_reduce_view(user_op) == value_id) {
-      atomic_kind = loom_view_atomic_reduce_kind(user_op);
-    } else if (loom_view_atomic_rmw_isa(user_op) &&
-               loom_view_atomic_rmw_view(user_op) == value_id) {
-      atomic_kind = loom_view_atomic_rmw_kind(user_op);
-    } else {
-      continue;
-    }
-
-    const loom_spirv_feature_bits_t native_feature =
-        loom_spirv_workgroup_native_float_atomic_feature(scalar_type,
-                                                         atomic_kind);
-    if (native_feature == 0 ||
-        !iree_all_bits_set(feature_bits, native_feature)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-static iree_status_t loom_spirv_prepare_workgroup_carriers(
-    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
-    const loom_local_value_domain_t* value_domain,
-    loom_spirv_feature_bits_t feature_bits, iree_arena_allocator_t* arena,
-    loom_spirv_workgroup_carrier_state_t* state) {
-  if (state->value_domain == value_domain && state->fact_table == fact_table &&
-      state->feature_bits == feature_bits &&
-      state->scalar_type_count >= value_domain->value_count) {
-    return iree_ok_status();
-  }
-
-  loom_spirv_scalar_type_t* scalar_types = NULL;
-  loom_spirv_workgroup_root_carrier_t* root_carriers = NULL;
-  if (value_domain->value_count != 0) {
-    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        arena, value_domain->value_count, sizeof(*scalar_types),
-        (void**)&scalar_types));
-    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        arena, value_domain->value_count, sizeof(*root_carriers),
-        (void**)&root_carriers));
-    memset(scalar_types, 0, value_domain->value_count * sizeof(*scalar_types));
-    memset(root_carriers, 0,
-           value_domain->value_count * sizeof(*root_carriers));
-  }
-
-  for (loom_value_ordinal_t value_ordinal = 0;
-       value_ordinal < value_domain->value_count; ++value_ordinal) {
-    const loom_value_id_t value_id = value_domain->value_ids[value_ordinal];
-    const loom_type_t value_type = loom_module_value_type(module, value_id);
-    loom_spirv_scalar_type_t scalar_type = LOOM_SPIRV_SCALAR_TYPE_UNKNOWN;
-    if (!loom_spirv_workgroup_view_scalar_type(value_type, &scalar_type)) {
-      continue;
-    }
-    loom_value_fact_view_reference_t reference = {0};
-    if (!loom_spirv_workgroup_view_reference(fact_table, value_id,
-                                             &reference) ||
-        !loom_spirv_workgroup_view_root_is_alloca(module,
-                                                  reference.root_value_id)) {
-      continue;
-    }
-    const loom_value_ordinal_t root_ordinal =
-        loom_local_value_domain_try_ordinal(value_domain,
-                                            reference.root_value_id);
-    if (root_ordinal == LOOM_VALUE_ORDINAL_INVALID) {
-      continue;
-    }
-
-    const loom_spirv_scalar_type_descriptor_t* scalar_descriptor =
-        loom_spirv_scalar_type_descriptor(scalar_type);
-    if (scalar_descriptor == NULL) {
-      continue;
-    }
-    loom_spirv_workgroup_root_carrier_t* root_carrier =
-        &root_carriers[root_ordinal];
-    if (root_carrier->bit_width == 0) {
-      root_carrier->bit_width = scalar_descriptor->bit_width;
-    } else if (root_carrier->bit_width != scalar_descriptor->bit_width) {
-      root_carrier->incompatible = true;
-      continue;
-    }
-
-    if (scalar_descriptor->kind != LOOM_SPIRV_SCALAR_TYPE_KIND_FLOAT) {
-      root_carrier->requires_integer = true;
-      continue;
-    }
-    if (root_carrier->float_scalar_type == LOOM_SPIRV_SCALAR_TYPE_UNKNOWN) {
-      root_carrier->float_scalar_type = scalar_type;
-    } else if (root_carrier->float_scalar_type != scalar_type) {
-      root_carrier->requires_integer = true;
-    }
-    if (loom_spirv_workgroup_view_requires_integer_carrier(
-            module, value_id, scalar_type, feature_bits)) {
-      root_carrier->requires_integer = true;
-    }
-  }
-
-  for (loom_value_ordinal_t value_ordinal = 0;
-       value_ordinal < value_domain->value_count; ++value_ordinal) {
-    const loom_value_id_t value_id = value_domain->value_ids[value_ordinal];
-    loom_value_fact_view_reference_t reference = {0};
-    if (!loom_spirv_workgroup_view_reference(fact_table, value_id,
-                                             &reference) ||
-        !loom_spirv_workgroup_view_root_is_alloca(module,
-                                                  reference.root_value_id)) {
-      continue;
-    }
-    const loom_value_ordinal_t root_ordinal =
-        loom_local_value_domain_try_ordinal(value_domain,
-                                            reference.root_value_id);
-    if (root_ordinal == LOOM_VALUE_ORDINAL_INVALID) {
-      continue;
-    }
-    const loom_spirv_workgroup_root_carrier_t root_carrier =
-        root_carriers[root_ordinal];
-    if (root_carrier.incompatible) {
-      continue;
-    }
-    scalar_types[value_ordinal] =
-        root_carrier.requires_integer
-            ? loom_spirv_workgroup_signed_integer_carrier(
-                  root_carrier.bit_width)
-            : root_carrier.float_scalar_type;
-  }
-
-  state->value_domain = value_domain;
-  state->fact_table = fact_table;
-  state->feature_bits = feature_bits;
-  state->scalar_types = scalar_types;
-  state->scalar_type_count = value_domain->value_count;
-  return iree_ok_status();
-}
-
-static iree_status_t loom_spirv_resolve_workgroup_view_reg_class_from_state(
-    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
-    const loom_local_value_domain_t* value_domain,
-    loom_spirv_feature_bits_t feature_bits, iree_arena_allocator_t* arena,
-    loom_spirv_workgroup_carrier_state_t* state,
-    loom_value_id_t source_value_id, bool* out_is_workgroup,
-    uint16_t* out_reg_class_id) {
-  *out_is_workgroup = false;
-  *out_reg_class_id = LOOM_LOW_REG_CLASS_NONE;
-  loom_value_fact_view_reference_t reference = {0};
-  if (!loom_spirv_workgroup_view_reference(fact_table, source_value_id,
-                                           &reference)) {
-    return iree_ok_status();
-  }
-  *out_is_workgroup = true;
-  if (!loom_spirv_workgroup_view_root_is_alloca(module,
-                                                reference.root_value_id)) {
-    return iree_ok_status();
-  }
-
-  IREE_RETURN_IF_ERROR(loom_spirv_prepare_workgroup_carriers(
-      module, fact_table, value_domain, feature_bits, arena, state));
-  const loom_value_ordinal_t value_ordinal =
-      loom_local_value_domain_try_ordinal(value_domain, source_value_id);
-  if (value_ordinal == LOOM_VALUE_ORDINAL_INVALID ||
-      value_ordinal >= state->scalar_type_count) {
-    return iree_ok_status();
-  }
-  *out_reg_class_id = loom_spirv_ptr_workgroup_array_reg_class_id(
-      state->scalar_types[value_ordinal]);
-  return iree_ok_status();
-}
-
-iree_status_t loom_spirv_resolve_workgroup_view_reg_class(
-    loom_low_lower_context_t* context, loom_value_id_t source_value_id,
-    bool* out_is_workgroup, uint16_t* out_reg_class_id) {
-  loom_spirv_workgroup_carrier_state_t* state = NULL;
-  IREE_RETURN_IF_ERROR(loom_low_lower_get_or_allocate_target_state(
-      context, &kLoomSpirvWorkgroupCarrierStateKey, sizeof(*state),
-      (void**)&state));
-  return loom_spirv_resolve_workgroup_view_reg_class_from_state(
-      loom_low_lower_context_module(context),
-      loom_low_lower_context_fact_table(context),
-      loom_low_lower_context_value_domain(context),
-      loom_low_lower_context_bundle(context)->config->contract_feature_bits,
-      loom_low_lower_context_function_arena(context), state, source_value_id,
-      out_is_workgroup, out_reg_class_id);
-}
-
-iree_status_t loom_spirv_resolve_workgroup_contract_view_reg_class(
-    const loom_target_contract_query_environment_t* environment,
-    loom_value_id_t source_value_id, bool* out_is_workgroup,
-    uint16_t* out_reg_class_id) {
-  *out_is_workgroup = false;
-  *out_reg_class_id = LOOM_LOW_REG_CLASS_NONE;
-  if (environment->fact_table == NULL || environment->value_domain == NULL ||
-      environment->arena == NULL) {
-    return iree_ok_status();
-  }
-  loom_spirv_workgroup_carrier_state_t local_state = {0};
-  loom_spirv_workgroup_carrier_state_t* state = &local_state;
-  if (environment->target_state_allocator.fn != NULL) {
-    IREE_RETURN_IF_ERROR(
-        loom_target_contract_query_get_or_allocate_target_state(
-            environment, &kLoomSpirvWorkgroupCarrierStateKey, sizeof(*state),
-            (void**)&state));
-    if (state == NULL) {
-      return iree_ok_status();
-    }
-  }
-  const loom_target_bundle_t* bundle =
-      loom_target_contract_query_environment_bundle(environment);
-  return loom_spirv_resolve_workgroup_view_reg_class_from_state(
-      environment->module, environment->fact_table, environment->value_domain,
-      bundle->config->contract_feature_bits, environment->arena, state,
-      source_value_id, out_is_workgroup, out_reg_class_id);
 }
 
 static iree_status_t loom_spirv_workgroup_view_plan_from_facts(
@@ -453,6 +125,9 @@ static iree_status_t loom_spirv_select_workgroup_alloca(
         LOOM_SPIRV_WORKGROUP_PLAN_ALLOCA, out_plan);
   }
   plan.byte_alignment = loom_buffer_alloca_base_alignment(source_op);
+  IREE_RETURN_IF_ERROR(loom_spirv_workgroup_layout_record_alloca(
+      context, source_op, (uint64_t)plan.byte_length,
+      (uint64_t)plan.byte_alignment, &plan.packed));
 
   loom_spirv_workgroup_alloca_plan_t* plan_data = NULL;
   IREE_RETURN_IF_ERROR(loom_low_lower_allocate_plan_data(
@@ -522,9 +197,74 @@ void loom_spirv_mark_workgroup_plan_storage_demands(
   IREE_ASSERT_UNREACHABLE("SPIR-V Workgroup plan selected unknown op kind");
 }
 
+static iree_status_t loom_spirv_workgroup_measure_storage(
+    loom_low_lower_context_t* context, uint64_t* out_byte_extent) {
+  *out_byte_extent = 0;
+  const iree_host_size_t storage_root_count =
+      loom_spirv_workgroup_layout_storage_root_count(context);
+  for (iree_host_size_t i = 0; i < storage_root_count; ++i) {
+    const loom_spirv_workgroup_storage_root_requirement_t requirement =
+        loom_spirv_workgroup_layout_storage_root_requirement(context, i);
+    IREE_RETURN_IF_ERROR(loom_storage_layout_append(
+        requirement.byte_length, requirement.byte_alignment, out_byte_extent,
+        /*out_byte_offset=*/NULL));
+  }
+
+  const iree_host_size_t selected_plan_count =
+      loom_low_lower_context_selected_plan_count(context);
+  for (iree_host_size_t i = 0; i < selected_plan_count; ++i) {
+    const loom_low_lower_selected_plan_view_t selected_plan =
+        loom_low_lower_context_selected_plan_view(context, i);
+    if (selected_plan.elided ||
+        selected_plan.plan.id != LOOM_SPIRV_WORKGROUP_PLAN_ALLOCA) {
+      continue;
+    }
+    const loom_spirv_workgroup_alloca_plan_t* alloca_plan =
+        (const loom_spirv_workgroup_alloca_plan_t*)
+            selected_plan.plan.target_data;
+    IREE_ASSERT(alloca_plan != NULL);
+    if (alloca_plan->packed) {
+      continue;
+    }
+    IREE_RETURN_IF_ERROR(loom_storage_layout_append(
+        (uint64_t)alloca_plan->byte_length,
+        (uint64_t)alloca_plan->byte_alignment, out_byte_extent,
+        /*out_byte_offset=*/NULL));
+  }
+  return iree_ok_status();
+}
+
+iree_status_t loom_spirv_emit_workgroup_entry_setup(
+    loom_low_lower_context_t* context) {
+  uint64_t byte_extent = 0;
+  IREE_RETURN_IF_ERROR(
+      loom_spirv_workgroup_measure_storage(context, &byte_extent));
+  const uint64_t byte_limit = loom_low_lower_context_bundle(context)
+                                  ->snapshot->max_workgroup_storage_bytes;
+  if (byte_limit != 0 && byte_extent > byte_limit) {
+    const loom_diagnostic_param_t params[] = {
+        loom_param_string(loom_low_lower_context_function_name(context)),
+        loom_param_string(loom_low_lower_context_target_key(context)),
+        loom_param_u64(byte_extent),
+        loom_param_u64(byte_limit),
+    };
+    return loom_low_lower_emit_error_ref(
+        context, loom_low_lower_context_source_function(context).op,
+        LOOM_ERR_TARGET_051_REF, params, IREE_ARRAYSIZE(params));
+  }
+  return loom_spirv_workgroup_layout_emit_storage_roots(context);
+}
+
 static iree_status_t loom_spirv_lower_workgroup_alloca(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_spirv_workgroup_alloca_plan_t* plan) {
+  if (plan->packed) {
+    loom_value_id_t low_storage = LOOM_VALUE_ID_INVALID;
+    loom_spirv_workgroup_layout_lookup_low_storage(
+        context, loom_buffer_alloca_result(source_op), &low_storage);
+    return loom_low_lower_bind_value(
+        context, loom_buffer_alloca_result(source_op), low_storage);
+  }
   loom_op_t* storage_op = NULL;
   IREE_RETURN_IF_ERROR(loom_low_storage_reserve_build(
       loom_low_lower_context_builder(context), plan->byte_length,

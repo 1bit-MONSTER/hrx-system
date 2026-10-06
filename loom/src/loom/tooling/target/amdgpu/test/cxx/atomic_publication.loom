@@ -27,6 +27,5 @@ check.case @interior_atomic_observations {
   check.expect.bitwise actual(%published) expected(%expected) : tensor<1xi32>
   check.expect.bitwise actual(%before) expected(%guard) : tensor<1xi32>
   check.expect.bitwise actual(%after) expected(%guard) : tensor<1xi32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }

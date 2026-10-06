@@ -11,6 +11,7 @@
 #include "loom/tools/iree-benchmark-loom/case_execution.h"
 #include "loom/tools/iree-benchmark-loom/dispatch_benchmark.h"
 #include "loom/tools/iree-benchmark-loom/hal_setup.h"
+#include "loom/tools/iree-benchmark-loom/scenario_execution.h"
 
 static iree_status_t iree_benchmark_loom_run_dispatch_sample_work_item(
     const iree_benchmark_loom_work_plan_execution_options_t* options,
@@ -116,6 +117,7 @@ iree_status_t iree_benchmark_loom_run_work_plan(
     iree_host_size_t* inout_failed_benchmark_count) {
   const iree_benchmark_loom_work_plan_t* work_plan = options->work_plan;
   iree_benchmark_loom_hal_compile_context_t* hal_compile_contexts = NULL;
+  iree_benchmark_loom_scenario_execution_t* scenario_execution = NULL;
   iree_status_t status = iree_ok_status();
   if (work_plan->hal_compile_item_count != 0) {
     status = iree_allocator_malloc_array(
@@ -178,6 +180,17 @@ iree_status_t iree_benchmark_loom_run_work_plan(
             inout_failed_benchmark_count);
         break;
       }
+      case IREE_BENCHMARK_LOOM_WORK_ITEM_SCENARIO_TRIAL: {
+        if (scenario_execution == NULL) {
+          status = iree_benchmark_loom_scenario_execution_create(
+              options, &scenario_execution);
+        }
+        if (iree_status_is_ok(status)) {
+          status = iree_benchmark_loom_run_scenario_work_item(
+              scenario_execution, work_item, inout_failed_benchmark_count);
+        }
+        break;
+      }
       case IREE_BENCHMARK_LOOM_WORK_ITEM_NONE:
       default:
         status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -193,6 +206,7 @@ iree_status_t iree_benchmark_loom_run_work_plan(
           &hal_compile_contexts[i]);
     }
   }
+  iree_benchmark_loom_scenario_execution_destroy(scenario_execution);
   iree_allocator_free(options->host_allocator, hal_compile_contexts);
   return status;
 }

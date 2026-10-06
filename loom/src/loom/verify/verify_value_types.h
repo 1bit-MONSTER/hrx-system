@@ -9,6 +9,12 @@
 
 #include "loom/verify/verify_state.h"
 
+// Checks a structurally verified callable exit against its function-like
+// result tuple.
+iree_status_t loom_verify_func_like_exit(loom_verify_state_t* state,
+                                         const loom_op_t* func_op,
+                                         const loom_op_t* exit_op);
+
 // Checks a structurally verified loop's entry arguments against its recurring
 // result type scheme, including counted induction variable type and arity.
 void loom_verify_loop_entry_types(loom_verify_state_t* state,
@@ -32,5 +38,11 @@ void loom_verify_block_arg_type_refs(loom_verify_state_t* state,
 void loom_verify_attribute_value_refs(loom_verify_state_t* state,
                                       const loom_op_t* op,
                                       const loom_op_vtable_t* vtable);
+
+// Checks semantic type domains and carrier-specific ownership for direct
+// predicate list attributes after their SSA references have been validated.
+iree_status_t loom_verify_predicate_attributes(loom_verify_state_t* state,
+                                               const loom_op_t* op,
+                                               const loom_op_vtable_t* vtable);
 
 #endif  // LOOM_VERIFY_VERIFY_VALUE_TYPES_H_

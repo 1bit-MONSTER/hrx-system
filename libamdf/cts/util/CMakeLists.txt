@@ -44,6 +44,25 @@ endif()
 if(AMDF_BUILD)
 iree_cc_library(
   NAME
+    mapped_memory
+  HDRS
+    "mapped_memory.h"
+  SRCS
+    "mapped_memory.cc"
+  DEPS
+    amdf::headers
+    iree::third_party::google_test
+  TESTONLY
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/..>"
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
     native_event_headers
   HDRS
     "native_event.h"

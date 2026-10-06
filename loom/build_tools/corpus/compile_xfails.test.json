@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "accepts an exhaustive default root set",
+      "run": {
+        "tool": "loom-corpus-compile-xfails",
+        "args": [
+          "--compiler={tool:loom-compile}",
+          "--require-all-roots",
+          "--expected-root=@unsupported_vector_one",
+          "--expected-diagnostic=TARGET/033",
+          "--expected-root=@unsupported_vector_two",
+          "--expected-diagnostic=TARGET/033",
+          "--stamp-output={tmp}/all_roots.stamp",
+          "{srcdir}/testdata/all_roots_xfail.loom",
+          "--target=vm:core"
+        ]
+      },
+      "stdout": {"empty": true},
+      "stderr": {"empty": true},
+      "files": [
+        {
+          "path": "{tmp}/all_roots.stamp",
+          "contains": [
+            "@unsupported_vector_one TARGET/033",
+            "@unsupported_vector_two TARGET/033"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "rejects an unlisted default root",
+      "run": {
+        "tool": "loom-corpus-compile-xfails",
+        "args": [
+          "--compiler={tool:loom-compile}",
+          "--require-all-roots",
+          "--expected-root=@unsupported_vector_one",
+          "--expected-diagnostic=TARGET/033",
+          "--stamp-output={tmp}/incomplete.stamp",
+          "{srcdir}/testdata/all_roots_xfail.loom",
+          "--target=vm:core"
+        ]
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": [
+          "loom-compile stderr:",
+          "@unsupported_vector_two",
+          "declared xfail roots do not exhaust the default root set"
+        ]
+      },
+      "files": [{"path": "{tmp}/incomplete.stamp", "exists": false}]
+    },
+    {
+      "name": "accepts all declared diagnostics",
+      "run": {
+        "tool": "loom-corpus-compile-xfails",
+        "args": [
+          "--compiler={tool:loom-compile}",
+          "--expected-root=@unsupported_vector_one",
+          "--expected-diagnostic=TARGET/033",
+          "--expected-root=@unsupported_vector_two",
+          "--expected-diagnostic=TARGET/033",
+          "--stamp-output={tmp}/expected.stamp",
+          "{srcdir}/testdata/diagnostic_xfails.loom",
+          "--target=vm:core"
+        ]
+      },
+      "stdout": {"empty": true},
+      "stderr": {"empty": true},
+      "files": [
+        {
+          "path": "{tmp}/expected.stamp",
+          "contains": [
+            "@unsupported_vector_one TARGET/033",
+            "@unsupported_vector_two TARGET/033"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "accepts one of several declared diagnostics",
+      "run": {
+        "tool": "loom-corpus-compile-xfails",
+        "args": [
+          "--compiler={tool:loom-compile}",
+          "--expected-root=@unsupported_vector_one",
+          "--expected-diagnostic=TYPE/001,TARGET/033",
+          "--stamp-output={tmp}/alternatives.stamp",
+          "{srcdir}/testdata/diagnostic_xfails.loom",
+          "--target=vm:core"
+        ]
+      },
+      "stdout": {"empty": true},
+      "stderr": {"empty": true},
+      "files": [
+        {
+          "path": "{tmp}/alternatives.stamp",
+          "contains": [
+            "@unsupported_vector_one TYPE/001,TARGET/033"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "rejects the wrong diagnostic",
+      "run": {
+        "tool": "loom-corpus-compile-xfails",
+        "args": [
+          "--compiler={tool:loom-compile}",
+          "--expected-root=@unsupported_vector_one",
+          "--expected-diagnostic=TYPE/001",
+          "--stamp-output={tmp}/wrong.stamp",
+          "{srcdir}/testdata/diagnostic_xfails.loom",
+          "--target=vm:core"
+        ]
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": [
+          "loom-compile stderr:",
+          "TARGET/033",
+          "wrong diagnostic: expected TYPE/001, received TARGET/033"
+        ]
+      },
+      "files": [{"path": "{tmp}/wrong.stamp", "exists": false}]
+    },
+    {
+      "name": "detects xpass after an expected failure",
+      "run": {
+        "tool": "loom-corpus-compile-xfails",
+        "args": [
+          "--compiler={tool:loom-compile}",
+          "--expected-root=@unsupported_vector_one",
+          "--expected-diagnostic=TARGET/033",
+          "--expected-root=@valid",
+          "--expected-diagnostic=TARGET/033",
+          "--stamp-output={tmp}/xpass.stamp",
+          "{srcdir}/testdata/diagnostic_xfails.loom",
+          "--target=vm:core"
+        ]
+      },
+      "exit": 1,
+      "stderr": {"contains": ["XPASS", "TARGET/033"]},
+      "files": [{"path": "{tmp}/xpass.stamp", "exists": false}]
+    },
+    {
+      "name": "distinguishes a missing root",
+      "run": {
+        "tool": "loom-corpus-compile-xfails",
+        "args": [
+          "--compiler={tool:loom-compile}",
+          "--expected-root=@renamed",
+          "--expected-diagnostic=TARGET/033",
+          "--stamp-output={tmp}/missing.stamp",
+          "{srcdir}/testdata/diagnostic_xfails.loom",
+          "--target=vm:core"
+        ]
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": [
+          "loom-compile stderr:",
+          "renamed",
+          "missing diagnostic:"
+        ]
+      },
+      "files": [{"path": "{tmp}/missing.stamp", "exists": false}]
+    }
+  ]
+}

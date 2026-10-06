@@ -159,8 +159,37 @@
         "contains": [
           "source_math.loom:2:3",
           "vm-math",
+          "scalar.sinf %value : f32"
+        ]
+      },
+      "stdout": {
+        "contains": [
+          "\"category\":\"compile_rejected\"",
+          "\"provider\":\"vm\"",
+          "\"stage\":\"pipeline\"",
+          "\"kind\":\"ERR_LOWERING_036\"",
+          "Math legalization policy rejected an operation."
+        ]
+      }
+    },
+    {
+      "name": "compiler root materialization retains original source text",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "{srcdir}/source_math.loom",
+          "--root=@exact_sine",
+          "--target=vm:core",
+          "--output={tmp}/output.vm"
+        ]
+      },
+      "exit": {"nonzero": true},
+      "stderr": {
+        "contains": [
+          "source_math.loom:2:3",
+          "vm-math",
           "scalar.sinf %value : f32",
-          "VM compilation failed"
+          "^"
         ]
       }
     },
@@ -338,6 +367,29 @@
           "stdout": {
             "contains": ["\"arithmetic\"", "control.call", "integer.mul.i32"],
             "not_contains": ["\"swap\"", "\"multiply\""]
+          }
+        }
+      ]
+    },
+    {
+      "name": "excludes module roots before dependency materialization",
+      "steps": [
+        {
+          "name": "compile",
+          "run": {
+            "tool": "loom-compile",
+            "args": ["{srcdir}/module.loom", "--exclude-root=swap", "--target=vm:core", "--output={tmp}/excluded.vm"]
+          }
+        },
+        {
+          "name": "disassemble",
+          "run": {
+            "tool": "vm-dis",
+            "args": ["{tmp}/excluded.vm"]
+          },
+          "stdout": {
+            "contains": ["\"arithmetic\"", "control.call", "integer.mul.i32"],
+            "not_contains": ["\"swap\""]
           }
         }
       ]

@@ -8,7 +8,8 @@
 #define HRX_BINDING_HIP_LAUNCH_PARAMS_H_
 
 #include "api.h"
-#include "common/internal.h"
+#include "common/device.h"
+#include "common/module.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,6 +17,10 @@ extern "C" {
 
 hipError_t iree_hip_parse_launch_extra(void** extra, void** out_buffer,
                                        size_t* out_buffer_size);
+
+hipError_t iree_hip_parse_launch_attributes(
+    const hipLaunchAttribute* attributes, unsigned int attribute_count,
+    bool* out_cooperative);
 
 hipError_t iree_hip_validate_launch_block_configuration(
     iree_hal_streaming_device_t* device, iree_hal_streaming_symbol_t* symbol,

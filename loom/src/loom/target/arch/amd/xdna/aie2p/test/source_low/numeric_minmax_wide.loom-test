@@ -1,0 +1,41 @@
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @signed_minmax_i8x128(%lhs: vector<128xi8>, %rhs: vector<128xi8>) -> (vector<128xi8>, vector<128xi8>) {
+  %minimum = vector.minsi %lhs, %rhs : vector<128xi8>
+  %maximum = vector.maxsi %lhs, %rhs : vector<128xi8>
+  func.return %minimum, %maximum : vector<128xi8>, vector<128xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @signed_minmax_i8x128(%lhs: reg<aie2p.vec256 x4>, %rhs: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>, reg<aie2p.vec256 x4>) asm {
+  %10 = slice %lhs[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %11 = slice %rhs[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %12 = min.s8x64 %10, %11
+  %13 = slice %lhs[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %14 = slice %rhs[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %15 = min.s8x64 %13, %14
+  %minimum = concat(%12, %15) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %19 = max.s8x64 %10, %11
+  %22 = max.s8x64 %13, %14
+  %maximum = concat(%19, %22) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %minimum, %maximum
+}
+
+// ====
+
+func.def @constant_i8x128() -> (vector<128xi8>, vector<128xi8>) {
+  %minimum = vector.constant -128 : vector<128xi8>
+  %maximum = vector.constant 127 : vector<128xi8>
+  func.return %minimum, %maximum : vector<128xi8>, vector<128xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @constant_i8x128() -> (reg<aie2p.vec256 x4>, reg<aie2p.vec256 x4>) asm {
+  %6 = mov.short -128
+  %7 = vbcst.8 %6
+  %minimum = concat(%7, %7) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %9 = mov.short 127
+  %10 = vbcst.8 %9
+  %maximum = concat(%10, %10) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %minimum, %maximum
+}

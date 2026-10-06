@@ -1,0 +1,77 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
+
+package(
+    default_visibility = ["//visibility:private"],
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+loom_cc_library(
+    name = "module_binary",
+    srcs = ["module_binary.c"],
+    hdrs = ["module_binary.h"],
+    deps = [
+        "//loom/src/loom/target/arch/vm:program",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/io:stream",
+        "//runtime/src/iree/vm/bytecode:wire",
+    ],
+)
+
+loom_cc_library(
+    name = "module_compiler",
+    srcs = ["module_compiler.c"],
+    hdrs = ["module_compiler.h"],
+    visibility = [
+        "//loom/binding/c/target/vm:__pkg__",
+        "//loom/src/loom/tooling/compile:__pkg__",
+        "//loom/src/loom/tooling/target/vm:__pkg__",
+    ],
+    deps = [
+        ":module_binary",
+        "//loom/src/loom/target:provider",
+        "//loom/src/loom/target/arch/vm:program_build",
+        "//loom/src/loom/target/arch/vm:provider",
+        "//loom/src/loom/target/arch/vm/ops",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+iree_assert_dependency_boundary(
+    name = "module_compiler_has_no_tooling_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/tooling/..."],
+    message = "VM module compilation is target-owned and must not depend on tooling",
+    target = ":module_compiler",
+)
+
+loom_cc_test(
+    name = "module_binary_test",
+    srcs = ["module_binary_test.cc"],
+    target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),
+    deps = [
+        ":module_binary",
+        "//loom/src/loom/target/arch/vm:program",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_assert_dependency_boundary(
+    name = "module_binary_compiler_boundary",
+    allowed_dependencies = [
+        "//loom/src/loom/target/arch/vm:program",
+        "//loom/src/loom/target/emit/vm:module_binary",
+    ],
+    forbidden_subtrees = ["//loom/src/loom/..."],
+    message = "VM binary emission consumes only its target-owned physical program and runtime writers",
+    target = ":module_binary",
+)

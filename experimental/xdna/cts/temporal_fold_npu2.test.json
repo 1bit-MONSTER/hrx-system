@@ -1,0 +1,260 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "wide temporal fold first-copy preserves negative-zero bits across ring wrap and CFG exits on NPU2",
+      "steps": [
+        {
+          "name": "fixtures",
+          "run": {"tool": "generate-cases", "args": ["first-copy", "{tmp}/fixtures"]}
+        },
+        {
+          "name": "compile",
+          "run": {
+            "tool": "loom-compile",
+            "args": [
+              "{srcdir}/testdata/temporal_fold.loom",
+              "--root=@temporal_fold_first_copy",
+              "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+              "--output={tmp}/fold.xdna"
+            ]
+          }
+        },
+        {
+          "name": "execute",
+          "run": {
+            "tool": "iree-xdna-run",
+            "args": [
+              "--image={tmp}/fold.xdna",
+              "--columns=1",
+              "--entry=temporal_fold_first_copy",
+              "--invocation_count=3",
+              "--binding_memory=system",
+              "--binding={tmp}/fixtures/input.bin",
+              "--binding={tmp}/fixtures/output.bin",
+              "--output=0={tmp}/input-readback.bin",
+              "--output=1={tmp}/output-readback.bin"
+            ]
+          },
+          "files": [
+            {"path": "{tmp}/input-readback.bin", "equals": "{tmp}/fixtures/input.bin"},
+            {"path": "{tmp}/output-readback.bin", "equals": "{tmp}/fixtures/expected.bin"}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wide temporal folds preserve ordered final contributions across ring wrap and CFG exits on NPU2",
+      "steps": [
+        {
+          "name": "fixtures",
+          "run": {"tool": "generate-cases", "args": ["wide", "{tmp}/fixtures"]}
+        },
+        {
+          "name": "compile",
+          "run": {
+            "tool": "loom-compile",
+            "args": [
+              "{srcdir}/testdata/temporal_fold.loom",
+              "--root=@temporal_fold_packets",
+              "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+              "--output={tmp}/fold.xdna"
+            ]
+          }
+        },
+        {
+          "name": "execute",
+          "run": {
+            "tool": "iree-xdna-run",
+            "args": [
+              "--image={tmp}/fold.xdna",
+              "--columns=1",
+              "--entry=temporal_fold_packets",
+              "--invocation_count=3",
+              "--binding_memory=system",
+              "--binding={tmp}/fixtures/input.bin",
+              "--binding={tmp}/fixtures/output.bin",
+              "--output=0={tmp}/input-readback.bin",
+              "--output=1={tmp}/output-readback.bin"
+            ]
+          },
+          "files": [
+            {"path": "{tmp}/input-readback.bin", "equals": "{tmp}/fixtures/input.bin"},
+            {"path": "{tmp}/output-readback.bin", "equals": "{tmp}/fixtures/expected.bin"}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wide temporal fold partial fragments preserve ordered final contributions on NPU2",
+      "steps": [
+        {
+          "name": "fixtures",
+          "run": {"tool": "generate-cases", "args": ["tail", "{tmp}/fixtures"]}
+        },
+        {
+          "name": "compile",
+          "run": {
+            "tool": "loom-compile",
+            "args": [
+              "{srcdir}/testdata/temporal_fold.loom",
+              "--root=@temporal_fold_tail",
+              "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+              "--output={tmp}/fold.xdna"
+            ]
+          }
+        },
+        {
+          "name": "execute",
+          "run": {
+            "tool": "iree-xdna-run",
+            "args": [
+              "--image={tmp}/fold.xdna",
+              "--columns=1",
+              "--entry=temporal_fold_tail",
+              "--invocation_count=3",
+              "--binding_memory=system",
+              "--binding={tmp}/fixtures/input.bin",
+              "--binding={tmp}/fixtures/output.bin",
+              "--output=0={tmp}/input-readback.bin",
+              "--output=1={tmp}/output-readback.bin"
+            ]
+          },
+          "files": [
+            {"path": "{tmp}/input-readback.bin", "equals": "{tmp}/fixtures/input.bin"},
+            {"path": "{tmp}/output-readback.bin", "equals": "{tmp}/fixtures/expected.bin"}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4096-F32 temporal fold first-copy preserves all span bits across ring wrap on NPU2",
+      "steps": [
+        {
+          "name": "fixtures",
+          "run": {"tool": "generate-cases", "args": ["large-first-copy", "{tmp}/fixtures"]}
+        },
+        {
+          "name": "compile",
+          "run": {
+            "tool": "loom-compile",
+            "args": [
+              "{srcdir}/testdata/temporal_fold.loom",
+              "--root=@temporal_fold_large_first_copy",
+              "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+              "--output={tmp}/fold.xdna"
+            ]
+          }
+        },
+        {
+          "name": "execute",
+          "run": {
+            "tool": "iree-xdna-run",
+            "args": [
+              "--image={tmp}/fold.xdna",
+              "--columns=1",
+              "--entry=temporal_fold_large_first_copy",
+              "--invocation_count=3",
+              "--binding_memory=system",
+              "--binding={tmp}/fixtures/input.bin",
+              "--binding={tmp}/fixtures/output.bin",
+              "--output=0={tmp}/input-readback.bin",
+              "--output=1={tmp}/output-readback.bin"
+            ]
+          },
+          "files": [
+            {"path": "{tmp}/input-readback.bin", "equals": "{tmp}/fixtures/input.bin"},
+            {"path": "{tmp}/output-readback.bin", "equals": "{tmp}/fixtures/expected.bin"}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4096-F32 temporal folds preserve ordered final values across span loops and ring wrap on NPU2",
+      "steps": [
+        {
+          "name": "fixtures",
+          "run": {"tool": "generate-cases", "args": ["large", "{tmp}/fixtures"]}
+        },
+        {
+          "name": "compile",
+          "run": {
+            "tool": "loom-compile",
+            "args": [
+              "{srcdir}/testdata/temporal_fold.loom",
+              "--root=@temporal_fold_large_packets",
+              "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+              "--output={tmp}/fold.xdna"
+            ]
+          }
+        },
+        {
+          "name": "execute",
+          "run": {
+            "tool": "iree-xdna-run",
+            "args": [
+              "--image={tmp}/fold.xdna",
+              "--columns=1",
+              "--entry=temporal_fold_large_packets",
+              "--invocation_count=3",
+              "--binding_memory=system",
+              "--binding={tmp}/fixtures/input.bin",
+              "--binding={tmp}/fixtures/output.bin",
+              "--output=0={tmp}/input-readback.bin",
+              "--output=1={tmp}/output-readback.bin"
+            ]
+          },
+          "files": [
+            {"path": "{tmp}/input-readback.bin", "equals": "{tmp}/fixtures/input.bin"},
+            {"path": "{tmp}/output-readback.bin", "equals": "{tmp}/fixtures/expected.bin"}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mixed scalar and repeated-span tail folds retain source stores and private scratch on NPU2",
+      "steps": [
+        {
+          "name": "fixtures",
+          "run": {"tool": "generate-cases", "args": ["mixed", "{tmp}/fixtures"]}
+        },
+        {
+          "name": "compile",
+          "run": {
+            "tool": "loom-compile",
+            "args": [
+              "{srcdir}/testdata/temporal_fold.loom",
+              "--root=@temporal_fold_mixed",
+              "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+              "--output={tmp}/fold.xdna"
+            ]
+          }
+        },
+        {
+          "name": "execute",
+          "run": {
+            "tool": "iree-xdna-run",
+            "args": [
+              "--image={tmp}/fold.xdna",
+              "--columns=1",
+              "--entry=temporal_fold_mixed",
+              "--invocation_count=3",
+              "--binding_memory=system",
+              "--binding={tmp}/fixtures/input.bin",
+              "--binding={tmp}/fixtures/scalar-output.bin",
+              "--binding={tmp}/fixtures/output.bin",
+              "--output=0={tmp}/input-readback.bin",
+              "--output=1={tmp}/scalar-readback.bin",
+              "--output=2={tmp}/output-readback.bin"
+            ]
+          },
+          "files": [
+            {"path": "{tmp}/input-readback.bin", "equals": "{tmp}/fixtures/input.bin"},
+            {"path": "{tmp}/scalar-readback.bin", "equals": "{tmp}/fixtures/scalar-expected.bin"},
+            {"path": "{tmp}/output-readback.bin", "equals": "{tmp}/fixtures/expected.bin"}
+          ]
+        }
+      ]
+    }
+  ]
+}

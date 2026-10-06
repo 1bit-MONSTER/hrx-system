@@ -53,6 +53,18 @@ loom_cc_library(
 endif()
 
 if(LOOM_TARGET_ARCH_SPIRV)
+loom_cc_library(
+  NAME
+    extended_instruction
+  HDRS
+    "extended_instruction.h"
+  DEPS
+
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_SPIRV)
 loom_generated_file(
   NAME
     features_gen
@@ -148,6 +160,7 @@ loom_cc_library(
   SRCS
     "packet_rows.c"
   DEPS
+    ::extended_instruction
     ::isa
     ::value_types
     iree::base
@@ -228,6 +241,22 @@ endif()
 if(LOOM_TARGET_ARCH_SPIRV)
 loom_cc_library(
   NAME
+    compiler_provider
+  HDRS
+    "compiler_provider.h"
+  SRCS
+    "compiler_provider.c"
+  DEPS
+    ::facts
+    loom::target::emit::spirv::module_compiler
+    loom::target::provider
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_SPIRV)
+loom_cc_library(
+  NAME
     profile
   HDRS
     "profile.h"
@@ -284,7 +313,6 @@ loom_cc_library(
     "module_contract.c"
   DEPS
     iree::base
-    loom::codegen::low::target_binding
     loom::target::types
   PUBLIC
 )
@@ -479,6 +507,7 @@ loom_check_test_suite(
     "test/source_low/baseline.loom-test"
     "test/source_low/buffer_bulk.loom-test"
     "test/source_low/buffer_raw.loom-test"
+    "test/source_low/buffer_selection.loom-test"
     "test/source_low/callable_values.loom-test"
     "test/source_low/control_flow_legality.loom-test"
     "test/source_low/index_addressing.loom-test"
@@ -486,45 +515,56 @@ loom_check_test_suite(
     "test/source_low/low_verify_diagnostics.loom-test"
     "test/source_low/math_contraction.loom-test"
     "test/source_low/memory_access_flags.loom-test"
-    "test/source_low/memory_integer_terms.loom-test"
+    "test/source_low/memory_biased_offsets.loom-test"
+    "test/source_low/memory_float8.loom-test"
     "test/source_low/memory_scalar_addressing.loom-test"
-    "test/source_low/memory_scalar_wide_offsets.loom-test"
-    "test/source_low/memory_signed_terms.loom-test"
-    "test/source_low/memory_subview.loom-test"
+    "test/source_low/memory_shared_components.loom-test"
+    "test/source_low/memory_tiled_channel.loom-test"
     "test/source_low/memory_wide_carriers.loom-test"
-    "test/source_low/memory_wide_offsets.loom-test"
     "test/source_low/memory_workgroup_scalar_addressing.loom-test"
+    "test/source_low/narrow_float_arguments.loom-test"
     "test/source_low/nested_view_selection.loom-test"
     "test/source_low/numeric_address_widening.loom-test"
-    "test/source_low/numeric_boolean_comparison.loom-test"
-    "test/source_low/numeric_constant_remainder.loom-test"
-    "test/source_low/numeric_conversion.loom-test"
+    "test/source_low/numeric_bfloat_narrow.loom-test"
+    "test/source_low/numeric_bfloat_widen.loom-test"
     "test/source_low/numeric_conversion_float8.loom-test"
-    "test/source_low/numeric_conversion_wide.loom-test"
+    "test/source_low/numeric_extended_math.loom-test"
+    "test/source_low/numeric_float_arithmetic.loom-test"
     "test/source_low/numeric_float_comparison_flags.loom-test"
+    "test/source_low/numeric_float_narrowing_matrix.loom-test"
     "test/source_low/numeric_index.loom-test"
     "test/source_low/numeric_index_conversion.loom-test"
-    "test/source_low/numeric_minmax.loom-test"
+    "test/source_low/numeric_integer_extrema.loom-test"
+    "test/source_low/numeric_integer_widening.loom-test"
     "test/source_low/numeric_narrow_address.loom-test"
-    "test/source_low/numeric_offset_wide.loom-test"
+    "test/source_low/numeric_narrow_float_carriers.loom-test"
+    "test/source_low/numeric_narrow_float_signs.loom-test"
     "test/source_low/numeric_reciprocal.loom-test"
     "test/source_low/numeric_scalar_f32.loom-test"
+    "test/source_low/numeric_scalar_f32_values.loom-test"
     "test/source_low/numeric_scalar_i32.loom-test"
-    "test/source_low/numeric_scalar_i64.loom-test"
-    "test/source_low/numeric_scalar_i64_shift_counts.loom-test"
-    "test/source_low/numeric_scalar_i64_subtract.loom-test"
-    "test/source_low/numeric_unsigned_constant_division.loom-test"
     "test/source_low/numeric_unsigned_remainder.loom-test"
     "test/source_low/ordinary_vector_float.loom-test"
     "test/source_low/ordinary_vector_structure.loom-test"
+    "test/source_low/packed_memory_alignment.loom-test"
+    "test/source_low/packed_memory_values.loom-test"
+    "test/source_low/predicate_extension.loom-test"
+    "test/source_low/predicate_truncation.loom-test"
+    "test/source_low/predicate_truncation_diagnostics.loom-test"
+    "test/source_low/semantic_assertions.loom-test"
     "test/source_low/source_low.loom-test"
     "test/source_low/source_low_diagnostics.loom-test"
+    "test/source_low/split_barrier.loom-test"
     "test/source_low/structural_value_types_bytecode.loom-test"
     "test/source_low/structured_control.loom-test"
+    "test/source_low/subgroup_ballot.loom-test"
     "test/source_low/target_legalize.loom-test"
+    "test/source_low/unbound_low.loom-test"
+    "test/source_low/vector_atomic_policy.loom-test"
     "test/source_low/vector_large_insert.loom-test"
     "test/source_low/view_transport.loom-test"
     "test/source_low/workgroup_storage.loom-test"
+    "test/source_low/workgroup_storage_reuse.loom-test"
   TEST_NAME_PREFIX_TO_STRIP
     "test/source_low/"
 )

@@ -13,6 +13,7 @@
 
 typedef struct loomc_target_environment_t loomc_target_environment_t;
 typedef struct loomc_target_pass_environment_t loomc_target_pass_environment_t;
+typedef struct loom_cleanup_pattern_registry_t loom_cleanup_pattern_registry_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,6 +31,10 @@ LOOMC_API_PRIVATE loomc_target_environment_t* loomc_context_target_environment(
 // environment, or NULL for a target-free context.
 LOOMC_API_PRIVATE const loomc_target_pass_environment_t*
 loomc_context_target_pass_environment(const loomc_context_t* context);
+
+// Returns the immutable cleanup pattern registry owned by the context.
+LOOMC_API_PRIVATE const loom_cleanup_pattern_registry_t*
+loomc_context_cleanup_pattern_registry(const loomc_context_t* context);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -556,3 +556,42 @@ func.def @assume_spec_matrix_schema_summary(%schema: encoding<schema>) -> (i64, 
   %scale_format = scalar.constant 16777216 : i64
   func.return %format, %scale_format : i64, i64
 }
+
+// ====
+
+// Empty layouts describe scalar storage. Both construction and refinement
+// retain that address-layout category.
+func.def @zero_rank_strided_layout(%layout: encoding<layout>) -> (i64, i64) {
+  %empty = encoding.layout.strided [] : encoding<layout>
+  %assumed = encoding.layout.assume.strided %layout {rank = 0} : encoding<layout>
+  %constructed_kind = test.fact_encoding_layout_kind %empty : encoding<layout> -> i64
+  %assumed_kind = test.fact_encoding_layout_kind %assumed : encoding<layout> -> i64
+  func.return %constructed_kind, %assumed_kind : i64, i64
+}
+// ----
+func.def @zero_rank_strided_layout(%layout: encoding<layout>) -> (i64, i64) {
+  %constructed_kind = scalar.constant 2 : i64
+  %assumed_kind = scalar.constant 2 : i64
+  func.return %constructed_kind, %assumed_kind : i64, i64
+}
+
+// ====
+
+// The highest supported axis retains its dynamic stride and matches the
+// rank contract of static layouts and shaped types.
+func.def @maximum_rank_strided_layout(%layout: encoding<layout>, %stride: index) -> (i64, i64, i64) {
+  %bounded_stride = index.assume %stride [range(%stride, 1, 64)] : index
+  %constructed = encoding.layout.strided [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, %bounded_stride] : encoding<layout>
+  %assumed = encoding.layout.assume.strided %layout {rank = 15} : encoding<layout>
+  %constructed_stride = test.fact_encoding_layout_stride_hi %constructed [14] : encoding<layout> -> i64
+  %assumed_kind = test.fact_encoding_layout_kind %assumed : encoding<layout> -> i64
+  %assumed_stride = test.fact_encoding_layout_stride_hi %assumed [14] : encoding<layout> -> i64
+  func.return %constructed_stride, %assumed_kind, %assumed_stride : i64, i64, i64
+}
+// ----
+func.def @maximum_rank_strided_layout(%layout: encoding<layout>, %stride: index) -> (i64, i64, i64) {
+  %constructed_stride = scalar.constant 64 : i64
+  %assumed_kind = scalar.constant 2 : i64
+  %assumed_stride = scalar.constant 9223372036854775807 : i64
+  func.return %constructed_stride, %assumed_kind, %assumed_stride : i64, i64, i64
+}

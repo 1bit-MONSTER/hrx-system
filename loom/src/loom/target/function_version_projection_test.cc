@@ -29,6 +29,15 @@ namespace {
 
 using ModulePtr = ::loom::testing::ModulePtr;
 
+struct SpecializationResult {
+  explicit SpecializationResult(iree_arena_allocator_t* arena) {
+    loom_function_version_owner_initialize(arena, &function_versions);
+  }
+
+  loom_function_version_owner_t function_versions;
+  uint32_t error_count = 0;
+};
+
 typedef struct TestTargetProfile {
   // Generic target profile base.
   loom_target_profile_t base;
@@ -255,7 +264,7 @@ class TargetFunctionVersionProjectionTest : public ::testing::Test {
     return count;
   }
 
-  loom_target_specialization_result_t Specialize(
+  SpecializationResult Specialize(
       loom_module_t* module,
       const loom_target_specialization_request_t* requests,
       iree_host_size_t request_count) {
@@ -263,11 +272,11 @@ class TargetFunctionVersionProjectionTest : public ::testing::Test {
                                      request_count);
   }
 
-  loom_target_specialization_result_t SpecializeWithEnvironment(
+  SpecializationResult SpecializeWithEnvironment(
       const loom_target_environment_t* environment, loom_module_t* module,
       const loom_target_specialization_request_t* requests,
       iree_host_size_t request_count) {
-    loom_target_specialization_result_t result = {};
+    SpecializationResult result(&version_arena_);
     IREE_CHECK_OK(loom_target_specialize_functions(environment, module,
                                                    {
                                                        /*.values=*/requests,
@@ -275,17 +284,19 @@ class TargetFunctionVersionProjectionTest : public ::testing::Test {
                                                    },
                                                    /*.bindings=*/{},
                                                    /*.diagnostic_emitter=*/{},
-                                                   &version_arena_, &result));
+                                                   &result.function_versions,
+                                                   &result.error_count));
     IREE_ASSERT_EQ(result.error_count, 0u);
     return result;
   }
 
   ModulePtr Project(const loom_module_t* source_module,
-                    const loom_function_version_list_t* function_versions) {
+                    const loom_function_version_list_t* function_versions,
+                    loom_function_version_owner_t* out_versions = nullptr) {
     loom_module_t* projected_module = nullptr;
     IREE_CHECK_OK(loom_target_function_versions_project_module(
         source_module, function_versions, &block_pool_, iree_allocator_system(),
-        &projected_module));
+        out_versions, &projected_module));
     return ModulePtr(projected_module);
   }
 
@@ -374,7 +385,7 @@ func.def public @right() {
           /*.target_profile=*/&profile.base,
       },
   };
-  const loom_target_specialization_result_t specialization =
+  const SpecializationResult specialization =
       Specialize(source.get(), requests, IREE_ARRAYSIZE(requests));
   ASSERT_EQ(specialization.function_versions.list.count, 2u);
   const auto* left_version = loom_target_function_version_const_cast(
@@ -421,7 +432,7 @@ func.def public target(@requirement) @entry() {
       /*.function_name=*/IREE_SV("entry"),
       /*.target_profile=*/&profile.base,
   };
-  const loom_target_specialization_result_t specialization =
+  const SpecializationResult specialization =
       Specialize(source.get(), &request, 1);
   const auto* version = loom_target_function_version_const_cast(
       specialization.function_versions.list.values[0]);
@@ -490,17 +501,36 @@ func.def public target(@exact) @entry() {
       /*.function_name=*/IREE_SV("entry"),
       /*.target_profile=*/&profile.base,
   };
-  const loom_target_specialization_result_t specialization =
+  const SpecializationResult specialization =
       Specialize(source.get(), &request, 1);
   const iree_host_size_t source_symbol_count = source->symbols.count;
 
-  ModulePtr projected =
-      Project(source.get(), &specialization.function_versions.list);
+  iree_arena_allocator_t clone_arena;
+  iree_arena_initialize(&block_pool_, &clone_arena);
+  loom_function_version_owner_t cloned_versions;
+  loom_function_version_owner_initialize(&clone_arena, &cloned_versions);
+  ModulePtr projected = Project(
+      source.get(), &specialization.function_versions.list, &cloned_versions);
+  source.reset();
+  iree_arena_reset(&version_arena_);
 
+  ASSERT_EQ(cloned_versions.list.count, 1u);
+  const auto* cloned_version =
+      loom_target_function_version_const_cast(cloned_versions.list.values[0]);
+  EXPECT_EQ(
+      cloned_version->base.function.op,
+      projected->symbols.entries[FindSymbol(projected.get(), IREE_SV("entry"))]
+          .defining_op);
+  EXPECT_TRUE(iree_string_view_equal(cloned_version->authored_target_name,
+                                     IREE_SV("exact")));
+  EXPECT_EQ(cloned_version->function_target_facts->selector,
+            LOOM_TEST_TARGET_KIND_LOW_CORE);
+  EXPECT_TRUE(cloned_version->authored_target_is_exact);
   EXPECT_EQ(projected->symbols.count, source_symbol_count);
   EXPECT_EQ(CountTestTargets(projected.get()), 1u);
   EXPECT_TRUE(iree_string_view_equal(
       FunctionTargetName(projected.get(), IREE_SV("entry")), IREE_SV("exact")));
+  iree_arena_deinitialize(&clone_arena);
 }
 
 TEST_F(TargetFunctionVersionProjectionTest,
@@ -528,7 +558,7 @@ func.def public target(@exact) @second() {
           /*.target_profile=*/&profile.base,
       },
   };
-  const loom_target_specialization_result_t specialization =
+  const SpecializationResult specialization =
       Specialize(source.get(), requests, IREE_ARRAYSIZE(requests));
   const auto* first_version = loom_target_function_version_const_cast(
       specialization.function_versions.list.values[0]);
@@ -620,7 +650,7 @@ func.def public @right() {
           /*.target_profile=*/&right_profile.base,
       },
   };
-  const loom_target_specialization_result_t specialization =
+  const SpecializationResult specialization =
       Specialize(source.get(), requests, IREE_ARRAYSIZE(requests));
   const auto* left_version = loom_target_function_version_const_cast(
       specialization.function_versions.list.values[0]);
@@ -657,7 +687,7 @@ func.def public @right() { func.return }
       {IREE_SV("left"), &left_profile.base},
       {IREE_SV("right"), &right_profile.base},
   };
-  loom_target_specialization_result_t specialization =
+  SpecializationResult specialization =
       Specialize(source.get(), requests, IREE_ARRAYSIZE(requests));
   auto* owner = &specialization.function_versions;
   ASSERT_EQ(owner->list.count, 2u);
@@ -725,7 +755,7 @@ func.def @__loom_target_context_0_17() {
           /*.target_profile=*/&low_profile.base,
       },
   };
-  const loom_target_specialization_result_t specialization =
+  const SpecializationResult specialization =
       Specialize(source.get(), requests, IREE_ARRAYSIZE(requests));
 
   ModulePtr first =
@@ -770,7 +800,7 @@ func.def public target(@exact) @entry() {
       /*.function_name=*/IREE_SV("entry"),
       /*.target_profile=*/&profile.base,
   };
-  const loom_target_specialization_result_t specialization =
+  const SpecializationResult specialization =
       SpecializeWithEnvironment(&environment, source.get(), &request, 1);
   loom_target_environment_deinitialize(&environment);
   const auto* version = loom_target_function_version_const_cast(
@@ -802,7 +832,7 @@ func.def public @entry() {
       /*.function_name=*/IREE_SV("entry"),
       /*.target_profile=*/&profile.base,
   };
-  const loom_target_specialization_result_t specialization =
+  const SpecializationResult specialization =
       SpecializeWithEnvironment(&environment, source.get(), &request, 1);
   loom_target_environment_deinitialize(&environment);
   loom_module_t* projected_module = nullptr;
@@ -811,7 +841,7 @@ func.def public @entry() {
       IREE_STATUS_FAILED_PRECONDITION,
       loom_target_function_versions_project_module(
           source.get(), &specialization.function_versions.list, &block_pool_,
-          iree_allocator_system(), &projected_module));
+          iree_allocator_system(), nullptr, &projected_module));
   EXPECT_EQ(projected_module, nullptr);
 }
 
@@ -838,10 +868,11 @@ func.def public @entry() {
   };
   loom_module_t* projected_module = nullptr;
 
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
-                        loom_target_function_versions_project_module(
-                            source.get(), &versions, &block_pool_,
-                            iree_allocator_system(), &projected_module));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_FAILED_PRECONDITION,
+      loom_target_function_versions_project_module(
+          source.get(), &versions, &block_pool_, iree_allocator_system(),
+          nullptr, &projected_module));
   EXPECT_EQ(projected_module, nullptr);
 }
 
@@ -866,10 +897,11 @@ func.def public @entry() {
   };
   loom_module_t* projected_module = nullptr;
 
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
-                        loom_target_function_versions_project_module(
-                            source.get(), &versions, &block_pool_,
-                            iree_allocator_system(), &projected_module));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_FAILED_PRECONDITION,
+      loom_target_function_versions_project_module(
+          source.get(), &versions, &block_pool_, iree_allocator_system(),
+          nullptr, &projected_module));
   EXPECT_EQ(projected_module, nullptr);
 }
 

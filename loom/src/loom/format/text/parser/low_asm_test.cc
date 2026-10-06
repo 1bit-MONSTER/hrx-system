@@ -114,7 +114,7 @@ class LowAsmParserTest : public ::testing::Test {
     return module;
   }
 
-  const std::vector<CapturedDiagnostic>& ParseExpectErrors(const char* source) {
+  const std::deque<CapturedDiagnostic>& ParseExpectErrors(const char* source) {
     loom_module_t* module = nullptr;
     IREE_EXPECT_OK(Parse(source, /*enable_low_asm=*/true, &module));
     EXPECT_EQ(module, nullptr);

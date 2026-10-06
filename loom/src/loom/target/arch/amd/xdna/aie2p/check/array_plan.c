@@ -8,10 +8,13 @@
 
 #include <inttypes.h>
 
+#include "loom/analysis/symbol_facts.h"
 #include "loom/codegen/low/diagnostics.h"
 #include "loom/codegen/low/function_requirements.h"
 #include "loom/codegen/low/storage_layout.h"
+#include "loom/codegen/low/target_binding.h"
 #include "loom/codegen/low/text_asm.h"
+#include "loom/error/error_catalog.h"
 #include "loom/format/text/printer.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
@@ -53,9 +56,10 @@ static iree_status_t loom_aie2p_array_plan_check_parse_symbol(
 }
 
 static bool loom_aie2p_array_plan_check_has_contract(
-    const loom_module_t* module, loom_op_t* function_op,
+    const loom_module_t* module, const loom_op_t* function_op,
     iree_string_view_t expected_contract) {
-  const loom_func_like_t function = loom_func_like_cast(module, function_op);
+  const loom_func_like_t function =
+      loom_func_like_const_cast(module, function_op);
   const loom_string_id_t contract_id = loom_func_like_repr_contract(function);
   return contract_id < module->strings.count &&
          iree_string_view_equal(
@@ -65,6 +69,7 @@ static bool loom_aie2p_array_plan_check_has_contract(
 
 static iree_status_t loom_aie2p_array_plan_check_collect_leaves(
     const loom_check_emit_provider_request_t* request,
+    iree_diagnostic_emitter_t diagnostic_emitter,
     loom_aie2p_array_leaf_t** out_leaves, iree_host_size_t* out_leaf_count) {
   *out_leaves = NULL;
   *out_leaf_count = 0;
@@ -78,14 +83,11 @@ static iree_status_t loom_aie2p_array_plan_check_collect_leaves(
       ++leaf_count;
     }
   }
-  if (leaf_count == 0) {
-    return iree_make_status(IREE_STATUS_NOT_FOUND,
-                            "AIE2P array module contains no core leaves");
-  }
-
   loom_aie2p_array_leaf_t* leaves = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       request->case_arena, leaf_count, sizeof(*leaves), (void**)&leaves));
+  loom_symbol_fact_table_t symbol_facts = {0};
+  loom_symbol_fact_table_initialize(&symbol_facts, request->case_arena);
   iree_host_size_t leaf_index = 0;
   loom_module_for_each_symbol(request->module, symbol) {
     if (!symbol->defining_op || !loom_low_func_def_isa(symbol->defining_op) ||
@@ -94,11 +96,21 @@ static iree_status_t loom_aie2p_array_plan_check_collect_leaves(
             IREE_SV("amd.xdna.aie2p.core"))) {
       continue;
     }
+    loom_low_resolved_target_t target = {0};
+    IREE_RETURN_IF_ERROR(loom_low_resolve_function_target(
+        request->module, &symbol_facts, symbol->defining_op,
+        /*function_target_facts=*/NULL, &request->low_registry->registry,
+        diagnostic_emitter, &target));
+    if (target.descriptor_set == NULL) {
+      return iree_ok_status();
+    }
     leaves[leaf_index] = (loom_aie2p_array_leaf_t){
         .entry = {.module_id = 0,
                   .symbol_id =
                       (loom_symbol_id_t)(symbol -
                                          request->module->symbols.entries)},
+        .function_op = symbol->defining_op,
+        .function_target_facts = target.target_facts,
     };
     IREE_RETURN_IF_ERROR(loom_low_function_requirements_build(
         request->module, loom_low_func_def_body(symbol->defining_op),
@@ -216,10 +228,10 @@ static iree_status_t loom_aie2p_array_plan_check_format(
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       builder,
       "array @%.*s family=%s groups=%" PRIhsz " workers=%" PRIhsz
-      " bindings=%" PRIhsz " channels=%" PRIhsz " slots=%" PRIhsz
+      " bindings=%" PRIu32 " channels=%" PRIhsz " slots=%" PRIhsz
       " locks=%" PRIhsz " dma=%" PRIhsz " routes=%" PRIhsz "\n",
       (int)function_name.size, function_name.data, plan->family->key,
-      plan->group_count, plan->worker_count, plan->binding_count,
+      plan->group_count, plan->worker_count, plan->binding_slot_count,
       plan->channel_count, plan->channel_slot_count, plan->lock_count,
       plan->dma_channel_count, plan->route_count));
 
@@ -233,7 +245,7 @@ static iree_status_t loom_aie2p_array_plan_check_format(
   for (iree_host_size_t i = 0; i < plan->worker_count; ++i) {
     const loom_aie2p_array_worker_t* worker = &plan->workers[i];
     const loom_low_function_requirements_t* requirements =
-        plan->worker_plans[i].requirements;
+        &worker->leaf->requirements;
     const iree_string_view_t entry_name =
         loom_low_diagnostic_symbol_name(module, worker->entry);
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
@@ -291,6 +303,40 @@ static iree_status_t loom_aie2p_array_plan_check_format(
         " load-address=0x%05" PRIx32 " bytes=%" PRIu32 "\n",
         storage->worker_index, storage->storage_space, storage->owner_offset,
         storage->load_address, storage->byte_length));
+  }
+  for (iree_host_size_t i = 0; i < plan->read_only_data_count; ++i) {
+    const loom_aie2p_array_read_only_data_plan_t* data =
+        &plan->read_only_data[i];
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+        builder,
+        "worker-rodata worker=%" PRIu32 " requirement=%" PRIu32
+        " offset=0x%05" PRIx32 " load-address=0x%05" PRIx32 " bytes=%" PRIu32
+        "\n",
+        data->worker_index, data->requirement_ordinal, data->owner_offset,
+        data->load_address, data->byte_length));
+  }
+  for (iree_host_size_t i = 0; i < plan->worker_plan_count; ++i) {
+    const loom_aie2p_array_fold_state_plan_t* state =
+        &plan->worker_plans[i].fold_state;
+    if (state->byte_length == 0) {
+      continue;
+    }
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+        builder,
+        "worker-fold-state worker=%" PRIhsz " offset=0x%05" PRIx32
+        " load-address=0x%05" PRIx32 " bytes=%" PRIu32 " spans=%" PRIu32 "\n",
+        i, state->owner_offset, state->load_address, state->byte_length,
+        state->span_count));
+    for (uint32_t j = 0; j < state->span_count; ++j) {
+      const loom_aie2p_array_fold_span_t* span = &state->spans[j];
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+          builder,
+          "fold-span worker=%" PRIhsz " index=%" PRIu32 " output=%" PRIu32
+          " output-offset=%" PRIu32 " state-offset=%" PRIu32 " bytes=%" PRIu32
+          " repeat=%" PRIu32 "\n",
+          i, j, span->output_index, span->output_byte_offset,
+          span->state_byte_offset, span->byte_length, span->repeat_count));
+    }
   }
   for (iree_host_size_t i = 0; i < plan->worker_port_count; ++i) {
     const loom_aie2p_array_worker_port_plan_t* port = &plan->worker_ports[i];
@@ -602,27 +648,34 @@ static iree_status_t loom_aie2p_array_program_check_format(
   return iree_ok_status();
 }
 
-static iree_status_t loom_aie2p_array_plan_check_resident_program(
+static iree_status_t loom_aie2p_array_plan_check_resident_program_in_module(
     const loom_check_emit_provider_request_t* request,
-    const loom_aie2p_array_plan_t* plan,
+    loom_module_t* resident_module, const loom_aie2p_array_plan_t* plan,
     iree_diagnostic_emitter_t diagnostic_emitter) {
   loom_aie2p_array_resident_program_t program = {0};
-  IREE_RETURN_IF_ERROR(loom_aie2p_array_materialize_resident_program(
-      request->module, plan, request->case_arena, &program));
+  IREE_RETURN_IF_ERROR(loom_aie2p_array_materialize_resident_programs(
+      request->module, resident_module, plan, /*plan_count=*/1,
+      request->case_arena, &program));
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       &request->result->actual_output,
       "\nresident-program workers=%" PRIhsz "\n", program.worker_count));
 
-  const loom_aie2p_leaf_compile_options_t compile_options = {
-      .descriptor_registry = &request->low_registry->registry,
-      .diagnostic_emitter = diagnostic_emitter,
-  };
   for (iree_host_size_t i = 0; i < program.worker_count; ++i) {
     const loom_aie2p_array_resident_worker_t* resident = &program.workers[i];
+    const loom_aie2p_leaf_compile_options_t compile_options = {
+        .function_target_facts = resident->function_target_facts,
+        .memory_accesses = resident->memory_accesses,
+        .descriptor_registry = &request->low_registry->registry,
+        .diagnostic_emitter = diagnostic_emitter,
+    };
     loom_aie2p_leaf_contribution_t contribution = {0};
+    bool compiled = false;
     IREE_RETURN_IF_ERROR(loom_aie2p_leaf_compile(
-        request->module, resident->function_op, &compile_options,
-        request->case_arena, &contribution));
+        resident_module, resident->function_op, &compile_options,
+        request->case_arena, &compiled, &contribution));
+    if (!compiled) {
+      return iree_ok_status();
+    }
     if (contribution.realization.resource_import_count != 0) {
       return iree_make_status(
           IREE_STATUS_FAILED_PRECONDITION,
@@ -631,7 +684,7 @@ static iree_status_t loom_aie2p_array_plan_check_resident_program(
     const loom_xdna_tile_coordinate_t coordinate =
         plan->worker_plans[resident->worker_index].coordinate;
     const iree_string_view_t entry_name =
-        loom_low_diagnostic_symbol_name(request->module, resident->entry);
+        loom_low_diagnostic_symbol_name(resident_module, resident->entry);
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
         &request->result->actual_output,
         "resident worker=%" PRIu32
@@ -655,10 +708,27 @@ static iree_status_t loom_aie2p_array_plan_check_resident_program(
     IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(
         &request->result->actual_output, "\n"));
     IREE_RETURN_IF_ERROR(loom_text_print_operation_to_builder_with_options(
-        request->module, program.workers[i].function_op,
+        resident_module, program.workers[i].function_op,
         &request->result->actual_output, &print_options));
   }
   return iree_ok_status();
+}
+
+static iree_status_t loom_aie2p_array_plan_check_resident_program(
+    const loom_check_emit_provider_request_t* request,
+    const loom_aie2p_array_plan_t* plan,
+    iree_diagnostic_emitter_t diagnostic_emitter) {
+  loom_module_t* resident_module = NULL;
+  iree_status_t status = loom_module_allocate(
+      request->module->context, IREE_SV("aie2p.array-plan.resident"),
+      request->block_pool, /*hints=*/NULL, request->host_allocator,
+      &resident_module);
+  if (iree_status_is_ok(status)) {
+    status = loom_aie2p_array_plan_check_resident_program_in_module(
+        request, resident_module, plan, diagnostic_emitter);
+  }
+  loom_module_free(resident_module);
+  return status;
 }
 
 static iree_status_t loom_aie2p_array_plan_check_execute(
@@ -702,26 +772,42 @@ static iree_status_t loom_aie2p_array_plan_check_execute(
   if (array_function == NULL) {
     return iree_ok_status();
   }
+  const loom_func_like_t function =
+      loom_func_like_cast(request->module, array_function);
+  const iree_string_view_t contract = loom_string_table_get(
+      &request->module->strings, loom_func_like_repr_contract(function));
+  if (!iree_string_view_equal(contract, IREE_SV("amd.xdna.aie2p.array"))) {
+    const loom_diagnostic_param_t params[] = {
+        loom_param_string(function_symbol_name),
+        loom_param_string(contract),
+        loom_param_string(IREE_SV("aie2p-array-plan")),
+        loom_param_string(IREE_SV("amd.xdna.aie2p.array")),
+    };
+    const loom_diagnostic_emission_t emission = {
+        .op = array_function,
+        .error = LOOM_ERR_TARGET_055,
+        .params = params,
+        .param_count = IREE_ARRAYSIZE(params),
+    };
+    return iree_diagnostic_emit(diagnostic_emitter, &emission);
+  }
 
   loom_aie2p_array_leaf_t* leaves = NULL;
   iree_host_size_t leaf_count = 0;
   IREE_RETURN_IF_ERROR(loom_aie2p_array_plan_check_collect_leaves(
-      request, &leaves, &leaf_count));
+      request, diagnostic_emitter, &leaves, &leaf_count));
   if (request->diagnostic_collector->count != 0) {
     return iree_ok_status();
   }
 
   loom_aie2p_array_plan_t plan = {0};
-  status = loom_aie2p_array_plan_build(request->module, array_function, leaves,
-                                       leaf_count, diagnostic_emitter,
-                                       request->case_arena, &plan);
-  if (iree_status_is_invalid_argument(status) &&
-      request->diagnostic_collector->count != 0) {
-    // The structured diagnostic is the result checked by the caller.
-    iree_status_free(status);
+  bool valid = false;
+  IREE_RETURN_IF_ERROR(loom_aie2p_array_plan_build(
+      request->module, array_function, leaves, leaf_count, diagnostic_emitter,
+      request->case_arena, &plan, &valid));
+  if (!valid) {
     return iree_ok_status();
   }
-  IREE_RETURN_IF_ERROR(status);
   IREE_RETURN_IF_ERROR(loom_aie2p_array_plan_check_format(
       request->module, &plan, &request->result->actual_output));
   loom_aie2p_array_program_t array_program = {0};

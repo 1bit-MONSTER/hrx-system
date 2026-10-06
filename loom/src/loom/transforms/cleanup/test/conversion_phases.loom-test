@@ -1,0 +1,540 @@
+// RUN: pass combine
+
+// Source combine selects direct scalar and vector conversions while source
+// representations are still legal. The matrix includes the cases that must
+// remain sequenced because an intermediate rounding or signed interpretation
+// is observable.
+func.def @scalar_float_extension_chain(%x: f8E4M3) -> (f32) {
+  %middle = scalar.extf %x : f8E4M3 to bf16
+  %result = scalar.extf %middle : bf16 to f32
+  func.return %result : f32
+}
+
+func.def @scalar_float_extension_then_wider_truncation(%x: f8E4M3) -> (f16) {
+  %middle = scalar.extf %x : f8E4M3 to f32
+  %result = scalar.fptrunc %middle : f32 to f16
+  func.return %result : f16
+}
+
+func.def @scalar_float_extension_then_narrower_truncation(%x: f16) -> (f8E4M3) {
+  %middle = scalar.extf %x : f16 to f32
+  %result = scalar.fptrunc %middle : f32 to f8E4M3
+  func.return %result : f8E4M3
+}
+
+func.def @scalar_float_equal_width_endpoints(%x: bf16) -> (f16) {
+  %middle = scalar.extf %x : bf16 to f32
+  %result = scalar.fptrunc %middle : f32 to f16
+  func.return %result : f16
+}
+
+func.def @scalar_float_truncation_chain(%x: f64) -> (f16) {
+  %middle = scalar.fptrunc %x : f64 to f32
+  %result = scalar.fptrunc %middle : f32 to f16
+  func.return %result : f16
+}
+
+func.def @scalar_float_truncate_then_extend(%x: f64) -> (f32) {
+  %middle = scalar.fptrunc %x : f64 to f16
+  %result = scalar.extf %middle : f16 to f32
+  func.return %result : f32
+}
+
+func.def @scalar_exact_roundtrips(%float: f16, %signed: i8, %unsigned: i8) -> (f16, i8, i8) {
+  %wide_float = scalar.extf %float : f16 to f32
+  %float_result = scalar.fptrunc %wide_float : f32 to f16
+  %wide_signed = scalar.extsi %signed : i8 to i32
+  %signed_result = scalar.trunci %wide_signed : i32 to i8
+  %wide_unsigned = scalar.extui %unsigned : i8 to i32
+  %unsigned_result = scalar.trunci %wide_unsigned : i32 to i8
+  func.return %float_result, %signed_result, %unsigned_result : f16, i8, i8
+}
+
+func.def @scalar_signed_extension_chain(%x: i8) -> (i32) {
+  %middle = scalar.extsi %x : i8 to i16
+  %result = scalar.extsi %middle : i16 to i32
+  func.return %result : i32
+}
+
+func.def @scalar_signed_after_unsigned_extension(%x: i8) -> (i32) {
+  %middle = scalar.extui %x : i8 to i16
+  %result = scalar.extsi %middle : i16 to i32
+  func.return %result : i32
+}
+
+func.def @scalar_unsigned_extension_chain(%x: i8) -> (i32) {
+  %middle = scalar.extui %x : i8 to i16
+  %result = scalar.extui %middle : i16 to i32
+  func.return %result : i32
+}
+
+func.def @scalar_unsigned_after_nonnegative_signed_extension(%x: i8) -> (i32) {
+  %bounded = scalar.assume %x [range(%x, 0, 127)] : i8
+  %middle = scalar.extsi %bounded : i8 to i16
+  %result = scalar.extui %middle : i16 to i32
+  func.return %result : i32
+}
+
+func.def @scalar_unsigned_after_unknown_signed_extension(%x: i8) -> (i32) {
+  %middle = scalar.extsi %x : i8 to i16
+  %result = scalar.extui %middle : i16 to i32
+  func.return %result : i32
+}
+
+func.def @scalar_unsigned_after_i1_signed_extension(%x: i1) -> (i32) {
+  %middle = scalar.extsi %x : i1 to i16
+  %result = scalar.extui %middle : i16 to i32
+  func.return %result : i32
+}
+
+func.def @scalar_truncate_extension_to_intermediate_width(%x: i8) -> (i16) {
+  %middle = scalar.extui %x : i8 to i32
+  %result = scalar.trunci %middle : i32 to i16
+  func.return %result : i16
+}
+
+func.def @scalar_truncate_extension_below_source_width(%x: i16) -> (i8) {
+  %middle = scalar.extsi %x : i16 to i64
+  %result = scalar.trunci %middle : i64 to i8
+  func.return %result : i8
+}
+
+func.def @scalar_truncation_chain(%x: i64) -> (i8) {
+  %middle = scalar.trunci %x : i64 to i32
+  %result = scalar.trunci %middle : i32 to i8
+  func.return %result : i8
+}
+
+func.def @scalar_truncate_then_extend(%x: i32) -> (i16) {
+  %middle = scalar.trunci %x : i32 to i8
+  %result = scalar.extsi %middle : i8 to i16
+  func.return %result : i16
+}
+
+func.def @vector_float_extension_chain(%x: vector<4xf8E4M3>) -> (vector<4xf32>) {
+  %middle = vector.extf %x : vector<4xf8E4M3> to vector<4xbf16>
+  %result = vector.extf %middle : vector<4xbf16> to vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+func.def @vector_float_equal_width_endpoints(%x: vector<4xbf16>) -> (vector<4xf16>) {
+  %middle = vector.extf %x : vector<4xbf16> to vector<4xf32>
+  %result = vector.fptrunc %middle : vector<4xf32> to vector<4xf16>
+  func.return %result : vector<4xf16>
+}
+
+func.def @vector_float_resize_matrix(%x8: vector<4xf8E4M3>, %x16: vector<4xf16>, %x64: vector<4xf64>) -> (vector<4xf16>, vector<4xf8E4M3>, vector<4xf16>, vector<4xf32>) {
+  %wider_middle = vector.extf %x8 : vector<4xf8E4M3> to vector<4xf32>
+  %wider_result = vector.fptrunc %wider_middle : vector<4xf32> to vector<4xf16>
+  %narrower_middle = vector.extf %x16 : vector<4xf16> to vector<4xf32>
+  %narrower_result = vector.fptrunc %narrower_middle : vector<4xf32> to vector<4xf8E4M3>
+  %truncation_middle = vector.fptrunc %x64 : vector<4xf64> to vector<4xf32>
+  %truncation_result = vector.fptrunc %truncation_middle : vector<4xf32> to vector<4xf16>
+  %rounded = vector.fptrunc %x64 : vector<4xf64> to vector<4xf16>
+  %reextended = vector.extf %rounded : vector<4xf16> to vector<4xf32>
+  func.return %wider_result, %narrower_result, %truncation_result, %reextended : vector<4xf16>, vector<4xf8E4M3>, vector<4xf16>, vector<4xf32>
+}
+
+func.def @vector_exact_roundtrips(%float: vector<4xf16>, %signed: vector<4xi8>, %unsigned: vector<4xi8>) -> (vector<4xf16>, vector<4xi8>, vector<4xi8>) {
+  %wide_float = vector.extf %float : vector<4xf16> to vector<4xf32>
+  %float_result = vector.fptrunc %wide_float : vector<4xf32> to vector<4xf16>
+  %wide_signed = vector.extsi %signed : vector<4xi8> to vector<4xi32>
+  %signed_result = vector.trunci %wide_signed : vector<4xi32> to vector<4xi8>
+  %wide_unsigned = vector.extui %unsigned : vector<4xi8> to vector<4xi32>
+  %unsigned_result = vector.trunci %wide_unsigned : vector<4xi32> to vector<4xi8>
+  func.return %float_result, %signed_result, %unsigned_result : vector<4xf16>, vector<4xi8>, vector<4xi8>
+}
+
+func.def @vector_signed_extension_chain(%x: vector<4xi8>) -> (vector<4xi32>) {
+  %middle = vector.extsi %x : vector<4xi8> to vector<4xi16>
+  %result = vector.extsi %middle : vector<4xi16> to vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+func.def @vector_integer_extension_matrix(%x: vector<4xi8>) -> (vector<4xi32>, vector<4xi32>, vector<4xi32>) {
+  %unsigned_middle = vector.extui %x : vector<4xi8> to vector<4xi16>
+  %signed_after_unsigned = vector.extsi %unsigned_middle : vector<4xi16> to vector<4xi32>
+  %unsigned_result = vector.extui %unsigned_middle : vector<4xi16> to vector<4xi32>
+  %signed_middle = vector.extsi %x : vector<4xi8> to vector<4xi16>
+  %unsigned_after_signed = vector.extui %signed_middle : vector<4xi16> to vector<4xi32>
+  func.return %signed_after_unsigned, %unsigned_result, %unsigned_after_signed : vector<4xi32>, vector<4xi32>, vector<4xi32>
+}
+
+func.def @vector_unsigned_after_nonnegative_signed_extension(%x0: i8, %x1: i8, %x2: i8, %x3: i8) -> (vector<4xi32>) {
+  %bounded0 = scalar.assume %x0 [range(%x0, 0, 127)] : i8
+  %bounded1 = scalar.assume %x1 [range(%x1, 0, 127)] : i8
+  %bounded2 = scalar.assume %x2 [range(%x2, 0, 127)] : i8
+  %bounded3 = scalar.assume %x3 [range(%x3, 0, 127)] : i8
+  %source = vector.from_elements %bounded0, %bounded1, %bounded2, %bounded3 : vector<4xi8>
+  %middle = vector.extsi %source : vector<4xi8> to vector<4xi16>
+  %result = vector.extui %middle : vector<4xi16> to vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+func.def @vector_unsigned_after_i1_signed_extension(%x: vector<4xi1>) -> (vector<4xi32>) {
+  %middle = vector.extsi %x : vector<4xi1> to vector<4xi16>
+  %result = vector.extui %middle : vector<4xi16> to vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+func.def @vector_truncation_chain(%x: vector<4xi64>) -> (vector<4xi8>) {
+  %middle = vector.trunci %x : vector<4xi64> to vector<4xi32>
+  %result = vector.trunci %middle : vector<4xi32> to vector<4xi8>
+  func.return %result : vector<4xi8>
+}
+
+func.def @vector_integer_truncation_matrix(%x8: vector<4xi8>, %x16: vector<4xi16>, %x32: vector<4xi32>) -> (vector<4xi16>, vector<4xi8>, vector<4xi16>) {
+  %unsigned_middle = vector.extui %x8 : vector<4xi8> to vector<4xi32>
+  %intermediate = vector.trunci %unsigned_middle : vector<4xi32> to vector<4xi16>
+  %signed_middle = vector.extsi %x16 : vector<4xi16> to vector<4xi64>
+  %below_source = vector.trunci %signed_middle : vector<4xi64> to vector<4xi8>
+  %truncated = vector.trunci %x32 : vector<4xi32> to vector<4xi8>
+  %reextended = vector.extsi %truncated : vector<4xi8> to vector<4xi16>
+  func.return %intermediate, %below_source, %reextended : vector<4xi16>, vector<4xi8>, vector<4xi16>
+}
+
+func.def @vector_conversion_splats(%float_narrow: bf16, %float_wide: f32, %integer_narrow: i8, %integer_wide: i32) -> (vector<4xf32>, vector<4xbf16>, vector<4xi32>, vector<4xi32>, vector<4xi8>) {
+  %float_narrow_splat = vector.splat %float_narrow : vector<4xbf16>
+  %float_extended = vector.extf %float_narrow_splat : vector<4xbf16> to vector<4xf32>
+  %float_wide_splat = vector.splat %float_wide : vector<4xf32>
+  %float_truncated = vector.fptrunc %float_wide_splat : vector<4xf32> to vector<4xbf16>
+  %integer_narrow_splat = vector.splat %integer_narrow : vector<4xi8>
+  %signed_extended = vector.extsi %integer_narrow_splat : vector<4xi8> to vector<4xi32>
+  %unsigned_extended = vector.extui %integer_narrow_splat : vector<4xi8> to vector<4xi32>
+  %integer_wide_splat = vector.splat %integer_wide : vector<4xi32>
+  %integer_truncated = vector.trunci %integer_wide_splat : vector<4xi32> to vector<4xi8>
+  func.return %float_extended, %float_truncated, %signed_extended, %unsigned_extended, %integer_truncated : vector<4xf32>, vector<4xbf16>, vector<4xi32>, vector<4xi32>, vector<4xi8>
+}
+
+// ----
+func.def @scalar_float_extension_chain(%x: f8E4M3) -> (f32) {
+  %result = scalar.extf %x : f8E4M3 to f32
+  func.return %result : f32
+}
+
+func.def @scalar_float_extension_then_wider_truncation(%x: f8E4M3) -> (f16) {
+  %result = scalar.extf %x : f8E4M3 to f16
+  func.return %result : f16
+}
+
+func.def @scalar_float_extension_then_narrower_truncation(%x: f16) -> (f8E4M3) {
+  %result = scalar.fptrunc %x : f16 to f8E4M3
+  func.return %result : f8E4M3
+}
+
+func.def @scalar_float_equal_width_endpoints(%x: bf16) -> (f16) {
+  %middle = scalar.extf %x : bf16 to f32
+  %result = scalar.fptrunc %middle : f32 to f16
+  func.return %result : f16
+}
+
+func.def @scalar_float_truncation_chain(%x: f64) -> (f16) {
+  %middle = scalar.fptrunc %x : f64 to f32
+  %result = scalar.fptrunc %middle : f32 to f16
+  func.return %result : f16
+}
+
+func.def @scalar_float_truncate_then_extend(%x: f64) -> (f32) {
+  %middle = scalar.fptrunc %x : f64 to f16
+  %result = scalar.extf %middle : f16 to f32
+  func.return %result : f32
+}
+
+func.def @scalar_exact_roundtrips(%float: f16, %signed: i8, %unsigned: i8) -> (f16, i8, i8) {
+  func.return %float, %signed, %unsigned : f16, i8, i8
+}
+
+func.def @scalar_signed_extension_chain(%x: i8) -> (i32) {
+  %result = scalar.extsi %x : i8 to i32
+  func.return %result : i32
+}
+
+func.def @scalar_signed_after_unsigned_extension(%x: i8) -> (i32) {
+  %result = scalar.extui %x : i8 to i32
+  func.return %result : i32
+}
+
+func.def @scalar_unsigned_extension_chain(%x: i8) -> (i32) {
+  %result = scalar.extui %x : i8 to i32
+  func.return %result : i32
+}
+
+func.def @scalar_unsigned_after_nonnegative_signed_extension(%x: i8) -> (i32) {
+  %bounded = scalar.assume %x [range(%x, 0, 127)] : i8
+  %result = scalar.extui %bounded : i8 to i32
+  func.return %result : i32
+}
+
+func.def @scalar_unsigned_after_unknown_signed_extension(%x: i8) -> (i32) {
+  %middle = scalar.extsi %x : i8 to i16
+  %result = scalar.extui %middle : i16 to i32
+  func.return %result : i32
+}
+
+func.def @scalar_unsigned_after_i1_signed_extension(%x: i1) -> (i32) {
+  %middle = scalar.extsi %x : i1 to i16
+  %result = scalar.extui %middle : i16 to i32
+  func.return %result : i32
+}
+
+func.def @scalar_truncate_extension_to_intermediate_width(%x: i8) -> (i16) {
+  %result = scalar.extui %x : i8 to i16
+  func.return %result : i16
+}
+
+func.def @scalar_truncate_extension_below_source_width(%x: i16) -> (i8) {
+  %result = scalar.trunci %x : i16 to i8
+  func.return %result : i8
+}
+
+func.def @scalar_truncation_chain(%x: i64) -> (i8) {
+  %result = scalar.trunci %x : i64 to i8
+  func.return %result : i8
+}
+
+func.def @scalar_truncate_then_extend(%x: i32) -> (i16) {
+  %middle = scalar.trunci %x : i32 to i8
+  %result = scalar.extsi %middle : i8 to i16
+  func.return %result : i16
+}
+
+func.def @vector_float_extension_chain(%x: vector<4xf8E4M3>) -> (vector<4xf32>) {
+  %result = vector.extf %x : vector<4xf8E4M3> to vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+func.def @vector_float_equal_width_endpoints(%x: vector<4xbf16>) -> (vector<4xf16>) {
+  %middle = vector.extf %x : vector<4xbf16> to vector<4xf32>
+  %result = vector.fptrunc %middle : vector<4xf32> to vector<4xf16>
+  func.return %result : vector<4xf16>
+}
+
+func.def @vector_float_resize_matrix(%x8: vector<4xf8E4M3>, %x16: vector<4xf16>, %x64: vector<4xf64>) -> (vector<4xf16>, vector<4xf8E4M3>, vector<4xf16>, vector<4xf32>) {
+  %wider_result = vector.extf %x8 : vector<4xf8E4M3> to vector<4xf16>
+  %narrower_result = vector.fptrunc %x16 : vector<4xf16> to vector<4xf8E4M3>
+  %truncation_middle = vector.fptrunc %x64 : vector<4xf64> to vector<4xf32>
+  %truncation_result = vector.fptrunc %truncation_middle : vector<4xf32> to vector<4xf16>
+  %rounded = vector.fptrunc %x64 : vector<4xf64> to vector<4xf16>
+  %reextended = vector.extf %rounded : vector<4xf16> to vector<4xf32>
+  func.return %wider_result, %narrower_result, %truncation_result, %reextended : vector<4xf16>, vector<4xf8E4M3>, vector<4xf16>, vector<4xf32>
+}
+
+func.def @vector_exact_roundtrips(%float: vector<4xf16>, %signed: vector<4xi8>, %unsigned: vector<4xi8>) -> (vector<4xf16>, vector<4xi8>, vector<4xi8>) {
+  func.return %float, %signed, %unsigned : vector<4xf16>, vector<4xi8>, vector<4xi8>
+}
+
+func.def @vector_signed_extension_chain(%x: vector<4xi8>) -> (vector<4xi32>) {
+  %result = vector.extsi %x : vector<4xi8> to vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+func.def @vector_integer_extension_matrix(%x: vector<4xi8>) -> (vector<4xi32>, vector<4xi32>, vector<4xi32>) {
+  %signed_after_unsigned = vector.extui %x : vector<4xi8> to vector<4xi32>
+  %unsigned_result = vector.extui %x : vector<4xi8> to vector<4xi32>
+  %signed_middle = vector.extsi %x : vector<4xi8> to vector<4xi16>
+  %unsigned_after_signed = vector.extui %signed_middle : vector<4xi16> to vector<4xi32>
+  func.return %signed_after_unsigned, %unsigned_result, %unsigned_after_signed : vector<4xi32>, vector<4xi32>, vector<4xi32>
+}
+
+func.def @vector_unsigned_after_nonnegative_signed_extension(%x0: i8, %x1: i8, %x2: i8, %x3: i8) -> (vector<4xi32>) {
+  %bounded0 = scalar.assume %x0 [range(%x0, 0, 127)] : i8
+  %bounded1 = scalar.assume %x1 [range(%x1, 0, 127)] : i8
+  %bounded2 = scalar.assume %x2 [range(%x2, 0, 127)] : i8
+  %bounded3 = scalar.assume %x3 [range(%x3, 0, 127)] : i8
+  %source = vector.from_elements %bounded0, %bounded1, %bounded2, %bounded3 : vector<4xi8>
+  %result = vector.extui %source : vector<4xi8> to vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+func.def @vector_unsigned_after_i1_signed_extension(%x: vector<4xi1>) -> (vector<4xi32>) {
+  %middle = vector.extsi %x : vector<4xi1> to vector<4xi16>
+  %result = vector.extui %middle : vector<4xi16> to vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+func.def @vector_truncation_chain(%x: vector<4xi64>) -> (vector<4xi8>) {
+  %result = vector.trunci %x : vector<4xi64> to vector<4xi8>
+  func.return %result : vector<4xi8>
+}
+
+func.def @vector_integer_truncation_matrix(%x8: vector<4xi8>, %x16: vector<4xi16>, %x32: vector<4xi32>) -> (vector<4xi16>, vector<4xi8>, vector<4xi16>) {
+  %intermediate = vector.extui %x8 : vector<4xi8> to vector<4xi16>
+  %below_source = vector.trunci %x16 : vector<4xi16> to vector<4xi8>
+  %truncated = vector.trunci %x32 : vector<4xi32> to vector<4xi8>
+  %reextended = vector.extsi %truncated : vector<4xi8> to vector<4xi16>
+  func.return %intermediate, %below_source, %reextended : vector<4xi16>, vector<4xi8>, vector<4xi16>
+}
+
+func.def @vector_conversion_splats(%float_narrow: bf16, %float_wide: f32, %integer_narrow: i8, %integer_wide: i32) -> (vector<4xf32>, vector<4xbf16>, vector<4xi32>, vector<4xi32>, vector<4xi8>) {
+  %203 = scalar.extf %float_narrow : bf16 to f32
+  %float_extended = vector.splat %203 : vector<4xf32>
+  %201 = scalar.fptrunc %float_wide : f32 to bf16
+  %float_truncated = vector.splat %201 : vector<4xbf16>
+  %199 = scalar.extsi %integer_narrow : i8 to i32
+  %signed_extended = vector.splat %199 : vector<4xi32>
+  %197 = scalar.extui %integer_narrow : i8 to i32
+  %unsigned_extended = vector.splat %197 : vector<4xi32>
+  %195 = scalar.trunci %integer_wide : i32 to i8
+  %integer_truncated = vector.splat %195 : vector<4xi8>
+  func.return %float_extended, %float_truncated, %signed_extended, %unsigned_extended, %integer_truncated : vector<4xf32>, vector<4xbf16>, vector<4xi32>, vector<4xi32>, vector<4xi8>
+}
+
+// ====
+
+func.def @vector_unsigned_after_mixed_sign_extension(%positive: i8, %negative: i8) -> (vector<2xi32>) {
+  %bounded_positive = scalar.assume %positive [range(%positive, 0, 127)] : i8
+  %bounded_negative = scalar.assume %negative [range(%negative, -128, -1)] : i8
+  %source = vector.from_elements %bounded_positive, %bounded_negative : vector<2xi8>
+  %middle = vector.extsi %source : vector<2xi8> to vector<2xi16>
+  %result = vector.extui %middle : vector<2xi16> to vector<2xi32>
+  func.return %result : vector<2xi32>
+}
+
+// ----
+func.def @vector_unsigned_after_mixed_sign_extension(%positive: i8, %negative: i8) -> (vector<2xi32>) {
+  %bounded_positive = scalar.assume %positive [range(%positive, 0, 127)] : i8
+  %bounded_negative = scalar.assume %negative [range(%negative, -128, -1)] : i8
+  %source = vector.from_elements %bounded_positive, %bounded_negative : vector<2xi8>
+  %middle = vector.extsi %source : vector<2xi8> to vector<2xi16>
+  %result = vector.extui %middle : vector<2xi16> to vector<2xi32>
+  func.return %result : vector<2xi32>
+}
+
+// ====
+// RUN: pass canonicalize
+
+// Universal cleanup preserves source and target-selected conversion forms. It
+// only removes extension/truncation pairs whose endpoint type is exactly the
+// original type.
+func.def @scalar_float_source_chain(%x: f8E4M3) -> (f16) {
+  %middle = scalar.extf %x : f8E4M3 to f32
+  %result = scalar.fptrunc %middle : f32 to f16
+  func.return %result : f16
+}
+
+func.def @scalar_integer_source_chain(%x: i8) -> (i32) {
+  %middle = scalar.extui %x : i8 to i16
+  %result = scalar.extui %middle : i16 to i32
+  func.return %result : i32
+}
+
+func.def @scalar_nested_truncation(%x: i64) -> (i8) {
+  %middle = scalar.trunci %x : i64 to i32
+  %result = scalar.trunci %middle : i32 to i8
+  func.return %result : i8
+}
+
+func.def @vector_float_source_chain(%x: vector<4xf8E4M3>) -> (vector<4xf16>) {
+  %middle = vector.extf %x : vector<4xf8E4M3> to vector<4xf32>
+  %result = vector.fptrunc %middle : vector<4xf32> to vector<4xf16>
+  func.return %result : vector<4xf16>
+}
+
+func.def @vector_integer_source_chain(%x: vector<4xi8>) -> (vector<4xi32>) {
+  %middle = vector.extui %x : vector<4xi8> to vector<4xi16>
+  %result = vector.extui %middle : vector<4xi16> to vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+func.def @vector_conversion_splat(%x: bf16) -> (vector<4xf32>) {
+  %splat = vector.splat %x : vector<4xbf16>
+  %result = vector.extf %splat : vector<4xbf16> to vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+func.def @scalar_float_roundtrip(%x: f16) -> (f16) {
+  %wide = scalar.extf %x : f16 to f32
+  %result = scalar.fptrunc %wide : f32 to f16
+  func.return %result : f16
+}
+
+func.def @scalar_signed_roundtrip(%x: i8) -> (i8) {
+  %wide = scalar.extsi %x : i8 to i32
+  %result = scalar.trunci %wide : i32 to i8
+  func.return %result : i8
+}
+
+func.def @scalar_unsigned_roundtrip(%x: i8) -> (i8) {
+  %wide = scalar.extui %x : i8 to i32
+  %result = scalar.trunci %wide : i32 to i8
+  func.return %result : i8
+}
+
+func.def @vector_float_roundtrip(%x: vector<4xf16>) -> (vector<4xf16>) {
+  %wide = vector.extf %x : vector<4xf16> to vector<4xf32>
+  %result = vector.fptrunc %wide : vector<4xf32> to vector<4xf16>
+  func.return %result : vector<4xf16>
+}
+
+func.def @vector_signed_roundtrip(%x: vector<4xi8>) -> (vector<4xi8>) {
+  %wide = vector.extsi %x : vector<4xi8> to vector<4xi32>
+  %result = vector.trunci %wide : vector<4xi32> to vector<4xi8>
+  func.return %result : vector<4xi8>
+}
+
+func.def @vector_unsigned_roundtrip(%x: vector<4xi8>) -> (vector<4xi8>) {
+  %wide = vector.extui %x : vector<4xi8> to vector<4xi32>
+  %result = vector.trunci %wide : vector<4xi32> to vector<4xi8>
+  func.return %result : vector<4xi8>
+}
+
+// ----
+func.def @scalar_float_source_chain(%x: f8E4M3) -> (f16) {
+  %middle = scalar.extf %x : f8E4M3 to f32
+  %result = scalar.fptrunc %middle : f32 to f16
+  func.return %result : f16
+}
+
+func.def @scalar_integer_source_chain(%x: i8) -> (i32) {
+  %middle = scalar.extui %x : i8 to i16
+  %result = scalar.extui %middle : i16 to i32
+  func.return %result : i32
+}
+
+func.def @scalar_nested_truncation(%x: i64) -> (i8) {
+  %middle = scalar.trunci %x : i64 to i32
+  %result = scalar.trunci %middle : i32 to i8
+  func.return %result : i8
+}
+
+func.def @vector_float_source_chain(%x: vector<4xf8E4M3>) -> (vector<4xf16>) {
+  %middle = vector.extf %x : vector<4xf8E4M3> to vector<4xf32>
+  %result = vector.fptrunc %middle : vector<4xf32> to vector<4xf16>
+  func.return %result : vector<4xf16>
+}
+
+func.def @vector_integer_source_chain(%x: vector<4xi8>) -> (vector<4xi32>) {
+  %middle = vector.extui %x : vector<4xi8> to vector<4xi16>
+  %result = vector.extui %middle : vector<4xi16> to vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+func.def @vector_conversion_splat(%x: bf16) -> (vector<4xf32>) {
+  %splat = vector.splat %x : vector<4xbf16>
+  %result = vector.extf %splat : vector<4xbf16> to vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+func.def @scalar_float_roundtrip(%x: f16) -> (f16) {
+  func.return %x : f16
+}
+
+func.def @scalar_signed_roundtrip(%x: i8) -> (i8) {
+  func.return %x : i8
+}
+
+func.def @scalar_unsigned_roundtrip(%x: i8) -> (i8) {
+  func.return %x : i8
+}
+
+func.def @vector_float_roundtrip(%x: vector<4xf16>) -> (vector<4xf16>) {
+  func.return %x : vector<4xf16>
+}
+
+func.def @vector_signed_roundtrip(%x: vector<4xi8>) -> (vector<4xi8>) {
+  func.return %x : vector<4xi8>
+}
+
+func.def @vector_unsigned_roundtrip(%x: vector<4xi8>) -> (vector<4xi8>) {
+  func.return %x : vector<4xi8>
+}

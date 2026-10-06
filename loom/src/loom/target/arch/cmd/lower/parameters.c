@@ -139,7 +139,7 @@ static iree_status_t loom_cmd_parameter_format_key(
       return iree_make_status(
           IREE_STATUS_UNIMPLEMENTED,
           "command parameter substitution %" PRIu16
-          " must be an exact nonnegative index before program preparation",
+          " must be an exact nonnegative index before command planning",
           i);
     }
     substitution_values[i] = (uint64_t)exact_value;
@@ -303,7 +303,7 @@ static iree_status_t loom_cmd_parameter_visit(
     return iree_make_status(
         IREE_STATUS_UNIMPLEMENTED,
         "command parameter view must have an exact byte footprint before "
-        "program preparation");
+        "command planning");
   }
 
   iree_string_view_t key = iree_string_view_empty();

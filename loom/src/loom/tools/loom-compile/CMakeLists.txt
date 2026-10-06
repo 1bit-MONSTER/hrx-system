@@ -9,80 +9,30 @@
 
 iree_add_all_subdirs()
 
-loom_cc_library(
-  NAME
-    command_manifest
-  HDRS
-    "command_manifest.h"
-  SRCS
-    "command_manifest.c"
-  DEPS
-    iree::base
-    loom::target::arch::cmd::artifact_set
-    loom::util::json
-    loom::util::stream
-  PUBLIC
-)
-
-loom_cc_library(
-  NAME
-    command_backend
-  HDRS
-    "command_backend.h"
-  SRCS
-    "command_backend.c"
-  DEPS
-    ::command_manifest
-    iree::base
-    iree::base::internal::arena
-    iree::io::stream
-    loom::codegen::low::repr
-    loom::error::diagnostic
-    loom::error::source
-    loom::format::bytecode::writer
-    loom::format::low_repr
-    loom::link::materialization_environment
-    loom::link::module_index
-    loom::pass::builtin_registry
-    loom::target::arch::cmd::artifact_builder
-    loom::target::arch::cmd::artifact_set
-    loom::target::entry_selection
-    loom::tooling::execution::session
-    loom::tooling::io::file
-    loom::transforms::kernel::kernel_class_materializer
-    loom::transforms::kernel::kernel_request_producer
-    loom::util::stream
-  PUBLIC
-)
-
 loom_cc_binary(
   NAME
     loom-compile
   SRCS
     "loom-compile.c"
   DEPS
-    ::command_backend
-    ::command_manifest
     iree::base
     iree::base::tooling::flags
     iree::io::file_handle
     loom::codegen::low::text_asm
+    loom::compile::request
     loom::error::diagnostic
     loom::format::text::printer
     loom::ir
+    loom::pass::pipeline_snapshot
     loom::sanitizer::options
-    loom::target::arch::cmd::artifact_set
     loom::target::entry_selection
     loom::target::low_descriptor_registry
     loom::target::reporting::artifact_manifest
     loom::tooling::cli::help
-    loom::tooling::compile::artifact
     loom::tooling::compile::configured
     loom::tooling::compile::options
     loom::tooling::compile::pipeline
-    loom::tooling::compile::preparation
     loom::tooling::compile::report_capture
-    loom::tooling::compile::request
     loom::tooling::config
     loom::tooling::context
     loom::tooling::execution::session
@@ -90,20 +40,6 @@ loom_cc_binary(
     loom::tooling::io::source_path
     loom::tooling::pass::trace_cli
     loom::verify
-)
-
-loom_cc_test(
-  NAME
-    command_manifest_test
-  SRCS
-    "command_manifest_test.cc"
-  DEPS
-    ::command_manifest
-    iree::base
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::target::arch::cmd::artifact_set
-    loom::util::stream
 )
 
 iree_execution_test_suite(
@@ -114,10 +50,22 @@ iree_execution_test_suite(
   TOOLS
     "loom-compile=::loom-compile"
   DATA
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/loom-compile/testdata/command_artifacts.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/loom-compile/testdata/command_kernel_requests.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/loom-compile/testdata/resident_xdna.loom"
   LABELS
     "hostonly"
 )
+
+if(LOOM_EMIT_WASM AND LOOM_TARGET_ARCH_WASM)
+iree_execution_test_suite(
+  NAME
+    wasm_module_execution_test
+  MANIFESTS
+    "wasm-module.test.json"
+  TOOLS
+    "loom-compile=::loom-compile"
+  LABELS
+    "hostonly"
+)
+endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

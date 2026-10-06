@@ -65,6 +65,41 @@ TEST_P(SocketTest, CreateSocket_Unix) {
   iree_async_socket_release(socket);
 }
 
+// The ACK hint is portable even on platforms without a persistent native cap.
+TEST_P(SocketTest, LowLatencyAck_ConnectAndTransfer) {
+  iree_async_socket_t* client = nullptr;
+  iree_async_socket_t* server = nullptr;
+  iree_async_socket_t* listener = nullptr;
+  EstablishConnectionWithOptions(&client, &server, &listener,
+                                 IREE_ASYNC_SOCKET_OPTION_LOW_LATENCY_ACK,
+                                 IREE_ASYNC_SOCKET_OPTION_LOW_LATENCY_ACK);
+  uint8_t sent[] = {1, 2, 3, 4};
+  iree_async_span_t send_span = iree_async_span_from_ptr(sent, sizeof(sent));
+  iree_async_socket_send_operation_t send_op;
+  CompletionTracker send_tracker;
+  InitSendOperation(&send_op, client, &send_span, 1,
+                    IREE_ASYNC_SOCKET_SEND_FLAG_NONE,
+                    CompletionTracker::Callback, &send_tracker);
+  IREE_ASSERT_OK(iree_async_proactor_submit_one(proactor_, &send_op.base));
+  uint8_t received[sizeof(sent)] = {};
+  EXPECT_EQ(RecvAll(server, received, sizeof(received)), sizeof(sent));
+  PollUntilCondition([&] { return send_tracker.call_count != 0; });
+  IREE_EXPECT_OK(send_tracker.ConsumeStatus());
+  EXPECT_EQ(memcmp(sent, received, sizeof(sent)), 0);
+  iree_async_socket_release(server);
+  iree_async_socket_release(client);
+  iree_async_socket_release(listener);
+}
+
+TEST_P(SocketTest, LowLatencyAck_IgnoredForDatagrams) {
+  for (auto type : {IREE_ASYNC_SOCKET_TYPE_UDP, IREE_ASYNC_SOCKET_TYPE_UDP6}) {
+    iree_async_socket_t* socket = nullptr;
+    IREE_ASSERT_OK(iree_async_socket_create(
+        proactor_, type, IREE_ASYNC_SOCKET_OPTION_LOW_LATENCY_ACK, &socket));
+    iree_async_socket_release(socket);
+  }
+}
+
 //===----------------------------------------------------------------------===//
 // IPv6 tests
 //===----------------------------------------------------------------------===//

@@ -17,13 +17,10 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/op_registry.h"
-#include "loom/sanitizer/options.h"
 #include "loom/target/arch/amdgpu/descriptors/low_registry.h"
 #include "loom/target/arch/amdgpu/ops/registry.h"
 #include "loom/target/arch/amdgpu/profile.h"
 #include "loom/target/arch/amdgpu/target_info.h"
-#include "loom/target/emit/native/amdgpu/runtime_globals.h"
-#include "loom/testing/byte_sequence.h"
 #include "loom/testing/module_ptr.h"
 
 namespace loom {
@@ -217,63 +214,6 @@ TEST_F(AmdgpuArtifactProviderTest, RecordsDetailedReportRows) {
   loom_amdgpu_artifact_provider.deinitialize_artifact(
       &loom_amdgpu_artifact_provider, &artifact, iree_allocator_system());
   loom_target_compile_report_deinitialize(&report);
-}
-
-TEST_F(AmdgpuArtifactProviderTest,
-       EmitsRuntimeGlobalsFromPipelineRequirements) {
-  ModulePtr module;
-  IREE_ASSERT_OK(ParsePreparedArithmeticModule(IREE_SV("gfx1100"), &module));
-  ASSERT_NE(module.get(), nullptr);
-
-  const loom_amdgpu_target_info_t* target_info = LookupTarget("gfx1100");
-  const loom_amdgpu_target_identity_t identity = {
-      /*.target=*/target_info,
-  };
-  loom_amdgpu_target_profile_t target_profile = {};
-  IREE_ASSERT_OK(
-      loom_amdgpu_target_profile_initialize(&identity, &target_profile));
-
-  const loom_artifact_target_t target = {
-      /*.target_profile=*/&target_profile.base,
-      /*.target_key=*/target_info->name,
-  };
-  const loom_target_pipeline_options_t target_pipeline_options = {
-      /*.source_to_low_max_errors=*/{},
-      /*.source_to_low_legality_diagnostic_flags=*/{},
-      /*.control_flow_lowering=*/{},
-      /*.sanitizer=*/
-      {
-          /*.checks=*/LOOM_SANITIZER_CHECK_ACCESS | LOOM_SANITIZER_CHECK_RACE,
-      },
-  };
-  loom_compile_options_t options = {};
-  loom_compile_options_initialize(&options);
-  options.target_pipeline_options = target_pipeline_options;
-  loom_artifact_t artifact = {};
-  bool emitted = false;
-  IREE_ASSERT_OK(loom_amdgpu_artifact_provider.emit_artifact(
-      &loom_amdgpu_artifact_provider, module.get(), &target, &options,
-      iree_allocator_system(), &emitted, &artifact));
-
-  EXPECT_TRUE(emitted);
-  ASSERT_NE(artifact.target_artifact_data, nullptr);
-  testing::ByteSequenceClone hsaco_contents(iree_allocator_system());
-  IREE_ASSERT_OK(hsaco_contents.Clone(artifact.target_artifact_data));
-  const iree_const_byte_span_t hsaco_bytes = hsaco_contents.contents();
-  const iree_string_view_t hsaco = iree_make_string_view(
-      (const char*)hsaco_bytes.data, hsaco_bytes.data_length);
-  EXPECT_NE(iree_string_view_find(
-                hsaco, LOOM_AMDGPU_RUNTIME_GLOBAL_ASAN_CONFIG_NAME, 0),
-            IREE_STRING_VIEW_NPOS);
-  EXPECT_NE(iree_string_view_find(
-                hsaco, LOOM_AMDGPU_RUNTIME_GLOBAL_TSAN_CONFIG_NAME, 0),
-            IREE_STRING_VIEW_NPOS);
-  EXPECT_NE(iree_string_view_find(
-                hsaco, LOOM_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG_NAME, 0),
-            IREE_STRING_VIEW_NPOS);
-
-  loom_amdgpu_artifact_provider.deinitialize_artifact(
-      &loom_amdgpu_artifact_provider, &artifact, iree_allocator_system());
 }
 
 TEST_F(AmdgpuArtifactProviderTest, EmitsEveryAuthoredModuleTarget) {

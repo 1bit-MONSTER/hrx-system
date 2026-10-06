@@ -274,11 +274,26 @@ class OpCallable:
                             f"{op.name}: block-argument parameter "
                             f"'{param.name}' has no region field"
                         )
-                    block_args_by_region[region_field] = value or []
+                    region_args = block_args_by_region.setdefault(region_field, [])
+                    region_args.extend(value or [])
+                    if param.end_attr_field is not None:
+                        boundary_attr = op.attr(param.end_attr_field)
+                        if (
+                            region_args
+                            or boundary_attr is None
+                            or not boundary_attr.optional
+                        ):
+                            attributes[param.end_attr_field] = len(region_args)
                 case BuilderParamKind.FUNC_ARGS:
                     func_args.extend(value or [])
                     if param.end_attr_field is not None:
-                        attributes[param.end_attr_field] = len(func_args)
+                        boundary_attr = op.attr(param.end_attr_field)
+                        if (
+                            func_args
+                            or boundary_attr is None
+                            or not boundary_attr.optional
+                        ):
+                            attributes[param.end_attr_field] = len(func_args)
                 case BuilderParamKind.PREDICATE_LIST:
                     if value:
                         attributes[param.name] = value
@@ -690,6 +705,12 @@ def _normalize_result_names(
         raise TypeError(
             f"{op.name}: pass only one of 'name', 'names', or 'result_names'"
         )
+    if op.has_signature_only_results:
+        if supplied:
+            raise TypeError(
+                f"{op.name}: signature-only results cannot be named as SSA values"
+            )
+        return None
     if not op.results:
         if supplied:
             raise TypeError(f"{op.name}: result names were supplied for a void op")
@@ -845,6 +866,7 @@ def default_ops() -> tuple[Op, ...]:
 
 def default_types() -> tuple[TypeDef, ...]:
     """Return every type in the default Loom Python type registry."""
+    from loom.dialect.check import ALL_CHECK_TYPES
     from loom.dialect.group import ALL_GROUP_TYPES
     from loom.dialect.hal import ALL_HAL_TYPES
     from loom.dialect.kernel import ALL_KERNEL_TYPES
@@ -852,6 +874,7 @@ def default_types() -> tuple[TypeDef, ...]:
 
     return (
         *ALL_BUILTIN_TYPES,
+        *ALL_CHECK_TYPES,
         *ALL_GROUP_TYPES,
         *ALL_HAL_TYPES,
         *ALL_KERNEL_TYPES,

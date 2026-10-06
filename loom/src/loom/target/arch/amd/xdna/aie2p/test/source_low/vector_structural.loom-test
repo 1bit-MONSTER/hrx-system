@@ -20,6 +20,22 @@ low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @i8x64_de
 
 aie2p.target<core> @target
 
+func.def target(@target) @interleave_i8x4(%even: vector<4xi8>, %odd: vector<4xi8>) -> (vector<8xi8>) {
+  %result = vector.interleave<0> %even, %odd : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  func.return %result : vector<8xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @interleave_i8x4(%even: reg<aie2p.vec256 x2>, %odd: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %7 = mova.i32 20
+  %result = vshuffle %even, %odd, %7
+  return %result
+}
+
+// ====
+
+aie2p.target<core> @target
+
 // Models the integer contraction boundary shared by adjacent Q5_K groups.
 // Narrow operands are joined into one logical dot, then its partial sums are
 // split back into group-local reductions without scalar lane traffic.
@@ -268,5 +284,299 @@ func.def target(@target) @interleave_f16x16(%even: vector<16xf16>, %odd: vector<
 low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @interleave_f16x16(%even: reg<aie2p.vec256 x2>, %odd: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
   %7 = mova.i32 18
   %result = vshuffle %even, %odd, %7
+  return %result
+}
+
+// ====
+
+aie2p.target<core> @target
+
+// A BF16 sliding convolution reads a 32-element register window using two
+// 256-bit aligned loads. Every tap reuses that window, including slices that
+// cross its physical W-register boundary.
+func.def target(@target) @bf16_convolution_windows(%input: buffer, %output: buffer) {
+  %source = buffer.assume.alignment %input {minimum_alignment = 32} : buffer
+  %destination = buffer.assume.alignment %output {minimum_alignment = 32} : buffer
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %source[%base] : buffer -> view<32xbf16>
+  %output_view = buffer.view %destination[%base] : buffer -> view<6x16xbf16>
+  %low = vector.load %input_view[0] : view<32xbf16> -> vector<16xbf16>
+  %high = vector.load %input_view[16] : view<32xbf16> -> vector<16xbf16>
+  %window = vector.concat<0> %low, %high : vector<16xbf16>, vector<16xbf16> -> vector<32xbf16>
+  %first = vector.slice %window[0] : vector<32xbf16> -> vector<16xbf16>
+  %second = vector.slice %window[1] : vector<32xbf16> -> vector<16xbf16>
+  %eighth = vector.slice %window[7] : vector<32xbf16> -> vector<16xbf16>
+  %ninth = vector.slice %window[8] : vector<32xbf16> -> vector<16xbf16>
+  %sixteenth = vector.slice %window[15] : vector<32xbf16> -> vector<16xbf16>
+  %last = vector.slice %window[16] : vector<32xbf16> -> vector<16xbf16>
+  vector.store %first, %output_view[0, 0] : vector<16xbf16>, view<6x16xbf16>
+  vector.store %second, %output_view[1, 0] : vector<16xbf16>, view<6x16xbf16>
+  vector.store %eighth, %output_view[2, 0] : vector<16xbf16>, view<6x16xbf16>
+  vector.store %ninth, %output_view[3, 0] : vector<16xbf16>, view<6x16xbf16>
+  vector.store %sixteenth, %output_view[4, 0] : vector<16xbf16>, view<6x16xbf16>
+  vector.store %last, %output_view[5, 0] : vector<16xbf16>, view<6x16xbf16>
+  func.return
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @bf16_convolution_windows() asm {
+  %input_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %output_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %22 = vlda.256.bf16x16 %input_view, 0
+  %27 = vlda.256.bf16x16 %input_view, 32
+  %first = concat(%22, %27) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %32 = mova.i32 2
+  %second = vshift %first, %first, %32
+  %34 = mova.i32 14
+  %eighth = vshift %first, %first, %34
+  %36 = mova.i32 16
+  %ninth = vshift %first, %first, %36
+  %38 = mova.i32 30
+  %sixteenth = vshift %first, %first, %38
+  %40 = mova.i32 32
+  %last = vshift %first, %first, %40
+  vst.256.bf16x16 %22, %output_view, 0
+  %43 = slice %second[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  vst.256.bf16x16 %43, %output_view, 32
+  %44 = slice %eighth[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  vst.256.bf16x16 %44, %output_view, 64
+  %45 = slice %ninth[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  vst.256.bf16x16 %45, %output_view, 96
+  %46 = slice %sixteenth[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  vst.256.bf16x16 %46, %output_view, 128
+  %47 = slice %last[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  vst.256.bf16x16 %47, %output_view, 160
+  return
+}
+
+// ====
+
+aie2p.target<core> @target
+
+func.def target(@target) @concat_and_slice_i16_halves(%low: vector<16xi16>, %high: vector<16xi16>) -> (vector<16xi16>) {
+  %window = vector.concat<0> %low, %high : vector<16xi16>, vector<16xi16> -> vector<32xi16>
+  %result = vector.slice %window[3] : vector<32xi16> -> vector<16xi16>
+  func.return %result : vector<16xi16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @concat_and_slice_i16_halves(%low: reg<aie2p.vec256 x2>, %high: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %8 = slice %low[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %9 = slice %high[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %window = concat(%8, %9) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %11 = mova.i32 6
+  %result = vshift %window, %window, %11
+  return %result
+}
+
+// ====
+
+aie2p.target<core> @target
+
+func.def target(@target) @concat_and_slice_f16_halves(%low: vector<16xf16>, %high: vector<16xf16>) -> (vector<16xf16>) {
+  %window = vector.concat<0> %low, %high : vector<16xf16>, vector<16xf16> -> vector<32xf16>
+  %result = vector.slice %window[15] : vector<32xf16> -> vector<16xf16>
+  func.return %result : vector<16xf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @concat_and_slice_f16_halves(%low: reg<aie2p.vec256 x2>, %high: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %8 = slice %low[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %9 = slice %high[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %window = concat(%8, %9) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %11 = mova.i32 30
+  %result = vshift %window, %window, %11
+  return %result
+}
+
+// ====
+
+aie2p.target<core> @target
+
+func.def target(@target) @concat_and_slice_f32_halves(%low: vector<8xf32>, %high: vector<8xf32>) -> (vector<8xf32>) {
+  %window = vector.concat<0> %low, %high : vector<8xf32>, vector<8xf32> -> vector<16xf32>
+  %result = vector.slice %window[3] : vector<16xf32> -> vector<8xf32>
+  func.return %result : vector<8xf32>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @concat_and_slice_f32_halves(%low: reg<aie2p.vec256 x2>, %high: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %8 = slice %low[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %9 = slice %high[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %window = concat(%8, %9) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %11 = mova.i32 12
+  %result = vshift %window, %window, %11
+  return %result
+}
+
+// ====
+
+aie2p.target<core> @target
+
+func.def target(@target) @concat_and_slice_f64_halves(%low: vector<4xf64>, %high: vector<4xf64>) -> (vector<4xf64>) {
+  %window = vector.concat<0> %low, %high : vector<4xf64>, vector<4xf64> -> vector<8xf64>
+  %result = vector.slice %window[1] : vector<8xf64> -> vector<4xf64>
+  func.return %result : vector<4xf64>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @concat_and_slice_f64_halves(%low: reg<aie2p.vec256 x2>, %high: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %8 = slice %low[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %9 = slice %high[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %window = concat(%8, %9) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %11 = mova.i32 8
+  %result = vshift %window, %window, %11
+  return %result
+}
+
+// ====
+
+aie2p.target<core> @target
+
+func.def target(@target) @concat_and_slice_f8_halves(%low: vector<32xf8E4M3>, %high: vector<32xf8E4M3>) -> (vector<32xf8E4M3>) {
+  %window = vector.concat<0> %low, %high : vector<32xf8E4M3>, vector<32xf8E4M3> -> vector<64xf8E4M3>
+  %result = vector.slice %window[31] : vector<64xf8E4M3> -> vector<32xf8E4M3>
+  func.return %result : vector<32xf8E4M3>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @concat_and_slice_f8_halves(%low: reg<aie2p.vec256 x2>, %high: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %8 = slice %low[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %9 = slice %high[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %window = concat(%8, %9) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %11 = mova.i32 31
+  %result = vshift %window, %window, %11
+  return %result
+}
+
+// ====
+
+aie2p.target<core> @target
+
+func.def target(@target) @transpose_bf16_8x8(%values: vector<8x8xbf16>) -> (vector<8x8xbf16>) {
+  %result = vector.transpose<[1, 0]> %values : vector<8x8xbf16> -> vector<8x8xbf16>
+  func.return %result : vector<8x8xbf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @transpose_bf16_8x8(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %5 = slice %values[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %6 = slice %values[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %7 = mova.i32 52
+  %8 = vshuffle %5, %6, %7
+  %9 = mova.i32 53
+  %10 = vshuffle %5, %6, %9
+  %result = concat(%8, %10) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %result
+}
+
+// ====
+
+aie2p.target<core> @target
+
+func.def target(@target) @transpose_i16_8x8(%values: vector<8x8xi16>) -> (vector<8x8xi16>) {
+  %result = vector.transpose<[1, 0]> %values : vector<8x8xi16> -> vector<8x8xi16>
+  func.return %result : vector<8x8xi16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @transpose_i16_8x8(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %5 = slice %values[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %6 = slice %values[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %7 = mova.i32 52
+  %8 = vshuffle %5, %6, %7
+  %9 = mova.i32 53
+  %10 = vshuffle %5, %6, %9
+  %result = concat(%8, %10) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %result
+}
+
+// ====
+
+aie2p.target<core> @target
+
+func.def target(@target) @transpose_f16_8x8(%values: vector<8x8xf16>) -> (vector<8x8xf16>) {
+  %result = vector.transpose<[1, 0]> %values : vector<8x8xf16> -> vector<8x8xf16>
+  func.return %result : vector<8x8xf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @transpose_f16_8x8(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %5 = slice %values[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %6 = slice %values[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %7 = mova.i32 52
+  %8 = vshuffle %5, %6, %7
+  %9 = mova.i32 53
+  %10 = vshuffle %5, %6, %9
+  %result = concat(%8, %10) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %result
+}
+
+// ====
+
+aie2p.target<core> @target
+
+func.def target(@target) @transpose_flat_bf16_8x8(%packet: vector<64xbf16>) -> (vector<64xbf16>) {
+  %values = vector.bitcast %packet : vector<64xbf16> to vector<8x8xbf16>
+  %transposed = vector.transpose<[1, 0]> %values : vector<8x8xbf16> -> vector<8x8xbf16>
+  %result = vector.bitcast %transposed : vector<8x8xbf16> to vector<64xbf16>
+  func.return %result : vector<64xbf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @transpose_flat_bf16_8x8(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %7 = slice %values[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %8 = slice %values[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %9 = mova.i32 52
+  %10 = vshuffle %7, %8, %9
+  %11 = mova.i32 53
+  %12 = vshuffle %7, %8, %11
+  %result = concat(%10, %12) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %result
+}
+
+// ====
+
+aie2p.target<core> @target
+
+func.def target(@target) @transpose_flat_i16_8x8(%packet: vector<64xi16>) -> (vector<64xi16>) {
+  %values = vector.bitcast %packet : vector<64xi16> to vector<8x8xi16>
+  %transposed = vector.transpose<[1, 0]> %values : vector<8x8xi16> -> vector<8x8xi16>
+  %result = vector.bitcast %transposed : vector<8x8xi16> to vector<64xi16>
+  func.return %result : vector<64xi16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @transpose_flat_i16_8x8(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %7 = slice %values[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %8 = slice %values[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %9 = mova.i32 52
+  %10 = vshuffle %7, %8, %9
+  %11 = mova.i32 53
+  %12 = vshuffle %7, %8, %11
+  %result = concat(%10, %12) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %result
+}
+
+// ====
+
+aie2p.target<core> @target
+
+func.def target(@target) @transpose_flat_f16_8x8(%packet: vector<64xf16>) -> (vector<64xf16>) {
+  %values = vector.bitcast %packet : vector<64xf16> to vector<8x8xf16>
+  %transposed = vector.transpose<[1, 0]> %values : vector<8x8xf16> -> vector<8x8xf16>
+  %result = vector.bitcast %transposed : vector<8x8xf16> to vector<64xf16>
+  func.return %result : vector<64xf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @transpose_flat_f16_8x8(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %7 = slice %values[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %8 = slice %values[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %9 = mova.i32 52
+  %10 = vshuffle %7, %8, %9
+  %11 = mova.i32 53
+  %12 = vshuffle %7, %8, %11
+  %result = concat(%10, %12) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
   return %result
 }

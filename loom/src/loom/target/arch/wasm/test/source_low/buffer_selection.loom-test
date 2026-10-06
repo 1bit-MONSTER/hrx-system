@@ -1,0 +1,86 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/buffer_selection.loom-test
+// RUN: emit source-low target=wasm:simd128 output=low control-flow=structured-low
+
+// A selected reference retains the ordinary buffer result ABI.
+func.def @choose_buffer(%first: buffer, %second: buffer, %choose_first: i1) -> (buffer) {
+  %selected = scf.select %choose_first, %first, %second : buffer
+  func.return %selected : buffer
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @choose_buffer(%first: reg<wasm.i32>, %second: reg<wasm.i32>, %choose_first: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
+  %selected = i32.select %first, %second, %choose_first
+  return %selected
+}
+
+// ====
+
+// A selected reference remains a buffer for both reads and writes.
+func.def @exchange_selected_byte(%first: buffer, %second: buffer, %choose_first: i1, %position_input: offset, %replacement: i32) -> (i32) {
+  %position = index.assume %position_input [range(%position_input, 0, 1024)] : offset
+  %selected = scf.select %choose_first, %first, %second : buffer
+  %previous = buffer.load.i8.u %selected[%position]
+  buffer.store.i8 %replacement, %selected[%position]
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @exchange_selected_byte(%first: reg<wasm.i32>, %second: reg<wasm.i32>, %choose_first: reg<wasm.i32>, %position: reg<wasm.i32>, %replacement: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
+  %selected = i32.select %first, %second, %choose_first
+  %16 = i32.add %selected, %position
+  %previous = i32.load8_u %16
+  i32.store8 %16, %replacement
+  return %previous
+}
+
+// ====
+
+// Canonicalization may select the components independently, but both selections
+// retain the same condition and therefore the same complete coordinate.
+func.def @selected_buffer_coordinate(%first: buffer, %second: buffer, %first_origin_input: offset, %second_origin_input: offset, %choose_first: i1) -> (i32) {
+  %first_origin = index.assume %first_origin_input [range(%first_origin_input, 0, 1024)] : offset
+  %second_origin = index.assume %second_origin_input [range(%second_origin_input, 0, 1024)] : offset
+  %selected, %origin = scf.if %choose_first -> (buffer, offset) {
+    scf.yield %first, %first_origin : buffer, offset
+  } else {
+    scf.yield %second, %second_origin : buffer, offset
+  }
+  %value = buffer.load.i8.u %selected[%origin]
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @selected_buffer_coordinate(%first: reg<wasm.i32>, %second: reg<wasm.i32>, %first_origin: reg<wasm.i32>, %second_origin: reg<wasm.i32>, %choose_first: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
+  %selected = i32.select %first, %second, %choose_first
+  %origin = i32.select %first_origin, %second_origin, %choose_first
+  %21 = i32.add %selected, %origin
+  %value = i32.load8_u %21
+  return %value
+}
+
+// ====
+
+// Rotating a reference and its origin carries both values over the same edge.
+func.def @rotate_buffer_coordinates(%first: buffer, %second: buffer, %first_origin_input: offset, %second_origin_input: offset, %count: index) -> (i32) {
+  %first_origin = index.assume %first_origin_input [range(%first_origin_input, 0, 1024)] : offset
+  %second_origin = index.assume %second_origin_input [range(%second_origin_input, 0, 1024)] : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %selected, %origin, %unused_buffer, %unused_origin = scf.for %i = [%begin to %count step %step](%current = %first : buffer, %current_origin = %first_origin : offset, %other = %second : buffer, %other_origin = %second_origin : offset) -> (buffer, offset, buffer, offset) {
+    scf.yield %other, %other_origin, %current, %current_origin : buffer, offset, buffer, offset
+  }
+  %value = buffer.load.i8.u %selected[%origin]
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @rotate_buffer_coordinates(%first: reg<wasm.i32>, %second: reg<wasm.i32>, %first_origin: reg<wasm.i32>, %second_origin: reg<wasm.i32>, %count: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
+  %begin = i32.const 0
+  %step = i32.const 1
+  %selected, %origin, %unused_buffer, %unused_origin = low.scf.for signed [%begin to %count step %step] iter_args(%first: reg<wasm.i32>, %first_origin: reg<wasm.i32>, %second: reg<wasm.i32>, %second_origin: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) do(%i: reg<wasm.i32>, %current: reg<wasm.i32>, %current_origin: reg<wasm.i32>, %other: reg<wasm.i32>, %other_origin: reg<wasm.i32>) {
+    low.scf.yield %other, %other_origin, %current, %current_origin : reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>
+  }
+  %37 = i32.add %selected, %origin
+  %value = i32.load8_u %37
+  return %value
+}

@@ -1,0 +1,93 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_integer_widening.loom
+// RUN: emit source-low target=x86:avx2 output=low
+
+func.def @widen_signed_word(%value: i32) -> (i64) {
+  %result = scalar.extsi %value : i32 to i64
+  func.return %result : i64
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @widen_signed_word(%value: reg<x86.gpr32>) -> (reg<x86.gpr64>) asm {
+  %result = movsxd.gpr64.gpr32 %value
+  return %result
+}
+
+// ====
+
+func.def @widen_unsigned_word(%value: i32) -> (i64) {
+  %result = scalar.extui %value : i32 to i64
+  func.return %result : i64
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @widen_unsigned_word(%value: reg<x86.gpr32>) -> (reg<x86.gpr64>) asm {
+  %result = movzx.gpr64.gpr32 %value
+  return %result
+}
+
+// ====
+
+func.def @add_signed_word(%base: i64, %delta: i32) -> (i64) {
+  %wide_delta = scalar.extsi %delta : i32 to i64
+  %result = scalar.addi %base, %wide_delta : i64
+  func.return %result : i64
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @add_signed_word(%base: reg<x86.gpr64>, %delta: reg<x86.gpr32>) -> (reg<x86.gpr64>) asm {
+  %wide_delta = movsxd.gpr64.gpr32 %delta
+  %9 = copy %base : reg<x86.gpr64> -> reg<x86.gpr64>
+  %result = add.gpr64 %9, %wide_delta
+  return %result
+}
+
+// ====
+
+func.def @assemble_wide_word(%low: i32, %high: i32) -> (i64) {
+  %low_word = scalar.extui %low : i32 to i64
+  %high_word = scalar.extui %high : i32 to i64
+  %word_bits = scalar.constant 32 : i64
+  %high_half = scalar.shli %high_word, %word_bits : i64
+  %result = scalar.ori %low_word, %high_half : i64
+  func.return %result : i64
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @assemble_wide_word(%low: reg<x86.gpr32>, %high: reg<x86.gpr32>) -> (reg<x86.gpr64>) asm {
+  %low_word = movzx.gpr64.gpr32 %low
+  %high_word = movzx.gpr64.gpr32 %high
+  %13 = copy %high_word : reg<x86.gpr64> -> reg<x86.gpr64>
+  %high_half = shl.imm.gpr64 %13 {shift = 32}
+  %15 = copy %low_word : reg<x86.gpr64> -> reg<x86.gpr64>
+  %result = or.gpr64 %15, %high_half
+  return %result
+}
+
+// ====
+
+func.def @exchange_signed_position(%buffer: buffer, %position: i32, %replacement: i32) -> (i32) {
+  %bounded_position = scalar.assume %position [range(%position, -4, 4)] : i32
+  %wide_position = scalar.extsi %bounded_position : i32 to i64
+  %element_bytes = scalar.constant 4 : i64
+  %displacement = scalar.muli %wide_position, %element_bytes : i64
+  %center = scalar.constant 16 : i64
+  %wide_origin = scalar.addi %center, %displacement : i64
+  %origin = index.cast %wide_origin : i64 to offset
+  %view = buffer.view %buffer[%origin] : buffer -> view<1xi32>
+  %previous = view.load %view[0] : view<1xi32> -> i32
+  view.store %replacement, %view[0] : i32, view<1xi32>
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @exchange_signed_position(%buffer: reg<x86.gpr64>, %bounded_position: reg<x86.gpr32>, %replacement: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %20 = movsxd.gpr64.gpr32 %bounded_position
+  %21 = mov.imm64 4
+  %22 = copy %20 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %23 = imul.gpr64 %22, %21
+  %previous = mov.load.indexed.gpr32 %buffer, %23 {disp32 = 16, scale = 1}
+  %27 = copy %20 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %28 = imul.gpr64 %27, %21
+  mov.store.indexed.gpr32 %replacement, %buffer, %28 {disp32 = 16, scale = 1}
+  return %previous
+}

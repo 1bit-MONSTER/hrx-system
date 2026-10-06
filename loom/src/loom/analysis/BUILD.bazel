@@ -64,9 +64,11 @@ loom_cc_library(
     srcs = ["control_uniformity.c"],
     hdrs = ["control_uniformity.h"],
     deps = [
+        ":condition_facts",
         "//loom/src/loom/ir",
         "//loom/src/loom/ir:facts",
         "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/cfg",
         "//loom/src/loom/util:cfg_control",
         "//loom/src/loom/util:cfg_dominance",
         "//loom/src/loom/util:cfg_graph",
@@ -74,6 +76,85 @@ loom_cc_library(
         "//loom/src/loom/util:fact_table",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
+    name = "storage_interference",
+    srcs = ["storage_interference.c"],
+    hdrs = ["storage_interference.h"],
+    deps = [
+        ":control_uniformity",
+        ":value_relation",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/buffer",
+        "//loom/src/loom/ops/kernel",
+        "//loom/src/loom/util:cfg_postdominance",
+        "//loom/src/loom/util:fact_table",
+        "//loom/src/loom/util:walk",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_test(
+    name = "storage_interference_test",
+    srcs = ["storage_interference_test.cc"],
+    deps = [
+        ":storage_interference",
+        "//loom/src/loom/format/text:parser",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops:type_registry",
+        "//loom/src/loom/ops/buffer",
+        "//loom/src/loom/testing:context",
+        "//loom/src/loom/testing:module_ptr",
+        "//loom/src/loom/util:fact_table",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
+    name = "storage_layout",
+    srcs = ["storage_layout.c"],
+    hdrs = ["storage_layout.h"],
+    deps = [
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_test(
+    name = "storage_layout_test",
+    srcs = ["storage_layout_test.cc"],
+    deps = [
+        ":storage_layout",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
+    name = "source_storage_packing",
+    srcs = ["source_storage_packing.c"],
+    hdrs = ["source_storage_packing.h"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_test(
+    name = "source_storage_packing_test",
+    srcs = ["source_storage_packing_test.cc"],
+    deps = [
+        ":source_storage_packing",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 
@@ -145,7 +226,9 @@ loom_cc_test(
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/cfg",
         "//loom/src/loom/ops/func",
+        "//loom/src/loom/ops/index",
         "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/scf",
         "//loom/src/loom/ops/test",
         "//loom/src/loom/testing:module_ptr",
         "//runtime/src/iree/base/internal:arena",
@@ -209,10 +292,12 @@ loom_cc_library(
         ":integer_relation",
         "//loom/src/loom/ir",
         "//loom/src/loom/ir:facts",
-        "//loom/src/loom/ops/index",
-        "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/index:comparison",
+        "//loom/src/loom/ops/index:op_defs",
+        "//loom/src/loom/ops/scalar:comparison",
+        "//loom/src/loom/ops/scalar:op_defs",
         "//loom/src/loom/util:adaptive_sort",
-        "//loom/src/loom/util:fact_table",
+        "//loom/src/loom/util:fact_table_api",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
     ],
@@ -235,11 +320,25 @@ loom_cc_test(
 )
 
 loom_cc_library(
+    name = "condition_edge_projection",
+    srcs = ["condition_edge_projection.c"],
+    hdrs = ["condition_edge_projection.h"],
+    deps = [
+        ":condition_facts",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/util:adaptive_sort",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "condition_fact_scope",
     srcs = ["condition_fact_scope.c"],
     hdrs = ["condition_fact_scope.h"],
     deps = [
         ":cfg_condition_facts",
+        ":condition_edge_projection",
         ":condition_facts",
         "//loom/src/loom/util:fact_table",
         "//runtime/src/iree/base",
@@ -272,6 +371,7 @@ loom_cc_test(
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/cfg",
         "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/scf",
         "//loom/src/loom/ops/test",
         "//loom/src/loom/pass:value_facts",
         "//runtime/src/iree/testing:gtest",
@@ -293,9 +393,13 @@ loom_cc_benchmark(
     name = "condition_facts_benchmark",
     srcs = ["condition_facts_benchmark.cc"],
     deps = [
+        ":condition_edge_projection",
         ":condition_facts",
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops/func",
         "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/scf",
+        "//loom/src/loom/pass:value_facts",
         "//loom/src/loom/util:fact_table",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:benchmark_main",
@@ -445,6 +549,7 @@ loom_cc_library(
     hdrs = ["consumption.h"],
     deps = [
         ":liveness",
+        ":ownership",
         "//loom/src/loom/ir",
         "//loom/src/loom/util:cfg_graph",
         "//runtime/src/iree/base",
@@ -476,7 +581,6 @@ loom_cc_library(
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/ops/cfg",
-        "//loom/src/loom/ops/func",
         "//loom/src/loom/util:cfg_graph",
         "//loom/src/loom/util:walk",
         "//runtime/src/iree/base",
@@ -517,6 +621,41 @@ loom_cc_library(
         "//loom/src/loom/util:fact_table",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
+    name = "kernel_barrier_lifetime",
+    srcs = ["kernel_barrier_lifetime.c"],
+    hdrs = ["kernel_barrier_lifetime.h"],
+    deps = [
+        "//loom/src/loom/error:emitter",
+        "//loom/src/loom/error:error_defs",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/kernel",
+        "//loom/src/loom/util:cfg_graph",
+        "//loom/src/loom/util:fact_table",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_test(
+    name = "kernel_barrier_lifetime_test",
+    srcs = ["kernel_barrier_lifetime_test.cc"],
+    deps = [
+        ":kernel_barrier_lifetime",
+        "//loom/src/loom/format/text:parser",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops:type_registry",
+        "//loom/src/loom/testing:context",
+        "//loom/src/loom/testing:module_ptr",
+        "//loom/src/loom/util:fact_table",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 
@@ -765,10 +904,21 @@ loom_cc_test(
 )
 
 loom_cc_library(
+    name = "liveness_uses",
+    srcs = ["liveness_uses.c"],
+    hdrs = ["liveness_uses.h"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "liveness_dataflow",
     srcs = ["liveness_dataflow.c"],
     hdrs = ["liveness_dataflow.h"],
     deps = [
+        ":liveness_uses",
         "//loom/src/loom/ir",
         "//loom/src/loom/util:cfg_graph",
         "//runtime/src/iree/base",
@@ -777,11 +927,42 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "liveness_events",
+    srcs = ["liveness_events.c"],
+    hdrs = ["liveness_events.h"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//loom/src/loom/util:adaptive_sort",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_test(
+    name = "liveness_events_test",
+    srcs = ["liveness_events_test.cc"],
+    deps = [
+        ":liveness_events",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "liveness",
-    srcs = ["liveness.c"],
-    hdrs = ["liveness.h"],
+    srcs = [
+        "liveness.c",
+        "liveness_pressure.c",
+    ],
+    hdrs = [
+        "liveness.h",
+        "liveness_pressure.h",
+    ],
     deps = [
         ":liveness_dataflow",
+        ":liveness_events",
+        ":liveness_uses",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/target:registers",
@@ -791,6 +972,19 @@ loom_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal",
         "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_test(
+    name = "liveness_pressure_test",
+    srcs = ["liveness_pressure_test.cc"],
+    deps = [
+        ":liveness",
+        "//loom/src/loom/target:registers",
+        "//loom/src/loom/target/test:descriptors",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 
@@ -1074,14 +1268,20 @@ loom_cc_test(
 loom_cc_library(
     name = "symbolic_expr",
     srcs = [
+        "symbolic_congruence.c",
         "symbolic_expr.c",
         "symbolic_expr_proof.c",
+        "symbolic_projection.c",
+        "symbolic_quotient.c",
+        "symbolic_quotient.h",
         "symbolic_value.c",
         "symbolic_value.h",
     ],
     hdrs = [
+        "symbolic_congruence.h",
         "symbolic_expr.h",
         "symbolic_expr_proof.h",
+        "symbolic_projection.h",
     ],
     deps = [
         ":cfg_value_identity",
@@ -1102,6 +1302,27 @@ loom_cc_library(
     ],
 )
 
+loom_cc_test(
+    name = "symbolic_congruence_test",
+    srcs = ["symbolic_congruence_test.cc"],
+    deps = [
+        ":symbolic_expr",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "symbolic_projection_test",
+    srcs = ["symbolic_projection_test.cc"],
+    deps = [
+        ":symbolic_expr",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
 loom_cc_library(
     name = "symbolic_expr_test_fixture",
     testonly = True,
@@ -1110,6 +1331,7 @@ loom_cc_library(
         ":symbolic_expr",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/sanitizer",
         "//loom/src/loom/ops/scalar",
         "//loom/src/loom/ops/scf",
         "//loom/src/loom/util:fact_table",
@@ -1199,8 +1421,10 @@ loom_cc_test(
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/sanitizer",
         "//loom/src/loom/ops/scalar",
         "//loom/src/loom/ops/scf",
+        "//loom/src/loom/target:facts",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],
@@ -1217,6 +1441,7 @@ loom_cc_test(
         "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/ops/index",
         "//loom/src/loom/ops/kernel",
+        "//loom/src/loom/ops/sanitizer",
         "//loom/src/loom/ops/scalar",
         "//loom/src/loom/ops/scf",
         "//loom/src/loom/util:fact_table",

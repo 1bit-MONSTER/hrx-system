@@ -21,17 +21,19 @@
 #include "loom/util/json.h"
 
 IREE_FLAG(string, case, "",
-          "Optional check.case symbol to benchmark, such as '@smoke'. Empty "
-          "keeps all cases referenced by selected benchmarks.");
+          "Optional check.case or check.scenario symbol to benchmark, such as "
+          "'@smoke'. Empty keeps all records referenced by selected "
+          "benchmarks.");
 IREE_FLAG(string, benchmark, "",
           "Optional check.benchmark name to execute, such as '@smoke_time'. "
           "Empty executes all benchmarks in source order.");
 IREE_FLAG(int32_t, sample, -1,
           "Optional concrete sample ordinal to execute for selected benchmark "
-          "cases. Negative executes all planned samples.");
-IREE_FLAG(string, measure, "case_end_to_end",
-          "Measurement mode. Use 'case_end_to_end', 'end_to_end', or "
-          "'dispatch_complete'.");
+          "records. Negative executes all planned samples.");
+IREE_FLAG(string, measure, "auto",
+          "Measurement mode. 'auto' selects case_end_to_end for check.case "
+          "and dispatch_complete for check.scenario. Explicit modes are "
+          "'case_end_to_end', 'end_to_end', and 'dispatch_complete'.");
 IREE_FLAG_NAMED(int32_t, max_samples_per_case, "max-samples-per-case",
                 LOOM_TESTBENCH_DEFAULT_MAX_SAMPLES_PER_CASE,
                 "Maximum number of samples planned per check.case.");
@@ -197,7 +199,7 @@ void iree_benchmark_loom_options_initialize(
   out_options->output_format = IREE_BENCHMARK_LOOM_OUTPUT_FORMAT_SNAPSHOT;
   out_options->artifact_bundle_policy =
       IREE_BENCHMARK_LOOM_ARTIFACT_BUNDLE_POLICY_MINIMAL;
-  out_options->measure = IREE_SV("case_end_to_end");
+  out_options->measure = IREE_SV("auto");
   out_options->compile_report = IREE_SV("summary");
   out_options->artifact_manifest = IREE_SV("none");
   out_options->input_ring_min_bytes =

@@ -1,0 +1,44 @@
+kernel.def @predicate_extension() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %signed32: buffer, %unsigned32: buffer, %signed64: buffer, %unsigned64: buffer) {
+  %base = index.constant 0 : offset
+  %lane = kernel.workitem.id<x> : index
+  %source = buffer.view %input[%base] : buffer -> view<64xi32>
+  %signed32_view = buffer.view %signed32[%base] : buffer -> view<64xi32>
+  %unsigned32_view = buffer.view %unsigned32[%base] : buffer -> view<64xi32>
+  %signed64_view = buffer.view %signed64[%base] : buffer -> view<64xi64>
+  %unsigned64_view = buffer.view %unsigned64[%base] : buffer -> view<64xi64>
+  %value = view.load %source[%lane] : view<64xi32> -> i32
+  %c0 = scalar.constant 0 : i32
+  %condition = scalar.cmpi ne, %value, %c0 : i32
+  %signed_word = scalar.extsi %condition : i1 to i32
+  %unsigned_word = scalar.extui %condition : i1 to i32
+  %signed_pair = scalar.extsi %condition : i1 to i64
+  %unsigned_pair = scalar.extui %condition : i1 to i64
+  view.store %signed_word, %signed32_view[%lane] : i32, view<64xi32>
+  view.store %unsigned_word, %unsigned32_view[%lane] : i32, view<64xi32>
+  view.store %signed_pair, %signed64_view[%lane] : i64, view<64xi64>
+  view.store %unsigned_pair, %unsigned64_view[%lane] : i64, view<64xi64>
+  kernel.return
+}
+
+// Alternating predicates exercise both values within each hardware subgroup.
+// Signed i64 extension must fill the high word as well as the low word.
+check.case public @boolean_integer_values {
+  %input = check.generate.iota offset(0) step(1) period(2) : tensor<64xi32>
+  %signed32 = check.generate.fill value(99) : tensor<64xi32>
+  %unsigned32 = check.generate.fill value(99) : tensor<64xi32>
+  %signed64 = check.generate.fill value(99) : tensor<64xi64>
+  %unsigned64 = check.generate.fill value(99) : tensor<64xi64>
+  kernel.launch @predicate_extension(%input, %signed32, %unsigned32, %signed64, %unsigned64) : (tensor<64xi32>, tensor<64xi32>, tensor<64xi32>, tensor<64xi64>, tensor<64xi64>)
+  %expected_signed32 = check.generate.iota offset(0) step(-1) period(2) : tensor<64xi32>
+  %expected_unsigned64 = check.generate.iota offset(0) step(1) period(2) : tensor<64xi64>
+  %expected_signed64 = check.generate.iota offset(0) step(-1) period(2) : tensor<64xi64>
+  check.expect.equal actual(%signed32) expected(%expected_signed32) : tensor<64xi32>
+  check.expect.equal actual(%unsigned32) expected(%input) : tensor<64xi32>
+  check.expect.equal actual(%signed64) expected(%expected_signed64) : tensor<64xi64>
+  check.expect.equal actual(%unsigned64) expected(%expected_unsigned64) : tensor<64xi64>
+  check.return
+}

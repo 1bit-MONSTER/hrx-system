@@ -1,0 +1,177 @@
+// Independent total arithmetic fills issue slots while the guard waits for
+// its condition. The indexed store remains conditional.
+// RUN: with-checks emit low-packet-json @available_issue_slots strategy=resource-stall
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @available_issue_slots(%base: reg<test.ptr>, %origin: reg<test.i32>, %pixel: reg<test.i32>, %color: reg<test.i32 x4>) asm {
+  %condition = test.event.fast.i32 %origin, %pixel
+  low.cond_br %condition, ^store, ^done : reg<test.i32>
+^store:
+  %index = test.total.add.i32 %origin, %pixel
+  test.store.index.v4i32 %base, %index, %color
+  low.br ^done
+^done:
+  return
+}
+
+// ----
+CHECK: *"block":0,"source_ordinal":?,"scheduled_ordinal":?,"kind":"descriptor","op":"low.op","descriptor":"test.total.add.i32"*
+CHECK: *"block":1,"source_ordinal":?,"scheduled_ordinal":?,"kind":"descriptor","op":"low.op","descriptor":"test.store.index.v4i32"*
+
+// ====
+
+// Widening a lane-local execution mask preserves all previously active lanes.
+// Its read must move before the narrowing write, not just before the branch.
+// RUN: with-checks emit low-packet-json @mask_narrowing strategy=resource-stall
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @mask_narrowing(%base: reg<test.ptr>, %origin: reg<test.i32>, %pixel: reg<test.i32>, %color: reg<test.i32 x4>) asm {
+  %condition = test.event.fast.i32 %origin, %pixel
+  %active = test.mask.narrow.i32 %condition
+  low.cond_br %active, ^store, ^done : reg<test.i32>
+^store:
+  %index = test.masked.add.i32 %origin, %pixel
+  test.store.index.v4i32 %base, %index, %color
+  low.br ^done
+^done:
+  return
+}
+
+// ----
+CHECK: *"block":0,"source_ordinal":1,"scheduled_ordinal":?,"kind":"descriptor","op":"low.op","descriptor":"test.masked.add.i32"*
+CHECK: *"block":0,"source_ordinal":2,"scheduled_ordinal":?,"kind":"descriptor","op":"low.op","descriptor":"test.mask.narrow.i32"*
+CHECK: *"block":1,"source_ordinal":?,"scheduled_ordinal":?,"kind":"descriptor","op":"low.op","descriptor":"test.store.index.v4i32"*
+
+// ====
+
+// Reading the mask as data is total but depends on its exact value. It cannot
+// cross the narrowing write using the permission for lane-local execution.
+// RUN: with-checks emit low-packet-json @mask_as_data strategy=resource-stall
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @mask_as_data(%base: reg<test.ptr>, %origin: reg<test.i32>, %pixel: reg<test.i32>, %color: reg<test.i32 x4>) asm {
+  %condition = test.event.fast.i32 %origin, %pixel
+  %active = test.mask.narrow.i32 %condition
+  low.cond_br %active, ^store, ^done : reg<test.i32>
+^store:
+  %index = test.mask.sample.i32
+  test.store.index.v4i32 %base, %index, %color
+  low.br ^done
+^done:
+  return
+}
+
+// ----
+CHECK: *"block":1,"source_ordinal":?,"scheduled_ordinal":?,"kind":"descriptor","op":"low.op","descriptor":"test.mask.sample.i32"*
+CHECK: *"block":1,"source_ordinal":?,"scheduled_ordinal":?,"kind":"descriptor","op":"low.op","descriptor":"test.store.index.v4i32"*
+
+// ====
+
+// Dead-code removability alone does not license speculative execution.
+// RUN: with-checks emit low-packet-json @unproven_totality strategy=resource-stall
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @unproven_totality(%base: reg<test.ptr>, %origin: reg<test.i32>, %pixel: reg<test.i32>, %color: reg<test.i32 x4>) asm {
+  %condition = test.event.fast.i32 %origin, %pixel
+  low.cond_br %condition, ^store, ^done : reg<test.i32>
+^store:
+  %index = test.mul.i32 %origin, %pixel
+  test.store.index.v4i32 %base, %index, %color
+  low.br ^done
+^done:
+  return
+}
+
+// ----
+CHECK: *"block":1,"source_ordinal":?,"scheduled_ordinal":?,"kind":"descriptor","op":"low.op","descriptor":"test.mul.i32"*
+CHECK: *"block":1,"source_ordinal":?,"scheduled_ordinal":?,"kind":"descriptor","op":"low.op","descriptor":"test.store.index.v4i32"*
+
+// ====
+
+// An immediately available condition leaves no issue slots to fill.
+// RUN: with-checks emit low-packet-json @short_guard strategy=resource-stall
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @short_guard(%base: reg<test.ptr>, %origin: reg<test.i32>, %pixel: reg<test.i32>, %color: reg<test.i32 x4>) asm {
+  low.cond_br %pixel, ^store, ^done : reg<test.i32>
+^store:
+  %index = test.total.add.i32 %origin, %pixel
+  test.store.index.v4i32 %base, %index, %color
+  low.br ^done
+^done:
+  return
+}
+
+// ----
+CHECK: *"block":1,"source_ordinal":?,"scheduled_ordinal":?,"kind":"descriptor","op":"low.op","descriptor":"test.total.add.i32"*
+
+// ====
+
+// Authored locked schedules preserve placement even with available issue slots.
+// RUN: with-checks emit low-packet-json @locked_guard strategy=resource-stall
+test.target<low_core> @target
+
+low.func.def schedule(locked) target<test.low.core>(@target) @locked_guard(%base: reg<test.ptr>, %origin: reg<test.i32>, %pixel: reg<test.i32>, %color: reg<test.i32 x4>) asm {
+  %condition = test.event.fast.i32 %origin, %pixel
+  low.cond_br %condition, ^store, ^done : reg<test.i32>
+^store:
+  %index = test.total.add.i32 %origin, %pixel
+  test.store.index.v4i32 %base, %index, %color
+  low.br ^done
+^done:
+  return
+}
+
+// ----
+CHECK: *"block":1,"source_ordinal":?,"scheduled_ordinal":?,"kind":"descriptor","op":"low.op","descriptor":"test.total.add.i32"*
+
+// ====
+
+// The condition is ready after one cycle, but its producer occupies the scalar
+// unit for four. Moving another scalar operation grows the predecessor despite
+// passing the latency bound. Rejection restores the original instruction order.
+// RUN: with-checks emit low-packet-json @occupied_issue_slots strategy=resource-stall
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @occupied_issue_slots(%base: reg<test.ptr>, %origin: reg<test.i32>, %pixel: reg<test.i32>, %color: reg<test.i32 x4>) asm {
+  %condition = test.resource.serial.i32 %origin, %pixel
+  low.cond_br %condition, ^store, ^done : reg<test.i32>
+^store:
+  %index = test.total.add.i32 %origin, %pixel
+  test.store.index.v4i32 %base, %index, %color
+  low.br ^done
+^done:
+  return
+}
+
+// ----
+CHECK: *"block":1,"source_ordinal":2,"scheduled_ordinal":0,"kind":"descriptor","op":"low.op","descriptor":"test.total.add.i32"*
+CHECK: *"block":1,"source_ordinal":3,"scheduled_ordinal":1,"kind":"descriptor","op":"low.op","descriptor":"test.store.index.v4i32"*
+
+// ====
+
+// The intervening load/store block keeps its schedule as the later arithmetic
+// moves into the guard. Packet formation consumes the new node indices and
+// memory records after the accepted trial retires the original frame.
+// RUN: with-checks emit low-packet-json @intervening_memory strategy=resource-stall
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @intervening_memory(%base: reg<test.ptr>, %origin: reg<test.i32>, %pixel: reg<test.i32>, %color: reg<test.i32 x4>) asm {
+  %condition = test.event.fast.i32 %origin, %pixel
+  low.cond_br %condition, ^store, ^copy : reg<test.i32>
+^copy:
+  %loaded = test.load.v4i32 %base
+  test.store.v4i32 %base, %loaded
+  low.br ^done
+^store:
+  %index = test.total.add.i32 %origin, %pixel
+  test.store.index.v4i32 %base, %index, %color
+  low.br ^done
+^done:
+  return
+}
+
+// ----
+CHECK: *"block":0,"source_ordinal":?,"scheduled_ordinal":?,"kind":"descriptor","op":"low.op","descriptor":"test.total.add.i32"*
+CHECK: *"node":3,"block":1,"source_ordinal":3,"scheduled_ordinal":0,"kind":"descriptor","op":"low.op","descriptor":"test.load.v4i32"*
+CHECK: *"node":4,"block":1,"source_ordinal":4,"scheduled_ordinal":1,"kind":"descriptor","op":"low.op","descriptor":"test.store.v4i32"*

@@ -312,9 +312,11 @@ iree_status_t loom_kernel_class_classifier_build(
       loom_func_like_arg_ids(kernel, &kernel_argument_count);
   out_classifier->kernel_argument_count = kernel_argument_count;
 
+  const loom_symbol_reference_symbol_occurrences_t kernel_references =
+      loom_symbol_reference_table_symbol(references, kernel_symbol_id);
   uint32_t decision_count = 0;
   loom_template_demand_id_t demand_id =
-      references->symbols[kernel_symbol_id].first_template_demand_id;
+      kernel_references.first_template_demand_id;
   while (demand_id != LOOM_TEMPLATE_DEMAND_ID_INVALID) {
     const loom_template_demand_t* demand =
         &references->template_demands.values[demand_id];
@@ -339,7 +341,7 @@ iree_status_t loom_kernel_class_classifier_build(
   iree_host_size_t binding_value_count = 0;
   iree_host_size_t feature_count = 0;
   iree_host_size_t action_count = 0;
-  demand_id = references->symbols[kernel_symbol_id].first_template_demand_id;
+  demand_id = kernel_references.first_template_demand_id;
   while (demand_id != LOOM_TEMPLATE_DEMAND_ID_INVALID) {
     const loom_template_demand_t* demand =
         &references->template_demands.values[demand_id];

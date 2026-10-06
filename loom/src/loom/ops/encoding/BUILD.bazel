@@ -97,6 +97,8 @@ loom_cc_benchmark(
         "//loom/src/loom/ops/vector",
         "//loom/src/loom/pass:value_facts",
         "//loom/src/loom/transforms/cleanup:canonicalizer",
+        "//loom/src/loom/transforms/cleanup:configured",
+        "//loom/src/loom/transforms/cleanup:patterns",
         "//loom/src/loom/util:fact_table",
         "//loom/src/loom/util:stream",
         "//loom/src/loom/verify",

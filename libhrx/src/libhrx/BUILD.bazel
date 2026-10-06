@@ -43,9 +43,12 @@ HRX_SRCS = [
 ]
 
 HRX_HDRS = [
+    "buffer.h",
     "buffer_table.h",
+    "device.h",
     "hrx_internal.h",
     "mem_pool.h",
+    "runtime.h",
     "transfer.h",
     "vmm_slab_provider.h",
     "//libhrx/src:iree_hal_compat.h",
@@ -92,6 +95,12 @@ HRX_AMDGPU_COPTS = iree_select({
     "//conditions:default": [],
 })
 
+# Public declarations opt in to the shared-library ABI through HRX_API.
+HRX_SHARED_VISIBILITY_COPTS = iree_select({
+    "@platforms//os:windows": [],
+    "//conditions:default": ["-fvisibility=hidden"],
+})
+
 # Static implementation library for in-tree integrations that directly compose
 # with private HRX surfaces. External consumers use the shared :hrx target.
 hrx_cc_library(
@@ -110,7 +119,7 @@ hrx_cc_shared_library(
     hdrs = HRX_HDRS,
     copts = [
         "-DHRX_BUILDING_SHARED",
-    ] + HRX_AMDGPU_COPTS,
+    ] + HRX_AMDGPU_COPTS + HRX_SHARED_VISIBILITY_COPTS,
     includes = HRX_INCLUDES,
     deps = HRX_DEPS,
 )

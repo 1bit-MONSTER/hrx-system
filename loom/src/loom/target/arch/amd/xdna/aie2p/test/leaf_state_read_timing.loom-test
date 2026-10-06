@@ -82,3 +82,34 @@ low.func.def target<amd.xdna.aie2p.core> @state_write_retires_readers(%input: re
 CHECK: *{"from":1,"to":3,"kind":"state",*"minimum_issue_separation_cycles":6,*
 CHECK: *{"from":4,"to":5,"kind":"state",*"producer_event":"amd.xdna.aie2p.operand.read.c1.none",*"consumer_event":"amd.xdna.aie2p.operand.write.c1.none","minimum_issue_separation_cycles":0,*
 CHECK-NOT: *{"from":1,"to":5,"kind":"state",*
+
+// ====
+
+// BFP encoding reads rounding and writes conversion flags. Neither that read
+// nor a saturation assignment requires repeating the same rounding write.
+// The final changed rounding value still defines the function's outgoing state.
+// RUN: pass low-cse
+
+aie2p.target<core> @target
+
+low.func.def target<amd.xdna.aie2p.core>(@target) @rounding_assignment_between_encodes(%first: reg<aie2p.mbms x4>, %second: reg<aie2p.mbms x4>) -> (reg<aie2p.mexa>, reg<aie2p.mexa>) asm {
+  set.rounding 12
+  %first_encoded = vconv.bfp16ebs8.fp32 %first
+  set.saturation 0
+  set.rounding 12
+  %second_encoded = vconv.bfp16ebs8.fp32 %second
+  set.rounding 0
+  return %first_encoded, %second_encoded
+}
+
+// ----
+aie2p.target<core> @target
+
+low.func.def target<amd.xdna.aie2p.core>(@target) @rounding_assignment_between_encodes(%first: reg<aie2p.mbms x4>, %second: reg<aie2p.mbms x4>) -> (reg<aie2p.mexa>, reg<aie2p.mexa>) asm {
+  set.rounding 12
+  %first_encoded = vconv.bfp16ebs8.fp32 %first
+  set.saturation 0
+  %second_encoded = vconv.bfp16ebs8.fp32 %second
+  set.rounding 0
+  return %first_encoded, %second_encoded
+}

@@ -1,0 +1,106 @@
+// Scalar loads and stores preserve complete payloads through a dynamic view
+// origin and element coordinate. Floating values use integer storage so the
+// oracle compares NaN payloads and signed zero bitwise.
+func.def @scalar_exchange_observations(%ordinal: index, %word_bits_input: i64, %wide_bits: i64, %word_storage: buffer, %wide_storage: buffer, %float_storage: buffer, %double_storage: buffer, %matrix_storage: buffer, %word_output: buffer, %wide_output: buffer) {
+  %c3 = index.constant 3 : index
+  %c4 = index.constant 4 : index
+  %c8 = index.constant 8 : index
+  %c16 = index.constant 16 : index
+  %prefix = index.constant 16 : offset
+  %matrix_origin = index.constant 24 : offset
+  %output_origin = index.constant 0 : offset
+  %bounded_ordinal = index.assume %ordinal [range(%ordinal, 0, 79)] : index
+  %position = index.rem %bounded_ordinal, %c8 : index
+  %origin_slot = index.rem %bounded_ordinal, %c3 : index
+  %origin_bytes = index.mul %origin_slot, %c8 : index
+  %dynamic_origin0 = index.cast %origin_bytes : index to offset
+  %dynamic_origin = index.assume %dynamic_origin0 [range(%dynamic_origin0, 0, 16), mul(%dynamic_origin0, 8)] : offset
+  %origin = index.add %dynamic_origin, %prefix : offset
+  %word_bits = scalar.trunci %word_bits_input : i64 to i32
+  %float_value = scalar.bitcast %word_bits : i32 to f32
+  %double_value = scalar.bitcast %wide_bits : i64 to f64
+
+  %word_view = buffer.view %word_storage[%origin] : buffer -> view<8xi32>
+  %word_previous = view.load %word_view[%position] : view<8xi32> -> i32
+  view.store %word_bits, %word_view[%position] : i32, view<8xi32>
+
+  %wide_view = buffer.view %wide_storage[%origin] : buffer -> view<8xi64>
+  %wide_previous = view.load %wide_view[%position] : view<8xi64> -> i64
+  view.store %wide_bits, %wide_view[%position] : i64, view<8xi64>
+
+  %float_view = buffer.view %float_storage[%origin] : buffer -> view<8xf32>
+  %float_previous = view.load %float_view[%position] : view<8xf32> -> f32
+  view.store %float_value, %float_view[%position] : f32, view<8xf32>
+  %float_previous_bits = scalar.bitcast %float_previous : f32 to i32
+
+  %double_view = buffer.view %double_storage[%origin] : buffer -> view<8xf64>
+  %double_previous = view.load %double_view[%position] : view<8xf64> -> f64
+  view.store %double_value, %double_view[%position] : f64, view<8xf64>
+  %double_previous_bits = scalar.bitcast %double_previous : f64 to i64
+
+  %matrix_variant = index.div %bounded_ordinal, %c16 : index
+  %column_delta = index.mul %matrix_variant, %c3 : index
+  %columns0 = index.add %column_delta, %c4 : index
+  %columns = index.assume %columns0 [range(%columns0, 4, 16)] : index
+  %matrix_cell = index.rem %bounded_ordinal, %c16 : index
+  %row = index.div %matrix_cell, %c4 : index
+  %column = index.rem %matrix_cell, %c4 : index
+  %matrix = buffer.view %matrix_storage[%matrix_origin] : buffer -> view<4x[%columns]xi32>
+  %matrix_previous = view.load %matrix[%row, %column] : view<4x[%columns]xi32> -> i32
+  view.store %word_bits, %matrix[%row, %column] : i32, view<4x[%columns]xi32>
+
+  %word_results = buffer.view %word_output[%output_origin] : buffer -> view<3xi32>
+  view.store %word_previous, %word_results[0] : i32, view<3xi32>
+  view.store %float_previous_bits, %word_results[1] : i32, view<3xi32>
+  view.store %matrix_previous, %word_results[2] : i32, view<3xi32>
+  %wide_results = buffer.view %wide_output[%output_origin] : buffer -> view<2xi64>
+  view.store %wide_previous, %wide_results[0] : i64, view<2xi64>
+  view.store %double_previous_bits, %wide_results[1] : i64, view<2xi64>
+  func.return
+}
+
+check.scenario @scalar_exchange_values {
+  check.trial[80](%trial: index, %entropy: check.entropy) {
+    %word_entropy = check.entropy.fork %entropy name("word") : check.entropy
+    %wide_entropy = check.entropy.fork %entropy name("wide") : check.entropy
+    %word_bits = check.entropy.read %word_entropy[%trial] : check.entropy -> i64
+    %wide_bits = check.entropy.read %wide_entropy[%trial] : check.entropy -> i64
+
+    %word_storage = check.generate.iota offset(-2000000000) step(170000003) : tensor<24xi32>
+    %word = check.tensor.view %word_storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    %wide_storage = check.generate.iota offset(-4000000000) step(4294967297) : tensor<20xi64>
+    %wide = check.tensor.view %wide_storage offset(32) : tensor<20xi64> -> tensor<12xi64>
+    %float_storage = check.generate.fill value(2143289345) : tensor<24xi32>
+    %float = check.tensor.view %float_storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    %double_storage = check.generate.fill value(9221120237041090561) : tensor<20xi64>
+    %double = check.tensor.view %double_storage offset(32) : tensor<20xi64> -> tensor<12xi64>
+    %matrix_storage = check.generate.iota offset(-1700000000) step(31415927) : tensor<78xi32>
+    %matrix = check.tensor.view %matrix_storage offset(16) : tensor<78xi32> -> tensor<70xi32>
+
+    %word_output_storage = check.generate.fill value(-889275714) : tensor<11xi32>
+    %word_output = check.tensor.view %word_output_storage offset(16) : tensor<11xi32> -> tensor<3xi32>
+    %word_output_prefix = check.tensor.view %word_output_storage offset(0) : tensor<11xi32> -> tensor<4xi32>
+    %word_output_suffix = check.tensor.view %word_output_storage offset(28) : tensor<11xi32> -> tensor<4xi32>
+    %word_guard = check.generate.fill value(-889275714) : tensor<4xi32>
+    %wide_output_storage = check.generate.fill value(-2401053089206453570) : tensor<10xi64>
+    %wide_output = check.tensor.view %wide_output_storage offset(32) : tensor<10xi64> -> tensor<2xi64>
+    %wide_output_prefix = check.tensor.view %wide_output_storage offset(0) : tensor<10xi64> -> tensor<4xi64>
+    %wide_output_suffix = check.tensor.view %wide_output_storage offset(48) : tensor<10xi64> -> tensor<4xi64>
+    %wide_guard = check.generate.fill value(-2401053089206453570) : tensor<4xi64>
+
+    check.compare<@scalar_exchange_observations>(%trial, %word_bits, %wide_bits, %word, %wide, %float, %double, %matrix, %word_output, %wide_output) : (index, i64, i64, tensor<16xi32>, tensor<12xi64>, tensor<16xi32>, tensor<12xi64>, tensor<70xi32>, tensor<3xi32>, tensor<2xi64>) -> () {
+      check.expect.bitwise actual(%word_storage) expected(%word_storage) : tensor<24xi32>
+      check.expect.bitwise actual(%wide_storage) expected(%wide_storage) : tensor<20xi64>
+      check.expect.bitwise actual(%float_storage) expected(%float_storage) : tensor<24xi32>
+      check.expect.bitwise actual(%double_storage) expected(%double_storage) : tensor<20xi64>
+      check.expect.bitwise actual(%matrix_storage) expected(%matrix_storage) : tensor<78xi32>
+      check.expect.bitwise actual(%word_output) expected(%word_output) : tensor<3xi32>
+      check.expect.bitwise actual(%wide_output) expected(%wide_output) : tensor<2xi64>
+      check.expect.bitwise actual(%word_output_prefix) expected(%word_guard) : tensor<4xi32>
+      check.expect.bitwise actual(%word_output_suffix) expected(%word_guard) : tensor<4xi32>
+      check.expect.bitwise actual(%wide_output_prefix) expected(%wide_guard) : tensor<4xi64>
+      check.expect.bitwise actual(%wide_output_suffix) expected(%wide_guard) : tensor<4xi64>
+    }
+  }
+  check.return
+}

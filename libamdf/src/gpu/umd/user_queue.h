@@ -30,7 +30,7 @@ typedef struct amdf_gpu_umd_queue_scratch_t {
   uint64_t byte_length;
   // Maximum private-segment bytes per workitem accepted by the queue.
   uint32_t maximum_private_segment_byte_length;
-  // Number of simultaneously scratch-backed waves.
+  // Physical scratch slot capacity, including shader-engine rounding.
   uint32_t maximum_wave_count;
 } amdf_gpu_umd_queue_scratch_t;
 

@@ -104,6 +104,8 @@ __all__ = [
     # Binding kinds.
     "BINDING_CAPTURE",
     "BINDING_ELEMENT",
+    "BINDING_TYPE_OPERAND",
+    "BINDING_TYPE_BLOCK_ARG",
     # Common keywords.
     "COMMA",
     "COLON",
@@ -522,11 +524,21 @@ class BindingList:
     For custom types, the type extraction is driven by the type's
     TypeDef — custom types can define how "element" extraction works.
 
+    The `type_source` parameter selects what the annotation describes:
+
+      type_source="operand" — the existing operand type. This is the compact
+        spelling used by ordinary captures and element bindings.
+
+      type_source="block_arg" — the projected region argument type. This
+        spelling can refer to peer bindings and represents an independent
+        dependent-type scheme at the region boundary.
+
     For builders: maps to a list of (name, value) pairs.
     """
 
     field: str
     kind: str = "capture"  # "capture" or "element"
+    type_source: str = "operand"  # "operand" or "block_arg"
 
 
 @dataclass(frozen=True, slots=True)
@@ -540,9 +552,23 @@ class BlockArgs:
     arguments of the referenced region. The op verifier owns the semantic
     relationship between those block arguments and any operands, terminator
     operands, or result fields.
+
+    ``start_attr`` and ``end_attr`` optionally project a contiguous group from
+    one region entry signature. The referenced i64 attributes store prefix
+    boundaries; an omitted start is zero and an omitted end is the full block
+    argument count. This allows one region signature to expose semantically
+    distinct typed groups without manufacturing operands solely to carry the
+    block argument types.
+
+    ``group`` gives a projected group its semantic builder name. It has no IR
+    storage of its own and defaults to ``region`` for an unpartitioned entry
+    signature.
     """
 
     region: str
+    group: str | None = None
+    start_attr: str | None = None
+    end_attr: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -600,9 +626,9 @@ class PredicateList:
 class OptionalGroup:
     """A conditional group of format elements.
 
-    The elements are printed/parsed only when the anchor field is
-    present (non-empty, non-None, non-zero-length). Used for optional
-    parts of an op's syntax:
+    The elements are printed/parsed when the anchor field is present
+    (non-empty, non-None, non-zero-length), or when it is absent if
+    ``inverted`` is true. Used for conditional parts of an op's syntax:
 
       - else region on scf.if
       - iter_args on scf.for
@@ -616,13 +642,19 @@ class OptionalGroup:
 
     elements: tuple[FormatElement, ...]
     anchor: str
+    inverted: bool
 
     def __init__(
-        self, elements: list[FormatElement] | tuple[FormatElement, ...], anchor: str
+        self,
+        elements: list[FormatElement] | tuple[FormatElement, ...],
+        anchor: str,
+        *,
+        inverted: bool = False,
     ) -> None:
         # Accept list for ergonomics, store as tuple for immutability.
         object.__setattr__(self, "elements", tuple(elements))
         object.__setattr__(self, "anchor", anchor)
+        object.__setattr__(self, "inverted", inverted)
 
 
 @dataclass(frozen=True, slots=True)
@@ -904,6 +936,8 @@ class Param:
 # Binding kind constants for BindingList.
 BINDING_CAPTURE = "capture"
 BINDING_ELEMENT = "element"
+BINDING_TYPE_OPERAND = "operand"
+BINDING_TYPE_BLOCK_ARG = "block_arg"
 
 
 # ============================================================================

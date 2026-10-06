@@ -392,7 +392,11 @@ static iree_status_t loom_parse_bytes_attr_hex(loom_parser_t* parser,
                                                loom_token_t hex_token,
                                                loom_attribute_t* out_attr) {
   iree_string_view_t hex = hex_token.text;
-  if ((hex.size & 1) != 0 || hex.size > ((uint64_t)UINT32_MAX * 2u)) {
+  bool length_invalid = (hex.size & 1) != 0;
+#if defined(IREE_PTR_SIZE_64)
+  length_invalid |= hex.size > ((uint64_t)UINT32_MAX * 2u);
+#endif  // IREE_PTR_SIZE_64
+  if (length_invalid) {
     return loom_parser_emit_unexpected_token(
         parser, hex_token, IREE_SV("an even-length hex byte string"));
   }
@@ -929,6 +933,18 @@ static const struct {
     {(const uint8_t*)"\x06"
                      "finite",
      LOOM_PREDICATE_FINITE},
+    {(const uint8_t*)"\x03"
+                     "ult",
+     LOOM_PREDICATE_ULT},
+    {(const uint8_t*)"\x03"
+                     "ule",
+     LOOM_PREDICATE_ULE},
+    {(const uint8_t*)"\x03"
+                     "ugt",
+     LOOM_PREDICATE_UGT},
+    {(const uint8_t*)"\x03"
+                     "uge",
+     LOOM_PREDICATE_UGE},
 };
 
 static iree_status_t loom_parse_predicate(loom_parser_t* parser,

@@ -1,0 +1,589 @@
+// Host-initialized accumulators exercise the allocation used by ordinary check
+// execution. Each pair receives the same update through RMW and reduction.
+// Returned old values preserve raw bits; only arithmetic NaNs are normalized.
+kernel.def @atomic_extrema_f32() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%rhs_bits: i32, %accumulator: buffer, %old_values: buffer) {
+  %base = index.constant 0 : offset
+  %global = buffer.assume.memory_space<global> %accumulator : buffer
+  %view = buffer.view %global[%base] : buffer -> view<8xf32>
+  %old_global = buffer.assume.memory_space<global> %old_values : buffer
+  %old_view = buffer.view %old_global[%base] : buffer -> view<4xi32>
+  %rhs = scalar.bitcast %rhs_bits : i32 to f32
+  %old_minimumf = view.atomic.rmw<minimumf> %rhs, %view[0] {ordering = acq_rel, scope = device} : f32, view<8xf32> -> f32
+  %bits_minimumf = scalar.bitcast %old_minimumf : f32 to i32
+  view.store %bits_minimumf, %old_view[0] : i32, view<4xi32>
+  view.atomic.reduce<minimumf> %rhs, %view[1] {ordering = release, scope = device} : f32, view<8xf32>
+  %old_maximumf = view.atomic.rmw<maximumf> %rhs, %view[2] {ordering = acq_rel, scope = device} : f32, view<8xf32> -> f32
+  %bits_maximumf = scalar.bitcast %old_maximumf : f32 to i32
+  view.store %bits_maximumf, %old_view[1] : i32, view<4xi32>
+  view.atomic.reduce<maximumf> %rhs, %view[3] {ordering = release, scope = device} : f32, view<8xf32>
+  %old_minnumf = view.atomic.rmw<minnumf> %rhs, %view[4] {ordering = acq_rel, scope = device} : f32, view<8xf32> -> f32
+  %bits_minnumf = scalar.bitcast %old_minnumf : f32 to i32
+  view.store %bits_minnumf, %old_view[2] : i32, view<4xi32>
+  view.atomic.reduce<minnumf> %rhs, %view[5] {ordering = release, scope = device} : f32, view<8xf32>
+  %old_maxnumf = view.atomic.rmw<maxnumf> %rhs, %view[6] {ordering = acq_rel, scope = device} : f32, view<8xf32> -> f32
+  %bits_maxnumf = scalar.bitcast %old_maxnumf : f32 to i32
+  view.store %bits_maxnumf, %old_view[3] : i32, view<4xi32>
+  view.atomic.reduce<maxnumf> %rhs, %view[7] {ordering = release, scope = device} : f32, view<8xf32>
+  kernel.return
+}
+
+kernel.def @workgroup_atomic_extrema_f32() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs_bits: i32, %rhs_bits: i32, %accumulator: buffer, %old_values: buffer) {
+  %base = index.constant 0 : offset
+  %global = buffer.assume.memory_space<global> %accumulator : buffer
+  %result_view = buffer.view %global[%base] : buffer -> view<8xf32>
+  %bytes = index.constant 32 : offset
+  %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<8xf32>
+  %initial = scalar.bitcast %lhs_bits : i32 to f32
+  view.store %initial, %view[0] : f32, view<8xf32>
+  view.store %initial, %view[1] : f32, view<8xf32>
+  view.store %initial, %view[2] : f32, view<8xf32>
+  view.store %initial, %view[3] : f32, view<8xf32>
+  view.store %initial, %view[4] : f32, view<8xf32>
+  view.store %initial, %view[5] : f32, view<8xf32>
+  view.store %initial, %view[6] : f32, view<8xf32>
+  view.store %initial, %view[7] : f32, view<8xf32>
+  %old_global = buffer.assume.memory_space<global> %old_values : buffer
+  %old_view = buffer.view %old_global[%base] : buffer -> view<4xi32>
+  %rhs = scalar.bitcast %rhs_bits : i32 to f32
+  %old_minimumf = view.atomic.rmw<minimumf> %rhs, %view[0] {ordering = acq_rel, scope = workgroup} : f32, view<8xf32> -> f32
+  %bits_minimumf = scalar.bitcast %old_minimumf : f32 to i32
+  view.store %bits_minimumf, %old_view[0] : i32, view<4xi32>
+  view.atomic.reduce<minimumf> %rhs, %view[1] {ordering = release, scope = workgroup} : f32, view<8xf32>
+  %old_maximumf = view.atomic.rmw<maximumf> %rhs, %view[2] {ordering = acq_rel, scope = workgroup} : f32, view<8xf32> -> f32
+  %bits_maximumf = scalar.bitcast %old_maximumf : f32 to i32
+  view.store %bits_maximumf, %old_view[1] : i32, view<4xi32>
+  view.atomic.reduce<maximumf> %rhs, %view[3] {ordering = release, scope = workgroup} : f32, view<8xf32>
+  %old_minnumf = view.atomic.rmw<minnumf> %rhs, %view[4] {ordering = acq_rel, scope = workgroup} : f32, view<8xf32> -> f32
+  %bits_minnumf = scalar.bitcast %old_minnumf : f32 to i32
+  view.store %bits_minnumf, %old_view[2] : i32, view<4xi32>
+  view.atomic.reduce<minnumf> %rhs, %view[5] {ordering = release, scope = workgroup} : f32, view<8xf32>
+  %old_maxnumf = view.atomic.rmw<maxnumf> %rhs, %view[6] {ordering = acq_rel, scope = workgroup} : f32, view<8xf32> -> f32
+  %bits_maxnumf = scalar.bitcast %old_maxnumf : f32 to i32
+  view.store %bits_maxnumf, %old_view[3] : i32, view<4xi32>
+  view.atomic.reduce<maxnumf> %rhs, %view[7] {ordering = release, scope = workgroup} : f32, view<8xf32>
+  %result_0 = view.load %view[0] : view<8xf32> -> f32
+  view.store %result_0, %result_view[0] : f32, view<8xf32>
+  %result_1 = view.load %view[1] : view<8xf32> -> f32
+  view.store %result_1, %result_view[1] : f32, view<8xf32>
+  %result_2 = view.load %view[2] : view<8xf32> -> f32
+  view.store %result_2, %result_view[2] : f32, view<8xf32>
+  %result_3 = view.load %view[3] : view<8xf32> -> f32
+  view.store %result_3, %result_view[3] : f32, view<8xf32>
+  %result_4 = view.load %view[4] : view<8xf32> -> f32
+  view.store %result_4, %result_view[4] : f32, view<8xf32>
+  %result_5 = view.load %view[5] : view<8xf32> -> f32
+  view.store %result_5, %result_view[5] : f32, view<8xf32>
+  %result_6 = view.load %view[6] : view<8xf32> -> f32
+  view.store %result_6, %result_view[6] : f32, view<8xf32>
+  %result_7 = view.load %view[7] : view<8xf32> -> f32
+  view.store %result_7, %result_view[7] : f32, view<8xf32>
+  kernel.return
+}
+
+kernel.def @normalize_extrema_nan() {
+  %unit = index.constant 1 : index
+  %size = index.constant 8 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%size, %unit, %unit) : index
+} launch(%input: buffer) {
+  %base = index.constant 0 : offset
+  %lane = kernel.workitem.id<x> : index
+  %global = buffer.assume.memory_space<global> %input : buffer
+  %view = buffer.view %global[%base] : buffer -> view<8xf32>
+  %bits_view = buffer.view %global[%base] : buffer -> view<8xi32>
+  %value = view.load %view[%lane] : view<8xf32> -> f32
+  %bits = scalar.bitcast %value : f32 to i32
+  %nan = scalar.cmpf uno, %value, %value : f32
+  %nan_bits = scalar.constant 2143289344 : i32
+  %result = scf.select %nan, %nan_bits, %bits : i32
+  view.store %result, %bits_view[%lane] : i32, view<8xi32>
+  kernel.return
+}
+
+// Each destination changes from 1 exactly once. Across contending workgroups,
+// precisely one RMW per destination may return the initial value.
+kernel.def @contended_atomic_extrema_f32() {
+  %unit = index.constant 1 : index
+  %groups = index.constant 2 : index
+  %size = index.constant 64 : index
+  kernel.launch.config workgroups(%groups, %unit, %unit) workgroup_size(%size, %unit, %unit) : index
+} launch(%accumulator: buffer, %initial_returns: buffer) {
+  %base = index.constant 0 : offset
+  %global = buffer.assume.memory_space<global> %accumulator : buffer
+  %view = buffer.view %global[%base] : buffer -> view<4xf32>
+  %counts_global = buffer.assume.memory_space<global> %initial_returns : buffer
+  %counts = buffer.view %counts_global[%base] : buffer -> view<4xi32>
+  %lower = scalar.constant -1.0 : f32
+  %upper = scalar.constant 2.0 : f32
+  %initial_bits = scalar.constant 1065353216 : i32
+  %increment = scalar.constant 1 : i32
+  %no_increment = scalar.constant 0 : i32
+  %old_minimumf = view.atomic.rmw<minimumf> %lower, %view[0] {ordering = relaxed, scope = device} : f32, view<4xf32> -> f32
+  %bits_minimumf = scalar.bitcast %old_minimumf : f32 to i32
+  %first_minimumf = scalar.cmpi eq, %bits_minimumf, %initial_bits : i32
+  %count_minimumf = scf.select %first_minimumf, %increment, %no_increment : i32
+  view.atomic.reduce<addi> %count_minimumf, %counts[0] {ordering = relaxed, scope = device} : i32, view<4xi32>
+  %old_maximumf = view.atomic.rmw<maximumf> %upper, %view[1] {ordering = relaxed, scope = device} : f32, view<4xf32> -> f32
+  %bits_maximumf = scalar.bitcast %old_maximumf : f32 to i32
+  %first_maximumf = scalar.cmpi eq, %bits_maximumf, %initial_bits : i32
+  %count_maximumf = scf.select %first_maximumf, %increment, %no_increment : i32
+  view.atomic.reduce<addi> %count_maximumf, %counts[1] {ordering = relaxed, scope = device} : i32, view<4xi32>
+  %old_minnumf = view.atomic.rmw<minnumf> %lower, %view[2] {ordering = relaxed, scope = device} : f32, view<4xf32> -> f32
+  %bits_minnumf = scalar.bitcast %old_minnumf : f32 to i32
+  %first_minnumf = scalar.cmpi eq, %bits_minnumf, %initial_bits : i32
+  %count_minnumf = scf.select %first_minnumf, %increment, %no_increment : i32
+  view.atomic.reduce<addi> %count_minnumf, %counts[2] {ordering = relaxed, scope = device} : i32, view<4xi32>
+  %old_maxnumf = view.atomic.rmw<maxnumf> %upper, %view[3] {ordering = relaxed, scope = device} : f32, view<4xf32> -> f32
+  %bits_maxnumf = scalar.bitcast %old_maxnumf : f32 to i32
+  %first_maxnumf = scalar.cmpi eq, %bits_maxnumf, %initial_bits : i32
+  %count_maxnumf = scf.select %first_maxnumf, %increment, %no_increment : i32
+  view.atomic.reduce<addi> %count_maxnumf, %counts[3] {ordering = relaxed, scope = device} : i32, view<4xi32>
+  kernel.return
+}
+
+check.case public @atomic_extrema_finite {
+  %accumulator = check.generate.fill value(-1082130432) : tensor<8xi32>
+  %rhs = check.literal value(1073741824) : i32
+  %old_values = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @atomic_extrema_f32(%rhs, %accumulator, %old_values) : (i32, tensor<8xi32>, tensor<4xi32>)
+  %expected_old = check.generate.fill value(-1082130432) : tensor<4xi32>
+  check.expect.bitwise actual(%old_values) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%accumulator) : (tensor<8xi32>)
+  %actual_0 = check.tensor.view %accumulator offset(0) : tensor<8xi32> -> tensor<2xi32>
+  %expected_0 = check.generate.fill value(-1082130432) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_0) expected(%expected_0) : tensor<2xi32>
+  %actual_1 = check.tensor.view %accumulator offset(8) : tensor<8xi32> -> tensor<2xi32>
+  %expected_1 = check.generate.fill value(1073741824) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_1) expected(%expected_1) : tensor<2xi32>
+  %actual_2 = check.tensor.view %accumulator offset(16) : tensor<8xi32> -> tensor<2xi32>
+  %expected_2 = check.generate.fill value(-1082130432) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_2) expected(%expected_2) : tensor<2xi32>
+  %actual_3 = check.tensor.view %accumulator offset(24) : tensor<8xi32> -> tensor<2xi32>
+  %expected_3 = check.generate.fill value(1073741824) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_3) expected(%expected_3) : tensor<2xi32>
+  %lhs = check.literal value(-1082130432) : i32
+  %workgroup_result = check.generate.fill value(0) : tensor<8xi32>
+  %workgroup_old = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @workgroup_atomic_extrema_f32(%lhs, %rhs, %workgroup_result, %workgroup_old) : (i32, i32, tensor<8xi32>, tensor<4xi32>)
+  check.expect.bitwise actual(%workgroup_old) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%workgroup_result) : (tensor<8xi32>)
+  check.expect.bitwise actual(%workgroup_result) expected(%accumulator) : tensor<8xi32>
+  check.return
+}
+
+check.case public @atomic_extrema_opposite_zeros {
+  %accumulator = check.generate.fill value(0) : tensor<8xi32>
+  %rhs = check.literal value(-2147483648) : i32
+  %old_values = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @atomic_extrema_f32(%rhs, %accumulator, %old_values) : (i32, tensor<8xi32>, tensor<4xi32>)
+  %expected_old = check.generate.fill value(0) : tensor<4xi32>
+  check.expect.bitwise actual(%old_values) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%accumulator) : (tensor<8xi32>)
+  %actual_0 = check.tensor.view %accumulator offset(0) : tensor<8xi32> -> tensor<2xi32>
+  %expected_0 = check.generate.fill value(-2147483648) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_0) expected(%expected_0) : tensor<2xi32>
+  %actual_1 = check.tensor.view %accumulator offset(8) : tensor<8xi32> -> tensor<2xi32>
+  %expected_1 = check.generate.fill value(0) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_1) expected(%expected_1) : tensor<2xi32>
+  %actual_2 = check.tensor.view %accumulator offset(16) : tensor<8xi32> -> tensor<2xi32>
+  %expected_2 = check.generate.fill value(-2147483648) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_2) expected(%expected_2) : tensor<2xi32>
+  %actual_3 = check.tensor.view %accumulator offset(24) : tensor<8xi32> -> tensor<2xi32>
+  %expected_3 = check.generate.fill value(0) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_3) expected(%expected_3) : tensor<2xi32>
+  %lhs = check.literal value(0) : i32
+  %workgroup_result = check.generate.fill value(0) : tensor<8xi32>
+  %workgroup_old = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @workgroup_atomic_extrema_f32(%lhs, %rhs, %workgroup_result, %workgroup_old) : (i32, i32, tensor<8xi32>, tensor<4xi32>)
+  check.expect.bitwise actual(%workgroup_old) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%workgroup_result) : (tensor<8xi32>)
+  check.expect.bitwise actual(%workgroup_result) expected(%accumulator) : tensor<8xi32>
+  check.return
+}
+
+check.case public @atomic_extrema_reverse_zeros {
+  %accumulator = check.generate.fill value(-2147483648) : tensor<8xi32>
+  %rhs = check.literal value(0) : i32
+  %old_values = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @atomic_extrema_f32(%rhs, %accumulator, %old_values) : (i32, tensor<8xi32>, tensor<4xi32>)
+  %expected_old = check.generate.fill value(-2147483648) : tensor<4xi32>
+  check.expect.bitwise actual(%old_values) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%accumulator) : (tensor<8xi32>)
+  %actual_0 = check.tensor.view %accumulator offset(0) : tensor<8xi32> -> tensor<2xi32>
+  %expected_0 = check.generate.fill value(-2147483648) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_0) expected(%expected_0) : tensor<2xi32>
+  %actual_1 = check.tensor.view %accumulator offset(8) : tensor<8xi32> -> tensor<2xi32>
+  %expected_1 = check.generate.fill value(0) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_1) expected(%expected_1) : tensor<2xi32>
+  %actual_2 = check.tensor.view %accumulator offset(16) : tensor<8xi32> -> tensor<2xi32>
+  %expected_2 = check.generate.fill value(-2147483648) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_2) expected(%expected_2) : tensor<2xi32>
+  %actual_3 = check.tensor.view %accumulator offset(24) : tensor<8xi32> -> tensor<2xi32>
+  %expected_3 = check.generate.fill value(0) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_3) expected(%expected_3) : tensor<2xi32>
+  %lhs = check.literal value(-2147483648) : i32
+  %workgroup_result = check.generate.fill value(0) : tensor<8xi32>
+  %workgroup_old = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @workgroup_atomic_extrema_f32(%lhs, %rhs, %workgroup_result, %workgroup_old) : (i32, i32, tensor<8xi32>, tensor<4xi32>)
+  check.expect.bitwise actual(%workgroup_old) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%workgroup_result) : (tensor<8xi32>)
+  check.expect.bitwise actual(%workgroup_result) expected(%accumulator) : tensor<8xi32>
+  check.return
+}
+
+check.case public @atomic_extrema_infinities {
+  %accumulator = check.generate.fill value(-8388608) : tensor<8xi32>
+  %rhs = check.literal value(2139095040) : i32
+  %old_values = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @atomic_extrema_f32(%rhs, %accumulator, %old_values) : (i32, tensor<8xi32>, tensor<4xi32>)
+  %expected_old = check.generate.fill value(-8388608) : tensor<4xi32>
+  check.expect.bitwise actual(%old_values) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%accumulator) : (tensor<8xi32>)
+  %actual_0 = check.tensor.view %accumulator offset(0) : tensor<8xi32> -> tensor<2xi32>
+  %expected_0 = check.generate.fill value(-8388608) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_0) expected(%expected_0) : tensor<2xi32>
+  %actual_1 = check.tensor.view %accumulator offset(8) : tensor<8xi32> -> tensor<2xi32>
+  %expected_1 = check.generate.fill value(2139095040) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_1) expected(%expected_1) : tensor<2xi32>
+  %actual_2 = check.tensor.view %accumulator offset(16) : tensor<8xi32> -> tensor<2xi32>
+  %expected_2 = check.generate.fill value(-8388608) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_2) expected(%expected_2) : tensor<2xi32>
+  %actual_3 = check.tensor.view %accumulator offset(24) : tensor<8xi32> -> tensor<2xi32>
+  %expected_3 = check.generate.fill value(2139095040) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_3) expected(%expected_3) : tensor<2xi32>
+  %lhs = check.literal value(-8388608) : i32
+  %workgroup_result = check.generate.fill value(0) : tensor<8xi32>
+  %workgroup_old = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @workgroup_atomic_extrema_f32(%lhs, %rhs, %workgroup_result, %workgroup_old) : (i32, i32, tensor<8xi32>, tensor<4xi32>)
+  check.expect.bitwise actual(%workgroup_old) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%workgroup_result) : (tensor<8xi32>)
+  check.expect.bitwise actual(%workgroup_result) expected(%accumulator) : tensor<8xi32>
+  check.return
+}
+
+check.case public @atomic_extrema_subnormals {
+  %accumulator = check.generate.fill value(-2147483647) : tensor<8xi32>
+  %rhs = check.literal value(1) : i32
+  %old_values = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @atomic_extrema_f32(%rhs, %accumulator, %old_values) : (i32, tensor<8xi32>, tensor<4xi32>)
+  %expected_old = check.generate.fill value(-2147483647) : tensor<4xi32>
+  check.expect.bitwise actual(%old_values) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%accumulator) : (tensor<8xi32>)
+  %actual_0 = check.tensor.view %accumulator offset(0) : tensor<8xi32> -> tensor<2xi32>
+  %expected_0 = check.generate.fill value(-2147483647) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_0) expected(%expected_0) : tensor<2xi32>
+  %actual_1 = check.tensor.view %accumulator offset(8) : tensor<8xi32> -> tensor<2xi32>
+  %expected_1 = check.generate.fill value(1) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_1) expected(%expected_1) : tensor<2xi32>
+  %actual_2 = check.tensor.view %accumulator offset(16) : tensor<8xi32> -> tensor<2xi32>
+  %expected_2 = check.generate.fill value(-2147483647) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_2) expected(%expected_2) : tensor<2xi32>
+  %actual_3 = check.tensor.view %accumulator offset(24) : tensor<8xi32> -> tensor<2xi32>
+  %expected_3 = check.generate.fill value(1) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_3) expected(%expected_3) : tensor<2xi32>
+  %lhs = check.literal value(-2147483647) : i32
+  %workgroup_result = check.generate.fill value(0) : tensor<8xi32>
+  %workgroup_old = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @workgroup_atomic_extrema_f32(%lhs, %rhs, %workgroup_result, %workgroup_old) : (i32, i32, tensor<8xi32>, tensor<4xi32>)
+  check.expect.bitwise actual(%workgroup_old) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%workgroup_result) : (tensor<8xi32>)
+  check.expect.bitwise actual(%workgroup_result) expected(%accumulator) : tensor<8xi32>
+  check.return
+}
+
+check.case public @atomic_extrema_quiet_lhs {
+  %accumulator = check.generate.fill value(2143363909) : tensor<8xi32>
+  %rhs = check.literal value(1065353216) : i32
+  %old_values = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @atomic_extrema_f32(%rhs, %accumulator, %old_values) : (i32, tensor<8xi32>, tensor<4xi32>)
+  %expected_old = check.generate.fill value(2143363909) : tensor<4xi32>
+  check.expect.bitwise actual(%old_values) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%accumulator) : (tensor<8xi32>)
+  %actual_0 = check.tensor.view %accumulator offset(0) : tensor<8xi32> -> tensor<2xi32>
+  %expected_0 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_0) expected(%expected_0) : tensor<2xi32>
+  %actual_1 = check.tensor.view %accumulator offset(8) : tensor<8xi32> -> tensor<2xi32>
+  %expected_1 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_1) expected(%expected_1) : tensor<2xi32>
+  %actual_2 = check.tensor.view %accumulator offset(16) : tensor<8xi32> -> tensor<2xi32>
+  %expected_2 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_2) expected(%expected_2) : tensor<2xi32>
+  %actual_3 = check.tensor.view %accumulator offset(24) : tensor<8xi32> -> tensor<2xi32>
+  %expected_3 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_3) expected(%expected_3) : tensor<2xi32>
+  %lhs = check.literal value(2143363909) : i32
+  %workgroup_result = check.generate.fill value(0) : tensor<8xi32>
+  %workgroup_old = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @workgroup_atomic_extrema_f32(%lhs, %rhs, %workgroup_result, %workgroup_old) : (i32, i32, tensor<8xi32>, tensor<4xi32>)
+  check.expect.bitwise actual(%workgroup_old) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%workgroup_result) : (tensor<8xi32>)
+  check.expect.bitwise actual(%workgroup_result) expected(%accumulator) : tensor<8xi32>
+  check.return
+}
+
+check.case public @atomic_extrema_quiet_rhs {
+  %accumulator = check.generate.fill value(1065353216) : tensor<8xi32>
+  %rhs = check.literal value(2143363909) : i32
+  %old_values = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @atomic_extrema_f32(%rhs, %accumulator, %old_values) : (i32, tensor<8xi32>, tensor<4xi32>)
+  %expected_old = check.generate.fill value(1065353216) : tensor<4xi32>
+  check.expect.bitwise actual(%old_values) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%accumulator) : (tensor<8xi32>)
+  %actual_0 = check.tensor.view %accumulator offset(0) : tensor<8xi32> -> tensor<2xi32>
+  %expected_0 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_0) expected(%expected_0) : tensor<2xi32>
+  %actual_1 = check.tensor.view %accumulator offset(8) : tensor<8xi32> -> tensor<2xi32>
+  %expected_1 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_1) expected(%expected_1) : tensor<2xi32>
+  %actual_2 = check.tensor.view %accumulator offset(16) : tensor<8xi32> -> tensor<2xi32>
+  %expected_2 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_2) expected(%expected_2) : tensor<2xi32>
+  %actual_3 = check.tensor.view %accumulator offset(24) : tensor<8xi32> -> tensor<2xi32>
+  %expected_3 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_3) expected(%expected_3) : tensor<2xi32>
+  %lhs = check.literal value(1065353216) : i32
+  %workgroup_result = check.generate.fill value(0) : tensor<8xi32>
+  %workgroup_old = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @workgroup_atomic_extrema_f32(%lhs, %rhs, %workgroup_result, %workgroup_old) : (i32, i32, tensor<8xi32>, tensor<4xi32>)
+  check.expect.bitwise actual(%workgroup_old) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%workgroup_result) : (tensor<8xi32>)
+  check.expect.bitwise actual(%workgroup_result) expected(%accumulator) : tensor<8xi32>
+  check.return
+}
+
+check.case public @atomic_extrema_negative_quiet_lhs {
+  %accumulator = check.generate.fill value(-4119739) : tensor<8xi32>
+  %rhs = check.literal value(1065353216) : i32
+  %old_values = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @atomic_extrema_f32(%rhs, %accumulator, %old_values) : (i32, tensor<8xi32>, tensor<4xi32>)
+  %expected_old = check.generate.fill value(-4119739) : tensor<4xi32>
+  check.expect.bitwise actual(%old_values) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%accumulator) : (tensor<8xi32>)
+  %actual_0 = check.tensor.view %accumulator offset(0) : tensor<8xi32> -> tensor<2xi32>
+  %expected_0 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_0) expected(%expected_0) : tensor<2xi32>
+  %actual_1 = check.tensor.view %accumulator offset(8) : tensor<8xi32> -> tensor<2xi32>
+  %expected_1 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_1) expected(%expected_1) : tensor<2xi32>
+  %actual_2 = check.tensor.view %accumulator offset(16) : tensor<8xi32> -> tensor<2xi32>
+  %expected_2 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_2) expected(%expected_2) : tensor<2xi32>
+  %actual_3 = check.tensor.view %accumulator offset(24) : tensor<8xi32> -> tensor<2xi32>
+  %expected_3 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_3) expected(%expected_3) : tensor<2xi32>
+  %lhs = check.literal value(-4119739) : i32
+  %workgroup_result = check.generate.fill value(0) : tensor<8xi32>
+  %workgroup_old = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @workgroup_atomic_extrema_f32(%lhs, %rhs, %workgroup_result, %workgroup_old) : (i32, i32, tensor<8xi32>, tensor<4xi32>)
+  check.expect.bitwise actual(%workgroup_old) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%workgroup_result) : (tensor<8xi32>)
+  check.expect.bitwise actual(%workgroup_result) expected(%accumulator) : tensor<8xi32>
+  check.return
+}
+
+check.case public @atomic_extrema_negative_quiet_rhs {
+  %accumulator = check.generate.fill value(1065353216) : tensor<8xi32>
+  %rhs = check.literal value(-4119739) : i32
+  %old_values = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @atomic_extrema_f32(%rhs, %accumulator, %old_values) : (i32, tensor<8xi32>, tensor<4xi32>)
+  %expected_old = check.generate.fill value(1065353216) : tensor<4xi32>
+  check.expect.bitwise actual(%old_values) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%accumulator) : (tensor<8xi32>)
+  %actual_0 = check.tensor.view %accumulator offset(0) : tensor<8xi32> -> tensor<2xi32>
+  %expected_0 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_0) expected(%expected_0) : tensor<2xi32>
+  %actual_1 = check.tensor.view %accumulator offset(8) : tensor<8xi32> -> tensor<2xi32>
+  %expected_1 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_1) expected(%expected_1) : tensor<2xi32>
+  %actual_2 = check.tensor.view %accumulator offset(16) : tensor<8xi32> -> tensor<2xi32>
+  %expected_2 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_2) expected(%expected_2) : tensor<2xi32>
+  %actual_3 = check.tensor.view %accumulator offset(24) : tensor<8xi32> -> tensor<2xi32>
+  %expected_3 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_3) expected(%expected_3) : tensor<2xi32>
+  %lhs = check.literal value(1065353216) : i32
+  %workgroup_result = check.generate.fill value(0) : tensor<8xi32>
+  %workgroup_old = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @workgroup_atomic_extrema_f32(%lhs, %rhs, %workgroup_result, %workgroup_old) : (i32, i32, tensor<8xi32>, tensor<4xi32>)
+  check.expect.bitwise actual(%workgroup_old) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%workgroup_result) : (tensor<8xi32>)
+  check.expect.bitwise actual(%workgroup_result) expected(%accumulator) : tensor<8xi32>
+  check.return
+}
+
+check.case public @atomic_extrema_signaling_lhs {
+  %accumulator = check.generate.fill value(2139169605) : tensor<8xi32>
+  %rhs = check.literal value(1065353216) : i32
+  %old_values = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @atomic_extrema_f32(%rhs, %accumulator, %old_values) : (i32, tensor<8xi32>, tensor<4xi32>)
+  %expected_old = check.generate.fill value(2139169605) : tensor<4xi32>
+  check.expect.bitwise actual(%old_values) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%accumulator) : (tensor<8xi32>)
+  %actual_0 = check.tensor.view %accumulator offset(0) : tensor<8xi32> -> tensor<2xi32>
+  %expected_0 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_0) expected(%expected_0) : tensor<2xi32>
+  %actual_1 = check.tensor.view %accumulator offset(8) : tensor<8xi32> -> tensor<2xi32>
+  %expected_1 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_1) expected(%expected_1) : tensor<2xi32>
+  %actual_2 = check.tensor.view %accumulator offset(16) : tensor<8xi32> -> tensor<2xi32>
+  %expected_2 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_2) expected(%expected_2) : tensor<2xi32>
+  %actual_3 = check.tensor.view %accumulator offset(24) : tensor<8xi32> -> tensor<2xi32>
+  %expected_3 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_3) expected(%expected_3) : tensor<2xi32>
+  %lhs = check.literal value(2139169605) : i32
+  %workgroup_result = check.generate.fill value(0) : tensor<8xi32>
+  %workgroup_old = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @workgroup_atomic_extrema_f32(%lhs, %rhs, %workgroup_result, %workgroup_old) : (i32, i32, tensor<8xi32>, tensor<4xi32>)
+  check.expect.bitwise actual(%workgroup_old) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%workgroup_result) : (tensor<8xi32>)
+  check.expect.bitwise actual(%workgroup_result) expected(%accumulator) : tensor<8xi32>
+  check.return
+}
+
+check.case public @atomic_extrema_signaling_rhs {
+  %accumulator = check.generate.fill value(1065353216) : tensor<8xi32>
+  %rhs = check.literal value(2139169605) : i32
+  %old_values = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @atomic_extrema_f32(%rhs, %accumulator, %old_values) : (i32, tensor<8xi32>, tensor<4xi32>)
+  %expected_old = check.generate.fill value(1065353216) : tensor<4xi32>
+  check.expect.bitwise actual(%old_values) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%accumulator) : (tensor<8xi32>)
+  %actual_0 = check.tensor.view %accumulator offset(0) : tensor<8xi32> -> tensor<2xi32>
+  %expected_0 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_0) expected(%expected_0) : tensor<2xi32>
+  %actual_1 = check.tensor.view %accumulator offset(8) : tensor<8xi32> -> tensor<2xi32>
+  %expected_1 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_1) expected(%expected_1) : tensor<2xi32>
+  %actual_2 = check.tensor.view %accumulator offset(16) : tensor<8xi32> -> tensor<2xi32>
+  %expected_2 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_2) expected(%expected_2) : tensor<2xi32>
+  %actual_3 = check.tensor.view %accumulator offset(24) : tensor<8xi32> -> tensor<2xi32>
+  %expected_3 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_3) expected(%expected_3) : tensor<2xi32>
+  %lhs = check.literal value(1065353216) : i32
+  %workgroup_result = check.generate.fill value(0) : tensor<8xi32>
+  %workgroup_old = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @workgroup_atomic_extrema_f32(%lhs, %rhs, %workgroup_result, %workgroup_old) : (i32, i32, tensor<8xi32>, tensor<4xi32>)
+  check.expect.bitwise actual(%workgroup_old) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%workgroup_result) : (tensor<8xi32>)
+  check.expect.bitwise actual(%workgroup_result) expected(%accumulator) : tensor<8xi32>
+  check.return
+}
+
+check.case public @atomic_extrema_negative_signaling_lhs {
+  %accumulator = check.generate.fill value(-8314043) : tensor<8xi32>
+  %rhs = check.literal value(1065353216) : i32
+  %old_values = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @atomic_extrema_f32(%rhs, %accumulator, %old_values) : (i32, tensor<8xi32>, tensor<4xi32>)
+  %expected_old = check.generate.fill value(-8314043) : tensor<4xi32>
+  check.expect.bitwise actual(%old_values) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%accumulator) : (tensor<8xi32>)
+  %actual_0 = check.tensor.view %accumulator offset(0) : tensor<8xi32> -> tensor<2xi32>
+  %expected_0 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_0) expected(%expected_0) : tensor<2xi32>
+  %actual_1 = check.tensor.view %accumulator offset(8) : tensor<8xi32> -> tensor<2xi32>
+  %expected_1 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_1) expected(%expected_1) : tensor<2xi32>
+  %actual_2 = check.tensor.view %accumulator offset(16) : tensor<8xi32> -> tensor<2xi32>
+  %expected_2 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_2) expected(%expected_2) : tensor<2xi32>
+  %actual_3 = check.tensor.view %accumulator offset(24) : tensor<8xi32> -> tensor<2xi32>
+  %expected_3 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_3) expected(%expected_3) : tensor<2xi32>
+  %lhs = check.literal value(-8314043) : i32
+  %workgroup_result = check.generate.fill value(0) : tensor<8xi32>
+  %workgroup_old = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @workgroup_atomic_extrema_f32(%lhs, %rhs, %workgroup_result, %workgroup_old) : (i32, i32, tensor<8xi32>, tensor<4xi32>)
+  check.expect.bitwise actual(%workgroup_old) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%workgroup_result) : (tensor<8xi32>)
+  check.expect.bitwise actual(%workgroup_result) expected(%accumulator) : tensor<8xi32>
+  check.return
+}
+
+check.case public @atomic_extrema_negative_signaling_rhs {
+  %accumulator = check.generate.fill value(1065353216) : tensor<8xi32>
+  %rhs = check.literal value(-8314043) : i32
+  %old_values = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @atomic_extrema_f32(%rhs, %accumulator, %old_values) : (i32, tensor<8xi32>, tensor<4xi32>)
+  %expected_old = check.generate.fill value(1065353216) : tensor<4xi32>
+  check.expect.bitwise actual(%old_values) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%accumulator) : (tensor<8xi32>)
+  %actual_0 = check.tensor.view %accumulator offset(0) : tensor<8xi32> -> tensor<2xi32>
+  %expected_0 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_0) expected(%expected_0) : tensor<2xi32>
+  %actual_1 = check.tensor.view %accumulator offset(8) : tensor<8xi32> -> tensor<2xi32>
+  %expected_1 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_1) expected(%expected_1) : tensor<2xi32>
+  %actual_2 = check.tensor.view %accumulator offset(16) : tensor<8xi32> -> tensor<2xi32>
+  %expected_2 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_2) expected(%expected_2) : tensor<2xi32>
+  %actual_3 = check.tensor.view %accumulator offset(24) : tensor<8xi32> -> tensor<2xi32>
+  %expected_3 = check.generate.fill value(1065353216) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_3) expected(%expected_3) : tensor<2xi32>
+  %lhs = check.literal value(1065353216) : i32
+  %workgroup_result = check.generate.fill value(0) : tensor<8xi32>
+  %workgroup_old = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @workgroup_atomic_extrema_f32(%lhs, %rhs, %workgroup_result, %workgroup_old) : (i32, i32, tensor<8xi32>, tensor<4xi32>)
+  check.expect.bitwise actual(%workgroup_old) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%workgroup_result) : (tensor<8xi32>)
+  check.expect.bitwise actual(%workgroup_result) expected(%accumulator) : tensor<8xi32>
+  check.return
+}
+
+check.case public @atomic_extrema_both_nan {
+  %accumulator = check.generate.fill value(2139169605) : tensor<8xi32>
+  %rhs = check.literal value(-3849439) : i32
+  %old_values = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @atomic_extrema_f32(%rhs, %accumulator, %old_values) : (i32, tensor<8xi32>, tensor<4xi32>)
+  %expected_old = check.generate.fill value(2139169605) : tensor<4xi32>
+  check.expect.bitwise actual(%old_values) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%accumulator) : (tensor<8xi32>)
+  %actual_0 = check.tensor.view %accumulator offset(0) : tensor<8xi32> -> tensor<2xi32>
+  %expected_0 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_0) expected(%expected_0) : tensor<2xi32>
+  %actual_1 = check.tensor.view %accumulator offset(8) : tensor<8xi32> -> tensor<2xi32>
+  %expected_1 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_1) expected(%expected_1) : tensor<2xi32>
+  %actual_2 = check.tensor.view %accumulator offset(16) : tensor<8xi32> -> tensor<2xi32>
+  %expected_2 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_2) expected(%expected_2) : tensor<2xi32>
+  %actual_3 = check.tensor.view %accumulator offset(24) : tensor<8xi32> -> tensor<2xi32>
+  %expected_3 = check.generate.fill value(2143289344) : tensor<2xi32>
+  check.expect.bitwise actual(%actual_3) expected(%expected_3) : tensor<2xi32>
+  %lhs = check.literal value(2139169605) : i32
+  %workgroup_result = check.generate.fill value(0) : tensor<8xi32>
+  %workgroup_old = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @workgroup_atomic_extrema_f32(%lhs, %rhs, %workgroup_result, %workgroup_old) : (i32, i32, tensor<8xi32>, tensor<4xi32>)
+  check.expect.bitwise actual(%workgroup_old) expected(%expected_old) : tensor<4xi32>
+  kernel.launch @normalize_extrema_nan(%workgroup_result) : (tensor<8xi32>)
+  check.expect.bitwise actual(%workgroup_result) expected(%accumulator) : tensor<8xi32>
+  check.return
+}
+
+check.case public @atomic_extrema_contention {
+  %accumulator = check.generate.fill value(1.0) : tensor<4xf32>
+  %initial_returns = check.generate.fill value(0) : tensor<4xi32>
+  kernel.launch @contended_atomic_extrema_f32(%accumulator, %initial_returns) : (tensor<4xf32>, tensor<4xi32>)
+  %expected_returns = check.generate.fill value(1) : tensor<4xi32>
+  check.expect.bitwise actual(%initial_returns) expected(%expected_returns) : tensor<4xi32>
+  %actual_0 = check.tensor.view %accumulator offset(0) : tensor<4xf32> -> tensor<1xf32>
+  %expected_0 = check.generate.fill value(-1.0) : tensor<1xf32>
+  check.expect.bitwise actual(%actual_0) expected(%expected_0) : tensor<1xf32>
+  %actual_1 = check.tensor.view %accumulator offset(4) : tensor<4xf32> -> tensor<1xf32>
+  %expected_1 = check.generate.fill value(2.0) : tensor<1xf32>
+  check.expect.bitwise actual(%actual_1) expected(%expected_1) : tensor<1xf32>
+  %actual_2 = check.tensor.view %accumulator offset(8) : tensor<4xf32> -> tensor<1xf32>
+  %expected_2 = check.generate.fill value(-1.0) : tensor<1xf32>
+  check.expect.bitwise actual(%actual_2) expected(%expected_2) : tensor<1xf32>
+  %actual_3 = check.tensor.view %accumulator offset(12) : tensor<4xf32> -> tensor<1xf32>
+  %expected_3 = check.generate.fill value(2.0) : tensor<1xf32>
+  check.expect.bitwise actual(%actual_3) expected(%expected_3) : tensor<1xf32>
+  check.return
+}

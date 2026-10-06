@@ -1,0 +1,23 @@
+// Scales one runtime-table U4 lookup across packed byte result registers.
+config.def @benchmark.lookup_lane_count = 16 : index
+
+kernel.def @packed_table_lookup_u4() {
+  %c1 = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%threads, %c1, %c1) : index
+} launch(%input: buffer, %table: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %c2 = index.constant 2 : index
+  %thread = kernel.workitem.id<x> : index
+  %lane_count = config.get @benchmark.lookup_lane_count : index
+  %byte_count = index.div %lane_count, %c2 : index
+  %input_view = buffer.view %input[%base] : buffer -> view<32x[%byte_count]xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<16xi8>
+  %output_view = buffer.view %output[%base] : buffer -> view<32x[%lane_count]xi8>
+  %packed = vector.load %input_view[%thread, 0] : view<32x[%byte_count]xi8> -> vector<[%byte_count]xi8>
+  %indices = vector.bitunpacku<4> %packed : vector<[%byte_count]xi8> -> vector<[%lane_count]xi8>
+  %entries = vector.load %table_view[0] : view<16xi8> -> vector<16xi8>
+  %values = vector.table.lookup %entries[%indices] : vector<16xi8>, vector<[%lane_count]xi8> -> vector<[%lane_count]xi8>
+  vector.store %values, %output_view[%thread, 0] : vector<[%lane_count]xi8>, view<32x[%lane_count]xi8>
+  kernel.return
+}

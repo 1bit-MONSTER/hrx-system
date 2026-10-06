@@ -121,3 +121,77 @@ func.def target(@target) @switch_loop_counts(%selector: index, %value: i32) -> (
 
 // ----
 CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.addi * selected_ops=2 emitted_ops=2 exact_dynamic_ops=0 unknown_dynamic_ops=2 dynamic_selected_ops=0 dynamic_emitted_ops=0
+
+// ====
+// RUN: with-checks compile-report source-to-low,low-dce
+
+test.target<low_core> @target
+
+// Runtime selection stays unknown in the diamond arms, but does not obscure
+// the exact four-trip loop after both paths reconverge.
+func.def target(@target) @diamond_then_counted_loop(%enabled: i1, %value: i32) -> (i32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %end = index.constant 4 : index
+  cfg.cond_br %enabled, ^enabled, ^disabled
+^enabled:
+  %incremented = scalar.addi %value, %value : i32
+  cfg.br ^join(%incremented: i32)
+^disabled:
+  %decremented = scalar.subi %value, %value : i32
+  cfg.br ^join(%decremented: i32)
+^join(%selected: i32):
+  cfg.br ^header(%begin: index, %selected: i32)
+^header(%position: index, %accumulator: i32):
+  %more = index.cmp slt, %position, %end : index
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  %product = scalar.muli %accumulator, %value : i32
+  %next = index.add %position, %step : index
+  cfg.br ^header(%next: index, %product: i32)
+^exit:
+  func.return %accumulator : i32
+}
+
+// ----
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.addi * exact_dynamic_ops=0 unknown_dynamic_ops=1 dynamic_selected_ops=0 dynamic_emitted_ops=0
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.subi * exact_dynamic_ops=0 unknown_dynamic_ops=1 dynamic_selected_ops=0 dynamic_emitted_ops=0
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.muli * exact_dynamic_ops=1 unknown_dynamic_ops=0 dynamic_selected_ops=4 dynamic_emitted_ops=4
+CHECK: COMPILE-REPORT: source_low[*] * source_op=scalar.muli * execution_count=4
+
+// ====
+// RUN: with-checks compile-report source-to-low,low-dce
+
+test.target<low_core> @target
+
+// Runtime selection inside a fixed loop obscures only the selected arms. The
+// common latch still executes exactly once for each of the four iterations.
+func.def target(@target) @counted_loop_with_inner_diamond(%enabled: i1, %value: i32) -> (i32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %end = index.constant 4 : index
+  cfg.br ^header(%begin: index, %value: i32)
+^header(%position: index, %accumulator: i32):
+  %more = index.cmp slt, %position, %end : index
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  cfg.cond_br %enabled, ^enabled, ^disabled
+^enabled:
+  %incremented = scalar.addi %accumulator, %value : i32
+  cfg.br ^latch(%incremented: i32)
+^disabled:
+  %decremented = scalar.subi %accumulator, %value : i32
+  cfg.br ^latch(%decremented: i32)
+^latch(%selected: i32):
+  %product = scalar.muli %selected, %value : i32
+  %next = index.add %position, %step : index
+  cfg.br ^header(%next: index, %product: i32)
+^exit:
+  func.return %accumulator : i32
+}
+
+// ----
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.addi * exact_dynamic_ops=0 unknown_dynamic_ops=1 dynamic_selected_ops=0 dynamic_emitted_ops=0
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.subi * exact_dynamic_ops=0 unknown_dynamic_ops=1 dynamic_selected_ops=0 dynamic_emitted_ops=0
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.muli * exact_dynamic_ops=1 unknown_dynamic_ops=0 dynamic_selected_ops=4 dynamic_emitted_ops=4
+CHECK: COMPILE-REPORT: source_low[*] * source_op=scalar.muli * execution_count=4

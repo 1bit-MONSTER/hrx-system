@@ -1,0 +1,136 @@
+// RUN: with-checks emit low-allocation-json @loop_body_write_does_not_reach_drain_use fixed=%state:target_id:8:4
+
+test.target<low_core> @target
+
+// The loop-header value is read by the body copy and independently by the
+// drain. The destructive body write reaches only the redefined backedge value,
+// so the copy may share the header value's storage.
+low.func.def schedule(locked) target<test.low.core>(@target) @loop_body_write_does_not_reach_drain_use(%condition: reg<test.i32>, %seed: reg<test.i32 x4>) -> (reg<test.i32 x4>) asm {
+  low.br ^header(%seed: reg<test.i32 x4>)
+^header(%state: reg<test.i32 x4>):
+  low.cond_br %condition, ^body, ^drain : reg<test.i32>
+^body:
+  %copy = copy %state : reg<test.i32 x4> -> reg<test.i32 x4>
+  %next = test.early_tied.v4i32 %copy
+  low.br ^header(%next: reg<test.i32 x4>)
+^drain:
+  %drain_copy = copy %state : reg<test.i32 x4> -> reg<test.i32 x4>
+  %drain_result = test.early_tied.v4i32 %drain_copy
+  return %drain_result
+}
+
+// ----
+CHECK: *"spill_count":0,*
+CHECK: *"coalesced_copy_count":2,"materialized_copy_count":0,*
+CHECK: *"kind":"coalesced","source_value":{"id":*,"name":"state","type":"reg<test.i32 x4>"},"result_value":{"id":*,"name":"copy","type":"reg<test.i32 x4>"}*
+CHECK: *"kind":"coalesced","source_value":{"id":*,"name":"state","type":"reg<test.i32 x4>"},"result_value":{"id":*,"name":"drain_copy","type":"reg<test.i32 x4>"}*
+
+// ====
+
+// RUN: with-checks emit low-allocation-json @loop_body_write_precedes_old_content_use
+
+test.target<low_core> @target
+
+// A body use after the destructive write still observes the old header
+// contents and requires the copy to use distinct storage.
+low.func.def schedule(locked) target<test.low.core>(@target) @loop_body_write_precedes_old_content_use(%condition: reg<test.i32>, %seed: reg<test.i32 x4>) -> (reg<test.i32 x4>, reg<test.i32 x4>) asm {
+  low.br ^header(%seed: reg<test.i32 x4>, %seed: reg<test.i32 x4>)
+^header(%state: reg<test.i32 x4>, %observed: reg<test.i32 x4>):
+  low.cond_br %condition, ^body, ^drain : reg<test.i32>
+^body:
+  %copy = copy %state : reg<test.i32 x4> -> reg<test.i32 x4>
+  %next = test.early_tied.v4i32 %copy
+  %old_contents = test.add.v4i32 %state, %state
+  low.br ^header(%next: reg<test.i32 x4>, %old_contents: reg<test.i32 x4>)
+^drain:
+  %drain_copy = copy %state : reg<test.i32 x4> -> reg<test.i32 x4>
+  return %drain_copy, %observed
+}
+
+// ----
+CHECK: *"spill_count":0,*
+CHECK: *"coalesced_copy_count":1,"materialized_copy_count":1,*
+CHECK: *"kind":"materialized","source_value":{"id":*,"name":"state","type":"reg<test.i32 x4>"},"result_value":{"id":*,"name":"copy","type":"reg<test.i32 x4>"}*
+CHECK: *"kind":"coalesced","source_value":{"id":*,"name":"state","type":"reg<test.i32 x4>"},"result_value":{"id":*,"name":"drain_copy","type":"reg<test.i32 x4>"}*
+
+// ====
+
+// RUN: with-checks emit low-allocation @copy_result_survives_source_write
+
+test.target<low_core> @target
+
+// The saved value must not share storage with a source overwritten before the
+// saved contents are consumed.
+low.func.def target<test.low.core>(@target) @copy_result_survives_source_write(%seed: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %saved = copy %seed : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %seed
+  %observed = test.add.i32 %changed, %changed
+  %result = test.tied.any %saved
+  return %observed, %result
+}
+
+// ----
+CHECK: spills: 0
+CHECK: copies: coalesced=0 materialized=1
+
+// ====
+
+// RUN: with-checks emit low-allocation @copy_result_dies_before_source_write
+
+test.target<low_core> @target
+
+// A copied result whose final observation precedes the source write may still
+// share storage with the source.
+low.func.def target<test.low.core>(@target) @copy_result_dies_before_source_write(%seed: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %saved = copy %seed : reg<test.i32> -> reg<test.i32>
+  %observed = test.add.i32 %saved, %saved
+  %changed = test.tied.any %seed
+  return %observed, %changed
+}
+
+// ----
+CHECK: spills: 0
+CHECK: copies: coalesced=1 materialized=0
+
+// ====
+
+// RUN: with-checks emit low-allocation @copy_chain_preserves_contents_across_source_write
+
+test.target<low_core> @target
+
+// Optional copy chains may share either edge, but at least one edge must be
+// materialized to preserve the saved contents across the source write.
+low.func.def target<test.low.core>(@target) @copy_chain_preserves_contents_across_source_write(%seed: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %saved0 = copy %seed : reg<test.i32> -> reg<test.i32>
+  %saved1 = copy %saved0 : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %seed
+  %observed = test.add.i32 %changed, %changed
+  %result = test.tied.any %saved1
+  return %observed, %result
+}
+
+// ----
+CHECK: spills: 0
+CHECK: copies: coalesced=1 materialized=1
+
+// ====
+
+// RUN: with-checks emit low-allocation @copy_result_chain_survives_source_write
+
+test.target<low_core> @target
+
+// Mandatory tied chains retain both the source write and saved-content
+// observation without repeated chain walks.
+low.func.def target<test.low.core>(@target) @copy_result_chain_survives_source_write(%seed: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %saved = copy %seed : reg<test.i32> -> reg<test.i32>
+  %changed0 = test.tied.any %seed
+  %changed1 = test.tied.any %changed0
+  %observed = test.add.i32 %changed1, %changed1
+  %result0 = test.tied.any %saved
+  %result1 = test.tied.any %result0
+  return %observed, %result1
+}
+
+// ----
+CHECK: spills: 0
+CHECK: copies: coalesced=0 materialized=1

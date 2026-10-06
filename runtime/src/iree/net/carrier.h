@@ -7,18 +7,18 @@
 // Carrier abstraction: transport-agnostic byte/message movement.
 //
 // A carrier moves bytes between endpoints. It does not interpret application
-// protocols or message semantics; it submits transport operations through an
-// iree_async_proactor_t and reports their completions.
+// protocols or message semantics; its progress and callbacks are integrated
+// with the caller-owned iree_async_proactor_t.
 //
-// TCP and loopback carriers implement the initial contract. Higher-level
-// message endpoints add framing and multiplexing without changing carrier
-// ownership or completion behavior.
+// Higher-level message endpoints add framing and multiplexing without changing
+// carrier ownership or completion behavior.
 //
 // ## Composability Rule
 //
-// Carriers never call syscalls directly. They submit operations to the
-// proactor and receive completions. This keeps the I/O scheduling unified
-// regardless of transport technology.
+// Socket and notification work uses proactor operations. Native queue engines
+// such as RDMA post and service their queues on the same polling owner through
+// bounded event/progress callbacks and explicit handoffs. No carrier installs
+// a private worker or a competing host polling loop.
 //
 // ## Capability-Based Selection
 //

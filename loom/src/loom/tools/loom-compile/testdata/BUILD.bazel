@@ -11,6 +11,5 @@ package(
 )
 
 exports_files([
-    "command_artifacts.loom",
-    "command_kernel_requests.loom",
+    "resident_xdna.loom",
 ])

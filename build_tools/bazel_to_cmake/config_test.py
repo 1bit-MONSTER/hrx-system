@@ -19,6 +19,7 @@ import bazel_to_cmake_config
 import bazel_to_cmake_converter
 import bazel_to_cmake_requirements
 import bazel_to_cmake_targets
+from loom_binary import LoomBinaryBuildFileFunctions
 
 
 class _PythonBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
@@ -26,7 +27,111 @@ class _PythonBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         return True
 
 
+class _LoomBinaryBuildFileFunctions(
+    LoomBinaryBuildFileFunctions, bazel_to_cmake_converter.BuildFileFunctions
+):
+    pass
+
+
 class ConfigTest(unittest.TestCase):
+    def test_loom_kernel_projects_profile_roots_configs_and_library_edges(self):
+        converter = SimpleNamespace(body="")
+        functions = _LoomBinaryBuildFileFunctions(
+            converter=converter,
+            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
+            build_dir="/repo/programs",
+            repo_root="/repo",
+        )
+        compatibility = functions.select(
+            {
+                "//loom/config/target:xdna_artifacts": [],
+                "//conditions:default": ["@platforms//:incompatible"],
+            }
+        )
+        functions.loom_target_profile(
+            name="npu4",
+            family="amd.xdna.aie2p",
+            selector="amd.xdna.strix.17f0_10",
+            target_compatible_with=compatibility,
+        )
+        functions.loom_kernel_binary(
+            name="mul",
+            srcs=["z.loom", "a.loom"],
+            deps=[":z_library", ":a_library"],
+            roots=["@second", "@first"],
+            configs={"z.limit": "16", "a.value": "3"},
+            target=":npu4",
+            out="mul.xdna",
+            testonly=True,
+            target_compatible_with=compatibility,
+        )
+        self.assertIn('FAMILY\n    "amd.xdna.aie2p"', converter.body)
+        self.assertIn('SELECTOR\n    "amd.xdna.strix.17f0_10"', converter.body)
+        self.assertIn(
+            "REQUIRES\n    LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA",
+            converter.body,
+        )
+        self.assertIn(
+            "if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)",
+            converter.body,
+        )
+        self.assertIn('COMPONENT\n    "//programs:mul"', converter.body)
+        self.assertIn('SRCS\n    "z.loom"\n    "a.loom"', converter.body)
+        self.assertIn("LIBRARIES\n    ::z_library\n    ::a_library", converter.body)
+        self.assertIn('ROOTS\n    "@second"\n    "@first"', converter.body)
+        self.assertIn('CONFIGS\n    "a.value=3"\n    "z.limit=16"', converter.body)
+        self.assertIn("  TESTONLY\n", converter.body)
+
+    def test_loom_kernel_outputs_reach_embedding_by_rule_or_output_label(self):
+        converter = SimpleNamespace(body="")
+        functions = _LoomBinaryBuildFileFunctions(
+            converter=converter,
+            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
+            build_dir="/repo/programs",
+            repo_root="/repo",
+        )
+        functions.loom_kernel_binary(
+            name="mul", srcs=["mul.loom"], target=":npu4", out="mul.xdna"
+        )
+        functions.loom_kernel_binary(
+            name="deps_only", deps=[":library"], target=":npu4"
+        )
+        self.assertNotIn("  ROOTS\n", converter.body)
+        self.assertNotIn("  CONFIGS\n", converter.body)
+        self.assertIn('OUTPUT\n    "deps_only"', converter.body)
+        for source in (":mul", ":mul.xdna"):
+            with self.subTest(source=source):
+                converter.body = ""
+                functions.iree_c_embed_data(
+                    name="embedded",
+                    srcs=[source],
+                    c_file_output="embedded.c",
+                    h_file_output="embedded.h",
+                    testonly=True,
+                )
+                self.assertIn('"${CMAKE_CURRENT_BINARY_DIR}/mul.xdna"', converter.body)
+                self.assertNotIn("$<TARGET_FILE:", converter.body)
+
+    def test_loom_binary_rules_are_available_to_other_project_converters(self):
+        repo_cfg = SimpleNamespace(
+            PROJECTS=[],
+            REPO_MAP={"@hrx": ""},
+            CustomBuildFileFunctions=_LoomBinaryBuildFileFunctions,
+        )
+        output = bazel_to_cmake_converter.convert_build_file(
+            """
+load("//loom/build_tools/bazel:defs.bzl", "loom_target_profile", "loom_kernel_binary")
+loom_target_profile(name="profile", family="amd.xdna.aie2p", selector="exact")
+loom_kernel_binary(name="program", srcs=["program.loom"], target=":profile")
+""",
+            repo_cfg,
+            "/repo/consumer",
+            repo_root="/repo",
+        )
+        self.assertIn("loom_target_profile(", output)
+        self.assertIn("loom_kernel_binary(", output)
+        self.assertIn('OUTPUT\n    "program"', output)
+
     def test_selects_longest_matching_project_for_build_path(self):
         runtime = bazel_to_cmake_config.ProjectConfig(
             name="runtime",
@@ -185,6 +290,43 @@ sh_test(
                 repo_root=str(repo_root),
             )
 
+    def test_loaded_executable_aliases_honor_explicit_conversion_skip(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        repo_cfg = SimpleNamespace(PROJECTS=[], REPO_MAP={"@hrx": ""})
+        build_dir = str(repo_root / "synthetic")
+
+        cmake = bazel_to_cmake_converter.convert_build_file(
+            """
+load("//build_tools/bazel:executable.bzl", "iree_executable_alias")
+
+iree_executable_alias(
+    name = "bazel_only_alias",
+    src = ":tool",
+    tags = ["skip-bazel_to_cmake"],
+)
+""",
+            repo_cfg,
+            build_dir,
+            repo_root=str(repo_root),
+        )
+        self.assertNotIn("bazel_only_alias", cmake)
+
+        cmake = bazel_to_cmake_converter.convert_build_file(
+            """
+load("//build_tools/bazel:executable.bzl", "iree_wasi_executable_alias")
+
+iree_wasi_executable_alias(
+    name = "bazel_only_wasi_alias",
+    src = ":tool",
+    tags = ["skip-bazel_to_cmake"],
+)
+""",
+            repo_cfg,
+            build_dir,
+            repo_root=str(repo_root),
+        )
+        self.assertNotIn("bazel_only_wasi_alias", cmake)
+
     def test_glob_exclusions_have_distinct_cmake_storage(self):
         repo_root = Path(__file__).resolve().parents[2]
         repo_cfg = SimpleNamespace(PROJECTS=[], REPO_MAP={"@hrx": ""})
@@ -279,6 +421,18 @@ cc_library(
                 }
             )
 
+    def test_converts_libamdf_build_condition(self):
+        functions = bazel_to_cmake_converter.BuildFileFunctions(
+            converter=SimpleNamespace(body=""),
+            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
+            build_dir="",
+        )
+
+        self.assertEqual(
+            functions._convert_select_condition("//libamdf/config:enabled_setting"),
+            "AMDF_BUILD",
+        )
+
     def test_target_compatible_with_composes_selects_and_requirements(self):
         functions = bazel_to_cmake_converter.BuildFileFunctions(
             converter=SimpleNamespace(body=""),
@@ -311,6 +465,18 @@ cc_library(
         self.assertEqual(
             functions._target_compatible_condition(["@platforms//cpu:x86_64"]),
             'IREE_ARCH STREQUAL "x86_64"',
+        )
+
+    def test_converts_wasi_platform_condition(self):
+        functions = bazel_to_cmake_converter.BuildFileFunctions(
+            converter=SimpleNamespace(body=""),
+            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
+            build_dir="",
+        )
+
+        self.assertEqual(
+            functions._convert_select_condition("@platforms//os:wasi"),
+            'CMAKE_SYSTEM_NAME STREQUAL "WASI"',
         )
 
     def test_target_compatible_with_parenthesizes_disjunctions(self):
@@ -593,6 +759,56 @@ cc_library(
         )
         self.assertIn(
             'DATA\n    "${CMAKE_CURRENT_BINARY_DIR}/generated_data.spv"', converter.body
+        )
+
+    def test_py_test_preserves_configured_generated_arguments_and_data(self):
+        converter = SimpleNamespace(body="")
+        functions = _PythonBuildFileFunctions(
+            converter=converter,
+            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
+            build_dir="/repo/pkg",
+            repo_root="/repo",
+        )
+        functions.iree_spirv_asm_module(name="generated_data", src="input.spvasm")
+        functions.iree_py_test(
+            name="configured_data_test",
+            srcs=["test.py"],
+            args=["--common"]
+            + functions.select(
+                {
+                    "@platforms//os:linux": ["--input=$(rootpath :generated_data)"],
+                    "//conditions:default": ["--no-input"],
+                }
+            ),
+            data=functions.select(
+                {
+                    "@platforms//os:linux": [":generated_data"],
+                    "//conditions:default": [],
+                }
+            ),
+        )
+        self.assertIn(
+            'if(CMAKE_SYSTEM_NAME STREQUAL "Linux")\n'
+            "  list(APPEND _configured_data_test_platform_args "
+            '"--input={{${CMAKE_CURRENT_BINARY_DIR}/generated_data.spv}}")\n'
+            "else()\n"
+            '  list(APPEND _configured_data_test_platform_args "--no-input")\n'
+            "endif()",
+            converter.body,
+        )
+        self.assertIn(
+            'if(CMAKE_SYSTEM_NAME STREQUAL "Linux")\n'
+            "  list(APPEND _configured_data_test_platform_data "
+            '"${CMAKE_CURRENT_BINARY_DIR}/generated_data.spv")\n'
+            "endif()",
+            converter.body,
+        )
+        self.assertIn(
+            'ARGS\n    "--common"\n    ${_configured_data_test_platform_args}',
+            converter.body,
+        )
+        self.assertIn(
+            "DATA\n    ${_configured_data_test_platform_data}", converter.body
         )
 
     def test_private_executable_test_can_skip_cmake(self):

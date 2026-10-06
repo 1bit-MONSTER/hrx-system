@@ -20,6 +20,10 @@ typedef struct loom_low_physical_component_t {
   uint32_t next;
   // Original liveness interval index for this member.
   uint32_t interval_index;
+  // First storage point of this member's own interval.
+  uint32_t interval_start;
+  // Exclusive final storage point of this member's own interval.
+  uint32_t interval_end;
   // First storage point of the component's conservative horizon.
   uint32_t start;
   // Exclusive final storage point of that horizon.
@@ -37,23 +41,19 @@ typedef struct loom_low_physical_component_t {
 typedef struct loom_low_physical_domain_t {
   // Immutable canonical-physical-ID bits for one distinct effective domain.
   const uint64_t* registers;
-  // Union of candidates appearing in strictly smaller effective domains.
+  // Atomic storage covered by every candidate in the effective domain.
+  uint64_t* atomic_units;
+  // Union of physical candidates appearing in strictly smaller atomic storage
+  // domains.
   uint64_t* narrower;
-  // Point-table slots queried by members of this domain.
-  struct {
-    // First slot in the point and query tables.
-    iree_host_size_t start;
-    // Number of slots queried by this domain.
-    iree_host_size_t count;
-  } queries;
-  // Point-table slots updated by members of this domain.
-  struct {
-    // First entry in the indirect action table.
-    iree_host_size_t start;
-    // Number of point-table updates performed by this domain.
-    iree_host_size_t count;
-  } actions;
 } loom_low_physical_domain_t;
+
+typedef struct loom_low_physical_candidate_unit_t {
+  // Global atomic storage unit occupied by the candidate.
+  uint16_t atomic_unit;
+  // Semantic ordinal of the candidate in its register class.
+  uint16_t candidate_ordinal;
+} loom_low_physical_candidate_unit_t;
 
 static bool loom_low_physical_bits_test(const uint64_t* words, uint32_t bit) {
   return (words[bit / 64] & (UINT64_C(1) << (bit % 64))) != 0;
@@ -62,6 +62,27 @@ static bool loom_low_physical_bits_test(const uint64_t* words, uint32_t bit) {
 static void loom_low_physical_bits_set(uint64_t* words, uint32_t bit) {
   words[bit / 64] |= UINT64_C(1) << (bit % 64);
 }
+
+static bool loom_low_physical_candidate_unit_less(
+    const loom_low_physical_candidate_unit_t* lhs,
+    const loom_low_physical_candidate_unit_t* rhs) {
+  if (lhs->atomic_unit != rhs->atomic_unit) {
+    return lhs->atomic_unit < rhs->atomic_unit;
+  }
+  return lhs->candidate_ordinal < rhs->candidate_ordinal;
+}
+
+LOOM_DEFINE_ADAPTIVE_SORT(loom_low_physical_candidate_unit_sort,
+                          loom_low_physical_candidate_unit_t,
+                          loom_low_physical_candidate_unit_less)
+
+static bool loom_low_physical_point_less(const uint32_t* lhs,
+                                         const uint32_t* rhs) {
+  return *lhs < *rhs;
+}
+
+LOOM_DEFINE_ADAPTIVE_SORT(loom_low_physical_point_sort, uint32_t,
+                          loom_low_physical_point_less)
 
 static uint32_t loom_low_physical_component_find(
     loom_low_physical_component_t* components, uint32_t index) {
@@ -87,21 +108,148 @@ LOOM_DEFINE_ADAPTIVE_SORT(loom_low_physical_component_domain_sort,
                           loom_low_physical_component_t*,
                           loom_low_physical_component_domain_less)
 
-static bool loom_low_physical_component_lifetime_less(
-    loom_low_physical_component_t* const* lhs,
-    loom_low_physical_component_t* const* rhs) {
-  if ((*lhs)->start != (*rhs)->start) {
-    return (*lhs)->start < (*rhs)->start;
+static bool loom_low_physical_candidate_unit_find(
+    const loom_low_physical_candidate_unit_t* units,
+    iree_host_size_t unit_count, uint16_t atomic_unit,
+    uint16_t* out_candidate_ordinal) {
+  iree_host_size_t begin = 0;
+  iree_host_size_t end = unit_count;
+  while (begin < end) {
+    const iree_host_size_t middle = begin + (end - begin) / 2;
+    if (units[middle].atomic_unit < atomic_unit) {
+      begin = middle + 1;
+    } else {
+      end = middle;
+    }
   }
-  if ((*lhs)->end != (*rhs)->end) {
-    return (*lhs)->end < (*rhs)->end;
+  if (begin == unit_count || units[begin].atomic_unit != atomic_unit) {
+    return false;
   }
-  return (*lhs)->interval_index < (*rhs)->interval_index;
+  *out_candidate_ordinal = units[begin].candidate_ordinal;
+  return true;
 }
 
-LOOM_DEFINE_ADAPTIVE_SORT(loom_low_physical_component_lifetime_sort,
-                          loom_low_physical_component_t*,
-                          loom_low_physical_component_lifetime_less)
+static void loom_low_physical_register_mark_candidates(
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint32_t physical_register_id,
+    const loom_low_physical_candidate_unit_t* candidate_units,
+    iree_host_size_t candidate_unit_count, uint64_t* words) {
+  const loom_low_physical_register_t* physical_register =
+      &descriptor_set->physical_registers[physical_register_id];
+  const uint16_t* atomic_units =
+      descriptor_set->physical_register_atomic_units +
+      physical_register->atomic_unit_start;
+  for (uint16_t i = 0; i < physical_register->atomic_unit_count; ++i) {
+    uint16_t candidate_ordinal = 0;
+    if (loom_low_physical_candidate_unit_find(
+            candidate_units, candidate_unit_count, atomic_units[i],
+            &candidate_ordinal)) {
+      loom_low_physical_bits_set(words, candidate_ordinal);
+    }
+  }
+}
+
+static iree_host_size_t loom_low_physical_point_lower_bound(
+    const uint32_t* points, iree_host_size_t point_count, uint32_t point) {
+  iree_host_size_t begin = 0;
+  iree_host_size_t end = point_count;
+  while (begin < end) {
+    const iree_host_size_t middle = begin + (end - begin) / 2;
+    if (points[middle] < point) {
+      begin = middle + 1;
+    } else {
+      end = middle;
+    }
+  }
+  return begin;
+}
+
+static uint64_t loom_low_physical_demand_query(const uint64_t* tree,
+                                               iree_host_size_t tree_base,
+                                               iree_host_size_t begin,
+                                               iree_host_size_t end) {
+  uint64_t maximum = 0;
+  begin += tree_base;
+  end += tree_base;
+  while (begin < end) {
+    if (begin & 1) {
+      maximum = iree_max(maximum, tree[begin]);
+      ++begin;
+    }
+    if (end & 1) {
+      --end;
+      maximum = iree_max(maximum, tree[end]);
+    }
+    begin /= 2;
+    end /= 2;
+  }
+  return maximum;
+}
+
+typedef enum loom_low_physical_demand_scope_e {
+  LOOM_LOW_PHYSICAL_DEMAND_SCOPE_REGISTER_CLASS_DOMAIN = 0,
+  LOOM_LOW_PHYSICAL_DEMAND_SCOPE_EFFECTIVE_DOMAIN_AND_DESCENDANTS = 1,
+} loom_low_physical_demand_scope_t;
+
+static iree_status_t loom_low_physical_demand_tree_build(
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_liveness_analysis_t* liveness,
+    loom_low_physical_component_t* components, uint32_t component_count,
+    const iree_host_size_t* register_class_domains, const uint8_t* subsets,
+    iree_host_size_t domain_count, iree_host_size_t domain,
+    loom_low_physical_demand_scope_t scope, const uint32_t* demand_points,
+    iree_host_size_t point_count, iree_host_size_t tree_base,
+    iree_host_size_t tree_count, uint64_t* demand_starts, uint64_t* demand_ends,
+    uint64_t* demand_tree) {
+  memset(demand_starts, 0, point_count * sizeof(*demand_starts));
+  memset(demand_ends, 0, point_count * sizeof(*demand_ends));
+  memset(demand_tree, 0, tree_count * sizeof(*demand_tree));
+  for (uint32_t i = 0; i < component_count; ++i) {
+    const uint32_t root = loom_low_physical_component_find(components, i);
+    const uint16_t class_id = liveness->intervals[components[i].interval_index]
+                                  .value_class.register_class_id;
+    const iree_host_size_t member_domain =
+        scope == LOOM_LOW_PHYSICAL_DEMAND_SCOPE_REGISTER_CLASS_DOMAIN
+            ? register_class_domains[class_id]
+            : components[root].domain;
+    const bool included =
+        member_domain == domain ||
+        (scope ==
+             LOOM_LOW_PHYSICAL_DEMAND_SCOPE_EFFECTIVE_DOMAIN_AND_DESCENDANTS &&
+         subsets[member_domain * domain_count + domain]);
+    if (!included) {
+      continue;
+    }
+    const iree_host_size_t start = loom_low_physical_point_lower_bound(
+        demand_points, point_count, components[i].interval_start);
+    const iree_host_size_t end = loom_low_physical_point_lower_bound(
+        demand_points, point_count, components[i].interval_end);
+    const uint16_t units =
+        descriptor_set->reg_classes[class_id].physical_atomic_unit_count;
+    if (UINT64_MAX - demand_starts[start] < units ||
+        UINT64_MAX - demand_ends[end] < units) {
+      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                              "physical domain demand overflow");
+    }
+    demand_starts[start] += units;
+    demand_ends[end] += units;
+  }
+  uint64_t live_units = 0;
+  for (iree_host_size_t i = 0; i < point_count; ++i) {
+    IREE_ASSERT_GE(live_units, demand_ends[i]);
+    live_units -= demand_ends[i];
+    if (UINT64_MAX - live_units < demand_starts[i]) {
+      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                              "physical domain demand overflow");
+    }
+    live_units += demand_starts[i];
+    demand_tree[tree_base + i] = live_units;
+  }
+  for (iree_host_size_t i = tree_base - 1; i > 0; --i) {
+    demand_tree[i] = iree_max(demand_tree[2 * i], demand_tree[2 * i + 1]);
+  }
+  return iree_ok_status();
+}
 
 static bool loom_low_physical_interval_is_scalar(
     const loom_low_descriptor_set_t* descriptor_set,
@@ -189,62 +337,43 @@ static iree_status_t loom_low_physical_components_merge(
   return status;
 }
 
-static void loom_low_physical_domain_sweep(
-    const loom_low_descriptor_set_t* descriptor_set,
-    const loom_liveness_analysis_t* liveness,
-    const loom_low_physical_component_t* components,
-    loom_low_physical_component_t* const* order, iree_host_size_t count,
-    const loom_low_physical_domain_t* domains, const uint32_t* queries,
-    const iree_host_size_t* actions, uint32_t* points, bool backwards,
-    const uint32_t* offsets, uint64_t* words) {
-  for (iree_host_size_t i = 0; i < count; ++i) {
-    const loom_low_physical_component_t* component =
-        order[backwards ? count - 1 - i : i];
-    const loom_low_physical_domain_t* domain = &domains[component->domain];
-    for (iree_host_size_t q = domain->queries.start;
-         q < domain->queries.start + domain->queries.count; ++q) {
-      const bool overlaps =
-          backwards ? points[q] < component->end : points[q] > component->start;
-      if (!overlaps) {
-        continue;
-      }
-      uint32_t member = component->parent;
-      do {
-        const uint32_t interval_index = components[member].interval_index;
-        const loom_low_reg_class_t* reg_class =
-            &descriptor_set->reg_classes[liveness->intervals[interval_index]
-                                             .value_class.register_class_id];
-        // The component intersection proves membership in every member class.
-        const uint16_t ordinal =
-            descriptor_set->physical_register_candidate_ordinals
-                [reg_class->candidate_lookup.ordinal_start + queries[q] -
-                 reg_class->candidate_lookup.register_base];
-        loom_low_physical_bits_set(words + offsets[interval_index], ordinal);
-        member = components[member].next;
-      } while (member != component->parent);
-    }
-    for (iree_host_size_t a = domain->actions.start;
-         a < domain->actions.start + domain->actions.count; ++a) {
-      uint32_t* point = &points[actions[a]];
-      *point = backwards ? component->start : iree_max(*point, component->end);
-    }
-  }
-}
-
 static iree_status_t loom_low_physical_domains_build_preferences(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_liveness_analysis_t* liveness,
     const loom_low_allocation_unit_liveness_t* unit_liveness,
     const loom_low_placement_table_t* placement, iree_host_size_t scalar_count,
-    iree_arena_allocator_t* arena, uint32_t* offsets, uint64_t* words) {
+    iree_arena_allocator_t* arena, uint32_t* offsets, uint64_t* penalty_words,
+    uint64_t* affinity_words, uint64_t* reservation_words) {
   const iree_host_size_t word_count =
       iree_bitmap_calculate_words(descriptor_set->physical_register_count);
+  const iree_host_size_t atomic_word_count =
+      iree_bitmap_calculate_words(descriptor_set->physical_register_unit_count);
   uint64_t** class_words = NULL;
   IREE_RETURN_IF_ERROR(
       iree_arena_allocate_array(arena, descriptor_set->reg_class_count,
                                 sizeof(*class_words), (void**)&class_words));
   memset(class_words, 0,
          descriptor_set->reg_class_count * sizeof(*class_words));
+  uint64_t** class_atomic_words = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, descriptor_set->reg_class_count, sizeof(*class_atomic_words),
+      (void**)&class_atomic_words));
+  memset(class_atomic_words, 0,
+         descriptor_set->reg_class_count * sizeof(*class_atomic_words));
+  loom_low_physical_candidate_unit_t** candidate_units_by_class = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, descriptor_set->reg_class_count, sizeof(*candidate_units_by_class),
+      (void**)&candidate_units_by_class));
+  memset(candidate_units_by_class, 0,
+         descriptor_set->reg_class_count * sizeof(*candidate_units_by_class));
+  iree_host_size_t* candidate_unit_counts_by_class = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate_array(arena, descriptor_set->reg_class_count,
+                                sizeof(*candidate_unit_counts_by_class),
+                                (void**)&candidate_unit_counts_by_class));
+  memset(candidate_unit_counts_by_class, 0,
+         descriptor_set->reg_class_count *
+             sizeof(*candidate_unit_counts_by_class));
   uint32_t* indices_by_ordinal = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, liveness->value_count,
                                                  sizeof(*indices_by_ordinal),
@@ -257,15 +386,14 @@ static iree_status_t loom_low_physical_domains_build_preferences(
   loom_low_physical_component_t** order = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       arena, scalar_count, sizeof(*order), (void**)&order));
-  // Before affinity merging, this array indexes one representative per used
-  // class. It is then reused for root ordering during domain construction.
+  uint16_t* used_class_ids = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, scalar_count, sizeof(*used_class_ids), (void**)&used_class_ids));
   iree_host_size_t used_class_count = 0;
   bool has_overlapping_domains = false;
   uint32_t component_count = 0;
   uint32_t offset = 0;
-  iree_status_t status = iree_ok_status();
-  for (loom_value_ordinal_t v = 0;
-       v < liveness->value_count && iree_status_is_ok(status); ++v) {
+  for (loom_value_ordinal_t v = 0; v < liveness->value_count; ++v) {
     const uint32_t index = liveness->value_interval_indices[v];
     if (index == UINT32_MAX) {
       continue;
@@ -276,31 +404,66 @@ static iree_status_t loom_low_physical_domains_build_preferences(
     }
     const uint16_t class_id = interval->value_class.register_class_id;
     if (!class_words[class_id]) {
-      status = iree_arena_allocate_array(arena, word_count, sizeof(uint64_t),
-                                         (void**)&class_words[class_id]);
-      if (!iree_status_is_ok(status)) {
-        continue;
-      }
+      IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+          arena, word_count, sizeof(uint64_t), (void**)&class_words[class_id]));
       memset(class_words[class_id], 0, word_count * sizeof(uint64_t));
+      IREE_RETURN_IF_ERROR(
+          iree_arena_allocate_array(arena, atomic_word_count, sizeof(uint64_t),
+                                    (void**)&class_atomic_words[class_id]));
+      memset(class_atomic_words[class_id], 0,
+             atomic_word_count * sizeof(uint64_t));
       const loom_low_reg_class_t* reg_class =
           &descriptor_set->reg_classes[class_id];
-      for (uint16_t r = 0; r < reg_class->allocatable_count; ++r) {
-        loom_low_physical_bits_set(
-            class_words[class_id],
-            loom_low_descriptor_set_physical_register_candidate(descriptor_set,
-                                                                class_id, r));
+      iree_host_size_t candidate_unit_count = 0;
+      if (!iree_host_size_checked_mul(reg_class->allocatable_count,
+                                      reg_class->physical_atomic_unit_count,
+                                      &candidate_unit_count)) {
+        return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                                "physical candidate-unit index size overflow");
       }
+      IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+          arena, candidate_unit_count,
+          sizeof(*candidate_units_by_class[class_id]),
+          (void**)&candidate_units_by_class[class_id]));
+      candidate_unit_counts_by_class[class_id] = candidate_unit_count;
+      iree_host_size_t candidate_unit_index = 0;
+      for (uint16_t r = 0; r < reg_class->allocatable_count; ++r) {
+        const uint32_t physical_register_id =
+            loom_low_descriptor_set_physical_register_candidate(descriptor_set,
+                                                                class_id, r);
+        loom_low_physical_bits_set(class_words[class_id], physical_register_id);
+        const loom_low_physical_register_t* physical_register =
+            &descriptor_set->physical_registers[physical_register_id];
+        const uint16_t* atomic_units =
+            descriptor_set->physical_register_atomic_units +
+            physical_register->atomic_unit_start;
+        for (uint16_t j = 0; j < physical_register->atomic_unit_count; ++j) {
+          loom_low_physical_bits_set(class_atomic_words[class_id],
+                                     atomic_units[j]);
+          candidate_units_by_class[class_id][candidate_unit_index++] =
+              (loom_low_physical_candidate_unit_t){
+                  .atomic_unit = atomic_units[j],
+                  .candidate_ordinal = r,
+              };
+        }
+      }
+      IREE_ASSERT_EQ(candidate_unit_index, candidate_unit_count);
+      loom_low_physical_candidate_unit_sort(candidate_units_by_class[class_id],
+                                            candidate_unit_count);
       for (iree_host_size_t c = 0;
            c < used_class_count && !has_overlapping_domains; ++c) {
         uint64_t shared = 0;
         uint64_t difference = 0;
-        for (iree_host_size_t w = 0; w < word_count; ++w) {
-          shared |= class_words[class_id][w] & order[c]->registers[w];
-          difference |= class_words[class_id][w] ^ order[c]->registers[w];
+        const uint16_t previous_class_id = used_class_ids[c];
+        for (iree_host_size_t w = 0; w < atomic_word_count; ++w) {
+          shared |= class_atomic_words[class_id][w] &
+                    class_atomic_words[previous_class_id][w];
+          difference |= class_atomic_words[class_id][w] ^
+                        class_atomic_words[previous_class_id][w];
         }
         has_overlapping_domains = shared != 0 && difference != 0;
       }
-      order[used_class_count++] = &components[component_count];
+      used_class_ids[used_class_count++] = class_id;
     }
     const uint32_t point =
         loom_low_allocation_unit_liveness_point_start_for_value_ordinal(
@@ -318,6 +481,8 @@ static iree_status_t loom_low_physical_domains_build_preferences(
         .parent = component_count,
         .next = component_count,
         .interval_index = index,
+        .interval_start = start,
+        .interval_end = end,
         .start = start,
         .end = end,
         .domain = class_id,
@@ -328,7 +493,6 @@ static iree_status_t loom_low_physical_domains_build_preferences(
     offset += iree_bitmap_calculate_words(
         descriptor_set->reg_classes[class_id].allocatable_count);
   }
-  IREE_RETURN_IF_ERROR(status);
   // Equal or disjoint classes cannot form a narrower affinity intersection or
   // constrain one another. Their candidate preferences are uniformly inert.
   if (!has_overlapping_domains) {
@@ -357,18 +521,25 @@ static iree_status_t loom_low_physical_domains_build_preferences(
       if (!loom_low_physical_bits_test(
               common, loom_low_descriptor_set_physical_register_candidate(
                           descriptor_set, class_id, r))) {
-        loom_low_physical_bits_set(words + offsets[interval_index], r);
+        loom_low_physical_bits_set(penalty_words + offsets[interval_index], r);
+        loom_low_physical_bits_set(affinity_words + offsets[interval_index], r);
       }
     }
   }
-  // Intern equal effective domains once, independently of affinity-component
-  // identity. Distinct dynamic values retain separate interference/lifetimes.
+  // Intern equal effective affinity domains and original register-class
+  // domains. Affinity may prefer a narrower common location, but every member
+  // can fall back to its class domain when that location is unavailable.
   loom_low_physical_component_domain_sort(order, root_count);
   iree_host_size_t domain_capacity = 0;
   for (iree_host_size_t i = 0; i < root_count; ++i) {
     if (i == 0 || order[i - 1]->domain != order[i]->domain) {
       ++domain_capacity;
     }
+  }
+  if (!iree_host_size_checked_add(domain_capacity, used_class_count,
+                                  &domain_capacity)) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "physical domain count overflow");
   }
   loom_low_physical_domain_t* domains = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
@@ -392,6 +563,102 @@ static iree_status_t loom_low_physical_domains_build_preferences(
     }
     order[i]->domain = domain_index;
   }
+  iree_host_size_t* register_class_domains = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, descriptor_set->reg_class_count, sizeof(*register_class_domains),
+      (void**)&register_class_domains));
+  for (uint16_t class_id = 0; class_id < descriptor_set->reg_class_count;
+       ++class_id) {
+    register_class_domains[class_id] = IREE_HOST_SIZE_MAX;
+  }
+  for (iree_host_size_t i = 0; i < used_class_count; ++i) {
+    const uint16_t class_id = used_class_ids[i];
+    domain_index = 0;
+    while (domain_index < domain_count &&
+           memcmp(domains[domain_index].registers, class_words[class_id],
+                  word_count * sizeof(uint64_t)) != 0) {
+      ++domain_index;
+    }
+    if (domain_index == domain_count) {
+      domains[domain_count++].registers = class_words[class_id];
+    }
+    register_class_domains[class_id] = domain_index;
+  }
+  uint64_t* domain_atomic_units = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, domain_count, atomic_word_count * sizeof(*domain_atomic_units),
+      (void**)&domain_atomic_units));
+  memset(domain_atomic_units, 0,
+         domain_count * atomic_word_count * sizeof(*domain_atomic_units));
+  for (iree_host_size_t d = 0; d < domain_count; ++d) {
+    domains[d].atomic_units = domain_atomic_units + d * atomic_word_count;
+    for (uint32_t r = 0; r < descriptor_set->physical_register_count; ++r) {
+      if (!loom_low_physical_bits_test(domains[d].registers, r)) {
+        continue;
+      }
+      const loom_low_physical_register_t* physical_register =
+          &descriptor_set->physical_registers[r];
+      const uint16_t* atomic_units =
+          descriptor_set->physical_register_atomic_units +
+          physical_register->atomic_unit_start;
+      for (uint16_t j = 0; j < physical_register->atomic_unit_count; ++j) {
+        loom_low_physical_bits_set(domains[d].atomic_units, atomic_units[j]);
+      }
+    }
+  }
+
+  // Physical names are representation choices, not storage identities. Merge
+  // effective domains with equal atomic coverage before computing capacity so
+  // simultaneous values from differently named classes contribute to the same
+  // demand calendar.
+  loom_low_physical_domain_t* atomic_domains = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, domain_count, sizeof(*atomic_domains), (void**)&atomic_domains));
+  memset(atomic_domains, 0, domain_count * sizeof(*atomic_domains));
+  uint64_t* atomic_domain_registers = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, domain_count, word_count * sizeof(*atomic_domain_registers),
+      (void**)&atomic_domain_registers));
+  memset(atomic_domain_registers, 0,
+         domain_count * word_count * sizeof(*atomic_domain_registers));
+  iree_host_size_t* atomic_domain_indices = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, domain_count, sizeof(*atomic_domain_indices),
+      (void**)&atomic_domain_indices));
+  iree_host_size_t atomic_domain_count = 0;
+  for (iree_host_size_t d = 0; d < domain_count; ++d) {
+    iree_host_size_t atomic_domain_index = 0;
+    while (atomic_domain_index < atomic_domain_count &&
+           memcmp(atomic_domains[atomic_domain_index].atomic_units,
+                  domains[d].atomic_units,
+                  atomic_word_count * sizeof(uint64_t)) != 0) {
+      ++atomic_domain_index;
+    }
+    if (atomic_domain_index == atomic_domain_count) {
+      atomic_domains[atomic_domain_index].atomic_units =
+          domains[d].atomic_units;
+      atomic_domains[atomic_domain_index].registers =
+          atomic_domain_registers + atomic_domain_index * word_count;
+      ++atomic_domain_count;
+    }
+    atomic_domain_indices[d] = atomic_domain_index;
+    uint64_t* registers =
+        atomic_domain_registers + atomic_domain_index * word_count;
+    for (iree_host_size_t w = 0; w < word_count; ++w) {
+      registers[w] |= domains[d].registers[w];
+    }
+  }
+  for (iree_host_size_t i = 0; i < root_count; ++i) {
+    order[i]->domain = atomic_domain_indices[order[i]->domain];
+  }
+  for (iree_host_size_t i = 0; i < used_class_count; ++i) {
+    const uint16_t class_id = used_class_ids[i];
+    register_class_domains[class_id] =
+        atomic_domain_indices[register_class_domains[class_id]];
+  }
+  domains = atomic_domains;
+  domain_count = atomic_domain_count;
+
   uint64_t* narrower = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       arena, domain_count, word_count * sizeof(*narrower), (void**)&narrower));
@@ -402,115 +669,330 @@ static iree_status_t loom_low_physical_domains_build_preferences(
   uint8_t* subsets = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       arena, domain_count, domain_count * sizeof(*subsets), (void**)&subsets));
-  // Only distinct domains are compared. Intervals never perform pairwise
-  // lifetime or candidate-set searches during either sweep.
+  // Only distinct domains are compared. Candidate sets from one explicit
+  // class are disjoint internally; strict atomic subsets are the domains that
+  // compete with a broader class for only part of its storage.
   for (iree_host_size_t a = 0; a < domain_count; ++a) {
     for (iree_host_size_t b = 0; b < domain_count; ++b) {
       uint64_t outside = 0;
-      for (iree_host_size_t w = 0; w < word_count; ++w) {
-        outside |= domains[a].registers[w] & ~domains[b].registers[w];
+      uint64_t missing = 0;
+      for (iree_host_size_t w = 0; w < atomic_word_count; ++w) {
+        outside |= domains[a].atomic_units[w] & ~domains[b].atomic_units[w];
+        missing |= domains[b].atomic_units[w] & ~domains[a].atomic_units[w];
       }
-      const bool subset = a != b && outside == 0;
+      const bool subset = outside == 0 && missing != 0;
       subsets[a * domain_count + b] = subset;
       if (!subset) {
         continue;
       }
       for (iree_host_size_t w = 0; w < word_count; ++w) {
         domains[b].narrower[w] |= domains[a].registers[w];
-        domains[a].actions.count +=
-            iree_math_count_ones_u64(domains[a].registers[w]);
       }
     }
   }
-  iree_host_size_t query_count = 0;
-  iree_host_size_t action_count = 0;
-  for (iree_host_size_t d = 0; d < domain_count; ++d) {
-    domains[d].queries.start = query_count;
-    for (iree_host_size_t w = 0; w < word_count; ++w) {
-      domains[d].queries.count +=
-          iree_math_count_ones_u64(domains[d].narrower[w]);
-    }
-    query_count += domains[d].queries.count;
-    domains[d].actions.start = action_count;
-    action_count += domains[d].actions.count;
-  }
-  uint32_t* queries = NULL;
+  uint64_t* narrower_words = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      arena, query_count, sizeof(*queries), (void**)&queries));
-  iree_host_size_t* actions = NULL;
+      arena, offset, sizeof(*narrower_words), (void**)&narrower_words));
+  memset(narrower_words, 0, offset * sizeof(*narrower_words));
+  uint64_t* overlapping_words = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      arena, action_count, sizeof(*actions), (void**)&actions));
-  uint32_t* points = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      arena, query_count, sizeof(*points), (void**)&points));
-  for (iree_host_size_t d = 0; d < domain_count; ++d) {
-    iree_host_size_t q = domains[d].queries.start;
-    for (uint32_t r = 0; r < descriptor_set->physical_register_count; ++r) {
-      if (loom_low_physical_bits_test(domains[d].narrower, r)) {
-        queries[q++] = r;
+      arena, offset, sizeof(*overlapping_words), (void**)&overlapping_words));
+  memset(overlapping_words, 0, offset * sizeof(*overlapping_words));
+  for (iree_host_size_t i = 0; i < root_count; ++i) {
+    const loom_low_physical_component_t* component = order[i];
+    const loom_low_physical_domain_t* domain = &domains[component->domain];
+    uint32_t member = component->parent;
+    do {
+      const uint32_t interval_index = components[member].interval_index;
+      const uint16_t reg_class_id =
+          liveness->intervals[interval_index].value_class.register_class_id;
+      for (uint32_t r = 0; r < descriptor_set->physical_register_count; ++r) {
+        if (!loom_low_physical_bits_test(domain->narrower, r)) {
+          continue;
+        }
+        loom_low_physical_register_mark_candidates(
+            descriptor_set, r, candidate_units_by_class[reg_class_id],
+            candidate_unit_counts_by_class[reg_class_id],
+            narrower_words + offsets[interval_index]);
       }
+      member = components[member].next;
+    } while (member != component->parent);
+  }
+
+  const iree_host_size_t class_word_count =
+      iree_bitmap_calculate_words(descriptor_set->reg_class_count);
+  uint64_t* domain_classes = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, domain_count, class_word_count * sizeof(*domain_classes),
+      (void**)&domain_classes));
+  memset(domain_classes, 0,
+         domain_count * class_word_count * sizeof(*domain_classes));
+  for (uint32_t i = 0; i < component_count; ++i) {
+    const uint32_t root = loom_low_physical_component_find(components, i);
+    const uint16_t class_id = liveness->intervals[components[i].interval_index]
+                                  .value_class.register_class_id;
+    loom_low_physical_bits_set(
+        domain_classes + components[root].domain * class_word_count, class_id);
+  }
+
+  iree_host_size_t point_capacity = 0;
+  if (!iree_host_size_checked_mul(component_count, 2, &point_capacity)) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "physical demand point count overflow");
+  }
+  uint32_t* demand_points = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, point_capacity, sizeof(*demand_points), (void**)&demand_points));
+  for (uint32_t i = 0; i < component_count; ++i) {
+    demand_points[2 * i] = components[i].interval_start;
+    demand_points[2 * i + 1] = components[i].interval_end;
+  }
+  loom_low_physical_point_sort(demand_points, point_capacity);
+  iree_host_size_t point_count = 0;
+  for (iree_host_size_t i = 0; i < point_capacity; ++i) {
+    if (point_count == 0 ||
+        demand_points[point_count - 1] != demand_points[i]) {
+      demand_points[point_count++] = demand_points[i];
     }
   }
+  iree_host_size_t tree_base = 1;
+  while (tree_base < point_count) {
+    if (tree_base > IREE_HOST_SIZE_MAX / 2) {
+      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                              "physical demand tree size overflow");
+    }
+    tree_base *= 2;
+  }
+  iree_host_size_t tree_count = 0;
+  if (!iree_host_size_checked_mul(tree_base, 2, &tree_count)) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "physical demand tree size overflow");
+  }
+  uint64_t* demand_starts = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, point_count, sizeof(*demand_starts), (void**)&demand_starts));
+  uint64_t* demand_ends = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, point_count, sizeof(*demand_ends), (void**)&demand_ends));
+  uint64_t* demand_tree = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, tree_count, sizeof(*demand_tree), (void**)&demand_tree));
+
+  // Build one weighted lifetime calendar at a time. Descendant domains
+  // contribute their atomic width to every ancestor calendar, making each
+  // range maximum the Hall demand that must remain available in that domain.
   for (iree_host_size_t a = 0; a < domain_count; ++a) {
-    iree_host_size_t cursor = domains[a].actions.start;
+    bool has_broader_domain = false;
     for (iree_host_size_t b = 0; b < domain_count; ++b) {
-      if (!subsets[a * domain_count + b]) {
+      has_broader_domain |= subsets[a * domain_count + b];
+    }
+    if (!has_broader_domain) {
+      continue;
+    }
+    IREE_RETURN_IF_ERROR(loom_low_physical_demand_tree_build(
+        descriptor_set, liveness, components, component_count,
+        register_class_domains, subsets, domain_count, a,
+        LOOM_LOW_PHYSICAL_DEMAND_SCOPE_EFFECTIVE_DOMAIN_AND_DESCENDANTS,
+        demand_points, point_count, tree_base, tree_count, demand_starts,
+        demand_ends, demand_tree));
+    for (iree_host_size_t i = 0; i < root_count; ++i) {
+      const loom_low_physical_component_t* component = order[i];
+      if (!subsets[a * domain_count + component->domain]) {
         continue;
       }
-      for (iree_host_size_t q = domains[b].queries.start;
-           q < domains[b].queries.start + domains[b].queries.count; ++q) {
-        if (loom_low_physical_bits_test(domains[a].registers, queries[q])) {
-          actions[cursor++] = q;
+      const iree_host_size_t begin = loom_low_physical_point_lower_bound(
+          demand_points, point_count, component->start);
+      const iree_host_size_t end = loom_low_physical_point_lower_bound(
+          demand_points, point_count, component->end);
+      const uint64_t peak_units =
+          loom_low_physical_demand_query(demand_tree, tree_base, begin, end);
+      if (peak_units == 0) {
+        continue;
+      }
+      uint32_t member = component->parent;
+      do {
+        const uint32_t interval_index = components[member].interval_index;
+        const uint16_t broad_class_id =
+            liveness->intervals[interval_index].value_class.register_class_id;
+        for (uint16_t narrow_class_id = 0;
+             narrow_class_id < descriptor_set->reg_class_count;
+             ++narrow_class_id) {
+          if (!loom_low_physical_bits_test(
+                  domain_classes + a * class_word_count, narrow_class_id)) {
+            continue;
+          }
+          const loom_low_reg_class_t* narrow_class =
+              &descriptor_set->reg_classes[narrow_class_id];
+          const uint16_t candidate_units =
+              narrow_class->physical_atomic_unit_count;
+          const uint64_t required_candidates =
+              peak_units / candidate_units +
+              (peak_units % candidate_units != 0);
+          const uint16_t reserve_count = (uint16_t)iree_min(
+              required_candidates, (uint64_t)narrow_class->allocatable_count);
+          uint16_t selected_count = 0;
+          for (uint16_t c = 0; c < narrow_class->allocatable_count; ++c) {
+            const uint16_t candidate_ordinal =
+                descriptor_set->physical_register_allocation_ordinals
+                    [narrow_class->physical_register_candidate_start + c];
+            const uint32_t physical_register_id =
+                loom_low_descriptor_set_physical_register_candidate(
+                    descriptor_set, narrow_class_id, candidate_ordinal);
+            if (!loom_low_physical_bits_test(domains[a].registers,
+                                             physical_register_id)) {
+              continue;
+            }
+            loom_low_physical_register_mark_candidates(
+                descriptor_set, physical_register_id,
+                candidate_units_by_class[broad_class_id],
+                candidate_unit_counts_by_class[broad_class_id],
+                overlapping_words + offsets[interval_index]);
+            if (++selected_count == reserve_count) {
+              break;
+            }
+          }
         }
-      }
+        member = components[member].next;
+      } while (member != component->parent);
     }
   }
-  if (query_count != 0) {
-    iree_host_size_t relevant_count = 0;
+
+  // Copy affinity is a preference: a member whose common candidate is
+  // unavailable falls back to its original register class and materializes the
+  // copy. Count broad pressure by those class domains so affinity cannot hide
+  // fallback demand. Reuse idle narrower storage only when that demand exceeds
+  // the candidates outside every narrower domain.
+  bool* prefer_narrower_by_interval = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, liveness->interval_count, sizeof(*prefer_narrower_by_interval),
+      (void**)&prefer_narrower_by_interval));
+  memset(prefer_narrower_by_interval, 0,
+         liveness->interval_count * sizeof(*prefer_narrower_by_interval));
+  for (iree_host_size_t b = 0; b < domain_count; ++b) {
+    bool has_narrower_domain = false;
+    for (iree_host_size_t a = 0; a < domain_count; ++a) {
+      has_narrower_domain |= subsets[a * domain_count + b];
+    }
+    if (!has_narrower_domain) {
+      continue;
+    }
+    IREE_RETURN_IF_ERROR(loom_low_physical_demand_tree_build(
+        descriptor_set, liveness, components, component_count,
+        register_class_domains, subsets, domain_count, b,
+        LOOM_LOW_PHYSICAL_DEMAND_SCOPE_REGISTER_CLASS_DOMAIN, demand_points,
+        point_count, tree_base, tree_count, demand_starts, demand_ends,
+        demand_tree));
     for (iree_host_size_t i = 0; i < root_count; ++i) {
-      const loom_low_physical_domain_t* domain = &domains[order[i]->domain];
-      if (domain->queries.count != 0 || domain->actions.count != 0) {
-        order[relevant_count++] = order[i];
+      const loom_low_physical_component_t* component = order[i];
+      if (component->domain != b) {
+        continue;
       }
+      const iree_host_size_t begin = loom_low_physical_point_lower_bound(
+          demand_points, point_count, component->start);
+      const iree_host_size_t end = loom_low_physical_point_lower_bound(
+          demand_points, point_count, component->end);
+      const uint64_t peak_units =
+          loom_low_physical_demand_query(demand_tree, tree_base, begin, end);
+      uint32_t member = component->parent;
+      do {
+        const uint32_t interval_index = components[member].interval_index;
+        const uint16_t class_id =
+            liveness->intervals[interval_index].value_class.register_class_id;
+        const loom_low_reg_class_t* reg_class =
+            &descriptor_set->reg_classes[class_id];
+        uint16_t general_candidate_count = 0;
+        for (uint16_t candidate = 0; candidate < reg_class->allocatable_count;
+             ++candidate) {
+          const uint64_t bit = UINT64_C(1) << (candidate % 64);
+          const iree_host_size_t word =
+              offsets[interval_index] + candidate / 64;
+          const bool narrower_candidate = (narrower_words[word] & bit) != 0;
+          const bool outside_affinity = (affinity_words[word] & bit) != 0;
+          general_candidate_count += !narrower_candidate && !outside_affinity;
+        }
+        const uint64_t general_units = (uint64_t)general_candidate_count *
+                                       reg_class->physical_atomic_unit_count;
+        prefer_narrower_by_interval[interval_index] =
+            peak_units > general_units;
+        member = components[member].next;
+      } while (member != component->parent);
     }
-    loom_low_physical_component_lifetime_sort(order, relevant_count);
-    memset(points, 0, query_count * sizeof(*points));
-    loom_low_physical_domain_sweep(descriptor_set, liveness, components, order,
-                                   relevant_count, domains, queries, actions,
-                                   points, false, offsets, words);
-    memset(points, 0xFF, query_count * sizeof(*points));
-    loom_low_physical_domain_sweep(descriptor_set, liveness, components, order,
-                                   relevant_count, domains, queries, actions,
-                                   points, true, offsets, words);
   }
-  // Uniform rows carry no preference. In particular, an entirely discouraged
-  // class must preserve the ordinary first-candidate search termination.
+
+  // Capacity-bound broad values first reuse idle narrower storage, then
+  // general-only storage, and only then storage reserved by concurrent narrow
+  // demand. Other broad values retain ordinary allocation order while still
+  // preserving the reserved capacity.
   for (uint32_t i = 0; i < component_count; ++i) {
     const uint32_t index = components[i].interval_index;
     const uint16_t class_id =
         liveness->intervals[index].value_class.register_class_id;
     const uint16_t count =
         descriptor_set->reg_classes[class_id].allocatable_count;
-    uint32_t set_count = 0;
-    for (iree_host_size_t w = 0; w < iree_bitmap_calculate_words(count); ++w) {
-      set_count += iree_math_count_ones_u64(words[offsets[index] + w]);
+    const iree_host_size_t interval_word_count =
+        iree_bitmap_calculate_words(count);
+    bool has_idle_narrower_candidate = false;
+    for (iree_host_size_t w = 0; w < interval_word_count; ++w) {
+      has_idle_narrower_candidate |=
+          (narrower_words[offsets[index] + w] &
+           ~overlapping_words[offsets[index] + w]) != 0;
     }
-    if (set_count == 0 || set_count == count) {
+    for (iree_host_size_t w = 0; w < interval_word_count; ++w) {
+      const uint32_t remaining = count - (uint32_t)(w * 64);
+      const uint64_t valid_bits =
+          remaining < 64 ? (UINT64_C(1) << remaining) - 1 : UINT64_MAX;
+      const uint64_t narrower_candidates =
+          narrower_words[offsets[index] + w] & valid_bits;
+      const uint64_t reserved_narrower =
+          overlapping_words[offsets[index] + w] & valid_bits;
+      if (has_idle_narrower_candidate && prefer_narrower_by_interval[index]) {
+        penalty_words[offsets[index] + w] |=
+            (~narrower_candidates | reserved_narrower) & valid_bits;
+        reservation_words[offsets[index] + w] |= reserved_narrower;
+      } else {
+        reservation_words[offsets[index] + w] |= reserved_narrower;
+      }
+    }
+    const uint32_t first_rank =
+        (uint32_t)(penalty_words[offsets[index]] & 1) +
+        (uint32_t)(reservation_words[offsets[index]] & 1);
+    const bool first_breaks_affinity =
+        (affinity_words[offsets[index]] & 1) != 0;
+    const bool first_reserved = (reservation_words[offsets[index]] & 1) != 0;
+    bool uniform = true;
+    for (uint16_t candidate = 1; candidate < count; ++candidate) {
+      const uint64_t bit = UINT64_C(1) << (candidate % 64);
+      const iree_host_size_t word = offsets[index] + candidate / 64;
+      const uint32_t rank = (uint32_t)((penalty_words[word] & bit) != 0) +
+                            (uint32_t)((reservation_words[word] & bit) != 0);
+      uniform &= rank == first_rank &&
+                 ((affinity_words[word] & bit) != 0) == first_breaks_affinity &&
+                 ((reservation_words[word] & bit) != 0) == first_reserved;
+    }
+    if (uniform) {
       offsets[index] = UINT32_MAX;
     }
   }
   return iree_ok_status();
 }
 
-const uint64_t* loom_low_allocation_physical_domains_for_interval(
+loom_low_allocation_physical_domain_row_t
+loom_low_allocation_physical_domains_for_interval(
     const loom_low_allocation_physical_domains_t* domains,
     const loom_liveness_analysis_t* liveness,
     const loom_liveness_interval_t* interval) {
   if (!domains || !domains->offsets) {
-    return NULL;
+    return (loom_low_allocation_physical_domain_row_t){0};
   }
   const uint32_t offset = domains->offsets[interval - liveness->intervals];
-  return offset == UINT32_MAX ? NULL : domains->words + offset;
+  if (offset == UINT32_MAX) {
+    return (loom_low_allocation_physical_domain_row_t){0};
+  }
+  return (loom_low_allocation_physical_domain_row_t){
+      .penalty_words = domains->penalty_words + offset,
+      .affinity_words = domains->affinity_words + offset,
+      .reservation_words = domains->reservation_words + offset,
+  };
 }
 
 iree_status_t loom_low_allocation_physical_domains_build(
@@ -546,19 +1028,30 @@ iree_status_t loom_low_allocation_physical_domains_build(
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       arena, liveness->interval_count, sizeof(*offsets), (void**)&offsets));
   memset(offsets, 0xFF, liveness->interval_count * sizeof(*offsets));
-  uint64_t* words = NULL;
+  uint64_t* penalty_words = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      arena, word_count, sizeof(*words), (void**)&words));
-  memset(words, 0, word_count * sizeof(*words));
+      arena, word_count, sizeof(*penalty_words), (void**)&penalty_words));
+  memset(penalty_words, 0, word_count * sizeof(*penalty_words));
+  uint64_t* affinity_words = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, word_count, sizeof(*affinity_words), (void**)&affinity_words));
+  memset(affinity_words, 0, word_count * sizeof(*affinity_words));
+  uint64_t* reservation_words = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, word_count,
+                                                 sizeof(*reservation_words),
+                                                 (void**)&reservation_words));
+  memset(reservation_words, 0, word_count * sizeof(*reservation_words));
   const iree_arena_checkpoint_t checkpoint = iree_arena_checkpoint_save(arena);
   iree_status_t status = loom_low_physical_domains_build_preferences(
       descriptor_set, liveness, unit_liveness, placement, scalar_count, arena,
-      offsets, words);
+      offsets, penalty_words, affinity_words, reservation_words);
   iree_arena_checkpoint_restore(&checkpoint);
   if (iree_status_is_ok(status)) {
     *out_domains = (loom_low_allocation_physical_domains_t){
         .offsets = offsets,
-        .words = words,
+        .penalty_words = penalty_words,
+        .affinity_words = affinity_words,
+        .reservation_words = reservation_words,
     };
   }
   return status;

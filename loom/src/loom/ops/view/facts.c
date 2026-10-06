@@ -26,6 +26,22 @@ iree_status_t loom_view_load_facts(loom_fact_context_t* context,
   return iree_ok_status();
 }
 
+iree_status_t loom_view_atomic_observation_facts(
+    loom_fact_context_t* context, const loom_module_t* module,
+    const loom_op_t* op, const loom_value_facts_t* operand_facts,
+    loom_value_facts_t* result_facts) {
+  (void)context;
+  (void)module;
+  (void)op;
+  (void)operand_facts;
+  // Loads, read-modify-writes, and compare-exchanges each return one observed
+  // scalar. Concurrent publication can change it between lane observations,
+  // even when every lane addresses the same element.
+  result_facts[0] = loom_value_facts_unknown();
+  loom_value_facts_mark_lane_varying(&result_facts[0]);
+  return iree_ok_status();
+}
+
 iree_status_t loom_view_subview_facts(loom_fact_context_t* context,
                                       const loom_module_t* module,
                                       const loom_op_t* op,

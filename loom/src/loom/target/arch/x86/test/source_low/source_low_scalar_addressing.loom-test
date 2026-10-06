@@ -143,9 +143,9 @@ func.def target(@target) @f32x16_index_madd_scaled_bias_memory(%input: buffer, %
 
 // ----
 low.func.def target<x86.avx512.core>(@target) abi(object_function) @f32x16_index_madd_scaled_bias_memory(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %row: reg<x86.gpr64>) asm {
-  %15 = lea.scale %row {disp32 = 1, scale = 4}
-  %loaded = vmovdqu32.load.indexed %input, %15 {disp32 = 0, scale = 4}
-  vmovdqu32.store.indexed %loaded, %output, %15 {disp32 = 0, scale = 4}
+  %14 = lea.scale %row {disp32 = 1, scale = 4}
+  %loaded = vmovdqu32.load.indexed %input, %14 {disp32 = 0, scale = 4}
+  vmovdqu32.store.indexed %loaded, %output, %14 {disp32 = 0, scale = 4}
   return
 }
 
@@ -169,11 +169,11 @@ func.def target(@target) @i32_index_madd_scaled_bias_memory(%input: buffer, %out
 
 // ----
 low.func.def target<x86.scalar.core>(@target) abi(object_function) @i32_index_madd_scaled_bias_memory(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %row: reg<x86.gpr64>) asm {
-  %16 = lea.scale %row {disp32 = 1, scale = 4}
-  %loaded = mov.load.indexed.gpr32 %input, %16 {disp32 = 0, scale = 4}
-  %18 = copy %loaded : reg<x86.gpr32> -> reg<x86.gpr32>
-  %incremented = add.gpr32 %18, %loaded
-  mov.store.indexed.gpr32 %incremented, %output, %16 {disp32 = 0, scale = 4}
+  %15 = lea.scale %row {disp32 = 1, scale = 4}
+  %loaded = mov.load.indexed.gpr32 %input, %15 {disp32 = 0, scale = 4}
+  %17 = copy %loaded : reg<x86.gpr32> -> reg<x86.gpr32>
+  %incremented = add.gpr32 %17, %loaded
+  mov.store.indexed.gpr32 %incremented, %output, %15 {disp32 = 0, scale = 4}
   return
 }
 
@@ -197,11 +197,11 @@ func.def target(@target) @i64_index_madd_scaled_bias_memory(%input: buffer, %out
 
 // ----
 low.func.def target<x86.scalar.core>(@target) abi(object_function) @i64_index_madd_scaled_bias_memory(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %row: reg<x86.gpr64>) asm {
-  %16 = lea.scale %row {disp32 = 1, scale = 4}
-  %loaded = mov.load.indexed.gpr64 %input, %16 {disp32 = 0, scale = 8}
-  %18 = copy %loaded : reg<x86.gpr64> -> reg<x86.gpr64>
-  %incremented = add.gpr64 %18, %loaded
-  mov.store.indexed.gpr64 %incremented, %output, %16 {disp32 = 0, scale = 8}
+  %15 = lea.scale %row {disp32 = 1, scale = 4}
+  %loaded = mov.load.indexed.gpr64 %input, %15 {disp32 = 0, scale = 8}
+  %17 = copy %loaded : reg<x86.gpr64> -> reg<x86.gpr64>
+  %incremented = add.gpr64 %17, %loaded
+  mov.store.indexed.gpr64 %incremented, %output, %15 {disp32 = 0, scale = 8}
   return
 }
 
@@ -417,13 +417,13 @@ func.def target(@target) @i32_multi_term_static_suffix(%input: buffer, %output: 
 // ----
 low.func.def target<x86.scalar.core>(@target) abi(object_function) @i32_multi_term_static_suffix(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %i: reg<x86.gpr64>, %j: reg<x86.gpr64>) asm {
   %linear = lea %i, %j
-  %18 = mov.imm64 4
-  %19 = copy %linear : reg<x86.gpr64> -> reg<x86.gpr64>
-  %20 = imul.gpr64 %19, %18
-  %loaded = mov.load.indexed.gpr32 %input, %20 {disp32 = 16, scale = 1}
-  %23 = copy %linear : reg<x86.gpr64> -> reg<x86.gpr64>
-  %24 = imul.gpr64 %23, %18
-  mov.store.indexed.gpr32 %loaded, %output, %24 {disp32 = 16, scale = 1}
+  %17 = mov.imm64 4
+  %18 = copy %linear : reg<x86.gpr64> -> reg<x86.gpr64>
+  %19 = imul.gpr64 %18, %17
+  %loaded = mov.load.indexed.gpr32 %input, %19 {disp32 = 16, scale = 1}
+  %22 = copy %linear : reg<x86.gpr64> -> reg<x86.gpr64>
+  %23 = imul.gpr64 %22, %17
+  mov.store.indexed.gpr32 %loaded, %output, %23 {disp32 = 16, scale = 1}
   return
 }
 
@@ -447,13 +447,13 @@ func.def target(@target) @f32x4_multi_term_static_suffix(%input: buffer, %output
 // ----
 low.func.def target<x86.avx2.core>(@target) abi(object_function) @f32x4_multi_term_static_suffix(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %i: reg<x86.gpr64>, %j: reg<x86.gpr64>) asm {
   %linear = lea %i, %j
-  %18 = mov.imm64 4
-  %19 = copy %linear : reg<x86.gpr64> -> reg<x86.gpr64>
-  %20 = imul.gpr64 %19, %18
-  %loaded = vmovdqu32.load.indexed.xmm %input, %20 {disp32 = 16, scale = 1}
-  %23 = copy %linear : reg<x86.gpr64> -> reg<x86.gpr64>
-  %24 = imul.gpr64 %23, %18
-  vmovdqu32.store.indexed.xmm %loaded, %output, %24 {disp32 = 16, scale = 1}
+  %17 = mov.imm64 4
+  %18 = copy %linear : reg<x86.gpr64> -> reg<x86.gpr64>
+  %19 = imul.gpr64 %18, %17
+  %loaded = vmovdqu32.load.indexed.xmm %input, %19 {disp32 = 16, scale = 1}
+  %22 = copy %linear : reg<x86.gpr64> -> reg<x86.gpr64>
+  %23 = imul.gpr64 %22, %17
+  vmovdqu32.store.indexed.xmm %loaded, %output, %23 {disp32 = 16, scale = 1}
   return
 }
 
@@ -477,13 +477,13 @@ func.def target(@target) @f32x16_multi_term_static_suffix(%input: buffer, %outpu
 // ----
 low.func.def target<x86.avx512.core>(@target) abi(object_function) @f32x16_multi_term_static_suffix(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %i: reg<x86.gpr64>, %j: reg<x86.gpr64>) asm {
   %linear = lea %i, %j
-  %18 = mov.imm64 4
-  %19 = copy %linear : reg<x86.gpr64> -> reg<x86.gpr64>
-  %20 = imul.gpr64 %19, %18
-  %loaded = vmovdqu32.load.indexed %input, %20 {disp32 = 16, scale = 1}
-  %23 = copy %linear : reg<x86.gpr64> -> reg<x86.gpr64>
-  %24 = imul.gpr64 %23, %18
-  vmovdqu32.store.indexed %loaded, %output, %24 {disp32 = 16, scale = 1}
+  %17 = mov.imm64 4
+  %18 = copy %linear : reg<x86.gpr64> -> reg<x86.gpr64>
+  %19 = imul.gpr64 %18, %17
+  %loaded = vmovdqu32.load.indexed %input, %19 {disp32 = 16, scale = 1}
+  %22 = copy %linear : reg<x86.gpr64> -> reg<x86.gpr64>
+  %23 = imul.gpr64 %22, %17
+  vmovdqu32.store.indexed %loaded, %output, %23 {disp32 = 16, scale = 1}
   return
 }
 

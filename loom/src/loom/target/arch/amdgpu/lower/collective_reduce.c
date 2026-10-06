@@ -637,8 +637,8 @@ iree_status_t loom_amdgpu_select_kernel_subgroup_reduce_plan(
   loom_amdgpu_subgroup_payload_kind_t payload_kind =
       LOOM_AMDGPU_SUBGROUP_PAYLOAD_NONE;
   uint32_t register_count = 0;
-  if (!loom_amdgpu_collective_payload_is_supported(module, value, &payload_kind,
-                                                   &register_count)) {
+  if (!loom_amdgpu_collective_arithmetic_payload_is_supported(
+          module, value, &payload_kind, &register_count)) {
     return iree_ok_status();
   }
 
@@ -772,8 +772,8 @@ iree_status_t loom_amdgpu_select_kernel_workgroup_reduce_plan(
   loom_amdgpu_subgroup_payload_kind_t payload_kind =
       LOOM_AMDGPU_SUBGROUP_PAYLOAD_NONE;
   uint32_t register_count = 0;
-  if (!loom_amdgpu_collective_payload_is_supported(module, value, &payload_kind,
-                                                   &register_count)) {
+  if (!loom_amdgpu_collective_arithmetic_payload_is_supported(
+          module, value, &payload_kind, &register_count)) {
     return iree_ok_status();
   }
 
@@ -927,6 +927,7 @@ iree_status_t loom_amdgpu_select_kernel_workgroup_reduce_plan(
   out_plan->wavefront_size = wavefront_size;
   out_plan->partition_wavefront_size = partition_wavefront_size;
   out_plan->flat_workgroup_size = shape.flat_workgroup_size;
+  out_plan->scratch_byte_length = shape.scratch_byte_length;
   out_plan->identity_bits = identity_bits;
   IREE_RETURN_IF_ERROR(loom_amdgpu_select_workgroup_reduce_publication_kind(
       &shape, partition_wavefront_size, register_count, context, source_op,
@@ -1235,14 +1236,11 @@ iree_status_t loom_amdgpu_lower_kernel_workgroup_reduce(
       partition_wavefront_size;
   const uint32_t tail_lane_count =
       flat_workgroup_size % partition_wavefront_size;
-  const uint32_t scratch_slot_count = wave_count;
-  const int64_t scratch_byte_length =
-      (int64_t)((uint64_t)scratch_slot_count * register_count * 4u);
 
   loom_builder_t* builder = loom_low_lower_context_builder(context);
   loom_op_t* storage_op = NULL;
   IREE_RETURN_IF_ERROR(loom_low_storage_reserve_build(
-      builder, scratch_byte_length, /*byte_alignment=*/4,
+      builder, (int64_t)plan->scratch_byte_length, /*byte_alignment=*/4,
       loom_type_storage(LOOM_STORAGE_SPACE_WORKGROUP), source_op->location,
       &storage_op));
   loom_op_t* storage_address_op = NULL;
@@ -1552,8 +1550,8 @@ iree_status_t loom_amdgpu_low_legality_verify_kernel_subgroup_reduce(
   loom_amdgpu_subgroup_payload_kind_t payload_kind =
       LOOM_AMDGPU_SUBGROUP_PAYLOAD_NONE;
   uint32_t unused_register_count = 0;
-  if (!loom_amdgpu_collective_payload_is_supported(module, value, &payload_kind,
-                                                   &unused_register_count)) {
+  if (!loom_amdgpu_collective_arithmetic_payload_is_supported(
+          module, value, &payload_kind, &unused_register_count)) {
     return loom_amdgpu_low_legality_reject(context, op,
                                            IREE_SV("subgroup_reduce.payload"));
   }
@@ -1692,8 +1690,8 @@ iree_status_t loom_amdgpu_low_legality_verify_kernel_workgroup_reduce(
   loom_amdgpu_subgroup_payload_kind_t payload_kind =
       LOOM_AMDGPU_SUBGROUP_PAYLOAD_NONE;
   uint32_t register_count = 0;
-  if (!loom_amdgpu_collective_payload_is_supported(module, value, &payload_kind,
-                                                   &register_count)) {
+  if (!loom_amdgpu_collective_arithmetic_payload_is_supported(
+          module, value, &payload_kind, &register_count)) {
     return loom_amdgpu_low_legality_reject(context, op,
                                            IREE_SV("workgroup_reduce.payload"));
   }

@@ -10,6 +10,8 @@ from loom.target.arch.amd.xdna.aie2p.array_descriptors import (
     AIE2P_ARRAY_DESCRIPTOR_SET,
 )
 from loom.target.low_descriptors import (
+    Constraint,
+    ConstraintKind,
     DescriptorFlag,
     DescriptorOpKind,
     ImmediateFlag,
@@ -208,6 +210,10 @@ def test_channels_are_typed_persistent_topology_edges() -> None:
             for alternative in view.operands[2].reg_alts
         )
     assert DescriptorFlag.SIDE_EFFECTING in channel.flags
+    assert channel.constraints == (
+        Constraint(ConstraintKind.SAME_REGISTER_VALUE_TYPE, 0, 1),
+        Constraint(ConstraintKind.SAME_REGISTER_VALUE_TYPE, 0, 2),
+    )
 
 
 def test_asm_mnemonics_are_target_relative() -> None:

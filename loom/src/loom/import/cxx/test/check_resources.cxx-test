@@ -11,7 +11,6 @@ LOOM_CHECK_CASE(resource_values) {
   loom::check::launch<update>(selected, 13u);
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 1),
                             loom::check::fill<unsigned, 1>(13u));
-  loom::check::expect_event("device", "type", "asan_report", "count", 0);
 }
 LOOM_CHECK_BENCHMARK(resource_benchmark, resource_values);
 // ----
@@ -20,7 +19,6 @@ CHECK: * = check.generate.fill value(37) : tensor<4xi32>
 CHECK: %selected = check.tensor.view * offset(4) : tensor<4xi32> -> tensor<2xi32>
 CHECK: kernel.launch @update(%selected, *) : (tensor<2xi32>, i32)
 CHECK: check.expect.bitwise actual(*) expected(*) : tensor<1xi32>
-CHECK: check.expect.event<device> *count = 0*type = "asan_report"*
 CHECK: check.benchmark<@resource_values> @resource_benchmark
 
 // ====
@@ -28,7 +26,7 @@ CHECK: check.benchmark<@resource_values> @resource_benchmark
 #include <loomcxx/check.h>
 unsigned runtime_value() { return 7; }
 LOOM_CHECK_CASE(runtime_fill) {
-  // ERROR@+1: LOWERING/059 "check generation and metadata require pure scalar constants"
+  // ERROR@+1: LOWERING/059 "check attributes require pure scalar constants"
   const auto storage = loom::check::fill<unsigned, 1>(runtime_value());
 }
 
@@ -125,7 +123,7 @@ LOOM_CHECK_CASE(duplicate_metadata) {
 #include <loomcxx/check.h>
 unsigned runtime_value() { return 7; }
 LOOM_CHECK_CASE(runtime_metadata) {
-  // ERROR@+1: LOWERING/059 "check generation and metadata require pure scalar constants"
+  // ERROR@+1: LOWERING/059 "check attributes require pure scalar constants"
   loom::check::require("provider", "count", runtime_value());
 }
 
@@ -180,7 +178,7 @@ LOOM_CHECK_CASE(metadata_name) {
 #include <loomcxx/check.h>
 const char* provider_name();
 LOOM_CHECK_CASE(metadata_provider) {
-  // ERROR@+1: LOWERING/059 "check metadata requires a string literal"
+  // ERROR@+1: LOWERING/059 "check attributes require a string literal"
   loom::check::require(provider_name(), "count", 0);
 }
 

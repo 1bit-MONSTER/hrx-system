@@ -81,6 +81,9 @@ typedef enum loom_amdgpu_wait_plan_reason_e {
   LOOM_AMDGPU_WAIT_PLAN_REASON_LOOP_CARRIED_DERIVED_SSA_USE = 14,
   // A loop-carried SSA dependency requires a conservative full counter drain.
   LOOM_AMDGPU_WAIT_PLAN_REASON_LOOP_CARRIED_CONSERVATIVE_SSA_USE = 15,
+  // A tensor issue must bound outstanding tensor work independently of
+  // aliasing.
+  LOOM_AMDGPU_WAIT_PLAN_REASON_TENSOR_ISSUE_DRAIN = 16,
   // Total number of wait-plan reason values.
   LOOM_AMDGPU_WAIT_PLAN_REASON_COUNT,
 } loom_amdgpu_wait_plan_reason_t;

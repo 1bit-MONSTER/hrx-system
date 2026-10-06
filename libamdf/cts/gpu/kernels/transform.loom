@@ -1,0 +1,31 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Workgroup count is a host workload input; count independently bounds accesses
+// within complete 64-workitem groups. Integer arithmetic wraps at 32 bits.
+kernel.def export("aql_transform") @aql_transform(%groups_x: index) {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%groups_x, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer, %count: i32, %addend: i32) {
+  %group = kernel.workgroup.id<x> : index
+  %lane = kernel.workitem.id<x> : index
+  %width = kernel.workgroup.size<x> : index
+  %position = index.madd %group, %width, %lane : index
+  %length = index.cast %count : i32 to index
+  %origin = index.constant 0 : offset
+  %input_view = buffer.view %input[%origin] : buffer -> view<[%length]xi32>
+  %output_view = buffer.view %output[%origin] : buffer -> view<[%length]xi32>
+  %in_bounds = index.cmp ult, %position, %length : index
+  scf.if %in_bounds {
+    %value = view.load %input_view[%position] : view<[%length]xi32> -> i32
+    %multiplier = scalar.constant 3 : i32
+    %product = scalar.muli %value, %multiplier : i32
+    %result = scalar.addi %product, %addend : i32
+    view.store %result, %output_view[%position] : i32, view<[%length]xi32>
+  }
+  kernel.return
+}

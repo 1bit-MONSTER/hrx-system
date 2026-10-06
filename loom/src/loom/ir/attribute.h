@@ -73,7 +73,7 @@ enum loom_predicate_kind_e {
   LOOM_PREDICATE_GT = 4,
   // ge(a, b)
   LOOM_PREDICATE_GE = 5,
-  // mul(a, n): a is multiple of n.
+  // mul(a, n): a is a multiple of positive n.
   LOOM_PREDICATE_MUL = 6,
   // min(a, n): a >= n.
   LOOM_PREDICATE_MIN = 7,
@@ -89,6 +89,14 @@ enum loom_predicate_kind_e {
   LOOM_PREDICATE_NOT_INF = 12,
   // finite(a): a is not NaN or infinity.
   LOOM_PREDICATE_FINITE = 13,
+  // ult(a, b): sign-extended 64-bit carrier of a is unsigned less than b.
+  LOOM_PREDICATE_ULT = 14,
+  // ule(a, b): sign-extended 64-bit carrier of a is unsigned <= b.
+  LOOM_PREDICATE_ULE = 15,
+  // ugt(a, b): sign-extended 64-bit carrier of a is unsigned greater than b.
+  LOOM_PREDICATE_UGT = 16,
+  // uge(a, b): sign-extended 64-bit carrier of a is unsigned >= b.
+  LOOM_PREDICATE_UGE = 17,
   // Number of predicate kinds.
   LOOM_PREDICATE_COUNT_,
 };
@@ -137,10 +145,11 @@ const char* loom_predicate_kind_name(uint8_t kind);
 // predicate vocabulary.
 uint8_t loom_predicate_kind_argument_count(uint8_t kind);
 
-// Returns true when |kind| may constrain a value of |type|. Integer relation
-// predicates accept integer, index, and offset scalars. Floating-point
-// classification predicates accept floating-point scalars. Typed target
-// registers are classified by their carried semantic value type.
+// Returns true when |kind| may constrain a value of |type|. Equality accepts
+// numeric scalars. General integer predicates accept integer, index, and offset
+// scalars. Unsigned ordered relations accept fixed-width integer scalars.
+// Floating-point classification predicates accept floating-point scalars.
+// Typed target registers are classified by their carried semantic value type.
 bool loom_predicate_kind_accepts_value_type(uint8_t kind, loom_type_t type);
 
 //===----------------------------------------------------------------------===//

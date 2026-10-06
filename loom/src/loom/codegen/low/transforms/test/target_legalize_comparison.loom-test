@@ -146,3 +146,63 @@ func.def target(@test_target) @floating_vector_comparison_flags(%lhs: vector<2xf
   %mask = vector.insert %9 into %11[1] : i1, vector<2xi1>
   func.return %mask : vector<2xi1>
 }
+
+// ====
+// RUN: with-checks pass combine,target-legalize{mode=final,policy=reference-only},canonicalize,canonicalize
+
+// Cleanup preserves the comparison/selection representation after legalization.
+test.target<low_core> @test_target
+
+func.def target(@test_target) @integer_extrema_i16(%lhs: i16, %rhs: i16) -> (i16, i16, i16, i16) {
+  %slt = scalar.cmpi slt, %lhs, %rhs : i16
+  %ugt = scalar.cmpi ugt, %lhs, %rhs : i16
+  %smin = scf.select %slt, %lhs, %rhs : i16
+  %smax = scf.select %slt, %rhs, %lhs : i16
+  %umin = scf.select %ugt, %rhs, %lhs : i16
+  %umax = scf.select %ugt, %lhs, %rhs : i16
+  func.return %smin, %smax, %umin, %umax : i16, i16, i16, i16
+}
+
+// ----
+CHECK: %smin = scf.select * : i16
+CHECK: %smax = scf.select * : i16
+CHECK: %umin = scf.select * : i16
+CHECK: %umax = scf.select * : i16
+CHECK: * = scalar.cmpi slt, * : i32
+CHECK: * = scalar.cmpi sgt, * : i32
+CHECK: * = scalar.cmpi ult, * : i32
+CHECK: * = scalar.cmpi ugt, * : i32
+CHECK-NOT: * = scalar.minsi *
+CHECK-NOT: * = scalar.maxsi *
+CHECK-NOT: * = scalar.minui *
+CHECK-NOT: * = scalar.maxui *
+
+// ====
+// RUN: with-checks pass combine,target-legalize{mode=final,policy=reference-only},canonicalize,canonicalize
+
+// Cleanup preserves the comparison/selection representation after legalization.
+test.target<low_core> @test_target
+
+func.def target(@test_target) @integer_extrema_i64(%lhs: i64, %rhs: i64) -> (i64, i64, i64, i64) {
+  %slt = scalar.cmpi slt, %lhs, %rhs : i64
+  %ugt = scalar.cmpi ugt, %lhs, %rhs : i64
+  %smin = scf.select %slt, %lhs, %rhs : i64
+  %smax = scf.select %slt, %rhs, %lhs : i64
+  %umin = scf.select %ugt, %rhs, %lhs : i64
+  %umax = scf.select %ugt, %lhs, %rhs : i64
+  func.return %smin, %smax, %umin, %umax : i64, i64, i64, i64
+}
+
+// ----
+CHECK: %smin = scf.select * : i64
+CHECK: %smax = scf.select * : i64
+CHECK: %umin = scf.select * : i64
+CHECK: %umax = scf.select * : i64
+CHECK: * = scalar.cmpi slt, * : i64
+CHECK: * = scalar.cmpi sgt, * : i64
+CHECK: * = scalar.cmpi ult, * : i64
+CHECK: * = scalar.cmpi ugt, * : i64
+CHECK-NOT: * = scalar.minsi *
+CHECK-NOT: * = scalar.maxsi *
+CHECK-NOT: * = scalar.minui *
+CHECK-NOT: * = scalar.maxui *

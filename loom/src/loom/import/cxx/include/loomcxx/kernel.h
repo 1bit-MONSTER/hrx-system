@@ -22,8 +22,14 @@
 // are rejected. Unroll factors 0/1 and pipeline depth 1 are serial. Bare
 // loom::unroll requests full unrolling; pipeline depths must be in [1, 65535].
 // Scheduling is an explicit compiler contract; unsupported policies diagnose.
+// Kernel pointer parameters accept [[loom::assume_aligned(N)]] before the
+// parameter type. N is a positive power-of-two byte alignment of the incoming
+// pointer address. The caller supplies the guarantee; no runtime check is
+// added.
 #define LOOM_KERNEL [[loom::kernel]]
 #define LOOM_DEVICE [[loom::device]]
+// Declares uninitialized scalar, vector, or fixed scalar-array storage shared
+// by every invocation in the enclosing kernel workgroup.
 #define LOOM_WORKGROUP [[loom::workgroup]]
 #define LOOM_FORCE_INLINE [[loom::force_inline]] inline
 
@@ -49,9 +55,10 @@ struct uint3 {
 // accesses.
 [[loom::barrier]] void workgroup_barrier();
 
-// Declares unsigned binding < bound contracts, optionally joined by &&. Bounds
-// are pure integer constant expressions in [1, INT32_MAX]. Conditions are not
-// evaluated at runtime; calls, mutation, and unsupported predicates diagnose.
+// Declares integer truth, comparison, and conjunction contracts. Conditions
+// are retained as Loom facts without runtime evaluation. Calls, mutation,
+// volatile reads, and expressions without a retained scalar identity diagnose
+// at import.
 [[loom::assume]] void assume(bool condition);
 
 // Reads this subgroup's zero-based coordinate within the workgroup.

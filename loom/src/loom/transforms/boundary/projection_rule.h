@@ -31,6 +31,10 @@ typedef enum loom_boundary_projection_slot_role_e {
   LOOM_BOUNDARY_PROJECTION_SLOT_FUNCTION_RESULT = 1,
   LOOM_BOUNDARY_PROJECTION_SLOT_BLOCK_ARGUMENT = 2,
   LOOM_BOUNDARY_PROJECTION_SLOT_CALL_RESULT = 3,
+  // One logical column of LoopLike recurring state. The planning value is the
+  // loop result; the selected schema also applies to its condition-entry and
+  // body-entry definitions.
+  LOOM_BOUNDARY_PROJECTION_SLOT_LOOP_STATE = 4,
 } loom_boundary_projection_slot_role_t;
 
 // Boundary slot roles that a projection rule may claim. Bit i corresponds to
@@ -45,7 +49,8 @@ typedef enum loom_boundary_projection_destination_mode_e {
   // Reconstructs one logical value consumed by the original body uses.
   LOOM_BOUNDARY_PROJECTION_DESTINATION_RECONSTRUCT = 0,
   // Rewrites admitted body uses to consume components directly and removes the
-  // original logical definition. Currently supported for CFG block arguments.
+  // original logical definition. Supported for CFG block arguments and all
+  // definitions of a LoopLike recurrence column.
   LOOM_BOUNDARY_PROJECTION_DESTINATION_ELIMINATE = 1,
 } loom_boundary_projection_destination_mode_t;
 
@@ -100,7 +105,9 @@ typedef bool (*loom_boundary_projection_slot_matches_fn_t)(
 
 // Selects the final physical schema for one logical boundary slot. A false
 // result leaves the original slot unchanged. Exactly one active rule may claim
-// any slot.
+// any slot. LOOP_STATE is queried once with the LoopLike result identity; the
+// engine applies the selected schema to every definition in that recurrence
+// column.
 typedef iree_status_t (*loom_boundary_projection_plan_slot_fn_t)(
     const loom_boundary_projection_rule_t* rule,
     loom_boundary_projection_plan_t* plan,
@@ -109,9 +116,10 @@ typedef iree_status_t (*loom_boundary_projection_plan_slot_fn_t)(
     loom_block_t* block, loom_boundary_projection_schema_t* out_schema,
     bool* out_claimed);
 
-// Plans the physical components supplied by one outgoing call, return, or CFG
-// payload. |destination| is present for CFG slots and absent for callable
-// signature slots. A false result rejects the connected projection.
+// Plans the physical components supplied by one outgoing call, return, CFG
+// payload, or LoopLike recurrence edge. |destination| is present for CFG and
+// LoopLike slots and absent for callable signature slots. A false result
+// rejects the connected projection.
 typedef iree_status_t (*loom_boundary_projection_plan_source_fn_t)(
     const loom_boundary_projection_rule_t* rule,
     loom_boundary_projection_plan_t* plan,
@@ -121,8 +129,8 @@ typedef iree_status_t (*loom_boundary_projection_plan_source_fn_t)(
     loom_value_id_t source_value_id, loom_op_t* boundary_op,
     loom_boundary_projection_source_t* out_source, bool* out_planned);
 
-// Materializes the physical components planned for one outgoing call, return,
-// or successor payload.
+// Materializes physical components planned for one outgoing boundary. The
+// output is NULL when the selected schema has no components.
 typedef iree_status_t (*loom_boundary_projection_materialize_source_fn_t)(
     const loom_boundary_projection_rule_t* rule,
     loom_boundary_projection_plan_t* plan,
@@ -201,6 +209,9 @@ typedef struct loom_boundary_projection_rule_statistics_t {
   int64_t components;
   // Rule-owned destination uses rewritten to consume components directly.
   int64_t destination_uses_rewritten;
+  // Rule-owned source operations removed after their physical values were
+  // forwarded directly.
+  int64_t source_operations_eliminated;
 } loom_boundary_projection_rule_statistics_t;
 
 // Final physical component schema selected by one rule for one logical slot.

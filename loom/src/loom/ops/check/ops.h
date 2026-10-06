@@ -37,18 +37,23 @@ enum {
   LOOM_OP_CHECK_EXPECT_BITWISE = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 15),
   LOOM_OP_CHECK_EXPECT_CLOSE = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 16),
   LOOM_OP_CHECK_EXPECT_SHAPE = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 17),
-  LOOM_OP_CHECK_EXPECT = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 18),
-  LOOM_OP_CHECK_EXPECT_EVENT = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 19),
-  LOOM_OP_CHECK_BENCHMARK = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 20),
-  LOOM_OP_CHECK_TENSOR_VIEW = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 21),
-  LOOM_OP_CHECK_COUNT_ = 22,
+  LOOM_OP_CHECK_EXPECT_EVENT = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 18),
+  LOOM_OP_CHECK_BENCHMARK = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 19),
+  LOOM_OP_CHECK_TENSOR_VIEW = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 20),
+  LOOM_OP_CHECK_SCENARIO = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 21),
+  LOOM_OP_CHECK_TRIAL = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 22),
+  LOOM_OP_CHECK_COMPARE = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 23),
+  LOOM_OP_CHECK_INVOKE = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 24),
+  LOOM_OP_CHECK_ENTROPY_FORK = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 25),
+  LOOM_OP_CHECK_ENTROPY_READ = LOOM_OP_KIND(LOOM_DIALECT_CHECK, 26),
+  LOOM_OP_CHECK_COUNT_ = 27,
 };
 
 // Check symbol visibility. Absent (0) means private.
-typedef enum loom_check_case_visibility_e {
-  LOOM_CHECK_CASE_VISIBILITY_PUBLIC = 1,
-  LOOM_CHECK_CASE_VISIBILITY_COUNT_ = 2,
-} loom_check_case_visibility_t;
+typedef enum loom_check_visibility_e {
+  LOOM_CHECK_VISIBILITY_PUBLIC = 1,
+  LOOM_CHECK_VISIBILITY_COUNT_ = 2,
+} loom_check_visibility_t;
 
 // Deterministic scalar range sampling policy.
 typedef enum loom_check_param_range_policy_e {
@@ -77,7 +82,7 @@ typedef enum loom_check_expect_close_nan_e {
 // }
 LOOM_DEFINE_ISA(loom_check_case_isa, LOOM_OP_CHECK_CASE)
 LOOM_DEFINE_ATTR_SYMBOL(loom_check_case_case_symbol, 0)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_check_case_visibility, 1, loom_check_case_visibility_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_check_case_visibility, 1, loom_check_visibility_t)
 LOOM_DEFINE_REGION(loom_check_case_body, 0)
 enum loom_check_case_build_flag_bits_e {
   LOOM_CHECK_CASE_BUILD_FLAG_HAS_VISIBILITY = 1u << 0,
@@ -91,7 +96,7 @@ iree_status_t loom_check_case_build(
     loom_location_id_t location,
     loom_op_t** out_op);
 
-// LOOM_OP_CHECK_RETURN: Terminates a check.case body.
+// LOOM_OP_CHECK_RETURN: Terminates a check harness or comparison body.
 // check.return
 LOOM_DEFINE_ISA(loom_check_return_isa, LOOM_OP_CHECK_RETURN)
 iree_status_t loom_check_return_build(
@@ -326,6 +331,9 @@ iree_status_t loom_check_expect_equal_build(
     loom_value_id_t expected,
     loom_location_id_t location,
     loom_op_t** out_op);
+iree_status_t loom_check_expect_pair_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
 
 // LOOM_OP_CHECK_EXPECT_BITWISE: Requires actual and expected values to match bit-for-bit.
 // check.expect.bitwise actual(%actual) expected(%expected) : tensor<1024xf32>
@@ -338,6 +346,9 @@ iree_status_t loom_check_expect_bitwise_build(
     loom_value_id_t expected,
     loom_location_id_t location,
     loom_op_t** out_op);
+iree_status_t loom_check_expect_pair_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
 
 // LOOM_OP_CHECK_EXPECT_CLOSE: Requires actual and expected floating-point values to be approximately equal.
 // check.expect.close actual(%actual) expected(%expected) atol(0.0001) rtol(0.0001) nan(same) : tensor<[%m]xf32>
@@ -356,6 +367,9 @@ iree_status_t loom_check_expect_close_build(
     loom_check_expect_close_nan_t nan,
     loom_location_id_t location,
     loom_op_t** out_op);
+iree_status_t loom_check_expect_pair_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
 
 // LOOM_OP_CHECK_EXPECT_SHAPE: Requires a shaped value to have the expected dynamic/static shape.
 // check.expect.shape value(%actual) shape([%m, %n, 4]) : tensor<[%m]x[%n]x4xf32>
@@ -370,27 +384,6 @@ iree_status_t loom_check_expect_shape_build(
     iree_host_size_t dims_count,
     const int64_t* static_dims,
     iree_host_size_t static_dims_count,
-    loom_location_id_t location,
-    loom_op_t** out_op);
-
-// LOOM_OP_CHECK_EXPECT: Runs a pluggable custom validator over actual and expected values.
-// check.expect<topk.equal> actual(%actual) expected(%expected) {k = 5} : tensor<1000xf32>
-LOOM_DEFINE_ISA(loom_check_expect_isa, LOOM_OP_CHECK_EXPECT)
-LOOM_DEFINE_OPERAND(loom_check_expect_actual, 0)
-LOOM_DEFINE_OPERAND(loom_check_expect_expected, 1)
-LOOM_DEFINE_ATTR_STRING(loom_check_expect_provider, 0)
-LOOM_DEFINE_ATTR_DICT(loom_check_expect_attrs, 1)
-enum loom_check_expect_build_flag_bits_e {
-  LOOM_CHECK_EXPECT_BUILD_FLAG_HAS_ATTRS = 1u << 0,
-};
-typedef uint32_t loom_check_expect_build_flags_t;
-iree_status_t loom_check_expect_build(
-    loom_builder_t* builder,
-    loom_check_expect_build_flags_t build_flags,
-    loom_string_id_t provider,
-    loom_value_id_t actual,
-    loom_value_id_t expected,
-    loom_optional loom_named_attr_slice_t attrs,
     loom_location_id_t location,
     loom_op_t** out_op);
 
@@ -411,7 +404,7 @@ iree_status_t loom_check_expect_event_build(
     loom_location_id_t location,
     loom_op_t** out_op);
 
-// LOOM_OP_CHECK_BENCHMARK: Declares a named benchmark slice over a check.case. The required symbol identifies the record in linking, reports, and benchmark selection.
+// LOOM_OP_CHECK_BENCHMARK: Declares a named benchmark slice over a test record. The required symbol identifies the record in linking, reports, and benchmark selection.
 // check.benchmark<@gemv_sweep> @gemv_latency {m = 8, n = 96}
 LOOM_DEFINE_ISA(loom_check_benchmark_isa, LOOM_OP_CHECK_BENCHMARK)
 LOOM_DEFINE_ATTR_SYMBOL(loom_check_benchmark_benchmark, 0)
@@ -443,6 +436,151 @@ iree_status_t loom_check_tensor_view_build(
     loom_type_t result_type,
     loom_location_id_t location,
     loom_op_t** out_op);
+
+// LOOM_OP_CHECK_SCENARIO: Named differential or target-only execution scenario. An optional configuration domain evaluates the body once per compile-visible configuration; the body may contain several independent trial domains.
+// check.scenario public @smoke {
+//   check.trial[1](%trial: index, %entropy: check.entropy) {
+//     check.invoke<@subject>() : () -> ()
+//   }
+//   check.return
+// }
+LOOM_DEFINE_ISA(loom_check_scenario_isa, LOOM_OP_CHECK_SCENARIO)
+LOOM_DEFINE_ATTR_SYMBOL(loom_check_scenario_scenario_symbol, 0)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_check_scenario_visibility, 1, loom_check_visibility_t)
+LOOM_DEFINE_ATTR_I64(loom_check_scenario_configuration_count, 2)
+LOOM_DEFINE_REGION(loom_check_scenario_body, 0)
+enum loom_check_scenario_build_flag_bits_e {
+  LOOM_CHECK_SCENARIO_BUILD_FLAG_HAS_VISIBILITY = 1u << 0,
+  LOOM_CHECK_SCENARIO_BUILD_FLAG_HAS_CONFIGURATION_COUNT = 1u << 1,
+};
+typedef uint32_t loom_check_scenario_build_flags_t;
+iree_status_t loom_check_scenario_build(
+    loom_builder_t* builder,
+    loom_check_scenario_build_flags_t build_flags,
+    loom_optional uint8_t visibility,
+    loom_symbol_ref_t scenario_symbol,
+    loom_optional int64_t configuration_count,
+    const loom_type_t* configuration_arg_types,
+    iree_host_size_t configuration_arg_types_count,
+    loom_location_id_t location,
+    loom_op_t** out_op);
+iree_status_t loom_check_scenario_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
+
+// LOOM_OP_CHECK_TRIAL: Finite runtime trial domain. Each evaluation materializes one recipe and ends in exactly one comparison or target-only invocation.
+// check.trial[32](%trial: index, %entropy: check.entropy) {
+//   check.invoke<@subject>() : () -> ()
+// }
+LOOM_DEFINE_ISA(loom_check_trial_isa, LOOM_OP_CHECK_TRIAL)
+LOOM_DEFINE_ATTR_I64(loom_check_trial_trial_count, 0)
+LOOM_DEFINE_REGION(loom_check_trial_body, 0)
+iree_status_t loom_check_trial_build(
+    loom_builder_t* builder,
+    int64_t trial_count,
+    const loom_type_t* trial_arg_types,
+    iree_host_size_t trial_arg_types_count,
+    loom_location_id_t location,
+    loom_op_t** out_op);
+iree_status_t loom_check_trial_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
+
+// LOOM_OP_CHECK_COMPARE: Ends a trial by independently invoking target and oracle subjects and checking their explicit typed observations. A single subject is used for both profiles; an optional second subject supplies the oracle implementation.
+// check.compare<@logarithm>(%bits) : (i32) -> [actual(%actual: f32), expected(%expected: f32)] {
+//   check.expect.close actual(%actual) expected(%expected) atol(0.0) rtol(1.0e-6) nan(same) : f32
+// }
+LOOM_DEFINE_ISA(loom_check_compare_isa, LOOM_OP_CHECK_COMPARE)
+LOOM_DEFINE_SEGMENTED_OPERANDS(loom_check_compare_call_parameters, 0)
+LOOM_DEFINE_SEGMENTED_OPERANDS(loom_check_compare_arguments, 1)
+LOOM_DEFINE_ATTR_SYMBOL(loom_check_compare_callee, 0)
+LOOM_DEFINE_ATTR_I64(loom_check_compare_actual_count, 1)
+LOOM_DEFINE_ATTR_SYMBOL(loom_check_compare_oracle_callee, 2)
+LOOM_DEFINE_REGION(loom_check_compare_comparison, 0)
+enum loom_check_compare_build_flag_bits_e {
+  LOOM_CHECK_COMPARE_BUILD_FLAG_HAS_ORACLE_CALLEE = 1u << 0,
+};
+typedef uint32_t loom_check_compare_build_flags_t;
+iree_status_t loom_check_compare_build(
+    loom_builder_t* builder,
+    loom_check_compare_build_flags_t build_flags,
+    loom_symbol_ref_t callee,
+    loom_optional loom_symbol_ref_t oracle_callee,
+    const loom_value_id_t* call_parameters,
+    iree_host_size_t call_parameters_count,
+    const loom_value_id_t* arguments,
+    iree_host_size_t arguments_count,
+    const loom_type_t* actual_arg_types,
+    iree_host_size_t actual_arg_types_count,
+    const loom_type_t* expected_arg_types,
+    iree_host_size_t expected_arg_types_count,
+    loom_location_id_t location,
+    loom_op_t** out_op);
+iree_status_t loom_check_compare_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
+
+// LOOM_OP_CHECK_INVOKE: Ends a trial with one target-only invocation. The complete result signature remains local to the action and does not define surrounding SSA values.
+// check.invoke<@logarithm>(%bits) : (i32) -> (f32)
+LOOM_DEFINE_ISA(loom_check_invoke_isa, LOOM_OP_CHECK_INVOKE)
+LOOM_DEFINE_SEGMENTED_OPERANDS(loom_check_invoke_call_parameters, 0)
+LOOM_DEFINE_SEGMENTED_OPERANDS(loom_check_invoke_arguments, 1)
+LOOM_DEFINE_VARIADIC_RESULTS(loom_check_invoke_results, 0)
+LOOM_DEFINE_ATTR_SYMBOL(loom_check_invoke_callee, 0)
+iree_status_t loom_check_invoke_build(
+    loom_builder_t* builder,
+    loom_symbol_ref_t callee,
+    loom_may_consume const loom_value_id_t* call_parameters,
+    iree_host_size_t call_parameters_count,
+    loom_may_consume const loom_value_id_t* arguments,
+    iree_host_size_t arguments_count,
+    const loom_type_t* result_types,
+    iree_host_size_t result_count,
+    const loom_tied_result_t* tied_results,
+    iree_host_size_t tied_result_count,
+    loom_location_id_t location,
+    loom_op_t** out_op);
+iree_status_t loom_check_invoke_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
+
+// LOOM_OP_CHECK_ENTROPY_FORK: Derives a stable named entropy substream without advancing or mutating the parent identity.
+// %pair = check.entropy.fork %entropy name("pair") : check.entropy
+LOOM_DEFINE_ISA(loom_check_entropy_fork_isa, LOOM_OP_CHECK_ENTROPY_FORK)
+LOOM_DEFINE_OPERAND(loom_check_entropy_fork_entropy, 0)
+LOOM_DEFINE_RESULT(loom_check_entropy_fork_result, 0)
+LOOM_DEFINE_ATTR_STRING(loom_check_entropy_fork_fork_name, 0)
+iree_status_t loom_check_entropy_fork_build(
+    loom_builder_t* builder,
+    loom_value_id_t entropy,
+    loom_string_id_t fork_name,
+    loom_type_t result_type,
+    loom_location_id_t location,
+    loom_op_t** out_op);
+iree_status_t loom_check_entropy_fork_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
+
+// LOOM_OP_CHECK_ENTROPY_READ: Reads one deterministic i64 word at an explicit static or dynamic ordinal.
+// %word = check.entropy.read %entropy[0] : check.entropy -> i64
+LOOM_DEFINE_ISA(loom_check_entropy_read_isa, LOOM_OP_CHECK_ENTROPY_READ)
+LOOM_DEFINE_OPERAND(loom_check_entropy_read_entropy, 0)
+LOOM_DEFINE_VARIADIC_OPERANDS(loom_check_entropy_read_ordinals, 1)
+LOOM_DEFINE_RESULT(loom_check_entropy_read_result, 0)
+LOOM_DEFINE_ATTR_I64_ARRAY(loom_check_entropy_read_static_ordinals, 0)
+iree_status_t loom_check_entropy_read_build(
+    loom_builder_t* builder,
+    loom_may_consume loom_value_id_t entropy,
+    const loom_value_id_t* ordinals,
+    iree_host_size_t ordinals_count,
+    const int64_t* static_ordinals,
+    iree_host_size_t static_ordinals_count,
+    loom_type_t result_type,
+    loom_location_id_t location,
+    loom_op_t** out_op);
+iree_status_t loom_check_entropy_read_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
 
 // Returns the vtable array for the check dialect.
 const loom_op_vtable_t* const* loom_check_dialect_vtables(

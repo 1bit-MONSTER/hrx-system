@@ -7,7 +7,7 @@
 #include "binding/hip/execution_resource_descriptor.h"
 
 #include "binding/hip/execution_resource.h"
-#include "common/internal.h"
+#include "common/device.h"
 #include "iree/hal/testing/mock_device.h"
 #include "iree/testing/gtest.h"
 

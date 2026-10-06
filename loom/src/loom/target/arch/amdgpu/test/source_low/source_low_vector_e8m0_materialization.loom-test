@@ -1,0 +1,26 @@
+// RUN: with-checks emit source-low output=low
+
+// A packed scale word carries four independent E8M0 groups. Targets without
+// native pk8 scale conversion must decode every byte once, including the two
+// non-power-of-two encodings, and reuse each decoded F32 scale for its group.
+amdgpu.target<gfx942> @target
+
+func.def target(@target) @decode_four_e8m0_groups_to_f32(%payload: vector<32xf8E4M3>, %scale: vector<1xi32>) -> (vector<32xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=32, scale_format=e8m0, scale_group_elements=8, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<32xf8E4M3>, encoding<schema> -> vector<32xf32>
+  func.return %decoded : vector<32xf32>
+}
+
+// ----
+CHECK: * = v_mov_b32 4194304
+CHECK: * = v_mov_b32 2143289344
+CHECK: * = v_and_b32_lit %scale, 255
+CHECK: * = v_lshrrev_b32_src0_inline %scale, 8
+CHECK: * = v_lshrrev_b32_src0_inline %scale, 16
+CHECK: * = v_lshrrev_b32_src0_inline %scale, 24
+CHECK: * = v_lshlrev_b32_src0_inline *, 23
+CHECK: * = v_cmp_eq_i32_src1_inline * {rhs = 0}
+CHECK: * = v_cmp_eq_i32 *
+CHECK: * = v_cndmask_b32 *
+CHECK: * = v_mul_f32 *
+CHECK-NOT: *v_cvt_scale_pk8*

@@ -31,6 +31,9 @@ from loom.format.bytecode.op_decls import (
     func_like_interface_for_op,
     symbol_def_for_op,
 )
+from loom.format.bytecode.symbol_references import (
+    symbol_reference_dependency_contract_parts,
+)
 from loom.format.bytecode.writer import (
     BYTECODE_IR_KIND_BY_TYPE_KIND,
     FORMAT_VERSION,
@@ -1509,9 +1512,15 @@ class BytecodeReader:
                 dependency, offset = decode_varint(data, offset)
                 if dependency >= symbol_count:
                     raise BytecodeError("dependency symbol index is out of range")
-                target_interfaces, offset = decode_varint(data, offset)
+                dependency_contract, offset = decode_varint(data, offset)
+                try:
+                    target_interfaces, _ = symbol_reference_dependency_contract_parts(
+                        dependency_contract
+                    )
+                except ValueError as exc:
+                    raise BytecodeError("dependency contract is invalid") from exc
                 if target_interfaces & ~SYMBOL_INTERFACE_FLAG_MASK:
-                    raise BytecodeError("dependency target interfaces are invalid")
+                    raise BytecodeError("dependency contract is invalid")
                 decoded_dependency_count += 1
             return offset
 
@@ -2505,6 +2514,10 @@ class BytecodeReader:
         "not_nan",
         "not_inf",
         "finite",
+        "ult",
+        "ule",
+        "ugt",
+        "uge",
     ]
 
     def _read_predicate_list(

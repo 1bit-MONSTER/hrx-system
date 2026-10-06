@@ -1,0 +1,39 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/packed_concat_tail.loom-test
+// RUN: emit source-low target=amdgpu:gfx11-generic output=low
+
+func.def @i8_terminal_tail(%body: vector<32xi8>, %tail: vector<1xi8>) -> (vector<33xi8>) {
+  %result = vector.concat<0> %body, %tail : vector<32xi8>, vector<1xi8> -> vector<33xi8>
+  func.return %result : vector<33xi8>
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @i8_terminal_tail(%body: reg<amdgpu.vgpr x8>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x9>) asm {
+  %result = concat(%body, %tail) : (reg<amdgpu.vgpr x8>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x9>
+  return %result
+}
+
+// ====
+
+func.def @f8_terminal_tail(%body: vector<32xf8E4M3>, %tail: vector<1xf8E4M3>) -> (vector<33xf8E4M3>) {
+  %result = vector.concat<0> %body, %tail : vector<32xf8E4M3>, vector<1xf8E4M3> -> vector<33xf8E4M3>
+  func.return %result : vector<33xf8E4M3>
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @f8_terminal_tail(%body: reg<amdgpu.vgpr x8>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x9>) asm {
+  %result = concat(%body, %tail) : (reg<amdgpu.vgpr x8>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x9>
+  return %result
+}
+
+// ====
+
+func.def @f16_terminal_tail(%body: vector<16xf16>, %tail: vector<1xf16>) -> (vector<17xf16>) {
+  %result = vector.concat<0> %body, %tail : vector<16xf16>, vector<1xf16> -> vector<17xf16>
+  func.return %result : vector<17xf16>
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @f16_terminal_tail(%body: reg<amdgpu.vgpr x8>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x9>) asm {
+  %result = concat(%body, %tail) : (reg<amdgpu.vgpr x8>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x9>
+  return %result
+}

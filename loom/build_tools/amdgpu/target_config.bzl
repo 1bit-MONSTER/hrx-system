@@ -161,6 +161,39 @@ LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY = {
 }
 
 # buildifier: disable=unsorted-dict-items
+LOOM_AMDGPU_TARGET_CAPABILITIES_BY_REPRESENTATION_CAPABILITY = {
+    "descriptor_set_cdna3_core": ["descriptor_set_cdna3_core"],
+    "descriptor_set_cdna4_core": ["descriptor_set_cdna4_core"],
+    "descriptor_set_rdna3_core": ["descriptor_set_rdna3_core"],
+    "descriptor_set_rdna4_core": ["descriptor_set_rdna4_core"],
+    "descriptor_set_rdna4_gfx125x_core": ["descriptor_set_rdna4_gfx125x_core"],
+    "descriptor_set_rdna3_5_core": ["descriptor_set_rdna3_5_core"],
+    "descriptor_set_rdna4m_core": ["descriptor_set_rdna4m_core"],
+    "descriptor_set_rdna4_gfx1251_core": ["descriptor_set_rdna4_gfx1251_core"],
+    "descriptor_set_gfx9_4_generic_core": [
+        "descriptor_set_gfx9_4_generic_core",
+        "descriptor_set_cdna3_core",
+        "descriptor_set_cdna4_core",
+    ],
+    "descriptor_set_gfx11_generic_core": [
+        "descriptor_set_gfx11_generic_core",
+        "descriptor_set_rdna3_core",
+        "descriptor_set_rdna3_5_core",
+    ],
+    "descriptor_set_gfx12_generic_core": [
+        "descriptor_set_gfx12_generic_core",
+        "descriptor_set_rdna4_core",
+    ],
+    "descriptor_set_gfx12_5_generic_core": [
+        "descriptor_set_gfx12_5_generic_core",
+        "descriptor_set_rdna4_gfx1250_a0_core",
+        "descriptor_set_rdna4_gfx1251_core",
+        "descriptor_set_rdna4_gfx125x_core",
+    ],
+    "descriptor_set_rdna4_gfx1250_a0_core": ["descriptor_set_rdna4_gfx1250_a0_core"],
+}
+
+# buildifier: disable=unsorted-dict-items
 LOOM_AMDGPU_DESCRIPTOR_SET_EXACT_PROCESSORS = {
     "descriptor_set_cdna3_core": [
         "gfx940",

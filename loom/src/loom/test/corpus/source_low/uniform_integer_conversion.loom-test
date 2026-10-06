@@ -1,0 +1,41 @@
+kernel.def @uniform_i8_to_float() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %independent = buffer.assume.noalias %aligned : buffer
+  %destination = buffer.assume.noalias %output : buffer
+  %base = index.constant 0 : offset
+  %unsigned_base = index.constant 32 : offset
+  %source = buffer.view %independent[%base] : buffer -> view<8xi8>
+  %signed_target = buffer.view %destination[%base] : buffer -> view<8xf32>
+  %unsigned_target = buffer.view %destination[%unsigned_base] : buffer -> view<8xf32>
+  %value = vector.load %source[0] : view<8xi8> -> vector<8xi8>
+  %signed = vector.sitofp %value : vector<8xi8> to vector<8xf32>
+  %unsigned = vector.uitofp %value : vector<8xi8> to vector<8xf32>
+  vector.store %signed, %signed_target[0] : vector<8xf32>, view<8xf32>
+  vector.store %unsigned, %unsigned_target[0] : vector<8xf32>, view<8xf32>
+  kernel.return
+}
+
+// ====
+
+kernel.def @uniform_i16_to_float() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %independent = buffer.assume.noalias %aligned : buffer
+  %destination = buffer.assume.noalias %output : buffer
+  %base = index.constant 0 : offset
+  %unsigned_base = index.constant 16 : offset
+  %source = buffer.view %independent[%base] : buffer -> view<4xi16>
+  %signed_target = buffer.view %destination[%base] : buffer -> view<4xf32>
+  %unsigned_target = buffer.view %destination[%unsigned_base] : buffer -> view<4xf32>
+  %value = vector.load %source[0] : view<4xi16> -> vector<4xi16>
+  %signed = vector.sitofp %value : vector<4xi16> to vector<4xf32>
+  %unsigned = vector.uitofp %value : vector<4xi16> to vector<4xf32>
+  vector.store %signed, %signed_target[0] : vector<4xf32>, view<4xf32>
+  vector.store %unsigned, %unsigned_target[0] : vector<4xf32>, view<4xf32>
+  kernel.return
+}

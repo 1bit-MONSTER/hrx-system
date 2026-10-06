@@ -65,6 +65,24 @@ func.def @proven_exact_float_assertion_folds() -> (f32) {
 
 // ====
 
+// Exact carrier facts prove unsigned relations across the sign bit without an
+// executable assertion.
+func.def @proven_unsigned_assertion_folds() -> (i32, i32) {
+  %lhs = scalar.constant 1 : i32
+  %rhs = scalar.constant -1 : i32
+  %lhs_checked, %rhs_checked = sanitizer.assert.value %lhs, %rhs [ult(%lhs, %rhs), ule(%lhs, %rhs), ugt(%rhs, %lhs), uge(%rhs, %lhs)] : i32, i32
+  func.return %lhs_checked, %rhs_checked : i32, i32
+}
+
+// ----
+func.def @proven_unsigned_assertion_folds() -> (i32, i32) {
+  %lhs = scalar.constant 1 : i32
+  %rhs = scalar.constant -1 : i32
+  func.return %lhs, %rhs : i32, i32
+}
+
+// ====
+
 // finite implies not_nan, so a later weaker dominated assertion folds.
 func.def @weaker_dominated_float_assertion_folds(%x: f32) -> (f32) {
   %finite = sanitizer.assert.value %x [finite(%x)] : f32

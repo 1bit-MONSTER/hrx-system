@@ -57,13 +57,15 @@ kernel.def target(@target) @subgroup_vote_ballot_i64_wave64() {
 low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) workgroup_size(64, 1, 1) workgroup_count(1, 1, 1) @subgroup_vote_ballot_i64_wave64() asm {
   %lane_i32 = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
   %output_view = resource<hal_binding> {extent = 512, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
-  %mask = v_cmp_lt_i32_src1_inline %lane_i32 {rhs = 32}
-  %16 = slice %mask[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %17 = v_mov_b32_copy %16
-  %18 = slice %mask[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %predicate = v_cmp_lt_i32_src1_inline %lane_i32 {rhs = 32}
+  %16 = s_mov_b64_exec_read
+  %mask = s_and_b64 %predicate, %16
+  %18 = slice %mask[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
   %19 = v_mov_b32_copy %18
-  %result = concat(%17, %19) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %21 = v_lshlrev_b32_src0_inline %lane_i32, 3
-  global_store_b64_saddr %21, %result, %output_view
+  %20 = slice %mask[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %21 = v_mov_b32_copy %20
+  %result = concat(%19, %21) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %23 = v_lshlrev_b32_src0_inline %lane_i32, 3
+  global_store_b64_saddr %23, %result, %output_view
   return
 }

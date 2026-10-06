@@ -28,10 +28,17 @@ from loom.dsl import Op
 from loom.target.arch.spirv.builtins import (
     BUILTIN_DIMENSIONS,
     BUILTIN_INDEX_QUERIES,
+    BUILTIN_SCALAR_INDEX_QUERIES,
     BuiltinDimension,
     BuiltinIndexQuery,
+    BuiltinScalarIndexQuery,
 )
 from loom.target.arch.spirv.contracts.atomic import SPIRV_ATOMIC_CONTRACT_CASES
+from loom.target.arch.spirv.contracts.bfloat import (
+    bfloat_carrier_from_i16_rule,
+    bfloat_carrier_to_i16_rule,
+    bfloat_narrow_rules,
+)
 from loom.target.arch.spirv.contracts.descriptor_rule import (
     descriptor_feature_guards as _feature_guards,
 )
@@ -41,6 +48,10 @@ from loom.target.arch.spirv.contracts.descriptor_rule import (
 from loom.target.arch.spirv.contracts.descriptor_rule import (
     logical_core_descriptor as _descriptor,
 )
+from loom.target.arch.spirv.contracts.extended_math import (
+    SPIRV_EXTENDED_MATH_CONTRACT_CASES,
+)
+from loom.target.arch.spirv.contracts.float8 import float8_narrow_rules
 from loom.target.arch.spirv.contracts.index import (
     SPIRV_INDEX_CONVERSION_RULES,
     SPIRV_INDEX_NUMERIC_RULES,
@@ -75,6 +86,8 @@ from loom.target.arch.spirv.contracts.memory import (
 from loom.target.arch.spirv.contracts.ordinary_vector import (
     SPIRV_ORDINARY_VECTOR_CONTRACT_CASES,
 )
+from loom.target.arch.spirv.contracts.predicate import integer_to_boolean_rule
+from loom.target.arch.spirv.contracts.subgroup import SPIRV_SUBGROUP_CONTRACT_CASES
 from loom.target.arch.spirv.cooperative_matrix import (
     COOPERATIVE_MATRIX_CASES,
     CooperativeMatrixCase,
@@ -118,6 +131,7 @@ from loom.target.arch.spirv.scalar_memory import (
 )
 from loom.target.contracts import (
     AttrProject,
+    Buffer,
     ContractCase,
     ContractFragment,
     DescriptorEmitForm,
@@ -315,6 +329,7 @@ def _conversion_alias_rule(
 
 
 _KERNEL_BUILTIN_SOURCE_OPS = {
+    "subgroup_lane_id": kernel.kernel_subgroup_lane_id,
     "workgroup_id": kernel.kernel_workgroup_id,
     "workitem_id": kernel.kernel_workitem_id,
     "workitem_dispatch_id": kernel.kernel_workitem_dispatch_id,
@@ -350,6 +365,30 @@ def _builtin_index_rules() -> tuple[DescriptorRule, ...]:
         _builtin_index_rule(query, dimension)
         for query in BUILTIN_INDEX_QUERIES
         for dimension in BUILTIN_DIMENSIONS
+    )
+
+
+def _builtin_scalar_index_rule(query: BuiltinScalarIndexQuery) -> DescriptorRule:
+    descriptor = _descriptor(f"spirv.op_load_builtin.{query.descriptor_suffix}")
+    return DescriptorRule(
+        source_op=_KERNEL_BUILTIN_SOURCE_OPS[query.source_op_key],
+        descriptor=descriptor,
+        guards=(
+            Guard.value_type("result", _INDEX),
+            *_feature_guards(descriptor),
+        ),
+        emit=(
+            _descriptor_emit(
+                descriptor=descriptor,
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
+def _builtin_scalar_index_rules() -> tuple[DescriptorRule, ...]:
+    return tuple(
+        _builtin_scalar_index_rule(query) for query in BUILTIN_SCALAR_INDEX_QUERIES
     )
 
 
@@ -607,6 +646,13 @@ def _select_rule(
     )
 
 
+def _storage_source_types(scalar: StorageBufferScalar) -> tuple[str, ...]:
+    # FP8 values use the signed-byte carrier for both registers and memory.
+    if scalar.source_type == "i8":
+        return ("i8", "f8E4M3", "f8E5M2")
+    return (scalar.source_type,)
+
+
 def _storage_element_format_guards(
     field: str,
     scalar: StorageBufferScalar,
@@ -629,7 +675,7 @@ def _buffer_view_rule(
     *,
     require_storage_element_format: bool = False,
 ) -> ValueElideRule:
-    view_type = View(scalar.source_type)
+    view_type = View(_storage_source_types(scalar))
     return ValueElideRule(
         source_op=buffer.buffer_view,
         values=(ValueRef.result("result"),),
@@ -746,14 +792,14 @@ def _storage_subview_rule(scalar: StorageBufferScalar) -> ValueElideRule:
         source_op=view.view_subview,
         values=(ValueRef.result("result"),),
         guards=(
-            Guard.value_type("result", View(scalar.source_type)),
+            Guard.value_type("result", View(_storage_source_types(scalar))),
             Guard.value_memory_space("result", _STORAGE_BUFFER_MEMORY_SPACES),
         ),
     )
 
 
 def _workgroup_subview_rule(scalar: StorageBufferScalar) -> ValueAliasRule:
-    view_type = View(scalar.source_type)
+    view_type = View(_storage_source_types(scalar))
     return ValueAliasRule(
         source_op=view.view_subview,
         source=ValueRef.operand("source"),
@@ -785,16 +831,17 @@ def _cooperative_matrix_memory(
     operation: SourceMemoryOperation,
     *,
     element_byte_width: int,
-    lane_count: int,
     minimum_alignment: int,
 ) -> SourceMemoryConstraint:
+    # Source memory supplies the logical origin. The descriptor owns the
+    # cooperative tile footprint; its fragment payload is not contiguous IO.
     return SourceMemoryConstraint(
         operation=operation,
         root_kind=SourceMemoryRootKind.ANY,
         address_layout=SourceMemoryAddressLayout.COMPACT_ROW_MAJOR,
         memory_spaces=_STORAGE_BUFFER_MEMORY_SPACES,
         element_byte_count=element_byte_width,
-        vector_lane_count=lane_count,
+        vector_lane_count=1,
         vector_lane_byte_stride=element_byte_width,
         static_byte_offset_minimum=0,
         static_byte_offset_maximum=(2**63) - 1,
@@ -802,7 +849,7 @@ def _cooperative_matrix_memory(
         dynamic_term_count=None,
         dynamic_index_source=SourceMemoryDynamicIndexSource.NONE,
         address_layout_diagnostic=_cooperative_matrix_compact_tile_diagnostic(),
-        diagnostic=_storage_buffer_alignment_diagnostic(minimum_alignment),
+        alignment_diagnostic=_storage_buffer_alignment_diagnostic(minimum_alignment),
     )
 
 
@@ -893,7 +940,6 @@ def _cooperative_matrix_load_rule(
                 source_memory=_cooperative_matrix_memory(
                     SourceMemoryOperation.LOAD,
                     element_byte_width=scalar.byte_width,
-                    lane_count=result_lanes,
                     minimum_alignment=16,
                 ),
                 source_memory_address_materializer=address_materializer,
@@ -946,7 +992,6 @@ def _cooperative_matrix_store_rule(
                 source_memory=_cooperative_matrix_memory(
                     SourceMemoryOperation.STORE,
                     element_byte_width=scalar.byte_width,
-                    lane_count=value_lanes,
                     minimum_alignment=16,
                 ),
                 source_memory_address_materializer=address_materializer,
@@ -1007,8 +1052,8 @@ def _cooperative_matrix_rules() -> tuple[DescriptorRule, ...]:
 
 
 def _view_load_rule(scalar: StorageBufferScalar) -> DescriptorRule:
-    scalar_type = Scalar(scalar.source_type)
-    view_type = View(scalar.source_type)
+    scalar_type = Scalar(_storage_source_types(scalar))
+    view_type = View(_storage_source_types(scalar))
     descriptor = _descriptor(f"spirv.op_load.storage_buffer.{scalar.suffix}")
     address_materializer = _storage_buffer_address_materializer(scalar)
     return DescriptorRule(
@@ -1036,8 +1081,8 @@ def _view_load_rule(scalar: StorageBufferScalar) -> DescriptorRule:
 
 
 def _view_store_rule(scalar: StorageBufferScalar) -> DescriptorRule:
-    scalar_type = Scalar(scalar.source_type)
-    view_type = View(scalar.source_type)
+    scalar_type = Scalar(_storage_source_types(scalar))
+    view_type = View(_storage_source_types(scalar))
     descriptor = _descriptor(f"spirv.op_store.storage_buffer.{scalar.suffix}")
     address_materializer = _storage_buffer_address_materializer(scalar)
     return DescriptorRule(
@@ -1157,8 +1202,8 @@ def _view_load_workgroup_rule(
     scalar: StorageBufferScalar,
     coordinate_type: SourceMemoryAddressCoordinateType,
 ) -> DescriptorRule:
-    scalar_type = Scalar(scalar.source_type)
-    view_type = View(scalar.source_type)
+    scalar_type = Scalar(_storage_source_types(scalar))
+    view_type = View(_storage_source_types(scalar))
     descriptor = _descriptor(f"spirv.op_load.workgroup.{scalar.suffix}")
     address_materializer = _workgroup_address_materializer(scalar, coordinate_type)
     return DescriptorRule(
@@ -1190,8 +1235,8 @@ def _view_store_workgroup_rule(
     scalar: StorageBufferScalar,
     coordinate_type: SourceMemoryAddressCoordinateType,
 ) -> DescriptorRule:
-    scalar_type = Scalar(scalar.source_type)
-    view_type = View(scalar.source_type)
+    scalar_type = Scalar(_storage_source_types(scalar))
+    view_type = View(_storage_source_types(scalar))
     descriptor = _descriptor(f"spirv.op_store.workgroup.{scalar.suffix}")
     address_materializer = _workgroup_address_materializer(scalar, coordinate_type)
     return DescriptorRule(
@@ -1384,8 +1429,22 @@ def _vector_float_binary_rules() -> tuple[DescriptorRule, ...]:
 
 
 def _conversion_rules() -> tuple[DescriptorRule, ...]:
-    rules = [_conversion_rule(row) for row in DIRECT_SCALAR_CONVERSIONS]
+    rules = [
+        _conversion_rule(row)
+        for row in DIRECT_SCALAR_CONVERSIONS
+        if not (
+            row.source_op_key == "fptrunc" and row.result_type.source_type == "bf16"
+        )
+    ]
+    rules.extend(bfloat_narrow_rules())
+    rules.append(bfloat_carrier_from_i16_rule())
+    rules.append(bfloat_carrier_to_i16_rule())
+    rules.extend(float8_narrow_rules())
     rules.extend(_unsigned_conversion_rule(row) for row in UNSIGNED_SCALAR_CONVERSIONS)
+    rules.extend(
+        integer_to_boolean_rule(scalar_conversion.scalar_trunci, scalar.source_type)
+        for scalar in SIGNED_INTEGER_SCALAR_ALU_TYPES
+    )
     return tuple(rules)
 
 
@@ -1419,6 +1478,7 @@ def _select_rules() -> tuple[DescriptorRule, ...]:
     ]
     rules.append(_select_rule(Scalar("bf16"), "spirv.op_select.bf16"))
     rules.append(_select_rule(_I1, "spirv.op_select.bool"))
+    rules.append(_select_rule(Buffer(), "spirv.op_select.storage_buffer"))
     return tuple(rules)
 
 
@@ -1440,13 +1500,8 @@ SPIRV_LOGICAL_CORE_CONTRACT_FRAGMENT = ContractFragment(
         *_scalar_constant_rules(),
         *SPIRV_INDEX_CONVERSION_RULES,
         *SPIRV_INDEX_NUMERIC_RULES,
-        ValueAliasRule(
-            source_op=buffer.buffer_assume_alignment,
-            source=ValueRef.operand("buffers"),
-            result=ValueRef.result("results"),
-            guards=(Guard.operand_segment_count("buffers", 1),),
-        ),
         *_builtin_index_rules(),
+        *_builtin_scalar_index_rules(),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _F8E4M3, _I8),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _I8, _F8E4M3),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _F8E5M2, _I8),
@@ -1454,6 +1509,7 @@ SPIRV_LOGICAL_CORE_CONTRACT_FRAGMENT = ContractFragment(
         *_conversion_rules(),
         *_scalar_binary_rules(),
         *_vector_float_binary_rules(),
+        *SPIRV_EXTENDED_MATH_CONTRACT_CASES,
         *SPIRV_ORDINARY_VECTOR_CONTRACT_CASES,
         *_compare_rules(),
         *_select_rules(),
@@ -1461,6 +1517,7 @@ SPIRV_LOGICAL_CORE_CONTRACT_FRAGMENT = ContractFragment(
         _raw_storage_buffer_byte_store_rule(),
         *_storage_buffer_rules(),
         *SPIRV_ATOMIC_CONTRACT_CASES,
+        *SPIRV_SUBGROUP_CONTRACT_CASES,
         *_control_barrier_rules(),
         *_cooperative_matrix_rules(),
         DescriptorMatrixRule(

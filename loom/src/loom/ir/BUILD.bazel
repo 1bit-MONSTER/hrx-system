@@ -16,6 +16,7 @@ loom_cc_library(
     name = "facts",
     srcs = [
         "facts.c",
+        "facts_division.c",
         "float_facts.c",
     ],
     hdrs = [
@@ -33,6 +34,8 @@ loom_cc_library(
 loom_cc_test(
     name = "facts_test",
     srcs = [
+        "facts_bitwise_test.cc",
+        "facts_division_test.cc",
         "facts_test.cc",
         "float_facts_test.cc",
     ],
@@ -57,6 +60,7 @@ loom_cc_library(
         "location.c",
         "module.c",
         "module_record.c",
+        "module_source.c",
         "scalar_type.c",
         "type_constraint.c",
         "type_dependencies.c",
@@ -79,6 +83,7 @@ loom_cc_library(
         "location.h",
         "module.h",
         "module_record.h",
+        "module_source.h",
         "parameterized_attr.h",
         "parameterized_type.h",
         "scalar_type.h",
@@ -125,6 +130,18 @@ loom_cc_library(
 loom_cc_test(
     name = "ancestry_test",
     srcs = ["ancestry_test.cc"],
+    deps = [
+        ":ir",
+        "//loom/src/loom/ops/test",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "local_value_domain_test",
+    srcs = ["local_value_domain_test.cc"],
     deps = [
         ":ir",
         "//loom/src/loom/ops/test",
@@ -191,8 +208,11 @@ loom_cc_test(
     name = "module_test",
     srcs = [
         "intern_table_test.cc",
+        "module_block_order_test.cc",
         "module_dictionary_test.cc",
+        "module_encoding_test.cc",
         "module_location_test.cc",
+        "module_source_test.cc",
         "module_string_test.cc",
         "module_test.cc",
         "module_type_intern_test.cc",
@@ -201,6 +221,7 @@ loom_cc_test(
     deps = [
         ":ir",
         "//loom/src/loom/ops:type_registry",
+        "//loom/src/loom/ops/encoding",
         "//loom/src/loom/ops/test",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",
@@ -276,6 +297,17 @@ loom_cc_test(
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_benchmark(
+    name = "block_order_benchmark",
+    srcs = ["block_order_benchmark.cc"],
+    deps = [
+        ":ir",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:benchmark_main",
     ],
 )
 

@@ -1,0 +1,186 @@
+// RUN: pass source-to-low
+
+amdgpu.target<gfx1100> @gfx1100
+
+// The concrete gfx1100 record carries the architectural 64 KiB LDS limit.
+// ERROR@+1: TARGET/051 {function_name="gfx1100_workgroup_storage_exceeds_limit", target_name="gfx1100", reserved_bytes="65540", limit_bytes="65536"}
+kernel.def target(@gfx1100) @gfx1100_workgroup_storage_exceeds_limit() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%output: buffer) {
+  %base = index.constant 0 : offset
+  %byte_length = index.constant 65540 : offset
+  %value = scalar.constant 1 : i32
+  %storage = buffer.alloca<workgroup> align(16) %byte_length : buffer
+  %storage_view = buffer.view %storage[%base] : buffer -> view<1xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<1xi32>
+  view.store %value, %storage_view[0] : i32, view<1xi32>
+  %loaded = view.load %storage_view[0] : view<1xi32> -> i32
+  view.store %loaded, %output_view[0] : i32, view<1xi32>
+  kernel.return
+}
+
+// ====
+
+// RUN: with-checks pass source-to-low
+
+amdgpu.target<gfx1250> @gfx1250
+
+// gfx1250 permits useful LDS extents above the gfx11 architectural limit.
+kernel.def target(@gfx1250) @gfx1250_accepts_large_workgroup_storage() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%output: buffer) {
+  %base = index.constant 0 : offset
+  %byte_length = index.constant 114688 : offset
+  %value = scalar.constant 1 : i32
+  %storage = buffer.alloca<workgroup> align(16) %byte_length : buffer
+  %storage_view = buffer.view %storage[%base] : buffer -> view<1xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<1xi32>
+  view.store %value, %storage_view[0] : i32, view<1xi32>
+  %loaded = view.load %storage_view[0] : view<1xi32> -> i32
+  view.store %loaded, %output_view[0] : i32, view<1xi32>
+  kernel.return
+}
+
+// ----
+CHECK: *storage {byte_alignment = 16, byte_length = 114688} : low.storage<workgroup>
+
+// ====
+
+// RUN: pass source-to-low
+
+amdgpu.target<gfx1250> @gfx1250
+
+// The concrete gfx1250 record carries the architectural 320 KiB LDS limit.
+// ERROR@+1: TARGET/051 {function_name="gfx1250_workgroup_storage_exceeds_limit", target_name="gfx1250", reserved_bytes="327681", limit_bytes="327680"}
+kernel.def target(@gfx1250) @gfx1250_workgroup_storage_exceeds_limit() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%output: buffer) {
+  %base = index.constant 0 : offset
+  %byte_length = index.constant 327681 : offset
+  %value = scalar.constant 1 : i32
+  %storage = buffer.alloca<workgroup> align(16) %byte_length : buffer
+  %storage_view = buffer.view %storage[%base] : buffer -> view<1xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<1xi32>
+  view.store %value, %storage_view[0] : i32, view<1xi32>
+  %loaded = view.load %storage_view[0] : view<1xi32> -> i32
+  view.store %loaded, %output_view[0] : i32, view<1xi32>
+  kernel.return
+}
+
+// ====
+
+// RUN: pass source-to-low
+
+amdgpu.target<gfx11-generic> @limited {max_workgroup_storage_bytes = 15}
+
+// Two multi-wave collectives each emit an 8-byte LDS staging reservation.
+// ERROR@+1: TARGET/051 {function_name="workgroup_storage_limit_includes_all_collective_scratch", target_name="limited", reserved_bytes="16", limit_bytes="15"}
+kernel.def target(@limited) @workgroup_storage_limit_includes_all_collective_scratch() {
+  %unit = index.constant 1 : index
+  %workgroup_size = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
+} launch(%output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %lane_value = index.cast %lane : index to i32
+  %sum = kernel.workgroup.reduce<addi> %lane_value : i32
+  %prefix = kernel.workgroup.scan<addi> %lane_value {direction = forward, mode = inclusive} : i32
+  %combined = scalar.addi %sum, %prefix : i32
+  %base = index.constant 0 : offset
+  %output_view = buffer.view %output[%base] : buffer -> view<64xi32>
+  view.store %combined, %output_view[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ====
+
+// RUN: pass source-to-low
+
+amdgpu.target<gfx11-generic> @limited {max_workgroup_storage_bytes = 27}
+
+// The collective reservation starts at the next 4-byte boundary after the
+// packed 17-byte source-allocation arena, yielding a 28-byte final extent.
+// ERROR@+1: TARGET/051 {function_name="workgroup_storage_limit_includes_declaration_padding", target_name="limited", reserved_bytes="28", limit_bytes="27"}
+kernel.def target(@limited) @workgroup_storage_limit_includes_declaration_padding() {
+  %unit = index.constant 1 : index
+  %workgroup_size = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
+} launch(%output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %lane_value = index.cast %lane : index to i32
+  %base = index.constant 0 : offset
+  %byte_length = index.constant 17 : offset
+  %storage = buffer.alloca<workgroup> align(16) %byte_length : buffer
+  %storage_view = buffer.view %storage[%base] : buffer -> view<1xi32>
+  view.store %lane_value, %storage_view[0] : i32, view<1xi32>
+  %loaded = view.load %storage_view[0] : view<1xi32> -> i32
+  %prefix = kernel.workgroup.scan<addi> %lane_value {direction = forward, mode = inclusive} : i32
+  %combined = scalar.addi %loaded, %prefix : i32
+  %output_view = buffer.view %output[%base] : buffer -> view<64xi32>
+  view.store %combined, %output_view[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ====
+
+// RUN: with-checks pass source-to-low
+
+amdgpu.target<gfx11-generic> @limited {max_workgroup_storage_bytes = 128}
+
+// A full Workgroup barrier lets the larger source allocation reuse the same
+// physical range. Limit accounting consumes the packed 128-byte peak.
+kernel.def target(@limited) @workgroup_storage_limit_uses_peak_lifetime() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%output: buffer) {
+  %base = index.constant 0 : offset
+  %first_bytes = index.constant 64 : offset
+  %second_bytes = index.constant 128 : offset
+  %first_value = scalar.constant 1 : i32
+  %second_value = scalar.constant 2 : i32
+  %first = buffer.alloca<workgroup> align(4) %first_bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  view.store %first_value, %first_view[0] : i32, view<1xi32>
+  %first_result = view.load %first_view[0] : view<1xi32> -> i32
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %second = buffer.alloca<workgroup> align(4) %second_bytes : buffer
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  view.store %second_value, %second_view[0] : i32, view<1xi32>
+  %second_result = view.load %second_view[0] : view<1xi32> -> i32
+  %combined = scalar.addi %first_result, %second_result : i32
+  %output_view = buffer.view %output[%base] : buffer -> view<1xi32>
+  view.store %combined, %output_view[0] : i32, view<1xi32>
+  kernel.return
+}
+
+// ----
+CHECK: *storage {byte_alignment = 4, byte_length = 128} : low.storage<workgroup>
+CHECK-NOT: *storage {byte_alignment = 4, byte_length = 192} : low.storage<workgroup>
+
+// ====
+
+// RUN: with-checks pass source-to-low
+
+amdgpu.target<gfx11-generic> @limited {max_workgroup_storage_bytes = 1}
+
+// A single-wave collective has no LDS reservation.
+kernel.def target(@limited) @workgroup_storage_limit_ignores_single_wave_collective() {
+  %unit = index.constant 1 : index
+  %workgroup_size = index.constant 16 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
+} launch(%output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %lane_value = index.cast %lane : index to i32
+  %prefix = kernel.workgroup.scan<addi> %lane_value {direction = forward, mode = inclusive} : i32
+  %base = index.constant 0 : offset
+  %output_view = buffer.view %output[%base] : buffer -> view<16xi32>
+  view.store %prefix, %output_view[%lane] : i32, view<16xi32>
+  kernel.return
+}
+
+// ----
+CHECK: low.kernel.def * @workgroup_storage_limit_ignores_single_wave_collective() * {
+CHECK-NOT: *low.storage<workgroup>*
+CHECK: *return

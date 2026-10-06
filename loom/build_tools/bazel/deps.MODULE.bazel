@@ -6,14 +6,19 @@
 
 """Bazel module fragment for Loom-specific dependencies."""
 
+hygiene_sources = use_repo_rule(
+    "//loom/build_tools/hygiene:sources.bzl",
+    "hygiene_sources",
+)
+
+hygiene_sources(
+    name = "loom_hygiene_sources",
+    workspace_file = "//:MODULE.bazel",
+)
+
 http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",
-)
-
-wasi_sdk_repo = use_repo_rule(
-    "//build_tools/wasm:wasi_sdk_repo.bzl",
-    "wasi_sdk_repo",
 )
 
 http_archive(
@@ -21,8 +26,4 @@ http_archive(
     build_file = "//loom/build_tools/amdgpu/isa_xml:BUILD.overlay",
     sha256 = "1f17587abc9d0d355cf6f65bdba7496838b4e8313922769199689615c434965c",
     urls = ["https://gpuopen.com/download/AMD_GPU_MR_ISA_XML_2026_03_05.zip"],
-)
-
-wasi_sdk_repo(
-    name = "wasi_sdk",
 )

@@ -1,0 +1,105 @@
+func.def inline @pack_f32_predicates(%bit0: i1, %bit1: i1, %bit2: i1, %bit3: i1, %bit4: i1, %bit5: i1) -> (i32) {
+  %c1 = scalar.constant 1 : i32
+  %c2 = scalar.constant 2 : i32
+  %c3 = scalar.constant 3 : i32
+  %c4 = scalar.constant 4 : i32
+  %c5 = scalar.constant 5 : i32
+  %word0 = scalar.extui %bit0 : i1 to i32
+  %word1 = scalar.extui %bit1 : i1 to i32
+  %word2 = scalar.extui %bit2 : i1 to i32
+  %word3 = scalar.extui %bit3 : i1 to i32
+  %word4 = scalar.extui %bit4 : i1 to i32
+  %word5 = scalar.extui %bit5 : i1 to i32
+  %shifted1 = scalar.shli %word1, %c1 : i32
+  %shifted2 = scalar.shli %word2, %c2 : i32
+  %shifted3 = scalar.shli %word3, %c3 : i32
+  %shifted4 = scalar.shli %word4, %c4 : i32
+  %shifted5 = scalar.shli %word5, %c5 : i32
+  %mask1 = scalar.ori %word0, %shifted1 : i32
+  %mask2 = scalar.ori %mask1, %shifted2 : i32
+  %mask3 = scalar.ori %mask2, %shifted3 : i32
+  %mask4 = scalar.ori %mask3, %shifted4 : i32
+  %mask5 = scalar.ori %mask4, %shifted5 : i32
+  func.return %mask5 : i32
+}
+
+func.def @scalar_f32_observations(%ordinal: index, %input: buffer, %round_inputs: buffer, %float_output: buffer, %predicate_output: buffer) {
+  %origin = index.constant 0 : offset
+  %bounded_ordinal = index.assume %ordinal [range(%ordinal, 0, 63)] : index
+  %input_view = buffer.view %input[%origin] : buffer -> view<4xf32>
+  %round_input_view = buffer.view %round_inputs[%origin] : buffer -> view<64xf32>
+  %lhs = view.load %input_view[0] : view<4xf32> -> f32
+  %rhs = view.load %input_view[1] : view<4xf32> -> f32
+  %sqrt_seed = view.load %input_view[3] : view<4xf32> -> f32
+  %round_input = view.load %round_input_view[%bounded_ordinal] : view<64xf32> -> f32
+  %sum = scalar.addf %lhs, %rhs : f32
+  %difference = scalar.subf %lhs, %rhs : f32
+  %product = scalar.mulf %lhs, %rhs : f32
+  %quotient = scalar.divf %lhs, %rhs : f32
+  %absolute = scalar.absf %lhs : f32
+  %negated = scalar.negf %lhs : f32
+  %copied = scalar.copysignf %lhs, %rhs : f32
+  %minimum = scalar.minimumf %lhs, %rhs : f32
+  %maximum = scalar.maximumf %lhs, %rhs : f32
+  %ceil = scalar.ceilf %round_input : f32
+  %floor = scalar.floorf %round_input : f32
+  %roundeven = scalar.roundevenf %round_input : f32
+  %trunc = scalar.truncf %round_input : f32
+  %sqrt_input = scalar.absf %sqrt_seed : f32
+  %sqrt = scalar.sqrtf %sqrt_input : f32
+  %equal = scalar.cmpf oeq, %lhs, %rhs : f32
+  %greater = scalar.cmpf ogt, %lhs, %rhs : f32
+  %greater_equal = scalar.cmpf oge, %lhs, %rhs : f32
+  %less = scalar.cmpf olt, %lhs, %rhs : f32
+  %less_equal = scalar.cmpf ole, %lhs, %rhs : f32
+  %not_equal_or_unordered = scalar.cmpf une, %lhs, %rhs : f32
+  %ordered_mask = func.call @pack_f32_predicates(%equal, %greater, %greater_equal, %less, %less_equal, %not_equal_or_unordered) : (i1, i1, i1, i1, i1, i1) -> (i32)
+  %not_equal = scalar.cmpf<nnan> one, %lhs, %rhs : f32
+  %unordered_equal = scalar.cmpf<nnan> ueq, %lhs, %rhs : f32
+  %unordered_greater = scalar.cmpf<nnan> ugt, %lhs, %rhs : f32
+  %unordered_greater_equal = scalar.cmpf<nnan> uge, %lhs, %rhs : f32
+  %unordered_less = scalar.cmpf<nnan> ult, %lhs, %rhs : f32
+  %unordered_less_equal = scalar.cmpf<nnan> ule, %lhs, %rhs : f32
+  %no_nan_mask = func.call @pack_f32_predicates(%not_equal, %unordered_equal, %unordered_greater, %unordered_greater_equal, %unordered_less, %unordered_less_equal) : (i1, i1, i1, i1, i1, i1) -> (i32)
+
+  %float_results = buffer.view %float_output[%origin] : buffer -> view<14xf32>
+  view.store %sum, %float_results[0] : f32, view<14xf32>
+  view.store %difference, %float_results[1] : f32, view<14xf32>
+  view.store %product, %float_results[2] : f32, view<14xf32>
+  view.store %quotient, %float_results[3] : f32, view<14xf32>
+  view.store %absolute, %float_results[4] : f32, view<14xf32>
+  view.store %negated, %float_results[5] : f32, view<14xf32>
+  view.store %copied, %float_results[6] : f32, view<14xf32>
+  view.store %minimum, %float_results[7] : f32, view<14xf32>
+  view.store %maximum, %float_results[8] : f32, view<14xf32>
+  view.store %ceil, %float_results[9] : f32, view<14xf32>
+  view.store %floor, %float_results[10] : f32, view<14xf32>
+  view.store %roundeven, %float_results[11] : f32, view<14xf32>
+  view.store %trunc, %float_results[12] : f32, view<14xf32>
+  view.store %sqrt, %float_results[13] : f32, view<14xf32>
+  %predicate_results = buffer.view %predicate_output[%origin] : buffer -> view<2xi32>
+  view.store %ordered_mask, %predicate_results[0] : i32, view<2xi32>
+  view.store %no_nan_mask, %predicate_results[1] : i32, view<2xi32>
+  func.return
+}
+
+// Ordinary finite values own the shared numeric contract. Target Low tests own
+// NaN payloads, infinities, subnormals, signed zero, and exact instruction use.
+check.scenario @scalar_f32_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %expected_input = check.generate.random.uniform seed(%seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %round_inputs = check.generate.iota offset(-16.0) step(0.5) : tensor<64xf32>
+    %expected_round_inputs = check.generate.iota offset(-16.0) step(0.5) : tensor<64xf32>
+    %float_output = check.generate.fill value(-123.5) : tensor<14xf32>
+    %predicate_output = check.generate.fill value(-1) : tensor<2xi32>
+    check.compare<@scalar_f32_observations>(%trial, %input, %round_inputs, %float_output, %predicate_output) : (index, tensor<4xf32>, tensor<64xf32>, tensor<14xf32>, tensor<2xi32>) -> () {
+      check.expect.close actual(%float_output) expected(%float_output) atol(0.0) rtol(9.9999999999999995e-07) nan(same) : tensor<14xf32>
+      check.expect.bitwise actual(%predicate_output) expected(%predicate_output) : tensor<2xi32>
+      check.expect.bitwise actual(%input) expected(%expected_input) : tensor<4xf32>
+      check.expect.bitwise actual(%round_inputs) expected(%expected_round_inputs) : tensor<64xf32>
+    }
+  }
+  check.return
+}

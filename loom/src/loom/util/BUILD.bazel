@@ -13,6 +13,26 @@ package(
 )
 
 loom_cc_library(
+    name = "index_set",
+    srcs = ["index_set.c"],
+    hdrs = ["index_set.h"],
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
+    ],
+)
+
+loom_cc_test(
+    name = "index_set_test",
+    srcs = ["index_set_test.cc"],
+    deps = [
+        ":index_set",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "bstring",
     hdrs = ["bstring.h"],
     deps = [
@@ -200,6 +220,23 @@ loom_cc_test(
 )
 
 loom_cc_library(
+    name = "fact_table_api",
+    hdrs = [
+        "fact_extensions.h",
+        "fact_layout.h",
+        "fact_table.h",
+    ],
+    deps = [
+        ":numeric_format",
+        ":reference_facts",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ir:facts",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "fact_table",
     srcs = [
         "fact_cfg.c",
@@ -227,8 +264,11 @@ loom_cc_library(
         ":cfg_loop_nest",
         ":cfg_regions",
         ":fact_control",
+        ":fact_table_api",
         ":numeric_format",
         ":reference_facts",
+        "//loom/src/loom/analysis:condition_edge_projection",
+        "//loom/src/loom/analysis:condition_facts",
         "//loom/src/loom/analysis:loop_domain",
         "//loom/src/loom/analysis:scc",
         "//loom/src/loom/ir",
@@ -271,8 +311,12 @@ loom_cc_test(
     srcs = ["fact_table_compute_test.cc"],
     deps = [
         ":fact_table",
+        "//loom/src/loom/analysis:condition_edge_projection",
+        "//loom/src/loom/analysis:condition_facts",
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops/cfg",
         "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/scalar",
         "//loom/src/loom/ops/scf",
         "//loom/src/loom/ops/test",
         "//runtime/src/iree/base/internal:arena",
@@ -496,6 +540,17 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "cfg_execution",
+    srcs = ["cfg_execution.c"],
+    hdrs = ["cfg_execution.h"],
+    deps = [
+        ":cfg_control",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "cfg_graph_test_util",
     testonly = True,
     hdrs = ["cfg_graph_test_util.h"],
@@ -524,6 +579,19 @@ loom_cc_test(
         ":cfg_control",
         ":cfg_control_test_util",
         ":cfg_graph_test_util",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "cfg_execution_test",
+    srcs = ["cfg_execution_test.cc"],
+    deps = [
+        ":cfg_control",
+        ":cfg_execution",
+        ":cfg_graph_test_util",
+        "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],

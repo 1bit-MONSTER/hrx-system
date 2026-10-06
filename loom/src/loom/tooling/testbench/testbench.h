@@ -23,6 +23,7 @@ extern "C" {
 #endif
 
 #define LOOM_TESTBENCH_CASE_INDEX_INVALID IREE_HOST_SIZE_MAX
+#define LOOM_TESTBENCH_SCENARIO_INDEX_INVALID IREE_HOST_SIZE_MAX
 #define LOOM_TESTBENCH_BENCHMARK_INDEX_INVALID IREE_HOST_SIZE_MAX
 #define LOOM_TESTBENCH_PARAMETER_SAMPLE_ORDINAL_ALL IREE_HOST_SIZE_MAX
 #define LOOM_TESTBENCH_EXECUTION_EPOCH_INVALID IREE_HOST_SIZE_MAX
@@ -50,8 +51,8 @@ typedef enum loom_testbench_issue_kind_e {
   LOOM_TESTBENCH_ISSUE_UNSUPPORTED_CASE_BODY_OP = 1,
   // A parameter op has no valid deterministic sample set.
   LOOM_TESTBENCH_ISSUE_INVALID_PARAMETER = 2,
-  // A check.benchmark does not reference a discovered check.case.
-  LOOM_TESTBENCH_ISSUE_INVALID_BENCHMARK_CASE = 3,
+  // A check.benchmark does not reference a discovered test record.
+  LOOM_TESTBENCH_ISSUE_INVALID_BENCHMARK_RECORD = 3,
   // A named parameter collides with another parameter in the same check.case.
   LOOM_TESTBENCH_ISSUE_DUPLICATE_PARAMETER_NAME = 4,
   // A check.benchmark assignment key or value does not match the referenced
@@ -65,6 +66,12 @@ typedef enum loom_testbench_issue_kind_e {
   LOOM_TESTBENCH_ISSUE_INVALID_INVOCATION = 8,
   // A check.expect.* op cannot be planned for evaluation.
   LOOM_TESTBENCH_ISSUE_INVALID_EXPECTATION = 9,
+  // A check.scenario configuration body operation is unsupported.
+  LOOM_TESTBENCH_ISSUE_UNSUPPORTED_SCENARIO_BODY_OP = 10,
+  // A check.trial recipe operation is unsupported.
+  LOOM_TESTBENCH_ISSUE_UNSUPPORTED_TRIAL_BODY_OP = 11,
+  // A check.compare or check.invoke action cannot be planned.
+  LOOM_TESTBENCH_ISSUE_INVALID_SCENARIO_ACTION = 12,
 } loom_testbench_issue_kind_t;
 
 typedef enum loom_testbench_value_source_kind_e {
@@ -82,6 +89,10 @@ typedef enum loom_testbench_value_source_kind_e {
   LOOM_TESTBENCH_VALUE_SOURCE_FILE_READ_NPY = 5,
   // Dense typed alias from check.tensor.view.
   LOOM_TESTBENCH_VALUE_SOURCE_TENSOR_VIEW = 6,
+  // Named immutable entropy derivation from check.entropy.fork.
+  LOOM_TESTBENCH_VALUE_SOURCE_ENTROPY_FORK = 7,
+  // Deterministic indexed entropy word from check.entropy.read.
+  LOOM_TESTBENCH_VALUE_SOURCE_ENTROPY_READ = 8,
 } loom_testbench_value_source_kind_t;
 
 typedef enum loom_testbench_invocation_kind_e {
@@ -93,7 +104,20 @@ typedef enum loom_testbench_invocation_kind_e {
   LOOM_TESTBENCH_INVOCATION_KERNEL_LAUNCH = 2,
   // check.oracle.call op that invokes a reference provider.
   LOOM_TESTBENCH_INVOCATION_ORACLE = 3,
+  // Finite command program issued with staged specializations.
+  LOOM_TESTBENCH_INVOCATION_COMMAND_PROGRAM = 4,
+  // Pipeline episode issued with staged specializations.
+  LOOM_TESTBENCH_INVOCATION_PIPELINE = 5,
 } loom_testbench_invocation_kind_t;
+
+typedef enum loom_testbench_scenario_action_kind_e {
+  // Invalid or uninitialized scenario action.
+  LOOM_TESTBENCH_SCENARIO_ACTION_NONE = 0,
+  // Differential target/oracle action from check.compare.
+  LOOM_TESTBENCH_SCENARIO_ACTION_COMPARE = 1,
+  // Target-only action from check.invoke.
+  LOOM_TESTBENCH_SCENARIO_ACTION_INVOKE = 2,
+} loom_testbench_scenario_action_kind_t;
 
 typedef enum loom_testbench_expectation_kind_e {
   // Invalid or uninitialized expectation slot.
@@ -106,10 +130,8 @@ typedef enum loom_testbench_expectation_kind_e {
   LOOM_TESTBENCH_EXPECTATION_CLOSE = 3,
   // check.expect.shape metadata comparison.
   LOOM_TESTBENCH_EXPECTATION_SHAPE = 4,
-  // check.expect<provider> custom validation.
-  LOOM_TESTBENCH_EXPECTATION_CUSTOM = 5,
   // check.expect.event<provider> structured runtime event validation.
-  LOOM_TESTBENCH_EXPECTATION_EVENT = 6,
+  LOOM_TESTBENCH_EXPECTATION_EVENT = 5,
 } loom_testbench_expectation_kind_t;
 
 typedef struct loom_testbench_plan_options_t {
@@ -190,6 +212,28 @@ typedef struct loom_testbench_tensor_view_source_plan_t {
   iree_device_size_t byte_offset;
 } loom_testbench_tensor_view_source_plan_t;
 
+typedef struct loom_testbench_entropy_fork_source_plan_t {
+  // SSA value providing the parent entropy identity.
+  loom_value_id_t entropy_value_id;
+  // Interned name used to derive the child identity.
+  loom_string_id_t name_id;
+  // Borrowed fork name text.
+  iree_string_view_t name;
+} loom_testbench_entropy_fork_source_plan_t;
+
+typedef struct loom_testbench_entropy_read_source_plan_t {
+  // SSA value providing the entropy identity.
+  loom_value_id_t entropy_value_id;
+  // Borrowed dynamic ordinal value IDs in source order.
+  const loom_value_id_t* ordinal_value_ids;
+  // Number of entries in |ordinal_value_ids|.
+  iree_host_size_t ordinal_value_count;
+  // Borrowed static ordinals with INT64_MIN sentinels at dynamic positions.
+  const int64_t* static_ordinals;
+  // Number of entries in |static_ordinals|.
+  iree_host_size_t static_ordinal_count;
+} loom_testbench_entropy_read_source_plan_t;
+
 typedef struct loom_testbench_parameter_plan_t {
   // Parameter kind and payload discriminator.
   loom_testbench_parameter_kind_t kind;
@@ -237,6 +281,10 @@ typedef struct loom_testbench_value_source_plan_t {
     loom_testbench_file_source_plan_t file;
     // Payload for check.tensor.view.
     loom_testbench_tensor_view_source_plan_t tensor_view;
+    // Payload for check.entropy.fork.
+    loom_testbench_entropy_fork_source_plan_t entropy_fork;
+    // Payload for check.entropy.read.
+    loom_testbench_entropy_read_source_plan_t entropy_read;
   };
 } loom_testbench_value_source_plan_t;
 
@@ -262,7 +310,7 @@ typedef struct loom_testbench_invocation_plan_t {
   const loom_module_t* module;
   // Operation that declared the invocation.
   const loom_op_t* op;
-  // Function symbol passed to the execution or oracle provider.
+  // Subject symbol passed to the execution or oracle provider.
   loom_symbol_ref_t callee_ref;
   // Interned provider string ID for oracle invocations, or INVALID otherwise.
   loom_string_id_t provider_id;
@@ -311,15 +359,6 @@ typedef struct loom_testbench_shape_expectation_plan_t {
   iree_host_size_t static_dimension_count;
 } loom_testbench_shape_expectation_plan_t;
 
-typedef struct loom_testbench_custom_expectation_plan_t {
-  // Interned provider string ID.
-  loom_string_id_t provider_id;
-  // Borrowed provider name.
-  iree_string_view_t provider;
-  // Borrowed custom validation attributes.
-  loom_named_attr_slice_t attrs;
-} loom_testbench_custom_expectation_plan_t;
-
 typedef struct loom_testbench_event_expectation_plan_t {
   // Interned provider string ID.
   loom_string_id_t provider_id;
@@ -345,8 +384,6 @@ typedef struct loom_testbench_expectation_plan_t {
     loom_testbench_close_expectation_plan_t close;
     // Payload for check.expect.shape.
     loom_testbench_shape_expectation_plan_t shape;
-    // Payload for check.expect<provider>.
-    loom_testbench_custom_expectation_plan_t custom;
     // Payload for check.expect.event<provider>.
     loom_testbench_event_expectation_plan_t event;
   };
@@ -357,13 +394,95 @@ typedef struct loom_testbench_issue_t {
   loom_testbench_issue_kind_t kind;
   // Case ordinal in the module plan, or INVALID for module-level issues.
   iree_host_size_t case_index;
+  // Scenario ordinal in the module plan, or INVALID for non-scenario issues.
+  iree_host_size_t scenario_index;
   // Benchmark ordinal in the module plan, or INVALID for non-benchmark issues.
   iree_host_size_t benchmark_index;
   // Operation related to the issue.
   const loom_op_t* op;
-  // Referenced case symbol when the issue involves one.
-  loom_symbol_ref_t case_ref;
+  // Referenced case or scenario symbol when the issue involves one.
+  loom_symbol_ref_t record_ref;
 } loom_testbench_issue_t;
+
+typedef struct loom_testbench_scenario_action_plan_t {
+  // Action kind and execution-mode discriminator.
+  loom_testbench_scenario_action_kind_t kind;
+  // Defining check.compare or check.invoke operation.
+  const loom_op_t* op;
+  // Target invocation with target result identities for comparisons.
+  loom_testbench_invocation_plan_t target;
+  // Oracle invocation with expected result identities, or NONE for invoke.
+  loom_testbench_invocation_plan_t oracle;
+  // Explicit comparison expectations in source order.
+  const loom_testbench_expectation_plan_t* expectations;
+  // Number of entries in |expectations|.
+  iree_host_size_t expectation_count;
+  // True when an expectation consumes target device events.
+  bool expects_device_events;
+} loom_testbench_scenario_action_plan_t;
+
+typedef struct loom_testbench_trial_plan_t {
+  // Defining check.trial operation.
+  const loom_op_t* op;
+  // SSA value receiving the concrete trial ordinal.
+  loom_value_id_t ordinal_value_id;
+  // SSA value receiving the immutable trial entropy identity.
+  loom_value_id_t entropy_value_id;
+  // Number of concrete trials in this domain.
+  iree_host_size_t trial_count;
+  // Runtime value source plans in source order.
+  const loom_testbench_value_source_plan_t* value_sources;
+  // Number of entries in |value_sources|.
+  iree_host_size_t value_source_count;
+  // Terminal action for every concrete trial.
+  loom_testbench_scenario_action_plan_t action;
+  // Issues discovered while planning this trial.
+  const loom_testbench_issue_t* issues;
+  // Number of entries in |issues|.
+  iree_host_size_t issue_count;
+} loom_testbench_trial_plan_t;
+
+typedef struct loom_testbench_scenario_plan_t {
+  // Module-local symbol reference naming this scenario.
+  loom_symbol_ref_t ref;
+  // Symbol table entry for |ref|.
+  const loom_symbol_t* symbol;
+  // Defining check.scenario operation.
+  const loom_op_t* op;
+  // Borrowed scenario name from the module string table.
+  iree_string_view_t name;
+  // True when the check.scenario is public testbench API.
+  bool is_public;
+  // True when the scenario declares an explicit configuration domain.
+  bool is_configured;
+  // Number of concrete configurations; one for an unconfigured scenario.
+  iree_host_size_t configuration_count;
+  // SSA value receiving the configuration ordinal, or INVALID when absent.
+  loom_value_id_t configuration_ordinal_value_id;
+  // SSA value receiving configuration entropy, or INVALID when absent.
+  loom_value_id_t configuration_entropy_value_id;
+  // Configuration-scoped source plans in source order.
+  const loom_testbench_value_source_plan_t* configuration_sources;
+  // Number of entries in |configuration_sources|.
+  iree_host_size_t configuration_source_count;
+  // Trial domains in source order.
+  const loom_testbench_trial_plan_t* trials;
+  // Number of entries in |trials|.
+  iree_host_size_t trial_count;
+  // Issues discovered while planning this scenario.
+  const loom_testbench_issue_t* issues;
+  // Number of entries in |issues|.
+  iree_host_size_t issue_count;
+} loom_testbench_scenario_plan_t;
+
+typedef struct loom_testbench_scenario_sample_coordinate_t {
+  // Scenario configuration selected by the benchmark sample.
+  iree_host_size_t configuration_ordinal;
+  // Scenario trial domain selected by the benchmark sample.
+  iree_host_size_t trial_index;
+  // Trial ordinal within the selected domain.
+  iree_host_size_t trial_ordinal;
+} loom_testbench_scenario_sample_coordinate_t;
 
 typedef struct loom_testbench_case_plan_t {
   // Module-local symbol reference naming this case.
@@ -376,8 +495,6 @@ typedef struct loom_testbench_case_plan_t {
   iree_string_view_t name;
   // True when the check.case is public testbench API.
   bool is_public;
-  // True when an expectation observes sample-scoped HAL device events.
-  bool has_device_event_expectation;
   // Parameter plans in source order.
   const loom_testbench_parameter_plan_t* parameters;
   // Number of entries in |parameters|.
@@ -423,20 +540,24 @@ typedef struct loom_testbench_benchmark_plan_t {
   const loom_op_t* op;
   // Explicit symbol name used for reports and benchmark selection.
   iree_string_view_t name;
-  // Referenced check.case symbol.
-  loom_symbol_ref_t case_ref;
-  // Ordinal of the referenced case in the module plan.
+  // Referenced check.case or check.scenario record symbol.
+  loom_symbol_ref_t record_ref;
+  // Ordinal of the referenced case, or INVALID for a scenario benchmark.
   iree_host_size_t case_index;
+  // Ordinal of the referenced scenario, or INVALID for a case benchmark.
+  iree_host_size_t scenario_index;
   // Borrowed benchmark assignment dictionary.
   loom_named_attr_slice_t attrs;
-  // Per-parameter fixed sample ordinals selected by this benchmark. Entries are
-  // LOOM_TESTBENCH_PARAMETER_SAMPLE_ORDINAL_ALL for unassigned parameters.
+  // Per-parameter fixed sample ordinals selected by a case benchmark. Empty for
+  // scenario benchmarks. Entries are PARAMETER_SAMPLE_ORDINAL_ALL for
+  // unassigned parameters.
   const iree_host_size_t* parameter_sample_ordinals;
   // Number of entries in |parameter_sample_ordinals|.
   iree_host_size_t parameter_sample_ordinal_count;
-  // Full cartesian sample count after benchmark assignments are applied.
+  // Full case cartesian domain or concrete scenario action count.
   iree_host_size_t cartesian_sample_count;
-  // Number of benchmark samples retained for execution after budget capping.
+  // Number of benchmark samples retained for execution. Case domains may be
+  // capped by planning options; explicit scenario domains remain exhaustive.
   iree_host_size_t sample_count;
   // True when |sample_count| is smaller than |cartesian_sample_count|.
   bool sample_count_truncated;
@@ -449,23 +570,44 @@ typedef struct loom_testbench_module_plan_t {
   const loom_testbench_case_plan_t* cases;
   // Number of entries in |cases|.
   iree_host_size_t case_count;
+  // Discovered check.scenario records.
+  const loom_testbench_scenario_plan_t* scenarios;
+  // Number of entries in |scenarios|.
+  iree_host_size_t scenario_count;
   // Discovered check.benchmark records.
   const loom_testbench_benchmark_plan_t* benchmarks;
   // Number of entries in |benchmarks|.
   iree_host_size_t benchmark_count;
-  // Flat issue list across cases and benchmark records.
+  // Flat issue list across cases, scenarios, and benchmark records.
   const loom_testbench_issue_t* issues;
   // Number of entries in |issues|.
   iree_host_size_t issue_count;
 } loom_testbench_module_plan_t;
 
-// Plans check.case/check.benchmark records in |module|.
+// Plans check.case/check.scenario/check.benchmark records in |module|.
 //
 // IR validity problems are reported as structured issues in |out_plan|. The
 // status channel is reserved for infrastructure failures such as allocation.
 iree_status_t loom_testbench_plan_module(
     const loom_module_t* module, const loom_testbench_plan_options_t* options,
     iree_arena_allocator_t* arena, loom_testbench_module_plan_t* out_plan);
+
+// Returns true when |op| is a deterministic check value source understood by
+// the testbench planner.
+bool loom_testbench_is_value_source_op(const loom_op_t* op);
+
+// Plans one deterministic check value source operation.
+bool loom_testbench_plan_value_source(
+    const loom_module_t* module, const loom_op_t* op,
+    loom_testbench_value_source_plan_t* out_source);
+
+// Returns true when |op| is an explicit check expectation.
+bool loom_testbench_is_expectation_op(const loom_op_t* op);
+
+// Plans one explicit check expectation operation.
+bool loom_testbench_plan_expectation(
+    const loom_module_t* module, const loom_op_t* op,
+    loom_testbench_expectation_plan_t* out_expectation);
 
 // Maps a case sample ordinal to a parameter-local sample ordinal.
 //
@@ -483,6 +625,16 @@ iree_host_size_t loom_testbench_case_sample_parameter_ordinal(
 // reduced benchmark sample domain.
 iree_host_size_t loom_testbench_benchmark_sample_case_ordinal(
     const loom_testbench_case_plan_t* case_plan,
+    const loom_testbench_benchmark_plan_t* benchmark_plan,
+    iree_host_size_t benchmark_sample_ordinal);
+
+// Maps a benchmark-local sample ordinal to its scenario domain coordinate.
+//
+// Configurations vary slowest. Within each configuration, trial domains and
+// their concrete ordinals follow source order.
+loom_testbench_scenario_sample_coordinate_t
+loom_testbench_benchmark_sample_scenario_coordinate(
+    const loom_testbench_scenario_plan_t* scenario_plan,
     const loom_testbench_benchmark_plan_t* benchmark_plan,
     iree_host_size_t benchmark_sample_ordinal);
 

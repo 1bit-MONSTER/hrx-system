@@ -49,6 +49,26 @@ xdna_execution_test_suite(
     },
 )
 
+xdna_execution_test_suite(
+    name = "saturating_pack_npu2_test",
+    data = ["testdata/saturating_pack.loom"],
+    manifests = ["saturating_pack_npu2.test.json"],
+    tags = ["manual"],
+    target_compatible_with = select({
+        "//loom/config/target:xdna_artifacts": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    tools = {
+        "generate-cases": ":assembly_pack_cases",
+        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+    },
+)
+
 iree_py_binary(
     name = "bitcast_cases",
     testonly = True,
@@ -112,6 +132,222 @@ xdna_execution_test_suite(
 )
 
 iree_py_binary(
+    name = "integer_widening_cases",
+    testonly = True,
+    srcs = ["integer_widening_cases.py"],
+    main = "integer_widening_cases.py",
+)
+
+iree_py_binary(
+    name = "read_only_data_cases",
+    testonly = True,
+    srcs = ["read_only_data_cases.py"],
+    main = "read_only_data_cases.py",
+)
+
+iree_py_binary(
+    name = "immutable_gather_cases",
+    testonly = True,
+    srcs = ["immutable_gather_cases.py"],
+    main = "immutable_gather_cases.py",
+)
+
+xdna_execution_test_suite(
+    name = "immutable_gather_npu2_test",
+    data = ["testdata/immutable_gather.loom"],
+    manifests = ["immutable_gather_npu2.test.json"],
+    tags = ["manual"],
+    target_compatible_with = select({
+        "//loom/config/target:xdna_artifacts": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    tools = {
+        "generate-cases": ":immutable_gather_cases",
+        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+    },
+)
+
+xdna_execution_test_suite(
+    name = "read_only_data_npu2_test",
+    data = ["testdata/read_only_data.loom"],
+    manifests = ["read_only_data_npu2.test.json"],
+    tags = ["manual"],
+    target_compatible_with = select({
+        "//loom/config/target:xdna_artifacts": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    tools = {
+        "generate-cases": ":read_only_data_cases",
+        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+    },
+)
+
+xdna_execution_test_suite(
+    name = "integer_widening_npu2_test",
+    data = ["testdata/integer_widening.loom"],
+    manifests = ["integer_widening_npu2.test.json"],
+    tags = ["manual"],
+    target_compatible_with = select({
+        "//loom/config/target:xdna_artifacts": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    tools = {
+        "generate-cases": ":integer_widening_cases",
+        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+    },
+)
+
+iree_py_binary(
+    name = "bf16_vector_cases",
+    testonly = True,
+    srcs = ["bf16_vector_cases.py"],
+    main = "bf16_vector_cases.py",
+)
+
+xdna_execution_test_suite(
+    name = "bf16_vectors_npu2_test",
+    data = ["testdata/bf16_vectors.loom"],
+    manifests = ["bf16_vectors_npu2.test.json"],
+    tags = ["manual"],
+    target_compatible_with = select({
+        "//loom/config/target:xdna_artifacts": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    tools = {
+        "generate-cases": ":bf16_vector_cases",
+        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+    },
+)
+
+iree_py_binary(
+    name = "vector_memory64_cases",
+    testonly = True,
+    srcs = ["vector_memory64_cases.py"],
+    main = "vector_memory64_cases.py",
+)
+
+xdna_execution_test_suite(
+    name = "vector_memory64_npu2_test",
+    data = ["testdata/vector_memory64.loom"],
+    manifests = ["vector_memory64_npu2.test.json"],
+    tags = ["manual"],
+    target_compatible_with = select({
+        "//loom/config/target:xdna_artifacts": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    tools = {
+        "generate-cases": ":vector_memory64_cases",
+        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+    },
+)
+
+iree_py_binary(
+    name = "vector_partial_carriers_cases",
+    testonly = True,
+    srcs = ["vector_partial_carriers_cases.py"],
+    main = "vector_partial_carriers_cases.py",
+)
+
+xdna_execution_test_suite(
+    name = "vector_partial_carriers_npu2_test",
+    data = ["testdata/vector_partial_carriers.loom"],
+    manifests = ["vector_partial_carriers_npu2.test.json"],
+    tags = ["manual"],
+    target_compatible_with = select({
+        "//loom/config/target:xdna_artifacts": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    tools = {
+        "generate-cases": ":vector_partial_carriers_cases",
+        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+    },
+)
+
+iree_py_binary(
+    name = "predicate_select_cases",
+    testonly = True,
+    srcs = ["predicate_select_cases.py"],
+    main = "predicate_select_cases.py",
+)
+
+xdna_execution_test_suite(
+    name = "predicate_select_npu2_test",
+    data = ["testdata/predicate_select.loom"],
+    manifests = ["predicate_select_npu2.test.json"],
+    tags = ["manual"],
+    target_compatible_with = select({
+        "//loom/config/target:xdna_artifacts": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    tools = {
+        "generate-cases": ":predicate_select_cases",
+        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+    },
+)
+
+iree_py_binary(
+    name = "multicast_cases",
+    testonly = True,
+    srcs = ["multicast_cases.py"],
+    main = "multicast_cases.py",
+)
+
+xdna_execution_test_suite(
+    name = "multicast_npu2_test",
+    data = ["testdata/multicast.loom"],
+    manifests = ["multicast_npu2.test.json"],
+    tags = ["manual"],
+    target_compatible_with = select({
+        "//loom/config/target:xdna_artifacts": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    tools = {
+        "generate-cases": ":multicast_cases",
+        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+    },
+)
+
+iree_py_binary(
     name = "packed_memory_cases",
     testonly = True,
     srcs = ["packed_memory_cases.py"],
@@ -149,6 +385,60 @@ xdna_execution_test_suite(
 )
 
 iree_py_binary(
+    name = "temporal_fold_cases",
+    testonly = True,
+    srcs = ["temporal_fold_cases.py"],
+    main = "temporal_fold_cases.py",
+)
+
+xdna_execution_test_suite(
+    name = "temporal_fold_npu2_test",
+    data = ["testdata/temporal_fold.loom"],
+    manifests = ["temporal_fold_npu2.test.json"],
+    tags = ["manual"],
+    target_compatible_with = select({
+        "//loom/config/target:xdna_artifacts": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    tools = {
+        "generate-cases": ":temporal_fold_cases",
+        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+    },
+)
+
+iree_py_binary(
+    name = "transpose_cases",
+    testonly = True,
+    srcs = ["transpose_cases.py"],
+    main = "transpose_cases.py",
+)
+
+xdna_execution_test_suite(
+    name = "transpose_npu2_test",
+    data = ["testdata/transpose.loom"],
+    manifests = ["transpose_npu2.test.json"],
+    tags = ["manual"],
+    target_compatible_with = select({
+        "//loom/config/target:xdna_artifacts": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    tools = {
+        "generate-cases": ":transpose_cases",
+        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+    },
+)
+
+iree_py_binary(
     name = "vector_copy_cases",
     testonly = True,
     srcs = ["vector_copy_cases.py"],
@@ -180,6 +470,45 @@ xdna_execution_test_suite(
     }),
     tools = {
         "generate-cases": ":vector_copy_cases",
+        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+        "loom-import-cxx": "//loom/src/loom/tools/loom-import-cxx",
+        "loom-link": "//loom/src/loom/tools/loom-link",
+    },
+)
+
+iree_py_binary(
+    name = "buffer_selection_cases",
+    testonly = True,
+    srcs = ["buffer_selection_cases.py"],
+    main = "buffer_selection_cases.py",
+)
+
+# This packet corpus selects the NPU2 profile and runs explicitly on matching
+# hardware; the consumer CTS below select images from the device family.
+xdna_execution_test_suite(
+    name = "buffer_selection_npu2_test",
+    data = [
+        "testdata/buffer_selection.cxx",
+        "testdata/buffer_selection.loom",
+        "//loom/src/loom/import/cxx:include/loomcxx/atomic.h",
+        "//loom/src/loom/import/cxx:include/loomcxx/kernel.h",
+    ],
+    manifests = ["buffer_selection_npu2.test.json"],
+    tags = ["manual"],
+    target_compatible_with = select({
+        "//loom/config/import:cxx": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        "//loom/config/target:xdna_artifacts": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    tools = {
+        "generate-cases": ":buffer_selection_cases",
         "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
         "loom-compile": "//loom/src/loom/tools/loom-compile",
         "loom-import-cxx": "//loom/src/loom/tools/loom-import-cxx",

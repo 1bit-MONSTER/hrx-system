@@ -18,6 +18,204 @@
       "files": [{"path": "{tmp}/invalid.bin", "exists": false}]
     },
     {
+      "name": "selects the canonical XDNA kernel emitter",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "{srcdir}/testdata/resident_xdna.loom",
+          "--pipeline=none",
+          "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+          "--output={tmp}/resident.xdna",
+          "--compile-report=summary",
+          "--compile-report-output={tmp}/resident-report.json"
+        ]
+      },
+      "files": [
+        {"path": "{tmp}/resident.xdna", "non_empty": true},
+        {
+          "path": "{tmp}/resident-report.json",
+          "contains": [
+            "\"artifact_kind\":\"hal-executable\"",
+            "\"backend\":\"xdna\"",
+            "\"target_family\":\"amd.xdna.aie2p\"",
+            "\"target_key\":\"amd.xdna.strix_halo.17f0_11\""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "renders exact carried types for invalid Low",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "--pipeline=none",
+          "--output={tmp}/invalid.xdna"
+        ],
+        "stdin": {
+          "text": "aie2p.target<array> @array_target\n\nlow.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @invalid_channel() asm {\n  %one = constant.u32 1 : reg<aie2p.array.scalar : index>\n  %input = binding 0, \"read\"\n  %output = binding 1, \"write\"\n  %sender = sender %input, 0 : reg<aie2p.array.sender : tile<1xi32>>\n  %receiver = receiver %output, 0 : reg<aie2p.array.receiver : tile<1xi32>>\n  %channel = channel %sender, %receiver, %one, %one : reg<aie2p.array.channel : tile<2xi32>>\n  return\n}\n"
+        }
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": [
+          "TYPE/001",
+          "'result' type tile<2xi32> does not match 'sender' type tile<1xi32>",
+          "input module failed Low verification"
+        ]
+      },
+      "files": [{"path": "{tmp}/invalid.xdna", "exists": false}]
+    },
+    {
+      "name": "rejects invalid AIE2P native pointers before publication",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "--pipeline=none",
+          "--output={tmp}/invalid-address.xdna"
+        ],
+        "stdin": {
+          "text": "aie2p.target<array> @array_target\n\naie2p.target<core> @core_target\n\nlow.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @invalid_address() asm {\n  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>\n  %one = constant.u32 1 : reg<aie2p.array.scalar : index>\n  %group = group %one\n  %worker = worker %group, %zero, @consume_record\n  return\n}\n\nlow.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume_record() asm {\n  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.er>\n  return\n}\n"
+        }
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": [
+          "TYPE/004",
+          "result 'result' has type reg<aie2p.er>, expected register class in [aie2p.ep] with 1 unit(s)"
+        ]
+      },
+      "files": [
+        {"path": "{tmp}/invalid-address.xdna", "exists": false}
+      ]
+    },
+    {
+      "name": "rejects residual AIE2P core calls before publication",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "--pipeline=none",
+          "--output={tmp}/uninlined-call.xdna"
+        ],
+        "stdin": {
+          "text": "aie2p.target<array> @array_target\n\naie2p.target<core> @core_target\n\nlow.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @uninlined_call() asm {\n  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>\n  %one = constant.u32 1 : reg<aie2p.array.scalar : index>\n  %group = group %one\n  %worker = worker %group, %zero, @caller\n  return\n}\n\nlow.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @caller() asm {\n  low.func.call @callee() : ()\n  return\n}\n\nlow.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @callee() asm {\n  return\n}\n"
+        }
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": [
+          "TARGET/072",
+          "low helper '@callee' does not satisfy the call policy because the selected target requires every Low call to be inlined before emission"
+        ],
+        "not_contains": ["UNIMPLEMENTED", "stack:"]
+      },
+      "files": [
+        {"path": "{tmp}/uninlined-call.xdna", "exists": false}
+      ]
+    },
+    {
+      "name": "diagnoses AIE2P workers placed off compute tiles",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "--pipeline=none",
+          "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+          "--output={tmp}/noncompute-worker.xdna"
+        ],
+        "stdin": {
+          "text": "aie2p.target<array> @array_target {device_profile = \"amd.xdna.strix_halo.17f0_11\"}\n\naie2p.target<core> @core_target\n\nlow.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @noncompute_worker_array() asm {\n  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>\n  %one = constant.u32 1 : reg<aie2p.array.scalar : index>\n  %capacity = constant.u32 2 : reg<aie2p.array.scalar : index>\n  %group = group %one\n  %worker = worker %group, %zero, @consume_worker\n  %input = binding 0, \"read\"\n  %sender = sender %input, 0 : reg<aie2p.array.sender : tile<1xi32>>\n  %receiver = receiver %worker, 0 : reg<aie2p.array.receiver : tile<1xi32>>\n  %channel = channel %sender, %receiver, %capacity, %one : reg<aie2p.array.channel : tile<1xi32>>\n  constrain.location %worker, %zero, %zero\n  return\n}\n\nlow.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume_worker() asm {\n  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>\n  return\n}\n"
+        }
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": [
+          "XDNA/021",
+          "AIE2P worker 0 cannot occupy tile (0, 0): the coordinate is not a compute tile"
+        ],
+        "not_contains": ["INVALID_ARGUMENT", "stack:"]
+      },
+      "files": [
+        {"path": "{tmp}/noncompute-worker.xdna", "exists": false}
+      ]
+    },
+    {
+      "name": "diagnoses AIE2P resident arrays without channels",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "--pipeline=none",
+          "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+          "--output={tmp}/worker-no-channel.xdna"
+        ],
+        "stdin": {
+          "text": "aie2p.target<array> @array_target {device_profile = \"amd.xdna.strix_halo.17f0_11\"}\n\naie2p.target<core> @core_target\n\nlow.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @worker_no_channel_array() asm {\n  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>\n  %one = constant.u32 1 : reg<aie2p.array.scalar : index>\n  %row = constant.u32 2 : reg<aie2p.array.scalar : index>\n  %group = group %one\n  %worker = worker %group, %zero, @idle_worker\n  constrain.location %worker, %zero, %row\n  return\n}\n\nlow.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @idle_worker() asm {\n  return\n}\n"
+        }
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": [
+          "XDNA/018",
+          "AIE2P resident array has 1 workers and 0 channels; both counts must be positive"
+        ],
+        "not_contains": ["INVALID_ARGUMENT", "stack:"]
+      },
+      "files": [
+        {"path": "{tmp}/worker-no-channel.xdna", "exists": false}
+      ]
+    },
+    {
+      "name": "diagnoses AIE2P worker leaf resource mismatches",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "--pipeline=none",
+          "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+          "--output={tmp}/worker-port-mismatch.xdna"
+        ],
+        "stdin": {
+          "text": "aie2p.target<array> @array_target {device_profile = \"amd.xdna.strix_halo.17f0_11\"}\n\naie2p.target<core> @core_target\n\nlow.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @worker_port_mismatch_array() asm {\n  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>\n  %one = constant.u32 1 : reg<aie2p.array.scalar : index>\n  %row = constant.u32 2 : reg<aie2p.array.scalar : index>\n  %group = group %one\n  %worker = worker %group, %zero, @consume_worker\n  %input = binding 0, \"read\"\n  %sender = sender %input, 0 : reg<aie2p.array.sender : tile<1xi32>>\n  %receiver = receiver %worker, 0 : reg<aie2p.array.receiver : tile<1xi32>>\n  %channel = channel %sender, %receiver, %one, %one : reg<aie2p.array.channel : tile<1xi32>>\n  constrain.location %worker, %zero, %row\n  return\n}\n\nlow.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume_worker() asm {\n  %unbound = resource<native_pointer> {index = 7, source_type = buffer} : reg<aie2p.ep>\n  %value = lda %unbound, 0\n  st %value, %unbound, 0\n  return\n}\n"
+        }
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": [
+          "XDNA/022",
+          "AIE2P worker 0 entry '@consume_worker' port 7 has 0 active topology endpoints and 1 leaf resources"
+        ],
+        "not_contains": ["INVALID_ARGUMENT", "stack:"]
+      },
+      "files": [
+        {"path": "{tmp}/worker-port-mismatch.xdna", "exists": false}
+      ]
+    },
+    {
+      "name": "rejects inconsistent AIE2P binding multicast before publication",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "--pipeline=none",
+          "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+          "--output={tmp}/binding-multicast-mismatch.xdna"
+        ],
+        "stdin": {
+          "text": "aie2p.target<array> @array_target {device_profile = \"amd.xdna.strix_halo.17f0_11\"}\n\naie2p.target<core> @core_target\n\nlow.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @binding_multicast_mismatch() asm {\n  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>\n  %one = constant.u32 1 : reg<aie2p.array.scalar : index>\n  %two = constant.u32 2 : reg<aie2p.array.scalar : index>\n  %group = group %two\n  %worker0 = worker %group, %zero, @consume\n  %worker1 = worker %group, %one, @consume\n  %input = binding 0, \"read\"\n  %sender = sender %input, 0 : reg<aie2p.array.sender : tile<1xi32>>\n  %receiver0 = receiver %worker0, 0 : reg<aie2p.array.receiver : tile<1xi32>>\n  %receiver1 = receiver %worker1, 0 : reg<aie2p.array.receiver : tile<1xi32>>\n  %channel0 = channel %sender, %receiver0, %one, %one : reg<aie2p.array.channel : tile<1xi32>>\n  %channel1 = channel %sender, %receiver1, %two, %two : reg<aie2p.array.channel : tile<1xi32>>\n  constrain.location %worker0, %zero, %two\n  constrain.location %worker1, %one, %two\n  return\n}\n\nlow.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume() asm {\n  return\n}\n"
+        }
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": [
+          "XDNA/025",
+          "AIE2P channel 1 has record count 2; the shared binding multicast record count is 1"
+        ],
+        "not_contains": ["INVALID_ARGUMENT", "stack:"]
+      },
+      "files": [
+        {
+          "path": "{tmp}/binding-multicast-mismatch.xdna",
+          "exists": false
+        }
+      ]
+    },
+    {
       "name": "prints agent documentation",
       "run": {
         "tool": "loom-compile",
@@ -28,116 +226,144 @@
       }
     },
     {
-      "name": "writes command artifact outputs",
+      "name": "rejects artifact and report output sharing stdout",
       "run": {
         "tool": "loom-compile",
         "args": [
-          "{srcdir}/testdata/command_artifacts.loom",
-          "--product=command",
-          "--format=loom-command",
-          "--output={tmp}/manifest.json",
-          "--emit-command-artifacts={tmp}/commands"
+          "--output=stdout",
+          "--compile-report=summary",
+          "--compile-report-output=-"
+        ]
+      },
+      "exit": 1,
+      "stdout": {"empty": true},
+      "stderr": {
+        "contains": [
+          "--output and --compile-report-output cannot both write to stdout"
+        ]
+      }
+    },
+    {
+      "name": "rejects artifact and pass trace output sharing stdout",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "--output=stdout",
+          "--dump-ir-after-all",
+          "--dump-ir-output=-"
+        ]
+      },
+      "exit": 1,
+      "stdout": {"empty": true},
+      "stderr": {
+        "contains": [
+          "--output and --dump-ir-output cannot both write to stdout"
+        ]
+      }
+    },
+    {
+      "name": "rejects artifact and manifest output sharing stdout",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "--output=-",
+          "--artifact-manifest=summary",
+          "--emit-artifact-manifest=stdout"
+        ]
+      },
+      "exit": 1,
+      "stdout": {"empty": true},
+      "stderr": {
+        "contains": [
+          "--output and --emit-artifact-manifest cannot both write to stdout"
+        ]
+      }
+    },
+    {
+      "name": "rejects manifest and report output sharing stdout",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "--output={tmp}/artifact.bin",
+          "--artifact-manifest=summary",
+          "--emit-artifact-manifest=-",
+          "--compile-report=summary",
+          "--compile-report-output=stdout"
+        ]
+      },
+      "exit": 1,
+      "stdout": {"empty": true},
+      "stderr": {
+        "contains": [
+          "--emit-artifact-manifest and --compile-report-output cannot both write to stdout"
         ]
       },
       "files": [
-        {
-          "path": "{tmp}/manifest.json",
-          "non_empty": true
-        },
-        {
-          "path": "{tmp}/commands/program-0.loomcmd",
-          "non_empty": true
-        },
-        {
-          "path": "{tmp}/commands/program-1.loomcmd",
-          "non_empty": true
-        }
+        {"path": "{tmp}/artifact.bin", "exists": false}
       ]
     },
     {
-      "name": "writes kernel request outputs",
+      "name": "rejects command-program roots",
       "run": {
         "tool": "loom-compile",
         "args": [
-          "{srcdir}/testdata/command_kernel_requests.loom",
-          "--product=command",
-          "--format=loom-command",
-          "--output={tmp}/manifest.json",
-          "--emit-command-artifacts={tmp}/commands",
-          "--emit-kernel-requests={tmp}/requests"
-        ]
-      },
-      "files": [
-        {
-          "path": "{tmp}/requests/kernel-0.loombc",
-          "non_empty": true
-        },
-        {
-          "path": "{tmp}/requests/kernel-1.loombc",
-          "non_empty": true
+          "--root=@program",
+          "--output={tmp}/command.bin"
+        ],
+        "stdin": {
+          "text": "command.program.def public @program() launch() {\n  command.return\n}\n"
         }
-      ]
-    },
-    {
-      "name": "selects a command root",
-      "run": {
-        "tool": "loom-compile",
-        "args": [
-          "{srcdir}/testdata/command_artifacts.loom",
-          "--product=command",
-          "--format=loom-command",
-          "--root=@increment_then_double",
-          "--output={tmp}/manifest.json",
-          "--emit-command-artifacts={tmp}/commands"
-        ]
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": ["command-program roots require loomc_cmd_program_product_build"]
       },
       "files": [
         {
-          "path": "{tmp}/commands/program-0.loomcmd",
-          "non_empty": true
-        },
-        {
-          "path": "{tmp}/commands/program-1.loomcmd",
+          "path": "{tmp}/command.bin",
           "exists": false
         }
       ]
     },
     {
-      "name": "requires command artifact directory",
+      "name": "rejects mixed inputs containing command programs",
       "run": {
         "tool": "loom-compile",
-        "args": [
-          "{srcdir}/testdata/command_artifacts.loom",
-          "--product=command",
-          "--format=loom-command",
-          "--output={tmp}/manifest.json"
-        ]
+        "args": ["--output={tmp}/mixed.bin"],
+        "stdin": {
+          "text": "kernel.def @kernel() {\n  %one = index.constant 1 : index\n  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index\n} launch() {\n  kernel.return\n}\ncommand.program.def public @program() launch() {\n  command.return\n}\n"
+        }
       },
-      "exit": {
-        "nonzero": true
-      },
+      "exit": 1,
       "stderr": {
-        "contains": [
-          "format 'loom-command' requires --emit-command-artifacts=<directory>"
-        ]
-      }
+        "contains": ["mixed default entry categories"]
+      },
+      "files": [
+        {
+          "path": "{tmp}/mixed.bin",
+          "exists": false
+        }
+      ]
     },
     {
-      "name": "rejects the removed backend flag",
+      "name": "rejects mixed kernel and module inputs",
       "run": {
         "tool": "loom-compile",
-        "args": [
-          "{srcdir}/testdata/command_artifacts.loom",
-          "--backend=command",
-          "--output={tmp}/manifest.json"
-        ]
+        "args": ["--output={tmp}/mixed-kernel-module.bin"],
+        "stdin": {
+          "text": "kernel.def @kernel() {\n  %one = index.constant 1 : index\n  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index\n} launch() {\n  kernel.return\n}\nfunc.def public @function() {\n  func.return\n}\n"
+        }
       },
-      "exit": {
-        "nonzero": true
-      },
+      "exit": 1,
       "stderr": {
-        "contains": ["flag 'backend' not recognized"]
-      }
+        "contains": ["mixed default entry categories"]
+      },
+      "files": [
+        {
+          "path": "{tmp}/mixed-kernel-module.bin",
+          "exists": false
+        }
+      ]
     }
   ]
 }

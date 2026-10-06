@@ -1,0 +1,7 @@
+// RUN: emit source-low target=amdgpu:gfx11-generic output=low
+
+func.def @i8_interior_partial_register(%head: vector<1xi8>, %body: vector<32xi8>) -> (vector<33xi8>) {
+  // ERROR@+1: AMDGPU/023 "concat.register_storage"
+  %result = vector.concat<0> %head, %body : vector<1xi8>, vector<32xi8> -> vector<33xi8>
+  func.return %result : vector<33xi8>
+}

@@ -13,6 +13,7 @@ from typing import cast
 
 import pytest
 
+from loom.gen.support.string_pool import CStringPool
 from loom.gen.target.low import compiler, views
 from loom.gen.target.low.low_descriptors import (
     DescriptorAllowlist,
@@ -48,6 +49,7 @@ from loom.target.low_descriptors import (
     InstructionClass,
     IssueUse,
     IssueUseKind,
+    MemorySpace,
     ModelQuality,
     NativeAsmValue,
     NativeAsmValueKind,
@@ -89,6 +91,15 @@ from loom.target.test.descriptors import (
 )
 
 
+def _assert_emitted_string_reference(
+    source: str,
+    string_pool: CStringPool,
+    field_name: str,
+    label: str,
+) -> None:
+    assert f".{field_name} = {string_pool.ref(label)}," in source
+
+
 def _explicit_physical_descriptor_set():
     physical_registers = (
         PhysicalRegister("test.r0", (0, 1)),
@@ -111,14 +122,7 @@ def _explicit_physical_descriptor_set():
         if register_class.name == "test.phys"
         else register_class
         for register_class in TEST_LOW_CORE_DESCRIPTOR_SET.reg_classes
-        if register_class.name
-        not in (
-            "test.explicit32",
-            "test.spillable.explicit32",
-            "test.packed.narrow",
-            "test.packed.wide",
-            "test.coindexed.partner",
-        )
+        if register_class.name == "test.phys" or RegClassFlag.EXPLICIT_PHYSICAL_REGISTERS not in register_class.flags
     )
     return replace(
         TEST_LOW_CORE_DESCRIPTOR_SET,
@@ -388,16 +392,28 @@ def test_descriptor_set_accepts_explained_generated_only_pseudo_surface() -> Non
 
 
 def test_allowlist_closes_over_referenced_descriptor_tables() -> None:
+    allowlist = DescriptorAllowlist(keys=("test.add.i32",))
+    compiled = compiler.compile_descriptor_set(
+        TEST_LOW_CORE_DESCRIPTOR_SET,
+        allowlist,
+    )
     generated = generate_descriptor_set(
         TEST_LOW_CORE_DESCRIPTOR_SET,
-        DescriptorAllowlist(keys=("test.add.i32",)),
+        allowlist,
     )
 
-    assert "test.add.i32" in generated.source
-    assert "test.i32" in generated.source
-    assert "test.scalar.alu" in generated.source
-    assert "test.scalar" in generated.source
-    assert "test.call.i32" not in generated.source
+    assert [descriptor.key for descriptor in compiled.descriptors] == ["test.add.i32"]
+    assert "test.i32" in {reg_class.name for reg_class in compiled.reg_classes}
+    assert [schedule.name for schedule in compiled.schedule_classes] == ["test.scalar.alu"]
+    assert [resource.name for resource in compiled.resources] == ["test.scalar"]
+    emitted_references = (
+        ("key_string_ref", "descriptor_test.add.i32"),
+        ("name_string_ref", "reg_test.i32"),
+        ("name_string_ref", "schedule_test.scalar.alu"),
+        ("name_string_ref", "resource_test.scalar"),
+    )
+    for field_name, label in emitted_references:
+        _assert_emitted_string_reference(generated.source, compiled.string_pool, field_name, label)
 
 
 def test_compiler_descriptor_rows_span_source_tables() -> None:
@@ -476,7 +492,21 @@ def test_compiler_descriptor_rows_span_source_tables() -> None:
         )
 
 
-def test_compiler_rejects_contradictory_storage_lease_boundary_flags() -> None:
+@pytest.mark.parametrize(
+    ("flags", "message"),
+    [
+        ((), "must start at issue"),
+        (
+            (
+                StorageLeaseFlag.STARTS_AT_ISSUE,
+                StorageLeaseFlag.RELEASE_BEFORE_BOUNDARY,
+                StorageLeaseFlag.MAY_CARRY_ACROSS_BOUNDARY,
+            ),
+            "cannot both release before and carry across a boundary",
+        ),
+    ],
+)
+def test_compiler_rejects_invalid_storage_lease_flags(flags: tuple[StorageLeaseFlag, ...], message: str) -> None:
     lease = StorageLease(
         kind=StorageLeaseKind.RESULT_WRITE,
         attachment=StorageLeaseAttachment.RESULT,
@@ -490,10 +520,7 @@ def test_compiler_rejects_contradictory_storage_lease_boundary_flags() -> None:
         release_action_name="test.release",
         release_reason_id=1,
         release_reason_name="test.result_reuse",
-        flags=(
-            StorageLeaseFlag.RELEASE_BEFORE_BOUNDARY,
-            StorageLeaseFlag.MAY_CARRY_ACROSS_BOUNDARY,
-        ),
+        flags=flags,
     )
     descriptor = replace(
         TEST_LOW_ADD_I32_DESCRIPTOR,
@@ -506,7 +533,7 @@ def test_compiler_rejects_contradictory_storage_lease_boundary_flags() -> None:
 
     with pytest.raises(
         ValueError,
-        match=re.escape("descriptor 'test.add.i32' storage lease 0 cannot both release before and carry across a boundary"),
+        match=re.escape(f"descriptor 'test.add.i32' storage lease 0 {message}"),
     ):
         compiler.compile_descriptor_set(descriptor_set)
 
@@ -1092,7 +1119,12 @@ def test_compiler_rejects_overlapping_storage_continuation_parts() -> None:
     operands = list(descriptor.operands)
     operands[1] = replace(
         operands[1],
-        register_part=operands[0].register_part,
+        reg_alts=(
+            replace(
+                operands[1].reg_alts[0],
+                register_part=operands[0].reg_alts[0].register_part,
+            ),
+        ),
     )
     descriptor_set = replace(
         TEST_LOW_CORE_DESCRIPTOR_SET,
@@ -1170,6 +1202,33 @@ def test_compiler_closes_instruction_class_hierarchies() -> None:
             InstructionClass.SMFMAC,
         )
     ]
+
+
+@pytest.mark.parametrize(
+    ("semantic_tag", "execution_barrier"),
+    [
+        ("control.barrier.workgroup", True),
+        ("control.barrier.workgroup.signal.all", True),
+        ("control.barrier.workgroup.wait.all", True),
+        ("control.barrier.subgroup", True),
+        ("control.message.send.return.u32", False),
+        ("memory.barrier", False),
+        ("memory.cache.invalidate", False),
+        ("stream.read", False),
+    ],
+)
+def test_execution_barrier_class_requires_instruction_semantics(semantic_tag: str, execution_barrier: bool) -> None:
+    # Identical ordering effects and source fences do not establish the
+    # instruction's execution semantics.
+    descriptor = replace(
+        TEST_LOW_BARRIER_DESCRIPTOR,
+        semantic_tag=semantic_tag,
+        effects=(Effect(EffectKind.BARRIER, memory_space=MemorySpace.WORKGROUP),),
+    )
+    compiled = compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+    classes = compiled.instruction_classes[0]
+    assert (InstructionClass.EXECUTION_BARRIER in classes) == execution_barrier
+    assert InstructionClass.CONTROL in classes
 
 
 def test_compiler_requires_explicit_other_instruction_class() -> None:
@@ -1277,6 +1336,88 @@ def test_compiler_projects_validated_rematerializable_results() -> None:
     assert compiled.operand_rematerializable == [True]
 
 
+def _rematerializable_state_reader(
+    key: str,
+    state_class: str,
+) -> Descriptor:
+    return replace(
+        TEST_LOW_STATE_ADD_SCHEDULE_STATE_DESCRIPTOR,
+        key=key,
+        mnemonic=key,
+        semantic_tag=key,
+        operands=(
+            *TEST_LOW_STATE_ADD_SCHEDULE_STATE_DESCRIPTOR.operands[:3],
+            replace(
+                TEST_LOW_STATE_ADD_SCHEDULE_STATE_DESCRIPTOR.operands[-1],
+                reg_alts=(RegClassAlt(state_class),),
+            ),
+        ),
+        constraints=(Constraint(ConstraintKind.REMATERIALIZABLE, 0),),
+    )
+
+
+def _state_writer(key: str, state_class: str) -> Descriptor:
+    return replace(
+        TEST_LOW_STATE_ADD_SCHEDULE_STATE_DESCRIPTOR,
+        key=key,
+        mnemonic=key,
+        semantic_tag=key,
+        operands=(
+            *TEST_LOW_STATE_ADD_SCHEDULE_STATE_DESCRIPTOR.operands[:3],
+            replace(
+                TEST_LOW_STATE_ADD_SCHEDULE_STATE_DESCRIPTOR.operands[-2],
+                reg_alts=(RegClassAlt(state_class),),
+            ),
+        ),
+    )
+
+
+def test_compiler_allows_rematerialization_from_unwritten_target_state() -> None:
+    descriptor = _rematerializable_state_reader(
+        "test.readonly.state.add.schedule_state",
+        "test.schedule_state",
+    )
+    descriptor_set = replace(
+        TEST_LOW_CORE_DESCRIPTOR_SET,
+        descriptors=(descriptor,),
+    )
+
+    compiled = compiler.compile_descriptor_set(descriptor_set)
+
+    assert compiled.operand_rematerializable[0]
+
+
+@pytest.mark.parametrize(
+    ("read_class", "write_class"),
+    [
+        ("test.schedule_state", "test.schedule_state"),
+        ("test.alias32", "test.alias64"),
+        ("test.fixed.r0", "test.atomic.narrow"),
+    ],
+)
+def test_compiler_rejects_rematerialization_from_writable_target_state(
+    read_class: str,
+    write_class: str,
+) -> None:
+    descriptor = _rematerializable_state_reader(
+        "test.readonly.state.add.schedule_state",
+        read_class,
+    )
+    descriptor_set = replace(
+        TEST_LOW_CORE_DESCRIPTOR_SET,
+        descriptors=(
+            descriptor,
+            _state_writer("test.write.state.add.schedule_state", write_class),
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape("descriptor 'test.readonly.state.add.schedule_state' rematerializable result 0 cannot replay target state operand 'state_in'"),
+    ):
+        compiler.compile_descriptor_set(descriptor_set)
+
+
 def test_compiler_rejects_rematerializable_result_without_dead_removal() -> None:
     descriptor = replace(TEST_LOW_CONST_I32_DESCRIPTOR, flags=())
     descriptor_set = replace(
@@ -1374,13 +1515,19 @@ def test_allowlist_closes_over_operand_form_replacements() -> None:
         descriptors=(source_descriptor, replacement_descriptor),
     )
 
-    generated = generate_descriptor_set(
+    allowlist = DescriptorAllowlist(keys=(source_descriptor.key,))
+    compiled = compiler.compile_descriptor_set(
         descriptor_set,
-        DescriptorAllowlist(keys=(source_descriptor.key,)),
+        allowlist,
     )
+    generated = generate_descriptor_set(descriptor_set, allowlist)
 
-    assert source_descriptor.key in generated.source
-    assert replacement_descriptor.key in generated.source
+    assert [descriptor.key for descriptor in compiled.descriptors] == [
+        source_descriptor.key,
+        replacement_descriptor.key,
+    ]
+    for descriptor in compiled.descriptors:
+        _assert_emitted_string_reference(generated.source, compiled.string_pool, "key_string_ref", f"descriptor_{descriptor.key}")
     assert ".match_kind = LOOM_LOW_OPERAND_FORM_MATCH_ALL_EQUAL_I64" in generated.source
 
 
@@ -1529,6 +1676,7 @@ def test_descriptor_set_family_emits_one_storage_table_and_ordered_headers() -> 
     )
     assert compiled_view.uses_storage_descriptor_tables
     assert compiled_view.uses_storage_descriptor_view_tables
+    assert compiled_view.uses_storage_descriptor_ref_tables
     assert compiled_view.uses_storage_asm_form_tables
     assert compiled_view.uses_storage_operand_form_tables
     assert len(compiled_view.canonical_asm_form_ordinals) == 1
@@ -1542,8 +1690,8 @@ def test_descriptor_set_family_emits_one_storage_table_and_ordered_headers() -> 
     assert source.count("static const loom_low_descriptor_t kTestLowCoreDescriptors[]") == 1
     assert "kTestLowExtensionCoreDescriptors" not in source
     assert ".descriptors = kTestLowCoreDescriptors," in source
-    assert ".descriptor_refs = kTestLowCoreDescriptorRefs," in source
-    assert ".descriptor_refs = kTestLowExtensionCoreDescriptorRefs," in source
+    assert source.count(".descriptor_refs = kTestLowCoreDescriptorRefs,") == 2
+    assert "kTestLowExtensionCoreDescriptorRefs" not in source
     assert "kTestLowExtensionCoreAsmForms" not in source
     assert "kTestLowExtensionCoreOperandForms" not in source
     assert source.count(".asm_forms = kTestLowCoreAsmForms,") == 2
@@ -1712,13 +1860,17 @@ def test_descriptor_set_family_emits_prefix_view_local_asm_forms() -> None:
         descriptors=(storage_descriptor,),
     )
 
+    compiled = compiler.compile_descriptor_set(storage_set)
+    descriptor_view = views.descriptor_set_view_for_spec(compiled, view)
     source = generate_descriptor_set_family(
         storage_set,
         (view, storage_set),
     ).source
 
-    assert "storage.add.i32" in source
-    assert "add.i32" in source
+    assert [form.mnemonic for form in compiled.asm_forms] == ["storage.add.i32"]
+    assert [form.mnemonic for form in descriptor_view.asm_forms] == ["add.i32"]
+    for form in (*compiled.asm_forms, *descriptor_view.asm_forms):
+        _assert_emitted_string_reference(source, compiled.string_pool, "mnemonic_string_ref", form.mnemonic_label)
     assert "static const loom_low_descriptor_t kTestLowViewCoreDescriptors[]" not in source
     assert "kTestLowViewCoreDescriptorViews" not in source
     assert "static const loom_low_asm_form_t kTestLowViewCoreAsmForms[]" in source
@@ -1862,7 +2014,6 @@ def test_descriptor_set_family_emits_sibling_view_descriptor_surfaces() -> None:
     assert ".descriptor_refs = kTestLowSiblingCoreDescriptorRefs," in source
     assert ".descriptor_count = 1," in source
     assert ".descriptor_ordinal = 0," in source
-    assert "test.mul.i32" not in source
 
 
 def test_descriptor_set_family_shares_exact_sibling_view_tables() -> None:
@@ -1918,12 +2069,17 @@ def test_descriptor_set_family_shares_exact_sibling_view_tables() -> None:
 
 
 def test_generate_test_low_core_descriptor_set() -> None:
+    compiled = compiler.compile_descriptor_set(TEST_LOW_CORE_DESCRIPTOR_SET)
     generated = generate_descriptor_set(TEST_LOW_CORE_DESCRIPTOR_SET)
 
-    assert "test.low.core" in generated.source
-    assert "test.low" in generated.source
-    assert "test.spv.op_iadd.i32" in generated.source
-    assert "OpIAdd" in generated.source
+    _assert_emitted_string_reference(generated.source, compiled.string_pool, "key_string_ref", "set_key")
+    _assert_emitted_string_reference(generated.source, compiled.string_pool, "target_key_string_ref", "target_key")
+    descriptor_ordinal = next(i for i, descriptor in enumerate(compiled.descriptors) if descriptor.key == "test.spv.op_iadd.i32")
+    asm_form_ordinal = compiled.canonical_asm_form_ordinals[descriptor_ordinal]
+    assert asm_form_ordinal is not None
+    asm_form = compiled.asm_forms[asm_form_ordinal]
+    assert asm_form.mnemonic == "OpIAdd"
+    _assert_emitted_string_reference(generated.source, compiled.string_pool, "mnemonic_string_ref", asm_form.mnemonic_label)
     assert ".op_kind = LOOM_LOW_DESCRIPTOR_OP_KIND_CONST," in generated.source
     assert (".instruction_class_flags = LOOM_LOW_INSTRUCTION_CLASS_FLAG_SCALAR_ALU") in generated.source
     assert ".kind = LOOM_LOW_ISSUE_USE_KIND_REQUIRED," in generated.source
@@ -2013,13 +2169,18 @@ def test_generator_rejects_ambiguous_hazard_reference() -> None:
 
 
 def test_allowlist_accepts_semantic_tags() -> None:
+    allowlist = DescriptorAllowlist(semantic_tags=("control.return.void",))
+    compiled = compiler.compile_descriptor_set(
+        TEST_LOW_CORE_DESCRIPTOR_SET,
+        allowlist,
+    )
     generated = generate_descriptor_set(
         TEST_LOW_CORE_DESCRIPTOR_SET,
-        DescriptorAllowlist(semantic_tags=("control.return.void",)),
+        allowlist,
     )
 
-    assert "test.return.void" in generated.source
-    assert "test.add.i32" not in generated.source
+    assert [descriptor.key for descriptor in compiled.descriptors] == ["test.return.void"]
+    _assert_emitted_string_reference(generated.source, compiled.string_pool, "key_string_ref", "descriptor_test.return.void")
 
 
 def test_allowlist_rejects_unknown_descriptor_key() -> None:
@@ -2262,6 +2423,52 @@ def test_generator_rejects_exact_type_for_tied_asm_result() -> None:
     with pytest.raises(
         ValueError,
         match=re.escape("descriptor 'test.add.i32' asm form 'test.add.i32' result 0 is operand-inferred and must use the exact operand type"),
+    ):
+        generate_descriptor_set(descriptor_set)
+
+
+def test_generator_accepts_exact_type_for_same_register_value_type_result() -> None:
+    descriptor = replace(
+        TEST_LOW_ADD_I32_DESCRIPTOR,
+        constraints=(Constraint(ConstraintKind.SAME_REGISTER_VALUE_TYPE, 0, 1),),
+        asm_forms=(
+            AsmForm(
+                results=("dst",),
+                operands=("lhs", "rhs"),
+                result_value_types=(AsmResultValueType(ScalarTypeKind.I32),),
+            ),
+        ),
+    )
+    descriptor_set = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,))
+
+    generated = generate_descriptor_set(descriptor_set)
+
+    assert "LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE" in generated.source
+    assert "LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_SCALAR" in generated.source
+
+
+def test_generator_accepts_same_register_value_type_between_operands() -> None:
+    descriptor = replace(
+        TEST_LOW_ADD_I32_DESCRIPTOR,
+        constraints=(Constraint(ConstraintKind.SAME_REGISTER_VALUE_TYPE, 1, 2),),
+    )
+    descriptor_set = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,))
+
+    generated = generate_descriptor_set(descriptor_set)
+
+    assert "LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE" in generated.source
+
+
+def test_generator_rejects_same_register_value_type_without_rhs() -> None:
+    descriptor = replace(
+        TEST_LOW_ADD_I32_DESCRIPTOR,
+        constraints=(Constraint(ConstraintKind.SAME_REGISTER_VALUE_TYPE, 0),),
+    )
+    descriptor_set = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,))
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape("descriptor 'test.add.i32' same-register-value-type constraint 0 requires an rhs operand"),
     ):
         generate_descriptor_set(descriptor_set)
 
@@ -2543,12 +2750,16 @@ def test_generator_emits_asm_form_native_assembly_mnemonic() -> None:
     )
     descriptor_set = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,))
 
+    compiled = compiler.compile_descriptor_set(descriptor_set)
     generated = generate_descriptor_set(descriptor_set)
 
-    assert "test.add.i32_low" in generated.source
-    assert "test.add.i32" in generated.source
-    assert ".native_assembly_mnemonic_string_ref = " in generated.source
-    assert ".native_assembly_mnemonic_string_ref = LOOM_STRING_REF_NONE" not in generated.source
+    assert len(compiled.asm_forms) == 1
+    asm_form = compiled.asm_forms[0]
+    assert asm_form.mnemonic == "test.add.i32_low"
+    assert asm_form.native_assembly_mnemonic == "test.add.i32"
+    _assert_emitted_string_reference(generated.source, compiled.string_pool, "mnemonic_string_ref", asm_form.mnemonic_label)
+    assert asm_form.native_assembly_mnemonic_label is not None
+    _assert_emitted_string_reference(generated.source, compiled.string_pool, "native_assembly_mnemonic_string_ref", asm_form.native_assembly_mnemonic_label)
 
 
 def test_generator_emits_asm_form_native_assembly_values() -> None:
@@ -2575,6 +2786,7 @@ def test_generator_emits_asm_form_native_assembly_values() -> None:
     )
     descriptor_set = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,))
 
+    compiled = compiler.compile_descriptor_set(descriptor_set)
     generated = generate_descriptor_set(descriptor_set)
 
     assert "static const loom_low_native_asm_value_t kTestLowCoreNativeAsmValues[]" in generated.source
@@ -2583,8 +2795,11 @@ def test_generator_emits_asm_form_native_assembly_values() -> None:
     assert "LOOM_LOW_NATIVE_ASM_VALUE_KIND_RESULT" in generated.source
     assert "LOOM_LOW_NATIVE_ASM_VALUE_KIND_LITERAL" in generated.source
     assert "LOOM_LOW_NATIVE_ASM_VALUE_KIND_MODIFIER_LITERAL" in generated.source
-    assert "literal" in generated.source
-    assert "modifier:1" in generated.source
+    literal_values = [value for value in compiled.asm_forms[0].native_assembly_values if value.literal is not None]
+    assert [value.literal for value in literal_values] == ["literal", "modifier:1"]
+    for value in literal_values:
+        assert value.literal_label is not None
+        _assert_emitted_string_reference(generated.source, compiled.string_pool, "literal_string_ref", value.literal_label)
 
 
 def test_generator_emits_native_register_part_values() -> None:
@@ -2641,13 +2856,17 @@ def test_generator_emits_target_native_asm_immediate_values() -> None:
     )
     descriptor_set = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,))
 
+    compiled = compiler.compile_descriptor_set(descriptor_set)
     generated = generate_descriptor_set(descriptor_set)
 
     assert "LOOM_LOW_NATIVE_ASM_VALUE_KIND_IMMEDIATE_TARGET_FORMAT" in generated.source
     assert ".index = 0," in generated.source
     assert ".bit_width = 16," in generated.source
     assert ".target_format_id = 1," in generated.source
-    assert "delay_bits" in generated.source
+    native_value = compiled.asm_forms[0].native_assembly_values[0]
+    assert native_value.literal == "delay_bits"
+    assert native_value.literal_label is not None
+    _assert_emitted_string_reference(generated.source, compiled.string_pool, "literal_string_ref", native_value.literal_label)
 
 
 def test_generator_rejects_target_native_asm_immediate_oversized_bit_width() -> None:
@@ -2836,6 +3055,7 @@ def test_generator_derives_minimum_issue_cycles_from_resource_pressure() -> None
     # Calendar storage depends on the furthest stage, not throughput cycles.
     assert [(row.slot_start, row.slot_mask) for row in compiled.resource_calendars] == [(0, 7), (8, 3)]
     assert compiled.resource_calendar_slot_count == 12
+    assert compiled.resource_calendar_lookback_cycles == 0
 
 
 def test_generator_shares_resource_calendar_horizons() -> None:
@@ -2893,23 +3113,26 @@ def test_generator_emits_compact_timing_event_tables() -> None:
     assert "kTestLowCoreTimingEvents" in generated.source
     assert "kTestLowCoreEventSeparations" in generated.source
     assert ".minimum_issue_separation_cycles = -2," in generated.source
-    assert ".separation_start = 2," in generated.source
+    assert ".separation_start = 0," in generated.source
     assert ".separation_count = 0," in generated.source
     assert ".separation_count = 1," in generated.source
+    assert ".separation_count = 2," in generated.source
     assert ".maximum_issue_separation_cycles = 3," in generated.source
+    assert compiled.resource_calendar_lookback_cycles == 2
+    assert ".resource_calendar_lookback_cycles = 2," in generated.source
 
 
 @pytest.mark.parametrize(
     ("delays", "expected_span"),
     [
-        ((0, -1, 0, -2, 0, -3, 0, -4), (0, 0, 0)),
-        ((-2, 0, 3, 0, 1, -1, 0, -3), (2, 3, 3)),
-        ((2, -1, 0, 0, -2, 0, 0, -3), (0, 1, 2)),
-        ((0, 0, -1, 0, 0, -2, 0, 4), (7, 1, 4)),
+        ((0, -1, 0, -2, 0, -3, 0, -4), (0, 8, 0)),
+        ((-2, 0, 3, 0, 1, -1, 0, -3), (0, 8, 3)),
+        ((2, -1, 0, 0, -2, 0, 0, -3), (0, 8, 2)),
+        ((0, 0, -1, 0, 0, -2, 0, 4), (0, 8, 4)),
         ((1, 2, 3, 4, 5, 6, 7, 8), (0, 8, 8)),
     ],
 )
-def test_generator_bounds_frontier_spans_without_discarding_pair_facts(delays: tuple[int, ...], expected_span: tuple[int, int, int]) -> None:
+def test_generator_retains_complete_signed_frontier_spans(delays: tuple[int, ...], expected_span: tuple[int, int, int]) -> None:
     events = TEST_LOW_CORE_DESCRIPTOR_SET.timing_events
     separations = tuple(EventSeparation(events[0].name, event.name, delay, ModelQuality.EXACT) for event, delay in zip(events, delays, strict=True))
     descriptor_set = replace(TEST_LOW_CORE_DESCRIPTOR_SET, event_separations=separations)
@@ -2921,6 +3144,44 @@ def test_generator_bounds_frontier_spans_without_discarding_pair_facts(delays: t
         generated.source,
     )
     assert [tuple(map(int, span)) for span in spans] == [expected_span, *((0, 0, 0),) * (len(events) - 1)]
+
+
+def test_generator_sizes_calendar_history_from_selected_event_rules() -> None:
+    events = TEST_LOW_CORE_DESCRIPTOR_SET.timing_events
+    descriptor_set = replace(
+        TEST_LOW_CORE_DESCRIPTOR_SET,
+        event_separations=(EventSeparation(events[0].name, events[3].name, -8, ModelQuality.EXACT),),
+    )
+    compiled = compiler.compile_descriptor_set(
+        descriptor_set,
+        DescriptorAllowlist(keys=("test.event.fast.i32", "test.event.consume.late.i32")),
+    )
+    assert compiled.resource_calendar_lookback_cycles == 8
+    # The common resource's two-cycle forward horizon and eight-cycle issue
+    # history occupy ten absolute cycles, rounded to sixteen ring slots.
+    shared = compiled.resource_calendars[compiled.resource_ids["test.shared_a"]]
+    assert shared.slot_mask == 15
+    assert compiled.resource_calendars[compiled.resource_ids["test.shared_b"]] == shared
+    assert compiled.resource_calendar_slot_count == 16
+
+    # A view that does not expose the late-read endpoint has no historical
+    # obligation and retains the two-slot forward-only resource calendar.
+    forward = compiler.compile_descriptor_set(descriptor_set, DescriptorAllowlist(keys=("test.event.fast.i32",)))
+    assert forward.resource_calendar_lookback_cycles == 0
+    assert forward.resource_calendar_slot_count == 2
+
+
+def test_generator_rejects_unrepresentable_history_storage() -> None:
+    events = TEST_LOW_CORE_DESCRIPTOR_SET.timing_events
+    descriptor_set = replace(
+        TEST_LOW_CORE_DESCRIPTOR_SET,
+        event_separations=(EventSeparation(events[0].name, events[3].name, -(2**31), ModelQuality.EXACT),),
+    )
+    with pytest.raises(ValueError, match="resource calendar slot count"):
+        compiler.compile_descriptor_set(
+            descriptor_set,
+            DescriptorAllowlist(keys=("test.event.fast.i32", "test.event.consume.late.i32")),
+        )
 
 
 def test_generator_rejects_duplicate_schedule_resource() -> None:
@@ -3283,12 +3544,18 @@ def test_generator_emits_enum_immediate_domains() -> None:
         descriptors=(descriptor,),
     )
 
+    compiled = compiler.compile_descriptor_set(descriptor_set)
     generated = generate_descriptor_set(descriptor_set)
 
     assert "loom_low_enum_domain_t" in generated.source
-    assert "test.condition" in generated.source
-    assert "eq" in generated.source
-    assert "ne" in generated.source
+    assert compiled.enum_domains == [domain]
+    assert [(value.token, value.value) for value in compiled.enum_values] == [
+        ("eq", 0),
+        ("ne", 1),
+    ]
+    _assert_emitted_string_reference(generated.source, compiled.string_pool, "name_string_ref", "enum_domain_test.condition")
+    for value in compiled.enum_values:
+        _assert_emitted_string_reference(generated.source, compiled.string_pool, "token_string_ref", f"enum_value_{domain.name}_{value.token}")
 
 
 def test_generator_rejects_missing_enum_immediate_domain() -> None:
@@ -3583,7 +3850,8 @@ def test_generator_accepts_tied_duplicate_operand_encoding_field() -> None:
 
     generated = generate_descriptor_set(descriptor_set)
 
-    assert "test.add.i32" in generated.source
+    assert generated.source.count(".encoding_field_id = 7,") == 2
+    assert ".kind = LOOM_LOW_CONSTRAINT_KIND_TIED," in generated.source
 
 
 def test_generator_emits_operand_low_subset_address_map() -> None:

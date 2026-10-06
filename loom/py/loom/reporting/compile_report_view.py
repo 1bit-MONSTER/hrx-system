@@ -28,6 +28,14 @@ from loom.reporting.compile_report_bank_service import (
     build_bank_service_diff,
     build_bank_service_show,
 )
+from loom.reporting.compile_report_barriers import (
+    append_barrier_show_text,
+    build_barrier_show,
+)
+from loom.reporting.compile_report_boundary_projections import (
+    append_boundary_projection_show_text,
+    build_boundary_projection_show,
+)
 from loom.reporting.compile_report_capabilities import (
     append_target_capability_diff_text,
     build_target_capability_diff,
@@ -68,6 +76,14 @@ from loom.reporting.compile_report_subgroup_access import (
     append_subgroup_access_show_text,
     build_subgroup_access_diff,
     build_subgroup_access_show,
+)
+from loom.reporting.compile_report_wait_reasons import (
+    CompileReportWaitReasonInventory,
+    append_wait_reason_diff_text,
+    append_wait_reason_show_text,
+    build_wait_reason_diff,
+    build_wait_reason_show,
+    wait_reason_diff_has_changes,
 )
 from loom.reporting.compile_report_workload import (
     append_workload_diff_text,
@@ -213,7 +229,11 @@ _METRIC_SPECS = (
         "register moves",
         "static_instruction_mix.register_move_count",
     ),
-    _artifact("barrier_count", "barriers", "static_instruction_mix.barrier_count"),
+    _artifact(
+        "execution_barrier_count",
+        "execution barrier packets",
+        "static_instruction_mix.execution_barrier_count",
+    ),
     _artifact("branch_count", "branches", "static_instruction_mix.branch_count"),
     _analysis(
         "scalar_register_count",
@@ -371,6 +391,7 @@ def build_compile_report_show(
     document: CompileReportDocument,
 ) -> dict[str, object]:
     """Builds a deterministic target-neutral report view."""
+    wait_reasons = document.wait_reason_inventory
     report_workload = build_workload_show(
         document.report.get("workload"),
         document.report.get("target_resources"),
@@ -397,6 +418,7 @@ def build_compile_report_show(
                 document.report.get("target_resources"),
                 f"{document.source}.entries.rows[{entry['index']}]",
                 document.residency_constraints_by_function,
+                wait_reasons,
             )
             for entry in document.entries
         ],
@@ -404,6 +426,12 @@ def build_compile_report_show(
     loop_pipelines = build_loop_pipeline_show(document)
     if loop_pipelines is not None:
         view["loop_pipelines"] = loop_pipelines
+    barriers = build_barrier_show(document)
+    if barriers is not None:
+        view["barriers"] = barriers
+    boundary_projections = build_boundary_projection_show(document)
+    if boundary_projections is not None:
+        view["boundary_projections"] = boundary_projections
     bank_service = build_bank_service_show(document)
     if bank_service is not None:
         view["bank_service"] = bank_service
@@ -445,6 +473,8 @@ def build_compile_report_diff(
     report_workload = build_workload_diff(
         baseline_report_workload, candidate_report_workload
     )
+    baseline_wait_reasons = baseline.wait_reason_inventory
+    candidate_wait_reasons = candidate.wait_reason_inventory
     entries = []
     unchanged_entry_count = 0
     for pair in match.pairs:
@@ -500,6 +530,12 @@ def build_compile_report_diff(
             baseline_entry_source,
             candidate_entry_source,
         )
+        wait_reasons = build_wait_reason_diff(
+            baseline_wait_reasons,
+            candidate_wait_reasons,
+            pair.baseline_identity.function,
+            pair.candidate_identity.function,
+        )
         residency = build_residency_diff(
             build_residency_show(
                 pair.baseline,
@@ -520,6 +556,7 @@ def build_compile_report_diff(
             and not workload_diff_has_changes(entry_workload)
             and not execution_economics_diff_has_changes(execution_economics)
             and not move_cause_diff_has_changes(move_causes)
+            and not wait_reason_diff_has_changes(wait_reasons)
             and residency is None
         ):
             unchanged_entry_count += 1
@@ -533,6 +570,8 @@ def build_compile_report_diff(
             entry_view["workload"] = entry_workload
         if move_causes is not None:
             entry_view["move_causes"] = move_causes
+        if wait_reason_diff_has_changes(wait_reasons):
+            entry_view["wait_reasons"] = wait_reasons
         if residency is not None:
             entry_view["residency"] = residency
         if force:
@@ -678,12 +717,21 @@ def format_compile_report_show_text(view: dict[str, object]) -> str:
         move_causes = entry.get("move_causes")
         if isinstance(move_causes, dict):
             append_move_cause_show_text(lines, move_causes)
+        wait_reasons = entry.get("wait_reasons")
+        if isinstance(wait_reasons, dict):
+            append_wait_reason_show_text(lines, wait_reasons)
         residency = entry.get("residency")
         if isinstance(residency, dict):
             append_residency_show_text(lines, residency)
     loop_pipelines = view.get("loop_pipelines")
     if isinstance(loop_pipelines, dict):
         append_loop_pipeline_show_text(lines, loop_pipelines)
+    barriers = view.get("barriers")
+    if isinstance(barriers, dict):
+        append_barrier_show_text(lines, barriers)
+    boundary_projections = view.get("boundary_projections")
+    if isinstance(boundary_projections, dict):
+        append_boundary_projection_show_text(lines, boundary_projections)
     native_layout = view.get("native_layout")
     if isinstance(native_layout, dict):
         append_native_layout_show_text(lines, native_layout)
@@ -819,6 +867,9 @@ def format_compile_report_diff_text(view: dict[str, object]) -> str:
         move_causes = entry.get("move_causes")
         if isinstance(move_causes, dict):
             append_move_cause_diff_text(lines, move_causes)
+        wait_reasons = entry.get("wait_reasons")
+        if isinstance(wait_reasons, dict):
+            append_wait_reason_diff_text(lines, wait_reasons)
         residency = entry.get("residency")
         if isinstance(residency, dict):
             append_residency_diff_text(lines, residency)
@@ -845,6 +896,7 @@ def _show_entry_json(
     report_target_resources_value: object,
     source: str,
     residency_constraints_by_function: dict[str, tuple[dict[str, object], ...]],
+    wait_reasons: CompileReportWaitReasonInventory | None,
 ) -> dict[str, object]:
     entry_workload = build_workload_show(
         entry.get("workload", report_workload_value),
@@ -864,6 +916,9 @@ def _show_entry_json(
     move_causes = build_move_cause_show(entry, source)
     if move_causes is not None:
         view["move_causes"] = move_causes
+    wait_reason_view = build_wait_reason_show(wait_reasons, identity.function)
+    if wait_reason_view is not None:
+        view["wait_reasons"] = wait_reason_view
     residency = build_residency_show(
         entry, residency_constraints_by_function.get(identity.function or "", ())
     )

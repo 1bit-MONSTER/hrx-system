@@ -147,7 +147,8 @@ iree_status_t loom_low_lower_visibility_observe(
   }
   const loom_type_t type =
       loom_module_value_type(context->module, loom_op_const_results(op)[0]);
-  if (reference.memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL ||
+  if ((reference.memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL &&
+       reference.memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC) ||
       !loom_type_is_scalar(type) ||
       loom_scalar_type_bitwidth(loom_type_element_type(type)) != 32) {
     builder->requires_eager = true;

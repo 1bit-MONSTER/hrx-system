@@ -30,7 +30,6 @@ LOOM_CHECK_CASE(alias_values) {
       loom::check::fill<unsigned, 1>(CHECK_ALIAS_EXPECTED));
   loom::check::expect_bitwise(loom::check::slice<2>(storage, 3),
                               loom::check::fill<unsigned, 2>(37u));
-  loom::check::expect_event("device", "count", 0, "type", "asan_report");
 }
 
 LOOM_CHECK_BENCHMARK(alias_values_benchmark, alias_values);

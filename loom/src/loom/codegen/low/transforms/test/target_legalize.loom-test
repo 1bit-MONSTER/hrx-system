@@ -611,12 +611,30 @@ func.def target(@test_target) @narrow_unsigned_operands(%left: i8, %right: i8, %
   %24 = scalar.extui %right : i8 to i32
   %25 = scalar.xori %23, %24 : i32
   %exclusive = scalar.trunci %25 : i32 to i8
-  %19 = scalar.extui %left : i8 to i32
-  %20 = scalar.extui %shift : i8 to i32
+  %19 = scalar.extsi %left : i8 to i32
+  %20 = scalar.extsi %shift : i8 to i32
   %21 = scalar.shli %19, %20 : i32
   %shifted = scalar.trunci %21 : i32 to i8
   func.return %difference, %product, %quotient, %remainder, %intersection, %union, %exclusive, %shifted : i8, i8, i8, i8, i8, i8, i8, i8
 }
+
+// ====
+// RUN: with-checks pass target-legalize{mode=final,policy=reference-only},canonicalize,dce
+
+test.target<low_core> @test_target
+
+// Generic canonicalization may move a proven left shift before zero extension.
+// The target fallback must remain in the supported i32 domain after cleanup.
+func.def target(@test_target) @narrow_shift_survives_cleanup(%input: i8, %amount: i8) -> (i8) {
+  %bounded = scalar.assume %input [range(%input, 0, 1)] : i8
+  %exact_amount = scalar.assume %amount [range(%amount, 7, 7)] : i8
+  %shifted = scalar.shli %bounded, %exact_amount : i8
+  func.return %shifted : i8
+}
+
+// ----
+CHECK: * = scalar.shli * : i32
+CHECK-NOT: * = scalar.shli * : i8
 
 // ====
 // RUN: pass target-legalize{mode=final,policy=reference-only},dce

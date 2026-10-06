@@ -1,0 +1,58 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/uniform_packed_dot.loom-test
+// TEMPLATE-EXCLUDE: @f16_pairs This profile checks FP8 packed descriptors.
+// TEMPLATE-EXCLUDE: @bf16_pairs This profile checks FP8 packed descriptors.
+// TEMPLATE-EXCLUDE: @signed_bytes This profile checks FP8 packed descriptors.
+// TEMPLATE-EXCLUDE: @mixed_bytes This profile checks FP8 packed descriptors.
+// TEMPLATE-EXCLUDE: @unsigned_nibbles This profile checks FP8 packed descriptors.
+// RUN: emit source-low target=amdgpu:gfx1200 output=low
+
+kernel.def @fp8_pairs() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs_buffer: buffer, %rhs_buffer: buffer, %seed_buffer: buffer, %output: buffer) {
+  %aligned_lhs = buffer.assume.alignment %lhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_rhs = buffer.assume.alignment %rhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_seed = buffer.assume.alignment %seed_buffer {minimum_alignment = 64} : buffer
+  %lhs_source, %rhs_source, %seed_source, %destination = buffer.assume.noalias %aligned_lhs, %aligned_rhs, %aligned_seed, %output : buffer, buffer, buffer, buffer
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_source[%base] : buffer -> view<2xi32>
+  %rhs_view = buffer.view %rhs_source[%base] : buffer -> view<2xi32>
+  %seed_view = buffer.view %seed_source[%base] : buffer -> view<2xf32>
+  %output_view = buffer.view %destination[%base] : buffer -> view<2xf32>
+  %lhs = vector.load %lhs_view[0] : view<2xi32> -> vector<2xi32>
+  %rhs = vector.load %rhs_view[0] : view<2xi32> -> vector<2xi32>
+  %seed = vector.load %seed_view[0] : view<2xf32> -> vector<2xf32>
+  %result = vector.dot4f8<fp8fp8> %lhs, %rhs, %seed : vector<2xi32>, vector<2xf32>
+  vector.store %result, %output_view[0] : vector<2xf32>, view<2xf32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.rdna4.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 4, resource_count = 4, resource_offsets = [0, 8, 16, 24], resource_parameter_indices = [0, 1, 2, 3], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @fp8_pairs() asm {
+  %lhs_view = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %rhs_view = resource<hal_binding> {extent = 8, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %seed_view = resource<hal_binding> {extent = 8, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %output_view = resource<hal_binding> {extent = 8, index = 3, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %25 = s_mov_b32 0
+  %lhs = s_load_dwordx2 %lhs_view, %25
+  %rhs = s_load_dwordx2 %rhs_view, %25
+  %seed = s_load_dwordx2 %seed_view, %25
+  %31 = slice %lhs[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %32 = v_mov_b32_copy %31
+  %33 = slice %lhs[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %34 = v_mov_b32_copy %33
+  %36 = slice %rhs[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %37 = v_mov_b32_copy %36
+  %38 = slice %rhs[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %39 = v_mov_b32_copy %38
+  %41 = slice %seed[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %42 = v_mov_b32_copy %41
+  %43 = slice %seed[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %44 = v_mov_b32_copy %43
+  %49 = v_dot4_f32_fp8_fp8 %32, %37, %42
+  %53 = v_dot4_f32_fp8_fp8 %34, %39, %44
+  %result = concat(%49, %53) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %55 = v_mov_b32 0
+  global_store_b64_saddr %55, %result, %output_view
+  return
+}

@@ -270,7 +270,7 @@ static iree_status_t loom_cmd_schedule_build_commands(
                iree_any_bit_set(loom_op_effective_traits(build->module, op),
                                 LOOM_TRAIT_PURE)) {
       // Pure leaf dataflow may feed dispatch metadata but does not itself emit
-      // a command. Later placement consumes its prepared SSA facts directly.
+      // a command. Later placement consumes its resolved SSA facts directly.
       continue;
     } else {
       const iree_string_view_t op_name = loom_op_name(build->module, op);

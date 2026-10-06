@@ -147,6 +147,24 @@ kernel.def @shared_observations() {
 }
 
 // ====
+// RUN: with-checks roundtrip
+// A volatile scalar workgroup object retains every source observation.
+#include <loomcxx/kernel.h>
+[[loom::kernel, loom::workgroup_size(1, 1, 1),
+  loom::workgroup_count(1, 1, 1)]]
+void shared_scalar(unsigned* output, unsigned value) {
+  [[loom::workgroup]] volatile unsigned slot;
+  slot = value;
+  static_cast<void>(slot);
+  output[0] = slot;
+}
+// ----
+CHECK: *buffer.alloca<workgroup>*
+CHECK: *view.store<volatile> %value*
+CHECK: *view.load<volatile>*
+CHECK: *view.load<volatile>*
+
+// ====
 // Void returns share the discarded-value path without rereading assignments.
 void discarded_return(volatile unsigned* output) {
   return static_cast<void>(*output = 7);

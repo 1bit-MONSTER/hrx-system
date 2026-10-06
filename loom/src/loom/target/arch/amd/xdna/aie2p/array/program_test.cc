@@ -38,22 +38,22 @@ static void ExpectRegisterMaskWrite(const loom_aie2p_program_record_t& record,
 }
 
 TEST(Aie2pArrayProgramTest, ResetsComputeDmaBeforePlannedQueueStarts) {
-  const loom_low_function_requirements_t requirements = {};
   const loom_aie2p_array_worker_plan_t worker_plan = {
       /*.worker_index=*/0,
       /*.coordinate=*/{0, 2},
-      /*.requirements=*/&requirements,
   };
   const loom_aie2p_array_channel_t channel = {
       /*.value_id=*/0,
       /*.sender_endpoint_index=*/0,
       /*.receiver_endpoint_index=*/0,
       /*.source_channel_index=*/0,
+      /*.binding_plan_index=*/UINT32_MAX,
       /*.first_channel_slot=*/0,
       /*.sender_dma_index=*/UINT32_MAX,
       /*.capacity=*/1,
       /*.record_count=*/1,
       /*.record_byte_length=*/64,
+      /*.encoded_dma_record_length=*/16,
       /*.transport=*/LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_EXTERNAL_DMA,
   };
   const loom_aie2p_array_channel_slot_t channel_slot = {
@@ -133,6 +133,10 @@ TEST(Aie2pArrayProgramTest, ResetsComputeDmaBeforePlannedQueueStarts) {
             LOOM_AIE2P_PROGRAM_RECORD_REGISTER_BLOCK_WRITE32);
   EXPECT_EQ(program.array_records[7].value.register_block_write32.address,
             0x0021D000u);
+  ASSERT_EQ(program.array_records[7].value.register_block_write32.word_count,
+            6u);
+  EXPECT_EQ(program.array_records[7].value.register_block_write32.words[0],
+            16u);
   ASSERT_EQ(program.array_records[8].type,
             LOOM_AIE2P_PROGRAM_RECORD_TILE_PROGRAM_LOAD);
   EXPECT_EQ(program.array_records[8].value.tile_program_load.tile_program_index,
@@ -160,22 +164,22 @@ TEST(Aie2pArrayProgramTest, ResetsComputeDmaBeforePlannedQueueStarts) {
 }
 
 TEST(Aie2pArrayProgramTest, KeepsDmaServiceCoreReset) {
-  const loom_low_function_requirements_t requirements = {};
   const loom_aie2p_array_worker_plan_t worker_plan = {
       /*.worker_index=*/0,
       /*.coordinate=*/{0, 2},
-      /*.requirements=*/&requirements,
   };
   const loom_aie2p_array_channel_t channel = {
       /*.value_id=*/0,
       /*.sender_endpoint_index=*/0,
       /*.receiver_endpoint_index=*/0,
       /*.source_channel_index=*/0,
+      /*.binding_plan_index=*/UINT32_MAX,
       /*.first_channel_slot=*/0,
       /*.sender_dma_index=*/UINT32_MAX,
       /*.capacity=*/1,
       /*.record_count=*/1,
       /*.record_byte_length=*/64,
+      /*.encoded_dma_record_length=*/16,
       /*.transport=*/LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_EXTERNAL_DMA,
   };
   const loom_aie2p_array_channel_slot_t channel_slot = {
@@ -257,6 +261,10 @@ TEST(Aie2pArrayProgramTest, KeepsDmaServiceCoreReset) {
             LOOM_AIE2P_PROGRAM_RECORD_REGISTER_BLOCK_WRITE32);
   EXPECT_EQ(program.array_records[12].value.register_block_write32.address,
             0x0031D000u);
+  ASSERT_EQ(program.array_records[12].value.register_block_write32.word_count,
+            6u);
+  EXPECT_EQ(program.array_records[12].value.register_block_write32.words[0],
+            16u);
   ASSERT_EQ(program.array_records[13].type,
             LOOM_AIE2P_PROGRAM_RECORD_TILE_PROGRAM_LOAD);
   EXPECT_EQ(

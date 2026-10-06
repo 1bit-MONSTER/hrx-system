@@ -184,7 +184,9 @@ static iree_status_t loom_low_schedule_effect_frontier_note_read(
   for (iree_host_size_t i = 0; i < frontier->write_count; ++i) {
     const loom_low_schedule_effect_frontier_entry_t* write =
         &frontier->writes[i];
-    if (!loom_low_memory_access_summaries_may_alias(summary, write->summary)) {
+    if (!loom_low_memory_access_summaries_may_alias(
+            summary, write->summary,
+            LOOM_LOW_MEMORY_COMPARISON_SAME_EVALUATION)) {
       continue;
     }
     IREE_RETURN_IF_ERROR(loom_low_schedule_add_dependency(
@@ -229,7 +231,9 @@ static iree_status_t loom_low_schedule_effect_frontier_note_write(
   for (iree_host_size_t i = 0; i < frontier->write_count; ++i) {
     const loom_low_schedule_effect_frontier_entry_t* write =
         &frontier->writes[i];
-    if (!loom_low_memory_access_summaries_may_alias(summary, write->summary)) {
+    if (!loom_low_memory_access_summaries_may_alias(
+            summary, write->summary,
+            LOOM_LOW_MEMORY_COMPARISON_SAME_EVALUATION)) {
       continue;
     }
     IREE_RETURN_IF_ERROR(loom_low_schedule_add_dependency(
@@ -241,7 +245,9 @@ static iree_status_t loom_low_schedule_effect_frontier_note_write(
   uint32_t predecessor_node = 0;
   for (iree_host_size_t i = 0; i < frontier->read_count; ++i) {
     const loom_low_schedule_effect_frontier_entry_t* read = &frontier->reads[i];
-    if (!loom_low_memory_access_summaries_may_alias(summary, read->summary)) {
+    if (!loom_low_memory_access_summaries_may_alias(
+            summary, read->summary,
+            LOOM_LOW_MEMORY_COMPARISON_SAME_EVALUATION)) {
       continue;
     }
     IREE_RETURN_IF_ERROR(loom_low_schedule_add_dependency(
@@ -309,54 +315,6 @@ static iree_status_t loom_low_schedule_effect_frontier_note_ordered(
   return iree_ok_status();
 }
 
-static const loom_low_memory_access_summary_t*
-loom_low_schedule_lookup_memory_access_summary(
-    loom_low_schedule_build_state_t* state, uint32_t node_index,
-    const loom_low_descriptor_t* descriptor,
-    const loom_low_effect_t* selected_effect) {
-  const uint32_t record_index =
-      state->nodes[node_index].memory_access_record_index;
-  if (record_index == LOOM_LOW_SCHEDULE_MEMORY_ACCESS_RECORD_NONE ||
-      record_index >= state->memory_access_record_count) {
-    return NULL;
-  }
-  const loom_low_memory_access_record_t* record =
-      &state->memory_access_records[record_index];
-  const loom_low_memory_access_summary_t* summary = &record->summary;
-
-  uint16_t dependency_memory_effect_count = 0;
-  uint16_t matching_memory_space_effect_count = 0;
-  const loom_low_memory_space_t summary_space =
-      loom_low_memory_access_normalize_space(summary->memory_space);
-  const loom_low_memory_space_t selected_space =
-      loom_low_memory_access_normalize_space(selected_effect->memory_space);
-  const loom_low_descriptor_set_t* descriptor_set =
-      state->target.descriptor_set;
-  for (uint16_t i = 0; i < descriptor->effect_count; ++i) {
-    const loom_low_effect_t* effect =
-        &descriptor_set->effects[descriptor->effect_start + i];
-    if (!iree_any_bit_set(effect->flags, LOOM_LOW_EFFECT_FLAG_DEPENDENCY) ||
-        (effect->kind != LOOM_LOW_EFFECT_KIND_READ &&
-         effect->kind != LOOM_LOW_EFFECT_KIND_WRITE)) {
-      continue;
-    }
-    ++dependency_memory_effect_count;
-    if (summary_space != LOOM_LOW_MEMORY_SPACE_GENERIC &&
-        loom_low_memory_access_normalize_space(effect->memory_space) ==
-            summary_space) {
-      ++matching_memory_space_effect_count;
-    }
-  }
-  if (dependency_memory_effect_count == 1) {
-    return summary;
-  }
-  return summary_space != LOOM_LOW_MEMORY_SPACE_GENERIC &&
-                 selected_space == summary_space &&
-                 matching_memory_space_effect_count == 1
-             ? summary
-             : NULL;
-}
-
 static iree_status_t loom_low_schedule_note_descriptor_effects(
     loom_low_schedule_build_state_t* state,
     loom_low_schedule_effect_frontier_t* frontier, uint32_t node_index,
@@ -385,8 +343,8 @@ static iree_status_t loom_low_schedule_note_descriptor_effects(
       continue;
     }
     const loom_low_memory_access_summary_t* summary =
-        loom_low_schedule_lookup_memory_access_summary(state, node_index,
-                                                       descriptor, effect);
+        loom_low_memory_access_map_lookup(state->memory_accesses,
+                                          state->nodes[node_index].op, i);
     if (summary == NULL) {
       summary = loom_low_memory_access_summary_for_space(effect->memory_space);
     }
@@ -513,7 +471,8 @@ static iree_status_t loom_low_schedule_add_boundary_memory_requirement(
   for (iree_host_size_t i = 0; i < frontier->write_count; ++i) {
     const loom_low_schedule_effect_frontier_entry_t* write =
         &frontier->writes[i];
-    if (loom_low_memory_access_summaries_may_alias(summary, write->summary)) {
+    if (loom_low_memory_access_summaries_may_alias(
+            summary, write->summary, LOOM_LOW_MEMORY_COMPARISON_INDEPENDENT)) {
       IREE_RETURN_IF_ERROR(loom_low_schedule_add_boundary_entry_requirement(
           state, write, terminator_node, consumer_event_id));
     }
@@ -522,7 +481,8 @@ static iree_status_t loom_low_schedule_add_boundary_memory_requirement(
     for (iree_host_size_t i = 0; i < frontier->read_count; ++i) {
       const loom_low_schedule_effect_frontier_entry_t* read =
           &frontier->reads[i];
-      if (loom_low_memory_access_summaries_may_alias(summary, read->summary)) {
+      if (loom_low_memory_access_summaries_may_alias(
+              summary, read->summary, LOOM_LOW_MEMORY_COMPARISON_INDEPENDENT)) {
         IREE_RETURN_IF_ERROR(loom_low_schedule_add_boundary_entry_requirement(
             state, read, terminator_node, consumer_event_id));
       }
@@ -576,8 +536,8 @@ static iree_status_t loom_low_schedule_scan_boundary_consumer_block(
         continue;
       }
       const loom_low_memory_access_summary_t* summary =
-          loom_low_schedule_lookup_memory_access_summary(state, node_index,
-                                                         descriptor, effect);
+          loom_low_memory_access_map_lookup(state->memory_accesses,
+                                            state->nodes[node_index].op, i);
       if (summary == NULL) {
         summary =
             loom_low_memory_access_summary_for_space(effect->memory_space);

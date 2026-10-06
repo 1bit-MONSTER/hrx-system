@@ -63,6 +63,47 @@ const loom_low_descriptor_set_t* AliasDescriptorSet() {
   return &kDescriptorSet;
 }
 
+const loom_low_descriptor_set_t* ExplicitDescriptorSet() {
+  static const loom_low_reg_class_t kRegClasses[] = {
+      {
+          /*.name_string_ref=*/{},
+          /*.target_bank_id=*/{},
+          /*.flags=*/LOOM_LOW_REG_CLASS_FLAG_PHYSICAL |
+              LOOM_LOW_REG_CLASS_FLAG_EXPLICIT_PHYSICAL_REGISTERS,
+      },
+      {
+          /*.name_string_ref=*/{},
+          /*.target_bank_id=*/{},
+          /*.flags=*/LOOM_LOW_REG_CLASS_FLAG_PHYSICAL |
+              LOOM_LOW_REG_CLASS_FLAG_EXPLICIT_PHYSICAL_REGISTERS,
+      },
+  };
+  static const uint16_t kAtomicUnits[] = {0, 1, 0, 2, 3, 4, 5};
+  static const loom_low_physical_register_t kPhysicalRegisters[] = {
+      {/*.name_string_ref=*/{}, /*.atomic_unit_start=*/0,
+       /*.atomic_unit_count=*/2},
+      {/*.name_string_ref=*/{}, /*.atomic_unit_start=*/2,
+       /*.atomic_unit_count=*/1},
+      {/*.name_string_ref=*/{}, /*.atomic_unit_start=*/3,
+       /*.atomic_unit_count=*/2},
+      {/*.name_string_ref=*/{}, /*.atomic_unit_start=*/5,
+       /*.atomic_unit_count=*/2},
+  };
+  static const loom_low_descriptor_set_t kDescriptorSet = [] {
+    loom_low_descriptor_set_t descriptor_set = {};
+    descriptor_set.reg_classes = kRegClasses;
+    descriptor_set.reg_class_count = IREE_ARRAYSIZE(kRegClasses);
+    descriptor_set.physical_registers = kPhysicalRegisters;
+    descriptor_set.physical_register_count = IREE_ARRAYSIZE(kPhysicalRegisters);
+    descriptor_set.physical_register_atomic_units = kAtomicUnits;
+    descriptor_set.physical_register_atomic_unit_count =
+        IREE_ARRAYSIZE(kAtomicUnits);
+    descriptor_set.physical_register_unit_count = 6;
+    return descriptor_set;
+  }();
+  return &kDescriptorSet;
+}
+
 loom_low_move_location_t Location(uint32_t ordinal,
                                   uint16_t register_class_id = 0) {
   return loom_low_move_location_t{
@@ -121,23 +162,30 @@ struct TemporaryResolver {
   const loom_low_move_location_t* locations = nullptr;
   // Number of candidate scratch units.
   iree_host_size_t count = 0;
+  // Optional location whose move-group occupancy is observed by the callback.
+  const loom_low_move_location_t* occupancy_probe = nullptr;
+  // Result of the most recent optional occupancy probe.
+  bool occupancy_probe_result = false;
 };
 
-iree_status_t ResolveTemporary(void* user_data,
-                               const loom_low_move_location_t* storage_class,
-                               const loom_low_move_t* moves,
-                               iree_host_size_t move_count,
-                               loom_low_move_location_t* out_temporary,
-                               bool* out_resolved) {
-  (void)moves;
-  (void)move_count;
+iree_status_t ResolveTemporary(
+    void* user_data, const loom_low_move_location_t* storage_class,
+    const loom_low_move_sequence_location_set_t* occupied_locations,
+    loom_low_move_location_t* out_temporary, bool* out_resolved) {
   auto* resolver = static_cast<TemporaryResolver*>(user_data);
+  if (resolver->occupancy_probe != nullptr) {
+    resolver->occupancy_probe_result =
+        loom_low_move_sequence_location_set_contains(occupied_locations,
+                                                     resolver->occupancy_probe);
+  }
   *out_resolved = false;
   for (iree_host_size_t i = 0; i < resolver->count; ++i) {
     const loom_low_move_location_t* location = &resolver->locations[i];
     if (location->location_kind == storage_class->location_kind &&
         location->descriptor_reg_class_id ==
-            storage_class->descriptor_reg_class_id) {
+            storage_class->descriptor_reg_class_id &&
+        !loom_low_move_sequence_location_set_contains(occupied_locations,
+                                                      location)) {
       *out_temporary = *location;
       *out_resolved = true;
       break;
@@ -253,6 +301,51 @@ TEST(LowMoveSequenceTest, UsesTemporaryForCycle) {
 
   EXPECT_THAT(ResolveMoves(moves, IREE_ARRAYSIZE(moves), &temporary, 1),
               ::testing::ElementsAre("0:9<-0", "0:0<-1", "0:1<-9"));
+}
+
+TEST(LowMoveSequenceTest, TracksExplicitAtomicAliasesInLocationSet) {
+  TestArena arena;
+  loom_low_move_sequence_scratch_t scratch = {};
+  IREE_ASSERT_OK(
+      loom_low_move_sequence_scratch_initialize(arena.arena(), 2, &scratch));
+  scratch.moves[0] = Move(0, 2);
+  scratch.moves[1] = Move(2, 0);
+  const loom_low_move_location_t temporary = Location(3);
+  const loom_low_move_location_t alias_probe = Location(1, 1);
+  TemporaryResolver resolver = {
+      /*.locations=*/&temporary,
+      /*.count=*/1,
+      /*.occupancy_probe=*/&alias_probe,
+  };
+  const loom_low_move_sequence_options_t options = {
+      /*.descriptor_set=*/ExplicitDescriptorSet(),
+      /*.resolve_temporary=*/{ResolveTemporary, &resolver},
+  };
+  loom_low_move_t output[3] = {};
+  iree_host_size_t output_count = 0;
+  bool complete = false;
+
+  IREE_ASSERT_OK(loom_low_move_sequence_resolve(&scratch, 2, &options,
+                                                IREE_ARRAYSIZE(output), output,
+                                                &output_count, &complete));
+
+  ASSERT_TRUE(complete);
+  EXPECT_TRUE(resolver.occupancy_probe_result);
+  ASSERT_EQ(output_count, IREE_ARRAYSIZE(output));
+  EXPECT_EQ(MoveString(output[0]), "0:3<-0");
+  EXPECT_EQ(MoveString(output[1]), "0:0<-2");
+  EXPECT_EQ(MoveString(output[2]), "0:2<-3");
+
+  scratch.moves[0] = Move(2, 3);
+  scratch.moves[1] = Move(3, 2);
+  const loom_low_move_location_t second_temporary = Location(0);
+  resolver.locations = &second_temporary;
+  resolver.occupancy_probe_result = true;
+  IREE_ASSERT_OK(loom_low_move_sequence_resolve(&scratch, 2, &options,
+                                                IREE_ARRAYSIZE(output), output,
+                                                &output_count, &complete));
+  ASSERT_TRUE(complete);
+  EXPECT_FALSE(resolver.occupancy_probe_result);
 }
 
 TEST(LowMoveSequenceTest, UsesMatchingTemporaryForMixedClassCycles) {

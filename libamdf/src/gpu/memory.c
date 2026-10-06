@@ -44,22 +44,27 @@ static amdf_status_t amdf_gpu_memory_describe_site(
     amdf_memory_t* memory, uint32_t access_ordinal,
     uint32_t queue_family_ordinal,
     amdf_memory_site_description_t* out_description) {
+  const amdf_memory_access_state_t* access = &memory->accesses[access_ordinal];
+  if (access->describe_site == NULL) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+  }
   amdf_queue_family_info_t queue_family_info = {
       .type = AMDF_STRUCTURE_TYPE_QUEUE_FAMILY_INFO,
       .structure_size = sizeof(queue_family_info),
   };
   const amdf_status_t status = amdf_endpoint_query_queue_family_info(
-      memory->accesses[access_ordinal].device->endpoint, queue_family_ordinal,
-      &queue_family_info);
+      access->device->endpoint, queue_family_ordinal, &queue_family_info);
   if (!amdf_status_is_ok(status)) {
     return status;
   }
   const amdf_memory_site_query_t query = {
-      .access = memory->accesses[access_ordinal].info.access,
-      .flags = memory->accesses[access_ordinal].info.flags,
+      .access = access->info.access,
+      .flags = memory->info.flags | access->info.flags,
+      .atomic_operations_32 = access->info.atomic_operations_32,
+      .atomic_operations_64 = access->info.atomic_operations_64,
       .queue_family_info = &queue_family_info,
   };
-  return amdf_gpu_umd_memory_describe_site(&query, out_description);
+  return access->describe_site(&query, out_description);
 }
 
 static amdf_status_t amdf_gpu_host_mapping_cache_control(
@@ -170,9 +175,9 @@ static void amdf_gpu_memory_set_info(
   out_info->memory_class = profile->memory_class;
   memory->accesses[access_ordinal].info.access = device_access;
   memory->accesses[access_ordinal].info.atomic_operations_32 =
-      result.atomic_operations_32;
+      profile->atomic_operations_32;
   memory->accesses[access_ordinal].info.atomic_operations_64 =
-      result.atomic_operations_64;
+      profile->atomic_operations_64;
   memory->accesses[access_ordinal].info.address_domain_ordinal =
       profile->device_address.address_domain_ordinal;
   memory->accesses[access_ordinal].info.device_id =

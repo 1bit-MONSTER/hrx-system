@@ -52,35 +52,11 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) @i32x4_shuffle_
   %10 = copy %init : reg<x86.gpr32> -> reg<x86.gpr32>
   %11 = add.gpr32 %10, %9
   %12 = vpextrd.xmm %shuffled, 1
-  %13 = copy %11 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %14 = add.gpr32 %13, %12
-  %15 = vpextrd.xmm %shuffled, 2
-  %16 = copy %14 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %17 = add.gpr32 %16, %15
-  %18 = vpextrd.xmm %shuffled, 3
-  %19 = copy %17 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %sum = add.gpr32 %19, %18
-  return %sum
-}
-
-// ====
-
-x86.target<avx2> @target
-
-func.def target(@target) @f32x4_shuffle_reduce(%v: vector<4xf32>, %init: f32) -> (f32) {
-  %shuffled = vector.shuffle<[3, 1, 2, 0]> %v : vector<4xf32>
-  %sum = vector.reduce<addf> %shuffled, %init : vector<4xf32>, f32
-  func.return %sum : f32
-}
-
-// ----
-low.func.def target<x86.avx2.core>(@target) abi(object_function) @f32x4_shuffle_reduce(%v: reg<x86.xmm>, %init: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
-  %shuffled = vpermilps.xmm %v, 39
-  %9 = vpermilps.xmm %shuffled, 78
-  %10 = vaddps.xmm %shuffled, %9
-  %11 = vpermilps.xmm %10, 177
-  %12 = vaddps.xmm %10, %11
-  %sum = vaddss.xmm %init, %12
+  %13 = add.gpr32 %11, %12
+  %14 = vpextrd.xmm %shuffled, 2
+  %15 = add.gpr32 %13, %14
+  %16 = vpextrd.xmm %shuffled, 3
+  %sum = add.gpr32 %15, %16
   return %sum
 }
 
@@ -145,9 +121,9 @@ func.def target(@target) @i32x4_index_madd_scaled_bias_memory(%input: buffer, %o
 
 // ----
 low.func.def target<x86.avx2.core>(@target) abi(object_function) @i32x4_index_madd_scaled_bias_memory(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %row: reg<x86.gpr64>) asm {
-  %15 = lea.scale %row {disp32 = 1, scale = 4}
-  %loaded = vmovdqu32.load.indexed.xmm %input, %15 {disp32 = 0, scale = 4}
-  vmovdqu32.store.indexed.xmm %loaded, %output, %15 {disp32 = 0, scale = 4}
+  %14 = lea.scale %row {disp32 = 1, scale = 4}
+  %loaded = vmovdqu32.load.indexed.xmm %input, %14 {disp32 = 0, scale = 4}
+  vmovdqu32.store.indexed.xmm %loaded, %output, %14 {disp32 = 0, scale = 4}
   return
 }
 

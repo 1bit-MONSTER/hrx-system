@@ -70,7 +70,7 @@ encoding_ops = Dialect("encoding", dialect_id=0x09, doc="Encoding definition and
 # ============================================================================
 
 
-def _enum_fact(enum_def: EnumDef, keyword: str) -> int:
+def enum_fact(enum_def: EnumDef, keyword: str) -> int:
     """Returns the one-hot fact bit for one nonzero enum case."""
     value = enum_def.case(keyword).value
     return 0 if value == 0 else 1 << (value - 1)
@@ -692,11 +692,11 @@ ALL_ENCODING_FAMILIES: tuple[EncodingFamilyDef, ...] = (
         role=EncodingFamilyRole.STORAGE_SCHEMA,
         fixed_record=_GGML_Q4_0_RECORD,
         fixed_operand_summary=EncodingOperandSummaryDef(
-            element_format=_enum_fact(NumericFormat, "quant_i4"),
-            scale_format=_enum_fact(NumericFormat, "f16"),
-            payload_packing=_enum_fact(PayloadPacking, "little_endian_nibbles"),
-            scale_topology=_enum_fact(ScaleTopology, "block_1d"),
-            affine_policy=_enum_fact(AffinePolicy, "scale_only"),
+            element_format=enum_fact(NumericFormat, "quant_i4"),
+            scale_format=enum_fact(NumericFormat, "f16"),
+            payload_packing=enum_fact(PayloadPacking, "little_endian_nibbles"),
+            scale_topology=enum_fact(ScaleTopology, "block_1d"),
+            affine_policy=enum_fact(AffinePolicy, "scale_only"),
             payload_element_count=32,
             scale_group_shape=(32,),
             scale_operand_count=1,
@@ -711,11 +711,11 @@ ALL_ENCODING_FAMILIES: tuple[EncodingFamilyDef, ...] = (
         role=EncodingFamilyRole.STORAGE_SCHEMA,
         fixed_record=_GGML_Q8_0_RECORD,
         fixed_operand_summary=EncodingOperandSummaryDef(
-            element_format=_enum_fact(NumericFormat, "quant_i8"),
-            scale_format=_enum_fact(NumericFormat, "f16"),
-            payload_packing=_enum_fact(PayloadPacking, "dense_lanes"),
-            scale_topology=_enum_fact(ScaleTopology, "block_1d"),
-            affine_policy=_enum_fact(AffinePolicy, "scale_only"),
+            element_format=enum_fact(NumericFormat, "quant_i8"),
+            scale_format=enum_fact(NumericFormat, "f16"),
+            payload_packing=enum_fact(PayloadPacking, "dense_lanes"),
+            scale_topology=enum_fact(ScaleTopology, "block_1d"),
+            affine_policy=enum_fact(AffinePolicy, "scale_only"),
             payload_element_count=32,
             scale_group_shape=(32,),
             scale_operand_count=1,
@@ -730,12 +730,12 @@ ALL_ENCODING_FAMILIES: tuple[EncodingFamilyDef, ...] = (
         role=EncodingFamilyRole.STORAGE_SCHEMA,
         fixed_record=_GGML_Q4_K_RECORD,
         fixed_operand_summary=EncodingOperandSummaryDef(
-            element_format=_enum_fact(NumericFormat, "u4"),
-            scale_format=_enum_fact(NumericFormat, "f16"),
-            secondary_scale_format=_enum_fact(NumericFormat, "u6"),
-            payload_packing=_enum_fact(PayloadPacking, "multi_stream"),
-            scale_topology=_enum_fact(ScaleTopology, "hierarchical"),
-            affine_policy=_enum_fact(AffinePolicy, "scale_plus_min"),
+            element_format=enum_fact(NumericFormat, "u4"),
+            scale_format=enum_fact(NumericFormat, "f16"),
+            secondary_scale_format=enum_fact(NumericFormat, "u6"),
+            payload_packing=enum_fact(PayloadPacking, "multi_stream"),
+            scale_topology=enum_fact(ScaleTopology, "hierarchical"),
+            affine_policy=enum_fact(AffinePolicy, "scale_plus_min"),
             payload_element_count=256,
             scale_group_shape=(32,),
             scale_operand_count=2,
@@ -754,12 +754,12 @@ ALL_ENCODING_FAMILIES: tuple[EncodingFamilyDef, ...] = (
         role=EncodingFamilyRole.STORAGE_SCHEMA,
         fixed_record=_GGML_Q5_K_RECORD,
         fixed_operand_summary=EncodingOperandSummaryDef(
-            element_format=_enum_fact(NumericFormat, "u5"),
-            scale_format=_enum_fact(NumericFormat, "f16"),
-            secondary_scale_format=_enum_fact(NumericFormat, "u6"),
-            payload_packing=_enum_fact(PayloadPacking, "multi_stream"),
-            scale_topology=_enum_fact(ScaleTopology, "hierarchical"),
-            affine_policy=_enum_fact(AffinePolicy, "scale_plus_min"),
+            element_format=enum_fact(NumericFormat, "u5"),
+            scale_format=enum_fact(NumericFormat, "f16"),
+            secondary_scale_format=enum_fact(NumericFormat, "u6"),
+            payload_packing=enum_fact(PayloadPacking, "multi_stream"),
+            scale_topology=enum_fact(ScaleTopology, "hierarchical"),
+            affine_policy=enum_fact(AffinePolicy, "scale_plus_min"),
             payload_element_count=256,
             scale_group_shape=(32,),
             scale_operand_count=2,
@@ -778,12 +778,12 @@ ALL_ENCODING_FAMILIES: tuple[EncodingFamilyDef, ...] = (
         role=EncodingFamilyRole.STORAGE_SCHEMA,
         fixed_record=_GGML_Q6_K_RECORD,
         fixed_operand_summary=EncodingOperandSummaryDef(
-            element_format=_enum_fact(NumericFormat, "quant_i6"),
-            scale_format=_enum_fact(NumericFormat, "f16"),
-            secondary_scale_format=_enum_fact(NumericFormat, "i8"),
-            payload_packing=_enum_fact(PayloadPacking, "multi_stream"),
-            scale_topology=_enum_fact(ScaleTopology, "hierarchical"),
-            affine_policy=_enum_fact(AffinePolicy, "super_scale_times_subscale"),
+            element_format=enum_fact(NumericFormat, "quant_i6"),
+            scale_format=enum_fact(NumericFormat, "f16"),
+            secondary_scale_format=enum_fact(NumericFormat, "i8"),
+            payload_packing=enum_fact(PayloadPacking, "multi_stream"),
+            scale_topology=enum_fact(ScaleTopology, "hierarchical"),
+            affine_policy=enum_fact(AffinePolicy, "super_scale_times_subscale"),
             payload_element_count=256,
             scale_group_shape=(16,),
             scale_operand_count=2,
@@ -801,11 +801,11 @@ ALL_ENCODING_FAMILIES: tuple[EncodingFamilyDef, ...] = (
         role=EncodingFamilyRole.STORAGE_SCHEMA,
         fixed_record=_GGML_Q8_1_X4_RECORD,
         fixed_operand_summary=EncodingOperandSummaryDef(
-            element_format=_enum_fact(NumericFormat, "quant_i8"),
-            scale_format=_enum_fact(NumericFormat, "f16"),
-            payload_packing=_enum_fact(PayloadPacking, "separate_scale_payload"),
-            scale_topology=_enum_fact(ScaleTopology, "block_1d"),
-            affine_policy=_enum_fact(AffinePolicy, "sum_correction"),
+            element_format=enum_fact(NumericFormat, "quant_i8"),
+            scale_format=enum_fact(NumericFormat, "f16"),
+            payload_packing=enum_fact(PayloadPacking, "separate_scale_payload"),
+            scale_topology=enum_fact(ScaleTopology, "block_1d"),
+            affine_policy=enum_fact(AffinePolicy, "sum_correction"),
             payload_element_count=128,
             scale_group_shape=(32,),
             scale_operand_count=1,
@@ -910,7 +910,7 @@ encoding_layout_strided = Op(
     name="encoding.layout.strided",
     group=encoding_ops,
     phase=OpPhase.EXECUTABLE,
-    doc=("Construct an address layout from per-dimension element strides. Static and dynamic stride values are interleaved in one bracket list."),
+    doc=("Construct an address layout from per-dimension element strides. Static and dynamic stride values are interleaved in one bracket list. Rank is in [0, 15], matching shaped types."),
     operands=[Operand("strides", INDEX, doc="Dynamic element strides.", variadic=True)],
     results=[Result("result", ENCODING_LAYOUT, doc="Strided address-layout value.")],
     attrs=[
@@ -964,7 +964,7 @@ encoding_layout_assume_strided = Op(
     phase=OpPhase.EXECUTABLE,
     doc=(
         "Refine an existing address-layout encoding value with the fact that "
-        "it is strided and has the given rank. Per-axis stride values remain "
+        "it is strided and has the given rank in [0, 15], matching shaped types. Per-axis stride values remain "
         "unknown unless a concrete encoding.layout.strided value is available."
     ),
     operands=[Operand("layout", ENCODING_LAYOUT, doc="Address-layout value to refine.")],

@@ -34,9 +34,6 @@ enum {
   LOOM_OP_VIEW_COUNT_ = 10,
 };
 
-// Execution-semantics modifiers shared by scalar and vector memory accesses.
-#define LOOM_VIEW_MEMORYACCESSFLAGS_VOLATILE ((uint8_t)1)
-
 // Intended future access kind for a prefetch hint.
 typedef enum loom_view_prefetch_intent_e {
   LOOM_VIEW_PREFETCH_INTENT_READ = 0,
@@ -182,6 +179,7 @@ LOOM_DEFINE_OPERAND(loom_view_atomic_reduce_value, 0)
 LOOM_DEFINE_OPERAND(loom_view_atomic_reduce_view, 1)
 LOOM_DEFINE_VARIADIC_OPERANDS(loom_view_atomic_reduce_indices, 2)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_view_atomic_reduce_kind, 0, loom_atomic_kind_t)
+LOOM_DEFINE_INSTANCE_FLAGS(loom_view_atomic_reduce_memory_flags)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_view_atomic_reduce_ordering, 1, loom_atomic_ordering_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_view_atomic_reduce_scope, 2, loom_atomic_scope_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_view_atomic_reduce_cache_scope, 3, loom_cache_scope_t)
@@ -196,6 +194,7 @@ iree_status_t loom_view_atomic_reduce_build(
     loom_builder_t* builder,
     loom_view_atomic_reduce_build_flags_t build_flags,
     loom_atomic_kind_t kind,
+    uint8_t instance_flags,
     loom_value_id_t value,
     loom_value_id_t view,
     const loom_value_id_t* indices,
@@ -220,6 +219,7 @@ LOOM_DEFINE_OPERAND(loom_view_atomic_rmw_view, 1)
 LOOM_DEFINE_VARIADIC_OPERANDS(loom_view_atomic_rmw_indices, 2)
 LOOM_DEFINE_RESULT(loom_view_atomic_rmw_result, 0)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_view_atomic_rmw_kind, 0, loom_atomic_kind_t)
+LOOM_DEFINE_INSTANCE_FLAGS(loom_view_atomic_rmw_memory_flags)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_view_atomic_rmw_ordering, 1, loom_atomic_ordering_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_view_atomic_rmw_scope, 2, loom_atomic_scope_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_view_atomic_rmw_cache_scope, 3, loom_cache_scope_t)
@@ -234,6 +234,7 @@ iree_status_t loom_view_atomic_rmw_build(
     loom_builder_t* builder,
     loom_view_atomic_rmw_build_flags_t build_flags,
     loom_atomic_kind_t kind,
+    uint8_t instance_flags,
     loom_may_consume loom_value_id_t value,
     loom_may_consume loom_value_id_t view,
     const loom_value_id_t* indices,
@@ -247,6 +248,11 @@ iree_status_t loom_view_atomic_rmw_build(
     loom_type_t result_type,
     loom_location_id_t location,
     loom_op_t** out_op);
+iree_status_t loom_view_atomic_observation_facts(
+    loom_fact_context_t* context,
+    const loom_module_t* module, const loom_op_t* op,
+    const loom_value_facts_t* operand_facts,
+    loom_value_facts_t* result_facts);
 iree_status_t loom_view_atomic_rmw_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
@@ -288,6 +294,11 @@ iree_status_t loom_view_atomic_cmpxchg_build(
     loom_type_t result_type,
     loom_location_id_t location,
     loom_op_t** out_op);
+iree_status_t loom_view_atomic_observation_facts(
+    loom_fact_context_t* context,
+    const loom_module_t* module, const loom_op_t* op,
+    const loom_value_facts_t* operand_facts,
+    loom_value_facts_t* result_facts);
 iree_status_t loom_view_atomic_cmpxchg_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
@@ -347,6 +358,11 @@ iree_status_t loom_view_atomic_load_build(
     loom_location_id_t location,
     loom_op_t** out_op);
 loom_trait_flags_t loom_view_atomic_load_effective_traits(const loom_op_t* op);
+iree_status_t loom_view_atomic_observation_facts(
+    loom_fact_context_t* context,
+    const loom_module_t* module, const loom_op_t* op,
+    const loom_value_facts_t* operand_facts,
+    loom_value_facts_t* result_facts);
 iree_status_t loom_view_atomic_load_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);

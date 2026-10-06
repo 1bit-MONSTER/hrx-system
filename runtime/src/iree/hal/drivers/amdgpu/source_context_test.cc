@@ -52,6 +52,7 @@ constexpr uint16_t kSiteTableRecordLength = 48u;
 constexpr uint32_t kRecordHasPayload = 1u << 0;
 constexpr uint32_t kRecordHasSourceLocation = 1u << 1;
 constexpr uint16_t kSourceKindFile = 1u;
+constexpr uint32_t kLoomOpKernelAssert = (0x10u << 8) | 41u;
 constexpr uint32_t kLoomOpSanitizerAssertAccess = (0x1Du << 8) | 0u;
 constexpr uint32_t kLoomOpSanitizerRaceAccess = (0x1Du << 8) | 4u;
 
@@ -197,6 +198,20 @@ TEST(SourceContextTest, ResolvesRaceSanitizerSiteName) {
       &context, /*site_id=*/0, &site));
   EXPECT_TRUE(iree_string_view_equal(site.operation_name,
                                      IREE_SV("sanitizer.race.access")));
+}
+
+TEST(SourceContextTest, ResolvesMaterializedKernelAssertSiteName) {
+  std::vector<uint8_t> table = MakeSingleSiteTable(kLoomOpKernelAssert);
+  iree_hal_amdgpu_source_context_t context;
+  InitializeContext(nullptr, 0, &context);
+  IREE_ASSERT_OK(iree_hal_amdgpu_source_context_set_sanitizer_site_table(
+      &context, iree_make_const_byte_span(table.data(), table.size())));
+
+  iree_hal_device_event_site_t site = iree_hal_device_event_site_default();
+  ASSERT_TRUE(iree_hal_amdgpu_source_context_try_resolve_sanitizer_site(
+      &context, /*site_id=*/0, &site));
+  EXPECT_TRUE(
+      iree_string_view_equal(site.operation_name, IREE_SV("kernel.assert")));
 }
 
 TEST(SourceContextTest, RejectsMalformedSanitizerSiteTable) {

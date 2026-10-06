@@ -15,7 +15,7 @@ import pytest
 # dialect imports belong in dialect-specific importer/builder coverage, not here.
 import loom
 import loom.dialect as dialect
-from loom.assembly import Attr
+from loom.assembly import Attr, BlockArgs, Region
 from loom.builder import ValueRef, tied
 from loom.builders import LoomBuilder, module_builder
 from loom.builtin_types import ALL_BUILTIN_TYPES
@@ -28,7 +28,16 @@ from loom.dialect.test import (
     test_options_attr,
     test_tile_attr,
 )
-from loom.dsl import AttrDef, Dialect, EnumCase, EnumDef, Op, Result, TypeConstraint
+from loom.dsl import (
+    AttrDef,
+    Dialect,
+    EnumCase,
+    EnumDef,
+    Op,
+    RegionDef,
+    Result,
+    TypeConstraint,
+)
 from loom.format.text.printer import Printer
 from loom.ir import (
     F32,
@@ -120,6 +129,16 @@ def test_separate_result_types_follow_declared_fields() -> None:
     assert [result.type for result in results] == [I32, F32]
     assert [result.name for result in results] == ["first", "second"]
     assert block.ops[0].results == [result.id for result in results]
+
+
+def test_signature_only_results_are_retained_without_ssa_values() -> None:
+    block, builder = _builder()
+
+    results = builder.test.signature_sink(results=[INDEX, I32])
+
+    assert results is None
+    assert len(block.ops) == 1
+    assert len(block.ops[0].results) == 2
 
 
 def test_dynamic_builder_inserts_module_scope_operation_without_block() -> None:
@@ -383,6 +402,54 @@ def test_region_helper_creates_block_arguments() -> None:
     assert value.name == "iv"
     assert value.type == INDEX
     assert value.is_block_arg
+
+
+def test_dynamic_builder_concatenates_projected_block_argument_groups() -> None:
+    block, builder = _builder()
+
+    builder.test.block_arg_groups(
+        actual_args=[("actual", F32)],
+        expected_args=[("expected", F32), ("expected_index", INDEX)],
+    )
+
+    operation = block.ops[0]
+    assert operation.attributes["actual_count"] == 1
+    entry = operation.regions[0].blocks[0]
+    assert [builder.module.values[value_id].name for value_id in entry.arg_ids] == [
+        "actual",
+        "expected",
+        "expected_index",
+    ]
+    assert [builder.module.values[value_id].type for value_id in entry.arg_ids] == [
+        F32,
+        F32,
+        INDEX,
+    ]
+
+
+def test_dynamic_builder_omits_empty_optional_block_argument_boundary() -> None:
+    op = Op(
+        "test.optional_block_arg_groups",
+        group=Dialect("test"),
+        attrs=[AttrDef("actual_count", "i64", optional=True)],
+        regions=[RegionDef("body")],
+        format=[
+            BlockArgs("body", group="actual", end_attr="actual_count"),
+            BlockArgs("body", group="expected", start_attr="actual_count"),
+            Region("body"),
+        ],
+    )
+    block = Block()
+    _module, builder = module_builder(insertion_block=block, ops=[op])
+
+    builder.test.optional_block_arg_groups(
+        actual_args=[],
+        expected_args=[("expected", F32)],
+    )
+
+    operation = block.ops[0]
+    assert "actual_count" not in operation.attributes
+    assert len(operation.regions[0].blocks[0].arg_ids) == 1
 
 
 def test_dynamic_builder_constructs_region_bearing_scf_for() -> None:

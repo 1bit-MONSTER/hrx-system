@@ -101,7 +101,7 @@ func.def @collective_address(%input: view<8xi32>, %initial: i32) -> (i32) {
   %step = index.constant 1 : index
   %depth = index.constant 2 : index
   %result = scf.for %i = [%begin to %end step %step](%sum = %initial : i32) -> (i32) pipeline(%depth) {
-    // ERROR@+1: STRUCTURE/014 {expected_constraint="read-ahead prerequisites without convergent operations"}
+    // ERROR@+1: STRUCTURE/014 {expected_constraint="read-ahead prerequisites independent of ordered or convergent consumers"}
     %collective = test.convergent %i : index
     %position = index.add %collective, %step : index
     %value = view.load %input[%position] : view<8xi32> -> i32
@@ -122,7 +122,7 @@ func.def @collective_guard(%input: view<8xi32>, %initial: i32, %condition: i1) -
   %depth = index.constant 2 : index
   %identity = scalar.constant 0 : i32
   %result = scf.for %i = [%begin to %end step %step](%sum = %initial : i32) -> (i32) pipeline(%depth) {
-    // ERROR@+1: STRUCTURE/014 {expected_constraint="read-ahead prerequisites without convergent operations"}
+    // ERROR@+1: STRUCTURE/014 {expected_constraint="read-ahead prerequisites independent of ordered or convergent consumers"}
     %collective = test.convergent %condition : i1
     %value = scf.if %collective -> (i32) {
       %loaded = view.load %input[%i] : view<8xi32> -> i32
@@ -137,10 +137,66 @@ func.def @collective_guard(%input: view<8xi32>, %initial: i32, %condition: i1) -
 }
 
 // ====
+// RUN: with-checks pass-report pipeline-scf-for
+
+// A fixed-bound guarded partition advances the read while retaining the
+// collective and branch-local carried update in the consumer.
+func.def @mixed_load_and_collective(%input: view<8xi32>, %initial: i32, %condition: i1) -> (i32) {
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %result = scf.for %i = [%begin to %end step %step](%sum = %initial : i32) -> (i32) pipeline(%depth) {
+    %next = scf.if %condition -> (i32) {
+      %loaded = view.load %input[%i] : view<8xi32> -> i32
+      %collective = test.convergent %loaded : i32
+      %updated = scalar.addi %sum, %collective : i32
+      scf.yield %updated : i32
+    } else {
+      %fallback = test.convergent %sum : i32
+      scf.yield %fallback : i32
+    }
+    scf.yield %next : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+CHECK: *"loops-pipelined":1,*
+CHECK: *"values_per_record":1,"read_count":1}*
+CHECK: *"position":0,"op":"scf.if","partition":"guarded","stage":"producer","iteration_lookahead":1}*
+CHECK: *"position":0,"op":"scf.if","partition":"guarded","stage":"consumer","iteration_lookahead":0}*
+
+// ====
 // RUN: pass pipeline-scf-for
 
-// Regions remain atomic scheduling units; this one cannot become a producer.
-func.def @mixed_load_and_collective(%input: view<8xi32>, %initial: i32, %condition: i1) -> (i32) {
+// A dynamic requested loop could send subgroup participants to different
+// startup, steady-state, and drain collective sites.
+func.def @dynamic_mixed_load_and_collective(%input: view<8xi32>, %initial: i32, %condition: i1, %end: index) -> (i32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %result = scf.for %i = [%begin to %end step %step](%sum = %initial : i32) -> (i32) pipeline(%depth) {
+    // ERROR@+1: STRUCTURE/014 {expected_constraint="compile-time exact loop bounds to preserve convergent consumer participation"}
+    %next = scf.if %condition -> (i32) {
+      %loaded = view.load %input[%i] : view<8xi32> -> i32
+      %collective = test.convergent %loaded : i32
+      %updated = scalar.addi %sum, %collective : i32
+      scf.yield %updated : i32
+    } else {
+      scf.yield %sum : i32
+    }
+    scf.yield %next : i32
+  }
+  func.return %result : i32
+}
+
+// ====
+// RUN: pass pipeline-scf-for
+
+// A read and collective that cannot form a guarded interior cut remain an
+// unsupported atomic scheduling unit.
+func.def @unsplittable_load_and_collective(%input: view<8xi32>, %initial: i32, %condition: i1) -> (i32) {
   %begin = index.constant 0 : index
   %end = index.constant 8 : index
   %step = index.constant 1 : index
@@ -148,9 +204,10 @@ func.def @mixed_load_and_collective(%input: view<8xi32>, %initial: i32, %conditi
   %result = scf.for %i = [%begin to %end step %step](%sum = %initial : i32) -> (i32) pipeline(%depth) {
     // ERROR@+1: STRUCTURE/014 {expected_constraint="convergent operations separated from read-ahead loads"}
     %next = scf.if %condition -> (i32) {
-      %loaded = view.load %input[%i] : view<8xi32> -> i32
-      %collective = test.convergent %loaded : i32
-      scf.yield %collective : i32
+      %collective_index = test.convergent %i : index
+      %loaded = view.load %input[%collective_index] : view<8xi32> -> i32
+      %updated = scalar.addi %sum, %loaded : i32
+      scf.yield %updated : i32
     } else {
       scf.yield %sum : i32
     }
@@ -171,7 +228,7 @@ func.def @mixed_ordered_and_collective(%input: view<8xi32>, %initial: i32, %cond
   %depth = index.constant 2 : index
   %result = scf.for %i = [%begin to %end step %step](%sum = %initial : i32) -> (i32) pipeline(%depth) {
     %value = view.load %input[%i] : view<8xi32> -> i32
-    // ERROR@+1: STRUCTURE/014 {expected_constraint="ordinary loads and memory-pure consumers without writes, ordered effects or async groups"}
+    // ERROR@+1: STRUCTURE/014 {expected_constraint="workgroup-only stores and barriers in the ordered consumer"}
     %next = scf.if %condition -> (i32) {
       %observed = test.effectful_constant 7 : i32
       %collective = test.convergent %value : i32
@@ -206,3 +263,117 @@ func.def @serial_collective(%input: view<8xi32>, %initial: i32, %end: index) -> 
 CHECK: *"loops-pipelined":0,"policies-cleared":1}*
 CHECK: *"outcome":"serial",*"depth":1,*
 CHECK-NOT: *"category":"scf-pipeline-stage"*
+
+// ====
+// RUN: pass pipeline-scf-for
+
+// Operations in the condition region execute before the successful edge and
+// cannot consume its facts.
+func.def @condition_region_does_not_see_success(%input: view<8xi32>, %initial: i32, %remaining: index) -> (index) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %tile_size = index.constant 8 : index
+  %terminal = scf.while(%before_remaining = %remaining : index) -> (index) {
+    %tile_end = index.min %before_remaining, %tile_size : index
+    %sum = scf.for %i = [%begin to %tile_end step %step](%acc = %initial : i32) -> (i32) pipeline(%depth) {
+      %value = view.load %input[%i] : view<8xi32> -> i32
+      // ERROR@+1: STRUCTURE/014 {expected_constraint="compile-time exact loop bounds to preserve convergent consumer participation"}
+      %collective = test.convergent %value : i32
+      %next = scalar.addi %acc, %collective : i32
+      scf.yield %next : i32
+    }
+    test.use %sum : i32
+    %has_full_tile = index.cmp sge, %before_remaining, %tile_size : index
+    scf.condition %has_full_tile, %before_remaining : i1, index
+  } do(%active_remaining: index) {
+    %next_remaining = index.sub %active_remaining, %tile_size : index
+    scf.yield %next_remaining : index
+  }
+  func.return %terminal : index
+}
+
+// ====
+// RUN: pass pipeline-scf-for
+
+// A true disjunction does not prove that the full-tile comparison was true.
+func.def @disjunction_does_not_prove_full_tile(%input: view<8xi32>, %initial: i32, %remaining: index, %other_reason: i1) -> (index) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %tile_size = index.constant 8 : index
+  %terminal = scf.while(%before_remaining = %remaining : index) -> (index) {
+    %has_full_tile = index.cmp sge, %before_remaining, %tile_size : index
+    %continue = scalar.ori %has_full_tile, %other_reason : i1
+    scf.condition %continue, %before_remaining : i1, index
+  } do(%active_remaining: index) {
+    %tile_end = index.min %active_remaining, %tile_size : index
+    %sum = scf.for %i = [%begin to %tile_end step %step](%acc = %initial : i32) -> (i32) pipeline(%depth) {
+      %value = view.load %input[%i] : view<8xi32> -> i32
+      // ERROR@+1: STRUCTURE/014 {expected_constraint="compile-time exact loop bounds to preserve convergent consumer participation"}
+      %collective = test.convergent %value : i32
+      %next = scalar.addi %acc, %collective : i32
+      scf.yield %next : i32
+    }
+    test.use %sum : i32
+    %next_remaining = index.sub %active_remaining, %tile_size : index
+    scf.yield %next_remaining : index
+  }
+  func.return %terminal : index
+}
+
+// ====
+// RUN: pass pipeline-scf-for
+
+// A relation on a captured value does not refine a different forwarded
+// payload merely because both have the same type.
+func.def @unforwarded_value_does_not_refine_payload(%input: view<8xi32>, %initial: i32, %checked_remaining: index, %payload: index) -> (index) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %tile_size = index.constant 8 : index
+  %terminal = scf.while(%before_payload = %payload : index) -> (index) {
+    %has_full_tile = index.cmp sge, %checked_remaining, %tile_size : index
+    scf.condition %has_full_tile, %before_payload : i1, index
+  } do(%active_payload: index) {
+    %tile_end = index.min %active_payload, %tile_size : index
+    %sum = scf.for %i = [%begin to %tile_end step %step](%acc = %initial : i32) -> (i32) pipeline(%depth) {
+      %value = view.load %input[%i] : view<8xi32> -> i32
+      // ERROR@+1: STRUCTURE/014 {expected_constraint="compile-time exact loop bounds to preserve convergent consumer participation"}
+      %collective = test.convergent %value : i32
+      %next = scalar.addi %acc, %collective : i32
+      scf.yield %next : i32
+    }
+    test.use %sum : i32
+    scf.yield %active_payload : index
+  }
+  func.return %terminal : index
+}
+
+// ====
+// RUN: pass pipeline-scf-for
+
+// The loop result follows the false edge. Successful-body facts cannot make a
+// tail loop look like a fixed full tile.
+func.def @exit_does_not_retain_success(%input: view<8xi32>, %initial: i32, %remaining: index) -> (i32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %tile_size = index.constant 8 : index
+  %terminal = scf.while(%before_remaining = %remaining : index) -> (index) {
+    %has_full_tile = index.cmp sge, %before_remaining, %tile_size : index
+    scf.condition %has_full_tile, %before_remaining : i1, index
+  } do(%active_remaining: index) {
+    %next_remaining = index.sub %active_remaining, %tile_size : index
+    scf.yield %next_remaining : index
+  }
+  %tail_end = index.min %terminal, %tile_size : index
+  %sum = scf.for %i = [%begin to %tail_end step %step](%acc = %initial : i32) -> (i32) pipeline(%depth) {
+    %value = view.load %input[%i] : view<8xi32> -> i32
+    // ERROR@+1: STRUCTURE/014 {expected_constraint="compile-time exact loop bounds to preserve convergent consumer participation"}
+    %collective = test.convergent %value : i32
+    %next = scalar.addi %acc, %collective : i32
+    scf.yield %next : i32
+  }
+  func.return %sum : i32
+}

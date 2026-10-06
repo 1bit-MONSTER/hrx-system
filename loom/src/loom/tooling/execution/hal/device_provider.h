@@ -7,9 +7,9 @@
 // Live device projection for Loom execution tools.
 //
 // Device providers create no artifacts themselves. They select target facts
-// from an active HAL device and project those facts into an ordinary offline
-// artifact target. The shared execution layer then emits through the nested
-// artifact provider and loads the resulting bytes into that same device.
+// from an active HAL device and project those facts into a loadable artifact
+// target. The shared execution layer then emits through the nested artifact
+// provider and loads the resulting bytes into that same device.
 
 #ifndef LOOM_TOOLING_EXECUTION_HAL_DEVICE_PROVIDER_H_
 #define LOOM_TOOLING_EXECUTION_HAL_DEVICE_PROVIDER_H_
@@ -30,7 +30,7 @@ struct loom_run_hal_runtime_t;
 typedef struct loom_device_target_t {
   // Exact executable target row borrowed from the active device spec.
   const iree_hal_executable_target_t* executable_target;
-  // Offline artifact target projected from the device.
+  // Loadable artifact target projected from the device.
   loom_artifact_target_t artifact_target;
 } loom_device_target_t;
 
@@ -61,9 +61,9 @@ typedef void (*loom_device_provider_deinitialize_target_fn_t)(
     const loom_device_provider_t* provider, loom_device_target_t* target,
     iree_allocator_t allocator);
 
-// Live device adapter for one offline artifact provider and HAL driver.
+// Live device adapter for one artifact provider and HAL driver.
 struct loom_device_provider_t {
-  // Offline provider used to emit artifacts after device target selection.
+  // Provider used to emit artifacts after device target selection.
   const loom_artifact_provider_t* artifact_provider;
   // IREE HAL driver name used to create the runtime device.
   iree_string_view_t driver_name;

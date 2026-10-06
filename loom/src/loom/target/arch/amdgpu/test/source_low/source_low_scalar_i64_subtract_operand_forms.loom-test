@@ -56,26 +56,24 @@ func.def @mixed_subtract(%uniform: i64, %values: vector<2xi64>) -> (i64, i64) {
 
 // ----
 low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @mixed_subtract(%uniform: reg<amdgpu.sgpr x2>, %values: reg<amdgpu.vgpr x4>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
-  %11 = slice %values[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-  %12 = slice %values[1] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-  %varying = concat(%11, %12) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %14 = slice %uniform[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %varying = slice %values[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr x2>
+  %12 = slice %uniform[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %13 = v_mov_b32_copy %12
+  %14 = slice %uniform[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
   %15 = v_mov_b32_copy %14
-  %16 = slice %uniform[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %17 = v_mov_b32_copy %16
-  %18 = concat(%15, %17) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %19 = slice %18[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %20 = slice %18[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %21 = slice %varying[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %22 = slice %varying[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %23, %24 = v_sub_co_u32 %19, %21
-  %25, %26 = v_sub_co_ci_u32 %20, %22, %24
-  %uniform_left = concat(%23, %25) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %32 = concat(%15, %17) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %35 = slice %32[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %36 = slice %32[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %37, %38 = v_sub_co_u32 %21, %35
-  %39, %40 = v_sub_co_ci_u32 %22, %36, %38
-  %uniform_right = concat(%37, %39) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %16 = concat(%13, %15) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %17 = slice %16[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %18 = slice %16[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %19 = slice %varying[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %20 = slice %varying[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %21, %22 = v_sub_co_u32 %17, %19
+  %23, %24 = v_sub_co_ci_u32 %18, %20, %22
+  %uniform_left = concat(%21, %23) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %30 = concat(%13, %15) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %33 = slice %30[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %34 = slice %30[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %35, %36 = v_sub_co_u32 %19, %33
+  %37, %38 = v_sub_co_ci_u32 %20, %34, %36
+  %uniform_right = concat(%35, %37) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   return %uniform_left, %uniform_right
 }

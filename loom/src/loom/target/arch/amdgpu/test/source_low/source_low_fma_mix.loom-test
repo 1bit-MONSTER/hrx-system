@@ -633,11 +633,11 @@ func.def target(@gfx11_target) @vector_f32_mulf_fragment_splat_extf(%q: vector<2
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@gfx11_target) abi(hal_kernel) @vector_f32_mulf_fragment_splat_extf(%q: reg<amdgpu.vgpr x2>, %scale_half: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x2>) asm {
-  %14 = slice %q[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %12 = slice %q[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %13 = v_fma_mix_f32_f16lo_f32_f32_src2_lit %scale_half, %12, 0
+  %14 = slice %q[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %15 = v_fma_mix_f32_f16lo_f32_f32_src2_lit %scale_half, %14, 0
-  %16 = slice %q[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %17 = v_fma_mix_f32_f16lo_f32_f32_src2_lit %scale_half, %16, 0
-  %result = concat(%15, %17) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %result = concat(%13, %15) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   return %result
 }
 

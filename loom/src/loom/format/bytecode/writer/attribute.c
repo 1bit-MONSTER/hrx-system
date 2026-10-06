@@ -13,35 +13,40 @@
 // Orders new complete records for this SSA scope child before parent.
 static iree_status_t loom_bytecode_prepare_type_bindings(
     loom_bytecode_numbering_t* numbering,
-    loom_bytecode_value_numbering_t* values, uint32_t root, uint32_t* out_count,
-    uint32_t* out_binding) {
+    loom_bytecode_value_numbering_t* values, loom_type_id_t root,
+    uint32_t* out_count, uint32_t* out_binding) {
   loom_bytecode_type_index_t* index = &numbering->types.index;
   *out_count = 0;
   *out_binding = 0;
   if (!index->pending) {
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        numbering->arena, index->count, sizeof(*index->pending),
-        (void**)&index->pending));
+        numbering->arena, numbering->module->types.count,
+        sizeof(*index->pending), (void**)&index->pending));
   }
   iree_host_size_t depth = 1;
-  index->stack[0] = (loom_bytecode_type_frame_t){.node = root};
+  index->stack[0] = (loom_bytecode_type_frame_t){.type_id = root};
   while (depth) {
     loom_bytecode_type_frame_t* frame = &index->stack[depth - 1];
-    loom_bytecode_type_node_t* node = &index->nodes[frame->node];
-    if (!node->has_bindings ||
-        node->binding_generation == values->binding_generation) {
+    loom_bytecode_type_node_t* node = &index->nodes[frame->type_id];
+    if (!node->has_bindings) {
+      --depth;
+      continue;
+    }
+    IREE_ASSERT(values->scope_generation != 0);
+    if (node->binding_generation == values->scope_generation) {
       --depth;
       continue;
     }
     if (frame->next_dependency < node->dependencies.explicit_count) {
-      const uint32_t child = index->dependencies[node->dependencies.begin +
-                                                 frame->next_dependency++];
-      index->stack[depth++] = (loom_bytecode_type_frame_t){.node = child};
+      const loom_type_id_t child =
+          index->dependencies[node->dependencies.begin +
+                              frame->next_dependency++];
+      index->stack[depth++] = (loom_bytecode_type_frame_t){.type_id = child};
       continue;
     }
-    node->binding_generation = values->binding_generation;
+    node->binding_generation = values->scope_generation;
     node->binding = ++values->binding_count;
-    index->pending[(*out_count)++] = frame->node;
+    index->pending[(*out_count)++] = frame->type_id;
     --depth;
   }
   *out_binding = index->nodes[root].binding;
@@ -49,15 +54,13 @@ static iree_status_t loom_bytecode_prepare_type_bindings(
 }
 
 static uint64_t loom_bytecode_scoped_type_reference(
-    loom_bytecode_numbering_t* numbering, uint32_t node_index) {
+    loom_bytecode_numbering_t* numbering, loom_type_id_t type_id) {
   const loom_bytecode_type_node_t* node =
-      &numbering->types.index.nodes[node_index];
+      &numbering->types.index.nodes[type_id];
   if (node->has_bindings) {
     return ((uint64_t)(node->binding - 1) << 1) | 1;
   }
-  return (uint64_t)
-             numbering->types.writer_ids_by_module_index[node->module_index]
-         << 1;
+  return (uint64_t)numbering->types.writer_ids_by_module_index[type_id] << 1;
 }
 
 static iree_status_t loom_bytecode_write_attr_value_at_depth(
@@ -130,9 +133,10 @@ static iree_status_t loom_bytecode_write_attr_value_at_depth(
     case LOOM_ATTR_F64: {
       IREE_RETURN_IF_ERROR(
           loom_bytecode_page_writer_write_u8(writer, LOOM_BYTECODE_ATTR_F64));
-      uint8_t bytes[8];
-      memcpy(bytes, &attr.f64, 8);
-      IREE_RETURN_IF_ERROR(loom_bytecode_page_writer_write(writer, bytes, 8));
+      uint64_t bits = 0;
+      memcpy(&bits, &attr.f64, sizeof(bits));
+      IREE_RETURN_IF_ERROR(
+          loom_bytecode_page_writer_write_u64_le(writer, bits));
       break;
     }
     case LOOM_ATTR_STRING: {
@@ -253,17 +257,14 @@ static iree_status_t loom_bytecode_write_attr_value_at_depth(
             "type attribute id %u out of range (module has %" PRIhsz " types)",
             (unsigned)attr.type_id, numbering->module->types.count);
       }
-      loom_type_t type =
-          loom_type_table_get(&numbering->module->types, attr.type_id);
       uint32_t type_writer_id = 0;
-      uint32_t storage_node = 0;
-      IREE_RETURN_IF_ERROR(loom_bytecode_numbering_intern_type(
-          numbering, type, &type_writer_id, &storage_node));
+      IREE_RETURN_IF_ERROR(loom_bytecode_numbering_intern_module_type(
+          numbering, attr.type_id, &type_writer_id));
       IREE_RETURN_IF_ERROR(
           loom_bytecode_page_writer_write_u8(writer, LOOM_BYTECODE_ATTR_TYPE));
       const uint64_t reference =
           value_numbering
-              ? (numbering->types.index.nodes[storage_node].has_bindings
+              ? (numbering->types.index.nodes[attr.type_id].has_bindings
                      ? 1
                      : ((uint64_t)type_writer_id << 1))
               : type_writer_id;
@@ -271,7 +272,7 @@ static iree_status_t loom_bytecode_write_attr_value_at_depth(
           loom_bytecode_page_writer_write_uvarint(writer, reference));
       if (value_numbering) {
         IREE_RETURN_IF_ERROR(loom_bytecode_write_type_bindings(
-            writer, numbering, value_numbering, storage_node));
+            writer, numbering, value_numbering, attr.type_id));
       }
       break;
     }
@@ -436,15 +437,13 @@ iree_status_t loom_bytecode_write_scoped_enum(
 static iree_status_t loom_bytecode_emit_attr_value_at_depth(
     iree_string_builder_t* builder, loom_bytecode_numbering_t* numbering,
     loom_bytecode_value_numbering_t* value_numbering, loom_attribute_t attr,
-    const loom_attr_descriptor_t* descriptor, uint8_t aggregate_depth,
-    bool completed_types);
+    const loom_attr_descriptor_t* descriptor, uint8_t aggregate_depth);
 
 static iree_status_t loom_bytecode_emit_parameterized_attr_payload(
     iree_string_builder_t* builder, loom_bytecode_numbering_t* numbering,
     loom_bytecode_value_numbering_t* value_numbering, loom_attribute_t attr,
     const loom_attr_descriptor_t* descriptor,
-    loom_attr_kind_t expected_descriptor_kind, uint8_t aggregate_depth,
-    bool completed_types) {
+    loom_attr_kind_t expected_descriptor_kind, uint8_t aggregate_depth) {
   if (aggregate_depth >= LOOM_ATTR_AGGREGATE_MAX_NESTING_DEPTH) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "aggregate attribute nesting exceeds max depth %u",
@@ -483,7 +482,7 @@ static iree_status_t loom_bytecode_emit_parameterized_attr_payload(
         loom_bytecode_emit_uvarint(builder, parameter_name_id));
     IREE_RETURN_IF_ERROR(loom_bytecode_emit_attr_value_at_depth(
         builder, numbering, value_numbering, value, parameter_descriptor,
-        aggregate_depth + 1, completed_types));
+        aggregate_depth + 1));
   }
   return iree_ok_status();
 }
@@ -491,8 +490,7 @@ static iree_status_t loom_bytecode_emit_parameterized_attr_payload(
 static iree_status_t loom_bytecode_emit_attr_value_at_depth(
     iree_string_builder_t* builder, loom_bytecode_numbering_t* numbering,
     loom_bytecode_value_numbering_t* value_numbering, loom_attribute_t attr,
-    const loom_attr_descriptor_t* descriptor, uint8_t aggregate_depth,
-    bool completed_types) {
+    const loom_attr_descriptor_t* descriptor, uint8_t aggregate_depth) {
   switch (attr.kind) {
     case LOOM_ATTR_I64: {
       IREE_RETURN_IF_ERROR(
@@ -627,27 +625,14 @@ static iree_status_t loom_bytecode_emit_attr_value_at_depth(
             "type attribute id %u out of range (module has %" PRIhsz " types)",
             (unsigned)attr.type_id, numbering->module->types.count);
       }
-      loom_type_t type =
-          loom_type_table_get(&numbering->module->types, attr.type_id);
       uint32_t type_writer_id = 0;
-      uint32_t storage_node = 0;
-      IREE_RETURN_IF_ERROR(loom_bytecode_numbering_intern_type(
-          numbering, type, &type_writer_id, &storage_node));
+      IREE_RETURN_IF_ERROR(loom_bytecode_numbering_intern_module_type(
+          numbering, attr.type_id, &type_writer_id));
       IREE_RETURN_IF_ERROR(
           loom_bytecode_emit_u8(builder, LOOM_BYTECODE_ATTR_TYPE));
       const uint64_t reference =
-          completed_types
-              ? loom_bytecode_scoped_type_reference(numbering, storage_node)
-          : value_numbering
-              ? (numbering->types.index.nodes[storage_node].has_bindings
-                     ? 1
-                     : ((uint64_t)type_writer_id << 1))
-              : type_writer_id;
+          loom_bytecode_scoped_type_reference(numbering, attr.type_id);
       IREE_RETURN_IF_ERROR(loom_bytecode_emit_uvarint(builder, reference));
-      if (value_numbering && !completed_types) {
-        IREE_RETURN_IF_ERROR(loom_bytecode_emit_type_bindings(
-            builder, numbering, value_numbering, storage_node));
-      }
       break;
     }
     case LOOM_ATTR_PREDICATE_LIST: {
@@ -717,7 +702,7 @@ static iree_status_t loom_bytecode_emit_attr_value_at_depth(
             loom_bytecode_emit_uvarint(builder, key_writer_id));
         IREE_RETURN_IF_ERROR(loom_bytecode_emit_attr_value_at_depth(
             builder, numbering, value_numbering, entry->value, NULL,
-            aggregate_depth + 1, completed_types));
+            aggregate_depth + 1));
       }
       break;
     }
@@ -733,7 +718,7 @@ static iree_status_t loom_bytecode_emit_attr_value_at_depth(
           loom_bytecode_emit_u8(builder, LOOM_BYTECODE_ATTR_PARAMETERIZED));
       IREE_RETURN_IF_ERROR(loom_bytecode_emit_parameterized_attr_payload(
           builder, numbering, value_numbering, attr, descriptor,
-          LOOM_ATTR_PARAMETERIZED, aggregate_depth, completed_types));
+          LOOM_ATTR_PARAMETERIZED, aggregate_depth));
       break;
     }
     case LOOM_ATTR_PARAMETERIZED_ARRAY: {
@@ -752,8 +737,7 @@ static iree_status_t loom_bytecode_emit_attr_value_at_depth(
       for (uint16_t i = 0; i < attr.count; ++i) {
         IREE_RETURN_IF_ERROR(loom_bytecode_emit_parameterized_attr_payload(
             builder, numbering, value_numbering, attr.parameterized_array[i],
-            descriptor, LOOM_ATTR_PARAMETERIZED_ARRAY, aggregate_depth + 1,
-            completed_types));
+            descriptor, LOOM_ATTR_PARAMETERIZED_ARRAY, aggregate_depth + 1));
       }
       break;
     }
@@ -762,15 +746,6 @@ static iree_status_t loom_bytecode_emit_attr_value_at_depth(
                               "unsupported attribute kind %d", (int)attr.kind);
   }
   return iree_ok_status();
-}
-
-iree_status_t loom_bytecode_emit_attr_value(
-    iree_string_builder_t* builder, loom_bytecode_numbering_t* numbering,
-    loom_bytecode_value_numbering_t* value_numbering, loom_attribute_t attr,
-    const loom_attr_descriptor_t* descriptor) {
-  return loom_bytecode_emit_attr_value_at_depth(
-      builder, numbering, value_numbering, attr, descriptor,
-      /*aggregate_depth=*/0, /*completed_types=*/false);
 }
 
 #include "loom/format/bytecode/writer/binding_impl.inl"

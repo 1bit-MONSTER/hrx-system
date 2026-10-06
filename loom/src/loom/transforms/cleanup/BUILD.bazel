@@ -13,20 +13,102 @@ package(
 )
 
 loom_cc_library(
-    name = "branch_facts",
-    srcs = ["branch_facts.c"],
-    hdrs = ["branch_facts.h"],
-    visibility = [":__pkg__"],
+    name = "fact_refinement_policy",
+    hdrs = ["fact_refinement_policy.h"],
     deps = [
-        "//loom/src/loom/analysis:condition_facts",
         "//loom/src/loom/ir",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "fact_refinement",
+    srcs = ["fact_refinement.c"],
+    hdrs = ["fact_refinement.h"],
+    deps = [
+        ":fact_refinement_policy",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/util:adaptive_sort",
+        "//loom/src/loom/util:dominance",
+        "//loom/src/loom/util:fact_table",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
+    name = "patterns",
+    srcs = ["patterns.c"],
+    hdrs = [
+        "patterns.h",
+        "special_value_policy.h",
+    ],
+    deps = [
+        ":fact_refinement_policy",
+        "//loom/src/loom/rewrite:pattern_registry",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "pass_requirements",
+    hdrs = ["pass_requirements.h"],
+    visibility = ["//loom/src/loom/pass:__pkg__"],
+)
+
+loom_cc_library(
+    name = "pass_environment",
+    srcs = ["pass_environment.c"],
+    hdrs = ["pass_environment.h"],
+    deps = [
+        ":pass_requirements",
+        ":patterns",
+        "//loom/src/loom/pass:environment",
+        "//loom/src/loom/pass:types",
+    ],
+)
+
+loom_cc_library(
+    name = "configured",
+    srcs = ["configured.c"],
+    hdrs = ["configured.h"],
+    deps = [
+        ":fact_refinement_policy",
+        ":patterns",
+        "//loom/src/loom/ops:special_values",
+        "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/view",
+        "//loom/src/loom/transforms/index:cleanup_patterns",
+        "//loom/src/loom/transforms/index:combine_patterns",
+        "//loom/src/loom/transforms/scalar:cleanup_patterns",
+        "//loom/src/loom/transforms/scalar:combine_patterns",
+        "//loom/src/loom/transforms/scf:branch_fact_patterns",
+        "//loom/src/loom/transforms/scf:combine_patterns",
+        "//loom/src/loom/transforms/vector:cleanup_patterns",
+        "//loom/src/loom/transforms/vector:combine_patterns",
+        "//loom/src/loom/transforms/view:combine_patterns",
+    ],
+)
+
+loom_cc_test(
+    name = "patterns_test",
+    srcs = ["patterns_test.cc"],
+    deps = [
+        ":configured",
+        ":pass_environment",
+        ":pass_requirements",
+        ":patterns",
         "//loom/src/loom/ops/index",
         "//loom/src/loom/ops/scalar",
         "//loom/src/loom/ops/scf",
-        "//loom/src/loom/rewrite:greedy",
-        "//loom/src/loom/rewrite:rewriter",
-        "//loom/src/loom/util:walk",
-        "//runtime/src/iree/base",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/ops/view",
+        "//loom/src/loom/pass:environment",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 
@@ -37,14 +119,10 @@ loom_cc_library(
     visibility = ["//loom/src/loom/pass:__pkg__"],
     deps = [
         ":canonicalizer",
-        "//loom/src/loom/ops/vector",
-        "//loom/src/loom/ops/view",
+        ":pass_environment",
         "//loom/src/loom/pass:pipeline",
         "//loom/src/loom/pass:registry",
         "//loom/src/loom/pass:types",
-        "//loom/src/loom/target:math_policy",
-        "//loom/src/loom/target:pass_environment",
-        "//loom/src/loom/transforms/view:load_coalescing",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
     ],
@@ -59,23 +137,21 @@ loom_cc_library(
         "//loom/src/loom/transforms/symbol:__pkg__",
     ],
     deps = [
-        ":branch_facts",
-        "//loom/src/loom/analysis:condition_facts",
+        ":fact_refinement",
+        ":fact_refinement_policy",
+        ":patterns",
         "//loom/src/loom/analysis:symbolic_expr",
         "//loom/src/loom/ir",
         "//loom/src/loom/ir:facts",
         "//loom/src/loom/ops:op_defs",
-        "//loom/src/loom/ops:special_values",
-        "//loom/src/loom/ops:type_registry",
-        "//loom/src/loom/ops/index",
-        "//loom/src/loom/ops/scalar",
-        "//loom/src/loom/ops/vector",
         "//loom/src/loom/pass:types",
         "//loom/src/loom/pass:value_facts",
         "//loom/src/loom/rewrite:greedy",
+        "//loom/src/loom/rewrite:pattern_registry",
         "//loom/src/loom/rewrite:rewriter",
         "//loom/src/loom/rewrite:type_propagation",
         "//loom/src/loom/util:fact_table",
+        "//loom/src/loom/util:walk",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal",
     ],
@@ -86,8 +162,11 @@ loom_cc_test(
     srcs = ["canonicalizer_test.cc"],
     deps = [
         ":canonicalizer",
+        ":configured",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops:special_values",
+        "//loom/src/loom/ops/index",
         "//loom/src/loom/ops/scalar",
         "//loom/src/loom/ops/test",
         "//loom/src/loom/ops/vector",
@@ -136,11 +215,9 @@ loom_cc_library(
     srcs = ["expression_scope.c"],
     hdrs = ["expression_scope.h"],
     deps = [
-        "//loom/src/loom/analysis:ownership",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
-        "//loom/src/loom/util:cfg_dominance",
-        "//loom/src/loom/util:cfg_graph",
+        "//loom/src/loom/util:dominance",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
     ],

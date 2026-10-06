@@ -1,0 +1,105 @@
+// RUN: emit aie2p-array-plan @independent_streams
+
+// Five independent sources cross the four-channel east link from column 2.
+// Each worker uses at most two DMA engines in either direction. The routing
+// failure is physical link exhaustion, not a worker-port or storage limit.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @independent_streams() asm {
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %two = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %three = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %four = constant.u32 4 : reg<aie2p.array.scalar : index>
+  %five = constant.u32 5 : reg<aie2p.array.scalar : index>
+  %six = constant.u32 6 : reg<aie2p.array.scalar : index>
+  %workers = group %six
+  %writer0 = worker %workers, %zero, @write_two
+  %writer1 = worker %workers, %one, @write_two
+  %writer2 = worker %workers, %two, @write_one
+  %reader0 = worker %workers, %three, @read_two
+  %reader1 = worker %workers, %four, @read_two
+  %reader2 = worker %workers, %five, @read_one
+  %source0 = sender %writer0, 0 : reg<aie2p.array.sender : tile<1xi32>>
+  %source1 = sender %writer0, 1 : reg<aie2p.array.sender : tile<1xi32>>
+  %source2 = sender %writer1, 0 : reg<aie2p.array.sender : tile<1xi32>>
+  %source3 = sender %writer1, 1 : reg<aie2p.array.sender : tile<1xi32>>
+  %source4 = sender %writer2, 0 : reg<aie2p.array.sender : tile<1xi32>>
+  %sink0 = receiver %reader0, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %sink1 = receiver %reader0, 1 : reg<aie2p.array.receiver : tile<1xi32>>
+  %sink2 = receiver %reader1, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %sink3 = receiver %reader1, 1 : reg<aie2p.array.receiver : tile<1xi32>>
+  %sink4 = receiver %reader2, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %channel0 = channel %source0, %sink0, %two, %three : reg<aie2p.array.channel : tile<1xi32>>
+  %channel1 = channel %source1, %sink1, %two, %three : reg<aie2p.array.channel : tile<1xi32>>
+  %channel2 = channel %source2, %sink2, %two, %three : reg<aie2p.array.channel : tile<1xi32>>
+  %channel3 = channel %source3, %sink3, %two, %three : reg<aie2p.array.channel : tile<1xi32>>
+  // ERROR@+1: XDNA/007 {channel="4"}
+  %channel4 = channel %source4, %sink4, %two, %three : reg<aie2p.array.channel : tile<1xi32>>
+  constrain.location %writer0, %zero, %two
+  constrain.location %writer1, %one, %two
+  constrain.location %writer2, %two, %two
+  constrain.location %reader0, %four, %two
+  constrain.location %reader1, %five, %two
+  constrain.location %reader2, %six, %two
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @write_two() asm {
+  %output0 = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %output1 = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %value0 = mov.short 11
+  %value1 = mov.short 22
+  st %value0, %output0, 0
+  st %value1, %output1, 0
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @write_one() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %value = mov.short 33
+  st %value, %output, 0
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @read_two() asm {
+  %input0 = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %input1 = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %value0 = lda %input0, 0
+  %value1 = lda %input1, 0
+  %sum = add.rr %value0, %value1
+  st %sum, %input0, 0
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @read_one() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %value = lda %input, 0
+  st %value, %input, 0
+  return
+}
+
+// ====
+// RUN: emit aie2p-array-plan @worker_location
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @worker_location() asm {
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %column = constant.u32 8 : reg<aie2p.array.scalar : index>
+  %row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %group = group %one
+  %worker = worker %group, %zero, @empty_worker
+  // ERROR@+1: XDNA/013 {column="8", row="2", column_count="8", row_count="6"}
+  constrain.location %worker, %column, %row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @empty_worker() asm {
+  return
+}

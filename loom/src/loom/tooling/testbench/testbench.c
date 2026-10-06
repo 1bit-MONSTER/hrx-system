@@ -13,10 +13,10 @@
 #include "loom/ir/module.h"
 #include "loom/ops/kernel/ops.h"
 #include "loom/ops/op_defs.h"
+#include "loom/tooling/testbench/scenario/plan.h"
 
 enum {
   LOOM_TESTBENCH_INTERNAL_INDEX_INVALID = UINT32_MAX,
-  LOOM_TESTBENCH_MAX_SHAPE_RANK = 32,
 };
 
 typedef struct loom_testbench_plan_counts_t {
@@ -37,6 +37,14 @@ typedef struct loom_testbench_plan_counts_t {
   // Maximum number of structured issues this planning pass can emit.
   iree_host_size_t issue_capacity;
 } loom_testbench_plan_counts_t;
+
+typedef struct loom_testbench_record_indices_t {
+  // Index of the check.case defining this symbol, or INTERNAL_INDEX_INVALID.
+  uint32_t case_index;
+  // Index of the check.scenario defining this symbol, or
+  // INTERNAL_INDEX_INVALID.
+  uint32_t scenario_index;
+} loom_testbench_record_indices_t;
 
 void loom_testbench_plan_options_initialize(
     loom_testbench_plan_options_t* out_options) {
@@ -364,95 +372,6 @@ static bool loom_testbench_plan_parameter(
   return false;
 }
 
-static bool loom_testbench_is_value_source_op(const loom_op_t* op) {
-  return loom_check_literal_isa(op) || loom_check_generate_iota_isa(op) ||
-         loom_check_generate_fill_isa(op) ||
-         loom_check_generate_random_uniform_isa(op) ||
-         loom_check_file_read_npy_isa(op) || loom_check_tensor_view_isa(op);
-}
-
-static bool loom_testbench_plan_value_source(
-    const loom_module_t* module, const loom_op_t* op,
-    loom_testbench_value_source_plan_t* out_source) {
-  memset(out_source, 0, sizeof(*out_source));
-  out_source->op = op;
-  if (loom_check_literal_isa(op)) {
-    out_source->kind = LOOM_TESTBENCH_VALUE_SOURCE_LITERAL;
-    out_source->value_id = loom_check_literal_result(op);
-    out_source->type = loom_testbench_value_type(module, out_source->value_id);
-    out_source->literal.value = loom_check_literal_value(op);
-    return out_source->value_id < module->values.count;
-  }
-  if (loom_check_generate_iota_isa(op)) {
-    out_source->kind = LOOM_TESTBENCH_VALUE_SOURCE_IOTA;
-    out_source->value_id = loom_check_generate_iota_result(op);
-    out_source->type = loom_testbench_value_type(module, out_source->value_id);
-    out_source->iota.offset = loom_check_generate_iota_offset(op);
-    out_source->iota.step = loom_check_generate_iota_step(op);
-    if (loom_check_generate_iota_has_period(op)) {
-      int64_t period = loom_check_generate_iota_period(op);
-      if (period <= 0 || (uint64_t)period > (uint64_t)IREE_HOST_SIZE_MAX) {
-        return false;
-      }
-      out_source->iota.period = (iree_host_size_t)period;
-    }
-    return out_source->value_id < module->values.count;
-  }
-  if (loom_check_generate_fill_isa(op)) {
-    out_source->kind = LOOM_TESTBENCH_VALUE_SOURCE_FILL;
-    out_source->value_id = loom_check_generate_fill_result(op);
-    out_source->type = loom_testbench_value_type(module, out_source->value_id);
-    out_source->fill.value = loom_check_generate_fill_value(op);
-    return out_source->value_id < module->values.count;
-  }
-  if (loom_check_generate_random_uniform_isa(op)) {
-    out_source->kind = LOOM_TESTBENCH_VALUE_SOURCE_RANDOM_UNIFORM;
-    out_source->value_id = loom_check_generate_random_uniform_result(op);
-    out_source->type = loom_testbench_value_type(module, out_source->value_id);
-    out_source->random_uniform.seed_value_id =
-        loom_check_generate_random_uniform_seed(op);
-    out_source->random_uniform.lower =
-        loom_check_generate_random_uniform_lower(op);
-    out_source->random_uniform.upper =
-        loom_check_generate_random_uniform_upper(op);
-    return out_source->value_id < module->values.count &&
-           out_source->random_uniform.seed_value_id < module->values.count;
-  }
-  if (loom_check_file_read_npy_isa(op)) {
-    out_source->kind = LOOM_TESTBENCH_VALUE_SOURCE_FILE_READ_NPY;
-    out_source->value_id = loom_check_file_read_npy_result(op);
-    out_source->type = loom_testbench_value_type(module, out_source->value_id);
-    out_source->file.path_id = loom_check_file_read_npy_path(op);
-    out_source->file.path =
-        loom_testbench_string_from_id(module, out_source->file.path_id);
-    return out_source->value_id < module->values.count &&
-           out_source->file.path_id < module->strings.count;
-  }
-  if (loom_check_tensor_view_isa(op)) {
-    out_source->kind = LOOM_TESTBENCH_VALUE_SOURCE_TENSOR_VIEW;
-    out_source->value_id = loom_check_tensor_view_result(op);
-    out_source->type = loom_testbench_value_type(module, out_source->value_id);
-    out_source->tensor_view.source_value_id = loom_check_tensor_view_source(op);
-    int64_t byte_offset = loom_check_tensor_view_byte_offset(op);
-    if (out_source->value_id >= module->values.count || byte_offset < 0 ||
-        out_source->tensor_view.source_value_id >= module->values.count) {
-      return false;
-    }
-    const loom_value_t* source_value =
-        loom_module_value(module, out_source->tensor_view.source_value_id);
-    if (loom_value_is_block_arg(source_value)) {
-      return false;
-    }
-    const loom_op_t* source_op = loom_value_def_op(source_value);
-    if (!source_op || !loom_testbench_is_value_source_op(source_op)) {
-      return false;
-    }
-    out_source->tensor_view.byte_offset = (iree_device_size_t)byte_offset;
-    return true;
-  }
-  return false;
-}
-
 static bool loom_testbench_plan_file_write(
     const loom_module_t* module, const loom_op_t* op,
     loom_testbench_file_write_plan_t* out_file_write) {
@@ -619,117 +538,6 @@ static bool loom_testbench_plan_invocation(
   }
   return loom_testbench_plan_semantic_call_invocation(module, op,
                                                       out_invocation);
-}
-
-static bool loom_testbench_is_expectation_op(const loom_op_t* op) {
-  return loom_check_expect_equal_isa(op) || loom_check_expect_bitwise_isa(op) ||
-         loom_check_expect_close_isa(op) || loom_check_expect_shape_isa(op) ||
-         loom_check_expect_isa(op) || loom_check_expect_event_isa(op);
-}
-
-static bool loom_testbench_plan_expectation(
-    const loom_module_t* module, const loom_op_t* op,
-    loom_testbench_expectation_plan_t* out_expectation) {
-  memset(out_expectation, 0, sizeof(*out_expectation));
-  out_expectation->op = op;
-  out_expectation->expected_value_id = LOOM_VALUE_ID_INVALID;
-
-  if (loom_check_expect_equal_isa(op)) {
-    out_expectation->kind = LOOM_TESTBENCH_EXPECTATION_EQUAL;
-    out_expectation->actual_value_id = loom_check_expect_equal_actual(op);
-    out_expectation->expected_value_id = loom_check_expect_equal_expected(op);
-  } else if (loom_check_expect_bitwise_isa(op)) {
-    out_expectation->kind = LOOM_TESTBENCH_EXPECTATION_BITWISE;
-    out_expectation->actual_value_id = loom_check_expect_bitwise_actual(op);
-    out_expectation->expected_value_id = loom_check_expect_bitwise_expected(op);
-  } else if (loom_check_expect_close_isa(op)) {
-    out_expectation->kind = LOOM_TESTBENCH_EXPECTATION_CLOSE;
-    out_expectation->actual_value_id = loom_check_expect_close_actual(op);
-    out_expectation->expected_value_id = loom_check_expect_close_expected(op);
-    out_expectation->close.absolute_tolerance =
-        loom_check_expect_close_atol(op);
-    out_expectation->close.relative_tolerance =
-        loom_check_expect_close_rtol(op);
-    out_expectation->close.nan_policy =
-        (loom_check_expect_close_nan_t)loom_check_expect_close_nan(op);
-    if (out_expectation->close.absolute_tolerance < 0.0 ||
-        out_expectation->close.relative_tolerance < 0.0 ||
-        out_expectation->close.nan_policy <= 0 ||
-        out_expectation->close.nan_policy >=
-            LOOM_CHECK_EXPECT_CLOSE_NAN_COUNT_) {
-      return false;
-    }
-  } else if (loom_check_expect_shape_isa(op)) {
-    out_expectation->kind = LOOM_TESTBENCH_EXPECTATION_SHAPE;
-    out_expectation->actual_value_id = loom_check_expect_shape_value(op);
-    loom_value_slice_t dimensions = loom_check_expect_shape_dims(op);
-    loom_attribute_t static_dimensions =
-        loom_check_expect_shape_static_dims(op);
-    out_expectation->shape.dimension_value_ids = dimensions.values;
-    out_expectation->shape.dimension_value_count = dimensions.count;
-    out_expectation->shape.static_dimensions = static_dimensions.i64_array;
-    out_expectation->shape.static_dimension_count = static_dimensions.count;
-  } else if (loom_check_expect_isa(op)) {
-    out_expectation->kind = LOOM_TESTBENCH_EXPECTATION_CUSTOM;
-    out_expectation->actual_value_id = loom_check_expect_actual(op);
-    out_expectation->expected_value_id = loom_check_expect_expected(op);
-    out_expectation->custom.provider_id = loom_check_expect_provider(op);
-    out_expectation->custom.provider = loom_testbench_string_from_id(
-        module, out_expectation->custom.provider_id);
-    out_expectation->custom.attrs = loom_check_expect_attrs(op);
-  } else if (loom_check_expect_event_isa(op)) {
-    out_expectation->kind = LOOM_TESTBENCH_EXPECTATION_EVENT;
-    out_expectation->actual_value_id = LOOM_VALUE_ID_INVALID;
-    out_expectation->event.provider_id = loom_check_expect_event_provider(op);
-    out_expectation->event.provider = loom_testbench_string_from_id(
-        module, out_expectation->event.provider_id);
-    out_expectation->event.attrs = loom_check_expect_event_attrs(op);
-  } else {
-    return false;
-  }
-
-  if (out_expectation->kind != LOOM_TESTBENCH_EXPECTATION_EVENT &&
-      out_expectation->actual_value_id >= module->values.count) {
-    return false;
-  }
-  out_expectation->type =
-      out_expectation->kind == LOOM_TESTBENCH_EXPECTATION_EVENT
-          ? (loom_type_t){0}
-          : loom_testbench_value_type(module, out_expectation->actual_value_id);
-
-  switch (out_expectation->kind) {
-    case LOOM_TESTBENCH_EXPECTATION_EQUAL:
-    case LOOM_TESTBENCH_EXPECTATION_BITWISE:
-    case LOOM_TESTBENCH_EXPECTATION_CLOSE:
-      return out_expectation->expected_value_id < module->values.count;
-    case LOOM_TESTBENCH_EXPECTATION_SHAPE: {
-      if (out_expectation->shape.static_dimension_count >
-          LOOM_TESTBENCH_MAX_SHAPE_RANK) {
-        return false;
-      }
-      iree_host_size_t dynamic_dimension_count = 0;
-      for (iree_host_size_t i = 0;
-           i < out_expectation->shape.static_dimension_count; ++i) {
-        if (out_expectation->shape.static_dimensions[i] == INT64_MIN) {
-          ++dynamic_dimension_count;
-        }
-      }
-      return dynamic_dimension_count ==
-                 out_expectation->shape.dimension_value_count &&
-             loom_testbench_value_ids_are_in_range(
-                 module, out_expectation->shape.dimension_value_ids,
-                 out_expectation->shape.dimension_value_count);
-    }
-    case LOOM_TESTBENCH_EXPECTATION_CUSTOM:
-      return out_expectation->expected_value_id < module->values.count &&
-             out_expectation->custom.provider_id < module->strings.count &&
-             !iree_string_view_is_empty(out_expectation->custom.provider);
-    case LOOM_TESTBENCH_EXPECTATION_EVENT:
-      return out_expectation->event.provider_id < module->strings.count &&
-             !iree_string_view_is_empty(out_expectation->event.provider);
-    default:
-      return false;
-  }
 }
 
 static bool loom_testbench_is_parameter_op(const loom_op_t* op) {
@@ -916,15 +724,17 @@ static iree_status_t loom_testbench_allocate_array(
 static void loom_testbench_append_issue(
     loom_testbench_issue_t* issues, iree_host_size_t issue_capacity,
     iree_host_size_t* inout_issue_count, loom_testbench_issue_kind_t kind,
-    iree_host_size_t case_index, iree_host_size_t benchmark_index,
-    const loom_op_t* op, loom_symbol_ref_t case_ref) {
+    iree_host_size_t case_index, iree_host_size_t scenario_index,
+    iree_host_size_t benchmark_index, const loom_op_t* op,
+    loom_symbol_ref_t record_ref) {
   IREE_ASSERT(*inout_issue_count < issue_capacity);
   loom_testbench_issue_t* issue = &issues[(*inout_issue_count)++];
   issue->kind = kind;
   issue->case_index = case_index;
+  issue->scenario_index = scenario_index;
   issue->benchmark_index = benchmark_index;
   issue->op = op;
-  issue->case_ref = case_ref;
+  issue->record_ref = record_ref;
 }
 
 static void loom_testbench_multiply_sample_count(
@@ -1007,6 +817,7 @@ static void loom_testbench_append_invocation_plan(
     loom_testbench_append_issue(
         planner->issues, planner->issue_capacity, planner->issue_count,
         LOOM_TESTBENCH_ISSUE_INVALID_INVOCATION, planner->case_index,
+        LOOM_TESTBENCH_SCENARIO_INDEX_INVALID,
         LOOM_TESTBENCH_BENCHMARK_INDEX_INVALID, op, planner->case_plan->ref);
     return;
   }
@@ -1047,6 +858,7 @@ static void loom_testbench_plan_launch_schedule(
       loom_testbench_append_issue(
           planner->issues, planner->issue_capacity, planner->issue_count,
           LOOM_TESTBENCH_ISSUE_UNSUPPORTED_CASE_BODY_OP, planner->case_index,
+          LOOM_TESTBENCH_SCENARIO_INDEX_INVALID,
           LOOM_TESTBENCH_BENCHMARK_INDEX_INVALID, op, planner->case_plan->ref);
     }
   }
@@ -1107,6 +919,7 @@ static void loom_testbench_plan_case_body(
         loom_testbench_append_issue(
             issues, issue_capacity, inout_issue_count,
             LOOM_TESTBENCH_ISSUE_UNSUPPORTED_CASE_BODY_OP, case_index,
+            LOOM_TESTBENCH_SCENARIO_INDEX_INVALID,
             LOOM_TESTBENCH_BENCHMARK_INDEX_INVALID, op, case_plan->ref);
         continue;
       }
@@ -1123,6 +936,7 @@ static void loom_testbench_plan_case_body(
           loom_testbench_append_issue(
               issues, issue_capacity, inout_issue_count,
               LOOM_TESTBENCH_ISSUE_INVALID_PARAMETER, case_index,
+              LOOM_TESTBENCH_SCENARIO_INDEX_INVALID,
               LOOM_TESTBENCH_BENCHMARK_INDEX_INVALID, op, case_plan->ref);
           continue;
         }
@@ -1140,6 +954,7 @@ static void loom_testbench_plan_case_body(
           loom_testbench_append_issue(
               issues, issue_capacity, inout_issue_count,
               LOOM_TESTBENCH_ISSUE_INVALID_VALUE_SOURCE, case_index,
+              LOOM_TESTBENCH_SCENARIO_INDEX_INVALID,
               LOOM_TESTBENCH_BENCHMARK_INDEX_INVALID, op, case_plan->ref);
         }
         continue;
@@ -1152,6 +967,7 @@ static void loom_testbench_plan_case_body(
           loom_testbench_append_issue(
               issues, issue_capacity, inout_issue_count,
               LOOM_TESTBENCH_ISSUE_INVALID_FILE_WRITE, case_index,
+              LOOM_TESTBENCH_SCENARIO_INDEX_INVALID,
               LOOM_TESTBENCH_BENCHMARK_INDEX_INVALID, op, case_plan->ref);
         }
         continue;
@@ -1174,12 +990,9 @@ static void loom_testbench_plan_case_body(
           loom_testbench_append_issue(
               issues, issue_capacity, inout_issue_count,
               LOOM_TESTBENCH_ISSUE_INVALID_EXPECTATION, case_index,
+              LOOM_TESTBENCH_SCENARIO_INDEX_INVALID,
               LOOM_TESTBENCH_BENCHMARK_INDEX_INVALID, op, case_plan->ref);
         }
-        case_plan->has_device_event_expectation |=
-            expectation->kind == LOOM_TESTBENCH_EXPECTATION_EVENT &&
-            iree_string_view_equal(expectation->event.provider,
-                                   IREE_SV("device"));
         continue;
       }
     }
@@ -1216,6 +1029,7 @@ static void loom_testbench_plan_case_body(
     loom_testbench_append_issue(
         issues, issue_capacity, inout_issue_count,
         LOOM_TESTBENCH_ISSUE_DUPLICATE_PARAMETER_NAME, case_index,
+        LOOM_TESTBENCH_SCENARIO_INDEX_INVALID,
         LOOM_TESTBENCH_BENCHMARK_INDEX_INVALID,
         case_plan->parameters[parameter_index].op, case_plan->ref);
   }
@@ -1226,29 +1040,41 @@ static void loom_testbench_plan_case_body(
   }
 }
 
-static void loom_testbench_fill_case_index_map(
+static void loom_testbench_fill_record_index_map(
     const loom_testbench_case_plan_t* cases, iree_host_size_t case_count,
-    uint32_t* symbol_to_case_index) {
+    const loom_testbench_scenario_plan_t* scenarios,
+    iree_host_size_t scenario_count,
+    loom_testbench_record_indices_t* symbol_to_record_indices) {
   for (iree_host_size_t i = 0; i < case_count; ++i) {
     if (!loom_symbol_ref_is_valid(cases[i].ref)) {
       continue;
     }
-    symbol_to_case_index[cases[i].ref.symbol_id] = (uint32_t)i;
+    symbol_to_record_indices[cases[i].ref.symbol_id].case_index = (uint32_t)i;
+  }
+  for (iree_host_size_t i = 0; i < scenario_count; ++i) {
+    if (!loom_symbol_ref_is_valid(scenarios[i].ref)) {
+      continue;
+    }
+    symbol_to_record_indices[scenarios[i].ref.symbol_id].scenario_index =
+        (uint32_t)i;
   }
 }
 
-static iree_host_size_t loom_testbench_case_index_from_ref(
-    const uint32_t* symbol_to_case_index, iree_host_size_t symbol_count,
-    loom_symbol_ref_t case_ref) {
-  if (!loom_symbol_ref_is_valid(case_ref) || case_ref.module_id != 0 ||
-      case_ref.symbol_id >= symbol_count) {
-    return LOOM_TESTBENCH_CASE_INDEX_INVALID;
+static const loom_testbench_record_indices_t*
+loom_testbench_record_indices_from_ref(
+    const loom_testbench_record_indices_t* symbol_to_record_indices,
+    iree_host_size_t symbol_count, loom_symbol_ref_t record_ref) {
+  if (!loom_symbol_ref_is_valid(record_ref) || record_ref.module_id != 0 ||
+      record_ref.symbol_id >= symbol_count) {
+    return NULL;
   }
-  uint32_t case_index = symbol_to_case_index[case_ref.symbol_id];
-  if (case_index == LOOM_TESTBENCH_INTERNAL_INDEX_INVALID) {
-    return LOOM_TESTBENCH_CASE_INDEX_INVALID;
+  const loom_testbench_record_indices_t* indices =
+      &symbol_to_record_indices[record_ref.symbol_id];
+  if (indices->case_index == LOOM_TESTBENCH_INTERNAL_INDEX_INVALID &&
+      indices->scenario_index == LOOM_TESTBENCH_INTERNAL_INDEX_INVALID) {
+    return NULL;
   }
-  return case_index;
+  return indices;
 }
 
 static bool loom_testbench_range_parameter_sample_ordinal(
@@ -1453,8 +1279,8 @@ static iree_status_t loom_testbench_plan_benchmark_assignments(
       loom_testbench_append_issue(
           issues, issue_capacity, inout_issue_count,
           LOOM_TESTBENCH_ISSUE_INVALID_BENCHMARK_ASSIGNMENT,
-          benchmark->case_index, benchmark_index, benchmark->op,
-          benchmark->case_ref);
+          benchmark->case_index, LOOM_TESTBENCH_SCENARIO_INDEX_INVALID,
+          benchmark_index, benchmark->op, benchmark->record_ref);
       continue;
     }
     iree_host_size_t parameter_index =
@@ -1464,8 +1290,8 @@ static iree_status_t loom_testbench_plan_benchmark_assignments(
       loom_testbench_append_issue(
           issues, issue_capacity, inout_issue_count,
           LOOM_TESTBENCH_ISSUE_INVALID_BENCHMARK_ASSIGNMENT,
-          benchmark->case_index, benchmark_index, benchmark->op,
-          benchmark->case_ref);
+          benchmark->case_index, LOOM_TESTBENCH_SCENARIO_INDEX_INVALID,
+          benchmark_index, benchmark->op, benchmark->record_ref);
       continue;
     }
 
@@ -1476,8 +1302,8 @@ static iree_status_t loom_testbench_plan_benchmark_assignments(
       loom_testbench_append_issue(
           issues, issue_capacity, inout_issue_count,
           LOOM_TESTBENCH_ISSUE_INVALID_BENCHMARK_ASSIGNMENT,
-          benchmark->case_index, benchmark_index, benchmark->op,
-          benchmark->case_ref);
+          benchmark->case_index, LOOM_TESTBENCH_SCENARIO_INDEX_INVALID,
+          benchmark_index, benchmark->op, benchmark->record_ref);
       continue;
     }
     parameter_sample_ordinals[parameter_index] = sample_ordinal;
@@ -1501,6 +1327,32 @@ static iree_status_t loom_testbench_plan_benchmark_assignments(
   return iree_ok_status();
 }
 
+static iree_status_t loom_testbench_scenario_sample_count(
+    const loom_testbench_scenario_plan_t* scenario,
+    iree_host_size_t* out_sample_count) {
+  iree_host_size_t trials_per_configuration = 0;
+  for (iree_host_size_t i = 0; i < scenario->trial_count; ++i) {
+    const iree_host_size_t trial_count = scenario->trials[i].trial_count;
+    if (trial_count > IREE_HOST_SIZE_MAX - trials_per_configuration) {
+      return iree_make_status(
+          IREE_STATUS_OUT_OF_RANGE,
+          "scenario '%.*s' trial domain count exceeds host limits",
+          (int)scenario->name.size, scenario->name.data);
+    }
+    trials_per_configuration += trial_count;
+  }
+  if (scenario->configuration_count != 0 &&
+      trials_per_configuration >
+          IREE_HOST_SIZE_MAX / scenario->configuration_count) {
+    return iree_make_status(
+        IREE_STATUS_OUT_OF_RANGE,
+        "scenario '%.*s' configuration and trial product exceeds host limits",
+        (int)scenario->name.size, scenario->name.data);
+  }
+  *out_sample_count = trials_per_configuration * scenario->configuration_count;
+  return iree_ok_status();
+}
+
 iree_status_t loom_testbench_plan_module(
     const loom_module_t* module, const loom_testbench_plan_options_t* options,
     iree_arena_allocator_t* arena, loom_testbench_module_plan_t* out_plan) {
@@ -1516,6 +1368,16 @@ iree_status_t loom_testbench_plan_module(
 
   loom_testbench_plan_counts_t counts = {0};
   loom_testbench_count_module(module, &counts);
+  loom_testbench_scenario_plan_counts_t scenario_counts = {0};
+  loom_testbench_count_scenario_plans(module, &scenario_counts);
+  if (scenario_counts.issue_capacity >
+      IREE_HOST_SIZE_MAX - counts.issue_capacity) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "testbench planning issue count exceeds host "
+                            "limits");
+  }
+  const iree_host_size_t issue_capacity =
+      counts.issue_capacity + scenario_counts.issue_capacity;
 
   loom_testbench_case_plan_t* cases = NULL;
   IREE_RETURN_IF_ERROR(loom_testbench_allocate_array(
@@ -1551,14 +1413,17 @@ iree_status_t loom_testbench_plan_module(
 
   loom_testbench_issue_t* issues = NULL;
   IREE_RETURN_IF_ERROR(loom_testbench_allocate_array(
-      arena, counts.issue_capacity, sizeof(*issues), (void**)&issues));
+      arena, issue_capacity, sizeof(*issues), (void**)&issues));
 
-  uint32_t* symbol_to_case_index = NULL;
+  loom_testbench_record_indices_t* symbol_to_record_indices = NULL;
   IREE_RETURN_IF_ERROR(loom_testbench_allocate_array(
-      arena, module->symbols.count, sizeof(*symbol_to_case_index),
-      (void**)&symbol_to_case_index));
+      arena, module->symbols.count, sizeof(*symbol_to_record_indices),
+      (void**)&symbol_to_record_indices));
   for (iree_host_size_t i = 0; i < module->symbols.count; ++i) {
-    symbol_to_case_index[i] = LOOM_TESTBENCH_INTERNAL_INDEX_INVALID;
+    symbol_to_record_indices[i].case_index =
+        LOOM_TESTBENCH_INTERNAL_INDEX_INVALID;
+    symbol_to_record_indices[i].scenario_index =
+        LOOM_TESTBENCH_INTERNAL_INDEX_INVALID;
   }
 
   iree_host_size_t case_count = 0;
@@ -1578,7 +1443,7 @@ iree_status_t loom_testbench_plan_module(
         case_plan->op = op;
         case_plan->name = loom_testbench_symbol_name(module, case_plan->symbol);
         case_plan->is_public =
-            loom_check_case_visibility(op) == LOOM_CHECK_CASE_VISIBILITY_PUBLIC;
+            loom_check_case_visibility(op) == LOOM_CHECK_VISIBILITY_PUBLIC;
         ++case_count;
       } else if (loom_check_benchmark_isa(op)) {
         loom_testbench_benchmark_plan_t* benchmark =
@@ -1588,8 +1453,9 @@ iree_status_t loom_testbench_plan_module(
             loom_testbench_symbol_from_ref(module, benchmark->ref);
         benchmark->op = op;
         benchmark->name = loom_testbench_symbol_name(module, benchmark->symbol);
-        benchmark->case_ref = loom_check_benchmark_case_ref(op);
+        benchmark->record_ref = loom_check_benchmark_case_ref(op);
         benchmark->case_index = LOOM_TESTBENCH_CASE_INDEX_INVALID;
+        benchmark->scenario_index = LOOM_TESTBENCH_SCENARIO_INDEX_INVALID;
         benchmark->attrs = loom_check_benchmark_attrs(op);
         benchmark->cartesian_sample_count = 1;
         benchmark->sample_count = 1;
@@ -1597,8 +1463,6 @@ iree_status_t loom_testbench_plan_module(
       }
     }
   }
-
-  loom_testbench_fill_case_index_map(cases, case_count, symbol_to_case_index);
 
   iree_host_size_t parameter_count = 0;
   iree_host_size_t value_source_count = 0;
@@ -1611,30 +1475,67 @@ iree_status_t loom_testbench_plan_module(
         module, i, max_samples_per_case, &cases[i], parameters,
         &parameter_count, value_sources, &value_source_count, file_writes,
         &file_write_count, invocations, &invocation_count, expectations,
-        &expectation_count, issues, counts.issue_capacity, &issue_count);
+        &expectation_count, issues, issue_capacity, &issue_count);
   }
+
+  const loom_testbench_scenario_plan_t* scenarios = NULL;
+  iree_host_size_t scenario_count = 0;
+  IREE_RETURN_IF_ERROR(loom_testbench_plan_scenarios(
+      module, &scenario_counts, arena, issues, issue_capacity, &issue_count,
+      &scenarios, &scenario_count));
+
+  loom_testbench_fill_record_index_map(
+      cases, case_count, scenarios, scenario_count, symbol_to_record_indices);
 
   for (iree_host_size_t i = 0; i < benchmark_count; ++i) {
     loom_testbench_benchmark_plan_t* benchmark = &benchmarks[i];
-    benchmark->case_index = loom_testbench_case_index_from_ref(
-        symbol_to_case_index, module->symbols.count, benchmark->case_ref);
-    if (benchmark->case_index == LOOM_TESTBENCH_CASE_INDEX_INVALID) {
-      loom_testbench_append_issue(issues, counts.issue_capacity, &issue_count,
-                                  LOOM_TESTBENCH_ISSUE_INVALID_BENCHMARK_CASE,
-                                  LOOM_TESTBENCH_CASE_INDEX_INVALID, i,
-                                  benchmark->op, benchmark->case_ref);
+    const loom_testbench_record_indices_t* record_indices =
+        loom_testbench_record_indices_from_ref(symbol_to_record_indices,
+                                               module->symbols.count,
+                                               benchmark->record_ref);
+    if (record_indices == NULL) {
+      loom_testbench_append_issue(issues, issue_capacity, &issue_count,
+                                  LOOM_TESTBENCH_ISSUE_INVALID_BENCHMARK_RECORD,
+                                  LOOM_TESTBENCH_CASE_INDEX_INVALID,
+                                  LOOM_TESTBENCH_SCENARIO_INDEX_INVALID, i,
+                                  benchmark->op, benchmark->record_ref);
       benchmark->sample_count = 0;
       continue;
     }
-    IREE_RETURN_IF_ERROR(loom_testbench_plan_benchmark_assignments(
-        module, i, max_samples_per_case, benchmark,
-        &cases[benchmark->case_index], arena, issues, counts.issue_capacity,
-        &issue_count));
+    if (record_indices->case_index != LOOM_TESTBENCH_INTERNAL_INDEX_INVALID) {
+      benchmark->case_index = record_indices->case_index;
+      IREE_RETURN_IF_ERROR(loom_testbench_plan_benchmark_assignments(
+          module, i, max_samples_per_case, benchmark,
+          &cases[benchmark->case_index], arena, issues, issue_capacity,
+          &issue_count));
+      continue;
+    }
+
+    benchmark->scenario_index = record_indices->scenario_index;
+    const loom_testbench_scenario_plan_t* scenario =
+        &scenarios[benchmark->scenario_index];
+    IREE_RETURN_IF_ERROR(loom_testbench_scenario_sample_count(
+        scenario, &benchmark->cartesian_sample_count));
+    benchmark->sample_count = benchmark->cartesian_sample_count;
+    if (scenario->issue_count != 0) {
+      benchmark->sample_count = 0;
+    }
+    for (iree_host_size_t assignment_index = 0;
+         assignment_index < benchmark->attrs.count; ++assignment_index) {
+      loom_testbench_append_issue(
+          issues, issue_capacity, &issue_count,
+          LOOM_TESTBENCH_ISSUE_INVALID_BENCHMARK_ASSIGNMENT,
+          LOOM_TESTBENCH_CASE_INDEX_INVALID, benchmark->scenario_index, i,
+          benchmark->op, benchmark->record_ref);
+      benchmark->sample_count = 0;
+    }
   }
 
   out_plan->module = module;
   out_plan->cases = cases;
   out_plan->case_count = case_count;
+  out_plan->scenarios = scenarios;
+  out_plan->scenario_count = scenario_count;
   out_plan->benchmarks = benchmarks;
   out_plan->benchmark_count = benchmark_count;
   out_plan->issues = issues;
@@ -1680,6 +1581,42 @@ iree_host_size_t loom_testbench_benchmark_sample_case_ordinal(
     case_stride *= parameter->sample_count;
   }
   return case_sample_ordinal;
+}
+
+loom_testbench_scenario_sample_coordinate_t
+loom_testbench_benchmark_sample_scenario_coordinate(
+    const loom_testbench_scenario_plan_t* scenario_plan,
+    const loom_testbench_benchmark_plan_t* benchmark_plan,
+    iree_host_size_t benchmark_sample_ordinal) {
+  IREE_ASSERT(benchmark_plan->case_index == LOOM_TESTBENCH_CASE_INDEX_INVALID);
+  IREE_ASSERT(benchmark_plan->scenario_index !=
+              LOOM_TESTBENCH_SCENARIO_INDEX_INVALID);
+  IREE_ASSERT(benchmark_sample_ordinal < benchmark_plan->sample_count);
+  IREE_ASSERT(scenario_plan->configuration_count != 0);
+  IREE_ASSERT(
+      benchmark_plan->sample_count % scenario_plan->configuration_count == 0);
+
+  const iree_host_size_t trials_per_configuration =
+      benchmark_plan->sample_count / scenario_plan->configuration_count;
+  loom_testbench_scenario_sample_coordinate_t coordinate = {
+      .configuration_ordinal =
+          benchmark_sample_ordinal / trials_per_configuration,
+  };
+  iree_host_size_t ordinal =
+      benchmark_sample_ordinal % trials_per_configuration;
+  for (iree_host_size_t trial_index = 0;
+       trial_index < scenario_plan->trial_count; ++trial_index) {
+    const iree_host_size_t trial_count =
+        scenario_plan->trials[trial_index].trial_count;
+    if (ordinal < trial_count) {
+      coordinate.trial_index = trial_index;
+      coordinate.trial_ordinal = ordinal;
+      return coordinate;
+    }
+    ordinal -= trial_count;
+  }
+  IREE_ASSERT_UNREACHABLE("planned scenario sample outside its trial domains");
+  IREE_BUILTIN_UNREACHABLE();
 }
 
 static iree_status_t loom_testbench_range_sample_value(

@@ -218,22 +218,24 @@ static inline iree_status_t loom_bytecode_reader_decode_dependency(
     iree_string_view_t record_name, iree_host_size_t record_index,
     uint8_t source_root_region_count,
     uint8_t* out_source_root_region_index_plus_one, uint32_t* out_symbol_index,
-    loom_symbol_interface_flags_t* out_target_interfaces) {
+    loom_symbol_reference_contract_t* out_contract) {
   IREE_RETURN_IF_ERROR(loom_bytecode_reader_decode_reference_edge(
       reader, table, record_name, record_index, source_root_region_count,
       out_source_root_region_index_plus_one, out_symbol_index));
-  const uint64_t target_interfaces_offset =
+  const uint64_t dependency_contract_offset =
       loom_bytecode_reader_cursor_absolute_position(&table->cursor);
-  uint64_t target_interfaces = 0;
+  uint64_t dependency_contract = 0;
   IREE_RETURN_IF_ERROR(loom_bytecode_reader_read_uvarint(
-      &reader->decoder, &table->cursor, &target_interfaces));
-  if ((target_interfaces & ~((uint64_t)LOOM_SYMBOL_INTERFACE_FLAG_MASK)) != 0) {
+      &reader->decoder, &table->cursor, &dependency_contract));
+  if (dependency_contract > UINT16_MAX ||
+      !loom_symbol_reference_contract_is_valid(
+          (loom_symbol_reference_contract_t)dependency_contract)) {
     return loom_bytecode_reader_emit_invalid_field(
         &reader->decoder, IREE_SV("SYMBOL_REFERENCES"), record_name,
-        record_index, IREE_SV("target_interfaces"), target_interfaces_offset,
-        IREE_SV("dependency_target_interfaces_are_invalid"));
+        record_index, IREE_SV("dependency_contract"),
+        dependency_contract_offset, IREE_SV("dependency_contract_is_invalid"));
   }
-  *out_target_interfaces = (loom_symbol_interface_flags_t)target_interfaces;
+  *out_contract = (loom_symbol_reference_contract_t)dependency_contract;
   return iree_ok_status();
 }
 
@@ -307,11 +309,11 @@ static iree_status_t loom_bytecode_reader_read_symbol_references(
        ++i, ++dependency_index) {
     uint8_t source_root_region_index_plus_one = 0;
     uint32_t dependency = 0;
-    loom_symbol_interface_flags_t target_interfaces = 0;
+    loom_symbol_reference_contract_t dependency_contract = 0;
     IREE_RETURN_IF_ERROR(loom_bytecode_reader_decode_dependency(
         reader, &table, IREE_SV("module_dependency"), i,
         /*source_root_region_count=*/0, &source_root_region_index_plus_one,
-        &dependency, &target_interfaces));
+        &dependency, &dependency_contract));
   }
 
   iree_host_size_t template_demand_index = 0;
@@ -334,10 +336,11 @@ static iree_status_t loom_bytecode_reader_read_symbol_references(
          ++i, ++dependency_index) {
       uint8_t source_root_region_index_plus_one = 0;
       uint32_t dependency = 0;
-      loom_symbol_interface_flags_t target_interfaces = 0;
+      loom_symbol_reference_contract_t dependency_contract = 0;
       IREE_RETURN_IF_ERROR(loom_bytecode_reader_decode_dependency(
           reader, &table, IREE_SV("dependency"), i, source_root_region_count,
-          &source_root_region_index_plus_one, &dependency, &target_interfaces));
+          &source_root_region_index_plus_one, &dependency,
+          &dependency_contract));
     }
 
     const uint64_t template_demand_count_offset =
@@ -889,10 +892,10 @@ static iree_status_t loom_bytecode_reader_index_symbol_references(
         retained_arena, table.dependency_count,
         sizeof(*metadata->dependency_symbol_indices),
         (void**)&metadata->dependency_symbol_indices));
-    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        retained_arena, table.dependency_count,
-        sizeof(*metadata->dependency_target_interfaces),
-        (void**)&metadata->dependency_target_interfaces));
+    IREE_RETURN_IF_ERROR(
+        iree_arena_allocate_array(retained_arena, table.dependency_count,
+                                  sizeof(*metadata->dependency_contracts),
+                                  (void**)&metadata->dependency_contracts));
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
         retained_arena, table.dependency_count,
         sizeof(*metadata->dependency_source_root_region_indices_plus_one),
@@ -932,7 +935,7 @@ static iree_status_t loom_bytecode_reader_index_symbol_references(
         &metadata
              ->dependency_source_root_region_indices_plus_one[dependency_index],
         &metadata->dependency_symbol_indices[dependency_index],
-        &metadata->dependency_target_interfaces[dependency_index]));
+        &metadata->dependency_contracts[dependency_index]));
   }
 
   iree_host_size_t template_demand_index = 0;
@@ -962,7 +965,7 @@ static iree_status_t loom_bytecode_reader_index_symbol_references(
           &metadata->dependency_source_root_region_indices_plus_one
                [dependency_index],
           &metadata->dependency_symbol_indices[dependency_index],
-          &metadata->dependency_target_interfaces[dependency_index]));
+          &metadata->dependency_contracts[dependency_index]));
     }
 
     const uint64_t template_demand_count_offset =

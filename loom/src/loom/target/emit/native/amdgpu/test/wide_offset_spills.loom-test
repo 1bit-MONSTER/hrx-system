@@ -52,11 +52,11 @@ low.func.def target<amdgpu.gfx12_5.generic.core>(@target) @reload_wide_address(%
   scratch_load_b64 v[4:5], off, off offset:8 nv:0 scope:0 th:0
   s_mov_b64 exec, s[0:1]
   s_wait_loadcnt loadcnt(0)
-  v_add_co_u32 v0, s[0:1], s2, v4
-  v_mov_b32_copy v1, s3
+  v_add_co_u32 v4, s[0:1], s2, v4
+  v_mov_b32_copy v6, s3
   s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
-  v_add_co_ci_u32 v1, s[0:1], v1, v5, s[0:1]
-  global_load_b32 v4, v[0:1], off offset:0
+  v_add_co_ci_u32 v5, s[0:1], v6, v5, s[0:1]
+  global_load_b32 v6, v[4:5], off offset:0
   s_wait_loadcnt loadcnt(0)
   s_endpgm
 
@@ -172,11 +172,11 @@ low.func.def target<amdgpu.rdna4.gfx1250_a0.core>(@target) @reload_wide_address(
   scratch_load_b64 v[4:5], off, off offset:8 nv:0 scope:0 th:0
   s_mov_b64 exec, s[0:1]
   s_wait_loadcnt loadcnt(0)
-  v_add_co_u32 v0, s[0:1], s2, v4
-  v_mov_b32_copy v1, s3
+  v_add_co_u32 v4, s[0:1], s2, v4
+  v_mov_b32_copy v6, s3
   s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
-  v_add_co_ci_u32 v1, s[0:1], v1, v5, s[0:1]
-  global_load_b32 v4, v[0:1], off offset:0
+  v_add_co_ci_u32 v5, s[0:1], v6, v5, s[0:1]
+  global_load_b32 v6, v[4:5], off offset:0
   s_wait_loadcnt loadcnt(0)
   s_endpgm
 
@@ -231,11 +231,11 @@ low.func.def target<amdgpu.rdna4.gfx1251.core>(@target) @reload_wide_address(%un
   scratch_load_b64 v[4:5], off, off offset:8 nv:0 scope:0 th:0
   s_mov_b64 exec, s[0:1]
   s_wait_loadcnt loadcnt(0)
-  v_add_co_u32 v0, s[0:1], s2, v4
-  v_mov_b32_copy v1, s3
+  v_add_co_u32 v4, s[0:1], s2, v4
+  v_mov_b32_copy v6, s3
   s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
-  v_add_co_ci_u32 v1, s[0:1], v1, v5, s[0:1]
-  global_load_b32 v4, v[0:1], off offset:0
+  v_add_co_ci_u32 v5, s[0:1], v6, v5, s[0:1]
+  global_load_b32 v6, v[4:5], off offset:0
   s_wait_loadcnt loadcnt(0)
   s_endpgm
 
@@ -290,11 +290,11 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @reload_wide_address(%un
   scratch_load_b64 v[4:5], off, off offset:8 nv:0 scope:0 th:0
   s_mov_b64 exec, s[0:1]
   s_wait_loadcnt loadcnt(0)
-  v_add_co_u32 v0, s[0:1], s2, v4
-  v_mov_b32_copy v1, s3
+  v_add_co_u32 v4, s[0:1], s2, v4
+  v_mov_b32_copy v6, s3
   s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
-  v_add_co_ci_u32 v1, s[0:1], v1, v5, s[0:1]
-  global_load_b32 v4, v[0:1], off offset:0
+  v_add_co_ci_u32 v5, s[0:1], v6, v5, s[0:1]
+  global_load_b32 v6, v[4:5], off offset:0
   s_wait_loadcnt loadcnt(0)
   s_endpgm
 

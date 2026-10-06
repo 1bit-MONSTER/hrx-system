@@ -51,6 +51,7 @@ enum iree_hal_amdgpu_loom_site_table_source_kind_e {
 };
 
 enum iree_hal_amdgpu_loom_op_kind_e {
+  IREE_HAL_AMDGPU_LOOM_OP_KERNEL_ASSERT = (0x10u << 8) | 41u,
   IREE_HAL_AMDGPU_LOOM_OP_SANITIZER_ASSERT_ACCESS = (0x1Du << 8) | 0u,
   IREE_HAL_AMDGPU_LOOM_OP_SANITIZER_ASSERT_VALUE = (0x1Du << 8) | 1u,
   IREE_HAL_AMDGPU_LOOM_OP_SANITIZER_ASSERT_OP = (0x1Du << 8) | 2u,
@@ -62,6 +63,8 @@ enum iree_hal_amdgpu_loom_op_kind_e {
 static iree_string_view_t iree_hal_amdgpu_source_context_loom_op_kind_name(
     uint32_t op_kind) {
   switch (op_kind) {
+    case IREE_HAL_AMDGPU_LOOM_OP_KERNEL_ASSERT:
+      return IREE_SV("kernel.assert");
     case IREE_HAL_AMDGPU_LOOM_OP_SANITIZER_ASSERT_ACCESS:
       return IREE_SV("sanitizer.assert.access");
     case IREE_HAL_AMDGPU_LOOM_OP_SANITIZER_ASSERT_VALUE:

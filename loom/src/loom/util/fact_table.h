@@ -50,8 +50,22 @@ extern "C" {
 //===----------------------------------------------------------------------===//
 
 typedef struct loom_value_fact_region_entry_t loom_value_fact_region_entry_t;
+typedef struct loom_value_fact_condition_scratch_t
+    loom_value_fact_condition_scratch_t;
+typedef struct loom_value_fact_exact_lane_origin_entry_t
+    loom_value_fact_exact_lane_origin_entry_t;
+typedef struct loom_condition_edge_projection_t
+    loom_condition_edge_projection_t;
 typedef struct loom_cfg_graph_t loom_cfg_graph_t;
 typedef struct loom_target_facts_t loom_target_facts_t;
+
+// Scalar values that materialize every element of one aggregate value.
+typedef struct loom_value_fact_uniform_element_origin_t {
+  // Scalar value with the aggregate element type.
+  loom_value_id_t scalar_value_id;
+  // Scalar value preserving the elements before an exact float extension.
+  loom_value_id_t exact_scalar_value_id;
+} loom_value_fact_uniform_element_origin_t;
 
 // Static strided logical-lane origin for one aggregate value. Result lane N is
 // derived from source lane source_lane_offset + N * source_lane_stride. The
@@ -65,6 +79,20 @@ typedef struct loom_value_fact_static_lane_origin_t {
   // Logical source lane stride between adjacent result lanes.
   uint32_t source_lane_stride;
 } loom_value_fact_static_lane_origin_t;
+
+// Static strided logical-lane origin preserving each lane's floating-point
+// value exactly. Result lane N has the same value as source lane
+// source_lane_offset + N * source_lane_stride after conversion to the result
+// element type. The relation preserves signed zero and infinity; it does not
+// promise NaN payload identity.
+typedef struct loom_value_fact_exact_lane_origin_t {
+  // Aggregate source value containing the exact lane values.
+  loom_value_id_t source_value_id;
+  // First logical source lane used by result lane zero.
+  uint32_t source_lane_offset;
+  // Logical source lane stride between adjacent result lanes.
+  uint32_t source_lane_stride;
+} loom_value_fact_exact_lane_origin_t;
 
 // Uniform scalar scale applied lanewise to one aggregate value. Result lane N
 // is source lane N multiplied by scale_value_id.
@@ -158,6 +186,12 @@ struct loom_value_fact_table_t {
   // edits. The incremental rewriter cannot maintain their guard dependencies.
   bool has_conditioned_results;
 
+  // At least one structured region entry has Boolean branch semantics.
+  bool has_boolean_branch_regions;
+
+  // Structured region entries with visible projected integer relations.
+  uint32_t condition_integer_projection_count;
+
   // Canonical SSA identities retained while computing value facts. Only
   // declared identity operations populate this map; numeric equality does not.
   struct {
@@ -199,10 +233,10 @@ struct loom_value_fact_table_t {
   } extensions;
 
   // Uniform-element materialization origins keyed by aggregate value ID. An
-  // entry is LOOM_VALUE_ID_INVALID when no scalar SSA origin is known.
+  // entry with scalar_value_id == LOOM_VALUE_ID_INVALID has no known origin.
   struct {
     // Dense origin entries indexed by aggregate value ID.
-    loom_value_id_t* entries;
+    loom_value_fact_uniform_element_origin_t* entries;
     // Allocated origin entry count.
     iree_host_size_t capacity;
     // Aggregate value IDs with origins defined in the current populated scope.
@@ -227,6 +261,20 @@ struct loom_value_fact_table_t {
     // Allocated touched_values entry count.
     iree_host_size_t touched_capacity;
   } static_lane_origins;
+
+  // Exact logical-lane value origins keyed by aggregate value ID. This is
+  // separate from static_lane_origins because provenance may cross a lossy
+  // conversion while the nearest exact numeric origin stops at that
+  // conversion. Sparse storage makes the cost proportional to known exact
+  // origins instead of the highest module-wide value ID.
+  struct {
+    // Sparse entries sorted by aggregate value ID.
+    loom_value_fact_exact_lane_origin_entry_t* entries;
+    // Number of defined entries in the current populated scope.
+    iree_host_size_t count;
+    // Allocated sparse entry count retained across populated scopes.
+    iree_host_size_t capacity;
+  } exact_lane_origins;
 
   // Uniform scalar-scale origins keyed by aggregate value ID. An entry with
   // source_value_id == LOOM_VALUE_ID_INVALID has no known scaled origin.
@@ -281,6 +329,17 @@ struct loom_value_fact_table_t {
     iree_host_size_t capacity;
   } select_dependencies;
 
+  // Exact predicate-bearing identities awaiting path-local fact transport.
+  // The pointer array is allocated only when such an identity is discovered.
+  struct {
+    // Operations observed exact during scope population or incremental change.
+    loom_op_t** ops;
+    // Number of pending observations. Cyclic solves may repeat an operation.
+    iree_host_size_t count;
+    // Allocated operation pointer count.
+    iree_host_size_t capacity;
+  } exact_relations;
+
   // Reusable scratch buffers for fact inference calls. Allocated on first use,
   // grown only when an op needs more slots. Never shrinks. Old buffers are
   // abandoned in the arena and freed in bulk with the arena.
@@ -306,6 +365,8 @@ struct loom_value_fact_table_t {
       // Allocated ordinal entry count.
       iree_host_size_t capacity;
     } alias_ordinals;
+    // Lazily allocated query scratch for condition-loop edge projections.
+    loom_value_fact_condition_scratch_t* condition;
   } scratch;
 };
 
@@ -388,6 +449,36 @@ iree_status_t loom_value_fact_table_set_region_temporal_scope(
 loom_value_facts_t loom_value_fact_table_block_temporal_scope(
     const loom_value_fact_table_t* table, const loom_block_t* block);
 
+// Publishes condition facts and their SSA mapping onto |region| arguments. The
+// projection must use the table's transient arena and remains producer-owned.
+// Recomputing a structured summary updates it in place.
+iree_status_t loom_value_fact_table_set_region_condition_projection(
+    loom_value_fact_table_t* table, const loom_region_t* region,
+    loom_condition_edge_projection_t* projection);
+
+// Retains the Boolean selector truth established upon entry to |region|.
+// Repeated publication of the same immutable interface role is idempotent.
+iree_status_t loom_value_fact_table_set_region_branch_truth(
+    loom_value_fact_table_t* table, const loom_region_t* region,
+    loom_region_branch_truth_t truth);
+
+// Returns the Boolean selector truth established upon entry to |region|.
+loom_region_branch_truth_t loom_value_fact_table_lookup_region_branch_truth(
+    const loom_value_fact_table_t* table, const loom_region_t* region);
+
+// Returns retained condition-projection storage for |region|, or NULL when no
+// condition facts have been established. Recomputing a condition may leave the
+// projection empty so later rewrites can reuse its capacity.
+const loom_condition_edge_projection_t*
+loom_value_fact_table_lookup_region_condition_projection(
+    const loom_value_fact_table_t* table, const loom_region_t* region);
+
+// Returns mutable retained condition-projection storage for an owning fact
+// producer. Consumers query the const view above.
+loom_condition_edge_projection_t*
+loom_value_fact_table_lookup_mutable_region_condition_projection(
+    loom_value_fact_table_t* table, const loom_region_t* region);
+
 // Receives a borrowed graph from a populated fact scope. The callback must not
 // mutate that scope or its graphs; any retained pointer has the same lifetime
 // as lookup_cfg_graph. A failing callback terminates enumeration.
@@ -414,18 +505,24 @@ iree_status_t loom_value_fact_table_define(loom_value_fact_table_t* table,
 void loom_value_fact_table_undefine(loom_value_fact_table_t* table,
                                     loom_value_id_t value_id);
 
-// Defines |scalar_value_id| as the SSA value that can materialize every element
-// of aggregate |value_id|. The relation itself is the materialization proof:
-// some values also carry loom_value_fact_uniform_element_t, while others need
-// the fact extension slot for a type-owned domain such as fragment metadata.
+// Defines the scalar SSA values that materialize every element of aggregate
+// |value_id|. |scalar_value_id| has the aggregate element type, while
+// |exact_scalar_value_id| may have a narrower floating-point type whose value
+// is preserved exactly by extension to the aggregate element type.
 iree_status_t loom_value_fact_table_define_uniform_element_origin(
     loom_value_fact_table_t* table, loom_value_id_t value_id,
-    loom_value_id_t scalar_value_id);
+    loom_value_id_t scalar_value_id, loom_value_id_t exact_scalar_value_id);
 
 // Returns true when |value_id| has a known scalar SSA origin that materializes
 // every element. The query validates that |value_id| is shaped, the origin is
 // scalar, and both have matching element types.
 bool loom_value_fact_table_query_uniform_element_origin(
+    const loom_value_fact_table_t* table, const loom_module_t* module,
+    loom_value_id_t value_id, loom_value_id_t* out_scalar_value_id);
+
+// Returns the exact scalar SSA origin for every element of |value_id|. The
+// origin may have a narrower floating-point type than the aggregate.
+bool loom_value_fact_table_query_exact_uniform_element_origin(
     const loom_value_fact_table_t* table, const loom_module_t* module,
     loom_value_id_t value_id, loom_value_id_t* out_scalar_value_id);
 
@@ -443,6 +540,21 @@ iree_status_t loom_value_fact_table_define_static_lane_origin(
 bool loom_value_fact_table_query_static_lane_origin(
     const loom_value_fact_table_t* table, const loom_module_t* module,
     loom_value_id_t value_id, loom_value_fact_static_lane_origin_t* out_origin);
+
+// Defines an exact strided source-lane value origin for aggregate |value_id|.
+// The relation is validated by the query API against the current module value
+// types and static lane counts.
+iree_status_t loom_value_fact_table_define_exact_lane_origin(
+    loom_value_fact_table_t* table, loom_value_id_t value_id,
+    loom_value_fact_exact_lane_origin_t origin);
+
+// Returns true when |value_id| has a known exact source-lane value origin. The
+// query validates that both values are vectors with static lane counts and an
+// in-bounds strided source lane mapping. Element types may differ because an
+// exact floating-point extension preserves the represented value.
+bool loom_value_fact_table_query_exact_lane_origin(
+    const loom_value_fact_table_t* table, const loom_module_t* module,
+    loom_value_id_t value_id, loom_value_fact_exact_lane_origin_t* out_origin);
 
 // Defines a value as the lanewise multiplication of |origin.source_value_id|
 // and scalar |origin.scale_value_id|. The relation is a materialization proof
@@ -486,8 +598,33 @@ void loom_value_fact_table_contextual_query_values(
 // itself when the table is NULL or no identity has been established. This is
 // an O(1) lookup, not an IR traversal. Identities have the same populated-scope
 // lifetime and mutation/recomputation contract as numeric facts.
-loom_value_id_t loom_value_fact_table_query_identity(
-    const loom_value_fact_table_t* table, loom_value_id_t value_id);
+static inline loom_value_id_t loom_value_fact_table_query_identity(
+    const loom_value_fact_table_t* table, loom_value_id_t value_id) {
+  if (!table || value_id >= table->identities.capacity) {
+    return value_id;
+  }
+  const loom_value_id_t identity = table->identities.entries[value_id];
+  return identity != LOOM_VALUE_ID_INVALID ? identity : value_id;
+}
+
+// Returns true when exact predicate-bearing identities await consumption.
+static inline bool loom_value_fact_table_has_pending_exact_relations(
+    const loom_value_fact_table_t* table) {
+  return table && table->exact_relations.count > 0;
+}
+
+// Returns exact predicate-bearing identity operations that still relate at
+// least one dynamic SSA value. The borrowed observation array may contain the
+// same operation more than once after a cyclic solve and remains valid until
+// the transient fact arena is reset. No storage is allocated when empty.
+void loom_value_fact_table_pending_exact_relations(
+    const loom_value_fact_table_t* table, loom_op_t* const** out_ops,
+    iree_host_size_t* out_op_count);
+
+// Marks every currently pending exact-relation observation as consumed. The
+// pointer storage remains available for later incremental observations.
+void loom_value_fact_table_clear_pending_exact_relations(
+    loom_value_fact_table_t* table);
 
 // Begins increasing-order iteration over select conditions transitively
 // controlling |value_id|. Returns the canonical set identity, or zero when

@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 // ABI version for descriptor sets consumed by this header.
-#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 43u
+#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 51u
 
 // Sentinel for absent target-family or descriptor-set stable IDs.
 #define LOOM_LOW_STABLE_ID_NONE UINT64_C(0)
@@ -146,16 +146,33 @@ typedef uint16_t loom_low_operand_flags_t;
 // Operand row describes zero or more trailing packet operands. Variadic rows
 // are explicit packet operands and must terminate the descriptor operand list.
 #define LOOM_LOW_OPERAND_FLAG_VARIADIC ((uint16_t)1u << 9)
+// State only masks independent lane execution. Widening the mask preserves
+// results in previously active lanes; added lanes cannot influence those
+// results. Unlike SCHEDULE_ONLY_STATE, this excludes rounding modes and
+// cross-lane value dependencies.
+#define LOOM_LOW_OPERAND_FLAG_EXECUTION_MASK ((uint16_t)1u << 10)
+// State write only removes lanes from its incoming execution mask. The same
+// descriptor also reads that mask. This licenses widening lane-local work
+// across this write, not across arbitrary mask replacement or restoration.
+#define LOOM_LOW_OPERAND_FLAG_NARROWS_EXECUTION_MASK ((uint16_t)1u << 11)
+// Implicit state update commutes with every other marked update to the same
+// architectural register, for all legal inputs and incoming state. This does
+// not permit removing, duplicating, or speculating execution. Reads and
+// unmarked writes still observe source order; native write events remain.
+#define LOOM_LOW_OPERAND_FLAG_COMMUTATIVE_STATE_UPDATE ((uint16_t)1u << 12)
 
 // Bitset of register-class alternative flags.
-typedef uint16_t loom_low_reg_class_alt_flags_t;
+typedef uint8_t loom_low_reg_class_alt_flags_t;
 
 // Register-class alternative is preferred by target lowering.
-#define LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED ((uint16_t)1u << 0)
+#define LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED ((uint8_t)1u << 0)
 // Alternative represents an immediate or literal instead of a register class.
-#define LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE ((uint16_t)1u << 1)
+#define LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE ((uint8_t)1u << 1)
 // Alternative is legal only after physical register assignment.
-#define LOOM_LOW_REG_CLASS_ALT_FLAG_PHYSICAL_ONLY ((uint16_t)1u << 2)
+#define LOOM_LOW_REG_CLASS_ALT_FLAG_PHYSICAL_ONLY ((uint8_t)1u << 2)
+// Input storage remains live through result writes in the alternative's
+// selected execution mode. Other register alternatives retain ordinary timing.
+#define LOOM_LOW_REG_CLASS_ALT_FLAG_LATE_READ ((uint8_t)1u << 3)
 
 // Bitset of register-class flags.
 typedef uint16_t loom_low_reg_class_flags_t;
@@ -225,7 +242,9 @@ typedef enum loom_low_effect_kind_e {
   LOOM_LOW_EFFECT_KIND_WRITE = 2,
   // Descriptor may call outside the current low region.
   LOOM_LOW_EFFECT_KIND_CALL = 3,
-  // Descriptor is a scheduling or memory barrier.
+  // Descriptor orders memory or protocol dependencies. This is a compiler
+  // scheduling constraint, not an instruction classification or execution
+  // scope.
   LOOM_LOW_EFFECT_KIND_BARRIER = 4,
   // Descriptor observes or mutates a target counter.
   LOOM_LOW_EFFECT_KIND_COUNTER = 5,
@@ -315,6 +334,9 @@ typedef enum loom_low_constraint_kind_e {
   // Two descriptor values select the same candidate ordinal from distinct
   // explicit physical-register classes.
   LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_ORDINAL = 7,
+  // Two register values carry the same semantic value type. Their carrier
+  // classes and storage remain independent.
+  LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE = 8,
 } loom_low_constraint_kind_t;
 
 // Bitset of descriptor constraint flags.
@@ -474,6 +496,19 @@ typedef uint16_t loom_low_descriptor_flags_t;
 #define LOOM_LOW_DESCRIPTOR_FLAG_UNIQUE_IDENTITY ((uint16_t)1u << 8)
 // Descriptor has enum immediates whose named input values require resolution.
 #define LOOM_LOW_DESCRIPTOR_FLAG_ENUM_IMMEDIATES ((uint16_t)1u << 9)
+// Total, effect-free execution for every bit pattern of the explicit inputs.
+// No traps, memory accesses, architectural state writes, or collective lane
+// behavior are permitted. Implicit execution-mask reads still constrain where
+// this operation can move; this flag alone does not authorize state crossings.
+#define LOOM_LOW_DESCRIPTOR_FLAG_SAFE_TO_SPECULATE ((uint16_t)1u << 10)
+// The sole effect is deterministic replacement of one whole architectural
+// state register from explicit SSA inputs and immediates. There are no implicit
+// state reads, traps, memory or collective effects. An optional SSA result is
+// the assigned state. Repeating an identical assignment without an intervening
+// clobber is redundant; the first assignment remains an architectural effect.
+#define LOOM_LOW_DESCRIPTOR_FLAG_STATE_ASSIGNMENT ((uint16_t)1u << 11)
+// At least one input register alternative may read through result writes.
+#define LOOM_LOW_DESCRIPTOR_FLAG_LATE_READ ((uint16_t)1u << 12)
 
 // Target-neutral semantic classes attached to generated low descriptors.
 // Multiple classes may be present when a packet contributes to several
@@ -522,8 +557,11 @@ typedef uint32_t loom_low_instruction_class_flags_t;
 #define LOOM_LOW_INSTRUCTION_CLASS_FLAG_ATOMIC ((uint32_t)1u << 19)
 // Descriptor contributes a branch, return, or call control transfer.
 #define LOOM_LOW_INSTRUCTION_CLASS_FLAG_BRANCH ((uint32_t)1u << 20)
-// Descriptor contributes barrier or synchronization work.
-#define LOOM_LOW_INSTRUCTION_CLASS_FLAG_BARRIER ((uint32_t)1u << 21)
+// Descriptor participates in an execution barrier: a collective rendezvous
+// (including separate arrival or wait packets) or command-stream execution
+// ordering. Memory fences and compiler scheduling constraints alone do not
+// establish this class.
+#define LOOM_LOW_INSTRUCTION_CLASS_FLAG_EXECUTION_BARRIER ((uint32_t)1u << 21)
 // Descriptor contributes control-flow or other control work.
 #define LOOM_LOW_INSTRUCTION_CLASS_FLAG_CONTROL ((uint32_t)1u << 22)
 // Descriptor contributes numeric conversion work.
@@ -583,10 +621,22 @@ typedef struct loom_low_reg_class_t {
   uint16_t physical_atomic_unit_count;
 } loom_low_reg_class_t;
 
-// Returns the allocation base alignment in register units. Power-of-two spans
-// retain the packet-width placement preference; other multi-unit spans obey
-// the class's tuple alignment. Single registers remain independently usable.
+// Returns the class's required base alignment in register units. Individual
+// instruction operands may impose stronger constraints through their register
+// alternatives. A tuple's width alone does not impose hardware alignment.
 static inline uint32_t loom_low_reg_class_unit_alignment(
+    const loom_low_reg_class_t* reg_class, uint32_t unit_count) {
+  return unit_count > 1 &&
+                 iree_any_bit_set(reg_class->flags,
+                                  LOOM_LOW_REG_CLASS_FLAG_EVEN_ALIGNED_TUPLES)
+             ? 2u
+             : 1u;
+}
+
+// Returns the preferred packing alignment, not an allocation legality rule.
+// Power-of-two spans prefer packet-width alignment; other spans use the class
+// requirement. Concrete operand requirements remain authoritative.
+static inline uint32_t loom_low_reg_class_preferred_unit_alignment(
     const loom_low_reg_class_t* reg_class, uint32_t unit_count) {
   if (unit_count <= 1) {
     return 1u;
@@ -594,10 +644,7 @@ static inline uint32_t loom_low_reg_class_unit_alignment(
   if ((unit_count & (unit_count - 1u)) == 0) {
     return unit_count;
   }
-  return iree_any_bit_set(reg_class->flags,
-                          LOOM_LOW_REG_CLASS_FLAG_EVEN_ALIGNED_TUPLES)
-             ? 2u
-             : 1u;
+  return loom_low_reg_class_unit_alignment(reg_class, unit_count);
 }
 
 // One named physical register and the atomic storage units it occupies.
@@ -691,9 +738,22 @@ typedef struct loom_low_register_part_t {
 typedef struct loom_low_reg_class_alt_t {
   // Register-class table identifier, or LOOM_LOW_REG_CLASS_NONE for literals.
   uint16_t reg_class_id;
+  // Register part accessed when this alternative is selected, or NONE for the
+  // full register.
+  uint16_t register_part_id;
   // Alternative flags such as preferred, immediate, or physical-only.
   loom_low_reg_class_alt_flags_t flags;
+  // Log2 of this operand's required base alignment in allocation units. Zero
+  // permits any base. Literals and explicit physical-register IDs use zero;
+  // explicit classes express legality through their declared register views.
+  uint8_t unit_alignment_log2;
+  // Selected subgroup width requiring late reads, or zero for every mode.
+  // Only meaningful with LATE_READ; ordinary alternatives store zero.
+  uint16_t late_read_subgroup_size;
 } loom_low_reg_class_alt_t;
+
+static_assert(sizeof(loom_low_reg_class_alt_t) == 8,
+              "low register-class alternative rows must remain compact");
 
 typedef struct loom_low_operand_t {
   // String-pool reference for the descriptor field name.
@@ -731,8 +791,6 @@ typedef struct loom_low_operand_t {
   uint16_t address_state_slot;
   // Target-owned data-format identifier.
   uint16_t data_format_id;
-  // Register part read or written by this operand, or NONE for full register.
-  uint16_t register_part_id;
   // Scheduling stage where the operand is read.
   uint16_t read_stage;
   // Scheduling stage where the operand result becomes ready.
@@ -937,8 +995,8 @@ typedef struct loom_low_resource_t {
   // Contention group identifier for related resources.
   uint16_t contention_group_id;
   // Generated occupancy-ring layout. Resources in the same contention group
-  // share a ring; its power-of-two length covers every referenced stage plus
-  // duration. Resources without issue uses consume no calendar slots.
+  // share a ring; its power-of-two length covers retained issue history plus
+  // every referenced stage and duration. Unused resources consume no slots.
   struct {
     // First occupancy slot in the descriptor set's calendar storage.
     uint32_t slot_start;
@@ -954,11 +1012,10 @@ typedef struct loom_low_resource_t {
 typedef struct loom_low_timing_event_t {
   // String-pool reference for the stable timing-event name.
   loom_string_ref_t name_string_ref;
-  // First positive outgoing row in the complete event-separation table, or
-  // zero when this event cannot advance the physical timing frontier.
+  // First outgoing row in the complete event-separation table, or zero when
+  // this event has no outgoing rules.
   uint32_t separation_start;
-  // Span through the last positive outgoing row. Interior rows may have
-  // nonpositive delays; dependency queries retain the complete pair table.
+  // Number of contiguous outgoing rows, including zero and negative rules.
   uint16_t separation_count;
   // Reserved; must be zero.
   uint16_t reserved;
@@ -1348,8 +1405,9 @@ typedef struct loom_low_descriptor_set_t {
   const uint64_t* supported_target_contract_stable_ids;
   // Number of identities in |supported_target_contract_stable_ids|.
   uint16_t supported_target_contract_count;
-  // Target-generated dense descriptor-set ordinal, or NONE when this set is not
-  // part of a target-owned dense descriptor-set table.
+  // Dense ordinal of the target-owned tables backing this view, or NONE when
+  // the view has no target-owned tables. Views over the same generated storage
+  // share this ordinal while retaining distinct stable identities and counts.
   uint16_t descriptor_set_ordinal;
   // String-pool reference for the descriptor-set key.
   loom_string_ref_t key_string_ref;
@@ -1365,9 +1423,11 @@ typedef struct loom_low_descriptor_set_t {
   const loom_low_descriptor_view_t* descriptor_views;
   // Number of descriptor rows owned by this set.
   uint32_t descriptor_count;
-  // Sorted symbolic descriptor-key reference rows.
+  // Sorted symbolic descriptor-key reference rows. Shared backing storage may
+  // include references to a hidden descriptor suffix; lookup filters those
+  // rows against |descriptor_count|.
   const loom_low_descriptor_ref_t* descriptor_refs;
-  // Number of symbolic descriptor-key reference rows.
+  // Number of symbolic descriptor-key reference rows in backing storage.
   uint32_t descriptor_ref_count;
   // Sparse encoding-equivalent physical forms available during scheduling.
   const loom_low_schedule_alternative_t* schedule_alternatives;
@@ -1525,6 +1585,9 @@ typedef struct loom_low_descriptor_set_t {
   uint32_t resource_count;
   // Total occupancy slots for the generated resource calendars.
   uint32_t resource_calendar_slot_count;
+  // Maximum earlier issue distance retained by the resource calendars,
+  // derived from the largest negative event-separation magnitude.
+  uint32_t resource_calendar_lookback_cycles;
   // Dense hazard rows referenced by schedule classes.
   const loom_low_hazard_t* hazards;
   // Number of hazard rows owned by this set.
@@ -1542,6 +1605,23 @@ typedef struct loom_low_descriptor_set_t {
   // Number of fixed encoding field values owned by this set.
   uint32_t encoding_field_value_count;
 } loom_low_descriptor_set_t;
+
+// Returns the operand alternative for |reg_class_id|, or NULL when the
+// operand does not accept that register class.
+IREE_ATTRIBUTE_ALWAYS_INLINE static inline const loom_low_reg_class_alt_t*
+loom_low_operand_reg_class_alt(const loom_low_descriptor_set_t* descriptor_set,
+                               const loom_low_operand_t* operand,
+                               uint16_t reg_class_id) {
+  for (uint16_t i = 0; i < operand->reg_class_alt_count; ++i) {
+    const loom_low_reg_class_alt_t* alternative =
+        &descriptor_set
+             ->reg_class_alts[operand->reg_class_alt_start + (uint32_t)i];
+    if (alternative->reg_class_id == reg_class_id) {
+      return alternative;
+    }
+  }
+  return NULL;
+}
 
 // Returns the view-owned facts for |descriptor_ordinal|. The ordinal must be a
 // verified row in |descriptor_set|.
@@ -1693,6 +1773,15 @@ const loom_low_descriptor_set_t* loom_low_descriptor_registry_lookup_by_id(
 iree_string_view_t loom_low_descriptor_set_string(
     const loom_low_descriptor_set_t* descriptor_set,
     loom_string_ref_t string_ref);
+
+// Returns whether this input's selected register alternative remains live
+// through result writes. |subgroup_size| is the function's effective execution
+// width, or zero for a representation without subgroup execution. The operand
+// and register class are from a verified packet.
+bool loom_low_operand_reads_after_write(
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_operand_t* operand, uint16_t reg_class_id,
+    uint32_t subgroup_size);
 
 // Looks up a descriptor-set-local register class by stable register-class name.
 // |out_descriptor_register_class| may be NULL when only the dense descriptor ID

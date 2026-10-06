@@ -1,0 +1,33 @@
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @resident_neighbor() asm {
+  %capacity = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %records = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %producer_lane = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %consumer_lane = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %worker_count = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %column = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %producer_row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %consumer_row = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %group = group %worker_count
+  %producer = worker %group, %producer_lane, @produce_i16
+  %consumer = worker %group, %consumer_lane, @consume_i16
+  %sender = sender %producer, 0 : reg<aie2p.array.sender : tile<1xi16>>
+  %receiver = receiver %consumer, 0 : reg<aie2p.array.receiver : tile<1xi16>>
+  %channel = channel %sender, %receiver, %capacity, %records : reg<aie2p.array.channel : tile<1xi16>>
+  constrain.location %producer, %column, %producer_row
+  constrain.location %consumer, %column, %consumer_row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @produce_i16() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume_i16() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}

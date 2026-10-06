@@ -1347,8 +1347,8 @@ func.def @scf_select_i1_assume_second_condition(%values: vector<2xi32>, %limit: 
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scf_select_i1_assume_second_condition(%values: reg<aie2p.vec256 x2>, %limit: reg<aie2p.er>, %upper: reg<aie2p.er>, %true_value: reg<aie2p.er>, %false_value: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
   %checked_scalar_condition = lt %limit, %upper
-  %21 = copy %checked_scalar_condition : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %result = sel.nez %true_value, %false_value, %21
+  %19 = copy %checked_scalar_condition : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %result = sel.nez %true_value, %false_value, %19
   return %result
 }
 

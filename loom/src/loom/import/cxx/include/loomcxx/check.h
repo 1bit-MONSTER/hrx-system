@@ -49,6 +49,17 @@ template <class T, __SIZE_TYPE__ Count>
 [[loom::op("check.expect.bitwise")]] void expect_bitwise(
     tensor<T, Count> actual, tensor<T, Count> expected);
 
+// Compares equal-typed floating scalars or tensors using
+// abs(actual - expected) <= absolute_tolerance + relative_tolerance *
+// abs(expected). Tolerances are finite, non-negative compile-time constants.
+// The literal NaN policy is "same" to accept two NaNs, or "different" to reject
+// any NaN.
+template <class T>
+[[loom::op("check.expect.close")]] void expect_close(T actual, T expected,
+                                                     double absolute_tolerance,
+                                                     double relative_tolerance,
+                                                     const char* nan = "same");
+
 // Declares provider metadata using a string provider followed by name/value
 // pairs. Names and string values are literals; scalar values are compile-time
 // constants. The selected provider owns the meaning of the attributes.
@@ -57,7 +68,7 @@ template <class... Attributes>
                                             Attributes... attributes);
 
 // Observes provider events with the same metadata spelling as require().
-// For example: expect_event("device", "type", "asan_report", "count", 0).
+// For example: expect_event("device", "type", "asan_report").
 template <class... Attributes>
 [[loom::op("check.expect.event")]] void expect_event(const char* provider,
                                                      Attributes... attributes);

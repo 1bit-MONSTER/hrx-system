@@ -1,0 +1,303 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//runtime/build_tools/bazel:cc.bzl", "iree_runtime_cc_library")
+load("//runtime/build_tools/bazel:cc_test.bzl", "iree_runtime_cc_test")
+
+package(
+    default_visibility = ["//runtime/src/iree/net/carrier/rdma:__subpackages__"],
+    features = ["layering_check"],
+    licenses = ["notice"],
+)
+
+RDMA_COMPATIBILITY = ["@platforms//os:linux"] + select({
+    "//runtime/config/net:rdma_enabled": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
+iree_runtime_cc_library(
+    name = "factory",
+    srcs = ["factory.c"],
+    hdrs = ["factory.h"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":connection",
+        ":listener",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/net:transport_factory",
+        "//runtime/src/iree/net/rdma:context",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "listener",
+    srcs = ["listener.c"],
+    hdrs = ["listener.h"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":connection",
+        ":connection_events",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base:core_headers",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/net:connection",
+        "//runtime/src/iree/net:transport_factory",
+        "//runtime/src/iree/net/rdma:context",
+        "//runtime/src/iree/net/rdma:library",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "factory_test",
+    srcs = ["factory_test.cc"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":factory",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/platform/io_uring",
+        "//runtime/src/iree/async/platform/posix",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/net:connection",
+        "//runtime/src/iree/net:transport_factory",
+        "//runtime/src/iree/net/rdma:connection_test_main",
+        "//runtime/src/iree/net/rdma:context",
+        "//runtime/src/iree/net/rdma:test_context",
+        "//runtime/src/iree/testing:gtest",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "connection",
+    srcs = ["connection.c"],
+    hdrs = ["connection.h"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":carrier",
+        ":completion_queue",
+        ":connection_control",
+        ":direct_endpoint",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base:core_headers",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/net:connection",
+        "//runtime/src/iree/net:direct_endpoint",
+        "//runtime/src/iree/net:endpoint_lifecycle",
+        "//runtime/src/iree/net:framed_endpoint",
+        "//runtime/src/iree/net:transport_factory",
+        "//runtime/src/iree/net/rdma:context",
+        "//runtime/src/iree/net/rdma:target",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "connection_test",
+    srcs = ["connection_test.cc"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":connection",
+        ":connection_events",
+        ":device_failure",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/platform/io_uring",
+        "//runtime/src/iree/async/platform/posix",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base:core_headers",
+        "//runtime/src/iree/net:connection",
+        "//runtime/src/iree/net:direct_endpoint",
+        "//runtime/src/iree/net:message_endpoint",
+        "//runtime/src/iree/net:transport_factory",
+        "//runtime/src/iree/net/rdma:connection_test_main",
+        "//runtime/src/iree/net/rdma:context",
+        "//runtime/src/iree/net/rdma:device_events",
+        "//runtime/src/iree/net/rdma:library",
+        "//runtime/src/iree/net/rdma:region",
+        "//runtime/src/iree/net/rdma:target",
+        "//runtime/src/iree/net/rdma:test_context",
+        "//runtime/src/iree/testing:gtest",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "completion_queue",
+    srcs = ["completion_queue.c"],
+    hdrs = ["completion_queue.h"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/net/rdma:context",
+        "//runtime/src/iree/net/rdma:library",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "connection_events",
+    srcs = ["connection_events.c"],
+    hdrs = ["connection_events.h"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/net/rdma:context",
+        "//runtime/src/iree/net/rdma:library",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "completion_queue_test",
+    srcs = ["completion_queue_test.cc"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":completion_queue",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/platform/io_uring",
+        "//runtime/src/iree/async/platform/posix",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/net/rdma:context",
+        "//runtime/src/iree/net/rdma:library",
+        "//runtime/src/iree/net/rdma:region",
+        "//runtime/src/iree/net/rdma:test_context",
+        "//runtime/src/iree/net/rdma:test_main",
+        "//runtime/src/iree/testing:gtest",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "connection_route",
+    srcs = ["connection_route.c"],
+    hdrs = ["connection_route.h"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/net/rdma:context",
+        "//runtime/src/iree/net/rdma:library",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "device_failure",
+    srcs = ["device_failure.c"],
+    hdrs = ["device_failure.h"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/net/rdma:context",
+        "//runtime/src/iree/net/rdma:device_events",
+        "//runtime/src/iree/net/rdma:library",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "connection_control",
+    srcs = ["connection_control.c"],
+    hdrs = ["connection_control.h"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":completion_queue",
+        ":connection_events",
+        ":connection_route",
+        ":device_failure",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/net/rdma:context",
+        "//runtime/src/iree/net/rdma:library",
+        "//runtime/src/iree/net/rdma:region",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "connection_control_test",
+    srcs = ["connection_control_test.cc"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":carrier",
+        ":connection_control",
+        ":connection_events",
+        ":direct_endpoint",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/platform/io_uring",
+        "//runtime/src/iree/async/platform/posix",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base:core_headers",
+        "//runtime/src/iree/net:direct_endpoint",
+        "//runtime/src/iree/net:endpoint_lifecycle",
+        "//runtime/src/iree/net:framed_endpoint",
+        "//runtime/src/iree/net:message_endpoint",
+        "//runtime/src/iree/net/rdma:connection_test_main",
+        "//runtime/src/iree/net/rdma:context",
+        "//runtime/src/iree/net/rdma:library",
+        "//runtime/src/iree/net/rdma:region",
+        "//runtime/src/iree/net/rdma:target",
+        "//runtime/src/iree/net/rdma:test_context",
+        "//runtime/src/iree/testing:gtest",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "carrier",
+    srcs = ["carrier.c"],
+    hdrs = ["carrier.h"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":connection_control",
+        ":direct_endpoint",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/net:carrier",
+        "//runtime/src/iree/net:direct_endpoint",
+        "//runtime/src/iree/net/rdma:context",
+        "//runtime/src/iree/net/rdma:region",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "direct_endpoint",
+    srcs = ["direct_endpoint.c"],
+    hdrs = ["direct_endpoint.h"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":connection_control",
+        ":connection_route",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/net:carrier",
+        "//runtime/src/iree/net:direct_endpoint",
+        "//runtime/src/iree/net:endpoint_lifecycle",
+        "//runtime/src/iree/net/rdma:context",
+        "//runtime/src/iree/net/rdma:library",
+        "//runtime/src/iree/net/rdma:region",
+        "//runtime/src/iree/net/rdma:target",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "connection_events_test",
+    srcs = ["connection_events_test.cc"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":completion_queue",
+        ":connection_events",
+        ":connection_route",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/platform/io_uring",
+        "//runtime/src/iree/async/platform/posix",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base:core_headers",
+        "//runtime/src/iree/net/rdma:connection_test_main",
+        "//runtime/src/iree/net/rdma:context",
+        "//runtime/src/iree/net/rdma:library",
+        "//runtime/src/iree/net/rdma:region",
+        "//runtime/src/iree/net/rdma:test_context",
+        "//runtime/src/iree/testing:gtest",
+    ],
+)

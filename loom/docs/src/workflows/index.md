@@ -38,9 +38,9 @@ at `.loombc`. A JIT embedding can perform the same operations in memory through
 | Inspect symbols and dependency closure | [Link and package modules](link-and-package.md#inspect-before-linking) |
 | Build a root-selected artifact input | [Link and package modules](link-and-package.md#link-one-program) |
 | Merge a reusable bytecode catalog | [Link and package modules](link-and-package.md#merge-a-reusable-catalog) |
-| Split command and kernel compilation | [Split command and kernel compilation](product-frontiers.md) |
+| Build a command and its kernel requests | [Parallelize kernel JIT compilation](../integration/product-frontier.md) |
 | Declare relocatable libraries in Bazel | [Build libraries and binaries with Bazel](build-with-bazel.md#libraries-stay-relocatable) |
-| Build kernel, command, or VM products | [Build libraries and binaries with Bazel](build-with-bazel.md#binary-roots-close-one-product) |
+| Build a kernel binary | [Build libraries and binaries with Bazel](build-with-bazel.md#binary-roots-close-one-kernel-executable) |
 
 ## Development loops
 
@@ -69,16 +69,17 @@ exact selected program, workload, tool identity, and evidence boundary.
 
 ## Correctness and performance
 
-`iree-test-loom` executes `check.case` records and emits structured correctness
-results. `iree-benchmark-loom` plans `check.benchmark` records, gates timing on
-the selected case's correctness, and records measurement evidence. Keeping
-those tasks separate prevents a fast incorrect candidate from becoming a
-performance result.
+`iree-test-loom` executes `check.case` and `check.scenario` records and emits
+structured correctness results. `iree-benchmark-loom` plans `check.benchmark`
+records, gates timing on the selected case or scenario correctness, and records
+measurement evidence. Keeping those tasks separate prevents a fast incorrect
+candidate from becoming a performance result.
 
 | Task | Workflow |
 | --- | --- |
-| Execute every checked case | [Test correctness](test-correctness.md#run-every-case) |
+| Execute every correctness record | [Test correctness](test-correctness.md#run-every-correctness-record) |
 | Select one case or sample | [Test correctness](test-correctness.md#select-a-case-or-sample) |
+| Compare a target against an oracle | [Test correctness](test-correctness.md#compare-a-target-against-its-oracle) |
 | Test a wrapper against bytecode libraries | [Test correctness](test-correctness.md#link-test-wrappers-to-libraries) |
 | Add target-pipeline sanitizers | [Test correctness](test-correctness.md#instrument-a-test-run) |
 | Inspect a benchmark plan without execution | [Benchmark checked work](benchmark.md#inspect-the-plan-first) |

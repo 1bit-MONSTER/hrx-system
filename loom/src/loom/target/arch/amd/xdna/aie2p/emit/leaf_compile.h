@@ -22,11 +22,15 @@
 extern "C" {
 #endif
 
+typedef struct loom_low_memory_access_map_t loom_low_memory_access_map_t;
+
 typedef struct loom_aie2p_leaf_compile_options_t {
   // Descriptor registry used to resolve the core representation contract.
   const loom_low_descriptor_registry_t* descriptor_registry;
   // Optional invocation-refined target facts for this function version.
   const loom_target_facts_t* function_target_facts;
+  // Captured source proofs bound to this core function's memory effects.
+  const loom_low_memory_access_map_t* memory_accesses;
   // Borrowed SSA location constraints, valid for the duration of compilation.
   // Locations are constrained only over each value's live interval. Returned
   // values express state that must remain live through the leaf's exit.
@@ -42,10 +46,12 @@ typedef struct loom_aie2p_leaf_compile_options_t {
 // Compiles one verified amd.xdna.aie2p.core Low function into an arena-owned
 // detached native contribution and exact realization facts. Temporary planning
 // storage is returned to the arena's block pool before this function returns.
+// Structured rejection returns OK with |out_compiled| false and no
+// contribution; infrastructure failures return a status.
 iree_status_t loom_aie2p_leaf_compile(
     loom_module_t* module, loom_op_t* function_op,
     const loom_aie2p_leaf_compile_options_t* options,
-    iree_arena_allocator_t* arena,
+    iree_arena_allocator_t* arena, bool* out_compiled,
     loom_aie2p_leaf_contribution_t* out_contribution);
 
 #ifdef __cplusplus

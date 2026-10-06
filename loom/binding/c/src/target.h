@@ -9,7 +9,7 @@
 
 #include "iree/base/internal/arena.h"
 #include "loom/codegen/low/pipeline/legalizer_registry.h"
-#include "loom/codegen/low/pipeline/pass_environment.h"
+#include "loom/codegen/pass_environment.h"
 #include "loom/pass/registry.h"
 #include "loom/target/function_version.h"
 #include "loom/target/profile.h"
@@ -131,12 +131,14 @@ LOOMC_API_PRIVATE loomc_status_t loomc_target_pass_registry_initialize(
     loom_pass_registry_storage_t* out_storage,
     const loom_pass_registry_t** out_registry);
 
-// Creates a borrowed pass environment view over prepared target pass tables.
+// Initializes codegen pass capability storage over optional target tables and
+// the context-owned cleanup registry, then returns its borrowed environment.
 LOOMC_API_PRIVATE loom_pass_environment_t
-loomc_target_pass_environment_make_loom_pass_environment(
-    const loomc_target_pass_environment_t* environment,
+loomc_codegen_pass_environment_storage_initialize(
+    const loomc_target_pass_environment_t* target_environment,
+    const loom_cleanup_pattern_registry_t* cleanup_pattern_registry,
     loom_function_version_owner_t* function_version_owner,
-    loom_low_pass_environment_storage_t* out_storage);
+    loom_codegen_pass_environment_storage_t* out_storage);
 
 // Initializes a target-aware text low-asm environment over prepared target
 // descriptor tables.

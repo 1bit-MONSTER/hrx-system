@@ -1,0 +1,329 @@
+aie2p.target<array> @array_target
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @temporal_fold_first_copy() asm {
+  %lanes = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %lane = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %capacity = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %fold_records = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %input_records = constant.u32 8 : reg<aie2p.array.scalar : index>
+  %output_records = constant.u32 8 : reg<aie2p.array.scalar : index>
+  %origin = constant.u64 64 : reg<aie2p.array.offset : offset>
+  %row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %group = group %lanes
+  %worker = worker.fold %group, %lane, %fold_records, @overwrite_record, 1, 1, "addf", 0
+  %input = binding 0, "read"
+  %output = binding 1, "write"
+  %input_sender = sender %input, 0 : reg<aie2p.array.sender : tile<1x8x4160xi8>>
+  %input_lane = partition.sender %input_sender, %origin, %lane, %lanes : reg<aie2p.array.sender : tile<4160xi8>>
+  %worker_input = receiver %worker, 0 : reg<aie2p.array.receiver : tile<4160xi8>>
+  %input_channel = channel %input_lane, %worker_input, %capacity, %input_records : reg<aie2p.array.channel : tile<4160xi8>>
+  %worker_output = sender %worker, 1 : reg<aie2p.array.sender : tile<1024xf32>>
+  %output_receiver = receiver %output, 0 : reg<aie2p.array.receiver : tile<1x8x1024xf32>>
+  %output_lane = partition.receiver %output_receiver, %origin, %lane, %lanes : reg<aie2p.array.receiver : tile<1024xf32>>
+  %output_channel = channel %worker_output, %output_lane, %capacity, %output_records : reg<aie2p.array.channel : tile<1024xf32>>
+  constrain.location %worker, %lane, %row
+  return
+}
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @temporal_fold_packets() asm {
+  %lanes = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %lane = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %capacity = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %fold_records = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %input_records = constant.u32 24 : reg<aie2p.array.scalar : index>
+  %output_records = constant.u32 8 : reg<aie2p.array.scalar : index>
+  %origin = constant.u64 64 : reg<aie2p.array.offset : offset>
+  %row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %group = group %lanes
+  %worker = worker.fold %group, %lane, %fold_records, @overwrite_record, 1, 1, "addf", 0
+  %input = binding 0, "read"
+  %output = binding 1, "write"
+  %input_sender = sender %input, 0 : reg<aie2p.array.sender : tile<1x24x4160xi8>>
+  %input_lane = partition.sender %input_sender, %origin, %lane, %lanes : reg<aie2p.array.sender : tile<4160xi8>>
+  %worker_input = receiver %worker, 0 : reg<aie2p.array.receiver : tile<4160xi8>>
+  %input_channel = channel %input_lane, %worker_input, %capacity, %input_records : reg<aie2p.array.channel : tile<4160xi8>>
+  %worker_output = sender %worker, 1 : reg<aie2p.array.sender : tile<1024xf32>>
+  %output_receiver = receiver %output, 0 : reg<aie2p.array.receiver : tile<1x8x1024xf32>>
+  %output_lane = partition.receiver %output_receiver, %origin, %lane, %lanes : reg<aie2p.array.receiver : tile<1024xf32>>
+  %output_channel = channel %worker_output, %output_lane, %capacity, %output_records : reg<aie2p.array.channel : tile<1024xf32>>
+  constrain.location %worker, %lane, %row
+  return
+}
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @temporal_fold_tail() asm {
+  %lanes = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %lane = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %capacity = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %fold_records = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %input_records = constant.u32 24 : reg<aie2p.array.scalar : index>
+  %output_records = constant.u32 8 : reg<aie2p.array.scalar : index>
+  %origin = constant.u64 64 : reg<aie2p.array.offset : offset>
+  %row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %group = group %lanes
+  %worker = worker.fold %group, %lane, %fold_records, @overwrite_record, 1, 1, "addf", 0
+  %input = binding 0, "read"
+  %output = binding 1, "write"
+  %input_sender = sender %input, 0 : reg<aie2p.array.sender : tile<1x24x384xi8>>
+  %input_lane = partition.sender %input_sender, %origin, %lane, %lanes : reg<aie2p.array.sender : tile<384xi8>>
+  %worker_input = receiver %worker, 0 : reg<aie2p.array.receiver : tile<384xi8>>
+  %input_channel = channel %input_lane, %worker_input, %capacity, %input_records : reg<aie2p.array.channel : tile<384xi8>>
+  %worker_output = sender %worker, 1 : reg<aie2p.array.sender : tile<80xf32>>
+  %output_receiver = receiver %output, 0 : reg<aie2p.array.receiver : tile<1x8x80xf32>>
+  %output_lane = partition.receiver %output_receiver, %origin, %lane, %lanes : reg<aie2p.array.receiver : tile<80xf32>>
+  %output_channel = channel %worker_output, %output_lane, %capacity, %output_records : reg<aie2p.array.channel : tile<80xf32>>
+  constrain.location %worker, %lane, %row
+  return
+}
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @temporal_fold_large_first_copy() asm {
+  %lanes = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %lane = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %capacity = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %fold_records = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %input_records = constant.u32 8 : reg<aie2p.array.scalar : index>
+  %output_records = constant.u32 8 : reg<aie2p.array.scalar : index>
+  %origin = constant.u64 64 : reg<aie2p.array.offset : offset>
+  %row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %group = group %lanes
+  %worker = worker.fold %group, %lane, %fold_records, @overwrite_large_record, 1, 1, "addf", 0
+  %input = binding 0, "read"
+  %output = binding 1, "write"
+  %input_sender = sender %input, 0 : reg<aie2p.array.sender : tile<1x8x4160xi8>>
+  %input_lane = partition.sender %input_sender, %origin, %lane, %lanes : reg<aie2p.array.sender : tile<4160xi8>>
+  %worker_input = receiver %worker, 0 : reg<aie2p.array.receiver : tile<4160xi8>>
+  %worker_output = sender %worker, 1 : reg<aie2p.array.sender : tile<4096xf32>>
+  %output_receiver = receiver %output, 0 : reg<aie2p.array.receiver : tile<1x8x4096xf32>>
+  %output_lane = partition.receiver %output_receiver, %origin, %lane, %lanes : reg<aie2p.array.receiver : tile<4096xf32>>
+  %output_channel = channel %worker_output, %output_lane, %capacity, %output_records : reg<aie2p.array.channel : tile<4096xf32>>
+  %input_channel = channel %input_lane, %worker_input, %capacity, %input_records : reg<aie2p.array.channel : tile<4160xi8>>
+  constrain.location %worker, %lane, %row
+  return
+}
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @temporal_fold_large_packets() asm {
+  %lanes = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %lane = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %capacity = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %fold_records = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %input_records = constant.u32 24 : reg<aie2p.array.scalar : index>
+  %output_records = constant.u32 8 : reg<aie2p.array.scalar : index>
+  %origin = constant.u64 64 : reg<aie2p.array.offset : offset>
+  %row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %group = group %lanes
+  %worker = worker.fold %group, %lane, %fold_records, @overwrite_large_record, 1, 1, "addf", 0
+  %input = binding 0, "read"
+  %output = binding 1, "write"
+  %input_sender = sender %input, 0 : reg<aie2p.array.sender : tile<1x24x4160xi8>>
+  %input_lane = partition.sender %input_sender, %origin, %lane, %lanes : reg<aie2p.array.sender : tile<4160xi8>>
+  %worker_input = receiver %worker, 0 : reg<aie2p.array.receiver : tile<4160xi8>>
+  %worker_output = sender %worker, 1 : reg<aie2p.array.sender : tile<4096xf32>>
+  %output_receiver = receiver %output, 0 : reg<aie2p.array.receiver : tile<1x8x4096xf32>>
+  %output_lane = partition.receiver %output_receiver, %origin, %lane, %lanes : reg<aie2p.array.receiver : tile<4096xf32>>
+  %output_channel = channel %worker_output, %output_lane, %capacity, %output_records : reg<aie2p.array.channel : tile<4096xf32>>
+  %input_channel = channel %input_lane, %worker_input, %capacity, %input_records : reg<aie2p.array.channel : tile<4160xi8>>
+  constrain.location %worker, %lane, %row
+  return
+}
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @temporal_fold_mixed() asm {
+  %lanes = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %lane = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %capacity = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %fold_records = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %input_records = constant.u32 24 : reg<aie2p.array.scalar : index>
+  %output_records = constant.u32 8 : reg<aie2p.array.scalar : index>
+  %origin = constant.u64 64 : reg<aie2p.array.offset : offset>
+  %row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %group = group %lanes
+  %worker = worker.fold %group, %lane, %fold_records, @overwrite_mixed_record, 1, 2, "addf", 0
+  %input = binding 0, "read"
+  %scalar = binding 1, "write"
+  %output = binding 2, "write"
+  %input_sender = sender %input, 0 : reg<aie2p.array.sender : tile<1x24x640xi8>>
+  %input_lane = partition.sender %input_sender, %origin, %lane, %lanes : reg<aie2p.array.sender : tile<640xi8>>
+  %worker_input = receiver %worker, 0 : reg<aie2p.array.receiver : tile<640xi8>>
+  %input_channel = channel %input_lane, %worker_input, %capacity, %input_records : reg<aie2p.array.channel : tile<640xi8>>
+  %worker_scalar = sender %worker, 1 : reg<aie2p.array.sender : tile<1xf32>>
+  %scalar_receiver = receiver %scalar, 0 : reg<aie2p.array.receiver : tile<1x8x1xf32>>
+  %scalar_lane = partition.receiver %scalar_receiver, %origin, %lane, %lanes : reg<aie2p.array.receiver : tile<1xf32>>
+  %scalar_channel = channel %worker_scalar, %scalar_lane, %capacity, %output_records : reg<aie2p.array.channel : tile<1xf32>>
+  %worker_output = sender %worker, 2 : reg<aie2p.array.sender : tile<144xf32>>
+  %output_receiver = receiver %output, 0 : reg<aie2p.array.receiver : tile<1x8x144xf32>>
+  %output_lane = partition.receiver %output_receiver, %origin, %lane, %lanes : reg<aie2p.array.receiver : tile<144xf32>>
+  %output_channel = channel %worker_output, %output_lane, %capacity, %output_records : reg<aie2p.array.channel : tile<144xf32>>
+  constrain.location %worker, %lane, %row
+  return
+}
+
+// Both paths overwrite and reload the output before returning its final value.
+// Integer operations preserve every contribution bit, including negative zero.
+// Each packet header carries the branch choice and output byte count.
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @overwrite_record() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %output = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %choice = lda %input, 0
+  %branch = nez %choice
+  %zero = mov.short 0
+  %step = mov.short 4
+  %header_bytes = mov.i32 64
+  %output_bytes = lda %input, 4
+  %first_mask = mov.i32 8388608
+  %second_mask = mov.i32 1073741824
+  %combined_mask = mov.i32 1082130432
+  low.cond_br %branch, ^three_stores, ^two_stores : reg<aie2p.er>
+^two_stores:
+  low.br ^two_loop(%zero: reg<aie2p.er>)
+^two_loop(%two_position: reg<aie2p.er>):
+  %two_remaining = lt %two_position, %output_bytes
+  low.cond_br %two_remaining, ^two_body, ^two_return : reg<aie2p.er>
+^two_body:
+  %two_input_offset = add.rr %two_position, %header_bytes
+  %two_input_index = mov.address-index %two_input_offset
+  %two_output_index = mov.address-index %two_position
+  %two_value = lda.i32.index %input, %two_input_index
+  %two_temporary = xor %two_value, %first_mask
+  st.i32.index %two_temporary, %output, %two_output_index
+  %two_reloaded = lda.i32.index %output, %two_output_index
+  %two_final = xor %two_reloaded, %first_mask
+  st.i32.index %two_final, %output, %two_output_index
+  %two_next = add.rr %two_position, %step
+  low.br ^two_loop(%two_next: reg<aie2p.er>)
+^two_return:
+  return
+^three_stores:
+  low.br ^three_loop(%zero: reg<aie2p.er>)
+^three_loop(%three_position: reg<aie2p.er>):
+  %three_remaining = lt %three_position, %output_bytes
+  low.cond_br %three_remaining, ^three_body, ^three_return : reg<aie2p.er>
+^three_body:
+  %three_input_offset = add.rr %three_position, %header_bytes
+  %three_input_index = mov.address-index %three_input_offset
+  %three_output_index = mov.address-index %three_position
+  %three_value = lda.i32.index %input, %three_input_index
+  %three_temporary = xor %three_value, %first_mask
+  st.i32.index %three_temporary, %output, %three_output_index
+  %three_reloaded = lda.i32.index %output, %three_output_index
+  %three_overwrite = xor %three_reloaded, %second_mask
+  st.i32.index %three_overwrite, %output, %three_output_index
+  %three_final_load = lda.i32.index %output, %three_output_index
+  %three_final = xor %three_final_load, %combined_mask
+  st.i32.index %three_final, %output, %three_output_index
+  %three_next = add.rr %three_position, %step
+  low.br ^three_loop(%three_next: reg<aie2p.er>)
+^three_return:
+  return
+}
+
+// Expand compact input into four distinct lane-permuted blocks. Both 16 KiB
+// output ring slots and the 16 KiB private sum fit alongside compact input
+// slots in local memory. Every source store remains observable to later loads.
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @overwrite_large_record() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %output = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %choice = lda %input, 0
+  %branch = nez %choice
+  %zero = mov.short 0
+  %step = mov.short 4
+  %header_bytes = mov.i32 64
+  %output_bytes = lda %input, 4
+  %input_mask = mov.i32 4095
+  %block_shift = mov.short -10
+  %block_mask = mov.short 12
+  %first_mask = mov.i32 8388608
+  %second_mask = mov.i32 1073741824
+  %combined_mask = mov.i32 1082130432
+  low.cond_br %branch, ^three_stores, ^two_stores : reg<aie2p.er>
+^two_stores:
+  low.br ^two_loop(%zero: reg<aie2p.er>)
+^two_loop(%two_position: reg<aie2p.er>):
+  %two_remaining = lt %two_position, %output_bytes
+  low.cond_br %two_remaining, ^two_body, ^two_return : reg<aie2p.er>
+^two_body:
+  %two_base = and %two_position, %input_mask
+  %two_shifted = lshl %two_position, %block_shift
+  %two_block = and %two_shifted, %block_mask
+  %two_permuted = xor %two_base, %two_block
+  %two_input_offset = add.rr %two_permuted, %header_bytes
+  %two_input_index = mov.address-index %two_input_offset
+  %two_output_index = mov.address-index %two_position
+  %two_value = lda.i32.index %input, %two_input_index
+  %two_temporary = xor %two_value, %first_mask
+  st.i32.index %two_temporary, %output, %two_output_index
+  %two_reloaded = lda.i32.index %output, %two_output_index
+  %two_final = xor %two_reloaded, %first_mask
+  st.i32.index %two_final, %output, %two_output_index
+  %two_next = add.rr %two_position, %step
+  low.br ^two_loop(%two_next: reg<aie2p.er>)
+^two_return:
+  return
+^three_stores:
+  low.br ^three_loop(%zero: reg<aie2p.er>)
+^three_loop(%three_position: reg<aie2p.er>):
+  %three_remaining = lt %three_position, %output_bytes
+  low.cond_br %three_remaining, ^three_body, ^three_return : reg<aie2p.er>
+^three_body:
+  %three_base = and %three_position, %input_mask
+  %three_shifted = lshl %three_position, %block_shift
+  %three_block = and %three_shifted, %block_mask
+  %three_permuted = xor %three_base, %three_block
+  %three_input_offset = add.rr %three_permuted, %header_bytes
+  %three_input_index = mov.address-index %three_input_offset
+  %three_output_index = mov.address-index %three_position
+  %three_value = lda.i32.index %input, %three_input_index
+  %three_temporary = xor %three_value, %first_mask
+  st.i32.index %three_temporary, %output, %three_output_index
+  %three_reloaded = lda.i32.index %output, %three_output_index
+  %three_overwrite = xor %three_reloaded, %second_mask
+  st.i32.index %three_overwrite, %output, %three_output_index
+  %three_final_load = lda.i32.index %output, %three_output_index
+  %three_final = xor %three_final_load, %combined_mask
+  st.i32.index %three_final, %output, %three_output_index
+  %three_next = add.rr %three_position, %step
+  low.br ^three_loop(%three_next: reg<aie2p.er>)
+^three_return:
+  return
+}
+
+// Source-private storage and output loads both observe their own writes before
+// the final scalar and wide values become contributions to the temporal fold.
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @overwrite_mixed_record() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %scalar = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %output = resource<native_pointer> {index = 2, source_type = buffer} : reg<aie2p.ep>
+  %allocation = storage {byte_alignment = 64, byte_length = 64} : low.storage<workgroup>
+  %scratch = storage_address %allocation : low.storage<workgroup> -> reg<aie2p.ep>
+  %zero = mov.short 0
+  %step = mov.short 4
+  %header_bytes = mov.i32 64
+  %output_bytes = lda %input, 4
+  %mask = mov.i32 8388608
+  %scalar_offset = mov.i32 80
+  %scalar_index = mov.address-index %scalar_offset
+  %scalar_value = lda.i32.index %input, %scalar_index
+  %scalar_temporary = xor %scalar_value, %mask
+  st %scalar_temporary, %scratch, 0
+  %scalar_reloaded = lda %scratch, 0
+  st %scalar_reloaded, %scalar, 0
+  %scalar_output_load = lda %scalar, 0
+  %scalar_final = xor %scalar_output_load, %mask
+  st %scalar_final, %scalar, 0
+  low.br ^copy(%zero: reg<aie2p.er>)
+^copy(%position: reg<aie2p.er>):
+  %remaining = lt %position, %output_bytes
+  low.cond_br %remaining, ^body, ^done : reg<aie2p.er>
+^body:
+  %input_offset = add.rr %position, %header_bytes
+  %input_index = mov.address-index %input_offset
+  %output_index = mov.address-index %position
+  %value = lda.i32.index %input, %input_index
+  %temporary = xor %value, %mask
+  st.i32.index %temporary, %output, %output_index
+  %reloaded = lda.i32.index %output, %output_index
+  %final = xor %reloaded, %mask
+  st.i32.index %final, %output, %output_index
+  %next = add.rr %position, %step
+  low.br ^copy(%next: reg<aie2p.er>)
+^done:
+  return
+}

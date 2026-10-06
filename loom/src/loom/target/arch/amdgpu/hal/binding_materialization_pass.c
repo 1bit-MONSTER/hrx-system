@@ -99,8 +99,8 @@ iree_status_t loom_amdgpu_materialize_hal_kernel_abi_run(
 
   loom_amdgpu_hal_binding_materialization_result_t materialization = {0};
   IREE_RETURN_IF_ERROR(loom_amdgpu_hal_binding_materialize(
-      module, function.op, target.descriptor_set, &materialization,
-      pass->arena));
+      module, function.op, target.descriptor_set,
+      verify_result.kernarg_segment_ptr, &materialization, pass->arena));
   ++statistics->functions;
   statistics->bindings += materialization.materialized_binding_count;
   statistics->direct_args += materialization.materialized_direct_arg_count;

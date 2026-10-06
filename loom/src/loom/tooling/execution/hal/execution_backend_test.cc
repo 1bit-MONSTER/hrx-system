@@ -17,6 +17,7 @@
 #include "loom/tooling/compile/options.h"
 #include "loom/tooling/execution/hal/runtime.h"
 #include "loom/tooling/execution/session.h"
+#include "loom/transforms/cleanup/configured.h"
 
 namespace loom {
 namespace {
@@ -200,6 +201,8 @@ class HalExecutionBackendTest : public ::testing::Test {
         (loom_run_initialize_low_descriptor_registry_callback_t){
             /*.fn=*/InitializeLowDescriptorRegistry,
         };
+    session_options.cleanup_pattern_provider_set =
+        loom_cleanup_configured_pattern_provider_set();
     IREE_ASSERT_OK(loom_run_session_initialize(&session_options, &session_));
 
     target_providers_[0] = &kFakeTargetProvider;
@@ -242,14 +245,15 @@ kernel.def target(@target) @entry() {
 } launch() {
   kernel.return
 }
+
+pass.pipeline<module> @debug pipeline {
+}
 )";
   loom_run_module_t run_module = {};
   IREE_ASSERT_OK(Parse(IREE_SV(kSource), &run_module));
 
   loom_artifact_provider_t artifact_provider = {};
   artifact_provider.name = IREE_SV("fake-hal");
-  artifact_provider.public_artifact_format = IREE_SV("FakeExecutableFormat123");
-  artifact_provider.flags = LOOM_ARTIFACT_PROVIDER_FLAG_CANONICAL;
   artifact_provider.target_profile_type = &kFakeTargetProfileType;
   artifact_provider.artifact_kind =
       LOOM_TARGET_COMPILE_ARTIFACT_KIND_HAL_EXECUTABLE;
@@ -278,7 +282,7 @@ kernel.def target(@target) @entry() {
   const loom_run_one_shot_request_t request = {
       /*.session=*/&session_,
       /*.target_environment=*/&target_environment_,
-      /*.pipeline=*/IREE_SV("none"),
+      /*.pipeline=*/IREE_SV("@debug"),
       /*.target=*/IREE_SV("fake:forced"),
       /*.run_module=*/&run_module,
       /*.compile_options=*/&compile_options,

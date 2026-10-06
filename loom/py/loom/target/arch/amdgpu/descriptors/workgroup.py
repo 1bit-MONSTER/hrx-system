@@ -133,12 +133,11 @@ def _ds_load_u16_d16_overlays(
                     Operand(
                         "src",
                         OperandRole.OPERAND,
-                        _VGPR_ALT,
+                        (replace(_VGPR_ALT[0], register_part=_REG_PART_VGPR_LOW16),),
                         flags=(
                             OperandFlag.IMPLICIT,
                             OperandFlag.STORAGE_CONTINUATION,
                         ),
-                        register_part=_REG_PART_VGPR_LOW16,
                     ),
                     role_exception_reason=(
                         "the encoded destination register is also the tied "
@@ -177,8 +176,8 @@ def _ds_write_narrow_overlay(
 ) -> AmdgpuDescriptorOverlay:
     suffix = f"b{width_bits}"
     if width_bits == 8:
-        value_operand = _vgpr_operand("value")
-        value_size_exception_reason = "byte-store-reads-low-8-bits-of-b32-source"
+        value_operand = _vgpr_operand("value", register_part=_REG_PART_VGPR_LOW16)
+        value_size_exception_reason = _BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON
     elif width_bits == 16:
         value_operand = _vgpr_operand("value", register_part=_REG_PART_VGPR_LOW16)
         value_size_exception_reason = None
@@ -334,6 +333,7 @@ def _ds_atomic_overlay(
     semantic_tag: str,
     data_format_name: str,
     returns_old_value: bool,
+    width_bits: int = 32,
     encoding_name: str = "ENC_DS",
     fixed_encoding_fields: tuple[tuple[str, AmdgpuFixedEncodingValue], ...] = (
         ("OFFSET1", 0),
@@ -343,14 +343,18 @@ def _ds_atomic_overlay(
     operands: tuple[AmdgpuOperandOverlay, ...]
     if returns_old_value:
         operands = (
-            AmdgpuOperandOverlay("VDST", _vgpr_result()),
+            AmdgpuOperandOverlay("VDST", _vgpr_result(units=width_bits // 32)),
             AmdgpuOperandOverlay("ADDR", _vgpr_operand("addr")),
-            AmdgpuOperandOverlay("DATA0", _vgpr_operand("value")),
+            AmdgpuOperandOverlay(
+                "DATA0", _vgpr_operand("value", units=width_bits // 32)
+            ),
         )
     else:
         operands = (
             AmdgpuOperandOverlay("ADDR", _vgpr_operand("addr")),
-            AmdgpuOperandOverlay("DATA0", _vgpr_operand("value")),
+            AmdgpuOperandOverlay(
+                "DATA0", _vgpr_operand("value", units=width_bits // 32)
+            ),
         )
     return AmdgpuDescriptorOverlay(
         descriptor_key=descriptor_key,
@@ -362,17 +366,17 @@ def _ds_atomic_overlay(
         operands=operands,
         implicit_operands=(
             _ignore_workgroup_memory(
-                width_bits=32, is_input=False, data_format_name=data_format_name
+                width_bits=width_bits, is_input=False, data_format_name=data_format_name
             ),
             _ignore_workgroup_memory(
-                width_bits=32, is_input=True, data_format_name=data_format_name
+                width_bits=width_bits, is_input=True, data_format_name=data_format_name
             ),
         ),
         immediates=(_ds_offset_immediate(),),
         fixed_encoding_fields=_ds_fixed_fields_without_offset1(fixed_encoding_fields),
         effects=(
-            _workgroup_memory_effect(EffectKind.READ, 32),
-            _workgroup_memory_effect(EffectKind.WRITE, 32),
+            _workgroup_memory_effect(EffectKind.READ, width_bits),
+            _workgroup_memory_effect(EffectKind.WRITE, width_bits),
         ),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
     )
@@ -380,38 +384,51 @@ def _ds_atomic_overlay(
 
 def _ds_atomic_cmpstore_overlay(
     *,
+    width_bits: int,
+    expected_field: str,
+    replacement_field: str,
     encoding_name: str = "ENC_DS",
     fixed_encoding_fields: tuple[tuple[str, AmdgpuFixedEncodingValue], ...] = (
         ("OFFSET1", 0),
         ("GDS", 0),
     ),
 ) -> AmdgpuDescriptorOverlay:
+    # CDNA compares DATA0 and stores DATA1; RDNA compares DATA1 and stores DATA0.
+    # Keep the logical expected/replacement order independent of those fields.
     return AmdgpuDescriptorOverlay(
-        descriptor_key="amdgpu.ds_cmpst_rtn_b32",
-        instruction_name="DS_CMPST_RTN_B32",
-        mnemonic="ds_cmpst_rtn_b32",
+        descriptor_key=f"amdgpu.ds_cmpst_rtn_b{width_bits}",
+        instruction_name=f"DS_CMPST_RTN_B{width_bits}",
+        mnemonic=f"ds_cmpst_rtn_b{width_bits}",
         encoding_name=encoding_name,
-        semantic_tag="memory.workgroup.atomic.compare_exchange.b32.return",
+        semantic_tag=f"memory.workgroup.atomic.compare_exchange.b{width_bits}.return",
         schedule_class=_SCHEDULE_LDS_ATOMIC,
         operands=(
-            AmdgpuOperandOverlay("VDST", _vgpr_result()),
+            AmdgpuOperandOverlay("VDST", _vgpr_result(units=width_bits // 32)),
             AmdgpuOperandOverlay("ADDR", _vgpr_operand("addr")),
-            AmdgpuOperandOverlay("DATA0", _vgpr_operand("expected")),
-            AmdgpuOperandOverlay("DATA1", _vgpr_operand("replacement")),
+            AmdgpuOperandOverlay(
+                expected_field, _vgpr_operand("expected", units=width_bits // 32)
+            ),
+            AmdgpuOperandOverlay(
+                replacement_field, _vgpr_operand("replacement", units=width_bits // 32)
+            ),
         ),
         implicit_operands=(
             _ignore_workgroup_memory(
-                width_bits=32, is_input=False, data_format_name="FMT_NUM_B32"
+                width_bits=width_bits,
+                is_input=False,
+                data_format_name=f"FMT_NUM_B{width_bits}",
             ),
             _ignore_workgroup_memory(
-                width_bits=32, is_input=True, data_format_name="FMT_NUM_B32"
+                width_bits=width_bits,
+                is_input=True,
+                data_format_name=f"FMT_NUM_B{width_bits}",
             ),
         ),
         immediates=(_ds_offset_immediate(),),
         fixed_encoding_fields=_ds_fixed_fields_without_offset1(fixed_encoding_fields),
         effects=(
-            _workgroup_memory_effect(EffectKind.READ, 32),
-            _workgroup_memory_effect(EffectKind.WRITE, 32),
+            _workgroup_memory_effect(EffectKind.READ, width_bits),
+            _workgroup_memory_effect(EffectKind.WRITE, width_bits),
         ),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
     )
@@ -419,115 +436,92 @@ def _ds_atomic_cmpstore_overlay(
 
 def _ds_atomic_overlays(
     *,
+    cmpxchg_expected_field: str,
+    cmpxchg_replacement_field: str,
     encoding_name: str = "ENC_DS",
     fixed_encoding_fields: tuple[tuple[str, AmdgpuFixedEncodingValue], ...] = (
         ("OFFSET1", 0),
         ("GDS", 0),
     ),
-    include_packed_half_add: bool = False,
+    float_atomic_add_types: tuple[str, ...] = ("f32",),
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
     rows = [
-        ("ds_add_u32", "DS_ADD_U32", "add.u32", "FMT_NUM_U32", False),
-        ("ds_sub_u32", "DS_SUB_U32", "sub.u32", "FMT_NUM_U32", False),
-        ("ds_min_i32", "DS_MIN_I32", "min.i32", "FMT_NUM_I32", False),
-        ("ds_max_i32", "DS_MAX_I32", "max.i32", "FMT_NUM_I32", False),
-        ("ds_min_u32", "DS_MIN_U32", "min.u32", "FMT_NUM_U32", False),
-        ("ds_max_u32", "DS_MAX_U32", "max.u32", "FMT_NUM_U32", False),
-        ("ds_and_b32", "DS_AND_B32", "and.b32", "FMT_NUM_B32", False),
-        ("ds_or_b32", "DS_OR_B32", "or.b32", "FMT_NUM_B32", False),
-        ("ds_xor_b32", "DS_XOR_B32", "xor.b32", "FMT_NUM_B32", False),
-        ("ds_add_f32", "DS_ADD_F32", "add.f32", "FMT_NUM_F32", False),
-        ("ds_min_f32", "DS_MIN_F32", "minnum.f32", "FMT_NUM_F32", False),
-        ("ds_max_f32", "DS_MAX_F32", "maxnum.f32", "FMT_NUM_F32", False),
-        ("ds_add_rtn_u32", "DS_ADD_RTN_U32", "add.return.u32", "FMT_NUM_U32", True),
-        ("ds_sub_rtn_u32", "DS_SUB_RTN_U32", "sub.return.u32", "FMT_NUM_U32", True),
-        ("ds_min_rtn_i32", "DS_MIN_RTN_I32", "min.return.i32", "FMT_NUM_I32", True),
-        ("ds_max_rtn_i32", "DS_MAX_RTN_I32", "max.return.i32", "FMT_NUM_I32", True),
-        ("ds_min_rtn_u32", "DS_MIN_RTN_U32", "min.return.u32", "FMT_NUM_U32", True),
-        ("ds_max_rtn_u32", "DS_MAX_RTN_U32", "max.return.u32", "FMT_NUM_U32", True),
-        ("ds_and_rtn_b32", "DS_AND_RTN_B32", "and.return.b32", "FMT_NUM_B32", True),
-        ("ds_or_rtn_b32", "DS_OR_RTN_B32", "or.return.b32", "FMT_NUM_B32", True),
-        ("ds_xor_rtn_b32", "DS_XOR_RTN_B32", "xor.return.b32", "FMT_NUM_B32", True),
         (
-            "ds_wrxchg_rtn_b32",
-            "DS_WRXCHG_RTN_B32",
-            "exchange.return.b32",
-            "FMT_NUM_B32",
-            True,
-        ),
-        ("ds_add_rtn_f32", "DS_ADD_RTN_F32", "add.return.f32", "FMT_NUM_F32", True),
-        (
-            "ds_min_rtn_f32",
-            "DS_MIN_RTN_F32",
-            "minnum.return.f32",
-            "FMT_NUM_F32",
-            True,
-        ),
-        (
-            "ds_max_rtn_f32",
-            "DS_MAX_RTN_F32",
-            "maxnum.return.f32",
-            "FMT_NUM_F32",
-            True,
-        ),
-    ]
-    if include_packed_half_add:
-        rows.extend(
-            (
-                (
-                    "ds_pk_add_f16",
-                    "DS_PK_ADD_F16",
-                    "add.pk2.f16",
-                    "FMT_NUM_PK2_F16",
-                    False,
-                ),
-                (
-                    "ds_pk_add_bf16",
-                    "DS_PK_ADD_BF16",
-                    "add.pk2.bf16",
-                    "FMT_NUM_PK2_BF16",
-                    False,
-                ),
-                (
-                    "ds_pk_add_rtn_f16",
-                    "DS_PK_ADD_RTN_F16",
-                    "add.return.pk2.f16",
-                    "FMT_NUM_PK2_F16",
-                    True,
-                ),
-                (
-                    "ds_pk_add_rtn_bf16",
-                    "DS_PK_ADD_RTN_BF16",
-                    "add.return.pk2.bf16",
-                    "FMT_NUM_PK2_BF16",
-                    True,
-                ),
-            )
+            f"ds_{operation}{return_suffix}_{kind}{width_bits}",
+            f"{semantic}.{kind}{width_bits}{'.return' if returns_old_value else ''}",
+            f"FMT_NUM_{kind.upper()}{width_bits}",
+            width_bits,
+            returns_old_value,
         )
+        for width_bits in (32, 64)
+        for operation, semantic, kind in (
+            ("add", "add", "u"),
+            ("sub", "sub", "u"),
+            ("min", "min", "i"),
+            ("max", "max", "i"),
+            ("min", "min", "u"),
+            ("max", "max", "u"),
+            ("and", "and", "b"),
+            ("or", "or", "b"),
+            ("xor", "xor", "b"),
+            ("wrxchg", "exchange", "b"),
+        )
+        for return_suffix, returns_old_value in (("", False), ("_rtn", True))
+        if operation != "wrxchg" or returns_old_value
+    ]
+    rows.extend(
+        (
+            f"ds_{operation}{return_suffix}_f{width_bits}",
+            f"{semantic}.f{width_bits}{'.return' if returns_old_value else ''}",
+            f"FMT_NUM_F{width_bits}",
+            width_bits,
+            returns_old_value,
+        )
+        for width_bits in (32, 64)
+        for operation, semantic in (("min", "minnum"), ("max", "maxnum"))
+        for return_suffix, returns_old_value in (("", False), ("_rtn", True))
+    )
+    rows.extend(
+        (
+            f"ds_{'pk_' if kind.startswith('pk2.') else ''}add"
+            f"{return_suffix}_{kind.split('.')[-1]}",
+            f"add.{kind}{'.return' if returns_old_value else ''}",
+            f"FMT_NUM_{kind.upper().replace('.', '_')}",
+            64 if kind == "f64" else 32,
+            returns_old_value,
+        )
+        for kind in float_atomic_add_types
+        for return_suffix, returns_old_value in (("", False), ("_rtn", True))
+    )
     overlays = [
         _ds_atomic_overlay(
             descriptor_key=f"amdgpu.{mnemonic}",
-            instruction_name=instruction_name,
+            instruction_name=mnemonic.upper(),
             mnemonic=mnemonic,
             semantic_tag=f"memory.workgroup.atomic.{semantic_suffix}",
             data_format_name=data_format_name,
             returns_old_value=returns_old_value,
+            width_bits=width_bits,
             encoding_name=encoding_name,
             fixed_encoding_fields=fixed_encoding_fields,
         )
         for (
             mnemonic,
-            instruction_name,
             semantic_suffix,
             data_format_name,
+            width_bits,
             returns_old_value,
         ) in rows
     ]
-    overlays.append(
+    overlays.extend(
         _ds_atomic_cmpstore_overlay(
+            width_bits=width_bits,
+            expected_field=cmpxchg_expected_field,
+            replacement_field=cmpxchg_replacement_field,
             encoding_name=encoding_name,
             fixed_encoding_fields=fixed_encoding_fields,
         )
+        for width_bits in (32, 64)
     )
     return tuple(overlays)
 
@@ -847,12 +841,14 @@ def _gfx950_ds_transpose_read_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
 
 def _ds_memory_overlays(
     *,
+    cmpxchg_expected_field: str,
+    cmpxchg_replacement_field: str,
     encoding_name: str = "ENC_DS",
     fixed_encoding_fields: tuple[tuple[str, AmdgpuFixedEncodingValue], ...] = (
         ("OFFSET1", 0),
         ("GDS", 0),
     ),
-    include_packed_half_atomic_add: bool = False,
+    float_atomic_add_types: tuple[str, ...] = ("f32",),
     include_u16_d16_loads: bool = False,
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
     widths = ((32, 1), (64, 2), (96, 3), (128, 4))
@@ -896,9 +892,11 @@ def _ds_memory_overlays(
             for width_bits, units in widths
         ),
         *_ds_atomic_overlays(
+            cmpxchg_expected_field=cmpxchg_expected_field,
+            cmpxchg_replacement_field=cmpxchg_replacement_field,
             encoding_name=encoding_name,
             fixed_encoding_fields=fixed_encoding_fields,
-            include_packed_half_add=include_packed_half_atomic_add,
+            float_atomic_add_types=float_atomic_add_types,
         ),
         *(
             _ds_load_u16_d16_overlays(

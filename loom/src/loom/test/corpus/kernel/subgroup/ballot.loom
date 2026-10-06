@@ -1,0 +1,177 @@
+// Qualifies i64 ballot packing for every target-selected subgroup width up to
+// 64 lanes. Exact masks, divergent active lanes, helpers, and loop calls must
+// agree between native AMDGPU and shared SPIR-V lowering.
+//
+// Produces the exact low-bit lane mask for subgroup widths up to 64.
+func.def device inline @low_bits_mask(%width: index) -> (i64) {
+  %maximum_width = index.constant 64 : index
+  %is_maximum_width = index.cmp eq, %width, %maximum_width : index
+  %all_bits = scalar.constant -1 : i64
+  %unit = scalar.constant 1 : i64
+  %width_i64 = index.cast %width : index to i64
+  %mask = scf.if %is_maximum_width -> (i64) {
+    scf.yield %all_bits : i64
+  } else {
+    %limit = scalar.shli %unit, %width_i64 : i64
+    %low_bits = scalar.subi %limit, %unit : i64
+    scf.yield %low_bits : i64
+  }
+  func.return %mask : i64
+}
+
+kernel.def @subgroup_ballot_masks() {
+  %unit = index.constant 1 : index
+  %width = kernel.subgroup.size : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %width = kernel.subgroup.size : index
+  %lane = kernel.subgroup.lane.id : index
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<64xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<3xi32>
+  %value = view.load %input_view[%lane] : view<64xi32> -> i32
+  %c0_i32 = scalar.constant 0 : i32
+  %c0_index = index.constant 0 : index
+  %c1_index = index.constant 1 : index
+  %c2_index = index.constant 2 : index
+  %parity = index.andi %lane, %c1_index : index
+  %full_predicate = scalar.cmpi sge, %value, %c0_i32 : i32
+  %empty_predicate = scalar.cmpi slt, %value, %c0_i32 : i32
+  %alternating_predicate = index.cmp eq, %parity, %c0_index : index
+  %full = kernel.subgroup.vote.ballot %full_predicate : i1 -> i64
+  %empty = kernel.subgroup.vote.ballot %empty_predicate : i1 -> i64
+  %alternating = kernel.subgroup.vote.ballot %alternating_predicate : i1 -> i64
+  %expected_full = func.call @low_bits_mask(%width) : (index) -> (i64)
+  %expected_empty = scalar.constant 0 : i64
+  %alternating_bits = scalar.constant 6148914691236517205 : i64
+  %expected_alternating = scalar.andi %expected_full, %alternating_bits : i64
+  %full_matches = scalar.cmpi eq, %full, %expected_full : i64
+  %empty_matches = scalar.cmpi eq, %empty, %expected_empty : i64
+  %alternating_matches = scalar.cmpi eq, %alternating, %expected_alternating : i64
+  %full_result = scalar.extui %full_matches : i1 to i32
+  %empty_result = scalar.extui %empty_matches : i1 to i32
+  %alternating_result = scalar.extui %alternating_matches : i1 to i32
+  %leader = index.cmp eq, %lane, %c0_index : index
+  scf.if %leader {
+    view.store %full_result, %output_view[%c0_index] : i32, view<3xi32>
+    view.store %empty_result, %output_view[%c1_index] : i32, view<3xi32>
+    view.store %alternating_result, %output_view[%c2_index] : i32, view<3xi32>
+  }
+  kernel.return
+}
+
+check.case public @subgroup_ballot_exact_masks {
+  %input = check.generate.iota offset(0) step(1) : tensor<64xi32>
+  %output = check.generate.fill value(99) : tensor<3xi32>
+  kernel.launch @subgroup_ballot_masks(%input, %output) : (tensor<64xi32>, tensor<3xi32>)
+  %expected = check.generate.fill value(1) : tensor<3xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<3xi32>
+  check.return
+}
+
+kernel.def @subgroup_ballot_divergent() {
+  %unit = index.constant 1 : index
+  %width = kernel.subgroup.size : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %width = kernel.subgroup.size : index
+  %lane = kernel.subgroup.lane.id : index
+  %c0_index = index.constant 0 : index
+  %c1_index = index.constant 1 : index
+  %parity = index.andi %lane, %c1_index : index
+  %active = index.cmp eq, %parity, %c0_index : index
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<64xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<2xi32>
+  %value = view.load %input_view[%lane] : view<64xi32> -> i32
+  %c0_i32 = scalar.constant 0 : i32
+  %c1_i32 = scalar.constant 1 : i32
+  %value_parity = scalar.andi %value, %c1_i32 : i32
+  %inactive_predicate = scalar.cmpi ne, %value_parity, %c0_i32 : i32
+  %true_predicate = scalar.cmpi sge, %value, %c0_i32 : i32
+  scf.if %active {
+    %empty = kernel.subgroup.vote.ballot %inactive_predicate : i1 -> i64
+    %active_mask = kernel.subgroup.vote.ballot %true_predicate : i1 -> i64
+    %expected_full = func.call @low_bits_mask(%width) : (index) -> (i64)
+    %expected_empty = scalar.constant 0 : i64
+    %alternating_bits = scalar.constant 6148914691236517205 : i64
+    %expected_active = scalar.andi %expected_full, %alternating_bits : i64
+    %empty_matches = scalar.cmpi eq, %empty, %expected_empty : i64
+    %active_matches = scalar.cmpi eq, %active_mask, %expected_active : i64
+    %empty_result = scalar.extui %empty_matches : i1 to i32
+    %active_result = scalar.extui %active_matches : i1 to i32
+    %leader = index.cmp eq, %lane, %c0_index : index
+    scf.if %leader {
+      view.store %empty_result, %output_view[%c0_index] : i32, view<2xi32>
+      view.store %active_result, %output_view[%c1_index] : i32, view<2xi32>
+    }
+  }
+  kernel.return
+}
+
+check.case public @subgroup_ballot_active_lanes {
+  %input = check.generate.iota offset(0) step(1) : tensor<64xi32>
+  %output = check.generate.fill value(99) : tensor<2xi32>
+  kernel.launch @subgroup_ballot_divergent(%input, %output) : (tensor<64xi32>, tensor<2xi32>)
+  %expected = check.generate.fill value(1) : tensor<2xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<2xi32>
+  check.return
+}
+
+func.def device inline @subgroup_ballot_helper(%predicate: i1) -> (i64) {
+  %mask = kernel.subgroup.vote.ballot %predicate : i1 -> i64
+  func.return %mask : i64
+}
+
+kernel.def @subgroup_ballot_helpers_and_loop() {
+  %unit = index.constant 1 : index
+  %width = kernel.subgroup.size : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer) {
+  %width = kernel.subgroup.size : index
+  %lane = kernel.subgroup.lane.id : index
+  %c0_index = index.constant 0 : index
+  %c1_index = index.constant 1 : index
+  %c2_index = index.constant 2 : index
+  %end = index.constant 3 : index
+  %half = index.div %width, %c2_index : index
+  %parity = index.andi %lane, %c1_index : index
+  %even_predicate = index.cmp eq, %parity, %c0_index : index
+  %upper_predicate = index.cmp uge, %lane, %half : index
+  %even = func.call @subgroup_ballot_helper(%even_predicate) : (i1) -> (i64)
+  %upper = func.call @subgroup_ballot_helper(%upper_predicate) : (i1) -> (i64)
+  %zero_mask = scalar.constant 0 : i64
+  %loop_mask = scf.for %iteration = [%c0_index to %end step %c1_index](%combined = %zero_mask : i64) -> (i64) {
+    %iteration_mask = func.call @subgroup_ballot_helper(%even_predicate) : (i1) -> (i64)
+    %next = scalar.ori %combined, %iteration_mask : i64
+    scf.yield %next : i64
+  }
+  %expected_full = func.call @low_bits_mask(%width) : (index) -> (i64)
+  %alternating_bits = scalar.constant 6148914691236517205 : i64
+  %expected_even = scalar.andi %expected_full, %alternating_bits : i64
+  %expected_lower = func.call @low_bits_mask(%half) : (index) -> (i64)
+  %expected_upper = scalar.xori %expected_full, %expected_lower : i64
+  %even_matches = scalar.cmpi eq, %even, %expected_even : i64
+  %upper_matches = scalar.cmpi eq, %upper, %expected_upper : i64
+  %loop_matches = scalar.cmpi eq, %loop_mask, %expected_even : i64
+  %even_result = scalar.extui %even_matches : i1 to i32
+  %upper_result = scalar.extui %upper_matches : i1 to i32
+  %loop_result = scalar.extui %loop_matches : i1 to i32
+  %base = index.constant 0 : offset
+  %output_view = buffer.view %output[%base] : buffer -> view<3xi32>
+  %leader = index.cmp eq, %lane, %c0_index : index
+  scf.if %leader {
+    view.store %even_result, %output_view[%c0_index] : i32, view<3xi32>
+    view.store %upper_result, %output_view[%c1_index] : i32, view<3xi32>
+    view.store %loop_result, %output_view[%c2_index] : i32, view<3xi32>
+  }
+  kernel.return
+}
+
+check.case public @subgroup_ballot_helper_loop_results {
+  %output = check.generate.fill value(99) : tensor<3xi32>
+  kernel.launch @subgroup_ballot_helpers_and_loop(%output) : (tensor<3xi32>)
+  %expected = check.generate.fill value(1) : tensor<3xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<3xi32>
+  check.return
+}

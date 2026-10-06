@@ -12,6 +12,25 @@ iree_add_all_subdirs()
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
+    check
+  HDRS
+    "check.h"
+  SRCS
+    "check.c"
+  DEPS
+    iree::base
+    iree::vm::bytecode::disassembler
+    loom::target::arch::vm::provider
+    loom::target::emit::vm::module_compiler
+    loom::tools::loom-check::execute
+    loom::tools::loom-check::provider
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
     testbench
   HDRS
     "testbench.h"
@@ -22,16 +41,19 @@ loom_cc_library(
     iree::hal
     iree::vm
     iree::vm::bytecode::module
+    loom::error::error_defs
     loom::error::source
     loom::link::linker
     loom::ops::func
     loom::ops::op_defs
-    loom::target::arch::vm::module
     loom::target::arch::vm::provider
+    loom::target::emit::vm::module_compiler
+    loom::target::entry_selection
     loom::target::provider
     loom::tooling::compile::pipeline
     loom::tooling::config
     loom::tooling::testbench::invocation
+    loom::tooling::testbench::scenario::executor
   PUBLIC
 )
 endif()
@@ -97,11 +119,12 @@ loom_cc_test(
     loom::ops::func::location_capture_test_data
     loom::ops::op_defs
     loom::ops::op_registry
-    loom::target::arch::vm::module
-    loom::target::arch::vm::provider
+    loom::target::emit::vm::module_compiler
     loom::target::provider
+    loom::target::selection
     loom::tooling::compile::pipeline
     loom::tooling::input
+    loom::transforms::cleanup::configured
   LABELS
     "iree-build-requirement=loom.target.arch.vm"
 )
@@ -174,11 +197,12 @@ loom_cc_test(
     loom::ir
     loom::ops::func
     loom::ops::op_registry
-    loom::target::arch::vm::module
-    loom::target::arch::vm::provider
+    loom::target::emit::vm::module_compiler
     loom::target::provider
+    loom::target::selection
     loom::tooling::compile::pipeline
     loom::tooling::input
+    loom::transforms::cleanup::configured
   LABELS
     "iree-build-requirement=loom.target.arch.vm"
 )

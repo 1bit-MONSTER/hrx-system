@@ -71,6 +71,15 @@ using UInt4 = unsigned __attribute__((ext_vector_type(4)));
                    (received[2] != expected_lane * 3) |
                    (received[3] != (expected_lane ^ 0x80000000u)))
                   << 9;
+      unsigned long long wide =
+          (static_cast<unsigned long long>(lane ^ 0x87654321u) << 32) |
+          (lane * 13 + 19);
+      unsigned long long received_wide =
+          loom::subgroup_broadcast(wide, elected);
+      unsigned long long expected_wide =
+          (static_cast<unsigned long long>(expected_lane ^ 0x87654321u) << 32) |
+          (expected_lane * 13 + 19);
+      failures |= (received_wide != expected_wide) << 15;
     }
   }
   failures |= (evaluations != 3) << 10;
@@ -88,6 +97,11 @@ using UInt4 = unsigned __attribute__((ext_vector_type(4)));
                  (received[2] != 15) | (received[3] != 0x80000005u))
                 << 13;
     failures |= !loom::subgroup_all(lane >= 5) << 14;
+    unsigned long long wide =
+        (static_cast<unsigned long long>(lane ^ 0x87654321u) << 32) |
+        (lane * 13 + 19);
+    failures |= (loom::subgroup_broadcast_first(wide) != 0x8765432400000054ull)
+                << 16;
   }
   return failures;
 }

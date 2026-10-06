@@ -255,11 +255,18 @@ static iree_status_t loom_amdgpu_append_descriptor_register_part_assignment(
   const loom_low_operand_t* operand =
       &descriptor_set
            ->operands[descriptor->operand_start + descriptor_operand_index];
-  IREE_ASSERT_NE(operand->register_part_id, LOOM_LOW_REGISTER_PART_NONE);
-  IREE_ASSERT_LT(operand->register_part_id,
+  const loom_low_allocation_assignment_t* assignment =
+      loom_low_packet_descriptor_operand_assignment(
+          context->allocation, context->packet, descriptor_operand_index);
+  const loom_low_reg_class_alt_t* alternative = loom_low_operand_reg_class_alt(
+      descriptor_set, operand, assignment->descriptor_reg_class_id);
+  IREE_ASSERT(alternative != NULL,
+              "allocated AMDGPU operand register-class alternative");
+  IREE_ASSERT_NE(alternative->register_part_id, LOOM_LOW_REGISTER_PART_NONE);
+  IREE_ASSERT_LT(alternative->register_part_id,
                  descriptor_set->register_part_count);
   const loom_low_register_part_t* register_part =
-      &descriptor_set->register_parts[operand->register_part_id];
+      &descriptor_set->register_parts[alternative->register_part_id];
   IREE_ASSERT(register_part->reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_SGPR ||
               register_part->reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_VGPR);
 
@@ -2329,11 +2336,40 @@ static iree_status_t loom_amdgpu_append_wait_states_before_packet(
     const loom_amdgpu_wait_state_t* wait_state =
         &state->packet_plan.wait_states
              ->states[state->packet_plan.next_wait_state_index];
-    if (!loom_amdgpu_wait_state_matches_packet(wait_state, context->packet)) {
+    if (!loom_amdgpu_wait_state_matches_packet(wait_state, context->packet) ||
+        wait_state->instruction_offset != 0) {
       return iree_ok_status();
     }
     IREE_RETURN_IF_ERROR(
         loom_amdgpu_append_wait_state_action(context, wait_state, state));
+    ++state->packet_plan.next_wait_state_index;
+  }
+  return iree_ok_status();
+}
+
+// Interior residuals follow a descriptor or a resolved move. The surrounding
+// packet formatter owns the final newline, just as it does for the instruction.
+static iree_status_t loom_amdgpu_append_wait_states_after_instruction(
+    loom_amdgpu_assembly_emit_state_t* state,
+    const loom_native_assembly_packet_context_t* context,
+    uint32_t instruction_offset) {
+  if (state == NULL || state->packet_plan.wait_states == NULL) {
+    return iree_ok_status();
+  }
+  while (state->packet_plan.next_wait_state_index <
+         state->packet_plan.wait_states->state_count) {
+    const loom_amdgpu_wait_state_t* wait_state =
+        &state->packet_plan.wait_states
+             ->states[state->packet_plan.next_wait_state_index];
+    if (!loom_amdgpu_wait_state_matches_packet(wait_state, context->packet) ||
+        wait_state->instruction_offset != instruction_offset) {
+      break;
+    }
+    IREE_ASSERT_EQ(wait_state->action,
+                   LOOM_AMDGPU_WAIT_STATE_ACTION_S_WAITCNT_DEPCTR);
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+        context->builder, "\n  s_waitcnt_depctr 0x%04" PRIx16,
+        wait_state->immediate));
     ++state->packet_plan.next_wait_state_index;
   }
   return iree_ok_status();
@@ -2510,6 +2546,8 @@ static iree_status_t loom_amdgpu_emit_move_range(
         move->destination.descriptor_reg_class_id, &move_state.mnemonic));
     IREE_RETURN_IF_ERROR(loom_amdgpu_append_move(
         &move_state, &move->destination, &move->source));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_append_wait_states_after_instruction(
+        emit_state, context, (uint32_t)i + 1));
   }
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_append_vgpr_msb_mode(&move_state, saved_mode));
@@ -3435,7 +3473,9 @@ static iree_status_t loom_amdgpu_append_stateful_descriptor_packet(
     }
   }
   IREE_RETURN_IF_ERROR(loom_amdgpu_append_descriptor_packet(NULL, context));
-  return loom_amdgpu_update_vgpr_msb_mode_after_descriptor(state, context);
+  IREE_RETURN_IF_ERROR(
+      loom_amdgpu_update_vgpr_msb_mode_after_descriptor(state, context));
+  return loom_amdgpu_append_wait_states_after_instruction(state, context, 1);
 }
 
 static iree_status_t loom_amdgpu_append_vopd_or_descriptor_packet(

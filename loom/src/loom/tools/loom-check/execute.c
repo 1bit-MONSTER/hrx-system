@@ -8,9 +8,9 @@
 
 #include "loom/codegen/low/lower/lower.h"
 #include "loom/codegen/low/pipeline/legalizer_registry.h"
-#include "loom/codegen/low/pipeline/pass_environment.h"
 #include "loom/codegen/low/text_asm.h"
 #include "loom/codegen/low/verify.h"
+#include "loom/codegen/pass_environment.h"
 #include "loom/error/diagnostic.h"
 #include "loom/error/json_sink.h"
 #include "loom/error/source.h"
@@ -30,6 +30,7 @@
 #include "loom/tools/loom-check/requirements.h"
 #include "loom/tools/loom-check/source_low.h"
 #include "loom/tools/loom-format/convert.h"
+#include "loom/transforms/cleanup/patterns.h"
 #include "loom/util/diff.h"
 #include "loom/util/json.h"
 #include "loom/util/stream.h"
@@ -563,30 +564,31 @@ static iree_status_t loom_check_execute_pass_with_output(
   if (iree_status_is_ok(status)) {
     status = loom_check_parse_pass_target(&pipeline, &target_request);
   }
-  if (iree_status_is_ok(status) &&
-      iree_any_bit_set(target_request.options,
-                       LOOM_CHECK_SOURCE_LOW_OPTION_TARGET)) {
+  // Admit input before any transformation can erase an invalid operation.
+  if (iree_status_is_ok(status)) {
     bool failed_verification = false;
     status = loom_check_verify_pass_module(
         source_resolver, environment, &diagnostic_collector, module,
         &function_versions.list, &failed_verification);
-    if (iree_status_is_ok(status) && !failed_verification) {
-      loom_target_specialization_request_t specialization;
-      status = loom_check_resolve_source_target(
-          module, environment->target_environment, target_request.function_name,
-          &target_request.target, &specialization);
-      if (iree_status_is_ok(status)) {
-        loom_target_specialization_result_t specialization_result = {0};
-        status = loom_target_specialize_functions(
-            environment->target_environment, module,
-            (loom_target_specialization_request_list_t){&specialization, 1},
-            (loom_target_declaration_binding_list_t){0},
-            pass_diagnostic_emitter, &diagnostic_arena, &specialization_result);
-        function_versions = specialization_result.function_versions;
-        run_result.error_count = specialization_result.error_count;
-      }
-    } else if (failed_verification) {
+    if (failed_verification) {
       run_result.error_count = 1;
+    }
+  }
+  if (iree_status_is_ok(status) && run_result.error_count == 0 &&
+      iree_any_bit_set(target_request.options,
+                       LOOM_CHECK_SOURCE_LOW_OPTION_TARGET)) {
+    loom_target_specialization_request_t specialization;
+    status = loom_check_resolve_source_target(
+        module, environment->target_environment, target_request.function_name,
+        &target_request.target, &specialization);
+    if (iree_status_is_ok(status)) {
+      uint32_t specialization_error_count = 0;
+      status = loom_target_specialize_functions(
+          environment->target_environment, module,
+          (loom_target_specialization_request_list_t){&specialization, 1},
+          (loom_target_declaration_binding_list_t){0}, pass_diagnostic_emitter,
+          &function_versions, &specialization_error_count);
+      run_result.error_count = specialization_error_count;
     }
   }
   loom_pass_report_t pass_report = {0};
@@ -640,7 +642,7 @@ static iree_status_t loom_check_execute_pass_with_output(
         math_policy_registry_ref = &math_policy_registry;
       }
     }
-    loom_low_pass_environment_storage_t low_pass_environment_storage;
+    loom_codegen_pass_environment_storage_t codegen_environment_storage;
     loom_target_pass_predicate_provider_storage_t predicate_storage;
     loom_target_pass_predicate_provider_storage_initialize(block_pool,
                                                            &predicate_storage);
@@ -669,16 +671,39 @@ static iree_status_t loom_check_execute_pass_with_output(
           legalizer_provider_list, iree_arena_allocator(&diagnostic_arena),
           &legalizer_registry_storage);
     }
+    loom_cleanup_pattern_registry_storage_t cleanup_pattern_registry_storage = {
+        0};
+    const loom_cleanup_pattern_registry_t* cleanup_pattern_registry = NULL;
+    if (iree_status_is_ok(status) && environment != NULL &&
+        environment->cleanup_pattern_provider_set != NULL) {
+      status = loom_cleanup_pattern_registry_storage_initialize(
+          environment->cleanup_pattern_provider_set,
+          iree_arena_allocator(&diagnostic_arena),
+          &cleanup_pattern_registry_storage);
+      if (iree_status_is_ok(status)) {
+        cleanup_pattern_registry =
+            loom_cleanup_pattern_registry_storage_registry(
+                &cleanup_pattern_registry_storage);
+      }
+    }
+    const loom_codegen_pass_environment_options_t environment_options = {
+        .descriptor_registry = &low_registry.registry,
+        .lower_policy_registry = low_lower_policy_registry_ref,
+        .legality_provider_list =
+            environment ? &environment->low_legality_provider_list : NULL,
+        .legalizer_registry = loom_target_legalizer_registry_storage_registry(
+            &legalizer_registry_storage),
+        .math_policy_registry = math_policy_registry_ref,
+        .compile_report = compile_report_ref,
+        .target_environment =
+            environment ? environment->target_environment : NULL,
+        .cleanup_pattern_registry = cleanup_pattern_registry,
+    };
     loom_pass_tool_run_options_t run_options = {
         .registry = pass_registry,
-        .environment = loom_low_pass_environment_storage_initialize_mutable(
-            &low_registry.registry, low_lower_policy_registry_ref,
-            environment ? &environment->low_legality_provider_list : NULL,
-            loom_target_legalizer_registry_storage_registry(
-                &legalizer_registry_storage),
-            math_policy_registry_ref, compile_report_ref,
-            environment ? environment->target_environment : NULL,
-            &function_versions, &low_pass_environment_storage),
+        .environment = loom_codegen_pass_environment_storage_initialize_mutable(
+            &environment_options, &function_versions,
+            &codegen_environment_storage),
         .function_versions = &function_versions.list,
         .predicate_provider =
             loom_target_pass_predicate_provider(&predicate_storage),
@@ -697,6 +722,8 @@ static iree_status_t loom_check_execute_pass_with_output(
     }
     loom_target_legalizer_registry_storage_deinitialize(
         &legalizer_registry_storage);
+    loom_cleanup_pattern_registry_storage_deinitialize(
+        &cleanup_pattern_registry_storage);
   }
   if (!iree_status_is_ok(status)) {
     status = loom_check_execute_finish_status_failure(

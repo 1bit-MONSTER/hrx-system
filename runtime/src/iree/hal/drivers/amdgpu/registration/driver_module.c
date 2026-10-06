@@ -111,6 +111,10 @@ IREE_FLAG(string, amdgpu_tsan_report_policy, "fail-device",
           "stop the offending kernel path; 'report-only' keeps the logical "
           "device usable, while 'fail-device' then fails the logical device.");
 IREE_FLAG(
+    int32_t, amdgpu_tsan_memory_granule_shift,
+    IREE_HAL_AMDGPU_TSAN_DEFAULT_MEMORY_GRANULE_SHIFT,
+    "Log2 local-memory bytes represented by one AMDGPU TSAN shadow entry.");
+IREE_FLAG(
     int32_t, amdgpu_tsan_workgroup_local_memory_size,
     IREE_HAL_AMDGPU_TSAN_DEFAULT_WORKGROUP_LOCAL_MEMORY_SIZE,
     "Local-memory byte capacity represented by each AMDGPU TSAN workgroup "
@@ -368,6 +372,18 @@ static iree_status_t iree_hal_amdgpu_driver_factory_try_create(
                             "unrecognized TSAN report policy: '%s'",
                             FLAG_amdgpu_tsan_report_policy);
   }
+  if (FLAG_amdgpu_tsan_memory_granule_shift < 0 ||
+      FLAG_amdgpu_tsan_memory_granule_shift >
+          IREE_HAL_AMDGPU_TSAN_MAX_MEMORY_GRANULE_SHIFT) {
+    return iree_make_status(
+        IREE_STATUS_OUT_OF_RANGE,
+        "amdgpu_tsan_memory_granule_shift must be between 0 and %u "
+        "(got %d)",
+        IREE_HAL_AMDGPU_TSAN_MAX_MEMORY_GRANULE_SHIFT,
+        FLAG_amdgpu_tsan_memory_granule_shift);
+  }
+  device_options->tsan.memory_granule_shift =
+      (uint32_t)FLAG_amdgpu_tsan_memory_granule_shift;
   if (FLAG_amdgpu_tsan_workgroup_local_memory_size < 0) {
     return iree_make_status(
         IREE_STATUS_OUT_OF_RANGE,

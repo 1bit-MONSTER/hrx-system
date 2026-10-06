@@ -13,6 +13,7 @@
 #include "loom/analysis/native_layout.h"
 #include "loom/codegen/low/planning_statistics.h"
 #include "loom/ir/scalar_type.h"
+#include "loom/ir/types.h"
 #include "loom/target/reporting/loop_pipeline.h"
 #include "loom/target/reporting/pipeline_plan.h"
 #include "loom/target/reporting/residency.h"
@@ -196,8 +197,8 @@ typedef enum loom_target_compile_report_pressure_origin_kind_e {
   LOOM_TARGET_COMPILE_REPORT_PRESSURE_ORIGIN_GENERIC_MEMORY = 16,
   // Descriptor-backed control-flow value.
   LOOM_TARGET_COMPILE_REPORT_PRESSURE_ORIGIN_CONTROL = 17,
-  // Descriptor-backed barrier or synchronization value.
-  LOOM_TARGET_COMPILE_REPORT_PRESSURE_ORIGIN_BARRIER = 18,
+  // Descriptor-backed execution-barrier value.
+  LOOM_TARGET_COMPILE_REPORT_PRESSURE_ORIGIN_EXECUTION_BARRIER = 18,
   // Descriptor-backed numeric conversion value.
   LOOM_TARGET_COMPILE_REPORT_PRESSURE_ORIGIN_CONVERSION = 19,
   // Descriptor-backed register move or repair value.
@@ -422,8 +423,10 @@ typedef struct loom_target_compile_report_static_instruction_mix_t {
   uint64_t atomic_count;
   // Low packets identified as branch, return, or call control flow.
   uint64_t branch_count;
-  // Descriptor-backed nodes identified as barrier or synchronization packets.
-  uint64_t barrier_count;
+  // Descriptor-backed execution-barrier packets, including collective
+  // rendezvous and command execution barriers. Separate arrival/wait packets
+  // count separately; memory fences and compiler ordering effects do not count.
+  uint64_t execution_barrier_count;
   // Low packets identified as control flow or other control packets.
   uint64_t control_count;
   // Descriptor-backed nodes identified as numeric conversion packets.
@@ -572,6 +575,8 @@ typedef struct loom_target_compile_report_workload_t {
 
 // Structural target bank-service evidence accumulated across source packets.
 typedef struct loom_target_compile_report_bank_service_summary_t {
+  // Number of applicable source packets without a selected service model.
+  uint64_t unmodeled_packet_count;
   // Number of source packets for which a target service model was selected.
   uint64_t modeled_packet_count;
   // Number of modeled source packets with exact service evidence.
@@ -1231,6 +1236,44 @@ typedef struct loom_target_compile_report_source_low_transform_row_t {
   uint32_t inserted_barrier_op_count;
 } loom_target_compile_report_source_low_transform_row_t;
 
+// Sentinel stored in source_dimensions for a dynamic logical dimension.
+#define LOOM_TARGET_COMPILE_REPORT_DIMENSION_DYNAMIC INT64_C(-1)
+
+// One source boundary-representation decision copied into a compile report.
+typedef struct loom_target_compile_report_source_boundary_projection_row_t {
+  // Source function symbol containing the projected boundary.
+  iree_string_view_t function_name;
+  // Source operation mnemonic anchoring the boundary.
+  iree_string_view_t source_op_name;
+  // Numeric source operation kind anchoring the boundary.
+  uint32_t source_op_kind;
+  // Stable semantic projection-rule key.
+  iree_string_view_t projection_key;
+  // Stable boundary-role key such as "loop_state".
+  iree_string_view_t boundary_key;
+  // Stable decision outcome: selected, preserved, or rejected.
+  iree_string_view_t outcome;
+  // Stable semantic reason for the decision.
+  iree_string_view_t reason;
+  // Function-local source operation ordinal assigned by the projection pass.
+  uint32_t operation_ordinal;
+  // Source value ordinal within the boundary operation.
+  uint32_t source_value_ordinal;
+  // Original logical Loom type kind.
+  uint32_t source_type_kind;
+  // Original logical element scalar type.
+  uint32_t source_element_type;
+  // Number of populated entries in |source_dimensions|.
+  uint8_t source_rank;
+  // Leading logical dimensions selecting one homogeneous component.
+  uint8_t projected_prefix_rank;
+  // Number of homogeneous physical components, or zero when no schema exists.
+  uint16_t component_count;
+  // Original logical dimensions in source order. Dynamic dimensions use
+  // LOOM_TARGET_COMPILE_REPORT_DIMENSION_DYNAMIC.
+  int64_t source_dimensions[LOOM_TYPE_MAX_RANK];
+} loom_target_compile_report_source_boundary_projection_row_t;
+
 // One invocation config binding materialized into the compiled module.
 typedef struct loom_target_compile_report_config_binding_row_t {
   // Config symbol name without the textual '@' sigil.
@@ -1331,11 +1374,11 @@ typedef struct loom_target_compile_report_memory_interval_summary_t {
 
 // Target-owned bank-service evidence for one emitted source memory packet.
 typedef struct loom_target_compile_report_bank_service_t {
-  // Exactness of the result: "exact", "unknown", or empty when not analyzed.
+  // Evidence: "exact", "unknown", "unmodeled", or empty when not applicable.
   iree_string_view_t proof;
   // Exact result class: "conflict-free", "conflicted", or empty when unknown.
   iree_string_view_t classification;
-  // Stable target packet-service model key.
+  // Stable target packet-service model key, empty when unmodeled.
   iree_string_view_t model_key;
   // Immutable source revision defining the selected model.
   iree_string_view_t model_revision;
@@ -1349,23 +1392,23 @@ typedef struct loom_target_compile_report_bank_service_t {
   iree_string_view_t active_lane_proof;
   // Proof covering unknown common LDS base translations.
   iree_string_view_t base_residue_proof;
-  // Stable reason key when |proof| is "unknown".
+  // Stable reason key when |proof| is "unknown" or "unmodeled".
   iree_string_view_t unknown_reason;
-  // Number of lanes represented by the model phases.
+  // Selected execution wave size, including when no model is available.
   uint8_t wave_size;
   // Number of independently serviced LDS banks.
   uint8_t bank_count;
   // Byte width of one LDS bank word.
   uint8_t bank_word_byte_count;
-  // Number of consecutive bank words requested by each active lane.
-  uint8_t packet_word_count;
+  // Number of bytes accessed by each active lane.
+  uint8_t packet_byte_count;
   // Number of populated phase entries.
   uint8_t phase_count;
   // Number of active model lanes in each service phase.
   uint8_t
       phase_lane_counts[LOOM_TARGET_COMPILE_REPORT_BANK_SERVICE_PHASE_CAPACITY];
-  // Number of common bank-word base residues covered by the result.
-  uint8_t base_residue_count;
+  // Number of common byte-base residues covered by the result.
+  uint16_t base_residue_count;
   // Required bank service rounds for each model phase.
   uint16_t phase_required_rounds
       [LOOM_TARGET_COMPILE_REPORT_BANK_SERVICE_PHASE_CAPACITY];
@@ -1409,6 +1452,9 @@ typedef struct loom_target_compile_report_subgroup_access_t {
   iree_string_view_t unknown_reason;
   // Number of lanes in the modeled subgroup.
   uint8_t subgroup_size;
+  // Proven number of participating lanes, or zero when participation is
+  // unknown.
+  uint8_t active_lane_count;
   // Number of populated lane-address terms with compile-time byte strides.
   uint8_t lane_term_count;
   // Relative address terms with compile-time byte strides, in array order.
@@ -1527,7 +1573,7 @@ typedef struct loom_target_compile_report_source_low_bank_service_summary_t {
   iree_string_view_t packet_key;
   // Stable target-owned strategy key selected for the modeled packets.
   iree_string_view_t strategy_key;
-  // Stable target packet-service model key.
+  // Stable target packet-service model key, empty when unmodeled.
   iree_string_view_t model_key;
   // Immutable source revision defining the selected model.
   iree_string_view_t model_revision;
@@ -1539,14 +1585,14 @@ typedef struct loom_target_compile_report_source_low_bank_service_summary_t {
   iree_string_view_t unknown_reason;
   // Whether unknown rows carried more than one stable reason.
   bool has_mixed_unknown_reasons;
-  // Number of lanes represented by the model phases.
+  // Selected execution wave size, including when no model is available.
   uint8_t wave_size;
   // Number of independently serviced banks.
   uint8_t bank_count;
   // Byte width of one bank word.
   uint8_t bank_word_byte_count;
-  // Number of consecutive bank words requested by each active lane.
-  uint8_t packet_word_count;
+  // Number of bytes accessed by each active lane.
+  uint8_t packet_byte_count;
   // Accumulated structural service evidence for the packet group.
   loom_target_compile_report_bank_service_summary_t summary;
 } loom_target_compile_report_source_low_bank_service_summary_t;
@@ -1850,6 +1896,9 @@ typedef struct loom_target_compile_report_row_list_t {
   iree_host_size_t count;
 } loom_target_compile_report_row_list_t;
 
+// Releases storage whose lifetime is retained by a compile report.
+typedef void (*loom_target_compile_report_storage_release_fn_t)(void* storage);
+
 // Returns mutable row storage for |vec|.
 static inline void* loom_target_compile_report_vec_rows(
     loom_target_compile_report_vec_t* vec) {
@@ -1865,11 +1914,13 @@ static inline const void* loom_target_compile_report_vec_const_rows(
 // Structured feedback from one module-to-artifact compilation.
 //
 // Reports borrow string views from the compiled module, target records,
-// compile options, backend tables, or artifact storage. Config binding rows own
-// their key/value strings because materialization inputs may be transient.
-// Detail row lists are owned by the report and allocated from |allocator| as
-// rows are recorded. Consumers that need a report to outlive those string
-// owners must copy the strings before releasing the module or candidate.
+// compile options, backend tables, artifact storage, or storage explicitly
+// transferred to the report. Config binding rows own their key/value strings
+// because materialization inputs may be transient. Detail row lists are owned
+// by the report and allocated from |allocator| as rows are recorded. A target
+// may transfer one backing storage owner when its detail rows borrow transient
+// target-owned data. Other consumers that need a report to outlive a string
+// owner must copy the strings before releasing that owner.
 typedef struct loom_target_compile_report_t {
   // Host allocator used for owned row storage.
   iree_allocator_t allocator;
@@ -2047,6 +2098,8 @@ typedef struct loom_target_compile_report_t {
   loom_target_compile_report_row_list_t source_low_target_rows;
   // Owned source transform decision rows.
   loom_target_compile_report_row_list_t source_low_transform_rows;
+  // Owned source boundary-representation decision rows.
+  loom_target_compile_report_row_list_t source_boundary_projection_rows;
   // Owned applied source loop pipeline policies.
   loom_target_compile_report_row_list_t loop_pipeline_rows;
   // Owned operation schedules produced by source loop pipelining.
@@ -2081,6 +2134,13 @@ typedef struct loom_target_compile_report_t {
   loom_target_compile_report_row_list_t target_legalization_rows;
   // Owned selected-target capability rows.
   loom_target_compile_report_row_list_t target_capability_rows;
+  // Target-owned storage retained until report deinitialization.
+  struct {
+    // Opaque target storage.
+    void* data;
+    // Callback releasing |data|.
+    loom_target_compile_report_storage_release_fn_t release;
+  } retained_storage;
   // Estimated target private memory bytes.
   uint64_t private_memory_bytes;
   // Estimated target local/shared memory bytes.
@@ -2090,6 +2150,14 @@ typedef struct loom_target_compile_report_t {
 // Initializes an empty compile report using |allocator| for row storage.
 void loom_target_compile_report_initialize(
     loom_target_compile_report_t* out_report, iree_allocator_t allocator);
+
+// Transfers |storage| ownership to |report|.
+//
+// The report must not already own storage. |release| is called exactly once
+// during report deinitialization.
+void loom_target_compile_report_take_storage(
+    loom_target_compile_report_t* report, void* storage,
+    loom_target_compile_report_storage_release_fn_t release);
 
 // Returns true when |report| requests all |detail_flags|.
 static inline bool loom_target_compile_report_wants_details(
@@ -2281,6 +2349,11 @@ iree_status_t loom_target_compile_report_record_source_low_target_row(
 iree_status_t loom_target_compile_report_record_source_low_transform_row(
     loom_target_compile_report_t* report,
     const loom_target_compile_report_source_low_transform_row_t* row);
+
+// Records one source boundary-representation decision row.
+iree_status_t loom_target_compile_report_record_source_boundary_projection_row(
+    loom_target_compile_report_t* report,
+    const loom_target_compile_report_source_boundary_projection_row_t* row);
 
 // Records one emitted source-memory packet row.
 iree_status_t loom_target_compile_report_record_source_low_memory_row(

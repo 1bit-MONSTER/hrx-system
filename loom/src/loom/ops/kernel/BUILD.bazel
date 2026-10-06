@@ -48,6 +48,7 @@ loom_generated_cc_library(
         "//loom/src/loom/ops:cache",
         "//loom/src/loom/ops:combining",
         "//loom/src/loom/ops:func_symbol_facts",
+        "//loom/src/loom/ops:function_contract_verify",
         "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/ops/buffer",
         "//loom/src/loom/ops/func",

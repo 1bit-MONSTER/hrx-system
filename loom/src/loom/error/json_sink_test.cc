@@ -466,6 +466,44 @@ TEST(JsonSink, SerializesUnavailableSourceProvenance) {
       std::string::npos);
 }
 
+TEST(JsonSink, SerializesLocationsWithoutInventingExcerpts) {
+  loom_diagnostic_param_t params[] = {loom_param_string(IREE_SV("x"))};
+  loom_diagnostic_t diagnostic = {};
+  diagnostic.severity = LOOM_DIAGNOSTIC_ERROR;
+  diagnostic.error = loom_error_def_lookup(LOOM_ERROR_DOMAIN_PARSE, 1);
+  diagnostic.params = params;
+  diagnostic.param_count = IREE_ARRAYSIZE(params);
+  diagnostic.origin.provenance = LOOM_SOURCE_PROVENANCE_UNAVAILABLE_SOURCE;
+  diagnostic.origin.filename = IREE_SV("kernel.cxx");
+  diagnostic.origin.start_line = 3;
+  diagnostic.origin.start_column = 15;
+  diagnostic.origin.end_line = 3;
+  diagnostic.origin.end_column = 34;
+  diagnostic.source_location = diagnostic.origin;
+  loom_diagnostic_related_location_t related = {};
+  related.label = IREE_SV("declared here");
+  related.source_location = diagnostic.origin;
+  related.source_location.filename = IREE_SV("header.h");
+  diagnostic.related_locations = &related;
+  diagnostic.related_location_count = 1;
+  auto json = EmitJson(&diagnostic);
+  for (const char* field : {"origin", "source_location"}) {
+    EXPECT_NE(
+        json.find(
+            std::string("\"") + field +
+            "\":{\"provenance\":\"unavailable_source\","
+            "\"filename\":\"kernel.cxx\",\"start_line\":3,\"start_column\":15,"
+            "\"end_line\":3,\"end_column\":34,\"start_byte\":0,\"end_byte\":0"),
+        std::string::npos)
+        << json;
+  }
+  EXPECT_NE(
+      json.find(
+          "\"filename\":\"header.h\",\"start_line\":3,\"start_column\":15"),
+      std::string::npos);
+  EXPECT_EQ(json.find("\"text\":"), std::string::npos);
+}
+
 TEST(JsonSink, SerializesRelatedLocations) {
   const char source_text[] =
       "%next = test.invoke @callee(%arg) : (f32) -> (%arg as f32)\n"

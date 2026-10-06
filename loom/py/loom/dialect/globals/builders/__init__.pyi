@@ -41,6 +41,7 @@ class GlobalBuilder(DialectBuilder):
         *,
         symbol: str,
         alignment: int | None = ...,
+        bank_conflicts: Sequence[str] | None = ...,
         contents: Any,
         location_id: int | None = ...,
     ) -> None: ...

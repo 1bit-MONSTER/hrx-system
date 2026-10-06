@@ -1,0 +1,36 @@
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @shift_i32x15_constant(%input: vector<15xi32>) -> (vector<15xi32>, vector<15xi32>, vector<15xi32>) {
+  %left_distance = vector.constant 7 : vector<15xi32>
+  %right_distance = vector.constant 11 : vector<15xi32>
+  %left = vector.shli %input, %left_distance : vector<15xi32>
+  %unsigned_right = vector.shrui %input, %right_distance : vector<15xi32>
+  %signed_right = vector.shrsi %input, %right_distance : vector<15xi32>
+  func.return %left, %unsigned_right, %signed_right : vector<15xi32>, vector<15xi32>, vector<15xi32>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @shift_i32x15_constant(%input: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
+  %13 = mov.shift 7
+  %14 = mov.shift 0
+  set.saturation 0
+  set.ups-mode 1
+  set.srs-mode 1
+  set.rounding 0
+  %15 = vups.2x.x-to-c.unsigned %input, %13
+  %left = vsrs.2x.c-to-x.unsigned %15, %14
+  %18 = mov.shift 11
+  set.saturation 0
+  set.ups-mode 1
+  set.srs-mode 1
+  set.rounding 0
+  %19 = vups.2x.x-to-c.unsigned %input, %14
+  %unsigned_right = vsrs.2x.c-to-x.unsigned %19, %18
+  set.saturation 0
+  set.ups-mode 1
+  set.srs-mode 1
+  set.rounding 0
+  %23 = vups.2x.x-to-c.signed %input, %14
+  %signed_right = vsrs.2x.c-to-x.signed %23, %18
+  return %left, %unsigned_right, %signed_right
+}

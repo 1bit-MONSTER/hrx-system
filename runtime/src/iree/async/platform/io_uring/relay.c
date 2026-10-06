@@ -284,7 +284,9 @@ iree_status_t iree_async_io_uring_register_relay(
 static void iree_async_io_uring_relay_fill_unregistration_sqe(
     iree_async_relay_t* relay, iree_io_uring_sqe_t* sqe) {
   memset(sqe, 0, sizeof(*sqe));
-  sqe->opcode = IREE_IORING_OP_POLL_REMOVE;
+  // Cancellation must mark a persistent poll terminal even while native
+  // readiness task work owns it; POLL_REMOVE can leave that poll armed.
+  sqe->opcode = IREE_IORING_OP_ASYNC_CANCEL;
   sqe->fd = -1;
   sqe->addr = iree_io_uring_relay_encode(relay);
   sqe->user_data = iree_io_uring_internal_encode(IREE_IO_URING_TAG_RELAY_CANCEL,
@@ -348,7 +350,7 @@ void iree_async_io_uring_unregister_relay(
   relay->platform.io_uring.state =
       IREE_ASYNC_IO_URING_RELAY_STATE_UNREGISTRATION_PENDING;
 
-  // Submit POLL_REMOVE or ASYNC_CANCEL to stop source monitoring.
+  // Submit cancellation to stop source monitoring.
   iree_io_uring_ring_sq_lock(&proactor->ring);
   iree_io_uring_sqe_t* sqe = iree_io_uring_ring_get_sqe(&proactor->ring);
   if (sqe) {

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from enum import Enum
 
 from loom.dialect.buffer import ALL_BUFFER_OPS
 from loom.dialect.buffer import defs as buffer
@@ -19,6 +20,7 @@ from loom.dialect.scalar import arithmetic as scalar_arithmetic
 from loom.dialect.scalar import bitwise as scalar_bitwise
 from loom.dialect.scalar import comparison as scalar_comparison
 from loom.dialect.scalar import conversion as scalar_conversion
+from loom.dialect.scalar import math as scalar_math
 from loom.dialect.scf import ALL_SCF_OPS
 from loom.dialect.scf import defs as scf
 from loom.dialect.vector import ALL_VECTOR_OPS
@@ -36,6 +38,7 @@ from loom.error.wasm import (
 from loom.target.arch.wasm.descriptors import WASM_CORE_SIMD128_DESCRIPTOR_SET
 from loom.target.contracts import (
     AttrProject,
+    Buffer,
     ContractFragment,
     DescriptorEmitForm,
     DescriptorRule,
@@ -64,6 +67,7 @@ from loom.target.contracts.templates import (
     ReductionDescriptorCase,
     reduction_descriptor_rules,
 )
+from loom.target.emit.wasm.f32_narrowing import f32_narrowing_rules
 from loom.target.low_descriptors import Descriptor
 
 _I1 = Scalar("i1")
@@ -73,6 +77,8 @@ _I32 = Scalar("i32")
 _I64 = Scalar("i64")
 _F8E4M3 = Scalar("f8E4M3")
 _F8E5M2 = Scalar("f8E5M2")
+_BYTE_STORAGE = Scalar(("i8", "f8E4M3", "f8E5M2"))
+_WORD_STORAGE = Scalar(("i16", "f16", "bf16"))
 _F16 = Scalar("f16")
 _BF16 = Scalar("bf16")
 _F32 = Scalar("f32")
@@ -118,12 +124,18 @@ def _descriptor(key: str) -> Descriptor:
 
 
 def _type_text(type_pattern: TypePattern) -> str:
+    if type_pattern.kind == "buffer":
+        return "buffer"
     if type_pattern == _I1:
         return "i1 scalar"
     if type_pattern == _I8:
         return "i8 scalar"
+    if type_pattern == _BYTE_STORAGE:
+        return "i8, f8E4M3, or f8E5M2 scalar"
     if type_pattern == _I16:
         return "i16 scalar"
+    if type_pattern == _WORD_STORAGE:
+        return "i16, f16, or bf16 scalar"
     if type_pattern == _I32:
         return "i32 scalar"
     if type_pattern == _I64:
@@ -267,6 +279,53 @@ def _const_float_rule(result_type: TypePattern, descriptor_key: str) -> Descript
     )
 
 
+def _const_v128_rule(
+    result_type: TypePattern, value: ValueProject, guard: Guard
+) -> DescriptorRule:
+    descriptor = _descriptor("wasm.v128.const")
+    return DescriptorRule(
+        source_op=vector.vector_constant,
+        descriptor=descriptor,
+        guards=(_value_type("result", result_type), guard),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=descriptor,
+                results={"dst": ValueRef.result("result")},
+                immediates={"lo64": value, "hi64": value},
+                form=DescriptorEmitForm.CONST,
+            ),
+        ),
+    )
+
+
+def _const_vector_splat_rule(
+    element_type: str, immediate: str, value: ValueProject, guard: Guard
+) -> DescriptorRule:
+    # A scalar splat represents repeated 32-bit lanes without packing them into
+    # v128.const's two immediate words and fixed 16-byte payload.
+    constant = _descriptor(f"wasm.{element_type}.const")
+    splat = _descriptor(f"wasm.{element_type}x4.splat")
+    return DescriptorRule(
+        source_op=vector.vector_constant,
+        descriptor=splat,
+        guards=(_value_type("result", Vector(element_type, lanes=4)), guard),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=constant,
+                results={"dst": ValueRef.temporary("element")},
+                result_types={"dst": Scalar(element_type)},
+                immediates={immediate: value},
+                form=DescriptorEmitForm.CONST,
+            ),
+            EmitDescriptorOp(
+                descriptor=splat,
+                operands={"value": ValueRef.temporary("element")},
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
 def _binary_rule(
     source_op: Op,
     type_pattern: TypePattern,
@@ -285,6 +344,114 @@ def _binary_rule(
                 operands={
                     "lhs": ValueRef.operand("lhs"),
                     "rhs": ValueRef.operand("rhs"),
+                },
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
+def _unary_rule(
+    source_op: Op, type_pattern: TypePattern, descriptor_key: str
+) -> DescriptorRule:
+    descriptor = _descriptor(descriptor_key)
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=descriptor,
+        guards=_typed_guards(("input", "result"), type_pattern),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=descriptor,
+                operands={"input": ValueRef.operand("input")},
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
+def _index_madd_rule() -> DescriptorRule:
+    multiply = _descriptor("wasm.i32.mul")
+    add = _descriptor("wasm.i32.add")
+    return DescriptorRule(
+        source_op=index.index_madd,
+        descriptor=add,
+        guards=_typed_guards(("a", "b", "c", "result"), _INDEX),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=multiply,
+                operands={
+                    "lhs": ValueRef.operand("a"),
+                    "rhs": ValueRef.operand("b"),
+                },
+                results={"dst": ValueRef.temporary("product")},
+                result_types={"dst": _INDEX},
+            ),
+            EmitDescriptorOp(
+                descriptor=add,
+                operands={
+                    "lhs": ValueRef.temporary("product"),
+                    "rhs": ValueRef.operand("c"),
+                },
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
+def _index_extrema_rule(
+    source_op: Op,
+    compare_descriptor_key: str,
+) -> DescriptorRule:
+    compare = _descriptor(compare_descriptor_key)
+    select = _descriptor("wasm.i32.select")
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=select,
+        guards=_typed_guards(("lhs", "rhs", "result"), _INDEX),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=compare,
+                operands={
+                    "lhs": ValueRef.operand("lhs"),
+                    "rhs": ValueRef.operand("rhs"),
+                },
+                results={"dst": ValueRef.temporary("condition")},
+                result_types={"dst": _I1},
+            ),
+            EmitDescriptorOp(
+                descriptor=select,
+                operands={
+                    "true_value": ValueRef.operand("lhs"),
+                    "false_value": ValueRef.operand("rhs"),
+                    "condition": ValueRef.temporary("condition"),
+                },
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
+def _index_scale_rule() -> DescriptorRule:
+    descriptor = _descriptor("wasm.i32.mul")
+    return DescriptorRule(
+        source_op=index.index_scale,
+        descriptor=descriptor,
+        guards=(
+            _value_type("index", _INDEX),
+            _value_type("stride", _OFFSET),
+            _value_type("result", _OFFSET),
+            Guard.value_unsigned_bit_count(
+                "result",
+                32,
+                diagnostic=_WASM32_ADDRESS_DIAGNOSTIC,
+            ),
+        ),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=descriptor,
+                operands={
+                    "lhs": ValueRef.operand("index"),
+                    "rhs": ValueRef.operand("stride"),
                 },
                 results={"dst": ValueRef.result("result")},
             ),
@@ -313,6 +480,127 @@ def _conversion_rule(
             EmitDescriptorOp(
                 descriptor=descriptor,
                 operands={"input": ValueRef.operand("input")},
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
+def _narrow_integer_to_float_rule(
+    source_type: TypePattern,
+    source_bit_count: int,
+    result_type: TypePattern,
+    result_type_name: str,
+    signedness: str,
+) -> DescriptorRule:
+    convert = _descriptor(f"wasm.{result_type_name}.convert_i32_{signedness}")
+    constant = _descriptor("wasm.i32.const")
+    if signedness == "s":
+        shift = _descriptor("wasm.i32.shl")
+        normalize = _descriptor("wasm.i32.shr_s")
+        shift_amount = 32 - source_bit_count
+        normalization = (
+            EmitDescriptorOp(
+                descriptor=constant,
+                results={"dst": ValueRef.temporary("shift_amount")},
+                result_types={"dst": _I32},
+                immediates={"i32_value": shift_amount},
+                form=DescriptorEmitForm.CONST,
+            ),
+            EmitDescriptorOp(
+                descriptor=shift,
+                operands={
+                    "lhs": ValueRef.operand("input"),
+                    "rhs": ValueRef.temporary("shift_amount"),
+                },
+                results={"dst": ValueRef.temporary("shifted")},
+                result_types={"dst": _I32},
+            ),
+            EmitDescriptorOp(
+                descriptor=normalize,
+                operands={
+                    "lhs": ValueRef.temporary("shifted"),
+                    "rhs": ValueRef.temporary("shift_amount"),
+                },
+                results={"dst": ValueRef.temporary("normalized")},
+                result_types={"dst": _I32},
+            ),
+        )
+    else:
+        normalize = _descriptor("wasm.i32.and")
+        mask = (1 << source_bit_count) - 1
+        normalization = (
+            EmitDescriptorOp(
+                descriptor=constant,
+                results={"dst": ValueRef.temporary("mask")},
+                result_types={"dst": _I32},
+                immediates={"i32_value": mask},
+                form=DescriptorEmitForm.CONST,
+            ),
+            EmitDescriptorOp(
+                descriptor=normalize,
+                operands={
+                    "lhs": ValueRef.operand("input"),
+                    "rhs": ValueRef.temporary("mask"),
+                },
+                results={"dst": ValueRef.temporary("normalized")},
+                result_types={"dst": _I32},
+            ),
+        )
+    return DescriptorRule(
+        source_op=(
+            scalar_conversion.scalar_sitofp
+            if signedness == "s"
+            else scalar_conversion.scalar_uitofp
+        ),
+        descriptor=convert,
+        guards=(
+            _value_type("input", source_type),
+            _value_type("result", result_type),
+        ),
+        emit=(
+            *normalization,
+            EmitDescriptorOp(
+                descriptor=convert,
+                operands={"input": ValueRef.temporary("normalized")},
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
+def _bf16_to_f32_rule() -> DescriptorRule:
+    constant = _descriptor("wasm.i32.const")
+    shift = _descriptor("wasm.i32.shl")
+    reinterpret = _descriptor("wasm.f32.reinterpret_i32")
+    # The low 16 carrier bits become the high half of the FP32 encoding.
+    return DescriptorRule(
+        source_op=scalar_conversion.scalar_extf,
+        descriptor=reinterpret,
+        guards=(
+            _value_type("input", _BF16),
+            _value_type("result", _F32),
+        ),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=constant,
+                results={"dst": ValueRef.temporary("shift")},
+                result_types={"dst": _I32},
+                immediates={"i32_value": 16},
+                form=DescriptorEmitForm.CONST,
+            ),
+            EmitDescriptorOp(
+                descriptor=shift,
+                operands={
+                    "lhs": ValueRef.operand("input"),
+                    "rhs": ValueRef.temporary("shift"),
+                },
+                results={"dst": ValueRef.temporary("bits")},
+                result_types={"dst": _I32},
+            ),
+            EmitDescriptorOp(
+                descriptor=reinterpret,
+                operands={"input": ValueRef.temporary("bits")},
                 results={"dst": ValueRef.result("result")},
             ),
         ),
@@ -451,6 +739,8 @@ def _compare_rule(
     predicate: str,
     operand_type: TypePattern,
     descriptor_key: str,
+    *,
+    guards: tuple[Guard, ...] = (),
 ) -> DescriptorRule:
     descriptor = _descriptor(descriptor_key)
     return DescriptorRule(
@@ -461,6 +751,7 @@ def _compare_rule(
             _value_type("lhs", operand_type),
             _value_type("rhs", operand_type),
             _value_type("result", _V4I1),
+            *guards,
         ),
         emit=(
             EmitDescriptorOp(
@@ -480,6 +771,8 @@ def _scalar_compare_rule(
     predicate: str,
     operand_type: TypePattern,
     descriptor_key: str,
+    *,
+    guards: tuple[Guard, ...] = (),
 ) -> DescriptorRule:
     descriptor = _descriptor(descriptor_key)
     return DescriptorRule(
@@ -490,6 +783,7 @@ def _scalar_compare_rule(
             _value_type("lhs", operand_type),
             _value_type("rhs", operand_type),
             _value_type("result", _I1),
+            *guards,
         ),
         emit=(
             EmitDescriptorOp(
@@ -510,6 +804,40 @@ def _extract_rule(
     descriptor_key: str,
 ) -> DescriptorRule:
     descriptor = _descriptor(descriptor_key)
+    extracted = (
+        ValueRef.temporary("predicate_bits")
+        if result_type == _I1
+        else ValueRef.result("result")
+    )
+    emits = [
+        EmitDescriptorOp(
+            descriptor=descriptor,
+            operands={"source": ValueRef.operand("source")},
+            results={"dst": extracted},
+            result_types={"dst": _I32} if result_type == _I1 else None,
+            immediates={
+                "lane": AttrProject.i64_array_element("static_indices", element=0)
+            },
+        ),
+    ]
+    if result_type == _I1:
+        # SIMD comparisons use all-one lanes; scalar i1 values are zero or one.
+        emits.extend(
+            (
+                EmitDescriptorOp(
+                    descriptor=_descriptor("wasm.i32.const"),
+                    results={"dst": ValueRef.temporary("mask")},
+                    result_types={"dst": _I32},
+                    immediates={"i32_value": 1},
+                    form=DescriptorEmitForm.CONST,
+                ),
+                EmitDescriptorOp(
+                    descriptor=_descriptor("wasm.i32.and"),
+                    operands={"lhs": extracted, "rhs": ValueRef.temporary("mask")},
+                    results={"dst": ValueRef.result("result")},
+                ),
+            )
+        )
     return DescriptorRule(
         source_op=vector.vector_extract,
         descriptor=descriptor,
@@ -522,19 +850,7 @@ def _extract_rule(
                 "static_indices", 0, 0, source_type.lanes - 1
             ),
         ),
-        emit=(
-            EmitDescriptorOp(
-                descriptor=descriptor,
-                operands={"source": ValueRef.operand("source")},
-                results={"dst": ValueRef.result("result")},
-                immediates={
-                    "lane": AttrProject.i64_array_element(
-                        "static_indices",
-                        element=0,
-                    )
-                },
-            ),
-        ),
+        emit=tuple(emits),
     )
 
 
@@ -688,6 +1004,12 @@ def _buffer_store_i8_rule() -> DescriptorRule:
     )
 
 
+class _MemoryAddressForm(Enum):
+    DYNAMIC_IMMEDIATE = "dynamic_immediate"
+    DYNAMIC_REGISTER = "dynamic_register"
+    STATIC = "static"
+
+
 def _memory_rule(
     source_op: Op,
     operation: SourceMemoryOperation,
@@ -696,9 +1018,11 @@ def _memory_rule(
     *,
     element_byte_count: int,
     lane_count: int,
-    dynamic: bool,
+    address_form: _MemoryAddressForm,
 ) -> DescriptorRule:
     descriptor = _descriptor(descriptor_key)
+    dynamic = address_form is not _MemoryAddressForm.STATIC
+    register_bias = address_form is _MemoryAddressForm.DYNAMIC_REGISTER
     source_memory = SourceMemoryConstraint(
         operation=operation,
         root_kind=SourceMemoryRootKind.BLOCK_ARGUMENT,
@@ -706,41 +1030,74 @@ def _memory_rule(
         element_byte_count=element_byte_count,
         vector_lane_count=lane_count,
         vector_lane_byte_stride=element_byte_count,
-        static_byte_offset_minimum=0,
+        static_byte_offset_minimum=1 if register_bias else 0,
         static_byte_offset_maximum=(1 << 32) - 1,
         dynamic_term_count=None if dynamic else 0,
         dynamic_term_count_minimum=1 if dynamic else 0,
         dynamic_view_base_term_count=None,
         allow_dynamic_stride_values=dynamic,
-        dynamic_offset_unsigned_bit_count=32,
-        dynamic_offset_diagnostic=_WASM32_ADDRESS_DIAGNOSTIC,
+        byte_offset_unsigned_bit_count=32,
+        dynamic_offset_unsigned_bit_count=(
+            32 if address_form is _MemoryAddressForm.DYNAMIC_IMMEDIATE else 0
+        ),
+        byte_offset_diagnostic=_WASM32_ADDRESS_DIAGNOSTIC,
         diagnostic=_SOURCE_MEMORY_DIAGNOSTIC,
     )
     address = ValueRef.operand("view")
     emits = []
     if dynamic:
+        materializer = SourceMemoryByteOffsetMaterializer(
+            constant=_descriptor("wasm.i32.const"),
+            add=_descriptor("wasm.i32.add"),
+            multiply=_descriptor("wasm.i32.mul"),
+            shift_left=None,
+            constant_immediate="i32_value",
+            integer_conversions=(
+                SourceMemoryIntegerConversion("i64", _descriptor("wasm.i32.wrap_i64")),
+            ),
+        )
+        byte_offset = ValueRef.source_memory_dynamic_byte_offset()
+        if register_bias:
+            # Wasm adds its memory immediate without i32 wrap. Keep the bias
+            # in modular arithmetic when the dynamic part can be negative.
+            bias = ValueRef.temporary("bias")
+            biased_offset = ValueRef.temporary("biased_offset")
+            emits.extend(
+                (
+                    EmitDescriptorOp(
+                        descriptor=_descriptor("wasm.i32.const"),
+                        results={"dst": bias},
+                        result_types={"dst": _I32},
+                        immediates={
+                            "i32_value": SourceMemoryProject.static_byte_offset()
+                        },
+                        source_memory=source_memory,
+                        form=DescriptorEmitForm.CONST,
+                    ),
+                    EmitDescriptorOp(
+                        descriptor=_descriptor("wasm.i32.add"),
+                        operands={"lhs": byte_offset, "rhs": bias},
+                        results={"dst": biased_offset},
+                        result_types={"dst": _I32},
+                        source_memory=source_memory,
+                        source_memory_byte_offset_materializer=materializer,
+                    ),
+                )
+            )
+            byte_offset = biased_offset
         address = ValueRef.temporary("address")
         emits.append(
             EmitDescriptorOp(
                 descriptor=_descriptor("wasm.i32.add"),
                 operands={
                     "lhs": ValueRef.operand("view"),
-                    "rhs": ValueRef.source_memory_dynamic_byte_offset(),
+                    "rhs": byte_offset,
                 },
                 results={"dst": address},
                 result_types={"dst": _I32},
                 source_memory=source_memory,
-                source_memory_byte_offset_materializer=SourceMemoryByteOffsetMaterializer(
-                    constant=_descriptor("wasm.i32.const"),
-                    add=_descriptor("wasm.i32.add"),
-                    multiply=_descriptor("wasm.i32.mul"),
-                    shift_left=None,
-                    constant_immediate="i32_value",
-                    integer_conversions=(
-                        SourceMemoryIntegerConversion(
-                            "i64", _descriptor("wasm.i32.wrap_i64")
-                        ),
-                    ),
+                source_memory_byte_offset_materializer=(
+                    None if register_bias else materializer
                 ),
             )
         )
@@ -755,7 +1112,11 @@ def _memory_rule(
                 "value": ValueRef.operand("value"),
             },
             results={"dst": ValueRef.result("result")} if is_load else {},
-            immediates={"offset": SourceMemoryProject.static_byte_offset()},
+            immediates={
+                "offset": 0
+                if register_bias
+                else SourceMemoryProject.static_byte_offset()
+            },
             source_memory=source_memory,
             form=DescriptorEmitForm.OP,
         )
@@ -792,6 +1153,9 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
                 (scalar_arithmetic.scalar_addi, "add"),
                 (scalar_arithmetic.scalar_subi, "sub"),
                 (scalar_arithmetic.scalar_muli, "mul"),
+                (scalar_arithmetic.scalar_divsi, "div_s"),
+                (scalar_arithmetic.scalar_divui, "div_u"),
+                (scalar_arithmetic.scalar_remsi, "rem_s"),
                 (scalar_arithmetic.scalar_remui, "rem_u"),
                 (scalar_bitwise.scalar_andi, "and"),
                 (scalar_bitwise.scalar_ori, "or"),
@@ -809,7 +1173,63 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
                 (scalar_bitwise.scalar_xori, "xor"),
             )
         ),
-        _binary_rule(scalar_arithmetic.scalar_addf, _F32, "wasm.f32.add"),
+        *(
+            _binary_rule(source_op, _F32, f"wasm.f32.{operation}")
+            for source_op, operation in (
+                (scalar_arithmetic.scalar_addf, "add"),
+                (scalar_arithmetic.scalar_subf, "sub"),
+                (scalar_arithmetic.scalar_mulf, "mul"),
+                (scalar_arithmetic.scalar_divf, "div"),
+                (scalar_arithmetic.scalar_minimumf, "min"),
+                (scalar_arithmetic.scalar_maximumf, "max"),
+                (scalar_arithmetic.scalar_copysignf, "copysign"),
+            )
+        ),
+        *(
+            _unary_rule(source_op, _F32, f"wasm.f32.{operation}")
+            for source_op, operation in (
+                (scalar_arithmetic.scalar_absf, "abs"),
+                (scalar_arithmetic.scalar_negf, "neg"),
+                (scalar_math.scalar_ceilf, "ceil"),
+                (scalar_math.scalar_floorf, "floor"),
+                (scalar_math.scalar_truncf, "trunc"),
+                (scalar_math.scalar_roundevenf, "nearest"),
+                (scalar_math.scalar_sqrtf, "sqrt"),
+            )
+        ),
+        *(
+            _scalar_compare_rule(
+                scalar_comparison.scalar_cmpf,
+                predicate,
+                _F32,
+                f"wasm.f32.{operation}",
+            )
+            for predicate, operation in (
+                ("oeq", "eq"),
+                ("ogt", "gt"),
+                ("oge", "ge"),
+                ("olt", "lt"),
+                ("ole", "le"),
+                ("une", "ne"),
+            )
+        ),
+        *(
+            _scalar_compare_rule(
+                scalar_comparison.scalar_cmpf,
+                predicate,
+                _F32,
+                f"wasm.f32.{operation}",
+                guards=(Guard.instance_flags_has_all("fastmath", "nnan"),),
+            )
+            for predicate, operation in (
+                ("one", "ne"),
+                ("ueq", "eq"),
+                ("ugt", "gt"),
+                ("uge", "ge"),
+                ("ult", "lt"),
+                ("ule", "le"),
+            )
+        ),
         *(
             _scalar_compare_rule(
                 scalar_comparison.scalar_cmpi,
@@ -855,18 +1275,88 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
         _conversion_rule(
             scalar_conversion.scalar_bitcast, _I64, _F64, "wasm.f64.reinterpret_i64"
         ),
+        *(
+            _conversion_rule(
+                source_op,
+                source_type,
+                result_type,
+                f"wasm.{result_type_name}.convert_{source_type_name}_{signedness}",
+            )
+            for source_op, signedness in (
+                (scalar_conversion.scalar_sitofp, "s"),
+                (scalar_conversion.scalar_uitofp, "u"),
+            )
+            for source_type, source_type_name in ((_I32, "i32"), (_I64, "i64"))
+            for result_type, result_type_name in ((_F32, "f32"), (_F64, "f64"))
+        ),
+        *(
+            _narrow_integer_to_float_rule(
+                source_type,
+                source_bit_count,
+                result_type,
+                result_type_name,
+                signedness,
+            )
+            for source_type, source_bit_count in ((_I1, 1), (_I8, 8), (_I16, 16))
+            for result_type, result_type_name in ((_F32, "f32"), (_F64, "f64"))
+            for signedness in ("s", "u")
+        ),
+        _bf16_to_f32_rule(),
+        *f32_narrowing_rules(_descriptor, _value_type),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _F8E4M3, _I8),
+        _conversion_alias_rule(scalar_conversion.scalar_bitcast, _I8, _F8E4M3),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _F8E5M2, _I8),
+        _conversion_alias_rule(scalar_conversion.scalar_bitcast, _I8, _F8E5M2),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _F16, _I16),
+        _conversion_alias_rule(scalar_conversion.scalar_bitcast, _I16, _F16),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _BF16, _I16),
+        _conversion_alias_rule(scalar_conversion.scalar_bitcast, _I16, _BF16),
+        _conversion_alias_rule(scalar_conversion.scalar_trunci, _I32, _I8),
+        _conversion_alias_rule(scalar_conversion.scalar_trunci, _I32, _I16),
         _conversion_alias_rule(scalar_conversion.scalar_extui, _I1, _I32),
         _masked_extui_rule(_I8, 0xFF),
         _masked_extui_rule(_I16, 0xFFFF),
+        _conversion_rule(
+            scalar_conversion.scalar_extsi,
+            _I32,
+            _I64,
+            "wasm.i64.extend_i32_s",
+        ),
+        _conversion_rule(
+            scalar_conversion.scalar_extui,
+            _I32,
+            _I64,
+            "wasm.i64.extend_i32_u",
+        ),
         _const_i32_rule(scalar_conversion.scalar_constant, _I32),
         _const_i1_rule(),
         _const_i64_rule(scalar_conversion.scalar_constant, _I64),
         _const_float_rule(_F32, "wasm.f32.const"),
         _const_float_rule(_F64, "wasm.f64.const"),
+        # Logical 0/1 facts become full-width 0/-1 predicate masks.
+        _const_v128_rule(
+            _V4I1,
+            ValueProject.exact_i64_negate("result"),
+            Guard.value_exact_i64("result"),
+        ),
+        _const_v128_rule(
+            _V2I64, ValueProject.exact_i64("result"), Guard.value_exact_i64("result")
+        ),
+        _const_v128_rule(
+            _V2F64, ValueProject.float_bits("result"), Guard.value_exact_float("result")
+        ),
+        _const_vector_splat_rule(
+            "i32",
+            "i32_value",
+            ValueProject.exact_i64("result"),
+            Guard.value_exact_i64("result"),
+        ),
+        _const_vector_splat_rule(
+            "f32",
+            "bits",
+            ValueProject.float_bits("result"),
+            Guard.value_exact_float("result"),
+        ),
         *(
             _whole_value_select_rule(value_type, f"wasm.{type_name}.select")
             for value_type, type_name in (
@@ -882,14 +1372,25 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
                 (_V4F32, "v128"),
                 (_V2I64, "v128"),
                 (_V2F64, "v128"),
+                (Buffer(), "i32"),
             )
         ),
         _splat_rule(_I32, _V4I32, "wasm.i32x4.splat"),
         _splat_rule(_I64, _V2I64, "wasm.i64x2.splat"),
         _splat_rule(_F32, _V4F32, "wasm.f32x4.splat"),
         _splat_rule(_F64, _V2F64, "wasm.f64x2.splat"),
+        _select_rule(_V4I1),
         _select_rule(_V4I32),
         _select_rule(_V4F32),
+        *(
+            _binary_rule(source_op, value_type, f"wasm.v128.{operation}")
+            for source_op, operation in (
+                (vector.vector_andi, "and"),
+                (vector.vector_ori, "or"),
+                (vector.vector_xori, "xor"),
+            )
+            for value_type in (_V4I1, _V4I32, _V2I64)
+        ),
         _compare_rule(vector.vector_cmpi, "eq", _V4I32, "wasm.i32x4.eq"),
         _compare_rule(vector.vector_cmpi, "ne", _V4I32, "wasm.i32x4.ne"),
         _compare_rule(vector.vector_cmpi, "slt", _V4I32, "wasm.i32x4.lt_s"),
@@ -900,13 +1401,62 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
         _compare_rule(vector.vector_cmpi, "ule", _V4I32, "wasm.i32x4.le_u"),
         _compare_rule(vector.vector_cmpi, "ugt", _V4I32, "wasm.i32x4.gt_u"),
         _compare_rule(vector.vector_cmpi, "uge", _V4I32, "wasm.i32x4.ge_u"),
-        _compare_rule(vector.vector_cmpf, "oeq", _V4F32, "wasm.f32x4.eq"),
-        _compare_rule(vector.vector_cmpf, "ogt", _V4F32, "wasm.f32x4.gt"),
-        _compare_rule(vector.vector_cmpf, "oge", _V4F32, "wasm.f32x4.ge"),
-        _compare_rule(vector.vector_cmpf, "olt", _V4F32, "wasm.f32x4.lt"),
-        _compare_rule(vector.vector_cmpf, "ole", _V4F32, "wasm.f32x4.le"),
-        _binary_rule(vector.vector_addf, _V4F32, "wasm.f32x4.add"),
-        _binary_rule(vector.vector_mulf, _V4F32, "wasm.f32x4.mul"),
+        *(
+            _compare_rule(
+                vector.vector_cmpf,
+                predicate,
+                _V4F32,
+                f"wasm.f32x4.{operation}",
+            )
+            for predicate, operation in (
+                ("oeq", "eq"),
+                ("ogt", "gt"),
+                ("oge", "ge"),
+                ("olt", "lt"),
+                ("ole", "le"),
+                ("une", "ne"),
+            )
+        ),
+        *(
+            _compare_rule(
+                vector.vector_cmpf,
+                predicate,
+                _V4F32,
+                f"wasm.f32x4.{operation}",
+                guards=(Guard.instance_flags_has_all("fastmath", "nnan"),),
+            )
+            for predicate, operation in (
+                ("one", "ne"),
+                ("ueq", "eq"),
+                ("ugt", "gt"),
+                ("uge", "ge"),
+                ("ult", "lt"),
+                ("ule", "le"),
+            )
+        ),
+        *(
+            _binary_rule(source_op, _V4F32, f"wasm.f32x4.{operation}")
+            for source_op, operation in (
+                (vector.vector_addf, "add"),
+                (vector.vector_subf, "sub"),
+                (vector.vector_mulf, "mul"),
+                (vector.vector_divf, "div"),
+                (vector.vector_minimumf, "min"),
+                (vector.vector_maximumf, "max"),
+            )
+        ),
+        *(
+            _unary_rule(source_op, _V4F32, f"wasm.f32x4.{operation}")
+            for source_op, operation in (
+                (vector.vector_absf, "abs"),
+                (vector.vector_negf, "neg"),
+                (vector.vector_ceilf, "ceil"),
+                (vector.vector_floorf, "floor"),
+                (vector.vector_truncf, "trunc"),
+                (vector.vector_roundevenf, "nearest"),
+                (vector.vector_sqrtf, "sqrt"),
+            )
+        ),
         _binary_rule(vector.vector_addi, _V4I32, "wasm.i32x4.add"),
         _binary_rule(vector.vector_subi, _V4I32, "wasm.i32x4.sub"),
         _binary_rule(vector.vector_muli, _V4I32, "wasm.i32x4.mul"),
@@ -975,6 +1525,10 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
         _binary_rule(index.index_sub, _INDEX, "wasm.i32.sub"),
         _binary_rule(index.index_sub, _OFFSET, "wasm.i32.sub"),
         _binary_rule(index.index_mul, _INDEX, "wasm.i32.mul"),
+        _index_extrema_rule(index.index_min, "wasm.i32.lt_s"),
+        _index_extrema_rule(index.index_max, "wasm.i32.gt_s"),
+        _index_madd_rule(),
+        _index_scale_rule(),
         *(
             _binary_rule(source_op, _INDEX, f"wasm.i32.{operation}")
             for source_op, operation in (
@@ -986,15 +1540,22 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
                 (index.index_shrui, "shr_u"),
             )
         ),
-        _binary_rule(
-            index.index_rem,
-            _INDEX,
-            "wasm.i32.rem_u",
-            guards=tuple(
-                Guard.value_i64_range(field, 0, (1 << 32) - 1)
-                for field in ("lhs", "rhs")
-            ),
+        *(
+            _binary_rule(
+                source_op,
+                _INDEX,
+                descriptor_key,
+                guards=tuple(
+                    Guard.value_i64_range(field, 0, (1 << 32) - 1)
+                    for field in ("lhs", "rhs")
+                ),
+            )
+            for source_op, descriptor_key in (
+                (index.index_div, "wasm.i32.div_u"),
+                (index.index_rem, "wasm.i32.rem_u"),
+            )
         ),
+        _extract_rule(_V4I1, _I1, "wasm.i32x4.extract_lane"),
         _extract_rule(_V4I32, _I32, "wasm.i32x4.extract_lane"),
         _extract_rule(_V4F32, _F32, "wasm.f32x4.extract_lane"),
         _extract_rule(_V2I64, _I64, "wasm.i64x2.extract_lane"),
@@ -1019,7 +1580,7 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
                 ),
                 element_byte_count=element_byte_count,
                 lane_count=lane_count,
-                dynamic=dynamic,
+                address_form=address_form,
             )
             for (
                 value_type,
@@ -1035,7 +1596,7 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
                 (_F32, "f32.load", "f32.store", 4, 1, view.view_load, view.view_store),
                 (_F64, "f64.load", "f64.store", 8, 1, view.view_load, view.view_store),
                 (
-                    _I8,
+                    _BYTE_STORAGE,
                     "i32.load8_u",
                     "i32.store8",
                     1,
@@ -1044,7 +1605,7 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
                     view.view_store,
                 ),
                 (
-                    _I16,
+                    _WORD_STORAGE,
                     "i32.load16_u",
                     "i32.store16",
                     2,
@@ -1070,9 +1631,27 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
                     vector.vector_load,
                     vector.vector_store,
                 ),
+                (
+                    _V2I64,
+                    "v128.load",
+                    "v128.store",
+                    8,
+                    2,
+                    vector.vector_load,
+                    vector.vector_store,
+                ),
+                (
+                    _V2F64,
+                    "v128.load",
+                    "v128.store",
+                    8,
+                    2,
+                    vector.vector_load,
+                    vector.vector_store,
+                ),
             )
             for operation in (SourceMemoryOperation.LOAD, SourceMemoryOperation.STORE)
-            for dynamic in (True, False)
+            for address_form in _MemoryAddressForm
         ),
         *reduction_descriptor_rules(
             vector.vector_reduce,

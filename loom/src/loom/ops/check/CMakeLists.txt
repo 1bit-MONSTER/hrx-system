@@ -14,6 +14,8 @@ loom_generated_cc_library(
     check
   GENERATOR
     loom::py::loom::gen::ops::c_tables_check_generator
+  SRCS
+    "verify.c"
   TEXTUAL_HDRS
     "ops.inc"
   GENERATED_SRC_FLAGS
@@ -31,8 +33,11 @@ loom_generated_cc_library(
   EXTRA_OUTPUTS
     "ops.inc"
   DEPS
+    iree::base
+    loom::error::emitter
     loom::error::error_defs
     loom::ir
+    loom::ops::function_contract_verify
     loom::ops::op_defs
 )
 

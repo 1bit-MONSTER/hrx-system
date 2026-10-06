@@ -9,7 +9,6 @@
 # --8<-- [start:products]
 load(
     "@hrx//loom/build_tools/bazel:defs.bzl",
-    "loom_command_binary",
     "loom_kernel_binary",
     "loom_library",
 )
@@ -44,21 +43,12 @@ loom_kernel_binary(
     deps = [":kernel"],
 )
 
-loom_command_binary(
-    name = "elementwise_command",
-    roots = ["@elementwise_transform"],
-    target = "@hrx//loom/target/amdgpu:gfx11-generic",
-    deps = [":model"],
-)
 # --8<-- [end:products]
 
 sh_test(
     name = "product_test",
     srcs = ["product_test.sh"],
-    data = [
-        ":elementwise_command",
-        ":elementwise_kernel",
-    ],
+    data = [":elementwise_kernel"],
 )
 
 test_suite(

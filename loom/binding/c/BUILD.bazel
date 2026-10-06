@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
     "iree_cmake_extra_content",
@@ -63,7 +64,6 @@ LOOMC_TARGET_SPIRV_PUBLIC_HDRS = [
 LOOMC_TARGET_AMDGPU_PUBLIC_HDRS = [
     "include/loomc/target/amdgpu.h",
     "include/loomc/target/amdgpu/base.h",
-    "include/loomc/target/amdgpu/emit.h",
     "include/loomc/target/amdgpu/profile.h",
 ]
 
@@ -75,6 +75,14 @@ LOOMC_TARGET_XDNA_PUBLIC_HDRS = [
     "include/loomc/target/amd/xdna.h",
     "include/loomc/target/amd/xdna/base.h",
     "include/loomc/target/amd/xdna/profile.h",
+]
+
+LOOMC_TARGET_VM_PUBLIC_HDRS = [
+    "include/loomc/target/vm.h",
+]
+
+LOOMC_TARGET_WASM_PUBLIC_HDRS = [
+    "include/loomc/target/wasm.h",
 ]
 
 LOOMC_TARGET_CMD_PUBLIC_HDRS = [
@@ -120,6 +128,8 @@ exports_files(
     LOOMC_TARGET_SPIRV_IREE_HAL_PUBLIC_HDRS +
     LOOMC_TARGET_SPIRV_VULKANINFO_PUBLIC_HDRS +
     LOOMC_TARGET_SPIRV_VULKAN_PUBLIC_HDRS +
+    LOOMC_TARGET_VM_PUBLIC_HDRS +
+    LOOMC_TARGET_WASM_PUBLIC_HDRS +
     LOOMC_TARGET_XDNA_PUBLIC_HDRS,
     visibility = _TARGET_EXTENSION_VISIBILITY,
 )
@@ -186,16 +196,17 @@ loom_cc_library(
     ],
     deps = [
         "//loom/src/loom/analysis:symbol_value_constraints",
+        "//loom/src/loom/codegen:pass_environment",
         "//loom/src/loom/codegen/low:launch_config_program",
         "//loom/src/loom/codegen/low:repr",
         "//loom/src/loom/codegen/low:target_binding",
         "//loom/src/loom/codegen/low:text_asm",
         "//loom/src/loom/codegen/low:verify",
         "//loom/src/loom/codegen/low/pipeline:legalizer_registry",
-        "//loom/src/loom/codegen/low/pipeline:pass_environment",
         "//loom/src/loom/error:diagnostic",
         "//loom/src/loom/error:error_defs",
         "//loom/src/loom/error:renderer",
+        "//loom/src/loom/error:source",
         "//loom/src/loom/format/bytecode:format",
         "//loom/src/loom/format/bytecode:index",
         "//loom/src/loom/format/bytecode:reader",
@@ -208,7 +219,6 @@ loom_cc_library(
         "//loom/src/loom/link:dependency_analysis",
         "//loom/src/loom/link:dependency_report",
         "//loom/src/loom/link:index_materializer",
-        "//loom/src/loom/link:linker",
         "//loom/src/loom/link:materialization_environment",
         "//loom/src/loom/link:module_index",
         "//loom/src/loom/ops:op_defs",
@@ -221,6 +231,7 @@ loom_cc_library(
         "//loom/src/loom/pass:builtin_registry",
         "//loom/src/loom/pass:environment",
         "//loom/src/loom/pass:interpreter",
+        "//loom/src/loom/pass:pipeline_snapshot",
         "//loom/src/loom/pass:program",
         "//loom/src/loom/pass:registry",
         "//loom/src/loom/pass:tooling",
@@ -233,13 +244,15 @@ loom_cc_library(
         "//loom/src/loom/target:predicate",
         "//loom/src/loom/target:profile",
         "//loom/src/loom/target:provider",
+        "//loom/src/loom/target:selection",
         "//loom/src/loom/target:specialization",
         "//loom/src/loom/target:types",
         "//loom/src/loom/target/reporting:artifact_manifest",
         "//loom/src/loom/target/reporting:format",
         "//loom/src/loom/target/reporting:report",
-        "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tooling/config",
+        "//loom/src/loom/transforms/cleanup:configured",
+        "//loom/src/loom/transforms/cleanup:patterns",
         "//loom/src/loom/util:json",
         "//loom/src/loom/util:stream",
         "//loom/src/loom/verify",
@@ -249,6 +262,17 @@ loom_cc_library(
         "//runtime/src/iree/io:file_handle",
         "//runtime/src/iree/io:stream",
     ],
+)
+
+iree_assert_dependency_boundary(
+    name = "loomc_has_no_concrete_target_dependencies",
+    forbidden_subtrees = [
+        "//loom/binding/c/target/...",
+        "//loom/src/loom/target/arch/...",
+        "//loom/src/loom/target/emit/...",
+    ],
+    message = "Base LoomC must remain target-agnostic; link optional target packages explicitly",
+    target = ":loomc",
 )
 
 loom_cc_library(

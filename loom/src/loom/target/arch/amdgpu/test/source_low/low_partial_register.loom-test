@@ -17,3 +17,91 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @d16_low_is_not_full(%addr
   // ERROR@+1: DOMINANCE/011 "low.return" "operand"
   return %low
 }
+
+// ====
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @narrow_stores(%addr: reg<amdgpu.vgpr>, %global: reg<amdgpu.vgpr x2>, %saddr: reg<amdgpu.sgpr x2>, %resource: reg<amdgpu.sgpr x4>, %soffset: reg<amdgpu.sgpr>) asm {
+  %low = ds_load_u16_d16 %addr
+  ds_write_b8 %addr, %low
+  ds_write_b16 %addr, %low
+  global_store_b8_vaddr %global, %low
+  global_store_b8_saddr %addr, %low, %saddr
+  buffer_store_b8 %low, %resource, %addr, %soffset
+  buffer_store_b8_vaddr_offset %low, %resource, %addr
+  scratch_store_b8_vaddr %addr, %low
+  scratch_store_b8_offset_only %low
+  return
+}
+
+// ====
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @packed_float8_stores(%addr: reg<amdgpu.vgpr>, %global: reg<amdgpu.vgpr x2>, %saddr: reg<amdgpu.sgpr x2>, %resource: reg<amdgpu.sgpr x4>, %soffset: reg<amdgpu.sgpr>, %value: reg<amdgpu.vgpr>) asm {
+  %low = v_cvt_pk_fp8_f32_low %value, %value
+  ds_write_b8 %addr, %low
+  ds_write_b16 %addr, %low
+  global_store_b8_vaddr %global, %low
+  global_store_b8_saddr %addr, %low, %saddr
+  buffer_store_b8 %low, %resource, %addr, %soffset
+  buffer_store_b8_vaddr_offset %low, %resource, %addr
+  scratch_store_byte_vaddr %addr, %low
+  scratch_store_byte_offset_only %low
+  return
+}
+
+// ====
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @flat_narrow_stores(%address: reg<amdgpu.vgpr x2>, %value_address: reg<amdgpu.vgpr>) asm {
+  %low = ds_load_u16_d16 %value_address
+  flat_store_b8 %address, %low
+  flat_store_b16 %address, %low
+  return
+}
+
+// ====
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @flat_packed_float8_stores(%address: reg<amdgpu.vgpr x2>, %value: reg<amdgpu.vgpr>) asm {
+  %low = v_cvt_pk_fp8_f32_low %value, %value
+  flat_store_byte %address, %low
+  flat_store_short %address, %low
+  return
+}
+
+// ====
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @flat_accumulator_stores(%address: reg<amdgpu.vgpr x2>, %value: reg<amdgpu.agpr>) asm {
+  flat_store_byte %address, %value
+  flat_store_short %address, %value
+  return
+}
+
+// ====
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @full_store_needs_both_parts(%addr: reg<amdgpu.vgpr>, %saddr: reg<amdgpu.sgpr x2>) asm {
+  %low = ds_load_u16_d16 %addr
+  // ERROR@+1: DOMINANCE/011 "amdgpu.global_store_b32_saddr" "value"
+  global_store_b32_saddr %addr, %low, %saddr
+  return
+}
+
+// ====
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @flat_full_store_needs_both_parts(%address: reg<amdgpu.vgpr x2>, %value_address: reg<amdgpu.vgpr>) asm {
+  %low = ds_load_u16_d16 %value_address
+  // ERROR@+1: DOMINANCE/011 "amdgpu.flat_store_b32" "value"
+  flat_store_b32 %address, %low
+  return
+}

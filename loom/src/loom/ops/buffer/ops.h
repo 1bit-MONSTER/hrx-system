@@ -108,7 +108,7 @@ iree_status_t loom_buffer_assume_memory_space_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 
-// LOOM_OP_BUFFER_ASSUME_NOALIAS: Refine an existing buffer root with an explicit noalias contract. The result preserves the same storage identity, extent, memory-space, alignment, and nullability facts, and marks the root identity as comparable for disjointness proofs. External buffer arguments do not gain this proof by default.
+// LOOM_OP_BUFFER_ASSUME_NOALIAS: Refine an existing buffer root with an explicit noalias contract. The result preserves the same storage identity, extent, memory-space, alignment, and nullability facts, and marks the root identity as comparable for disjointness proofs. External buffer arguments do not gain this proof by default. The promise separates distinct scoped roots in the same execution. Repeated executions may bind a root to different storage; noalias alone does not establish disjointness across executions.
 // %unique = buffer.assume.noalias %buffer : buffer
 LOOM_DEFINE_ISA(loom_buffer_assume_noalias_isa, LOOM_OP_BUFFER_ASSUME_NOALIAS)
 LOOM_DEFINE_VARIADIC_OPERANDS(loom_buffer_assume_noalias_buffers, 0)

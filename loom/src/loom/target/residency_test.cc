@@ -186,21 +186,97 @@ TEST_F(ResidencyTest, CliffEvaluationUsesExactBoundaries) {
 
 TEST_F(ResidencyTest, DirectResourceOverrideEvaluatesWholeModelTier) {
   const uint32_t direct_units[] = {4, 2};
+  const auto view = loom_target_residency_view(&kModel, UINT32_MAX);
   EXPECT_EQ(loom_target_residency_evaluate_tier_with_direct_resource_override(
-                &kModel, direct_units, /*direct_resource_id=*/0,
+                view, direct_units, /*direct_resource_id=*/0,
                 /*override_units=*/4),
             4u);
   EXPECT_EQ(loom_target_residency_evaluate_tier_with_direct_resource_override(
-                &kModel, direct_units, /*direct_resource_id=*/0,
+                view, direct_units, /*direct_resource_id=*/0,
                 /*override_units=*/5),
             2u);
 
   // The scalar resource remains at tier 3, but its rounded contribution makes
   // the derived shared register file the tier-2 limiter.
   EXPECT_EQ(loom_target_residency_evaluate_tier_with_direct_resource_override(
-                &kModel, direct_units, /*direct_resource_id=*/1,
+                view, direct_units, /*direct_resource_id=*/1,
                 /*override_units=*/5),
             2u);
+}
+
+TEST_F(ResidencyTest, ViewPreservesUnavailableAndZeroLimits) {
+  const auto unavailable = loom_target_residency_view(nullptr, 3);
+  EXPECT_EQ(unavailable.model, nullptr);
+  EXPECT_EQ(unavailable.tier_limit, 0u);
+  const auto full = loom_target_residency_view(&kModel, UINT32_MAX);
+  EXPECT_EQ(full.model, &kModel);
+  EXPECT_EQ(full.tier_limit, kModel.best_tier);
+  const auto zero = loom_target_residency_view(&kModel, 0);
+  EXPECT_EQ(zero.model, &kModel);
+  EXPECT_EQ(zero.tier_limit, 0u);
+}
+
+TEST_F(ResidencyTest, CeilingSkipsUnattainableCliffsAndCutsTierJumps) {
+  const auto first_actionable_cliff =
+      loom_target_residency_cliff_start_below_tier(kDirectResourceCliffs, 2, 2);
+  ASSERT_EQ(first_actionable_cliff, 1u);
+  loom_target_residency_cliff_evaluation_t evaluation;
+  loom_target_residency_evaluate_cliffs(
+      kDirectResourceCliffs + first_actionable_cliff,
+      2 - first_actionable_cliff, 2, 6, &evaluation);
+  EXPECT_EQ(evaluation.tier, 2u);
+  EXPECT_EQ(evaluation.flags,
+            LOOM_TARGET_RESIDENCY_CLIFF_EVALUATION_FLAG_HAS_WORSE_TIER);
+  EXPECT_EQ(evaluation.worse_tier, 1u);
+  EXPECT_EQ(evaluation.additional_units_to_worse_tier, 3u);
+
+  // The raw first cliff jumps from four to two, but only tier three can be
+  // recovered under this ceiling.
+  loom_target_residency_evaluate_cliffs(kDirectResourceCliffs, 2, 3, 5,
+                                        &evaluation);
+  EXPECT_EQ(evaluation.tier, 2u);
+  EXPECT_EQ(evaluation.better_tier, 3u);
+  EXPECT_EQ(evaluation.reduction_units_to_better_tier, 1u);
+  EXPECT_EQ(evaluation.worse_tier, 1u);
+
+  const auto empty_suffix =
+      loom_target_residency_cliff_start_below_tier(kDirectResourceCliffs, 2, 0);
+  ASSERT_EQ(empty_suffix, 2u);
+  loom_target_residency_evaluate_cliffs(kDirectResourceCliffs + empty_suffix,
+                                        2 - empty_suffix, 0, UINT64_MAX,
+                                        &evaluation);
+  EXPECT_EQ(evaluation.tier, 0u);
+  EXPECT_EQ(evaluation.flags, 0u);
+}
+
+TEST_F(ResidencyTest, CappedOverridesRespectAllDirectAndDerivedLimits) {
+  for (uint32_t limit = 0; limit <= 5; ++limit) {
+    SCOPED_TRACE(limit);
+    const auto view = loom_target_residency_view(&kModel, limit);
+    for (uint32_t vector_units = 0; vector_units <= 18; ++vector_units) {
+      SCOPED_TRACE(vector_units);
+      for (uint32_t scalar_units = 0; scalar_units <= 12; ++scalar_units) {
+        SCOPED_TRACE(scalar_units);
+        const uint32_t vector_tier =
+            vector_units < 5 ? 4 : (vector_units < 9 ? 2 : 1);
+        const uint32_t scalar_tier = scalar_units < 3    ? 4
+                                     : scalar_units < 7  ? 3
+                                     : scalar_units < 11 ? 2
+                                                         : 0;
+        const uint32_t combined_units =
+            ((vector_units + 3) / 4) * 4 + ((scalar_units + 1) / 2) * 2;
+        const uint32_t combined_tier =
+            combined_units < 9 ? 4 : (combined_units < 17 ? 2 : 1);
+        const uint32_t expected = iree_min(
+            limit, iree_min(combined_tier, iree_min(vector_tier, scalar_tier)));
+        const uint32_t direct_units[] = {0, scalar_units};
+        EXPECT_EQ(
+            loom_target_residency_evaluate_tier_with_direct_resource_override(
+                view, direct_units, 0, vector_units),
+            expected);
+      }
+    }
+  }
 }
 
 TEST_F(ResidencyTest, UnavailableModelIsExplicit) {

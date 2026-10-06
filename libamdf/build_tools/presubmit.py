@@ -22,10 +22,6 @@ PROJECT_NAME = "libamdf"
 PROJECT_ROOT = "libamdf/"
 CMAKE_TEST_REGEX = "^libamdf/"
 CMAKE_TEST_LABEL_EXCLUDE_REGEX = "manual|runtime-resource="
-BAZEL_RESOURCE_TAG_EXCLUDES = (
-    "-iree-run-requirement=libamdf.resource.amd_gpu",
-    "-iree-run-requirement=libamdf.resource.xdna",
-)
 GLOBAL_TEST_TRIGGERS = (
     "BUILD.bazel",
     "MODULE.bazel",
@@ -81,8 +77,8 @@ def bazel_test_command() -> list[str]:
     return dev_command(
         "bazel",
         "test",
+        *project_presubmit.bazel_config_args(),
         "--//libamdf/config:enabled=true",
-        "--test_tag_filters=" + ",".join(BAZEL_RESOURCE_TAG_EXCLUDES),
         "//libamdf/...",
     )
 

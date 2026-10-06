@@ -2,10 +2,6 @@
 // RUN: emit source-low target=amd.xdna.aie2p:core output=low
 
 // A derived selection retains both the selected buffer and its byte base.
-// ERROR@+4: TARGET/033 {op_name="func.def", field_name="source", actual_type="buffer"}
-// ERROR@+3: TARGET/033 {op_name="func.def", field_name="source", actual_type="buffer"}
-// ERROR@+2: TARGET/033 {op_name="func.def", field_name="source", actual_type="buffer"}
-// ERROR@+1: TARGET/033 {op_name="func.def", field_name="source", actual_type="buffer"}
 func.def @derived_selection(%first: buffer, %second: buffer, %third: buffer, %position_input: index, %select_first: i1, %select_pair: i1) -> (i32) {
   %position = index.assume %position_input [range(%position_input, 1, 2)] : index
   %base0 = index.constant 4 : offset
@@ -25,13 +21,37 @@ func.def @derived_selection(%first: buffer, %second: buffer, %third: buffer, %po
   func.return %value : i32
 }
 
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @derived_selection(%position: reg<aie2p.er>, %select_first: reg<aie2p.er>, %select_pair: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
+  %first_aligned = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %second_aligned = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %third_aligned = resource<native_pointer> {index = 2, source_type = buffer} : reg<aie2p.ep>
+  %base0 = mov.short 4
+  %base1 = mov.short 8
+  %base2 = mov.short 12
+  low.cond_br %select_first, ^_bb1, ^_bb2 : reg<aie2p.er>
+^_bb1:
+  low.br ^_bb3(%first_aligned: reg<aie2p.ep>, %base0: reg<aie2p.er>)
+^_bb2:
+  low.br ^_bb3(%second_aligned: reg<aie2p.ep>, %base1: reg<aie2p.er>)
+^_bb3(%pair_root: reg<aie2p.ep>, %pair_offset: reg<aie2p.er>):
+  %56 = mov.i32 2
+  %63 = lshl %position, %56
+  %69 = add.rr %pair_offset, %63
+  low.cond_br %select_pair, ^_bb4, ^_bb5 : reg<aie2p.er>
+^_bb4:
+  low.br ^_bb6(%pair_root: reg<aie2p.ep>, %69: reg<aie2p.er>)
+^_bb5:
+  low.br ^_bb6(%third_aligned: reg<aie2p.ep>, %base2: reg<aie2p.er>)
+^_bb6(%selected: reg<aie2p.ep>, %selected_offset: reg<aie2p.er>):
+  %70 = mov.address-index %selected_offset
+  %value = lda.i32.index %selected, %70
+  return %value
+}
+
 // ====
 
 // Nested selections compose with structured side effects and explicit CFG.
-// ERROR@+4: TARGET/033 {op_name="func.def", field_name="source", actual_type="buffer"}
-// ERROR@+3: TARGET/033 {op_name="func.def", field_name="source", actual_type="buffer"}
-// ERROR@+2: TARGET/033 {op_name="func.def", field_name="source", actual_type="buffer"}
-// ERROR@+1: TARGET/033 {op_name="func.def", field_name="source", actual_type="buffer"}
 func.def @selection_with_side_effects(%first: buffer, %second: buffer, %third: buffer, %select_first: i1, %select_pair: i1, %enter: i1, %side: i1, %initial: i32) -> (i32) {
   %base = index.constant 0 : offset
   %first_aligned = buffer.assume.alignment %first {minimum_alignment = 4} : buffer
@@ -54,4 +74,35 @@ func.def @selection_with_side_effects(%first: buffer, %second: buffer, %third: b
   func.return %result : i32
 ^exit:
   func.return %initial : i32
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @selection_with_side_effects(%select_first: reg<aie2p.er>, %select_pair: reg<aie2p.er>, %enter: reg<aie2p.er>, %side: reg<aie2p.er>, %initial: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
+  %first_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %second_aligned = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %third_view = resource<native_pointer> {index = 2, source_type = buffer} : reg<aie2p.ep>
+  low.cond_br %enter, ^producer, ^exit : reg<aie2p.er>
+^producer:
+  st %initial, %third_view, 0
+  low.cond_br %side, ^_bb2, ^_bb3 : reg<aie2p.er>
+^_bb2:
+  st %initial, %first_view, 0
+  low.br ^_bb3
+^_bb3:
+  low.cond_br %select_first, ^_bb4, ^_bb5 : reg<aie2p.er>
+^_bb4:
+  low.br ^_bb6(%first_view: reg<aie2p.ep>)
+^_bb5:
+  low.br ^_bb6(%second_aligned: reg<aie2p.ep>)
+^_bb6(%pair_root: reg<aie2p.ep>):
+  low.cond_br %select_pair, ^_bb7, ^_bb8 : reg<aie2p.er>
+^_bb7:
+  low.br ^_bb9(%pair_root: reg<aie2p.ep>)
+^_bb8:
+  low.br ^_bb9(%third_view: reg<aie2p.ep>)
+^_bb9(%selected: reg<aie2p.ep>):
+  %result = lda %selected, 0
+  return %result
+^exit:
+  return %initial
 }

@@ -16,7 +16,7 @@ AtomicKind = EnumDef(
         EnumCase("xchgi", 0, doc="Integer exchange."),
         EnumCase("xchgf", 1, doc="Floating-point exchange."),
         EnumCase("addi", 2, doc="Integer addition."),
-        EnumCase("addf", 3, doc="Floating-point addition."),
+        EnumCase("addf", 3, doc="Floating-point addition with native subnormal handling unless preservation is explicitly requested."),
         EnumCase("subi", 4, doc="Integer subtraction."),
         EnumCase("andi", 5, doc="Bitwise AND."),
         EnumCase("ori", 6, doc="Bitwise OR."),
@@ -34,6 +34,27 @@ AtomicKind = EnumDef(
     c_type="loom_atomic_kind_t",
     c_const_prefix="LOOM_ATOMIC_KIND",
     c_include="loom/ops/atomic.h",
+)
+
+AtomicMemoryFlags = EnumDef(
+    "AtomicMemoryFlags",
+    [
+        EnumCase(
+            "noftz",
+            2,
+            doc=(
+                "Preserve subnormal inputs and results of floating-point atomic "
+                "addition. Without this flag the target may flush subnormals. "
+                "The selected target must support the requested element width; "
+                "preservation may require a compare-exchange loop. Returned "
+                "old values retain their bits with or without this flag."
+            ),
+        ),
+    ],
+    doc="Explicit numerical requirements for atomic memory updates.",
+    c_type="loom_memory_access_flags_t",
+    c_const_prefix="LOOM_MEMORY_ACCESS_FLAG",
+    c_include="loom/ops/op_defs.h",
 )
 
 AtomicOrdering = EnumDef(

@@ -15,8 +15,8 @@ iree_host_size_t loom_intern_table_capacity_for_entries(
 
 // Extends storage before moving any old bucket. The vacant seam terminates an
 // old probe cluster. Walking immediately after it visits each old entry before
-// reinsertion can reach its slot: a new home is the old home or that home plus
-// old_capacity, and clearing the current slot bounds its forward probe.
+// reinsertion can reach its slot: a new home is the old home plus a multiple
+// of old_capacity, and clearing the current slot bounds its forward probe.
 iree_status_t loom_intern_table_grow(iree_arena_allocator_t* arena,
                                      iree_host_size_t capacity,
                                      iree_host_size_t vacant_seam,

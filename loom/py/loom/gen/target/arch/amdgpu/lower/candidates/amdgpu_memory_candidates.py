@@ -33,6 +33,7 @@ _MEMORY_DESCRIPTOR_DOMAIN_INDEX = {
     AmdgpuMemoryDescriptorDomain.GLOBAL_FLAT: 3,
     AmdgpuMemoryDescriptorDomain.GLOBAL_SMEM: 4,
     AmdgpuMemoryDescriptorDomain.SCRATCH: 5,
+    AmdgpuMemoryDescriptorDomain.GENERIC_FLAT: 6,
 }
 
 _MEMORY_ADDRESS_FORM_INDEX = {

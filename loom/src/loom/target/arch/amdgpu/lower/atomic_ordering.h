@@ -48,7 +48,8 @@ typedef struct loom_amdgpu_atomic_ordering_selection_t {
   iree_host_size_t post_atomic_visibility_packet_count;
 } loom_amdgpu_atomic_ordering_selection_t;
 
-// Queries coherence-domain support independently of the arithmetic opcode.
+// Queries coherence-domain support for the physical packet's value type,
+// independently of the arithmetic opcode or logical subword footprint.
 // System updates require naturally aligned, system-atomic backing supplied by
 // the caller; host accessibility alone does not establish that contract.
 bool loom_amdgpu_atomic_scope_supported(

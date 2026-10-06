@@ -10,9 +10,11 @@
 #include <string.h>
 
 #include "iree/base/bitmap.h"
+#include "loom/codegen/low/memory_access.h"
 #include "loom/ir/module.h"
 #include "loom/ops/op_defs.h"
 #include "loom/rewrite/module_projection.h"
+#include "loom/target/facts_builder.h"
 #include "loom/target/function_version.h"
 #include "loom/target/provider.h"
 
@@ -230,18 +232,164 @@ static iree_status_t loom_target_function_version_projection_plan_build(
       source_module, arena, &out_plan->generated_name_namespace);
 }
 
-static iree_status_t loom_target_function_version_projection_clone_source(
-    const loom_module_t* source_module, iree_host_size_t materialization_count,
-    iree_arena_block_pool_t* block_pool, iree_arena_allocator_t* scratch_arena,
-    iree_allocator_t allocator, loom_ir_module_projection_t* out_projection,
-    loom_module_t** out_module) {
-  const loom_ir_module_clone_options_t options = {
-      .additional_string_capacity = materialization_count,
-      .additional_symbol_capacity = materialization_count,
+// A function scope in the existing recursive module clone. Nested callables
+// suspend the outer packet translator until their own clone is complete.
+typedef struct loom_target_function_version_clone_scope_t {
+  // Enclosing callable, or NULL at module scope.
+  struct loom_target_function_version_clone_scope_t* parent;
+  // Source callable delimiting this scope.
+  const loom_op_t* source_op;
+  // Packet translator for this invocation, or NULL without captured proofs.
+  loom_low_memory_access_clone_t* memory;
+} loom_target_function_version_clone_scope_t;
+
+typedef struct loom_target_function_version_clone_t {
+  // Source versions indexed by the projection planner.
+  const loom_target_function_version_snapshot_t* versions;
+  // Live module correspondence populated before operation construction.
+  const loom_ir_module_projection_t* projection;
+  // Destination version owner, independent of source storage.
+  loom_function_version_owner_t* owner;
+  // Temporary scope and memory-identity translation storage.
+  iree_arena_allocator_t* scratch_arena;
+  // Current callable scope, restored by the clone owner's finish notification.
+  loom_target_function_version_clone_scope_t* scope;
+} loom_target_function_version_clone_t;
+
+static iree_status_t loom_target_function_version_clone_string(
+    loom_module_t* module, iree_string_view_t source,
+    iree_string_view_t* out_string) {
+  loom_string_id_t id = LOOM_STRING_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_module_intern_string(module, source, &id));
+  *out_string = loom_string_table_get(&module->strings, id);
+  return iree_ok_status();
+}
+
+static iree_status_t loom_target_function_version_clone_facts(
+    loom_module_t* module, iree_arena_allocator_t* arena,
+    const loom_target_facts_t* source, const loom_target_facts_t** out_facts) {
+  *out_facts = NULL;
+  if (source == NULL) {
+    return iree_ok_status();
+  }
+  loom_target_facts_t* facts = NULL;
+  IREE_RETURN_IF_ERROR(loom_target_facts_builder_clone(source, arena, &facts));
+  // Family descriptors and capability tables belong to the retained context.
+  // Common names can instead originate in the source module or workspace.
+  iree_string_view_t* strings[] = {
+      &facts->storage.snapshot.name,
+      &facts->storage.export_plan.name,
+      &facts->storage.export_plan.export_symbol,
+      &facts->storage.config.name,
+      &facts->storage.config.contract_set_key,
+      &facts->storage.bundle.name,
   };
-  return loom_ir_module_clone(source_module, &options, block_pool,
-                              scratch_arena, allocator, out_projection,
-                              out_module);
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(strings); ++i) {
+    IREE_RETURN_IF_ERROR(loom_target_function_version_clone_string(
+        module, *strings[i], strings[i]));
+  }
+  loom_target_bundle_storage_rebind(&facts->storage);
+  if (facts->fact_type->rebind != NULL) {
+    facts->fact_type->rebind(facts);
+  }
+  *out_facts = facts;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_target_function_version_clone_schedules(
+    const loom_source_loop_pipeline_list_t* source,
+    iree_arena_allocator_t* arena, loom_source_loop_pipeline_list_t* target) {
+  *target = (loom_source_loop_pipeline_list_t){0};
+  for (const loom_source_loop_pipeline_t* entry = source->head; entry != NULL;
+       entry = entry->next) {
+    loom_source_loop_pipeline_t* copy = NULL;
+    IREE_RETURN_IF_ERROR(
+        iree_arena_allocate(arena, sizeof(*copy), (void**)&copy));
+    *copy = *entry;
+    copy->next = NULL;
+    if (entry->operation_count != 0) {
+      loom_source_loop_pipeline_operation_t* operations = NULL;
+      IREE_RETURN_IF_ERROR(
+          iree_arena_allocate_array(arena, entry->operation_count,
+                                    sizeof(*operations), (void**)&operations));
+      memcpy(operations, entry->operations,
+             entry->operation_count * sizeof(*operations));
+      copy->operations = operations;
+    }
+    if (target->tail != NULL) {
+      target->tail->next = copy;
+    } else {
+      target->head = copy;
+    }
+    target->tail = copy;
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_target_function_version_clone_op(
+    void* user_data, const loom_op_t* source_op, loom_op_t* target_op) {
+  loom_target_function_version_clone_t* clone = user_data;
+  const loom_func_like_t source_function = loom_func_like_cast(
+      clone->projection->source_module, (loom_op_t*)source_op);
+  if (!loom_func_like_isa(source_function)) {
+    return clone->scope != NULL && clone->scope->memory != NULL
+               ? loom_low_memory_access_clone_op(clone->scope->memory,
+                                                 source_op, target_op)
+               : iree_ok_status();
+  }
+  loom_target_function_version_clone_scope_t* scope = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate(clone->scratch_arena, sizeof(*scope),
+                                           (void**)&scope));
+  *scope = (loom_target_function_version_clone_scope_t){
+      .parent = clone->scope,
+      .source_op = source_op,
+  };
+  clone->scope = scope;
+  const loom_target_function_version_t* source =
+      loom_target_function_version_snapshot_at(
+          clone->versions, loom_func_like_callee(source_function).symbol_id);
+  if (source == NULL) {
+    return iree_ok_status();
+  }
+  loom_module_t* module = clone->projection->target_module;
+  iree_arena_allocator_t* arena = clone->owner->arena;
+  loom_target_function_version_t* target = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate(arena, sizeof(*target), (void**)&target));
+  *target = *source;
+  target->base.function = loom_func_like_cast(module, target_op);
+  target->memory_accesses = NULL;
+  IREE_RETURN_IF_ERROR(loom_target_function_version_clone_string(
+      module, source->authored_target_name, &target->authored_target_name));
+  IREE_RETURN_IF_ERROR(loom_target_function_version_clone_facts(
+      module, arena, source->target_requirement_facts,
+      &target->target_requirement_facts));
+  IREE_RETURN_IF_ERROR(loom_target_function_version_clone_facts(
+      module, arena, source->resolved_target.facts,
+      &target->resolved_target.facts));
+  IREE_RETURN_IF_ERROR(loom_target_function_version_clone_facts(
+      module, arena, source->function_target_facts,
+      &target->function_target_facts));
+  IREE_RETURN_IF_ERROR(loom_target_function_version_clone_schedules(
+      &source->loop_pipelines, arena, &target->loop_pipelines));
+  if (source->memory_accesses != NULL) {
+    IREE_RETURN_IF_ERROR(loom_low_memory_access_map_create(
+        &module->arena, &target->memory_accesses));
+    IREE_RETURN_IF_ERROR(loom_low_memory_access_clone_create(
+        source->memory_accesses, target->memory_accesses, clone->scratch_arena,
+        &scope->memory));
+  }
+  // The projection materializes an exact authored target for every version.
+  target->authored_target_is_exact = true;
+  return loom_function_version_owner_append(clone->owner, &target->base);
+}
+
+static void loom_target_function_version_clone_finish_op(
+    void* user_data, const loom_op_t* source_op, loom_op_t* target_op) {
+  loom_target_function_version_clone_t* clone = user_data;
+  if (clone->scope != NULL && clone->scope->source_op == source_op) {
+    clone->scope = clone->scope->parent;
+  }
 }
 
 static void loom_target_function_version_projection_seed_exact_contexts(
@@ -363,6 +511,7 @@ iree_status_t loom_target_function_versions_project_module(
     const loom_module_t* source_module,
     const loom_function_version_list_t* function_versions,
     iree_arena_block_pool_t* block_pool, iree_allocator_t allocator,
+    loom_function_version_owner_t* out_versions,
     loom_module_t** out_projected_module) {
   if (out_projected_module == NULL) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -383,9 +532,24 @@ iree_status_t loom_target_function_versions_project_module(
   iree_status_t status = loom_target_function_version_projection_plan_build(
       source_module, function_versions, &scratch_arena, &plan);
   if (iree_status_is_ok(status)) {
-    status = loom_target_function_version_projection_clone_source(
-        source_module, plan.materialization_count, block_pool, &scratch_arena,
-        allocator, &projection, &projected_module);
+    loom_target_function_version_clone_t clone = {
+        .versions = &plan.version_snapshot,
+        .projection = &projection,
+        .owner = out_versions,
+        .scratch_arena = &scratch_arena,
+    };
+    const loom_ir_module_clone_options_t options = {
+        .additional_string_capacity = plan.materialization_count,
+        .additional_symbol_capacity = plan.materialization_count,
+        .clone_observer = out_versions != NULL && function_versions != NULL && function_versions->count != 0 ? (loom_ir_clone_observer_t){
+            .fn = loom_target_function_version_clone_op,
+            .finish_fn = loom_target_function_version_clone_finish_op,
+            .user_data = &clone,
+        } : (loom_ir_clone_observer_t){0},
+    };
+    status = loom_ir_module_clone(source_module, &options, block_pool,
+                                  &scratch_arena, allocator, &projection,
+                                  &projected_module);
   }
   if (iree_status_is_ok(status) && plan.contexts.present.bit_count > 0) {
     loom_target_function_version_projection_seed_exact_contexts(
@@ -396,6 +560,8 @@ iree_status_t loom_target_function_versions_project_module(
   if (iree_status_is_ok(status)) {
     *out_projected_module = projected_module;
     projected_module = NULL;
+  } else if (out_versions != NULL) {
+    out_versions->list.count = 0;
   }
 
   loom_module_free(projected_module);

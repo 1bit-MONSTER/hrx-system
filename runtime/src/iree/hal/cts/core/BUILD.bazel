@@ -64,7 +64,7 @@ iree_runtime_cc_library(
     alwayslink = True,
 )
 
-# All core tests (link with backend library and test_main.cc for test binary).
+# All core tests linked into composed backend test binaries.
 iree_runtime_cc_library(
     name = "all_tests",
     testonly = True,

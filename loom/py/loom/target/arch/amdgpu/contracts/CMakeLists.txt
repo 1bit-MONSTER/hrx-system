@@ -16,6 +16,7 @@ iree_py_library(
     "__init__.py"
     "arithmetic.py"
     "async.py"
+    "bfloat.py"
     "buffer.py"
     "compare.py"
     "config.py"

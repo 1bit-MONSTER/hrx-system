@@ -7,7 +7,7 @@ aie2p.target<core> @core_target
 // The source stages form a DAG, but coalescing the first and last stages
 // creates a worker cycle. Each resident worker waits for all of its inputs
 // before publishing any output, so this grouping cannot make progress.
-// ERROR@+1: TARGET/087 {worker="1", group="1", lane="0"}
+// ERROR@+1: XDNA/005 {worker="1", group="1", lane="0"}
 pipeline.def<kernel> public retain target(@array_target) @cyclic_worker_array() launch(%input: buffer, %output: buffer) {
   %lane_count = index.constant 1 : index
   %base = index.constant 0 : offset

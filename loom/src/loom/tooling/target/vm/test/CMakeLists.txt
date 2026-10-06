@@ -10,6 +10,58 @@
 iree_add_all_subdirs()
 
 if(LOOM_TARGET_ARCH_VM)
+loom_test_module(
+  NAME
+    buffer_selection_test_module
+  SRCS
+    "buffer_selection.loom"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+if(LOOM_TARGET_ARCH_VM)
+loom_execution_test(
+  NAME
+    buffer_selection_test_execute_vm_reference_test
+  MODULE
+    "::buffer_selection_test_module"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+    "loom-execution-profile=vm_reference"
+    "loom-target-family=vm"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+)
+endif()
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_test_module(
+  NAME
+    callable_returns_test_module
+  SRCS
+    "callable_returns.loom"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+if(LOOM_TARGET_ARCH_VM)
+loom_execution_test(
+  NAME
+    callable_returns_test_execute_vm_reference_test
+  MODULE
+    "::callable_returns_test_module"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+    "loom-execution-profile=vm_reference"
+    "loom-target-family=vm"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+)
+endif()
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
 iree_execution_test_suite(
   NAME
     tools_test

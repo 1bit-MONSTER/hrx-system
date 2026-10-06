@@ -1,69 +1,452 @@
-// Split-KV online-softmax block combine.
+// Production-shaped split-KV attention reduction.
 //
-// Decode attention implementations often split the KV sequence across multiple
-// independent tiles and then combine each tile's partial max, sum, and value
-// accumulator. This motif keeps that combine boundary explicit: the larger
-// block max becomes the combined max, lower-max blocks are rescaled by
-// exp(block_max - combined_max), and both sums and value accumulators are
-// accumulated in the combined frame.
-// Numeric policy is ML-fast attention math: exp is approximate and the rescaled
-// partial sums/accumulators are contractable when combined.
-kernel.def @split_kv_online_softmax_combine_f32() {
-  %unit = index.constant 1 : index
-  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
-} launch(%state0: buffer, %acc0: buffer, %state1: buffer, %acc1: buffer, %combined_state: buffer, %combined_acc: buffer) {
+// Each workgroup owns one sequence and head. Query, KV, and split indirection
+// describe ragged batches; each query combines normalized f32 partial output
+// [query, split, head, 512] with its f32 log-sum-exp and writes bf16 output
+// [query, head, 512]. Runtime element strides match the AITER stage-two ABI.
+// The split recurrence is explicit so callers can select serial or controlled
+// pipelined schedules without changing the kernel boundary.
+template.decl @split_kv_stage2(%sequence_count: index, %head_count: index, %total_query_count: index, %maximum_split_count: index, %split_granularity: index, %partial_output: buffer, %partial_lse: buffer, %output: buffer, %query_offsets: buffer, %kv_offsets: buffer, %split_offsets: buffer, %valid_split_count: buffer, %partial_batch_stride: index, %partial_head_stride: index, %partial_split_stride: index, %output_batch_stride: index, %output_head_stride: index, %depth: index, %factor: index)
+
+template.def<@split_kv_stage2> @split_kv_stage2_impl(%sequence_count: index, %head_count: index, %total_query_count: index, %maximum_split_count: index, %split_granularity: index, %partial_output: buffer, %partial_lse: buffer, %output: buffer, %query_offsets: buffer, %kv_offsets: buffer, %split_offsets: buffer, %valid_split_count: buffer, %partial_batch_stride: index, %partial_head_stride: index, %partial_split_stride: index, %output_batch_stride: index, %output_head_stride: index, %depth: index, %factor: index) {
+  %sequence_id = kernel.workgroup.id<x> : index
+  %head_id = kernel.workgroup.id<y> : index
+  %sequence, %sequences = index.assume %sequence_id, %sequence_count [range(%sequence_count, 1, 4096), lt(%sequence_id, %sequence_count)] : index, index
+  %head, %heads = index.assume %head_id, %head_count [range(%head_count, 1, 256), lt(%head_id, %head_count)] : index, index
+  %queries = index.assume %total_query_count [range(%total_query_count, 1, 32768)] : index
+  %splits = index.assume %maximum_split_count [range(%maximum_split_count, 1, 32)] : index
+  %split_width = index.assume %split_granularity [range(%split_granularity, 1, 4096)] : index
+  %partial_batch, %partial_head, %partial_split = index.assume %partial_batch_stride, %partial_head_stride, %partial_split_stride [range(%partial_batch_stride, 1, 1048576), range(%partial_head_stride, 1, 1048576), range(%partial_split_stride, 1, 1048576)] : index, index, index
+  %output_batch, %output_head = index.assume %output_batch_stride, %output_head_stride [range(%output_batch_stride, 1, 1048576), range(%output_head_stride, 1, 1048576)] : index, index
+  %c1 = index.constant 1 : index
+  %metadata_count = index.add %sequences, %c1 : index
+  %next_sequence = index.add %sequence, %c1 : index
+  %workitem = kernel.workitem.id<x> : index
+  %workgroup_width = index.constant 64 : index
+  %value_width = index.constant 512 : index
+  %fragment_width = index.constant 4 : index
+  %fragment_span = index.mul %workgroup_width, %fragment_width : index
+  %channel0_unbounded = index.mul %workitem, %fragment_width : index
+  %channel0 = index.assume %channel0_unbounded [range(%channel0_unbounded, 0, 252)] : index
+  %channel1_unbounded = index.add %channel0, %fragment_span : index
+  %channel1 = index.assume %channel1_unbounded [range(%channel1_unbounded, 256, 508)] : index
+  %begin = index.constant 0 : index
   %base = index.constant 0 : offset
-  %max_state_index = index.constant 0 : index
+  %c0 = scalar.constant 0.0 : f32
+  %negative_infinity_bits = scalar.constant -8388608 : i32
+  %negative_infinity = scalar.bitcast %negative_infinity_bits : i32 to f32
+  %zero_vector = vector.splat %c0 : vector<4xf32>
 
-  %state0_noalias, %acc0_noalias, %state1_noalias, %acc1_noalias, %combined_state_noalias, %combined_acc_noalias = buffer.assume.noalias %state0, %acc0, %state1, %acc1, %combined_state, %combined_acc : buffer, buffer, buffer, buffer, buffer, buffer
-  %state0_view = buffer.view %state0_noalias[%base] : buffer -> view<2xf32>
-  %acc0_view = buffer.view %acc0_noalias[%base] : buffer -> view<4xf32>
-  %state1_view = buffer.view %state1_noalias[%base] : buffer -> view<2xf32>
-  %acc1_view = buffer.view %acc1_noalias[%base] : buffer -> view<4xf32>
-  %combined_state_view = buffer.view %combined_state_noalias[%base] : buffer -> view<2xf32>
-  %combined_acc_view = buffer.view %combined_acc_noalias[%base] : buffer -> view<4xf32>
+  %partial_output_aligned = buffer.assume.alignment %partial_output {minimum_alignment = 4} : buffer
+  %partial_lse_aligned = buffer.assume.alignment %partial_lse {minimum_alignment = 4} : buffer
+  %output_aligned = buffer.assume.alignment %output {minimum_alignment = 2} : buffer
+  %query_offsets_aligned = buffer.assume.alignment %query_offsets {minimum_alignment = 4} : buffer
+  %kv_offsets_aligned = buffer.assume.alignment %kv_offsets {minimum_alignment = 4} : buffer
+  %split_offsets_aligned = buffer.assume.alignment %split_offsets {minimum_alignment = 4} : buffer
+  %valid_split_count_aligned = buffer.assume.alignment %valid_split_count {minimum_alignment = 4} : buffer
+  %partial_output_storage, %partial_lse_storage, %output_storage, %query_offset_storage, %kv_offset_storage, %split_offset_storage, %valid_split_storage = buffer.assume.noalias %partial_output_aligned, %partial_lse_aligned, %output_aligned, %query_offsets_aligned, %kv_offsets_aligned, %split_offsets_aligned, %valid_split_count_aligned : buffer, buffer, buffer, buffer, buffer, buffer, buffer
 
-  %max0 = view.load %state0_view[0] : view<2xf32> -> f32
-  %sum0 = view.load %state0_view[1] : view<2xf32> -> f32
-  %max1 = view.load %state1_view[0] : view<2xf32> -> f32
-  %sum1 = view.load %state1_view[1] : view<2xf32> -> f32
-  %acc0_values = vector.load %acc0_view[0] : view<4xf32> -> vector<4xf32>
-  %acc1_values = vector.load %acc1_view[0] : view<4xf32> -> vector<4xf32>
+  %partial_batch_value_stride = index.mul %partial_batch, %value_width : index
+  %partial_head_value_stride = index.mul %partial_head, %value_width : index
+  %partial_split_value_stride = index.mul %partial_split, %value_width : index
+  %partial_output_layout = encoding.layout.strided [%partial_batch_value_stride, %partial_split_value_stride, %partial_head_value_stride, 1] : encoding<layout>
+  %partial_lse_layout = encoding.layout.strided [%partial_batch, %partial_split, %partial_head] : encoding<layout>
+  %output_layout = encoding.layout.strided [%output_batch, %output_head, 1] : encoding<layout>
+  %partial_output_view = buffer.view %partial_output_storage[%base] : buffer -> view<[%queries]x[%splits]x[%heads]x512xf32, %partial_output_layout>
+  %partial_lse_view = buffer.view %partial_lse_storage[%base] : buffer -> view<[%queries]x[%splits]x[%heads]xf32, %partial_lse_layout>
+  %output_view = buffer.view %output_storage[%base] : buffer -> view<[%queries]x[%heads]x512xbf16, %output_layout>
+  %query_offset_view = buffer.view %query_offset_storage[%base] : buffer -> view<[%metadata_count]xi32>
+  %kv_offset_view = buffer.view %kv_offset_storage[%base] : buffer -> view<[%metadata_count]xi32>
+  %split_offset_view = buffer.view %split_offset_storage[%base] : buffer -> view<[%metadata_count]xi32>
+  %valid_split_view = buffer.view %valid_split_storage[%base] : buffer -> view<[%sequences]xi32>
 
-  %combined_max = scalar.maxnumf %max0, %max1 : f32
-  %delta0 = scalar.subf %max0, %combined_max : f32
-  %delta1 = scalar.subf %max1, %combined_max : f32
-  %scale0 = scalar.expf<afn> %delta0 : f32
-  %scale1 = scalar.expf<afn> %delta1 : f32
-  %scaled_sum0 = scalar.mulf<reassoc|nnan|nsz|contract> %sum0, %scale0 : f32
-  %scaled_sum1 = scalar.mulf<reassoc|nnan|nsz|contract> %sum1, %scale1 : f32
-  %combined_sum = scalar.addf<reassoc|nnan|nsz|contract> %scaled_sum0, %scaled_sum1 : f32
+  %query_begin_i32 = view.load %query_offset_view[%sequence] : view<[%metadata_count]xi32> -> i32
+  %query_end_i32 = view.load %query_offset_view[%next_sequence] : view<[%metadata_count]xi32> -> i32
+  %query_begin0 = index.cast %query_begin_i32 : i32 to index
+  %query_end0 = index.cast %query_end_i32 : i32 to index
+  %query_begin, %query_end = index.assume %query_begin0, %query_end0 [range(%query_begin0, 0, 32768), range(%query_end0, 0, 32768), le(%query_begin0, %query_end0), le(%query_end0, %queries)] : index, index
 
-  %scale0_vector = vector.splat %scale0 : vector<4xf32>
-  %scale1_vector = vector.splat %scale1 : vector<4xf32>
-  %scaled_acc0 = vector.mulf<reassoc|nnan|nsz|contract> %acc0_values, %scale0_vector : vector<4xf32>
-  %scaled_acc1 = vector.mulf<reassoc|nnan|nsz|contract> %acc1_values, %scale1_vector : vector<4xf32>
-  %combined_acc_values = vector.addf<reassoc|nnan|nsz|contract> %scaled_acc0, %scaled_acc1 : vector<4xf32>
+  %kv_begin_i32 = view.load %kv_offset_view[%sequence] : view<[%metadata_count]xi32> -> i32
+  %kv_end_i32 = view.load %kv_offset_view[%next_sequence] : view<[%metadata_count]xi32> -> i32
+  %kv_begin0 = index.cast %kv_begin_i32 : i32 to index
+  %kv_end0 = index.cast %kv_end_i32 : i32 to index
+  %kv_begin, %kv_end = index.assume %kv_begin0, %kv_end0 [range(%kv_begin0, 0, 2147483647), range(%kv_end0, 0, 2147483647), le(%kv_begin0, %kv_end0)] : index, index
+  %kv_length = index.sub %kv_end, %kv_begin : index
+  %split_rounding = index.sub %split_width, %c1 : index
+  %rounded_kv_length = index.add %kv_length, %split_rounding : index
+  %kv_split_capacity = index.div %rounded_kv_length, %split_width : index
 
-  view.store %combined_max, %combined_state_view[%max_state_index] : f32, view<2xf32>
-  view.store %combined_sum, %combined_state_view[1] : f32, view<2xf32>
-  vector.store %combined_acc_values, %combined_acc_view[0] : vector<4xf32>, view<4xf32>
+  %split_begin_i32 = view.load %split_offset_view[%sequence] : view<[%metadata_count]xi32> -> i32
+  %split_end_i32 = view.load %split_offset_view[%next_sequence] : view<[%metadata_count]xi32> -> i32
+  %split_begin0 = index.cast %split_begin_i32 : i32 to index
+  %split_end0 = index.cast %split_end_i32 : i32 to index
+  %split_begin, %split_end = index.assume %split_begin0, %split_end0 [range(%split_begin0, 0, 2147483647), range(%split_end0, 0, 2147483647), le(%split_begin0, %split_end0)] : index, index
+  %split_capacity0 = index.sub %split_end, %split_begin : index
+  %split_capacity = index.assume %split_capacity0 [range(%split_capacity0, 0, 32), le(%split_capacity0, %splits)] : index
+
+  %valid_split_count_i32 = view.load %valid_split_view[%sequence] : view<[%sequences]xi32> -> i32
+  %valid_split_count0 = index.cast %valid_split_count_i32 : i32 to index
+  %valid_split_limit = index.assume %valid_split_count0 [range(%valid_split_count0, 0, 32)] : index
+  %metadata_capacity = index.min %split_capacity, %kv_split_capacity : index
+  %valid_splits0 = index.min %metadata_capacity, %valid_split_limit : index
+  %valid_splits = index.assume %valid_splits0 [range(%valid_splits0, 0, 32), le(%valid_splits0, %splits)] : index
+
+  scf.for %query = [%query_begin to %query_end step %c1] {
+    %bounded_query = index.assume %query [lt(%query, %queries)] : index
+    %maximum, %denominator, %numerator0, %numerator1 = scf.for %split = [%begin to %valid_splits step %c1](%carried_maximum = %negative_infinity : f32, %carried_denominator = %c0 : f32, %carried_numerator0 = %zero_vector : vector<4xf32>, %carried_numerator1 = %zero_vector : vector<4xf32>) -> (f32, f32, vector<4xf32>, vector<4xf32>) pipeline(%depth) unroll(%factor) {
+      %bounded_split = index.assume %split [lt(%split, %splits)] : index
+      %partial_maximum = view.load %partial_lse_view[%bounded_query, %bounded_split, %head] : view<[%queries]x[%splits]x[%heads]xf32, %partial_lse_layout> -> f32
+      %partial_numerator0 = vector.load %partial_output_view[%bounded_query, %bounded_split, %head, %channel0] : view<[%queries]x[%splits]x[%heads]x512xf32, %partial_output_layout> -> vector<4xf32>
+      %partial_numerator1 = vector.load %partial_output_view[%bounded_query, %bounded_split, %head, %channel1] : view<[%queries]x[%splits]x[%heads]x512xf32, %partial_output_layout> -> vector<4xf32>
+      %updated_maximum = scalar.maxnumf<nsz> %carried_maximum, %partial_maximum : f32
+      %old_delta = scalar.subf %carried_maximum, %updated_maximum : f32
+      %partial_delta = scalar.subf %partial_maximum, %updated_maximum : f32
+      %old_scale = scalar.expf<afn> %old_delta : f32
+      %partial_scale = scalar.expf<afn> %partial_delta : f32
+      %rescaled_denominator = scalar.mulf<contract> %carried_denominator, %old_scale : f32
+      %updated_denominator = scalar.addf<contract> %rescaled_denominator, %partial_scale : f32
+      %old_scale_vector = vector.splat %old_scale : vector<4xf32>
+      %partial_scale_vector = vector.splat %partial_scale : vector<4xf32>
+      %rescaled_numerator0 = vector.mulf<contract> %carried_numerator0, %old_scale_vector : vector<4xf32>
+      %weighted_partial0 = vector.mulf<contract> %partial_numerator0, %partial_scale_vector : vector<4xf32>
+      %updated_numerator0 = vector.addf<contract> %rescaled_numerator0, %weighted_partial0 : vector<4xf32>
+      %rescaled_numerator1 = vector.mulf<contract> %carried_numerator1, %old_scale_vector : vector<4xf32>
+      %weighted_partial1 = vector.mulf<contract> %partial_numerator1, %partial_scale_vector : vector<4xf32>
+      %updated_numerator1 = vector.addf<contract> %rescaled_numerator1, %weighted_partial1 : vector<4xf32>
+      scf.yield %updated_maximum, %updated_denominator, %updated_numerator0, %updated_numerator1 : f32, f32, vector<4xf32>, vector<4xf32>
+    }
+    %denominators = vector.splat %denominator : vector<4xf32>
+    %normalized0 = vector.divf %numerator0, %denominators : vector<4xf32>
+    %normalized1 = vector.divf %numerator1, %denominators : vector<4xf32>
+    %rounded0 = vector.fptrunc %normalized0 : vector<4xf32> to vector<4xbf16>
+    %rounded1 = vector.fptrunc %normalized1 : vector<4xf32> to vector<4xbf16>
+    vector.store %rounded0, %output_view[%bounded_query, %head, %channel0] : vector<4xbf16>, view<[%queries]x[%heads]x512xbf16, %output_layout>
+    vector.store %rounded1, %output_view[%bounded_query, %head, %channel1] : vector<4xbf16>, view<[%queries]x[%heads]x512xbf16, %output_layout>
+  }
+  template.return
+}
+
+kernel.def @split_kv_stage2_serial_mgc16(%sequence_count: index, %head_count: index) {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%sequence_count, %head_count, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%sequence_count: index, %head_count: index, %total_query_count: index, %maximum_split_count: index, %partial_output: buffer, %partial_lse: buffer, %output: buffer, %query_offsets: buffer, %kv_offsets: buffer, %split_offsets: buffer, %valid_split_count: buffer, %partial_batch_stride: index, %partial_head_stride: index, %partial_split_stride: index, %output_batch_stride: index, %output_head_stride: index) {
+  %split_granularity = index.constant 16 : index
+  %depth = index.constant 1 : index
+  %factor = index.constant 1 : index
+  template.apply<@split_kv_stage2>(%sequence_count, %head_count, %total_query_count, %maximum_split_count, %split_granularity, %partial_output, %partial_lse, %output, %query_offsets, %kv_offsets, %split_offsets, %valid_split_count, %partial_batch_stride, %partial_head_stride, %partial_split_stride, %output_batch_stride, %output_head_stride, %depth, %factor) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, index, index, index, index, index, index, index)
   kernel.return
 }
 
-check.case public @split_kv_online_softmax_combine_f32_case {
-  %state0 = check.generate.iota offset(1.0) step(1.0) : tensor<2xf32>
-  %acc0 = check.generate.iota offset(10.0) step(1.0) : tensor<4xf32>
-  %state1 = check.generate.iota offset(0.30685281944005471) step(3.6931471805599454) : tensor<2xf32>
-  %acc1 = check.generate.iota offset(20.0) step(2.0) : tensor<4xf32>
-  %combined_state = check.generate.fill value(-1.0) : tensor<2xf32>
-  %combined_acc = check.generate.fill value(-1.0) : tensor<4xf32>
-  %expected_state = check.generate.iota offset(1.0) step(3.0) : tensor<2xf32>
-  %expected_acc = check.generate.iota offset(20.0) step(2.0) : tensor<4xf32>
-  kernel.launch @split_kv_online_softmax_combine_f32(%state0, %acc0, %state1, %acc1, %combined_state, %combined_acc) : (tensor<2xf32>, tensor<4xf32>, tensor<2xf32>, tensor<4xf32>, tensor<2xf32>, tensor<4xf32>)
-  check.expect.close actual(%combined_state) expected(%expected_state) atol(0.0001) rtol(0.0001) nan(same) : tensor<2xf32>
-  check.expect.close actual(%combined_acc) expected(%expected_acc) atol(0.0001) rtol(0.0001) nan(same) : tensor<4xf32>
+kernel.def @split_kv_stage2_pipelined_mgc16(%sequence_count: index, %head_count: index) {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%sequence_count, %head_count, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%sequence_count: index, %head_count: index, %total_query_count: index, %maximum_split_count: index, %partial_output: buffer, %partial_lse: buffer, %output: buffer, %query_offsets: buffer, %kv_offsets: buffer, %split_offsets: buffer, %valid_split_count: buffer, %partial_batch_stride: index, %partial_head_stride: index, %partial_split_stride: index, %output_batch_stride: index, %output_head_stride: index) {
+  %split_granularity = index.constant 16 : index
+  %depth = index.constant 3 : index
+  %factor = index.constant 2 : index
+  template.apply<@split_kv_stage2>(%sequence_count, %head_count, %total_query_count, %maximum_split_count, %split_granularity, %partial_output, %partial_lse, %output, %query_offsets, %kv_offsets, %split_offsets, %valid_split_count, %partial_batch_stride, %partial_head_stride, %partial_split_stride, %output_batch_stride, %output_head_stride, %depth, %factor) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, index, index, index, index, index, index, index)
+  kernel.return
+}
+
+kernel.def @split_kv_stage2_serial_mgc64(%sequence_count: index, %head_count: index) {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%sequence_count, %head_count, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%sequence_count: index, %head_count: index, %total_query_count: index, %maximum_split_count: index, %partial_output: buffer, %partial_lse: buffer, %output: buffer, %query_offsets: buffer, %kv_offsets: buffer, %split_offsets: buffer, %valid_split_count: buffer, %partial_batch_stride: index, %partial_head_stride: index, %partial_split_stride: index, %output_batch_stride: index, %output_head_stride: index) {
+  %split_granularity = index.constant 64 : index
+  %depth = index.constant 1 : index
+  %factor = index.constant 1 : index
+  template.apply<@split_kv_stage2>(%sequence_count, %head_count, %total_query_count, %maximum_split_count, %split_granularity, %partial_output, %partial_lse, %output, %query_offsets, %kv_offsets, %split_offsets, %valid_split_count, %partial_batch_stride, %partial_head_stride, %partial_split_stride, %output_batch_stride, %output_head_stride, %depth, %factor) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, index, index, index, index, index, index, index)
+  kernel.return
+}
+
+kernel.def @split_kv_stage2_pipelined_mgc64(%sequence_count: index, %head_count: index) {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%sequence_count, %head_count, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%sequence_count: index, %head_count: index, %total_query_count: index, %maximum_split_count: index, %partial_output: buffer, %partial_lse: buffer, %output: buffer, %query_offsets: buffer, %kv_offsets: buffer, %split_offsets: buffer, %valid_split_count: buffer, %partial_batch_stride: index, %partial_head_stride: index, %partial_split_stride: index, %output_batch_stride: index, %output_head_stride: index) {
+  %split_granularity = index.constant 64 : index
+  %depth = index.constant 3 : index
+  %factor = index.constant 2 : index
+  template.apply<@split_kv_stage2>(%sequence_count, %head_count, %total_query_count, %maximum_split_count, %split_granularity, %partial_output, %partial_lse, %output, %query_offsets, %kv_offsets, %split_offsets, %valid_split_count, %partial_batch_stride, %partial_head_stride, %partial_split_stride, %output_batch_stride, %output_head_stride, %depth, %factor) : (index, index, index, index, index, buffer, buffer, buffer, buffer, buffer, buffer, buffer, index, index, index, index, index, index, index)
+  kernel.return
+}
+
+// Builds the non-affine indirection arrays for the padded semantic case.
+// Fixture setup stays outside all timed cases.
+kernel.def @split_kv_stage2_initialize_metadata() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%query_offsets: buffer, %kv_offsets: buffer, %split_offsets: buffer, %valid_split_count: buffer) {
+  %base = index.constant 0 : offset
+  %query_offset_view = buffer.view %query_offsets[%base] : buffer -> view<4xi32>
+  %kv_offset_view = buffer.view %kv_offsets[%base] : buffer -> view<4xi32>
+  %split_offset_view = buffer.view %split_offsets[%base] : buffer -> view<4xi32>
+  %valid_split_view = buffer.view %valid_split_count[%base] : buffer -> view<3xi32>
+  %c0 = scalar.constant 0 : i32
+  %c2 = scalar.constant 2 : i32
+  %c3 = scalar.constant 3 : i32
+  %c4 = scalar.constant 4 : i32
+  %c5 = scalar.constant 5 : i32
+  %c8 = scalar.constant 8 : i32
+  %c11 = scalar.constant 11 : i32
+  %c64 = scalar.constant 64 : i32
+  %c80 = scalar.constant 80 : i32
+  %c144 = scalar.constant 144 : i32
+  view.store %c0, %query_offset_view[0] : i32, view<4xi32>
+  view.store %c2, %query_offset_view[1] : i32, view<4xi32>
+  view.store %c3, %query_offset_view[2] : i32, view<4xi32>
+  view.store %c5, %query_offset_view[3] : i32, view<4xi32>
+  view.store %c0, %kv_offset_view[0] : i32, view<4xi32>
+  view.store %c64, %kv_offset_view[1] : i32, view<4xi32>
+  view.store %c80, %kv_offset_view[2] : i32, view<4xi32>
+  view.store %c144, %kv_offset_view[3] : i32, view<4xi32>
+  view.store %c0, %split_offset_view[0] : i32, view<4xi32>
+  view.store %c4, %split_offset_view[1] : i32, view<4xi32>
+  view.store %c8, %split_offset_view[2] : i32, view<4xi32>
+  view.store %c11, %split_offset_view[3] : i32, view<4xi32>
+  view.store %c2, %valid_split_view[0] : i32, view<3xi32>
+  view.store %c3, %valid_split_view[1] : i32, view<3xi32>
+  view.store %c4, %valid_split_view[2] : i32, view<3xi32>
+  kernel.return
+}
+
+// Writes only active logical payloads through flat physical addresses. The
+// reduction consumes the same storage through runtime strided views, keeping
+// fixture construction independent of the address-layout implementation.
+kernel.def @split_kv_stage2_initialize_padded_payload() {
+  %queries = index.constant 5 : index
+  %heads = index.constant 2 : index
+  %splits = index.constant 4 : index
+  %unit = index.constant 1 : index
+  %workgroup_width = index.constant 256 : index
+  kernel.launch.config workgroups(%queries, %heads, %splits) workgroup_size(%workgroup_width, %unit, %unit) : index
+} launch(%partial_output: buffer, %partial_lse: buffer) {
+  %query = kernel.workgroup.id<x> : index
+  %head = kernel.workgroup.id<y> : index
+  %split = kernel.workgroup.id<z> : index
+  %local_id = kernel.workitem.id<x> : index
+  %channel0 = index.assume %local_id [range(%local_id, 0, 255)] : index
+  %channel_offset = index.constant 256 : index
+  %channel1 = index.add %channel0, %channel_offset : index
+  %value_width = index.constant 512 : index
+  %query_split = index.constant 2 : index
+  %third_query = index.constant 3 : index
+  %first_sequence = index.cmp ult, %query, %query_split : index
+  %second_sequence = index.cmp ult, %query, %third_query : index
+  %valid_splits = scf.if %first_sequence -> (index) {
+    scf.yield %query_split : index
+  } else {
+    %remaining = scf.if %second_sequence -> (index) {
+      %single = index.constant 1 : index
+      scf.yield %single : index
+    } else {
+      scf.yield %third_query : index
+    }
+    scf.yield %remaining : index
+  }
+  %active = index.cmp ult, %split, %valid_splits : index
+  scf.if %active {
+    %base = index.constant 0 : offset
+    %partial_output_view = buffer.view %partial_output[%base] : buffer -> view<75776xf32>
+    %partial_lse_view = buffer.view %partial_lse[%base] : buffer -> view<148xf32>
+    %batch_stride = index.constant 31 : index
+    %split_stride = index.constant 7 : index
+    %head_stride = index.constant 2 : index
+    %query_offset = index.mul %query, %batch_stride : index
+    %split_offset = index.mul %split, %split_stride : index
+    %head_offset = index.mul %head, %head_stride : index
+    %query_split_offset = index.add %query_offset, %split_offset : index
+    %lse_offset = index.add %query_split_offset, %head_offset : index
+    %value_base = index.mul %lse_offset, %value_width : index
+    %physical0 = index.add %value_base, %channel0 : index
+    %physical1 = index.add %value_base, %channel1 : index
+    %logical_row = index.madd %query, %query_split, %head : index
+    %logical_base = index.mul %logical_row, %value_width : index
+    %logical0 = index.add %logical_base, %channel0 : index
+    %logical1 = index.add %logical_base, %channel1 : index
+    %period = index.constant 127 : index
+    %periodic0 = index.rem %logical0, %period : index
+    %periodic1 = index.rem %logical1, %period : index
+    %periodic0_i32 = index.cast %periodic0 : index to i32
+    %periodic1_i32 = index.cast %periodic1 : index to i32
+    %value0 = scalar.sitofp %periodic0_i32 : i32 to f32
+    %value1 = scalar.sitofp %periodic1_i32 : i32 to f32
+    view.store %value0, %partial_output_view[%physical0] : f32, view<75776xf32>
+    view.store %value1, %partial_output_view[%physical1] : f32, view<75776xf32>
+    %leader_index = index.constant 0 : index
+    %leader = index.cmp eq, %channel0, %leader_index : index
+    scf.if %leader {
+      %split_i32 = index.cast %split : index to i32
+      %score = scalar.sitofp %split_i32 : i32 to f32
+      view.store %score, %partial_lse_view[%lse_offset] : f32, view<148xf32>
+    }
+  }
+  kernel.return
+}
+
+// Builds three partials with scores [0, 1, 0] and payloads [2, 4, 6]. Their
+// weighted average is exactly four for any finite value of exp(-1), while the
+// rising and falling score sequence requires both old-state rescaling paths.
+kernel.def @split_kv_stage2_initialize_rescaling_payload() {
+  %split_count = index.constant 3 : index
+  %unit = index.constant 1 : index
+  %workgroup_width = index.constant 256 : index
+  kernel.launch.config workgroups(%split_count, %unit, %unit) workgroup_size(%workgroup_width, %unit, %unit) : index
+} launch(%partial_output: buffer, %partial_lse: buffer) {
+  %split_id = kernel.workgroup.id<x> : index
+  %split = index.assume %split_id [range(%split_id, 0, 2)] : index
+  %local_id = kernel.workitem.id<x> : index
+  %channel0 = index.assume %local_id [range(%local_id, 0, 255)] : index
+  %channel_offset = index.constant 256 : index
+  %channel1 = index.add %channel0, %channel_offset : index
+  %value_width = index.constant 512 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %split_ordinal = index.add %split, %c1 : index
+  %payload_index = index.mul %split_ordinal, %c2 : index
+  %payload_i32 = index.cast %payload_index : index to i32
+  %payload = scalar.sitofp %payload_i32 : i32 to f32
+  %base = index.constant 0 : offset
+  %partial_output_view = buffer.view %partial_output[%base] : buffer -> view<1536xf32>
+  %partial_lse_view = buffer.view %partial_lse[%base] : buffer -> view<3xf32>
+  %split_base = index.mul %split, %value_width : index
+  %physical0 = index.add %split_base, %channel0 : index
+  %physical1 = index.add %split_base, %channel1 : index
+  view.store %payload, %partial_output_view[%physical0] : f32, view<1536xf32>
+  view.store %payload, %partial_output_view[%physical1] : f32, view<1536xf32>
+  %leader_index = index.constant 0 : index
+  %leader = index.cmp eq, %channel0, %leader_index : index
+  scf.if %leader {
+    %zero_score = scalar.constant 0.0 : f32
+    %one_score = scalar.constant 1.0 : f32
+    %middle = index.cmp eq, %split, %c1 : index
+    %score = scf.if %middle -> (f32) {
+      scf.yield %one_score : f32
+    } else {
+      scf.yield %zero_score : f32
+    }
+    view.store %score, %partial_lse_view[%split] : f32, view<3xf32>
+  }
+  kernel.return
+}
+
+// Ragged query ranges are 2/1/2. Sequence zero is limited by the explicit
+// valid count, sequence one by KV length, and sequence two by split indptr.
+// Every inactive payload and physical padding slot remains NaN.
+check.case public @split_kv_stage2_padded_ragged {
+  %sequences = check.literal value(3) : index
+  %heads = check.literal value(2) : index
+  %queries = check.literal value(5) : index
+  %splits = check.literal value(4) : index
+  %partial_batch_stride = check.literal value(31) : index
+  %partial_head_stride = check.literal value(2) : index
+  %partial_split_stride = check.literal value(7) : index
+  %output_batch_stride = check.literal value(1048) : index
+  %output_head_stride = check.literal value(520) : index
+  %partial_output = check.generate.fill value(nan) : tensor<75776xf32>
+  %partial_lse = check.generate.fill value(nan) : tensor<148xf32>
+  %query_offsets = check.generate.fill value(-1) : tensor<4xi32>
+  %kv_offsets = check.generate.fill value(-1) : tensor<4xi32>
+  %split_offsets = check.generate.fill value(-1) : tensor<4xi32>
+  %valid_split_count = check.generate.fill value(-1) : tensor<3xi32>
+  kernel.launch @split_kv_stage2_initialize_metadata(%query_offsets, %kv_offsets, %split_offsets, %valid_split_count) : (tensor<4xi32>, tensor<4xi32>, tensor<4xi32>, tensor<3xi32>)
+  kernel.launch @split_kv_stage2_initialize_padded_payload(%partial_output, %partial_lse) : (tensor<75776xf32>, tensor<148xf32>)
+  %serial_output = check.generate.fill value(nan) : tensor<5224xbf16>
+  %pipelined_output = check.generate.fill value(nan) : tensor<5224xbf16>
+  kernel.launch @split_kv_stage2_serial_mgc16[%sequences, %heads](%sequences, %heads, %queries, %splits, %partial_output, %partial_lse, %serial_output, %query_offsets, %kv_offsets, %split_offsets, %valid_split_count, %partial_batch_stride, %partial_head_stride, %partial_split_stride, %output_batch_stride, %output_head_stride) : [index, index](index, index, index, index, tensor<75776xf32>, tensor<148xf32>, tensor<5224xbf16>, tensor<4xi32>, tensor<4xi32>, tensor<4xi32>, tensor<3xi32>, index, index, index, index, index)
+  kernel.launch @split_kv_stage2_pipelined_mgc16[%sequences, %heads](%sequences, %heads, %queries, %splits, %partial_output, %partial_lse, %pipelined_output, %query_offsets, %kv_offsets, %split_offsets, %valid_split_count, %partial_batch_stride, %partial_head_stride, %partial_split_stride, %output_batch_stride, %output_head_stride) : [index, index](index, index, index, index, tensor<75776xf32>, tensor<148xf32>, tensor<5224xbf16>, tensor<4xi32>, tensor<4xi32>, tensor<4xi32>, tensor<3xi32>, index, index, index, index, index)
+  check.expect.bitwise actual(%pipelined_output) expected(%serial_output) : tensor<5224xbf16>
+  %expected = check.generate.iota offset(0.0) step(1.0) period(127) : tensor<5x2x512xbf16>
+  %actual_q0h0 = check.tensor.view %pipelined_output offset(0) : tensor<5224xbf16> -> tensor<512xbf16>
+  %actual_q0h1 = check.tensor.view %pipelined_output offset(1040) : tensor<5224xbf16> -> tensor<512xbf16>
+  %actual_q1h0 = check.tensor.view %pipelined_output offset(2096) : tensor<5224xbf16> -> tensor<512xbf16>
+  %actual_q1h1 = check.tensor.view %pipelined_output offset(3136) : tensor<5224xbf16> -> tensor<512xbf16>
+  %actual_q2h0 = check.tensor.view %pipelined_output offset(4192) : tensor<5224xbf16> -> tensor<512xbf16>
+  %actual_q2h1 = check.tensor.view %pipelined_output offset(5232) : tensor<5224xbf16> -> tensor<512xbf16>
+  %actual_q3h0 = check.tensor.view %pipelined_output offset(6288) : tensor<5224xbf16> -> tensor<512xbf16>
+  %actual_q3h1 = check.tensor.view %pipelined_output offset(7328) : tensor<5224xbf16> -> tensor<512xbf16>
+  %actual_q4h0 = check.tensor.view %pipelined_output offset(8384) : tensor<5224xbf16> -> tensor<512xbf16>
+  %actual_q4h1 = check.tensor.view %pipelined_output offset(9424) : tensor<5224xbf16> -> tensor<512xbf16>
+  %expected_q0h0 = check.tensor.view %expected offset(0) : tensor<5x2x512xbf16> -> tensor<512xbf16>
+  %expected_q0h1 = check.tensor.view %expected offset(1024) : tensor<5x2x512xbf16> -> tensor<512xbf16>
+  %expected_q1h0 = check.tensor.view %expected offset(2048) : tensor<5x2x512xbf16> -> tensor<512xbf16>
+  %expected_q1h1 = check.tensor.view %expected offset(3072) : tensor<5x2x512xbf16> -> tensor<512xbf16>
+  %expected_q2h0 = check.tensor.view %expected offset(4096) : tensor<5x2x512xbf16> -> tensor<512xbf16>
+  %expected_q2h1 = check.tensor.view %expected offset(5120) : tensor<5x2x512xbf16> -> tensor<512xbf16>
+  %expected_q3h0 = check.tensor.view %expected offset(6144) : tensor<5x2x512xbf16> -> tensor<512xbf16>
+  %expected_q3h1 = check.tensor.view %expected offset(7168) : tensor<5x2x512xbf16> -> tensor<512xbf16>
+  %expected_q4h0 = check.tensor.view %expected offset(8192) : tensor<5x2x512xbf16> -> tensor<512xbf16>
+  %expected_q4h1 = check.tensor.view %expected offset(9216) : tensor<5x2x512xbf16> -> tensor<512xbf16>
+  check.expect.bitwise actual(%actual_q0h0) expected(%expected_q0h0) : tensor<512xbf16>
+  check.expect.bitwise actual(%actual_q0h1) expected(%expected_q0h1) : tensor<512xbf16>
+  check.expect.bitwise actual(%actual_q1h0) expected(%expected_q1h0) : tensor<512xbf16>
+  check.expect.bitwise actual(%actual_q1h1) expected(%expected_q1h1) : tensor<512xbf16>
+  check.expect.bitwise actual(%actual_q2h0) expected(%expected_q2h0) : tensor<512xbf16>
+  check.expect.bitwise actual(%actual_q2h1) expected(%expected_q2h1) : tensor<512xbf16>
+  check.expect.bitwise actual(%actual_q3h0) expected(%expected_q3h0) : tensor<512xbf16>
+  check.expect.bitwise actual(%actual_q3h1) expected(%expected_q3h1) : tensor<512xbf16>
+  check.expect.bitwise actual(%actual_q4h0) expected(%expected_q4h0) : tensor<512xbf16>
+  check.expect.bitwise actual(%actual_q4h1) expected(%expected_q4h1) : tensor<512xbf16>
   check.return
 }
 
-check.benchmark<@split_kv_online_softmax_combine_f32_case> @split_kv_online_softmax_combine_f32_smoke
+// Symmetric payloads around the highest-scored split have an exact analytic
+// result while still exercising rescaling of both old and incoming state.
+check.case public @split_kv_stage2_rescaling {
+  %sequences = check.literal value(1) : index
+  %heads = check.literal value(1) : index
+  %queries = check.literal value(1) : index
+  %splits = check.literal value(3) : index
+  %partial_batch_stride = check.literal value(3) : index
+  %partial_head_stride = check.literal value(1) : index
+  %partial_split_stride = check.literal value(1) : index
+  %output_batch_stride = check.literal value(512) : index
+  %output_head_stride = check.literal value(512) : index
+  %partial_output = check.generate.fill value(nan) : tensor<1x3x1x512xf32>
+  %partial_lse = check.generate.fill value(nan) : tensor<1x3x1xf32>
+  kernel.launch @split_kv_stage2_initialize_rescaling_payload(%partial_output, %partial_lse) : (tensor<1x3x1x512xf32>, tensor<1x3x1xf32>)
+  %query_offsets = check.generate.iota offset(0) step(1) : tensor<2xi32>
+  %kv_offsets = check.generate.iota offset(0) step(48) : tensor<2xi32>
+  %split_offsets = check.generate.iota offset(0) step(3) : tensor<2xi32>
+  %valid_split_count = check.generate.fill value(3) : tensor<1xi32>
+  %serial_output = check.generate.fill value(nan) : tensor<1x1x512xbf16>
+  %pipelined_output = check.generate.fill value(nan) : tensor<1x1x512xbf16>
+  kernel.launch @split_kv_stage2_serial_mgc16[%sequences, %heads](%sequences, %heads, %queries, %splits, %partial_output, %partial_lse, %serial_output, %query_offsets, %kv_offsets, %split_offsets, %valid_split_count, %partial_batch_stride, %partial_head_stride, %partial_split_stride, %output_batch_stride, %output_head_stride) : [index, index](index, index, index, index, tensor<1x3x1x512xf32>, tensor<1x3x1xf32>, tensor<1x1x512xbf16>, tensor<2xi32>, tensor<2xi32>, tensor<2xi32>, tensor<1xi32>, index, index, index, index, index)
+  kernel.launch @split_kv_stage2_pipelined_mgc16[%sequences, %heads](%sequences, %heads, %queries, %splits, %partial_output, %partial_lse, %pipelined_output, %query_offsets, %kv_offsets, %split_offsets, %valid_split_count, %partial_batch_stride, %partial_head_stride, %partial_split_stride, %output_batch_stride, %output_head_stride) : [index, index](index, index, index, index, tensor<1x3x1x512xf32>, tensor<1x3x1xf32>, tensor<1x1x512xbf16>, tensor<2xi32>, tensor<2xi32>, tensor<2xi32>, tensor<1xi32>, index, index, index, index, index)
+  check.expect.bitwise actual(%pipelined_output) expected(%serial_output) : tensor<1x1x512xbf16>
+  %expected = check.generate.fill value(4.0) : tensor<1x1x512xbf16>
+  check.expect.equal actual(%pipelined_output) expected(%expected) : tensor<1x1x512xbf16>
+  check.return
+}
+
+// A single split still follows the f32 recurrence and converts its normalized
+// result to bf16. AITER's separate alias fast path has a bf16 partial buffer
+// contract and does not belong in this f32 reducer.
+check.case public @split_kv_stage2_single_split {
+  %sequences = check.literal value(2) : index
+  %heads = check.literal value(2) : index
+  %queries = check.literal value(2) : index
+  %splits = check.literal value(1) : index
+  %partial_batch_stride = check.literal value(2) : index
+  %partial_head_stride = check.literal value(1) : index
+  %partial_split_stride = check.literal value(2) : index
+  %output_batch_stride = check.literal value(1024) : index
+  %output_head_stride = check.literal value(512) : index
+  %partial_output = check.generate.iota offset(0.0) step(1.0) period(257) : tensor<2x1x2x512xf32>
+  %partial_lse = check.generate.fill value(3.0) : tensor<2x1x2xf32>
+  %query_offsets = check.generate.iota offset(0) step(1) : tensor<3xi32>
+  %kv_offsets = check.generate.iota offset(0) step(16) : tensor<3xi32>
+  %split_offsets = check.generate.iota offset(0) step(1) : tensor<3xi32>
+  %valid_split_count = check.generate.fill value(1) : tensor<2xi32>
+  %serial_output = check.generate.fill value(nan) : tensor<2x2x512xbf16>
+  %pipelined_output = check.generate.fill value(nan) : tensor<2x2x512xbf16>
+  %expected = check.generate.iota offset(0.0) step(1.0) period(257) : tensor<2x2x512xbf16>
+  kernel.launch @split_kv_stage2_serial_mgc16[%sequences, %heads](%sequences, %heads, %queries, %splits, %partial_output, %partial_lse, %serial_output, %query_offsets, %kv_offsets, %split_offsets, %valid_split_count, %partial_batch_stride, %partial_head_stride, %partial_split_stride, %output_batch_stride, %output_head_stride) : [index, index](index, index, index, index, tensor<2x1x2x512xf32>, tensor<2x1x2xf32>, tensor<2x2x512xbf16>, tensor<3xi32>, tensor<3xi32>, tensor<3xi32>, tensor<2xi32>, index, index, index, index, index)
+  kernel.launch @split_kv_stage2_pipelined_mgc16[%sequences, %heads](%sequences, %heads, %queries, %splits, %partial_output, %partial_lse, %pipelined_output, %query_offsets, %kv_offsets, %split_offsets, %valid_split_count, %partial_batch_stride, %partial_head_stride, %partial_split_stride, %output_batch_stride, %output_head_stride) : [index, index](index, index, index, index, tensor<2x1x2x512xf32>, tensor<2x1x2xf32>, tensor<2x2x512xbf16>, tensor<3xi32>, tensor<3xi32>, tensor<3xi32>, tensor<2xi32>, index, index, index, index, index)
+  check.expect.bitwise actual(%pipelined_output) expected(%serial_output) : tensor<2x2x512xbf16>
+  check.expect.bitwise actual(%pipelined_output) expected(%expected) : tensor<2x2x512xbf16>
+  check.return
+}

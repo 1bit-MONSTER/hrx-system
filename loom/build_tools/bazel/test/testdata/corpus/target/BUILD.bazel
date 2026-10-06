@@ -1,0 +1,117 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load(
+    "//loom/build_tools/bazel:defs.bzl",
+    "loom_corpus_build",
+    "loom_corpus_test",
+    "loom_execution_profile",
+    "loom_target_profile",
+    "loom_target_set",
+)
+load("//loom/build_tools/bazel/test/testdata/corpus:catalog.bzl", "TEST_CORPUS")
+
+package(default_visibility = ["//visibility:public"])
+
+loom_target_profile(
+    name = "profile_a",
+    family = "fake",
+    selector = "a",
+)
+
+loom_target_profile(
+    name = "profile_b",
+    family = "fake",
+    selector = "b",
+)
+
+loom_target_profile(
+    name = "profile_c",
+    family = "fake",
+    selector = "c",
+)
+
+loom_target_set(
+    name = "primary_profiles",
+    targets = [
+        ":profile_a",
+        ":profile_b",
+    ],
+)
+
+loom_target_set(
+    name = "all_profiles",
+    targets = [
+        ":primary_profiles",
+        ":profile_c",
+    ],
+)
+
+loom_corpus_build(
+    name = "all",
+    all_roots_xfail = {
+        ":profile_b": ["sample/other.loom"],
+    },
+    catalog = TEST_CORPUS,
+    excludes = {
+        ":all_profiles": {
+            "sample/excluded.loom": "This fixture proves explicit whole-source exclusion.",
+        },
+        ":profile_c": {
+            "sample/nested/fixture.loom": "Profile C deliberately exercises whole-file exclusion.",
+            "sample/other.loom": "Profile C deliberately exercises whole-file exclusion.",
+        },
+    },
+    profiles = [":all_profiles"],
+    tags = ["manual"],
+    xfails = {
+        ":primary_profiles": {
+            "sample/nested/fixture.loom:@unsupported_common": "TYPE/002",
+        },
+        ":profile_b": {
+            "sample/nested/fixture.loom:@unsupported": "TARGET/072",
+            "sample/nested/fixture.loom:@unsupported_other": "TYPE/001",
+            "sample/other.loom:@other": "TARGET/033",
+        },
+    },
+)
+
+loom_corpus_test(
+    name = "execution",
+    allowed_failures = {
+        "reference": {
+            "sample/other.loom:@other_case": "TARGET/003,EXPECT/003",
+        },
+    },
+    catalog = TEST_CORPUS,
+    excludes = {
+        "sample/excluded.loom": "This fixture is excluded from execution as well as compilation.",
+    },
+    execution_profiles = [
+        loom_execution_profile(
+            name = "reference",
+            executor = "reference",
+            runner_args = ["--max-samples-per-case=1"],
+            target_class = "cpu",
+            target_family = "test",
+        ),
+        loom_execution_profile(
+            name = "selected_reference",
+            executor = "reference",
+            target_class = "cpu",
+            target_family = "test",
+        ),
+    ],
+    profile_sources = {
+        "selected_reference": ["sample/other.loom"],
+    },
+    tags = ["manual"],
+    xfails = {
+        "reference": {
+            "sample/nested/fixture.loom:@fixture_cases": "TARGET/003,EXPECT/003",
+        },
+    },
+)

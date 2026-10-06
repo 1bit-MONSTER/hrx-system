@@ -1,0 +1,193 @@
+// Strict nearest-away and nearest-even quantization are exact. AFN permits a
+// different tie choice and ARCP permits an approximate scale; those paths are
+// observed separately with a one-integer allowance over the finite i8 domain.
+kernel.def @quantization_shapes() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %inverse_scale: f32, %output: buffer, %floating_output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xf32>
+  %result = buffer.view %output[%base] : buffer -> view<12xi8>
+  %floating = buffer.view %floating_output[%base] : buffer -> view<4xf32>
+  %values = vector.load %source[0] : view<4xf32> -> vector<4xf32>
+  %scale = vector.splat %inverse_scale : vector<4xf32>
+  %scaled = vector.mulf %values, %scale : vector<4xf32>
+  %away = vector.roundf %scaled : vector<4xf32>
+  %even = vector.roundevenf %scaled : vector<4xf32>
+  %away_words = vector.fptosi %away : vector<4xf32> to vector<4xi32>
+  %even_words = vector.fptosi %even : vector<4xf32> to vector<4xi32>
+  %away_bytes = vector.trunci %away_words : vector<4xi32> to vector<4xi8>
+  %even_bytes = vector.trunci %even_words : vector<4xi32> to vector<4xi8>
+  vector.store %away_bytes, %result[0] : vector<4xi8>, view<12xi8>
+  vector.store %even_bytes, %result[4] : vector<4xi8>, view<12xi8>
+  %lane0 = vector.extract %scaled[0] : vector<4xf32> -> f32
+  %lane1 = vector.extract %scaled[1] : vector<4xf32> -> f32
+  %lane2 = vector.extract %scaled[2] : vector<4xf32> -> f32
+  %lane3 = vector.extract %scaled[3] : vector<4xf32> -> f32
+  %round0 = scalar.roundevenf %lane0 : f32
+  %round1 = scalar.roundevenf %lane1 : f32
+  %round2 = scalar.roundevenf %lane2 : f32
+  %round3 = scalar.roundevenf %lane3 : f32
+  %word0 = scalar.fptosi %round0 : f32 to i32
+  %word1 = scalar.fptosi %round1 : f32 to i32
+  %word2 = scalar.fptosi %round2 : f32 to i32
+  %word3 = scalar.fptosi %round3 : f32 to i32
+  %byte0 = scalar.trunci %word0 : i32 to i8
+  %byte1 = scalar.trunci %word1 : i32 to i8
+  %byte2 = scalar.trunci %word2 : i32 to i8
+  %byte3 = scalar.trunci %word3 : i32 to i8
+  %packed = vector.from_elements %byte0, %byte1, %byte2, %byte3 : vector<4xi8>
+  vector.store %packed, %result[8] : vector<4xi8>, view<12xi8>
+  %float0 = scalar.sitofp %word0 : i32 to f32
+  %float1 = scalar.sitofp %word1 : i32 to f32
+  %float2 = scalar.sitofp %word2 : i32 to f32
+  %float3 = scalar.sitofp %word3 : i32 to f32
+  %unpacked = vector.from_elements %float0, %float1, %float2, %float3 : vector<4xf32>
+  vector.store %unpacked, %floating[0] : vector<4xf32>, view<4xf32>
+  kernel.return
+}
+
+kernel.def @approximate_quantization_shapes() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %inverse_scale: f32, %amax: f32, %floating_output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xf32>
+  %floating = buffer.view %floating_output[%base] : buffer -> view<8xf32>
+  %values = vector.load %source[0] : view<4xf32> -> vector<4xf32>
+  %scale = vector.splat %inverse_scale : vector<4xf32>
+  %scaled = vector.mulf %values, %scale : vector<4xf32>
+  %approximate = vector.roundf<afn> %scaled : vector<4xf32>
+  %approximate_words = vector.fptosi %approximate : vector<4xf32> to vector<4xi32>
+  %approximate_bytes = vector.trunci %approximate_words : vector<4xi32> to vector<4xi8>
+  %approximate_observed = vector.sitofp %approximate_bytes : vector<4xi8> to vector<4xf32>
+  vector.store %approximate_observed, %floating[0] : vector<4xf32>, view<8xf32>
+  %limit = scalar.constant 127.0 : f32
+  %reciprocal = scalar.divf<nnan|ninf|nsz|arcp> %limit, %amax : f32
+  %reciprocal_vector = vector.splat %reciprocal : vector<4xf32>
+  %fast_scaled = vector.mulf<nnan|ninf|nsz|arcp> %values, %reciprocal_vector : vector<4xf32>
+  %fast_round = vector.roundf<afn> %fast_scaled : vector<4xf32>
+  %fast_words = vector.fptosi %fast_round : vector<4xf32> to vector<4xi32>
+  %fast_bytes = vector.trunci %fast_words : vector<4xi32> to vector<4xi8>
+  %fast_observed = vector.sitofp %fast_bytes : vector<4xi8> to vector<4xf32>
+  vector.store %fast_observed, %floating[4] : vector<4xf32>, view<8xf32>
+  kernel.return
+}
+
+func.def inline @nearest_away_oracle(%value: f32) -> (f32) {
+  %half = scalar.constant 0.5 : f32
+  %sign_boundary = scalar.constant 0.0 : f32
+  %positive = scalar.addf %value, %half : f32
+  %negative = scalar.subf %value, %half : f32
+  %floor = scalar.floorf %positive : f32
+  %ceil = scalar.ceilf %negative : f32
+  %is_negative = scalar.cmpf olt, %value, %sign_boundary : f32
+  %rounded = scf.select %is_negative, %ceil, %floor : f32
+  func.return %rounded : f32
+}
+
+func.def @quantization_shapes_oracle(%input: buffer, %inverse_scale: f32, %output: buffer, %floating_output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xf32>
+  %result = buffer.view %output[%base] : buffer -> view<12xi8>
+  %floating = buffer.view %floating_output[%base] : buffer -> view<4xf32>
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %c4 = index.constant 4 : index
+  %c8 = index.constant 8 : index
+  scf.for %i = [%begin to %end step %step] {
+    %value = view.load %source[%i] : view<4xf32> -> f32
+    %scaled = scalar.mulf %value, %inverse_scale : f32
+    %away = func.call @nearest_away_oracle(%scaled) : (f32) -> (f32)
+    %even = scalar.roundevenf %scaled : f32
+    %away_word = scalar.fptosi %away : f32 to i32
+    %even_word = scalar.fptosi %even : f32 to i32
+    %away_byte = scalar.trunci %away_word : i32 to i8
+    %even_byte = scalar.trunci %even_word : i32 to i8
+    %even_position = index.add %i, %c4 : index
+    %scalar_position = index.add %i, %c8 : index
+    view.store %away_byte, %result[%i] : i8, view<12xi8>
+    view.store %even_byte, %result[%even_position] : i8, view<12xi8>
+    view.store %even_byte, %result[%scalar_position] : i8, view<12xi8>
+    %even_float = scalar.sitofp %even_word : i32 to f32
+    view.store %even_float, %floating[%i] : f32, view<4xf32>
+  }
+  func.return
+}
+
+check.scenario @quantization_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %values = check.generate.iota offset(-1.5) step(1.0) : tensor<4xf32>
+    %scale = check.literal value(1.0) : f32
+    %storage = check.generate.fill value(-123) : tensor<20xi8>
+    %output = check.tensor.view %storage offset(4) : tensor<20xi8> -> tensor<12xi8>
+    %floating = check.generate.fill value(-123.0) : tensor<4xf32>
+    check.compare<@quantization_shapes, @quantization_shapes_oracle>(%values, %scale, %output, %floating) : (tensor<4xf32>, f32, tensor<12xi8>, tensor<4xf32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<20xi8>
+      check.expect.bitwise actual(%floating) expected(%floating) : tensor<4xf32>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %values = check.generate.random.uniform seed(%seed) range(-120.0 to 120.0) : tensor<4xf32>
+    %scale = check.literal value(0.5) : f32
+    %storage = check.generate.fill value(-123) : tensor<20xi8>
+    %output = check.tensor.view %storage offset(4) : tensor<20xi8> -> tensor<12xi8>
+    %floating = check.generate.fill value(-123.0) : tensor<4xf32>
+    check.compare<@quantization_shapes, @quantization_shapes_oracle>(%values, %scale, %output, %floating) : (tensor<4xf32>, f32, tensor<12xi8>, tensor<4xf32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<20xi8>
+      check.expect.bitwise actual(%floating) expected(%floating) : tensor<4xf32>
+    }
+  }
+  check.return
+}
+
+func.def @approximate_quantization_shapes_oracle(%input: buffer, %inverse_scale: f32, %amax: f32, %floating_output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xf32>
+  %floating = buffer.view %floating_output[%base] : buffer -> view<8xf32>
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %limit = scalar.constant 127.0 : f32
+  %reciprocal = scalar.divf %limit, %amax : f32
+  scf.for %i = [%begin to %end step %step] {
+    %value = view.load %source[%i] : view<4xf32> -> f32
+    %scaled = scalar.mulf %value, %inverse_scale : f32
+    %away = func.call @nearest_away_oracle(%scaled) : (f32) -> (f32)
+    %away_word = scalar.fptosi %away : f32 to i32
+    %away_float = scalar.sitofp %away_word : i32 to f32
+    view.store %away_float, %floating[%i] : f32, view<8xf32>
+    %fast_scaled = scalar.mulf %value, %reciprocal : f32
+    %fast_round = func.call @nearest_away_oracle(%fast_scaled) : (f32) -> (f32)
+    %fast_word = scalar.fptosi %fast_round : f32 to i32
+    %fast_float = scalar.sitofp %fast_word : i32 to f32
+    %position = index.add %i, %end : index
+    view.store %fast_float, %floating[%position] : f32, view<8xf32>
+  }
+  func.return
+}
+
+check.scenario @approximate_quantization_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %values = check.generate.iota offset(-1.5) step(1.0) : tensor<4xf32>
+    %scale = check.literal value(1.0) : f32
+    %amax = check.literal value(127.0) : f32
+    %floating = check.generate.fill value(-123.0) : tensor<8xf32>
+    check.compare<@approximate_quantization_shapes, @approximate_quantization_shapes_oracle>(%values, %scale, %amax, %floating) : (tensor<4xf32>, f32, f32, tensor<8xf32>) -> () {
+      check.expect.close actual(%floating) expected(%floating) atol(1.0) rtol(0.0) nan(different) : tensor<8xf32>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %values = check.generate.random.uniform seed(%seed) range(-120.0 to 120.0) : tensor<4xf32>
+    %scale = check.literal value(0.5) : f32
+    %amax = check.literal value(127.5) : f32
+    %floating = check.generate.fill value(-123.0) : tensor<8xf32>
+    check.compare<@approximate_quantization_shapes, @approximate_quantization_shapes_oracle>(%values, %scale, %amax, %floating) : (tensor<4xf32>, f32, f32, tensor<8xf32>) -> () {
+      check.expect.close actual(%floating) expected(%floating) atol(1.0) rtol(0.0) nan(different) : tensor<8xf32>
+    }
+  }
+  check.return
+}

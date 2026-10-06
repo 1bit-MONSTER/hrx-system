@@ -12,6 +12,7 @@
 #include <cxx/symbols.h>
 #include <cxx/types.h>
 
+#include <cmath>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -42,10 +43,12 @@ class CheckBody {
         builder_(builder) {}
 
   void translate(const FunctionBody& body) {
+    reject_misplaced_binding_statement(unit_, diagnostics_, body.body);
     cxx::AST* end = body.body;
     for (auto* remaining = body.body->statementList; remaining;
          remaining = remaining->next) {
       auto* statement = remaining->value;
+      reject_misplaced_binding_statement(unit_, diagnostics_, statement);
       if (auto* returned = cxx::ast_cast<cxx::ReturnStatementAST>(statement)) {
         if (returned->expression || remaining->next) {
           fail(statement, "check case return must be bare and final");
@@ -128,6 +131,10 @@ class CheckBody {
   }
 
   std::string_view string_literal(cxx::ExpressionAST* source) {
+    if (auto* initializer =
+            cxx::ast_cast<cxx::DefaultInitializerExpressionAST>(source)) {
+      return string_literal(initializer->expression);
+    }
     if (auto* cast = cxx::ast_cast<cxx::ImplicitCastExpressionAST>(source)) {
       if (!cast->conversionFunction) {
         return string_literal(cast->expression);
@@ -138,7 +145,7 @@ class CheckBody {
     }
     auto* literal = cxx::ast_cast<cxx::StringLiteralExpressionAST>(source);
     if (!literal) {
-      fail(source, "check metadata requires a string literal");
+      fail(source, "check attributes require a string literal");
     }
     return literal->literal->stringValue();
   }
@@ -147,7 +154,15 @@ class CheckBody {
     if (auto value = scalar_constant(unit_, source)) {
       return scalars_.constant_attribute(*value, source->type, source);
     }
-    fail(source, "check generation and metadata require pure scalar constants");
+    fail(source, "check attributes require pure scalar constants");
+  }
+
+  double tolerance(cxx::ExpressionAST* source) {
+    double value = loom_attr_as_f64(constant(source));
+    if (!std::isfinite(value) || value < 0.0) {
+      fail(source, "check tolerances must be finite and non-negative");
+    }
+    return value;
   }
 
   void metadata(cxx::CallExpressionAST* call, const CheckIntrinsic& binding) {
@@ -233,6 +248,26 @@ class CheckBody {
       case Operation::Event:
         metadata(call, binding);
         break;
+      case Operation::Close: {
+        auto actual = expression(first->value);
+        auto expected = expression(first->next->value);
+        auto* absolute = first->next->next;
+        auto* relative = absolute->next;
+        auto absolute_tolerance = tolerance(absolute->value);
+        auto relative_tolerance = tolerance(relative->value);
+        auto nan = string_literal(relative->next->value);
+        if (nan != "same" && nan != "different") {
+          fail(relative->next->value,
+               "check NaN policy must be 'same' or 'different'");
+        }
+        check(loom_check_expect_close_build(
+            &builder_, actual.components()[0], expected.components()[0],
+            absolute_tolerance, relative_tolerance,
+            nan == "same" ? LOOM_CHECK_EXPECT_CLOSE_NAN_SAME
+                          : LOOM_CHECK_EXPECT_CLOSE_NAN_DIFFERENT,
+            location, &op));
+        break;
+      }
       case Operation::Launch: {
         if (observing_) {
           fail(call, "check expectations must be terminal");
@@ -378,11 +413,11 @@ class CheckBody {
     if (!declaration) {
       fail(statement, "check locals require immutable value bindings");
     }
-    reject_global_binding_attributes(unit_, diagnostics_,
-                                     declaration->attributeList);
+    reject_misplaced_binding_attributes(unit_, diagnostics_,
+                                        declaration->attributeList);
     for (auto* declarator : cxx::ListView{declaration->initDeclaratorList}) {
-      reject_global_binding_declarator(unit_, diagnostics_,
-                                       declarator->declarator);
+      reject_misplaced_binding_declarator(unit_, diagnostics_,
+                                          declarator->declarator);
       auto* variable =
           cxx::symbol_cast<cxx::VariableSymbol>(declarator->symbol);
       if (!variable || !declarator->initializer || variable->isStatic() ||

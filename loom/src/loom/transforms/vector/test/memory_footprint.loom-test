@@ -593,11 +593,12 @@ func.def @fragment_store_rejects_column_tail_overlap(%buffer: buffer, %base: off
 
 // ====
 
-func.def @static_dense_load_out_of_bounds(%buffer: buffer, %base: offset) {
+func.def @insufficiently_bounded_dense_load_origin(%buffer: buffer, %base: offset, %origin_input: index) {
+  %origin = index.assume %origin_input [range(%origin_input, 0, 7)] : index
   %layout = encoding.layout.dense : encoding<layout>
   %view = buffer.view %buffer[%base] : buffer -> view<8xf32, %layout>
   // ERROR@+1: SUBRANGE/010 {op_name="vector.load", view_axis="0", vector_axis="0", vector_extent="4", view_bound="8", required_origin_upper_bound="4", constraint_key="vector_footprint.full_vector_upper_bound"}
-  %loaded = vector.load %view[5] : view<8xf32, %layout> -> vector<4xf32>
+  %loaded = vector.load %view[%origin] : view<8xf32, %layout> -> vector<4xf32>
   func.return
 }
 
@@ -689,6 +690,27 @@ func.def @dynamic_unit_axis_proven_by_assume_relation(%buffer: buffer, %base: of
   %view = buffer.view %buffer[%base] : buffer -> view<[%n]x4xf32, %layout>
   %row_in_bounds, %n_assumed = index.assume %row, %n [ge(%row, 0), lt(%row, %n)] : index, index
   %loaded = vector.load %view[%row_in_bounds, 0] : view<[%n]x4xf32, %layout> -> vector<4xf32>
+  func.return
+}
+
+// ====
+
+func.def @dynamic_unit_axis_proven_by_checked_relation(%buffer: buffer, %base: offset, %row: index, %n: index) {
+  %layout = encoding.layout.dense : encoding<layout>
+  %checked_row, %checked_n = sanitizer.assert.value %row, %n [ge(%row, 0), lt(%row, %n)] : index, index
+  %view = buffer.view %buffer[%base] : buffer -> view<[%checked_n]x4xf32, %layout>
+  %loaded = vector.load %view[%checked_row, 0] : view<[%checked_n]x4xf32, %layout> -> vector<4xf32>
+  func.return
+}
+
+// ====
+
+func.def @dynamic_unit_axis_rejects_non_strict_checked_relation(%buffer: buffer, %base: offset, %row: index, %n: index) {
+  %layout = encoding.layout.dense : encoding<layout>
+  %checked_row, %checked_n = sanitizer.assert.value %row, %n [ge(%row, 0), le(%row, %n)] : index, index
+  %view = buffer.view %buffer[%base] : buffer -> view<[%checked_n]x4xf32, %layout>
+  // ERROR@+1: SUBRANGE/011 {op_name="vector.load", vector_extent="1", constraint_key="vector_footprint.scalar_axis_upper_bound"}
+  %loaded = vector.load %view[%checked_row, 0] : view<[%checked_n]x4xf32, %layout> -> vector<4xf32>
   func.return
 }
 
@@ -969,6 +991,27 @@ func.def @dynamic_unit_axis_proven_by_scalar_assume_before_index_cast(%buffer: b
 
 // ====
 
+// Integer source coordinates commonly compare in i32 before the view API
+// widens them. Both widened values preserve the nonnegative numeric relation.
+func.def @guarded_unsigned_widening_proves_dynamic_unit_axis(%buffer: buffer, %base: offset, %row0: i32, %n0: i32) {
+  %layout = encoding.layout.dense : encoding<layout>
+  %row = scalar.assume %row0 [range(%row0, 0, 7)] : i32
+  %n = scalar.assume %n0 [range(%n0, 0, 8)] : i32
+  %n_wide = scalar.extui %n : i32 to i64
+  %n_idx = index.cast %n_wide : i64 to index
+  %view = buffer.view %buffer[%base] : buffer -> view<[%n_idx]x4xf32, %layout>
+  %in_bounds = scalar.cmpi ult, %row, %n : i32
+  scf.if %in_bounds {
+    %row_wide = scalar.extui %row : i32 to i64
+    %row_idx = index.cast %row_wide : i64 to index
+    %loaded = vector.load %view[%row_idx, 0] : view<[%n_idx]x4xf32, %layout> -> vector<4xf32>
+    test.use %loaded : vector<4xf32>
+  }
+  func.return
+}
+
+// ====
+
 // RUN: pass canonicalize,vector-memory-footprint
 func.def @guarded_loaded_i32_precast_index_proves_unit_axis(%ids: buffer, %payload: buffer, %base: offset, %row_count: i32) {
   %layout = encoding.layout.dense : encoding<layout>
@@ -1069,8 +1112,8 @@ func.def @guarded_flattened_store_proves_dynamic_axis_bounds(%payload: buffer, %
 
 // Equivalent nonlinear bounds may be materialized independently on each side
 // of a convergent operation. The active branch relation still proves that an
-// index guarded by the first quotient fits a view shaped by the second.
-func.def @guarded_recomputed_quotient_proves_dynamic_axis_bound(%payload: buffer, %base: offset, %active_count0: index, %block0: index, %value: i32) {
+// index guarded by a quotient fits a view shaped by an equivalent shift.
+func.def @guarded_equivalent_digits_prove_dynamic_axis_bound(%payload: buffer, %base: offset, %active_count0: index, %block0: index, %value: i32) {
   %block_rounding_bias = index.constant 63 : index
   %block_size = index.constant 64 : index
   %active_count = index.assume %active_count0 [range(%active_count0, 1, 2048)] : index
@@ -1085,7 +1128,8 @@ func.def @guarded_recomputed_quotient_proves_dynamic_axis_bound(%payload: buffer
     %active_block, %active_block_count, %active_token_count = index.assume %block, %block_count, %active_count [lt(%block, %block_count)] : index, index, index
     %inner_active_count = index.assume %active_token_count [range(%active_token_count, 1, 32768)] : index
     %inner_padded_count = index.add %inner_active_count, %block_rounding_bias : index
-    %inner_block_count0 = index.div %inner_padded_count, %block_size : index
+    %shift = index.constant 6 : index
+    %inner_block_count0 = index.shrui %inner_padded_count, %shift : index
     %inner_block_count = index.assume %inner_block_count0 [range(%inner_block_count0, 1, 512)] : index
     %view = buffer.view %payload[%base] : buffer -> view<[%inner_block_count]xi32>
     view.store %value, %view[%active_block] : i32, view<[%inner_block_count]xi32>

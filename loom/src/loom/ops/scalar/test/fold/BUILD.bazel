@@ -4,7 +4,9 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//loom/build_tools/bazel:defs.bzl", "loom_test")
 load("//loom/build_tools/bazel:loom_check.bzl", "loom_check_test_suite")
+load("//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -20,13 +22,21 @@ loom_check_test_suite(
         "arithmetici_structural.loom-test",
         "bitwisei.loom-test",
         "bitwisei_structural.loom-test",
+        "boolean_extension.loom-test",
         "comparison_structural.loom-test",
         "comparisonf.loom-test",
         "comparisoni.loom-test",
         "conversion_structural.loom-test",
         "conversioni.loom-test",
+        "integer_constants.loom-test",
         "mathf_structural.loom-test",
         "poison.loom-test",
         "shift_narrowing.loom-test",
     ],
+)
+
+loom_test(
+    name = "integer_constant_values_test",
+    srcs = ["integer_constant_values.loom"],
+    execution_profiles = [VM_REFERENCE_PROFILE],
 )

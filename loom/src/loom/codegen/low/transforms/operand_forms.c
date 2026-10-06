@@ -14,12 +14,15 @@
 #include "loom/codegen/low/descriptor_traits.h"
 #include "loom/codegen/low/diagnostics.h"
 #include "loom/codegen/low/function.h"
+#include "loom/codegen/low/memory_access.h"
 #include "loom/codegen/low/pipeline/pass_environment.h"
+#include "loom/codegen/low/representation_binding.h"
 #include "loom/codegen/low/storage_relation.h"
 #include "loom/codegen/low/target_binding.h"
 #include "loom/error/error_catalog.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
+#include "loom/ops/low/capture.h"
 #include "loom/ops/low/ops.h"
 #include "loom/ops/op_defs.h"
 #include "loom/pass/pipeline.h"
@@ -324,8 +327,29 @@ static iree_status_t loom_low_select_operand_forms_try_fold_select_packet(
     return iree_ok_status();
   }
 
+  loom_value_id_t replacement = true_value;
+  if (!loom_low_capture_can_forward(state->module, true_value,
+                                    loom_op_results(op)[0], 2)) {
+    // Equal payload bits still produce a fresh owner at this program point.
+    // Express the capture directly; allocation decides whether storage can
+    // coalesce without losing an observation or a consuming result.
+    const loom_value_id_t value_checkpoint =
+        loom_rewriter_value_checkpoint(rewriter);
+    loom_builder_ip_t saved_ip = loom_builder_save(&rewriter->builder);
+    loom_builder_set_before(&rewriter->builder, op);
+    loom_op_t* capture_op = NULL;
+    iree_status_t status = loom_low_slice_build(
+        &rewriter->builder, true_value, 0,
+        loom_module_value_type(state->module, loom_op_results(op)[0]),
+        op->location, &capture_op);
+    loom_builder_restore(&rewriter->builder, saved_ip);
+    IREE_RETURN_IF_ERROR(status);
+    replacement = loom_low_slice_result(capture_op);
+    IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+        rewriter, op, &replacement, 1, value_checkpoint));
+  }
   IREE_RETURN_IF_ERROR(
-      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &true_value, 1));
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
   state->changed = true;
   *out_folded = true;
   loom_pass_mark_changed(state->pass);
@@ -797,7 +821,8 @@ static iree_status_t loom_low_select_operand_form_rematerialize_operand(
   IREE_ASSERT(*inout_value_id < state->module->values.count);
 
   const loom_value_t* value = loom_module_value(state->module, *inout_value_id);
-  if (loom_value_is_block_arg(value) || loom_value_is_consumed(value)) {
+  if (loom_value_is_block_arg(value) ||
+      loom_consumption_find_consuming_use(state->module, value, NULL)) {
     return iree_ok_status();
   }
   const loom_low_register_type_resolver_t register_type_resolver =
@@ -1178,6 +1203,12 @@ static iree_status_t loom_low_select_operand_form_rewrite_packet(
   loom_builder_restore(&rewriter->builder, saved_ip);
   IREE_RETURN_IF_ERROR(status);
 
+  loom_target_function_version_t* version =
+      loom_target_function_version_cast(state->pass->function_version);
+  if (version != NULL) {
+    IREE_RETURN_IF_ERROR(loom_low_memory_access_map_replace(
+        version->memory_accesses, op, replacement_op));
+  }
   const loom_value_id_t* replacements = loom_op_results(replacement_op);
   IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
       rewriter, op, replacements, replacement_op->result_count,

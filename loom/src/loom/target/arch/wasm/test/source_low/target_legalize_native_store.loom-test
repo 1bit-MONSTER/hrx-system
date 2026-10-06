@@ -1,0 +1,60 @@
+// RUN: with-checks pass target-legalize{mode=final,policy=prefer-native}
+
+// Linked target providers may decline their opted-in rewrites of legal ops.
+// Native acceptance still excludes ordinary reference fallbacks.
+wasm.target<simd128> @target
+
+func.def target(@target) @prefer_native_store(%output: buffer, %value: vector<4xi32>) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<4xi32>
+  vector.store %value, %view[0] : vector<4xi32>, view<4xi32>
+  func.return
+}
+
+// ----
+CHECK: *vector.store %value, %view[0] : vector<4xi32>, view<4xi32>
+CHECK-NOT: *vector.extract*
+CHECK-NOT: *view.store*
+
+// ====
+// RUN: with-checks pass target-legalize{mode=final,policy=require-native}
+
+wasm.target<simd128> @target
+
+func.def target(@target) @require_native_store(%output: buffer, %value: vector<4xi32>) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<4xi32>
+  vector.store %value, %view[0] : vector<4xi32>, view<4xi32>
+  func.return
+}
+
+// ----
+CHECK: *vector.store %value, %view[0] : vector<4xi32>, view<4xi32>
+CHECK-NOT: *vector.extract*
+CHECK-NOT: *view.store*
+
+// ====
+// RUN: with-checks pass target-legalize{mode=final,policy=reference-only}
+
+wasm.target<simd128> @target
+
+func.def target(@target) @reference_store(%output: buffer, %value: vector<4xi32>) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<4xi32>
+  vector.store %value, %view[0] : vector<4xi32>, view<4xi32>
+  func.return
+}
+
+// ----
+CHECK-NOT: *vector.store*
+CHECK: *vector.extract %value[0] : vector<4xi32> -> i32
+CHECK: *vector.extract %value[1] : vector<4xi32> -> i32
+CHECK: *vector.extract %value[2] : vector<4xi32> -> i32
+CHECK: *vector.extract %value[3] : vector<4xi32> -> i32
+CHECK: *view.store *%view[0] : i32, view<4xi32>
+CHECK: *view.store *%view[1] : i32, view<4xi32>
+CHECK: *view.store *%view[2] : i32, view<4xi32>
+CHECK: *view.store *%view[3] : i32, view<4xi32>

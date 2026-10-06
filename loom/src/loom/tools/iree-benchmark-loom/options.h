@@ -72,7 +72,7 @@ typedef struct iree_benchmark_loom_bool_flag_t {
 typedef struct iree_benchmark_loom_options_t {
   // Source format, provider options, and retained diagnostic path remapping.
   loom_input_options_t input;
-  // Optional check.case symbol selected for execution.
+  // Optional check.case or check.scenario symbol selected for execution.
   iree_string_view_t selected_case;
   // Optional check.benchmark symbol selected for execution.
   iree_string_view_t selected_benchmark;
@@ -104,7 +104,7 @@ typedef struct iree_benchmark_loom_options_t {
   iree_benchmark_loom_artifact_bundle_policy_t artifact_bundle_policy;
   // True when the run stops after planning selected benchmarks.
   bool dry_run;
-  // Measurement mode requested for selected benchmarks.
+  // Requested measurement mode, including automatic subject-based selection.
   iree_string_view_t measure;
   // Structured compile-report request.
   iree_string_view_t compile_report;

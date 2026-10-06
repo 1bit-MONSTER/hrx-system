@@ -203,8 +203,6 @@ static bool loom_value_relation_next_loop_entry(
   if (iterator->outer_index >= iter_args.count) {
     return false;
   }
-  IREE_ASSERT_EQ(iter_args.count, op->result_count,
-                 "verified loop state must match result arity");
   loom_region_t* entry_region = loom_loop_like_condition_region(loop);
   uint16_t block_arg_offset = 0;
   if (entry_region == NULL) {
@@ -282,17 +280,16 @@ static bool loom_value_relation_next_loop_terminator(
   IREE_ASSERT(is_body || is_condition,
               "selected loop terminator phase must belong to the loop");
 
-  const uint16_t state_count = parent_op->result_count;
-  IREE_ASSERT_EQ(loom_loop_like_iter_args(loop).count, state_count,
-                 "verified loop state must match result arity");
+  const uint16_t header_count = loom_loop_like_iter_args(loop).count;
+  const uint16_t result_count = parent_op->result_count;
   const loom_block_t* body_block = loom_region_const_entry_block(body);
   const uint16_t body_arg_offset =
       loop.vtable->iv_block_arg_index == LOOM_BLOCK_ARG_INDEX_NONE
           ? 0
           : (uint16_t)(loop.vtable->iv_block_arg_index + 1);
   IREE_ASSERT_EQ(body_block->arg_count,
-                 (uint16_t)(state_count + body_arg_offset),
-                 "verified loop body arguments must match carried state");
+                 (uint16_t)(result_count + body_arg_offset),
+                 "verified loop body arguments must match result state");
 
   uint16_t source_operand_index = iterator->outer_index;
   uint8_t destination_count = 0;
@@ -303,9 +300,9 @@ static bool loom_value_relation_next_loop_terminator(
                    "condition loops must not have an induction variable");
     IREE_ASSERT(condition != NULL && condition->block_count == 1,
                 "verified loop condition region must have one block");
-    IREE_ASSERT_EQ(op->operand_count, (uint16_t)(state_count + 1),
-                   "verified loop condition must forward every state value");
-    if (iterator->outer_index >= state_count) {
+    IREE_ASSERT_EQ(op->operand_count, (uint16_t)(result_count + 1),
+                   "verified loop condition must forward every result value");
+    if (iterator->outer_index >= result_count) {
       return false;
     }
     source_operand_index = (uint16_t)(iterator->outer_index + 1);
@@ -313,21 +310,23 @@ static bool loom_value_relation_next_loop_terminator(
     destinations[1] = loom_op_const_results(parent_op)[iterator->outer_index];
     destination_count = 2;
   } else if (condition != NULL) {
-    IREE_ASSERT_EQ(op->operand_count, state_count,
-                   "verified loop body yield must match carried state");
-    if (iterator->outer_index >= state_count) {
+    IREE_ASSERT_EQ(op->operand_count, header_count,
+                   "verified loop body yield must match header state");
+    if (iterator->outer_index >= header_count) {
       return false;
     }
     const loom_block_t* condition_block =
         loom_region_const_entry_block(condition);
-    IREE_ASSERT_EQ(condition_block->arg_count, state_count,
-                   "verified loop condition arguments must match state");
+    IREE_ASSERT_EQ(condition_block->arg_count, header_count,
+                   "verified loop condition arguments must match header state");
     destinations[0] = loom_block_arg_id(condition_block, iterator->outer_index);
     destination_count = 1;
   } else {
-    IREE_ASSERT_EQ(op->operand_count, state_count,
+    IREE_ASSERT_EQ(header_count, result_count,
+                   "verified counted-loop state must match result arity");
+    IREE_ASSERT_EQ(op->operand_count, result_count,
                    "verified counted-loop yield must match carried state");
-    if (iterator->outer_index >= state_count) {
+    if (iterator->outer_index >= result_count) {
       return false;
     }
     destinations[0] = loom_block_arg_id(

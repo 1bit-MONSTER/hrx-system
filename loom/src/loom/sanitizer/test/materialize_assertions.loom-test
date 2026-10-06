@@ -1,0 +1,413 @@
+// RUN: pass sanitizer-materialize-assertions
+
+// Every integer predicate becomes ordinary source arithmetic and one runtime
+// assertion. The checked aliases retain the complete predicate list.
+kernel.def @integer_predicates() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%x: i32, %y: i32) {
+  %x_checked, %y_checked = sanitizer.assert.value %x, %y [eq(%x, %y), ne(%x, 0), lt(%x, %y), le(%x, 8), gt(%x, -8), ge(%x, %y), min(%x, -16), max(%x, 16), range(%x, -4, 4), mul(%x, 4), pow2(%x)] : i32, i32
+  kernel.return
+}
+
+// Address domains keep their signedness for comparisons. Divisibility uses a
+// fixed-width signed remainder after a source-domain-preserving cast, while
+// offset power-of-two checks exclude zero before testing the population count.
+kernel.def @address_predicates() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%index: index, %limit: index, %offset: offset) {
+  %index_checked, %limit_checked, %offset_checked = sanitizer.assert.value %index, %limit, %offset [range(%index, 0, %limit), mul(%index, 8), pow2(%index), lt(%offset, 64), mul(%offset, 16), pow2(%offset)] : index, index, offset
+  kernel.return
+}
+
+// i1 has the numeric source domain {0, 1}: every value is divisible by one,
+// and the value itself is exactly the power-of-two predicate.
+kernel.def @boolean_predicates() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%bit: i1) {
+  %checked = sanitizer.assert.value %bit [ge(%bit, 0), mul(%bit, 1), pow2(%bit)] : i1
+  kernel.return
+}
+
+// Floating-point classification predicates share the same executable
+// conjunction and retain their checked-path facts.
+kernel.def @floating_predicates() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value: f32) {
+  %checked = sanitizer.assert.value %value [not_nan(%value), not_inf(%value), finite(%value)] : f32
+  kernel.return
+}
+
+// Operation assertions have no checked alias; empty predicate lists have no
+// runtime boundary and erase directly.
+kernel.def @operation_and_empty_assertions() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%denominator: i32, %vector: vector<4xi32>) {
+  sanitizer.assert.op %denominator [ne(%denominator, 0), min(%denominator, 1)] : i32
+  %same_vector = sanitizer.assert.value %vector [] : vector<4xi32>
+  test.use %same_vector : vector<4xi32>
+  sanitizer.assert.op %denominator [] : i32
+  kernel.return
+}
+
+// Mixed source scalar domains split into their native assume operations while
+// preserving the original result ordering.
+kernel.def @mixed_scalar_domains() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%position: index, %value: f32) {
+  %position_checked, %value_checked = sanitizer.assert.value %position, %value [ge(%position, 0), finite(%value)] : index, f32
+  test.use %position_checked, %value_checked : index, f32
+  kernel.return
+}
+
+// ----
+kernel.def @integer_predicates() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%x: i32, %y: i32) {
+  %27 = scalar.cmpi eq, %x, %y : i32
+  %28 = scalar.constant 0 : i32
+  %29 = scalar.cmpi ne, %x, %28 : i32
+  %30 = scalar.andi %27, %29 : i1
+  %31 = scalar.cmpi slt, %x, %y : i32
+  %32 = scalar.andi %30, %31 : i1
+  %33 = scalar.constant 8 : i32
+  %34 = scalar.cmpi sle, %x, %33 : i32
+  %35 = scalar.andi %32, %34 : i1
+  %36 = scalar.constant -8 : i32
+  %37 = scalar.cmpi sgt, %x, %36 : i32
+  %38 = scalar.andi %35, %37 : i1
+  %39 = scalar.cmpi sge, %x, %y : i32
+  %40 = scalar.andi %38, %39 : i1
+  %41 = scalar.constant -16 : i32
+  %42 = scalar.cmpi sge, %x, %41 : i32
+  %43 = scalar.andi %40, %42 : i1
+  %44 = scalar.constant 16 : i32
+  %45 = scalar.cmpi sle, %x, %44 : i32
+  %46 = scalar.andi %43, %45 : i1
+  %47 = scalar.constant -4 : i32
+  %48 = scalar.cmpi sge, %x, %47 : i32
+  %49 = scalar.constant 4 : i32
+  %50 = scalar.cmpi sle, %x, %49 : i32
+  %51 = scalar.andi %48, %50 : i1
+  %52 = scalar.andi %46, %51 : i1
+  %53 = scalar.constant 4 : i32
+  %54 = scalar.remsi %x, %53 : i32
+  %55 = scalar.constant 0 : i32
+  %56 = scalar.cmpi eq, %54, %55 : i32
+  %57 = scalar.andi %52, %56 : i1
+  %58 = scalar.constant 0 : i32
+  %59 = scalar.constant 1 : i32
+  %60 = scalar.cmpi sgt, %x, %58 : i32
+  %61 = scalar.ctpopi %x : i32
+  %62 = scalar.cmpi eq, %61, %59 : i32
+  %63 = scalar.andi %60, %62 : i1
+  %64 = scalar.andi %57, %63 : i1
+  kernel.assert %64 : i1
+  %x_checked, %y_checked = scalar.assume %x, %y [eq(%x, %y), ne(%x, 0), lt(%x, %y), le(%x, 8), gt(%x, -8), ge(%x, %y), min(%x, -16), max(%x, 16), range(%x, -4, 4), mul(%x, 4), pow2(%x)] : i32, i32
+  kernel.return
+}
+
+kernel.def @address_predicates() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%index: index, %limit: index, %offset: offset) {
+  %67 = index.constant 0 : index
+  %68 = index.cmp sge, %index, %67 : index
+  %69 = index.cmp sle, %index, %limit : index
+  %70 = scalar.andi %68, %69 : i1
+  %71 = index.cast %index : index to i64
+  %72 = scalar.constant 8 : i64
+  %73 = scalar.remsi %71, %72 : i64
+  %74 = scalar.constant 0 : i64
+  %75 = scalar.cmpi eq, %73, %74 : i64
+  %76 = scalar.andi %70, %75 : i1
+  %77 = index.constant 0 : index
+  %78 = index.constant 1 : index
+  %79 = index.cmp sgt, %index, %77 : index
+  %80 = index.ctpopi %index : index
+  %81 = index.cmp eq, %80, %78 : index
+  %82 = scalar.andi %79, %81 : i1
+  %83 = scalar.andi %76, %82 : i1
+  %84 = index.constant 64 : offset
+  %85 = index.cmp ult, %offset, %84 : offset
+  %86 = scalar.andi %83, %85 : i1
+  %87 = index.cast %offset : offset to i64
+  %88 = scalar.constant 16 : i64
+  %89 = scalar.remsi %87, %88 : i64
+  %90 = scalar.constant 0 : i64
+  %91 = scalar.cmpi eq, %89, %90 : i64
+  %92 = scalar.andi %86, %91 : i1
+  %93 = index.cast %offset : offset to i64
+  %94 = scalar.constant 0 : i64
+  %95 = scalar.constant 1 : i64
+  %96 = scalar.cmpi sgt, %93, %94 : i64
+  %97 = scalar.ctpopi %93 : i64
+  %98 = scalar.cmpi eq, %97, %95 : i64
+  %99 = scalar.andi %96, %98 : i1
+  %100 = scalar.andi %92, %99 : i1
+  kernel.assert %100 : i1
+  %index_checked, %limit_checked, %offset_checked = index.assume %index, %limit, %offset [range(%index, 0, %limit), mul(%index, 8), pow2(%index), lt(%offset, 64), mul(%offset, 16), pow2(%offset)] : index, index, offset
+  kernel.return
+}
+
+kernel.def @boolean_predicates() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%bit: i1) {
+  %104 = scalar.constant false : i1
+  %105 = scalar.cmpi uge, %bit, %104 : i1
+  %106 = scalar.constant true : i1
+  %107 = scalar.andi %105, %106 : i1
+  %108 = scalar.andi %107, %bit : i1
+  kernel.assert %108 : i1
+  %checked = scalar.assume %bit [ge(%bit, 0), mul(%bit, 1), pow2(%bit)] : i1
+  kernel.return
+}
+
+kernel.def @floating_predicates() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value: f32) {
+  %110 = scalar.isnanf %value : f32
+  %111 = scalar.constant true : i1
+  %112 = scalar.xori %110, %111 : i1
+  %113 = scalar.isinff %value : f32
+  %114 = scalar.constant true : i1
+  %115 = scalar.xori %113, %114 : i1
+  %116 = scalar.andi %112, %115 : i1
+  %117 = scalar.isfinitef %value : f32
+  %118 = scalar.andi %116, %117 : i1
+  kernel.assert %118 : i1
+  %checked = scalar.assume %value [not_nan(%value), not_inf(%value), finite(%value)] : f32
+  kernel.return
+}
+
+kernel.def @operation_and_empty_assertions() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%denominator: i32, %vector: vector<4xi32>) {
+  %120 = scalar.constant 0 : i32
+  %121 = scalar.cmpi ne, %denominator, %120 : i32
+  %122 = scalar.constant 1 : i32
+  %123 = scalar.cmpi sge, %denominator, %122 : i32
+  %124 = scalar.andi %121, %123 : i1
+  kernel.assert %124 : i1
+  test.use %vector : vector<4xi32>
+  kernel.return
+}
+
+kernel.def @mixed_scalar_domains() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%position: index, %value: f32) {
+  %125 = index.constant 0 : index
+  %126 = index.cmp sge, %position, %125 : index
+  %127 = scalar.isfinitef %value : f32
+  %128 = scalar.andi %126, %127 : i1
+  kernel.assert %128 : i1
+  %position_checked = index.assume %position [ge(%position, 0)] : index
+  %value_checked = scalar.assume %value [finite(%value)] : f32
+  test.use %position_checked, %value_checked : index, f32
+  kernel.return
+}
+
+// ====
+
+// Shape facts are executable. A weaker explicit alignment is already implied
+// by the source type and needs no hidden address query.
+kernel.def @layout_shape_and_weaker_alignment() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%m: index, %n: index, %view: view<[%m]x16xf32>) {
+  %checked = sanitizer.assert.layout %view : view<[%m]x16xf32> -> view<8x[%n]xf32, align(1)>
+  kernel.return
+}
+
+// Natural alignment and an equal explicit alignment are the same effective
+// contract. Equal dynamic dimensions are statically proven as well.
+kernel.def @natural_alignment_is_implied() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%m: index, %view: view<[%m]xi32>) {
+  %checked = sanitizer.assert.layout %view : view<[%m]xi32> -> view<[%m]xi32>
+  kernel.return
+}
+
+// ----
+kernel.def @layout_shape_and_weaker_alignment() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%m: index, %n: index, %view: view<[%m]x16xf32>) {
+  %9 = index.constant 8 : index
+  %10 = index.cmp eq, %m, %9 : index
+  %11 = index.constant 16 : index
+  %12 = index.cmp eq, %11, %n : index
+  %13 = scalar.andi %10, %12 : i1
+  kernel.assert %13 : i1
+  %checked = view.refine %view : view<[%m]x16xf32> -> view<8x[%n]xf32, align(1)>
+  kernel.return
+}
+
+kernel.def @natural_alignment_is_implied() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%m: index, %view: view<[%m]xi32>) {
+  %checked = view.refine %view : view<[%m]xi32> -> view<[%m]xi32>
+  kernel.return
+}
+
+// ====
+
+// RUN: with-locations pass sanitizer-materialize-assertions
+kernel.def @preserves_assertion_site() {
+  %unit = index.constant 1 : index loc("loom/src/loom/sanitizer/test/materialize_assertions.loom-test":2:3 to 2:35)
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index loc("loom/src/loom/sanitizer/test/materialize_assertions.loom-test":3:3 to 3:99)
+} launch(%value: i32) {
+  %checked = sanitizer.assert.value %value [range(%value, 0, 7)] : i32 loc(tagged<sanitizer_site, "0102", "semantic.loom":7:1>)
+  kernel.return loc("loom/src/loom/sanitizer/test/materialize_assertions.loom-test":6:3 to 6:16)
+} loc("loom/src/loom/sanitizer/test/materialize_assertions.loom-test":1:1 to 7:2)
+
+// ----
+kernel.def @preserves_assertion_site() {
+  %unit = index.constant 1 : index loc("loom/src/loom/sanitizer/test/materialize_assertions.loom-test":2:3 to 2:35)
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index loc("loom/src/loom/sanitizer/test/materialize_assertions.loom-test":3:3 to 3:99)
+} launch(%value: i32) {
+  %3 = scalar.constant 0 : i32 loc(tagged<sanitizer_site, "0102", "semantic.loom":7:1>)
+  %4 = scalar.cmpi sge, %value, %3 : i32 loc(tagged<sanitizer_site, "0102", "semantic.loom":7:1>)
+  %5 = scalar.constant 7 : i32 loc(tagged<sanitizer_site, "0102", "semantic.loom":7:1>)
+  %6 = scalar.cmpi sle, %value, %5 : i32 loc(tagged<sanitizer_site, "0102", "semantic.loom":7:1>)
+  %7 = scalar.andi %4, %6 : i1 loc(tagged<sanitizer_site, "0102", "semantic.loom":7:1>)
+  kernel.assert %7 : i1 loc(tagged<sanitizer_site, "0102", "semantic.loom":7:1>)
+  %checked = scalar.assume %value [range(%value, 0, 7)] : i32 loc(tagged<sanitizer_site, "0102", "semantic.loom":7:1>)
+  kernel.return loc("loom/src/loom/sanitizer/test/materialize_assertions.loom-test":6:3 to 6:16)
+} loc("loom/src/loom/sanitizer/test/materialize_assertions.loom-test":1:1 to 7:2)
+
+// ====
+
+// RUN: pass sanitizer-materialize-assertions,canonicalize
+
+// The executable assertion does not refine its inputs. Facts attach only to
+// the checked aliases produced after the runtime boundary.
+kernel.def @checked_aliases_preserve_relational_facts() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value: index) {
+  %limit = index.constant 128 : index
+  %checked, %limit_checked = sanitizer.assert.value %value, %limit [lt(%value, %limit)] : index, index
+  %original_upper = test.fact_range_hi %value : index -> i64
+  %checked_upper = test.fact_range_hi %checked : index -> i64
+  test.use %limit_checked, %original_upper, %checked_upper : index, i64, i64
+  kernel.return
+}
+
+// ----
+kernel.def @checked_aliases_preserve_relational_facts() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value: index) {
+  %limit = index.constant 128 : index
+  %7 = index.cmp slt, %value, %limit : index
+  kernel.assert %7 : i1
+  %checked, %limit_checked = index.assume %value, %limit [lt(%value, %limit)] : index, index
+  %original_upper = scalar.constant 9223372036854775807 : i64
+  %checked_upper = scalar.constant 127 : i64
+  test.use %limit_checked, %original_upper, %checked_upper : index, i64, i64
+  kernel.return
+}
+
+// ====
+
+// Unsigned predicates compare the sign-extended integer carrier as uint64_t.
+// This retains source-language ordering across the sign bit without changing
+// the ordinary signless integer type.
+kernel.def @unsigned_predicates() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs: i32, %rhs: i32) {
+  %lhs_checked, %rhs_checked = sanitizer.assert.value %lhs, %rhs [ult(%lhs, %rhs), ule(%lhs, %rhs), ugt(%rhs, %lhs), uge(%rhs, %lhs)] : i32, i32
+  kernel.return
+}
+
+// ----
+kernel.def @unsigned_predicates() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs: i32, %rhs: i32) {
+  %5 = scalar.cmpi ult, %lhs, %rhs : i32
+  %6 = scalar.cmpi ule, %lhs, %rhs : i32
+  %7 = scalar.andi %5, %6 : i1
+  %8 = scalar.cmpi ugt, %rhs, %lhs : i32
+  %9 = scalar.andi %7, %8 : i1
+  %10 = scalar.cmpi uge, %rhs, %lhs : i32
+  %11 = scalar.andi %9, %10 : i1
+  kernel.assert %11 : i1
+  %lhs_checked, %rhs_checked = scalar.assume %lhs, %rhs [ult(%lhs, %rhs), ule(%lhs, %rhs), ugt(%rhs, %lhs), uge(%rhs, %lhs)] : i32, i32
+  kernel.return
+}
+
+// ====
+
+// Float equality preserves C/C++ NaN behavior: equality is ordered while
+// inequality is unordered.
+kernel.def @float_equality_predicates() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs: f32, %rhs: f32) {
+  %lhs_checked, %rhs_checked = sanitizer.assert.value %lhs, %rhs [eq(%lhs, %rhs), ne(%lhs, 0)] : f32, f32
+  kernel.return
+}
+
+// ----
+kernel.def @float_equality_predicates() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs: f32, %rhs: f32) {
+  %5 = scalar.cmpf oeq, %lhs, %rhs : f32
+  %6 = scalar.constant 0.0 : f32
+  %7 = scalar.cmpf une, %lhs, %6 : f32
+  %8 = scalar.andi %5, %7 : i1
+  kernel.assert %8 : i1
+  %lhs_checked, %rhs_checked = scalar.assume %lhs, %rhs [eq(%lhs, %rhs), ne(%lhs, 0)] : f32, f32
+  kernel.return
+}
+
+// ====
+
+// Runtime strengthening of an access-alignment contract has no represented
+// source query and must fail before facts can escape the assertion.
+kernel.def @rejects_alignment_strengthening() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%view: view<4xi32, align(1)>) {
+  // ERROR@+1: LOWERING/064 {op_name="sanitizer.assert.layout", phase_name="sanitizer-materialize-assertions", reason="the result access alignment is stronger than the source contract"}
+  %checked = sanitizer.assert.layout %view : view<4xi32, align(1)> -> view<4xi32>
+  kernel.return
+}
+
+// ====
+
+// An encoding change cannot be inferred by inspecting target-private state.
+kernel.def @rejects_encoding_change() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%layout: encoding<layout>, %view: view<4xi32, %layout>) {
+  // ERROR@+1: LOWERING/064 {op_name="sanitizer.assert.layout", phase_name="sanitizer-materialize-assertions", reason="the result encoding is not proven identical to the source encoding"}
+  %checked = sanitizer.assert.layout %view : view<4xi32, %layout> -> view<4xi32>
+  kernel.return
+}
+
+// ====
+
+// kernel.assert is deliberately a dispatch-kernel contract. Materializing an
+// ordinary function assertion must diagnose instead of creating invalid IR.
+func.def @rejects_non_kernel_assertion(%value: i32) {
+  // ERROR@+1: LOWERING/064 {op_name="sanitizer.assert.op", phase_name="sanitizer-materialize-assertions", reason="semantic assertions require a dispatchable kernel"}
+  sanitizer.assert.op %value [ne(%value, 0)] : i32
+  func.return
+}

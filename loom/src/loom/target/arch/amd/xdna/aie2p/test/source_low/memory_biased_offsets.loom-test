@@ -1,0 +1,117 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_biased_offsets.loom
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @exchange_biased_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
+  %signed_position = index.assume %position [range(%position, -4, 4)] : index
+  %center = index.constant 4 : index
+  %element = index.add %signed_position, %center : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
+  %previous = view.load %view[%element] : view<9xi32> -> i32
+  view.store %replacement, %view[%element] : i32, view<9xi32>
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_biased_word(%signed_position: reg<aie2p.er>, %replacement: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
+  %view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %14 = mov.i32 2
+  %15 = lshl %signed_position, %14
+  %16 = add %15, 16
+  %17 = mov.address-index %16
+  %previous = lda.i32.index %view, %17
+  %21 = add %15, 16
+  %22 = mov.address-index %21
+  st.i32.index %replacement, %view, %22
+  return %previous
+}
+
+// ====
+
+func.def @exchange_nonnegative_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
+  %bounded_position = index.assume %position [range(%position, 0, 4)] : index
+  %center = index.constant 4 : index
+  %element = index.add %bounded_position, %center : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
+  %previous = view.load %view[%element] : view<9xi32> -> i32
+  view.store %replacement, %view[%element] : i32, view<9xi32>
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_nonnegative_word(%bounded_position: reg<aie2p.er>, %replacement: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
+  %view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %14 = mov.i32 2
+  %15 = lshl %bounded_position, %14
+  %16 = add %15, 16
+  %17 = mov.address-index %16
+  %previous = lda.i32.index %view, %17
+  %21 = add %15, 16
+  %22 = mov.address-index %21
+  st.i32.index %replacement, %view, %22
+  return %previous
+}
+
+// ====
+
+func.def @copy_biased_vector(%source: buffer, %destination: buffer, %position: index) {
+  %signed_position = index.assume %position [range(%position, -4, 4)] : index
+  %center = index.constant 4 : index
+  %element = index.add %signed_position, %center : index
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<12xi32>
+  %destination_view = buffer.view %destination[%base] : buffer -> view<12xi32>
+  %values = vector.load %source_view[%element] : view<12xi32> -> vector<4xi32>
+  vector.store %values, %destination_view[%element] : vector<4xi32>, view<12xi32>
+  func.return
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @copy_biased_vector(%signed_position: reg<aie2p.er>) asm {
+  %source_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %44 = mov.i32 2
+  %45 = lshl %signed_position, %44
+  %46 = add %45, 16
+  %47 = mov.address-index %46
+  %48 = lda.i32.index %source_view, %47
+  %51 = add %45, 20
+  %52 = mov.address-index %51
+  %53 = lda.i32.index %source_view, %52
+  %56 = add %45, 24
+  %57 = mov.address-index %56
+  %58 = lda.i32.index %source_view, %57
+  %61 = add %45, 28
+  %62 = mov.address-index %61
+  %63 = lda.i32.index %source_view, %62
+  %66 = add %45, 16
+  %67 = mov.address-index %66
+  st.i32.index %48, %destination_view, %67
+  %70 = add %45, 20
+  %71 = mov.address-index %70
+  st.i32.index %53, %destination_view, %71
+  %74 = add %45, 24
+  %75 = mov.address-index %74
+  st.i32.index %58, %destination_view, %75
+  %78 = add %45, 28
+  %79 = mov.address-index %78
+  st.i32.index %63, %destination_view, %79
+  return
+}
+
+// ====
+
+// The static contribution fits U32 but has its sign bit set in an i32 carrier.
+func.def @exchange_large_bias_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
+  %signed_position = index.assume %position [range(%position, -1073741820, -1073741812)] : index
+  %center = index.constant 1073741820 : index
+  %element = index.add %signed_position, %center : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
+  // ERROR@+1: TARGET/003 {constraint_key="source_memory.static_offset"}
+  %previous = view.load %view[%element] : view<9xi32> -> i32
+  // ERROR@+1: TARGET/003 {constraint_key="source_memory.static_offset"}
+  view.store %replacement, %view[%element] : i32, view<9xi32>
+  func.return %previous : i32
+}

@@ -12,7 +12,9 @@ low.func.def target<cmd.core> abi(command_program) @one_dispatch() asm {
   %bias = cmd.constant.b16 4660
   %flags = cmd.constant.b32 2309737967
   %stride = cmd.constant.b64 81985529216486895
-  cmd.dispatch.direct<%executable, %entry>[%one_u32, %one_u32, %one_u32](%parameters, %zero_u64, %length, %scale, %bias, %flags, %stride, %output, %zero_u64, %length)
+  %logical_index = cmd.constant.index 64
+  %byte_offset = cmd.constant.offset 4096
+  cmd.dispatch.direct<%executable, %entry>[%one_u32, %one_u32, %one_u32](%parameters, %zero_u64, %length, %scale, %bias, %flags, %stride, %logical_index, %byte_offset, %output, %zero_u64, %length)
   return
 }
 
@@ -29,7 +31,9 @@ low.func.def target<cmd.core> abi(command_program) @one_dispatch() asm {
   %bias = cmd.constant.b16 4660
   %flags = cmd.constant.b32 2309737967
   %stride = cmd.constant.b64 81985529216486895
-  cmd.dispatch.direct<%executable, %entry>[%one_u32, %one_u32, %one_u32](%parameters, %zero_u64, %length, %scale, %bias, %flags, %stride, %output, %zero_u64, %length)
+  %logical_index = cmd.constant.index 64
+  %byte_offset = cmd.constant.offset 4096
+  cmd.dispatch.direct<%executable, %entry>[%one_u32, %one_u32, %one_u32](%parameters, %zero_u64, %length, %scale, %bias, %flags, %stride, %logical_index, %byte_offset, %output, %zero_u64, %length)
   return
 }
 

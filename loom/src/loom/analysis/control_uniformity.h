@@ -11,6 +11,7 @@
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
+#include "loom/analysis/condition_facts.h"
 #include "loom/ir/facts.h"
 #include "loom/ir/ir.h"
 #include "loom/util/fact_table.h"
@@ -84,19 +85,33 @@ bool loom_control_uniformity_prove_execution(
     loom_value_fact_uniform_scope_t required_scope,
     loom_control_uniformity_failure_t* out_failure);
 
-// Proves that every operation in |lhs_ops| and |rhs_ops| executes on distinct
-// mandatory alternatives of a common CFG controller whose selector is uniform
-// at |required_scope|. An alternative's target dominates the footprint, and
-// its retained entry predecessor proves that the choice cannot be bypassed.
-// Controllers inside a CFG cycle are rejected because
-// distinct alternatives may execute on different loop iterations. Different
-// regions, structured-only control, and incomplete CFG facts conservatively
-// produce a failed proof.
+// Proves that every entry into |block| selects one Boolean branch outcome from
+// execution uniform at |required_scope|. The returned condition describes the
+// entire active subset of that entry, including false-edge polarity. It need
+// not itself be uniform or numerically decidable.
 //
-// The first query for a region builds and retains dominance and mandatory entry
-// choices from the fact scope's graph, alongside reusable query scratch. Later
-// queries follow that tree and the graph's cycle membership. No query walks IR
-// or rebuilds the CFG. Allocation failures are returned as status; an ordinary
+// Requires a reachable non-entry block with exactly one incoming CFG edge;
+// backedges and duplicate successors count as entries. The retained graph and
+// execution facts establish the proof without rebuilding or scanning the CFG.
+bool loom_control_uniformity_prove_single_entry(
+    const loom_control_uniformity_info_t* info, const loom_block_t* block,
+    loom_value_fact_uniform_scope_t required_scope,
+    loom_condition_assumption_t* out_condition);
+
+// Proves that every operation in |lhs_ops| and |rhs_ops| executes on disjoint
+// alternatives of a common RegionBranch or CFG controller whose selector is
+// uniform at |required_scope|. Structured operations are matched by ancestor
+// region. A CFG alternative's target must dominate its footprint, and its
+// retained entry predecessor proves that the choice cannot be bypassed.
+// Controllers inside loops or CFG cycles are rejected because distinct
+// alternatives may execute on different iterations. Incomplete ancestry or
+// CFG facts conservatively produce a failed proof.
+//
+// Structured queries follow operation ancestry. The first CFG query for a
+// region builds and retains dominance and mandatory entry choices from the fact
+// scope's graph, alongside reusable query scratch; later queries follow that
+// tree and the graph's cycle membership. No query scans sibling operations or
+// rebuilds the CFG. Allocation failures are returned as status; an ordinary
 // failed proof writes false to |out_proven|.
 iree_status_t loom_control_uniformity_prove_mutually_exclusive_execution(
     loom_control_uniformity_info_t* info, iree_host_size_t lhs_op_count,

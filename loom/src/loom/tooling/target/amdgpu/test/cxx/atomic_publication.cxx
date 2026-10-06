@@ -43,5 +43,4 @@ LOOM_CHECK_CASE(interior_wide_atomic_observations) {
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 1), published);
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 0), initial);
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 2), initial);
-  loom::check::expect_event("device", "count", 0, "type", "asan_report");
 }

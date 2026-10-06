@@ -375,6 +375,15 @@ def test_physical_descriptor_set_rejects_zero_capacity_resource() -> None:
         compiler.compile_descriptor_set(_descriptor_set(descriptor, register_classes=(register_class,)))
 
 
+def test_explicit_physical_alternatives_reject_numeric_alignment() -> None:
+    register_class = _coindexed_register_classes()[0]
+    operand = _physical_operand("dst", OperandRole.RESULT, register_class.name)
+    operand = replace(operand, reg_alts=(replace(operand.reg_alts[0], unit_alignment=2),))
+    descriptor = _descriptor("test.aligned", (operand,))
+    with pytest.raises(ValueError, match="explicit physical alternative cannot require numeric register alignment"):
+        compiler.compile_descriptor_set(_descriptor_set(descriptor, register_classes=(register_class,)))
+
+
 def test_physical_descriptor_set_rejects_implicit_row_without_phase() -> None:
     descriptor = _descriptor(
         "test.bad.implicit",
@@ -620,6 +629,33 @@ def test_physical_descriptor_set_accounts_for_early_clobber_results() -> None:
         match=r"physical resource 'class:test.early_clobber' does not admit a legal pre/post placement",
     ):
         compiler.compile_descriptor_set(_descriptor_set(descriptor, register_classes=(register_class,)))
+
+
+@pytest.mark.parametrize("subgroup_size", [0, 64])
+def test_physical_descriptor_set_accounts_for_late_inputs(subgroup_size) -> None:
+    register_class = RegClass("test.late_read", 32, SpillSlotSpace.PRIVATE, flags=(RegClassFlag.PHYSICAL,), allocatable_count=1)
+    descriptor = _descriptor(
+        "test.bad.late_read",
+        (
+            _physical_operand("dst", OperandRole.RESULT, register_class.name),
+            Operand("src", OperandRole.OPERAND, (RegClassAlt(register_class.name, late_read_subgroup_size=subgroup_size),)),
+        ),
+    )
+    with pytest.raises(ValueError, match="does not admit a legal pre/post placement"):
+        compiler.compile_descriptor_set(_descriptor_set(descriptor, register_classes=(register_class,)))
+
+
+def test_late_read_does_not_extend_other_register_alternatives() -> None:
+    early = RegClass("test.early", 32, SpillSlotSpace.PRIVATE, flags=(RegClassFlag.PHYSICAL,), allocatable_count=1)
+    late = replace(early, name="test.late", allocatable_count=2)
+    descriptor = _descriptor(
+        "test.read_alternatives",
+        (
+            Operand("dst", OperandRole.RESULT, (RegClassAlt(early.name), RegClassAlt(late.name))),
+            Operand("src", OperandRole.OPERAND, (RegClassAlt(early.name), RegClassAlt(late.name, late_read_subgroup_size=64))),
+        ),
+    )
+    compiler.compile_descriptor_set(_descriptor_set(descriptor, register_classes=(early, late)))
 
 
 def test_physical_descriptor_set_accepts_tied_width_transition() -> None:

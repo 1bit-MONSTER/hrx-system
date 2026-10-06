@@ -23,8 +23,8 @@ static iree_status_t iree_test_loom_capture_sources(
     const loom_module_t* target_module,
     const loom_source_id_t* target_sources) {
   iree_test_loom_link_sources_t* sources = user_data;
-  return loom_tooling_source_storage_project(&sources->output, sources->input,
-                                             target_sources);
+  return loom_tooling_source_storage_project(&sources->output, target_module,
+                                             sources->input, target_sources);
 }
 
 static iree_status_t iree_test_loom_add_library(

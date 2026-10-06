@@ -1,0 +1,13 @@
+func.def @update_vector_bank(%initial: vector<4x4xf32>, %scale: f32, %iteration_count: index) -> (vector<4xf32>) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %scale_row = vector.splat %scale : vector<4xf32>
+  %final = scf.for %iteration = [%begin to %iteration_count step %step](%bank = %initial : vector<4x4xf32>) -> (vector<4x4xf32>) {
+    %row = vector.extract %bank[2] : vector<4x4xf32> -> vector<4xf32>
+    %next_row = vector.mulf %row, %scale_row : vector<4xf32>
+    %next_bank = vector.insert %next_row into %bank[2] : vector<4xf32>, vector<4x4xf32>
+    scf.yield %next_bank : vector<4x4xf32>
+  }
+  %result = vector.extract %final[2] : vector<4x4xf32> -> vector<4xf32>
+  func.return %result : vector<4xf32>
+}

@@ -78,3 +78,16 @@ class SanitizerBuilder(DialectBuilder):
         static_count: int,
         location_id: int | None = ...,
     ) -> None: ...
+    def fragment_access(
+        self,
+        *,
+        kind: str,
+        fragment: ValueRef,
+        view: ValueRef,
+        indices: list[int | ValueRef],
+        blocks: ValueRef | None = ...,
+        rows: ValueRef,
+        columns: ValueRef,
+        role: str,
+        location_id: int | None = ...,
+    ) -> None: ...

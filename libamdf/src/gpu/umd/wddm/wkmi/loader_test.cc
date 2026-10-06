@@ -88,7 +88,7 @@ TEST_F(WkmiLoaderTest, NegotiationFailurePreservesLiveModuleOwner) {
   EXPECT_EQ(loader.module, nullptr);
 }
 
-TEST_F(WkmiLoaderTest, RejectsRetryableQueueReleaseBridge) {
+TEST_F(WkmiLoaderTest, RejectsBridgeWithoutNativeAtomicProperties) {
   amdf_gpu_wddm_wkmi_loader_t loader = {};
   ASSERT_EQ(
       amdf_gpu_wddm_wkmi_loader_initialize(amdf_allocator_system(), &loader),
@@ -96,13 +96,17 @@ TEST_F(WkmiLoaderTest, RejectsRetryableQueueReleaseBridge) {
   const auto set_version = reinterpret_cast<SetAbiVersionFn>(
       GetProcAddress(loader.module, "amdf_test_wkmi_bridge_set_abi_version"));
   ASSERT_NE(set_version, nullptr);
-  set_version(AMDF_WKMI_BRIDGE_ABI_VERSION_3);
   const auto* sentinel =
       reinterpret_cast<const amdf_wkmi_bridge_api_t*>(uintptr_t{1});
   const amdf_wkmi_bridge_api_t* api = sentinel;
-  EXPECT_EQ(amdf_gpu_wddm_wkmi_loader_query_api(&loader, &api),
-            amdf_make_api_status(AMDF_STATUS_CODE_VERSION_MISMATCH));
-  EXPECT_EQ(api, sentinel);
+  for (uint32_t version :
+       {AMDF_WKMI_BRIDGE_ABI_VERSION_3, AMDF_WKMI_BRIDGE_ABI_VERSION_4}) {
+    SCOPED_TRACE(version);
+    set_version(version);
+    EXPECT_EQ(amdf_gpu_wddm_wkmi_loader_query_api(&loader, &api),
+              amdf_make_api_status(AMDF_STATUS_CODE_VERSION_MISMATCH));
+    EXPECT_EQ(api, sentinel);
+  }
   set_version(AMDF_WKMI_BRIDGE_ABI_VERSION_LATEST);
   EXPECT_EQ(amdf_gpu_wddm_wkmi_loader_query_api(&loader, &api), AMDF_STATUS_OK);
   EXPECT_NE(api, sentinel);

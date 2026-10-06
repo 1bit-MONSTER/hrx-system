@@ -105,17 +105,25 @@ typedef enum loom_spirv_vulkan_hal_profile_flag_bits_e {
 
 typedef uint32_t loom_spirv_vulkan_hal_profile_flags_t;
 
+// F32 denormals can be preserved independently of other floating widths.
+#define LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_FLOAT32_DENORM_PRESERVE \
+  (UINT32_C(1) << 31)
+
 // Device facts queried from a Vulkan HAL device.
 typedef struct loom_spirv_vulkan_hal_profile_facts_t {
   // Vulkan API version reported by the selected logical device.
   uint32_t api_version;
   // Vulkan/SPIR-V feature and executable-format facts.
   loom_spirv_vulkan_hal_profile_flags_t flags;
+  // VkPhysicalDeviceSubgroupProperties::supportedOperations value.
+  uint32_t subgroup_supported_operations;
   // Fixed subgroup size in invocations, or zero when the device does not report
   // a fixed target-wide value.
   uint32_t subgroup_size;
   // Maximum flat local workgroup size in invocations.
   uint32_t max_compute_workgroup_invocations;
+  // Maximum total Workgroup storage used by one shader entry point, in bytes.
+  uint64_t max_compute_shared_memory_size;
   // Maximum local workgroup size per dimension.
   loom_target_workgroup_size_t max_compute_workgroup_size;
   // Maximum dispatch workgroup count per dimension.

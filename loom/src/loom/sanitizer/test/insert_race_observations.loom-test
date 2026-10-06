@@ -120,6 +120,47 @@ kernel.def @workgroup_vector_dynamic_lane_offsets() {
 
 // ====
 
+kernel.def @workgroup_fragment_load_store() {
+  %unit_extent = index.constant 1 : index
+  %threads = index.constant 64 : index
+  kernel.launch.config workgroups(%unit_extent, %unit_extent, %unit_extent) workgroup_size(%threads, %unit_extent, %unit_extent) : index
+} launch() {
+  %base = index.constant 0 : offset
+  %c0 = index.constant 0 : index
+  %blocks = index.constant 4 : index
+  %rows = index.constant 16 : index
+  %columns = index.constant 16 : index
+  %bytes = index.constant 4096 : offset
+  %scratch = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<4x16x16xf32>
+  %loaded = vector.fragment.load<init> %view[%c0, %c0, %c0] shape [blocks(%blocks), %rows, %columns] : view<4x16x16xf32> -> vector<16xf32>
+  vector.fragment.store<result> %loaded, %view[%c0, %c0, %c0] shape [blocks(%blocks), %rows, %columns] : vector<16xf32>, view<4x16x16xf32>
+  kernel.return
+}
+
+// ----
+kernel.def @workgroup_fragment_load_store() {
+  %unit_extent = index.constant 1 : index
+  %threads = index.constant 64 : index
+  kernel.launch.config workgroups(%unit_extent, %unit_extent, %unit_extent) workgroup_size(%threads, %unit_extent, %unit_extent) : index
+} launch() {
+  %base = index.constant 0 : offset
+  %c0 = index.constant 0 : index
+  %blocks = index.constant 4 : index
+  %rows = index.constant 16 : index
+  %columns = index.constant 16 : index
+  %bytes = index.constant 4096 : offset
+  %scratch = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<4x16x16xf32>
+  %loaded = vector.fragment.load<init> %view[%c0, %c0, %c0] shape [blocks(%blocks), %rows, %columns] : view<4x16x16xf32> -> vector<16xf32>
+  sanitizer.race.fragment_access<read> %loaded, %view[%c0, %c0, %c0] shape [blocks(%blocks), %rows, %columns] {role = init} : vector<16xf32>, view<4x16x16xf32>
+  sanitizer.race.fragment_access<write> %loaded, %view[%c0, %c0, %c0] shape [blocks(%blocks), %rows, %columns] {role = result} : vector<16xf32>, view<4x16x16xf32>
+  vector.fragment.store<result> %loaded, %view[%c0, %c0, %c0] shape [blocks(%blocks), %rows, %columns] : vector<16xf32>, view<4x16x16xf32>
+  kernel.return
+}
+
+// ====
+
 kernel.def @masked_vector_workgroup_access_requires_lane_activity() {
   %unit_extent = index.constant 1 : index
   %threads = index.constant 64 : index

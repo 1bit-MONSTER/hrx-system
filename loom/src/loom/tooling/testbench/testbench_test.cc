@@ -13,7 +13,9 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/check/ops.h"
+#include "loom/ops/command/ops.h"
 #include "loom/ops/kernel/ops.h"
+#include "loom/ops/pipeline/ops.h"
 #include "loom/ops/test/ops.h"
 
 namespace loom {
@@ -28,7 +30,9 @@ class TestbenchTest : public ::testing::Test {
 
     loom_context_initialize(iree_allocator_system(), &context_);
     RegisterDialect(LOOM_DIALECT_CHECK, loom_check_dialect_vtables);
+    RegisterDialect(LOOM_DIALECT_COMMAND, loom_command_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_KERNEL, loom_kernel_dialect_vtables);
+    RegisterDialect(LOOM_DIALECT_PIPELINE, loom_pipeline_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_TEST, loom_test_dialect_vtables);
     IREE_ASSERT_OK(loom_context_finalize(&context_));
   }
@@ -202,6 +206,182 @@ check.benchmark<@private_case> @private
   EXPECT_TRUE(loom_symbol_ref_is_valid(plan.benchmarks[1].ref));
   EXPECT_EQ(plan.benchmarks[1].case_index, 1u);
   EXPECT_EQ(plan.benchmarks[1].sample_count, 1u);
+  EXPECT_EQ(plan.issue_count, 0u);
+
+  loom_module_free(module);
+}
+
+TEST_F(TestbenchTest, PlansConfiguredScenarioTrialDomains) {
+  loom_module_t* module = ParseModule(R"(
+test.func @identity(%input: i32) -> (i32) {
+  test.yield %input : i32
+}
+
+kernel.decl @update(%workload: index) launch(%storage: buffer, %tail: buffer)
+
+command.program.decl @program(%configuration: index) launch(%storage: buffer)
+
+pipeline.def @pipeline(%configuration: index) launch(%storage: buffer) {
+  pipeline.return
+}
+
+check.scenario public @configured configure[2](%configuration: index, %configuration_entropy: check.entropy) {
+  %configuration_stream = check.entropy.fork %configuration_entropy name("configuration") : check.entropy
+  %configuration_word = check.entropy.read %configuration_stream[%configuration] : check.entropy -> i64
+  check.trial[4](%trial: index, %entropy: check.entropy) {
+    %input_stream = check.entropy.fork %entropy name("input") : check.entropy
+    %input_word = check.entropy.read %input_stream[%trial] : check.entropy -> i64
+    %input = check.literal value(7) : i32
+    check.compare<@identity>(%input) : (i32) -> [actual(%actual: i32), expected(%expected: i32)] {
+      check.expect.equal actual(%actual) expected(%expected) : i32
+    }
+  }
+  check.trial[2](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(0) : tensor<4xi32>
+    %tail = check.tensor.view %storage offset(8) : tensor<4xi32> -> tensor<2xi32>
+    check.invoke<@update>[%configuration](%storage, %tail) : [index](tensor<4xi32>, tensor<2xi32>) -> ()
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(0) : tensor<4xi32>
+    check.invoke<@program>[%configuration](%storage) : [index](tensor<4xi32>) -> ()
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(0) : tensor<4xi32>
+    check.invoke<@pipeline>[%configuration](%storage) : [index](tensor<4xi32>) -> ()
+  }
+  check.return
+}
+
+check.benchmark<@configured> @configured_throughput
+)");
+  ASSERT_NE(module, nullptr);
+
+  loom_testbench_module_plan_t plan = {};
+  IREE_ASSERT_OK(
+      loom_testbench_plan_module(module, nullptr, &plan_arena_, &plan));
+
+  ASSERT_EQ(plan.scenario_count, 1u);
+  const loom_testbench_scenario_plan_t& scenario = plan.scenarios[0];
+  EXPECT_TRUE(iree_string_view_equal(scenario.name, IREE_SV("configured")));
+  EXPECT_TRUE(scenario.is_public);
+  EXPECT_TRUE(scenario.is_configured);
+  EXPECT_EQ(scenario.configuration_count, 2u);
+  EXPECT_NE(scenario.configuration_ordinal_value_id, LOOM_VALUE_ID_INVALID);
+  EXPECT_NE(scenario.configuration_entropy_value_id, LOOM_VALUE_ID_INVALID);
+  ASSERT_EQ(scenario.configuration_source_count, 2u);
+  EXPECT_EQ(scenario.configuration_sources[0].kind,
+            LOOM_TESTBENCH_VALUE_SOURCE_ENTROPY_FORK);
+  EXPECT_EQ(scenario.configuration_sources[1].kind,
+            LOOM_TESTBENCH_VALUE_SOURCE_ENTROPY_READ);
+
+  ASSERT_EQ(scenario.trial_count, 4u);
+  const loom_testbench_trial_plan_t& comparison_trial = scenario.trials[0];
+  EXPECT_EQ(comparison_trial.trial_count, 4u);
+  ASSERT_EQ(comparison_trial.value_source_count, 3u);
+  EXPECT_EQ(comparison_trial.value_sources[0].kind,
+            LOOM_TESTBENCH_VALUE_SOURCE_ENTROPY_FORK);
+  EXPECT_EQ(comparison_trial.value_sources[1].kind,
+            LOOM_TESTBENCH_VALUE_SOURCE_ENTROPY_READ);
+  EXPECT_EQ(comparison_trial.value_sources[2].kind,
+            LOOM_TESTBENCH_VALUE_SOURCE_LITERAL);
+  EXPECT_EQ(comparison_trial.action.kind,
+            LOOM_TESTBENCH_SCENARIO_ACTION_COMPARE);
+  EXPECT_EQ(comparison_trial.action.target.kind,
+            LOOM_TESTBENCH_INVOCATION_FUNCTION_CALL);
+  EXPECT_EQ(comparison_trial.action.oracle.kind,
+            LOOM_TESTBENCH_INVOCATION_FUNCTION_CALL);
+  ASSERT_EQ(comparison_trial.action.target.result_count, 1u);
+  ASSERT_EQ(comparison_trial.action.oracle.result_count, 1u);
+  EXPECT_NE(comparison_trial.action.target.result_value_ids[0],
+            comparison_trial.action.oracle.result_value_ids[0]);
+  ASSERT_EQ(comparison_trial.action.expectation_count, 1u);
+  EXPECT_EQ(comparison_trial.action.expectations[0].actual_value_id,
+            comparison_trial.action.target.result_value_ids[0]);
+  EXPECT_EQ(comparison_trial.action.expectations[0].expected_value_id,
+            comparison_trial.action.oracle.result_value_ids[0]);
+
+  const loom_testbench_trial_plan_t& invoke_trial = scenario.trials[1];
+  EXPECT_EQ(invoke_trial.trial_count, 2u);
+  ASSERT_EQ(invoke_trial.value_source_count, 2u);
+  EXPECT_EQ(invoke_trial.value_sources[0].kind,
+            LOOM_TESTBENCH_VALUE_SOURCE_FILL);
+  EXPECT_EQ(invoke_trial.value_sources[1].kind,
+            LOOM_TESTBENCH_VALUE_SOURCE_TENSOR_VIEW);
+  EXPECT_EQ(invoke_trial.action.kind, LOOM_TESTBENCH_SCENARIO_ACTION_INVOKE);
+  EXPECT_EQ(invoke_trial.action.target.kind,
+            LOOM_TESTBENCH_INVOCATION_KERNEL_LAUNCH);
+  EXPECT_EQ(invoke_trial.action.target.workload_count, 1u);
+  EXPECT_EQ(invoke_trial.action.target.input_count, 2u);
+  EXPECT_EQ(invoke_trial.action.target.result_count, 0u);
+  EXPECT_EQ(invoke_trial.action.oracle.kind, LOOM_TESTBENCH_INVOCATION_NONE);
+
+  EXPECT_EQ(scenario.trials[2].action.target.kind,
+            LOOM_TESTBENCH_INVOCATION_COMMAND_PROGRAM);
+  EXPECT_EQ(scenario.trials[3].action.target.kind,
+            LOOM_TESTBENCH_INVOCATION_PIPELINE);
+
+  ASSERT_EQ(plan.benchmark_count, 1u);
+  EXPECT_EQ(plan.benchmarks[0].case_index, LOOM_TESTBENCH_CASE_INDEX_INVALID);
+  EXPECT_EQ(plan.benchmarks[0].scenario_index, 0u);
+  EXPECT_EQ(plan.benchmarks[0].cartesian_sample_count, 16u);
+  EXPECT_EQ(plan.benchmarks[0].sample_count, 16u);
+  const loom_testbench_scenario_sample_coordinate_t expected_coordinates[] = {
+      {0, 0, 0}, {0, 0, 3}, {0, 1, 0}, {0, 1, 1},
+      {0, 2, 0}, {0, 3, 0}, {1, 0, 0}, {1, 3, 0},
+  };
+  const iree_host_size_t benchmark_ordinals[] = {0, 3, 4, 5, 6, 7, 8, 15};
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(benchmark_ordinals); ++i) {
+    const loom_testbench_scenario_sample_coordinate_t coordinate =
+        loom_testbench_benchmark_sample_scenario_coordinate(
+            &scenario, &plan.benchmarks[0], benchmark_ordinals[i]);
+    EXPECT_EQ(coordinate.configuration_ordinal,
+              expected_coordinates[i].configuration_ordinal);
+    EXPECT_EQ(coordinate.trial_index, expected_coordinates[i].trial_index);
+    EXPECT_EQ(coordinate.trial_ordinal, expected_coordinates[i].trial_ordinal);
+  }
+  EXPECT_EQ(plan.issue_count, 0u);
+
+  loom_module_free(module);
+}
+
+TEST_F(TestbenchTest, PlansDistinctKernelAndOracleSubjects) {
+  loom_module_t* module = ParseModule(R"(
+kernel.decl @subgroup_target() launch(%storage: buffer)
+
+test.func @subgroup_oracle(%storage: buffer) {
+  test.yield
+}
+
+check.scenario @subgroup_comparison {
+  check.trial[4](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(0) : tensor<4xi32>
+    check.compare<@subgroup_target, @subgroup_oracle>(%storage) : (tensor<4xi32>) -> () {
+      check.expect.equal actual(%storage) expected(%storage) : tensor<4xi32>
+    }
+  }
+  check.return
+}
+)");
+  ASSERT_NE(module, nullptr);
+
+  loom_testbench_module_plan_t plan = {};
+  IREE_ASSERT_OK(
+      loom_testbench_plan_module(module, nullptr, &plan_arena_, &plan));
+
+  ASSERT_EQ(plan.scenario_count, 1u);
+  ASSERT_EQ(plan.scenarios[0].trial_count, 1u);
+  const loom_testbench_scenario_action_plan_t& action =
+      plan.scenarios[0].trials[0].action;
+  EXPECT_EQ(action.kind, LOOM_TESTBENCH_SCENARIO_ACTION_COMPARE);
+  EXPECT_EQ(action.target.kind, LOOM_TESTBENCH_INVOCATION_KERNEL_LAUNCH);
+  EXPECT_EQ(action.oracle.kind, LOOM_TESTBENCH_INVOCATION_FUNCTION_CALL);
+  EXPECT_NE(action.target.callee_ref.symbol_id,
+            action.oracle.callee_ref.symbol_id);
+  EXPECT_EQ(action.target.input_count, 1u);
+  EXPECT_EQ(action.oracle.input_count, 1u);
+  EXPECT_EQ(action.target.input_value_ids[0], action.oracle.input_value_ids[0]);
+  EXPECT_EQ(action.target.result_count, 0u);
+  EXPECT_EQ(action.oracle.result_count, 0u);
   EXPECT_EQ(plan.issue_count, 0u);
 
   loom_module_free(module);

@@ -114,7 +114,10 @@ bool iree_async_io_uring_event_source_submit_pending(
       source->flags &= ~IREE_ASYNC_IO_URING_EVENT_SOURCE_FLAG_ARM_PENDING;
       source->flags |= IREE_ASYNC_IO_URING_EVENT_SOURCE_FLAG_POLL_IN_FLIGHT;
     } else {
-      sqe->opcode = IREE_IORING_OP_POLL_REMOVE;
+      // ASYNC_CANCEL marks a persistent poll cancelled even while readiness
+      // task work owns it. POLL_REMOVE may instead return EALREADY and leave
+      // the poll armed, with no terminal receipt to join.
+      sqe->opcode = IREE_IORING_OP_ASYNC_CANCEL;
       sqe->fd = -1;
       sqe->addr = poll_key;
       sqe->user_data = iree_io_uring_internal_encode(

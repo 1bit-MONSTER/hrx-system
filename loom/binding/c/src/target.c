@@ -12,6 +12,7 @@
 #include "loom/codegen/low/repr.h"
 #include "loom/codegen/low/text_asm.h"
 #include "loom/pass/builtin_registry.h"
+#include "loom/target/selection.h"
 #include "loomc/iree.h"
 #include "option_chain.h"
 #include "source.h"
@@ -137,12 +138,6 @@ loomc_status_t loomc_target_specialization_options_validate(
   return loomc_ok_status();
 }
 
-static const loom_target_provider_set_t* loomc_target_environment_provider_set(
-    const loomc_target_environment_t* target_environment) {
-  return target_environment ? target_environment->environment.provider_set
-                            : NULL;
-}
-
 static bool loomc_target_environment_is_compatible(
     const loomc_target_environment_t* target_environment,
     const loomc_target_environment_t* profile_environment) {
@@ -155,8 +150,8 @@ static bool loomc_target_environment_is_compatible(
   if (target_environment == profile_environment) {
     return true;
   }
-  return loomc_target_environment_provider_set(target_environment) ==
-         loomc_target_environment_provider_set(profile_environment);
+  return target_environment->environment.provider_set ==
+         profile_environment->environment.provider_set;
 }
 
 static loomc_status_t loomc_target_specialization_validate_profile_environment(
@@ -173,22 +168,6 @@ static loomc_status_t loomc_target_specialization_validate_profile_environment(
     return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT, incomplete_message);
   }
   return loomc_ok_status();
-}
-
-static bool loomc_target_environment_supports_profile_type(
-    const loomc_target_environment_t* target_environment,
-    const loom_target_profile_type_t* profile_type) {
-  const loom_target_provider_set_t* provider_set =
-      loomc_target_environment_provider_set(target_environment);
-  if (provider_set == NULL || profile_type == NULL) {
-    return false;
-  }
-  for (iree_host_size_t i = 0; i < provider_set->provider_count; ++i) {
-    if (provider_set->providers[i]->profile_type == profile_type) {
-      return true;
-    }
-  }
-  return false;
 }
 
 static loomc_status_t loomc_target_pass_environment_initialize(
@@ -462,19 +441,29 @@ loomc_status_t loomc_target_pass_registry_initialize(
   return loomc_ok_status();
 }
 
-loom_pass_environment_t
-loomc_target_pass_environment_make_loom_pass_environment(
-    const loomc_target_pass_environment_t* environment,
+loom_pass_environment_t loomc_codegen_pass_environment_storage_initialize(
+    const loomc_target_pass_environment_t* target_environment,
+    const loom_cleanup_pattern_registry_t* cleanup_pattern_registry,
     loom_function_version_owner_t* function_version_owner,
-    loom_low_pass_environment_storage_t* out_storage) {
-  return loom_low_pass_environment_storage_initialize_mutable(
-      &environment->low_descriptor_registry.registry,
-      &environment->low_lower_policy_registry,
-      &environment->low_legality_provider_list,
-      loom_target_legalizer_registry_storage_registry(
-          &environment->legalizer_registry_storage),
-      &environment->math_policy_registry, /*compile_report=*/NULL,
-      environment->target_environment, function_version_owner, out_storage);
+    loom_codegen_pass_environment_storage_t* out_storage) {
+  loom_codegen_pass_environment_options_t options = {
+      .cleanup_pattern_registry = cleanup_pattern_registry,
+  };
+  if (target_environment != NULL) {
+    options.descriptor_registry =
+        &target_environment->low_descriptor_registry.registry;
+    options.lower_policy_registry =
+        &target_environment->low_lower_policy_registry;
+    options.legality_provider_list =
+        &target_environment->low_legality_provider_list;
+    options.legalizer_registry =
+        loom_target_legalizer_registry_storage_registry(
+            &target_environment->legalizer_registry_storage);
+    options.math_policy_registry = &target_environment->math_policy_registry;
+    options.target_environment = target_environment->target_environment;
+  }
+  return loom_codegen_pass_environment_storage_initialize_mutable(
+      &options, function_version_owner, out_storage);
 }
 
 void loomc_target_pass_environment_initialize_text_asm_environment(
@@ -557,8 +546,10 @@ loomc_status_t loomc_target_profile_create(
         "target_profile requires a target-family profile type");
   }
   if (loomc_status_is_ok(status) &&
-      !loomc_target_environment_supports_profile_type(
-          target_environment, pending_target_profile->type)) {
+      (target_environment == NULL ||
+       loom_target_environment_lookup_profile_provider(
+           &target_environment->environment, pending_target_profile->type) ==
+           NULL)) {
     status = loomc_status_from_iree(iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "target environment does not support profile family '%.*s'",
@@ -590,6 +581,42 @@ loomc_status_t loomc_target_profile_create(
                                        allocator);
   }
   return status;
+}
+
+loomc_status_t loomc_target_profile_select(
+    loomc_target_environment_t* target_environment,
+    loomc_string_view_t specification, loomc_allocator_t allocator,
+    loomc_target_profile_t** out_profile) {
+  if (out_profile == NULL) {
+    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                             "out_profile must not be NULL");
+  }
+  *out_profile = NULL;
+  if (target_environment == NULL) {
+    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                             "target_environment must not be NULL");
+  }
+  if (specification.data == NULL && specification.size != 0) {
+    return loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT,
+        "target specification requires storage for nonzero size");
+  }
+
+  const iree_string_view_t value =
+      iree_string_view_trim(iree_string_view_from_loomc(specification));
+  loom_target_specification_t parsed = {0};
+  LOOMC_RETURN_IF_ERROR(
+      loomc_status_from_iree(loom_target_specification_parse(value, &parsed)));
+  const loom_target_profile_t* selected_profile = NULL;
+  LOOMC_RETURN_IF_ERROR(
+      loomc_status_from_iree(loom_target_environment_select_profile(
+          loomc_target_environment_loom_target_environment(target_environment),
+          &parsed, &selected_profile)));
+  // Named profiles have process lifetime. The public handle retains only its
+  // environment and never destroys the provider-owned target facts.
+  return loomc_target_profile_create(
+      target_environment, loomc_string_view_from_iree(value),
+      (loom_target_profile_t*)selected_profile, NULL, allocator, out_profile);
 }
 
 const loom_target_profile_t* loomc_target_profile_loom_target_profile(

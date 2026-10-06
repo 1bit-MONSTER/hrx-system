@@ -11,6 +11,7 @@
 #include "loom/codegen/low/descriptors.h"
 #include "loom/codegen/low/function.h"
 #include "loom/codegen/low/pipeline/pass_environment.h"
+#include "loom/codegen/low/representation_binding.h"
 #include "loom/codegen/low/target_binding.h"
 #include "loom/ir/module.h"
 #include "loom/ops/op_defs.h"
@@ -42,7 +43,7 @@ const loom_pass_info_t* loom_low_cse_pass_info(void) {
 enum loom_low_cse_packet_flag_bits_e {
   // Whether the packet depends on architectural state not explicit in SSA.
   LOOM_LOW_CSE_PACKET_FLAG_IMPLICIT_STATE = 1u << 0,
-  // Whether the packet writes architectural state and must remain distinct.
+  // Whether the packet writes architectural state.
   LOOM_LOW_CSE_PACKET_FLAG_WRITES_STATE = 1u << 1,
 };
 typedef uint8_t loom_low_cse_packet_flags_t;
@@ -52,22 +53,40 @@ typedef struct loom_low_cse_packet_identity_t {
   uint32_t minimum_epoch;
   // Architectural state read and write classification.
   loom_low_cse_packet_flags_t flags;
+  // Retained identical assignment, or NULL when this packet must remain.
+  loom_op_t* assignment;
 } loom_low_cse_packet_identity_t;
 
-// State epochs are indexed by exact register-class identity. No candidate list
-// is scanned on a write and unrelated state classes never invalidate each
-// other.
+typedef struct loom_low_cse_state_class_t {
+  // Most recent retained write's value-definition frontier.
+  uint32_t write_epoch;
+  // Most recent reusable assignment to this class, or NULL after another write.
+  loom_op_t* assignment;
+  // Execution-boundary identity at the retained assignment.
+  const loom_op_t* boundary;
+} loom_low_cse_state_class_t;
+
+// Each class retains its latest write and assignment in the existing walk.
+// Writes to unrelated classes neither scan nor invalidate other assignments.
 static loom_low_cse_packet_identity_t loom_low_cse_observe_packet(
     const loom_low_descriptor_set_t* descriptor_set,
-    const loom_expression_cursor_t* cursor, uint32_t* state_write_epochs) {
+    const loom_expression_cursor_t* cursor,
+    const loom_low_descriptor_packet_t* packet, bool is_assignment,
+    const loom_op_t* boundary, loom_low_cse_state_class_t* state_classes) {
   loom_low_cse_packet_identity_t identity = {0};
-  loom_low_descriptor_packet_t packet = {0};
-  loom_low_descriptor_packet_initialize(descriptor_set, cursor->op, &packet);
-  if (packet.kind == LOOM_LOW_DESCRIPTOR_PACKET_NONE) {
+  if (packet->kind == LOOM_LOW_DESCRIPTOR_PACKET_NONE) {
     return identity;
   }
 
-  const loom_low_descriptor_t* descriptor = packet.descriptor;
+  // Descriptor semantics permit removing only the repeated state effect. SSA
+  // results still obey the shared identity and ownership eligibility rules.
+  const bool can_reuse_assignment =
+      is_assignment &&
+      !iree_any_bit_set(cursor->traits, LOOM_TRAIT_OBSERVABLE_EFFECT |
+                                            LOOM_TRAIT_UNIQUE_IDENTITY |
+                                            LOOM_TRAIT_CONVERGENT) &&
+      loom_expression_can_share_result_ownership(cursor->module, cursor->op);
+  const loom_low_descriptor_t* descriptor = packet->descriptor;
   for (uint16_t i = 0; i < descriptor->operand_count; ++i) {
     const loom_low_operand_t* operand =
         &descriptor_set->operands[descriptor->operand_start + i];
@@ -85,8 +104,18 @@ static loom_low_cse_packet_identity_t loom_low_cse_observe_packet(
     const uint16_t class_id =
         descriptor_set->reg_class_alts[operand->reg_class_alt_start]
             .reg_class_id;
+    loom_low_cse_state_class_t* state_class = &state_classes[class_id];
     if (iree_any_bit_set(state_flags, LOOM_LOW_OPERAND_FLAG_STATE_WRITE)) {
-      state_write_epochs[class_id] = cursor->epoch;
+      if (can_reuse_assignment && state_class->assignment &&
+          state_class->boundary == boundary &&
+          loom_expression_equal(cursor->module, state_class->assignment,
+                                cursor->op)) {
+        identity.assignment = state_class->assignment;
+      } else {
+        state_class->write_epoch = cursor->epoch;
+        state_class->assignment = can_reuse_assignment ? cursor->op : NULL;
+        state_class->boundary = boundary;
+      }
       identity.flags |= LOOM_LOW_CSE_PACKET_FLAG_WRITES_STATE;
     }
     const bool has_explicit_packet_value =
@@ -96,7 +125,7 @@ static loom_low_cse_packet_identity_t loom_low_cse_observe_packet(
         !has_explicit_packet_value) {
       identity.flags |= LOOM_LOW_CSE_PACKET_FLAG_IMPLICIT_STATE;
       identity.minimum_epoch =
-          iree_max(identity.minimum_epoch, state_write_epochs[class_id]);
+          iree_max(identity.minimum_epoch, state_class->write_epoch);
     }
   }
 
@@ -110,14 +139,16 @@ static iree_status_t loom_low_cse_region(
   loom_expression_walk_t* walk = NULL;
   IREE_RETURN_IF_ERROR(
       loom_expression_walk_create(module, region, arena, &walk));
-  uint32_t* state_write_epochs = NULL;
+  loom_low_cse_state_class_t* state_classes = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      arena, descriptor_set->reg_class_count, sizeof(*state_write_epochs),
-      (void**)&state_write_epochs));
-  memset(state_write_epochs, 0,
-         descriptor_set->reg_class_count * sizeof(*state_write_epochs));
+      arena, descriptor_set->reg_class_count, sizeof(*state_classes),
+      (void**)&state_classes));
+  memset(state_classes, 0,
+         descriptor_set->reg_class_count * sizeof(*state_classes));
   loom_low_cse_statistics_t* statistics = loom_low_cse_statistics(pass);
   loom_expression_barriers_t barriers = {0};
+  loom_block_t* assignment_block = NULL;
+  const loom_op_t* assignment_boundary = NULL;
   iree_status_t status = iree_ok_status();
   while (iree_status_is_ok(status)) {
     loom_expression_cursor_t cursor;
@@ -125,8 +156,41 @@ static iree_status_t loom_low_cse_region(
     if (!iree_status_is_ok(status) || !cursor.op) {
       break;
     }
+    loom_low_descriptor_packet_t packet = {0};
+    loom_low_descriptor_packet_initialize(descriptor_set, cursor.op, &packet);
+    const bool is_assignment =
+        packet.descriptor &&
+        iree_any_bit_set(packet.descriptor->flags,
+                         LOOM_LOW_DESCRIPTOR_FLAG_STATE_ASSIGNMENT);
+    // Assignment descriptors refine their conservative UNKNOWN_EFFECTS trait.
+    // A boundary identity, unlike the value epoch, distinguishes zero-result
+    // operations and invalidates every class without clearing the class table.
+    if (cursor.op->parent_block != assignment_block ||
+        cursor.op->region_count != 0 ||
+        iree_any_bit_set(cursor.traits,
+                         LOOM_TRAIT_CALLABLE_BOUNDARY | LOOM_TRAIT_TERMINATOR |
+                             LOOM_TRAIT_CONVERGENT | LOOM_TRAIT_MEMORY_FENCE |
+                             LOOM_TRAIT_OBSERVABLE_EFFECT) ||
+        (!is_assignment &&
+         iree_any_bit_set(cursor.traits, LOOM_TRAIT_UNKNOWN_EFFECTS)) ||
+        (packet.descriptor &&
+         iree_any_bit_set(packet.descriptor->flags,
+                          LOOM_LOW_DESCRIPTOR_FLAG_BARRIER)) ||
+        cursor.op->kind == LOOM_OP_LOW_SCHEDULE_FENCE) {
+      assignment_boundary = cursor.op;
+    }
+    assignment_block = cursor.op->parent_block;
     const loom_low_cse_packet_identity_t identity = loom_low_cse_observe_packet(
-        descriptor_set, &cursor, state_write_epochs);
+        descriptor_set, &cursor, &packet, is_assignment, assignment_boundary,
+        state_classes);
+    if (identity.assignment) {
+      status = loom_expression_replace(module, cursor.op, identity.assignment);
+      if (iree_status_is_ok(status)) {
+        loom_pass_mark_changed(pass);
+        ++statistics->expressions_eliminated;
+      }
+      continue;
+    }
     const uint32_t minimum_epoch =
         iree_max(identity.minimum_epoch,
                  loom_expression_observe_barriers(&cursor, &barriers));

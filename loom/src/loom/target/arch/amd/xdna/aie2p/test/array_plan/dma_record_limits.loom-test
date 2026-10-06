@@ -1,0 +1,259 @@
+// RUN: emit aie2p-array-plan @two_byte_external
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @two_byte_external() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %two = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %group = group %one
+  %worker = worker %group, %zero, @consume_i16
+  %input = binding 0, "read"
+  %input_sender = sender %input, 0 : reg<aie2p.array.sender : tile<1xi16>>
+  %worker_input = receiver %worker, 0 : reg<aie2p.array.receiver : tile<1xi16>>
+  // ERROR@+1: XDNA/017 {channel="0", record_bytes="2", minimum_bytes="4", maximum_bytes="65532", granularity_bytes="4"}
+  %channel = channel %input_sender, %worker_input, %two, %two : reg<aie2p.array.channel : tile<1xi16>>
+  constrain.location %worker, %zero, %row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume_i16() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+// ====
+// RUN: emit aie2p-array-plan @unaligned_external
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @unaligned_external() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %group = group %one
+  %worker = worker %group, %zero, @consume_i16x3
+  %input = binding 0, "read"
+  %input_sender = sender %input, 0 : reg<aie2p.array.sender : tile<3xi16>>
+  %worker_input = receiver %worker, 0 : reg<aie2p.array.receiver : tile<3xi16>>
+  // ERROR@+1: XDNA/017 {channel="0", record_bytes="6", minimum_bytes="4", maximum_bytes="65532", granularity_bytes="4"}
+  %channel = channel %input_sender, %worker_input, %one, %one : reg<aie2p.array.channel : tile<3xi16>>
+  constrain.location %worker, %zero, %row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume_i16x3() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+// ====
+// RUN: emit aie2p-array-plan @length_field_overflow
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @length_field_overflow() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %group = group %one
+  %worker = worker %group, %zero, @produce_wide_record
+  %output = binding 0, "write"
+  %worker_output = sender %worker, 0 : reg<aie2p.array.sender : tile<16384xi32>>
+  %output_receiver = receiver %output, 0 : reg<aie2p.array.receiver : tile<16384xi32>>
+  // ERROR@+1: XDNA/017 {channel="0", record_bytes="65536", minimum_bytes="4", maximum_bytes="65532", granularity_bytes="4"}
+  %channel = channel %worker_output, %output_receiver, %one, %one : reg<aie2p.array.channel : tile<16384xi32>>
+  constrain.location %worker, %zero, %row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @produce_wide_record() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+// ====
+// RUN: with-checks emit aie2p-array-plan @maximum_dma_record
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @maximum_dma_record() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %group = group %one
+  %worker = worker %group, %zero, @produce_maximum_record
+  %output = binding 0, "write"
+  %worker_output = sender %worker, 0 : reg<aie2p.array.sender : tile<16383xi32>>
+  %output_receiver = receiver %output, 0 : reg<aie2p.array.receiver : tile<16383xi32>>
+  %channel = channel %worker_output, %output_receiver, %one, %one : reg<aie2p.array.channel : tile<16383xi32>>
+  constrain.location %worker, %zero, %row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @produce_maximum_record() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+// ----
+CHECK: channel index=0 transport=external-dma record-bytes=65532 capacity=1 records=1 *
+CHECK: array-block record=* address=* words=[0x00003fff,*]
+
+// ====
+// RUN: with-checks emit aie2p-array-plan @two_byte_neighbor
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @two_byte_neighbor() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %two = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %three = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %group = group %two
+  %producer = worker %group, %zero, @produce_i16
+  %consumer = worker %group, %one, @consume_i16
+  %sender = sender %producer, 0 : reg<aie2p.array.sender : tile<1xi16>>
+  %receiver = receiver %consumer, 0 : reg<aie2p.array.receiver : tile<1xi16>>
+  %channel = channel %sender, %receiver, %one, %one : reg<aie2p.array.channel : tile<1xi16>>
+  constrain.location %producer, %zero, %two
+  constrain.location %consumer, %zero, %three
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @produce_i16() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume_i16() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+// ----
+CHECK: channel index=0 transport=neighbor-memory record-bytes=2 capacity=1 records=1 *
+CHECK: slot channel=0 index=0 owner=(0,2) * bytes=2 *
+CHECK-NOT: dma channel=0 *
+
+// ====
+// RUN: emit aie2p-array-plan @two_byte_routed
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @two_byte_routed() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %two = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %four = constant.u32 4 : reg<aie2p.array.scalar : index>
+  %group = group %two
+  %producer = worker %group, %zero, @produce_i16
+  %consumer = worker %group, %one, @consume_i16
+  %sender = sender %producer, 0 : reg<aie2p.array.sender : tile<1xi16>>
+  %receiver = receiver %consumer, 0 : reg<aie2p.array.receiver : tile<1xi16>>
+  // ERROR@+1: XDNA/017 {channel="0", record_bytes="2", minimum_bytes="4", maximum_bytes="65532", granularity_bytes="4"}
+  %channel = channel %sender, %receiver, %one, %one : reg<aie2p.array.channel : tile<1xi16>>
+  constrain.location %producer, %zero, %two
+  constrain.location %consumer, %zero, %four
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @produce_i16() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume_i16() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+// ====
+// RUN: emit aie2p-array-plan @two_byte_multicast
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @two_byte_multicast() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %two = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %three = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %four = constant.u32 4 : reg<aie2p.array.scalar : index>
+  %group = group %three
+  %producer = worker %group, %zero, @produce_i16
+  %near_consumer = worker %group, %one, @consume_i16
+  %far_consumer = worker %group, %two, @consume_i16
+  %sender = sender %producer, 0 : reg<aie2p.array.sender : tile<1xi16>>
+  %near_receiver = receiver %near_consumer, 0 : reg<aie2p.array.receiver : tile<1xi16>>
+  %far_receiver = receiver %far_consumer, 0 : reg<aie2p.array.receiver : tile<1xi16>>
+  // ERROR@+1: XDNA/017 {channel="0", record_bytes="2", minimum_bytes="4", maximum_bytes="65532", granularity_bytes="4"}
+  %near_channel = channel %sender, %near_receiver, %one, %one : reg<aie2p.array.channel : tile<1xi16>>
+  %far_channel = channel %sender, %far_receiver, %one, %one : reg<aie2p.array.channel : tile<1xi16>>
+  constrain.location %producer, %zero, %two
+  constrain.location %near_consumer, %zero, %three
+  constrain.location %far_consumer, %zero, %four
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @produce_i16() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume_i16() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+// ====
+// RUN: with-checks emit aie2p-array-plan @full_neighbor_record
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @full_neighbor_record() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %two = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %three = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %group = group %two
+  %producer = worker %group, %zero, @produce_wide_record
+  %consumer = worker %group, %one, @consume_wide_record
+  %sender = sender %producer, 0 : reg<aie2p.array.sender : tile<16384xi32>>
+  %receiver = receiver %consumer, 0 : reg<aie2p.array.receiver : tile<16384xi32>>
+  %channel = channel %sender, %receiver, %one, %one : reg<aie2p.array.channel : tile<16384xi32>>
+  constrain.location %producer, %zero, %two
+  constrain.location %consumer, %zero, %three
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @produce_wide_record() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume_wide_record() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+// ----
+CHECK: channel index=0 transport=neighbor-memory record-bytes=65536 capacity=1 records=1 *
+CHECK: slot channel=0 index=0 owner=(0,2) offset=0x00000 bytes=65536 *
+CHECK-NOT: dma channel=0 *

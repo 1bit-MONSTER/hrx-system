@@ -51,7 +51,68 @@ check.case @provider_case {
   check.skip_if<device.memory> {max_bytes = 1024} reason("tiny device")
   %actual = check.literal value(1) : i32
   %expected = check.literal value(1) : i32
-  check.expect<topk.equal> actual(%actual) expected(%expected) {k = 1} : i32
   check.expect.event<device> {count = 1, severity = "error", tsan = {access_length = 4, check = "data_race", current_access = "write", memory = "workgroup", prior_access = "write"}, type = "tsan_report"}
+  check.return
+}
+
+// ====
+
+// A scenario owns several independent trial domains. Entropy forks are named
+// and reads are explicitly indexed, so generators can replay any trial without
+// depending on the traversal order of its siblings.
+func.decl @logarithm(%bits: i32) -> (f32, vector<4xf32>)
+
+func.decl @logarithm_oracle(%bits: i32) -> (f32, vector<4xf32>)
+
+func.decl @dependent_result() -> (%width: index, vector<[%width]xf32>)
+
+check.scenario public @math_scenario {
+  check.trial[32](%trial: index, %entropy: check.entropy) {
+    %pair_entropy = check.entropy.fork %entropy name("input_pair") : check.entropy
+    %word = check.entropy.read %pair_entropy[%trial] : check.entropy -> i64
+    %bits = check.literal value(1065353216) : i32
+    check.compare<@logarithm, @logarithm_oracle>(%bits) : (i32) -> [actual(%actual_log2: f32, %actual_exp2: vector<4xf32>), expected(%expected_log2: f32, %expected_exp2: vector<4xf32>)] {
+      check.expect.close actual(%actual_log2) expected(%expected_log2) atol(0.0) rtol(9.9999999999999995e-07) nan(same) : f32
+      check.expect.close actual(%actual_exp2) expected(%expected_exp2) atol(0.0) rtol(9.9999999999999995e-07) nan(same) : vector<4xf32>
+    }
+  }
+  check.trial[4](%trial: index, %entropy: check.entropy) {
+    %bits = check.literal value(1065353216) : i32
+    check.invoke<@logarithm>(%bits) : (i32) -> (f32, vector<4xf32>)
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    check.invoke<@dependent_result>() : () -> (%width: index, vector<[%width]xf32>)
+  }
+  check.return
+}
+
+check.benchmark<@math_scenario> @math_throughput
+
+// ====
+
+// Configuration values are captured by nested trials and form the kernel
+// workload group. Runtime trial values remain ordinary call arguments.
+kernel.decl @configured_kernel(%workload: index) launch()
+
+check.scenario @configured_scenario configure[8](%configuration: index, %entropy: check.entropy) {
+  check.trial[16](%trial: index, %trial_entropy: check.entropy) {
+    check.invoke<@configured_kernel>[%configuration]() : [index]() -> ()
+  }
+  check.return
+}
+
+// ====
+
+// Void comparisons use a canonical empty result pair while retaining an
+// explicit comparison body for checks over captured mutable arguments.
+func.decl @update(%value: i32)
+
+check.scenario @void_comparison {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.literal value(0) : i32
+    check.compare<@update>(%value) : (i32) -> () {
+      check.expect.equal actual(%value) expected(%value) : i32
+    }
+  }
   check.return
 }

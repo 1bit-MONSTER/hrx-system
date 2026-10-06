@@ -1,0 +1,118 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_shared_components.loom-test
+// RUN: with-checks emit source-low target=x86:avx2 output=low
+
+// A preheader access materializes row*16+column. The loop adds a varying
+// element while preserving that exact invariant sum across the access boundary.
+func.def @shared_loop_origin(%input: buffer, %row: index, %column: index) -> (i32) {
+  %bounded_row = index.assume %row [range(%row, 0, 7)] : index
+  %bounded_column = index.assume %column [range(%column, 0, 7)] : index
+  %stride = index.constant 16 : index
+  %origin = index.madd %bounded_row, %stride, %bounded_column : index
+  %base = index.constant 0 : offset
+  %data = buffer.view %input[%base] : buffer -> view<128xi32>
+  %first = view.load %data[%origin] : view<128xi32> -> i32
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %sum = scf.for %iteration = [%begin to %end step %step](%total = %first : i32) -> (i32) {
+    %position = index.add %origin, %iteration : index
+    %value = view.load %data[%position] : view<128xi32> -> i32
+    %next = scalar.addi %total, %value : i32
+    scf.yield %next : i32
+  }
+  func.return %sum : i32
+}
+
+// ----
+CHECK: %origin = lea *, %bounded_column
+CHECK: %position = lea %origin, %iteration
+CHECK: %value = mov.load.indexed.gpr32 %input, %position {disp32 = 0, scale = 4}
+
+// ====
+
+// Both accesses have the same dynamic byte sum but distinct static offsets.
+// Retaining the index must preserve its element-to-byte conversion exactly.
+func.def @shared_static_suffix(%input: buffer, %row: index, %column: index) -> (i32) {
+  %bounded_row = index.assume %row [range(%row, 0, 7)] : index
+  %bounded_column = index.assume %column [range(%column, 0, 7)] : index
+  %stride = index.constant 16 : index
+  %origin = index.madd %bounded_row, %stride, %bounded_column : index
+  %distance = index.constant 8 : index
+  %later = index.add %origin, %distance : index
+  %base = index.constant 0 : offset
+  %data = buffer.view %input[%base] : buffer -> view<128xi32>
+  %first = view.load %data[%origin] : view<128xi32> -> i32
+  %second = view.load %data[%later] : view<128xi32> -> i32
+  %sum = scalar.addi %first, %second : i32
+  func.return %sum : i32
+}
+
+// ----
+CHECK: %origin = lea *, %bounded_column
+CHECK: %first = mov.load.indexed.gpr32 %input, %origin {disp32 = 0, scale = 4}
+CHECK: * = copy %origin : reg<x86.gpr64> -> reg<x86.gpr64>
+CHECK: %second = mov.load.indexed.gpr32 %input, * {disp32 = 32, scale = 1}
+
+// ====
+
+// Equal canonical terms in sibling branches do not make a branch-local SSA
+// realization available in the other branch.
+func.def @sibling_origins(%input: buffer, %row: index, %column: index, %condition: i1) -> (i32) {
+  %bounded_row = index.assume %row [range(%row, 0, 7)] : index
+  %bounded_column = index.assume %column [range(%column, 0, 7)] : index
+  %stride = index.constant 16 : index
+  %base = index.constant 0 : offset
+  %data = buffer.view %input[%base] : buffer -> view<128xi32>
+  %result = scf.if %condition -> (i32) {
+    %left_origin = index.madd %bounded_row, %stride, %bounded_column : index
+    %left = view.load<volatile> %data[%left_origin] : view<128xi32> -> i32
+    view.store<volatile> %left, %data[%left_origin] : i32, view<128xi32>
+    scf.yield %left : i32
+  } else {
+    %right_origin = index.madd %bounded_row, %stride, %bounded_column : index
+    %distance = index.constant 8 : index
+    %later = index.add %right_origin, %distance : index
+    %right = view.load<volatile> %data[%later] : view<128xi32> -> i32
+    scf.yield %right : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+CHECK: * = mov.imm64 64
+CHECK: %left = mov.load.indexed.gpr32<volatile> *
+CHECK: %right = mov.load.indexed.gpr32<volatile> * {disp32 = 32, scale = 1}
+
+// ====
+
+// An enclosing address component remains available through nested scopes and
+// after both loops exit. Volatile accesses keep every observation in the IR.
+func.def @nested_scoped_origin(%input: buffer, %row: index, %column: index) -> (i32) {
+  %bounded_row = index.assume %row [range(%row, 0, 7)] : index
+  %bounded_column = index.assume %column [range(%column, 0, 7)] : index
+  %stride = index.constant 16 : index
+  %origin = index.madd %bounded_row, %stride, %bounded_column : index
+  %distance = index.constant 8 : index
+  %later = index.add %origin, %distance : index
+  %base = index.constant 0 : offset
+  %data = buffer.view %input[%base] : buffer -> view<128xi32>
+  %first = view.load<volatile> %data[%origin] : view<128xi32> -> i32
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  scf.for %outer = [%begin to %end step %step] {
+    scf.for %inner = [%begin to %end step %step] {
+      %value = view.load<volatile> %data[%later] : view<128xi32> -> i32
+      view.store<volatile> %value, %data[%later] : i32, view<128xi32>
+    }
+  }
+  %last = view.load<volatile> %data[%later] : view<128xi32> -> i32
+  %result = scalar.addi %first, %last : i32
+  func.return %result : i32
+}
+
+// ----
+CHECK: %origin = lea *, %bounded_column
+CHECK: %value = mov.load.indexed.gpr32<volatile> * {disp32 = 32, scale = 1}
+CHECK: %last = mov.load.indexed.gpr32<volatile> * {disp32 = 32, scale = 1}
+CHECK-NOT: * = mov.imm64 64

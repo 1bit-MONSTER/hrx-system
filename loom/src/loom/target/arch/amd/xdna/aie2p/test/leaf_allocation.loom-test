@@ -1,157 +1,219 @@
-// FIFO pointer, storage and position remain co-indexed through consecutive pops.
-// RUN: emit low-allocation-json @fifo_load
+// A pointer fixed to p1 selects the matching lf1/r25 FIFO tuple.
+// RUN: emit aie2p-leaf @fixed_fifo_tuple fixed=%pointer:physical_register:201:1 registers=p0,p1,lf0,lf1,r24,r25
 
-low.func.def target<amd.xdna.aie2p.core> @fifo_load(%pointer: reg<aie2p.eps>, %initial_fifo: reg<aie2p.eldfiforeg>) -> (reg<aie2p.vec256 x2>) asm {
+low.func.def target<amd.xdna.aie2p.core> @fixed_fifo_tuple(%pointer: reg<aie2p.eps>, %initial_fifo: reg<aie2p.eldfiforeg>) -> (reg<aie2p.vec256 x2>) asm {
   %position = mova.fifo.position 0
-  %filled_pointer, %fifo, %filled_position = vldb.fill.512 %pointer, %initial_fifo, %position
-  %first_data, %next_pointer, %next_fifo, %next_position = vldb.pop.512.i8x64 %filled_pointer, %fifo, %filled_position
-  %data, %final_pointer, %final_fifo, %final_position = vldb.pop.512.i8x64 %next_pointer, %next_fifo, %next_position
+  %filled_pointer, %filled_fifo, %filled_position = vldb.fill.512 %pointer, %initial_fifo, %position
+  %data, %final_pointer, %final_fifo, %final_position = vldb.pop.512.i8x64 %filled_pointer, %filled_fifo, %filled_position
   return %data
 }
 
 // ----
-{"format":"loom.low.allocation.v0","function":"fifo_load","target":"","descriptor_set":"amd.xdna.aie2p.core","allocation_mode":"virtual","assignment_count":14,"remark_count":0,"copy_decision_count":0,"spill_count":0,"spill_plan_count":0,"coalesced_copy_count":0,"materialized_copy_count":0,"assignments":[{"index":0,"value":{"id":0,"name":"pointer","type":"reg<aie2p.eps>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eps"},"start_point":0,"end_point":3,"unit_count":1,"location":{"kind":"physical_register","base":200,"count":1}},{"index":1,"value":{"id":1,"name":"initial_fifo","type":"reg<aie2p.eldfiforeg>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eldfiforeg"},"start_point":0,"end_point":3,"unit_count":1,"location":{"kind":"physical_register","base":183,"count":1}},{"index":2,"value":{"id":3,"name":"position","type":"reg<aie2p.erf2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.erf2"},"start_point":1,"end_point":3,"unit_count":1,"location":{"kind":"physical_register","base":270,"count":1}},{"index":3,"value":{"id":4,"name":"filled_pointer","type":"reg<aie2p.eps>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eps"},"start_point":2,"end_point":4,"unit_count":1,"location":{"kind":"physical_register","base":200,"count":1}},{"index":4,"value":{"id":5,"name":"fifo","type":"reg<aie2p.eldfiforeg>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eldfiforeg"},"start_point":2,"end_point":4,"unit_count":1,"location":{"kind":"physical_register","base":183,"count":1}},{"index":5,"value":{"id":6,"name":"filled_position","type":"reg<aie2p.erf2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.erf2"},"start_point":2,"end_point":4,"unit_count":1,"location":{"kind":"physical_register","base":270,"count":1}},{"index":6,"value":{"id":7,"name":"first_data","type":"reg<aie2p.vec256 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.vec256"},"start_point":3,"end_point":4,"unit_count":2,"location":{"kind":"physical_register","base":341,"count":2}},{"index":7,"value":{"id":8,"name":"next_pointer","type":"reg<aie2p.eps>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eps"},"start_point":3,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":200,"count":1}},{"index":8,"value":{"id":9,"name":"next_fifo","type":"reg<aie2p.eldfiforeg>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eldfiforeg"},"start_point":3,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":183,"count":1}},{"index":9,"value":{"id":10,"name":"next_position","type":"reg<aie2p.erf2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.erf2"},"start_point":3,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":270,"count":1}},{"index":10,"value":{"id":12,"name":"final_pointer","type":"reg<aie2p.eps>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eps"},"start_point":4,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":200,"count":1}},{"index":11,"value":{"id":13,"name":"final_fifo","type":"reg<aie2p.eldfiforeg>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eldfiforeg"},"start_point":4,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":183,"count":1}},{"index":12,"value":{"id":14,"name":"final_position","type":"reg<aie2p.erf2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.erf2"},"start_point":4,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":270,"count":1}},{"index":13,"value":{"id":11,"name":"data","type":"reg<aie2p.vec256 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.vec256"},"start_point":4,"end_point":5,"unit_count":2,"location":{"kind":"physical_register","base":341,"count":2}}],"spill_plans":[],"copy_decisions":[],"remarks":[]}
+p0: preserved
+p1: written
+lf0: preserved
+lf1: written
+r24: preserved
+r25: written
+
+// ====
+
+// A constraint on a pointer identity reaches its already assigned p1 owner.
+// RUN: emit aie2p-leaf @identity_fifo_tuple fixed=%pointer:physical_register:201:1 registers=p0,p1,lf0,lf1,r24,r25
+
+low.func.def target<amd.xdna.aie2p.core> @identity_fifo_tuple(%pointer: reg<aie2p.eps>, %initial_fifo: reg<aie2p.eldfiforeg>) -> (reg<aie2p.vec256 x2>) asm {
+  %pointer_identity = low.assume %pointer [range(%pointer, 0, 1024)] : reg<aie2p.eps>
+  %position = mova.fifo.position 0
+  %filled_pointer, %filled_fifo, %filled_position = vldb.fill.512 %pointer_identity, %initial_fifo, %position
+  %data, %final_pointer, %final_fifo, %final_position = vldb.pop.512.i8x64 %filled_pointer, %filled_fifo, %filled_position
+  return %data
+}
+
+// ----
+p0: preserved
+p1: written
+lf0: preserved
+lf1: written
+r24: preserved
+r25: written
+
+// ====
+
+// The FIFO is allocated before the fixed pointer, whose resolved binding still
+// selects tuple ordinal 1 before either interval has an assignment.
+// RUN: emit aie2p-leaf @fifo_before_fixed_pointer fixed=%pointer:physical_register:201:1 registers=p0,p1,lf0,lf1,r24,r25
+
+low.func.def target<amd.xdna.aie2p.core> @fifo_before_fixed_pointer(%initial_fifo: reg<aie2p.eldfiforeg>, %pointer: reg<aie2p.eps>) -> (reg<aie2p.vec256 x2>) asm {
+  %position = mova.fifo.position 0
+  %filled_pointer, %filled_fifo, %filled_position = vldb.fill.512 %pointer, %initial_fifo, %position
+  %data, %final_pointer, %final_fifo, %final_position = vldb.pop.512.i8x64 %filled_pointer, %filled_fifo, %filled_position
+  return %data
+}
+
+// ----
+p0: preserved
+p1: written
+lf0: preserved
+lf1: written
+r24: preserved
+r25: written
+
+// ====
+
+// A constraint introduced on a future identity participates in its origin's
+// initial placement, using the FIFO's resolved lf1 binding.
+// RUN: emit aie2p-leaf @identity_before_fixed_fifo fixed=%initial_fifo:physical_register:184:1 registers=p0,p1,lf0,lf1,r24,r25
+
+low.func.def target<amd.xdna.aie2p.core> @identity_before_fixed_fifo(%pointer: reg<aie2p.eps>, %initial_fifo: reg<aie2p.eldfiforeg>) -> (reg<aie2p.vec256 x2>) asm {
+  %pointer_identity = low.assume %pointer [range(%pointer, 0, 1024)] : reg<aie2p.eps>
+  %position = mova.fifo.position 0
+  %filled_pointer, %filled_fifo, %filled_position = vldb.fill.512 %pointer_identity, %initial_fifo, %position
+  %data, %final_pointer, %final_fifo, %final_position = vldb.pop.512.i8x64 %filled_pointer, %filled_fifo, %filled_position
+  return %data
+}
+
+// ----
+p0: preserved
+p1: written
+lf0: preserved
+lf1: written
+r24: preserved
+r25: written
 
 // ====
 
 // Reversed parameter order must preserve two independent FIFO tuples.
-// RUN: emit low-allocation-json @fifo_pair
+// RUN: with-checks emit low-allocation @fifo_pair diagnostics=placement-decisions
 
 low.func.def target<amd.xdna.aie2p.core> @fifo_pair(%pointer0: reg<aie2p.eps>, %pointer1: reg<aie2p.eps>, %fifo1: reg<aie2p.eldfiforeg>, %fifo0: reg<aie2p.eldfiforeg>, %position1: reg<aie2p.erf2>, %position0: reg<aie2p.erf2>) -> (reg<aie2p.vec256 x2>) asm {
-  %p0, %f0, %a0 = vlda.fill.512 %pointer0, %fifo0, %position0
-  %p1, %f1, %a1 = vldb.fill.512 %pointer1, %fifo1, %position1
-  %lhs, %next_p0, %next_f0, %next_a0 = vlda.pop.512.i32x16 %p0, %f0, %a0
-  %rhs, %next_p1, %next_f1, %next_a1 = vldb.pop.512.i32x16 %p1, %f1, %a1
+  // REMARK@+6: BACKEND/043 {source_value_name="fifo0", result_value_name="pointer0", relation_kind="same-register-ordinal", decision="accepted"}
+  // REMARK@+5: BACKEND/043 {source_value_name="position0", result_value_name="pointer0", relation_kind="same-register-ordinal", decision="accepted"}
+  // REMARK@+4: BACKEND/043 {source_value_name="position0", result_value_name="fifo0", relation_kind="same-register-ordinal", decision="accepted"}
+  // REMARK@+3: BACKEND/043 {source_value_name="pointer0", result_value_name="next_pointer0", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+2: BACKEND/043 {source_value_name="fifo0", result_value_name="next_fifo0", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+1: BACKEND/043 {source_value_name="position0", result_value_name="next_position0", relation_kind="same-storage", decision="accepted"}
+  %lhs, %next_pointer0, %next_fifo0, %next_position0 = vlda.pop.512.i32x16 %pointer0, %fifo0, %position0
+  // REMARK@+6: BACKEND/043 {source_value_name="fifo1", result_value_name="pointer1", relation_kind="same-register-ordinal", decision="accepted"}
+  // REMARK@+5: BACKEND/043 {source_value_name="position1", result_value_name="pointer1", relation_kind="same-register-ordinal", decision="accepted"}
+  // REMARK@+4: BACKEND/043 {source_value_name="position1", result_value_name="fifo1", relation_kind="same-register-ordinal", decision="accepted"}
+  // REMARK@+3: BACKEND/043 {source_value_name="pointer1", result_value_name="next_pointer1", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+2: BACKEND/043 {source_value_name="fifo1", result_value_name="next_fifo1", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+1: BACKEND/043 {source_value_name="position1", result_value_name="next_position1", relation_kind="same-storage", decision="accepted"}
+  %rhs, %next_pointer1, %next_fifo1, %next_position1 = vldb.pop.512.i32x16 %pointer1, %fifo1, %position1
   %sum = vadd.32 %lhs, %rhs
   return %sum
 }
 
 // ----
-{"format":"loom.low.allocation.v0","function":"fifo_pair","target":"","descriptor_set":"amd.xdna.aie2p.core","allocation_mode":"virtual","assignment_count":21,"remark_count":0,"copy_decision_count":0,"spill_count":0,"spill_plan_count":0,"coalesced_copy_count":0,"materialized_copy_count":0,"assignments":[{"index":0,"value":{"id":0,"name":"pointer0","type":"reg<aie2p.eps>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eps"},"start_point":0,"end_point":3,"unit_count":1,"location":{"kind":"physical_register","base":200,"count":1}},{"index":1,"value":{"id":3,"name":"fifo0","type":"reg<aie2p.eldfiforeg>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eldfiforeg"},"start_point":0,"end_point":3,"unit_count":1,"location":{"kind":"physical_register","base":183,"count":1}},{"index":2,"value":{"id":5,"name":"position0","type":"reg<aie2p.erf2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.erf2"},"start_point":0,"end_point":3,"unit_count":1,"location":{"kind":"physical_register","base":270,"count":1}},{"index":3,"value":{"id":1,"name":"pointer1","type":"reg<aie2p.eps>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eps"},"start_point":0,"end_point":4,"unit_count":1,"location":{"kind":"physical_register","base":201,"count":1}},{"index":4,"value":{"id":2,"name":"fifo1","type":"reg<aie2p.eldfiforeg>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eldfiforeg"},"start_point":0,"end_point":4,"unit_count":1,"location":{"kind":"physical_register","base":184,"count":1}},{"index":5,"value":{"id":4,"name":"position1","type":"reg<aie2p.erf2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.erf2"},"start_point":0,"end_point":4,"unit_count":1,"location":{"kind":"physical_register","base":271,"count":1}},{"index":6,"value":{"id":7,"name":"p0","type":"reg<aie2p.eps>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eps"},"start_point":1,"end_point":4,"unit_count":1,"location":{"kind":"physical_register","base":200,"count":1}},{"index":7,"value":{"id":8,"name":"f0","type":"reg<aie2p.eldfiforeg>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eldfiforeg"},"start_point":1,"end_point":4,"unit_count":1,"location":{"kind":"physical_register","base":183,"count":1}},{"index":8,"value":{"id":9,"name":"a0","type":"reg<aie2p.erf2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.erf2"},"start_point":1,"end_point":4,"unit_count":1,"location":{"kind":"physical_register","base":270,"count":1}},{"index":9,"value":{"id":10,"name":"p1","type":"reg<aie2p.eps>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eps"},"start_point":2,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":201,"count":1}},{"index":10,"value":{"id":11,"name":"f1","type":"reg<aie2p.eldfiforeg>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eldfiforeg"},"start_point":2,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":184,"count":1}},{"index":11,"value":{"id":12,"name":"a1","type":"reg<aie2p.erf2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.erf2"},"start_point":2,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":271,"count":1}},{"index":12,"value":{"id":14,"name":"next_p0","type":"reg<aie2p.eps>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eps"},"start_point":3,"end_point":4,"unit_count":1,"location":{"kind":"physical_register","base":200,"count":1}},{"index":13,"value":{"id":15,"name":"next_f0","type":"reg<aie2p.eldfiforeg>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eldfiforeg"},"start_point":3,"end_point":4,"unit_count":1,"location":{"kind":"physical_register","base":183,"count":1}},{"index":14,"value":{"id":16,"name":"next_a0","type":"reg<aie2p.erf2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.erf2"},"start_point":3,"end_point":4,"unit_count":1,"location":{"kind":"physical_register","base":270,"count":1}},{"index":15,"value":{"id":13,"name":"lhs","type":"reg<aie2p.vec256 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.vec256"},"start_point":3,"end_point":5,"unit_count":2,"location":{"kind":"physical_register","base":341,"count":2}},{"index":16,"value":{"id":18,"name":"next_p1","type":"reg<aie2p.eps>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eps"},"start_point":4,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":201,"count":1}},{"index":17,"value":{"id":19,"name":"next_f1","type":"reg<aie2p.eldfiforeg>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eldfiforeg"},"start_point":4,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":184,"count":1}},{"index":18,"value":{"id":20,"name":"next_a1","type":"reg<aie2p.erf2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.erf2"},"start_point":4,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":271,"count":1}},{"index":19,"value":{"id":17,"name":"rhs","type":"reg<aie2p.vec256 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.vec256"},"start_point":4,"end_point":5,"unit_count":2,"location":{"kind":"physical_register","base":342,"count":2}},{"index":20,"value":{"id":21,"name":"sum","type":"reg<aie2p.vec256 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.vec256"},"start_point":5,"end_point":6,"unit_count":2,"location":{"kind":"physical_register","base":341,"count":2}}],"spill_plans":[],"copy_decisions":[],"remarks":[]}
+CHECK: spills: 0
+CHECK: copies: coalesced=0 materialized=0
 
 // ====
 
-// Pending stores retain their sf/p2/r26 tuple until the final flush.
-// RUN: emit low-allocation-json @fifo_store
+// A push and flush retain the fixed store FIFO, pointer and position registers.
+// RUN: with-checks emit low-allocation @fifo_store diagnostics=placement-decisions
 
-low.func.def target<amd.xdna.aie2p.core> @fifo_store(%first: reg<aie2p.vec256 x2>, %second: reg<aie2p.vec256 x2>, %pointer: reg<aie2p.mpfs>, %initial_fifo: reg<aie2p.mstfifo>) asm {
+low.func.def target<amd.xdna.aie2p.core> @fifo_store(%data: reg<aie2p.vec256 x2>, %pointer: reg<aie2p.mpfs>, %initial_fifo: reg<aie2p.mstfifo>) asm {
   %position = mova.fifo.store.position 0
-  %fifo1, %pointer1, %position1 = vst.push.512.i32x16 %initial_fifo, %first, %pointer, %position
-  %fifo2, %pointer2, %position2 = vst.push.512.i32x16 %fifo1, %second, %pointer1, %position1
-  %fifo3, %pointer3, %position3 = vst.flush.512 %fifo2, %pointer2, %position2
+  // REMARK@+3: BACKEND/043 {source_value_name="initial_fifo", result_value_name="fifo1", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+2: BACKEND/043 {source_value_name="pointer", result_value_name="pointer1", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+1: BACKEND/043 {source_value_name="position", result_value_name="position1", relation_kind="same-storage", decision="accepted"}
+  %fifo1, %pointer1, %position1 = vst.push.512.i32x16 %initial_fifo, %data, %pointer, %position
+  // REMARK@+3: BACKEND/043 {source_value_name="fifo1", result_value_name="fifo2", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+2: BACKEND/043 {source_value_name="pointer1", result_value_name="pointer2", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+1: BACKEND/043 {source_value_name="position1", result_value_name="position2", relation_kind="same-storage", decision="accepted"}
+  %fifo2, %pointer2, %position2 = vst.flush.512 %fifo1, %pointer1, %position1
   return
 }
 
 // ----
-{"format":"loom.low.allocation.v0","function":"fifo_store","target":"","descriptor_set":"amd.xdna.aie2p.core","allocation_mode":"virtual","assignment_count":14,"remark_count":0,"copy_decision_count":0,"spill_count":0,"spill_plan_count":0,"coalesced_copy_count":0,"materialized_copy_count":0,"assignments":[{"index":0,"value":{"id":0,"name":"first","type":"reg<aie2p.vec256 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.vec256"},"start_point":0,"end_point":2,"unit_count":2,"location":{"kind":"physical_register","base":341,"count":2}},{"index":1,"value":{"id":2,"name":"pointer","type":"reg<aie2p.mpfs>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mpfs"},"start_point":0,"end_point":3,"unit_count":1,"location":{"kind":"physical_register","base":202,"count":1}},{"index":2,"value":{"id":3,"name":"initial_fifo","type":"reg<aie2p.mstfifo>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mstfifo"},"start_point":0,"end_point":3,"unit_count":1,"location":{"kind":"physical_register","base":289,"count":1}},{"index":3,"value":{"id":1,"name":"second","type":"reg<aie2p.vec256 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.vec256"},"start_point":0,"end_point":3,"unit_count":2,"location":{"kind":"physical_register","base":342,"count":2}},{"index":4,"value":{"id":4,"name":"position","type":"reg<aie2p.mr26_fifo_st>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mr26_fifo_st"},"start_point":1,"end_point":3,"unit_count":1,"location":{"kind":"physical_register","base":272,"count":1}},{"index":5,"value":{"id":5,"name":"fifo1","type":"reg<aie2p.mstfifo>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mstfifo"},"start_point":2,"end_point":4,"unit_count":1,"location":{"kind":"physical_register","base":289,"count":1}},{"index":6,"value":{"id":6,"name":"pointer1","type":"reg<aie2p.mpfs>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mpfs"},"start_point":2,"end_point":4,"unit_count":1,"location":{"kind":"physical_register","base":202,"count":1}},{"index":7,"value":{"id":7,"name":"position1","type":"reg<aie2p.mr26_fifo_st>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mr26_fifo_st"},"start_point":2,"end_point":4,"unit_count":1,"location":{"kind":"physical_register","base":272,"count":1}},{"index":8,"value":{"id":8,"name":"fifo2","type":"reg<aie2p.mstfifo>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mstfifo"},"start_point":3,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":289,"count":1}},{"index":9,"value":{"id":9,"name":"pointer2","type":"reg<aie2p.mpfs>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mpfs"},"start_point":3,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":202,"count":1}},{"index":10,"value":{"id":10,"name":"position2","type":"reg<aie2p.mr26_fifo_st>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mr26_fifo_st"},"start_point":3,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":272,"count":1}},{"index":11,"value":{"id":11,"name":"fifo3","type":"reg<aie2p.mstfifo>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mstfifo"},"start_point":4,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":289,"count":1}},{"index":12,"value":{"id":12,"name":"pointer3","type":"reg<aie2p.mpfs>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mpfs"},"start_point":4,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":202,"count":1}},{"index":13,"value":{"id":13,"name":"position3","type":"reg<aie2p.mr26_fifo_st>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mr26_fifo_st"},"start_point":4,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":272,"count":1}}],"spill_plans":[],"copy_decisions":[],"remarks":[]}
+CHECK: spills: 0
+CHECK: copies: coalesced=0 materialized=0
 
 // ====
 
-// Loop-carried FIFO state keeps one physical tuple without spills or copies.
-// RUN: emit low-allocation-json @fifo_scan
+// A fill and loop-carried pops retain one FIFO tuple without edge copies.
+// RUN: with-checks emit low-allocation @fifo_scan diagnostics=placement-decisions
 
-low.func.def target<amd.xdna.aie2p.core> @fifo_scan(%count: reg<aie2p.er>, %initial_sum: reg<aie2p.vec256 x2>, %initial_pointer: reg<aie2p.eps>, %initial_fifo: reg<aie2p.eldfiforeg>, %initial_position: reg<aie2p.erf2>, %initial_output: reg<aie2p.mpfs>, %initial_pending: reg<aie2p.mstfifo>, %initial_available: reg<aie2p.mr26_fifo_st>) -> (reg<aie2p.vec256 x2>) asm {
+low.func.def target<amd.xdna.aie2p.core> @fifo_scan(%count: reg<aie2p.er>, %initial_pointer: reg<aie2p.eps>, %initial_fifo: reg<aie2p.eldfiforeg>, %initial_position: reg<aie2p.erf2>, %output: reg<aie2p.ep>) asm {
   %one = mova.i32 1
-  low.br ^loop(%count: reg<aie2p.er>, %initial_sum: reg<aie2p.vec256 x2>, %initial_pointer: reg<aie2p.eps>, %initial_fifo: reg<aie2p.eldfiforeg>, %initial_position: reg<aie2p.erf2>, %initial_output: reg<aie2p.mpfs>, %initial_pending: reg<aie2p.mstfifo>, %initial_available: reg<aie2p.mr26_fifo_st>)
-^loop(%remaining: reg<aie2p.er>, %sum: reg<aie2p.vec256 x2>, %pointer: reg<aie2p.eps>, %fifo: reg<aie2p.eldfiforeg>, %position: reg<aie2p.erf2>, %output: reg<aie2p.mpfs>, %pending: reg<aie2p.mstfifo>, %available: reg<aie2p.mr26_fifo_st>):
+  // REMARK@+6: BACKEND/043 {source_value_name="initial_fifo", result_value_name="initial_pointer", relation_kind="same-register-ordinal", decision="accepted"}
+  // REMARK@+5: BACKEND/043 {source_value_name="initial_position", result_value_name="initial_pointer", relation_kind="same-register-ordinal", decision="accepted"}
+  // REMARK@+4: BACKEND/043 {source_value_name="initial_position", result_value_name="initial_fifo", relation_kind="same-register-ordinal", decision="accepted"}
+  // REMARK@+3: BACKEND/043 {source_value_name="initial_pointer", result_value_name="filled_pointer", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+2: BACKEND/043 {source_value_name="initial_fifo", result_value_name="filled_fifo", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+1: BACKEND/043 {source_value_name="initial_position", result_value_name="filled_position", relation_kind="same-storage", decision="accepted"}
+  %filled_pointer, %filled_fifo, %filled_position = vldb.fill.512 %initial_pointer, %initial_fifo, %initial_position
+  // REMARK@+4: BACKEND/043 {source_value_name="count", result_value_name="remaining", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+3: BACKEND/043 {source_value_name="filled_pointer", result_value_name="pointer", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+2: BACKEND/043 {source_value_name="filled_fifo", result_value_name="fifo", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+1: BACKEND/043 {source_value_name="filled_position", result_value_name="position", relation_kind="same-storage", decision="accepted"}
+  low.br ^loop(%count: reg<aie2p.er>, %filled_pointer: reg<aie2p.eps>, %filled_fifo: reg<aie2p.eldfiforeg>, %filled_position: reg<aie2p.erf2>)
+^loop(%remaining: reg<aie2p.er>, %pointer: reg<aie2p.eps>, %fifo: reg<aie2p.eldfiforeg>, %position: reg<aie2p.erf2>):
   low.cond_br %remaining, ^body, ^exit : reg<aie2p.er>
 ^body:
+  // REMARK@+6: BACKEND/043 {source_value_name="fifo", result_value_name="pointer", relation_kind="same-register-ordinal", decision="accepted"}
+  // REMARK@+5: BACKEND/043 {source_value_name="position", result_value_name="pointer", relation_kind="same-register-ordinal", decision="accepted"}
+  // REMARK@+4: BACKEND/043 {source_value_name="position", result_value_name="fifo", relation_kind="same-register-ordinal", decision="accepted"}
+  // REMARK@+3: BACKEND/043 {source_value_name="pointer", result_value_name="next_pointer", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+2: BACKEND/043 {source_value_name="fifo", result_value_name="next_fifo", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+1: BACKEND/043 {source_value_name="position", result_value_name="next_position", relation_kind="same-storage", decision="accepted"}
   %data, %next_pointer, %next_fifo, %next_position = vldb.pop.512.i32x16 %pointer, %fifo, %position
-  %next_sum = vadd.32 %sum, %data
-  %next_pending, %next_output, %next_available = vst.push.512.i32x16 %pending, %next_sum, %output, %available
+  vst.512.i32x16 %data, %output, 0
   %next_remaining = sub %remaining, %one
-  low.br ^loop(%next_remaining: reg<aie2p.er>, %next_sum: reg<aie2p.vec256 x2>, %next_pointer: reg<aie2p.eps>, %next_fifo: reg<aie2p.eldfiforeg>, %next_position: reg<aie2p.erf2>, %next_output: reg<aie2p.mpfs>, %next_pending: reg<aie2p.mstfifo>, %next_available: reg<aie2p.mr26_fifo_st>)
+  // REMARK@+4: BACKEND/043 {source_value_name="next_remaining", result_value_name="remaining", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+3: BACKEND/043 {source_value_name="next_pointer", result_value_name="pointer", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+2: BACKEND/043 {source_value_name="next_fifo", result_value_name="fifo", relation_kind="same-storage", decision="accepted"}
+  // REMARK@+1: BACKEND/043 {source_value_name="next_position", result_value_name="position", relation_kind="same-storage", decision="accepted"}
+  low.br ^loop(%next_remaining: reg<aie2p.er>, %next_pointer: reg<aie2p.eps>, %next_fifo: reg<aie2p.eldfiforeg>, %next_position: reg<aie2p.erf2>)
 ^exit:
-  %final_pending, %final_output, %final_available = vst.flush.512 %pending, %output, %available
-  return %sum
+  return
 }
 
 // ----
-{"format":"loom.low.allocation.v0","function":"fifo_scan","target":"","descriptor_set":"amd.xdna.aie2p.core","allocation_mode":"virtual","assignment_count":29,"remark_count":0,"copy_decision_count":0,"spill_count":0,"spill_plan_count":0,"coalesced_copy_count":0,"materialized_copy_count":0,"assignments":[{"index":0,"value":{"id":0,"name":"count","type":"reg<aie2p.er>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.er"},"start_point":0,"end_point":2,"unit_count":1,"location":{"kind":"physical_register","base":253,"count":1}},{"index":1,"value":{"id":1,"name":"initial_sum","type":"reg<aie2p.vec256 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.vec256"},"start_point":0,"end_point":2,"unit_count":2,"location":{"kind":"physical_register","base":341,"count":2}},{"index":2,"value":{"id":2,"name":"initial_pointer","type":"reg<aie2p.eps>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eps"},"start_point":0,"end_point":2,"unit_count":1,"location":{"kind":"physical_register","base":200,"count":1}},{"index":3,"value":{"id":3,"name":"initial_fifo","type":"reg<aie2p.eldfiforeg>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eldfiforeg"},"start_point":0,"end_point":2,"unit_count":1,"location":{"kind":"physical_register","base":183,"count":1}},{"index":4,"value":{"id":4,"name":"initial_position","type":"reg<aie2p.erf2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.erf2"},"start_point":0,"end_point":2,"unit_count":1,"location":{"kind":"physical_register","base":270,"count":1}},{"index":5,"value":{"id":5,"name":"initial_output","type":"reg<aie2p.mpfs>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mpfs"},"start_point":0,"end_point":2,"unit_count":1,"location":{"kind":"physical_register","base":202,"count":1}},{"index":6,"value":{"id":6,"name":"initial_pending","type":"reg<aie2p.mstfifo>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mstfifo"},"start_point":0,"end_point":2,"unit_count":1,"location":{"kind":"physical_register","base":289,"count":1}},{"index":7,"value":{"id":7,"name":"initial_available","type":"reg<aie2p.mr26_fifo_st>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mr26_fifo_st"},"start_point":0,"end_point":2,"unit_count":1,"location":{"kind":"physical_register","base":272,"count":1}},{"index":8,"value":{"id":9,"name":"one","type":"reg<aie2p.er>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.er"},"start_point":1,"end_point":11,"unit_count":1,"location":{"kind":"physical_register","base":254,"count":1}},{"index":9,"value":{"id":12,"name":"pointer","type":"reg<aie2p.eps>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eps"},"start_point":3,"end_point":10,"unit_count":1,"location":{"kind":"physical_register","base":200,"count":1}},{"index":10,"value":{"id":13,"name":"fifo","type":"reg<aie2p.eldfiforeg>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eldfiforeg"},"start_point":3,"end_point":10,"unit_count":1,"location":{"kind":"physical_register","base":183,"count":1}},{"index":11,"value":{"id":14,"name":"position","type":"reg<aie2p.erf2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.erf2"},"start_point":3,"end_point":10,"unit_count":1,"location":{"kind":"physical_register","base":270,"count":1}},{"index":12,"value":{"id":10,"name":"remaining","type":"reg<aie2p.er>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.er"},"start_point":3,"end_point":9,"unit_count":1,"location":{"kind":"physical_register","base":253,"count":1}},{"index":13,"value":{"id":15,"name":"output","type":"reg<aie2p.mpfs>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mpfs"},"start_point":3,"end_point":13,"unit_count":1,"location":{"kind":"physical_register","base":202,"count":1}},{"index":14,"value":{"id":16,"name":"pending","type":"reg<aie2p.mstfifo>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mstfifo"},"start_point":3,"end_point":13,"unit_count":1,"location":{"kind":"physical_register","base":289,"count":1}},{"index":15,"value":{"id":17,"name":"available","type":"reg<aie2p.mr26_fifo_st>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mr26_fifo_st"},"start_point":3,"end_point":13,"unit_count":1,"location":{"kind":"physical_register","base":272,"count":1}},{"index":16,"value":{"id":11,"name":"sum","type":"reg<aie2p.vec256 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.vec256"},"start_point":3,"end_point":13,"unit_count":2,"location":{"kind":"physical_register","base":341,"count":2}},{"index":17,"value":{"id":18,"name":"data","type":"reg<aie2p.vec256 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.vec256"},"start_point":6,"end_point":7,"unit_count":2,"location":{"kind":"physical_register","base":342,"count":2}},{"index":18,"value":{"id":19,"name":"next_pointer","type":"reg<aie2p.eps>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eps"},"start_point":6,"end_point":10,"unit_count":1,"location":{"kind":"physical_register","base":200,"count":1}},{"index":19,"value":{"id":20,"name":"next_fifo","type":"reg<aie2p.eldfiforeg>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.eldfiforeg"},"start_point":6,"end_point":10,"unit_count":1,"location":{"kind":"physical_register","base":183,"count":1}},{"index":20,"value":{"id":21,"name":"next_position","type":"reg<aie2p.erf2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.erf2"},"start_point":6,"end_point":10,"unit_count":1,"location":{"kind":"physical_register","base":270,"count":1}},{"index":21,"value":{"id":22,"name":"next_sum","type":"reg<aie2p.vec256 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.vec256"},"start_point":7,"end_point":10,"unit_count":2,"location":{"kind":"physical_register","base":341,"count":2}},{"index":22,"value":{"id":23,"name":"next_pending","type":"reg<aie2p.mstfifo>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mstfifo"},"start_point":8,"end_point":10,"unit_count":1,"location":{"kind":"physical_register","base":289,"count":1}},{"index":23,"value":{"id":24,"name":"next_output","type":"reg<aie2p.mpfs>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mpfs"},"start_point":8,"end_point":10,"unit_count":1,"location":{"kind":"physical_register","base":202,"count":1}},{"index":24,"value":{"id":25,"name":"next_available","type":"reg<aie2p.mr26_fifo_st>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mr26_fifo_st"},"start_point":8,"end_point":10,"unit_count":1,"location":{"kind":"physical_register","base":272,"count":1}},{"index":25,"value":{"id":26,"name":"next_remaining","type":"reg<aie2p.er>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.er"},"start_point":9,"end_point":10,"unit_count":1,"location":{"kind":"physical_register","base":253,"count":1}},{"index":26,"value":{"id":27,"name":"final_pending","type":"reg<aie2p.mstfifo>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mstfifo"},"start_point":12,"end_point":13,"unit_count":1,"location":{"kind":"physical_register","base":289,"count":1}},{"index":27,"value":{"id":28,"name":"final_output","type":"reg<aie2p.mpfs>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mpfs"},"start_point":12,"end_point":13,"unit_count":1,"location":{"kind":"physical_register","base":202,"count":1}},{"index":28,"value":{"id":29,"name":"final_available","type":"reg<aie2p.mr26_fifo_st>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mr26_fifo_st"},"start_point":12,"end_point":13,"unit_count":1,"location":{"kind":"physical_register","base":272,"count":1}}],"spill_plans":[],"copy_decisions":[],"remarks":[]}
+CHECK: spills: 0
+CHECK: copies: coalesced=0 materialized=0
+
+// ====
+
+// A destructive partial predicate update reuses its dying input even when the
+// other seven physical predicate registers remain live through the return.
+// RUN: with-checks emit low-allocation @partial_predicate_update
+
+low.func.def schedule(locked) target<amd.xdna.aie2p.core> @partial_predicate_update(%a: reg<aie2p.elpredicate>, %b: reg<aie2p.elpredicate>, %c: reg<aie2p.elpredicate>, %d: reg<aie2p.elpredicate>, %e: reg<aie2p.elpredicate>, %f: reg<aie2p.elpredicate>, %g: reg<aie2p.elpredicate>, %h: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
+  %b_copy = copy %b : reg<aie2p.elpredicate> -> reg<aie2p.elpredicate>
+  %low = predicate.and.low32.rhs_tied %a, %b_copy
+  %result = predicate.and.high32.rhs_tied %a, %low
+  return %result, %c, %d, %e, %f, %g, %h
+}
+
+// ----
+CHECK: spills: 0
+CHECK: copies: coalesced=1 materialized=0
 
 // ====
 
 // A detached index copy materializes into the fixed insertion register.
-// RUN: emit low-allocation-json @insert_lane
+// RUN: with-checks emit low-allocation @insert_lane diagnostics=copy-decisions
 
 low.func.def target<amd.xdna.aie2p.core> @insert_lane(%vector: reg<aie2p.vec256 x2>, %index: reg<aie2p.er>, %value: reg<aie2p.er>) -> (reg<aie2p.vec256 x2>) asm {
+  // REMARK@+1: BACKEND/006 {value_name="index", partner_value_name="fixed_index", decision="rejected", coalescing_constraint="assigned-locations-differ"}
   %fixed_index = copy %index {detached = true} : reg<aie2p.er> -> reg<aie2p.mr29_insert>
   %result = vinsert.8.reg %vector, %fixed_index, %value
   return %result
 }
 
 // ----
-{"format":"loom.low.allocation.v0","function":"insert_lane","target":"","descriptor_set":"amd.xdna.aie2p.core","allocation_mode":"virtual","assignment_count":5,"remark_count":0,"copy_decision_count":1,"spill_count":0,"spill_plan_count":0,"coalesced_copy_count":0,"materialized_copy_count":1,"assignments":[{"index":0,"value":{"id":1,"name":"index","type":"reg<aie2p.er>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.er"},"start_point":0,"end_point":1,"unit_count":1,"location":{"kind":"physical_register","base":253,"count":1}},{"index":1,"value":{"id":0,"name":"vector","type":"reg<aie2p.vec256 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.vec256"},"start_point":0,"end_point":2,"unit_count":2,"location":{"kind":"physical_register","base":341,"count":2}},{"index":2,"value":{"id":2,"name":"value","type":"reg<aie2p.er>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.er"},"start_point":0,"end_point":2,"unit_count":1,"location":{"kind":"physical_register","base":254,"count":1}},{"index":3,"value":{"id":4,"name":"fixed_index","type":"reg<aie2p.mr29_insert>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.mr29_insert"},"start_point":1,"end_point":2,"unit_count":1,"location":{"kind":"physical_register","base":275,"count":1}},{"index":4,"value":{"id":5,"name":"result","type":"reg<aie2p.vec256 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"aie2p.vec256"},"start_point":2,"end_point":3,"unit_count":2,"location":{"kind":"physical_register","base":341,"count":2}}],"spill_plans":[],"copy_decisions":[{"index":0,"kind":"materialized","source_value":{"id":1,"name":"index","type":"reg<aie2p.er>"},"result_value":{"id":4,"name":"fixed_index","type":"reg<aie2p.mr29_insert>"},"source_assignment":0,"result_assignment":3}],"remarks":[]}
-
-// ====
-
-// Nine loop-invariant offsets exceed the eight address-index registers. The
-// native emitter recreates pure index moves near their loads instead of
-// retaining every index through the loop or requiring spill storage.
-// RUN: emit aie2p-leaf @indexed_loop report=emission
-
-low.func.def target<amd.xdna.aie2p.core> @indexed_loop(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>, %count: reg<aie2p.er>) asm {
-  %zero = mov.short 0
-  %one = mov.short 1
-  %offset0 = mov.static-byte-offset 64
-  %index0 = mov.address-index %offset0
-  %offset1 = mov.static-byte-offset 128
-  %index1 = mov.address-index %offset1
-  %offset2 = mov.static-byte-offset 192
-  %index2 = mov.address-index %offset2
-  %offset3 = mov.static-byte-offset 256
-  %index3 = mov.address-index %offset3
-  %offset4 = mov.static-byte-offset 320
-  %index4 = mov.address-index %offset4
-  %offset5 = mov.static-byte-offset 384
-  %index5 = mov.address-index %offset5
-  %offset6 = mov.static-byte-offset 448
-  %index6 = mov.address-index %offset6
-  %offset7 = mov.static-byte-offset 512
-  %index7 = mov.address-index %offset7
-  %offset8 = mov.static-byte-offset 576
-  %index8 = mov.address-index %offset8
-  low.br ^loop(%count: reg<aie2p.er>)
-^loop(%remaining: reg<aie2p.er>):
-  %value0 = lda.i32.index %input, %index0
-  %sum0 = add.rr %zero, %value0
-  %value1 = lda.i32.index %input, %index1
-  %sum1 = add.rr %sum0, %value1
-  %value2 = lda.i32.index %input, %index2
-  %sum2 = add.rr %sum1, %value2
-  %value3 = lda.i32.index %input, %index3
-  %sum3 = add.rr %sum2, %value3
-  %value4 = lda.i32.index %input, %index4
-  %sum4 = add.rr %sum3, %value4
-  %value5 = lda.i32.index %input, %index5
-  %sum5 = add.rr %sum4, %value5
-  %value6 = lda.i32.index %input, %index6
-  %sum6 = add.rr %sum5, %value6
-  %value7 = lda.i32.index %input, %index7
-  %sum7 = add.rr %sum6, %value7
-  %value8 = lda.i32.index %input, %index8
-  %sum8 = add.rr %sum7, %value8
-  st %sum8, %output, 0
-  %next = sub %remaining, %one
-  %more = nez %next
-  low.cond_br %more, ^again, ^done : reg<aie2p.er>
-^again:
-  low.br ^loop(%next: reg<aie2p.er>)
-^done:
-  return
-}
-
-// ----
-issue cycles: 65
-code bytes: 254
-coissued bundles: 10
-coissued components: 20
+CHECK: spills: 0
+CHECK: copies: coalesced=0 materialized=1
 
 // ====
 
 // Static byte-offset literals share scalar registers with the loop's arithmetic.
-// Their pure materializers can be recreated near use when 24 loop-invariant offsets
-// leave too few registers for the loop arithmetic and memory pipeline.
+// Their pure materializers can be recreated near use when 22 loop-invariant
+// offsets leave too few registers for the loop arithmetic and memory pipeline.
+// Input-free literals remain available to fill issue slots while their consumers
+// wait for other prerequisites, instead of inheriting the entire setup chain.
 // RUN: emit aie2p-leaf @static_offset_loop report=emission
 
 low.func.def target<amd.xdna.aie2p.core> @static_offset_loop(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>, %count: reg<aie2p.er>) asm {
@@ -179,8 +241,6 @@ low.func.def target<amd.xdna.aie2p.core> @static_offset_loop(%input: reg<aie2p.e
   %offset19 = mov.static-byte-offset 1280
   %offset20 = mov.static-byte-offset 1344
   %offset21 = mov.static-byte-offset 1408
-  %offset22 = mov.static-byte-offset 1472
-  %offset23 = mov.static-byte-offset 1536
   low.br ^loop(%count: reg<aie2p.er>)
 ^loop(%remaining: reg<aie2p.er>):
   %index0 = mov.address-index %offset0
@@ -249,13 +309,7 @@ low.func.def target<amd.xdna.aie2p.core> @static_offset_loop(%input: reg<aie2p.e
   %index21 = mov.address-index %offset21
   %value21 = lda.i32.index %input, %index21
   %sum21 = add.rr %sum20, %value21
-  %index22 = mov.address-index %offset22
-  %value22 = lda.i32.index %input, %index22
-  %sum22 = add.rr %sum21, %value22
-  %index23 = mov.address-index %offset23
-  %value23 = lda.i32.index %input, %index23
-  %sum23 = add.rr %sum22, %value23
-  st %sum23, %output, 0
+  st %sum21, %output, 0
   %next = sub %remaining, %one
   %more = nez %next
   low.cond_br %more, ^again, ^done : reg<aie2p.er>
@@ -266,7 +320,223 @@ low.func.def target<amd.xdna.aie2p.core> @static_offset_loop(%input: reg<aie2p.e
 }
 
 // ----
-issue cycles: 82
-code bytes: 462
+issue cycles: 74
+code bytes: 430
 coissued bundles: 26
-coissued components: 71
+coissued components: 70
+
+// ====
+
+// A broadcast retains its table until the final use. Opening every leaf before
+// preparing the predicates exceeds vector capacity even though the selection
+// tree fits when its live branches can retire incrementally.
+// RUN: emit aie2p-leaf @selection_tree report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @selection_tree(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>) asm {
+  %table = vlda.512.i8x64 %input, 0
+  %codes = vlda.512.i8x64 %input, 64
+  %zero = mov.short 0
+  %zeros = vbcst.8 %zero
+  %bit0 = mov.short 1
+  %mask0 = vbcst.8 %bit0
+  %masked0 = vband %codes, %mask0
+  %predicate0 = vlt.u8x64 %zeros, %masked0
+  %bit1 = mov.short 2
+  %mask1 = vbcst.8 %bit1
+  %masked1 = vband %codes, %mask1
+  %predicate1 = vlt.u8x64 %zeros, %masked1
+  %bit2 = mov.short 4
+  %mask2 = vbcst.8 %bit2
+  %masked2 = vband %codes, %mask2
+  %predicate2 = vlt.u8x64 %zeros, %masked2
+  %bit3 = mov.short 8
+  %mask3 = vbcst.8 %bit3
+  %masked3 = vband %codes, %mask3
+  %predicate3 = vlt.u8x64 %zeros, %masked3
+  %entry0 = vextbcst.8 %table, 0
+  %entry1 = vextbcst.8 %table, 1
+  %select0_2 = vsel.8 %entry0, %entry1, %predicate0
+  %entry2 = vextbcst.8 %table, 2
+  %entry3 = vextbcst.8 %table, 3
+  %select2_2 = vsel.8 %entry2, %entry3, %predicate0
+  %select0_4 = vsel.8 %select0_2, %select2_2, %predicate1
+  %entry4 = vextbcst.8 %table, 4
+  %entry5 = vextbcst.8 %table, 5
+  %select4_2 = vsel.8 %entry4, %entry5, %predicate0
+  %entry6 = vextbcst.8 %table, 6
+  %entry7 = vextbcst.8 %table, 7
+  %select6_2 = vsel.8 %entry6, %entry7, %predicate0
+  %select4_4 = vsel.8 %select4_2, %select6_2, %predicate1
+  %select0_8 = vsel.8 %select0_4, %select4_4, %predicate2
+  %entry8 = vextbcst.8 %table, 8
+  %entry9 = vextbcst.8 %table, 9
+  %select8_2 = vsel.8 %entry8, %entry9, %predicate0
+  %entry10 = vextbcst.8 %table, 10
+  %entry11 = vextbcst.8 %table, 11
+  %select10_2 = vsel.8 %entry10, %entry11, %predicate0
+  %select8_4 = vsel.8 %select8_2, %select10_2, %predicate1
+  %entry12 = vextbcst.8 %table, 12
+  %entry13 = vextbcst.8 %table, 13
+  %select12_2 = vsel.8 %entry12, %entry13, %predicate0
+  %entry14 = vextbcst.8 %table, 14
+  %entry15 = vextbcst.8 %table, 15
+  %select14_2 = vsel.8 %entry14, %entry15, %predicate0
+  %select12_4 = vsel.8 %select12_2, %select14_2, %predicate1
+  %select8_8 = vsel.8 %select8_4, %select12_4, %predicate2
+  %select0_16 = vsel.8 %select0_8, %select8_8, %predicate3
+  vst.512.i8x64 %select0_16, %output, 0
+  return
+}
+
+// ----
+issue cycles: 55
+code bytes: 218
+coissued bundles: 2
+coissued components: 5
+
+// ====
+
+// Seven live address indexes leave one physical register free for three local
+// address moves. Work for the earlier inserts must run before setup for the
+// final singleton insert index, even when that address work crosses capacity.
+// RUN: with-checks emit aie2p-leaf @index_repair_ordering report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @index_repair_ordering(%source: reg<aie2p.ep>, %destination: reg<aie2p.ep>, %address0: reg<aie2p.edj>, %address1: reg<aie2p.edj>, %address2: reg<aie2p.edj>, %address3: reg<aie2p.edj>, %address4: reg<aie2p.edj>, %address5: reg<aie2p.edj>, %address6: reg<aie2p.edj>, %position1: reg<aie2p.er>, %position2: reg<aie2p.er>, %position3: reg<aie2p.er>, %position4: reg<aie2p.er>, %position5: reg<aie2p.er>, %position6: reg<aie2p.er>, %position7: reg<aie2p.er>, %position8: reg<aie2p.er>, %position9: reg<aie2p.er>) -> (reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>) asm {
+  %offset7 = mov.static-byte-offset 119
+  %address7 = mov.address-index %offset7
+  %offset8 = mov.static-byte-offset 120
+  %address8 = mov.address-index %offset8
+  %offset9 = mov.static-byte-offset 121
+  %address9 = mov.address-index %offset9
+  %first_lane0 = lda.i8.index %source, %address0
+  %first_lane1 = lda.i8.index %source, %address1
+  %first_lane2 = lda.i8.index %source, %address2
+  %first_lane3 = lda.i8.index %source, %address3
+  %first_lane4 = lda.i8.index %source, %address4
+  %first_lane5 = lda.i8.index %source, %address5
+  %first_lane6 = lda.i8.index %source, %address6
+  %first_lane7 = lda.i8.index %source, %address7
+  %first_lane8 = lda.i8.index %source, %address8
+  %first_lane9 = lda.i8.index %source, %address9
+  %first = vbcst.8 %first_lane0
+  %first_index1 = copy %position1 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %first2 = vinsert.8.reg %first, %first_index1, %first_lane1
+  %first_index2 = copy %position2 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %first3 = vinsert.8.reg %first2, %first_index2, %first_lane2
+  %first_index3 = copy %position3 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %first4 = vinsert.8.reg %first3, %first_index3, %first_lane3
+  %first_index4 = copy %position4 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %first5 = vinsert.8.reg %first4, %first_index4, %first_lane4
+  %first_index5 = copy %position5 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %first6 = vinsert.8.reg %first5, %first_index5, %first_lane5
+  %first_index6 = copy %position6 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %first7 = vinsert.8.reg %first6, %first_index6, %first_lane6
+  %first_index7 = copy %position7 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %first8 = vinsert.8.reg %first7, %first_index7, %first_lane7
+  %first_index8 = copy %position8 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %first9 = vinsert.8.reg %first8, %first_index8, %first_lane8
+  %first_index9 = copy %position9 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %first10 = vinsert.8.reg %first9, %first_index9, %first_lane9
+  vst.512.i8x64 %first10, %destination, 0
+  %second_lane0 = lda.i8.index %source, %address0
+  %second_lane1 = lda.i8.index %source, %address1
+  %second_lane2 = lda.i8.index %source, %address2
+  %second_lane3 = lda.i8.index %source, %address3
+  %second_lane4 = lda.i8.index %source, %address4
+  %second_lane5 = lda.i8.index %source, %address5
+  %second_lane6 = lda.i8.index %source, %address6
+  %second_lane7 = lda.i8.index %source, %address7
+  %second_lane8 = lda.i8.index %source, %address8
+  %second = vbcst.8 %second_lane0
+  %second_index8 = copy %position8 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %second2 = vinsert.8.reg %second, %second_index8, %second_lane8
+  vst.512.i8x64 %second2, %destination, 64
+  return %second_lane1, %second_lane2, %second_lane3, %second_lane4, %second_lane5, %second_lane6, %second_lane7
+}
+
+// ----
+CHECK: code bytes: *
+
+// ====
+
+// Nine loop-invariant address moves need repair while seven entry indexes stay
+// live. Repair convergence is bounded by the function's value population, not
+// an arbitrary attempt count below the amount of useful progress available.
+// RUN: emit aie2p-leaf @index_repair_population report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @index_repair_population(%output: reg<aie2p.ep>, %count: reg<aie2p.er>, %block0: reg<aie2p.edj>, %block1: reg<aie2p.edj>, %block2: reg<aie2p.edj>, %block3: reg<aie2p.edj>, %block4: reg<aie2p.edj>, %block5: reg<aie2p.edj>, %block6: reg<aie2p.edj>) -> (reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>) asm {
+  %value = mov.short 1
+  %offset = mov.static-byte-offset 0
+  %index0 = mov.address-index %offset
+  %index1 = mov.address-index %offset
+  %index2 = mov.address-index %offset
+  %index3 = mov.address-index %offset
+  %index4 = mov.address-index %offset
+  %index5 = mov.address-index %offset
+  %index6 = mov.address-index %offset
+  %index7 = mov.address-index %offset
+  %index8 = mov.address-index %offset
+  low.br ^loop(%count: reg<aie2p.er>)
+^loop(%remaining: reg<aie2p.er>):
+  st.i32.index %value, %output, %index0
+  st.i32.index %value, %output, %index1
+  st.i32.index %value, %output, %index2
+  st.i32.index %value, %output, %index3
+  st.i32.index %value, %output, %index4
+  st.i32.index %value, %output, %index5
+  st.i32.index %value, %output, %index6
+  st.i32.index %value, %output, %index7
+  st.i32.index %value, %output, %index8
+  %next = sub %remaining, %value
+  %more = nez %next
+  low.cond_br %more, ^again, ^done : reg<aie2p.er>
+^again:
+  low.br ^loop(%next: reg<aie2p.er>)
+^done:
+  return %block0, %block1, %block2, %block3, %block4, %block5, %block6
+}
+
+// ----
+issue cycles: 43
+code bytes: 142
+coissued bundles: 2
+coissued components: 4
+
+// ====
+
+// Four loaded-C fragments leave one DM register for conversion scratch. The
+// upper half is produced before the lower half's address prerequisites, so the
+// concat sources are not a compact cluster. Reserving their declared physical
+// view places the first source in the upper half; ordinary first-fit would
+// require a swap with no scratch register when the lower half arrives.
+// RUN: emit aie2p-leaf @noncompact_upper_half_first report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @noncompact_upper_half_first(%source: reg<aie2p.ep>, %reduction_cell: reg<aie2p.er>, %first_upper_bf16: reg<aie2p.vec256 x2>, %second_lower_bf16: reg<aie2p.vec256 x2>, %second_upper_bf16: reg<aie2p.vec256 x2>, %accumulator00: reg<aie2p.mbms x4>, %accumulator01: reg<aie2p.mbms x4>, %accumulator10: reg<aie2p.mbms x4>, %accumulator11: reg<aie2p.mbms x4>, %other_lhs: reg<aie2p.mexa>, %other_rhs: reg<aie2p.mexa>) -> (reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>) asm {
+  %first_upper = vconv.fp32.bf16 %first_upper_bf16
+  %lower_half_offset = mov.static-byte-offset 1024
+  %row_stride_bytes = mov.i32 128
+  %lower_half_position = mac %lower_half_offset, %reduction_cell, %row_stride_bytes
+  %lower_half_address = mov.address-index %lower_half_position
+  %first_lower_bf16 = vlda.512.bf16x32.index %source, %lower_half_address
+  %first_lower = vconv.fp32.bf16 %first_lower_bf16
+  %first_float = concat(%first_lower, %first_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  set.rounding 12
+  %lhs = vconv.bfp16ebs8.fp32 %first_float
+  %second_lower = vconv.fp32.bf16 %second_lower_bf16
+  %second_upper = vconv.fp32.bf16 %second_upper_bf16
+  %second_float = concat(%second_lower, %second_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  set.rounding 12
+  %rhs = vconv.bfp16ebs8.fp32 %second_float
+  %matrix_control = mova.i32 780
+  %next00 = mma.bfp16ebs8.m8n8k8 %accumulator00, %other_lhs, %rhs, %matrix_control
+  %next01 = mma.bfp16ebs8.m8n8k8 %accumulator01, %other_lhs, %other_rhs, %matrix_control
+  %next10 = mma.bfp16ebs8.m8n8k8 %accumulator10, %lhs, %rhs, %matrix_control
+  %next11 = mma.bfp16ebs8.m8n8k8 %accumulator11, %lhs, %other_rhs, %matrix_control
+  return %next00, %next01, %next10, %next11
+}
+
+// ----
+issue cycles: 31
+code bytes: 106
+coissued bundles: 2
+coissued components: 4

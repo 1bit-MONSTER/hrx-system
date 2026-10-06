@@ -19,8 +19,10 @@
 #include "loom/ops/low/ops.h"
 #include "loom/target/registers.h"
 #include "loom/target/reporting/low_names.h"
+#include "loom/util/cfg_execution.h"
 #include "loom/util/cfg_graph.h"
 #include "loom/util/cfg_loop.h"
+#include "loom/util/fact_cfg.h"
 
 static bool loom_target_compile_report_low_branch_falls_through(
     const loom_low_schedule_table_t* schedule,
@@ -254,7 +256,7 @@ void loom_target_compile_report_accumulate_low_node_static_mix(
   LOOM_ACCUMULATE_INSTRUCTION_CLASS_(generic_memory, GENERIC_MEMORY);
   LOOM_ACCUMULATE_INSTRUCTION_CLASS_(atomic, ATOMIC);
   LOOM_ACCUMULATE_INSTRUCTION_CLASS_(branch, BRANCH);
-  LOOM_ACCUMULATE_INSTRUCTION_CLASS_(barrier, BARRIER);
+  LOOM_ACCUMULATE_INSTRUCTION_CLASS_(execution_barrier, EXECUTION_BARRIER);
   LOOM_ACCUMULATE_INSTRUCTION_CLASS_(control, CONTROL);
   LOOM_ACCUMULATE_INSTRUCTION_CLASS_(conversion, CONVERSION);
   LOOM_ACCUMULATE_INSTRUCTION_CLASS_(cache, CACHE);
@@ -308,7 +310,7 @@ void loom_target_compile_report_accumulate_static_mix(
       source->unclassified_write_byte_count;
   target->atomic_count += source->atomic_count;
   target->branch_count += source->branch_count;
-  target->barrier_count += source->barrier_count;
+  target->execution_barrier_count += source->execution_barrier_count;
   target->control_count += source->control_count;
   target->conversion_count += source->conversion_count;
   target->cache_count += source->cache_count;
@@ -371,7 +373,7 @@ bool loom_target_compile_report_accumulate_scaled_static_mix(
       unclassified_write_byte_count);
   LOOM_TARGET_COMPILE_REPORT_ACCUMULATE_SCALED_FIELD(atomic_count);
   LOOM_TARGET_COMPILE_REPORT_ACCUMULATE_SCALED_FIELD(branch_count);
-  LOOM_TARGET_COMPILE_REPORT_ACCUMULATE_SCALED_FIELD(barrier_count);
+  LOOM_TARGET_COMPILE_REPORT_ACCUMULATE_SCALED_FIELD(execution_barrier_count);
   LOOM_TARGET_COMPILE_REPORT_ACCUMULATE_SCALED_FIELD(control_count);
   LOOM_TARGET_COMPILE_REPORT_ACCUMULATE_SCALED_FIELD(conversion_count);
   LOOM_TARGET_COMPILE_REPORT_ACCUMULATE_SCALED_FIELD(cache_count);
@@ -731,13 +733,26 @@ static bool loom_target_compile_report_low_try_counted_loop(
       (uint64_t)upper_bound, (uint64_t)step, out_trip_count);
 }
 
+static bool loom_target_compile_report_low_selector_is_modeled(
+    const void* user_data, uint16_t block_index) {
+  const loom_cfg_loop_forest_t* forest =
+      (const loom_cfg_loop_forest_t*)user_data;
+  const uint32_t loop_index = forest->interval_count
+                                  ? forest->innermost_loop_indices[block_index]
+                                  : LOOM_CFG_LOOP_NONE;
+  return loop_index != LOOM_CFG_LOOP_NONE &&
+         forest->intervals[loop_index].header_index == block_index;
+}
+
 static iree_status_t loom_target_compile_report_low_block_multipliers(
     const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
     const loom_value_fact_table_t* fact_table, const loom_module_t* module,
-    iree_arena_allocator_t* arena, uint64_t** out_block_multipliers,
+    const loom_cfg_control_t* control, iree_arena_allocator_t* arena,
+    uint64_t** out_block_multipliers, iree_bitmap_t* out_unmodeled_blocks,
     bool* out_exact) {
   *out_block_multipliers = NULL;
+  *out_unmodeled_blocks = (iree_bitmap_t){0};
   *out_exact = true;
   if (schedule->block_count == 0) {
     return iree_ok_status();
@@ -766,22 +781,41 @@ static iree_status_t loom_target_compile_report_low_block_multipliers(
       return iree_ok_status();
     }
   }
-  *out_exact = loom_cfg_loop_forest_calculate_block_execution_counts(
-      loop_forest, graph, trip_counts, block_multipliers);
-  if (*out_exact) {
-    *out_block_multipliers = block_multipliers;
+  if (!loom_cfg_loop_forest_calculate_block_multipliers(
+          loop_forest, graph, trip_counts, block_multipliers)) {
+    *out_exact = false;
+    return iree_ok_status();
   }
+  if (control == NULL) {
+    *out_block_multipliers = block_multipliers;
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(loom_cfg_execution_classify_unmodeled_blocks(
+      control,
+      (loom_cfg_execution_selector_model_t){
+          .is_modeled = loom_target_compile_report_low_selector_is_modeled,
+          .user_data = loop_forest,
+      },
+      arena, out_unmodeled_blocks));
+  *out_block_multipliers = block_multipliers;
+  *out_exact = iree_bitmap_none_set(*out_unmodeled_blocks);
   return iree_ok_status();
 }
 
 bool loom_target_compile_report_low_node_execution_multiplier(
-    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
-    const uint64_t* block_multipliers, const loom_low_schedule_node_t* node,
-    uint64_t* out_multiplier) {
-  *out_multiplier = block_multipliers != NULL &&
-                            node->block_index != LOOM_LOW_PACKET_INDEX_NONE
-                        ? block_multipliers[node->block_index]
-                        : 1;
+    const loom_module_t* module,
+    const loom_target_compile_report_low_dynamic_context_t* dynamic_context,
+    const loom_low_schedule_node_t* node, uint64_t* out_multiplier) {
+  *out_multiplier = 1;
+  if (node->block_index != LOOM_LOW_PACKET_INDEX_NONE) {
+    if (dynamic_context->block_multipliers == NULL ||
+        (dynamic_context->unmodeled_blocks.bit_count != 0 &&
+         iree_bitmap_test(dynamic_context->unmodeled_blocks,
+                          node->block_index))) {
+      return false;
+    }
+    *out_multiplier = dynamic_context->block_multipliers[node->block_index];
+  }
   const loom_op_t* op = node->op;
   for (const loom_op_t* parent = op ? op->parent_op : NULL; parent;
        parent = parent->parent_op) {
@@ -790,8 +824,8 @@ bool loom_target_compile_report_low_node_execution_multiplier(
       continue;
     }
     uint64_t trip_count = 0;
-    if (!loom_target_compile_report_low_exact_trip_count(fact_table, loop,
-                                                         &trip_count) ||
+    if (!loom_target_compile_report_low_exact_trip_count(
+            &dynamic_context->fact_table, loop, &trip_count) ||
         !iree_checked_mul_u64(*out_multiplier, trip_count, out_multiplier)) {
       return false;
     }
@@ -823,9 +857,19 @@ iree_status_t loom_target_compile_report_low_dynamic_context_initialize(
   }
   bool block_multipliers_exact = true;
   if (iree_status_is_ok(status)) {
+    const loom_region_t* body =
+        loom_low_function_const_body(frame->function_op);
+    const loom_cfg_control_t* control = NULL;
+    if (iree_any_bit_set(body->flags, LOOM_REGION_INSTANCE_FLAG_CFG)) {
+      const loom_value_fact_cfg_region_t* cfg_region =
+          loom_value_fact_table_lookup_cfg_region(&out_context->fact_table,
+                                                  body);
+      control = &cfg_region->control_structure;
+    }
     status = loom_target_compile_report_low_block_multipliers(
         &frame->schedule, &frame->allocation, &out_context->fact_table,
-        frame->module, &out_context->arena, &out_context->block_multipliers,
+        frame->module, control, &out_context->arena,
+        &out_context->block_multipliers, &out_context->unmodeled_blocks,
         &block_multipliers_exact);
   }
   out_context->exact = iree_status_is_ok(status) && block_multipliers_exact;
@@ -867,8 +911,7 @@ iree_status_t loom_target_compile_report_record_low_dynamic_mix(
     const loom_low_schedule_node_t* node = &frame->schedule.nodes[i];
     uint64_t multiplier = 1;
     exact = loom_target_compile_report_low_node_execution_multiplier(
-        frame->module, &dynamic_context->fact_table,
-        dynamic_context->block_multipliers, node, &multiplier);
+        frame->module, dynamic_context, node, &multiplier);
     if (!exact) {
       break;
     }

@@ -39,7 +39,6 @@ typedef struct loom_run_execution_provider_set_t {
 } loom_run_execution_provider_set_t;
 
 enum {
-  LOOM_RUN_EXECUTION_PROVIDER_TARGET_PROVIDER_CAPACITY = 64,
   LOOM_RUN_EXECUTION_PROVIDER_EXECUTION_BACKEND_CAPACITY = 64,
 };
 
@@ -47,14 +46,9 @@ enum {
 typedef struct loom_run_execution_environment_t {
   // Provider table selected by the linked binary or embedding.
   const loom_run_execution_provider_set_t* provider_set;
-  // Core target provider table assembled once for the environment.
-  const loom_target_provider_t*
-      target_providers[LOOM_RUN_EXECUTION_PROVIDER_TARGET_PROVIDER_CAPACITY];
-  // Number of entries in |target_providers|.
-  iree_host_size_t target_provider_count;
-  // Provider-set view over |target_providers|.
-  loom_target_provider_set_t target_provider_set;
-  // Core target environment composed from |target_providers|.
+  // Core target provider set assembled once for the environment.
+  loom_target_provider_set_storage_t target_provider_storage;
+  // Core target environment composed from |target_provider_storage|.
   loom_target_environment_t target_environment;
   // Execution backend table assembled once for the environment.
   const loom_run_execution_backend_t* execution_backends

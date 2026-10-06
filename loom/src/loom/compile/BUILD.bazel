@@ -1,0 +1,66 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
+load(
+    "//loom/build_tools/bazel:build_defs.bzl",
+    "loom_cc_library",
+    "loom_cc_test",
+)
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+loom_cc_library(
+    name = "request",
+    srcs = ["request.c"],
+    hdrs = ["request.h"],
+    deps = [
+        "//loom/src/loom/error:source",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/link:linker",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/pipeline",
+        "//loom/src/loom/target:entry_selection",
+        "//loom/src/loom/target:module_specialization",
+        "//loom/src/loom/target:projection",
+        "//loom/src/loom/target:selection",
+        "//loom/src/loom/target:specialization",
+        "//loom/src/loom/target:types",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+iree_assert_dependency_boundary(
+    name = "request_has_no_tooling_or_binding_dependencies",
+    forbidden_subtrees = [
+        "//loom/binding/...",
+        "//loom/src/loom/tooling/...",
+        "//loom/src/loom/tools/...",
+    ],
+    message = "Compile request resolution is compiler-owned and must not depend on public bindings or tooling adapters",
+    target = ":request",
+)
+
+loom_cc_test(
+    name = "request_test",
+    srcs = ["request_test.cc"],
+    deps = [
+        ":request",
+        "//loom/src/loom/format/text:parser",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/target",
+        "//loom/src/loom/testing:context",
+        "//loom/src/loom/testing:module_ptr",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)

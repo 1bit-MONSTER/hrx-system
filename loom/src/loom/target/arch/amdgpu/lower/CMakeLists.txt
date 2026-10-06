@@ -55,9 +55,11 @@ loom_cc_library(
     lower
   HDRS
     "abi.h"
+    "address_realization.h"
     "arithmetic.h"
     "async.h"
     "atomic_ordering.h"
+    "atomic_subword.h"
     "bitpack.h"
     "buffer.h"
     "cluster_preamble.h"
@@ -72,6 +74,7 @@ loom_cc_library(
     "descriptor_ref.h"
     "dot.h"
     "emit.h"
+    "encoding/e8m0_scale.h"
     "encoding/float16.h"
     "encoding/fp4.h"
     "encoding/fp8.h"
@@ -79,25 +82,25 @@ loom_cc_library(
     "encoding/fp8_table_counts.h"
     "encoding/fp8_tables.h"
     "encoding/fp8_vector_conversion.h"
+    "encoding/fp8_vector_plan.h"
     "encoding/vector_conversion.h"
     "feedback.h"
+    "fragment_memory/access.h"
+    "fragment_memory/address.h"
+    "fragment_memory/emit.h"
+    "fragment_memory/layout.h"
+    "fragment_memory/narrow.h"
+    "fragment_memory/packet.h"
+    "fragment_memory/plan.h"
+    "fragment_memory/publication_cost.h"
     "legality.h"
     "lower.h"
     "mask.h"
     "matrix.h"
     "matrix_fragment.h"
-    "matrix_fragment_memory_access.h"
-    "matrix_fragment_memory_address.h"
-    "matrix_fragment_memory_emit.h"
-    "matrix_fragment_memory_layout.h"
-    "matrix_fragment_memory_narrow.h"
-    "matrix_fragment_memory_packet.h"
-    "matrix_fragment_memory_plan.h"
-    "matrix_fragment_publication_cost.h"
     "matrix_fragment_repack.h"
     "matrix_fragment_repack_packed_b16.h"
     "matrix_fragment_state.h"
-    "matrix_representation.h"
     "memory.h"
     "memory_address.h"
     "memory_bank_service.h"
@@ -111,7 +114,11 @@ loom_cc_library(
     "sanitizer_race.h"
     "sanitizer_race_report.h"
     "sanitizer_report.h"
+    "sanitizer_ubsan_report.h"
     "signal.h"
+    "source_alloca_layout.h"
+    "source_integer_representation.h"
+    "source_representation.h"
     "structural.h"
     "subgroup.h"
     "sync.h"
@@ -127,6 +134,7 @@ loom_cc_library(
     "value/vector_conversion.h"
     "value/vector_transform.h"
     "workgroup.h"
+    "workgroup_storage.h"
   TEXTUAL_HDRS
     "${IREE_BINARY_DIR}/loom/src/loom/target/arch/amdgpu/contracts/tables.inl"
     "${IREE_BINARY_DIR}/loom/src/loom/target/arch/amdgpu/descriptors/lower_capabilities.h"
@@ -140,10 +148,12 @@ loom_cc_library(
     "registry_tables.inl"
   SRCS
     "abi.c"
+    "address_realization.c"
     "arithmetic.c"
     "async.c"
     "atomic.c"
     "atomic_ordering.c"
+    "atomic_subword.c"
     "bitpack.c"
     "buffer.c"
     "cluster_preamble.c"
@@ -160,6 +170,7 @@ loom_cc_library(
     "descriptor_ref.c"
     "dot.c"
     "emit_support.c"
+    "encoding/e8m0_scale.c"
     "encoding/float16.c"
     "encoding/fp4.c"
     "encoding/fp8.c"
@@ -170,25 +181,25 @@ loom_cc_library(
     "encoding/fp8_plan.c"
     "encoding/fp8_tables.c"
     "encoding/fp8_vector_conversion.c"
+    "encoding/fp8_vector_plan.c"
     "encoding/vector_conversion.c"
     "feedback.c"
+    "fragment_memory/access.c"
+    "fragment_memory/address.c"
+    "fragment_memory/emit.c"
+    "fragment_memory/layout.c"
+    "fragment_memory/narrow.c"
+    "fragment_memory/packet.c"
+    "fragment_memory/plan.c"
+    "fragment_memory/publication_cost.c"
     "legality.c"
     "mask.c"
     "materializers.c"
     "matrix.c"
     "matrix_fragment.c"
-    "matrix_fragment_memory_access.c"
-    "matrix_fragment_memory_address.c"
-    "matrix_fragment_memory_emit.c"
-    "matrix_fragment_memory_layout.c"
-    "matrix_fragment_memory_narrow.c"
-    "matrix_fragment_memory_packet.c"
-    "matrix_fragment_memory_plan.c"
-    "matrix_fragment_publication_cost.c"
     "matrix_fragment_repack.c"
     "matrix_fragment_repack_packed_b16.c"
     "matrix_fragment_state.c"
-    "matrix_representation.c"
     "memory.c"
     "memory_address.c"
     "memory_bank_service.c"
@@ -207,8 +218,11 @@ loom_cc_library(
     "sanitizer_race.c"
     "sanitizer_race_report.c"
     "sanitizer_report.c"
+    "sanitizer_ubsan_report.c"
     "signal.c"
     "source_alloca_layout.c"
+    "source_integer_representation.c"
+    "source_representation.c"
     "source_type_mapping.c"
     "source_value_analysis.c"
     "source_value_analysis.h"
@@ -231,6 +245,7 @@ loom_cc_library(
     "value/vector_construct.c"
     "value/vector_conversion.c"
     "value/vector_transform.c"
+    "workgroup_storage.c"
   DEPS
     ::kinds
     ::materializers
@@ -239,6 +254,9 @@ loom_cc_library(
     loom::analysis::condition_facts
     loom::analysis::contract_vector
     loom::analysis::control_uniformity
+    loom::analysis::source_storage_packing
+    loom::analysis::storage_interference
+    loom::analysis::storage_layout
     loom::analysis::symbolic_expr
     loom::analysis::view_regions
     loom::codegen::low::builder
@@ -248,6 +266,7 @@ loom_cc_library(
     loom::codegen::low::lower::representation_observer
     loom::codegen::low::representation_plan
     loom::codegen::low::source_memory_plan
+    loom::error::error_defs
     loom::ir
     loom::ir::facts
     loom::ops::atomic
@@ -273,7 +292,9 @@ loom_cc_library(
     loom::target::arch::amdgpu::abi::feedback
     loom::target::arch::amdgpu::abi::signal
     loom::target::arch::amdgpu::abi::tsan
+    loom::target::arch::amdgpu::abi::ubsan
     loom::target::arch::amdgpu::analysis::lds_bank_service
+    loom::target::arch::amdgpu::buffer_resource
     loom::target::arch::amdgpu::contracts
     loom::target::arch::amdgpu::encoding::encoding_defs
     loom::target::arch::amdgpu::error_defs
@@ -298,6 +319,27 @@ loom_cc_library(
     loom::util::fact_table
     loom::util::numeric_format
   PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_cc_test(
+  NAME
+    memory_bank_service_test
+  SRCS
+    "memory_bank_service_test.cc"
+  DEPS
+    ::lower
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::codegen::low::source_memory_plan
+    loom::ir
+    loom::target::arch::amdgpu::analysis::lds_bank_service
+    loom::target::arch::amdgpu::refs::target_refs
+    loom::target::arch::amdgpu::target_info
+    loom::target::types
+  LABELS
+    "iree-build-requirement=loom.target.arch.amdgpu"
 )
 endif()
 
@@ -411,6 +453,24 @@ endif()
 if(LOOM_TARGET_ARCH_AMDGPU)
 loom_cc_test(
   NAME
+    fragment_memory_packet_test
+  SRCS
+    "fragment_memory/packet_test.cc"
+  DEPS
+    ::lower
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::target::arch::amdgpu::descriptors::low_registry
+    loom::target::arch::amdgpu::matrix::contract
+    loom::target::arch::amdgpu::target_info
+  LABELS
+    "iree-build-requirement=loom.target.arch.amdgpu"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_cc_test(
+  NAME
     sanitizer_access_test
   SRCS
     "sanitizer_access_test.cc"
@@ -449,6 +509,7 @@ loom_cc_test(
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::codegen::low::builder
     loom::codegen::low::verify
     loom::error::renderer
     loom::ir
@@ -458,6 +519,7 @@ loom_cc_test(
     loom::ops::op_registry
     loom::ops::target
     loom::target::arch::amdgpu::abi::feedback
+    loom::target::arch::amdgpu::abi::ubsan
     loom::target::arch::amdgpu::descriptors::low_registry
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::registers

@@ -1,0 +1,421 @@
+// RUN: with-checks emit source-low target=amd.xdna.aie2p:core output=low
+
+// A full byte table stays in one vector carrier and selects all result lanes
+// through packed index-bit predicates.
+func.def @i8_full_table(%table: vector<64xi8>, %indices: vector<64xi8>) -> (vector<64xi8>) {
+  %result = vector.table.lookup %table[%indices] : vector<64xi8>, vector<64xi8> -> vector<64xi8>
+  func.return %result : vector<64xi8>
+}
+
+// ----
+CHECK: * = vband %indices, *
+CHECK: * = vlt.u8x64 *, *
+CHECK: * = vextbcst.8 %table, 0
+CHECK: * = vextbcst.8 %table, 63
+CHECK: %result = vsel.8 *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+CHECK-NOT: * = vextbcst.8 %table, 64
+
+// ====
+
+// A partial final subtree uses only defined BF16 table lanes while preserving
+// the logical rank of the result.
+func.def @bf16_partial_table(%table: vector<5xbf16>, %indices: vector<2x16xi16>) -> (vector<2x16xbf16>) {
+  %result = vector.table.lookup %table[%indices] : vector<5xbf16>, vector<2x16xi16> -> vector<2x16xbf16>
+  func.return %result : vector<2x16xbf16>
+}
+
+// ----
+CHECK: * = vextbcst.16 %table, 0
+CHECK: * = vextbcst.16 %table, 4
+CHECK: %result = vsel.16*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+CHECK-NOT: * = vextbcst.16 %table, 5
+
+// ====
+
+// Word payloads and indices use their native packed compare and select forms.
+func.def @f32_full_table(%table: vector<16xf32>, %indices: vector<16xi32>) -> (vector<16xf32>) {
+  %result = vector.table.lookup %table[%indices] : vector<16xf32>, vector<16xi32> -> vector<16xf32>
+  func.return %result : vector<16xf32>
+}
+
+// ----
+CHECK: * = vlt.u32x16* *, *
+CHECK: * = vextbcst.32 %table, 0
+CHECK: * = vextbcst.32 %table, 15
+CHECK: %result = vsel.32*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// A uniform double-word lookup is one native indexed broadcast.
+func.def @i64_uniform_table(%table: vector<8xi64>) -> (vector<8xi64>) {
+  %indices = vector.constant 7 : vector<8xi8>
+  %result = vector.table.lookup %table[%indices] : vector<8xi64>, vector<8xi8> -> vector<8xi64>
+  func.return %result : vector<8xi64>
+}
+
+// ----
+CHECK: %result = vextbcst.64 %table, 7
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// Five double-word result lanes tie the packed setup cost, so avoid replacing
+// an equal-cost scalar realization at the boundary.
+func.def @i64_scalar_cost_boundary(%table: vector<2xi64>, %indices: vector<5xi8>) -> (vector<5xi64>) {
+  %result = vector.table.lookup %table[%indices] : vector<2xi64>, vector<5xi8> -> vector<5xi64>
+  func.return %result : vector<5xi64>
+}
+
+// ----
+CHECK: * = vextract.8.imm %indices, 0
+CHECK: * = vextract.64.reg %table, *
+CHECK: %result = vinsert.64.reg *
+CHECK-NOT: * = vextbcst.64 *
+CHECK-NOT: * = vsel.32 *
+
+// ====
+
+// The sixth lane repays predicate expansion and selects each i64 as one pair
+// of adjacent 32-bit payload words.
+func.def @i64_packed_cost_boundary(%table: vector<2xi64>, %indices: vector<6xi8>) -> (vector<6xi64>) {
+  %result = vector.table.lookup %table[%indices] : vector<2xi64>, vector<6xi8> -> vector<6xi64>
+  func.return %result : vector<6xi64>
+}
+
+// ----
+CHECK: * = vextbcst.64 %table, 0
+CHECK: * = vextbcst.64 %table, 1
+CHECK: * = predicate.mask.low32 *
+CHECK: %result = vsel.32 *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// Floating-point payload bits and a multidimensional logical shape use the
+// same pair selector without conversion or scalar assembly.
+func.def @shaped_f64_table(%table: vector<2xf64>, %indices: vector<2x4xi16>) -> (vector<2x4xf64>) {
+  %result = vector.table.lookup %table[%indices] : vector<2xf64>, vector<2x4xi16> -> vector<2x4xf64>
+  func.return %result : vector<2x4xf64>
+}
+
+// ----
+CHECK: * = vextbcst.64 %table, 0
+CHECK: * = vextbcst.64 %table, 1
+CHECK: %result = vsel.32 *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// A 1024-bit result is split into two native pair-selection packets and then
+// restored through the ordinary four-unit vector carrier.
+func.def @wide_i64_table(%table: vector<2xi64>, %indices: vector<16xi8>) -> (vector<16xi64>) {
+  %result = vector.table.lookup %table[%indices] : vector<2xi64>, vector<16xi8> -> vector<16xi64>
+  func.return %result : vector<16xi64>
+}
+
+// ----
+CHECK: * = vsel.32 *
+CHECK: * = vsel.32 *
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// The exact 2048-bit i64 accumulator carrier retains four vector-file
+// selection packets before crossing the register-file boundary once per unit.
+func.def @accumulator_i64_table(%table: vector<2xi64>, %indices: vector<32xi8>) -> (vector<32xi64>) {
+  %result = vector.table.lookup %table[%indices] : vector<2xi64>, vector<32xi8> -> vector<32xi64>
+  func.return %result : vector<32xi64>
+}
+
+// ----
+CHECK: * = vsel.32 *
+CHECK: * = vsel.32 *
+CHECK: * = vsel.32 *
+CHECK: * = vsel.32 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// Narrow indices make the packed tree cheaper at this boundary because scalar
+// extraction must extend every index lane.
+func.def @i16_narrow_index_boundary(%table: vector<9xi16>, %indices: vector<8xi16>) -> (vector<8xi16>) {
+  %result = vector.table.lookup %table[%indices] : vector<9xi16>, vector<8xi16> -> vector<8xi16>
+  func.return %result : vector<8xi16>
+}
+
+// ----
+CHECK: * = vextbcst.16 %table, 0
+CHECK: %result = vsel.16*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// Word indices need predicate completion but no scalar extension, making the
+// scalar realization one instruction cheaper at the adjacent boundary.
+func.def @i16_word_index_boundary(%table: vector<9xi16>, %indices: vector<8xi32>) -> (vector<8xi16>) {
+  %result = vector.table.lookup %table[%indices] : vector<9xi16>, vector<8xi32> -> vector<8xi16>
+  func.return %result : vector<8xi16>
+}
+
+// ----
+CHECK: * = vextract.32.imm %indices, 0
+CHECK: * = vextract.16.reg %table, *
+CHECK: %result = vinsert.16.reg *
+CHECK-NOT: * = vextbcst.*
+
+// ====
+
+// The shared lane interval follows the wider index element type. Two native
+// index packets feed packed selection trees while retaining one table value.
+func.def @captured_i16_indices(%table: vector<4xi8>, %indices: vector<64xi16>) -> (vector<64xi8>) {
+  %result = vector.table.lookup %table[%indices] : vector<4xi8>, vector<64xi16> -> vector<64xi8>
+  func.return %result : vector<64xi8>
+}
+
+// ----
+CHECK: * = slice %indices[0] *
+CHECK: * = vlt.u16x32.*
+CHECK: * = slice %indices[2] *
+CHECK: * = vlt.u16x32.*
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// Direct accumulator indices move to X packet by packet, while the four
+// packed word results move back to the accumulator file.
+func.def @i32_accumulator_boundaries(%table: vector<4xi32>, %indices: vector<64xi32>) -> (vector<64xi32>) {
+  %result = vector.table.lookup %table[%indices] : vector<4xi32>, vector<64xi32> -> vector<64xi32>
+  func.return %result : vector<64xi32>
+}
+
+// ----
+CHECK: * = slice %indices[0] *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: * = slice %indices[1] *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: * = slice %indices[2] *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: * = slice %indices[3] *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: * = vsel.32*
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// Four floating-point result packets compose through two native accumulator
+// halves instead of inventing an unsupported three-packet prefix.
+func.def @f32x64_accumulator_result(%table: vector<4xf32>, %indices: vector<64xi8>) -> (vector<64xf32>) {
+  %result = vector.table.lookup %table[%indices] : vector<4xf32>, vector<64xi8> -> vector<64xf32>
+  func.return %result : vector<64xf32>
+}
+
+// ----
+CHECK: * = vsel.32*
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// Restoring a shaped 1024-bit result crosses from the flat accumulator
+// carrier back to its ordinary vector-file representation explicitly.
+func.def @shaped_f32_accumulator_result(%table: vector<4xf32>, %indices: vector<4x8xi8>) -> (vector<4x8xf32>) {
+  %result = vector.table.lookup %table[%indices] : vector<4xf32>, vector<4x8xi8> -> vector<4x8xf32>
+  func.return %result : vector<4x8xf32>
+}
+
+// ----
+CHECK: * = vsel.32*
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// A partial final result carrier retains its exact lane count after the first
+// native packet instead of padding the lookup or the logical result.
+func.def @partial_final_carrier(%table: vector<8xbf16>, %indices: vector<33xi16>) -> (vector<33xbf16>) {
+  %result = vector.table.lookup %table[%indices] : vector<8xbf16>, vector<33xi16> -> vector<33xbf16>
+  func.return %result : vector<33xbf16>
+}
+
+// ----
+CHECK: * = vlt.u16x32.*
+CHECK: * = vextract.16.imm *
+CHECK: * = vextract.16.reg %table, *
+CHECK: %result = concat(*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// A non-square rank-three result uses the same row-major full and partial
+// packets as its flat carrier instead of falling back to scalar assembly.
+func.def @shaped_partial_carrier(%table: vector<4xi16>, %indices: vector<2x2x10xi16>) -> (vector<2x2x10xi16>) {
+  %result = vector.table.lookup %table[%indices] : vector<4xi16>, vector<2x2x10xi16> -> vector<2x2x10xi16>
+  func.return %result : vector<2x2x10xi16>
+}
+
+// ----
+CHECK: * = slice %indices[0] *
+CHECK: * = vlt.u16x32.*
+CHECK: * = slice %indices[2] *
+CHECK: * = vlt.u16x32.*
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// An index producer wider than the function ABI streams from its owning load.
+// Its four result packets compose as adjacent halves without materializing a
+// 2048-bit intermediate index carrier.
+func.def @streamed_i32_indices(%source: buffer, %table: vector<4xi8>) -> (vector<64xi8>) {
+  %source_local = buffer.assume.memory_space<workgroup> %source : buffer
+  %source_aligned = buffer.assume.alignment %source_local {minimum_alignment = 64} : buffer
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source_aligned[%base] : buffer -> view<64xi32>
+  %indices = vector.load %source_view[0] : view<64xi32> -> vector<64xi32>
+  %result = vector.table.lookup %table[%indices] : vector<4xi8>, vector<64xi32> -> vector<64xi8>
+  func.return %result : vector<64xi8>
+}
+
+// ----
+CHECK: * = vlda.512.i32x16 %source_view, 0
+CHECK: * = vlda.512.i32x16 %source_view, 64
+CHECK: * = vlda.512.i32x16 %source_view, 128
+CHECK: * = vlda.512.i32x16 %source_view, 192
+CHECK: * = vshift *
+CHECK: %result = concat(*
+CHECK-NOT: * = storage *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// A result spanning two vector carriers is assembled from two packed lookup
+// trees instead of a 128-lane scalar insertion ladder.
+func.def @wide_i8_result(%table: vector<4xi8>, %indices: vector<128xi8>) -> (vector<128xi8>) {
+  %result = vector.table.lookup %table[%indices] : vector<4xi8>, vector<128xi8> -> vector<128xi8>
+  func.return %result : vector<128xi8>
+}
+
+// ----
+CHECK: * = slice %indices[0] *
+CHECK: * = vlt.u8x64 *
+CHECK: * = slice %indices[2] *
+CHECK: * = vlt.u8x64 *
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// The result element width can set the common interval even when the index
+// vector itself would fit one carrier.
+func.def @wide_i32_result(%table: vector<4xi32>, %indices: vector<32xi8>) -> (vector<32xi32>) {
+  %result = vector.table.lookup %table[%indices] : vector<4xi32>, vector<32xi8> -> vector<32xi32>
+  func.return %result : vector<32xi32>
+}
+
+// ----
+CHECK: * = vlt.u8x64*
+CHECK: * = vsel.32*
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// Uniform specialization survives packetization and shares one native table
+// broadcast across both result carriers.
+func.def @uniform_wide(%table: vector<4xi8>) -> (vector<128xi8>) {
+  %indices = vector.constant 3 : vector<128xi8>
+  %result = vector.table.lookup %table[%indices] : vector<4xi8>, vector<128xi8> -> vector<128xi8>
+  func.return %result : vector<128xi8>
+}
+
+// ----
+CHECK: * = vextbcst.8 %table, 3
+CHECK: %result = concat(*
+CHECK-NOT: * = vsel.*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// A write between the source read and lookup keeps both index packets at the
+// authored observation point instead of replaying the load after the write.
+func.def @preserved_index_snapshot(%source: buffer, %table: vector<4xi8>, %replacement: i16) -> (vector<64xi8>) {
+  %source_local = buffer.assume.memory_space<workgroup> %source : buffer
+  %source_aligned = buffer.assume.alignment %source_local {minimum_alignment = 64} : buffer
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source_aligned[%base] : buffer -> view<64xi16>
+  %indices = vector.load %source_view[0] : view<64xi16> -> vector<64xi16>
+  view.store %replacement, %source_view[0] : i16, view<64xi16>
+  %result = vector.table.lookup %table[%indices] : vector<4xi8>, vector<64xi16> -> vector<64xi8>
+  func.return %result : vector<64xi8>
+}
+
+// ----
+CHECK: * = vlda.512.i16x32 %source_view, 0
+CHECK: * = vlda.512.i16x32 %source_view, 64
+CHECK: st.s16 %replacement, %source_view, 0
+CHECK: * = vlt.u16x32.*
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// A widening producer consumes captured halfwords packet by packet, so its
+// full 1024-bit word result never needs a physical carrier.
+func.def @converted_i32_indices(%table: vector<4xi16>, %packed: vector<32xi16>) -> (vector<32xi16>) {
+  %indices = vector.extui %packed : vector<32xi16> to vector<32xi32>
+  %result = vector.table.lookup %table[%indices] : vector<4xi16>, vector<32xi32> -> vector<32xi16>
+  func.return %result : vector<32xi16>
+}
+
+// ----
+CHECK: * = slice %packed[0] *
+CHECK: * = vups.2x.w-to-b.unsigned *
+CHECK: * = vlt.u32x16.*
+CHECK: * = vshift %packed, %packed, *
+CHECK: * = vups.2x.w-to-b.unsigned *
+CHECK: * = vlt.u32x16.*
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*

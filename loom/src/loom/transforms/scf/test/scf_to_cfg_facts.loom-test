@@ -1,0 +1,204 @@
+// RUN: with-checks pass scf-to-cfg,canonicalize,dce
+
+// scf.for materializes its structured IV facts on the lowered body value. A
+// fresh CFG fact solve must recover the exact body range and divisor from that
+// boundary instead of depending on the removed structured op.
+func.def @for_body_facts_survive_lowering() {
+  %begin = index.constant 4 : index
+  %end = index.constant 12 : index
+  %step = index.constant 2 : index
+  scf.for %position = [%begin to %end step %step] {
+    %lo = test.fact_range_lo %position : index -> i64
+    %hi = test.fact_range_hi %position : index -> i64
+    %divisor = test.fact_divisor %position : index -> i64
+    test.use %lo, %hi, %divisor : i64, i64, i64
+  }
+  func.return
+}
+
+// ----
+CHECK: func.def @for_body_facts_survive_lowering*
+CHECK: %position = index.assume *[range(*, 4, 10), mul(*, 2)] : index
+CHECK: %lo = scalar.constant 4 : i64
+CHECK: %hi = scalar.constant 10 : i64
+CHECK: %divisor = scalar.constant 2 : i64
+CHECK-NOT: *test.fact_*
+CHECK-NOT: *scf.*
+
+// ====
+
+// The controlling value is the second loop-carried argument. Loading an
+// unrelated payload on every backedge must not poison the counter recurrence.
+func.def @while_control_facts_ignore_loaded_payload(%links: view<1xi32>, %seed: i32) {
+  %begin = index.constant 2 : index
+  %end = index.constant 9 : index
+  %step = index.constant 3 : index
+  %link_index = index.constant 0 : index
+  %last_payload, %terminal = scf.while(%payload = %seed : i32, %counter = %begin : index) -> (i32, index) {
+    %header_lo = test.fact_range_lo %counter : index -> i64
+    %header_hi = test.fact_range_hi %counter : index -> i64
+    test.use %header_lo, %header_hi : i64, i64
+    %more = index.cmp slt, %counter, %end : index
+    scf.condition %more, %payload, %counter : i1, i32, index
+  } do(%body_payload: i32, %position: index) {
+    %next_payload = view.load %links[%link_index] : view<1xi32> -> i32
+    %next = index.add %position, %step : index
+    scf.yield %next_payload, %next : i32, index
+  }
+  test.use %last_payload : i32
+  test.use %terminal : index
+  func.return
+}
+
+// ----
+CHECK: func.def @while_control_facts_ignore_loaded_payload*
+CHECK: %header_lo = scalar.constant 2 : i64
+CHECK: %header_hi = scalar.constant 11 : i64
+CHECK: %next_payload = view.load *
+CHECK-NOT: *test.fact_*
+CHECK-NOT: *scf.*
+
+// ====
+
+// A load that supplies the next controlling value is a true data recurrence.
+// Lowering must not turn its initializer and guard into a fixed-step range.
+func.def @while_loaded_control_remains_unknown(%links: view<1xi64>) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %link_index = index.constant 0 : index
+  %terminal = scf.while(%counter = %begin : index) -> (index) {
+    %header_lo = test.fact_range_lo %counter : index -> i64
+    %header_hi = test.fact_range_hi %counter : index -> i64
+    test.use %header_lo, %header_hi : i64, i64
+    %more = index.cmp slt, %counter, %end : index
+    scf.condition %more, %counter : i1, index
+  } do(%position: index) {
+    %loaded = view.load %links[%link_index] : view<1xi64> -> i64
+    %next = index.cast %loaded : i64 to index
+    scf.yield %next : index
+  }
+  test.use %terminal : index
+  func.return
+}
+
+// ----
+CHECK: func.def @while_loaded_control_remains_unknown*
+CHECK: %header_lo = scalar.constant -9223372036854775808 : i64
+CHECK: %header_hi = scalar.constant 9223372036854775807 : i64
+CHECK: %loaded = view.load *
+CHECK-NOT: *test.fact_*
+CHECK-NOT: *scf.*
+
+// ====
+
+// An alternate loaded update remains visible after the nested scf.if is
+// lowered. The merged backedge is not a fixed recurrence even though its other
+// arm increments by a constant step.
+func.def @conditional_loaded_control_remains_unknown(%links: view<1xi64>, %take_loaded: i1) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %link_index = index.constant 0 : index
+  %terminal = scf.while(%counter = %begin : index) -> (index) {
+    %header_lo = test.fact_range_lo %counter : index -> i64
+    %header_hi = test.fact_range_hi %counter : index -> i64
+    test.use %header_lo, %header_hi : i64, i64
+    %more = index.cmp slt, %counter, %end : index
+    scf.condition %more, %counter : i1, index
+  } do(%position: index) {
+    %next = scf.if %take_loaded -> (index) {
+      %loaded = view.load %links[%link_index] : view<1xi64> -> i64
+      %loaded_index = index.cast %loaded : i64 to index
+      scf.yield %loaded_index : index
+    } else {
+      %incremented = index.add %position, %step : index
+      scf.yield %incremented : index
+    }
+    scf.yield %next : index
+  }
+  test.use %terminal : index
+  func.return
+}
+
+// ----
+CHECK: func.def @conditional_loaded_control_remains_unknown*
+CHECK: %header_lo = scalar.constant -9223372036854775808 : i64
+CHECK: %header_hi = scalar.constant 9223372036854775807 : i64
+CHECK: cfg.cond_br %take_loaded, *
+CHECK-NOT: *test.fact_*
+CHECK-NOT: *scf.*
+
+// ====
+
+// Both natural loops must be rediscovered from the generated CFG. The inner
+// loop cannot hide or widen the outer recurrence.
+func.def @nested_while_facts_survive_lowering() {
+  %begin = index.constant 0 : index
+  %outer_end = index.constant 2 : index
+  %inner_end = index.constant 3 : index
+  %step = index.constant 1 : index
+  %outer_terminal = scf.while(%outer_before = %begin : index) -> (index) {
+    %outer_lo = test.fact_range_lo %outer_before : index -> i64
+    %outer_hi = test.fact_range_hi %outer_before : index -> i64
+    test.use %outer_lo, %outer_hi : i64, i64
+    %outer_more = index.cmp slt, %outer_before, %outer_end : index
+    scf.condition %outer_more, %outer_before : i1, index
+  } do(%outer: index) {
+    %inner_terminal = scf.while(%inner_before = %begin : index) -> (index) {
+      %inner_lo = test.fact_range_lo %inner_before : index -> i64
+      %inner_hi = test.fact_range_hi %inner_before : index -> i64
+      test.use %inner_lo, %inner_hi : i64, i64
+      %inner_more = index.cmp slt, %inner_before, %inner_end : index
+      scf.condition %inner_more, %inner_before : i1, index
+    } do(%inner: index) {
+      %inner_next = index.add %inner, %step : index
+      scf.yield %inner_next : index
+    }
+    test.use %inner_terminal : index
+    %outer_next = index.add %outer, %step : index
+    scf.yield %outer_next : index
+  }
+  test.use %outer_terminal : index
+  func.return
+}
+
+// ----
+CHECK: func.def @nested_while_facts_survive_lowering*
+CHECK: %outer_lo = scalar.constant 0 : i64
+CHECK: %outer_hi = scalar.constant 2 : i64
+CHECK: %inner_lo = scalar.constant 0 : i64
+CHECK: %inner_hi = scalar.constant 3 : i64
+CHECK-NOT: *test.fact_*
+CHECK-NOT: *scf.*
+
+// ====
+
+// A false initial guard has no live backedge. The generated CFG retains the
+// exact entry value at both the loop header and the forwarded loop result.
+func.def @zero_trip_facts_survive_lowering() -> (i64, i64) {
+  %begin = index.constant 5 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %terminal = scf.while(%counter = %begin : index) -> (index) {
+    %header_lo = test.fact_range_lo %counter : index -> i64
+    %header_hi = test.fact_range_hi %counter : index -> i64
+    test.use %header_lo, %header_hi : i64, i64
+    %more = index.cmp slt, %counter, %end : index
+    scf.condition %more, %counter : i1, index
+  } do(%position: index) {
+    %next = index.add %position, %step : index
+    scf.yield %next : index
+  }
+  %terminal_lo = test.fact_range_lo %terminal : index -> i64
+  %terminal_hi = test.fact_range_hi %terminal : index -> i64
+  func.return %terminal_lo, %terminal_hi : i64, i64
+}
+
+// ----
+CHECK: func.def @zero_trip_facts_survive_lowering*
+CHECK: %header_lo = scalar.constant 5 : i64
+CHECK: %header_hi = scalar.constant 5 : i64
+CHECK: %terminal_lo = scalar.constant 5 : i64
+CHECK: %terminal_hi = scalar.constant 5 : i64
+CHECK-NOT: *test.fact_*
+CHECK-NOT: *scf.*

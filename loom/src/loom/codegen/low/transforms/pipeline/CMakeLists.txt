@@ -31,6 +31,7 @@ loom_cc_library(
     loom::pass::value_facts
     loom::sanitizer::options
     loom::target::low_legality
+    loom::target::pass_environment
     loom::target::reporting::low
   PUBLIC
 )
@@ -65,6 +66,7 @@ loom_cc_library(
     loom::target::low_descriptor_registry
     loom::target::low_legality
     loom::target::math_policy
+    loom::target::pass_environment
     loom::target::reporting::report
     loom::util::adaptive_sort
     loom::util::walk
@@ -84,16 +86,17 @@ loom_cc_test(
     loom::analysis::symbol_facts
     loom::codegen::low::lower
     loom::codegen::low::lower::source_selection
-    loom::codegen::low::pipeline::pass_environment
     loom::codegen::low::text_asm
     loom::codegen::low::transforms::allocation
     loom::codegen::low::transforms::dce
+    loom::codegen::pass_environment
     loom::error::error_defs
     loom::format::text::parser
     loom::ir
     loom::ops::func
     loom::ops::low
     loom::ops::pass
+    loom::ops::sanitizer
     loom::ops::scalar
     loom::ops::target
     loom::ops::template

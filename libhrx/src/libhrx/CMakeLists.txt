@@ -25,9 +25,12 @@ iree_cc_library(
     ${_hrx_static_platform_copts}
   HDRS
     "${LIBHRX_SOURCE_DIR}/src/iree_hal_compat.h"
+    "buffer.h"
     "buffer_table.h"
+    "device.h"
     "hrx_internal.h"
     "mem_pool.h"
+    "runtime.h"
     "transfer.h"
     "vmm_slab_provider.h"
   SRCS
@@ -98,9 +101,12 @@ iree_cc_library(
     "-DHRX_BUILDING_SHARED"
   HDRS
     "${LIBHRX_SOURCE_DIR}/src/iree_hal_compat.h"
+    "buffer.h"
     "buffer_table.h"
+    "device.h"
     "hrx_internal.h"
     "mem_pool.h"
+    "runtime.h"
     "transfer.h"
     "vmm_slab_provider.h"
   SRCS

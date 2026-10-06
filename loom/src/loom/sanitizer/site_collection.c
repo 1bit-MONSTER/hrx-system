@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "loom/ops/kernel/ops.h"
 #include "loom/ops/sanitizer/ops.h"
 #include "loom/util/walk.h"
 
@@ -65,13 +66,15 @@ const loom_sanitizer_site_row_t* loom_sanitizer_site_collection_lookup(
   }
 }
 
-static bool loom_sanitizer_site_op_isa(const loom_op_t* op) {
-  return loom_sanitizer_assert_access_isa(op) ||
+static bool loom_sanitizer_report_site_op_isa(const loom_op_t* op) {
+  return loom_kernel_assert_isa(op) || loom_sanitizer_assert_access_isa(op) ||
          loom_sanitizer_assert_accesses_isa(op) ||
          loom_sanitizer_assert_value_isa(op) ||
          loom_sanitizer_assert_op_isa(op) ||
          loom_sanitizer_assert_layout_isa(op) ||
-         loom_sanitizer_race_access_isa(op) || loom_sanitizer_race_sync_isa(op);
+         loom_sanitizer_race_access_isa(op) ||
+         loom_sanitizer_race_fragment_access_isa(op) ||
+         loom_sanitizer_race_sync_isa(op);
 }
 
 static iree_status_t loom_sanitizer_site_location_validate_child(
@@ -160,7 +163,7 @@ static iree_status_t loom_sanitizer_site_count_visitor(
   loom_sanitizer_site_count_state_t* state =
       (loom_sanitizer_site_count_state_t*)user_data;
   *out_result = LOOM_WALK_CONTINUE;
-  if (!loom_sanitizer_site_op_isa(op)) {
+  if (!loom_sanitizer_report_site_op_isa(op)) {
     return iree_ok_status();
   }
   if (state->count == LOOM_SANITIZER_SITE_ID_INVALID) {
@@ -179,7 +182,7 @@ static iree_status_t loom_sanitizer_site_collect_visitor(
   loom_sanitizer_site_collect_state_t* state =
       (loom_sanitizer_site_collect_state_t*)user_data;
   *out_result = LOOM_WALK_CONTINUE;
-  if (!loom_sanitizer_site_op_isa(op)) {
+  if (!loom_sanitizer_report_site_op_isa(op)) {
     return iree_ok_status();
   }
 

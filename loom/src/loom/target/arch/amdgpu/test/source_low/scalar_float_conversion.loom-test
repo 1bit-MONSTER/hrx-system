@@ -1,0 +1,180 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/scalar_float_conversion.loom-test
+// RUN: emit source-low target=amdgpu:gfx1151 output=low
+
+func.def @convert_scalar_f64(%single: f32, %double: f64) -> (f64, f32) {
+  %wide = scalar.extf %single : f32 to f64
+  %narrow = scalar.fptrunc %double : f64 to f32
+  func.return %wide, %narrow : f64, f32
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @convert_scalar_f64(%single: reg<amdgpu.vgpr>, %double: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr>) asm {
+  %wide = v_cvt_f64_f32 %single
+  %narrow = v_cvt_f32_f64 %double
+  return %wide, %narrow
+}
+
+// ====
+
+kernel.def @floating_arguments() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%single: f32, %double: f64, %output: buffer) {
+  %base = index.constant 0 : offset
+  %output_view = buffer.view %output[%base] : buffer -> view<3xf32>
+  %single_double = scalar.fptrunc %double : f64 to f32
+  %wide = scalar.extf %single : f32 to f64
+  %roundtrip = scalar.fptrunc %wide : f64 to f32
+  view.store %single, %output_view[0] : f32, view<3xf32>
+  view.store %single_double, %output_view[1] : f32, view<3xf32>
+  view.store %roundtrip, %output_view[2] : f32, view<3xf32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.rdna3_5.core> abi_layout({constant_count = 3, direct_arg_count = 2, direct_arg_names = {arg0 = "single", arg1 = "double"}, direct_arg_offsets = [0, 4], direct_arg_parameter_indices = [0, 1], direct_arg_sizes = [4, 8], parameter_count = 3, resource_count = 1, resource_offsets = [16], resource_parameter_indices = [2], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @floating_arguments(%single: reg<amdgpu.sgpr>, %double: reg<amdgpu.sgpr x2>) asm {
+  %output_view = resource<hal_binding> {extent = 12, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %single_double = v_cvt_f32_f64 %double
+  %13 = v_mov_b32_copy %single
+  %14 = v_mov_b32 0
+  global_store_b32_saddr %14, %13, %output_view
+  global_store_b32_saddr %14, %single_double, %output_view {offset = 4}
+  global_store_b32_saddr %14, %13, %output_view {offset = 8}
+  return
+}
+
+// ====
+
+func.def @widen_narrow_to_f64(%e4: f8E4M3, %e5: f8E5M2, %half: f16, %brain: bf16) -> (f64, f64, f64, f64) {
+  %double_e4 = scalar.extf %e4 : f8E4M3 to f64
+  %double_e5 = scalar.extf %e5 : f8E5M2 to f64
+  %double_half = scalar.extf %half : f16 to f64
+  %double_brain = scalar.extf %brain : bf16 to f64
+  func.return %double_e4, %double_e5, %double_half, %double_brain : f64, f64, f64, f64
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @widen_narrow_to_f64(%e4: reg<amdgpu.vgpr>, %e5: reg<amdgpu.vgpr>, %half: reg<amdgpu.vgpr>, %brain: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %141 = v_and_b32_lit %e4, 255
+  %142 = v_and_b32_lit %141, 128
+  %143 = v_lshlrev_b32_src0_inline %142, 24
+  %145 = v_and_b32_lit %141, 120
+  %146 = v_lshrrev_b32_src0_inline %145, 3
+  %147 = v_and_b32_lit %141, 7
+  %148 = v_mov_b32 120
+  %149 = v_add_u32 %146, %148
+  %151 = v_lshlrev_b32_src0_inline %149, 23
+  %152 = v_lshlrev_b32_src0_inline %147, 20
+  %153 = v_or_b32 %143, %151
+  %154 = v_or_b32 %153, %152
+  %157 = v_and_b32_lit %147, 2
+  %158 = v_cmp_ne_i32_src1_inline %157 {rhs = 0}
+  %160 = v_cndmask_b32_src0_lit_src1_inline %158 {imm32 = 0, true_value = 1}
+  %161 = v_and_b32_lit %147, 4
+  %162 = v_cmp_ne_i32_src1_inline %161 {rhs = 0}
+  %163 = v_cndmask_b32_src1_inline %160, %162 {true_value = 2}
+  %165 = v_mov_b32 118
+  %166 = v_add_u32 %163, %165
+  %167 = v_lshlrev_b32_src0_inline %166, 23
+  %168 = v_mov_b32 23
+  %169 = v_sub_nc_u32 %168, %163
+  %170 = v_lshlrev_b32 %169, %147
+  %171 = v_and_b32_lit %170, 8388607
+  %172 = v_or_b32 %143, %167
+  %173 = v_or_b32 %172, %171
+  %174 = v_cmp_eq_i32_src1_inline %147 {rhs = 0}
+  %175 = v_cndmask_b32 %173, %143, %174
+  %176 = v_cmp_eq_i32_src1_inline %146 {rhs = 0}
+  %177 = v_cndmask_b32 %154, %175, %176
+  %178 = v_cmp_eq_i32_src1_inline %146 {rhs = 15}
+  %180 = v_cmp_eq_i32_src1_inline %147 {rhs = 7}
+  %183 = s_and_b64 %178, %180
+  %184 = v_cndmask_b32_src1_lit %177, %183, 2143289344
+  %double_e4 = v_cvt_f64_f32 %184
+  %186 = v_and_b32_lit %e5, 255
+  %187 = v_and_b32_lit %186, 128
+  %188 = v_lshlrev_b32_src0_inline %187, 24
+  %189 = v_and_b32_lit %186, 124
+  %190 = v_lshrrev_b32_src0_inline %189, 2
+  %191 = v_and_b32_lit %186, 3
+  %193 = v_mov_b32 112
+  %194 = v_add_u32 %190, %193
+  %195 = v_lshlrev_b32_src0_inline %194, 23
+  %196 = v_lshlrev_b32_src0_inline %191, 21
+  %197 = v_or_b32 %188, %195
+  %198 = v_or_b32 %197, %196
+  %199 = v_and_b32_lit %191, 2
+  %200 = v_cmp_ne_i32_src1_inline %199 {rhs = 0}
+  %201 = v_cndmask_b32_src0_lit_src1_inline %200 {imm32 = 0, true_value = 1}
+  %203 = v_mov_b32 111
+  %204 = v_add_u32 %201, %203
+  %205 = v_lshlrev_b32_src0_inline %204, 23
+  %207 = v_sub_nc_u32 %168, %201
+  %208 = v_lshlrev_b32 %207, %191
+  %209 = v_and_b32_lit %208, 8388607
+  %210 = v_or_b32 %188, %205
+  %211 = v_or_b32 %210, %209
+  %212 = v_cmp_eq_i32_src1_inline %191 {rhs = 0}
+  %213 = v_cndmask_b32 %211, %188, %212
+  %214 = v_cmp_eq_i32_src1_inline %190 {rhs = 0}
+  %215 = v_cndmask_b32 %198, %213, %214
+  %216 = v_cmp_eq_i32_src1_inline %190 {rhs = 31}
+  %217 = v_or_b32_lit %188, 2139095040
+  %218 = v_cndmask_b32_src0_lit %217, %212, 2143289344
+  %219 = v_cndmask_b32 %215, %218, %216
+  %double_e5 = v_cvt_f64_f32 %219
+  %221 = v_cvt_f32_f16 %half
+  %double_half = v_cvt_f64_f32 %221
+  %223 = v_lshlrev_b32_src0_16_low16 %brain
+  %double_brain = v_cvt_f64_f32 %223
+  return %double_e4, %double_e5, %double_half, %double_brain
+}
+
+// ====
+
+func.def @widen_float8_chain(%input: f8E4M3) -> (f64) {
+  %single = scalar.extf %input : f8E4M3 to f32
+  %double = scalar.extf %single : f32 to f64
+  func.return %double : f64
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @widen_float8_chain(%input: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x2>) asm {
+  %68 = v_and_b32_lit %input, 255
+  %69 = v_and_b32_lit %68, 128
+  %70 = v_lshlrev_b32_src0_inline %69, 24
+  %72 = v_and_b32_lit %68, 120
+  %73 = v_lshrrev_b32_src0_inline %72, 3
+  %74 = v_and_b32_lit %68, 7
+  %75 = v_mov_b32 120
+  %76 = v_add_u32 %73, %75
+  %78 = v_lshlrev_b32_src0_inline %76, 23
+  %79 = v_lshlrev_b32_src0_inline %74, 20
+  %80 = v_or_b32 %70, %78
+  %81 = v_or_b32 %80, %79
+  %84 = v_and_b32_lit %74, 2
+  %85 = v_cmp_ne_i32_src1_inline %84 {rhs = 0}
+  %87 = v_cndmask_b32_src0_lit_src1_inline %85 {imm32 = 0, true_value = 1}
+  %88 = v_and_b32_lit %74, 4
+  %89 = v_cmp_ne_i32_src1_inline %88 {rhs = 0}
+  %90 = v_cndmask_b32_src1_inline %87, %89 {true_value = 2}
+  %92 = v_mov_b32 118
+  %93 = v_add_u32 %90, %92
+  %94 = v_lshlrev_b32_src0_inline %93, 23
+  %95 = v_mov_b32 23
+  %96 = v_sub_nc_u32 %95, %90
+  %97 = v_lshlrev_b32 %96, %74
+  %98 = v_and_b32_lit %97, 8388607
+  %99 = v_or_b32 %70, %94
+  %100 = v_or_b32 %99, %98
+  %101 = v_cmp_eq_i32_src1_inline %74 {rhs = 0}
+  %102 = v_cndmask_b32 %100, %70, %101
+  %103 = v_cmp_eq_i32_src1_inline %73 {rhs = 0}
+  %104 = v_cndmask_b32 %81, %102, %103
+  %105 = v_cmp_eq_i32_src1_inline %73 {rhs = 15}
+  %107 = v_cmp_eq_i32_src1_inline %74 {rhs = 7}
+  %110 = s_and_b64 %105, %107
+  %111 = v_cndmask_b32_src1_lit %104, %110, 2143289344
+  %double = v_cvt_f64_f32 %111
+  return %double
+}

@@ -1,0 +1,86 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/predicate_extension.loom-test
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @predicate_extension_i8(%condition: i1) -> (i8, i8) {
+  %signed = scalar.extsi %condition : i1 to i8
+  %unsigned = scalar.extui %condition : i1 to i8
+  func.return %signed, %unsigned : i8, i8
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_extension_i8(%condition: reg<aie2p.er>) -> (reg<aie2p.er>, reg<aie2p.er>) asm {
+  %14 = mov.short -1
+  %15 = mov.short 0
+  %16 = copy %condition : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %signed = sel.nez %14, %15, %16
+  %18 = mov.short 1
+  %19 = copy %condition : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %unsigned = sel.nez %18, %15, %19
+  return %signed, %unsigned
+}
+
+// ====
+
+func.def @predicate_extension_i16(%condition: i1) -> (i16, i16) {
+  %signed = scalar.extsi %condition : i1 to i16
+  %unsigned = scalar.extui %condition : i1 to i16
+  func.return %signed, %unsigned : i16, i16
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_extension_i16(%condition: reg<aie2p.er>) -> (reg<aie2p.er>, reg<aie2p.er>) asm {
+  %14 = mov.short -1
+  %15 = mov.short 0
+  %16 = copy %condition : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %signed = sel.nez %14, %15, %16
+  %18 = mov.short 1
+  %19 = copy %condition : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %unsigned = sel.nez %18, %15, %19
+  return %signed, %unsigned
+}
+
+// ====
+
+func.def @predicate_extension_i32(%condition: i1) -> (i32, i32) {
+  %signed = scalar.extsi %condition : i1 to i32
+  %unsigned = scalar.extui %condition : i1 to i32
+  func.return %signed, %unsigned : i32, i32
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_extension_i32(%condition: reg<aie2p.er>) -> (reg<aie2p.er>, reg<aie2p.er>) asm {
+  %14 = mov.short -1
+  %15 = mov.short 0
+  %16 = copy %condition : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %signed = sel.nez %14, %15, %16
+  %18 = mov.short 1
+  %19 = copy %condition : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %unsigned = sel.nez %18, %15, %19
+  return %signed, %unsigned
+}
+
+// ====
+
+func.def @predicate_extension_i64(%condition: i1) -> (i64, i64) {
+  %signed = scalar.extsi %condition : i1 to i64
+  %unsigned = scalar.extui %condition : i1 to i64
+  func.return %signed, %unsigned : i64, i64
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_extension_i64(%condition: reg<aie2p.er>) -> (reg<aie2p.er x2>, reg<aie2p.er x2>) asm {
+  %14 = mov.i32 -1
+  %17 = mov.i32 0
+  %24 = copy %condition : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %25 = sel.nez %14, %17, %24
+  %26 = copy %condition : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %27 = sel.nez %14, %17, %26
+  %signed = concat(%25, %27) : (reg<aie2p.er>, reg<aie2p.er>) -> reg<aie2p.er x2>
+  %29 = mov.i32 1
+  %36 = copy %condition : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %37 = sel.nez %29, %17, %36
+  %38 = copy %condition : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %39 = sel.nez %17, %17, %38
+  %unsigned = concat(%37, %39) : (reg<aie2p.er>, reg<aie2p.er>) -> reg<aie2p.er x2>
+  return %signed, %unsigned
+}

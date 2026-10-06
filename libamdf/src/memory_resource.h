@@ -53,6 +53,11 @@ typedef struct amdf_memory_access_state_t {
   uint64_t addresses[AMDF_MEMORY_ADDRESS_XDNA_FIRMWARE + 1];
   // Native operations selected before preparation begins.
   const amdf_memory_vtable_t* vtable;
+  // Site policy from this consumer's resolved native profile. NULL means the
+  // profile cannot describe visibility; the backing owner's policy may differ.
+  amdf_status_t (*describe_site)(
+      const amdf_memory_site_query_t* query,
+      amdf_memory_site_description_t* out_description);
   // Owned native state, including partial preparation, released through vtable.
   void* native;
   // Direct index of the access owning native state for this consumer. Only

@@ -208,3 +208,73 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) @load_view_argu
   %value = mov.load.gpr32 %input {disp32 = 0}
   return %value
 }
+
+// ====
+
+x86.target<avx2> @target
+
+// Both the selected buffer and its correlated origin reach reads and writes.
+func.def target(@target) @exchange_selected_view(%first: buffer, %second: buffer, %first_origin: offset, %second_origin: offset, %condition: i1, %replacement: i32) -> (i32) {
+  %selected, %origin = scf.if %condition -> (buffer, offset) {
+    scf.yield %first, %first_origin : buffer, offset
+  } else {
+    scf.yield %second, %second_origin : buffer, offset
+  }
+  %view = buffer.view %selected[%origin] : buffer -> view<1xi32>
+  %previous = view.load %view[0] : view<1xi32> -> i32
+  view.store %replacement, %view[0] : i32, view<1xi32>
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) @exchange_selected_view(%first: reg<x86.gpr64>, %second: reg<x86.gpr64>, %first_origin: reg<x86.gpr64>, %second_origin: reg<x86.gpr64>, %condition: reg<x86.gpr32>, %replacement: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %20 = copy %second : reg<x86.gpr64> -> reg<x86.gpr64>
+  %selected = select.gpr64 %condition, %first, %20
+  %22 = copy %second_origin : reg<x86.gpr64> -> reg<x86.gpr64>
+  %origin = select.gpr64 %condition, %first_origin, %22
+  %previous = mov.load.indexed.gpr32 %selected, %origin {disp32 = 0, scale = 1}
+  mov.store.indexed.gpr32 %replacement, %selected, %origin {disp32 = 0, scale = 1}
+  return %previous
+}
+
+// ====
+
+x86.target<avx2> @target
+
+// Returning the view requires materializing its complete selected address.
+func.def target(@target) @return_selected_buffer_view(%first: buffer, %second: buffer, %origin: offset, %condition: i1) -> (view<1xi32>) {
+  %selected = scf.select %condition, %first, %second : buffer
+  %view = buffer.view %selected[%origin] : buffer -> view<2xi32>
+  %word = view.subview %view[1] : view<2xi32> -> view<1xi32>
+  func.return %word : view<1xi32>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) @return_selected_buffer_view(%first: reg<x86.gpr64>, %second: reg<x86.gpr64>, %origin: reg<x86.gpr64>, %condition: reg<x86.gpr32>) -> (reg<x86.gpr64>) asm {
+  %13 = copy %second : reg<x86.gpr64> -> reg<x86.gpr64>
+  %selected = select.gpr64 %condition, %first, %13
+  %word = lea.add_scale %selected, %origin {disp32 = 4, scale = 1}
+  return %word
+}
+
+// ====
+
+x86.target<avx2> @target
+
+// A selected pointer supports displacements beyond the instruction's disp32.
+func.def target(@target) @load_selected_buffer_wide_offset(%first: buffer, %second: buffer, %condition: i1) -> (i32) {
+  %origin = index.constant 1099511627776 : offset
+  %selected = scf.select %condition, %first, %second : buffer
+  %view = buffer.view %selected[%origin] : buffer -> view<1xi32>
+  %value = view.load %view[0] : view<1xi32> -> i32
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) @load_selected_buffer_wide_offset(%first: reg<x86.gpr64>, %second: reg<x86.gpr64>, %condition: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %12 = copy %second : reg<x86.gpr64> -> reg<x86.gpr64>
+  %selected = select.gpr64 %condition, %first, %12
+  %14 = mov.imm64 1099511627776
+  %value = mov.load.indexed.gpr32 %selected, %14 {disp32 = 0, scale = 1}
+  return %value
+}

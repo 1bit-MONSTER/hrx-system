@@ -32,6 +32,7 @@ from loom.target.arch.amdgpu.target_info import (
     AMDGPU_DESCRIPTOR_SET_INFO_FLAG_NATIVE_SCALAR_FLOAT_ARITHMETIC,
     AMDGPU_DESCRIPTOR_SET_INFO_FLAG_NATIVE_SCALAR_FLOAT_COMPARE,
     AMDGPU_DESCRIPTOR_SET_INFO_FLAG_NATIVE_SCALAR_FLOAT_CONVERSION,
+    AMDGPU_DESCRIPTOR_SET_INFOS,
     AMDGPU_MATRIX_COEXECUTION_PROFILE_NONE,
     AMDGPU_MATRIX_COEXECUTION_RULES_BY_PROFILE,
     AMDGPU_MATRIX_COEXECUTION_SOURCE_INFOS,
@@ -46,6 +47,7 @@ from loom.target.arch.amdgpu.target_info import (
 )
 from loom.target.low_descriptors import InstructionClass
 
+from .alignment import _with_operand_alignment
 from .categories import *
 from .cluster import _gfx125x_cluster_descriptors
 from .common import *
@@ -56,7 +58,7 @@ from .rdna4m import (
 )
 from .sets import *
 from .tensor import _gfx125x_tensor_descriptors
-from .timing import _with_valu_sgpr_timing
+from .timing import _with_lds_service_timing, _with_valu_sgpr_timing
 
 
 def _descriptor_has_memory_effect(descriptor: Descriptor) -> bool:
@@ -1108,15 +1110,14 @@ def _amdgpu_effect_counter_mask(
     return _amdgpu_wait_counter_mask(effect.counter_id)
 
 
-def _amdgpu_storage_lease_counter_masks(
+def _amdgpu_storage_lease_result_counter_mask(
     schedule_classes: dict[str, ScheduleClass],
     descriptor: Descriptor,
-) -> tuple[int, int]:
+) -> int:
     hazard_counter_mask = _amdgpu_descriptor_hazard_counter_mask(
         schedule_classes, descriptor
     )
     read_counter_mask = 0
-    write_counter_mask = 0
     for effect in descriptor.effects:
         # External-resource reads can complete asynchronously without aliasing
         # memory. Their explicit counter protects the destination storage too.
@@ -1131,13 +1132,7 @@ def _amdgpu_storage_lease_counter_masks(
                 effect,
                 hazard_counter_mask,
             )
-        elif effect.kind is EffectKind.WRITE:
-            write_counter_mask |= _amdgpu_effect_counter_mask(
-                descriptor,
-                effect,
-                hazard_counter_mask,
-            )
-    return read_counter_mask, write_counter_mask
+    return read_counter_mask
 
 
 def _amdgpu_storage_lease(
@@ -1176,48 +1171,17 @@ def _amdgpu_operand_is_packet_input(operand: Operand) -> bool:
     )
 
 
-def _amdgpu_operand_accepts_sgpr(operand: Operand) -> bool:
-    return any(
-        reg_alt.reg_class == _REG_SGPR
-        and RegClassAltFlag.IMMEDIATE not in reg_alt.flags
-        for reg_alt in operand.reg_alts
-    )
-
-
-def _amdgpu_append_memory_source_leases(
-    storage_leases: list[StorageLease],
-    operand: Operand,
-    packet_operand_index: int,
-    counter_mask: int,
-) -> None:
-    for counter_id, counter_bit in _AMDGPU_WAIT_COUNTER_MASKS.items():
-        if (counter_mask & counter_bit) == 0:
-            continue
-        storage_leases.append(
-            _amdgpu_storage_lease(
-                kind=StorageLeaseKind.SOURCE_READ,
-                attachment=StorageLeaseAttachment.OPERAND,
-                attachment_index=packet_operand_index,
-                unit_count=operand.unit_count,
-                release_class_id=counter_id,
-                release_reason_id=_AMDGPU_WAIT_PLAN_REASON_MEMORY_SOURCE_REUSE,
-                release_reason_name=_AMDGPU_WAIT_PLAN_REASON_MEMORY_SOURCE_REUSE_NAME,
-                flags=_AMDGPU_STORAGE_LEASE_FLAGS,
-            )
-        )
-
-
 def _amdgpu_descriptor_storage_leases(
     schedule_classes: dict[str, ScheduleClass],
     descriptor: Descriptor,
     *,
-    enable_gfx125x_xcnt: bool,
+    builder_flags: int,
 ) -> tuple[StorageLease, ...]:
     if descriptor.storage_leases:
         raise ValueError(
             f"AMDGPU descriptor '{descriptor.key}' already has storage lease rows"
         )
-    read_counter_mask, write_counter_mask = _amdgpu_storage_lease_counter_masks(
+    read_counter_mask = _amdgpu_storage_lease_result_counter_mask(
         schedule_classes, descriptor
     )
     storage_leases: list[StorageLease] = []
@@ -1243,24 +1207,14 @@ def _amdgpu_descriptor_storage_leases(
                     flags=_AMDGPU_PRESSURE_STORAGE_LEASE_FLAGS,
                 )
             )
-    memory_source_read_counter_mask = read_counter_mask & (
-        _AMDGPU_WAIT_COUNTER_MASKS[_COUNTER_VMEM_LOAD]
-        | _AMDGPU_WAIT_COUNTER_MASKS[_COUNTER_TENSOR]
-    )
-    memory_source_write_counter_mask = write_counter_mask & (
-        _AMDGPU_WAIT_COUNTER_MASKS[_COUNTER_VMEM_STORE]
-        | _AMDGPU_WAIT_COUNTER_MASKS[_COUNTER_TENSOR]
-    )
-    xcnt_source_counter_mask = (
-        _AMDGPU_WAIT_COUNTER_MASKS[_COUNTER_X]
-        if enable_gfx125x_xcnt
-        and descriptor.schedule_class in _GFX125X_XCNT_SCHEDULE_CLASSES
-        else 0
-    )
+    # Memory completion owns result storage, not address inputs. Supported native
+    # families capture scalar inputs independently of completion. Gfx125x
+    # SMEM/VMEM packets retain their inputs until the separate X event; tensor
+    # dgroups do not participate in X. Payload wait states are described by the
+    # independent store-data contract.
     if (
-        memory_source_read_counter_mask != 0
-        or memory_source_write_counter_mask != 0
-        or xcnt_source_counter_mask != 0
+        builder_flags & _AMDGPU_CORE_DESCRIPTOR_SET_BUILDER_FLAG_GFX125X
+        and descriptor.schedule_class in _GFX125X_XCNT_SCHEDULE_CLASSES
     ):
         packet_operand_index = 0
         for operand in descriptor.operands[_descriptor_result_count(descriptor) :]:
@@ -1270,20 +1224,18 @@ def _amdgpu_descriptor_storage_leases(
             packet_operand_index += 1
             if operand.unit_count == 0:
                 continue
-            if xcnt_source_counter_mask != 0:
-                _amdgpu_append_memory_source_leases(
-                    storage_leases,
-                    operand,
-                    current_packet_operand_index,
-                    xcnt_source_counter_mask,
+            storage_leases.append(
+                _amdgpu_storage_lease(
+                    kind=StorageLeaseKind.SOURCE_READ,
+                    attachment=StorageLeaseAttachment.OPERAND,
+                    attachment_index=current_packet_operand_index,
+                    unit_count=operand.unit_count,
+                    release_class_id=_COUNTER_X,
+                    release_reason_id=_AMDGPU_WAIT_PLAN_REASON_MEMORY_SOURCE_REUSE,
+                    release_reason_name=_AMDGPU_WAIT_PLAN_REASON_MEMORY_SOURCE_REUSE_NAME,
+                    flags=_AMDGPU_STORAGE_LEASE_FLAGS,
                 )
-            if _amdgpu_operand_accepts_sgpr(operand):
-                _amdgpu_append_memory_source_leases(
-                    storage_leases,
-                    operand,
-                    current_packet_operand_index,
-                    memory_source_read_counter_mask | memory_source_write_counter_mask,
-                )
+            )
     return tuple(storage_leases)
 
 
@@ -1297,7 +1249,7 @@ def _descriptor_result_count(descriptor: Descriptor) -> int:
 
 
 def _with_storage_lease_rows(
-    descriptor_set: DescriptorSet, *, enable_gfx125x_xcnt: bool = False
+    descriptor_set: DescriptorSet, *, builder_flags: int = 0
 ) -> DescriptorSet:
     schedule_classes = {
         schedule_class.name: schedule_class
@@ -1309,7 +1261,7 @@ def _with_storage_lease_rows(
         storage_leases = _amdgpu_descriptor_storage_leases(
             schedule_classes,
             descriptor,
-            enable_gfx125x_xcnt=enable_gfx125x_xcnt,
+            builder_flags=builder_flags,
         )
         if storage_leases == descriptor.storage_leases:
             descriptors.append(descriptor)
@@ -1427,6 +1379,7 @@ def _with_instruction_classes(descriptor_set: DescriptorSet) -> DescriptorSet:
 _AMDGPU_CORE_DESCRIPTOR_SET_BUILDER_FLAG_GFX125X = 1 << 0
 
 _AMDGPU_CORE_INSTRUCTION_FACT_NAMES = (
+    "S_ANDN2_B64",
     "S_GETPC_B64",
     "S_MOV_B32",
     "S_MOV_B64",
@@ -1464,6 +1417,8 @@ class _AmdgpuCoreDescriptorSetBuilder:
     flags: int = 0
     # Estimated VALU-to-SGPR separation; zero uses schedule-class timing.
     valu_sgpr_separation_cycles: int = 0
+    # LDS bandwidth per lane of one SIMD issue pass; zero keeps the base model.
+    lds_bits_per_lane_per_cycle: int = 0
 
 
 _GFX125X_EXTRA_DESCRIPTORS = (
@@ -1494,6 +1449,8 @@ _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS = {
     # Use that estimate for VALU-produced SGPRs independently of class latency.
     "rdna3": _AmdgpuCoreDescriptorSetBuilder(
         valu_sgpr_separation_cycles=5,
+        # RDNA's 32 banks serve 32 dwords per cycle for a SIMD32 issue pass.
+        lds_bits_per_lane_per_cycle=32,
         base=_AMDGPU_RDNA3_CORE_DESCRIPTOR_SET_BASE,
         overlay_rows=_gfx11_core_overlays,
         overlay_descriptors=_gfx11_core_overlay_descriptors,
@@ -1501,6 +1458,7 @@ _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS = {
     ),
     "gfx11_generic": _AmdgpuCoreDescriptorSetBuilder(
         valu_sgpr_separation_cycles=5,
+        lds_bits_per_lane_per_cycle=32,
         base=_AMDGPU_GFX11_GENERIC_CORE_DESCRIPTOR_SET_BASE,
         overlay_rows=_gfx11_core_overlays,
         overlay_descriptors=_gfx11_core_overlay_descriptors,
@@ -1523,6 +1481,7 @@ _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS = {
     ),
     "rdna3_5": _AmdgpuCoreDescriptorSetBuilder(
         valu_sgpr_separation_cycles=5,
+        lds_bits_per_lane_per_cycle=32,
         base=_AMDGPU_RDNA3_5_CORE_DESCRIPTOR_SET_BASE,
         overlay_rows=_gfx115x_core_overlays,
         overlay_descriptors=_gfx115x_core_overlay_descriptors,
@@ -1639,13 +1598,18 @@ def _build_amdgpu_core_descriptor_set_from_spec(
     is_gfx125x = bool(builder.flags & _AMDGPU_CORE_DESCRIPTOR_SET_BUILDER_FLAG_GFX125X)
     if is_gfx125x:
         descriptor_set = _with_gfx125x_vgpr_msb_address_states(descriptor_set)
-    descriptor_set = _with_storage_lease_rows(
-        descriptor_set, enable_gfx125x_xcnt=is_gfx125x
-    )
     descriptor_set = _with_instruction_classes(descriptor_set)
+    descriptor_set = _with_operand_alignment(descriptor_set)
+    descriptor_set = _with_storage_lease_rows(
+        descriptor_set, builder_flags=builder.flags
+    )
     if builder.valu_sgpr_separation_cycles:
         descriptor_set = _with_valu_sgpr_timing(
             descriptor_set, builder.valu_sgpr_separation_cycles
+        )
+    if builder.lds_bits_per_lane_per_cycle:
+        descriptor_set = _with_lds_service_timing(
+            descriptor_set, builder.lds_bits_per_lane_per_cycle
         )
     # Execution pipelines overlap, but a wave issues one encoded instruction
     # at a time. A VOPD packet still occupies one instruction issue slot.
@@ -1769,6 +1733,70 @@ def _build_amdgpu_core_descriptor_set_from_specs(
     )
 
 
+def _order_descriptor_sets_for_shared_views(
+    descriptor_sets: Mapping[str, DescriptorSet],
+) -> dict[str, DescriptorSet]:
+    """Orders exact descriptors behind their portable view prefixes."""
+
+    infos_by_key = {info.key: info for info in AMDGPU_DESCRIPTOR_SET_INFOS}
+    view_sets_by_exact_target: dict[str, list[DescriptorSet]] = {}
+    for representation_info in AMDGPU_DESCRIPTOR_SET_INFOS:
+        if not representation_info.member_generator_targets:
+            continue
+        representation_set = descriptor_sets.get(representation_info.generator_target)
+        if representation_set is None:
+            continue
+        for contract_key in amdgpu_descriptor_set_supported_target_contract_keys(
+            representation_info
+        ):
+            exact_info = infos_by_key[contract_key]
+            if exact_info.generator_target not in descriptor_sets:
+                continue
+            view_sets_by_exact_target.setdefault(
+                exact_info.generator_target, []
+            ).append(representation_set)
+
+    ordered_sets = dict(descriptor_sets)
+    for exact_target, view_sets in view_sets_by_exact_target.items():
+        view_sets.sort(key=lambda view_set: (len(view_set.descriptors), view_set.key))
+        prefix_view = view_sets[-1]
+        prefix_keys = tuple(descriptor.key for descriptor in prefix_view.descriptors)
+        for view_set in view_sets[:-1]:
+            view_keys = tuple(descriptor.key for descriptor in view_set.descriptors)
+            if view_keys != prefix_keys[: len(view_keys)]:
+                raise ValueError(
+                    f"AMDGPU descriptor views '{view_set.key}' and "
+                    f"'{prefix_view.key}' cannot share a storage prefix for "
+                    f"exact target '{exact_target}'"
+                )
+
+        exact_set = descriptor_sets[exact_target]
+        exact_descriptors_by_key = {
+            descriptor.key: descriptor for descriptor in exact_set.descriptors
+        }
+        missing_keys = tuple(
+            key for key in prefix_keys if key not in exact_descriptors_by_key
+        )
+        if missing_keys:
+            raise ValueError(
+                f"AMDGPU exact descriptor set '{exact_set.key}' is missing "
+                f"portable descriptors: {', '.join(missing_keys)}"
+            )
+        prefix_key_set = frozenset(prefix_keys)
+        ordered_sets[exact_target] = replace(
+            exact_set,
+            descriptors=(
+                *(exact_descriptors_by_key[key] for key in prefix_keys),
+                *(
+                    descriptor
+                    for descriptor in exact_set.descriptors
+                    if descriptor.key not in prefix_key_set
+                ),
+            ),
+        )
+    return ordered_sets
+
+
 def build_amdgpu_core_descriptor_sets_from_specs(
     targets: Sequence[str],
     specs: Mapping[str, AmdgpuIsaFactSource],
@@ -1792,7 +1820,7 @@ def build_amdgpu_core_descriptor_sets_from_specs(
         tuple[str, _AmdgpuOverlayMaterializer],
         tuple[Descriptor, ...],
     ] = {}
-    return {
+    descriptor_sets = {
         target: _build_amdgpu_core_descriptor_set_from_specs(
             target,
             builder,
@@ -1802,6 +1830,7 @@ def build_amdgpu_core_descriptor_sets_from_specs(
         )
         for target, builder, info in builders_and_infos
     }
+    return _order_descriptor_sets_for_shared_views(descriptor_sets)
 
 
 def build_amdgpu_core_descriptor_set_from_specs(

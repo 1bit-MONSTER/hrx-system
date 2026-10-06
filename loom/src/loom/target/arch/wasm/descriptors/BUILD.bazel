@@ -21,6 +21,7 @@ _WASM_ROOT_VISIBILITY = ["//loom/src/loom/target/arch/wasm:__pkg__"]
 _WASM_DESCRIPTOR_VISIBILITY = [
     "//loom/src/loom/target/emit/wasm:__pkg__",
     "//loom/src/loom/target/emit/wasm/contracts:__pkg__",
+    "//loom/src/loom/tooling/target/wasm:__pkg__",
 ] + _WASM_ROOT_VISIBILITY
 
 _WASM_DESCRIPTOR_IDS_VISIBILITY = (

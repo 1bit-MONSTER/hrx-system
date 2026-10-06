@@ -1,0 +1,260 @@
+// Nested guards share a value-forwarding path while restoring each parent mask.
+kernel.def @conditional_results() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer, %length: index, %lower: i32, %upper: i32) {
+  %lane = kernel.workitem.id<x> : index
+  %stride = index.constant 4 : offset
+  %offset = index.scale %lane, %stride : index, offset -> offset
+  %out = buffer.view %output[%offset] : buffer -> view<129xi32>
+  %completed = scalar.constant 1 : i32
+  %active = index.cmp ult, %lane, %length : index
+  cfg.cond_br %active, ^guard, ^after
+^guard:
+  %in = buffer.view %input[%offset] : buffer -> view<1xi32>
+  %value = view.load %in[0] : view<1xi32> -> i32
+  %complement_base = scalar.constant -3 : i32
+  %other = scalar.subi %complement_base, %value : i32
+  %state = vector.from_elements %value, %other : vector<2xi32>
+  %after_lower = scalar.cmpi sge, %value, %lower : i32
+  %before_upper = scalar.cmpi slt, %value, %upper : i32
+  cfg.cond_br %after_lower, ^inner, ^fallback
+^inner:
+  cfg.cond_br %before_upper, ^inside, ^fallback
+^inside:
+  %inside_value = scalar.addi %value, %upper : i32
+  %updated = vector.insert %inside_value into %state[0] : i32, vector<2xi32>
+  cfg.br ^join(%updated: vector<2xi32>)
+^fallback:
+  cfg.br ^join(%state: vector<2xi32>)
+^join(%result: vector<2xi32>):
+  %first = vector.extract %result[0] : vector<2xi32> -> i32
+  %second = vector.extract %result[1] : vector<2xi32> -> i32
+  view.store %first, %out[0] : i32, view<129xi32>
+  view.store %second, %out[64] : i32, view<129xi32>
+  cfg.br ^after
+^after:
+  view.store %completed, %out[128] : i32, view<129xi32>
+  kernel.return
+}
+
+check.case public @conditional_results_empty {
+  %length = check.literal value(0) : index
+  %lower = check.literal value(16) : i32
+  %upper = check.literal value(48) : i32
+  %input = check.generate.iota offset(0) step(1) : tensor<1xi32>
+  %storage = check.generate.fill value(-99) : tensor<224xi32>
+  %output = check.tensor.view %storage offset(64) : tensor<224xi32> -> tensor<192xi32>
+  kernel.launch @conditional_results(%input, %output, %length, %lower, %upper) : (tensor<1xi32>, tensor<192xi32>, index, i32, i32)
+  %prefix = check.tensor.view %storage offset(0) : tensor<224xi32> -> tensor<16xi32>
+  %expected_prefix = check.generate.fill value(-99) : tensor<16xi32>
+  check.expect.bitwise actual(%prefix) expected(%expected_prefix) : tensor<16xi32>
+  %first_inactive = check.tensor.view %storage offset(64) : tensor<224xi32> -> tensor<64xi32>
+  %expected_first_inactive = check.generate.fill value(-99) : tensor<64xi32>
+  check.expect.bitwise actual(%first_inactive) expected(%expected_first_inactive) : tensor<64xi32>
+  %second_inactive = check.tensor.view %storage offset(320) : tensor<224xi32> -> tensor<64xi32>
+  %expected_second_inactive = check.generate.fill value(-99) : tensor<64xi32>
+  check.expect.bitwise actual(%second_inactive) expected(%expected_second_inactive) : tensor<64xi32>
+  %after = check.tensor.view %storage offset(576) : tensor<224xi32> -> tensor<64xi32>
+  %expected_after = check.generate.fill value(1) : tensor<64xi32>
+  check.expect.bitwise actual(%after) expected(%expected_after) : tensor<64xi32>
+  %suffix = check.tensor.view %storage offset(832) : tensor<224xi32> -> tensor<16xi32>
+  %expected_suffix = check.generate.fill value(-99) : tensor<16xi32>
+  check.expect.bitwise actual(%suffix) expected(%expected_suffix) : tensor<16xi32>
+  %original_input = check.generate.iota offset(0) step(1) : tensor<1xi32>
+  check.expect.bitwise actual(%input) expected(%original_input) : tensor<1xi32>
+  check.return
+}
+
+check.case public @conditional_results_single {
+  %length = check.literal value(1) : index
+  %lower = check.literal value(0) : i32
+  %upper = check.literal value(1) : i32
+  %input = check.generate.iota offset(0) step(1) : tensor<1xi32>
+  %storage = check.generate.fill value(-99) : tensor<224xi32>
+  %output = check.tensor.view %storage offset(64) : tensor<224xi32> -> tensor<192xi32>
+  kernel.launch @conditional_results(%input, %output, %length, %lower, %upper) : (tensor<1xi32>, tensor<192xi32>, index, i32, i32)
+  %prefix = check.tensor.view %storage offset(0) : tensor<224xi32> -> tensor<16xi32>
+  %expected_prefix = check.generate.fill value(-99) : tensor<16xi32>
+  check.expect.bitwise actual(%prefix) expected(%expected_prefix) : tensor<16xi32>
+  %inside = check.tensor.view %storage offset(64) : tensor<224xi32> -> tensor<1xi32>
+  %expected_inside = check.generate.iota offset(1) step(1) : tensor<1xi32>
+  check.expect.bitwise actual(%inside) expected(%expected_inside) : tensor<1xi32>
+  %first_inactive = check.tensor.view %storage offset(68) : tensor<224xi32> -> tensor<63xi32>
+  %expected_first_inactive = check.generate.fill value(-99) : tensor<63xi32>
+  check.expect.bitwise actual(%first_inactive) expected(%expected_first_inactive) : tensor<63xi32>
+  %second = check.tensor.view %storage offset(320) : tensor<224xi32> -> tensor<1xi32>
+  %expected_second = check.generate.iota offset(-3) step(-1) : tensor<1xi32>
+  check.expect.bitwise actual(%second) expected(%expected_second) : tensor<1xi32>
+  %second_inactive = check.tensor.view %storage offset(324) : tensor<224xi32> -> tensor<63xi32>
+  %expected_second_inactive = check.generate.fill value(-99) : tensor<63xi32>
+  check.expect.bitwise actual(%second_inactive) expected(%expected_second_inactive) : tensor<63xi32>
+  %after = check.tensor.view %storage offset(576) : tensor<224xi32> -> tensor<64xi32>
+  %expected_after = check.generate.fill value(1) : tensor<64xi32>
+  check.expect.bitwise actual(%after) expected(%expected_after) : tensor<64xi32>
+  %suffix = check.tensor.view %storage offset(832) : tensor<224xi32> -> tensor<16xi32>
+  %expected_suffix = check.generate.fill value(-99) : tensor<16xi32>
+  check.expect.bitwise actual(%suffix) expected(%expected_suffix) : tensor<16xi32>
+  %original_input = check.generate.iota offset(0) step(1) : tensor<1xi32>
+  check.expect.bitwise actual(%input) expected(%original_input) : tensor<1xi32>
+  check.return
+}
+
+check.case public @conditional_results_partial {
+  %length = check.literal value(37) : index
+  %lower = check.literal value(16) : i32
+  %upper = check.literal value(35) : i32
+  %input = check.generate.iota offset(0) step(1) : tensor<37xi32>
+  %storage = check.generate.fill value(-99) : tensor<224xi32>
+  %output = check.tensor.view %storage offset(64) : tensor<224xi32> -> tensor<192xi32>
+  kernel.launch @conditional_results(%input, %output, %length, %lower, %upper) : (tensor<37xi32>, tensor<192xi32>, index, i32, i32)
+  %prefix = check.tensor.view %storage offset(0) : tensor<224xi32> -> tensor<16xi32>
+  %expected_prefix = check.generate.fill value(-99) : tensor<16xi32>
+  check.expect.bitwise actual(%prefix) expected(%expected_prefix) : tensor<16xi32>
+  %below = check.tensor.view %storage offset(64) : tensor<224xi32> -> tensor<16xi32>
+  %expected_below = check.generate.iota offset(0) step(1) : tensor<16xi32>
+  check.expect.bitwise actual(%below) expected(%expected_below) : tensor<16xi32>
+  %inside = check.tensor.view %storage offset(128) : tensor<224xi32> -> tensor<19xi32>
+  %expected_inside = check.generate.iota offset(51) step(1) : tensor<19xi32>
+  check.expect.bitwise actual(%inside) expected(%expected_inside) : tensor<19xi32>
+  %above = check.tensor.view %storage offset(204) : tensor<224xi32> -> tensor<2xi32>
+  %expected_above = check.generate.iota offset(35) step(1) : tensor<2xi32>
+  check.expect.bitwise actual(%above) expected(%expected_above) : tensor<2xi32>
+  %first_inactive = check.tensor.view %storage offset(212) : tensor<224xi32> -> tensor<27xi32>
+  %expected_first_inactive = check.generate.fill value(-99) : tensor<27xi32>
+  check.expect.bitwise actual(%first_inactive) expected(%expected_first_inactive) : tensor<27xi32>
+  %second = check.tensor.view %storage offset(320) : tensor<224xi32> -> tensor<37xi32>
+  %expected_second = check.generate.iota offset(-3) step(-1) : tensor<37xi32>
+  check.expect.bitwise actual(%second) expected(%expected_second) : tensor<37xi32>
+  %second_inactive = check.tensor.view %storage offset(468) : tensor<224xi32> -> tensor<27xi32>
+  %expected_second_inactive = check.generate.fill value(-99) : tensor<27xi32>
+  check.expect.bitwise actual(%second_inactive) expected(%expected_second_inactive) : tensor<27xi32>
+  %after = check.tensor.view %storage offset(576) : tensor<224xi32> -> tensor<64xi32>
+  %expected_after = check.generate.fill value(1) : tensor<64xi32>
+  check.expect.bitwise actual(%after) expected(%expected_after) : tensor<64xi32>
+  %suffix = check.tensor.view %storage offset(832) : tensor<224xi32> -> tensor<16xi32>
+  %expected_suffix = check.generate.fill value(-99) : tensor<16xi32>
+  check.expect.bitwise actual(%suffix) expected(%expected_suffix) : tensor<16xi32>
+  %original_input = check.generate.iota offset(0) step(1) : tensor<37xi32>
+  check.expect.bitwise actual(%input) expected(%original_input) : tensor<37xi32>
+  check.return
+}
+
+check.case public @conditional_results_mixed {
+  %length = check.literal value(64) : index
+  %lower = check.literal value(16) : i32
+  %upper = check.literal value(48) : i32
+  %input = check.generate.iota offset(0) step(1) : tensor<64xi32>
+  %storage = check.generate.fill value(-99) : tensor<224xi32>
+  %output = check.tensor.view %storage offset(64) : tensor<224xi32> -> tensor<192xi32>
+  kernel.launch @conditional_results(%input, %output, %length, %lower, %upper) : (tensor<64xi32>, tensor<192xi32>, index, i32, i32)
+  %prefix = check.tensor.view %storage offset(0) : tensor<224xi32> -> tensor<16xi32>
+  %expected_prefix = check.generate.fill value(-99) : tensor<16xi32>
+  check.expect.bitwise actual(%prefix) expected(%expected_prefix) : tensor<16xi32>
+  %below = check.tensor.view %storage offset(64) : tensor<224xi32> -> tensor<16xi32>
+  %expected_below = check.generate.iota offset(0) step(1) : tensor<16xi32>
+  check.expect.bitwise actual(%below) expected(%expected_below) : tensor<16xi32>
+  %inside = check.tensor.view %storage offset(128) : tensor<224xi32> -> tensor<32xi32>
+  %expected_inside = check.generate.iota offset(64) step(1) : tensor<32xi32>
+  check.expect.bitwise actual(%inside) expected(%expected_inside) : tensor<32xi32>
+  %above = check.tensor.view %storage offset(256) : tensor<224xi32> -> tensor<16xi32>
+  %expected_above = check.generate.iota offset(48) step(1) : tensor<16xi32>
+  check.expect.bitwise actual(%above) expected(%expected_above) : tensor<16xi32>
+  %second = check.tensor.view %storage offset(320) : tensor<224xi32> -> tensor<64xi32>
+  %expected_second = check.generate.iota offset(-3) step(-1) : tensor<64xi32>
+  check.expect.bitwise actual(%second) expected(%expected_second) : tensor<64xi32>
+  %after = check.tensor.view %storage offset(576) : tensor<224xi32> -> tensor<64xi32>
+  %expected_after = check.generate.fill value(1) : tensor<64xi32>
+  check.expect.bitwise actual(%after) expected(%expected_after) : tensor<64xi32>
+  %suffix = check.tensor.view %storage offset(832) : tensor<224xi32> -> tensor<16xi32>
+  %expected_suffix = check.generate.fill value(-99) : tensor<16xi32>
+  check.expect.bitwise actual(%suffix) expected(%expected_suffix) : tensor<16xi32>
+  %original_input = check.generate.iota offset(0) step(1) : tensor<64xi32>
+  check.expect.bitwise actual(%input) expected(%original_input) : tensor<64xi32>
+  check.return
+}
+
+check.case public @conditional_results_outer_false {
+  %length = check.literal value(64) : index
+  %lower = check.literal value(64) : i32
+  %upper = check.literal value(80) : i32
+  %input = check.generate.iota offset(0) step(1) : tensor<64xi32>
+  %storage = check.generate.fill value(-99) : tensor<224xi32>
+  %output = check.tensor.view %storage offset(64) : tensor<224xi32> -> tensor<192xi32>
+  kernel.launch @conditional_results(%input, %output, %length, %lower, %upper) : (tensor<64xi32>, tensor<192xi32>, index, i32, i32)
+  %prefix = check.tensor.view %storage offset(0) : tensor<224xi32> -> tensor<16xi32>
+  %expected_prefix = check.generate.fill value(-99) : tensor<16xi32>
+  check.expect.bitwise actual(%prefix) expected(%expected_prefix) : tensor<16xi32>
+  %below = check.tensor.view %storage offset(64) : tensor<224xi32> -> tensor<64xi32>
+  %expected_below = check.generate.iota offset(0) step(1) : tensor<64xi32>
+  check.expect.bitwise actual(%below) expected(%expected_below) : tensor<64xi32>
+  %second = check.tensor.view %storage offset(320) : tensor<224xi32> -> tensor<64xi32>
+  %expected_second = check.generate.iota offset(-3) step(-1) : tensor<64xi32>
+  check.expect.bitwise actual(%second) expected(%expected_second) : tensor<64xi32>
+  %after = check.tensor.view %storage offset(576) : tensor<224xi32> -> tensor<64xi32>
+  %expected_after = check.generate.fill value(1) : tensor<64xi32>
+  check.expect.bitwise actual(%after) expected(%expected_after) : tensor<64xi32>
+  %suffix = check.tensor.view %storage offset(832) : tensor<224xi32> -> tensor<16xi32>
+  %expected_suffix = check.generate.fill value(-99) : tensor<16xi32>
+  check.expect.bitwise actual(%suffix) expected(%expected_suffix) : tensor<16xi32>
+  %original_input = check.generate.iota offset(0) step(1) : tensor<64xi32>
+  check.expect.bitwise actual(%input) expected(%original_input) : tensor<64xi32>
+  check.return
+}
+
+check.case public @conditional_results_inner_false {
+  %length = check.literal value(64) : index
+  %lower = check.literal value(0) : i32
+  %upper = check.literal value(0) : i32
+  %input = check.generate.iota offset(0) step(1) : tensor<64xi32>
+  %storage = check.generate.fill value(-99) : tensor<224xi32>
+  %output = check.tensor.view %storage offset(64) : tensor<224xi32> -> tensor<192xi32>
+  kernel.launch @conditional_results(%input, %output, %length, %lower, %upper) : (tensor<64xi32>, tensor<192xi32>, index, i32, i32)
+  %prefix = check.tensor.view %storage offset(0) : tensor<224xi32> -> tensor<16xi32>
+  %expected_prefix = check.generate.fill value(-99) : tensor<16xi32>
+  check.expect.bitwise actual(%prefix) expected(%expected_prefix) : tensor<16xi32>
+  %above = check.tensor.view %storage offset(64) : tensor<224xi32> -> tensor<64xi32>
+  %expected_above = check.generate.iota offset(0) step(1) : tensor<64xi32>
+  check.expect.bitwise actual(%above) expected(%expected_above) : tensor<64xi32>
+  %second = check.tensor.view %storage offset(320) : tensor<224xi32> -> tensor<64xi32>
+  %expected_second = check.generate.iota offset(-3) step(-1) : tensor<64xi32>
+  check.expect.bitwise actual(%second) expected(%expected_second) : tensor<64xi32>
+  %after = check.tensor.view %storage offset(576) : tensor<224xi32> -> tensor<64xi32>
+  %expected_after = check.generate.fill value(1) : tensor<64xi32>
+  check.expect.bitwise actual(%after) expected(%expected_after) : tensor<64xi32>
+  %suffix = check.tensor.view %storage offset(832) : tensor<224xi32> -> tensor<16xi32>
+  %expected_suffix = check.generate.fill value(-99) : tensor<16xi32>
+  check.expect.bitwise actual(%suffix) expected(%expected_suffix) : tensor<16xi32>
+  %original_input = check.generate.iota offset(0) step(1) : tensor<64xi32>
+  check.expect.bitwise actual(%input) expected(%original_input) : tensor<64xi32>
+  check.return
+}
+
+check.case public @conditional_results_all_true {
+  %length = check.literal value(64) : index
+  %lower = check.literal value(0) : i32
+  %upper = check.literal value(64) : i32
+  %input = check.generate.iota offset(0) step(1) : tensor<64xi32>
+  %storage = check.generate.fill value(-99) : tensor<224xi32>
+  %output = check.tensor.view %storage offset(64) : tensor<224xi32> -> tensor<192xi32>
+  kernel.launch @conditional_results(%input, %output, %length, %lower, %upper) : (tensor<64xi32>, tensor<192xi32>, index, i32, i32)
+  %prefix = check.tensor.view %storage offset(0) : tensor<224xi32> -> tensor<16xi32>
+  %expected_prefix = check.generate.fill value(-99) : tensor<16xi32>
+  check.expect.bitwise actual(%prefix) expected(%expected_prefix) : tensor<16xi32>
+  %inside = check.tensor.view %storage offset(64) : tensor<224xi32> -> tensor<64xi32>
+  %expected_inside = check.generate.iota offset(64) step(1) : tensor<64xi32>
+  check.expect.bitwise actual(%inside) expected(%expected_inside) : tensor<64xi32>
+  %second = check.tensor.view %storage offset(320) : tensor<224xi32> -> tensor<64xi32>
+  %expected_second = check.generate.iota offset(-3) step(-1) : tensor<64xi32>
+  check.expect.bitwise actual(%second) expected(%expected_second) : tensor<64xi32>
+  %after = check.tensor.view %storage offset(576) : tensor<224xi32> -> tensor<64xi32>
+  %expected_after = check.generate.fill value(1) : tensor<64xi32>
+  check.expect.bitwise actual(%after) expected(%expected_after) : tensor<64xi32>
+  %suffix = check.tensor.view %storage offset(832) : tensor<224xi32> -> tensor<16xi32>
+  %expected_suffix = check.generate.fill value(-99) : tensor<16xi32>
+  check.expect.bitwise actual(%suffix) expected(%expected_suffix) : tensor<16xi32>
+  %original_input = check.generate.iota offset(0) step(1) : tensor<64xi32>
+  check.expect.bitwise actual(%input) expected(%original_input) : tensor<64xi32>
+  check.return
+}

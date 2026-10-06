@@ -312,7 +312,9 @@ enum {
   LOOM_OP_TEST_MODULE_METADATA = LOOM_OP_KIND(LOOM_DIALECT_TEST, 116),
   LOOM_OP_TEST_MEMORY_FENCE = LOOM_OP_KIND(LOOM_DIALECT_TEST, 117),
   LOOM_OP_TEST_RESULT_PAIR = LOOM_OP_KIND(LOOM_DIALECT_TEST, 118),
-  LOOM_OP_TEST_COUNT_ = 119,
+  LOOM_OP_TEST_BLOCK_ARG_GROUPS = LOOM_OP_KIND(LOOM_DIALECT_TEST, 119),
+  LOOM_OP_TEST_SIGNATURE_SINK = LOOM_OP_KIND(LOOM_DIALECT_TEST, 120),
+  LOOM_OP_TEST_COUNT_ = 121,
 };
 
 // Synthetic flags for TemplateParamFlags parser/printer coverage.
@@ -2378,6 +2380,38 @@ iree_status_t loom_test_result_pair_build(
     loom_builder_t* builder,
     loom_type_t second_type,
     loom_type_t first_type,
+    loom_location_id_t location,
+    loom_op_t** out_op);
+
+// LOOM_OP_TEST_BLOCK_ARG_GROUPS: Test projected groups of one region entry signature.
+// test.block_arg_groups actual(%actual: f32) expected(%expected: f32) {
+//   test.yield
+// }
+LOOM_DEFINE_ISA(loom_test_block_arg_groups_isa, LOOM_OP_TEST_BLOCK_ARG_GROUPS)
+LOOM_DEFINE_ATTR_I64(loom_test_block_arg_groups_actual_count, 0)
+LOOM_DEFINE_REGION(loom_test_block_arg_groups_body, 0)
+iree_status_t loom_test_block_arg_groups_build(
+    loom_builder_t* builder,
+    const loom_type_t* actual_arg_types,
+    iree_host_size_t actual_arg_types_count,
+    const loom_type_t* expected_arg_types,
+    iree_host_size_t expected_arg_types_count,
+    loom_location_id_t location,
+    loom_op_t** out_op);
+
+// LOOM_OP_TEST_SIGNATURE_SINK: Test terminal-style signature results that retain result identities for dependent types without exposing SSA values to following ops.
+// test.signature_sink() : () -> (%width: index, vector<[%width]xf32>)
+LOOM_DEFINE_ISA(loom_test_signature_sink_isa, LOOM_OP_TEST_SIGNATURE_SINK)
+LOOM_DEFINE_VARIADIC_OPERANDS(loom_test_signature_sink_operands, 0)
+LOOM_DEFINE_VARIADIC_RESULTS(loom_test_signature_sink_results, 0)
+iree_status_t loom_test_signature_sink_build(
+    loom_builder_t* builder,
+    loom_may_consume const loom_value_id_t* operands,
+    iree_host_size_t operands_count,
+    const loom_type_t* result_types,
+    iree_host_size_t result_count,
+    const loom_tied_result_t* tied_results,
+    iree_host_size_t tied_result_count,
     loom_location_id_t location,
     loom_op_t** out_op);
 

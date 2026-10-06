@@ -26,14 +26,14 @@ extern "C" {
 
 struct loom_low_schedule_table_t;
 
-// Commits a coalesced assignment whose location already fits its register class
-// capacity. Coalescing checks new ranges or inherits an existing same-class
-// assignment; the callback owns liveness, storage leases and active-set
-// updates.
+// Commits an optional coalesced assignment whose location already fits its
+// register class capacity and lifetime. The callback acquires that storage,
+// records required lease releases, and publishes attached leases and active-set
+// state using the retained storage lifetime.
 typedef iree_status_t (*loom_low_allocation_coalescing_append_assignment_fn_t)(
     void* user_data, const loom_low_allocation_assignment_t* assignment,
     const loom_value_id_t* ignored_storage_lease_value_ids,
-    uint16_t ignored_storage_lease_value_count, uint32_t* out_assignment_index);
+    uint16_t ignored_storage_lease_value_count);
 
 typedef iree_status_t (*loom_low_allocation_coalescing_consumption_query_fn_t)(
     void* user_data, const loom_region_t* region,
@@ -49,7 +49,7 @@ typedef struct loom_low_allocation_coalescing_context_t {
   // Function-local placement relations.
   const loom_low_placement_table_t* placement;
   // Target storage budgets, fixed values, and reserved ranges.
-  const loom_low_allocation_target_constraints_t* target_constraints;
+  loom_low_allocation_target_constraints_t* target_constraints;
   // Current assignment lookup table.
   const loom_low_allocation_assignment_map_t* assignment_map;
   // Concrete location search context at the current interval.
@@ -61,11 +61,6 @@ typedef struct loom_low_allocation_coalescing_context_t {
   // Opaque caller state passed to callbacks.
   void* user_data;
 } loom_low_allocation_coalescing_context_t;
-
-// Attempts to assign a descriptor tied-result interval to its tied source.
-iree_status_t loom_low_allocation_coalescing_assign_tied_interval(
-    loom_low_allocation_coalescing_context_t* context,
-    const loom_liveness_interval_t* interval, bool* out_assigned);
 
 // Attempts to assign a low.concat source interval using already-known concat,
 // sibling-source, or branch-destination storage.

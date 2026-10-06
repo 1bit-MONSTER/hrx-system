@@ -1,0 +1,110 @@
+// Raw payload classification establishes each promise only on its valid
+// domain. Invalid lanes retain their sentinel instead of violating an assume.
+kernel.def @float8_facts() {
+  %unit = index.constant 1 : index
+  %groups = index.constant 4 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%groups, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %lane = kernel.workitem.dispatch.id<x> : index
+  %bytes = buffer.view %input[%base] : buffer -> view<256xi8>
+  %e4_source = buffer.view %input[%base] : buffer -> view<256xf8E4M3>
+  %e5_source = buffer.view %input[%base] : buffer -> view<256xf8E5M2>
+  %result = buffer.view %output[%base] : buffer -> view<4x256x2xbf16>
+  %bits = view.load %bytes[%lane] : view<256xi8> -> i8
+  %wide_bits = scalar.extui %bits : i8 to i32
+  %magnitude_mask = scalar.constant 127 : i32
+  %infinity_encoding = scalar.constant 124 : i32
+  %magnitude = scalar.andi %wide_bits, %magnitude_mask : i32
+  %e4_finite = scalar.cmpi ne, %magnitude, %magnitude_mask : i32
+  %e5_finite = scalar.cmpi ult, %magnitude, %infinity_encoding : i32
+  %e5_not_nan = scalar.cmpi ule, %magnitude, %infinity_encoding : i32
+  %e5_not_inf = scalar.cmpi ne, %magnitude, %infinity_encoding : i32
+  %e4 = view.load %e4_source[%lane] : view<256xf8E4M3> -> f8E4M3
+  %e5 = view.load %e5_source[%lane] : view<256xf8E5M2> -> f8E5M2
+  scf.if %e4_finite {
+    %finite = scalar.assume %e4 [finite(%e4)] : f8E4M3
+    %packed = vector.splat %finite : vector<2xf8E4M3>
+    %converted = vector.extf %packed : vector<2xf8E4M3> to vector<2xbf16>
+    vector.store %converted, %result[0, %lane, 0] : vector<2xbf16>, view<4x256x2xbf16>
+  }
+  scf.if %e5_finite {
+    %finite = scalar.assume %e5 [finite(%e5)] : f8E5M2
+    %packed = vector.splat %finite : vector<2xf8E5M2>
+    %converted = vector.extf %packed : vector<2xf8E5M2> to vector<2xbf16>
+    vector.store %converted, %result[1, %lane, 0] : vector<2xbf16>, view<4x256x2xbf16>
+  }
+  scf.if %e5_not_nan {
+    %not_nan = scalar.assume %e5 [not_nan(%e5)] : f8E5M2
+    %packed = vector.splat %not_nan : vector<2xf8E5M2>
+    %converted = vector.extf %packed : vector<2xf8E5M2> to vector<2xbf16>
+    vector.store %converted, %result[2, %lane, 0] : vector<2xbf16>, view<4x256x2xbf16>
+  }
+  scf.if %e5_not_inf {
+    %not_inf = scalar.assume %e5 [not_inf(%e5)] : f8E5M2
+    %packed = vector.splat %not_inf : vector<2xf8E5M2>
+    %converted = vector.extf %packed : vector<2xf8E5M2> to vector<2xbf16>
+    vector.store %converted, %result[3, %lane, 0] : vector<2xbf16>, view<4x256x2xbf16>
+  }
+  kernel.return
+}
+
+func.def @float8_facts_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 256 : index
+  %step = index.constant 1 : index
+  %bytes = buffer.view %input[%base] : buffer -> view<256xi8>
+  %e4_source = buffer.view %input[%base] : buffer -> view<256xf8E4M3>
+  %e5_source = buffer.view %input[%base] : buffer -> view<256xf8E5M2>
+  %result = buffer.view %output[%base] : buffer -> view<4x256x2xbf16>
+  %magnitude_mask = scalar.constant 127 : i32
+  %infinity_encoding = scalar.constant 124 : i32
+  scf.for %i = [%begin to %end step %step] {
+    %bits = view.load %bytes[%i] : view<256xi8> -> i8
+    %wide_bits = scalar.extui %bits : i8 to i32
+    %magnitude = scalar.andi %wide_bits, %magnitude_mask : i32
+    %e4_finite = scalar.cmpi ne, %magnitude, %magnitude_mask : i32
+    %e5_finite = scalar.cmpi ult, %magnitude, %infinity_encoding : i32
+    %e5_not_nan = scalar.cmpi ule, %magnitude, %infinity_encoding : i32
+    %e5_not_inf = scalar.cmpi ne, %magnitude, %infinity_encoding : i32
+    %e4 = view.load %e4_source[%i] : view<256xf8E4M3> -> f8E4M3
+    %e5 = view.load %e5_source[%i] : view<256xf8E5M2> -> f8E5M2
+    %e4_wide = scalar.extf %e4 : f8E4M3 to f32
+    %e5_wide = scalar.extf %e5 : f8E5M2 to f32
+    %e4_brain = scalar.fptrunc %e4_wide : f32 to bf16
+    %e5_brain = scalar.fptrunc %e5_wide : f32 to bf16
+    scf.if %e4_finite {
+      view.store %e4_brain, %result[0, %i, 0] : bf16, view<4x256x2xbf16>
+      view.store %e4_brain, %result[0, %i, 1] : bf16, view<4x256x2xbf16>
+    }
+    scf.if %e5_finite {
+      view.store %e5_brain, %result[1, %i, 0] : bf16, view<4x256x2xbf16>
+      view.store %e5_brain, %result[1, %i, 1] : bf16, view<4x256x2xbf16>
+    }
+    scf.if %e5_not_nan {
+      view.store %e5_brain, %result[2, %i, 0] : bf16, view<4x256x2xbf16>
+      view.store %e5_brain, %result[2, %i, 1] : bf16, view<4x256x2xbf16>
+    }
+    scf.if %e5_not_inf {
+      view.store %e5_brain, %result[3, %i, 0] : bf16, view<4x256x2xbf16>
+      view.store %e5_brain, %result[3, %i, 1] : bf16, view<4x256x2xbf16>
+    }
+  }
+  func.return
+}
+
+check.scenario @float8_fact_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+    %storage = check.generate.fill value(-123.0) : tensor<2064xbf16>
+    %output = check.tensor.view %storage offset(16) : tensor<2064xbf16> -> tensor<2048xbf16>
+    %finite_results = check.tensor.view %output offset(0) : tensor<2048xbf16> -> tensor<1536xbf16>
+    check.compare<@float8_facts, @float8_facts_oracle>(%input, %output) : (tensor<256xi8>, tensor<2048xbf16>) -> () {
+      check.expect.close actual(%storage) expected(%storage) atol(0.0) rtol(0.0) nan(same) : tensor<2064xbf16>
+      check.expect.bitwise actual(%finite_results) expected(%finite_results) : tensor<1536xbf16>
+    }
+  }
+  check.return
+}

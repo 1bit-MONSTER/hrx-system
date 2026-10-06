@@ -370,6 +370,79 @@ TEST(LowContractQueryTest, ContractIndexDescriptorRuleSelectsLegalCase) {
   EXPECT_EQ(result.selected_descriptor, &kDescriptor);
 }
 
+TEST(LowContractQueryTest, TargetSubgroupSizeRangeRequiresKnownInRangeSize) {
+  loom_low_lower_rule_descriptor_ref_t descriptor_ref = {
+      /*.key_string_ref=*/kRuleStringDescriptor,
+  };
+  loom_low_lower_guard_t guard = {};
+  guard.kind = LOOM_LOW_LOWER_GUARD_TARGET_SUBGROUP_SIZE_RANGE;
+  guard.diagnostic_index = LOOM_LOW_LOWER_DIAGNOSTIC_NONE;
+  guard.payload.i64_range.minimum = 1;
+  guard.payload.i64_range.maximum = 32;
+  const loom_low_lower_guard_ref_t guard_ref = 0;
+  loom_low_lower_emit_t emit = {};
+  emit.kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP;
+  emit.descriptor_ref = 0;
+  const loom_low_lower_emit_ref_t emit_ref = 0;
+  loom_low_lower_rule_t rule = {};
+  rule.source_op_kind = kSourceOpKind;
+  rule.guard_count = 1;
+  rule.emit_count = 1;
+  loom_low_lower_rule_set_t rule_set = {};
+  rule_set.string_pool = kRuleStringPool;
+  rule_set.rules = &rule;
+  rule_set.rule_count = 1;
+  rule_set.guards = &guard;
+  rule_set.guard_count = 1;
+  rule_set.guard_refs = &guard_ref;
+  rule_set.guard_ref_count = 1;
+  rule_set.descriptor_refs = &descriptor_ref;
+  rule_set.descriptor_ref_count = 1;
+  rule_set.emit_refs = &emit_ref;
+  rule_set.emit_ref_count = 1;
+  rule_set.emits = &emit;
+  rule_set.emit_count = 1;
+  const loom_low_lower_rule_set_t* rule_sets[] = {&rule_set};
+
+  SingleOpContract<kSourceOpKind> contract;
+  const loom_low_lower_contract_query_options_t options = {
+      /*.contract_index=*/contract.index(),
+      /*.rule_sets=*/
+      {
+          /*.count=*/IREE_ARRAYSIZE(rule_sets),
+          /*.values=*/rule_sets,
+      },
+      /*.map_value=*/{},
+      /*.can_materialize=*/{},
+      /*.descriptor_ref=*/
+      {
+          /*.fn=*/ResolveTestDescriptorRef,
+          /*.user_data=*/nullptr,
+      },
+  };
+  loom_op_t op = {};
+  op.kind = kSourceOpKind;
+
+  const auto query = [&](uint32_t subgroup_size) {
+    loom_target_facts_t target_facts = MakeTargetFacts();
+    loom_target_snapshot_t snapshot = {};
+    snapshot.subgroup_size = subgroup_size;
+    target_facts.storage.bundle.snapshot = &snapshot;
+    loom_target_contract_query_environment_t environment = {};
+    environment.target_facts = &target_facts;
+    loom_target_contract_query_result_t result =
+        loom_target_contract_query_result_empty();
+    IREE_EXPECT_OK(loom_low_lower_query_target_contract(&environment, &options,
+                                                        &op, &result));
+    return result.outcome;
+  };
+
+  EXPECT_EQ(query(0), LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED);
+  EXPECT_EQ(query(1), LOOM_TARGET_CONTRACT_QUERY_LEGAL);
+  EXPECT_EQ(query(32), LOOM_TARGET_CONTRACT_QUERY_LEGAL);
+  EXPECT_EQ(query(33), LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED);
+}
+
 TEST(LowContractQueryTest, ContractIndexDescriptorRuleReportsRejectedCase) {
   loom_low_lower_guard_t guard = {};
   guard.kind = LOOM_LOW_LOWER_GUARD_ATTR_KIND;
@@ -550,12 +623,11 @@ TEST_F(LowContractQuerySourceMemoryTest,
   source_memory.dynamic_index_source =
       LOOM_LOW_SOURCE_MEMORY_DYNAMIC_INDEX_SOURCE_VALUE;
   source_memory.dynamic_byte_stride = 4;
-  const loom_low_lower_source_memory_diagnostics_t source_memory_diagnostics = {
-      /*.constraint_diagnostic_index=*/LOOM_LOW_LOWER_DIAGNOSTIC_NONE,
-      /*.dynamic_offset_diagnostic_index=*/LOOM_LOW_LOWER_DIAGNOSTIC_NONE,
-      /*.address_layout_diagnostic_index=*/LOOM_LOW_LOWER_DIAGNOSTIC_NONE,
-      /*.address_diagnostic_index=*/LOOM_LOW_LOWER_DIAGNOSTIC_NONE,
-  };
+  loom_low_lower_source_memory_diagnostics_t source_memory_diagnostics = {};
+  for (uint16_t& diagnostic_index :
+       source_memory_diagnostics.rejection_diagnostic_indices) {
+    diagnostic_index = LOOM_LOW_LOWER_DIAGNOSTIC_NONE;
+  }
   loom_low_lower_emit_t emit = {};
   emit.kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP;
   emit.descriptor_ref = LOOM_LOW_LOWER_DESCRIPTOR_REF_NONE;

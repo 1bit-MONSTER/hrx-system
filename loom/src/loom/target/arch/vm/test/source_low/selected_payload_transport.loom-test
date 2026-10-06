@@ -46,6 +46,29 @@ func.def public @selected_offset(%input: vector<4xi32>, %left: i32, %right: i32)
 
 // ====
 
+func.def public @selected_converted_offset(%choice: i32, %narrow: i32, %fallback: offset) -> (offset) {
+  %threshold = scalar.constant 0 : i32
+  %condition = scalar.cmpi ne, %choice, %threshold : i32
+  %converted = index.cast %narrow : i32 to offset
+  %selected = scf.select %condition, %converted, %fallback : offset
+  cfg.br ^forward(%selected: offset)
+^forward(%carried: offset):
+  func.return %carried : offset
+}
+
+// ----
+low.func.def public target<vm.core> abi(vm_function) @selected_converted_offset(%choice: reg<vm.value : i32>, %narrow: reg<vm.value : i32>, %fallback: reg<vm.value : i64>) -> (reg<vm.value : i64>) asm {
+  %threshold = constant.i32 0
+  %condition = integer.compare.i32 %choice, %threshold, "ne"
+  %converted = conversion.integer %narrow, "u32.to.i64"
+  %selected = value.select %condition, %converted, %fallback
+  low.br ^forward(%selected: reg<vm.value : i64>)
+^forward(%carried: reg<vm.value : i64>):
+  return %carried
+}
+
+// ====
+
 // ERROR@+1: TARGET/033 {op_name="func.def", field_name="argument", actual_type="vector<4xi32>"}
 func.def public @selected_extended_truncation(%input: vector<4xi32>, %left: i64, %right: i64) -> (i64) {
   // ERROR@+1: TARGET/001 {op_name="vector.extract"}

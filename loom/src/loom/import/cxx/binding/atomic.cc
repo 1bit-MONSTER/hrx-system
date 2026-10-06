@@ -356,14 +356,16 @@ std::optional<Value> AtomicIntrinsic::call(std::span<const Value> arguments,
           ordering_, scope_, 0, 0, location, &op));
       return std::nullopt;
     case Operation::Rmw:
-      check(loom_view_atomic_rmw_build(
-          builder, 0, kind_, arguments[0].ssa(), access.view, nullptr, 0,
-          &index, 1, ordering_, scope_, 0, 0, type_, location, &op));
+      check(loom_view_atomic_rmw_build(builder, 0, kind_, /*instance_flags=*/0,
+                                       arguments[0].ssa(), access.view, nullptr,
+                                       0, &index, 1, ordering_, scope_, 0, 0,
+                                       type_, location, &op));
       return Value(loom_op_results(op)[0]);
     case Operation::Reduce:
       check(loom_view_atomic_reduce_build(
-          builder, 0, kind_, arguments[0].ssa(), access.view, nullptr, 0,
-          &index, 1, ordering_, scope_, 0, 0, location, &op));
+          builder, 0, kind_, /*instance_flags=*/0, arguments[0].ssa(),
+          access.view, nullptr, 0, &index, 1, ordering_, scope_, 0, 0, location,
+          &op));
       return std::nullopt;
     case Operation::CompareExchange:
       check(loom_view_atomic_cmpxchg_build(

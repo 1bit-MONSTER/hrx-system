@@ -35,8 +35,10 @@ typedef struct iree_net_tcp_connection_options_t {
   // Maximum total wire-frame extent including the transport header.
   uint32_t max_frame_size;
 
-  // DATA admission and generated-prefix storage limits. The connection
-  // reserves one additional send operation internally for ACTIVE frames.
+  // DATA admission, generated-prefix storage, and per-connection send policy.
+  // The connection reserves one additional send operation internally for
+  // ACTIVE frames. Small sends use kernel copying by default; bulk sends
+  // retain zero-copy when the socket and proactor support it.
   iree_net_tcp_carrier_options_t carrier_options;
 } iree_net_tcp_connection_options_t;
 

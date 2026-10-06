@@ -291,34 +291,23 @@ iree_status_t loom_cfg_loop_forest_build(const loom_cfg_graph_t* graph,
   return status;
 }
 
-bool loom_cfg_loop_forest_calculate_block_execution_counts(
+bool loom_cfg_loop_forest_calculate_block_multipliers(
     const loom_cfg_loop_forest_t* forest, const loom_cfg_graph_t* graph,
-    const uint64_t* trip_counts, uint64_t* out_block_counts) {
+    const uint64_t* trip_counts, uint64_t* out_block_multipliers) {
   IREE_ASSERT(forest->interval_count == 0 || trip_counts != NULL);
 
   // An edgeless graph reaches only its entry. Structured single-block Low
   // schedules retain the block count without allocating CFG adjacency.
   if (graph->edge_count == 0) {
     for (iree_host_size_t i = 0; i < graph->block_count; ++i) {
-      out_block_counts[i] = i == 0 ? 1 : 0;
+      out_block_multipliers[i] = i == 0 ? 1 : 0;
     }
     return true;
   }
   for (iree_host_size_t i = 0; i < graph->block_count; ++i) {
     const bool is_reachable =
         loom_cfg_graph_block_is_reachable(graph, (uint16_t)i);
-    out_block_counts[i] = is_reachable ? 1 : 0;
-    if (!is_reachable) {
-      continue;
-    }
-    const uint32_t loop_index = forest->interval_count
-                                    ? forest->innermost_loop_indices[i]
-                                    : LOOM_CFG_LOOP_NONE;
-    if (graph->blocks[i].successor_count > 1 &&
-        (loop_index == LOOM_CFG_LOOP_NONE ||
-         forest->intervals[loop_index].header_index != i)) {
-      return false;
-    }
+    out_block_multipliers[i] = is_reachable ? 1 : 0;
   }
   if (forest->interval_count != forest->reachable_backward_edge_count) {
     return false;
@@ -337,10 +326,10 @@ bool loom_cfg_loop_forest_calculate_block_execution_counts(
     const uint64_t parent_body_count =
         interval->parent_loop_index == LOOM_CFG_LOOP_NONE
             ? 1
-            : out_block_counts[forest->intervals[interval->parent_loop_index]
-                                   .header_index];
+            : out_block_multipliers
+                  [forest->intervals[interval->parent_loop_index].header_index];
     if (!iree_checked_mul_u64(parent_body_count, trip_counts[i],
-                              &out_block_counts[interval->header_index])) {
+                              &out_block_multipliers[interval->header_index])) {
       return false;
     }
   }
@@ -354,8 +343,8 @@ bool loom_cfg_loop_forest_calculate_block_execution_counts(
         forest->intervals[loop_index].header_index == i) {
       continue;
     }
-    out_block_counts[i] =
-        out_block_counts[forest->intervals[loop_index].header_index];
+    out_block_multipliers[i] =
+        out_block_multipliers[forest->intervals[loop_index].header_index];
   }
 
   // Children follow parents in interval order. Finalizing in reverse preserves
@@ -365,14 +354,36 @@ bool loom_cfg_loop_forest_calculate_block_execution_counts(
     const uint64_t parent_body_count =
         interval->parent_loop_index == LOOM_CFG_LOOP_NONE
             ? 1
-            : out_block_counts[forest->intervals[interval->parent_loop_index]
-                                   .header_index];
+            : out_block_multipliers
+                  [forest->intervals[interval->parent_loop_index].header_index];
     uint64_t header_trip_count = 0;
     if (!iree_checked_add_u64(trip_counts[i - 1], 1, &header_trip_count) ||
         !iree_checked_mul_u64(parent_body_count, header_trip_count,
-                              &out_block_counts[interval->header_index])) {
+                              &out_block_multipliers[interval->header_index])) {
       return false;
     }
   }
   return true;
+}
+
+bool loom_cfg_loop_forest_calculate_block_execution_counts(
+    const loom_cfg_loop_forest_t* forest, const loom_cfg_graph_t* graph,
+    const uint64_t* trip_counts, uint64_t* out_block_counts) {
+  if (graph->edge_count != 0) {
+    for (iree_host_size_t i = 0; i < graph->block_count; ++i) {
+      if (!loom_cfg_graph_block_is_reachable(graph, (uint16_t)i) ||
+          graph->blocks[i].successor_count <= 1) {
+        continue;
+      }
+      const uint32_t loop_index = forest->interval_count
+                                      ? forest->innermost_loop_indices[i]
+                                      : LOOM_CFG_LOOP_NONE;
+      if (loop_index == LOOM_CFG_LOOP_NONE ||
+          forest->intervals[loop_index].header_index != i) {
+        return false;
+      }
+    }
+  }
+  return loom_cfg_loop_forest_calculate_block_multipliers(
+      forest, graph, trip_counts, out_block_counts);
 }

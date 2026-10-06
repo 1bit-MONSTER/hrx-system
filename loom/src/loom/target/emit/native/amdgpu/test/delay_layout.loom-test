@@ -368,8 +368,9 @@ kernel_layout:
 
 // ====
 
-// A structural consumer keeps its hint before its own VGPR bank transition.
-// RUN: emit amdgpu-assembly @structural_consumer strategy=source fixed=%copy:physical_register:512:1
+// A fixed low-bank producer and high-bank structural copy keep the consumer's
+// hint before its own VGPR bank transition.
+// RUN: emit amdgpu-assembly @structural_consumer strategy=source fixed=%second:physical_register:0:1 fixed=%copy:physical_register:512:1
 amdgpu.target<gfx1250> @target
 
 low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @structural_consumer(%a: reg<amdgpu.vgpr>, %b: reg<amdgpu.vgpr>) -> (reg<amdgpu.sgpr>, reg<amdgpu.vgpr>) asm {

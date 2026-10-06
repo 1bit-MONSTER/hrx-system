@@ -26,6 +26,9 @@ extern "C" {
 // publish the assignment: the allocator retains ownership of active storage,
 // liveness and leases. Result reservations may share leases with the ignored
 // sources; a source assignment requires no ignored leases.
+// Optional reservations preserve outstanding source leases. Ordinary placement
+// owns the decision to release those leases for capacity or residency; result
+// leases marked releasable for pressure remain available to reservations.
 iree_status_t loom_low_allocation_concat_reservation_find(
     loom_low_allocation_search_context_t* context,
     const loom_liveness_interval_t* source_interval,

@@ -388,25 +388,34 @@ TEST_P(LowLowerResultMappingTest, DefinitionConsumesPreparedResultTypes) {
                                         LOOM_LOCATION_UNKNOWN, &return_op));
   ComputeFacts(mapping_context_.source_function);
 
-  uint32_t result_query_count = 0;
+  struct ResultQueryState {
+    const loom_op_t* exit_op;
+    uint32_t query_count;
+  } result_query_state = {
+      /*.exit_op=*/return_op,
+  };
   policy_.map_value = {
       +[](void* user_data, loom_low_lower_context_t* context,
           const loom_op_t* source_op, loom_value_id_t source_value,
           loom_type_t source_type, loom_type_t* out_low_type) -> iree_status_t {
         (void)source_value;
-        if (loom_func_return_isa(source_op)) {
-          ++*static_cast<uint32_t*>(user_data);
+        auto* state = static_cast<ResultQueryState*>(user_data);
+        if (source_op == state->exit_op) {
+          ++state->query_count;
         }
         return context->policy->map_type.fn(context->policy->map_type.user_data,
                                             context, source_op, source_type,
                                             out_low_type);
       },
-      &result_query_count,
+      &result_query_state,
   };
-  IREE_ASSERT_OK(
-      loom_low_lower_function_boundary_validate(&mapping_context_, body));
+  IREE_ASSERT_OK(loom_low_lower_function_boundary_validate(&mapping_context_));
+  EXPECT_EQ(result_query_state.query_count, 0u);
+  IREE_ASSERT_OK(loom_low_lower_function_boundary_observe_exit(
+      &mapping_context_, return_op));
+  IREE_ASSERT_OK(loom_low_lower_function_boundary_finalize(&mapping_context_));
   ASSERT_EQ(result_.error_count, 0u);
-  EXPECT_EQ(result_query_count, result_count);
+  EXPECT_EQ(result_query_state.query_count, result_count);
   EXPECT_EQ(mapping_context_.lowering.result_types != nullptr, GetParam());
 
   loom_low_lower_emission_scope_begin(&mapping_context_);
@@ -414,7 +423,7 @@ TEST_P(LowLowerResultMappingTest, DefinitionConsumesPreparedResultTypes) {
       loom_low_lower_function_boundary_create(&mapping_context_, body, symbol));
   loom_low_lower_emission_scope_end(&mapping_context_);
   ASSERT_EQ(result_.error_count, 0u);
-  EXPECT_EQ(result_query_count, result_count);
+  EXPECT_EQ(result_query_state.query_count, result_count);
   ASSERT_EQ(result_.low_func_op->result_count, result_count);
   for (uint16_t i = 0; i < result_count; ++i) {
     EXPECT_TRUE(loom_type_equal(
@@ -476,8 +485,7 @@ TEST_P(LowLowerArgumentQueryTest, OnlyRequiredArgumentsEmitDiagnostics) {
   EXPECT_EQ(result_.error_count, 0u);
   EXPECT_EQ(mapping_context_.lowering.argument_map, nullptr);
 
-  IREE_ASSERT_OK(
-      loom_low_lower_function_boundary_validate(&mapping_context_, body));
+  IREE_ASSERT_OK(loom_low_lower_function_boundary_validate(&mapping_context_));
   EXPECT_EQ(result_.error_count, 1u);
   EXPECT_TRUE(
       loom_type_equal(native_argument.abi_type,

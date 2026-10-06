@@ -121,10 +121,10 @@ The dedicated importer CI profile is:
 python3 build_tools/devtools/ci.py iree-importers-tilelang --keep-going
 ```
 
-The GitHub `CI Importers` workflow runs that profile when TileLang importer
-code, importer locks, importer configuration, or devtools CI machinery changes.
-It installs the locked TileLang environment, reports the package manifest, and
-runs both the Bazel and CMake test surfaces with skip failures enabled.
+TileLang importing is experimental and the profile is not run in hosted CI.
+Run it explicitly to install the locked TileLang environment, report the
+package manifest, and exercise the Bazel and CMake test surfaces with skip
+failures enabled.
 
 ## Oracle Capture
 
@@ -214,6 +214,6 @@ iree-bazel-run --config=asan \
 The reusable Loom-side API lives in
 `loom.importers.tilelang.differential.capture_loom_amdgpu_artifact`. The checker
 uses it to write the imported Loom module, compile through the AMDGPU HAL
-backend, emit the loader artifact and target HSACO, record the compile report
-and artifact manifest, disassemble with `llvm-objdump`, and return an
+backend, emit one target HSACO, record the compile report and artifact manifest,
+disassemble with `llvm-objdump`, and return an
 `AmdgpuDifferentialArtifact` ready for `compare_amdgpu_artifacts`.

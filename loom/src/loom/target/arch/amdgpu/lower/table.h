@@ -22,7 +22,9 @@ iree_status_t loom_amdgpu_select_vector_table_lookup_plan(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_amdgpu_table_lookup_plan_t* out_plan, bool* out_selected);
 
-// Lowers a source vector.table.lookup op to AMDGPU compare/select packets.
+// Lowers a source vector.table.lookup op with its selected native recipe.
+// Packed byte recipes emit independent permutes for each result register,
+// including the semantic low bytes of a partial final register.
 iree_status_t loom_amdgpu_lower_vector_table_lookup(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_table_lookup_plan_t* plan);

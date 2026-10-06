@@ -1,0 +1,212 @@
+// RUN: emit source-low output=low control-flow=structured-low
+
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @scalar_transcendentals(%input: f32) -> (f32) {
+  %exp = scalar.expf<afn> %input : f32
+  %log = scalar.logf<afn> %exp : f32
+  %exp2 = scalar.exp2f<afn> %log : f32
+  %log2 = scalar.log2f<afn> %exp2 : f32
+  %min = scalar.minnumf<nsz> %log2, %input : f32
+  %max = scalar.maxnumf<nsz> %min, %input : f32
+  func.return %max : f32
+}
+
+func.def target(@target) @vector1_transcendentals(%input: f32) -> (f32) {
+  %values = vector.splat %input : vector<1xf32>
+  %exp = vector.expf<afn> %values : vector<1xf32>
+  %log = vector.logf<afn> %exp : vector<1xf32>
+  %exp2 = vector.exp2f<afn> %log : vector<1xf32>
+  %log2 = vector.log2f<afn> %exp2 : vector<1xf32>
+  %min = vector.minnumf<nsz> %log2, %values : vector<1xf32>
+  %max = vector.maxnumf<nsz> %min, %values : vector<1xf32>
+  %result = vector.extract %max[0] : vector<1xf32> -> f32
+  func.return %result : f32
+}
+
+func.def target(@target) @vector2_transcendentals(%input: f32) -> (f32) {
+  %values = vector.splat %input : vector<2xf32>
+  %exp = vector.expf<afn> %values : vector<2xf32>
+  %log = vector.logf<afn> %exp : vector<2xf32>
+  %exp2 = vector.exp2f<afn> %log : vector<2xf32>
+  %log2 = vector.log2f<afn> %exp2 : vector<2xf32>
+  %min = vector.minnumf<nsz> %log2, %values : vector<2xf32>
+  %max = vector.maxnumf<nsz> %min, %values : vector<2xf32>
+  %result = vector.extract %max[1] : vector<2xf32> -> f32
+  func.return %result : f32
+}
+
+func.def target(@target) @vector3_transcendentals(%input: f32) -> (f32) {
+  %values = vector.splat %input : vector<3xf32>
+  %exp = vector.expf<afn> %values : vector<3xf32>
+  %log = vector.logf<afn> %exp : vector<3xf32>
+  %exp2 = vector.exp2f<afn> %log : vector<3xf32>
+  %log2 = vector.log2f<afn> %exp2 : vector<3xf32>
+  %min = vector.minnumf<nsz> %log2, %values : vector<3xf32>
+  %max = vector.maxnumf<nsz> %min, %values : vector<3xf32>
+  %result = vector.extract %max[2] : vector<3xf32> -> f32
+  func.return %result : f32
+}
+
+func.def target(@target) @vector4_transcendentals(%input: f32) -> (f32) {
+  %values = vector.splat %input : vector<4xf32>
+  %exp = vector.expf<afn> %values : vector<4xf32>
+  %log = vector.logf<afn> %exp : vector<4xf32>
+  %exp2 = vector.exp2f<afn> %log : vector<4xf32>
+  %log2 = vector.log2f<afn> %exp2 : vector<4xf32>
+  %min = vector.minnumf<nsz> %log2, %values : vector<4xf32>
+  %max = vector.maxnumf<nsz> %min, %values : vector<4xf32>
+  %result = vector.extract %max[3] : vector<4xf32> -> f32
+  func.return %result : f32
+}
+
+// ----
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @scalar_transcendentals(%input: reg<spirv.id : f32>) -> (reg<spirv.id : f32>) asm {
+  %exp = OpExtInst.GLSL.std.450.Exp.f32 %input
+  %log = OpExtInst.GLSL.std.450.Log.f32 %exp
+  %exp2 = OpExtInst.GLSL.std.450.Exp2.f32 %log
+  %log2 = OpExtInst.GLSL.std.450.Log2.f32 %exp2
+  %min = OpExtInst.GLSL.std.450.NMin.f32 %log2, %input
+  %max = OpExtInst.GLSL.std.450.NMax.f32 %min, %input
+  return %max
+}
+
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @vector1_transcendentals(%values: reg<spirv.id : f32>) -> (reg<spirv.id : f32>) asm {
+  %exp = OpExtInst.GLSL.std.450.Exp.f32 %values
+  %log = OpExtInst.GLSL.std.450.Log.f32 %exp
+  %exp2 = OpExtInst.GLSL.std.450.Exp2.f32 %log
+  %log2 = OpExtInst.GLSL.std.450.Log2.f32 %exp2
+  %min = OpExtInst.GLSL.std.450.NMin.f32 %log2, %values
+  %result = OpExtInst.GLSL.std.450.NMax.f32 %min, %values
+  return %result
+}
+
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @vector2_transcendentals(%input: reg<spirv.id : f32>) -> (reg<spirv.id : f32>) asm {
+  %values = OpCompositeConstruct.v2f32 %input, %input
+  %exp = OpExtInst.GLSL.std.450.Exp.v2f32 %values
+  %log = OpExtInst.GLSL.std.450.Log.v2f32 %exp
+  %exp2 = OpExtInst.GLSL.std.450.Exp2.v2f32 %log
+  %log2 = OpExtInst.GLSL.std.450.Log2.v2f32 %exp2
+  %min = OpExtInst.GLSL.std.450.NMin.v2f32 %log2, %values
+  %max = OpExtInst.GLSL.std.450.NMax.v2f32 %min, %values
+  %result = OpCompositeExtract.v2f32.f32 %max, 1
+  return %result
+}
+
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @vector3_transcendentals(%input: reg<spirv.id : f32>) -> (reg<spirv.id : f32>) asm {
+  %values = OpCompositeConstruct.v3f32 %input, %input, %input
+  %exp = OpExtInst.GLSL.std.450.Exp.v3f32 %values
+  %log = OpExtInst.GLSL.std.450.Log.v3f32 %exp
+  %exp2 = OpExtInst.GLSL.std.450.Exp2.v3f32 %log
+  %log2 = OpExtInst.GLSL.std.450.Log2.v3f32 %exp2
+  %min = OpExtInst.GLSL.std.450.NMin.v3f32 %log2, %values
+  %max = OpExtInst.GLSL.std.450.NMax.v3f32 %min, %values
+  %result = OpCompositeExtract.v3f32.f32 %max, 2
+  return %result
+}
+
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @vector4_transcendentals(%input: reg<spirv.id : f32>) -> (reg<spirv.id : f32>) asm {
+  %values = OpCompositeConstruct.v4f32 %input, %input, %input, %input
+  %exp = OpExtInst.GLSL.std.450.Exp.v4f32 %values
+  %log = OpExtInst.GLSL.std.450.Log.v4f32 %exp
+  %exp2 = OpExtInst.GLSL.std.450.Exp2.v4f32 %log
+  %log2 = OpExtInst.GLSL.std.450.Log2.v4f32 %exp2
+  %min = OpExtInst.GLSL.std.450.NMin.v4f32 %log2, %values
+  %max = OpExtInst.GLSL.std.450.NMax.v4f32 %min, %values
+  %result = OpCompositeExtract.v4f32.f32 %max, 3
+  return %result
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @exact_exp(%input: f32) -> (f32) {
+  // ERROR@+1: LOWERING/036 {op_name="scalar.expf", phase_name="legalize-math", policy_name="spirv-math", math_op="expf", lane_domain="scalar", element_type="f32", constraint_key="math.transcendental.afn"}
+  %result = scalar.expf %input : f32
+  func.return %result : f32
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @wide_log(%input: f64) -> (f64) {
+  // ERROR@+1: LOWERING/036 {op_name="scalar.logf", phase_name="legalize-math", policy_name="spirv-math", math_op="logf", lane_domain="scalar", element_type="f64", constraint_key="math.transcendental.f32"}
+  %result = scalar.logf<afn> %input : f64
+  func.return %result : f64
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @narrow_log(%input: f16) -> (f16) {
+  // ERROR@+1: LOWERING/036 {op_name="scalar.logf", phase_name="legalize-math", policy_name="spirv-math", math_op="logf", lane_domain="scalar", element_type="f16", constraint_key="math.transcendental.f32"}
+  %result = scalar.logf<afn> %input : f16
+  func.return %result : f16
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @exact_vector_log2(%input: f32) -> (f32) {
+  %values = vector.splat %input : vector<4xf32>
+  // ERROR@+1: LOWERING/036 {op_name="vector.log2f", phase_name="legalize-math", policy_name="spirv-math", math_op="log2f", lane_domain="vector", element_type="f32", constraint_key="math.transcendental.afn"}
+  %logs = vector.log2f %values : vector<4xf32>
+  %result = vector.extract %logs[0] : vector<4xf32> -> f32
+  func.return %result : f32
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @exact_exp2(%input: f32) -> (f32) {
+  // ERROR@+1: TARGET/003 {op_name="scalar.exp2f", subject_role="flags", subject_name="fastmath", constraint_key="has_all.afn"}
+  %result = scalar.exp2f %input : f32
+  func.return %result : f32
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @wide_exp2(%input: f64) -> (f64) {
+  // ERROR@+1: TARGET/002 {op_name="scalar.exp2f", field_name="input", actual_type="f64", expected_type="f32"}
+  %result = scalar.exp2f<afn> %input : f64
+  func.return %result : f64
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @narrow_exp2(%input: f16) -> (f16) {
+  // ERROR@+1: TARGET/002 {op_name="scalar.exp2f", field_name="input", actual_type="f16", expected_type="f32"}
+  %result = scalar.exp2f<afn> %input : f16
+  func.return %result : f16
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @exact_minnum(%lhs: f32, %rhs: f32) -> (f32) {
+  // ERROR@+1: TARGET/003 {op_name="scalar.minnumf", subject_role="flags", subject_name="fastmath", constraint_key="has_all.nsz"}
+  %result = scalar.minnumf %lhs, %rhs : f32
+  func.return %result : f32
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @exact_vector_maxnum(%input: f32) -> (f32) {
+  %values = vector.splat %input : vector<4xf32>
+  // ERROR@+1: TARGET/003 {op_name="scalar.maxnumf", subject_role="flags", subject_name="fastmath", constraint_key="has_all.nsz"}
+  %maxima = vector.maxnumf %values, %values : vector<4xf32>
+  %result = vector.extract %maxima[0] : vector<4xf32> -> f32
+  func.return %result : f32
+}

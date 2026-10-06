@@ -1054,12 +1054,11 @@ def _buffer_load_b16_d16_hi_overlay(
                 Operand(
                     "src",
                     OperandRole.OPERAND,
-                    _VGPR_ALT,
+                    (replace(_VGPR_ALT[0], register_part=_REG_PART_VGPR_LOW16),),
                     flags=(
                         OperandFlag.IMPLICIT,
                         OperandFlag.STORAGE_CONTINUATION,
                     ),
-                    register_part=_REG_PART_VGPR_LOW16,
                 ),
                 role_exception_reason=(
                     "the encoded destination register is also the tied "
@@ -1085,6 +1084,19 @@ def _buffer_load_b16_d16_hi_overlay(
         flags=(DescriptorFlag.SIDE_EFFECTING,),
         operand_forms=_buffer_operand_forms(
             vaddr_offset_descriptor_key=vaddr_offset_descriptor_key,
+        ),
+        asm_forms=_asm(
+            results=("dst",),
+            operands=("src", "resource", "vaddr", "soffset"),
+            immediates=_memory_asm_immediate_names(cache_fields),
+            named_immediates=True,
+            native_assembly_values=(
+                _native_result("dst"),
+                _native_operand("vaddr"),
+                _native_operand("resource"),
+                _native_operand("soffset"),
+                _native_modifier_literal("offen"),
+            ),
         ),
     )
 
@@ -1174,12 +1186,11 @@ def _buffer_load_b16_d16_hi_vaddr_offset_overlay(
                 Operand(
                     "src",
                     OperandRole.OPERAND,
-                    _VGPR_ALT,
+                    (replace(_VGPR_ALT[0], register_part=_REG_PART_VGPR_LOW16),),
                     flags=(
                         OperandFlag.IMPLICIT,
                         OperandFlag.STORAGE_CONTINUATION,
                     ),
-                    register_part=_REG_PART_VGPR_LOW16,
                 ),
                 role_exception_reason=(
                     "the encoded destination register is also the tied "
@@ -2073,6 +2084,8 @@ def _buffer_store_vaddr_offset_overlay(
     cache_fields: tuple[tuple[str, int], ...] = (),
     fixed_soffset: AmdgpuFixedEncodingValue = _MUBUF_SOFFSET_INLINE_ZERO,
     fixed_soffset_native_spelling: str = "0",
+    data_register_part: str | None = None,
+    data_size_exception_reason: str | None = None,
 ) -> AmdgpuDescriptorOverlay:
     return AmdgpuDescriptorOverlay(
         descriptor_key=descriptor_key,
@@ -2082,7 +2095,13 @@ def _buffer_store_vaddr_offset_overlay(
         semantic_tag=semantic_tag,
         schedule_class=_SCHEDULE_VMEM_STORE,
         operands=(
-            AmdgpuOperandOverlay("VDATA", _vgpr_operand("value", units=payload_units)),
+            AmdgpuOperandOverlay(
+                "VDATA",
+                _vgpr_operand(
+                    "value", units=payload_units, register_part=data_register_part
+                ),
+                size_exception_reason=data_size_exception_reason,
+            ),
             AmdgpuOperandOverlay(
                 resource_field_name, _sgpr_resource("resource", units=4)
             ),
@@ -2284,7 +2303,11 @@ def _buffer_store_b8_overlay(
         semantic_tag="memory.store.u8",
         schedule_class=_SCHEDULE_VMEM_STORE,
         operands=(
-            AmdgpuOperandOverlay("VDATA", _vgpr_operand("value")),
+            AmdgpuOperandOverlay(
+                "VDATA",
+                _vgpr_operand("value", register_part=_REG_PART_VGPR_LOW16),
+                size_exception_reason=_BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON,
+            ),
             AmdgpuOperandOverlay(
                 resource_field_name, _sgpr_resource("resource", units=4)
             ),
@@ -2322,6 +2345,8 @@ def _buffer_store_b8_vaddr_offset_overlay(
         mnemonic="buffer_store_b8",
         semantic_tag="memory.store.u8",
         payload_units=1,
+        data_register_part=_REG_PART_VGPR_LOW16,
+        data_size_exception_reason=_BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON,
         memory_effect=_global_write_effect(8),
         implicit_memory=_ignore_global_write_memory(8),
         encoding_name=encoding_name,
@@ -2971,12 +2996,11 @@ def _global_load_b16_d16_hi_overlay(
             Operand(
                 "src",
                 OperandRole.OPERAND,
-                _VGPR_ALT,
+                (replace(_VGPR_ALT[0], register_part=_REG_PART_VGPR_LOW16),),
                 flags=(
                     OperandFlag.IMPLICIT,
                     OperandFlag.STORAGE_CONTINUATION,
                 ),
-                register_part=_REG_PART_VGPR_LOW16,
             ),
             role_exception_reason=(
                 "the encoded destination register is also the tied source "
@@ -3258,10 +3282,18 @@ def _flat_store_overlay(
     fixed_saddr: AmdgpuFixedEncodingValue | None = None,
     cache_fields: tuple[tuple[str, int], ...] = (),
 ) -> AmdgpuDescriptorOverlay:
+    vgpr_register_part = _REG_PART_VGPR_LOW16 if width_bits < 32 else None
     value_operand = (
-        _vgpr_agpr_operand("value", units=units)
+        _vgpr_agpr_operand("value", units=units, vgpr_register_part=vgpr_register_part)
         if allow_accumulator_operands
-        else _vgpr_operand("value", units=units)
+        else _vgpr_operand("value", units=units, register_part=vgpr_register_part)
+    )
+    value_size_exception_reason = (
+        _BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON
+        if width_bits == 8
+        else _D16_PARTIAL_REGISTER_SIZE_REASON
+        if width_bits == 16
+        else None
     )
     implicit_operands: tuple[AmdgpuImplicitOperandOverlay, ...] = (
         _ignore_generic_memory(
@@ -3292,7 +3324,11 @@ def _flat_store_overlay(
         schedule_class=_SCHEDULE_FLAT_STORE,
         operands=(
             AmdgpuOperandOverlay(address_field_name, _vgpr_operand("addr", units=2)),
-            AmdgpuOperandOverlay(data_field_name, value_operand),
+            AmdgpuOperandOverlay(
+                data_field_name,
+                value_operand,
+                size_exception_reason=value_size_exception_reason,
+            ),
         ),
         implicit_operands=implicit_operands,
         fixed_encoding_fields=fixed_encoding_fields,
@@ -3659,9 +3695,11 @@ def _scratch_store_narrow_overlays(
             offset_signed=offset_signed,
             width_bits=width_bits,
             units=1,
-            data_register_part=(_REG_PART_VGPR_LOW16 if width_bits == 16 else None),
+            data_register_part=_REG_PART_VGPR_LOW16,
             data_size_exception_reason=(
-                _D16_PARTIAL_REGISTER_SIZE_REASON if width_bits == 16 else None
+                _D16_PARTIAL_REGISTER_SIZE_REASON
+                if width_bits == 16
+                else _BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON
             ),
             fixed_vaddr=fixed_vaddr,
             fixed_saddr=fixed_saddr,
@@ -3832,7 +3870,17 @@ def _global_store_overlay(
         _global_addr_operand(
             address_field_name, units=address_units, has_saddr=saddr_off is None
         ),
-        AmdgpuOperandOverlay(data_field_name, _vgpr_operand("value", units=units)),
+        AmdgpuOperandOverlay(
+            data_field_name,
+            _vgpr_operand(
+                "value",
+                units=units,
+                register_part=_REG_PART_VGPR_LOW16 if width_bits == 8 else None,
+            ),
+            size_exception_reason=(
+                _BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON if width_bits == 8 else None
+            ),
+        ),
     )
     fixed_encoding_fields: tuple[tuple[str, AmdgpuFixedEncodingValue], ...] = ()
     if saddr_off is None:

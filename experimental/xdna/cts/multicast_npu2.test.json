@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "shared A and B streams preserve independent skewed consumers and ring credits on NPU2",
+      "steps": [
+        {
+          "name": "fixtures",
+          "run": {"tool": "generate-cases", "args": ["{tmp}/fixtures"]}
+        },
+        {
+          "name": "compile",
+          "run": {
+            "tool": "loom-compile",
+            "args": [
+              "{srcdir}/testdata/multicast.loom",
+              "--root=@multicast_packets",
+              "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+              "--output={tmp}/multicast.xdna"
+            ]
+          }
+        },
+        {
+          "name": "execute",
+          "run": {
+            "tool": "iree-xdna-run",
+            "args": [
+              "--image={tmp}/multicast.xdna",
+              "--columns=8",
+              "--entry=multicast_packets",
+              "--invocation_count=3",
+              "--binding_memory=system",
+              "--binding={tmp}/fixtures/a.bin",
+              "--binding={tmp}/fixtures/b.bin",
+              "--binding={tmp}/fixtures/output.bin",
+              "--output=0={tmp}/a-readback.bin",
+              "--output=1={tmp}/b-readback.bin",
+              "--output=2={tmp}/output-readback.bin"
+            ]
+          },
+          "files": [
+            {"path": "{tmp}/a-readback.bin", "equals": "{tmp}/fixtures/a.bin"},
+            {"path": "{tmp}/b-readback.bin", "equals": "{tmp}/fixtures/b.bin"},
+            {"path": "{tmp}/output-readback.bin", "equals": "{tmp}/fixtures/expected.bin"}
+          ]
+        }
+      ]
+    }
+  ]
+}

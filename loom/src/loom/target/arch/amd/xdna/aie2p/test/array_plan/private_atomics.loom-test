@@ -1,0 +1,346 @@
+// RUN: emit aie2p-array-plan @private_atomic_array
+
+// Shared corpus programs own atomic result semantics. This target test checks
+// that private provenance and the shared rewrites survive the AIE2P array ABI,
+// resident materialization, and final machine lowering.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+func.def target(@core_target) @private_atomic_worker(%input_arg: buffer, %output_arg: buffer) {
+  %input, %output = buffer.assume.alignment %input_arg, %output_arg {minimum_alignment = 8} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %private_bytes = index.constant 24 : offset
+  %storage = buffer.alloca<private> align(8) %private_bytes : buffer
+
+  %cell_i64 = buffer.view %storage[%origin] : buffer -> view<1xi64>
+  %input_i64 = buffer.view %input[%origin] : buffer -> view<3xi64>
+  %output_i64 = buffer.view %output[%origin] : buffer -> view<4xi64>
+  %initial_i64 = view.load %input_i64[0] : view<3xi64> -> i64
+  %update_i64 = view.load %input_i64[1] : view<3xi64> -> i64
+  %expected_i64 = view.load %input_i64[2] : view<3xi64> -> i64
+  view.atomic.store %initial_i64, %cell_i64[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_i64 = view.atomic.rmw<addi> %update_i64, %cell_i64[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %compared_i64 = view.atomic.cmpxchg %expected_i64, %update_i64, %cell_i64[0] {failure_ordering = acquire, scope = system, success_ordering = seq_cst} : i64, view<1xi64> -> i64
+  view.atomic.reduce<xori> %update_i64, %cell_i64[0] {ordering = seq_cst, scope = system} : i64, view<1xi64>
+  %final_i64 = view.atomic.load %cell_i64[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.store %old_i64, %output_i64[0] : i64, view<4xi64>
+  view.store %compared_i64, %output_i64[1] : i64, view<4xi64>
+  view.store %final_i64, %output_i64[2] : i64, view<4xi64>
+  view.store %update_i64, %output_i64[3] : i64, view<4xi64>
+
+  %vector_offset = index.constant 8 : offset
+  %input_vector_offset = index.constant 24 : offset
+  %output_vector_offset = index.constant 32 : offset
+  %cells_i32 = buffer.view %storage[%vector_offset] : buffer -> view<2xi32>
+  %input_i32 = buffer.view %input[%input_vector_offset] : buffer -> view<2xi32>
+  %output_i32 = buffer.view %output[%output_vector_offset] : buffer -> view<8xi32>
+  %initial_i32 = vector.load %input_i32[0] : view<2xi32> -> vector<2xi32>
+  vector.store %initial_i32, %cells_i32[0] : vector<2xi32>, view<2xi32>
+  %first = index.constant 0 : index
+  %step = index.constant 1 : index
+  %offsets = vector.iota %first step %step : vector<2xindex>
+  %enabled = scalar.constant true : i1
+  %disabled = scalar.constant false : i1
+  %mask = vector.from_elements %enabled, %disabled : vector<2xi1>
+  %increment_i32 = vector.constant 1 : vector<2xi32>
+  %passthrough_i32 = vector.constant -101 : vector<2xi32>
+  vector.atomic.reduce<addi> %increment_i32, %cells_i32[0][%offsets] {ordering = release, scope = system} : vector<2xi32>, view<2xi32>, vector<2xindex>
+  vector.atomic.reduce.mask<xori> %increment_i32, %cells_i32[0][%offsets], %mask {ordering = relaxed, scope = thread} : vector<2xi32>, view<2xi32>, vector<2xindex>, vector<2xi1>
+  %old_i32 = vector.atomic.rmw<subi> %increment_i32, %cells_i32[0][%offsets] {ordering = acquire, scope = device} : vector<2xi32>, view<2xi32>, vector<2xindex>
+  %masked_i32 = vector.atomic.rmw.mask<addi> %increment_i32, %cells_i32[0][%offsets], %mask, %passthrough_i32 {ordering = acq_rel, scope = system} : vector<2xi32>, view<2xi32>, vector<2xindex>, vector<2xi1>, vector<2xi32>
+  %observed_i32 = vector.atomic.cmpxchg %old_i32, %increment_i32, %cells_i32[0][%offsets] {failure_ordering = acquire, scope = system, success_ordering = acq_rel} : vector<2xi32>, view<2xi32>, vector<2xindex> -> vector<2xi32>
+  %duplicate_offsets = vector.from_elements %first, %first : vector<2xindex>
+  vector.atomic.reduce<addi> %increment_i32, %cells_i32[0][%duplicate_offsets] {ordering = seq_cst, scope = system} : vector<2xi32>, view<2xi32>, vector<2xindex>
+  %final_i32 = vector.load %cells_i32[0] : view<2xi32> -> vector<2xi32>
+  vector.store %old_i32, %output_i32[0] : vector<2xi32>, view<8xi32>
+  vector.store %masked_i32, %output_i32[2] : vector<2xi32>, view<8xi32>
+  vector.store %observed_i32, %output_i32[4] : vector<2xi32>, view<8xi32>
+  vector.store %final_i32, %output_i32[6] : vector<2xi32>, view<8xi32>
+
+  %f32_offset = index.constant 16 : offset
+  %input_f32_offset = index.constant 32 : offset
+  %output_f32_offset = index.constant 64 : offset
+  %cell_f32 = buffer.view %storage[%f32_offset] : buffer -> view<1xf32>
+  %input_f32 = buffer.view %input[%input_f32_offset] : buffer -> view<2xf32>
+  %output_f32 = buffer.view %output[%output_f32_offset] : buffer -> view<2xf32>
+  %initial_f32 = view.load %input_f32[0] : view<2xf32> -> f32
+  %increment_f32 = view.load %input_f32[1] : view<2xf32> -> f32
+  view.atomic.store %initial_f32, %cell_f32[0] {ordering = release, scope = system} : f32, view<1xf32>
+  %old_f32 = view.atomic.rmw<addf> %increment_f32, %cell_f32[0] {ordering = acq_rel, scope = system} : f32, view<1xf32> -> f32
+  %final_f32 = view.atomic.load %cell_f32[0] {ordering = acquire, scope = system} : view<1xf32> -> f32
+  view.store %old_f32, %output_f32[0] : f32, view<2xf32>
+  view.store %final_f32, %output_f32[1] : f32, view<2xf32>
+  func.return
+}
+
+pipeline.def<kernel> public retain target(@array_target) @private_atomic_array() launch(%input: buffer, %output: buffer) {
+  %worker_count = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %workers = group.create %worker_count : index -> group
+  %input_view = buffer.view %input[%origin] : buffer -> view<1x1x40xi8>
+  %output_view = buffer.view %output[%origin] : buffer -> view<1x1x72xi8>
+  %input_flow = pipeline.scatter %input_view across %workers : view<1x1x40xi8>, group -> pipeline.flow<tile<40xi8>>
+  %output_flow = pipeline.stage @private_atomic_worker on %workers(%input_flow) : (group, pipeline.flow<tile<40xi8>>) -> (pipeline.flow<tile<72xi8>>)
+  pipeline.write %output_flow to %output_view : pipeline.flow<tile<72xi8>>, view<1x1x72xi8>
+  pipeline.return
+}
+
+// ----
+array @private_atomic_array family=amd.xdna.npu2 groups=1 workers=1 bindings=2 channels=2 slots=4 locks=4 dma=4 routes=8
+binding index=0 ordinal=0 access=read
+binding index=1 ordinal=1 access=write
+worker index=0 group=0 lane=0 entry=@private_atomic_worker tile=(0,2) resources=2 storage-domains=1
+channel index=0 transport=external-dma record-bytes=40 capacity=2 records=1 sender=binding[0]:0 partition=0/1 receiver=worker[0]:0
+channel index=1 transport=external-dma record-bytes=72 capacity=2 records=1 sender=worker[0]:1 receiver=binding[1]:0 partition=0/1
+worker-storage worker=0 space=2 offset=0x0c000 load-address=0x7c000 bytes=24
+worker-port worker=0 port=0 direction=receive channel=0 first-slot=0
+worker-port worker=0 port=1 direction=send channel=1 first-slot=2
+slot channel=0 index=0 owner=(0,2) offset=0x00000 bytes=40 sender=external receiver=0x70000
+slot channel=0 index=1 owner=(0,2) offset=0x04000 bytes=40 sender=external receiver=0x74000
+slot channel=1 index=0 owner=(0,2) offset=0x08000 bytes=72 sender=0x78000 receiver=external
+slot channel=1 index=1 owner=(0,2) offset=0x0c040 bytes=72 sender=0x7c040 receiver=external
+lock channel=0 tile=(0,2) id=0 ring=receive role=credit initial=2
+lock channel=0 tile=(0,2) id=1 ring=receive role=ready initial=0
+lock channel=1 tile=(0,2) id=2 ring=send role=credit initial=2
+lock channel=1 tile=(0,2) id=3 ring=send role=ready initial=0
+dma channel=0 tile=(0,2) side=compute direction=stream-to-memory engine-channel=0 bd-start=0 bd-count=2
+dma channel=0 tile=(0,0) side=shim direction=memory-to-stream engine-channel=0 bd-start=0 bd-count=1
+dma channel=1 tile=(0,2) side=compute direction=memory-to-stream engine-channel=0 bd-start=2 bd-count=2
+dma channel=1 tile=(0,0) side=shim direction=stream-to-memory engine-channel=0 bd-start=1 bd-count=1
+route channel=0 tile=(0,0) kind=shim-mux source=dma[0] destination=north[3]
+route channel=0 tile=(0,0) kind=switch source=south[3] destination=north[0]
+route channel=0 tile=(0,1) kind=switch source=south[0] destination=north[0]
+route channel=0 tile=(0,2) kind=switch source=south[0] destination=dma[0]
+route channel=1 tile=(0,2) kind=switch source=dma[0] destination=south[0]
+route channel=1 tile=(0,1) kind=switch source=north[0] destination=south[0]
+route channel=1 tile=(0,0) kind=switch source=north[0] destination=south[2]
+route channel=1 tile=(0,0) kind=shim-mux source=north[2] destination=dma[0]
+completion-route index=0 shim=(0,0) source=0 destination=2 packet=0 arbiter=0 master-select=0 rule-slot=0
+binding-patch ordinal=0 channel=0 shim=(0,0) direction=memory-to-stream dma-channel=0 partition=0/1 offset=0 span=40 transfer=40 repeat=1
+binding-patch ordinal=1 channel=1 shim=(0,0) direction=stream-to-memory dma-channel=0 partition=0/1 offset=0 span=72 transfer=72 repeat=1 completion-route=0
+
+array-program records=39 writes=21 masked-writes=13 block-writes=4 tile-loads=1 waits=0
+array-block record=26 address=0x0021d000 words=[0x0000000a,0x00000000,0x00000000,0x00000000,0x00000000,0x0e043fe0]
+array-block record=27 address=0x0021d020 words=[0x0400000a,0x00000000,0x00000000,0x00000000,0x00000000,0x06043fe0]
+array-block record=28 address=0x0021d040 words=[0x08000012,0x00000000,0x00000000,0x00000000,0x00000000,0x1e045fe3]
+array-block record=29 address=0x0021d060 words=[0x0c040012,0x00000000,0x00000000,0x00000000,0x00000000,0x16045fe3]
+array-tile-load record=30 tile-program=0
+control-program records=6 writes=2 masked-writes=1 block-writes=2 tile-loads=0 waits=1 relocations=2
+control-block record=0 address=0x0001d000 words=[0x0000000a,0x00000000,0x00000000,0x00000000,0xc0000000,0x02000000,0x00000000,0x02000000]
+control-write record=1 address=0x0001d214 value=0x00000000
+control-block record=2 address=0x0001d020 words=[0x00000012,0x00000000,0x00000000,0x00000000,0xc0000000,0x02000000,0x00000000,0x02000000]
+control-mask-write record=3 address=0x0001d200 mask=0x00001f00 value=0x00000000
+control-write record=4 address=0x0001d204 value=0x80000001
+control-wait record=5 tile=(0,0) direction=stream-to-memory dma-channel=0 columns=1 rows=1
+control-relocation index=0 record=0 word=1 binding=0 addend=0 alignment=4
+control-relocation index=1 record=2 word=1 binding=1 addend=0 alignment=4
+
+resident-program workers=1
+resident worker=0 entry=@private_atomic_array$worker$0 tile=(0,2) code-bytes=846 resources=0 fixups=2
+
+low.func.def retain target<amd.xdna.aie2p.core> @private_atomic_array$worker$0() asm {
+  %4 = storage {byte_alignment = 8, byte_length = 24} : low.storage<private>
+  %acquire_delta = mov.short -1
+  %release_delta = mov.short 1
+  %113 = mov.local-address 458752
+  %114 = mov.local-address 491520
+  low.br ^_bb1(%113: reg<aie2p.ep>, %114: reg<aie2p.ep>)
+^_bb1(%101: reg<aie2p.ep>, %103: reg<aie2p.ep>):
+  acq %acquire_delta, 49
+  acq %acquire_delta, 50
+  %input_f32 = copy %101 : reg<aie2p.ep> -> reg<aie2p.ep>
+  %output_f32 = copy %103 : reg<aie2p.ep> -> reg<aie2p.ep>
+  %cell_f32 = storage_address %4 : low.storage<private> -> reg<aie2p.ep>
+  %6 = lda %input_f32, 0
+  %7 = lda %input_f32, 4
+  %8 = lda %input_f32, 8
+  %9 = lda %input_f32, 12
+  %10 = lda %input_f32, 16
+  %11 = lda %input_f32, 20
+  st %6, %cell_f32, 0
+  st %7, %cell_f32, 4
+  %12 = lda %cell_f32, 0
+  %13 = lda %cell_f32, 4
+  %14, %15 = add.carry %12, %8
+  %16, %17 = adc %13, %9, %15
+  st %14, %cell_f32, 0
+  st %16, %cell_f32, 4
+  %18 = lda %cell_f32, 0
+  %19 = lda %cell_f32, 4
+  %20 = eq %18, %10
+  %21 = eq %19, %11
+  %22 = and %20, %21
+  %23 = copy %22 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %24 = sel.nez %8, %18, %23
+  %25 = copy %22 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %26 = sel.nez %9, %19, %25
+  st %24, %cell_f32, 0
+  st %26, %cell_f32, 4
+  %27 = lda %cell_f32, 0
+  %28 = lda %cell_f32, 4
+  %29 = xor %27, %8
+  %30 = xor %28, %9
+  st %29, %cell_f32, 0
+  st %30, %cell_f32, 4
+  %31 = lda %cell_f32, 0
+  %32 = lda %cell_f32, 4
+  st %12, %output_f32, 0
+  st %13, %output_f32, 4
+  st %18, %output_f32, 8
+  st %19, %output_f32, 12
+  st %31, %output_f32, 16
+  st %32, %output_f32, 20
+  st %8, %output_f32, 24
+  st %9, %output_f32, 28
+  %33 = lda %input_f32, 24
+  %34 = lda %input_f32, 28
+  st %33, %cell_f32, 8
+  st %34, %cell_f32, 12
+  %35 = mov.short 1
+  %36 = lda %cell_f32, 8
+  %37 = add.rr %36, %35
+  st %37, %cell_f32, 8
+  %38 = lda %cell_f32, 12
+  %39 = add.rr %38, %35
+  st %39, %cell_f32, 12
+  %40 = lda %cell_f32, 8
+  %41 = xor %40, %35
+  st %41, %cell_f32, 8
+  %42 = lda %cell_f32, 8
+  %43 = mov.short -1
+  %44 = add.rr %42, %43
+  st %44, %cell_f32, 8
+  %45 = lda %cell_f32, 12
+  %46 = add.rr %45, %43
+  st %46, %cell_f32, 12
+  %47 = lda %cell_f32, 8
+  %48 = add.rr %47, %35
+  st %48, %cell_f32, 8
+  %49 = mov.short -101
+  %50 = lda %cell_f32, 8
+  %51 = eq %50, %42
+  %52 = copy %51 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %53 = sel.nez %35, %50, %52
+  st %53, %cell_f32, 8
+  %54 = lda %cell_f32, 12
+  %55 = eq %54, %45
+  %56 = copy %55 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %57 = sel.nez %35, %54, %56
+  st %57, %cell_f32, 12
+  %58 = lda %cell_f32, 8
+  %59 = add.rr %58, %35
+  st %59, %cell_f32, 8
+  %60 = lda %cell_f32, 8
+  %61 = add.rr %60, %35
+  st %61, %cell_f32, 8
+  %62 = lda %cell_f32, 8
+  %63 = lda %cell_f32, 12
+  %64 = mov.static-byte-offset 32
+  %65 = mov.address-index %64
+  st.i32.index %42, %output_f32, %65
+  %66 = mov.static-byte-offset 36
+  %67 = mov.address-index %66
+  st.i32.index %45, %output_f32, %67
+  %68 = mov.static-byte-offset 40
+  %69 = mov.address-index %68
+  st.i32.index %47, %output_f32, %69
+  %70 = mov.static-byte-offset 44
+  %71 = mov.address-index %70
+  st.i32.index %49, %output_f32, %71
+  %72 = mov.static-byte-offset 48
+  %73 = mov.address-index %72
+  st.i32.index %50, %output_f32, %73
+  %74 = mov.static-byte-offset 52
+  %75 = mov.address-index %74
+  st.i32.index %54, %output_f32, %75
+  %76 = mov.static-byte-offset 56
+  %77 = mov.address-index %76
+  st.i32.index %62, %output_f32, %77
+  %78 = mov.static-byte-offset 60
+  %79 = mov.address-index %78
+  st.i32.index %63, %output_f32, %79
+  %initial_f32 = lda.i32.index %input_f32, %65
+  %increment_f32 = lda.i32.index %input_f32, %67
+  st %initial_f32, %cell_f32, 16
+  %old_f32 = lda %cell_f32, 16
+  %83 = vbcst.32 %old_f32
+  %84 = vbcst.32 %increment_f32
+  %85 = acc.clear.f32x64
+  %86 = slice %85[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %87 = vmov.vector512.to.accumulator512 %83
+  %88 = concat(%87, %86, %86, %86) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %89 = vmov.vector512.to.accumulator512 %84
+  %90 = concat(%89, %86, %86, %86) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %91 = mova.i32 60
+  %92 = vadd.f32x64 %88, %90, %91
+  %93 = slice %92[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %94 = vmov.accumulator512.to.vector512 %93
+  %95 = vextract.32.imm %94, 0
+  st %95, %cell_f32, 16
+  %final_f32 = lda %cell_f32, 16
+  %97 = mov.static-byte-offset 64
+  %98 = mov.address-index %97
+  st.i32.index %old_f32, %output_f32, %98
+  %99 = mov.static-byte-offset 68
+  %100 = mov.address-index %99
+  st.i32.index %final_f32, %output_f32, %100
+  rel %release_delta, 51
+  rel %release_delta, 48
+  %105 = mov.address-to-scalar %101
+  %106 = mov.i32 16384
+  %107 = xor %105, %106
+  %108 = mov.scalar-to-address %107
+  %109 = mov.address-to-scalar %103
+  %110 = mov.i32 16448
+  %111 = xor %109, %110
+  %112 = mov.scalar-to-address %111
+  low.br ^_bb1(%108: reg<aie2p.ep>, %112: reg<aie2p.ep>)
+}
+
+// ====
+// RUN: emit source-low target=amd.xdna.aie2p:core output=none
+
+// The shared private rewrite must not weaken atomicity for a second observer.
+func.def @workgroup_atomics(%initial: i32, %update: i32, %expected: i32, %replacement: i32) -> (i32, i32, i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %storage = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xi32>
+  // ERROR@+1: TARGET/032 {op_constraint="target_contract.memory_atomic.provider_required"}
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = workgroup} : i32, view<1xi32>
+  // ERROR@+1: TARGET/032 {op_constraint="target_contract.memory_atomic.provider_required"}
+  %loaded = view.atomic.load %cell[0] {ordering = acquire, scope = workgroup} : view<1xi32> -> i32
+  // ERROR@+1: TARGET/032 {op_constraint="target_contract.memory_atomic.provider_required"}
+  view.atomic.reduce<xori> %update, %cell[0] {ordering = seq_cst, scope = workgroup} : i32, view<1xi32>
+  // ERROR@+1: TARGET/032 {op_constraint="target_contract.memory_atomic.provider_required"}
+  %old = view.atomic.rmw<addi> %update, %cell[0] {ordering = acq_rel, scope = workgroup} : i32, view<1xi32> -> i32
+  // ERROR@+1: TARGET/032 {op_constraint="target_contract.memory_atomic.provider_required"}
+  %compared = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = acquire, scope = workgroup, success_ordering = seq_cst} : i32, view<1xi32> -> i32
+  func.return %loaded, %old, %compared : i32, i32, i32
+}
+
+// ====
+// RUN: emit source-low target=amd.xdna.aie2p:core output=none
+
+// noftz requires proven subnormal preservation from target arithmetic.
+func.def @private_noftz(%initial: f32, %update: f32) -> (f32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %storage = buffer.alloca<private> align(4) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf32>
+  view.store %initial, %cell[0] : f32, view<1xf32>
+  // ERROR@+1: TARGET/032 {op_constraint="target_contract.memory_atomic.provider_required"}
+  %old = view.atomic.rmw<addf, noftz> %update, %cell[0] {ordering = acq_rel, scope = system} : f32, view<1xf32> -> f32
+  func.return %old : f32
+}
+
+// ====
+// RUN: emit source-low target=amd.xdna.aie2p:core output=none
+
+// A local scheduler barrier or channel completion is not a memory fence.
+func.def @unsupported_fence() {
+  // ERROR@+1: TARGET/001 {op_name="buffer.fence"}
+  buffer.fence scope(workgroup) ordering(acq_rel)
+  func.return
+}

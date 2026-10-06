@@ -8,7 +8,7 @@
 #define HRX_BINDING_HIP_BINDING_INTERNAL_H_
 
 #include "binding/hip/api.h"
-#include "common/internal.h"
+#include "common/module.h"
 
 // Returns a dlopen handle scoped to THIS shared object (the HIP shim), or NULL
 // if it could not be established. The handle is resolved once and cached for

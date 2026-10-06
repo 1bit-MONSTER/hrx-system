@@ -57,3 +57,54 @@ func.def @shift_while(%input: i64, %condition: i1) -> (i64) {
   %high = scalar.constant 9223372036854775807 : i64
   func.return %high : i64
 }
+
+// ====
+
+// Computed selections propagate finite values past the precise widening rounds.
+func.def @selected_finite_queue(%count: index, %hold: i1) -> (i1) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %seed = scalar.constant 1.0 : f32
+  %replacement = scalar.constant 2.0 : f32
+  %head, %middle, %tail = scf.for %iv = [%begin to %count step %step](%a = %seed : f32, %b = %seed : f32, %c = %seed : f32) -> (f32, f32, f32) {
+    %next_a = scf.select %hold, %a, %b : f32
+    %next_b = scf.select %hold, %b, %c : f32
+    %next_c = scf.select %hold, %c, %replacement : f32
+    scf.yield %next_a, %next_b, %next_c : f32, f32, f32
+  }
+  %finite = scalar.isfinitef %head : f32
+  func.return %finite : i1
+}
+
+// ----
+func.def @selected_finite_queue(%count: index, %hold: i1) -> (i1) {
+  %finite = scalar.constant true : i1
+  func.return %finite : i1
+}
+
+// ====
+
+// A delayed NaN crosses more computed edges than the solver budget.
+// Unconverged state cannot justify a finite classification.
+func.def @selected_nan_queue(%count: index, %hold: i1) -> (i1) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %seed = scalar.constant 1.0 : f32
+  %nan_bits = scalar.constant 2143289345 : i32
+  %replacement = scalar.bitcast %nan_bits : i32 to f32
+  %out0, %out1, %out2, %out3, %out4, %out5, %out6, %out7, %out8, %out9 = scf.for %iv = [%begin to %count step %step](%slot0 = %seed : f32, %slot1 = %seed : f32, %slot2 = %seed : f32, %slot3 = %seed : f32, %slot4 = %seed : f32, %slot5 = %seed : f32, %slot6 = %seed : f32, %slot7 = %seed : f32, %slot8 = %seed : f32, %slot9 = %seed : f32) -> (f32, f32, f32, f32, f32, f32, f32, f32, f32, f32) {
+    %next0 = scf.select %hold, %slot0, %slot1 : f32
+    %next1 = scf.select %hold, %slot1, %slot2 : f32
+    %next2 = scf.select %hold, %slot2, %slot3 : f32
+    %next3 = scf.select %hold, %slot3, %slot4 : f32
+    %next4 = scf.select %hold, %slot4, %slot5 : f32
+    %next5 = scf.select %hold, %slot5, %slot6 : f32
+    %next6 = scf.select %hold, %slot6, %slot7 : f32
+    %next7 = scf.select %hold, %slot7, %slot8 : f32
+    %next8 = scf.select %hold, %slot8, %slot9 : f32
+    %next9 = scf.select %hold, %slot9, %replacement : f32
+    scf.yield %next0, %next1, %next2, %next3, %next4, %next5, %next6, %next7, %next8, %next9 : f32, f32, f32, f32, f32, f32, f32, f32, f32, f32
+  }
+  %finite = scalar.isfinitef %out0 : f32
+  func.return %finite : i1
+}

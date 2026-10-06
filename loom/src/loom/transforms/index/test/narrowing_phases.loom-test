@@ -1,0 +1,28 @@
+// RUN: pass canonicalize
+
+test.target<low_core> @narrow {index_bitwidth = 32, offset_bitwidth = 32}
+
+func.def target(@narrow) @native_origin(%origin: offset, %position: i32) -> (offset) {
+  %position_wide = scalar.extsi %position : i32 to i64
+  %element_bytes = scalar.constant 4 : i64
+  %displacement = scalar.muli %position_wide, %element_bytes : i64
+  %origin_wide = index.cast %origin : offset to i64
+  %sum = scalar.addi %origin_wide, %displacement : i64
+  %bounded = scalar.assume %sum [range(%sum, 0, 4294967295)] : i64
+  %result = index.cast %bounded : i64 to offset
+  func.return %result : offset
+}
+
+// ----
+test.target<low_core> @narrow {index_bitwidth = 32, offset_bitwidth = 32}
+
+func.def target(@narrow) @native_origin(%origin: offset, %position: i32) -> (offset) {
+  %position_wide = scalar.extsi %position : i32 to i64
+  %10 = scalar.constant 2 : i64
+  %displacement = scalar.shli %position_wide, %10 : i64
+  %origin_wide = index.cast %origin : offset to i64
+  %sum = scalar.addi %origin_wide, %displacement : i64
+  %bounded = scalar.assume %sum [range(%sum, 0, 4294967295)] : i64
+  %result = index.cast %bounded : i64 to offset
+  func.return %result : offset
+}

@@ -17,6 +17,7 @@ loom_cc_library(
     "float_facts.h"
   SRCS
     "facts.c"
+    "facts_division.c"
     "float_facts.c"
   DEPS
     ::ir
@@ -30,6 +31,8 @@ loom_cc_test(
   NAME
     facts_test
   SRCS
+    "facts_bitwise_test.cc"
+    "facts_division_test.cc"
     "facts_test.cc"
     "float_facts_test.cc"
   DEPS
@@ -55,6 +58,7 @@ loom_cc_library(
     "location.h"
     "module.h"
     "module_record.h"
+    "module_source.h"
     "parameterized_attr.h"
     "parameterized_type.h"
     "scalar_type.h"
@@ -84,6 +88,7 @@ loom_cc_library(
     "location.c"
     "module.c"
     "module_record.c"
+    "module_source.c"
     "scalar_type.c"
     "type_constraint.c"
     "type_dependencies.c"
@@ -123,6 +128,19 @@ loom_cc_test(
     ancestry_test
   SRCS
     "ancestry_test.cc"
+  DEPS
+    ::ir
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::ops::test
+)
+
+loom_cc_test(
+  NAME
+    local_value_domain_test
+  SRCS
+    "local_value_domain_test.cc"
   DEPS
     ::ir
     iree::base::internal::arena
@@ -194,8 +212,11 @@ loom_cc_test(
     module_test
   SRCS
     "intern_table_test.cc"
+    "module_block_order_test.cc"
     "module_dictionary_test.cc"
+    "module_encoding_test.cc"
     "module_location_test.cc"
+    "module_source_test.cc"
     "module_string_test.cc"
     "module_test.cc"
     "module_type_intern_test.cc"
@@ -205,6 +226,7 @@ loom_cc_test(
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::ops::encoding
     loom::ops::test
     loom::ops::type_registry
 )
@@ -282,6 +304,19 @@ loom_cc_test(
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
+)
+
+loom_cc_benchmark(
+  NAME
+    block_order_benchmark
+  SRCS
+    "block_order_benchmark.cc"
+  DEPS
+    ::ir
+    iree::base
+    iree::base::internal::arena
+    iree::testing::benchmark_main
+  TESTONLY
 )
 
 loom_cc_benchmark(

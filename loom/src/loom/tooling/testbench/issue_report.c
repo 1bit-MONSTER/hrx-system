@@ -17,13 +17,16 @@ iree_string_view_t loom_testbench_issue_kind_name(
       "none",
       "unsupported_case_body_op",
       "invalid_parameter",
-      "invalid_benchmark_case",
+      "invalid_benchmark_record",
       "duplicate_parameter_name",
       "invalid_benchmark_assignment",
       "invalid_value_source",
       "invalid_file_write",
       "invalid_invocation",
       "invalid_expectation",
+      "unsupported_scenario_body_op",
+      "unsupported_trial_body_op",
+      "invalid_scenario_action",
   };
   if ((uint32_t)kind < IREE_ARRAYSIZE(kNames)) {
     return iree_make_cstring_view(kNames[(uint32_t)kind]);
@@ -38,24 +41,36 @@ static iree_string_view_t loom_testbench_issue_message(
       return IREE_SV("check.case body op is not executable testbench input");
     case LOOM_TESTBENCH_ISSUE_INVALID_PARAMETER:
       return IREE_SV("check.case parameter has no valid sample set");
-    case LOOM_TESTBENCH_ISSUE_INVALID_BENCHMARK_CASE:
-      return IREE_SV("check.benchmark does not reference a planned check.case");
+    case LOOM_TESTBENCH_ISSUE_INVALID_BENCHMARK_RECORD:
+      return IREE_SV(
+          "check.benchmark does not reference a planned test record");
     case LOOM_TESTBENCH_ISSUE_DUPLICATE_PARAMETER_NAME:
       return IREE_SV("check.case contains duplicate parameter names");
     case LOOM_TESTBENCH_ISSUE_INVALID_BENCHMARK_ASSIGNMENT:
       return IREE_SV(
-          "check.benchmark assignment does not match the case parameter "
+          "check.benchmark assignment does not match the test record "
           "domain");
     case LOOM_TESTBENCH_ISSUE_INVALID_VALUE_SOURCE:
       return IREE_SV(
-          "check.case value source cannot be planned as deterministic input");
+          "check value source cannot be planned as deterministic "
+          "input");
     case LOOM_TESTBENCH_ISSUE_INVALID_FILE_WRITE:
       return IREE_SV(
           "check.case file output cannot be planned as deterministic sink");
     case LOOM_TESTBENCH_ISSUE_INVALID_INVOCATION:
       return IREE_SV("check.case invocation cannot be planned for execution");
     case LOOM_TESTBENCH_ISSUE_INVALID_EXPECTATION:
-      return IREE_SV("check.case expectation cannot be planned for evaluation");
+      return IREE_SV("check expectation cannot be planned for evaluation");
+    case LOOM_TESTBENCH_ISSUE_UNSUPPORTED_SCENARIO_BODY_OP:
+      return IREE_SV(
+          "check.scenario body op is not an executable configuration or "
+          "trial declaration");
+    case LOOM_TESTBENCH_ISSUE_UNSUPPORTED_TRIAL_BODY_OP:
+      return IREE_SV(
+          "check.trial body op is not an executable input or terminal action");
+    case LOOM_TESTBENCH_ISSUE_INVALID_SCENARIO_ACTION:
+      return IREE_SV(
+          "check.compare or check.invoke cannot be planned for execution");
     case LOOM_TESTBENCH_ISSUE_NONE:
     default:
       return IREE_SV("unknown testbench planning issue");
@@ -96,6 +111,15 @@ loom_testbench_issue_benchmark_plan(
   return NULL;
 }
 
+static const loom_testbench_scenario_plan_t* loom_testbench_issue_scenario_plan(
+    const loom_testbench_module_plan_t* module_plan,
+    const loom_testbench_issue_t* issue) {
+  if (issue->scenario_index < module_plan->scenario_count) {
+    return &module_plan->scenarios[issue->scenario_index];
+  }
+  return NULL;
+}
+
 iree_status_t loom_testbench_issue_write_json(
     const loom_testbench_module_plan_t* module_plan,
     const loom_testbench_issue_t* issue, loom_output_stream_t* stream) {
@@ -116,6 +140,14 @@ iree_status_t loom_testbench_issue_write_json(
         &object, IREE_SV("case"), case_plan->name));
     IREE_RETURN_IF_ERROR(loom_json_object_write_host_size_field(
         &object, IREE_SV("case_index"), issue->case_index));
+  }
+  const loom_testbench_scenario_plan_t* scenario_plan =
+      loom_testbench_issue_scenario_plan(module_plan, issue);
+  if (scenario_plan != NULL) {
+    IREE_RETURN_IF_ERROR(loom_json_object_write_string_field(
+        &object, IREE_SV("scenario"), scenario_plan->name));
+    IREE_RETURN_IF_ERROR(loom_json_object_write_host_size_field(
+        &object, IREE_SV("scenario_index"), issue->scenario_index));
   }
   const loom_testbench_benchmark_plan_t* benchmark_plan =
       loom_testbench_issue_benchmark_plan(module_plan, issue);

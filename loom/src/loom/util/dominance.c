@@ -363,3 +363,232 @@ bool loom_value_is_available_before_op(const loom_dominance_info_t* info,
   }
   return loom_dominates_value(info, value_id, before_op);
 }
+
+//===----------------------------------------------------------------------===//
+// Dominator-order traversal
+//===----------------------------------------------------------------------===//
+
+typedef struct loom_dominance_walk_scope_t {
+  // Dominating block or enclosing block, including across isolation boundaries.
+  struct loom_dominance_walk_scope_t* parent;
+  // Next pending block in the region traversal.
+  struct loom_dominance_walk_scope_t* previous_frame;
+  // Next operation in this block; saved before the caller can erase an op.
+  loom_op_t* next_op;
+  // Scope properties reported to the client when first entered.
+  loom_dominance_walk_scope_flags_t flags;
+  // True after the enter callback has completed successfully.
+  bool entered;
+} loom_dominance_walk_scope_t;
+
+struct loom_dominance_walk_t {
+  // Module containing all visited operations.
+  loom_module_t* module;
+  // Arena owning the walk and all region scopes.
+  iree_arena_allocator_t* arena;
+  // Scope lifetime notifications maintained in lockstep with active_scope.
+  loom_dominance_walk_callbacks_t callbacks;
+  // Top pending block frame.
+  loom_dominance_walk_scope_t* top;
+  // Innermost active dominance scope, including completed dominating blocks.
+  loom_dominance_walk_scope_t* active_scope;
+};
+
+static void loom_dominance_walk_leave_active_scope(
+    loom_dominance_walk_t* walk) {
+  if (walk->callbacks.leave_scope) {
+    walk->callbacks.leave_scope(walk->callbacks.user_data);
+  }
+  walk->active_scope = walk->active_scope->parent;
+}
+
+static void loom_dominance_walk_leave_all_scopes(loom_dominance_walk_t* walk) {
+  while (walk->active_scope) {
+    loom_dominance_walk_leave_active_scope(walk);
+  }
+}
+
+// The pending traversal includes completed dominators and suspended enclosing
+// blocks. Leave only the scopes between the current and requested block, then
+// enter the requested block if this is its first operation. Every scope enters
+// and leaves once even when its block is suspended around nested regions.
+static iree_status_t loom_dominance_walk_activate(
+    loom_dominance_walk_t* walk, loom_dominance_walk_scope_t* scope) {
+  if (walk->active_scope == scope) {
+    return iree_ok_status();
+  }
+  if (!scope) {
+    loom_dominance_walk_leave_all_scopes(walk);
+    return iree_ok_status();
+  }
+
+  loom_dominance_walk_scope_t* parent = scope->entered ? scope : scope->parent;
+  while (walk->active_scope != parent) {
+    loom_dominance_walk_leave_active_scope(walk);
+  }
+  if (scope->entered) {
+    return iree_ok_status();
+  }
+
+  if (walk->callbacks.enter_scope) {
+    iree_status_t status =
+        walk->callbacks.enter_scope(walk->callbacks.user_data, scope->flags);
+    if (!iree_status_is_ok(status)) {
+      loom_dominance_walk_leave_all_scopes(walk);
+      return status;
+    }
+  }
+  scope->entered = true;
+  walk->active_scope = scope;
+  return iree_ok_status();
+}
+
+static bool loom_dominance_walk_cfg_state_barrier(
+    const loom_cfg_graph_t* graph, const loom_cfg_dominance_t* dominance,
+    uint16_t block_index) {
+  if (!dominance->available) {
+    return true;
+  }
+  const loom_cfg_block_info_t* block = &graph->blocks[block_index];
+  if (block_index == 0 && block->predecessor_count == 0) {
+    return false;
+  }
+  if (block->predecessor_count != 1) {
+    return true;
+  }
+  const uint16_t immediate_dominator =
+      dominance->immediate_dominators[block_index];
+  return immediate_dominator == LOOM_CFG_DOMINATOR_INVALID ||
+         immediate_dominator == block_index ||
+         graph->predecessor_indices[block->predecessor_start] !=
+             immediate_dominator;
+}
+
+static iree_status_t loom_dominance_walk_push_region(
+    loom_dominance_walk_t* walk, loom_region_t* region,
+    loom_dominance_walk_scope_t* parent,
+    loom_dominance_walk_scope_flags_t flags) {
+  if (!region || region->block_count == 0) {
+    return iree_ok_status();
+  }
+
+  loom_dominance_walk_scope_t* scopes = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      walk->arena, region->block_count, sizeof(*scopes), (void**)&scopes));
+  loom_cfg_graph_t graph = {0};
+  loom_cfg_dominance_t dominance = {0};
+  const bool has_cfg =
+      region->block_count > 1 ||
+      iree_any_bit_set(region->flags, LOOM_REGION_INSTANCE_FLAG_CFG);
+  if (has_cfg) {
+    IREE_RETURN_IF_ERROR(
+        loom_cfg_graph_build(walk->module, region, walk->arena, &graph));
+    IREE_RETURN_IF_ERROR(
+        loom_cfg_dominance_build(&graph, walk->arena, &dominance));
+  }
+
+  for (uint16_t i = 0; i < region->block_count; ++i) {
+    loom_block_t* block = loom_region_block(region, i);
+    loom_dominance_walk_scope_t* scope = &scopes[i];
+    *scope = (loom_dominance_walk_scope_t){
+        .parent = parent,
+        .next_op = block->first_op,
+        .flags = flags,
+    };
+    if (!has_cfg) {
+      continue;
+    }
+    const uint16_t immediate_dominator =
+        !dominance.available ? LOOM_CFG_DOMINATOR_INVALID
+                             : dominance.immediate_dominators[i];
+    if (immediate_dominator != LOOM_CFG_DOMINATOR_INVALID &&
+        immediate_dominator != i) {
+      scope->parent = &scopes[immediate_dominator];
+      scope->flags &= ~LOOM_DOMINANCE_WALK_SCOPE_FLAG_ISOLATED;
+    }
+    if (loom_dominance_walk_cfg_state_barrier(&graph, &dominance, i)) {
+      scope->flags |= LOOM_DOMINANCE_WALK_SCOPE_FLAG_STATE_BARRIER;
+    }
+  }
+
+  // Unreachable roots are independent dominance scopes. Push in reverse
+  // lexical order so the traversal remains deterministic.
+  for (int32_t i = (int32_t)region->block_count - 1; i >= 0; --i) {
+    if (dominance.available &&
+        dominance.immediate_dominators[i] != LOOM_CFG_DOMINATOR_INVALID) {
+      continue;
+    }
+    scopes[i].previous_frame = walk->top;
+    walk->top = &scopes[i];
+  }
+  // Reachable blocks are already in dominator preorder. Reverse the array onto
+  // the pending stack to consume it in forward order.
+  for (iree_host_size_t i = dominance.preorder.count; i > 0; --i) {
+    const uint16_t block_index = dominance.preorder.values[i - 1];
+    scopes[block_index].previous_frame = walk->top;
+    walk->top = &scopes[block_index];
+  }
+  return iree_ok_status();
+}
+
+iree_status_t loom_dominance_walk_create(
+    loom_module_t* module, loom_region_t* region,
+    loom_dominance_walk_callbacks_t callbacks, iree_arena_allocator_t* arena,
+    loom_dominance_walk_t** out_walk) {
+  if (!module || !region || !arena || !out_walk) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "dominance walk requires a module, region, arena, "
+                            "and output walk");
+  }
+  *out_walk = NULL;
+  loom_dominance_walk_t* walk = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate(arena, sizeof(*walk), (void**)&walk));
+  *walk = (loom_dominance_walk_t){
+      .module = module,
+      .arena = arena,
+      .callbacks = callbacks,
+  };
+  IREE_RETURN_IF_ERROR(loom_dominance_walk_push_region(walk, region, NULL, 0));
+  *out_walk = walk;
+  return iree_ok_status();
+}
+
+iree_status_t loom_dominance_walk_next(
+    loom_dominance_walk_t* walk, loom_dominance_walk_cursor_t* out_cursor) {
+  *out_cursor = (loom_dominance_walk_cursor_t){0};
+  while (walk->top) {
+    loom_dominance_walk_scope_t* scope = walk->top;
+    IREE_RETURN_IF_ERROR(loom_dominance_walk_activate(walk, scope));
+    loom_op_t* op = scope->next_op;
+    if (!op) {
+      walk->top = scope->previous_frame;
+      continue;
+    }
+    scope->next_op = op->next_op;
+    if (iree_any_bit_set(op->flags, LOOM_OP_FLAG_DEAD)) {
+      continue;
+    }
+
+    const loom_trait_flags_t traits =
+        loom_op_effective_traits(walk->module, op);
+    *out_cursor = (loom_dominance_walk_cursor_t){
+        .module = walk->module,
+        .op = op,
+        .traits = traits,
+    };
+    for (int32_t r = (int32_t)op->region_count - 1; r >= 0; --r) {
+      iree_status_t status = loom_dominance_walk_push_region(
+          walk, loom_op_regions(op)[r], scope,
+          loom_traits_is_isolated(traits)
+              ? LOOM_DOMINANCE_WALK_SCOPE_FLAG_ISOLATED
+              : 0);
+      if (!iree_status_is_ok(status)) {
+        loom_dominance_walk_leave_all_scopes(walk);
+        return status;
+      }
+    }
+    return iree_ok_status();
+  }
+  return loom_dominance_walk_activate(walk, NULL);
+}

@@ -36,11 +36,6 @@ def _condition_loop_source(
     *,
     isolate_entry_mismatch: bool = False,
 ) -> str:
-    condition_extents = (
-        "%before_other_extent, %before_extent"
-        if isolate_entry_mismatch
-        else "%before_extent, %before_other_extent"
-    )
     yielded_state = (
         "%input, %extent, %other_extent, %layout\n"
         "        : tile<[%extent]xf32, %layout>, index, index, encoding"
@@ -55,12 +50,12 @@ def _condition_loop_source(
 func.def @f(%condition: i1, %extent: index, %other_extent: index,
     %layout: encoding, %input: tile<[%extent]xf32, %layout>) {{
   %result_view, %result_extent, %result_other_extent, %result_layout = scf.while(
-      %before_view = %input : tile<[%extent]xf32, %layout>,
+      %before_view = %input : tile<[%before_extent]xf32, %before_layout>,
       %before_extent = %extent : index,
       %before_other_extent = %other_extent : index,
       %before_layout = %layout : encoding)
       -> (tile<[%result_extent]xf32, %result_layout>, index, index, encoding) {{
-    scf.condition %condition, %before_view, {condition_extents}, %before_layout
+    scf.condition %condition, %before_view, %before_extent, %before_other_extent, %before_layout
         : i1, tile<[%before_extent]xf32, %before_layout>, index, index, encoding
   }} do(%body_view: tile<[%{body_extent_reference}]xf32, %body_layout>,
       %body_extent: index, %body_other_extent: index,
@@ -163,6 +158,29 @@ def test_explicit_region_args_can_reference_later_peers() -> None:
         assert view.type.encoding == DynamicEncoding(nested_entry.arg_ids[2])
 
 
+def test_projected_region_argument_groups_round_trip_as_one_entry() -> None:
+    parser, printer = _formats()
+    module = parser.parse(
+        "func.def @f() {\n"
+        "  test.block_arg_groups actual(%actual: f32) "
+        "expected(%expected: f32, %expected_index: index) {\n"
+        "    test.use %actual : f32\n"
+        "    test.use %expected : f32\n"
+        "    test.use %expected_index : index\n"
+        "    test.yield\n"
+        "  }\n"
+        "  func.return\n"
+        "}\n"
+    )
+
+    text = printer.print_module(module)
+    loaded = parser.parse(text)
+    assert printer.print_module(loaded) == text
+    operation = module.body.ops[0].regions[0].blocks[0].ops[0]
+    assert operation.attributes["actual_count"] == 1
+    assert len(operation.regions[0].blocks[0].arg_ids) == 3
+
+
 def test_unresolved_explicit_region_peer_is_rejected() -> None:
     parser, _ = _formats()
     with pytest.raises(
@@ -180,7 +198,7 @@ def test_unresolved_explicit_region_peer_is_rejected() -> None:
         )
 
 
-def test_condition_loop_projects_result_scheme_to_both_entries() -> None:
+def test_condition_loop_preserves_independent_entry_schemes() -> None:
     parser, printer = _formats()
     module = parser.parse(_condition_loop_source(), verify=True)
     text = printer.print_module(module)
@@ -227,8 +245,8 @@ def test_condition_loop_rejects_wrong_entry_peer() -> None:
 @pytest.mark.parametrize(
     ("edge", "error_id", "constraint_name"),
     [
-        ("initial", "ERR_TYPE_001", "IterArgsMatchResults"),
-        ("yield", "ERR_TYPE_009", "YieldTypesMatchResults"),
+        ("initial", "ERR_TYPE_001", None),
+        ("yield", "ERR_TYPE_009", "YieldTypesMatch"),
         (
             "condition",
             "ERR_TYPE_001",
@@ -239,7 +257,7 @@ def test_condition_loop_rejects_wrong_entry_peer() -> None:
 def test_condition_loop_rejects_wrong_edge_peer(
     edge: str,
     error_id: str,
-    constraint_name: str,
+    constraint_name: str | None,
 ) -> None:
     parser, _ = _formats()
     module = parser.parse(_condition_loop_source())
@@ -264,6 +282,9 @@ def test_condition_loop_rejects_wrong_edge_peer(
     assert diagnostics.has_errors
     assert any(
         diagnostic.error_id == error_id
-        and diagnostic.message == f"{constraint_name} constraint violated"
+        and (
+            constraint_name is None
+            or diagnostic.message == f"{constraint_name} constraint violated"
+        )
         for diagnostic in diagnostics.diagnostics
     )

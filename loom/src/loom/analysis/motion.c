@@ -8,6 +8,7 @@
 
 #include "loom/analysis/loop_domain.h"
 #include "loom/ir/context.h"
+#include "loom/ir/intern_table.h"
 #include "loom/ir/module.h"
 
 //===----------------------------------------------------------------------===//
@@ -218,6 +219,261 @@ bool loom_motion_read_can_cross_op(const loom_module_t* module,
       traits, LOOM_TRAIT_NON_DETERMINISTIC | LOOM_TRAIT_HINT |
                   LOOM_TRAIT_POISON_BOUNDARY | LOOM_TRAIT_CONVERGENT |
                   LOOM_TRAIT_OBSERVABLE_EFFECT | LOOM_TRAIT_UNIQUE_IDENTITY);
+}
+
+//===----------------------------------------------------------------------===//
+// Read barrier intervals
+//===----------------------------------------------------------------------===//
+
+typedef struct loom_motion_read_barrier_entry_t {
+  // Operation captured by the source-order index.
+  const loom_op_t* op;
+  // Barrier-delimited segment containing the operation, or UINT32_MAX when a
+  // generated operation cannot be reconciled with retained source segments.
+  uint32_t segment;
+} loom_motion_read_barrier_entry_t;
+
+#define LOOM_MOTION_READ_BARRIER_ENTRY_SEGMENT_CAPACITY 128u
+#define LOOM_MOTION_READ_BARRIER_ENTRY_SEGMENT_SHIFT 7u
+#define LOOM_MOTION_READ_BARRIER_ENTRY_SEGMENT_MASK \
+  (LOOM_MOTION_READ_BARRIER_ENTRY_SEGMENT_CAPACITY - 1u)
+
+static_assert((1u << LOOM_MOTION_READ_BARRIER_ENTRY_SEGMENT_SHIFT) ==
+                  LOOM_MOTION_READ_BARRIER_ENTRY_SEGMENT_CAPACITY,
+              "read barrier entry segment capacity must match its shift");
+
+typedef struct loom_motion_read_barrier_entry_segment_t {
+  // Stable source-order rows indexed by the operation hash table.
+  loom_motion_read_barrier_entry_t
+      entries[LOOM_MOTION_READ_BARRIER_ENTRY_SEGMENT_CAPACITY];
+} loom_motion_read_barrier_entry_segment_t;
+
+struct loom_motion_read_barrier_table_t {
+  // Module containing the indexed operations.
+  const loom_module_t* module;
+  // Arena owning the lazy index storage.
+  iree_arena_allocator_t* arena;
+  // Open-addressed operation pointer to entry index table.
+  loom_intern_table_t index;
+  // Chunked operation-to-segment entries.
+  loom_segmented_storage_t entries;
+  // Number of initialized operation entries.
+  uint32_t entry_count;
+};
+
+static uint32_t loom_motion_read_barrier_op_hash(const loom_op_t* op) {
+  uint64_t value = (uint64_t)(uintptr_t)op >> 4;
+  value ^= value >> 16;
+  return (uint32_t)(value * UINT64_C(0x9e3779b97f4a7c15));
+}
+
+static loom_motion_read_barrier_entry_t*
+loom_motion_read_barrier_table_entry_at(loom_motion_read_barrier_table_t* table,
+                                        uint32_t entry_index) {
+  loom_motion_read_barrier_entry_segment_t* segment =
+      (loom_motion_read_barrier_entry_segment_t*)loom_segmented_storage_segment(
+          &table->entries,
+          entry_index >> LOOM_MOTION_READ_BARRIER_ENTRY_SEGMENT_SHIFT);
+  return &segment->entries[entry_index &
+                           LOOM_MOTION_READ_BARRIER_ENTRY_SEGMENT_MASK];
+}
+
+static const loom_motion_read_barrier_entry_t*
+loom_motion_read_barrier_table_const_entry_at(
+    const loom_motion_read_barrier_table_t* table, uint32_t entry_index) {
+  const loom_motion_read_barrier_entry_segment_t* segment =
+      (const loom_motion_read_barrier_entry_segment_t*)
+          loom_segmented_storage_const_segment(
+              &table->entries,
+              entry_index >> LOOM_MOTION_READ_BARRIER_ENTRY_SEGMENT_SHIFT);
+  return &segment->entries[entry_index &
+                           LOOM_MOTION_READ_BARRIER_ENTRY_SEGMENT_MASK];
+}
+
+typedef struct loom_motion_read_barrier_probe_context_t {
+  // Table containing candidate entry indices.
+  const loom_motion_read_barrier_table_t* table;
+  // Operation sought in the table.
+  const loom_op_t* op;
+} loom_motion_read_barrier_probe_context_t;
+
+static bool loom_motion_read_barrier_probe_equal(const void* user_data,
+                                                 uint32_t entry_index) {
+  const loom_motion_read_barrier_probe_context_t* context =
+      (const loom_motion_read_barrier_probe_context_t*)user_data;
+  return loom_motion_read_barrier_table_const_entry_at(context->table,
+                                                       entry_index)
+             ->op == context->op;
+}
+
+static const loom_motion_read_barrier_entry_t*
+loom_motion_read_barrier_table_lookup(
+    const loom_motion_read_barrier_table_t* table, const loom_op_t* op) {
+  const loom_motion_read_barrier_probe_context_t context = {
+      .table = table,
+      .op = op,
+  };
+  const loom_intern_probe_t probe = loom_intern_table_probe(
+      &table->index, loom_motion_read_barrier_op_hash(op),
+      loom_motion_read_barrier_probe_equal, &context);
+  return probe.index == UINT32_MAX
+             ? NULL
+             : loom_motion_read_barrier_table_const_entry_at(table,
+                                                             probe.index);
+}
+
+static iree_status_t loom_motion_read_barrier_table_append(
+    loom_motion_read_barrier_table_t* table, const loom_op_t* op,
+    uint32_t segment) {
+  if (table->entry_count == UINT32_MAX) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "read barrier table exceeds uint32 entries");
+  }
+  const uint32_t hash = loom_motion_read_barrier_op_hash(op);
+  const loom_motion_read_barrier_probe_context_t probe_context = {
+      .table = table,
+      .op = op,
+  };
+  loom_intern_probe_t probe = loom_intern_table_probe(
+      &table->index, hash, loom_motion_read_barrier_probe_equal,
+      &probe_context);
+  IREE_ASSERT_EQ(probe.index, UINT32_MAX);
+  IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
+      table->arena, &table->index, hash, /*insertion_count=*/1, &probe.slot));
+
+  const uint32_t entry_index = table->entry_count;
+  if ((entry_index & LOOM_MOTION_READ_BARRIER_ENTRY_SEGMENT_MASK) == 0) {
+    void* entry_segment = NULL;
+    IREE_RETURN_IF_ERROR(loom_segmented_storage_append(
+        &table->entries, table->arena, &entry_segment));
+  }
+  *loom_motion_read_barrier_table_entry_at(table, entry_index) =
+      (loom_motion_read_barrier_entry_t){
+          .op = op,
+          .segment = segment,
+      };
+  loom_intern_table_insert(&table->index, probe.slot, hash, entry_index);
+  ++table->entry_count;
+  return iree_ok_status();
+}
+
+// Adds the maximal live unindexed run containing |op|. Existing entries on
+// both sides anchor the run's segment. A conflicting generated barrier marks
+// the run invalid instead of weakening the source ordering proof. An entirely
+// unindexed block is one maximal run, so each queried block and each later gap
+// is traversed once across the table lifetime.
+static iree_status_t loom_motion_read_barrier_table_index_run(
+    loom_motion_read_barrier_table_t* table, const loom_op_t* op) {
+  if (loom_motion_read_barrier_table_lookup(table, op) != NULL) {
+    return iree_ok_status();
+  }
+
+  const loom_op_t* first_op = op;
+  while (first_op->prev_op != NULL && loom_motion_read_barrier_table_lookup(
+                                          table, first_op->prev_op) == NULL) {
+    first_op = first_op->prev_op;
+  }
+  const loom_motion_read_barrier_entry_t* previous_entry =
+      first_op->prev_op != NULL
+          ? loom_motion_read_barrier_table_lookup(table, first_op->prev_op)
+          : NULL;
+  bool segments_match =
+      previous_entry == NULL || previous_entry->segment != UINT32_MAX;
+  uint64_t ending_segment = previous_entry ? previous_entry->segment : 0;
+  if (segments_match && previous_entry != NULL &&
+      !loom_motion_read_can_cross_op(table->module, first_op->prev_op)) {
+    ++ending_segment;
+  }
+
+  iree_host_size_t run_entry_count = 0;
+  const loom_op_t* after_op = first_op;
+  while (after_op != NULL &&
+         loom_motion_read_barrier_table_lookup(table, after_op) == NULL) {
+    if (segments_match &&
+        !loom_motion_read_can_cross_op(table->module, after_op)) {
+      ++ending_segment;
+    }
+    ++run_entry_count;
+    after_op = after_op->next_op;
+  }
+  const loom_motion_read_barrier_entry_t* after_entry =
+      after_op != NULL ? loom_motion_read_barrier_table_lookup(table, after_op)
+                       : NULL;
+  if (after_entry != NULL && (after_entry->segment == UINT32_MAX ||
+                              ending_segment != after_entry->segment)) {
+    segments_match = false;
+  }
+
+  // The first query discovers an entire unindexed block before publishing any
+  // entries. Size that initial index once instead of geometrically rehashing
+  // the same known run while appending it.
+  if (table->index.capacity == 0) {
+    const iree_host_size_t capacity = loom_intern_table_capacity_for_entries(
+        iree_max(run_entry_count, (iree_host_size_t)3));
+    IREE_RETURN_IF_ERROR(loom_intern_table_grow(
+        table->arena, capacity, /*vacant_seam=*/0, &table->index));
+  }
+
+  uint64_t segment = previous_entry ? previous_entry->segment : 0;
+  if (segments_match && previous_entry != NULL &&
+      !loom_motion_read_can_cross_op(table->module, first_op->prev_op)) {
+    ++segment;
+  }
+  for (const loom_op_t* current_op = first_op; current_op != after_op;
+       current_op = current_op->next_op) {
+    IREE_ASSERT(!segments_match || segment < UINT32_MAX);
+    IREE_RETURN_IF_ERROR(loom_motion_read_barrier_table_append(
+        table, current_op, segments_match ? (uint32_t)segment : UINT32_MAX));
+    if (segments_match &&
+        !loom_motion_read_can_cross_op(table->module, current_op)) {
+      ++segment;
+    }
+  }
+  return iree_ok_status();
+}
+
+iree_status_t loom_motion_read_barrier_table_create(
+    const loom_module_t* module, iree_arena_allocator_t* arena,
+    loom_motion_read_barrier_table_t** out_table) {
+  *out_table = NULL;
+  loom_motion_read_barrier_table_t* table = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate(arena, sizeof(*table), (void**)&table));
+  *table = (loom_motion_read_barrier_table_t){
+      .module = module,
+      .arena = arena,
+  };
+  IREE_RETURN_IF_ERROR(
+      loom_intern_table_initialize(arena, /*capacity=*/0, &table->index));
+  loom_segmented_storage_initialize(
+      sizeof(loom_motion_read_barrier_entry_segment_t),
+      iree_alignof(loom_motion_read_barrier_entry_segment_t), &table->entries);
+  *out_table = table;
+  return iree_ok_status();
+}
+
+iree_status_t loom_motion_read_barrier_table_can_cross(
+    loom_motion_read_barrier_table_t* table, const loom_op_t* read_op,
+    const loom_op_t* before_op, bool* out_can_cross) {
+  *out_can_cross = false;
+  if (table == NULL || read_op == NULL || before_op == NULL ||
+      read_op->parent_block == NULL ||
+      read_op->parent_block != before_op->parent_block ||
+      read_op->block_ordinal >= before_op->block_ordinal) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(
+      loom_motion_read_barrier_table_index_run(table, read_op));
+  IREE_RETURN_IF_ERROR(
+      loom_motion_read_barrier_table_index_run(table, before_op));
+  const loom_motion_read_barrier_entry_t* read_entry =
+      loom_motion_read_barrier_table_lookup(table, read_op);
+  const loom_motion_read_barrier_entry_t* before_entry =
+      loom_motion_read_barrier_table_lookup(table, before_op);
+  *out_can_cross = read_entry != NULL && before_entry != NULL &&
+                   read_entry->segment != UINT32_MAX &&
+                   read_entry->segment == before_entry->segment;
+  return iree_ok_status();
 }
 
 //===----------------------------------------------------------------------===//

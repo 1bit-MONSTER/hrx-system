@@ -1,0 +1,306 @@
+// Every lane owns one adjacent cell; atomic and ordinary stores share physical
+// dwords. Interior origins and guard cells expose widened or misplaced writes.
+kernel.def @narrow_observations_i8() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%storage: buffer, %output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %origin = index.constant 0 : offset
+  %global_base = index.constant 1 : offset
+  %generic_base = index.constant 131 : offset
+  %bytes = index.constant 128 : offset
+  %global = buffer.assume.memory_space<global> %storage : buffer
+  %generic = buffer.assume.memory_space<generic> %storage : buffer
+  %scratch = buffer.alloca<workgroup> align(1) %bytes : buffer
+  %global_cells = buffer.view %global[%global_base] : buffer -> view<128xi8>
+  %generic_cells = buffer.view %generic[%generic_base] : buffer -> view<128xi8>
+  %local_cells = buffer.view %scratch[%origin] : buffer -> view<128xi8>
+  %results = buffer.view %output[%origin] : buffer -> view<4x128xi8>
+  %initial = scalar.constant 77 : i8
+  %lane_i32 = index.cast %lane : index to i32
+  %bias = scalar.constant -128 : i32
+  %tag = scalar.addi %lane_i32, %bias : i32
+  %replacement = scalar.trunci %tag : i32 to i8
+  view.store %initial, %local_cells[%lane] : i8, view<128xi8>
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %global_old = view.atomic.load %global_cells[%lane] {ordering = acquire, scope = device} : view<128xi8> -> i8
+  %generic_old = view.atomic.load %generic_cells[%lane] {ordering = seq_cst, scope = system} : view<128xi8> -> i8
+  %local_old = view.atomic.load %local_cells[%lane] {ordering = relaxed, scope = workgroup} : view<128xi8> -> i8
+  view.store %global_old, %results[0, %lane] : i8, view<4x128xi8>
+  view.store %generic_old, %results[1, %lane] : i8, view<4x128xi8>
+  view.store %local_old, %results[2, %lane] : i8, view<4x128xi8>
+  %parity_mask = scalar.constant 1 : i32
+  %parity = scalar.andi %lane_i32, %parity_mask : i32
+  %even = scalar.constant 0 : i32
+  %atomic_lane = scalar.cmpi eq, %parity, %even : i32
+  scf.if %atomic_lane {
+    view.atomic.store %replacement, %global_cells[%lane] {ordering = release, scope = device} : i8, view<128xi8>
+    view.atomic.store %replacement, %generic_cells[%lane] {ordering = seq_cst, scope = system} : i8, view<128xi8>
+    view.atomic.store %replacement, %local_cells[%lane] {ordering = relaxed, scope = workgroup} : i8, view<128xi8>
+  } else {
+    view.store %replacement, %global_cells[%lane] : i8, view<128xi8>
+    view.store %replacement, %generic_cells[%lane] : i8, view<128xi8>
+    view.store %replacement, %local_cells[%lane] : i8, view<128xi8>
+  }
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %local_final = view.atomic.load %local_cells[%lane] {ordering = acquire, scope = workgroup} : view<128xi8> -> i8
+  view.store %local_final, %results[3, %lane] : i8, view<4x128xi8>
+  kernel.return
+}
+
+check.case public @narrow_observation_values_i8 {
+  %storage = check.generate.fill value(77) : tensor<260xi8>
+  %output = check.generate.fill value(0) : tensor<4x128xi8>
+  kernel.launch @narrow_observations_i8(%storage, %output) : (tensor<260xi8>, tensor<4x128xi8>)
+  %global = check.tensor.view %storage offset(1) : tensor<260xi8> -> tensor<128xi8>
+  %generic = check.tensor.view %storage offset(131) : tensor<260xi8> -> tensor<128xi8>
+  %expected = check.generate.iota offset(-128) step(1) : tensor<128xi8>
+  check.expect.bitwise actual(%global) expected(%expected) : tensor<128xi8>
+  check.expect.bitwise actual(%generic) expected(%expected) : tensor<128xi8>
+  %old = check.tensor.view %output offset(0) : tensor<4x128xi8> -> tensor<384xi8>
+  %expected_old = check.generate.fill value(77) : tensor<384xi8>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<384xi8>
+  %local_final = check.tensor.view %output offset(384) : tensor<4x128xi8> -> tensor<128xi8>
+  check.expect.bitwise actual(%local_final) expected(%expected) : tensor<128xi8>
+  %expected_guard = check.generate.fill value(77) : tensor<1xi8>
+  %guard_0 = check.tensor.view %storage offset(0) : tensor<260xi8> -> tensor<1xi8>
+  check.expect.bitwise actual(%guard_0) expected(%expected_guard) : tensor<1xi8>
+  %guard_129 = check.tensor.view %storage offset(129) : tensor<260xi8> -> tensor<1xi8>
+  check.expect.bitwise actual(%guard_129) expected(%expected_guard) : tensor<1xi8>
+  %guard_130 = check.tensor.view %storage offset(130) : tensor<260xi8> -> tensor<1xi8>
+  check.expect.bitwise actual(%guard_130) expected(%expected_guard) : tensor<1xi8>
+  %guard_259 = check.tensor.view %storage offset(259) : tensor<260xi8> -> tensor<1xi8>
+  check.expect.bitwise actual(%guard_259) expected(%expected_guard) : tensor<1xi8>
+  check.return
+}
+
+// Every lane owns one adjacent cell; atomic and ordinary stores share physical
+// dwords. Interior origins and guard cells expose widened or misplaced writes.
+kernel.def @narrow_observations_i16() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%storage: buffer, %output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %origin = index.constant 0 : offset
+  %global_base = index.constant 2 : offset
+  %generic_base = index.constant 262 : offset
+  %bytes = index.constant 256 : offset
+  %global = buffer.assume.memory_space<global> %storage : buffer
+  %generic = buffer.assume.memory_space<generic> %storage : buffer
+  %scratch = buffer.alloca<workgroup> align(2) %bytes : buffer
+  %global_cells = buffer.view %global[%global_base] : buffer -> view<128xi16>
+  %generic_cells = buffer.view %generic[%generic_base] : buffer -> view<128xi16>
+  %local_cells = buffer.view %scratch[%origin] : buffer -> view<128xi16>
+  %results = buffer.view %output[%origin] : buffer -> view<4x128xi16>
+  %initial = scalar.constant 77 : i16
+  %lane_i32 = index.cast %lane : index to i32
+  %bias = scalar.constant -32768 : i32
+  %tag = scalar.addi %lane_i32, %bias : i32
+  %replacement = scalar.trunci %tag : i32 to i16
+  view.store %initial, %local_cells[%lane] : i16, view<128xi16>
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %global_old = view.atomic.load %global_cells[%lane] {ordering = acquire, scope = device} : view<128xi16> -> i16
+  %generic_old = view.atomic.load %generic_cells[%lane] {ordering = seq_cst, scope = system} : view<128xi16> -> i16
+  %local_old = view.atomic.load %local_cells[%lane] {ordering = relaxed, scope = workgroup} : view<128xi16> -> i16
+  view.store %global_old, %results[0, %lane] : i16, view<4x128xi16>
+  view.store %generic_old, %results[1, %lane] : i16, view<4x128xi16>
+  view.store %local_old, %results[2, %lane] : i16, view<4x128xi16>
+  %parity_mask = scalar.constant 1 : i32
+  %parity = scalar.andi %lane_i32, %parity_mask : i32
+  %even = scalar.constant 0 : i32
+  %atomic_lane = scalar.cmpi eq, %parity, %even : i32
+  scf.if %atomic_lane {
+    view.atomic.store %replacement, %global_cells[%lane] {ordering = release, scope = device} : i16, view<128xi16>
+    view.atomic.store %replacement, %generic_cells[%lane] {ordering = seq_cst, scope = system} : i16, view<128xi16>
+    view.atomic.store %replacement, %local_cells[%lane] {ordering = relaxed, scope = workgroup} : i16, view<128xi16>
+  } else {
+    view.store %replacement, %global_cells[%lane] : i16, view<128xi16>
+    view.store %replacement, %generic_cells[%lane] : i16, view<128xi16>
+    view.store %replacement, %local_cells[%lane] : i16, view<128xi16>
+  }
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %local_final = view.atomic.load %local_cells[%lane] {ordering = acquire, scope = workgroup} : view<128xi16> -> i16
+  view.store %local_final, %results[3, %lane] : i16, view<4x128xi16>
+  kernel.return
+}
+
+check.case public @narrow_observation_values_i16 {
+  %storage = check.generate.fill value(77) : tensor<260xi16>
+  %output = check.generate.fill value(0) : tensor<4x128xi16>
+  kernel.launch @narrow_observations_i16(%storage, %output) : (tensor<260xi16>, tensor<4x128xi16>)
+  %global = check.tensor.view %storage offset(2) : tensor<260xi16> -> tensor<128xi16>
+  %generic = check.tensor.view %storage offset(262) : tensor<260xi16> -> tensor<128xi16>
+  %expected = check.generate.iota offset(-32768) step(1) : tensor<128xi16>
+  check.expect.bitwise actual(%global) expected(%expected) : tensor<128xi16>
+  check.expect.bitwise actual(%generic) expected(%expected) : tensor<128xi16>
+  %old = check.tensor.view %output offset(0) : tensor<4x128xi16> -> tensor<384xi16>
+  %expected_old = check.generate.fill value(77) : tensor<384xi16>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<384xi16>
+  %local_final = check.tensor.view %output offset(768) : tensor<4x128xi16> -> tensor<128xi16>
+  check.expect.bitwise actual(%local_final) expected(%expected) : tensor<128xi16>
+  %expected_guard = check.generate.fill value(77) : tensor<1xi16>
+  %guard_0 = check.tensor.view %storage offset(0) : tensor<260xi16> -> tensor<1xi16>
+  check.expect.bitwise actual(%guard_0) expected(%expected_guard) : tensor<1xi16>
+  %guard_129 = check.tensor.view %storage offset(258) : tensor<260xi16> -> tensor<1xi16>
+  check.expect.bitwise actual(%guard_129) expected(%expected_guard) : tensor<1xi16>
+  %guard_130 = check.tensor.view %storage offset(260) : tensor<260xi16> -> tensor<1xi16>
+  check.expect.bitwise actual(%guard_130) expected(%expected_guard) : tensor<1xi16>
+  %guard_259 = check.tensor.view %storage offset(518) : tensor<260xi16> -> tensor<1xi16>
+  check.expect.bitwise actual(%guard_259) expected(%expected_guard) : tensor<1xi16>
+  check.return
+}
+
+// Narrow floating observations transport every bit pattern without conversion,
+// including signaling NaNs and encodings that denote zero on some targets.
+kernel.def @narrow_float_observations() {
+  %unit = index.constant 1 : index
+  %extent = index.constant 256 : index
+  kernel.launch.config workgroups(%extent, %unit, %unit) workgroup_size(%extent, %unit, %unit) : index
+} launch(%half_storage: buffer, %brain_storage: buffer, %e4_storage: buffer, %e5_storage: buffer, %output: buffer) {
+  %index = kernel.workitem.dispatch.id<x> : index
+  %base = index.constant 0 : offset
+  %ordinal = index.cast %index : index to i32
+  %half_bias = scalar.constant -32768 : i32
+  %half_pattern = scalar.addi %ordinal, %half_bias : i32
+  %half_bits = scalar.trunci %half_pattern : i32 to i16
+  %byte_bits = scalar.trunci %ordinal : i32 to i8
+  %halves = buffer.view %half_storage[%base] : buffer -> view<65536xf16>
+  %brain_global = buffer.assume.memory_space<generic> %brain_storage : buffer
+  %brains = buffer.view %brain_global[%base] : buffer -> view<65536xbf16>
+  %e4s = buffer.view %e4_storage[%base] : buffer -> view<65536xf8E4M3>
+  %e5_global = buffer.assume.memory_space<generic> %e5_storage : buffer
+  %e5s = buffer.view %e5_global[%base] : buffer -> view<65536xf8E5M2>
+  %results = buffer.view %output[%base] : buffer -> view<4x65536xi16>
+  %half = scalar.bitcast %half_bits : i16 to f16
+  view.atomic.store %half, %halves[%index] {ordering = relaxed, scope = device} : f16, view<65536xf16>
+  %half_observed = view.atomic.load %halves[%index] {ordering = relaxed, scope = device} : view<65536xf16> -> f16
+  %half_result = scalar.bitcast %half_observed : f16 to i16
+  view.store %half_result, %results[0, %index] : i16, view<4x65536xi16>
+  %brain = scalar.bitcast %half_bits : i16 to bf16
+  view.atomic.store %brain, %brains[%index] {ordering = relaxed, scope = system} : bf16, view<65536xbf16>
+  %brain_observed = view.atomic.load %brains[%index] {ordering = relaxed, scope = system} : view<65536xbf16> -> bf16
+  %brain_result = scalar.bitcast %brain_observed : bf16 to i16
+  view.store %brain_result, %results[1, %index] : i16, view<4x65536xi16>
+  %e4 = scalar.bitcast %byte_bits : i8 to f8E4M3
+  view.atomic.store %e4, %e4s[%index] {ordering = relaxed, scope = device} : f8E4M3, view<65536xf8E4M3>
+  %e4_observed = view.atomic.load %e4s[%index] {ordering = relaxed, scope = device} : view<65536xf8E4M3> -> f8E4M3
+  %e4_bits = scalar.bitcast %e4_observed : f8E4M3 to i8
+  %e4_result = scalar.extui %e4_bits : i8 to i16
+  view.store %e4_result, %results[2, %index] : i16, view<4x65536xi16>
+  %e5 = scalar.bitcast %byte_bits : i8 to f8E5M2
+  view.atomic.store %e5, %e5s[%index] {ordering = relaxed, scope = system} : f8E5M2, view<65536xf8E5M2>
+  %e5_observed = view.atomic.load %e5s[%index] {ordering = relaxed, scope = system} : view<65536xf8E5M2> -> f8E5M2
+  %e5_bits = scalar.bitcast %e5_observed : f8E5M2 to i8
+  %e5_result = scalar.extui %e5_bits : i8 to i16
+  view.store %e5_result, %results[3, %index] : i16, view<4x65536xi16>
+  kernel.return
+}
+
+check.case public @narrow_float_observation_bits {
+  %halves = check.generate.fill value(0) : tensor<65536xi16>
+  %brains = check.generate.fill value(0) : tensor<65536xi16>
+  %e4s = check.generate.fill value(0) : tensor<65536xi8>
+  %e5s = check.generate.fill value(0) : tensor<65536xi8>
+  %output = check.generate.fill value(0) : tensor<4x65536xi16>
+  kernel.launch @narrow_float_observations(%halves, %brains, %e4s, %e5s, %output) : (tensor<65536xi16>, tensor<65536xi16>, tensor<65536xi8>, tensor<65536xi8>, tensor<4x65536xi16>)
+  %half_results = check.tensor.view %output offset(0) : tensor<4x65536xi16> -> tensor<2x65536xi16>
+  %expected_halves = check.generate.iota offset(-32768) step(1) period(65536) : tensor<2x65536xi16>
+  check.expect.bitwise actual(%half_results) expected(%expected_halves) : tensor<2x65536xi16>
+  %byte_results = check.tensor.view %output offset(262144) : tensor<4x65536xi16> -> tensor<2x65536xi16>
+  %expected_bytes = check.generate.iota offset(0) step(1) period(256) : tensor<2x65536xi16>
+  check.expect.bitwise actual(%byte_results) expected(%expected_bytes) : tensor<2x65536xi16>
+  check.return
+}
+
+// A byte publishes ordinary payload in both global and LDS memory; a halfword
+// acknowledges reuse. The two participants occupy different wave32/64 waves.
+kernel.def @narrow_atomic_publication() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%publication: buffer, %payload: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %interior = index.constant 1 : offset
+  %bytes = index.constant 8 : offset
+  %payload_base = index.constant 4 : offset
+  %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %acknowledgment = buffer.view %scratch[%origin] : buffer -> view<1xi16>
+  %local_payload = buffer.view %scratch[%payload_base] : buffer -> view<1xi32>
+  %global = buffer.assume.memory_space<generic> %publication : buffer
+  %flag = buffer.view %global[%interior] : buffer -> view<1xi8>
+  %global_payload = buffer.view %payload[%origin] : buffer -> view<1xi32>
+  %results = buffer.view %output[%origin] : buffer -> view<2x16xi32>
+  %lane = kernel.workitem.id<x> : index
+  %begin = index.constant 0 : index
+  %end = index.constant 16 : index
+  %step = index.constant 1 : index
+  %reader_lane = index.constant 64 : index
+  %writer = index.cmp eq, %lane, %begin : index
+  %reader = index.cmp eq, %lane, %reader_lane : index
+  %initial = scalar.constant 0 : i16
+  %initial_byte = scalar.constant 0 : i8
+  %advance = scalar.constant 1 : i32
+  %bias = scalar.constant 65536 : i32
+  scf.if %writer {
+    view.store %initial, %acknowledgment[0] : i16, view<1xi16>
+    view.store %initial_byte, %flag[0] : i8, view<1xi8>
+  }
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  scf.if %writer {
+    scf.for %iteration = [%begin to %end step %step] {
+      %ordinal = index.cast %iteration : index to i32
+      %previous = scalar.trunci %ordinal : i32 to i16
+      scf.while {
+        %ack = view.atomic.load %acknowledgment[0] {ordering = acquire, scope = workgroup} : view<1xi16> -> i16
+        %pending = scalar.cmpi ne, %ack, %previous : i16
+        scf.condition %pending : i1
+      } do {
+        scf.yield
+      }
+      %value = scalar.addi %ordinal, %bias : i32
+      view.store %value, %global_payload[0] : i32, view<1xi32>
+      view.store %value, %local_payload[0] : i32, view<1xi32>
+      %epoch = scalar.addi %ordinal, %advance : i32
+      %ready = scalar.trunci %epoch : i32 to i8
+      view.atomic.store %ready, %flag[0] {ordering = release, scope = system} : i8, view<1xi8>
+    }
+  }
+  scf.if %reader {
+    scf.for %iteration = [%begin to %end step %step] {
+      %ordinal = index.cast %iteration : index to i32
+      %epoch = scalar.addi %ordinal, %advance : i32
+      %expected = scalar.trunci %epoch : i32 to i8
+      scf.while {
+        %ready = view.atomic.load %flag[0] {ordering = acquire, scope = system} : view<1xi8> -> i8
+        %pending = scalar.cmpi ne, %ready, %expected : i8
+        scf.condition %pending : i1
+      } do {
+        scf.yield
+      }
+      %global_value = view.load %global_payload[0] : view<1xi32> -> i32
+      %local_value = view.load %local_payload[0] : view<1xi32> -> i32
+      view.store %global_value, %results[0, %iteration] : i32, view<2x16xi32>
+      view.store %local_value, %results[1, %iteration] : i32, view<2x16xi32>
+      %ack = scalar.trunci %epoch : i32 to i16
+      view.atomic.store %ack, %acknowledgment[0] {ordering = release, scope = workgroup} : i16, view<1xi16>
+    }
+  }
+  kernel.return
+}
+
+check.case public @narrow_publication_values {
+  %publication = check.generate.fill value(77) : tensor<3xi8>
+  %payload = check.generate.fill value(-1) : tensor<1xi32>
+  %output = check.generate.fill value(-1) : tensor<2x16xi32>
+  kernel.launch @narrow_atomic_publication(%publication, %payload, %output) : (tensor<3xi8>, tensor<1xi32>, tensor<2x16xi32>)
+  %expected = check.generate.iota offset(65536) step(1) period(16) : tensor<2x16xi32>
+  check.expect.bitwise actual(%output) expected(%expected) : tensor<2x16xi32>
+  %before = check.tensor.view %publication offset(0) : tensor<3xi8> -> tensor<1xi8>
+  %after = check.tensor.view %publication offset(2) : tensor<3xi8> -> tensor<1xi8>
+  %expected_guard = check.generate.fill value(77) : tensor<1xi8>
+  check.expect.bitwise actual(%before) expected(%expected_guard) : tensor<1xi8>
+  check.expect.bitwise actual(%after) expected(%expected_guard) : tensor<1xi8>
+  check.return
+}

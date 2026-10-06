@@ -7,6 +7,7 @@
 #ifndef LOOM_TESTING_DIAGNOSTIC_MATCHERS_H_
 #define LOOM_TESTING_DIAGNOSTIC_MATCHERS_H_
 
+#include <deque>
 #include <string>
 #include <vector>
 
@@ -167,7 +168,8 @@ struct CapturedDiagnostic {
 };
 
 struct DiagnosticCapture {
-  std::vector<CapturedDiagnostic> diagnostics;
+  // Stable addresses keep source views valid even for inline string storage.
+  std::deque<CapturedDiagnostic> diagnostics;
 
   void Reset() { diagnostics.clear(); }
 
@@ -203,7 +205,7 @@ struct DiagnosticCapture {
   static iree_status_t CaptureDiagnostic(void* user_data,
                                          const loom_diagnostic_t* diagnostic) {
     auto* capture = static_cast<DiagnosticCapture*>(user_data);
-    CapturedDiagnostic entry;
+    CapturedDiagnostic& entry = capture->diagnostics.emplace_back();
     entry.error = diagnostic->error;
     entry.severity = diagnostic->severity;
     entry.emitter = diagnostic->emitter;
@@ -242,7 +244,8 @@ struct DiagnosticCapture {
            ++i) {
         const loom_diagnostic_related_location_t* related =
             &diagnostic->related_locations[i];
-        CapturedRelatedLocation copied_related;
+        CapturedRelatedLocation& copied_related =
+            entry.related_locations.emplace_back();
         copied_related.label = CopyStringView(related->label);
         CopySourceRange(related->source_location,
                         &copied_related.source_location_filename_storage,
@@ -261,7 +264,6 @@ struct DiagnosticCapture {
                 related->highlights[highlight_index]);
           }
         }
-        entry.related_locations.push_back(std::move(copied_related));
       }
     }
 
@@ -277,7 +279,6 @@ struct DiagnosticCapture {
       entry.params.push_back(param);
     }
 
-    capture->diagnostics.push_back(std::move(entry));
     return iree_ok_status();
   }
 };

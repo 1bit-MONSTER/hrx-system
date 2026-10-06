@@ -2,7 +2,7 @@
 
 amdgpu.target<gfx942> @target
 
-low.func.def target<amdgpu.cdna3.core>(@target) @m0_state_writes_do_not_cse(%value0: reg<amdgpu.vgpr>, %value1: reg<amdgpu.vgpr>) asm {
+low.func.def target<amdgpu.cdna3.core>(@target) @equal_m0_assignments_share_state(%value0: reg<amdgpu.vgpr>, %value1: reg<amdgpu.vgpr>) asm {
   %m0a = s_mov_b32_m0_imm 0
   ds_write_addtid_b32 %value0, %m0a
   %m0b = s_mov_b32_m0_imm 0
@@ -13,11 +13,43 @@ low.func.def target<amdgpu.cdna3.core>(@target) @m0_state_writes_do_not_cse(%val
 // ----
 amdgpu.target<gfx942> @target
 
-low.func.def target<amdgpu.cdna3.core>(@target) @m0_state_writes_do_not_cse(%value0: reg<amdgpu.vgpr>, %value1: reg<amdgpu.vgpr>) asm {
+low.func.def target<amdgpu.cdna3.core>(@target) @equal_m0_assignments_share_state(%value0: reg<amdgpu.vgpr>, %value1: reg<amdgpu.vgpr>) asm {
   %m0a = s_mov_b32_m0_imm 0
   ds_write_addtid_b32 %value0, %m0a
-  %m0b = s_mov_b32_m0_imm 0
-  ds_write_addtid_b32 %value1, %m0b {offset = 4}
+  ds_write_addtid_b32 %value1, %m0a {offset = 4}
+  return
+}
+
+// ====
+// Register-valued assignments replace the later SSA result as well as the
+// native state write. A different M0 value expires the retained assignment.
+// RUN: pass low-cse
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @register_m0_assignments(%base: reg<amdgpu.sgpr>, %other_base: reg<amdgpu.sgpr>, %value: reg<amdgpu.vgpr>) asm {
+  %first_base = s_mov_b32_m0 %base
+  ds_write_addtid_b32 %value, %first_base
+  %same_base = s_mov_b32_m0 %base
+  ds_write_addtid_b32 %value, %same_base {offset = 4}
+  %changed_base = s_mov_b32_m0 %other_base
+  ds_write_addtid_b32 %value, %changed_base {offset = 8}
+  %restored_base = s_mov_b32_m0 %base
+  ds_write_addtid_b32 %value, %restored_base {offset = 12}
+  return
+}
+
+// ----
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @register_m0_assignments(%base: reg<amdgpu.sgpr>, %other_base: reg<amdgpu.sgpr>, %value: reg<amdgpu.vgpr>) asm {
+  %first_base = s_mov_b32_m0 %base
+  ds_write_addtid_b32 %value, %first_base
+  ds_write_addtid_b32 %value, %first_base {offset = 4}
+  %changed_base = s_mov_b32_m0 %other_base
+  ds_write_addtid_b32 %value, %changed_base {offset = 8}
+  %restored_base = s_mov_b32_m0 %base
+  ds_write_addtid_b32 %value, %restored_base {offset = 12}
   return
 }
 

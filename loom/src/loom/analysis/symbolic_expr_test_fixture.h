@@ -16,6 +16,7 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/index/ops.h"
+#include "loom/ops/sanitizer/ops.h"
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/scf/ops.h"
 #include "loom/util/fact_table.h"
@@ -47,6 +48,12 @@ class SymbolicExprTest : public ::testing::Test {
         loom_scf_dialect_vtables(&scf_vtable_count);
     IREE_ASSERT_OK(loom_context_register_dialect(
         &context_, LOOM_DIALECT_SCF, scf_vtables, (uint16_t)scf_vtable_count));
+    iree_host_size_t sanitizer_vtable_count = 0;
+    const loom_op_vtable_t* const* sanitizer_vtables =
+        loom_sanitizer_dialect_vtables(&sanitizer_vtable_count);
+    IREE_ASSERT_OK(loom_context_register_dialect(
+        &context_, LOOM_DIALECT_SANITIZER, sanitizer_vtables,
+        (uint16_t)sanitizer_vtable_count));
     IREE_ASSERT_OK(loom_context_finalize(&context_));
 
     IREE_ASSERT_OK(loom_module_allocate(&context_, IREE_SV("test"),

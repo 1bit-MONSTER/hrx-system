@@ -306,8 +306,9 @@ enum iree_arch_enum_e {
 
 #include <windows.h>  // IWYU pragma: export
 
-// WinGDI.h defines `ERROR`, undef to avoid conflict naming.
+// Remove Windows macros that conflict with ordinary identifiers.
 #undef ERROR
+#undef Yield
 
 #endif  // IREE_PLATFORM_WINDOWS
 

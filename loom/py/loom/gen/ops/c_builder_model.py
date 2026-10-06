@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from loom.assembly import (
+    BINDING_TYPE_BLOCK_ARG,
     AlignedRefs,
     Attr,
     AttrDict,
@@ -341,7 +342,7 @@ def extract_c_params(op: Op, shared_enums: SharedEnumMap) -> list[dict[str, Any]
     _pending_func_args: list[dict[str, Any]] = []
     _body_func_args: list[dict[str, Any]] = []
     # Region fields whose explicit block args are not derivable from operands.
-    explicit_block_args_by_region: dict[str, str] = {}
+    explicit_block_args_by_region: dict[str, list[dict[str, Any]]] = {}
     func_args_field_names = c_queries.func_args_field_names(op)
     func_like_body_region_name: str | None = None
     for interface in op.interfaces:
@@ -495,13 +496,18 @@ def extract_c_params(op: Op, shared_enums: SharedEnumMap) -> list[dict[str, Any]
                     )
                     covered_attrs.add(static_field)
 
-                case BindingList(field=name, kind=binding_kind):
+                case BindingList(
+                    field=name,
+                    kind=binding_kind,
+                    type_source=type_source,
+                ):
                     params.append(
                         {
                             "name": name,
                             "kind": "binding_list",
                             "c_type": "const loom_value_id_t*",
                             "binding_kind": binding_kind,
+                            "type_source": type_source,
                             "may_consume": has_result_type_list,
                         }
                     )
@@ -510,21 +516,31 @@ def extract_c_params(op: Op, shared_enums: SharedEnumMap) -> list[dict[str, Any]
                     _pending_binding = {
                         "name": name,
                         "binding_kind": binding_kind,
+                        "type_source": type_source,
                     }
 
-                case BlockArgs(region=name):
+                case BlockArgs(
+                    region=name,
+                    group=group,
+                    start_attr=start_attr,
+                    end_attr=end_attr,
+                ):
                     region_def = _find_region_def(op, name)
                     has_derived_args = bool(region_def is not None and (region_def.arg_source or region_def.implicit_args))
                     if not has_derived_args:
-                        param_name = f"{name}_arg_types"
-                        params.append(
-                            {
-                                "name": param_name,
-                                "kind": "block_args",
-                                "region": name,
-                            }
-                        )
-                        explicit_block_args_by_region[name] = param_name
+                        param_name = f"{group or name}_arg_types"
+                        param = {
+                            "name": param_name,
+                            "kind": "block_args",
+                            "region": name,
+                            "end_attr_index": c_queries.resolve_attr_index(op, end_attr, "BlockArgs"),
+                        }
+                        params.append(param)
+                        explicit_block_args_by_region.setdefault(name, []).append(param)
+                    if start_attr is not None:
+                        covered_attrs.add(start_attr)
+                    if end_attr is not None:
+                        covered_attrs.add(end_attr)
 
                 case ResultType(field=name):
                     # When ResultType references a variadic result, the
@@ -583,7 +599,7 @@ def extract_c_params(op: Op, shared_enums: SharedEnumMap) -> list[dict[str, Any]
                             "optional": (region_def.optional if region_def else False),
                             "binding": binding,
                             "arg_source": arg_source,
-                            "block_args": explicit_block_args_by_region.pop(name, None),
+                            "block_args": tuple(explicit_block_args_by_region.pop(name, ())),
                             "implicit_args": (region_def.implicit_args if region_def else ()),
                             "func_args": func_args,
                         }
@@ -829,6 +845,8 @@ def build_c_param_list(op: Op, params: list[dict[str, object]], layout: FieldLay
             case "binding_list":
                 c_params.append(f"{consume}const loom_value_id_t* {name}")
                 c_params.append(f"iree_host_size_t {name}_count")
+                if param["type_source"] == BINDING_TYPE_BLOCK_ARG:
+                    c_params.append(f"const loom_type_t* {name}_types")
             case "result_type":
                 c_params.append(f"loom_type_t {name}")
             case "result_types":

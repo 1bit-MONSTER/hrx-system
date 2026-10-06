@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "libamdf/cts/gpu/gpu_device_fixture.h"
-#include "libamdf/cts/gpu/pm4_commands.h"
+#include "libamdf/cts/gpu/pm4/encoding/commands.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -181,6 +181,11 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
   }
 
   void CopyD3D12(ID3D12Resource* source, ID3D12Resource* destination) {
+    // Command lists do not retain referenced resources. These independent
+    // owners can survive caller and fixture teardown if retirement is unknown.
+    ComPtr<ID3D12Device> device = d3d_;
+    ComPtr<ID3D12Resource> source_owner = source;
+    ComPtr<ID3D12Resource> destination_owner = destination;
     ComPtr<ID3D12CommandQueue> queue;
     D3D12_COMMAND_QUEUE_DESC queue_info = {};
     queue_info.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -206,24 +211,40 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
     std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
     commands->ResourceBarrier(1, &barrier);
     ASSERT_TRUE(SUCCEEDED(commands->Close()));
-    ID3D12CommandList* lists[] = {commands.Get()};
-    queue->ExecuteCommandLists(1, lists);
     ComPtr<ID3D12Fence> fence;
     ASSERT_TRUE(SUCCEEDED(
         d3d_->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))));
-    ASSERT_TRUE(SUCCEEDED(queue->Signal(fence.Get(), 1)));
-    HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    ASSERT_NE(event, nullptr);
-    const HRESULT status = fence->SetEventOnCompletion(1, event);
-    if (FAILED(status)) {
-      EXPECT_TRUE(CloseHandle(event));
-      FAIL() << "D3D12 fence registration: " << std::hex << status;
+    ID3D12CommandList* lists[] = {commands.Get()};
+    queue->ExecuteCommandLists(1, lists);
+
+    // No fatal assertion may unwind submitted owners before classification.
+    // A rejected signal does not promise a fence value that can be waited on.
+    const char* operation = "queue signal";
+    HRESULT status = queue->Signal(fence.Get(), 1);
+    if (SUCCEEDED(status)) {
+      operation = "fence wait";
+      status = fence->SetEventOnCompletion(1, nullptr);
     }
-    const DWORD wait = WaitForSingleObject(event, INFINITE);
-    EXPECT_TRUE(CloseHandle(event));
-    ASSERT_EQ(wait, WAIT_OBJECT_0);
-    ASSERT_EQ(fence->GetCompletedValue(), 1u);
-    ASSERT_TRUE(SUCCEEDED(d3d_->GetDeviceRemovedReason()));
+    const uint64_t completed_value = fence->GetCompletedValue();
+    const HRESULT removed_reason = device->GetDeviceRemovedReason();
+    if (completed_value != 1 && completed_value != UINT64_MAX &&
+        SUCCEEDED(removed_reason)) {
+      // Preserve every submitted dependency until process exit. An HRESULT
+      // failure alone proves neither completion nor device removal.
+      queue.Detach();
+      commands.Detach();
+      allocator.Detach();
+      fence.Detach();
+      source_owner.Detach();
+      destination_owner.Detach();
+      device.Detach();
+      FAIL() << "D3D12 retirement unproven; retaining submitted owners: "
+             << operation << " returned " << std::hex << status;
+    }
+    ASSERT_TRUE(SUCCEEDED(status)) << operation << ": " << std::hex << status;
+    // Removal permits cleanup, but its UINT64_MAX fence is not successful work.
+    ASSERT_EQ(completed_value, 1u);
+    ASSERT_EQ(removed_reason, S_OK) << std::hex << removed_reason;
   }
 
   void CreateStaging(D3D12_HEAP_TYPE type, ID3D12Resource** out_resource) {
@@ -240,28 +261,7 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
         IID_PPV_ARGS(out_resource))));
   }
 
-  void PrepareNativeCopy() {
-    amdf_endpoint_info_t endpoint = {};
-    endpoint.type = AMDF_STRUCTURE_TYPE_ENDPOINT_INFO;
-    endpoint.structure_size = sizeof(endpoint);
-    ASSERT_EQ(api_->endpoint_query_info(endpoint_, &endpoint), AMDF_STATUS_OK);
-    uint32_t family_ordinal = UINT32_MAX;
-    for (uint32_t i = 0; i < endpoint.queue_family_count; ++i) {
-      amdf_queue_family_info_t family = {};
-      family.type = AMDF_STRUCTURE_TYPE_QUEUE_FAMILY_INFO;
-      family.structure_size = sizeof(family);
-      ASSERT_EQ(api_->endpoint_query_queue_family_info(endpoint_, i, &family),
-                AMDF_STATUS_OK);
-      if (family.command_type == AMDF_QUEUE_COMMAND_TYPE_GPU_PM4 &&
-          family.format_version == AMDF_GPU_PM4_QUEUE_FORMAT_VERSION_1 &&
-          (family.publication_modes & AMDF_QUEUE_PUBLICATION_MODE_KERNEL) &&
-          (family.format_features &
-           AMDF_GPU_PM4_FORMAT_FEATURE_ACQUIRE_MEM_GCR)) {
-        family_ordinal = i;
-        break;
-      }
-    }
-    ASSERT_NE(family_ordinal, UINT32_MAX);
+  void PrepareNativeCopy(uint32_t family_ordinal) {
     amdf_gpu_kernel_queue_create_info_t queue = {};
     queue.type = AMDF_STRUCTURE_TYPE_GPU_KERNEL_QUEUE_CREATE_INFO;
     queue.structure_size = sizeof(queue);
@@ -301,7 +301,8 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
     mapped.structure_size = sizeof(mapped);
     ASSERT_EQ(api_->host_mapping_query_info(command_mapping_, &mapped),
               AMDF_STATUS_OK);
-    Pm4CommandWriter commands(static_cast<uint32_t*>(mapped.pointer));
+    Pm4CommandWriter commands(static_cast<uint32_t*>(mapped.pointer),
+                              *pm4_profile_);
     commands.SystemBarrier();
     for (uint32_t i = 0; i < kWordCount; ++i) {
       commands.CopyData32(address_ + kSourceOffset + i * sizeof(uint32_t),
@@ -345,12 +346,20 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
     actual.structure_size = sizeof(actual);
     ASSERT_EQ(api_->memory_query_pair_info(&site, &site, &actual),
               AMDF_STATUS_OK);
-    EXPECT_EQ(std::memcmp(&prospective, &actual, sizeof(actual)), 0);
-    EXPECT_EQ(actual.release.kind, AMDF_CACHE_TRANSITION_KIND_GLOBAL);
-    EXPECT_EQ(actual.release.operation, AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM);
-    EXPECT_EQ(actual.acquire.kind, AMDF_CACHE_TRANSITION_KIND_GLOBAL);
-    EXPECT_EQ(actual.acquire.operation,
-              AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM);
+    // Either query must authorize this fixed recipe before queue creation.
+    // Prospective and concrete records need not be bytewise identical.
+    for (const auto* pair : {&prospective, &actual}) {
+      ASSERT_NE(pair->flags & AMDF_MEMORY_PAIR_FLAG_SHARED_BACKING_REACHABLE,
+                0u);
+      ASSERT_EQ(pair->release.kind, AMDF_CACHE_TRANSITION_KIND_GLOBAL);
+      ASSERT_EQ(pair->release.executor, AMDF_CACHE_TRANSITION_EXECUTOR_QUEUE);
+      ASSERT_EQ(pair->release.operation,
+                AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM);
+      ASSERT_EQ(pair->acquire.kind, AMDF_CACHE_TRANSITION_KIND_GLOBAL);
+      ASSERT_EQ(pair->acquire.executor, AMDF_CACHE_TRANSITION_EXECUTOR_QUEUE);
+      ASSERT_EQ(pair->acquire.operation,
+                AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM);
+    }
   }
 
   void ExpectRejected(amdf_external_memory_t source) {
@@ -412,10 +421,10 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
     ASSERT_EQ(description.Width, kByteLength);
   }
 
-  void RunRoundTrip() {
+  void RunRoundTrip(uint32_t family_ordinal) {
     ASSERT_NO_FATAL_FAILURE(CreateSharedBuffer());
     ASSERT_NO_FATAL_FAILURE(OpenSharedBuffer());
-    ASSERT_NO_FATAL_FAILURE(PrepareNativeCopy());
+    ASSERT_NO_FATAL_FAILURE(PrepareNativeCopy(family_ordinal));
     ComPtr<ID3D12Resource> upload;
     ComPtr<ID3D12Resource> readback;
     ASSERT_NO_FATAL_FAILURE(CreateStaging(D3D12_HEAP_TYPE_UPLOAD, &upload));
@@ -474,6 +483,8 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
   uint32_t release_count_ = 0;
   // Factory used to locate the matching foreign API adapter.
   ComPtr<IDXGIFactory4> factory_;
+  // Static command recipe selected by the PM4-consuming subclass.
+  const Pm4CommandProfile* pm4_profile_ = nullptr;
   // Foreign adapter independently admitted against the libamdf device.
   ComPtr<IDXGIAdapter1> adapter_;
   // Foreign device owning the resource and verification queues.
@@ -496,14 +507,76 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
   uint64_t pending_submission_ = 0;
 };
 
+// Only the native round-trip consumes the fixed PM4 cache recipe. Handle-only
+// interop cases retain the broader endpoint selection of the base fixture.
+class D3D12Pm4MemoryInteropTest : public D3D12MemoryInteropTest {
+ protected:
+  amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
+                                 bool* out_matches) override {
+    amdf_gpu_endpoint_info_t gpu_info = {};
+    gpu_info.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
+    gpu_info.structure_size = sizeof(gpu_info);
+    amdf_status_t status = gpu_api_->endpoint_query_info(endpoint, &gpu_info);
+    if (!amdf_status_is_ok(status)) {
+      return status;
+    }
+    pm4_profile_ = Pm4CommandProfile::Find(gpu_info);
+    if (!pm4_profile_) {
+      *out_matches = false;
+      return AMDF_STATUS_OK;
+    }
+    amdf_endpoint_info_t endpoint_info = {};
+    endpoint_info.type = AMDF_STRUCTURE_TYPE_ENDPOINT_INFO;
+    endpoint_info.structure_size = sizeof(endpoint_info);
+    status = api_->endpoint_query_info(endpoint, &endpoint_info);
+    if (!amdf_status_is_ok(status)) {
+      return status;
+    }
+    constexpr amdf_queue_roles_t kRoles =
+        AMDF_QUEUE_ROLE_TRANSFER | AMDF_QUEUE_ROLE_CACHE_CONTROL;
+    constexpr amdf_cache_operations_t kOperations =
+        AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
+        AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM;
+    for (uint32_t ordinal = 0; ordinal < endpoint_info.queue_family_count;
+         ++ordinal) {
+      amdf_queue_family_info_t family = {};
+      family.type = AMDF_STRUCTURE_TYPE_QUEUE_FAMILY_INFO;
+      family.structure_size = sizeof(family);
+      status =
+          api_->endpoint_query_queue_family_info(endpoint, ordinal, &family);
+      if (!amdf_status_is_ok(status)) {
+        return status;
+      }
+      if (family.command_type == AMDF_QUEUE_COMMAND_TYPE_GPU_PM4 &&
+          family.format_version == AMDF_GPU_PM4_QUEUE_FORMAT_VERSION_1 &&
+          (family.publication_modes & AMDF_QUEUE_PUBLICATION_MODE_KERNEL) &&
+          (family.roles & kRoles) == kRoles &&
+          (family.format_features &
+           AMDF_GPU_PM4_FORMAT_FEATURE_ACQUIRE_MEM_GCR) &&
+          (family.cache_operations & kOperations) == kOperations &&
+          (family.cache_transition_kinds &
+           AMDF_CACHE_TRANSITION_KINDS_GLOBAL)) {
+        family_ordinal_ = family.ordinal;
+        *out_matches = true;
+        return AMDF_STATUS_OK;
+      }
+    }
+    *out_matches = false;
+    return AMDF_STATUS_OK;
+  }
+
+  // Exact kernel-publication family selected before native device activation.
+  uint32_t family_ordinal_ = UINT32_MAX;
+};
+
+TEST_F(D3D12Pm4MemoryInteropTest, ForeignNativeForeignRoundTrip) {
+  RunRoundTrip(family_ordinal_);
+}
+
 TEST_F(D3D12MemoryInteropTest, ImportOwnsBackingAfterSourceRelease) {
   ASSERT_NO_FATAL_FAILURE(CreateSharedBuffer());
   ASSERT_NO_FATAL_FAILURE(OpenSharedBuffer());
   buffer_.Reset();
-}
-
-TEST_F(D3D12MemoryInteropTest, ForeignNativeForeignRoundTrip) {
-  RunRoundTrip();
 }
 
 TEST_F(D3D12MemoryInteropTest, RejectsPhysicalPaddingOutsideLogicalBuffer) {

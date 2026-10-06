@@ -247,14 +247,13 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     core_driver_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::base::tooling::flags
     iree::hal::cts::core::driver_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -269,14 +268,13 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     core_semaphore_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::base::tooling::flags
     iree::hal::cts::core::semaphore_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -291,14 +289,13 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     core_semaphore_thread_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::base::tooling::flags
     iree::hal::cts::core::semaphore_thread_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -313,14 +310,13 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     buffer_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::base::tooling::flags
     iree::hal::cts::buffer::all_tests
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -336,7 +332,6 @@ iree_cc_test(
   NAME
     allocator_guardrail_tests
   SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
     "allocator_guardrail_test.cc"
   DEPS
     ::backends
@@ -344,6 +339,7 @@ iree_cc_test(
     iree::hal
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::hal::memory::passthrough_pool
     iree::testing::gtest
   LABELS
@@ -360,7 +356,6 @@ iree_cc_test(
   NAME
     allocator_virtual_memory_tests
   SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
     "allocator_virtual_memory_test.cc"
   DEPS
     ::backends
@@ -369,6 +364,7 @@ iree_cc_test(
     iree::hal
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -384,7 +380,6 @@ iree_cc_test(
   NAME
     profiling_tests
   SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
     "profiling_test.cc"
   DEPS
     ::backends
@@ -393,6 +388,7 @@ iree_cc_test(
     iree::hal::cts::util::profile_test_util
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::hal::memory::passthrough_pool
     iree::testing::gtest
   LABELS
@@ -408,14 +404,13 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     command_buffer_basic_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::base::tooling::flags
     iree::hal::cts::command_buffer::basic_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -430,8 +425,6 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     command_buffer_atomic_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     ::replay_cache_backends
@@ -439,6 +432,7 @@ iree_cc_test(
     iree::hal::cts::command_buffer::atomic_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -453,14 +447,13 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     command_buffer_fill_buffer_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::base::tooling::flags
     iree::hal::cts::command_buffer::fill_buffer_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -475,14 +468,13 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     command_buffer_update_buffer_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::base::tooling::flags
     iree::hal::cts::command_buffer::update_buffer_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -497,14 +489,13 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     command_buffer_copy_buffer_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::base::tooling::flags
     iree::hal::cts::command_buffer::copy_buffer_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -519,14 +510,13 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     command_buffer_transient_buffer_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::base::tooling::flags
     iree::hal::cts::command_buffer::transient_buffer_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -541,14 +531,13 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     command_buffer_stress_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::base::tooling::flags
     iree::hal::cts::command_buffer::stress_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -564,7 +553,6 @@ iree_cc_test(
   NAME
     bda_dispatch_validation_tests
   SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
     "bda_dispatch_validation_test.cc"
   DEPS
     ::backends
@@ -573,6 +561,7 @@ iree_cc_test(
     iree::hal
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "vulkan_uses_vk_khr_buffer_device_address"
@@ -589,7 +578,6 @@ iree_cc_test(
   NAME
     bda_spirv_tests
   SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
     "bda_spirv_test.cc"
   DEPS
     ::backends
@@ -600,6 +588,7 @@ iree_cc_test(
     iree::hal::cts::util::profile_test_util
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::hal::drivers::vulkan
     iree::hal::drivers::vulkan::headers
     iree::testing::gtest
@@ -617,8 +606,6 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     file_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     ::vulkan_file_test
@@ -626,6 +613,7 @@ iree_cc_test(
     iree::hal::cts::file::file_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -640,14 +628,13 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     queue_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::base::tooling::flags
     iree::hal::cts::queue::queue_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -662,14 +649,13 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     queue_alloca_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::base::tooling::flags
     iree::hal::cts::queue::queue_alloca_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -685,7 +671,6 @@ iree_cc_test(
   NAME
     queue_atomic_tests
   SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
     "atomic_submission_test.cc"
   DEPS
     ::backends
@@ -694,6 +679,7 @@ iree_cc_test(
     iree::hal::cts::util::atomic_test_util
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -708,14 +694,13 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     queue_host_call_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::base::tooling::flags
     iree::hal::cts::queue::queue_host_call_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -730,8 +715,6 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     queue_transfer_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::base::tooling::flags
@@ -739,6 +722,7 @@ iree_cc_test(
     iree::hal::cts::util::profile_test_util
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -754,7 +738,6 @@ iree_cc_test(
   NAME
     queue_descriptor_cache_tests
   SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
     "queue_descriptor_cache_test.cc"
   DEPS
     ::backends
@@ -762,6 +745,7 @@ iree_cc_test(
     iree::hal
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"
@@ -776,14 +760,13 @@ if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
     semaphore_submission_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::base::tooling::flags
     iree::hal::cts::queue::semaphore_submission_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"

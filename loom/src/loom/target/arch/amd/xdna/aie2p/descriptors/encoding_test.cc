@@ -260,6 +260,27 @@ TEST(DescriptorEncodingTest, VolatileAliasesPreservePhysicalEncoding) {
   }
 }
 
+TEST(DescriptorEncodingTest, AccumulatorMovesMatchOracleInstructionEncodings) {
+  struct TestCase {
+    std::vector<std::string_view> registers;
+    std::array<uint8_t, 4> expected;
+  };
+  const TestCase test_cases[] = {
+      {{"bmll2", "bmhl0"}, {0xF8, 0x12, 0x02, 0x1A}},
+      {{"bmhl0", "bmll2"}, {0xF8, 0x12, 0x88, 0x18}},
+      {{"bmll2", "bmll0"}, {0xF8, 0x12, 0x00, 0x1A}},
+  };
+
+  for (const TestCase& test_case : test_cases) {
+    std::vector<uint8_t> program;
+    IREE_ASSERT_OK(EncodeSingleDescriptor("amd.xdna.aie2p.move.accumulator512",
+                                          test_case.registers, {}, "I32_MV",
+                                          &program));
+    EXPECT_EQ(program, std::vector<uint8_t>(test_case.expected.begin(),
+                                            test_case.expected.end()));
+  }
+}
+
 TEST(DescriptorEncodingTest, DirectBranchesMatchOracleInstructionEncodings) {
   struct TestCase {
     std::string_view descriptor_key;
@@ -790,13 +811,21 @@ TEST(DescriptorEncodingTest, ScalarPairMovesPreserveBothWords) {
   }
 }
 
-TEST(DescriptorEncodingTest, PhysicalRegisterRowsAlignWithMachineTable) {
+TEST(DescriptorEncodingTest, MachinePhysicalRegisterRowsRemainStablePrefix) {
   const loom_low_descriptor_set_t* descriptor_set =
       loom_aie2p_core_descriptor_set();
+  const uint32_t machine_register_count =
+      loom_aie2p_machine_physical_register_count();
+  const std::array<std::string_view, 4> allocation_only_registers = {
+      "predicate_pair0",
+      "predicate_pair1",
+      "predicate_pair2",
+      "predicate_pair3",
+  };
   ASSERT_EQ(descriptor_set->physical_register_count,
-            loom_aie2p_machine_physical_register_count());
-  for (uint32_t register_id = 0;
-       register_id < descriptor_set->physical_register_count; ++register_id) {
+            machine_register_count + allocation_only_registers.size());
+  for (uint32_t register_id = 0; register_id < machine_register_count;
+       ++register_id) {
     const loom_low_physical_register_t* descriptor_register =
         loom_low_descriptor_set_physical_register_at(descriptor_set,
                                                      register_id);
@@ -818,6 +847,17 @@ TEST(DescriptorEncodingTest, PhysicalRegisterRowsAlignWithMachineTable) {
                 loom_aie2p_machine_physical_register_atomic_unit(
                     (loom_aie2p_physical_register_id_t)register_id, i));
     }
+  }
+  for (iree_host_size_t i = 0; i < allocation_only_registers.size(); ++i) {
+    const loom_low_physical_register_t* descriptor_register =
+        loom_low_descriptor_set_physical_register_at(
+            descriptor_set, machine_register_count + i);
+    const iree_string_view_t name = loom_low_descriptor_set_string(
+        descriptor_set, descriptor_register->name_string_ref);
+    EXPECT_EQ(std::string_view(name.data, name.size),
+              allocation_only_registers[i]);
+    EXPECT_EQ(loom_aie2p_machine_find_physical_register(name),
+              LOOM_AIE2P_PHYSICAL_REGISTER_ID_INVALID);
   }
 }
 

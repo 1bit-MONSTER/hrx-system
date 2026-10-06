@@ -1,0 +1,124 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_float8_arithmetic.loom-test
+// RUN: pass target=amdgpu:gfx1151 legalize-math
+
+func.def @f8e4m3_scalar_arithmetic(%lhs: f8E4M3, %rhs: f8E4M3) -> (f8E4M3, f8E4M3, f8E4M3, f8E4M3) {
+  %sum = scalar.addf %lhs, %rhs : f8E4M3
+  %difference = scalar.subf %lhs, %rhs : f8E4M3
+  %product = scalar.mulf %lhs, %rhs : f8E4M3
+  %finite = scalar.addf<nnan|ninf> %lhs, %rhs : f8E4M3
+  func.return %sum, %difference, %product, %finite : f8E4M3, f8E4M3, f8E4M3, f8E4M3
+}
+
+// ----
+func.def @f8e4m3_scalar_arithmetic(%lhs: f8E4M3, %rhs: f8E4M3) -> (f8E4M3, f8E4M3, f8E4M3, f8E4M3) {
+  %22 = scalar.extf %lhs : f8E4M3 to f32
+  %23 = scalar.extf %rhs : f8E4M3 to f32
+  %24 = scalar.addf %22, %23 : f32
+  %sum = scalar.fptrunc %24 : f32 to f8E4M3
+  %18 = scalar.extf %lhs : f8E4M3 to f32
+  %19 = scalar.extf %rhs : f8E4M3 to f32
+  %20 = scalar.subf %18, %19 : f32
+  %difference = scalar.fptrunc %20 : f32 to f8E4M3
+  %14 = scalar.extf %lhs : f8E4M3 to f32
+  %15 = scalar.extf %rhs : f8E4M3 to f32
+  %16 = scalar.mulf %14, %15 : f32
+  %product = scalar.fptrunc %16 : f32 to f8E4M3
+  %10 = scalar.extf %lhs : f8E4M3 to f32
+  %11 = scalar.extf %rhs : f8E4M3 to f32
+  %12 = scalar.addf<nnan|ninf> %10, %11 : f32
+  %finite = scalar.fptrunc %12 : f32 to f8E4M3
+  func.return %sum, %difference, %product, %finite : f8E4M3, f8E4M3, f8E4M3, f8E4M3
+}
+
+// ====
+
+func.def @f8e4m3_vector_arithmetic(%lhs: vector<3xf8E4M3>, %rhs: vector<3xf8E4M3>) -> (vector<3xf8E4M3>, vector<3xf8E4M3>, vector<3xf8E4M3>, vector<3xf8E4M3>) {
+  %sum = vector.addf %lhs, %rhs : vector<3xf8E4M3>
+  %difference = vector.subf %lhs, %rhs : vector<3xf8E4M3>
+  %product = vector.mulf %lhs, %rhs : vector<3xf8E4M3>
+  %finite = vector.addf<nnan|ninf> %lhs, %rhs : vector<3xf8E4M3>
+  func.return %sum, %difference, %product, %finite : vector<3xf8E4M3>, vector<3xf8E4M3>, vector<3xf8E4M3>, vector<3xf8E4M3>
+}
+
+// ----
+func.def @f8e4m3_vector_arithmetic(%lhs: vector<3xf8E4M3>, %rhs: vector<3xf8E4M3>) -> (vector<3xf8E4M3>, vector<3xf8E4M3>, vector<3xf8E4M3>, vector<3xf8E4M3>) {
+  %22 = vector.extf %lhs : vector<3xf8E4M3> to vector<3xf32>
+  %23 = vector.extf %rhs : vector<3xf8E4M3> to vector<3xf32>
+  %24 = vector.addf %22, %23 : vector<3xf32>
+  %sum = vector.fptrunc %24 : vector<3xf32> to vector<3xf8E4M3>
+  %18 = vector.extf %lhs : vector<3xf8E4M3> to vector<3xf32>
+  %19 = vector.extf %rhs : vector<3xf8E4M3> to vector<3xf32>
+  %20 = vector.subf %18, %19 : vector<3xf32>
+  %difference = vector.fptrunc %20 : vector<3xf32> to vector<3xf8E4M3>
+  %14 = vector.extf %lhs : vector<3xf8E4M3> to vector<3xf32>
+  %15 = vector.extf %rhs : vector<3xf8E4M3> to vector<3xf32>
+  %16 = vector.mulf %14, %15 : vector<3xf32>
+  %product = vector.fptrunc %16 : vector<3xf32> to vector<3xf8E4M3>
+  %10 = vector.extf %lhs : vector<3xf8E4M3> to vector<3xf32>
+  %11 = vector.extf %rhs : vector<3xf8E4M3> to vector<3xf32>
+  %12 = vector.addf<nnan|ninf> %10, %11 : vector<3xf32>
+  %finite = vector.fptrunc %12 : vector<3xf32> to vector<3xf8E4M3>
+  func.return %sum, %difference, %product, %finite : vector<3xf8E4M3>, vector<3xf8E4M3>, vector<3xf8E4M3>, vector<3xf8E4M3>
+}
+
+// ====
+
+func.def @f8e5m2_scalar_arithmetic(%lhs: f8E5M2, %rhs: f8E5M2) -> (f8E5M2, f8E5M2, f8E5M2, f8E5M2) {
+  %sum = scalar.addf %lhs, %rhs : f8E5M2
+  %difference = scalar.subf %lhs, %rhs : f8E5M2
+  %product = scalar.mulf %lhs, %rhs : f8E5M2
+  %finite = scalar.addf<nnan|ninf> %lhs, %rhs : f8E5M2
+  func.return %sum, %difference, %product, %finite : f8E5M2, f8E5M2, f8E5M2, f8E5M2
+}
+
+// ----
+func.def @f8e5m2_scalar_arithmetic(%lhs: f8E5M2, %rhs: f8E5M2) -> (f8E5M2, f8E5M2, f8E5M2, f8E5M2) {
+  %22 = scalar.extf %lhs : f8E5M2 to f32
+  %23 = scalar.extf %rhs : f8E5M2 to f32
+  %24 = scalar.addf %22, %23 : f32
+  %sum = scalar.fptrunc %24 : f32 to f8E5M2
+  %18 = scalar.extf %lhs : f8E5M2 to f32
+  %19 = scalar.extf %rhs : f8E5M2 to f32
+  %20 = scalar.subf %18, %19 : f32
+  %difference = scalar.fptrunc %20 : f32 to f8E5M2
+  %14 = scalar.extf %lhs : f8E5M2 to f32
+  %15 = scalar.extf %rhs : f8E5M2 to f32
+  %16 = scalar.mulf %14, %15 : f32
+  %product = scalar.fptrunc %16 : f32 to f8E5M2
+  %10 = scalar.extf %lhs : f8E5M2 to f32
+  %11 = scalar.extf %rhs : f8E5M2 to f32
+  %12 = scalar.addf<nnan|ninf> %10, %11 : f32
+  %finite = scalar.fptrunc %12 : f32 to f8E5M2
+  func.return %sum, %difference, %product, %finite : f8E5M2, f8E5M2, f8E5M2, f8E5M2
+}
+
+// ====
+
+func.def @f8e5m2_vector_arithmetic(%lhs: vector<3xf8E5M2>, %rhs: vector<3xf8E5M2>) -> (vector<3xf8E5M2>, vector<3xf8E5M2>, vector<3xf8E5M2>, vector<3xf8E5M2>) {
+  %sum = vector.addf %lhs, %rhs : vector<3xf8E5M2>
+  %difference = vector.subf %lhs, %rhs : vector<3xf8E5M2>
+  %product = vector.mulf %lhs, %rhs : vector<3xf8E5M2>
+  %finite = vector.addf<nnan|ninf> %lhs, %rhs : vector<3xf8E5M2>
+  func.return %sum, %difference, %product, %finite : vector<3xf8E5M2>, vector<3xf8E5M2>, vector<3xf8E5M2>, vector<3xf8E5M2>
+}
+
+// ----
+func.def @f8e5m2_vector_arithmetic(%lhs: vector<3xf8E5M2>, %rhs: vector<3xf8E5M2>) -> (vector<3xf8E5M2>, vector<3xf8E5M2>, vector<3xf8E5M2>, vector<3xf8E5M2>) {
+  %22 = vector.extf %lhs : vector<3xf8E5M2> to vector<3xf32>
+  %23 = vector.extf %rhs : vector<3xf8E5M2> to vector<3xf32>
+  %24 = vector.addf %22, %23 : vector<3xf32>
+  %sum = vector.fptrunc %24 : vector<3xf32> to vector<3xf8E5M2>
+  %18 = vector.extf %lhs : vector<3xf8E5M2> to vector<3xf32>
+  %19 = vector.extf %rhs : vector<3xf8E5M2> to vector<3xf32>
+  %20 = vector.subf %18, %19 : vector<3xf32>
+  %difference = vector.fptrunc %20 : vector<3xf32> to vector<3xf8E5M2>
+  %14 = vector.extf %lhs : vector<3xf8E5M2> to vector<3xf32>
+  %15 = vector.extf %rhs : vector<3xf8E5M2> to vector<3xf32>
+  %16 = vector.mulf %14, %15 : vector<3xf32>
+  %product = vector.fptrunc %16 : vector<3xf32> to vector<3xf8E5M2>
+  %10 = vector.extf %lhs : vector<3xf8E5M2> to vector<3xf32>
+  %11 = vector.extf %rhs : vector<3xf8E5M2> to vector<3xf32>
+  %12 = vector.addf<nnan|ninf> %10, %11 : vector<3xf32>
+  %finite = vector.fptrunc %12 : vector<3xf32> to vector<3xf8E5M2>
+  func.return %sum, %difference, %product, %finite : vector<3xf8E5M2>, vector<3xf8E5M2>, vector<3xf8E5M2>, vector<3xf8E5M2>
+}

@@ -392,17 +392,26 @@ TEST_F(AmdgpuSanitizerAccessTest, FeedsMaskedFailuresToSharedReportIsland) {
                                       sgpr_type, LOOM_LOCATION_UNKNOWN,
                                       &workgroup_id_op));
   const loom_value_id_t workgroup_id = loom_low_slice_result(workgroup_id_op);
+
+  loom_value_id_t report_address = LOOM_VALUE_ID_INVALID;
+  IREE_ASSERT_OK(loom_amdgpu_build_feedback_vgpr_registers(
+      &builder_, descriptor_set_, fault_address, /*expected_unit_count=*/2,
+      LOOM_LOCATION_UNKNOWN, &report_address));
+  loom_value_id_t report_workgroup_id = LOOM_VALUE_ID_INVALID;
+  IREE_ASSERT_OK(loom_amdgpu_build_feedback_vgpr_registers(
+      &builder_, descriptor_set_, workgroup_id, /*expected_unit_count=*/1,
+      LOOM_LOCATION_UNKNOWN, &report_workgroup_id));
   const loom_amdgpu_feedback_packet_source_t source = {
-      /*.dispatch_ptr=*/fault_address,
-      /*.workgroup_id_x=*/workgroup_id,
-      /*.workitem_id_x=*/workgroup_id,
+      /*.dispatch_ptr=*/report_address,
+      /*.workgroup_id_x=*/report_workgroup_id,
+      /*.workitem_id_x=*/report_workgroup_id,
   };
   const loom_amdgpu_sanitizer_access_report_t report = {
-      /*.access_kind=*/LOOM_AMDGPU_SANITIZER_ACCESS_KIND_READ,
-      /*.flags=*/LOOM_AMDGPU_SANITIZER_REPORT_FLAG_NONE,
-      /*.fault_address=*/fault_address,
-      /*.access_size=*/fault_address,
-      /*.site_id=*/fault_address,
+      /*.access_kind=*/LOOM_AMDGPU_ASAN_ACCESS_KIND_READ,
+      /*.flags=*/LOOM_AMDGPU_ASAN_REPORT_FLAG_NONE,
+      /*.fault_address=*/report_address,
+      /*.access_size=*/report_address,
+      /*.site_id=*/report_address,
       /*.shadow_address=*/check.shadow_address,
       /*.shadow_value=*/check.shadow_value,
   };
@@ -410,8 +419,8 @@ TEST_F(AmdgpuSanitizerAccessTest, FeedsMaskedFailuresToSharedReportIsland) {
   loom_amdgpu_sanitizer_access_report_island_t island = {};
   IREE_ASSERT_OK(loom_amdgpu_build_sanitizer_access_report_island(
       &builder_, descriptor_set_, body_block_, feedback_config_symbol,
-      LOOM_AMDGPU_SANITIZER_ACCESS_KIND_READ,
-      LOOM_AMDGPU_SANITIZER_REPORT_FLAG_NONE, LOOM_LOCATION_UNKNOWN, &island));
+      LOOM_AMDGPU_ASAN_ACCESS_KIND_READ, LOOM_AMDGPU_ASAN_REPORT_FLAG_NONE,
+      LOOM_LOCATION_UNKNOWN, &island));
 
   loom_builder_set_block(&builder_, body_block_);
   loom_amdgpu_sanitizer_access_report_failure_branch_t branch = {};

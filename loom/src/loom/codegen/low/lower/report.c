@@ -15,7 +15,6 @@
 #include "loom/codegen/low/lower/source_plan.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
-#include "loom/ops/func/ops.h"
 #include "loom/util/fact_cfg.h"
 
 enum {
@@ -530,12 +529,13 @@ iree_status_t loom_low_lower_source_op_execution_count_plus_one(
   uint16_t block_index = 0;
   if (body != NULL && function_block != NULL &&
       loom_region_try_block_index(body, function_block, &block_index)) {
-    const uint64_t* block_counts = NULL;
-    IREE_RETURN_IF_ERROR(
-        loom_low_lower_source_block_execution_counts(context, &block_counts));
-    if (block_counts == NULL ||
-        !loom_low_lower_report_multiply_u64(
-            execution_count, block_counts[block_index], &execution_count)) {
+    uint64_t block_count = 0;
+    bool block_count_exact = false;
+    IREE_RETURN_IF_ERROR(loom_low_lower_source_block_execution_count(
+        context, block_index, &block_count, &block_count_exact));
+    if (!block_count_exact ||
+        !loom_low_lower_report_multiply_u64(execution_count, block_count,
+                                            &execution_count)) {
       *out_execution_count_plus_one =
           LOOM_LOW_LOWER_MEMORY_REPORT_EXECUTION_COUNT_PLUS_ONE_UNKNOWN;
       return iree_ok_status();

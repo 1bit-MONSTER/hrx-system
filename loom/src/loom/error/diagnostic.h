@@ -59,18 +59,28 @@ static inline const char* loom_source_provenance_name(
   }
 }
 
-// A source range identifying a span of text in a source buffer.
-// Both offsets are byte positions into |source|. The range is
-// [start, end) — end is one past the last byte.
+// A recorded location with optional text. Filename and one-based coordinates
+// remain valid without source bytes; zero coordinates denote unavailable
+// values. Byte offsets are [start, end) within the identified source and may
+// be known even when its contents are unavailable; unknown offsets are zero.
 typedef struct loom_source_range_t {
+  // Whether text is original, printed IR, or unavailable.
   loom_source_provenance_t provenance;
+  // Borrowed identity, independent of source-text availability.
   iree_string_view_t filename;
+  // Optional borrowed source buffer backing the byte offsets.
   iree_string_view_t source;
+  // First byte in the range.
   iree_host_size_t start;
+  // One past the last byte in the range.
   iree_host_size_t end;
+  // One-based starting line, or zero when unknown.
   uint32_t start_line;
+  // One-based starting column, or zero when unknown.
   uint32_t start_column;
+  // One-based ending line, or zero when unknown.
   uint32_t end_line;
+  // One-based ending column, or zero when unknown.
   uint32_t end_column;
 } loom_source_range_t;
 

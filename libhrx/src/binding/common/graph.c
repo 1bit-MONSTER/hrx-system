@@ -6,9 +6,13 @@
 
 #include "common/graph.h"
 
-#include "common/internal.h"
+#include "common/context.h"
+#include "common/device.h"
+#include "common/event.h"
 #include "common/kernel_arguments.h"
 #include "common/memory.h"
+#include "common/module.h"
+#include "common/stream_value.h"
 
 //===----------------------------------------------------------------------===//
 // iree_hal_streaming_graph_t (template)

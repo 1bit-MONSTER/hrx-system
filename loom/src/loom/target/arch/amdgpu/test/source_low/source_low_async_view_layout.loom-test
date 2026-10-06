@@ -28,9 +28,9 @@ low.kernel.def target<amdgpu.cdna3.core>(@target) abi_layout({constant_count = 0
   %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
   %global = resource<hal_binding> {extent = 1012, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %16 = storage {byte_alignment = 16, byte_length = 256} : low.storage<workgroup>
-  %18 = v_lshlrev_b32_src0_inline %lane, 4
-  %19 = s_mov_b32_m0_imm 0
-  global_load_lds_dword_saddr %18, %global, %19
+  %17 = v_lshlrev_b32_src0_inline %lane, 4
+  %18 = s_mov_b32_m0_imm 0
+  global_load_lds_dword_saddr %17, %global, %18
   s_waitcnt {vmcnt = 0}
   return
 }

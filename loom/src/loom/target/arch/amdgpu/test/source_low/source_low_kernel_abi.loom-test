@@ -92,16 +92,17 @@ kernel.def target(@target) export("narrow_argument_i8") @narrow_argument_i8() {
 }
 
 // ----
-low.kernel.def target<amdgpu.rdna3.core>(@target) abi_layout({constant_count = 1, direct_arg_count = 1, direct_arg_names = {arg0 = "value"}, direct_arg_offsets = [8], direct_arg_parameter_indices = [1], direct_arg_sizes = [4], parameter_count = 3, resource_count = 2, resource_offsets = [0, 16], resource_parameter_indices = [0, 2], uses_kernarg_segment_ptr = true}) export("narrow_argument_i8") workgroup_size(64, 1, 1) workgroup_count(1, 1, 1) @narrow_argument_i8(%signed_value: reg<amdgpu.sgpr>) asm {
+low.kernel.def target<amdgpu.rdna3.core>(@target) abi_layout({constant_count = 1, direct_arg_count = 1, direct_arg_names = {arg0 = "value"}, direct_arg_offsets = [8], direct_arg_parameter_indices = [1], direct_arg_sizes = [4], parameter_count = 3, resource_count = 2, resource_offsets = [0, 16], resource_parameter_indices = [0, 2], uses_kernarg_segment_ptr = true}) export("narrow_argument_i8") workgroup_size(64, 1, 1) workgroup_count(1, 1, 1) @narrow_argument_i8(%value: reg<amdgpu.sgpr>) asm {
   %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
   %raw_view = resource<hal_binding> {extent = 65, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %extended_view = resource<hal_binding> {extent = 516, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
-  %18 = v_mov_b32_copy %signed_value
+  %18 = v_mov_b32_copy %value
+  %signed_value = v_bfe_i32_offset_width_inline %18 {offset = 0, width = 8}
   %unsigned_value = v_and_b32_lit %18, 255
   global_store_b8_saddr %lane, %18, %raw_view {offset = 1}
-  %22 = v_lshlrev_b32_src0_inline %lane, 2
-  global_store_b32_saddr %22, %18, %extended_view {offset = 4}
-  global_store_b32_saddr %22, %unsigned_value, %extended_view {offset = 260}
+  %23 = v_lshlrev_b32_src0_inline %lane, 2
+  global_store_b32_saddr %23, %signed_value, %extended_view {offset = 4}
+  global_store_b32_saddr %23, %unsigned_value, %extended_view {offset = 260}
   return
 }
 
@@ -130,16 +131,17 @@ kernel.def target(@target) export("narrow_argument_i16") @narrow_argument_i16() 
 }
 
 // ----
-low.kernel.def target<amdgpu.rdna3.core>(@target) abi_layout({constant_count = 1, direct_arg_count = 1, direct_arg_names = {arg0 = "value"}, direct_arg_offsets = [8], direct_arg_parameter_indices = [1], direct_arg_sizes = [4], parameter_count = 3, resource_count = 2, resource_offsets = [0, 16], resource_parameter_indices = [0, 2], uses_kernarg_segment_ptr = true}) export("narrow_argument_i16") workgroup_size(64, 1, 1) workgroup_count(1, 1, 1) @narrow_argument_i16(%signed_value: reg<amdgpu.sgpr>) asm {
+low.kernel.def target<amdgpu.rdna3.core>(@target) abi_layout({constant_count = 1, direct_arg_count = 1, direct_arg_names = {arg0 = "value"}, direct_arg_offsets = [8], direct_arg_parameter_indices = [1], direct_arg_sizes = [4], parameter_count = 3, resource_count = 2, resource_offsets = [0, 16], resource_parameter_indices = [0, 2], uses_kernarg_segment_ptr = true}) export("narrow_argument_i16") workgroup_size(64, 1, 1) workgroup_count(1, 1, 1) @narrow_argument_i16(%value: reg<amdgpu.sgpr>) asm {
   %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
   %raw_view = resource<hal_binding> {extent = 130, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %extended_view = resource<hal_binding> {extent = 516, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
-  %18 = v_mov_b32_copy %signed_value
+  %18 = v_mov_b32_copy %value
+  %signed_value = v_bfe_i32_offset_width_inline %18 {offset = 0, width = 16}
   %unsigned_value = v_and_b32_lit %18, 65535
-  %21 = v_lshlrev_b32_src0_inline %lane, 1
-  global_store_short_saddr %21, %18, %raw_view {offset = 2}
-  %23 = v_lshlrev_b32_src0_inline %lane, 2
-  global_store_b32_saddr %23, %18, %extended_view {offset = 4}
-  global_store_b32_saddr %23, %unsigned_value, %extended_view {offset = 260}
+  %23 = v_lshlrev_b32_src0_inline %lane, 1
+  global_store_short_saddr %23, %18, %raw_view {offset = 2}
+  %24 = v_lshlrev_b32_src0_inline %lane, 2
+  global_store_b32_saddr %24, %signed_value, %extended_view {offset = 4}
+  global_store_b32_saddr %24, %unsigned_value, %extended_view {offset = 260}
   return
 }

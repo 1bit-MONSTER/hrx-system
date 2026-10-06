@@ -92,3 +92,50 @@ pipeline.def<kernel> public retain target(@array_target) @equal_count_different_
   pipeline.write %output_flow to %output_view : pipeline.flow<tile<4xi32>>, view<1x3x2x4xi32>
   pipeline.return
 }
+
+// ====
+
+// RUN: pass aie2p-lower-pipeline
+
+aie2p.target<array> @array_target
+
+// ERROR@+1: XDNA/008 {scope="generic"}
+pipeline.def target(@array_target) @generic_scope() launch() {
+  pipeline.return
+}
+
+// ====
+
+// ERROR@+1: TARGET/009 {pipeline_name="aie2p-lower-pipeline", function_name="missing_array_target"}
+pipeline.def<kernel> @missing_array_target() launch() {
+  pipeline.return
+}
+
+// ====
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+func.def target(@core_target) @copy_record(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<1xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<1xi32>
+  %value = view.load %input_view[0] : view<1xi32> -> i32
+  view.store %value, %output_view[0] : i32, view<1xi32>
+  func.return
+}
+
+// The graph fits the physical coordinate domain but not its compute rows.
+// ERROR@+1: XDNA/009 {instance_count="33", compute_tile_count="32"}
+pipeline.def<kernel> target(@array_target) @too_many_resident_workers() launch(%input: buffer, %output: buffer) {
+  %lane_count = index.constant 33 : index
+  %base = index.constant 0 : offset
+  %workers = group.create %lane_count : index -> group
+  %input_view = buffer.view %input[%base] : buffer -> view<33x1xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<33x1xi32>
+  %source = pipeline.scatter %input_view across %workers : view<33x1xi32>, group -> pipeline.flow<tile<1xi32>>
+  %result = pipeline.stage @copy_record on %workers(%source) : (group, pipeline.flow<tile<1xi32>>) -> (pipeline.flow<tile<1xi32>>)
+  pipeline.write %result to %output_view : pipeline.flow<tile<1xi32>>, view<33x1xi32>
+  pipeline.return
+}

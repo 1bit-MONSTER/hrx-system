@@ -1,0 +1,21 @@
+// RUN: emit source-low target=vm:core output=none
+
+// VM atomics use the host's floating-point environment, so they cannot promise
+// preservation independently of that environment.
+func.def @atomic_reduce_requires_preserving_environment(%input: buffer, %value: f32) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<1xf32>
+  // ERROR@+1: TARGET/003 {subject_role="flags", subject_name="memory_flags", constraint_key="has_none.noftz"}
+  view.atomic.reduce<addf, noftz> %value, %view[0] {ordering = relaxed, scope = device} : f32, view<1xf32>
+  func.return
+}
+
+// ====
+
+func.def @atomic_rmw_requires_preserving_environment(%input: buffer, %value: f32) -> (f32) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<1xf32>
+  // ERROR@+1: TARGET/003 {subject_role="flags", subject_name="memory_flags", constraint_key="has_none.noftz"}
+  %old = view.atomic.rmw<addf, noftz> %value, %view[0] {ordering = relaxed, scope = device} : f32, view<1xf32> -> f32
+  func.return %old : f32
+}

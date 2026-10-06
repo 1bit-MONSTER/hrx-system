@@ -27,6 +27,7 @@
 #include "loom/target/arch/amdgpu/amdhsa_target_id.h"
 #include "loom/target/arch/amdgpu/artifact_key.h"
 #include "loom/target/arch/amdgpu/descriptors/low_registry.h"
+#include "loom/target/arch/amdgpu/error_catalog.h"
 #include "loom/target/arch/amdgpu/matrix/contract.h"
 #include "loom/target/arch/amdgpu/planning/wait_counters.h"
 #include "loom/target/arch/amdgpu/profile.h"
@@ -41,6 +42,7 @@
 #include "loom/target/profile.h"
 #include "loom/testing/diagnostic_matchers.h"
 #include "loom/tooling/compile/pipeline.h"
+#include "loom/transforms/cleanup/configured.h"
 
 namespace loom {
 namespace {
@@ -441,51 +443,6 @@ class AmdgpuHalKernelLibraryTest : public ::testing::Test {
         ParseSource(iree_make_cstring_view(kSource), out_module));
   }
 
-  void ParseWorkgroupStorageKernel(iree_string_view_t processor_name,
-                                   uint64_t byte_length,
-                                   loom_module_t** out_module) {
-    const loom_amdgpu_target_info_t* target = nullptr;
-    IREE_ASSERT_OK(
-        loom_amdgpu_target_info_lookup_target(processor_name, &target));
-
-    std::string source = "amdgpu.target<";
-    source.append(processor_name.data, processor_name.size);
-    source +=
-        "> @gfx_target\n"
-        "low.kernel.def target<";
-    source.append(target->descriptor_set_key.data,
-                  target->descriptor_set_key.size);
-    source +=
-        ">(@gfx_target) workgroup_size(1, 1, 1) "
-        "@loom_kernel() {\n"
-        "  %storage = low.storage.reserve {byte_alignment = 16, "
-        "byte_length = ";
-    source += std::to_string(byte_length);
-    source +=
-        "} : low.storage<workgroup>\n"
-        "  low.return\n"
-        "}\n";
-    ASSERT_NO_FATAL_FAILURE(ParseSource(
-        iree_make_string_view(source.data(), source.size()), out_module));
-  }
-
-  void EmitWorkgroupStorageKernel(
-      iree_string_view_t processor_name, uint64_t byte_length,
-      DiagnosticCapture* capture, bool* out_emitted,
-      loom_amdgpu_hal_kernel_library_t* out_library) {
-    loom_module_t* module = nullptr;
-    ASSERT_NO_FATAL_FAILURE(
-        ParseWorkgroupStorageKernel(processor_name, byte_length, &module));
-
-    loom_amdgpu_hal_kernel_library_options_t options = {};
-    options.diagnostic_sink = capture->sink();
-    options.max_errors = 20;
-    iree_status_t status = loom_amdgpu_emit_hal_kernel_library(
-        module, &options, iree_allocator_system(), out_emitted, out_library);
-    loom_module_free(module);
-    IREE_ASSERT_OK(status);
-  }
-
   void ParseGfx11KernelWithArguments(loom_module_t** out_module) {
     static const char kSource[] =
         "amdgpu.target<gfx1100> @gfx_target\n"
@@ -560,6 +517,26 @@ class AmdgpuHalKernelLibraryTest : public ::testing::Test {
         ParseSource(iree_make_cstring_view(kSource), out_module));
   }
 
+  void ParseGfx942FeatureDistinctMultiKernel(loom_module_t** out_module) {
+    static const char kSource[] =
+        "amdgpu.target<gfx942> @first_target "
+        "{features = [-sramecc, -xnack]}\n"
+        "amdgpu.target<gfx942> @second_target "
+        "{features = [sramecc, -xnack]}\n"
+        "low.kernel.def target<amdgpu.cdna3.core>(@first_target) "
+        "workgroup_size(64, 1, 1) "
+        "@first_kernel() {\n"
+        "  low.return\n"
+        "}\n"
+        "low.kernel.def target<amdgpu.cdna3.core>(@second_target) "
+        "workgroup_size(64, 1, 1) "
+        "@second_kernel() {\n"
+        "  low.return\n"
+        "}\n";
+    ASSERT_NO_FATAL_FAILURE(
+        ParseSource(iree_make_cstring_view(kSource), out_module));
+  }
+
   void ParseGfx11SourceSanitizerKernels(loom_module_t** out_module) {
     static const char kSource[] =
         "amdgpu.target<gfx1100> @gfx_target\n"
@@ -603,6 +580,8 @@ class AmdgpuHalKernelLibraryTest : public ::testing::Test {
     loom_compile_pipeline_options_initialize(&options);
     options.target_environment = &target_environment_;
     options.low_descriptor_registry = &low_registry_;
+    options.cleanup_pattern_provider_set =
+        loom_cleanup_configured_pattern_provider_set();
     options.diagnostic_sink = capture->sink();
     options.max_errors = 20;
     loom_compile_pipeline_result_t result = {};
@@ -673,7 +652,7 @@ class AmdgpuHalKernelLibraryTest : public ::testing::Test {
     loom_amdgpu_hal_kernel_library_options_t options = {};
     options.diagnostic_sink = capture->sink();
     options.max_errors = 20;
-    iree_status_t status = loom_amdgpu_emit_hal_kernel_library(
+    iree_status_t status = loom_amdgpu_compile_hal_kernel_library(
         module, &options, iree_allocator_system(), out_emitted, &library);
     loom_amdgpu_hal_kernel_library_deinitialize(&library,
                                                 iree_allocator_system());
@@ -793,11 +772,13 @@ TEST_F(AmdgpuHalKernelLibraryTest,
   options.report = &report;
   bool emitted = false;
   loom_amdgpu_hal_kernel_library_t library = {};
-  IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+  IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
       module, &options, iree_allocator_system(), &emitted, &library));
 
   EXPECT_TRUE(emitted) << DiagnosticSummary(capture);
   EXPECT_TRUE(capture.diagnostics.empty()) << DiagnosticSummary(capture);
+  EXPECT_TRUE(
+      iree_string_view_equal(report.target_family_name, IREE_SV("amdgpu")));
   char expected_target_key_storage[128] = {};
   iree_string_view_t expected_target_key = iree_string_view_empty();
   IREE_ASSERT_OK(loom_amdgpu_artifact_key_format(
@@ -857,7 +838,7 @@ TEST_F(AmdgpuHalKernelLibraryTest, RejectsIncompatibleRepresentationContract) {
   options.max_errors = 20;
   bool emitted = true;
   loom_amdgpu_hal_kernel_library_t library = {};
-  IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+  IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
       module, &options, iree_allocator_system(), &emitted, &library));
 
   EXPECT_FALSE(emitted);
@@ -898,7 +879,7 @@ TEST_F(AmdgpuHalKernelLibraryTest, EmitsGfx1250HardwareEntryEnvelope) {
   options.max_errors = 20;
   options.report = &report;
   bool emitted = false;
-  IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+  IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
       module, &options, iree_allocator_system(), &emitted, &library));
 
   EXPECT_TRUE(emitted) << DiagnosticSummary(capture);
@@ -962,7 +943,7 @@ TEST_F(AmdgpuHalKernelLibraryTest, EmitsDynamicLocalSizeKernel) {
   options.max_errors = 20;
   options.artifact_manifest = artifact_manifest_options;
   bool emitted = false;
-  IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+  IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
       module, &options, iree_allocator_system(), &emitted, &library));
 
   EXPECT_TRUE(emitted) << DiagnosticSummary(capture);
@@ -988,84 +969,6 @@ TEST_F(AmdgpuHalKernelLibraryTest, EmitsDynamicLocalSizeKernel) {
   loom_amdgpu_hal_kernel_library_deinitialize(&library,
                                               iree_allocator_system());
   loom_module_free(module);
-}
-
-TEST_F(AmdgpuHalKernelLibraryTest,
-       RejectsGfx11FinalWorkgroupStorageAboveTargetLimit) {
-  DiagnosticCapture capture;
-  loom_amdgpu_hal_kernel_library_t library = {};
-  bool emitted = true;
-  ASSERT_NO_FATAL_FAILURE(EmitWorkgroupStorageKernel(
-      IREE_SV("gfx1100"), 65540, &capture, &emitted, &library));
-
-  EXPECT_FALSE(emitted);
-  ASSERT_EQ(capture.diagnostics.size(), 1u) << DiagnosticSummary(capture);
-  const CapturedDiagnostic* diagnostic =
-      FindDiagnostic(capture, LOOM_ERR_TARGET_051);
-  ASSERT_NE(diagnostic, nullptr);
-  EXPECT_EQ(GetStringParam(*diagnostic, 0), "loom_kernel");
-  EXPECT_EQ(GetStringParam(*diagnostic, 1), "gfx1100");
-  ASSERT_EQ(diagnostic->params.size(), 4u);
-  ASSERT_EQ(diagnostic->params[2].kind, LOOM_PARAM_U64);
-  EXPECT_EQ(diagnostic->params[2].u64, 65540u);
-  ASSERT_EQ(diagnostic->params[3].kind, LOOM_PARAM_U64);
-  EXPECT_EQ(diagnostic->params[3].u64, 65536u);
-
-  loom_amdgpu_hal_kernel_library_deinitialize(&library,
-                                              iree_allocator_system());
-}
-
-TEST_F(AmdgpuHalKernelLibraryTest, AcceptsGfx125xLargeWorkgroupStorage) {
-  static constexpr const char* kProcessors[] = {"gfx1250", "gfx1251"};
-  for (const char* processor_name : kProcessors) {
-    SCOPED_TRACE(processor_name);
-    DiagnosticCapture capture;
-    loom_amdgpu_hal_kernel_library_t library = {};
-    bool emitted = false;
-    ASSERT_NO_FATAL_FAILURE(
-        EmitWorkgroupStorageKernel(iree_make_cstring_view(processor_name),
-                                   114688, &capture, &emitted, &library));
-
-    EXPECT_TRUE(emitted) << DiagnosticSummary(capture);
-    EXPECT_TRUE(capture.diagnostics.empty()) << DiagnosticSummary(capture);
-    EXPECT_NE(library.hsaco_data, nullptr);
-    EXPECT_NE(iree_string_view_find(library.target_key,
-                                    iree_make_cstring_view(processor_name), 0),
-              IREE_STRING_VIEW_NPOS);
-
-    loom_amdgpu_hal_kernel_library_deinitialize(&library,
-                                                iree_allocator_system());
-  }
-}
-
-TEST_F(AmdgpuHalKernelLibraryTest,
-       RejectsGfx125xWorkgroupStorageAboveTargetLimit) {
-  static constexpr const char* kProcessors[] = {"gfx1250", "gfx1251"};
-  for (const char* processor_name : kProcessors) {
-    SCOPED_TRACE(processor_name);
-    DiagnosticCapture capture;
-    loom_amdgpu_hal_kernel_library_t library = {};
-    bool emitted = true;
-    ASSERT_NO_FATAL_FAILURE(
-        EmitWorkgroupStorageKernel(iree_make_cstring_view(processor_name),
-                                   327681, &capture, &emitted, &library));
-
-    EXPECT_FALSE(emitted);
-    ASSERT_EQ(capture.diagnostics.size(), 1u) << DiagnosticSummary(capture);
-    const CapturedDiagnostic* diagnostic =
-        FindDiagnostic(capture, LOOM_ERR_TARGET_051);
-    ASSERT_NE(diagnostic, nullptr);
-    EXPECT_EQ(GetStringParam(*diagnostic, 0), "loom_kernel");
-    EXPECT_EQ(GetStringParam(*diagnostic, 1), processor_name);
-    ASSERT_EQ(diagnostic->params.size(), 4u);
-    ASSERT_EQ(diagnostic->params[2].kind, LOOM_PARAM_U64);
-    EXPECT_EQ(diagnostic->params[2].u64, 327681u);
-    ASSERT_EQ(diagnostic->params[3].kind, LOOM_PARAM_U64);
-    EXPECT_EQ(diagnostic->params[3].u64, 327680u);
-
-    loom_amdgpu_hal_kernel_library_deinitialize(&library,
-                                                iree_allocator_system());
-  }
 }
 
 TEST_F(AmdgpuHalKernelLibraryTest, EmitsEveryLinkedCanonicalTarget) {
@@ -1094,7 +997,7 @@ TEST_F(AmdgpuHalKernelLibraryTest, EmitsEveryLinkedCanonicalTarget) {
     options.diagnostic_sink = capture.sink();
     options.max_errors = 20;
     bool emitted = false;
-    IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+    IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
         module, &options, iree_allocator_system(), &emitted, &library))
         << StringViewToString(target->name);
 
@@ -1229,7 +1132,7 @@ TEST_F(AmdgpuHalKernelLibraryTest,
     options.max_errors = 20;
     options.artifact_manifest = manifest_options;
     bool emitted = false;
-    IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+    IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
         module, &options, iree_allocator_system(), &emitted, &library));
     EXPECT_TRUE(emitted) << DiagnosticSummary(capture);
     EXPECT_TRUE(capture.diagnostics.empty()) << DiagnosticSummary(capture);
@@ -1240,12 +1143,7 @@ TEST_F(AmdgpuHalKernelLibraryTest,
     std::string hsaco;
     IREE_ASSERT_OK(CloneByteSequenceToString(library.hsaco_data, &hsaco));
     ASSERT_GE(hsaco.size(), 64u);
-    loom_amdgpu_amdhsa_target_id_t parsed_target_id = {};
-    IREE_ASSERT_OK(loom_amdgpu_amdhsa_target_id_parse(code_object_target_view,
-                                                      &parsed_target_id));
-    uint32_t expected_elf_flags = 0;
-    IREE_ASSERT_OK(loom_amdgpu_amdhsa_target_id_elf_flags(&parsed_target_id,
-                                                          &expected_elf_flags));
+    const uint32_t expected_elf_flags = loom_amdgpu_amdhsa_elf_flags(&identity);
     EXPECT_EQ(LoadLeU32(hsaco, 48), expected_elf_flags);
     EXPECT_NE(hsaco.find(code_object_target), std::string::npos);
 
@@ -1330,7 +1228,7 @@ TEST_F(AmdgpuHalKernelLibraryTest, RecordsMatrixFeatureCapabilities) {
     options.max_errors = 20;
     options.report = &report;
     bool emitted = false;
-    IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+    IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
         module, &options, iree_allocator_system(), &emitted, &library))
         << test_case.processor_name;
 
@@ -1396,7 +1294,7 @@ TEST_F(AmdgpuHalKernelLibraryTest, RecordsTensorWaitCounter) {
   options.max_errors = 20;
   options.report = &report;
   bool emitted = false;
-  IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+  IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
       module, &options, iree_allocator_system(), &emitted, &library));
 
   EXPECT_TRUE(emitted) << DiagnosticSummary(capture);
@@ -1422,7 +1320,7 @@ TEST_F(AmdgpuHalKernelLibraryTest, EmitsArgumentMetadataFromLowKernelAbi) {
   options.diagnostic_sink = capture.sink();
   options.max_errors = 20;
   bool emitted = false;
-  IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+  IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
       module, &options, iree_allocator_system(), &emitted, &library));
 
   EXPECT_TRUE(emitted);
@@ -1453,7 +1351,7 @@ TEST_F(AmdgpuHalKernelLibraryTest, EmitsAllCompatibleKernels) {
   options.max_errors = 20;
   options.report = &report;
   bool emitted = false;
-  IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+  IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
       module, &options, iree_allocator_system(), &emitted, &library));
 
   EXPECT_TRUE(emitted);
@@ -1482,20 +1380,90 @@ TEST_F(AmdgpuHalKernelLibraryTest, EmitsAllCompatibleKernels) {
   loom_module_free(module);
 }
 
-TEST_F(AmdgpuHalKernelLibraryTest, EmitsRequestedRuntimeGlobals) {
+TEST_F(AmdgpuHalKernelLibraryTest,
+       RejectsFeatureDistinctCodeObjectTargetsBeforeEmission) {
+  if (!IsDescriptorSetLinked(IREE_SV("amdgpu.cdna3.core"))) {
+    GTEST_SKIP() << "amdgpu.cdna3.core is not linked in this build";
+  }
+  loom_module_t* module = nullptr;
+  ASSERT_NO_FATAL_FAILURE(ParseGfx942FeatureDistinctMultiKernel(&module));
+
+  DiagnosticCapture capture;
+  loom_amdgpu_hal_kernel_library_t library = {};
+  loom_amdgpu_hal_kernel_library_options_t options = {};
+  options.diagnostic_sink = capture.sink();
+  options.max_errors = 20;
+  bool emitted = true;
+  IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
+      module, &options, iree_allocator_system(), &emitted, &library));
+
+  EXPECT_FALSE(emitted);
+  EXPECT_EQ(library.hsaco_data, nullptr);
+  ASSERT_EQ(capture.diagnostics.size(), 1u) << DiagnosticSummary(capture);
+  const CapturedDiagnostic* diagnostic =
+      FindDiagnostic(capture, LOOM_ERR_AMDGPU_051);
+  ASSERT_NE(diagnostic, nullptr);
+  EXPECT_EQ(GetStringParam(*diagnostic, 0), "second_kernel");
+  EXPECT_NE(GetStringParam(*diagnostic, 1).find("sramecc+"), std::string::npos);
+  EXPECT_EQ(GetStringParam(*diagnostic, 2), "first_kernel");
+  EXPECT_NE(GetStringParam(*diagnostic, 3).find("sramecc-"), std::string::npos);
+
+  loom_amdgpu_hal_kernel_library_deinitialize(&library,
+                                              iree_allocator_system());
+  loom_module_free(module);
+}
+
+TEST_F(AmdgpuHalKernelLibraryTest,
+       OmitsRuntimeGlobalsAbsentFromTargetLowModule) {
   loom_module_t* module = nullptr;
   ASSERT_NO_FATAL_FAILURE(ParseGfx11Kernel(&module));
 
   DiagnosticCapture capture;
   loom_amdgpu_hal_kernel_library_t library = {};
   loom_amdgpu_hal_kernel_library_options_t options = {};
-  options.runtime_globals = LOOM_AMDGPU_RUNTIME_GLOBAL_ASAN_CONFIG |
-                            LOOM_AMDGPU_RUNTIME_GLOBAL_TSAN_CONFIG |
-                            LOOM_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG;
   options.diagnostic_sink = capture.sink();
   options.max_errors = 20;
   bool emitted = false;
-  IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+  IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
+      module, &options, iree_allocator_system(), &emitted, &library));
+
+  EXPECT_TRUE(emitted);
+  EXPECT_TRUE(capture.diagnostics.empty());
+  ASSERT_NE(library.hsaco_data, nullptr);
+  std::string hsaco;
+  IREE_ASSERT_OK(CloneByteSequenceToString(library.hsaco_data, &hsaco));
+  EXPECT_EQ(hsaco.find(LOOM_AMDGPU_ASAN_CONFIG_GLOBAL_NAME), std::string::npos);
+  EXPECT_EQ(hsaco.find(LOOM_AMDGPU_TSAN_CONFIG_GLOBAL_NAME), std::string::npos);
+  EXPECT_EQ(hsaco.find(LOOM_AMDGPU_FEEDBACK_CONFIG_GLOBAL_NAME),
+            std::string::npos);
+
+  loom_amdgpu_hal_kernel_library_deinitialize(&library,
+                                              iree_allocator_system());
+  loom_module_free(module);
+}
+
+TEST_F(AmdgpuHalKernelLibraryTest,
+       EmitsRuntimeGlobalsDeclaredByTargetLowModule) {
+  static const char kSource[] =
+      "global.rodata.decl @iree_asan_config\n"
+      "global.rodata.decl @iree_tsan_config\n"
+      "global.rodata.decl @iree_feedback_config\n"
+      "amdgpu.target<gfx1100> @gfx_target\n"
+      "low.kernel.def target<amdgpu.rdna3.core>(@gfx_target) "
+      "workgroup_size(64, 1, 1) @loom_kernel() {\n"
+      "  low.return\n"
+      "}\n";
+  loom_module_t* module = nullptr;
+  ASSERT_NO_FATAL_FAILURE(
+      ParseSource(iree_make_cstring_view(kSource), &module));
+
+  DiagnosticCapture capture;
+  loom_amdgpu_hal_kernel_library_t library = {};
+  loom_amdgpu_hal_kernel_library_options_t options = {};
+  options.diagnostic_sink = capture.sink();
+  options.max_errors = 20;
+  bool emitted = false;
+  IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
       module, &options, iree_allocator_system(), &emitted, &library));
 
   EXPECT_TRUE(emitted);
@@ -1556,7 +1524,7 @@ TEST_F(AmdgpuHalKernelLibraryTest, EmitsRequestedRuntimeGlobals) {
 }
 
 TEST_F(AmdgpuHalKernelLibraryTest,
-       EmitsGfx1250CallerDataSymbolsAndRel32AddressMaterialization) {
+       EmitsGfx1250GlobalRodataAndRel32AddressMaterialization) {
   static constexpr char kSiteSymbolName[] = "loom_sanitizer_sites";
   static const uint8_t kSiteRecords[] = {
       0x00, 0x02, 0x03, 0x02, 0x01, 0x01, 0x00, 0x00,
@@ -1564,7 +1532,9 @@ TEST_F(AmdgpuHalKernelLibraryTest,
   };
   static const char kSource[] =
       "amdgpu.target<gfx1250> @gfx_target\n"
-      "global.rodata.decl @loom_sanitizer_sites\n"
+      "global.rodata.decl @iree_feedback_config\n"
+      "global.rodata.def @loom_sanitizer_sites = "
+      "align(16) bytes(\"00020302010100000001010601010000\")\n"
       "low.kernel.def target<amdgpu.gfx12_5.generic.core>(@gfx_target) "
       "workgroup_size(64, 1, 1) "
       "@loom_kernel() {\n"
@@ -1589,23 +1559,13 @@ TEST_F(AmdgpuHalKernelLibraryTest,
   ASSERT_NO_FATAL_FAILURE(
       ParseSource(iree_make_cstring_view(kSource), &module));
 
-  const loom_amdgpu_hsaco_data_symbol_t site_symbol = {
-      /*.name=*/IREE_SV(kSiteSymbolName),
-      /*.initial_contents=*/
-      iree_make_const_byte_span(kSiteRecords, sizeof(kSiteRecords)),
-      /*.byte_length=*/sizeof(kSiteRecords),
-      /*.alignment=*/16,
-  };
   DiagnosticCapture capture;
   loom_amdgpu_hal_kernel_library_t library = {};
   loom_amdgpu_hal_kernel_library_options_t options = {};
-  options.runtime_globals = LOOM_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG;
-  options.data_symbols = &site_symbol;
-  options.data_symbol_count = 1;
   options.diagnostic_sink = capture.sink();
   options.max_errors = 20;
   bool emitted = false;
-  IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+  IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
       module, &options, iree_allocator_system(), &emitted, &library));
 
   EXPECT_TRUE(emitted) << DiagnosticSummary(capture);
@@ -1675,11 +1635,10 @@ TEST_F(AmdgpuHalKernelLibraryTest, RejectsRel32AddWithoutPcProvenance) {
   DiagnosticCapture capture;
   loom_amdgpu_hal_kernel_library_t library = {};
   loom_amdgpu_hal_kernel_library_options_t options = {};
-  options.runtime_globals = LOOM_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG;
   options.diagnostic_sink = capture.sink();
   options.max_errors = 20;
   bool emitted = false;
-  iree::Status status(loom_amdgpu_emit_hal_kernel_library(
+  iree::Status status(loom_amdgpu_compile_hal_kernel_library(
       module, &options, iree_allocator_system(), &emitted, &library));
 
   EXPECT_EQ(status.code(), iree::StatusCode::kFailedPrecondition);
@@ -1699,6 +1658,7 @@ TEST_F(AmdgpuHalKernelLibraryTest,
   static const char kSource[] =
       "global.rodata.def @loom_sanitizer_sites = "
       "align(16) bytes(\"00020302010100000001010601010000\")\n"
+      "global.rodata.decl @iree_feedback_config\n"
       "amdgpu.target<gfx1100> @gfx_target\n"
       "low.kernel.def target<amdgpu.rdna3.core>(@gfx_target) "
       "workgroup_size(64, 1, 1) "
@@ -1727,11 +1687,10 @@ TEST_F(AmdgpuHalKernelLibraryTest,
   DiagnosticCapture capture;
   loom_amdgpu_hal_kernel_library_t library = {};
   loom_amdgpu_hal_kernel_library_options_t options = {};
-  options.runtime_globals = LOOM_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG;
   options.diagnostic_sink = capture.sink();
   options.max_errors = 20;
   bool emitted = false;
-  IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+  IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
       module, &options, iree_allocator_system(), &emitted, &library));
 
   EXPECT_TRUE(emitted);
@@ -1790,12 +1749,10 @@ TEST_F(AmdgpuHalKernelLibraryTest, EmitsSourceLoweredSanitizerSiteTableRodata) {
 
   loom_amdgpu_hal_kernel_library_t library = {};
   loom_amdgpu_hal_kernel_library_options_t options = {};
-  options.runtime_globals = LOOM_AMDGPU_RUNTIME_GLOBAL_ASAN_CONFIG |
-                            LOOM_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG;
   options.diagnostic_sink = capture.sink();
   options.max_errors = 20;
   bool emitted = false;
-  IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+  IREE_ASSERT_OK(loom_amdgpu_compile_hal_kernel_library(
       module, &options, iree_allocator_system(), &emitted, &library));
 
   EXPECT_TRUE(emitted);

@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Primitive bytecode encoding into streams and buffered section payloads.
+// Primitive bytecode encoding into streams and bounded record payloads.
 
 #ifndef LOOM_FORMAT_BYTECODE_WRITER_ENCODER_H_
 #define LOOM_FORMAT_BYTECODE_WRITER_ENCODER_H_
@@ -33,7 +33,7 @@ typedef struct loom_bytecode_page_writer_t {
   uint64_t total_written;
 } loom_bytecode_page_writer_t;
 
-// Contiguous payload storage for length prefixes and fixed-offset patching.
+// Contiguous payload storage for bounded length-prefixed records.
 // Growth copies only initialized bytes; all generations belong to |arena|.
 // The header must remain at a stable address while the builder is in use.
 typedef struct loom_bytecode_buffer_t {
@@ -100,31 +100,18 @@ iree_status_t loom_bytecode_page_writer_write_source_trivia(
 iree_status_t loom_bytecode_write_source_trivia_section(
     loom_bytecode_page_writer_t* writer, const loom_module_t* module);
 
-// Appends fixed-width little-endian integers to a buffered section payload.
+// Appends fixed-width little-endian integers to a bounded record payload.
 iree_status_t loom_bytecode_emit_u8(iree_string_builder_t* builder,
                                     uint8_t value);
-iree_status_t loom_bytecode_emit_u16_le(iree_string_builder_t* builder,
-                                        uint16_t value);
-iree_status_t loom_bytecode_emit_u32_le(iree_string_builder_t* builder,
-                                        uint32_t value);
 iree_status_t loom_bytecode_emit_u64_le(iree_string_builder_t* builder,
                                         uint64_t value);
 
 // Appends canonical unsigned or signed variable-width integers to a buffered
-// section payload.
+// record payload.
 iree_status_t loom_bytecode_emit_uvarint(iree_string_builder_t* builder,
                                          uint64_t value);
 iree_status_t loom_bytecode_emit_svarint(iree_string_builder_t* builder,
                                          int64_t value);
-
-// Patches an existing fixed-width little-endian integer in |builder|.
-void loom_bytecode_patch_u64_le(iree_string_builder_t* builder,
-                                iree_host_size_t offset, uint64_t value);
-
-// Appends source presentation to a buffered section payload.
-iree_status_t loom_bytecode_emit_source_trivia(
-    iree_string_builder_t* builder, bool leading_blank_line,
-    const iree_string_view_t* comments, iree_host_size_t comment_count);
 
 #ifdef __cplusplus
 }

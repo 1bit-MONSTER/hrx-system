@@ -34,19 +34,183 @@ owns the complete policy contract, including full unrolling and scheduling
 choices.
 
 Ordinary read-ahead fits loads and pure computation, including nested `scf.if`
-and `scf.for`. Each nested operation stays intact within its assigned stage.
+and `scf.for`. Each nested operation normally stays intact within its assigned
+stage.
 Read addresses, guards, inner bounds, and other producer prerequisites may
 depend on the induction variable and outer values, but cannot depend on the
-previous accumulator. Stores, explicit async groups, `scf.while`, and ordered
-effects receive diagnostics at depth greater than one. These
+previous accumulator. Global or unknown writes, global barriers, explicit async
+groups, `scf.while`, and source-order fences receive diagnostics at depth greater
+than one. Workgroup stores and barriers can stay in the ordered consumer of a
+fixed-bound loop, as described [below](#read-ahead-across-workgroup-staging). These
 policies are explicit; an unannotated loop receives no read-ahead transform.
 
 Cooperative reductions can also consume read-ahead values. A requested loop
 containing subgroup or workgroup collectives needs compile-time exact bounds;
-runtime tail guards can remain inside that fixed tile. Separate guarded reads
-from the collective consumer so each can retain its own stage. The
+runtime tail guards can remain inside that fixed tile. A top-level `scf.if` may
+keep guarded reads, a collective, and its ordered recurrence together in the
+source. When the guard and read prerequisites are independent of loop-carried
+state, the compiler retains the read closure as a guarded producer and the
+collective and update as its consumer. The
 [collective participation contract](../guide/functions-and-control.md#pipeline-reads-ahead-of-ordered-computation)
 explains this shape and its diagnostics.
+
+### Derive full tiles from a ragged loop
+
+A dynamic work count can still expose fixed collective tiles. A one-shot
+`scf.if` can guard one candidate tile; a repeated outer `scf.while` can forward
+the checked count through each successful continuation. On either true edge,
+`%remaining >= %tile_size` makes `index.min %remaining, %tile_size` exact in the
+enclosed region. The inner loop therefore has the fixed participation required
+for pipelining a subgroup reduction, and bare `unroll` can materialize every
+row. No duplicate `index.assume` is needed in the guarded region. The false
+edge only bounds the partial tail, which keeps its runtime cleanup schedule.
+
+The following repeated form forwards the checked count as
+`%active_remaining`; `%tile_end` is exactly eight in the body:
+
+```loom
+template.decl @guide.sum_full_tiles(%values: view<63x32xf32>, %lane: index, %count: index, %initial: f32) -> (index, index, f32)
+
+template.def<@guide.sum_full_tiles> @sum_full_tiles_impl(%values: view<63x32xf32>, %lane: index, %count: index, %initial: f32) -> (index, index, f32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %tile_size = index.constant 8 : index
+  %depth = index.constant 3 : index
+  %row = index.constant 0 : index
+  %remaining = index.assume %count [range(%count, 0, 63)] : index
+  %final_row, %tail_count, %full_sum = scf.while(%before_row = %row : index, %before_remaining = %remaining : index, %before_sum = %initial : f32) -> (index, index, f32) {
+    %has_full_tile = index.cmp sge, %before_remaining, %tile_size : index
+    scf.condition %has_full_tile, %before_row, %before_remaining, %before_sum : i1, index, index, f32
+  } do(%active_row: index, %active_remaining: index, %active_sum: f32) {
+    %tile_end = index.min %active_remaining, %tile_size : index
+    %next_sum = scf.for %tile_row = [%begin to %tile_end step %step](%sum = %active_sum : f32) -> (f32) pipeline(%depth) unroll schedule(recurrence) {
+      %source_row = index.add %active_row, %tile_row : index
+      %value = view.load %values[%source_row, %lane] : view<63x32xf32> -> f32
+      %row_sum = kernel.subgroup.reduce<addf> %value : f32
+      %updated = scalar.addf %sum, %row_sum : f32
+      scf.yield %updated : f32
+    }
+    %next_row = index.add %active_row, %tile_size : index
+    %next_remaining = index.sub %active_remaining, %tile_size : index
+    scf.yield %next_row, %next_remaining, %next_sum : index, index, f32
+  }
+  template.return %final_row, %tail_count, %full_sum : index, index, f32
+}
+```
+
+The outer loop remains sequential; only its annotated inner `scf.for` is
+scheduled. `%count` must be uniform across the subgroup because it controls
+whether participants reach the reduction. The returned `%tail_count` supports
+a separate fixed-width guarded tile or serial cleanup for the final partial
+tile.
+
+## Read ahead across workgroup staging
+
+A tiled kernel can issue future global loads while the current tile publishes
+values to shared memory, synchronizes, and consumes them. Keep the workgroup
+stores, publication barrier, shared reads or matrix operations, and overwrite
+barrier in their original order inside a fixed-bound `scf.for pipeline(%depth)`.
+The compiler advances only global loads and their independent prerequisites;
+the same shared allocation serves each consumer iteration.
+
+The [checked workgroup-staging example](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/test/corpus/control/schedule/ordered_read_ahead.loom)
+uses 128 work-items to publish two stripes, read another work-item's values, and
+reuse one shared allocation. Its inner `unroll` exposes each global load
+separately from its workgroup store. The template receives depth and unroll
+factor per caller. Independent integer expectations cover empty loops, loops
+shorter than the depth, startup/drain boundaries, and combined outer policies.
+
+Use a full linear inner unroll only where the source already calls for that
+finite expansion. A partial or interleaved inner schedule remains an intact
+unit and cannot split mixed global/workgroup accesses between stages. A
+read-only inner reduction can remain intact and queue its result instead of
+each individual load. The [read-ahead contract](../guide/functions-and-control.md#pipeline-reads-ahead-of-ordered-computation)
+defines the memory and participation requirements.
+
+Compare depth one and larger depths with identical arithmetic and shared-memory
+capacity. Check the final code for useful pending global loads across consumer
+work, alongside registers, spills, and device time. A source queue alone does
+not establish hardware overlap: reusing the registers that hold a pending
+load's address can force an early completion wait.
+
+## Overlap private work with shared-tile release
+
+Loop pipelining and split barriers expose different intervals. An
+`scf.for pipeline(%depth)` advances future global reads while the current
+iteration consumes a tile. It preserves the workgroup stores, publication
+barrier, shared reads, and barrier before tile reuse in source order. It does
+not turn that final barrier into a split operation.
+
+When every workitem has finished reading the current tile before performing
+independent private work, an authored split barrier can release the tile at
+that earlier point. The private work runs after arrival, and the matching wait
+remains immediately before the next iteration can overwrite the tile. Every
+participant must execute the same dynamic arrive/wait instances. Only ordinary
+per-invocation work and pure calls belong inside the interval.
+
+A targetless library can hide that target choice behind one template contract:
+
+```loom
+amdgpu.target<gfx12-generic> @gfx12
+
+template.decl @finish_shared_read(%value: i32, %sum: i32) -> (i32)
+
+template.def<@finish_shared_read> target(@gfx12) priority(20) @finish_shared_read_gfx12(%value: i32, %sum: i32) -> (i32) {
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  %updated = func.call pure @private_work(%value, %sum) : (i32, i32) -> (i32)
+  kernel.barrier.wait %phase : kernel.barrier.phase
+  template.return %updated : i32
+}
+
+template.def<@finish_shared_read> priority(1) @finish_shared_read_fallback(%value: i32, %sum: i32) -> (i32) {
+  %updated = func.call pure @private_work(%value, %sum) : (i32, i32) -> (i32)
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  template.return %updated : i32
+}
+```
+
+The [checked provider/fallback example](../generated/examples/guide/functions-and-control/split-barrier-reuse.loom)
+also covers GFX12.5, nested control that is subgroup-uniform for both split
+providers, pure helper calls, four reuse phases, and a bitwise comparison with
+a full-barrier reference. The same source compiles through complete barriers
+for CDNA3, GFX11, and SPIR-V.
+
+Save the checked source as `split-barrier-reuse.loom`, then compile the split
+and fallback realizations from the same input:
+
+```shell
+for target in gfx1100 gfx1200; do
+  loom-compile split-barrier-reuse.loom \
+    --root=@selected_barrier_reuse \
+    --target="amdgpu:${target}" --format=amdgpu-hsaco \
+    --output="split-barrier-${target}.hsaco" --compile-report=details \
+    --compile-report-output="split-barrier-${target}.report.json"
+  loom-compile-report show "split-barrier-${target}.report.json"
+done
+```
+
+Compile reports make the selected realization explicit. These excerpts are
+generated from the checked example during the documentation build. GFX12 uses
+separate complete, arrive, and wait plans:
+
+```text
+--8<-- "generated/examples/guide/functions-and-control/split-barrier-gfx1200.txt"
+```
+
+GFX11 selects the complete-barrier fallback:
+
+```text
+--8<-- "generated/examples/guide/functions-and-control/split-barrier-gfx1100.txt"
+```
+
+The report establishes which source contract reached the target and how many
+Low operations it emitted. Native output establishes the overlap window. On
+GFX12, confirm the final LDS read completes before `s_barrier_signal`, useful
+private instructions remain between signal and `s_barrier_wait`, and the wait
+precedes the next LDS overwrite. Compare registers, spills, modeled residency,
+code size, and runtime against the complete-barrier implementation. The split
+form is an explicit experiment, not an automatic claim that the larger live
+interval is profitable.
 
 ## Give each motif its own schedule
 
@@ -114,12 +278,21 @@ and [`guarded-read-ahead-tests.loom`](../generated/examples/guide/functions-and-
 --8<-- "examples/guide/functions-and-control/guarded-read-ahead.loom"
 ```
 
-The outer producer is the complete `%partial = scf.if`, including its inner
-loop and lane guard. Its result enters the queue, and the outer sum consumes
-that result in row order. The inner sum starts from its own identity; it does
-not capture the outer `%sum`. Capturing `%sum` anywhere in this read-containing
-unit would make read-ahead impossible and produce a diagnostic. A pure inner
-loop can instead remain in the consumer and use the outer carried state.
+In this example the outer producer is the complete `%partial = scf.if`,
+including its inner loop and lane guard. Its result enters the queue, and the
+outer sum consumes that result in row order. The inner sum starts from its own
+identity, so the whole conditional is independent of the outer `%sum` and can
+run ahead as one atomic unit.
+
+A top-level conditional can also contain both sides of the read-ahead cut. If
+exactly one branch reads, the condition and branch-local read closure may run
+ahead while the carried-state update remains ordered. The compiler rebuilds
+the original conditional at consumer distance with the queued predicate and
+loaded values; the opposite branch, result types, yields, and skipped-update
+behavior remain unchanged. A guard, address, or other producer prerequisite
+that depends on outer carried state still receives a diagnostic. The
+[cooperative paged-attention example](#pipeline-cooperative-paged-attention)
+uses this fused form with a collective consumer.
 
 Both loop levels may have their own explicit pipeline depth. The checked
 composed caller uses serial, outer-only, and inner-plus-outer pipelining in one
@@ -346,8 +519,11 @@ lanes does not introduce a new copy consumer. Entry and exit transfers still
 have costs; the final report exposes those along with registers and code size.
 
 Detailed AMDGPU reports retain each wait's block, producer, consumer, and
-outstanding counts. `suggest` identifies full load waits whose actual consumers
-are branch-payload copies. For the packed-dot example below it reports:
+block-local outstanding counts. `suggest` identifies full load waits whose
+actual consumers are branch-payload copies. A zero local count still denotes a
+planned residual counter-epoch or control-flow hazard when the producer crosses
+an edge; it does not prove that the hardware wait is redundant. For the
+packed-dot example below it reports:
 
 ```text
 --8<-- "generated/examples/guide/functions-and-control/pipeline-copy-waits.txt"
@@ -517,13 +693,15 @@ and processes a fixed tile of sixteen rows. Repeated physical pages and shared
 page tables retain their logical row order.
 
 Inside that tile, `pipeline(%depth) unroll(%factor)` advances guarded K/V loads
-ahead of the subgroup QK reduction and the online softmax/PV recurrence. A
-separate guarded consumer updates the maximum, denominator and output
-accumulator. The fixed row count preserves collective participation; the
-runtime tail predicate prevents accesses to rows beyond the sequence length.
-The outer page count remains dynamic. Both policies instantiate one template:
-the serial caller passes depth one, the pipelined caller depth three, and both
-pass unroll two.
+ahead of the subgroup QK reduction and the online softmax/PV recurrence. The
+source keeps the loads, reduction, and carried update in one natural
+`scf.if %valid`. The compiler retains the guarded load closure as the producer
+and rebuilds the reduction and update as the ordered consumer. The fixed row
+count preserves collective participation; the runtime tail predicate prevents
+both accesses and state updates beyond the sequence length. The outer page
+count remains dynamic. Both policies instantiate one template: the serial
+caller passes depth one, the pipelined caller depth three, and both pass unroll
+two.
 
 Save the example, check it, and compare the same workload and input-reuse policy:
 
@@ -550,6 +728,15 @@ Independent analytic checks cover the scalar state and all output channels;
 varied-input comparisons exercise distinct queries and ragged lengths over
 shared pages. Minimal backing allocations expose accidental reads from absent
 pages or inactive tail rows.
+
+The detailed report shows one authored conditional at two retained distances.
+Source position `2` is the guarded producer two iterations ahead and the
+ordered consumer at the current iteration; it does not denote two source
+conditionals:
+
+```text
+--8<-- "generated/examples/guide/functions-and-control/cooperative-pipeline-schedule.txt"
+```
 
 This resource comparison is generated from the two callers for `gfx1151`:
 

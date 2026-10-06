@@ -7,31 +7,12 @@
 #ifndef LOOMCXX_VIEW_H_
 #define LOOMCXX_VIEW_H_
 
-namespace loom::encoding {
-
-// Semantic role carried by an encoding value.
-enum class role { layout };
-
-}  // namespace loom::encoding
+#include <loomcxx/encoding_type.h>
 
 namespace loom::type {
 
-using size_type = __SIZE_TYPE__;
-
 // Marks an extent whose value is supplied when a view is constructed.
 inline constexpr size_type dynamic = ~size_type{0};
-
-// A value-owned address encoding for Rank logical axes. Its private object
-// storage preserves ordinary C++ copy, lifetime, and sizeof semantics; import
-// projects the object to one first-class Loom encoding value.
-template <loom::encoding::role Role, size_type Rank = 2>
-class [[loom::type("encoding")]] encoding {
-  static_assert(Role == loom::encoding::role::layout);
-  static_assert(Rank >= 1 && Rank <= 15);
-
-  // Source object storage preserving one machine-sized parameter per axis.
-  size_type parameters_[Rank];
-};
 
 // A typed, borrowed rank-two view. Static extents are part of its C++ type;
 // each dynamic extent is captured when the view is constructed. The private

@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "iree/base/internal/math.h"
+#include "loom/analysis/symbolic_congruence.h"
 #include "loom/analysis/symbolic_expr_proof.h"
 #include "loom/ir/attribute.h"
 #include "loom/ir/context.h"
@@ -16,6 +17,7 @@
 #include "loom/ops/encoding/storage.h"
 #include "loom/ops/kernel/ops.h"
 #include "loom/ops/view/ops.h"
+#include "loom/util/fact_cfg.h"
 
 //===----------------------------------------------------------------------===//
 // Storage
@@ -54,6 +56,31 @@ iree_status_t loom_view_region_table_initialize(
   memset(out_table, 0, sizeof(*out_table));
   out_table->expression_context = expression_context;
   out_table->value_domain = value_domain;
+  // Captured views can name backing roots absent from the source operands.
+  // Retain those fact-owned identities before allocating ordinal-keyed tables
+  // so read/write aggregation covers the captured storage as well as its views.
+  const loom_value_fact_table_t* fact_table = expression_context->fact_table;
+  for (loom_value_ordinal_t i = 0; i < value_domain->value_count; ++i) {
+    const loom_value_id_t value_id = value_domain->value_ids[i];
+    const loom_value_facts_t facts =
+        loom_value_fact_table_lookup(fact_table, value_id);
+    loom_value_id_t root = LOOM_VALUE_ID_INVALID;
+    loom_value_fact_buffer_reference_t buffer;
+    loom_value_fact_view_reference_t view;
+    if (loom_value_facts_query_buffer_reference(&fact_table->context, facts,
+                                                &buffer)) {
+      root =
+          loom_value_fact_buffer_reference_resolve_root_value(buffer, value_id);
+    } else if (loom_value_facts_query_view_reference(&fact_table->context,
+                                                     facts, &view)) {
+      root = view.root_value_id;
+    }
+    if (root != LOOM_VALUE_ID_INVALID) {
+      loom_value_ordinal_t root_ordinal;
+      IREE_RETURN_IF_ERROR(loom_local_value_domain_register_value(
+          value_domain, expression_context->arena, root, &root_ordinal));
+    }
+  }
   const iree_host_size_t value_count = value_domain->value_count;
   if (value_count == 0) {
     return iree_ok_status();
@@ -68,15 +95,15 @@ iree_status_t loom_view_region_table_initialize(
                                 (void**)&out_table->states_by_value_ordinal));
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       expression_context->arena, value_count,
-      sizeof(*out_table->root_access_flags_by_value_ordinal),
-      (void**)&out_table->root_access_flags_by_value_ordinal));
+      sizeof(*out_table->storage_flags_by_value_ordinal),
+      (void**)&out_table->storage_flags_by_value_ordinal));
   for (iree_host_size_t i = 0; i < value_count; ++i) {
     out_table->region_ids_by_value_ordinal[i] = LOOM_VIEW_REGION_ID_INVALID;
   }
   memset(out_table->states_by_value_ordinal, 0,
          value_count * sizeof(*out_table->states_by_value_ordinal));
-  memset(out_table->root_access_flags_by_value_ordinal, 0,
-         value_count * sizeof(*out_table->root_access_flags_by_value_ordinal));
+  memset(out_table->storage_flags_by_value_ordinal, 0,
+         value_count * sizeof(*out_table->storage_flags_by_value_ordinal));
   return iree_ok_status();
 }
 
@@ -960,6 +987,39 @@ static void loom_view_region_analyze_interference(
   }
 }
 
+// Access bits share the existing byte with the value's execution
+// correspondence.
+enum {
+  LOOM_VIEW_STORAGE_INVARIANT = 1u << 2,
+  // Temporary incoming-payload proof, consumed before type dependencies refine
+  // it.
+  LOOM_VIEW_STORAGE_JOIN_INVARIANT = 1u << 3,
+};
+
+typedef enum loom_view_region_analysis_phase_e {
+  LOOM_VIEW_REGION_ANALYZE_MEMORY,
+  LOOM_VIEW_REGION_ANALYZE_STABILITY,
+} loom_view_region_analysis_phase_t;
+
+static bool loom_view_region_value_is_invariant(
+    const loom_view_region_table_t* table, loom_value_id_t value_id) {
+  const loom_value_ordinal_t ordinal =
+      loom_local_value_domain_try_ordinal(table->value_domain, value_id);
+  return ordinal >= table->value_domain->definition_count ||
+         iree_any_bit_set(table->storage_flags_by_value_ordinal[ordinal],
+                          LOOM_VIEW_STORAGE_INVARIANT);
+}
+
+loom_view_access_flags_t loom_view_region_table_root_access_flags(
+    const loom_view_region_table_t* table, loom_value_id_t root_value_id) {
+  const loom_value_ordinal_t ordinal =
+      loom_local_value_domain_try_ordinal(table->value_domain, root_value_id);
+  return ordinal == LOOM_VALUE_ORDINAL_INVALID
+             ? 0
+             : table->storage_flags_by_value_ordinal[ordinal] &
+                   (LOOM_VIEW_ACCESS_READ | LOOM_VIEW_ACCESS_WRITE);
+}
+
 static void loom_view_region_add_root_access(
     loom_view_region_table_t* table, loom_value_id_t root_value_id,
     loom_value_fact_alias_scope_id_t alias_scope_id,
@@ -968,12 +1028,16 @@ static void loom_view_region_add_root_access(
   const loom_value_ordinal_t ordinal =
       loom_local_value_domain_try_ordinal(table->value_domain, root_value_id);
   if (ordinal != LOOM_VALUE_ORDINAL_INVALID) {
-    table->root_access_flags_by_value_ordinal[ordinal] |= flags;
+    table->storage_flags_by_value_ordinal[ordinal] |= flags;
   }
   if (iree_any_bit_set(flags, LOOM_VIEW_ACCESS_WRITE) &&
       (ordinal == LOOM_VALUE_ORDINAL_INVALID ||
        alias_scope_id == LOOM_VALUE_FACT_ALIAS_SCOPE_ID_NONE)) {
     table->interference_memory_spaces |=
+        loom_view_region_overlapping_memory_spaces(memory_space);
+  } else if (iree_any_bit_set(flags, LOOM_VIEW_ACCESS_WRITE) &&
+             !loom_view_region_value_is_invariant(table, root_value_id)) {
+    table->varying_root_write_memory_spaces |=
         loom_view_region_overlapping_memory_spaces(memory_space);
   }
 }
@@ -1007,18 +1071,18 @@ static iree_status_t loom_view_region_analyze_operand_access(
 }
 
 static iree_status_t loom_view_region_table_analyze_op_memory(
-    loom_view_region_table_t* table, const loom_op_t* op) {
-  const loom_op_vtable_t* vtable =
-      loom_op_vtable(table->expression_context->module, op);
+    loom_view_region_table_t* table, const loom_op_t* op,
+    const loom_op_vtable_t* vtable, loom_trait_flags_t traits,
+    loom_view_region_analysis_phase_t phase) {
   if (!vtable) {
     table->interference_memory_spaces = UINT32_MAX;
     return iree_ok_status();
   }
-  const loom_trait_flags_t traits =
-      loom_op_effective_traits(table->expression_context->module, op);
-  loom_view_region_analyze_interference(table, op, vtable, traits);
+  if (phase == LOOM_VIEW_REGION_ANALYZE_MEMORY) {
+    loom_view_region_analyze_interference(table, op, vtable, traits);
+  }
 
-  if (vtable->memory_access) {
+  if (phase == LOOM_VIEW_REGION_ANALYZE_MEMORY && vtable->memory_access) {
     const loom_memory_access_t access = {
         .op = op,
         .op_vtable = vtable,
@@ -1044,7 +1108,10 @@ static iree_status_t loom_view_region_table_analyze_op_memory(
         loom_op_vtable_operand_descriptor_count(vtable);
     for (uint8_t i = 0; i < descriptor_count; ++i) {
       const loom_view_access_flags_t flags =
-          loom_view_region_access_flags(vtable->operand_descriptors[i].flags);
+          loom_view_region_access_flags(vtable->operand_descriptors[i].flags) &
+          (phase == LOOM_VIEW_REGION_ANALYZE_MEMORY
+               ? LOOM_VIEW_ACCESS_READ | LOOM_VIEW_ACCESS_WRITE
+               : LOOM_VIEW_ACCESS_WRITE);
       if (!flags) {
         continue;
       }
@@ -1064,75 +1131,384 @@ static iree_status_t loom_view_region_table_analyze_op_memory(
   return iree_ok_status();
 }
 
+static bool loom_view_region_repeated_op_is_invariant(
+    loom_view_region_table_t* table, const loom_op_t* op,
+    const loom_op_vtable_t* vtable, loom_trait_flags_t traits) {
+  if (op->region_count ||
+      iree_any_bit_set(traits, LOOM_TRAIT_CONVERGENT |
+                                   LOOM_TRAIT_NON_DETERMINISTIC |
+                                   LOOM_TRAIT_UNIQUE_IDENTITY |
+                                   LOOM_TRAIT_UNKNOWN_EFFECTS)) {
+    return false;
+  }
+  if (!iree_any_bit_set(traits, LOOM_TRAIT_PURE)) {
+    if (!vtable || !vtable->memory_access ||
+        vtable->memory_access->operation_kind !=
+            LOOM_MEMORY_ACCESS_OPERATION_LOAD) {
+      return false;
+    }
+    const loom_memory_access_t access = {.op = op, .op_vtable = vtable};
+    const loom_value_id_t source_value = loom_memory_access_view(access);
+    const loom_view_region_t* source = NULL;
+    loom_value_id_t root;
+    loom_value_fact_alias_scope_id_t alias_scope;
+    loom_value_fact_memory_space_t memory_space;
+    if (loom_view_region_table_try_lookup(table, source_value, &source)) {
+      root = source->root_value_id;
+      alias_scope = source->alias_scope_id;
+      memory_space = source->memory_space;
+    } else {
+      loom_value_fact_buffer_reference_t reference;
+      if (!loom_value_facts_query_buffer_reference(
+              &table->expression_context->fact_table->context,
+              loom_view_region_lookup_facts(table, source_value), &reference)) {
+        return false;
+      }
+      root = loom_value_fact_buffer_reference_resolve_root_value(reference,
+                                                                 source_value);
+      alias_scope = reference.alias_scope_id;
+      memory_space = reference.memory_space;
+    }
+    // Access aggregation is complete. A fixed root can use same-execution
+    // noalias against every written root, including roots that still vary.
+    if (!loom_view_region_value_is_invariant(table, root) ||
+        !loom_view_region_table_root_is_stable(table, root, alias_scope,
+                                               memory_space)) {
+      return false;
+    }
+  }
+  const loom_value_id_t* operands = loom_op_const_operands(op);
+  for (uint16_t i = 0; i < op->operand_count; ++i) {
+    if (!loom_view_region_value_is_invariant(table, operands[i])) {
+      return false;
+    }
+  }
+  const loom_module_t* module = table->expression_context->module;
+  const uint32_t* attribute_owners = loom_op_attribute_owners(op);
+  for (uint8_t i = 0; i < op->attribute_count; ++i) {
+    if (!attribute_owners[i]) {
+      continue;
+    }
+    loom_type_use_iterator_t dependencies;
+    loom_attribute_dependencies_begin(&module->type_uses, op, i, &dependencies);
+    for (loom_value_id_t provider = loom_type_dependencies_next(&dependencies);
+         provider != LOOM_VALUE_ID_INVALID;
+         provider = loom_type_dependencies_next(&dependencies)) {
+      if (!loom_view_region_value_is_invariant(table, provider)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+static void loom_view_region_mark_invariant(loom_view_region_table_t* table,
+                                            loom_value_id_t value_id) {
+  table->storage_flags_by_value_ordinal[loom_local_value_domain_ordinal(
+      table->value_domain, value_id)] |= LOOM_VIEW_STORAGE_INVARIANT;
+}
+
+static void loom_view_region_classify_repeated_value(
+    loom_view_region_table_t* table, loom_value_id_t value_id, bool invariant) {
+  const loom_module_t* module = table->expression_context->module;
+  const loom_value_fact_table_t* facts = table->expression_context->fact_table;
+  if (!invariant) {
+    const loom_value_id_t identity =
+        loom_value_fact_table_query_identity(facts, value_id);
+    int64_t exact_value = 0;
+    invariant =
+        (identity != value_id &&
+         loom_view_region_value_is_invariant(table, identity)) ||
+        loom_value_facts_as_exact_i64(
+            loom_value_fact_table_lookup(facts, value_id), &exact_value);
+  }
+  if (invariant) {
+    loom_type_use_iterator_t dependencies;
+    loom_module_value_type_dependencies(module, value_id, &dependencies);
+    for (loom_value_id_t provider = loom_type_dependencies_next(&dependencies);
+         provider != LOOM_VALUE_ID_INVALID;
+         provider = loom_type_dependencies_next(&dependencies)) {
+      if (provider != value_id &&
+          !loom_view_region_value_is_invariant(table, provider)) {
+        invariant = false;
+        break;
+      }
+    }
+  }
+  if (invariant) {
+    loom_view_region_mark_invariant(table, value_id);
+  }
+}
+
+// Refines the temporary proof for each argument over a contiguous incoming
+// range. A varying choice is harmless when every alternative carries the same
+// invariant value. Fixed choices may carry distinct invariant values.
+static void loom_view_region_refine_join_arguments(
+    loom_view_region_table_t* table, const loom_cfg_graph_t* graph,
+    const loom_block_t* block, loom_cfg_edge_index_span_t incoming) {
+  const loom_value_id_t* first_arguments = NULL;
+  uint16_t first_argument_count = 0;
+  const bool first_known = loom_cfg_terminator_payload_for_successor(
+      graph->edges[incoming.values[0]].terminator, block, &first_arguments,
+      &first_argument_count);
+  for (uint16_t i = 0; i < block->arg_count; ++i) {
+    uint8_t* flags =
+        &table->storage_flags_by_value_ordinal[loom_local_value_domain_ordinal(
+            table->value_domain, loom_block_arg_id(block, i))];
+    if (!iree_any_bit_set(*flags, LOOM_VIEW_STORAGE_JOIN_INVARIANT)) {
+      continue;
+    }
+    bool invariant = first_known;
+    loom_value_id_t first_identity = LOOM_VALUE_ID_INVALID;
+    for (iree_host_size_t j = 0; invariant && j < incoming.count; ++j) {
+      const loom_value_id_t* arguments = first_arguments;
+      uint16_t argument_count = first_argument_count;
+      if (j && !loom_cfg_terminator_payload_for_successor(
+                   graph->edges[incoming.values[j]].terminator, block,
+                   &arguments, &argument_count)) {
+        invariant = false;
+        break;
+      }
+      invariant = loom_view_region_value_is_invariant(table, arguments[i]);
+      if (invariant && incoming.count > 1) {
+        const loom_value_id_t identity = loom_value_fact_table_query_identity(
+            table->expression_context->fact_table, arguments[i]);
+        if (!j) {
+          first_identity = identity;
+        } else {
+          invariant = identity == first_identity;
+        }
+      }
+    }
+    if (!invariant) {
+      *flags &= ~LOOM_VIEW_STORAGE_JOIN_INVARIANT;
+    }
+  }
+}
+
+// Incoming sources are ordered by dominance preorder. Regions on their paths
+// to the common dominator belong to this join's proof only when it is their
+// unique continuation. Already checked prefixes and complete varying-choice
+// groups are skipped, so qualifying regions and incoming edges are visited
+// once.
+static bool loom_view_region_classify_join_arguments(
+    loom_view_region_table_t* table,
+    const loom_value_fact_cfg_region_t* structure, const loom_block_t* block) {
+  const loom_cfg_graph_t* graph = &structure->graph;
+  const uint16_t block_index = block->region_index;
+  const iree_host_size_t incoming_start =
+      structure->regions.incoming_offsets[block_index];
+  const iree_host_size_t incoming_count =
+      structure->regions.incoming_offsets[block_index + 1] - incoming_start;
+  if (!incoming_count || graph->blocks[block_index].is_dfs_backedge_target) {
+    return false;
+  }
+  const uint16_t dominator =
+      structure->dominance.immediate_dominators[block_index];
+  if (dominator == LOOM_CFG_DOMINATOR_INVALID || dominator == block_index) {
+    return false;
+  }
+  const loom_cfg_edge_index_t* incoming_edges =
+      structure->regions.incoming_edges + incoming_start;
+  for (uint16_t i = 0; i < block->arg_count; ++i) {
+    table->storage_flags_by_value_ordinal[loom_local_value_domain_ordinal(
+        table->value_domain, loom_block_arg_id(block, i))] |=
+        LOOM_VIEW_STORAGE_JOIN_INVARIANT;
+  }
+  uint16_t previous_source = LOOM_CFG_DOMINATOR_INVALID;
+  for (iree_host_size_t i = 0; i < incoming_count;) {
+    const loom_cfg_edge_info_t* edge = &graph->edges[incoming_edges[i]];
+    uint16_t varying_choice =
+        edge->selector_value_id != LOOM_VALUE_ID_INVALID &&
+                !loom_view_region_value_is_invariant(table,
+                                                     edge->selector_value_id)
+            ? edge->source_block_index
+            : LOOM_CFG_DOMINATOR_INVALID;
+    uint16_t current = edge->source_block_index;
+    while (current != dominator &&
+           (previous_source == LOOM_CFG_DOMINATOR_INVALID ||
+            !loom_cfg_dominance_block_dominates(&structure->dominance, current,
+                                                previous_source))) {
+      if (structure->regions.blocks[current].continuation_index !=
+          block_index) {
+        return false;
+      }
+      const uint16_t parent =
+          structure->dominance.immediate_dominators[current];
+      // Reconvergence executes after either parent alternative. Otherwise the
+      // unique entry predecessor owns the decision to enter this subtree.
+      if (structure->control_structure.postdominance.nodes[parent]
+              .immediate_postdominator != current) {
+        if (structure->dominance.entry_predecessors[current] != parent) {
+          varying_choice = parent;
+        } else {
+          const loom_cfg_edge_index_span_t entries =
+              loom_cfg_graph_predecessor_edges(graph, current);
+          for (iree_host_size_t j = 0; j < entries.count; ++j) {
+            const loom_cfg_edge_info_t* entry =
+                &graph->edges[entries.values[j]];
+            if (entry->source_block_index == parent &&
+                entry->selector_value_id != LOOM_VALUE_ID_INVALID &&
+                !loom_view_region_value_is_invariant(
+                    table, entry->selector_value_id)) {
+              varying_choice = parent;
+            }
+          }
+        }
+      }
+      current = parent;
+    }
+    loom_cfg_edge_index_span_t group = {
+        .values = incoming_edges + i,
+        .count = 1,
+    };
+    if (varying_choice != LOOM_CFG_DOMINATOR_INVALID) {
+      group = varying_choice == dominator
+                  ? (loom_cfg_edge_index_span_t){.values = incoming_edges,
+                                                 .count = incoming_count}
+                  : structure->regions.blocks[varying_choice].exit_edges;
+      if (group.values != incoming_edges + i) {
+        return false;
+      }
+    }
+    loom_view_region_refine_join_arguments(table, graph, block, group);
+    i += group.count;
+    previous_source = graph->edges[incoming_edges[i - 1]].source_block_index;
+  }
+  return true;
+}
+
 static iree_status_t loom_view_region_table_analyze_region(
-    loom_view_region_table_t* table, const loom_region_t* region);
+    loom_view_region_table_t* table, const loom_region_t* region,
+    loom_view_region_analysis_phase_t phase, bool repeated);
 
 static iree_status_t loom_view_region_table_analyze_op_tree(
-    loom_view_region_table_t* table, const loom_op_t* op) {
-  IREE_RETURN_IF_ERROR(loom_view_region_table_analyze_op_memory(table, op));
+    loom_view_region_table_t* table, const loom_op_t* op,
+    loom_view_region_analysis_phase_t phase, bool repeated) {
+  const loom_op_vtable_t* vtable =
+      loom_op_vtable(table->expression_context->module, op);
+  const loom_trait_flags_t traits =
+      loom_op_effective_traits(table->expression_context->module, op);
+  const bool refine = repeated && op->result_count &&
+                      phase == LOOM_VIEW_REGION_ANALYZE_STABILITY;
+  const bool invariant = refine && loom_view_region_repeated_op_is_invariant(
+                                       table, op, vtable, traits);
   const loom_value_id_t* results = loom_op_const_results(op);
   for (uint16_t i = 0; i < op->result_count; ++i) {
-    const loom_view_region_t* region = NULL;
-    IREE_RETURN_IF_ERROR(
-        loom_view_region_table_get(table, results[i], &region));
+    if (!repeated) {
+      loom_view_region_mark_invariant(table, results[i]);
+    } else if (refine) {
+      loom_view_region_classify_repeated_value(table, results[i], invariant);
+    }
+    if (phase == LOOM_VIEW_REGION_ANALYZE_MEMORY) {
+      const loom_view_region_t* region = NULL;
+      IREE_RETURN_IF_ERROR(
+          loom_view_region_table_get(table, results[i], &region));
+    }
   }
+  IREE_RETURN_IF_ERROR(loom_view_region_table_analyze_op_memory(
+      table, op, vtable, traits, phase));
   loom_region_t* const* regions = loom_op_regions(op);
   for (uint8_t i = 0; i < op->region_count; ++i) {
     if (regions[i]) {
-      IREE_RETURN_IF_ERROR(
-          loom_view_region_table_analyze_region(table, regions[i]));
+      IREE_RETURN_IF_ERROR(loom_view_region_table_analyze_region(
+          table, regions[i], phase,
+          repeated || !vtable || !vtable->region_branch));
     }
   }
   return iree_ok_status();
 }
 
 static iree_status_t loom_view_region_table_analyze_region(
-    loom_view_region_table_t* table, const loom_region_t* region) {
+    loom_view_region_table_t* table, const loom_region_t* region,
+    loom_view_region_analysis_phase_t phase, bool repeated) {
   if (!region) {
     return iree_ok_status();
   }
-  const loom_block_t* block = NULL;
-  loom_region_for_each_block(region, block) {
-    for (uint16_t i = 0; i < block->arg_count; ++i) {
-      const loom_view_region_t* view_region = NULL;
-      IREE_RETURN_IF_ERROR(loom_view_region_table_get(
-          table, loom_block_arg_id(block, i), &view_region));
+  const loom_value_fact_cfg_region_t* structure =
+      loom_value_fact_table_lookup_cfg_region(
+          table->expression_context->fact_table, region);
+  const loom_cfg_graph_t* graph = structure ? &structure->graph : NULL;
+  uint16_t unreachable_index = 0;
+  for (uint16_t i = 0; i < region->block_count; ++i) {
+    uint16_t block_index = i;
+    if (graph && i < graph->reverse_postorder.count) {
+      block_index = graph->reverse_postorder.values[i];
+    } else if (graph) {
+      while (graph->blocks[unreachable_index].reachable) {
+        ++unreachable_index;
+      }
+      block_index = unreachable_index++;
+    }
+    const loom_block_t* block = loom_region_const_block(region, block_index);
+    const bool block_repeated =
+        repeated || (graph && (!graph->blocks[block_index].reachable ||
+                               graph->blocks[block_index].component_is_cyclic));
+    const bool join_analyzed =
+        block_repeated && block->arg_count && structure &&
+        phase == LOOM_VIEW_REGION_ANALYZE_STABILITY &&
+        loom_view_region_classify_join_arguments(table, structure, block);
+    for (uint16_t j = 0; j < block->arg_count; ++j) {
+      const loom_value_id_t argument = loom_block_arg_id(block, j);
+      if (!block_repeated) {
+        loom_view_region_mark_invariant(table, argument);
+      } else if (phase == LOOM_VIEW_REGION_ANALYZE_STABILITY) {
+        uint8_t* flags = &table->storage_flags_by_value_ordinal
+                              [loom_local_value_domain_ordinal(
+                                  table->value_domain, argument)];
+        const bool invariant =
+            join_analyzed &&
+            iree_any_bit_set(*flags, LOOM_VIEW_STORAGE_JOIN_INVARIANT);
+        *flags &= ~LOOM_VIEW_STORAGE_JOIN_INVARIANT;
+        loom_view_region_classify_repeated_value(table, argument, invariant);
+      }
+      if (phase == LOOM_VIEW_REGION_ANALYZE_MEMORY) {
+        const loom_view_region_t* view_region = NULL;
+        IREE_RETURN_IF_ERROR(
+            loom_view_region_table_get(table, argument, &view_region));
+      }
     }
     const loom_op_t* op = NULL;
     loom_block_for_each_op(block, op) {
-      IREE_RETURN_IF_ERROR(loom_view_region_table_analyze_op_tree(table, op));
+      IREE_RETURN_IF_ERROR(loom_view_region_table_analyze_op_tree(
+          table, op, phase, block_repeated));
     }
   }
   return iree_ok_status();
 }
 
 iree_status_t loom_view_region_table_analyze(loom_view_region_table_t* table) {
-  return loom_view_region_table_analyze_region(table,
-                                               table->value_domain->region);
-}
-
-loom_view_access_flags_t loom_view_region_table_root_access_flags(
-    const loom_view_region_table_t* table, loom_value_id_t root_value_id) {
-  const loom_value_ordinal_t ordinal =
-      loom_local_value_domain_try_ordinal(table->value_domain, root_value_id);
-  return ordinal == LOOM_VALUE_ORDINAL_INVALID
-             ? 0
-             : table->root_access_flags_by_value_ordinal[ordinal];
+  IREE_RETURN_IF_ERROR(loom_view_region_table_analyze_region(
+      table, table->value_domain->region, LOOM_VIEW_REGION_ANALYZE_MEMORY,
+      false));
+  if (table->varying_root_write_memory_spaces) {
+    table->varying_root_write_memory_spaces = 0;
+    IREE_RETURN_IF_ERROR(loom_view_region_table_analyze_region(
+        table, table->value_domain->region, LOOM_VIEW_REGION_ANALYZE_STABILITY,
+        false));
+  }
+  return iree_ok_status();
 }
 
 bool loom_view_region_table_root_is_stable(
     const loom_view_region_table_t* table, loom_value_id_t root_value_id,
     loom_value_fact_alias_scope_id_t alias_scope_id,
     loom_value_fact_memory_space_t memory_space) {
-  const loom_view_access_flags_t flags =
-      loom_view_region_table_root_access_flags(table, root_value_id);
+  const loom_value_ordinal_t ordinal =
+      loom_local_value_domain_try_ordinal(table->value_domain, root_value_id);
+  const uint8_t flags = ordinal == LOOM_VALUE_ORDINAL_INVALID
+                            ? 0
+                            : table->storage_flags_by_value_ordinal[ordinal];
   if (!iree_any_bit_set(flags, LOOM_VIEW_ACCESS_READ) ||
       iree_any_bit_set(flags, LOOM_VIEW_ACCESS_WRITE)) {
     return false;
   }
   return memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_CONSTANT ||
          (alias_scope_id != LOOM_VALUE_FACT_ALIAS_SCOPE_ID_NONE &&
-          !(table->interference_memory_spaces & (1u << memory_space)));
+          !(table->interference_memory_spaces & (1u << memory_space)) &&
+          (ordinal >= table->value_domain->definition_count ||
+           iree_any_bit_set(flags, LOOM_VIEW_STORAGE_INVARIANT) ||
+           !(table->varying_root_write_memory_spaces & (1u << memory_space))));
 }
 
 bool loom_view_memory_spaces_are_disjoint(
@@ -1189,6 +1565,17 @@ iree_status_t loom_view_regions_prove_no_overlap(
       &left_region->begin_byte_offset, &proof));
   if (proof == LOOM_SYMBOLIC_PROOF_TRUE) {
     *out_no_overlap = true;
+  } else if (loom_symbolic_expr_is_constant(&left_region->byte_length) &&
+             loom_symbolic_expr_is_constant(&right_region->byte_length) &&
+             left_region->byte_length.constant > 0 &&
+             right_region->byte_length.constant > 0) {
+    // Periodic placement can separate intervals without fixing their order:
+    // complementary banks exchange positions on each iteration. Overlap would
+    // require right.begin-left.begin in [1-right.length, left.length-1].
+    *out_no_overlap = loom_symbolic_congruence_excludes_difference(
+        &right_region->begin_byte_offset, &left_region->begin_byte_offset,
+        1 - right_region->byte_length.constant,
+        left_region->byte_length.constant - 1);
   }
   return iree_ok_status();
 }

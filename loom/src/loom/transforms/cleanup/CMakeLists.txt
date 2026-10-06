@@ -11,22 +11,119 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
-    branch_facts
+    fact_refinement_policy
   HDRS
-    "branch_facts.h"
-  SRCS
-    "branch_facts.c"
+    "fact_refinement_policy.h"
   DEPS
     iree::base
-    loom::analysis::condition_facts
     loom::ir
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    fact_refinement
+  HDRS
+    "fact_refinement.h"
+  SRCS
+    "fact_refinement.c"
+  DEPS
+    ::fact_refinement_policy
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::ops::op_defs
+    loom::rewrite::rewriter
+    loom::util::adaptive_sort
+    loom::util::dominance
+    loom::util::fact_table
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    patterns
+  HDRS
+    "patterns.h"
+    "special_value_policy.h"
+  SRCS
+    "patterns.c"
+  DEPS
+    ::fact_refinement_policy
+    iree::base
+    loom::rewrite::pattern_registry
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    pass_requirements
+  HDRS
+    "pass_requirements.h"
+  DEPS
+
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    pass_environment
+  HDRS
+    "pass_environment.h"
+  SRCS
+    "pass_environment.c"
+  DEPS
+    ::pass_requirements
+    ::patterns
+    loom::pass::environment
+    loom::pass::types
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    configured
+  HDRS
+    "configured.h"
+  SRCS
+    "configured.c"
+  DEPS
+    ::fact_refinement_policy
+    ::patterns
+    loom::ops::index
+    loom::ops::scalar
+    loom::ops::special_values
+    loom::ops::view
+    loom::transforms::index::cleanup_patterns
+    loom::transforms::index::combine_patterns
+    loom::transforms::scalar::cleanup_patterns
+    loom::transforms::scalar::combine_patterns
+    loom::transforms::scf::branch_fact_patterns
+    loom::transforms::scf::combine_patterns
+    loom::transforms::vector::cleanup_patterns
+    loom::transforms::vector::combine_patterns
+    loom::transforms::view::combine_patterns
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    patterns_test
+  SRCS
+    "patterns_test.cc"
+  DEPS
+    ::configured
+    ::pass_environment
+    ::pass_requirements
+    ::patterns
+    iree::testing::gtest
+    iree::testing::gtest_main
     loom::ops::index
     loom::ops::scalar
     loom::ops::scf
-    loom::rewrite::greedy
-    loom::rewrite::rewriter
-    loom::util::walk
-  PUBLIC
+    loom::ops::vector
+    loom::ops::view
+    loom::pass::environment
 )
 
 loom_cc_library(
@@ -38,16 +135,12 @@ loom_cc_library(
     "canonicalize.c"
   DEPS
     ::canonicalizer
+    ::pass_environment
     iree::base
     iree::base::internal::arena
-    loom::ops::vector
-    loom::ops::view
     loom::pass::pipeline
     loom::pass::registry
     loom::pass::types
-    loom::target::math_policy
-    loom::target::pass_environment
-    loom::transforms::view::load_coalescing
   PUBLIC
 )
 
@@ -59,25 +152,23 @@ loom_cc_library(
   SRCS
     "canonicalizer.c"
   DEPS
-    ::branch_facts
+    ::fact_refinement
+    ::fact_refinement_policy
+    ::patterns
     iree::base
     iree::base::internal
-    loom::analysis::condition_facts
     loom::analysis::symbolic_expr
     loom::ir
     loom::ir::facts
-    loom::ops::index
     loom::ops::op_defs
-    loom::ops::scalar
-    loom::ops::special_values
-    loom::ops::type_registry
-    loom::ops::vector
     loom::pass::types
     loom::pass::value_facts
     loom::rewrite::greedy
+    loom::rewrite::pattern_registry
     loom::rewrite::rewriter
     loom::rewrite::type_propagation
     loom::util::fact_table
+    loom::util::walk
   PUBLIC
 )
 
@@ -88,12 +179,15 @@ loom_cc_test(
     "canonicalizer_test.cc"
   DEPS
     ::canonicalizer
+    ::configured
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
     loom::ir
+    loom::ops::index
     loom::ops::op_defs
     loom::ops::scalar
+    loom::ops::special_values
     loom::ops::test
     loom::ops::vector
     loom::pass::types
@@ -146,11 +240,9 @@ loom_cc_library(
   DEPS
     iree::base
     iree::base::internal::arena
-    loom::analysis::ownership
     loom::ir
     loom::ops::op_defs
-    loom::util::cfg_dominance
-    loom::util::cfg_graph
+    loom::util::dominance
   PUBLIC
 )
 

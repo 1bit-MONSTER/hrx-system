@@ -117,3 +117,27 @@ func.def @correlated_cfg_rotation(%input: buffer, %select: i1, %again: i1, %left
   %sum = scalar.addi %value, %duplicate_value : i32
   func.return %sum : i32
 }
+
+// ====
+
+// Dynamic view refinements used only by memory accesses remain structural
+// through nested control flow. Their source views need no target SSA storage.
+func.def @nested_dynamic_view_refinement(%input: buffer, %extent_input: index, %position_input: index, %condition: i1) -> (i32) {
+  %extent = index.assume %extent_input [range(%extent_input, 1, 128)] : index
+  %position = index.assume %position_input [range(%position_input, 0, 127), lt(%position_input, %extent)] : index
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 4} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<[%extent]xi32>
+  %result = scf.if %condition -> (i32) {
+    %refined_extent = index.assume %extent [gt(%extent, 0)] : index
+    %refined_view = view.refine %view : view<[%extent]xi32> -> view<[%refined_extent]xi32>
+    %second_extent = index.assume %refined_extent [gt(%refined_extent, 0)] : index
+    %second_view = view.refine %refined_view : view<[%refined_extent]xi32> -> view<[%second_extent]xi32>
+    %value = view.load %second_view[%position] : view<[%second_extent]xi32> -> i32
+    scf.yield %value : i32
+  } else {
+    %value = view.load %view[%position] : view<[%extent]xi32> -> i32
+    scf.yield %value : i32
+  }
+  func.return %result : i32
+}

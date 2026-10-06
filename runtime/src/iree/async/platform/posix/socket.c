@@ -22,6 +22,10 @@
 #include "iree/async/platform/posix/compat.h"
 #include "iree/async/platform/posix/proactor.h"
 
+#if defined(IREE_PLATFORM_LINUX) || defined(IREE_PLATFORM_ANDROID)
+#include "iree/async/platform/linux/socket_options.h"
+#endif  // IREE_PLATFORM_LINUX || IREE_PLATFORM_ANDROID
+
 //===----------------------------------------------------------------------===//
 // Socket type mapping
 //===----------------------------------------------------------------------===//
@@ -104,6 +108,14 @@ static iree_status_t iree_async_socket_apply_options(
                               "setsockopt TCP_NODELAY failed");
     }
   }
+
+#if defined(IREE_PLATFORM_LINUX) || defined(IREE_PLATFORM_ANDROID)
+  if (iree_any_bit_set(options, IREE_ASYNC_SOCKET_OPTION_LOW_LATENCY_ACK) &&
+      (type == IREE_ASYNC_SOCKET_TYPE_TCP ||
+       type == IREE_ASYNC_SOCKET_TYPE_TCP6)) {
+    IREE_RETURN_IF_ERROR(iree_async_linux_socket_set_low_latency_ack(fd));
+  }
+#endif  // IREE_PLATFORM_LINUX || IREE_PLATFORM_ANDROID
 
   if (iree_any_bit_set(options, IREE_ASYNC_SOCKET_OPTION_KEEP_ALIVE)) {
     if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval)) < 0) {

@@ -1061,13 +1061,14 @@ static iree_status_t loom_link_plan_expand_module_dependencies(
     loom_link_plan_live_cause_t cause) {
   const uint32_t count = module->dependencies.root_count;
   const uint32_t* dependencies = module->dependencies.values;
-  const loom_symbol_interface_flags_t* target_interfaces =
-      module->dependencies.target_interfaces;
+  const loom_symbol_reference_contract_t* contracts =
+      module->dependencies.contracts;
   for (uint32_t i = 0; i < count; ++i) {
     IREE_ASSERT_EQ(module->dependencies.source_root_region_indices_plus_one[i],
                    0);
     IREE_RETURN_IF_ERROR(loom_link_plan_select_dependency_target(
-        plan, options, module, dependencies[i], target_interfaces[i], cause));
+        plan, options, module, dependencies[i],
+        loom_symbol_reference_contract_interfaces(contracts[i]), cause));
   }
   return iree_ok_status();
 }
@@ -1082,8 +1083,8 @@ static iree_status_t loom_link_plan_expand_symbol_facet_dependencies(
   }
   const uint32_t first = symbol->dependencies.first;
   const uint32_t* dependencies = module->dependencies.values + first;
-  const loom_symbol_interface_flags_t* target_interfaces =
-      module->dependencies.target_interfaces + first;
+  const loom_symbol_reference_contract_t* contracts =
+      module->dependencies.contracts + first;
   for (uint32_t i = 0; i < symbol->dependencies.count; ++i) {
     const uint8_t source_root_region_index_plus_one =
         module->dependencies.source_root_region_indices_plus_one[first + i];
@@ -1095,7 +1096,8 @@ static iree_status_t loom_link_plan_expand_symbol_facet_dependencies(
       continue;
     }
     IREE_RETURN_IF_ERROR(loom_link_plan_select_dependency_target(
-        plan, options, module, dependencies[i], target_interfaces[i], cause));
+        plan, options, module, dependencies[i],
+        loom_symbol_reference_contract_interfaces(contracts[i]), cause));
   }
   return iree_ok_status();
 }
@@ -1194,8 +1196,8 @@ static iree_status_t loom_link_plan_expand_complete_symbol(
     const uint32_t dependency_first = symbol->dependencies.first;
     const uint32_t* dependencies =
         module->dependencies.values + dependency_first;
-    const loom_symbol_interface_flags_t* target_interfaces =
-        module->dependencies.target_interfaces + dependency_first;
+    const loom_symbol_reference_contract_t* contracts =
+        module->dependencies.contracts + dependency_first;
     for (uint32_t i = 0; i < symbol->dependencies.count; ++i) {
       const uint8_t source_root_region_index_plus_one =
           module->dependencies
@@ -1208,7 +1210,8 @@ static iree_status_t loom_link_plan_expand_complete_symbol(
           loom_link_plan_facet_dependency_cause(plan, symbol_plan_ordinal,
                                                 source_kind);
       IREE_RETURN_IF_ERROR(loom_link_plan_select_dependency_target(
-          plan, options, module, dependencies[i], target_interfaces[i], cause));
+          plan, options, module, dependencies[i],
+          loom_symbol_reference_contract_interfaces(contracts[i]), cause));
     }
   }
 
@@ -1445,11 +1448,11 @@ static iree_status_t loom_link_plan_select_root_symbol_ordinals(
   return iree_ok_status();
 }
 
-static iree_status_t loom_link_plan_select_implicit_root(
+static iree_status_t loom_link_plan_select_policy_root_symbol(
     loom_link_plan_t* plan, const loom_link_plan_options_t* options,
     const loom_link_module_index_symbol_t* symbol) {
-  // Strip policies filter implicit export sets. Explicit roots still pass
-  // through required-symbol selection and diagnose a stripped symbol.
+  // Strip policies filter policy-selected export sets. Explicit roots still
+  // pass through required-symbol selection and diagnose a stripped symbol.
   if (loom_link_plan_symbol_is_stripped(options, plan, symbol)) {
     return iree_ok_status();
   }
@@ -1480,7 +1483,7 @@ static iree_status_t loom_link_plan_select_input_exports(
     const loom_link_module_index_symbol_t* symbol =
         loom_link_module_index_symbol_at(plan->index, input_exports.values[i]);
     IREE_RETURN_IF_ERROR(
-        loom_link_plan_select_implicit_root(plan, options, symbol));
+        loom_link_plan_select_policy_root_symbol(plan, options, symbol));
   }
   return iree_ok_status();
 }
@@ -1511,8 +1514,43 @@ static iree_status_t loom_link_plan_select_input_tests(
         if (!iree_any_bit_set(symbol->flags, LOOM_LINK_SYMBOL_FLAG_TEST_ONLY)) {
           continue;
         }
-        IREE_RETURN_IF_ERROR(
-            loom_link_plan_select_implicit_root(plan, options, symbol));
+        if (options->test_symbol_policy != LOOM_LINK_PLAN_TEST_SYMBOL_STRIP) {
+          IREE_RETURN_IF_ERROR(
+              loom_link_plan_select_policy_root_symbol(plan, options, symbol));
+          continue;
+        }
+
+        // A stripped input test still defines its deployable target subjects.
+        // Promote direct non-test callables except independent oracle-profile
+        // dependencies so target subjects retain private identity while their
+        // transitive callees remain ordinary internal dependencies.
+        const uint32_t dependency_first = symbol->dependencies.first;
+        for (uint32_t dependency_index = 0;
+             dependency_index < symbol->dependencies.count;
+             ++dependency_index) {
+          const uint32_t target_symbol_id =
+              module->dependencies.values[dependency_first + dependency_index];
+          const loom_symbol_reference_role_t dependency_role =
+              loom_symbol_reference_contract_role(
+                  module->dependencies
+                      .contracts[dependency_first + dependency_index]);
+          if (dependency_role == LOOM_SYMBOL_REFERENCE_ROLE_ORACLE_DEPENDENCY) {
+            continue;
+          }
+          IREE_ASSERT_LT(target_symbol_id, module->symbol_count);
+          const loom_link_module_index_symbol_t* target =
+              loom_link_module_index_symbol_at(
+                  plan->index, module->symbol_start_ordinal + target_symbol_id);
+          IREE_ASSERT(target);
+          if (iree_any_bit_set(target->flags,
+                               LOOM_LINK_SYMBOL_FLAG_TEST_ONLY) ||
+              !iree_any_bit_set(target->facets.schema.interfaces,
+                                LOOM_SYMBOL_INTERFACE_FUNC_LIKE)) {
+            continue;
+          }
+          IREE_RETURN_IF_ERROR(
+              loom_link_plan_select_policy_root_symbol(plan, options, target));
+        }
       }
     }
   }
@@ -1558,7 +1596,7 @@ static iree_status_t loom_link_plan_select_provider_exports(
           continue;
         }
         IREE_RETURN_IF_ERROR(
-            loom_link_plan_select_implicit_root(plan, options, symbol));
+            loom_link_plan_select_policy_root_symbol(plan, options, symbol));
       }
     }
   }
@@ -1631,7 +1669,7 @@ static iree_status_t loom_link_plan_select_roots(
   IREE_RETURN_IF_ERROR(loom_link_plan_select_root_facets(plan, options));
   if (plan->symbols.count == 0) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "link planning requires at least one root");
+                            "link planning requires a nonempty root set");
   }
   return iree_ok_status();
 }

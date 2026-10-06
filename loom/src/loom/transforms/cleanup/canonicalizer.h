@@ -9,7 +9,10 @@
 
 #include "loom/analysis/symbolic_expr.h"
 #include "loom/pass/types.h"
+#include "loom/rewrite/pattern_registry.h"
 #include "loom/rewrite/type_propagation.h"
+#include "loom/transforms/cleanup/fact_refinement_policy.h"
+#include "loom/transforms/cleanup/special_value_policy.h"
 #include "loom/util/fact_table.h"
 
 #ifdef __cplusplus
@@ -17,6 +20,7 @@ extern "C" {
 #endif
 
 typedef struct loom_canonicalizer_state_t loom_canonicalizer_state_t;
+typedef struct loom_cleanup_pattern_registry_t loom_cleanup_pattern_registry_t;
 
 //===----------------------------------------------------------------------===//
 // Canonicalizer driver
@@ -25,13 +29,26 @@ typedef struct loom_canonicalizer_state_t loom_canonicalizer_state_t;
 // Default maximum number of canonicalizer fixed-point iterations.
 #define LOOM_CANONICALIZER_DEFAULT_MAX_ITERATIONS 10
 
-// Applies a caller-selected pattern set after ordinary op canonicalization.
-// Both contexts are borrowed from the current rewrite session. Patterns mutate
-// through |rewriter|, report whether they changed the op, and retain no context
-// pointers. The driver revisits affected ops and invalidates symbolic state.
-typedef iree_status_t (*loom_canonicalizer_patterns_fn_t)(
-    loom_op_t* op, loom_rewriter_t* rewriter,
-    loom_symbolic_expr_context_t* expression_context, bool* out_changed);
+// Indexed pattern registries selected for one canonicalizer run. Each registry
+// is optional and runs at the named ordering point in the shared fixed-point
+// driver.
+typedef struct loom_canonicalizer_pattern_registries_t {
+  // Patterns applied once in region preorder before worklist processing.
+  const loom_rewrite_pattern_registry_t* region_initialization;
+  // Patterns applied after mini-DCE and before built-in poison/fold rules.
+  const loom_rewrite_pattern_registry_t* pre_fold;
+  // Patterns applied after type propagation and before symbolic cleanup.
+  const loom_rewrite_pattern_registry_t* post_type;
+  // Patterns applied after structural op canonicalization.
+  const loom_rewrite_pattern_registry_t* post_canonicalization;
+} loom_canonicalizer_pattern_registries_t;
+
+// Projects universal cleanup phases from |registry| for a canonicalizer run.
+// Source-combine patterns remain excluded because they are legal only at the
+// explicit source-combine pipeline boundary. NULL returns an empty selection.
+loom_canonicalizer_pattern_registries_t
+loom_canonicalizer_pattern_registries_from_cleanup_registry(
+    const loom_cleanup_pattern_registry_t* registry);
 
 // Canonicalizer driver options. Zero-initialized options use defaults.
 typedef struct loom_canonicalizer_options_t {
@@ -39,9 +56,7 @@ typedef struct loom_canonicalizer_options_t {
   uint32_t max_iterations;
 
   // Optional phase-specific patterns sharing the ordinary fixed-point driver.
-  // NULL applies only universal canonicalization rules. The caller's pipeline
-  // owns the phase contract of any additional patterns.
-  loom_canonicalizer_patterns_fn_t additional_patterns;
+  loom_canonicalizer_pattern_registries_t patterns;
 
   // Optional immutable target facts used by target-sensitive fact inference.
   const loom_target_facts_t* target_facts;
@@ -98,6 +113,13 @@ typedef struct loom_canonicalizer_t {
   // Caller-owned reusable value-fact storage used for function/region analysis.
   loom_pass_value_fact_owner_t* value_facts;
 
+  // Compiler-selected special-value policy, or NULL to disable materialization.
+  const loom_cleanup_special_value_policy_t* special_value_policy;
+
+  // Compiler-selected fact-refinement materializers, or NULL to disable
+  // relation preservation across exact folding.
+  const loom_fact_refinement_policy_t* fact_refinement_policy;
+
   // Parent arena whose block pool backs the resettable scratch arena.
   iree_arena_allocator_t* parent_arena;
 
@@ -114,12 +136,15 @@ typedef struct loom_canonicalizer_t {
   loom_canonicalizer_state_t* state;
 } loom_canonicalizer_t;
 
-// Initializes a canonicalizer over |module|. |parent_arena| is not used for
-// bulk scratch allocations directly; its block pool backs a nested arena that
-// is reset for each run.
+// Initializes a canonicalizer over |module|. The two policies supply
+// compiler-selected builders and may be NULL to disable their respective
+// materializations. |parent_arena| is not used for bulk scratch allocations
+// directly; its block pool backs a nested arena that is reset for each run.
 iree_status_t loom_canonicalizer_initialize(
     loom_module_t* module, iree_arena_allocator_t* parent_arena,
     loom_pass_value_fact_owner_t* value_facts,
+    const loom_cleanup_special_value_policy_t* special_value_policy,
+    const loom_fact_refinement_policy_t* fact_refinement_policy,
     loom_canonicalizer_t* out_canonicalizer);
 
 // Releases transient worklist state and returns scratch blocks to the parent

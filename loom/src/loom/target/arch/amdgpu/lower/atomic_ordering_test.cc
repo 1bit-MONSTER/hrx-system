@@ -12,7 +12,7 @@
 
 namespace {
 
-TEST(AmdgpuAtomicOrderingTest, SystemAdmissionRequiresIntegerCoherenceRecipe) {
+TEST(AmdgpuAtomicOrderingTest, SystemAdmissionRequiresCoherenceRecipe) {
   loom_target_low_descriptor_registry_t registry;
   loom_amdgpu_low_descriptor_registry_initialize(&registry);
   const auto* descriptor_set = loom_low_descriptor_registry_lookup(
@@ -28,11 +28,19 @@ TEST(AmdgpuAtomicOrderingTest, SystemAdmissionRequiresIntegerCoherenceRecipe) {
       descriptor_set, &source, loom_type_scalar(LOOM_SCALAR_TYPE_I32)));
   EXPECT_TRUE(loom_amdgpu_atomic_scope_supported(
       descriptor_set, &source, loom_type_scalar(LOOM_SCALAR_TYPE_I64)));
-  EXPECT_FALSE(loom_amdgpu_atomic_scope_supported(
+  EXPECT_TRUE(loom_amdgpu_atomic_scope_supported(
       descriptor_set, &source, loom_type_scalar(LOOM_SCALAR_TYPE_F32)));
+  EXPECT_TRUE(loom_amdgpu_atomic_scope_supported(
+      descriptor_set, &source, loom_type_scalar(LOOM_SCALAR_TYPE_F64)));
+  EXPECT_FALSE(loom_amdgpu_atomic_scope_supported(
+      descriptor_set, &source, loom_type_scalar(LOOM_SCALAR_TYPE_F16)));
+
+  source.memory_space = LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC;
+  EXPECT_TRUE(loom_amdgpu_atomic_scope_supported(
+      descriptor_set, &source, loom_type_scalar(LOOM_SCALAR_TYPE_F64)));
 
   source.memory_space = LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP;
-  EXPECT_FALSE(loom_amdgpu_atomic_scope_supported(
+  EXPECT_TRUE(loom_amdgpu_atomic_scope_supported(
       descriptor_set, &source, loom_type_scalar(LOOM_SCALAR_TYPE_I32)));
   source.atomic.scope = LOOM_ATOMIC_SCOPE_WORKGROUP;
   EXPECT_TRUE(loom_amdgpu_atomic_scope_supported(

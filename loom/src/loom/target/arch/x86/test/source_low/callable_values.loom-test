@@ -10,9 +10,7 @@ func.def public @call_mixed_i32(%input: vector<1xi32>, %delta: i32) -> (i32, i32
 }
 
 func.def @add_i32(%value: i32, %delta: i32) -> (i32) {
-  // ERROR@+1: TARGET/002 {op_name="scalar.extui", field_name="input"}
   %wide_value = scalar.extui %value : i32 to i64
-  // ERROR@+1: TARGET/002 {op_name="scalar.extui", field_name="input"}
   %wide_delta = scalar.extui %delta : i32 to i64
   %sum = scalar.addi %wide_value, %wide_delta : i64
   %result = scalar.trunci %sum : i64 to i32

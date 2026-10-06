@@ -46,7 +46,7 @@ iree_status_t loom_low_decompose_cfg_tuples_run(loom_pass_t* pass,
                                        .values = rules,
                                        .count = IREE_ARRAYSIZE(rules),
                                    },
-                                   &projection_statistics);
+                                   /*plan_sink=*/NULL, &projection_statistics);
   if (iree_status_is_ok(status)) {
     IREE_ASSERT_EQ(projection_statistics.rule_count, IREE_ARRAYSIZE(rules));
     const loom_boundary_projection_rule_statistics_t* rule_statistics =

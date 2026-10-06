@@ -55,7 +55,6 @@ check.case @cooperative_wave32 {
   check.expect.bitwise actual(%values) expected(%success) : tensor<96xi32>
   check.expect.bitwise actual(%before) expected(%guard) : tensor<1xi32>
   check.expect.bitwise actual(%after) expected(%guard) : tensor<1xi32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -73,6 +72,5 @@ check.case @cooperative_wave64_tail {
   check.expect.bitwise actual(%values) expected(%success) : tensor<96xi32>
   check.expect.bitwise actual(%before) expected(%guard) : tensor<1xi32>
   check.expect.bitwise actual(%after) expected(%guard) : tensor<1xi32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }

@@ -22,6 +22,8 @@ typedef struct loom_device_provider_registry_t loom_device_provider_registry_t;
 typedef struct loom_run_hal_testbench_context_t
     loom_run_hal_testbench_context_t;
 typedef struct loom_target_environment_t loom_target_environment_t;
+typedef struct loom_cleanup_pattern_provider_set_t
+    loom_cleanup_pattern_provider_set_t;
 
 // Appends target-linked requirement providers to |providers|.
 typedef iree_status_t (
@@ -47,6 +49,8 @@ typedef struct iree_benchmark_loom_configuration_t {
   loom_run_register_context_callback_t register_context;
   // Target environment linked into this runner.
   const loom_target_environment_t* target_environment;
+  // Cleanup rewrite providers linked into this runner.
+  const loom_cleanup_pattern_provider_set_t* cleanup_pattern_provider_set;
   // Device provider registry linked into this runner.
   const loom_device_provider_registry_t* device_provider_registry;
   // Binds ordinary function calls once for all cases in the parsed module.

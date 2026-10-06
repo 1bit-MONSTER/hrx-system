@@ -322,10 +322,10 @@ func.def @wide_shift_low_word(%value: i64) -> (i32) {
 
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @wide_shift_low_word(%value: reg<aie2p.er x2>) -> (reg<aie2p.er>) asm {
-  %7 = mov.i32 6
+  %9 = mov.short 6
   %10 = slice %value[0] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %14 = lshl %10, %7
-  return %14
+  %result = lshl %10, %9
+  return %result
 }
 
 // ====

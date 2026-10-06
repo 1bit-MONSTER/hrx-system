@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import struct
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 
 from loom.dsl import ATTR_TYPE_FLAGS, Op
 from loom.target.contracts.emits import (
@@ -97,7 +97,10 @@ def _lower_source_op_project(
 def _lower_emit_kind(
     source_op: Op,
     emit: EmitDescriptorOp,
-    type_patterns_by_source_node: dict[int, dict[str, TypePattern]],
+    type_patterns_by_source_node: dict[
+        int,
+        dict[tuple[str, int], TypePattern],
+    ],
     source_node_ordinals: Mapping[str, int],
     source_ops: Mapping[str, Op],
 ) -> LowerEmitKind:
@@ -138,7 +141,7 @@ def _lower_emit_kind(
             referenced_op = source_ops[result_type_binding.source_node]
             result_type = _require_type_pattern(
                 referenced_op,
-                result_type_binding.field,
+                result_type_binding,
                 type_patterns_by_source_node[source_node_index],
             )
         if result_type.kind != "vector":
@@ -156,13 +159,18 @@ def _lower_emit_kind(
 
 def _require_type_pattern(
     source_op: Op,
-    field: str,
-    type_patterns_by_field: dict[str, TypePattern],
+    value_ref: ValueRef,
+    type_patterns_by_value: dict[tuple[str, int], TypePattern],
 ) -> TypePattern:
-    type_pattern = type_patterns_by_field.get(field)
+    type_pattern = type_patterns_by_value.get((value_ref.field, value_ref.element))
     if type_pattern is None:
+        field_name = (
+            f"{value_ref.field}[{value_ref.element}]"
+            if value_ref.element
+            else value_ref.field
+        )
         raise ValueError(
-            f"{source_op.name}: descriptor emit field '{field}' needs a "
+            f"{source_op.name}: descriptor emit field '{field_name}' needs a "
             "value_type guard"
         )
     return type_pattern
@@ -173,10 +181,10 @@ def _require_exact_result_type_pattern(
     descriptor_field: str,
     type_pattern: TypePattern,
 ) -> None:
-    if type_pattern.kind == "view":
+    if type_pattern.kind in {"buffer", "view"}:
         raise ValueError(
             f"{source_op.name}: descriptor emit result type pattern for "
-            f"'{descriptor_field}' cannot synthesize view types"
+            f"'{descriptor_field}' cannot synthesize {type_pattern.kind} types"
         )
     if len(type_pattern.elements) != 1:
         raise ValueError(
@@ -190,11 +198,16 @@ def _require_exact_result_type_pattern(
         )
 
 
-def _value_ref_for_source_field(source_op: Op, field: str) -> ValueRef:
+def _value_ref_for_source_field(
+    source_op: Op,
+    field: str,
+    *,
+    element: int = 0,
+) -> ValueRef:
     if source_op.operand(field) is not None:
-        return ValueRef.operand(field)
+        return ValueRef.operand(field, element=element)
     if source_op.result(field) is not None:
-        return ValueRef.result(field)
+        return ValueRef.result(field, element=element)
     raise ValueError(f"{source_op.name}: source field '{field}' is not a value")
 
 
@@ -220,7 +233,13 @@ def _lower_value_ref(
         source_node_index=source_node_index,
         element_index=(
             value_ref.element
-            if value_ref.kind in (SourceValueKind.OPERAND, SourceValueKind.RESULT)
+            if value_ref.kind
+            in (
+                SourceValueKind.OPERAND,
+                SourceValueKind.RESULT,
+                SourceValueKind.EXACT_LANE_ORIGIN_OPERAND,
+                SourceValueKind.EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND,
+            )
             else 0
         ),
         materializer_index=materializer_index,
@@ -232,7 +251,11 @@ def _source_value_index(
     value_ref: ValueRef,
     temporary_ordinals: Mapping[str, int],
 ) -> int:
-    if value_ref.kind == SourceValueKind.OPERAND:
+    if value_ref.kind in (
+        SourceValueKind.OPERAND,
+        SourceValueKind.EXACT_LANE_ORIGIN_OPERAND,
+        SourceValueKind.EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND,
+    ):
         operand = source_op.operand(value_ref.field)
         if operand is not None:
             return source_op.operands.index(operand)
@@ -246,11 +269,12 @@ def _source_value_index(
             return ordinal
     if value_ref.kind == SourceValueKind.SOURCE_MEMORY_DYNAMIC_TERM:
         return value_ref.element
-    if value_ref.kind == SourceValueKind.SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET:
-        return 0
-    if value_ref.kind == SourceValueKind.SOURCE_MEMORY_ADDRESS:
-        return 0
-    if value_ref.kind == SourceValueKind.SOURCE_MEMORY_ROOT:
+    if value_ref.kind in (
+        SourceValueKind.SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET,
+        SourceValueKind.SOURCE_MEMORY_BYTE_OFFSET,
+        SourceValueKind.SOURCE_MEMORY_ADDRESS,
+        SourceValueKind.SOURCE_MEMORY_ROOT,
+    ):
         return 0
     raise ValueError(f"source value field '{value_ref.field}' is not declared")
 
@@ -350,6 +374,7 @@ def _descriptor_operand_is_output(role: OperandRole) -> bool:
 def _lower_descriptor_ties(
     descriptor: Descriptor,
     operand_ordinals_by_descriptor_field: Mapping[str, int],
+    transferred_descriptor_fields: Collection[str],
 ) -> tuple[tuple[LowerTiedResult, ...], int]:
     result_ordinals_by_descriptor_index: dict[int, int] = {}
     operand_ordinals_by_descriptor_index: dict[int, int] = {}
@@ -367,6 +392,10 @@ def _lower_descriptor_ties(
 
     tied_results: list[LowerTiedResult] = []
     copy_operand_mask = 0
+    transferred_operand_ordinals = {
+        operand_ordinals_by_descriptor_field[field]
+        for field in transferred_descriptor_fields
+    }
     for constraint in descriptor.constraints:
         if constraint.kind not in (ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE):
             continue
@@ -393,7 +422,7 @@ def _lower_descriptor_ties(
                     operand_index=operand_index,
                 )
             )
-        else:
+        elif operand_index not in transferred_operand_ordinals:
             copy_operand_mask |= 1 << operand_index
     return tuple(tied_results), copy_operand_mask
 

@@ -739,7 +739,7 @@ static iree_status_t loom_loop_fusion_fuse_pair(
   iree_status_t status = iree_ok_status();
   if (result_count > 0) {
     status =
-        loom_builder_reserve_results(builder, result_count, reserved_results);
+        loom_builder_reserve_values(builder, result_count, reserved_results);
   }
   if (iree_status_is_ok(status) && result_count > 0) {
     status = loom_loop_fusion_prepare_fused_result_types(

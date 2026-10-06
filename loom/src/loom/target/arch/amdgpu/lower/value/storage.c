@@ -21,9 +21,10 @@ void loom_amdgpu_mark_value_plan_storage_demands(
           (const loom_amdgpu_index_cast_plan_t*)plan.target_data;
       switch (index_cast_plan->kind) {
         case LOOM_AMDGPU_INDEX_CAST_KIND_PRESERVING_LOW_BITS:
+        case LOOM_AMDGPU_INDEX_CAST_KIND_PRESERVING_LOW_BITS_TO_VGPR:
         case LOOM_AMDGPU_INDEX_CAST_KIND_ZERO_EXTENDING_LOW_32:
         case LOOM_AMDGPU_INDEX_CAST_KIND_SIGN_EXTENDING_LOW_32:
-        case LOOM_AMDGPU_INDEX_CAST_KIND_ZERO_EXTENDING_NARROW:
+        case LOOM_AMDGPU_INDEX_CAST_KIND_NORMALIZING_NARROW:
         case LOOM_AMDGPU_INDEX_CAST_KIND_PREDICATE_TO_INTEGER:
         case LOOM_AMDGPU_INDEX_CAST_KIND_NARROWING_INTEGER:
         case LOOM_AMDGPU_INDEX_CAST_KIND_INTEGER_TO_PREDICATE:
@@ -43,7 +44,8 @@ void loom_amdgpu_mark_value_plan_storage_demands(
           (const loom_amdgpu_vector_extract_plan_t*)plan.target_data;
       loom_low_lower_require_source_value_storage(context,
                                                   extract_plan->source);
-      if (extract_plan->is_dynamic) {
+      if (iree_any_bit_set(extract_plan->flags,
+                           LOOM_AMDGPU_VECTOR_EXTRACT_FLAG_DYNAMIC)) {
         loom_low_lower_require_source_value_storage(
             context, extract_plan->dynamic_index);
       }

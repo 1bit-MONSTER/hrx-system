@@ -249,7 +249,7 @@ iree_status_t loom_bytecode_write_source_trivia_section(
 }
 
 //===----------------------------------------------------------------------===//
-// String builder emit helpers (for SYMBOLS section buffering)
+// Bounded record payload helpers
 //===----------------------------------------------------------------------===//
 
 iree_status_t loom_bytecode_emit_u8(iree_string_builder_t* builder,
@@ -258,30 +258,6 @@ iree_status_t loom_bytecode_emit_u8(iree_string_builder_t* builder,
   IREE_RETURN_IF_ERROR(iree_string_builder_append_inline(builder, 1, &head));
   if (head) {
     head[0] = (char)value;
-  }
-  return iree_ok_status();
-}
-
-iree_status_t loom_bytecode_emit_u16_le(iree_string_builder_t* builder,
-                                        uint16_t value) {
-  char* head = NULL;
-  IREE_RETURN_IF_ERROR(iree_string_builder_append_inline(builder, 2, &head));
-  if (head) {
-    head[0] = (char)(value & 0xFF);
-    head[1] = (char)((value >> 8) & 0xFF);
-  }
-  return iree_ok_status();
-}
-
-iree_status_t loom_bytecode_emit_u32_le(iree_string_builder_t* builder,
-                                        uint32_t value) {
-  char* head = NULL;
-  IREE_RETURN_IF_ERROR(iree_string_builder_append_inline(builder, 4, &head));
-  if (head) {
-    head[0] = (char)(value & 0xFF);
-    head[1] = (char)((value >> 8) & 0xFF);
-    head[2] = (char)((value >> 16) & 0xFF);
-    head[3] = (char)((value >> 24) & 0xFF);
   }
   return iree_ok_status();
 }
@@ -316,33 +292,4 @@ iree_status_t loom_bytecode_emit_svarint(iree_string_builder_t* builder,
   IREE_RETURN_IF_ERROR(loom_svarint_encode(value, span, &length));
   return iree_string_builder_append_string(
       builder, iree_make_string_view((const char*)buffer, length));
-}
-
-void loom_bytecode_patch_u64_le(iree_string_builder_t* builder,
-                                iree_host_size_t offset, uint64_t value) {
-  char* buffer = builder->buffer;
-  for (int i = 0; i < 8; ++i) {
-    buffer[offset + i] = (char)((value >> (i * 8)) & 0xFF);
-  }
-}
-
-iree_status_t loom_bytecode_emit_source_trivia(
-    iree_string_builder_t* builder, bool leading_blank_line,
-    const iree_string_view_t* comments, iree_host_size_t comment_count) {
-  uint64_t source_trivia = 0;
-  IREE_RETURN_IF_ERROR(loom_bytecode_encode_source_trivia(
-      leading_blank_line, comment_count, &source_trivia));
-  IREE_RETURN_IF_ERROR(loom_bytecode_emit_uvarint(builder, source_trivia));
-  for (iree_host_size_t i = 0; i < comment_count; ++i) {
-    bool has_payload = !iree_string_view_is_empty(comments[i]);
-    iree_host_size_t wire_size = comments[i].size + (has_payload ? 1 : 0);
-    IREE_RETURN_IF_ERROR(loom_bytecode_emit_uvarint(builder, wire_size));
-    if (has_payload) {
-      IREE_RETURN_IF_ERROR(
-          iree_string_builder_append_string(builder, IREE_SV(" ")));
-    }
-    IREE_RETURN_IF_ERROR(
-        iree_string_builder_append_string(builder, comments[i]));
-  }
-  return iree_ok_status();
 }

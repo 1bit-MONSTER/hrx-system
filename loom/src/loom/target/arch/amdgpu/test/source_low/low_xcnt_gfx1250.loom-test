@@ -1,3 +1,49 @@
+// Inherited storage still publishes the hardware source-read lease attached to
+// the identity, not just the records attached to its original address value.
+// RUN: with-checks emit amdgpu-allocation-json @alias_attached_source_lease strategy=source amdgpu.vgpr=2 fixed=%address:physical_register:0:1 fixed=%loaded:physical_register:1:1 fixed=%reuse:physical_register:0:1 fixed=%base:physical_register:0:2
+
+amdgpu.target<gfx1250> @target
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @alias_attached_source_lease(%address: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>) asm {
+  %identity = low.assume %address [range(%address, 0, 1024)] : reg<amdgpu.vgpr>
+  %loaded = global_load_b32_saddr %identity, %base
+  %reuse = v_mov_b32 7
+  %result = v_add_u32 %loaded, %reuse
+  return %result
+}
+
+// ----
+CHECK: *"storage_lease_count":3,"storage_lease_instance_count":3,"storage_release_action_count":1,*
+CHECK: *"lease_record":1,"assignment":2,"value":{"id":3,"name":"identity","type":"reg<amdgpu.vgpr>"},"start_point":1,"end_point":2,"release_action":0,*"location":{"kind":"physical_register","base":0,"count":1}}*
+CHECK: *"storage_release_actions":[{"index":0,"insertion_packet":2,"insertion_node":2,*"release_reason_name":"amdgpu.memory_source_reuse","required_progress":1,"lease_record":1}]*
+
+// ====
+
+// The source-read lease forces XCNT completion before the address is overwritten;
+// payload completion remains independently required before arithmetic.
+// RUN: emit amdgpu-assembly @alias_attached_source_lease strategy=source amdgpu.vgpr=2 fixed=%address:physical_register:0:1 fixed=%loaded:physical_register:1:1 fixed=%reuse:physical_register:0:1 fixed=%base:physical_register:0:2
+
+amdgpu.target<gfx1250> @target
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @alias_attached_source_lease(%address: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>) asm {
+  %identity = low.assume %address [range(%address, 0, 1024)] : reg<amdgpu.vgpr>
+  %loaded = global_load_b32_saddr %identity, %base
+  %reuse = v_mov_b32 7
+  %result = v_add_u32 %loaded, %reuse
+  return %result
+}
+
+// ----
+  global_load_b32 v1, v0, s[0:1] offset:0
+  s_wait_xcnt xcnt(0)
+  v_mov_b32 v0, 7
+  s_wait_loadcnt loadcnt(0)
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add_u32 v0, v1, v0
+  s_endpgm
+
+// ====
+
 // RUN: emit amdgpu-assembly @smem_base_reuse_requires_xcnt strategy=source amdgpu.sgpr=16 fixed=%kernarg:physical_register:0:2 fixed=%keep:physical_register:2:6 fixed=%loaded:physical_register:8:8
 
 amdgpu.target<gfx1250> @target

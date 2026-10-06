@@ -107,6 +107,10 @@ TEST(NumericFormatTest, LeavesScaleExponentFormatOutOfPayloadSelectors) {
   EXPECT_EQ(info->storage_bit_count, 8);
   EXPECT_EQ(info->exponent_bit_count, 8);
   EXPECT_EQ(info->mantissa_bit_count, 0);
+  EXPECT_TRUE(iree_any_bit_set(info->flags, LOOM_NUMERIC_FORMAT_FLAG_HAS_NAN));
+  EXPECT_FALSE(
+      iree_any_bit_set(info->flags, LOOM_NUMERIC_FORMAT_FLAG_HAS_INFINITY));
+  EXPECT_TRUE(loom_numeric_format_is_finite_only(info->format));
   EXPECT_FALSE(
       loom_numeric_format_needs_encoded_payload_selector(info->format));
 }

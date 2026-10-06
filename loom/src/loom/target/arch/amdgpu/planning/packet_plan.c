@@ -67,7 +67,7 @@ iree_status_t loom_amdgpu_packet_plan_build(
     const iree_arena_checkpoint_t wait_state_checkpoint =
         iree_arena_checkpoint_save(&transient_arena);
     status = loom_amdgpu_wait_state_plan_build(
-        schedule, allocation, processor_properties, &out_plan->wait_plan,
+        schedule, allocation, processor_properties, &out_plan->wait_packets,
         &out_plan->vopd_plan, matrix_coexecution, arena, &transient_arena,
         &out_plan->wait_states);
     iree_arena_checkpoint_restore(&wait_state_checkpoint);

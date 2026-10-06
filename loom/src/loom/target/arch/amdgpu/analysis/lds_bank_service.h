@@ -43,8 +43,10 @@ typedef enum loom_amdgpu_lds_bank_service_evidence_class_e {
 typedef enum loom_amdgpu_lds_bank_service_request_policy_e {
   // Every packet bank-word request consumes service independently.
   LOOM_AMDGPU_LDS_BANK_SERVICE_REQUEST_POLICY_COUNT_EACH = 0,
-  // Identical read addresses within one phase are coalesced.
+  // Reads of the same bank word within one phase are coalesced.
   LOOM_AMDGPU_LDS_BANK_SERVICE_REQUEST_POLICY_COALESCE_IDENTICAL_READS = 1,
+  // Writes to disjoint bytes of one bank word share a request.
+  LOOM_AMDGPU_LDS_BANK_SERVICE_REQUEST_POLICY_COMBINE_DISJOINT_WRITES = 2,
 } loom_amdgpu_lds_bank_service_request_policy_t;
 
 // One immutable target packet service model.
@@ -65,8 +67,8 @@ typedef struct loom_amdgpu_lds_bank_service_model_t {
   uint8_t bank_count;
   // Byte width of one LDS bank word.
   uint8_t bank_word_byte_count;
-  // Number of consecutive bank words requested by each active lane.
-  uint8_t packet_word_count;
+  // Number of bytes accessed by each active lane.
+  uint8_t packet_byte_count;
   // Number of populated lane-service phase masks.
   uint8_t phase_count;
   // Active lane membership for each hardware service phase.
@@ -79,8 +81,8 @@ typedef struct loom_amdgpu_lds_bank_service_result_t {
   uint16_t phase_required_rounds[LOOM_AMDGPU_LDS_BANK_SERVICE_MAX_PHASE_COUNT];
   // Number of populated phase results.
   uint8_t phase_count;
-  // Number of bank-word base translations covered by the profile.
-  uint8_t base_residue_count;
+  // Number of common byte-base residues covered by the profile.
+  uint16_t base_residue_count;
   // Sum of phase_required_rounds.
   uint16_t required_rounds;
   // One round for each phase containing at least one active lane.
@@ -92,7 +94,7 @@ typedef struct loom_amdgpu_lds_bank_service_result_t {
 } loom_amdgpu_lds_bank_service_result_t;
 
 // Returns the immutable model selected by |model_set_ordinal| and
-// |descriptor_ref|.
+// |descriptor_ref| and the function's selected |wave_size|.
 //
 // Generated target rows intern complete, unambiguous model sets. Multiple
 // processors and revisions may select the same set without introducing
@@ -100,7 +102,7 @@ typedef struct loom_amdgpu_lds_bank_service_result_t {
 const loom_amdgpu_lds_bank_service_model_t*
 loom_amdgpu_lds_bank_service_model_lookup(
     loom_amdgpu_lds_bank_service_model_set_ordinal_t model_set_ordinal,
-    loom_amdgpu_descriptor_ref_t descriptor_ref);
+    loom_amdgpu_descriptor_ref_t descriptor_ref, uint8_t wave_size);
 
 // Returns the stable report key for |evidence_class|.
 iree_string_view_t loom_amdgpu_lds_bank_service_evidence_class_name(
@@ -112,15 +114,19 @@ iree_string_view_t loom_amdgpu_lds_bank_service_request_policy_name(
 
 // Evaluates explicit lane-relative byte addresses under |model|.
 //
-// The first |model->wave_size| lane addresses must be aligned to the model bank
-// word. All addresses share one unknown additive LDS base. Because adding a
-// common bank-word residue only rotates bank indices, the returned profile
-// proves translation invariance across every bank residue.
-void loom_amdgpu_lds_bank_service_evaluate(
+// Bit r of |common_base_byte_residues| represents a possible common base modulo
+// the bank-word byte width. The mask must be nonempty. Every resulting address
+// must align to the smaller of the packet and bank-word widths. Word-aligned
+// translations only rotate bank indices and require no enumeration.
+//
+// Returns true when every possible subword placement has the same phase
+// profile. Otherwise no exact result is available and |out_result| is cleared.
+bool loom_amdgpu_lds_bank_service_evaluate(
     const loom_amdgpu_lds_bank_service_model_t* model,
     uint64_t active_lane_mask,
     const uint64_t
         lane_base_byte_offsets[LOOM_AMDGPU_LDS_BANK_SERVICE_MAX_WAVE_SIZE],
+    uint64_t common_base_byte_residues,
     loom_amdgpu_lds_bank_service_result_t* out_result);
 
 #ifdef __cplusplus

@@ -1,0 +1,80 @@
+// RUN: emit source-low output=low
+
+amdgpu.target<gfx12-generic> @target
+
+// The phase token keeps independent lane work between arrival and wait while
+// remaining absent from the target IR.
+kernel.def target(@target) @split_barrier_overlaps_lane_work() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%output: buffer) {
+  %base = index.constant 0 : offset
+  %lane = kernel.workitem.id<x> : index
+  %output_view = buffer.view %output[%base] : buffer -> view<64xi32>
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  %lane_i32 = index.cast %lane : index to i32
+  %doubled = scalar.addi %lane_i32, %lane_i32 : i32
+  kernel.barrier.wait %phase : kernel.barrier.phase
+  view.store %doubled, %output_view[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.gfx12.generic.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) workgroup_size(64, 1, 1) workgroup_count(1, 1, 1) @split_barrier_overlaps_lane_work() asm {
+  %lane_i32 = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %output_view = resource<hal_binding> {extent = 256, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  s_barrier_signal_all
+  %doubled = v_add_u32 %lane_i32, %lane_i32
+  s_barrier_wait_all
+  %12 = v_lshlrev_b32_src0_inline %lane_i32, 2
+  global_store_b32_saddr %12, %doubled, %output_view
+  return
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+kernel.def target(@target) @split_barrier_requires_native_packets() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch() {
+  // ERROR@+1: AMDGPU/023 {constraint_key="descriptor.s_barrier_signal_all"}
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  // ERROR@+1: AMDGPU/023 {constraint_key="descriptor.s_barrier_wait_all"}
+  kernel.barrier.wait %phase : kernel.barrier.phase
+  kernel.return
+}
+
+// ====
+
+amdgpu.target<gfx12-generic> @target
+
+func.def target(@target) @split_barrier_rejects_overlapping_phases() {
+  %outer = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  // ERROR@+1: STRUCTURE/056 {phase_name="source-low", op_name="kernel.barrier.arrive", reason="another barrier arrives before the active phase is waited"}
+  %inner = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  kernel.barrier.wait %inner : kernel.barrier.phase
+  kernel.barrier.wait %outer : kernel.barrier.phase
+  func.return
+}
+
+// ====
+
+amdgpu.target<gfx12-generic> @target
+
+kernel.def target(@target) @split_barrier_rejects_nested_collective() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch() {
+  %lane = kernel.workitem.id<x> : index
+  %value = index.cast %lane : index to i32
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  // ERROR@+1: STRUCTURE/056 {phase_name="source-low", op_name="kernel.workgroup.reduce", reason="another convergent operation executes while a phase is active"}
+  %sum = kernel.workgroup.reduce<addi> %value : i32
+  kernel.barrier.wait %phase : kernel.barrier.phase
+  kernel.return
+}

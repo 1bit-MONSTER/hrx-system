@@ -37,6 +37,19 @@ using DeviceSpecPtr =
 
 constexpr uint32_t kVulkanApiVersion13 =
     (1u << 22) | (3u << 12) | static_cast<uint32_t>(0);
+constexpr uint64_t kMaximumWorkgroupLocalMemorySize = 32 * 1024;
+
+typedef uint32_t DeviceSpecFlags;
+typedef enum DeviceSpecFlagBits {
+  kDeviceSpecFlagNone = 0u,
+  kDeviceSpecFlagIncludeDispatch = 1u << 0,
+  kDeviceSpecFlagIncludeExecutableTarget = 1u << 1,
+  kDeviceSpecFlagIncludeWorkgroupStorageLimit = 1u << 2,
+} DeviceSpecFlagBits;
+
+constexpr DeviceSpecFlags kCompleteDeviceSpecFlags =
+    kDeviceSpecFlagIncludeDispatch | kDeviceSpecFlagIncludeExecutableTarget |
+    kDeviceSpecFlagIncludeWorkgroupStorageLimit;
 
 typedef struct FakeHalDevice {
   // HAL resource header used by device vtable dispatch.
@@ -79,8 +92,8 @@ iree_hal_vulkan_features_t RequiredVulkanFeatures() {
 }
 
 iree_status_t CreateVulkanDeviceSpec(
-    iree_hal_vulkan_features_t enabled_features, bool include_dispatch,
-    bool include_target, DeviceSpecPtr* out_device_spec) {
+    iree_hal_vulkan_features_t enabled_features, DeviceSpecFlags flags,
+    DeviceSpecPtr* out_device_spec) {
   out_device_spec->reset();
   iree_hal_vulkan_device_spec_t vulkan_spec = {
       /*.api_version=*/kVulkanApiVersion13,
@@ -109,7 +122,7 @@ iree_status_t CreateVulkanDeviceSpec(
   iree_hal_device_spec_builder_t builder;
   iree_hal_device_spec_builder_initialize(iree_allocator_system(), &builder);
   iree_status_t status = iree_ok_status();
-  if (include_dispatch) {
+  if (iree_any_bit_set(flags, kDeviceSpecFlagIncludeDispatch)) {
     iree_hal_device_dispatch_spec_t dispatch = {
         /*.launch=*/
         {
@@ -128,6 +141,17 @@ iree_status_t CreateVulkanDeviceSpec(
         {
             /*.unit_count=*/1,
             /*.group_count=*/1,
+            /*.maximum_resident_workgroup_count=*/0,
+            /*.maximum_resident_invocation_count=*/0,
+            /*.maximum_resident_subgroup_count=*/0,
+            /*.maximum_register_count=*/0,
+            /*.maximum_workgroup_register_count=*/0,
+            /*.maximum_local_memory_size=*/0,
+            /*.maximum_workgroup_local_memory_size=*/
+            iree_any_bit_set(flags, kDeviceSpecFlagIncludeWorkgroupStorageLimit)
+                ? kMaximumWorkgroupLocalMemorySize
+                : 0,
+            /*.maximum_workgroup_local_memory_size_optin=*/0,
         },
         /*.addressing=*/
         {
@@ -146,6 +170,8 @@ iree_status_t CreateVulkanDeviceSpec(
       /*.physical_device_affinity=*/1,
       /*.flags=*/IREE_HAL_EXECUTABLE_TARGET_FLAG_NONE,
   };
+  const bool include_target =
+      iree_any_bit_set(flags, kDeviceSpecFlagIncludeExecutableTarget);
   const iree_hal_device_executable_spec_t executables = {
       /*.target_count=*/include_target ? 1u : 0u,
       /*.targets=*/include_target ? &executable_target : nullptr,
@@ -225,9 +251,8 @@ TEST(LoomcSpirvIreeHalTargetTest, CreatesProfileFromHalFacts) {
       IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_FLOAT16 |
       IREE_HAL_VULKAN_FEATURE_ENABLE_STORAGE_BUFFER_8BIT_ACCESS;
   DeviceSpecPtr device_spec;
-  IREE_ASSERT_OK(CreateVulkanDeviceSpec(enabled_features,
-                                        /*include_dispatch=*/true,
-                                        /*include_target=*/true, &device_spec));
+  IREE_ASSERT_OK(CreateVulkanDeviceSpec(
+      enabled_features, kCompleteDeviceSpecFlags, &device_spec));
   FakeHalDevice device = {};
   InitializeFakeDevice(device_spec.get(), &device);
   TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
@@ -243,6 +268,10 @@ TEST(LoomcSpirvIreeHalTargetTest, CreatesProfileFromHalFacts) {
       profile.get(), LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_X, &limit));
   EXPECT_EQ(limit.state, LOOMC_TARGET_FACT_STATE_TRUE);
   EXPECT_EQ(limit.value, 256u);
+  LOOMC_EXPECT_OK(loomc_spirv_target_profile_query_limit(
+      profile.get(), LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_STORAGE_BYTES, &limit));
+  EXPECT_EQ(limit.state, LOOMC_TARGET_FACT_STATE_TRUE);
+  EXPECT_EQ(limit.value, kMaximumWorkgroupLocalMemorySize);
   loomc_target_fact_state_t feature_state = LOOMC_TARGET_FACT_STATE_UNKNOWN;
   LOOMC_EXPECT_OK(loomc_spirv_target_profile_query_feature(
       profile.get(), LOOMC_SPIRV_FEATURE_FLOAT16, &feature_state));
@@ -258,10 +287,11 @@ TEST(LoomcSpirvIreeHalTargetTest, CreatesProfileFromHalFacts) {
 
 TEST(LoomcSpirvIreeHalTargetTest, MissingExecutableTargetFailsResult) {
   DeviceSpecPtr device_spec;
-  IREE_ASSERT_OK(CreateVulkanDeviceSpec(RequiredVulkanFeatures(),
-                                        /*include_dispatch=*/true,
-                                        /*include_target=*/false,
-                                        &device_spec));
+  IREE_ASSERT_OK(
+      CreateVulkanDeviceSpec(RequiredVulkanFeatures(),
+                             kDeviceSpecFlagIncludeDispatch |
+                                 kDeviceSpecFlagIncludeWorkgroupStorageLimit,
+                             &device_spec));
   FakeHalDevice device = {};
   InitializeFakeDevice(device_spec.get(), &device);
   TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
@@ -277,8 +307,26 @@ TEST(LoomcSpirvIreeHalTargetTest, MissingExecutableTargetFailsResult) {
 TEST(LoomcSpirvIreeHalTargetTest, MissingRequiredHalFactFailsResult) {
   DeviceSpecPtr device_spec;
   IREE_ASSERT_OK(CreateVulkanDeviceSpec(RequiredVulkanFeatures(),
-                                        /*include_dispatch=*/false,
-                                        /*include_target=*/true, &device_spec));
+                                        kDeviceSpecFlagIncludeExecutableTarget,
+                                        &device_spec));
+  FakeHalDevice device = {};
+  InitializeFakeDevice(device_spec.get(), &device);
+  TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
+  loomc_result_t* result = nullptr;
+  TargetProfilePtr profile =
+      CreateProfileFromHal(target_environment.get(), &device, &result);
+  ResultPtr result_ptr(result);
+
+  EXPECT_EQ(profile.get(), nullptr);
+  ExpectFailedSpirvIreeHalResult(result_ptr.get());
+}
+
+TEST(LoomcSpirvIreeHalTargetTest, MissingWorkgroupStorageLimitFailsResult) {
+  DeviceSpecPtr device_spec;
+  IREE_ASSERT_OK(CreateVulkanDeviceSpec(
+      RequiredVulkanFeatures(),
+      kDeviceSpecFlagIncludeDispatch | kDeviceSpecFlagIncludeExecutableTarget,
+      &device_spec));
   FakeHalDevice device = {};
   InitializeFakeDevice(device_spec.get(), &device);
   TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
@@ -293,9 +341,8 @@ TEST(LoomcSpirvIreeHalTargetTest, MissingRequiredHalFactFailsResult) {
 
 TEST(LoomcSpirvIreeHalTargetTest, ProviderRoutesThroughGenericHalRouter) {
   DeviceSpecPtr device_spec;
-  IREE_ASSERT_OK(CreateVulkanDeviceSpec(RequiredVulkanFeatures(),
-                                        /*include_dispatch=*/true,
-                                        /*include_target=*/true, &device_spec));
+  IREE_ASSERT_OK(CreateVulkanDeviceSpec(
+      RequiredVulkanFeatures(), kCompleteDeviceSpecFlags, &device_spec));
   FakeHalDevice device = {};
   InitializeFakeDevice(device_spec.get(), &device);
   TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();

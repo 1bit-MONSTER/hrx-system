@@ -93,51 +93,165 @@ static bool loom_scf_unroll_effects_conflict(
                                                LOOM_SCF_BODY_EFFECT_WRITE);
 }
 
-static bool loom_scf_unroll_symbolic_expr_contains_value(
-    const loom_symbolic_expr_t* expression, loom_value_id_t value_id) {
+// Cross-execution value correspondence consumes the body owner's retained
+// dependencies. Source-local definitions begin varying; pure scheduling units
+// refine their results when every dependency is invariant.
+typedef struct loom_scf_unroll_value_states_t {
+  // Existing movement domain, borrowed for this plan's lifetime.
+  const loom_local_value_domain_t* domain;
+  // One state byte per source-local definition; captures are invariant.
+  bool* invariant;
+} loom_scf_unroll_value_states_t;
+
+static bool loom_scf_unroll_value_is_invariant(
+    const loom_scf_unroll_value_states_t* facts, loom_value_id_t value) {
+  const loom_value_ordinal_t ordinal =
+      loom_local_value_domain_try_ordinal(facts->domain, value);
+  return ordinal >= facts->domain->definition_count ||
+         facts->invariant[ordinal];
+}
+
+static bool loom_scf_unroll_expression_is_invariant(
+    const loom_scf_unroll_value_states_t* facts,
+    const loom_symbolic_expr_t* expression) {
   if (!loom_symbolic_expr_is_linear(expression)) {
     return false;
   }
   for (iree_host_size_t i = 0; i < expression->term_count; ++i) {
     const loom_symbolic_term_t term = expression->terms[i];
-    if (term.value_id == value_id || term.relation_value_id == value_id) {
-      return true;
+    if (!loom_scf_unroll_value_is_invariant(facts, term.value_id) ||
+        !loom_scf_unroll_value_is_invariant(facts, term.relation_value_id)) {
+      return false;
     }
   }
-  return false;
+  return true;
 }
 
-static bool loom_scf_unroll_endpoint_contains_value(
-    const loom_movement_endpoint_t* endpoint, loom_value_id_t value_id) {
-  return loom_scf_unroll_symbolic_expr_contains_value(
-             &endpoint->begin_byte_offset, value_id) ||
-         loom_scf_unroll_symbolic_expr_contains_value(&endpoint->byte_length,
-                                                      value_id) ||
-         loom_scf_unroll_symbolic_expr_contains_value(
-             &endpoint->end_byte_offset, value_id);
+// Each movement description byte packs the source scope in bits 0..1, the
+// destination scope in bits 2..3, and description success in bit 4. Endpoint
+// construction classifies symbolic terms once, before conflict-pair queries.
+enum {
+  LOOM_SCF_UNROLL_SCOPE_INVARIANT_ROOT = 1u << 0,
+  LOOM_SCF_UNROLL_SCOPE_INVARIANT_RANGE = 1u << 1,
+  LOOM_SCF_UNROLL_DEST_SCOPE_SHIFT = 2,
+  LOOM_SCF_UNROLL_MOVEMENT_DESCRIBED = 1u << 4,
+};
+
+static uint8_t loom_scf_unroll_endpoint_scope(
+    const loom_scf_unroll_value_states_t* facts,
+    const loom_movement_endpoint_t* endpoint) {
+  if (endpoint->kind != LOOM_MOVEMENT_ENDPOINT_VIEW) {
+    return 0;
+  }
+  uint8_t scope =
+      loom_scf_unroll_value_is_invariant(facts, endpoint->root_value_id)
+          ? LOOM_SCF_UNROLL_SCOPE_INVARIANT_ROOT
+          : 0;
+  if (loom_scf_unroll_expression_is_invariant(facts,
+                                              &endpoint->begin_byte_offset) &&
+      loom_scf_unroll_expression_is_invariant(facts, &endpoint->byte_length) &&
+      loom_scf_unroll_expression_is_invariant(facts,
+                                              &endpoint->end_byte_offset)) {
+    scope |= LOOM_SCF_UNROLL_SCOPE_INVARIANT_RANGE;
+  }
+  return scope;
+}
+
+static iree_status_t loom_scf_unroll_build_movement_scopes(
+    const loom_scf_body_t* body, const loom_local_value_domain_t* domain,
+    iree_arena_allocator_t* arena,
+    const loom_scf_unroll_effect_dependency_plan_t* plan,
+    loom_movement_analysis_t* movement, const loom_movement_request_t* requests,
+    uint8_t* scopes) {
+  loom_scf_unroll_value_states_t states = {.domain = domain};
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, domain->definition_count, sizeof(*states.invariant),
+      (void**)&states.invariant));
+  memset(states.invariant, 0,
+         domain->definition_count * sizeof(*states.invariant));
+  for (uint32_t i = 0; i < body->count; ++i) {
+    const loom_scf_body_operation_t* operation = &body->operations[i];
+    const loom_scf_body_effect_flags_t effects =
+        operation->effects & ~LOOM_SCF_BODY_EFFECT_SOURCE_ORDER;
+    const uint32_t effect = plan->body_to_effect_indices[i];
+    if (effect != LOOM_SCF_UNROLL_EFFECT_INDEX_INVALID && scopes[effect]) {
+      scopes[effect] |=
+          loom_scf_unroll_endpoint_scope(&states, &requests[effect].source) |
+          (loom_scf_unroll_endpoint_scope(&states, &requests[effect].dest)
+           << LOOM_SCF_UNROLL_DEST_SCOPE_SHIFT);
+    }
+    bool varying = effects != 0;
+    if (effects == LOOM_SCF_BODY_EFFECT_READ) {
+      const loom_movement_endpoint_t* source = &requests[effect].source;
+      // A fixed address into storage unchanged by this body yields the same
+      // value. The movement owner has already retained its interference facts.
+      if (iree_all_bits_set(scopes[effect],
+                            LOOM_SCF_UNROLL_SCOPE_INVARIANT_ROOT |
+                                LOOM_SCF_UNROLL_SCOPE_INVARIANT_RANGE) &&
+          loom_view_region_table_root_is_stable(
+              &movement->view_regions, source->root_value_id,
+              source->alias_scope_id, source->memory_space)) {
+        varying = false;
+      }
+    }
+    for (iree_host_size_t j = 0; j < operation->reference_count; ++j) {
+      const loom_scf_body_reference_t* reference =
+          &body->references[operation->reference_begin + j];
+      varying |=
+          !loom_scf_unroll_value_is_invariant(&states, reference->value_id);
+    }
+    for (uint16_t j = 0; j < operation->op->result_count; ++j) {
+      const loom_value_id_t result = loom_op_const_results(operation->op)[j];
+      states.invariant[loom_local_value_domain_ordinal(domain, result)] =
+          !varying;
+    }
+  }
+  return iree_ok_status();
 }
 
 static iree_status_t loom_scf_unroll_endpoints_no_overlap(
     loom_movement_analysis_t* movement_analysis,
     const loom_movement_endpoint_t* left, const loom_movement_endpoint_t* right,
-    loom_value_id_t varying_value_id, bool* out_no_overlap) {
+    uint8_t left_scope, uint8_t right_scope, bool* out_no_overlap) {
   *out_no_overlap = false;
   if (left->kind != LOOM_MOVEMENT_ENDPOINT_VIEW ||
       right->kind != LOOM_MOVEMENT_ENDPOINT_VIEW) {
+    return iree_ok_status();
+  }
+  if (loom_value_fact_reference_origins_are_disjoint(left->origin,
+                                                     right->origin) ||
+      loom_view_memory_spaces_are_disjoint(left->memory_space,
+                                           right->memory_space)) {
+    *out_no_overlap = true;
     return iree_ok_status();
   }
   if (left->root_value_id == LOOM_VALUE_ID_INVALID ||
       right->root_value_id == LOOM_VALUE_ID_INVALID) {
     return iree_ok_status();
   }
-  if (left->root_value_id == right->root_value_id &&
-      varying_value_id != LOOM_VALUE_ID_INVALID &&
-      (loom_scf_unroll_endpoint_contains_value(left, varying_value_id) ||
-       loom_scf_unroll_endpoint_contains_value(right, varying_value_id))) {
-    return iree_ok_status();
+  if (left->root_value_id != right->root_value_id) {
+    // A same-execution promise also covers an arbitrary execution on one side
+    // when the other side is invariant.
+    if (!iree_any_bit_set(left_scope | right_scope,
+                          LOOM_SCF_UNROLL_SCOPE_INVARIANT_ROOT)) {
+      return iree_ok_status();
+    }
+  } else {
+    if (!iree_any_bit_set(left_scope, LOOM_SCF_UNROLL_SCOPE_INVARIANT_ROOT)) {
+      return iree_ok_status();
+    }
+    if (!iree_any_bit_set(left_scope & right_scope,
+                          LOOM_SCF_UNROLL_SCOPE_INVARIANT_RANGE)) {
+      // These marginal ranges quantify both expressions independently. Shared
+      // varying SSA symbols cannot cancel across two different iterations.
+      *out_no_overlap = left->end_byte_offset.facts.range_hi <=
+                            right->begin_byte_offset.facts.range_lo ||
+                        right->end_byte_offset.facts.range_hi <=
+                            left->begin_byte_offset.facts.range_lo;
+      return iree_ok_status();
+    }
   }
-  loom_view_region_t left_region = {0};
-  loom_view_region_t right_region = {0};
+  loom_view_region_t left_region = {0}, right_region = {0};
   if (!loom_movement_endpoint_as_view_region(left, &left_region) ||
       !loom_movement_endpoint_as_view_region(right, &right_region)) {
     return iree_ok_status();
@@ -173,8 +287,8 @@ static iree_status_t loom_scf_unroll_movement_requests_conflict(
     const loom_movement_request_t* prior_request,
     loom_scf_body_effect_flags_t prior_flags,
     const loom_movement_request_t* candidate_request,
-    loom_scf_body_effect_flags_t candidate_flags,
-    loom_value_id_t varying_value_id, bool* out_conflict) {
+    loom_scf_body_effect_flags_t candidate_flags, uint8_t prior_scopes,
+    uint8_t candidate_scopes, bool* out_conflict) {
   *out_conflict = true;
   const loom_movement_endpoint_t* prior_write = NULL;
   const loom_movement_endpoint_t* prior_read = NULL;
@@ -193,15 +307,22 @@ static iree_status_t loom_scf_unroll_movement_requests_conflict(
 
   const loom_movement_endpoint_t* left = NULL;
   const loom_movement_endpoint_t* right = NULL;
+  uint8_t left_scope = 0, right_scope = 0;
   if (prior_write && candidate_write) {
     left = prior_write;
     right = candidate_write;
+    left_scope = prior_scopes >> LOOM_SCF_UNROLL_DEST_SCOPE_SHIFT;
+    right_scope = candidate_scopes >> LOOM_SCF_UNROLL_DEST_SCOPE_SHIFT;
   } else if (prior_write && candidate_read) {
     left = prior_write;
     right = candidate_read;
+    left_scope = prior_scopes >> LOOM_SCF_UNROLL_DEST_SCOPE_SHIFT;
+    right_scope = candidate_scopes;
   } else if (prior_read && candidate_write) {
     left = prior_read;
     right = candidate_write;
+    left_scope = prior_scopes;
+    right_scope = candidate_scopes >> LOOM_SCF_UNROLL_DEST_SCOPE_SHIFT;
   } else {
     *out_conflict = false;
     return iree_ok_status();
@@ -209,7 +330,7 @@ static iree_status_t loom_scf_unroll_movement_requests_conflict(
 
   bool no_overlap = false;
   IREE_RETURN_IF_ERROR(loom_scf_unroll_endpoints_no_overlap(
-      movement_analysis, left, right, varying_value_id, &no_overlap));
+      movement_analysis, left, right, left_scope, right_scope, &no_overlap));
   *out_conflict = !no_overlap;
   return iree_ok_status();
 }
@@ -218,13 +339,15 @@ static iree_status_t loom_scf_unroll_describe_movement_requests(
     loom_movement_analysis_t* movement_analysis,
     const loom_scf_body_t* body_ops,
     const loom_scf_unroll_effect_dependency_plan_t* plan,
-    loom_movement_request_t* requests, bool* described) {
+    loom_movement_request_t* requests, uint8_t* scopes) {
   for (uint32_t i = 0; i < plan->effect_count; ++i) {
     const uint32_t body_op_index = plan->body_op_indices[i];
     loom_movement_diagnostic_t diagnostic = {0};
+    bool described = false;
     IREE_RETURN_IF_ERROR(loom_movement_request_describe_op(
         movement_analysis, body_ops->operations[body_op_index].op, &requests[i],
-        &diagnostic, &described[i]));
+        &diagnostic, &described));
+    scopes[i] = described ? LOOM_SCF_UNROLL_MOVEMENT_DESCRIBED : 0;
   }
   return iree_ok_status();
 }
@@ -232,11 +355,10 @@ static iree_status_t loom_scf_unroll_describe_movement_requests(
 static iree_status_t loom_scf_unroll_effects_conflict_with_movement(
     loom_movement_analysis_t* movement_analysis,
     const loom_movement_request_t* movement_requests,
-    const bool* described_movements,
+    const uint8_t* movement_scopes,
     const loom_scf_unroll_effect_dependency_plan_t* plan,
     const loom_scf_body_t* body_ops, uint32_t prior_effect_index,
-    uint32_t candidate_effect_index, loom_value_id_t varying_value_id,
-    bool* out_conflict) {
+    uint32_t candidate_effect_index, bool* out_conflict) {
   const uint32_t prior_op_index = plan->body_op_indices[prior_effect_index];
   const uint32_t candidate_op_index =
       plan->body_op_indices[candidate_effect_index];
@@ -254,14 +376,15 @@ static iree_status_t loom_scf_unroll_effects_conflict_with_movement(
           LOOM_SCF_BODY_EFFECT_ORDERED | LOOM_SCF_BODY_EFFECT_CONVERGENT)) {
     return iree_ok_status();
   }
-  if (!described_movements[prior_effect_index] ||
-      !described_movements[candidate_effect_index]) {
+  if (!movement_scopes[prior_effect_index] ||
+      !movement_scopes[candidate_effect_index]) {
     return iree_ok_status();
   }
   return loom_scf_unroll_movement_requests_conflict(
       movement_analysis, &movement_requests[prior_effect_index], prior_flags,
       &movement_requests[candidate_effect_index], candidate_flags,
-      varying_value_id, out_conflict);
+      movement_scopes[prior_effect_index],
+      movement_scopes[candidate_effect_index], out_conflict);
 }
 
 static bool loom_scf_unroll_effects_conflict_is_refinable(
@@ -356,10 +479,6 @@ static iree_status_t loom_scf_unroll_build_effect_dependency_plan(
     }
   }
 
-  loom_local_value_domain_t value_domain = {0};
-  loom_movement_analysis_t movement_analysis = {0};
-  loom_movement_request_t* movement_requests = NULL;
-  bool* described_movements = NULL;
   iree_status_t status = iree_ok_status();
   loom_scf_unroll_effect_dependency_plan_t plan = {
       .conflicts = conflicts,
@@ -369,6 +488,14 @@ static iree_status_t loom_scf_unroll_build_effect_dependency_plan(
       .unroll_count = unroll_count,
   };
   if (has_refinable_conflicts) {
+    // Only the conflict matrix survives refinement. Reuse the analysis storage
+    // for clone planning after publishing that matrix and releasing ordinals.
+    const iree_arena_checkpoint_t checkpoint =
+        iree_arena_checkpoint_save(scratch_arena);
+    loom_local_value_domain_t value_domain = {0};
+    loom_movement_analysis_t movement_analysis = {0};
+    loom_movement_request_t* movement_requests = NULL;
+    uint8_t* movement_scopes = NULL;
     status = loom_local_value_domain_acquire_for_region_tree(
         context->module, body_block->parent_region, scratch_arena,
         &value_domain);
@@ -387,15 +514,18 @@ static iree_status_t loom_scf_unroll_build_effect_dependency_plan(
     }
     if (iree_status_is_ok(status)) {
       status = iree_arena_allocate_array(scratch_arena, effect_count,
-                                         sizeof(*described_movements),
-                                         (void**)&described_movements);
+                                         sizeof(*movement_scopes),
+                                         (void**)&movement_scopes);
     }
     if (iree_status_is_ok(status)) {
-      memset(described_movements, 0,
-             (iree_host_size_t)effect_count * sizeof(*described_movements));
       status = loom_scf_unroll_describe_movement_requests(
           &movement_analysis, body_ops, &plan, movement_requests,
-          described_movements);
+          movement_scopes);
+    }
+    if (iree_status_is_ok(status)) {
+      status = loom_scf_unroll_build_movement_scopes(
+          body_ops, &value_domain, scratch_arena, &plan, &movement_analysis,
+          movement_requests, movement_scopes);
     }
     for (uint32_t prior_effect_index = 0;
          iree_status_is_ok(status) && prior_effect_index < effect_count;
@@ -414,17 +544,17 @@ static iree_status_t loom_scf_unroll_build_effect_dependency_plan(
             (iree_host_size_t)prior_effect_index * effect_count +
             candidate_effect_index;
         status = loom_scf_unroll_effects_conflict_with_movement(
-            &movement_analysis, movement_requests, described_movements, &plan,
+            &movement_analysis, movement_requests, movement_scopes, &plan,
             body_ops, prior_effect_index, candidate_effect_index,
-            body_block->arg_ids[0], &conflicts[matrix_index]);
+            &conflicts[matrix_index]);
         if (!iree_status_is_ok(status)) {
           break;
         }
       }
     }
+    loom_local_value_domain_release(&value_domain);
+    iree_arena_checkpoint_restore(&checkpoint);
   }
-
-  loom_local_value_domain_release(&value_domain);
   IREE_RETURN_IF_ERROR(status);
 
   bool has_remaining_conflicts = false;
@@ -631,9 +761,10 @@ static iree_status_t loom_scf_unroll_initialize_scheduled_tile(
       .unroll_count = iteration_count,
   };
   const loom_op_t* unstructured_op = NULL;
-  IREE_RETURN_IF_ERROR(loom_scf_body_build(context->module, body_block,
-                                           scratch_arena, &out_tile->body_ops,
-                                           &unstructured_op));
+  IREE_RETURN_IF_ERROR(loom_scf_body_build(
+      context->module, body_block, /*capture_block=*/NULL, /*spaces=*/NULL,
+      LOOM_SCF_BODY_MODE_SCHEDULE, scratch_arena, &out_tile->body_ops,
+      &unstructured_op));
   if (unstructured_op != NULL) {
     return loom_scf_unroll_emit_policy_error(
         context, op, IREE_SV("schedule"), schedule,

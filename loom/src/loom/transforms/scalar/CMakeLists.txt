@@ -11,6 +11,60 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
+    combine_patterns
+  HDRS
+    "combine_patterns.h"
+  SRCS
+    "combine_patterns.c"
+  DEPS
+    ::narrowing
+    iree::base
+    loom::ir
+    loom::ops::scalar
+    loom::rewrite::pattern_registry
+    loom::rewrite::rewriter
+    loom::transforms::conversion::chain
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    narrowing
+  HDRS
+    "narrowing.h"
+  SRCS
+    "narrowing.c"
+  DEPS
+    iree::base
+    loom::ir
+    loom::ops::index
+    loom::ops::scalar
+    loom::rewrite::rewriter
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    cleanup_patterns
+  HDRS
+    "cleanup_patterns.h"
+  SRCS
+    "cleanup_patterns.c"
+  DEPS
+    iree::base
+    loom::analysis::condition_facts
+    loom::analysis::symbolic_expr
+    loom::ir
+    loom::ops::scalar
+    loom::pass::value_facts
+    loom::rewrite::pattern_registry
+    loom::rewrite::rewriter
+    loom::transforms::cleanup::patterns
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     target_legalization
   HDRS
     "target_legalization.h"

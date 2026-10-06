@@ -58,34 +58,18 @@ loom_check_compile_tests(
 
 loom_check_compile_tests(
   NAME
-    "memory_wide_offsets"
+    "narrow_float_arguments"
   SRC
-    "memory_wide_offsets.loom-test"
+    "narrow_float_arguments.loom-test"
   TARGETS
-    loom::target::amdgpu::gfx11-generic
     loom::target::amdgpu::gfx1100
-    loom::target::amdgpu::gfx1101
-    loom::target::amdgpu::gfx1102
-    loom::target::amdgpu::gfx1103
-    loom::target::amdgpu::gfx1150
     loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx1152
-    loom::target::amdgpu::gfx1153
     loom::target::amdgpu::gfx1170
-    loom::target::amdgpu::gfx1171
-    loom::target::amdgpu::gfx1172
-    loom::target::amdgpu::gfx12-5-generic
-    loom::target::amdgpu::gfx12-generic
     loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1201
     loom::target::amdgpu::gfx1250
-    loom::target::amdgpu::gfx1250-a0
-    loom::target::amdgpu::gfx1251
-    loom::target::amdgpu::gfx9-4-generic
-    loom::target::amdgpu::gfx940
-    loom::target::amdgpu::gfx941
     loom::target::amdgpu::gfx942
     loom::target::amdgpu::gfx950
+    loom::target::spirv::vulkan1.3+bda+extended-types
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

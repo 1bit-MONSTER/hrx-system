@@ -1,0 +1,60 @@
+// RUN: verify
+
+// The representation establishes packet and value types before a device is
+// selected. These unbound functions contribute no physical module contract.
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @unbound_workgroup() asm {
+  %storage = storage {byte_alignment = 4, byte_length = 4} : low.storage<workgroup>
+  %base = storage_address %storage : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
+  %index = OpConstant.i32 0
+  %value = OpConstant.f32 1
+  %ptr = OpAccessChain.workgroup.i32.element_index %base, %index
+  %old = OpAtomicCompareExchange.loop.fadd.noftz.rmw.workgroup.f32.workgroup %ptr, %value, "relaxed"
+  return
+}
+
+low.func.def target<spirv.logical.core> @unbound_callable(%ptr: reg<spirv.ptr.workgroup.i32>) -> (reg<spirv.ptr.workgroup.i32>) asm {
+  return %ptr
+}
+
+low.kernel.def target<spirv.logical.core> workgroup_size(1, 1, 1) @unbound_hal_kernel() asm {
+  %input = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  return
+}
+
+spirv.target<vulkan1_3> @hal_target {abi = hal_kernel}
+
+low.kernel.def target<spirv.logical.core>(@hal_target) workgroup_size(1, 1, 1) @bound_hal_kernel() asm {
+  return
+}
+
+// ====
+
+// Explicit function ABI constraints apply before device binding.
+// ERROR@+1: SPIRV/006 {function_name="unbound_hal_returns_values"}
+low.func.def target<spirv.logical.core> abi(hal_kernel) @unbound_hal_returns_values(%value: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  return %value
+}
+
+// ====
+
+low.func.def target<spirv.logical.core> @unbound_packet_type_mismatch(%lhs: reg<spirv.id : i32>, %rhs: reg<spirv.id : f32>) -> (reg<spirv.id : i32>) asm {
+  // ERROR@+1: SPIRV/013 {descriptor_key="spirv.op_iadd.i32", field_kind="operand", field_index="1", value_name="rhs", expected_value_type="s32", actual_value_type="f32"}
+  %sum = OpIAdd %lhs, %rhs
+  return %sum
+}
+
+// ====
+
+// Once a target is bound, its missing features are a concrete rejection.
+spirv.target<vulkan1_3> @baseline_target
+
+low.func.def target<spirv.logical.core>(@baseline_target) abi(shader_entry_point) @bound_feature_mismatch() asm {
+  %storage = storage {byte_alignment = 4, byte_length = 4} : low.storage<workgroup>
+  %base = storage_address %storage : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
+  %index = OpConstant.i32 0
+  %value = OpConstant.f32 1
+  %ptr = OpAccessChain.workgroup.i32.element_index %base, %index
+  // ERROR@+1: TARGET/046
+  %old = OpAtomicCompareExchange.loop.fadd.noftz.rmw.workgroup.f32.workgroup %ptr, %value, "relaxed"
+  return
+}

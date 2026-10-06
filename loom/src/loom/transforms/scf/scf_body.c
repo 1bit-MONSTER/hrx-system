@@ -11,15 +11,24 @@
 #include "loom/ir/encoding.h"
 #include "loom/ir/module.h"
 #include "loom/ir/types.h"
+#include "loom/ops/kernel/ops.h"
 #include "loom/ops/op_defs.h"
 #include "loom/ops/scf/ops.h"
 #include "loom/util/walk.h"
 
 typedef struct loom_scf_body_builder_t {
+  // Scheduling admission, or serial cloning without additional admission rules.
+  loom_scf_body_mode_t mode;
+  // Function owned immutable-space records, extended as children are cloned.
+  const loom_scf_memory_t* spaces;
+  // Allocated access correspondence slots.
+  iree_host_size_t memory_capacity;
   // Module providing maintained type uses and interned attribute payloads.
   const loom_module_t* module;
   // Block defining the source iteration's local values.
   const loom_block_t* block;
+  // Optional enclosing block whose direct definitions are schedule captures.
+  const loom_block_t* capture_block;
   // Current operation, whose result-type self references need no dependency.
   const loom_op_t* op;
   // Destination plan populated in authored order.
@@ -34,6 +43,8 @@ typedef struct loom_scf_body_builder_t {
   iree_host_size_t source_order_boundary_capacity;
   // Outer scheduling unit receiving the current operation's captures/effects.
   loom_scf_body_operation_t* operation;
+  // Optional memory metadata for the current scheduling unit.
+  loom_scf_body_access_unit_t* access_unit;
   // First control operation outside the supported structured body.
   const loom_op_t* unstructured_op;
 } loom_scf_body_builder_t;
@@ -44,7 +55,9 @@ static iree_status_t loom_scf_body_append_reference(loom_value_id_t value_id,
   const loom_value_t* value = loom_module_value(builder->module, value_id);
   bool allow_identity_mapping = false;
   if (loom_value_is_block_arg(value)) {
-    if (loom_value_def_block(value) != builder->block) {
+    const loom_block_t* definition_block = loom_value_def_block(value);
+    if (definition_block != builder->block &&
+        definition_block != builder->capture_block) {
       return iree_ok_status();
     }
   } else {
@@ -54,7 +67,8 @@ static iree_status_t loom_scf_body_append_reference(loom_value_id_t value_id,
     }
     if (!definition->parent_block) {
       allow_identity_mapping = true;
-    } else if (definition->parent_block != builder->block) {
+    } else if (definition->parent_block != builder->block &&
+               definition->parent_block != builder->capture_block) {
       return iree_ok_status();
     }
   }
@@ -125,7 +139,7 @@ static iree_status_t loom_scf_body_append_attribute(
   return iree_ok_status();
 }
 
-static loom_scf_body_effect_flags_t loom_scf_body_operation_effects(
+loom_scf_body_effect_flags_t loom_scf_body_operation_effects(
     const loom_module_t* module, const loom_op_t* op) {
   loom_trait_flags_t traits = loom_op_effective_traits(module, op);
   loom_scf_body_effect_flags_t flags = 0;
@@ -185,6 +199,24 @@ static iree_status_t loom_scf_body_capture_payload(
   return iree_ok_status();
 }
 
+static iree_status_t loom_scf_body_append_memory(
+    loom_scf_body_builder_t* builder, const loom_op_t* op) {
+  loom_scf_body_t* body = builder->body;
+  if (body->accesses.count == UINT32_MAX) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "SCF memory access count exceeds uint32");
+  }
+  if (body->accesses.count == builder->memory_capacity) {
+    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+        builder->arena, body->accesses.count, body->accesses.count + 1,
+        sizeof(*body->accesses.operations), &builder->memory_capacity,
+        (void**)&body->accesses.operations));
+  }
+  body->accesses.operations[body->accesses.count++] =
+      (loom_ir_remap_op_projection_t){.source_op = op};
+  return iree_ok_status();
+}
+
 static iree_status_t loom_scf_body_capture_operation(
     void* user_data, loom_op_t* op, const loom_walk_context_t* context,
     loom_walk_result_t* out_result) {
@@ -192,6 +224,12 @@ static iree_status_t loom_scf_body_capture_operation(
   *out_result = LOOM_WALK_CONTINUE;
   if (iree_any_bit_set(op->flags, LOOM_OP_FLAG_DEAD)) {
     *out_result = LOOM_WALK_SKIP;
+    return iree_ok_status();
+  }
+  if (builder->mode == LOOM_SCF_BODY_MODE_PROJECT_MEMORY) {
+    if (loom_memory_access_isa(loom_memory_access_cast(builder->module, op))) {
+      return loom_scf_body_append_memory(builder, op);
+    }
     return iree_ok_status();
   }
   const loom_op_vtable_t* vtable = loom_op_vtable(builder->module, op);
@@ -213,6 +251,13 @@ static iree_status_t loom_scf_body_capture_operation(
                                 "SCF body operation count exceeds uint32");
       }
       if (body->count == builder->operation_capacity) {
+        if (builder->spaces) {
+          iree_host_size_t capacity = builder->operation_capacity;
+          IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+              builder->arena, body->count, (iree_host_size_t)body->count + 1,
+              sizeof(*body->accesses.units), &capacity,
+              (void**)&body->accesses.units));
+        }
         IREE_RETURN_IF_ERROR(iree_arena_grow_array(
             builder->arena, body->count, (iree_host_size_t)body->count + 1,
             sizeof(*body->operations), &builder->operation_capacity,
@@ -224,6 +269,12 @@ static iree_status_t loom_scf_body_capture_operation(
         .op = op,
         .reference_begin = body->reference_count,
     };
+    if (builder->spaces && op != builder->block->last_op) {
+      builder->access_unit = &body->accesses.units[body->count - 1];
+      *builder->access_unit = (loom_scf_body_access_unit_t){
+          .begin = body->accesses.count,
+      };
+    }
   }
   IREE_RETURN_IF_ERROR(loom_scf_body_capture_payload(builder, op));
   builder->operation->reference_count =
@@ -234,6 +285,34 @@ static iree_status_t loom_scf_body_capture_operation(
     loom_scf_body_effect_flags_t effects =
         loom_scf_body_operation_effects(builder->module, op);
     builder->operation->effects |= effects;
+    if (builder->spaces) {
+      loom_memory_access_t access =
+          loom_memory_access_cast(builder->module, op);
+      uint8_t memory_effects = 0;
+      if (loom_memory_access_isa(access)) {
+        IREE_RETURN_IF_ERROR(loom_scf_body_append_memory(builder, op));
+        builder->access_unit->count++;
+        uint8_t space = loom_scf_memory_lookup(builder->spaces, op);
+        const bool ordinary = !(effects & ~(LOOM_SCF_BODY_EFFECT_READ |
+                                            LOOM_SCF_BODY_EFFECT_WRITE));
+        if (ordinary && space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
+          memory_effects = LOOM_SCF_BODY_MEMORY_WORKGROUP;
+        } else if (ordinary && effects == LOOM_SCF_BODY_EFFECT_READ) {
+          memory_effects = space == LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL
+                               ? LOOM_SCF_BODY_MEMORY_GLOBAL_LOAD
+                               : LOOM_SCF_BODY_MEMORY_OTHER_LOAD;
+        } else {
+          memory_effects = LOOM_SCF_BODY_MEMORY_UNSUPPORTED;
+        }
+      } else if (loom_kernel_barrier_isa(op) &&
+                 loom_kernel_barrier_memory_space(op) ==
+                     LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
+        memory_effects = LOOM_SCF_BODY_MEMORY_WORKGROUP;
+      } else if (effects && effects != LOOM_SCF_BODY_EFFECT_CONVERGENT) {
+        memory_effects = LOOM_SCF_BODY_MEMORY_UNSUPPORTED;
+      }
+      builder->access_unit->effects |= memory_effects;
+    }
     if (context->depth == 0 &&
         iree_any_bit_set(effects, LOOM_SCF_BODY_EFFECT_SOURCE_ORDER)) {
       if (body->source_order_boundary_count ==
@@ -256,16 +335,19 @@ static iree_status_t loom_scf_body_capture_operation(
   return iree_ok_status();
 }
 
-iree_status_t loom_scf_body_build(const loom_module_t* module,
-                                  const loom_block_t* block,
-                                  iree_arena_allocator_t* arena,
-                                  loom_scf_body_t* out_body,
-                                  const loom_op_t** out_unstructured_op) {
+iree_status_t loom_scf_body_build(
+    const loom_module_t* module, const loom_block_t* block,
+    const loom_block_t* capture_block, const loom_scf_memory_t* spaces,
+    loom_scf_body_mode_t mode, iree_arena_allocator_t* arena,
+    loom_scf_body_t* out_body, const loom_op_t** out_unstructured_op) {
   *out_body = (loom_scf_body_t){0};
   *out_unstructured_op = NULL;
   loom_scf_body_builder_t builder = {
+      .spaces = spaces,
+      .mode = mode,
       .module = module,
       .block = block,
+      .capture_block = capture_block,
       .body = out_body,
       .arena = arena,
   };

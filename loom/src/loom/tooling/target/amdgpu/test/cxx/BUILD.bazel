@@ -4,6 +4,16 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//build_tools/testing:build_defs.bzl", "iree_execution_test_suite")
+load(
+    "//loom/build_tools/amdgpu:descriptor_sets.bzl",
+    "loom_amdgpu_descriptor_set_compatible_with",
+    "loom_amdgpu_iree_hal_representation_compatible_with",
+)
+load(
+    "//loom/build_tools/amdgpu:target_config.bzl",
+    "LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY",
+)
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with", "loom_generated_file_family")
 load("//loom/build_tools/bazel:defs.bzl", "loom_test")
 load("//loom/build_tools/bazel:loom_check.bzl", "loom_check_test")
@@ -25,12 +35,20 @@ _EXECUTION_PROFILES = [
     ),
 ]
 
+_GFX11_GENERIC_REPRESENTATION = LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY["amdgpu.gfx11.generic.core"]
+
+_GFX11_ASSEMBLY_COMPATIBLE_WITH = (
+    loom_amdgpu_descriptor_set_compatible_with(_GFX11_GENERIC_REPRESENTATION) +
+    loom_amdgpu_iree_hal_representation_compatible_with(_GFX11_GENERIC_REPRESENTATION)
+)
+
 # Qualification is explicit: publishing a source module does not imply support
 # for its operations on every target.
 _MODULES = [
     "aiter_swiglu_f16",
     "assumptions",
     "atomics",
+    "boolean_storage",
     "constant_loops",
     "control_flow",
     "early_returns",
@@ -39,7 +57,13 @@ _MODULES = [
     "increment_values",
     "integer_increment",
     "llama_rms_norm",
+    "mxfp_group_dot",
+    "packed_byte_arithmetic",
+    "packed_float16_conversion",
+    "packed_float8_conversion",
+    "packed_group_dot",
     "packed_memory",
+    "pointer_origins",
     "pointer_walk",
     "record_memory",
     "record_values",
@@ -52,6 +76,8 @@ _MODULES = [
     "typed_views",
     "vector_depth",
     "vector_initializers",
+    "vector_lookup",
+    "vector_math",
     "vector_values",
     "volatile_memory",
 ]
@@ -86,13 +112,22 @@ loom_test(
 )
 
 loom_test(
+    name = "opaque_pointers_test",
+    srcs = ["opaque_pointers.cxx"],
+    execution_profiles = _EXECUTION_PROFILES,
+    target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
+)
+
+loom_test(
     name = "assembly_test",
     srcs = [
         "assembly.cxx",
         "assembly.loom",
     ],
     execution_profiles = _EXECUTION_PROFILES,
-    target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/import:cxx",
+    ]) + _GFX11_ASSEMBLY_COMPATIBLE_WITH,
 )
 
 loom_test(
@@ -113,6 +148,17 @@ loom_test(
     ],
     execution_profiles = _EXECUTION_PROFILES,
     target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
+)
+
+loom_check_test(
+    name = "mxfp_group_dot_lowering",
+    src = "mxfp_group_dot.cxx-test",
+    data = ["//loom/src/loom/import/cxx/test:mxfp_group_dot.cxx"],
+    runner = "//loom/src/loom/tools/loom-check",
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/import:cxx",
+        "//loom/config/target/arch:amdgpu",
+    ]),
 )
 
 loom_check_test(
@@ -138,9 +184,30 @@ loom_check_test(
     for name in [
         "assembly_lowering",
         "assembly_invalid",
+        "integer_extrema",
+        "opaque_pointers",
+        "parameter_alignment",
+        "parameter_noalias",
         "vector_lookup",
     ]
 ]
+
+loom_test(
+    name = "parameter_noalias_test",
+    srcs = ["parameter_noalias.cxx"],
+    execution_profiles = _EXECUTION_PROFILES,
+    target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
+)
+
+loom_test(
+    name = "parameter_alignment_test",
+    srcs = [
+        "parameter_alignment.cxx",
+        "parameter_alignment.loom",
+    ],
+    execution_profiles = _EXECUTION_PROFILES,
+    target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
+)
 
 loom_test(
     name = "float16_test",
@@ -195,13 +262,6 @@ loom_test(
 loom_test(
     name = "vector_list_assignment_test",
     srcs = ["vector_list_assignment.cxx"],
-    execution_profiles = _EXECUTION_PROFILES,
-    target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
-)
-
-loom_test(
-    name = "vector_lookup_test",
-    srcs = ["vector_lookup.cxx"],
     execution_profiles = _EXECUTION_PROFILES,
     target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
 )
@@ -262,6 +322,47 @@ loom_test(
         ":packed_byte_shifts_checks.loom",
     ],
     data = [":packed_byte_shifts_checks_gen"],
+    execution_profiles = _EXECUTION_PROFILES,
+    target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
+)
+
+iree_execution_test_suite(
+    name = "source_locations_test",
+    data = ["source_locations.cxx"],
+    manifests = ["source_locations.test.json"],
+    tags = ["hostonly"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/import:cxx",
+        "//loom/config/target:amdgpu_artifacts",
+    ]),
+    tools = {
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+        "loom-import-cxx": "//loom/src/loom/tools/loom-import-cxx",
+    },
+)
+
+loom_generated_file_family(
+    name = "narrow_float_subtraction_checks_gen",
+    testonly = True,
+    generator = "//loom/py/loom/gen/test:narrow_float_subtraction",
+    output_directories = ["narrow_float_subtraction_arrays"],
+    output_flags = [
+        "--output",
+        "--arrays",
+    ],
+    outputs = [
+        "narrow_float_subtraction_checks.loom",
+        "narrow_float_subtraction_arrays",
+    ],
+)
+
+loom_test(
+    name = "narrow_float_subtraction_test",
+    srcs = [
+        "narrow_float_subtraction.cxx",
+        ":narrow_float_subtraction_checks.loom",
+    ],
+    data = [":narrow_float_subtraction_checks_gen"],
     execution_profiles = _EXECUTION_PROFILES,
     target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
 )

@@ -22,6 +22,7 @@
 #include "loom/target/provider.h"
 #include "loom/tooling/execution/session.h"
 #include "loom/tooling/testbench/testbench.h"
+#include "loom/transforms/cleanup/configured.h"
 
 namespace loom {
 namespace {
@@ -72,6 +73,8 @@ class HalTestbenchActualTest : public ::testing::Test {
         (loom_run_initialize_low_descriptor_registry_callback_t){
             /*.fn=*/InitializeLowDescriptorRegistry,
         };
+    options.cleanup_pattern_provider_set =
+        loom_cleanup_configured_pattern_provider_set();
     IREE_ASSERT_OK(loom_run_session_initialize(&options, &session_));
   }
 
@@ -134,9 +137,26 @@ static loom_testbench_value_t F64Value(double value) {
   return result;
 }
 
-static const loom_target_snapshot_t kFakeTargetSnapshot = {
-    /*.name=*/IREE_SVL("fake-snapshot"),
-};
+static loom_target_snapshot_t AddressTargetSnapshot(uint32_t index_bitwidth,
+                                                    uint32_t offset_bitwidth) {
+  loom_target_snapshot_t snapshot = {};
+  snapshot.index_bitwidth = index_bitwidth;
+  snapshot.offset_bitwidth = offset_bitwidth;
+  return snapshot;
+}
+
+static loom_target_snapshot_t FakeTargetSnapshot() {
+  loom_target_snapshot_t snapshot = AddressTargetSnapshot(32, 64);
+  snapshot.name = IREE_SV("fake-snapshot");
+  return snapshot;
+}
+
+static const loom_target_snapshot_t kFakeTargetSnapshot = FakeTargetSnapshot();
+static const loom_target_snapshot_t kIndex32Offset64TargetSnapshot =
+    AddressTargetSnapshot(32, 64);
+static const loom_target_snapshot_t kIndex64Offset32TargetSnapshot =
+    AddressTargetSnapshot(64, 32);
+
 static const loom_target_export_plan_t kFakeTargetExportPlan = {
     /*.name=*/IREE_SVL("fake-export"),
     /*.export_symbol=*/{},
@@ -259,8 +279,6 @@ static iree_status_t FakeHalSelectProfileDeviceTarget(
 
 static const loom_artifact_provider_t kFakeArtifactProvider = {
     /*.name=*/IREE_SVL("fake-hal"),
-    /*.public_artifact_format=*/IREE_SVL("FakeExecutableFormat123"),
-    /*.flags=*/LOOM_ARTIFACT_PROVIDER_FLAG_CANONICAL,
     /*.target_profile_type=*/&kFakeTargetProfileType,
     /*.artifact_kind=*/LOOM_TARGET_COMPILE_ARTIFACT_KIND_HAL_EXECUTABLE,
     /*.default_pipeline_options=*/{},
@@ -356,6 +374,9 @@ check.case @entry_case {
   kernel.launch @entry() : ()
   check.return
 }
+
+pass.pipeline<module> @debug pipeline {
+}
 )";
   loom_run_module_t run_module = {};
   loom_testbench_module_plan_t module_plan = {};
@@ -387,7 +408,7 @@ check.case @entry_case {
   options.session = &session_;
   options.target_environment = &target_environment;
   options.run_module = &run_module;
-  options.pipeline = IREE_SV("none");
+  options.pipeline = IREE_SV("@debug");
   options.target = target;
   options.kernel_launch = kernel_launch;
   loom_run_hal_testbench_actual_provider_t provider = {};
@@ -404,6 +425,26 @@ check.case @entry_case {
             &kFakeTargetProfile);
   EXPECT_EQ(provider.owns_compile_device_target, !expects_explicit_selection);
   EXPECT_EQ(g_projected_target_profile, &kFakeTargetProfile);
+
+  // Both private modules retain exact spelling through their independent
+  // source-ID maps and share the compile owner's source bytes.
+  loom_source_table_resolver_t* tables[] = {
+      &provider.compile_module.sources.table, &provider.launch_config_sources};
+  EXPECT_EQ(tables[0]->module, provider.compile_module.module);
+  EXPECT_EQ(tables[1]->module, provider.launch_config_module);
+  for (auto* table : tables) {
+    const auto* module = table->module;
+    auto symbol = loom_module_find_symbol(
+        module, loom_module_lookup_string(module, IREE_SV("entry")));
+    ASSERT_NE(symbol, LOOM_SYMBOL_ID_INVALID);
+    loom_source_range_t range = {};
+    ASSERT_TRUE(loom_source_table_resolve(
+        table, module, module->symbols.entries[symbol].defining_op->location,
+        &range));
+    EXPECT_EQ(range.provenance, LOOM_SOURCE_PROVENANCE_EXACT_SOURCE);
+    EXPECT_TRUE(iree_string_view_equal(range.source, IREE_SV(kSource)));
+    EXPECT_EQ(range.source.data, tables[0]->entries[0].source.data);
+  }
 
   loom_run_hal_testbench_actual_provider_deinitialize(&provider);
   loom_run_hal_testbench_context_deinitialize(&context);
@@ -458,6 +499,64 @@ TEST_F(HalTestbenchActualTest, RequiresExplicitDeviceWhenHalProviderExists) {
   loom_run_hal_testbench_context_deinitialize(&context);
 }
 
+TEST_F(HalTestbenchActualTest,
+       AddsAuthoredSanitizerRequirementsBeforeRuntimeInitialization) {
+  static constexpr char kSource[] = R"(
+kernel.def @entry() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%condition: i1) {
+  kernel.assert %condition : i1
+  kernel.return
+}
+)";
+  loom_run_module_t run_module = {};
+  loom_testbench_module_plan_t module_plan = {};
+  ParseAndPlan(IREE_SV(kSource), &run_module, &module_plan);
+
+  loom_run_hal_testbench_context_t context = {};
+  loom_run_hal_testbench_context_initialize(
+      /*device_provider_registry=*/nullptr, iree_allocator_system(), &context);
+  const loom_sanitizer_options_t sanitizer = {};
+  IREE_ASSERT_OK(loom_run_hal_testbench_context_add_module_runtime_requirements(
+      &context, run_module.module, &sanitizer));
+  EXPECT_EQ(context.runtime_features,
+            IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_FEEDBACK);
+
+  loom_run_hal_testbench_context_deinitialize(&context);
+  loom_run_module_deinitialize(&run_module);
+}
+
+TEST_F(HalTestbenchActualTest,
+       RejectsNewSanitizerRequirementsAfterRuntimeInitialization) {
+  static constexpr char kSource[] = R"(
+kernel.def @entry() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%condition: i1) {
+  kernel.assert %condition : i1
+  kernel.return
+}
+)";
+  loom_run_module_t run_module = {};
+  loom_testbench_module_plan_t module_plan = {};
+  ParseAndPlan(IREE_SV(kSource), &run_module, &module_plan);
+
+  loom_run_hal_testbench_context_t context = {};
+  loom_run_hal_testbench_context_initialize(
+      /*device_provider_registry=*/nullptr, iree_allocator_system(), &context);
+  iree_hal_queue_t dispatch_queue = {};
+  IREE_ASSERT_OK(InitializeFakeHalContext(&context, &dispatch_queue));
+  const loom_sanitizer_options_t sanitizer = {};
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_FAILED_PRECONDITION,
+      loom_run_hal_testbench_context_add_module_runtime_requirements(
+          &context, run_module.module, &sanitizer));
+
+  loom_run_hal_testbench_context_deinitialize(&context);
+  loom_run_module_deinitialize(&run_module);
+}
+
 TEST_F(HalTestbenchActualTest, ScalarInputsPackDispatchConstantWords) {
   loom_testbench_value_t inputs[] = {
       I32Value(0x12345678),
@@ -472,8 +571,9 @@ TEST_F(HalTestbenchActualTest, ScalarInputsPackDispatchConstantWords) {
   loom_run_hal_binding_list_t bindings = {};
 
   IREE_ASSERT_OK(loom_run_hal_testbench_invocation_inputs_from_values(
-      inputs, input_types, /*input_parameters=*/nullptr, IREE_ARRAYSIZE(inputs),
-      &options, iree_allocator_system(), &bindings));
+      inputs, input_types, &kIndex32Offset64TargetSnapshot,
+      /*input_parameters=*/nullptr, IREE_ARRAYSIZE(inputs), &options,
+      iree_allocator_system(), &bindings));
 
   EXPECT_EQ(bindings.count, 0u);
   EXPECT_EQ(options.constant_count, 3u);
@@ -496,8 +596,9 @@ TEST_F(HalTestbenchActualTest, F64InputsPackDispatchConstantWords) {
   loom_run_hal_binding_list_t bindings = {};
 
   IREE_ASSERT_OK(loom_run_hal_testbench_invocation_inputs_from_values(
-      inputs, input_types, /*input_parameters=*/nullptr, IREE_ARRAYSIZE(inputs),
-      &options, iree_allocator_system(), &bindings));
+      inputs, input_types, &kIndex32Offset64TargetSnapshot,
+      /*input_parameters=*/nullptr, IREE_ARRAYSIZE(inputs), &options,
+      iree_allocator_system(), &bindings));
 
   EXPECT_EQ(bindings.count, 0u);
   EXPECT_EQ(options.constant_count, 2u);
@@ -507,7 +608,7 @@ TEST_F(HalTestbenchActualTest, F64InputsPackDispatchConstantWords) {
   loom_run_hal_binding_list_deinitialize(&bindings);
 }
 
-TEST_F(HalTestbenchActualTest, IndexInputPacksAsOneDispatchConstantWord) {
+TEST_F(HalTestbenchActualTest, IndexInputUsesSelected32BitTargetCarrier) {
   loom_testbench_value_t inputs[] = {
       I64Value(3584),
   };
@@ -519,14 +620,124 @@ TEST_F(HalTestbenchActualTest, IndexInputPacksAsOneDispatchConstantWord) {
   loom_run_hal_binding_list_t bindings = {};
 
   IREE_ASSERT_OK(loom_run_hal_testbench_invocation_inputs_from_values(
-      inputs, input_types, /*input_parameters=*/nullptr, IREE_ARRAYSIZE(inputs),
-      &options, iree_allocator_system(), &bindings));
+      inputs, input_types, &kIndex32Offset64TargetSnapshot,
+      /*input_parameters=*/nullptr, IREE_ARRAYSIZE(inputs), &options,
+      iree_allocator_system(), &bindings));
 
   EXPECT_EQ(bindings.count, 0u);
   EXPECT_EQ(options.constant_count, 1u);
   EXPECT_EQ(options.constants[0], 3584u);
 
   loom_run_hal_binding_list_deinitialize(&bindings);
+}
+
+TEST_F(HalTestbenchActualTest, IndexInputUsesSelected64BitTargetCarrier) {
+  loom_testbench_value_t inputs[] = {
+      I64Value(static_cast<int64_t>(0x1122334455667788ull)),
+  };
+  loom_type_t input_types[] = {
+      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+  };
+  loom_run_hal_invocation_options_t options = {};
+  loom_run_hal_invocation_options_initialize(&options);
+  loom_run_hal_binding_list_t bindings = {};
+
+  IREE_ASSERT_OK(loom_run_hal_testbench_invocation_inputs_from_values(
+      inputs, input_types, &kIndex64Offset32TargetSnapshot,
+      /*input_parameters=*/nullptr, IREE_ARRAYSIZE(inputs), &options,
+      iree_allocator_system(), &bindings));
+
+  EXPECT_EQ(bindings.count, 0u);
+  EXPECT_EQ(options.constant_count, 2u);
+  EXPECT_EQ(options.constants[0], 0x55667788u);
+  EXPECT_EQ(options.constants[1], 0x11223344u);
+
+  loom_run_hal_binding_list_deinitialize(&bindings);
+}
+
+TEST_F(HalTestbenchActualTest,
+       RejectsAddressInputWithoutSelectedTargetCarrier) {
+  loom_testbench_value_t inputs[] = {
+      I64Value(1),
+  };
+  loom_type_t input_types[] = {
+      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+  };
+  loom_run_hal_invocation_options_t options = {};
+  loom_run_hal_invocation_options_initialize(&options);
+  loom_run_hal_binding_list_t bindings = {};
+
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_FAILED_PRECONDITION,
+      loom_run_hal_testbench_invocation_inputs_from_values(
+          inputs, input_types, /*target_snapshot=*/nullptr,
+          /*input_parameters=*/nullptr, IREE_ARRAYSIZE(inputs), &options,
+          iree_allocator_system(), &bindings));
+}
+
+TEST_F(HalTestbenchActualTest, IndexInputUsesSignedReflectedFourByteRange) {
+  loom_testbench_value_t inputs[] = {
+      I64Value(INT32_MIN),
+      I64Value(INT32_MAX),
+  };
+  loom_type_t input_types[] = {
+      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+  };
+  iree_hal_executable_function_parameter_t input_parameters[] = {
+      {
+          /*.type=*/IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_CONSTANT,
+          /*.flags=*/{},
+          /*.size=*/4,
+          /*.offset=*/0,
+      },
+      {
+          /*.type=*/IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_CONSTANT,
+          /*.flags=*/{},
+          /*.size=*/4,
+          /*.offset=*/4,
+      },
+  };
+  loom_run_hal_invocation_options_t options = {};
+  loom_run_hal_invocation_options_initialize(&options);
+  loom_run_hal_binding_list_t bindings = {};
+
+  IREE_ASSERT_OK(loom_run_hal_testbench_invocation_inputs_from_values(
+      inputs, input_types, &kIndex32Offset64TargetSnapshot, input_parameters,
+      IREE_ARRAYSIZE(inputs), &options, iree_allocator_system(), &bindings));
+
+  EXPECT_EQ(bindings.count, 0u);
+  EXPECT_EQ(options.constant_count, 2u);
+  EXPECT_EQ(options.constants[0], 0x80000000u);
+  EXPECT_EQ(options.constants[1], 0x7fffffffu);
+
+  loom_run_hal_binding_list_deinitialize(&bindings);
+}
+
+TEST_F(HalTestbenchActualTest,
+       RejectsIndexOutsideSignedReflectedFourByteRange) {
+  loom_testbench_value_t inputs[] = {
+      I64Value(INT64_C(2147483648)),
+  };
+  loom_type_t input_types[] = {
+      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+  };
+  iree_hal_executable_function_parameter_t input_parameters[] = {{
+      /*.type=*/IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_CONSTANT,
+      /*.flags=*/{},
+      /*.size=*/4,
+      /*.offset=*/0,
+  }};
+  loom_run_hal_invocation_options_t options = {};
+  loom_run_hal_invocation_options_initialize(&options);
+  loom_run_hal_binding_list_t bindings = {};
+
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_OUT_OF_RANGE,
+      loom_run_hal_testbench_invocation_inputs_from_values(
+          inputs, input_types, &kIndex32Offset64TargetSnapshot,
+          input_parameters, IREE_ARRAYSIZE(inputs), &options,
+          iree_allocator_system(), &bindings));
 }
 
 TEST_F(HalTestbenchActualTest, MixedInputsUseReflectedWidthsAndOffsets) {
@@ -557,8 +768,8 @@ TEST_F(HalTestbenchActualTest, MixedInputsUseReflectedWidthsAndOffsets) {
   loom_run_hal_binding_list_t bindings = {};
 
   IREE_ASSERT_OK(loom_run_hal_testbench_invocation_inputs_from_values(
-      inputs, input_types, input_parameters, IREE_ARRAYSIZE(inputs), &options,
-      iree_allocator_system(), &bindings));
+      inputs, input_types, &kIndex32Offset64TargetSnapshot, input_parameters,
+      IREE_ARRAYSIZE(inputs), &options, iree_allocator_system(), &bindings));
 
   EXPECT_EQ(bindings.count, 0u);
   EXPECT_EQ(options.constant_count, 3u);
@@ -569,7 +780,7 @@ TEST_F(HalTestbenchActualTest, MixedInputsUseReflectedWidthsAndOffsets) {
   loom_run_hal_binding_list_deinitialize(&bindings);
 }
 
-TEST_F(HalTestbenchActualTest, OffsetInputPacksAsTwoDispatchConstantWords) {
+TEST_F(HalTestbenchActualTest, OffsetInputUsesSelected64BitTargetCarrier) {
   loom_testbench_value_t inputs[] = {
       I64Value(static_cast<int64_t>(0x1122334455667788ull)),
   };
@@ -581,8 +792,9 @@ TEST_F(HalTestbenchActualTest, OffsetInputPacksAsTwoDispatchConstantWords) {
   loom_run_hal_binding_list_t bindings = {};
 
   IREE_ASSERT_OK(loom_run_hal_testbench_invocation_inputs_from_values(
-      inputs, input_types, /*input_parameters=*/nullptr, IREE_ARRAYSIZE(inputs),
-      &options, iree_allocator_system(), &bindings));
+      inputs, input_types, &kIndex32Offset64TargetSnapshot,
+      /*input_parameters=*/nullptr, IREE_ARRAYSIZE(inputs), &options,
+      iree_allocator_system(), &bindings));
 
   EXPECT_EQ(bindings.count, 0u);
   EXPECT_EQ(options.constant_count, 2u);
@@ -592,9 +804,32 @@ TEST_F(HalTestbenchActualTest, OffsetInputPacksAsTwoDispatchConstantWords) {
   loom_run_hal_binding_list_deinitialize(&bindings);
 }
 
+TEST_F(HalTestbenchActualTest, OffsetInputUsesSelected32BitTargetCarrier) {
+  loom_testbench_value_t inputs[] = {
+      I64Value(INT64_C(4294967295)),
+  };
+  loom_type_t input_types[] = {
+      loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET),
+  };
+  loom_run_hal_invocation_options_t options = {};
+  loom_run_hal_invocation_options_initialize(&options);
+  loom_run_hal_binding_list_t bindings = {};
+
+  IREE_ASSERT_OK(loom_run_hal_testbench_invocation_inputs_from_values(
+      inputs, input_types, &kIndex64Offset32TargetSnapshot,
+      /*input_parameters=*/nullptr, IREE_ARRAYSIZE(inputs), &options,
+      iree_allocator_system(), &bindings));
+
+  EXPECT_EQ(bindings.count, 0u);
+  EXPECT_EQ(options.constant_count, 1u);
+  EXPECT_EQ(options.constants[0], UINT32_MAX);
+
+  loom_run_hal_binding_list_deinitialize(&bindings);
+}
+
 TEST_F(HalTestbenchActualTest, OffsetInputUsesReflectedFourByteWidth) {
   loom_testbench_value_t inputs[] = {
-      I64Value(3584),
+      I64Value(INT64_C(4294967295)),
   };
   loom_type_t input_types[] = {
       loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET),
@@ -610,14 +845,59 @@ TEST_F(HalTestbenchActualTest, OffsetInputUsesReflectedFourByteWidth) {
   loom_run_hal_binding_list_t bindings = {};
 
   IREE_ASSERT_OK(loom_run_hal_testbench_invocation_inputs_from_values(
-      inputs, input_types, input_parameters, IREE_ARRAYSIZE(inputs), &options,
-      iree_allocator_system(), &bindings));
+      inputs, input_types, &kIndex32Offset64TargetSnapshot, input_parameters,
+      IREE_ARRAYSIZE(inputs), &options, iree_allocator_system(), &bindings));
 
   EXPECT_EQ(bindings.count, 0u);
   EXPECT_EQ(options.constant_count, 1u);
-  EXPECT_EQ(options.constants[0], 3584u);
+  EXPECT_EQ(options.constants[0], UINT32_MAX);
 
   loom_run_hal_binding_list_deinitialize(&bindings);
+}
+
+TEST_F(HalTestbenchActualTest,
+       RejectsOffsetOutsideUnsignedReflectedFourByteRange) {
+  loom_testbench_value_t inputs[] = {
+      I64Value(INT64_C(4294967296)),
+  };
+  loom_type_t input_types[] = {
+      loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET),
+  };
+  iree_hal_executable_function_parameter_t input_parameters[] = {{
+      /*.type=*/IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_CONSTANT,
+      /*.flags=*/{},
+      /*.size=*/4,
+      /*.offset=*/0,
+  }};
+  loom_run_hal_invocation_options_t options = {};
+  loom_run_hal_invocation_options_initialize(&options);
+  loom_run_hal_binding_list_t bindings = {};
+
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_OUT_OF_RANGE,
+      loom_run_hal_testbench_invocation_inputs_from_values(
+          inputs, input_types, &kIndex32Offset64TargetSnapshot,
+          input_parameters, IREE_ARRAYSIZE(inputs), &options,
+          iree_allocator_system(), &bindings));
+}
+
+TEST_F(HalTestbenchActualTest, RejectsNegativeOffsetInput) {
+  loom_testbench_value_t inputs[] = {
+      I64Value(-1),
+  };
+  loom_type_t input_types[] = {
+      loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET),
+  };
+  loom_run_hal_invocation_options_t options = {};
+  loom_run_hal_invocation_options_initialize(&options);
+  loom_run_hal_binding_list_t bindings = {};
+
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_OUT_OF_RANGE,
+      loom_run_hal_testbench_invocation_inputs_from_values(
+          inputs, input_types, &kIndex32Offset64TargetSnapshot,
+          /*input_parameters=*/nullptr, IREE_ARRAYSIZE(inputs), &options,
+          iree_allocator_system(), &bindings));
 }
 
 TEST_F(HalTestbenchActualTest, RejectsNestedKernelLaunchSchedules) {
@@ -695,8 +975,12 @@ check.case @dynamic_case {
       loom_run_hal_testbench_select_kernel_launch(case_plan, &kernel_launch));
 
   loom_target_facts_t target_facts = {};
+  target_facts.storage.snapshot = kIndex32Offset64TargetSnapshot;
   int64_t workload_arguments[1] = {};
+  loom_run_hal_testbench_context_t context = {};
+  context.host_allocator = iree_allocator_system();
   loom_run_hal_testbench_actual_provider_t provider = {};
+  provider.context = &context;
   provider.session = &session_;
   provider.run_module = &run_module;
   provider.kernel_launch = kernel_launch;
@@ -709,7 +993,7 @@ check.case @dynamic_case {
   loom_testbench_value_materializer_options_t materializer_options = {};
   loom_testbench_value_materializer_options_initialize(&materializer_options);
   loom_testbench_value_table_t value_table = {};
-  IREE_ASSERT_OK(loom_testbench_value_table_initialize(
+  IREE_ASSERT_OK(loom_testbench_value_table_initialize_case(
       run_module.module, case_plan, iree_allocator_system(), &value_table));
   for (iree_host_size_t sample_ordinal = 0; sample_ordinal < 2;
        ++sample_ordinal) {
@@ -732,6 +1016,31 @@ check.case @dynamic_case {
         provider.resolved_launch_config.fields,
         LOOM_KERNEL_LAUNCH_CONFIG_FIELD_FLAG_WORKGROUP_COUNT |
             LOOM_KERNEL_LAUNCH_CONFIG_FIELD_FLAG_WORKGROUP_SIZE));
+
+    const loom_testbench_value_t* workload = nullptr;
+    const loom_testbench_value_t* input = nullptr;
+    IREE_ASSERT_OK(loom_testbench_value_table_lookup_borrow(
+        &value_table, kernel_launch->workload_value_ids[0], &workload));
+    IREE_ASSERT_OK(loom_testbench_value_table_lookup_borrow(
+        &value_table, kernel_launch->input_value_ids[0], &input));
+    loom_run_hal_invocation_options_t prepared_options = {};
+    loom_run_hal_binding_list_t prepared_bindings = {};
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_FAILED_PRECONDITION,
+        loom_run_hal_testbench_actual_provider_materialize_invocation(
+            &provider, /*workload_count=*/1, workload, /*input_count=*/1, input,
+            &prepared_options, &prepared_bindings));
+    provider.prepared_candidate_initialized = true;
+    IREE_ASSERT_OK(
+        loom_run_hal_testbench_actual_provider_materialize_invocation(
+            &provider, /*workload_count=*/1, workload, /*input_count=*/1, input,
+            &prepared_options, &prepared_bindings));
+    provider.prepared_candidate_initialized = false;
+    EXPECT_EQ(prepared_options.workgroup_count[0], expected_workgroup_count);
+    EXPECT_EQ(prepared_options.constant_count, 1u);
+    EXPECT_EQ(prepared_options.constants[0], expected_workgroup_count);
+    EXPECT_EQ(prepared_bindings.count, 0u);
+    loom_run_hal_binding_list_deinitialize(&prepared_bindings);
     loom_run_hal_binding_list_deinitialize(&bindings);
   }
 

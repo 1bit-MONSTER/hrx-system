@@ -55,6 +55,14 @@ detailed reports include the producer/consumer operation schedule. `suggest`
 combines source policy evidence with the selected target provider's experiments.
 Pipeline depth advice keeps unrolling fixed and cites available final resources;
 a single report does not establish that pipelining increased register use.
+
+Detailed reports also show whether loop-carried vector banks were split into
+fixed components, deliberately preserved as whole values, or rejected with a
+stable reason. Source advice proposes controlled rewrites only for dynamic
+component selection, inconsistent component shapes, and incompatible
+whole-bank uses. A selected projection enables an experiment; compare final
+resources and measured runtime before retaining the source change.
+
 On AMDGPU, `amdgpu.pipeline_copy_waits` identifies full load waits at actual
 branch-payload copies in an entry with read-ahead. Inspect the cited blocks for
 steady backedges, then compare explicit unroll factors and recurrence schedules
@@ -74,6 +82,13 @@ Residency explanations distinguish usage, rounded allocation, independent
 resource ceilings, and fixed launch limits. A tied next-tier transition requires
 all cited reductions together; missing counts or launch shape suppress exact
 gain advice. Higher modeled residency is a benchmark hypothesis, not a speedup.
+
+LDS findings are ordered by extra static service rounds and cite the buffer,
+instruction width, required/uncontended service, and incomplete coverage across
+that buffer's access forms. When recorded, the next residency cliff bounds LDS
+padding headroom at fixed launch and other resources. Static order is not runtime
+importance, and a report alone does not select a conflict-free pitch. Recompile
+layout candidates, compare all access directions and resources, and benchmark.
 
 ### Use the bounded JSON views
 

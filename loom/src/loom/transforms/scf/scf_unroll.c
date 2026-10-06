@@ -743,7 +743,7 @@ static iree_status_t loom_scf_unroll_reserve_result_scheme(
           .remap_symbol = loom_ir_remap_symbol_callback_empty(),
       },
       &remap));
-  IREE_RETURN_IF_ERROR(loom_builder_reserve_results(
+  IREE_RETURN_IF_ERROR(loom_builder_reserve_values(
       &context->rewriter->builder, source->result_count, reserved_results));
   IREE_RETURN_IF_ERROR(
       loom_ir_remap_map_values(&remap, loom_op_const_results(source),
@@ -1571,6 +1571,137 @@ static iree_status_t loom_scf_unroll_partial_unroll_scheduled(
   return status;
 }
 
+static iree_status_t loom_scf_unroll_full_linear(
+    loom_scf_unroll_context_t* context, loom_op_t* op, loom_op_t* yield,
+    const loom_scf_unroll_trip_count_t* trip_count,
+    loom_ir_remap_t* iteration_remap) {
+  loom_region_t* body = loom_scf_for_body(op);
+  loom_block_t* body_block = loom_region_entry_block(body);
+  loom_builder_set_before(&context->rewriter->builder, op);
+  loom_value_id_t value_checkpoint =
+      loom_rewriter_value_checkpoint(context->rewriter);
+  loom_value_slice_t iter_args = loom_scf_for_iter_args(op);
+  loom_value_id_t* carried_values = NULL;
+  loom_value_id_t* next_carried_values = NULL;
+  if (op->result_count > 0) {
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        context->pass->arena, op->result_count, sizeof(*carried_values),
+        (void**)&carried_values));
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        context->pass->arena, op->result_count, sizeof(*next_carried_values),
+        (void**)&next_carried_values));
+    memcpy(carried_values, iter_args.values,
+           (iree_host_size_t)op->result_count * sizeof(*carried_values));
+  }
+
+  loom_value_id_t induction_variable = body_block->arg_ids[0];
+  const bool induction_variable_has_references =
+      loom_scf_unroll_value_has_references(context->module, induction_variable);
+  for (uint32_t ordinal = 0; ordinal < trip_count->count; ++ordinal) {
+    if (induction_variable_has_references) {
+      loom_value_id_t iteration_index = LOOM_VALUE_ID_INVALID;
+      IREE_RETURN_IF_ERROR(loom_scf_unroll_build_iteration_index(
+          context, op, induction_variable, trip_count, ordinal,
+          &iteration_index));
+      if (iteration_index == LOOM_VALUE_ID_INVALID) {
+        return loom_scf_unroll_emit_policy_error(
+            context, op, IREE_SV("unroll"), ordinal,
+            IREE_SV("iteration index representable as i64"));
+      }
+      IREE_RETURN_IF_ERROR(loom_ir_remap_map_value(
+          iteration_remap, induction_variable, iteration_index));
+    }
+    IREE_RETURN_IF_ERROR(loom_scf_unroll_clone_iteration(
+        context, iteration_remap, body_block, yield, ordinal, carried_values,
+        op->result_count, next_carried_values));
+    if (op->result_count > 0) {
+      loom_value_id_t* temporary_values = carried_values;
+      carried_values = next_carried_values;
+      next_carried_values = temporary_values;
+    }
+  }
+
+  if (op->result_count > 0) {
+    IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+        context->rewriter, op, carried_values, op->result_count,
+        value_checkpoint));
+    IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_and_erase(
+        context->rewriter, op, carried_values, op->result_count));
+  } else {
+    IREE_RETURN_IF_ERROR(loom_rewriter_erase(context->rewriter, op));
+  }
+
+  return iree_ok_status();
+}
+
+bool loom_scf_unroll_plan_full(loom_pass_t* pass, loom_module_t* module,
+                               loom_value_fact_table_t* facts, loom_op_t* op,
+                               loom_scf_unroll_full_plan_t* out_plan) {
+  if (loom_scf_for_pipeline_depth_is_present(op) ||
+      !loom_scf_unroll_policy_present(op) ||
+      (loom_scf_for_has_unroll_schedule(op) &&
+       loom_scf_for_unroll_schedule(op) !=
+           LOOM_SCF_FOR_UNROLL_SCHEDULE_LINEAR) ||
+      (loom_scf_for_has_unroll_policy(op) &&
+       loom_scf_for_unroll_factor_is_present(op))) {
+    return false;
+  }
+  loom_scf_unroll_context_t context = {
+      .pass = pass,
+      .module = module,
+      .fact_table = facts,
+  };
+  loom_op_t* yield = NULL;
+  if (!loom_scf_unroll_shape_is_supported(op, &yield)) {
+    return false;
+  }
+  loom_scf_unroll_trip_count_t domain = {0};
+  if (loom_scf_unroll_resolve_trip_count(&context, op, &domain) !=
+      LOOM_SCF_UNROLL_TRIP_COUNT_EXACT) {
+    return false;
+  }
+  if (loom_scf_for_unroll_factor_is_present(op)) {
+    int64_t factor = 0;
+    if (!loom_scf_unroll_exact_i64(facts, loom_scf_for_unroll_factor(op),
+                                   &factor) ||
+        factor <= 1 || factor != domain.count) {
+      return false;
+    }
+  } else if (!loom_scf_for_has_unroll_policy(op)) {
+    return false;
+  }
+  *out_plan = (loom_scf_unroll_full_plan_t){
+      .count = domain.count,
+      .dynamic_lower = domain.lower_kind == LOOM_SCF_UNROLL_LOWER_BOUND_DYNAMIC,
+      .lower = domain.lower_i64,
+      .step = domain.step,
+  };
+  return true;
+}
+
+iree_status_t loom_scf_unroll_emit_full(loom_pass_t* pass,
+                                        loom_module_t* module,
+                                        loom_rewriter_t* rewriter,
+                                        loom_op_t* op,
+                                        const loom_scf_unroll_full_plan_t* plan,
+                                        loom_ir_remap_t* remap) {
+  loom_scf_unroll_context_t context = {
+      .pass = pass,
+      .module = module,
+      .rewriter = rewriter,
+  };
+  const loom_scf_unroll_trip_count_t domain = {
+      .count = plan->count,
+      .step = plan->step,
+      .lower_kind = plan->dynamic_lower ? LOOM_SCF_UNROLL_LOWER_BOUND_DYNAMIC
+                                        : LOOM_SCF_UNROLL_LOWER_BOUND_STATIC,
+      .lower_i64 = plan->lower,
+      .lower_value = loom_scf_for_lower_bound(op),
+  };
+  loom_op_t* yield = loom_region_entry_block(loom_scf_for_body(op))->last_op;
+  return loom_scf_unroll_full_linear(&context, op, yield, &domain, remap);
+}
+
 static iree_status_t loom_scf_unroll_try_unroll(
     loom_scf_unroll_context_t* context, loom_op_t* op, bool* out_changed) {
   *out_changed = false;
@@ -1735,64 +1866,11 @@ static iree_status_t loom_scf_unroll_try_unroll(
                                                  unroll_schedule, out_changed);
   }
 
-  loom_region_t* body = loom_scf_for_body(op);
-  loom_block_t* body_block = loom_region_entry_block(body);
-  loom_builder_set_before(&context->rewriter->builder, op);
-  loom_value_id_t value_checkpoint =
-      loom_rewriter_value_checkpoint(context->rewriter);
-  loom_value_slice_t iter_args = loom_scf_for_iter_args(op);
-  loom_value_id_t* carried_values = NULL;
-  loom_value_id_t* next_carried_values = NULL;
-  if (op->result_count > 0) {
-    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        context->pass->arena, op->result_count, sizeof(*carried_values),
-        (void**)&carried_values));
-    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        context->pass->arena, op->result_count, sizeof(*next_carried_values),
-        (void**)&next_carried_values));
-    memcpy(carried_values, iter_args.values,
-           (iree_host_size_t)op->result_count * sizeof(*carried_values));
-  }
-
   loom_ir_remap_t iteration_remap = {0};
   IREE_RETURN_IF_ERROR(
       loom_scf_unroll_initialize_iteration_remap(context, &iteration_remap));
-  loom_value_id_t induction_variable = body_block->arg_ids[0];
-  const bool induction_variable_has_references =
-      loom_scf_unroll_value_has_references(context->module, induction_variable);
-  for (uint32_t ordinal = 0; ordinal < trip_count.count; ++ordinal) {
-    if (induction_variable_has_references) {
-      loom_value_id_t iteration_index = LOOM_VALUE_ID_INVALID;
-      IREE_RETURN_IF_ERROR(loom_scf_unroll_build_iteration_index(
-          context, op, induction_variable, &trip_count, ordinal,
-          &iteration_index));
-      if (iteration_index == LOOM_VALUE_ID_INVALID) {
-        return loom_scf_unroll_emit_policy_error(
-            context, op, IREE_SV("unroll"), ordinal,
-            IREE_SV("iteration index representable as i64"));
-      }
-      IREE_RETURN_IF_ERROR(loom_ir_remap_map_value(
-          &iteration_remap, induction_variable, iteration_index));
-    }
-    IREE_RETURN_IF_ERROR(loom_scf_unroll_clone_iteration(
-        context, &iteration_remap, body_block, yield, ordinal, carried_values,
-        op->result_count, next_carried_values));
-    if (op->result_count > 0) {
-      loom_value_id_t* temporary_values = carried_values;
-      carried_values = next_carried_values;
-      next_carried_values = temporary_values;
-    }
-  }
-
-  if (op->result_count > 0) {
-    IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
-        context->rewriter, op, carried_values, op->result_count,
-        value_checkpoint));
-    IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_and_erase(
-        context->rewriter, op, carried_values, op->result_count));
-  } else {
-    IREE_RETURN_IF_ERROR(loom_rewriter_erase(context->rewriter, op));
-  }
+  IREE_RETURN_IF_ERROR(loom_scf_unroll_full_linear(
+      context, op, yield, &trip_count, &iteration_remap));
 
   ++context->statistics->loops_unrolled;
   context->statistics->iterations_materialized += trip_count.count;
@@ -1831,7 +1909,7 @@ static iree_status_t loom_scf_unroll_process_function_once(
   }
   IREE_RETURN_IF_ERROR(loom_pass_value_facts_acquire(
       context->pass, context->module,
-      loom_pass_value_fact_scope_function_for_target(
+      loom_pass_value_fact_scope_conditioned_function_for_target(
           function, loom_target_function_version_target_facts(
                         context->pass->function_version)),
       &context->fact_table));

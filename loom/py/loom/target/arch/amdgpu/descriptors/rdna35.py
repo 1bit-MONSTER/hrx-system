@@ -132,6 +132,11 @@ def _v_dpp_uniform_rhs_variant_overlays(
     )
     mnemonic = base_overlay.mnemonic or base_overlay.instruction_name.lower()
     native_mnemonic = base_overlay.instruction_name.lower()
+    flags = tuple(
+        flag
+        for flag in base_overlay.flags
+        if flag is not DescriptorFlag.SAFE_TO_SPECULATE
+    )
     return (
         AmdgpuDescriptorOverlay(
             descriptor_key=f"{base_overlay.descriptor_key}.{descriptor_suffix}_sgpr",
@@ -158,7 +163,7 @@ def _v_dpp_uniform_rhs_variant_overlays(
             immediates=(selector_immediate,),
             fixed_encoding_fields=fixed_encoding_fields,
             effects=(*base_overlay.effects, _CONVERGENT_EFFECT),
-            flags=base_overlay.flags,
+            flags=flags,
         ),
         AmdgpuDescriptorOverlay(
             descriptor_key=f"{base_overlay.descriptor_key}.{descriptor_suffix}_src1_inline",
@@ -188,7 +193,7 @@ def _v_dpp_uniform_rhs_variant_overlays(
             ),
             fixed_encoding_fields=fixed_encoding_fields,
             effects=(*base_overlay.effects, _CONVERGENT_EFFECT),
-            flags=base_overlay.flags,
+            flags=flags,
         ),
     )
 

@@ -281,13 +281,6 @@ iree_status_t loom_encoding_layout_assume_strided_facts(
     const loom_op_t* op, const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts) {
   int64_t rank = loom_encoding_layout_assume_strided_rank(op);
-  if (rank < 0 || rank > LOOM_ENCODING_ADDRESS_LAYOUT_MAX_RANK) {
-    return loom_encoding_facts_make_summary(
-        context, LOOM_ENCODING_ROLE_ADDRESS_LAYOUT,
-        /*static_spec_encoding_id=*/0, (loom_value_fact_address_layout_t){0},
-        (loom_value_fact_storage_schema_t){0}, &result_facts[0]);
-  }
-
   loom_value_fact_encoding_summary_t source_summary;
   if (loom_value_facts_query_encoding_summary(context, operand_facts[0],
                                               &source_summary) &&

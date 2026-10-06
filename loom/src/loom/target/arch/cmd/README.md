@@ -16,7 +16,7 @@ Four boundaries keep the feature composable:
 
 - Source command programs remain open Loom IR. Normal linking,
   specialization, and canonicalization apply before portability is required.
-- The prepared plan is the sole owner of root, dispatch-count, entry, and
+- The command plan is the sole owner of root, dispatch-count, entry, and
   storage decisions. Later stages consume those indexed results instead of
   reconstructing them from source IR.
 - Logical launch configuration remains ordinary pure computation in the
@@ -87,7 +87,7 @@ command.program.def public @attention(%token_count: index) launch(
 ```
 
 Ordinary function calls, program calls, loops, conditionals, templates, and
-value-fact refinement remain source constructs. Preparation specializes them
+value-fact refinement remain source constructs. Planning specializes them
 until the command schedule is a closed sequence of kernel launches and explicit
 `command.serial` or `command.concurrent` regions. A residual construct without
 a portable command meaning fails at that boundary instead of acquiring an
@@ -99,7 +99,7 @@ does not allocate, load, transfer, or synchronize the content.
 
 ## Compilation Products
 
-Preparation accepts one or more selected program roots and constructs one
+Planning accepts one or more selected program roots and constructs one
 owned plan:
 
 ```text
@@ -132,9 +132,9 @@ The plan owns:
   declaration. Roots reference that table through dense local slots so an
   executable object and its entry token are resolved atomically.
 - Parameter, transient, and physical dispatch-count placement is retained as
-  prepared data consumed directly by Low conversion and serialization.
+  plan data consumed directly by Low conversion and serialization.
 
-Source preparation requires every scheduled `kernel.launch` to resolve to a
+Command planning requires every scheduled `kernel.launch` to resolve to a
 selected launch-configuration facet. Selective materialization reconstructs a
 private `kernel.decl` and pure configuration function without decoding the
 kernel implementation body. A bodyless `kernel.decl` with no configuration is
@@ -142,10 +142,10 @@ diagnosed instead of acquiring guessed launch semantics. An authored
 `kernel.entry.decl` can be dispatched directly when the embedding application
 provides the matching executable entry.
 
-The source providers and index may be released after preparation. The plan owns
+The source providers and index may be released after planning. The plan owns
 the shared lowered root module, parameter keys, requirement tables, and
 root-local entry mappings. It owns no kernel source request: optional requests
-transfer to their recipient during preparation and remain provisional until the
+transfer to their recipient during planning and remain provisional until the
 parent operation succeeds.
 
 ## Launch Counts
@@ -171,7 +171,7 @@ Configured dispatch counts have three portable placements:
   dynamic indirect dispatch after a preceding execution wave.
 
 A residual scalar count is not silently outlined or stored. Portable command
-preparation diagnoses it and requires the caller to specialize it to an exact
+planning diagnoses it and requires the caller to specialize it to an exact
 value or represent it through explicit indirect storage. The serialized
 artifact therefore remains independent of invocation-time scalar values.
 
@@ -207,7 +207,7 @@ The source schedule describes dependency intent:
 - Siblings in `command.concurrent` have no dependency edges between them and
   join before later work.
 
-Preparation flattens that structure into contiguous waves. Commands within one
+Planning flattens that structure into contiguous waves. Commands within one
 wave retain source traversal order but may execute concurrently. Successive
 waves are separated by a full execution barrier. When a barrier immediately
 precedes a fill, copy, or dispatch, the Low ISA and artifact encode a dedicated
@@ -216,7 +216,7 @@ portable instruction.
 
 ## Portable Low ISA
 
-Prepared roots use `low.func.def target<cmd.core> abi(command_program)`. Their
+Planned roots use `low.func.def target<cmd.core> abi(command_program)`. Their
 zero-argument function signature is intentional: external resources enter
 through dense ABI tables declared by `abi_layout`.
 
@@ -249,14 +249,18 @@ application to supply Loom-produced or external executables through the same
 table ABI.
 
 Dispatch arguments form a logical typed payload. Buffer arguments are encoded
-as fixed or rebindable root ranges; scalar arguments use exact `b8`, `b16`,
-`b32`, or `b64` bits. The artifact does not choose native argument offsets,
-padding, or calling convention. A materializer combines each logical entry
-schema with executable reflection for its command system.
+as fixed or rebindable root ranges. Fixed-width scalar arguments use exact
+`b8`, `b16`, `b32`, or `b64` bits, while logical `index` and `offset` arguments
+retain their distinct carrier semantics and exact canonical 64-bit values. The
+artifact does not choose a target carrier width, native argument offset,
+padding, or calling convention. A materializer must combine each logical entry
+schema with executable reflection, validate representability, and repack
+address scalars to the reflected width. A fixed-width scalar requires an exact
+reflected width match.
 
 ## Artifact Boundary
 
-Serialization is the closed portability boundary. It accepts a prepared root
+Serialization is the closed portability boundary. It accepts a planned root
 only when every remaining Low descriptor and operation has a command encoding,
 then writes canonical little-endian tables with no compiler pointers, symbol
 references, or borrowed strings.
@@ -270,7 +274,7 @@ The artifact records:
 
 - fixed buffers, rebindable bindings, executables, and entry requirements;
 - operational buffer ranges and logical entry argument schemas;
-- tagless dispatch argument bytes and ordered command records;
+- exact dispatch argument bytes and ordered command records;
 - parameter roots, keys, and concrete placements;
 - transient slab and optional launch-count storage requirements.
 
@@ -279,12 +283,12 @@ The artifact records:
 | Object | Owns | Borrows |
 | --- | --- | --- |
 | Source module | Authored IR | Nothing |
-| Prepared plan | Root module, entry requirements, root tables, parameter keys | Compiler context and arena block pool |
+| Command plan | Root module, entry requirements, root tables, parameter keys | Compiler context and arena block pool |
 | Kernel request recipient | Independently compilable request modules | Nothing |
 | Serialized bytes | Complete portable program | Nothing |
 | Parsed program view | Nothing | Serialized bytes |
 
-`loom_cmd_program_plan_deinitialize` releases the complete prepared plan.
+`loom_cmd_program_plan_deinitialize` releases the complete command plan.
 Serialized bytes are caller-owned and may outlive that plan. A parsed view is
 valid only while its source byte span remains live.
 
@@ -295,7 +299,7 @@ valid only while its source byte span remains live.
 | `loom/py/loom/dialect/command/defs.py` | Source operations and canonical text syntax |
 | `loom/src/loom/ops/command/verify.c` | Source-level program, launch, and parameter verification |
 | `loom/src/loom/transforms/kernel/resolve_launches.*` | Caller-owned launch-to-call-and-dispatch rewriting |
-| `loom/src/loom/target/arch/cmd/lower/program_plan.*` | Multi-root ownership and product preparation |
+| `loom/src/loom/target/arch/cmd/lower/program_plan.*` | Multi-root ownership and plan construction |
 | `loom/src/loom/target/arch/cmd/lower/dispatch_counts.*` | Direct and explicit indirect count placement |
 | `loom/src/loom/target/arch/cmd/lower/schedule.*` | Structured schedules and execution waves |
 | `loom/src/loom/target/arch/cmd/lower/parameters.*` | Immutable parameter enumeration and placement |
@@ -305,8 +309,8 @@ valid only while its source byte span remains live.
 | `loom/src/loom/target/arch/cmd/format.*` | Canonical binary layout |
 | `loom/src/loom/target/arch/cmd/program.*` | Parsed artifact view and typed accessors |
 
-The production-backed `loom-check` emitter exposes prepared root programs in
+The production-backed `loom-check` emitter exposes planned root programs in
 text and round-trips each root through command serialization and the untrusted
 artifact parser. The `.loom-test` corpus beside this implementation therefore
-exercises the same preparation and serialization path as an embedding
+exercises the same planning and serialization path as an embedding
 application.

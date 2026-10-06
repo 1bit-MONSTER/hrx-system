@@ -1,0 +1,73 @@
+// Each raw copy has its own guard space, including full-width transfers.
+aie2p.target<array> @array_target
+aie2p.target<core> @core_target
+
+pipeline.def<kernel> public retain target(@array_target) @memory_packets() launch(%input: buffer, %output: buffer) {
+  %count = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %workers = group.create %count : index -> group
+  %input_view = buffer.view %input[%origin] : buffer -> view<1x80x128xi32>
+  %output_view = buffer.view %output[%origin] : buffer -> view<1x80x384xi32>
+  %packets = pipeline.scatter %input_view across %workers : view<1x80x128xi32>, group -> pipeline.flow<tile<128xi32>>
+  %copies = pipeline.stage @copy_packets on %workers(%packets) : (group, pipeline.flow<tile<128xi32>>) -> (pipeline.flow<tile<384xi32>>)
+  pipeline.write %copies to %output_view : pipeline.flow<tile<384xi32>>, view<1x80x384xi32>
+  pipeline.return
+}
+
+func.def target(@core_target) @copy_packets(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %source_i64 = buffer.view %source[%origin] : buffer -> view<64xi64>
+  %source_f64 = buffer.view %source[%origin] : buffer -> view<64xf64>
+  %destination_i64 = buffer.view %destination[%origin] : buffer -> view<192xi64>
+  %destination_f64 = buffer.view %destination[%origin] : buffer -> view<192xf64>
+  %guards = buffer.view %destination[%origin] : buffer -> view<384xi32>
+  %sentinel = vector.constant -1515870811 : vector<16xi32>
+  vector.store<volatile> %sentinel, %guards[0] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[16] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[32] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[48] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[64] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[80] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[96] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[112] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[128] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[144] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[160] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[176] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[192] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[208] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[224] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[240] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[256] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[272] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[288] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[304] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[320] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[336] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[352] : vector<16xi32>, view<384xi32>
+  vector.store<volatile> %sentinel, %guards[368] : vector<16xi32>, view<384xi32>
+  %i64x2 = vector.load %source_i64[0] : view<64xi64> -> vector<2xi64>
+  vector.store %i64x2, %destination_i64[0] : vector<2xi64>, view<192xi64>
+  %f64x2 = vector.load %source_f64[8] : view<64xf64> -> vector<2xf64>
+  vector.store %f64x2, %destination_f64[16] : vector<2xf64>, view<192xf64>
+  %i64x4 = vector.load %source_i64[16] : view<64xi64> -> vector<4xi64>
+  vector.store %i64x4, %destination_i64[32] : vector<4xi64>, view<192xi64>
+  %f64x4 = vector.load %source_f64[24] : view<64xf64> -> vector<4xf64>
+  vector.store %f64x4, %destination_f64[48] : vector<4xf64>, view<192xf64>
+  %i64x8 = vector.load %source_i64[32] : view<64xi64> -> vector<8xi64>
+  vector.store %i64x8, %destination_i64[64] : vector<8xi64>, view<192xi64>
+  %f64x8 = vector.load %source_f64[40] : view<64xf64> -> vector<8xf64>
+  vector.store %f64x8, %destination_f64[80] : vector<8xf64>, view<192xf64>
+  // These origins are sixteen bytes into a thirty-two-byte alignment boundary.
+  %i64_split = vector.load %source_i64[50] : view<64xi64> -> vector<4xi64>
+  vector.store %i64_split, %destination_i64[96] : vector<4xi64>, view<192xi64>
+  %f64_split = vector.load %source_f64[58] : view<64xf64> -> vector<4xf64>
+  vector.store %f64_split, %destination_f64[112] : vector<4xf64>, view<192xf64>
+  // Each two-X payload is followed by an equally sized untouched guard.
+  %i64x16 = vector.load %source_i64[0] : view<64xi64> -> vector<16xi64>
+  vector.store %i64x16, %destination_i64[128] : vector<16xi64>, view<192xi64>
+  %f64x16 = vector.load %source_f64[32] : view<64xf64> -> vector<16xf64>
+  vector.store %f64x16, %destination_f64[160] : vector<16xf64>, view<192xf64>
+  func.return
+}

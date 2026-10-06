@@ -22,6 +22,7 @@
 #include "loom/pass/builtin_registry.h"
 #include "loom/target/arch/cmd/lower/program_plan.h"
 #include "loom/target/arch/cmd/lower/program_plan_index.h"
+#include "loom/transforms/cleanup/configured.h"
 #include "loom/verify/verify.h"
 
 namespace {
@@ -298,9 +299,10 @@ static void RunProgramPlanBenchmark(benchmark::State& state,
 
     bool valid = false;
     loom_cmd_program_plan_t program_plan = {};
-    CheckStatus(loom_cmd_program_plan_prepare_materialization(
+    CheckStatus(loom_cmd_program_plan_build_from_materialization(
         &materialization, &root_ref, /*program_count=*/1,
         /*kernel_source=*/nullptr, loom_pass_builtin_registry(),
+        loom_cleanup_configured_pattern_provider_set(),
         /*diagnostic_emitter=*/{}, fixture.block_pool(), &valid, &program_plan,
         iree_allocator_system()));
     if (!valid) {
@@ -409,11 +411,13 @@ static void RunIndexedProgramPlanBenchmark(benchmark::State& state,
     capture.start_time = std::chrono::steady_clock::now();
     bool valid = false;
     loom_cmd_program_plan_t program_plan = {};
-    CheckStatus(loom_cmd_program_plan_prepare_index(
+    CheckStatus(loom_cmd_program_plan_build_from_index(
         fixture.index(), &root_symbol_ordinal, /*program_count=*/1,
         request_mode == KernelRequestMode::kPublish ? &options : nullptr,
-        loom_pass_builtin_registry(), /*diagnostic_emitter=*/{}, &environment,
-        &scratch_arena, &valid, &program_plan));
+        loom_pass_builtin_registry(),
+        loom_cleanup_configured_pattern_provider_set(),
+        /*diagnostic_emitter=*/{}, &environment, &scratch_arena, &valid,
+        &program_plan));
     if (!valid) {
       std::abort();
     }

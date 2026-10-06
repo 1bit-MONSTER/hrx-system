@@ -9,7 +9,7 @@
 
 iree_add_all_subdirs()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_cc_benchmark(
   NAME
     compile_throughput_benchmark
@@ -23,6 +23,7 @@ loom_cc_benchmark(
     loom::binding::c::benchmark::kernels::ffn_gate_up_smoke
     loom::binding::c::benchmark::kernels::ffn_routed_gate_up_smoke
     loom::binding::c::benchmark::kernels::synthetic_i32_chain_smoke
+    loom::binding::c::benchmark::kernels::synthetic_packed_table_lookup_smoke
     loom::binding::c::benchmark::kernels::synthetic_paired_matrix_smoke
     loom::binding::c::benchmark::kernels::synthetic_pipeline_smoke
     loom::binding::c::benchmark::kernels::synthetic_unroll_smoke

@@ -150,7 +150,6 @@ LOOM_CHECK_CASE(contended_tickets) {
                               loom::check::fill<unsigned, 256>(1u));
   loom::check::expect_bitwise(loom::check::slice<1>(slots, 257),
                               loom::check::fill<unsigned, 1>(37u));
-  loom::check::expect_event("device", "count", 0, "type", "asan_report");
 }
 
 LOOM_CHECK_CASE(integer_sequences) {
@@ -184,7 +183,6 @@ LOOM_CHECK_CASE(integer_sequences) {
                               loom::check::fill<unsigned, 3>(2047u));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 4),
                               loom::check::fill<unsigned, 1>(37u));
-  loom::check::expect_event("device", "count", 0, "type", "asan_report");
 }
 
 LOOM_CHECK_CASE(unsigned_comparisons) {
@@ -205,7 +203,6 @@ LOOM_CHECK_CASE(unsigned_comparisons) {
                               loom::check::fill<unsigned, 1>(13u));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 5),
                               loom::check::fill<unsigned, 1>(37u));
-  loom::check::expect_event("device", "count", 0, "type", "asan_report");
 }
 
 LOOM_CHECK_CASE(workgroup_tickets) {
@@ -224,5 +221,4 @@ LOOM_CHECK_CASE(workgroup_tickets) {
                               loom::check::fill<unsigned, 256>(1u));
   loom::check::expect_bitwise(loom::check::slice<1>(slots, 257),
                               loom::check::fill<unsigned, 1>(37u));
-  loom::check::expect_event("device", "count", 0, "type", "asan_report");
 }

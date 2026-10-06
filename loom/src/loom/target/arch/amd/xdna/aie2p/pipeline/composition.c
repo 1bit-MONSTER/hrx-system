@@ -16,6 +16,7 @@
 #include "loom/ops/index/ops.h"
 #include "loom/rewrite/callable.h"
 #include "loom/rewrite/rewriter.h"
+#include "loom/target/arch/amd/xdna/error_catalog.h"
 
 enum { LOOM_AIE2P_PIPELINE_COMPOSITE_BUFFER_ALIGNMENT = 64 };
 
@@ -51,7 +52,7 @@ static iree_status_t loom_aie2p_pipeline_composition_validate_group(
     const loom_diagnostic_param_t params[] = {loom_param_u32(group_index)};
     const loom_diagnostic_emission_t emission = {
         .op = plan->pipeline.op,
-        .error = LOOM_ERR_TARGET_084,
+        .error = LOOM_ERR_XDNA_002,
         .params = params,
         .param_count = IREE_ARRAYSIZE(params),
     };
@@ -66,7 +67,7 @@ static iree_status_t loom_aie2p_pipeline_composition_validate_group(
     const loom_diagnostic_param_t params[] = {loom_param_u32(group_index)};
     const loom_diagnostic_emission_t emission = {
         .op = plan->pipeline.op,
-        .error = LOOM_ERR_TARGET_085,
+        .error = LOOM_ERR_XDNA_003,
         .params = params,
         .param_count = IREE_ARRAYSIZE(params),
     };
@@ -90,7 +91,7 @@ static iree_status_t loom_aie2p_pipeline_composition_validate_group(
         };
         const loom_diagnostic_emission_t emission = {
             .op = plan->pipeline.op,
-            .error = LOOM_ERR_TARGET_086,
+            .error = LOOM_ERR_XDNA_004,
             .params = params,
             .param_count = IREE_ARRAYSIZE(params),
         };
@@ -104,59 +105,75 @@ static iree_status_t loom_aie2p_pipeline_composition_validate_group(
 
 static iree_status_t loom_aie2p_pipeline_composition_group_target(
     const loom_module_t* module, const loom_pipeline_plan_t* plan,
-    uint32_t group_index, loom_symbol_ref_t* out_target) {
+    uint32_t group_index, iree_diagnostic_emitter_t diagnostic_emitter,
+    loom_symbol_ref_t* out_target, bool* out_valid) {
   *out_target = loom_symbol_ref_null();
+  *out_valid = false;
+  loom_symbol_ref_t group_target = loom_symbol_ref_null();
   for (uint32_t stage_index = 0; stage_index < plan->stage_count;
        ++stage_index) {
     const loom_pipeline_plan_stage_t* stage = &plan->stages[stage_index];
     if (stage->group_index != group_index) {
       continue;
     }
-    if (!loom_symbol_ref_is_valid(stage->entry) ||
-        stage->entry.module_id != 0 ||
-        stage->entry.symbol_id >= module->symbols.count) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "AIE2P composite stage entry is invalid");
-    }
-    const loom_op_t* entry_op =
-        module->symbols.entries[stage->entry.symbol_id].defining_op;
-    if (entry_op == NULL) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "AIE2P composite stage entry is undefined");
-    }
+    const loom_symbol_t* entry_symbol =
+        &module->symbols.entries[stage->entry.symbol_id];
+    const loom_op_t* entry_op = entry_symbol->defining_op;
     const loom_func_like_t entry = loom_func_like_const_cast(module, entry_op);
-    if (!loom_func_like_isa(entry)) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "AIE2P composite stage entry is not callable");
-    }
     const loom_symbol_ref_t target = loom_func_like_target(entry);
     if (!loom_symbol_ref_is_valid(target)) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "AIE2P composite stage entry requires an exact core target");
+      const loom_diagnostic_param_t params[] = {
+          loom_param_string(IREE_SV("aie2p-lower-pipeline")),
+          loom_param_string(
+              loom_string_table_get(&module->strings, entry_symbol->name_id)),
+      };
+      const loom_diagnostic_emission_t emission = {
+          .op = entry_op,
+          .error = LOOM_ERR_TARGET_009,
+          .params = params,
+          .param_count = IREE_ARRAYSIZE(params),
+      };
+      return iree_diagnostic_emit(diagnostic_emitter, &emission);
     }
-    if (!loom_symbol_ref_is_valid(*out_target)) {
-      *out_target = target;
-    } else if (!loom_aie2p_pipeline_composition_symbol_refs_equal(*out_target,
+    if (!loom_symbol_ref_is_valid(group_target)) {
+      group_target = target;
+    } else if (!loom_aie2p_pipeline_composition_symbol_refs_equal(group_target,
                                                                   target)) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "same-group AIE2P pipeline stages must use one core target");
+      const loom_diagnostic_param_t params[] = {
+          loom_param_u32(group_index),
+          loom_param_string(
+              loom_string_table_get(&module->strings, entry_symbol->name_id)),
+          loom_param_string(loom_string_table_get(
+              &module->strings,
+              module->symbols.entries[target.symbol_id].name_id)),
+          loom_param_string(loom_string_table_get(
+              &module->strings,
+              module->symbols.entries[group_target.symbol_id].name_id)),
+      };
+      const loom_diagnostic_emission_t emission = {
+          .op = plan->pipeline.op,
+          .error = LOOM_ERR_XDNA_010,
+          .params = params,
+          .param_count = IREE_ARRAYSIZE(params),
+      };
+      return iree_diagnostic_emit(diagnostic_emitter, &emission);
     }
   }
+  *out_target = group_target;
+  *out_valid = true;
   return iree_ok_status();
 }
 
 static iree_status_t loom_aie2p_pipeline_composition_add_symbol(
     loom_module_t* module, const loom_pipeline_plan_t* plan,
-    uint32_t group_index, iree_arena_allocator_t* arena,
-    loom_symbol_ref_t* out_ref) {
+    uint32_t group_index, iree_diagnostic_emitter_t diagnostic_emitter,
+    iree_arena_allocator_t* arena, loom_symbol_ref_t* out_ref,
+    bool* out_valid) {
+  *out_ref = loom_symbol_ref_null();
+  *out_valid = false;
   const loom_symbol_ref_t pipeline_ref = loom_func_like_callee(plan->pipeline);
-  IREE_ASSERT_EQ(pipeline_ref.module_id, 0u);
-  IREE_ASSERT_LT(pipeline_ref.symbol_id, module->symbols.count);
   const loom_string_id_t pipeline_name_id =
       module->symbols.entries[pipeline_ref.symbol_id].name_id;
-  IREE_ASSERT_LT(pipeline_name_id, module->strings.count);
   const iree_string_view_t pipeline_name =
       loom_string_table_get(&module->strings, pipeline_name_id);
   const iree_string_view_t infix = IREE_SV("$group$");
@@ -174,52 +191,70 @@ static iree_status_t loom_aie2p_pipeline_composition_add_symbol(
   const int suffix_length =
       snprintf(name_storage + pipeline_name.size + infix.size, 11, "%" PRIu32,
                group_index);
-  if (suffix_length < 0 || suffix_length >= 11) {
-    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "AIE2P composite symbol suffix overflow");
-  }
   const iree_host_size_t name_length =
       pipeline_name.size + infix.size + (iree_host_size_t)suffix_length;
   loom_string_id_t name_id = LOOM_STRING_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_module_intern_string(
       module, iree_make_string_view(name_storage, name_length), &name_id));
   if (loom_module_find_symbol(module, name_id) != LOOM_SYMBOL_ID_INVALID) {
-    return iree_make_status(IREE_STATUS_ALREADY_EXISTS,
-                            "AIE2P composite symbol already exists");
+    const loom_diagnostic_param_t params[] = {
+        loom_param_string(loom_string_table_get(&module->strings, name_id)),
+    };
+    const loom_diagnostic_emission_t emission = {
+        .op = plan->pipeline.op,
+        .error = LOOM_ERR_SYMBOL_005,
+        .params = params,
+        .param_count = IREE_ARRAYSIZE(params),
+    };
+    return iree_diagnostic_emit(diagnostic_emitter, &emission);
   }
-  out_ref->module_id = 0;
-  return loom_module_add_symbol(module, name_id, &out_ref->symbol_id);
+  uint16_t symbol_id = LOOM_SYMBOL_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_module_add_symbol(module, name_id, &symbol_id));
+  *out_ref = (loom_symbol_ref_t){.module_id = 0, .symbol_id = symbol_id};
+  *out_valid = true;
+  return iree_ok_status();
 }
 
-static iree_status_t loom_aie2p_pipeline_composition_record_byte_length(
+static bool loom_aie2p_pipeline_composition_record_byte_length(
     const loom_pipeline_plan_flow_t* flow, uint64_t* out_byte_length) {
   uint64_t element_count = 0;
   const int32_t element_bit_count =
       loom_scalar_type_bitwidth(loom_type_element_type(flow->tile_type));
   uint64_t bit_count = 0;
   if (!loom_type_static_element_count(flow->tile_type, &element_count) ||
-      element_bit_count <= 0 ||
       !iree_checked_mul_u64(element_count, (uint64_t)element_bit_count,
                             &bit_count) ||
       (bit_count & 7u) != 0) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "AIE2P composite flow requires a whole-byte static tile type");
+    return false;
   }
   *out_byte_length = bit_count / 8u;
-  return iree_ok_status();
+  return true;
 }
 
 static iree_status_t loom_aie2p_pipeline_composition_allocate_flow_buffer(
-    loom_builder_t* builder, const loom_pipeline_plan_flow_t* flow,
-    loom_location_id_t location, loom_value_id_t* out_buffer) {
+    loom_builder_t* builder, const loom_pipeline_plan_t* plan,
+    uint32_t group_index, uint32_t flow_index,
+    iree_diagnostic_emitter_t diagnostic_emitter, loom_value_id_t* out_buffer,
+    bool* out_valid) {
+  *out_buffer = LOOM_VALUE_ID_INVALID;
+  *out_valid = false;
+  const loom_pipeline_plan_flow_t* flow = &plan->flows[flow_index];
   uint64_t byte_length = 0;
-  IREE_RETURN_IF_ERROR(
-      loom_aie2p_pipeline_composition_record_byte_length(flow, &byte_length));
-  if (byte_length > INT64_MAX) {
-    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "AIE2P composite flow tile is too large");
+  if (!loom_aie2p_pipeline_composition_record_byte_length(flow, &byte_length)) {
+    const loom_diagnostic_param_t params[] = {
+        loom_param_u32(group_index),
+        loom_param_u32(flow_index),
+        loom_param_type(flow->tile_type),
+    };
+    const loom_diagnostic_emission_t emission = {
+        .op = plan->pipeline.op,
+        .error = LOOM_ERR_XDNA_011,
+        .params = params,
+        .param_count = IREE_ARRAYSIZE(params),
+    };
+    return iree_diagnostic_emit(diagnostic_emitter, &emission);
   }
+  const loom_location_id_t location = plan->pipeline.op->location;
   loom_op_t* byte_length_op = NULL;
   IREE_RETURN_IF_ERROR(loom_index_constant_build(
       builder, loom_attr_i64((int64_t)byte_length),
@@ -231,6 +266,7 @@ static iree_status_t loom_aie2p_pipeline_composition_allocate_flow_buffer(
                                loom_index_constant_result(byte_length_op),
                                loom_type_buffer(), location, &alloca_op));
   *out_buffer = loom_buffer_alloca_result(alloca_op);
+  *out_valid = true;
   return iree_ok_status();
 }
 
@@ -238,15 +274,26 @@ static iree_status_t loom_aie2p_pipeline_composition_build_group(
     loom_module_t* module, const loom_pipeline_plan_t* plan,
     const loom_pipeline_firing_plan_t* firing, uint32_t group_index,
     loom_symbol_ref_t target, loom_rewriter_t* rewriter,
-    iree_arena_allocator_t* arena, loom_symbol_ref_t* out_entry,
-    loom_op_t** out_function) {
+    iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
+    loom_symbol_ref_t* out_entry, loom_op_t** out_function, bool* out_valid) {
   *out_entry = loom_symbol_ref_null();
   *out_function = NULL;
+  *out_valid = false;
   const loom_pipeline_plan_group_t* group = &plan->groups[group_index];
   const uint32_t port_count = group->ports.abi_extent;
   if (port_count > UINT16_MAX) {
-    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "AIE2P composite worker has too many ports");
+    const loom_diagnostic_param_t params[] = {
+        loom_param_u32(group_index),
+        loom_param_u32(port_count),
+        loom_param_u32(UINT16_MAX),
+    };
+    const loom_diagnostic_emission_t emission = {
+        .op = plan->pipeline.op,
+        .error = LOOM_ERR_XDNA_012,
+        .params = params,
+        .param_count = IREE_ARRAYSIZE(params),
+    };
+    return iree_diagnostic_emit(diagnostic_emitter, &emission);
   }
   loom_type_t* argument_types = NULL;
   IREE_RETURN_IF_ERROR(loom_aie2p_pipeline_composition_allocate_array(
@@ -283,8 +330,12 @@ static iree_status_t loom_aie2p_pipeline_composition_build_group(
       arena, maximum_stage_port_count, sizeof(*operands), (void**)&operands));
 
   loom_symbol_ref_t entry = loom_symbol_ref_null();
+  bool valid = false;
   IREE_RETURN_IF_ERROR(loom_aie2p_pipeline_composition_add_symbol(
-      module, plan, group_index, arena, &entry));
+      module, plan, group_index, diagnostic_emitter, arena, &entry, &valid));
+  if (!valid) {
+    return iree_ok_status();
+  }
 
   loom_builder_t builder;
   loom_builder_initialize(module, &module->arena, loom_module_block(module),
@@ -326,13 +377,17 @@ static iree_status_t loom_aie2p_pipeline_composition_build_group(
   }
 
   uint32_t call_count = 0;
-  for (uint32_t i = 0; i < stage_count; ++i) {
+  iree_status_t status = iree_ok_status();
+  for (uint32_t i = 0; i < stage_count && iree_status_is_ok(status) && valid;
+       ++i) {
     const uint32_t stage_index =
         firing->stage_indices[group_firing->stage_start + i];
     const loom_pipeline_plan_stage_t* stage = &plan->stages[stage_index];
     const uint32_t stage_port_count =
         (uint32_t)stage->input_count + stage->output_count;
-    for (uint32_t port_index = 0; port_index < stage_port_count; ++port_index) {
+    for (uint32_t port_index = 0;
+         port_index < stage_port_count && iree_status_is_ok(status) && valid;
+         ++port_index) {
       const loom_pipeline_plan_stage_port_t* stage_port =
           &plan->stage_ports[stage->port_start + port_index];
       const uint32_t flow_index = stage_port->flow_index;
@@ -346,41 +401,51 @@ static iree_status_t loom_aie2p_pipeline_composition_build_group(
       IREE_ASSERT_LT(storage_flow_index, plan->flow_count);
       loom_value_id_t* flow_buffer = &flow_buffers[storage_flow_index];
       if (*flow_buffer == LOOM_VALUE_ID_INVALID) {
-        IREE_RETURN_IF_ERROR(
-            loom_aie2p_pipeline_composition_allocate_flow_buffer(
-                &builder, &plan->flows[storage_flow_index],
-                plan->pipeline.op->location, flow_buffer));
+        status = loom_aie2p_pipeline_composition_allocate_flow_buffer(
+            &builder, plan, group_index, storage_flow_index, diagnostic_emitter,
+            flow_buffer, &valid);
       }
-      operands[port_index] = *flow_buffer;
+      if (iree_status_is_ok(status) && valid) {
+        operands[port_index] = *flow_buffer;
+      }
     }
-    loom_op_t* call_op = NULL;
-    IREE_RETURN_IF_ERROR(loom_func_call_build(
-        &builder, LOOM_FUNC_CALL_BUILD_FLAG_HAS_INLINE_POLICY,
-        /*purity=*/0, /*temperature=*/0, LOOM_INLINE_POLICY_INLINE,
-        stage->entry, operands, stage_port_count,
-        /*result_types=*/NULL, /*result_count=*/0,
-        /*tied_results=*/NULL, /*tied_result_count=*/0,
-        plan->pipeline.op->location, &call_op));
-    IREE_ASSERT_LT(call_count, stage_count);
-    call_ops[call_count++] = call_op;
+    if (iree_status_is_ok(status) && valid) {
+      loom_op_t* call_op = NULL;
+      status = loom_func_call_build(
+          &builder, LOOM_FUNC_CALL_BUILD_FLAG_HAS_INLINE_POLICY,
+          /*purity=*/0, /*temperature=*/0, LOOM_INLINE_POLICY_INLINE,
+          stage->entry, operands, stage_port_count,
+          /*result_types=*/NULL, /*result_count=*/0,
+          /*tied_results=*/NULL, /*tied_result_count=*/0,
+          plan->pipeline.op->location, &call_op);
+      if (iree_status_is_ok(status)) {
+        IREE_ASSERT_LT(call_count, stage_count);
+        call_ops[call_count++] = call_op;
+      }
+    }
   }
-  IREE_ASSERT_EQ(call_count, stage_count);
-  loom_op_t* return_op = NULL;
-  IREE_RETURN_IF_ERROR(
-      loom_func_return_build(&builder, /*operands=*/NULL, /*operands_count=*/0,
-                             plan->pipeline.op->location, &return_op));
+  if (iree_status_is_ok(status) && valid) {
+    IREE_ASSERT_EQ(call_count, stage_count);
+    loom_op_t* return_op = NULL;
+    status = loom_func_return_build(&builder, /*operands=*/NULL,
+                                    /*operands_count=*/0,
+                                    plan->pipeline.op->location, &return_op);
+  }
 
   // Compose while stage arguments are ordinary source buffers. Once the
   // standalone stage callables reach Low their target entry buffers become
   // resources, which are resident ABI surfaces and cannot be inlined as local
   // values. The generic callable rewriter handles both linear and arbitrary
   // CFG stage bodies here without weakening that Low invariant.
-  for (uint32_t i = 0; i < call_count; ++i) {
-    IREE_RETURN_IF_ERROR(
-        loom_callable_inline_direct_call(rewriter, call_ops[i]));
+  for (uint32_t i = 0; i < call_count && iree_status_is_ok(status) && valid;
+       ++i) {
+    status = loom_callable_inline_direct_call(rewriter, call_ops[i]);
   }
-  *out_entry = entry;
-  return iree_ok_status();
+  if (iree_status_is_ok(status) && valid) {
+    *out_entry = entry;
+    *out_valid = true;
+  }
+  return status;
 }
 
 iree_status_t loom_aie2p_pipeline_composition_erase(
@@ -421,7 +486,7 @@ iree_status_t loom_aie2p_pipeline_composition_materialize(
   if (plan->group_count != 0) {
     memset(group_functions, 0, plan->group_count * sizeof(*group_functions));
   }
-  *out_composition = (loom_aie2p_pipeline_composition_t){
+  loom_aie2p_pipeline_composition_t composition = {
       .instance_entries = instance_entries,
       .group_functions = group_functions,
       .group_count = plan->group_count,
@@ -443,14 +508,18 @@ iree_status_t loom_aie2p_pipeline_composition_materialize(
       return iree_ok_status();
     }
     IREE_RETURN_IF_ERROR(loom_aie2p_pipeline_composition_group_target(
-        module, plan, group_index, &group_targets[group_index]));
+        module, plan, group_index, diagnostic_emitter,
+        &group_targets[group_index], &valid));
+    if (!valid) {
+      return iree_ok_status();
+    }
   }
 
   loom_rewriter_t rewriter = {0};
   loom_rewriter_initialize(&rewriter, module, arena);
   iree_status_t status = iree_ok_status();
   for (uint32_t group_index = 0;
-       group_index < plan->group_count && iree_status_is_ok(status);
+       group_index < plan->group_count && iree_status_is_ok(status) && valid;
        ++group_index) {
     const loom_pipeline_plan_group_t* group = &plan->groups[group_index];
     loom_symbol_ref_t entry = loom_symbol_ref_null();
@@ -459,21 +528,22 @@ iree_status_t loom_aie2p_pipeline_composition_materialize(
     } else {
       status = loom_aie2p_pipeline_composition_build_group(
           module, plan, &firing, group_index, group_targets[group_index],
-          &rewriter, arena, &entry, &group_functions[group_index]);
+          &rewriter, diagnostic_emitter, arena, &entry,
+          &group_functions[group_index], &valid);
     }
-    if (!iree_status_is_ok(status)) {
-      break;
-    }
-    for (uint32_t lane = 0; lane < group->lane_count; ++lane) {
-      instance_entries[group->instance_start + lane] = entry;
+    if (iree_status_is_ok(status) && valid) {
+      for (uint32_t lane = 0; lane < group->lane_count; ++lane) {
+        instance_entries[group->instance_start + lane] = entry;
+      }
     }
   }
   loom_rewriter_deinitialize(&rewriter);
-  if (iree_status_is_ok(status)) {
+  if (iree_status_is_ok(status) && valid) {
+    *out_composition = composition;
     *out_valid = true;
   } else {
     status = iree_status_join(
-        status, loom_aie2p_pipeline_composition_erase(module, out_composition));
+        status, loom_aie2p_pipeline_composition_erase(module, &composition));
   }
   return status;
 }

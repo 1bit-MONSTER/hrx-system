@@ -4,6 +4,16 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+# Bazel rule and toolchain tests have no CMake surface.
+# bazel-to-cmake: skip
+
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load(
+    "//build_tools/bazel:executable.bzl",
+    "iree_executable_test",
+    "iree_wasi_executable_alias",
+)
 load(":wasm_rules_test.bzl", "wasm_rules_test_suite")
 
 package(default_visibility = ["//visibility:public"])
@@ -14,3 +24,62 @@ platform(
 )
 
 wasm_rules_test_suite(name = "wasm_tests")
+
+cc_binary(
+    name = "wasi_toolchain_smoke",
+    srcs = [
+        "wasi_toolchain_smoke.c",
+        "wasi_toolchain_smoke.cc",
+    ],
+    tags = ["manual"],
+    target_compatible_with = [
+        "@platforms//cpu:wasm32",
+        "@platforms//os:wasi",
+    ],
+)
+
+iree_executable_test(
+    name = "wasi_toolchain_smoke_test",
+    src = ":wasi_toolchain_smoke",
+    args = ["$(rootpath :wasi_toolchain_smoke.txt)"],
+    data = [":wasi_toolchain_smoke.txt"],
+    target_compatible_with = [
+        "@platforms//cpu:wasm32",
+        "@platforms//os:wasi",
+    ],
+)
+
+iree_wasi_executable_alias(
+    name = "hosted_wasi_toolchain_smoke",
+    src = ":wasi_toolchain_smoke",
+    wasm_main = "//build_tools/wasm:wasm_test_main.mjs",
+)
+
+iree_executable_test(
+    name = "hosted_wasi_toolchain_smoke_test",
+    src = ":hosted_wasi_toolchain_smoke",
+    args = ["$(rootpath :wasi_toolchain_smoke.txt)"],
+    data = [":wasi_toolchain_smoke.txt"],
+)
+
+sh_test(
+    name = "hosted_wasi_failure_test",
+    srcs = ["hosted_wasi_failure_test.sh"],
+    args = ["$(rootpath :hosted_wasi_toolchain_smoke)"],
+    data = [":hosted_wasi_toolchain_smoke"],
+    env_inherit = [
+        "IREE_WASM_NODE",
+        "PATH",
+    ],
+)
+
+sh_test(
+    name = "hosted_wasi_stdout_test",
+    srcs = ["hosted_wasi_stdout_test.sh"],
+    args = ["$(rootpath :hosted_wasi_toolchain_smoke)"],
+    data = [":hosted_wasi_toolchain_smoke"],
+    env_inherit = [
+        "IREE_WASM_NODE",
+        "PATH",
+    ],
+)

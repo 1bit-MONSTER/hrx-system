@@ -58,7 +58,7 @@ iree_status_t loom_encoding_intern_exact_summary(
 // Maximum static layout rank decoded into caller-provided stride storage.
 // Shaped type ranks are packed in four header bits, so no well-formed consumer
 // can use more than 15 layout strides.
-#define LOOM_ENCODING_ADDRESS_LAYOUT_MAX_RANK 15
+#define LOOM_ENCODING_ADDRESS_LAYOUT_MAX_RANK LOOM_TYPE_MAX_RANK
 
 // Decodes a static address-layout encoding into a summary. Strided layouts
 // write per-axis facts into caller-owned |stride_storage| and point

@@ -183,7 +183,7 @@ BYTECODE_IR_KIND_BY_TYPE_KIND: dict[int, TypeKind] = {
 
 # File magic and version.
 MAGIC = b"LOOM"
-FORMAT_VERSION = 38
+FORMAT_VERSION = 39
 PRODUCER = "loom-py"
 
 SYMBOL_INTERFACE_FLAG_MASK = (1 << 14) - 1
@@ -1882,6 +1882,10 @@ class BytecodeWriter:
         "not_nan": 11,
         "not_inf": 12,
         "finite": 13,
+        "ult": 14,
+        "ule": 15,
+        "ugt": 16,
+        "uge": 17,
     }
 
     def _write_predicate_list(
@@ -2251,7 +2255,7 @@ class BytecodeWriter:
         for dependency in self._module_dependencies:
             buf.write_varint(dependency.source_root_region_index_plus_one)
             buf.write_varint(dependency.target_symbol_index)
-            buf.write_varint(dependency.target_interfaces)
+            buf.write_varint(dependency.contract)
         for dependencies, template_demands in zip(
             self._symbol_dependencies,
             self._symbol_template_demands,
@@ -2261,7 +2265,7 @@ class BytecodeWriter:
             for dependency in dependencies:
                 buf.write_varint(dependency.source_root_region_index_plus_one)
                 buf.write_varint(dependency.target_symbol_index)
-                buf.write_varint(dependency.target_interfaces)
+                buf.write_varint(dependency.contract)
             buf.write_varint(len(template_demands))
             for demand in template_demands:
                 buf.write_varint(demand.source_root_region_index_plus_one)

@@ -1,0 +1,43 @@
+// Scalar additions are introduced by reduction legalization. Each step rounds
+// to the element type before the next lane is accumulated.
+func.def public inline @bf16_reduce_add(%values: vector<2xbf16>, %initial: bf16) -> (bf16) {
+  %sum = vector.reduce<addf> %values, %initial : vector<2xbf16>, bf16
+  func.return %sum : bf16
+}
+
+kernel.def @narrow_reduction() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %inputs = buffer.view %input[%origin] : buffer -> view<128x3xi16>
+  %results = buffer.view %output[%origin] : buffer -> view<128xi16>
+  %lane = kernel.workitem.id<x> : index
+  %bits = vector.load %inputs[%lane, 0] : view<128x3xi16> -> vector<2xi16>
+  %values = vector.bitcast %bits : vector<2xi16> to vector<2xbf16>
+  %initial_bits = view.load %inputs[%lane, 2] : view<128x3xi16> -> i16
+  %initial = scalar.bitcast %initial_bits : i16 to bf16
+  %sum = func.call @bf16_reduce_add(%values, %initial) : (vector<2xbf16>, bf16) -> (bf16)
+  %sum_bits = scalar.bitcast %sum : bf16 to i16
+  view.store %sum_bits, %results[%lane] : i16, view<128xi16>
+  kernel.return
+}
+
+check.case public @narrow_reduction_subnormal {
+  %input = check.generate.fill value(1) : tensor<128x3xi16>
+  %output = check.generate.fill value(0) : tensor<128xi16>
+  kernel.launch @narrow_reduction(%input, %output) : (tensor<128x3xi16>, tensor<128xi16>)
+  %expected = check.generate.fill value(3) : tensor<128xi16>
+  check.expect.bitwise actual(%output) expected(%expected) : tensor<128xi16>
+  check.return
+}
+
+check.case public @narrow_reduction_normal {
+  %input = check.generate.fill value(16256) : tensor<128x3xi16>
+  %output = check.generate.fill value(0) : tensor<128xi16>
+  kernel.launch @narrow_reduction(%input, %output) : (tensor<128x3xi16>, tensor<128xi16>)
+  %expected = check.generate.fill value(16448) : tensor<128xi16>
+  check.expect.bitwise actual(%output) expected(%expected) : tensor<128xi16>
+  check.return
+}

@@ -180,16 +180,16 @@ func.def @select_boolean_vectors(%condition: i1) -> (vector<4xi1>) {
   %false = scalar.constant false : i1
   %true = scalar.constant true : i1
   %zeros = vector.splat %false : vector<4xi1>
-  %ones = vector.splat %true : vector<4xi1>
-  %result = scf.select %condition, %zeros, %ones : vector<4xi1>
+  %all_bits = vector.splat %true : vector<4xi1>
+  %result = scf.select %condition, %zeros, %all_bits : vector<4xi1>
   func.return %result : vector<4xi1>
 }
 
 // ----
 func.def @select_boolean_vectors(%condition: i1) -> (vector<4xi1>) {
   %zeros = vector.constant false : vector<4xi1>
-  %ones = vector.constant true : vector<4xi1>
-  %result = scf.select %condition, %zeros, %ones : vector<4xi1>
+  %all_bits = vector.constant true : vector<4xi1>
+  %result = scf.select %condition, %zeros, %all_bits : vector<4xi1>
   func.return %result : vector<4xi1>
 }
 
@@ -198,4 +198,135 @@ func.def @select_boolean_vectors(%condition: i1) -> (vector<4xi1>) {
 func.def @select_boolean_dynamic_arms(%condition: i1, %left: i1, %right: i1) -> (i1) {
   %result = scf.select %condition, %left, %right : i1
   func.return %result : i1
+}
+
+// ====
+
+// Conditional inversion is XOR, including either complement operand order.
+func.def @select_inverted_true(%condition: i1, %value: i1) -> (i1) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %value, %c1 : i1
+  %result = scf.select %condition, %inverse, %value : i1
+  func.return %result : i1
+}
+
+// ----
+func.def @select_inverted_true(%condition: i1, %value: i1) -> (i1) {
+  %result = scalar.xori %condition, %value : i1
+  func.return %result : i1
+}
+
+// ====
+
+func.def @select_inverted_true_commuted(%condition: i1, %value: i1) -> (i1) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %c1, %value : i1
+  %result = scf.select %condition, %inverse, %value : i1
+  func.return %result : i1
+}
+
+// ----
+func.def @select_inverted_true_commuted(%condition: i1, %value: i1) -> (i1) {
+  %result = scalar.xori %condition, %value : i1
+  func.return %result : i1
+}
+
+// ====
+
+// The false arm is retained when it supplies the inverted value.
+func.def @select_inverted_false(%condition: i1, %value: i1) -> (i1) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %value, %c1 : i1
+  %result = scf.select %condition, %value, %inverse : i1
+  func.return %result : i1
+}
+
+// ----
+func.def @select_inverted_false(%condition: i1, %value: i1) -> (i1) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %value, %c1 : i1
+  %result = scalar.xori %condition, %inverse : i1
+  func.return %result : i1
+}
+
+// ====
+
+func.def @select_inverted_false_commuted(%condition: i1, %value: i1) -> (i1) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %c1, %value : i1
+  %result = scf.select %condition, %value, %inverse : i1
+  func.return %result : i1
+}
+
+// ----
+func.def @select_inverted_false_commuted(%condition: i1, %value: i1) -> (i1) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %c1, %value : i1
+  %result = scalar.xori %condition, %inverse : i1
+  func.return %result : i1
+}
+
+// ====
+
+// Other users of the complement retain their value without extra inversions.
+func.def @select_shared_complement(%condition: i1, %value: i1) -> (i1, i1) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %value, %c1 : i1
+  %result = scf.select %condition, %inverse, %value : i1
+  func.return %result, %inverse : i1, i1
+}
+
+// ----
+func.def @select_shared_complement(%condition: i1, %value: i1) -> (i1, i1) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %value, %c1 : i1
+  %result = scalar.xori %condition, %value : i1
+  func.return %result, %inverse : i1, i1
+}
+
+// ====
+
+// Conditional inversion cancels when the selector is the payload itself.
+func.def @select_inverted_condition(%condition: i1) -> (i1, i1) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %condition, %c1 : i1
+  %never = scf.select %condition, %inverse, %condition : i1
+  %always = scf.select %condition, %condition, %inverse : i1
+  func.return %never, %always : i1, i1
+}
+
+// ----
+func.def @select_inverted_condition(%condition: i1) -> (i1, i1) {
+  %c1 = scalar.constant true : i1
+  %never = scalar.constant false : i1
+  func.return %never, %c1 : i1, i1
+}
+
+// ====
+
+// Runtime XOR masks do not establish complementary arms.
+func.def @select_dynamic_xor(%condition: i1, %value: i1, %mask: i1) -> (i1) {
+  %other = scalar.xori %value, %mask : i1
+  %result = scf.select %condition, %other, %value : i1
+  func.return %result : i1
+}
+
+// ====
+
+// A complement of a different value does not establish this identity.
+func.def @select_different_complement(%condition: i1, %left: i1, %right: i1) -> (i1) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %left, %c1 : i1
+  %result = scf.select %condition, %inverse, %right : i1
+  func.return %result : i1
+}
+
+// ====
+
+// An integer complement needs a full-width mask, not a Boolean selector.
+func.def @select_integer_complement(%condition: i1, %value: i32) -> (i32) {
+  %all_bits = scalar.constant -1 : i32
+  %inverse = scalar.xori %value, %all_bits : i32
+  %result = scf.select %condition, %inverse, %value : i32
+  func.return %result : i32
 }

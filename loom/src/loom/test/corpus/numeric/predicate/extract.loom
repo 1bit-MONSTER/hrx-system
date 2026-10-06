@@ -1,0 +1,144 @@
+// The low and high halves have different predicate vectors, and each group of
+// sixteen workitems selects a different element. Selection must preserve both
+// the logical vector element and the individual hardware lane's predicate bit.
+kernel.def @predicate_extract() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %first_output: buffer, %last_output: buffer, %dynamic_output: buffer, %vote_output: buffer) {
+  %base = index.constant 0 : offset
+  %lane = kernel.workitem.id<x> : index
+  %group_size = index.constant 16 : index
+  %position = index.div %lane, %group_size : index
+  %source = buffer.view %input[%base] : buffer -> view<64x4xi32>
+  %first_view = buffer.view %first_output[%base] : buffer -> view<64xi32>
+  %last_view = buffer.view %last_output[%base] : buffer -> view<64xi32>
+  %dynamic_view = buffer.view %dynamic_output[%base] : buffer -> view<64xi32>
+  %vote_view = buffer.view %vote_output[%base] : buffer -> view<64xi32>
+  %values = vector.load %source[%lane, 0] : view<64x4xi32> -> vector<4xi32>
+  %bits = vector.constant 129 : vector<4xi32>
+  %c0 = vector.constant 0 : vector<4xi32>
+  %masked = vector.andi %values, %bits : vector<4xi32>
+  %predicates = vector.cmpi ne, %masked, %c0 : vector<4xi32> -> vector<4xi1>
+  %first = vector.extract %predicates[0] : vector<4xi1> -> i1
+  %last = vector.extract %predicates[3] : vector<4xi1> -> i1
+  %first_value = scalar.extsi %first : i1 to i32
+  %last_value = scalar.extui %last : i1 to i32
+  view.store %first_value, %first_view[%lane] : i32, view<64xi32>
+  view.store %last_value, %last_view[%lane] : i32, view<64xi32>
+  %limit = index.constant 56 : index
+  %active = index.cmp slt, %lane, %limit : index
+  scf.if %active {
+    %selected = vector.extract %predicates[%position] : vector<4xi1> -> i1
+    %any = kernel.subgroup.vote.any %selected : i1
+    %all = kernel.subgroup.vote.all %last : i1
+    %votes = scalar.andi %any, %all : i1
+    %selected_value = scalar.extui %selected : i1 to i32
+    %vote_value = scalar.extui %votes : i1 to i32
+    view.store %selected_value, %dynamic_view[%lane] : i32, view<64xi32>
+    view.store %vote_value, %vote_view[%lane] : i32, view<64xi32>
+  }
+  kernel.return
+}
+
+check.case public @predicate_element_values {
+  %input = check.generate.iota offset(0) step(1) : tensor<64x4xi32>
+  %first = check.generate.fill value(99) : tensor<64xi32>
+  %last = check.generate.fill value(99) : tensor<64xi32>
+  %selected = check.generate.fill value(99) : tensor<64xi32>
+  %votes = check.generate.fill value(99) : tensor<64xi32>
+  kernel.launch @predicate_extract(%input, %first, %last, %selected, %votes) : (tensor<64x4xi32>, tensor<64xi32>, tensor<64xi32>, tensor<64xi32>, tensor<64xi32>)
+  %first_false = check.tensor.view %first offset(0) : tensor<64xi32> -> tensor<32xi32>
+  %first_true = check.tensor.view %first offset(128) : tensor<64xi32> -> tensor<32xi32>
+  %selected_false = check.tensor.view %selected offset(0) : tensor<64xi32> -> tensor<16xi32>
+  %selected_true = check.tensor.view %selected offset(64) : tensor<64xi32> -> tensor<40xi32>
+  %selected_inactive = check.tensor.view %selected offset(224) : tensor<64xi32> -> tensor<8xi32>
+  %votes_active = check.tensor.view %votes offset(0) : tensor<64xi32> -> tensor<56xi32>
+  %votes_inactive = check.tensor.view %votes offset(224) : tensor<64xi32> -> tensor<8xi32>
+  %expected_first_false = check.generate.fill value(0) : tensor<32xi32>
+  %expected_first_true = check.generate.fill value(-1) : tensor<32xi32>
+  %expected_last = check.generate.fill value(1) : tensor<64xi32>
+  %expected_selected_false = check.generate.fill value(0) : tensor<16xi32>
+  %expected_selected_true = check.generate.fill value(1) : tensor<40xi32>
+  %expected_votes = check.generate.fill value(1) : tensor<56xi32>
+  %expected_inactive = check.generate.fill value(99) : tensor<8xi32>
+  check.expect.equal actual(%first_false) expected(%expected_first_false) : tensor<32xi32>
+  check.expect.equal actual(%first_true) expected(%expected_first_true) : tensor<32xi32>
+  check.expect.equal actual(%last) expected(%expected_last) : tensor<64xi32>
+  check.expect.equal actual(%selected_false) expected(%expected_selected_false) : tensor<16xi32>
+  check.expect.equal actual(%selected_true) expected(%expected_selected_true) : tensor<40xi32>
+  check.expect.equal actual(%selected_inactive) expected(%expected_inactive) : tensor<8xi32>
+  check.expect.equal actual(%votes_active) expected(%expected_votes) : tensor<56xi32>
+  check.expect.equal actual(%votes_inactive) expected(%expected_inactive) : tensor<8xi32>
+  check.return
+}
+
+// Predicate-vector producers execute before divergence and their selected
+// lanes remain valid in the active workitems.
+kernel.def @predicate_logic_across_divergence() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %lane = kernel.workitem.id<x> : index
+  %input_view = buffer.view %input[%base] : buffer -> view<64xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<64xi32>
+  %word = view.load %input_view[%lane] : view<64xi32> -> i32
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %c2 = scalar.constant 2 : i32
+  %c3 = scalar.constant 3 : i32
+  %c32 = scalar.constant 32 : i32
+  %parity = scalar.andi %word, %c1 : i32
+  %even_word = scalar.xori %parity, %c1 : i32
+  %low_predicate = scalar.cmpi slt, %word, %c32 : i32
+  %low_word = scalar.extui %low_predicate : i1 to i32
+  %lhs_words = vector.from_elements %even_word, %low_word, %even_word, %low_word : vector<4xi32>
+  %rhs_words = vector.from_elements %low_word, %even_word, %low_word, %even_word : vector<4xi32>
+  %mask_words = vector.from_elements %low_word, %low_word, %even_word, %even_word : vector<4xi32>
+  %zero_words = vector.splat %c0 : vector<4xi32>
+  %lhs = vector.cmpi ne, %lhs_words, %zero_words : vector<4xi32> -> vector<4xi1>
+  %rhs = vector.cmpi ne, %rhs_words, %zero_words : vector<4xi32> -> vector<4xi1>
+  %mask = vector.cmpi ne, %mask_words, %zero_words : vector<4xi32> -> vector<4xi1>
+  %and_result = vector.andi %lhs, %rhs : vector<4xi1>
+  %or_result = vector.ori %lhs, %rhs : vector<4xi1>
+  %xor_result = vector.xori %lhs, %rhs : vector<4xi1>
+  %select_result = vector.select %mask, %lhs, %rhs : vector<4xi1>
+  %active_limit = index.constant 56 : index
+  %active = index.cmp slt, %lane, %active_limit : index
+  scf.if %active {
+    %and_predicate = vector.extract %and_result[0] : vector<4xi1> -> i1
+    %or_predicate = vector.extract %or_result[1] : vector<4xi1> -> i1
+    %xor_predicate = vector.extract %xor_result[2] : vector<4xi1> -> i1
+    %select_predicate = vector.extract %select_result[3] : vector<4xi1> -> i1
+    %and_value = scalar.extui %and_predicate : i1 to i32
+    %or_value = scalar.extui %or_predicate : i1 to i32
+    %xor_value = scalar.extui %xor_predicate : i1 to i32
+    %select_value = scalar.extui %select_predicate : i1 to i32
+    %or_bit = scalar.shli %or_value, %c1 : i32
+    %xor_bit = scalar.shli %xor_value, %c2 : i32
+    %select_bit = scalar.shli %select_value, %c3 : i32
+    %low_bits = scalar.ori %and_value, %or_bit : i32
+    %high_bits = scalar.ori %xor_bit, %select_bit : i32
+    %packed = scalar.ori %low_bits, %high_bits : i32
+    view.store %packed, %output_view[%lane] : i32, view<64xi32>
+  }
+  kernel.return
+}
+
+check.case public @predicate_logic_survives_divergence {
+  %input = check.generate.iota offset(0) step(1) : tensor<64xi32>
+  %output = check.generate.fill value(-123) : tensor<64xi32>
+  kernel.launch @predicate_logic_across_divergence(%input, %output) : (tensor<64xi32>, tensor<64xi32>)
+  %low = check.tensor.view %output offset(0) : tensor<64xi32> -> tensor<32xi32>
+  %high = check.tensor.view %output offset(128) : tensor<64xi32> -> tensor<24xi32>
+  %inactive = check.tensor.view %output offset(224) : tensor<64xi32> -> tensor<8xi32>
+  %expected_low = check.generate.iota offset(11) step(-5) period(2) : tensor<32xi32>
+  %expected_high = check.generate.iota offset(6) step(-6) period(2) : tensor<24xi32>
+  %expected_inactive = check.generate.fill value(-123) : tensor<8xi32>
+  check.expect.equal actual(%low) expected(%expected_low) : tensor<32xi32>
+  check.expect.equal actual(%high) expected(%expected_high) : tensor<24xi32>
+  check.expect.equal actual(%inactive) expected(%expected_inactive) : tensor<8xi32>
+  check.return
+}

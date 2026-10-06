@@ -13,6 +13,14 @@ func.def @scalar_i32_uniform_sgpr(%lhs: i32, %rhs: i32, %shift: i32) -> (i32) {
 
 // ====
 
+func.def @scalar_i32_multiply_add(%a: i32, %b: i32, %c: i32) -> (i32) {
+  %product = scalar.muli %a, %b : i32
+  %result = scalar.addi %product, %c : i32
+  func.return %result : i32
+}
+
+// ====
+
 func.def @scalar_i32_bitfield_sgpr(%word: i32) -> (i32, i32, i32, i32) {
   %unsigned_byte = scalar.bitfield.extractu %word {offset = 8, width = 8} : i32 -> i32
   %signed_byte = scalar.bitfield.extracts %word {offset = 16, width = 8} : i32 -> i32

@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "64-bit vector memory preserves native and wide payloads, split loads, and exact extents on NPU2",
+      "steps": [
+        {
+          "name": "fixtures",
+          "run": {
+            "tool": "generate-cases",
+            "args": [
+              "{tmp}/fixtures"
+            ]
+          }
+        },
+        {
+          "name": "compile",
+          "run": {
+            "tool": "loom-compile",
+            "args": [
+              "{srcdir}/testdata/vector_memory64.loom",
+              "--root=@memory_packets",
+              "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+              "--output={tmp}/memory.xdna",
+              "--compile-report=text-details",
+              "--compile-report-output={tmp}/compile-report.txt"
+            ]
+          },
+          "files": [
+            {
+              "path": "{tmp}/compile-report.txt",
+              "contains": {
+                "unordered": [
+                  {
+                    "regex": "COMPILE-REPORT: pipeline\\.worker\\[0\\] .* code_bytes=696 code_capacity_bytes=16384 .* max_bank_storage_bytes=1536 bank_capacity_bytes=16384\\n"
+                  },
+                  {
+                    "regex": "COMPILE-REPORT: static_instruction_mix .* memory_read_bytes=544 memory_write_bytes=2080 "
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "execute",
+          "run": {
+            "tool": "iree-xdna-run",
+            "args": [
+              "--image={tmp}/memory.xdna",
+              "--columns=1",
+              "--entry=memory_packets",
+              "--invocation_count=1",
+              "--binding_memory=system",
+              "--binding={tmp}/fixtures/input.bin",
+              "--binding={tmp}/fixtures/output.bin",
+              "--output=0={tmp}/input-readback.bin",
+              "--output=1={tmp}/output-readback.bin"
+            ]
+          },
+          "files": [
+            {
+              "path": "{tmp}/input-readback.bin",
+              "equals": "{tmp}/fixtures/input.bin"
+            },
+            {
+              "path": "{tmp}/output-readback.bin",
+              "equals": "{tmp}/fixtures/expected.bin"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

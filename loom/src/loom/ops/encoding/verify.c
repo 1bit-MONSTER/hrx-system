@@ -11,6 +11,7 @@
 #include "loom/ops/encoding/ops.h"
 #include "loom/ops/encoding/params.h"
 #include "loom/ops/encoding/roles.h"
+#include "loom/ops/encoding/storage.h"
 
 static iree_status_t loom_encoding_emit(iree_diagnostic_emitter_t emitter,
                                         const loom_op_t* op,
@@ -252,6 +253,11 @@ iree_status_t loom_encoding_layout_strided_verify(
   loom_attribute_t static_strides =
       loom_encoding_layout_strided_static_strides(op);
   if (static_strides.kind == LOOM_ATTR_I64_ARRAY) {
+    if (static_strides.count > LOOM_ENCODING_ADDRESS_LAYOUT_MAX_RANK) {
+      return loom_encoding_emit_attribute_value_constraint(
+          emitter, op, IREE_SV("rank"), static_strides.count,
+          IREE_SV("rank in [0, 15]"));
+    }
     for (uint16_t i = 0; i < static_strides.count; ++i) {
       int64_t static_stride = static_strides.i64_array[i];
       if (static_stride < 0 && static_stride != INT64_MIN) {
@@ -270,11 +276,11 @@ iree_status_t loom_encoding_layout_assume_strided_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter) {
   int64_t rank = loom_encoding_layout_assume_strided_rank(op);
-  if (rank >= 0 && rank <= UINT8_MAX) {
+  if (rank >= 0 && rank <= LOOM_ENCODING_ADDRESS_LAYOUT_MAX_RANK) {
     return iree_ok_status();
   }
   return loom_encoding_emit_attribute_value_constraint(
-      emitter, op, IREE_SV("rank"), rank, IREE_SV("rank in [0, 255]"));
+      emitter, op, IREE_SV("rank"), rank, IREE_SV("rank in [0, 15]"));
 }
 
 iree_status_t loom_encoding_define_verify(const loom_module_t* module,

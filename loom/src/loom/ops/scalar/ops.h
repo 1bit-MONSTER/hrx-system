@@ -1553,7 +1553,6 @@ iree_status_t loom_scalar_extf_build(
     loom_builder_t* builder, loom_value_id_t input,
     loom_type_t input_type, loom_type_t result_type,
     loom_location_id_t location, loom_op_t** out_op);
-iree_status_t loom_scalar_extf_canonicalize(loom_op_t* op, loom_rewriter_t* rewriter);
 iree_status_t loom_scalar_extf_facts(
     loom_fact_context_t* context,
     const loom_module_t* module, const loom_op_t* op,
@@ -1585,7 +1584,6 @@ iree_status_t loom_scalar_extsi_build(
     loom_builder_t* builder, loom_value_id_t input,
     loom_type_t input_type, loom_type_t result_type,
     loom_location_id_t location, loom_op_t** out_op);
-iree_status_t loom_scalar_extsi_canonicalize(loom_op_t* op, loom_rewriter_t* rewriter);
 iree_status_t loom_scalar_extsi_facts(
     loom_fact_context_t* context,
     const loom_module_t* module, const loom_op_t* op,
@@ -1601,7 +1599,6 @@ iree_status_t loom_scalar_extui_build(
     loom_builder_t* builder, loom_value_id_t input,
     loom_type_t input_type, loom_type_t result_type,
     loom_location_id_t location, loom_op_t** out_op);
-iree_status_t loom_scalar_extui_canonicalize(loom_op_t* op, loom_rewriter_t* rewriter);
 iree_status_t loom_scalar_extui_facts(
     loom_fact_context_t* context,
     const loom_module_t* module, const loom_op_t* op,

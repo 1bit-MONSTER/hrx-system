@@ -1167,7 +1167,7 @@ static uint32_t loom_link_index_count_dependency_occurrences(
 static void loom_link_index_copy_dependency_occurrences(
     const loom_symbol_reference_table_t* table,
     loom_symbol_reference_occurrence_id_t first_occurrence_id, uint32_t* values,
-    loom_symbol_interface_flags_t* target_interfaces,
+    loom_symbol_reference_contract_t* contracts,
     uint8_t* source_root_region_indices_plus_one, iree_host_size_t* position) {
   loom_symbol_reference_occurrence_id_t occurrence_id = first_occurrence_id;
   while (occurrence_id != LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID) {
@@ -1175,7 +1175,8 @@ static void loom_link_index_copy_dependency_occurrences(
         loom_symbol_reference_table_occurrence(table, occurrence_id);
     if (loom_symbol_reference_occurrence_is_dependency(occurrence)) {
       values[*position] = occurrence->target_symbol_id;
-      target_interfaces[*position] = occurrence->target_interfaces;
+      contracts[*position] = loom_symbol_reference_contract_make(
+          occurrence->target_interfaces, occurrence->role);
       source_root_region_indices_plus_one[*position] =
           occurrence->source_root_region_index_plus_one;
       ++*position;
@@ -1188,7 +1189,7 @@ static iree_status_t loom_link_index_project_symbol_references(
     loom_link_module_index_t* index, loom_link_module_index_module_t* module,
     const loom_symbol_reference_table_t* table) {
   uint32_t* dependency_values = NULL;
-  loom_symbol_interface_flags_t* dependency_target_interfaces = NULL;
+  loom_symbol_reference_contract_t* dependency_contracts = NULL;
   uint8_t* dependency_source_root_region_indices_plus_one = NULL;
   loom_link_template_family_ordinal_t* template_demand_values = NULL;
   uint8_t* template_demand_source_root_region_indices_plus_one = NULL;
@@ -1211,9 +1212,9 @@ static iree_status_t loom_link_index_project_symbol_references(
     module->dependencies.values = dependency_values;
     if (iree_status_is_ok(status)) {
       status = iree_arena_allocate_array(&index->arena, dependency_count,
-                                         sizeof(*dependency_target_interfaces),
-                                         (void**)&dependency_target_interfaces);
-      module->dependencies.target_interfaces = dependency_target_interfaces;
+                                         sizeof(*dependency_contracts),
+                                         (void**)&dependency_contracts);
+      module->dependencies.contracts = dependency_contracts;
     }
     if (iree_status_is_ok(status)) {
       status = iree_arena_allocate_array(
@@ -1248,26 +1249,27 @@ static iree_status_t loom_link_index_project_symbol_references(
   if (iree_status_is_ok(status)) {
     loom_link_index_copy_dependency_occurrences(
         table, table->first_module_occurrence_id, dependency_values,
-        dependency_target_interfaces,
-        dependency_source_root_region_indices_plus_one, &dependency_position);
+        dependency_contracts, dependency_source_root_region_indices_plus_one,
+        &dependency_position);
     for (iree_host_size_t symbol_index = 0;
          symbol_index < table->symbol_count && iree_status_is_ok(status);
          ++symbol_index) {
       loom_link_module_index_symbol_t* symbol = loom_link_index_local_symbol_at(
           index, module->symbol_start_ordinal + symbol_index);
-      const loom_symbol_reference_symbol_occurrences_t* source =
-          &table->symbols[symbol_index];
+      const loom_symbol_reference_symbol_occurrences_t source =
+          loom_symbol_reference_table_symbol(table,
+                                             (loom_symbol_id_t)symbol_index);
       symbol->dependencies.first = (uint32_t)dependency_position;
       symbol->dependencies.count = loom_link_index_count_dependency_occurrences(
-          table, source->first_outgoing_occurrence_id);
+          table, source.first_outgoing_occurrence_id);
       loom_link_index_copy_dependency_occurrences(
-          table, source->first_outgoing_occurrence_id, dependency_values,
-          dependency_target_interfaces,
-          dependency_source_root_region_indices_plus_one, &dependency_position);
+          table, source.first_outgoing_occurrence_id, dependency_values,
+          dependency_contracts, dependency_source_root_region_indices_plus_one,
+          &dependency_position);
 
       symbol->template_demands.first = (uint32_t)template_demand_position;
-      symbol->template_demands.count = source->template_demand_count;
-      loom_template_demand_id_t demand_id = source->first_template_demand_id;
+      symbol->template_demands.count = source.template_demand_count;
+      loom_template_demand_id_t demand_id = source.first_template_demand_id;
       while (demand_id != LOOM_TEMPLATE_DEMAND_ID_INVALID &&
              iree_status_is_ok(status)) {
         const loom_template_demand_t* demand =
@@ -1333,8 +1335,7 @@ static iree_status_t loom_link_index_project_bytecode_references(
   module->dependencies.root_count = bytecode_module->module_dependency_count;
   module->dependencies.count = bytecode_module->dependency_count;
   module->dependencies.values = bytecode_module->dependency_symbol_indices;
-  module->dependencies.target_interfaces =
-      bytecode_module->dependency_target_interfaces;
+  module->dependencies.contracts = bytecode_module->dependency_contracts;
   module->dependencies.source_root_region_indices_plus_one =
       bytecode_module->dependency_source_root_region_indices_plus_one;
   module->template_demands.count = bytecode_module->template_demand_count;

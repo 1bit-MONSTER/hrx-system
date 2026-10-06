@@ -258,6 +258,44 @@ static const loom_boundary_projection_rule_t kRejectableIdentityRule = {
     },
 };
 
+typedef struct FinalPlanObservation {
+  // Original projected block.
+  loom_block_t* block;
+  // Original projected argument.
+  loom_value_id_t value_id;
+  // Whether the sink was invoked.
+  bool invoked;
+  // Whether the original block signature was still intact in the sink.
+  bool source_signature_intact;
+  // Whether the finalized candidate remained selected.
+  bool candidate_selected;
+  // Whether the plan exposed that its decisions would be observed.
+  bool observation_requested;
+} FinalPlanObservation;
+
+static iree_status_t ObserveFinalPlan(
+    void* user_data, const loom_boundary_projection_plan_t* plan) {
+  auto* observation = static_cast<FinalPlanObservation*>(user_data);
+  observation->invoked = true;
+  observation->observation_requested = plan->observation_requested;
+  observation->source_signature_intact =
+      observation->block->arg_count == 1 &&
+      observation->block->arg_ids[0] == observation->value_id;
+  for (iree_host_size_t function_index = 0;
+       function_index < plan->function_count; ++function_index) {
+    const loom_boundary_projection_function_t* function =
+        &plan->functions[function_index];
+    const iree_host_size_t candidate_index =
+        loom_boundary_projection_slot_index(function, observation->value_id);
+    if (candidate_index != IREE_HOST_SIZE_MAX) {
+      observation->candidate_selected =
+          function->selected && function->candidates[candidate_index].selected;
+      break;
+    }
+  }
+  return iree_ok_status();
+}
+
 static iree_host_size_t selected_function_preparation_count = 0;
 
 static iree_status_t CountSelectedFunctionPreparation(
@@ -414,12 +452,15 @@ class BoundaryProjectionTest : public ::testing::Test {
         LOOM_LOCATION_UNKNOWN, &out_diamond->return_op));
   }
 
-  void Project(const loom_boundary_projection_rule_t* rule,
-               loom_boundary_projection_statistics_t* out_statistics) {
+  void Project(
+      const loom_boundary_projection_rule_t* rule,
+      loom_boundary_projection_statistics_t* out_statistics,
+      const loom_boundary_projection_plan_sink_t* plan_sink = nullptr) {
     const loom_boundary_projection_rule_t* rules[] = {rule};
     IREE_ASSERT_OK(loom_boundary_projection_run(
         &pass_, module_, /*version_list=*/nullptr,
-        {/*.values=*/rules, /*.count=*/IREE_ARRAYSIZE(rules)}, out_statistics));
+        {/*.values=*/rules, /*.count=*/IREE_ARRAYSIZE(rules)}, plan_sink,
+        out_statistics));
   }
 
   void Verify(loom_module_t* module) {
@@ -459,6 +500,30 @@ TEST_F(BoundaryProjectionTest, SupportsZeroComponentCfgProjection) {
   ASSERT_EQ(statistics.rule_count, 1u);
   EXPECT_EQ(statistics.rules[0].projections, 1);
   EXPECT_EQ(statistics.rules[0].components, 0);
+  Verify(module_);
+}
+
+TEST_F(BoundaryProjectionTest, ObservesFinalPlanBeforeMutation) {
+  IndexDiamond diamond;
+  BuildIndexDiamond(IREE_SV("observe_final_plan"), &diamond);
+  Verify(module_);
+
+  FinalPlanObservation observation = {
+      /*.block=*/diamond.projected_block,
+      /*.value_id=*/diamond.projected_argument,
+  };
+  const loom_boundary_projection_plan_sink_t plan_sink = {
+      /*.fn=*/ObserveFinalPlan,
+      /*.user_data=*/&observation,
+  };
+  loom_boundary_projection_statistics_t statistics = {};
+  Project(&kZeroComponentRule, &statistics, &plan_sink);
+
+  EXPECT_TRUE(observation.invoked);
+  EXPECT_TRUE(observation.observation_requested);
+  EXPECT_TRUE(observation.source_signature_intact);
+  EXPECT_TRUE(observation.candidate_selected);
+  EXPECT_EQ(diamond.projected_block->arg_count, 0);
   Verify(module_);
 }
 

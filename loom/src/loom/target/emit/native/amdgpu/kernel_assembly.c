@@ -8,6 +8,7 @@
 
 #include <inttypes.h>
 
+#include "loom/target/arch/amdgpu/amdhsa_target_id.h"
 #include "loom/target/emit/native/amdgpu/assembly.h"
 #include "loom/target/emit/native/amdgpu/kernel_entry.h"
 #include "loom/target/emit/native/amdgpu/kernel_record.h"
@@ -48,7 +49,8 @@ static bool loom_amdgpu_kernel_assembly_supports_wgp_mode(
 }
 
 static iree_status_t loom_amdgpu_kernel_assembly_append_metadata(
-    const loom_amdgpu_kernel_record_t* record, iree_string_builder_t* builder) {
+    const loom_amdgpu_kernel_record_t* record,
+    iree_string_view_t code_object_target_id, iree_string_builder_t* builder) {
   const loom_amdgpu_metadata_kernel_t* kernel = &record->metadata;
   const bool has_architected_flat_scratch =
       loom_amdgpu_processor_properties_kernel_descriptor_has_flags(
@@ -231,32 +233,28 @@ static iree_status_t loom_amdgpu_kernel_assembly_append_metadata(
       iree_string_builder_append_cstring(builder, ".end_amdhsa_kernel\n"));
 
   const loom_amdgpu_code_object_metadata_t metadata = {
-      .target = record->code_object_target_id,
+      .target = code_object_target_id,
       .kernels = &record->metadata,
       .kernel_count = 1,
   };
   return loom_amdgpu_metadata_append_assembly(&metadata, builder);
 }
 
-static iree_status_t loom_amdgpu_kernel_assembly_emit(
+iree_status_t loom_amdgpu_emit_kernel_assembly(
     const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
-    const loom_amdgpu_kernel_assembly_options_t* options,
+    const loom_amdgpu_kernel_record_t* record,
+    const struct loom_amdgpu_packet_plan_t* packet_plan,
+    const struct loom_amdgpu_instruction_layout_t* instruction_layout,
     iree_string_builder_t* builder, iree_arena_allocator_t* scratch_arena) {
-  loom_amdgpu_kernel_record_t record = {0};
-  const loom_amdgpu_kernel_record_options_t record_options = {
-      .abi_layout = options->abi_layout,
-      .abi_verify = options->abi_verify,
-      .preflight = options->preflight,
-  };
-  IREE_RETURN_IF_ERROR(loom_amdgpu_kernel_record_build(
-      schedule, allocation, &record_options, &record, scratch_arena));
+  iree_string_view_t code_object_target_id = iree_string_view_empty();
+  IREE_RETURN_IF_ERROR(loom_amdgpu_amdhsa_target_id_format(
+      &record->target_identity, scratch_arena, &code_object_target_id));
 
   IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(builder, ".text\n"));
-  IREE_RETURN_IF_ERROR(
-      iree_string_builder_append_format(builder, ".amdgcn_target \"%.*s\"\n",
-                                        (int)record.code_object_target_id.size,
-                                        record.code_object_target_id.data));
+  IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+      builder, ".amdgcn_target \"%.*s\"\n", (int)code_object_target_id.size,
+      code_object_target_id.data));
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       builder, ".amdhsa_code_object_version %u\n\n",
       LOOM_AMDGPU_KERNEL_ASSEMBLY_CODE_OBJECT_VERSION));
@@ -267,18 +265,18 @@ static iree_status_t loom_amdgpu_kernel_assembly_emit(
       ".p2align 8\n"
       ".type %.*s,@function\n"
       "%.*s:\n",
-      (int)record.symbol.size, record.symbol.data, (int)record.symbol.size,
-      record.symbol.data, (int)record.symbol.size, record.symbol.data,
-      (int)record.symbol.size, record.symbol.data));
+      (int)record->symbol.size, record->symbol.data, (int)record->symbol.size,
+      record->symbol.data, (int)record->symbol.size, record->symbol.data,
+      (int)record->symbol.size, record->symbol.data));
   const loom_amdgpu_kernel_entry_envelope_t* entry_envelope =
       loom_amdgpu_kernel_entry_envelope_for_properties(
-          &record.processor->properties);
+          &record->processor->properties);
   IREE_RETURN_IF_ERROR(
       iree_string_builder_append_string(builder, entry_envelope->assembly));
   const loom_amdgpu_assembly_fragment_options_t assembly_options = {
-      .packet_plan = options->packet_plan,
-      .storage_layout = &record.storage_layout,
-      .instruction_layout = options->instruction_layout,
+      .packet_plan = packet_plan,
+      .storage_layout = &record->storage_layout,
+      .instruction_layout = instruction_layout,
   };
   IREE_RETURN_IF_ERROR(loom_amdgpu_emit_assembly_fragment_with_options(
       schedule, allocation, &assembly_options, builder, scratch_arena));
@@ -286,16 +284,8 @@ static iree_status_t loom_amdgpu_kernel_assembly_emit(
       builder,
       ".Lfunc_end0:\n"
       ".size %.*s, .Lfunc_end0-%.*s\n",
-      (int)record.symbol.size, record.symbol.data, (int)record.symbol.size,
-      record.symbol.data));
-  return loom_amdgpu_kernel_assembly_append_metadata(&record, builder);
-}
-
-iree_status_t loom_amdgpu_emit_kernel_assembly(
-    const loom_low_schedule_table_t* schedule,
-    const loom_low_allocation_table_t* allocation,
-    const loom_amdgpu_kernel_assembly_options_t* options,
-    iree_string_builder_t* builder, iree_arena_allocator_t* scratch_arena) {
-  return loom_amdgpu_kernel_assembly_emit(schedule, allocation, options,
-                                          builder, scratch_arena);
+      (int)record->symbol.size, record->symbol.data, (int)record->symbol.size,
+      record->symbol.data));
+  return loom_amdgpu_kernel_assembly_append_metadata(
+      record, code_object_target_id, builder);
 }

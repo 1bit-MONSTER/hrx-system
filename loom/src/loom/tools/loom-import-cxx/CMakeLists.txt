@@ -30,6 +30,9 @@ loom_cc_binary(
     loom::tooling::cli::help
     loom::tooling::context
     loom::tooling::io::file
+    loom::transforms::cleanup::configured
+    loom::transforms::cleanup::pass_environment
+    loom::transforms::cleanup::patterns
     loom::verify
 )
 endif()

@@ -27,10 +27,11 @@ typedef struct loom_bytecode_symbol_reference_plan_t {
   uint32_t module_dependency_count;
 } loom_bytecode_symbol_reference_plan_t;
 
-// Appends the indexed symbol metadata section to |builder|.
+// Streams indexed symbol metadata and patches its leading offset tables.
 iree_status_t loom_bytecode_write_symbols_section(
-    iree_string_builder_t* builder, loom_bytecode_numbering_t* numbering,
-    const loom_bytecode_ir_region_list_t* ir_regions);
+    loom_bytecode_page_writer_t* page_writer,
+    loom_bytecode_numbering_t* numbering,
+    const loom_bytecode_ir_region_index_t* ir_region_index);
 
 // Builds the canonical dependency-facet analysis and aggregate counts.
 iree_status_t loom_bytecode_symbol_reference_plan_initialize(

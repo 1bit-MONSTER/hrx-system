@@ -1,0 +1,19 @@
+// RUN: with-checks emit source-low target=amdgpu:gfx11-generic output=low
+
+func.def @multidimensional_arithmetic(%lhs: vector<2x2xf32>, %rhs: vector<2x2xf32>, %ints: vector<2x2xi32>) -> (vector<2x2xf32>, vector<2x2xi32>) {
+  %int_sum = vector.addi %ints, %ints : vector<2x2xi32>
+  %converted = vector.sitofp %int_sum : vector<2x2xi32> to vector<2x2xf32>
+  %sum = vector.addf %lhs, %rhs : vector<2x2xf32>
+  %product = vector.mulf %sum, %converted : vector<2x2xf32>
+  %result = vector.fmaf %product, %rhs, %lhs : vector<2x2xf32>
+  func.return %result, %int_sum : vector<2x2xf32>, vector<2x2xi32>
+}
+
+// ----
+CHECK: low.func.def * @multidimensional_arithmetic(*) -> (reg<amdgpu.vgpr x4>, reg<amdgpu.vgpr x4>) asm {
+CHECK: * = v_add_u32 *
+CHECK: * = v_cvt_f32_i32 *
+CHECK: * = v_add_f32 *
+CHECK: * = v_mul_f32 *
+CHECK: * = v_fma_f32 *
+CHECK: return %result, %int_sum

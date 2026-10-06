@@ -12,6 +12,7 @@
 
 #include "loom/analysis/symbol_facts.h"
 #include "loom/analysis/symbol_references.h"
+#include "loom/codegen/low/memory_access.h"
 #include "loom/error/error_catalog.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
@@ -109,6 +110,9 @@ struct loom_target_callgraph_context_t {
 typedef struct loom_target_callgraph_symbol_t {
   // Live function-like definition for this symbol snapshot entry.
   loom_func_like_t function;
+
+  // Prior products for this source definition, or NULL before specialization.
+  const loom_target_function_version_t* source_version;
 
   // Function facts projected once before the module mutates.
   const loom_func_symbol_facts_t* function_facts;
@@ -634,6 +638,7 @@ static iree_status_t loom_target_callgraph_seed_versions(
     }
     IREE_RETURN_IF_ERROR(
         loom_target_callgraph_prepare_symbol(state, symbol_id));
+    state->symbols[symbol_id].source_version = version;
     loom_target_callgraph_context_t* context = NULL;
     IREE_RETURN_IF_ERROR(loom_target_callgraph_get_root_context(
         state, version->resolved_target, version->target_context_ordinal,
@@ -656,7 +661,8 @@ static bool loom_target_callgraph_has_propagating_incoming_call(
     const loom_target_callgraph_state_t* state,
     loom_symbol_id_t target_symbol_id) {
   loom_symbol_reference_occurrence_id_t occurrence_id =
-      state->references.symbols[target_symbol_id].first_incoming_occurrence_id;
+      loom_symbol_reference_table_symbol(&state->references, target_symbol_id)
+          .first_incoming_occurrence_id;
   while (occurrence_id != LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID) {
     const loom_symbol_reference_occurrence_t* occurrence =
         loom_symbol_reference_table_occurrence(&state->references,
@@ -773,7 +779,8 @@ static iree_status_t loom_target_callgraph_plan_reachable_rows(
     loom_target_callgraph_context_t* caller_context =
         state->rows[row_id].context;
     loom_symbol_reference_occurrence_id_t edge_id =
-        state->references.symbols[caller_source_symbol_id]
+        loom_symbol_reference_table_symbol(&state->references,
+                                           caller_source_symbol_id)
             .first_outgoing_occurrence_id;
     while (state->plan_valid &&
            edge_id != LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID) {
@@ -1060,9 +1067,28 @@ static iree_status_t loom_target_callgraph_materialize_clones(
     loom_builder_initialize(state->module, &state->module->arena,
                             info->function.op->parent_block, &builder);
     loom_builder_set_after(&builder, info->insertion_anchor);
+    loom_ir_clone_observer_t observer = {0};
+    if (info->source_version != NULL && row->pending_version != NULL) {
+      row->pending_version->loop_pipelines =
+          info->source_version->loop_pipelines;
+      if (info->source_version->memory_accesses != NULL) {
+        IREE_RETURN_IF_ERROR(loom_low_memory_access_map_create(
+            &state->module->arena, &row->pending_version->memory_accesses));
+        loom_low_memory_access_clone_t* memory_clone = NULL;
+        IREE_RETURN_IF_ERROR(loom_low_memory_access_clone_create(
+            info->source_version->memory_accesses,
+            row->pending_version->memory_accesses, state->pass->arena,
+            &memory_clone));
+        observer = (loom_ir_clone_observer_t){
+            .fn = loom_low_memory_access_clone_op,
+            .user_data = memory_clone,
+        };
+      }
+    }
     loom_func_like_t cloned = {0};
-    IREE_RETURN_IF_ERROR(loom_callable_clone_definition(
-        &builder, info->function, clone_ref, &cloned, state->pass->arena));
+    IREE_RETURN_IF_ERROR(
+        loom_callable_clone_definition(&builder, info->function, clone_ref,
+                                       observer, &cloned, state->pass->arena));
     info->insertion_anchor = cloned.op;
     loom_target_callgraph_bind_concrete_row(state, row_id, cloned, clone_ref);
     ++state->statistics->functions_cloned;

@@ -16,6 +16,7 @@ extern "C" {
 #endif
 
 #define LOOM_CFG_LOOP_NEST_NONE UINT16_MAX
+#define LOOM_CFG_LOOP_CONTINUATION_NONE UINT16_MAX
 
 // Compact summary of one class of loop edges, including parallel edges.
 typedef struct loom_cfg_loop_edge_summary_t {
@@ -35,6 +36,12 @@ typedef struct loom_cfg_natural_loop_t {
   uint16_t parent_loop_index;
   // Packed inclusive loop-tree preorder range: first low, last high 16 bits.
   uint32_t interval;
+  // Number of exits sourced by blocks that belong directly to this loop.
+  // Exits propagated from nested loops are excluded.
+  uint32_t direct_exit_count;
+  // Shared destination of every exit, or CONTINUATION_NONE when exits have
+  // distinct destinations or the loop has no exits.
+  uint16_t continuation_index;
   // Edges entering the header from outside the loop.
   loom_cfg_loop_edge_summary_t entries;
   // Edges returning to the header from inside the loop.
@@ -62,8 +69,9 @@ typedef struct loom_cfg_loop_nest_t {
 // Builds loop nesting from retained adjacency, DFS and dominance facts.
 // Discovery uses dominance and path-compressed subloop contraction, taking
 // O((B+E) log B) time and O(B+E) space without inclusive per-loop block lists.
-// Entry/exit summaries and loop-tree intervals take O(B+E) time. Scratch
-// storage is released before returning; retained storage is O(B+L).
+// Entry/exit summaries, common exit destinations, and loop-tree intervals take
+// O(B+E) time. Scratch storage is released before returning; retained storage
+// is O(B+L).
 // The graph must be produced by loom_cfg_graph_build. Rebuild after topology
 // changes. Acyclic graphs require no traversal or allocation.
 iree_status_t loom_cfg_loop_nest_build(const loom_cfg_graph_t* graph,
@@ -101,6 +109,16 @@ static inline bool loom_cfg_loop_nest_contains(const loom_cfg_loop_nest_t* nest,
 bool loom_cfg_loop_nest_calculate_block_execution_counts(
     const loom_cfg_loop_nest_t* nest, const uint64_t* trip_counts,
     uint64_t* out_block_counts);
+
+// Expands exact loop trip counts into the execution multiplier contributed by
+// enclosing loops for each block. Unlike exact execution counts, multipliers
+// remain useful in a CFG with data-dependent alternatives: a separate control
+// analysis can mark branch-local blocks unknown while retaining the multiplier
+// for blocks after reconvergence. Returns false for unsupported loop structure
+// or arithmetic overflow. Expansion takes O(B+L) time without extra storage.
+bool loom_cfg_loop_nest_calculate_block_multipliers(
+    const loom_cfg_loop_nest_t* nest, const uint64_t* trip_counts,
+    uint64_t* out_block_multipliers);
 
 #ifdef __cplusplus
 }  // extern "C"

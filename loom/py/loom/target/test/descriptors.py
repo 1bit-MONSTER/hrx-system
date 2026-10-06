@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from loom.ir import ScalarTypeKind
@@ -73,9 +74,12 @@ _REG_PRESSURE_ALIAS64 = "test.pressure.alias64"
 _REG_EXPLICIT32 = "test.explicit32"
 _REG_SPILLABLE_EXPLICIT32 = "test.spillable.explicit32"
 _REG_FIXED_R0 = "test.fixed.r0"
+_REG_FIXED_R2 = "test.fixed.r2"
 _REG_PACKED_NARROW = "test.packed.narrow"
 _REG_PACKED_WIDE = "test.packed.wide"
 _REG_COINDEXED_PARTNER = "test.coindexed.partner"
+_REG_ATOMIC_NARROW = "test.atomic.narrow"
+_REG_ALIAS_NARROW = "test.alias.narrow"
 
 _REG_PART_I32_LOW16 = "test.i32.low16"
 _REG_PART_I32_HIGH16 = "test.i32.high16"
@@ -163,25 +167,33 @@ def _i32_operand(field_name: str, *, unit_count: int = 1) -> Operand:
 
 def _i32_low16_result(field_name: str = "dst") -> Operand:
     return Operand(
-        field_name, OperandRole.RESULT, _I32_ALT, register_part=_REG_PART_I32_LOW16
+        field_name,
+        OperandRole.RESULT,
+        (RegClassAlt(_REG_I32, register_part=_REG_PART_I32_LOW16),),
     )
 
 
 def _i32_low16_operand(field_name: str) -> Operand:
     return Operand(
-        field_name, OperandRole.OPERAND, _I32_ALT, register_part=_REG_PART_I32_LOW16
+        field_name,
+        OperandRole.OPERAND,
+        (RegClassAlt(_REG_I32, register_part=_REG_PART_I32_LOW16),),
     )
 
 
 def _i32_high16_result(field_name: str = "dst") -> Operand:
     return Operand(
-        field_name, OperandRole.RESULT, _I32_ALT, register_part=_REG_PART_I32_HIGH16
+        field_name,
+        OperandRole.RESULT,
+        (RegClassAlt(_REG_I32, register_part=_REG_PART_I32_HIGH16),),
     )
 
 
 def _i32_high16_operand(field_name: str) -> Operand:
     return Operand(
-        field_name, OperandRole.OPERAND, _I32_ALT, register_part=_REG_PART_I32_HIGH16
+        field_name,
+        OperandRole.OPERAND,
+        (RegClassAlt(_REG_I32, register_part=_REG_PART_I32_HIGH16),),
     )
 
 
@@ -235,6 +247,10 @@ def _phys_operand(field_name: str) -> Operand:
 
 def _explicit32_result(field_name: str = "dst") -> Operand:
     return Operand(field_name, OperandRole.RESULT, _EXPLICIT32_ALT)
+
+
+def _explicit32_operand(field_name: str) -> Operand:
+    return Operand(field_name, OperandRole.OPERAND, _EXPLICIT32_ALT)
 
 
 def _packed_narrow_result(field_name: str = "dst") -> Operand:
@@ -557,6 +573,20 @@ TEST_LOW_REMATERIALIZE_I32_DESCRIPTOR = Descriptor(
     flags=(DescriptorFlag.DEAD_REMOVABLE,),
 )
 
+TEST_LOW_REMATERIALIZE_TIED_EXPLICIT32_DESCRIPTOR = Descriptor(
+    key="test.rematerialize.tied.explicit32",
+    mnemonic="test.rematerialize.tied.explicit32",
+    semantic_tag="test.rematerialize.tied.explicit32",
+    operands=(_explicit32_result(), _explicit32_operand("src")),
+    constraints=(
+        *_TIED_RESULT_CONSTRAINTS,
+        Constraint(ConstraintKind.REMATERIALIZABLE, 0),
+    ),
+    asm_forms=_asm(results=("dst",), operands=("src",)),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+    flags=(DescriptorFlag.DEAD_REMOVABLE,),
+)
+
 TEST_LOW_ADD_I32_DESCRIPTOR = Descriptor(
     key="test.add.i32",
     mnemonic="test.add.i32",
@@ -565,6 +595,66 @@ TEST_LOW_ADD_I32_DESCRIPTOR = Descriptor(
     asm_forms=_asm(results=("dst",), operands=("lhs", "rhs")),
     schedule_class=_SCHEDULE_SCALAR_ALU,
     flags=(DescriptorFlag.DEAD_REMOVABLE,),
+)
+
+TEST_LOW_TOTAL_ADD_I32_DESCRIPTOR = replace(
+    TEST_LOW_ADD_I32_DESCRIPTOR,
+    key="test.total.add.i32",
+    mnemonic="test.total.add.i32",
+    semantic_tag="test.total.add.i32",
+    flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.SAFE_TO_SPECULATE),
+)
+
+# Lane-local arithmetic can widen its execution mask without changing results
+# for lanes already active. Sampling the mask as ordinary data cannot.
+_EXECUTION_MASK_READ = replace(
+    _schedule_state_read(),
+    flags=(
+        OperandFlag.IMPLICIT,
+        OperandFlag.STATE_READ,
+        OperandFlag.SCHEDULE_ONLY_STATE,
+        OperandFlag.EXECUTION_MASK,
+    ),
+)
+
+TEST_LOW_MASKED_ADD_I32_DESCRIPTOR = replace(
+    TEST_LOW_TOTAL_ADD_I32_DESCRIPTOR,
+    key="test.masked.add.i32",
+    mnemonic="test.masked.add.i32",
+    semantic_tag="test.masked.add.i32",
+    operands=(*TEST_LOW_ADD_I32_DESCRIPTOR.operands, _EXECUTION_MASK_READ),
+)
+
+TEST_LOW_MASK_NARROW_I32_DESCRIPTOR = Descriptor(
+    key="test.mask.narrow.i32",
+    mnemonic="test.mask.narrow.i32",
+    semantic_tag="test.mask.narrow.i32",
+    operands=(
+        _i32_result(),
+        _i32_operand("condition"),
+        _EXECUTION_MASK_READ,
+        replace(
+            _schedule_state_write(),
+            flags=(
+                OperandFlag.IMPLICIT,
+                OperandFlag.STATE_WRITE,
+                OperandFlag.NARROWS_EXECUTION_MASK,
+            ),
+        ),
+    ),
+    asm_forms=_asm(results=("dst",), operands=("condition",)),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+    flags=(DescriptorFlag.DEAD_REMOVABLE,),
+)
+
+TEST_LOW_MASK_SAMPLE_I32_DESCRIPTOR = Descriptor(
+    key="test.mask.sample.i32",
+    mnemonic="test.mask.sample.i32",
+    semantic_tag="test.mask.sample.i32",
+    operands=(_i32_result(), _schedule_state_read()),
+    asm_forms=_asm(results=("dst",)),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+    flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.SAFE_TO_SPECULATE),
 )
 
 TEST_LOW_ADD_I32_PHYS_RHS_DESCRIPTOR = Descriptor(
@@ -819,6 +909,24 @@ TEST_LOW_TIED_ANY_DESCRIPTOR = Descriptor(
     flags=(DescriptorFlag.DEAD_REMOVABLE,),
 )
 
+TEST_LOW_SAME_REGISTER_VALUE_TYPES_DESCRIPTOR = Descriptor(
+    key="test.same.register.value.types",
+    mnemonic="test.same.register.value.types",
+    semantic_tag="test.same.register.value.types",
+    operands=(
+        _i32_i64_result("result"),
+        _i32_i64_operand("lhs"),
+        _i32_i64_operand("rhs"),
+    ),
+    constraints=(
+        Constraint(ConstraintKind.SAME_REGISTER_VALUE_TYPE, 0, 1),
+        Constraint(ConstraintKind.SAME_REGISTER_VALUE_TYPE, 1, 2),
+    ),
+    asm_forms=_asm(results=("result",), operands=("lhs", "rhs")),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+    flags=(DescriptorFlag.DEAD_REMOVABLE,),
+)
+
 TEST_LOW_COINDEXED_RESULTS_DESCRIPTOR = Descriptor(
     key="test.coindexed.results",
     mnemonic="test.coindexed.results",
@@ -930,6 +1038,30 @@ TEST_LOW_FIXED_UPDATE_I32_DESCRIPTOR = Descriptor(
     ),
     constraints=(Constraint(ConstraintKind.TIED, 0, 1),),
     asm_forms=_asm(results=("dst",), operands=("state", "delta")),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+    flags=(DescriptorFlag.DEAD_REMOVABLE,),
+)
+
+TEST_LOW_EXPLICIT_EXPAND_I32_DESCRIPTOR = Descriptor(
+    key="test.explicit.expand.i32",
+    mnemonic="test.explicit.expand.i32",
+    semantic_tag="test.explicit.expand.i32",
+    operands=(
+        Operand("dst", OperandRole.RESULT, _EXPLICIT32_ALT, unit_count=2),
+        _explicit32_operand("state"),
+        _v4i32_operand("delta"),
+    ),
+    asm_forms=_asm(results=("dst",), operands=("state", "delta")),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+    flags=(DescriptorFlag.DEAD_REMOVABLE,),
+)
+
+TEST_LOW_EXPLICIT_RELEASE_V4I32_DESCRIPTOR = Descriptor(
+    key="test.explicit.release.v4i32",
+    mnemonic="test.explicit.release.v4i32",
+    semantic_tag="test.explicit.release.v4i32",
+    operands=(_v4i32_result(), _explicit32_operand("src")),
+    asm_forms=_asm(results=("dst",), operands=("src",)),
     schedule_class=_SCHEDULE_SCALAR_ALU,
     flags=(DescriptorFlag.DEAD_REMOVABLE,),
 )
@@ -1289,6 +1421,17 @@ TEST_LOW_PACKING_EXPAND_DESCRIPTOR = Descriptor(
     flags=(DescriptorFlag.DEAD_REMOVABLE,),
 )
 
+TEST_LOW_PACKING_EARLY_EXPAND_DESCRIPTOR = Descriptor(
+    key="test.packing.early.expand",
+    mnemonic="test.packing.early.expand",
+    semantic_tag="test.register.packing.early_expand",
+    operands=(_packed_wide_result(), _packed_narrow_operand("src")),
+    constraints=(Constraint(ConstraintKind.EARLY_CLOBBER, 0),),
+    asm_forms=_asm(results=("dst",), operands=("src",)),
+    schedule_class=_SCHEDULE_VECTOR_ALU,
+    flags=(DescriptorFlag.DEAD_REMOVABLE,),
+)
+
 TEST_LOW_PACKING_CONFIGURED_EXPAND_DESCRIPTOR = Descriptor(
     key="test.packing.configured.expand",
     mnemonic="test.packing.configured.expand",
@@ -1424,6 +1567,66 @@ TEST_LOW_STATE_READ_BOTH_I32_DESCRIPTOR = Descriptor(
     asm_forms=_asm(results=("dst",)),
     schedule_class=_SCHEDULE_SCALAR_ALU,
     flags=(DescriptorFlag.DEAD_REMOVABLE,),
+)
+
+TEST_LOW_STATE_ASSIGN_I32_DESCRIPTOR = Descriptor(
+    key="test.state.assign.i32",
+    mnemonic="test.state.assign.i32",
+    semantic_tag="test.state.assign.i32",
+    operands=(_i32_operand("value"), _special_state_write()),
+    asm_forms=_asm(operands=("value",)),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+    flags=(DescriptorFlag.SIDE_EFFECTING, DescriptorFlag.STATE_ASSIGNMENT),
+)
+
+TEST_LOW_STATE_ASSIGN_I32_IMMEDIATE_DESCRIPTOR = Descriptor(
+    key="test.state.assign.i32.immediate",
+    mnemonic="test.state.assign.i32.immediate",
+    semantic_tag="test.state.assign.i32.immediate",
+    operands=(_special_state_write(),),
+    immediates=(_I32_VALUE_IMMEDIATE,),
+    asm_forms=_asm(immediates=("i32_value",)),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+    flags=(DescriptorFlag.SIDE_EFFECTING, DescriptorFlag.STATE_ASSIGNMENT),
+)
+
+TEST_LOW_STATE_UPDATE_I32_DESCRIPTOR = Descriptor(
+    key="test.state.update.i32",
+    mnemonic="test.state.update.i32",
+    semantic_tag="test.state.update.i32",
+    operands=(
+        _i32_result(),
+        _i32_operand("value"),
+        replace(
+            _special_state_write(),
+            flags=(
+                OperandFlag.IMPLICIT,
+                OperandFlag.STATE_WRITE,
+                OperandFlag.COMMUTATIVE_STATE_UPDATE,
+            ),
+        ),
+    ),
+    asm_forms=_asm(results=("dst",), operands=("value",)),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+)
+
+TEST_LOW_SCHEDULE_STATE_UPDATE_I32_DESCRIPTOR = replace(
+    TEST_LOW_STATE_UPDATE_I32_DESCRIPTOR,
+    key="test.schedule_state.update.i32",
+    mnemonic="test.schedule_state.update.i32",
+    semantic_tag="test.schedule_state.update.i32",
+    operands=(
+        _i32_result(),
+        _i32_operand("value"),
+        replace(
+            _schedule_state_write(),
+            flags=(
+                OperandFlag.IMPLICIT,
+                OperandFlag.STATE_WRITE,
+                OperandFlag.COMMUTATIVE_STATE_UPDATE,
+            ),
+        ),
+    ),
 )
 
 TEST_LOW_STATE_ADD_I32_DESCRIPTOR = Descriptor(
@@ -1957,6 +2160,39 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
             ),
             physical_registers=("test.r2", "test.r3"),
         ),
+        RegClass(
+            _REG_ATOMIC_NARROW,
+            32,
+            SpillSlotSpace.PRIVATE,
+            flags=(
+                RegClassFlag.PHYSICAL,
+                RegClassFlag.UNSPILLABLE,
+                RegClassFlag.EXPLICIT_PHYSICAL_REGISTERS,
+            ),
+            physical_registers=("test.l0",),
+        ),
+        RegClass(
+            _REG_ALIAS_NARROW,
+            32,
+            SpillSlotSpace.PRIVATE,
+            flags=(
+                RegClassFlag.PHYSICAL,
+                RegClassFlag.UNSPILLABLE,
+                RegClassFlag.EXPLICIT_PHYSICAL_REGISTERS,
+            ),
+            physical_registers=("test.a0", "test.a1"),
+        ),
+        RegClass(
+            _REG_FIXED_R2,
+            32,
+            SpillSlotSpace.PRIVATE,
+            flags=(
+                RegClassFlag.PHYSICAL,
+                RegClassFlag.UNSPILLABLE,
+                RegClassFlag.EXPLICIT_PHYSICAL_REGISTERS,
+            ),
+            physical_registers=("test.r2",),
+        ),
     ),
     physical_registers=(
         PhysicalRegister("test.r0", (1,)),
@@ -1966,6 +2202,8 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         PhysicalRegister("test.l0", (1, 3)),
         PhysicalRegister("test.l1", (0, 2)),
         PhysicalRegister("test.q0", (0, 1, 2, 3)),
+        PhysicalRegister("test.a0", (1,)),
+        PhysicalRegister("test.a1", (0,)),
     ),
     physical_register_views=(
         PhysicalRegisterView("test.l0", _REG_EXPLICIT32, ("test.r0", "test.r2")),
@@ -2245,7 +2483,12 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_CONST_PACKED_NARROW_DESCRIPTOR,
         TEST_LOW_CONST_EXPLICIT32_DESCRIPTOR,
         TEST_LOW_REMATERIALIZE_I32_DESCRIPTOR,
+        TEST_LOW_REMATERIALIZE_TIED_EXPLICIT32_DESCRIPTOR,
         TEST_LOW_ADD_I32_DESCRIPTOR,
+        TEST_LOW_TOTAL_ADD_I32_DESCRIPTOR,
+        TEST_LOW_MASKED_ADD_I32_DESCRIPTOR,
+        TEST_LOW_MASK_NARROW_I32_DESCRIPTOR,
+        TEST_LOW_MASK_SAMPLE_I32_DESCRIPTOR,
         TEST_LOW_ADD_I32_PHYS_RHS_DESCRIPTOR,
         TEST_LOW_CONVERGENT_I32_DESCRIPTOR,
         TEST_LOW_MUL_I32_DESCRIPTOR,
@@ -2268,6 +2511,7 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_AMBIGUOUS_DESCRIPTOR,
         TEST_LOW_PASS_ANY_DESCRIPTOR,
         TEST_LOW_TIED_ANY_DESCRIPTOR,
+        TEST_LOW_SAME_REGISTER_VALUE_TYPES_DESCRIPTOR,
         TEST_LOW_COINDEXED_RESULTS_DESCRIPTOR,
         TEST_LOW_READ_LOW16_I32_DESCRIPTOR,
         TEST_LOW_READ_HIGH16_I32_DESCRIPTOR,
@@ -2280,6 +2524,8 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_SELECT_I32_DESCRIPTOR,
         TEST_LOW_FIXED_SELECT_I32_DESCRIPTOR,
         TEST_LOW_FIXED_UPDATE_I32_DESCRIPTOR,
+        TEST_LOW_EXPLICIT_EXPAND_I32_DESCRIPTOR,
+        TEST_LOW_EXPLICIT_RELEASE_V4I32_DESCRIPTOR,
         TEST_LOW_ADD_V4I32_DESCRIPTOR,
         TEST_LOW_EARLY_CLOBBER_V4I32_DESCRIPTOR,
         TEST_LOW_MIXED_EARLY_CLOBBER_V4I32_DESCRIPTOR,
@@ -2305,6 +2551,10 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_CONVERGENT_EXPLICIT_STATE_READ_I32_DESCRIPTOR,
         TEST_LOW_STATE_SAMPLE_I32_DESCRIPTOR,
         TEST_LOW_STATE_READ_BOTH_I32_DESCRIPTOR,
+        TEST_LOW_STATE_ASSIGN_I32_DESCRIPTOR,
+        TEST_LOW_STATE_ASSIGN_I32_IMMEDIATE_DESCRIPTOR,
+        TEST_LOW_STATE_UPDATE_I32_DESCRIPTOR,
+        TEST_LOW_SCHEDULE_STATE_UPDATE_I32_DESCRIPTOR,
         TEST_LOW_STATE_ADD_I32_DESCRIPTOR,
         TEST_LOW_STATE_ADD_I32_RHS_ZERO_DESCRIPTOR,
         TEST_LOW_STATE_READ_I32_DESCRIPTOR,
@@ -2333,6 +2583,7 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_SCHEDULE_ALTERNATIVE_A_I32_DESCRIPTOR,
         TEST_LOW_SCHEDULE_ALTERNATIVE_B_I32_DESCRIPTOR,
         TEST_LOW_CONST_ISSUED_I32_DESCRIPTOR,
+        TEST_LOW_PACKING_EARLY_EXPAND_DESCRIPTOR,
     ),
 )
 

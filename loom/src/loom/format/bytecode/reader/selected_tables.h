@@ -82,11 +82,10 @@ typedef struct loom_bytecode_selected_table_materializer_t {
   iree_arena_allocator_t retained_arena;
   // Reached source identity to compact output identity map.
   loom_bytecode_selected_projection_t projection;
-  // Source-table state captured before this materializer appends entries.
-  struct {
-    // Number of caller-provided entries that reached sources may reuse.
-    iree_host_size_t inherited_count;
-  } sources;
+  // Number of distinct source names reached by this materializer. Equality
+  // with the output source count proves every output name is already reached,
+  // so another source from the validated unique input can append directly.
+  iree_host_size_t projected_source_count;
   // Explicit dependency stack reused across root resolutions.
   struct {
     // First retained-arena-owned chunk, reused after each root completes.
@@ -114,9 +113,9 @@ iree_status_t loom_bytecode_selected_type_materialize_bindings(
 
 // Initializes an empty reached-only table materializer.
 //
-// Source names already present in |output_module| are inherited and reused by
-// reached locations. Sources appended by this materializer remain unique by
-// the validated source metadata and reached-source projection.
+// Reached source names reuse the current output module's canonical identities,
+// including names added by other readers after initialization. A standalone
+// reader appends validated unique source names without a lookup or index.
 // The initialized materializer remains at its original address until teardown.
 void loom_bytecode_selected_table_materializer_initialize(
     loom_bytecode_reader_decoder_t* decoder, iree_const_byte_span_t bytecode,

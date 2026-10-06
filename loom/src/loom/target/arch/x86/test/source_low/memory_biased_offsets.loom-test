@@ -1,0 +1,91 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_biased_offsets.loom
+// RUN: emit source-low target=x86:avx2 output=low
+
+func.def @exchange_biased_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
+  %signed_position = index.assume %position [range(%position, -4, 4)] : index
+  %center = index.constant 4 : index
+  %element = index.add %signed_position, %center : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
+  %previous = view.load %view[%element] : view<9xi32> -> i32
+  view.store %replacement, %view[%element] : i32, view<9xi32>
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @exchange_biased_word(%buffer: reg<x86.gpr64>, %signed_position: reg<x86.gpr64>, %replacement: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %previous = mov.load.indexed.gpr32 %buffer, %signed_position {disp32 = 16, scale = 4}
+  mov.store.indexed.gpr32 %replacement, %buffer, %signed_position {disp32 = 16, scale = 4}
+  return %previous
+}
+
+// ====
+
+func.def @exchange_nonnegative_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
+  %bounded_position = index.assume %position [range(%position, 0, 4)] : index
+  %center = index.constant 4 : index
+  %element = index.add %bounded_position, %center : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
+  %previous = view.load %view[%element] : view<9xi32> -> i32
+  view.store %replacement, %view[%element] : i32, view<9xi32>
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @exchange_nonnegative_word(%buffer: reg<x86.gpr64>, %bounded_position: reg<x86.gpr64>, %replacement: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %previous = mov.load.indexed.gpr32 %buffer, %bounded_position {disp32 = 16, scale = 4}
+  mov.store.indexed.gpr32 %replacement, %buffer, %bounded_position {disp32 = 16, scale = 4}
+  return %previous
+}
+
+// ====
+
+func.def @copy_biased_vector(%source: buffer, %destination: buffer, %position: index) {
+  %signed_position = index.assume %position [range(%position, -4, 4)] : index
+  %center = index.constant 4 : index
+  %element = index.add %signed_position, %center : index
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<12xi32>
+  %destination_view = buffer.view %destination[%base] : buffer -> view<12xi32>
+  %values = vector.load %source_view[%element] : view<12xi32> -> vector<4xi32>
+  vector.store %values, %destination_view[%element] : vector<4xi32>, view<12xi32>
+  func.return
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @copy_biased_vector(%source: reg<x86.gpr64>, %destination: reg<x86.gpr64>, %signed_position: reg<x86.gpr64>) asm {
+  %values = vmovdqu32.load.indexed.xmm %source, %signed_position {disp32 = 16, scale = 4}
+  vmovdqu32.store.indexed.xmm %values, %destination, %signed_position {disp32 = 16, scale = 4}
+  return
+}
+
+// ====
+
+// The static contribution fits U32 but has its sign bit set in an i32 carrier.
+func.def @exchange_large_bias_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
+  %signed_position = index.assume %position [range(%position, -1073741820, -1073741812)] : index
+  %center = index.constant 1073741820 : index
+  %element = index.add %signed_position, %center : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
+  %previous = view.load %view[%element] : view<9xi32> -> i32
+  view.store %replacement, %view[%element] : i32, view<9xi32>
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @exchange_large_bias_word(%buffer: reg<x86.gpr64>, %signed_position: reg<x86.gpr64>, %replacement: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %14 = mov.imm64 4294967280
+  %15 = mov.imm64 4
+  %16 = copy %signed_position : reg<x86.gpr64> -> reg<x86.gpr64>
+  %17 = imul.gpr64 %16, %15
+  %18 = add.gpr64 %14, %17
+  %previous = mov.load.indexed.gpr32 %buffer, %18 {disp32 = 0, scale = 1}
+  %20 = mov.imm64 4294967280
+  %22 = copy %signed_position : reg<x86.gpr64> -> reg<x86.gpr64>
+  %23 = imul.gpr64 %22, %15
+  %24 = add.gpr64 %20, %23
+  mov.store.indexed.gpr32 %replacement, %buffer, %24 {disp32 = 0, scale = 1}
+  return %previous
+}

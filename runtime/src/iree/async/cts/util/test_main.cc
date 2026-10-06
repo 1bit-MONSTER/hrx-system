@@ -17,9 +17,9 @@
 // Example binary composition (BUILD.bazel):
 //   cc_test(
 //       name = "socket_tests",
-//       srcs = ["//runtime/src/iree/async/cts:test_main.cc"],
 //       deps = [
 //           "//runtime/src/iree/async/cts/socket:all_tests",
+//           "//runtime/src/iree/async/cts/util:test_main",
 //           ":backends",
 //       ],
 //   )

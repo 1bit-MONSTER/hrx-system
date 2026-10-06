@@ -12,7 +12,7 @@
 #include "iree/base/alignment.h"
 #include "iree/base/internal/arena.h"
 #include "loom/codegen/low/function.h"
-#include "loom/codegen/low/target_binding.h"
+#include "loom/codegen/low/representation_binding.h"
 #include "loom/ir/context.h"
 #include "loom/ir/local_value_domain.h"
 #include "loom/ir/module.h"
@@ -50,6 +50,10 @@ typedef enum loom_cmd_serialize_value_kind_e {
   LOOM_CMD_SERIALIZE_VALUE_KIND_ENTRY = 10,
   // Serialized buffer-reference table index.
   LOOM_CMD_SERIALIZE_VALUE_KIND_BUFFER_REF = 11,
+  // Exact logical index argument.
+  LOOM_CMD_SERIALIZE_VALUE_KIND_INDEX = 12,
+  // Exact logical byte-offset argument.
+  LOOM_CMD_SERIALIZE_VALUE_KIND_OFFSET = 13,
 } loom_cmd_serialize_value_kind_t;
 
 typedef struct loom_cmd_serialize_value_t {
@@ -380,6 +384,8 @@ static iree_status_t loom_cmd_serialize_append_scalar_argument(
       byte_length = 4;
       break;
     case LOOM_CMD_PROGRAM_ARGUMENT_KIND_B64:
+    case LOOM_CMD_PROGRAM_ARGUMENT_KIND_INDEX:
+    case LOOM_CMD_PROGRAM_ARGUMENT_KIND_OFFSET:
       byte_length = 8;
       break;
     default:
@@ -482,6 +488,12 @@ static iree_status_t loom_cmd_serialize_flatten_arguments(
         break;
       case LOOM_CMD_SERIALIZE_VALUE_KIND_B64:
         kind = LOOM_CMD_PROGRAM_ARGUMENT_KIND_B64;
+        break;
+      case LOOM_CMD_SERIALIZE_VALUE_KIND_INDEX:
+        kind = LOOM_CMD_PROGRAM_ARGUMENT_KIND_INDEX;
+        break;
+      case LOOM_CMD_SERIALIZE_VALUE_KIND_OFFSET:
+        kind = LOOM_CMD_PROGRAM_ARGUMENT_KIND_OFFSET;
         break;
       case LOOM_CMD_SERIALIZE_VALUE_KIND_FIXED_BUFFER:
       case LOOM_CMD_SERIALIZE_VALUE_KIND_BINDING: {
@@ -717,6 +729,22 @@ static iree_status_t loom_cmd_serialize_packet(
     loom_cmd_serialize_constant(
         build, op, LOOM_CMD_SERIALIZE_VALUE_KIND_B64,
         (uint64_t)loom_cmd_core_constant_b64_value(loom_low_const_attrs(op))
+            .i64);
+    return iree_ok_status();
+  }
+  if (loom_cmd_serialize_packet_is(build, packet,
+                                   CMD_CORE_DESCRIPTOR_REF_CONSTANT_INDEX)) {
+    loom_cmd_serialize_constant(
+        build, op, LOOM_CMD_SERIALIZE_VALUE_KIND_INDEX,
+        (uint64_t)loom_cmd_core_constant_index_value(loom_low_const_attrs(op))
+            .i64);
+    return iree_ok_status();
+  }
+  if (loom_cmd_serialize_packet_is(build, packet,
+                                   CMD_CORE_DESCRIPTOR_REF_CONSTANT_OFFSET)) {
+    loom_cmd_serialize_constant(
+        build, op, LOOM_CMD_SERIALIZE_VALUE_KIND_OFFSET,
+        (uint64_t)loom_cmd_core_constant_offset_value(loom_low_const_attrs(op))
             .i64);
     return iree_ok_status();
   }

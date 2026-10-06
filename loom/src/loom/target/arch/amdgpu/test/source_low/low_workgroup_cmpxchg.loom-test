@@ -1,0 +1,90 @@
+// LLVM MC encodings for expected=v1, replacement=v2. CDNA places expected
+// in DATA0; RDNA places replacement there. Low retains semantic operand order.
+// RUN: emit amdgpu-native-words @compare_exchange waits=none strategy=source fixed=%address:physical_register:0:1 fixed=%expected:physical_register:1:1 fixed=%replacement:physical_register:2:1 fixed=%old:physical_register:3:1
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @compare_exchange(%address: reg<amdgpu.vgpr>, %expected: reg<amdgpu.vgpr>, %replacement: reg<amdgpu.vgpr>) asm {
+  %old = ds_cmpst_rtn_b32 %address, %expected, %replacement
+  return
+}
+
+// ----
+0xD8600000
+0x03020100
+0xBF810000
+
+// ====
+// RUN: emit amdgpu-native-words @compare_exchange waits=none strategy=source fixed=%address:physical_register:0:1 fixed=%expected:physical_register:1:1 fixed=%replacement:physical_register:2:1 fixed=%old:physical_register:3:1
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @compare_exchange(%address: reg<amdgpu.vgpr>, %expected: reg<amdgpu.vgpr>, %replacement: reg<amdgpu.vgpr>) asm {
+  %old = ds_cmpst_rtn_b32 %address, %expected, %replacement
+  return
+}
+
+// ----
+0xD8600000
+0x03020100
+0xBF810000
+
+// ====
+// RUN: emit amdgpu-native-words @compare_exchange waits=none strategy=source fixed=%address:physical_register:0:1 fixed=%expected:physical_register:1:1 fixed=%replacement:physical_register:2:1 fixed=%old:physical_register:3:1
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @compare_exchange(%address: reg<amdgpu.vgpr>, %expected: reg<amdgpu.vgpr>, %replacement: reg<amdgpu.vgpr>) asm {
+  %old = ds_cmpst_rtn_b32 %address, %expected, %replacement
+  return
+}
+
+// ----
+0xD8C00000
+0x03010200
+0xBFB00000
+
+// ====
+// RUN: emit amdgpu-native-words @compare_exchange waits=none strategy=source fixed=%address:physical_register:0:1 fixed=%expected:physical_register:1:1 fixed=%replacement:physical_register:2:1 fixed=%old:physical_register:3:1
+
+amdgpu.target<gfx1170> @target
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @compare_exchange(%address: reg<amdgpu.vgpr>, %expected: reg<amdgpu.vgpr>, %replacement: reg<amdgpu.vgpr>) asm {
+  %old = ds_cmpst_rtn_b32 %address, %expected, %replacement
+  return
+}
+
+// ----
+0xD8C00000
+0x03010200
+0xBFB00000
+
+// ====
+// RUN: emit amdgpu-native-words @compare_exchange waits=none strategy=source fixed=%address:physical_register:0:1 fixed=%expected:physical_register:1:1 fixed=%replacement:physical_register:2:1 fixed=%old:physical_register:3:1
+
+amdgpu.target<gfx1200> @target
+
+low.func.def target<amdgpu.rdna4.core>(@target) @compare_exchange(%address: reg<amdgpu.vgpr>, %expected: reg<amdgpu.vgpr>, %replacement: reg<amdgpu.vgpr>) asm {
+  %old = ds_cmpst_rtn_b32 %address, %expected, %replacement
+  return
+}
+
+// ----
+0xD8C00000
+0x03010200
+0xBFB00000
+
+// ====
+// RUN: emit amdgpu-native-words @compare_exchange waits=none strategy=source fixed=%address:physical_register:0:1 fixed=%expected:physical_register:1:1 fixed=%replacement:physical_register:2:1 fixed=%old:physical_register:3:1
+
+amdgpu.target<gfx1250> @target
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @compare_exchange(%address: reg<amdgpu.vgpr>, %expected: reg<amdgpu.vgpr>, %replacement: reg<amdgpu.vgpr>) asm {
+  %old = ds_cmpst_rtn_b32 %address, %expected, %replacement
+  return
+}
+
+// ----
+0xD8C00000
+0x03010200
+0xBFB00000

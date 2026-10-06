@@ -80,6 +80,13 @@ BENCHMARK_CAPTURE(SourceToModule, StdFloat, "#include <stdfloat>\n")
     ->Unit(::benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(SourceToModule, Numeric, "#include <loomcxx/numeric.h>\n")
     ->Unit(::benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(SourceToModule, Vector, "#include <loomcxx/vector.h>\n")
+    ->Unit(::benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(SourceToModule, EncodingType,
+                  "#include <loomcxx/encoding_type.h>\n")
+    ->Unit(::benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(SourceToModule, Encoding, "#include <loomcxx/encoding.h>\n")
+    ->Unit(::benchmark::kMicrosecond);
 
 }  // namespace
 }  // namespace loomc::bench

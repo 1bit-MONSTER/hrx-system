@@ -45,6 +45,8 @@ cp -- "${repo_root}/loom/src/loom/test/corpus/checked_benchmarks/sparse_token_at
   "${output_dir}/sparse-token-attention.loom"
 cp -- "${repo_root}/loom/src/loom/test/corpus/checked_benchmarks/grouped_paged_attention_f32.loom" \
   "${output_dir}/grouped-paged-attention.loom"
+cp -- "${repo_root}/loom/src/loom/tooling/target/amdgpu/test/corpus/split_barrier_reuse.loom" \
+  "${output_dir}/split-barrier-reuse.loom"
 
 cd -- "${output_dir}"
 "${loom_format}" --check guarded-read-ahead.loom
@@ -61,7 +63,7 @@ sed -n '/^Source loop pipelines/,$p' guarded-rows.show.txt >guarded-pipeline-sch
 grep -Fq 'depth=3 queue_records=2' guarded-pipeline-schedule.txt
 grep -Fq 'scf.if producer iteration_lookahead=2' guarded-pipeline-schedule.txt
 "${loom_compile}" guarded-read-ahead.loombc --root=@guarded_rows_composed \
-  --target=spirv:vulkan1.3+bda --format=spirv-binary --output=guarded-rows.spv
+  --target=spirv:vulkan1.3+bda --format=spirv --output=guarded-rows.spv
 "${loom_benchmark}" guarded-read-ahead.loombc --benchmark=@guarded_rows_time \
   --dry-run --output=guarded-rows.plan.json
 
@@ -85,7 +87,7 @@ test -s vector-pipeline-suggest.txt
 grep -Fq 'depth=4 queue_records=3' composed-rows.show.txt
 grep -Fq 'depth=1 queue_records=0' composed-rows.show.txt
 "${loom_compile}" vector-read-ahead.loombc --root=@sum_vector_rows_composed \
-  --target=spirv:vulkan1.3+bda --format=spirv-binary --output=composed-rows.spv
+  --target=spirv:vulkan1.3+bda --format=spirv --output=composed-rows.spv
 "${loom_benchmark}" vector-read-ahead.loombc --benchmark=@sum_vector_rows_time \
   --dry-run --output=vector-rows.plan.json
 
@@ -106,6 +108,30 @@ for depth in 1 3; do
     --config="read_ahead.depth=${depth}" --config=read_ahead.unroll=4 \
     --dry-run --output="sum-rows-d${depth}.plan.json"
 done
+
+# Keep target-provider selection and barrier realization tied to the checked
+# shared-storage reuse source.
+for target in gfx1100 gfx1200; do
+  "${loom_compile}" split-barrier-reuse.loom \
+    --root=@selected_barrier_reuse \
+    --target="amdgpu:${target}" --format=amdgpu-hsaco \
+    --output="split-barrier-${target}.hsaco" --compile-report=details \
+    --compile-report-output="split-barrier-${target}.report.json"
+  "${loom_report}" show "split-barrier-${target}.report.json" \
+    >"split-barrier-${target}.show.txt"
+  sed -n '/^Barrier realization (compiler analysis)$/,/^$/p' \
+    "split-barrier-${target}.show.txt" >"split-barrier-${target}.txt"
+done
+grep -Fq 'plan=amdgpu.kernel_barrier.strategy.split_barrier.arrive' \
+  split-barrier-gfx1200.txt
+grep -Fq 'plan=amdgpu.kernel_barrier.strategy.split_barrier.wait' \
+  split-barrier-gfx1200.txt
+grep -Fq 'plan=amdgpu.kernel_barrier.strategy.s_barrier.workgroup_rendezvous' \
+  split-barrier-gfx1100.txt
+if grep -Fq 'kernel.barrier.arrive' split-barrier-gfx1100.txt; then
+  echo 'gfx1100 unexpectedly selected the split-barrier provider' >&2
+  exit 1
+fi
 
 "${loom_report}" suggest sum-rows-d3.report.json >sum-rows-d3.suggest.txt
 "${loom_report}" diff sum-rows-d1.report.json sum-rows-d3.report.json \
@@ -161,6 +187,16 @@ for policy in serial pipelined; do
     --benchmark="@cooperative_paged_attention_${policy}_n128_i256" \
     --dry-run --output="cooperative-${policy}.plan.json"
 done
+"${loom_report}" show cooperative-pipelined.report.json \
+  >cooperative-pipelined.show.txt
+sed -n '/^Source loop pipelines/,/^Source boundary projections/{
+  /^Source boundary projections/d
+  p
+}' cooperative-pipelined.show.txt >cooperative-pipeline-schedule.txt
+grep -Fq 'scf.if partition=guarded producer iteration_lookahead=2' \
+  cooperative-pipeline-schedule.txt
+grep -Fq 'scf.if partition=guarded consumer iteration_lookahead=0' \
+  cooperative-pipeline-schedule.txt
 "${loom_report}" suggest cooperative-pipelined.report.json >cooperative.suggest.txt
 sed -n '/^\[scf.compare_pipeline_depth\]/,/^$/p' cooperative.suggest.txt \
   >cooperative-pipeline-suggest.txt
@@ -235,7 +271,7 @@ sed -n '/^\[scf.compare_pipeline_depth\]/,/^$/p' paired/l4u4-r1u1.suggest.txt \
   >paired-pipeline-suggest.txt
 test -s paired-pipeline-suggest.txt
 "${loom_compile}" paired-read-ahead.loombc --root=@sum_paired_rows \
-  --target=spirv:vulkan1.3+bda --format=spirv-binary --output=paired-rows.spv
+  --target=spirv:vulkan1.3+bda --format=spirv --output=paired-rows.spv
 "${loom_benchmark}" paired-read-ahead.loombc --benchmark=@paired_rows_time \
   --dry-run --output=paired-rows.plan.json
 

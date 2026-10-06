@@ -12,6 +12,36 @@ iree_add_all_subdirs()
 if(CMAKE_SYSTEM_NAME STREQUAL "Android" OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_cc_library(
   NAME
+    socket_options
+  HDRS
+    "socket_options.h"
+  SRCS
+    "socket_options.c"
+  DEPS
+    iree::base
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+iree_cc_test(
+  NAME
+    socket_options_test
+  SRCS
+    "socket_options_test.cc"
+  LINKOPTS
+    "-Wl,--wrap=clock_getres"
+    "-Wl,--wrap=setsockopt"
+  DEPS
+    ::socket_options
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Android" OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
+iree_cc_library(
+  NAME
     signal
   HDRS
     "signal.h"

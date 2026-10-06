@@ -1,0 +1,313 @@
+// RUN: emit aie2p-array-plan @external_group
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+// ERROR@+1: TARGET/054 {function_name="external_group", emitter_key="aie2p-array-plan", subject_kind="register argument", actual_count="1", expected_count="0"}
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @external_group(%external: reg<aie2p.array.group>) asm {
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %worker = worker %external, %zero, @worker
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @worker() asm {
+  return
+}
+
+// ====
+// RUN: verify
+
+aie2p.target<array> @array_target
+
+// ERROR@+1: TARGET/054 {function_name="external_scalar", emitter_key="aie2p-array-plan", subject_kind="register argument", actual_count="1", expected_count="0"}
+low.func.def target<amd.xdna.aie2p.array>(@array_target) @external_scalar(%lanes: reg<aie2p.array.scalar : index>) asm {
+  %group = group %lanes
+  return
+}
+
+// ====
+// RUN: verify
+
+aie2p.target<array> @array_target
+
+// ERROR@+1: TARGET/054 {function_name="array_result", emitter_key="aie2p-array-plan", subject_kind="register result", actual_count="1", expected_count="0"}
+low.func.def target<amd.xdna.aie2p.array>(@array_target) @array_result() -> (reg<aie2p.array.scalar : index>) asm {
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  return %zero
+}
+
+// ====
+// RUN: verify
+
+aie2p.target<array> @array_target
+
+// ERROR@+1: TARGET/089 {descriptor_set="amd.xdna.aie2p.array", function_name="array_cfg", op_name="low.func.def"}
+low.func.def target<amd.xdna.aie2p.array>(@array_target) @array_cfg() asm {
+  low.br ^exit
+^exit:
+  return
+}
+
+// ====
+// RUN: verify
+
+aie2p.target<array> @array_target
+
+low.func.def target<amd.xdna.aie2p.array>(@array_target) @moved_group() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %group = group %one
+  // ERROR@+1: XDNA/014 {op_name="low.move"}
+  %moved = move %group : reg<aie2p.array.group> -> reg<aie2p.array.group>
+  return
+}
+
+// ====
+// RUN: verify
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def target<amd.xdna.aie2p.array>(@array_target) @assumed_group() asm {
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %group = group %one
+  // ERROR@+1: XDNA/014 {op_name="low.assume"}
+  %alias = low.assume %group [] : reg<aie2p.array.group>
+  %worker = worker %alias, %zero, @worker
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) @worker() asm {
+  return
+}
+
+// ====
+// RUN: verify
+
+aie2p.target<array> @array_target
+
+low.func.def target<amd.xdna.aie2p.array>(@array_target) @untyped_sender() asm {
+  %input = binding 0, "read"
+  // ERROR@+1: XDNA/015 {descriptor="amd.xdna.aie2p.array.sender", result_type="reg<aie2p.array.sender>"}
+  %sender = sender %input, 0
+  return
+}
+
+// ====
+// RUN: verify
+
+aie2p.target<array> @array_target
+
+low.func.def target<amd.xdna.aie2p.array>(@array_target) @untyped_channel() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %input = binding 0, "read"
+  %output = binding 1, "write"
+  %sender = sender %input, 0 : reg<aie2p.array.sender : tile<1xf32>>
+  %receiver = receiver %output, 0 : reg<aie2p.array.receiver : tile<1xf32>>
+  // ERROR@+1: XDNA/015 {descriptor="amd.xdna.aie2p.array.channel", result_type="reg<aie2p.array.channel>"}
+  %channel = channel %sender, %receiver, %one, %one
+  return
+}
+
+// ====
+// RUN: verify
+
+aie2p.target<array> @array_target
+
+low.func.def target<amd.xdna.aie2p.array>(@array_target) @channel_result_payload_mismatch() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %input = binding 0, "read"
+  %output = binding 1, "write"
+  %sender = sender %input, 0 : reg<aie2p.array.sender : tile<1xi32>>
+  %receiver = receiver %output, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  // ERROR@+1: TYPE/001 {field_a="result", type_a="tile<2xi32>", field_b="sender", type_b="tile<1xi32>"}
+  %channel = channel %sender, %receiver, %one, %one : reg<aie2p.array.channel : tile<2xi32>>
+  return
+}
+
+// ====
+// RUN: verify
+
+aie2p.target<array> @array_target
+
+low.func.def target<amd.xdna.aie2p.array>(@array_target) @channel_receiver_payload_mismatch() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %input = binding 0, "read"
+  %output = binding 1, "write"
+  %sender = sender %input, 0 : reg<aie2p.array.sender : tile<1xi32>>
+  %receiver = receiver %output, 0 : reg<aie2p.array.receiver : tile<2xi32>>
+  // ERROR@+1: TYPE/001 {field_a="result", type_a="tile<1xi32>", field_b="receiver", type_b="tile<2xi32>"}
+  %channel = channel %sender, %receiver, %one, %one : reg<aie2p.array.channel : tile<1xi32>>
+  return
+}
+
+// ====
+// RUN: verify
+
+aie2p.target<array> @array_target
+
+low.func.def target<amd.xdna.aie2p.array>(@array_target) @scalar_payload() asm {
+  %output = binding 0, "write"
+  // ERROR@+1: XDNA/015 {descriptor="amd.xdna.aie2p.array.receiver", result_type="reg<aie2p.array.receiver : f32>"}
+  %receiver = receiver %output, 0 : reg<aie2p.array.receiver : f32>
+  return
+}
+
+// ====
+// RUN: verify
+
+aie2p.target<core> @core_target
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) @scalar_native_pointer() asm {
+  // ERROR@+1: TYPE/004 {result_name="result", actual_type="reg<aie2p.er>", expected_constraint="register class in [aie2p.ep] with 1 unit(s)"}
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.er>
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) @wide_native_pointer() asm {
+  // ERROR@+1: TYPE/004 {result_name="result", actual_type="reg<aie2p.ep x2>", expected_constraint="register class in [aie2p.ep] with 1 unit(s)"}
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep x2>
+  return
+}
+
+// ====
+// RUN: verify
+
+aie2p.target<core> @core_target
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) @callee() asm {
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) @residual_call() asm {
+  // ERROR@+1: TARGET/072 {target_key="core_target", export_name="residual_call", config_key="core_target", function_name="residual_call", op_name="low.func.call", callee_name="callee", reason="the selected target requires every Low call to be inlined before emission"}
+  low.func.call @callee() : ()
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) @structured_control() asm {
+  %condition = mov.short 1
+  // ERROR@+1: TARGET/001 {target_key="core_target", export_name="structured_control", config_key="core_target", function_name="structured_control", op_name="low.scf.if"}
+  low.scf.if %condition {
+  }
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) @explicit_spill() asm {
+  %slot = storage {byte_alignment = 4, byte_length = 4} : low.storage<private>
+  %value = mov.short 1
+  // ERROR@+1: TARGET/001 {target_key="core_target", export_name="explicit_spill", config_key="core_target", function_name="explicit_spill", op_name="low.spill"}
+  low.spill %value, %slot : reg<aie2p.er>, low.storage<private>
+  // ERROR@+1: TARGET/001 {target_key="core_target", export_name="explicit_spill", config_key="core_target", function_name="explicit_spill", op_name="low.reload"}
+  %reloaded = low.reload %slot : low.storage<private> -> reg<aie2p.er>
+  return
+}
+
+// ====
+// RUN: emit aie2p-array-plan @declared_worker
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.decl target<amd.xdna.aie2p.core>(@core_target) @worker()
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @declared_worker() asm {
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %group = group %one
+  // ERROR@+1: XDNA/016 {entry="worker"}
+  %worker = worker %group, %zero, @worker
+  return
+}
+
+// ====
+// RUN: emit aie2p-array-plan @worker_argument
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+// ERROR@+1: TARGET/054 {function_name="worker", emitter_key="aie2p-resident", subject_kind="register argument", actual_count="1", expected_count="0"}
+low.func.def target<amd.xdna.aie2p.core>(@core_target) @worker(%input: reg<aie2p.er>) asm {
+  return
+}
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @worker_argument() asm {
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %group = group %one
+  %worker = worker %group, %zero, @worker
+  return
+}
+
+// ====
+// RUN: emit aie2p-array-plan @worker_result
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+// ERROR@+1: TARGET/054 {function_name="worker", emitter_key="aie2p-resident", subject_kind="register result", actual_count="1", expected_count="0"}
+low.func.def target<amd.xdna.aie2p.core>(@core_target) @worker() -> (reg<aie2p.er>) asm {
+  %zero = mov.short 0
+  return %zero
+}
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @worker_result() asm {
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %group = group %one
+  %worker = worker %group, %zero, @worker
+  return
+}
+
+// ====
+// RUN: emit aie2p-array-plan @core
+
+aie2p.target<core> @core_target
+
+// ERROR@+1: TARGET/055 {function_name="core", descriptor_set_key="amd.xdna.aie2p.core", emitter_key="aie2p-array-plan", expected_descriptor_set_key="amd.xdna.aie2p.array"}
+low.func.def retain target<amd.xdna.aie2p.core>(@core_target) @core() asm {
+  return
+}
+
+// ====
+// RUN: emit aie2p-array-plan @kernel_worker
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.kernel.def target<amd.xdna.aie2p.core>(@core_target) @worker() asm {
+  return
+}
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @kernel_worker() asm {
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %group = group %one
+  // ERROR@+1: XDNA/016 {entry="worker"}
+  %worker = worker %group, %zero, @worker
+  return
+}
+
+// ====
+// RUN: verify
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.decl target<amd.xdna.aie2p.core>(@core_target) @core_entry()
+
+low.func.def target<amd.xdna.aie2p.array>(@array_target) @independent_errors() asm {
+  // ERROR@+1: XDNA/014 {op_name="low.func.call"}
+  low.func.call @core_entry() : ()
+  %output = binding 0, "write"
+  // ERROR@+1: XDNA/015 {descriptor="amd.xdna.aie2p.array.receiver", result_type="reg<aie2p.array.receiver>"}
+  %receiver = receiver %output, 0
+  return
+}

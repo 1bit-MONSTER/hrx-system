@@ -59,6 +59,23 @@ class TargetConfigMaintenanceTest(unittest.TestCase):
         )
         self.assertEqual(generated_file_set.obsolete_paths, ())
 
+    def test_generic_representation_preserves_supported_target_contracts(self):
+        config = self.target_config.load_target_config(
+            self.target_config.find_repo_root()
+        )
+        target_capabilities = dict(
+            config.target_capabilities_by_representation_capability
+        )
+
+        self.assertEqual(
+            target_capabilities["descriptor_set_gfx11_generic_core"],
+            [
+                "descriptor_set_gfx11_generic_core",
+                "descriptor_set_rdna3_core",
+                "descriptor_set_rdna3_5_core",
+            ],
+        )
+
     def test_main_requires_an_explicit_maintenance_mode(self):
         with self.assertRaises(SystemExit) as context:
             self.target_config.main([])

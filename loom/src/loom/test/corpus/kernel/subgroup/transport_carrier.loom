@@ -1,0 +1,162 @@
+// Narrow carriers cross each exchange before signed and unsigned consumers.
+// Input words include upper bits outside the declared payload width.
+kernel.def @subgroup_carrier_i8() {
+  %unit = index.constant 1 : index
+  %items = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%selected: index, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %input_view = buffer.view %input[%base] : buffer -> view<32xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<128xi32>
+  %source = view.load %input_view[%item] : view<32xi32> -> i32
+  %narrow = scalar.trunci %source : i32 to i8
+  %bounded = index.assume %selected [range(%selected, 0, 31)] : index
+  %lane = index.cast %bounded : index to i32
+  %named = kernel.subgroup.broadcast %narrow from %lane : i8, i32
+  %distance = scalar.constant 1 : i32
+  %width = scalar.constant 32 : i32
+  %shuffled, %valid = kernel.subgroup.shuffle<xor> %named, %distance, %width : i8, i32, i32
+  %first = kernel.subgroup.broadcast.first %shuffled : i8
+  %signed = scalar.extsi %first : i8 to i32
+  %unsigned = scalar.extui %first : i8 to i32
+  %signed_float = scalar.sitofp %first : i8 to f32
+  %unsigned_float = scalar.uitofp %first : i8 to f32
+  %signed_bits = scalar.bitcast %signed_float : f32 to i32
+  %unsigned_bits = scalar.bitcast %unsigned_float : f32 to i32
+  %plane = index.constant 32 : index
+  %second = index.add %item, %plane : index
+  %third = index.add %second, %plane : index
+  %fourth = index.add %third, %plane : index
+  view.store %signed, %output_view[%item] : i32, view<128xi32>
+  view.store %unsigned, %output_view[%second] : i32, view<128xi32>
+  view.store %signed_bits, %output_view[%third] : i32, view<128xi32>
+  view.store %unsigned_bits, %output_view[%fourth] : i32, view<128xi32>
+  kernel.return
+}
+
+// ====
+kernel.def @subgroup_carrier_i16() {
+  %unit = index.constant 1 : index
+  %items = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%selected: index, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %input_view = buffer.view %input[%base] : buffer -> view<32xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<128xi32>
+  %source = view.load %input_view[%item] : view<32xi32> -> i32
+  %narrow = scalar.trunci %source : i32 to i16
+  %bounded = index.assume %selected [range(%selected, 0, 31)] : index
+  %lane = index.cast %bounded : index to i32
+  %named = kernel.subgroup.broadcast %narrow from %lane : i16, i32
+  %distance = scalar.constant 1 : i32
+  %width = scalar.constant 32 : i32
+  %shuffled, %valid = kernel.subgroup.shuffle<xor> %named, %distance, %width : i16, i32, i32
+  %first = kernel.subgroup.broadcast.first %shuffled : i16
+  %signed = scalar.extsi %first : i16 to i32
+  %unsigned = scalar.extui %first : i16 to i32
+  %signed_float = scalar.sitofp %first : i16 to f32
+  %unsigned_float = scalar.uitofp %first : i16 to f32
+  %signed_bits = scalar.bitcast %signed_float : f32 to i32
+  %unsigned_bits = scalar.bitcast %unsigned_float : f32 to i32
+  %plane = index.constant 32 : index
+  %second = index.add %item, %plane : index
+  %third = index.add %second, %plane : index
+  %fourth = index.add %third, %plane : index
+  view.store %signed, %output_view[%item] : i32, view<128xi32>
+  view.store %unsigned, %output_view[%second] : i32, view<128xi32>
+  view.store %signed_bits, %output_view[%third] : i32, view<128xi32>
+  view.store %unsigned_bits, %output_view[%fourth] : i32, view<128xi32>
+  kernel.return
+}
+
+func.def @subgroup_carrier_i8_oracle(%selected: index, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %bounded_selected = index.assume %selected [range(%selected, 0, 31)] : index
+  %input_view = buffer.view %input[%base] : buffer -> view<32xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<128xi32>
+  %source = view.load %input_view[%bounded_selected] : view<32xi32> -> i32
+  %narrow = scalar.trunci %source : i32 to i8
+  %signed = scalar.extsi %narrow : i8 to i32
+  %unsigned = scalar.extui %narrow : i8 to i32
+  %signed_float = scalar.sitofp %narrow : i8 to f32
+  %unsigned_float = scalar.uitofp %narrow : i8 to f32
+  %signed_bits = scalar.bitcast %signed_float : f32 to i32
+  %unsigned_bits = scalar.bitcast %unsigned_float : f32 to i32
+  %begin = index.constant 0 : index
+  %end = index.constant 32 : index
+  %step = index.constant 1 : index
+  %plane = index.constant 32 : index
+  scf.for %item = [%begin to %end step %step] {
+    %second = index.add %item, %plane : index
+    %third = index.add %second, %plane : index
+    %fourth = index.add %third, %plane : index
+    view.store %signed, %output_view[%item] : i32, view<128xi32>
+    view.store %unsigned, %output_view[%second] : i32, view<128xi32>
+    view.store %signed_bits, %output_view[%third] : i32, view<128xi32>
+    view.store %unsigned_bits, %output_view[%fourth] : i32, view<128xi32>
+  }
+  func.return
+}
+
+func.def @subgroup_carrier_i16_oracle(%selected: index, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %bounded_selected = index.assume %selected [range(%selected, 0, 31)] : index
+  %input_view = buffer.view %input[%base] : buffer -> view<32xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<128xi32>
+  %source = view.load %input_view[%bounded_selected] : view<32xi32> -> i32
+  %narrow = scalar.trunci %source : i32 to i16
+  %signed = scalar.extsi %narrow : i16 to i32
+  %unsigned = scalar.extui %narrow : i16 to i32
+  %signed_float = scalar.sitofp %narrow : i16 to f32
+  %unsigned_float = scalar.uitofp %narrow : i16 to f32
+  %signed_bits = scalar.bitcast %signed_float : f32 to i32
+  %unsigned_bits = scalar.bitcast %unsigned_float : f32 to i32
+  %begin = index.constant 0 : index
+  %end = index.constant 32 : index
+  %step = index.constant 1 : index
+  %plane = index.constant 32 : index
+  scf.for %item = [%begin to %end step %step] {
+    %second = index.add %item, %plane : index
+    %third = index.add %second, %plane : index
+    %fourth = index.add %third, %plane : index
+    view.store %signed, %output_view[%item] : i32, view<128xi32>
+    view.store %unsigned, %output_view[%second] : i32, view<128xi32>
+    view.store %signed_bits, %output_view[%third] : i32, view<128xi32>
+    view.store %unsigned_bits, %output_view[%fourth] : i32, view<128xi32>
+  }
+  func.return
+}
+
+check.scenario @subgroup_carrier_i8_values {
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-559038737) step(19088743) : tensor<32xi32>
+    %storage = check.generate.fill value(-123) : tensor<160xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<160xi32> -> tensor<16xi32>
+    %output = check.tensor.view %storage offset(64) : tensor<160xi32> -> tensor<128xi32>
+    %suffix = check.tensor.view %storage offset(576) : tensor<160xi32> -> tensor<16xi32>
+    check.compare<@subgroup_carrier_i8, @subgroup_carrier_i8_oracle>(%selected, %input, %output) : (index, tensor<32xi32>, tensor<128xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<128xi32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @subgroup_carrier_i16_values {
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-559038737) step(19088743) : tensor<32xi32>
+    %storage = check.generate.fill value(-123) : tensor<160xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<160xi32> -> tensor<16xi32>
+    %output = check.tensor.view %storage offset(64) : tensor<160xi32> -> tensor<128xi32>
+    %suffix = check.tensor.view %storage offset(576) : tensor<160xi32> -> tensor<16xi32>
+    check.compare<@subgroup_carrier_i16, @subgroup_carrier_i16_oracle>(%selected, %input, %output) : (index, tensor<32xi32>, tensor<128xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<128xi32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi32>
+    }
+  }
+  check.return
+}

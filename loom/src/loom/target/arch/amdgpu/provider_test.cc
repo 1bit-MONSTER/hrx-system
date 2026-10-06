@@ -14,7 +14,7 @@
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/analysis/symbol_facts.h"
-#include "loom/codegen/low/pipeline/pass_environment.h"
+#include "loom/codegen/pass_environment.h"
 #include "loom/format/bytecode/reader.h"
 #include "loom/format/bytecode/writer.h"
 #include "loom/format/text/parser.h"
@@ -393,16 +393,20 @@ class AmdgpuProviderTest : public ::testing::Test {
         /*.descriptors=*/&kPassDescriptor,
         /*.descriptor_count=*/1,
     };
-    loom_low_pass_environment_storage_t environment_storage = {};
+    const loom_codegen_pass_environment_options_t environment_options = {
+        /*.descriptor_registry=*/nullptr,
+        /*.lower_policy_registry=*/nullptr,
+        /*.legality_provider_list=*/nullptr,
+        /*.legalizer_registry=*/nullptr,
+        /*.math_policy_registry=*/nullptr,
+        /*.compile_report=*/nullptr,
+        /*.target_environment=*/&target_environment_,
+    };
+    loom_codegen_pass_environment_storage_t environment_storage = {};
     const loom_pass_environment_t environment =
-        loom_low_pass_environment_storage_initialize(
-            /*descriptor_registry=*/nullptr,
-            /*lower_policy_registry=*/nullptr,
-            /*legality_provider_list=*/nullptr,
-            /*legalizer_registry=*/nullptr,
-            /*math_policy_registry=*/nullptr,
-            /*compile_report=*/nullptr, &target_environment_,
-            /*function_versions=*/nullptr, &environment_storage);
+        loom_codegen_pass_environment_storage_initialize(
+            &environment_options, /*function_versions=*/nullptr,
+            &environment_storage);
     const loom_pass_tool_run_options_t options = {
         /*.registry=*/&kPassRegistry,
         /*.environment=*/environment,

@@ -301,7 +301,7 @@ class FunctionVersionProjectionFixture {
     loom_module_t* projected_module = nullptr;
     IREE_CHECK_OK(loom_target_function_versions_project_module(
         source_module_, version_list_.count > 0 ? &version_list_ : nullptr,
-        &block_pool_, iree_allocator_system(), &projected_module));
+        &block_pool_, iree_allocator_system(), nullptr, &projected_module));
     if (projected_module == nullptr) {
       std::abort();
     }

@@ -75,9 +75,11 @@ bool loom_callable_call_site_allows_cfg_splice(const loom_module_t* module,
 // carry refinements of that contract; materialization substitutes the arguments
 // and remaps dependent dimensions/layouts and co-result references. Structural
 // splice preconditions are checked before the caller is mutated.
+// |clone_observer| translates compiler products at each cloned operation.
 iree_status_t loom_callable_inline_call_with_branch(
     loom_rewriter_t* rewriter, loom_op_t* call_op, loom_func_like_t callee,
-    loom_callable_build_branch_fn_t build_branch);
+    loom_callable_build_branch_fn_t build_branch,
+    loom_ir_clone_observer_t clone_observer);
 
 // One verified CFG clone selected by the caller's dependency plan.
 typedef struct loom_callable_inline_site_t {
@@ -87,6 +89,8 @@ typedef struct loom_callable_inline_site_t {
   loom_func_like_t callee;
   // Dialect-specific constructor for entry and continuation branches.
   loom_callable_build_branch_fn_t build_branch;
+  // Optional translation of retained products for this invocation.
+  loom_ir_clone_observer_t clone_observer;
 } loom_callable_inline_site_t;
 
 // Clones independent CFG calls in the supplied execution order per region.
@@ -135,8 +139,8 @@ iree_status_t loom_callable_inline_consuming_call(
 // preserved.
 iree_status_t loom_callable_clone_definition(
     loom_builder_t* builder, loom_func_like_t source,
-    loom_symbol_ref_t target_ref, loom_func_like_t* out_cloned,
-    iree_arena_allocator_t* scratch_arena);
+    loom_symbol_ref_t target_ref, loom_ir_clone_observer_t clone_observer,
+    loom_func_like_t* out_cloned, iree_arena_allocator_t* scratch_arena);
 
 #ifdef __cplusplus
 }

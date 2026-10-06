@@ -1,0 +1,268 @@
+// RUN: with-checks emit aie2p-array-plan @long_branch_first
+
+// The first receiver allocates the complete vertical path. A later receiver
+// terminates inside that prefix while retaining its own ring and credit pair.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @long_branch_first() asm {
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %two = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %three = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %four = constant.u32 4 : reg<aie2p.array.scalar : index>
+  %workers = group %two
+  %far = worker %workers, %zero, @consume
+  %near = worker %workers, %one, @consume
+  %input = binding 0, "read"
+  %source = sender %input, 0 : reg<aie2p.array.sender : tile<1xi32>>
+  %far_input = receiver %far, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %near_input = receiver %near, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %far_channel = channel %source, %far_input, %two, %three : reg<aie2p.array.channel : tile<1xi32>>
+  %near_channel = channel %source, %near_input, %three, %three : reg<aie2p.array.channel : tile<1xi32>>
+  constrain.location %far, %zero, %four
+  constrain.location %near, %zero, %two
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %value = lda %input, 0
+  st %value, %input, 0
+  return
+}
+
+// ----
+CHECK: array @long_branch_first family=amd.xdna.npu2 groups=1 workers=2 bindings=1 channels=2 slots=5 locks=4 dma=3 routes=7
+CHECK: dma channel=0 tile=(0,0) side=shim direction=memory-to-stream engine-channel=0 bd-start=0 bd-count=1
+CHECK: dma channel=0 tile=(0,4) side=compute direction=stream-to-memory engine-channel=0 bd-start=0 bd-count=2
+CHECK: dma channel=1 tile=(0,2) side=compute direction=stream-to-memory engine-channel=0 bd-start=0 bd-count=3
+CHECK: route channel=0 tile=(0,0) kind=shim-mux source=dma[0] destination=north[3]
+CHECK: route channel=0 tile=(0,0) kind=switch source=south[3] destination=north[0]
+CHECK: route channel=0 tile=(0,1) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=0 tile=(0,2) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=0 tile=(0,3) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=0 tile=(0,4) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=1 tile=(0,2) kind=switch source=south[0] destination=dma[0]
+CHECK: lock channel=0 tile=(0,4) id=0 ring=receive role=credit initial=2
+CHECK: lock channel=1 tile=(0,2) id=0 ring=receive role=credit initial=3
+CHECK-NOT: dma channel=1 * side=shim *
+CHECK-NOT: route channel=1 * destination=north*
+CHECK-NOT: binding-patch * channel=1 *
+
+// ====
+
+// RUN: with-checks emit aie2p-array-plan @external_branch_first
+
+// One worker's physical stream feeds an external binding and another worker.
+// The external branch establishes the source; both share the downward prefix.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @external_branch_first() asm {
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %capacity = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %records = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %writer_row = constant.u32 4 : reg<aie2p.array.scalar : index>
+  %reader_row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %writers = group %one
+  %readers = group %one
+  %writer = worker %writers, %zero, @write_value
+  %reader = worker %readers, %zero, @copy_value
+  %direct_output = binding 0, "write"
+  %copied_output = binding 1, "write"
+  %source = sender %writer, 0 : reg<aie2p.array.sender : tile<1xi32>>
+  %direct_sink = receiver %direct_output, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %reader_input = receiver %reader, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %reader_output = sender %reader, 1 : reg<aie2p.array.sender : tile<1xi32>>
+  %copied_sink = receiver %copied_output, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %external_channel = channel %source, %direct_sink, %capacity, %records : reg<aie2p.array.channel : tile<1xi32>>
+  %worker_channel = channel %source, %reader_input, %capacity, %records : reg<aie2p.array.channel : tile<1xi32>>
+  %copied_channel = channel %reader_output, %copied_sink, %capacity, %records : reg<aie2p.array.channel : tile<1xi32>>
+  constrain.location %writer, %zero, %writer_row
+  constrain.location %reader, %zero, %reader_row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @write_value() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %value = mov.short 7
+  st %value, %output, 0
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @copy_value() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %output = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %value = lda %input, 0
+  st %value, %output, 0
+  return
+}
+
+// ----
+CHECK: array @external_branch_first family=amd.xdna.npu2 groups=2 workers=2 bindings=2 channels=3 slots=6 locks=6 dma=5 routes=11
+CHECK: dma channel=0 tile=(0,4) side=compute direction=memory-to-stream engine-channel=0 bd-start=0 bd-count=2
+CHECK: dma channel=1 tile=(0,2) side=compute direction=stream-to-memory engine-channel=0 bd-start=0 bd-count=2
+CHECK: dma channel=2 tile=(0,2) side=compute direction=memory-to-stream engine-channel=0 bd-start=2 bd-count=2
+CHECK: route channel=0 tile=(0,4) kind=switch source=dma[0] destination=south[0]
+CHECK: route channel=0 tile=(0,3) kind=switch source=north[0] destination=south[0]
+CHECK: route channel=1 tile=(0,2) kind=switch source=north[0] destination=dma[0]
+CHECK: route channel=0 tile=(0,2) kind=switch source=north[0] destination=south[0]
+CHECK: route channel=0 tile=(0,1) kind=switch source=north[0] destination=south[0]
+CHECK: route channel=0 tile=(0,0) kind=switch source=north[0] destination=south[2]
+CHECK: route channel=0 tile=(0,0) kind=shim-mux source=north[2] destination=dma[0]
+CHECK: route channel=2 tile=(0,2) kind=switch source=dma[0] destination=south[1]
+CHECK: route channel=2 tile=(0,1) kind=switch source=north[1] destination=south[1]
+CHECK: route channel=2 tile=(0,0) kind=switch source=north[1] destination=south[3]
+CHECK: route channel=2 tile=(0,0) kind=shim-mux source=north[3] destination=dma[1]
+CHECK: binding-patch ordinal=0 channel=0 shim=(0,0) direction=stream-to-memory dma-channel=0 partition=0/1 offset=0 span=12 transfer=12 repeat=1 completion-route=0
+CHECK: binding-patch ordinal=1 channel=2 shim=(0,0) direction=stream-to-memory dma-channel=1 partition=0/1 offset=0 span=12 transfer=12 repeat=1 completion-route=0
+CHECK-NOT: dma channel=1 tile=(0,4) *
+CHECK-NOT: route channel=1 tile=(0,4) *
+CHECK-NOT: route channel=1 tile=(0,3) *
+
+
+// ====
+
+// RUN: with-checks emit aie2p-array-plan @overlapping_sources
+
+// Equal-shaped views overlap by two records but carry different sequences.
+// Each view shares its own prefix; byte aliasing cannot merge the two source
+// DMAs or their directional link channels.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @overlapping_sources() asm {
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %two = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %three = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %offset = constant.u64 0 : reg<aie2p.array.offset : offset>
+  %workers = group %two
+  %near = worker %workers, %zero, @consume_two
+  %far = worker %workers, %one, @consume_two
+  %input = binding 0, "read"
+  %base = sender %input, 0 : reg<aie2p.array.sender : tile<2x3x1xi32, #encoding.layout.strided<strides=[1, 1, 1]>>>
+  %source0 = partition.sender %base, %offset, %zero, %two : reg<aie2p.array.sender : tile<1xi32>>
+  %source1 = partition.sender %base, %offset, %one, %two : reg<aie2p.array.sender : tile<1xi32>>
+  %near0 = receiver %near, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %near1 = receiver %near, 1 : reg<aie2p.array.receiver : tile<1xi32>>
+  %far0 = receiver %far, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %far1 = receiver %far, 1 : reg<aie2p.array.receiver : tile<1xi32>>
+  %near_channel0 = channel %source0, %near0, %two, %three : reg<aie2p.array.channel : tile<1xi32>>
+  %near_channel1 = channel %source1, %near1, %two, %three : reg<aie2p.array.channel : tile<1xi32>>
+  %far_channel0 = channel %source0, %far0, %two, %three : reg<aie2p.array.channel : tile<1xi32>>
+  %far_channel1 = channel %source1, %far1, %two, %three : reg<aie2p.array.channel : tile<1xi32>>
+  constrain.location %near, %zero, %two
+  constrain.location %far, %zero, %three
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume_two() asm {
+  %input0 = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %input1 = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %value0 = lda %input0, 0
+  %value1 = lda %input1, 0
+  %sum = add.rr %value0, %value1
+  st %sum, %input0, 0
+  return
+}
+
+// ----
+CHECK: array @overlapping_sources family=amd.xdna.npu2 groups=1 workers=2 bindings=1 channels=4 slots=8 locks=8 dma=6 routes=12
+CHECK: dma channel=0 tile=(0,0) side=shim direction=memory-to-stream engine-channel=0 bd-start=0 bd-count=1
+CHECK: dma channel=1 tile=(0,0) side=shim direction=memory-to-stream engine-channel=1 bd-start=1 bd-count=1
+CHECK: binding-patch ordinal=0 channel=0 shim=(0,0) direction=memory-to-stream dma-channel=0 partition=0/2 offset=0 span=12 transfer=12 repeat=1
+CHECK: binding-patch ordinal=0 channel=1 shim=(0,0) direction=memory-to-stream dma-channel=1 partition=1/2 offset=4 span=12 transfer=12 repeat=1
+CHECK: route channel=0 tile=(0,0) kind=switch source=south[3] destination=north[0]
+CHECK: route channel=1 tile=(0,0) kind=switch source=south[7] destination=north[1]
+CHECK: route channel=0 tile=(0,1) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=1 tile=(0,1) kind=switch source=south[1] destination=north[1]
+CHECK: route channel=0 tile=(0,2) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=1 tile=(0,2) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=2 tile=(0,2) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=3 tile=(0,2) kind=switch source=south[1] destination=north[1]
+CHECK: route channel=2 tile=(0,3) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=3 tile=(0,3) kind=switch source=south[1] destination=dma[1]
+CHECK-NOT: dma channel=2 * side=shim *
+CHECK-NOT: dma channel=3 * side=shim *
+CHECK-NOT: route channel=2 tile=(0,1) *
+CHECK-NOT: route channel=3 tile=(0,1) *
+
+
+// ====
+
+// RUN: with-checks emit aie2p-array-plan @worker_branch_first
+
+// One worker's physical stream feeds an external binding and another worker.
+// The worker branch establishes the source; both share the downward prefix.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @worker_branch_first() asm {
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %capacity = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %records = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %writer_row = constant.u32 4 : reg<aie2p.array.scalar : index>
+  %reader_row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %writers = group %one
+  %readers = group %one
+  %writer = worker %writers, %zero, @write_value
+  %reader = worker %readers, %zero, @copy_value
+  %direct_output = binding 0, "write"
+  %copied_output = binding 1, "write"
+  %source = sender %writer, 0 : reg<aie2p.array.sender : tile<1xi32>>
+  %direct_sink = receiver %direct_output, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %reader_input = receiver %reader, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %reader_output = sender %reader, 1 : reg<aie2p.array.sender : tile<1xi32>>
+  %copied_sink = receiver %copied_output, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %worker_channel = channel %source, %reader_input, %capacity, %records : reg<aie2p.array.channel : tile<1xi32>>
+  %external_channel = channel %source, %direct_sink, %capacity, %records : reg<aie2p.array.channel : tile<1xi32>>
+  %copied_channel = channel %reader_output, %copied_sink, %capacity, %records : reg<aie2p.array.channel : tile<1xi32>>
+  constrain.location %writer, %zero, %writer_row
+  constrain.location %reader, %zero, %reader_row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @write_value() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %value = mov.short 7
+  st %value, %output, 0
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @copy_value() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %output = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %value = lda %input, 0
+  st %value, %output, 0
+  return
+}
+
+// ----
+CHECK: array @worker_branch_first family=amd.xdna.npu2 groups=2 workers=2 bindings=2 channels=3 slots=6 locks=6 dma=5 routes=11
+CHECK: dma channel=0 tile=(0,4) side=compute direction=memory-to-stream engine-channel=0 bd-start=0 bd-count=2
+CHECK: dma channel=0 tile=(0,2) side=compute direction=stream-to-memory engine-channel=0 bd-start=0 bd-count=2
+CHECK: dma channel=2 tile=(0,2) side=compute direction=memory-to-stream engine-channel=0 bd-start=2 bd-count=2
+CHECK: route channel=0 tile=(0,4) kind=switch source=dma[0] destination=south[0]
+CHECK: route channel=0 tile=(0,3) kind=switch source=north[0] destination=south[0]
+CHECK: route channel=0 tile=(0,2) kind=switch source=north[0] destination=dma[0]
+CHECK: route channel=1 tile=(0,2) kind=switch source=north[0] destination=south[0]
+CHECK: route channel=1 tile=(0,1) kind=switch source=north[0] destination=south[0]
+CHECK: route channel=1 tile=(0,0) kind=switch source=north[0] destination=south[2]
+CHECK: route channel=1 tile=(0,0) kind=shim-mux source=north[2] destination=dma[0]
+CHECK: route channel=2 tile=(0,2) kind=switch source=dma[0] destination=south[1]
+CHECK: route channel=2 tile=(0,1) kind=switch source=north[1] destination=south[1]
+CHECK: route channel=2 tile=(0,0) kind=switch source=north[1] destination=south[3]
+CHECK: route channel=2 tile=(0,0) kind=shim-mux source=north[3] destination=dma[1]
+CHECK: binding-patch ordinal=0 channel=1 shim=(0,0) direction=stream-to-memory dma-channel=0 partition=0/1 offset=0 span=12 transfer=12 repeat=1 completion-route=0
+CHECK: binding-patch ordinal=1 channel=2 shim=(0,0) direction=stream-to-memory dma-channel=1 partition=0/1 offset=0 span=12 transfer=12 repeat=1 completion-route=0
+CHECK-NOT: dma channel=1 tile=(0,4) *
+CHECK-NOT: route channel=1 tile=(0,4) *
+CHECK-NOT: route channel=1 tile=(0,3) *

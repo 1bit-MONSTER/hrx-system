@@ -15,6 +15,7 @@
 #define LOOM_TARGET_ARCH_SPIRV_PACKET_ROWS_H_
 
 #include "iree/base/api.h"
+#include "loom/target/arch/spirv/extended_instruction.h"
 #include "loom/target/arch/spirv/value_types.h"
 
 #ifdef __cplusplus
@@ -50,6 +51,8 @@ enum loom_spirv_packet_form_e {
   LOOM_SPIRV_PACKET_FORM_ATOMIC_FLOAT_BITCAST = 22,
   LOOM_SPIRV_PACKET_FORM_ATOMIC_FLOAT_CAS = 23,
   LOOM_SPIRV_PACKET_FORM_ATOMIC_FLOAT_COMPARE_EXCHANGE = 24,
+  LOOM_SPIRV_PACKET_FORM_EXTENDED_INSTRUCTION = 25,
+  LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BALLOT = 26,
 };
 typedef uint8_t loom_spirv_packet_form_t;
 
@@ -98,6 +101,11 @@ typedef struct loom_spirv_packet_row_t {
       // SPIR-V memory semantics mask literal.
       uint32_t memory_semantics;
     } barrier;
+    // Group-non-uniform instruction literals.
+    struct {
+      // SPIR-V execution scope literal.
+      uint32_t execution_scope;
+    } group_non_uniform;
     // Cooperative-matrix packet literals.
     struct {
       // Cooperative matrix layout literal for load/store rows.
@@ -120,6 +128,13 @@ typedef struct loom_spirv_packet_row_t {
       // Floating-point combine operation selected for a CAS loop.
       uint8_t float_operation;
     } atomic;
+    // Extended-instruction packet literals.
+    struct {
+      // Imported instruction set selected for OpExtInst.
+      loom_spirv_extended_instruction_set_t instruction_set;
+      // Instruction enumerant defined by the selected instruction set.
+      uint32_t instruction;
+    } extended_instruction;
   } payload;
   // Result value-type table ref, or UNKNOWN for result-less packets.
   loom_spirv_packet_value_type_ref_t result_type_ref;

@@ -6,6 +6,8 @@
 
 load("//build_tools/testing:build_defs.bzl", "iree_execution_test_suite")
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -16,6 +18,18 @@ exports_files([
     "imports.loom",
     "native_references.loom",
 ])
+
+loom_test(
+    name = "buffer_selection_test",
+    srcs = ["buffer_selection.loom"],
+    execution_profiles = [VM_REFERENCE_PROFILE],
+)
+
+loom_test(
+    name = "callable_returns_test",
+    srcs = ["callable_returns.loom"],
+    execution_profiles = [VM_REFERENCE_PROFILE],
+)
 
 iree_execution_test_suite(
     name = "tools_test",

@@ -170,6 +170,68 @@ bool loom_value_is_available_before_op(const loom_dominance_info_t* info,
                                        loom_value_id_t value_id,
                                        const loom_op_t* before_op);
 
+//===----------------------------------------------------------------------===//
+// Dominator-order traversal
+//===----------------------------------------------------------------------===//
+
+typedef struct loom_dominance_walk_t loom_dominance_walk_t;
+
+enum loom_dominance_walk_scope_flag_bits_e {
+  // Incoming control flow can observe a different mutable state. This is set
+  // at joins, loop headers, and blocks whose sole predecessor is not their
+  // immediate dominator.
+  LOOM_DOMINANCE_WALK_SCOPE_FLAG_STATE_BARRIER = 1u << 0,
+  // The enclosing operation hides values defined outside this region.
+  LOOM_DOMINANCE_WALK_SCOPE_FLAG_ISOLATED = 1u << 1,
+};
+typedef uint8_t loom_dominance_walk_scope_flags_t;
+
+typedef iree_status_t (*loom_dominance_walk_enter_scope_fn_t)(
+    void* user_data, loom_dominance_walk_scope_flags_t flags);
+
+typedef void (*loom_dominance_walk_leave_scope_fn_t)(void* user_data);
+
+// Scope lifetime notifications for a dominator-order walk. Notifications are
+// properly nested: every successful enter receives one leave, including when
+// traversal completes. An enclosing block remains entered while the walk
+// visits nested regions and dominating CFG descendants.
+typedef struct loom_dominance_walk_callbacks_t {
+  // Opaque value forwarded to both callbacks.
+  void* user_data;
+  // Optional callback invoked before the first operation in a dominance scope.
+  loom_dominance_walk_enter_scope_fn_t enter_scope;
+  // Optional callback invoked after the last dominated operation in a scope.
+  loom_dominance_walk_leave_scope_fn_t leave_scope;
+} loom_dominance_walk_callbacks_t;
+
+typedef struct loom_dominance_walk_cursor_t {
+  // Module containing the traversal.
+  loom_module_t* module;
+  // Current live operation, or NULL when traversal is complete.
+  loom_op_t* op;
+  // Effective traits evaluated before visiting nested regions.
+  loom_trait_flags_t traits;
+} loom_dominance_walk_cursor_t;
+
+// Creates a traversal over |region| and all nested regions. Blocks are visited
+// in dominator preorder and operations retain block order. Nested regions are
+// visited after their owner and before its next operation. Scope callbacks let
+// clients maintain rollback maps without rescanning dominated subtrees.
+//
+// Erasing a returned regionless operation is supported because the next
+// operation is saved before returning. Changing block structure, successor
+// edges, or nested regions invalidates the walk.
+iree_status_t loom_dominance_walk_create(
+    loom_module_t* module, loom_region_t* region,
+    loom_dominance_walk_callbacks_t callbacks, iree_arena_allocator_t* arena,
+    loom_dominance_walk_t** out_walk);
+
+// Returns the next live operation. A null cursor operation denotes completion.
+// Completion also leaves every remaining active scope. If an enter callback
+// fails, every previously entered scope is left before the error is returned.
+iree_status_t loom_dominance_walk_next(
+    loom_dominance_walk_t* walk, loom_dominance_walk_cursor_t* out_cursor);
+
 #ifdef __cplusplus
 }
 #endif

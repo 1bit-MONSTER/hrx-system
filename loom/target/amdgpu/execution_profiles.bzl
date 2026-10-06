@@ -20,7 +20,10 @@ load(
     "HAL_AMDGPU",
 )
 
-def amdgpu_execution_profile(name, runner_args = [], tags = []):
+def amdgpu_execution_profile(
+        name,
+        runner_args = [],
+        tags = []):
     """Defines AMDGPU execution with shared device and resource requirements.
 
     Callers own instrumentation and diagnostic reporting.
@@ -71,5 +74,16 @@ AMDGPU_TSAN_PROFILE = amdgpu_execution_profile(
         "--sanitizer-reporting=report-only",
         "--amdgpu_tsan=true",
         "--amdgpu_tsan_report_policy=report-only",
+    ],
+)
+
+AMDGPU_TSAN_BYTE_GRANULE_PROFILE = amdgpu_execution_profile(
+    name = "amdgpu_tsan_byte_granule",
+    runner_args = [
+        "--sanitizer=tsan",
+        "--sanitizer-reporting=report-only",
+        "--amdgpu_tsan=true",
+        "--amdgpu_tsan_report_policy=report-only",
+        "--amdgpu_tsan_memory_granule_shift=0",
     ],
 )

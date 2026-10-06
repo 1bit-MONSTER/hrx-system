@@ -10,7 +10,7 @@
 #define LOOM_TARGET_EMIT_SPIRV_FUNCTION_ATOMIC_H_
 
 #include "iree/base/api.h"
-#include "loom/codegen/low/target_binding.h"
+#include "loom/codegen/low/representation_binding.h"
 #include "loom/target/arch/spirv/packet_rows.h"
 #include "loom/target/emit/spirv/function_emitter.h"
 

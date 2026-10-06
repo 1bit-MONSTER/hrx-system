@@ -100,11 +100,6 @@ static bool loom_check_diagnostic_resolve_location(
                                       op->location, out_source_location)) {
     return false;
   }
-  if (out_source_location->provenance ==
-          LOOM_SOURCE_PROVENANCE_UNAVAILABLE_SOURCE &&
-      out_source_location->source.size > 0) {
-    out_source_location->provenance = LOOM_SOURCE_PROVENANCE_EXACT_SOURCE;
-  }
   return true;
 }
 

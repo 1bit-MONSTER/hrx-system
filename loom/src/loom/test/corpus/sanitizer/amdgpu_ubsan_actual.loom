@@ -1,0 +1,163 @@
+kernel.def @assert_nonzero() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value: i32, %output: buffer) {
+  %c0 = scalar.constant 0 : i32
+  %condition = scalar.cmpi ne, %value, %c0 : i32
+  kernel.assert %condition "value must be nonzero" : i1
+  %base = index.constant 0 : offset
+  %output_index = index.constant 0 : index
+  %global = buffer.assume.memory_space<global> %output : buffer
+  %output_view = buffer.view %global[%base] : buffer -> view<1xi32>
+  view.store %value, %output_view[%output_index] : i32, view<1xi32>
+  kernel.return
+}
+
+kernel.def @assert_first_two_lanes() {
+  %unit = index.constant 1 : index
+  %width = index.constant 4 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer) {
+  %base = index.constant 0 : offset
+  %limit = index.constant 2 : index
+  %lane = kernel.workitem.id<x> : index
+  %condition = index.cmp ult, %lane, %limit : index
+  kernel.assert %condition "only the first two lanes are valid" : i1
+  %value = scalar.constant 7 : i32
+  %global = buffer.assume.memory_space<global> %output : buffer
+  %output_view = buffer.view %global[%base] : buffer -> view<4xi32>
+  view.store %value, %output_view[%lane] : i32, view<4xi32>
+  kernel.return
+}
+
+kernel.def @assert_semantic_value_nonzero() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value: i32, %output: buffer) {
+  %checked = sanitizer.assert.value %value [ne(%value, 0)] : i32
+  %base = index.constant 0 : offset
+  %output_index = index.constant 0 : index
+  %global = buffer.assume.memory_space<global> %output : buffer
+  %output_view = buffer.view %global[%base] : buffer -> view<1xi32>
+  view.store %checked, %output_view[%output_index] : i32, view<1xi32>
+  kernel.return
+}
+
+kernel.def @assert_semantic_operation_nonzero() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value: i32, %output: buffer) {
+  sanitizer.assert.op %value [ne(%value, 0)] : i32
+  %base = index.constant 0 : offset
+  %output_index = index.constant 0 : index
+  %global = buffer.assume.memory_space<global> %output : buffer
+  %output_view = buffer.view %global[%base] : buffer -> view<1xi32>
+  view.store %value, %output_view[%output_index] : i32, view<1xi32>
+  kernel.return
+}
+
+kernel.def @assert_semantic_layout_extent_four() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%extent: index, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %last_index = index.constant 3 : index
+  %input_global = buffer.assume.memory_space<global> %input : buffer
+  %input_view = buffer.view %input_global[%base] : buffer -> view<[%extent]xi32>
+  %checked = sanitizer.assert.layout %input_view : view<[%extent]xi32> -> view<4xi32>
+  %value = view.load %checked[%last_index] : view<4xi32> -> i32
+  %output_global = buffer.assume.memory_space<global> %output : buffer
+  %output_view = buffer.view %output_global[%base] : buffer -> view<1xi32>
+  view.store %value, %output_view[0] : i32, view<1xi32>
+  kernel.return
+}
+
+check.case @assert_nonzero_passes_case {
+  %value = check.literal value(7) : i32
+  %output = check.generate.fill value(0) : tensor<1xi32>
+  kernel.launch @assert_nonzero(%value, %output) : (i32, tensor<1xi32>)
+  %expected = check.generate.fill value(7) : tensor<1xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
+  check.return
+}
+
+check.case @assert_nonzero_fails_case {
+  %value = check.literal value(0) : i32
+  %output = check.generate.fill value(11) : tensor<1xi32>
+  kernel.launch @assert_nonzero(%value, %output) : (i32, tensor<1xi32>)
+  %expected = check.generate.fill value(11) : tensor<1xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
+  check.expect.event<device> {count = 1, operation = "kernel.assert", severity = "error", site_id = 0, type = "ubsan_report", ubsan = {check = "assertion", operand0 = 0, operand1 = 0, site_id = 0}}
+  check.return
+}
+
+check.case @assert_first_two_lanes_fails_case {
+  %output = check.generate.fill value(11) : tensor<4xi32>
+  kernel.launch @assert_first_two_lanes(%output) : (tensor<4xi32>)
+  %expected = check.generate.fill value(11) : tensor<4xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<4xi32>
+  // Failed lanes compete for one representative feedback packet per wave.
+  check.expect.event<device> {count = 1, operation = "kernel.assert", severity = "error", type = "ubsan_report", ubsan = {check = "assertion", operand0 = 0, operand1 = 0}}
+  check.return
+}
+
+check.case @semantic_value_passes_case {
+  %value = check.literal value(7) : i32
+  %output = check.generate.fill value(0) : tensor<1xi32>
+  kernel.launch @assert_semantic_value_nonzero(%value, %output) : (i32, tensor<1xi32>)
+  %expected = check.generate.fill value(7) : tensor<1xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
+  check.return
+}
+
+check.case @semantic_value_fails_case {
+  %value = check.literal value(0) : i32
+  %output = check.generate.fill value(11) : tensor<1xi32>
+  kernel.launch @assert_semantic_value_nonzero(%value, %output) : (i32, tensor<1xi32>)
+  %expected = check.generate.fill value(11) : tensor<1xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
+  check.expect.event<device> {count = 1, operation = "kernel.assert", severity = "error", type = "ubsan_report", ubsan = {check = "assertion", operand0 = 0, operand1 = 0}}
+  check.return
+}
+
+check.case @semantic_operation_passes_case {
+  %value = check.literal value(9) : i32
+  %output = check.generate.fill value(0) : tensor<1xi32>
+  kernel.launch @assert_semantic_operation_nonzero(%value, %output) : (i32, tensor<1xi32>)
+  %expected = check.generate.fill value(9) : tensor<1xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
+  check.return
+}
+
+check.case @semantic_operation_fails_case {
+  %value = check.literal value(0) : i32
+  %output = check.generate.fill value(13) : tensor<1xi32>
+  kernel.launch @assert_semantic_operation_nonzero(%value, %output) : (i32, tensor<1xi32>)
+  %expected = check.generate.fill value(13) : tensor<1xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
+  check.expect.event<device> {count = 1, operation = "kernel.assert", severity = "error", type = "ubsan_report", ubsan = {check = "assertion", operand0 = 0, operand1 = 0}}
+  check.return
+}
+
+check.case @semantic_layout_passes_case {
+  %extent = check.literal value(4) : index
+  %input = check.generate.iota offset(5) step(2) : tensor<4xi32>
+  %output = check.generate.fill value(-17) : tensor<1xi32>
+  kernel.launch @assert_semantic_layout_extent_four(%extent, %input, %output) : (index, tensor<4xi32>, tensor<1xi32>)
+  %expected = check.generate.fill value(11) : tensor<1xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
+  check.return
+}
+
+check.case @semantic_layout_fails_case {
+  %extent = check.literal value(3) : index
+  // The physical allocation intentionally contains the fourth element. Only
+  // the asserted logical extent prevents the otherwise valid physical load.
+  %input = check.generate.iota offset(5) step(2) : tensor<4xi32>
+  %output = check.generate.fill value(-17) : tensor<1xi32>
+  kernel.launch @assert_semantic_layout_extent_four(%extent, %input, %output) : (index, tensor<4xi32>, tensor<1xi32>)
+  %expected = check.generate.fill value(-17) : tensor<1xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
+  check.expect.event<device> {count = 1, operation = "kernel.assert", severity = "error", type = "ubsan_report", ubsan = {check = "assertion", operand0 = 0, operand1 = 0}}
+  check.return
+}

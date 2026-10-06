@@ -14,6 +14,8 @@
 #include "loom/target/legalization.h"
 #include "loom/target/pass_environment.h"
 #include "loom/target/pass_requirements.h"
+#include "loom/transforms/cleanup/pass_environment.h"
+#include "loom/transforms/cleanup/pass_requirements.h"
 
 namespace loom {
 namespace {
@@ -97,6 +99,22 @@ TEST(PassBuiltinRegistryTest, CleanupPassesShareIterationBudget) {
         IREE_STATUS_INVALID_ARGUMENT,
         CreateBuiltinPass(descriptor, IREE_SV("unknown-option=true")));
   }
+}
+
+TEST(PassBuiltinRegistryTest, CombineRequiresSourcePatternComposition) {
+  const loom_pass_descriptor_t* canonicalize =
+      LookupBuiltinPass(IREE_SV("canonicalize"));
+  ASSERT_NE(canonicalize, nullptr);
+  EXPECT_EQ(canonicalize->requirement_count, 0u);
+
+  const loom_pass_descriptor_t* combine = LookupBuiltinPass(IREE_SV("combine"));
+  ASSERT_NE(combine, nullptr);
+  ASSERT_EQ(combine->requirement_count, 1u);
+  EXPECT_EQ(combine->requirement_defs[0].capability_type,
+            &loom_cleanup_pass_capability_type);
+  EXPECT_TRUE(iree_string_view_equal(
+      combine->requirement_defs[0].key,
+      IREE_SV(LOOM_CLEANUP_PASS_REQUIREMENT_SOURCE_COMBINE_PATTERNS)));
 }
 
 TEST(PassBuiltinRegistryTest, ValidatesBuiltinOptionSchemas) {

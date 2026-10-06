@@ -46,6 +46,23 @@ loom_cc_test(
 
 loom_cc_library(
   NAME
+    xfail
+  HDRS
+    "xfail.h"
+  SRCS
+    "xfail.c"
+  DEPS
+    iree::base
+    loom::error::diagnostic
+    loom::error::error_defs
+    loom::tooling::testbench::api
+    loom::tooling::testbench::expectation
+    loom::util::json
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     main
   HDRS
     "main.h"
@@ -53,6 +70,7 @@ loom_cc_library(
     "main.c"
   DEPS
     ::library_linker
+    ::xfail
     iree::base
     iree::base::internal::path
     iree::base::tooling::flags
@@ -63,6 +81,7 @@ loom_cc_library(
     loom::tooling::config
     loom::tooling::context
     loom::tooling::execution::hal::device_provider
+    loom::tooling::execution::hal::scenario_profile
     loom::tooling::execution::hal::testbench_actual
     loom::tooling::execution::session
     loom::tooling::input::flags
@@ -73,6 +92,9 @@ loom_cc_library(
     loom::tooling::testbench::issue_report
     loom::tooling::testbench::reference
     loom::tooling::testbench::requirements
+    loom::tooling::testbench::scenario::entropy
+    loom::tooling::testbench::scenario::executor
+    loom::tooling::testbench::scenario::values
     loom::util::json
     loom::util::stream
     loom::verify
@@ -89,6 +111,9 @@ endif()
 if(LOOM_TARGET_ARCH_VM)
   list(APPEND _iree_test_loom_platform_copts "-DIREE_TEST_LOOM_HAVE_VM=1")
 endif()
+if(LOOM_TARGET_ARCH_WASM)
+  list(APPEND _iree_test_loom_platform_copts "-DIREE_TEST_LOOM_HAVE_WASM=1")
+endif()
 set(_iree_test_loom_platform_deps "")
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
   list(APPEND _iree_test_loom_platform_deps loom::target::arch::amdgpu::provider)
@@ -104,6 +129,10 @@ if(LOOM_TARGET_ARCH_VM)
   list(APPEND _iree_test_loom_platform_deps loom::target::arch::vm::provider)
   list(APPEND _iree_test_loom_platform_deps loom::tooling::target::vm::testbench)
 endif()
+if(LOOM_TARGET_ARCH_WASM)
+  list(APPEND _iree_test_loom_platform_deps loom::target::arch::wasm::provider)
+  list(APPEND _iree_test_loom_platform_deps loom::tooling::target::wasm::testbench)
+endif()
 loom_cc_binary(
   NAME
     iree-test-loom
@@ -116,7 +145,23 @@ loom_cc_binary(
     iree::base
     loom::tooling::execution::execution_provider
     loom::tooling::input::configured
+    loom::transforms::cleanup::configured
     ${_iree_test_loom_platform_deps}
+)
+
+loom_cc_binary(
+  NAME
+    scenario_failure_test_tool
+  SRCS
+    "scenario_failure_test.c"
+  DEPS
+    ::main
+    iree::base
+    iree::hal
+    loom::ir
+    loom::tooling::execution::execution_provider
+    loom::tooling::testbench::scenario::executor
+  TESTONLY
 )
 
 iree_execution_test_suite(
@@ -133,6 +178,35 @@ iree_execution_test_suite(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/iree-test-loom/testdata/linked_input_cases.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/iree-test-loom/testdata/requirement_cases.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/iree-test-loom/testdata/scalar_cases.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/iree-test-loom/testdata/xfail_cases.loom"
+  LABELS
+    "hostonly"
+)
+
+if(LOOM_TARGET_ARCH_VM)
+iree_execution_test_suite(
+  NAME
+    scenario_execution_test
+  MANIFESTS
+    "scenario_execution.test.json"
+  TOOLS
+    "iree-test-loom=::iree-test-loom"
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/iree-test-loom/testdata/scenario_cases.loom"
+  LABELS
+    "hostonly"
+)
+endif()
+
+iree_execution_test_suite(
+  NAME
+    scenario_failure_test
+  MANIFESTS
+    "scenario_failure.test.json"
+  TOOLS
+    "scenario-failure-test=::scenario_failure_test_tool"
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/iree-test-loom/testdata/scenario_failures.loom"
   LABELS
     "hostonly"
 )

@@ -9,6 +9,7 @@
 #ifndef LOOM_TARGET_ARCH_AMDGPU_FACTS_H_
 #define LOOM_TARGET_ARCH_AMDGPU_FACTS_H_
 
+#include "loom/target/arch/amdgpu/target_identity.h"
 #include "loom/target/arch/amdgpu/target_info_defs.h"
 #include "loom/target/facts.h"
 
@@ -17,15 +18,6 @@ extern "C" {
 #endif
 
 typedef struct loom_low_resolved_target_t loom_low_resolved_target_t;
-
-// Complete structured identity retained by AMDGPU facts and profiles.
-typedef struct loom_amdgpu_target_identity_t {
-  // Exact, generic, or overlay target selected for this identity.
-  const loom_amdgpu_target_info_t* target;
-
-  // Normalized AMDHSA target-ID feature states.
-  loom_amdgpu_amdhsa_feature_states_t amdhsa_features;
-} loom_amdgpu_target_identity_t;
 
 // Immutable compiler-semantic properties resolved for one AMDGPU target.
 //
@@ -90,32 +82,13 @@ const loom_amdgpu_processor_properties_t*
 loom_amdgpu_target_processor_properties_from_resolved_target(
     const loom_low_resolved_target_t* target);
 
-// Initializes the normalized default identity for |target|.
-//
-// Supported AMDHSA modes remain unconstrained and unsupported modes are
-// explicit.
-void loom_amdgpu_target_identity_initialize(
-    const loom_amdgpu_target_info_t* target,
-    loom_amdgpu_target_identity_t* out_identity);
-
 // Initializes one identity and applies packed positive/negative target-ID
-// feature assertions. |feature_words| contains |feature_word_count| positive
-// words followed by the same number of negative words.
+// feature assertions from the compiler IR representation. |feature_words|
+// contains |feature_word_count| positive words followed by the same number of
+// negative words.
 void loom_amdgpu_target_identity_initialize_with_features(
     const loom_amdgpu_target_info_t* target, const uint64_t* feature_words,
     uint16_t feature_word_count, loom_amdgpu_target_identity_t* out_identity);
-
-// Returns whether two identities select the same canonical target and every
-// known target-ID feature state.
-bool loom_amdgpu_target_identity_equal(
-    const loom_amdgpu_target_identity_t* lhs,
-    const loom_amdgpu_target_identity_t* rhs);
-
-// Returns whether |effective| refines every processor and target-ID feature
-// requirement carried by |requirement|.
-bool loom_amdgpu_target_identity_satisfies_requirement(
-    const loom_amdgpu_target_identity_t* effective,
-    const loom_amdgpu_target_identity_t* requirement);
 
 // Resolves a normalized AMDHSA identity and common target projection into
 // compiler-semantic AMDGPU properties.

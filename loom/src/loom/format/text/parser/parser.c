@@ -20,113 +20,13 @@
 #include "loom/format/text/parser/locations.h"
 #include "loom/format/text/parser/low_asm.h"
 #include "loom/format/text/parser/pipeline.h"
+#include "loom/format/text/parser/recovery.h"
 #include "loom/format/text/parser/regions.h"
 #include "loom/format/text/parser/scope.h"
 #include "loom/format/text/parser/types.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/op_defs.h"
-
-//===----------------------------------------------------------------------===//
-// Alias table
-//===----------------------------------------------------------------------===//
-
-iree_status_t loom_alias_table_add(loom_alias_table_t* table,
-                                   iree_arena_allocator_t* arena,
-                                   iree_string_view_t name,
-                                   uint16_t encoding_id) {
-  if (table->count >= table->capacity) {
-    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-        arena, table->count, 8, sizeof(loom_alias_entry_t), &table->capacity,
-        (void**)&table->entries));
-  }
-  table->entries[table->count].name = name;
-  table->entries[table->count].encoding_id = encoding_id;
-  ++table->count;
-  return iree_ok_status();
-}
-
-uint16_t loom_alias_table_lookup(const loom_alias_table_t* table,
-                                 iree_string_view_t name) {
-  for (iree_host_size_t i = 0; i < table->count; ++i) {
-    if (iree_string_view_equal(table->entries[i].name, name)) {
-      return table->entries[i].encoding_id;
-    }
-  }
-  return 0;
-}
-
-//===----------------------------------------------------------------------===//
-// Error recovery
-//===----------------------------------------------------------------------===//
-
-void loom_parser_sync_to_newline(loom_parser_t* parser) {
-  // The tokenizer doesn't expose "at start of line" directly, but
-  // we can advance until we find an op-starting token or EOF.
-  // A simple heuristic: advance until we see a token at column 1 or
-  // whose kind is SSA_VALUE (result name), OP_NAME, LOOM_TOKEN_ERROR
-  // (lexical error at the next sibling op), BLOCK_LABEL, RBRACE (end of
-  // region), or EOF.
-  // A malformed region-owning op may fail before reaching its opening brace.
-  // Skip its balanced regions instead of treating a nested closing brace as
-  // the end of the region containing that op.
-  uint32_t brace_depth = 0;
-  for (;;) {
-    loom_token_t token = loom_tokenizer_peek(&parser->tokenizer);
-    if (token.kind == LOOM_TOKEN_EOF) {
-      break;
-    }
-    if (token.kind == LOOM_TOKEN_LBRACE) {
-      ++brace_depth;
-    } else if (token.kind == LOOM_TOKEN_RBRACE && brace_depth > 0) {
-      --brace_depth;
-      loom_tokenizer_next(&parser->tokenizer);
-      continue;
-    }
-    if (brace_depth > 0) {
-      loom_tokenizer_next(&parser->tokenizer);
-      continue;
-    }
-    if (token.kind == LOOM_TOKEN_RBRACE) {
-      break;
-    }
-    // If token is at column 1 (or 3+ for indented ops), it's likely
-    // the start of a new op. We use the heuristic that SSA_VALUE at
-    // position <= the next line start means we've synced.
-    if (token.kind == LOOM_TOKEN_SSA_VALUE && token.column <= 2) {
-      break;
-    }
-    if (token.kind == LOOM_TOKEN_OP_NAME && token.column <= 2) {
-      break;
-    }
-    if (token.kind == LOOM_TOKEN_ERROR && token.column <= 2) {
-      break;
-    }
-    if (token.kind == LOOM_TOKEN_BLOCK_LABEL) {
-      break;
-    }
-    loom_tokenizer_next(&parser->tokenizer);
-  }
-}
-
-void loom_parser_sync_to_brace(loom_parser_t* parser) {
-  int depth = 1;
-  for (;;) {
-    loom_token_t token = loom_tokenizer_next(&parser->tokenizer);
-    if (token.kind == LOOM_TOKEN_EOF) {
-      break;
-    }
-    if (token.kind == LOOM_TOKEN_LBRACE) {
-      ++depth;
-    }
-    if (token.kind == LOOM_TOKEN_RBRACE) {
-      --depth;
-      if (depth <= 0) {
-        break;
-      }
-    }
-  }
-}
 
 //===----------------------------------------------------------------------===//
 // Keyword matching
@@ -158,6 +58,10 @@ loom_token_kind_t loom_keyword_token_kind(uint16_t keyword_id) {
       return LOOM_TOKEN_LBRACE;
     case LOOM_KW_RBRACE:
       return LOOM_TOKEN_RBRACE;
+    case LOOM_KW_LANGLE:
+      return LOOM_TOKEN_LANGLE;
+    case LOOM_KW_RANGLE:
+      return LOOM_TOKEN_RANGLE;
     case LOOM_KW_X:
       return LOOM_TOKEN_DIM_X;
     default:
@@ -187,6 +91,10 @@ iree_status_t loom_parse_keyword(loom_parser_t* parser, uint16_t keyword_id) {
       return loom_parser_expect(parser, LOOM_TOKEN_LBRACE, NULL);
     case LOOM_KW_RBRACE:
       return loom_parser_expect(parser, LOOM_TOKEN_RBRACE, NULL);
+    case LOOM_KW_LANGLE:
+      return loom_parser_expect(parser, LOOM_TOKEN_LANGLE, NULL);
+    case LOOM_KW_RANGLE:
+      return loom_parser_expect(parser, LOOM_TOKEN_RANGLE, NULL);
     case LOOM_KW_X: {
       parser->tokenizer.in_dim_list = true;
       iree_status_t status = loom_parser_expect(parser, LOOM_TOKEN_DIM_X, NULL);
@@ -316,7 +224,8 @@ static iree_status_t loom_parser_verify_symbols_resolved(
     bool has_reference = false;
     bool has_availability = false;
     loom_symbol_reference_occurrence_id_t occurrence_id =
-        out_symbol_references->symbols[origin.symbol_id]
+        loom_symbol_reference_table_symbol(out_symbol_references,
+                                           origin.symbol_id)
             .first_incoming_occurrence_id;
     while (occurrence_id != LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID) {
       const loom_symbol_reference_occurrence_t* occurrence =
@@ -554,16 +463,17 @@ static iree_status_t loom_finalize_op(
     }
   }
 
-  // Copy result value IDs into the op. Body-op results become visible in the
-  // current lexical scope here; symbol-definition results are signature values
-  // only and must not leak into the module scope or their function body.
+  // Copy result value IDs into the op. Ordinary body-op results become visible
+  // in the current lexical scope here. Symbol and signature-only results are
+  // local signature values and must not leak into the surrounding body.
   // Values already have their types and names set during LHS parsing and the
   // format walk.
   loom_value_id_t* result_slots = loom_op_results(op);
   for (uint16_t i = 0; i < parsed->result_count; ++i) {
     loom_value_id_t value_id = parsed->result_ids[i];
     result_slots[i] = value_id;
-    if (iree_any_bit_set(vtable->traits, LOOM_TRAIT_SYMBOL_DEFINE)) {
+    if (iree_any_bit_set(vtable->traits, LOOM_TRAIT_SYMBOL_DEFINE) ||
+        loom_op_vtable_has_signature_only_results(vtable)) {
       continue;
     }
     loom_string_id_t name_id =
@@ -716,9 +626,12 @@ static iree_status_t loom_parse_op_into(
   uint16_t pending_func_arg_start = parser->pending_func_args.count;
   const loom_text_low_repr_context_t previous_low_repr = parser->low_repr;
 
-  bool is_symbol_definition =
+  const bool is_symbol_definition =
       iree_any_bit_set(vtable->traits, LOOM_TRAIT_SYMBOL_DEFINE);
-  if (is_symbol_definition && parsed->result_count > 0) {
+  const bool has_signature_only_results =
+      loom_op_vtable_has_signature_only_results(vtable);
+  if ((is_symbol_definition || has_signature_only_results) &&
+      parsed->result_count > 0) {
     return loom_parser_emit_result_count_mismatch(parser, vtable, op_name_token,
                                                   /*expected_count=*/0,
                                                   parsed->result_count);
@@ -739,7 +652,7 @@ static iree_status_t loom_parse_op_into(
   if (parser->error_count == errors_before && func_args_consumed_by_region) {
     loom_parser_pending_block_args_truncate(&parser->pending_func_args,
                                             pending_func_arg_start);
-  } else if (parser->error_count > 0) {
+  } else if (parser->error_count > errors_before) {
     loom_parser_pending_block_args_truncate(&parser->pending_func_args,
                                             pending_func_arg_start);
     loom_parser_pending_block_args_clear(&parser->pending_block_args);
@@ -815,10 +728,11 @@ static iree_status_t loom_parse_block_body(loom_parser_t* parser,
     if (loom_parser_at_error_limit(parser)) {
       break;
     }
+    loom_parser_recovery_point_t recovery = loom_parser_recovery_point(parser);
     uint32_t errors_before = parser->error_count;
     IREE_RETURN_IF_ERROR(loom_parse_op(parser, NULL));
     if (parser->error_count > errors_before) {
-      loom_parser_sync_to_newline(parser);
+      loom_parser_sync_to_next_op(parser, recovery, LOOM_REGION_SYNTAX_DEFAULT);
     }
   }
   return iree_ok_status();
@@ -989,9 +903,7 @@ iree_status_t loom_parser_parse_optional_block_label(loom_parser_t* parser,
 
 static iree_status_t loom_parse_region_body(
     loom_parser_t* parser, const loom_region_descriptor_t* region_descriptor,
-    loom_region_t* region, const void* user_data,
-    bool* out_region_end_consumed) {
-  *out_region_end_consumed = false;
+    loom_region_t* region, const void* user_data) {
   (void)user_data;
 
   // Seed the entry block with pending block args from FUNC_ARGS, BINDING_LIST,
@@ -1035,7 +947,6 @@ static iree_status_t loom_parse_region_body(
 
   loom_tokenizer_discard_pending_comments(&parser->tokenizer);
   LOOM_PARSE_EXPECT(parser, LOOM_TOKEN_RBRACE, NULL);
-  *out_region_end_consumed = true;
   return iree_ok_status();
 }
 
@@ -1067,16 +978,11 @@ iree_status_t loom_parse_braced_region_with_body(
 
   iree_host_size_t pending_successor_start =
       parser->pending_successor_refs.count;
-  bool region_end_consumed = false;
-  iree_status_t status = body.fn(parser, region_descriptor, region,
-                                 body.user_data, &region_end_consumed);
+  iree_status_t status =
+      body.fn(parser, region_descriptor, region, body.user_data);
   if (iree_status_is_ok(status) && parser->error_count == errors_before) {
     status = loom_parser_resolve_pending_successor_refs(
         parser, region, pending_successor_start);
-  }
-  if (parser->error_count > errors_before && !region_end_consumed &&
-      !loom_tokenizer_at(&parser->tokenizer, LOOM_TOKEN_EOF)) {
-    loom_parser_sync_to_brace(parser);
   }
   loom_parser_pending_block_args_clear(&parser->pending_block_args);
   if (parser->error_count > errors_before || !iree_status_is_ok(status)) {
@@ -1167,6 +1073,8 @@ static iree_status_t loom_parse_module_body(loom_parser_t* parser) {
       break;
     }
 
+    loom_parser_recovery_point_t recovery = loom_parser_recovery_point(parser);
+
     // Check for attribute aliases: #alias = #encoding<params>.
     if (loom_tokenizer_at(&parser->tokenizer, LOOM_TOKEN_HASH_ATTR)) {
       loom_tokenizer_discard_pending_comments(&parser->tokenizer);
@@ -1186,17 +1094,20 @@ static iree_status_t loom_parse_module_body(loom_parser_t* parser) {
           IREE_RETURN_IF_ERROR(loom_parser_emit(parser, LOOM_ERR_PARSE_014,
                                                 params, IREE_ARRAYSIZE(params),
                                                 alias_token));
-          loom_parser_sync_to_newline(parser);
+          loom_parser_sync_to_next_op(parser, recovery,
+                                      LOOM_REGION_SYNTAX_DEFAULT);
           continue;
         }
-        if (loom_alias_table_lookup(&parser->aliases, alias_token.text) != 0) {
+        if (loom_alias_table_lookup(&parser->aliases, parser->module,
+                                    alias_token.text) != 0) {
           loom_diagnostic_param_t params[] = {
               loom_param_string(IREE_SV("duplicate encoding alias name")),
           };
           IREE_RETURN_IF_ERROR(loom_parser_emit(parser, LOOM_ERR_PARSE_014,
                                                 params, IREE_ARRAYSIZE(params),
                                                 alias_token));
-          loom_parser_sync_to_newline(parser);
+          loom_parser_sync_to_next_op(parser, recovery,
+                                      LOOM_REGION_SYNTAX_DEFAULT);
           continue;
         }
 
@@ -1208,21 +1119,22 @@ static iree_status_t loom_parse_module_body(loom_parser_t* parser) {
         IREE_RETURN_IF_ERROR(
             loom_parse_static_encoding(parser, alias_name_id, &encoding_id));
         if (parser->error_count > errors_before) {
-          loom_parser_sync_to_newline(parser);
+          loom_parser_sync_to_next_op(parser, recovery,
+                                      LOOM_REGION_SYNTAX_DEFAULT);
           continue;
         }
 
         if (encoding_id != 0) {
           IREE_RETURN_IF_ERROR(
               loom_alias_table_add(&parser->aliases, &parser->parser_arena,
-                                   alias_token.text, encoding_id));
+                                   alias_name_id, encoding_id));
         }
         continue;
       }
       // Not an alias; this is an error.
       IREE_RETURN_IF_ERROR(loom_parser_emit_token_text_error(
           parser, LOOM_ERR_PARSE_014, alias_token));
-      loom_parser_sync_to_newline(parser);
+      loom_parser_sync_to_next_op(parser, recovery, LOOM_REGION_SYNTAX_DEFAULT);
       continue;
     }
 
@@ -1230,7 +1142,7 @@ static iree_status_t loom_parse_module_body(loom_parser_t* parser) {
     uint32_t errors_before = parser->error_count;
     IREE_RETURN_IF_ERROR(loom_parse_op(parser, NULL));
     if (parser->error_count > errors_before) {
-      loom_parser_sync_to_newline(parser);
+      loom_parser_sync_to_next_op(parser, recovery, LOOM_REGION_SYNTAX_DEFAULT);
     }
   }
   return iree_ok_status();

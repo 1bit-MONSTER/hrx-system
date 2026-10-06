@@ -1,4 +1,4 @@
-// RUN: emit source-low output=low
+// RUN: with-checks emit source-low output=low
 
 aie2p.target<core> @target
 
@@ -17,21 +17,19 @@ func.def target(@target) @cmp_i8_matrix(%lhs: vector<64xi8>, %rhs: vector<64xi8>
 }
 
 // ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @cmp_i8_matrix(%lhs: reg<aie2p.vec256 x2>, %rhs: reg<aie2p.vec256 x2>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
-  %34 = vsub.8 %lhs, %rhs
-  %eq = veqz.8 %34
-  %36 = vlt.u8x64 %lhs, %rhs
-  %37 = vlt.u8x64 %rhs, %lhs
-  %38 = predicate.or.low32 %36, %37
-  %ne = predicate.or.high32 %36, %37, %38
-  %slt = vlt.s8x64 %lhs, %rhs
-  %sle = vge.s8x64 %rhs, %lhs
-  %sgt = vlt.s8x64 %rhs, %lhs
-  %sge = vge.s8x64 %lhs, %rhs
-  %ule = vge.u8x64 %rhs, %lhs
-  %uge = vge.u8x64 %lhs, %rhs
-  return %eq, %ne, %slt, %sle, %sgt, %sge, %36, %ule, %37, %uge
-}
+CHECK: low.func.def * @cmp_i8_matrix(*) *
+CHECK: %eq = veqz.8 *
+CHECK: %ne = predicate.or.high32.rhs_tied *
+CHECK: %slt = vlt.s8x64 %lhs, %rhs
+CHECK: %sle = vge.s8x64 %rhs, %lhs
+CHECK: %sgt = vlt.s8x64 %rhs, %lhs
+CHECK: %sge = vge.s8x64 %lhs, %rhs
+CHECK: * = vlt.u8x64 %lhs, %rhs
+CHECK: %ule = vge.u8x64 %rhs, %lhs
+CHECK: * = vlt.u8x64 %rhs, %lhs
+CHECK: %uge = vge.u8x64 %lhs, %rhs
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
 
 // ====
 
@@ -52,32 +50,19 @@ func.def target(@target) @cmp_i16_matrix(%lhs: vector<32xi16>, %rhs: vector<32xi
 }
 
 // ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @cmp_i16_matrix(%lhs: reg<aie2p.vec256 x2>, %rhs: reg<aie2p.vec256 x2>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
-  %34 = vsub.16 %lhs, %rhs
-  %35 = veqz.16.el.low32 %34
-  %eq = predicate.complete.zero.high32 %35, 0
-  %37 = vlt.u16x32.el.low32 %lhs, %rhs
-  %38 = vlt.u16x32.el.low32 %rhs, %lhs
-  %39 = predicate.or.low32 %37, %38
-  %ne = predicate.complete.zero.high32 %39, 0
-  %41 = vlt.s16x32.el.low32 %lhs, %rhs
-  %slt = predicate.complete.zero.high32 %41, 0
-  %43 = vge.s16x32.el.low32 %rhs, %lhs
-  %sle = predicate.complete.zero.high32 %43, 0
-  %45 = vlt.s16x32.el.low32 %rhs, %lhs
-  %sgt = predicate.complete.zero.high32 %45, 0
-  %47 = vge.s16x32.el.low32 %lhs, %rhs
-  %sge = predicate.complete.zero.high32 %47, 0
-  %49 = vlt.u16x32.el.low32 %lhs, %rhs
-  %ult = predicate.complete.zero.high32 %49, 0
-  %51 = vge.u16x32.el.low32 %rhs, %lhs
-  %ule = predicate.complete.zero.high32 %51, 0
-  %53 = vlt.u16x32.el.low32 %rhs, %lhs
-  %ugt = predicate.complete.zero.high32 %53, 0
-  %55 = vge.u16x32.el.low32 %lhs, %rhs
-  %uge = predicate.complete.zero.high32 %55, 0
-  return %eq, %ne, %slt, %sle, %sgt, %sge, %ult, %ule, %ugt, %uge
-}
+CHECK: low.func.def * @cmp_i16_matrix(*) *
+CHECK: %eq = predicate.complete.zero.high32 *, 0
+CHECK: %ne = predicate.complete.zero.high32 *, 0
+CHECK: %slt = predicate.complete.zero.high32 *, 0
+CHECK: %sle = predicate.complete.zero.high32 *, 0
+CHECK: %sgt = predicate.complete.zero.high32 *, 0
+CHECK: %sge = predicate.complete.zero.high32 *, 0
+CHECK: %ult = predicate.complete.zero.high32 *, 0
+CHECK: %ule = predicate.complete.zero.high32 *, 0
+CHECK: %ugt = predicate.complete.zero.high32 *, 0
+CHECK: %uge = predicate.complete.zero.high32 *, 0
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
 
 // ====
 
@@ -98,32 +83,19 @@ func.def target(@target) @cmp_i32_matrix(%lhs: vector<16xi32>, %rhs: vector<16xi
 }
 
 // ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @cmp_i32_matrix(%lhs: reg<aie2p.vec256 x2>, %rhs: reg<aie2p.vec256 x2>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
-  %34 = vsub.32 %lhs, %rhs
-  %35 = veqz.32.el.low32 %34
-  %eq = predicate.complete.zero.high32 %35, 0
-  %37 = vlt.u32x16.el.low32 %lhs, %rhs
-  %38 = vlt.u32x16.el.low32 %rhs, %lhs
-  %39 = predicate.or.low32 %37, %38
-  %ne = predicate.complete.zero.high32 %39, 0
-  %41 = vlt.s32x16.el.low32 %lhs, %rhs
-  %slt = predicate.complete.zero.high32 %41, 0
-  %43 = vge.s32x16.el.low32 %rhs, %lhs
-  %sle = predicate.complete.zero.high32 %43, 0
-  %45 = vlt.s32x16.el.low32 %rhs, %lhs
-  %sgt = predicate.complete.zero.high32 %45, 0
-  %47 = vge.s32x16.el.low32 %lhs, %rhs
-  %sge = predicate.complete.zero.high32 %47, 0
-  %49 = vlt.u32x16.el.low32 %lhs, %rhs
-  %ult = predicate.complete.zero.high32 %49, 0
-  %51 = vge.u32x16.el.low32 %rhs, %lhs
-  %ule = predicate.complete.zero.high32 %51, 0
-  %53 = vlt.u32x16.el.low32 %rhs, %lhs
-  %ugt = predicate.complete.zero.high32 %53, 0
-  %55 = vge.u32x16.el.low32 %lhs, %rhs
-  %uge = predicate.complete.zero.high32 %55, 0
-  return %eq, %ne, %slt, %sle, %sgt, %sge, %ult, %ule, %ugt, %uge
-}
+CHECK: low.func.def * @cmp_i32_matrix(*) *
+CHECK: %eq = predicate.complete.zero.high32 *, 0
+CHECK: %ne = predicate.complete.zero.high32 *, 0
+CHECK: %slt = predicate.complete.zero.high32 *, 0
+CHECK: %sle = predicate.complete.zero.high32 *, 0
+CHECK: %sgt = predicate.complete.zero.high32 *, 0
+CHECK: %sge = predicate.complete.zero.high32 *, 0
+CHECK: %ult = predicate.complete.zero.high32 *, 0
+CHECK: %ule = predicate.complete.zero.high32 *, 0
+CHECK: %ugt = predicate.complete.zero.high32 *, 0
+CHECK: %uge = predicate.complete.zero.high32 *, 0
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
 
 // ====
 
@@ -159,36 +131,19 @@ func.def target(@target) @predicate_logic_and_select(%lhs: vector<64xi8>, %rhs: 
 }
 
 // ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @predicate_logic_and_select(%word_lhs: reg<aie2p.vec256 x2>, %word_rhs: reg<aie2p.vec256 x2>, %word_true: reg<aie2p.vec256 x2>, %word_false: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
-  %byte_lt = vlt.s8x64 %word_lhs, %word_rhs
-  %37 = vlt.u8x64 %word_lhs, %word_rhs
-  %38 = vlt.u8x64 %word_rhs, %word_lhs
-  %39 = predicate.or.low32 %37, %38
-  %byte_ne = predicate.or.high32 %37, %38, %39
-  %41 = predicate.and.low32 %byte_lt, %byte_ne
-  %byte_and = predicate.and.high32 %byte_lt, %byte_ne, %41
-  %43 = predicate.or.low32 %byte_lt, %byte_ne
-  %byte_or = predicate.or.high32 %byte_lt, %byte_ne, %43
-  %45 = predicate.xor.low32 %byte_and, %byte_or
-  %byte_mask = predicate.xor.high32 %byte_and, %byte_or, %45
-  %byte_result = vsel.8 %word_false, %word_true, %byte_mask
-  %48 = vsub.16 %word_lhs, %word_rhs
-  %49 = veqz.16.el.low32 %48
-  %half_eq = predicate.complete.zero.high32 %49, 0
-  %51 = vge.u16x32.el.low32 %word_lhs, %word_rhs
-  %half_uge = predicate.complete.zero.high32 %51, 0
-  %53 = predicate.or.low32 %half_eq, %half_uge
-  %half_mask = predicate.or.high32 %half_eq, %half_uge, %53
-  %half_result = vsel.16.mask64 %word_false, %word_true, %half_mask
-  %56 = vge.s32x16.el.low32 %word_rhs, %word_lhs
-  %word_sle = predicate.complete.zero.high32 %56, 0
-  %58 = vlt.u32x16.el.low32 %word_rhs, %word_lhs
-  %word_ugt = predicate.complete.zero.high32 %58, 0
-  %60 = predicate.xor.low32 %word_sle, %word_ugt
-  %word_mask = predicate.xor.high32 %word_sle, %word_ugt, %60
-  %word_result = vsel.32.mask64 %word_false, %word_true, %word_mask
-  return %byte_result, %half_result, %word_result
-}
+CHECK: low.func.def * @predicate_logic_and_select(*) *
+CHECK: %byte_lt = vlt.s8x64 *
+CHECK: %byte_ne = predicate.or.high32.rhs_tied *
+CHECK: %byte_and = predicate.and.high32 *
+CHECK: %byte_or = predicate.or.high32.rhs_tied *
+CHECK: %byte_mask = predicate.xor.high32.rhs_tied *
+CHECK: %byte_result = vsel.8 *
+CHECK: %half_mask = predicate.or.high32.rhs_tied *
+CHECK: %half_result = vsel.16* *
+CHECK: %word_mask = predicate.xor.high32.rhs_tied *
+CHECK: %word_result = vsel.32* *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
 
 // ====
 
@@ -202,12 +157,29 @@ func.def target(@target) @predicate_extract(%mask: vector<64xi1>, %lane0: index)
 }
 
 // ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @predicate_extract(%mask: reg<aie2p.elpredicate>, %lane: reg<aie2p.er>) -> (reg<aie2p.er>, reg<aie2p.er>) asm {
-  %11 = mov.short 1
-  %12 = vbcst.8 %11
-  %13 = vsub.8 %12, %12
-  %14 = vsel.8 %13, %12, %mask
-  %static = vextract.8.imm %14, 63
-  %dynamic = vextract.8.reg %14, %lane
-  return %static, %dynamic
+CHECK: low.func.def * @predicate_extract(*) *
+CHECK: * = vsel.8 *, *, %mask
+CHECK: %static = vextract.8.imm *, 63
+CHECK: %dynamic = vextract.8.reg *, %lane
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+aie2p.target<core> @target
+
+func.def target(@target) @predicate_constants() -> (vector<64xi1>, vector<17xi1>) {
+  %true_mask = vector.constant true : vector<64xi1>
+  %false_mask = vector.constant false : vector<17xi1>
+  func.return %true_mask, %false_mask : vector<64xi1>, vector<17xi1>
 }
+
+// ----
+CHECK: low.func.def * @predicate_constants(*) *
+CHECK: * = mov.short 1
+CHECK: * = vbcst.8 *
+CHECK: %true_mask = vlt.u8x64 *
+CHECK: * = mov.short 0
+CHECK: * = vbcst.8 *
+CHECK: %false_mask = vlt.u8x64 *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*

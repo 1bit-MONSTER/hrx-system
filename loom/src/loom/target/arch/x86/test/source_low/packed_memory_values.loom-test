@@ -1,0 +1,101 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/packed_memory_values.loom-test
+// TEMPLATE-EXCLUDE: @uniform_table Narrow indexed extraction requires i8 selection and index conversion contracts.
+// TEMPLATE-EXCLUDE: @uniform_i8 Scalarized byte arithmetic requires an i32-to-i8 truncation contract.
+// TEMPLATE-EXCLUDE: @uniform_i16 Scalarized halfword arithmetic requires an i32-to-i16 truncation contract.
+// TEMPLATE-EXCLUDE: @uniform_f16 The target math policy does not admit FP16 vector addition.
+// TEMPLATE-EXCLUDE: @uniform_bf16 The target lacks the BF16 load-to-FP32 conversion contract.
+// TEMPLATE-EXCLUDE: @uniform_f8E4M3 FP8 extension requires scalar legalization, Boolean selection, and eight-lane vector construction.
+// TEMPLATE-EXCLUDE: @uniform_f8E5M2 FP8 extension requires scalar legalization, Boolean selection, and eight-lane vector construction.
+// TEMPLATE-EXCLUDE: @uniform_f16_extf The target lacks the FP16 vector load-to-FP32 conversion contract.
+// RUN: emit source-low target=x86:avx2 output=low
+
+// An aligned buffer root retains the byte offset of the actual access.
+func.def @unaligned_bytes(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %start = index.constant 1 : offset
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%start] : buffer -> view<16xi8>
+  %value = vector.load %source_view[0] : view<16xi8> -> vector<16xi8>
+  %output_view = buffer.view %destination[%c0] : buffer -> view<16xi8>
+  vector.store %value, %output_view[0] : vector<16xi8>, view<16xi8>
+  func.return
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @unaligned_bytes(%source: reg<x86.gpr64>, %destination: reg<x86.gpr64>) asm {
+  %value = vmovdqu32.load.xmm %source {disp32 = 1}
+  vmovdqu32.store.xmm %value, %destination {disp32 = 0}
+  return
+}
+
+// ====
+
+// A partial word must not read bytes beyond the requested payload.
+func.def @partial_bytes(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %start = index.constant 0 : offset
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%start] : buffer -> view<2xi8>
+  %value = vector.load %source_view[0] : view<2xi8> -> vector<2xi8>
+  %output_view = buffer.view %destination[%c0] : buffer -> view<2xi8>
+  vector.store %value, %output_view[0] : vector<2xi8>, view<2xi8>
+  func.return
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @partial_bytes(%source: reg<x86.gpr64>, %destination: reg<x86.gpr64>) asm {
+  %19 = movzx.load.u8.gpr32 %source {disp32 = 0}
+  %20 = movzx.load.u8.gpr32 %source {disp32 = 1}
+  mov.store.u8.gpr32 %19, %destination {disp32 = 0}
+  mov.store.u8.gpr32 %20, %destination {disp32 = 1}
+  return
+}
+
+// ====
+
+// Potentially aliasing writes prevent treating the input as stable.
+func.def @mutable_bytes(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %start = index.constant 0 : offset
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %aligned[%start] : buffer -> view<16xi8>
+  %value = vector.load %source_view[0] : view<16xi8> -> vector<16xi8>
+  %output_view = buffer.view %output[%c0] : buffer -> view<16xi8>
+  vector.store %value, %output_view[0] : vector<16xi8>, view<16xi8>
+  func.return
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @mutable_bytes(%aligned: reg<x86.gpr64>, %output: reg<x86.gpr64>) asm {
+  %value = vmovdqu32.load.xmm %aligned {disp32 = 0}
+  vmovdqu32.store.xmm %value, %output {disp32 = 0}
+  return
+}
+
+// ====
+
+// Volatile retains both reads without requesting an acquire or cache policy.
+func.def @volatile_bytes(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %start = index.constant 0 : offset
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%start] : buffer -> view<16xi8>
+  %first = vector.load<volatile> %source_view[0] : view<16xi8> -> vector<16xi8>
+  %second = vector.load<volatile> %source_view[0] : view<16xi8> -> vector<16xi8>
+  %output_view = buffer.view %destination[%c0] : buffer -> view<32xi8>
+  vector.store %first, %output_view[0] : vector<16xi8>, view<32xi8>
+  vector.store %second, %output_view[16] : vector<16xi8>, view<32xi8>
+  func.return
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @volatile_bytes(%source: reg<x86.gpr64>, %destination: reg<x86.gpr64>) asm {
+  %first = vmovdqu32.load.xmm<volatile> %source {disp32 = 0}
+  %second = vmovdqu32.load.xmm<volatile> %source {disp32 = 0}
+  vmovdqu32.store.xmm %first, %destination {disp32 = 0}
+  vmovdqu32.store.xmm %second, %destination {disp32 = 16}
+  return
+}

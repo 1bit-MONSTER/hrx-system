@@ -18,57 +18,93 @@ extern "C" {
 // Maximum supported serialized region nesting depth.
 #define LOOM_BYTECODE_WRITER_MAX_REGION_DEPTH 256
 
-// One module value mapped into a body-local SSA namespace.
-typedef struct loom_bytecode_value_numbering_entry_t {
-  // Module value ID being mapped.
-  loom_value_id_t value_id;
-  // Body-local value number assigned to |value_id|.
-  uint32_t number;
-} loom_bytecode_value_numbering_entry_t;
-
 // Dense body-local SSA namespace constructed in definition order.
 typedef struct loom_bytecode_value_numbering_t {
-  // Module containing numbered values.
-  const loom_module_t* module;
-  // Arena owning |entries|.
-  iree_arena_allocator_t* arena;
-  // Sorted map from module value ID to active local value number.
-  loom_bytecode_value_numbering_entry_t* entries;
-  // Number of initialized |entries|.
-  iree_host_size_t count;
-  // Allocated capacity of |entries|.
-  iree_host_size_t capacity;
+  // Invocation-wide catalogs and direct module-value index.
+  loom_bytecode_numbering_t* numbering;
+  // Generation selecting value rows and bound types, or zero before first use.
+  uint32_t scope_generation;
   // Next body-local value number to assign.
   uint32_t next_number;
-  // Unique generation for completed type bindings in this wire scope.
-  uint32_t binding_generation;
   // Number of completed bound types in this scope.
   uint32_t binding_count;
 } loom_bytecode_value_numbering_t;
 
+// Number of ordered module value IDs stored in each closure chunk.
+#define LOOM_BYTECODE_GLOBAL_VALUE_CHUNK_CAPACITY 256u
+
+// Fixed-size ordered storage for declaration-local value IDs.
+typedef struct loom_bytecode_global_value_chunk_t {
+  // Next chunk in first-discovery order, or NULL at the end.
+  struct loom_bytecode_global_value_chunk_t* next;
+  // Module value IDs in first-discovery order.
+  loom_value_id_t values[LOOM_BYTECODE_GLOBAL_VALUE_CHUNK_CAPACITY];
+} loom_bytecode_global_value_chunk_t;
+
+static_assert(sizeof(loom_bytecode_global_value_chunk_t) <= 2048,
+              "writer global-value chunk must fit in arena blocks");
+
 // Declaration-local value closure used by a global symbol payload.
-typedef struct loom_bytecode_global_value_list_t {
-  // Temporary arena owning |values|.
-  iree_arena_allocator_t* arena;
-  // Module whose value table owns all IDs in |values|.
-  const loom_module_t* module;
-  // Ordered declaration-local values used by one global payload.
-  loom_value_id_t* values;
-  // Number of populated |values| entries.
+struct loom_bytecode_global_value_list_t {
+  // Invocation-wide catalogs and direct module-value membership index.
+  loom_bytecode_numbering_t* numbering;
+  // First chunk in first-discovery order.
+  loom_bytecode_global_value_chunk_t* first;
+  // Last chunk receiving newly discovered values.
+  loom_bytecode_global_value_chunk_t* last;
+  // Number of populated value IDs across all chunks.
   iree_host_size_t count;
-  // Allocated capacity of |values|.
-  iree_host_size_t capacity;
-} loom_bytecode_global_value_list_t;
+  // Generation selecting membership rows owned by this discovery walk.
+  uint32_t generation;
+};
+
+// Sequential cursor over one declaration-local value closure.
+typedef struct loom_bytecode_global_value_iterator_t {
+  // Closure whose current count bounds iteration.
+  const loom_bytecode_global_value_list_t* list;
+  // Chunk containing the next value, or NULL before an initially empty list.
+  const loom_bytecode_global_value_chunk_t* chunk;
+  // Number of values already returned across the closure.
+  iree_host_size_t index;
+  // Row of |chunk| containing the next value.
+  uint16_t chunk_offset;
+} loom_bytecode_global_value_iterator_t;
+
+// Initializes a sequential cursor at the start of |list|.
+static inline loom_bytecode_global_value_iterator_t
+loom_bytecode_global_value_iterator_begin(
+    const loom_bytecode_global_value_list_t* list) {
+  return (loom_bytecode_global_value_iterator_t){
+      /*.list=*/list,
+      /*.chunk=*/list->first,
+  };
+}
+
+// Advances |iterator| and returns whether another value was available.
+// Appends made during iteration are observed in first-discovery order.
+static inline bool loom_bytecode_global_value_iterator_next(
+    loom_bytecode_global_value_iterator_t* iterator,
+    loom_value_id_t* out_value_id) {
+  if (iterator->index >= iterator->list->count) {
+    return false;
+  }
+  if (iterator->chunk == NULL) {
+    iterator->chunk = iterator->list->first;
+  } else if (iterator->chunk_offset ==
+             LOOM_BYTECODE_GLOBAL_VALUE_CHUNK_CAPACITY) {
+    iterator->chunk = iterator->chunk->next;
+    iterator->chunk_offset = 0;
+  }
+  IREE_ASSERT(iterator->chunk != NULL);
+  *out_value_id = iterator->chunk->values[iterator->chunk_offset++];
+  ++iterator->index;
+  return true;
+}
 
 // Initializes an empty body-local SSA namespace.
 void loom_bytecode_value_numbering_initialize(
     loom_bytecode_value_numbering_t* value_numbering,
     loom_bytecode_numbering_t* numbering);
-
-// Reserves storage for at least |minimum_capacity| local values.
-iree_status_t loom_bytecode_value_numbering_ensure_capacity(
-    loom_bytecode_value_numbering_t* value_numbering,
-    iree_host_size_t minimum_capacity);
 
 // Assigns the next body-local number to |value_id| when not already assigned.
 iree_status_t loom_bytecode_value_numbering_assign_value(
@@ -93,10 +129,14 @@ iree_status_t loom_bytecode_op_attr_is_present(
 bool loom_bytecode_attr_is_symbol_identity(const loom_op_vtable_t* vtable,
                                            uint8_t attr_index);
 
-// Collects the declaration-local value closure of one global definition.
-iree_status_t loom_bytecode_collect_global_values(
-    iree_arena_allocator_t* arena, const loom_module_t* module,
-    const loom_op_t* op, loom_bytecode_global_value_list_t* out_values);
+// Prepares and retains the declaration-local value closure of one global.
+iree_status_t loom_bytecode_prepare_global_values(
+    loom_bytecode_numbering_t* numbering, loom_symbol_id_t symbol_id,
+    const loom_op_t* op, const loom_bytecode_global_value_list_t** out_values);
+
+// Returns the prepared declaration-local closure owned by |symbol_id|.
+const loom_bytecode_global_value_list_t* loom_bytecode_global_values_for_symbol(
+    const loom_bytecode_numbering_t* numbering, loom_symbol_id_t symbol_id);
 
 // Numbers the catalogs referenced by one global definition and value closure.
 iree_status_t loom_bytecode_number_global(

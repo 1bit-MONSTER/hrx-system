@@ -16,6 +16,7 @@ iree_py_library(
     srcs = [
         "__init__.py",
         "contracts.py",
+        "f32_narrowing.py",
     ],
     deps = [
         "//loom/py/loom:core",
@@ -25,6 +26,7 @@ iree_py_library(
         "//loom/py/loom/dialect/view",
         "//loom/py/loom/target/arch/wasm:descriptors",
         "//loom/py/loom/target/contracts",
+        "//loom/py/loom/target/emit:float_narrowing",
         "//loom/py/loom/target/emit:package",
     ],
 )

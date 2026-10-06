@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "loom/decision/predicate.h"
 #include "loom/error/error_catalog.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
@@ -153,6 +154,10 @@ static loom_sanitizer_check_kind_t loom_sanitizer_check_kind_for_predicate(
     case LOOM_PREDICATE_LE:
     case LOOM_PREDICATE_GT:
     case LOOM_PREDICATE_GE:
+    case LOOM_PREDICATE_ULT:
+    case LOOM_PREDICATE_ULE:
+    case LOOM_PREDICATE_UGT:
+    case LOOM_PREDICATE_UGE:
     case LOOM_PREDICATE_MIN:
     case LOOM_PREDICATE_MAX:
     case LOOM_PREDICATE_RANGE:
@@ -264,46 +269,6 @@ static iree_status_t loom_sanitizer_append_unique_value(
   return iree_ok_status();
 }
 
-static bool loom_sanitizer_type_accepts_integer_predicates(loom_type_t type) {
-  if (!loom_type_is_scalar(type)) {
-    return false;
-  }
-  loom_scalar_type_t scalar_type = loom_type_element_type(type);
-  return loom_scalar_type_is_integer(scalar_type) ||
-         scalar_type == LOOM_SCALAR_TYPE_INDEX ||
-         scalar_type == LOOM_SCALAR_TYPE_OFFSET;
-}
-
-static bool loom_sanitizer_type_accepts_float_predicates(loom_type_t type) {
-  return loom_type_is_scalar(type) &&
-         loom_scalar_type_is_float(loom_type_element_type(type));
-}
-
-static bool loom_sanitizer_type_accepts_predicate(
-    loom_type_t type, loom_predicate_kind_t predicate_kind) {
-  switch (predicate_kind) {
-    case LOOM_PREDICATE_EQ:
-    case LOOM_PREDICATE_NE:
-    case LOOM_PREDICATE_LT:
-    case LOOM_PREDICATE_LE:
-    case LOOM_PREDICATE_GT:
-    case LOOM_PREDICATE_GE:
-    case LOOM_PREDICATE_MUL:
-    case LOOM_PREDICATE_MIN:
-    case LOOM_PREDICATE_MAX:
-    case LOOM_PREDICATE_POW2:
-    case LOOM_PREDICATE_RANGE:
-      return loom_sanitizer_type_accepts_integer_predicates(type);
-    case LOOM_PREDICATE_NOT_NAN:
-    case LOOM_PREDICATE_NOT_INF:
-    case LOOM_PREDICATE_FINITE:
-      return loom_sanitizer_type_accepts_float_predicates(type);
-    case LOOM_PREDICATE_COUNT_:
-      return false;
-  }
-  return false;
-}
-
 static bool loom_sanitizer_predicate_supported_for_values(
     const loom_module_t* module, loom_value_slice_t values,
     const loom_predicate_t* predicate) {
@@ -319,23 +284,28 @@ static bool loom_sanitizer_predicate_supported_for_values(
       return false;
     }
     loom_type_t type = loom_module_value_type(module, value_id);
-    if (!loom_sanitizer_type_accepts_predicate(type, predicate->kind)) {
+    if (!loom_predicate_kind_accepts_value_type(predicate->kind, type)) {
       return false;
     }
   }
   return true;
 }
 
-static bool loom_sanitizer_predicate_arg_facts(
+static bool loom_sanitizer_predicate_arg_operand(
     const loom_predicate_t* predicate, uint8_t argument_index,
     loom_rewriter_t* rewriter, loom_value_slice_t values,
-    loom_value_facts_t* out_facts) {
+    loom_decision_predicate_operand_t* out_operand) {
   if (argument_index >= predicate->arg_count) {
     return false;
   }
+  *out_operand = (loom_decision_predicate_operand_t){
+      .facts = loom_value_facts_unknown(),
+      .identity = LOOM_DECISION_OPERAND_IDENTITY_NONE,
+  };
   switch ((loom_predicate_arg_tag_t)predicate->arg_tags[argument_index]) {
     case LOOM_PRED_ARG_CONST:
-      *out_facts = loom_value_facts_exact_i64(predicate->args[argument_index]);
+      out_operand->facts =
+          loom_value_facts_exact_i64(predicate->args[argument_index]);
       return true;
     case LOOM_PRED_ARG_VALUE: {
       if (predicate->args[argument_index] < 0) {
@@ -346,7 +316,8 @@ static bool loom_sanitizer_predicate_arg_facts(
       if (!loom_sanitizer_find_value(values, value_id, NULL)) {
         return false;
       }
-      *out_facts = loom_rewriter_value_facts(rewriter, value_id);
+      out_operand->facts = loom_rewriter_value_facts(rewriter, value_id);
+      out_operand->identity = value_id;
       return true;
     }
     case LOOM_PRED_ARG_NONE:
@@ -356,157 +327,18 @@ static bool loom_sanitizer_predicate_arg_facts(
   return false;
 }
 
-static bool loom_sanitizer_ranges_are_disjoint(loom_value_facts_t lhs,
-                                               loom_value_facts_t rhs) {
-  return lhs.range_hi < rhs.range_lo || rhs.range_hi < lhs.range_lo;
-}
-
 static bool loom_sanitizer_predicate_is_proven(
     const loom_predicate_t* predicate, loom_rewriter_t* rewriter,
     loom_value_slice_t values) {
-  if (predicate->arg_count == 0 ||
-      predicate->arg_tags[0] != LOOM_PRED_ARG_VALUE || predicate->args[0] < 0) {
-    return false;
-  }
-  const loom_value_id_t target_value = (loom_value_id_t)predicate->args[0];
-  if (!loom_sanitizer_find_value(values, target_value, NULL)) {
-    return false;
-  }
-  loom_value_facts_t target_facts =
-      loom_rewriter_value_facts(rewriter, target_value);
-
-  loom_value_facts_t rhs_facts = {0};
-  int64_t rhs_exact = 0;
-  int64_t lower = 0;
-  int64_t upper = 0;
-  switch (predicate->kind) {
-    case LOOM_PREDICATE_EQ:
-      if (loom_value_facts_is_float(target_facts)) {
-        return false;
-      }
-      if (!loom_sanitizer_predicate_arg_facts(predicate, 1, rewriter, values,
-                                              &rhs_facts) ||
-          loom_value_facts_is_float(rhs_facts)) {
-        return false;
-      }
-      return loom_value_facts_is_exact(target_facts) &&
-             loom_value_facts_is_exact(rhs_facts) &&
-             target_facts.range_lo == rhs_facts.range_lo;
-    case LOOM_PREDICATE_NE:
-      if (loom_value_facts_is_float(target_facts)) {
-        return false;
-      }
-      if (!loom_sanitizer_predicate_arg_facts(predicate, 1, rewriter, values,
-                                              &rhs_facts) ||
-          loom_value_facts_is_float(rhs_facts)) {
-        return false;
-      }
-      if (loom_value_facts_as_exact_i64(rhs_facts, &rhs_exact) &&
-          rhs_exact == 0 && loom_value_facts_is_non_zero(target_facts)) {
-        return true;
-      }
-      return loom_sanitizer_ranges_are_disjoint(target_facts, rhs_facts);
-    case LOOM_PREDICATE_LT:
-      if (loom_value_facts_is_float(target_facts)) {
-        return false;
-      }
-      if (!loom_sanitizer_predicate_arg_facts(predicate, 1, rewriter, values,
-                                              &rhs_facts) ||
-          loom_value_facts_is_float(rhs_facts)) {
-        return false;
-      }
-      return target_facts.range_hi < rhs_facts.range_lo;
-    case LOOM_PREDICATE_LE:
-      if (loom_value_facts_is_float(target_facts)) {
-        return false;
-      }
-      if (!loom_sanitizer_predicate_arg_facts(predicate, 1, rewriter, values,
-                                              &rhs_facts) ||
-          loom_value_facts_is_float(rhs_facts)) {
-        return false;
-      }
-      return target_facts.range_hi <= rhs_facts.range_lo;
-    case LOOM_PREDICATE_GT:
-      if (loom_value_facts_is_float(target_facts)) {
-        return false;
-      }
-      if (!loom_sanitizer_predicate_arg_facts(predicate, 1, rewriter, values,
-                                              &rhs_facts) ||
-          loom_value_facts_is_float(rhs_facts)) {
-        return false;
-      }
-      return target_facts.range_lo > rhs_facts.range_hi;
-    case LOOM_PREDICATE_GE:
-      if (loom_value_facts_is_float(target_facts)) {
-        return false;
-      }
-      if (!loom_sanitizer_predicate_arg_facts(predicate, 1, rewriter, values,
-                                              &rhs_facts) ||
-          loom_value_facts_is_float(rhs_facts)) {
-        return false;
-      }
-      return target_facts.range_lo >= rhs_facts.range_hi;
-    case LOOM_PREDICATE_MUL:
-      if (loom_value_facts_is_float(target_facts)) {
-        return false;
-      }
-      if (!loom_sanitizer_predicate_arg_facts(predicate, 1, rewriter, values,
-                                              &rhs_facts) ||
-          !loom_value_facts_as_exact_i64(rhs_facts, &rhs_exact) ||
-          rhs_exact == 0) {
-        return false;
-      }
-      return loom_value_facts_divisible_by(target_facts, rhs_exact);
-    case LOOM_PREDICATE_MIN:
-      if (loom_value_facts_is_float(target_facts)) {
-        return false;
-      }
-      if (!loom_sanitizer_predicate_arg_facts(predicate, 1, rewriter, values,
-                                              &rhs_facts) ||
-          loom_value_facts_is_float(rhs_facts)) {
-        return false;
-      }
-      return target_facts.range_lo >= rhs_facts.range_hi;
-    case LOOM_PREDICATE_MAX:
-      if (loom_value_facts_is_float(target_facts)) {
-        return false;
-      }
-      if (!loom_sanitizer_predicate_arg_facts(predicate, 1, rewriter, values,
-                                              &rhs_facts) ||
-          loom_value_facts_is_float(rhs_facts)) {
-        return false;
-      }
-      return target_facts.range_hi <= rhs_facts.range_lo;
-    case LOOM_PREDICATE_POW2:
-      if (loom_value_facts_is_float(target_facts)) {
-        return false;
-      }
-      return loom_value_facts_is_power_of_two(target_facts);
-    case LOOM_PREDICATE_RANGE:
-      if (loom_value_facts_is_float(target_facts)) {
-        return false;
-      }
-      if (!loom_sanitizer_predicate_arg_facts(predicate, 1, rewriter, values,
-                                              &rhs_facts) ||
-          !loom_value_facts_as_exact_i64(rhs_facts, &lower) ||
-          !loom_sanitizer_predicate_arg_facts(predicate, 2, rewriter, values,
-                                              &rhs_facts) ||
-          !loom_value_facts_as_exact_i64(rhs_facts, &upper)) {
-        return false;
-      }
-      return target_facts.range_lo >= lower && target_facts.range_hi <= upper;
-    case LOOM_PREDICATE_NOT_NAN:
-      return loom_value_facts_is_not_nan(target_facts);
-    case LOOM_PREDICATE_NOT_INF:
-      return loom_value_facts_is_not_inf(target_facts);
-    case LOOM_PREDICATE_FINITE:
-      return loom_value_facts_is_finite(target_facts) ||
-             (loom_value_facts_is_not_nan(target_facts) &&
-              loom_value_facts_is_not_inf(target_facts));
-    case LOOM_PREDICATE_COUNT_:
+  loom_decision_predicate_operand_t operands[3] = {0};
+  for (uint8_t i = 0; i < predicate->arg_count; ++i) {
+    if (!loom_sanitizer_predicate_arg_operand(predicate, i, rewriter, values,
+                                              &operands[i])) {
       return false;
+    }
   }
-  return false;
+  return loom_decision_predicate_evaluate(predicate->kind, operands) ==
+         LOOM_DECISION_TRUTH_TRUE;
 }
 
 static iree_status_t loom_sanitizer_result_types_for_values(
@@ -1855,24 +1687,4 @@ iree_status_t loom_sanitizer_insert_assertions_run(loom_pass_t* pass,
     loom_pass_value_fact_owner_invalidate(pass->value_facts);
   }
   return status;
-}
-
-static const loom_pass_info_t
-    loom_sanitizer_materialize_assertions_pass_info_storage = {
-        .name = IREE_SVL("sanitizer-materialize-assertions"),
-        .description =
-            IREE_SVL("Materialize sanitizer assertions for target reporting."),
-        .kind = LOOM_PASS_FUNCTION,
-};
-
-const loom_pass_info_t* loom_sanitizer_materialize_assertions_pass_info(void) {
-  return &loom_sanitizer_materialize_assertions_pass_info_storage;
-}
-
-iree_status_t loom_sanitizer_materialize_assertions_run(
-    loom_pass_t* pass, loom_module_t* module, loom_func_like_t function) {
-  (void)pass;
-  (void)module;
-  (void)function;
-  return iree_ok_status();
 }

@@ -22,6 +22,7 @@
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
 #include "loom/ir/ir.h"
+#include "loom/ir/module_source.h"
 #include "loom/ir/parameterized_attr.h"
 #include "loom/ir/type_dependencies.h"
 #include "loom/ir/value_refs.h"
@@ -248,22 +249,6 @@ static inline loom_value_ordinal_t loom_module_value_ordinal_scratch_lookup(
   return loom_value_u32_scratch_load(scratch, value_id);
 }
 
-// Registers a source identifier (filename, system tag, etc.) in |module| and
-// returns its module-local ID. The name is copied into module-owned arena
-// storage. If the same name is already registered, returns the existing ID
-// without allocating.
-iree_status_t loom_module_register_source(loom_module_t* module,
-                                          iree_string_view_t name,
-                                          loom_source_id_t* out_source_id);
-
-// Appends a source identifier known to be absent from |module| and returns its
-// module-local ID. The name is copied into module-owned arena storage. Callers
-// establish uniqueness at their input boundary; use
-// loom_module_register_source when the name may already be present.
-iree_status_t loom_module_append_source(loom_module_t* module,
-                                        iree_string_view_t name,
-                                        loom_source_id_t* out_source_id);
-
 // Attaches the file header to |module|. Each line omits the leading // and its
 // conventional single separating space; additional indentation remains part
 // of the payload. The payloads are copied into |module|. A module has at most
@@ -480,7 +465,9 @@ iree_status_t loom_module_verify_canonical_attr_dict(
 // distinct encodings so text output can emit unambiguous alias definitions.
 // `name_id` and `alias_id` must be pre-interned in the module's string table.
 // Parameters may point to temporary storage; they are recursively
-// canonicalized into module-owned arena storage.
+// canonicalized into module-owned arena storage. Duplicate candidates release
+// their copied parameters. Failure preserves existing encoding rows and their
+// index; family-alias expansion may still intern string names before failing.
 iree_status_t loom_module_add_encoding(loom_module_t* module,
                                        const loom_encoding_t* encoding,
                                        uint16_t* out_encoding_id);
@@ -730,12 +717,14 @@ uint16_t loom_block_remove_args(loom_module_t* module, loom_block_t* block,
                                 const bool* remove_args,
                                 uint16_t remove_arg_count);
 
-// Appends an op to the end of a block.
+// Appends an op to the end of a block. Returns RESOURCE_EXHAUSTED if the block
+// has reached its sparse ordinal capacity.
 iree_status_t loom_block_append_op(loom_module_t* module, loom_block_t* block,
                                    loom_op_t* op);
 
 // Inserts an op before |before_op| in |block|. |before_op| must be a live op
-// in the block. Passing NULL appends.
+// in the block. Passing NULL appends. Returns RESOURCE_EXHAUSTED if the block
+// has reached its sparse ordinal capacity.
 iree_status_t loom_block_insert_before_op(loom_module_t* module,
                                           loom_block_t* block,
                                           loom_op_t* before_op, loom_op_t* op);
@@ -743,7 +732,8 @@ iree_status_t loom_block_insert_before_op(loom_module_t* module,
 // Inserts an op at |index| in the block. This is a cold indexed helper for
 // diagnostics and tests; hot mutation paths should carry an op pointer and use
 // loom_block_insert_before_op.
-// If index == block->op_count, equivalent to append.
+// If index == block->op_count, equivalent to append. Returns RESOURCE_EXHAUSTED
+// if the block has reached its sparse ordinal capacity.
 iree_status_t loom_block_insert_op(loom_module_t* module, loom_block_t* block,
                                    iree_host_size_t index, loom_op_t* op);
 

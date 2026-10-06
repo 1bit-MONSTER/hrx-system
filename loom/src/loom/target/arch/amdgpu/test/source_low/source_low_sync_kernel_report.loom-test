@@ -16,3 +16,24 @@ COMPILE-REPORT: summary artifact=none status=OK function=- backend=- bundle=- ex
 COMPILE-REPORT: workload workgroup_size=64x1x1 flat_workgroup_size=64 workgroup_count=1x1x1 dispatch_workgroup_count=1 dispatch_workitem_count=64
 COMPILE-REPORT: source_low selected_ops=1 emitted_ops=1 rows=1
 COMPILE-REPORT: source_low[0] function=report_single_subgroup_workgroup_barrier source_op=kernel.barrier selection=plan plan_key=amdgpu.kernel_barrier.strategy.lds_wait.single_subgroup_workgroup emitted_ops=1
+
+// ====
+
+amdgpu.target<gfx12-generic> @target
+
+kernel.def target(@target) @report_split_workgroup_barrier() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch() {
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  kernel.barrier.wait %phase : kernel.barrier.phase
+  kernel.return
+}
+
+// ----
+COMPILE-REPORT: summary artifact=none status=OK function=- backend=- bundle=- export=- export_symbol=- config=- lowered=-
+COMPILE-REPORT: workload workgroup_size=64x1x1 flat_workgroup_size=64 workgroup_count=1x1x1 dispatch_workgroup_count=1 dispatch_workitem_count=64
+COMPILE-REPORT: source_low selected_ops=2 emitted_ops=2 rows=2
+COMPILE-REPORT: source_low[0] function=report_split_workgroup_barrier source_op=kernel.barrier.arrive selection=plan plan_key=amdgpu.kernel_barrier.strategy.split_barrier.arrive emitted_ops=1
+COMPILE-REPORT: source_low[1] function=report_split_workgroup_barrier source_op=kernel.barrier.wait selection=plan plan_key=amdgpu.kernel_barrier.strategy.split_barrier.wait emitted_ops=1

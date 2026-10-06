@@ -511,6 +511,10 @@ static iree_status_t loom_ir_clone_op_impl(
                sizeof(loom_attribute_t));
   }
 
+  if (remap->clone_observer.fn != NULL) {
+    IREE_RETURN_IF_ERROR(remap->clone_observer.fn(
+        remap->clone_observer.user_data, source_op, target_op));
+  }
   if (source_op->region_count > 0) {
     loom_builder_ip_t saved_ip = loom_builder_save(builder);
     builder->ip.parent_op = target_op;
@@ -529,6 +533,10 @@ static iree_status_t loom_ir_clone_op_impl(
   IREE_RETURN_IF_ERROR(loom_builder_finalize_op(builder, target_op));
   IREE_RETURN_IF_ERROR(loom_ir_clone_op_comments(remap, source_op, target_op));
   loom_ir_remap_record_cloned_op(remap, source_op, target_op);
+  if (remap->clone_observer.finish_fn != NULL) {
+    remap->clone_observer.finish_fn(remap->clone_observer.user_data, source_op,
+                                    target_op);
+  }
   *out_cloned_op = target_op;
   return iree_ok_status();
 }

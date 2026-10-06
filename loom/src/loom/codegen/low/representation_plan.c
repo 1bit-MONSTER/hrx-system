@@ -18,6 +18,8 @@ struct loom_low_representation_node_t {
   uint16_t rank;
   // Selected physical representation, or NONE when unconstrained.
   loom_low_representation_id_t selected_representation;
+  // Whether the component has at least one exact candidate domain.
+  bool has_domain;
   // First exact candidate constraint attached to this component.
   loom_low_representation_constraint_t* constraint_head;
   // Last constraint attached to this component.
@@ -29,6 +31,8 @@ struct loom_low_representation_constraint_t {
   loom_low_representation_constraint_t* next;
   // Number of exact candidates stored inline.
   uint16_t candidate_count;
+  // True when the candidates form an exact domain instead of cost rows.
+  bool defines_domain;
   // Inline copied exact candidates.
   loom_low_representation_candidate_t candidates[];
 };
@@ -123,40 +127,45 @@ static bool loom_low_representation_aggregate_cost_less(
 static bool loom_low_representation_plan_solve_component(
     loom_low_representation_node_t* root,
     loom_low_representation_conflict_t* out_conflict) {
-  const loom_low_representation_constraint_t* first = root->constraint_head;
-  if (first == NULL) {
+  if (!root->has_domain) {
     root->selected_representation = LOOM_LOW_REPRESENTATION_ID_NONE;
     return true;
+  }
+
+  const loom_low_representation_constraint_t* first_domain =
+      root->constraint_head;
+  while (!first_domain->defines_domain) {
+    first_domain = first_domain->next;
   }
 
   loom_low_representation_id_t best_representation =
       LOOM_LOW_REPRESENTATION_ID_NONE;
   loom_low_representation_aggregate_cost_t best_cost = {UINT64_MAX, UINT64_MAX};
-  for (uint16_t i = 0; i < first->candidate_count; ++i) {
-    const loom_low_representation_candidate_t* first_candidate =
-        &first->candidates[i];
-    loom_low_representation_aggregate_cost_t aggregate_cost = {
-        .runtime = first_candidate->cost.runtime,
-        .code_size = first_candidate->cost.code_size,
-    };
+  for (uint16_t i = 0; i < first_domain->candidate_count; ++i) {
+    const loom_low_representation_candidate_t* domain_candidate =
+        &first_domain->candidates[i];
+    loom_low_representation_aggregate_cost_t aggregate_cost = {0};
     bool exact = true;
-    for (const loom_low_representation_constraint_t* constraint = first->next;
+    for (const loom_low_representation_constraint_t* constraint =
+             root->constraint_head;
          constraint != NULL; constraint = constraint->next) {
       const loom_low_representation_candidate_t* candidate =
           loom_low_representation_constraint_find_candidate(
-              constraint, first_candidate->representation);
-      if (candidate == NULL) {
+              constraint, domain_candidate->representation);
+      if (candidate == NULL && constraint->defines_domain) {
         exact = false;
         break;
       }
-      aggregate_cost.runtime += candidate->cost.runtime;
-      aggregate_cost.code_size += candidate->cost.code_size;
+      if (candidate != NULL) {
+        aggregate_cost.runtime += candidate->cost.runtime;
+        aggregate_cost.code_size += candidate->cost.code_size;
+      }
     }
     if (exact && (best_representation == LOOM_LOW_REPRESENTATION_ID_NONE ||
                   loom_low_representation_aggregate_cost_less(
-                      aggregate_cost, first_candidate->representation,
+                      aggregate_cost, domain_candidate->representation,
                       best_cost, best_representation))) {
-      best_representation = first_candidate->representation;
+      best_representation = domain_candidate->representation;
       best_cost = aggregate_cost;
     }
   }
@@ -221,13 +230,14 @@ iree_status_t loom_low_representation_plan_union(
   if (merged->constraint_tail != NULL) {
     root->constraint_tail = merged->constraint_tail;
   }
+  root->has_domain |= merged->has_domain;
   return iree_ok_status();
 }
 
-iree_status_t loom_low_representation_plan_constrain(
+static iree_status_t loom_low_representation_plan_append_constraint(
     loom_low_representation_plan_t* plan, loom_value_ordinal_t value_ordinal,
     const loom_low_representation_candidate_t* candidates,
-    iree_host_size_t candidate_count) {
+    iree_host_size_t candidate_count, bool defines_domain) {
   IREE_ASSERT_ARGUMENT(plan);
   IREE_ASSERT(!plan->solved);
   IREE_ASSERT_ARGUMENT(candidates);
@@ -256,6 +266,7 @@ iree_status_t loom_low_representation_plan_constrain(
       iree_arena_allocate(plan->arena, allocation_size, (void**)&constraint));
   constraint->next = NULL;
   constraint->candidate_count = (uint16_t)candidate_count;
+  constraint->defines_domain = defines_domain;
   memcpy(constraint->candidates, candidates,
          candidate_count * sizeof(*candidates));
   if (root->constraint_tail != NULL) {
@@ -264,7 +275,26 @@ iree_status_t loom_low_representation_plan_constrain(
     root->constraint_head = constraint;
   }
   root->constraint_tail = constraint;
+  root->has_domain |= defines_domain;
   return iree_ok_status();
+}
+
+iree_status_t loom_low_representation_plan_constrain(
+    loom_low_representation_plan_t* plan, loom_value_ordinal_t value_ordinal,
+    const loom_low_representation_candidate_t* candidates,
+    iree_host_size_t candidate_count) {
+  return loom_low_representation_plan_append_constraint(
+      plan, value_ordinal, candidates, candidate_count,
+      /*defines_domain=*/true);
+}
+
+iree_status_t loom_low_representation_plan_contribute_costs(
+    loom_low_representation_plan_t* plan, loom_value_ordinal_t value_ordinal,
+    const loom_low_representation_candidate_t* candidates,
+    iree_host_size_t candidate_count) {
+  return loom_low_representation_plan_append_constraint(
+      plan, value_ordinal, candidates, candidate_count,
+      /*defines_domain=*/false);
 }
 
 bool loom_low_representation_plan_component_is_constrained(
@@ -280,7 +310,7 @@ bool loom_low_representation_plan_component_is_constrained(
   }
   const uint32_t root_ordinal =
       loom_low_representation_plan_find_root(plan, node_ordinal);
-  return plan->nodes[root_ordinal].constraint_head != NULL;
+  return plan->nodes[root_ordinal].has_domain;
 }
 
 bool loom_low_representation_plan_solve(

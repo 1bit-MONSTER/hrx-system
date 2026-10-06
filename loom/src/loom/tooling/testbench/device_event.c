@@ -8,6 +8,8 @@
 
 #include <string.h>
 
+#include "loom/util/json.h"
+
 static bool loom_testbench_device_event_copy_string(
     iree_string_view_t source, char* storage, iree_host_size_t storage_capacity,
     iree_string_view_t* out_target) {
@@ -102,6 +104,48 @@ static bool loom_testbench_device_event_record_copy(
   return true;
 }
 
+static iree_string_view_t loom_testbench_device_event_rebind_string(
+    iree_string_view_t source, const char* target_storage) {
+  return iree_string_view_is_empty(source)
+             ? iree_string_view_empty()
+             : iree_make_string_view(target_storage, source.size);
+}
+
+static iree_const_byte_span_t loom_testbench_device_event_rebind_bytes(
+    iree_const_byte_span_t source, const uint8_t* target_storage) {
+  return iree_const_byte_span_is_empty(source)
+             ? iree_const_byte_span_empty()
+             : iree_make_const_byte_span(target_storage, source.data_length);
+}
+
+static void loom_testbench_device_event_record_clone(
+    const loom_testbench_device_event_record_t* source,
+    loom_testbench_device_event_record_t* target) {
+  *target = *source;
+  target->event.source.device_id = loom_testbench_device_event_rebind_string(
+      source->event.source.device_id, target->source_device_id_storage);
+  target->event.source.driver_id = loom_testbench_device_event_rebind_string(
+      source->event.source.driver_id, target->source_driver_id_storage);
+  target->event.payload = loom_testbench_device_event_rebind_bytes(
+      source->event.payload, target->payload_storage);
+  target->event.implementation_payload =
+      loom_testbench_device_event_rebind_bytes(
+          source->event.implementation_payload,
+          target->implementation_payload_storage);
+  target->event.site = target->has_site ? &target->site : NULL;
+  if (!target->has_site) {
+    return;
+  }
+  target->site.source_file = loom_testbench_device_event_rebind_string(
+      source->site.source_file, target->site_source_file_storage);
+  target->site.function_name = loom_testbench_device_event_rebind_string(
+      source->site.function_name, target->site_function_name_storage);
+  target->site.operation_name = loom_testbench_device_event_rebind_string(
+      source->site.operation_name, target->site_operation_name_storage);
+  target->site.producer_payload = loom_testbench_device_event_rebind_bytes(
+      source->site.producer_payload, target->site_producer_payload_storage);
+}
+
 static void loom_testbench_device_event_capture_callback(
     void* user_data, const iree_hal_device_event_t* event) {
   loom_testbench_device_event_capture_t* capture =
@@ -135,10 +179,6 @@ iree_status_t loom_testbench_device_event_capture_initialize(
   iree_status_t status = iree_allocator_malloc_array(
       out_capture->host_allocator, record_capacity,
       sizeof(*out_capture->records), (void**)&out_capture->records);
-  if (iree_status_is_ok(status)) {
-    memset(out_capture->records, 0,
-           record_capacity * sizeof(*out_capture->records));
-  }
   if (!iree_status_is_ok(status)) {
     loom_testbench_device_event_capture_deinitialize(out_capture);
   }
@@ -184,4 +224,188 @@ void loom_testbench_device_event_capture_events(
       .dropped_count = capture->dropped_count,
   };
   iree_slim_mutex_unlock(&capture->mutex);
+}
+
+iree_status_t loom_testbench_device_event_capture_snapshot(
+    loom_testbench_device_event_capture_t* capture,
+    iree_allocator_t host_allocator,
+    loom_testbench_device_event_snapshot_t* out_snapshot) {
+  IREE_ASSERT(iree_allocator_is_null(out_snapshot->host_allocator) &&
+              out_snapshot->records == NULL &&
+              out_snapshot->events.records == NULL &&
+              out_snapshot->events.count == 0 &&
+              out_snapshot->events.dropped_count == 0);
+  const iree_allocator_t resolved_allocator =
+      iree_allocator_is_null(host_allocator) ? iree_allocator_system()
+                                             : host_allocator;
+  iree_slim_mutex_lock(&capture->mutex);
+  loom_testbench_device_event_record_t* records = NULL;
+  iree_status_t status = iree_ok_status();
+  if (capture->record_count != 0) {
+    status =
+        iree_allocator_malloc_array(resolved_allocator, capture->record_count,
+                                    sizeof(*records), (void**)&records);
+  }
+  if (iree_status_is_ok(status)) {
+    for (iree_host_size_t i = 0; i < capture->record_count; ++i) {
+      loom_testbench_device_event_record_clone(&capture->records[i],
+                                               &records[i]);
+    }
+    *out_snapshot = (loom_testbench_device_event_snapshot_t){
+        .host_allocator = resolved_allocator,
+        .records = records,
+        .events =
+            {
+                .records = records,
+                .count = capture->record_count,
+                .dropped_count = capture->dropped_count,
+            },
+    };
+  }
+  iree_slim_mutex_unlock(&capture->mutex);
+  return status;
+}
+
+void loom_testbench_device_event_snapshot_deinitialize(
+    loom_testbench_device_event_snapshot_t* snapshot) {
+  if (snapshot == NULL) {
+    return;
+  }
+  iree_allocator_free(snapshot->host_allocator, snapshot->records);
+  *snapshot = (loom_testbench_device_event_snapshot_t){0};
+}
+
+iree_host_size_t loom_testbench_device_event_unhandled_error_count(
+    const loom_testbench_device_event_list_t* events,
+    const uint8_t* expected_events) {
+  iree_host_size_t count = 0;
+  for (iree_host_size_t i = 0; i < events->count; ++i) {
+    if (events->records[i].event.severity >=
+            IREE_HAL_DEVICE_EVENT_SEVERITY_ERROR &&
+        (expected_events == NULL || !expected_events[i])) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+static const char* loom_testbench_device_event_type_name(
+    iree_hal_device_event_type_t type) {
+  switch (type) {
+    case IREE_HAL_DEVICE_EVENT_TYPE_NONE:
+      return "none";
+    case IREE_HAL_DEVICE_EVENT_TYPE_DRIVER_FAILURE:
+      return "driver_failure";
+    case IREE_HAL_DEVICE_EVENT_TYPE_ASAN_REPORT:
+      return "asan_report";
+    case IREE_HAL_DEVICE_EVENT_TYPE_UBSAN_REPORT:
+      return "ubsan_report";
+    case IREE_HAL_DEVICE_EVENT_TYPE_TSAN_REPORT:
+      return "tsan_report";
+    case IREE_HAL_DEVICE_EVENT_TYPE_PRINTF:
+      return "printf";
+    case IREE_HAL_DEVICE_EVENT_TYPE_HOST_CALL:
+      return "host_call";
+    default:
+      return "unknown";
+  }
+}
+
+static const char* loom_testbench_device_event_severity_name(
+    iree_hal_device_event_severity_t severity) {
+  switch (severity) {
+    case IREE_HAL_DEVICE_EVENT_SEVERITY_TRACE:
+      return "trace";
+    case IREE_HAL_DEVICE_EVENT_SEVERITY_INFO:
+      return "info";
+    case IREE_HAL_DEVICE_EVENT_SEVERITY_WARNING:
+      return "warning";
+    case IREE_HAL_DEVICE_EVENT_SEVERITY_ERROR:
+      return "error";
+    case IREE_HAL_DEVICE_EVENT_SEVERITY_FATAL:
+      return "fatal";
+    default:
+      return "unknown";
+  }
+}
+
+static iree_status_t loom_testbench_device_event_site_write_json(
+    const iree_hal_device_event_site_t* site, loom_output_stream_t* stream) {
+  loom_json_object_writer_t object;
+  IREE_RETURN_IF_ERROR(loom_json_object_begin(stream, &object));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
+      &object, IREE_SV("site_id"), site->site_id));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_string_field_if_nonempty(
+      &object, IREE_SV("source_file"), site->source_file));
+  if (site->start_line != 0) {
+    IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
+        &object, IREE_SV("start_line"), site->start_line));
+    IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
+        &object, IREE_SV("start_column"), site->start_column));
+  }
+  if (site->end_line != 0) {
+    IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
+        &object, IREE_SV("end_line"), site->end_line));
+    IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
+        &object, IREE_SV("end_column"), site->end_column));
+  }
+  IREE_RETURN_IF_ERROR(loom_json_object_write_string_field_if_nonempty(
+      &object, IREE_SV("function"), site->function_name));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_string_field_if_nonempty(
+      &object, IREE_SV("operation"), site->operation_name));
+  return loom_json_object_end(&object);
+}
+
+static iree_status_t loom_testbench_device_event_write_json(
+    const iree_hal_device_event_t* event, loom_output_stream_t* stream) {
+  loom_json_object_writer_t object;
+  IREE_RETURN_IF_ERROR(loom_json_object_begin(stream, &object));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_string_field(
+      &object, IREE_SV("type"),
+      iree_make_cstring_view(
+          loom_testbench_device_event_type_name(event->type))));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_string_field(
+      &object, IREE_SV("severity"),
+      iree_make_cstring_view(
+          loom_testbench_device_event_severity_name(event->severity))));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_string_field_if_nonempty(
+      &object, IREE_SV("driver"), event->source.driver_id));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_string_field_if_nonempty(
+      &object, IREE_SV("device"), event->source.device_id));
+  if (event->site != NULL) {
+    IREE_RETURN_IF_ERROR(
+        loom_json_object_begin_field(&object, IREE_SV("site")));
+    IREE_RETURN_IF_ERROR(
+        loom_testbench_device_event_site_write_json(event->site, stream));
+  }
+  return loom_json_object_end(&object);
+}
+
+iree_status_t loom_testbench_device_event_failure_write_json(
+    const loom_testbench_device_event_list_t* events,
+    const uint8_t* expected_events, iree_host_size_t unhandled_error_count,
+    loom_output_stream_t* stream) {
+  loom_json_object_writer_t object;
+  IREE_RETURN_IF_ERROR(loom_json_object_begin(stream, &object));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_host_size_field(
+      &object, IREE_SV("captured_count"), events->count));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_host_size_field(
+      &object, IREE_SV("dropped_count"), events->dropped_count));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_host_size_field(
+      &object, IREE_SV("unhandled_error_count"), unhandled_error_count));
+  IREE_RETURN_IF_ERROR(
+      loom_json_object_begin_field(&object, IREE_SV("unhandled_errors")));
+  loom_json_array_writer_t unhandled_errors;
+  IREE_RETURN_IF_ERROR(loom_json_array_begin(stream, &unhandled_errors));
+  for (iree_host_size_t i = 0; i < events->count; ++i) {
+    const iree_hal_device_event_t* event = &events->records[i].event;
+    if (event->severity < IREE_HAL_DEVICE_EVENT_SEVERITY_ERROR ||
+        (expected_events != NULL && expected_events[i])) {
+      continue;
+    }
+    IREE_RETURN_IF_ERROR(loom_json_array_begin_element(&unhandled_errors));
+    IREE_RETURN_IF_ERROR(loom_testbench_device_event_write_json(event, stream));
+  }
+  IREE_RETURN_IF_ERROR(loom_json_array_end(&unhandled_errors));
+  return loom_json_object_end(&object);
 }

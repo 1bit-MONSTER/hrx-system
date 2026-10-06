@@ -68,10 +68,29 @@ ERR_SYMBOL_005 = ErrorDef(
     params=(ErrorParam("symbol_name", ParamKind.STRING),),
 )
 
+# ERR_SYMBOL_006: A semantic relation between symbols is invalid.
+ERR_SYMBOL_006 = ErrorDef(
+    domain=ErrorDomain.SYMBOL,
+    code=6,
+    severity=Severity.ERROR,
+    summary="Invalid symbol relation.",
+    message=(
+        "symbol relation '{relation}' from '@{source_symbol}' to "
+        "'@{target_symbol}' is invalid: {reason}"
+    ),
+    params=(
+        ErrorParam("relation", ParamKind.STRING),
+        ErrorParam("source_symbol", ParamKind.STRING),
+        ErrorParam("target_symbol", ParamKind.STRING),
+        ErrorParam("reason", ParamKind.STRING),
+    ),
+)
+
 ALL_SYMBOL_ERRORS: tuple[ErrorDef, ...] = (
     ERR_SYMBOL_001,
     ERR_SYMBOL_002,
     ERR_SYMBOL_003,
     ERR_SYMBOL_004,
     ERR_SYMBOL_005,
+    ERR_SYMBOL_006,
 )

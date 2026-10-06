@@ -239,6 +239,24 @@ class PresubmitTest(unittest.TestCase):
                 presubmit.run_build_filename_check(["runtime/deleted/BUILD"])
             )
 
+    def test_project_build_tools_route_only_their_owning_project(self):
+        cases = (
+            ("runtime/build_tools/presubmit.py", {"runtime"}),
+            ("libamdf/build_tools/presubmit.py", {"libamdf"}),
+            ("libhrx/build_tools/presubmit.py", {"libhrx"}),
+            ("loom/build_tools/presubmit.py", {"loom"}),
+            (
+                "build_tools/devtools/project_presubmit.py",
+                {"runtime", "libamdf", "libhrx", "loom"},
+            ),
+        )
+        for path, expected_projects in cases:
+            with self.subTest(path=path):
+                self.assertEqual(
+                    {project.name for project in presubmit.projects_for_paths([path])},
+                    expected_projects,
+                )
+
     def test_semgrep_candidates_require_configured_prefix_and_extension(self):
         with (
             mock.patch.object(presubmit, "SEMGREP_PATH_PREFIXES", ("project/src/",)),
@@ -247,6 +265,14 @@ class PresubmitTest(unittest.TestCase):
             self.assertTrue(presubmit.is_semgrep_candidate_file("project/src/file.c"))
             self.assertFalse(presubmit.is_semgrep_candidate_file("project/src/file.h"))
             self.assertFalse(presubmit.is_semgrep_candidate_file("other/src/file.c"))
+
+    def test_semgrep_candidate_includes_exact_target_diagnostic_catalog(self):
+        self.assertTrue(
+            presubmit.is_semgrep_candidate_file("loom/py/loom/error/target.py")
+        )
+        self.assertFalse(
+            presubmit.is_semgrep_candidate_file("loom/py/loom/error/xdna.py")
+        )
 
     def test_semgrep_scan_command_uses_local_error_rules(self):
         with mock.patch.dict(os.environ, {"IREE_SEMGREP_JOBS": "7"}):
@@ -258,9 +284,48 @@ class PresubmitTest(unittest.TestCase):
         self.assertIn("--strict", command)
         self.assertIn("--error", command)
         self.assertIn("ERROR", command)
-        self.assertIn(presubmit.SEMGREP_CONFIG, command)
+        for config in presubmit.SEMGREP_CONFIGS:
+            self.assertIn(config, command)
         self.assertIn("7", command)
         self.assertEqual(command[-1], "runtime/src/iree/base/status.c")
+
+    def test_semgrep_test_command_uses_owned_rule_fixtures(self):
+        command = presubmit.semgrep_test_command()
+
+        self.assertEqual(command[0:2], ["semgrep", "test"])
+        self.assertIn("--strict", command)
+        self.assertIn(presubmit.SEMGREP_CONFIG, command)
+        for path in presubmit.SEMGREP_TEST_PATHS:
+            self.assertIn(path, command)
+
+    def test_semgrep_documentation_candidates_are_scoped(self):
+        for path in (
+            "docs/reference/amd/README.md",
+            "docs/reference/amd/gpu/pm4/dispatch.md",
+            "docs/reference/amd/xdna/execution.rst",
+            "libamdf/docs/memory.md",
+            "libamdf/docs/experimental/README.md",
+            "libamdf/README.md",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(presubmit.is_semgrep_candidate_file(path))
+                self.assertFalse(presubmit.is_clang_tidy_candidate_file(path))
+        for path in (
+            "docs/reference/amd-other/README.md",
+            "docs/README.md",
+            "libamdf/README.extra.md",
+            "libamdf/docs-other/README.md",
+            "libamdf/cts/README.md",
+            "libamdf/experimental/cts/README.md",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(presubmit.is_semgrep_candidate_file(path))
+
+    def test_semgrep_validation_includes_all_configs(self):
+        command = presubmit.semgrep_validate_command()
+        self.assertIn("--validate", command)
+        for config in presubmit.SEMGREP_CONFIGS:
+            self.assertIn(config, command)
 
     def test_libamdf_static_analysis_scope_includes_sources_and_headers(self):
         for path in (
@@ -580,6 +645,11 @@ class PresubmitTest(unittest.TestCase):
                 "loom/build_tools/amdgpu/target_config.bzl"
             )
         )
+        self.assertTrue(
+            presubmit.is_bazel_to_cmake_global_trigger(
+                "loom/build_tools/bazel_to_cmake/loom_corpus.py"
+            )
+        )
 
     def test_bazel_to_cmake_skips_unrelated_paths(self):
         with (
@@ -643,6 +713,23 @@ class PresubmitTest(unittest.TestCase):
             {"wasm", "vm"}.issubset(target_flag.split("=", 1)[1].split(","))
         )
         self.assertEqual(command[command.index("--") + 1 :], targets)
+
+    def test_clang_tidy_bazel_command_uses_selected_execution_policy(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                presubmit.project_presubmit.BAZEL_CONFIGS_ENV: json.dumps(
+                    ["remote-execution", "local-tests"]
+                )
+            },
+            clear=True,
+        ):
+            command = presubmit.clang_tidy_bazel_command(
+                ["//runtime/src/iree/base:all"]
+            )
+
+        self.assertIn("--config=remote-execution", command)
+        self.assertIn("--config=local-tests", command)
 
     def test_clang_tidy_bazel_command_obeys_configured_jobs(self):
         with mock.patch.dict(os.environ, {"IREE_CLANG_TIDY_JOBS": "7"}):
@@ -1354,6 +1441,59 @@ class PresubmitTest(unittest.TestCase):
         self.assertIn("[skip]", output.getvalue())
         self.assertIn("[fail]", output.getvalue())
 
+    def test_semgrep_config_change_tests_rules_and_scans_policy_files(self):
+        inputs = input_scope([presubmit.SEMGREP_CONFIG])
+        with (
+            mock.patch.object(presubmit.sys, "platform", "linux"),
+            mock.patch.object(
+                presubmit.shutil, "which", return_value="/usr/bin/semgrep"
+            ),
+            mock.patch.object(
+                presubmit, "run_command", return_value=True
+            ) as run_command,
+            mock.patch.object(
+                presubmit, "run_parallel_commands", return_value=True
+            ) as run_parallel_commands,
+        ):
+            ok = presubmit.run_semgrep(inputs, profile="paranoid", verbose=False)
+
+        self.assertTrue(ok)
+        self.assertEqual(
+            [call.args[1] for call in run_command.call_args_list],
+            ["Semgrep config validation", "Semgrep rule tests"],
+        )
+        scan_commands = run_parallel_commands.call_args.args[0]
+        self.assertTrue(
+            any(
+                policy_path in command
+                for command in scan_commands
+                for policy_path in presubmit.SEMGREP_POLICY_PATHS
+            )
+        )
+
+    def test_semgrep_fixture_change_runs_tests_without_scanning_fixture(self):
+        fixture_path = next(iter(presubmit.SEMGREP_TEST_PATHS))
+        inputs = input_scope([fixture_path])
+        with (
+            mock.patch.object(presubmit.sys, "platform", "linux"),
+            mock.patch.object(
+                presubmit.shutil, "which", return_value="/usr/bin/semgrep"
+            ),
+            mock.patch.object(
+                presubmit, "run_command", return_value=True
+            ) as run_command,
+            mock.patch.object(
+                presubmit, "run_parallel_commands"
+            ) as run_parallel_commands,
+        ):
+            ok = presubmit.run_semgrep(inputs, profile="paranoid", verbose=False)
+
+        self.assertTrue(ok)
+        run_command.assert_called_once_with(
+            presubmit.semgrep_test_command(), "Semgrep rule tests", False
+        )
+        run_parallel_commands.assert_not_called()
+
     def test_semgrep_is_explicitly_delegated_to_linux_on_windows(self):
         output = io.StringIO()
         inputs = input_scope(["runtime/src/iree/base/status.c"])
@@ -1370,6 +1510,73 @@ class PresubmitTest(unittest.TestCase):
         require_tool.assert_not_called()
         run_command.assert_not_called()
         self.assertIn("enforced by the Linux paranoid presubmit", output.getvalue())
+
+    def test_documentation_rule_changes_validate_and_test_semgrep(self):
+        with (
+            mock.patch.object(presubmit.sys, "platform", "linux"),
+            mock.patch.object(presubmit.shutil, "which", return_value="semgrep"),
+            mock.patch.object(presubmit, "run_command", return_value=True) as run,
+            mock.patch.object(presubmit, "run_parallel_commands") as scan,
+        ):
+            self.assertTrue(
+                presubmit.run_semgrep(
+                    input_scope([presubmit.SEMGREP_DOCUMENTATION_CONFIG]),
+                    profile="ci",
+                    verbose=False,
+                )
+            )
+        self.assertEqual(len(run.call_args_list), 2)
+        self.assertEqual(
+            run.call_args_list[0].args[0], presubmit.semgrep_validate_command()
+        )
+        self.assertEqual(
+            run.call_args_list[1].args[0],
+            [sys.executable, presubmit.SEMGREP_DOCUMENTATION_TEST],
+        )
+        scan.assert_not_called()
+
+    def test_documentation_rule_test_change_runs_semgrep_regression(self):
+        with (
+            mock.patch.object(presubmit.sys, "platform", "linux"),
+            mock.patch.object(presubmit.shutil, "which", return_value="semgrep"),
+            mock.patch.object(presubmit, "run_command", return_value=False) as run,
+        ):
+            self.assertFalse(
+                presubmit.run_semgrep(
+                    input_scope([presubmit.SEMGREP_DOCUMENTATION_TEST]),
+                    profile="ci",
+                    verbose=False,
+                )
+            )
+        self.assertEqual(
+            run.call_args.args[0],
+            [sys.executable, presubmit.SEMGREP_DOCUMENTATION_TEST],
+        )
+
+    def test_documentation_findings_fail_semgrep_without_code_inputs(self):
+        paths = [
+            "docs/reference/amd/README.md",
+            "libamdf/docs/memory.md",
+            "libamdf/cts/README.md",
+        ]
+        with (
+            mock.patch.object(presubmit.sys, "platform", "linux"),
+            mock.patch.object(presubmit.shutil, "which", return_value="semgrep"),
+            mock.patch.object(
+                presubmit, "existing_files", side_effect=lambda paths: paths
+            ),
+            mock.patch.object(presubmit, "run_command") as run,
+            mock.patch.object(
+                presubmit, "run_parallel_commands", return_value=False
+            ) as scan,
+        ):
+            self.assertFalse(
+                presubmit.run_semgrep(input_scope(paths), profile="ci", verbose=False)
+            )
+        run.assert_not_called()
+        self.assertEqual(
+            scan.call_args.args[0], [presubmit.semgrep_scan_command(paths[:2])]
+        )
 
     def test_workflows_and_requirements_trigger_devtools_tests(self):
         self.assertTrue(
@@ -1392,7 +1599,7 @@ class PresubmitTest(unittest.TestCase):
                 [],
             ),
             (
-                [".github/workflows/ci_core_windows.yml"],
+                [".github/workflows/ci_libhrx.yml"],
                 [presubmit.DEVTOOLS_PRESUBMIT_TEST_TARGET],
             ),
             (
@@ -1404,6 +1611,14 @@ class PresubmitTest(unittest.TestCase):
             ),
             (
                 ["build_tools/lefthook/presubmit.py"],
+                [presubmit.LEFTHOOK_PRESUBMIT_TEST_TARGET],
+            ),
+            (
+                [presubmit.SEMGREP_CONFIG],
+                [presubmit.LEFTHOOK_PRESUBMIT_TEST_TARGET],
+            ),
+            (
+                [next(iter(presubmit.SEMGREP_TEST_PATHS))],
                 [presubmit.LEFTHOOK_PRESUBMIT_TEST_TARGET],
             ),
             (
@@ -1458,8 +1673,7 @@ class PresubmitTest(unittest.TestCase):
     def test_vulkan_environment_tests_follow_changed_inputs_on_linux(self):
         for path in (
             ".github/scripts/check_vulkan_hardware_environment.sh",
-            ".github/workflows/ci_iree_bazel.yml",
-            ".github/workflows/ci_iree_cmake.yml",
+            ".github/workflows/ci_iree.yml",
             "build_tools/ci/vulkan_environment.py",
             "build_tools/ci/vulkan_environment_test.py",
             "build_tools/ci/BUILD.bazel",
@@ -1473,11 +1687,60 @@ class PresubmitTest(unittest.TestCase):
                         host_platform == "linux",
                     )
 
+    def test_change_scope_test_follows_changed_inputs_on_linux(self):
+        cases = (
+            ("build_tools/ci/change_scope.py", True),
+            ("build_tools/ci/change_scope_test.py", True),
+            ("build_tools/ci/BUILD.bazel", True),
+            ("build_tools/ci/windows_diagnostics.py", False),
+            (".github/workflows/docs.yml", False),
+        )
+        for path, owns_test in cases:
+            for host_platform in ("linux", "win32", "darwin"):
+                with self.subTest(path=path, platform=host_platform):
+                    with mock.patch.object(presubmit.sys, "platform", host_platform):
+                        targets = presubmit.repository_tool_test_targets([path])
+                    self.assertEqual(
+                        presubmit.CHANGE_SCOPE_TEST_TARGET in targets,
+                        owns_test and host_platform == "linux",
+                    )
+
     def test_existing_project_scripts_include_all_projects(self):
         self.assertEqual(
             {"libamdf", "libhrx", "loom", "runtime"},
             {project.name for project in presubmit.existing_project_scripts()},
         )
+
+    def test_repository_tool_tests_use_selected_execution_policy(self):
+        with (
+            mock.patch.dict(
+                os.environ,
+                {
+                    presubmit.project_presubmit.BAZEL_CONFIGS_ENV: json.dumps(
+                        ["remote-execution", "local-tests"]
+                    )
+                },
+                clear=True,
+            ),
+            mock.patch.object(
+                presubmit,
+                "repository_tool_test_targets",
+                return_value=["//build_tools/performance:performance_test"],
+            ),
+            mock.patch.object(
+                presubmit, "run_command", return_value=True
+            ) as run_command,
+        ):
+            self.assertTrue(
+                presubmit.run_repository_tool_tests(
+                    ["build_tools/performance/x.py"], False
+                )
+            )
+
+        command = run_command.call_args.args[0]
+        self.assertEqual(command[:3], ["bazel", "test", "--config=presubmit"])
+        self.assertIn("--config=remote-execution", command)
+        self.assertIn("--config=local-tests", command)
 
     def test_project_hygiene_dispatch_uses_project_presubmit_interface(self):
         project = presubmit.Project(

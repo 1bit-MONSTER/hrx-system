@@ -80,6 +80,16 @@ typedef iree_status_t (*loom_materialize_value_fn_t)(
     loom_builder_t* builder, loom_type_t result_type,
     loom_location_id_t location, loom_value_id_t* out_value_id);
 
+// Called before an exact fold when the attached fact table has retained
+// predicate-bearing identities. The callback consumes those observations
+// through ordinary rewriter mutations before the proven fold completes.
+typedef struct loom_rewriter_pending_exact_relations_callback_t {
+  // Callback state borrowed for the call.
+  void* user_data;
+  // Optional pending-relation consumer.
+  iree_status_t (*fn)(void* user_data, loom_rewriter_t* rewriter);
+} loom_rewriter_pending_exact_relations_callback_t;
+
 typedef struct loom_rewriter_cfg_region_t loom_rewriter_cfg_region_t;
 
 struct loom_rewriter_t {
@@ -138,6 +148,10 @@ struct loom_rewriter_t {
   // enabling analysis. NULL means try_fold cannot materialize
   // constants (facts are still computed and propagated).
   loom_materialize_constant_fn_t materialize_constant;
+
+  // Optional consumer invoked when an exact fold has retained relations.
+  loom_rewriter_pending_exact_relations_callback_t
+      pending_exact_relations_callback;
 };
 
 // Initializes mutation tracking without allocating storage. Worklist scheduling
@@ -374,6 +388,14 @@ iree_status_t loom_rewriter_move_region_blocks(
 iree_status_t loom_rewriter_set_operand(loom_rewriter_t* rewriter,
                                         loom_op_t* op, uint16_t operand_index,
                                         loom_value_id_t new_value);
+
+// Replaces the complete operand tuple of |op| and publishes the semantic
+// mutation once after all changed use-list edges have been retargeted. This is
+// equivalent to setting each changed operand individually, without exposing
+// analyses or worklist consumers to intermediate tuples.
+iree_status_t loom_rewriter_set_operands(loom_rewriter_t* rewriter,
+                                         loom_op_t* op,
+                                         const loom_value_id_t* new_values);
 
 // Changes the type of a value. Adds all users of the value to the
 // worklist since they may be simplifiable with the new type (e.g.,

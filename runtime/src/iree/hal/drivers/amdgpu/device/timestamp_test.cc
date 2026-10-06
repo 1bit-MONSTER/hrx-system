@@ -102,13 +102,15 @@ TEST(TimestampTest, ProfileDispatchHarvestUsesTimestampRangeTarget) {
 TEST(TimestampTest, EmplacesDispatchHarvestPacketAndKernargs) {
   iree_hal_amdgpu_device_kernel_args_t kernel_args = MakeTimestampKernelArgs();
   iree_hsa_kernel_dispatch_packet_t packet = {};
+  uint16_t setup = 0xBEEFu;
   packet.header = 0xFFFFu;
+  packet.setup = 0xA5A5u;
   alignas(16) std::array<uint8_t, 256> kernargs = {};
   const uint32_t source_count = 65;
 
   iree_hal_amdgpu_dispatch_timestamp_harvest_source_t* sources =
       iree_hal_amdgpu_device_timestamp_emplace_dispatch_harvest(
-          &kernel_args, source_count, &packet, kernargs.data());
+          &kernel_args, source_count, &packet, kernargs.data(), &setup);
   const auto* args = reinterpret_cast<
       const iree_hal_amdgpu_dispatch_timestamp_harvest_args_t*>(
       kernargs.data());
@@ -123,7 +125,8 @@ TEST(TimestampTest, EmplacesDispatchHarvestPacketAndKernargs) {
           iree_hal_amdgpu_device_timestamp_dispatch_harvest_source_offset()));
 
   EXPECT_EQ(packet.header, 0xFFFFu);
-  EXPECT_EQ(packet.setup, 2u);
+  EXPECT_EQ(packet.setup, 0xA5A5u);
+  EXPECT_EQ(setup, 2u);
   EXPECT_EQ(packet.workgroup_size[0], 32u);
   EXPECT_EQ(packet.workgroup_size[1], 1u);
   EXPECT_EQ(packet.workgroup_size[2], 1u);
@@ -138,13 +141,16 @@ TEST(TimestampTest, EmplacesDispatchHarvestPacketAndKernargs) {
 TEST(TimestampTest, EmplacesSignalInitializationPacketAndKernargs) {
   iree_hal_amdgpu_device_kernel_args_t kernel_args = MakeTimestampKernelArgs();
   iree_hsa_kernel_dispatch_packet_t packet = {};
+  uint16_t setup = 0xBEEFu;
   packet.header = 0xFFFFu;
+  packet.setup = 0xA5A5u;
   std::array<iree_amd_signal_t, 3> signals = {};
   alignas(16) std::array<uint8_t, 64> kernargs = {};
   const uint32_t signal_count = static_cast<uint32_t>(signals.size());
 
   iree_hal_amdgpu_device_timestamp_emplace_signal_initialization(
-      &kernel_args, signals.data(), signal_count, &packet, kernargs.data());
+      &kernel_args, signals.data(), signal_count, &packet, kernargs.data(),
+      &setup);
   const auto* args = reinterpret_cast<
       const iree_hal_amdgpu_dispatch_timestamp_signal_initialize_args_t*>(
       kernargs.data());
@@ -153,7 +159,8 @@ TEST(TimestampTest, EmplacesSignalInitializationPacketAndKernargs) {
   EXPECT_EQ(args->signal_count, signal_count);
   EXPECT_EQ(args->reserved0, 0u);
   EXPECT_EQ(packet.header, 0xFFFFu);
-  EXPECT_EQ(packet.setup, 2u);
+  EXPECT_EQ(packet.setup, 0xA5A5u);
+  EXPECT_EQ(setup, 2u);
   EXPECT_EQ(packet.workgroup_size[0], 32u);
   EXPECT_EQ(packet.workgroup_size[1], 1u);
   EXPECT_EQ(packet.workgroup_size[2], 1u);
@@ -189,19 +196,22 @@ TEST(TimestampTest, EmplacesQueueCapturePacketAndKernargs) {
   iree_hal_amdgpu_device_kernel_args_t kernel_args = MakeTimestampKernelArgs();
   kernel_args.workgroup_size[0] = 1;
   iree_hsa_kernel_dispatch_packet_t packet = {};
+  uint16_t setup = 0xBEEFu;
   packet.header = 0xFFFFu;
+  packet.setup = 0xA5A5u;
   alignas(16) std::array<uint8_t, 64> kernargs = {};
   uint64_t target = 0;
 
   iree_hal_amdgpu_device_timestamp_emplace_queue_capture(
-      &kernel_args, &target, &packet, kernargs.data());
+      &kernel_args, &target, &packet, kernargs.data(), &setup);
   const auto* args =
       reinterpret_cast<const iree_hal_amdgpu_queue_timestamp_capture_args_t*>(
           kernargs.data());
 
   EXPECT_EQ(args->target, &target);
   EXPECT_EQ(packet.header, 0xFFFFu);
-  EXPECT_EQ(packet.setup, 2u);
+  EXPECT_EQ(packet.setup, 0xA5A5u);
+  EXPECT_EQ(setup, 2u);
   EXPECT_EQ(packet.workgroup_size[0], 1u);
   EXPECT_EQ(packet.workgroup_size[1], 1u);
   EXPECT_EQ(packet.workgroup_size[2], 1u);

@@ -1,0 +1,219 @@
+// RUN: emit amdgpu-bank-service
+
+amdgpu.target<gfx1100> @target_gfx1100_32 {subgroup_size = 32}
+
+kernel.def target(@target_gfx1100_32) @strided_gfx1100_wave32() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch() {
+  %lane = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %bytes = index.constant 6144 : offset
+  %layout = encoding.layout.strided [24, 1] : encoding<layout>
+  %scratch = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<64x4xi32, %layout>
+  %value = vector.constant 1 : vector<4xi32>
+  vector.store %value, %view[%lane, 0] : vector<4xi32>, view<64x4xi32, %layout>
+  kernel.return
+}
+
+amdgpu.target<gfx1151> @target_gfx1151_64 {subgroup_size = 64}
+
+kernel.def target(@target_gfx1151_64) @strided_gfx1151_wave64() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch() {
+  %lane = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %bytes = index.constant 6144 : offset
+  %layout = encoding.layout.strided [24, 1] : encoding<layout>
+  %scratch = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<64x4xi32, %layout>
+  %value = vector.constant 1 : vector<4xi32>
+  vector.store %value, %view[%lane, 0] : vector<4xi32>, view<64x4xi32, %layout>
+  kernel.return
+}
+
+amdgpu.target<gfx942> @target_gfx942_64 {subgroup_size = 64}
+
+kernel.def target(@target_gfx942_64) @strided_gfx942_wave64() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch() {
+  %lane = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %bytes = index.constant 6144 : offset
+  %layout = encoding.layout.strided [24, 1] : encoding<layout>
+  %scratch = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<64x4xi32, %layout>
+  %value = vector.constant 1 : vector<4xi32>
+  vector.store %value, %view[%lane, 0] : vector<4xi32>, view<64x4xi32, %layout>
+  kernel.return
+}
+
+amdgpu.target<gfx1200> @unmodeled_gfx1200
+
+kernel.def target(@unmodeled_gfx1200) @coverage_gfx1200() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch() {
+  %lane = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %bytes = index.constant 2048 : offset
+  %layout = encoding.layout.strided [16, 1] : encoding<layout>
+  %scratch = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<32x4xi32, %layout>
+  %value = vector.constant 1 : vector<4xi32>
+  vector.store %value, %view[%lane, 0] : vector<4xi32>, view<32x4xi32, %layout>
+  kernel.return
+}
+
+amdgpu.target<gfx1151> @unmodeled_gfx1151
+
+kernel.def target(@unmodeled_gfx1151) @coverage_gfx1151() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch() {
+  %lane = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %bytes = index.constant 2048 : offset
+  %layout = encoding.layout.strided [64, 1] : encoding<layout>
+  %scratch = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<32x4xi8, %layout>
+  %value = vector.constant 1 : vector<1xi8>
+  vector.store %value, %view[%lane, 0] : vector<1xi8>, view<32x4xi8, %layout>
+  kernel.return
+}
+
+// A subgroup-common page offset preserves the per-wave bank profile.
+kernel.def target(@target_gfx1100_32) @staged_rows() {
+  %unit = index.constant 1 : index
+  %columns = index.constant 32 : index
+  %rows = index.constant 2 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%columns, %rows, %unit) : index
+} launch() {
+  %column = kernel.workitem.id<x> : index
+  %row = kernel.workitem.id<y> : index
+  %wave = kernel.subgroup.id : index
+  %page_bytes = index.constant 512 : offset
+  %base = index.scale %wave, %page_bytes : index, offset -> offset
+  %bytes = index.constant 2048 : offset
+  %layout = encoding.layout.strided [4, 128, 1] : encoding<layout>
+  %scratch = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<32x2x4xi32, %layout>
+  %value = vector.constant 1 : vector<4xi32>
+  vector.store %value, %view[%column, %row, 0] : vector<4xi32>, view<32x2x4xi32, %layout>
+  kernel.return
+}
+
+// Row coordinates vary inside each service phase in this workgroup shape.
+kernel.def target(@target_gfx1100_32) @rows_inside_wave() {
+  %unit = index.constant 1 : index
+  %columns = index.constant 4 : index
+  %rows = index.constant 8 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%columns, %rows, %unit) : index
+} launch() {
+  %column = kernel.workitem.id<x> : index
+  %row = kernel.workitem.id<y> : index
+  %base = index.constant 0 : offset
+  %bytes = index.constant 4096 : offset
+  %layout = encoding.layout.strided [4, 128, 1] : encoding<layout>
+  %scratch = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<4x8x4xi32, %layout>
+  %value = vector.constant 1 : vector<4xi32>
+  vector.store %value, %view[%column, %row, 0] : vector<4xi32>, view<4x8x4xi32, %layout>
+  kernel.return
+}
+
+// Eight adjacent lanes cover one row in each b128 write-service phase.
+kernel.def target(@target_gfx1100_32) @digit_rows() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch() {
+  %thread = kernel.workitem.id<x> : index
+  %shift = index.constant 0 : index
+  %coordinate = index.add %thread, %shift : index
+  %columns_per_row = index.constant 8 : index
+  %row = index.div %coordinate, %columns_per_row : index
+  %column = index.rem %coordinate, %columns_per_row : index
+  %base = index.constant 0 : offset
+  %bytes = index.constant 2448 : offset
+  %layout = encoding.layout.strided [36, 4, 1] : encoding<layout>
+  %scratch = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<17x8x4xi32, %layout>
+  %value = vector.constant 1 : vector<4xi32>
+  vector.store %value, %view[%row, %column, 0] : vector<4xi32>, view<17x8x4xi32, %layout>
+  kernel.return
+}
+
+// The shift is inside the row/column decomposition: it can change service
+// groups, unlike a common byte translation of all lane addresses.
+kernel.def target(@target_gfx1100_32) @shifted_digit_rows() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch() {
+  %thread = kernel.workitem.id<x> : index
+  %shift = index.constant 1 : index
+  %coordinate = index.add %thread, %shift : index
+  %columns_per_row = index.constant 8 : index
+  %row = index.div %coordinate, %columns_per_row : index
+  %column = index.rem %coordinate, %columns_per_row : index
+  %base = index.constant 0 : offset
+  %bytes = index.constant 2448 : offset
+  %layout = encoding.layout.strided [36, 4, 1] : encoding<layout>
+  %scratch = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<17x8x4xi32, %layout>
+  %value = vector.constant 1 : vector<4xi32>
+  vector.store %value, %view[%row, %column, 0] : vector<4xi32>, view<17x8x4xi32, %layout>
+  kernel.return
+}
+
+// The loop forwards a scaled digit plus a page offset. Final CSE exposes
+// the identity after CFG cleanup; retaining it must not rematerialize the row.
+kernel.def target(@target_gfx1100_32) @forwarded_digit_rows() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%iterations: index) {
+  %thread = kernel.workitem.id<x> : index
+  %columns_per_row = index.constant 2 : index
+  %page_rows = index.constant 16 : index
+  %row_scale = index.constant 2 : index
+  %row = index.div %thread, %columns_per_row : index
+  %column = index.rem %thread, %columns_per_row : index
+  %initial = index.madd %row, %row_scale, %page_rows : index
+  %base = index.constant 0 : offset
+  %bytes = index.constant 20736 : offset
+  %layout = encoding.layout.strided [36, 4, 1] : encoding<layout>
+  %scratch = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<144x2x4xi32, %layout>
+  %value = vector.constant 1 : vector<4xi32>
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %last = scf.for %iteration = [%begin to %iterations step %step](%carried_row = %initial : index) -> (index) {
+    %next_row = index.madd %row, %row_scale, %page_rows : index
+    vector.store %value, %view[%carried_row, %column, 0] : vector<4xi32>, view<144x2x4xi32, %layout>
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next_row : index
+  }
+  kernel.return
+}
+
+// ----
+bank-service function=strided_gfx1100_wave32 source-op=vector.store root=scratch packet=amdgpu.ds_write_b128 model=amdgpu.lds.gfx1100.wave32.b128.write.count-each proof=exact lane-address=canonical-topology-coordinates-all-waves active-lanes=subgroup-uniform-control-full-wave base-residue=subgroup-uniform-common-translation-all-bank-word-residues classification=conflicted required-rounds=8 uncontended-rounds=4 extra-rounds=4 maximum-multiplicity=2
+bank-service function=strided_gfx1151_wave64 source-op=vector.store root=scratch packet=amdgpu.ds_write_b128 model=amdgpu.lds.gfx1151.wave64.b128.write.count-each proof=exact lane-address=canonical-topology-coordinates-all-waves active-lanes=subgroup-uniform-control-full-wave base-residue=subgroup-uniform-common-translation-all-bank-word-residues classification=conflicted required-rounds=16 uncontended-rounds=8 extra-rounds=8 maximum-multiplicity=2
+bank-service function=strided_gfx942_wave64 source-op=vector.store root=scratch packet=amdgpu.ds_write_b128 model=amdgpu.lds.gfx942.wave64.b128.write.count-each proof=exact lane-address=canonical-topology-coordinates-all-waves active-lanes=subgroup-uniform-control-full-wave base-residue=subgroup-uniform-common-translation-all-bank-word-residues classification=conflicted required-rounds=16 uncontended-rounds=8 extra-rounds=8 maximum-multiplicity=2
+bank-service function=coverage_gfx1200 source-op=vector.store root=scratch packet=amdgpu.ds_write_b128 proof=unmodeled wave-size=32 unknown-reason=target-model-unavailable
+bank-service function=coverage_gfx1151 source-op=vector.store root=scratch packet=amdgpu.ds_write_b8 proof=unmodeled wave-size=32 unknown-reason=packet-wave-model-unavailable
+bank-service function=staged_rows source-op=vector.store root=scratch packet=amdgpu.ds_write_b128 model=amdgpu.lds.gfx1100.wave32.b128.write.count-each proof=exact lane-address=canonical-topology-coordinates-all-waves active-lanes=subgroup-uniform-control-full-wave base-residue=subgroup-uniform-common-translation-all-bank-word-residues classification=conflict-free required-rounds=4 uncontended-rounds=4 extra-rounds=0 maximum-multiplicity=1
+bank-service function=rows_inside_wave source-op=vector.store root=scratch packet=amdgpu.ds_write_b128 model=amdgpu.lds.gfx1100.wave32.b128.write.count-each proof=exact lane-address=canonical-topology-coordinates-all-waves active-lanes=subgroup-uniform-control-full-wave base-residue=subgroup-uniform-common-translation-all-bank-word-residues classification=conflicted required-rounds=8 uncontended-rounds=4 extra-rounds=4 maximum-multiplicity=2
+bank-service function=digit_rows source-op=vector.store root=scratch packet=amdgpu.ds_write_b128 model=amdgpu.lds.gfx1100.wave32.b128.write.count-each proof=exact lane-address=canonical-topology-digits-all-waves active-lanes=subgroup-uniform-control-full-wave base-residue=subgroup-uniform-common-translation-all-bank-word-residues classification=conflict-free required-rounds=4 uncontended-rounds=4 extra-rounds=0 maximum-multiplicity=1
+bank-service function=shifted_digit_rows source-op=vector.store root=scratch packet=amdgpu.ds_write_b128 model=amdgpu.lds.gfx1100.wave32.b128.write.count-each proof=exact lane-address=canonical-topology-digits-all-waves active-lanes=subgroup-uniform-control-full-wave base-residue=subgroup-uniform-common-translation-all-bank-word-residues classification=conflicted required-rounds=8 uncontended-rounds=4 extra-rounds=4 maximum-multiplicity=2
+bank-service function=forwarded_digit_rows source-op=vector.store root=scratch packet=amdgpu.ds_write_b128 model=amdgpu.lds.gfx1100.wave32.b128.write.count-each proof=exact lane-address=canonical-topology-digits-all-waves active-lanes=subgroup-uniform-control-full-wave base-residue=subgroup-uniform-common-translation-all-bank-word-residues classification=conflict-free required-rounds=4 uncontended-rounds=4 extra-rounds=0 maximum-multiplicity=1

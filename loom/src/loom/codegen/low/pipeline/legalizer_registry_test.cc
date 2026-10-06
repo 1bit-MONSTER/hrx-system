@@ -42,11 +42,16 @@ static const loom_target_legalizer_entry_t* LookupOnlyEntry(
 static void ExpectReferenceProvider(
     const loom_target_legalizer_registry_t* registry, loom_op_kind_t op_kind,
     iree_string_view_t expected_name) {
-  const loom_target_legalizer_entry_t* entry =
-      LookupOnlyEntry(registry, op_kind);
-  ASSERT_NE(entry, nullptr);
-  EXPECT_TRUE(iree_string_view_equal(entry->provider_name, expected_name));
-  EXPECT_EQ(entry->provider_strategy, LOOM_TARGET_LEGALIZER_STRATEGY_REFERENCE);
+  const loom_target_legalizer_op_entry_t op_entry =
+      loom_target_legalizer_registry_lookup_kind(registry, op_kind);
+  ASSERT_GT(op_entry.entry_count, 0u);
+  for (uint32_t i = 0; i < op_entry.entry_count; ++i) {
+    const loom_target_legalizer_entry_t& entry =
+        registry->entries[op_entry.entry_start + i];
+    EXPECT_TRUE(iree_string_view_equal(entry.provider_name, expected_name));
+    EXPECT_EQ(entry.provider_strategy,
+              LOOM_TARGET_LEGALIZER_STRATEGY_REFERENCE);
+  }
 }
 
 TEST(LowLegalizerRegistryTest, TargetProvidersPrecedeGenericProviders) {
@@ -54,6 +59,7 @@ TEST(LowLegalizerRegistryTest, TargetProvidersPrecedeGenericProviders) {
       {/*.flags=*/LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REWRITE_LEGAL,
        /*.root_kind=*/LOOM_OP_SCALAR_EXTF,
        /*.first_operand_element_types=*/0,
+       /*.match=*/nullptr,
        /*.legalize=*/TargetLegalize},
   };
   const loom_target_legalizer_provider_t target_provider = {
@@ -92,6 +98,14 @@ TEST(LowLegalizerRegistryTest, TargetProvidersPrecedeGenericProviders) {
             LOOM_TARGET_LEGALIZER_STRATEGY_REFERENCE);
 
   ExpectReferenceProvider(registry, LOOM_OP_BUFFER_COPY, IREE_SV("buffer"));
+  ExpectReferenceProvider(registry, LOOM_OP_SCALAR_SITOFP,
+                          IREE_SV("conversion"));
+  ExpectReferenceProvider(registry, LOOM_OP_VECTOR_SITOFP,
+                          IREE_SV("conversion"));
+  ExpectReferenceProvider(registry, LOOM_OP_SCALAR_FPTOUI,
+                          IREE_SV("conversion"));
+  ExpectReferenceProvider(registry, LOOM_OP_VECTOR_FPTOUI,
+                          IREE_SV("conversion"));
   ExpectReferenceProvider(registry, LOOM_OP_VECTOR_REDUCE, IREE_SV("vector"));
   ExpectReferenceProvider(registry, LOOM_OP_VIEW_ATOMIC_RMW, IREE_SV("view"));
 

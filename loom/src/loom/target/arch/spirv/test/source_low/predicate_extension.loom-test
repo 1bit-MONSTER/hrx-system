@@ -1,0 +1,72 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/predicate_extension.loom-test
+// RUN: emit source-low target=spirv:vulkan1.3+bda+extended-types output=low control-flow=structured-low
+
+func.def @predicate_extension_i8(%condition: i1) -> (i8, i8) {
+  %signed = scalar.extsi %condition : i1 to i8
+  %unsigned = scalar.extui %condition : i1 to i8
+  func.return %signed, %unsigned : i8, i8
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @predicate_extension_i8(%condition: reg<spirv.id : i1>) -> (reg<spirv.id : i8>, reg<spirv.id : i8>) asm {
+  %14 = OpConstant.i8 -1
+  %15 = OpConstant.i8 0
+  %signed = OpSelect.i8 %condition, %14, %15
+  %17 = OpConstant.i8 1
+  %unsigned = OpSelect.i8 %condition, %17, %15
+  return %signed, %unsigned
+}
+
+// ====
+
+func.def @predicate_extension_i16(%condition: i1) -> (i16, i16) {
+  %signed = scalar.extsi %condition : i1 to i16
+  %unsigned = scalar.extui %condition : i1 to i16
+  func.return %signed, %unsigned : i16, i16
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @predicate_extension_i16(%condition: reg<spirv.id : i1>) -> (reg<spirv.id : i16>, reg<spirv.id : i16>) asm {
+  %14 = OpConstant.i16 -1
+  %15 = OpConstant.i16 0
+  %signed = OpSelect.i16 %condition, %14, %15
+  %17 = OpConstant.i16 1
+  %unsigned = OpSelect.i16 %condition, %17, %15
+  return %signed, %unsigned
+}
+
+// ====
+
+func.def @predicate_extension_i32(%condition: i1) -> (i32, i32) {
+  %signed = scalar.extsi %condition : i1 to i32
+  %unsigned = scalar.extui %condition : i1 to i32
+  func.return %signed, %unsigned : i32, i32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @predicate_extension_i32(%condition: reg<spirv.id : i1>) -> (reg<spirv.id : i32>, reg<spirv.id : i32>) asm {
+  %14 = OpConstant.i32 -1
+  %15 = OpConstant.i32 0
+  %signed = OpSelect %condition, %14, %15
+  %17 = OpConstant.i32 1
+  %unsigned = OpSelect %condition, %17, %15
+  return %signed, %unsigned
+}
+
+// ====
+
+func.def @predicate_extension_i64(%condition: i1) -> (i64, i64) {
+  %signed = scalar.extsi %condition : i1 to i64
+  %unsigned = scalar.extui %condition : i1 to i64
+  func.return %signed, %unsigned : i64, i64
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @predicate_extension_i64(%condition: reg<spirv.id : i1>) -> (reg<spirv.id : i64>, reg<spirv.id : i64>) asm {
+  %14 = OpConstant.i64 -1
+  %15 = OpConstant.i64 0
+  %signed = OpSelect.i64 %condition, %14, %15
+  %17 = OpConstant.i64 1
+  %unsigned = OpSelect.i64 %condition, %17, %15
+  return %signed, %unsigned
+}

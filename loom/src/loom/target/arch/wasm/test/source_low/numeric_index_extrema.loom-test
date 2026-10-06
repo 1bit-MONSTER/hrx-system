@@ -1,0 +1,16 @@
+// RUN: emit source-low target=wasm:simd128 output=low
+
+func.def @index_extrema(%lhs: index, %rhs: index) -> (index, index) {
+  %minimum = index.min %lhs, %rhs : index
+  %maximum = index.max %lhs, %rhs : index
+  func.return %minimum, %maximum : index, index
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @index_extrema(%lhs: reg<wasm.i32>, %rhs: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>) asm {
+  %10 = i32.lt_s %lhs, %rhs
+  %minimum = i32.select %lhs, %rhs, %10
+  %12 = i32.gt_s %lhs, %rhs
+  %maximum = i32.select %lhs, %rhs, %12
+  return %minimum, %maximum
+}

@@ -23,6 +23,7 @@ from loom.target.arch.spirv.atomic import (
     AtomicStorageClass,
     atomic_descriptor_key,
     cmpxchg_failure_orderings,
+    float_atomic_cas_strategies,
     float_atomic_descriptor_key,
 )
 from loom.target.arch.spirv.contracts.descriptor_rule import (
@@ -323,6 +324,15 @@ def _float_atomic_rule(
         descriptor=descriptor,
         guards=(
             Guard.enum_attr_equals("kind", operation.source_kind),
+            *(
+                (
+                    Guard.instance_flags_has_all("memory_flags", "noftz")
+                    if strategy == "cas_preserve"
+                    else Guard.instance_flags_has_none("memory_flags", "noftz"),
+                )
+                if operation.source_kind == "addf"
+                else ()
+            ),
             Guard.enum_attr_equals("ordering", ordering.source_keyword),
             Guard.enum_attr_equals("scope", scope.source_keyword),
             Guard.value_type("view", View(scalar.source_type)),
@@ -474,29 +484,24 @@ def _float_atomic_rules(
                                 )
                             )
                             continue
-                        if operation.supports_reduce:
-                            rules.append(
-                                _float_atomic_rule(
-                                    "reduce",
-                                    "cas",
-                                    scalar,
-                                    storage_class,
-                                    coordinate_type,
-                                    scope,
-                                    ordering,
-                                    operation,
-                                )
-                            )
-                        rules.append(
+                        rules.extend(
                             _float_atomic_rule(
-                                "rmw",
-                                "cas",
+                                form,
+                                strategy,
                                 scalar,
                                 storage_class,
                                 coordinate_type,
                                 scope,
                                 ordering,
                                 operation,
+                            )
+                            for strategy in float_atomic_cas_strategies(
+                                scalar, operation
+                            )
+                            for form in (
+                                ("reduce", "rmw")
+                                if operation.supports_reduce
+                                else ("rmw",)
                             )
                         )
                 if scalar.integer_scalar_enum is None:

@@ -22,14 +22,6 @@ static iree_status_t loom_pass_tool_verify_options(
   return loom_pass_environment_verify(&options->environment);
 }
 
-static void loom_pass_tool_accumulate_result(
-    loom_pass_run_result_t* result,
-    const loom_pass_run_result_t* invocation_result) {
-  result->error_count += invocation_result->error_count;
-  result->warning_count += invocation_result->warning_count;
-  result->remark_count += invocation_result->remark_count;
-}
-
 static iree_status_t loom_pass_tool_run_program(
     loom_module_t* module, const loom_pass_program_t* program,
     const loom_pass_tool_run_options_t* options,
@@ -43,62 +35,8 @@ static iree_status_t loom_pass_tool_run_program(
       .report = options->report,
       .trace = options->trace,
   };
-  if (program->root_kind == LOOM_PASS_MODULE) {
-    return loom_pass_interpreter_run_module(program, module,
-                                            &interpreter_options, out_result);
-  }
-  if (program->root_kind != LOOM_PASS_FUNCTION) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "unsupported pass pipeline root kind %d",
-                            (int)program->root_kind);
-  }
-
-  iree_arena_allocator_t snapshot_arena;
-  iree_arena_initialize(options->block_pool, &snapshot_arena);
-  uint16_t* symbol_ids = NULL;
-  iree_status_t status = iree_arena_allocate_array(
-      &snapshot_arena, module->symbols.count > 0 ? module->symbols.count : 1,
-      sizeof(*symbol_ids), (void**)&symbol_ids);
-  iree_host_size_t symbol_count = 0;
-  if (iree_status_is_ok(status)) {
-    for (iree_host_size_t i = 0; i < module->symbols.count; ++i) {
-      loom_symbol_t* symbol = &module->symbols.entries[i];
-      if (!loom_symbol_implements(symbol, LOOM_SYMBOL_INTERFACE_FUNC_LIKE)) {
-        continue;
-      }
-      loom_func_like_t function =
-          loom_func_like_cast(module, symbol->defining_op);
-      if (!loom_func_like_body(function)) {
-        continue;
-      }
-      symbol_ids[symbol_count++] = (uint16_t)i;
-    }
-  }
-
-  for (iree_host_size_t i = 0; i < symbol_count && iree_status_is_ok(status) &&
-                               out_result->error_count == 0;
-       ++i) {
-    uint16_t symbol_id = symbol_ids[i];
-    if (symbol_id >= module->symbols.count) {
-      continue;
-    }
-    loom_symbol_t* symbol = &module->symbols.entries[symbol_id];
-    if (!loom_symbol_implements(symbol, LOOM_SYMBOL_INTERFACE_FUNC_LIKE)) {
-      continue;
-    }
-    loom_func_like_t function =
-        loom_func_like_cast(module, symbol->defining_op);
-    if (!loom_func_like_body(function)) {
-      continue;
-    }
-    loom_pass_run_result_t invocation_result = {0};
-    status = loom_pass_interpreter_run_function(
-        program, module, function, &interpreter_options, &invocation_result);
-    loom_pass_tool_accumulate_result(out_result, &invocation_result);
-  }
-
-  iree_arena_deinitialize(&snapshot_arena);
-  return status;
+  return loom_pass_interpreter_run_program(program, module,
+                                           &interpreter_options, out_result);
 }
 
 iree_status_t loom_pass_tool_run_pipeline_op(

@@ -8,7 +8,7 @@
 
 #include "loom/target/pass_environment.h"
 #include "loom/transforms/boundary/projection_driver.h"
-#include "loom/transforms/encoding/cfg_layout_projection.h"
+#include "loom/transforms/encoding/layout_projection.h"
 
 #define LOOM_CFG_LAYOUT_TRANSPORT_STATISTICS(V, statistics_type)       \
   V(statistics_type, layouts_decomposed, "layouts-decomposed",         \
@@ -51,7 +51,7 @@ iree_status_t loom_decompose_cfg_layout_transports_run(loom_pass_t* pass,
                                        .values = rules,
                                        .count = IREE_ARRAYSIZE(rules),
                                    },
-                                   &projection_statistics);
+                                   /*plan_sink=*/NULL, &projection_statistics);
 
   if (iree_status_is_ok(status)) {
     loom_cfg_layout_transport_statistics_t* statistics =

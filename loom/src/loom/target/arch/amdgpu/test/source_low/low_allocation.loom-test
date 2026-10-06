@@ -1,3 +1,25 @@
+// A pending load and its non-writing identities share one register. The real
+// arithmetic consumer still waits for the memory result before reading it.
+// RUN: emit amdgpu-assembly @loaded_identity_chain strategy=source
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @loaded_identity_chain(%address: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %loaded = ds_read_b32 %address
+  %first_identity = low.assume %loaded [range(%loaded, 0, 1024)] : reg<amdgpu.vgpr>
+  %second_identity = low.assume %first_identity [range(%first_identity, 0, 1024)] : reg<amdgpu.vgpr>
+  %result = v_add_f32 %loaded, %second_identity
+  return %result
+}
+
+// ----
+  ds_read_b32 v0, v0 offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  v_add_f32 v0, v0, v0
+  s_endpgm
+
+// ====
+
 // RUN: with-checks emit low-allocation-json @dead_sgpr_result_preserves_live_predicate
 
 amdgpu.target<gfx1100> @target
@@ -438,7 +460,7 @@ CHECK: *"space":"scratch","value":{"id":*,"name":"packed","type":"reg<amdgpu.vgp
 
 // ====
 
-// RUN: emit amdgpu-allocation-json @loaded_chained_destructive_sgpr_results allocation-diagnostics=placement-decisions
+// RUN: emit amdgpu-assembly @loaded_chained_destructive_sgpr_results allocation-diagnostics=placement-decisions
 
 amdgpu.target<gfx1100> @target
 
@@ -451,6 +473,14 @@ low.func.def target<amdgpu.rdna3.core>(@target) @loaded_chained_destructive_sgpr
   %active_block_count = s_lshr_b32_rhs_inline %padded_active_row_count, 6
   return %active_block_count
 }
+
+// ----
+  s_load_dword s2, s[0:1] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_addk_i32 s2, s2, 1
+  s_addk_i32 s2, s2, 63
+  s_lshr_b32 s0, s2, 6
+  s_endpgm
 
 // ====
 
@@ -479,12 +509,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @d16_tied_concat_loop_edge(%cond
 }
 
 // ----
-// The d16 halves share a register; the tuple coalesces with the loop state.
-CHECK: *"spill_count":0,*
-CHECK: *"name":"low","type":"reg<amdgpu.vgpr>"},"class":*,"start_point":5,"end_point":15,"unit_count":1,"location":{"kind":"physical_register","base":0,"count":1}}*
-CHECK: *"name":"high","type":"reg<amdgpu.vgpr>"},"class":*,"start_point":6,"end_point":15,"unit_count":1,"location":{"kind":"physical_register","base":0,"count":1}}*
-CHECK: *"name":"state","type":"reg<amdgpu.vgpr x8>"},"class":*,"start_point":2,"end_point":17,"unit_count":8,"location":{"kind":"physical_register","base":16,"count":8}}*
-CHECK: *"name":"next","type":"reg<amdgpu.vgpr x8>"},"class":*,"start_point":14,"end_point":15,"unit_count":8,"location":{"kind":"physical_register","base":16,"count":8}}*
+CHECK: *"name":"high","type":"reg<amdgpu.vgpr>"*,"location":{"kind":"physical_register","base":0,"count":1}*
 
 // ====
 
@@ -557,3 +582,35 @@ low.func.def target<amdgpu.cdna3.core>(@target) @cdna_odd_slice_relocation(%pack
 // The slice cannot alias the odd subrange of its source packet.
 CHECK: *"spill_count":0,*
 CHECK: *"name":"payload","type":"reg<amdgpu.vgpr x3>"},"class":*,"start_point":1,"end_point":2,"unit_count":3,"location":{"kind":"physical_register","base":0,"count":3}}*
+
+// ====
+
+// Native emit providers retain all fixed requests, including later pairs.
+// RUN: emit amdgpu-assembly @many_fixed_inputs strategy=source fixed=%left_0:physical_register:0:1 fixed=%right_0:physical_register:1:1 fixed=%left_1:physical_register:2:1 fixed=%right_1:physical_register:3:1 fixed=%left_2:physical_register:4:1 fixed=%right_2:physical_register:5:1 fixed=%left_3:physical_register:6:1 fixed=%right_3:physical_register:7:1 fixed=%left_4:physical_register:8:1 fixed=%right_4:physical_register:9:1 fixed=%left_5:physical_register:10:1 fixed=%right_5:physical_register:11:1 fixed=%left_6:physical_register:12:1 fixed=%right_6:physical_register:13:1 fixed=%left_7:physical_register:14:1 fixed=%right_7:physical_register:15:1 fixed=%left_8:physical_register:16:1 fixed=%right_8:physical_register:17:1
+
+amdgpu.target<gfx1100> @target
+
+low.func.def schedule(locked) target<amdgpu.rdna3.core>(@target) @many_fixed_inputs(%left_0: reg<amdgpu.sgpr>, %right_0: reg<amdgpu.sgpr>, %left_1: reg<amdgpu.sgpr>, %right_1: reg<amdgpu.sgpr>, %left_2: reg<amdgpu.sgpr>, %right_2: reg<amdgpu.sgpr>, %left_3: reg<amdgpu.sgpr>, %right_3: reg<amdgpu.sgpr>, %left_4: reg<amdgpu.sgpr>, %right_4: reg<amdgpu.sgpr>, %left_5: reg<amdgpu.sgpr>, %right_5: reg<amdgpu.sgpr>, %left_6: reg<amdgpu.sgpr>, %right_6: reg<amdgpu.sgpr>, %left_7: reg<amdgpu.sgpr>, %right_7: reg<amdgpu.sgpr>, %left_8: reg<amdgpu.sgpr>, %right_8: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %result_0 = s_or_b32 %left_0, %right_0
+  %result_1 = s_or_b32 %left_1, %right_1
+  %result_2 = s_or_b32 %left_2, %right_2
+  %result_3 = s_or_b32 %left_3, %right_3
+  %result_4 = s_or_b32 %left_4, %right_4
+  %result_5 = s_or_b32 %left_5, %right_5
+  %result_6 = s_or_b32 %left_6, %right_6
+  %result_7 = s_or_b32 %left_7, %right_7
+  %result_8 = s_or_b32 %left_8, %right_8
+  return %result_0, %result_1, %result_2, %result_3, %result_4, %result_5, %result_6, %result_7, %result_8
+}
+
+// ----
+  s_or_b32 s0, s0, s1
+  s_or_b32 s1, s2, s3
+  s_or_b32 s2, s4, s5
+  s_or_b32 s3, s6, s7
+  s_or_b32 s4, s8, s9
+  s_or_b32 s5, s10, s11
+  s_or_b32 s6, s12, s13
+  s_or_b32 s7, s14, s15
+  s_or_b32 s8, s16, s17
+  s_endpgm

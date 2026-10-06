@@ -44,6 +44,13 @@ bool iree_benchmark_loom_case_matches_selection(
          iree_string_view_equal(case_plan->name, selected_case_name);
 }
 
+bool iree_benchmark_loom_scenario_matches_selection(
+    const loom_testbench_scenario_plan_t* scenario_plan,
+    iree_string_view_t selected_record_name) {
+  return iree_string_view_is_empty(selected_record_name) ||
+         iree_string_view_equal(scenario_plan->name, selected_record_name);
+}
+
 bool iree_benchmark_loom_benchmark_matches_selection(
     const loom_testbench_benchmark_plan_t* benchmark_plan,
     iree_string_view_t selected_benchmark_name) {

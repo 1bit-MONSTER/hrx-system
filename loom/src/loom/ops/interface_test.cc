@@ -144,6 +144,7 @@ TEST_F(InterfaceTest, CallLikeCastReturnsValidForInvoke) {
   EXPECT_EQ(loom_call_like_purity(call), 0);
   EXPECT_EQ(loom_call_like_operand_offset(call), 0);
   EXPECT_EQ(loom_call_like_result_offset(call), 0);
+  EXPECT_TRUE(loom_call_like_is_direct_semantic(call));
   EXPECT_EQ(loom_call_like_callee(call).symbol_id, func_ref_.symbol_id);
 
   loom_string_id_t replacement_name_id = LOOM_STRING_ID_INVALID;
@@ -171,6 +172,7 @@ TEST_F(InterfaceTest, CallLikeCastReturnsNullForNonCall) {
   loom_op_t* constant_op = build_i32(42);
   loom_call_like_t call = loom_call_like_cast(module_, constant_op);
   EXPECT_FALSE(loom_call_like_isa(call));
+  EXPECT_FALSE(loom_call_like_is_direct_semantic(call));
   EXPECT_EQ(call.op, nullptr);
   EXPECT_EQ(call.vtable, nullptr);
 }
@@ -195,6 +197,7 @@ TEST_F(InterfaceTest, CallLikeSpansTrailingOperandPartitions) {
   loom_call_like_t call = loom_call_like_cast(module_, call_op);
   EXPECT_EQ(loom_call_like_kind(call), LOOM_CALL_LIKE_KIND_COMMAND_PROGRAM);
   EXPECT_EQ(loom_call_like_operand_offset(call), 2);
+  EXPECT_FALSE(loom_call_like_is_direct_semantic(call));
   loom_value_slice_t operands = loom_call_like_operands(call);
   ASSERT_EQ(operands.count, 2);
   EXPECT_EQ(operands.values[0], specializations[0]);
@@ -218,7 +221,37 @@ TEST_F(InterfaceTest, FuncLikeCastReturnsValidForFunc) {
   EXPECT_EQ(func_like.op, func_op_);
   EXPECT_NE(func_like.vtable, nullptr);
   EXPECT_EQ(loom_func_like_body(func_like), body_);
+  const loom_region_descriptor_t* body_descriptor =
+      loom_func_like_body_region_descriptor(module_, func_like);
+  ASSERT_NE(body_descriptor, nullptr);
+  EXPECT_EQ(body_descriptor->terminator, LOOM_OP_TEST_YIELD);
   EXPECT_EQ(loom_func_like_repr_contract(func_like), LOOM_STRING_ID_INVALID);
+}
+
+TEST_F(InterfaceTest, FuncLikeBodyExitRequiresDirectBodyTerminator) {
+  loom_op_t* nested_region_op = nullptr;
+  IREE_ASSERT_OK(loom_test_isolated_region_build(
+      &builder_, /*result_types=*/nullptr, /*result_count=*/0,
+      /*tied_results=*/nullptr, /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN,
+      &nested_region_op));
+  const loom_builder_ip_t saved_ip = loom_builder_enter_region(
+      &builder_, nested_region_op,
+      loom_test_isolated_region_body(nested_region_op));
+  loom_op_t* nested_yield = nullptr;
+  IREE_ASSERT_OK(loom_test_yield_build(&builder_, /*values=*/nullptr,
+                                       /*values_count=*/0,
+                                       LOOM_LOCATION_UNKNOWN, &nested_yield));
+  loom_builder_restore(&builder_, saved_ip);
+  loom_op_t* body_yield = nullptr;
+  IREE_ASSERT_OK(loom_test_yield_build(&builder_, /*values=*/nullptr,
+                                       /*values_count=*/0,
+                                       LOOM_LOCATION_UNKNOWN, &body_yield));
+
+  EXPECT_FALSE(
+      loom_func_like_op_is_body_exit(module_, func_like_, nested_yield));
+  EXPECT_TRUE(loom_func_like_op_is_body_exit(module_, func_like_, body_yield));
+  EXPECT_FALSE(
+      loom_func_like_op_is_body_exit(module_, func_like_, nested_region_op));
 }
 
 TEST_F(InterfaceTest, FuncLikeCastReturnsNullForNonFunc) {
@@ -227,6 +260,35 @@ TEST_F(InterfaceTest, FuncLikeCastReturnsNullForNonFunc) {
   EXPECT_FALSE(loom_func_like_isa(func_like));
   EXPECT_EQ(func_like.op, nullptr);
   EXPECT_EQ(func_like.vtable, nullptr);
+  EXPECT_EQ(loom_func_like_body_region_descriptor(module_, func_like), nullptr);
+}
+
+TEST_F(InterfaceTest, FuncLikeBodyDescriptorReturnsNullForDeclaration) {
+  loom_builder_t module_builder;
+  loom_builder_initialize(module_, &module_->arena, loom_module_block(module_),
+                          &module_builder);
+  loom_string_id_t name_id = LOOM_STRING_ID_INVALID;
+  IREE_ASSERT_OK(loom_builder_intern_string(&module_builder,
+                                            IREE_SV("declaration"), &name_id));
+  uint16_t symbol_id = LOOM_SYMBOL_ID_INVALID;
+  IREE_ASSERT_OK(loom_module_add_symbol(module_, name_id, &symbol_id));
+  const loom_symbol_ref_t symbol = {
+      /*.module_id=*/0,
+      /*.symbol_id=*/symbol_id,
+  };
+  loom_op_t* declaration_op = nullptr;
+  IREE_ASSERT_OK(loom_test_decl_build(
+      &module_builder, /*build_flags=*/0, /*visibility=*/0, /*cc=*/0, symbol,
+      /*arg_types=*/nullptr, /*arg_types_count=*/0, /*result_types=*/nullptr,
+      /*result_count=*/0, /*tied_results=*/nullptr, /*tied_result_count=*/0,
+      LOOM_LOCATION_UNKNOWN, &declaration_op));
+
+  const loom_func_like_t declaration =
+      loom_func_like_cast(module_, declaration_op);
+  ASSERT_TRUE(loom_func_like_isa(declaration));
+  EXPECT_EQ(loom_func_like_body(declaration), nullptr);
+  EXPECT_EQ(loom_func_like_body_region_descriptor(module_, declaration),
+            nullptr);
 }
 
 TEST_F(InterfaceTest, FuncLikeCastReturnsNullForNullOp) {
@@ -234,6 +296,7 @@ TEST_F(InterfaceTest, FuncLikeCastReturnsNullForNullOp) {
   EXPECT_FALSE(loom_func_like_isa(func_like));
   EXPECT_EQ(func_like.op, nullptr);
   EXPECT_EQ(func_like.vtable, nullptr);
+  EXPECT_EQ(loom_func_like_body_region_descriptor(module_, func_like), nullptr);
 }
 
 //===----------------------------------------------------------------------===//
@@ -421,6 +484,12 @@ TEST_F(InterfaceTest, RegionBranchSelectorForBranch) {
   loom_region_branch_t branch = loom_region_branch_cast(module_, branch_op);
   ASSERT_TRUE(loom_region_branch_isa(branch));
   EXPECT_EQ(loom_region_branch_selector(branch), condition_id);
+  EXPECT_EQ(loom_region_branch_region_truth(branch, 0),
+            LOOM_REGION_BRANCH_TRUTH_TRUE);
+  EXPECT_EQ(loom_region_branch_region_truth(branch, 1),
+            LOOM_REGION_BRANCH_TRUTH_FALSE);
+  EXPECT_EQ(loom_region_branch_region_truth(branch, 2),
+            LOOM_REGION_BRANCH_TRUTH_UNKNOWN);
 }
 
 TEST_F(InterfaceTest, RegionBranchYieldOnlyOperandsForBranch) {
@@ -509,6 +578,10 @@ TEST_F(InterfaceTest, RegionBranchRegionsForRegionTable) {
   loom_region_branch_t branch = loom_region_branch_cast(module_, table_op);
   ASSERT_TRUE(loom_region_branch_isa(branch));
   EXPECT_EQ(loom_region_branch_selector(branch), loom_op_results(selector)[0]);
+  EXPECT_EQ(loom_region_branch_region_truth(branch, 0),
+            LOOM_REGION_BRANCH_TRUTH_UNKNOWN);
+  EXPECT_EQ(loom_region_branch_region_truth(branch, 1),
+            LOOM_REGION_BRANCH_TRUTH_UNKNOWN);
   EXPECT_EQ(loom_region_branch_region(module_, branch, 0),
             loom_test_region_table_default_region(table_op));
   EXPECT_EQ(loom_region_branch_region(module_, branch, 1),

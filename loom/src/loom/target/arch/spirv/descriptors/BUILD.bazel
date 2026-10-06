@@ -22,6 +22,7 @@ _SPIRV_DESCRIPTOR_VISIBILITY = [
     "//loom/src/loom/target/arch/spirv/contracts:__pkg__",
     "//loom/src/loom/target/arch/spirv/lower:__pkg__",
     "//loom/src/loom/target/emit/spirv:__pkg__",
+    "//loom/src/loom/tooling/target/spirv:__pkg__",
 ] + _SPIRV_ROOT_VISIBILITY
 
 _SPIRV_LOW_REGISTRY_VISIBILITY = [

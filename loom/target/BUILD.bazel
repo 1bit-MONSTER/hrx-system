@@ -5,10 +5,22 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//build_tools/bazel:cmake.bzl", "iree_cmake_extra_content")
+load("//loom/build_tools/bazel:defs.bzl", "loom_target_set")
 
 package(default_visibility = ["//visibility:public"])
 
 exports_files(["execution_profiles.bzl"])
+
+loom_target_set(
+    name = "all",
+    allow_empty = True,
+    targets = [
+        "//loom/target/amdgpu:all",
+        "//loom/target/spirv:all",
+        "//loom/target/vm:all",
+        "//loom/target/wasm:all",
+    ],
+)
 
 iree_cmake_extra_content(
     content = """

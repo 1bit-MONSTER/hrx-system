@@ -455,7 +455,7 @@ void loom_low_schedule_ready_policy_note_node_scheduled(
               state->options->pair_affinities.placement_recipe_count);
           const loom_low_placement_pair_recipe_t* recipe =
               &state->options->pair_affinities.placement_recipes[recipe_index];
-          IREE_ASSERT_NE(recipe->relation_count, 0);
+          IREE_ASSERT_NE(recipe->preference_count, 0);
           IREE_ASSERT_NE(recipe->alternative_count, 0);
           IREE_ASSERT(state->placement_pair_uses != NULL);
           IREE_ASSERT_LT(state->placement_pair_use_count,

@@ -10,22 +10,6 @@
 iree_add_all_subdirs()
 
 if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-loom_cc_library(
-  NAME
-    artifact_emitter
-  HDRS
-    "artifact_emitter.h"
-  SRCS
-    "artifact_emitter.c"
-  DEPS
-    ::module_binary
-    iree::base
-    loom::target::provider
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
 loom_generated_cc_library(
   NAME
     error_defs
@@ -80,6 +64,20 @@ endif()
 if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
 loom_cc_library(
   NAME
+    program
+  HDRS
+    "program.h"
+  DEPS
+    ::types
+    iree::base
+    loom::ir
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+loom_cc_library(
+  NAME
     function_body
   HDRS
     "function_body.h"
@@ -87,12 +85,11 @@ loom_cc_library(
     "function_body.c"
   DEPS
     ::binary_writer
+    ::program
     ::types
     iree::base
-    loom::codegen::low::allocation
     loom::codegen::low::descriptors
-    loom::codegen::low::function
-    loom::codegen::low::target_binding
+    loom::codegen::low::representation_binding
     loom::ir
     loom::ops::low
     loom::ops::op_defs
@@ -112,54 +109,56 @@ loom_cc_library(
   DEPS
     ::binary_writer
     ::function_body
+    ::program
     ::types
+    iree::base
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+loom_cc_library(
+  NAME
+    module_compiler
+  HDRS
+    "module_compiler.h"
+  SRCS
+    "module_compiler.c"
+  DEPS
+    ::module_binary
+    ::program
     iree::base
     iree::base::internal::arena
     loom::codegen::low::allocation
     loom::codegen::low::descriptors
-    loom::codegen::low::function
     loom::codegen::low::function_model
-    loom::codegen::low::target_binding
     loom::error::emitter
     loom::ir
     loom::ops::low
     loom::ops::op_defs
     loom::target::arch::wasm::descriptors
+    loom::target::arch::wasm::ops
+    loom::target::arch::wasm::provider
+    loom::target::provider
     loom::target::registers
   PUBLIC
 )
 endif()
 
 if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-loom_cc_library(
+loom_cc_test(
   NAME
-    loom_check
-  HDRS
-    "check/loom_check.h"
+    module_compiler_test
   SRCS
-    "check/loom_check.c"
+    "module_compiler_test.cc"
   DEPS
-    ::module_binary
-    iree::base
-    loom::target::tool::wasm
-    loom::tools::loom-check::execute
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-loom_cc_library(
-  NAME
-    check_provider
-  HDRS
-    "check/provider.h"
-  SRCS
-    "check/provider.c"
-  DEPS
-    ::loom_check
-    iree::base
-    loom::tools::loom-check::provider
-  PUBLIC
+    ::module_compiler
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::target::selection
+  LABELS
+    "iree-build-requirement=loom.target.arch.wasm"
+    "iree-build-requirement=loom.emit.wasm"
 )
 endif()
 

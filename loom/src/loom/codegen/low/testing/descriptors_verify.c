@@ -32,6 +32,25 @@ static iree_status_t loom_low_verify_span(uint32_t start, uint32_t count,
   return iree_ok_status();
 }
 
+static iree_status_t loom_low_verify_operand_has_register_part(
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_operand_t* operand, bool* out_has_register_part) {
+  *out_has_register_part = false;
+  IREE_RETURN_IF_ERROR(loom_low_verify_span(
+      operand->reg_class_alt_start, operand->reg_class_alt_count,
+      descriptor_set->reg_class_alt_count, "reg_class_alts"));
+  for (uint16_t i = 0; i < operand->reg_class_alt_count; ++i) {
+    const loom_low_reg_class_alt_t* alternative =
+        &descriptor_set
+             ->reg_class_alts[operand->reg_class_alt_start + (uint32_t)i];
+    if (alternative->register_part_id != LOOM_LOW_REGISTER_PART_NONE) {
+      *out_has_register_part = true;
+      break;
+    }
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_low_verify_known_flags(uint16_t flags,
                                                  uint16_t known_mask,
                                                  const char* table_name,
@@ -270,15 +289,15 @@ static iree_status_t loom_low_verify_tables_present(
 
 static iree_status_t loom_low_verify_descriptor_refs(
     const loom_low_descriptor_set_t* descriptor_set) {
-  if (descriptor_set->descriptor_ref_count !=
-      descriptor_set->descriptor_count) {
+  if (descriptor_set->descriptor_ref_count < descriptor_set->descriptor_count) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "low descriptor reference map count %" PRIu32
-                            " does not match descriptor count %" PRIu32,
+                            " is smaller than descriptor count %" PRIu32,
                             descriptor_set->descriptor_ref_count,
                             descriptor_set->descriptor_count);
   }
   iree_string_view_t previous_key = iree_string_view_empty();
+  uint32_t visible_ref_count = 0;
   for (uint32_t i = 0; i < descriptor_set->descriptor_ref_count; ++i) {
     const loom_low_descriptor_ref_t* descriptor_ref =
         &descriptor_set->descriptor_refs[i];
@@ -293,13 +312,13 @@ static iree_status_t loom_low_verify_descriptor_refs(
           (int)ref_key.size, ref_key.data);
     }
     if (descriptor_ref->descriptor_ordinal >=
-        descriptor_set->descriptor_count) {
+        descriptor_set->descriptor_ref_count) {
       return iree_make_status(
           IREE_STATUS_OUT_OF_RANGE,
           "low descriptor reference '%.*s' points at descriptor ordinal "
-          "%" PRIu32 " but only %" PRIu32 " descriptors exist",
+          "%" PRIu32 " but backing storage has only %" PRIu32 " descriptors",
           (int)ref_key.size, ref_key.data, descriptor_ref->descriptor_ordinal,
-          descriptor_set->descriptor_count);
+          descriptor_set->descriptor_ref_count);
     }
     iree_string_view_t descriptor_key = iree_string_view_empty();
     IREE_RETURN_IF_ERROR(loom_low_descriptor_set_string_impl(
@@ -315,7 +334,16 @@ static iree_status_t loom_low_verify_descriptor_refs(
                               descriptor_ref->descriptor_ordinal,
                               (int)descriptor_key.size, descriptor_key.data);
     }
+    visible_ref_count +=
+        descriptor_ref->descriptor_ordinal < descriptor_set->descriptor_count;
     previous_key = ref_key;
+  }
+  if (visible_ref_count != descriptor_set->descriptor_count) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "low descriptor reference map exposes %" PRIu32
+                            " of %" PRIu32 " visible descriptors",
+                            visible_ref_count,
+                            descriptor_set->descriptor_count);
   }
   return iree_ok_status();
 }
@@ -602,12 +630,29 @@ static iree_status_t loom_low_verify_native_asm_values(
               " does not name a result or explicit packet operand",
               descriptor_index, value->index);
         }
-        if (operand->register_part_id == LOOM_LOW_REGISTER_PART_NONE) {
+        bool has_register_part = false;
+        IREE_RETURN_IF_ERROR(loom_low_verify_operand_has_register_part(
+            descriptor_set, operand, &has_register_part));
+        if (!has_register_part) {
           return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                                   "low asm form for descriptor %" PRIu32
                                   " native register-part operand %" PRIu16
                                   " names a full-register operand",
                                   descriptor_index, value->index);
+        }
+        for (uint16_t i = 0; i < operand->reg_class_alt_count; ++i) {
+          const loom_low_reg_class_alt_t* alternative =
+              &descriptor_set
+                   ->reg_class_alts[operand->reg_class_alt_start + (uint32_t)i];
+          if (!iree_any_bit_set(alternative->flags,
+                                LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE) &&
+              alternative->register_part_id == LOOM_LOW_REGISTER_PART_NONE) {
+            return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                    "low asm form for descriptor %" PRIu32
+                                    " native register-part operand %" PRIu16
+                                    " names a full-register alternative",
+                                    descriptor_index, value->index);
+          }
         }
         if (value->bit_width != 0 || value->target_format_id != 0) {
           return iree_make_status(
@@ -1011,30 +1056,53 @@ static iree_status_t loom_low_verify_storage_continuation_pair(
         "low storage-continuation result and source must have equal unit "
         "counts");
   }
-  if (result->register_part_id == LOOM_LOW_REGISTER_PART_NONE ||
-      source->register_part_id == LOOM_LOW_REGISTER_PART_NONE ||
-      result->register_part_id >= descriptor_set->register_part_count ||
-      source->register_part_id >= descriptor_set->register_part_count) {
+  IREE_RETURN_IF_ERROR(loom_low_verify_span(
+      result->reg_class_alt_start, result->reg_class_alt_count,
+      descriptor_set->reg_class_alt_count, "reg_class_alts"));
+  IREE_RETURN_IF_ERROR(loom_low_verify_span(
+      source->reg_class_alt_start, source->reg_class_alt_count,
+      descriptor_set->reg_class_alt_count, "reg_class_alts"));
+  if (result->reg_class_alt_count == 0 ||
+      result->reg_class_alt_count != source->reg_class_alt_count) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
-        "low storage-continuation result and source must name valid register "
-        "parts");
+        "low storage-continuation result and source must name register parts "
+        "for the same register classes");
   }
-  const loom_low_register_part_t* result_part =
-      &descriptor_set->register_parts[result->register_part_id];
-  const loom_low_register_part_t* source_part =
-      &descriptor_set->register_parts[source->register_part_id];
-  if (result_part->reg_class_id != source_part->reg_class_id) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "low storage-continuation result and source register parts must "
-        "belong to the same class");
-  }
-  if ((result_part->mask & source_part->mask) != 0) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "low storage-continuation result and source register parts must be "
-        "disjoint");
+  for (uint16_t i = 0; i < result->reg_class_alt_count; ++i) {
+    const loom_low_reg_class_alt_t* result_alternative =
+        &descriptor_set
+             ->reg_class_alts[result->reg_class_alt_start + (uint32_t)i];
+    const loom_low_reg_class_alt_t* source_alternative =
+        loom_low_operand_reg_class_alt(descriptor_set, source,
+                                       result_alternative->reg_class_id);
+    if (source_alternative == NULL ||
+        result_alternative->register_part_id >=
+            descriptor_set->register_part_count ||
+        source_alternative->register_part_id >=
+            descriptor_set->register_part_count) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "low storage-continuation result and source must name valid "
+          "register parts for the same register classes");
+    }
+    const loom_low_register_part_t* result_part =
+        &descriptor_set->register_parts[result_alternative->register_part_id];
+    const loom_low_register_part_t* source_part =
+        &descriptor_set->register_parts[source_alternative->register_part_id];
+    if (result_part->reg_class_id != result_alternative->reg_class_id ||
+        source_part->reg_class_id != result_alternative->reg_class_id) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "low storage-continuation result and source register parts must "
+          "belong to their alternative register class");
+    }
+    if ((result_part->mask & source_part->mask) != 0) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "low storage-continuation result and source register parts must be "
+          "disjoint");
+    }
   }
   return iree_ok_status();
 }
@@ -1107,6 +1175,20 @@ static iree_status_t loom_low_verify_descriptor_constraints(
       case LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_ORDINAL: {
         IREE_RETURN_IF_ERROR(loom_low_verify_binary_constraint(
             constraint, "same-register-ordinal"));
+        break;
+      }
+      case LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE: {
+        IREE_RETURN_IF_ERROR(loom_low_verify_binary_constraint(
+            constraint, "same-register-value-type"));
+        if ((lhs->role != LOOM_LOW_OPERAND_ROLE_RESULT &&
+             !loom_low_operand_role_is_packet_operand(lhs->role)) ||
+            (rhs->role != LOOM_LOW_OPERAND_ROLE_RESULT &&
+             !loom_low_operand_role_is_packet_operand(rhs->role))) {
+          return iree_make_status(
+              IREE_STATUS_INVALID_ARGUMENT,
+              "low same-register-value-type constraint requires two result "
+              "or packet operand rows");
+        }
         break;
       }
       case LOOM_LOW_CONSTRAINT_KIND_EARLY_CLOBBER:
@@ -1475,6 +1557,7 @@ static bool loom_low_constraint_kind_is_valid(loom_low_constraint_kind_t kind) {
     case LOOM_LOW_CONSTRAINT_KIND_REMATERIALIZABLE:
     case LOOM_LOW_CONSTRAINT_KIND_FOLDABLE:
     case LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_ORDINAL:
+    case LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE:
       return true;
     default:
       return false;
@@ -1840,8 +1923,11 @@ static iree_status_t loom_low_verify_descriptor_operand_roles(
       }
       const loom_low_operand_flags_t unsupported_flags =
           operand->flags & ~LOOM_LOW_OPERAND_FLAG_VARIADIC;
+      bool has_register_part = false;
+      IREE_RETURN_IF_ERROR(loom_low_verify_operand_has_register_part(
+          descriptor_set, operand, &has_register_part));
       if (unsupported_flags != 0 || operand->encoding_field_id != 0 ||
-          operand->register_part_id != LOOM_LOW_REGISTER_PART_NONE ||
+          has_register_part ||
           operand->address_map_kind != LOOM_LOW_OPERAND_ADDRESS_MAP_DIRECT) {
         return iree_make_status(
             IREE_STATUS_INVALID_ARGUMENT,
@@ -2205,7 +2291,11 @@ static iree_status_t loom_low_verify_descriptor(
           LOOM_LOW_DESCRIPTOR_FLAG_EARLY_CLOBBER |
           LOOM_LOW_DESCRIPTOR_FLAG_VARIADIC_OPERANDS |
           LOOM_LOW_DESCRIPTOR_FLAG_ALLOCATION_MOVE |
-          LOOM_LOW_DESCRIPTOR_FLAG_UNIQUE_IDENTITY,
+          LOOM_LOW_DESCRIPTOR_FLAG_UNIQUE_IDENTITY |
+          LOOM_LOW_DESCRIPTOR_FLAG_ENUM_IMMEDIATES |
+          LOOM_LOW_DESCRIPTOR_FLAG_SAFE_TO_SPECULATE |
+          LOOM_LOW_DESCRIPTOR_FLAG_STATE_ASSIGNMENT |
+          LOOM_LOW_DESCRIPTOR_FLAG_LATE_READ,
       "descriptor", descriptor_index));
   iree_string_view_t descriptor_key = iree_string_view_empty();
   IREE_RETURN_IF_ERROR(loom_low_verify_non_empty_required_string(
@@ -2379,6 +2469,24 @@ static iree_status_t loom_low_verify_operand(
   IREE_RETURN_IF_ERROR(loom_low_verify_span(
       operand->reg_class_alt_start, operand->reg_class_alt_count,
       descriptor_set->reg_class_alt_count, "reg_class_alts"));
+  for (uint16_t i = 0; i < operand->reg_class_alt_count; ++i) {
+    const loom_low_reg_class_alt_t* lhs =
+        &descriptor_set
+             ->reg_class_alts[operand->reg_class_alt_start + (uint32_t)i];
+    for (uint16_t j = i + 1; j < operand->reg_class_alt_count; ++j) {
+      const loom_low_reg_class_alt_t* rhs =
+          &descriptor_set
+               ->reg_class_alts[operand->reg_class_alt_start + (uint32_t)j];
+      if (lhs->reg_class_id == rhs->reg_class_id &&
+          lhs->register_part_id != rhs->register_part_id) {
+        return iree_make_status(
+            IREE_STATUS_INVALID_ARGUMENT,
+            "low operand %" PRIu32
+            " has ambiguous register parts for register class %" PRIu16,
+            operand_index, lhs->reg_class_id);
+      }
+    }
+  }
   if (loom_low_operand_address_map_kind_has_low_window(
           operand->address_map_kind)) {
     if (operand->addressable_unit_count < operand->unit_count) {
@@ -2408,39 +2516,6 @@ static iree_status_t loom_low_verify_operand(
           " has a bounded address map without a concrete register-class "
           "alternative",
           operand_index);
-    }
-  }
-  if (operand->register_part_id != LOOM_LOW_REGISTER_PART_NONE) {
-    if (operand->register_part_id >= descriptor_set->register_part_count) {
-      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                              "low operand %" PRIu32
-                              " references register part %" PRIu16
-                              " but only %" PRIu32 " register parts exist",
-                              operand_index, operand->register_part_id,
-                              descriptor_set->register_part_count);
-    }
-    uint16_t concrete_alt_count = 0;
-    uint16_t concrete_reg_class_id = LOOM_LOW_REG_CLASS_NONE;
-    for (uint16_t i = 0; i < operand->reg_class_alt_count; ++i) {
-      const uint16_t alt_index = operand->reg_class_alt_start + i;
-      const loom_low_reg_class_alt_t* alt =
-          &descriptor_set->reg_class_alts[alt_index];
-      if (iree_all_bits_set(alt->flags,
-                            LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE)) {
-        continue;
-      }
-      concrete_reg_class_id = alt->reg_class_id;
-      ++concrete_alt_count;
-    }
-    const loom_low_register_part_t* register_part =
-        &descriptor_set->register_parts[operand->register_part_id];
-    if (concrete_alt_count != 1 ||
-        concrete_reg_class_id != register_part->reg_class_id) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "low operand %" PRIu32
-                              " uses register part %" PRIu16
-                              " but does not name exactly that register class",
-                              operand_index, operand->register_part_id);
     }
   }
   return iree_ok_status();
@@ -2968,28 +3043,69 @@ static iree_status_t loom_low_verify_reg_class_alt(
     const loom_low_descriptor_set_t* descriptor_set, uint32_t alt_index) {
   const loom_low_reg_class_alt_t* alt =
       &descriptor_set->reg_class_alts[alt_index];
-  IREE_RETURN_IF_ERROR(
-      loom_low_verify_known_flags(alt->flags,
-                                  LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED |
-                                      LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE |
-                                      LOOM_LOW_REG_CLASS_ALT_FLAG_PHYSICAL_ONLY,
-                                  "register-class alternative", alt_index));
+  IREE_RETURN_IF_ERROR(loom_low_verify_known_flags(
+      alt->flags,
+      LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED |
+          LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE |
+          LOOM_LOW_REG_CLASS_ALT_FLAG_PHYSICAL_ONLY |
+          LOOM_LOW_REG_CLASS_ALT_FLAG_LATE_READ,
+      "register-class alternative", alt_index));
   const bool is_immediate =
       (alt->flags & LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE) != 0;
-  if (is_immediate && alt->reg_class_id != LOOM_LOW_REG_CLASS_NONE) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "low register-class alternative %" PRIu32
-        " marks an immediate but also references register class %" PRIu16,
-        alt_index, alt->reg_class_id);
+  const bool is_late_read =
+      iree_any_bit_set(alt->flags, LOOM_LOW_REG_CLASS_ALT_FLAG_LATE_READ);
+  if ((is_immediate && is_late_read) ||
+      (!is_late_read && alt->late_read_subgroup_size != 0)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "low register-class alternative %" PRIu32
+                            " has inconsistent late-read timing",
+                            alt_index);
   }
-  if (!is_immediate && alt->reg_class_id >= descriptor_set->reg_class_count) {
+  if (is_immediate) {
+    if (alt->reg_class_id != LOOM_LOW_REG_CLASS_NONE) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "low register-class alternative %" PRIu32
+          " marks an immediate but also references register class %" PRIu16,
+          alt_index, alt->reg_class_id);
+    }
+    if (alt->register_part_id != LOOM_LOW_REGISTER_PART_NONE) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "low register-class alternative %" PRIu32
+          " marks an immediate but also references register part %" PRIu16,
+          alt_index, alt->register_part_id);
+    }
+    return iree_ok_status();
+  }
+  if (alt->reg_class_id >= descriptor_set->reg_class_count) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "low register-class alternative %" PRIu32
                             " references register class %" PRIu16
                             " but only %" PRIu32 " classes exist",
                             alt_index, alt->reg_class_id,
                             descriptor_set->reg_class_count);
+  }
+  if (alt->register_part_id == LOOM_LOW_REGISTER_PART_NONE) {
+    return iree_ok_status();
+  }
+  if (alt->register_part_id >= descriptor_set->register_part_count) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "low register-class alternative %" PRIu32
+                            " references register part %" PRIu16
+                            " but only %" PRIu32 " register parts exist",
+                            alt_index, alt->register_part_id,
+                            descriptor_set->register_part_count);
+  }
+  const loom_low_register_part_t* register_part =
+      &descriptor_set->register_parts[alt->register_part_id];
+  if (register_part->reg_class_id != alt->reg_class_id) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "low register-class alternative %" PRIu32 " for register class %" PRIu16
+        " uses register part %" PRIu16 " for register class %" PRIu16,
+        alt_index, alt->reg_class_id, alt->register_part_id,
+        register_part->reg_class_id);
   }
   return iree_ok_status();
 }

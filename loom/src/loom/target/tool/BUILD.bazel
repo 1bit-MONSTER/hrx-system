@@ -16,9 +16,9 @@ package(
     licenses = ["notice"],  # Apache 2.0
 )
 
-_SPIRV_TOOL_VISIBILITY = ["//loom/src/loom/target/emit/spirv:__pkg__"]
+_SPIRV_TOOL_VISIBILITY = ["//loom/src/loom/tooling/target/spirv:__pkg__"]
 
-_WASM_TOOL_VISIBILITY = ["//loom/src/loom/target/emit/wasm:__pkg__"]
+_WASM_TOOL_VISIBILITY = ["//loom/src/loom/tooling/target/wasm:__pkg__"]
 
 #===------------------------------------------------------------------------===#
 # External tool runners
@@ -37,6 +37,7 @@ loom_cc_library(
         "process_win32.c",
     ],
     hdrs = ["process.h"],
+    visibility = ["//loom/build_tools/corpus:__pkg__"],
     deps = [
         "//runtime/src/iree/base",
     ],

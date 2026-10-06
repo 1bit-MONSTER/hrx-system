@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Region rewrites shared by SCF branch and loop canonicalization.
+// SCF simplification and source-combination rewrites.
 
 #ifndef LOOM_OPS_SCF_CANONICALIZE_H_
 #define LOOM_OPS_SCF_CANONICALIZE_H_
@@ -14,6 +14,12 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Combines an ordered integer comparison selecting its own operands into
+// min/max. Only run before target legalization: targets without native extrema
+// decompose them into the same comparison and selection.
+iree_status_t loom_scf_select_combine_integer_extremum(
+    loom_op_t* op, loom_rewriter_t* rewriter, bool* out_changed);
 
 // Returns the yield of a complete single-block region, or NULL when the region
 // has not reached a shape that canonicalization can rewrite.

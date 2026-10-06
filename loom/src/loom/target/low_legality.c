@@ -16,9 +16,7 @@
 #include "loom/ir/module.h"
 #include "loom/ops/buffer/ops.h"
 #include "loom/ops/cfg/ops.h"
-#include "loom/ops/func/ops.h"
 #include "loom/ops/index/ops.h"
-#include "loom/ops/kernel/ops.h"
 #include "loom/ops/low/ops.h"
 #include "loom/ops/op_defs.h"
 #include "loom/ops/scf/ops.h"
@@ -46,6 +44,8 @@ struct loom_target_low_legality_context_t {
   const loom_target_low_legality_options_t* options;
   // Descriptor set borrowed from the source query snapshot.
   const loom_low_descriptor_set_t* descriptor_set;
+  // Declared direct exit kind for the source function body.
+  loom_op_kind_t callable_exit_kind;
   // Result object receiving counters and selected descriptor set.
   loom_target_low_legality_result_t* result;
   // Scratch arena for the IR walker.
@@ -753,12 +753,19 @@ static iree_status_t loom_target_low_legality_verify_op_class(
   if (loom_traits_are_value_alias(traits)) {
     return iree_ok_status();
   }
+  if (op->kind == context->callable_exit_kind &&
+      loom_func_like_op_is_body_exit(context->module, context->function, op)) {
+    return iree_ok_status();
+  }
+  if (iree_any_bit_set(traits, LOOM_TRAIT_CALLABLE_BOUNDARY) &&
+      loom_call_like_is_direct_semantic(
+          loom_call_like_const_cast(context->module, op))) {
+    return iree_ok_status();
+  }
   switch (op->kind) {
     case LOOM_OP_BUFFER_ASSUME_SAME_ROOT:
     case LOOM_OP_CFG_BR:
     case LOOM_OP_CFG_COND_BR:
-    case LOOM_OP_FUNC_RETURN:
-    case LOOM_OP_KERNEL_RETURN:
     case LOOM_OP_LOW_INVOKE:
       return iree_ok_status();
     default:
@@ -925,15 +932,20 @@ iree_status_t loom_target_low_verify_function_legality(
   const loom_low_descriptor_set_t* descriptor_set =
       options->environment->descriptor_set;
   out_result->descriptor_set = descriptor_set;
+  loom_region_t* body = loom_func_like_body(function);
+  const loom_region_descriptor_t* body_descriptor =
+      loom_func_like_body_region_descriptor(module, function);
 
   loom_target_low_legality_context_t context = {
       .module = module,
       .function = function,
       .options = options,
       .descriptor_set = descriptor_set,
+      .callable_exit_kind = body_descriptor != NULL
+                                ? body_descriptor->terminator
+                                : LOOM_OP_KIND_UNKNOWN,
       .result = out_result,
   };
-  loom_region_t* body = loom_func_like_body(function);
   if (body &&
       (body->block_count != 1 ||
        iree_any_bit_set(body->flags, LOOM_REGION_INSTANCE_FLAG_CFG)) &&

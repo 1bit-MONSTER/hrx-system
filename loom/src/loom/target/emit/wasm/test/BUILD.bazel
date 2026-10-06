@@ -4,72 +4,11 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//build_tools/bazel:python.bzl", "iree_py_test")
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with")
 load("//loom/build_tools/bazel:loom_check.bzl", "loom_check_test_suite")
 
 package(
     default_visibility = ["//visibility:private"],
     licenses = ["notice"],  # Apache 2.0
-)
-
-iree_py_test(
-    name = "artifact_test",
-    srcs = ["artifact_test.py"],
-    args = [
-        "$(location //loom/src/loom/tools/loom-compile:loom-compile)",
-        "$(location sum.loom)",
-        "$(location loop_state.loom)",
-        "$(location scalar_memory.loom)",
-        "$(location typed_addresses.loom)",
-        "--corpus",
-        "$(location //loom/src/loom/test/corpus/source_low:numeric_address_widening.loom-test)",
-        "$(location address_widening.mjs)",
-        "--corpus",
-        "$(location //loom/src/loom/test/corpus/source_low:numeric_boolean_comparison.loom-test)",
-        "$(location boolean.mjs)",
-        "--corpus",
-        "$(location //loom/src/loom/test/corpus/source_low:numeric_index_operands.loom-test)",
-        "$(location index_operands.mjs)",
-        "--corpus",
-        "$(location //loom/src/loom/test/corpus/source_low:numeric_scalar_i64_shift_counts.loom-test)",
-        "$(location index_shifts.mjs)",
-        "--corpus",
-        "$(location //loom/src/loom/test/corpus/source_low:memory_scalar_narrow.loom)",
-        "$(location //loom/src/loom/test/corpus/source_low:memory_access_flags.loom-test)",
-        "$(location byte_access.loom)",
-        "$(location narrow_memory.mjs)",
-    ],
-    data = [
-        "address_widening.mjs",
-        "boolean.mjs",
-        "byte_access.loom",
-        "index_operands.mjs",
-        "index_shifts.mjs",
-        "loop_state.loom",
-        "loop_state.mjs",
-        "narrow_memory.mjs",
-        "scalar_memory.loom",
-        "scalar_memory.mjs",
-        "sum.loom",
-        "sum.mjs",
-        "typed_addresses.loom",
-        "typed_addresses.mjs",
-        "//loom/src/loom/test/corpus/source_low:memory_access_flags.loom-test",
-        "//loom/src/loom/test/corpus/source_low:memory_scalar_narrow.loom",
-        "//loom/src/loom/test/corpus/source_low:numeric_address_widening.loom-test",
-        "//loom/src/loom/test/corpus/source_low:numeric_boolean_comparison.loom-test",
-        "//loom/src/loom/test/corpus/source_low:numeric_index_operands.loom-test",
-        "//loom/src/loom/test/corpus/source_low:numeric_scalar_i64_shift_counts.loom-test",
-        "//loom/src/loom/tools/loom-compile",
-    ],
-    env_inherit = [
-        "IREE_WASM_NODE",
-        "PATH",
-    ],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target:wasm_artifacts",
-    ]),
 )
 
 loom_check_test_suite(
@@ -83,8 +22,10 @@ loom_check_test_suite(
     ],
     data = [
         "@wasi_sdk//:llvm-objdump",
+        "@wasi_sdk//:tool_runtime_files",
     ],
     env = {
         "LOOM_WASM_LLVM_OBJDUMP": "$(rootpath @wasi_sdk//:llvm-objdump)",
     },
+    visibility = ["//loom/build_tools/bazel/test:__pkg__"],
 )

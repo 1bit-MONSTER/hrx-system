@@ -47,14 +47,37 @@ def _report(*, details: bool = True) -> dict:
             {
                 "function": "stream",
                 "loop": 0,
-                "position": i,
-                "op": op,
-                "stage": "producer" if i < 2 else "consumer",
-                "iteration_lookahead": 2 if i < 2 else 0,
-            }
-            for i, op in enumerate(
-                ("view.load", "view.load", "scalar.mulf", "scalar.addf")
-            )
+                "position": 0,
+                "op": "view.load",
+                "stage": "producer",
+                "iteration_lookahead": 2,
+            },
+            {
+                "function": "stream",
+                "loop": 0,
+                "position": 1,
+                "op": "scf.if",
+                "partition": "guarded",
+                "stage": "producer",
+                "iteration_lookahead": 2,
+            },
+            {
+                "function": "stream",
+                "loop": 0,
+                "position": 1,
+                "op": "scf.if",
+                "partition": "guarded",
+                "stage": "consumer",
+                "iteration_lookahead": 0,
+            },
+            {
+                "function": "stream",
+                "loop": 0,
+                "position": 2,
+                "op": "scalar.addf",
+                "stage": "consumer",
+                "iteration_lookahead": 0,
+            },
         ]
     return {
         "kind": "loom.compile_report",
@@ -98,14 +121,31 @@ def test_show_groups_actual_schedules_and_keeps_serial_policies(details: bool) -
     if details:
         assert pipeline["stages"] == [
             {
-                "position": i,
-                "op": op,
-                "stage": "producer" if i < 2 else "consumer",
-                "iteration_lookahead": 2 if i < 2 else 0,
-            }
-            for i, op in enumerate(
-                ("view.load", "view.load", "scalar.mulf", "scalar.addf")
-            )
+                "position": 0,
+                "op": "view.load",
+                "stage": "producer",
+                "iteration_lookahead": 2,
+            },
+            {
+                "position": 1,
+                "op": "scf.if",
+                "partition": "guarded",
+                "stage": "producer",
+                "iteration_lookahead": 2,
+            },
+            {
+                "position": 1,
+                "op": "scf.if",
+                "partition": "guarded",
+                "stage": "consumer",
+                "iteration_lookahead": 0,
+            },
+            {
+                "position": 2,
+                "op": "scalar.addf",
+                "stage": "consumer",
+                "iteration_lookahead": 0,
+            },
         ]
         assert serial["stages"] == []
     else:
@@ -116,7 +156,10 @@ def test_show_groups_actual_schedules_and_keeps_serial_policies(details: bool) -
         in text
     )
     assert "stream loop 1: serial depth=1" in text
-    assert ("3: scalar.addf consumer iteration_lookahead=0" in text) == details
+    assert (
+        "1: scf.if partition=guarded producer iteration_lookahead=2" in text
+    ) == details
+    assert ("2: scalar.addf consumer iteration_lookahead=0" in text) == details
 
 
 def test_suggestions_cite_applied_policy_and_exact_entry_resources() -> None:
@@ -201,6 +244,7 @@ def test_rejects_malformed_policy_fields(field: str, value: object) -> None:
         ("loop", 1),
         ("position", 1),
         ("op", ""),
+        ("partition", "recursive"),
         ("stage", "unknown"),
         ("stage", "consumer"),
         ("iteration_lookahead", 1),
@@ -230,4 +274,17 @@ def test_rejects_inconsistent_schedule_records(corruption: str) -> None:
     else:
         policies["rows"][1]["values_per_record"] = 1
     with pytest.raises(CompileReportError, match="loop_pipelines"):
+        build_compile_report_show(parse_compile_report(report))
+
+
+def test_rejects_repeated_stage_without_guarded_partition() -> None:
+    report = _report()
+    stages = report["source_low"]["loop_pipelines"]["stages"]
+    del stages[1]["partition"]
+    del stages[2]["partition"]
+
+    with pytest.raises(
+        CompileReportError,
+        match="repeated position is not a guarded stage pair",
+    ):
         build_compile_report_show(parse_compile_report(report))

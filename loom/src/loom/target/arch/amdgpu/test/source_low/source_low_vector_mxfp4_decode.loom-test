@@ -10,29 +10,36 @@ func.def target(@target) @decode_mxfp4_group_to_bf16(%payload: vector<4xi32>, %s
 
 // ----
 low.func.def target<amdgpu.cdna4.core>(@target) abi(hal_kernel) @decode_mxfp4_group_to_bf16(%payload: reg<amdgpu.vgpr x4>, %scale: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x16>) asm {
-  %8 = slice %payload[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-  %9 = v_and_b32_lit %scale, 255
-  %10 = v_lshlrev_b32_src0_inline %9, 23
-  %11 = v_cvt_scalef32_pk_bf16_fp4 %8, %10
-  %12 = v_cvt_scalef32_pk_bf16_fp4_byte1 %8, %10
-  %13 = v_cvt_scalef32_pk_bf16_fp4_byte2 %8, %10
-  %14 = v_cvt_scalef32_pk_bf16_fp4_byte3 %8, %10
-  %15 = slice %payload[1] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-  %16 = v_cvt_scalef32_pk_bf16_fp4 %15, %10
-  %17 = v_cvt_scalef32_pk_bf16_fp4_byte1 %15, %10
-  %18 = v_cvt_scalef32_pk_bf16_fp4_byte2 %15, %10
-  %19 = v_cvt_scalef32_pk_bf16_fp4_byte3 %15, %10
-  %20 = slice %payload[2] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-  %21 = v_cvt_scalef32_pk_bf16_fp4 %20, %10
-  %22 = v_cvt_scalef32_pk_bf16_fp4_byte1 %20, %10
-  %23 = v_cvt_scalef32_pk_bf16_fp4_byte2 %20, %10
-  %24 = v_cvt_scalef32_pk_bf16_fp4_byte3 %20, %10
-  %25 = slice %payload[3] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-  %26 = v_cvt_scalef32_pk_bf16_fp4 %25, %10
-  %27 = v_cvt_scalef32_pk_bf16_fp4_byte1 %25, %10
-  %28 = v_cvt_scalef32_pk_bf16_fp4_byte2 %25, %10
-  %29 = v_cvt_scalef32_pk_bf16_fp4_byte3 %25, %10
-  %decoded = concat(%11, %12, %13, %14, %16, %17, %18, %19, %21, %22, %23, %24, %26, %27, %28, %29) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x16>
+  %8 = v_mov_b32 4194304
+  %9 = v_mov_b32 2143289344
+  %10 = slice %payload[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %11 = v_and_b32_lit %scale, 255
+  %12 = v_lshlrev_b32_src0_inline %11, 23
+  %13 = v_cmp_eq_i32_src1_inline %11 {rhs = 0}
+  %14 = v_cndmask_b32 %12, %8, %13
+  %15 = v_mov_b32 255
+  %16 = v_cmp_eq_i32 %11, %15
+  %17 = v_cndmask_b32 %14, %9, %16
+  %18 = v_cvt_scalef32_pk_bf16_fp4 %10, %17
+  %19 = v_cvt_scalef32_pk_bf16_fp4_byte1 %10, %17
+  %20 = v_cvt_scalef32_pk_bf16_fp4_byte2 %10, %17
+  %21 = v_cvt_scalef32_pk_bf16_fp4_byte3 %10, %17
+  %22 = slice %payload[1] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %23 = v_cvt_scalef32_pk_bf16_fp4 %22, %17
+  %24 = v_cvt_scalef32_pk_bf16_fp4_byte1 %22, %17
+  %25 = v_cvt_scalef32_pk_bf16_fp4_byte2 %22, %17
+  %26 = v_cvt_scalef32_pk_bf16_fp4_byte3 %22, %17
+  %27 = slice %payload[2] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %28 = v_cvt_scalef32_pk_bf16_fp4 %27, %17
+  %29 = v_cvt_scalef32_pk_bf16_fp4_byte1 %27, %17
+  %30 = v_cvt_scalef32_pk_bf16_fp4_byte2 %27, %17
+  %31 = v_cvt_scalef32_pk_bf16_fp4_byte3 %27, %17
+  %32 = slice %payload[3] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %33 = v_cvt_scalef32_pk_bf16_fp4 %32, %17
+  %34 = v_cvt_scalef32_pk_bf16_fp4_byte1 %32, %17
+  %35 = v_cvt_scalef32_pk_bf16_fp4_byte2 %32, %17
+  %36 = v_cvt_scalef32_pk_bf16_fp4_byte3 %32, %17
+  %decoded = concat(%18, %19, %20, %21, %23, %24, %25, %26, %28, %29, %30, %31, %33, %34, %35, %36) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x16>
   return %decoded
 }
 

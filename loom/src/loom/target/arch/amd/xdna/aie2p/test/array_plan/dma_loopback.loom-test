@@ -7,39 +7,43 @@ aie2p.target<array> @array_target
 aie2p.target<core> @core_target
 
 low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @matching_dma_service() asm {
-  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
-  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %worker_count = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %worker_ordinal = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %external_channel_capacity = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %loopback_capacity = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %records_per_invocation = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %tile_column = constant.u32 0 : reg<aie2p.array.scalar : index>
   %writer_row = constant.u32 2 : reg<aie2p.array.scalar : index>
   %reader_row = constant.u32 4 : reg<aie2p.array.scalar : index>
-  %writers = group %one
-  %readers = group %one
-  %writer = worker %writers, %zero, @write_values
-  %reader = worker %readers, %zero, @read_values
+  %writers = group %worker_count
+  %readers = group %worker_count
+  %writer = worker %writers, %worker_ordinal, @write_values
+  %reader = worker %readers, %worker_ordinal, @read_values
   %output0 = binding 0, "write"
   %write0 = sender %writer, 0 : reg<aie2p.array.sender : tile<1xi32>>
   %sink0 = receiver %output0, 0 : reg<aie2p.array.receiver : tile<1xi32>>
-  %outgoing0 = channel %write0, %sink0, %one, %one : reg<aie2p.array.channel : tile<1xi32>>
+  %outgoing0 = channel %write0, %sink0, %external_channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
   %output1 = binding 1, "write"
   %write1 = sender %writer, 1 : reg<aie2p.array.sender : tile<1xi32>>
   %sink1 = receiver %output1, 0 : reg<aie2p.array.receiver : tile<1xi32>>
-  %outgoing1 = channel %write1, %sink1, %one, %one : reg<aie2p.array.channel : tile<1xi32>>
+  %outgoing1 = channel %write1, %sink1, %external_channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
   %input0 = binding 2, "read"
   %source0 = sender %input0, 0 : reg<aie2p.array.sender : tile<1xi32>>
   %read0 = receiver %reader, 0 : reg<aie2p.array.receiver : tile<1xi32>>
-  %incoming0 = channel %source0, %read0, %one, %one : reg<aie2p.array.channel : tile<1xi32>>
+  %incoming0 = channel %source0, %read0, %external_channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
   %input1 = binding 3, "read"
   %source1 = sender %input1, 0 : reg<aie2p.array.sender : tile<1xi32>>
   %read1 = receiver %reader, 1 : reg<aie2p.array.receiver : tile<1xi32>>
-  %incoming1 = channel %source1, %read1, %one, %one : reg<aie2p.array.channel : tile<1xi32>>
+  %incoming1 = channel %source1, %read1, %external_channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
   %send = sender %writer, 2 : reg<aie2p.array.sender : tile<1xi32>>
   %receive0 = receiver %reader, 2 : reg<aie2p.array.receiver : tile<1xi32>>
-  %internal0 = channel %send, %receive0, %one, %one : reg<aie2p.array.channel : tile<1xi32>>
+  %internal0 = channel %send, %receive0, %loopback_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
   %result = binding 4, "write"
   %result_sender = sender %reader, 3 : reg<aie2p.array.sender : tile<1xi32>>
   %result_receiver = receiver %result, 0 : reg<aie2p.array.receiver : tile<1xi32>>
-  %result_channel = channel %result_sender, %result_receiver, %one, %one : reg<aie2p.array.channel : tile<1xi32>>
-  constrain.location %writer, %zero, %writer_row
-  constrain.location %reader, %zero, %reader_row
+  %result_channel = channel %result_sender, %result_receiver, %external_channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  constrain.location %writer, %tile_column, %writer_row
+  constrain.location %reader, %tile_column, %reader_row
   return
 }
 
@@ -71,6 +75,8 @@ low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @rea
 // ----
 CHECK: dma channel=4 tile=(0,3) side=compute direction=memory-to-stream engine-channel=0 *
 CHECK: route channel=4 tile=(0,3) kind=switch source=dma[0] destination=dma[0]
+CHECK: slot channel=4 index=0 bytes=4 sender-owner=(0,3) sender-offset=0x00000 * receiver-owner=(0,3) receiver-offset=0x04000 *
+CHECK: slot channel=4 index=1 bytes=4 sender-owner=(0,3) sender-offset=0x08000 * receiver-owner=(0,3) receiver-offset=0x0c000 *
 
 // ====
 

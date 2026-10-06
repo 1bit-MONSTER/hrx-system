@@ -1,5 +1,29 @@
 // RUN: pass canonicalize
 
+// Integer conversions cannot produce NaNs. F32 covers the complete i32 domain,
+// while narrower formats may still overflow.
+func.def @integer_to_float_classes(%signed: i32, %unsigned: i64) -> (i1, i1, i1, i1) {
+  %wide = scalar.sitofp %signed : i32 to f32
+  %half = scalar.uitofp %unsigned : i64 to f16
+  %wide_nan = scalar.isnanf %wide : f32
+  %wide_finite = scalar.isfinitef %wide : f32
+  %half_nan = scalar.isnanf %half : f16
+  %half_inf = scalar.isinff %half : f16
+  func.return %wide_nan, %wide_finite, %half_nan, %half_inf : i1, i1, i1, i1
+}
+
+// ----
+func.def @integer_to_float_classes(%signed: i32, %unsigned: i64) -> (i1, i1, i1, i1) {
+  %half = scalar.uitofp %unsigned : i64 to f16
+  %wide_nan = scalar.constant false : i1
+  %wide_finite = scalar.constant true : i1
+  %half_nan = scalar.constant false : i1
+  %half_inf = scalar.isinff %half : f16
+  func.return %wide_nan, %wide_finite, %half_nan, %half_inf : i1, i1, i1, i1
+}
+
+// ====
+
 // Signed extension interprets the one i1 bit as a two's-complement sign bit.
 func.def @extsi_i1_true() -> (i64, i64) {
   %c = scalar.constant 1 : i1

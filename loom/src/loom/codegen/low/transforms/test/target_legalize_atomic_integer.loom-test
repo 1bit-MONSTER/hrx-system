@@ -1,0 +1,40 @@
+// RUN: pass target-legalize{mode=eager,policy=reference-only}
+
+test.target<low_core> @target
+
+func.def target(@target) @integer_atomic_updates(%view: view<8xi8>, %value: i8, %index: index) -> (i8) {
+  view.atomic.reduce<subi> %value, %view[%index] {cache_scope = system, cache_temporal = non_temporal, ordering = release, scope = system} : i8, view<8xi8>
+  %old = view.atomic.rmw<xchgi> %value, %view[3] {ordering = seq_cst, scope = device} : i8, view<8xi8> -> i8
+  func.return %old : i8
+}
+
+// ----
+test.target<low_core> @target
+
+func.def target(@target) @integer_atomic_updates(%view: view<8xi8>, %value: i8, %index: index) -> (i8) {
+  %14 = scalar.constant 0 : i8
+  %17 = scf.while(%15 = %14 : i8) -> (i8) {
+    %24 = scalar.extui %15 : i8 to i32
+    %25 = scalar.extui %value : i8 to i32
+    %26 = scalar.subi %24, %25 : i32
+    %27 = scalar.trunci %26 : i32 to i8
+    %19 = view.atomic.cmpxchg %15, %27, %view[%index] {cache_scope = system, cache_temporal = non_temporal, failure_ordering = relaxed, scope = system, success_ordering = release} : i8, view<8xi8> -> i8
+    %21 = scalar.extui %19 : i8 to i32
+    %22 = scalar.extui %15 : i8 to i32
+    %23 = scalar.cmpi ne, %21, %22 : i32
+    scf.condition %23, %19 : i1, i8
+  } do(%16: i8) {
+    scf.yield %16 : i8
+  }
+  %5 = scalar.constant 0 : i8
+  %old = scf.while(%6 = %5 : i8) -> (i8) {
+    %9 = view.atomic.cmpxchg %6, %value, %view[3] {failure_ordering = seq_cst, scope = device, success_ordering = seq_cst} : i8, view<8xi8> -> i8
+    %11 = scalar.extui %9 : i8 to i32
+    %12 = scalar.extui %6 : i8 to i32
+    %13 = scalar.cmpi ne, %11, %12 : i32
+    scf.condition %13, %9 : i1, i8
+  } do(%7: i8) {
+    scf.yield %7 : i8
+  }
+  func.return %old : i8
+}

@@ -104,6 +104,10 @@ static inline bool iree_async_poll_has_error(iree_async_poll_events_t events) {
 // Fires from within proactor poll() on the polling thread. The source remains
 // armed after the callback returns (multishot behavior). Heavy work should be
 // deferred to avoid stalling completion dispatch.
+// Native readiness may be edge-triggered: a callback that leaves unread data
+// must arrange its own continuation instead of waiting for another event.
+// Bounded consumers can use a progress entry until the source would block,
+// then remove that entry and wait for native readiness again.
 //
 // Parameters:
 //   user_data: Value from the callback struct at registration time.

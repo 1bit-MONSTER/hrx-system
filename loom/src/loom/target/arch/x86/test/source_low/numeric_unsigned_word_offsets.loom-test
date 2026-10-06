@@ -1,0 +1,42 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_unsigned_word_offsets.loom-test
+// RUN: emit source-low target=x86:avx2 output=low
+
+// A word-sized record ordinal must be unsigned before forming a wide address.
+func.def @unsigned_record_address(%base: i64, %record: i32, %record_bytes: i64) -> (i64) {
+  %ordinal = scalar.extui %record : i32 to i64
+  %displacement = scalar.muli %ordinal, %record_bytes : i64
+  %address = scalar.addi %base, %displacement : i64
+  func.return %address : i64
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @unsigned_record_address(%base: reg<x86.gpr64>, %record: reg<x86.gpr32>, %record_bytes: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %ordinal = movzx.gpr64.gpr32 %record
+  %12 = copy %ordinal : reg<x86.gpr64> -> reg<x86.gpr64>
+  %displacement = imul.gpr64 %12, %record_bytes
+  %14 = copy %base : reg<x86.gpr64> -> reg<x86.gpr64>
+  %address = add.gpr64 %14, %displacement
+  return %address
+}
+
+// ====
+
+// Wrapping the ordinal discards every upper bit of the incoming wide counter.
+func.def @wrapped_record_address(%base: i64, %counter: i64, %record_bytes: i64) -> (i64) {
+  %record = scalar.trunci %counter : i64 to i32
+  %ordinal = scalar.extui %record : i32 to i64
+  %displacement = scalar.muli %ordinal, %record_bytes : i64
+  %address = scalar.addi %base, %displacement : i64
+  func.return %address : i64
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @wrapped_record_address(%base: reg<x86.gpr64>, %counter: reg<x86.gpr64>, %record_bytes: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %record = mov.trunc.gpr32.gpr64 %counter
+  %ordinal = movzx.gpr64.gpr32 %record
+  %14 = copy %ordinal : reg<x86.gpr64> -> reg<x86.gpr64>
+  %displacement = imul.gpr64 %14, %record_bytes
+  %16 = copy %base : reg<x86.gpr64> -> reg<x86.gpr64>
+  %address = add.gpr64 %16, %displacement
+  return %address
+}

@@ -163,7 +163,8 @@ iree_status_t loom_parse_static_encoding(loom_parser_t* parser,
   loom_token_t token = loom_token_none();
   LOOM_PARSE_EXPECT(parser, LOOM_TOKEN_HASH_ATTR, &token);
 
-  uint16_t aliased_id = loom_alias_table_lookup(&parser->aliases, token.text);
+  uint16_t aliased_id =
+      loom_alias_table_lookup(&parser->aliases, parser->module, token.text);
   if (aliased_id != 0) {
     *out_encoding_id = aliased_id;
     return iree_ok_status();
@@ -1157,7 +1158,8 @@ static iree_status_t loom_parse_parameterized_type_contents(
       }
       case LOOM_TYPE_FMT_OPTIONAL:
         if (!loom_parse_type_optional_group_is_present(parser, descriptor, i)) {
-          i = (uint16_t)(i + (element->data >> 8));
+          i = (uint16_t)(i +
+                         LOOM_TYPE_FORMAT_OPTIONAL_SKIP_COUNT(element->data));
         }
         break;
       case LOOM_TYPE_FMT_GLUE:

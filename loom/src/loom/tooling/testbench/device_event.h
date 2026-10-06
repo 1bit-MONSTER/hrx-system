@@ -17,6 +17,7 @@
 #include "iree/base/api.h"
 #include "iree/base/threading/mutex.h"
 #include "iree/hal/api.h"
+#include "loom/util/stream.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,7 +65,8 @@ typedef struct loom_testbench_device_event_record_t {
 } loom_testbench_device_event_record_t;
 
 typedef struct loom_testbench_device_event_list_t {
-  // Borrowed event records in capture order.
+  // Event records in capture order. Ownership is defined by the container
+  // exposing the list.
   const loom_testbench_device_event_record_t* records;
   // Number of captured entries in |records|.
   iree_host_size_t count;
@@ -90,6 +92,16 @@ typedef struct loom_testbench_device_event_capture_t {
   bool mutex_initialized;
 } loom_testbench_device_event_capture_t;
 
+// Owned immutable copy of one completed capture interval.
+typedef struct loom_testbench_device_event_snapshot_t {
+  // Host allocator owning |records|.
+  iree_allocator_t host_allocator;
+  // Owned records backing |events|.
+  loom_testbench_device_event_record_t* records;
+  // Snapshot event list with spans rebound into |records|.
+  loom_testbench_device_event_list_t events;
+} loom_testbench_device_event_snapshot_t;
+
 // Initializes event capture with storage for |record_capacity| events.
 iree_status_t loom_testbench_device_event_capture_initialize(
     iree_host_size_t record_capacity, iree_allocator_t host_allocator,
@@ -111,6 +123,28 @@ iree_hal_device_event_sink_t loom_testbench_device_event_capture_sink(
 void loom_testbench_device_event_capture_events(
     loom_testbench_device_event_capture_t* capture,
     loom_testbench_device_event_list_t* out_events);
+
+// Copies the current capture interval into an owned immutable snapshot.
+// |out_snapshot| must be empty and remains empty on failure.
+iree_status_t loom_testbench_device_event_capture_snapshot(
+    loom_testbench_device_event_capture_t* capture,
+    iree_allocator_t host_allocator,
+    loom_testbench_device_event_snapshot_t* out_snapshot);
+
+// Releases all storage owned by |snapshot|.
+void loom_testbench_device_event_snapshot_deinitialize(
+    loom_testbench_device_event_snapshot_t* snapshot);
+
+// Counts error-severity events that no positive expectation consumed.
+iree_host_size_t loom_testbench_device_event_unhandled_error_count(
+    const loom_testbench_device_event_list_t* events,
+    const uint8_t* expected_events);
+
+// Writes the device-event failure report shared by case and scenario results.
+iree_status_t loom_testbench_device_event_failure_write_json(
+    const loom_testbench_device_event_list_t* events,
+    const uint8_t* expected_events, iree_host_size_t unhandled_error_count,
+    loom_output_stream_t* stream);
 
 #ifdef __cplusplus
 }  // extern "C"

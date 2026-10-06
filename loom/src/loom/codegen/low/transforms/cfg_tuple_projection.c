@@ -8,6 +8,7 @@
 
 #include "loom/codegen/low/function.h"
 #include "loom/ir/module.h"
+#include "loom/ops/low/capture.h"
 #include "loom/ops/low/ops.h"
 #include "loom/rewrite/rewriter.h"
 #include "loom/target/registers.h"
@@ -30,10 +31,8 @@ typedef struct loom_low_cfg_tuple_slot_plan_t {
 typedef enum loom_low_cfg_tuple_source_kind_e {
   // Slices a stable tuple value retained by the recipe.
   LOOM_LOW_CFG_TUPLE_SOURCE_SLICE_VALUE = 0,
-  // Forwards the current value of one retained concat operand.
-  LOOM_LOW_CFG_TUPLE_SOURCE_FORWARD_CONCAT_OPERAND = 1,
-  // Slices the current value of one retained concat operand.
-  LOOM_LOW_CFG_TUPLE_SOURCE_SLICE_CONCAT_OPERAND = 2,
+  // Captures a retained concat operand at the concat's original program point.
+  LOOM_LOW_CFG_TUPLE_SOURCE_SLICE_CONCAT_OPERAND = 1,
 } loom_low_cfg_tuple_source_kind_t;
 
 typedef struct loom_low_cfg_tuple_source_component_t {
@@ -185,8 +184,7 @@ static iree_status_t loom_low_cfg_tuple_plan_slot(
 
 static void loom_low_cfg_tuple_refine_concat_component(
     const loom_boundary_projection_plan_t* plan, loom_value_id_t value_id,
-    uint16_t component, loom_type_t component_type,
-    loom_low_cfg_tuple_source_component_t* out_source) {
+    uint16_t component, loom_low_cfg_tuple_source_component_t* out_source) {
   const loom_value_t* value = loom_module_value(plan->module, value_id);
   if (loom_value_is_block_arg(value)) {
     return;
@@ -212,11 +210,7 @@ static void loom_low_cfg_tuple_refine_concat_component(
     }
     if (component >= source_begin &&
         component < source_begin + source_component_count) {
-      out_source->kind = source_component_count == 1 &&
-                                 component == source_begin &&
-                                 loom_type_equal(source_type, component_type)
-                             ? LOOM_LOW_CFG_TUPLE_SOURCE_FORWARD_CONCAT_OPERAND
-                             : LOOM_LOW_CFG_TUPLE_SOURCE_SLICE_CONCAT_OPERAND;
+      out_source->kind = LOOM_LOW_CFG_TUPLE_SOURCE_SLICE_CONCAT_OPERAND;
       out_source->source.concat_operand.op = op;
       out_source->source.concat_operand.operand_index = i;
       out_source->source_offset = component - source_begin;
@@ -264,7 +258,7 @@ static iree_status_t loom_low_cfg_tuple_plan_source(
         .source_offset = component,
     };
     loom_low_cfg_tuple_refine_concat_component(plan, source_value_id, component,
-                                               component_type, source);
+                                               source);
   }
 
   *out_source = (loom_boundary_projection_source_t){
@@ -303,13 +297,21 @@ static iree_status_t loom_low_cfg_tuple_materialize_source(
       source_value_id =
           sources.values[source_component->source.concat_operand.operand_index];
     }
-    if (source_component->kind ==
-        LOOM_LOW_CFG_TUPLE_SOURCE_FORWARD_CONCAT_OPERAND) {
+    // The destination block argument supplies independent ownership. A stable
+    // whole component needs no intermediate capture on the incoming edge.
+    if (source_component->source_offset == 0 &&
+        loom_type_equal(loom_module_value_type(plan->module, source_value_id),
+                        source_plan->component_type) &&
+        loom_low_capture_source_is_stable(plan->module, source_value_id)) {
       out_component_values[component] = source_value_id;
       continue;
     }
     loom_builder_ip_t saved_ip = loom_builder_save(&plan->rewriter.builder);
-    loom_builder_set_before(&plan->rewriter.builder, source->boundary_op);
+    loom_op_t* capture_op =
+        source_component->kind == LOOM_LOW_CFG_TUPLE_SOURCE_SLICE_VALUE
+            ? source->boundary_op
+            : source_component->source.concat_operand.op;
+    loom_builder_set_before(&plan->rewriter.builder, capture_op);
     loom_op_t* slice_op = NULL;
     iree_status_t status = loom_low_slice_build(
         &plan->rewriter.builder, source_value_id,
@@ -337,16 +339,30 @@ static iree_status_t loom_low_cfg_tuple_eliminate(
   const loom_low_cfg_tuple_slot_plan_t* slot_plan =
       (const loom_low_cfg_tuple_slot_plan_t*)slot->schema.rule_plan;
   IREE_ASSERT(slot_plan != NULL);
+  // Publish every component observation before testing any owner merge. A
+  // later slice can consume its capture independently of an earlier observer.
   for (uint32_t i = 0; i < slot_plan->slice_use_count; ++i) {
     const loom_low_cfg_tuple_slice_use_t* slice_use = &slot_plan->slice_uses[i];
     const loom_value_id_t replacement =
         slot->component_value_ids[slice_use->component];
-    IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_and_erase(
-        &plan->rewriter, slice_use->op, &replacement, 1));
+    IREE_RETURN_IF_ERROR(loom_rewriter_set_attr(&plan->rewriter, slice_use->op,
+                                                0, loom_attr_i64(0)));
+    IREE_RETURN_IF_ERROR(loom_rewriter_set_operand(
+        &plan->rewriter, slice_use->op, 0, replacement));
+  }
+  uint32_t removed_count = 0;
+  for (uint32_t i = 0; i < slot_plan->slice_use_count; ++i) {
+    loom_op_t* slice_op = slot_plan->slice_uses[i].op;
+    const loom_value_id_t source = loom_low_slice_source(slice_op);
+    if (loom_low_capture_can_forward(plan->module, source,
+                                     loom_low_slice_result(slice_op), 1)) {
+      IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_and_erase(
+          &plan->rewriter, slice_op, &source, 1));
+      ++removed_count;
+    }
   }
   loom_boundary_projection_record(plan, rule, 1, slot->schema.component_count);
-  loom_boundary_projection_record_destination_uses(plan, rule,
-                                                   slot_plan->slice_use_count);
+  loom_boundary_projection_record_destination_uses(plan, rule, removed_count);
   return iree_ok_status();
 }
 

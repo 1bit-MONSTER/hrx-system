@@ -12,7 +12,6 @@
 #include "loom/codegen/low/lower/contract_query.h"
 #include "loom/codegen/low/lower/rule_match.h"
 #include "loom/ir/module.h"
-#include "loom/ops/func/ops.h"
 #include "loom/target/low_descriptor_registry.h"
 #include "loom/target/registers.h"
 
@@ -113,10 +112,12 @@ static iree_status_t loom_low_lower_source_query_contract(
   loom_value_fact_table_t* saved_fact_table = context->lowering.fact_table;
   const bool fact_table_changed =
       saved_fact_table != (loom_value_fact_table_t*)environment->fact_table;
+  loom_cfg_value_identity_table_t saved_identities;
   context->descriptor_set = environment->descriptor_set;
   context->lowering.fact_table =
       (loom_value_fact_table_t*)environment->fact_table;
   if (fact_table_changed) {
+    saved_identities = context->lowering.function_analysis.value_identities;
     context->lowering.function_analysis =
         (loom_low_lower_function_analysis_t){0};
   }
@@ -163,16 +164,26 @@ static iree_status_t loom_low_lower_source_query_contract(
           },
       .descriptor_matrix = context->policy->descriptor_matrix,
   };
+  *out_result = loom_target_contract_query_result_empty();
+  const loom_target_contract_query_callback_t query_op_contract =
+      context->policy->query_op_contract;
+  if (iree_status_is_ok(status) && query_op_contract.fn != NULL) {
+    status = query_op_contract.fn(query_op_contract.user_data,
+                                  &query_environment, source_op, out_result);
+  }
   if (iree_status_is_ok(status)) {
-    status = loom_low_lower_query_target_contract(
-        &query_environment, &query_options, source_op, out_result);
+    if (out_result->outcome == LOOM_TARGET_CONTRACT_QUERY_UNHANDLED) {
+      status = loom_low_lower_query_target_contract(
+          &query_environment, &query_options, source_op, out_result);
+    }
   }
 
   context->descriptor_set = saved_descriptor_set;
   context->lowering.fact_table = saved_fact_table;
   if (fact_table_changed) {
-    context->lowering.function_analysis =
-        (loom_low_lower_function_analysis_t){0};
+    context->lowering.function_analysis = (loom_low_lower_function_analysis_t){
+        .value_identities = saved_identities,
+    };
   }
   return status;
 }
@@ -218,6 +229,12 @@ iree_status_t loom_low_lower_source_query_scope_create(
       .result = &scope->result,
   };
   scope->context.lowering.fact_table = options->fact_table;
+  const loom_region_descriptor_t* source_body_descriptor =
+      loom_func_like_body_region_descriptor(module, source_function);
+  if (source_body_descriptor != NULL) {
+    scope->context.lowering.source_callable_exit_kind =
+        source_body_descriptor->terminator;
+  }
   iree_arena_initialize(module->arena.block_pool,
                         &scope->context.function_arena);
 

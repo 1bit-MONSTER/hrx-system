@@ -9,19 +9,113 @@
 #include "loom/codegen/low/diagnostics.h"
 #include "loom/codegen/low/packet.h"
 #include "loom/error/error_catalog.h"
+#include "loom/ir/context.h"
 #include "loom/ir/module.h"
+#include "loom/ops/low/ops.h"
 #include "loom/ops/op_defs.h"
+#include "loom/target/arch/amd/xdna/aie2p/array/abi_layout.h"
+#include "loom/target/arch/amd/xdna/aie2p/core_structure.h"
 #include "loom/target/arch/amd/xdna/aie2p/descriptors/array_descriptors.h"
+#include "loom/target/arch/amd/xdna/aie2p/descriptors/core_descriptors.h"
+#include "loom/target/arch/amd/xdna/error_catalog.h"
 #include "loom/target/projection.h"
+#include "loom/target/registers.h"
+
+typedef enum loom_aie2p_low_verify_program_kind_e {
+  LOOM_AIE2P_LOW_VERIFY_PROGRAM_ARRAY = 0,
+  LOOM_AIE2P_LOW_VERIFY_PROGRAM_CORE = 1,
+} loom_aie2p_low_verify_program_kind_t;
 
 typedef struct loom_aie2p_low_verify_state_t {
-  // Module containing the current array program.
+  // Module containing the current AIE2P program.
   const loom_module_t* module;
-  // Target resolved for the current array program.
+  // Target resolved for the current AIE2P program.
   const loom_low_resolved_target_t* target;
-  // Borrowed array-program function name used in diagnostics.
+  // Borrowed function name used in diagnostics.
   iree_string_view_t function_name;
+  // AIE2P representation contract selected by the target.
+  loom_aie2p_low_verify_program_kind_t program_kind;
+  // Whether the array ABI layout passed its one public schema boundary.
+  bool abi_layout_valid;
 } loom_aie2p_low_verify_state_t;
+
+static loom_diagnostic_param_t loom_aie2p_low_abi_layout_field_param(
+    iree_string_view_t value) {
+  return loom_param_with_field_ref(
+      loom_param_string(value), loom_low_func_def_abi_layout_diagnostic_ref());
+}
+
+static iree_status_t loom_aie2p_low_verify_array_abi_layout(
+    loom_low_verify_context_t* context, loom_aie2p_low_verify_state_t* state,
+    const loom_op_t* function_op) {
+  loom_aie2p_array_abi_layout_issue_t issue = {0};
+  if (loom_aie2p_array_abi_layout_validate(
+          state->module, loom_low_func_def_abi_layout(function_op), &issue)) {
+    return iree_ok_status();
+  }
+
+  state->abi_layout_valid = false;
+  switch (issue.kind) {
+    case LOOM_AIE2P_ARRAY_ABI_LAYOUT_ISSUE_UNEXPECTED_FIELD: {
+      const loom_diagnostic_param_t params[] = {
+          loom_param_string(state->function_name),
+          loom_aie2p_low_abi_layout_field_param(issue.field_name),
+      };
+      return loom_low_verify_context_emit(context, function_op,
+                                          LOOM_ERR_XDNA_030, params,
+                                          IREE_ARRAYSIZE(params));
+    }
+    case LOOM_AIE2P_ARRAY_ABI_LAYOUT_ISSUE_BINDING_COUNT_KIND: {
+      const loom_diagnostic_param_t params[] = {
+          loom_aie2p_low_abi_layout_field_param(
+              IREE_SV("abi_layout.binding_count")),
+          loom_param_u32(issue.attribute.kind),
+          loom_param_u32(LOOM_ATTR_I64),
+      };
+      return loom_low_verify_context_emit(context, function_op,
+                                          LOOM_ERR_TYPE_005, params,
+                                          IREE_ARRAYSIZE(params));
+    }
+    case LOOM_AIE2P_ARRAY_ABI_LAYOUT_ISSUE_BINDING_COUNT_RANGE: {
+      const loom_diagnostic_param_t params[] = {
+          loom_aie2p_low_abi_layout_field_param(
+              IREE_SV("abi_layout.binding_count")),
+          loom_param_i64(issue.attribute.i64),
+          loom_param_string(IREE_SV("an integer in [0, 65535]")),
+      };
+      return loom_low_verify_context_emit(context, function_op,
+                                          LOOM_ERR_STRUCTURE_014, params,
+                                          IREE_ARRAYSIZE(params));
+    }
+    case LOOM_AIE2P_ARRAY_ABI_LAYOUT_ISSUE_NONE:
+      break;
+  }
+  IREE_ASSERT_UNREACHABLE("array ABI layout issue kind");
+  return iree_ok_status();
+}
+
+static iree_status_t loom_aie2p_low_verify_empty_signature(
+    loom_low_verify_context_t* context, const loom_module_t* module,
+    const loom_op_t* function_op, iree_string_view_t emitter_key) {
+  const loom_func_like_t function =
+      loom_func_like_const_cast(module, function_op);
+  uint16_t argument_count = 0;
+  loom_func_like_arg_ids(function, &argument_count);
+  const uint16_t result_count = function_op->result_count;
+  if (argument_count == 0 && result_count == 0) {
+    return iree_ok_status();
+  }
+  const loom_diagnostic_param_t params[] = {
+      loom_param_string(loom_low_diagnostic_function_name(module, function_op)),
+      loom_param_string(emitter_key),
+      loom_param_string(argument_count != 0 ? IREE_SV("register argument")
+                                            : IREE_SV("register result")),
+      loom_param_u32(argument_count != 0 ? argument_count : result_count),
+      loom_param_u32(0),
+  };
+  return loom_low_verify_context_emit(context, function_op, LOOM_ERR_TARGET_054,
+                                      params, IREE_ARRAYSIZE(params));
+}
 
 static iree_status_t loom_aie2p_low_verify_begin_function(
     const loom_low_verify_provider_t* provider,
@@ -30,8 +124,16 @@ static iree_status_t loom_aie2p_low_verify_begin_function(
   *out_provider_state = NULL;
   const loom_low_resolved_target_t* target =
       loom_low_verify_context_target(context);
-  if (target->descriptor_set == NULL ||
-      target->descriptor_set->stable_id != AIE2P_ARRAY_DESCRIPTOR_SET_ID) {
+  if (target->descriptor_set == NULL) {
+    return iree_ok_status();
+  }
+  loom_aie2p_low_verify_program_kind_t program_kind;
+  if (target->descriptor_set->stable_id == AIE2P_ARRAY_DESCRIPTOR_SET_ID) {
+    program_kind = LOOM_AIE2P_LOW_VERIFY_PROGRAM_ARRAY;
+  } else if (target->descriptor_set->stable_id ==
+             AIE2P_CORE_DESCRIPTOR_SET_ID) {
+    program_kind = LOOM_AIE2P_LOW_VERIFY_PROGRAM_CORE;
+  } else {
     return iree_ok_status();
   }
 
@@ -44,9 +146,124 @@ static iree_status_t loom_aie2p_low_verify_begin_function(
       .function_name = loom_low_diagnostic_function_name(
           loom_low_verify_context_module(context),
           loom_low_verify_context_function_op(context)),
+      .program_kind = program_kind,
+      .abi_layout_valid = true,
   };
   *out_provider_state = state;
-  return iree_ok_status();
+  if (program_kind == LOOM_AIE2P_LOW_VERIFY_PROGRAM_CORE) {
+    return iree_ok_status();
+  }
+  const loom_op_t* function_op = loom_low_verify_context_function_op(context);
+  IREE_RETURN_IF_ERROR(
+      loom_aie2p_low_verify_array_abi_layout(context, state, function_op));
+  if (!state->abi_layout_valid) {
+    return iree_ok_status();
+  }
+  return loom_aie2p_low_verify_empty_signature(
+      context, state->module, function_op, IREE_SV("aie2p-array-plan"));
+}
+
+static iree_status_t loom_aie2p_low_verify_core_resource(
+    loom_low_verify_context_t* context,
+    const loom_aie2p_low_verify_state_t* state, const loom_op_t* op) {
+  if (!loom_low_resource_isa(op) ||
+      loom_low_resource_import_kind(op) !=
+          LOOM_LOW_RESOURCE_IMPORT_KIND_NATIVE_POINTER) {
+    return iree_ok_status();
+  }
+  const loom_type_t result_type =
+      loom_module_value_type(state->module, loom_low_resource_result(op));
+  // Shared Low verification diagnoses non-register and foreign-descriptor
+  // resource results. This provider owns the narrower AIE2P native-pointer
+  // ABI and must not duplicate those diagnostics.
+  if (!loom_low_type_is_register(result_type) ||
+      loom_low_register_type_descriptor_set_stable_id(result_type) !=
+          AIE2P_CORE_DESCRIPTOR_SET_ID) {
+    return iree_ok_status();
+  }
+  if (loom_low_register_type_class_id(result_type) ==
+          AIE2P_CORE_REG_CLASS_ID_AIE2P_EP &&
+      loom_low_register_type_unit_count(result_type) == 1) {
+    return iree_ok_status();
+  }
+
+  const loom_diagnostic_param_t params[] = {
+      loom_param_with_field_ref(
+          loom_param_string(IREE_SV("result")),
+          loom_diagnostic_field_ref(LOOM_DIAGNOSTIC_FIELD_RESULT, 0)),
+      loom_param_type(result_type),
+      loom_param_string(IREE_SV("register class in [aie2p.ep] with 1 unit(s)")),
+  };
+  return loom_low_verify_context_emit(context, op, LOOM_ERR_TYPE_004, params,
+                                      IREE_ARRAYSIZE(params));
+}
+
+static bool loom_aie2p_low_verify_is_core_body_op(
+    const loom_low_verify_context_t* context, const loom_op_t* op) {
+  const loom_region_t* function_body =
+      loom_low_verify_context_function_body(context);
+  return op->parent_block->parent_region == function_body;
+}
+
+static iree_status_t loom_aie2p_low_verify_emit_call_policy_error(
+    loom_low_verify_context_t* context,
+    const loom_aie2p_low_verify_state_t* state, const loom_op_t* op) {
+  const loom_symbol_ref_t callee = loom_low_func_call_callee(op);
+  const loom_diagnostic_param_t params[] = {
+      loom_param_string(loom_low_diagnostic_target_key(state->target)),
+      loom_param_string(loom_low_diagnostic_export_name(state->target)),
+      loom_param_string(loom_low_diagnostic_config_key(state->target)),
+      loom_param_string(state->function_name),
+      loom_param_string(loom_low_diagnostic_operation_name(state->module, op)),
+      loom_param_with_field_ref(
+          loom_param_string(
+              loom_low_diagnostic_symbol_name(state->module, callee)),
+          loom_low_func_call_callee_diagnostic_ref()),
+      loom_param_string(IREE_SV(
+          "the selected target requires every Low call to be inlined before "
+          "emission")),
+  };
+  return loom_low_verify_context_emit(context, op, LOOM_ERR_TARGET_072, params,
+                                      IREE_ARRAYSIZE(params));
+}
+
+static iree_status_t loom_aie2p_low_verify_emit_unsupported_core_op(
+    loom_low_verify_context_t* context,
+    const loom_aie2p_low_verify_state_t* state, const loom_op_t* op) {
+  const loom_diagnostic_param_t params[] = {
+      loom_param_string(loom_low_diagnostic_target_key(state->target)),
+      loom_param_string(loom_low_diagnostic_export_name(state->target)),
+      loom_param_string(loom_low_diagnostic_config_key(state->target)),
+      loom_param_string(state->function_name),
+      loom_param_string(loom_low_diagnostic_operation_name(state->module, op)),
+  };
+  return loom_low_verify_context_emit(context, op, LOOM_ERR_TARGET_001, params,
+                                      IREE_ARRAYSIZE(params));
+}
+
+static iree_status_t loom_aie2p_low_verify_core_op(
+    loom_low_verify_context_t* context,
+    const loom_aie2p_low_verify_state_t* state,
+    const loom_low_descriptor_packet_t* packet) {
+  // AIE2P core emission consumes flat CFG body operations. Any nested op is
+  // owned by an unsupported outer structural operation diagnosed at this
+  // boundary, so descending into it would only produce redundant errors.
+  if (!loom_aie2p_low_verify_is_core_body_op(context, packet->op)) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(
+      loom_aie2p_low_verify_core_resource(context, state, packet->op));
+  if (packet->kind != LOOM_LOW_DESCRIPTOR_PACKET_NONE ||
+      loom_aie2p_core_structure_classify(packet->op) !=
+          LOOM_AIE2P_CORE_STRUCTURE_UNSUPPORTED) {
+    return iree_ok_status();
+  }
+  if (loom_low_func_call_isa(packet->op)) {
+    return loom_aie2p_low_verify_emit_call_policy_error(context, state,
+                                                        packet->op);
+  }
+  return loom_aie2p_low_verify_emit_unsupported_core_op(context, state,
+                                                        packet->op);
 }
 
 static const loom_named_attr_t* loom_aie2p_low_find_packet_attr(
@@ -189,9 +406,59 @@ static iree_status_t loom_aie2p_low_verify_op(
   (void)provider;
   const loom_aie2p_low_verify_state_t* state =
       (const loom_aie2p_low_verify_state_t*)provider_state;
-  if (state == NULL || packet->kind == LOOM_LOW_DESCRIPTOR_PACKET_NONE ||
+  if (state == NULL || !state->abi_layout_valid ||
       loom_low_verify_context_should_stop(context)) {
     return iree_ok_status();
+  }
+  if (state->program_kind == LOOM_AIE2P_LOW_VERIFY_PROGRAM_CORE) {
+    return loom_aie2p_low_verify_core_op(context, state, packet);
+  }
+  if (packet->kind == LOOM_LOW_DESCRIPTOR_PACKET_NONE) {
+    if (loom_low_return_isa(packet->op)) {
+      return iree_ok_status();
+    }
+    const loom_diagnostic_param_t params[] = {
+        loom_param_string(loom_op_name(state->module, packet->op)),
+    };
+    return loom_low_verify_context_emit(context, packet->op, LOOM_ERR_XDNA_014,
+                                        params, IREE_ARRAYSIZE(params));
+  }
+  switch (packet->descriptor_ordinal) {
+    case AIE2P_ARRAY_DESCRIPTOR_REF_ARRAY_SENDER:
+    case AIE2P_ARRAY_DESCRIPTOR_REF_ARRAY_RECEIVER:
+    case AIE2P_ARRAY_DESCRIPTOR_REF_ARRAY_VIEW_SENDER:
+    case AIE2P_ARRAY_DESCRIPTOR_REF_ARRAY_VIEW_RECEIVER:
+    case AIE2P_ARRAY_DESCRIPTOR_REF_ARRAY_PARTITION_SENDER:
+    case AIE2P_ARRAY_DESCRIPTOR_REF_ARRAY_PARTITION_RECEIVER:
+    case AIE2P_ARRAY_DESCRIPTOR_REF_ARRAY_CHANNEL: {
+      // Shared verification reports malformed result counts and non-register
+      // types. Providers also run after those diagnostics to collect errors.
+      if (packet->op->result_count != 1) {
+        break;
+      }
+      const loom_type_t result_type =
+          loom_module_value_type(state->module, loom_op_results(packet->op)[0]);
+      if (!loom_type_is_register(result_type)) {
+        break;
+      }
+      const loom_type_t* value_type =
+          loom_type_register_value_type(result_type);
+      if (value_type != NULL && loom_type_is_tile(*value_type)) {
+        break;
+      }
+      const loom_diagnostic_param_t params[] = {
+          loom_param_string(loom_low_descriptor_packet_diagnostic_key(
+              state->target->descriptor_set, packet)),
+          loom_param_with_field_ref(
+              loom_param_type(result_type),
+              loom_diagnostic_field_ref(LOOM_DIAGNOSTIC_FIELD_RESULT, 0)),
+      };
+      return loom_low_verify_context_emit(context, packet->op,
+                                          LOOM_ERR_XDNA_015, params,
+                                          IREE_ARRAYSIZE(params));
+    }
+    default:
+      break;
   }
   return loom_aie2p_low_verify_worker(context, state, packet);
 }

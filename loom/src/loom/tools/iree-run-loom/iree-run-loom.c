@@ -12,6 +12,7 @@
 #include "loom/tooling/execution/execution_provider.h"
 #include "loom/tooling/input/configured.h"
 #include "loom/tools/iree-run-loom/main.h"
+#include "loom/transforms/cleanup/configured.h"
 
 #ifndef IREE_RUN_LOOM_HAVE_AMDGPU
 #define IREE_RUN_LOOM_HAVE_AMDGPU 0
@@ -72,6 +73,8 @@ int main(int argc, char** argv) {
               &environment),
       .target_environment =
           loom_run_execution_environment_target_environment(&environment),
+      .cleanup_pattern_provider_set =
+          loom_cleanup_configured_pattern_provider_set(),
       .execution_backend_registry =
           *loom_run_execution_environment_execution_backend_registry(
               &environment),

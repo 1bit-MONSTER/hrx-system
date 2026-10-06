@@ -108,15 +108,15 @@ func.def @workgroup_subview_refine_i32(%value: i32, %element: index) -> (i32) {
 // ----
 low.func.def target<spirv.logical.core> abi(shader_entry_point) @workgroup_subview_refine_i32(%value: reg<spirv.id : i32>, %element_bounded: reg<spirv.id : index>) -> (reg<spirv.id : i32>) asm {
   %scratch = storage {byte_alignment = 4, byte_length = 64} : low.storage<workgroup>
-  %scratch_refined = storage_address %scratch : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
+  %scratch_view = storage_address %scratch : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
   %16 = OpConstant.i32 3 : reg<spirv.id : index>
   %17 = OpIAdd %element_bounded, %16 : reg<spirv.id : index>
-  %18 = OpAccessChain.workgroup.i32.element_index %scratch_refined, %17
+  %18 = OpAccessChain.workgroup.i32.element_index %scratch_view, %17
   OpStore.workgroup.i32 %18, %value
   OpControlBarrier.workgroup.workgroup.acq_rel
   %19 = OpConstant.i32 3 : reg<spirv.id : index>
   %20 = OpIAdd %element_bounded, %19 : reg<spirv.id : index>
-  %21 = OpAccessChain.workgroup.i32.element_index %scratch_refined, %20
+  %21 = OpAccessChain.workgroup.i32.element_index %scratch_view, %20
   %loaded = OpLoad.workgroup.i32 %21
   return %loaded
 }

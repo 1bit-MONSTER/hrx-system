@@ -31,15 +31,24 @@ static iree_status_t loom_amdgpu_bank_service_check_append_row(
       loom_amdgpu_bank_service_check_non_empty(row->source_root_name);
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       builder,
-      "bank-service function=%.*s source-op=%.*s root=%.*s packet=%.*s "
-      "model=%.*s proof=%.*s lane-address=%.*s active-lanes=%.*s "
-      "base-residue=%.*s",
+      "bank-service function=%.*s source-op=%.*s root=%.*s packet=%.*s",
       (int)row->function_name.size, row->function_name.data,
       (int)row->source_op_name.size, row->source_op_name.data,
       (int)source_root.size, source_root.data, (int)row->packet_key.size,
-      row->packet_key.data, (int)bank_service->model_key.size,
-      bank_service->model_key.data, (int)bank_service->proof.size,
-      bank_service->proof.data, (int)bank_service->lane_address_proof.size,
+      row->packet_key.data));
+  if (iree_string_view_is_empty(bank_service->model_key)) {
+    return iree_string_builder_append_format(
+        builder, " proof=unmodeled wave-size=%u unknown-reason=%.*s\n",
+        bank_service->wave_size, (int)bank_service->unknown_reason.size,
+        bank_service->unknown_reason.data);
+  }
+  IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+      builder,
+      " model=%.*s proof=%.*s lane-address=%.*s active-lanes=%.*s "
+      "base-residue=%.*s",
+      (int)bank_service->model_key.size, bank_service->model_key.data,
+      (int)bank_service->proof.size, bank_service->proof.data,
+      (int)bank_service->lane_address_proof.size,
       bank_service->lane_address_proof.data,
       (int)bank_service->active_lane_proof.size,
       bank_service->active_lane_proof.data,
@@ -97,7 +106,7 @@ static iree_status_t loom_amdgpu_bank_service_check_emit_provider_execute(
         (const loom_target_compile_report_source_low_memory_row_t*)
             loom_target_compile_report_vec_const_rows(vec);
     for (iree_host_size_t i = 0; i < vec->count; ++i) {
-      if (iree_string_view_is_empty(rows[i].bank_service.model_key)) {
+      if (iree_string_view_is_empty(rows[i].bank_service.proof)) {
         continue;
       }
       IREE_RETURN_IF_ERROR(loom_amdgpu_bank_service_check_append_row(

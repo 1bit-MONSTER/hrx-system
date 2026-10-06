@@ -18,6 +18,8 @@
 #include "loom/import/cxx/binding/assembly.h"
 #include "loom/import/cxx/binding/atomic.h"
 #include "loom/import/cxx/binding/check.h"
+#include "loom/import/cxx/binding/decode.h"
+#include "loom/import/cxx/binding/encoding.h"
 #include "loom/import/cxx/binding/kernel.h"
 #include "loom/import/cxx/binding/scalar_bindings.h"
 #include "loom/import/cxx/binding/shaped.h"
@@ -58,12 +60,17 @@ class Intrinsics {
     }
   };
   using Binding =
-      std::variant<ScalarBinding, ShapedIntrinsic, ViewIntrinsic,
-                   AtomicIntrinsic, FenceIntrinsic, SubgroupIntrinsic,
-                   BarrierIntrinsic, AssemblyIntrinsic, CheckIntrinsic>;
+      std::variant<ScalarBinding, ShapedIntrinsic, EncodingIntrinsic,
+                   DecodeIntrinsic, ViewIntrinsic, AtomicIntrinsic,
+                   FenceIntrinsic, SubgroupIntrinsic, BarrierIntrinsic,
+                   AssemblyIntrinsic, CheckIntrinsic>;
 
-  Intrinsics(cxx::TranslationUnit& unit, Diagnostics& diagnostics, Types& types)
-      : unit_(unit), diagnostics_(diagnostics), types_(types) {}
+  Intrinsics(cxx::TranslationUnit& unit, Diagnostics& diagnostics, Types& types,
+             loom_module_t* module)
+      : unit_(unit),
+        diagnostics_(diagnostics),
+        types_(types),
+        module_(module) {}
 
   // Admits raw attribute arguments before the frontend's string-only semantic
   // attribute map can erase unsupported arguments or duplicate bindings.
@@ -94,8 +101,11 @@ class Intrinsics {
   struct TemplateBinding {
     // Immutable source binding interned by the owning translation unit.
     const cxx::Attribute* attribute;
-    // Scalar operation and permissions established at primary admission.
-    std::optional<ScalarOperation> scalar;
+    // Type-independent semantics established at primary admission. Other
+    // bindings resolve their complete contract at concrete specialization.
+    std::variant<std::monostate, ScalarOperation, ShapedIntrinsic::Operation,
+                 EncodingIntrinsic::Family>
+        operation;
   };
 
   Binding resolve(cxx::FunctionSymbol* function,
@@ -114,6 +124,8 @@ class Intrinsics {
   Diagnostics& diagnostics_;
   // Invocation-owned source type projection shared with ordinary translation.
   Types& types_;
+  // Invocation-owned output module interning static source specifications.
+  loom_module_t* module_;
   // Validated bindings indexed by canonical semantic function symbol.
   std::unordered_map<cxx::FunctionSymbol*, Binding> bindings_;
   // Template source contracts indexed by admitted primary declaration.

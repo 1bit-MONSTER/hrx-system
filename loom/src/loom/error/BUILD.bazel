@@ -54,6 +54,7 @@ loom_cc_library(
         ":diagnostic",
         "//loom/src/loom/ir",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/base/internal:unicode",
     ],
 )

@@ -1,0 +1,36 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/predicate_extension.loom-test
+// TEMPLATE-EXCLUDE: @predicate_extension_i8 Wasm scalar constants and selects require i32 or i64.
+// TEMPLATE-EXCLUDE: @predicate_extension_i16 Wasm scalar constants and selects require i32 or i64.
+// RUN: emit source-low target=wasm:simd128 output=low
+
+func.def @predicate_extension_i32(%condition: i1) -> (i32, i32) {
+  %signed = scalar.extsi %condition : i1 to i32
+  %unsigned = scalar.extui %condition : i1 to i32
+  func.return %signed, %unsigned : i32, i32
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @predicate_extension_i32(%unsigned: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>) asm {
+  %11 = i32.const -1
+  %12 = i32.const 0
+  %signed = i32.select %11, %12, %unsigned
+  return %signed, %unsigned
+}
+
+// ====
+
+func.def @predicate_extension_i64(%condition: i1) -> (i64, i64) {
+  %signed = scalar.extsi %condition : i1 to i64
+  %unsigned = scalar.extui %condition : i1 to i64
+  func.return %signed, %unsigned : i64, i64
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @predicate_extension_i64(%condition: reg<wasm.i32>) -> (reg<wasm.i64>, reg<wasm.i64>) asm {
+  %14 = i64.const -1
+  %15 = i64.const 0
+  %signed = i64.select %14, %15, %condition
+  %17 = i64.const 1
+  %unsigned = i64.select %17, %15, %condition
+  return %signed, %unsigned
+}

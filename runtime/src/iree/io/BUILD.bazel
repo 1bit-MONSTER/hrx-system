@@ -19,6 +19,7 @@ iree_runtime_cc_library(
     srcs = [
         "file_contents.c",
         "file_handle.c",
+        "stdio_util.c",
     ],
     hdrs = [
         "file_contents.h",

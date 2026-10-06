@@ -71,7 +71,6 @@ check.case @asan_global_store_valid_case {
   kernel.launch @asan_global_store_valid(%output) : (tensor<1xi32>)
   %expected = check.generate.fill value(7) : tensor<1xi32>
   check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -90,7 +89,6 @@ check.case @asan_relational_launch_bound_case {
   kernel.launch @asan_relational_launch_bound[%tile_count](%output) : [index](tensor<1xi32>)
   %expected = check.generate.fill value(42) : tensor<1xi32>
   check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -101,6 +99,5 @@ check.case @asan_coupled_view_base_case {
   kernel.launch @asan_coupled_view_base(%base, %local, %output) : (index, index, tensor<2xi32>)
   %expected = check.generate.iota offset(0) step(42) : tensor<2xi32>
   check.expect.equal actual(%output) expected(%expected) : tensor<2xi32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }

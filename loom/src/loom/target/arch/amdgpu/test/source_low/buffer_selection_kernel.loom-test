@@ -1,0 +1,114 @@
+// RUN: emit source-low target=amdgpu:gfx1151 output=low
+
+kernel.def @selected_kernel() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%first: buffer, %second: buffer, %output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %c1 = index.constant 1 : index
+  %c0 = index.constant 0 : index
+  %bit = index.andi %lane, %c1 : index
+  %choose = index.cmp eq, %bit, %c0 : index
+  %selected = scf.select %choose, %first, %second : buffer
+  %first_origin = index.constant 128 : offset
+  %second_origin = index.constant 256 : offset
+  %origin = scf.select %choose, %first_origin, %second_origin : offset
+  %source = buffer.view %selected[%origin] : buffer -> view<64xi32>
+  %base = index.constant 0 : offset
+  %destination = buffer.view %output[%base] : buffer -> view<64xi32>
+  %value = view.load %source[%lane] : view<64xi32> -> i32
+  view.store %value, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.rdna3_5.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 3, resource_count = 3, resource_offsets = [0, 8, 16], resource_parameter_indices = [0, 1, 2], uses_kernarg_segment_ptr = true}) workgroup_size(64, 1, 1) workgroup_count(1, 1, 1) @selected_kernel() asm {
+  %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %first = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %second = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %destination = resource<hal_binding> {extent = 256, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %c1 = s_mov_b32 1
+  %bit = v_and_b32 %c1, %lane
+  %choose = v_cmp_eq_i32_src1_inline %bit {rhs = 0}
+  %25 = slice %first[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %26 = v_mov_b32_copy %25
+  %27 = slice %second[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %28 = v_mov_b32_copy %27
+  %29 = v_cndmask_b32 %28, %26, %choose
+  %30 = slice %first[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %31 = v_mov_b32_copy %30
+  %32 = slice %second[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %33 = v_mov_b32_copy %32
+  %34 = v_cndmask_b32 %33, %31, %choose
+  %first_origin = s_mov_b32 128
+  %38 = v_mov_b32_copy %first_origin
+  %origin = v_cndmask_b32_src0_lit %38, %choose, 256
+  %42 = v_mov_b32 0
+  %43, %44 = v_add_co_u32 %29, %origin
+  %45, %46 = v_add_co_ci_u32 %34, %42, %44
+  %47 = v_lshlrev_b32_src0_inline %lane, 2
+  %48 = v_lshrrev_b32_src0_inline %lane, 30
+  %49, %50 = v_add_co_u32 %43, %47
+  %51, %52 = v_add_co_ci_u32 %45, %48, %50
+  %53 = concat(%49, %51) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %value = global_load_b32_vaddr %53
+  global_store_b32_saddr %47, %value, %destination
+  return
+}
+
+// ====
+
+kernel.def @selected_static_origin() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%first: buffer, %second: buffer, %output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %c1 = index.constant 1 : index
+  %c0 = index.constant 0 : index
+  %bit = index.andi %lane, %c1 : index
+  %choose = index.cmp eq, %bit, %c0 : index
+  %selected = scf.select %choose, %first, %second : buffer
+  %origin = index.constant 16384 : offset
+  %source = buffer.view %selected[%origin] : buffer -> view<64xi32>
+  %base = index.constant 0 : offset
+  %destination = buffer.view %output[%base] : buffer -> view<64xi32>
+  %value = view.load %source[%lane] : view<64xi32> -> i32
+  view.store %value, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.rdna3_5.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 3, resource_count = 3, resource_offsets = [0, 8, 16], resource_parameter_indices = [0, 1, 2], uses_kernarg_segment_ptr = true}) workgroup_size(64, 1, 1) workgroup_count(1, 1, 1) @selected_static_origin() asm {
+  %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %first = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %second = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %destination = resource<hal_binding> {extent = 256, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %c1 = s_mov_b32 1
+  %bit = v_and_b32 %c1, %lane
+  %choose = v_cmp_eq_i32_src1_inline %bit {rhs = 0}
+  %23 = slice %first[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %24 = v_mov_b32_copy %23
+  %25 = slice %second[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %26 = v_mov_b32_copy %25
+  %27 = v_cndmask_b32 %26, %24, %choose
+  %28 = slice %first[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %29 = v_mov_b32_copy %28
+  %30 = slice %second[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %31 = v_mov_b32_copy %30
+  %32 = v_cndmask_b32 %31, %29, %choose
+  %36 = s_mov_b32 16384
+  %37 = s_mov_b32 0
+  %41, %42 = v_add_co_u32 %27, %36
+  %43 = v_mov_b32_copy %37
+  %44, %45 = v_add_co_ci_u32 %32, %43, %42
+  %46 = v_lshlrev_b32_src0_inline %lane, 2
+  %47 = v_lshrrev_b32_src0_inline %lane, 30
+  %48, %49 = v_add_co_u32 %41, %46
+  %50, %51 = v_add_co_ci_u32 %44, %47, %49
+  %52 = concat(%48, %50) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %value = global_load_b32_vaddr %52
+  global_store_b32_saddr %46, %value, %destination
+  return
+}

@@ -36,7 +36,7 @@ The address query requests the native GPU or XDNA DMA address for the selected
 device. Explicit publication uses the mapping's native cache policy.
 
 No memory scenario includes command submission or device completion; native
-computation is covered by CTS and the execution benchmark below. The device is
+computation belongs to the execution benchmark below. The device is
 activated but has not run a benchmark workload.
 GPU VM residency and TLB invalidation costs can differ after execution, so an
 exercised-context comparison must exercise both owners separately.
@@ -58,16 +58,14 @@ bazel-bin/libamdf/benchmarks/xdna/memory_benchmark \
 Use `//libamdf/benchmarks/gpu:memory_benchmark` and its corresponding executable
 path for GPU memory. Both use process-scoped native ownership.
 
-Google Benchmark reports per-operation elapsed time and byte throughput. The
-generated `memory_benchmark_test` performs a single-iteration smoke run through
-the same shared GPU/XDNA hardware resource group as CTS. Family build and hardware
-requirements are selected by package policy. Missing native capabilities are
-reported as skips; native operation or byte-check failures terminate the run.
+Google Benchmark reports per-operation elapsed time and byte throughput.
+Missing native capabilities are reported as skips; native operation or
+byte-check failures terminate the run.
 
 Measurements use nonsanitized optimized binaries, a quiet machine, and the same
 compiler options and allocation/publication contract for every comparator.
 CPU scaling, concurrent activity, and repetition spread remain part of the
-result. Sanitizer and smoke-test output establish correctness, not performance.
+result. Instrumented or smoke-run durations are not performance measurements.
 The benchmark executable is not part of the installed libamdf distribution.
 
 ## Independent XDNA execution

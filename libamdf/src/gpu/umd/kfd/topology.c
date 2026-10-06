@@ -82,7 +82,8 @@ static amdf_status_t amdf_gpu_kfd_read_number(int directory, const char* name,
 // group must be complete when present.
 static amdf_status_t amdf_gpu_kfd_read_node(
     int directory, const amdf_platform_endpoint_t* endpoint,
-    amdf_gpu_kfd_topology_t* topology, bool* out_matches) {
+    amdf_gpu_kfd_topology_t* topology, uint32_t* out_io_link_count,
+    bool* out_matches) {
   enum {
     RENDER_MINOR,
     VENDOR_ID,
@@ -106,6 +107,7 @@ static amdf_status_t amdf_gpu_kfd_read_node(
     SDMA_ENGINE_COUNT,
     SDMA_XGMI_ENGINE_COUNT,
     SDMA_QUEUE_COUNT_PER_ENGINE,
+    IO_LINK_COUNT,
     PROPERTY_COUNT,
   };
   const char* names[PROPERTY_COUNT] = {
@@ -130,6 +132,7 @@ static amdf_status_t amdf_gpu_kfd_read_node(
       "num_sdma_engines",
       "num_sdma_xgmi_engines",
       "num_sdma_queues_per_engine",
+      "io_links_count",
   };
   uint32_t values[PROPERTY_COUNT] = {0};
   uint32_t present = 0;
@@ -230,24 +233,20 @@ static amdf_status_t amdf_gpu_kfd_read_node(
   topology->context_save_restore_byte_length =
       values[CONTEXT_SAVE_RESTORE_SIZE];
   topology->control_stack_byte_length = values[CONTROL_STACK_SIZE];
+  *out_io_link_count = values[IO_LINK_COUNT];
   *out_matches = true;
   return AMDF_STATUS_OK;
 }
 
-static amdf_status_t amdf_gpu_kfd_query_sdma(
-    const amdf_platform_endpoint_t* endpoint,
-    amdf_gpu_kfd_topology_t* topology) {
-  if (topology->sdma.engine_count == 0 &&
-      topology->sdma.xgmi_engine_count == 0) {
-    return AMDF_STATUS_OK;
-  }
-  // Hardware ID 42 is SDMA0. These cached discovery bytes are the same version
-  // returned by HW_IP_INFO for SDMA instance zero, without a native query. The
-  // numeric hardware-ID path also works before sysfs added named IP symlinks.
+static amdf_status_t amdf_gpu_kfd_read_ip_version(
+    const amdf_platform_endpoint_t* endpoint, uint32_t hardware_id,
+    amdf_gpu_kfd_ip_version_t* out_version) {
+  // Numeric hardware IDs also work before sysfs added named IP symlinks.
+  // Discovery distinguishes the native revision from compiler target aliases.
   char path[128];
-  snprintf(path, sizeof(path), "dev/char/%u:%u/device/ip_discovery/die/0/42/0",
+  snprintf(path, sizeof(path), "dev/char/%u:%u/device/ip_discovery/die/0/%u/0",
            (uint32_t)(endpoint->info.id.words[0] >> 32),
-           (uint32_t)endpoint->info.id.words[0]);
+           (uint32_t)endpoint->info.id.words[0], hardware_id);
   int directory = openat(endpoint->instance->sysfs_descriptor, path,
                          O_RDONLY | O_DIRECTORY | O_CLOEXEC);
   if (directory < 0) {
@@ -269,10 +268,12 @@ static amdf_status_t amdf_gpu_kfd_query_sdma(
     status = close_status;
   }
   if (amdf_status_is_ok(status) && (values[0] | values[1] | values[2]) != 0) {
-    topology->sdma.ip.major = values[0];
-    topology->sdma.ip.minor = values[1];
-    topology->sdma.ip.revision = values[2];
-    topology->sdma.ip.exact = true;
+    *out_version = (amdf_gpu_kfd_ip_version_t){
+        .major = values[0],
+        .minor = values[1],
+        .revision = values[2],
+        .exact = true,
+    };
   }
   return status;
 }
@@ -327,16 +328,22 @@ static amdf_status_t amdf_gpu_kfd_read_memory(
   return AMDF_STATUS_OK;
 }
 
-// KFD publishes an indirect peer edge only after the backing owner's BAR,
-// consumer DMA aperture and platform P2P admission checks. The edge is stored
-// on the consumer and points to the backing node; the reverse is independent.
-static amdf_status_t amdf_gpu_kfd_read_peer_link(int node,
-                                                 uint32_t node_ordinal,
-                                                 uint32_t link_ordinal,
-                                                 uint32_t* out_backing_node,
-                                                 bool* out_enabled) {
+// One directed native topology edge.
+typedef struct amdf_gpu_kfd_link_t {
+  // Native interconnect class, independent of the endpoint's compiler target.
+  uint32_t type;
+  // Destination KFD topology node ordinal.
+  uint32_t destination;
+  // Driver-reported reachability, coherence and atomic width flags.
+  uint32_t flags;
+} amdf_gpu_kfd_link_t;
+
+static amdf_status_t amdf_gpu_kfd_read_link(int node, uint32_t node_ordinal,
+                                            const char* directory,
+                                            uint32_t link_ordinal,
+                                            amdf_gpu_kfd_link_t* out_link) {
   char path[64];
-  snprintf(path, sizeof(path), "p2p_links/%u/properties", link_ordinal);
+  snprintf(path, sizeof(path), "%s/%u/properties", directory, link_ordinal);
   char text[2048];
   const amdf_status_t status =
       amdf_gpu_kfd_read_attribute(node, path, text, sizeof(text));
@@ -376,14 +383,14 @@ static amdf_status_t amdf_gpu_kfd_read_peer_link(int node,
   if (present != 15 || values[1] != node_ordinal) {
     return amdf_linux_error(EPROTO);
   }
-  *out_backing_node = values[2];
-  *out_enabled = values[0] == HSA_IOLINK_TYPE_PCIEXPRESS &&
-                 (values[3] & (HSA_IOLINK_FLAGS_ENABLED |
-                               HSA_IOLINK_FLAGS_NO_PEER_TO_PEER_DMA)) ==
-                     HSA_IOLINK_FLAGS_ENABLED;
+  *out_link = (amdf_gpu_kfd_link_t){
+      .type = values[0], .destination = values[2], .flags = values[3]};
   return AMDF_STATUS_OK;
 }
 
+// KFD publishes an indirect peer edge only after the backing owner's BAR,
+// consumer DMA aperture and platform P2P admission checks. The edge is stored
+// on the consumer and points to the backing node; the reverse is independent.
 static amdf_status_t amdf_gpu_kfd_read_memory_peers(
     int nodes, int node, uint32_t node_ordinal, amdf_allocator_t host_allocator,
     amdf_gpu_kfd_topology_t* topology) {
@@ -396,20 +403,56 @@ static amdf_status_t amdf_gpu_kfd_read_memory_peers(
       host_allocator, (uint64_t)link_count * sizeof(uint32_t),
       amdf_alignof(uint32_t), (void**)&topology->memory_peers.gpu_ids);
   for (uint32_t i = 0; amdf_status_is_ok(status) && i < link_count; ++i) {
-    uint32_t backing_node = 0;
-    bool enabled = false;
-    status = amdf_gpu_kfd_read_peer_link(node, node_ordinal, i, &backing_node,
-                                         &enabled);
-    if (!amdf_status_is_ok(status) || !enabled) {
+    amdf_gpu_kfd_link_t link = {0};
+    status = amdf_gpu_kfd_read_link(node, node_ordinal, "p2p_links", i, &link);
+    if (!amdf_status_is_ok(status) || link.type != HSA_IOLINK_TYPE_PCIEXPRESS ||
+        (link.flags &
+         (HSA_IOLINK_FLAGS_ENABLED | HSA_IOLINK_FLAGS_NO_PEER_TO_PEER_DMA)) !=
+            HSA_IOLINK_FLAGS_ENABLED) {
       continue;
     }
     char path[64];
-    snprintf(path, sizeof(path), "%u/gpu_id", backing_node);
+    snprintf(path, sizeof(path), "%u/gpu_id", link.destination);
     uint32_t gpu_id = 0;
     status = amdf_gpu_kfd_read_number(nodes, path, &gpu_id);
     if (amdf_status_is_ok(status) && gpu_id != 0) {
       topology->memory_peers.gpu_ids[topology->memory_peers.count++] = gpu_id;
     }
+  }
+  return status;
+}
+
+// System allocations are not bound to a selected CPU NUMA node. Intersect
+// the widths of every reported CPU route instead of choosing the first link.
+static amdf_status_t amdf_gpu_kfd_read_host_atomics(
+    int nodes, int node, uint32_t node_ordinal, uint32_t link_count,
+    amdf_gpu_kfd_topology_t* topology) {
+  uint32_t cpu_link_count = 0;
+  bool supports_32 = true;
+  bool supports_64 = true;
+  amdf_status_t status = AMDF_STATUS_OK;
+  for (uint32_t i = 0; amdf_status_is_ok(status) && i < link_count; ++i) {
+    amdf_gpu_kfd_link_t link = {0};
+    status = amdf_gpu_kfd_read_link(node, node_ordinal, "io_links", i, &link);
+    uint32_t gpu_id = 0;
+    if (amdf_status_is_ok(status)) {
+      char path[64];
+      snprintf(path, sizeof(path), "%u/gpu_id", link.destination);
+      status = amdf_gpu_kfd_read_number(nodes, path, &gpu_id);
+    }
+    if (amdf_status_is_ok(status) && gpu_id == 0) {
+      ++cpu_link_count;
+      supports_32 &= (link.flags & (HSA_IOLINK_FLAGS_ENABLED |
+                                    HSA_IOLINK_FLAGS_NO_ATOMICS_32_BIT)) ==
+                     HSA_IOLINK_FLAGS_ENABLED;
+      supports_64 &= (link.flags & (HSA_IOLINK_FLAGS_ENABLED |
+                                    HSA_IOLINK_FLAGS_NO_ATOMICS_64_BIT)) ==
+                     HSA_IOLINK_FLAGS_ENABLED;
+    }
+  }
+  if (amdf_status_is_ok(status)) {
+    topology->host_atomics.supports_32 = cpu_link_count != 0 && supports_32;
+    topology->host_atomics.supports_64 = cpu_link_count != 0 && supports_64;
   }
   return status;
 }
@@ -516,7 +559,9 @@ amdf_status_t amdf_gpu_kfd_topology_initialize(
     uint32_t gpu_id = 0;
     status = amdf_gpu_kfd_read_number(node, "gpu_id", &gpu_id);
     if (amdf_status_is_ok(status) && gpu_id != 0) {
-      status = amdf_gpu_kfd_read_node(node, endpoint, &topology, &found);
+      uint32_t io_link_count = 0;
+      status = amdf_gpu_kfd_read_node(node, endpoint, &topology, &io_link_count,
+                                      &found);
       if (amdf_status_is_ok(status) && found) {
         topology.gpu_id = gpu_id;
         char* end = NULL;
@@ -528,6 +573,11 @@ amdf_status_t amdf_gpu_kfd_topology_initialize(
           status = amdf_gpu_kfd_read_memory_peers(dirfd(directory), node,
                                                   (uint32_t)node_ordinal,
                                                   host_allocator, &topology);
+          if (amdf_status_is_ok(status)) {
+            status = amdf_gpu_kfd_read_host_atomics(dirfd(directory), node,
+                                                    (uint32_t)node_ordinal,
+                                                    io_link_count, &topology);
+          }
         }
       }
     }
@@ -537,7 +587,13 @@ amdf_status_t amdf_gpu_kfd_topology_initialize(
     }
   }
   if (amdf_status_is_ok(status) && found) {
-    status = amdf_gpu_kfd_query_sdma(endpoint, &topology);
+    // Native hardware IDs: GC is 11 and SDMA0 is 42.
+    status = amdf_gpu_kfd_read_ip_version(endpoint, 11, &topology.gc_ip);
+  }
+  if (amdf_status_is_ok(status) && found &&
+      (topology.sdma.engine_count != 0 ||
+       topology.sdma.xgmi_engine_count != 0)) {
+    status = amdf_gpu_kfd_read_ip_version(endpoint, 42, &topology.sdma.ip);
   }
   if (amdf_status_is_ok(status) && found) {
     status = amdf_gpu_kfd_read_memory(endpoint, &topology);

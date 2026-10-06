@@ -7,6 +7,7 @@
 #include "loom/codegen/low/diagnostics.h"
 
 #include "loom/codegen/low/function.h"
+#include "loom/error/error_catalog.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
@@ -74,6 +75,55 @@ iree_string_view_t loom_low_diagnostic_function_name(
         module, loom_low_func_decl_callee(function_op));
   }
   return IREE_SV("<unnamed>");
+}
+
+iree_status_t loom_low_diagnostic_emit_missing_target(
+    const loom_module_t* module, const loom_op_t* function_op,
+    iree_diagnostic_emitter_t emitter) {
+  const loom_diagnostic_param_t params[] = {
+      loom_param_string(loom_low_diagnostic_function_name(module, function_op)),
+  };
+  const loom_diagnostic_emission_t emission = {
+      .op = function_op,
+      .error = LOOM_ERR_TARGET_026,
+      .params = params,
+      .param_count = IREE_ARRAYSIZE(params),
+  };
+  return iree_diagnostic_emit(emitter, &emission);
+}
+
+iree_status_t loom_low_diagnostic_validate_workgroup_storage_limit(
+    const loom_module_t* module, const loom_op_t* function_op,
+    const loom_low_resolved_target_t* target, uint64_t workgroup_storage_bytes,
+    iree_diagnostic_emitter_t emitter, bool* out_valid) {
+  if (out_valid != NULL) {
+    *out_valid = true;
+  }
+  const loom_target_bundle_t* bundle = loom_low_resolved_target_bundle(target);
+  if (bundle == NULL) {
+    return iree_ok_status();
+  }
+  const uint64_t limit = bundle->snapshot->max_workgroup_storage_bytes;
+  if (limit == 0 || workgroup_storage_bytes <= limit) {
+    return iree_ok_status();
+  }
+
+  if (out_valid != NULL) {
+    *out_valid = false;
+  }
+  const loom_diagnostic_param_t params[] = {
+      loom_param_string(loom_low_diagnostic_function_name(module, function_op)),
+      loom_param_string(loom_low_diagnostic_target_key(target)),
+      loom_param_u64(workgroup_storage_bytes),
+      loom_param_u64(limit),
+  };
+  const loom_diagnostic_emission_t emission = {
+      .op = function_op,
+      .error = LOOM_ERR_TARGET_051,
+      .params = params,
+      .param_count = IREE_ARRAYSIZE(params),
+  };
+  return iree_diagnostic_emit(emitter, &emission);
 }
 
 iree_string_view_t loom_low_diagnostic_operation_name(

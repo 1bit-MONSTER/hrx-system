@@ -1,0 +1,63 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_offset_narrowing.loom-test
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @native_origin(%origin: offset, %position: i32) -> (offset) {
+  %position_wide = scalar.extsi %position : i32 to i64
+  %element_bytes = scalar.constant 4 : i64
+  %displacement = scalar.muli %position_wide, %element_bytes : i64
+  %origin_wide = index.cast %origin : offset to i64
+  %sum = scalar.addi %origin_wide, %displacement : i64
+  %bounded = scalar.assume %sum [range(%sum, 0, 4294967295)] : i64
+  %result = index.cast %bounded : i64 to offset
+  func.return %result : offset
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @native_origin(%origin: reg<aie2p.er>, %position: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
+  %21 = mov.short 2
+  %22 = lshl %position, %21
+  %result = add.rr %origin, %22
+  return %result
+}
+
+// ====
+
+func.def @unsigned_half_origin(%input: i32) -> (offset, i64) {
+  %word = scalar.assume %input [range(%input, 0, 2147483647)] : i32
+  %extended = scalar.extui %word : i32 to i64
+  %bias = scalar.constant 2147483648 : i64
+  %sum = scalar.addi %extended, %bias : i64
+  %result = index.cast %sum : i64 to offset
+  %roundtrip = index.cast %result : offset to i64
+  func.return %result, %roundtrip : offset, i64
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @unsigned_half_origin(%word: reg<aie2p.er>) -> (reg<aie2p.er>, reg<aie2p.er x2>) asm {
+  %15 = mov.i32 -2147483648
+  %result = add.rr %word, %15
+  %17 = mov.short 0
+  %roundtrip = concat(%result, %17) : (reg<aie2p.er>, reg<aie2p.er>) -> reg<aie2p.er x2>
+  return %result, %roundtrip
+}
+
+// ====
+
+func.def @observed_origin(%input: i32, %origin: i64) -> (offset, i64) {
+  %extended = scalar.extui %input : i32 to i64
+  %sum = scalar.addi %origin, %extended : i64
+  %bounded = scalar.assume %sum [range(%sum, 0, 4294967295)] : i64
+  %result = index.cast %bounded : i64 to offset
+  func.return %result, %sum : offset, i64
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @observed_origin(%input: reg<aie2p.er>, %origin: reg<aie2p.er x2>) -> (reg<aie2p.er>, reg<aie2p.er x2>) asm {
+  %12 = mov.short 0
+  %14 = slice %origin[0] : reg<aie2p.er x2> -> reg<aie2p.er>
+  %15 = slice %origin[1] : reg<aie2p.er x2> -> reg<aie2p.er>
+  %18, %19 = add.carry %14, %input
+  %20, %21 = adc %15, %12, %19
+  %bounded = concat(%18, %20) : (reg<aie2p.er>, reg<aie2p.er>) -> reg<aie2p.er x2>
+  return %18, %bounded
+}

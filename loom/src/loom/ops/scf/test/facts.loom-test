@@ -758,3 +758,261 @@ func.def @for_iv_ranged_lower_constant_trip_count(%lane0: index) -> (i64, i64, i
   }
   func.return %iv_lo, %iv_hi, %iv_div : i64, i64, i64
 }
+
+// ====
+
+// Different exact values still share their floating classification.
+func.def @select_finite_constants(%condition: i1) -> (i1, i1, i1) {
+  %c1 = scalar.constant 1.0 : f32
+  %c2 = scalar.constant 2.0 : f32
+  %value = scf.select %condition, %c1, %c2 : f32
+  %finite = scalar.isfinitef %value : f32
+  %nan = scalar.isnanf %value : f32
+  %infinity = scalar.isinff %value : f32
+  func.return %finite, %nan, %infinity : i1, i1, i1
+}
+
+// ----
+func.def @select_finite_constants(%condition: i1) -> (i1, i1, i1) {
+  %finite = scalar.constant true : i1
+  %nan = scalar.constant false : i1
+  %infinity = scalar.constant false : i1
+  func.return %finite, %nan, %infinity : i1, i1, i1
+}
+
+// ====
+
+// The selected value stays dynamic even when its class is known.
+func.def @select_opposite_infinities(%condition: i1) -> (i32, i1, i1, i1) {
+  %positive_bits = scalar.constant 2139095040 : i32
+  %negative_bits = scalar.constant -8388608 : i32
+  %positive = scalar.bitcast %positive_bits : i32 to f32
+  %negative = scalar.bitcast %negative_bits : i32 to f32
+  %value = scf.select %condition, %positive, %negative : f32
+  %bits = scalar.bitcast %value : f32 to i32
+  %finite = scalar.isfinitef %value : f32
+  %nan = scalar.isnanf %value : f32
+  %infinity = scalar.isinff %value : f32
+  func.return %bits, %finite, %nan, %infinity : i32, i1, i1, i1
+}
+
+// ----
+func.def @select_opposite_infinities(%condition: i1) -> (i32, i1, i1, i1) {
+  %positive = scalar.constant inf : f32
+  %negative = scalar.constant -inf : f32
+  %value = scf.select %condition, %positive, %negative : f32
+  %bits = scalar.bitcast %value : f32 to i32
+  %finite = scalar.constant false : i1
+  %nan = scalar.constant false : i1
+  %infinity = scalar.constant true : i1
+  func.return %bits, %finite, %nan, %infinity : i32, i1, i1, i1
+}
+
+// ====
+
+// Joining a NaN and a finite number proves neither class unconditionally.
+func.def @select_finite_or_nan(%condition: i1) -> (i32, i1, i1, i1) {
+  %c1 = scalar.constant 1.0 : f32
+  %nan_bits = scalar.constant 2143289345 : i32
+  %nan_value = scalar.bitcast %nan_bits : i32 to f32
+  %value = scf.select %condition, %c1, %nan_value : f32
+  %bits = scalar.bitcast %value : f32 to i32
+  %finite = scalar.isfinitef %value : f32
+  %nan = scalar.isnanf %value : f32
+  %infinity = scalar.isinff %value : f32
+  func.return %bits, %finite, %nan, %infinity : i32, i1, i1, i1
+}
+
+// ----
+func.def @select_finite_or_nan(%condition: i1) -> (i32, i1, i1, i1) {
+  %c1 = scalar.constant 1.0 : f32
+  %nan_bits = scalar.constant 2143289345 : i32
+  %nan_value = scalar.bitcast %nan_bits : i32 to f32
+  %value = scf.select %condition, %c1, %nan_value : f32
+  %bits = scalar.bitcast %value : f32 to i32
+  %finite = scalar.isfinitef %value : f32
+  %nan = scalar.isnanf %value : f32
+  %infinity = scalar.constant false : i1
+  func.return %bits, %finite, %nan, %infinity : i32, i1, i1, i1
+}
+
+// ====
+
+// Signed zeros have the same class but distinct observable bit patterns.
+func.def @select_signed_zeros(%condition: i1) -> (i32, i1) {
+  %positive = scalar.constant 0.0 : f32
+  %negative = scalar.constant -0.0 : f32
+  %value = scf.select %condition, %positive, %negative : f32
+  %bits = scalar.bitcast %value : f32 to i32
+  %finite = scalar.isfinitef %value : f32
+  func.return %bits, %finite : i32, i1
+}
+
+// ----
+func.def @select_signed_zeros(%condition: i1) -> (i32, i1) {
+  %positive = scalar.constant 0.0 : f32
+  %negative = scalar.constant -0.0 : f32
+  %value = scf.select %condition, %positive, %negative : f32
+  %bits = scalar.bitcast %value : f32 to i32
+  %finite = scalar.constant true : i1
+  func.return %bits, %finite : i32, i1
+}
+
+// ====
+
+// The branch meet intersects an explicit input contract with an exact fallback.
+func.def @branch_finite_or_zero(%condition: i1, %input: f32) -> (i1) {
+  %value = scf.if %condition -> (f32) {
+    %finite_input = scalar.assume %input [finite(%input)] : f32
+    scf.yield %finite_input : f32
+  } else {
+    %c0 = scalar.constant 0.0 : f32
+    scf.yield %c0 : f32
+  }
+  %finite = scalar.isfinitef %value : f32
+  func.return %finite : i1
+}
+
+// ----
+func.def @branch_finite_or_zero(%condition: i1, %input: f32) -> (i1) {
+  %finite = scalar.constant true : i1
+  func.return %finite : i1
+}
+
+// ====
+
+// A finite arm cannot constrain an unknown alternative.
+func.def @select_finite_or_unknown(%condition: i1, %input: f32) -> (i1) {
+  %c1 = scalar.constant 1.0 : f32
+  %value = scf.select %condition, %c1, %input : f32
+  %finite = scalar.isfinitef %value : f32
+  func.return %finite : i1
+}
+
+// ====
+
+// Lookup joins include the default row, including its floating class.
+func.def @lookup_finite(%selector: index) -> (i1) {
+  %c1 = scalar.constant 1.0 : f32
+  %c2 = scalar.constant 2.0 : f32
+  %c3 = scalar.constant 3.0 : f32
+  %value = scf.lookup %selector {
+    0 = (%c1),
+    1 = (%c2)
+  } default(%c3) : f32
+  %finite = scalar.isfinitef %value : f32
+  func.return %finite : i1
+}
+
+// ----
+func.def @lookup_finite(%selector: index) -> (i1) {
+  %finite = scalar.constant true : i1
+  func.return %finite : i1
+}
+
+// ====
+
+// Header recurrence facts and condition payload facts occupy independent
+// domains. The condition-created payload stays exact in the body and result
+// while the body yields only the next header value.
+func.def @while_condition_payload_facts(%keep_going: i1) -> (i64, i64) {
+  %begin = scalar.constant 2 : i64
+  %step = scalar.constant 3 : i64
+  %constant_payload = scalar.constant 7 : i64
+  %terminal, %payload = scf.while(%before = %begin : i64) -> (i64, i64) {
+    scf.condition %keep_going, %before, %constant_payload : i1, i64, i64
+  } do(%body_state: i64, %body_payload: i64) {
+    %body_payload_lo = test.fact_range_lo %body_payload : i64 -> i64
+    %body_payload_hi = test.fact_range_hi %body_payload : i64 -> i64
+    test.use %body_payload, %body_payload_lo, %body_payload_hi : i64, i64, i64
+    %next = scalar.addi %body_state, %step : i64
+    scf.yield %next : i64
+  }
+  %payload_lo = test.fact_range_lo %payload : i64 -> i64
+  %payload_hi = test.fact_range_hi %payload : i64 -> i64
+  test.use %terminal, %payload : i64, i64
+  func.return %payload_lo, %payload_hi : i64, i64
+}
+
+// ----
+func.def @while_condition_payload_facts(%keep_going: i1) -> (i64, i64) {
+  %begin = scalar.constant 2 : i64
+  %step = scalar.constant 3 : i64
+  %constant_payload = scalar.constant 7 : i64
+  %terminal, %payload = scf.while(%before = %begin : i64) -> (i64, i64) {
+    scf.condition %keep_going, %before, %constant_payload : i1, i64, i64
+  } do(%body_state: i64, %body_payload: i64) {
+    %body_payload_lo = scalar.constant 7 : i64
+    %body_payload_hi = scalar.constant 7 : i64
+    test.use %body_payload, %body_payload_lo, %body_payload_hi : i64, i64, i64
+    %next = scalar.addi %body_state, %step : i64
+    scf.yield %next : i64
+  }
+  %payload_lo = scalar.constant 7 : i64
+  %payload_hi = scalar.constant 7 : i64
+  test.use %terminal, %payload : i64, i64
+  func.return %payload_lo, %payload_hi : i64, i64
+}
+
+// ====
+
+// A condition can expose a result without any loop-carried header state.
+func.def @while_condition_only_payload_facts(%keep_going: i1) -> (i64) {
+  %constant_payload = scalar.constant 7 : i64
+  %payload = scf.while -> (i64) {
+    scf.condition %keep_going, %constant_payload : i1, i64
+  } do(%body_payload: i64) {
+    %body_payload_lo = test.fact_range_lo %body_payload : i64 -> i64
+    test.use %body_payload, %body_payload_lo : i64, i64
+    scf.yield
+  }
+  %payload_lo = test.fact_range_lo %payload : i64 -> i64
+  test.use %payload : i64
+  func.return %payload_lo : i64
+}
+
+// ----
+func.def @while_condition_only_payload_facts(%keep_going: i1) -> (i64) {
+  %constant_payload = scalar.constant 7 : i64
+  %payload = scf.while -> (i64) {
+    scf.condition %keep_going, %constant_payload : i1, i64
+  } do(%body_payload: i64) {
+    %body_payload_lo = scalar.constant 7 : i64
+    test.use %body_payload, %body_payload_lo : i64, i64
+    scf.yield
+  }
+  %payload_lo = scalar.constant 7 : i64
+  test.use %payload : i64
+  func.return %payload_lo : i64
+}
+
+// ====
+
+// Header state remains analyzable when the condition and loop expose no
+// result tuple.
+func.def @while_header_only_facts(%keep_going: i1) {
+  %begin = scalar.constant 2 : i64
+  scf.while(%before = %begin : i64) {
+    %header_lo = test.fact_range_lo %before : i64 -> i64
+    %header_hi = test.fact_range_hi %before : i64 -> i64
+    test.use %before, %header_lo, %header_hi : i64, i64, i64
+    scf.condition %keep_going : i1
+  } do {
+    scf.yield %begin : i64
+  }
+  func.return
+}
+
+// ----
+func.def @while_header_only_facts(%keep_going: i1) {
+  %begin = scalar.constant 2 : i64
+  scf.while(%before = %begin : i64) {
+    %header_lo = scalar.constant 2 : i64
+    %header_hi = scalar.constant 2 : i64
+    test.use %before, %header_lo, %header_hi : i64, i64, i64
+    scf.condition %keep_going : i1
+  } do {
+    scf.yield %begin : i64
+  }
+  func.return
+}

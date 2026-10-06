@@ -10,7 +10,7 @@
 #define LOOM_TARGET_ARCH_AMDGPU_PROFILE_H_
 
 #include "iree/base/api.h"
-#include "loom/target/arch/amdgpu/facts.h"
+#include "loom/target/arch/amdgpu/target_identity.h"
 #include "loom/target/profile.h"
 
 #ifdef __cplusplus

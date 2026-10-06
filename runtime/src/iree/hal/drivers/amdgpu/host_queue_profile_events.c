@@ -87,7 +87,8 @@ iree_hal_amdgpu_host_queue_initialize_profiling_completion_signals(
   iree_hal_amdgpu_device_timestamp_emplace_signal_initialization(
       &queue->transfer_context->kernels
            ->iree_hal_amdgpu_device_timestamp_initialize_completion_signals,
-      signals, signal_count, &dispatch_packet, &kernargs);
+      signals, signal_count, &dispatch_packet, &kernargs,
+      &dispatch_packet.setup);
 
   iree_hal_amdgpu_wait_resolution_t resolution;
   bool ready = false;

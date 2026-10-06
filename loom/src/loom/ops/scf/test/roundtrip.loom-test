@@ -172,16 +172,72 @@ func.def @count_while(%init: index, %limit: index, %one: index) -> (index) {
 
 // RUN: format bytecode
 
-// Result identities describe the recurring tuple. The condition entry is
-// projected from that tuple, while explicit body arguments can refer forward
-// to peer arguments declared later in the same list.
+// The condition entry and body/results each own their dependent type scheme.
+// Both argument lists can refer forward to peer arguments declared later in
+// the same list.
 func.def @dependent_while(%condition: i1, %extent: index, %layout: encoding<layout>, %input: view<[%extent]xf32, %layout>) {
-  %result_view, %result_extent, %result_layout = scf.while(%before_view = %input : view<[%extent]xf32, %layout>, %before_extent = %extent : index, %before_layout = %layout : encoding<layout>) -> (view<[%result_extent]xf32, %result_layout>, index, encoding<layout>) {
+  %result_view, %result_extent, %result_layout = scf.while(%before_view = %input : view<[%before_extent]xf32, %before_layout>, %before_extent = %extent : index, %before_layout = %layout : encoding<layout>) -> (view<[%result_extent]xf32, %result_layout>, index, encoding<layout>) {
     scf.condition %condition, %before_view, %before_extent, %before_layout : i1, view<[%before_extent]xf32, %before_layout>, index, encoding<layout>
   } do(%body_view: view<[%body_extent]xf32, %body_layout>, %body_extent: index, %body_layout: encoding<layout>) {
     scf.yield %body_view, %body_extent, %body_layout : view<[%body_extent]xf32, %body_layout>, index, encoding<layout>
   }
   test.use %result_view, %result_extent, %result_layout : view<[%result_extent]xf32, %result_layout>, index, encoding<layout>
+  func.return
+}
+
+// ====
+
+// Reusing one incoming SSA value for distinct tuple roles must not collapse
+// the role-local header or result identities used by dependent types.
+func.def @duplicate_initial_roles(%condition: i1, %extent: index, %input: view<[%extent]xf32>) {
+  %result_view, %result_left, %result_right = scf.while(%before_view = %input : view<[%before_left]xf32>, %before_left = %extent : index, %before_right = %extent : index) -> (view<[%result_right]xf32>, index, index) {
+    scf.condition %condition, %before_view, %before_left, %before_left : i1, view<[%before_left]xf32>, index, index
+  } do(%body_view: view<[%body_right]xf32>, %body_left: index, %body_right: index) {
+    scf.yield %input, %extent, %extent : view<[%extent]xf32>, index, index
+  }
+  func.return
+}
+
+// ====
+
+// Header state and the condition-forwarded body/result tuple may have
+// different arities. The payload is computed only at the condition point, so
+// the loop needs no artificial initial or backedge payload.
+func.def @condition_payload(%input: view<8xi32>, %initial: index, %limit: index, %initial_sum: i32) -> (index, i32, i32) {
+  %c1 = index.constant 1 : index
+  %result_position, %result_sum, %result_payload = scf.while(%before_position = %initial : index, %before_sum = %initial_sum : i32) -> (index, i32, i32) {
+    %keep_going = index.cmp ult, %before_position, %limit : index
+    %payload = view.load %input[%before_position] : view<8xi32> -> i32
+    scf.condition %keep_going, %before_position, %before_sum, %payload : i1, index, i32, i32
+  } do(%body_position: index, %body_sum: i32, %body_payload: i32) {
+    %next_position = index.add %body_position, %c1 : index
+    %next_sum = scalar.addi %body_sum, %body_payload : i32
+    scf.yield %next_position, %next_sum : index, i32
+  }
+  func.return %result_position, %result_sum, %result_payload : index, i32, i32
+}
+
+// ====
+
+// A condition may produce the complete result without any backedge state.
+func.def @condition_only_payload(%condition: i1, %payload: i32) -> (i32) {
+  %result = scf.while -> (i32) {
+    scf.condition %condition, %payload : i1, i32
+  } do(%body: i32) {
+    scf.yield
+  }
+  func.return %result : i32
+}
+
+// ====
+
+// Header state need not be exposed by the condition or the loop result.
+func.def @header_only_state(%condition: i1, %initial: i32) {
+  scf.while(%before = %initial : i32) {
+    scf.condition %condition : i1
+  } do {
+    scf.yield %initial : i32
+  }
   func.return
 }
 

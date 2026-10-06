@@ -88,6 +88,10 @@ PACKAGE_POLICIES = [
         build_requirements = [TARGET_ARCH_SPIRV, EMIT_SPIRV],
     ),
     package_policy(
+        packages = ["loom/src/loom/target/emit/vm/..."],
+        build_requirements = [TARGET_ARCH_VM],
+    ),
+    package_policy(
         packages = ["loom/src/loom/target/emit/wasm/..."],
         build_requirements = [TARGET_ARCH_WASM, EMIT_WASM],
     ),
@@ -108,6 +112,10 @@ PACKAGE_POLICIES = [
     package_policy(
         packages = ["loom/src/loom/tooling/target/vm/..."],
         build_requirements = [TARGET_ARCH_VM],
+    ),
+    package_policy(
+        packages = ["loom/src/loom/tooling/target/wasm/..."],
+        build_requirements = [TARGET_ARCH_WASM, EMIT_WASM],
     ),
     package_policy(
         packages = ["loom/py/loom/importers/mlir/..."],

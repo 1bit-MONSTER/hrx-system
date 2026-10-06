@@ -1506,6 +1506,7 @@ static const iree_net_connection_vtable_t iree_net_tcp_connection_vtable = {
     .destroy = iree_net_tcp_connection_destroy,
     .deactivate = iree_net_tcp_connection_deactivate,
     .open_endpoint = iree_net_tcp_connection_open_endpoint,
+    .open_direct_endpoint = NULL,
     .proactor = iree_net_tcp_connection_proactor,
 };
 

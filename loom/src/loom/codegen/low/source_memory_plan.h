@@ -113,6 +113,43 @@ typedef uint32_t loom_low_source_memory_access_rejection_flags_t;
 #define LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_CACHE_POLICY \
   ((uint32_t)1u << 14)
 
+// Stable reason selected from source-memory planning or target-contract
+// matching. The planner-owned reasons through CACHE_POLICY intentionally match
+// the bit positions above so the retained bitset can be classified in O(1).
+typedef enum loom_low_source_memory_rejection_reason_e {
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_UNSUPPORTED_OP = 0,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DESCRIBE_FAILED = 1,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_LAYOUT = 2,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ELEMENT_WIDTH = 3,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_RANK = 4,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_LANE_COUNT = 5,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_AXIS_STRIDE = 6,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_STATIC_OFFSET = 7,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_INDEX_COUNT = 8,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_AXIS = 9,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_STRIDE = 10,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VIEW_SOURCE = 11,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VIEW_BASE = 12,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VIEW_BASE_OVERFLOW = 13,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_CACHE_POLICY = 14,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_REPRESENTABILITY = 15,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_OPERATION_KIND = 16,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ROOT_VALUE = 17,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ROOT_KIND = 18,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_MEMORY_SPACE = 19,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ELEMENT_BYTE_COUNT = 20,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_LANE_BYTE_STRIDE = 21,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_MINIMUM_ALIGNMENT = 22,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_SOURCE_INDEX_PRESERVATION = 23,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_VIEW_BASE_TERM_COUNT = 24,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_STRIDE_VALUES = 25,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_INDEX_SOURCE = 26,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_LAYOUT = 27,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_BYTE_OFFSET_WIDTH = 28,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_MATERIALIZATION = 29,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT = 30,
+} loom_low_source_memory_rejection_reason_t;
+
 typedef struct loom_low_source_memory_access_diagnostic_t {
   // Bitset of source-access rejection reasons observed while planning.
   loom_low_source_memory_access_rejection_flags_t rejection_bits;
@@ -203,6 +240,14 @@ typedef struct loom_low_source_memory_dynamic_realization_t {
   uint8_t term_count;
 } loom_low_source_memory_dynamic_realization_t;
 
+typedef struct loom_low_source_memory_dynamic_component_t {
+  // Dominating source SSA term that exactly represents the selected byte sum.
+  // Borrows immutable storage from the function's retained source-access plans.
+  const loom_low_source_memory_dynamic_term_t* term;
+  // Canonical dynamic terms represented by term, including noncontiguous sets.
+  uint16_t term_mask;
+} loom_low_source_memory_dynamic_component_t;
+
 typedef struct loom_low_source_memory_access_plan_t {
   // Source operation category being planned.
   loom_low_source_memory_operation_kind_t operation_kind;
@@ -216,6 +261,10 @@ typedef struct loom_low_source_memory_access_plan_t {
   loom_low_source_memory_address_layout_t address_layout;
   // Source SSA value that represents the storage root.
   loom_value_id_t root_value_id;
+  // Producer-retained symbol that materializes the root, or null if unknown.
+  loom_symbol_ref_t root_symbol;
+  // Participant domain in which the storage base denotes the same address.
+  loom_value_fact_uniform_scope_t root_uniform_scope;
   // Minimum provable power-of-two byte alignment of the storage root base
   // address, capped at the largest power of two representable in uint32_t.
   uint32_t root_minimum_alignment;
@@ -230,8 +279,11 @@ typedef struct loom_low_source_memory_access_plan_t {
   int64_t vector_lane_byte_stride;
   // Classification of any per-lane offset vector carried by the source op.
   loom_low_source_memory_vector_offset_kind_t vector_offset_kind;
-  // Total static byte offset selected from the source view access.
+  // Total static byte offset, including a folded physical allocation base.
   int64_t static_byte_offset;
+  // Physical allocation-base contribution included in static_byte_offset.
+  // Subtract this when publishing source-root-relative memory effects.
+  int64_t physical_root_byte_offset;
   // Static byte offset contributed by the source view base.
   int64_t static_view_base_byte_offset;
   // Source SSA value that materializes the dynamic view-base byte offset, or
@@ -288,12 +340,31 @@ typedef struct loom_low_source_memory_access_plan_t {
       dynamic_realizations[LOOM_LOW_SOURCE_MEMORY_DYNAMIC_REALIZATION_CAPACITY];
   // Number of populated dynamic realization entries.
   uint8_t dynamic_realization_count;
+  // Shared lowering's selected cross-access source realization. This only
+  // changes materialization; canonical terms and correlated bounds stay intact.
+  loom_low_source_memory_dynamic_component_t retained_component;
   // Optional cache policy copied from the source memory op.
   loom_vector_memory_cache_policy_t cache_policy;
   // Required visibility selected by the shared acquire plan. Thread scope
   // means no per-access obligation. This is independent of advisory caching.
   uint8_t read_visibility_scope;
 } loom_low_source_memory_access_plan_t;
+
+// Returns a selected component when its complete member set remains in the
+// requested suffix and its byte coefficient converts exactly to coordinate
+// units. Consumers that already materialized a view base pass its term count.
+static inline const loom_low_source_memory_dynamic_component_t*
+loom_low_source_memory_access_retained_component(
+    const loom_low_source_memory_access_plan_t* access, uint8_t first_term,
+    uint32_t coordinate_unit_byte_count) {
+  const loom_low_source_memory_dynamic_component_t* component =
+      &access->retained_component;
+  return component->term != NULL &&
+                 !(component->term_mask & ((1u << first_term) - 1u)) &&
+                 component->term->byte_stride % coordinate_unit_byte_count == 0
+             ? component
+             : NULL;
+}
 
 static inline bool loom_low_source_memory_access_is_dynamic(
     const loom_low_source_memory_access_plan_t* plan) {
@@ -356,6 +427,12 @@ loom_value_facts_t loom_low_source_memory_dynamic_offset_facts(
 bool loom_low_source_memory_dynamic_offset_fits_unsigned_bit_count(
     const loom_low_source_memory_access_plan_t* plan,
     int64_t static_byte_offset, uint8_t bit_count);
+
+// Adds a target-selected physical allocation-root offset to |plan|.
+// Returns false without changing the plan when the offset cannot be represented
+// by the signed static byte-offset field.
+bool loom_low_source_memory_access_plan_include_root_byte_offset(
+    loom_low_source_memory_access_plan_t* plan, uint64_t root_byte_offset);
 
 // Returns the conservative byte envelope added by vector lanes within a single
 // planned memory packet.
@@ -428,8 +505,12 @@ bool loom_low_source_memory_access_plan_build_view(
     loom_low_source_memory_access_plan_t* out_plan,
     loom_low_source_memory_access_diagnostic_t* out_diagnostic);
 
-// Returns a stable diagnostic constraint key for source memory access rejection
-// flags.
+// Selects the highest-priority reason retained by source-memory planning.
+loom_low_source_memory_rejection_reason_t
+loom_low_source_memory_access_rejection_reason(
+    loom_low_source_memory_access_rejection_flags_t rejection_bits);
+
+// Returns the stable constraint key for retained source-memory rejection bits.
 iree_string_view_t loom_low_source_memory_access_rejection_key(
     loom_low_source_memory_access_rejection_flags_t rejection_bits);
 

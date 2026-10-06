@@ -12,6 +12,9 @@
 #include <cstring>
 #include <thread>
 
+#include "common/context.h"
+#include "common/device.h"
+#include "common/module.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 

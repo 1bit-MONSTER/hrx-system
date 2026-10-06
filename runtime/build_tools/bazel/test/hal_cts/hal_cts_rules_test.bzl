@@ -83,10 +83,12 @@ def _test_non_executable_suite_deps(name, **kwargs):
     )
 
 def _test_non_executable_suite_deps_impl(env, target):
-    deps = [dep.label for dep in target[TestingAspectInfo].attrs.deps]
+    attrs = target[TestingAspectInfo].attrs
+    env.expect.that_collection(attrs.srcs).contains_exactly([])
+    deps = [dep.label for dep in attrs.deps]
     _expect_label(env, deps, "//runtime/build_tools/bazel/test/hal_cts:hal_cts_test_backends")
     _expect_label(env, deps, "//runtime/src/iree/hal/cts/core:all_tests")
-    _expect_label(env, deps, "//runtime/src/iree/hal/cts/util:registry")
+    _expect_label(env, deps, "//runtime/src/iree/hal/cts/util:test_main")
 
 def _test_executable_suite_testdata(name, **kwargs):
     iree_runtime_hal_cts_test_suite(

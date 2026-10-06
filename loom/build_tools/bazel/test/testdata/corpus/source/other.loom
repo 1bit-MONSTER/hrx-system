@@ -1,0 +1,11 @@
+func.def @other() -> (i32) {
+  %value = scalar.constant 7 : i32
+  func.return %value : i32
+}
+
+check.case @other_case {
+  %actual = func.call @other() : () -> (i32)
+  %expected = check.literal value(7) : i32
+  check.expect.equal actual(%actual) expected(%expected) : i32
+  check.return
+}

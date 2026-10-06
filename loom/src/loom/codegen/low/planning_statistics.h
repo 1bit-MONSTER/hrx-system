@@ -29,7 +29,7 @@ typedef struct loom_low_planning_arena_statistics_t {
   uint64_t owned_bytes_high_water;
 } loom_low_planning_arena_statistics_t;
 
-// IR-changing work performed while converging on an emission frame.
+// Repair work performed while converging on an emission frame.
 typedef struct loom_low_planning_repair_statistics_t {
   // Number of complete repair iterations performed.
   uint64_t iteration_count;
@@ -37,6 +37,8 @@ typedef struct loom_low_planning_repair_statistics_t {
   uint64_t spill_traffic_lowering_count;
   // Number of operands rewritten by rematerialization.
   uint64_t rematerialized_operand_count;
+  // Number of original private results whose schedule placement was retained.
+  uint64_t retained_placement_count;
   // Number of operands rewritten by live-range splitting.
   uint64_t live_range_split_operand_count;
   // Number of pair-replication plans attempted.
@@ -80,7 +82,7 @@ typedef struct loom_low_planning_statistics_t {
   uint64_t frame_build_count;
   // Number of allocation runs reached after successful scheduling.
   uint64_t allocation_run_count;
-  // IR-changing work performed while converging on the final frame.
+  // Repair work performed while converging on the final frame.
   loom_low_planning_repair_statistics_t repair;
   // Arena and system allocation economics for the planning invocation.
   loom_low_planning_memory_statistics_t memory;

@@ -1,0 +1,260 @@
+aie2p.target<array> @array_target
+aie2p.target<core> @core_target
+
+// Eight A streams feed pairs of consumers; two distinct B streams each feed
+// eight consumers. Receiver rings retain independent capacities and credits.
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @multicast_packets() asm {
+  %worker_count = constant.u32 16 : reg<aie2p.array.scalar : index>
+  %a_count = constant.u32 8 : reg<aie2p.array.scalar : index>
+  %b_count = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %capacity2 = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %capacity3 = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %records = constant.u32 33 : reg<aie2p.array.scalar : index>
+  %origin = constant.u64 64 : reg<aie2p.array.offset : offset>
+  %row2 = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %row3 = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %workers = group %worker_count
+  %a_binding = binding 0, "read"
+  %b_binding = binding 1, "read"
+  %output_binding = binding 2, "write"
+  %a_sender = sender %a_binding, 0 : reg<aie2p.array.sender : tile<8x33x16xi32>>
+  %b_sender = sender %b_binding, 0 : reg<aie2p.array.sender : tile<2x33x16xi32>>
+  %output_receiver = receiver %output_binding, 0 : reg<aie2p.array.receiver : tile<16x33x16xi32>>
+  %a_index0 = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %a0 = partition.sender %a_sender, %origin, %a_index0, %a_count : reg<aie2p.array.sender : tile<16xi32>>
+  %a_index1 = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %a1 = partition.sender %a_sender, %origin, %a_index1, %a_count : reg<aie2p.array.sender : tile<16xi32>>
+  %a_index2 = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %a2 = partition.sender %a_sender, %origin, %a_index2, %a_count : reg<aie2p.array.sender : tile<16xi32>>
+  %a_index3 = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %a3 = partition.sender %a_sender, %origin, %a_index3, %a_count : reg<aie2p.array.sender : tile<16xi32>>
+  %a_index4 = constant.u32 4 : reg<aie2p.array.scalar : index>
+  %a4 = partition.sender %a_sender, %origin, %a_index4, %a_count : reg<aie2p.array.sender : tile<16xi32>>
+  %a_index5 = constant.u32 5 : reg<aie2p.array.scalar : index>
+  %a5 = partition.sender %a_sender, %origin, %a_index5, %a_count : reg<aie2p.array.sender : tile<16xi32>>
+  %a_index6 = constant.u32 6 : reg<aie2p.array.scalar : index>
+  %a6 = partition.sender %a_sender, %origin, %a_index6, %a_count : reg<aie2p.array.sender : tile<16xi32>>
+  %a_index7 = constant.u32 7 : reg<aie2p.array.scalar : index>
+  %a7 = partition.sender %a_sender, %origin, %a_index7, %a_count : reg<aie2p.array.sender : tile<16xi32>>
+  %b_index0 = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %b0 = partition.sender %b_sender, %origin, %b_index0, %b_count : reg<aie2p.array.sender : tile<16xi32>>
+  %b_index1 = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %b1 = partition.sender %b_sender, %origin, %b_index1, %b_count : reg<aie2p.array.sender : tile<16xi32>>
+  %lane0 = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %worker0 = worker %workers, %lane0, @consume_record
+  constrain.location %worker0, %a_index0, %row2
+  %a_input0 = receiver %worker0, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input0 = receiver %worker0, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output0 = sender %worker0, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output0 = partition.receiver %output_receiver, %origin, %lane0, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane1 = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %worker1 = worker %workers, %lane1, @consume_record
+  constrain.location %worker1, %a_index0, %row3
+  %a_input1 = receiver %worker1, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input1 = receiver %worker1, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output1 = sender %worker1, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output1 = partition.receiver %output_receiver, %origin, %lane1, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane2 = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %worker2 = worker %workers, %lane2, @consume_record
+  constrain.location %worker2, %a_index1, %row2
+  %a_input2 = receiver %worker2, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input2 = receiver %worker2, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output2 = sender %worker2, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output2 = partition.receiver %output_receiver, %origin, %lane2, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane3 = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %worker3 = worker %workers, %lane3, @consume_record
+  constrain.location %worker3, %a_index1, %row3
+  %a_input3 = receiver %worker3, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input3 = receiver %worker3, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output3 = sender %worker3, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output3 = partition.receiver %output_receiver, %origin, %lane3, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane4 = constant.u32 4 : reg<aie2p.array.scalar : index>
+  %worker4 = worker %workers, %lane4, @consume_record
+  constrain.location %worker4, %a_index2, %row2
+  %a_input4 = receiver %worker4, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input4 = receiver %worker4, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output4 = sender %worker4, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output4 = partition.receiver %output_receiver, %origin, %lane4, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane5 = constant.u32 5 : reg<aie2p.array.scalar : index>
+  %worker5 = worker %workers, %lane5, @consume_record
+  constrain.location %worker5, %a_index2, %row3
+  %a_input5 = receiver %worker5, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input5 = receiver %worker5, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output5 = sender %worker5, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output5 = partition.receiver %output_receiver, %origin, %lane5, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane6 = constant.u32 6 : reg<aie2p.array.scalar : index>
+  %worker6 = worker %workers, %lane6, @consume_record
+  constrain.location %worker6, %a_index3, %row2
+  %a_input6 = receiver %worker6, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input6 = receiver %worker6, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output6 = sender %worker6, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output6 = partition.receiver %output_receiver, %origin, %lane6, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane7 = constant.u32 7 : reg<aie2p.array.scalar : index>
+  %worker7 = worker %workers, %lane7, @consume_record
+  constrain.location %worker7, %a_index3, %row3
+  %a_input7 = receiver %worker7, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input7 = receiver %worker7, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output7 = sender %worker7, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output7 = partition.receiver %output_receiver, %origin, %lane7, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane8 = constant.u32 8 : reg<aie2p.array.scalar : index>
+  %worker8 = worker %workers, %lane8, @consume_record
+  constrain.location %worker8, %a_index4, %row2
+  %a_input8 = receiver %worker8, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input8 = receiver %worker8, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output8 = sender %worker8, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output8 = partition.receiver %output_receiver, %origin, %lane8, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane9 = constant.u32 9 : reg<aie2p.array.scalar : index>
+  %worker9 = worker %workers, %lane9, @consume_record
+  constrain.location %worker9, %a_index4, %row3
+  %a_input9 = receiver %worker9, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input9 = receiver %worker9, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output9 = sender %worker9, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output9 = partition.receiver %output_receiver, %origin, %lane9, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane10 = constant.u32 10 : reg<aie2p.array.scalar : index>
+  %worker10 = worker %workers, %lane10, @consume_record
+  constrain.location %worker10, %a_index5, %row2
+  %a_input10 = receiver %worker10, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input10 = receiver %worker10, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output10 = sender %worker10, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output10 = partition.receiver %output_receiver, %origin, %lane10, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane11 = constant.u32 11 : reg<aie2p.array.scalar : index>
+  %worker11 = worker %workers, %lane11, @consume_record
+  constrain.location %worker11, %a_index5, %row3
+  %a_input11 = receiver %worker11, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input11 = receiver %worker11, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output11 = sender %worker11, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output11 = partition.receiver %output_receiver, %origin, %lane11, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane12 = constant.u32 12 : reg<aie2p.array.scalar : index>
+  %worker12 = worker %workers, %lane12, @consume_record
+  constrain.location %worker12, %a_index6, %row2
+  %a_input12 = receiver %worker12, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input12 = receiver %worker12, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output12 = sender %worker12, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output12 = partition.receiver %output_receiver, %origin, %lane12, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane13 = constant.u32 13 : reg<aie2p.array.scalar : index>
+  %worker13 = worker %workers, %lane13, @consume_record
+  constrain.location %worker13, %a_index6, %row3
+  %a_input13 = receiver %worker13, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input13 = receiver %worker13, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output13 = sender %worker13, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output13 = partition.receiver %output_receiver, %origin, %lane13, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane14 = constant.u32 14 : reg<aie2p.array.scalar : index>
+  %worker14 = worker %workers, %lane14, @consume_record
+  constrain.location %worker14, %a_index7, %row2
+  %a_input14 = receiver %worker14, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input14 = receiver %worker14, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output14 = sender %worker14, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output14 = partition.receiver %output_receiver, %origin, %lane14, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane15 = constant.u32 15 : reg<aie2p.array.scalar : index>
+  %worker15 = worker %workers, %lane15, @consume_record
+  constrain.location %worker15, %a_index7, %row3
+  %a_input15 = receiver %worker15, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %b_input15 = receiver %worker15, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_output15 = sender %worker15, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %output15 = partition.receiver %output_receiver, %origin, %lane15, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %a_channel0 = channel %a0, %a_input0, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %a_channel1 = channel %a0, %a_input1, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %a_channel2 = channel %a1, %a_input2, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %a_channel3 = channel %a1, %a_input3, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %a_channel4 = channel %a2, %a_input4, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %a_channel5 = channel %a2, %a_input5, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %a_channel6 = channel %a3, %a_input6, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %a_channel7 = channel %a3, %a_input7, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %a_channel8 = channel %a4, %a_input8, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %a_channel9 = channel %a4, %a_input9, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %a_channel10 = channel %a5, %a_input10, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %a_channel11 = channel %a5, %a_input11, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %a_channel12 = channel %a6, %a_input12, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %a_channel13 = channel %a6, %a_input13, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %a_channel14 = channel %a7, %a_input14, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %a_channel15 = channel %a7, %a_input15, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel0 = channel %b0, %b_input0, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel2 = channel %b0, %b_input2, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel4 = channel %b0, %b_input4, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel6 = channel %b0, %b_input6, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel8 = channel %b0, %b_input8, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel10 = channel %b0, %b_input10, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel12 = channel %b0, %b_input12, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel14 = channel %b0, %b_input14, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel1 = channel %b1, %b_input1, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel3 = channel %b1, %b_input3, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel5 = channel %b1, %b_input5, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel7 = channel %b1, %b_input7, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel9 = channel %b1, %b_input9, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel11 = channel %b1, %b_input11, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel13 = channel %b1, %b_input13, %capacity3, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %b_channel15 = channel %b1, %b_input15, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel0 = channel %worker_output0, %output0, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel1 = channel %worker_output1, %output1, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel2 = channel %worker_output2, %output2, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel3 = channel %worker_output3, %output3, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel4 = channel %worker_output4, %output4, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel5 = channel %worker_output5, %output5, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel6 = channel %worker_output6, %output6, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel7 = channel %worker_output7, %output7, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel8 = channel %worker_output8, %output8, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel9 = channel %worker_output9, %output9, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel10 = channel %worker_output10, %output10, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel11 = channel %worker_output11, %output11, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel12 = channel %worker_output12, %output12, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel13 = channel %worker_output13, %output13, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel14 = channel %worker_output14, %output14, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel15 = channel %worker_output15, %output15, %capacity2, %records : reg<aie2p.array.channel : tile<16xi32>>
+  return
+}
+
+// Logical shifts and word operations implement modulo-2^32 xorshift state.
+// The 64..4096 input-dependent transitions contribute to every output word.
+// LSHL with a negative shift count is a logical right shift.
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume_record() asm {
+  %a = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %b = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %output = resource<native_pointer> {index = 2, source_type = buffer} : reg<aie2p.ep>
+  %zero = mov.short 0
+  %one = mov.short 1
+  %word_bytes = mov.short 4
+  %record_bytes = mov.short 64
+  %count_mask = mov.short 63
+  %count_shift = mov.short 6
+  %left13 = mov.short 13
+  %right17 = mov.short -17
+  %left5 = mov.short 5
+  %a_count = lda %a, 0
+  %b_count = lda %b, 0
+  %mixed_count = xor %a_count, %b_count
+  %bounded_count = and %mixed_count, %count_mask
+  %positive_count = add.rr %bounded_count, %one
+  %iterations = lshl %positive_count, %count_shift
+  %a_seed = lda %a, 4
+  %b_seed = lda %b, 4
+  %seed = xor %a_seed, %b_seed
+  low.br ^work(%zero: reg<aie2p.er>, %seed: reg<aie2p.er>)
+^work(%iteration: reg<aie2p.er>, %state: reg<aie2p.er>):
+  %remaining = lt %iteration, %iterations
+  low.cond_br %remaining, ^transition, ^write_begin : reg<aie2p.er>
+^transition:
+  %shift13 = lshl %state, %left13
+  %first = xor %state, %shift13
+  %shift17 = lshl %first, %right17
+  %second = xor %first, %shift17
+  %shift5 = lshl %second, %left5
+  %next_state = xor %second, %shift5
+  %next_iteration = add.rr %iteration, %one
+  low.br ^work(%next_iteration: reg<aie2p.er>, %next_state: reg<aie2p.er>)
+^write_begin:
+  low.br ^write(%zero: reg<aie2p.er>)
+^write(%position: reg<aie2p.er>):
+  %more_words = lt %position, %record_bytes
+  low.cond_br %more_words, ^write_word, ^done : reg<aie2p.er>
+^write_word:
+  %index = mov.address-index %position
+  %a_word = lda.i32.index %a, %index
+  %b_word = lda.i32.index %b, %index
+  %sum = add.rr %a_word, %b_word
+  %result = xor %sum, %state
+  st.i32.index %result, %output, %index
+  %next_position = add.rr %position, %word_bytes
+  low.br ^write(%next_position: reg<aie2p.er>)
+^done:
+  return
+}

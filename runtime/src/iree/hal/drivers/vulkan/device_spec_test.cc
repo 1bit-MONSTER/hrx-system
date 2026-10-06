@@ -32,6 +32,8 @@ static iree_hal_vulkan_device_spec_t MakeTestSpec() {
           IREE_HAL_VULKAN_SHADER_ATOMIC_FEATURE_SHARED_FLOAT64_ADD,
       },
       /*.flags=*/IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
+      /*.subgroup_supported_operations=*/
+      VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT,
   };
 }
 
@@ -66,6 +68,8 @@ TEST(DeviceSpecTest, EncodesAndDecodesPayload) {
   EXPECT_EQ(decoded.enabled_features.general, source.enabled_features.general);
   EXPECT_EQ(decoded.enabled_features.atomics, source.enabled_features.atomics);
   EXPECT_EQ(decoded.flags, source.flags);
+  EXPECT_EQ(decoded.subgroup_supported_operations,
+            source.subgroup_supported_operations);
   ASSERT_EQ(decoded.cooperative_matrix.count, 1);
   iree_hal_vulkan_cooperative_matrix_property_t decoded_property = {};
   ASSERT_TRUE(iree_hal_vulkan_device_spec_read_cooperative_matrix_property(
@@ -157,6 +161,8 @@ TEST(DeviceSpecTest, AddsAndFindsCoreFacet) {
   EXPECT_EQ(decoded.enabled_features.general, source.enabled_features.general);
   EXPECT_EQ(decoded.enabled_features.atomics, source.enabled_features.atomics);
   EXPECT_EQ(decoded.physical_device_type, source.physical_device_type);
+  EXPECT_EQ(decoded.subgroup_supported_operations,
+            source.subgroup_supported_operations);
   ASSERT_EQ(decoded.cooperative_matrix.count, 1);
 
   iree_hal_device_spec_release(device_spec);
@@ -210,7 +216,19 @@ TEST(DeviceSpecTest, AtomicCapabilitiesRequireExactFeatures) {
             IREE_HAL_ATOMIC_OPERATION_FLAG_NONE);
 }
 
-TEST(DeviceSpecTest, CreatesSpecFromParams) {
+struct FloatControlsCase {
+  // Whether f32 preservation is supported by the physical device.
+  VkBool32 supported;
+  // Widths whose denormal modes can be controlled independently.
+  VkShaderFloatControlsIndependence independence;
+  // Whether the device facet can promise independent f32 preservation.
+  bool expected;
+};
+
+class DeviceSpecFloatControlsTest
+    : public ::testing::TestWithParam<FloatControlsCase> {};
+
+TEST_P(DeviceSpecFloatControlsTest, CreatesSpecFromParams) {
   iree_hal_allocator_t* allocator = NULL;
   IREE_ASSERT_OK(
       iree_hal_allocator_create_heap(IREE_SV("test"), iree_allocator_system(),
@@ -218,6 +236,10 @@ TEST(DeviceSpecTest, CreatesSpecFromParams) {
 
   iree_hal_vulkan_physical_device_snapshot_t physical_device = {};
   physical_device.ordinal = 3;
+  physical_device.float_controls_properties.shaderDenormPreserveFloat32 =
+      GetParam().supported;
+  physical_device.float_controls_properties.denormBehaviorIndependence =
+      GetParam().independence;
   std::strncpy(physical_device.properties2.properties.deviceName,
                "Vulkan test device",
                sizeof(physical_device.properties2.properties.deviceName) - 1);
@@ -251,6 +273,8 @@ TEST(DeviceSpecTest, CreatesSpecFromParams) {
   physical_device.properties11.maxMemoryAllocationSize = 1ull << 32;
   physical_device.id_properties.deviceUUID[0] = 0x11;
   physical_device.subgroup_properties.subgroupSize = 32;
+  physical_device.subgroup_properties.supportedOperations =
+      VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT;
   physical_device.subgroup_size_control_properties.minSubgroupSize = 32;
   physical_device.subgroup_size_control_properties.maxSubgroupSize = 64;
   physical_device.calibrated_timestamp_time_domains =
@@ -435,11 +459,17 @@ TEST(DeviceSpecTest, CreatesSpecFromParams) {
   iree_hal_vulkan_device_spec_t decoded = {};
   IREE_ASSERT_OK(iree_hal_vulkan_device_spec_decode_facet(facet, &decoded));
   EXPECT_EQ(decoded.api_version, VK_MAKE_API_VERSION(0, 1, 3, 0));
+  EXPECT_EQ(iree_any_bit_set(
+                decoded.flags,
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_DENORM_PRESERVE),
+            GetParam().expected);
   EXPECT_EQ(decoded.enabled_features.general,
             device_plan.enabled_features.general);
   EXPECT_EQ(decoded.enabled_features.atomics,
             device_plan.enabled_features.atomics);
   EXPECT_EQ(decoded.physical_device_type, VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU);
+  EXPECT_EQ(decoded.subgroup_supported_operations,
+            physical_device.subgroup_properties.supportedOperations);
   ASSERT_EQ(decoded.cooperative_matrix.count, 1);
   iree_hal_vulkan_cooperative_matrix_property_t decoded_property = {};
   ASSERT_TRUE(iree_hal_vulkan_device_spec_read_cooperative_matrix_property(
@@ -451,6 +481,20 @@ TEST(DeviceSpecTest, CreatesSpecFromParams) {
   iree_hal_device_spec_release(device_spec);
   iree_hal_allocator_release(allocator);
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    FloatControls, DeviceSpecFloatControlsTest,
+    ::testing::Values(
+        FloatControlsCase{VK_FALSE, VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE,
+                          false},
+        FloatControlsCase{VK_FALSE, VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL,
+                          false},
+        FloatControlsCase{VK_TRUE, VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE,
+                          false},
+        FloatControlsCase{
+            VK_TRUE, VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY, true},
+        FloatControlsCase{VK_TRUE, VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL,
+                          true}));
 
 }  // namespace
 }  // namespace iree::hal::vulkan

@@ -55,11 +55,11 @@ func.def target(@target) @varying_refined_offset_word(%values: vector<2xi64>) ->
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @varying_refined_offset_word(%values: reg<amdgpu.vgpr x4>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
-  %13 = slice %values[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-  %17 = v_ashrrev_i32_src0_inline %13, 31
-  %signed = concat(%13, %17) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %19 = v_mov_b32 0
-  %unsigned = concat(%13, %19) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %word = slice %values[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %15 = v_ashrrev_i32_src0_inline %word, 31
+  %signed = concat(%word, %15) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %17 = v_mov_b32 0
+  %unsigned = concat(%word, %17) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   return %signed, %unsigned
 }
 
@@ -78,9 +78,9 @@ func.def target(@target) @varying_refined_offset_wide(%values: vector<2xi64>) ->
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @varying_refined_offset_wide(%values: reg<amdgpu.vgpr x4>) -> (reg<amdgpu.vgpr x2>) asm {
-  %9 = slice %values[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-  %13 = v_mov_b32 0
-  %result = concat(%9, %13) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %13 = slice %values[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %11 = v_mov_b32 0
+  %result = concat(%13, %11) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   return %result
 }
 
@@ -171,6 +171,6 @@ func.def target(@target) @varying_wide_address_i32(%values: vector<2xi64>) -> (i
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @varying_wide_address_i32(%values: reg<amdgpu.vgpr x4>) -> (reg<amdgpu.vgpr>) asm {
-  %8 = slice %values[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-  return %8
+  %result = slice %values[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  return %result
 }

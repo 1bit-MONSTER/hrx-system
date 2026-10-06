@@ -1,4 +1,5 @@
 // TEMPLATE: loom/src/loom/test/corpus/source_low/vector_large_insert.loom-test
+// TEMPLATE-EXCLUDE: @i32x2x2_insert_static Covered by focused AMDGPU multidimensional shape legalization checks.
 // RUN: emit source-low target=amdgpu:gfx1151 output=low
 
 func.def @i64x16_insert_static(%values: vector<16xi64>, %value: i64) -> (vector<16xi64>) {
@@ -203,14 +204,6 @@ low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @i64x16_insert_dynamic(
   %112 = v_cndmask_b32 %111, %12, %109
   %result = concat(%20, %22, %26, %28, %32, %34, %38, %40, %44, %46, %50, %52, %56, %58, %62, %64, %68, %70, %74, %76, %80, %82, %86, %88, %92, %94, %98, %100, %104, %106, %110, %112) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x32>
   return %result
-}
-
-// ====
-
-func.def @i32x2x2_insert_static(%values: vector<2x2xi32>, %value: i32) -> (vector<2x2xi32>) {
-  // ERROR@+1: TARGET/004 {op_name="vector.insert", subject_name="static_indices", constraint_key="array_count", expected_count="1"}
-  %result = vector.insert %value into %values[1, 1] : i32, vector<2x2xi32>
-  func.return %result : vector<2x2xi32>
 }
 
 // ====

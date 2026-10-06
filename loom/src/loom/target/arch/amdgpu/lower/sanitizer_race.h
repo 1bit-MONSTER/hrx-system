@@ -15,6 +15,7 @@
 #include "loom/codegen/low/lower/lower.h"
 #include "loom/sanitizer/site_collection.h"
 #include "loom/target/arch/amdgpu/abi/tsan.h"
+#include "loom/target/arch/amdgpu/lower/fragment_memory/plan.h"
 #include "loom/target/arch/amdgpu/lower/memory.h"
 #include "loom/target/arch/amdgpu/lower/plan.h"
 #include "loom/target/low_legality.h"
@@ -23,20 +24,32 @@
 extern "C" {
 #endif
 
-typedef struct loom_amdgpu_sanitizer_race_access_plan_t {
+typedef struct loom_amdgpu_sanitizer_race_observation_plan_t {
   // Compiler-assigned source site identifier for reports.
   loom_sanitizer_site_id_t site_id;
-  // Selected memory-space-relative byte address of the observed LDS access.
-  loom_amdgpu_memory_access_t address;
   // Report access kind emitted for the current access.
   loom_amdgpu_tsan_access_kind_t report_access_kind;
   // Compact shadow access kind written to the per-granule detector slot.
   loom_amdgpu_tsan_shadow_access_kind_t shadow_access_kind;
-  // Static access width in bytes.
-  uint32_t access_size;
   // Whether the current access came from an atomic memory operation.
   bool atomic;
+} loom_amdgpu_sanitizer_race_observation_plan_t;
+
+typedef struct loom_amdgpu_sanitizer_race_access_plan_t {
+  // Common race-observation reporting and shadow-entry plan.
+  loom_amdgpu_sanitizer_race_observation_plan_t observation;
+  // Selected memory-space-relative byte address of the observed LDS access.
+  loom_amdgpu_memory_access_t address;
+  // Static width of the physical access in bytes.
+  uint32_t access_size;
 } loom_amdgpu_sanitizer_race_access_plan_t;
+
+typedef struct loom_amdgpu_sanitizer_race_fragment_access_plan_t {
+  // Common race-observation reporting and shadow-entry plan.
+  loom_amdgpu_sanitizer_race_observation_plan_t observation;
+  // Exact target-selected fragment memory activity being observed.
+  loom_amdgpu_fragment_memory_plan_t fragment_memory;
+} loom_amdgpu_sanitizer_race_fragment_access_plan_t;
 
 typedef struct loom_amdgpu_sanitizer_race_sync_plan_t {
   // Workgroup barrier emitted after the epoch update.
@@ -57,6 +70,19 @@ iree_status_t loom_amdgpu_lower_sanitizer_race_access(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_sanitizer_race_access_plan_t* plan);
 
+// Selects the AMDGPU lowering plan for a
+// sanitizer.race.fragment_access op.
+iree_status_t loom_amdgpu_select_sanitizer_race_fragment_access_plan(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_amdgpu_sanitizer_race_fragment_access_plan_t* out_plan,
+    bool* out_selected);
+
+// Lowers a sanitizer.race.fragment_access op through the physical accesses of
+// its exact target-selected fragment memory plan.
+iree_status_t loom_amdgpu_lower_sanitizer_race_fragment_access(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_sanitizer_race_fragment_access_plan_t* plan);
+
 // Selects the AMDGPU lowering plan for a sanitizer.race.sync op.
 iree_status_t loom_amdgpu_select_sanitizer_race_sync_plan(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
@@ -69,6 +95,13 @@ iree_status_t loom_amdgpu_lower_sanitizer_race_sync(
 
 // Verifies sanitizer.race.access legality for AMDGPU target-low selection.
 iree_status_t loom_amdgpu_low_legality_verify_sanitizer_race_access(
+    const loom_target_low_legality_provider_t* provider,
+    loom_target_low_legality_context_t* context, const loom_op_t* op,
+    bool* out_handled);
+
+// Verifies sanitizer.race.fragment_access legality for AMDGPU target-low
+// selection.
+iree_status_t loom_amdgpu_low_legality_verify_sanitizer_race_fragment_access(
     const loom_target_low_legality_provider_t* provider,
     loom_target_low_legality_context_t* context, const loom_op_t* op,
     bool* out_handled);

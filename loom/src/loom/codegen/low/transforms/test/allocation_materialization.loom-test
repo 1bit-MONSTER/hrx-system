@@ -1,3 +1,59 @@
+// Inlining appends the producer continuation after the existing loop. Two
+// helper returns and two loop predecessors keep both blocks through CFG
+// simplification, which forwards the loop argument to the later identity.
+// Allocation must reserve the identity's source first despite that layout.
+// RUN: pass inline-callables,cfg-simplify,low-materialize-allocation{budgets=test.i32=5}
+
+test.target<low_core> @target
+
+low.func.def inline target<test.low.core>(@target) @select_seed(%choose: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  low.cond_br %choose, ^left, ^right : reg<test.i32>
+^left:
+  return %seed
+^right:
+  %doubled = test.add.i32 %seed, %seed
+  return %doubled
+}
+
+low.func.def public target<test.low.core>(@target) @identity_after_inlined_continuation(%choose: reg<test.i32>, %again: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %selected = low.func.call @select_seed(%choose, %seed) : (reg<test.i32>, reg<test.i32>) -> (reg<test.i32>)
+  %source = test.add.i32 %selected, %seed
+  %identity = low.assume %source [] : reg<test.i32>
+  low.br ^loop(%identity: reg<test.i32>)
+^loop(%forwarded: reg<test.i32>):
+  %sum = test.add.i32 %forwarded, %seed
+  low.cond_br %again, ^backedge, ^returned : reg<test.i32>
+^backedge:
+  low.br ^loop(%forwarded: reg<test.i32>)
+^returned:
+  return %sum
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def public target<test.low.core>(@target) @identity_after_inlined_continuation(%choose: reg<test.i32>, %again: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  low.cond_br %choose, ^_bb4, ^_bb5 : reg<test.i32>
+^_bb6(%selected: reg<test.i32>):
+  %source = test.add.i32 %selected, %seed
+  %identity = low.assume %source [] : reg<test.i32>
+  low.br ^loop
+^loop:
+  %sum = test.add.i32 %identity, %seed
+  low.cond_br %again, ^backedge, ^returned : reg<test.i32>
+^backedge:
+  low.br ^loop
+^returned:
+  return %sum
+^_bb4:
+  low.br ^_bb6(%seed: reg<test.i32>)
+^_bb5:
+  %doubled = test.add.i32 %seed, %seed
+  low.br ^_bb6(%doubled: reg<test.i32>)
+}
+
+// ====
+
 // RUN: pass low-materialize-allocation{budgets=test.i32=3}
 
 test.target<low_core> @test_target
@@ -263,6 +319,59 @@ low.func.def target<test.low.core>(@test_target) @dense_slice_reload_cluster(%bl
 
 // ====
 
+// Tied packets consume their predecessors' storage. Rebuild the complete
+// ownership chain for each user so the clones consume distinct roots near
+// their uses.
+// RUN: pass low-materialize-allocation{spill-storage-spaces=none}
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @rematerialize_tied_chain(%block0: reg<test.explicit32>, %block1: reg<test.explicit32>, %block2: reg<test.explicit32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %root = test.const.explicit32 3
+  %chain0 = test.rematerialize.tied.explicit32 %root
+  %chain1 = test.rematerialize.tied.explicit32 %chain0
+  %late = copy %seed : reg<test.i32> -> reg<test.explicit32>
+  %use0 = copy %block0 : reg<test.explicit32> -> reg<test.i32>
+  %use1 = copy %block1 : reg<test.explicit32> -> reg<test.i32>
+  %use2 = copy %block2 : reg<test.explicit32> -> reg<test.i32>
+  %use3 = copy %late : reg<test.explicit32> -> reg<test.i32>
+  %chain_use0 = copy %chain1 : reg<test.explicit32> -> reg<test.i32>
+  %chain_use1 = copy %chain1 : reg<test.explicit32> -> reg<test.i32>
+  %sum01 = test.add.i32 %use0, %use1
+  %sum23 = test.add.i32 %use2, %use3
+  %sum0123 = test.add.i32 %sum01, %sum23
+  %sum_chain = test.add.i32 %chain_use0, %chain_use1
+  %result = test.add.i32 %sum0123, %sum_chain
+  return %result
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @rematerialize_tied_chain(%block0: reg<test.explicit32>, %block1: reg<test.explicit32>, %block2: reg<test.explicit32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %late = copy %seed : reg<test.i32> -> reg<test.explicit32>
+  %use0 = copy %block0 : reg<test.explicit32> -> reg<test.i32>
+  %use1 = copy %block1 : reg<test.explicit32> -> reg<test.i32>
+  %use2 = copy %block2 : reg<test.explicit32> -> reg<test.i32>
+  %use3 = copy %late : reg<test.explicit32> -> reg<test.i32>
+  %root_remat$20 = test.const.explicit32 3
+  %chain0_remat$21 = test.rematerialize.tied.explicit32 %root_remat$20
+  %chain1_remat$22 = test.rematerialize.tied.explicit32 %chain0_remat$21
+  %chain_use0 = copy %chain1_remat$22 : reg<test.explicit32> -> reg<test.i32>
+  %root_remat$23 = test.const.explicit32 3
+  %chain0_remat$24 = test.rematerialize.tied.explicit32 %root_remat$23
+  %chain1_remat$25 = test.rematerialize.tied.explicit32 %chain0_remat$24
+  %chain_use1 = copy %chain1_remat$25 : reg<test.explicit32> -> reg<test.i32>
+  %sum01 = test.add.i32 %use0, %use1
+  %sum23 = test.add.i32 %use2, %use3
+  %sum0123 = test.add.i32 %sum01, %sum23
+  %sum_chain = test.add.i32 %chain_use0, %chain_use1
+  %result = test.add.i32 %sum0123, %sum_chain
+  return %result
+}
+
+// ====
+
 // RUN: pass low-materialize-allocation{budgets=test.i32=3,diagnostics=spills}
 
 test.target<low_core> @test_target
@@ -370,6 +479,43 @@ low.func.def target<test.low.core>(@test_target) @rematerialize_descriptor_op(%a
   %13 = low.reload %rematerialize_descriptor_op_spill_storage_0 : low.storage<private> -> reg<test.i32>
   %use1 = test.add.i32 %13, %derived_remat$11
   %out = test.add.i32 %use0, %use1
+  return %out
+}
+
+// ====
+
+// The packet captures %c before low.move consumes it. Replaying the packet at
+// its later user would read the consumed source instead of the captured value.
+// RUN: pass low-materialize-allocation{budgets=test.i32=3}
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @do_not_rematerialize_consumed_input(%a: reg<test.i32>, %b: reg<test.i32>, %c: reg<test.i32>) -> (reg<test.i32>) asm {
+  %derived = test.rematerialize.i32 %c
+  %ab = test.add.i32 %a, %b
+  %next = move %c : reg<test.i32> -> reg<test.i32>
+  %bc = test.add.i32 %b, %next
+  %use = test.add.i32 %bc, %derived
+  %out = test.add.i32 %use, %ab
+  return %out
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @do_not_rematerialize_consumed_input(%a: reg<test.i32>, %b: reg<test.i32>, %c: reg<test.i32>) -> (reg<test.i32>) asm {
+  %do_not_rematerialize_consumed_input_spill_storage_0 = storage {byte_alignment = 4, byte_length = 4} : low.storage<private>
+  %do_not_rematerialize_consumed_input_spill_storage_1 = storage {byte_alignment = 4, byte_length = 4} : low.storage<private>
+  low.spill %a, %do_not_rematerialize_consumed_input_spill_storage_1 : reg<test.i32>, low.storage<private>
+  %derived = test.rematerialize.i32 %c
+  low.spill %derived, %do_not_rematerialize_consumed_input_spill_storage_0 : reg<test.i32>, low.storage<private>
+  %13 = low.reload %do_not_rematerialize_consumed_input_spill_storage_1 : low.storage<private> -> reg<test.i32>
+  %ab = test.add.i32 %13, %b
+  %next = move %c : reg<test.i32> -> reg<test.i32>
+  %bc = test.add.i32 %b, %next
+  %11 = low.reload %do_not_rematerialize_consumed_input_spill_storage_0 : low.storage<private> -> reg<test.i32>
+  %use = test.add.i32 %bc, %11
+  %out = test.add.i32 %use, %ab
   return %out
 }
 
@@ -702,5 +848,56 @@ low.func.def target<test.low.core>(@test_target) @rematerialize_interleaved_oper
   %literal_remat$13 = test.const.i32 7
   %tail = test.add.i32 %bc, %literal_remat$13
   %result = test.add.i32 %partial, %tail
+  return %result
+}
+
+// ====
+
+// Five cross-block constants exceed the four physical registers. Repair all
+// original sources in one snapshot and keep each clone at its actual user.
+// RUN: pass low-materialize-allocation
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @cross_block_constants() -> (reg<test.i32>) asm {
+  %first = test.const.explicit32 1
+  %second = test.const.explicit32 2
+  %third = test.const.explicit32 3
+  %fourth = test.const.explicit32 4
+  %fifth = test.const.explicit32 5
+  low.br ^consume
+^consume:
+  %a = copy %first : reg<test.explicit32> -> reg<test.i32>
+  %b = copy %second : reg<test.explicit32> -> reg<test.i32>
+  %c = copy %third : reg<test.explicit32> -> reg<test.i32>
+  %d = copy %fourth : reg<test.explicit32> -> reg<test.i32>
+  %e = copy %fifth : reg<test.explicit32> -> reg<test.i32>
+  %ab = test.add.i32 %a, %b
+  %cd = test.add.i32 %c, %d
+  %abcd = test.add.i32 %ab, %cd
+  %result = test.add.i32 %abcd, %e
+  return %result
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @cross_block_constants() -> (reg<test.i32>) asm {
+  low.br ^consume
+^consume:
+  %first_remat = test.const.explicit32 1
+  %a = copy %first_remat : reg<test.explicit32> -> reg<test.i32>
+  %second_remat = test.const.explicit32 2
+  %b = copy %second_remat : reg<test.explicit32> -> reg<test.i32>
+  %third_remat = test.const.explicit32 3
+  %c = copy %third_remat : reg<test.explicit32> -> reg<test.i32>
+  %fourth_remat = test.const.explicit32 4
+  %d = copy %fourth_remat : reg<test.explicit32> -> reg<test.i32>
+  %fifth_remat = test.const.explicit32 5
+  %e = copy %fifth_remat : reg<test.explicit32> -> reg<test.i32>
+  %ab = test.add.i32 %a, %b
+  %cd = test.add.i32 %c, %d
+  %abcd = test.add.i32 %ab, %cd
+  %result = test.add.i32 %abcd, %e
   return %result
 }

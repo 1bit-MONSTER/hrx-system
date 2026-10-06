@@ -25,7 +25,16 @@ static loom_target_math_policy_decision_t loom_wasm_math_reject(
 static bool loom_wasm_math_op_is_native_arithmetic(
     loom_target_math_op_t math_op) {
   return math_op == LOOM_TARGET_MATH_OP_ADDF ||
+         math_op == LOOM_TARGET_MATH_OP_SUBF ||
          math_op == LOOM_TARGET_MATH_OP_MULF;
+}
+
+static bool loom_wasm_math_op_is_native_rounding(
+    loom_target_math_op_t math_op) {
+  return math_op == LOOM_TARGET_MATH_OP_CEILF ||
+         math_op == LOOM_TARGET_MATH_OP_FLOORF ||
+         math_op == LOOM_TARGET_MATH_OP_ROUNDEVENF ||
+         math_op == LOOM_TARGET_MATH_OP_TRUNCF;
 }
 
 static bool loom_wasm_math_lane_domain_is_supported(
@@ -38,7 +47,11 @@ static void loom_wasm_math_policy_query(
     const loom_target_math_policy_t* policy,
     const loom_target_math_query_t* query,
     loom_target_math_policy_decision_t* out_decision) {
-  if (!loom_wasm_math_op_is_native_arithmetic(query->math_op)) {
+  const bool is_native_arithmetic =
+      loom_wasm_math_op_is_native_arithmetic(query->math_op);
+  const bool is_native_rounding =
+      loom_wasm_math_op_is_native_rounding(query->math_op);
+  if (!is_native_arithmetic && !is_native_rounding) {
     *out_decision = loom_wasm_math_reject(IREE_SV("math.op.supported"));
     return;
   }

@@ -11,6 +11,30 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
+    index_set
+  HDRS
+    "index_set.h"
+  SRCS
+    "index_set.c"
+  DEPS
+    iree::base
+    iree::base::internal
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    index_set_test
+  SRCS
+    "index_set_test.cc"
+  DEPS
+    ::index_set
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_library(
+  NAME
     bstring
   HDRS
     "bstring.h"
@@ -234,6 +258,23 @@ loom_cc_test(
 
 loom_cc_library(
   NAME
+    fact_table_api
+  HDRS
+    "fact_extensions.h"
+    "fact_layout.h"
+    "fact_table.h"
+  DEPS
+    ::numeric_format
+    ::reference_facts
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::ir::facts
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     fact_table
   HDRS
     "fact_cfg.h"
@@ -259,11 +300,14 @@ loom_cc_library(
     ::cfg_loop_nest
     ::cfg_regions
     ::fact_control
+    ::fact_table_api
     ::numeric_format
     ::reference_facts
     iree::base
     iree::base::internal
     iree::base::internal::arena
+    loom::analysis::condition_edge_projection
+    loom::analysis::condition_facts
     loom::analysis::loop_domain
     loom::analysis::scc
     loom::ir
@@ -310,8 +354,12 @@ loom_cc_test(
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::analysis::condition_edge_projection
+    loom::analysis::condition_facts
     loom::ir
+    loom::ops::cfg
     loom::ops::index
+    loom::ops::scalar
     loom::ops::scf
     loom::ops::test
 )
@@ -569,6 +617,20 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    cfg_execution
+  HDRS
+    "cfg_execution.h"
+  SRCS
+    "cfg_execution.c"
+  DEPS
+    ::cfg_control
+    iree::base
+    iree::base::internal::arena
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     cfg_graph_test_util
   HDRS
     "cfg_graph_test_util.h"
@@ -605,6 +667,20 @@ loom_cc_test(
     ::cfg_control
     ::cfg_control_test_util
     ::cfg_graph_test_util
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_test(
+  NAME
+    cfg_execution_test
+  SRCS
+    "cfg_execution_test.cc"
+  DEPS
+    ::cfg_control
+    ::cfg_execution
+    ::cfg_graph_test_util
+    iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
 )

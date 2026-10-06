@@ -21,6 +21,7 @@ from loom.assembly import FuncArgs
 from loom.builtin_types import ALL_BUILTIN_TYPES
 from loom.dialect.buffer import ALL_BUFFER_OPS
 from loom.dialect.cfg import ALL_CFG_OPS
+from loom.dialect.check import ALL_CHECK_OPS, ALL_CHECK_TYPES
 from loom.dialect.encoding import ALL_ENCODING_OPS
 from loom.dialect.func import ALL_FUNC_OPS
 from loom.dialect.globals import ALL_GLOBAL_OPS
@@ -57,7 +58,10 @@ from loom.dsl import (
 )
 from loom.format.bytecode.encoding import decode_varint
 from loom.format.bytecode.reader import read_module
-from loom.format.bytecode.symbol_references import SYMBOL_INTERFACE_BITS
+from loom.format.bytecode.symbol_references import (
+    SYMBOL_INTERFACE_BITS,
+    symbol_reference_dependency_contract_parts,
+)
 from loom.format.bytecode.writer import (
     FORMAT_VERSION,
     LOCATION_MODE_FULL_LOCATIONS,
@@ -208,6 +212,7 @@ def _text_parser(
     include_kernel: bool = False,
     include_low: bool = False,
     include_pass: bool = False,
+    include_check: bool = False,
 ) -> Parser:
     parser = Parser()
     ops = (
@@ -236,6 +241,8 @@ def _text_parser(
         _append_unique(ops, ALL_LOW_OPS)
     if include_pass:
         _append_unique(ops, ALL_PASS_OPS)
+    if include_check:
+        _append_unique(ops, ALL_CHECK_OPS)
     parser.register_ops(ops)
     parser.register_parameterized_attrs(
         (*ALL_TEST_PARAMETERIZED_ATTRS, *ALL_TARGET_PARAMETERIZED_ATTRS)
@@ -243,6 +250,8 @@ def _text_parser(
     types = list(ALL_BUILTIN_TYPES)
     if include_kernel:
         _append_unique(types, ALL_KERNEL_TYPES)
+    if include_check:
+        _append_unique(types, ALL_CHECK_TYPES)
     parser.register_types(types)
     return parser
 
@@ -582,6 +591,52 @@ class TestFileHeader:
 
 
 class TestSymbolReferencesSection:
+    def test_oracle_dependency_role_survives_projection(self) -> None:
+        module = _text_parser(include_check=True).parse(
+            "func.def @subject(%x: i32) -> (i32) {\n"
+            "  func.return %x : i32\n"
+            "}\n"
+            "func.def @oracle(%x: i32) -> (i32) {\n"
+            "  func.return %x : i32\n"
+            "}\n"
+            "check.scenario @scenario {\n"
+            "  check.trial[1](%trial: index, %entropy: check.entropy) {\n"
+            "    %input = check.literal value(1) : i32\n"
+            "    check.compare<@subject, @oracle>(%input) : (i32) -> "
+            "[actual(%actual: i32), expected(%expected: i32)] {\n"
+            "      check.expect.equal actual(%actual) expected(%expected) : i32\n"
+            "    }\n"
+            "  }\n"
+            "  check.return\n"
+            "}\n"
+        )
+        data = _section_payload(
+            write_module(module, op_decls=(*ALL_FUNC_OPS, *ALL_CHECK_OPS)),
+            SECTION_SYMBOL_REFERENCES,
+        )
+        offset = 0
+        symbol_count, offset = decode_varint(data, offset)
+        dependency_count, offset = decode_varint(data, offset)
+        template_demand_count, offset = decode_varint(data, offset)
+        module_dependency_count, offset = decode_varint(data, offset)
+        assert (symbol_count, dependency_count, template_demand_count) == (3, 2, 0)
+        assert module_dependency_count == 0
+
+        roles_by_target: dict[int, int] = {}
+        for _ in range(symbol_count):
+            row_dependency_count, offset = decode_varint(data, offset)
+            for _ in range(row_dependency_count):
+                _source_root, offset = decode_varint(data, offset)
+                target_symbol, offset = decode_varint(data, offset)
+                contract, offset = decode_varint(data, offset)
+                _interfaces, role = symbol_reference_dependency_contract_parts(contract)
+                roles_by_target[target_symbol] = role
+            row_template_demand_count, offset = decode_varint(data, offset)
+            assert row_template_demand_count == 0
+
+        assert roles_by_target == {0: 0, 1: 2}
+        assert offset == len(data)
+
     def test_records_retain_contract_and_root_region_origins(self) -> None:
         module = _text_parser().parse(
             "test.record @config_dependency\n"
@@ -2576,6 +2631,16 @@ class TestPredicateBytecodeRoundTrip:
                 kind="finite",
                 args=(PredicateArg(tag="value", value=arg_id),),
             ),
+            *(
+                Predicate(
+                    kind=kind,
+                    args=(
+                        PredicateArg(tag="value", value=m_id),
+                        PredicateArg(tag="value", value=k_id),
+                    ),
+                )
+                for kind in ("ult", "ule", "ugt", "uge")
+            ),
         ]
         func_op = Operation(
             name="func.decl",
@@ -2592,7 +2657,7 @@ class TestPredicateBytecodeRoundTrip:
         loaded_op = loaded.symbols[0].op
         assert loaded_op is not None
         loaded_preds = loaded_op.attributes.get("predicates", [])
-        assert len(loaded_preds) == 8
+        assert len(loaded_preds) == 12
 
         # Verify each predicate survived.
         assert loaded_preds[0].kind == "mul"
@@ -2625,6 +2690,14 @@ class TestPredicateBytecodeRoundTrip:
         assert loaded_preds[7].kind == "finite"
         assert len(loaded_preds[7].args) == 1
         assert loaded_preds[7].args[0].value == loaded_op.operands[3]
+
+        for predicate, kind in zip(
+            loaded_preds[8:], ("ult", "ule", "ugt", "uge"), strict=True
+        ):
+            assert predicate.kind == kind
+            assert len(predicate.args) == 2
+            assert predicate.args[0].value == loaded_op.operands[0]
+            assert predicate.args[1].value == loaded_op.operands[1]
 
     def test_empty_predicates_roundtrip(self) -> None:
         """Function with no predicates survives bytecode round-trip."""

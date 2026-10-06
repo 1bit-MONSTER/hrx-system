@@ -14,6 +14,8 @@ from loom.dialect.combining import CombiningKind
 from loom.target.low_descriptors import (
     AsmForm,
     AsmImmediate,
+    Constraint,
+    ConstraintKind,
     Descriptor,
     DescriptorFlag,
     DescriptorOpKind,
@@ -414,6 +416,10 @@ _DESCRIPTORS = (
             results=("result",),
             operands=("sender", "receiver", "capacity", "records"),
         ),
+        constraints=(
+            Constraint(ConstraintKind.SAME_REGISTER_VALUE_TYPE, 0, 1),
+            Constraint(ConstraintKind.SAME_REGISTER_VALUE_TYPE, 0, 2),
+        ),
         effects=(_TOPOLOGY_EFFECT,),
         schedule_class=_SCHEDULE_GRAPH,
         flags=(DescriptorFlag.SIDE_EFFECTING,),
@@ -454,6 +460,7 @@ AIE2P_ARRAY_DESCRIPTOR_SET = DescriptorSet(
     c_table_prefix="Aie2pArray",
     c_enum_prefix="AIE2P_ARRAY",
     generator_version=2,
+    requires_structured_control_flow=True,
     reg_classes=(
         _reference_reg_class(_REG_SCALAR),
         _reference_reg_class(_REG_OFFSET, bit_width=64),

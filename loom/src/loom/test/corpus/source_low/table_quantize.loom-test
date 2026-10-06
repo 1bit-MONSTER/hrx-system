@@ -1,0 +1,61 @@
+func.def @f16_input_packets(%values: vector<33xf16>, %thresholds: vector<8xf16>) -> (vector<33xi8>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = max, tie = upper} : vector<33xf16>, vector<8xf16> -> vector<33xi8>
+  func.return %codes : vector<33xi8>
+}
+
+// ====
+
+func.def @bf16_wide_ordinals(%values: vector<8xbf16>, %thresholds: vector<3xbf16>) -> (vector<8xi16>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = max, tie = lower} : vector<8xbf16>, vector<3xbf16> -> vector<8xi16>
+  func.return %codes : vector<8xi16>
+}
+
+// ====
+
+func.def @f32_wide_ordinals(%values: vector<4xf32>, %thresholds: vector<2xf32>) -> (vector<4xi32>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = lower} : vector<4xf32>, vector<2xf32> -> vector<4xi32>
+  func.return %codes : vector<4xi32>
+}
+
+// ====
+
+func.def @f32_i64_ordinals(%values: vector<16xf32>, %thresholds: vector<3xf32>) -> (vector<16xi64>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = lower} : vector<16xf32>, vector<3xf32> -> vector<16xi64>
+  func.return %codes : vector<16xi64>
+}
+
+// ====
+
+func.def @f32_i64_partial_packet(%values: vector<17xf32>, %thresholds: vector<3xf32>) -> (vector<17xi64>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = lower} : vector<17xf32>, vector<3xf32> -> vector<17xi64>
+  func.return %codes : vector<17xi64>
+}
+
+// ====
+
+func.def @f16_predicate(%values: vector<9xf16>, %thresholds: vector<1xf16>) -> (vector<9xi1>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = upper} : vector<9xf16>, vector<1xf16> -> vector<9xi1>
+  func.return %codes : vector<9xi1>
+}
+
+// ====
+
+func.def @f16_threshold_packets(%values: vector<2xf16>, %thresholds: vector<33xf16>) -> (vector<2xi8>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = max, tie = lower} : vector<2xf16>, vector<33xf16> -> vector<2xi8>
+  func.return %codes : vector<2xi8>
+}
+
+// ====
+
+func.def @empty_thresholds(%values: vector<4xf32>) -> (vector<4xi8>) {
+  %thresholds = vector.constant 0.0 : vector<0xf32>
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = lower} : vector<4xf32>, vector<0xf32> -> vector<4xi8>
+  func.return %codes : vector<4xi8>
+}
+
+// ====
+
+func.def @multidimensional_input(%values: vector<2x3xf32>, %thresholds: vector<2xf32>) -> (vector<2x3xi32>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = lower} : vector<2x3xf32>, vector<2xf32> -> vector<2x3xi32>
+  func.return %codes : vector<2x3xi32>
+}

@@ -17,6 +17,70 @@
 #include "loom/target/facts.h"
 #include "loom/target/function_contract.h"
 
+bool loom_low_lower_source_call_is_structural(const loom_module_t* module,
+                                              const loom_op_t* source_op) {
+  if (source_op == NULL ||
+      !iree_any_bit_set(source_op->traits, LOOM_TRAIT_CALLABLE_BOUNDARY)) {
+    return false;
+  }
+  const loom_call_like_t call = loom_call_like_const_cast(module, source_op);
+  return loom_call_like_is_direct_semantic(call);
+}
+
+iree_status_t loom_low_lower_source_call(loom_low_lower_context_t* context,
+                                         const loom_op_t* source_op) {
+  loom_module_t* module = loom_low_lower_context_module(context);
+  const loom_call_like_t call = loom_call_like_const_cast(module, source_op);
+  IREE_ASSERT(loom_low_lower_source_call_is_structural(module, source_op));
+
+  const loom_value_slice_t source_operands = loom_call_like_operands(call);
+  loom_value_id_t* low_operands = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_remap_values(
+      context, source_op, source_operands.values, source_operands.count,
+      /*required_types=*/NULL, &low_operands));
+
+  const loom_value_slice_t source_results = loom_call_like_results(call);
+  loom_type_t* result_types = NULL;
+  bool has_unmapped_result = false;
+  if (source_results.count != 0) {
+    IREE_RETURN_IF_ERROR(loom_low_lower_allocate_emission_array(
+        context, source_results.count, sizeof(*result_types),
+        (void**)&result_types));
+    for (uint16_t i = 0; i < source_results.count; ++i) {
+      IREE_RETURN_IF_ERROR(loom_low_lower_map_value(
+          context, source_op, source_results.values[i], &result_types[i]));
+      has_unmapped_result |= loom_type_kind(result_types[i]) == LOOM_TYPE_NONE;
+    }
+  }
+  if (has_unmapped_result) {
+    return iree_ok_status();
+  }
+
+  loom_low_func_call_build_flags_t build_flags = 0;
+  const uint8_t purity = loom_call_like_purity(call);
+  const uint8_t inline_policy = loom_call_like_inline_policy(call);
+  if (purity != 0) {
+    build_flags |= LOOM_LOW_FUNC_CALL_BUILD_FLAG_HAS_PURITY;
+  }
+  if (inline_policy != 0) {
+    build_flags |= LOOM_LOW_FUNC_CALL_BUILD_FLAG_HAS_INLINE_POLICY;
+  }
+  loom_op_t* low_call_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_func_call_build(
+      loom_low_lower_context_builder(context), build_flags, purity,
+      inline_policy, loom_call_like_callee(call), low_operands,
+      source_operands.count, result_types, source_results.count,
+      loom_op_tied_results(source_op), source_op->tied_result_count,
+      source_op->location, &low_call_op));
+
+  const loom_value_id_t* low_results = loom_op_const_results(low_call_op);
+  for (uint16_t i = 0; i < source_results.count; ++i) {
+    IREE_RETURN_IF_ERROR(loom_low_lower_bind_value(
+        context, source_results.values[i], low_results[i]));
+  }
+  return iree_ok_status();
+}
+
 static iree_string_view_t loom_low_source_call_symbol_name(
     const loom_module_t* module, loom_symbol_ref_t symbol_ref) {
   if (!loom_symbol_ref_is_valid(symbol_ref) || symbol_ref.module_id != 0 ||

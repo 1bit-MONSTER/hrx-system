@@ -708,8 +708,9 @@ iree_status_t loom_rewriter_try_fold(loom_rewriter_t* rewriter, loom_op_t* op,
   if (!vtable->infer_facts) {
     return iree_ok_status();
   }
-  if (loom_traits_has_side_effects(
-          loom_op_effective_traits(rewriter->module, op))) {
+  const loom_trait_flags_t traits =
+      loom_op_effective_traits(rewriter->module, op);
+  if (loom_traits_has_side_effects(traits)) {
     return iree_ok_status();
   }
 
@@ -727,6 +728,13 @@ iree_status_t loom_rewriter_try_fold(loom_rewriter_t* rewriter, loom_op_t* op,
   }
   if (op->result_count == 0) {
     return iree_ok_status();
+  }
+
+  if (loom_traits_are_fact_identity(traits) &&
+      rewriter->pending_exact_relations_callback.fn &&
+      loom_value_fact_table_has_pending_exact_relations(rewriter->fact_table)) {
+    IREE_RETURN_IF_ERROR(rewriter->pending_exact_relations_callback.fn(
+        rewriter->pending_exact_relations_callback.user_data, rewriter));
   }
 
   // All results are exact. Materialize constants in the same block
@@ -1611,11 +1619,9 @@ iree_status_t loom_rewriter_move_to_block_end(loom_rewriter_t* rewriter,
   return iree_ok_status();
 }
 
-iree_status_t loom_rewriter_set_operand(loom_rewriter_t* rewriter,
-                                        loom_op_t* op, uint16_t operand_index,
-                                        loom_value_id_t new_value) {
-  IREE_RETURN_IF_ERROR(
-      loom_op_set_operand(rewriter->module, op, operand_index, new_value));
+// Publishes one complete operand-tuple mutation to the analyses and worklist.
+static iree_status_t loom_rewriter_finish_operand_change(
+    loom_rewriter_t* rewriter, loom_op_t* op) {
   loom_rewriter_invalidate_cfg_forwarding(rewriter, op);
   IREE_RETURN_IF_ERROR(loom_rewriter_add_to_worklist(rewriter, op));
   IREE_RETURN_IF_ERROR(loom_rewriter_add_summary_ops_to_worklist(rewriter, op));
@@ -1624,6 +1630,34 @@ iree_status_t loom_rewriter_set_operand(loom_rewriter_t* rewriter,
       loom_rewriter_add_result_users_to_worklist(rewriter, op));
   rewriter->flags |= LOOM_REWRITER_FLAG_CHANGED;
   return iree_ok_status();
+}
+
+iree_status_t loom_rewriter_set_operand(loom_rewriter_t* rewriter,
+                                        loom_op_t* op, uint16_t operand_index,
+                                        loom_value_id_t new_value) {
+  if (loom_op_operands(op)[operand_index] == new_value) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(
+      loom_op_set_operand(rewriter->module, op, operand_index, new_value));
+  return loom_rewriter_finish_operand_change(rewriter, op);
+}
+
+iree_status_t loom_rewriter_set_operands(loom_rewriter_t* rewriter,
+                                         loom_op_t* op,
+                                         const loom_value_id_t* new_values) {
+  loom_value_id_t* operands = loom_op_operands(op);
+  bool changed = false;
+  for (uint16_t i = 0; i < op->operand_count; ++i) {
+    if (operands[i] == new_values[i]) {
+      continue;
+    }
+    IREE_RETURN_IF_ERROR(
+        loom_op_set_operand(rewriter->module, op, i, new_values[i]));
+    changed = true;
+  }
+  return changed ? loom_rewriter_finish_operand_change(rewriter, op)
+                 : iree_ok_status();
 }
 
 iree_status_t loom_rewriter_set_value_type(loom_rewriter_t* rewriter,

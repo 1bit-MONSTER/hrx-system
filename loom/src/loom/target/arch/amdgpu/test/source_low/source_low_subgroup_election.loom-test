@@ -46,19 +46,21 @@ low.kernel.def target<amdgpu.rdna3_5.core>(@gpu) abi_layout({constant_count = 0,
   %cursor = global_load_b32_saddr %38, %source {offset = 4}
   %published = v_cmp_ne_i32_src1_inline %ready {rhs = 0}
   %eligible = s_and_b64 %live, %published
-  %mask = slice %eligible[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %44 = s_mov_b64_exec_read
+  %45 = s_and_b64 %eligible, %44
+  %mask = slice %45[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
   %has_work = s_cmp_lg_i32 %mask, %c0
   low.cond_br %has_work, ^select, ^empty : reg<amdgpu.scc>
 ^select:
   %selected = s_ctz_i32_b32 %mask
   %value = v_readlane_b32_src1_sgpr %cursor, %selected
-  %48 = v_mov_b32_copy %value
-  low.br ^store(%48: reg<amdgpu.vgpr>)
+  %50 = v_mov_b32_copy %value
+  low.br ^store(%50: reg<amdgpu.vgpr>)
 ^empty:
-  %49 = v_mov_b32 0
-  low.br ^store(%49: reg<amdgpu.vgpr>)
+  %51 = v_mov_b32 0
+  low.br ^store(%51: reg<amdgpu.vgpr>)
 ^store(%chosen: reg<amdgpu.vgpr>):
-  %50 = v_lshlrev_b32_src0_inline %lane, 2
-  global_store_b32_saddr %50, %chosen, %destination
+  %52 = v_lshlrev_b32_src0_inline %lane, 2
+  global_store_b32_saddr %52, %chosen, %destination
   return
 }

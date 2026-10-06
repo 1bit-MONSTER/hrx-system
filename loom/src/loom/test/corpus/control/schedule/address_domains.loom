@@ -1,0 +1,201 @@
+// Compare two scheduled forms against an unscheduled loop over the same
+// nonunit index domain. The live induction position catches rotation mistakes
+// independently from the reduction value.
+func.def @strided_address_domains(%iteration_count: index, %value_buffer: buffer, %serial_buffer: buffer, %depth_three_buffer: buffer, %unrolled_buffer: buffer) {
+  %count = index.assume %iteration_count [range(%iteration_count, 0, 9)] : index
+  %begin = index.constant 1 : index
+  %step = index.constant 3 : index
+  %span = index.mul %count, %step : index
+  %end = index.add %begin, %span : index
+  %initial_sum = scalar.constant 0 : i32
+  %initial_position = index.constant -2 : index
+  %base = index.constant 0 : offset
+  %depth_three = index.constant 3 : index
+  %depth_four = index.constant 4 : index
+  %unroll_two = index.constant 2 : index
+  %values = buffer.view %value_buffer[%base] : buffer -> view<27xi32>
+  %serial_output = buffer.view %serial_buffer[%base] : buffer -> view<2xi32>
+  %depth_three_output = buffer.view %depth_three_buffer[%base] : buffer -> view<2xi32>
+  %unrolled_output = buffer.view %unrolled_buffer[%base] : buffer -> view<2xi32>
+  %serial_sum, %serial_last = scf.for %position = [%begin to %end step %step](%sum = %initial_sum : i32, %previous_position = %initial_position : index) -> (i32, index) {
+    %value = view.load %values[%position] : view<27xi32> -> i32
+    %next_sum = scalar.addi %sum, %value : i32
+    scf.yield %next_sum, %position : i32, index
+  }
+  %depth_three_sum, %depth_three_last = scf.for %position = [%begin to %end step %step](%sum = %initial_sum : i32, %previous_position = %initial_position : index) -> (i32, index) pipeline(%depth_three) {
+    %value = view.load %values[%position] : view<27xi32> -> i32
+    %next_sum = scalar.addi %sum, %value : i32
+    scf.yield %next_sum, %position : i32, index
+  }
+  %unrolled_sum, %unrolled_last = scf.for %position = [%begin to %end step %step](%sum = %initial_sum : i32, %previous_position = %initial_position : index) -> (i32, index) pipeline(%depth_four) unroll(%unroll_two) {
+    %value = view.load %values[%position] : view<27xi32> -> i32
+    %next_sum = scalar.addi %sum, %value : i32
+    scf.yield %next_sum, %position : i32, index
+  }
+  %serial_last_i32 = index.cast %serial_last : index to i32
+  %depth_three_last_i32 = index.cast %depth_three_last : index to i32
+  %unrolled_last_i32 = index.cast %unrolled_last : index to i32
+  view.store %serial_sum, %serial_output[0] : i32, view<2xi32>
+  view.store %serial_last_i32, %serial_output[1] : i32, view<2xi32>
+  view.store %depth_three_sum, %depth_three_output[0] : i32, view<2xi32>
+  view.store %depth_three_last_i32, %depth_three_output[1] : i32, view<2xi32>
+  view.store %unrolled_sum, %unrolled_output[0] : i32, view<2xi32>
+  view.store %unrolled_last_i32, %unrolled_output[1] : i32, view<2xi32>
+  func.return
+}
+
+check.scenario @strided_address_domain_boundaries {
+  // Zero through nine iterations cross the D-1/D/D+1 boundaries for both
+  // pipeline depths and the partial-tile boundary for unroll two.
+  check.trial[10](%iteration_count: index, %entropy: check.entropy) {
+    %values = check.generate.iota offset(0) step(1) period(3) : tensor<27xi32>
+    %serial = check.generate.fill value(-1) : tensor<2xi32>
+    %depth_three = check.generate.fill value(-1) : tensor<2xi32>
+    %unrolled = check.generate.fill value(-1) : tensor<2xi32>
+    check.compare<@strided_address_domains>(%iteration_count, %values, %serial, %depth_three, %unrolled) : (index, tensor<27xi32>, tensor<2xi32>, tensor<2xi32>, tensor<2xi32>) -> () {
+      check.expect.equal actual(%depth_three) expected(%serial) : tensor<2xi32>
+      check.expect.equal actual(%unrolled) expected(%serial) : tensor<2xi32>
+      check.expect.equal actual(%values) expected(%values) : tensor<27xi32>
+    }
+  }
+  // Minimal backing makes a speculative empty-loop or drain load observable
+  // to access instrumentation instead of hiding it in allocation padding.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.literal value(0) : index
+    %values = check.generate.fill value(1) : tensor<1xi32>
+    %serial = check.generate.fill value(-1) : tensor<2xi32>
+    %depth_three = check.generate.fill value(-1) : tensor<2xi32>
+    %unrolled = check.generate.fill value(-1) : tensor<2xi32>
+    check.compare<@strided_address_domains>(%count, %values, %serial, %depth_three, %unrolled) : (index, tensor<1xi32>, tensor<2xi32>, tensor<2xi32>, tensor<2xi32>) -> () {
+      check.expect.equal actual(%depth_three) expected(%serial) : tensor<2xi32>
+      check.expect.equal actual(%unrolled) expected(%serial) : tensor<2xi32>
+      check.expect.equal actual(%values) expected(%values) : tensor<1xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.literal value(5) : index
+    %values = check.generate.iota offset(0) step(1) period(3) : tensor<14xi32>
+    %serial = check.generate.fill value(-1) : tensor<2xi32>
+    %depth_three = check.generate.fill value(-1) : tensor<2xi32>
+    %unrolled = check.generate.fill value(-1) : tensor<2xi32>
+    check.compare<@strided_address_domains>(%count, %values, %serial, %depth_three, %unrolled) : (index, tensor<14xi32>, tensor<2xi32>, tensor<2xi32>, tensor<2xi32>) -> () {
+      check.expect.equal actual(%depth_three) expected(%serial) : tensor<2xi32>
+      check.expect.equal actual(%unrolled) expected(%serial) : tensor<2xi32>
+      check.expect.equal actual(%values) expected(%values) : tensor<14xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %count = check.literal value(9) : index
+    %values = check.generate.iota offset(0) step(1) period(3) : tensor<26xi32>
+    %serial = check.generate.fill value(-1) : tensor<2xi32>
+    %depth_three = check.generate.fill value(-1) : tensor<2xi32>
+    %unrolled = check.generate.fill value(-1) : tensor<2xi32>
+    check.compare<@strided_address_domains>(%count, %values, %serial, %depth_three, %unrolled) : (index, tensor<26xi32>, tensor<2xi32>, tensor<2xi32>, tensor<2xi32>) -> () {
+      check.expect.equal actual(%depth_three) expected(%serial) : tensor<2xi32>
+      check.expect.equal actual(%unrolled) expected(%serial) : tensor<2xi32>
+      check.expect.equal actual(%values) expected(%values) : tensor<26xi32>
+    }
+  }
+  check.return
+}
+
+// Exercise byte-address induction directly. Seven i32 elements end at byte 28,
+// the exclusive loop bound, so access instrumentation also proves that the
+// pipelined form never reads the bound itself.
+func.def @offset_address_domain(%value_buffer: buffer, %serial_buffer: buffer, %pipelined_buffer: buffer) {
+  %begin = index.constant 4 : offset
+  %end = index.constant 28 : offset
+  %step = index.constant 4 : offset
+  %depth = index.constant 3 : index
+  %initial = scalar.constant 0 : i32
+  %base = index.constant 0 : offset
+  %serial = scf.for %position = [%begin to %end step %step](%sum = %initial : i32) -> (i32) {
+    %element = buffer.view %value_buffer[%position] : buffer -> view<1xi32>
+    %value = view.load %element[0] : view<1xi32> -> i32
+    %next_sum = scalar.addi %sum, %value : i32
+    scf.yield %next_sum : i32
+  }
+  %pipelined = scf.for %position = [%begin to %end step %step](%sum = %initial : i32) -> (i32) pipeline(%depth) {
+    %element = buffer.view %value_buffer[%position] : buffer -> view<1xi32>
+    %value = view.load %element[0] : view<1xi32> -> i32
+    %next_sum = scalar.addi %sum, %value : i32
+    scf.yield %next_sum : i32
+  }
+  %serial_output = buffer.view %serial_buffer[%base] : buffer -> view<1xi32>
+  %pipelined_output = buffer.view %pipelined_buffer[%base] : buffer -> view<1xi32>
+  view.store %serial, %serial_output[0] : i32, view<1xi32>
+  view.store %pipelined, %pipelined_output[0] : i32, view<1xi32>
+  func.return
+}
+
+check.scenario @offset_address_domain_boundary {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %values = check.generate.iota offset(0) step(1) : tensor<7xi32>
+    %serial = check.generate.fill value(-1) : tensor<1xi32>
+    %pipelined = check.generate.fill value(-1) : tensor<1xi32>
+    check.compare<@offset_address_domain>(%values, %serial, %pipelined) : (tensor<7xi32>, tensor<1xi32>, tensor<1xi32>) -> () {
+      check.expect.equal actual(%pipelined) expected(%serial) : tensor<1xi32>
+      check.expect.equal actual(%values) expected(%values) : tensor<7xi32>
+    }
+  }
+  check.return
+}
+
+// The runtime lower bound is within eight positions of the signed 32-bit
+// limit. The depth-three form takes the steady-state path and depth four takes
+// the short path; neither may form the unused next induction value.
+func.def @near_index_limit(%begin_input: index, %value_buffer: buffer, %serial_buffer: buffer, %depth_three_buffer: buffer, %unrolled_buffer: buffer) {
+  %begin = index.assume %begin_input [range(%begin_input, 2147483639, 2147483647)] : index
+  %end = index.constant 2147483647 : index
+  %step = index.constant 3 : index
+  %depth_three = index.constant 3 : index
+  %depth_four = index.constant 4 : index
+  %unroll_two = index.constant 2 : index
+  %initial = scalar.constant 0 : i32
+  %base = index.constant 0 : offset
+  %values = buffer.view %value_buffer[%base] : buffer -> view<7xi32>
+  %serial = scf.for %position = [%begin to %end step %step](%sum = %initial : i32) -> (i32) {
+    %relative = index.sub %position, %begin : index
+    %bounded_relative = index.assume %relative [range(%relative, 0, 6)] : index
+    %value = view.load %values[%bounded_relative] : view<7xi32> -> i32
+    %next_sum = scalar.addi %sum, %value : i32
+    scf.yield %next_sum : i32
+  }
+  %depth_three_result = scf.for %position = [%begin to %end step %step](%sum = %initial : i32) -> (i32) pipeline(%depth_three) {
+    %relative = index.sub %position, %begin : index
+    %bounded_relative = index.assume %relative [range(%relative, 0, 6)] : index
+    %value = view.load %values[%bounded_relative] : view<7xi32> -> i32
+    %next_sum = scalar.addi %sum, %value : i32
+    scf.yield %next_sum : i32
+  }
+  %unrolled = scf.for %position = [%begin to %end step %step](%sum = %initial : i32) -> (i32) pipeline(%depth_four) unroll(%unroll_two) {
+    %relative = index.sub %position, %begin : index
+    %bounded_relative = index.assume %relative [range(%relative, 0, 6)] : index
+    %value = view.load %values[%bounded_relative] : view<7xi32> -> i32
+    %next_sum = scalar.addi %sum, %value : i32
+    scf.yield %next_sum : i32
+  }
+  %serial_output = buffer.view %serial_buffer[%base] : buffer -> view<1xi32>
+  %depth_three_output = buffer.view %depth_three_buffer[%base] : buffer -> view<1xi32>
+  %unrolled_output = buffer.view %unrolled_buffer[%base] : buffer -> view<1xi32>
+  view.store %serial, %serial_output[0] : i32, view<1xi32>
+  view.store %depth_three_result, %depth_three_output[0] : i32, view<1xi32>
+  view.store %unrolled, %unrolled_output[0] : i32, view<1xi32>
+  func.return
+}
+
+check.scenario @near_index_limit_boundary {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %begin = check.literal value(2147483639) : index
+    %values = check.generate.iota offset(1) step(1) period(3) : tensor<7xi32>
+    %serial = check.generate.fill value(-1) : tensor<1xi32>
+    %depth_three = check.generate.fill value(-1) : tensor<1xi32>
+    %unrolled = check.generate.fill value(-1) : tensor<1xi32>
+    check.compare<@near_index_limit>(%begin, %values, %serial, %depth_three, %unrolled) : (index, tensor<7xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>) -> () {
+      check.expect.equal actual(%depth_three) expected(%serial) : tensor<1xi32>
+      check.expect.equal actual(%unrolled) expected(%serial) : tensor<1xi32>
+      check.expect.equal actual(%values) expected(%values) : tensor<7xi32>
+    }
+  }
+  check.return
+}

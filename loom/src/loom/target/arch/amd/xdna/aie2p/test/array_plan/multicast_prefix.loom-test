@@ -1,0 +1,354 @@
+// RUN: with-checks emit aie2p-array-plan @multicast_grid
+
+// Eight activation sources each feed two workers; two weight sources each
+// feed all eight columns. Shared horizontal and vertical prefixes preserve
+// source isolation and same-index pass-through on the memory-tile row.
+
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @multicast_grid() asm {
+  %worker_count = constant.u32 16 : reg<aie2p.array.scalar : index>
+  %column_count = constant.u32 8 : reg<aie2p.array.scalar : index>
+  %weight_count = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %capacity = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %records = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %lower_row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %upper_row = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %offset = constant.u64 0 : reg<aie2p.array.offset : offset>
+  %workers = group %worker_count
+  %activations = binding 0, "read"
+  %weights = binding 1, "read"
+  %outputs = binding 2, "write"
+  %activation_source = sender %activations, 0 : reg<aie2p.array.sender : tile<8x3x16xi32>>
+  %weight_source = sender %weights, 0 : reg<aie2p.array.sender : tile<2x3x16xi32, #encoding.layout.strided<strides=[16, 0, 1]>>>
+  %output_sink = receiver %outputs, 0 : reg<aie2p.array.receiver : tile<16x3x16xi32>>
+  %column0 = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %activation0 = partition.sender %activation_source, %offset, %column0, %column_count : reg<aie2p.array.sender : tile<16xi32>>
+  %column1 = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %activation1 = partition.sender %activation_source, %offset, %column1, %column_count : reg<aie2p.array.sender : tile<16xi32>>
+  %column2 = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %activation2 = partition.sender %activation_source, %offset, %column2, %column_count : reg<aie2p.array.sender : tile<16xi32>>
+  %column3 = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %activation3 = partition.sender %activation_source, %offset, %column3, %column_count : reg<aie2p.array.sender : tile<16xi32>>
+  %column4 = constant.u32 4 : reg<aie2p.array.scalar : index>
+  %activation4 = partition.sender %activation_source, %offset, %column4, %column_count : reg<aie2p.array.sender : tile<16xi32>>
+  %column5 = constant.u32 5 : reg<aie2p.array.scalar : index>
+  %activation5 = partition.sender %activation_source, %offset, %column5, %column_count : reg<aie2p.array.sender : tile<16xi32>>
+  %column6 = constant.u32 6 : reg<aie2p.array.scalar : index>
+  %activation6 = partition.sender %activation_source, %offset, %column6, %column_count : reg<aie2p.array.sender : tile<16xi32>>
+  %column7 = constant.u32 7 : reg<aie2p.array.scalar : index>
+  %activation7 = partition.sender %activation_source, %offset, %column7, %column_count : reg<aie2p.array.sender : tile<16xi32>>
+  %weight_lane0 = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %weight0 = partition.sender %weight_source, %offset, %weight_lane0, %weight_count : reg<aie2p.array.sender : tile<16xi32>>
+  %weight_lane1 = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %weight1 = partition.sender %weight_source, %offset, %weight_lane1, %weight_count : reg<aie2p.array.sender : tile<16xi32>>
+  %lane0 = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %worker0 = worker %workers, %lane0, @join_records
+  constrain.location %worker0, %column0, %lower_row
+  %activation_input0 = receiver %worker0, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input0 = receiver %worker0, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output0 = sender %worker0, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink0 = partition.receiver %output_sink, %offset, %lane0, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane1 = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %worker1 = worker %workers, %lane1, @join_records
+  constrain.location %worker1, %column0, %upper_row
+  %activation_input1 = receiver %worker1, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input1 = receiver %worker1, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output1 = sender %worker1, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink1 = partition.receiver %output_sink, %offset, %lane1, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane2 = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %worker2 = worker %workers, %lane2, @join_records
+  constrain.location %worker2, %column1, %lower_row
+  %activation_input2 = receiver %worker2, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input2 = receiver %worker2, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output2 = sender %worker2, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink2 = partition.receiver %output_sink, %offset, %lane2, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane3 = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %worker3 = worker %workers, %lane3, @join_records
+  constrain.location %worker3, %column1, %upper_row
+  %activation_input3 = receiver %worker3, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input3 = receiver %worker3, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output3 = sender %worker3, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink3 = partition.receiver %output_sink, %offset, %lane3, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane4 = constant.u32 4 : reg<aie2p.array.scalar : index>
+  %worker4 = worker %workers, %lane4, @join_records
+  constrain.location %worker4, %column2, %lower_row
+  %activation_input4 = receiver %worker4, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input4 = receiver %worker4, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output4 = sender %worker4, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink4 = partition.receiver %output_sink, %offset, %lane4, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane5 = constant.u32 5 : reg<aie2p.array.scalar : index>
+  %worker5 = worker %workers, %lane5, @join_records
+  constrain.location %worker5, %column2, %upper_row
+  %activation_input5 = receiver %worker5, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input5 = receiver %worker5, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output5 = sender %worker5, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink5 = partition.receiver %output_sink, %offset, %lane5, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane6 = constant.u32 6 : reg<aie2p.array.scalar : index>
+  %worker6 = worker %workers, %lane6, @join_records
+  constrain.location %worker6, %column3, %lower_row
+  %activation_input6 = receiver %worker6, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input6 = receiver %worker6, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output6 = sender %worker6, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink6 = partition.receiver %output_sink, %offset, %lane6, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane7 = constant.u32 7 : reg<aie2p.array.scalar : index>
+  %worker7 = worker %workers, %lane7, @join_records
+  constrain.location %worker7, %column3, %upper_row
+  %activation_input7 = receiver %worker7, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input7 = receiver %worker7, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output7 = sender %worker7, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink7 = partition.receiver %output_sink, %offset, %lane7, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane8 = constant.u32 8 : reg<aie2p.array.scalar : index>
+  %worker8 = worker %workers, %lane8, @join_records
+  constrain.location %worker8, %column4, %lower_row
+  %activation_input8 = receiver %worker8, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input8 = receiver %worker8, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output8 = sender %worker8, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink8 = partition.receiver %output_sink, %offset, %lane8, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane9 = constant.u32 9 : reg<aie2p.array.scalar : index>
+  %worker9 = worker %workers, %lane9, @join_records
+  constrain.location %worker9, %column4, %upper_row
+  %activation_input9 = receiver %worker9, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input9 = receiver %worker9, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output9 = sender %worker9, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink9 = partition.receiver %output_sink, %offset, %lane9, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane10 = constant.u32 10 : reg<aie2p.array.scalar : index>
+  %worker10 = worker %workers, %lane10, @join_records
+  constrain.location %worker10, %column5, %lower_row
+  %activation_input10 = receiver %worker10, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input10 = receiver %worker10, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output10 = sender %worker10, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink10 = partition.receiver %output_sink, %offset, %lane10, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane11 = constant.u32 11 : reg<aie2p.array.scalar : index>
+  %worker11 = worker %workers, %lane11, @join_records
+  constrain.location %worker11, %column5, %upper_row
+  %activation_input11 = receiver %worker11, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input11 = receiver %worker11, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output11 = sender %worker11, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink11 = partition.receiver %output_sink, %offset, %lane11, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane12 = constant.u32 12 : reg<aie2p.array.scalar : index>
+  %worker12 = worker %workers, %lane12, @join_records
+  constrain.location %worker12, %column6, %lower_row
+  %activation_input12 = receiver %worker12, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input12 = receiver %worker12, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output12 = sender %worker12, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink12 = partition.receiver %output_sink, %offset, %lane12, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane13 = constant.u32 13 : reg<aie2p.array.scalar : index>
+  %worker13 = worker %workers, %lane13, @join_records
+  constrain.location %worker13, %column6, %upper_row
+  %activation_input13 = receiver %worker13, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input13 = receiver %worker13, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output13 = sender %worker13, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink13 = partition.receiver %output_sink, %offset, %lane13, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane14 = constant.u32 14 : reg<aie2p.array.scalar : index>
+  %worker14 = worker %workers, %lane14, @join_records
+  constrain.location %worker14, %column7, %lower_row
+  %activation_input14 = receiver %worker14, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input14 = receiver %worker14, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output14 = sender %worker14, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink14 = partition.receiver %output_sink, %offset, %lane14, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %lane15 = constant.u32 15 : reg<aie2p.array.scalar : index>
+  %worker15 = worker %workers, %lane15, @join_records
+  constrain.location %worker15, %column7, %upper_row
+  %activation_input15 = receiver %worker15, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %weight_input15 = receiver %worker15, 1 : reg<aie2p.array.receiver : tile<16xi32>>
+  %output15 = sender %worker15, 2 : reg<aie2p.array.sender : tile<16xi32>>
+  %sink15 = partition.receiver %output_sink, %offset, %lane15, %worker_count : reg<aie2p.array.receiver : tile<16xi32>>
+  %activation_channel0 = channel %activation0, %activation_input0, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %activation_channel1 = channel %activation0, %activation_input1, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %activation_channel2 = channel %activation1, %activation_input2, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %activation_channel3 = channel %activation1, %activation_input3, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %activation_channel4 = channel %activation2, %activation_input4, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %activation_channel5 = channel %activation2, %activation_input5, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %activation_channel6 = channel %activation3, %activation_input6, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %activation_channel7 = channel %activation3, %activation_input7, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %activation_channel8 = channel %activation4, %activation_input8, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %activation_channel9 = channel %activation4, %activation_input9, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %activation_channel10 = channel %activation5, %activation_input10, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %activation_channel11 = channel %activation5, %activation_input11, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %activation_channel12 = channel %activation6, %activation_input12, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %activation_channel13 = channel %activation6, %activation_input13, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %activation_channel14 = channel %activation7, %activation_input14, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %activation_channel15 = channel %activation7, %activation_input15, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel0 = channel %weight0, %weight_input0, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel2 = channel %weight0, %weight_input2, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel4 = channel %weight0, %weight_input4, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel6 = channel %weight0, %weight_input6, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel8 = channel %weight0, %weight_input8, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel10 = channel %weight0, %weight_input10, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel12 = channel %weight0, %weight_input12, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel14 = channel %weight0, %weight_input14, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel1 = channel %weight1, %weight_input1, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel3 = channel %weight1, %weight_input3, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel5 = channel %weight1, %weight_input5, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel7 = channel %weight1, %weight_input7, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel9 = channel %weight1, %weight_input9, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel11 = channel %weight1, %weight_input11, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel13 = channel %weight1, %weight_input13, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %weight_channel15 = channel %weight1, %weight_input15, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel0 = channel %output0, %sink0, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel1 = channel %output1, %sink1, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel2 = channel %output2, %sink2, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel3 = channel %output3, %sink3, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel4 = channel %output4, %sink4, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel5 = channel %output5, %sink5, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel6 = channel %output6, %sink6, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel7 = channel %output7, %sink7, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel8 = channel %output8, %sink8, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel9 = channel %output9, %sink9, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel10 = channel %output10, %sink10, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel11 = channel %output11, %sink11, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel12 = channel %output12, %sink12, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel13 = channel %output13, %sink13, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel14 = channel %output14, %sink14, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  %output_channel15 = channel %output15, %sink15, %capacity, %records : reg<aie2p.array.channel : tile<16xi32>>
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @join_records() asm {
+  %activations = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %weights = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %output = resource<native_pointer> {index = 2, source_type = buffer} : reg<aie2p.ep>
+  %zero = mov.short 0
+  %word_bytes = mov.short 4
+  %record_bytes = mov.short 64
+  low.br ^write(%zero: reg<aie2p.er>)
+^write(%position: reg<aie2p.er>):
+  %remaining = lt %position, %record_bytes
+  low.cond_br %remaining, ^write_word, ^done : reg<aie2p.er>
+^write_word:
+  %index = mov.address-index %position
+  %activation = lda.i32.index %activations, %index
+  %weight = lda.i32.index %weights, %index
+  %sum = add.rr %activation, %weight
+  st.i32.index %sum, %output, %index
+  %next_position = add.rr %position, %word_bytes
+  low.br ^write(%next_position: reg<aie2p.er>)
+^done:
+  return
+}
+
+// ----
+CHECK: array @multicast_grid family=amd.xdna.npu2 groups=1 workers=16 bindings=3 channels=48 slots=96 locks=96 dma=74 routes=192
+CHECK: route channel=17 tile=(0,0) kind=switch source=south[7] destination=east[0]
+CHECK: route channel=24 tile=(1,0) kind=switch source=south[7] destination=west[0]
+CHECK: route channel=26 tile=(1,0) kind=switch source=south[7] destination=east[1]
+CHECK-NOT: route * tile=(0,0) kind=switch * destination=east[1]
+CHECK-NOT: route * kind=switch * destination=east[2]
+CHECK-NOT: route * kind=switch * destination=west[1]
+CHECK: binding-patch ordinal=0 channel=0 shim=(0,0) direction=memory-to-stream dma-channel=0 partition=0/8 offset=0 span=192 transfer=192 repeat=1
+CHECK: route channel=0 tile=(0,1) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=0 tile=(0,2) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=1 tile=(0,2) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=1 tile=(0,3) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=16 tile=(0,1) kind=switch source=south[1] destination=north[1]
+CHECK: route channel=16 tile=(0,2) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=24 tile=(0,1) kind=switch source=south[2] destination=north[2]
+CHECK: route channel=24 tile=(0,2) kind=switch source=south[2] destination=north[1]
+CHECK: route channel=24 tile=(0,3) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=32 tile=(0,1) kind=switch source=north[0] destination=south[0]
+CHECK: route channel=33 tile=(0,1) kind=switch source=north[1] destination=south[1]
+CHECK: binding-patch ordinal=2 channel=32 shim=(0,0) direction=stream-to-memory dma-channel=0 partition=0/16 offset=0 span=192 transfer=192 repeat=1 completion-route=0
+CHECK: binding-patch ordinal=2 channel=33 shim=(0,0) direction=stream-to-memory dma-channel=1 partition=1/16 offset=192 span=192 transfer=192 repeat=1 completion-route=0
+CHECK: binding-patch ordinal=0 channel=2 shim=(1,0) direction=memory-to-stream dma-channel=0 partition=1/8 offset=192 span=192 transfer=192 repeat=1
+CHECK: route channel=2 tile=(1,1) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=2 tile=(1,2) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=3 tile=(1,2) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=3 tile=(1,3) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=17 tile=(1,1) kind=switch source=south[1] destination=north[1]
+CHECK: route channel=17 tile=(1,2) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=25 tile=(1,1) kind=switch source=south[2] destination=north[2]
+CHECK: route channel=25 tile=(1,2) kind=switch source=south[2] destination=north[1]
+CHECK: route channel=25 tile=(1,3) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=34 tile=(1,1) kind=switch source=north[0] destination=south[0]
+CHECK: route channel=35 tile=(1,1) kind=switch source=north[1] destination=south[1]
+CHECK: binding-patch ordinal=2 channel=34 shim=(1,0) direction=stream-to-memory dma-channel=0 partition=2/16 offset=384 span=192 transfer=192 repeat=1 completion-route=1
+CHECK: binding-patch ordinal=2 channel=35 shim=(1,0) direction=stream-to-memory dma-channel=1 partition=3/16 offset=576 span=192 transfer=192 repeat=1 completion-route=1
+CHECK: binding-patch ordinal=0 channel=4 shim=(2,0) direction=memory-to-stream dma-channel=0 partition=2/8 offset=384 span=192 transfer=192 repeat=1
+CHECK: route channel=4 tile=(2,1) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=4 tile=(2,2) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=5 tile=(2,2) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=5 tile=(2,3) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=18 tile=(2,1) kind=switch source=south[1] destination=north[1]
+CHECK: route channel=18 tile=(2,2) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=26 tile=(2,1) kind=switch source=south[2] destination=north[2]
+CHECK: route channel=26 tile=(2,2) kind=switch source=south[2] destination=north[1]
+CHECK: route channel=26 tile=(2,3) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=36 tile=(2,1) kind=switch source=north[0] destination=south[0]
+CHECK: route channel=37 tile=(2,1) kind=switch source=north[1] destination=south[1]
+CHECK: binding-patch ordinal=2 channel=36 shim=(2,0) direction=stream-to-memory dma-channel=0 partition=4/16 offset=768 span=192 transfer=192 repeat=1 completion-route=2
+CHECK: binding-patch ordinal=2 channel=37 shim=(2,0) direction=stream-to-memory dma-channel=1 partition=5/16 offset=960 span=192 transfer=192 repeat=1 completion-route=2
+CHECK: binding-patch ordinal=0 channel=6 shim=(3,0) direction=memory-to-stream dma-channel=0 partition=3/8 offset=576 span=192 transfer=192 repeat=1
+CHECK: route channel=6 tile=(3,1) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=6 tile=(3,2) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=7 tile=(3,2) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=7 tile=(3,3) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=19 tile=(3,1) kind=switch source=south[1] destination=north[1]
+CHECK: route channel=19 tile=(3,2) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=27 tile=(3,1) kind=switch source=south[2] destination=north[2]
+CHECK: route channel=27 tile=(3,2) kind=switch source=south[2] destination=north[1]
+CHECK: route channel=27 tile=(3,3) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=38 tile=(3,1) kind=switch source=north[0] destination=south[0]
+CHECK: route channel=39 tile=(3,1) kind=switch source=north[1] destination=south[1]
+CHECK: binding-patch ordinal=2 channel=38 shim=(3,0) direction=stream-to-memory dma-channel=0 partition=6/16 offset=1152 span=192 transfer=192 repeat=1 completion-route=3
+CHECK: binding-patch ordinal=2 channel=39 shim=(3,0) direction=stream-to-memory dma-channel=1 partition=7/16 offset=1344 span=192 transfer=192 repeat=1 completion-route=3
+CHECK: binding-patch ordinal=0 channel=8 shim=(4,0) direction=memory-to-stream dma-channel=0 partition=4/8 offset=768 span=192 transfer=192 repeat=1
+CHECK: route channel=8 tile=(4,1) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=8 tile=(4,2) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=9 tile=(4,2) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=9 tile=(4,3) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=20 tile=(4,1) kind=switch source=south[1] destination=north[1]
+CHECK: route channel=20 tile=(4,2) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=28 tile=(4,1) kind=switch source=south[2] destination=north[2]
+CHECK: route channel=28 tile=(4,2) kind=switch source=south[2] destination=north[1]
+CHECK: route channel=28 tile=(4,3) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=40 tile=(4,1) kind=switch source=north[0] destination=south[0]
+CHECK: route channel=41 tile=(4,1) kind=switch source=north[1] destination=south[1]
+CHECK: binding-patch ordinal=2 channel=40 shim=(4,0) direction=stream-to-memory dma-channel=0 partition=8/16 offset=1536 span=192 transfer=192 repeat=1 completion-route=4
+CHECK: binding-patch ordinal=2 channel=41 shim=(4,0) direction=stream-to-memory dma-channel=1 partition=9/16 offset=1728 span=192 transfer=192 repeat=1 completion-route=4
+CHECK: binding-patch ordinal=0 channel=10 shim=(5,0) direction=memory-to-stream dma-channel=0 partition=5/8 offset=960 span=192 transfer=192 repeat=1
+CHECK: route channel=10 tile=(5,1) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=10 tile=(5,2) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=11 tile=(5,2) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=11 tile=(5,3) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=21 tile=(5,1) kind=switch source=south[1] destination=north[1]
+CHECK: route channel=21 tile=(5,2) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=29 tile=(5,1) kind=switch source=south[2] destination=north[2]
+CHECK: route channel=29 tile=(5,2) kind=switch source=south[2] destination=north[1]
+CHECK: route channel=29 tile=(5,3) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=42 tile=(5,1) kind=switch source=north[0] destination=south[0]
+CHECK: route channel=43 tile=(5,1) kind=switch source=north[1] destination=south[1]
+CHECK: binding-patch ordinal=2 channel=42 shim=(5,0) direction=stream-to-memory dma-channel=0 partition=10/16 offset=1920 span=192 transfer=192 repeat=1 completion-route=5
+CHECK: binding-patch ordinal=2 channel=43 shim=(5,0) direction=stream-to-memory dma-channel=1 partition=11/16 offset=2112 span=192 transfer=192 repeat=1 completion-route=5
+CHECK: binding-patch ordinal=0 channel=12 shim=(6,0) direction=memory-to-stream dma-channel=0 partition=6/8 offset=1152 span=192 transfer=192 repeat=1
+CHECK: route channel=12 tile=(6,1) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=12 tile=(6,2) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=13 tile=(6,2) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=13 tile=(6,3) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=22 tile=(6,1) kind=switch source=south[1] destination=north[1]
+CHECK: route channel=22 tile=(6,2) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=30 tile=(6,1) kind=switch source=south[2] destination=north[2]
+CHECK: route channel=30 tile=(6,2) kind=switch source=south[2] destination=north[1]
+CHECK: route channel=30 tile=(6,3) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=44 tile=(6,1) kind=switch source=north[0] destination=south[0]
+CHECK: route channel=45 tile=(6,1) kind=switch source=north[1] destination=south[1]
+CHECK: binding-patch ordinal=2 channel=44 shim=(6,0) direction=stream-to-memory dma-channel=0 partition=12/16 offset=2304 span=192 transfer=192 repeat=1 completion-route=6
+CHECK: binding-patch ordinal=2 channel=45 shim=(6,0) direction=stream-to-memory dma-channel=1 partition=13/16 offset=2496 span=192 transfer=192 repeat=1 completion-route=6
+CHECK: binding-patch ordinal=0 channel=14 shim=(7,0) direction=memory-to-stream dma-channel=0 partition=7/8 offset=1344 span=192 transfer=192 repeat=1
+CHECK: route channel=14 tile=(7,1) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=14 tile=(7,2) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=15 tile=(7,2) kind=switch source=south[0] destination=north[0]
+CHECK: route channel=15 tile=(7,3) kind=switch source=south[0] destination=dma[0]
+CHECK: route channel=23 tile=(7,1) kind=switch source=south[1] destination=north[1]
+CHECK: route channel=23 tile=(7,2) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=31 tile=(7,1) kind=switch source=south[2] destination=north[2]
+CHECK: route channel=31 tile=(7,2) kind=switch source=south[2] destination=north[1]
+CHECK: route channel=31 tile=(7,3) kind=switch source=south[1] destination=dma[1]
+CHECK: route channel=46 tile=(7,1) kind=switch source=north[0] destination=south[0]
+CHECK: route channel=47 tile=(7,1) kind=switch source=north[1] destination=south[1]
+CHECK: binding-patch ordinal=2 channel=46 shim=(7,0) direction=stream-to-memory dma-channel=0 partition=14/16 offset=2688 span=192 transfer=192 repeat=1 completion-route=7
+CHECK: binding-patch ordinal=2 channel=47 shim=(7,0) direction=stream-to-memory dma-channel=1 partition=15/16 offset=2880 span=192 transfer=192 repeat=1 completion-route=7
+CHECK: binding-patch ordinal=1 channel=16 shim=(0,0) direction=memory-to-stream dma-channel=1 partition=0/2 offset=0 span=64 transfer=64 repeat=3
+CHECK: binding-patch ordinal=1 channel=24 shim=(1,0) direction=memory-to-stream dma-channel=1 partition=1/2 offset=64 span=64 transfer=64 repeat=3

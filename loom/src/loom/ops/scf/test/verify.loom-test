@@ -135,7 +135,21 @@ func.def @for_iter_arg_result_type_refs_forwarded_results(%n: index, %buffer: bu
 
 // ====
 
-// scf.while after-region block args must match the loop-carried input types.
+// The binding annotation defines the before-region argument type, which the
+// incoming initial value must instantiate.
+func.def @while_initial_header_type_mismatch(%cond: i1, %init: index, %next: f32) {
+  // ERROR@+1: TYPE/001
+  scf.while(%before = %init : f32) {
+    scf.condition %cond : i1
+  } do {
+    scf.yield %next : f32
+  }
+  func.return
+}
+
+// ====
+
+// scf.while after-region block args must match the result types.
 func.def @while_after_arg_type_mismatch(%cond: i1, %init: index) -> (index) {
   // ERROR@+1: TYPE/013
   %r = scf.while(%before = %init : index) -> (index) {
@@ -148,12 +162,27 @@ func.def @while_after_arg_type_mismatch(%cond: i1, %init: index) -> (index) {
 
 // ====
 
+// The after-region entry arity follows the independently forwarded result
+// domain, not the header domain.
+func.def @while_after_arg_count_mismatch(%cond: i1, %init: index) -> (index, i32) {
+  // ERROR@+1: STRUCTURE/007 "1" "2"
+  %state, %payload = scf.while(%before = %init : index) -> (index, i32) {
+    %payload_value = scalar.constant 0 : i32
+    scf.condition %cond, %before, %payload_value : i1, index, i32
+  } do(%body_state: index) {
+    scf.yield %body_state : index
+  }
+  func.return %state, %payload : index, i32
+}
+
+// ====
+
 // The recurring result tuple gives duplicate initial values distinct roles.
 // The after-region view must depend on its matching extent role, not the other
 // extent merely because both roles start with the same SSA value.
 func.def @while_after_arg_wrong_sibling(%cond: i1, %extent: index, %input: view<[%extent]xf32>) {
   // ERROR@+1: TYPE/013
-  %view, %left, %right = scf.while(%before_view = %input : view<[%extent]xf32>, %before_left = %extent : index, %before_right = %extent : index) -> (view<[%left]xf32>, index, index) {
+  %view, %left, %right = scf.while(%before_view = %input : view<[%before_left]xf32>, %before_left = %extent : index, %before_right = %extent : index) -> (view<[%left]xf32>, index, index) {
     scf.condition %cond, %before_view, %before_left, %before_right : i1, view<[%before_left]xf32>, index, index
   } do(%body_view: view<[%body_right]xf32>, %body_left: index, %body_right: index) {
     scf.yield %input, %extent, %extent : view<[%extent]xf32>, index, index
@@ -164,12 +193,12 @@ func.def @while_after_arg_wrong_sibling(%cond: i1, %extent: index, %input: view<
 
 // ====
 
-// Initial state is checked against the recurring result roles. Swapping two
-// distinct extents leaves their scalar types unchanged but invalidates the
-// carried view's dependency.
+// Initial state is checked against the header roles. Swapping two distinct
+// extents leaves their scalar types unchanged but invalidates the header
+// view's dependency.
 func.def @while_initial_wrong_sibling(%cond: i1, %left_extent: index, %right_extent: index, %input: view<[%left_extent]xf32>) {
   // ERROR@+1: TYPE/001
-  %view, %left, %right = scf.while(%before_view = %input : view<[%left_extent]xf32>, %before_left = %right_extent : index, %before_right = %left_extent : index) -> (view<[%left]xf32>, index, index) {
+  %view, %left, %right = scf.while(%before_view = %input : view<[%before_left]xf32>, %before_left = %right_extent : index, %before_right = %left_extent : index) -> (view<[%left]xf32>, index, index) {
     scf.condition %cond, %before_view, %before_left, %before_right : i1, view<[%before_left]xf32>, index, index
   } do(%body_view: view<[%body_left]xf32>, %body_left: index, %body_right: index) {
     scf.yield %body_view, %body_left, %body_right : view<[%body_left]xf32>, index, index
@@ -182,7 +211,7 @@ func.def @while_initial_wrong_sibling(%cond: i1, %left_extent: index, %right_ext
 
 // Condition forwarding preserves tuple roles as well as scalar types.
 func.def @while_condition_wrong_sibling(%cond: i1, %left_extent: index, %right_extent: index, %input: view<[%left_extent]xf32>) {
-  %view, %left, %right = scf.while(%before_view = %input : view<[%left_extent]xf32>, %before_left = %left_extent : index, %before_right = %right_extent : index) -> (view<[%left]xf32>, index, index) {
+  %view, %left, %right = scf.while(%before_view = %input : view<[%before_left]xf32>, %before_left = %left_extent : index, %before_right = %right_extent : index) -> (view<[%left]xf32>, index, index) {
     // ERROR@+1: TYPE/001
     scf.condition %cond, %before_view, %before_right, %before_left : i1, view<[%before_left]xf32>, index, index
   } do(%body_view: view<[%body_left]xf32>, %body_left: index, %body_right: index) {
@@ -197,13 +226,40 @@ func.def @while_condition_wrong_sibling(%cond: i1, %left_extent: index, %right_e
 // Backedge yields preserve tuple roles as well as scalar types.
 func.def @while_yield_wrong_sibling(%cond: i1, %left_extent: index, %right_extent: index, %input: view<[%left_extent]xf32>) {
   // ERROR@+1: TYPE/009
-  %view, %left, %right = scf.while(%before_view = %input : view<[%left_extent]xf32>, %before_left = %left_extent : index, %before_right = %right_extent : index) -> (view<[%left]xf32>, index, index) {
+  %view, %left, %right = scf.while(%before_view = %input : view<[%before_left]xf32>, %before_left = %left_extent : index, %before_right = %right_extent : index) -> (view<[%left]xf32>, index, index) {
     scf.condition %cond, %before_view, %before_left, %before_right : i1, view<[%before_left]xf32>, index, index
   } do(%body_view: view<[%body_left]xf32>, %body_left: index, %body_right: index) {
     scf.yield %body_view, %body_right, %body_left : view<[%body_left]xf32>, index, index
   }
   test.use %view, %left, %right : view<[%left]xf32>, index, index
   func.return
+}
+
+// ====
+
+// The after-region backedge targets header state A even when body/result state
+// B is wider. Yielding B's full tuple is therefore an arity error.
+func.def @while_yield_uses_header_count(%cond: i1, %init: index, %payload: i32) -> (index, i32) {
+  // ERROR@+1: STRUCTURE/008 "2" "1"
+  %state, %result_payload = scf.while(%before = %init : index) -> (index, i32) {
+    scf.condition %cond, %before, %payload : i1, index, i32
+  } do(%body_state: index, %body_payload: i32) {
+    scf.yield %body_state, %body_payload : index, i32
+  }
+  func.return %state, %result_payload : index, i32
+}
+
+// ====
+
+// Yield types are checked against header state A rather than the result tuple.
+func.def @while_yield_uses_header_types(%cond: i1, %init: index, %payload: f32) -> (f32) {
+  // ERROR@+1: TYPE/009
+  %result = scf.while(%before = %init : index) -> (f32) {
+    scf.condition %cond, %payload : i1, f32
+  } do(%body_payload: f32) {
+    scf.yield %body_payload : f32
+  }
+  func.return %result : f32
 }
 
 // ====
@@ -308,6 +364,7 @@ func.def @lookup_ragged_case_row(%variant: index, %a: index, %b: index) -> (inde
     // ERROR@+1: PARSE/030 "1" "2"
     1 = (%a)
   } default(%a, %b) : index, index
+  // ERROR@+1: PARSE/001 "x"
   func.return %x, %y : index, index
 }
 
@@ -318,6 +375,7 @@ func.def @lookup_ragged_default_row(%variant: index, %a: index, %b: index) -> (i
     0 = (%a, %b)
     // ERROR@+1: PARSE/030 "1" "2"
   } default(%a) : index, index
+  // ERROR@+1: PARSE/001 "x"
   func.return %x, %y : index, index
 }
 

@@ -669,7 +669,8 @@ iree_status_t loom_print_format_elements(loom_print_context_t* ctx,
         loom_print_set_glue(ctx);
         break;
       case LOOM_FORMAT_KIND_OPTIONAL_GROUP: {
-        uint16_t skip_count = element->data >> 2;
+        uint16_t skip_count =
+            LOOM_FORMAT_OPTIONAL_GROUP_SKIP_COUNT(element->data);
         uint8_t anchor_category = element->data & 3;
         bool present = false;
         switch (anchor_category) {
@@ -693,7 +694,7 @@ iree_status_t loom_print_format_elements(loom_print_context_t* ctx,
             present = op->result_count > 0;
             break;
         }
-        if (!present) {
+        if (present == LOOM_FORMAT_OPTIONAL_GROUP_IS_INVERTED(element->data)) {
           i += skip_count;
         }
         break;

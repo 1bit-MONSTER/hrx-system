@@ -14,6 +14,12 @@
 #ifndef LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
 #define LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS 0
 #endif  // LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
+#ifndef LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
+#define LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS 0
+#endif  // LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
+#ifndef LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
+#define LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS 0
+#endif  // LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
 #ifndef LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
 #define LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS 0
 #endif  // LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
@@ -29,31 +35,33 @@ TEST(ConfiguredCompileTest, ReturnsStableCompleteEnvironment) {
   ASSERT_NE(environment->target_environment, nullptr);
   ASSERT_NE(environment->target_environment->provider_set, nullptr);
   EXPECT_GT(environment->target_environment->provider_set->provider_count, 0u);
+  EXPECT_NE(environment->cleanup_pattern_provider_set, nullptr);
 
-  const loom_artifact_provider_registry_t* artifact_registry =
-      environment->artifact_provider_registry;
-  ASSERT_NE(artifact_registry, nullptr);
-  const iree_host_size_t expected_artifact_provider_count =
-      LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS +
-      LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS +
-      LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS;
-  ASSERT_EQ(artifact_registry->provider_count,
-            expected_artifact_provider_count);
-  EXPECT_EQ(artifact_registry->providers == nullptr,
-            expected_artifact_provider_count == 0);
-
-  for (iree_host_size_t i = 0; i < artifact_registry->provider_count; ++i) {
-    const loom_artifact_provider_t* provider = artifact_registry->providers[i];
-    ASSERT_NE(provider, nullptr);
-    EXPECT_FALSE(iree_string_view_is_empty(provider->name));
-    EXPECT_FALSE(iree_string_view_is_empty(provider->public_artifact_format));
-    ASSERT_NE(provider->target_profile_type, nullptr);
-    for (iree_host_size_t j = 0; j < i; ++j) {
-      EXPECT_FALSE(iree_string_view_equal(
-          provider->public_artifact_format,
-          artifact_registry->providers[j]->public_artifact_format));
-    }
-  }
+  const bool has_amdgpu_emitter =
+      loom_target_environment_lookup_emitter(
+          environment->target_environment, IREE_SV("amdgpu-hsaco")) != nullptr;
+  const bool has_spirv_emitter =
+      loom_target_environment_lookup_emitter(environment->target_environment,
+                                             IREE_SV("spirv")) != nullptr;
+  const bool has_vm_emitter =
+      loom_target_environment_lookup_emitter(environment->target_environment,
+                                             IREE_SV("vm")) != nullptr;
+  const bool has_wasm_emitter =
+      loom_target_environment_lookup_emitter(environment->target_environment,
+                                             IREE_SV("wasm-binary")) != nullptr;
+  const bool has_xdna_emitter =
+      loom_target_environment_lookup_emitter(environment->target_environment,
+                                             IREE_SV("xdna")) != nullptr;
+  EXPECT_EQ(has_amdgpu_emitter,
+            static_cast<bool>(LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS));
+  EXPECT_EQ(has_spirv_emitter,
+            static_cast<bool>(LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS));
+  EXPECT_EQ(has_vm_emitter,
+            static_cast<bool>(LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS));
+  EXPECT_EQ(has_wasm_emitter,
+            static_cast<bool>(LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS));
+  EXPECT_EQ(has_xdna_emitter,
+            static_cast<bool>(LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS));
 }
 
 }  // namespace

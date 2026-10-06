@@ -223,9 +223,10 @@ LOOMC_API_EXPORT loomc_status_t loomc_compiler_create(
 /// function-version facts in the module handle for a later
 /// `loomc_emit_module` call. Applied configuration bindings are copied into the
 /// module for later emission reports, even when compilation requests no report.
-/// Once an invocation passes API preconditions, it replaces these products
-/// on success or clears them on failure. Cloning preserves the applied
-/// bindings; IR serialization does not persist them.
+/// Continuing compilation carries these products with their live functions;
+/// explicit target specialization refines the requested function contexts.
+/// A failed mutation clears the products. Cloning preserves the function
+/// products and applied bindings; IR serialization does not persist them.
 ///
 /// @lifetime
 /// Returned results and artifacts do not borrow from `workspace` and remain

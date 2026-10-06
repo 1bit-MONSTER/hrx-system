@@ -55,9 +55,6 @@ enum {
   LOOM_OP_LOW_COUNT_ = 31,
 };
 
-// Execution-semantics modifiers shared by scalar and vector memory accesses.
-#define LOOM_LOW_MEMORYACCESSFLAGS_VOLATILE ((uint8_t)1)
-
 // Function visibility. Absent (0) means private (module-internal).
 typedef enum loom_low_visibility_e {
   LOOM_LOW_VISIBILITY_PUBLIC = 1,
@@ -823,7 +820,7 @@ iree_status_t loom_low_scf_for_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 
-// LOOM_OP_LOW_SCF_WHILE: Condition-controlled target-low loop with explicit condition and body regions and loop-carried register state.
+// LOOM_OP_LOW_SCF_WHILE: Condition-controlled target-low loop with explicit condition and body regions. Initial registers and low.scf.yield define the condition-region header tuple. low.scf.condition defines an independent body/result tuple: its forwarded registers enter the body on the true edge and become loop results on the false edge. The tuples may differ in count and register type, and either tuple may be empty.
 // low.scf.while {
 //   low.scf.condition %condition : reg<spirv.id : i1>
 // } do {
@@ -834,15 +831,13 @@ LOOM_DEFINE_VARIADIC_OPERANDS(loom_low_scf_while_iter_args, 0)
 LOOM_DEFINE_VARIADIC_RESULTS(loom_low_scf_while_results, 0)
 LOOM_DEFINE_REGION(loom_low_scf_while_before, 0)
 LOOM_DEFINE_REGION(loom_low_scf_while_after, 1)
-// result_types has iter_args_count entries, or is NULL to preserve
-// the initial operand types. Explicit types define the recurring tuple;
-// reserve result IDs first when types refer to sibling results. Region
-// entry types instantiate that tuple with their own argument identities.
 iree_status_t loom_low_scf_while_build(
     loom_builder_t* builder,
     loom_may_consume const loom_value_id_t* iter_args,
     iree_host_size_t iter_args_count,
+    const loom_type_t* iter_args_types,
     const loom_type_t* result_types,
+    iree_host_size_t result_count,
     const loom_tied_result_t* tied_results,
     iree_host_size_t tied_result_count,
     loom_location_id_t location,

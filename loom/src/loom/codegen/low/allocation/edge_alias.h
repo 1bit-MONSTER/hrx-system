@@ -13,6 +13,7 @@
 #include "loom/analysis/consumption.h"
 #include "loom/analysis/liveness.h"
 #include "loom/codegen/low/allocation/assignment.h"
+#include "loom/codegen/low/allocation/unit_liveness.h"
 #include "loom/codegen/low/placement.h"
 
 #ifdef __cplusplus
@@ -28,6 +29,8 @@ typedef struct loom_low_allocation_edge_alias_context_t {
   const loom_low_placement_table_t* placement;
   // Borrowed semantic live segments in the placement value domain.
   const loom_liveness_analysis_t* liveness;
+  // Physical component observations retained alongside unit lifetimes.
+  const loom_low_allocation_unit_liveness_t* unit_liveness;
   // Callback that lazily returns a consumption query for one relation region.
   loom_low_allocation_edge_alias_consumption_query_fn_t consumption_query;
   // Opaque caller state passed to consumption_query.

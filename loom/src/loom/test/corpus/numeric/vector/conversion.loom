@@ -1,0 +1,369 @@
+// Different vector widths cross packed-word and register-group boundaries.
+// Each conversion has a scalar counterpart in the independent oracle loop.
+kernel.def @wide_integer_conversions() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%bytes: buffer, %halves: buffer, %words: buffer, %word_output: buffer, %wide_output: buffer, %byte_output: buffer) {
+  %base = index.constant 0 : offset
+  %aligned_bytes = buffer.assume.alignment %bytes {minimum_alignment = 16} : buffer
+  %aligned_halves = buffer.assume.alignment %halves {minimum_alignment = 16} : buffer
+  %aligned_words = buffer.assume.alignment %words {minimum_alignment = 16} : buffer
+  %byte_input = buffer.view %aligned_bytes[%base] : buffer -> view<128xi8>
+  %half_input = buffer.view %aligned_halves[%base] : buffer -> view<64xi16>
+  %word_input = buffer.view %aligned_words[%base] : buffer -> view<16xi32>
+  %word_results = buffer.view %word_output[%base] : buffer -> view<288xi32>
+  %wide_results = buffer.view %wide_output[%base] : buffer -> view<144xi64>
+  %byte_results = buffer.view %byte_output[%base] : buffer -> view<32xi8>
+
+  %bytes32 = vector.load %byte_input[0] : view<128xi8> -> vector<32xi8>
+  %bytes32_signed = vector.extsi %bytes32 : vector<32xi8> to vector<32xi32>
+  vector.store %bytes32_signed, %word_results[0] : vector<32xi32>, view<288xi32>
+  %bytes32_unsigned = vector.extui %bytes32 : vector<32xi8> to vector<32xi32>
+  vector.store %bytes32_unsigned, %word_results[32] : vector<32xi32>, view<288xi32>
+  %bytes64 = vector.load %byte_input[0] : view<128xi8> -> vector<64xi8>
+  %bytes64_signed = vector.extsi %bytes64 : vector<64xi8> to vector<64xi32>
+  vector.store %bytes64_signed, %word_results[64] : vector<64xi32>, view<288xi32>
+  %bytes64_unsigned = vector.extui %bytes64 : vector<64xi8> to vector<64xi32>
+  vector.store %bytes64_unsigned, %word_results[128] : vector<64xi32>, view<288xi32>
+
+  %halves16 = vector.load %half_input[0] : view<64xi16> -> vector<16xi16>
+  %halves16_signed = vector.extsi %halves16 : vector<16xi16> to vector<16xi32>
+  vector.store %halves16_signed, %word_results[192] : vector<16xi32>, view<288xi32>
+  %halves16_unsigned = vector.extui %halves16 : vector<16xi16> to vector<16xi32>
+  vector.store %halves16_unsigned, %word_results[208] : vector<16xi32>, view<288xi32>
+  %halves32 = vector.load %half_input[0] : view<64xi16> -> vector<32xi16>
+  %halves32_signed = vector.extsi %halves32 : vector<32xi16> to vector<32xi32>
+  vector.store %halves32_signed, %word_results[224] : vector<32xi32>, view<288xi32>
+  %halves32_unsigned = vector.extui %halves32 : vector<32xi16> to vector<32xi32>
+  vector.store %halves32_unsigned, %word_results[256] : vector<32xi32>, view<288xi32>
+  %halves16_wide_signed = vector.extsi %halves16 : vector<16xi16> to vector<16xi64>
+  vector.store %halves16_wide_signed, %wide_results[0] : vector<16xi64>, view<144xi64>
+  %halves16_wide_unsigned = vector.extui %halves16 : vector<16xi16> to vector<16xi64>
+  vector.store %halves16_wide_unsigned, %wide_results[16] : vector<16xi64>, view<144xi64>
+  %halves32_wide_signed = vector.extsi %halves32 : vector<32xi16> to vector<32xi64>
+  vector.store %halves32_wide_signed, %wide_results[32] : vector<32xi64>, view<144xi64>
+  %halves32_wide_unsigned = vector.extui %halves32 : vector<32xi16> to vector<32xi64>
+  vector.store %halves32_wide_unsigned, %wide_results[64] : vector<32xi64>, view<144xi64>
+
+  %words8 = vector.load %word_input[0] : view<16xi32> -> vector<8xi32>
+  %words8_signed = vector.extsi %words8 : vector<8xi32> to vector<8xi64>
+  vector.store %words8_signed, %wide_results[96] : vector<8xi64>, view<144xi64>
+  %words8_unsigned = vector.extui %words8 : vector<8xi32> to vector<8xi64>
+  vector.store %words8_unsigned, %wide_results[104] : vector<8xi64>, view<144xi64>
+  %words16 = vector.load %word_input[0] : view<16xi32> -> vector<16xi32>
+  %words16_signed = vector.extsi %words16 : vector<16xi32> to vector<16xi64>
+  vector.store %words16_signed, %wide_results[112] : vector<16xi64>, view<144xi64>
+  %words16_unsigned = vector.extui %words16 : vector<16xi32> to vector<16xi64>
+  vector.store %words16_unsigned, %wide_results[128] : vector<16xi64>, view<144xi64>
+
+  %narrow32 = vector.trunci %halves32 : vector<32xi16> to vector<32xi8>
+  vector.store %narrow32, %byte_results[0] : vector<32xi8>, view<32xi8>
+  kernel.return
+}
+
+func.def @wide_integer_conversions_oracle(%bytes: buffer, %halves: buffer, %words: buffer, %word_output: buffer, %wide_output: buffer, %byte_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 64 : index
+  %step = index.constant 1 : index
+  %byte_input = buffer.view %bytes[%base] : buffer -> view<128xi8>
+  %half_input = buffer.view %halves[%base] : buffer -> view<64xi16>
+  %word_input = buffer.view %words[%base] : buffer -> view<16xi32>
+  %word_results = buffer.view %word_output[%base] : buffer -> view<288xi32>
+  %wide_results = buffer.view %wide_output[%base] : buffer -> view<144xi64>
+  %byte_results = buffer.view %byte_output[%base] : buffer -> view<32xi8>
+  scf.for %i = [%begin to %end step %step] {
+    %byte = view.load %byte_input[%i] : view<128xi8> -> i8
+    %byte_signed = scalar.extsi %byte : i8 to i32
+    %byte_unsigned = scalar.extui %byte : i8 to i32
+    %half = view.load %half_input[%i] : view<64xi16> -> i16
+    %narrow = scalar.trunci %half : i16 to i8
+    %c32 = index.constant 32 : index
+    %c64 = index.constant 64 : index
+    %c128 = index.constant 128 : index
+    %position32 = index.add %i, %c32 : index
+    %position64 = index.add %i, %c64 : index
+    %position128 = index.add %i, %c128 : index
+    view.store %byte_signed, %word_results[%position64] : i32, view<288xi32>
+    view.store %byte_unsigned, %word_results[%position128] : i32, view<288xi32>
+    %below32 = index.cmp ult, %i, %c32 : index
+    scf.if %below32 {
+      view.store %byte_signed, %word_results[%i] : i32, view<288xi32>
+      view.store %byte_unsigned, %word_results[%position32] : i32, view<288xi32>
+      %half_signed = scalar.extsi %half : i16 to i32
+      %half_unsigned = scalar.extui %half : i16 to i32
+      %half_wide_signed = scalar.extsi %half : i16 to i64
+      %half_wide_unsigned = scalar.extui %half : i16 to i64
+      %c224 = index.constant 224 : index
+      %c256 = index.constant 256 : index
+      %position224 = index.add %i, %c224 : index
+      %position256 = index.add %i, %c256 : index
+      view.store %half_signed, %word_results[%position224] : i32, view<288xi32>
+      view.store %half_unsigned, %word_results[%position256] : i32, view<288xi32>
+      view.store %half_wide_signed, %wide_results[%position32] : i64, view<144xi64>
+      view.store %half_wide_unsigned, %wide_results[%position64] : i64, view<144xi64>
+      view.store %narrow, %byte_results[%i] : i8, view<32xi8>
+      %c16 = index.constant 16 : index
+      %below16 = index.cmp ult, %i, %c16 : index
+      scf.if %below16 {
+        %c192 = index.constant 192 : index
+        %c208 = index.constant 208 : index
+        %c112 = index.constant 112 : index
+        %position16 = index.add %i, %c16 : index
+        %position192 = index.add %i, %c192 : index
+        %position208 = index.add %i, %c208 : index
+        %position112 = index.add %i, %c112 : index
+        %word_position128 = index.add %i, %c128 : index
+        view.store %half_signed, %word_results[%position192] : i32, view<288xi32>
+        view.store %half_unsigned, %word_results[%position208] : i32, view<288xi32>
+        view.store %half_wide_signed, %wide_results[%i] : i64, view<144xi64>
+        view.store %half_wide_unsigned, %wide_results[%position16] : i64, view<144xi64>
+        %word = view.load %word_input[%i] : view<16xi32> -> i32
+        %word_signed = scalar.extsi %word : i32 to i64
+        %word_unsigned = scalar.extui %word : i32 to i64
+        view.store %word_signed, %wide_results[%position112] : i64, view<144xi64>
+        view.store %word_unsigned, %wide_results[%word_position128] : i64, view<144xi64>
+        %c8 = index.constant 8 : index
+        %below8 = index.cmp ult, %i, %c8 : index
+        scf.if %below8 {
+          %c96 = index.constant 96 : index
+          %c104 = index.constant 104 : index
+          %position96 = index.add %i, %c96 : index
+          %position104 = index.add %i, %c104 : index
+          view.store %word_signed, %wide_results[%position96] : i64, view<144xi64>
+          view.store %word_unsigned, %wide_results[%position104] : i64, view<144xi64>
+        }
+      }
+    }
+  }
+  func.return
+}
+
+check.scenario @wide_integer_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %bytes = check.generate.iota offset(-128) step(127) period(3) : tensor<128xi8>
+    %halves = check.generate.iota offset(-32768) step(32767) period(3) : tensor<64xi16>
+    %words = check.generate.iota offset(-2147483648) step(2147483647) period(3) : tensor<16xi32>
+    %word_output = check.generate.fill value(-123) : tensor<288xi32>
+    %wide_output = check.generate.fill value(-123) : tensor<144xi64>
+    %byte_output = check.generate.fill value(-91) : tensor<32xi8>
+    check.compare<@wide_integer_conversions, @wide_integer_conversions_oracle>(%bytes, %halves, %words, %word_output, %wide_output, %byte_output) : (tensor<128xi8>, tensor<64xi16>, tensor<16xi32>, tensor<288xi32>, tensor<144xi64>, tensor<32xi8>) -> () {
+      check.expect.bitwise actual(%word_output) expected(%word_output) : tensor<288xi32>
+      check.expect.bitwise actual(%wide_output) expected(%wide_output) : tensor<144xi64>
+      check.expect.bitwise actual(%byte_output) expected(%byte_output) : tensor<32xi8>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %maximum_bytes = check.generate.fill value(127) : tensor<128xi8>
+    %maximum_halves = check.generate.fill value(32767) : tensor<64xi16>
+    %maximum_words = check.generate.fill value(2147483647) : tensor<16xi32>
+    %word_output = check.generate.fill value(-123) : tensor<288xi32>
+    %wide_output = check.generate.fill value(-123) : tensor<144xi64>
+    %byte_output = check.generate.fill value(-91) : tensor<32xi8>
+    check.compare<@wide_integer_conversions, @wide_integer_conversions_oracle>(%maximum_bytes, %maximum_halves, %maximum_words, %word_output, %wide_output, %byte_output) : (tensor<128xi8>, tensor<64xi16>, tensor<16xi32>, tensor<288xi32>, tensor<144xi64>, tensor<32xi8>) -> () {
+      check.expect.bitwise actual(%word_output) expected(%word_output) : tensor<288xi32>
+      check.expect.bitwise actual(%wide_output) expected(%wide_output) : tensor<144xi64>
+      check.expect.bitwise actual(%byte_output) expected(%byte_output) : tensor<32xi8>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %byte_entropy = check.entropy.fork %entropy name("bytes") : check.entropy
+    %half_entropy = check.entropy.fork %entropy name("halves") : check.entropy
+    %word_entropy = check.entropy.fork %entropy name("words") : check.entropy
+    %byte_seed = check.entropy.read %byte_entropy[%trial] : check.entropy -> i64
+    %half_seed = check.entropy.read %half_entropy[%trial] : check.entropy -> i64
+    %word_seed = check.entropy.read %word_entropy[%trial] : check.entropy -> i64
+    %bytes = check.generate.random.uniform seed(%byte_seed) range(-128 to 127) : tensor<128xi8>
+    %halves = check.generate.random.uniform seed(%half_seed) range(-32768 to 32767) : tensor<64xi16>
+    %words = check.generate.random.uniform seed(%word_seed) range(-2147483648 to 2147483647) : tensor<16xi32>
+    %word_storage = check.generate.fill value(-123) : tensor<296xi32>
+    %word_output = check.tensor.view %word_storage offset(16) : tensor<296xi32> -> tensor<288xi32>
+    %wide_storage = check.generate.fill value(-123) : tensor<152xi64>
+    %wide_output = check.tensor.view %wide_storage offset(32) : tensor<152xi64> -> tensor<144xi64>
+    %byte_storage = check.generate.fill value(-91) : tensor<64xi8>
+    %byte_output = check.tensor.view %byte_storage offset(16) : tensor<64xi8> -> tensor<32xi8>
+    check.compare<@wide_integer_conversions, @wide_integer_conversions_oracle>(%bytes, %halves, %words, %word_output, %wide_output, %byte_output) : (tensor<128xi8>, tensor<64xi16>, tensor<16xi32>, tensor<288xi32>, tensor<144xi64>, tensor<32xi8>) -> () {
+      check.expect.bitwise actual(%word_storage) expected(%word_storage) : tensor<296xi32>
+      check.expect.bitwise actual(%wide_storage) expected(%wide_storage) : tensor<152xi64>
+      check.expect.bitwise actual(%byte_storage) expected(%byte_storage) : tensor<64xi8>
+    }
+  }
+  check.return
+}
+
+kernel.def @truncate_halfwords() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 16} : buffer
+  %inputs = buffer.view %aligned[%base] : buffer -> view<64xi16>
+  %outputs = buffer.view %output[%base] : buffer -> view<64xi8>
+  %halves = vector.load %inputs[0] : view<64xi16> -> vector<64xi16>
+  %bytes = vector.trunci %halves : vector<64xi16> to vector<64xi8>
+  vector.store %bytes, %outputs[0] : vector<64xi8>, view<64xi8>
+  kernel.return
+}
+
+func.def @truncate_halfwords_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 64 : index
+  %step = index.constant 1 : index
+  %inputs = buffer.view %input[%base] : buffer -> view<64xi16>
+  %outputs = buffer.view %output[%base] : buffer -> view<64xi8>
+  scf.for %i = [%begin to %end step %step] {
+    %half = view.load %inputs[%i] : view<64xi16> -> i16
+    %byte = scalar.trunci %half : i16 to i8
+    view.store %byte, %outputs[%i] : i8, view<64xi8>
+  }
+  func.return
+}
+
+check.scenario @halfword_truncation_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(-32768 to 32767) : tensor<64xi16>
+    %storage = check.generate.fill value(-91) : tensor<96xi8>
+    %output = check.tensor.view %storage offset(16) : tensor<96xi8> -> tensor<64xi8>
+    check.compare<@truncate_halfwords, @truncate_halfwords_oracle>(%input, %output) : (tensor<64xi16>, tensor<64xi8>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<96xi8>
+    }
+  }
+  check.return
+}
+
+kernel.def @wide_bfloat_conversions() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%bfloat_input: buffer, %float_input: buffer, %float_output: buffer, %bfloat_output: buffer, %word_output: buffer) {
+  %base = index.constant 0 : offset
+  %bfloat_inputs = buffer.view %bfloat_input[%base] : buffer -> view<32xbf16>
+  %float_inputs = buffer.view %float_input[%base] : buffer -> view<32xf32>
+  %float_results = buffer.view %float_output[%base] : buffer -> view<32xf32>
+  %bfloat_results = buffer.view %bfloat_output[%base] : buffer -> view<32xbf16>
+  %word_results = buffer.view %word_output[%base] : buffer -> view<16xi32>
+  %bfloat32 = vector.load %bfloat_inputs[0] : view<32xbf16> -> vector<32xbf16>
+  %extended = vector.extf %bfloat32 : vector<32xbf16> to vector<32xf32>
+  vector.store %extended, %float_results[0] : vector<32xf32>, view<32xf32>
+  %float32 = vector.load %float_inputs[0] : view<32xf32> -> vector<32xf32>
+  %rounded = vector.fptrunc %float32 : vector<32xf32> to vector<32xbf16>
+  vector.store %rounded, %bfloat_results[0] : vector<32xbf16>, view<32xbf16>
+  %bfloat16 = vector.load %bfloat_inputs[0] : view<32xbf16> -> vector<16xbf16>
+  %integers = vector.fptosi %bfloat16 : vector<16xbf16> to vector<16xi32>
+  vector.store %integers, %word_results[0] : vector<16xi32>, view<16xi32>
+  kernel.return
+}
+
+func.def @wide_bfloat_conversions_oracle(%bfloat_input: buffer, %float_input: buffer, %float_output: buffer, %bfloat_output: buffer, %word_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 32 : index
+  %step = index.constant 1 : index
+  %bfloat_inputs = buffer.view %bfloat_input[%base] : buffer -> view<32xbf16>
+  %float_inputs = buffer.view %float_input[%base] : buffer -> view<32xf32>
+  %float_results = buffer.view %float_output[%base] : buffer -> view<32xf32>
+  %bfloat_results = buffer.view %bfloat_output[%base] : buffer -> view<32xbf16>
+  %word_results = buffer.view %word_output[%base] : buffer -> view<16xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %bfloat_value = view.load %bfloat_inputs[%i] : view<32xbf16> -> bf16
+    %extended = scalar.extf %bfloat_value : bf16 to f32
+    view.store %extended, %float_results[%i] : f32, view<32xf32>
+    %float_value = view.load %float_inputs[%i] : view<32xf32> -> f32
+    %rounded = scalar.fptrunc %float_value : f32 to bf16
+    view.store %rounded, %bfloat_results[%i] : bf16, view<32xbf16>
+    %c16 = index.constant 16 : index
+    %below16 = index.cmp ult, %i, %c16 : index
+    scf.if %below16 {
+      %integer = scalar.fptosi %bfloat_value : bf16 to i32
+      view.store %integer, %word_results[%i] : i32, view<16xi32>
+    }
+  }
+  func.return
+}
+
+// Finite inputs keep float-to-integer conversion inside its defined domain.
+// Narrow-float boundary scenarios separately own nonfinite payload policy.
+check.scenario @wide_bfloat_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %bfloat_entropy = check.entropy.fork %entropy name("bfloat") : check.entropy
+    %float_entropy = check.entropy.fork %entropy name("float") : check.entropy
+    %bfloat_seed = check.entropy.read %bfloat_entropy[%trial] : check.entropy -> i64
+    %float_seed = check.entropy.read %float_entropy[%trial] : check.entropy -> i64
+    %bfloat_input = check.generate.random.uniform seed(%bfloat_seed) range(-256.0 to 256.0) : tensor<32xbf16>
+    %float_input = check.generate.random.uniform seed(%float_seed) range(-4096.0 to 4096.0) : tensor<32xf32>
+    %float_storage = check.generate.fill value(-123.5) : tensor<40xf32>
+    %float_output = check.tensor.view %float_storage offset(16) : tensor<40xf32> -> tensor<32xf32>
+    %bfloat_storage = check.generate.fill value(-123.5) : tensor<40xbf16>
+    %bfloat_output = check.tensor.view %bfloat_storage offset(8) : tensor<40xbf16> -> tensor<32xbf16>
+    %word_storage = check.generate.fill value(-123) : tensor<24xi32>
+    %word_output = check.tensor.view %word_storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    check.compare<@wide_bfloat_conversions, @wide_bfloat_conversions_oracle>(%bfloat_input, %float_input, %float_output, %bfloat_output, %word_output) : (tensor<32xbf16>, tensor<32xf32>, tensor<32xf32>, tensor<32xbf16>, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%float_storage) expected(%float_storage) : tensor<40xf32>
+      check.expect.bitwise actual(%bfloat_storage) expected(%bfloat_storage) : tensor<40xbf16>
+      check.expect.bitwise actual(%word_storage) expected(%word_storage) : tensor<24xi32>
+    }
+  }
+  check.return
+}
+
+kernel.def @pack_nibbles() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 16} : buffer
+  %inputs = buffer.view %aligned[%base] : buffer -> view<128xi8>
+  %outputs = buffer.view %output[%base] : buffer -> view<96xi8>
+  %bytes64 = vector.load %inputs[0] : view<128xi8> -> vector<64xi8>
+  %packed32 = vector.bitpack<4> %bytes64 : vector<64xi8> -> vector<32xi8>
+  vector.store %packed32, %outputs[0] : vector<32xi8>, view<96xi8>
+  %bytes128 = vector.load %inputs[0] : view<128xi8> -> vector<128xi8>
+  %packed64 = vector.bitpack<4> %bytes128 : vector<128xi8> -> vector<64xi8>
+  vector.store %packed64, %outputs[32] : vector<64xi8>, view<96xi8>
+  kernel.return
+}
+
+func.def @pack_nibbles_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 64 : index
+  %step = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %inputs = buffer.view %input[%base] : buffer -> view<128xi8>
+  %outputs = buffer.view %output[%base] : buffer -> view<96xi8>
+  scf.for %i = [%begin to %end step %step] {
+    %even = index.mul %i, %c2 : index
+    %odd = index.add %even, %step : index
+    %low = view.load %inputs[%even] : view<128xi8> -> i8
+    %high = view.load %inputs[%odd] : view<128xi8> -> i8
+    %mask = scalar.constant 15 : i8
+    %shift = scalar.constant 4 : i8
+    %low_nibble = scalar.andi %low, %mask : i8
+    %high_nibble = scalar.shli %high, %shift : i8
+    %packed = scalar.ori %low_nibble, %high_nibble : i8
+    %c32 = index.constant 32 : index
+    %position = index.add %i, %c32 : index
+    view.store %packed, %outputs[%position] : i8, view<96xi8>
+    %below32 = index.cmp ult, %i, %c32 : index
+    scf.if %below32 {
+      view.store %packed, %outputs[%i] : i8, view<96xi8>
+    }
+  }
+  func.return
+}
+
+check.scenario @packed_nibble_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(-128 to 127) : tensor<128xi8>
+    %expected_input = check.generate.random.uniform seed(%seed) range(-128 to 127) : tensor<128xi8>
+    %storage = check.generate.fill value(-91) : tensor<128xi8>
+    %output = check.tensor.view %storage offset(16) : tensor<128xi8> -> tensor<96xi8>
+    check.compare<@pack_nibbles, @pack_nibbles_oracle>(%input, %output) : (tensor<128xi8>, tensor<96xi8>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<128xi8>
+      check.expect.bitwise actual(%input) expected(%expected_input) : tensor<128xi8>
+    }
+  }
+  check.return
+}

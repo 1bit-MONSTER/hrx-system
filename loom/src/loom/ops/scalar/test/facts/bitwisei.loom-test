@@ -60,6 +60,53 @@ func.def @ori_non_zero(%x: i32) -> (i1) {
 
 // ====
 
+// A zero-extended byte and one shifted high bit form a nine-bit table index.
+func.def @ori_codebook_index(%low: i8, %high: i8) -> (i64, i64, i64, i64) {
+  %low_word = scalar.extui %low : i8 to i32
+  %high_word = scalar.extui %high : i8 to i32
+  %high_mask = scalar.constant 1 : i32
+  %high_shift = scalar.constant 8 : i32
+  %high_bit = scalar.andi %high_word, %high_mask : i32
+  %high_code = scalar.shli %high_bit, %high_shift : i32
+  %code = scalar.ori %low_word, %high_code : i32
+  %low_hi = test.fact_range_hi %low_word : i32 -> i64
+  %high_hi = test.fact_range_hi %high_code : i32 -> i64
+  %code_lo = test.fact_range_lo %code : i32 -> i64
+  %code_hi = test.fact_range_hi %code : i32 -> i64
+  func.return %low_hi, %high_hi, %code_lo, %code_hi : i64, i64, i64, i64
+}
+// ----
+func.def @ori_codebook_index(%low: i8, %high: i8) -> (i64, i64, i64, i64) {
+  %low_hi = scalar.constant 255 : i64
+  %high_hi = scalar.constant 256 : i64
+  %code_lo = scalar.constant 0 : i64
+  %code_hi = scalar.constant 511 : i64
+  func.return %low_hi, %high_hi, %code_lo, %code_hi : i64, i64, i64, i64
+}
+
+// ====
+
+// Nonzero survives without an exact operand, even when its range includes zero.
+func.def @ori_predicate_nonzero(%lhs: i32, %rhs: i32) -> (i1, i1) {
+  %nonzero = scalar.assume %lhs [ne(%lhs, 0)] : i32
+  %signed = scalar.ori %rhs, %nonzero : i32
+  %bounded = scalar.assume %nonzero [range(%nonzero, 0, 255)] : i32
+  %mask = scalar.constant 256 : i32
+  %high = scalar.andi %rhs, %mask : i32
+  %unsigned = scalar.ori %bounded, %high : i32
+  %signed_nonzero = test.fact_non_zero %signed : i32 -> i1
+  %unsigned_nonzero = test.fact_non_zero %unsigned : i32 -> i1
+  func.return %signed_nonzero, %unsigned_nonzero : i1, i1
+}
+// ----
+func.def @ori_predicate_nonzero(%lhs: i32, %rhs: i32) -> (i1, i1) {
+  %signed_nonzero = scalar.constant true : i1
+  %unsigned_nonzero = scalar.constant true : i1
+  func.return %signed_nonzero, %unsigned_nonzero : i1, i1
+}
+
+// ====
+
 // shli by 4: divisor multiplied by 16.
 func.def @shli_divisibility(%x: i32) -> (i64) {
   %shift = scalar.constant 4 : i32

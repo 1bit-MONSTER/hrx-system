@@ -13,8 +13,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Android" OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
 set(_posix_platform_deps "")
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
   list(APPEND _posix_platform_deps iree::async::platform::linux::signal)
+  list(APPEND _posix_platform_deps iree::async::platform::linux::socket_options)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   list(APPEND _posix_platform_deps iree::async::platform::linux::signal)
+  list(APPEND _posix_platform_deps iree::async::platform::linux::socket_options)
 endif()
 iree_cc_library(
   NAME

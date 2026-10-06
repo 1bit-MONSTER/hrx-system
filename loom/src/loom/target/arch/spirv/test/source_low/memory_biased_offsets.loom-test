@@ -1,0 +1,125 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_biased_offsets.loom
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
+
+func.def @exchange_biased_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
+  %signed_position = index.assume %position [range(%position, -4, 4)] : index
+  %center = index.constant 4 : index
+  %element = index.add %signed_position, %center : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
+  %previous = view.load %view[%element] : view<9xi32> -> i32
+  view.store %replacement, %view[%element] : i32, view<9xi32>
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @exchange_biased_word(%buffer: reg<spirv.ptr.storage_buffer>, %signed_position: reg<spirv.id : index>, %replacement: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  %14 = OpSConvert.i32.offset64 %signed_position
+  %15 = OpConstant.offset64 4
+  %16 = OpIMul.offset64 %14, %15
+  %17 = OpConstant.offset64 16
+  %18 = OpIAdd.offset64 %16, %17
+  %19 = OpPtrAccessChain.storage_buffer.i32.byte_offset %buffer, %18
+  %previous = OpLoad.storage_buffer.i32 %19
+  OpStore.storage_buffer.i32 %19, %replacement
+  return %previous
+}
+
+// ====
+
+func.def @exchange_nonnegative_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
+  %bounded_position = index.assume %position [range(%position, 0, 4)] : index
+  %center = index.constant 4 : index
+  %element = index.add %bounded_position, %center : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
+  %previous = view.load %view[%element] : view<9xi32> -> i32
+  view.store %replacement, %view[%element] : i32, view<9xi32>
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @exchange_nonnegative_word(%buffer: reg<spirv.ptr.storage_buffer>, %bounded_position: reg<spirv.id : index>, %replacement: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  %14 = OpSConvert.i32.offset64 %bounded_position
+  %15 = OpConstant.offset64 4
+  %16 = OpIMul.offset64 %14, %15
+  %17 = OpConstant.offset64 16
+  %18 = OpIAdd.offset64 %16, %17
+  %19 = OpPtrAccessChain.storage_buffer.i32.byte_offset %buffer, %18
+  %previous = OpLoad.storage_buffer.i32 %19
+  OpStore.storage_buffer.i32 %19, %replacement
+  return %previous
+}
+
+// ====
+
+func.def @copy_biased_vector(%source: buffer, %destination: buffer, %position: index) {
+  %signed_position = index.assume %position [range(%position, -4, 4)] : index
+  %center = index.constant 4 : index
+  %element = index.add %signed_position, %center : index
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<12xi32>
+  %destination_view = buffer.view %destination[%base] : buffer -> view<12xi32>
+  %values = vector.load %source_view[%element] : view<12xi32> -> vector<4xi32>
+  vector.store %values, %destination_view[%element] : vector<4xi32>, view<12xi32>
+  func.return
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @copy_biased_vector(%source: reg<spirv.ptr.storage_buffer>, %destination: reg<spirv.ptr.storage_buffer>, %signed_position: reg<spirv.id : index>) asm {
+  %30 = OpSConvert.i32.offset64 %signed_position
+  %31 = OpConstant.offset64 4
+  %32 = OpIMul.offset64 %30, %31
+  %33 = OpConstant.offset64 16
+  %34 = OpIAdd.offset64 %32, %33
+  %35 = OpPtrAccessChain.storage_buffer.i32.byte_offset %source, %34
+  %36 = OpLoad.storage_buffer.i32 %35
+  %40 = OpConstant.offset64 20
+  %41 = OpIAdd.offset64 %32, %40
+  %42 = OpPtrAccessChain.storage_buffer.i32.byte_offset %source, %41
+  %43 = OpLoad.storage_buffer.i32 %42
+  %47 = OpConstant.offset64 24
+  %48 = OpIAdd.offset64 %32, %47
+  %49 = OpPtrAccessChain.storage_buffer.i32.byte_offset %source, %48
+  %50 = OpLoad.storage_buffer.i32 %49
+  %54 = OpConstant.offset64 28
+  %55 = OpIAdd.offset64 %32, %54
+  %56 = OpPtrAccessChain.storage_buffer.i32.byte_offset %source, %55
+  %57 = OpLoad.storage_buffer.i32 %56
+  %63 = OpPtrAccessChain.storage_buffer.i32.byte_offset %destination, %34
+  OpStore.storage_buffer.i32 %63, %36
+  %69 = OpPtrAccessChain.storage_buffer.i32.byte_offset %destination, %41
+  OpStore.storage_buffer.i32 %69, %43
+  %75 = OpPtrAccessChain.storage_buffer.i32.byte_offset %destination, %48
+  OpStore.storage_buffer.i32 %75, %50
+  %81 = OpPtrAccessChain.storage_buffer.i32.byte_offset %destination, %55
+  OpStore.storage_buffer.i32 %81, %57
+  return
+}
+
+// ====
+
+// The static contribution fits U32 but has its sign bit set in an i32 carrier.
+func.def @exchange_large_bias_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
+  %signed_position = index.assume %position [range(%position, -1073741820, -1073741812)] : index
+  %center = index.constant 1073741820 : index
+  %element = index.add %signed_position, %center : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
+  %previous = view.load %view[%element] : view<9xi32> -> i32
+  view.store %replacement, %view[%element] : i32, view<9xi32>
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @exchange_large_bias_word(%buffer: reg<spirv.ptr.storage_buffer>, %signed_position: reg<spirv.id : index>, %replacement: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  %14 = OpSConvert.i32.offset64 %signed_position
+  %15 = OpConstant.offset64 4
+  %16 = OpIMul.offset64 %14, %15
+  %17 = OpConstant.offset64 4294967280
+  %18 = OpIAdd.offset64 %16, %17
+  %19 = OpPtrAccessChain.storage_buffer.i32.byte_offset %buffer, %18
+  %previous = OpLoad.storage_buffer.i32 %19
+  OpStore.storage_buffer.i32 %19, %replacement
+  return %previous
+}

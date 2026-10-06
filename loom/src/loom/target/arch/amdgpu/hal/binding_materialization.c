@@ -76,33 +76,6 @@ static iree_status_t loom_amdgpu_hal_binding_insert_kernarg_live_in(
   return iree_ok_status();
 }
 
-static iree_status_t loom_amdgpu_hal_binding_get_kernarg_live_in(
-    loom_rewriter_t* rewriter, loom_op_t* function_op, loom_type_t sgpr_x2_type,
-    loom_value_id_t* out_value, bool* out_inserted) {
-  *out_value = LOOM_VALUE_ID_INVALID;
-  *out_inserted = false;
-  loom_block_t* entry_block =
-      loom_region_entry_block(loom_low_function_body(function_op));
-  loom_op_t* op = NULL;
-  loom_block_for_each_op(entry_block, op) {
-    if (!loom_low_live_in_isa(op)) {
-      continue;
-    }
-    const loom_value_id_t live_in_value = loom_low_live_in_result(op);
-    if (loom_amdgpu_hal_kernel_abi_live_in_source_kind(rewriter->module,
-                                                       live_in_value) ==
-        LOOM_AMDGPU_HAL_KERNEL_ABI_SOURCE_KERNARG_SEGMENT_PTR) {
-      *out_value = live_in_value;
-      return iree_ok_status();
-    }
-  }
-  loom_op_t* live_in_op = NULL;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_hal_binding_insert_kernarg_live_in(
-      rewriter, function_op, sgpr_x2_type, out_value, &live_in_op));
-  *out_inserted = true;
-  return iree_ok_status();
-}
-
 static loom_op_t* loom_amdgpu_hal_binding_first_non_live_in(
     loom_op_t* function_op) {
   loom_block_t* entry_block =
@@ -510,6 +483,9 @@ static iree_status_t loom_amdgpu_hal_binding_move_value_name(
 static bool loom_amdgpu_hal_binding_direct_arg_is_used(
     const loom_module_t* module,
     const loom_amdgpu_hal_kernarg_direct_arg_t* direct_arg) {
+  if (direct_arg->arg_id == LOOM_VALUE_ID_INVALID) {
+    return false;
+  }
   const loom_value_t* arg_value = loom_module_value(module, direct_arg->arg_id);
   return arg_value->use_count != 0 ||
          loom_module_value_has_type_uses(module, direct_arg->arg_id);
@@ -857,6 +833,9 @@ static iree_status_t loom_amdgpu_hal_binding_materialize_direct_args(
 
   loom_block_t* entry_block =
       loom_region_entry_block(loom_low_function_body(function_op));
+  if (entry_block->arg_count == 0) {
+    return iree_ok_status();
+  }
   loom_func_like_t function =
       loom_func_like_cast(rewriter->module, function_op);
   IREE_ASSERT(loom_func_like_isa(function));
@@ -1234,6 +1213,7 @@ iree_status_t loom_amdgpu_hal_binding_materialize_buffer_descriptors(
 iree_status_t loom_amdgpu_hal_binding_materialize(
     loom_module_t* module, loom_op_t* function_op,
     const loom_low_descriptor_set_t* descriptor_set,
+    loom_value_id_t kernarg_ptr,
     loom_amdgpu_hal_binding_materialization_result_t* out_result,
     iree_arena_allocator_t* scratch_arena) {
   if (module == NULL || function_op == NULL || descriptor_set == NULL ||
@@ -1259,6 +1239,7 @@ iree_status_t loom_amdgpu_hal_binding_materialize(
   IREE_RETURN_IF_ERROR(loom_amdgpu_hal_kernel_abi_layout_from_low(
       module, function_op, &layout, scratch_arena));
   layout.uses_kernarg_segment_ptr =
+      kernarg_ptr != LOOM_VALUE_ID_INVALID ||
       loom_amdgpu_hal_binding_layout_uses_kernarg_segment_ptr(module, &layout);
   out_result->abi_layout = layout;
 
@@ -1288,12 +1269,15 @@ iree_status_t loom_amdgpu_hal_binding_materialize(
                                                       abi_layout_attr);
     }
   }
-  loom_value_id_t kernarg_ptr = LOOM_VALUE_ID_INVALID;
   bool inserted_live_in = false;
 
   if (iree_status_is_ok(status) && layout.uses_kernarg_segment_ptr) {
-    status = loom_amdgpu_hal_binding_get_kernarg_live_in(
-        &rewriter, function_op, sgpr_x2_type, &kernarg_ptr, &inserted_live_in);
+    if (kernarg_ptr == LOOM_VALUE_ID_INVALID) {
+      loom_op_t* live_in_op = NULL;
+      status = loom_amdgpu_hal_binding_insert_kernarg_live_in(
+          &rewriter, function_op, sgpr_x2_type, &kernarg_ptr, &live_in_op);
+      inserted_live_in = iree_status_is_ok(status);
+    }
     if (iree_status_is_ok(status)) {
       loom_amdgpu_hal_binding_set_entry_insertion_point(&rewriter, function_op);
     }

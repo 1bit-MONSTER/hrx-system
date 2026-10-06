@@ -11,6 +11,7 @@
 #include "iree/base/threading/numa.h"
 #include "iree/hal/api.h"
 #include "iree/tooling/device_util.h"
+#include "loom/sanitizer/runtime_requirements.h"
 
 static iree_status_t loom_run_hal_runtime_select_queue(
     iree_hal_device_t* device,
@@ -51,25 +52,33 @@ void loom_run_hal_runtime_options_initialize(
   };
 }
 
-iree_hal_device_runtime_feature_flags_t
-loom_run_hal_runtime_features_from_sanitizer_options(
-    const loom_sanitizer_options_t* sanitizer_options) {
-  if (!loom_sanitizer_options_is_enabled(sanitizer_options)) {
-    return IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_NONE;
-  }
+iree_status_t loom_run_hal_runtime_features_query(
+    const loom_module_t* module,
+    const loom_sanitizer_options_t* sanitizer_options,
+    iree_allocator_t host_allocator,
+    iree_hal_device_runtime_feature_flags_t* out_runtime_features) {
+  *out_runtime_features = IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_NONE;
+  loom_sanitizer_runtime_requirements_t requirements =
+      LOOM_SANITIZER_RUNTIME_REQUIREMENT_NONE;
+  IREE_RETURN_IF_ERROR(loom_sanitizer_runtime_requirements_query(
+      module, sanitizer_options, host_allocator, &requirements));
 
   iree_hal_device_runtime_feature_flags_t runtime_features =
-      sanitizer_options->reporting_mode == LOOM_SANITIZER_REPORTING_MODE_TRAP
-          ? IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_NONE
-          : IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_FEEDBACK;
-  if (iree_any_bit_set(sanitizer_options->checks,
-                       LOOM_SANITIZER_CHECK_ACCESS)) {
+      IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_NONE;
+  if (iree_any_bit_set(requirements,
+                       LOOM_SANITIZER_RUNTIME_REQUIREMENT_FEEDBACK)) {
+    runtime_features |= IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_FEEDBACK;
+  }
+  if (iree_any_bit_set(requirements,
+                       LOOM_SANITIZER_RUNTIME_REQUIREMENT_ACCESS_SHADOW)) {
     runtime_features |= IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_ASAN;
   }
-  if (iree_any_bit_set(sanitizer_options->checks, LOOM_SANITIZER_CHECK_RACE)) {
+  if (iree_any_bit_set(requirements,
+                       LOOM_SANITIZER_RUNTIME_REQUIREMENT_RACE_SHADOW)) {
     runtime_features |= IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_TSAN;
   }
-  return runtime_features;
+  *out_runtime_features = runtime_features;
+  return iree_ok_status();
 }
 
 iree_status_t loom_run_hal_runtime_initialize(
@@ -136,4 +145,20 @@ void loom_run_hal_runtime_deinitialize(loom_run_hal_runtime_t* runtime) {
   iree_hal_device_group_release(runtime->device_group);
   iree_hal_device_release(runtime->device);
   *runtime = (loom_run_hal_runtime_t){0};
+}
+
+iree_status_t loom_run_hal_semaphore_wait(iree_hal_semaphore_t* semaphore,
+                                          uint64_t value,
+                                          iree_timeout_t timeout,
+                                          iree_async_wait_flags_t flags) {
+  iree_status_t status =
+      iree_hal_semaphore_wait(semaphore, value, timeout, flags);
+  if (!iree_status_is_ok(status)) {
+    // HAL waits may return only a code; the semaphore retains the diagnostic.
+    uint64_t semaphore_value = 0;
+    iree_status_t query_status =
+        iree_hal_semaphore_query(semaphore, &semaphore_value);
+    status = iree_status_join(query_status, status);
+  }
+  return status;
 }

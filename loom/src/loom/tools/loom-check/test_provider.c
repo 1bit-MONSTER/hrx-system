@@ -46,10 +46,7 @@ typedef struct loom_check_test_synthetic_hazard_options_t {
   // Number of entries in |allocation_budgets|.
   iree_host_size_t allocation_budget_count;
   // Fixed low allocation requests parsed from target options.
-  loom_check_low_emit_fixed_value_spec_t allocation_fixed_value_specs
-      [LOOM_CHECK_LOW_EMIT_MAX_ALLOCATION_FIXED_VALUES];
-  // Number of entries in |allocation_fixed_value_specs|.
-  iree_host_size_t allocation_fixed_value_spec_count;
+  loom_check_low_emit_fixed_value_spec_list_t allocation_fixed_values;
 } loom_check_test_synthetic_hazard_options_t;
 
 typedef struct loom_check_test_synthetic_hazard_context_t {
@@ -128,9 +125,7 @@ static iree_status_t loom_check_test_synthetic_hazard_parse_option(
   return loom_check_low_emit_parse_allocation_option(
       token, IREE_SV("synthetic hazard"), options->allocation_budgets,
       IREE_ARRAYSIZE(options->allocation_budgets),
-      &options->allocation_budget_count, options->allocation_fixed_value_specs,
-      IREE_ARRAYSIZE(options->allocation_fixed_value_specs),
-      &options->allocation_fixed_value_spec_count);
+      &options->allocation_budget_count, &options->allocation_fixed_values);
 }
 
 static iree_status_t loom_check_test_synthetic_hazard_parse_emit_options(
@@ -156,6 +151,8 @@ static iree_status_t loom_check_test_synthetic_hazard_parse_emit_options(
   out_options->function_symbol_name =
       iree_string_view_substr(symbol_name, 1, IREE_HOST_SIZE_MAX);
 
+  IREE_RETURN_IF_ERROR(loom_check_low_emit_fixed_value_spec_list_initialize(
+      option_text, request->case_arena, &out_options->allocation_fixed_values));
   while (!iree_string_view_is_empty(option_text)) {
     iree_string_view_t token = iree_string_view_empty();
     iree_string_view_t remaining = iree_string_view_empty();
@@ -258,6 +255,12 @@ static void loom_check_test_synthetic_hazard_query(
   emit(emit_user_data, &event);
 }
 
+static iree_string_view_t loom_check_test_synthetic_hazard_progress_class_name(
+    uint16_t progress_class_id) {
+  (void)progress_class_id;
+  return IREE_SV("synthetic.issue");
+}
+
 static void loom_check_test_synthetic_hazard_progress_query(
     void* user_data, const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
@@ -271,7 +274,6 @@ static void loom_check_test_synthetic_hazard_progress_query(
   }
   const loom_low_packet_progress_event_t event = {
       .progress_class_id = LOOM_CHECK_TEST_SYNTHETIC_PROGRESS_CLASS_ISSUE,
-      .progress_class_name = IREE_SV("synthetic.issue"),
       .action = LOOM_LOW_PACKET_PROGRESS_ACTION_ADVANCE,
       .units = 1,
   };
@@ -287,20 +289,23 @@ static iree_status_t loom_check_test_synthetic_hazard_execute(
       loom_check_test_synthetic_hazard_parse_emit_options(request, &options));
 
   loom_low_emission_frame_t frame = {0};
+  bool frame_accepted = false;
   IREE_RETURN_IF_ERROR(loom_check_low_emit_packetize_function(
       request, options.function_symbol_name, options.schedule_strategy,
       /*schedule_diagnostic_flags=*/0,
       /*allocation_diagnostic_flags=*/0, options.allocation_budgets,
-      options.allocation_budget_count, options.allocation_fixed_value_specs,
-      options.allocation_fixed_value_spec_count,
-      /*residency_model=*/NULL, loom_low_schedule_pair_affinity_list_empty(),
+      options.allocation_budget_count, options.allocation_fixed_values.specs,
+      options.allocation_fixed_values.count,
+      /*residency_query=*/NULL, loom_low_schedule_pair_affinity_list_empty(),
       loom_low_schedule_structural_state_read_list_empty(),
-      /*storage_lease_provider=*/NULL, /*spill_free_options=*/NULL, &frame));
+      /*storage_lease_provider=*/NULL, /*spill_free_options=*/NULL, &frame,
+      &frame_accepted));
   if (request->diagnostic_collector != NULL &&
-      request->diagnostic_collector->count != 0) {
+      loom_check_diagnostic_collector_has_error(
+          request->diagnostic_collector)) {
     return iree_ok_status();
   }
-  if (frame.schedule.error_count != 0 || frame.allocation.error_count != 0) {
+  if (!frame_accepted) {
     return iree_ok_status();
   }
 
@@ -332,6 +337,7 @@ static iree_status_t loom_check_test_synthetic_hazard_execute(
   const loom_low_packet_progress_provider_t progress_provider = {
       .event_count = context.progress_event_count,
       .query = loom_check_test_synthetic_hazard_progress_query,
+      .class_name = loom_check_test_synthetic_hazard_progress_class_name,
   };
   loom_low_packet_progress_table_t progress = {0};
   const loom_low_packet_hazard_plan_provider_t hazard_provider = {

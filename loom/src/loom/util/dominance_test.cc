@@ -6,6 +6,8 @@
 
 #include "loom/util/dominance.h"
 
+#include <algorithm>
+#include <utility>
 #include <vector>
 
 #include "iree/base/internal/arena.h"
@@ -637,6 +639,105 @@ TEST_F(DominanceTest, MalformedCfgGraphDoesNotProvideCrossBlockDominance) {
 
   EXPECT_TRUE(loom_dominates_op(&dom_info_, entry_value, after_branch));
   EXPECT_FALSE(loom_dominates_op(&dom_info_, entry_value, target_value));
+}
+
+TEST_F(DominanceTest, WalkMaintainsDominatorScopesAcrossCfgAndNesting) {
+  body_->flags |= LOOM_REGION_INSTANCE_FLAG_CFG;
+  loom_type_t i32 = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
+  loom_block_t* entry = loom_region_entry_block(body_);
+  loom_block_t* then_block = append_block();
+  loom_block_t* else_block = append_block();
+  loom_block_t* merge_block = append_block();
+
+  set_block(entry);
+  loom_op_t* entry_value = build_constant(i32, 0);
+  build_conditional_branch(then_block, else_block);
+
+  set_block(then_block);
+  loom_op_t* then_value = build_constant(i32, 1);
+  loom_value_id_t mapped_value = loom_test_constant_result(then_value);
+  loom_op_t* map_op = nullptr;
+  IREE_ASSERT_OK(loom_test_map_build(&builder_, &mapped_value, 1, i32, nullptr,
+                                     0, LOOM_LOCATION_UNKNOWN, &map_op));
+  enter_region(map_op, loom_test_map_body(map_op));
+  loom_op_t* nested_value = build_constant(i32, 2);
+  leave_region();
+  loom_op_t* resumed_value = build_constant(i32, 3);
+  build_branch(merge_block);
+
+  set_block(else_block);
+  loom_op_t* else_value = build_constant(i32, 4);
+  build_branch(merge_block);
+
+  set_block(merge_block);
+  loom_op_t* merge_value = build_constant(i32, 5);
+  IREE_ASSERT_OK(loom_module_compute_uses(module_));
+
+  struct ScopeState {
+    int depth = 0;
+    int enter_count = 0;
+    int leave_count = 0;
+    std::vector<loom_dominance_walk_scope_flags_t> flags;
+  } state;
+  loom_dominance_walk_callbacks_t callbacks = {
+      /*.user_data=*/&state,
+      /*.enter_scope=*/
+      [](void* user_data, loom_dominance_walk_scope_flags_t flags) {
+        auto* state = static_cast<ScopeState*>(user_data);
+        ++state->depth;
+        ++state->enter_count;
+        state->flags.push_back(flags);
+        return iree_ok_status();
+      },
+      /*.leave_scope=*/
+      [](void* user_data) {
+        auto* state = static_cast<ScopeState*>(user_data);
+        state->flags.pop_back();
+        --state->depth;
+        ++state->leave_count;
+      },
+  };
+  loom_dominance_walk_t* walk = nullptr;
+  IREE_ASSERT_OK(loom_dominance_walk_create(module_, body_, callbacks,
+                                            &dom_arena_, &walk));
+
+  struct Visit {
+    int depth;
+    loom_dominance_walk_scope_flags_t flags;
+  };
+  std::vector<std::pair<loom_op_t*, Visit>> visits;
+  for (;;) {
+    loom_dominance_walk_cursor_t cursor;
+    IREE_ASSERT_OK(loom_dominance_walk_next(walk, &cursor));
+    if (!cursor.op) {
+      break;
+    }
+    ASSERT_FALSE(state.flags.empty());
+    visits.push_back({cursor.op, {state.depth, state.flags.back()}});
+  }
+
+  auto find_visit = [&](loom_op_t* op) -> Visit {
+    auto it =
+        std::find_if(visits.begin(), visits.end(),
+                     [&](const auto& visit) { return visit.first == op; });
+    if (it == visits.end()) {
+      ADD_FAILURE() << "expected operation was not visited";
+      return {};
+    }
+    return it->second;
+  };
+  EXPECT_EQ(find_visit(entry_value).depth, 1);
+  EXPECT_EQ(find_visit(then_value).depth, 2);
+  EXPECT_EQ(find_visit(map_op).depth, 2);
+  EXPECT_EQ(find_visit(nested_value).depth, 3);
+  EXPECT_EQ(find_visit(resumed_value).depth, 2);
+  EXPECT_EQ(find_visit(else_value).depth, 2);
+  const Visit merge_visit = find_visit(merge_value);
+  EXPECT_EQ(merge_visit.depth, 2);
+  EXPECT_TRUE(iree_any_bit_set(merge_visit.flags,
+                               LOOM_DOMINANCE_WALK_SCOPE_FLAG_STATE_BARRIER));
+  EXPECT_EQ(state.depth, 0);
+  EXPECT_EQ(state.enter_count, state.leave_count);
 }
 
 }  // namespace

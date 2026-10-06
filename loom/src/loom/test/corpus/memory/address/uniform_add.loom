@@ -1,0 +1,173 @@
+kernel.def @index_uniform_add() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%step: index, %input: buffer, %output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %inputs = buffer.view %input[%base] : buffer -> view<64xi32>
+  %value = view.load %inputs[%lane] : view<64xi32> -> i32
+  %position = index.cast %value : i32 to index
+  %increment = index.constant 64 : index
+  %sum_right = index.add %position, %step : index
+  %word_right = index.cast %sum_right : index to i32
+  %base_right = index.constant 0 : offset
+  %outputs_right = buffer.view %output[%base_right] : buffer -> view<64xi32>
+  view.store %word_right, %outputs_right[%lane] : i32, view<64xi32>
+  %sum_left = index.add %step, %position : index
+  %word_left = index.cast %sum_left : index to i32
+  %base_left = index.constant 256 : offset
+  %outputs_left = buffer.view %output[%base_left] : buffer -> view<64xi32>
+  view.store %word_left, %outputs_left[%lane] : i32, view<64xi32>
+  %sum_constant_right = index.add %position, %increment : index
+  %word_constant_right = index.cast %sum_constant_right : index to i32
+  %base_constant_right = index.constant 512 : offset
+  %outputs_constant_right = buffer.view %output[%base_constant_right] : buffer -> view<64xi32>
+  view.store %word_constant_right, %outputs_constant_right[%lane] : i32, view<64xi32>
+  %sum_constant_left = index.add %increment, %position : index
+  %word_constant_left = index.cast %sum_constant_left : index to i32
+  %base_constant_left = index.constant 768 : offset
+  %outputs_constant_left = buffer.view %output[%base_constant_left] : buffer -> view<64xi32>
+  view.store %word_constant_left, %outputs_constant_left[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+check.case public @index_add_negative_step {
+  %step = check.literal value(-17) : index
+  %input = check.generate.iota offset(100) step(1) : tensor<64xi32>
+  %storage = check.generate.fill value(-123) : tensor<288xi32>
+  %output = check.tensor.view %storage offset(64) : tensor<288xi32> -> tensor<256xi32>
+  kernel.launch @index_uniform_add(%step, %input, %output) : (index, tensor<64xi32>, tensor<256xi32>)
+  %actual_right = check.tensor.view %output offset(0) : tensor<256xi32> -> tensor<64xi32>
+  %expected_right = check.generate.iota offset(83) step(1) : tensor<64xi32>
+  check.expect.bitwise actual(%actual_right) expected(%expected_right) : tensor<64xi32>
+  %actual_left = check.tensor.view %output offset(256) : tensor<256xi32> -> tensor<64xi32>
+  %expected_left = check.generate.iota offset(83) step(1) : tensor<64xi32>
+  check.expect.bitwise actual(%actual_left) expected(%expected_left) : tensor<64xi32>
+  %actual_constant_right = check.tensor.view %output offset(512) : tensor<256xi32> -> tensor<64xi32>
+  %expected_constant_right = check.generate.iota offset(164) step(1) : tensor<64xi32>
+  check.expect.bitwise actual(%actual_constant_right) expected(%expected_constant_right) : tensor<64xi32>
+  %actual_constant_left = check.tensor.view %output offset(768) : tensor<256xi32> -> tensor<64xi32>
+  %expected_constant_left = check.generate.iota offset(164) step(1) : tensor<64xi32>
+  check.expect.bitwise actual(%actual_constant_left) expected(%expected_constant_left) : tensor<64xi32>
+  %prefix = check.tensor.view %storage offset(0) : tensor<288xi32> -> tensor<16xi32>
+  %suffix = check.tensor.view %storage offset(1088) : tensor<288xi32> -> tensor<16xi32>
+  %guard = check.generate.fill value(-123) : tensor<16xi32>
+  check.expect.bitwise actual(%prefix) expected(%guard) : tensor<16xi32>
+  check.expect.bitwise actual(%suffix) expected(%guard) : tensor<16xi32>
+  check.return
+}
+
+check.case public @index_add_high_signed_bits {
+  %step = check.literal value(37) : index
+  %input = check.generate.iota offset(2147483500) step(1) : tensor<64xi32>
+  %storage = check.generate.fill value(-123) : tensor<288xi32>
+  %output = check.tensor.view %storage offset(64) : tensor<288xi32> -> tensor<256xi32>
+  kernel.launch @index_uniform_add(%step, %input, %output) : (index, tensor<64xi32>, tensor<256xi32>)
+  %actual_right = check.tensor.view %output offset(0) : tensor<256xi32> -> tensor<64xi32>
+  %expected_right = check.generate.iota offset(2147483537) step(1) : tensor<64xi32>
+  check.expect.bitwise actual(%actual_right) expected(%expected_right) : tensor<64xi32>
+  %actual_left = check.tensor.view %output offset(256) : tensor<256xi32> -> tensor<64xi32>
+  %expected_left = check.generate.iota offset(2147483537) step(1) : tensor<64xi32>
+  check.expect.bitwise actual(%actual_left) expected(%expected_left) : tensor<64xi32>
+  %actual_constant_right = check.tensor.view %output offset(512) : tensor<256xi32> -> tensor<64xi32>
+  %expected_constant_right = check.generate.iota offset(2147483564) step(1) : tensor<64xi32>
+  check.expect.bitwise actual(%actual_constant_right) expected(%expected_constant_right) : tensor<64xi32>
+  %actual_constant_left = check.tensor.view %output offset(768) : tensor<256xi32> -> tensor<64xi32>
+  %expected_constant_left = check.generate.iota offset(2147483564) step(1) : tensor<64xi32>
+  check.expect.bitwise actual(%actual_constant_left) expected(%expected_constant_left) : tensor<64xi32>
+  %prefix = check.tensor.view %storage offset(0) : tensor<288xi32> -> tensor<16xi32>
+  %suffix = check.tensor.view %storage offset(1088) : tensor<288xi32> -> tensor<16xi32>
+  %guard = check.generate.fill value(-123) : tensor<16xi32>
+  check.expect.bitwise actual(%prefix) expected(%guard) : tensor<16xi32>
+  check.expect.bitwise actual(%suffix) expected(%guard) : tensor<16xi32>
+  check.return
+}
+
+kernel.def @offset_uniform_add() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%raw_step: offset, %input: buffer, %output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %inputs = buffer.view %input[%base] : buffer -> view<64xi64>
+  %value = view.load %inputs[%lane] : view<64xi64> -> i64
+  %raw_position = scalar.assume %value [range(%value, 0, 4294967040)] : i64
+  %position = index.cast %raw_position : i64 to offset
+  %step = index.assume %raw_step [range(%raw_step, 0, 255)] : offset
+  %increment = index.constant 128 : offset
+  %sum_right = index.add %position, %step : offset
+  %word_right = index.cast %sum_right : offset to i64
+  %base_right = index.constant 0 : offset
+  %outputs_right = buffer.view %output[%base_right] : buffer -> view<64xi64>
+  view.store %word_right, %outputs_right[%lane] : i64, view<64xi64>
+  %sum_left = index.add %step, %position : offset
+  %word_left = index.cast %sum_left : offset to i64
+  %base_left = index.constant 512 : offset
+  %outputs_left = buffer.view %output[%base_left] : buffer -> view<64xi64>
+  view.store %word_left, %outputs_left[%lane] : i64, view<64xi64>
+  %sum_constant_right = index.add %position, %increment : offset
+  %word_constant_right = index.cast %sum_constant_right : offset to i64
+  %base_constant_right = index.constant 1024 : offset
+  %outputs_constant_right = buffer.view %output[%base_constant_right] : buffer -> view<64xi64>
+  view.store %word_constant_right, %outputs_constant_right[%lane] : i64, view<64xi64>
+  %sum_constant_left = index.add %increment, %position : offset
+  %word_constant_left = index.cast %sum_constant_left : offset to i64
+  %base_constant_left = index.constant 1536 : offset
+  %outputs_constant_left = buffer.view %output[%base_constant_left] : buffer -> view<64xi64>
+  view.store %word_constant_left, %outputs_constant_left[%lane] : i64, view<64xi64>
+  kernel.return
+}
+
+check.case public @offset_add_high_unsigned_bits {
+  %step = check.literal value(64) : offset
+  %input = check.generate.iota offset(2147483584) step(1) : tensor<64xi64>
+  %storage = check.generate.fill value(-123) : tensor<288xi64>
+  %output = check.tensor.view %storage offset(128) : tensor<288xi64> -> tensor<256xi64>
+  kernel.launch @offset_uniform_add(%step, %input, %output) : (offset, tensor<64xi64>, tensor<256xi64>)
+  %actual_right = check.tensor.view %output offset(0) : tensor<256xi64> -> tensor<64xi64>
+  %expected_right = check.generate.iota offset(2147483648) step(1) : tensor<64xi64>
+  check.expect.bitwise actual(%actual_right) expected(%expected_right) : tensor<64xi64>
+  %actual_left = check.tensor.view %output offset(512) : tensor<256xi64> -> tensor<64xi64>
+  %expected_left = check.generate.iota offset(2147483648) step(1) : tensor<64xi64>
+  check.expect.bitwise actual(%actual_left) expected(%expected_left) : tensor<64xi64>
+  %actual_constant_right = check.tensor.view %output offset(1024) : tensor<256xi64> -> tensor<64xi64>
+  %expected_constant_right = check.generate.iota offset(2147483712) step(1) : tensor<64xi64>
+  check.expect.bitwise actual(%actual_constant_right) expected(%expected_constant_right) : tensor<64xi64>
+  %actual_constant_left = check.tensor.view %output offset(1536) : tensor<256xi64> -> tensor<64xi64>
+  %expected_constant_left = check.generate.iota offset(2147483712) step(1) : tensor<64xi64>
+  check.expect.bitwise actual(%actual_constant_left) expected(%expected_constant_left) : tensor<64xi64>
+  %prefix = check.tensor.view %storage offset(0) : tensor<288xi64> -> tensor<16xi64>
+  %suffix = check.tensor.view %storage offset(2176) : tensor<288xi64> -> tensor<16xi64>
+  %guard = check.generate.fill value(-123) : tensor<16xi64>
+  check.expect.bitwise actual(%prefix) expected(%guard) : tensor<16xi64>
+  check.expect.bitwise actual(%suffix) expected(%guard) : tensor<16xi64>
+  check.return
+}
+
+check.case public @offset_add_maximum_bits {
+  %step = check.literal value(255) : offset
+  %input = check.generate.iota offset(4294966976) step(1) : tensor<64xi64>
+  %storage = check.generate.fill value(-123) : tensor<288xi64>
+  %output = check.tensor.view %storage offset(128) : tensor<288xi64> -> tensor<256xi64>
+  kernel.launch @offset_uniform_add(%step, %input, %output) : (offset, tensor<64xi64>, tensor<256xi64>)
+  %actual_right = check.tensor.view %output offset(0) : tensor<256xi64> -> tensor<64xi64>
+  %expected_right = check.generate.iota offset(4294967231) step(1) : tensor<64xi64>
+  check.expect.bitwise actual(%actual_right) expected(%expected_right) : tensor<64xi64>
+  %actual_left = check.tensor.view %output offset(512) : tensor<256xi64> -> tensor<64xi64>
+  %expected_left = check.generate.iota offset(4294967231) step(1) : tensor<64xi64>
+  check.expect.bitwise actual(%actual_left) expected(%expected_left) : tensor<64xi64>
+  %actual_constant_right = check.tensor.view %output offset(1024) : tensor<256xi64> -> tensor<64xi64>
+  %expected_constant_right = check.generate.iota offset(4294967104) step(1) : tensor<64xi64>
+  check.expect.bitwise actual(%actual_constant_right) expected(%expected_constant_right) : tensor<64xi64>
+  %actual_constant_left = check.tensor.view %output offset(1536) : tensor<256xi64> -> tensor<64xi64>
+  %expected_constant_left = check.generate.iota offset(4294967104) step(1) : tensor<64xi64>
+  check.expect.bitwise actual(%actual_constant_left) expected(%expected_constant_left) : tensor<64xi64>
+  %prefix = check.tensor.view %storage offset(0) : tensor<288xi64> -> tensor<16xi64>
+  %suffix = check.tensor.view %storage offset(2176) : tensor<288xi64> -> tensor<16xi64>
+  %guard = check.generate.fill value(-123) : tensor<16xi64>
+  check.expect.bitwise actual(%prefix) expected(%guard) : tensor<16xi64>
+  check.expect.bitwise actual(%suffix) expected(%guard) : tensor<16xi64>
+  check.return
+}

@@ -306,6 +306,10 @@ loom_template_applicability_evaluate_resolved_predicate(
     case LOOM_PREDICATE_LE:
     case LOOM_PREDICATE_GT:
     case LOOM_PREDICATE_GE:
+    case LOOM_PREDICATE_ULT:
+    case LOOM_PREDICATE_ULE:
+    case LOOM_PREDICATE_UGT:
+    case LOOM_PREDICATE_UGE:
       return loom_template_applicability_evaluate_relation(
           &args[0], &args[1], predicate_kind, application_facts);
     case LOOM_PREDICATE_MIN:

@@ -1,0 +1,134 @@
+// Expands four low bits into independently addressable predicate lanes.
+func.def inline @predicate_bits4(%bits: i32) -> (i1, i1, i1, i1) {
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %c2 = scalar.constant 2 : i32
+  %c3 = scalar.constant 3 : i32
+  %masked0 = scalar.andi %bits, %c1 : i32
+  %shift1 = scalar.shrui %bits, %c1 : i32
+  %masked1 = scalar.andi %shift1, %c1 : i32
+  %shift2 = scalar.shrui %bits, %c2 : i32
+  %masked2 = scalar.andi %shift2, %c1 : i32
+  %shift3 = scalar.shrui %bits, %c3 : i32
+  %masked3 = scalar.andi %shift3, %c1 : i32
+  %words = vector.from_elements %masked0, %masked1, %masked2, %masked3 : vector<4xi32>
+  %zeros = vector.splat %c0 : vector<4xi32>
+  %predicates = vector.cmpi ne, %words, %zeros : vector<4xi32> -> vector<4xi1>
+  %lane0 = vector.extract %predicates[0] : vector<4xi1> -> i1
+  %lane1 = vector.extract %predicates[1] : vector<4xi1> -> i1
+  %lane2 = vector.extract %predicates[2] : vector<4xi1> -> i1
+  %lane3 = vector.extract %predicates[3] : vector<4xi1> -> i1
+  func.return %lane0, %lane1, %lane2, %lane3 : i1, i1, i1, i1
+}
+
+// Gives every predicate lane a unique observable output bit.
+func.def inline @predicate_pack4(%predicate0: i1, %predicate1: i1, %predicate2: i1, %predicate3: i1) -> (i32) {
+  %c1 = scalar.constant 1 : i32
+  %c2 = scalar.constant 2 : i32
+  %c3 = scalar.constant 3 : i32
+  %lane0 = scalar.extui %predicate0 : i1 to i32
+  %lane1 = scalar.extui %predicate1 : i1 to i32
+  %lane2 = scalar.extui %predicate2 : i1 to i32
+  %lane3 = scalar.extui %predicate3 : i1 to i32
+  %bit1 = scalar.shli %lane1, %c1 : i32
+  %bit2 = scalar.shli %lane2, %c2 : i32
+  %bit3 = scalar.shli %lane3, %c3 : i32
+  %low = scalar.ori %lane0, %bit1 : i32
+  %high = scalar.ori %bit2, %bit3 : i32
+  %packed = scalar.ori %low, %high : i32
+  func.return %packed : i32
+}
+
+// The trial ordinal enumerates every pair of independent four-lane masks.
+func.def @predicate_bitwise(%trial: index, %output: buffer) {
+  %ordinal = index.assume %trial [range(%trial, 0, 255)] : index
+  %case = index.cast %ordinal : index to i32
+  %c4 = scalar.constant 4 : i32
+  %rhs_bits = scalar.shrui %case, %c4 : i32
+  %lhs0, %lhs1, %lhs2, %lhs3 = func.call @predicate_bits4(%case) : (i32) -> (i1, i1, i1, i1)
+  %rhs0, %rhs1, %rhs2, %rhs3 = func.call @predicate_bits4(%rhs_bits) : (i32) -> (i1, i1, i1, i1)
+  %lhs = vector.from_elements %lhs0, %lhs1, %lhs2, %lhs3 : vector<4xi1>
+  %rhs = vector.from_elements %rhs0, %rhs1, %rhs2, %rhs3 : vector<4xi1>
+  %and_predicate = vector.andi %lhs, %rhs : vector<4xi1>
+  %or_predicate = vector.ori %lhs, %rhs : vector<4xi1>
+  %xor_predicate = vector.xori %lhs, %rhs : vector<4xi1>
+  %and0 = vector.extract %and_predicate[0] : vector<4xi1> -> i1
+  %and1 = vector.extract %and_predicate[1] : vector<4xi1> -> i1
+  %and2 = vector.extract %and_predicate[2] : vector<4xi1> -> i1
+  %and3 = vector.extract %and_predicate[3] : vector<4xi1> -> i1
+  %or0 = vector.extract %or_predicate[0] : vector<4xi1> -> i1
+  %or1 = vector.extract %or_predicate[1] : vector<4xi1> -> i1
+  %or2 = vector.extract %or_predicate[2] : vector<4xi1> -> i1
+  %or3 = vector.extract %or_predicate[3] : vector<4xi1> -> i1
+  %xor0 = vector.extract %xor_predicate[0] : vector<4xi1> -> i1
+  %xor1 = vector.extract %xor_predicate[1] : vector<4xi1> -> i1
+  %xor2 = vector.extract %xor_predicate[2] : vector<4xi1> -> i1
+  %xor3 = vector.extract %xor_predicate[3] : vector<4xi1> -> i1
+  %and_bits = func.call @predicate_pack4(%and0, %and1, %and2, %and3) : (i1, i1, i1, i1) -> (i32)
+  %or_bits = func.call @predicate_pack4(%or0, %or1, %or2, %or3) : (i1, i1, i1, i1) -> (i32)
+  %xor_bits = func.call @predicate_pack4(%xor0, %xor1, %xor2, %xor3) : (i1, i1, i1, i1) -> (i32)
+  %base = index.constant 0 : offset
+  %result = buffer.view %output[%base] : buffer -> view<4xi32>
+  view.store %and_bits, %result[0] : i32, view<4xi32>
+  view.store %or_bits, %result[1] : i32, view<4xi32>
+  view.store %xor_bits, %result[2] : i32, view<4xi32>
+  func.return
+}
+
+check.scenario @predicate_bitwise_values {
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(-123) : tensor<12xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<12xi32> -> tensor<4xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<12xi32> -> tensor<4xi32>
+    %suffix = check.tensor.view %storage offset(32) : tensor<12xi32> -> tensor<4xi32>
+    %guard = check.generate.fill value(-123) : tensor<4xi32>
+    check.compare<@predicate_bitwise>(%trial, %output) : (index, tensor<4xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<4xi32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi32>
+    }
+  }
+  check.return
+}
+
+// The trial ordinal enumerates every triple of independent four-lane masks.
+func.def @predicate_select(%trial: index, %output: buffer) {
+  %ordinal = index.assume %trial [range(%trial, 0, 4095)] : index
+  %case = index.cast %ordinal : index to i32
+  %c4 = scalar.constant 4 : i32
+  %c8 = scalar.constant 8 : i32
+  %true_bits = scalar.shrui %case, %c4 : i32
+  %false_bits = scalar.shrui %case, %c8 : i32
+  %condition0, %condition1, %condition2, %condition3 = func.call @predicate_bits4(%case) : (i32) -> (i1, i1, i1, i1)
+  %true0, %true1, %true2, %true3 = func.call @predicate_bits4(%true_bits) : (i32) -> (i1, i1, i1, i1)
+  %false0, %false1, %false2, %false3 = func.call @predicate_bits4(%false_bits) : (i32) -> (i1, i1, i1, i1)
+  %condition = vector.from_elements %condition0, %condition1, %condition2, %condition3 : vector<4xi1>
+  %true_value = vector.from_elements %true0, %true1, %true2, %true3 : vector<4xi1>
+  %false_value = vector.from_elements %false0, %false1, %false2, %false3 : vector<4xi1>
+  %selected = vector.select %condition, %true_value, %false_value : vector<4xi1>
+  %selected0 = vector.extract %selected[0] : vector<4xi1> -> i1
+  %selected1 = vector.extract %selected[1] : vector<4xi1> -> i1
+  %selected2 = vector.extract %selected[2] : vector<4xi1> -> i1
+  %selected3 = vector.extract %selected[3] : vector<4xi1> -> i1
+  %selected_bits = func.call @predicate_pack4(%selected0, %selected1, %selected2, %selected3) : (i1, i1, i1, i1) -> (i32)
+  %base = index.constant 0 : offset
+  %result = buffer.view %output[%base] : buffer -> view<2xi32>
+  view.store %selected_bits, %result[0] : i32, view<2xi32>
+  func.return
+}
+
+check.scenario @predicate_select_values {
+  check.trial[4096](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(-123) : tensor<10xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<10xi32> -> tensor<2xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<10xi32> -> tensor<4xi32>
+    %suffix = check.tensor.view %storage offset(24) : tensor<10xi32> -> tensor<4xi32>
+    %guard = check.generate.fill value(-123) : tensor<4xi32>
+    check.compare<@predicate_select>(%trial, %output) : (index, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2xi32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi32>
+    }
+  }
+  check.return
+}

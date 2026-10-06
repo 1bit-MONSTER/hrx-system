@@ -87,11 +87,16 @@ def build_loop_pipeline_show(
                 raise CompileReportError(f"{stage_path}: no matching applied policy")
             stages = cast(list[dict[str, object]], policy["stages"])
             operation_position = _count(row.get("position"), f"{stage_path}.position")
-            if operation_position != len(stages):
+            previous_position = cast(int, stages[-1]["position"]) if stages else -1
+            if operation_position not in (previous_position, previous_position + 1):
                 raise CompileReportError(
-                    f"{stage_path}.position: expected {len(stages)}"
+                    f"{stage_path}.position: expected {previous_position} or "
+                    f"{previous_position + 1}"
                 )
             name = _string(row.get("op"), f"{stage_path}.op")
+            partition = row.get("partition")
+            if partition not in (None, "guarded"):
+                raise CompileReportError(f"{stage_path}.partition: unsupported value")
             stage = row.get("stage")
             lookahead = _count(
                 row.get("iteration_lookahead"), f"{stage_path}.iteration_lookahead"
@@ -104,19 +109,55 @@ def build_loop_pipeline_show(
                 raise CompileReportError(
                     f"{stage_path}: stage contradicts applied depth"
                 )
-            stages.append(
-                {
-                    "position": operation_position,
-                    "op": name,
-                    "stage": stage,
-                    "iteration_lookahead": lookahead,
-                }
-            )
+            if operation_position == previous_position:
+                previous = stages[-1]
+                if (
+                    previous["op"] != name
+                    or previous.get("partition") != "guarded"
+                    or partition != "guarded"
+                    or previous["stage"] != "producer"
+                    or stage != "consumer"
+                ):
+                    raise CompileReportError(
+                        f"{stage_path}: repeated position is not a guarded stage pair"
+                    )
+            normalized_stage: dict[str, object] = {
+                "position": operation_position,
+                "op": name,
+                "stage": stage,
+                "iteration_lookahead": lookahead,
+            }
+            if partition is not None:
+                normalized_stage["partition"] = partition
+            stages.append(normalized_stage)
         for policy in policies.values():
             if policy["depth"] != 1 and not policy["stages"]:
                 raise CompileReportError(
                     f"{path}.stages: missing pipelined operation schedule"
                 )
+            stages = cast(list[dict[str, object]], policy["stages"])
+            guarded_positions = {
+                cast(int, stage["position"])
+                for stage in stages
+                if stage.get("partition") == "guarded"
+            }
+            for guarded_position in guarded_positions:
+                copies = [
+                    stage for stage in stages if stage["position"] == guarded_position
+                ]
+                if (
+                    len(copies) != 2
+                    or any(stage.get("partition") != "guarded" for stage in copies)
+                    or tuple(stage["stage"] for stage in copies)
+                    != (
+                        "producer",
+                        "consumer",
+                    )
+                ):
+                    raise CompileReportError(
+                        f"{path}.stages: guarded position {guarded_position} "
+                        "must contain producer and consumer copies"
+                    )
     return {"count": len(policies), "rows": list(policies.values())}
 
 
@@ -129,11 +170,15 @@ def append_loop_pipeline_show_text(lines: list[str], view: dict[str, object]) ->
             f"depth={row['depth']} queue_records={row['queue_records']} "
             f"values_per_record={row['values_per_record']} reads={row['read_count']}"
         )
-        lines.extend(
-            f"    {stage['position']}: {stage['op']} {stage['stage']} "
-            f"iteration_lookahead={stage['iteration_lookahead']}"
-            for stage in cast(list[dict[str, object]], row.get("stages", []))
-        )
+        for stage in cast(list[dict[str, object]], row.get("stages", [])):
+            partition = (
+                f" partition={stage['partition']}" if "partition" in stage else ""
+            )
+            lines.append(
+                f"    {stage['position']}: {stage['op']}{partition} "
+                f"{stage['stage']} "
+                f"iteration_lookahead={stage['iteration_lookahead']}"
+            )
 
 
 def suggest_loop_pipelines(

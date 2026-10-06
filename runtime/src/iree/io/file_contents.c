@@ -127,62 +127,6 @@ IREE_API_EXPORT iree_status_t iree_io_file_contents_read_stdin(
   return iree_ok_status();
 }
 
-// Opens the file |handle| if it is file descriptor-based with the |mode| as
-// defined by the fdopen API. The returned FILE* has separate lifetime from the
-// |handle| and must be closed by the caller. Operations on the returned file
-// may not be coherent with operations made via any other mechanism due to
-// buffering in stdio.
-static iree_status_t iree_io_file_handle_fdopen(iree_io_file_handle_t* handle,
-                                                const char* mode,
-                                                FILE** out_file) {
-  IREE_ASSERT_ARGUMENT(handle);
-  IREE_ASSERT_ARGUMENT(mode);
-  IREE_ASSERT_ARGUMENT(out_file);
-  *out_file = NULL;
-  IREE_TRACE_ZONE_BEGIN(z0);
-
-  // Ensure the provided handle is fd-based.
-  if (iree_io_file_handle_type(handle) != IREE_IO_FILE_HANDLE_TYPE_FD) {
-    IREE_TRACE_ZONE_END(z0);
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "the provided file handle is not file descriptor-based");
-  }
-  int fd = iree_io_file_handle_primitive(handle).value.fd;
-
-  // Duplicate the file descriptor so that we have our own copy of the seek
-  // position. The initial position will be preserved.
-  int dup_fd = iree_dup(fd);
-  if (dup_fd == -1) {
-    IREE_TRACE_ZONE_END(z0);
-    return iree_make_stdio_status(
-        "unable to duplicate file descriptor; possibly out of file descriptors "
-        "(see ulimit)");
-  }
-
-  // NOTE: after this point the file handle is associated with dup_fd and
-  // anything we do to it (like closing) will apply to the dup_fd.
-  iree_status_t status = iree_ok_status();
-  FILE* file = iree_fdopen(dup_fd, mode);
-  if (file == NULL) {
-    status = iree_make_stdio_statusf(
-        "unable to open file descriptor with mode %s", mode);
-  }
-
-  if (iree_status_is_ok(status)) {
-    *out_file = file;
-  } else {
-    if (file) {
-      // NOTE: closes the dup_fd.
-      fclose(file);
-    } else if (dup_fd > 0) {
-      iree_close(dup_fd);
-    }
-  }
-  IREE_TRACE_ZONE_END(z0);
-  return status;
-}
-
 // Returns the size, in bytes, of the |file|. Must be seekable.
 static uint64_t iree_io_stdio_file_length(FILE* file) {
   IREE_ASSERT_ARGUMENT(file);
@@ -220,18 +164,9 @@ IREE_API_EXPORT iree_status_t iree_io_file_contents_read(
   IREE_TRACE_ZONE_BEGIN(z0);
 
   // Open the file for reading.
-  iree_io_file_handle_t* handle = NULL;
-  IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, iree_io_file_handle_open(IREE_IO_FILE_MODE_READ |
-                                       IREE_IO_FILE_MODE_SHARE_READ |
-                                       IREE_IO_FILE_MODE_SHARE_WRITE,
-                                   path, host_allocator, &handle));
-
-  // Get an stdio FILE* for the handle.
-  // This will need to be closed as its lifetime is separate from our file
-  // handle.
   FILE* file = NULL;
-  iree_status_t status = iree_io_file_handle_fdopen(handle, "rb", &file);
+  iree_status_t status =
+      iree_io_stdio_file_open(path, "rb", host_allocator, &file);
 
   // Query the file size.
   iree_host_size_t file_size = 0;
@@ -293,7 +228,6 @@ IREE_API_EXPORT iree_status_t iree_io_file_contents_read(
   if (file) {
     fclose(file);
   }
-  iree_io_file_handle_release(handle);
 
   if (iree_status_is_ok(status)) {
     *out_contents = contents;
@@ -364,17 +298,9 @@ IREE_API_EXPORT iree_status_t iree_io_file_contents_write(
   IREE_TRACE_ZONE_BEGIN(z0);
 
   // Open file for overwriting (if it exists).
-  iree_io_file_handle_t* handle = NULL;
-  IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, iree_io_file_handle_open(
-              IREE_IO_FILE_MODE_WRITE | IREE_IO_FILE_MODE_OVERWRITE, path,
-              host_allocator, &handle));
-
-  // Get an stdio FILE* handle for the opened file.
-  // This will need to be closed as its lifetime is separate from our file
-  // handle.
   FILE* file = NULL;
-  iree_status_t status = iree_io_file_handle_fdopen(handle, "wb", &file);
+  iree_status_t status =
+      iree_io_stdio_file_open(path, "wb", host_allocator, &file);
 
   // Write all contents (if any) to the file.
   if (iree_status_is_ok(status) && contents.data_length > 0) {
@@ -387,11 +313,10 @@ IREE_API_EXPORT iree_status_t iree_io_file_contents_write(
     }
   }
 
-  // Close the stdio handle as well as our file handle.
+  // Close the stdio handle.
   if (file) {
     fclose(file);
   }
-  iree_io_file_handle_release(handle);
   IREE_TRACE_ZONE_END(z0);
   return status;
 }

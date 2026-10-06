@@ -514,7 +514,6 @@ TEST(AmdgpuTargetTest, HsaAdapterRejectsNonAmdhsaFeature) {
 
 ResultPtr EmitModule(loomc_target_environment_t* target_environment,
                      loomc_workspace_t* workspace, loomc_module_t* module,
-                     loomc_amdgpu_runtime_global_flags_t runtime_globals,
                      loomc_artifact_manifest_mode_t artifact_manifest_mode =
                          LOOMC_ARTIFACT_MANIFEST_MODE_NONE,
                      loomc_compile_report_mode_t compile_report_mode =
@@ -535,20 +534,14 @@ ResultPtr EmitModule(loomc_target_environment_t* target_environment,
       /*.mode=*/artifact_manifest_mode,
       /*.identifier=*/loomc_string_view_empty(),
   };
-  loomc_amdgpu_emit_options_t amdgpu_options = {
-      /*.type=*/LOOMC_STRUCTURE_TYPE_AMDGPU_EMIT_OPTIONS,
-      /*.structure_size=*/sizeof(amdgpu_options),
+  loomc_emit_options_t emit_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS,
+      /*.structure_size=*/sizeof(emit_options),
       /*.next=*/artifact_manifest_mode != LOOMC_ARTIFACT_MANIFEST_MODE_NONE
           ? static_cast<const void*>(&artifact_manifest_options)
       : compile_report_mode != LOOMC_COMPILE_REPORT_MODE_NONE
           ? static_cast<const void*>(&compile_report_options)
           : nullptr,
-      /*.runtime_globals=*/runtime_globals,
-  };
-  loomc_emit_options_t emit_options = {
-      /*.type=*/LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS,
-      /*.structure_size=*/sizeof(emit_options),
-      /*.next=*/&amdgpu_options,
       /*.artifact_format=*/
       loomc_make_cstring_view(LOOMC_ARTIFACT_FORMAT_AMDGPU_HSACO),
       /*.identifier=*/loomc_make_cstring_view("loom_kernel.hsaco"),
@@ -607,6 +600,9 @@ void ExpectReplayEmission(const loomc_result_t* result, const char* selector,
                    LOOMC_ARTIFACT_FORMAT_COMPILE_REPORT_JSON);
   ASSERT_NE(report, nullptr);
   const std::string report_text = ToString(report->contents);
+  EXPECT_NE(report_text.find("\"artifact_kind\":\"hal-executable\""),
+            std::string::npos);
+  EXPECT_NE(report_text.find("\"backend\":\"amdgpu-hal\""), std::string::npos);
   EXPECT_NE(report_text.find("\"target_family\":\"amdgpu\""),
             std::string::npos);
   EXPECT_NE(report_text.find(std::string("\"target_key\":\"") +
@@ -956,7 +952,7 @@ config.def @test.workgroup_size_x = 64 : index
   profile.reset();
   ResultPtr emit_result =
       EmitModule(target_environment.get(), workspace.get(), module.get(),
-                 /*runtime_globals=*/0, LOOMC_ARTIFACT_MANIFEST_MODE_SUMMARY);
+                 LOOMC_ARTIFACT_MANIFEST_MODE_SUMMARY);
   ExpectSucceededResult(emit_result.get());
 
   const loomc_artifact_t* hsaco_artifact =
@@ -1596,25 +1592,25 @@ kernel.def @wave64_root() {
                                 kWave64Contract, "@wave64_root", "v_mov_b32 64",
                                 "@wave32_root");
 
-  ResultPtr wave32_emit = EmitModule(
-      replay_target_environment.get(), text_wave32_workspace.get(),
-      text_wave32.get(), LOOMC_AMDGPU_RUNTIME_GLOBAL_NONE,
-      LOOMC_ARTIFACT_MANIFEST_MODE_SUMMARY, LOOMC_COMPILE_REPORT_MODE_DETAILS);
+  ResultPtr wave32_emit =
+      EmitModule(replay_target_environment.get(), text_wave32_workspace.get(),
+                 text_wave32.get(), LOOMC_ARTIFACT_MANIFEST_MODE_SUMMARY,
+                 LOOMC_COMPILE_REPORT_MODE_DETAILS);
   ExpectReplayEmission(wave32_emit.get(), "gfx1151", "gfx1151",
                        "amdgcn-amd-amdhsa--gfx1151");
 
   ResultPtr wave64_emit = EmitModule(
       replay_target_environment.get(), bytecode_wave64_workspace.get(),
-      bytecode_wave64.get(), LOOMC_AMDGPU_RUNTIME_GLOBAL_NONE,
-      LOOMC_ARTIFACT_MANIFEST_MODE_SUMMARY, LOOMC_COMPILE_REPORT_MODE_DETAILS);
+      bytecode_wave64.get(), LOOMC_ARTIFACT_MANIFEST_MODE_SUMMARY,
+      LOOMC_COMPILE_REPORT_MODE_DETAILS);
   ExpectReplayEmission(wave64_emit.get(), "gfx942", "gfx942:sramecc+:xnack-",
                        "amdgcn-amd-amdhsa--gfx942:sramecc+:xnack-",
                        "[\"sramecc+\",\"xnack-\"]");
 
-  ResultPtr summary_emit = EmitModule(
-      replay_target_environment.get(), text_wave32_workspace.get(),
-      text_wave32.get(), LOOMC_AMDGPU_RUNTIME_GLOBAL_NONE,
-      LOOMC_ARTIFACT_MANIFEST_MODE_NONE, LOOMC_COMPILE_REPORT_MODE_SUMMARY);
+  ResultPtr summary_emit =
+      EmitModule(replay_target_environment.get(), text_wave32_workspace.get(),
+                 text_wave32.get(), LOOMC_ARTIFACT_MANIFEST_MODE_NONE,
+                 LOOMC_COMPILE_REPORT_MODE_SUMMARY);
   ExpectSucceededResult(summary_emit.get());
   text_wave32.reset();
   text_wave32_workspace.reset();
@@ -1770,6 +1766,23 @@ config.def @unused = 9 : index
   ExpectSucceededResult(compile_result.get());
   ASSERT_TRUE(loomc_result_succeeded(compile_result.get()));
   compile_result.reset();
+
+  // Continue through another compiler invocation, then clone the prepared
+  // product into independent storage before releasing its original workspace.
+  raw_compile_result = nullptr;
+  LOOMC_ASSERT_OK(loomc_compile_module(
+      compiler.get(), workspace.get(), pass_program.get(), module.get(),
+      nullptr, loomc_allocator_system(), &raw_compile_result));
+  compile_result.reset(raw_compile_result);
+  ExpectSucceededResult(compile_result.get());
+  ASSERT_TRUE(loomc_result_succeeded(compile_result.get()));
+  compile_result.reset();
+  WorkspacePtr clone_workspace = CreateWorkspace();
+  loomc_module_t* raw_clone = nullptr;
+  LOOMC_ASSERT_OK(loomc_module_clone(module.get(), clone_workspace.get(),
+                                     loomc_allocator_system(), &raw_clone));
+  module.reset(raw_clone);
+  workspace = std::move(clone_workspace);
   config.reset();
   config_source.reset();
   pass_program.reset();
@@ -1783,7 +1796,6 @@ config.def @unused = 9 : index
         LOOMC_COMPILE_REPORT_MODE_DETAILS}) {
     ResultPtr emitted =
         EmitModule(target_environment.get(), workspace.get(), module.get(),
-                   LOOMC_AMDGPU_RUNTIME_GLOBAL_NONE,
                    LOOMC_ARTIFACT_MANIFEST_MODE_NONE, mode);
     ExpectSucceededResult(emitted.get());
     ASSERT_NE(FindArtifact(emitted.get(), LOOMC_ARTIFACT_KIND_EXECUTABLE,
@@ -1827,17 +1839,25 @@ config.def @unused = 9 : index
   }
 }
 
-TEST(AmdgpuTargetTest, EmitRuntimeGlobalsFromAmdgpuOptions) {
+TEST(AmdgpuTargetTest, EmitRuntimeGlobalsFromPreparedModule) {
   TargetEnvironmentPtr target_environment = CreateAmdgpuTargetEnvironment();
   ContextPtr context = CreateAmdgpuContext(target_environment.get());
   WorkspacePtr workspace = CreateWorkspace();
+  SourcePtr source = CreateTextSource("amdgpu_runtime_globals.loom", R"(
+global.rodata.decl @iree_asan_config
+global.rodata.decl @iree_feedback_config
+
+amdgpu.target<gfx11-generic> @gfx_target
+
+low.kernel.def target<amdgpu.gfx11.generic.core>(@gfx_target) workgroup_size(64, 1, 1) @loom_kernel() {
+  low.return
+}
+)");
   ModulePtr module =
-      CreatePreparedArithmeticModule(context.get(), workspace.get());
+      DeserializeModule(context.get(), workspace.get(), source.get());
 
   ResultPtr result =
-      EmitModule(target_environment.get(), workspace.get(), module.get(),
-                 LOOMC_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG |
-                     LOOMC_AMDGPU_RUNTIME_GLOBAL_ASAN_CONFIG);
+      EmitModule(target_environment.get(), workspace.get(), module.get());
   ExpectSucceededResult(result.get());
 
   ASSERT_EQ(loomc_result_artifact_count(result.get()), 1u);

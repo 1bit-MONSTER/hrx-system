@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
 load("//loom/build_tools/bazel:loom_check.bzl", "loom_check_test_suite")
 
@@ -28,14 +29,124 @@ loom_cc_library(
     name = "types",
     srcs = ["types.c"],
     hdrs = ["types.h"],
+    visibility = ["//loom/src/loom/tooling/target/vm:__pkg__"],
     deps = [
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:type_registry",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "program",
+    srcs = ["program.c"],
+    hdrs = ["program.h"],
+    visibility = ["//loom/src/loom/target/emit/vm:__pkg__"],
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/vm/bytecode:wire",
+    ],
+)
+
+iree_assert_dependency_boundary(
+    name = "program_has_no_tooling_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/tooling/..."],
+    message = "The prepared VM program is a target-owned physical contract and must not depend on tooling",
+    target = ":program",
+)
+
+loom_cc_library(
+    name = "reference_plan",
+    srcs = ["reference_plan.c"],
+    hdrs = ["reference_plan.h"],
+    deps = [
+        ":types",
+        "//loom/src/loom/ir",
         "//loom/src/loom/util:adaptive_sort",
         "//loom/src/loom/util:segmented_storage",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
     ],
+)
+
+loom_cc_library(
+    name = "function_plan",
+    srcs = ["function_plan.c"],
+    hdrs = ["function_plan.h"],
+    deps = [
+        "//loom/src/loom/codegen/low:descriptors",
+        "//loom/src/loom/codegen/low:frame",
+        "//loom/src/loom/codegen/low:storage_layout",
+        "//loom/src/loom/codegen/low/allocation:move_sequence",
+        "//loom/src/loom/error:emitter",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/global",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target:function_version",
+        "//loom/src/loom/target/arch/vm/descriptors",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/io:stream",
+        "//runtime/src/iree/vm/bytecode:wire",
+    ],
+)
+
+iree_assert_dependency_boundary(
+    name = "function_plan_has_no_tooling_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/tooling/..."],
+    message = "VM function planning is target-owned compiler code and must not depend on tooling",
+    target = ":function_plan",
+)
+
+loom_cc_library(
+    name = "program_build",
+    srcs = ["program_build.c"],
+    hdrs = ["program_build.h"],
+    visibility = ["//loom/src/loom/target/emit/vm:__pkg__"],
+    deps = [
+        ":function_plan",
+        ":program",
+        ":reference_plan",
+        "//loom/src/loom/codegen/low:descriptors",
+        "//loom/src/loom/error:emitter",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/global",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target:function_version",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/io:stream",
+        "//runtime/src/iree/vm/bytecode:wire",
+    ],
+)
+
+iree_assert_dependency_boundary(
+    name = "program_build_has_no_tooling_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/tooling/..."],
+    message = "VM program planning is target-owned compiler code and must not depend on tooling",
+    target = ":program_build",
+)
+
+loom_cc_test(
+    name = "reference_plan_test",
+    srcs = ["reference_plan_test.cc"],
+    deps = [
+        ":reference_plan",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:type_registry",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_assert_dependency_boundary(
+    name = "reference_plan_has_no_tooling_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/tooling/..."],
+    message = "VM reference planning is target-owned compiler code and must not depend on tooling",
+    target = ":reference_plan",
 )
 
 loom_cc_test(
@@ -49,35 +160,6 @@ loom_cc_test(
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
-    ],
-)
-
-loom_cc_library(
-    name = "module",
-    srcs = [
-        "function.c",
-        "module.c",
-    ],
-    hdrs = [
-        "function.h",
-        "module.h",
-    ],
-    visibility = ["//loom/src/loom/tooling/target/vm:__pkg__"],
-    deps = [
-        ":types",
-        "//loom/src/loom/codegen/low:frame",
-        "//loom/src/loom/codegen/low:storage_layout",
-        "//loom/src/loom/codegen/low/allocation:move_sequence",
-        "//loom/src/loom/error:error_defs",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/ops/global",
-        "//loom/src/loom/ops/low",
-        "//loom/src/loom/target:function_version",
-        "//loom/src/loom/target:provider",
-        "//loom/src/loom/target/arch/vm/descriptors",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/io:stream",
-        "//runtime/src/iree/vm/bytecode:wire",
     ],
 )
 
@@ -97,12 +179,12 @@ loom_cc_library(
     visibility = [
         "//loom/src/loom/target/all:__pkg__",
         "//loom/src/loom/target/configured:__pkg__",
+        "//loom/src/loom/target/emit/vm:__pkg__",
         "//loom/src/loom/tooling/target/vm:__pkg__",
         "//loom/src/loom/tools/iree-benchmark-loom:__pkg__",
         "//loom/src/loom/tools/iree-test-loom:__pkg__",
     ],
     deps = [
-        ":module",
         ":records",
         ":types",
         "//loom/src/loom/codegen/low/lower",
@@ -124,6 +206,7 @@ loom_check_test_suite(
     name = "loom_check_file_test",
     srcs = [
         "test/assembly.loom-test",
+        "test/atomic_policy.loom-test",
         "test/buffer_packets.loom-test",
         "test/call_overflow.loom-test",
         "test/calls.loom-test",
@@ -134,22 +217,25 @@ loom_check_test_suite(
         "test/math_policy.loom-test",
         "test/native_references.loom-test",
         "test/scalar.loom-test",
-        "test/source_low/buffer_access.loom-test",
-        "test/source_low/buffer_calls.loom-test",
+        "test/source_low/buffer_selection.loom-test",
         "test/source_low/callable_policy.loom-test",
+        "test/source_low/callable_returns.loom-test",
         "test/source_low/callable_values.loom-test",
         "test/source_low/carried_counter_store.loom-test",
         "test/source_low/loop_counter_offset.loom-test",
         "test/source_low/memory_access_flags.loom-test",
+        "test/source_low/memory_biased_offsets.loom-test",
+        "test/source_low/memory_float8.loom-test",
         "test/source_low/memory_generic_atomic.loom-test",
+        "test/source_low/memory_packed_tails.loom-test",
         "test/source_low/memory_scalar_addressing.loom-test",
+        "test/source_low/memory_signed_terms.loom-test",
         "test/source_low/memory_subview.loom-test",
+        "test/source_low/memory_vector_atomic.loom-test",
         "test/source_low/memory_wide_carriers.loom-test",
         "test/source_low/nested_view_selection.loom-test",
         "test/source_low/numeric_address_widening.loom-test",
         "test/source_low/numeric_bitfield.loom-test",
-        "test/source_low/numeric_boolean_comparison.loom-test",
-        "test/source_low/numeric_constant_remainder.loom-test",
         "test/source_low/numeric_float8_constants.loom-test",
         "test/source_low/numeric_float_arithmetic.loom-test",
         "test/source_low/numeric_float_comparison_flags.loom-test",
@@ -161,30 +247,29 @@ loom_check_test_suite(
         "test/source_low/numeric_index_conversion.loom-test",
         "test/source_low/numeric_integer_division.loom-test",
         "test/source_low/numeric_integer_order_bits.loom-test",
-        "test/source_low/numeric_integer_unary.loom-test",
-        "test/source_low/numeric_logical_constants.loom-test",
         "test/source_low/numeric_narrow_conversion.loom-test",
+        "test/source_low/numeric_narrow_float_selection.loom-test",
         "test/source_low/numeric_reciprocal.loom-test",
         "test/source_low/numeric_scalar_conversion.loom-test",
         "test/source_low/numeric_scalar_f32.loom-test",
         "test/source_low/numeric_scalar_i32.loom-test",
-        "test/source_low/numeric_scalar_i64.loom-test",
         "test/source_low/numeric_scalar_i64_shift_counts.loom-test",
         "test/source_low/numeric_scalar_i64_subtract.loom-test",
-        "test/source_low/numeric_unsigned_constant_division.loom-test",
         "test/source_low/numeric_unsigned_remainder.loom-test",
-        "test/source_low/owned_buffers.loom-test",
         "test/source_low/packed_bitfield.loom-test",
+        "test/source_low/packed_memory_alignment.loom-test",
+        "test/source_low/packed_memory_values.loom-test",
         "test/source_low/packed_payload_offsets.loom-test",
-        "test/source_low/rodata.loom-test",
+        "test/source_low/predicate_extension.loom-test",
         "test/source_low/scalar_selection.loom-test",
         "test/source_low/selected_payload_transport.loom-test",
+        "test/source_low/semantic_assertions.loom-test",
         "test/source_low/shared_conditional_values.loom-test",
         "test/source_low/source_low_diagnostics.loom-test",
+        "test/source_low/split_barrier.loom-test",
         "test/source_low/uniform_predicate_control.loom-test",
         "test/source_low/vector_large_insert.loom-test",
         "test/source_low/vector_selection.loom-test",
-        "test/source_low/view_access.loom-test",
         "test/source_low/view_boundaries.loom-test",
         "test/source_low/view_root_selection.loom-test",
         "test/storage.loom-test",
@@ -192,19 +277,4 @@ loom_check_test_suite(
     compile_targets = {"test/emission.loom-test": ["//loom/target/vm:core"]},
     target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),
     test_name_prefix_to_strip = "test/",
-)
-
-loom_cc_library(
-    name = "check",
-    srcs = ["check.c"],
-    hdrs = ["check.h"],
-    visibility = ["//loom/src/loom/tools/loom-check:__pkg__"],
-    deps = [
-        ":module",
-        ":provider",
-        "//loom/src/loom/tools/loom-check:execute",
-        "//loom/src/loom/tools/loom-check:provider",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/vm/bytecode:disassembler",
-    ],
 )

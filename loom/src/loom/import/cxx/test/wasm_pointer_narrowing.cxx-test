@@ -1,0 +1,35 @@
+// RUN: emit source-low target=wasm:simd128 output=low
+// INPUT: cxx data-model=ilp32
+
+int read_at(const int* pointer, int position) {
+  return pointer[position];
+}
+
+// ----
+low.func.def public target<wasm.core.simd128> abi(wasm_function) @read_at(%pointer: reg<wasm.i32>, %pointer_byte_offset: reg<wasm.i32>, %position: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
+  %25 = i32.const 2
+  %26 = i32.shl %position, %25
+  %27 = i32.add %pointer_byte_offset, %26
+  %28 = i32.add %pointer, %27
+  %29 = i32.load %28
+  return %29
+}
+
+// ====
+
+int exchange(int* pointer, int position, int replacement) {
+  int previous = pointer[position];
+  pointer[position] = replacement;
+  return previous;
+}
+
+// ----
+low.func.def public target<wasm.core.simd128> abi(wasm_function) @exchange(%pointer: reg<wasm.i32>, %pointer_byte_offset: reg<wasm.i32>, %position: reg<wasm.i32>, %replacement: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
+  %43 = i32.const 2
+  %44 = i32.shl %position, %43
+  %45 = i32.add %pointer_byte_offset, %44
+  %46 = i32.add %pointer, %45
+  %previous = i32.load %46
+  i32.store %46, %replacement
+  return %previous
+}

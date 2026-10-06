@@ -8,7 +8,9 @@ func.def @signed_narrow_coordinates(%byte: i8, %halfword: i16) -> (index, index)
 }
 
 // ----
-low.func.def target<amdgpu.cdna3.core> abi(hal_kernel) @signed_narrow_coordinates(%byte_coordinate: reg<amdgpu.vgpr>, %halfword_coordinate: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+low.func.def target<amdgpu.cdna3.core> abi(hal_kernel) @signed_narrow_coordinates(%byte: reg<amdgpu.vgpr>, %halfword: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %byte_coordinate = v_mov_b32_sdwa %byte {dst_sel = 6, dst_unused = 0, src0_sel = 0, src0_sext = 1}
+  %halfword_coordinate = v_mov_b32_sdwa %halfword {dst_sel = 6, dst_unused = 0, src0_sel = 4, src0_sext = 1}
   return %byte_coordinate, %halfword_coordinate
 }
 
@@ -25,6 +27,28 @@ low.func.def target<amdgpu.cdna3.core> abi(hal_kernel) @unsigned_narrow_offsets(
   %byte_offset = v_and_b32_lit %byte, 255
   %halfword_offset = v_and_b32_lit %halfword, 65535
   return %byte_offset, %halfword_offset
+}
+
+// ====
+
+func.def @normalize_truncated_narrow_addresses(%input: i32) -> (index, offset, index, offset) {
+  %byte = scalar.trunci %input : i32 to i8
+  %halfword = scalar.trunci %input : i32 to i16
+  %byte_coordinate = index.cast %byte : i8 to index
+  %byte_offset = index.cast %byte : i8 to offset
+  %halfword_coordinate = index.cast %halfword : i16 to index
+  %halfword_offset = index.cast %halfword : i16 to offset
+  func.return %byte_coordinate, %byte_offset, %halfword_coordinate, %halfword_offset : index, offset, index, offset
+}
+
+// ----
+low.func.def target<amdgpu.cdna3.core> abi(hal_kernel) @normalize_truncated_narrow_addresses(%input: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %byte = v_mov_b32_copy %input
+  %byte_coordinate = v_mov_b32_sdwa %byte {dst_sel = 6, dst_unused = 0, src0_sel = 0, src0_sext = 1}
+  %byte_offset = v_and_b32_lit %byte, 255
+  %halfword_coordinate = v_mov_b32_sdwa %byte {dst_sel = 6, dst_unused = 0, src0_sel = 4, src0_sext = 1}
+  %halfword_offset = v_and_b32_lit %byte, 65535
+  return %byte_coordinate, %byte_offset, %halfword_coordinate, %halfword_offset
 }
 
 // ====

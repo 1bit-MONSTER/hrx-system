@@ -67,7 +67,8 @@ struct loom_low_schedule_pressure_state_t {
   uint8_t* block_reg_class_touched_flags;
   // Value ordinals with pressure state to reset before list reuse.
   loom_value_ordinal_t* block_value_ordinals;
-  // Candidate operand multiplicity by local value ordinal.
+  // Candidate operand multiplicity by local value ordinal, retained through
+  // target scoring so packing completion can distinguish final uses.
   uint16_t* candidate_operand_use_counts;
   // Per-candidate counters reused for alias units and unlocked operand uses.
   uint32_t* candidate_scratch_counts;
@@ -75,11 +76,19 @@ struct loom_low_schedule_pressure_state_t {
   loom_value_ordinal_t* candidate_operand_ordinals;
   // Scratch live-unit delta by descriptor register-class ID.
   int64_t* candidate_delta_units_by_reg_class;
-  // Units created during the Early phase by descriptor register-class ID.
-  uint64_t* candidate_early_added_units_by_reg_class;
+  // Candidate instruction-phase overlap, indexed by descriptor register class.
+  struct {
+    // Result storage created before ordinary input reads complete.
+    uint64_t* early_added_units;
+    // Dying input units retained through result writes.
+    uint64_t* late_released_units;
+  } candidate_lifetime;
   // Downstream headroom reserved by the current candidate, indexed by
   // register-packing resource.
   uint32_t* candidate_register_packing_activation_units;
+  // Downstream headroom reserved by the current candidate, indexed by bounded
+  // unspillable completion domain.
+  uint32_t* candidate_unspillable_activation_units;
   // Earliest unscheduled completion sink retaining live storage in each
   // register-packing resource.
   uint32_t* active_register_packing_completion_sinks;
@@ -104,6 +113,9 @@ struct loom_low_schedule_pressure_state_t {
     // Downstream activation footprints indexed by producer node then
     // register-packing resource.
     uint32_t* register_packing_activation_units;
+    // Downstream activation footprints indexed by producer node then bounded
+    // unspillable completion domain.
+    uint32_t* unspillable_activation_units;
     // Descriptor-consumer list heads indexed by producer node.
     uint32_t* descriptor_heads;
     // Next descriptor consumer indexed by consumer node.
@@ -143,6 +155,23 @@ static inline const uint32_t* loom_low_schedule_const_register_packing_row(
              state->target.descriptor_set->register_packing_resource_count;
 }
 
+// Returns the row for |node_index| in a bounded unspillable-domain table.
+static inline uint32_t* loom_low_schedule_unspillable_pressure_row(
+    const loom_low_schedule_build_state_t* state, uint32_t* table,
+    uint32_t node_index) {
+  return table + (iree_host_size_t)node_index *
+                     state->pressure_limits.unspillable_completion_domain_count;
+}
+
+// Returns the const row for |node_index| in a bounded unspillable-domain
+// table.
+static inline const uint32_t* loom_low_schedule_const_unspillable_pressure_row(
+    const loom_low_schedule_build_state_t* state, const uint32_t* table,
+    uint32_t node_index) {
+  return table + (iree_host_size_t)node_index *
+                     state->pressure_limits.unspillable_completion_domain_count;
+}
+
 // Returns the bounded completion domain containing |reg_class_id|.
 static inline uint16_t loom_low_schedule_unspillable_completion_domain_id(
     const loom_low_schedule_build_state_t* state, uint16_t reg_class_id) {
@@ -165,8 +194,10 @@ static inline void loom_low_schedule_reset_candidate_operand_uses(
         pressure_state->candidate_operand_ordinals[i];
     pressure_state->candidate_operand_use_counts[value_ordinal] = 0;
     pressure_state->candidate_scratch_counts[value_ordinal] = 0;
+    state->values[value_ordinal].candidate_transferred_units = 0;
     state->values[value_ordinal].flags &=
-        ~LOOM_LOW_SCHEDULE_VALUE_FLAG_CANDIDATE_ALIAS_CLAIM;
+        ~(LOOM_LOW_SCHEDULE_VALUE_FLAG_CANDIDATE_ALIAS_CLAIM |
+          LOOM_LOW_SCHEDULE_VALUE_FLAG_CANDIDATE_LATE_READ);
   }
   pressure_state->candidate_operand_count = 0;
 }
@@ -256,9 +287,15 @@ typedef struct loom_low_schedule_candidate_score_t {
   // Required physical units before the next cliff when no cliff was crossed,
   // or LOOM_LOW_SCHEDULE_PRESSURE_CLIFF_NONE.
   uint32_t units_until_pressure_cliff;
-  // Smallest full unspillable capacity whose active completion chain the
+  // Smallest hard unspillable capacity whose selected completion chain the
   // candidate advances, or UINT32_MAX when it advances none.
   uint32_t active_unspillable_completion_capacity;
+  // Smallest hard capacity whose transaction-local final the candidate
+  // advances, or UINT32_MAX when it advances none.
+  uint32_t active_unspillable_transaction_final_capacity;
+  // Smallest full unspillable capacity whose exact next-consumer handoff the
+  // candidate opens, or UINT32_MAX when it opens none.
+  uint32_t opened_unspillable_completion_capacity;
   // Smallest packing-resource capacity whose selected completion chain the
   // candidate advances, or UINT32_MAX when it advances none.
   uint32_t active_register_packing_completion_capacity;
@@ -344,6 +381,13 @@ static inline bool loom_low_schedule_strategy_uses_pressure(
 iree_status_t loom_low_schedule_pressure_initialize(
     loom_low_schedule_build_state_t* state, iree_host_size_t node_count,
     loom_low_schedule_pressure_state_t* out_pressure_state);
+
+// Merges a retained block's producer-owned pressure contributions into the
+// current function's derived-resource high-water state.
+void loom_low_schedule_pressure_retain_block(
+    loom_low_schedule_build_state_t* state,
+    loom_low_schedule_pressure_state_t* pressure_state,
+    const loom_low_schedule_table_t* previous, uint32_t block_index);
 
 loom_low_schedule_ready_keys_t loom_low_schedule_pressure_ready_keys(
     const loom_low_schedule_build_state_t* state,

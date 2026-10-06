@@ -201,7 +201,7 @@ loom_target_compile_report_text_append_instruction_mix_fields(
       " scalar_write_bytes=%" PRIu64 " private_read_bytes=%" PRIu64
       " private_write_bytes=%" PRIu64 " unclassified_read_bytes=%" PRIu64
       " unclassified_write_bytes=%" PRIu64 " atomic=%" PRIu64 " branch=%" PRIu64
-      " barrier=%" PRIu64 " control=%" PRIu64 " conversion=%" PRIu64
+      " execution_barrier=%" PRIu64 " control=%" PRIu64 " conversion=%" PRIu64
       " cache=%" PRIu64 " register_move=%" PRIu64 "\n",
       (int)name.size, name.data, mix->descriptor_count, mix->unknown_count,
       mix->scalar_alu_count, mix->vector_alu_count, mix->matrix_count,
@@ -220,7 +220,7 @@ loom_target_compile_report_text_append_instruction_mix_fields(
       mix->scalar_write_byte_count, mix->private_read_byte_count,
       mix->private_write_byte_count, mix->unclassified_read_byte_count,
       mix->unclassified_write_byte_count, mix->atomic_count, mix->branch_count,
-      mix->barrier_count, mix->control_count, mix->conversion_count,
+      mix->execution_barrier_count, mix->control_count, mix->conversion_count,
       mix->cache_count, mix->register_move_count);
 }
 
@@ -616,7 +616,8 @@ static iree_status_t loom_target_compile_report_format_summary(
           loom_target_compile_report_format_text_source_low_memory_summary(
               summary, &report->workload, builder));
       IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(builder, "\n"));
-      if (report->bank_service_summary.modeled_packet_count != 0) {
+      if (report->bank_service_summary.modeled_packet_count != 0 ||
+          report->bank_service_summary.unmodeled_packet_count != 0) {
         IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
             builder,
             "COMPILE-REPORT: source_low_bank_service_summary groups=%" PRIhsz,
@@ -872,7 +873,8 @@ static iree_status_t loom_target_compile_report_format_entry_rows(
           row->wait_counter_row_count, row->wait_reason_summary_row_count,
           row->wait_action_row_count, row->target_capability_row_count,
           row->target_insertion_row_count));
-      if (row->bank_service_summary.modeled_packet_count != 0) {
+      if (row->bank_service_summary.modeled_packet_count != 0 ||
+          row->bank_service_summary.unmodeled_packet_count != 0) {
         IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
             builder,
             "COMPILE-REPORT: entry_bank_service[%" PRIhsz "] function=%.*s",

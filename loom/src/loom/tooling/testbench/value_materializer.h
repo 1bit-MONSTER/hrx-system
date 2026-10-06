@@ -6,10 +6,10 @@
 
 // Runtime value materialization for check testbench cases.
 //
-// This layer turns target-free check case plans into typed runtime values that
+// This layer turns target-free check plans into typed runtime values that
 // execution, oracle, comparison, and fixture-writing layers can consume. It is
-// intentionally separate from testbench.h so pure case discovery remains free
-// of HAL and file-format dependencies.
+// intentionally separate from testbench.h so pure discovery remains free of
+// HAL and file-format dependencies.
 
 #ifndef LOOM_TOOLING_TESTBENCH_VALUE_MATERIALIZER_H_
 #define LOOM_TOOLING_TESTBENCH_VALUE_MATERIALIZER_H_
@@ -18,6 +18,7 @@
 #include "iree/hal/api.h"
 #include "iree/io/stream.h"
 #include "iree/tooling/value_io.h"
+#include "loom/tooling/testbench/scenario/entropy.h"
 #include "loom/tooling/testbench/testbench.h"
 
 #ifdef __cplusplus
@@ -38,7 +39,25 @@ enum loom_testbench_value_kind_e {
   LOOM_TESTBENCH_VALUE_KIND_SCALAR = 1,
   // HAL buffer binding stored in |buffer|.
   LOOM_TESTBENCH_VALUE_KIND_BUFFER = 2,
+  // Immutable check.entropy identity stored in |entropy|.
+  LOOM_TESTBENCH_VALUE_KIND_ENTROPY = 3,
 };
+
+// Canonical recipe-relative identity for a materialized buffer reference.
+//
+// Physical buffers differ between target and oracle realizations. A traceable
+// reference instead names the authored allocation value and its accessible
+// byte range within that allocation.
+typedef struct loom_testbench_buffer_reference_t {
+  // True when the remaining fields identify an authored allocation.
+  bool is_traceable;
+  // SSA value defining the root allocation in the scenario recipe.
+  loom_value_id_t allocation_value_id;
+  // Byte origin within the logical root allocation.
+  iree_device_size_t byte_offset;
+  // Accessible byte extent beginning at |byte_offset|.
+  iree_device_size_t byte_length;
+} loom_testbench_buffer_reference_t;
 
 typedef struct loom_testbench_value_t {
   // Active payload discriminator.
@@ -48,7 +67,12 @@ typedef struct loom_testbench_value_t {
     iree_tooling_value_t scalar;
     // Retained HAL buffer payload used for shaped values.
     iree_tooling_buffer_binding_t buffer;
+    // Immutable deterministic entropy identity.
+    loom_testbench_entropy_t entropy;
   };
+  // Recipe-relative identity when |kind| is BUFFER and the reference can be
+  // traced to an authored allocation.
+  loom_testbench_buffer_reference_t buffer_reference;
 } loom_testbench_value_t;
 
 typedef struct loom_testbench_value_slot_t {
@@ -60,12 +84,10 @@ typedef struct loom_testbench_value_slot_t {
   loom_testbench_value_t value;
 } loom_testbench_value_slot_t;
 
-// Case-local table of materialized runtime values.
+// Scope-local table of materialized runtime values.
 typedef struct loom_testbench_value_table_t {
   // Module that owns the value IDs stored in |slots|.
   const loom_module_t* module;
-  // Case plan whose reachable values define |slots|.
-  const loom_testbench_case_plan_t* case_plan;
   // Host allocator that owns |slots|.
   iree_allocator_t host_allocator;
   // Sorted slots keyed by source Loom SSA value ID.
@@ -113,8 +135,22 @@ void loom_testbench_value_materializer_options_initialize(
     loom_testbench_value_materializer_options_t* out_options);
 
 // Initializes an empty value table for the values reachable from |case_plan|.
-iree_status_t loom_testbench_value_table_initialize(
+iree_status_t loom_testbench_value_table_initialize_case(
     const loom_module_t* module, const loom_testbench_case_plan_t* case_plan,
+    iree_allocator_t host_allocator, loom_testbench_value_table_t* out_table);
+
+// Initializes an empty table for one scenario's configuration recipe.
+iree_status_t loom_testbench_value_table_initialize_scenario_configuration(
+    const loom_module_t* module,
+    const loom_testbench_scenario_plan_t* scenario_plan,
+    iree_allocator_t host_allocator, loom_testbench_value_table_t* out_table);
+
+// Initializes an empty table for one scenario trial domain, including values
+// captured from its enclosing configuration recipe.
+iree_status_t loom_testbench_value_table_initialize_scenario_trial(
+    const loom_module_t* module,
+    const loom_testbench_scenario_plan_t* scenario_plan,
+    const loom_testbench_trial_plan_t* trial_plan,
     iree_allocator_t host_allocator, loom_testbench_value_table_t* out_table);
 
 // Releases all values and storage owned by |table|.
@@ -137,9 +173,17 @@ bool loom_testbench_value_is_scalar(const loom_testbench_value_t* value);
 // Returns true when |value| carries a HAL buffer.
 bool loom_testbench_value_is_buffer(const loom_testbench_value_t* value);
 
+// Returns true when |value| is an immutable entropy identity.
+bool loom_testbench_value_is_entropy(const loom_testbench_value_t* value);
+
 // Returns the HAL buffer view carried by |value|, or NULL when none exists.
 iree_hal_buffer_view_t* loom_testbench_value_buffer_view(
     const loom_testbench_value_t* value);
+
+// Assigns a canonical recipe-relative identity to a materialized buffer.
+void loom_testbench_value_set_buffer_reference(
+    loom_value_id_t allocation_value_id, iree_device_size_t byte_offset,
+    iree_device_size_t byte_length, loom_testbench_value_t* value);
 
 // Retains |source| into |out_value|. The caller must deinitialize |out_value|.
 void loom_testbench_value_retain(const loom_testbench_value_t* source,
@@ -174,6 +218,12 @@ iree_status_t loom_testbench_value_table_lookup_retain(
 iree_status_t loom_testbench_value_table_assign_move(
     loom_testbench_value_table_t* table, loom_value_id_t value_id,
     loom_testbench_value_t* value);
+
+// Materializes |source_count| source plans in source order into |table|.
+iree_status_t loom_testbench_materialize_value_sources(
+    const loom_testbench_value_materializer_options_t* options,
+    const loom_testbench_value_source_plan_t* sources,
+    iree_host_size_t source_count, loom_testbench_value_table_t* table);
 
 // Materializes parameters and source values for one concrete case sample.
 iree_status_t loom_testbench_materialize_case_sample(

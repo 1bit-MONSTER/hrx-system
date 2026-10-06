@@ -8,6 +8,7 @@ load(
     "//loom/build_tools/bazel:build_defs.bzl",
     "loom_cc_library",
     "loom_cc_test",
+    "loom_generated_cc_library",
     "loom_generated_file_family",
 )
 
@@ -15,6 +16,23 @@ package(
     default_visibility = ["//visibility:private"],
     features = ["layering_check"],
     licenses = ["notice"],  # Apache 2.0
+)
+
+loom_generated_cc_library(
+    name = "error_defs",
+    args = [
+        "--catalog-symbol=loom_xdna_error_catalog",
+        "--fallback-catalog-symbol=loom_error_catalog_core",
+        "--fallback-public-header=loom/error/error_catalog.h",
+        "--public-header=loom/target/arch/amd/xdna/error_catalog.h",
+        "--shard=xdna",
+    ],
+    generated_hdr_flags = ["--header"],
+    generated_hdrs = ["error_catalog.h"],
+    generator = "//loom/py/loom/gen/error:c_errors",
+    source = "error_catalog.c",
+    visibility = ["//loom/src/loom/target/arch/amd/xdna:__subpackages__"],
+    deps = ["//loom/src/loom/error:error_defs"],
 )
 
 loom_generated_file_family(

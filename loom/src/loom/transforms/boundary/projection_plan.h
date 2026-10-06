@@ -108,6 +108,8 @@ typedef struct loom_boundary_projection_block_t {
   iree_host_size_t edge_count;
 } loom_boundary_projection_block_t;
 
+typedef struct loom_boundary_projection_loop_t loom_boundary_projection_loop_t;
+
 struct loom_boundary_projection_function_t {
   // Original function-like operation.
   loom_func_like_t function;
@@ -177,6 +179,12 @@ struct loom_boundary_projection_function_t {
   loom_boundary_projection_block_t* blocks;
   // Number of rewritten blocks.
   iree_host_size_t block_count;
+  // LoopLike recurrence plans in operation postorder.
+  loom_boundary_projection_loop_t* loops;
+  // Number of populated loop plans.
+  iree_host_size_t loop_count;
+  // Allocated loop plan capacity.
+  iree_host_size_t loop_capacity;
   // Whether this function participates in the rewrite batch.
   bool selected;
   // Whether at least one signature slot is projected.
@@ -192,6 +200,9 @@ struct loom_boundary_projection_plan_t {
   loom_module_t* module;
   // Pass scratch arena owning the plan.
   iree_arena_allocator_t* arena;
+  // Whether a caller will observe finalized semantic rule decisions. Rules may
+  // skip provenance retained only for that observation when this is false.
+  bool observation_requested;
   // Shared rewriter for atomic mutation.
   loom_rewriter_t rewriter;
   // Concrete function-version snapshot by symbol ID.
@@ -222,6 +233,10 @@ struct loom_boundary_projection_plan_t {
   int64_t returns_rewritten;
   // Direct CFG edges replaced by the application phase.
   int64_t cfg_edges_rewritten;
+  // LoopLike operations replaced by the application phase.
+  int64_t loops_rewritten;
+  // LoopLike operations inspected while discovering recurrence slots.
+  int64_t loops_checked;
 };
 
 // Builds a complete, non-mutating boundary projection plan.
@@ -241,6 +256,35 @@ iree_status_t loom_boundary_projection_add_dependency(
     loom_boundary_projection_plan_t* plan,
     loom_boundary_projection_function_t* function, iree_host_size_t source,
     iree_host_size_t target, bool orders_realization);
+
+// Returns whether any active rule may claim |value_id| for |role| without
+// running semantic planning.
+bool loom_boundary_projection_may_claim_slot(
+    const loom_boundary_projection_plan_t* plan,
+    const loom_boundary_projection_function_t* function,
+    loom_boundary_projection_slot_role_t role, loom_value_id_t value_id,
+    loom_block_t* block);
+
+// Selects the unique semantic schema for one logical boundary slot.
+iree_status_t loom_boundary_projection_plan_slot_schema(
+    loom_boundary_projection_plan_t* plan,
+    loom_boundary_projection_function_t* function,
+    loom_boundary_projection_slot_role_t role, loom_value_id_t value_id,
+    loom_block_t* block, loom_boundary_projection_schema_t* out_schema,
+    bool* out_claimed);
+
+// Adds a structurally discovered slot whose schema will be assigned after
+// function-local rule preparation.
+iree_status_t loom_boundary_projection_add_provisional_slot(
+    loom_boundary_projection_plan_t* plan,
+    loom_boundary_projection_function_t* function, loom_value_id_t value_id,
+    loom_boundary_projection_slot_role_t role, loom_block_t* block);
+
+// Assigns the final schema and component storage to a provisional slot.
+iree_status_t loom_boundary_projection_finalize_provisional_slot(
+    loom_boundary_projection_plan_t* plan,
+    loom_boundary_projection_function_t* function, iree_host_size_t slot_index,
+    const loom_boundary_projection_schema_t* schema);
 
 // Returns invocation-wide state owned by |rule|, or NULL when unset.
 void* loom_boundary_projection_rule_state(
@@ -272,6 +316,11 @@ void loom_boundary_projection_record(
 
 // Records rule-owned destination uses rewritten during elimination.
 void loom_boundary_projection_record_destination_uses(
+    loom_boundary_projection_plan_t* plan,
+    const loom_boundary_projection_rule_t* rule, int64_t count);
+
+// Records rule-owned source operations removed during elimination.
+void loom_boundary_projection_record_source_operations(
     loom_boundary_projection_plan_t* plan,
     const loom_boundary_projection_rule_t* rule, int64_t count);
 

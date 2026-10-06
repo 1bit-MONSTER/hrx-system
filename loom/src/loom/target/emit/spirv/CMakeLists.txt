@@ -47,6 +47,7 @@ loom_cc_library(
     ::binary_format
     ::binary_writer
     iree::base
+    loom::target::arch::spirv::extended_instruction
     loom::target::arch::spirv::features
     loom::target::types
   PUBLIC
@@ -93,6 +94,22 @@ endif()
 if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
 loom_cc_library(
   NAME
+    program
+  HDRS
+    "program.h"
+  DEPS
+    iree::base
+    loom::codegen::low::descriptors
+    loom::ir
+    loom::target::facts
+    loom::target::types
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+loom_cc_library(
+  NAME
     module_instructions
   HDRS
     "module_instructions.h"
@@ -121,9 +138,9 @@ loom_cc_library(
     ::module_instructions
     ::module_types
     ::module_values
+    ::program
     iree::base
     iree::base::internal::arena
-    loom::codegen::low::target_binding
     loom::ir
     loom::ops::low
     loom::target::arch::spirv::descriptors::descriptors_ids
@@ -184,57 +201,51 @@ loom_cc_library(
     ::module_storage
     ::module_types
     ::module_values
+    ::program
     iree::base
     iree::base::internal::arena
-    loom::analysis::symbol_facts
     loom::codegen::low::function
-    loom::codegen::low::target_binding
-    loom::error::emitter
+    loom::codegen::low::representation_binding
     loom::ir
     loom::ops::low
     loom::target::arch::spirv::descriptors::descriptors_ids
     loom::target::arch::spirv::features
-    loom::target::arch::spirv::module_contract
     loom::target::arch::spirv::packet_rows
-    loom::target::function_version
-    loom::target::low_descriptor_registry
     loom::target::types
   PUBLIC
 )
 endif()
 
-if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
 loom_cc_library(
   NAME
-    loom_check
+    module_compiler
   HDRS
-    "check/loom_check.h"
+    "module_compiler.h"
   SRCS
-    "check/loom_check.c"
+    "module_compiler.c"
   DEPS
+    ::module_builder
     ::module_emitter
+    ::program
     iree::base
-    loom::target::entry_selection
-    loom::target::tool::spirv
-    loom::tooling::compile::pipeline
-    loom::tools::loom-check::execute
-    loom::verify
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-loom_cc_library(
-  NAME
-    check_provider
-  HDRS
-    "check/provider.h"
-  SRCS
-    "check/provider.c"
-  DEPS
-    ::loom_check
-    iree::base
-    loom::tools::loom-check::provider
+    iree::base::internal::arena
+    loom::analysis::symbol_facts
+    loom::codegen::low::descriptors
+    loom::codegen::low::diagnostics
+    loom::codegen::low::function
+    loom::codegen::low::target_binding
+    loom::error::emitter
+    loom::error::error_defs
+    loom::ir
+    loom::ops::op_defs
+    loom::target::arch::spirv::descriptors
+    loom::target::arch::spirv::module_contract
+    loom::target::facts
+    loom::target::function_version
+    loom::target::provider
+    loom::target::reporting::artifact_manifest_collect
+    loom::target::types
   PUBLIC
 )
 endif()
@@ -292,6 +303,7 @@ loom_check_test_suite(
     "test/buffer_raw.loom-test"
     "test/cooperative_matrix.loom-test"
     "test/entry_point.loom-test"
+    "test/extended_math.loom-test"
     "test/immediate_enums.loom-test"
     "test/index_conversion.loom-test"
     "test/integer_boolean.loom-test"
@@ -305,14 +317,18 @@ loom_check_test_suite(
     "test/scalar_abi.loom-test"
     "test/scalar_operations.loom-test"
     "test/schedule_scopes.loom-test"
+    "test/source_low/buffer_selection.loom-test"
     "test/source_low/index_numeric.loom-test"
-    "test/source_low/memory_integer_terms.loom-test"
     "test/source_low/memory_scalar_addressing.loom-test"
     "test/source_low/memory_workgroup_scalar_addressing.loom-test"
+    "test/source_low/numeric_bfloat_narrow.loom-test"
+    "test/source_low/numeric_bfloat_widen.loom-test"
+    "test/source_low/predicate_truncation.loom-test"
     "test/source_low/source_ordinary_vector_structure.loom-test"
     "test/source_structured_control.loom-test"
     "test/storage_buffer_abi.loom-test"
     "test/structured_control.loom-test"
+    "test/subgroup_ballot.loom-test"
     "test/workgroup_byte_offsets.loom-test"
     "test/workgroup_storage.loom-test"
   DATA

@@ -830,14 +830,14 @@ ERR_TARGET_050 = ErrorDef(
     ),
 )
 
-# ERR_TARGET_051: Low workgroup storage use exceeds target limit.
+# ERR_TARGET_051: Function workgroup storage use exceeds target limit.
 ERR_TARGET_051 = ErrorDef(
     domain=ErrorDomain.TARGET,
     code=51,
     severity=Severity.ERROR,
-    summary="Low workgroup storage use exceeds target limit.",
+    summary="Function workgroup storage use exceeds target limit.",
     message=(
-        "low function '@{function_name}' target '@{target_name}' reserves "
+        "function '@{function_name}' target '@{target_name}' reserves "
         "{reserved_bytes} byte(s) of workgroup storage, exceeding target limit "
         "{limit_bytes}"
     ),
@@ -1290,16 +1290,16 @@ ERR_TARGET_071 = ErrorDef(
     ),
 )
 
-# ERR_TARGET_072: Low invocation cannot preserve the helper contract.
+# ERR_TARGET_072: Low invocation violates the target call policy.
 ERR_TARGET_072 = ErrorDef(
     domain=ErrorDomain.TARGET,
     code=72,
     severity=Severity.ERROR,
-    summary="Low invocation cannot preserve the helper contract.",
+    summary="Low invocation violates the target call policy.",
     message=(
         "target '{target_key}' export '{export_name}' config '{config_key}' "
         "rejected '{op_name}' in '@{function_name}': low helper "
-        "'@{callee_name}' cannot be inlined because {reason}"
+        "'@{callee_name}' does not satisfy the call policy because {reason}"
     ),
     params=(
         *_TARGET_CONTEXT_PARAMS,
@@ -1307,8 +1307,8 @@ ERR_TARGET_072 = ErrorDef(
         ErrorParam("reason", ParamKind.STRING),
     ),
     fix_hint=(
-        "Use a module-local, single-block low.func.def with virtual register "
-        "allocation and no function-entry resource imports"
+        "Use a compatible module-local low.func.def and inline it before "
+        "target emission when the selected target has no direct Low call ABI"
     ),
 )
 
@@ -1512,102 +1512,6 @@ ERR_TARGET_082 = ErrorDef(
     fix_hint="Select a device profile provided by this target family.",
 )
 
-# ERR_TARGET_083: Array worker fold has an empty record sequence.
-ERR_TARGET_083 = ErrorDef(
-    domain=ErrorDomain.TARGET,
-    code=83,
-    severity=Severity.ERROR,
-    summary="Array worker fold has an empty record sequence.",
-    message=("array worker fold requires a positive record count; got {record_count}"),
-    params=(ErrorParam("record_count", ParamKind.U32),),
-    fix_hint="Provide a non-empty record sequence for the worker fold.",
-)
-
-# ERR_TARGET_084: AIE2P worker requires a frame-completion phase.
-ERR_TARGET_084 = ErrorDef(
-    domain=ErrorDomain.TARGET,
-    code=84,
-    severity=Severity.ERROR,
-    summary="AIE2P worker requires a frame-completion phase.",
-    message=(
-        "AIE2P pipeline group {group} has frame-completion stages that "
-        "require a phased worker program"
-    ),
-    params=(ErrorParam("group", ParamKind.U32),),
-    fix_hint="Place completion stages in a separate group.",
-)
-
-# ERR_TARGET_085: AIE2P worker outputs require different firing phases.
-ERR_TARGET_085 = ErrorDef(
-    domain=ErrorDomain.TARGET,
-    code=85,
-    severity=Severity.ERROR,
-    summary="AIE2P worker outputs require different firing phases.",
-    message=(
-        "AIE2P pipeline group {group} requires compatible folds on every "
-        "boundary output; mixed cadences require a phased worker program"
-    ),
-    params=(ErrorParam("group", ParamKind.U32),),
-    fix_hint="Place recordwise and folded outputs in separate groups.",
-)
-
-# ERR_TARGET_086: AIE2P internal buffered flow requires a ring state machine.
-ERR_TARGET_086 = ErrorDef(
-    domain=ErrorDomain.TARGET,
-    code=86,
-    severity=Severity.ERROR,
-    summary="AIE2P internal buffered flow requires a ring state machine.",
-    message=(
-        "AIE2P pipeline group {group} flow {flow} has capacity {capacity}; "
-        "buffered same-group flow requires a composite ring state machine"
-    ),
-    params=(
-        ErrorParam("group", ParamKind.U32),
-        ErrorParam("flow", ParamKind.U32),
-        ErrorParam("capacity", ParamKind.U32),
-    ),
-    fix_hint="Place the buffered flow producer and consumer in separate groups.",
-)
-
-# ERR_TARGET_087: AIE2P worker channel cycle requires interleaved phases.
-ERR_TARGET_087 = ErrorDef(
-    domain=ErrorDomain.TARGET,
-    code=87,
-    severity=Severity.ERROR,
-    summary="AIE2P worker channel cycle requires interleaved phases.",
-    message=(
-        "AIE2P worker {worker} (group {group} lane {lane}) participates in a "
-        "channel cycle but waits for all inputs before publishing any output"
-    ),
-    params=(
-        ErrorParam("worker", ParamKind.U32),
-        ErrorParam("group", ParamKind.U32),
-        ErrorParam("lane", ParamKind.U32),
-    ),
-    fix_hint="Place the stages in groups whose worker dependencies are acyclic.",
-)
-
-# ERR_TARGET_088: AIE2P channel has no available compute endpoint.
-ERR_TARGET_088 = ErrorDef(
-    domain=ErrorDomain.TARGET,
-    code=88,
-    severity=Severity.ERROR,
-    summary="AIE2P channel has no available compute endpoint.",
-    message=(
-        "AIE2P channel {channel} needs {capacity} records of {record_bytes} bytes, "
-        "compatible DMA channels, descriptors and locks on a compute tile visible "
-        "to worker ({column}, {row}); no candidate has all requested resources"
-    ),
-    params=(
-        ErrorParam("channel", ParamKind.U32),
-        ErrorParam("column", ParamKind.U32),
-        ErrorParam("row", ParamKind.U32),
-        ErrorParam("capacity", ParamKind.U32),
-        ErrorParam("record_bytes", ParamKind.U32),
-    ),
-    fix_hint="Reduce the channel capacity or record size, or change worker placement.",
-)
-
 # ERR_TARGET_089: Target representation requires structured control flow.
 ERR_TARGET_089 = ErrorDef(
     domain=ErrorDomain.TARGET,
@@ -1644,6 +1548,28 @@ ERR_TARGET_090 = ErrorDef(
         ErrorParam("function_name", ParamKind.STRING),
     ),
     fix_hint="Apply volatile only to a descriptor-backed memory access.",
+)
+
+# ERR_TARGET_091: Returning paths have no common native result carrier.
+ERR_TARGET_091 = ErrorDef(
+    domain=ErrorDomain.TARGET,
+    code=91,
+    severity=Severity.ERROR,
+    summary="Returning paths have no common native result carrier.",
+    message=(
+        "target '{target_key}' export '{export_name}' config '{config_key}' "
+        "rejected '{op_name}' in '@{function_name}': "
+        "result {result_index} of type {source_type} cannot join native "
+        "carriers {previous_type} and {incoming_type}"
+    ),
+    params=(
+        *_TARGET_CONTEXT_PARAMS,
+        ErrorParam("result_index", ParamKind.U32),
+        ErrorParam("source_type", ParamKind.TYPE),
+        ErrorParam("previous_type", ParamKind.TYPE),
+        ErrorParam("incoming_type", ParamKind.TYPE),
+    ),
+    fix_hint="Convert returning values to a representation supported on every path.",
 )
 
 ALL_TARGET_ERRORS = (
@@ -1719,12 +1645,7 @@ ALL_TARGET_ERRORS = (
     ERR_TARGET_080,
     ERR_TARGET_081,
     ERR_TARGET_082,
-    ERR_TARGET_083,
-    ERR_TARGET_084,
-    ERR_TARGET_085,
-    ERR_TARGET_086,
-    ERR_TARGET_087,
-    ERR_TARGET_088,
     ERR_TARGET_089,
     ERR_TARGET_090,
+    ERR_TARGET_091,
 )

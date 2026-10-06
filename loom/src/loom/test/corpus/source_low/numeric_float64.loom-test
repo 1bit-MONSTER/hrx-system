@@ -1,0 +1,64 @@
+// Scalar addition, numerical extrema, and ordered/unordered predicates.
+func.def @float64_add_extrema(%lhs: f64, %rhs: f64) -> (f64, f64, f64, f64, f64) {
+  %addf = scalar.addf %lhs, %rhs : f64
+  %minimumf = scalar.minimumf %lhs, %rhs : f64
+  %maximumf = scalar.maximumf %lhs, %rhs : f64
+  %minnumf = scalar.minnumf %lhs, %rhs : f64
+  %maxnumf = scalar.maxnumf %lhs, %rhs : f64
+  func.return %addf, %minimumf, %maximumf, %minnumf, %maxnumf : f64, f64, f64, f64, f64
+}
+
+// ====
+
+// Uniform f64 values retain SGPR storage until a packet requires a VGPR source.
+func.def @float64_uniform_add(%lhs_bits: i64, %rhs_bits: i64) -> (f64) {
+  %lhs = scalar.bitcast %lhs_bits : i64 to f64
+  %rhs = scalar.bitcast %rhs_bits : i64 to f64
+  %sum = scalar.addf %lhs, %rhs : f64
+  func.return %sum : f64
+}
+
+// ====
+
+// A mixed VGPR/SGPR pair already consumes only one VOP3 scalar source.
+func.def @float64_mixed_add(%lhs: f64, %rhs_bits: i64) -> (f64) {
+  %rhs = scalar.bitcast %rhs_bits : i64 to f64
+  %sum = scalar.addf %lhs, %rhs : f64
+  func.return %sum : f64
+}
+
+// ====
+
+func.def @float64_predicates(%lhs: f64, %rhs: f64) -> (i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1) {
+  %oeq = scalar.cmpf oeq, %lhs, %rhs : f64
+  %ogt = scalar.cmpf ogt, %lhs, %rhs : f64
+  %oge = scalar.cmpf oge, %lhs, %rhs : f64
+  %olt = scalar.cmpf olt, %lhs, %rhs : f64
+  %ole = scalar.cmpf ole, %lhs, %rhs : f64
+  %one = scalar.cmpf one, %lhs, %rhs : f64
+  %ord = scalar.cmpf ord, %lhs, %rhs : f64
+  %ueq = scalar.cmpf ueq, %lhs, %rhs : f64
+  %ugt = scalar.cmpf ugt, %lhs, %rhs : f64
+  %uge = scalar.cmpf uge, %lhs, %rhs : f64
+  %ult = scalar.cmpf ult, %lhs, %rhs : f64
+  %ule = scalar.cmpf ule, %lhs, %rhs : f64
+  %une = scalar.cmpf une, %lhs, %rhs : f64
+  %uno = scalar.cmpf uno, %lhs, %rhs : f64
+  func.return %oeq, %ogt, %oge, %olt, %ole, %one, %ord, %ueq, %ugt, %uge, %ult, %ule, %une, %uno : i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1
+}
+
+// ====
+
+func.def @float64_number_without_nan(%lhs: f64, %rhs: f64) -> (f64, f64) {
+  %minimum = scalar.minnumf<nnan> %lhs, %rhs : f64
+  %maximum = scalar.maxnumf<nnan> %lhs, %rhs : f64
+  func.return %minimum, %maximum : f64, f64
+}
+
+// ====
+
+func.def @float64_number_vectors(%lhs: vector<2xf64>, %rhs: vector<2xf64>) -> (vector<2xf64>, vector<2xf64>) {
+  %minimum = vector.minnumf %lhs, %rhs : vector<2xf64>
+  %maximum = vector.maxnumf %lhs, %rhs : vector<2xf64>
+  func.return %minimum, %maximum : vector<2xf64>, vector<2xf64>
+}

@@ -74,20 +74,19 @@ low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_c
   %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
   %input_view = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 16, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
-  %23 = storage {byte_alignment = 4, byte_length = 8} : low.storage<private>
-  %24 = storage {byte_alignment = 8, byte_length = 16} : low.storage<private>
-  %27 = v_mov_b32 0
-  %lhs = global_load_b32_saddr %27, %input_view
-  scratch_store_b32_vaddr %27, %lhs
-  %rhs = global_load_b32_saddr %27, %input_view {offset = 4}
-  scratch_store_b32_vaddr %27, %rhs {offset = 4}
-  scratch_store_b32_vaddr %27, %lhs {offset = 12}
-  scratch_store_b32_vaddr %27, %rhs {offset = 16}
-  %35 = v_lshlrev_b32_src0_inline %lane, 2
-  %first_loaded = scratch_load_b32_vaddr %35
-  %second_loaded = scratch_load_b32_vaddr %35 {offset = 12}
-  global_store_b32_saddr %35, %first_loaded, %output_view
-  global_store_b32_saddr %35, %second_loaded, %output_view {offset = 4}
+  %23 = storage {byte_alignment = 8, byte_length = 24} : low.storage<private>
+  %26 = v_mov_b32 0
+  %lhs = global_load_b32_saddr %26, %input_view
+  scratch_store_b32_vaddr %26, %lhs
+  %rhs = global_load_b32_saddr %26, %input_view {offset = 4}
+  scratch_store_b32_vaddr %26, %rhs {offset = 4}
+  scratch_store_b32_vaddr %26, %lhs {offset = 12}
+  scratch_store_b32_vaddr %26, %rhs {offset = 16}
+  %34 = v_lshlrev_b32_src0_inline %lane, 2
+  %first_loaded = scratch_load_b32_vaddr %34
+  %second_loaded = scratch_load_b32_vaddr %34 {offset = 12}
+  global_store_b32_saddr %34, %first_loaded, %output_view
+  global_store_b32_saddr %34, %second_loaded, %output_view {offset = 4}
   return
 }
 

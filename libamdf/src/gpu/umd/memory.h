@@ -23,10 +23,6 @@ typedef struct amdf_gpu_umd_device_t amdf_gpu_umd_device_t;
 typedef struct amdf_gpu_umd_memory_result_t {
   // Achieved attachment properties.
   amdf_memory_flags_t flags;
-  // Atomic operations supported by 32-bit words in this attachment.
-  amdf_atomic_operations_t atomic_operations_32;
-  // Atomic operations supported by 64-bit words in this attachment.
-  amdf_atomic_operations_t atomic_operations_64;
   // Byte offset of logical byte zero in the physical backing.
   uint64_t source_byte_offset;
   // Logical attachment length in bytes.
@@ -65,6 +61,8 @@ amdf_status_t amdf_gpu_umd_device_query_memory_profile(
 // progress remains in that slot on failure for explicit destruction. Failure
 // before metadata allocation leaves the slot NULL. Only success publishes
 // complete properties to `out_result`; no rollback occurs inside preparation.
+// Successful preparation upholds each resolved consumer profile's atomic
+// operation contract; those masks remain per-consumer profile properties.
 // Peers are a borrowed span from the selected allocation domain in the same
 // instance, with identical exact permissions. A zero count supplies NULL.
 amdf_status_t amdf_gpu_umd_memory_prepare(
@@ -99,6 +97,14 @@ amdf_status_t amdf_gpu_umd_memory_export(
 // system call or lazy initialization. Unqualified cache semantics return
 // UNSUPPORTED without publishing a partial description.
 amdf_status_t amdf_gpu_umd_memory_describe_site(
+    const amdf_memory_site_query_t* query,
+    amdf_memory_site_description_t* out_description);
+
+// Describes owned SYSTEM backing whose native profile establishes CPU/CP
+// STORE support. Exact coherent read/write access and PM4 queue STORE support
+// are still required independently for each width. Other queue and memory
+// operations inherit the ordinary visibility description without atomic reach.
+amdf_status_t amdf_gpu_umd_memory_describe_system_store_site(
     const amdf_memory_site_query_t* query,
     amdf_memory_site_description_t* out_description);
 

@@ -8,6 +8,7 @@
 #include "loom/error/error_catalog.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
+#include "loom/ir/scalar_type.h"
 #include "loom/ops/sanitizer/ops.h"
 #include "loom/ops/view/access_verifier.h"
 
@@ -39,6 +40,19 @@ static iree_status_t loom_sanitizer_emit_attribute_value_constraint(
       loom_param_string(expected_constraint),
   };
   return loom_sanitizer_emit(emitter, op, LOOM_ERR_STRUCTURE_014, params,
+                             IREE_ARRAYSIZE(params));
+}
+
+static iree_status_t loom_sanitizer_emit_operand_constraint(
+    iree_diagnostic_emitter_t emitter, const loom_op_t* op,
+    iree_string_view_t operand_name, loom_type_t actual_type,
+    iree_string_view_t expected_constraint) {
+  loom_diagnostic_param_t params[] = {
+      loom_param_string(operand_name),
+      loom_param_type(actual_type),
+      loom_param_string(expected_constraint),
+  };
+  return loom_sanitizer_emit(emitter, op, LOOM_ERR_TYPE_003, params,
                              IREE_ARRAYSIZE(params));
 }
 
@@ -226,28 +240,6 @@ static iree_status_t loom_sanitizer_assert_accesses_verify_static_shape(
 // Predicate assertions
 //===----------------------------------------------------------------------===//
 
-static iree_string_view_t loom_sanitizer_predicate_expected_type(
-    uint8_t predicate_kind) {
-  switch ((loom_predicate_kind_t)predicate_kind) {
-    case LOOM_PREDICATE_NOT_NAN:
-    case LOOM_PREDICATE_NOT_INF:
-    case LOOM_PREDICATE_FINITE:
-      return IREE_SV("floating-point value");
-    default:
-      return IREE_SV("integer, index, or offset value");
-  }
-}
-
-static bool loom_sanitizer_value_is_assert_operand(loom_value_slice_t values,
-                                                   loom_value_id_t value_id) {
-  for (uint16_t i = 0; i < values.count; ++i) {
-    if (values.values[i] == value_id) {
-      return true;
-    }
-  }
-  return false;
-}
-
 static void loom_sanitizer_format_predicate_arg(char* buffer,
                                                 iree_host_size_t capacity,
                                                 uint16_t predicate_index,
@@ -256,7 +248,7 @@ static void loom_sanitizer_format_predicate_arg(char* buffer,
                 argument_index);
 }
 
-static iree_status_t loom_sanitizer_emit_unlisted_predicate_value(
+static iree_status_t loom_sanitizer_emit_predicate_argument_constraint(
     const loom_module_t* module, iree_diagnostic_emitter_t emitter,
     const loom_op_t* op, uint16_t predicate_index, uint8_t argument_index,
     iree_string_view_t expected_constraint) {
@@ -272,54 +264,21 @@ static iree_status_t loom_sanitizer_emit_unlisted_predicate_value(
                              IREE_ARRAYSIZE(params));
 }
 
-static iree_status_t loom_sanitizer_emit_predicate_value_type(
-    iree_diagnostic_emitter_t emitter, const loom_op_t* op,
-    uint16_t predicate_index, uint8_t argument_index, loom_type_t actual_type,
-    iree_string_view_t expected_type) {
-  char field_name[40];
-  loom_sanitizer_format_predicate_arg(field_name, sizeof(field_name),
-                                      predicate_index, argument_index);
-  loom_diagnostic_param_t params[] = {
-      loom_param_string(iree_make_cstring_view(field_name)),
-      loom_param_type(actual_type),
-      loom_param_string(expected_type),
-  };
-  return loom_sanitizer_emit(emitter, op, LOOM_ERR_TYPE_003, params,
-                             IREE_ARRAYSIZE(params));
-}
-
-static iree_status_t loom_sanitizer_verify_predicates_reference_values(
+static iree_status_t loom_sanitizer_verify_predicate_schemas(
     const loom_module_t* module, const loom_op_t* op,
-    iree_diagnostic_emitter_t emitter, loom_value_slice_t values,
-    loom_attribute_t predicates, iree_string_view_t expected_constraint) {
+    iree_diagnostic_emitter_t emitter, loom_attribute_t predicates) {
   for (uint16_t predicate_index = 0; predicate_index < predicates.count;
        ++predicate_index) {
     const loom_predicate_t* predicate =
         &predicates.predicate_list[predicate_index];
-    for (uint8_t argument_index = 0; argument_index < predicate->arg_count;
-         ++argument_index) {
-      if (predicate->arg_tags[argument_index] != LOOM_PRED_ARG_VALUE) {
-        continue;
-      }
-      if (predicate->args[argument_index] < 0) {
-        return loom_sanitizer_emit_unlisted_predicate_value(
-            module, emitter, op, predicate_index, argument_index,
-            expected_constraint);
-      }
-      loom_value_id_t value_id =
-          (loom_value_id_t)predicate->args[argument_index];
-      if (!loom_sanitizer_value_is_assert_operand(values, value_id)) {
-        return loom_sanitizer_emit_unlisted_predicate_value(
-            module, emitter, op, predicate_index, argument_index,
-            expected_constraint);
-      }
-      loom_type_t value_type = loom_module_value_type(module, value_id);
-      if (!loom_predicate_kind_accepts_value_type(predicate->kind,
-                                                  value_type)) {
-        return loom_sanitizer_emit_predicate_value_type(
-            emitter, op, predicate_index, argument_index, value_type,
-            loom_sanitizer_predicate_expected_type(predicate->kind));
-      }
+    // Runtime multiplication assertions lower to a remainder-by-immediate
+    // check. Other predicate schema, type, and operand-origin invariants are
+    // established by the generic predicate verifier.
+    if (predicate->kind == LOOM_PREDICATE_MUL &&
+        predicate->arg_tags[1] != LOOM_PRED_ARG_CONST) {
+      return loom_sanitizer_emit_predicate_argument_constraint(
+          module, emitter, op, predicate_index, 1,
+          IREE_SV("a positive literal divisor"));
     }
   }
   return iree_ok_status();
@@ -430,6 +389,29 @@ iree_status_t loom_sanitizer_race_access_verify(
   return iree_ok_status();
 }
 
+iree_status_t loom_sanitizer_race_fragment_access_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter) {
+  const loom_type_t view_type = loom_module_value_type(
+      module, loom_sanitizer_race_fragment_access_view(op));
+  IREE_RETURN_IF_ERROR(loom_view_verify_element_access(
+      module, op, emitter, IREE_SV("view"), view_type,
+      loom_sanitizer_race_fragment_access_static_indices(op),
+      loom_sanitizer_race_fragment_access_indices(op).count));
+
+  const uint8_t fragment_rank =
+      loom_sanitizer_race_fragment_access_blocks_is_present(op) ? 3 : 2;
+  if (loom_type_is_view(view_type) &&
+      loom_type_rank(view_type) < fragment_rank) {
+    return loom_sanitizer_emit_operand_constraint(
+        emitter, op, IREE_SV("view"), view_type,
+        fragment_rank == 3 ? IREE_SV("rank >= 3 view")
+                           : IREE_SV("rank >= 2 view"));
+  }
+
+  return iree_ok_status();
+}
+
 iree_status_t loom_sanitizer_race_sync_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter) {
@@ -447,18 +429,15 @@ iree_status_t loom_sanitizer_race_sync_verify(
 iree_status_t loom_sanitizer_assert_value_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter) {
-  return loom_sanitizer_verify_predicates_reference_values(
-      module, op, emitter, loom_sanitizer_assert_value_values(op),
-      loom_sanitizer_assert_value_predicates(op),
-      IREE_SV("an asserted value operand"));
+  return loom_sanitizer_verify_predicate_schemas(
+      module, op, emitter, loom_sanitizer_assert_value_predicates(op));
 }
 
 iree_status_t loom_sanitizer_assert_op_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter) {
-  return loom_sanitizer_verify_predicates_reference_values(
-      module, op, emitter, loom_sanitizer_assert_op_values(op),
-      loom_sanitizer_assert_op_predicates(op), IREE_SV("an assertion operand"));
+  return loom_sanitizer_verify_predicate_schemas(
+      module, op, emitter, loom_sanitizer_assert_op_predicates(op));
 }
 
 iree_status_t loom_sanitizer_assert_layout_verify(

@@ -1,0 +1,361 @@
+// RUN: roundtrip
+// A constant wrapper is converted to the declared scalar parameter type.
+template <class T>
+struct Scalar {
+  T value;
+  constexpr operator T() const { return value; }
+};
+constexpr Scalar<unsigned> count{5};
+template <unsigned N>
+unsigned choose(unsigned input) {
+  return input + N;
+}
+unsigned entry(unsigned x) { return choose<count>(x); }
+
+// ----
+func.def public @entry(%x: i32) -> (i32) {
+  %2 = func.call @choose_5(%x) : (i32) -> (i32)
+  func.return %2 : i32
+}
+
+func.def @choose_5(%input: i32) -> (i32) {
+  %5 = scalar.constant 5 : i32
+  %6 = scalar.addi %input, %5 : i32
+  func.return %6 : i32
+}
+
+// ====
+// Default arguments use the same conversion as explicit arguments.
+template <class T>
+struct Scalar {
+  T value;
+  constexpr operator T() const { return value; }
+};
+constexpr Scalar<unsigned> count{5};
+template <unsigned N = count>
+unsigned choose(unsigned x) {
+  return x + N;
+}
+unsigned entry(unsigned x) { return choose<>(x); }
+
+// ----
+func.def public @entry(%x: i32) -> (i32) {
+  %2 = func.call @choose_5(%x) : (i32) -> (i32)
+  func.return %2 : i32
+}
+
+func.def @choose_5(%x: i32) -> (i32) {
+  %5 = scalar.constant 5 : i32
+  %6 = scalar.addi %x, %5 : i32
+  func.return %6 : i32
+}
+
+// ====
+// Earlier type arguments determine the required scalar conversion.
+template <class T>
+struct Scalar {
+  T value;
+  constexpr operator T() const { return value; }
+};
+constexpr Scalar<unsigned> count{5};
+template <class T, T N>
+T choose(T x) {
+  return x + N;
+}
+unsigned entry(unsigned x) { return choose<unsigned, count>(x); }
+
+// ----
+func.def public @entry(%x: i32) -> (i32) {
+  %2 = func.call @choose_unsigned_int_5(%x) : (i32) -> (i32)
+  func.return %2 : i32
+}
+
+func.def @choose_unsigned_int_5(%x: i32) -> (i32) {
+  %5 = scalar.constant 5 : i32
+  %6 = scalar.addi %x, %5 : i32
+  func.return %6 : i32
+}
+
+// ====
+// Explicit pack elements retain their expressions until typed conversion.
+template <class T>
+struct Scalar {
+  T value;
+  constexpr operator T() const { return value; }
+};
+constexpr Scalar<unsigned> count{5};
+template <unsigned... N>
+unsigned choose(unsigned x) {
+  return x + (N + ...);
+}
+unsigned entry(unsigned x) { return choose<count, 7>(x); }
+
+// ----
+func.def public @entry(%x: i32) -> (i32) {
+  %2 = func.call @choose__(%x) : (i32) -> (i32)
+  func.return %2 : i32
+}
+
+func.def @choose__(%x: i32) -> (i32) {
+  %5 = scalar.constant 5 : i32
+  %6 = scalar.constant 7 : i32
+  %7 = scalar.addi %5, %6 : i32
+  %8 = scalar.addi %x, %7 : i32
+  func.return %8 : i32
+}
+
+// ====
+// Negative constants retain their value instead of replaying a class
+// initializer.
+template <class T>
+struct Scalar {
+  T value;
+  constexpr operator T() const { return value; }
+};
+constexpr Scalar<unsigned> count{5};
+constexpr Scalar<int> bias{-3};
+template <int N>
+int choose(int x) {
+  return x + N;
+}
+int entry(int x) { return choose<bias>(x); }
+
+// ----
+func.def public @entry(%x: i32) -> (i32) {
+  %2 = func.call @choose__3(%x) : (i32) -> (i32)
+  func.return %2 : i32
+}
+
+func.def @choose__3(%x: i32) -> (i32) {
+  %5 = scalar.constant -3 : i32
+  %6 = scalar.addi %x, %5 : i32
+  func.return %6 : i32
+}
+
+// ====
+// A placeholder parameter carries the deduced type into its instantiated body.
+template <auto N>
+auto choose() {
+  return N;
+}
+unsigned entry() { return choose<5u>(); }
+
+// ----
+func.def public @entry() -> (i32) {
+  %1 = func.call @choose_5() : () -> (i32)
+  func.return %1 : i32
+}
+
+func.def @choose_5() -> (i32) {
+  %3 = scalar.constant 5 : i32
+  func.return %3 : i32
+}
+
+// ====
+// Class and function template arguments share typed constant normalization.
+template <class T>
+struct Scalar {
+  T value;
+  constexpr operator T() const { return value; }
+};
+constexpr Scalar<unsigned> count{5};
+template <unsigned N>
+struct Add {
+  static unsigned apply(unsigned x) { return x + N; }
+};
+unsigned entry(unsigned x) { return Add<count>::apply(x); }
+
+// ----
+func.def public @entry(%x: i32) -> (i32) {
+  %2 = func.call @apply(%x) : (i32) -> (i32)
+  func.return %2 : i32
+}
+
+func.def @apply(%x: i32) -> (i32) {
+  %5 = scalar.constant 5 : i32
+  %6 = scalar.addi %x, %5 : i32
+  func.return %6 : i32
+}
+
+// ====
+// A reference parameter retains its object expression rather than an integer
+// literal.
+constexpr unsigned count = 5;
+template <const unsigned& N>
+unsigned choose(unsigned x) {
+  return x + N;
+}
+unsigned entry(unsigned x) { return choose<count>(x); }
+
+// ----
+func.def public @entry(%x: i32) -> (i32) {
+  %2 = func.call @choose_count(%x) : (i32) -> (i32)
+  func.return %2 : i32
+}
+
+func.def @choose_count(%x: i32) -> (i32) {
+  %5 = scalar.constant 5 : i32
+  %6 = scalar.addi %x, %5 : i32
+  func.return %6 : i32
+}
+
+// ====
+// Converted Boolean constants retain Boolean types and values in imported IR.
+template <bool N>
+bool choose() {
+  return N;
+}
+bool enabled() { return choose<1>(); }
+bool disabled() { return choose<0>(); }
+
+// ----
+func.def public @enabled() -> (i1) {
+  %1 = func.call @choose_1() : () -> (i1)
+  func.return %1 : i1
+}
+
+func.def public @disabled() -> (i1) {
+  %3 = func.call @choose_0() : () -> (i1)
+  func.return %3 : i1
+}
+
+func.def @choose_1() -> (i1) {
+  %5 = scalar.constant 1 : i1
+  func.return %5 : i1
+}
+
+func.def @choose_0() -> (i1) {
+  %7 = scalar.constant 0 : i1
+  func.return %7 : i1
+}
+
+// ====
+// Restrictions apply to the parameter conversion, not casts inside a constexpr
+// function.
+struct Scalar {
+  constexpr operator unsigned() const { return (unsigned)3.5f; }
+};
+constexpr Scalar value{};
+template <unsigned N>
+unsigned choose(unsigned input) {
+  return input + N;
+}
+unsigned entry(unsigned input) { return choose<value>(input); }
+
+// ----
+func.def public @entry(%input: i32) -> (i32) {
+  %2 = func.call @choose_3(%input) : (i32) -> (i32)
+  func.return %2 : i32
+}
+
+func.def @choose_3(%input: i32) -> (i32) {
+  %5 = scalar.constant 3 : i32
+  %6 = scalar.addi %input, %5 : i32
+  func.return %6 : i32
+}
+
+// ====
+// Specialization identity uses the converted parameter type and value.
+template <unsigned N>
+struct Tag {};
+static_assert(__is_same(Tag<1>, Tag<true>));
+static_assert(__is_same(Tag<5>, Tag<5u>));
+template <bool N>
+struct Flag {};
+static_assert(__is_same(Flag<1>, Flag<true>));
+unsigned entry() { return 1; }
+
+// ----
+func.def public @entry() -> (i32) {
+  %1 = scalar.constant 1 : i32
+  func.return %1 : i32
+}
+
+// ====
+// An invalid constant conversion makes a requires-expression false.
+template <unsigned N>
+unsigned choose();
+struct Scalar {
+  operator unsigned() const { return 5; }
+};
+template <class T>
+concept Accepted = requires { choose<T{}>(); };
+static_assert(!Accepted<Scalar>);
+unsigned entry() { return 7; }
+
+// ----
+func.def public @entry() -> (i32) {
+  %1 = scalar.constant 7 : i32
+  func.return %1 : i32
+}
+
+// ====
+// Integral narrowing is permitted when the converted value is representable.
+template <class T, T N>
+constexpr T value() {
+  return N;
+}
+static_assert(value<signed char, -128>() == -128);
+static_assert(value<unsigned char, 255>() == 255);
+static_assert(value<long long, 0x7fffffffffffffffULL>() ==
+              0x7fffffffffffffffLL);
+static_assert(value<unsigned long long, 0xffffffffffffffffULL>() ==
+              0xffffffffffffffffULL);
+static_assert(value<bool, 1>());
+unsigned entry() { return value<unsigned char, 255>(); }
+
+// ----
+func.def public @entry() -> (i32) {
+  %1 = func.call @value_unsigned_char_255() : () -> (i8)
+  %2 = scalar.extui %1 : i8 to i32
+  func.return %2 : i32
+}
+
+func.def @value_unsigned_char_255() -> (i8) {
+  %4 = scalar.constant -1 : i8
+  func.return %4 : i8
+}
+
+// ====
+// A floating wrapper retains its scalar type and value after conversion.
+struct Scalar {
+  constexpr operator float() const { return 1.5f; }
+};
+constexpr Scalar value{};
+template <float N>
+float choose(float x) {
+  return x + N;
+}
+float entry(float x) { return choose<value>(x); }
+
+// ----
+func.def public @entry(%x: f32) -> (f32) {
+  %2 = func.call @choose_1_5(%x) : (f32) -> (f32)
+  func.return %2 : f32
+}
+
+func.def @choose_1_5(%x: f32) -> (f32) {
+  %5 = scalar.constant 1.5 : f32
+  %6 = scalar.addf %x, %5 : f32
+  func.return %6 : f32
+}
+
+// ====
+// An exact floating conversion satisfies the converted-constant-expression rule.
+template <float N>
+float choose(float x) {
+  return x + N;
+}
+float entry(float x) { return choose<1.5>(x); }
+
+// ----
+func.def public @entry(%x: f32) -> (f32) {
+  %2 = func.call @choose_1_5(%x) : (f32) -> (f32)
+  func.return %2 : f32
+}
+
+func.def @choose_1_5(%x: f32) -> (f32) {
+  %5 = scalar.constant 1.5 : f32
+  %6 = scalar.addf %x, %5 : f32
+  func.return %6 : f32
+}

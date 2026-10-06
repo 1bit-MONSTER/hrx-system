@@ -49,10 +49,13 @@ iree_status_t loom_low_allocation_scalar_packing_build(
       arena, word_count, sizeof(*overlaps.words), (void**)&overlaps.words));
   memset(overlaps.words, 0, word_count * sizeof(*overlaps.words));
 
-  // Earlier-starting aggregates overlap iff their latest end crosses the
-  // scalar's start. Dead definitions still reserve their definition point.
+  // Earlier-acquired aggregates overlap iff their latest end crosses the
+  // scalar's acquisition. Dead definitions still reserve their definition
+  // point.
   for (iree_host_size_t i = 0; i < order->interval_count; ++i) {
-    const loom_liveness_interval_t* interval = order->intervals[i];
+    const loom_low_allocation_interval_order_entry_t* entry =
+        &order->intervals[i];
+    const loom_liveness_interval_t* interval = entry->interval;
     const uint16_t class_id = interval->value_class.register_class_id;
     if (!frontiers[class_id]) {
       continue;
@@ -61,21 +64,23 @@ iree_status_t loom_low_allocation_scalar_packing_build(
       points[class_id] = iree_max(
           points[class_id],
           loom_low_allocation_live_range_interval_storage_end_point(interval));
-    } else if (points[class_id] > interval->start_point) {
+    } else if (points[class_id] > entry->acquisition_start_point) {
       iree_bitmap_set(overlaps, interval - liveness->intervals);
     }
   }
-  // Later-starting aggregates overlap iff the nearest start precedes the
+  // Later-acquired aggregates overlap iff the nearest acquisition precedes the
   // scalar's end. Together the sweeps cover both containment directions.
   memset(points, 0xFF, class_count * sizeof(*points));
   for (iree_host_size_t i = order->interval_count; i > 0; --i) {
-    const loom_liveness_interval_t* interval = order->intervals[i - 1];
+    const loom_low_allocation_interval_order_entry_t* entry =
+        &order->intervals[i - 1];
+    const loom_liveness_interval_t* interval = entry->interval;
     const uint16_t class_id = interval->value_class.register_class_id;
     if (!frontiers[class_id]) {
       continue;
     }
     if (interval->unit_count > 1) {
-      points[class_id] = interval->start_point;
+      points[class_id] = entry->acquisition_start_point;
     } else if (points[class_id] <
                loom_low_allocation_live_range_interval_storage_end_point(
                    interval)) {

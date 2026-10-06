@@ -201,7 +201,7 @@ def _method_params(signature: BuilderSignature) -> list[str]:
     params = ["self"]
     params.append("*")
     params.extend(keyword_params)
-    if signature.op.results:
+    if signature.op.results and not signature.op.has_signature_only_results:
         params.extend(
             [
                 "name: str | None = ...",

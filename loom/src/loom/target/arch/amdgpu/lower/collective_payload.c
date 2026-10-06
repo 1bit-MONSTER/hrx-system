@@ -12,6 +12,22 @@
 #include "loom/target/arch/amdgpu/lower/topology.h"
 #include "loom/target/arch/amdgpu/lower/types.h"
 
+uint32_t loom_amdgpu_collective_transport_register_count(loom_type_t type) {
+  const loom_scalar_type_t element_type = loom_type_element_type(type);
+  if (!loom_scalar_type_set_contains(
+          LOOM_SCALAR_TYPE_SET_INTEGER_PAYLOAD | LOOM_SCALAR_TYPE_SET_FLOAT,
+          element_type)) {
+    return 0;
+  }
+  if (loom_type_is_scalar(type)) {
+    return (loom_scalar_type_bitwidth(element_type) + 31u) / 32u;
+  }
+  loom_amdgpu_vector_storage_t storage;
+  return loom_amdgpu_type_vector_storage(type, &storage)
+             ? storage.register_count
+             : 0;
+}
+
 static loom_amdgpu_subgroup_payload_kind_t loom_amdgpu_collective_payload_kind(
     loom_type_t type, uint32_t* out_register_count) {
   *out_register_count = 0;
@@ -36,7 +52,7 @@ static loom_amdgpu_subgroup_payload_kind_t loom_amdgpu_collective_payload_kind(
   return LOOM_AMDGPU_SUBGROUP_PAYLOAD_NONE;
 }
 
-bool loom_amdgpu_collective_payload_is_supported(
+bool loom_amdgpu_collective_arithmetic_payload_is_supported(
     const loom_module_t* module, loom_value_id_t value_id,
     loom_amdgpu_subgroup_payload_kind_t* out_kind,
     uint32_t* out_register_count) {
@@ -89,14 +105,6 @@ bool loom_amdgpu_collective_resolve_workgroup_shape(
     return false;
   }
 
-  const uint64_t scratch_byte_length =
-      (uint64_t)wave_count * register_count * 4u;
-  if (scratch_byte_length > UINT32_MAX) {
-    *out_failure =
-        LOOM_AMDGPU_WORKGROUP_COLLECTIVE_SHAPE_FAILURE_SCRATCH_BYTE_LENGTH;
-    return false;
-  }
-
   loom_amdgpu_workgroup_collective_shape_flags_t flags = 0;
   if (flat_workgroup_size > partition_lane_count) {
     flags |= LOOM_AMDGPU_WORKGROUP_COLLECTIVE_SHAPE_MULTI_WAVE;
@@ -104,10 +112,21 @@ bool loom_amdgpu_collective_resolve_workgroup_shape(
       flags |= LOOM_AMDGPU_WORKGROUP_COLLECTIVE_SHAPE_PARTIAL_TAIL;
     }
   }
+  const uint64_t scratch_byte_length =
+      iree_all_bits_set(flags,
+                        LOOM_AMDGPU_WORKGROUP_COLLECTIVE_SHAPE_MULTI_WAVE)
+          ? (uint64_t)wave_count * register_count * 4u
+          : 0;
+  if (scratch_byte_length > UINT32_MAX) {
+    *out_failure =
+        LOOM_AMDGPU_WORKGROUP_COLLECTIVE_SHAPE_FAILURE_SCRATCH_BYTE_LENGTH;
+    return false;
+  }
 
   *out_shape = (loom_amdgpu_workgroup_collective_shape_t){
       .flat_workgroup_size = flat_workgroup_size,
       .wave_count = wave_count,
+      .scratch_byte_length = (uint32_t)scratch_byte_length,
       .flags = flags,
   };
   return true;

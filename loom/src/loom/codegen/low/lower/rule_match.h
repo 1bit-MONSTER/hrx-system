@@ -24,6 +24,7 @@ typedef struct loom_low_lower_rule_match_context_t
     loom_low_lower_rule_match_context_t;
 typedef struct loom_low_lower_rule_source_memory_state_t
     loom_low_lower_rule_source_memory_state_t;
+typedef struct loom_consumption_region_query_t loom_consumption_region_query_t;
 typedef struct loom_symbolic_expr_context_t loom_symbolic_expr_context_t;
 
 typedef iree_status_t (*loom_low_lower_rule_match_map_value_fn_t)(
@@ -64,6 +65,21 @@ typedef struct loom_low_lower_rule_match_descriptor_ref_callback_t {
   void* user_data;
 } loom_low_lower_rule_match_descriptor_ref_callback_t;
 
+typedef uint64_t (
+    *loom_low_lower_rule_match_source_memory_root_byte_offset_fn_t)(
+    void* user_data,
+    const loom_low_source_memory_access_plan_t* source_memory_access);
+
+typedef struct
+    loom_low_lower_rule_match_source_memory_root_byte_offset_callback_t {
+  // Optional physical allocation-root offset query. Mutable lowering installs
+  // an adapter to its target policy; read-only contract queries leave this
+  // empty because they test source semantic support, not selected placement.
+  loom_low_lower_rule_match_source_memory_root_byte_offset_fn_t fn;
+  // Caller-owned payload passed to |fn|.
+  void* user_data;
+} loom_low_lower_rule_match_source_memory_root_byte_offset_callback_t;
+
 typedef uint16_t loom_low_lower_rule_match_flags_t;
 
 // Match contract-only rule rows that are visible to read-only legality queries
@@ -89,6 +105,9 @@ struct loom_low_lower_rule_match_context_t {
   // Optional rule-local descriptor-ref resolver. Missing uses descriptor keys
   // directly and is intended for tests and cold standalone queries.
   loom_low_lower_rule_match_descriptor_ref_callback_t descriptor_ref;
+  // Optional target physical allocation-root placement query.
+  loom_low_lower_rule_match_source_memory_root_byte_offset_callback_t
+      source_memory_root_byte_offset;
   // Optional dense source value facts used by fact-backed guard rows.
   const loom_value_fact_table_t* fact_table;
   // Optional precomputed view summaries used by source-memory guard rows.
@@ -99,6 +118,10 @@ struct loom_low_lower_rule_match_context_t {
   // Optional symbolic proof context used as a cold fallback for fact-backed
   // guard rows whose scalar intervals are inconclusive.
   loom_symbolic_expr_context_t* symbolic_expr_context;
+  // Optional reusable path-sensitive value-consumption query. Source planning
+  // supplies one for the source operation's region; standalone queries omit it
+  // and conservatively reject consumption-dependent optimization guards.
+  loom_consumption_region_query_t* consumption_query;
   // Match behavior flags.
   loom_low_lower_rule_match_flags_t flags;
   // One-based policy rule-set ordinal supplied by composed contract selection;

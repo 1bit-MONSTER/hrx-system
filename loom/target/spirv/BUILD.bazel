@@ -10,6 +10,7 @@ load(
     "//loom/build_tools/bazel:defs.bzl",
     "loom_kernel_binary",
     "loom_target_profile",
+    "loom_target_set",
 )
 
 package(default_visibility = ["//visibility:public"])
@@ -30,6 +31,26 @@ loom_target_profile(
     family = "spirv",
     selector = "vulkan1.3+bda+extended-types",
     target_compatible_with = _SPIRV_ARTIFACTS_COMPATIBLE_WITH,
+)
+
+loom_target_profile(
+    name = "vulkan1.3+bda+subgroup32+ballot+hal",
+    family = "spirv",
+    selector = "vulkan1.3+bda+subgroup32+ballot+hal",
+    target_compatible_with = _SPIRV_ARTIFACTS_COMPATIBLE_WITH,
+)
+
+loom_target_set(
+    name = "all",
+    allow_empty = True,
+    targets = select({
+        "//loom/config/target:spirv_artifacts": [
+            ":vulkan1.3+bda",
+            ":vulkan1.3+bda+extended-types",
+            ":vulkan1.3+bda+subgroup32+ballot+hal",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 loom_kernel_binary(

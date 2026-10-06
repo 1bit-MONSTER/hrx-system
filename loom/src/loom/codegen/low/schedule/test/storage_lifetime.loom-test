@@ -43,6 +43,43 @@ CHECK-NOT: *{"from":3,"to":4,"kind":"storage",*
 
 // ====
 
+// A conditional endpoint consumes its predicate; it has no forwarding payload.
+// Its fixed-register setup still follows the independent arithmetic.
+// RUN: with-checks emit low-schedule-json @consuming_condition_endpoint strategy=resource-stall
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @consuming_condition_endpoint(%condition_source: reg<test.i32>, %lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>) asm {
+  %condition = copy %condition_source : reg<test.i32> -> reg<test.fixed.r0>
+  %result = test.mul.i32 %lhs, %rhs
+  low.cond_br %condition, ^taken, ^not_taken : reg<test.fixed.r0>
+^taken:
+  return %result
+^not_taken:
+  return %result
+}
+
+// ----
+CHECK: *"scheduled_node_indices":[1,0,2,3,4]*
+
+// ====
+
+// An empty CFG block has no endpoint relation range to project.
+// RUN: with-checks emit low-schedule-json @empty_endpoint_block strategy=resource-stall
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @empty_endpoint_block() asm {
+  low.br ^empty
+^empty:
+}
+
+// ----
+CHECK: *"block_count":2,"node_count":1,*
+CHECK: *"scheduled_node_indices":[0]*
+
+// ====
+
 // Destructive local updates extend the copied header's storage lifetime.
 // Its last reader still precedes the next iteration's cursor definition.
 // RUN: with-checks emit low-schedule-json @tied_header_read strategy=resource-stall

@@ -1,0 +1,19 @@
+// RUN: verify
+
+// Divisibility facts require a positive divisor everywhere they appear. A
+// negative spelling is not an alternate representation of the same fact.
+func.def @multiple_requires_positive_divisor(%x: index) -> (index) {
+  // ERROR@+1: STRUCTURE/014 "predicates[0].arg[1]" "-8" "positive divisor"
+  %result = test.assume %x [mul(%x, -8)] : index
+  func.return %result : index
+}
+
+// ====
+
+// The fact lattice has no empty set, so an inverted literal range must be
+// rejected instead of being weakened into an unconstrained value.
+func.def @literal_range_bounds_must_be_ordered(%x: index) -> (index) {
+  // ERROR@+1: STRUCTURE/014 "predicates[0].arg[2]" "3" "greater than or equal to the lower bound"
+  %result = test.assume %x [range(%x, 7, 3)] : index
+  func.return %result : index
+}

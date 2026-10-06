@@ -1,0 +1,60 @@
+// RUN: pass canonicalize
+
+// Signed Boolean order is true (-1), false (0), while facts store [0,1].
+func.def @boolean_extrema() -> (i1, i1, i1, i1) {
+  %true = scalar.constant true : i1
+  %false = scalar.constant false : i1
+  %smin = scalar.minsi %true, %false : i1
+  %smax = scalar.maxsi %true, %false : i1
+  %umin = scalar.minui %true, %false : i1
+  %umax = scalar.maxui %true, %false : i1
+  func.return %smin, %smax, %umin, %umax : i1, i1, i1, i1
+}
+
+// ----
+func.def @boolean_extrema() -> (i1, i1, i1, i1) {
+  %smin = scalar.constant true : i1
+  %smax = scalar.constant false : i1
+  %umin = scalar.constant false : i1
+  %umax = scalar.constant true : i1
+  func.return %smin, %smax, %umin, %umax : i1, i1, i1, i1
+}
+
+// ====
+
+// The same bits have opposite order across the signed/unsigned boundary.
+func.def @byte_extrema() -> (i8, i8, i8, i8) {
+  %negative = scalar.constant -128 : i8
+  %positive = scalar.constant 127 : i8
+  %smin = scalar.minsi %negative, %positive : i8
+  %smax = scalar.maxsi %negative, %positive : i8
+  %umin = scalar.minui %negative, %positive : i8
+  %umax = scalar.maxui %negative, %positive : i8
+  func.return %smin, %smax, %umin, %umax : i8, i8, i8, i8
+}
+
+// ----
+func.def @byte_extrema() -> (i8, i8, i8, i8) {
+  %smin = scalar.constant -128 : i8
+  %smax = scalar.constant 127 : i8
+  %umin = scalar.constant 127 : i8
+  %umax = scalar.constant -128 : i8
+  func.return %smin, %smax, %umin, %umax : i8, i8, i8, i8
+}
+
+// ====
+
+func.def @unsigned_high_bit() -> (i64, i64) {
+  %high = scalar.constant -9223372036854775808 : i64
+  %low = scalar.constant 9223372036854775807 : i64
+  %minimum = scalar.minui %high, %low : i64
+  %maximum = scalar.maxui %high, %low : i64
+  func.return %minimum, %maximum : i64, i64
+}
+
+// ----
+func.def @unsigned_high_bit() -> (i64, i64) {
+  %minimum = scalar.constant 9223372036854775807 : i64
+  %maximum = scalar.constant -9223372036854775808 : i64
+  func.return %minimum, %maximum : i64, i64
+}

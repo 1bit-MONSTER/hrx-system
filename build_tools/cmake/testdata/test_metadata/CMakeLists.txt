@@ -17,6 +17,9 @@ set(IREE_PACKAGE_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 include("${IREE_REPO_ROOT}/build_tools/cmake/iree_macros.cmake")
 include("${IREE_REPO_ROOT}/build_tools/cmake/iree_configure_testing.cmake")
 
+set(_EMPTY_FILE "${CMAKE_CURRENT_BINARY_DIR}/empty_file")
+iree_make_empty_file("${_EMPTY_FILE}")
+
 function(add_metadata_test TEST_NAME BUILD_TARGET)
   set(_SENTINEL "${CMAKE_CURRENT_BINARY_DIR}/${TEST_NAME}.built")
   add_custom_command(
@@ -30,7 +33,7 @@ function(add_metadata_test TEST_NAME BUILD_TARGET)
     COMMAND
       "${CMAKE_COMMAND}" -E compare_files
       "${_SENTINEL}"
-      "${IREE_REPO_ROOT}/build_tools/cmake/empty_file"
+      "${_EMPTY_FILE}"
   )
   iree_register_test_build_targets(
     "${TEST_NAME}"
@@ -69,7 +72,7 @@ add_test(
   COMMAND
     "${CMAKE_COMMAND}" -E compare_files
     "${_TOOL_SENTINEL}"
-    "${IREE_REPO_ROOT}/build_tools/cmake/empty_file"
+    "${_EMPTY_FILE}"
 )
 iree_register_test_build_targets(
   tool-backed

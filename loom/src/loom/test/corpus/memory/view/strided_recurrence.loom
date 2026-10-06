@@ -1,0 +1,117 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Select and rotate two runtime strided layouts through structured control
+// flow. Each final descriptor addresses the same logical coordinate through a
+// nonzero buffer origin, making both selection arms and zero, odd, and even
+// trip counts observably distinct.
+kernel.def @strided_layout_recurrence() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer, %count_input: index, %left_pitch_input: index, %right_pitch_input: index, %choose_left: i1) {
+  %count = index.assume %count_input [range(%count_input, 0, 3)] : index
+  %left_pitch = index.assume %left_pitch_input [range(%left_pitch_input, 4, 9)] : index
+  %right_pitch = index.assume %right_pitch_input [range(%right_pitch_input, 4, 9)] : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %origin = index.constant 4 : offset
+  %input_aligned = buffer.assume.alignment %input {minimum_alignment = 4} : buffer
+  %output_aligned = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %left = encoding.layout.strided [%left_pitch, 1] : encoding<layout>
+  %right = encoding.layout.strided [%right_pitch, 1] : encoding<layout>
+  %selected = scf.if %choose_left -> (encoding<layout>) {
+    scf.yield %left : encoding<layout>
+  } else {
+    scf.yield %right : encoding<layout>
+  }
+
+  %for_first, %for_second = scf.for %i = [%c0 to %count step %c1](%first = %left : encoding<layout>, %second = %right : encoding<layout>) -> (encoding<layout>, encoding<layout>) {
+    scf.yield %second, %first : encoding<layout>, encoding<layout>
+  }
+
+  %remaining, %while_first, %while_second = scf.while(%before_remaining = %count : index, %before_first = %left : encoding<layout>, %before_second = %right : encoding<layout>) -> (index, encoding<layout>, encoding<layout>) {
+    %more = index.cmp sgt, %before_remaining, %c0 : index
+    scf.condition %more, %before_remaining, %before_first, %before_second : i1, index, encoding<layout>, encoding<layout>
+  } do(%body_remaining: index, %body_first: encoding<layout>, %body_second: encoding<layout>) {
+    %next_remaining = index.sub %body_remaining, %c1 : index
+    scf.yield %next_remaining, %body_second, %body_first : index, encoding<layout>, encoding<layout>
+  }
+
+  %for_view = buffer.view %input_aligned[%origin] : buffer -> view<2x2xi32, %for_first>
+  %while_view = buffer.view %input_aligned[%origin] : buffer -> view<2x2xi32, %while_first>
+  %selected_view = buffer.view %input_aligned[%origin] : buffer -> view<2x2xi32, %selected>
+  %for_value = view.load %for_view[1, 1] : view<2x2xi32, %for_first> -> i32
+  %while_value = view.load %while_view[1, 1] : view<2x2xi32, %while_first> -> i32
+  %selected_value = view.load %selected_view[1, 1] : view<2x2xi32, %selected> -> i32
+  %destination = buffer.view %output_aligned[%origin] : buffer -> view<3xi32>
+  view.store %for_value, %destination[0] : i32, view<3xi32>
+  view.store %while_value, %destination[1] : i32, view<3xi32>
+  view.store %selected_value, %destination[2] : i32, view<3xi32>
+  kernel.return
+}
+
+check.case public @strided_layout_recurrence_0 {
+  %count = check.literal value(0) : index
+  %left_pitch = check.literal value(4) : index
+  %right_pitch = check.literal value(9) : index
+  %choose_left = check.literal value(true) : i1
+  %input = check.generate.iota offset(100) step(1) : tensor<16xi32>
+  %input_expected = check.generate.iota offset(100) step(1) : tensor<16xi32>
+  %output = check.generate.fill value(-99) : tensor<5xi32>
+  kernel.launch @strided_layout_recurrence(%input, %output, %count, %left_pitch, %right_pitch, %choose_left) : (tensor<16xi32>, tensor<5xi32>, index, index, index, i1)
+  %actual = check.tensor.view %output offset(4) : tensor<5xi32> -> tensor<3xi32>
+  %expected = check.generate.fill value(106) : tensor<3xi32>
+  check.expect.bitwise actual(%actual) expected(%expected) : tensor<3xi32>
+  %prefix = check.tensor.view %output offset(0) : tensor<5xi32> -> tensor<1xi32>
+  %suffix = check.tensor.view %output offset(16) : tensor<5xi32> -> tensor<1xi32>
+  %guard = check.generate.fill value(-99) : tensor<1xi32>
+  check.expect.bitwise actual(%prefix) expected(%guard) : tensor<1xi32>
+  check.expect.bitwise actual(%suffix) expected(%guard) : tensor<1xi32>
+  check.expect.bitwise actual(%input) expected(%input_expected) : tensor<16xi32>
+  check.return
+}
+
+check.case public @strided_layout_recurrence_1 {
+  %count = check.literal value(1) : index
+  %left_pitch = check.literal value(4) : index
+  %right_pitch = check.literal value(9) : index
+  %choose_left = check.literal value(false) : i1
+  %input = check.generate.iota offset(100) step(1) : tensor<16xi32>
+  %input_expected = check.generate.iota offset(100) step(1) : tensor<16xi32>
+  %output = check.generate.fill value(-99) : tensor<5xi32>
+  kernel.launch @strided_layout_recurrence(%input, %output, %count, %left_pitch, %right_pitch, %choose_left) : (tensor<16xi32>, tensor<5xi32>, index, index, index, i1)
+  %actual = check.tensor.view %output offset(4) : tensor<5xi32> -> tensor<3xi32>
+  %expected = check.generate.fill value(111) : tensor<3xi32>
+  check.expect.bitwise actual(%actual) expected(%expected) : tensor<3xi32>
+  %prefix = check.tensor.view %output offset(0) : tensor<5xi32> -> tensor<1xi32>
+  %suffix = check.tensor.view %output offset(16) : tensor<5xi32> -> tensor<1xi32>
+  %guard = check.generate.fill value(-99) : tensor<1xi32>
+  check.expect.bitwise actual(%prefix) expected(%guard) : tensor<1xi32>
+  check.expect.bitwise actual(%suffix) expected(%guard) : tensor<1xi32>
+  check.expect.bitwise actual(%input) expected(%input_expected) : tensor<16xi32>
+  check.return
+}
+
+check.case public @strided_layout_recurrence_2 {
+  %count = check.literal value(2) : index
+  %left_pitch = check.literal value(4) : index
+  %right_pitch = check.literal value(9) : index
+  %choose_left = check.literal value(true) : i1
+  %input = check.generate.iota offset(100) step(1) : tensor<16xi32>
+  %input_expected = check.generate.iota offset(100) step(1) : tensor<16xi32>
+  %output = check.generate.fill value(-99) : tensor<5xi32>
+  kernel.launch @strided_layout_recurrence(%input, %output, %count, %left_pitch, %right_pitch, %choose_left) : (tensor<16xi32>, tensor<5xi32>, index, index, index, i1)
+  %actual = check.tensor.view %output offset(4) : tensor<5xi32> -> tensor<3xi32>
+  %expected = check.generate.fill value(106) : tensor<3xi32>
+  check.expect.bitwise actual(%actual) expected(%expected) : tensor<3xi32>
+  %prefix = check.tensor.view %output offset(0) : tensor<5xi32> -> tensor<1xi32>
+  %suffix = check.tensor.view %output offset(16) : tensor<5xi32> -> tensor<1xi32>
+  %guard = check.generate.fill value(-99) : tensor<1xi32>
+  check.expect.bitwise actual(%prefix) expected(%guard) : tensor<1xi32>
+  check.expect.bitwise actual(%suffix) expected(%guard) : tensor<1xi32>
+  check.expect.bitwise actual(%input) expected(%input_expected) : tensor<16xi32>
+  check.return
+}

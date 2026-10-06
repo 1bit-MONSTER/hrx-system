@@ -1,0 +1,135 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/table_quantize.loom-test
+// RUN: with-checks emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @f16_input_packets(%values: vector<33xf16>, %thresholds: vector<8xf16>) -> (vector<33xi8>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = max, tie = upper} : vector<33xf16>, vector<8xf16> -> vector<33xi8>
+  func.return %codes : vector<33xi8>
+}
+
+// ----
+CHECK: low.func.def * @f16_input_packets(*) *
+CHECK: * = slice %values[0] *
+CHECK: * = vextbcst.16 %thresholds, 0
+CHECK: * = vge.u16x32.el.low32 *
+CHECK: %codes = concat(*)*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @bf16_wide_ordinals(%values: vector<8xbf16>, %thresholds: vector<3xbf16>) -> (vector<8xi16>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = max, tie = lower} : vector<8xbf16>, vector<3xbf16> -> vector<8xi16>
+  func.return %codes : vector<8xi16>
+}
+
+// ----
+CHECK: low.func.def * @bf16_wide_ordinals(*) *
+CHECK: * = vextbcst.16 %thresholds, 0
+CHECK: * = vlt.u16x32.el.low32 *
+CHECK: %codes = vsel.16.mask64 *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @f32_wide_ordinals(%values: vector<4xf32>, %thresholds: vector<2xf32>) -> (vector<4xi32>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = lower} : vector<4xf32>, vector<2xf32> -> vector<4xi32>
+  func.return %codes : vector<4xi32>
+}
+
+// ----
+CHECK: low.func.def * @f32_wide_ordinals(*) *
+CHECK: * = vextbcst.32 %thresholds, 0
+CHECK: * = vlt.u32x16.el.low32 *
+CHECK: %codes = vsel.32.mask64 *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @f32_i64_ordinals(%values: vector<16xf32>, %thresholds: vector<3xf32>) -> (vector<16xi64>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = lower} : vector<16xf32>, vector<3xf32> -> vector<16xi64>
+  func.return %codes : vector<16xi64>
+}
+
+// ----
+CHECK: low.func.def * @f32_i64_ordinals(*) *
+CHECK: * = vlt.u32x16.el.low32 *
+CHECK: * = vups.2x.w-to-b.unsigned *
+CHECK: %codes = concat(*)*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @f32_i64_partial_packet(%values: vector<17xf32>, %thresholds: vector<3xf32>) -> (vector<17xi64>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = lower} : vector<17xf32>, vector<3xf32> -> vector<17xi64>
+  func.return %codes : vector<17xi64>
+}
+
+// ----
+CHECK: low.func.def * @f32_i64_partial_packet(*) *
+CHECK: * = vlt.u32x16.el.low32 *
+CHECK: * = vups.2x.w-to-b.unsigned *
+CHECK: * = vups.2x.w-to-b.unsigned *
+CHECK: %codes = concat(*)*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @f16_predicate(%values: vector<9xf16>, %thresholds: vector<1xf16>) -> (vector<9xi1>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = upper} : vector<9xf16>, vector<1xf16> -> vector<9xi1>
+  func.return %codes : vector<9xi1>
+}
+
+// ----
+CHECK: low.func.def * @f16_predicate(*) *
+CHECK: * = vextbcst.16 %thresholds, 0
+CHECK: %codes = predicate.xor.high32.rhs_tied *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @f16_threshold_packets(%values: vector<2xf16>, %thresholds: vector<33xf16>) -> (vector<2xi8>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = max, tie = lower} : vector<2xf16>, vector<33xf16> -> vector<2xi8>
+  func.return %codes : vector<2xi8>
+}
+
+// ----
+CHECK: low.func.def * @f16_threshold_packets(*) *
+CHECK: * = slice %thresholds[0] *
+CHECK: * = slice %thresholds[2] *
+CHECK: %codes = vsel.8 *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @empty_thresholds(%values: vector<4xf32>) -> (vector<4xi8>) {
+  %thresholds = vector.constant 0.0 : vector<0xf32>
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = lower} : vector<4xf32>, vector<0xf32> -> vector<4xi8>
+  func.return %codes : vector<4xi8>
+}
+
+// ----
+CHECK: low.func.def * @empty_thresholds(*) *
+CHECK: %codes = vbcst.8 *
+CHECK: return %codes
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @multidimensional_input(%values: vector<2x3xf32>, %thresholds: vector<2xf32>) -> (vector<2x3xi32>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = lower} : vector<2x3xf32>, vector<2xf32> -> vector<2x3xi32>
+  func.return %codes : vector<2x3xi32>
+}
+
+// ----
+CHECK: low.func.def * @multidimensional_input(*) *
+CHECK: * = vlt.u32x16.el.low32 *
+CHECK: return %codes
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*

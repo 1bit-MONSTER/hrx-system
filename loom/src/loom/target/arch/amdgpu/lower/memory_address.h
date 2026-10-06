@@ -30,16 +30,16 @@ typedef struct loom_amdgpu_memory_dynamic_term_sequence_t {
   uint8_t count;
 } loom_amdgpu_memory_dynamic_term_sequence_t;
 
-// Retains a set of mixed scalar/vector source realizations that fits u32 VADDR
-// and removes every dynamic scalar term. Partial scalar-sum simplification
-// does not justify extending the realizations' vector lifetimes.
+// Selects a legal operand for a shared cross-access component, preserving the
+// complete VADDR bound. Otherwise retains opportunistic mixed scalar/vector
+// realizations only when their complete set removes dynamic scalar arithmetic.
 void loom_amdgpu_memory_access_select_vaddr_realizations(
     loom_amdgpu_memory_access_t* access);
 
-// Resolves canonical terms using only source realizations already materialized
-// for another use. Same-bank realizations preserve the selected operand path;
-// mixed-bank realizations require the entire retained set to be available so
-// promotion eliminates dynamic scalar address calculation.
+// Resolves each canonical contribution exactly once. Selected cross-access
+// components have demanded storage; optional local realizations are used only
+// when mapped. Same-bank local realizations preserve the selected operand path;
+// mixed-bank local promotion requires its entire selected set to be available.
 void loom_amdgpu_memory_access_resolve_dynamic_terms(
     const loom_low_lower_context_t* context,
     const loom_amdgpu_memory_access_t* access,
@@ -59,6 +59,14 @@ iree_status_t loom_amdgpu_emit_memory_saddr(
     const loom_amdgpu_memory_access_t* access,
     const loom_amdgpu_memory_dynamic_term_sequence_t* sequence,
     loom_value_id_t low_binding, loom_value_id_t* out_low_saddr);
+
+// Adds scalar byte-offset terms and static bytes to a full-width binding
+// pointer. Vector terms in the shared sequence contribute only to VADDR.
+iree_status_t loom_amdgpu_emit_sgpr_base_byte_offset_terms(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_memory_dynamic_term_sequence_t* sequence,
+    uint64_t static_byte_offset, loom_value_id_t low_binding,
+    loom_value_id_t* out_low_saddr);
 
 // Emits a u32 SGPR offset from the resolved scalar terms plus a static offset.
 iree_status_t loom_amdgpu_emit_sgpr_byte_offset_terms(

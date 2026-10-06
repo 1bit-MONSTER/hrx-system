@@ -2,7 +2,65 @@
 
 amdgpu.target<gfx11-generic> @target
 
-// Workgroup-uniform alternatives share one physical slot.
+// Concurrent 10 KiB allocations occupy adjacent ranges. A later 32 KiB
+// allocation reuses both ranges after a workgroup barrier, so the arena is
+// exactly the 32 KiB peak live extent instead of the sum of all allocations.
+kernel.def target(@target) @barrier_phases_pack_peak_live_bytes() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%output: buffer) {
+  %buffer_base = index.constant 0 : offset
+  %first_phase_bytes = index.constant 10240 : offset
+  %second_phase_bytes = index.constant 32768 : offset
+  %first_value = scalar.constant 1 : i32
+  %second_value = scalar.constant 2 : i32
+  %third_value = scalar.constant 3 : i32
+  %output_view = buffer.view %output[%buffer_base] : buffer -> view<3xi32>
+  %first = buffer.alloca<workgroup> align(16) %first_phase_bytes : buffer
+  %second = buffer.alloca<workgroup> align(16) %first_phase_bytes : buffer
+  %first_view = buffer.view %first[%buffer_base] : buffer -> view<1xi32>
+  %second_view = buffer.view %second[%buffer_base] : buffer -> view<1xi32>
+  view.store %first_value, %first_view[0] : i32, view<1xi32>
+  view.store %second_value, %second_view[0] : i32, view<1xi32>
+  %first_result = view.load %first_view[0] : view<1xi32> -> i32
+  %second_result = view.load %second_view[0] : view<1xi32> -> i32
+  view.store %first_result, %output_view[0] : i32, view<3xi32>
+  view.store %second_result, %output_view[1] : i32, view<3xi32>
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %third = buffer.alloca<workgroup> align(16) %second_phase_bytes : buffer
+  %third_view = buffer.view %third[%buffer_base] : buffer -> view<1xi32>
+  view.store %third_value, %third_view[0] : i32, view<1xi32>
+  %third_result = view.load %third_view[0] : view<1xi32> -> i32
+  view.store %third_result, %output_view[2] : i32, view<3xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @barrier_phases_pack_peak_live_bytes() asm {
+  %output_view = resource<hal_binding> {extent = 12, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %19 = storage {byte_alignment = 16, byte_length = 32768} : low.storage<workgroup>
+  %25 = v_mov_b32 1
+  %26 = v_mov_b32 0
+  ds_write_b32 %26, %25
+  %27 = v_mov_b32 2
+  ds_write_b32 %26, %27 {offset = 10240}
+  %first_result = ds_read_b32 %26
+  %second_result = ds_read_b32 %26 {offset = 10240}
+  global_store_b32_saddr %26, %first_result, %output_view
+  global_store_b32_saddr %26, %second_result, %output_view {offset = 4}
+  s_waitcnt {lgkmcnt = 0}
+  %36 = v_mov_b32 3
+  ds_write_b32 %26, %36
+  %third_result = ds_read_b32 %26
+  global_store_b32_saddr %26, %third_result, %output_view {offset = 8}
+  return
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+// Workgroup-uniform alternatives overlap at the arena base.
 kernel.def target(@target) @branch_exclusive_equal_slots() {
   %unit = index.constant 1 : index
   %workgroup_count = index.constant 2 : index
@@ -80,7 +138,7 @@ low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_c
 
 amdgpu.target<gfx11-generic> @target
 
-// Nested alternatives grow their shared tail slot to the maximum aligned arm.
+// Nested alternatives share an arena sized and aligned for the largest arm.
 kernel.def target(@target) @branch_exclusive_nested_max_slot() {
   %unit = index.constant 1 : index
   %workgroup_count = index.constant 3 : index
@@ -184,7 +242,7 @@ low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_c
 
 amdgpu.target<gfx11-generic> @target
 
-// Lane-varying alternatives require distinct workgroup slots.
+// Lane-varying alternatives occupy distinct workgroup arena ranges.
 kernel.def target(@target) @lane_varying_branches_remain_distinct() {
   %unit = index.constant 1 : index
   %workgroup_size = index.constant 2 : index
@@ -220,32 +278,31 @@ kernel.def target(@target) @lane_varying_branches_remain_distinct() {
 low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) workgroup_size(2, 1, 1) workgroup_count(1, 1, 1) @lane_varying_branches_remain_distinct() asm {
   %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
   %output_view = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
-  %18 = storage {byte_alignment = 16, byte_length = 256} : low.storage<workgroup>
-  %19 = storage {byte_alignment = 16, byte_length = 256} : low.storage<workgroup>
+  %18 = storage {byte_alignment = 16, byte_length = 512} : low.storage<workgroup>
   %is_first = v_cmp_eq_i32_src1_inline %lane {rhs = 0}
-  %22, %23 = s_and_saveexec_b64 %is_first
-  low.cond_br %23, ^first, ^_bb3 : reg<amdgpu.scc>
+  %21, %22 = s_and_saveexec_b64 %is_first
+  low.cond_br %22, ^first, ^_bb3 : reg<amdgpu.scc>
 ^first:
-  %26 = v_mov_b32 1
-  %27 = v_mov_b32 0
-  ds_write_b32 %27, %26
-  %first_result = ds_read_b32 %27
-  %30 = v_lshlrev_b32_src0_inline %lane, 2
-  global_store_b32_saddr %30, %first_result, %output_view
+  %25 = v_mov_b32 1
+  %26 = v_mov_b32 0
+  ds_write_b32 %26, %25
+  %first_result = ds_read_b32 %26
+  %29 = v_lshlrev_b32_src0_inline %lane, 2
+  global_store_b32_saddr %29, %first_result, %output_view
   low.br ^_bb3
 ^_bb3:
-  %24 = s_xor_b64_exec %22
-  low.cond_br %24, ^second, ^_bb4 : reg<amdgpu.scc>
+  %23 = s_xor_b64_exec %21
+  low.cond_br %23, ^second, ^_bb4 : reg<amdgpu.scc>
 ^second:
-  %32 = v_mov_b32 1
-  %33 = v_mov_b32 0
-  ds_write_b32 %33, %32 {offset = 256}
-  %second_result = ds_read_b32 %33 {offset = 256}
-  %36 = v_lshlrev_b32_src0_inline %lane, 2
-  global_store_b32_saddr %36, %second_result, %output_view
+  %31 = v_mov_b32 1
+  %32 = v_mov_b32 0
+  ds_write_b32 %32, %31 {offset = 256}
+  %second_result = ds_read_b32 %32 {offset = 256}
+  %35 = v_lshlrev_b32_src0_inline %lane, 2
+  global_store_b32_saddr %35, %second_result, %output_view
   low.br ^_bb4
 ^_bb4:
-  s_mov_b64_exec %22
+  s_mov_b64_exec %21
   return
 }
 
@@ -280,17 +337,16 @@ kernel.def target(@target) @sequential_allocations_remain_distinct() {
 // ----
 low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @sequential_allocations_remain_distinct() asm {
   %output_view = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
-  %15 = storage {byte_alignment = 16, byte_length = 128} : low.storage<workgroup>
-  %16 = storage {byte_alignment = 16, byte_length = 256} : low.storage<workgroup>
-  %21 = v_mov_b32 1
-  %22 = v_mov_b32 0
-  ds_write_b32 %22, %21
-  %23 = v_mov_b32 2
-  ds_write_b32 %22, %23 {offset = 128}
-  %first_result = ds_read_b32 %22
-  %second_result = ds_read_b32 %22 {offset = 128}
-  global_store_b32_saddr %22, %first_result, %output_view
-  global_store_b32_saddr %22, %second_result, %output_view {offset = 4}
+  %15 = storage {byte_alignment = 16, byte_length = 384} : low.storage<workgroup>
+  %20 = v_mov_b32 1
+  %21 = v_mov_b32 0
+  ds_write_b32 %21, %20
+  %22 = v_mov_b32 2
+  ds_write_b32 %21, %22 {offset = 128}
+  %first_result = ds_read_b32 %21
+  %second_result = ds_read_b32 %21 {offset = 128}
+  global_store_b32_saddr %21, %first_result, %output_view
+  global_store_b32_saddr %21, %second_result, %output_view {offset = 4}
   return
 }
 
@@ -341,8 +397,7 @@ kernel.def target(@target) @cyclic_branch_allocations_remain_distinct() {
 // ----
 low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @cyclic_branch_allocations_remain_distinct() asm {
   %output_view = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
-  %21 = storage {byte_alignment = 16, byte_length = 256} : low.storage<workgroup>
-  %22 = storage {byte_alignment = 16, byte_length = 256} : low.storage<workgroup>
+  %21 = storage {byte_alignment = 16, byte_length = 512} : low.storage<workgroup>
   %loop_begin = s_mov_b32 0
   %loop_step = s_mov_b32 1
   %loop_end = s_mov_b32 2
@@ -354,18 +409,18 @@ low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_c
   %is_first = s_cmp_eq_i32 %i, %loop_begin
   low.cond_br %is_first, ^first, ^second : reg<amdgpu.scc>
 ^first:
-  %29 = v_mov_b32 1
-  %30 = v_mov_b32 0
-  ds_write_b32 %30, %29
-  %first_result = ds_read_b32 %30
-  global_store_b32_saddr %30, %first_result, %output_view
+  %28 = v_mov_b32 1
+  %29 = v_mov_b32 0
+  ds_write_b32 %29, %28
+  %first_result = ds_read_b32 %29
+  global_store_b32_saddr %29, %first_result, %output_view
   low.br ^continue
 ^second:
-  %35 = v_mov_b32 1
-  %36 = v_mov_b32 0
-  ds_write_b32 %36, %35 {offset = 256}
-  %second_result = ds_read_b32 %36 {offset = 256}
-  global_store_b32_saddr %36, %second_result, %output_view {offset = 4}
+  %34 = v_mov_b32 1
+  %35 = v_mov_b32 0
+  ds_write_b32 %35, %34 {offset = 256}
+  %second_result = ds_read_b32 %35 {offset = 256}
+  global_store_b32_saddr %35, %second_result, %output_view {offset = 4}
   low.br ^continue
 ^continue:
   %next = s_add_u32 %i, %loop_step
@@ -378,8 +433,8 @@ low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_c
 
 amdgpu.target<gfx11-generic> @target
 
-// A dynamic logical extent with a finite maximum reserves one static slot. The
-// zero-length path cannot access the allocation.
+// A dynamic logical extent with a finite maximum reserves one static range.
+// The zero-length path cannot access the allocation.
 kernel.def target(@target) @bounded_dynamic_workgroup_storage() {
   %unit = index.constant 1 : index
   %workgroup_count = index.constant 2 : index
@@ -473,28 +528,27 @@ kernel.def target(@target) @partially_reconverged_allocations_remain_distinct(%o
 // ----
 low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_count = 2, direct_arg_count = 2, direct_arg_names = {arg0 = "outer", arg1 = "inner"}, direct_arg_offsets = [0, 4], direct_arg_parameter_indices = [0, 1], direct_arg_sizes = [4, 4], parameter_count = 3, resource_count = 1, resource_offsets = [8], resource_parameter_indices = [2], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @partially_reconverged_allocations_remain_distinct(%outer: reg<amdgpu.sgpr>, %inner: reg<amdgpu.sgpr>) asm {
   %output_view = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
-  %24 = storage {byte_alignment = 16, byte_length = 256} : low.storage<workgroup>
-  %25 = storage {byte_alignment = 16, byte_length = 256} : low.storage<workgroup>
+  %24 = storage {byte_alignment = 16, byte_length = 512} : low.storage<workgroup>
   %c0 = s_mov_b32 0
   %first_arm = s_cmp_lg_i32 %outer, %c0
   low.cond_br %first_arm, ^left, ^right : reg<amdgpu.scc>
 ^left:
-  %31 = v_mov_b32 1
-  %32 = v_mov_b32 0
-  ds_write_b32 %32, %31
-  %first_result = ds_read_b32 %32
-  global_store_b32_saddr %32, %first_result, %output_view
+  %30 = v_mov_b32 1
+  %31 = v_mov_b32 0
+  ds_write_b32 %31, %30
+  %first_result = ds_read_b32 %31
+  global_store_b32_saddr %31, %first_result, %output_view
   %continue_left = s_cmp_lg_i32 %inner, %c0
   low.cond_br %continue_left, ^joined, ^done : reg<amdgpu.scc>
 ^right:
   %continue_right = s_cmp_eq_i32 %inner, %c0
   low.cond_br %continue_right, ^joined, ^done : reg<amdgpu.scc>
 ^joined:
-  %39 = v_mov_b32 2
-  %40 = v_mov_b32 0
-  ds_write_b32 %40, %39 {offset = 256}
-  %second_result = ds_read_b32 %40 {offset = 256}
-  global_store_b32_saddr %40, %second_result, %output_view {offset = 4}
+  %38 = v_mov_b32 2
+  %39 = v_mov_b32 0
+  ds_write_b32 %39, %38 {offset = 256}
+  %second_result = ds_read_b32 %39 {offset = 256}
+  global_store_b32_saddr %39, %second_result, %output_view {offset = 4}
   low.br ^done
 ^done:
   return
@@ -539,25 +593,61 @@ kernel.def target(@target) @nonterminating_allocations_remain_distinct(%selector
 // ----
 low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_count = 1, direct_arg_count = 1, direct_arg_names = {arg0 = "selector"}, direct_arg_offsets = [0], direct_arg_parameter_indices = [0], direct_arg_sizes = [4], parameter_count = 2, resource_count = 1, resource_offsets = [8], resource_parameter_indices = [1], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @nonterminating_allocations_remain_distinct(%selector: reg<amdgpu.sgpr>) asm {
   %output_view = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
-  %19 = storage {byte_alignment = 16, byte_length = 256} : low.storage<workgroup>
-  %20 = storage {byte_alignment = 16, byte_length = 256} : low.storage<workgroup>
+  %19 = storage {byte_alignment = 16, byte_length = 512} : low.storage<workgroup>
   %c0 = s_mov_b32 0
   %first_arm = s_cmp_lg_i32 %selector, %c0
   low.cond_br %first_arm, ^first, ^second : reg<amdgpu.scc>
 ^first:
-  %26 = v_mov_b32 1
-  %27 = v_mov_b32 0
-  ds_write_b32 %27, %26
-  %first_result = ds_read_b32 %27
-  global_store_b32_saddr %27, %first_result, %output_view
+  %25 = v_mov_b32 1
+  %26 = v_mov_b32 0
+  ds_write_b32 %26, %25
+  %first_result = ds_read_b32 %26
+  global_store_b32_saddr %26, %first_result, %output_view
   low.br ^second
 ^second:
-  %32 = v_mov_b32 2
-  %33 = v_mov_b32 0
-  ds_write_b32 %33, %32 {offset = 256}
-  %second_result = ds_read_b32 %33 {offset = 256}
-  global_store_b32_saddr %33, %second_result, %output_view {offset = 4}
+  %31 = v_mov_b32 2
+  %32 = v_mov_b32 0
+  ds_write_b32 %32, %31 {offset = 256}
+  %second_result = ds_read_b32 %32 {offset = 256}
+  global_store_b32_saddr %32, %second_result, %output_view {offset = 4}
   low.br ^tail
 ^tail:
   low.br ^tail
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+// A typed but footprint-free root must not increase physical Workgroup
+// storage or its alignment.
+kernel.def target(@target) @unused_root_does_not_inflate_arena() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%output: buffer) {
+  %base = index.constant 0 : offset
+  %unused_bytes = index.constant 32768 : offset
+  %live_bytes = index.constant 64 : offset
+  %value = scalar.constant 1 : i32
+  %unused = buffer.alloca<workgroup> align(256) %unused_bytes : buffer
+  %unused_view = buffer.view %unused[%base] : buffer -> view<1xi32>
+  %live = buffer.alloca<workgroup> align(16) %live_bytes : buffer
+  %live_view = buffer.view %live[%base] : buffer -> view<1xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<1xi32>
+  view.store %value, %live_view[0] : i32, view<1xi32>
+  %result = view.load %live_view[0] : view<1xi32> -> i32
+  view.store %result, %output_view[0] : i32, view<1xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @unused_root_does_not_inflate_arena() asm {
+  %output_view = resource<hal_binding> {extent = 4, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %13 = storage {byte_alignment = 16, byte_length = 64} : low.storage<workgroup>
+  %16 = v_mov_b32 1
+  %17 = v_mov_b32 0
+  ds_write_b32 %17, %16
+  %result = ds_read_b32 %17
+  global_store_b32_saddr %17, %result, %output_view
+  return
 }

@@ -30,6 +30,9 @@ extern "C" {
 // that clone IR across modules must provide this callback when cloned
 // attributes may reference symbols. Same-module remapping keeps symbol refs
 // unchanged unless |remap_same_module_symbols| explicitly enables the callback.
+// The callback returns a stable correspondence and does not change SSA bindings
+// during one payload-remapping call. It may allocate target symbols; no
+// completed payload is reused across public remap calls.
 typedef iree_status_t (*loom_ir_remap_symbol_fn_t)(
     void* user_data, const loom_module_t* source_module,
     loom_module_t* target_module, loom_symbol_ref_t source_ref,
@@ -82,6 +85,22 @@ typedef struct loom_ir_remap_op_projection_t {
   loom_op_t* target_op;
 } loom_ir_remap_op_projection_t;
 
+// Observes an operation after its local payload is cloned and before its
+// child regions are materialized. Compiler owners translate retained products
+// using this exact correspondence, without a second IR walk. The target's
+// child operations and finalization are not yet available to the observer.
+typedef struct loom_ir_clone_observer_t {
+  // Optional callback; only allocation or output transport may fail.
+  iree_status_t (*fn)(void* user_data, const loom_op_t* source_op,
+                      loom_op_t* target_op);
+  // Optional matching notification after children and finalization succeed.
+  // Failed cloning abandons the observer state without unwinding callbacks.
+  void (*finish_fn)(void* user_data, const loom_op_t* source_op,
+                    loom_op_t* target_op);
+  // Borrowed state for the complete clone invocation.
+  void* user_data;
+} loom_ir_clone_observer_t;
+
 // Remap behavior knobs supplied at initialization.
 typedef struct loom_ir_remap_options_t {
   // Allows unmapped SSA value references to remain unchanged when source and
@@ -95,6 +114,9 @@ typedef struct loom_ir_remap_options_t {
   bool remap_same_module_symbols;
   // Storage strategy for SSA value correspondence.
   loom_ir_remap_value_map_kind_t value_map_kind;
+
+  // Compiler product translation at the operation construction boundary.
+  loom_ir_clone_observer_t clone_observer;
 
   // Optional source operations to project while cloning. Entries must follow
   // clone visitation order. Target pointers are populated as those operations
@@ -121,7 +143,8 @@ typedef struct loom_ir_remap_t {
   const loom_module_t* source_module;
   // Module that will own remapped IR payloads.
   loom_module_t* target_module;
-  // Scratch arena for remap tables and temporary recursive type arrays.
+  // Caller-owned arena for correspondence tables and returned value-type
+  // arrays.
   iree_arena_allocator_t* arena;
   // Target source IDs indexed by source ID. Cross-module initialization
   // projects the complete source table; same-module remaps leave this NULL.
@@ -153,6 +176,9 @@ typedef struct loom_ir_remap_t {
   // Invokes |remap_symbol| for same-module symbol refs.
   bool remap_same_module_symbols;
 
+  // Compiler product translation at the operation construction boundary.
+  loom_ir_clone_observer_t clone_observer;
+
   // Sparse source-to-target operation projection used only during cloning.
   struct {
     // Caller-owned entries in clone visitation order.
@@ -162,16 +188,15 @@ typedef struct loom_ir_remap_t {
     // First entry not yet observed.
     iree_host_size_t cursor;
   } op_projection;
-  // Current recursive static-encoding remap depth. Internal recursion guard;
-  // callers should treat this as owned by the remap helpers.
-  uint16_t encoding_depth;
 } loom_ir_remap_t;
 
 // Initializes |out_remap| for source -> target materialization.
 //
-// The remap owns no teardown work; all allocations go through |arena|. Source
-// values are snapshotted at initialization: values created later in the source
-// module are not part of the source domain for this remap.
+// The remap owns no teardown work. Correspondence tables live in |arena|;
+// payload traversal borrows its block pool and releases temporary storage
+// before returning. Source values are snapshotted at initialization: values
+// created later in the source module are not part of this remap's source
+// domain.
 iree_status_t loom_ir_remap_initialize(const loom_module_t* source_module,
                                        loom_module_t* target_module,
                                        iree_arena_allocator_t* arena,
@@ -243,7 +268,10 @@ iree_status_t loom_ir_remap_location_id(
     loom_location_id_t* out_target_location_id);
 
 // Remaps all SSA and module-local references embedded in |source_type| and
-// returns a target-module-owned equivalent type.
+// returns a target-module-owned equivalent type. Shared type/encoding payloads
+// are visited once per call, with temporary storage released before return.
+// SSA bindings and symbol policy remain fixed during the call; callers may
+// change either between calls. No completed result survives that boundary.
 iree_status_t loom_ir_remap_type(loom_ir_remap_t* remap,
                                  loom_type_t source_type,
                                  loom_type_t* out_target_type);

@@ -9,6 +9,7 @@ load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_python//python:defs.bzl", "py_binary", "py_test")
 load(":clang_tidy.bzl", "iree_clang_tidy", "iree_recursion_analysis")
+load(":test/clang_tidy_test.bzl", "clang_tidy_test_plugin")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -99,6 +100,13 @@ cc_binary(
     ],
 )
 
+clang_tidy_test_plugin(
+    name = "test_plugin",
+    testonly = True,
+    tags = ["manual"],
+    target_compatible_with = CLANG_TIDY_LLVM_TARGET_COMPATIBLE_WITH,
+)
+
 py_test(
     name = "extent_checks_test",
     srcs = [
@@ -107,12 +115,12 @@ py_test(
     ],
     args = [
         "--clang-tidy=$(location @iree_clang_tidy_llvm//:clang-tidy)",
-        "--plugin=$(location :IREEClangTidyPlugin.so)",
+        "--plugin=$(location :test_plugin)",
     ],
     data = [
         "test/extent_checks.c",
         "test/extent_checks.cc",
-        ":IREEClangTidyPlugin.so",
+        ":test_plugin",
         "@iree_clang_tidy_llvm//:clang-tidy",
     ],
     imports = ["test"],
@@ -129,11 +137,11 @@ py_test(
     ],
     args = [
         "--clang-tidy=$(location @iree_clang_tidy_llvm//:clang-tidy)",
-        "--plugin=$(location :IREEClangTidyPlugin.so)",
+        "--plugin=$(location :test_plugin)",
     ],
     data = [
         "test/smoke.c",
-        ":IREEClangTidyPlugin.so",
+        ":test_plugin",
         "@iree_clang_tidy_llvm//:clang-tidy",
     ],
     imports = ["test"],
@@ -150,13 +158,13 @@ py_test(
     ],
     args = [
         "--clang-tidy=$(location @iree_clang_tidy_llvm//:clang-tidy)",
-        "--plugin=$(location :IREEClangTidyPlugin.so)",
+        "--plugin=$(location :test_plugin)",
     ],
     data = [
         "test/status_checks.c",
         "test/status_checks.cc",
         "test/status_constructor_checks.cc",
-        ":IREEClangTidyPlugin.so",
+        ":test_plugin",
         "@iree_clang_tidy_llvm//:clang-tidy",
     ],
     imports = ["test"],
@@ -173,12 +181,12 @@ py_test(
     ],
     args = [
         "--clang-tidy=$(location @iree_clang_tidy_llvm//:clang-tidy)",
-        "--plugin=$(location :IREEClangTidyPlugin.so)",
+        "--plugin=$(location :test_plugin)",
     ],
     data = [
         "test/lifecycle_checks.c",
         "test/non_identifier_functions.cc",
-        ":IREEClangTidyPlugin.so",
+        ":test_plugin",
         "@iree_clang_tidy_llvm//:clang-tidy",
     ],
     imports = ["test"],
@@ -195,11 +203,11 @@ py_test(
     ],
     args = [
         "--clang-tidy=$(location @iree_clang_tidy_llvm//:clang-tidy)",
-        "--plugin=$(location :IREEClangTidyPlugin.so)",
+        "--plugin=$(location :test_plugin)",
     ],
     data = [
         "test/recursion_check.c",
-        ":IREEClangTidyPlugin.so",
+        ":test_plugin",
         "@iree_clang_tidy_llvm//:clang-tidy",
     ],
     imports = ["test"],
@@ -252,12 +260,12 @@ py_test(
     ],
     args = [
         "--clang-tidy=$(location @iree_clang_tidy_llvm//:clang-tidy)",
-        "--plugin=$(location :IREEClangTidyPlugin.so)",
+        "--plugin=$(location :test_plugin)",
     ],
     data = [
         "test/non_identifier_functions.cc",
         "test/refcount_checks.c",
-        ":IREEClangTidyPlugin.so",
+        ":test_plugin",
         "@iree_clang_tidy_llvm//:clang-tidy",
     ],
     imports = ["test"],
@@ -274,11 +282,11 @@ py_test(
     ],
     args = [
         "--clang-tidy=$(location @iree_clang_tidy_llvm//:clang-tidy)",
-        "--plugin=$(location :IREEClangTidyPlugin.so)",
+        "--plugin=$(location :test_plugin)",
     ],
     data = [
         "test/trace_checks.c",
-        ":IREEClangTidyPlugin.so",
+        ":test_plugin",
         "@iree_clang_tidy_llvm//:clang-tidy",
     ],
     imports = ["test"],
@@ -295,14 +303,14 @@ py_test(
     ],
     args = [
         "--clang-tidy=$(location @iree_clang_tidy_llvm//:clang-tidy)",
-        "--plugin=$(location :IREEClangTidyPlugin.so)",
+        "--plugin=$(location :test_plugin)",
     ],
     data = [
         "fixtures/status_macro_scope.c",
         "test/status_macro_scope_test.cc",
         "test/style_checks.c",
         "test/style_checks.cc",
-        ":IREEClangTidyPlugin.so",
+        ":test_plugin",
         "@iree_clang_tidy_llvm//:clang-tidy",
     ],
     imports = ["test"],
@@ -335,6 +343,7 @@ cc_library(
         "test/action_smoke.c",
         "test/action_smoke.cc",
     ],
+    features = ["layering_check"],
     tags = ["manual"],
 )
 

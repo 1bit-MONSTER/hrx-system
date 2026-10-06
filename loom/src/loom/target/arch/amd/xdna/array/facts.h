@@ -105,6 +105,8 @@ typedef struct loom_xdna_tile_memory_facts_t {
   uint32_t local_base;
   // Addressable bytes in the tile's local allocation space.
   uint32_t local_capacity;
+  // Tile-relative base used to load the tile's own local allocation space.
+  uint32_t local_load_base;
   // Core startup address in program memory.
   uint32_t program_base;
   // Addressable program-memory bytes.
@@ -133,6 +135,8 @@ typedef uint8_t loom_xdna_dma_feature_bits_t;
 typedef struct loom_xdna_dma_facts_t {
   // Exclusive maximum byte address accepted by the DMA engine.
   uint64_t address_maximum;
+  // Largest value accepted by the encoded transfer-length register field.
+  uint32_t maximum_encoded_transfer_length;
   // Number of buffer descriptors.
   uint16_t buffer_descriptor_count;
   // Maximum actual execution count for one queued DMA task.
@@ -173,6 +177,18 @@ typedef struct loom_xdna_dma_facts_t {
   loom_xdna_dma_feature_bits_t feature_bits;
 } loom_xdna_dma_facts_t;
 
+// Aggregate resources across all physical tiles of one kind.
+typedef struct loom_xdna_tile_resource_totals_t {
+  // Number of physical tiles of this kind in the complete array.
+  uint32_t physical_tile_count;
+  // Total number of hardware locks across the tiles.
+  uint32_t lock_count;
+  // Total DMA channels in each transfer direction across the tiles.
+  uint32_t dma_channel_count_per_direction;
+  // Total DMA buffer descriptors across the tiles.
+  uint32_t dma_buffer_descriptor_count;
+} loom_xdna_tile_resource_totals_t;
+
 // All physical resources shared by tiles of one kind.
 typedef struct loom_xdna_tile_facts_t {
   // Physical tile role.
@@ -189,6 +205,8 @@ typedef struct loom_xdna_tile_facts_t {
   int8_t lock_value_maximum;
   // Bit set of configuration-register modules present on the tile.
   uint8_t register_module_bits;
+  // Aggregate resources across all physical tiles of this kind.
+  loom_xdna_tile_resource_totals_t array_resources;
   // Local and program memory geometry.
   loom_xdna_tile_memory_facts_t memory;
   // DMA engine resources and limits.
@@ -278,17 +296,22 @@ typedef struct loom_xdna_memory_placement_t {
 // Returns the complete immutable NPU2 physical-array family.
 const loom_xdna_array_family_t* loom_xdna_npu2_array_family(void);
 
-// Resolves the tile facts at one physical coordinate.
-iree_status_t loom_xdna_array_tile_facts(
+// Returns the tile facts at an admitted physical coordinate. Generated family
+// rows cover every physical row exactly once.
+const loom_xdna_tile_facts_t* loom_xdna_array_tile_facts(
     const loom_xdna_array_family_t* family,
-    loom_xdna_tile_coordinate_t coordinate,
-    const loom_xdna_tile_facts_t** out_facts);
+    loom_xdna_tile_coordinate_t coordinate);
 
-// Resolves one architectural stream port to its programmable ordinal range.
-iree_status_t loom_xdna_array_stream_port_range(
+// Returns the unique generated facts for an admitted physical tile kind.
+const loom_xdna_tile_facts_t* loom_xdna_array_tile_kind_facts(
+    const loom_xdna_array_family_t* family, loom_xdna_tile_kind_t tile_kind);
+
+// Returns the programmable ordinal range for an architectural stream port
+// present in the generated family. Routing and register emission use only
+// generated port kinds for the selected tile and direction.
+const loom_xdna_stream_port_range_t* loom_xdna_array_stream_port_range(
     const loom_xdna_array_family_t* family, loom_xdna_tile_kind_t tile_kind,
-    loom_xdna_stream_direction_t direction, loom_xdna_stream_port_t port,
-    const loom_xdna_stream_port_range_t** out_range);
+    loom_xdna_stream_direction_t direction, loom_xdna_stream_port_t port);
 
 // Forms one absolute tile register address after validating the module.
 iree_status_t loom_xdna_array_register_address(

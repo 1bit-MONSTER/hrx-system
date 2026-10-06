@@ -2,31 +2,6 @@
 
 amdgpu.target<gfx11-generic> @target
 
-// Two distinct retirement points need a shared exit-mask plan, even when they
-// lead to the same continuation. They cannot each restore parent EXEC alone.
-func.def target(@target) @multiple_loop_exits(%values: vector<2xi32>, %limit: i32) {
-  %lane = vector.extract %values[0] : vector<2xi32> -> i32
-  %loop_begin = scalar.constant 0 : i32
-  %increment = scalar.constant 1 : i32
-  cfg.br ^header(%loop_begin: i32)
-^header(%counter: i32):
-  %more = scalar.cmpi slt, %counter, %lane : i32
-  // ERROR@+1: TARGET/034 {branch_constraint="divergent_loop_single_exit"}
-  cfg.cond_br %more, ^body, ^exit
-^body:
-  %continue = scalar.cmpi slt, %counter, %limit : i32
-  cfg.cond_br %continue, ^latch, ^exit
-^latch:
-  %next = scalar.addi %counter, %increment : i32
-  cfg.br ^header(%next: i32)
-^exit:
-  func.return
-}
-
-// ====
-
-amdgpu.target<gfx11-generic> @target
-
 func.def target(@target) @multiple_loop_entries(%values: vector<2xi32>, %choice: i1) {
   %lane = vector.extract %values[0] : vector<2xi32> -> i32
   %loop_begin = scalar.constant 0 : i32
@@ -51,23 +26,59 @@ func.def target(@target) @multiple_loop_entries(%values: vector<2xi32>, %choice:
 
 amdgpu.target<gfx11-generic> @target
 
-// Two distinct retirement points need a shared exit-mask plan, even when they
-// lead to the same continuation. They cannot each restore parent EXEC alone.
-func.def target(@target) @divergent_exit_after_uniform_guard(%values: vector<2xi32>, %limit: i32) {
+func.def target(@target) @distinct_loop_continuations(%values: vector<2xi32>) {
   %lane = vector.extract %values[0] : vector<2xi32> -> i32
+  %limit = vector.extract %values[1] : vector<2xi32> -> i32
   %loop_begin = scalar.constant 0 : i32
   %increment = scalar.constant 1 : i32
   cfg.br ^header(%loop_begin: i32)
 ^header(%counter: i32):
-  %more = scalar.cmpi slt, %counter, %limit : i32
-  cfg.cond_br %more, ^body, ^exit
+  %more = scalar.cmpi slt, %counter, %lane : i32
+  // ERROR@+1: TARGET/034 {branch_constraint="divergent_loop_single_continuation"}
+  cfg.cond_br %more, ^body, ^first_exit
 ^body:
-  %continue = scalar.cmpi slt, %counter, %lane : i32
-  // ERROR@+1: TARGET/034 {branch_constraint="divergent_loop_single_exit"}
-  cfg.cond_br %continue, ^latch, ^exit
+  %continue = scalar.cmpi slt, %counter, %limit : i32
+  cfg.cond_br %continue, ^latch, ^second_exit
 ^latch:
   %next = scalar.addi %counter, %increment : i32
   cfg.br ^header(%next: i32)
+^first_exit:
+  func.return
+^second_exit:
+  func.return
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+// The outer loop cannot own one EXEC lifetime when an exit is sourced by the
+// nested loop: the inner lifetime must be retired and restored independently.
+func.def target(@target) @nested_loop_exit_ownership(%values: vector<2xi32>, %inner_limit: i32) {
+  %lane = vector.extract %values[0] : vector<2xi32> -> i32
+  %inner_lane_limit = vector.extract %values[1] : vector<2xi32> -> i32
+  %loop_begin = scalar.constant 0 : i32
+  %increment = scalar.constant 1 : i32
+  cfg.br ^outer_header(%loop_begin: i32)
+^outer_header(%outer_counter: i32):
+  %more_outer = scalar.cmpi slt, %outer_counter, %lane : i32
+  // ERROR@+1: TARGET/034 {branch_constraint="divergent_loop_direct_exits"}
+  cfg.cond_br %more_outer, ^inner_header, ^exit
+^inner_header:
+  cfg.br ^inner_condition(%loop_begin: i32)
+^inner_condition(%inner_counter: i32):
+  %more_inner = scalar.cmpi slt, %inner_counter, %inner_limit : i32
+  cfg.cond_br %more_inner, ^inner_body, ^outer_latch
+^inner_body:
+  %remain_inside = scalar.cmpi slt, %inner_counter, %inner_lane_limit : i32
+  // ERROR@+1: TARGET/034 {branch_constraint="divergent_loop_single_continuation"}
+  cfg.cond_br %remain_inside, ^inner_latch, ^exit
+^inner_latch:
+  %next_inner = scalar.addi %inner_counter, %increment : i32
+  cfg.br ^inner_condition(%next_inner: i32)
+^outer_latch:
+  %next_outer = scalar.addi %outer_counter, %increment : i32
+  cfg.br ^outer_header(%next_outer: i32)
 ^exit:
   func.return
 }

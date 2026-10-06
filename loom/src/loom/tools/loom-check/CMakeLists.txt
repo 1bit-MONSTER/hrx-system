@@ -70,11 +70,11 @@ loom_cc_library(
     loom::codegen::low::lower
     loom::codegen::low::packet_json
     loom::codegen::low::pipeline::legalizer_registry
-    loom::codegen::low::pipeline::pass_environment
     loom::codegen::low::schedule
     loom::codegen::low::target_binding
     loom::codegen::low::text_asm
     loom::codegen::low::verify
+    loom::codegen::pass_environment
     loom::error::diagnostic
     loom::error::emitter
     loom::error::error_defs
@@ -115,6 +115,7 @@ loom_cc_library(
     loom::tooling::compile::pipeline
     loom::tooling::input
     loom::tools::loom-format::convert
+    loom::transforms::cleanup::patterns
     loom::util::diff
     loom::util::fact_table
     loom::util::json
@@ -175,6 +176,7 @@ loom_cc_test(
     loom::target::test::lower
     loom::testing::context
     loom::testing::test_file
+    loom::transforms::cleanup::configured
 )
 
 loom_cc_library(
@@ -286,10 +288,11 @@ loom_cc_library(
     ::execute
     iree::base
     loom::codegen::low::repr
+    loom::compile::request
     loom::link::linker
     loom::target::entry_selection
     loom::tooling::compile::configured
-    loom::tooling::compile::preparation
+    loom::tooling::compile::pipeline
     loom::tooling::config
   PUBLIC
 )
@@ -386,6 +389,7 @@ loom_cc_library(
     loom::target::provider
     loom::tooling::context
     loom::tooling::input
+    loom::transforms::cleanup::configured
   PUBLIC
 )
 
@@ -461,16 +465,16 @@ if(LOOM_TARGET_ARCH_SPIRV)
   list(APPEND _loom_check_platform_deps loom::target::arch::spirv::check::check_provider)
 endif()
 if(LOOM_EMIT_SPIRV)
-  list(APPEND _loom_check_platform_deps loom::target::emit::spirv::check_provider)
+  list(APPEND _loom_check_platform_deps loom::tooling::target::spirv::check_provider)
 endif()
 if(LOOM_TARGET_ARCH_WASM)
   list(APPEND _loom_check_platform_deps loom::target::arch::wasm::check::check_provider)
 endif()
 if(LOOM_TARGET_ARCH_VM)
-  list(APPEND _loom_check_platform_deps loom::target::arch::vm::check)
+  list(APPEND _loom_check_platform_deps loom::tooling::target::vm::check)
 endif()
 if(LOOM_EMIT_WASM)
-  list(APPEND _loom_check_platform_deps loom::target::emit::wasm::check_provider)
+  list(APPEND _loom_check_platform_deps loom::tooling::target::wasm::check_provider)
 endif()
 if(LOOM_TARGET_ARCH_X86)
   list(APPEND _loom_check_platform_deps loom::target::arch::x86::check::check_provider)
@@ -526,16 +530,16 @@ if(LOOM_TARGET_ARCH_SPIRV)
   list(APPEND _loom_check_test_platform_deps loom::target::arch::spirv::check::check_provider)
 endif()
 if(LOOM_EMIT_SPIRV)
-  list(APPEND _loom_check_test_platform_deps loom::target::emit::spirv::check_provider)
+  list(APPEND _loom_check_test_platform_deps loom::tooling::target::spirv::check_provider)
 endif()
 if(LOOM_TARGET_ARCH_WASM)
   list(APPEND _loom_check_test_platform_deps loom::target::arch::wasm::check::check_provider)
 endif()
 if(LOOM_TARGET_ARCH_VM)
-  list(APPEND _loom_check_test_platform_deps loom::target::arch::vm::check)
+  list(APPEND _loom_check_test_platform_deps loom::tooling::target::vm::check)
 endif()
 if(LOOM_EMIT_WASM)
-  list(APPEND _loom_check_test_platform_deps loom::target::emit::wasm::check_provider)
+  list(APPEND _loom_check_test_platform_deps loom::tooling::target::wasm::check_provider)
 endif()
 if(LOOM_TARGET_ARCH_X86)
   list(APPEND _loom_check_test_platform_deps loom::target::arch::x86::check::check_provider)

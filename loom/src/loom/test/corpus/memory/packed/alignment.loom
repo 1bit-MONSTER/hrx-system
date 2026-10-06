@@ -1,0 +1,46 @@
+// Each workgroup copies one packed payload at a different byte alignment.
+kernel.def @copy_byte_origins() {
+  %c1 = index.constant 1 : index
+  %origins = index.constant 4 : index
+  kernel.launch.config workgroups(%origins, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %group = kernel.workgroup.id<x> : index
+  %width = index.constant 32 : index
+  %position = index.mul %group, %width : index
+  %source_offset = index.cast %group : index to offset
+  %destination_offset = index.cast %position : index to offset
+  %source_view = buffer.view %source[%source_offset] : buffer -> view<32xi8>
+  %value = vector.load %source_view[0] : view<32xi8> -> vector<32xi8>
+  %destination_view = buffer.view %destination[%destination_offset] : buffer -> view<32xi8>
+  vector.store %value, %destination_view[0] : vector<32xi8>, view<32xi8>
+  kernel.return
+}
+
+check.case public @packed_byte_origins {
+  %input = check.generate.iota offset(0) step(1) : tensor<64xi8>
+  %storage = check.generate.fill value(-37) : tensor<160xi8>
+  %output = check.tensor.view %storage offset(16) : tensor<160xi8> -> tensor<128xi8>
+  kernel.launch @copy_byte_origins(%input, %output) : (tensor<64xi8>, tensor<128xi8>)
+  %row0 = check.tensor.view %output offset(0) : tensor<128xi8> -> tensor<32xi8>
+  %row1 = check.tensor.view %output offset(32) : tensor<128xi8> -> tensor<32xi8>
+  %row2 = check.tensor.view %output offset(64) : tensor<128xi8> -> tensor<32xi8>
+  %row3 = check.tensor.view %output offset(96) : tensor<128xi8> -> tensor<32xi8>
+  %expected0 = check.generate.iota offset(0) step(1) : tensor<32xi8>
+  %expected1 = check.generate.iota offset(1) step(1) : tensor<32xi8>
+  %expected2 = check.generate.iota offset(2) step(1) : tensor<32xi8>
+  %expected3 = check.generate.iota offset(3) step(1) : tensor<32xi8>
+  check.expect.bitwise actual(%row0) expected(%expected0) : tensor<32xi8>
+  check.expect.bitwise actual(%row1) expected(%expected1) : tensor<32xi8>
+  check.expect.bitwise actual(%row2) expected(%expected2) : tensor<32xi8>
+  check.expect.bitwise actual(%row3) expected(%expected3) : tensor<32xi8>
+  %prefix = check.tensor.view %storage offset(0) : tensor<160xi8> -> tensor<16xi8>
+  %suffix = check.tensor.view %storage offset(144) : tensor<160xi8> -> tensor<16xi8>
+  %guard = check.generate.fill value(-37) : tensor<16xi8>
+  check.expect.bitwise actual(%prefix) expected(%guard) : tensor<16xi8>
+  check.expect.bitwise actual(%suffix) expected(%guard) : tensor<16xi8>
+  %original = check.generate.iota offset(0) step(1) : tensor<64xi8>
+  check.expect.bitwise actual(%input) expected(%original) : tensor<64xi8>
+  check.return
+}

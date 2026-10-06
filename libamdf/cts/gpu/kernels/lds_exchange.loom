@@ -1,0 +1,55 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Each complete 128-lane group exchanges tagged words between partner lanes in
+// different waves through 512 fixed LDS bytes. Each output pair contains the
+// exchanged word and an independently tagged global workitem position.
+kernel.def export("lds_exchange") @lds_exchange(%groups_x: index) {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%groups_x, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %seed: i32) {
+  %origin = index.constant 0 : offset
+  %fixed_bytes = index.constant 512 : offset
+  %word_bytes = index.constant 4 : offset
+  %static_storage = buffer.alloca<workgroup> align(4) %fixed_bytes : buffer
+  %static_words = buffer.view %static_storage[%origin] : buffer -> view<128xi32>
+
+  %lane = kernel.workitem.id<x> : index
+  %group = kernel.workgroup.id<x> : index
+  %lane_value = index.cast %lane : index to i32
+  %group_value = index.cast %group : index to i32
+  %width_value = scalar.constant 128 : i32
+  %pair_words_value = scalar.constant 2 : i32
+  %group_origin = scalar.muli %group_value, %width_value : i32
+  %global_value = scalar.addi %group_origin, %lane_value : i32
+  %output_word_value = scalar.muli %global_value, %pair_words_value : i32
+  %unsigned_output_word = index.cast %output_word_value : i32 to offset
+  %output_word = index.cast %unsigned_output_word : offset to index
+  %output_offset = index.scale %output_word, %word_bytes : index, offset -> offset
+  %output_pair = buffer.view %output[%output_offset] : buffer -> view<2xi32>
+
+  %static_group_multiplier = scalar.constant 16909063 : i32
+  %static_lane_multiplier = scalar.constant 4129 : i32
+  %static_group_product = scalar.muli %group_value, %static_group_multiplier : i32
+  %static_lane_product = scalar.muli %lane_value, %static_lane_multiplier : i32
+  %static_group_token = scalar.addi %seed, %static_group_product : i32
+  %static_token = scalar.addi %static_group_token, %static_lane_product : i32
+  view.store %static_token, %static_words[%lane] : i32, view<128xi32>
+
+  // Release prior LDS writes, rendezvous all 128 lanes, then acquire LDS reads.
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %partner_mask = scalar.constant 64 : i32
+  %partner_value = scalar.xori %lane_value, %partner_mask : i32
+  %partner = index.cast %partner_value : i32 to index
+  %static_result = view.load %static_words[%partner] : view<128xi32> -> i32
+  view.store %static_result, %output_pair[0] : i32, view<2xi32>
+  %stamp_base = scalar.constant 1511506142 : i32
+  %stamp_position = scalar.addi %stamp_base, %global_value : i32
+  %stamp = scalar.xori %seed, %stamp_position : i32
+  view.store %stamp, %output_pair[1] : i32, view<2xi32>
+  kernel.return
+}

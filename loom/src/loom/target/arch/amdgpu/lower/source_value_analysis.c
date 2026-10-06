@@ -53,12 +53,20 @@ static iree_status_t loom_amdgpu_source_value_analysis_prepare(
     analysis->records = NULL;
     analysis->record_count =
         value_domain != NULL ? value_domain->value_count : 0;
+    analysis->query.provisional_ordinals = NULL;
+    analysis->query.provisional_count = 0;
+    analysis->query.generation = 0;
+    analysis->query.depth = 0;
     if (analysis->record_count != 0) {
       IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
           arena, analysis->record_count, sizeof(*analysis->records),
           (void**)&analysis->records));
       memset(analysis->records, 0,
              analysis->record_count * sizeof(*analysis->records));
+      IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+          arena, analysis->record_count,
+          sizeof(*analysis->query.provisional_ordinals),
+          (void**)&analysis->query.provisional_ordinals));
     }
   }
   return iree_ok_status();
@@ -158,53 +166,104 @@ bool loom_amdgpu_source_value_analysis_cached_bit(
     return false;
   }
   *out_value = iree_any_bit_set(record->value_bits, bit);
+  if (iree_any_bit_set(record->provisional_bits, bit)) {
+    // The current query now depends on an answer that crossed a recursion cut.
+    ++analysis->query.generation;
+  }
   return true;
-}
-
-static void loom_amdgpu_source_value_analysis_record_bit(
-    loom_amdgpu_source_value_analysis_t* analysis,
-    loom_value_id_t source_value_id,
-    loom_amdgpu_source_value_analysis_bits_t bit, bool value) {
-  loom_amdgpu_source_value_analysis_record_t* record =
-      loom_amdgpu_source_value_analysis_lookup(analysis, source_value_id);
-  if (record == NULL) {
-    return;
-  }
-  record->known_bits |= bit;
-  if (value) {
-    record->value_bits |= bit;
-  } else {
-    record->value_bits &= (loom_amdgpu_source_value_analysis_bits_t)~bit;
-  }
 }
 
 bool loom_amdgpu_source_value_analysis_begin_bit(
     loom_amdgpu_source_value_analysis_t* analysis,
     loom_value_id_t source_value_id,
-    loom_amdgpu_source_value_analysis_bits_t bit) {
+    loom_amdgpu_source_value_analysis_bits_t bit,
+    loom_amdgpu_source_value_analysis_query_token_t* out_token) {
+  *out_token = analysis != NULL ? analysis->query.generation : 0;
   loom_amdgpu_source_value_analysis_record_t* record =
       loom_amdgpu_source_value_analysis_lookup(analysis, source_value_id);
   if (record == NULL) {
     return true;
   }
   if (iree_any_bit_set(record->active_bits, bit)) {
+    // False is the conservative seed for the least fixed-point queries. Mark
+    // every computation spanning this cut as provisional.
+    ++analysis->query.generation;
     return false;
   }
   record->active_bits |= bit;
+  ++analysis->query.depth;
   return true;
+}
+
+static void loom_amdgpu_source_value_analysis_mark_provisional(
+    loom_amdgpu_source_value_analysis_t* analysis,
+    loom_amdgpu_source_value_analysis_record_t* record,
+    loom_value_ordinal_t value_ordinal,
+    loom_amdgpu_source_value_analysis_bits_t bit) {
+  if (iree_any_bit_set(record->provisional_bits, bit)) {
+    return;
+  }
+  if (record->provisional_bits == 0) {
+    analysis->query.provisional_ordinals[analysis->query.provisional_count++] =
+        value_ordinal;
+  }
+  record->provisional_bits |= bit;
+}
+
+static void loom_amdgpu_source_value_analysis_complete_query(
+    loom_amdgpu_source_value_analysis_t* analysis,
+    loom_value_ordinal_t root_ordinal,
+    loom_amdgpu_source_value_analysis_bits_t root_bit) {
+  // The completed root has explored every non-cyclic alternative and reached
+  // the least fixed point. Nested answers that crossed a cut were only valid
+  // within this traversal and must not make later queries order-dependent.
+  for (iree_host_size_t i = 0; i < analysis->query.provisional_count; ++i) {
+    const loom_value_ordinal_t value_ordinal =
+        analysis->query.provisional_ordinals[i];
+    loom_amdgpu_source_value_analysis_record_t* record =
+        &analysis->records[value_ordinal];
+    loom_amdgpu_source_value_analysis_bits_t discarded_bits =
+        record->provisional_bits;
+    if (value_ordinal == root_ordinal) {
+      discarded_bits &= (loom_amdgpu_source_value_analysis_bits_t)~root_bit;
+    }
+    record->known_bits &=
+        (loom_amdgpu_source_value_analysis_bits_t)~discarded_bits;
+    record->value_bits &=
+        (loom_amdgpu_source_value_analysis_bits_t)~discarded_bits;
+    record->provisional_bits = 0;
+  }
+  analysis->query.provisional_count = 0;
 }
 
 void loom_amdgpu_source_value_analysis_end_bit(
     loom_amdgpu_source_value_analysis_t* analysis,
     loom_value_id_t source_value_id,
-    loom_amdgpu_source_value_analysis_bits_t bit, bool value) {
+    loom_amdgpu_source_value_analysis_bits_t bit,
+    loom_amdgpu_source_value_analysis_query_token_t token, bool value) {
   loom_amdgpu_source_value_analysis_record_t* record =
       loom_amdgpu_source_value_analysis_lookup(analysis, source_value_id);
-  if (record != NULL) {
-    record->active_bits &= (loom_amdgpu_source_value_analysis_bits_t)~bit;
+  if (record == NULL) {
+    return;
   }
-  loom_amdgpu_source_value_analysis_record_bit(analysis, source_value_id, bit,
-                                               value);
+  record->active_bits &= (loom_amdgpu_source_value_analysis_bits_t)~bit;
+  record->known_bits |= bit;
+  if (value) {
+    record->value_bits |= bit;
+  } else {
+    record->value_bits &= (loom_amdgpu_source_value_analysis_bits_t)~bit;
+  }
+  const loom_value_ordinal_t value_ordinal =
+      (loom_value_ordinal_t)(record - analysis->records);
+  if (token != analysis->query.generation) {
+    loom_amdgpu_source_value_analysis_mark_provisional(analysis, record,
+                                                       value_ordinal, bit);
+  }
+  --analysis->query.depth;
+  if (analysis->query.depth == 0 && analysis->query.provisional_count != 0) {
+    loom_amdgpu_source_value_analysis_complete_query(analysis, value_ordinal,
+                                                     bit);
+  }
 }
 
 bool loom_amdgpu_source_value_analysis_cached_register_shape(

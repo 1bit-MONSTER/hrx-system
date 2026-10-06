@@ -295,18 +295,22 @@ low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_c
   %22 = v_mov_b32 0
   %31 = v_and_b32_src0_inline %19, 31
   %32 = s_lshl_b32_rhs_inline %workgroup, 12
-  %33 = v_lshlrev_b32_src0_inline %subgroup, 10
-  %34 = v_add_u32 %32, %33
-  %35 = v_lshlrev_b32_src0_inline %31, 2
-  %36 = v_add_u32 %34, %35
-  global_store_b32_saddr %36, %22, %output_view
-  global_store_b32_saddr %36, %22, %output_view {offset = 128}
-  global_store_b32_saddr %36, %22, %output_view {offset = 256}
-  global_store_b32_saddr %36, %22, %output_view {offset = 384}
-  global_store_b32_saddr %36, %22, %output_view {offset = 512}
-  global_store_b32_saddr %36, %22, %output_view {offset = 640}
-  global_store_b32_saddr %36, %22, %output_view {offset = 768}
-  global_store_b32_saddr %36, %22, %output_view {offset = 896}
+  %33 = slice %output_view[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %34 = slice %output_view[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %35 = s_mov_b32 0
+  %36, %37 = s_add_co_u32 %33, %32
+  %38, %39 = s_addc_u32 %34, %35, %37
+  %40 = concat(%36, %38) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %41 = v_lshlrev_b32_src0_inline %subgroup, 10
+  %42 = v_lshl_add_u32_shift_imm %31, %41, 2
+  global_store_b32_saddr %42, %22, %40
+  global_store_b32_saddr %42, %22, %40 {offset = 128}
+  global_store_b32_saddr %42, %22, %40 {offset = 256}
+  global_store_b32_saddr %42, %22, %40 {offset = 384}
+  global_store_b32_saddr %42, %22, %40 {offset = 512}
+  global_store_b32_saddr %42, %22, %40 {offset = 640}
+  global_store_b32_saddr %42, %22, %40 {offset = 768}
+  global_store_b32_saddr %42, %22, %40 {offset = 896}
   return
 }
 
@@ -384,7 +388,7 @@ kernel.def target(@target) @lds_i8x8_strided_load_rejected() {
 
 amdgpu.target<gfx11-generic> @target
 
-kernel.def target(@target) @cache_policy_workgroup_store_rejected() {
+kernel.def target(@target) @cache_policy_workgroup_dropped() {
   %c1 = index.constant 1 : index
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
 } launch() {
@@ -394,10 +398,29 @@ kernel.def target(@target) @cache_policy_workgroup_store_rejected() {
   %scratch = buffer.alloca<workgroup> align(16) %bytes : buffer
   %scratch_view = buffer.view %scratch[%scratch_base] : buffer -> view<64x4xi32>
   %stored_value = vector.constant 1 : vector<4xi32>
-  // REMARK@+2: BACKEND/040 "rejected cache policy 'device/non_temporal'" "decision 'memory_cache_policy.workgroup'" "store in workgroup"
-  // ERROR@+1: AMDGPU/024 {constraint_key="memory_cache_policy.workgroup", memory_space="workgroup", cache_scope="device", cache_temporal="non_temporal", descriptor_set_key="amdgpu.gfx11.generic.core"}
+  // REMARK@+2: BACKEND/040 "dropped cache policy 'device/non_temporal'" "decision 'memory_cache_policy.unsupported'" "store in workgroup"
+  // REMARK@+1: BACKEND/017 "selected store memory packet 'amdgpu.ds_write_b128'"
   vector.store %stored_value, %scratch_view[%tid, 0] {cache_scope = device, cache_temporal = non_temporal} : vector<4xi32>, view<64x4xi32>
+  %increment = scalar.constant 1 : i32
+  // REMARK@+1: BACKEND/040 "dropped cache policy 'cu/non_temporal'" "decision 'memory_cache_policy.unsupported'" "atomic_rmw in workgroup"
+  %old = view.atomic.rmw<addi> %increment, %scratch_view[%tid, 0] {cache_scope = cu, cache_temporal = non_temporal, ordering = acq_rel, scope = system} : i32, view<64x4xi32> -> i32
   kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.gfx11.generic.core>(@target) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @cache_policy_workgroup_dropped() asm {
+  %9 = storage {byte_alignment = 16, byte_length = 1024} : low.storage<workgroup>
+  %scratch_view = storage_address %9 : low.storage<workgroup> -> reg<amdgpu.vgpr>
+  %11 = v_mov_b32 1
+  %stored_value = concat(%11, %11, %11, %11) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
+  %16 = v_mov_b32 0
+  ds_write_b128 %16, %stored_value
+  s_waitcnt {vmcnt = 0, lgkmcnt = 0}
+  s_waitcnt_vscnt {vscnt = 0}
+  %old = ds_add_rtn_u32 %scratch_view, %11
+  s_waitcnt {lgkmcnt = 0}
+  buffer_gl0_inv
+  return
 }
 
 // ====
@@ -715,16 +738,19 @@ kernel.def target(@target) @fragment_private_memory_rejected() {
 
 amdgpu.target<gfx11-generic> @target
 
-kernel.def target(@target) @fragment_static_vaddr_offset_range_rejected() {
+// Lane-varying wide origins cannot share one full-width scalar base.
+kernel.def target(@target) @fragment_varying_wide_origin_rejected() {
   %c1 = index.constant 1 : index
   %c32 = index.constant 32 : index
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c32, %c1, %c1) : index
 } launch(%lhs_buffer: buffer) {
-  %base = index.constant 4294967296 : offset
+  %workitem = kernel.workitem.id<x> : index
+  %origin_stride = index.constant 4294967296 : offset
+  %base = index.scale %workitem, %origin_stride : index, offset -> offset
   %m = index.constant 16 : index
   %k = index.constant 16 : index
   %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<16x16xf16>
-  // ERROR@+1: AMDGPU/023 {constraint_key="fragment_memory.base_offset"}
+  // ERROR@+1: AMDGPU/023 {constraint_key="fragment_memory.dynamic_stride"}
   %lhs = vector.fragment.load<lhs> %lhs_view[0, 0] shape [%m, %k] : view<16x16xf16> -> vector<16xf16>
   kernel.return
 }

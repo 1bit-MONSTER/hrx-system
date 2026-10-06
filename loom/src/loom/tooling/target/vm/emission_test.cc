@@ -13,12 +13,13 @@
 #include "loom/ir/context.h"
 #include "loom/ops/func/ops.h"
 #include "loom/ops/op_registry.h"
-#include "loom/target/arch/vm/module.h"
-#include "loom/target/arch/vm/provider.h"
+#include "loom/target/emit/vm/module_compiler.h"
+#include "loom/target/selection.h"
 #include "loom/tooling/compile/pipeline.h"
 #include "loom/tooling/input/input.h"
 #include "loom/tooling/target/vm/emission_test_data.h"
 #include "loom/tooling/target/vm/native_references_bytecode.h"
+#include "loom/transforms/cleanup/configured.h"
 
 namespace {
 
@@ -68,12 +69,8 @@ class VMEmissionTest : public ::testing::Test {
   void SetUp() override {
     iree_arena_block_pool_initialize(128 * 1024, iree_allocator_system(),
                                      &pool_);
-    static const loom_target_provider_t* const providers[] = {
-        &loom_vm_target_provider};
-    static const auto provider_set =
-        loom_target_provider_set_make(providers, 1);
-    IREE_ASSERT_OK(
-        loom_target_environment_initialize(&provider_set, &environment_));
+    IREE_ASSERT_OK(loom_target_environment_initialize(
+        &loom_vm_compiler_provider_set, &environment_));
     loom_context_initialize(iree_allocator_system(), &context_);
     IREE_ASSERT_OK(loom_op_registry_register_all_dialects(&context_));
     IREE_ASSERT_OK(
@@ -99,9 +96,13 @@ class VMEmissionTest : public ::testing::Test {
                                           &context_, &pool_,
                                           iree_allocator_system(), &input_));
     ASSERT_NE(input_.module, nullptr);
+    const loom_target_specification_t specification = {
+        /*.family=*/IREE_SVL("vm"),
+        /*.selector=*/IREE_SVL("core"),
+    };
     const loom_target_profile_t* profile = nullptr;
-    IREE_ASSERT_OK(
-        loom_vm_target_provider.select_profile(IREE_SV("core"), &profile));
+    IREE_ASSERT_OK(loom_target_environment_select_profile(
+        &environment_, &specification, &profile));
     std::vector<loom_target_specialization_request_t> specializations;
     for (uint32_t i = 0; i < input_.module->symbols.count; ++i) {
       const auto& symbol = input_.module->symbols.entries[i];
@@ -123,6 +124,8 @@ class VMEmissionTest : public ::testing::Test {
     loom_compile_pipeline_options_initialize(&options);
     options.target_environment = &environment_;
     options.low_descriptor_registry = &registry_;
+    options.cleanup_pattern_provider_set =
+        loom_cleanup_configured_pattern_provider_set();
     options.target_specializations = {specializations.data(),
                                       specializations.size()};
     IREE_ASSERT_OK(
@@ -131,7 +134,9 @@ class VMEmissionTest : public ::testing::Test {
   }
 
   iree_status_t Emit(EmissionAllocator* allocations, iree_host_size_t fail_at,
+                     bool* out_emitted,
                      loom_target_emit_artifact_t* out_artifact) {
+    *out_emitted = false;
     iree_arena_block_pool_t pool;
     iree_arena_block_pool_initialize(128 * 1024, allocations->allocator(),
                                      &pool);
@@ -152,7 +157,7 @@ class VMEmissionTest : public ::testing::Test {
       request.function_versions = &pipeline_.function_versions.list;
       request.scratch_arena = &arena;
       request.allocator = allocations->allocator();
-      status = loom_vm_module_emit(&request, out_artifact);
+      status = loom_vm_module_emitter.emit(&request, out_emitted, out_artifact);
       EXPECT_EQ(arena.used_allocation_size, checkpoint.used_allocation_size);
       EXPECT_EQ(arena.total_allocation_size, checkpoint.total_allocation_size);
       for (unsigned i = 0; i < 64; ++i) {
@@ -179,7 +184,7 @@ class VMEmissionTest : public ::testing::Test {
   loom_context_t context_ = {};
   // Target services retained throughout compilation and emission.
   loom_target_environment_t environment_ = {};
-  // Target-Low descriptors used by preparation and emission.
+  // Target-Low descriptors used by program planning and emission.
   loom_target_low_descriptor_registry_t registry_ = {};
   // Admitted source and its mutable compiler module.
   loom_input_module_t input_ = {};
@@ -197,14 +202,17 @@ TEST_F(VMEmissionTest, AllocationFailuresPreserveScratchAndPublishNoArtifact) {
   for (iree_host_size_t fail_at = 0;; ++fail_at) {
     SCOPED_TRACE(fail_at);
     EmissionAllocator allocations;
+    bool emitted = false;
     loom_target_emit_artifact_t artifact = {};
-    iree_status_t status = Emit(&allocations, fail_at, &artifact);
+    iree_status_t status = Emit(&allocations, fail_at, &emitted, &artifact);
     const bool succeeded = iree_status_is_ok(status);
     if (succeeded) {
+      EXPECT_TRUE(emitted);
       // Emission scratch and its entire pool are already destroyed.
       EXPECT_EQ(Clone(artifact), expected);
       EXPECT_GT(fail_at, 0u);
     } else {
+      EXPECT_FALSE(emitted);
       IREE_EXPECT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED, status);
       EXPECT_EQ(artifact.contents, nullptr);
       EXPECT_EQ(artifact.storage, nullptr);
@@ -249,8 +257,10 @@ TEST_P(VMEmissionReferenceScalingTest, WideSignaturesNeedNoOversizedScratch) {
   ASSERT_NO_FATAL_FAILURE(Prepare({source.data(), source.size()}));
   EmissionAllocator allocations;
   allocations.maximum_request = 128 * 1024;
+  bool emitted = false;
   loom_target_emit_artifact_t artifact = {};
-  IREE_ASSERT_OK(Emit(&allocations, IREE_HOST_SIZE_MAX, &artifact));
+  IREE_ASSERT_OK(Emit(&allocations, IREE_HOST_SIZE_MAX, &emitted, &artifact));
+  ASSERT_TRUE(emitted);
   EXPECT_FALSE(Clone(artifact).empty());
   loom_target_emit_artifact_release(&artifact);
   EXPECT_EQ(allocations.live, 0u);

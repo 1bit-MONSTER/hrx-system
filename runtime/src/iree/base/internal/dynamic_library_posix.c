@@ -18,7 +18,8 @@
 #include "iree/base/threading/call_once.h"
 
 #if defined(IREE_PLATFORM_ANDROID) || defined(IREE_PLATFORM_APPLE) || \
-    defined(IREE_PLATFORM_LINUX) || defined(IREE_PLATFORM_WASM)
+    defined(IREE_PLATFORM_LINUX) ||                                   \
+    (defined(IREE_PLATFORM_WASM) && !defined(IREE_PLATFORM_WASI))
 
 #include <dlfcn.h>
 #include <errno.h>

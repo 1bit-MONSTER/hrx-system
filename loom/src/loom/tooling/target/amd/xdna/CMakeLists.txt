@@ -23,24 +23,51 @@ iree_native_test(
 )
 endif()
 
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
-loom_cc_library(
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND LOOM_IMPORT_CXX)
+iree_native_test(
   NAME
-    artifact_provider
-  HDRS
-    "artifact_provider.h"
-  SRCS
-    "artifact_provider.c"
-  DEPS
-    iree::base
-    iree::base::internal::arena
-    loom::target::arch::amd::xdna::aie2p::artifact
-    loom::target::arch::amd::xdna::aie2p::low_registry
-    loom::target::arch::amd::xdna::aie2p::target_profile
-    loom::target::arch::amd::xdna::aie2p::target_records
-    loom::target::entry_selection
-    loom::tooling::compile::artifact
-  PUBLIC
+    "boolean_storage_lowering"
+  WORKING_DIRECTORY "${IREE_ROOT_DIR}"
+  ARGS
+    "{{${CMAKE_CURRENT_SOURCE_DIR}/test/boolean_storage.cxx-test}}"
+  SRC
+    loom::tools::loom-check
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/boolean_storage.cxx"
+  LABELS
+    "loom-check"
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND LOOM_IMPORT_CXX)
+iree_native_test(
+  NAME
+    "mxfp_group_dot_lowering"
+  WORKING_DIRECTORY "${IREE_ROOT_DIR}"
+  ARGS
+    "{{${CMAKE_CURRENT_SOURCE_DIR}/test/mxfp_group_dot.cxx-test}}"
+  SRC
+    loom::tools::loom-check
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/mxfp_group_dot.cxx"
+  LABELS
+    "loom-check"
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND LOOM_IMPORT_CXX)
+iree_native_test(
+  NAME
+    "vector_lookup_lowering"
+  WORKING_DIRECTORY "${IREE_ROOT_DIR}"
+  ARGS
+    "{{${CMAKE_CURRENT_SOURCE_DIR}/test/vector_lookup.cxx-test}}"
+  SRC
+    loom::tools::loom-check
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/vector_lookup.cxx"
+  LABELS
+    "loom-check"
 )
 endif()
 

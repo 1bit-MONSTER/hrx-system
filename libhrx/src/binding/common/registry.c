@@ -4,6 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include "common/registry.h"
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>

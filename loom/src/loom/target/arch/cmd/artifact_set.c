@@ -39,7 +39,7 @@ iree_status_t loom_cmd_program_artifact_set_build(
   if (plan == NULL || plan->root_module == NULL || plan->root_count == 0 ||
       out_artifact_set == NULL) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "a prepared command program plan is required");
+                            "a populated command program plan is required");
   }
   *out_artifact_set = (loom_cmd_program_artifact_set_t){0};
 

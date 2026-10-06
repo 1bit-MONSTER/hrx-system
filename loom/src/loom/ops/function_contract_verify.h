@@ -35,14 +35,31 @@ iree_status_t loom_function_provider_contract_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 
+enum loom_function_call_argument_match_flag_bits_e {
+  // Allows a tensor or view value to be materialized as a buffer ABI argument.
+  LOOM_FUNCTION_CALL_ARGUMENT_MATCH_FLAG_ALLOW_BUFFER_MATERIALIZATION = 1u << 0,
+};
+typedef uint16_t loom_function_call_argument_match_flags_t;
+
 // Verifies that an operation boundary matches the signature of |callee|.
 // Unresolved symbols are valid in partial modules and are checked after link
 // resolution. Dynamic dimensions and SSA encodings in the callee signature are
 // compared after remapping its arguments and results to the call boundary.
+// Execution boundaries may select explicit argument materialization policies;
+// result types always match the semantic contract exactly.
 iree_status_t loom_function_call_contract_verify(
     const loom_module_t* module, const loom_op_t* op, loom_symbol_ref_t callee,
     loom_value_slice_t operands, loom_value_slice_t results,
+    loom_function_call_argument_match_flags_t argument_match_flags,
     iree_diagnostic_emitter_t emitter);
+
+// Tests one call argument against its function contract type after applying
+// |value_remap|. Execution boundaries that own storage materialization may
+// allow tensor/view values to satisfy buffer ABI arguments.
+iree_status_t loom_function_call_argument_type_matches(
+    const loom_module_t* module, loom_type_t actual_type,
+    loom_type_t expected_type, const loom_type_value_remap_t* value_remap,
+    loom_function_call_argument_match_flags_t flags, bool* out_matches);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -1,12 +1,14 @@
 # Test correctness
 
-`iree-test-loom` executes the [`check.case`](../reference/dialects/check/ops/case.md)
-programs in an ordinary `.loom` or `.loombc` module. The same source can create
-inputs, call reference functions, launch kernels, and state expectations. A
-single command verifies and plans the module, executes its cases, writes a
-structured report, and returns failure when any planned sample fails.
+`iree-test-loom` executes [`check.case`](../reference/dialects/check/ops/case.md)
+and [`check.scenario`](../reference/dialects/check/ops/scenario.md) programs in
+an ordinary `.loom` or `.loombc` module. The same source can create inputs, call
+reference functions, launch kernels, compare an unchanged subject across target
+and oracle profiles, and state expectations. A single command verifies and
+plans the module, executes its selected correctness records, writes a structured
+report, and returns failure when any planned sample or trial fails.
 
-## Run every case
+## Run every correctness record
 
 With the Loom tools on `PATH`, pass the authored module directly to the runner:
 
@@ -14,9 +16,10 @@ With the Loom tools on `PATH`, pass the authored module directly to the runner:
 iree-test-loom program.loom
 ```
 
-Cases execute in source order. Reference-only cases need no device. Cases that
-contain [`kernel.launch`](../reference/dialects/kernel/ops/launch.md) use the HAL
-device selected for the run:
+Cases and scenarios execute in source order. Reference-only cases and VM-only
+scenarios need no device. Cases that contain
+[`kernel.launch`](../reference/dialects/kernel/ops/launch.md), and scenarios
+whose target runs through HAL, use the device selected for the run:
 
 ```shell
 iree-test-loom program.loom --device=amdgpu
@@ -38,8 +41,9 @@ A forced generic target remains generic even when the device also advertises a
 higher-priority exact target.
 
 The report is a `loom.test.v0` JSON document on standard output. Its top-level
-counts summarize cases, concrete samples, failures, skipped cases, and planning
-issues. The `samples` array carries the result of each concrete case sample.
+counts summarize cases, scenarios, concrete samples and trials, failures,
+skipped cases, and planning issues. The `samples` and `trials` arrays carry each
+concrete result.
 
 ## Compile without an execution device
 
@@ -86,6 +90,43 @@ larger than the evidence needed for one run:
 ```shell
 iree-test-loom program.loom --max-samples-per-case=16
 ```
+
+## Compare a target against its oracle
+
+Select a scenario with the same `--case` flag. The standard runner uses its VM
+profile as the oracle and, when a HAL device is selected, prepares the target
+for that device:
+
+```shell
+iree-test-loom program.loom \
+  --case=@advance_sweep \
+  --device=amdgpu \
+  --target=amdgpu:gfx1151 \
+  >test-results.json
+```
+
+Every [`check.compare`](../reference/dialects/check/ops/compare.md) trial gets
+independent target and oracle storage produced from the same deterministic
+recipe. The standard HAL and VM pairing compares a resultless function through
+its mutable post-state, aliases, authored guard values, and device outcomes.
+Profiles that transport results can check those explicit values as well.
+[`check.invoke`](../reference/dialects/check/ops/invoke.md) trials execute only
+the target profile.
+
+A scenario runs its complete finite configuration and trial domains. The
+`--sample` flag remains a `check.case` selector and is rejected for a selected
+scenario. A failing trial records its exact deterministic coordinate and the
+source location of the failed expectation:
+
+```shell
+jq '.trials[] | select(.passed == false) |
+    {scenario, entropy, configuration_ordinal, trial_index, trial_ordinal,
+     failures: .expectations.failures}' test-results.json
+```
+
+Rerunning the same selected scenario reconstructs the same trial identities and
+generated values. Trial execution is internally batched; batch boundaries do
+not change entropy reads or the values they produce.
 
 ## Keep the oracle with the workload
 
@@ -193,9 +234,13 @@ The first useful views are bounded summaries rather than the complete payload:
 
 ```shell
 jq '{case_count, sample_count, failed_sample_count,
+     scenario_count, trial_count, failed_trial_count,
      skipped_case_count, planning_issue_count}' test-results.json
 
 jq '.samples[] | {case, sample_ordinal, passed}' test-results.json
+
+jq '.trials[] | {scenario, configuration_ordinal,
+                  trial_index, trial_ordinal, passed}' test-results.json
 
 jq '.samples[] | select(.issues) | {case, issues}' test-results.json
 ```
@@ -210,6 +255,6 @@ status. CI therefore gets both a hard failure and the structured explanation.
 
 ## Continue to measurement
 
-Once every selected sample passes, add or select a `check.benchmark` row and
-continue with [Benchmark checked work](benchmark.md). The benchmark runner
-repeats the correctness gate before accepting timing evidence.
+Once every selected sample and trial passes, add or select a `check.benchmark`
+row and continue with [Benchmark checked work](benchmark.md). The benchmark
+runner repeats the correctness gate before accepting timing evidence.

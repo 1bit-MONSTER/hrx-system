@@ -78,10 +78,20 @@ void loom_low_schedule_pressure_alias_note_candidate_result_releases(
     loom_low_schedule_pressure_state_t* pressure_state,
     loom_value_ordinal_t result_ordinal);
 
-// Returns units transferred to live results when a candidate kills a source.
-uint32_t loom_low_schedule_pressure_alias_candidate_transfer_from_source(
+// Storage still owned by aliases of a candidate's dying source.
+typedef struct loom_low_schedule_pressure_alias_transfer_t {
+  // Units transferred to aliases that remain live after the instruction.
+  uint32_t live_units;
+  // Additional units retained by dying aliases until after result writes.
+  uint32_t late_units;
+} loom_low_schedule_pressure_alias_transfer_t;
+
+// Returns alias-owned units at the write and post-instruction boundaries and
+// retains incoming transfers for the candidate's subsequent result scoring.
+loom_low_schedule_pressure_alias_transfer_t
+loom_low_schedule_pressure_alias_candidate_transfer_from_source(
     const loom_low_schedule_build_state_t* state,
-    const loom_low_schedule_pressure_state_t* pressure_state,
+    loom_low_schedule_pressure_state_t* pressure_state,
     loom_value_ordinal_t source_ordinal);
 
 // Returns units a candidate result can alias after candidate operand deaths.

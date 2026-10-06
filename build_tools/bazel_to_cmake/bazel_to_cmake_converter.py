@@ -41,6 +41,7 @@ _PLATFORM_CMAKE_SYSTEM_NAME = {
     "@platforms//os:emscripten": "Emscripten",
     "@platforms//os:linux": "Linux",
     "@platforms//os:macos": "Darwin",
+    "@platforms//os:wasi": "WASI",
     "@platforms//os:windows": "Windows",
     # CPU architecture constraints.
     "@platforms//cpu:wasm32": "wasm_32",
@@ -68,6 +69,8 @@ _RUNTIME_HAL_DRIVER_CMAKE_OPTIONS = {
 }
 
 _API_CONFIG_CMAKE_OPTIONS = {
+    "//libamdf/config:enabled_setting": "AMDF_BUILD",
+    "//runtime/config/net:rdma_enabled": "IREE_NET_RDMA",
     "//build_tools/vulkan/config:available": "IREE_VULKAN_AVAILABLE",
     "//build_tools/d3d12/config:available": "IREE_D3D12_AVAILABLE",
 }
@@ -359,20 +362,31 @@ class BuildFileFunctions(object):
             self._converter.body = self._converter.body.rstrip("\n") + "\n"
             self._converter.body += "endif()\n\n"
 
-    def _convert_platform_select_deps(self, name, deps, block_name="DEPS"):
+    def _convert_platform_select_deps(
+        self, name, deps, block_name="DEPS", target_transform=None
+    ):
         """Handles target lists that may contain ConditionSelect entries.
 
         If deps is a plain list, returns (converted_target_block, "").
         If deps is a MixedDeps or ConditionSelect, emits a CMake variable
         with if/elseif/else blocks before the target and returns
         (converted_target_block_with_variable, variable_block).
+
+        target_transform canonicalizes labels whose rule contract distinguishes
+        target identities from package-relative file labels.
         """
+
+        def transform(target):
+            return target_transform(target) if target_transform else target
+
         if deps is None:
             return self._convert_target_list_block(block_name, None), ""
         if isinstance(deps, ConditionSelect):
             deps = MixedDeps(unconditional=[], selects=[deps])
         if not isinstance(deps, MixedDeps):
-            return self._convert_target_list_block(block_name, deps), ""
+            return self._convert_target_list_block(
+                block_name, [transform(target) for target in deps]
+            ), ""
 
         # Preserve the established dependency variable name while giving other
         # target blocks independent storage when one rule contains both.
@@ -395,7 +409,7 @@ class BuildFileFunctions(object):
                 var_block += f"{keyword}({cond})\n"
                 cmake_targets = []
                 for t in values:
-                    cmake_targets.extend(self._convert_target(t))
+                    cmake_targets.extend(self._convert_target(transform(t)))
                 for ct in sorted(cmake_targets):
                     var_block += f"  list(APPEND {var_name} {ct})\n"
                 first = False
@@ -405,13 +419,15 @@ class BuildFileFunctions(object):
                 var_block += "else()\n"
                 cmake_targets = []
                 for t in default_values:
-                    cmake_targets.extend(self._convert_target(t))
+                    cmake_targets.extend(self._convert_target(transform(t)))
                 for ct in sorted(cmake_targets):
                     var_block += f"  list(APPEND {var_name} {ct})\n"
             var_block += "endif()\n"
 
         # Build the target block: unconditional targets + the variable reference.
-        deps_block = self._convert_target_list_block(block_name, deps.unconditional)
+        deps_block = self._convert_target_list_block(
+            block_name, [transform(target) for target in deps.unconditional]
+        )
         # Append the variable reference to the deps block.
         if deps_block:
             # Append the variable reference to the existing target block.
@@ -941,7 +957,7 @@ class BuildFileFunctions(object):
 
         return self._convert_string_list_block(block_name, srcs, sort=True)
 
-    def _convert_data_srcs_block(self, srcs, block_name="SRCS"):
+    def _convert_data_srcs_block(self, srcs, block_name="SRCS", sort=True):
         if not srcs:
             return ""
 
@@ -964,7 +980,7 @@ class BuildFileFunctions(object):
                     self._filegroup_dep_filename(self._normalize_label(src))
                 )
 
-        return self._convert_string_list_block(block_name, converted_srcs, sort=True)
+        return self._convert_string_list_block(block_name, converted_srcs, sort=sort)
 
     def _convert_target(self, target):
         """Returns a list of targets that correspond to the specified Bazel target.
@@ -1008,8 +1024,13 @@ class BuildFileFunctions(object):
         )
 
     def _convert_data_list_block(self, data, block_name="DATA"):
+        return self._convert_string_list_block(
+            block_name, self._convert_data_locations(data), sort=True, quote=True
+        )
+
+    def _convert_data_locations(self, data):
         if data is None:
-            return ""
+            return None
 
         converted_data = []
         target_file_prefix = "$<TARGET_FILE:"
@@ -1027,12 +1048,26 @@ class BuildFileFunctions(object):
                 else:
                     converted_data.append(path)
 
-        converted_data = list(dict.fromkeys(filter(None, converted_data)))
-        if not converted_data:
-            return ""
-        return self._convert_string_list_block(
-            block_name, converted_data, sort=True, quote=True
-        )
+        return list(dict.fromkeys(filter(None, converted_data))) or None
+
+    def _map_configurable_list(self, values, transform):
+        """Transforms list values while preserving their configuration branches."""
+        if isinstance(values, ConditionSelect):
+            return ConditionSelect(
+                {
+                    key: transform(items) or []
+                    for key, items in values.conditions.items()
+                }
+            )
+        if isinstance(values, MixedDeps):
+            return MixedDeps(
+                unconditional=transform(values.unconditional) or [],
+                selects=[
+                    self._map_configurable_list(selection, transform)
+                    for selection in values.selects
+                ],
+            )
+        return transform(values)
 
     def _convert_amdgpu_bitcode_deps_block(self, deps):
         if deps is None:
@@ -1320,12 +1355,6 @@ class BuildFileFunctions(object):
         self._check_no_unhandled_kwargs("iree_py_test", kwargs)
         if env:
             raise NotImplementedError(f"iree_py_test env: {name}")
-        if data:
-            if not isinstance(data, list):
-                if self._has_only_external_targets(data):
-                    data = None
-                else:
-                    raise NotImplementedError(f"iree_py_test data: {name}")
         # CTest already inherits the invoking environment, including env_inherit.
         source_list = list(srcs or [])
         main_source = None
@@ -1350,10 +1379,17 @@ class BuildFileFunctions(object):
             [self._python_file_cmake_path(source) for source in source_list],
             sort=False,
         )
-        args_block = self._convert_string_list_block(
-            "ARGS", self._convert_test_location_args(args), sort=False
+        args_block, args_var_block = self._convert_platform_select_strings(
+            name,
+            "ARGS",
+            self._map_configurable_list(args, self._convert_test_location_args),
         )
-        data_block = self._convert_data_list_block(data)
+        data_block, data_var_block = self._convert_platform_select_strings(
+            name,
+            "DATA",
+            self._map_configurable_list(data, self._convert_data_locations),
+            sort=True,
+        )
         deps_block, deps_var_block = self._convert_python_target_list_blocks(
             name, "DEPS", deps
         )
@@ -1366,6 +1402,7 @@ class BuildFileFunctions(object):
         )
         timeout_block = self._convert_test_timeout_arg_block("TIMEOUT", timeout, size)
         self._emit_platform_guard_begin(target_compatible_with)
+        self._converter.body += args_var_block + data_var_block
         if deps_var_block:
             self._converter.body += deps_var_block
         self._converter.body += (
@@ -2807,6 +2844,16 @@ class BuildFileFunctions(object):
 
     def iree_executable_test(self, src, **kwargs):
         self.native_test(src=src, **kwargs)
+
+    def iree_executable_alias(self, name, tags=None, **kwargs):
+        if self._should_skip_target(tags=tags, **kwargs):
+            return
+        raise NotImplementedError(f"iree_executable_alias: {name}")
+
+    def iree_wasi_executable_alias(self, name, tags=None, **kwargs):
+        if self._should_skip_target(tags=tags, **kwargs):
+            return
+        raise NotImplementedError(f"iree_wasi_executable_alias: {name}")
 
     def cc_binary_benchmark(
         self,

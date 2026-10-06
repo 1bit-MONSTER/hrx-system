@@ -36,6 +36,11 @@ bool iree_benchmark_loom_case_matches_selection(
     const loom_testbench_case_plan_t* case_plan,
     iree_string_view_t selected_case_name);
 
+// Returns true when |scenario_plan| matches an empty or named selection.
+bool iree_benchmark_loom_scenario_matches_selection(
+    const loom_testbench_scenario_plan_t* scenario_plan,
+    iree_string_view_t selected_record_name);
+
 // Returns true when |benchmark_plan| matches an empty or named selection.
 bool iree_benchmark_loom_benchmark_matches_selection(
     const loom_testbench_benchmark_plan_t* benchmark_plan,

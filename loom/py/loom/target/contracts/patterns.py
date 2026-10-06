@@ -31,6 +31,10 @@ class TypePattern:
     maximum_static_elements: CTypeExpression | None = None
 
     @classmethod
+    def buffer(cls) -> Self:
+        return cls(kind="buffer")
+
+    @classmethod
     def scalar(cls, element: ScalarElementPattern) -> Self:
         return cls(kind="scalar", elements=_normalize_elements(element))
 
@@ -81,8 +85,22 @@ class TypePattern:
         object.__setattr__(self, "dims", dims)
         if len(elements) == 1:
             object.__setattr__(self, "element", elements[0])
-        if self.kind not in {"scalar", "vector", "view"}:
+        if self.kind not in {"buffer", "scalar", "vector", "view"}:
             raise ValueError(f"unknown type pattern kind '{self.kind}'")
+        if self.kind == "buffer":
+            if (
+                elements
+                or self.lanes is not None
+                or dims
+                or self.minimum_lanes is not None
+                or self.maximum_lanes is not None
+                or self.minimum_static_elements is not None
+                or self.maximum_static_elements is not None
+            ):
+                raise ValueError(
+                    "buffer type patterns cannot constrain elements or shape"
+                )
+            return
         if not elements:
             raise ValueError(f"{self.kind} type pattern requires an element")
         if len(set(elements)) != len(elements):
@@ -180,6 +198,12 @@ class TypePattern:
                 self.maximum_static_elements,
                 "vector static element range",
             )
+
+
+def Buffer() -> TypePattern:
+    """Returns a buffer reference type pattern."""
+
+    return TypePattern.buffer()
 
 
 def Scalar(element: ScalarElementPattern) -> TypePattern:

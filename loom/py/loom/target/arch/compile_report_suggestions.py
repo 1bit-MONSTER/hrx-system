@@ -9,6 +9,9 @@
 from __future__ import annotations
 
 from loom.reporting.compile_report import CompileReportDocument
+from loom.reporting.compile_report_boundary_projections import (
+    suggest_boundary_projections,
+)
 from loom.reporting.compile_report_loop_pipelines import suggest_loop_pipelines
 from loom.reporting.compile_report_suggestions import (
     CompileReportSuggestionOptions,
@@ -40,15 +43,17 @@ def suggest_compile_report(
             provider_name=None,
             unavailable_reason="compile_status_not_ok",
         )
-    source_suggestions = suggest_loop_pipelines(document)
+    source_suggestions = suggest_loop_pipelines(
+        document
+    ) + suggest_boundary_projections(document)
     target_result = _suggest_target(document, options)
     if not source_suggestions:
         return target_result
     return CompileReportSuggestionResult(
         provider_name=(
-            f"scf+{target_result.provider_name}"
+            f"source+{target_result.provider_name}"
             if target_result.unavailable_reason is None
-            else "scf"
+            else "source"
         ),
         unavailable_reason=None,
         suggestions=source_suggestions + target_result.suggestions,

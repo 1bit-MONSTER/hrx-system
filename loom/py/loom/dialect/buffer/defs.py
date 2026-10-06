@@ -297,7 +297,10 @@ buffer_assume_noalias = Op(
         "The result preserves the same storage identity, extent, memory-space, "
         "alignment, and nullability facts, and marks the root identity as "
         "comparable for disjointness proofs. External buffer arguments do not "
-        "gain this proof by default."
+        "gain this proof by default. The promise separates distinct scoped "
+        "roots in the same execution. Repeated executions may bind a root to "
+        "different storage; noalias alone does not establish disjointness "
+        "across executions."
     ),
     operands=[Operand("buffers", BUFFER, doc="Buffer roots to refine.", variadic=True)],
     results=[

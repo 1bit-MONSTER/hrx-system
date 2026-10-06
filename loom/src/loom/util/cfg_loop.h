@@ -77,6 +77,16 @@ bool loom_cfg_loop_forest_calculate_block_execution_counts(
     const loom_cfg_loop_forest_t* forest, const loom_cfg_graph_t* graph,
     const uint64_t* trip_counts, uint64_t* out_block_counts);
 
+// Expands exact trip counts into the execution multiplier contributed by
+// enclosing loops for each block. Data-dependent alternatives do not reject
+// the result; consumers pair it with retained control dependence to distinguish
+// branch-local uncertainty from exact post-reconvergence blocks. Returns false
+// for incomplete/noncanonical loop structure or overflow. Expansion takes
+// O(B+L) time and no additional storage.
+bool loom_cfg_loop_forest_calculate_block_multipliers(
+    const loom_cfg_loop_forest_t* forest, const loom_cfg_graph_t* graph,
+    const uint64_t* trip_counts, uint64_t* out_block_multipliers);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

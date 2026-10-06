@@ -180,26 +180,8 @@ static iree_status_t loomc_cxx_provide_source(void* user_data,
 static iree_status_t loomc_cxx_capture_diagnostic(
     void* user_data, const loom_diagnostic_t* diagnostic) {
   loomc_cxx_invocation_t* invocation = (loomc_cxx_invocation_t*)user_data;
-  const loom_source_range_t* range = &diagnostic->source_location;
-  loomc_source_t* source = NULL;
-  loomc_status_t status = loomc_ok_status();
-  if (range->filename.size || range->source.size) {
-    const loomc_source_options_t options = {
-        .format = LOOMC_SOURCE_FORMAT_UNKNOWN,
-        .identifier = loomc_string_view_from_iree(range->filename),
-        .contents =
-            loomc_make_byte_span(range->source.data, range->source.size),
-        .storage = LOOMC_SOURCE_STORAGE_COPY,
-    };
-    status = loomc_source_create(
-        &options, loomc_result_allocator(invocation->result), &source);
-  }
-  if (loomc_status_is_ok(status)) {
-    status = loomc_result_add_loom_diagnostic(invocation->result, source,
-                                              diagnostic);
-  }
-  loomc_source_release(source);
-  return iree_status_from_loomc(status);
+  return iree_status_from_loomc(
+      loomc_result_add_loom_diagnostic(invocation->result, NULL, diagnostic));
 }
 
 loomc_status_t loomc_module_import_cxx(

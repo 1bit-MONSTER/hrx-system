@@ -1,0 +1,362 @@
+// RUN: with-checks pass-report pipeline-scf-for
+
+// Only the requested full mixed loop is exposed before the read-ahead cut.
+kernel.def @prepare_mixed_stripes() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %width = index.constant 64 : index
+  %tile = index.constant 128 : index
+  %last = index.constant 63 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 512 : offset
+  %lane = kernel.workitem.id<x> : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<512xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<128xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<128xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %c4 step %c1](%sum = %identity : i32) -> (i32) pipeline(%c2) {
+    scf.for %stripe = [%c0 to %c2 step %c1] unroll {
+      %slot = index.madd %stripe, %width, %lane : index
+      %address = index.madd %row, %tile, %slot : index
+      %value = view.load %source[%address] : view<512xi32> -> i32
+      view.store %value, %published[%slot] : i32, view<128xi32>
+    }
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %observed = view.load %consumed[%peer] : view<128xi32> -> i32
+    %second_peer = index.add %peer, %width : index
+    %second = view.load %consumed[%second_peer] : view<128xi32> -> i32
+    %pair = scalar.addi %observed, %second : i32
+    %next = scalar.addi %sum, %pair : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  view.store %result, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ----
+CHECK: *"acquisition_count":1*
+CHECK: *"loops-pipelined":1,"policies-cleared":0*
+CHECK: *"values_per_record":4,"read_count":2*
+CHECK: *"op":"view.load","stage":"producer"*
+CHECK: *"op":"view.load","stage":"consumer"*
+CHECK: *"op":"view.store","stage":"consumer"*
+CHECK: *"op":"kernel.barrier","stage":"consumer"*
+CHECK-NOT: *"op":"view.store","stage":"producer"*
+CHECK-NOT: *"op":"kernel.barrier","stage":"producer"*
+
+// ====
+
+// RUN: pass pipeline-scf-for
+
+kernel.def @preserve_partial_stripes() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %width = index.constant 64 : index
+  %tile = index.constant 128 : index
+  %last = index.constant 63 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 512 : offset
+  %lane = kernel.workitem.id<x> : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<512xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<128xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<128xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %c4 step %c1](%sum = %identity : i32) -> (i32) pipeline(%c2) {
+    // ERROR@+1: STRUCTURE/014 {expected_constraint="workgroup-only stores and barriers in the ordered consumer"}
+    scf.for %stripe = [%c0 to %c2 step %c1] unroll(%c4) {
+      %slot = index.madd %stripe, %width, %lane : index
+      %address = index.madd %row, %tile, %slot : index
+      %value = view.load %source[%address] : view<512xi32> -> i32
+      view.store %value, %published[%slot] : i32, view<128xi32>
+    }
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %observed = view.load %consumed[%peer] : view<128xi32> -> i32
+    %second_peer = index.add %peer, %width : index
+    %second = view.load %consumed[%second_peer] : view<128xi32> -> i32
+    %pair = scalar.addi %observed, %second : i32
+    %next = scalar.addi %sum, %pair : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  view.store %result, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ====
+
+// RUN: pass pipeline-scf-for
+
+kernel.def @preserve_interleaved_stripes() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %width = index.constant 64 : index
+  %tile = index.constant 128 : index
+  %last = index.constant 63 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 512 : offset
+  %lane = kernel.workitem.id<x> : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<512xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<128xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<128xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %c4 step %c1](%sum = %identity : i32) -> (i32) pipeline(%c2) {
+    // ERROR@+1: STRUCTURE/014 {expected_constraint="workgroup-only stores and barriers in the ordered consumer"}
+    scf.for %stripe = [%c0 to %c2 step %c1] unroll schedule(interleaved) {
+      %slot = index.madd %stripe, %width, %lane : index
+      %address = index.madd %row, %tile, %slot : index
+      %value = view.load %source[%address] : view<512xi32> -> i32
+      view.store %value, %published[%slot] : i32, view<128xi32>
+    }
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %observed = view.load %consumed[%peer] : view<128xi32> -> i32
+    %second_peer = index.add %peer, %width : index
+    %second = view.load %consumed[%second_peer] : view<128xi32> -> i32
+    %pair = scalar.addi %observed, %second : i32
+    %next = scalar.addi %sum, %pair : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  view.store %result, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ====
+
+// RUN: with-checks pass-report pipeline-scf-for
+
+// Child reconstruction projects the spaces later consumed by parent preparation.
+kernel.def @prepare_after_child_replacement() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %width = index.constant 64 : index
+  %tile = index.constant 128 : index
+  %last = index.constant 63 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 512 : offset
+  %lane = kernel.workitem.id<x> : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<512xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<128xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<128xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %c4 step %c1](%sum = %identity : i32) -> (i32) pipeline(%c2) {
+    scf.for %stripe = [%c0 to %c2 step %c1] unroll {
+      %slot = index.madd %stripe, %width, %lane : index
+      %address = index.madd %row, %tile, %slot : index
+      %value = view.load %source[%address] : view<512xi32> -> i32
+      scf.for %publish = [%c0 to %c1 step %c1] pipeline(%c1) {
+        view.store %value, %published[%slot] : i32, view<128xi32>
+      }
+    }
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %observed = view.load %consumed[%peer] : view<128xi32> -> i32
+    %second_peer = index.add %peer, %width : index
+    %second = view.load %consumed[%second_peer] : view<128xi32> -> i32
+    %pair = scalar.addi %observed, %second : i32
+    %next = scalar.addi %sum, %pair : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  view.store %result, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ----
+CHECK: *"acquisition_count":1*
+CHECK: *"loops-pipelined":1,"policies-cleared":1*
+CHECK: *"values_per_record":4,"read_count":2*
+CHECK: *"op":"view.load","stage":"producer"*
+CHECK: *"op":"view.load","stage":"consumer"*
+CHECK: *"op":"scf.for","stage":"consumer"*
+CHECK: *"op":"kernel.barrier","stage":"consumer"*
+CHECK-NOT: *"op":"view.store","stage":"producer"*
+CHECK-NOT: *"op":"kernel.barrier","stage":"producer"*
+
+// ====
+
+// RUN: with-checks pass-report pipeline-scf-for
+
+// The full-unroll scalar plan must bind the lower SSA value after replacement.
+kernel.def @current_dynamic_lower_operand() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %width = index.constant 64 : index
+  %tile = index.constant 128 : index
+  %last = index.constant 63 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 512 : offset
+  %lane_raw = kernel.workitem.id<x> : index
+  %lane = index.assume %lane_raw [range(%lane_raw, 0, 63)] : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<512xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<128xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<128xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %c4 step %c1](%sum = %identity : i32) -> (i32) pipeline(%c2) {
+    %start = scf.for %forward = [%c0 to %c1 step %c1](%carried = %lane : index) -> (index) pipeline(%c1) {
+      scf.yield %carried : index
+    }
+    scf.for %slot = [%start to %tile step %width] unroll {
+      %address = index.madd %row, %tile, %slot : index
+      %value = view.load %source[%address] : view<512xi32> -> i32
+      view.store %value, %published[%slot] : i32, view<128xi32>
+    }
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %observed = view.load %consumed[%peer] : view<128xi32> -> i32
+    %second_peer = index.add %peer, %width : index
+    %second = view.load %consumed[%second_peer] : view<128xi32> -> i32
+    %pair = scalar.addi %observed, %second : i32
+    %next = scalar.addi %sum, %pair : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  view.store %result, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ----
+CHECK: *"acquisition_count":1*
+CHECK: *"loops-pipelined":1,"policies-cleared":1*
+CHECK: *"values_per_record":4,"read_count":2*
+CHECK: *"op":"view.load","stage":"producer"*
+CHECK: *"op":"view.load","stage":"consumer"*
+CHECK: *"op":"view.store","stage":"consumer"*
+CHECK: *"op":"kernel.barrier","stage":"consumer"*
+CHECK-NOT: *"op":"view.store","stage":"producer"*
+CHECK-NOT: *"op":"kernel.barrier","stage":"producer"*
+
+// ====
+
+// RUN: with-checks pass pipeline-scf-for
+
+kernel.def @independent_later_unroll() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %width = index.constant 64 : index
+  %tile = index.constant 128 : index
+  %last = index.constant 63 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 512 : offset
+  %lane = kernel.workitem.id<x> : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<512xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<128xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<128xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %c4 step %c1](%sum = %identity : i32) -> (i32) pipeline(%c2) unroll(%c2) schedule(interleaved) {
+    scf.for %stripe = [%c0 to %c2 step %c1] unroll {
+      %slot = index.madd %stripe, %width, %lane : index
+      %address = index.madd %row, %tile, %slot : index
+      %value = view.load %source[%address] : view<512xi32> -> i32
+      view.store %value, %published[%slot] : i32, view<128xi32>
+    }
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %observed = view.load %consumed[%peer] : view<128xi32> -> i32
+    %second_peer = index.add %peer, %width : index
+    %second = view.load %consumed[%second_peer] : view<128xi32> -> i32
+    %pair = scalar.addi %observed, %second : i32
+    %next = scalar.addi %sum, %pair : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  %enabled = scalar.constant true : i1
+  scf.if %enabled {
+    scf.for %untouched = [%c0 to %c2 step %c1] unroll {
+      %unused = index.add %untouched, %c1 : index
+    }
+  }
+  view.store %result, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ----
+CHECK: *unroll(%c2) schedule(interleaved) {
+CHECK: scf.for %untouched = [%c0 to %c2 step %c1] unroll {
+CHECK-NOT: scf.for %stripe = *
+
+// ====
+
+// RUN: with-checks pass-report pipeline-scf-for
+
+// The read-only reduction remains one queued result instead of two queued loads.
+kernel.def retain @readonly_nested_global() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<8xf32>
+  %output_view = buffer.view %output[%base] : buffer -> view<4xf32>
+  %identity = vector.constant 0.0 : vector<4xf32>
+  %result = scf.for %i = [%c0 to %c4 step %c1](%sum = %identity : vector<4xf32>) -> (vector<4xf32>) pipeline(%c2) {
+    %partial = scf.for %j = [%c0 to %c2 step %c1](%inner_sum = %identity : vector<4xf32>) -> (vector<4xf32>) unroll {
+      %address = index.mul %j, %c4 : index
+      %loaded = vector.load %input_view[%address] : view<8xf32> -> vector<4xf32>
+      %added = vector.addf %inner_sum, %loaded : vector<4xf32>
+      scf.yield %added : vector<4xf32>
+    }
+    %next = vector.addf %sum, %partial : vector<4xf32>
+    scf.yield %next : vector<4xf32>
+  }
+  vector.store %result, %output_view[%c0] : vector<4xf32>, view<4xf32>
+  kernel.return
+}
+
+// ----
+CHECK: *"values_per_record":1,"read_count":1*
+CHECK: *"op":"scf.for","stage":"producer"*

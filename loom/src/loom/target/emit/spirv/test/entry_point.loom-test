@@ -74,3 +74,28 @@ low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @second
           %6 = OpLabel
                OpReturn
                OpFunctionEnd
+
+// ====
+// RUN: emit spirv-dis
+// REQUIRES: spirv-dis
+
+// ERROR@+1: TARGET/009 {pipeline_name="SPIR-V", function_name="unbound_entry"}
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @unbound_entry() asm {
+  return
+}
+
+// ====
+// RUN: emit spirv-dis
+// REQUIRES: spirv-dis
+
+// An invalid later entry prevents publishing a partial module.
+spirv.target<vulkan1_3> @target
+
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @bound_entry() asm {
+  return
+}
+
+// ERROR@+1: TARGET/009 {pipeline_name="SPIR-V", function_name="unbound_entry"}
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @unbound_entry() asm {
+  return
+}

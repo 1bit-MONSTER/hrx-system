@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Dense AMDGPU FP8/BF8 vector conversion route orchestration.
+// Emission of selected AMDGPU FP8/BF8 vector conversion plans.
 
 #ifndef LOOM_TARGET_ARCH_AMDGPU_LOWER_NARROW_FLOAT_FP8_VECTOR_CONVERSION_H_
 #define LOOM_TARGET_ARCH_AMDGPU_LOWER_NARROW_FLOAT_FP8_VECTOR_CONVERSION_H_
@@ -15,17 +15,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-// Selects the exact FP8/BF8 decode action producing each physical result
-// register and canonicalizes an identity F32 scale to an unscaled plan.
-void loom_amdgpu_select_vector_fp8_decode_plan(
-    loom_low_lower_context_t* context,
-    loom_amdgpu_vector_16bit_float_conversion_plan_t* plan);
-
-// Returns the stable compile-report strategy key for an FP8/BF8 vector
-// conversion plan.
-iree_string_view_t loom_amdgpu_vector_fp8_conversion_plan_key(
-    const loom_amdgpu_vector_16bit_float_conversion_plan_t* plan);
 
 // Lowers one selected FP8/BF8 vector conversion through native or software
 // packet recipes.

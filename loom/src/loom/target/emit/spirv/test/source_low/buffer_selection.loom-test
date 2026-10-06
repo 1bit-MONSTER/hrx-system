@@ -1,0 +1,363 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/buffer_selection.loom-test
+// RUN: emit spirv-dis input=source-low target=spirv:vulkan1.3+bda+extended-types control-flow=structured-low validate
+// REQUIRES: spirv-dis, spirv-val
+
+// A selected reference retains the ordinary buffer result ABI.
+// ERROR@+1: SPIRV/016 {function_name="choose_buffer", value_name="<unnamed>", actual_value_type="storage_buffer_address"}
+func.def @choose_buffer(%first: buffer, %second: buffer, %choose_first: i1) -> (buffer) {
+  %selected = scf.select %choose_first, %first, %second : buffer
+  func.return %selected : buffer
+}
+
+// ====
+
+// A selected reference remains a buffer for both reads and writes.
+func.def @exchange_selected_byte(%first: buffer, %second: buffer, %choose_first: i1, %position_input: offset, %replacement: i32) -> (i32) {
+  %position = index.assume %position_input [range(%position_input, 0, 1024)] : offset
+  %selected = scf.select %choose_first, %first, %second : buffer
+  %previous = buffer.load.i8.u %selected[%position]
+  buffer.store.i8 %replacement, %selected[%position]
+  func.return %previous : i32
+}
+
+// ----
+               OpCapability Shader
+               OpCapability VulkanMemoryModel
+               OpCapability PhysicalStorageBufferAddresses
+               OpCapability Int64
+               OpCapability Float16
+               OpCapability Float64
+               OpCapability Int8
+               OpCapability Int16
+               OpCapability StorageBuffer8BitAccess
+               OpCapability StorageBuffer16BitAccess
+               OpCapability BFloat16TypeKHR
+               OpExtension "SPV_KHR_vulkan_memory_model"
+               OpExtension "SPV_KHR_physical_storage_buffer"
+               OpExtension "SPV_KHR_8bit_storage"
+               OpExtension "SPV_KHR_16bit_storage"
+               OpExtension "SPV_KHR_bfloat16"
+               OpMemoryModel PhysicalStorageBuffer64 Vulkan
+               OpEntryPoint GLCompute %exchange_selected_byte "exchange_selected_byte"
+               OpExecutionMode %exchange_selected_byte LocalSize 1 1 1
+               OpName %exchange_selected_byte "exchange_selected_byte"
+               OpName %first "first"
+               OpName %second "second"
+               OpName %choose_first "choose_first"
+               OpName %position "position"
+               OpName %replacement "replacement"
+               OpName %selected "selected"
+               OpName %previous "previous"
+               OpMemberDecorate %_struct_6 0 Offset 0
+               OpDecorate %_struct_6 Block
+               OpDecorate %4 DescriptorSet 0
+               OpDecorate %4 Binding 0
+               OpDecorate %9 DescriptorSet 0
+               OpDecorate %9 Binding 1
+               OpMemberDecorate %_struct_12 0 Offset 0
+               OpDecorate %_struct_12 Block
+               OpDecorate %10 DescriptorSet 0
+               OpDecorate %10 Binding 2
+               OpDecorate %15 DescriptorSet 0
+               OpDecorate %15 Binding 3
+               OpDecorate %16 DescriptorSet 0
+               OpDecorate %16 Binding 4
+               OpDecorate %17 DescriptorSet 0
+               OpDecorate %17 Binding 5
+               OpDecorate %_ptr_PhysicalStorageBuffer_uchar ArrayStride 1
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+      %ulong = OpTypeInt 64 0
+  %_struct_6 = OpTypeStruct %ulong
+%_ptr_StorageBuffer__struct_6 = OpTypePointer StorageBuffer %_struct_6
+%_ptr_StorageBuffer_ulong = OpTypePointer StorageBuffer %ulong
+          %4 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+          %9 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+       %bool = OpTypeBool
+ %_struct_12 = OpTypeStruct %int
+%_ptr_StorageBuffer__struct_12 = OpTypePointer StorageBuffer %_struct_12
+%_ptr_StorageBuffer_int = OpTypePointer StorageBuffer %int
+         %10 = OpVariable %_ptr_StorageBuffer__struct_12 StorageBuffer
+         %15 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+         %16 = OpVariable %_ptr_StorageBuffer__struct_12 StorageBuffer
+         %17 = OpVariable %_ptr_StorageBuffer__struct_12 StorageBuffer
+       %void = OpTypeVoid
+         %19 = OpTypeFunction %void
+      %uchar = OpTypeInt 8 0
+%_ptr_PhysicalStorageBuffer_uchar = OpTypePointer PhysicalStorageBuffer %uchar
+       %uint = OpTypeInt 32 0
+%exchange_selected_byte = OpFunction %void None %19
+         %20 = OpLabel
+         %21 = OpAccessChain %_ptr_StorageBuffer_ulong %4 %int_0
+      %first = OpLoad %ulong %21 Aligned 8
+         %23 = OpAccessChain %_ptr_StorageBuffer_ulong %9 %int_0
+     %second = OpLoad %ulong %23 Aligned 8
+         %25 = OpAccessChain %_ptr_StorageBuffer_int %10 %int_0
+         %26 = OpLoad %int %25 Aligned 4
+%choose_first = OpINotEqual %bool %26 %int_0
+         %28 = OpAccessChain %_ptr_StorageBuffer_ulong %15 %int_0
+   %position = OpLoad %ulong %28 Aligned 8
+         %30 = OpAccessChain %_ptr_StorageBuffer_int %16 %int_0
+%replacement = OpLoad %int %30 Aligned 4
+   %selected = OpSelect %ulong %choose_first %first %second
+         %33 = OpIAdd %ulong %selected %position
+         %36 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer_uchar %33
+         %37 = OpLoad %uchar %36 Aligned 1
+         %39 = OpUConvert %uint %37
+   %previous = OpBitcast %int %39
+         %41 = OpBitcast %uint %replacement
+         %42 = OpUConvert %uchar %41
+               OpStore %36 %42 Aligned 1
+         %43 = OpAccessChain %_ptr_StorageBuffer_int %17 %int_0
+               OpStore %43 %previous Aligned 4
+               OpReturn
+               OpFunctionEnd
+
+// ====
+
+// Canonicalization may select the components independently, but both selections
+// retain the same condition and therefore the same complete coordinate.
+func.def @selected_buffer_coordinate(%first: buffer, %second: buffer, %first_origin_input: offset, %second_origin_input: offset, %choose_first: i1) -> (i32) {
+  %first_origin = index.assume %first_origin_input [range(%first_origin_input, 0, 1024)] : offset
+  %second_origin = index.assume %second_origin_input [range(%second_origin_input, 0, 1024)] : offset
+  %selected, %origin = scf.if %choose_first -> (buffer, offset) {
+    scf.yield %first, %first_origin : buffer, offset
+  } else {
+    scf.yield %second, %second_origin : buffer, offset
+  }
+  %value = buffer.load.i8.u %selected[%origin]
+  func.return %value : i32
+}
+
+// ----
+               OpCapability Shader
+               OpCapability VulkanMemoryModel
+               OpCapability PhysicalStorageBufferAddresses
+               OpCapability Int64
+               OpCapability Float16
+               OpCapability Float64
+               OpCapability Int8
+               OpCapability Int16
+               OpCapability StorageBuffer8BitAccess
+               OpCapability StorageBuffer16BitAccess
+               OpCapability BFloat16TypeKHR
+               OpExtension "SPV_KHR_vulkan_memory_model"
+               OpExtension "SPV_KHR_physical_storage_buffer"
+               OpExtension "SPV_KHR_8bit_storage"
+               OpExtension "SPV_KHR_16bit_storage"
+               OpExtension "SPV_KHR_bfloat16"
+               OpMemoryModel PhysicalStorageBuffer64 Vulkan
+               OpEntryPoint GLCompute %selected_buffer_coordinate "selected_buffer_coordinate"
+               OpExecutionMode %selected_buffer_coordinate LocalSize 1 1 1
+               OpName %selected_buffer_coordinate "selected_buffer_coordinate"
+               OpName %first "first"
+               OpName %second "second"
+               OpName %first_origin "first_origin"
+               OpName %second_origin "second_origin"
+               OpName %choose_first "choose_first"
+               OpName %selected "selected"
+               OpName %origin "origin"
+               OpName %value "value"
+               OpMemberDecorate %_struct_6 0 Offset 0
+               OpDecorate %_struct_6 Block
+               OpDecorate %4 DescriptorSet 0
+               OpDecorate %4 Binding 0
+               OpDecorate %9 DescriptorSet 0
+               OpDecorate %9 Binding 1
+               OpDecorate %10 DescriptorSet 0
+               OpDecorate %10 Binding 2
+               OpDecorate %11 DescriptorSet 0
+               OpDecorate %11 Binding 3
+               OpMemberDecorate %_struct_14 0 Offset 0
+               OpDecorate %_struct_14 Block
+               OpDecorate %12 DescriptorSet 0
+               OpDecorate %12 Binding 4
+               OpDecorate %17 DescriptorSet 0
+               OpDecorate %17 Binding 5
+               OpDecorate %_ptr_PhysicalStorageBuffer_uchar ArrayStride 1
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+      %ulong = OpTypeInt 64 0
+  %_struct_6 = OpTypeStruct %ulong
+%_ptr_StorageBuffer__struct_6 = OpTypePointer StorageBuffer %_struct_6
+%_ptr_StorageBuffer_ulong = OpTypePointer StorageBuffer %ulong
+          %4 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+          %9 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+         %10 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+         %11 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+       %bool = OpTypeBool
+ %_struct_14 = OpTypeStruct %int
+%_ptr_StorageBuffer__struct_14 = OpTypePointer StorageBuffer %_struct_14
+%_ptr_StorageBuffer_int = OpTypePointer StorageBuffer %int
+         %12 = OpVariable %_ptr_StorageBuffer__struct_14 StorageBuffer
+         %17 = OpVariable %_ptr_StorageBuffer__struct_14 StorageBuffer
+       %void = OpTypeVoid
+         %19 = OpTypeFunction %void
+      %uchar = OpTypeInt 8 0
+%_ptr_PhysicalStorageBuffer_uchar = OpTypePointer PhysicalStorageBuffer %uchar
+       %uint = OpTypeInt 32 0
+%selected_buffer_coordinate = OpFunction %void None %19
+         %20 = OpLabel
+         %21 = OpAccessChain %_ptr_StorageBuffer_ulong %4 %int_0
+      %first = OpLoad %ulong %21 Aligned 8
+         %23 = OpAccessChain %_ptr_StorageBuffer_ulong %9 %int_0
+     %second = OpLoad %ulong %23 Aligned 8
+         %25 = OpAccessChain %_ptr_StorageBuffer_ulong %10 %int_0
+%first_origin = OpLoad %ulong %25 Aligned 8
+         %27 = OpAccessChain %_ptr_StorageBuffer_ulong %11 %int_0
+%second_origin = OpLoad %ulong %27 Aligned 8
+         %29 = OpAccessChain %_ptr_StorageBuffer_int %12 %int_0
+         %30 = OpLoad %int %29 Aligned 4
+%choose_first = OpINotEqual %bool %30 %int_0
+   %selected = OpSelect %ulong %choose_first %first %second
+     %origin = OpSelect %ulong %choose_first %first_origin %second_origin
+         %34 = OpIAdd %ulong %selected %origin
+         %37 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer_uchar %34
+         %38 = OpLoad %uchar %37 Aligned 1
+         %40 = OpUConvert %uint %38
+      %value = OpBitcast %int %40
+         %42 = OpAccessChain %_ptr_StorageBuffer_int %17 %int_0
+               OpStore %42 %value Aligned 4
+               OpReturn
+               OpFunctionEnd
+
+// ====
+
+// Rotating a reference and its origin carries both values over the same edge.
+func.def @rotate_buffer_coordinates(%first: buffer, %second: buffer, %first_origin_input: offset, %second_origin_input: offset, %count: index) -> (i32) {
+  %first_origin = index.assume %first_origin_input [range(%first_origin_input, 0, 1024)] : offset
+  %second_origin = index.assume %second_origin_input [range(%second_origin_input, 0, 1024)] : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %selected, %origin, %unused_buffer, %unused_origin = scf.for %i = [%begin to %count step %step](%current = %first : buffer, %current_origin = %first_origin : offset, %other = %second : buffer, %other_origin = %second_origin : offset) -> (buffer, offset, buffer, offset) {
+    scf.yield %other, %other_origin, %current, %current_origin : buffer, offset, buffer, offset
+  }
+  %value = buffer.load.i8.u %selected[%origin]
+  func.return %value : i32
+}
+
+// ----
+               OpCapability Shader
+               OpCapability VulkanMemoryModel
+               OpCapability PhysicalStorageBufferAddresses
+               OpCapability Int64
+               OpCapability Float16
+               OpCapability Float64
+               OpCapability Int8
+               OpCapability Int16
+               OpCapability StorageBuffer8BitAccess
+               OpCapability StorageBuffer16BitAccess
+               OpCapability BFloat16TypeKHR
+               OpExtension "SPV_KHR_vulkan_memory_model"
+               OpExtension "SPV_KHR_physical_storage_buffer"
+               OpExtension "SPV_KHR_8bit_storage"
+               OpExtension "SPV_KHR_16bit_storage"
+               OpExtension "SPV_KHR_bfloat16"
+               OpMemoryModel PhysicalStorageBuffer64 Vulkan
+               OpEntryPoint GLCompute %rotate_buffer_coordinates "rotate_buffer_coordinates"
+               OpExecutionMode %rotate_buffer_coordinates LocalSize 1 1 1
+               OpName %rotate_buffer_coordinates "rotate_buffer_coordinates"
+               OpName %first "first"
+               OpName %second "second"
+               OpName %first_origin "first_origin"
+               OpName %second_origin "second_origin"
+               OpName %count "count"
+               OpName %begin "begin"
+               OpName %step "step"
+               OpName %i "i"
+               OpName %current "current"
+               OpName %current_origin "current_origin"
+               OpName %other "other"
+               OpName %other_origin "other_origin"
+               OpName %selected "selected"
+               OpName %origin "origin"
+               OpName %unused_buffer "unused_buffer"
+               OpName %unused_origin "unused_origin"
+               OpName %value "value"
+               OpMemberDecorate %_struct_6 0 Offset 0
+               OpDecorate %_struct_6 Block
+               OpDecorate %4 DescriptorSet 0
+               OpDecorate %4 Binding 0
+               OpDecorate %9 DescriptorSet 0
+               OpDecorate %9 Binding 1
+               OpDecorate %10 DescriptorSet 0
+               OpDecorate %10 Binding 2
+               OpDecorate %11 DescriptorSet 0
+               OpDecorate %11 Binding 3
+               OpMemberDecorate %_struct_13 0 Offset 0
+               OpDecorate %_struct_13 Block
+               OpDecorate %12 DescriptorSet 0
+               OpDecorate %12 Binding 4
+               OpDecorate %16 DescriptorSet 0
+               OpDecorate %16 Binding 5
+               OpDecorate %_ptr_PhysicalStorageBuffer_uchar ArrayStride 1
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+      %ulong = OpTypeInt 64 0
+  %_struct_6 = OpTypeStruct %ulong
+%_ptr_StorageBuffer__struct_6 = OpTypePointer StorageBuffer %_struct_6
+%_ptr_StorageBuffer_ulong = OpTypePointer StorageBuffer %ulong
+          %4 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+          %9 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+         %10 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+         %11 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+ %_struct_13 = OpTypeStruct %int
+%_ptr_StorageBuffer__struct_13 = OpTypePointer StorageBuffer %_struct_13
+%_ptr_StorageBuffer_int = OpTypePointer StorageBuffer %int
+         %12 = OpVariable %_ptr_StorageBuffer__struct_13 StorageBuffer
+         %16 = OpVariable %_ptr_StorageBuffer__struct_13 StorageBuffer
+       %void = OpTypeVoid
+         %18 = OpTypeFunction %void
+      %begin = OpConstant %int 0
+       %step = OpConstant %int 1
+       %bool = OpTypeBool
+      %uchar = OpTypeInt 8 0
+%_ptr_PhysicalStorageBuffer_uchar = OpTypePointer PhysicalStorageBuffer %uchar
+       %uint = OpTypeInt 32 0
+%rotate_buffer_coordinates = OpFunction %void None %18
+         %19 = OpLabel
+         %20 = OpAccessChain %_ptr_StorageBuffer_ulong %4 %int_0
+      %first = OpLoad %ulong %20 Aligned 8
+         %22 = OpAccessChain %_ptr_StorageBuffer_ulong %9 %int_0
+     %second = OpLoad %ulong %22 Aligned 8
+         %24 = OpAccessChain %_ptr_StorageBuffer_ulong %10 %int_0
+%first_origin = OpLoad %ulong %24 Aligned 8
+         %26 = OpAccessChain %_ptr_StorageBuffer_ulong %11 %int_0
+%second_origin = OpLoad %ulong %26 Aligned 8
+         %28 = OpAccessChain %_ptr_StorageBuffer_int %12 %int_0
+      %count = OpLoad %int %28 Aligned 4
+         %33 = OpSLessThan %bool %begin %count
+         %34 = OpISub %int %count %begin
+         %35 = OpULessThan %bool %step %34
+         %36 = OpISub %int %count %step
+         %37 = OpSelect %int %35 %36 %begin
+               OpBranch %38
+         %38 = OpLabel
+          %i = OpPhi %int %begin %19 %42 %41
+    %current = OpPhi %ulong %first %19 %other %41
+%current_origin = OpPhi %ulong %first_origin %19 %other_origin %41
+      %other = OpPhi %ulong %second %19 %current %41
+%other_origin = OpPhi %ulong %second_origin %19 %current_origin %41
+         %49 = OpPhi %bool %33 %19 %43 %41
+               OpLoopMerge %40 %41 None
+               OpBranchConditional %49 %39 %40
+         %39 = OpLabel
+               OpBranch %41
+         %41 = OpLabel
+         %43 = OpSLessThan %bool %i %37
+         %42 = OpIAdd %int %i %step
+               OpBranch %38
+         %40 = OpLabel
+   %selected = OpPhi %ulong %current %38
+     %origin = OpPhi %ulong %current_origin %38
+%unused_buffer = OpPhi %ulong %other %38
+%unused_origin = OpPhi %ulong %other_origin %38
+         %54 = OpIAdd %ulong %selected %origin
+         %57 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer_uchar %54
+         %58 = OpLoad %uchar %57 Aligned 1
+         %60 = OpUConvert %uint %58
+      %value = OpBitcast %int %60
+         %62 = OpAccessChain %_ptr_StorageBuffer_int %16 %int_0
+               OpStore %62 %value Aligned 4
+               OpReturn
+               OpFunctionEnd

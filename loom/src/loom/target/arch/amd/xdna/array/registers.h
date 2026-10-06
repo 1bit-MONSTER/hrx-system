@@ -90,6 +90,13 @@ iree_status_t loom_xdna_register_field_encode(
     loom_xdna_register_field_id_t field_id, int64_t value,
     uint32_t* out_register_bits);
 
+// Encodes a field value admitted by its producing compiler stage.
+//
+// The field identifier must be generated and |value| must be in its signed or
+// unsigned domain. Callers handling external values use the checked encoder.
+uint32_t loom_xdna_register_field_encode_admitted(
+    loom_xdna_register_field_id_t field_id, int64_t value);
+
 // Forms one absolute register address for a field and concrete indices.
 //
 // |indices| must contain one value per field dimension in declaration order.
@@ -99,6 +106,15 @@ iree_status_t loom_xdna_register_field_address(
     loom_xdna_register_field_id_t field_id,
     loom_xdna_tile_coordinate_t coordinate, iree_host_size_t index_count,
     const uint16_t* indices, uint64_t* out_address);
+
+// Forms an address from coordinates and indices admitted by physical planning.
+//
+// The field identifier must be generated, |coordinate| must expose its module,
+// and |indices| must contain the field's complete in-range dimension tuple.
+uint64_t loom_xdna_register_field_address_admitted(
+    const loom_xdna_array_family_t* family,
+    loom_xdna_register_field_id_t field_id,
+    loom_xdna_tile_coordinate_t coordinate, const uint16_t* indices);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Compiler-owned command root and dependency-unit preparation.
+// Compiler-owned command root and dependency-unit planning.
 
 #ifndef LOOM_TARGET_ARCH_CMD_LOWER_PROGRAM_PLAN_H_
 #define LOOM_TARGET_ARCH_CMD_LOWER_PROGRAM_PLAN_H_
@@ -24,6 +24,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef struct loom_cleanup_pattern_provider_set_t
+    loom_cleanup_pattern_provider_set_t;
 
 // One plan-wide atomic executable-entry binding requirement.
 //
@@ -48,7 +51,7 @@ typedef struct loom_cmd_program_kernel_request_t {
 // |request| and |request.kernel_request| remain valid only for the callback.
 // The callback may resolve an existing product from the class identity or
 // materialize an independently owned source product on a miss. A non-OK status
-// terminates command-plan preparation.
+// terminates command-plan construction.
 typedef iree_status_t (*loom_cmd_program_kernel_request_publish_fn_t)(
     void* user_data, const loom_cmd_program_kernel_request_t* request);
 
@@ -61,7 +64,7 @@ typedef struct loom_cmd_program_kernel_request_sink_t {
   void* user_data;
 } loom_cmd_program_kernel_request_sink_t;
 
-// Optional indexed source environment for command-plan preparation.
+// Optional indexed source environment for command-plan construction.
 typedef struct loom_cmd_program_kernel_source_t {
   // Invocation-local index-backed request producer.
   loom_kernel_request_producer_t* producer;
@@ -70,12 +73,12 @@ typedef struct loom_cmd_program_kernel_source_t {
   const loom_link_plan_materialization_environment_t* environment;
 
   // Exact indexed source-definition ordinal by linked-module symbol ID.
-  // Caller preparation may append symbols while preserving this stable prefix.
+  // Command planning may append symbols while preserving this stable prefix.
   struct {
     // Borrowed dense projection storage.
     const iree_host_size_t* values;
 
-    // Number of linked-module symbol slots before caller preparation.
+    // Number of linked-module symbol slots immediately after linking.
     iree_host_size_t count;
   } source_definitions;
 
@@ -86,7 +89,7 @@ typedef struct loom_cmd_program_kernel_source_t {
   loom_cmd_program_kernel_request_sink_t sink;
 } loom_cmd_program_kernel_source_t;
 
-// One prepared command root within a program plan.
+// One planned command root within a program plan.
 //
 // The lowered command function addresses root-local executable and entry slots.
 // |entry_requirement_indices| maps each slot to one atomic plan-wide binding
@@ -119,7 +122,7 @@ typedef struct loom_cmd_program_root_t {
 //
 // The root module contains every selected command symbol lowered to the
 // portable cmd low ISA together with the configured entry declarations they
-// require. Body-blind command preparation never materializes a kernel
+// require. Body-blind command planning never materializes a kernel
 // implementation or manufactures a host launch-count program. When an indexed
 // kernel source is supplied, its sink visits each live class before optional
 // materialization and only logical entry requirements remain in the returned
@@ -144,27 +147,28 @@ typedef struct loom_cmd_program_plan_t {
   iree_allocator_t host_allocator;
 } loom_cmd_program_plan_t;
 
-// Prepares command-program roots for independent compilation.
+// Builds a command-program plan from a sealed selective-link materialization.
 //
 // |materialization| is a sealed selective-link product containing command
 // implementations, logical-kernel contracts and configuration functions, and
 // executable-entry declarations without kernel implementation facets.
 // |program_refs| names command roots in caller order and may repeat the same
-// root. Preparation takes ownership of the module and resets |materialization|
-// immediately; all dense projections are borrowed for the duration of this
-// call.
+// root. Plan construction takes ownership of the module and resets
+// |materialization| immediately; all dense projections are borrowed for the
+// duration of this call.
 //
-// Preparation flattens command-program composition,
+// Plan construction flattens command-program composition,
 // resolves root-local control flow and explicit unroll policies, converts
 // logical launches to configured dispatches at their original CFG sites,
 // retains configured entry declarations, assigns root-local atomic entry
 // slots, and lowers every command root. Kernel implementations retain their
-// independent compilation path. The prepared module becomes the returned
+// independent compilation path. The lowered module becomes the returned
 // plan's root module and remains owned by that plan.
 //
-// |pass_registry| must provide the standard canonicalize and unroll-scf-for
-// function passes used to resolve root-local source structure. It is a
-// compiler-owned resource rather than part of the authored program contract.
+// |pass_registry| and |cleanup_pattern_provider_set| provide the standard
+// canonicalize and unroll-scf-for implementation used to resolve root-local
+// source structure. They are compiler-owned resources rather than part of the
+// authored program contract.
 //
 // |kernel_source| optionally visits the semantic classes reached by all
 // selected roots before source materialization. Publication is complete before
@@ -179,11 +183,12 @@ typedef struct loom_cmd_program_plan_t {
 // false, leave |out_plan| empty, and return OK. A valid plan sets |out_valid|
 // to true and transfers all referenced modules to |out_plan|, which must be
 // deinitialized by the caller.
-iree_status_t loom_cmd_program_plan_prepare_materialization(
+iree_status_t loom_cmd_program_plan_build_from_materialization(
     loom_link_plan_materialization_t* materialization,
     const loom_symbol_ref_t* program_refs, iree_host_size_t program_count,
     const loom_cmd_program_kernel_source_t* kernel_source,
     const loom_pass_registry_t* pass_registry,
+    const loom_cleanup_pattern_provider_set_t* cleanup_pattern_provider_set,
     iree_diagnostic_emitter_t diagnostic_emitter,
     iree_arena_block_pool_t* block_pool, bool* out_valid,
     loom_cmd_program_plan_t* out_plan, iree_allocator_t host_allocator);

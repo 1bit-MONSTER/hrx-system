@@ -1,0 +1,139 @@
+// Candidate pressure includes ownership inherited from operands that die in
+// this instruction before deciding which result parts can share that storage.
+// RUN: emit amdgpu-assembly @dying_source_before_alias
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @dying_source_before_alias(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %saved = concat(%seed, %alias) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %changed = v_fmac_f32 %alias, %factor, %factor
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v0, v1
+  global_store_b64 v3, v[0:1], s[0:1] offset:0
+  v_fmac_f32 v1, v2, v2
+  global_store_b32 v3, v1, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @alias_before_dying_source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @alias_before_dying_source(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %saved = concat(%alias, %seed) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %changed = v_fmac_f32 %alias, %factor, %factor
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v1, v0
+  global_store_b64 v3, v[0:1], s[0:1] offset:0
+  v_fmac_f32 v0, v2, v2
+  global_store_b32 v3, v0, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @surviving_alias_without_write
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @surviving_alias_without_write(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %saved = concat(%seed, %alias) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %alias, %output
+  return
+}
+
+// ----
+  v_mov_b32 v0, v1
+  global_store_b64 v2, v[0:1], s[0:1] offset:0
+  global_store_b32 v2, v1, s[0:1] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @two_inherited_aliases
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @two_inherited_aliases(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %left = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %right = low.assume %factor [range(%factor, 0, 1024)] : reg<amdgpu.vgpr>
+  %saved = concat(%seed, %left, %factor, %right) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
+  %changed_left = v_fmac_f32 %left, %right, %right
+  %changed_right = v_fmac_f32 %right, %changed_left, %changed_left
+  global_store_b128_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed_left, %output {offset = 16}
+  global_store_b32_saddr %address, %changed_right, %output {offset = 20}
+  return
+}
+
+// ----
+  v_mov_b32 v0, v1
+  v_mov_b32 v2, v3
+  global_store_b128 v4, v[0:3], s[0:1] offset:0
+  v_fmac_f32 v1, v3, v3
+  global_store_b32 v4, v1, s[0:1] offset:16
+  v_fmac_f32 v3, v1, v1
+  global_store_b32 v4, v3, s[0:1] offset:20
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @partially_inherited_tuple
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @partially_inherited_tuple(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %parts = concat(%seed, %factor) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %saved = concat(%seed, %parts) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x3>
+  global_store_b96_saddr %address, %saved, %output
+  global_store_b64_saddr %address, %parts, %output
+  global_store_b32_saddr %address, %factor, %output
+  return
+}
+
+// ----
+  v_mov_b32 v3, v0
+  v_mov_b32 v4, v0
+  v_mov_b32 v5, v1
+  global_store_b96 v2, v[3:5], s[0:1] offset:0
+  global_store_b64 v2, v[0:1], s[0:1] offset:0
+  global_store_b32 v2, v1, s[0:1] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @fully_inherited_tuple
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @fully_inherited_tuple(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %parts = concat(%seed, %factor) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %saved = concat(%seed, %factor, %parts) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  global_store_b128_saddr %address, %saved, %output
+  global_store_b64_saddr %address, %parts, %output
+  return
+}
+
+// ----
+  v_mov_b32 v4, v0
+  v_mov_b32 v5, v1
+  v_mov_b32 v6, v0
+  v_mov_b32 v7, v1
+  global_store_b128 v2, v[4:7], s[0:1] offset:0
+  global_store_b64 v2, v[0:1], s[0:1] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm

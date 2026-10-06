@@ -333,7 +333,7 @@ iree_status_t loom_encoding_layout_dense_facts(
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
 
-// LOOM_OP_ENCODING_LAYOUT_STRIDED: Construct an address layout from per-dimension element strides. Static and dynamic stride values are interleaved in one bracket list.
+// LOOM_OP_ENCODING_LAYOUT_STRIDED: Construct an address layout from per-dimension element strides. Static and dynamic stride values are interleaved in one bracket list. Rank is in [0, 15], matching shaped types.
 // %layout = encoding.layout.strided [%row_stride, 1] : encoding<layout>
 LOOM_DEFINE_ISA(loom_encoding_layout_strided_isa, LOOM_OP_ENCODING_LAYOUT_STRIDED)
 LOOM_DEFINE_VARIADIC_OPERANDS(loom_encoding_layout_strided_strides, 0)
@@ -423,7 +423,7 @@ iree_status_t loom_encoding_layout_assume_dense_facts(
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
 
-// LOOM_OP_ENCODING_LAYOUT_ASSUME_STRIDED: Refine an existing address-layout encoding value with the fact that it is strided and has the given rank. Per-axis stride values remain unknown unless a concrete encoding.layout.strided value is available.
+// LOOM_OP_ENCODING_LAYOUT_ASSUME_STRIDED: Refine an existing address-layout encoding value with the fact that it is strided and has the given rank in [0, 15], matching shaped types. Per-axis stride values remain unknown unless a concrete encoding.layout.strided value is available.
 // %strided = encoding.layout.assume.strided %layout {rank = 2} : encoding<layout>
 LOOM_DEFINE_ISA(loom_encoding_layout_assume_strided_isa, LOOM_OP_ENCODING_LAYOUT_ASSUME_STRIDED)
 LOOM_DEFINE_OPERAND(loom_encoding_layout_assume_strided_layout, 0)

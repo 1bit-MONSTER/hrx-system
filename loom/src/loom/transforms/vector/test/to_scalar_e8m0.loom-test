@@ -1,0 +1,193 @@
+// RUN: pass vector-to-scalar,canonicalize
+
+func.def @scalarizes_packed_e8m0_scale_bytes(%payload: vector<5xf8E4M3>, %scale: vector<2xi32>) -> (vector<5xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=5, scale_format=e8m0, scale_group_elements=1, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<2xi32>} : vector<5xf8E4M3>, encoding<schema> -> vector<5xf32>
+  func.return %decoded : vector<5xf32>
+}
+
+// ----
+func.def @scalarizes_packed_e8m0_scale_bytes(%payload: vector<5xf8E4M3>, %scale: vector<2xi32>) -> (vector<5xf32>) {
+  %5 = vector.extract %payload[0] : vector<5xf8E4M3> -> f8E4M3
+  %6 = scalar.extf %5 : f8E4M3 to f32
+  %7 = vector.extract %scale[0] : vector<2xi32> -> i32
+  %8 = scalar.constant 255 : i32
+  %9 = scalar.andi %7, %8 : i32
+  %10 = scalar.constant 23 : i32
+  %11 = scalar.shli %9, %10 : i32
+  %12 = scalar.constant 0 : i32
+  %13 = scalar.cmpi eq, %9, %12 : i32
+  %14 = scalar.constant 4194304 : i32
+  %15 = scf.select %13, %14, %11 : i32
+  %16 = scalar.constant 255 : i32
+  %17 = scalar.cmpi eq, %9, %16 : i32
+  %18 = scalar.constant 2143289344 : i32
+  %19 = scf.select %17, %18, %15 : i32
+  %20 = scalar.bitcast %19 : i32 to f32
+  %21 = scalar.mulf %6, %20 : f32
+  %22 = vector.extract %payload[1] : vector<5xf8E4M3> -> f8E4M3
+  %23 = scalar.extf %22 : f8E4M3 to f32
+  %24 = scalar.constant 8 : i32
+  %25 = scalar.shrui %7, %24 : i32
+  %26 = scalar.constant 255 : i32
+  %27 = scalar.andi %25, %26 : i32
+  %28 = scalar.constant 23 : i32
+  %29 = scalar.shli %27, %28 : i32
+  %30 = scalar.constant 0 : i32
+  %31 = scalar.cmpi eq, %27, %30 : i32
+  %32 = scalar.constant 4194304 : i32
+  %33 = scf.select %31, %32, %29 : i32
+  %34 = scalar.constant 255 : i32
+  %35 = scalar.cmpi eq, %27, %34 : i32
+  %36 = scalar.constant 2143289344 : i32
+  %37 = scf.select %35, %36, %33 : i32
+  %38 = scalar.bitcast %37 : i32 to f32
+  %39 = scalar.mulf %23, %38 : f32
+  %40 = vector.extract %payload[2] : vector<5xf8E4M3> -> f8E4M3
+  %41 = scalar.extf %40 : f8E4M3 to f32
+  %42 = scalar.constant 16 : i32
+  %43 = scalar.shrui %7, %42 : i32
+  %44 = scalar.constant 255 : i32
+  %45 = scalar.andi %43, %44 : i32
+  %46 = scalar.constant 23 : i32
+  %47 = scalar.shli %45, %46 : i32
+  %48 = scalar.constant 0 : i32
+  %49 = scalar.cmpi eq, %45, %48 : i32
+  %50 = scalar.constant 4194304 : i32
+  %51 = scf.select %49, %50, %47 : i32
+  %52 = scalar.constant 255 : i32
+  %53 = scalar.cmpi eq, %45, %52 : i32
+  %54 = scalar.constant 2143289344 : i32
+  %55 = scf.select %53, %54, %51 : i32
+  %56 = scalar.bitcast %55 : i32 to f32
+  %57 = scalar.mulf %41, %56 : f32
+  %58 = vector.extract %payload[3] : vector<5xf8E4M3> -> f8E4M3
+  %59 = scalar.extf %58 : f8E4M3 to f32
+  %60 = scalar.constant 24 : i32
+  %61 = scalar.shrui %7, %60 : i32
+  %64 = scalar.constant 23 : i32
+  %65 = scalar.shli %61, %64 : i32
+  %66 = scalar.constant 0 : i32
+  %67 = scalar.cmpi eq, %61, %66 : i32
+  %68 = scalar.constant 4194304 : i32
+  %69 = scf.select %67, %68, %65 : i32
+  %70 = scalar.constant 255 : i32
+  %71 = scalar.cmpi eq, %61, %70 : i32
+  %72 = scalar.constant 2143289344 : i32
+  %73 = scf.select %71, %72, %69 : i32
+  %74 = scalar.bitcast %73 : i32 to f32
+  %75 = scalar.mulf %59, %74 : f32
+  %76 = vector.extract %payload[4] : vector<5xf8E4M3> -> f8E4M3
+  %77 = scalar.extf %76 : f8E4M3 to f32
+  %78 = vector.extract %scale[1] : vector<2xi32> -> i32
+  %79 = scalar.constant 255 : i32
+  %80 = scalar.andi %78, %79 : i32
+  %81 = scalar.constant 23 : i32
+  %82 = scalar.shli %80, %81 : i32
+  %83 = scalar.constant 0 : i32
+  %84 = scalar.cmpi eq, %80, %83 : i32
+  %85 = scalar.constant 4194304 : i32
+  %86 = scf.select %84, %85, %82 : i32
+  %87 = scalar.constant 255 : i32
+  %88 = scalar.cmpi eq, %80, %87 : i32
+  %89 = scalar.constant 2143289344 : i32
+  %90 = scf.select %88, %89, %86 : i32
+  %91 = scalar.bitcast %90 : i32 to f32
+  %92 = scalar.mulf %77, %91 : f32
+  %decoded = vector.from_elements %21, %39, %57, %75, %92 : vector<5xf32>
+  func.return %decoded : vector<5xf32>
+}
+
+// ====
+
+func.def @decodes_e8m0_scale_before_f16_rounding(%payload: vector<1xf8E4M3>, %scale: vector<1xi32>) -> (vector<1xf16>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, scale_format=e8m0, scale_group_elements=1, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<1xf8E4M3>, encoding<schema> -> vector<1xf16>
+  func.return %decoded : vector<1xf16>
+}
+
+// ----
+func.def @decodes_e8m0_scale_before_f16_rounding(%payload: vector<1xf8E4M3>, %scale: vector<1xi32>) -> (vector<1xf16>) {
+  %5 = vector.extract %payload[0] : vector<1xf8E4M3> -> f8E4M3
+  %6 = scalar.extf %5 : f8E4M3 to f32
+  %7 = vector.extract %scale[0] : vector<1xi32> -> i32
+  %8 = scalar.constant 255 : i32
+  %9 = scalar.andi %7, %8 : i32
+  %10 = scalar.constant 23 : i32
+  %11 = scalar.shli %9, %10 : i32
+  %12 = scalar.constant 0 : i32
+  %13 = scalar.cmpi eq, %9, %12 : i32
+  %14 = scalar.constant 4194304 : i32
+  %15 = scf.select %13, %14, %11 : i32
+  %16 = scalar.constant 255 : i32
+  %17 = scalar.cmpi eq, %9, %16 : i32
+  %18 = scalar.constant 2143289344 : i32
+  %19 = scf.select %17, %18, %15 : i32
+  %20 = scalar.bitcast %19 : i32 to f32
+  %21 = scalar.mulf %6, %20 : f32
+  %22 = scalar.fptrunc %21 : f32 to f16
+  %decoded = vector.splat %22 : vector<1xf16>
+  func.return %decoded : vector<1xf16>
+}
+
+// ====
+
+func.def @encodes_e8m0_scale_before_f8_rounding(%source: vector<1xf16>, %scale: vector<1xi32>) -> (vector<1xf8E4M3>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, scale_format=e8m0, scale_group_elements=1, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %encoded = vector.encode %source using %schema {scale = %scale : vector<1xi32>} : vector<1xf16>, encoding<schema> -> vector<1xf8E4M3>
+  func.return %encoded : vector<1xf8E4M3>
+}
+
+// ----
+func.def @encodes_e8m0_scale_before_f8_rounding(%source: vector<1xf16>, %scale: vector<1xi32>) -> (vector<1xf8E4M3>) {
+  %5 = vector.extract %source[0] : vector<1xf16> -> f16
+  %6 = scalar.extf %5 : f16 to f32
+  %7 = vector.extract %scale[0] : vector<1xi32> -> i32
+  %8 = scalar.constant 255 : i32
+  %9 = scalar.andi %7, %8 : i32
+  %10 = scalar.constant 23 : i32
+  %11 = scalar.shli %9, %10 : i32
+  %12 = scalar.constant 0 : i32
+  %13 = scalar.cmpi eq, %9, %12 : i32
+  %14 = scalar.constant 4194304 : i32
+  %15 = scf.select %13, %14, %11 : i32
+  %16 = scalar.constant 255 : i32
+  %17 = scalar.cmpi eq, %9, %16 : i32
+  %18 = scalar.constant 2143289344 : i32
+  %19 = scf.select %17, %18, %15 : i32
+  %20 = scalar.bitcast %19 : i32 to f32
+  %21 = scalar.divf %6, %20 : f32
+  %22 = scalar.fptrunc %21 : f32 to f8E4M3
+  %encoded = vector.splat %22 : vector<1xf8E4M3>
+  func.return %encoded : vector<1xf8E4M3>
+}
+
+// ====
+
+func.def @preserves_e8m0_decode_with_unpacked_scale(%payload: vector<4xf8E4M3>, %scale: vector<4xi8>) -> (vector<4xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=4, scale_format=e8m0, scale_group_elements=1, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<4xi8>} : vector<4xf8E4M3>, encoding<schema> -> vector<4xf32>
+  func.return %decoded : vector<4xf32>
+}
+
+// ----
+func.def @preserves_e8m0_decode_with_unpacked_scale(%payload: vector<4xf8E4M3>, %scale: vector<4xi8>) -> (vector<4xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=4, scale_format=e8m0, scale_group_elements=1, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<4xi8>} : vector<4xf8E4M3>, encoding<schema> -> vector<4xf32>
+  func.return %decoded : vector<4xf32>
+}
+
+// ====
+
+func.def @preserves_e8m0_decode_with_insufficient_packed_scales(%payload: vector<5xf8E4M3>, %scale: vector<1xi32>) -> (vector<5xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=5, scale_format=e8m0, scale_group_elements=1, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<5xf8E4M3>, encoding<schema> -> vector<5xf32>
+  func.return %decoded : vector<5xf32>
+}
+
+// ----
+func.def @preserves_e8m0_decode_with_insufficient_packed_scales(%payload: vector<5xf8E4M3>, %scale: vector<1xi32>) -> (vector<5xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=5, scale_format=e8m0, scale_group_elements=1, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<5xf8E4M3>, encoding<schema> -> vector<5xf32>
+  func.return %decoded : vector<5xf32>
+}

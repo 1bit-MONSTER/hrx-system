@@ -1,0 +1,102 @@
+// A scalar condition chooses an entire vector, preserving every lane's bits.
+// Scalar inputs/results isolate selection from aggregate callable lowering.
+func.def public @whole_vector_select(%condition: i1, %a: i32, %b: i32) -> (i32, i32) {
+  %af = scalar.bitcast %a : i32 to f32
+  %bf = scalar.bitcast %b : i32 to f32
+  %true_value = vector.from_elements %af, %bf, %bf, %af : vector<2x2xf32>
+  %false_value = vector.from_elements %bf, %af, %af, %bf : vector<2x2xf32>
+  %selected = scf.select %condition, %true_value, %false_value : vector<2x2xf32>
+  %first = vector.extract %selected[0, 0] : vector<2x2xf32> -> f32
+  %second = vector.extract %selected[1, 0] : vector<2x2xf32> -> f32
+  %first_bits = scalar.bitcast %first : f32 to i32
+  %second_bits = scalar.bitcast %second : f32 to i32
+  func.return %first_bits, %second_bits : i32, i32
+}
+
+check.case @whole_vector_select_true {
+  %condition = check.literal value(true) : i1
+  %a = check.param.choice values([-2147483648, 2143289345, 1]) : i32
+  %b = check.param.choice values([0, -4194303]) : i32
+  %first, %second = func.call @whole_vector_select(%condition, %a, %b) : (i1, i32, i32) -> (i32, i32)
+  check.expect.bitwise actual(%first) expected(%a) : i32
+  check.expect.bitwise actual(%second) expected(%b) : i32
+  check.return
+}
+
+check.case @whole_vector_select_false {
+  %condition = check.literal value(false) : i1
+  %a = check.param.choice values([-2147483648, 2143289345, 1]) : i32
+  %b = check.param.choice values([0, -4194303]) : i32
+  %first, %second = func.call @whole_vector_select(%condition, %a, %b) : (i1, i32, i32) -> (i32, i32)
+  check.expect.bitwise actual(%first) expected(%b) : i32
+  check.expect.bitwise actual(%second) expected(%a) : i32
+  check.return
+}
+
+// Yield-only branches canonicalize into the same whole-value selection.
+func.def public @whole_vector_if(%condition: i1, %a: i64, %b: i64) -> (i64, i64) {
+  %true_value = vector.from_elements %a, %b : vector<2xi64>
+  %false_value = vector.from_elements %b, %a : vector<2xi64>
+  %selected = scf.if %condition -> (vector<2xi64>) {
+    scf.yield %true_value : vector<2xi64>
+  } else {
+    scf.yield %false_value : vector<2xi64>
+  }
+  %first = vector.extract %selected[0] : vector<2xi64> -> i64
+  %second = vector.extract %selected[1] : vector<2xi64> -> i64
+  func.return %first, %second : i64, i64
+}
+
+check.case @whole_vector_if_true {
+  %condition = check.literal value(true) : i1
+  %a = check.param.choice values([-9223372036854775808, 4294967296]) : i64
+  %b = check.param.choice values([-1, 0, 9223372036854775807]) : i64
+  %first, %second = func.call @whole_vector_if(%condition, %a, %b) : (i1, i64, i64) -> (i64, i64)
+  check.expect.equal actual(%first) expected(%a) : i64
+  check.expect.equal actual(%second) expected(%b) : i64
+  check.return
+}
+
+check.case @whole_vector_if_false {
+  %condition = check.literal value(false) : i1
+  %a = check.param.choice values([-9223372036854775808, 4294967296]) : i64
+  %b = check.param.choice values([-1, 0, 9223372036854775807]) : i64
+  %first, %second = func.call @whole_vector_if(%condition, %a, %b) : (i1, i64, i64) -> (i64, i64)
+  check.expect.equal actual(%first) expected(%b) : i64
+  check.expect.equal actual(%second) expected(%a) : i64
+  check.return
+}
+
+// Bits 0 and 8 select the first lane of each 8-lane i64 packet. Bits 7 and 15
+// remain clear, exercising both select arms in each packet.
+func.def public @lane_select_i64x16(%condition_word: i32, %true_value: i64, %false_value: i64) -> (i64, i64, i64, i64) {
+  %start = scalar.constant 0 : i32
+  %step = scalar.constant 1 : i32
+  %c1 = vector.constant 1 : vector<16xi32>
+  %c0 = vector.constant 0 : vector<16xi32>
+  %condition_words = vector.splat %condition_word : vector<16xi32>
+  %positions = vector.iota %start step %step : vector<16xi32>
+  %shifted = vector.shrui %condition_words, %positions : vector<16xi32>
+  %bits = vector.andi %shifted, %c1 : vector<16xi32>
+  %condition = vector.cmpi ne, %bits, %c0 : vector<16xi32> -> vector<16xi1>
+  %true_values = vector.splat %true_value : vector<16xi64>
+  %false_values = vector.splat %false_value : vector<16xi64>
+  %selected = vector.select %condition, %true_values, %false_values : vector<16xi64>
+  %lane0 = vector.extract %selected[0] : vector<16xi64> -> i64
+  %lane7 = vector.extract %selected[7] : vector<16xi64> -> i64
+  %lane8 = vector.extract %selected[8] : vector<16xi64> -> i64
+  %lane15 = vector.extract %selected[15] : vector<16xi64> -> i64
+  func.return %lane0, %lane7, %lane8, %lane15 : i64, i64, i64, i64
+}
+
+check.case @lane_select_i64x16_packet_boundaries {
+  %condition_word = check.literal value(257) : i32
+  %true_value = check.literal value(-9223372036854775808) : i64
+  %false_value = check.literal value(9223372036854775807) : i64
+  %lane0, %lane7, %lane8, %lane15 = func.call @lane_select_i64x16(%condition_word, %true_value, %false_value) : (i32, i64, i64) -> (i64, i64, i64, i64)
+  check.expect.equal actual(%lane0) expected(%true_value) : i64
+  check.expect.equal actual(%lane7) expected(%false_value) : i64
+  check.expect.equal actual(%lane8) expected(%true_value) : i64
+  check.expect.equal actual(%lane15) expected(%false_value) : i64
+  check.return
+}

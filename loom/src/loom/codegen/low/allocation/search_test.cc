@@ -6,6 +6,8 @@
 
 #include "loom/codegen/low/allocation/search.h"
 
+#include <vector>
+
 #include "iree/base/internal/arena.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -16,6 +18,30 @@
 
 namespace loom {
 namespace {
+
+TEST(LowAllocationSearchOrderTest, VisitsEveryLegalBaseWithAlignedBasesFirst) {
+  for (uint32_t required : {1u, 2u, 4u}) {
+    for (uint32_t preferred : {required, required * 2, required * 4}) {
+      for (uint32_t last_base = 0; last_base < 32; ++last_base) {
+        uint64_t visited = 0;
+        const uint32_t preferred_count = last_base / preferred + 1;
+        for (uint32_t i = 0; i <= last_base / required; ++i) {
+          const uint32_t base =
+              loom_low_allocation_search_linear_candidate_base(
+                  i, last_base, required, preferred);
+          ASSERT_LE(base, last_base);
+          EXPECT_EQ(base % required, 0u);
+          EXPECT_EQ(visited & (UINT64_C(1) << base), 0u);
+          EXPECT_EQ(base % preferred == 0, i < preferred_count);
+          visited |= UINT64_C(1) << base;
+        }
+      }
+    }
+  }
+  EXPECT_EQ(loom_low_allocation_search_linear_candidate_base(UINT32_MAX,
+                                                             UINT32_MAX, 1, 4),
+            UINT32_MAX);
+}
 
 class LowAllocationSearchTest : public ::testing::Test {
  protected:
@@ -195,11 +221,11 @@ uint32_t FindFreeLocationWithPlacement(
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_starts[] = {0, 1};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {{0, 2}, {1, 0}};
   uint32_t unit_end_points[] = {6, 1};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
   unit_liveness.values_with_incomplete_storage_segments = {liveness.value_count,
@@ -273,9 +299,48 @@ uint32_t FindFreeLocationWithPlacement(
   context.unit_liveness = &unit_liveness;
   context.target_constraints = &target_constraints;
   context.assignment_map = &assignment_map;
-  context.placement = relation != nullptr ? &placement : nullptr;
+  context.placement = &placement;
   context.active_set = &active_set;
   context.storage_leases = &storage_leases;
+
+  const loom_low_placement_value_ref_t refs[] = {
+      {0, LOOM_LOW_PLACEMENT_VALUE_RESULT, 0},
+      {1, LOOM_LOW_PLACEMENT_VALUE_RESULT, 0},
+  };
+  loom_low_placement_predicate_t predicate = {};
+  predicate.result = 0;
+  predicate.source = 1;
+  predicate.unit_count = 1;
+  const loom_low_placement_clause_t clause = {0, 1, 1,
+                                              LOOM_LOW_PLACEMENT_CLAUSE_ANY};
+  const loom_low_placement_preference_t preference = {refs, &predicate, &clause,
+                                                      2, 1};
+  loom_low_placement_preference_use_t use = {&preference, 0, 1};
+  loom_low_placement_preference_binding_t bindings[2] = {};
+  const uint32_t use_indices[] = {0, 0};
+  const uint32_t offsets[] = {0, 1, 2};
+  loom_low_placement_preference_index_t preferences = {};
+  loom_low_allocation_preference_workspace_t workspace = {};
+  if (relation &&
+      relation->cause == LOOM_LOW_PLACEMENT_CAUSE_SCHEDULE_PAIR_AFFINITY) {
+    predicate.kind = relation->kind;
+    predicate.location_mask = relation->location_mask;
+    use.priority = relation->priority;
+    bindings[0] = {relation->result_ordinal, 0};
+    bindings[1] = {relation->source_ordinal, 1};
+    preferences.uses = &use;
+    preferences.bindings = bindings;
+    preferences.use_indices = use_indices;
+    preferences.offsets_by_origin = offsets;
+    preferences.use_count = 1;
+    preferences.binding_count = 2;
+    preferences.max_incident_use_count = 1;
+    preferences.max_incident_binding_count = 2;
+    IREE_CHECK_OK(loom_low_allocation_preference_workspace_initialize(
+        &preferences, arena, &workspace));
+    context.preferences = &preferences;
+    context.preference_workspace = &workspace;
+  }
 
   uint32_t location_base = UINT32_MAX;
   EXPECT_TRUE(loom_low_allocation_search_find_free_location(
@@ -287,9 +352,22 @@ uint32_t FindFreeLocationWithPlacement(
   return location_base;
 }
 
+struct StorageLeaseSearchOptions {
+  // Optional residency tiers used to decide whether releasing is worthwhile.
+  loom_target_residency_view_t residency = {};
+  // Width of the candidate register tuple.
+  uint32_t unit_count = 1;
+  // Base of the single leased register.
+  uint32_t lease_base = 0;
+  // Registers below this base are unavailable to either release policy.
+  uint32_t reserved_prefix = 0;
+  // Release policy declared by the storage-lease producer.
+  loom_low_storage_lease_flags_t lease_flags = 0;
+};
+
 uint32_t FindFreeLocationWithStorageLease(
     loom_module_t* module, iree_arena_allocator_t* arena,
-    const loom_target_residency_model_t* residency_model) {
+    const StorageLeaseSearchOptions& options) {
   const loom_value_id_t candidate_value = DefineModuleValue(module);
   const loom_value_id_t leased_value = DefineModuleValue(module);
   loom_module_value_ordinal_scratch_acquire(module);
@@ -302,7 +380,7 @@ uint32_t FindFreeLocationWithStorageLease(
       RegisterValueClass(descriptor_set_id);
   const loom_liveness_interval_t intervals[] = {
       Interval(candidate_value, /*start=*/2, /*end=*/4, value_class,
-               /*unit_count=*/1),
+               options.unit_count),
       Interval(leased_value, /*start=*/0, /*end=*/1, value_class,
                /*unit_count=*/1),
   };
@@ -320,13 +398,15 @@ uint32_t FindFreeLocationWithStorageLease(
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_starts[] = {0, 1};
-  uint32_t unit_end_points[] = {4, 1};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {
+      {0, 2}, {options.unit_count, 0}};
+  std::vector<uint32_t> unit_end_points(options.unit_count + 1, 4);
+  unit_end_points.back() = 1;
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
-  unit_liveness.end_points = unit_end_points;
-  unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
+  unit_liveness.values = unit_values;
+  unit_liveness.end_points = unit_end_points.data();
+  unit_liveness.point_count = unit_end_points.size();
   unit_liveness.values_with_incomplete_storage_segments = {
       liveness.value_count,
       edge_handoff_words,
@@ -337,16 +417,23 @@ uint32_t FindFreeLocationWithStorageLease(
   const loom_low_descriptor_set_t descriptor_set =
       DescriptorSet(&reg_class, descriptor_set_id);
   const loom_low_resolved_target_t target = ResolvedTarget(&descriptor_set);
-  uint32_t max_assigned_location_end_by_reg_class[] = {1};
+  uint32_t max_assigned_location_end_by_reg_class[] = {options.lease_base + 1};
   loom_low_allocation_target_constraints_t target_constraints = {};
   target_constraints.target = &target;
   target_constraints.max_assigned_location_end_by_reg_class =
       max_assigned_location_end_by_reg_class;
+  loom_low_allocation_resolved_reserved_range_t reserved = {
+      0, LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 0,
+      options.reserved_prefix};
+  if (options.reserved_prefix != 0) {
+    target_constraints.reserved_ranges = &reserved;
+    target_constraints.reserved_range_count = 1;
+  }
 
   const loom_low_allocation_assignment_t assignments[] = {
       Assignment(leased_value, /*start=*/0, /*end=*/1, value_class,
-                 /*location_base=*/0, /*location_count=*/1,
-                 /*unit_point_start=*/1),
+                 options.lease_base, /*location_count=*/1,
+                 /*unit_point_start=*/options.unit_count),
   };
   const uint32_t assignment_indices_by_value_ordinal[] = {UINT32_MAX, 0};
   loom_low_allocation_assignment_map_t assignment_map = {};
@@ -375,6 +462,7 @@ uint32_t FindFreeLocationWithStorageLease(
   schedule.scheduled_node_indices = scheduled_node_indices;
   schedule.scheduled_node_count = IREE_ARRAYSIZE(scheduled_node_indices);
   loom_low_storage_lease_record_t lease_records[] = {{}};
+  lease_records[0].flags = options.lease_flags;
   lease_records[0].packet_index = 0;
   lease_records[0].release_scope =
       LOOM_LOW_STORAGE_LEASE_RELEASE_SCOPE_PROGRESS_CLASS;
@@ -392,21 +480,25 @@ uint32_t FindFreeLocationWithStorageLease(
   lease_instances[0].descriptor_reg_class_id = 0;
   lease_instances[0].location_kind =
       LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER;
-  lease_instances[0].location_base = 0;
+  lease_instances[0].location_base = options.lease_base;
   lease_instances[0].location_count = 1;
   uint8_t lease_instance_written[] = {1};
   loom_low_allocation_storage_lease_state_t storage_leases = {};
   storage_leases.lease_table = &lease_table;
   storage_leases.instances = lease_instances;
   storage_leases.instance_written = lease_instance_written;
+  storage_leases.pressure_release_record_count = iree_any_bit_set(
+      options.lease_flags, LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_FOR_PRESSURE);
 
   loom_low_allocation_search_context_t context = {};
+  loom_low_placement_table_t placement = {};
+  context.placement = &placement;
   context.module = module;
   context.descriptor_set = &descriptor_set;
   context.liveness = &liveness;
   context.unit_liveness = &unit_liveness;
   context.target_constraints = &target_constraints;
-  context.residency_model = residency_model;
+  context.residency = options.residency;
   context.assignment_map = &assignment_map;
   context.active_set = &active_set;
   context.storage_leases = &storage_leases;
@@ -422,8 +514,8 @@ uint32_t FindFreeLocationWithStorageLease(
 }
 
 uint32_t FindFreeLocationWithStorageLeaseAtResidencyCliff(
-    loom_module_t* module, iree_arena_allocator_t* arena,
-    uint32_t cliff_units) {
+    loom_module_t* module, iree_arena_allocator_t* arena, uint32_t cliff_units,
+    uint32_t tier_limit = UINT32_MAX) {
   const iree_string_view_t resource_names[] = {IREE_SVL("register")};
   const loom_target_residency_cliff_t cliffs[] = {
       {
@@ -447,7 +539,9 @@ uint32_t FindFreeLocationWithStorageLeaseAtResidencyCliff(
           /*.resource_count=*/IREE_ARRAYSIZE(resource_names),
       },
   };
-  return FindFreeLocationWithStorageLease(module, arena, &residency_model);
+  StorageLeaseSearchOptions options;
+  options.residency = loom_target_residency_view(&residency_model, tier_limit);
+  return FindFreeLocationWithStorageLease(module, arena, options);
 }
 
 TEST_F(LowAllocationSearchTest, PreservesFirstFitWithoutPlacementPreference) {
@@ -563,11 +657,12 @@ TEST_F(LowAllocationSearchTest,
   liveness.pressure_summaries = pressure_summaries;
   liveness.pressure_summary_count = IREE_ARRAYSIZE(pressure_summaries);
 
-  uint32_t unit_point_starts[] = {0, 1, 5};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {
+      {0, 0}, {1, 1}, {5, 8}};
   uint32_t unit_end_points[] = {8, 7, 7, 7, 7, 10};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
   unit_liveness.values_with_incomplete_storage_segments = {
@@ -605,6 +700,8 @@ TEST_F(LowAllocationSearchTest,
       /*program_point_count=*/11, /*unit_capacity=*/6, &arena_, &active_set));
   loom_low_allocation_storage_lease_state_t storage_leases = {};
   loom_low_allocation_search_context_t context = {};
+  loom_low_placement_table_t placement = {};
+  context.placement = &placement;
   context.module = module;
   context.descriptor_set = &descriptor_set;
   context.liveness = &liveness;
@@ -622,7 +719,7 @@ TEST_F(LowAllocationSearchTest,
 
   loom_low_allocation_interval_order_t order = {};
   IREE_ASSERT_OK(loom_low_allocation_interval_order_build(
-      &descriptor_set, &liveness, &arena_, &order));
+      &descriptor_set, &liveness, &unit_liveness, &placement, &arena_, &order));
   IREE_ASSERT_OK(loom_low_allocation_scalar_packing_build(
       &descriptor_set, &liveness, &order, &arena_, &context.scalar_packing));
   location_base = UINT32_MAX;
@@ -681,7 +778,7 @@ TEST_F(LowAllocationSearchTest,
 TEST_F(LowAllocationSearchTest, KeepsReleaseFreeLocationWithoutResidencyModel) {
   loom_module_t* module = AllocateModule();
   EXPECT_EQ(FindFreeLocationWithStorageLease(module, &arena_,
-                                             /*residency_model=*/nullptr),
+                                             StorageLeaseSearchOptions{}),
             1u);
   loom_module_free(module);
 }
@@ -700,6 +797,61 @@ TEST_F(LowAllocationSearchTest, ReleasesStorageLeaseBeforeResidencyCliff) {
                                                              /*cliff_units=*/2),
             0u);
   loom_module_free(module);
+}
+
+TEST_F(LowAllocationSearchTest, KeepsLeaseWhenLaunchAlreadyLimitsResidency) {
+  loom_module_t* module = AllocateModule();
+  EXPECT_EQ(FindFreeLocationWithStorageLeaseAtResidencyCliff(
+                module, &arena_, /*cliff_units=*/2, /*tier_limit=*/2),
+            1u);
+  EXPECT_EQ(FindFreeLocationWithStorageLeaseAtResidencyCliff(
+                module, &arena_, /*cliff_units=*/2, /*tier_limit=*/3),
+            0u);
+  loom_module_free(module);
+}
+
+TEST_F(LowAllocationSearchTest, PressureReleaseComparesLegalMinimaNotPacking) {
+  for (uint32_t width : {1u, 2u, 4u}) {
+    for (uint32_t reserved_prefix = 0; reserved_prefix <= 8 - width;
+         ++reserved_prefix) {
+      for (uint32_t lease_base = 0; lease_base < 8; ++lease_base) {
+        SCOPED_TRACE(::testing::Message()
+                     << "width=" << width << " reserved=" << reserved_prefix
+                     << " lease=" << lease_base);
+        // Independently enumerate each policy's feasible locations, then its
+        // packing choice. A lower preferred base alone cannot justify release
+        // when both policies have the same true minimum.
+        std::vector<uint32_t> forbidden;
+        std::vector<uint32_t> releasable;
+        for (uint32_t base = reserved_prefix; base <= 8 - width; ++base) {
+          releasable.push_back(base);
+          if (lease_base < base || lease_base >= base + width) {
+            forbidden.push_back(base);
+          }
+        }
+        const auto& selected =
+            forbidden.empty() || releasable.front() < forbidden.front()
+                ? releasable
+                : forbidden;
+        uint32_t expected = selected.front();
+        for (uint32_t base : selected) {
+          if (base % width == 0) {
+            expected = base;
+            break;
+          }
+        }
+        StorageLeaseSearchOptions options;
+        options.unit_count = width;
+        options.lease_base = lease_base;
+        options.reserved_prefix = reserved_prefix;
+        options.lease_flags = LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_FOR_PRESSURE;
+        loom_module_t* module = AllocateModule();
+        EXPECT_EQ(FindFreeLocationWithStorageLease(module, &arena_, options),
+                  expected);
+        loom_module_free(module);
+      }
+    }
+  }
 }
 
 TEST_F(LowAllocationSearchTest, SelectsDifferentMaskedResultLocation) {
@@ -802,11 +954,11 @@ TEST_F(LowAllocationSearchTest, FindsFreeLocationAfterActiveAndReservedRanges) {
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_starts[] = {0, 2};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {{0, 2}, {2, 0}};
   uint32_t unit_end_points[] = {6, 6, 10, 10};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
   unit_liveness.values_with_incomplete_storage_segments = {liveness.value_count,
@@ -857,6 +1009,8 @@ TEST_F(LowAllocationSearchTest, FindsFreeLocationAfterActiveAndReservedRanges) {
 
   loom_low_allocation_storage_lease_state_t storage_leases = {};
   loom_low_allocation_search_context_t context = {};
+  loom_low_placement_table_t placement = {};
+  context.placement = &placement;
   context.module = module;
   context.descriptor_set = &descriptor_set;
   context.liveness = &liveness;
@@ -870,6 +1024,21 @@ TEST_F(LowAllocationSearchTest, FindsFreeLocationAfterActiveAndReservedRanges) {
   EXPECT_TRUE(loom_low_allocation_search_find_free_location(
       &context, &intervals[0], Capacity(/*max_units=*/8), &location_base));
   EXPECT_EQ(location_base, 4u);
+
+  // Only the two-unit gap at an odd base remains below this capacity. Packing
+  // preference cannot turn a legal location into register exhaustion.
+  reserved_ranges[0].location_count = 3;
+  EXPECT_TRUE(loom_low_allocation_search_find_free_location(
+      &context, &intervals[0], Capacity(/*max_units=*/7), &location_base));
+  EXPECT_EQ(location_base, 5u);
+  const loom_low_placement_operand_constraints_t operands[] = {{0, 1, false},
+                                                               {0, 0, false}};
+  placement.operand_constraints_by_interval = operands;
+  EXPECT_FALSE(loom_low_allocation_search_find_free_location(
+      &context, &intervals[0], Capacity(/*max_units=*/7), &location_base));
+  EXPECT_TRUE(loom_low_allocation_search_find_free_location(
+      &context, &intervals[0], Capacity(/*max_units=*/8), &location_base));
+  EXPECT_EQ(location_base, 6u);
 
   loom_module_value_ordinal_scratch_clear(module, candidate_value);
   loom_module_value_ordinal_scratch_clear(module, active_value);
@@ -911,11 +1080,11 @@ TEST_F(LowAllocationSearchTest,
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_starts[] = {0, 2};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {{0, 2}, {2, 0}};
   uint32_t unit_end_points[] = {6, 6, 12, 12};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
   unit_liveness.values_with_incomplete_storage_segments = {liveness.value_count,
@@ -1000,6 +1169,8 @@ TEST_F(LowAllocationSearchTest,
       },
   };
   loom_low_allocation_search_context_t context = {};
+  loom_low_placement_table_t placement = {};
+  context.placement = &placement;
   context.module = module;
   context.descriptor_set = &descriptor_set;
   context.liveness = &liveness;
@@ -1072,11 +1243,12 @@ TEST_F(LowAllocationSearchTest, SelectsLowerTrafficActiveSpillVictimSetTie) {
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_starts[] = {0, 2, 4};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {
+      {0, 4}, {2, 0}, {4, 0}};
   uint32_t unit_end_points[] = {8, 8, 20, 20, 12, 12};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
   unit_liveness.values_with_incomplete_storage_segments = {liveness.value_count,
@@ -1138,6 +1310,8 @@ TEST_F(LowAllocationSearchTest, SelectsLowerTrafficActiveSpillVictimSetTie) {
       },
   };
   loom_low_allocation_search_context_t context = {};
+  loom_low_placement_table_t placement = {};
+  context.placement = &placement;
   context.module = module;
   context.descriptor_set = &descriptor_set;
   context.liveness = &liveness;
@@ -1208,11 +1382,12 @@ TEST_F(LowAllocationSearchTest, SelectsLowerTrafficOverFewerVictims) {
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_starts[] = {0, 2, 4, 5};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {
+      {0, 4}, {2, 0}, {4, 0}, {5, 0}};
   uint32_t unit_end_points[] = {8, 8, 28, 28, 12, 12};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
   unit_liveness.values_with_incomplete_storage_segments = {liveness.value_count,
@@ -1280,6 +1455,8 @@ TEST_F(LowAllocationSearchTest, SelectsLowerTrafficOverFewerVictims) {
       },
   };
   loom_low_allocation_search_context_t context = {};
+  loom_low_placement_table_t placement = {};
+  context.placement = &placement;
   context.module = module;
   context.descriptor_set = &descriptor_set;
   context.liveness = &liveness;

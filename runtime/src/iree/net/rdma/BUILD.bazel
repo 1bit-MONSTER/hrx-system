@@ -1,0 +1,177 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//runtime/build_tools/bazel:cc.bzl", "iree_runtime_cc_library")
+load("//runtime/build_tools/bazel:cc_test.bzl", "iree_runtime_cc_test")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = ["notice"],
+)
+
+RDMA_COMPATIBILITY = ["@platforms//os:linux"] + select({
+    "//runtime/config/net:rdma_enabled": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
+iree_runtime_cc_library(
+    name = "library",
+    srcs = ["library.c"],
+    hdrs = [
+        "library.h",
+        "library_symbols.h",
+    ],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:dynamic_library",
+        "//third_party:rdma_core_headers",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "library_test",
+    srcs = ["library_test.cc"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":library",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "device_events",
+    srcs = ["device_events.c"],
+    hdrs = ["device_events.h"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":library",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "context",
+    srcs = ["context.c"],
+    hdrs = ["context.h"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":device_events",
+        ":library",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "device_events_test",
+    srcs = ["device_events_test.cc"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":device_events",
+        ":library",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "region",
+    srcs = ["region.c"],
+    hdrs = ["region.h"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":context",
+        ":library",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "target",
+    srcs = ["target.c"],
+    hdrs = ["target.h"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":region",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base:core_headers",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "target_test",
+    srcs = ["target_test.cc"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":context",
+        ":region",
+        ":target",
+        ":test_context",
+        ":test_main",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base:core_headers",
+        "//runtime/src/iree/testing:gtest",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "test_context",
+    testonly = True,
+    srcs = ["test_context.cc"],
+    hdrs = ["test_context.h"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":context",
+        "//runtime/src/iree/base",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "test_main",
+    testonly = True,
+    srcs = ["test_main.cc"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":test_context",
+        "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/testing:gtest",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "connection_test_main",
+    testonly = True,
+    srcs = ["test_main.cc"],
+    defines = ["IREE_NET_RDMA_TEST_CONNECTION=1"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":test_context",
+        "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/testing:gtest",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "benchmark_main",
+    testonly = True,
+    srcs = ["benchmark_main.cc"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":test_context",
+        "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/testing:benchmark",
+        "//third_party:google_benchmark",
+    ],
+)

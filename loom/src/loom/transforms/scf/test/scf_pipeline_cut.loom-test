@@ -1,0 +1,84 @@
+// RUN: pass pipeline-scf-for,canonicalize,cse,dce
+
+// Both derived indices are needed by loads and by the consumer. Reconstructing
+// them from the queued induction preserves their differences after the cut.
+func.def @related_indices(%input: view<64xi32>, %initial: i32) -> (index, i32) {
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 3 : index
+  %distance, %total = scf.for %i = [%begin to %end step %step](%previous = %begin : index, %sum = %initial : i32) -> (index, i32) pipeline(%depth) {
+    %next = index.add %i, %step : index
+    %back = index.sub %next, %step : index
+    %loaded = view.load %input[%next] : view<64xi32> -> i32
+    %other = view.load %input[%back] : view<64xi32> -> i32
+    %gap = index.sub %next, %i : index
+    %distance = index.add %gap, %back : index
+    %both = scalar.addi %loaded, %other : i32
+    %added = scalar.addi %sum, %both : i32
+    scf.yield %distance, %added : index, i32
+  }
+  func.return %distance, %total : index, i32
+}
+
+// ----
+func.def @related_indices(%input: view<64xi32>, %initial: i32) -> (index, i32) {
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  %21 = index.constant 2 : index
+  %loaded$27 = view.load %input[%step] : view<64xi32> -> i32
+  %other = view.load %input[%begin] : view<64xi32> -> i32
+  %loaded$33 = view.load %input[%21] : view<64xi32> -> i32
+  %44, %45, %46, %47, %48, %49, %50, %51 = scf.for %35 = [%21 to %end step %step](%36 = %begin : index, %37 = %initial : i32, %38 = %begin : index, %39 = %loaded$27 : i32, %40 = %other : i32, %41 = %step : index, %42 = %loaded$33 : i32, %43 = %loaded$27 : i32) -> (index, i32, index, i32, i32, index, i32, i32) {
+    %next = index.add %35, %step : index
+    %loaded = view.load %input[%next] : view<64xi32> -> i32
+    %other = view.load %input[%35] : view<64xi32> -> i32
+    %distance = index.add %step, %38 : index
+    %both = scalar.addi %39, %40 : i32
+    %added = scalar.addi %37, %both : i32
+    scf.yield %distance, %added, %41, %42, %43, %35, %loaded, %other : index, i32, index, i32, i32, index, i32, i32
+  }
+  %both$66 = scalar.addi %47, %48 : i32
+  %added$67 = scalar.addi %45, %both$66 : i32
+  %distance = index.add %step, %49 : index
+  %both$72 = scalar.addi %50, %51 : i32
+  %added$73 = scalar.addi %added$67, %both$72 : i32
+  func.return %distance, %added$73 : index, i32
+}
+
+// ====
+
+// RUN: pass pipeline-scf-for,canonicalize,cse,dce
+
+// The producer's induction is not otherwise carried. Reconstructing the shifted
+// index would introduce a new queue entry, so retain the existing cut.
+func.def @unavailable_input(%input: view<64xi32>, %initial: i32) -> (index, i32) {
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %last, %total = scf.for %i = [%begin to %end step %step](%previous = %begin : index, %sum = %initial : i32) -> (index, i32) pipeline(%depth) {
+    %next = index.add %i, %step : index
+    %loaded = view.load %input[%next] : view<64xi32> -> i32
+    %added = scalar.addi %sum, %loaded : i32
+    scf.yield %next, %added : index, i32
+  }
+  func.return %last, %total : index, i32
+}
+
+// ----
+func.def @unavailable_input(%input: view<64xi32>, %initial: i32) -> (index, i32) {
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  %loaded = view.load %input[%step] : view<64xi32> -> i32
+  %27, %28, %29, %30 = scf.for %22 = [%step to %end step %step](%23 = %begin : index, %24 = %initial : i32, %25 = %step : index, %26 = %loaded : i32) -> (index, i32, index, i32) {
+    %next = index.add %22, %step : index
+    %loaded = view.load %input[%next] : view<64xi32> -> i32
+    %added = scalar.addi %24, %26 : i32
+    scf.yield %25, %added, %next, %loaded : index, i32, index, i32
+  }
+  %added = scalar.addi %28, %30 : i32
+  func.return %29, %added : index, i32
+}

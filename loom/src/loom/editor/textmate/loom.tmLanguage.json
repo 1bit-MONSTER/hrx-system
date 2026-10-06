@@ -89,7 +89,7 @@
         },
         {
           "name": "meta.operation-name.loom",
-          "match": "\\b(check)\\.(generate\\.random\\.uniform|expect\\.bitwise|file\\.write\\.npy|file\\.read\\.npy|generate\\.fill|generate\\.iota|expect\\.close|expect\\.equal|expect\\.event|expect\\.shape|param\\.choice|oracle\\.call|param\\.range|tensor\\.view|param\\.seed|benchmark|requires|literal|skip_if|expect|return|case)\\b",
+          "match": "\\b(check)\\.(generate\\.random\\.uniform|expect\\.bitwise|file\\.write\\.npy|file\\.read\\.npy|generate\\.fill|generate\\.iota|entropy\\.fork|entropy\\.read|expect\\.close|expect\\.equal|expect\\.event|expect\\.shape|param\\.choice|oracle\\.call|param\\.range|tensor\\.view|param\\.seed|benchmark|requires|scenario|compare|literal|skip_if|invoke|return|trial|case)\\b",
           "captures": {
             "1": {
               "name": "support.namespace.dialect.loom"
@@ -173,7 +173,7 @@
         },
         {
           "name": "meta.operation-name.loom",
-          "match": "\\b(kernel)\\.(async\\.tensor\\.store\\.from\\.lds|async\\.cluster\\.gather\\.mask|cluster\\.workgroup\\.flat_id|async\\.tensor\\.load\\.to\\.lds|subgroup\\.broadcast\\.first|tensor\\.lds\\.descriptor|async\\.cluster\\.gather|cluster\\.workgroup\\.id|subgroup\\.active\\.mask|subgroup\\.vote\\.ballot|workgroup\\.vote\\.count|workitem\\.dispatch\\.id|subgroup\\.broadcast|subgroup\\.match\\.all|subgroup\\.match\\.any|workgroup\\.vote\\.all|workgroup\\.vote\\.any|async\\.gather\\.mask|launch\\.concurrent|subgroup\\.vote\\.all|subgroup\\.vote\\.any|subgroup\\.lane\\.id|subgroup\\.shuffle|workgroup\\.reduce|async\\.copy\\.mask|subgroup\\.reduce|workgroup\\.count|subgroup\\.count|workgroup\\.scan|workgroup\\.size|cluster\\.count|launch\\.config|launch\\.serial|subgroup\\.scan|subgroup\\.size|async\\.gather|cluster\\.size|launch\\.yield|workgroup\\.id|async\\.group|subgroup\\.id|workitem\\.id|async\\.copy|async\\.wait|cluster\\.id|entry\\.decl|dispatch|barrier|assert|launch|return|decl|exit|def)\\b",
+          "match": "\\b(kernel)\\.(async\\.tensor\\.store\\.from\\.lds|async\\.cluster\\.gather\\.mask|cluster\\.workgroup\\.flat_id|async\\.tensor\\.load\\.to\\.lds|subgroup\\.broadcast\\.first|tensor\\.lds\\.descriptor|async\\.cluster\\.gather|cluster\\.workgroup\\.id|subgroup\\.active\\.mask|subgroup\\.vote\\.ballot|workgroup\\.vote\\.count|workitem\\.dispatch\\.id|subgroup\\.broadcast|subgroup\\.match\\.all|subgroup\\.match\\.any|workgroup\\.vote\\.all|workgroup\\.vote\\.any|async\\.gather\\.mask|launch\\.concurrent|subgroup\\.vote\\.all|subgroup\\.vote\\.any|subgroup\\.lane\\.id|subgroup\\.shuffle|workgroup\\.reduce|async\\.copy\\.mask|subgroup\\.reduce|workgroup\\.count|barrier\\.arrive|subgroup\\.count|workgroup\\.scan|workgroup\\.size|cluster\\.count|launch\\.config|launch\\.serial|subgroup\\.scan|subgroup\\.size|async\\.gather|barrier\\.wait|cluster\\.size|launch\\.yield|workgroup\\.id|async\\.group|subgroup\\.id|workitem\\.id|async\\.copy|async\\.wait|cluster\\.id|entry\\.decl|dispatch|barrier|assert|launch|return|decl|exit|def)\\b",
           "captures": {
             "1": {
               "name": "support.namespace.dialect.loom"
@@ -197,7 +197,7 @@
         },
         {
           "name": "meta.operation-name.loom",
-          "match": "\\b(sanitizer)\\.(assert\\.accesses|assert\\.access|assert\\.layout|assert\\.value|race\\.access|assert\\.op|race\\.sync)\\b",
+          "match": "\\b(sanitizer)\\.(race\\.fragment_access|assert\\.accesses|assert\\.access|assert\\.layout|assert\\.value|race\\.access|assert\\.op|race\\.sync)\\b",
           "captures": {
             "1": {
               "name": "support.namespace.dialect.loom"
@@ -233,7 +233,7 @@
         },
         {
           "name": "meta.operation-name.loom",
-          "match": "\\b(test)\\.(fact_storage_byte_offset_divisor|fact_encoding_layout_stride_hi|fact_view_root_min_alignment|fact_encoding_operand_field|fact_storage_byte_length_hi|fact_storage_byte_length_lo|fact_storage_byte_offset_hi|fact_storage_byte_offset_lo|template_param_symbol_flags|compact_parameterized_attr|condition_refines_positive|fact_is_vector_prefix_mask|fact_storage_min_alignment|fact_buffer_min_alignment|fact_encoding_layout_kind|fact_is_storage_reference|fact_storage_same_backing|fact_alias_scope_matches|fact_buffer_memory_space|fact_is_buffer_reference|fact_view_byte_length_hi|fact_view_byte_length_lo|fact_view_byte_offset_hi|fact_view_byte_offset_lo|parameterized_attr_array|fact_all_equal_range_hi|fact_all_equal_range_lo|fact_subgroup_lane_mask|fact_view_element_bytes|fact_view_min_alignment|fact_alias_scope_known|fact_is_view_reference|fact_view_memory_space|fact_view_root_matches|fact_workgroup_uniform|fact_subgroup_uniform|signed_enum_set_attrs|template_param_symbol|fact_cluster_uniform|fact_is_vector_iota|fact_lane_predicate|resource\\.borrow_ref|effectful_constant|fact_not_subnormal|fact_storage_space|parameterized_attr|symbol_array_attrs|fact_lane_varying|fact_non_negative|fact_power_of_two|resource\\.borrowed|enum_array_attrs|partitioned_call|resource\\.consume|resource\\.discard|resource\\.release|symbol_set_attrs|clause_constant|isolated_region|module_metadata|mutate_resource|optional_region|resource\\.borrow|resource\\.escape|resource\\.retain|implicit_yield|resource\\.alias|resource\\.alloc|write_resource|fact_non_zero|fact_positive|fact_range_hi|fact_range_lo|read_resource|region_syntax|resource\\.move|fact_divisor|memory_fence|operand_dict|region_table|attr_params|clause_copy|fact_finite|result_pair|attr_table|block_args|convergent|low_invoke|split_func|segmented|typed_use|constant|low_call|convert|counter|deflate|assume|branch|invoke|record|reduce|target|update|alloc|attrs|shape|slice|yield|addi|cast|decl|func|loop|cmp|dim|map|neg|use|br)\\b",
+          "match": "\\b(test)\\.(fact_storage_byte_offset_divisor|fact_encoding_layout_stride_hi|fact_view_root_min_alignment|fact_encoding_operand_field|fact_storage_byte_length_hi|fact_storage_byte_length_lo|fact_storage_byte_offset_hi|fact_storage_byte_offset_lo|template_param_symbol_flags|compact_parameterized_attr|condition_refines_positive|fact_is_vector_prefix_mask|fact_storage_min_alignment|fact_buffer_min_alignment|fact_encoding_layout_kind|fact_is_storage_reference|fact_storage_same_backing|fact_alias_scope_matches|fact_buffer_memory_space|fact_is_buffer_reference|fact_view_byte_length_hi|fact_view_byte_length_lo|fact_view_byte_offset_hi|fact_view_byte_offset_lo|parameterized_attr_array|fact_all_equal_range_hi|fact_all_equal_range_lo|fact_subgroup_lane_mask|fact_view_element_bytes|fact_view_min_alignment|fact_alias_scope_known|fact_is_view_reference|fact_view_memory_space|fact_view_root_matches|fact_workgroup_uniform|fact_subgroup_uniform|signed_enum_set_attrs|template_param_symbol|fact_cluster_uniform|fact_is_vector_iota|fact_lane_predicate|resource\\.borrow_ref|effectful_constant|fact_not_subnormal|fact_storage_space|parameterized_attr|symbol_array_attrs|fact_lane_varying|fact_non_negative|fact_power_of_two|resource\\.borrowed|block_arg_groups|enum_array_attrs|partitioned_call|resource\\.consume|resource\\.discard|resource\\.release|symbol_set_attrs|clause_constant|isolated_region|module_metadata|mutate_resource|optional_region|resource\\.borrow|resource\\.escape|resource\\.retain|implicit_yield|resource\\.alias|resource\\.alloc|signature_sink|write_resource|fact_non_zero|fact_positive|fact_range_hi|fact_range_lo|read_resource|region_syntax|resource\\.move|fact_divisor|memory_fence|operand_dict|region_table|attr_params|clause_copy|fact_finite|result_pair|attr_table|block_args|convergent|low_invoke|split_func|segmented|typed_use|constant|low_call|convert|counter|deflate|assume|branch|invoke|record|reduce|target|update|alloc|attrs|shape|slice|yield|addi|cast|decl|func|loop|cmp|dim|map|neg|use|br)\\b",
           "captures": {
             "1": {
               "name": "support.namespace.dialect.loom"
@@ -333,7 +333,7 @@
       "patterns": [
         {
           "name": "support.type.loom",
-          "match": "\\b(?:kernel\\.tensor\\.lds\\.descriptor|spirv\\.cooperative_matrix|kernel\\.async\\.group|kernel\\.async\\.token|hal\\.buffer_view|low\\.storage|hal\\.buffer|encoding|buffer|f8E4M3|f8E5M2|offset|tensor|vector|index|bf16|pool|tile|view|f16|f32|f64|i16|i32|i64|i1|i8)\\b"
+          "match": "\\b(?:kernel\\.tensor\\.lds\\.descriptor|spirv\\.cooperative_matrix|kernel\\.barrier\\.phase|kernel\\.async\\.group|kernel\\.async\\.token|hal\\.buffer_view|check\\.entropy|low\\.storage|hal\\.buffer|encoding|buffer|f8E4M3|f8E5M2|offset|tensor|vector|index|bf16|pool|tile|view|f16|f32|f64|i16|i32|i64|i1|i8)\\b"
         }
       ]
     },
@@ -341,7 +341,7 @@
       "patterns": [
         {
           "name": "keyword.other.loom",
-          "match": "\\b(?:workgroup_count|workgroup_size|memory_access|cluster_size|abi_layout|allocation|workgroups|iter_args|artifact|capacity|expected|ordering|pipeline|priority|requires|schedule|default|dgroups|linkage|ordinal|across|actual|blocks|bounds|callee|config|device|export|extent|import|inputs|launch|layout|module|offset|period|public|reason|source|symbol|target|unroll|values|align|attrs|count|range|scope|shape|using|value|where|atol|axes|base|case|else|from|host|into|mode|name|path|rtol|seed|step|abi|for|nan|as|do|on|to|x)\\b"
+          "match": "\\b(?:workgroup_count|workgroup_size|memory_access|cluster_size|abi_layout|allocation|workgroups|configure|conflicts|iter_args|artifact|capacity|expected|ordering|pipeline|priority|requires|schedule|default|dgroups|linkage|ordinal|across|actual|blocks|bounds|callee|config|device|export|extent|import|inputs|launch|layout|module|offset|period|public|reason|source|symbol|target|unroll|values|align|attrs|count|range|scope|shape|using|value|where|atol|axes|base|case|else|from|host|into|mode|name|path|rtol|seed|step|abi|for|nan|as|do|on|to|x)\\b"
         },
         {
           "name": "constant.language.boolean.loom",

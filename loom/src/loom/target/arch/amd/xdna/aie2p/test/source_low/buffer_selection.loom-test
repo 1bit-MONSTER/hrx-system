@@ -1,0 +1,112 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/buffer_selection.loom-test
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+// A selected reference retains the ordinary buffer result ABI.
+func.def @choose_buffer(%first: buffer, %second: buffer, %choose_first: i1) -> (buffer) {
+  %selected = scf.select %choose_first, %first, %second : buffer
+  func.return %selected : buffer
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @choose_buffer(%choose_first: reg<aie2p.er>) -> (reg<aie2p.ep>) asm {
+  %first = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %second = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %9 = mov.address-to-scalar %first
+  %10 = mov.address-to-scalar %second
+  %11 = copy %choose_first : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %12 = sel.nez %9, %10, %11
+  %selected = mov.scalar-to-address %12
+  return %selected
+}
+
+// ====
+
+// A selected reference remains a buffer for both reads and writes.
+func.def @exchange_selected_byte(%first: buffer, %second: buffer, %choose_first: i1, %position_input: offset, %replacement: i32) -> (i32) {
+  %position = index.assume %position_input [range(%position_input, 0, 1024)] : offset
+  %selected = scf.select %choose_first, %first, %second : buffer
+  %previous = buffer.load.i8.u %selected[%position]
+  buffer.store.i8 %replacement, %selected[%position]
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_selected_byte(%choose_first: reg<aie2p.er>, %position: reg<aie2p.er>, %replacement: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
+  %first = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %second = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %15 = mov.address-to-scalar %first
+  %16 = mov.address-to-scalar %second
+  %17 = copy %choose_first : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %18 = sel.nez %15, %16, %17
+  %selected = mov.scalar-to-address %18
+  %20 = mov.address-index %position
+  %previous = lda.i8.index %selected, %20
+  st.i8.index %replacement, %selected, %20
+  return %previous
+}
+
+// ====
+
+// Canonicalization may select the components independently, but both selections
+// retain the same condition and therefore the same complete coordinate.
+func.def @selected_buffer_coordinate(%first: buffer, %second: buffer, %first_origin_input: offset, %second_origin_input: offset, %choose_first: i1) -> (i32) {
+  %first_origin = index.assume %first_origin_input [range(%first_origin_input, 0, 1024)] : offset
+  %second_origin = index.assume %second_origin_input [range(%second_origin_input, 0, 1024)] : offset
+  %selected, %origin = scf.if %choose_first -> (buffer, offset) {
+    scf.yield %first, %first_origin : buffer, offset
+  } else {
+    scf.yield %second, %second_origin : buffer, offset
+  }
+  %value = buffer.load.i8.u %selected[%origin]
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @selected_buffer_coordinate(%first_origin: reg<aie2p.er>, %second_origin: reg<aie2p.er>, %choose_first: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
+  %first = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %second = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %19 = mov.address-to-scalar %first
+  %20 = mov.address-to-scalar %second
+  %21 = copy %choose_first : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %22 = sel.nez %19, %20, %21
+  %selected = mov.scalar-to-address %22
+  %24 = copy %choose_first : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %origin = sel.nez %first_origin, %second_origin, %24
+  %26 = mov.address-index %origin
+  %value = lda.i8.index %selected, %26
+  return %value
+}
+
+// ====
+
+// Rotating a reference and its origin carries both values over the same edge.
+func.def @rotate_buffer_coordinates(%first: buffer, %second: buffer, %first_origin_input: offset, %second_origin_input: offset, %count: index) -> (i32) {
+  %first_origin = index.assume %first_origin_input [range(%first_origin_input, 0, 1024)] : offset
+  %second_origin = index.assume %second_origin_input [range(%second_origin_input, 0, 1024)] : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %selected, %origin, %unused_buffer, %unused_origin = scf.for %i = [%begin to %count step %step](%current = %first : buffer, %current_origin = %first_origin : offset, %other = %second : buffer, %other_origin = %second_origin : offset) -> (buffer, offset, buffer, offset) {
+    scf.yield %other, %other_origin, %current, %current_origin : buffer, offset, buffer, offset
+  }
+  %value = buffer.load.i8.u %selected[%origin]
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @rotate_buffer_coordinates(%first_origin: reg<aie2p.er>, %second_origin: reg<aie2p.er>, %count: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
+  %first = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %second = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %begin = mov.short 0
+  %step = mov.short 1
+  low.br ^_bb1(%begin: reg<aie2p.er>, %first: reg<aie2p.ep>, %first_origin: reg<aie2p.er>, %second: reg<aie2p.ep>, %second_origin: reg<aie2p.er>)
+^_bb1(%i: reg<aie2p.er>, %current: reg<aie2p.ep>, %current_origin: reg<aie2p.er>, %other: reg<aie2p.ep>, %other_origin: reg<aie2p.er>):
+  %45 = lt %i, %count
+  low.cond_br %45, ^_bb2, ^_bb3 : reg<aie2p.er>
+^_bb2:
+  %46 = add.rr %i, %step
+  low.br ^_bb1(%46: reg<aie2p.er>, %other: reg<aie2p.ep>, %other_origin: reg<aie2p.er>, %current: reg<aie2p.ep>, %current_origin: reg<aie2p.er>)
+^_bb3:
+  %47 = mov.address-index %current_origin
+  %value = lda.i8.index %current, %47
+  return %value
+}

@@ -262,17 +262,16 @@ low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_c
   %36 = s_cmp_lt_i32 %block_base, %block_end
   low.cond_br %36, ^_bb2, ^_bb3 : reg<amdgpu.scc>
 ^_bb2:
-  %lane_group = v_lshrrev_b32_lit %lane, 4
+  %lane_group = v_lshrrev_b32_src0_inline %lane, 4
   %38 = s_mov_b32 15
   %lane_offset = v_and_b32 %38, %lane
-  %40 = v_mov_b32_copy %block_base
-  %41 = v_add_u32 %lane_group, %40
-  %42 = v_mad_u32_u24_src1_lit %41, %lane_offset, 105
-  %43 = v_lshlrev_b32_src0_inline %42, 2
-  %loaded = global_load_b32_saddr %43, %input_view
-  global_store_b32_saddr %43, %loaded, %output_view
-  %49 = s_add_u32 %block_base, %block_step
-  low.br ^_bb1(%49: reg<amdgpu.sgpr>)
+  %block = v_add_u32 %block_base, %lane_group
+  %linear = v_mad_u32_u24_src1_lit %block, %lane_offset, 105
+  %42 = v_lshlrev_b32_src0_inline %linear, 2
+  %loaded = global_load_b32_saddr %42, %input_view
+  global_store_b32_saddr %42, %loaded, %output_view
+  %45 = s_add_u32 %block_base, %block_step
+  low.br ^_bb1(%45: reg<amdgpu.sgpr>)
 ^_bb3:
   return
 }
@@ -339,6 +338,30 @@ func.def target(@target) @index_cast_compare_divergent(%values: vector<2xi32>, %
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @index_cast_compare_divergent(%values: reg<amdgpu.vgpr x2>, %limit: reg<amdgpu.sgpr>) asm {
   return
 }
+
+// ====
+
+// RUN: with-checks pass target=amdgpu:gfx11-generic source-to-low
+
+func.def @uniform_offset_cast_in_divergent_merge(%values: vector<2xi32>, %byte_offset: offset, %fallback: i32) -> (i32) {
+  %lane = vector.extract %values[0] : vector<2xi32> -> i32
+  %threshold = scalar.constant 0 : i32
+  %condition = scalar.cmpi sgt, %lane, %threshold : i32
+  %bounded = index.assume %byte_offset [range(%byte_offset, 0, 4294967295)] : offset
+  %converted = index.cast %bounded : offset to i32
+  cfg.cond_br %condition, ^then, ^else
+^then:
+  cfg.br ^join(%converted: i32)
+^else:
+  cfg.br ^join(%fallback: i32)
+^join(%selected: i32):
+  func.return %selected : i32
+}
+
+// ----
+CHECK: %converted = v_mov_b32_copy *
+CHECK: low.br *(%converted: reg<amdgpu.vgpr>)
+CHECK: ^join(*: reg<amdgpu.vgpr>):
 
 // ====
 

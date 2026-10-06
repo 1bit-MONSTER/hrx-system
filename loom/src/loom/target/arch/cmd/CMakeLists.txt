@@ -106,7 +106,7 @@ loom_check_test_suite(
     "test/bytecode.loom-test"
     "test/diagnostics.loom-test"
     "test/low.loom-test"
-    "test/preparation.loom-test"
+    "test/planning.loom-test"
     "test/roundtrip.loom-test"
     "test/scheduling.loom-test"
     "test/storage.loom-test"

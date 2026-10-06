@@ -1,0 +1,137 @@
+// RUN: with-checks emit source-low target=amd.xdna.aie2p:core output=low
+
+// Ordered predicates clear NaN lanes; their unordered partners set them. Each
+// pair below also exercises one numeric relation over a full F16 carrier.
+func.def @f16_eq(%lhs: vector<32xf16>, %rhs: vector<32xf16>) -> (vector<32xi1>, vector<32xi1>) {
+  %ordered = vector.cmpf oeq, %lhs, %rhs : vector<32xf16> -> vector<32xi1>
+  %unordered = vector.cmpf ueq, %lhs, %rhs : vector<32xf16> -> vector<32xi1>
+  func.return %ordered, %unordered : vector<32xi1>, vector<32xi1>
+}
+
+// ----
+CHECK: low.func.def * @f16_eq(*) *
+CHECK: * = mov.i32 31744
+CHECK: * = veqz.16*
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: %unordered = predicate.or.high32.rhs_tied *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @f16_gt(%lhs: vector<32xf16>, %rhs: vector<32xf16>) -> (vector<32xi1>, vector<32xi1>) {
+  %ordered = vector.cmpf ogt, %lhs, %rhs : vector<32xf16> -> vector<32xi1>
+  %unordered = vector.cmpf ugt, %lhs, %rhs : vector<32xf16> -> vector<32xi1>
+  func.return %ordered, %unordered : vector<32xi1>, vector<32xi1>
+}
+
+// ----
+CHECK: low.func.def * @f16_gt(*) *
+CHECK: * = vlt.u16x32* *, *
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: %unordered = predicate.or.high32.rhs_tied *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @f16_ge(%lhs: vector<32xf16>, %rhs: vector<32xf16>) -> (vector<32xi1>, vector<32xi1>) {
+  %ordered = vector.cmpf oge, %lhs, %rhs : vector<32xf16> -> vector<32xi1>
+  %unordered = vector.cmpf uge, %lhs, %rhs : vector<32xf16> -> vector<32xi1>
+  func.return %ordered, %unordered : vector<32xi1>, vector<32xi1>
+}
+
+// ----
+CHECK: low.func.def * @f16_ge(*) *
+CHECK: * = vge.u16x32* *, *
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: %unordered = predicate.or.high32.rhs_tied *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @f16_lt(%lhs: vector<32xf16>, %rhs: vector<32xf16>) -> (vector<32xi1>, vector<32xi1>) {
+  %ordered = vector.cmpf olt, %lhs, %rhs : vector<32xf16> -> vector<32xi1>
+  %unordered = vector.cmpf ult, %lhs, %rhs : vector<32xf16> -> vector<32xi1>
+  func.return %ordered, %unordered : vector<32xi1>, vector<32xi1>
+}
+
+// ----
+CHECK: low.func.def * @f16_lt(*) *
+CHECK: * = vlt.u16x32* *, *
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: %unordered = predicate.or.high32.rhs_tied *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @f16_le(%lhs: vector<32xf16>, %rhs: vector<32xf16>) -> (vector<32xi1>, vector<32xi1>) {
+  %ordered = vector.cmpf ole, %lhs, %rhs : vector<32xf16> -> vector<32xi1>
+  %unordered = vector.cmpf ule, %lhs, %rhs : vector<32xf16> -> vector<32xi1>
+  func.return %ordered, %unordered : vector<32xi1>, vector<32xi1>
+}
+
+// ----
+CHECK: low.func.def * @f16_le(*) *
+CHECK: * = vge.u16x32* *, *
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: %unordered = predicate.or.high32.rhs_tied *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @f16_ne(%lhs: vector<32xf16>, %rhs: vector<32xf16>) -> (vector<32xi1>, vector<32xi1>) {
+  %ordered = vector.cmpf one, %lhs, %rhs : vector<32xf16> -> vector<32xi1>
+  %unordered = vector.cmpf une, %lhs, %rhs : vector<32xf16> -> vector<32xi1>
+  func.return %ordered, %unordered : vector<32xi1>, vector<32xi1>
+}
+
+// ----
+CHECK: low.func.def * @f16_ne(*) *
+CHECK: * = predicate.or.high32.rhs_tied *
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: %unordered = predicate.or.high32.rhs_tied *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @f16_order(%lhs: vector<32xf16>, %rhs: vector<32xf16>) -> (vector<32xi1>, vector<32xi1>) {
+  %ordered = vector.cmpf ord, %lhs, %rhs : vector<32xf16> -> vector<32xi1>
+  %unordered = vector.cmpf uno, %lhs, %rhs : vector<32xf16> -> vector<32xi1>
+  func.return %ordered, %unordered : vector<32xi1>, vector<32xi1>
+}
+
+// ----
+CHECK: low.func.def * @f16_order(*) *
+CHECK: * = mov.short 1
+CHECK: * = vbcst.8 *
+CHECK: * = vlt.u8x64 *
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: * = predicate.or.high32.rhs_tied *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// BF16 uses its own infinity encoding and retains a partial rank-two logical
+// shape while using the same packed 16-bit carrier operations.
+func.def @bf16_partial(%lhs: vector<2x7xbf16>, %rhs: vector<2x7xbf16>) -> (vector<2x7xi1>, vector<2x7xi1>) {
+  %ordered = vector.cmpf olt, %lhs, %rhs : vector<2x7xbf16> -> vector<2x7xi1>
+  %unordered = vector.cmpf uge, %lhs, %rhs : vector<2x7xbf16> -> vector<2x7xi1>
+  func.return %ordered, %unordered : vector<2x7xi1>, vector<2x7xi1>
+}
+
+// ----
+CHECK: low.func.def * @bf16_partial(*) *
+CHECK: * = vband %lhs, *
+CHECK: * = vband %rhs, *
+CHECK: * = mov.i32 32640
+CHECK: * = vsel.16* *
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: %unordered = predicate.or.high32.rhs_tied *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*

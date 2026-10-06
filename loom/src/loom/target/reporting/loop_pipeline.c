@@ -52,9 +52,10 @@ iree_status_t loom_target_compile_report_record_loop_pipelines(
         const loom_target_compile_report_loop_pipeline_stage_row_t stage = {
             .function_name = function_name,
             .loop_ordinal = pipeline->loop_ordinal,
-            .position = j,
+            .position = operation->source_position,
             .op_name = operation->op_name,
             .iteration_lookahead = operation->iteration_lookahead,
+            .partition = operation->partition,
         };
         IREE_RETURN_IF_ERROR(loom_target_compile_report_row_list_append(
             &report->loop_pipeline_stage_rows, sizeof(stage), report->allocator,

@@ -104,5 +104,4 @@ LOOM_CHECK_CASE(braced_vector_assignment) {
   loom::check::expect_bitwise(loom::check::slice<4>(storage, 36),
                               loom::check::fill<unsigned, 4>(0xA5A5A5A5u));
   loom::check::expect_bitwise(input, loom::check::fill<unsigned, 1>(7u));
-  loom::check::expect_event("device", "type", "asan_report", "count", 0);
 }

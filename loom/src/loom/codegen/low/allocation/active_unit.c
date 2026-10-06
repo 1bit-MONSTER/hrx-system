@@ -98,17 +98,6 @@ static bool loom_low_allocation_active_unit_mark_assignment_seen(
   return false;
 }
 
-static bool loom_low_allocation_value_id_is_ignored(
-    loom_value_id_t value_id, const loom_value_id_t* ignored_value_ids,
-    uint16_t ignored_value_count) {
-  for (uint16_t i = 0; i < ignored_value_count; ++i) {
-    if (ignored_value_ids[i] == value_id) {
-      return true;
-    }
-  }
-  return false;
-}
-
 static bool loom_low_allocation_active_assignment_conflicts(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_allocation_unit_liveness_t* unit_liveness,
@@ -116,8 +105,9 @@ static bool loom_low_allocation_active_assignment_conflicts(
     const loom_low_allocation_assignment_t* candidate,
     const loom_value_id_t* ignored_value_ids, uint16_t ignored_value_count) {
   IREE_ASSERT_ARGUMENT(unit_liveness);
-  if (loom_low_allocation_value_id_is_ignored(
-          existing->value_id, ignored_value_ids, ignored_value_count)) {
+  if (loom_low_allocation_unit_liveness_storage_is_ignored(
+          unit_liveness, existing->value_id, ignored_value_ids,
+          ignored_value_count)) {
     return false;
   }
   if (existing->location_kind != candidate->location_kind) {

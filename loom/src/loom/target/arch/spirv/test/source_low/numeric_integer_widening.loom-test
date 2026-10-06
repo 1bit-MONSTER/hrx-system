@@ -1,0 +1,98 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_integer_widening.loom
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
+
+func.def @widen_signed_word(%value: i32) -> (i64) {
+  %result = scalar.extsi %value : i32 to i64
+  func.return %result : i64
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @widen_signed_word(%value: reg<spirv.id : i32>) -> (reg<spirv.id : i64>) asm {
+  %result = OpSConvert.i32.i64 %value
+  return %result
+}
+
+// ====
+
+func.def @widen_unsigned_word(%value: i32) -> (i64) {
+  %result = scalar.extui %value : i32 to i64
+  func.return %result : i64
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @widen_unsigned_word(%value: reg<spirv.id : i32>) -> (reg<spirv.id : i64>) asm {
+  %5 = OpBitcast.i32.u32 %value
+  %6 = OpUConvert.u32.u64 %5
+  %result = OpBitcast.u64.i64 %6
+  return %result
+}
+
+// ====
+
+func.def @add_signed_word(%base: i64, %delta: i32) -> (i64) {
+  %wide_delta = scalar.extsi %delta : i32 to i64
+  %result = scalar.addi %base, %wide_delta : i64
+  func.return %result : i64
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @add_signed_word(%base: reg<spirv.id : i64>, %delta: reg<spirv.id : i32>) -> (reg<spirv.id : i64>) asm {
+  %wide_delta = OpSConvert.i32.i64 %delta
+  %result = OpIAdd.i64 %base, %wide_delta
+  return %result
+}
+
+// ====
+
+func.def @assemble_wide_word(%low: i32, %high: i32) -> (i64) {
+  %low_word = scalar.extui %low : i32 to i64
+  %high_word = scalar.extui %high : i32 to i64
+  %word_bits = scalar.constant 32 : i64
+  %high_half = scalar.shli %high_word, %word_bits : i64
+  %result = scalar.ori %low_word, %high_half : i64
+  func.return %result : i64
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @assemble_wide_word(%low: reg<spirv.id : i32>, %high: reg<spirv.id : i32>) -> (reg<spirv.id : i64>) asm {
+  %11 = OpBitcast.i32.u32 %low
+  %12 = OpUConvert.u32.u64 %11
+  %low_word = OpBitcast.u64.i64 %12
+  %14 = OpBitcast.i32.u32 %high
+  %15 = OpUConvert.u32.u64 %14
+  %high_word = OpBitcast.u64.i64 %15
+  %word_bits = OpConstant.i64 32
+  %high_half = OpShiftLeftLogical.i64 %high_word, %word_bits
+  %result = OpBitwiseOr.i64 %low_word, %high_half
+  return %result
+}
+
+// ====
+
+func.def @exchange_signed_position(%buffer: buffer, %position: i32, %replacement: i32) -> (i32) {
+  %bounded_position = scalar.assume %position [range(%position, -4, 4)] : i32
+  %wide_position = scalar.extsi %bounded_position : i32 to i64
+  %element_bytes = scalar.constant 4 : i64
+  %displacement = scalar.muli %wide_position, %element_bytes : i64
+  %center = scalar.constant 16 : i64
+  %wide_origin = scalar.addi %center, %displacement : i64
+  %origin = index.cast %wide_origin : i64 to offset
+  %view = buffer.view %buffer[%origin] : buffer -> view<1xi32>
+  %previous = view.load %view[0] : view<1xi32> -> i32
+  view.store %replacement, %view[0] : i32, view<1xi32>
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @exchange_signed_position(%buffer: reg<spirv.ptr.storage_buffer>, %bounded_position: reg<spirv.id : i32>, %replacement: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  %wide_position = OpSConvert.i32.i64 %bounded_position
+  %21 = OpConstant.i64 2
+  %displacement = OpShiftLeftLogical.i64 %wide_position, %21
+  %center = OpConstant.i64 16
+  %wide_origin = OpIAdd.i64 %displacement, %center
+  %origin = OpBitcast.i64.offset64 %wide_origin
+  %26 = OpPtrAccessChain.storage_buffer.i32.byte_offset %buffer, %origin
+  %previous = OpLoad.storage_buffer.i32 %26
+  OpStore.storage_buffer.i32 %26, %replacement
+  return %previous
+}

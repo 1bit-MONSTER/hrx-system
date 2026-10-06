@@ -164,11 +164,11 @@ low.func.def target<amdgpu.rdna3.core>(@target) @global_load_saddr_source_reuse_
 
 // ----
   global_load_b32 v3, v2, s[0:1] offset:0
-  s_waitcnt vmcnt(0) lgkmcnt(63)
   v_cmp_lt_i32 s[0:1], v0, v1
   s_delay_alu instid0(VALU_DEP_1)
   s_and_saveexec_b64 s[0:1], s[0:1]
   s_add_u32 s0, s2, s3
+  s_waitcnt vmcnt(0) lgkmcnt(63)
   v_add_u32 v0, v3, v2
   s_endpgm
 
@@ -225,15 +225,15 @@ low.func.def target<amdgpu.rdna3.core>(@target) @global_load_saddr_source_reuse_
   s_add_u32 s0, s0, s2
   s_addc_u32 s1, s1, s3
   global_load_b32 v3, v2, s[0:1] offset:0
-  v_cmp_lt_i32 s[2:3], v0, v1
+  v_cmp_lt_i32 s[0:1], v0, v1
   s_delay_alu instid0(VALU_DEP_1)
-  s_and_saveexec_b64 s[2:3], s[2:3]
+  s_and_saveexec_b64 s[0:1], s[0:1]
   s_cbranch_scc0 .Lbb2
 .Lbb1:
-  s_add_u32 s2, s2, s2
+  s_add_u32 s0, s0, s0
+  v_cmp_eq_i32 s[2:3], v0, v1
+  s_add_u32 s0, s1, s1
   s_waitcnt vmcnt(0) lgkmcnt(63)
-  v_cmp_eq_i32 s[0:1], v0, v1
-  s_add_u32 s0, s3, s3
   v_add_u32 v0, v3, v2
 .Lbb2:
   s_endpgm
@@ -477,33 +477,32 @@ low.func.def target<amdgpu.rdna3.core>(@target) @nested_loop_invariant_loads_wai
 
 // ----
   global_load_b32 v1, v0, s[0:1] offset:0
-  s_mov_b32 s8, 0
+  s_mov_b32 s0, 0
   v_mov_b32 v2, 0
   s_waitcnt vmcnt(0) lgkmcnt(63)
-  s_delay_alu instid0(VALU_DEP_1)
-  s_mov_b32 s9, s8
+  s_mov_b32 s1, s0
 .Lbb1:
-  s_cmp_lt_i32 s9, s4
+  s_cmp_lt_i32 s1, s4
   s_delay_alu instid0(SALU_CYCLE_1)
   s_cbranch_scc0 .Lbb6
 .Lbb2:
   global_load_b32 v3, v0, s[2:3] offset:0
   s_waitcnt vmcnt(0) lgkmcnt(63)
-  s_mov_b32 s10, s8
+  s_mov_b32 s8, s0
 .Lbb3:
-  s_cmp_lt_i32 s10, s5
+  s_cmp_lt_i32 s8, s5
   s_delay_alu instid0(SALU_CYCLE_1)
   s_cbranch_scc0 .Lbb5
 .Lbb4:
   v_add_f32 v2, v2, v1
   s_delay_alu instid0(VALU_DEP_1)
   v_add_f32 v2, v2, v3
-  s_mov_b32 s11, 1
-  s_add_u32 s10, s10, s11
+  s_mov_b32 s9, 1
+  s_add_u32 s8, s8, s9
   s_branch .Lbb3
 .Lbb5:
-  s_mov_b32 s10, 1
-  s_add_u32 s9, s9, s10
+  s_mov_b32 s8, 1
+  s_add_u32 s1, s1, s8
   s_branch .Lbb1
 .Lbb6:
   global_store_b32 v0, v2, s[6:7] offset:0
@@ -633,6 +632,56 @@ low.func.def target<amdgpu.rdna3.core>(@target) @cross_block_workgroup_store_bar
 .Lbb1:
   s_waitcnt vmcnt(63) lgkmcnt(0)
   s_barrier
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @workgroup_load_split_barrier strategy=source
+
+amdgpu.target<gfx1200> @target
+
+low.func.def target<amdgpu.gfx12.generic.core>(@target) @workgroup_load_split_barrier(%addr: reg<amdgpu.vgpr>, %value: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %loaded = ds_read_b32 %addr
+  s_barrier_signal_all
+  %independent = v_add3_u32 %value, %value, %value
+  s_barrier_wait_all
+  %result = v_add3_u32 %loaded, %independent, %value
+  return %result
+}
+
+// LDS result delivery must complete before the wave releases its barrier
+// phase. Independent VALU work remains free to overlap between signal and wait.
+// ----
+  ds_read_b32 v0, v0 offset:0
+  s_wait_dscnt dscnt(0)
+  s_barrier_signal -1
+  v_add3_u32 v2, v1, v1, v1
+  s_barrier_wait -1
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add3_u32 v0, v0, v2, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @cross_block_workgroup_load_barrier strategy=source
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @cross_block_workgroup_load_barrier(%addr: reg<amdgpu.vgpr>, %value: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %loaded = ds_read_b32 %addr
+  low.br ^barrier
+^barrier:
+  s_barrier
+  %result = v_add_f32 %loaded, %value
+  return %result
+}
+
+// A workgroup barrier must consume an incoming LDS read frontier even when the
+// barrier block has no local memory producer.
+// ----
+  ds_read_b32 v0, v0 offset:0
+.Lbb1:
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_barrier
+  v_add_f32 v0, v0, v1
   s_endpgm
 
 // ====

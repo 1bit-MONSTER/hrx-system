@@ -9,11 +9,15 @@
 #include "iree/base/internal/arena.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/analysis/condition_edge_projection.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
+#include "loom/ops/cfg/ops.h"
 #include "loom/ops/index/ops.h"
+#include "loom/ops/scalar/ops.h"
 #include "loom/ops/scf/ops.h"
 #include "loom/ops/test/ops.h"
+#include "loom/util/fact_cfg.h"
 #include "loom/util/fact_table.h"
 
 namespace loom {
@@ -29,9 +33,15 @@ class FactTableComputeTest : public ::testing::Test {
     const loom_op_vtable_t* const* vtables = loom_index_dialect_vtables(&count);
     IREE_ASSERT_OK(loom_context_register_dialect(
         &context_, LOOM_DIALECT_INDEX, vtables, static_cast<uint16_t>(count)));
+    vtables = loom_cfg_dialect_vtables(&count);
+    IREE_ASSERT_OK(loom_context_register_dialect(
+        &context_, LOOM_DIALECT_CFG, vtables, static_cast<uint16_t>(count)));
     vtables = loom_scf_dialect_vtables(&count);
     IREE_ASSERT_OK(loom_context_register_dialect(
         &context_, LOOM_DIALECT_SCF, vtables, static_cast<uint16_t>(count)));
+    vtables = loom_scalar_dialect_vtables(&count);
+    IREE_ASSERT_OK(loom_context_register_dialect(
+        &context_, LOOM_DIALECT_SCALAR, vtables, static_cast<uint16_t>(count)));
     vtables = loom_test_dialect_vtables(&count);
     IREE_ASSERT_OK(loom_context_register_dialect(
         &context_, LOOM_DIALECT_TEST, vtables, static_cast<uint16_t>(count)));
@@ -98,6 +108,15 @@ class FactTableComputeTest : public ::testing::Test {
                                                            &cursor);
   }
 
+  static std::vector<loom_op_t*> PendingExactRelations(
+      const loom_value_fact_table_t& table) {
+    loom_op_t* const* ops = nullptr;
+    iree_host_size_t op_count = 0;
+    loom_value_fact_table_pending_exact_relations(&table, &ops, &op_count);
+    return op_count ? std::vector<loom_op_t*>(ops, ops + op_count)
+                    : std::vector<loom_op_t*>();
+  }
+
   iree_arena_block_pool_t pool_;
   iree_arena_allocator_t arena_;
   loom_context_t context_;
@@ -132,6 +151,7 @@ TEST_F(FactTableComputeTest, IdentityOnlyMutationReportsChangedFacts) {
   IREE_ASSERT_OK(loom_value_fact_table_compute_op_and_report(&table_, module_,
                                                              first, &changed));
   EXPECT_FALSE(changed);
+  EXPECT_EQ(table_.exact_relations.ops, nullptr);
 
   IREE_ASSERT_OK(loom_op_set_operand(module_, first, 0, inputs_[1]));
   IREE_ASSERT_OK(loom_value_fact_table_compute_op_and_report(&table_, module_,
@@ -144,6 +164,190 @@ TEST_F(FactTableComputeTest, IdentityOnlyMutationReportsChangedFacts) {
             inputs_[1]);
   EXPECT_TRUE(loom_value_facts_is_unknown(
       loom_value_fact_table_lookup(&table_, second_result)));
+}
+
+TEST_F(FactTableComputeTest, BooleanBranchTruthIsRetainedByRegion) {
+  loom_op_t* branch = nullptr;
+  IREE_ASSERT_OK(loom_test_branch_build(
+      &builder_, inputs_[0], /*result_types=*/nullptr, /*result_count=*/0,
+      /*tied_results=*/nullptr, /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN,
+      &branch));
+  loom_region_branch_t branch_interface =
+      loom_region_branch_cast(module_, branch);
+  for (uint8_t i = 0; i < branch->region_count; ++i) {
+    loom_region_t* region =
+        loom_region_branch_region(module_, branch_interface, i);
+    loom_builder_ip_t saved =
+        loom_builder_enter_region(&builder_, branch, region);
+    loom_op_t* yield = nullptr;
+    IREE_ASSERT_OK(loom_test_yield_build(&builder_, /*values=*/nullptr,
+                                         /*values_count=*/0,
+                                         LOOM_LOCATION_UNKNOWN, &yield));
+    loom_builder_restore(&builder_, saved);
+  }
+
+  EXPECT_FALSE(table_.has_boolean_branch_regions);
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, branch));
+  EXPECT_TRUE(table_.has_boolean_branch_regions);
+  EXPECT_EQ(loom_value_fact_table_lookup_region_branch_truth(
+                &table_, loom_test_branch_then_region(branch)),
+            LOOM_REGION_BRANCH_TRUTH_TRUE);
+  EXPECT_EQ(loom_value_fact_table_lookup_region_branch_truth(
+                &table_, loom_test_branch_else_region(branch)),
+            LOOM_REGION_BRANCH_TRUTH_FALSE);
+
+  loom_value_fact_table_clear_scope(&table_);
+  EXPECT_FALSE(table_.has_boolean_branch_regions);
+  EXPECT_EQ(loom_value_fact_table_lookup_region_branch_truth(
+                &table_, loom_test_branch_then_region(branch)),
+            LOOM_REGION_BRANCH_TRUTH_UNKNOWN);
+}
+
+TEST_F(FactTableComputeTest, SelectorBranchRegionsRemainTruthUnknown) {
+  int64_t case_keys[] = {0, 1};
+  loom_op_t* table_op = nullptr;
+  IREE_ASSERT_OK(loom_test_region_table_build(
+      &builder_, inputs_[0], case_keys, IREE_ARRAYSIZE(case_keys),
+      LOOM_LOCATION_UNKNOWN, &table_op));
+  loom_region_branch_t branch = loom_region_branch_cast(module_, table_op);
+  for (uint8_t i = 0; i < table_op->region_count; ++i) {
+    loom_region_t* region = loom_region_branch_region(module_, branch, i);
+    loom_builder_ip_t saved =
+        loom_builder_enter_region(&builder_, table_op, region);
+    loom_op_t* yield = nullptr;
+    IREE_ASSERT_OK(loom_test_yield_build(&builder_, /*values=*/nullptr,
+                                         /*values_count=*/0,
+                                         LOOM_LOCATION_UNKNOWN, &yield));
+    loom_builder_restore(&builder_, saved);
+  }
+
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, table_op));
+  EXPECT_FALSE(table_.has_boolean_branch_regions);
+  for (uint8_t i = 0; i < table_op->region_count; ++i) {
+    EXPECT_EQ(loom_value_fact_table_lookup_region_branch_truth(
+                  &table_, loom_region_branch_region(module_, branch, i)),
+              LOOM_REGION_BRANCH_TRUTH_UNKNOWN);
+  }
+}
+
+TEST_F(FactTableComputeTest, ExactDynamicRelationsAreRetainedLazily) {
+  EXPECT_EQ(table_.exact_relations.ops, nullptr);
+  IREE_ASSERT_OK(loom_value_fact_table_define(&table_, inputs_[0],
+                                              loom_value_facts_exact_i64(5)));
+  loom_predicate_t predicate = {
+      /*.kind=*/LOOM_PREDICATE_LT,
+      /*.arg_count=*/2,
+      /*.arg_tags=*/{LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_VALUE},
+      /*.reserved=*/{},
+      /*.args=*/{inputs_[0], inputs_[1]},
+  };
+  loom_op_t* assume = nullptr;
+  IREE_ASSERT_OK(loom_index_assume_build(&builder_, &inputs_[0], 1, &predicate,
+                                         1, &type_, 1, LOOM_LOCATION_UNKNOWN,
+                                         &assume));
+  bool changed = false;
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op_and_report(&table_, module_,
+                                                             assume, &changed));
+  EXPECT_TRUE(changed);
+  EXPECT_EQ(PendingExactRelations(table_), std::vector<loom_op_t*>({assume}));
+
+  // A stable incremental refresh performs no candidate work and does not
+  // duplicate the pending observation.
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op_and_report(&table_, module_,
+                                                             assume, &changed));
+  EXPECT_FALSE(changed);
+  EXPECT_EQ(PendingExactRelations(table_), std::vector<loom_op_t*>({assume}));
+
+  loom_value_fact_table_clear_pending_exact_relations(&table_);
+  EXPECT_TRUE(PendingExactRelations(table_).empty());
+  predicate.arg_tags[1] = LOOM_PRED_ARG_CONST;
+  predicate.args[1] = 10;
+  IREE_ASSERT_OK(loom_index_assume_set_predicates(
+      module_, assume, loom_attr_predicate_list(&predicate, 1)));
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op_and_report(&table_, module_,
+                                                             assume, &changed));
+  EXPECT_TRUE(PendingExactRelations(table_).empty());
+
+  predicate.kind = LOOM_PREDICATE_POW2;
+  predicate.arg_count = 1;
+  predicate.arg_tags[0] = LOOM_PRED_ARG_VALUE;
+  predicate.args[0] = inputs_[1];
+  loom_op_t* unary_assume = nullptr;
+  IREE_ASSERT_OK(loom_index_assume_build(&builder_, &inputs_[0], 1, &predicate,
+                                         1, &type_, 1, LOOM_LOCATION_UNKNOWN,
+                                         &unary_assume));
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op_and_report(
+      &table_, module_, unary_assume, &changed));
+  EXPECT_EQ(PendingExactRelations(table_),
+            std::vector<loom_op_t*>({unary_assume}));
+
+  loom_value_fact_table_clear_scope(&table_);
+  EXPECT_EQ(table_.exact_relations.ops, nullptr);
+}
+
+TEST_F(FactTableComputeTest,
+       ExactDynamicRelationsAreRetainedWithoutChangeReporting) {
+  IREE_ASSERT_OK(loom_value_fact_table_define(&table_, inputs_[0],
+                                              loom_value_facts_exact_i64(5)));
+  loom_predicate_t predicate = {
+      /*.kind=*/LOOM_PREDICATE_LT,
+      /*.arg_count=*/2,
+      /*.arg_tags=*/{LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_VALUE},
+      /*.reserved=*/{},
+      /*.args=*/{inputs_[0], inputs_[1]},
+  };
+  loom_op_t* assume = nullptr;
+  IREE_ASSERT_OK(loom_index_assume_build(&builder_, &inputs_[0], 1, &predicate,
+                                         1, &type_, 1, LOOM_LOCATION_UNKNOWN,
+                                         &assume));
+
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, assume));
+
+  EXPECT_EQ(PendingExactRelations(table_), std::vector<loom_op_t*>({assume}));
+}
+
+TEST_F(FactTableComputeTest, ExactRelationRetentionGrowsWithCandidates) {
+  constexpr iree_host_size_t kAssumeCount = 64;
+  IREE_ASSERT_OK(loom_value_fact_table_define(&table_, inputs_[0],
+                                              loom_value_facts_exact_i64(5)));
+  loom_predicate_t predicate = {
+      /*.kind=*/LOOM_PREDICATE_LT,
+      /*.arg_count=*/2,
+      /*.arg_tags=*/{LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_VALUE},
+      /*.reserved=*/{},
+      /*.args=*/{inputs_[0], inputs_[1]},
+  };
+  std::vector<loom_op_t*> assumes;
+  assumes.reserve(kAssumeCount);
+  for (iree_host_size_t i = 0; i < kAssumeCount; ++i) {
+    loom_op_t* assume = nullptr;
+    IREE_ASSERT_OK(loom_index_assume_build(&builder_, &inputs_[0], 1,
+                                           &predicate, 1, &type_, 1,
+                                           LOOM_LOCATION_UNKNOWN, &assume));
+    bool changed = false;
+    IREE_ASSERT_OK(loom_value_fact_table_compute_op_and_report(
+        &table_, module_, assume, &changed));
+    EXPECT_TRUE(changed);
+    assumes.push_back(assume);
+  }
+  EXPECT_EQ(PendingExactRelations(table_), assumes);
+}
+
+TEST_F(FactTableComputeTest, UnknownFloatResultsRetainTheirTypeDomain) {
+  const loom_type_t f32_type = loom_type_scalar(LOOM_SCALAR_TYPE_F32);
+  const loom_value_id_t input = DefineValue(f32_type);
+  loom_op_t* negation = nullptr;
+  IREE_ASSERT_OK(loom_test_neg_build(&builder_, input, f32_type,
+                                     LOOM_LOCATION_UNKNOWN, &negation));
+
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, negation));
+
+  const loom_value_facts_t facts =
+      loom_value_fact_table_lookup(&table_, loom_test_neg_result(negation));
+  EXPECT_TRUE(loom_value_facts_is_float(facts));
+  EXPECT_FALSE(loom_value_facts_is_exact(facts));
+  EXPECT_EQ(facts.range_lo, INT64_MIN);
+  EXPECT_EQ(facts.range_hi, INT64_MAX);
 }
 
 TEST_F(FactTableComputeTest,
@@ -410,6 +614,443 @@ TEST_F(FactTableComputeTest, DependentResultsPublishOnlyFinalChanges) {
         loom_value_fact_table_lookup(&table_, results[extent_index])));
   }
 }
+
+TEST_F(FactTableComputeTest, ConditionLoopRetainsAndReplacesBodyEntryFacts) {
+  loom_op_t* bound_op = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(&builder_, inputs_[1], inputs_[1], type_,
+                                      LOOM_LOCATION_UNKNOWN, &bound_op));
+  const loom_value_id_t bound = loom_index_add_result(bound_op);
+  // Keep the dynamic upper bound in the signed carrier range so the true edge
+  // of the unsigned comparison also proves that its lower operand is
+  // nonnegative.
+  IREE_ASSERT_OK(loom_value_fact_table_define(
+      &table_, bound, loom_value_facts_make(0, 100, 1)));
+
+  loom_op_t* loop = nullptr;
+  const loom_type_t result_types[] = {
+      type_,
+      type_,
+      loom_type_scalar(LOOM_SCALAR_TYPE_I1),
+  };
+  IREE_ASSERT_OK(loom_scf_while_build(
+      &builder_, &inputs_[0], 1, /*iter_args_types=*/nullptr, result_types,
+      IREE_ARRAYSIZE(result_types), /*tied_results=*/nullptr,
+      /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN, &loop));
+  loom_region_t* before = loom_scf_while_before(loop);
+  loom_region_t* body = loom_scf_while_after(loop);
+  const loom_value_id_t before_argument = loom_region_entry_arg_id(before, 0);
+  const loom_value_id_t body_arguments[] = {
+      loom_region_entry_arg_id(body, 0),
+      loom_region_entry_arg_id(body, 1),
+  };
+  const loom_value_id_t body_condition = loom_region_entry_arg_id(body, 2);
+
+  const loom_value_id_t opaque_condition =
+      DefineValue(loom_type_scalar(LOOM_SCALAR_TYPE_I1));
+  loom_builder_ip_t saved = loom_builder_enter_region(&builder_, loop, before);
+  loom_op_t* compare = nullptr;
+  IREE_ASSERT_OK(loom_index_cmp_build(&builder_, LOOM_INDEX_CMP_PREDICATE_ULT,
+                                      before_argument, bound,
+                                      LOOM_LOCATION_UNKNOWN, &compare));
+  loom_op_t* disjunction = nullptr;
+  IREE_ASSERT_OK(loom_scalar_ori_build(
+      &builder_, loom_index_cmp_result(compare), opaque_condition,
+      loom_type_scalar(LOOM_SCALAR_TYPE_I1), LOOM_LOCATION_UNKNOWN,
+      &disjunction));
+  const loom_value_id_t forwarded[] = {
+      before_argument,
+      before_argument,
+      loom_index_cmp_result(compare),
+  };
+  loom_op_t* condition = nullptr;
+  IREE_ASSERT_OK(loom_scf_condition_build(
+      &builder_, loom_index_cmp_result(compare), forwarded,
+      IREE_ARRAYSIZE(forwarded), LOOM_LOCATION_UNKNOWN, &condition));
+  loom_builder_restore(&builder_, saved);
+
+  saved = loom_builder_enter_region(&builder_, loop, body);
+  loom_op_t* yield = nullptr;
+  IREE_ASSERT_OK(loom_scf_yield_build(&builder_, body_arguments, 1,
+                                      LOOM_LOCATION_UNKNOWN, &yield));
+  loom_builder_restore(&builder_, saved);
+
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, loop));
+  const loom_condition_edge_projection_t* projection =
+      loom_value_fact_table_lookup_region_condition_projection(&table_, body);
+  ASSERT_NE(projection, nullptr);
+  EXPECT_EQ(table_.condition_integer_projection_count, 1u);
+
+  auto expect_relation = [&](loom_symbolic_integer_relation_t relation,
+                             loom_value_id_t left,
+                             loom_condition_integer_operand_t right,
+                             bool expected_proven, bool expected_result) {
+    const loom_condition_integer_relation_t queried = {
+        /*.relation=*/relation,
+        /*.left=*/
+        {
+            /*.kind=*/LOOM_CONDITION_INTEGER_OPERAND_VALUE,
+            /*.value_id=*/left,
+            /*.constant=*/0,
+        },
+        /*.right=*/right,
+    };
+    bool result = false;
+    EXPECT_EQ(loom_condition_edge_projection_proves_integer_relation(
+                  projection, &table_, &queried, &result),
+              expected_proven);
+    if (expected_proven) {
+      EXPECT_EQ(result, expected_result);
+    }
+  };
+  const loom_condition_integer_operand_t upper_bound = {
+      /*.kind=*/LOOM_CONDITION_INTEGER_OPERAND_VALUE,
+      /*.value_id=*/bound,
+      /*.constant=*/0,
+  };
+  const loom_condition_integer_operand_t zero = {
+      /*.kind=*/LOOM_CONDITION_INTEGER_OPERAND_CONSTANT,
+      /*.value_id=*/LOOM_VALUE_ID_INVALID,
+      /*.constant=*/0,
+  };
+  for (loom_value_id_t body_argument : body_arguments) {
+    expect_relation(LOOM_SYMBOLIC_INTEGER_RELATION_LT, body_argument,
+                    upper_bound, /*expected_proven=*/true,
+                    /*expected_result=*/true);
+    expect_relation(LOOM_SYMBOLIC_INTEGER_RELATION_GE, body_argument, zero,
+                    /*expected_proven=*/true, /*expected_result=*/true);
+  }
+  bool projected_condition = false;
+  EXPECT_TRUE(loom_condition_edge_projection_query_boolean(
+      projection, body_condition, &projected_condition));
+  EXPECT_TRUE(projected_condition);
+
+  // Replacing one duplicate payload must replace its projected relation. The
+  // retained object is updated in place so consumers never observe stale facts
+  // and repeated rewrites reuse its high-water storage.
+  const loom_value_id_t* target_sources = projection->target_sources;
+  const loom_condition_edge_mapping_t* mappings = projection->mappings;
+  const loom_condition_integer_relation_t* relations =
+      projection->source_derivation.integer_facts.integer_relations;
+  const loom_condition_boolean_fact_t* boolean_facts =
+      projection->source_derivation.boolean_facts;
+  IREE_ASSERT_OK(loom_op_set_operand(module_, condition, 2, bound));
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, loop));
+  EXPECT_EQ(
+      loom_value_fact_table_lookup_region_condition_projection(&table_, body),
+      projection);
+  EXPECT_EQ(projection->target_sources, target_sources);
+  EXPECT_EQ(projection->mappings, mappings);
+  EXPECT_EQ(projection->source_derivation.integer_facts.integer_relations,
+            relations);
+  EXPECT_EQ(projection->source_derivation.boolean_facts, boolean_facts);
+  EXPECT_EQ(table_.condition_integer_projection_count, 1u);
+  expect_relation(LOOM_SYMBOLIC_INTEGER_RELATION_LT, body_arguments[0],
+                  upper_bound, /*expected_proven=*/true,
+                  /*expected_result=*/true);
+  expect_relation(LOOM_SYMBOLIC_INTEGER_RELATION_LT, body_arguments[1],
+                  upper_bound, /*expected_proven=*/false,
+                  /*expected_result=*/false);
+
+  // A true disjunction does not prove the comparison, so replacing the exact
+  // guard withdraws the table summary without scanning retained region
+  // entries. Restoring it republishes the same projection object and slot.
+  IREE_ASSERT_OK(loom_op_set_operand(module_, condition, 0,
+                                     loom_scalar_ori_result(disjunction)));
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, loop));
+  EXPECT_TRUE(loom_condition_edge_projection_is_empty(projection));
+  EXPECT_EQ(table_.condition_integer_projection_count, 0u);
+  IREE_ASSERT_OK(loom_op_set_operand(module_, condition, 0,
+                                     loom_index_cmp_result(compare)));
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, loop));
+  EXPECT_FALSE(loom_condition_edge_projection_is_empty(projection));
+  EXPECT_EQ(table_.condition_integer_projection_count, 1u);
+
+  loom_value_fact_table_clear_scope(&table_);
+  EXPECT_EQ(
+      loom_value_fact_table_lookup_region_condition_projection(&table_, body),
+      nullptr);
+  EXPECT_EQ(table_.condition_integer_projection_count, 0u);
+  EXPECT_EQ(table_.scratch.condition, nullptr);
+}
+
+TEST_F(FactTableComputeTest, ConditionLoopFactorsDuplicatePayloadRelations) {
+  const loom_type_t result_types[] = {type_, type_, type_, type_};
+  loom_op_t* loop = nullptr;
+  IREE_ASSERT_OK(loom_scf_while_build(
+      &builder_, inputs_, IREE_ARRAYSIZE(inputs_),
+      /*iter_args_types=*/nullptr, result_types, IREE_ARRAYSIZE(result_types),
+      /*tied_results=*/nullptr, /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN,
+      &loop));
+  loom_region_t* before = loom_scf_while_before(loop);
+  loom_region_t* body = loom_scf_while_after(loop);
+  const loom_value_id_t before_arguments[] = {
+      loom_region_entry_arg_id(before, 0),
+      loom_region_entry_arg_id(before, 1),
+  };
+  const loom_value_id_t body_arguments[] = {
+      loom_region_entry_arg_id(body, 0),
+      loom_region_entry_arg_id(body, 1),
+      loom_region_entry_arg_id(body, 2),
+      loom_region_entry_arg_id(body, 3),
+  };
+
+  loom_builder_ip_t saved = loom_builder_enter_region(&builder_, loop, before);
+  loom_op_t* compare = nullptr;
+  IREE_ASSERT_OK(loom_index_cmp_build(&builder_, LOOM_INDEX_CMP_PREDICATE_SLT,
+                                      before_arguments[0], before_arguments[1],
+                                      LOOM_LOCATION_UNKNOWN, &compare));
+  const loom_value_id_t forwarded[] = {
+      before_arguments[0],
+      before_arguments[0],
+      before_arguments[1],
+      before_arguments[1],
+  };
+  loom_op_t* condition = nullptr;
+  IREE_ASSERT_OK(loom_scf_condition_build(
+      &builder_, loom_index_cmp_result(compare), forwarded,
+      IREE_ARRAYSIZE(forwarded), LOOM_LOCATION_UNKNOWN, &condition));
+  loom_builder_restore(&builder_, saved);
+
+  saved = loom_builder_enter_region(&builder_, loop, body);
+  const loom_value_id_t yielded[] = {body_arguments[0], body_arguments[2]};
+  loom_op_t* yield = nullptr;
+  IREE_ASSERT_OK(loom_scf_yield_build(&builder_, yielded,
+                                      IREE_ARRAYSIZE(yielded),
+                                      LOOM_LOCATION_UNKNOWN, &yield));
+  loom_builder_restore(&builder_, saved);
+
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, loop));
+  const loom_condition_edge_projection_t* projection =
+      loom_value_fact_table_lookup_region_condition_projection(&table_, body);
+  ASSERT_NE(projection, nullptr);
+  EXPECT_EQ(projection->mapping_count, IREE_ARRAYSIZE(forwarded));
+  // The source relation remains singular instead of expanding into every
+  // pair of duplicate body arguments.
+  EXPECT_EQ(projection->source_derivation.integer_facts.integer_relation_count,
+            1u);
+  for (iree_host_size_t left = 0; left < 2; ++left) {
+    for (iree_host_size_t right = 2; right < 4; ++right) {
+      const loom_condition_integer_relation_t query = {
+          /*.relation=*/LOOM_SYMBOLIC_INTEGER_RELATION_LT,
+          /*.left=*/
+          {
+              /*.kind=*/LOOM_CONDITION_INTEGER_OPERAND_VALUE,
+              /*.value_id=*/body_arguments[left],
+          },
+          /*.right=*/
+          {
+              /*.kind=*/LOOM_CONDITION_INTEGER_OPERAND_VALUE,
+              /*.value_id=*/body_arguments[right],
+          },
+      };
+      bool result = false;
+      EXPECT_TRUE(loom_condition_edge_projection_proves_integer_relation(
+          projection, &table_, &query, &result));
+      EXPECT_TRUE(result);
+    }
+  }
+}
+
+class FactTableCfgRecomputeTest
+    : public FactTableComputeTest,
+      public ::testing::WithParamInterface<iree_host_size_t> {
+ protected:
+  static iree_status_t Allocate(void* self, iree_allocator_command_t command,
+                                const void* parameters, void** pointer) {
+    auto* test = static_cast<FactTableCfgRecomputeTest*>(self);
+    if (command != IREE_ALLOCATOR_COMMAND_FREE &&
+        test->allocation_count_++ == test->failure_index_) {
+      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                              "injected snapshot allocation failure");
+    }
+    const auto allocator = iree_allocator_system();
+    return allocator.ctl(allocator.self, command, parameters, pointer);
+  }
+
+  void SetUp() override {
+    FactTableComputeTest::SetUp();
+    iree_arena_block_pool_initialize(GetParam(), {this, Allocate},
+                                     &scratch_pool_);
+    iree_arena_initialize(&scratch_pool_, &scratch_arena_);
+  }
+
+  void TearDown() override {
+    iree_arena_deinitialize(&scratch_arena_);
+    iree_arena_block_pool_deinitialize(&scratch_pool_);
+    FactTableComputeTest::TearDown();
+  }
+
+  // A captured initializer feeds a straight-line chain in a CFG cycle. Its
+  // length crosses storage boundaries without changing the dataflow shape.
+  void BuildCycle(iree_host_size_t count) {
+    loom_string_id_t name_id = LOOM_STRING_ID_INVALID;
+    IREE_ASSERT_OK(
+        loom_builder_intern_string(&builder_, IREE_SV("cycle"), &name_id));
+    uint16_t symbol_id = LOOM_SYMBOL_ID_INVALID;
+    IREE_ASSERT_OK(loom_module_add_symbol(module_, name_id, &symbol_id));
+    const loom_symbol_ref_t callee = {0, symbol_id};
+    loom_op_t* function_op = nullptr;
+    IREE_ASSERT_OK(loom_test_func_build(&builder_, 0, 0, 0, callee, nullptr, 0,
+                                        nullptr, 0, nullptr, 0, nullptr, 0,
+                                        LOOM_LOCATION_UNKNOWN, &function_op));
+    loom_func_like_t function = loom_func_like_cast(module_, function_op);
+    loom_region_t* body = loom_func_like_body(function);
+    body->flags |= LOOM_REGION_INSTANCE_FLAG_CFG;
+    loom_builder_set_block(&builder_, loom_region_entry_block(body));
+    builder_.ip.parent_op = function_op;
+    IREE_ASSERT_OK(loom_index_constant_build(&builder_, loom_attr_i64(5), type_,
+                                             LOOM_LOCATION_UNKNOWN, &initial_));
+    loom_block_t* loop = nullptr;
+    IREE_ASSERT_OK(loom_region_append_block(module_, body, &loop));
+    loom_op_t* branch = nullptr;
+    IREE_ASSERT_OK(loom_cfg_br_build(&builder_, loop, nullptr, 0,
+                                     LOOM_LOCATION_UNKNOWN, &branch));
+    loom_builder_set_block(&builder_, loop);
+    IREE_ASSERT_OK(loom_index_constant_build(&builder_, loom_attr_i64(1), type_,
+                                             LOOM_LOCATION_UNKNOWN, &step_));
+    loom_value_id_t previous = loom_index_constant_result(initial_);
+    for (iree_host_size_t i = 0; i < count; ++i) {
+      loom_op_t* add = nullptr;
+      IREE_ASSERT_OK(loom_index_add_build(&builder_, previous,
+                                          loom_index_constant_result(step_),
+                                          type_, LOOM_LOCATION_UNKNOWN, &add));
+      previous = loom_index_add_result(add);
+      results_.push_back(previous);
+    }
+    IREE_ASSERT_OK(loom_cfg_br_build(&builder_, loop, nullptr, 0,
+                                     LOOM_LOCATION_UNKNOWN, &branch));
+    IREE_ASSERT_OK(loom_value_fact_table_compute(&table_, module_, function));
+    structure_ = loom_value_fact_table_lookup_cfg_region(&table_, body);
+    ASSERT_NE(structure_, nullptr);
+    component_ =
+        &structure_->control_flow.components
+             .values[structure_->graph.blocks[loop->region_index].component];
+    ASSERT_TRUE(component_->is_cycle);
+  }
+
+  void ChangeInitializer() {
+    IREE_ASSERT_OK(loom_op_set_attr(module_, initial_, 0, loom_attr_i64(9)));
+    IREE_ASSERT_OK(
+        loom_value_fact_table_compute_op(&table_, module_, initial_));
+  }
+
+  iree_status_t Recompute() {
+    return loom_value_fact_table_recompute_cfg_component(
+        &table_, module_, structure_, component_, &scratch_arena_,
+        [](void* self, loom_value_id_t value) {
+          static_cast<FactTableCfgRecomputeTest*>(self)->changed_.push_back(
+              value);
+          return iree_ok_status();
+        },
+        this);
+  }
+
+  void ExpectExact(loom_value_id_t value, int64_t expected) {
+    ASSERT_TRUE(loom_value_fact_table_has_entry(&table_, value));
+    const auto facts = loom_value_fact_table_lookup(&table_, value);
+    EXPECT_EQ(facts.range_lo, expected);
+    EXPECT_EQ(facts.range_hi, expected);
+  }
+
+  void CheckRecompute(iree_host_size_t result_count) {
+    ASSERT_NO_FATAL_FAILURE(BuildCycle(result_count));
+    for (iree_host_size_t i = 0; i < results_.size(); ++i) {
+      ExpectExact(results_[i], 6 + i);
+    }
+    ASSERT_NO_FATAL_FAILURE(ChangeInitializer());
+    IREE_ASSERT_OK(Recompute());
+    EXPECT_EQ(changed_, results_);
+    EXPECT_EQ(scratch_arena_.allocation_head, nullptr);
+    ASSERT_GT(allocation_count_, 0u);
+    const iree_host_size_t allocation_count = allocation_count_;
+    const iree_host_size_t used_bytes = scratch_arena_.used_allocation_size;
+    iree_arena_deinitialize(&scratch_arena_);
+    iree_arena_initialize(&scratch_pool_, &scratch_arena_);
+    changed_.clear();
+    IREE_ASSERT_OK(Recompute());
+    EXPECT_TRUE(changed_.empty());
+    EXPECT_EQ(scratch_arena_.allocation_head, nullptr);
+    EXPECT_EQ(allocation_count_, allocation_count);
+    EXPECT_EQ(scratch_arena_.used_allocation_size, used_bytes);
+    ExpectExact(loom_index_constant_result(initial_), 9);
+    ExpectExact(loom_index_constant_result(step_), 1);
+    for (iree_host_size_t i = 0; i < results_.size(); ++i) {
+      ExpectExact(results_[i], 10 + i);
+    }
+  }
+
+  void CheckAllocationFailure(iree_host_size_t failure_index) {
+    // Both pool sizes require several allocations for this component.
+    ASSERT_NO_FATAL_FAILURE(BuildCycle(4096));
+    ASSERT_NO_FATAL_FAILURE(ChangeInitializer());
+    failure_index_ = failure_index;
+    IREE_ASSERT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED, Recompute());
+    EXPECT_EQ(allocation_count_, failure_index + 1);
+    EXPECT_TRUE(changed_.empty());
+    EXPECT_EQ(scratch_arena_.allocation_head, nullptr);
+    ExpectExact(loom_index_constant_result(initial_), 9);
+    bool reached_unsaved = false;
+    iree_host_size_t undefined_count = 0;
+    for (iree_host_size_t i = 0; i < results_.size(); ++i) {
+      if (loom_value_fact_table_has_entry(&table_, results_[i])) {
+        reached_unsaved = true;
+        ExpectExact(results_[i], 6 + i);
+      } else {
+        EXPECT_FALSE(reached_unsaved);
+        ++undefined_count;
+      }
+    }
+    EXPECT_LT(undefined_count, results_.size());
+    if (failure_index == 0) {
+      EXPECT_EQ(undefined_count, 0u);
+      ExpectExact(loom_index_constant_result(step_), 1);
+    } else {
+      EXPECT_GT(undefined_count, 0u);
+    }
+  }
+
+  // Pool backing only the component's temporary snapshot stream.
+  iree_arena_block_pool_t scratch_pool_ = {};
+  // Reinitialized between updates, matching the rewriter's scratch lifetime.
+  iree_arena_allocator_t scratch_arena_ = {};
+  // Number of attempted scratch backing allocations.
+  iree_host_size_t allocation_count_ = 0;
+  // Backing allocation to fail, or SIZE_MAX for unrestricted allocation.
+  iree_host_size_t failure_index_ = SIZE_MAX;
+  // Definition outside the component, edited to invalidate its dependents.
+  loom_op_t* initial_ = nullptr;
+  // Unchanged definition within the component.
+  loom_op_t* step_ = nullptr;
+  // Component results in definition order.
+  std::vector<loom_value_id_t> results_;
+  // Actual changes reported by the recomputation API.
+  std::vector<loom_value_id_t> changed_;
+  // Retained region analysis produced by the initial whole-function solve.
+  const loom_value_fact_cfg_region_t* structure_ = nullptr;
+  // The loop's component in the retained region analysis.
+  const loom_scc_t* component_ = nullptr;
+};
+
+TEST_P(FactTableCfgRecomputeTest,
+       ChangedResultsStreamThroughReusablePoolBlocks) {
+  CheckRecompute(2050);
+}
+
+TEST_P(FactTableCfgRecomputeTest, ExactFullSnapshotTailReportsEveryChange) {
+  // The unchanged step and these results fill sixteen 128-row chunks.
+  CheckRecompute(2047);
+}
+
+TEST_P(FactTableCfgRecomputeTest, FirstSnapshotFailurePreservesAllFacts) {
+  CheckAllocationFailure(0);
+}
+
+TEST_P(FactTableCfgRecomputeTest, LaterSnapshotFailurePreservesUnsavedFacts) {
+  CheckAllocationFailure(1);
+}
+
+INSTANTIATE_TEST_SUITE_P(PoolSizes, FactTableCfgRecomputeTest,
+                         ::testing::Values(32 * 1024, 128 * 1024));
 
 }  // namespace
 }  // namespace loom

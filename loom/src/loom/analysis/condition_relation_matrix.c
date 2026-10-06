@@ -14,8 +14,9 @@ static_assert(sizeof(loom_condition_relation_matrix_row_t) == 16,
               "sparse condition-relation rows must remain 16 bytes");
 static_assert(sizeof(loom_condition_relation_matrix_range_t) == 20,
               "condition-relation ranges must remain 20 bytes");
-static_assert(sizeof(loom_condition_relation_matrix_view_t) == 16,
-              "condition-relation views must remain 16 bytes");
+static_assert(sizeof(loom_condition_relation_matrix_view_t) ==
+                  (IREE_PTR_SIZE == 8 ? 16 : 12),
+              "condition-relation views must remain compact");
 
 static bool loom_condition_relation_matrix_row_less(
     const loom_condition_relation_matrix_row_t* left,

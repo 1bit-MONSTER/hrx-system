@@ -248,12 +248,22 @@ iree_status_t iree_benchmark_loom_emit_work_item_result_aliases(
     const iree_benchmark_loom_selected_benchmark_t* selection =
         &work_plan->selected_benchmarks[logical_sample->selection_index];
     iree_benchmark_loom_benchmark_result_t alias_result = *benchmark_result;
+    if (logical_sample->end_benchmark_sample ==
+        logical_sample->begin_benchmark_sample + 1) {
+      alias_result.has_benchmark_sample_ordinal = true;
+      alias_result.benchmark_sample_ordinal =
+          logical_sample->begin_benchmark_sample;
+    }
     if (logical_sample->has_case_sample_ordinal) {
       alias_result.has_sample_ordinal = true;
       alias_result.sample_ordinal = logical_sample->case_sample_ordinal;
+    } else if (selection->scenario_plan != NULL) {
+      alias_result.has_scenario_coordinate = true;
+      alias_result.scenario_coordinate = logical_sample->scenario_coordinate;
     }
     if (alias_result.samples_per_iteration == 0 &&
-        logical_sample->has_case_sample_ordinal) {
+        logical_sample->end_benchmark_sample ==
+            logical_sample->begin_benchmark_sample + 1) {
       alias_result.samples_per_iteration = 1;
     }
     if (iree_benchmark_loom_benchmark_result_counts_as_failed(&alias_result)) {
@@ -262,12 +272,14 @@ iree_status_t iree_benchmark_loom_emit_work_item_result_aliases(
     IREE_RETURN_IF_ERROR(iree_benchmark_loom_event_sink_emit_benchmark_result(
         event_sink, run, &selection->identity, work_item->work_item_index,
         module_plan->module, selection->benchmark_plan, selection->case_plan,
-        &selection->policy, &alias_result, correctness_sample_count,
-        correctness_failed_sample_count));
-    IREE_RETURN_IF_ERROR(iree_benchmark_loom_event_sink_emit_profile_replay(
-        event_sink, run, &selection->identity, work_item->work_item_index,
-        module_plan->module, selection->benchmark_plan, selection->case_plan,
-        &selection->policy, &alias_result));
+        selection->scenario_plan, &selection->policy, &alias_result,
+        correctness_sample_count, correctness_failed_sample_count));
+    if (selection->case_plan != NULL) {
+      IREE_RETURN_IF_ERROR(iree_benchmark_loom_event_sink_emit_profile_replay(
+          event_sink, run, &selection->identity, work_item->work_item_index,
+          module_plan->module, selection->benchmark_plan, selection->case_plan,
+          &selection->policy, &alias_result));
+    }
   }
   return iree_ok_status();
 }

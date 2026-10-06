@@ -9,6 +9,7 @@
 #include "iree/base/internal/arena.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/target/arch/amdgpu/facts.h"
 #include "loom/target/arch/amdgpu/target_info.h"
 
 namespace loom {
@@ -43,6 +44,32 @@ class AmdgpuOccupancyTargetResourcesTest : public ::testing::Test {
     return resources;
   }
 
+  loom_target_residency_view_t PlanningView(iree_string_view_t processor_name,
+                                            uint32_t wave_size,
+                                            uint32_t flat_workgroup_size,
+                                            uint64_t local_memory_bytes) {
+    loom_amdgpu_target_facts_t facts = {};
+    facts.base.fact_type = &loom_amdgpu_target_fact_type;
+    loom_amdgpu_target_identity_initialize(
+        loom_amdgpu_target_info_find_target(processor_name), &facts.identity);
+    facts.base.storage.snapshot.subgroup_size = wave_size;
+    loom_target_fact_field_set_insert(&facts.base.explicit_fields,
+                                      LOOM_TARGET_FACT_FIELD_SUBGROUP_SIZE);
+    auto& export_plan = facts.base.storage.export_plan;
+    export_plan.abi_kind = LOOM_TARGET_ABI_HAL_KERNEL;
+    if (flat_workgroup_size != 0) {
+      export_plan.hal_kernel.required_workgroup_size = {flat_workgroup_size, 1,
+                                                        1};
+    }
+    loom_target_bundle_storage_rebind(&facts.base.storage);
+    loom_amdgpu_target_facts_initialize(&facts);
+    loom_low_resolved_target_t target = {};
+    target.target_facts = &facts.base;
+    loom_low_storage_layout_space_sizes_t storage_sizes = {};
+    storage_sizes.workgroup_bytes = local_memory_bytes;
+    return loom_amdgpu_occupancy_residency_view(&target, &storage_sizes);
+  }
+
   iree_arena_block_pool_t block_pool_;
   iree_arena_allocator_t arena_;
 };
@@ -56,6 +83,65 @@ static const loom_target_residency_constraint_t* FindConstraint(
     }
   }
   return nullptr;
+}
+
+TEST_F(AmdgpuOccupancyTargetResourcesTest,
+       PlanningCeilingMatchesFinalLaunchAccounting) {
+  for (const auto* name :
+       {"gfx1100", "gfx1151", "gfx1250", "gfx942", "gfx950"}) {
+    SCOPED_TRACE(name);
+    const auto processor_name = iree_make_cstring_view(name);
+    const auto* processor =
+        loom_amdgpu_target_info_find_processor(processor_name);
+    ASSERT_NE(processor, nullptr);
+    for (uint32_t wave_size : {32u, 64u}) {
+      if (!loom_amdgpu_processor_properties_support_wavefront_size(
+              &processor->properties, wave_size)) {
+        continue;
+      }
+      SCOPED_TRACE(wave_size);
+      for (uint32_t workgroup_size : {wave_size, 256u, 1024u}) {
+        SCOPED_TRACE(workgroup_size);
+        for (uint32_t local_memory_bytes : {0u, 1u, 65024u}) {
+          SCOPED_TRACE(local_memory_bytes);
+          const auto view = PlanningView(processor_name, wave_size,
+                                         workgroup_size, local_memory_bytes);
+          const auto final = Build(processor_name, wave_size, 0, 0,
+                                   workgroup_size, local_memory_bytes);
+          ASSERT_NE(view.model, nullptr);
+          EXPECT_EQ(view.tier_limit, final.resident_waves_per_simd);
+          EXPECT_LE(view.tier_limit, view.model->best_tier);
+        }
+      }
+    }
+  }
+}
+
+TEST_F(AmdgpuOccupancyTargetResourcesTest, UnknownLaunchDoesNotInventCeiling) {
+  const auto view = PlanningView(IREE_SV("gfx1100"), 32, 0, 65024);
+  ASSERT_NE(view.model, nullptr);
+  EXPECT_EQ(view.tier_limit, view.model->best_tier);
+  const auto final = Build(IREE_SV("gfx1100"), 32, 0, 0, 0, 65024);
+  EXPECT_TRUE(iree_any_bit_set(
+      final.residency_summary.flags,
+      LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_UNKNOWN_WORKGROUP_SIZE));
+}
+
+TEST_F(AmdgpuOccupancyTargetResourcesTest, OversizedStorageHasZeroResidency) {
+  const auto view = PlanningView(IREE_SV("gfx1100"), 32, 256, UINT64_MAX);
+  ASSERT_NE(view.model, nullptr);
+  EXPECT_EQ(view.tier_limit, 0u);
+  const auto final = Build(IREE_SV("gfx1100"), 32, 0, 0, 256, UINT32_MAX);
+  EXPECT_EQ(final.resident_waves_per_simd, 0u);
+  const auto& summary = final.residency_summary;
+  EXPECT_TRUE(loom_target_residency_summary_is_valid(&summary));
+  EXPECT_EQ(summary.tier, 0u);
+  EXPECT_TRUE(iree_any_bit_set(
+      summary.flags, LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_HAS_NEXT_BETTER_TIER));
+  EXPECT_GT(summary.next_better_tier, 0u);
+  EXPECT_FALSE(iree_any_bit_set(
+      summary.flags,
+      LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_HAS_LIMITING_RESOURCE_NEXT_WORSE_TIER));
 }
 
 TEST_F(AmdgpuOccupancyTargetResourcesTest,

@@ -6,11 +6,12 @@
 
 // Final sanitizer site collection.
 //
-// Sanitizer assertion/report operations carry executable semantics in the IR.
-// Their source locations may additionally carry compact diagnostic metadata,
-// but locations are optional and may be stripped. Final report site IDs are
-// therefore assigned late by walking the surviving assertion/report operations
-// that remain in the materialized region or function.
+// Sanitizer assertion/report operations and their materialized kernel.assert
+// boundary carry executable semantics in the IR. Their source locations may
+// additionally carry compact diagnostic metadata, but locations are optional
+// and may be stripped. Final report site IDs are therefore assigned late by
+// walking the surviving assertion/report operations that remain in the
+// materialized region or function.
 
 #ifndef LOOM_SANITIZER_SITE_COLLECTION_H_
 #define LOOM_SANITIZER_SITE_COLLECTION_H_

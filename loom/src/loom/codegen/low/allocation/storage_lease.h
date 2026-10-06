@@ -102,9 +102,13 @@ iree_status_t loom_low_allocation_storage_lease_state_record_release_actions(
     const loom_low_allocation_assignment_t* candidate,
     const loom_value_id_t* ignored_value_ids, uint16_t ignored_value_count);
 
-// Materializes every storage lease attached to |value_ordinal| using
-// |assignment_index|'s concrete physical storage.
-iree_status_t loom_low_allocation_storage_lease_state_record_assignment(
+// Publishes every storage lease indexed under |value_ordinal| into preallocated
+// instances and the temporal unit index using |assignment_index|'s concrete
+// register-like storage. Initialization established each record's value, and
+// the lease producer established its unit subrange and issue-time start. The
+// assignment covers that subrange and |liveness| describes the lease schedule.
+// Each value's assignment is published exactly once, including inherited ties.
+void loom_low_allocation_storage_lease_state_record_assignment(
     loom_low_allocation_storage_lease_state_t* state,
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_liveness_analysis_t* liveness,

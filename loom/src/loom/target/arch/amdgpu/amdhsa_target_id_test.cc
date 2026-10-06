@@ -161,16 +161,18 @@ TEST(AmdhsaTargetIdTest, RoundTripsEveryProjectedCompilerIdentity) {
   }
 }
 
-TEST(AmdhsaTargetIdTest, EncodesFeatureSuffixInElfFlags) {
-  loom_amdgpu_amdhsa_target_id_t target_id = {};
-  IREE_ASSERT_OK(loom_amdgpu_amdhsa_target_id_parse(
-      IREE_SV("amdgcn-amd-amdhsa--gfx942:sramecc+:xnack-"), &target_id));
-  uint32_t elf_flags = 0;
-  IREE_ASSERT_OK(
-      loom_amdgpu_amdhsa_target_id_elf_flags(&target_id, &elf_flags));
-  EXPECT_EQ(elf_flags, target_id.processor->properties.elf.machine_flags |
-                           LOOM_AMDGPU_ELF_FEATURE_SRAMECC_ON_V4 |
-                           LOOM_AMDGPU_ELF_FEATURE_XNACK_OFF_V4);
+TEST(AmdhsaTargetIdTest, EncodesIdentityFeaturesInElfFlags) {
+  loom_amdgpu_target_identity_t identity = {};
+  loom_amdgpu_target_identity_initialize(LookupTarget("gfx942"), &identity);
+  identity.amdhsa_features.sramecc = LOOM_AMDGPU_TARGET_FEATURE_ON;
+  identity.amdhsa_features.xnack = LOOM_AMDGPU_TARGET_FEATURE_OFF;
+  const loom_amdgpu_processor_info_t* processor =
+      loom_amdgpu_target_info_target_processor(identity.target);
+  ASSERT_NE(processor, nullptr);
+  EXPECT_EQ(loom_amdgpu_amdhsa_elf_flags(&identity),
+            processor->properties.elf.machine_flags |
+                LOOM_AMDGPU_ELF_FEATURE_SRAMECC_ON_V4 |
+                LOOM_AMDGPU_ELF_FEATURE_XNACK_OFF_V4);
 }
 
 TEST(AmdhsaTargetIdTest, RejectsMalformedOrUnsupportedTargetIds) {

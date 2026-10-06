@@ -17,5 +17,6 @@ loom_check_test_suite(
     srcs = [
         "insert_assertions.loom-test",
         "insert_race_observations.loom-test",
+        "materialize_assertions.loom-test",
     ],
 )

@@ -18,6 +18,7 @@ from loom.target.contracts import (
     ValueRef,
     descriptor_by_key,
 )
+from loom.target.emit.float_narrowing import FloatNarrowingDescriptors
 from loom.target.low_descriptors import Descriptor
 
 
@@ -25,11 +26,57 @@ def logical_core_descriptor(key: str) -> Descriptor:
     return descriptor_by_key(SPIRV_LOGICAL_CORE_DESCRIPTOR_SET, key)
 
 
-def descriptor_feature_guards(descriptor: Descriptor) -> tuple[Guard, ...]:
-    return (
-        (Guard.descriptor_available(descriptor),)
-        if descriptor.feature_mask_words
-        else ()
+def descriptor_feature_guards(*descriptors: Descriptor) -> tuple[Guard, ...]:
+    guards: list[Guard] = []
+    seen_keys: set[str] = set()
+    for descriptor in descriptors:
+        if not descriptor.feature_mask_words or descriptor.key in seen_keys:
+            continue
+        seen_keys.add(descriptor.key)
+        guards.append(Guard.descriptor_available(descriptor))
+    return tuple(guards)
+
+
+def float_narrowing_descriptors(
+    integer_suffix: str, float_suffix: str
+) -> FloatNarrowingDescriptors:
+    """Returns the same-width SPIR-V descriptors for exact float narrowing."""
+    # Every comparison operand is nonnegative, so signed comparisons avoid
+    # introducing integer-view bitcasts while preserving numeric ordering.
+    return FloatNarrowingDescriptors(
+        integer_constant=logical_core_descriptor(f"spirv.op_constant.{integer_suffix}"),
+        float_constant=logical_core_descriptor(f"spirv.op_constant.{float_suffix}"),
+        integer_add=logical_core_descriptor(f"spirv.op_iadd.{integer_suffix}"),
+        integer_subtract=logical_core_descriptor(f"spirv.op_isub.{integer_suffix}"),
+        integer_shift_left=logical_core_descriptor(
+            f"spirv.op_shift_left_logical.{integer_suffix}"
+        ),
+        integer_shift_right_logical=logical_core_descriptor(
+            f"spirv.op_shift_right_logical.{integer_suffix}"
+        ),
+        integer_bitwise_and=logical_core_descriptor(
+            f"spirv.op_bitwise_and.{integer_suffix}"
+        ),
+        integer_bitwise_or=logical_core_descriptor(
+            f"spirv.op_bitwise_or.{integer_suffix}"
+        ),
+        integer_less_than_nonnegative=logical_core_descriptor(
+            f"spirv.op_s_less_than.{integer_suffix}"
+        ),
+        integer_greater_than_equal_nonnegative=logical_core_descriptor(
+            f"spirv.op_s_greater_than_equal.{integer_suffix}"
+        ),
+        integer_greater_than_nonnegative=logical_core_descriptor(
+            f"spirv.op_s_greater_than.{integer_suffix}"
+        ),
+        float_add=logical_core_descriptor(f"spirv.op_fadd.{float_suffix}"),
+        reinterpret_float_as_integer=logical_core_descriptor(
+            f"spirv.op_bitcast.{float_suffix}.{integer_suffix}"
+        ),
+        reinterpret_integer_as_float=logical_core_descriptor(
+            f"spirv.op_bitcast.{integer_suffix}.{float_suffix}"
+        ),
+        integer_select=logical_core_descriptor(f"spirv.op_select.{integer_suffix}"),
     )
 
 
@@ -39,7 +86,7 @@ def emit_descriptor_op(
     operands: dict[str, ValueRef] | None = None,
     results: dict[str, ValueRef] | None = None,
     result_types: dict[str, ResultTypeBinding] | None = None,
-    immediates: dict[str, AttrProject] | None = None,
+    immediates: dict[str, AttrProject | int] | None = None,
     source_memory: SourceMemoryConstraint | None = None,
     source_memory_address_materializer: SourceMemoryAddressMaterializer | None = None,
 ) -> EmitDescriptorOp:

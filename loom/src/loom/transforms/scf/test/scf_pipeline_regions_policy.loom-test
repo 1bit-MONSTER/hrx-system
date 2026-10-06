@@ -6,7 +6,7 @@ func.def @nested_writes_are_not_moved(%input: view<8xf32>, %initial: f32, %condi
   %step = index.constant 1 : index
   %depth = index.constant 2 : index
   %result = scf.for %i = [%begin to %end step %step](%sum = %initial : f32) -> (f32) pipeline(%depth) {
-    // ERROR@+1: STRUCTURE/014 {attr_name="pipeline", expected_constraint="ordinary loads and memory-pure consumers without writes, ordered effects or async groups"}
+    // ERROR@+1: STRUCTURE/014 {attr_name="pipeline", expected_constraint="workgroup-only stores and barriers in the ordered consumer"}
     %value = scf.if %condition -> (f32) {
       %loaded = view.load %input[%i] : view<8xf32> -> f32
       scf.yield %loaded : f32
@@ -94,7 +94,6 @@ func.def @nested_carried_capture(%input: view<8xf32>, %initial: f32, %condition:
   %step = index.constant 1 : index
   %depth = index.constant 2 : index
   %result = scf.for %i = [%begin to %end step %step](%sum = %initial : f32) -> (f32) pipeline(%depth) {
-    // ERROR@+1: STRUCTURE/014 {attr_name="pipeline", expected_constraint="read-ahead prerequisites independent of loop-carried state"}
     %value = scf.if %condition -> (f32) {
       %loaded = view.load %input[%i] : view<8xf32> -> f32
       %added = scalar.addf %sum, %loaded : f32
@@ -103,6 +102,61 @@ func.def @nested_carried_capture(%input: view<8xf32>, %initial: f32, %condition:
       scf.yield %initial : f32
     }
     scf.yield %value : f32
+  }
+  func.return %result : f32
+}
+
+// ----
+func.def @nested_carried_capture(%input: view<8xf32>, %initial: f32, %condition: i1) -> (f32) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %14 = index.constant 1 : index
+  %15 = index.cmp slt, %14, %end : index
+  %result = scf.if %15 -> (f32) {
+    %loaded = scf.if %condition -> (f32) {
+      %loaded = view.load %input[%begin] : view<8xf32> -> f32
+      scf.yield %loaded : f32
+    } else {
+      %19 = scalar.constant 0.0 : f32
+      scf.yield %19 : f32
+    }
+    %23, %24 = scf.for %20 = [%14 to %end step %step](%21 = %initial : f32, %22 = %loaded : f32) -> (f32, f32) {
+      %loaded = scf.if %condition -> (f32) {
+        %loaded = view.load %input[%20] : view<8xf32> -> f32
+        scf.yield %loaded : f32
+      } else {
+        %27 = scalar.constant 0.0 : f32
+        scf.yield %27 : f32
+      }
+      %value = scf.if %condition -> (f32) {
+        %added = scalar.addf %21, %22 : f32
+        scf.yield %added : f32
+      } else {
+        scf.yield %initial : f32
+      }
+      scf.yield %value, %loaded : f32, f32
+    }
+    %value = scf.if %condition -> (f32) {
+      %added = scalar.addf %23, %24 : f32
+      scf.yield %added : f32
+    } else {
+      scf.yield %initial : f32
+    }
+    scf.yield %value : f32
+  } else {
+    %34 = scf.for %32 = [%begin to %end step %step](%33 = %initial : f32) -> (f32) {
+      %value = scf.if %condition -> (f32) {
+        %loaded = view.load %input[%32] : view<8xf32> -> f32
+        %added = scalar.addf %33, %loaded : f32
+        scf.yield %added : f32
+      } else {
+        scf.yield %initial : f32
+      }
+      scf.yield %value : f32
+    }
+    scf.yield %34 : f32
   }
   func.return %result : f32
 }
@@ -167,4 +221,234 @@ func.def @carried_nested_predicate(%input: view<8xf32>, %initial: index, %condit
     scf.yield %next : index
   }
   func.return %result : index
+}
+
+// ====
+
+// The load-bearing branch may be the else branch; the producer and consumer
+// retain the authored predicate orientation.
+func.def @guarded_else_branch(%input: view<8xi32>, %initial: i32, %condition: i1) -> (i32) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %result = scf.for %i = [%begin to %end step %step](%sum = %initial : i32) -> (i32) pipeline(%depth) {
+    %next = scf.if %condition -> (i32) {
+      scf.yield %sum : i32
+    } else {
+      %loaded = view.load %input[%i] : view<8xi32> -> i32
+      %updated = scalar.addi %sum, %loaded : i32
+      scf.yield %updated : i32
+    }
+    scf.yield %next : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+func.def @guarded_else_branch(%input: view<8xi32>, %initial: i32, %condition: i1) -> (i32) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %14 = index.constant 1 : index
+  %15 = index.cmp slt, %14, %end : index
+  %result = scf.if %15 -> (i32) {
+    %loaded = scf.if %condition -> (i32) {
+      %18 = scalar.constant 0 : i32
+      scf.yield %18 : i32
+    } else {
+      %loaded = view.load %input[%begin] : view<8xi32> -> i32
+      scf.yield %loaded : i32
+    }
+    %23, %24 = scf.for %20 = [%14 to %end step %step](%21 = %initial : i32, %22 = %loaded : i32) -> (i32, i32) {
+      %loaded = scf.if %condition -> (i32) {
+        %26 = scalar.constant 0 : i32
+        scf.yield %26 : i32
+      } else {
+        %loaded = view.load %input[%20] : view<8xi32> -> i32
+        scf.yield %loaded : i32
+      }
+      %next = scf.if %condition -> (i32) {
+        scf.yield %21 : i32
+      } else {
+        %updated = scalar.addi %21, %22 : i32
+        scf.yield %updated : i32
+      }
+      scf.yield %next, %loaded : i32, i32
+    }
+    %next = scf.if %condition -> (i32) {
+      scf.yield %23 : i32
+    } else {
+      %updated = scalar.addi %23, %24 : i32
+      scf.yield %updated : i32
+    }
+    scf.yield %next : i32
+  } else {
+    %34 = scf.for %32 = [%begin to %end step %step](%33 = %initial : i32) -> (i32) {
+      %next = scf.if %condition -> (i32) {
+        scf.yield %33 : i32
+      } else {
+        %loaded = view.load %input[%32] : view<8xi32> -> i32
+        %updated = scalar.addi %33, %loaded : i32
+        scf.yield %updated : i32
+      }
+      scf.yield %next : i32
+    }
+    scf.yield %34 : i32
+  }
+  func.return %result : i32
+}
+
+// ====
+
+// Inactive vector records use a concrete typed zero while the predicate keeps
+// that placeholder unobservable by the consumer.
+func.def @guarded_vector_update(%input: view<32xf32>, %initial: vector<4xf32>, %condition: i1) -> (vector<4xf32>) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %result = scf.for %i = [%begin to %end step %step](%sum = %initial : vector<4xf32>) -> (vector<4xf32>) pipeline(%depth) {
+    %next = scf.if %condition -> (vector<4xf32>) {
+      %loaded = vector.load %input[%i] : view<32xf32> -> vector<4xf32>
+      %updated = vector.addf %sum, %loaded : vector<4xf32>
+      scf.yield %updated : vector<4xf32>
+    } else {
+      scf.yield %sum : vector<4xf32>
+    }
+    scf.yield %next : vector<4xf32>
+  }
+  func.return %result : vector<4xf32>
+}
+
+// ----
+func.def @guarded_vector_update(%input: view<32xf32>, %initial: vector<4xf32>, %condition: i1) -> (vector<4xf32>) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %14 = index.constant 1 : index
+  %15 = index.cmp slt, %14, %end : index
+  %result = scf.if %15 -> (vector<4xf32>) {
+    %loaded = scf.if %condition -> (vector<4xf32>) {
+      %loaded = vector.load %input[%begin] : view<32xf32> -> vector<4xf32>
+      scf.yield %loaded : vector<4xf32>
+    } else {
+      %19 = vector.constant 0.0 : vector<4xf32>
+      scf.yield %19 : vector<4xf32>
+    }
+    %23, %24 = scf.for %20 = [%14 to %end step %step](%21 = %initial : vector<4xf32>, %22 = %loaded : vector<4xf32>) -> (vector<4xf32>, vector<4xf32>) {
+      %loaded = scf.if %condition -> (vector<4xf32>) {
+        %loaded = vector.load %input[%20] : view<32xf32> -> vector<4xf32>
+        scf.yield %loaded : vector<4xf32>
+      } else {
+        %27 = vector.constant 0.0 : vector<4xf32>
+        scf.yield %27 : vector<4xf32>
+      }
+      %next = scf.if %condition -> (vector<4xf32>) {
+        %updated = vector.addf %21, %22 : vector<4xf32>
+        scf.yield %updated : vector<4xf32>
+      } else {
+        scf.yield %21 : vector<4xf32>
+      }
+      scf.yield %next, %loaded : vector<4xf32>, vector<4xf32>
+    }
+    %next = scf.if %condition -> (vector<4xf32>) {
+      %updated = vector.addf %23, %24 : vector<4xf32>
+      scf.yield %updated : vector<4xf32>
+    } else {
+      scf.yield %23 : vector<4xf32>
+    }
+    scf.yield %next : vector<4xf32>
+  } else {
+    %34 = scf.for %32 = [%begin to %end step %step](%33 = %initial : vector<4xf32>) -> (vector<4xf32>) {
+      %next = scf.if %condition -> (vector<4xf32>) {
+        %loaded = vector.load %input[%32] : view<32xf32> -> vector<4xf32>
+        %updated = vector.addf %33, %loaded : vector<4xf32>
+        scf.yield %updated : vector<4xf32>
+      } else {
+        scf.yield %33 : vector<4xf32>
+      }
+      scf.yield %next : vector<4xf32>
+    }
+    scf.yield %34 : vector<4xf32>
+  }
+  func.return %result : vector<4xf32>
+}
+
+// ====
+
+// Splitting both branch payloads needs a multi-branch producer contract and is
+// outside the retained single-branch partition.
+func.def @guarded_reads_in_both_branches(%left: view<8xf32>, %right: view<8xf32>, %initial: f32, %condition: i1) -> (f32) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %result = scf.for %i = [%begin to %end step %step](%sum = %initial : f32) -> (f32) pipeline(%depth) {
+    // ERROR@+1: STRUCTURE/014 {attr_name="pipeline", expected_constraint="read-ahead prerequisites independent of loop-carried state"}
+    %next = scf.if %condition -> (f32) {
+      %loaded = view.load %left[%i] : view<8xf32> -> f32
+      %updated = scalar.addf %sum, %loaded : f32
+      scf.yield %updated : f32
+    } else {
+      %loaded = view.load %right[%i] : view<8xf32> -> f32
+      %updated = scalar.addf %sum, %loaded : f32
+      scf.yield %updated : f32
+    }
+    scf.yield %next : f32
+  }
+  func.return %result : f32
+}
+
+// ====
+
+// The bounded partition does not recursively split a mixed nested conditional.
+func.def @recursively_guarded_update(%input: view<8xf32>, %initial: f32, %outer: i1, %inner: i1) -> (f32) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %result = scf.for %i = [%begin to %end step %step](%sum = %initial : f32) -> (f32) pipeline(%depth) {
+    // ERROR@+1: STRUCTURE/014 {attr_name="pipeline", expected_constraint="read-ahead prerequisites independent of loop-carried state"}
+    %next = scf.if %outer -> (f32) {
+      %selected = scf.if %inner -> (f32) {
+        %loaded = view.load %input[%i] : view<8xf32> -> f32
+        %updated = scalar.addf %sum, %loaded : f32
+        scf.yield %updated : f32
+      } else {
+        scf.yield %sum : f32
+      }
+      scf.yield %selected : f32
+    } else {
+      scf.yield %sum : f32
+    }
+    scf.yield %next : f32
+  }
+  func.return %result : f32
+}
+
+// ====
+
+// A view produced in the guarded read closure has no concrete inactive-slot
+// value. Planning rejects it before materialization.
+func.def @unsupported_guarded_queue_type(%storage: buffer, %initial: view<8xf32>, %condition: i1) -> (view<8xf32>) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %base = index.constant 0 : offset
+  %result = scf.for %i = [%begin to %end step %step](%state = %initial : view<8xf32>) -> (view<8xf32>) pipeline(%depth) {
+    // ERROR@+1: STRUCTURE/014 {attr_name="pipeline", expected_constraint="scalar or vector values carried from a guarded producer"}
+    %next = scf.if %condition -> (view<8xf32>) {
+      %candidate = buffer.view %storage[%base] : buffer -> view<8xf32>
+      %unused = view.load %candidate[%i] : view<8xf32> -> f32
+      scf.yield %candidate : view<8xf32>
+    } else {
+      scf.yield %state : view<8xf32>
+    }
+    scf.yield %next : view<8xf32>
+  }
+  func.return %result : view<8xf32>
 }

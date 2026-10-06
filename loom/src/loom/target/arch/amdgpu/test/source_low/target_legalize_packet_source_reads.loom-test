@@ -1,0 +1,236 @@
+// RUN: pass target-legalize{mode=final,policy=require-native}
+
+amdgpu.target<gfx11-generic> @target
+
+kernel.def target(@target) @preserve_overwritten_read() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%source: buffer, %destination0: buffer, %destination1: buffer) {
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<36xf32>
+  %destination0_view = buffer.view %destination0[%base] : buffer -> view<36xf32>
+  %destination1_view = buffer.view %destination1[%base] : buffer -> view<36xf32>
+  %old = vector.load %source_view[0] : view<36xf32> -> vector<36xf32>
+  %replacement_scalar = scalar.constant 2.0 : f32
+  %replacement = vector.splat %replacement_scalar : vector<36xf32>
+  vector.store %replacement, %source_view[0] : vector<36xf32>, view<36xf32>
+  vector.store %old, %destination0_view[0] : vector<36xf32>, view<36xf32>
+  vector.store %old, %destination1_view[0] : vector<36xf32>, view<36xf32>
+  kernel.return
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+kernel.def target(@target) @preserve_overwritten_read() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%source: buffer, %destination0: buffer, %destination1: buffer) {
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<36xf32>
+  %destination0_view = buffer.view %destination0[%base] : buffer -> view<36xf32>
+  %destination1_view = buffer.view %destination1[%base] : buffer -> view<36xf32>
+  %11 = vector.load %source_view[0] : view<36xf32> -> vector<4xf32>
+  %12 = vector.load %source_view[4] : view<36xf32> -> vector<4xf32>
+  %13 = vector.load %source_view[8] : view<36xf32> -> vector<4xf32>
+  %14 = vector.load %source_view[12] : view<36xf32> -> vector<4xf32>
+  %15 = vector.load %source_view[16] : view<36xf32> -> vector<4xf32>
+  %16 = vector.load %source_view[20] : view<36xf32> -> vector<4xf32>
+  %17 = vector.load %source_view[24] : view<36xf32> -> vector<4xf32>
+  %18 = vector.load %source_view[28] : view<36xf32> -> vector<4xf32>
+  %19 = vector.load %source_view[32] : view<36xf32> -> vector<4xf32>
+  %replacement_scalar = scalar.constant 2.0 : f32
+  %21 = index.constant 0 : index
+  %22 = index.constant 36 : index
+  %23 = index.constant 4 : index
+  scf.for %24 = [%21 to %22 step %23] {
+    %25 = vector.splat %replacement_scalar : vector<4xf32>
+    vector.store %25, %source_view[%24] : vector<4xf32>, view<36xf32>
+  }
+  vector.store %11, %destination0_view[0] : vector<4xf32>, view<36xf32>
+  vector.store %12, %destination0_view[4] : vector<4xf32>, view<36xf32>
+  vector.store %13, %destination0_view[8] : vector<4xf32>, view<36xf32>
+  vector.store %14, %destination0_view[12] : vector<4xf32>, view<36xf32>
+  vector.store %15, %destination0_view[16] : vector<4xf32>, view<36xf32>
+  vector.store %16, %destination0_view[20] : vector<4xf32>, view<36xf32>
+  vector.store %17, %destination0_view[24] : vector<4xf32>, view<36xf32>
+  vector.store %18, %destination0_view[28] : vector<4xf32>, view<36xf32>
+  vector.store %19, %destination0_view[32] : vector<4xf32>, view<36xf32>
+  vector.store %11, %destination1_view[0] : vector<4xf32>, view<36xf32>
+  vector.store %12, %destination1_view[4] : vector<4xf32>, view<36xf32>
+  vector.store %13, %destination1_view[8] : vector<4xf32>, view<36xf32>
+  vector.store %14, %destination1_view[12] : vector<4xf32>, view<36xf32>
+  vector.store %15, %destination1_view[16] : vector<4xf32>, view<36xf32>
+  vector.store %16, %destination1_view[20] : vector<4xf32>, view<36xf32>
+  vector.store %17, %destination1_view[24] : vector<4xf32>, view<36xf32>
+  vector.store %18, %destination1_view[28] : vector<4xf32>, view<36xf32>
+  vector.store %19, %destination1_view[32] : vector<4xf32>, view<36xf32>
+  kernel.return
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+kernel.def target(@target) @preserve_outer_read() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%source: buffer, %destination: buffer, %count: index, %replacement: f32) {
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<36xf32>
+  %destination_view = buffer.view %destination[%base] : buffer -> view<36xf32>
+  %old = vector.load %source_view[0] : view<36xf32> -> vector<36xf32>
+  %lower = index.constant 0 : index
+  %step = index.constant 1 : index
+  scf.for %iteration = [%lower to %count step %step] {
+    view.store %replacement, %source_view[0] : f32, view<36xf32>
+    vector.store %old, %destination_view[0] : vector<36xf32>, view<36xf32>
+  }
+  kernel.return
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+kernel.def target(@target) @preserve_outer_read() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%source: buffer, %destination: buffer, %count: index, %replacement: f32) {
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<36xf32>
+  %destination_view = buffer.view %destination[%base] : buffer -> view<36xf32>
+  %12 = vector.load %source_view[0] : view<36xf32> -> vector<4xf32>
+  %13 = vector.load %source_view[4] : view<36xf32> -> vector<4xf32>
+  %14 = vector.load %source_view[8] : view<36xf32> -> vector<4xf32>
+  %15 = vector.load %source_view[12] : view<36xf32> -> vector<4xf32>
+  %16 = vector.load %source_view[16] : view<36xf32> -> vector<4xf32>
+  %17 = vector.load %source_view[20] : view<36xf32> -> vector<4xf32>
+  %18 = vector.load %source_view[24] : view<36xf32> -> vector<4xf32>
+  %19 = vector.load %source_view[28] : view<36xf32> -> vector<4xf32>
+  %20 = vector.load %source_view[32] : view<36xf32> -> vector<4xf32>
+  %lower = index.constant 0 : index
+  %step = index.constant 1 : index
+  scf.for %iteration = [%lower to %count step %step] {
+    view.store %replacement, %source_view[0] : f32, view<36xf32>
+    vector.store %12, %destination_view[0] : vector<4xf32>, view<36xf32>
+    vector.store %13, %destination_view[4] : vector<4xf32>, view<36xf32>
+    vector.store %14, %destination_view[8] : vector<4xf32>, view<36xf32>
+    vector.store %15, %destination_view[12] : vector<4xf32>, view<36xf32>
+    vector.store %16, %destination_view[16] : vector<4xf32>, view<36xf32>
+    vector.store %17, %destination_view[20] : vector<4xf32>, view<36xf32>
+    vector.store %18, %destination_view[24] : vector<4xf32>, view<36xf32>
+    vector.store %19, %destination_view[28] : vector<4xf32>, view<36xf32>
+    vector.store %20, %destination_view[32] : vector<4xf32>, view<36xf32>
+  }
+  kernel.return
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+kernel.def target(@target) @preserve_volatile_reduction() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%source: buffer, %destination: buffer) {
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<36xf32>
+  %destination_view = buffer.view %destination[%base] : buffer -> view<1xf32>
+  %observed = vector.load<volatile> %source_view[0] : view<36xf32> -> vector<36xf32>
+  %initial = scalar.constant 0.0 : f32
+  %sum = vector.reduce<addf> %observed, %initial : vector<36xf32>, f32
+  view.store %sum, %destination_view[0] : f32, view<1xf32>
+  kernel.return
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+kernel.def target(@target) @preserve_volatile_reduction() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%source: buffer, %destination: buffer) {
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<36xf32>
+  %destination_view = buffer.view %destination[%base] : buffer -> view<1xf32>
+  %9 = vector.load<volatile> %source_view[0] : view<36xf32> -> vector<4xf32>
+  %10 = vector.load<volatile> %source_view[4] : view<36xf32> -> vector<4xf32>
+  %11 = vector.load<volatile> %source_view[8] : view<36xf32> -> vector<4xf32>
+  %12 = vector.load<volatile> %source_view[12] : view<36xf32> -> vector<4xf32>
+  %13 = vector.load<volatile> %source_view[16] : view<36xf32> -> vector<4xf32>
+  %14 = vector.load<volatile> %source_view[20] : view<36xf32> -> vector<4xf32>
+  %15 = vector.load<volatile> %source_view[24] : view<36xf32> -> vector<4xf32>
+  %16 = vector.load<volatile> %source_view[28] : view<36xf32> -> vector<4xf32>
+  %17 = vector.load<volatile> %source_view[32] : view<36xf32> -> vector<4xf32>
+  %initial = scalar.constant 0.0 : f32
+  %19 = vector.reduce<addf> %9, %initial : vector<4xf32>, f32
+  %20 = vector.reduce<addf> %10, %19 : vector<4xf32>, f32
+  %21 = vector.reduce<addf> %11, %20 : vector<4xf32>, f32
+  %22 = vector.reduce<addf> %12, %21 : vector<4xf32>, f32
+  %23 = vector.reduce<addf> %13, %22 : vector<4xf32>, f32
+  %24 = vector.reduce<addf> %14, %23 : vector<4xf32>, f32
+  %25 = vector.reduce<addf> %15, %24 : vector<4xf32>, f32
+  %26 = vector.reduce<addf> %16, %25 : vector<4xf32>, f32
+  %sum = vector.reduce<addf> %17, %26 : vector<4xf32>, f32
+  view.store %sum, %destination_view[0] : f32, view<1xf32>
+  kernel.return
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+kernel.def target(@target) @preserve_unpacketized_source_type() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%source: buffer, %destination: buffer, %replacement: f16) {
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<36xf16>
+  %destination_view = buffer.view %destination[%base] : buffer -> view<36xf32>
+  %old = vector.load %source_view[0] : view<36xf16> -> vector<36xf16>
+  %extended = vector.extf %old : vector<36xf16> to vector<36xf32>
+  view.store %replacement, %source_view[0] : f16, view<36xf16>
+  vector.store %extended, %destination_view[0] : vector<36xf32>, view<36xf32>
+  kernel.return
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+kernel.def target(@target) @preserve_unpacketized_source_type() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%source: buffer, %destination: buffer, %replacement: f16) {
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<36xf16>
+  %destination_view = buffer.view %destination[%base] : buffer -> view<36xf32>
+  %9 = vector.load %source_view[0] : view<36xf16> -> vector<4xf16>
+  %10 = vector.load %source_view[4] : view<36xf16> -> vector<4xf16>
+  %11 = vector.load %source_view[8] : view<36xf16> -> vector<4xf16>
+  %12 = vector.load %source_view[12] : view<36xf16> -> vector<4xf16>
+  %13 = vector.load %source_view[16] : view<36xf16> -> vector<4xf16>
+  %14 = vector.load %source_view[20] : view<36xf16> -> vector<4xf16>
+  %15 = vector.load %source_view[24] : view<36xf16> -> vector<4xf16>
+  %16 = vector.load %source_view[28] : view<36xf16> -> vector<4xf16>
+  %17 = vector.load %source_view[32] : view<36xf16> -> vector<4xf16>
+  view.store %replacement, %source_view[0] : f16, view<36xf16>
+  %19 = vector.extf %9 : vector<4xf16> to vector<4xf32>
+  %20 = vector.extf %10 : vector<4xf16> to vector<4xf32>
+  %21 = vector.extf %11 : vector<4xf16> to vector<4xf32>
+  %22 = vector.extf %12 : vector<4xf16> to vector<4xf32>
+  %23 = vector.extf %13 : vector<4xf16> to vector<4xf32>
+  %24 = vector.extf %14 : vector<4xf16> to vector<4xf32>
+  %25 = vector.extf %15 : vector<4xf16> to vector<4xf32>
+  %26 = vector.extf %16 : vector<4xf16> to vector<4xf32>
+  %27 = vector.extf %17 : vector<4xf16> to vector<4xf32>
+  vector.store %19, %destination_view[0] : vector<4xf32>, view<36xf32>
+  vector.store %20, %destination_view[4] : vector<4xf32>, view<36xf32>
+  vector.store %21, %destination_view[8] : vector<4xf32>, view<36xf32>
+  vector.store %22, %destination_view[12] : vector<4xf32>, view<36xf32>
+  vector.store %23, %destination_view[16] : vector<4xf32>, view<36xf32>
+  vector.store %24, %destination_view[20] : vector<4xf32>, view<36xf32>
+  vector.store %25, %destination_view[24] : vector<4xf32>, view<36xf32>
+  vector.store %26, %destination_view[28] : vector<4xf32>, view<36xf32>
+  vector.store %27, %destination_view[32] : vector<4xf32>, view<36xf32>
+  kernel.return
+}

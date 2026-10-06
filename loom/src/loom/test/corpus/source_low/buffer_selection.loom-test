@@ -1,0 +1,47 @@
+// A selected reference retains the ordinary buffer result ABI.
+func.def @choose_buffer(%first: buffer, %second: buffer, %choose_first: i1) -> (buffer) {
+  %selected = scf.select %choose_first, %first, %second : buffer
+  func.return %selected : buffer
+}
+
+// ====
+
+// A selected reference remains a buffer for both reads and writes.
+func.def @exchange_selected_byte(%first: buffer, %second: buffer, %choose_first: i1, %position_input: offset, %replacement: i32) -> (i32) {
+  %position = index.assume %position_input [range(%position_input, 0, 1024)] : offset
+  %selected = scf.select %choose_first, %first, %second : buffer
+  %previous = buffer.load.i8.u %selected[%position]
+  buffer.store.i8 %replacement, %selected[%position]
+  func.return %previous : i32
+}
+
+// ====
+
+// Canonicalization may select the components independently, but both selections
+// retain the same condition and therefore the same complete coordinate.
+func.def @selected_buffer_coordinate(%first: buffer, %second: buffer, %first_origin_input: offset, %second_origin_input: offset, %choose_first: i1) -> (i32) {
+  %first_origin = index.assume %first_origin_input [range(%first_origin_input, 0, 1024)] : offset
+  %second_origin = index.assume %second_origin_input [range(%second_origin_input, 0, 1024)] : offset
+  %selected, %origin = scf.if %choose_first -> (buffer, offset) {
+    scf.yield %first, %first_origin : buffer, offset
+  } else {
+    scf.yield %second, %second_origin : buffer, offset
+  }
+  %value = buffer.load.i8.u %selected[%origin]
+  func.return %value : i32
+}
+
+// ====
+
+// Rotating a reference and its origin carries both values over the same edge.
+func.def @rotate_buffer_coordinates(%first: buffer, %second: buffer, %first_origin_input: offset, %second_origin_input: offset, %count: index) -> (i32) {
+  %first_origin = index.assume %first_origin_input [range(%first_origin_input, 0, 1024)] : offset
+  %second_origin = index.assume %second_origin_input [range(%second_origin_input, 0, 1024)] : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %selected, %origin, %unused_buffer, %unused_origin = scf.for %i = [%begin to %count step %step](%current = %first : buffer, %current_origin = %first_origin : offset, %other = %second : buffer, %other_origin = %second_origin : offset) -> (buffer, offset, buffer, offset) {
+    scf.yield %other, %other_origin, %current, %current_origin : buffer, offset, buffer, offset
+  }
+  %value = buffer.load.i8.u %selected[%origin]
+  func.return %value : i32
+}

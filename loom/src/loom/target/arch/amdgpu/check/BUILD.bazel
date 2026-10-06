@@ -39,7 +39,6 @@ loom_cc_library(
         "//conditions:default": ["@platforms//:incompatible"],
     }),
     deps = [
-        "//loom/src/loom/codegen/low:target_binding",
         "//loom/src/loom/target/arch/amdgpu/planning:occupancy",
         "//loom/src/loom/target/arch/amdgpu/planning:storage_lease",
         "//loom/src/loom/tools/loom-check:execute",

@@ -41,6 +41,7 @@ iree_cc_library(
     ::uring
     iree::async
     iree::async::platform::linux::signal
+    iree::async::platform::linux::socket_options
     iree::async::types
     iree::async::util::continuation
     iree::async::util::intrusive_list

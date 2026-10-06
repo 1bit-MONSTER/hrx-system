@@ -1,0 +1,98 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_bfloat_narrow.loom
+// RUN: emit source-low target=spirv:vulkan1.3+bda+extended-types output=low control-flow=structured-low
+
+func.def @narrow_bfloat(%input: f32) -> (bf16) {
+  %narrow = scalar.fptrunc %input : f32 to bf16
+  func.return %narrow : bf16
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @narrow_bfloat(%input: reg<spirv.id : f32>) -> (reg<spirv.id : bf16>) asm {
+  %5 = OpBitcast.f32.i32 %input : reg<spirv.id>
+  %6 = OpConstant.i32 16 : reg<spirv.id>
+  %7 = OpShiftRightLogical %5, %6 : reg<spirv.id>
+  %8 = OpConstant.i32 1 : reg<spirv.id>
+  %9 = OpBitwiseAnd %7, %8 : reg<spirv.id>
+  %10 = OpConstant.i32 32767 : reg<spirv.id>
+  %11 = OpIAdd %10, %9 : reg<spirv.id>
+  %12 = OpIAdd %5, %11 : reg<spirv.id>
+  %13 = OpShiftRightLogical %12, %6 : reg<spirv.id>
+  %14 = OpConstant.i32 2147483647 : reg<spirv.id>
+  %15 = OpBitwiseAnd %5, %14 : reg<spirv.id>
+  %16 = OpConstant.i32 2139095040 : reg<spirv.id>
+  %17 = OpSGreaterThan %15, %16 : reg<spirv.id>
+  %18 = OpConstant.i32 64 : reg<spirv.id>
+  %19 = OpBitwiseOr %7, %18 : reg<spirv.id>
+  %20 = OpSelect %17, %19, %13 : reg<spirv.id>
+  %21 = OpSConvert.i32.i16 %20 : reg<spirv.id>
+  %narrow = OpBitcast.i16.bf16 %21
+  return %narrow
+}
+
+// ====
+
+func.def @store_narrow_bfloat(%input: f32, %output: buffer) {
+  %base = index.constant 0 : offset
+  %target = buffer.view %output[%base] : buffer -> view<1xbf16>
+  %narrow = scalar.fptrunc %input : f32 to bf16
+  view.store %narrow, %target[0] : bf16, view<1xbf16>
+  func.return
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @store_narrow_bfloat(%input: reg<spirv.id : f32>, %output: reg<spirv.ptr.storage_buffer>) asm {
+  %7 = OpBitcast.f32.i32 %input : reg<spirv.id>
+  %8 = OpConstant.i32 16 : reg<spirv.id>
+  %9 = OpShiftRightLogical %7, %8 : reg<spirv.id>
+  %10 = OpConstant.i32 1 : reg<spirv.id>
+  %11 = OpBitwiseAnd %9, %10 : reg<spirv.id>
+  %12 = OpConstant.i32 32767 : reg<spirv.id>
+  %13 = OpIAdd %12, %11 : reg<spirv.id>
+  %14 = OpIAdd %7, %13 : reg<spirv.id>
+  %15 = OpShiftRightLogical %14, %8 : reg<spirv.id>
+  %16 = OpConstant.i32 2147483647 : reg<spirv.id>
+  %17 = OpBitwiseAnd %7, %16 : reg<spirv.id>
+  %18 = OpConstant.i32 2139095040 : reg<spirv.id>
+  %19 = OpSGreaterThan %17, %18 : reg<spirv.id>
+  %20 = OpConstant.i32 64 : reg<spirv.id>
+  %21 = OpBitwiseOr %9, %20 : reg<spirv.id>
+  %22 = OpSelect %19, %21, %15 : reg<spirv.id>
+  %23 = OpSConvert.i32.i16 %22 : reg<spirv.id>
+  %narrow = OpBitcast.i16.bf16 %23
+  %25 = OpConstant.offset64 0
+  %26 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %25
+  OpStore.storage_buffer.bf16 %26, %narrow
+  return
+}
+
+// ====
+
+func.def @narrow_bfloat_bits(%input: f32) -> (i16) {
+  %narrow = scalar.fptrunc %input : f32 to bf16
+  %bits = scalar.bitcast %narrow : bf16 to i16
+  func.return %bits : i16
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @narrow_bfloat_bits(%input: reg<spirv.id : f32>) -> (reg<spirv.id : i16>) asm {
+  %6 = OpBitcast.f32.i32 %input : reg<spirv.id>
+  %7 = OpConstant.i32 16 : reg<spirv.id>
+  %8 = OpShiftRightLogical %6, %7 : reg<spirv.id>
+  %9 = OpConstant.i32 1 : reg<spirv.id>
+  %10 = OpBitwiseAnd %8, %9 : reg<spirv.id>
+  %11 = OpConstant.i32 32767 : reg<spirv.id>
+  %12 = OpIAdd %11, %10 : reg<spirv.id>
+  %13 = OpIAdd %6, %12 : reg<spirv.id>
+  %14 = OpShiftRightLogical %13, %7 : reg<spirv.id>
+  %15 = OpConstant.i32 2147483647 : reg<spirv.id>
+  %16 = OpBitwiseAnd %6, %15 : reg<spirv.id>
+  %17 = OpConstant.i32 2139095040 : reg<spirv.id>
+  %18 = OpSGreaterThan %16, %17 : reg<spirv.id>
+  %19 = OpConstant.i32 64 : reg<spirv.id>
+  %20 = OpBitwiseOr %8, %19 : reg<spirv.id>
+  %21 = OpSelect %18, %20, %14 : reg<spirv.id>
+  %22 = OpSConvert.i32.i16 %21 : reg<spirv.id>
+  %narrow = OpBitcast.i16.bf16 %22
+  %bits = OpBitcast.bf16.i16 %narrow
+  return %bits
+}

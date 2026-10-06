@@ -25,13 +25,21 @@
 extern "C" {
 #endif
 
-// Operand occurrence that observes a consumed value.
+// Operand occurrence selected by a consumption query.
 typedef struct loom_consumption_use_t {
   // Operation containing the observing operand.
   const loom_op_t* op;
   // Operand index on |op| that observes the value.
   uint16_t operand_index;
 } loom_consumption_use_t;
+
+// Finds a tied- or moved-result operand that consumes |value|, if present.
+// Mutually exclusive control-flow paths may each contain a consuming
+// occurrence. |out_use| receives the first retained occurrence and may be NULL
+// when only membership is needed.
+bool loom_consumption_find_consuming_use(const loom_module_t* module,
+                                         const loom_value_t* value,
+                                         loom_consumption_use_t* out_use);
 
 // Reusable per-region query state for consumed-value checks.
 typedef struct loom_consumption_region_query_t {
@@ -73,23 +81,26 @@ typedef struct loom_consumption_region_query_t {
   iree_host_size_t pending_block_count;
 } loom_consumption_region_query_t;
 
-// Prepared dynamic-path query for uses after one consuming operation.
+// Prepared dynamic-path query for uses after one block-local boundary.
 //
 // The query borrows scratch from |region_query| and remains valid until the
 // next use-after query is prepared from that region query.
 typedef struct loom_consumption_use_after_query_t {
   // Reusable region query owning CFG and reachability scratch.
   loom_consumption_region_query_t* region_query;
-  // Operation after which uses are queried.
-  const loom_op_t* consuming_op;
+  // Block containing the boundary after which observations are queried.
+  const loom_block_t* origin_block;
   // Value whose dynamic instance is being followed.
   loom_value_id_t value_id;
+  // True once a membership query initializes the resumable CFG frontier.
+  bool search_initialized;
+  // First observable sparse position key in the initial visit to origin_block.
+  // Uses the IR's full-width order-maintenance labels, not a dense op index.
+  uint64_t first_observation_ordinal;
   // Value's defining block. Reentering it ends the old dynamic instance.
   const loom_block_t* recreation_block;
   // Number of words available in region_query->reachable_bits.
   iree_host_size_t reachable_word_count;
-  // True once a membership query initializes the resumable CFG frontier.
-  bool search_initialized;
 } loom_consumption_use_after_query_t;
 
 // Initializes reusable consumption query state for |region|. CFG extraction is
@@ -111,20 +122,36 @@ void loom_consumption_region_query_initialize_with_cfg_graph(
     const loom_local_value_domain_t* value_domain,
     iree_arena_allocator_t* arena, loom_consumption_region_query_t* out_query);
 
-// Prepares a reusable path query for uses of |value_id| that can dynamically
-// execute after |consuming_op|. Membership queries consume retained CFG path
-// proofs first; unresolved queries advance one shared frontier only through
-// the requested component. Each block is expanded at most once before the
-// next preparation, without scanning IR operations.
+enum loom_consumption_query_flag_bits_e {
+  // Observations include producer-proven indirect reads not present in the
+  // value's semantic SSA use list or live-out segments.
+  LOOM_CONSUMPTION_QUERY_FLAG_INDIRECT_OBSERVATIONS = 1u << 0,
+};
+typedef uint8_t loom_consumption_query_flags_t;
+
+// Prepares a reusable path query for observations of |value_id| starting at
+// |first_observation_ordinal| in |origin_block|. Zero includes the block entry;
+// a consuming operation's ordinal plus one queries only later observations.
+// Membership queries consume retained CFG path proofs first; unresolved
+// queries advance one shared frontier only through the requested component.
+// Each block is expanded at most once before the next preparation, without
+// scanning IR operations.
 iree_status_t loom_consumption_use_after_query_prepare(
     loom_consumption_region_query_t* region_query,
-    const loom_op_t* consuming_op, loom_value_id_t value_id,
+    const loom_block_t* origin_block, uint64_t first_observation_ordinal,
+    loom_value_id_t value_id, loom_consumption_query_flags_t flags,
     loom_consumption_use_after_query_t* out_query);
 
-// Returns true when |use| can dynamically execute after the consuming
-// operation represented by |query|. |use| must belong to the queried value.
+// Returns true when |use| can dynamically execute after the boundary
+// represented by |query|. |use| must belong to the queried value.
 bool loom_consumption_use_after_query_contains(
     loom_consumption_use_after_query_t* query, loom_use_t use);
+
+// Tests a producer-proven observation of the queried dynamic value at |op|.
+// Indirect observations require INDIRECT_OBSERVATIONS during preparation;
+// their source's recreation boundary remains the queried value's definition.
+bool loom_consumption_use_after_query_observes_operation(
+    loom_consumption_use_after_query_t* query, const loom_op_t* op);
 
 // Finds a use of |value_id| that can dynamically execute after |consuming_op|.
 // |query| must describe |consuming_op|'s parent region. The value's use list

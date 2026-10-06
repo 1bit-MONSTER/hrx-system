@@ -59,6 +59,7 @@ loom_check_test_suite(
     loom_check_file_test
   SRCS
     "test/assembly.loom-test"
+    "test/buffer_selection.loom-test"
     "test/copies.loom-test"
     "test/high_product.loom-test"
     "test/lanes.loom-test"

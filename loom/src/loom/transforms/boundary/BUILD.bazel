@@ -17,11 +17,13 @@ loom_cc_library(
     srcs = [
         "projection_apply.c",
         "projection_driver.c",
+        "projection_loop.c",
         "projection_plan.c",
     ],
     hdrs = [
         "projection_apply.h",
         "projection_driver.h",
+        "projection_loop.h",
         "projection_plan.h",
         "projection_rule.h",
     ],
@@ -32,6 +34,7 @@ loom_cc_library(
         "//loom/src/loom/ops/cfg",
         "//loom/src/loom/pass:types",
         "//loom/src/loom/pass:value_facts",
+        "//loom/src/loom/rewrite:loop_like",
         "//loom/src/loom/rewrite:remap",
         "//loom/src/loom/rewrite:rewriter",
         "//loom/src/loom/target:function_version",
@@ -61,6 +64,25 @@ loom_cc_test(
     ],
 )
 
+loom_cc_test(
+    name = "projection_loop_test",
+    srcs = ["projection_loop_test.cc"],
+    deps = [
+        ":projection_core",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/scf",
+        "//loom/src/loom/ops/test",
+        "//loom/src/loom/pass:value_facts",
+        "//loom/src/loom/util:walk",
+        "//loom/src/loom/verify",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
 loom_cc_library(
     name = "projection",
     srcs = ["projection.c"],
@@ -69,7 +91,7 @@ loom_cc_library(
         ":projection_core",
         "//loom/src/loom/pass:types",
         "//loom/src/loom/target:pass_environment",
-        "//loom/src/loom/transforms/encoding:cfg_layout_projection",
+        "//loom/src/loom/transforms/encoding:layout_projection",
         "//loom/src/loom/transforms/view:boundary_projection",
         "//runtime/src/iree/base",
     ],

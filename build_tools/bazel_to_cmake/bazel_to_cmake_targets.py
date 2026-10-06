@@ -46,6 +46,9 @@ class TargetConverter:
                 "//third_party:spirv_dis": ["iree::third_party::spirv_dis"],
                 "//third_party:spirv_val": ["iree::third_party::spirv_val"],
                 "//third_party:vulkan_headers": ["iree::third_party::vulkan_headers"],
+                "//third_party:rdma_core_headers": [
+                    "iree::third_party::rdma_core_headers"
+                ],
                 "//third_party:catch2": ["iree::third_party::catch2"],
                 "//third_party:cxx_parser": ["iree::third_party::cxx_parser"],
                 "//third_party:amdf_wkmi": ["iree::third_party::amdf_wkmi"],

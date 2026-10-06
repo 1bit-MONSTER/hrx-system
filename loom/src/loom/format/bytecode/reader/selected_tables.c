@@ -204,21 +204,19 @@ static iree_status_t loom_bytecode_selected_table_project_source(
   const iree_string_view_t source_name =
       materializer->metadata->sources.values[source_ordinal];
   loom_source_id_t target_source_id = LOOM_SOURCE_ID_INVALID;
-  for (iree_host_size_t i = 0; i < materializer->sources.inherited_count; ++i) {
-    if (iree_string_view_equal(materializer->output_module->sources.entries[i],
-                               source_name)) {
-      target_source_id = (loom_source_id_t)i;
-      break;
-    }
-  }
-  if (target_source_id == LOOM_SOURCE_ID_INVALID) {
+  if (materializer->projected_source_count ==
+      materializer->output_module->sources.count) {
     IREE_RETURN_IF_ERROR(loom_module_append_source(
+        materializer->output_module, source_name, &target_source_id));
+  } else {
+    IREE_RETURN_IF_ERROR(loom_module_register_source(
         materializer->output_module, source_name, &target_source_id));
   }
   IREE_RETURN_IF_ERROR(loom_bytecode_selected_projection_insert(
       &materializer->projection,
       LOOM_BYTECODE_SELECTED_PROJECTION_DOMAIN_SOURCE, source_ordinal,
       target_source_id));
+  ++materializer->projected_source_count;
   *out_target_source_id = target_source_id;
   return iree_ok_status();
 }
@@ -237,10 +235,6 @@ void loom_bytecode_selected_table_materializer_initialize(
       .scratch_arena = scratch_arena,
       .output_module = output_module,
       .symbol_resolver = symbol_resolver,
-      .sources =
-          {
-              .inherited_count = output_module->sources.count,
-          },
   };
   iree_arena_initialize(scratch_arena->block_pool,
                         &out_materializer->retained_arena);

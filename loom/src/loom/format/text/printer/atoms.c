@@ -507,11 +507,15 @@ static iree_status_t loom_print_descriptor_backed_type(
             false));
         break;
       }
-      case LOOM_TYPE_FMT_OPTIONAL:
-        if (loom_attr_is_absent(parameters[element->field_index])) {
-          i = (uint16_t)(i + (element->data >> 8));
+      case LOOM_TYPE_FMT_OPTIONAL: {
+        const bool present =
+            !loom_attr_is_absent(parameters[element->field_index]);
+        if (present == LOOM_TYPE_FORMAT_OPTIONAL_IS_INVERTED(element->data)) {
+          i = (uint16_t)(i +
+                         LOOM_TYPE_FORMAT_OPTIONAL_SKIP_COUNT(element->data));
         }
         break;
+      }
       case LOOM_TYPE_FMT_GLUE:
         loom_print_set_glue(&parameter_context);
         break;

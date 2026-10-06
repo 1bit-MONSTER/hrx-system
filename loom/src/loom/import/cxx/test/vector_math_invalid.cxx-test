@@ -1,0 +1,137 @@
+// RUN: verify
+// Semantic arguments are validated even on unused templates.
+template <class Vector, class Accumulator>
+// ERROR@+1: LOWERING/059 "dot2f has no semantic arguments"
+[[loom::op("vector.dot2f", "reassoc")]] Accumulator dot(Vector, Vector, Accumulator);
+
+// ====
+template <class Vector, class Scalar>
+// ERROR@+1: LOWERING/059 "intrinsic has an unsupported fast-math flag"
+[[loom::op("vector.dotf", "unexpected")]] Scalar dot(Vector, Vector, Scalar);
+
+// ====
+template <class Vector, class Scalar>
+// ERROR@+1: LOWERING/059 "vector reduction requires a combining kind"
+[[loom::op("vector.reduce")]] Scalar reduce(Vector, Scalar);
+
+// ====
+template <class Vector, class Scalar>
+// ERROR@+1: LOWERING/059 "unsupported vector reduction combining kind"
+[[loom::op("vector.reduce", "sum")]] Scalar reduce(Vector, Scalar);
+
+// ====
+template <class Vector, class Scalar>
+// ERROR@+1: LOWERING/059 "integer vector reduction has no fast-math flags"
+[[loom::op("vector.reduce", "addi", "reassoc")]] Scalar reduce(Vector, Scalar);
+
+// ====
+template <class Vector, class Scalar>
+[[loom::op("vector.reduce", "addf")]] Scalar reduce(Vector, Scalar);
+template <class Vector, class Scalar>
+// ERROR@+1: LOWERING/059 "conflicting intrinsic template redeclarations"
+[[loom::op("vector.reduce", "addf", "reassoc")]] Scalar reduce(Vector, Scalar);
+
+// ====
+using Floats = float __attribute__((ext_vector_type(4)));
+[[loom::op("vector.reduce", "addf")]] float reduce(Floats, float);
+// ERROR@+1: LOWERING/059 "conflicting intrinsic redeclarations"
+[[loom::op("vector.reduce", "mulf")]] float reduce(Floats, float);
+
+// ====
+using Halves = _Float16 __attribute__((ext_vector_type(4)));
+using Floats = float __attribute__((ext_vector_type(2)));
+// ERROR@+1: LOWERING/059 "intrinsic declaration has the wrong operand count"
+[[loom::op("vector.dot2f")]] Floats dot(Halves, Halves);
+
+// ====
+using Halves = _Float16 __attribute__((ext_vector_type(4)));
+using Floats = float __attribute__((ext_vector_type(2)));
+// ERROR@+1: LOWERING/059 "intrinsic declaration has the wrong operand count"
+[[loom::op("vector.dot2f")]] Floats dot(Halves, Halves, Floats, ...);
+
+// ====
+using Halves = _Float16 __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "shaped intrinsic result must be a vector"
+[[loom::op("vector.dot2f")]] float dot(Halves, Halves, float);
+
+// ====
+using Halves = _Float16 __attribute__((ext_vector_type(4)));
+using BFloats = __bf16 __attribute__((ext_vector_type(4)));
+using Floats = float __attribute__((ext_vector_type(2)));
+// ERROR@+1: LOWERING/059 "dot2f requires equal f16 or bf16 input types with two lanes per f32 accumulator/result lane"
+[[loom::op("vector.dot2f")]] Floats dot(Halves, BFloats, Floats);
+
+// ====
+using Halves = _Float16 __attribute__((ext_vector_type(4)));
+using Floats = float __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "dot2f requires equal f16 or bf16 input types with two lanes per f32 accumulator/result lane"
+[[loom::op("vector.dot2f")]] Floats dot(Halves, Halves, Floats);
+
+// ====
+using Halves = _Float16 __attribute__((ext_vector_type(4)));
+using Doubles = double __attribute__((ext_vector_type(2)));
+// ERROR@+1: LOWERING/059 "dot2f requires equal f16 or bf16 input types with two lanes per f32 accumulator/result lane"
+[[loom::op("vector.dot2f")]] Doubles dot(Halves, Halves, Doubles);
+
+// ====
+using Floats = float __attribute__((ext_vector_type(4)));
+using Accumulator = float __attribute__((ext_vector_type(2)));
+// ERROR@+1: LOWERING/059 "dot2f requires equal f16 or bf16 input types with two lanes per f32 accumulator/result lane"
+[[loom::op("vector.dot2f")]] Accumulator dot(Floats, Floats, Accumulator);
+
+// ====
+// Template shape constraints are checked at the concrete source call.
+template <class Vector, class Accumulator>
+[[loom::op("vector.dot2f")]] Accumulator dot(Vector, Vector, Accumulator);
+using Halves = _Float16 __attribute__((ext_vector_type(4)));
+using Floats = float __attribute__((ext_vector_type(4)));
+Floats entry(Halves a, Halves b, Floats seed) {
+  // ERROR@+1: LOWERING/059 "dot2f requires equal f16 or bf16 input types with two lanes per f32 accumulator/result lane"
+  return dot(a, b, seed);
+}
+
+// ====
+using Floats = float __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "vector reduction or dotf result must be a numeric scalar"
+[[loom::op("vector.dotf")]] Floats dot(Floats, Floats, Floats);
+
+// ====
+using Floats = float __attribute__((ext_vector_type(4)));
+using ShortFloats = float __attribute__((ext_vector_type(2)));
+// ERROR@+1: LOWERING/059 "dotf requires equal floating-point vector types"
+[[loom::op("vector.dotf")]] float dot(Floats, ShortFloats, float);
+
+// ====
+using Integers = int __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "dotf requires equal floating-point vector types"
+[[loom::op("vector.dotf")]] int dot(Integers, Integers, int);
+
+// ====
+using Floats = float __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "vector element, scalar seed, and result types must match"
+[[loom::op("vector.dotf")]] double dot(Floats, Floats, double);
+
+// ====
+using Floats = float __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "vector element, scalar seed, and result types must match"
+[[loom::op("vector.reduce", "addf")]] float reduce(Floats, double);
+
+// ====
+using Floats = float __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "vector reduction combining kind does not match the element type"
+[[loom::op("vector.reduce", "addi")]] float reduce(Floats, float);
+
+// ====
+using Integers = int __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "vector reduction combining kind does not match the element type"
+[[loom::op("vector.reduce", "addf")]] int reduce(Integers, int);
+
+// ====
+using Integers = unsigned __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "vector reduction signedness must match the source element type"
+[[loom::op("vector.reduce", "minsi")]] unsigned reduce(Integers, unsigned);
+
+// ====
+using Integers = int __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "vector reduction signedness must match the source element type"
+[[loom::op("vector.reduce", "maxui")]] int reduce(Integers, int);

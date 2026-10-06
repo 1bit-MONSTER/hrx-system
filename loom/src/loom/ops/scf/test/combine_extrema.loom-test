@@ -1,0 +1,115 @@
+// RUN: with-checks pass combine
+
+// All ordered predicates support either arm order without changing width.
+func.def @signed_less(%lhs: i8, %rhs: i8) -> (i8, i8, i8, i8) {
+  %slt = scalar.cmpi slt, %lhs, %rhs : i8
+  %slt_forward = scf.select %slt, %lhs, %rhs : i8
+  %slt_reverse = scf.select %slt, %rhs, %lhs : i8
+  %sle = scalar.cmpi sle, %lhs, %rhs : i8
+  %sle_forward = scf.select %sle, %lhs, %rhs : i8
+  %sle_reverse = scf.select %sle, %rhs, %lhs : i8
+  func.return %slt_forward, %slt_reverse, %sle_forward, %sle_reverse : i8, i8, i8, i8
+}
+// ----
+CHECK: %slt_forward = scalar.minsi %lhs, %rhs : i8
+CHECK: %slt_reverse = scalar.maxsi %rhs, %lhs : i8
+CHECK: %sle_forward = scalar.minsi %lhs, %rhs : i8
+CHECK: %sle_reverse = scalar.maxsi %rhs, %lhs : i8
+CHECK-NOT: *scf.select*
+CHECK-NOT: *scalar.cmpi*
+
+// ====
+
+func.def @signed_greater(%lhs: i32, %rhs: i32) -> (i32, i32, i32, i32) {
+  %sgt = scalar.cmpi sgt, %lhs, %rhs : i32
+  %sgt_forward = scf.select %sgt, %lhs, %rhs : i32
+  %sgt_reverse = scf.select %sgt, %rhs, %lhs : i32
+  %sge = scalar.cmpi sge, %lhs, %rhs : i32
+  %sge_forward = scf.select %sge, %lhs, %rhs : i32
+  %sge_reverse = scf.select %sge, %rhs, %lhs : i32
+  func.return %sgt_forward, %sgt_reverse, %sge_forward, %sge_reverse : i32, i32, i32, i32
+}
+// ----
+CHECK: %sgt_forward = scalar.maxsi %lhs, %rhs : i32
+CHECK: %sgt_reverse = scalar.minsi %rhs, %lhs : i32
+CHECK: %sge_forward = scalar.maxsi %lhs, %rhs : i32
+CHECK: %sge_reverse = scalar.minsi %rhs, %lhs : i32
+CHECK-NOT: *scf.select*
+CHECK-NOT: *scalar.cmpi*
+
+// ====
+
+func.def @unsigned_less(%lhs: i64, %rhs: i64) -> (i64, i64, i64, i64) {
+  %ult = scalar.cmpi ult, %lhs, %rhs : i64
+  %ult_forward = scf.select %ult, %lhs, %rhs : i64
+  %ult_reverse = scf.select %ult, %rhs, %lhs : i64
+  %ule = scalar.cmpi ule, %lhs, %rhs : i64
+  %ule_forward = scf.select %ule, %lhs, %rhs : i64
+  %ule_reverse = scf.select %ule, %rhs, %lhs : i64
+  func.return %ult_forward, %ult_reverse, %ule_forward, %ule_reverse : i64, i64, i64, i64
+}
+// ----
+CHECK: %ult_forward = scalar.minui %lhs, %rhs : i64
+CHECK: %ult_reverse = scalar.maxui %rhs, %lhs : i64
+CHECK: %ule_forward = scalar.minui %lhs, %rhs : i64
+CHECK: %ule_reverse = scalar.maxui %rhs, %lhs : i64
+CHECK-NOT: *scf.select*
+CHECK-NOT: *scalar.cmpi*
+
+// ====
+
+func.def @unsigned_greater(%lhs: i16, %rhs: i16) -> (i16, i16, i16, i16) {
+  %ugt = scalar.cmpi ugt, %lhs, %rhs : i16
+  %ugt_forward = scf.select %ugt, %lhs, %rhs : i16
+  %ugt_reverse = scf.select %ugt, %rhs, %lhs : i16
+  %uge = scalar.cmpi uge, %lhs, %rhs : i16
+  %uge_forward = scf.select %uge, %lhs, %rhs : i16
+  %uge_reverse = scf.select %uge, %rhs, %lhs : i16
+  func.return %ugt_forward, %ugt_reverse, %uge_forward, %uge_reverse : i16, i16, i16, i16
+}
+// ----
+CHECK: %ugt_forward = scalar.maxui %lhs, %rhs : i16
+CHECK: %ugt_reverse = scalar.minui %rhs, %lhs : i16
+CHECK: %uge_forward = scalar.maxui %lhs, %rhs : i16
+CHECK: %uge_reverse = scalar.minui %rhs, %lhs : i16
+CHECK-NOT: *scf.select*
+CHECK-NOT: *scalar.cmpi*
+
+// ====
+
+// Removing the select must retain a comparison observed by another user.
+func.def @shared_comparison(%lhs: i32, %rhs: i32) -> (i1, i32) {
+  %condition = scalar.cmpi ult, %lhs, %rhs : i32
+  %value = scf.select %condition, %lhs, %rhs : i32
+  func.return %condition, %value : i1, i32
+}
+// ----
+CHECK: %condition = scalar.cmpi ult, %lhs, %rhs : i32
+CHECK: %value = scalar.minui %lhs, %rhs : i32
+CHECK: func.return %condition, %value : i1, i32
+CHECK-NOT: *scf.select*
+
+// ====
+
+// These selections do not describe integer extrema. Floating comparisons
+// retain their original NaN and signed-zero selection behavior.
+func.def @other_selections(%lhs: i32, %rhs: i32, %payload: i32, %a: f32, %b: f32) -> (i32, i32, i32, i32, f32) {
+  %equal = scalar.cmpi eq, %lhs, %rhs : i32
+  %different = scalar.cmpi ne, %lhs, %rhs : i32
+  %less = scalar.cmpi slt, %lhs, %rhs : i32
+  %float_less = scalar.cmpf olt, %a, %b : f32
+  %eq_result = scf.select %equal, %lhs, %rhs : i32
+  %ne_result = scf.select %different, %lhs, %rhs : i32
+  %other_true = scf.select %less, %payload, %rhs : i32
+  %other_false = scf.select %less, %lhs, %payload : i32
+  %float_result = scf.select %float_less, %a, %b : f32
+  func.return %eq_result, %ne_result, %other_true, %other_false, %float_result : i32, i32, i32, i32, f32
+}
+// ----
+CHECK: %eq_result = scf.select %equal, %lhs, %rhs : i32
+CHECK: %ne_result = scf.select %different, %lhs, %rhs : i32
+CHECK: %other_true = scf.select %less, %payload, %rhs : i32
+CHECK: %other_false = scf.select %less, %lhs, %payload : i32
+CHECK: %float_result = scf.select %float_less, %a, %b : f32
+CHECK-NOT: *scalar.min*
+CHECK-NOT: *scalar.max*

@@ -338,6 +338,15 @@ def float_atomic_cas_feature_bits(
     )
 
 
+def float_atomic_cas_strategies(
+    scalar: AtomicFloatScalar, operation: AtomicFloatOperation
+) -> tuple[str, ...]:
+    """Arithmetic contracts implemented by the bitwise CAS packet."""
+    if scalar.source_type == "f32" and operation.source_kind == "addf":
+        return ("cas", "cas_preserve")
+    return ("cas",)
+
+
 def atomic_descriptor_key(
     form: str,
     scalar: AtomicIntegerScalar,

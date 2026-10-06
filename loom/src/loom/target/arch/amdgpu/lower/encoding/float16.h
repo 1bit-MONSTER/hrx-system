@@ -78,33 +78,40 @@ bool loom_amdgpu_f16_descriptor_set_can_emit_f32_to_f16_lane(
 
 // Emits round-to-nearest-even conversion from one f32 lane to one BF16 lane.
 // The result is held in the low 16 bits of a one-unit VGPR.
+// |source_flags| carries proven facts about the F32 input, or zero if unknown.
+// NaNs retain their upper payload with the quiet bit set.
 iree_status_t loom_amdgpu_emit_f32_to_bf16_lane(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
-    loom_value_id_t source_lane, loom_type_t lane_type,
-    loom_value_id_t* out_lane);
+    loom_value_id_t source_lane, loom_value_fact_flags_t source_flags,
+    loom_type_t lane_type, loom_value_id_t* out_lane);
 
 // Emits round-to-nearest-even conversion from one f32 lane to one BF16 lane
 // using already-resolved optional integer pack descriptors.
+// |source_flags| carries proven facts about the F32 input, or zero if unknown.
 iree_status_t loom_amdgpu_emit_f32_to_bf16_lane_with_descriptors(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_float16_pack_descriptors_t* descriptors,
-    loom_value_id_t source_lane, loom_type_t lane_type,
-    loom_value_id_t* out_lane);
+    loom_value_id_t source_lane, loom_value_fact_flags_t source_flags,
+    loom_type_t lane_type, loom_value_id_t* out_lane);
 
 // Emits round-to-nearest-even conversion from two f32 lanes to one packed BF16
 // register. The low source becomes the low 16 bits of the result.
+// |source_flags| contains only facts proven for both F32 inputs.
 iree_status_t loom_amdgpu_emit_f32_pair_to_packed_bf16(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t low_source_lane, loom_value_id_t high_source_lane,
-    loom_type_t lane_type, loom_value_id_t* out_packed);
+    loom_value_fact_flags_t source_flags, loom_type_t lane_type,
+    loom_value_id_t* out_packed);
 
 // Emits round-to-nearest-even conversion from two f32 lanes to one packed BF16
 // register using already-resolved optional native and integer pack descriptors.
+// |source_flags| contains only facts proven for both F32 inputs.
 iree_status_t loom_amdgpu_emit_f32_pair_to_packed_bf16_with_descriptors(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_float16_pack_descriptors_t* descriptors,
     loom_value_id_t low_source_lane, loom_value_id_t high_source_lane,
-    loom_type_t lane_type, loom_value_id_t* out_packed);
+    loom_value_fact_flags_t source_flags, loom_type_t lane_type,
+    loom_value_id_t* out_packed);
 
 // Emits round-to-nearest-even conversion from one f32 lane to one F16 lane.
 // The result is held in the low 16 bits of a one-unit VGPR.
@@ -150,7 +157,8 @@ iree_status_t loom_amdgpu_extract_bf16_range_lane_as_f32_bits(
 iree_status_t loom_amdgpu_extract_f16_lane_as_low_bits(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t low_source, uint32_t source_register_count,
-    uint32_t lane_index, loom_type_t lane_type, loom_value_id_t* out_lane);
+    uint32_t lane_index, loom_type_t source_lane_type,
+    loom_value_id_t* out_lane);
 
 // Converts one F32 lane to F16 and packs it into one half of |inout_packed|.
 iree_status_t loom_amdgpu_pack_f32_lane_to_f16_register(

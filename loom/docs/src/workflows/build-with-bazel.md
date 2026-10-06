@@ -2,9 +2,9 @@
 
 The public Bazel rules name the artifact being built. A
 [`loom_library`](#libraries-stay-relocatable) produces reusable Loom bytecode;
-`loom_kernel_binary` and `loom_command_binary` close selected roots into
-deployment products. The same source graph can therefore stop at a linkable
-library or continue into the product required by one application.
+`loom_kernel_binary` closes selected kernel roots into a loader-ready
+executable. The same source graph can therefore stop at a linkable library or
+continue into the executable required by one application.
 
 ## Depend on HRX
 
@@ -91,9 +91,9 @@ bazel build //loom/docs/examples/elementwise-transform:model \
   --output_groups=+dependency_reports
 ```
 
-## Binary roots close one product
+## Binary roots close one kernel executable
 
-All three binary rules share the same composition contract:
+`loom_kernel_binary` uses the same composition contract as the library rules:
 
 | Attribute | Meaning |
 | --- | --- |
@@ -113,20 +113,17 @@ closure. They are candidates for satisfying reachable declarations and
 template applications. This distinction is what lets `:model` bring a large
 kernel catalog without compiling every exported kernel in that catalog.
 
-Explicit `roots` replace the default export set. The checked
-`elementwise_command` target above demonstrates this by selecting only
-`@elementwise_transform` from `:model`.
+Explicit `roots` replace the default export set.
 
 Root selection happens during linking. Unreachable functions, templates,
 kernels, command programs, configuration, checks, and benchmarks are absent
 from the closed `.loombc` passed to artifact emission.
 
-Kernel and command binaries also require a typed `target` label. That profile
+Kernel binaries also require a typed `target` label. That profile
 participates in the selective link itself: target facts are projected before
 template selection, so a target-constrained provider can win before
 unreachable alternatives are discarded. The same profile then drives device
-artifact emission. VM binaries have no device `target` attribute and keep this
-link boundary targetless.
+artifact emission.
 
 ## Kernel binaries are loader-ready executables
 
@@ -150,42 +147,18 @@ Reusable source remains targetless. Selecting the profile at the binary
 boundary allows the same library to produce a generic GFX11 executable or an
 exact architecture-specialized executable without copying its `.loom` files.
 
-## Command binaries package schedules with their kernels
-
-`loom_command_binary` performs one selective link, lowers every selected
-command-program root to a portable artifact, and compiles the reachable kernel
-entries for its target profile:
-
-```shell
-bazel build //loom/docs/examples/elementwise-transform:elementwise_command
-```
-
-Its default outputs are:
-
-| Output | Consumer |
-| --- | --- |
-| `<name>.commands.json` | Maps command symbols to portable artifacts and lists their logical executable-entry requirements. |
-| `<name>.commands/*.loomcmd` | One target-neutral command artifact per selected command root. |
-| `<name>.kernels.hsaco` | The AMDGPU executable satisfying the manifest's reachable kernel entries. |
-
-The command schedule and device executable remain separate deployment
-artifacts because they have different portability and caching boundaries. The
-manifest joins them through logical entry symbols; it does not force an
-embedding to reverse-engineer either binary format.
-
 ## Inspect the closed input and compiler evidence
 
 Binary rules keep their primary runtime products in Bazel's default output
 group. Their linked input and compile reports are opt-in evidence products:
 
 ```shell
-bazel build //loom/docs/examples/elementwise-transform:elementwise_command \
+bazel build //loom/docs/examples/elementwise-transform:elementwise_kernel \
   --output_groups=+linked_modules,+compile_reports
 ```
 
-`linked_modules` contains the closed `.loombc` used by every emitter for that
-binary. `compile_reports` contains the command and kernel reports for a command
-binary and the corresponding single report for kernel and VM binaries. This
+`linked_modules` contains the closed `.loombc` used by the emitter for that
+binary. `compile_reports` contains the corresponding compiler report. This
 makes it possible to inspect reachability or compare compiler evidence without
 changing the product graph.
 
@@ -294,12 +267,9 @@ execution resource requirements.
 ## The CLI and in-memory APIs use the same boundaries
 
 The Bazel rules orchestrate the public tools; they do not add a second linkage
-model. `loom_library` corresponds to a strict relocatable merge. A kernel or
-command binary first performs a root-selected `loom-link --mode=link` with the
-selected `--target`, then invokes the appropriate `loom-compile`
-backend on that one closed module. A VM binary performs the same selective
-link without a device profile. The command product invokes the command and
-AMDGPU emitters over the same linked input.
+model. `loom_library` corresponds to a strict relocatable merge. A kernel
+binary first performs a root-selected `loom-link --mode=link` with the selected
+`--target`, then invokes `loom-compile` on that one closed module.
 
 An embedding can construct the same explicit library universe with the
 [`loomc` API](../integration/module-composition.md), select roots, and retain or
@@ -309,4 +279,4 @@ symbol namespace or causes the compiler to search a filesystem.
 
 [Link and package modules](link-and-package.md) gives the equivalent
 command-line composition workflow. [Compile artifacts](compile-artifacts.md)
-documents the kernel, command, and VM emitters directly.
+documents kernel and module emitters directly.

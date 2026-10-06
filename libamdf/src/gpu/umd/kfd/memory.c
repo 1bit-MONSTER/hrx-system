@@ -57,11 +57,9 @@ static void amdf_gpu_kfd_memory_plan(
     const amdf_memory_native_create_info_t* create_info,
     amdf_gpu_kfd_memory_plan_t* plan) {
   plan->flags = profile->guaranteed_flags | create_info->required_flags;
-  // KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE uses a signed shift into bit 31 in the
-  // UAPI header. Construct that bit with an unsigned operand for defined C.
   plan->native_flags =
       (create_info->device_access & AMDF_MEMORY_ACCESS_WRITE) != 0
-          ? UINT32_C(1) << 31
+          ? AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE
           : 0;
   if (profile->memory_class == AMDF_MEMORY_CLASS_LOCAL) {
     plan->native_flags |= KFD_IOC_ALLOC_MEM_FLAGS_VRAM;
@@ -192,7 +190,6 @@ amdf_status_t amdf_gpu_umd_device_query_memory_profile(
       &device->topology, device->page_size, device->native_lifetime,
       memory_profile_ordinal, out_profile);
   if (amdf_status_is_ok(status)) {
-    out_profile->visibility.describe_site = amdf_gpu_umd_memory_describe_site;
     out_profile->visibility.describe_host = amdf_gpu_umd_memory_describe_host;
     out_profile->visibility.data = device;
   }

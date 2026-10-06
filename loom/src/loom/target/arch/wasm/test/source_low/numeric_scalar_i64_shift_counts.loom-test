@@ -154,9 +154,9 @@ func.def @wide_shift_low_word(%value: i64) -> (i32) {
 
 // ----
 low.func.def target<wasm.core.simd128> abi(wasm_function) @wide_shift_low_word(%value: reg<wasm.i64>) -> (reg<wasm.i32>) asm {
-  %count = i64.const 6
-  %shifted = i64.shl %value, %count
-  %result = i32.wrap_i64 %shifted
+  %9 = i32.const 6
+  %10 = i32.wrap_i64 %value
+  %result = i32.shl %10, %9
   return %result
 }
 

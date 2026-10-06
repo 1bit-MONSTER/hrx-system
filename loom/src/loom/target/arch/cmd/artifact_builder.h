@@ -29,6 +29,9 @@ typedef struct loom_cmd_program_artifact_builder_options_t {
   // Pass registry used to specialize linked command and configuration IR.
   const loom_pass_registry_t* pass_registry;
 
+  // Cleanup providers selected for command and configuration IR.
+  const loom_cleanup_pattern_provider_set_t* cleanup_pattern_provider_set;
+
   // Destination for authored command contract diagnostics.
   iree_diagnostic_emitter_t diagnostic_emitter;
 
@@ -37,7 +40,7 @@ typedef struct loom_cmd_program_artifact_builder_options_t {
       materialization_environment;
 } loom_cmd_program_artifact_builder_options_t;
 
-// Selectively prepares indexed command roots and serializes their artifacts.
+// Builds a plan for selected command roots and serializes their artifacts.
 //
 // This is the single index-to-product compiler boundary shared by LoomC and
 // command-line tooling. Source contract failures emit diagnostics, leave

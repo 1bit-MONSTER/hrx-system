@@ -66,6 +66,8 @@ typedef enum loom_error_domain_e {
   LOOM_ERROR_DOMAIN_X86 = 14,       // X86 legality and lowering failures.
   LOOM_ERROR_DOMAIN_WASM = 15,      // WebAssembly legality and lowering.
   LOOM_ERROR_DOMAIN_SPIRV = 16,     // SPIR-V legality and lowering failures.
+  LOOM_ERROR_DOMAIN_XDNA = 17,      // XDNA legality and lowering failures.
+  LOOM_ERROR_DOMAIN_EXPECT = 18,    // Runtime check.expect mismatches.
   LOOM_ERROR_DOMAIN_COUNT_,
 } loom_error_domain_t;
 

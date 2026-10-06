@@ -755,6 +755,24 @@ ERR_LOWERING_063 = ErrorDef(
     ),
 )
 
+# ERR_LOWERING_064: Sanitizer assertion cannot be materialized.
+ERR_LOWERING_064 = ErrorDef(
+    domain=ErrorDomain.LOWERING,
+    code=64,
+    severity=Severity.ERROR,
+    summary="Sanitizer assertion cannot be materialized.",
+    message="{phase_name} cannot materialize {op_name}: {reason}",
+    params=(
+        ErrorParam("op_name", ParamKind.STRING),
+        ErrorParam("phase_name", ParamKind.STRING),
+        ErrorParam("reason", ParamKind.STRING),
+    ),
+    fix_hint=(
+        "Use runtime-observable value or shape predicates inside a dispatchable "
+        "kernel, or express the required property through an executable query"
+    ),
+)
+
 ALL_LOWERING_ERRORS: tuple[ErrorDef, ...] = (
     ERR_LOWERING_022,
     ERR_LOWERING_023,
@@ -795,4 +813,5 @@ ALL_LOWERING_ERRORS: tuple[ErrorDef, ...] = (
     ERR_LOWERING_061,
     ERR_LOWERING_062,
     ERR_LOWERING_063,
+    ERR_LOWERING_064,
 )

@@ -37,6 +37,8 @@ typedef struct loom_ir_module_projection_t {
   iree_host_size_t target_symbol_count;
   // Source-to-target value correspondence populated while cloning live IR.
   loom_ir_remap_t remap;
+  // Optional translation of compiler-owned products during construction.
+  loom_ir_clone_observer_t clone_observer;
   // Optional sparse operation correspondence populated during the same clone.
   struct {
     // Caller-owned entries in clone visitation order.
@@ -52,6 +54,8 @@ typedef struct loom_ir_module_clone_options_t {
   iree_host_size_t additional_string_capacity;
   // Additional symbol-table capacity reserved for caller materialization.
   iree_host_size_t additional_symbol_capacity;
+  // Optional translation of compiler-owned products during construction.
+  loom_ir_clone_observer_t clone_observer;
   // Optional sparse operation correspondence in clone visitation order.
   struct {
     // Caller-owned projection entries.

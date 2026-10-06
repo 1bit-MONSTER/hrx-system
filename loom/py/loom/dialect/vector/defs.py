@@ -38,7 +38,7 @@ from loom.assembly import (
     TypesOf,
     kw,
 )
-from loom.dialect.atomic import AtomicKind, AtomicOrdering, AtomicScope
+from loom.dialect.atomic import AtomicKind, AtomicMemoryFlags, AtomicOrdering, AtomicScope
 from loom.dialect.cache import CacheScope, CacheTemporal
 from loom.dialect.combining import CombiningKind
 from loom.dialect.memory import MemoryAccessFlags
@@ -88,7 +88,7 @@ from loom.dsl import (
     EnumDef,
     HasAllStaticRankOneVector,
     HasAllStaticVector,
-    HasBitwiseElement,
+    HasBytePatternElement,
     HasF16OrBf16Element,
     HasF32Element,
     HasFloatElement,
@@ -836,6 +836,7 @@ vector_concat = Op(
     ],
     verify="loom_vector_concat_verify",
     facts="loom_vector_concat_facts",
+    canonicalize="loom_vector_concat_canonicalize",
     traits=[PURE],
     format=[
         TemplateParam("axis"),
@@ -2093,6 +2094,7 @@ vector_scatter_mask = Op(
 def _atomic_memory_attrs() -> list[AttrDef]:
     return [
         AttrDef("kind", ATTR_TYPE_ENUM, enum_def=AtomicKind),
+        AttrDef("memory_flags", ATTR_TYPE_FLAGS, optional=True, enum_def=AtomicMemoryFlags),
         AttrDef(
             "ordering",
             ATTR_TYPE_ENUM,
@@ -2153,13 +2155,14 @@ vector_atomic_reduce = Op(
         "serialized by the required ordering and scope attributes."
     ),
     operands=[
-        Operand("value", VECTOR, doc="Vector contribution for each lane."),
+        Operand("value", VECTOR, doc="Fixed-width byte-addressable contribution for each lane."),
         Operand("view", VIEW, doc="Typed destination view."),
         Operand("offsets", VECTOR, doc="Per-lane signed element offsets from the logical origin."),
         Operand("indices", INDEX, doc="Dynamic logical origin indices.", variadic=True),
     ],
     attrs=_atomic_memory_attrs(),
     constraints=[
+        HasBytePatternElement("value"),
         HasIndexOrNonI1IntegerElement("offsets"),
         SameElementType("value", "view"),
         SameShape("offsets", "value"),
@@ -2168,7 +2171,7 @@ vector_atomic_reduce = Op(
     interfaces=[CachePolicyInterface(), _atomic_memory_access_interface(value="value")],
     verify="loom_vector_atomic_reduce_verify",
     format=[
-        TemplateParam("kind"),
+        TemplateParamFlags("kind", "memory_flags"),
         Ref("value"),
         COMMA,
         Ref("view"),
@@ -2195,7 +2198,7 @@ vector_atomic_reduce_mask = Op(
     group=vector_ops,
     doc=("Masked atomic no-result scatter reduction/update. True mask lanes perform vector.atomic.reduce, while false mask lanes do not access memory."),
     operands=[
-        Operand("value", VECTOR, doc="Vector contribution for each lane."),
+        Operand("value", VECTOR, doc="Fixed-width byte-addressable contribution for each lane."),
         Operand("view", VIEW, doc="Typed destination view."),
         Operand("offsets", VECTOR, doc="Per-lane signed element offsets from the logical origin."),
         Operand("mask", VECTOR, doc="i1 vector mask selecting active atomic lanes."),
@@ -2203,6 +2206,7 @@ vector_atomic_reduce_mask = Op(
     ],
     attrs=_atomic_memory_attrs(),
     constraints=[
+        HasBytePatternElement("value"),
         HasI1Element("mask"),
         HasIndexOrNonI1IntegerElement("offsets"),
         SameElementType("value", "view"),
@@ -2213,7 +2217,7 @@ vector_atomic_reduce_mask = Op(
     verify="loom_vector_atomic_reduce_mask_verify",
     canonicalize="loom_vector_masked_memory_canonicalize",
     format=[
-        TemplateParam("kind"),
+        TemplateParamFlags("kind", "memory_flags"),
         Ref("value"),
         COMMA,
         Ref("view"),
@@ -2249,7 +2253,7 @@ vector_atomic_rmw = Op(
         "operation."
     ),
     operands=[
-        Operand("value", VECTOR, doc="Vector update value for each lane."),
+        Operand("value", VECTOR, doc="Fixed-width byte-addressable update value for each lane."),
         Operand("view", VIEW, doc="Typed destination view."),
         Operand("offsets", VECTOR, doc="Per-lane signed element offsets from the logical origin."),
         Operand("indices", INDEX, doc="Dynamic logical origin indices.", variadic=True),
@@ -2257,6 +2261,7 @@ vector_atomic_rmw = Op(
     results=[Result("result", VECTOR, doc="Old memory values read by the atomic operations.")],
     attrs=_atomic_memory_attrs(),
     constraints=[
+        HasBytePatternElement("value"),
         HasIndexOrNonI1IntegerElement("offsets"),
         SameElementType("value", "view", "result"),
         SameShape("offsets", "value", "result"),
@@ -2266,7 +2271,7 @@ vector_atomic_rmw = Op(
     interfaces=[CachePolicyInterface(), _atomic_memory_access_interface(value="value")],
     verify="loom_vector_atomic_rmw_verify",
     format=[
-        TemplateParam("kind"),
+        TemplateParamFlags("kind", "memory_flags"),
         Ref("value"),
         COMMA,
         Ref("view"),
@@ -2293,7 +2298,7 @@ vector_atomic_rmw_mask = Op(
     group=vector_ops,
     doc=("Masked atomic read-modify-write. True mask lanes perform vector.atomic.rmw, while false mask lanes do not access memory and take the corresponding passthrough lane in the result."),
     operands=[
-        Operand("value", VECTOR, doc="Vector update value for each lane."),
+        Operand("value", VECTOR, doc="Fixed-width byte-addressable update value for each lane."),
         Operand("view", VIEW, doc="Typed destination view."),
         Operand("offsets", VECTOR, doc="Per-lane signed element offsets from the logical origin."),
         Operand("mask", VECTOR, doc="i1 vector mask selecting active atomic lanes."),
@@ -2303,6 +2308,7 @@ vector_atomic_rmw_mask = Op(
     results=[Result("result", VECTOR, doc="Old memory values for active lanes and passthrough for inactive lanes.")],
     attrs=_atomic_memory_attrs(),
     constraints=[
+        HasBytePatternElement("value"),
         HasI1Element("mask"),
         HasIndexOrNonI1IntegerElement("offsets"),
         SameElementType("value", "view", "passthrough", "result"),
@@ -2314,7 +2320,7 @@ vector_atomic_rmw_mask = Op(
     verify="loom_vector_atomic_rmw_mask_verify",
     canonicalize="loom_vector_masked_memory_canonicalize",
     format=[
-        TemplateParam("kind"),
+        TemplateParamFlags("kind", "memory_flags"),
         Ref("value"),
         COMMA,
         Ref("view"),
@@ -2355,8 +2361,8 @@ vector_atomic_cmpxchg = Op(
         "Comparison is bitwise for every accepted element type."
     ),
     operands=[
-        Operand("expected", VECTOR, doc="Expected memory value for each lane."),
-        Operand("replacement", VECTOR, doc="Replacement value written for each successful lane."),
+        Operand("expected", VECTOR, doc="Fixed-width byte-addressable expected value for each lane."),
+        Operand("replacement", VECTOR, doc="Matching replacement value written for each successful lane."),
         Operand("view", VIEW, doc="Typed destination view."),
         Operand("offsets", VECTOR, doc="Per-lane signed element offsets from the logical origin."),
         Operand("indices", INDEX, doc="Dynamic logical origin indices.", variadic=True),
@@ -2364,7 +2370,7 @@ vector_atomic_cmpxchg = Op(
     results=[Result("old", VECTOR, doc="Old memory values read by the atomic operations.")],
     attrs=_atomic_cmpxchg_memory_attrs(),
     constraints=[
-        HasBitwiseElement("expected"),
+        HasBytePatternElement("expected"),
         HasIndexOrNonI1IntegerElement("offsets"),
         SameElementType("expected", "replacement", "view", "old"),
         SameShape("offsets", "expected", "replacement", "old"),
@@ -3493,6 +3499,7 @@ vector_extui = _vector_cast(
     doc=("Lanewise unsigned integer extension. Source and result shapes match exactly, and each source lane is zero-extended to the result element width."),
     traits=[SAFE_TO_SPECULATE],
     constraints=[ElementWidthGreaterThan("result", "input")],
+    facts="loom_vector_extui_facts",
 )
 
 vector_trunci = _vector_cast(
@@ -3503,6 +3510,7 @@ vector_trunci = _vector_cast(
     doc=("Lanewise integer truncation. Source and result shapes match exactly, and each lane keeps the low bits required by the result element width."),
     traits=[SAFE_TO_SPECULATE],
     constraints=[ElementWidthLessThan("result", "input")],
+    canonicalize="loom_vector_trunci_canonicalize",
 )
 
 vector_sitofp = _vector_cast(
@@ -3521,6 +3529,7 @@ vector_uitofp = _vector_cast(
     source_constraint=HasIntegerElement,
     result_constraint=FLOAT_ELEMENT,
     doc=("Lanewise unsigned integer to floating-point conversion with unchanged shape."),
+    facts="loom_vector_uitofp_facts",
 )
 
 vector_fptosi = _vector_cast(
@@ -3871,12 +3880,17 @@ vector_dot2f = Op(
     phase=OpPhase.EXECUTABLE,
     doc=(
         "Group adjacent two-lane f16 or bf16 products along the last axis and "
-        "add each two-product fused sum into an f32 accumulator lane. "
-        "Semantics are equivalent to extending each source lane to f32, then "
-        "accumulating scalar.fmaf(lhs0_f32, rhs0_f32, acc) followed by "
-        "scalar.fmaf(lhs1_f32, rhs1_f32, partial) for each result lane. This "
-        "models AMDGPU fdot2-style widened register dots without making f16 "
-        "dot accumulation implicit in vector.dotf."
+        "accumulate each pair into an f32 lane using native grouped-dot "
+        "arithmetic. Intermediate precision, rounding, and subnormal handling "
+        "follow the selected target's arithmetic contract; an f32 result does "
+        "not promise the bits of two ordered f32 fused multiply-adds. "
+        "Target-independent facts, constant folding, and scalar expansion "
+        "use the reference evaluation: extend each input to f32 and apply "
+        "scalar.fmaf to the first pair of inputs and accumulator, then to "
+        "the second pair and partial result. Reference evaluation remains "
+        "permitted even when native execution differs. Use explicit "
+        "scalar.fmaf operations or vector.dotf on widened f32 inputs when "
+        "ordered f32 fused accumulation is required."
     ),
     operands=[
         Operand("lhs", VECTOR, doc="f16 or bf16 source lanes grouped in pairs along the last axis."),

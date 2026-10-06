@@ -18,4 +18,14 @@ iree_py_library(
     loom::py::loom::target::package
 )
 
+iree_py_library(
+  NAME
+    float_narrowing
+  SRCS
+    "float_narrowing.py"
+  DEPS
+    loom::py::loom::target::low_descriptors
+    loom::py::loom::target::contracts::contracts
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

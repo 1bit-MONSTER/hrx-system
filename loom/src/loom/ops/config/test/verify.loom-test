@@ -84,3 +84,26 @@ func.def @get_from_decl() -> (index) {
   %v = config.get @batch_size : index
   func.return %v : index
 }
+
+// ====
+
+// Declaration predicates use the same retained numeric domain as assumptions
+// and function contracts.
+// ERROR@+1: TYPE/003 "predicates[0].arg[0]" "f32" "integer, index, or offset scalar"
+config.decl @bad_float_predicate : %value: f32 where [range(%value, 0, 4)]
+
+// ====
+
+// ERROR@+1: STRUCTURE/014 "predicates[0].arg[1]" "128" "canonical numeric domain"
+config.decl @bad_i8_literal : %value: i8 where [eq(%value, 128)]
+
+// ====
+
+// A config contract constrains its declared value rather than a standalone
+// compile-time expression.
+// ERROR@+1: STRUCTURE/032 {op_name="config.decl", field_name="predicates[0].arg[0]", required_origin="the declared config value"}
+config.decl @constant_only_predicate : %value: index where [eq(4, 4)]
+
+// ====
+
+config.decl @valid_predicate_domain : %value: i8 where [range(%value, -128, 127)]

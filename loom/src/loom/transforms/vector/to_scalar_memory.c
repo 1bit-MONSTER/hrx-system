@@ -66,13 +66,7 @@ loom_vector_to_scalar_memory_cache_policy(
 
 static loom_memory_access_flags_t loom_vector_to_scalar_memory_flags(
     loom_vector_to_scalar_state_t* state) {
-  if (loom_vector_load_isa(state->op)) {
-    return loom_vector_load_memory_flags(state->op);
-  }
-  if (loom_vector_store_isa(state->op)) {
-    return loom_vector_store_memory_flags(state->op);
-  }
-  return 0;
+  return loom_memory_access_flags(loom_vector_to_scalar_memory_access(state));
 }
 
 static uint8_t loom_vector_to_scalar_enum_attr_value(loom_attribute_t attr) {
@@ -1157,7 +1151,8 @@ static iree_status_t loom_vector_to_scalar_emit_view_atomic_reduce_lane(
       loom_vector_to_scalar_memory_cache_policy(state);
   return loom_view_atomic_reduce_build(
       &state->rewriter->builder, cache_policy.build_flags,
-      loom_vector_to_scalar_atomic_reduce_kind(state), lane,
+      loom_vector_to_scalar_atomic_reduce_kind(state),
+      loom_vector_to_scalar_memory_flags(state), lane,
       loom_vector_to_scalar_memory_view(state), view_indices.dynamic_indices,
       view_indices.dynamic_index_count, view_indices.static_indices,
       view_indices.static_index_count,
@@ -1367,7 +1362,8 @@ static iree_status_t loom_vector_to_scalar_build_view_atomic_rmw_lane(
       loom_vector_to_scalar_memory_cache_policy(state);
   IREE_RETURN_IF_ERROR(loom_view_atomic_rmw_build(
       &state->rewriter->builder, cache_policy.build_flags,
-      loom_vector_to_scalar_atomic_rmw_kind(state), lane,
+      loom_vector_to_scalar_atomic_rmw_kind(state),
+      loom_vector_to_scalar_memory_flags(state), lane,
       loom_vector_to_scalar_memory_view(state), view_indices.dynamic_indices,
       view_indices.dynamic_index_count, view_indices.static_indices,
       view_indices.static_index_count,

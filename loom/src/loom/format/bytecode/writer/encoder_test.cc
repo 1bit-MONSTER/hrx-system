@@ -55,10 +55,10 @@ class EncoderBufferTest : public ::testing::Test {
   loom_bytecode_buffer_t buffer_ = {};
 };
 
-TEST_F(EncoderBufferTest, GrowthPreservesPatchedPrefixAndPayload) {
+TEST_F(EncoderBufferTest, GrowthPreservesPrefixAndPayload) {
   EXPECT_EQ(allocation_count_, 0);
-  IREE_ASSERT_OK(loom_bytecode_emit_u64_le(&buffer_.builder, 0));
-  loom_bytecode_patch_u64_le(&buffer_.builder, 0, UINT64_C(0x1020304050607080));
+  IREE_ASSERT_OK(loom_bytecode_emit_u64_le(&buffer_.builder,
+                                           UINT64_C(0x1020304050607080)));
   for (uint32_t i = 0; i < 4096; ++i) {
     IREE_ASSERT_OK(loom_bytecode_emit_u8(&buffer_.builder, (uint8_t)i));
   }
@@ -80,17 +80,18 @@ TEST_F(EncoderBufferTest, ResetReusesCapacity) {
   const iree_host_size_t capacity = buffer_.builder.capacity;
   const iree_host_size_t allocated = arena_.used_allocation_size;
   iree_string_builder_reset(&buffer_.builder);
-  IREE_ASSERT_OK(loom_bytecode_emit_u16_le(&buffer_.builder, 0xABCD));
+  IREE_ASSERT_OK(loom_bytecode_emit_uvarint(&buffer_.builder, 300));
   EXPECT_EQ(buffer_.builder.buffer, storage);
   EXPECT_EQ(buffer_.builder.capacity, capacity);
   EXPECT_EQ(arena_.used_allocation_size, allocated);
   ASSERT_EQ(buffer_.builder.size, 2);
-  EXPECT_EQ((uint8_t)buffer_.builder.buffer[0], 0xCD);
-  EXPECT_EQ((uint8_t)buffer_.builder.buffer[1], 0xAB);
+  EXPECT_EQ((uint8_t)buffer_.builder.buffer[0], 0xAC);
+  EXPECT_EQ((uint8_t)buffer_.builder.buffer[1], 0x02);
 }
 
 TEST_F(EncoderBufferTest, FailedGrowthPreservesBuffer) {
-  IREE_ASSERT_OK(loom_bytecode_emit_u32_le(&buffer_.builder, 0x12345678));
+  IREE_ASSERT_OK(
+      loom_bytecode_emit_u64_le(&buffer_.builder, UINT64_C(0x12345678)));
   const char* storage = buffer_.builder.buffer;
   const iree_host_size_t capacity = buffer_.builder.capacity;
   const iree_host_size_t allocated = arena_.used_allocation_size;
@@ -101,8 +102,8 @@ TEST_F(EncoderBufferTest, FailedGrowthPreservesBuffer) {
   EXPECT_EQ(buffer_.builder.buffer, storage);
   EXPECT_EQ(buffer_.builder.capacity, capacity);
   EXPECT_EQ(arena_.used_allocation_size, allocated);
-  ASSERT_EQ(buffer_.builder.size, 4);
-  const uint8_t expected[] = {0x78, 0x56, 0x34, 0x12};
+  ASSERT_EQ(buffer_.builder.size, 8);
+  const uint8_t expected[] = {0x78, 0x56, 0x34, 0x12, 0, 0, 0, 0};
   EXPECT_EQ(std::memcmp(buffer_.builder.buffer, expected, sizeof(expected)), 0);
 }
 

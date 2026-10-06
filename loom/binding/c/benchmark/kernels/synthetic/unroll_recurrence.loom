@@ -75,3 +75,28 @@ kernel.def @unroll_read_body() {
   view.store %result, %output[0] : f32, view<1xf32>
   kernel.return
 }
+
+// A changing byte origin makes same-iteration disjoint stores overlap across
+// iterations. This exercises movement refinement and its temporary storage.
+kernel.def @unroll_scoped_writes() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%output_buffer: buffer, %first: i32, %second: i32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %count = config.get @benchmark.unroll_count : index
+  %origin = index.constant 0 : offset
+  %next_origin = index.constant 16 : offset
+  %aligned = buffer.assume.alignment %output_buffer {minimum_alignment = 16} : buffer
+  %layout = encoding.layout.dense : encoding<layout>
+  %first_values = vector.splat %first : vector<4xi32>
+  %second_values = vector.splat %second : vector<4xi32>
+  scf.for %row = [%begin to %count step %step] unroll schedule(interleaved) {
+    %initial = index.cmp eq, %row, %begin : index
+    %base = scf.select %initial, %origin, %next_origin : offset
+    %output = buffer.view %aligned[%base] : buffer -> view<8xi32, %layout>
+    vector.store %first_values, %output[0] : vector<4xi32>, view<8xi32, %layout>
+    vector.store %second_values, %output[4] : vector<4xi32>, view<8xi32, %layout>
+  }
+  kernel.return
+}

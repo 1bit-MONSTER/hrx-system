@@ -78,6 +78,8 @@ static const char* iree_hal_device_ubsan_check_kind_string(
       return "float_nan_contract";
     case IREE_HAL_DEVICE_UBSAN_CHECK_KIND_UNREACHABLE:
       return "unreachable";
+    case IREE_HAL_DEVICE_UBSAN_CHECK_KIND_ASSERTION:
+      return "assertion";
     case IREE_HAL_DEVICE_UBSAN_CHECK_KIND_UNKNOWN:
     default:
       return "unknown";

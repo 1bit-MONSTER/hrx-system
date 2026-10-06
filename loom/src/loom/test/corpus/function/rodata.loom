@@ -1,0 +1,128 @@
+global.rodata.def @table = align(64) bytes("1122334480ff007e")
+
+// Sixteen words follow 7 + 3 * index across two 32-byte table blocks.
+global.rodata.def @gather_words = align(32) bytes("070000000a0000000d000000100000001300000016000000190000001c0000001f0000002200000025000000280000002b0000002e0000003100000034000000")
+
+global.rodata.def @empty = bytes("")
+
+global.rodata.def @suffix = align(2) bytes("aabbcc")
+
+func.def public @rodata_table() -> (buffer) {
+  %table = global.load @table : buffer
+  func.return %table : buffer
+}
+
+func.def public @rodata_byte(%table: buffer, %position: i64) -> (i32) {
+  %position_input = scalar.assume %position [range(%position, 0, 9223372036854775807)] : i64
+  %offset = index.cast %position_input : i64 to offset
+  %value = buffer.load.i8.u %table[%offset]
+  func.return %value : i32
+}
+
+// The returned immutable root crosses the host boundary before it is indexed.
+// No pointer into the compiler module or its transient emission storage survives.
+check.case @rodata_dynamic_index {
+  %position = check.literal value(4) : i64
+  %table = func.call @rodata_table() : () -> (buffer)
+  %actual = func.call @rodata_byte(%table, %position) : (buffer, i64) -> (i32)
+  %expected = check.literal value(128) : i32
+  check.expect.equal actual(%actual) expected(%expected) : i32
+  check.return
+}
+
+check.case @rodata_unsigned_byte {
+  %position = check.literal value(5) : i64
+  %table = func.call @rodata_table() : () -> (buffer)
+  %actual = func.call @rodata_byte(%table, %position) : (buffer, i64) -> (i32)
+  %expected = check.literal value(255) : i32
+  check.expect.equal actual(%actual) expected(%expected) : i32
+  check.return
+}
+
+// Masked byte indices cross both 32-byte table blocks. The callable boundary
+// keeps the packed input dynamic while the immutable table remains explicit.
+func.def public @rodata_word_gather(%packed_indices: i32) -> (i32, i32, i32, i32) {
+  %packed = vector.splat %packed_indices : vector<4xi32>
+  %bytes = vector.bitcast %packed : vector<4xi32> to vector<16xi8>
+  %index_mask = vector.constant 15 : vector<16xi8>
+  %bounded = vector.andi %bytes, %index_mask : vector<16xi8>
+  %indices = vector.extui %bounded : vector<16xi8> to vector<16xi32>
+  %table = global.load @gather_words : buffer
+  %origin = index.constant 0 : offset
+  %table_view = buffer.view %table[%origin] : buffer -> view<16xi32>
+  %values = vector.gather %table_view[0][%indices] : view<16xi32>, vector<16xi32> -> vector<16xi32>
+  %first = vector.extract %values[0] : vector<16xi32> -> i32
+  %lower_end = vector.extract %values[1] : vector<16xi32> -> i32
+  %upper_begin = vector.extract %values[2] : vector<16xi32> -> i32
+  %last = vector.extract %values[3] : vector<16xi32> -> i32
+  func.return %first, %lower_end, %upper_begin, %last : i32, i32, i32, i32
+}
+
+check.case @rodata_word_gather_boundaries {
+  // Little-endian bytes [0, 7, 8, 15] repeat through the vector splat.
+  %packed_indices = check.literal value(252184320) : i32
+  %first, %lower_end, %upper_begin, %last = func.call @rodata_word_gather(%packed_indices) : (i32) -> (i32, i32, i32, i32)
+  %expected_first = check.literal value(7) : i32
+  %expected_lower_end = check.literal value(28) : i32
+  %expected_upper_begin = check.literal value(31) : i32
+  %expected_last = check.literal value(52) : i32
+  check.expect.equal actual(%first) expected(%expected_first) : i32
+  check.expect.equal actual(%lower_end) expected(%expected_lower_end) : i32
+  check.expect.equal actual(%upper_begin) expected(%expected_upper_begin) : i32
+  check.expect.equal actual(%last) expected(%expected_last) : i32
+  check.return
+}
+
+func.def public @rodata_copy(%start: i64, %count: i64) -> (i32, i32) {
+  %source = global.load @table : buffer
+  %start_input = scalar.assume %start [range(%start, 0, 9223372036854775807)] : i64
+  %offset = index.cast %start_input : i64 to offset
+  %count_input = scalar.assume %count [range(%count, 0, 9223372036854775807)] : i64
+  %length = index.cast %count_input : i64 to offset
+  %target_offset = index.constant 0 : offset
+  %target = buffer.alloca<private> align(8) %length : buffer
+  buffer.copy %source[%offset], %target[%target_offset], %length
+  %equal = buffer.compare %source[%offset], %target[%target_offset], %length
+  %pattern = scalar.constant 0 : i8
+  buffer.fill %pattern, %target[%target_offset], %length : i8
+  %original = buffer.load.i8.u %source[%offset]
+  func.return %equal, %original : i32, i32
+}
+
+check.case @rodata_copy_independence {
+  %start = check.literal value(1) : i64
+  %count = check.param.choice values([0, 1, 3, 7]) : i64
+  %equal, %original = func.call @rodata_copy(%start, %count) : (i64, i64) -> (i32, i32)
+  %zero = check.literal value(0) : i32
+  %expected = check.literal value(34) : i32
+  check.expect.equal actual(%equal) expected(%zero) : i32
+  check.expect.equal actual(%original) expected(%expected) : i32
+  check.return
+}
+
+func.def public @rodata_extents() -> (buffer, buffer) {
+  %empty = global.load @empty : buffer
+  %suffix = global.load @suffix : buffer
+  func.return %empty, %suffix : buffer, buffer
+}
+
+func.def public @rodata_length(%data: buffer) -> (i64) {
+  %length = buffer.length %data
+  %result = index.cast %length : offset to i64
+  func.return %result : i64
+}
+
+check.case @rodata_empty_and_unaligned_tail {
+  %empty, %suffix = func.call @rodata_extents() : () -> (buffer, buffer)
+  %empty_length = func.call @rodata_length(%empty) : (buffer) -> (i64)
+  %suffix_length = func.call @rodata_length(%suffix) : (buffer) -> (i64)
+  %position = check.literal value(2) : i64
+  %tail = func.call @rodata_byte(%suffix, %position) : (buffer, i64) -> (i32)
+  %zero = check.literal value(0) : i64
+  %three = check.literal value(3) : i64
+  %expected_tail = check.literal value(204) : i32
+  check.expect.equal actual(%empty_length) expected(%zero) : i64
+  check.expect.equal actual(%suffix_length) expected(%three) : i64
+  check.expect.equal actual(%tail) expected(%expected_tail) : i32
+  check.return
+}

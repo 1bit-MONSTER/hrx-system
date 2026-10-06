@@ -18,7 +18,7 @@ import pytest
 
 from loom.builtin_types import ALL_BUILTIN_TYPES
 from loom.dialect.buffer import ALL_BUFFER_OPS
-from loom.dialect.check import ALL_CHECK_OPS
+from loom.dialect.check import ALL_CHECK_OPS, ALL_CHECK_TYPES
 from loom.dialect.command import ALL_COMMAND_OPS
 from loom.dialect.config import ALL_CONFIG_OPS
 from loom.dialect.encoding import ALL_ENCODING_OPS
@@ -62,6 +62,7 @@ ALL_OPS = (
 
 ALL_TYPES = (
     *ALL_BUILTIN_TYPES,
+    *ALL_CHECK_TYPES,
     *ALL_HAL_TYPES,
     *ALL_KERNEL_TYPES,
 )

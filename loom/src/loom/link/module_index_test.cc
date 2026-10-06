@@ -435,10 +435,6 @@ pipeline.def<kernel> @kernel_pipeline() launch() {
   pipeline.return
 }
 
-pipeline.def<command> @command_pipeline() launch() {
-  pipeline.return
-}
-
 pipeline.def @generic_pipeline() launch() {
   pipeline.return
 }
@@ -453,18 +449,12 @@ pipeline.def @generic_pipeline() launch() {
     const loom_link_module_index_symbol_t* kernel_pipeline =
         loom_link_module_index_lookup_private(index, indexed_module,
                                               IREE_SV("kernel_pipeline"));
-    const loom_link_module_index_symbol_t* command_pipeline =
-        loom_link_module_index_lookup_private(index, indexed_module,
-                                              IREE_SV("command_pipeline"));
     const loom_link_module_index_symbol_t* generic_pipeline =
         loom_link_module_index_lookup_private(index, indexed_module,
                                               IREE_SV("generic_pipeline"));
     ASSERT_NE(kernel_pipeline, nullptr);
-    ASSERT_NE(command_pipeline, nullptr);
     ASSERT_NE(generic_pipeline, nullptr);
     EXPECT_EQ(kernel_pipeline->product_carrier, LOOM_PIPELINE_DEF_SCOPE_KERNEL);
-    EXPECT_EQ(command_pipeline->product_carrier,
-              LOOM_PIPELINE_DEF_SCOPE_COMMAND);
     EXPECT_EQ(generic_pipeline->product_carrier, 0u);
   };
 
@@ -568,27 +558,33 @@ template.def<@demo.contract> @provider(%x: i32) -> (i32) {
     ASSERT_NE(helper, nullptr);
     ASSERT_NE(provider, nullptr);
     ASSERT_NE(family_declaration, nullptr);
-    auto has_dependency = [&](const loom_link_module_index_symbol_t* source,
-                              const loom_link_module_index_symbol_t* target,
-                              uint8_t expected_source_root,
-                              loom_symbol_interface_flags_t
-                                  expected_target_interfaces) {
-      for (iree_host_size_t i = 0; i < source->dependencies.count; ++i) {
-        const iree_host_size_t dependency_index =
-            source->dependencies.first + i;
-        if (indexed_module->dependencies.values[dependency_index] ==
-            target->module_symbol_ordinal) {
-          EXPECT_EQ(indexed_module->dependencies
-                        .source_root_region_indices_plus_one[dependency_index],
-                    expected_source_root);
-          EXPECT_EQ(
-              indexed_module->dependencies.target_interfaces[dependency_index],
-              expected_target_interfaces);
-          return true;
-        }
-      }
-      return false;
-    };
+    auto has_dependency =
+        [&](const loom_link_module_index_symbol_t* source,
+            const loom_link_module_index_symbol_t* target,
+            uint8_t expected_source_root,
+            loom_symbol_interface_flags_t expected_target_interfaces) {
+          for (iree_host_size_t i = 0; i < source->dependencies.count; ++i) {
+            const iree_host_size_t dependency_index =
+                source->dependencies.first + i;
+            if (indexed_module->dependencies.values[dependency_index] ==
+                target->module_symbol_ordinal) {
+              EXPECT_EQ(
+                  indexed_module->dependencies
+                      .source_root_region_indices_plus_one[dependency_index],
+                  expected_source_root);
+              EXPECT_EQ(
+                  loom_symbol_reference_contract_interfaces(
+                      indexed_module->dependencies.contracts[dependency_index]),
+                  expected_target_interfaces);
+              EXPECT_EQ(
+                  loom_symbol_reference_contract_role(
+                      indexed_module->dependencies.contracts[dependency_index]),
+                  LOOM_SYMBOL_REFERENCE_ROLE_DEPENDENCY);
+              return true;
+            }
+          }
+          return false;
+        };
     ASSERT_EQ(entry->dependencies.count, 2u);
     EXPECT_TRUE(
         has_dependency(entry, helper, 1u, LOOM_SYMBOL_INTERFACE_CALLABLE));
@@ -692,7 +688,8 @@ test.split_func @split_root() {
           indexed_module->dependencies
               .source_root_region_indices_plus_one[occurrence_index];
       const loom_symbol_interface_flags_t target_interfaces =
-          indexed_module->dependencies.target_interfaces[occurrence_index];
+          loom_symbol_reference_contract_interfaces(
+              indexed_module->dependencies.contracts[occurrence_index]);
       if (target == config_dependency->module_symbol_ordinal) {
         EXPECT_EQ(origin, 1u);
         EXPECT_EQ(target_interfaces, LOOM_SYMBOL_INTERFACE_RECORD);

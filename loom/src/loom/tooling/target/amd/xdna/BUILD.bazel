@@ -6,7 +6,6 @@
 
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
-    "loom_cc_library",
     "loom_config_compatible_with",
 )
 load("//loom/build_tools/bazel:loom_check.bzl", "loom_check_test")
@@ -28,20 +27,26 @@ loom_check_test(
     target_compatible_with = _XDNA_COMPILE_COMPATIBLE_WITH + loom_config_compatible_with(["//loom/config/import:cxx"]),
 )
 
-loom_cc_library(
-    name = "artifact_provider",
-    srcs = ["artifact_provider.c"],
-    hdrs = ["artifact_provider.h"],
-    target_compatible_with = _XDNA_COMPILE_COMPATIBLE_WITH,
-    visibility = ["//loom/src/loom/tooling/compile:__pkg__"],
-    deps = [
-        "//loom/src/loom/target:entry_selection",
-        "//loom/src/loom/target/arch/amd/xdna/aie2p:artifact",
-        "//loom/src/loom/target/arch/amd/xdna/aie2p:low_registry",
-        "//loom/src/loom/target/arch/amd/xdna/aie2p:target_profile",
-        "//loom/src/loom/target/arch/amd/xdna/aie2p:target_records",
-        "//loom/src/loom/tooling/compile:artifact",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-    ],
+loom_check_test(
+    name = "boolean_storage_lowering",
+    src = "test/boolean_storage.cxx-test",
+    data = ["//loom/src/loom/import/cxx/test:boolean_storage.cxx"],
+    runner = "//loom/src/loom/tools/loom-check",
+    target_compatible_with = _XDNA_COMPILE_COMPATIBLE_WITH + loom_config_compatible_with(["//loom/config/import:cxx"]),
+)
+
+loom_check_test(
+    name = "mxfp_group_dot_lowering",
+    src = "test/mxfp_group_dot.cxx-test",
+    data = ["//loom/src/loom/import/cxx/test:mxfp_group_dot.cxx"],
+    runner = "//loom/src/loom/tools/loom-check",
+    target_compatible_with = _XDNA_COMPILE_COMPATIBLE_WITH + loom_config_compatible_with(["//loom/config/import:cxx"]),
+)
+
+loom_check_test(
+    name = "vector_lookup_lowering",
+    src = "test/vector_lookup.cxx-test",
+    data = ["//loom/src/loom/import/cxx/test:vector_lookup.cxx"],
+    runner = "//loom/src/loom/tools/loom-check",
+    target_compatible_with = _XDNA_COMPILE_COMPATIBLE_WITH + loom_config_compatible_with(["//loom/config/import:cxx"]),
 )

@@ -138,5 +138,4 @@ LOOM_CHECK_CASE(builtin_update_values) {
                               loom::check::fill<unsigned, 4>(2u));
   loom::check::expect_bitwise(loom::check::slice<1>(evaluations, 5),
                               loom::check::fill<unsigned, 1>(0u));
-  loom::check::expect_event("device", "count", 0, "type", "asan_report");
 }

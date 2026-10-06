@@ -56,65 +56,6 @@ loom_low_pass_capability_t loom_low_pass_capability_make(
   };
 }
 
-static loom_pass_environment_t
-loom_low_pass_environment_storage_initialize_with_target(
-    const loom_low_descriptor_registry_t* descriptor_registry,
-    const loom_low_lower_policy_registry_t* lower_policy_registry,
-    const loom_target_low_legality_provider_list_t* legality_provider_list,
-    const loom_target_legalizer_registry_t* legalizer_registry,
-    const loom_target_math_policy_registry_t* math_policy_registry,
-    loom_target_compile_report_t* compile_report,
-    loom_target_pass_capability_t target_capability,
-    loom_low_pass_environment_storage_t* out_storage) {
-  out_storage->target_capability = target_capability;
-  out_storage->low_capability = loom_low_pass_capability_make(
-      descriptor_registry, lower_policy_registry, legality_provider_list,
-      legalizer_registry, compile_report);
-  out_storage->math_capability = loom_target_math_pass_capability_make(
-      math_policy_registry, compile_report);
-  out_storage->capabilities[0] = &out_storage->target_capability.base;
-  out_storage->capabilities[1] = &out_storage->low_capability.base;
-  out_storage->capabilities[2] = &out_storage->math_capability.base;
-  out_storage->environment = loom_pass_environment_make(
-      out_storage->capabilities, IREE_ARRAYSIZE(out_storage->capabilities));
-  return out_storage->environment;
-}
-
-loom_pass_environment_t loom_low_pass_environment_storage_initialize(
-    const loom_low_descriptor_registry_t* descriptor_registry,
-    const loom_low_lower_policy_registry_t* lower_policy_registry,
-    const loom_target_low_legality_provider_list_t* legality_provider_list,
-    const loom_target_legalizer_registry_t* legalizer_registry,
-    const loom_target_math_policy_registry_t* math_policy_registry,
-    loom_target_compile_report_t* compile_report,
-    const loom_target_environment_t* target_environment,
-    const loom_function_version_list_t* function_versions,
-    loom_low_pass_environment_storage_t* out_storage) {
-  return loom_low_pass_environment_storage_initialize_with_target(
-      descriptor_registry, lower_policy_registry, legality_provider_list,
-      legalizer_registry, math_policy_registry, compile_report,
-      loom_target_pass_capability_make(target_environment, function_versions),
-      out_storage);
-}
-
-loom_pass_environment_t loom_low_pass_environment_storage_initialize_mutable(
-    const loom_low_descriptor_registry_t* descriptor_registry,
-    const loom_low_lower_policy_registry_t* lower_policy_registry,
-    const loom_target_low_legality_provider_list_t* legality_provider_list,
-    const loom_target_legalizer_registry_t* legalizer_registry,
-    const loom_target_math_policy_registry_t* math_policy_registry,
-    loom_target_compile_report_t* compile_report,
-    const loom_target_environment_t* target_environment,
-    loom_function_version_owner_t* function_version_owner,
-    loom_low_pass_environment_storage_t* out_storage) {
-  return loom_low_pass_environment_storage_initialize_with_target(
-      descriptor_registry, lower_policy_registry, legality_provider_list,
-      legalizer_registry, math_policy_registry, compile_report,
-      loom_target_pass_capability_make_mutable(target_environment,
-                                               function_version_owner),
-      out_storage);
-}
-
 const loom_low_pass_capability_t* loom_low_pass_capability_from_environment(
     const loom_pass_environment_t* environment) {
   return (const loom_low_pass_capability_t*)loom_pass_environment_lookup(

@@ -193,6 +193,43 @@ TEST_F(BuilderStorageTest, SeparateResultTypesFollowDeclaredFields) {
       loom_type_equal(loom_module_value_type(module_, second), second_type));
 }
 
+TEST_F(BuilderStorageTest, ProjectedBlockArgumentGroupsShareOneEntrySignature) {
+  const loom_type_t actual_types[] = {
+      loom_type_scalar(LOOM_SCALAR_TYPE_F32),
+      loom_type_scalar(LOOM_SCALAR_TYPE_I32),
+  };
+  const loom_type_t expected_types[] = {
+      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+  };
+  loom_op_t* op = nullptr;
+  IREE_ASSERT_OK(loom_test_block_arg_groups_build(
+      &builder_, actual_types, IREE_ARRAYSIZE(actual_types), expected_types,
+      IREE_ARRAYSIZE(expected_types), LOOM_LOCATION_UNKNOWN, &op));
+
+  EXPECT_EQ(loom_test_block_arg_groups_actual_count(op), 2);
+  const loom_block_t* entry =
+      loom_region_const_entry_block(loom_test_block_arg_groups_body(op));
+  ASSERT_EQ(entry->arg_count, 3u);
+  EXPECT_TRUE(loom_type_equal(
+      loom_module_value_type(module_, loom_block_arg_id(entry, 0)),
+      actual_types[0]));
+  EXPECT_TRUE(loom_type_equal(
+      loom_module_value_type(module_, loom_block_arg_id(entry, 1)),
+      actual_types[1]));
+  EXPECT_TRUE(loom_type_equal(
+      loom_module_value_type(module_, loom_block_arg_id(entry, 2)),
+      expected_types[0]));
+
+  const uint32_t op_count = loom_module_block(module_)->op_count;
+  loom_op_t* overflow = nullptr;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED,
+                        loom_test_block_arg_groups_build(
+                            &builder_, actual_types, UINT16_MAX, expected_types,
+                            1, LOOM_LOCATION_UNKNOWN, &overflow));
+  EXPECT_EQ(overflow, nullptr);
+  EXPECT_EQ(loom_module_block(module_)->op_count, op_count);
+}
+
 TEST_F(BuilderStorageTest, IntegerArraysOutliveCallerStorage) {
   for (iree_host_size_t count : {0u, 2u}) {
     int64_t keys[] = {-7, 42};
@@ -258,7 +295,7 @@ TEST_F(BuilderStorageTest, BytesOutliveCallerStorage) {
     uint8_t bytes[] = {0x00, 0x7F, 0xFF};
     loom_op_t* op = nullptr;
     IREE_ASSERT_OK(loom_global_rodata_def_build(
-        &builder_, 0, {0, symbol}, 0,
+        &builder_, 0, {0, symbol}, 0, loom_symbol_ref_array_empty(),
         iree_make_const_byte_span(count ? bytes : nullptr, count),
         LOOM_LOCATION_UNKNOWN, &op));
 

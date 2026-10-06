@@ -35,6 +35,12 @@ option(IREE_ENABLE_POSIX "Builds IREE with POSIX support." ON)
 option(IREE_ENABLE_LIBBACKTRACE
   "Enables libbacktrace for Linux stack traces." OFF)
 
+option(IREE_NET_RDMA
+  "Build native RDMA resource and registration support." OFF)
+if(IREE_NET_RDMA AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  message(FATAL_ERROR "IREE_NET_RDMA requires Linux rdma-core")
+endif()
+
 set(IREE_ALLOCATOR_SYSTEM "libc" CACHE STRING
   "Default named iree_allocator_t library and function base name.")
 set(IREE_RUNTIME_OPTIMIZATION_PROFILE "" CACHE STRING

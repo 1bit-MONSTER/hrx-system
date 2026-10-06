@@ -17,21 +17,55 @@ package(
 )
 
 loom_cc_library(
-    name = "bank_sroa",
-    srcs = ["bank_sroa.c"],
-    hdrs = ["bank_sroa.h"],
+    name = "cleanup_patterns",
+    srcs = ["cleanup_patterns.c"],
+    hdrs = ["cleanup_patterns.h"],
     deps = [
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops:special_values",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/rewrite:pattern_registry",
+        "//loom/src/loom/rewrite:rewriter",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "combine_patterns",
+    srcs = ["combine_patterns.c"],
+    hdrs = ["combine_patterns.h"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/rewrite:pattern_registry",
+        "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/transforms/conversion:chain",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "bank_sroa",
+    srcs = [
+        "bank_sroa.c",
+        "bank_sroa_projection.c",
+    ],
+    hdrs = [
+        "bank_sroa.h",
+        "bank_sroa_projection.h",
+    ],
+    deps = [
+        "//loom/src/loom/codegen/low/pipeline:pass_environment",
+        "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
-        "//loom/src/loom/ops/scf",
         "//loom/src/loom/ops/vector",
         "//loom/src/loom/pass:types",
-        "//loom/src/loom/rewrite:materialize",
-        "//loom/src/loom/rewrite:remap",
         "//loom/src/loom/rewrite:rewriter",
-        "//loom/src/loom/util:walk",
+        "//loom/src/loom/target:pass_environment",
+        "//loom/src/loom/target/reporting:report",
+        "//loom/src/loom/transforms/boundary:projection_core",
         "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
     ],
 )
 
@@ -145,11 +179,39 @@ loom_cc_library(
     srcs = ["packet_legalization.c"],
     hdrs = ["packet_legalization.h"],
     deps = [
+        "//loom/src/loom/analysis:motion",
         "//loom/src/loom/analysis:view_regions",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/buffer",
         "//loom/src/loom/ops/index",
         "//loom/src/loom/ops/scf",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/target:legalization",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "table_legalization",
+    srcs = ["table_legalization.c"],
+    hdrs = ["table_legalization.h"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/target:legalization",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
+    name = "shape_legalization",
+    srcs = ["shape_legalization.c"],
+    hdrs = ["shape_legalization.h"],
+    deps = [
+        "//loom/src/loom/ir",
         "//loom/src/loom/ops/vector",
         "//loom/src/loom/rewrite:rewriter",
         "//loom/src/loom/target:legalization",

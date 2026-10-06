@@ -289,6 +289,24 @@ def _gpr64_to_gpr32_truncate_descriptor() -> Descriptor:
     )
 
 
+def _gpr_narrow_zero_extend_descriptor(bit_count: int) -> Descriptor:
+    # The source owns a full GPR32 allocation unit, but MOVZX reads only its
+    # low byte or word. Independent operands permit distinct payload types.
+    return Descriptor(
+        key=f"x86.scalar.movzx.u{bit_count}.gpr32",
+        mnemonic="movzx",
+        semantic_tag=f"integer.extui.i{bit_count}.i32",
+        operands=(_gpr32_result(), _gpr32_operand("src")),
+        asm_forms=_asm(
+            mnemonic=f"movzx.u{bit_count}.gpr32",
+            results=("dst",),
+            operands=("src",),
+        ),
+        schedule_class=_SCHEDULE_SCALAR,
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
 def _gpr_select_descriptor(bit_count: int) -> Descriptor:
     result = _gpr64_result() if bit_count == 64 else _gpr32_result()
     operand = _gpr64_operand if bit_count == 64 else _gpr32_operand
@@ -568,9 +586,15 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
         key="x86.scalar.sub.if_uge.imm.gpr32",
         mnemonic="sub.cmovb",
         semantic_tag="integer.subtract_if_unsigned_ge.i32",
-        operands=(_gpr32_result(), _gpr32_operand("lhs")),
+        operands=(
+            _gpr32_result(),
+            Operand(
+                "lhs",
+                OperandRole.OPERAND,
+                (RegClassAlt(_REG_GPR32, late_read_subgroup_size=0),),
+            ),
+        ),
         immediates=(_IMM32_IMMEDIATE,),
-        constraints=(Constraint(ConstraintKind.EARLY_CLOBBER, 0),),
         asm_forms=_asm(
             mnemonic="sub.if_uge.imm.gpr32",
             results=("dst",),
@@ -684,6 +708,7 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
         semantic_tag="integer.extui.i32.i64",
         asm_mnemonic="movzx.gpr64.gpr32",
     ),
+    *(_gpr_narrow_zero_extend_descriptor(width) for width in (8, 16)),
     Descriptor(
         key="x86.scalar.movimm.gpr64",
         mnemonic="mov",
@@ -711,7 +736,7 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
         ),
         asm_forms=_asm(results=("dst",), operands=("lhs", "rhs")),
         schedule_class=_SCHEDULE_ADDRESS,
-        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.SAFE_TO_SPECULATE),
     ),
     Descriptor(
         key="x86.scalar.lea.disp.gpr64",
@@ -730,7 +755,7 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
             named_immediates=True,
         ),
         schedule_class=_SCHEDULE_ADDRESS,
-        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.SAFE_TO_SPECULATE),
     ),
     Descriptor(
         key="x86.scalar.lea.scale.gpr64",
@@ -749,7 +774,7 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
             named_immediates=True,
         ),
         schedule_class=_SCHEDULE_ADDRESS,
-        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.SAFE_TO_SPECULATE),
     ),
     Descriptor(
         key="x86.scalar.lea.add_scale.gpr64",
@@ -769,7 +794,7 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
             named_immediates=True,
         ),
         schedule_class=_SCHEDULE_ADDRESS,
-        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.SAFE_TO_SPECULATE),
     ),
     Descriptor(
         key="x86.scalar.lea.add_scale.gpr32",
@@ -789,7 +814,7 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
             named_immediates=True,
         ),
         schedule_class=_SCHEDULE_ADDRESS,
-        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.SAFE_TO_SPECULATE),
     ),
     Descriptor(
         key="x86.scalar.jmp",

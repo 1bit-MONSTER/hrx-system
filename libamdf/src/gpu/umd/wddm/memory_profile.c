@@ -6,6 +6,7 @@
 
 #include "libamdf/src/gpu/umd/wddm/memory_profile.h"
 
+#include "libamdf/src/gpu/umd/memory.h"
 #include "libamdf/src/platform/windows/endpoint.h"
 
 amdf_status_t amdf_windows_gpu_query_memory_capabilities(
@@ -66,6 +67,7 @@ static uint64_t amdf_windows_gpu_maximum_alignment(
 
 amdf_status_t amdf_gpu_wddm_query_memory_profile(
     const amdf_windows_gpu_memory_capabilities_t* capabilities,
+    const amdf_wkmi_bridge_gpu_properties_t* properties,
     uint32_t memory_profile_ordinal,
     amdf_memory_native_profile_t* out_profile) {
   if (memory_profile_ordinal > 3) {
@@ -89,6 +91,7 @@ amdf_status_t amdf_gpu_wddm_query_memory_profile(
       amdf_windows_gpu_maximum_alignment(capabilities);
   amdf_memory_native_profile_t profile = {
       .ordinal = memory_profile_ordinal,
+      .visibility = {.describe_site = amdf_gpu_umd_memory_describe_site},
       .address_kinds = UINT64_C(1) << AMDF_MEMORY_ADDRESS_GPU,
       .guaranteed_device_access = guaranteed_device_access,
       .supported_device_access = AMDF_MEMORY_ACCESS_READ |
@@ -126,7 +129,18 @@ amdf_status_t amdf_gpu_wddm_query_memory_profile(
         profile.guaranteed_flags | AMDF_MEMORY_FLAG_QUEUE_STORAGE;
     if (capabilities->cache_coherent_memory_supported) {
       profile.supported_flags |= AMDF_MEMORY_FLAG_HOST_COHERENT;
+      // GFX11 fine-grained SYSTEM mappings forward integer exchange to the
+      // fabric. Integrated processors have an internal CPU route; discrete
+      // processors additionally require native platform AtomicOps support.
+      if (properties->gfx_ip_major == 11 &&
+          (properties->is_discrete == 0 ||
+           properties->supports_platform_atomics != 0)) {
+        profile.atomic_operations_32 = AMDF_ATOMIC_OPERATION_STORE;
+        profile.atomic_operations_64 = AMDF_ATOMIC_OPERATION_STORE;
+      }
     }
+    profile.visibility.describe_site =
+        amdf_gpu_umd_memory_describe_system_store_site;
     profile.device_address.minimum_alignment =
         AMDF_WINDOWS_GPU_RESERVATION_GRANULARITY;
     profile.allocation = allocation;

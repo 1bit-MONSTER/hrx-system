@@ -8,7 +8,8 @@
 
 #include <string.h>
 
-#include "common/internal.h"
+#include "common/device.h"
+#include "common/hrx_bridge.h"
 
 void iree_hal_streaming_peer_properties_initialize(
     bool access_supported, bool architectures_match,

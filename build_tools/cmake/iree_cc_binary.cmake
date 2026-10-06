@@ -104,12 +104,7 @@ function(iree_cc_binary)
       iree_generated_output_add_consumer("${_SOURCE}" "${_NAME}")
     endforeach()
   else()
-    set(_DUMMY_SRC "${CMAKE_CURRENT_BINARY_DIR}/${_NAME}_dummy.cc")
-    iree_make_empty_file("${_DUMMY_SRC}")
-    target_sources(${_NAME}
-      PRIVATE
-        ${_DUMMY_SRC}
-    )
+    iree_add_empty_object(${_NAME})
   endif()
   target_include_directories(${_NAME} SYSTEM
     PUBLIC

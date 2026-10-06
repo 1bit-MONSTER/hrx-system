@@ -41,26 +41,26 @@ func.def @subview_nested_dynamic(%input: buffer, %output: buffer, %base: offset,
 
 // ----
 low.func.def target<x86.avx2.core> abi(object_function) @subview_nested_dynamic(%input_aligned: reg<x86.gpr64>, %output_aligned: reg<x86.gpr64>, %origin: reg<x86.gpr64>, %row_bounded: reg<x86.gpr64>, %column_bounded: reg<x86.gpr64>) -> (reg<x86.gpr32>) asm {
-  %27 = mov.imm64 32
-  %28 = copy %row_bounded : reg<x86.gpr64> -> reg<x86.gpr64>
-  %29 = imul.gpr64 %28, %27
-  %30 = copy %origin : reg<x86.gpr64> -> reg<x86.gpr64>
-  %31 = add.gpr64 %30, %29
-  %32 = mov.imm64 4
-  %33 = copy %column_bounded : reg<x86.gpr64> -> reg<x86.gpr64>
-  %34 = imul.gpr64 %33, %32
-  %35 = copy %31 : reg<x86.gpr64> -> reg<x86.gpr64>
-  %36 = add.gpr64 %35, %34
-  %value = mov.load.indexed.gpr32 %input_aligned, %36 {disp32 = 76, scale = 1}
-  %39 = copy %row_bounded : reg<x86.gpr64> -> reg<x86.gpr64>
-  %40 = imul.gpr64 %39, %27
-  %41 = copy %origin : reg<x86.gpr64> -> reg<x86.gpr64>
-  %42 = add.gpr64 %41, %40
-  %44 = copy %column_bounded : reg<x86.gpr64> -> reg<x86.gpr64>
-  %45 = imul.gpr64 %44, %32
-  %46 = copy %42 : reg<x86.gpr64> -> reg<x86.gpr64>
-  %47 = add.gpr64 %46, %45
-  mov.store.indexed.gpr32 %value, %output_aligned, %47 {disp32 = 68, scale = 1}
+  %26 = mov.imm64 32
+  %27 = copy %row_bounded : reg<x86.gpr64> -> reg<x86.gpr64>
+  %28 = imul.gpr64 %27, %26
+  %29 = copy %origin : reg<x86.gpr64> -> reg<x86.gpr64>
+  %30 = add.gpr64 %29, %28
+  %31 = mov.imm64 4
+  %32 = copy %column_bounded : reg<x86.gpr64> -> reg<x86.gpr64>
+  %33 = imul.gpr64 %32, %31
+  %34 = copy %30 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %35 = add.gpr64 %34, %33
+  %value = mov.load.indexed.gpr32 %input_aligned, %35 {disp32 = 76, scale = 1}
+  %38 = copy %row_bounded : reg<x86.gpr64> -> reg<x86.gpr64>
+  %39 = imul.gpr64 %38, %26
+  %40 = copy %origin : reg<x86.gpr64> -> reg<x86.gpr64>
+  %41 = add.gpr64 %40, %39
+  %43 = copy %column_bounded : reg<x86.gpr64> -> reg<x86.gpr64>
+  %44 = imul.gpr64 %43, %31
+  %45 = copy %41 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %46 = add.gpr64 %45, %44
+  mov.store.indexed.gpr32 %value, %output_aligned, %46 {disp32 = 68, scale = 1}
   return %value
 }
 

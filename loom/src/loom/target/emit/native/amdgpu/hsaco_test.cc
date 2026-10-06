@@ -18,6 +18,7 @@
 #include "loom/target/arch/amdgpu/profile.h"
 #include "loom/target/arch/amdgpu/target_info.h"
 #include "loom/target/emit/native/amdgpu/descriptor.h"
+#include "loom/target/emit/native/amdgpu/hsaco_build.h"
 #include "loom/target/emit/native/elf.h"
 
 namespace loom {
@@ -95,6 +96,14 @@ StreamPtr CreateStream() {
           IREE_IO_STREAM_MODE_SEEKABLE | IREE_IO_STREAM_MODE_RESIZABLE,
       1024, iree_allocator_system(), &stream));
   return StreamPtr(stream, iree_io_stream_release);
+}
+
+iree_status_t WriteHsaco(const loom_amdgpu_hsaco_input_t* input,
+                         iree_io_stream_t* stream,
+                         iree_arena_allocator_t* arena) {
+  loom_amdgpu_hsaco_plan_t plan = {};
+  IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_plan_build(input, &plan, arena));
+  return loom_amdgpu_hsaco_write_plan(&plan, stream, arena);
 }
 
 std::string StreamBytes(iree_io_stream_t* stream) {
@@ -254,6 +263,15 @@ std::string StringViewToString(iree_string_view_t value) {
   return std::string(value.data, value.size);
 }
 
+loom_amdgpu_target_identity_t TargetIdentity(const char* target_name) {
+  const loom_amdgpu_target_info_t* target = nullptr;
+  IREE_CHECK_OK(loom_amdgpu_target_info_lookup_target(
+      iree_make_cstring_view(target_name), &target));
+  loom_amdgpu_target_identity_t identity = {};
+  loom_amdgpu_target_identity_initialize(target, &identity);
+  return identity;
+}
+
 std::string CodeObjectTargetIdForIdentity(
     const loom_amdgpu_target_identity_t& identity) {
   TestArena arena;
@@ -271,17 +289,15 @@ TEST(AmdgpuHsacoTest, WritesGfx1100CodeObjectEnvelope) {
       /*.descriptor_options=*/{},
       /*.text=*/iree_make_const_byte_span(s_endpgm, sizeof(s_endpgm)),
   };
-  const loom_amdgpu_hsaco_file_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-      /*.processor=*/IREE_SV("gfx1100"),
+  const loom_amdgpu_hsaco_input_t file = {
+      /*.target_identity=*/TargetIdentity("gfx1100"),
       /*.kernels=*/&kernel,
       /*.kernel_count=*/1,
   };
 
   StreamPtr stream = CreateStream();
   TestArena arena;
-  IREE_ASSERT_OK(
-      loom_amdgpu_hsaco_write_file(&file, stream.get(), arena.arena()));
+  IREE_ASSERT_OK(WriteHsaco(&file, stream.get(), arena.arena()));
   const std::string bytes = StreamBytes(stream.get());
 
   ASSERT_GE(bytes.size(), 64u);
@@ -451,9 +467,8 @@ TEST(AmdgpuHsacoTest, WritesWritableRuntimeDataSymbols) {
           /*.flags=*/LOOM_AMDGPU_HSACO_DATA_SYMBOL_FLAG_WRITABLE,
       },
   };
-  const loom_amdgpu_hsaco_file_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-      /*.processor=*/IREE_SV("gfx1100"),
+  const loom_amdgpu_hsaco_input_t file = {
+      /*.target_identity=*/TargetIdentity("gfx1100"),
       /*.kernels=*/&kernel,
       /*.kernel_count=*/1,
       /*.data_symbols=*/data_symbols,
@@ -462,8 +477,7 @@ TEST(AmdgpuHsacoTest, WritesWritableRuntimeDataSymbols) {
 
   StreamPtr stream = CreateStream();
   TestArena arena;
-  IREE_ASSERT_OK(
-      loom_amdgpu_hsaco_write_file(&file, stream.get(), arena.arena()));
+  IREE_ASSERT_OK(WriteHsaco(&file, stream.get(), arena.arena()));
   const std::string bytes = StreamBytes(stream.get());
 
   const std::vector<Section> sections = ReadSections(bytes);
@@ -549,9 +563,8 @@ TEST(AmdgpuHsacoTest, WritesAlignedReadOnlyDataSymbols) {
       /*.byte_length=*/8,
       /*.alignment=*/128,
   };
-  const loom_amdgpu_hsaco_file_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-      /*.processor=*/IREE_SV("gfx1100"),
+  const loom_amdgpu_hsaco_input_t file = {
+      /*.target_identity=*/TargetIdentity("gfx1100"),
       /*.kernels=*/&kernel,
       /*.kernel_count=*/1,
       /*.data_symbols=*/&data_symbol,
@@ -560,8 +573,7 @@ TEST(AmdgpuHsacoTest, WritesAlignedReadOnlyDataSymbols) {
 
   StreamPtr stream = CreateStream();
   TestArena arena;
-  IREE_ASSERT_OK(
-      loom_amdgpu_hsaco_write_file(&file, stream.get(), arena.arena()));
+  IREE_ASSERT_OK(WriteHsaco(&file, stream.get(), arena.arena()));
   const std::string bytes = StreamBytes(stream.get());
 
   const std::vector<Section> sections = ReadSections(bytes);
@@ -647,9 +659,8 @@ TEST(AmdgpuHsacoTest, PatchesDataSymbolRel32TextFixups) {
           /*.flags=*/LOOM_AMDGPU_HSACO_DATA_SYMBOL_FLAG_WRITABLE,
       },
   };
-  const loom_amdgpu_hsaco_file_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-      /*.processor=*/IREE_SV("gfx1100"),
+  const loom_amdgpu_hsaco_input_t file = {
+      /*.target_identity=*/TargetIdentity("gfx1100"),
       /*.kernels=*/&kernel,
       /*.kernel_count=*/1,
       /*.data_symbols=*/data_symbols,
@@ -658,8 +669,7 @@ TEST(AmdgpuHsacoTest, PatchesDataSymbolRel32TextFixups) {
 
   StreamPtr stream = CreateStream();
   TestArena arena;
-  IREE_ASSERT_OK(
-      loom_amdgpu_hsaco_write_file(&file, stream.get(), arena.arena()));
+  IREE_ASSERT_OK(WriteHsaco(&file, stream.get(), arena.arena()));
   const std::string bytes = StreamBytes(stream.get());
 
   const std::vector<Section> sections = ReadSections(bytes);
@@ -729,9 +739,8 @@ TEST(AmdgpuHsacoTest, RejectsInvalidTextFixups) {
         /*.text_fixups=*/&text_fixup,
         /*.text_fixup_count=*/1,
     };
-    const loom_amdgpu_hsaco_file_t file = {
-        /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-        /*.processor=*/IREE_SV("gfx1100"),
+    const loom_amdgpu_hsaco_input_t file = {
+        /*.target_identity=*/TargetIdentity("gfx1100"),
         /*.kernels=*/&kernel,
         /*.kernel_count=*/1,
         /*.data_symbols=*/&data_symbol,
@@ -740,9 +749,8 @@ TEST(AmdgpuHsacoTest, RejectsInvalidTextFixups) {
 
     StreamPtr stream = CreateStream();
     TestArena arena;
-    IREE_EXPECT_STATUS_IS(
-        IREE_STATUS_OUT_OF_RANGE,
-        loom_amdgpu_hsaco_write_file(&file, stream.get(), arena.arena()));
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
+                          WriteHsaco(&file, stream.get(), arena.arena()));
   }
 
   {
@@ -760,9 +768,8 @@ TEST(AmdgpuHsacoTest, RejectsInvalidTextFixups) {
         /*.text_fixups=*/&text_fixup,
         /*.text_fixup_count=*/1,
     };
-    const loom_amdgpu_hsaco_file_t file = {
-        /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-        /*.processor=*/IREE_SV("gfx1100"),
+    const loom_amdgpu_hsaco_input_t file = {
+        /*.target_identity=*/TargetIdentity("gfx1100"),
         /*.kernels=*/&kernel,
         /*.kernel_count=*/1,
         /*.data_symbols=*/&data_symbol,
@@ -771,9 +778,8 @@ TEST(AmdgpuHsacoTest, RejectsInvalidTextFixups) {
 
     StreamPtr stream = CreateStream();
     TestArena arena;
-    IREE_EXPECT_STATUS_IS(
-        IREE_STATUS_INVALID_ARGUMENT,
-        loom_amdgpu_hsaco_write_file(&file, stream.get(), arena.arena()));
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                          WriteHsaco(&file, stream.get(), arena.arena()));
   }
 }
 
@@ -806,17 +812,15 @@ TEST(AmdgpuHsacoTest, WritesEveryTargetCodeObjectFlags) {
         /*.text=*/iree_make_const_byte_span(s_endpgm, sizeof(s_endpgm)),
     };
     const std::string target_id = CodeObjectTargetIdForIdentity(identity);
-    const loom_amdgpu_hsaco_file_t file = {
-        /*.target=*/iree_make_string_view(target_id.data(), target_id.size()),
-        /*.processor=*/processor->name,
+    const loom_amdgpu_hsaco_input_t file = {
+        /*.target_identity=*/identity,
         /*.kernels=*/&kernel,
         /*.kernel_count=*/1,
     };
 
     StreamPtr stream = CreateStream();
     TestArena arena;
-    IREE_ASSERT_OK(
-        loom_amdgpu_hsaco_write_file(&file, stream.get(), arena.arena()))
+    IREE_ASSERT_OK(WriteHsaco(&file, stream.get(), arena.arena()))
         << StringViewToString(target->name);
     const std::string bytes = StreamBytes(stream.get());
 
@@ -942,17 +946,15 @@ TEST(AmdgpuHsacoTest, WritesNativeKernargLayoutsWithoutHalCompaction) {
   EXPECT_EQ(kernels[1].metadata.arguments[1].offset, 16u);
   EXPECT_EQ(kernels[1].metadata.arguments[1].size, 2u);
 
-  const loom_amdgpu_hsaco_file_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-      /*.processor=*/IREE_SV("gfx1100"),
+  const loom_amdgpu_hsaco_input_t file = {
+      /*.target_identity=*/TargetIdentity("gfx1100"),
       /*.kernels=*/kernels,
       /*.kernel_count=*/IREE_ARRAYSIZE(kernels),
   };
 
   StreamPtr stream = CreateStream();
   TestArena arena;
-  IREE_ASSERT_OK(
-      loom_amdgpu_hsaco_write_file(&file, stream.get(), arena.arena()));
+  IREE_ASSERT_OK(WriteHsaco(&file, stream.get(), arena.arena()));
   const std::string bytes = StreamBytes(stream.get());
   const std::vector<Section> sections = ReadSections(bytes);
   const Section& rodata = FindSection(sections, ".rodata");
@@ -982,17 +984,15 @@ TEST(AmdgpuHsacoTest, WritesGfx942CodeObjectTargetFlags) {
       /*.descriptor_options=*/{},
       /*.text=*/iree_make_const_byte_span(s_endpgm, sizeof(s_endpgm)),
   };
-  const loom_amdgpu_hsaco_file_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx942"),
-      /*.processor=*/IREE_SV("gfx942"),
+  const loom_amdgpu_hsaco_input_t file = {
+      /*.target_identity=*/TargetIdentity("gfx942"),
       /*.kernels=*/&kernel,
       /*.kernel_count=*/1,
   };
 
   StreamPtr stream = CreateStream();
   TestArena arena;
-  IREE_ASSERT_OK(
-      loom_amdgpu_hsaco_write_file(&file, stream.get(), arena.arena()));
+  IREE_ASSERT_OK(WriteHsaco(&file, stream.get(), arena.arena()));
   const std::string bytes = StreamBytes(stream.get());
 
   ASSERT_GE(bytes.size(), 64u);
@@ -1001,28 +1001,6 @@ TEST(AmdgpuHsacoTest, WritesGfx942CodeObjectTargetFlags) {
   EXPECT_EQ(LoadLeU32(bytes, 48), LOOM_NATIVE_ELF_AMDGPU_FLAG_MACH_GFX942 |
                                       LOOM_AMDGPU_ELF_FEATURE_XNACK_ANY_V4 |
                                       LOOM_AMDGPU_ELF_FEATURE_SRAMECC_ANY_V4);
-}
-
-TEST(AmdgpuHsacoTest, RejectsMismatchedProcessor) {
-  const uint8_t text[] = {0x00, 0x00, 0x81, 0xbf};
-  const loom_amdgpu_hsaco_kernel_t kernel = {
-      /*.metadata=*/
-      MinimalKernel(IREE_SV("loom_kernel"), IREE_SV("loom_kernel.kd")),
-      /*.descriptor_options=*/{},
-      /*.text=*/iree_make_const_byte_span(text, sizeof(text)),
-  };
-  const loom_amdgpu_hsaco_file_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-      /*.processor=*/IREE_SV("gfx1200"),
-      /*.kernels=*/&kernel,
-      /*.kernel_count=*/1,
-  };
-
-  StreamPtr stream = CreateStream();
-  TestArena arena;
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INVALID_ARGUMENT,
-      loom_amdgpu_hsaco_write_file(&file, stream.get(), arena.arena()));
 }
 
 TEST(AmdgpuHsacoTest, WritesTargetFeatureSuffixCodeObjectFlags) {
@@ -1035,17 +1013,18 @@ TEST(AmdgpuHsacoTest, WritesTargetFeatureSuffixCodeObjectFlags) {
       /*.descriptor_options=*/{},
       /*.text=*/iree_make_const_byte_span(text, sizeof(text)),
   };
-  const loom_amdgpu_hsaco_file_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx942:sramecc+:xnack-"),
-      /*.processor=*/IREE_SV("gfx942"),
+  loom_amdgpu_target_identity_t identity = TargetIdentity("gfx942");
+  identity.amdhsa_features.sramecc = LOOM_AMDGPU_TARGET_FEATURE_ON;
+  identity.amdhsa_features.xnack = LOOM_AMDGPU_TARGET_FEATURE_OFF;
+  const loom_amdgpu_hsaco_input_t file = {
+      /*.target_identity=*/identity,
       /*.kernels=*/&kernel,
       /*.kernel_count=*/1,
   };
 
   StreamPtr stream = CreateStream();
   TestArena arena;
-  IREE_ASSERT_OK(
-      loom_amdgpu_hsaco_write_file(&file, stream.get(), arena.arena()));
+  IREE_ASSERT_OK(WriteHsaco(&file, stream.get(), arena.arena()));
   const std::string bytes = StreamBytes(stream.get());
 
   ASSERT_GE(bytes.size(), 64u);

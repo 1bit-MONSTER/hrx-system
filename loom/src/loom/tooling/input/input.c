@@ -254,6 +254,7 @@ static iree_status_t loom_input_capture_diagnostic(
 static iree_status_t loom_input_bind_sources(loom_input_capture_t* capture) {
   loom_input_module_t* input = capture->input;
   loom_module_t* module = input->module;
+  input->sources.table.module = module;
   loom_source_entry_t* entries = NULL;
   IREE_RETURN_IF_ERROR(
       iree_arena_allocate_array(&input->sources.arena, module->sources.count,

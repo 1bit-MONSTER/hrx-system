@@ -356,7 +356,8 @@ iree_status_t iree_async_proactor_io_uring_validate_operation(
           proactor, send->socket, "SOCKET_SEND"));
       const iree_async_socket_send_flags_t unknown_flags =
           send->send_flags & ~(IREE_ASYNC_SOCKET_SEND_FLAG_MORE |
-                               IREE_ASYNC_SOCKET_SEND_FLAG_REPORT_PROGRESS);
+                               IREE_ASYNC_SOCKET_SEND_FLAG_REPORT_PROGRESS |
+                               IREE_ASYNC_SOCKET_SEND_FLAG_NO_ZERO_COPY);
       if (unknown_flags) {
         return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                                 "SOCKET_SEND has unknown flags 0x%08X",
@@ -376,7 +377,8 @@ iree_status_t iree_async_proactor_io_uring_validate_operation(
           &send->destination, "SOCKET_SENDTO"));
       const iree_async_socket_send_flags_t unknown_flags =
           send->send_flags & ~(IREE_ASYNC_SOCKET_SEND_FLAG_MORE |
-                               IREE_ASYNC_SOCKET_SEND_FLAG_REPORT_PROGRESS);
+                               IREE_ASYNC_SOCKET_SEND_FLAG_REPORT_PROGRESS |
+                               IREE_ASYNC_SOCKET_SEND_FLAG_NO_ZERO_COPY);
       if (unknown_flags) {
         return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                                 "SOCKET_SENDTO has unknown flags 0x%08X",

@@ -1,0 +1,31 @@
+// RUN: with-checks emit source-low target=amd.xdna.aie2p:core output=low
+
+// Table operands and results share the ordinary vector carrier with indices.
+func.def @bf16x8_lookup(%table: vector<8xbf16>, %indices: vector<8xi16>) -> (vector<8xbf16>) {
+  %values = vector.table.lookup %table[%indices] : vector<8xbf16>, vector<8xi16> -> vector<8xbf16>
+  func.return %values : vector<8xbf16>
+}
+
+// ----
+CHECK: low.func.def * @bf16x8_lookup(%table: reg<aie2p.vec256 x2>, %indices: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+CHECK: return %values
+CHECK-NOT: *reg<aie2p.ewl>*
+
+// ====
+
+// Bitcasts preserve the carrier across selection and scalar lane operations.
+func.def @bf16x8_transport(%bits: vector<8xi16>, %other: vector<8xbf16>, %mask: vector<8xi1>, %position: index) -> (vector<8xi16>) {
+  %values = vector.bitcast %bits : vector<8xi16> to vector<8xbf16>
+  %selected = vector.select %mask, %values, %other : vector<8xbf16>
+  %value = vector.extract %selected[%position] : vector<8xbf16> -> bf16
+  %updated = vector.insert %value into %selected[0] : bf16, vector<8xbf16>
+  %result = vector.bitcast %updated : vector<8xbf16> to vector<8xi16>
+  func.return %result : vector<8xi16>
+}
+
+// ----
+CHECK: %selected = vsel.16.mask64 %other, %values, %mask
+CHECK: %value = vextract.16.reg %selected, %position
+CHECK: %result = vinsert.16.zero %selected, %value
+CHECK: return %result
+CHECK-NOT: *reg<aie2p.ewl>*

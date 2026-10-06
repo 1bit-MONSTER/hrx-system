@@ -637,6 +637,29 @@ class CliTest(unittest.TestCase):
         )
         self.assertIsNone(bazel_dev.header_path_for_include("stdio.h"))
 
+    def test_bazel_try_finds_generated_header_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / "generated"
+            package.mkdir()
+            (package / "BUILD.bazel").write_text("")
+            query = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="//generated:descriptor_ids\n", stderr=""
+            )
+            with (
+                mock.patch.object(bazel_dev, "REPO_ROOT", root),
+                mock.patch.object(
+                    bazel_dev, "run_captured", return_value=query
+                ) as run_captured,
+            ):
+                dep = bazel_dev.infer_dep_for_header_path(
+                    "bazel", package / "descriptors.h", env=None
+                )
+
+            self.assertEqual(dep, "//generated:descriptor_ids")
+            run_captured.assert_called_once()
+            self.assertIn("//generated:*", run_captured.call_args.args[0][2])
+
     def test_bazel_try_finds_exported_header_owner_in_subpackage(self):
         direct_query = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="", stderr=""
@@ -1292,6 +1315,27 @@ class CliTest(unittest.TestCase):
         self.assertIn("--lane bazel", description)
         self.assertIn("--profile paranoid", description)
 
+    def test_bazel_precommit_exports_selected_configs(self):
+        args = cli.parse_arguments(
+            [
+                "bazel",
+                "precommit",
+                "--staged",
+                "--bazel-config=remote-execution",
+                "--bazel-config",
+                "local-tests",
+            ]
+        )
+
+        plan = args.handler(args)
+
+        self.assertEqual(len(plan.steps), 2)
+        for step in plan.steps:
+            self.assertEqual(
+                json.loads(step.env["IREE_PRESUBMIT_BAZEL_CONFIGS"]),
+                ["remote-execution", "local-tests"],
+            )
+
     def test_precommit_profile_can_be_selected(self):
         args = cli.parse_arguments(["bazel", "precommit", "--profile", "default"])
 
@@ -1474,6 +1518,23 @@ class CliTest(unittest.TestCase):
             "bazel precommit --profile ci --staged --verbose",
             step.content,
         )
+
+    def test_hook_persists_selected_bazel_configs(self):
+        args = cli.parse_arguments(
+            [
+                "bazel",
+                "hook",
+                "--bazel-config=remote-execution",
+                "--bazel-config=local-tests",
+            ]
+        )
+
+        plan = args.handler(args)
+        step = plan.steps[0]
+
+        self.assertIsInstance(step, WriteFileStep)
+        self.assertIn("--bazel-config=remote-execution", step.content)
+        self.assertIn("--bazel-config=local-tests", step.content)
 
     def test_hook_verify_uses_supported_lefthook_file_option(self):
         args = cli.parse_arguments(["bazel", "hook", "--verify"])

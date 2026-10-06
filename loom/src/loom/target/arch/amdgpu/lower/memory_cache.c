@@ -171,9 +171,11 @@ loom_amdgpu_memory_cache_policy_resolve(
   if (!loom_amdgpu_memory_cache_policy_is_present(policy)) {
     return LOOM_AMDGPU_MEMORY_CACHE_POLICY_RESOLUTION_ABSENT;
   }
-  if (!loom_amdgpu_memory_cache_policy_is_complete(policy) ||
-      access->source.memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
+  if (!loom_amdgpu_memory_cache_policy_is_complete(policy)) {
     return LOOM_AMDGPU_MEMORY_CACHE_POLICY_RESOLUTION_REJECTED;
+  }
+  if (access->source.memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
+    return LOOM_AMDGPU_MEMORY_CACHE_POLICY_RESOLUTION_DROPPED;
   }
 
   const loom_amdgpu_descriptor_set_info_t* descriptor_set_info =
@@ -227,13 +229,9 @@ bool loom_amdgpu_memory_cache_policy_can_lower(
 
 iree_string_view_t loom_amdgpu_memory_cache_policy_rejection_key(
     const loom_low_descriptor_set_t* descriptor_set,
-    const loom_amdgpu_memory_access_t* access,
     const loom_vector_memory_cache_policy_t* policy) {
   if (!loom_amdgpu_memory_cache_policy_is_complete(policy)) {
     return IREE_SV("memory_cache_policy.incomplete");
-  }
-  if (access->source.memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
-    return IREE_SV("memory_cache_policy.workgroup");
   }
   const loom_amdgpu_descriptor_set_info_t* descriptor_set_info =
       loom_amdgpu_target_info_descriptor_set_at(

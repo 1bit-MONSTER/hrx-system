@@ -21,6 +21,8 @@ extern "C" {
 // larger shadow allocations with a grid-stride loop.
 //
 // |dispatch_packet| and |kernarg_ptr| must point to reserved queue storage.
+// The packet's first word is preserved; |out_setup| receives its setup bits in
+// private storage for the caller's atomic publication.
 // The caller owns packet header commit and barrier placement.
 // |max_workgroup_count| must be non-zero.
 void iree_hal_amdgpu_device_tsan_emplace_queue_initialize(
@@ -30,7 +32,7 @@ void iree_hal_amdgpu_device_tsan_emplace_queue_initialize(
         queue_initialize_args,
     uint32_t max_workgroup_count,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr);
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup);
 
 #if defined(IREE_AMDGPU_TARGET_DEVICE)
 

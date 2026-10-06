@@ -550,9 +550,10 @@ TEST_P(AtomicStorageStabilityTest, AcquisitionInterferesWithSharedStorage) {
         0, LOOM_LOCATION_UNKNOWN, &atomic));
   } else {
     IREE_ASSERT_OK(loom_view_atomic_rmw_build(
-        &builder_, 0, LOOM_ATOMIC_KIND_ADDI, value, token, nullptr, 0, indices,
-        1, ordering, scope, 0, 0, loom_type_scalar(LOOM_SCALAR_TYPE_I32),
-        LOOM_LOCATION_UNKNOWN, &atomic));
+        &builder_, 0, LOOM_ATOMIC_KIND_ADDI, /*instance_flags=*/0, value, token,
+        nullptr, 0, indices, 1, ordering, scope, 0, 0,
+        loom_type_scalar(LOOM_SCALAR_TYPE_I32), LOOM_LOCATION_UNKNOWN,
+        &atomic));
   }
 
   loom_value_fact_table_t facts = {};

@@ -16,7 +16,9 @@
 #include "loom/format/bytecode/writer/type_index.h"
 #include "loom/format/low_repr.h"
 #include "loom/ir/context.h"
+#include "loom/ir/intern_table.h"
 #include "loom/ir/ir.h"
+#include "loom/ir/string_table.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,13 +27,8 @@ extern "C" {
 // Maps a trusted native type kind to its independently versioned wire tag.
 uint8_t loom_bytecode_type_kind_byte(loom_type_kind_t kind);
 
-// String originating outside of the module string table.
-typedef struct loom_bytecode_external_string_t {
-  // External string contents.
-  iree_string_view_t view;
-  // Dense bytecode string-table ID assigned to |view|.
-  uint32_t writer_id;
-} loom_bytecode_external_string_t;
+// Number of external strings retained without allocating a content index.
+#define LOOM_BYTECODE_INLINE_EXTERNAL_STRING_CAPACITY 16u
 
 // Operation kind registered in the bytecode operation table.
 typedef struct loom_bytecode_op_entry_t {
@@ -42,6 +39,59 @@ typedef struct loom_bytecode_op_entry_t {
   // Bytecode string-table ID naming |kind|.
   uint32_t string_writer_id;
 } loom_bytecode_op_entry_t;
+
+// One module value's state in the currently active writer-local namespace.
+typedef struct loom_bytecode_value_scope_row_t {
+  // Scope generation that owns this row, or zero before first use.
+  uint32_t generation;
+  // Wire-local number in numbering scopes; unused in membership-only scopes.
+  uint32_t number;
+} loom_bytecode_value_scope_row_t;
+
+// Direct-index rows corresponding to one stable module value segment.
+typedef iree_alignas(64) struct loom_bytecode_value_scope_segment_t {
+  // Scope-local mappings indexed by the row within the module value segment.
+  loom_bytecode_value_scope_row_t rows[LOOM_VALUE_SEGMENT_CAPACITY];
+} loom_bytecode_value_scope_segment_t;
+
+static_assert(sizeof(loom_bytecode_value_scope_segment_t) == 2048,
+              "writer value scope segment must fit in arena blocks");
+
+typedef struct loom_bytecode_global_value_list_t
+    loom_bytecode_global_value_list_t;
+
+// Number of retained global-value closures in each symbol-index segment.
+#define LOOM_BYTECODE_GLOBAL_VALUE_SEGMENT_CAPACITY 256u
+
+// Retained declaration-local closures for one range of module symbol IDs.
+typedef iree_alignas(64) struct loom_bytecode_global_value_segment_t {
+  // Closure pointers indexed by the row within the symbol-ID segment.
+  loom_bytecode_global_value_list_t*
+      values[LOOM_BYTECODE_GLOBAL_VALUE_SEGMENT_CAPACITY];
+} loom_bytecode_global_value_segment_t;
+
+static_assert(sizeof(loom_bytecode_global_value_segment_t) <= 2048,
+              "writer global-value segment must fit in arena blocks");
+
+// Number of entries in each direction of a symbol-order segment.
+#define LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_CAPACITY 512u
+#define LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_SHIFT 9u
+#define LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_MASK \
+  (LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_CAPACITY - 1u)
+
+// Bidirectional projections for one range of symbol IDs and wire ordinals.
+typedef struct loom_bytecode_symbol_order_segment_t {
+  // Module symbol IDs indexed by the low bits of a wire ordinal.
+  loom_symbol_id_t module_ids[LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_CAPACITY];
+  // Wire ordinals indexed by the low bits of a module symbol ID.
+  loom_symbol_id_t wire_ordinals[LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_CAPACITY];
+} loom_bytecode_symbol_order_segment_t;
+
+static_assert(sizeof(loom_bytecode_symbol_order_segment_t) == 2048,
+              "writer symbol-order segment must fit in arena blocks");
+static_assert((1u << LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_SHIFT) ==
+                  LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_CAPACITY,
+              "writer symbol-order segment capacity must match its shift");
 
 // Sequential catalog-completion facts retained until ENCODINGS emission.
 // Fixed-size chunks fit the arena pool and are consumed without random lookup.
@@ -68,32 +118,52 @@ typedef struct loom_bytecode_numbering_t {
     const loom_low_repr_descriptor_set_t* active_descriptor_set;
   } low_repr;
 
-  // Bidirectional stable module ID and presentation-order mapping.
-  struct {
-    // Module symbol IDs indexed by presentation-ordered wire ordinal.
-    loom_symbol_id_t* module_ids;
-    // Presentation-ordered wire ordinals indexed by module symbol ID.
-    loom_symbol_id_t* wire_ordinals;
+  // Bidirectional stable module ID and presentation-order mapping. Modules
+  // fitting one segment use flat; larger modules use segments.
+  union {
+    // Direct projections retained by ordinary modules.
+    struct {
+      // Module symbol IDs indexed by presentation-ordered wire ordinal.
+      loom_symbol_id_t* module_ids;
+      // Presentation-ordered wire ordinals indexed by module symbol ID.
+      loom_symbol_id_t* wire_ordinals;
+    } flat;
+    // Paired projections indexed by the high bits of either ID.
+    loom_bytecode_symbol_order_segment_t** segments;
   } symbol_order;
+
+  // Invocation-owned direct index for body-local numbering and membership.
+  struct {
+    // Segmented rows sharing the module value table's ID geometry.
+    loom_segmented_storage_t segments;
+  } value_scopes;
+
+  // Declaration-local value closures prepared before section emission.
+  struct {
+    // Segmented closure pointers indexed directly by module symbol ID.
+    loom_segmented_storage_t segments;
+  } global_values;
 
   // First-use-ordered string catalog and its module/external projections.
   struct {
-    // Bytecode string-table entries indexed by bytecode string ID.
-    iree_string_view_t* values;
-    // Number of assigned bytecode string IDs.
-    iree_host_size_t count;
-    // Allocated capacity of |values|.
-    iree_host_size_t capacity;
-    // Bytecode string IDs indexed by module string ID.
-    uint32_t* writer_ids_by_module_id;
-    // Strings originating outside of the module string table.
+    // Segmented borrowed views indexed by bytecode string ID.
+    loom_string_table_t table;
+    // Module string ID projection.
     struct {
-      // External string records in discovery order.
-      loom_bytecode_external_string_t* values;
-      // Number of populated external string records.
+      // Segmented bytecode string IDs indexed by module string ID.
+      loom_segmented_storage_t segments;
+    } module_ids;
+    // Strings absent from the source module.
+    struct {
+      // Borrowed views retained before the content index is needed.
+      iree_string_view_t
+          inline_views[LOOM_BYTECODE_INLINE_EXTERNAL_STRING_CAPACITY];
+      // Writer IDs paired with |inline_views|.
+      uint32_t inline_writer_ids[LOOM_BYTECODE_INLINE_EXTERNAL_STRING_CAPACITY];
+      // Number of external strings in the catalog.
       iree_host_size_t count;
-      // Allocated capacity of |values|.
-      iree_host_size_t capacity;
+      // Lazily built content index after the inline tier fills.
+      loom_intern_table_t index;
     } external;
   } strings;
 
@@ -101,7 +171,7 @@ typedef struct loom_bytecode_numbering_t {
   struct {
     // Bytecode type IDs indexed by module type-table index.
     uint32_t* writer_ids_by_module_index;
-    // Canonical source identities and their immediate dependency slices.
+    // Serialization facts and dependency slices indexed by module type ID.
     loom_bytecode_type_index_t index;
     // Module type-table indices indexed by bytecode type ID.
     iree_host_size_t* module_indices_by_writer_id;
@@ -142,6 +212,18 @@ typedef struct loom_bytecode_numbering_t {
   } ops;
 } loom_bytecode_numbering_t;
 
+// Returns the number of assigned bytecode string IDs.
+static inline iree_host_size_t loom_bytecode_numbering_string_count(
+    const loom_bytecode_numbering_t* numbering) {
+  return numbering->strings.table.count;
+}
+
+// Returns the string assigned to |writer_id|.
+static inline iree_string_view_t loom_bytecode_numbering_string(
+    const loom_bytecode_numbering_t* numbering, uint32_t writer_id) {
+  return loom_string_table_get(&numbering->strings.table, writer_id);
+}
+
 // Initializes empty catalogs and the stable symbol-order projection.
 iree_status_t loom_bytecode_numbering_initialize(
     loom_bytecode_numbering_t* numbering, const loom_module_t* module,
@@ -151,7 +233,15 @@ iree_status_t loom_bytecode_numbering_initialize(
 static inline loom_symbol_id_t loom_bytecode_module_symbol_id(
     const loom_bytecode_numbering_t* numbering, loom_symbol_id_t wire_ordinal) {
   IREE_ASSERT(wire_ordinal < numbering->module->symbols.count);
-  return numbering->symbol_order.module_ids[wire_ordinal];
+  if (IREE_LIKELY(numbering->module->symbols.count <=
+                  LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_CAPACITY)) {
+    return numbering->symbol_order.flat.module_ids[wire_ordinal];
+  }
+  const loom_bytecode_symbol_order_segment_t* segment =
+      numbering->symbol_order
+          .segments[wire_ordinal >> LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_SHIFT];
+  return segment
+      ->module_ids[wire_ordinal & LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_MASK];
 }
 
 // Returns the wire ordinal assigned to |module_symbol_id|.
@@ -159,7 +249,16 @@ static inline loom_symbol_id_t loom_bytecode_wire_symbol_ordinal(
     const loom_bytecode_numbering_t* numbering,
     loom_symbol_id_t module_symbol_id) {
   IREE_ASSERT(module_symbol_id < numbering->module->symbols.count);
-  return numbering->symbol_order.wire_ordinals[module_symbol_id];
+  if (IREE_LIKELY(numbering->module->symbols.count <=
+                  LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_CAPACITY)) {
+    return numbering->symbol_order.flat.wire_ordinals[module_symbol_id];
+  }
+  const loom_bytecode_symbol_order_segment_t* segment =
+      numbering->symbol_order
+          .segments[module_symbol_id >>
+                    LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_SHIFT];
+  return segment->wire_ordinals[module_symbol_id &
+                                LOOM_BYTECODE_SYMBOL_ORDER_SEGMENT_MASK];
 }
 
 // Interns a module-owned string into the bytecode string catalog.
@@ -172,11 +271,16 @@ iree_status_t loom_bytecode_numbering_intern_string_view(
     loom_bytecode_numbering_t* numbering, iree_string_view_t view,
     uint32_t* out_writer_id);
 
-// Interns a structural type and all of its dependencies. When non-NULL,
-// |out_storage_node| receives the exact canonical node for scope-local records.
+// Interns a known module type and its dependencies into the bytecode catalog.
+iree_status_t loom_bytecode_numbering_intern_module_type(
+    loom_bytecode_numbering_t* numbering, loom_type_id_t type_id,
+    uint32_t* out_writer_id);
+
+// Resolves a by-value source type and interns its dependencies. When non-NULL,
+// |out_type_id| receives the canonical module ID for scope-local records.
 iree_status_t loom_bytecode_numbering_intern_type(
     loom_bytecode_numbering_t* numbering, loom_type_t type,
-    uint32_t* out_writer_id, uint32_t* out_storage_node);
+    uint32_t* out_writer_id, loom_type_id_t* out_type_id);
 
 // Interns the registered kind of |op| into the operation catalog.
 iree_status_t loom_bytecode_numbering_intern_op(

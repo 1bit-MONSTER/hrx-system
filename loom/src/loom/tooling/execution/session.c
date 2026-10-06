@@ -37,6 +37,7 @@ iree_status_t loom_run_session_initialize(
   *out_session = (loom_run_session_t){
       .host_allocator = options->host_allocator,
       .input_providers = options->input_providers,
+      .cleanup_pattern_provider_set = options->cleanup_pattern_provider_set,
   };
 
   const iree_host_size_t block_pool_block_size =
@@ -99,6 +100,12 @@ iree_arena_block_pool_t* loom_run_session_block_pool(
 const loom_target_low_descriptor_registry_t*
 loom_run_session_low_descriptor_registry(const loom_run_session_t* session) {
   return &session->low_descriptor_registry;
+}
+
+const loom_cleanup_pattern_provider_set_t*
+loom_run_session_cleanup_pattern_provider_set(
+    const loom_run_session_t* session) {
+  return session->cleanup_pattern_provider_set;
 }
 
 void loom_run_module_parse_options_initialize(
@@ -210,8 +217,8 @@ static iree_status_t loom_run_module_clone_sources(
     const loom_module_t* target_module,
     const loom_source_id_t* target_sources) {
   const loom_run_module_clone_sources_t* sources = user_data;
-  return loom_tooling_source_storage_project(sources->target, sources->source,
-                                             target_sources);
+  return loom_tooling_source_storage_project(sources->target, target_module,
+                                             sources->source, target_sources);
 }
 
 iree_status_t loom_run_module_clone(loom_run_session_t* session,

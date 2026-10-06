@@ -17,6 +17,93 @@ static bool loom_decision_operands_have_same_identity(
          lhs->identity == rhs->identity;
 }
 
+static bool loom_decision_facts_are_exact_zero(loom_value_facts_t facts) {
+  int64_t value = 0;
+  return loom_value_facts_as_exact_i64(facts, &value) && value == 0;
+}
+
+// Converts one sign-stable fact interval into monotonically ordered unsigned
+// carrier payloads. A signed interval crossing zero represents two disjoint
+// unsigned intervals and cannot be bounded without losing information.
+static bool loom_decision_predicate_unsigned_bounds(loom_value_facts_t facts,
+                                                    uint64_t* out_lower,
+                                                    uint64_t* out_upper) {
+  if (loom_value_facts_is_float(facts) ||
+      (facts.range_lo < 0 && facts.range_hi >= 0)) {
+    return false;
+  }
+  *out_lower = (uint64_t)facts.range_lo;
+  *out_upper = (uint64_t)facts.range_hi;
+  return true;
+}
+
+static loom_decision_truth_t loom_decision_predicate_evaluate_unsigned_relation(
+    loom_predicate_kind_t predicate_kind,
+    const loom_decision_predicate_operand_t* lhs,
+    const loom_decision_predicate_operand_t* rhs) {
+  if (loom_decision_operands_have_same_identity(lhs, rhs)) {
+    switch (predicate_kind) {
+      case LOOM_PREDICATE_ULE:
+      case LOOM_PREDICATE_UGE:
+        return LOOM_DECISION_TRUTH_TRUE;
+      case LOOM_PREDICATE_ULT:
+      case LOOM_PREDICATE_UGT:
+        return LOOM_DECISION_TRUTH_FALSE;
+      default:
+        IREE_ASSERT_UNREACHABLE("expected an unsigned relation predicate");
+        IREE_BUILTIN_UNREACHABLE();
+    }
+  }
+
+  uint64_t lhs_lower = 0;
+  uint64_t lhs_upper = 0;
+  uint64_t rhs_lower = 0;
+  uint64_t rhs_upper = 0;
+  if (!loom_decision_predicate_unsigned_bounds(lhs->facts, &lhs_lower,
+                                               &lhs_upper) ||
+      !loom_decision_predicate_unsigned_bounds(rhs->facts, &rhs_lower,
+                                               &rhs_upper)) {
+    return LOOM_DECISION_TRUTH_UNKNOWN;
+  }
+  switch (predicate_kind) {
+    case LOOM_PREDICATE_ULT:
+      if (lhs_upper < rhs_lower) {
+        return LOOM_DECISION_TRUTH_TRUE;
+      }
+      if (lhs_lower >= rhs_upper) {
+        return LOOM_DECISION_TRUTH_FALSE;
+      }
+      return LOOM_DECISION_TRUTH_UNKNOWN;
+    case LOOM_PREDICATE_ULE:
+      if (lhs_upper <= rhs_lower) {
+        return LOOM_DECISION_TRUTH_TRUE;
+      }
+      if (lhs_lower > rhs_upper) {
+        return LOOM_DECISION_TRUTH_FALSE;
+      }
+      return LOOM_DECISION_TRUTH_UNKNOWN;
+    case LOOM_PREDICATE_UGT:
+      if (lhs_lower > rhs_upper) {
+        return LOOM_DECISION_TRUTH_TRUE;
+      }
+      if (lhs_upper <= rhs_lower) {
+        return LOOM_DECISION_TRUTH_FALSE;
+      }
+      return LOOM_DECISION_TRUTH_UNKNOWN;
+    case LOOM_PREDICATE_UGE:
+      if (lhs_lower >= rhs_upper) {
+        return LOOM_DECISION_TRUTH_TRUE;
+      }
+      if (lhs_upper < rhs_lower) {
+        return LOOM_DECISION_TRUTH_FALSE;
+      }
+      return LOOM_DECISION_TRUTH_UNKNOWN;
+    default:
+      IREE_ASSERT_UNREACHABLE("expected an unsigned relation predicate");
+      IREE_BUILTIN_UNREACHABLE();
+  }
+}
+
 IREE_ATTRIBUTE_ALWAYS_INLINE static inline loom_decision_truth_t
 loom_decision_predicate_evaluate_relation(
     loom_predicate_kind_t predicate_kind,
@@ -45,6 +132,12 @@ loom_decision_predicate_evaluate_relation(
 
   switch (predicate_kind) {
     case LOOM_PREDICATE_EQ:
+      if ((loom_value_facts_is_non_zero(lhs->facts) &&
+           loom_decision_facts_are_exact_zero(rhs->facts)) ||
+          (loom_value_facts_is_non_zero(rhs->facts) &&
+           loom_decision_facts_are_exact_zero(lhs->facts))) {
+        return LOOM_DECISION_TRUTH_FALSE;
+      }
       if (lhs->facts.range_lo == lhs->facts.range_hi &&
           rhs->facts.range_lo == rhs->facts.range_hi &&
           lhs->facts.range_lo == rhs->facts.range_lo) {
@@ -56,6 +149,12 @@ loom_decision_predicate_evaluate_relation(
       }
       return LOOM_DECISION_TRUTH_UNKNOWN;
     case LOOM_PREDICATE_NE:
+      if ((loom_value_facts_is_non_zero(lhs->facts) &&
+           loom_decision_facts_are_exact_zero(rhs->facts)) ||
+          (loom_value_facts_is_non_zero(rhs->facts) &&
+           loom_decision_facts_are_exact_zero(lhs->facts))) {
+        return LOOM_DECISION_TRUTH_TRUE;
+      }
       if (lhs->facts.range_hi < rhs->facts.range_lo ||
           rhs->facts.range_hi < lhs->facts.range_lo) {
         return LOOM_DECISION_TRUTH_TRUE;
@@ -215,6 +314,12 @@ loom_decision_predicate_evaluate(
     case LOOM_PREDICATE_GT:
     case LOOM_PREDICATE_GE:
       return loom_decision_predicate_evaluate_relation(
+          predicate_kind, &operands[0], &operands[1]);
+    case LOOM_PREDICATE_ULT:
+    case LOOM_PREDICATE_ULE:
+    case LOOM_PREDICATE_UGT:
+    case LOOM_PREDICATE_UGE:
+      return loom_decision_predicate_evaluate_unsigned_relation(
           predicate_kind, &operands[0], &operands[1]);
     case LOOM_PREDICATE_MUL:
       return loom_decision_predicate_evaluate_multiple(&operands[0],

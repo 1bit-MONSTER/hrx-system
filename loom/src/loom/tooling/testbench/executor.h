@@ -9,7 +9,7 @@
 // This layer binds planning, value materialization, invocation dispatch, and
 // expectation reporting into the production case-execution primitive shared by
 // run, test, benchmark, tuning, and custom harnesses. It stays target-free:
-// callers inject function-call/kernel-launch/oracle/expectation/file providers.
+// callers inject function-call/kernel-launch/oracle/file providers.
 
 #ifndef LOOM_TOOLING_TESTBENCH_EXECUTOR_H_
 #define LOOM_TOOLING_TESTBENCH_EXECUTOR_H_
@@ -31,8 +31,6 @@ typedef struct loom_testbench_case_execution_options_t {
   loom_testbench_value_materializer_options_t materializer;
   // Invocation providers visible while preparing the case.
   loom_testbench_invocation_options_t invocation;
-  // Custom expectation providers visible while preparing the case.
-  loom_testbench_expectation_options_t expectation;
   // Optional device-event capture shared with event expectations.
   loom_testbench_device_event_capture_t* device_event_capture;
 } loom_testbench_case_execution_options_t;
@@ -49,8 +47,6 @@ typedef struct loom_testbench_prepared_case_t {
   const loom_testbench_case_plan_t* case_plan;
   // Prepared invocation schedule with provider callbacks resolved.
   loom_testbench_invocation_schedule_t invocation_schedule;
-  // Prepared expectation schedule with provider callbacks resolved.
-  loom_testbench_expectation_schedule_t expectation_schedule;
 } loom_testbench_prepared_case_t;
 
 // Prepares one case from |module_plan| for repeated execution.
@@ -76,6 +72,12 @@ typedef struct loom_testbench_case_sample_result_t {
   bool passed;
   // Borrowed report owned by the executor until the next run or deinitialize.
   const loom_testbench_expectation_report_t* expectation_report;
+  // Borrowed captured device events owned by the executor until the next run.
+  const loom_testbench_device_event_list_t* device_events;
+  // Borrowed byte flags identifying events matched by explicit expectations.
+  const uint8_t* expected_device_events;
+  // Number of error-severity events without an explicit expectation.
+  iree_host_size_t unhandled_device_event_count;
 } loom_testbench_case_sample_result_t;
 
 typedef struct loom_testbench_case_executor_t {
@@ -89,6 +91,14 @@ typedef struct loom_testbench_case_executor_t {
   loom_testbench_invocation_executor_t invocation_executor;
   // Optional device-event capture reset and observed for each sample.
   loom_testbench_device_event_capture_t* device_event_capture;
+  // Reusable byte flags identifying events matched by explicit expectations.
+  uint8_t* expected_device_events;
+  // Number of entries available in |expected_device_events|.
+  iree_host_size_t expected_device_event_capacity;
+  // Captured device events borrowed from |device_event_capture|.
+  loom_testbench_device_event_list_t device_events;
+  // Number of error-severity events without an explicit expectation.
+  iree_host_size_t unhandled_device_event_count;
   // Reusable expectation result report.
   loom_testbench_expectation_report_t expectation_report;
 } loom_testbench_case_executor_t;

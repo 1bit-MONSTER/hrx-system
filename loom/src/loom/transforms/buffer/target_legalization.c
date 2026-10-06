@@ -459,7 +459,8 @@ static iree_status_t loom_buffer_legalize_compare(
   loom_op_t* loop = NULL;
   IREE_RETURN_IF_ERROR(loom_scf_while_build(
       &rewriter->builder, iter_args, IREE_ARRAYSIZE(iter_args),
-      /*result_types=*/NULL,
+      /*iter_args_types=*/NULL,
+      /*result_types=*/NULL, /*result_count=*/IREE_ARRAYSIZE(iter_args),
       /*tied_results=*/NULL, /*tied_result_count=*/0, op->location, &loop));
 
   loom_builder_ip_t saved_ip = loom_builder_enter_region(

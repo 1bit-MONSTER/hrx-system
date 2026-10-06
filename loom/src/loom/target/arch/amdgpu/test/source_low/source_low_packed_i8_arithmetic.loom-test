@@ -361,47 +361,39 @@ low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @i8x4_bounded_var
   %67 = v_bfe_i32_offset_width_inline %amounts {offset = 0, width = 8}
   %68 = v_and_b32_lit %67, 255
   %69 = v_and_b32_lit %68, 7
-  %70 = v_bfe_i32_offset_width_inline %69 {offset = 0, width = 8}
-  %71 = v_and_b32_lit %66, 255
-  %72 = v_and_b32_lit %70, 255
-  %73 = v_lshrrev_b32 %72, %71
-  %74 = v_bfe_i32_offset_width_inline %73 {offset = 0, width = 8}
-  %75 = v_bfe_i32_offset_width_inline %values {offset = 8, width = 8}
-  %76 = v_bfe_i32_offset_width_inline %amounts {offset = 8, width = 8}
-  %77 = v_and_b32_lit %76, 255
-  %78 = v_and_b32_lit %77, 7
-  %79 = v_bfe_i32_offset_width_inline %78 {offset = 0, width = 8}
-  %80 = v_and_b32_lit %75, 255
-  %81 = v_and_b32_lit %79, 255
-  %82 = v_lshrrev_b32 %81, %80
-  %83 = v_bfe_i32_offset_width_inline %82 {offset = 0, width = 8}
-  %84 = v_bfe_i32_offset_width_inline %values {offset = 16, width = 8}
-  %85 = v_bfe_i32_offset_width_inline %amounts {offset = 16, width = 8}
-  %86 = v_and_b32_lit %85, 255
-  %87 = v_and_b32_lit %86, 7
-  %88 = v_bfe_i32_offset_width_inline %87 {offset = 0, width = 8}
-  %89 = v_and_b32_lit %84, 255
-  %90 = v_and_b32_lit %88, 255
-  %91 = v_lshrrev_b32 %90, %89
-  %92 = v_bfe_i32_offset_width_inline %91 {offset = 0, width = 8}
-  %93 = v_ashrrev_i32_src0_inline %values, 24
-  %94 = v_ashrrev_i32_src0_inline %amounts, 24
-  %95 = v_and_b32_lit %94, 255
-  %96 = v_and_b32_lit %95, 7
-  %97 = v_bfe_i32_offset_width_inline %96 {offset = 0, width = 8}
-  %98 = v_and_b32_lit %93, 255
-  %99 = v_and_b32_lit %97, 255
-  %100 = v_lshrrev_b32 %99, %98
-  %101 = v_bfe_i32_offset_width_inline %100 {offset = 0, width = 8}
-  %102 = v_and_b32_lit %74, 255
-  %103 = v_and_b32_lit %83, 255
-  %104 = v_lshlrev_b32_src0_inline %103, 8
-  %105 = v_or_b32 %102, %104
-  %106 = v_and_b32_lit %92, 255
-  %107 = v_lshlrev_b32_src0_inline %106, 16
-  %108 = v_or_b32 %105, %107
-  %109 = v_and_b32_lit %101, 255
-  %110 = v_lshlrev_b32_src0_inline %109, 24
-  %result = v_or_b32 %108, %110
+  %70 = v_and_b32_lit %66, 255
+  %71 = v_and_b32_lit %69, 255
+  %72 = v_lshrrev_b32 %71, %70
+  %73 = v_bfe_i32_offset_width_inline %values {offset = 8, width = 8}
+  %74 = v_bfe_i32_offset_width_inline %amounts {offset = 8, width = 8}
+  %75 = v_and_b32_lit %74, 255
+  %76 = v_and_b32_lit %75, 7
+  %77 = v_and_b32_lit %73, 255
+  %78 = v_and_b32_lit %76, 255
+  %79 = v_lshrrev_b32 %78, %77
+  %80 = v_bfe_i32_offset_width_inline %values {offset = 16, width = 8}
+  %81 = v_bfe_i32_offset_width_inline %amounts {offset = 16, width = 8}
+  %82 = v_and_b32_lit %81, 255
+  %83 = v_and_b32_lit %82, 7
+  %84 = v_and_b32_lit %80, 255
+  %85 = v_and_b32_lit %83, 255
+  %86 = v_lshrrev_b32 %85, %84
+  %87 = v_ashrrev_i32_src0_inline %values, 24
+  %88 = v_ashrrev_i32_src0_inline %amounts, 24
+  %89 = v_and_b32_lit %88, 255
+  %90 = v_and_b32_lit %89, 7
+  %91 = v_and_b32_lit %87, 255
+  %92 = v_and_b32_lit %90, 255
+  %93 = v_lshrrev_b32 %92, %91
+  %94 = v_and_b32_lit %72, 255
+  %95 = v_and_b32_lit %79, 255
+  %96 = v_lshlrev_b32_src0_inline %95, 8
+  %97 = v_or_b32 %94, %96
+  %98 = v_and_b32_lit %86, 255
+  %99 = v_lshlrev_b32_src0_inline %98, 16
+  %100 = v_or_b32 %97, %99
+  %101 = v_and_b32_lit %93, 255
+  %102 = v_lshlrev_b32_src0_inline %101, 24
+  %result = v_or_b32 %100, %102
   return %result
 }

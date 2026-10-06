@@ -1,0 +1,175 @@
+// RUN: with-checks emit aie2p-array-plan @full_worker_storage
+
+// A worker can consume the complete 64 KiB local-memory domain while an
+// adjacent producer owns the channel's aliased neighbor-memory ring.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @full_worker_storage() asm {
+  %worker_count = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %producer_ordinal = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %consumer_ordinal = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %channel_capacity = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %records_per_invocation = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %tile_column = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %producer_row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %consumer_row = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %workers = group %worker_count
+  %producer = worker %workers, %producer_ordinal, @produce_record
+  %consumer = worker %workers, %consumer_ordinal, @consume_with_full_storage
+  %sender = sender %producer, 0 : reg<aie2p.array.sender : tile<1xi32>>
+  %receiver = receiver %consumer, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %channel = channel %sender, %receiver, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  constrain.location %producer, %tile_column, %producer_row
+  constrain.location %consumer, %tile_column, %consumer_row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @produce_record() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %value = mov.short 7
+  st %value, %output, 0
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume_with_full_storage() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %allocation = storage {byte_alignment = 64, byte_length = 65536} : low.storage<workgroup>
+  %storage = storage_address %allocation : low.storage<workgroup> -> reg<aie2p.ep>
+  %value = lda %input, 0
+  st %value, %storage, 0
+  return
+}
+
+// ----
+CHECK: channel index=0 transport=neighbor-memory *
+CHECK: worker-storage worker=1 space=3 offset=0x00000 load-address=0x70000 bytes=65536
+CHECK: slot channel=0 index=0 owner=(0,2) offset=0x00000 bytes=4 sender=0x70000 receiver=0x40000
+
+// ====
+// RUN: emit aie2p-array-plan @oversized_worker_storage
+
+// One additional byte exceeds the selected compute tile's banked local-memory
+// domain and is rejected at the worker that owns the requirement.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @oversized_worker_storage() asm {
+  %worker_count = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %worker_ordinal = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %channel_capacity = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %records_per_invocation = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %tile_column = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %tile_row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %workers = group %worker_count
+  // ERROR@+1: XDNA/033 {worker="0", column="0", row="2", purpose="workgroup", requested_bytes="65537", alignment_bytes="64", capacity_bytes="65536"}
+  %worker = worker %workers, %worker_ordinal, @produce_with_oversized_storage
+  %binding = binding 0, "write"
+  %sender = sender %worker, 0 : reg<aie2p.array.sender : tile<1xi32>>
+  %receiver = receiver %binding, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %channel = channel %sender, %receiver, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  constrain.location %worker, %tile_column, %tile_row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @produce_with_oversized_storage() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %allocation = storage {byte_alignment = 64, byte_length = 65537} : low.storage<workgroup>
+  %storage = storage_address %allocation : low.storage<workgroup> -> reg<aie2p.ep>
+  %value = mov.short 7
+  st %value, %output, 0
+  st %value, %storage, 0
+  return
+}
+
+// ====
+// RUN: with-checks emit aie2p-array-plan @full_fold_state
+
+// Two independently folded 32 KiB outputs exactly occupy the worker's local
+// state domain. Their DMA-backed rings may use visible service tiles.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @full_fold_state() asm {
+  %worker_count = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %worker_ordinal = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %fold_record_count = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %channel_capacity = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %input_records_per_invocation = constant.u32 6 : reg<aie2p.array.scalar : index>
+  %output_records_per_invocation = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %tile_column = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %tile_row = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %workers = group %worker_count
+  %worker = worker.fold %workers, %worker_ordinal, %fold_record_count, @fold_two_full_outputs, 1, 2, "addf", 0
+  %input = binding 0, "read"
+  %output0 = binding 1, "write"
+  %output1 = binding 2, "write"
+  %source = sender %input, 0 : reg<aie2p.array.sender : tile<1xf32>>
+  %worker_input = receiver %worker, 0 : reg<aie2p.array.receiver : tile<1xf32>>
+  %worker_output0 = sender %worker, 1 : reg<aie2p.array.sender : tile<8192xf32>>
+  %worker_output1 = sender %worker, 2 : reg<aie2p.array.sender : tile<8192xf32>>
+  %target0 = receiver %output0, 0 : reg<aie2p.array.receiver : tile<8192xf32>>
+  %target1 = receiver %output1, 0 : reg<aie2p.array.receiver : tile<8192xf32>>
+  %input_channel = channel %source, %worker_input, %channel_capacity, %input_records_per_invocation : reg<aie2p.array.channel : tile<1xf32>>
+  %output_channel0 = channel %worker_output0, %target0, %channel_capacity, %output_records_per_invocation : reg<aie2p.array.channel : tile<8192xf32>>
+  %output_channel1 = channel %worker_output1, %target1, %channel_capacity, %output_records_per_invocation : reg<aie2p.array.channel : tile<8192xf32>>
+  constrain.location %worker, %tile_column, %tile_row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @fold_two_full_outputs() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %output0 = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %output1 = resource<native_pointer> {index = 2, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+// ----
+CHECK: worker-fold-state worker=0 offset=0x00000 load-address=0x70000 bytes=65536 spans=2
+
+// ====
+// RUN: emit aie2p-array-plan @oversized_fold_state
+
+// The second output's additional 64-byte fragment exceeds the worker's local
+// state domain after output alignment is applied.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @oversized_fold_state() asm {
+  %worker_count = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %worker_ordinal = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %fold_record_count = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %channel_capacity = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %input_records_per_invocation = constant.u32 6 : reg<aie2p.array.scalar : index>
+  %output_records_per_invocation = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %tile_column = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %tile_row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %workers = group %worker_count
+  // ERROR@+1: XDNA/033 {worker="0", column="0", row="2", purpose="private fold", requested_bytes="65600", alignment_bytes="64", capacity_bytes="65536"}
+  %worker = worker.fold %workers, %worker_ordinal, %fold_record_count, @fold_oversized_outputs, 1, 2, "addf", 0
+  %input = binding 0, "read"
+  %output0 = binding 1, "write"
+  %output1 = binding 2, "write"
+  %source = sender %input, 0 : reg<aie2p.array.sender : tile<1xf32>>
+  %worker_input = receiver %worker, 0 : reg<aie2p.array.receiver : tile<1xf32>>
+  %worker_output0 = sender %worker, 1 : reg<aie2p.array.sender : tile<8192xf32>>
+  %worker_output1 = sender %worker, 2 : reg<aie2p.array.sender : tile<8208xf32>>
+  %target0 = receiver %output0, 0 : reg<aie2p.array.receiver : tile<8192xf32>>
+  %target1 = receiver %output1, 0 : reg<aie2p.array.receiver : tile<8208xf32>>
+  %input_channel = channel %source, %worker_input, %channel_capacity, %input_records_per_invocation : reg<aie2p.array.channel : tile<1xf32>>
+  %output_channel0 = channel %worker_output0, %target0, %channel_capacity, %output_records_per_invocation : reg<aie2p.array.channel : tile<8192xf32>>
+  %output_channel1 = channel %worker_output1, %target1, %channel_capacity, %output_records_per_invocation : reg<aie2p.array.channel : tile<8208xf32>>
+  constrain.location %worker, %tile_column, %tile_row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @fold_oversized_outputs() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %output0 = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %output1 = resource<native_pointer> {index = 2, source_type = buffer} : reg<aie2p.ep>
+  return
+}

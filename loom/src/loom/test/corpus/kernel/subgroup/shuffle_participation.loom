@@ -1,0 +1,151 @@
+// Three lanes per four participate; the last physical wave and last logical
+// cluster are partial. Each distance exercises indexed, relative, and fixed
+// shuffle paths while preserving invalid and nonparticipating output slots.
+func.def device inline @store_subgroup_participation_result(%item: index, %plane: index, %value: i32, %valid: i1, %output: buffer) {
+  %base = index.constant 0 : offset
+  %fields = index.constant 2 : index
+  %plane_width = index.constant 108 : index
+  %valid_field = index.constant 1 : index
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %output_view = buffer.view %output[%base] : buffer -> view<540xi32>
+  %plane_offset = index.mul %plane, %plane_width : index
+  %item_offset = index.mul %item, %fields : index
+  %position = index.add %plane_offset, %item_offset : index
+  %valid_position = index.add %position, %valid_field : index
+  view.store %c0, %output_view[%valid_position] : i32, view<540xi32>
+  scf.if %valid {
+    view.store %value, %output_view[%position] : i32, view<540xi32>
+    view.store %c1, %output_view[%valid_position] : i32, view<540xi32>
+  }
+  func.return
+}
+
+kernel.def @subgroup_shuffle_participation() {
+  %unit = index.constant 1 : index
+  %items = index.constant 54 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%distance: index, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %input_view = buffer.view %input[%base] : buffer -> view<54xi32>
+  %value = view.load %input_view[%item] : view<54xi32> -> i32
+  %participation_period = index.constant 4 : index
+  %excluded_lane = index.constant 3 : index
+  %relative_participation_lane = index.rem %item, %participation_period : index
+  %active = index.cmp ne, %relative_participation_lane, %excluded_lane : index
+  %bounded_distance = index.assume %distance [range(%distance, 0, 15)] : index
+  %source = index.cast %bounded_distance : index to i32
+  %width = scalar.constant 16 : i32
+  scf.if %active {
+    %index_value, %index_valid = kernel.subgroup.shuffle<index> %value, %source, %width : i32, i32, i32
+    %index_plane = index.constant 0 : index
+    func.call @store_subgroup_participation_result(%item, %index_plane, %index_value, %index_valid, %output) : (index, index, i32, i1, buffer)
+    %xor_value, %xor_valid = kernel.subgroup.shuffle<xor> %value, %source, %width : i32, i32, i32
+    %xor_plane = index.constant 1 : index
+    func.call @store_subgroup_participation_result(%item, %xor_plane, %xor_value, %xor_valid, %output) : (index, index, i32, i1, buffer)
+    %up_value, %up_valid = kernel.subgroup.shuffle<up> %value, %source, %width : i32, i32, i32
+    %up_plane = index.constant 2 : index
+    func.call @store_subgroup_participation_result(%item, %up_plane, %up_value, %up_valid, %output) : (index, index, i32, i1, buffer)
+    %down_value, %down_valid = kernel.subgroup.shuffle<down> %value, %source, %width : i32, i32, i32
+    %down_plane = index.constant 3 : index
+    func.call @store_subgroup_participation_result(%item, %down_plane, %down_value, %down_valid, %output) : (index, index, i32, i1, buffer)
+    %unit_distance = scalar.constant 1 : i32
+    %fixed_xor_value, %fixed_xor_valid = kernel.subgroup.shuffle<xor> %value, %unit_distance, %width : i32, i32, i32
+    %fixed_xor_plane = index.constant 4 : index
+    func.call @store_subgroup_participation_result(%item, %fixed_xor_plane, %fixed_xor_value, %fixed_xor_valid, %output) : (index, index, i32, i1, buffer)
+  }
+  kernel.return
+}
+
+func.def inline @store_subgroup_participation_oracle_result(%item: index, %source: i32, %plane: index, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %fields = index.constant 2 : index
+  %plane_width = index.constant 108 : index
+  %valid_field = index.constant 1 : index
+  %c0_i32 = scalar.constant 0 : i32
+  %c1_i32 = scalar.constant 1 : i32
+  %end_i32 = scalar.constant 54 : i32
+  %logical_width_i32 = scalar.constant 16 : i32
+  %participation_period_i32 = scalar.constant 4 : i32
+  %excluded_lane_i32 = scalar.constant 3 : i32
+  %input_view = buffer.view %input[%base] : buffer -> view<54xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<540xi32>
+  %plane_offset = index.mul %plane, %plane_width : index
+  %item_offset = index.mul %item, %fields : index
+  %position = index.add %plane_offset, %item_offset : index
+  %valid_position = index.add %position, %valid_field : index
+  view.store %c0_i32, %output_view[%valid_position] : i32, view<540xi32>
+  %nonnegative = scalar.cmpi sge, %source, %c0_i32 : i32
+  %below_end = scalar.cmpi slt, %source, %end_i32 : i32
+  %source_in_range = scalar.andi %nonnegative, %below_end : i1
+  scf.if %source_in_range {
+    %item_i32 = index.cast %item : index to i32
+    %item_cluster = scalar.divsi %item_i32, %logical_width_i32 : i32
+    %source_cluster = scalar.divsi %source, %logical_width_i32 : i32
+    %same_cluster = scalar.cmpi eq, %item_cluster, %source_cluster : i32
+    %source_participation_lane = scalar.remsi %source, %participation_period_i32 : i32
+    %source_active = scalar.cmpi ne, %source_participation_lane, %excluded_lane_i32 : i32
+    %valid = scalar.andi %same_cluster, %source_active : i1
+    scf.if %valid {
+      %source_index = index.cast %source : i32 to index
+      %value = view.load %input_view[%source_index] : view<54xi32> -> i32
+      view.store %value, %output_view[%position] : i32, view<540xi32>
+      view.store %c1_i32, %output_view[%valid_position] : i32, view<540xi32>
+    }
+  }
+  func.return
+}
+
+func.def @subgroup_shuffle_participation_oracle(%distance: index, %input: buffer, %output: buffer) {
+  %begin = index.constant 0 : index
+  %end = index.constant 54 : index
+  %step = index.constant 1 : index
+  %logical_width = scalar.constant 16 : i32
+  %participation_period = index.constant 4 : index
+  %excluded_lane = index.constant 3 : index
+  %distance_i32 = index.cast %distance : index to i32
+  %unit_i32 = scalar.constant 1 : i32
+  scf.for %item = [%begin to %end step %step] {
+    %relative_participation_lane = index.rem %item, %participation_period : index
+    %active = index.cmp ne, %relative_participation_lane, %excluded_lane : index
+    scf.if %active {
+      %item_i32 = index.cast %item : index to i32
+      %item_cluster = scalar.divsi %item_i32, %logical_width : i32
+      %cluster_base = scalar.muli %item_cluster, %logical_width : i32
+      %index_source = scalar.addi %cluster_base, %distance_i32 : i32
+      %index_plane = index.constant 0 : index
+      func.call @store_subgroup_participation_oracle_result(%item, %index_source, %index_plane, %input, %output) : (index, i32, index, buffer, buffer)
+      %xor_source = scalar.xori %item_i32, %distance_i32 : i32
+      %xor_plane = index.constant 1 : index
+      func.call @store_subgroup_participation_oracle_result(%item, %xor_source, %xor_plane, %input, %output) : (index, i32, index, buffer, buffer)
+      %up_source = scalar.subi %item_i32, %distance_i32 : i32
+      %up_plane = index.constant 2 : index
+      func.call @store_subgroup_participation_oracle_result(%item, %up_source, %up_plane, %input, %output) : (index, i32, index, buffer, buffer)
+      %down_source = scalar.addi %item_i32, %distance_i32 : i32
+      %down_plane = index.constant 3 : index
+      func.call @store_subgroup_participation_oracle_result(%item, %down_source, %down_plane, %input, %output) : (index, i32, index, buffer, buffer)
+      %fixed_xor_source = scalar.xori %item_i32, %unit_i32 : i32
+      %fixed_xor_plane = index.constant 4 : index
+      func.call @store_subgroup_participation_oracle_result(%item, %fixed_xor_source, %fixed_xor_plane, %input, %output) : (index, i32, index, buffer, buffer)
+    }
+  }
+  func.return
+}
+
+check.scenario @subgroup_shuffle_participation_values {
+  check.trial[16](%distance: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[0] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(-2147483648 to 2147483647) : tensor<54xi32>
+    %storage = check.generate.fill value(-123) : tensor<572xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<572xi32> -> tensor<16xi32>
+    %output = check.tensor.view %storage offset(64) : tensor<572xi32> -> tensor<540xi32>
+    %suffix = check.tensor.view %storage offset(2224) : tensor<572xi32> -> tensor<16xi32>
+    check.compare<@subgroup_shuffle_participation, @subgroup_shuffle_participation_oracle>(%distance, %input, %output) : (index, tensor<54xi32>, tensor<540xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<540xi32>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi32>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi32>
+    }
+  }
+  check.return
+}

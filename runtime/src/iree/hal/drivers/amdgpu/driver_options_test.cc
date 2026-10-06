@@ -69,6 +69,23 @@ TEST(AmdgpuDriverOptionsTest, LogicalDeviceDefaultsDisableAsan) {
             IREE_HAL_AMDGPU_ASAN_DEFAULT_QUARANTINE_SIZE);
 }
 
+TEST(AmdgpuDriverOptionsTest, LogicalDeviceDefaultsDisableTsan) {
+  iree_hal_amdgpu_logical_device_options_t options;
+  iree_hal_amdgpu_logical_device_options_initialize(&options);
+
+  EXPECT_FALSE(options.tsan.enabled);
+  EXPECT_EQ(options.tsan.report_policy,
+            IREE_HAL_AMDGPU_TSAN_REPORT_POLICY_FAIL_DEVICE);
+  EXPECT_EQ(options.tsan.memory_granule_shift,
+            IREE_HAL_AMDGPU_TSAN_DEFAULT_MEMORY_GRANULE_SHIFT);
+  EXPECT_EQ(options.tsan.workgroup_local_memory_size,
+            IREE_HAL_AMDGPU_TSAN_DEFAULT_WORKGROUP_LOCAL_MEMORY_SIZE);
+  EXPECT_EQ(options.tsan.workgroup_capacity,
+            IREE_HAL_AMDGPU_TSAN_DEFAULT_WORKGROUP_CAPACITY);
+  EXPECT_EQ(options.tsan.shadow_slot_count,
+            IREE_HAL_AMDGPU_TSAN_DEFAULT_SHADOW_SLOT_COUNT);
+}
+
 #if defined(IREE_SANITIZER_THREAD)
 TEST(AmdgpuDriverOptionsTest, HostTsanRejectsAsanBeforeLoadingHsa) {
   iree_hal_amdgpu_logical_device_options_t options;
@@ -274,6 +291,25 @@ TEST(AmdgpuDriverOptionsTest, RejectsInvalidAsanGeometryBeforeLoadingHsa) {
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
                         CreateDriverWithDefaultDeviceOptions(&options));
+}
+
+TEST(AmdgpuDriverOptionsTest, ValidatesTsanMemoryGranuleBeforeLoadingHsa) {
+  iree_hal_amdgpu_logical_device_options_t options;
+  iree_hal_amdgpu_logical_device_options_initialize(&options);
+  options.tsan.enabled = 1;
+  options.tsan.memory_granule_shift =
+      IREE_HAL_AMDGPU_TSAN_MAX_MEMORY_GRANULE_SHIFT;
+
+  IREE_EXPECT_OK(
+      iree_hal_amdgpu_logical_device_options_verify_supported_features(
+          &options));
+
+  options.tsan.memory_granule_shift =
+      IREE_HAL_AMDGPU_TSAN_MAX_MEMORY_GRANULE_SHIFT + 1;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_OUT_OF_RANGE,
+      iree_hal_amdgpu_logical_device_options_verify_supported_features(
+          &options));
 }
 
 }  // namespace

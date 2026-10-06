@@ -71,8 +71,24 @@ func.def @encoding_matches_requires_schema_role(%layout: encoding<layout>) {
 // ====
 
 func.def @layout_assume_strided_rejects_negative_rank(%layout: encoding<layout>) {
-  // ERROR@+1: STRUCTURE/014 "rank" "-1" "rank in [0, 255]"
+  // ERROR@+1: STRUCTURE/014 "rank" "-1" "rank in [0, 15]"
   %strided = encoding.layout.assume.strided %layout {rank = -1} : encoding<layout>
+  func.return
+}
+
+// ====
+
+func.def @layout_assume_strided_rank_exceeds_shaped_rank(%layout: encoding<layout>) {
+  // ERROR@+1: STRUCTURE/014 "rank" "16" "rank in [0, 15]"
+  %strided = encoding.layout.assume.strided %layout {rank = 16} : encoding<layout>
+  func.return
+}
+
+// ====
+
+func.def @layout_strided_rank_exceeds_shaped_rank(%stride: index) {
+  // ERROR@+1: STRUCTURE/014 "rank" "16" "rank in [0, 15]"
+  %strided = encoding.layout.strided [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, %stride] : encoding<layout>
   func.return
 }
 

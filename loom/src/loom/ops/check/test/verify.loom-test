@@ -44,8 +44,7 @@ check.case @unnamed_slice_case {
   check.return
 }
 
-// ERROR@+2: PARSE/003 "symbol"
-// ERROR@+1: PARSE/003 "op name"
+// ERROR@+1: PARSE/003 "symbol"
 check.benchmark<@unnamed_slice_case> {count = 1}
 
 // ====
@@ -87,5 +86,301 @@ check.case @unnamed_case {
   check.return
 }
 
-// ERROR@+2: PARSE/003 "symbol"
+// ERROR@+3: PARSE/003 "symbol"
 check.benchmark<@unnamed_case>
+
+// ====
+
+// Scenarios may contain several trial domains with differential and target-only
+// terminal actions.
+func.decl @scenario_subject(%input: i32) -> (f32)
+
+func.decl @dependent_scenario_subject() -> (%width: index, vector<[%width]xf32>)
+
+kernel.decl @configured_subject(%workload: index) launch()
+
+check.scenario @valid_scenario configure[2](%configuration: index, %configuration_entropy: check.entropy) {
+  check.trial[4](%trial: index, %entropy: check.entropy) {
+    %input = check.literal value(1) : i32
+    check.compare<@scenario_subject>(%input) : (i32) -> [actual(%actual: f32), expected(%expected: f32)] {
+      check.expect.close actual(%actual) expected(%expected) atol(0.0) rtol(0.0) nan(same) : f32
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.literal value(1) : i32
+    check.invoke<@scenario_subject>(%input) : (i32) -> (f32)
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    check.invoke<@dependent_scenario_subject>() : () -> (%width: index, vector<[%width]xf32>)
+  }
+  check.return
+}
+
+check.scenario @valid_configured_subject configure[2](%configuration: index, %configuration_entropy: check.entropy) {
+  check.trial[4](%trial: index, %entropy: check.entropy) {
+    check.invoke<@configured_subject>[%configuration]() : [index]() -> ()
+  }
+  check.return
+}
+
+// ====
+
+// Configured scenarios expose exactly the configuration ordinal and entropy.
+// ERROR@+1: STRUCTURE/013 "configuration arguments" "1" "domain arguments" "2"
+check.scenario @missing_configuration_entropy configure[2](%configuration: index) {
+  check.return
+}
+
+// ====
+
+// Trial domains must be nonempty.
+func.decl @missing()
+
+check.scenario @zero_trials {
+  // ERROR@+1: STRUCTURE/014 "trial_count" "0" "positive finite domain size"
+  check.trial[0](%trial: index, %entropy: check.entropy) {
+    check.invoke<@missing>() : () -> ()
+  }
+  check.return
+}
+
+// ====
+
+// Trial domains expose exactly the trial ordinal and entropy.
+func.decl @missing()
+
+check.scenario @wrong_trial_signature {
+  // ERROR@+1: TYPE/003 "domain ordinal" "index"
+  check.trial[1](%trial: i32, %entropy: check.entropy) {
+    check.invoke<@missing>() : () -> ()
+  }
+  check.return
+}
+
+// ====
+
+// Actual and expected result bindings are paired by type.
+func.decl @mismatched_pair_subject() -> (f32)
+
+check.scenario @mismatched_pair {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    // ERROR@+1: TYPE/001 "actual result" "expected result"
+    check.compare<@mismatched_pair_subject>() : () -> [actual(%actual: f32), expected(%expected: i32)] {
+      check.return
+    }
+  }
+  check.return
+}
+
+// ====
+
+// Distinct target and oracle subjects each satisfy their corresponding result
+// signature. The second subject supplies the expected result contract.
+func.decl @integer_target() -> (i32)
+
+func.decl @floating_oracle() -> (f32)
+
+check.scenario @mismatched_oracle_result {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    // ERROR@+1: TYPE/001 "result 0" "contract result 0"
+    check.compare<@integer_target, @floating_oracle>() : () -> [actual(%actual: i32), expected(%expected: i32)] {
+      check.expect.equal actual(%actual) expected(%expected) : i32
+    }
+  }
+  check.return
+}
+
+// ====
+
+// Invocation signatures describe the ordinary argument list exactly.
+func.decl @signature_subject(%input: i32) -> (f32)
+
+check.scenario @wrong_invoke_signature {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.literal value(1) : i32
+    // ERROR@+1: TYPE/001 "arguments[0]" "type annotation"
+    check.invoke<@signature_subject>(%input) : (f32) -> (f32)
+  }
+  check.return
+}
+
+// ====
+
+// Invocation result signatures match the callable contract without defining
+// surrounding SSA values.
+func.decl @result_signature_subject() -> (f32)
+
+check.scenario @wrong_invoke_result_signature {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    // ERROR@+1: TYPE/001 "result 0" "contract result 0"
+    check.invoke<@result_signature_subject>() : () -> (i32)
+  }
+  check.return
+}
+
+// ====
+
+// Command and pipeline specializations cannot depend on runtime trial values.
+command.program.decl @runtime_specialized_subject(%configuration: index) launch()
+
+check.scenario @runtime_specialization {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    // ERROR@+1: STRUCTURE/032 "check.invoke" "call_parameters 0" "value defined outside the trial domain"
+    check.invoke<@runtime_specialized_subject>[%trial]() : [index]() -> ()
+  }
+  check.return
+}
+
+// ====
+
+// Comparison regions contain only explicit expectation operations.
+func.decl @comparison_subject() -> (i32)
+
+check.scenario @computed_comparison {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    check.compare<@comparison_subject>() : () -> [actual(%actual: i32), expected(%expected: i32)] {
+      // ERROR@+1: STRUCTURE/031 "check.literal" "explicit check.expect.* operation" "check.compare body"
+      %computed = check.literal value(1) : i32
+      check.expect.equal actual(%actual) expected(%expected) : i32
+    }
+  }
+  check.return
+}
+
+// ====
+
+// Entropy reads name exactly one static or dynamic ordinal and produce i64.
+func.decl @missing()
+
+check.scenario @two_entropy_ordinals {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    // ERROR@+1: STRUCTURE/013 "static ordinals" "2" "entropy read ordinals" "1"
+    %word = check.entropy.read %entropy[0, 1] : check.entropy -> i64
+    check.invoke<@missing>() : () -> ()
+  }
+  check.return
+}
+
+// ====
+
+// Every scenario owns at least one trial domain.
+// ERROR@+1: STRUCTURE/013 "trial operations" "0" "minimum trial operations" "1"
+check.scenario @no_trials {
+  check.return
+}
+
+// ====
+
+// Every returned value pair has a source-located equivalence expectation.
+func.decl @unobserved_subject() -> (i32)
+
+check.scenario @unobserved_result {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    // ERROR@+1: STRUCTURE/032 "check.compare" "result pair 0" "explicit paired check.expect operation"
+    check.compare<@unobserved_subject>() : () -> [actual(%actual: i32), expected(%expected: i32)] {
+      check.return
+    }
+  }
+  check.return
+}
+
+// ====
+
+// Comparison result roles remain explicit at each authored expectation.
+func.decl @reversed_subject() -> (i32)
+
+check.scenario @reversed_results {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    check.compare<@reversed_subject>() : () -> [actual(%actual: i32), expected(%expected: i32)] {
+      // ERROR@+1: STRUCTURE/032 "check.expect.equal" "expected" "corresponding oracle result"
+      check.expect.equal actual(%expected) expected(%actual) : i32
+    }
+  }
+  check.return
+}
+
+// ====
+
+// Corresponding result groups preserve dependent result types.
+func.decl @dependent_subject() -> (%width: index, vector<[%width]xf32>)
+
+check.scenario @dependent_results {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    check.compare<@dependent_subject>() : () -> [actual(%actual_width: index, %actual_values: vector<[%actual_width]xf32>), expected(%expected_width: index, %expected_values: vector<[%expected_width]xf32>)] {
+      check.expect.equal actual(%actual_width) expected(%expected_width) : index
+      check.expect.equal actual(%actual_values) expected(%expected_values) : vector<[%actual_width]xf32>
+    }
+  }
+  check.return
+}
+
+// ====
+
+// Product execution boundaries materialize logical tensor storage into buffer
+// ABI bindings while retaining staged specialization outside the trial domain.
+kernel.decl @materialized_kernel() launch(%storage: buffer)
+
+command.program.decl @materialized_program(%configuration: index) launch(%storage: buffer)
+
+pipeline.def @materialized_pipeline(%configuration: index) launch(%storage: buffer) {
+  pipeline.return
+}
+
+check.scenario @materialized_products configure[2](%configuration: index, %configuration_entropy: check.entropy) {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(0) : tensor<4xi32>
+    check.invoke<@materialized_kernel>(%storage) : (tensor<4xi32>) -> ()
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(0) : tensor<4xi32>
+    check.invoke<@materialized_program>[%configuration](%storage) : [index](tensor<4xi32>) -> ()
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(0) : tensor<4xi32>
+    check.invoke<@materialized_pipeline>[%configuration](%storage) : [index](tensor<4xi32>) -> ()
+  }
+  check.return
+}
+
+// ====
+
+// Kernel, command-program, and pipeline products have state observations but
+// no returned SSA results.
+kernel.decl @resultless_kernel() launch()
+
+check.scenario @kernel_result {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    // ERROR@+1: STRUCTURE/013 "declared results" "1" "product results" "0"
+    check.invoke<@resultless_kernel>() : () -> (i32)
+  }
+  check.return
+}
+
+// ====
+
+// Static entropy ordinals are non-negative; the minimum i64 value is reserved
+// for the generated dynamic-ordinal sentinel.
+func.decl @missing()
+
+check.scenario @negative_entropy_ordinal {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    // ERROR@+1: STRUCTURE/014 "static ordinal" "-1" "non-negative ordinal"
+    %word = check.entropy.read %entropy[-1] : check.entropy -> i64
+    check.invoke<@missing>() : () -> ()
+  }
+  check.return
+}
+
+// ====
+
+// Scenario subjects are executable callables or products, not template
+// families or implementation providers.
+template.decl @provider_family() -> (i32)
+
+check.scenario @template_subject {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    // ERROR@+1: SYMBOL/003 {symbol_name="provider_family", actual_kind="template family", expected_kind="scenario subject"}
+    check.invoke<@provider_family>() : () -> (i32)
+  }
+  check.return
+}

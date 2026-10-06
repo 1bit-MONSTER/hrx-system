@@ -924,6 +924,8 @@ def generate_tables_c(
                     flags_parts.append("LOOM_RESULT_VARIADIC")
                 if result.allocates:
                     flags_parts.append("LOOM_RESULT_ALLOCATES")
+                if getattr(result, "signature_only", False):
+                    flags_parts.append("LOOM_RESULT_SIGNATURE_ONLY")
                 flags = " | ".join(flags_parts) if flags_parts else "0"
                 result_ownership_effect = ownership_result_map.get(result.name)
                 source_operand_index = "LOOM_RESULT_OWNERSHIP_SOURCE_FIELD_NONE"
@@ -990,6 +992,8 @@ def generate_tables_c(
                     flag_names.append("LOOM_ATTR_ELIDE_DEFAULT")
                 if attr_def.open_enum:
                     flag_names.append("LOOM_ATTR_OPEN_ENUM")
+                if attr_def.executable_predicates:
+                    flag_names.append("LOOM_ATTR_EXECUTABLE_PREDICATES")
                 flags = " | ".join(flag_names) if flag_names else "0"
                 if attr_def.attr_type in ("enum", "enum_array", "signed_enum_set") and attr_def.enum_def:
                     enum_names = _enum_names_array_name(op, attr_def, shared_enums)
@@ -1143,10 +1147,12 @@ def generate_tables_c(
         # Structural placement descriptor.
         required_parent_kinds = c_traits.trait_op_kinds(op, ops_by_name, "HasParent")
         required_ancestor_kinds = c_traits.trait_op_kinds(op, ops_by_name, "HasAncestor")
+        required_any_ancestor_kinds, required_any_ancestor_names = c_traits.any_ancestor_op_kinds(op, ops_by_name)
         forbidden_ancestor_kinds = c_traits.trait_op_kinds(op, ops_by_name, "NoAncestor")
-        if required_parent_kinds or required_ancestor_kinds or forbidden_ancestor_kinds:
+        if required_parent_kinds or required_ancestor_kinds or required_any_ancestor_kinds or forbidden_ancestor_kinds:
             required_parent_ptr = "NULL"
             required_ptr = "NULL"
+            required_any_ptr = "NULL"
             forbidden_ptr = "NULL"
             if required_parent_kinds:
                 required_parent_ptr = f"{prefix}_required_parents"
@@ -1157,6 +1163,11 @@ def generate_tables_c(
                 required_ptr = f"{prefix}_required_ancestors"
                 lines.append(f"static const loom_op_kind_t {required_ptr}[] = {{")
                 lines.extend(f"    {kind}," for kind in required_ancestor_kinds)
+                lines.append("};")
+            if required_any_ancestor_kinds:
+                required_any_ptr = f"{prefix}_required_any_ancestors"
+                lines.append(f"static const loom_op_kind_t {required_any_ptr}[] = {{")
+                lines.extend(f"    {kind}," for kind in required_any_ancestor_kinds)
                 lines.append("};")
             if forbidden_ancestor_kinds:
                 forbidden_ptr = f"{prefix}_forbidden_ancestors"
@@ -1170,6 +1181,11 @@ def generate_tables_c(
             if required_ptr != "NULL":
                 lines.append(f"    .required_ancestors = {required_ptr},")
                 lines.append(f"    .required_ancestor_count = IREE_ARRAYSIZE({required_ptr}),")
+            if required_any_ptr != "NULL":
+                required_any_names = " or ".join(required_any_ancestor_names)
+                lines.append(f"    .required_any_ancestors = {required_any_ptr},")
+                lines.append(f'    .required_any_ancestor_names = "{required_any_names}",')
+                lines.append(f"    .required_any_ancestor_count = IREE_ARRAYSIZE({required_any_ptr}),")
             if forbidden_ptr != "NULL":
                 lines.append(f"    .forbidden_ancestors = {forbidden_ptr},")
                 lines.append(f"    .forbidden_ancestor_count = IREE_ARRAYSIZE({forbidden_ptr}),")
@@ -1177,6 +1193,7 @@ def generate_tables_c(
 
         # Vtable.
         traits = c_traits.trait_flags(op)
+        successor_selector_operand_index = c_queries.resolve_successor_selector_operand_index(op)
         vtable_flag_bits: list[str] = []
         if layout.segmented_operands:
             vtable_flag_bits.append("LOOM_OP_VTABLE_SEGMENTED_OPERANDS")
@@ -1194,6 +1211,10 @@ def generate_tables_c(
             vtable_flag_bits.append("LOOM_OP_VTABLE_HAS_OPERAND_DICT")
         if op.keyed_module_record_attr is not None:
             vtable_flag_bits.append("LOOM_OP_VTABLE_KEYED_MODULE_RECORD")
+        if successor_selector_operand_index is not None:
+            vtable_flag_bits.append("LOOM_OP_VTABLE_HAS_SUCCESSOR_SELECTOR")
+        if any(attr.attr_type == ATTR_TYPE_PREDICATE_LIST for attr in non_flags):
+            vtable_flag_bits.append("LOOM_OP_VTABLE_HAS_PREDICATE_LIST")
         vtable_flags_str = " | ".join(vtable_flag_bits) if vtable_flag_bits else "0"
 
         sym_kind = _symbol_kind(op)
@@ -1204,12 +1225,11 @@ def generate_tables_c(
         eff_traits = op.effective_traits or "NULL"
         interface_initializers = {spec.vtable_field: c_interfaces.interface_vtable_initializer(op, spec) for spec in c_interfaces.INTERFACES}
         symbol_def_ptr = f"&{prefix}_symbol_def" if op.symbol_def is not None else "NULL"
-        has_placement = any(trait.name in ("HasParent", "HasAncestor", "NoAncestor") for trait in op.traits)
+        has_placement = any(trait.name in ("HasParent", "HasAncestor", "HasAnyAncestor", "NoAncestor") for trait in op.traits)
         placement_ptr = f"&{prefix}_placement" if has_placement else "NULL"
         attr_desc_ptr = f"{prefix}_attr_desc" if non_flags else "NULL"
         operand_desc_ptr = f"{prefix}_operand_desc" if op.operands else "NULL"
         operand_descriptor_count = len(op.operands)
-        successor_selector_operand_index = c_queries.resolve_successor_selector_operand_index(op)
         implied_operand_descriptor_count = layout.fixed_operand_count
         if layout.segmented_operands:
             implied_operand_descriptor_count = -1
@@ -1241,7 +1261,6 @@ def generate_tables_c(
         if operand_role_mask_parts:
             lines.append(f"    .operand_role_mask = {' | '.join(sorted(set(operand_role_mask_parts)))},")
         if successor_selector_operand_index is not None:
-            lines.append("    .control_flow_flags = LOOM_OP_CONTROL_FLOW_HAS_SUCCESSOR_SELECTOR,")
             lines.append(f"    .successor_selector_operand_index = {successor_selector_operand_index},")
         if sym_kind != "LOOM_SYMBOL_NONE":
             lines.append(f"    .symbol_kind = {sym_kind},")

@@ -835,6 +835,13 @@ static void loom_math_legalize_binary_source_initialize(
       out_source->lane_builders = &kScalarLaneBuilders;
       out_source->binary_build = loom_scalar_addf_build;
       return;
+    case LOOM_OP_SCALAR_SUBF:
+      out_source->lhs = loom_scalar_subf_lhs(op);
+      out_source->rhs = loom_scalar_subf_rhs(op);
+      out_source->fastmath_flags = loom_scalar_subf_fastmath(op);
+      out_source->lane_builders = &kScalarLaneBuilders;
+      out_source->binary_build = loom_scalar_subf_build;
+      return;
     case LOOM_OP_SCALAR_MULF:
       out_source->lhs = loom_scalar_mulf_lhs(op);
       out_source->rhs = loom_scalar_mulf_rhs(op);
@@ -848,6 +855,13 @@ static void loom_math_legalize_binary_source_initialize(
       out_source->fastmath_flags = loom_vector_addf_fastmath(op);
       out_source->lane_builders = &kVectorLaneBuilders;
       out_source->binary_build = loom_vector_addf_build;
+      return;
+    case LOOM_OP_VECTOR_SUBF:
+      out_source->lhs = loom_vector_subf_lhs(op);
+      out_source->rhs = loom_vector_subf_rhs(op);
+      out_source->fastmath_flags = loom_vector_subf_fastmath(op);
+      out_source->lane_builders = &kVectorLaneBuilders;
+      out_source->binary_build = loom_vector_subf_build;
       return;
     case LOOM_OP_VECTOR_MULF:
       out_source->lhs = loom_vector_mulf_lhs(op);
@@ -863,8 +877,72 @@ static void loom_math_legalize_binary_source_initialize(
   IREE_BUILTIN_UNREACHABLE();
 }
 
-// Addition and multiplication of f16/bf16 operands round correctly through IEEE
-// f32 arithmetic with gradual underflow.
+// Projects through an exact extension already present on a recipe operand.
+// The widening recipe owns the replacement expression and should present the
+// original source type to target legalization instead of retaining an
+// incidental intermediate representation selected by source IR.
+static void loom_math_legalize_project_exact_float_extension(
+    const loom_module_t* module, loom_value_id_t* value,
+    loom_type_t* value_type) {
+  const loom_value_t* input_value = loom_module_value(module, *value);
+  if (loom_value_is_block_arg(input_value)) {
+    return;
+  }
+  const loom_op_t* input_op = loom_value_def_op(input_value);
+  if (input_op == NULL) {
+    return;
+  }
+
+  if (loom_type_is_scalar(*value_type) && loom_scalar_extf_isa(input_op)) {
+    *value = loom_scalar_extf_input(input_op);
+    *value_type = loom_module_value_type(module, *value);
+  } else if (loom_type_is_vector(*value_type) &&
+             loom_vector_extf_isa(input_op)) {
+    *value = loom_vector_extf_input(input_op);
+    *value_type = loom_module_value_type(module, *value);
+  }
+}
+
+// Widens one recipe operand directly from its exact source representation.
+// Uniform vectors retain their scalar representation so the target sees one
+// scalar conversion followed by a splat instead of a lane-wise conversion.
+static iree_status_t loom_math_legalize_build_widen_f32_operand(
+    loom_builder_t* builder, const loom_math_legalize_recipe_context_t* context,
+    const loom_math_legalize_binary_source_t* source, loom_value_id_t input,
+    loom_value_id_t* out_value) {
+  loom_type_t input_type = source->result_type;
+  const loom_value_t* input_value = loom_module_value(context->module, input);
+  const loom_op_t* input_op = loom_value_is_block_arg(input_value)
+                                  ? NULL
+                                  : loom_value_def_op(input_value);
+  if (loom_type_is_vector(input_type) && input_op != NULL &&
+      loom_vector_splat_isa(input_op)) {
+    loom_value_id_t scalar = loom_vector_splat_scalar(input_op);
+    loom_type_t scalar_type = loom_module_value_type(context->module, scalar);
+    loom_math_legalize_project_exact_float_extension(context->module, &scalar,
+                                                     &scalar_type);
+
+    loom_op_t* widened_scalar_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_extf_build(
+        builder, scalar, scalar_type, loom_type_scalar(LOOM_SCALAR_TYPE_F32),
+        source->location, &widened_scalar_op));
+    loom_op_t* splat_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_splat_build(
+        builder, loom_scalar_extf_result(widened_scalar_op),
+        source->widened_type, source->location, &splat_op));
+    *out_value = loom_vector_splat_result(splat_op);
+    return iree_ok_status();
+  }
+
+  loom_math_legalize_project_exact_float_extension(context->module, &input,
+                                                   &input_type);
+  return loom_math_legalize_build_cast(builder, source->lane_builders->extf,
+                                       input, input_type, source->widened_type,
+                                       source->location, out_value);
+}
+
+// Addition, subtraction and multiplication of FP8, f16 and bf16 operands round
+// correctly through IEEE f32 arithmetic with gradual underflow.
 // Other arithmetic requires its own proof against intermediate rounding.
 static iree_status_t loom_math_legalize_build_widen_f32_round(
     loom_builder_t* builder, const loom_math_legalize_recipe_context_t* context,
@@ -873,13 +951,11 @@ static iree_status_t loom_math_legalize_build_widen_f32_round(
   loom_math_legalize_binary_source_initialize(context, op, &source);
 
   loom_value_id_t wide_lhs = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_math_legalize_build_cast(
-      builder, source.lane_builders->extf, source.lhs, source.result_type,
-      source.widened_type, source.location, &wide_lhs));
+  IREE_RETURN_IF_ERROR(loom_math_legalize_build_widen_f32_operand(
+      builder, context, &source, source.lhs, &wide_lhs));
   loom_value_id_t wide_rhs = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_math_legalize_build_cast(
-      builder, source.lane_builders->extf, source.rhs, source.result_type,
-      source.widened_type, source.location, &wide_rhs));
+  IREE_RETURN_IF_ERROR(loom_math_legalize_build_widen_f32_operand(
+      builder, context, &source, source.rhs, &wide_rhs));
 
   loom_op_t* wide_op = NULL;
   IREE_RETURN_IF_ERROR(

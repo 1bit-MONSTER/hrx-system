@@ -13,7 +13,6 @@
 #include "loom/ops/target/ops.h"
 #include "loom/target/arch/amdgpu/error_catalog.h"
 #include "loom/target/arch/amdgpu/ops/ops.h"
-#include "loom/target/arch/amdgpu/profile.h"
 #include "loom/target/arch/amdgpu/records/target_records.h"
 
 enum {

@@ -70,8 +70,9 @@ struct loom_target_condition_descriptor_t {
   loom_target_condition_project_query_predicate_fn_t project_query_predicate;
 };
 
-static_assert(sizeof(loom_target_condition_descriptor_t) == 32,
-              "target condition descriptor must remain 32 bytes");
+static_assert(sizeof(loom_target_condition_descriptor_t) ==
+                  (IREE_PTR_SIZE == 8 ? 32 : 16),
+              "target condition descriptor must remain compact");
 
 // One semantically resolved authored target condition.
 typedef struct loom_target_condition_t {

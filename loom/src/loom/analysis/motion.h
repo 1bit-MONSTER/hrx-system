@@ -78,6 +78,11 @@ typedef struct loom_motion_analysis_t {
   loom_motion_region_stack_t region_stack;
 } loom_motion_analysis_t;
 
+// Lazily constructed index of the block-local effect segments that ordinary
+// reads cannot cross.
+typedef struct loom_motion_read_barrier_table_t
+    loom_motion_read_barrier_table_t;
+
 // Initializes shared motion analysis state for |region| and its nested region
 // tree. All queried insertion points and CFG relationships must remain in that
 // tree. |fact_table| and |value_domain| may both be NULL for effect-free
@@ -181,6 +186,26 @@ bool loom_motion_op_is_ordinary_load(const loom_module_t* module,
 // boundary blocks motion.
 bool loom_motion_read_can_cross_op(const loom_module_t* module,
                                    const loom_op_t* op);
+
+// Creates a lazy read-barrier table using |arena| storage. The first query in a
+// block captures source-order segments for every operation then live in that
+// block. Later-created operations are indexed once as contiguous runs when
+// their surrounding captured segments agree; conflicting runs conservatively
+// fail queries. Rewrites may retain the table while replacing operations in
+// place, but must not move captured operations across observable effect
+// boundaries.
+iree_status_t loom_motion_read_barrier_table_create(
+    const loom_module_t* module, iree_arena_allocator_t* arena,
+    loom_motion_read_barrier_table_t** out_table);
+
+// Returns whether an ordinary read at |read_op| can move immediately before
+// |before_op| without crossing an ordering barrier. Both operations must be in
+// the same block with |read_op| ordered first. The query checks operations
+// strictly between the endpoints; callers separately classify the read and
+// account for effects of |before_op| itself.
+iree_status_t loom_motion_read_barrier_table_can_cross(
+    loom_motion_read_barrier_table_t* table, const loom_op_t* read_op,
+    const loom_op_t* before_op, bool* out_can_cross);
 
 //===----------------------------------------------------------------------===//
 // Subtree motion

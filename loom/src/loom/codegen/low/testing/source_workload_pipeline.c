@@ -12,10 +12,10 @@
 #include "iree/base/internal/arena.h"
 #include "loom/codegen/low/function.h"
 #include "loom/codegen/low/lower/source_selection.h"
-#include "loom/codegen/low/pipeline/pass_environment.h"
 #include "loom/codegen/low/pipeline/pipeline.h"
 #include "loom/codegen/low/testing/allocation_checker.h"
 #include "loom/codegen/low/verify.h"
+#include "loom/codegen/pass_environment.h"
 #include "loom/ir/module.h"
 #include "loom/ops/func/ops.h"
 #include "loom/ops/low/ops.h"
@@ -120,13 +120,13 @@ static iree_status_t loom_low_source_workload_prepare_low_functions(
     pipeline_op = mutable_pipeline_op;
   }
 
-  loom_low_pass_environment_storage_t environment_storage = {0};
+  const loom_codegen_pass_environment_options_t environment_options = {
+      .descriptor_registry = options->descriptor_registry,
+  };
+  loom_codegen_pass_environment_storage_t environment_storage = {0};
   loom_pass_environment_t environment =
-      loom_low_pass_environment_storage_initialize(
-          options->descriptor_registry, /*lower_policy_registry=*/NULL,
-          /*legality_provider_list=*/NULL, /*legalizer_registry=*/NULL,
-          /*math_policy_registry=*/NULL, /*compile_report=*/NULL,
-          /*target_environment=*/NULL, /*function_versions=*/NULL,
+      loom_codegen_pass_environment_storage_initialize(
+          &environment_options, /*function_versions=*/NULL,
           &environment_storage);
   loom_pass_program_t program = {0};
   if (iree_status_is_ok(status)) {
@@ -166,7 +166,9 @@ iree_status_t loom_low_source_workload_run_pipeline(
     loom_module_t* module,
     const loom_low_source_workload_pipeline_options_t* options,
     iree_arena_block_pool_t* block_pool,
-    loom_low_source_workload_pipeline_counters_t* out_counters) {
+    loom_low_source_workload_pipeline_counters_t* out_counters,
+    bool* out_accepted) {
+  *out_accepted = false;
   memset(out_counters, 0, sizeof(*out_counters));
 
   loom_low_source_workload_count_module_source_ops(
@@ -286,12 +288,19 @@ iree_status_t loom_low_source_workload_run_pipeline(
         .descriptor_registry = options->descriptor_registry,
         .schedule_strategy = options->schedule_strategy,
     };
-    for (iree_host_size_t i = 0;
-         i < selection_list.count && iree_status_is_ok(status); ++i) {
+    bool frames_accepted = true;
+    for (iree_host_size_t i = 0; i < selection_list.count &&
+                                 iree_status_is_ok(status) && frames_accepted;
+         ++i) {
       loom_low_emission_frame_t frame = {0};
-      status = loom_low_emission_frame_build(
-          module, lowered_funcs[i], &frame_options, &frame_arena, &frame);
-      if (iree_status_is_ok(status)) {
+      bool frame_accepted = false;
+      status = loom_low_emission_frame_build(module, lowered_funcs[i],
+                                             &frame_options, &frame_arena,
+                                             &frame, &frame_accepted);
+      if (iree_status_is_ok(status) && !frame_accepted) {
+        frames_accepted = false;
+      }
+      if (iree_status_is_ok(status) && frame_accepted) {
         loom_low_allocation_check_result_t check_result = {0};
         status = loom_low_allocation_check_frame(&frame, &frame_arena,
                                                  &check_result);
@@ -310,7 +319,7 @@ iree_status_t loom_low_source_workload_run_pipeline(
               check_result.first_violation.secondary_index);
         }
       }
-      if (iree_status_is_ok(status)) {
+      if (iree_status_is_ok(status) && frame_accepted) {
         ++out_counters->allocation_check_count;
         out_counters->schedule_node_count +=
             frame.schedule.scheduled_node_count;
@@ -331,6 +340,9 @@ iree_status_t loom_low_source_workload_run_pipeline(
     }
     if (frame_arena_initialized) {
       iree_arena_deinitialize(&frame_arena);
+    }
+    if (iree_status_is_ok(status) && frames_accepted) {
+      *out_accepted = true;
     }
   }
 

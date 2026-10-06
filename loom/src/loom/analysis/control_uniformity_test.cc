@@ -18,7 +18,9 @@
 #include "loom/ir/module.h"
 #include "loom/ops/cfg/ops.h"
 #include "loom/ops/func/ops.h"
+#include "loom/ops/index/ops.h"
 #include "loom/ops/scalar/ops.h"
+#include "loom/ops/scf/ops.h"
 #include "loom/ops/test/ops.h"
 #include "loom/testing/module_ptr.h"
 
@@ -36,7 +38,9 @@ class ControlUniformityTest : public ::testing::Test {
     loom_context_initialize(iree_allocator_system(), &context_);
     RegisterDialect(LOOM_DIALECT_CFG, loom_cfg_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_FUNC, loom_func_dialect_vtables);
+    RegisterDialect(LOOM_DIALECT_INDEX, loom_index_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_SCALAR, loom_scalar_dialect_vtables);
+    RegisterDialect(LOOM_DIALECT_SCF, loom_scf_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_TEST, loom_test_dialect_vtables);
     IREE_ASSERT_OK(loom_context_finalize(&context_));
   }
@@ -82,17 +86,28 @@ class ControlUniformityTest : public ::testing::Test {
 
   std::vector<const loom_op_t*> FindUses(loom_func_like_t function) {
     std::vector<const loom_op_t*> uses;
-    loom_region_t* body = loom_func_like_body(function);
+    FindUses(loom_func_like_body(function), &uses);
+    return uses;
+  }
+
+  void FindUses(loom_region_t* region,
+                std::vector<const loom_op_t*>* out_uses) {
+    if (!region) {
+      return;
+    }
     loom_block_t* block = nullptr;
-    loom_region_for_each_block(body, block) {
+    loom_region_for_each_block(region, block) {
       loom_op_t* op = nullptr;
       loom_block_for_each_op(block, op) {
         if (loom_test_use_isa(op)) {
-          uses.push_back(op);
+          out_uses->push_back(op);
+        }
+        loom_region_t* const* child_regions = loom_op_regions(op);
+        for (uint8_t i = 0; i < op->region_count; ++i) {
+          FindUses(child_regions[i], out_uses);
         }
       }
     }
-    return uses;
   }
 
   void DefineArgumentScope(loom_value_fact_table_t* fact_table,
@@ -136,13 +151,13 @@ class ControlUniformityTest : public ::testing::Test {
     return proven;
   }
 
-  void CheckCoexecution(const std::vector<std::vector<uint16_t>>& successors,
-                        uint32_t uniform_selectors) {
+  void CheckExecution(const std::vector<std::vector<uint16_t>>& successors,
+                      uint32_t uniform_selectors) {
     SCOPED_TRACE(::testing::PrintToString(successors));
     SCOPED_TRACE(uniform_selectors);
-    IREE_ASSERT_OK(testing::CheckControlCoexecution(
-        &context_, &block_pool_, &analysis_arena_, successors,
-        uniform_selectors));
+    IREE_ASSERT_OK(testing::CheckControlExecution(&context_, &block_pool_,
+                                                  &analysis_arena_, successors,
+                                                  uniform_selectors));
     iree_arena_reset(&analysis_arena_);
   }
 
@@ -155,15 +170,15 @@ class ControlUniformityTest : public ::testing::Test {
 };
 
 TEST_F(ControlUniformityTest, PartialReconvergenceIsNotAnExclusiveAlternative) {
-  CheckCoexecution({{1, 2}, {3, 4}, {3, 4}, {4}, {}}, 0x1F);
+  CheckExecution({{1, 2}, {3, 4}, {3, 4}, {4}, {}}, 0x1F);
 }
 
 TEST_F(ControlUniformityTest, PartialParticipationCannotProveExclusion) {
-  CheckCoexecution({{1, 3}, {2, 3}, {4}, {4}, {}}, 0x1E);
+  CheckExecution({{1, 3}, {2, 3}, {4}, {4}, {}}, 0x1E);
 }
 
 TEST_F(ControlUniformityTest, BypassedControllerCannotProveExclusion) {
-  CheckCoexecution({{2, 1}, {3, 4}, {4, 3}, {5, 5}, {5}, {}}, 0x0B);
+  CheckExecution({{2, 1}, {3, 4}, {4, 3}, {5, 5}, {5}, {}}, 0x0B);
 }
 
 TEST_F(ControlUniformityTest, ExhaustiveFourBlockPathsAndSelectorScopes) {
@@ -184,7 +199,7 @@ TEST_F(ControlUniformityTest, ExhaustiveFourBlockPathsAndSelectorScopes) {
       for (const auto& third : alternatives(2)) {
         for (uint32_t uniform = 0; uniform < 8; ++uniform) {
           SCOPED_TRACE(uniform);
-          CheckCoexecution({entry, second, third, {}}, uniform);
+          CheckExecution({entry, second, third, {}}, uniform);
         }
       }
     }
@@ -204,19 +219,19 @@ TEST_F(ControlUniformityTest, RandomAcyclicPathsAndMixedSelectorScopes) {
                                      random() % (count - source - 1));
       }
     }
-    CheckCoexecution(successors, random() & ((1u << count) - 1));
+    CheckExecution(successors, random() & ((1u << count) - 1));
   }
 }
 
 TEST_F(ControlUniformityTest, NonterminatingAlternativesCanFlowIntoEachOther) {
-  CheckCoexecution({{1, 2}, {2}, {2}}, 0x7);
-  CheckCoexecution({{2, 1}, {1}, {1}}, 0x7);
+  CheckExecution({{1, 2}, {2}, {2}}, 0x7);
+  CheckExecution({{2, 1}, {1}, {1}}, 0x7);
 }
 
 TEST_F(ControlUniformityTest, CyclicArmsAndPartialReconvergence) {
-  CheckCoexecution({{1, 2}, {3, 5}, {4, 5}, {1, 5}, {2, 5}, {}}, 1);
-  CheckCoexecution({{1, 2}, {3, 4}, {3, 4}, {1, 5}, {2, 5}, {}}, 1);
-  CheckCoexecution({{1, 2}, {3}, {4}, {1, 4}, {2, 3}}, 0x1F);
+  CheckExecution({{1, 2}, {3, 5}, {4, 5}, {1, 5}, {2, 5}, {}}, 1);
+  CheckExecution({{1, 2}, {3, 4}, {3, 4}, {1, 5}, {2, 5}, {}}, 1);
+  CheckExecution({{1, 2}, {3}, {4}, {1, 4}, {2, 3}}, 0x1F);
 }
 
 TEST_F(ControlUniformityTest, RandomCyclicPathsAndMixedSelectorScopes) {
@@ -231,7 +246,7 @@ TEST_F(ControlUniformityTest, RandomCyclicPathsAndMixedSelectorScopes) {
         edges.push_back(1 + random() % (count - 1));
       }
     }
-    CheckCoexecution(successors, random() & ((1u << count) - 1));
+    CheckExecution(successors, random() & ((1u << count) - 1));
   }
 }
 
@@ -268,6 +283,23 @@ func.def @direct(%condition: i1, %lhs: i32, %rhs: i32) {
                                      LOOM_VALUE_FACT_UNIFORM_SCOPE_SUBGROUP));
   EXPECT_FALSE(ProveMutuallyExclusive(&info, uses, 0, 1,
                                       LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP));
+
+  // Entry is uniform even when the selector partitions that execution scope.
+  loom_region_t* body = loom_func_like_body(function);
+  loom_block_t* entry = loom_region_entry_block(body);
+  loom_condition_assumption_t condition;
+  for (size_t i = 0; i < uses.size(); ++i) {
+    ASSERT_TRUE(loom_control_uniformity_prove_single_entry(
+        &info, uses[i]->parent_block, LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP,
+        &condition));
+    EXPECT_EQ(condition.condition, loom_block_arg_id(entry, 0));
+    EXPECT_EQ(condition.assumed_truth, i == 0);
+  }
+  EXPECT_FALSE(loom_control_uniformity_prove_single_entry(
+      &info, entry, LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP, &condition));
+  EXPECT_FALSE(loom_control_uniformity_prove_single_entry(
+      &info, loom_region_block(body, 3),
+      LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP, &condition));
 }
 
 TEST_F(ControlUniformityTest, ProvesInheritedNestedAlternatives) {
@@ -365,6 +397,193 @@ func.def @footprints(%outer: i1, %continue: i1, %lhs: i32, %rhs: i32, %joined: i
   EXPECT_FALSE(ProveOperationSetsMutuallyExclusive(
       &info, lhs_join_live_ops, rhs_ops,
       LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP));
+}
+
+TEST_F(ControlUniformityTest, ProvesNestedStructuredRegionAlternatives) {
+  ModulePtr module = ParseModule(R"(
+func.def @structured(%outer: i1, %inner: i1, %lhs: i32, %rhs: i32) {
+  scf.if %outer {
+    scf.if %inner {
+      test.use %lhs : i32
+    } else {
+      test.use %lhs : i32
+    }
+  } else {
+    test.use %rhs : i32
+    test.use %rhs : i32
+  }
+  func.return
+}
+)");
+  IREE_ASSERT_OK(loom_module_compute_uses(module.get()));
+  loom_func_like_t function = FindFunction(module.get(), IREE_SV("structured"));
+  const std::vector<const loom_op_t*> uses = FindUses(function);
+  ASSERT_EQ(uses.size(), 4u);
+
+  loom_value_fact_table_t fact_table;
+  IREE_ASSERT_OK(
+      loom_value_fact_table_initialize(&fact_table, &analysis_arena_, 8));
+  DefineArgumentScope(&fact_table, function, 0,
+                      LOOM_VALUE_FACT_UNIFORM_SCOPE_SUBGROUP);
+  IREE_ASSERT_OK(
+      loom_value_fact_table_compute(&fact_table, module.get(), function));
+  loom_control_uniformity_info_t info;
+  loom_control_uniformity_info_initialize(module.get(), &fact_table,
+                                          &analysis_arena_, &info);
+  const std::vector<const loom_op_t*> lhs_ops = {uses[0], uses[1]};
+  const std::vector<const loom_op_t*> rhs_ops = {uses[2], uses[3]};
+  EXPECT_TRUE(ProveOperationSetsMutuallyExclusive(
+      &info, lhs_ops, rhs_ops, LOOM_VALUE_FACT_UNIFORM_SCOPE_SUBGROUP));
+  EXPECT_FALSE(ProveOperationSetsMutuallyExclusive(
+      &info, lhs_ops, rhs_ops, LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP));
+}
+
+TEST_F(ControlUniformityTest, ProvesConstantStructuredAlternatives) {
+  ModulePtr module = ParseModule(R"(
+func.def @constant_structured(%lhs: i32, %rhs: i32) {
+  %condition = scalar.constant 1 : i1
+  scf.if %condition {
+    test.use %lhs : i32
+  } else {
+    test.use %rhs : i32
+  }
+  func.return
+}
+)");
+  IREE_ASSERT_OK(loom_module_compute_uses(module.get()));
+  loom_func_like_t function =
+      FindFunction(module.get(), IREE_SV("constant_structured"));
+  const std::vector<const loom_op_t*> uses = FindUses(function);
+  ASSERT_EQ(uses.size(), 2u);
+
+  loom_value_fact_table_t fact_table;
+  IREE_ASSERT_OK(
+      loom_value_fact_table_initialize(&fact_table, &analysis_arena_, 8));
+  IREE_ASSERT_OK(
+      loom_value_fact_table_compute(&fact_table, module.get(), function));
+  loom_control_uniformity_info_t info;
+  loom_control_uniformity_info_initialize(module.get(), &fact_table,
+                                          &analysis_arena_, &info);
+  EXPECT_TRUE(ProveMutuallyExclusive(&info, uses, 0, 1,
+                                     LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP));
+}
+
+TEST_F(ControlUniformityTest, ProvesMultiwayStructuredAlternatives) {
+  ModulePtr module = ParseModule(R"(
+func.def @structured_switch(%selector: index, %first: i32, %second: i32, %fallback: i32) {
+  scf.switch %selector {
+    case 0 {
+      test.use %first : i32
+      scf.yield
+    }
+    case 1 {
+      test.use %second : i32
+      scf.yield
+    }
+    default {
+      test.use %fallback : i32
+      scf.yield
+    }
+  }
+  func.return
+}
+)");
+  IREE_ASSERT_OK(loom_module_compute_uses(module.get()));
+  loom_func_like_t function =
+      FindFunction(module.get(), IREE_SV("structured_switch"));
+  const std::vector<const loom_op_t*> uses = FindUses(function);
+  ASSERT_EQ(uses.size(), 3u);
+
+  loom_value_fact_table_t fact_table;
+  IREE_ASSERT_OK(
+      loom_value_fact_table_initialize(&fact_table, &analysis_arena_, 8));
+  DefineArgumentScope(&fact_table, function, 0,
+                      LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP);
+  IREE_ASSERT_OK(
+      loom_value_fact_table_compute(&fact_table, module.get(), function));
+  loom_control_uniformity_info_t info;
+  loom_control_uniformity_info_initialize(module.get(), &fact_table,
+                                          &analysis_arena_, &info);
+  EXPECT_TRUE(ProveMutuallyExclusive(&info, uses, 0, 1,
+                                     LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP));
+  EXPECT_TRUE(ProveMutuallyExclusive(&info, uses, 0, 2,
+                                     LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP));
+  EXPECT_TRUE(ProveMutuallyExclusive(&info, uses, 1, 2,
+                                     LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP));
+}
+
+TEST_F(ControlUniformityTest, RejectsStructuredAlternativesInsideLoop) {
+  ModulePtr module = ParseModule(R"(
+func.def @structured_loop(%condition: i1, %lhs: i32, %rhs: i32) {
+  %begin = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  scf.for %iteration = [%begin to %end step %step] {
+    scf.if %condition {
+      test.use %lhs : i32
+    } else {
+      test.use %rhs : i32
+    }
+    scf.yield
+  }
+  func.return
+}
+)");
+  IREE_ASSERT_OK(loom_module_compute_uses(module.get()));
+  loom_func_like_t function =
+      FindFunction(module.get(), IREE_SV("structured_loop"));
+  const std::vector<const loom_op_t*> uses = FindUses(function);
+  ASSERT_EQ(uses.size(), 2u);
+
+  loom_value_fact_table_t fact_table;
+  IREE_ASSERT_OK(
+      loom_value_fact_table_initialize(&fact_table, &analysis_arena_, 8));
+  DefineArgumentScope(&fact_table, function, 0,
+                      LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP);
+  IREE_ASSERT_OK(
+      loom_value_fact_table_compute(&fact_table, module.get(), function));
+  loom_control_uniformity_info_t info;
+  loom_control_uniformity_info_initialize(module.get(), &fact_table,
+                                          &analysis_arena_, &info);
+  EXPECT_FALSE(ProveMutuallyExclusive(&info, uses, 0, 1,
+                                      LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP));
+}
+
+TEST_F(ControlUniformityTest, RejectsStructuredAlternativesInsideCfgCycle) {
+  ModulePtr module = ParseModule(R"(
+func.def @structured_cfg_loop(%continue: i1, %condition: i1, %lhs: i32, %rhs: i32) {
+  cfg.br ^loop
+^loop:
+  scf.if %condition {
+    test.use %lhs : i32
+  } else {
+    test.use %rhs : i32
+  }
+  cfg.cond_br %continue, ^loop, ^done
+^done:
+  func.return
+}
+)");
+  IREE_ASSERT_OK(loom_module_compute_uses(module.get()));
+  loom_func_like_t function =
+      FindFunction(module.get(), IREE_SV("structured_cfg_loop"));
+  const std::vector<const loom_op_t*> uses = FindUses(function);
+  ASSERT_EQ(uses.size(), 2u);
+
+  loom_value_fact_table_t fact_table;
+  IREE_ASSERT_OK(
+      loom_value_fact_table_initialize(&fact_table, &analysis_arena_, 8));
+  DefineArgumentScope(&fact_table, function, 0,
+                      LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP);
+  DefineArgumentScope(&fact_table, function, 1,
+                      LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP);
+  IREE_ASSERT_OK(
+      loom_value_fact_table_compute(&fact_table, module.get(), function));
+  loom_control_uniformity_info_t info;
+  loom_control_uniformity_info_initialize(module.get(), &fact_table,
+                                          &analysis_arena_, &info);
+  EXPECT_FALSE(ProveMutuallyExclusive(&info, uses, 0, 1,
+                                      LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP));
 }
 
 TEST_F(ControlUniformityTest, RejectsAlternativesControlledInsideCycle) {

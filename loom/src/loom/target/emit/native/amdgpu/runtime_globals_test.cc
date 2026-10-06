@@ -9,25 +9,12 @@
 #include <string>
 
 #include "iree/testing/gtest.h"
-#include "iree/testing/status_matchers.h"
 
 namespace loom {
 namespace {
 
 std::string StringViewToString(iree_string_view_t value) {
   return std::string(value.data, value.size);
-}
-
-TEST(AmdgpuRuntimeGlobalsTest, ValidatesRuntimeGlobalBits) {
-  IREE_EXPECT_OK(loom_amdgpu_runtime_global_flags_validate(
-      LOOM_AMDGPU_RUNTIME_GLOBAL_NONE));
-  IREE_EXPECT_OK(loom_amdgpu_runtime_global_flags_validate(
-      LOOM_AMDGPU_RUNTIME_GLOBAL_ASAN_CONFIG |
-      LOOM_AMDGPU_RUNTIME_GLOBAL_TSAN_CONFIG |
-      LOOM_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG));
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
-                        loom_amdgpu_runtime_global_flags_validate(
-                            (loom_amdgpu_runtime_global_flags_t)0x80000000u));
 }
 
 TEST(AmdgpuRuntimeGlobalsTest, ResolvesRequestedSymbols) {

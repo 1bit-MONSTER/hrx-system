@@ -3,8 +3,8 @@
 Loom compiles tile programs and their array transport into a native `.xdna`
 executable. The product contains AIE2P instructions, initialized data, array
 configuration, explicit storage and binding requirements, and native invocation
-ranges. It executes through [libamdf](../../../../../../../libamdf/docs/xdna.md); compilation
-does not invoke the AIE SDK, LLVM, Python, or an external linker.
+ranges. It executes through [libamdf](../../../../../../../libamdf/docs/xdna.md);
+compilation does not invoke the AIE SDK, LLVM, Python, or an external linker.
 
 This directory owns device facts and AIE2P target mechanics. The shared Loom
 compiler owns IR analysis, canonicalization, scheduling, register allocation,
@@ -138,11 +138,13 @@ requirement describes storage; each exported entry selects the allocations it
 uses. Loading applies static address fixups, and binding applies external
 buffer addresses to explicitly declared fields.
 
-Invocation zero establishes resident state. The current finite protocol then
-uses a continuation range for repeated work (`0 -> 1 -> 1`) while the context,
-backing, and residency remain intact. The format also represents a self-contained
-range (`0 -> 0`). Program shards and role changes within an invocation are
-compiled device behavior, not a mandatory host dispatch per tile function.
+Invocation zero establishes the program's state. The image format can represent
+a continuation (`0 -> 1 -> 1`) for a caller with an established native
+state-retention contract. The finite execution adapter uses the complete
+establishing range for every independent submission (`0 -> 0`), because retaining
+a time-sliced context does not preserve application tile state. Program shards
+and role changes within an invocation are compiled device behavior, not a
+mandatory host dispatch per tile function.
 
 The format has no fixed ARRAY/CONTROL split, XRT argument-patching contract, or
 precompiled PDI dependency. libamdf owns device/context establishment and family

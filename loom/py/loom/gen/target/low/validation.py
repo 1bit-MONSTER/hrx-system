@@ -163,7 +163,7 @@ def _explicit_components_admit_placement(
                 is_early_clobber=operand_index in early_clobber_results,
             )
             reads_pre |= operand_reads_pre
-            writes_post |= operand_writes_post
+            writes_post |= operand_writes_post or any(alternative.late_read_subgroup_size is not None for alternative in operand.reg_alts)
         if domain is None:
             continue
         if not domain:
@@ -561,6 +561,7 @@ def validate_physical_descriptor_set(
             legal_resource_keys: set[str] | None = None
             pre_width = 0
             post_width = 0
+            late_widths: dict[str, int] = {}
             for operand_index, operand, physical_classes in component_rows:
                 operand_resource_keys = {_physical_resource_key(register_class) for register_class in physical_classes}
                 if legal_resource_keys is None:
@@ -575,16 +576,24 @@ def validate_physical_descriptor_set(
                     pre_width = max(pre_width, operand.unit_count)
                 if writes_post:
                     post_width = max(post_width, operand.unit_count)
+                physical_class_names = {register_class.name for register_class in physical_classes}
+                for alternative in operand.reg_alts:
+                    if alternative.late_read_subgroup_size is not None and alternative.reg_class in physical_class_names:
+                        resource_key = _physical_resource_key(register_classes[alternative.reg_class])
+                        late_widths[resource_key] = max(late_widths.get(resource_key, 0), operand.unit_count)
             if not legal_resource_keys:
                 operand_names = ", ".join(operand.field_name for _, operand, _ in component_rows)
                 raise ValueError(f"descriptor set '{descriptor_set.key}' descriptor '{descriptor.key}' tied physical component [{operand_names}] has no common storage resource")
-            components.append(
+            # Each bank sees only the timing of its selected alternatives. The
+            # envelope covers every execution width supported by the descriptor.
+            components.extend(
                 _PhysicalComponent(
                     operand_indices=tuple(operand_index for operand_index, _, _ in component_rows),
-                    resource_keys=frozenset(legal_resource_keys),
+                    resource_keys=frozenset((resource_key,)),
                     pre_width=pre_width,
-                    post_width=post_width,
+                    post_width=max(post_width, late_widths.get(resource_key, 0)),
                 )
+                for resource_key in sorted(legal_resource_keys)
             )
 
         _validate_physical_metric(
@@ -1281,7 +1290,7 @@ def validate_descriptor_operands(descriptor: Descriptor) -> DescriptorOperandLay
             if other_flags:
                 names = ", ".join(sorted(flag.name.lower() for flag in other_flags))
                 raise ValueError(f"descriptor '{descriptor.key}' variadic operand '{operand.field_name}' has unsupported flags: {names}")
-            if operand.encoding_field_id != 0 or operand.register_part is not None:
+            if operand.encoding_field_id != 0 or any(alternative.register_part is not None for alternative in operand.reg_alts):
                 raise ValueError(f"descriptor '{descriptor.key}' variadic operand '{operand.field_name}' cannot participate in a fixed instruction encoding")
         elif operand_role_is_packet_input(operand.role):
             minimum_packet_operand_count += 1
@@ -1337,6 +1346,22 @@ def validate_descriptor_operands(descriptor: Descriptor) -> DescriptorOperandLay
                 raise ValueError(f"descriptor '{descriptor.key}' state operand '{operand.field_name}' must name exactly one register-class alternative")
             if operand.reg_alts[0].reg_class is None:
                 raise ValueError(f"descriptor '{descriptor.key}' state operand '{operand.field_name}' must name a concrete register class")
+        if OperandFlag.EXECUTION_MASK in operand.flags:
+            required = {OperandFlag.IMPLICIT, OperandFlag.STATE_READ, OperandFlag.SCHEDULE_ONLY_STATE}
+            if not required.issubset(operand.flags) or OperandFlag.STATE_WRITE in operand.flags:
+                raise ValueError(f"descriptor '{descriptor.key}' execution mask '{operand.field_name}' must be an implicit schedule-only state read")
+        if OperandFlag.NARROWS_EXECUTION_MASK in operand.flags:
+            if not {OperandFlag.IMPLICIT, OperandFlag.STATE_WRITE}.issubset(operand.flags):
+                raise ValueError(f"descriptor '{descriptor.key}' narrowing mask '{operand.field_name}' must write implicit state")
+            if not any(OperandFlag.EXECUTION_MASK in other.flags and other.reg_alts == operand.reg_alts for other in descriptor.operands):
+                raise ValueError(f"descriptor '{descriptor.key}' narrowing mask '{operand.field_name}' must read the same execution mask")
+        if OperandFlag.COMMUTATIVE_STATE_UPDATE in operand.flags:
+            if operand.role is not OperandRole.IMPLICIT or state_flags != {OperandFlag.STATE_WRITE}:
+                raise ValueError(f"descriptor '{descriptor.key}' commutative update '{operand.field_name}' must be an implicit state write without a state read")
+            if operand.unit_count != 1 or any(alternative.register_part is not None for alternative in operand.reg_alts):
+                raise ValueError(f"descriptor '{descriptor.key}' commutative update '{operand.field_name}' must update a whole state register")
+            if DescriptorFlag.STATE_ASSIGNMENT in descriptor.flags:
+                raise ValueError(f"descriptor '{descriptor.key}' state assignment cannot promise commutative updates")
     if variadic_operand_index is not None:
         if descriptor.constraints:
             raise ValueError(f"descriptor '{descriptor.key}' with variadic operands cannot declare descriptor constraints")
@@ -1349,6 +1374,46 @@ def validate_descriptor_operands(descriptor: Descriptor) -> DescriptorOperandLay
         minimum_packet_operand_count=minimum_packet_operand_count,
         has_variadic_operands=variadic_operand_index is not None,
     )
+
+
+def validate_descriptor_speculation(descriptor: Descriptor) -> None:
+    """Checks the structural obligations of an explicit totality guarantee."""
+    if DescriptorFlag.SAFE_TO_SPECULATE not in descriptor.flags:
+        return
+    forbidden = {DescriptorFlag.SIDE_EFFECTING, DescriptorFlag.TERMINATOR, DescriptorFlag.BARRIER, DescriptorFlag.UNIQUE_IDENTITY, DescriptorFlag.VARIADIC_OPERANDS}
+    if forbidden.intersection(descriptor.flags) or descriptor.effects or descriptor.storage_leases:
+        raise ValueError(f"descriptor '{descriptor.key}' speculation requires effect-free execution")
+    if DescriptorFlag.DEAD_REMOVABLE not in descriptor.flags:
+        raise ValueError(f"descriptor '{descriptor.key}' speculation requires dead-removable results")
+    for operand in descriptor.operands:
+        if OperandFlag.STATE_WRITE in operand.flags:
+            raise ValueError(f"descriptor '{descriptor.key}' speculation cannot write architectural state")
+
+
+def validate_descriptor_state_assignment(descriptor: Descriptor, register_classes: Mapping[str, RegClass]) -> None:
+    """Checks the shape promised by a deterministic whole-state replacement."""
+    if DescriptorFlag.STATE_ASSIGNMENT not in descriptor.flags:
+        return
+    description = f"descriptor '{descriptor.key}' state assignment"
+    forbidden = {DescriptorFlag.TERMINATOR, DescriptorFlag.BARRIER, DescriptorFlag.UNIQUE_IDENTITY, DescriptorFlag.VARIADIC_OPERANDS, DescriptorFlag.SAFE_TO_SPECULATE}
+    if forbidden.intersection(descriptor.flags) or descriptor.effects or descriptor.storage_leases:
+        raise ValueError(f"{description} must have no other effects")
+    writes = [operand for operand in descriptor.operands if OperandFlag.STATE_WRITE in operand.flags]
+    if len(writes) != 1:
+        raise ValueError(f"{description} must replace exactly one state register")
+    write = writes[0]
+    if write.role not in (OperandRole.RESULT, OperandRole.IMPLICIT) or write.unit_count != 1 or any(alternative.register_part is not None for alternative in write.reg_alts):
+        raise ValueError(f"{description} must replace the whole state register")
+    if write.role is OperandRole.IMPLICIT and DescriptorFlag.SIDE_EFFECTING not in descriptor.flags:
+        raise ValueError(f"{description} without an SSA result must retain its side effect")
+    register_class = register_classes[write.reg_alts[0].reg_class]
+    if _register_class_allocatable_count(register_class) != 1:
+        raise ValueError(f"{description} must name singleton architectural state")
+    for operand in descriptor.operands:
+        if OperandFlag.STATE_READ in operand.flags:
+            raise ValueError(f"{description} cannot depend on architectural state")
+        if operand is not write and operand.role is not OperandRole.OPERAND:
+            raise ValueError(f"{description} may only have explicit inputs and the assigned state result")
 
 
 def validate_register_part(part: RegisterPart) -> None:
@@ -1429,7 +1494,7 @@ def validate_allocation_move_descriptor(
     source_class = register_classes[source_class_name]
     if destination_class.alloc_unit_bits != source_class.alloc_unit_bits:
         raise ValueError(f"{description} changes allocation-unit width from {source_class.alloc_unit_bits} to {destination_class.alloc_unit_bits} bits")
-    if destination.register_part is not None or source.register_part is not None:
+    if any(alternative.register_part is not None for operand in (destination, source) for alternative in operand.reg_alts):
         raise ValueError(f"{description} cannot address register parts")
     if destination.encoding_field_id == 0 or source.encoding_field_id == 0:
         raise ValueError(f"{description} must encode both physical registers")
@@ -1493,6 +1558,7 @@ def _validate_binary_constraint(
 def _validate_rematerializable_result(
     descriptor: Descriptor,
     result_index: int,
+    mutable_state_classes: frozenset[str],
 ) -> None:
     description = f"descriptor '{descriptor.key}' rematerializable result {result_index}"
     if DescriptorFlag.DEAD_REMOVABLE not in descriptor.flags:
@@ -1517,12 +1583,21 @@ def _validate_rematerializable_result(
             continue
         if OperandFlag.SCHEDULE_ONLY_STATE in operand.flags:
             continue
+        if state_flags == {OperandFlag.STATE_READ}:
+            # Replaying a state-dependent instruction is stable when no
+            # instruction in the descriptor set can change that state storage.
+            # The set-wide alias-aware check keeps this local promise honest as
+            # targets acquire state-assignment forms later.
+            state_class = operand.reg_alts[0].reg_class
+            if state_class not in mutable_state_classes:
+                continue
         if state_flags != {OperandFlag.STATE_WRITE} or operand.role is not OperandRole.RESULT or operand_index != result_index:
             raise ValueError(f"{description} cannot replay target state operand '{operand.field_name}'")
 
 
 def validate_descriptor_constraints(
     descriptor: Descriptor,
+    mutable_state_classes: frozenset[str],
 ) -> tuple[int, ...]:
     """Validates constraints and returns rematerializable result indices."""
 
@@ -1563,17 +1638,21 @@ def validate_descriptor_constraints(
             rhs = descriptor.operands[rhs_operand_index]
             if lhs.role is not OperandRole.OPERAND or rhs.role is not OperandRole.OPERAND:
                 raise ValueError(f"descriptor '{descriptor.key}' commutable constraint requires two operand rows")
-        elif constraint.kind is ConstraintKind.SAME_REGISTER_ORDINAL:
+        elif constraint.kind in (
+            ConstraintKind.SAME_REGISTER_ORDINAL,
+            ConstraintKind.SAME_REGISTER_VALUE_TYPE,
+        ):
+            constraint_name = constraint.kind.name.lower().replace("_", "-")
             rhs_operand_index = _validate_binary_constraint(
                 descriptor,
                 constraint_index,
-                "same-register-ordinal",
+                constraint_name,
                 lhs_operand_index,
                 rhs_operand_index,
             )
             rhs = descriptor.operands[rhs_operand_index]
             if (lhs.role is not OperandRole.RESULT and not operand_role_is_packet_input(lhs.role)) or (rhs.role is not OperandRole.RESULT and not operand_role_is_packet_input(rhs.role)):
-                raise ValueError(f"descriptor '{descriptor.key}' same-register-ordinal constraint requires two result or packet operand rows")
+                raise ValueError(f"descriptor '{descriptor.key}' {constraint_name} constraint requires two result or packet operand rows")
         elif constraint.kind in (
             ConstraintKind.EARLY_CLOBBER,
             ConstraintKind.REMATERIALIZABLE,
@@ -1584,7 +1663,11 @@ def validate_descriptor_constraints(
             if constraint.kind is ConstraintKind.REMATERIALIZABLE:
                 if lhs_operand_index in rematerializable_results:
                     raise ValueError(f"descriptor '{descriptor.key}' repeats rematerializable result {lhs_operand_index}")
-                _validate_rematerializable_result(descriptor, lhs_operand_index)
+                _validate_rematerializable_result(
+                    descriptor,
+                    lhs_operand_index,
+                    mutable_state_classes,
+                )
                 rematerializable_results.add(lhs_operand_index)
 
     return tuple(sorted(rematerializable_results))
@@ -1615,18 +1698,27 @@ def validate_descriptor_storage_continuations(
         result = tied_results[0]
         if result.unit_count != operand.unit_count:
             raise ValueError(f"{description} and tied result must have equal unit counts")
-        if operand.register_part is None or result.register_part is None:
-            raise ValueError(f"{description} and tied result must name register parts")
-        source_part = register_parts.get(operand.register_part)
-        result_part = register_parts.get(result.register_part)
-        if source_part is None:
-            raise ValueError(f"{description} references unknown register part '{operand.register_part}'")
-        if result_part is None:
-            raise ValueError(f"{description} tied result references unknown register part '{result.register_part}'")
-        if source_part.reg_class != result_part.reg_class:
-            raise ValueError(f"{description} and tied result use different register classes")
-        if source_part.mask & result_part.mask:
-            raise ValueError(f"{description} and tied result have overlapping register parts")
+        source_parts = {alternative.reg_class: alternative.register_part for alternative in operand.reg_alts if alternative.reg_class is not None}
+        result_parts = {alternative.reg_class: alternative.register_part for alternative in result.reg_alts if alternative.reg_class is not None}
+        if (
+            not source_parts
+            or source_parts.keys() != result_parts.keys()
+            or any(part_name is None for part_name in source_parts.values())
+            or any(part_name is None for part_name in result_parts.values())
+        ):
+            raise ValueError(f"{description} and tied result must name register parts for the same register classes")
+        for register_class, source_part_name in source_parts.items():
+            result_part_name = result_parts[register_class]
+            source_part = register_parts.get(source_part_name)
+            result_part = register_parts.get(result_part_name)
+            if source_part is None:
+                raise ValueError(f"{description} references unknown register part '{source_part_name}'")
+            if result_part is None:
+                raise ValueError(f"{description} tied result references unknown register part '{result_part_name}'")
+            if source_part.reg_class != register_class or result_part.reg_class != register_class:
+                raise ValueError(f"{description} and tied result use register parts for the wrong register class")
+            if source_part.mask & result_part.mask:
+                raise ValueError(f"{description} and tied result have overlapping register parts")
 
 
 def operands_may_share_encoding_field(
@@ -1741,6 +1833,8 @@ def validate_descriptor_storage_leases(
             raise ValueError(f"{description} has zero release action id")
         if lease.release_reason_id == LOW_DESCRIPTOR_ENCODING_ID_NONE:
             raise ValueError(f"{description} has no release reason id")
+        if StorageLeaseFlag.STARTS_AT_ISSUE not in lease.flags:
+            raise ValueError(f"{description} must start at issue")
         if StorageLeaseFlag.RELEASE_BEFORE_BOUNDARY in lease.flags and StorageLeaseFlag.MAY_CARRY_ACROSS_BOUNDARY in lease.flags:
             raise ValueError(f"{description} cannot both release before and carry across a boundary")
         unit_count = attachment_unit_counts.get((lease.attachment, lease.attachment_index))

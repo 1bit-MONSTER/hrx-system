@@ -23,6 +23,8 @@ extern "C" {
 #define LOOM_AMDGPU_FEEDBACK_CONFIG_ABI_VERSION 0u
 #define LOOM_AMDGPU_FEEDBACK_CHANNEL_ABI_VERSION 0u
 
+#define LOOM_AMDGPU_FEEDBACK_CONFIG_GLOBAL_NAME "iree_feedback_config"
+
 #define LOOM_AMDGPU_FEEDBACK_PACKET_ALIGNMENT 64u
 #define LOOM_AMDGPU_FEEDBACK_PACKET_MAX_PAYLOAD_LENGTH (16u * 1024u)
 
@@ -60,6 +62,8 @@ enum loom_amdgpu_feedback_packet_kind_e {
   LOOM_AMDGPU_FEEDBACK_PACKET_KIND_HOST_CALL = 3u,
   // Thread-sanitizer diagnostic packet.
   LOOM_AMDGPU_FEEDBACK_PACKET_KIND_TSAN = 4u,
+  // Undefined-behavior sanitizer diagnostic packet.
+  LOOM_AMDGPU_FEEDBACK_PACKET_KIND_UBSAN = 5u,
   // First packet kind reserved for user-defined packet schemas.
   LOOM_AMDGPU_FEEDBACK_PACKET_KIND_USER = 0x8000u,
 };

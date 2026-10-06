@@ -87,6 +87,8 @@ typedef struct iree_benchmark_loom_selected_benchmark_t {
   const loom_testbench_benchmark_plan_t* benchmark_plan;
   // Borrowed case plan referenced by |benchmark_plan|.
   const loom_testbench_case_plan_t* case_plan;
+  // Borrowed scenario plan referenced by |benchmark_plan|.
+  const loom_testbench_scenario_plan_t* scenario_plan;
   // Effective benchmark policy after command-line overrides.
   iree_benchmark_loom_benchmark_policy_t policy;
 } iree_benchmark_loom_selected_benchmark_t;
@@ -179,11 +181,20 @@ typedef struct iree_benchmark_loom_benchmark_result_t {
   bool executed;
   // True when no measured or warmup sample failed expectations.
   bool passed;
-  // True when |sample_ordinal| identifies the measured sample.
+  // True when |sample_ordinal| identifies the measured check.case sample.
   bool has_sample_ordinal;
   // Concrete case sample ordinal measured by dispatch_complete.
   iree_host_size_t sample_ordinal;
-  // Number of case samples run per benchmark iteration.
+  // True when |benchmark_sample_ordinal| identifies one selected benchmark
+  // sample and can be passed back through --sample.
+  bool has_benchmark_sample_ordinal;
+  // Concrete ordinal within the selected benchmark's sample space.
+  iree_host_size_t benchmark_sample_ordinal;
+  // True when |scenario_coordinate| identifies the measured scenario trial.
+  bool has_scenario_coordinate;
+  // Concrete scenario coordinate measured by dispatch_complete.
+  loom_testbench_scenario_sample_coordinate_t scenario_coordinate;
+  // Number of selected subject samples run per benchmark iteration.
   iree_host_size_t samples_per_iteration;
   // Borrowed concrete workload and resolved launch records for the timed work
   // item. Empty for benchmarks that do not submit HAL kernel launches.

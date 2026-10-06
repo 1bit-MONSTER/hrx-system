@@ -138,6 +138,8 @@ from loom.target.arch.amdgpu.descriptors import (
     amdgpu_encoding_field_id,
 )
 from loom.target.arch.amdgpu.descriptors.api import (
+    _AMDGPU_CORE_DESCRIPTOR_SET_BUILDER_FLAG_GFX125X,
+    _order_descriptor_sets_for_shared_views,
     _with_instruction_classes,
     _with_storage_lease_rows,
 )
@@ -286,6 +288,50 @@ def test_generic_descriptor_contracts_are_member_intersections() -> None:
     )
 
 
+def test_exact_descriptor_storage_orders_portable_view_as_prefix() -> None:
+    portable_a = Descriptor(
+        key="amdgpu.test.a",
+        mnemonic="portable_a",
+        semantic_tag=None,
+        operands=(),
+        schedule_class="amdgpu.test",
+    )
+    portable_b = replace(
+        portable_a,
+        key="amdgpu.test.b",
+        mnemonic="portable_b",
+    )
+    exact_a = replace(portable_a, mnemonic="exact_a")
+    exact_b = replace(portable_b, mnemonic="exact_b")
+    exact_only = replace(
+        portable_a,
+        key="amdgpu.test.exact_only",
+        mnemonic="exact_only",
+    )
+    portable_set = replace(
+        _AMDGPU_GFX11_GENERIC_CORE_DESCRIPTOR_SET_BASE,
+        descriptors=(portable_b, portable_a),
+    )
+    exact_set = replace(
+        _AMDGPU_RDNA3_5_CORE_DESCRIPTOR_SET_BASE,
+        descriptors=(exact_only, exact_a, exact_b),
+    )
+
+    ordered_sets = _order_descriptor_sets_for_shared_views(
+        {
+            "gfx11_generic": portable_set,
+            "rdna3_5": exact_set,
+        }
+    )
+
+    assert ordered_sets["gfx11_generic"] is portable_set
+    assert ordered_sets["rdna3_5"].descriptors == (
+        exact_b,
+        exact_a,
+        exact_only,
+    )
+
+
 def test_v_readlane_b32_reserves_unused_vop3_source() -> None:
     overlays = {overlay.descriptor_key: overlay for overlay in _gfx11_core_overlays()}
     for descriptor_key in (
@@ -355,7 +401,7 @@ def _storage_lease_signature(
     )
 
 
-def test_storage_lease_rows_project_memory_dependencies() -> None:
+def test_memory_completion_leases_results_not_sources() -> None:
     schedule_class = ScheduleClass(
         name="amdgpu.test.memory",
         latency_kind=LatencyKind.VARIABLE,
@@ -412,10 +458,6 @@ def test_storage_lease_rows_project_memory_dependencies() -> None:
         StorageLeaseFlag.RELEASE_BEFORE_BOUNDARY,
         StorageLeaseFlag.RELEASE_FOR_PRESSURE,
     )
-    source_flags = (
-        StorageLeaseFlag.STARTS_AT_ISSUE,
-        StorageLeaseFlag.MAY_CARRY_ACROSS_BOUNDARY,
-    )
     assert _storage_lease_signature(descriptor) == (
         (
             StorageLeaseKind.RESULT_WRITE,
@@ -425,24 +467,6 @@ def test_storage_lease_rows_project_memory_dependencies() -> None:
             _COUNTER_VMEM_LOAD,
             "amdgpu.read_result_reuse",
             pressure_flags,
-        ),
-        (
-            StorageLeaseKind.SOURCE_READ,
-            StorageLeaseAttachment.OPERAND,
-            1,
-            4,
-            _COUNTER_VMEM_LOAD,
-            "amdgpu.memory_source_reuse",
-            source_flags,
-        ),
-        (
-            StorageLeaseKind.SOURCE_READ,
-            StorageLeaseAttachment.OPERAND,
-            1,
-            4,
-            _COUNTER_VMEM_STORE,
-            "amdgpu.memory_source_reuse",
-            source_flags,
         ),
     )
 
@@ -479,7 +503,7 @@ def test_storage_lease_rows_project_xcnt_over_packet_inputs() -> None:
     )
 
     descriptor = _with_storage_lease_rows(
-        descriptor_set, enable_gfx125x_xcnt=True
+        descriptor_set, builder_flags=_AMDGPU_CORE_DESCRIPTOR_SET_BUILDER_FLAG_GFX125X
     ).descriptors[0]
 
     assert tuple(
@@ -1299,6 +1323,9 @@ def test_pure_integer_valu_results_are_rematerializable() -> None:
         "amdgpu.v_mul_u32_u24.src0_inline",
         "amdgpu.v_mul_u32_u24.lit",
         "amdgpu.v_mad_u32_u24",
+        "amdgpu.v_mad_u32_u24.src0_inline",
+        "amdgpu.v_mad_u32_u24.src1_inline",
+        "amdgpu.v_mad_u32_u24.src2_inline",
         "amdgpu.v_min_i32",
         "amdgpu.v_max_i32",
         "amdgpu.v_min_u32",
@@ -1406,6 +1433,70 @@ def test_tied_u32_address_arithmetic_forms_are_destructive() -> None:
             Constraint(ConstraintKind.DESTRUCTIVE, 0, 1),
             Constraint(ConstraintKind.EARLY_CLOBBER, 0),
         )
+
+
+def test_mask_writer_scalar_data_has_execution_mode_read_lifetime() -> None:
+    for overlays, late_read_subgroup_size in (
+        (_gfx940_core_overlays(), None),
+        (_gfx950_core_overlays(), None),
+        (_gfx11_core_overlays(), 64),
+        (_gfx115x_core_overlays(), 64),
+        (_gfx12_core_overlays(), 64),
+        (_gfx125x_core_overlays(), 64),
+    ):
+        for descriptor in overlays:
+            # Independently audit all scalar lane-mask results, including new
+            # instruction families that are not in the timing declaration.
+            mask_writer = descriptor.schedule_class == _SCHEDULE_VALU and any(
+                row.descriptor_operand.role is OperandRole.RESULT
+                and row.descriptor_operand.unit_count == 2
+                and any(
+                    alternative.reg_class == _REG_SGPR
+                    for alternative in row.descriptor_operand.reg_alts
+                )
+                for row in descriptor.operands
+            )
+            for row in descriptor.operands:
+                operand = row.descriptor_operand
+                for alternative in operand.reg_alts:
+                    expected = (
+                        late_read_subgroup_size
+                        if mask_writer
+                        and operand.role is OperandRole.OPERAND
+                        and alternative.reg_class == _REG_SGPR
+                        else None
+                    )
+                    assert alternative.late_read_subgroup_size == expected, (
+                        descriptor.descriptor_key,
+                        operand.field_name,
+                        alternative.reg_class,
+                    )
+            if descriptor.instruction_name == "V_ADD_CO_U32":
+                assert descriptor.constraints == ()
+
+
+def test_vector_carry_and_borrow_inputs_are_predicates() -> None:
+    for overlays in (
+        _gfx940_core_overlays(),
+        _gfx950_core_overlays(),
+        _gfx11_core_overlays(),
+        _gfx115x_core_overlays(),
+        _gfx12_core_overlays(),
+        _gfx125x_core_overlays(),
+    ):
+        descriptors = {descriptor.descriptor_key: descriptor for descriptor in overlays}
+        for descriptor_key, field_name in (
+            ("amdgpu.v_add_co_ci_u32", "carry_in"),
+            ("amdgpu.v_sub_co_ci_u32", "borrow_in"),
+        ):
+            descriptor = descriptors[descriptor_key]
+            predicate = next(
+                operand.descriptor_operand
+                for operand in descriptor.operands
+                if operand.descriptor_operand.field_name == field_name
+            )
+            assert predicate.role is OperandRole.PREDICATE
+            assert predicate.unit_count == 2
 
 
 def test_integer_binary_src0_accepts_scalar_or_vector_registers() -> None:
@@ -1604,7 +1695,7 @@ def test_f32_to_f16_convert_results_use_d16_low_window() -> None:
         descriptors = {descriptor.descriptor_key: descriptor for descriptor in overlays}
         descriptor = descriptors["amdgpu.v_cvt_f16_f32"]
         result = descriptor.operands[0].descriptor_operand
-        assert result.register_part == _REG_PART_VGPR_LOW16
+        assert result.reg_alts[0].register_part == _REG_PART_VGPR_LOW16
         assert result.address_map_kind is OperandAddressMapKind.LOW_SUBSET
         assert result.addressable_unit_count == (
             _D16_PARTIAL_REGISTER_ADDRESSABLE_UNIT_COUNT
@@ -1621,7 +1712,7 @@ def test_f16_pair_pack_is_available_on_all_targets() -> None:
         assert descriptor is not None, target
         assert descriptor.encoding_name == "ENC_VOP3"
         assert tuple(
-            operand.descriptor_operand.register_part
+            operand.descriptor_operand.reg_alts[0].register_part
             for operand in descriptor.operands[1:]
         ) == (_REG_PART_VGPR_LOW16, _REG_PART_VGPR_LOW16)
 
@@ -2502,7 +2593,7 @@ def test_scalar_carry_forms_preserve_native_unsigned_addition() -> None:
         assert OperandFlag.STATE_READ in carry_in.flags
 
 
-def test_scalar_borrow_forms_preserve_scc_dependencies() -> None:
+def test_scalar_carry_and_borrow_forms_preserve_scc_dependencies() -> None:
     for overlays in (
         _gfx940_core_overlays(),
         _gfx950_core_overlays(),
@@ -2511,9 +2602,10 @@ def test_scalar_borrow_forms_preserve_scc_dependencies() -> None:
         _gfx125x_core_overlays(),
     ):
         descriptors = {row.descriptor_key: row for row in overlays}
-        for mnemonic, instruction in (
-            ("s_sub_co_u32", "S_SUB_U32"),
-            ("s_subb_u32", "S_SUBB_U32"),
+        for mnemonic, instruction, state_name in (
+            ("s_addc_u32", "S_ADDC_U32", "carry"),
+            ("s_sub_co_u32", "S_SUB_U32", "borrow"),
+            ("s_subb_u32", "S_SUBB_U32", "borrow"),
         ):
             base = descriptors[f"amdgpu.{mnemonic}"]
             for suffix in ("", ".lhs_inline", ".rhs_inline"):
@@ -2521,14 +2613,14 @@ def test_scalar_borrow_forms_preserve_scc_dependencies() -> None:
                 assert descriptor.instruction_name == instruction
                 assert descriptor.implicit_operands == base.implicit_operands
                 assert descriptor.asm_forms[0].results == base.asm_forms[0].results
-                borrow = descriptor.implicit_operands[0].descriptor_operand
-                assert borrow.role is OperandRole.RESULT
-                assert OperandFlag.STATE_WRITE in borrow.flags
-                if mnemonic == "s_subb_u32":
-                    borrow_in = descriptor.implicit_operands[1].descriptor_operand
-                    assert borrow_in.role is OperandRole.PREDICATE
-                    assert OperandFlag.STATE_READ in borrow_in.flags
-                    assert "borrow_in" in descriptor.asm_forms[0].operands
+                state = descriptor.implicit_operands[0].descriptor_operand
+                assert state.role is OperandRole.RESULT
+                assert OperandFlag.STATE_WRITE in state.flags
+                if mnemonic in ("s_addc_u32", "s_subb_u32"):
+                    state_in = descriptor.implicit_operands[1].descriptor_operand
+                    assert state_in.role is OperandRole.PREDICATE
+                    assert OperandFlag.STATE_READ in state_in.flags
+                    assert f"{state_name}_in" in descriptor.asm_forms[0].operands
                 if suffix:
                     assert (
                         descriptor.asm_forms[0].native_assembly_mnemonic
@@ -2667,7 +2759,7 @@ def test_feedback_atomic64_descriptors_cover_execution_families() -> None:
         _assert_feedback_atomic64_overlay(
             descriptors["amdgpu.global_atomic_swap_u64_rtn_saddr"],
             mnemonic=f"global_atomic_swap_{'x2' if wide_mnemonic_suffix == 'x2' else 'b64'}",
-            semantic_tag="memory.global.atomic.exchange.u64.return",
+            semantic_tag="memory.global.atomic.exchange.b64.return",
             memory_space=MemorySpace.GLOBAL,
             payload_field_name="value",
             payload_units=2,
@@ -3043,6 +3135,31 @@ def test_cdna_scoped_cache_controls_expose_sc_immediates() -> None:
             assert _immediate_default(descriptor.immediates, "sc1") == 0
 
 
+def test_scalar_wide_shift_inline_forms_preserve_operands_and_state() -> None:
+    for builder in _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS.values():
+        descriptors = {
+            descriptor.descriptor_key: descriptor
+            for descriptor in builder.overlay_rows()
+        }
+        for mnemonic in ("s_lshl_b64", "s_lshr_b64", "s_ashr_i64"):
+            source = descriptors[f"amdgpu.{mnemonic}"]
+            inline = descriptors[f"amdgpu.{mnemonic}.rhs_inline"]
+            assert len(source.operand_forms) == 1
+            form = source.operand_forms[0]
+            assert form.replacement_descriptor == inline.descriptor_key
+            assert form.matches[0].source_operand == "shift"
+            assert form.immediate_field == "shift"
+            assert inline.operands == source.operands[:2]
+            assert inline.implicit_operands == source.implicit_operands
+            assert inline.implicit_operands
+            assert inline.flags == source.flags
+            assert inline.immediate_fields == ("SSRC1",)
+            assert len(inline.immediates) == 1
+            assert inline.immediates[0].field_name == "shift"
+            assert inline.immediates[0].encoding_id == _SOURCE_INLINE_U32_ENCODING_ID
+            assert inline.immediates[0].unsigned_max == 64
+
+
 def test_vop3_shift_immediate_is_constrained_to_inline_source_selector() -> None:
     descriptor = next(
         overlay
@@ -3054,6 +3171,34 @@ def test_vop3_shift_immediate_is_constrained_to_inline_source_selector() -> None
     assert immediate.field_name == "imm32"
     assert immediate.encoding_id == _SOURCE_INLINE_U32_ENCODING_ID
     assert immediate.unsigned_max == 64
+
+
+def test_vop3_integer_mad_uses_inline_then_literal_operand_forms() -> None:
+    for overlays in (
+        _gfx11_core_overlays(),
+        _gfx12_core_overlays(),
+    ):
+        descriptors = {descriptor.descriptor_key: descriptor for descriptor in overlays}
+        descriptor = descriptors["amdgpu.v_mad_u32_u24"]
+        assert tuple(
+            form.replacement_descriptor for form in descriptor.operand_forms
+        ) == (
+            "amdgpu.v_mad_u32_u24.src0_inline",
+            "amdgpu.v_mad_u32_u24.src1_inline",
+            "amdgpu.v_mad_u32_u24.src2_inline",
+            "amdgpu.v_mad_u32_u24.src0_lit",
+            "amdgpu.v_mad_u32_u24.src1_lit",
+            "amdgpu.v_mad_u32_u24.src2_lit",
+        )
+        for source, field in (
+            ("src0", "SRC0"),
+            ("src1", "SRC1"),
+            ("src2", "SRC2"),
+        ):
+            inline = descriptors[f"amdgpu.v_mad_u32_u24.{source}_inline"]
+            assert inline.immediate_fields == (field,)
+            assert len(inline.immediates) == 1
+            assert inline.immediates[0].encoding_id == _SOURCE_INLINE_U32_ENCODING_ID
 
 
 def test_vop3_mixed_inline_literal_immediates_name_both_encoding_fields() -> None:
@@ -3106,6 +3251,40 @@ def test_vop2_f32_uses_inline_then_literal_operand_forms() -> None:
             f"{descriptor_key}.src0_inline",
             f"{descriptor_key}.lit",
         )
+
+
+def test_integer_extrema_publish_inline_and_literal_forms() -> None:
+    for overlays in (
+        _gfx940_core_overlays(),
+        _gfx950_core_overlays(),
+        _gfx11_core_overlays(),
+        _gfx115x_core_overlays(),
+        _gfx12_core_overlays(),
+        _gfx125x_core_overlays(),
+    ):
+        descriptors = {descriptor.descriptor_key: descriptor for descriptor in overlays}
+        for register_prefix, inline_suffix, immediate_field in (
+            ("s", "rhs_inline", "SSRC1"),
+            ("v", "src0_inline", "SRC0"),
+        ):
+            for operation in ("min_i32", "max_i32", "min_u32", "max_u32"):
+                descriptor_key = f"amdgpu.{register_prefix}_{operation}"
+                base = descriptors[descriptor_key]
+                assert tuple(
+                    form.replacement_descriptor for form in base.operand_forms
+                ) == (
+                    f"{descriptor_key}.{inline_suffix}",
+                    f"{descriptor_key}.lit",
+                )
+
+                inline = descriptors[f"{descriptor_key}.{inline_suffix}"]
+                assert inline.immediate_fields == (immediate_field,)
+                assert (
+                    inline.immediates[0].encoding_id == _SOURCE_INLINE_U32_ENCODING_ID
+                )
+
+                literal = descriptors[f"{descriptor_key}.lit"]
+                assert literal.immediate_fields == ("LITERAL",)
 
 
 def test_v_perm_b32_literal_forms_cover_selector_and_zero_source() -> None:
@@ -3310,7 +3489,8 @@ def test_scalar_f16_fma_descriptors_pin_low16_and_literal_width() -> None:
     ):
         descriptor = descriptors[descriptor_key]
         assert tuple(
-            operand.descriptor_operand.register_part for operand in descriptor.operands
+            operand.descriptor_operand.reg_alts[0].register_part
+            for operand in descriptor.operands
         ) == (
             _REG_PART_VGPR_LOW16,
             _REG_PART_VGPR_LOW16,
@@ -3330,7 +3510,8 @@ def test_scalar_f16_fma_descriptors_pin_low16_and_literal_width() -> None:
             "VSRC1",
         )
         assert tuple(
-            operand.descriptor_operand.register_part for operand in descriptor.operands
+            operand.descriptor_operand.reg_alts[0].register_part
+            for operand in descriptor.operands
         ) == (
             _REG_PART_VGPR_LOW16,
             _REG_PART_VGPR_LOW16,
@@ -3468,7 +3649,8 @@ def test_scalar_float_arithmetic_descriptors_are_arch_specific() -> None:
                 _REG_PART_SGPR_LOW16 if descriptor_key.endswith("f16") else None
             )
             assert all(
-                operand.descriptor_operand.register_part == expected_register_part
+                operand.descriptor_operand.reg_alts[0].register_part
+                == expected_register_part
                 for operand in descriptor.operands
             )
 
@@ -3512,7 +3694,7 @@ def test_scalar_float_conversion_descriptors_are_arch_specific() -> None:
             )
             assert (
                 tuple(
-                    operand.descriptor_operand.register_part
+                    operand.descriptor_operand.reg_alts[0].register_part
                     for operand in descriptor.operands
                 )
                 == register_parts
@@ -3566,7 +3748,8 @@ def test_scalar_float_compare_descriptors_are_arch_specific() -> None:
                 _REG_PART_SGPR_LOW16 if descriptor_key.endswith("f16") else None
             )
             assert all(
-                operand.descriptor_operand.register_part == expected_register_part
+                operand.descriptor_operand.reg_alts[0].register_part
+                == expected_register_part
                 for operand in descriptor.operands
             )
             assert tuple(
@@ -3625,7 +3808,8 @@ def test_scalar_domain_fma_descriptors_pin_sgpr_contracts() -> None:
             operand.descriptor_operand.field_name for operand in descriptor.operands
         ) == ("dst", "acc", "a", "b")
         assert tuple(
-            operand.descriptor_operand.register_part for operand in descriptor.operands
+            operand.descriptor_operand.reg_alts[0].register_part
+            for operand in descriptor.operands
         ) == (None, None, None, None)
         assert descriptor.operands[1].descriptor_operand.role is OperandRole.OPERAND
         assert OperandFlag.IMPLICIT in descriptor.operands[1].descriptor_operand.flags
@@ -3653,7 +3837,8 @@ def test_scalar_domain_fma_descriptors_pin_sgpr_contracts() -> None:
             operand.descriptor_operand.field_name for operand in descriptor.operands
         ) == ("dst", "acc", "a", "b")
         assert tuple(
-            operand.descriptor_operand.register_part for operand in descriptor.operands
+            operand.descriptor_operand.reg_alts[0].register_part
+            for operand in descriptor.operands
         ) == (
             _REG_PART_SGPR_LOW16,
             _REG_PART_SGPR_LOW16,
@@ -3787,7 +3972,9 @@ def test_gfx125x_packed_fp8_to_f16_sources_use_low_half_window() -> None:
         assert descriptor.encoding_name == "ENC_VOP1_VGPR"
         source = descriptor.operands[1]
         assert source.xml_field_name == "VSRC0"
-        assert source.descriptor_operand.register_part == _REG_PART_VGPR_LOW16
+        assert (
+            source.descriptor_operand.reg_alts[0].register_part == _REG_PART_VGPR_LOW16
+        )
         assert (
             source.descriptor_operand.address_map_kind
             is OperandAddressMapKind.LOW_SUBSET
@@ -3810,17 +3997,17 @@ def test_packed8_encode_descriptors_own_numeric_and_partial_result_semantics() -
             low_descriptor = descriptors[f"{key_prefix}.low"]
             high_descriptor = descriptors[f"{key_prefix}.high"]
 
-            assert low_descriptor.operands[0].descriptor_operand.register_part == (
-                _REG_PART_VGPR_LOW16
-            )
+            assert low_descriptor.operands[0].descriptor_operand.reg_alts[
+                0
+            ].register_part == (_REG_PART_VGPR_LOW16)
             assert low_descriptor.fixed_encoding_fields == ((op_sel_field, 0),)
             assert low_descriptor.constraints == ()
 
-            assert high_descriptor.operands[0].descriptor_operand.register_part == (
-                _REG_PART_VGPR_HIGH16
-            )
+            assert high_descriptor.operands[0].descriptor_operand.reg_alts[
+                0
+            ].register_part == (_REG_PART_VGPR_HIGH16)
             accumulator = high_descriptor.operands[1].descriptor_operand
-            assert accumulator.register_part == _REG_PART_VGPR_LOW16
+            assert accumulator.reg_alts[0].register_part == _REG_PART_VGPR_LOW16
             assert OperandFlag.IMPLICIT in accumulator.flags
             assert OperandFlag.STORAGE_CONTINUATION in accumulator.flags
             assert high_descriptor.fixed_encoding_fields == ((op_sel_field, 0b1000),)
@@ -4139,14 +4326,14 @@ def _assert_mix_descriptor_sources(
         ].descriptor_operand
         if source_part == "f16lo":
             expected_op_sel_hi |= 1 << source_index
-            assert operand.register_part == _REG_PART_VGPR_LOW16
+            assert operand.reg_alts[0].register_part == _REG_PART_VGPR_LOW16
         elif source_part == "f16hi":
             expected_op_sel |= 1 << source_index
             expected_op_sel_hi |= 1 << source_index
-            assert operand.register_part == _REG_PART_VGPR_HIGH16
+            assert operand.reg_alts[0].register_part == _REG_PART_VGPR_HIGH16
         else:
             assert source_part == "f32"
-            assert operand.register_part is None
+            assert operand.reg_alts[0].register_part is None
     assert descriptor.fixed_encoding_fields == (
         (op_sel_field, expected_op_sel),
         (op_sel_hi_field, expected_op_sel_hi),
@@ -4177,7 +4364,7 @@ def _assert_mix_descriptor_family(
         source_parts = descriptor_key.removeprefix(f"{descriptor_key_prefix}.").split(
             "_"
         )
-        assert descriptor.operands[0].descriptor_operand.register_part == (
+        assert descriptor.operands[0].descriptor_operand.reg_alts[0].register_part == (
             result_register_part
         )
         source_operand_start = 1
@@ -4312,19 +4499,19 @@ def test_vinterp_descriptors_cover_architectural_half_register_forms() -> None:
                         f"{source_name}_{second_part}"
                     ]
                     if operation == "p10":
-                        assert descriptor.operands[
-                            1
-                        ].descriptor_operand.register_part == (first_register_part)
-                        assert descriptor.operands[
-                            3
-                        ].descriptor_operand.register_part == (second_register_part)
-                    else:
-                        assert descriptor.operands[
+                        assert descriptor.operands[1].descriptor_operand.reg_alts[
                             0
-                        ].descriptor_operand.register_part == (second_register_part)
-                        assert descriptor.operands[
-                            1
-                        ].descriptor_operand.register_part == (first_register_part)
+                        ].register_part == (first_register_part)
+                        assert descriptor.operands[3].descriptor_operand.reg_alts[
+                            0
+                        ].register_part == (second_register_part)
+                    else:
+                        assert descriptor.operands[0].descriptor_operand.reg_alts[
+                            0
+                        ].register_part == (second_register_part)
+                        assert descriptor.operands[1].descriptor_operand.reg_alts[
+                            0
+                        ].register_part == (first_register_part)
                     assert dict(descriptor.fixed_encoding_fields)["OP_SEL"] == (
                         first_op_sel | (second_op_sel << source_shift)
                     )
@@ -4474,7 +4661,9 @@ def test_fma_mix_half_result_source2_literal_forms_cover_zero_addends() -> None:
                         for operand in literal_descriptor.operands
                     ) == ("VDST", "VDST", "SRC0", "SRC1")
                     assert (
-                        literal_descriptor.operands[0].descriptor_operand.register_part
+                        literal_descriptor.operands[0]
+                        .descriptor_operand.reg_alts[0]
+                        .register_part
                         == result_register_part
                     )
                     assert tuple(
@@ -5986,6 +6175,13 @@ def test_vmem_narrow_load_descriptors_cover_active_xml_families() -> None:
 
 
 def test_d16_high_loads_preserve_tied_low_storage_without_consuming_it() -> None:
+    # CDNA SRAM ECC can overwrite both halves; these paired LDS descriptors
+    # must not promise preservation there.
+    for overlays in (_gfx940_core_overlays(), _gfx950_core_overlays()):
+        assert {
+            "amdgpu.ds_load_u16_d16",
+            "amdgpu.ds_load_u16_d16_hi",
+        }.isdisjoint(descriptor.descriptor_key for descriptor in overlays)
     descriptors = {
         descriptor.descriptor_key: descriptor for descriptor in _gfx11_core_overlays()
     }
@@ -5999,11 +6195,15 @@ def test_d16_high_loads_preserve_tied_low_storage_without_consuming_it() -> None
         descriptor = descriptors[descriptor_key]
         result = descriptor.operands[0].descriptor_operand
         source = descriptor.operands[1].descriptor_operand
-        assert result.register_part == _REG_PART_VGPR_HIGH16
-        assert source.register_part == _REG_PART_VGPR_LOW16
+        assert result.reg_alts[0].register_part == _REG_PART_VGPR_HIGH16
+        assert source.reg_alts[0].register_part == _REG_PART_VGPR_LOW16
         assert OperandFlag.IMPLICIT in source.flags
         assert OperandFlag.STORAGE_CONTINUATION in source.flags
         assert descriptor.constraints == (Constraint(ConstraintKind.TIED, 0, 1),)
+        assert descriptor.asm_forms
+        for form in descriptor.asm_forms:
+            assert result.field_name in form.results
+            assert source.field_name in form.operands
 
 
 def test_cdna_smem_dwordx4_store_and_scratch_descriptors_cover_xml() -> None:

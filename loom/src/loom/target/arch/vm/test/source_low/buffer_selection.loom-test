@@ -1,0 +1,200 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/buffer_selection.loom-test
+// RUN: emit vm-dis target=vm:core
+
+// A selected reference retains the ordinary buffer result ABI.
+func.def @choose_buffer(%first: buffer, %second: buffer, %choose_first: i1) -> (buffer) {
+  %selected = scf.select %choose_first, %first, %second : buffer
+  func.return %selected : buffer
+}
+
+// ----
+vm.module core(0.0) {
+  section strings alignment(8) {
+    string @string0 = "vm"
+    string @string1 = "buffer"
+  }
+
+  section ref_types alignment(8) {
+    namespace @ref_group0 name(@string0) {
+      ref_type @ref_type0 name(@string1)
+    }
+  }
+
+  section signatures alignment(8) {
+    signature @signature0 (ref(@ref_type0), ref(@ref_type0), i32) -> (ref(@ref_type0))
+  }
+
+  section callable_types alignment(8) {
+    callable @callable0 flags([]) depth(0) : @signature0
+  }
+
+  section functions alignment(8) {
+    func @function0 : @callable0 flags([]) frame(local_bytes = 0, value_registers = 1, ref_registers = 2, function_registers = 0, local_refs = 0, local_functions = 0) {
+    ^bb0:
+      control.block
+      %r0 = ref.select %v0, %r0, %r1
+      control.return
+    }
+  }
+
+}
+
+// ====
+
+// A selected reference remains a buffer for both reads and writes.
+func.def @exchange_selected_byte(%first: buffer, %second: buffer, %choose_first: i1, %position_input: offset, %replacement: i32) -> (i32) {
+  %position = index.assume %position_input [range(%position_input, 0, 1024)] : offset
+  %selected = scf.select %choose_first, %first, %second : buffer
+  %previous = buffer.load.i8.u %selected[%position]
+  buffer.store.i8 %replacement, %selected[%position]
+  func.return %previous : i32
+}
+
+// ----
+vm.module core(0.0) {
+  section strings alignment(8) {
+    string @string0 = "vm"
+    string @string1 = "buffer"
+  }
+
+  section ref_types alignment(8) {
+    namespace @ref_group0 name(@string0) {
+      ref_type @ref_type0 name(@string1)
+    }
+  }
+
+  section signatures alignment(8) {
+    signature @signature0 (ref(@ref_type0), ref(@ref_type0), i32, i64, i32) -> (i32)
+  }
+
+  section callable_types alignment(8) {
+    callable @callable0 flags([]) depth(0) : @signature0
+  }
+
+  section functions alignment(8) {
+    func @function0 : @callable0 flags([]) frame(local_bytes = 0, value_registers = 3, ref_registers = 2, function_registers = 0, local_refs = 0, local_functions = 0) {
+    ^bb0:
+      control.block
+      %r0 = ref.select %v0, %r0, %r1
+      %v0.x1 = buffer.load.i8 %r0, %v1, %v1 {scale = 0}
+      buffer.store.i8 %r0, %v1, %v1, %v2.x1 {scale = 0}
+      control.return
+    }
+  }
+
+}
+
+// ====
+
+// Canonicalization may select the components independently, but both selections
+// retain the same condition and therefore the same complete coordinate.
+func.def @selected_buffer_coordinate(%first: buffer, %second: buffer, %first_origin_input: offset, %second_origin_input: offset, %choose_first: i1) -> (i32) {
+  %first_origin = index.assume %first_origin_input [range(%first_origin_input, 0, 1024)] : offset
+  %second_origin = index.assume %second_origin_input [range(%second_origin_input, 0, 1024)] : offset
+  %selected, %origin = scf.if %choose_first -> (buffer, offset) {
+    scf.yield %first, %first_origin : buffer, offset
+  } else {
+    scf.yield %second, %second_origin : buffer, offset
+  }
+  %value = buffer.load.i8.u %selected[%origin]
+  func.return %value : i32
+}
+
+// ----
+vm.module core(0.0) {
+  section strings alignment(8) {
+    string @string0 = "vm"
+    string @string1 = "buffer"
+  }
+
+  section ref_types alignment(8) {
+    namespace @ref_group0 name(@string0) {
+      ref_type @ref_type0 name(@string1)
+    }
+  }
+
+  section signatures alignment(8) {
+    signature @signature0 (ref(@ref_type0), ref(@ref_type0), i64, i64, i32) -> (i32)
+  }
+
+  section callable_types alignment(8) {
+    callable @callable0 flags([]) depth(0) : @signature0
+  }
+
+  section functions alignment(8) {
+    func @function0 : @callable0 flags([]) frame(local_bytes = 0, value_registers = 3, ref_registers = 2, function_registers = 0, local_refs = 0, local_functions = 0) {
+    ^bb0:
+      control.block
+      %r0 = ref.select %v2, %r0, %r1
+      %v0 = value.select %v2, %v0, %v1
+      %v0.x1 = buffer.load.i8 %r0, %v0, %v0 {scale = 0}
+      control.return
+    }
+  }
+
+}
+
+// ====
+
+// Rotating a reference and its origin carries both values over the same edge.
+func.def @rotate_buffer_coordinates(%first: buffer, %second: buffer, %first_origin_input: offset, %second_origin_input: offset, %count: index) -> (i32) {
+  %first_origin = index.assume %first_origin_input [range(%first_origin_input, 0, 1024)] : offset
+  %second_origin = index.assume %second_origin_input [range(%second_origin_input, 0, 1024)] : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %selected, %origin, %unused_buffer, %unused_origin = scf.for %i = [%begin to %count step %step](%current = %first : buffer, %current_origin = %first_origin : offset, %other = %second : buffer, %other_origin = %second_origin : offset) -> (buffer, offset, buffer, offset) {
+    scf.yield %other, %other_origin, %current, %current_origin : buffer, offset, buffer, offset
+  }
+  %value = buffer.load.i8.u %selected[%origin]
+  func.return %value : i32
+}
+
+// ----
+vm.module core(0.0) {
+  section strings alignment(8) {
+    string @string0 = "vm"
+    string @string1 = "buffer"
+  }
+
+  section ref_types alignment(8) {
+    namespace @ref_group0 name(@string0) {
+      ref_type @ref_type0 name(@string1)
+    }
+  }
+
+  section signatures alignment(8) {
+    signature @signature0 (ref(@ref_type0), ref(@ref_type0), i64, i64, i64) -> (i32)
+  }
+
+  section callable_types alignment(8) {
+    callable @callable0 flags([]) depth(0) : @signature0
+  }
+
+  section functions alignment(8) {
+    func @function0 : @callable0 flags([]) frame(local_bytes = 0, value_registers = 6, ref_registers = 3, function_registers = 0, local_refs = 0, local_functions = 0) {
+    ^bb0:
+      control.block
+      %v3 = constant.zero
+      %v4 = constant.s16 1
+    ^bb1:
+      control.block
+      %v5 = integer.compare.i64 %v3, %v2 {predicate = slt}
+      control.branch.unless.s32 %v5, ^bb3
+    ^bb2:
+      control.block
+      %v3 = integer.add.i64 %v3, %v4
+      %r2 = ref.retain %r0
+      %r0 = ref.retain %r1
+      %r1 = ref.retain %r2
+      %v5 = value.copy %v0
+      %v0 = value.copy %v1
+      %v1 = value.copy %v5
+      control.branch.s32 ^bb1
+    ^bb3:
+      control.block
+      %v0.x1 = buffer.load.i8 %r0, %v0, %v0 {scale = 0}
+      control.return
+    }
+  }
+
+}

@@ -20,6 +20,15 @@ void loom_target_compile_report_initialize(
   };
 }
 
+void loom_target_compile_report_take_storage(
+    loom_target_compile_report_t* report, void* storage,
+    loom_target_compile_report_storage_release_fn_t release) {
+  IREE_ASSERT(report->retained_storage.data == NULL,
+              "compile report already owns target storage");
+  report->retained_storage.data = storage;
+  report->retained_storage.release = release;
+}
+
 void loom_target_compile_report_deinitialize(
     loom_target_compile_report_t* report) {
   if (report == NULL) {
@@ -64,6 +73,8 @@ void loom_target_compile_report_deinitialize(
       allocator, &report->source_low_target_rows);
   loom_target_compile_report_row_list_deinitialize(
       allocator, &report->source_low_transform_rows);
+  loom_target_compile_report_row_list_deinitialize(
+      allocator, &report->source_boundary_projection_rows);
   loom_target_compile_report_row_list_deinitialize(allocator,
                                                    &report->loop_pipeline_rows);
   loom_target_compile_report_row_list_deinitialize(
@@ -90,6 +101,9 @@ void loom_target_compile_report_deinitialize(
       allocator, &report->target_legalization_rows);
   loom_target_compile_report_row_list_deinitialize(
       allocator, &report->target_capability_rows);
+  if (report->retained_storage.data != NULL) {
+    report->retained_storage.release(report->retained_storage.data);
+  }
   *report = (loom_target_compile_report_t){0};
 }
 
@@ -112,6 +126,7 @@ static bool loom_target_compile_report_has_rows(
          report->entry_rows.count != 0 || report->source_low_rows.count != 0 ||
          report->source_low_target_rows.count != 0 ||
          report->source_low_transform_rows.count != 0 ||
+         report->source_boundary_projection_rows.count != 0 ||
          report->loop_pipeline_rows.count != 0 ||
          report->loop_pipeline_stage_rows.count != 0 ||
          report->source_low_selection_summaries.count != 0 ||
@@ -132,6 +147,7 @@ void loom_target_compile_report_initialize_if_empty(
   if (report->detail_flags != LOOM_TARGET_COMPILE_REPORT_DETAIL_NONE ||
       report->requested_detail_flags !=
           LOOM_TARGET_COMPILE_REPORT_DETAIL_NONE ||
+      report->retained_storage.data != NULL ||
       loom_target_compile_report_has_rows(report)) {
     return;
   }
@@ -590,7 +606,7 @@ static void loom_target_compile_report_accumulate_instruction_mix(
       source->unclassified_write_byte_count;
   target->atomic_count += source->atomic_count;
   target->branch_count += source->branch_count;
-  target->barrier_count += source->barrier_count;
+  target->execution_barrier_count += source->execution_barrier_count;
   target->control_count += source->control_count;
   target->conversion_count += source->conversion_count;
   target->cache_count += source->cache_count;
@@ -1315,6 +1331,11 @@ iree_status_t loom_target_compile_report_record_entry_report(
         sizeof(loom_target_compile_report_source_low_transform_row_t),
         report->allocator));
     IREE_RETURN_IF_ERROR(loom_target_compile_report_row_list_append_all(
+        &report->source_boundary_projection_rows,
+        &entry_report->source_boundary_projection_rows,
+        sizeof(loom_target_compile_report_source_boundary_projection_row_t),
+        report->allocator));
+    IREE_RETURN_IF_ERROR(loom_target_compile_report_row_list_append_all(
         &report->loop_pipeline_rows, &entry_report->loop_pipeline_rows,
         sizeof(loom_target_compile_report_loop_pipeline_row_t),
         report->allocator));
@@ -1501,6 +1522,15 @@ iree_status_t loom_target_compile_report_record_source_low_transform_row(
   report->detail_flags |= LOOM_TARGET_COMPILE_REPORT_DETAIL_SOURCE_LOW_ROWS;
   return loom_target_compile_report_row_list_append(
       &report->source_low_transform_rows, sizeof(*row), report->allocator, row);
+}
+
+iree_status_t loom_target_compile_report_record_source_boundary_projection_row(
+    loom_target_compile_report_t* report,
+    const loom_target_compile_report_source_boundary_projection_row_t* row) {
+  report->detail_flags |= LOOM_TARGET_COMPILE_REPORT_DETAIL_SOURCE_LOW_ROWS;
+  return loom_target_compile_report_row_list_append(
+      &report->source_boundary_projection_rows, sizeof(*row), report->allocator,
+      row);
 }
 
 static void loom_target_compile_report_count_math_action(

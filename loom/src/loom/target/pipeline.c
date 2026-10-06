@@ -124,6 +124,14 @@ static iree_status_t loom_target_pipeline_build_sanitizer_assertion_selection(
       checks_value);
 }
 
+static iree_status_t
+loom_target_pipeline_build_sanitizer_assertion_materialization(
+    loom_builder_t* builder, void* user_data) {
+  (void)user_data;
+  return loom_target_pipeline_build_run(
+      builder, IREE_SV("sanitizer-materialize-assertions"));
+}
+
 static iree_status_t loom_target_pipeline_build_sanitizer_race_observations(
     loom_builder_t* builder, void* user_data) {
   const loom_target_pipeline_build_context_t* context =
@@ -317,11 +325,14 @@ loom_target_pipeline_build_math_legalization_after_authoring_expansion(
 static iree_status_t
 loom_target_pipeline_build_source_safe_normalization_after_legalize(
     loom_builder_t* builder, void* user_data) {
-  (void)user_data;
+  const loom_target_pipeline_build_context_t* context =
+      (const loom_target_pipeline_build_context_t*)user_data;
   IREE_RETURN_IF_ERROR(loom_target_pipeline_build_run(
       builder, IREE_SV("decompose-view-transports")));
-  IREE_RETURN_IF_ERROR(loom_target_pipeline_build_run(
-      builder, IREE_SV("vector-memory-to-scalar")));
+  if (loom_target_pipeline_sanitizer_enabled(context)) {
+    IREE_RETURN_IF_ERROR(loom_target_pipeline_build_run(
+        builder, IREE_SV("vector-memory-to-scalar")));
+  }
   IREE_RETURN_IF_ERROR(loom_target_pipeline_build_run(
       builder, IREE_SV("linearize-view-accesses")));
   IREE_RETURN_IF_ERROR(loom_target_pipeline_build_cleanup(builder));
@@ -364,16 +375,18 @@ loom_target_pipeline_build_view_root_selection_decomposition(
       builder, loom_target_pipeline_build_dce_body, NULL, &if_changed_op);
 }
 
-static iree_status_t
-loom_target_pipeline_build_cfg_source_finalization_after_legalize(
+static iree_status_t loom_target_pipeline_build_source_unroll_before_bank_sroa(
     loom_builder_t* builder, void* user_data) {
   (void)user_data;
   IREE_RETURN_IF_ERROR(
       loom_target_pipeline_build_run(builder, IREE_SV("unroll-scf-for")));
-  IREE_RETURN_IF_ERROR(loom_target_pipeline_build_cleanup_if_changed(builder));
-  IREE_RETURN_IF_ERROR(
-      loom_target_pipeline_build_run(builder, IREE_SV("sroa-vector-banks")));
-  IREE_RETURN_IF_ERROR(loom_target_pipeline_build_cleanup_if_changed(builder));
+  return loom_target_pipeline_build_cleanup_if_changed(builder);
+}
+
+static iree_status_t
+loom_target_pipeline_build_cfg_source_finalization_after_bank_sroa(
+    loom_builder_t* builder, void* user_data) {
+  (void)user_data;
   IREE_RETURN_IF_ERROR(loom_target_pipeline_build_run(
       builder, IREE_SV("sink-single-use-reads")));
   IREE_RETURN_IF_ERROR(loom_target_pipeline_build_cleanup_if_changed(builder));
@@ -530,12 +543,6 @@ static iree_status_t loom_target_pipeline_build_low_preparation(
       (const loom_target_pipeline_build_context_t*)user_data;
   IREE_RETURN_IF_ERROR(loom_target_pipeline_contribute_phase(
       builder, context, LOOM_TARGET_PIPELINE_PHASE_TARGET_LOW_MATERIALIZATION));
-  if (loom_target_pipeline_sanitizer_has_checks(
-          context, LOOM_SANITIZER_CHECK_ACCESS | LOOM_SANITIZER_CHECK_VALUE |
-                       LOOM_SANITIZER_CHECK_OPERATION)) {
-    IREE_RETURN_IF_ERROR(loom_target_pipeline_build_run(
-        builder, IREE_SV("sanitizer-materialize-assertions")));
-  }
   IREE_RETURN_IF_ERROR(loom_target_pipeline_contribute_phase(
       builder, context, LOOM_TARGET_PIPELINE_PHASE_TARGET_LOW_PREPARATION));
   return loom_low_pipeline_build_packetization_preparation(builder);
@@ -598,8 +605,17 @@ static iree_status_t loom_target_pipeline_build_source_low_body(
       &for_op));
   if (control_flow_lowering == LOOM_TARGET_CONTROL_FLOW_LOWERING_CFG) {
     IREE_RETURN_IF_ERROR(loom_target_pipeline_build_for_target_functions(
+        builder, loom_target_pipeline_build_source_unroll_before_bank_sroa,
+        user_data, &for_op));
+    IREE_RETURN_IF_ERROR(
+        loom_target_pipeline_build_run(builder, IREE_SV("sroa-vector-banks")));
+    loom_op_t* bank_sroa_changed_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_pass_ir_build_if_changed(
+        builder, loom_target_pipeline_build_cleanup_target_functions, NULL,
+        &bank_sroa_changed_op));
+    IREE_RETURN_IF_ERROR(loom_target_pipeline_build_for_target_functions(
         builder,
-        loom_target_pipeline_build_cfg_source_finalization_after_legalize,
+        loom_target_pipeline_build_cfg_source_finalization_after_bank_sroa,
         user_data, &for_op));
   }
   if (loom_target_pipeline_sanitizer_has_checks(
@@ -609,6 +625,12 @@ static iree_status_t loom_target_pipeline_build_source_low_body(
         builder, loom_target_pipeline_build_sanitizer_assertion_selection,
         user_data, &for_op));
   }
+  // Authored semantic assertions are executable independently of insertion
+  // policy. Collapse both authored and inserted forms to kernel.assert before
+  // source-to-low asks the selected target to execute or reject the boundary.
+  IREE_RETURN_IF_ERROR(loom_target_pipeline_build_for_target_functions(
+      builder, loom_target_pipeline_build_sanitizer_assertion_materialization,
+      user_data, &for_op));
   if (loom_target_pipeline_sanitizer_has_checks(context,
                                                 LOOM_SANITIZER_CHECK_RACE)) {
     IREE_RETURN_IF_ERROR(loom_target_pipeline_build_for_target_functions(

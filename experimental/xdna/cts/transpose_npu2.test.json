@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "typed BF16 transpose preserves every 16-bit pattern across ring wraps on NPU2",
+      "steps": [
+        {
+          "name": "fixtures",
+          "run": {"tool": "generate-cases", "args": ["{tmp}/fixtures"]}
+        },
+        {
+          "name": "compile",
+          "run": {
+            "tool": "loom-compile",
+            "args": [
+              "{srcdir}/testdata/transpose.loom",
+              "--root=@transpose_packets",
+              "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+              "--output={tmp}/transpose.xdna"
+            ]
+          }
+        },
+        {
+          "name": "original",
+          "run": {
+            "tool": "iree-xdna-run",
+            "args": [
+              "--image={tmp}/transpose.xdna", "--columns=1",
+              "--entry=transpose_packets", "--invocation_count=3",
+              "--binding_memory=system",
+              "--binding={tmp}/fixtures/original-input.bin",
+              "--binding={tmp}/fixtures/output.bin",
+              "--output=0={tmp}/original-input-readback.bin",
+              "--output=1={tmp}/original-output-readback.bin"
+            ]
+          },
+          "files": [
+            {"path": "{tmp}/original-input-readback.bin", "equals": "{tmp}/fixtures/original-input.bin"},
+            {"path": "{tmp}/original-output-readback.bin", "equals": "{tmp}/fixtures/original-expected.bin"}
+          ]
+        },
+        {
+          "name": "changed",
+          "run": {
+            "tool": "iree-xdna-run",
+            "args": [
+              "--image={tmp}/transpose.xdna", "--columns=1",
+              "--entry=transpose_packets", "--invocation_count=3",
+              "--binding_memory=system",
+              "--binding={tmp}/fixtures/changed-input.bin",
+              "--binding={tmp}/fixtures/output.bin",
+              "--output=0={tmp}/changed-input-readback.bin",
+              "--output=1={tmp}/changed-output-readback.bin"
+            ]
+          },
+          "files": [
+            {"path": "{tmp}/changed-input-readback.bin", "equals": "{tmp}/fixtures/changed-input.bin"},
+            {"path": "{tmp}/changed-output-readback.bin", "equals": "{tmp}/fixtures/changed-expected.bin"}
+          ]
+        },
+        {
+          "name": "original-again",
+          "run": {
+            "tool": "iree-xdna-run",
+            "args": [
+              "--image={tmp}/transpose.xdna", "--columns=1",
+              "--entry=transpose_packets", "--invocation_count=3",
+              "--binding_memory=system",
+              "--binding={tmp}/fixtures/original-input.bin",
+              "--binding={tmp}/fixtures/output.bin",
+              "--output=0={tmp}/repeat-input-readback.bin",
+              "--output=1={tmp}/repeat-output-readback.bin"
+            ]
+          },
+          "files": [
+            {"path": "{tmp}/repeat-input-readback.bin", "equals": "{tmp}/fixtures/original-input.bin"},
+            {"path": "{tmp}/repeat-output-readback.bin", "equals": "{tmp}/fixtures/original-expected.bin"}
+          ]
+        }
+      ]
+    }
+  ]
+}

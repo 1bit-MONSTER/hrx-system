@@ -127,6 +127,21 @@ TEST_F(UnreachableDominanceTest, RejectsCyclicOperands) {
   Verify(1);
 }
 
+TEST_F(UnreachableDominanceTest, RejectsSignatureOnlyResultOperand) {
+  loom_builder_set_block(&builder_, first_);
+  const loom_type_t result_type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
+  loom_op_t* signature = nullptr;
+  IREE_ASSERT_OK(loom_test_signature_sink_build(
+      &builder_, nullptr, 0, &result_type, 1, nullptr, 0, LOOM_LOCATION_UNKNOWN,
+      &signature));
+  const loom_value_id_t result =
+      loom_test_signature_sink_results(signature).values[0];
+  loom_op_t* use = nullptr;
+  IREE_ASSERT_OK(
+      loom_test_use_build(&builder_, &result, 1, LOOM_LOCATION_UNKNOWN, &use));
+  Verify(1);
+}
+
 TEST_F(UnreachableDominanceTest, RejectsForwardResultTypeReference) {
   loom_value_id_t later = Constant(second_);
   loom_builder_set_block(&builder_, first_);

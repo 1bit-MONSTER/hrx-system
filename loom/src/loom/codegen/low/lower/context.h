@@ -16,6 +16,7 @@
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
+#include "loom/analysis/cfg_value_identity.h"
 #include "loom/analysis/symbolic_expr.h"
 #include "loom/analysis/view_regions.h"
 #include "loom/codegen/low/builder.h"
@@ -64,6 +65,8 @@ typedef enum loom_low_lower_function_analysis_phase_e {
 typedef struct loom_low_lower_function_analysis_t {
   // Furthest analysis phase completed for the active fact table.
   loom_low_lower_function_analysis_phase_t phase;
+  // Exact CFG representatives retained from source footprint verification.
+  loom_cfg_value_identity_table_t value_identities;
   // Function-local stable symbolic expressions shared by rules and views.
   loom_symbolic_expr_context_t expression_context;
   // View-region table borrowing expression_context.
@@ -81,6 +84,9 @@ typedef struct loom_low_lowering_frame_t {
   loom_condition_query_t condition_query;
   // Stable function analyses advanced monotonically on demand.
   loom_low_lower_function_analysis_t function_analysis;
+  // Declared terminator kind for direct exits from the source callable body,
+  // or unknown while querying a bodyless callable.
+  loom_op_kind_t source_callable_exit_kind;
   // Retained source lowering decisions and value materialization demands.
   loom_low_lower_source_plan_t source_plan;
   // Source local value ordinal to emitted low value ID map.
@@ -95,8 +101,9 @@ typedef struct loom_low_lowering_frame_t {
   loom_low_lower_abi_argument_t* argument_map;
   // Number of entries in argument_map.
   uint16_t argument_map_count;
-  // Callable result types mapped before source planning, in source result
-  // order. Function-arena storage is retained through Low definition creation.
+  // Callable result carriers joined during source planning, in source result
+  // order. None until a return is observed or the boundary is finalized.
+  // Function-arena storage is retained through definition and return emission.
   loom_type_t* result_types;
   // Optional source selection and memory report analysis state.
   loom_low_lower_report_state_t report;

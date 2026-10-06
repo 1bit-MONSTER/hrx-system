@@ -39,7 +39,10 @@ extern "C" {
 // Default generated-prefix bytes retained per send without allocation.
 #define IREE_NET_TCP_DEFAULT_GENERATED_PREFIX_CAPACITY (16u * 1024u)
 
-// Options controlling bounded TCP carrier resources.
+// Default minimum native send extent for requesting kernel copy avoidance.
+#define IREE_NET_TCP_DEFAULT_ZERO_COPY_MIN_SEND_SIZE (64u * 1024u)
+
+// Options controlling bounded TCP carrier resources and send policy.
 typedef struct iree_net_tcp_carrier_options_t {
   // Maximum accepted sends.
   uint32_t max_send_operations;
@@ -48,6 +51,14 @@ typedef struct iree_net_tcp_carrier_options_t {
   // Zero disables preallocated storage without limiting accepted messages;
   // larger prefixes allocate exact completion-scoped storage.
   uint32_t generated_prefix_capacity;
+
+  // Minimum bytes in a native socket send for requesting zero-copy. Smaller
+  // sends use kernel copying to avoid page-retirement overhead. The extent
+  // includes any generated prefix; each scatter-vector or partial-write
+  // continuation is selected independently. Zero permits all eligible sends;
+  // IREE_HOST_SIZE_MAX disables zero-copy. The socket and proactor must still
+  // support it. Both paths retain source ownership until the final callback.
+  iree_host_size_t zero_copy_min_send_size;
 } iree_net_tcp_carrier_options_t;
 
 // Returns default TCP carrier options.
@@ -57,6 +68,8 @@ iree_net_tcp_carrier_options_default(void) {
   options.max_send_operations = IREE_NET_TCP_DEFAULT_MAX_SEND_OPERATIONS;
   options.generated_prefix_capacity =
       IREE_NET_TCP_DEFAULT_GENERATED_PREFIX_CAPACITY;
+  options.zero_copy_min_send_size =
+      IREE_NET_TCP_DEFAULT_ZERO_COPY_MIN_SEND_SIZE;
   return options;
 }
 

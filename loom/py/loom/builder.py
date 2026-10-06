@@ -566,7 +566,7 @@ class IRBuilder:
           Single fixed result: ValueRef.
           Variadic results: list[ValueRef], even if the concrete count is 0 or 1.
           Multiple results: list[ValueRef].
-          No results: None.
+          No results or signature-only results: None.
         """
         op_decl = self._op_registry.get(op_name)
         if op_decl is None:
@@ -620,6 +620,8 @@ class IRBuilder:
         )
         self._insert_operation(op_decl, operation)
 
+        if op_decl.has_signature_only_results:
+            return None
         result_refs = [ValueRef(result_id, self) for result_id in result_ids]
         if any(result.variadic for result in op_decl.results):
             return result_refs

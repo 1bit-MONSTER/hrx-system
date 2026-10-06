@@ -125,6 +125,24 @@ static void loom_amdgpu_feedback_require_register_class(
               "unsupported register shape");
 }
 
+static void loom_amdgpu_feedback_require_data_register(
+    loom_builder_t* builder, const loom_low_descriptor_set_t* descriptor_set,
+    loom_value_id_t value, uint32_t unit_count) {
+  IREE_ASSERT(value < builder->module->values.count,
+              "AMDGPU feedback builder received an invalid low value");
+  const loom_type_t type = loom_module_value_type(builder->module, value);
+  IREE_ASSERT(loom_low_type_is_register(type) &&
+                  loom_low_register_type_descriptor_set_stable_id(type) ==
+                      descriptor_set->stable_id &&
+                  loom_low_register_type_unit_count(type) == unit_count,
+              "AMDGPU feedback builder received a low value with an "
+              "unsupported register shape");
+  const uint16_t register_class = loom_low_register_type_class_id(type);
+  IREE_ASSERT(register_class == LOOM_AMDGPU_REG_CLASS_ID_SGPR ||
+                  register_class == LOOM_AMDGPU_REG_CLASS_ID_VGPR,
+              "AMDGPU feedback data must be an SGPR or VGPR");
+}
+
 static iree_status_t loom_amdgpu_feedback_build_descriptor_op(
     loom_builder_t* builder, const loom_low_descriptor_set_t* descriptor_set,
     loom_amdgpu_descriptor_ref_t descriptor_ref,
@@ -1593,28 +1611,12 @@ iree_status_t loom_amdgpu_build_feedback_channel_header_values(
 static void loom_amdgpu_feedback_validate_packet_source(
     loom_builder_t* builder, const loom_low_descriptor_set_t* descriptor_set,
     const loom_amdgpu_feedback_packet_source_t* source) {
-  loom_amdgpu_feedback_require_register_class(builder, descriptor_set,
-                                              source->dispatch_ptr,
-                                              LOOM_AMDGPU_REG_CLASS_ID_SGPR, 2);
-  loom_amdgpu_feedback_require_register_class(builder, descriptor_set,
-                                              source->workgroup_id_x,
-                                              LOOM_AMDGPU_REG_CLASS_ID_SGPR, 1);
-  IREE_ASSERT(source->workitem_id_x < builder->module->values.count,
-              "AMDGPU feedback packet source has an invalid workitem id value");
-  const loom_type_t workitem_type =
-      loom_module_value_type(builder->module, source->workitem_id_x);
-  IREE_ASSERT(loom_low_type_is_register(workitem_type) &&
-                  loom_low_register_type_descriptor_set_stable_id(
-                      workitem_type) == descriptor_set->stable_id &&
-                  loom_low_register_type_unit_count(workitem_type) == 1,
-              "AMDGPU feedback packet source has an unsupported workitem id "
-              "shape");
-  const uint16_t workitem_register_class =
-      loom_low_register_type_class_id(workitem_type);
-  IREE_ASSERT(workitem_register_class == LOOM_AMDGPU_REG_CLASS_ID_SGPR ||
-                  workitem_register_class == LOOM_AMDGPU_REG_CLASS_ID_VGPR,
-              "AMDGPU feedback packet source workitem id must be an SGPR or "
-              "VGPR");
+  loom_amdgpu_feedback_require_data_register(builder, descriptor_set,
+                                             source->dispatch_ptr, 2);
+  loom_amdgpu_feedback_require_data_register(builder, descriptor_set,
+                                             source->workgroup_id_x, 1);
+  loom_amdgpu_feedback_require_data_register(builder, descriptor_set,
+                                             source->workitem_id_x, 1);
 }
 
 iree_status_t loom_amdgpu_build_feedback_packet_producer_terminate(
@@ -1640,6 +1642,17 @@ iree_status_t loom_amdgpu_build_feedback_packet_producer_terminate(
   IREE_ASSERT(builder->ip.before_op == NULL,
               "AMDGPU feedback packet producer must be built at the end of a "
               "low block");
+
+  loom_amdgpu_feedback_packet_source_t packet_source = {0};
+  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
+      builder, descriptor_set, producer->source->dispatch_ptr, 2, location,
+      &packet_source.dispatch_ptr));
+  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
+      builder, descriptor_set, producer->source->workgroup_id_x, 1, location,
+      &packet_source.workgroup_id_x));
+  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
+      builder, descriptor_set, producer->source->workitem_id_x, 1, location,
+      &packet_source.workitem_id_x));
 
   loom_block_t* config_block = builder->ip.block;
   loom_block_t* feedback_block = NULL;
@@ -1701,9 +1714,9 @@ iree_status_t loom_amdgpu_build_feedback_packet_producer_terminate(
       .kind = producer->packet_kind,
       .flags = producer->packet_flags,
       .sequence = reservation.sequence,
-      .source_dispatch_ptr = producer->source->dispatch_ptr,
-      .source_workgroup_id_x = producer->source->workgroup_id_x,
-      .source_workitem_id_x = producer->source->workitem_id_x,
+      .source_dispatch_ptr = packet_source.dispatch_ptr,
+      .source_workgroup_id_x = packet_source.workgroup_id_x,
+      .source_workitem_id_x = packet_source.workitem_id_x,
       .source_context = config_values.source_context,
   };
   IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_packet_header(

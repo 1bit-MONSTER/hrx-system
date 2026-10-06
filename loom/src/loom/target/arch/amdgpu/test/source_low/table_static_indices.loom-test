@@ -1,0 +1,37 @@
+// RUN: with-checks emit source-low target=amdgpu:gfx11-generic output=low
+
+// A uniform exact index maps every result directly to one table register.
+func.def @table_lookup_uniform_index(%table: vector<3xf32>) -> (vector<8xf32>) {
+  %indices = vector.constant 2 : vector<8xi8>
+  %result = vector.table.lookup %table[%indices] : vector<3xf32>, vector<8xi8> -> vector<8xf32>
+  func.return %result : vector<8xf32>
+}
+
+// ----
+CHECK: low.func.def * @table_lookup_uniform_index(*) *
+CHECK: * = slice %table[2] : *
+CHECK: %result = concat(*) *
+CHECK-NOT: *v_cmp*
+CHECK-NOT: *v_cndmask*
+
+// ====
+
+// Exact lanes map directly while unknown lanes retain the comparison ladder.
+func.def @table_lookup_mixed_indices(%table: vector<3xf32>, %dynamic: vector<4xi32>) -> (vector<4xf32>) {
+  %first = scalar.constant 0 : i32
+  %last = scalar.constant 2 : i32
+  %with_first = vector.insert %first into %dynamic[1] : i32, vector<4xi32>
+  %indices = vector.insert %last into %with_first[3] : i32, vector<4xi32>
+  %result = vector.table.lookup %table[%indices] : vector<3xf32>, vector<4xi32> -> vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+// ----
+CHECK: low.func.def * @table_lookup_mixed_indices(*) *
+CHECK: * = slice %dynamic[0] : *
+CHECK: * = slice %dynamic[2] : *
+CHECK: * = v_cmp_eq_i32_src1_inline * {rhs = 1}
+CHECK: * = v_cmp_eq_i32_src1_inline * {rhs = 2}
+CHECK: %result = concat(*) *
+CHECK-NOT: * = slice %indices[1] : *
+CHECK-NOT: * = slice %indices[3] : *

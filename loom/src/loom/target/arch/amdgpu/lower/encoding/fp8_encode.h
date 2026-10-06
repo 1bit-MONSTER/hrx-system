@@ -136,9 +136,12 @@ typedef struct loom_amdgpu_fp8_encode_emission_state_t {
 } loom_amdgpu_fp8_encode_emission_state_t;
 
 // Selects the strongest exact FP8 encode strategy present in |descriptor_set|.
+// |source_facts| may prove that native E4M3 encoding needs no saturation or
+// NaN repair while leaving the source value dynamic.
 bool loom_amdgpu_select_fp8_encode_plan(
     const loom_low_descriptor_set_t* descriptor_set,
     loom_scalar_type_t source_type, loom_scalar_type_t result_type,
+    loom_value_facts_t source_facts,
     loom_value_fact_numeric_format_flags_t result_format,
     loom_amdgpu_fp8_encode_plan_t* out_plan);
 

@@ -1,0 +1,76 @@
+// RUN: pass target-legalize{mode=eager,policy=reference-only}
+
+test.target<low_core> @target
+
+func.def target(@target) @floating_atomic_extrema_attributes(%input: buffer, %index: index, %value: f32) -> (f32, f32) {
+  %base = index.constant 0 : offset
+  %bounded_index = index.assume %index [range(%index, 0, 15)] : index
+  %global = buffer.assume.memory_space<global> %input : buffer
+  %view = buffer.view %global[%base] : buffer -> view<16xf32>
+  view.atomic.reduce<minimumf> %value, %view[%bounded_index] {cache_scope = system, cache_temporal = non_temporal, ordering = release, scope = system} : f32, view<16xf32>
+  view.atomic.reduce<maximumf> %value, %view[1] {ordering = acquire, scope = device} : f32, view<16xf32>
+  %number_min = view.atomic.rmw<minnumf> %value, %view[2] {ordering = acq_rel, scope = device} : f32, view<16xf32> -> f32
+  %number_max = view.atomic.rmw<maxnumf> %value, %view[3] {ordering = seq_cst, scope = system} : f32, view<16xf32> -> f32
+  func.return %number_min, %number_max : f32, f32
+}
+
+// ----
+test.target<low_core> @target
+
+func.def target(@target) @floating_atomic_extrema_attributes(%input: buffer, %index: index, %value: f32) -> (f32, f32) {
+  %base = index.constant 0 : offset
+  %bounded_index = index.assume %index [range(%index, 0, 15)] : index
+  %global = buffer.assume.memory_space<global> %input : buffer
+  %view = buffer.view %global[%base] : buffer -> view<16xf32>
+  %42 = scalar.constant 0.0 : f32
+  %45 = scf.while(%43 = %42 : f32) -> (f32) {
+    %51 = scalar.minnumf %43, %value : f32
+    %52 = scalar.cmpf uno, %43, %value : f32
+    %53 = scalar.constant nan : f32
+    %54 = scf.select %52, %53, %51 : f32
+    %47 = view.atomic.cmpxchg %43, %54, %view[%bounded_index] {cache_scope = system, cache_temporal = non_temporal, failure_ordering = relaxed, scope = system, success_ordering = release} : f32, view<16xf32> -> f32
+    %48 = scalar.bitcast %43 : f32 to i32
+    %49 = scalar.bitcast %47 : f32 to i32
+    %50 = scalar.cmpi ne, %49, %48 : i32
+    scf.condition %50, %47 : i1, f32
+  } do(%44: f32) {
+    scf.yield %44 : f32
+  }
+  %29 = scalar.constant 0.0 : f32
+  %32 = scf.while(%30 = %29 : f32) -> (f32) {
+    %38 = scalar.maxnumf %30, %value : f32
+    %39 = scalar.cmpf uno, %30, %value : f32
+    %40 = scalar.constant nan : f32
+    %41 = scf.select %39, %40, %38 : f32
+    %34 = view.atomic.cmpxchg %30, %41, %view[1] {failure_ordering = acquire, scope = device, success_ordering = acquire} : f32, view<16xf32> -> f32
+    %35 = scalar.bitcast %30 : f32 to i32
+    %36 = scalar.bitcast %34 : f32 to i32
+    %37 = scalar.cmpi ne, %36, %35 : i32
+    scf.condition %37, %34 : i1, f32
+  } do(%31: f32) {
+    scf.yield %31 : f32
+  }
+  %20 = scalar.constant 0.0 : f32
+  %number_min = scf.while(%21 = %20 : f32) -> (f32) {
+    %24 = scalar.minnumf %21, %value : f32
+    %25 = view.atomic.cmpxchg %21, %24, %view[2] {failure_ordering = acquire, scope = device, success_ordering = acq_rel} : f32, view<16xf32> -> f32
+    %26 = scalar.bitcast %21 : f32 to i32
+    %27 = scalar.bitcast %25 : f32 to i32
+    %28 = scalar.cmpi ne, %27, %26 : i32
+    scf.condition %28, %25 : i1, f32
+  } do(%22: f32) {
+    scf.yield %22 : f32
+  }
+  %11 = scalar.constant 0.0 : f32
+  %number_max = scf.while(%12 = %11 : f32) -> (f32) {
+    %15 = scalar.maxnumf %12, %value : f32
+    %16 = view.atomic.cmpxchg %12, %15, %view[3] {failure_ordering = seq_cst, scope = system, success_ordering = seq_cst} : f32, view<16xf32> -> f32
+    %17 = scalar.bitcast %12 : f32 to i32
+    %18 = scalar.bitcast %16 : f32 to i32
+    %19 = scalar.cmpi ne, %18, %17 : i32
+    scf.condition %19, %16 : i1, f32
+  } do(%13: f32) {
+    scf.yield %13 : f32
+  }
+  func.return %number_min, %number_max : f32, f32
+}

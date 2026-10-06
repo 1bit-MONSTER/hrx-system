@@ -1,0 +1,181 @@
+// RUN: verify
+// Nested implicit constructors run after the outer zero-initialization phase.
+struct Inner { unsigned value = 9; };
+struct Outer { Inner inner; };
+static_assert(Outer().inner.value == 9);
+
+// ====
+// Explicitly defaulted constructors follow the same rule.
+struct Inner { unsigned value = 9; constexpr Inner() = default; };
+struct Outer { Inner inner; constexpr Outer() = default; };
+static_assert(Outer().inner.value == 9);
+
+// ====
+// Every array element executes its default initialization.
+struct Inner { unsigned value = 9; };
+struct Outer { Inner inner[2]; };
+static_assert(Outer().inner[0].value == 9);
+static_assert(Outer().inner[1].value == 9);
+
+// ====
+// A nested constructor sees zeroed storage before later member defaults run.
+struct Inner { unsigned copy = later; unsigned later = 9; };
+struct Outer { Inner inner; };
+static_assert(Outer().inner.copy == 0);
+static_assert(Outer().inner.later == 9);
+
+// ====
+// A nested user-provided constructor still runs in the zeroed outer object.
+struct Inner { unsigned value; constexpr Inner() : value(9) {} };
+struct Outer { Inner inner; };
+static_assert(Outer().inner.value == 9);
+
+// ====
+// Base construction keeps the zero-initialized storage and applies defaults.
+struct Base { unsigned value = 9; unsigned other; };
+struct Outer : Base { unsigned copy = value; };
+static_assert(Outer().value == 9);
+static_assert(Outer().other == 0);
+static_assert(Outer().copy == 9);
+
+// ====
+// Nested user-provided construction does not erase the outer zero phase.
+struct Inner { unsigned value; constexpr Inner() {} };
+struct Outer { Inner inner; };
+static_assert(Outer().inner.value == 0);
+
+// ====
+// Scalar arrays retain their zeroed elements during default initialization.
+struct Outer { unsigned values[2][2]; };
+static_assert(Outer().values[1][1] == 0);
+
+// ====
+// The selected union default may belong to a later member.
+union Choice { unsigned first; unsigned selected = 9; };
+static_assert(Choice().selected == 9);
+struct Outer { Choice choice; };
+static_assert(Outer().choice.selected == 9);
+
+// ====
+// Value initialization of a trivial union initializes its first member.
+union Choice { unsigned first; unsigned second; };
+static_assert(Choice().first == 0);
+
+// ====
+// Direct member initializers call their selected constructors.
+struct Inner { unsigned value; constexpr Inner(unsigned value) : value(value) {} };
+struct Outer { Inner inner{9}; };
+static_assert(Outer().inner.value == 9);
+
+// ====
+// A user-provided complete-object constructor has no implicit zero phase.
+struct Inner { unsigned value; constexpr Inner() {} };
+// ERROR@+1: PARSE/036 "constexpr variable must be initialized"
+constexpr Inner invalid = Inner();
+
+// ====
+// Ordinary default initialization cannot manufacture zero scalar members.
+struct Inner { unsigned value; };
+struct Outer { Inner inner; };
+constexpr unsigned read() { Outer value; return value.inner.value; }
+// ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
+static_assert(read() == 0);
+
+// ====
+struct Inner { unsigned value; constexpr Inner() {} };
+struct Outer { Inner inner; constexpr Outer() = default; };
+static constexpr unsigned read() { Outer value = Outer(); return value.inner.value; }
+static_assert(read() == 0);
+
+// ====
+struct Inner { unsigned value; constexpr Inner() {} };
+struct Outer { Inner inner; constexpr Outer() = default; };
+static_assert(Outer{}.inner.value == 0);
+constexpr Outer value{};
+static_assert(value.inner.value == 0);
+
+// ====
+struct Inner { unsigned copy = later; unsigned later = 9; constexpr Inner() = default; };
+struct Outer { Inner inner{}; };
+static_assert(Outer().inner.copy == 0);
+static_assert(Outer().inner.later == 9);
+
+// ====
+struct Inner { unsigned value = 9; };
+struct Outer { Inner inner; constexpr Outer() {} };
+static_assert(Outer().inner.value == 9);
+
+// ====
+struct Inner { unsigned value; constexpr Inner() {} };
+struct Middle { Inner inner; constexpr Middle() {} };
+struct Outer { Middle middle; };
+static_assert(Outer().middle.inner.value == 0);
+
+// ====
+struct Base { unsigned value; constexpr Base() {} };
+struct Middle : Base { constexpr Middle() {} };
+struct Outer { Middle middle; };
+static_assert(Outer().middle.value == 0);
+
+// ====
+struct Inner { unsigned value; constexpr Inner() {} };
+struct Middle { Inner inner[2]; constexpr Middle() {} };
+struct Outer { Middle middle; };
+static_assert(Outer().middle.inner[1].value == 0);
+
+// ====
+unsigned runtime_value();
+struct Inner { unsigned value = runtime_value(); };
+struct Outer { Inner inner; };
+// ERROR@+1: PARSE/036 "constexpr variable must be initialized"
+constexpr Outer invalid = Outer();
+
+// ====
+// Delegating to a move constructor initializes the original destination.
+struct Moved {
+  unsigned value;
+  constexpr Moved() : Moved(Moved(7)) {}
+  constexpr Moved(unsigned value) : value(value) {}
+};
+static_assert(Moved().value == 7);
+
+// ====
+// Delegation preserves storage zeroed by the containing object's value phase.
+struct Inner {
+  unsigned value;
+  constexpr Inner() : Inner(0) {}
+  constexpr Inner(unsigned) {}
+};
+struct Outer { Inner inner; };
+static_assert(Outer().inner.value == 0);
+
+// ====
+struct Inner {
+  unsigned divisor;
+  // WARNING@+1: PARSE/036 "invalid binary expression"
+  unsigned quotient = 32 / divisor;
+};
+struct Outer { Inner inner; };
+// ERROR@+1: PARSE/036 "constexpr variable must be initialized"
+constexpr Outer invalid = Outer();
+
+// ====
+// Reference parameters retain the address of their call-owned temporary.
+struct Payload { unsigned words; };
+static constexpr unsigned read(const Payload& payload) { return payload.words; }
+static_assert(read(Payload{7}) == 7);
+static_assert(read(Payload{9}) == 9);
+
+// ====
+// Generated move construction executes a member's selected copy constructor.
+struct Value {
+  unsigned value;
+  constexpr Value(unsigned value) : value(value) {}
+  constexpr Value(const Value& other) : value(other.value + 1) {}
+};
+struct Wrapper {
+  Value inner;
+  constexpr Wrapper(unsigned value) : inner(value) {}
+  constexpr Wrapper() : Wrapper(Wrapper(7)) {}
+};
+static_assert(Wrapper().inner.value == 8);

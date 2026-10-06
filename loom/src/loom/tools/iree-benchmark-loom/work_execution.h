@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Correctness-gated benchmark work-plan execution.
+// Prepared benchmark work-plan execution.
 
 #ifndef LOOM_TOOLS_IREE_BENCHMARK_LOOM_WORK_EXECUTION_H_
 #define LOOM_TOOLS_IREE_BENCHMARK_LOOM_WORK_EXECUTION_H_

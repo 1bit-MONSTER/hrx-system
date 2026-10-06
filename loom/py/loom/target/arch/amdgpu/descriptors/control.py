@@ -425,7 +425,7 @@ def _s_barrier_wait_all_overlay() -> AmdgpuDescriptorOverlay:
         schedule_class=_SCHEDULE_BARRIER,
         operands=(),
         fixed_encoding_fields=(("SIMM16", AmdgpuEncodingFieldAllOnes()),),
-        effects=(_WORKGROUP_BARRIER_EFFECT, _CONVERGENT_EFFECT),
+        effects=(_EXECUTION_BARRIER_EFFECT, _CONVERGENT_EFFECT),
         flags=(DescriptorFlag.SIDE_EFFECTING, DescriptorFlag.BARRIER),
         asm_forms=_asm(
             mnemonic="s_barrier_wait_all",

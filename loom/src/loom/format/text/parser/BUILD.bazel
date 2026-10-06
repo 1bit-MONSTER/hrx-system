@@ -16,6 +16,7 @@ loom_cc_library(
     name = "parser_impl",
     srcs = [
         "accumulator.c",
+        "aliases.c",
         "attrs.c",
         "diagnostics.c",
         "format.c",
@@ -25,6 +26,7 @@ loom_cc_library(
         "low_asm.c",
         "parser.c",
         "pipeline.c",
+        "recovery.c",
         "scope.c",
         "types.c",
     ],
@@ -41,6 +43,7 @@ loom_cc_library(
         "low_asm.h",
         "parser.h",
         "pipeline.h",
+        "recovery.h",
         "regions.h",
         "scope.h",
         "types.h",
@@ -78,6 +81,19 @@ loom_cc_test(
         "//loom/src/loom/ops/test",
         "//loom/src/loom/testing:diagnostic_matchers",
         "//loom/src/loom/util:stream",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "aliases_test",
+    srcs = ["aliases_test.cc"],
+    deps = [
+        ":parser_impl",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/encoding",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",

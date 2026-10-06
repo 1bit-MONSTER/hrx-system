@@ -1,168 +1,92 @@
 // RUN: verify
-// Each unsupported tail rejects the whole conjunction.
-// Signed bindings are not admitted.
+// A statically false leaf rejects the complete conjunction.
 [[loom::assume]] void assume(bool);
-void entry(unsigned value, unsigned other, int signed_value) {
-  // ERROR@+1: LOWERING/059 "assume requires unsigned scalar bindings < constant bounds, optionally joined by &&"
-  assume(other < 32u && (signed_value < 16));
+void entry(unsigned value, unsigned other) {
+  // ERROR@+1: LOWERING/059 "assume condition is statically false; Loom has no unreachable-path assumption representation"
+  assume(other < 32u && value < 0u);
 }
 
 // ====
 // RUN: verify
-// An exclusive upper bound must be positive.
+// A false relation between the same binding is diagnosed before IR emission.
 [[loom::assume]] void assume(bool);
-void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume upper bound requires a pure integer constant in [1, INT32_MAX] without calls or mutation"
-  assume(other < 32u && (value < 0u));
+void entry(int value) {
+  // ERROR@+1: LOWERING/059 "assume condition is statically false; Loom has no unreachable-path assumption representation"
+  assume(value < value);
 }
 
 // ====
 // RUN: verify
-// A negative bound is not admitted.
+// Disjunction does not establish simultaneous facts on either arm.
 [[loom::assume]] void assume(bool);
 void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume upper bound requires a pure integer constant in [1, INT32_MAX] without calls or mutation"
-  assume(other < 32u && (value < -1));
-}
-
-// ====
-// RUN: verify
-// The bound must fit INT32_MAX.
-[[loom::assume]] void assume(bool);
-void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume upper bound requires a pure integer constant in [1, INT32_MAX] without calls or mutation"
-  assume(other < 32u && (value < 2147483648u));
-}
-
-// ====
-// RUN: verify
-// A wide unsigned maximum is not a small bound.
-[[loom::assume]] void assume(bool);
-void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume upper bound requires a pure integer constant in [1, INT32_MAX] without calls or mutation"
-  assume(other < 32u && (value < 0xffffffffffffffffULL));
-}
-
-// ====
-// RUN: verify
-// Division by zero is not a constant bound.
-[[loom::assume]] void assume(bool);
-void entry(unsigned value, unsigned other) {
-  // WARNING@+2: PARSE/036 "invalid binary expression"
-  // ERROR@+1: LOWERING/059 "assume upper bound requires a pure integer constant in [1, INT32_MAX] without calls or mutation"
-  assume(other < 32u && (value < (1u / 0u)));
-}
-
-// ====
-// RUN: verify
-// A shift by the type width is not a constant bound.
-[[loom::assume]] void assume(bool);
-void entry(unsigned value, unsigned other) {
-  // WARNING@+2: PARSE/036 "invalid binary expression"
-  // ERROR@+1: LOWERING/059 "assume upper bound requires a pure integer constant in [1, INT32_MAX] without calls or mutation"
-  assume(other < 32u && (value < (1u << 32)));
-}
-
-// ====
-// RUN: verify
-// Signed overflow is not a constant bound.
-[[loom::assume]] void assume(bool);
-void entry(unsigned value, unsigned other) {
-  // WARNING@+2: PARSE/036 "invalid binary expression"
-  // ERROR@+1: LOWERING/059 "assume upper bound requires a pure integer constant in [1, INT32_MAX] without calls or mutation"
-  assume(other < 32u && (value < (2147483647 + 2147483647 + 4)));
-}
-
-// ====
-// RUN: verify
-// A runtime binding is not a constant bound.
-[[loom::assume]] void assume(bool);
-void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume upper bound requires a pure integer constant in [1, INT32_MAX] without calls or mutation"
-  assume(other < 32u && (value < other));
-}
-
-// ====
-// RUN: verify
-// A comma expression cannot hide a call.
-[[loom::assume]] void assume(bool);
-unsigned opaque();
-void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume upper bound requires a pure integer constant in [1, INT32_MAX] without calls or mutation"
-  assume(other < 32u && (value < (opaque(), 16u)));
-}
-
-// ====
-// RUN: verify
-// A call is not a constant bound.
-[[loom::assume]] void assume(bool);
-unsigned opaque();
-void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume upper bound requires a pure integer constant in [1, INT32_MAX] without calls or mutation"
-  assume(other < 32u && (value < opaque()));
-}
-
-// ====
-// RUN: verify
-// A bound cannot mutate another binding.
-[[loom::assume]] void assume(bool);
-void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume upper bound requires a pure integer constant in [1, INT32_MAX] without calls or mutation"
-  assume(other < 32u && (value < ++other));
-}
-
-// ====
-// RUN: verify
-// The constrained operand must be the original binding.
-[[loom::assume]] void assume(bool);
-void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume requires unsigned scalar bindings < constant bounds, optionally joined by &&"
-  assume(other < 32u && (value++ < 16u));
-}
-
-// ====
-// RUN: verify
-// An assignment is not a constant bound.
-[[loom::assume]] void assume(bool);
-void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume upper bound requires a pure integer constant in [1, INT32_MAX] without calls or mutation"
-  assume(other < 32u && (value < (other = 16u)));
-}
-
-// ====
-// RUN: verify
-// Floating-point bounds are not admitted.
-[[loom::assume]] void assume(bool);
-void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume requires unsigned scalar bindings < constant bounds, optionally joined by &&"
-  assume(other < 32u && (value < 16.5f));
-}
-
-// ====
-// RUN: verify
-// Bounds use an exclusive comparison.
-[[loom::assume]] void assume(bool);
-void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume requires unsigned scalar bindings < constant bounds, optionally joined by &&"
-  assume(other < 32u && (value <= 16u));
-}
-
-// ====
-// RUN: verify
-// Disjunction cannot represent simultaneous bounds.
-[[loom::assume]] void assume(bool);
-void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume requires unsigned scalar bindings < constant bounds, optionally joined by &&"
+  // ERROR@+1: LOWERING/059 "assume requires integer comparisons optionally joined by &&"
   assume(other < 32u && (value < 16u || other < 16u));
 }
 
 // ====
 // RUN: verify
-// A narrowing cast does not constrain the original binding.
+// A call is not a retained binding or a pure constant.
+[[loom::assume]] void assume(bool);
+unsigned opaque();
+void entry(unsigned value, unsigned other) {
+  // ERROR@+1: LOWERING/059 "assume comparison operands must be unmodified scalar bindings or pure integer constants without calls, mutation, or value-changing casts"
+  assume(other < 32u && value < opaque());
+}
+
+// ====
+// RUN: verify
+// A comma expression cannot hide a call in an otherwise constant operand.
+[[loom::assume]] void assume(bool);
+unsigned opaque();
+void entry(unsigned value, unsigned other) {
+  // ERROR@+1: LOWERING/059 "assume comparison operands must be unmodified scalar bindings or pure integer constants without calls, mutation, or value-changing casts"
+  assume(other < 32u && value < (opaque(), 16u));
+}
+
+// ====
+// RUN: verify
+// Mutating the constrained operand cannot produce an identity refinement.
 [[loom::assume]] void assume(bool);
 void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume requires unsigned scalar bindings < constant bounds, optionally joined by &&"
-  assume(other < 32u && ((unsigned char)value < 16u));
+  // ERROR@+1: LOWERING/059 "assume comparison operands must be unmodified scalar bindings or pure integer constants without calls, mutation, or value-changing casts"
+  assume(other < 32u && value++ < 16u);
+}
+
+// ====
+// RUN: verify
+// Mutation in the other operand is equally outside the metadata contract.
+[[loom::assume]] void assume(bool);
+void entry(unsigned value, unsigned other) {
+  // ERROR@+1: LOWERING/059 "assume comparison operands must be unmodified scalar bindings or pure integer constants without calls, mutation, or value-changing casts"
+  assume(other < 32u && value < (other = 16u));
+}
+
+// ====
+// RUN: verify
+// Derived runtime expressions have no source binding to rebind.
+[[loom::assume]] void assume(bool);
+void entry(int value, int limit) {
+  // ERROR@+1: LOWERING/059 "assume comparison operands must be unmodified scalar bindings or pure integer constants without calls, mutation, or value-changing casts"
+  assume(value + 1 < limit);
+}
+
+// ====
+// RUN: verify
+// Floating comparisons are outside the integer predicate contract.
+[[loom::assume]] void assume(bool);
+void entry(unsigned value, unsigned other) {
+  // ERROR@+1: LOWERING/059 "assume comparisons require integer operands"
+  assume(other < 32u && value < 16.5f);
+}
+
+// ====
+// RUN: verify
+// A value-changing cast does not constrain the original binding.
+[[loom::assume]] void assume(bool);
+void entry(unsigned value, unsigned other) {
+  // ERROR@+1: LOWERING/059 "assume comparison operands must be unmodified scalar bindings or pure integer constants without calls, mutation, or value-changing casts"
+  assume(other < 32u && (unsigned char)value < 16u);
 }
 
 // ====
@@ -171,40 +95,71 @@ void entry(unsigned value, unsigned other) {
 [[loom::assume]] void assume(bool);
 unsigned opaque();
 void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume upper bound requires a pure integer constant in [1, INT32_MAX] without calls or mutation"
-  assume(other < 32u && (value < (false ? opaque() : 16u)));
+  // ERROR@+1: LOWERING/059 "assume comparison operands must be unmodified scalar bindings or pure integer constants without calls, mutation, or value-changing casts"
+  assume(other < 32u && value < (false ? opaque() : 16u));
 }
 
 // ====
 // RUN: verify
-// A volatile read is not a constant bound.
+// A volatile read cannot disappear into compile-time metadata.
 [[loom::assume]] void assume(bool);
 extern volatile unsigned bound;
 void entry(unsigned value, unsigned other) {
-  // ERROR@+1: LOWERING/059 "assume upper bound requires a pure integer constant in [1, INT32_MAX] without calls or mutation"
+  // ERROR@+1: LOWERING/059 "assume conditions cannot read volatile bindings because no runtime comparison is emitted"
   assume(other < 32u && value < bound);
 }
 
 // ====
 // RUN: verify
-// An overloaded comparison cannot constrain an unsigned binding.
+// Addressable storage cannot be rebound to an SSA identity fact.
+[[loom::assume]] void assume(bool);
+int entry(int value) {
+  int* address = &value;
+  // ERROR@+1: LOWERING/059 "assume cannot retain facts for an addressable binding whose storage may change through an alias"
+  assume(value > 0);
+  return *address;
+}
+
+// ====
+// RUN: verify
+// Non-automatic bindings have no current SSA identity to refine.
+[[loom::assume]] void assume(bool);
+extern int global_value;
+void entry(int value) {
+  // ERROR@+1: LOWERING/059 "assume can retain facts only for an owned automatic scalar binding"
+  assume(value > 0 && global_value > 0);
+}
+
+// ====
+// RUN: verify
+// An overloaded comparison has no builtin integer truth domain.
 [[loom::assume]] void assume(bool);
 struct Bound {};
 bool operator<(unsigned, Bound);
 extern Bound bound;
 void entry(unsigned value) {
-  // ERROR@+1: LOWERING/059 "assume requires unsigned scalar bindings < constant bounds, optionally joined by &&"
+  // ERROR@+1: LOWERING/059 "assume comparisons require builtin integer operators"
   assume(value < bound);
 }
 
 // ====
 // RUN: verify
-// A bound cannot invoke overloaded arithmetic.
+// Overloaded arithmetic is not a pure integer constant expression.
 [[loom::assume]] void assume(bool);
 struct Bound {};
 unsigned operator+(Bound, unsigned);
 extern Bound bound;
 void entry(unsigned value) {
-  // ERROR@+1: LOWERING/059 "assume upper bound requires a pure integer constant in [1, INT32_MAX] without calls or mutation"
+  // ERROR@+1: LOWERING/059 "assume comparison operands must be unmodified scalar bindings or pure integer constants without calls, mutation, or value-changing casts"
   assume(value < (bound + 1u));
+}
+
+// ====
+// RUN: verify
+// Invalid constant arithmetic is not promoted into a source contract.
+[[loom::assume]] void assume(bool);
+void entry(unsigned value, unsigned other) {
+  // WARNING@+2: PARSE/036 "invalid binary expression"
+  // ERROR@+1: LOWERING/059 "assume comparison operands must be unmodified scalar bindings or pure integer constants without calls, mutation, or value-changing casts"
+  assume(other < 32u && value < (1u / 0u));
 }

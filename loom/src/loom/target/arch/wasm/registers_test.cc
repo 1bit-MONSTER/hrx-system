@@ -9,7 +9,7 @@
 #include <string>
 
 #include "iree/testing/gtest.h"
-#include "loom/codegen/low/target_binding.h"
+#include "loom/codegen/low/representation_binding.h"
 #include "loom/target/arch/wasm/descriptors/descriptors.h"
 
 namespace loom {

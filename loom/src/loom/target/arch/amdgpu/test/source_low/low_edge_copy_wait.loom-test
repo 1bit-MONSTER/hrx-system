@@ -138,20 +138,17 @@ low.func.def target<amdgpu.rdna3.core>(@target) @successor_argument_reuses_store
 }
 
 // A successor argument has no defining schedule node. Its allocation reuses
-// an earlier store's leased scalar pair across a diamond. Both incoming pairs
-// remain live at the join, so neither can alias the argument. Each edge copy
-// must finish the first store before overwriting its pair. Their completion
-// reaches the join, which needs no additional wait for that store.
+// an earlier store's captured scalar pair across a diamond. Both incoming pairs
+// remain live at the join, so neither can alias the argument. Edge copies can
+// reuse the captured pair; stores still complete before termination.
 // ----
   global_store_b32 v0, v1, s[0:1] offset:0
   s_cbranch_scc0 .Lbb2
 .Lbb1:
-  s_waitcnt_vscnt vscnt(0)
   s_mov_b32 s0, s2
   s_mov_b32 s1, s3
   s_branch .Lbb3
 .Lbb2:
-  s_waitcnt_vscnt vscnt(0)
   s_mov_b32 s0, s4
   s_mov_b32 s1, s5
 .Lbb3:

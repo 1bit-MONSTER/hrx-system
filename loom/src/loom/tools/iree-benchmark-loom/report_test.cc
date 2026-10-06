@@ -116,6 +116,11 @@ TEST(BenchmarkReportTest, WritesSelectedSampleAndCliIterationOverrides) {
   policy.measure_kind = IREE_BENCHMARK_LOOM_MEASURE_CASE_END_TO_END;
   policy.measure = IREE_SV("case_end_to_end");
   policy.iterations = 2;
+  iree_benchmark_loom_selected_benchmark_t selection = {};
+  selection.identity = candidate;
+  selection.benchmark_plan = &benchmark_plan;
+  selection.case_plan = &case_plan;
+  selection.policy = policy;
   iree_benchmark_loom_options_t options = {};
   iree_benchmark_loom_options_initialize(&options);
   options.sample_ordinal = 1;
@@ -125,8 +130,7 @@ TEST(BenchmarkReportTest, WritesSelectedSampleAndCliIterationOverrides) {
   iree_string_builder_t builder;
   iree_string_builder_initialize(iree_allocator_system(), &builder);
   IREE_ASSERT_OK(iree_benchmark_loom_append_plan_row(
-      &run, &candidate, &module, &benchmark_plan, &case_plan, &policy, &options,
-      iree_allocator_system(), &builder));
+      &run, &module, &selection, &options, iree_allocator_system(), &builder));
 
   const iree_string_view_t plan =
       ParseJsonDocument(iree_string_builder_view(&builder));
@@ -138,6 +142,84 @@ TEST(BenchmarkReportTest, WritesSelectedSampleAndCliIterationOverrides) {
                           IREE_SV("true"));
   ExpectObjectValueEquals(cli_overrides, IREE_SV("warmup_iterations"),
                           IREE_SV("true"));
+
+  iree_string_builder_deinitialize(&builder);
+}
+
+TEST(BenchmarkReportTest, WritesScenarioPlanDomain) {
+  iree_benchmark_loom_run_identity_t run = {};
+  run.run_id = IREE_SV("run");
+  loom_module_t module = {};
+  loom_testbench_benchmark_plan_t benchmark_plan = {};
+  benchmark_plan.name = IREE_SV("scenario_throughput");
+  benchmark_plan.sample_count = 10;
+  benchmark_plan.cartesian_sample_count = 10;
+  loom_testbench_scenario_plan_t scenario_plan = {};
+  scenario_plan.name = IREE_SV("scenario");
+  scenario_plan.configuration_count = 2;
+  scenario_plan.trial_count = 3;
+  iree_benchmark_loom_selected_benchmark_t selection = {};
+  selection.identity.candidate_id = IREE_SV("candidate");
+  selection.benchmark_plan = &benchmark_plan;
+  selection.scenario_plan = &scenario_plan;
+  selection.policy.measure_kind = IREE_BENCHMARK_LOOM_MEASURE_DISPATCH_COMPLETE;
+  selection.policy.measure = IREE_SV("dispatch_complete");
+  selection.policy.hal_options.timing.batch_size = 4;
+  iree_benchmark_loom_options_t options = {};
+  iree_benchmark_loom_options_initialize(&options);
+
+  iree_string_builder_t builder;
+  iree_string_builder_initialize(iree_allocator_system(), &builder);
+  IREE_ASSERT_OK(iree_benchmark_loom_append_plan_row(
+      &run, &module, &selection, &options, iree_allocator_system(), &builder));
+
+  const iree_string_view_t plan =
+      ParseJsonDocument(iree_string_builder_view(&builder));
+  ExpectObjectValueEquals(plan, IREE_SV("scenario"), IREE_SV("scenario"));
+  ExpectObjectValueEquals(plan, IREE_SV("configuration_count"), IREE_SV("2"));
+  ExpectObjectValueEquals(plan, IREE_SV("trial_domain_count"), IREE_SV("3"));
+  ExpectObjectValueEquals(plan, IREE_SV("batch_size"), IREE_SV("4"));
+
+  iree_string_builder_deinitialize(&builder);
+}
+
+TEST(BenchmarkReportTest, WritesScenarioResultCoordinate) {
+  loom_testbench_benchmark_plan_t benchmark_plan = {};
+  benchmark_plan.name = IREE_SV("scenario_throughput");
+  loom_testbench_scenario_plan_t scenario_plan = {};
+  scenario_plan.name = IREE_SV("scenario");
+  iree_benchmark_loom_benchmark_policy_t policy = {};
+  policy.measure = IREE_SV("dispatch_complete");
+  iree_benchmark_loom_benchmark_result_t result = {};
+  result.executed = true;
+  result.passed = true;
+  result.has_benchmark_sample_ordinal = true;
+  result.benchmark_sample_ordinal = 17;
+  result.has_scenario_coordinate = true;
+  result.scenario_coordinate = {2, 3, 5};
+  result.samples_per_iteration = 1;
+
+  iree_string_builder_t builder;
+  iree_string_builder_initialize(iree_allocator_system(), &builder);
+  loom_output_stream_t stream;
+  loom_output_stream_for_builder(&builder, &stream);
+  IREE_ASSERT_OK(iree_benchmark_loom_write_benchmark_result_json(
+      &benchmark_plan, /*case_plan=*/nullptr, &scenario_plan, &policy, &result,
+      /*correctness_sample_count=*/0,
+      /*correctness_failed_sample_count=*/0, &stream));
+
+  const iree_string_view_t root =
+      ParseJsonDocument(iree_string_builder_view(&builder));
+  ExpectObjectValueEquals(root, IREE_SV("benchmark"),
+                          IREE_SV("scenario_throughput"));
+  ExpectObjectValueEquals(root, IREE_SV("scenario"), IREE_SV("scenario"));
+  ExpectObjectValueEquals(root, IREE_SV("benchmark_sample_ordinal"),
+                          IREE_SV("17"));
+  ExpectObjectValueEquals(root, IREE_SV("configuration_ordinal"), IREE_SV("2"));
+  ExpectObjectValueEquals(root, IREE_SV("trial_index"), IREE_SV("3"));
+  ExpectObjectValueEquals(root, IREE_SV("trial_ordinal"), IREE_SV("5"));
+  EXPECT_TRUE(
+      iree_string_view_is_empty(TryLookupObject(root, IREE_SV("case"))));
 
   iree_string_builder_deinitialize(&builder);
 }
@@ -287,7 +369,7 @@ TEST(BenchmarkReportTest, WritesCanonicalCompileReportTree) {
   loom_output_stream_t stream;
   loom_output_stream_for_builder(&builder, &stream);
   IREE_ASSERT_OK(iree_benchmark_loom_write_benchmark_result_json(
-      &benchmark_plan, &case_plan, &policy, &result,
+      &benchmark_plan, &case_plan, /*scenario_plan=*/nullptr, &policy, &result,
       /*correctness_sample_count=*/1,
       /*correctness_failed_sample_count=*/0, &stream));
 
@@ -429,7 +511,7 @@ TEST(BenchmarkReportTest, WritesHalTimingCountsAndWarnings) {
   loom_output_stream_t stream;
   loom_output_stream_for_builder(&builder, &stream);
   IREE_ASSERT_OK(iree_benchmark_loom_write_benchmark_result_json(
-      &benchmark_plan, &case_plan, &policy, &result,
+      &benchmark_plan, &case_plan, /*scenario_plan=*/nullptr, &policy, &result,
       /*correctness_sample_count=*/1,
       /*correctness_failed_sample_count=*/0, &stream));
 
@@ -573,7 +655,7 @@ TEST(BenchmarkReportTest, WritesExactWorkloadAndResolvedLaunchConfig) {
   loom_output_stream_t stream;
   loom_output_stream_for_builder(&builder, &stream);
   IREE_ASSERT_OK(iree_benchmark_loom_write_benchmark_result_json(
-      &benchmark_plan, &case_plan, &policy, &result,
+      &benchmark_plan, &case_plan, /*scenario_plan=*/nullptr, &policy, &result,
       /*correctness_sample_count=*/1,
       /*correctness_failed_sample_count=*/0, &stream));
 
@@ -698,7 +780,7 @@ TEST(BenchmarkReportTest, ScopesComparableDispatchTimingToProfileReplay) {
   loom_output_stream_t stream;
   loom_output_stream_for_builder(&builder, &stream);
   IREE_ASSERT_OK(iree_benchmark_loom_write_benchmark_result_json(
-      &benchmark_plan, &case_plan, &policy, &result,
+      &benchmark_plan, &case_plan, /*scenario_plan=*/nullptr, &policy, &result,
       /*correctness_sample_count=*/1,
       /*correctness_failed_sample_count=*/0, &stream));
 
@@ -768,7 +850,7 @@ TEST(BenchmarkReportTest, ScopesComparableDispatchTimingToProfileReplay) {
   row->last_end_time = 2100;
   iree_string_builder_reset(&builder);
   IREE_ASSERT_OK(iree_benchmark_loom_write_benchmark_result_json(
-      &benchmark_plan, &case_plan, &policy, &result,
+      &benchmark_plan, &case_plan, /*scenario_plan=*/nullptr, &policy, &result,
       /*correctness_sample_count=*/1,
       /*correctness_failed_sample_count=*/0, &stream));
   iree_string_view_t serialized_root =

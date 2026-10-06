@@ -164,6 +164,18 @@ filegroup(
     name = "empty_vulkan_headers",
 )
 
+filegroup(name = "empty_rdma_core_headers")
+
+alias(
+    name = "rdma_core_headers",
+    actual = select({
+        "//runtime/config/net:rdma_enabled": "@rdma_core_headers//:headers",
+        "//conditions:default": ":empty_rdma_core_headers",
+    }),
+    tags = ["manual"],
+    visibility = [":runtime_users"],
+)
+
 alias(
     name = "aqlprofile_sdk_headers",
     actual = select({

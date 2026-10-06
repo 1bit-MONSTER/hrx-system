@@ -4,10 +4,11 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Tests for AMDGPU arithmetic contract source tables."""
+"""Tests for AMDGPU contract source tables."""
 
 from __future__ import annotations
 
+from loom.dialect.index import defs as index
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
 from loom.dialect.vector import defs as vector
 from loom.dsl import Op
@@ -15,12 +16,17 @@ from loom.target.arch.amdgpu.contracts.arithmetic import (
     AMDGPU_ARITHMETIC_CONTRACT_DIALECT_OPS,
     AMDGPU_ARITHMETIC_CONTRACT_FRAGMENT,
 )
+from loom.target.arch.amdgpu.contracts.integer import (
+    AMDGPU_INTEGER_CONTRACT_DIALECT_OPS,
+    AMDGPU_INTEGER_CONTRACT_FRAGMENT,
+)
 from loom.target.contracts import (
     LOWER_RULE_FLAG_CONTRACT_ONLY,
     CompiledLowerRuleSet,
     GuardKind,
     LowerRule,
     SourceValueKind,
+    TypePattern,
     compile_lower_rule_set,
 )
 
@@ -29,6 +35,13 @@ def _compiled_arithmetic_rules() -> CompiledLowerRuleSet:
     return compile_lower_rule_set(
         AMDGPU_ARITHMETIC_CONTRACT_FRAGMENT,
         dialect_ops=AMDGPU_ARITHMETIC_CONTRACT_DIALECT_OPS,
+    )
+
+
+def _compiled_integer_rules() -> CompiledLowerRuleSet:
+    return compile_lower_rule_set(
+        AMDGPU_INTEGER_CONTRACT_FRAGMENT,
+        dialect_ops=AMDGPU_INTEGER_CONTRACT_DIALECT_OPS,
     )
 
 
@@ -56,6 +69,19 @@ def _rule_descriptor_keys(
     )
 
 
+def _rule_type_patterns(
+    compiled: CompiledLowerRuleSet,
+    rule: LowerRule,
+) -> tuple[TypePattern, ...]:
+    return tuple(
+        compiled.type_patterns[guard.type_pattern_index].type_pattern
+        for guard in compiled.guards[
+            rule.guard_start : rule.guard_start + rule.guard_count
+        ]
+        if guard.kind == GuardKind.VALUE_TYPE
+    )
+
+
 def _descriptor_sequence_positions(
     compiled: CompiledLowerRuleSet,
     source_op: Op,
@@ -66,6 +92,25 @@ def _descriptor_sequence_positions(
         if descriptor_keys:
             positions.setdefault(descriptor_keys, ordinal)
     return positions
+
+
+def test_index_madd_rules_accept_wrapping_carrier_results() -> None:
+    for compiled in (_compiled_arithmetic_rules(), _compiled_integer_rules()):
+        for rule in _rules_for_source_op(compiled, index.index_madd):
+            guards = compiled.guards[
+                rule.guard_start : rule.guard_start + rule.guard_count
+            ]
+            for guard in guards:
+                if guard.kind not in (
+                    GuardKind.VALUE_SIGNED_BIT_COUNT,
+                    GuardKind.VALUE_UNSIGNED_BIT_COUNT,
+                ):
+                    continue
+                value_ref = compiled.value_refs[guard.value_ref_index]
+                assert not (
+                    value_ref.kind == SourceValueKind.RESULT
+                    and value_ref.name == "result"
+                )
 
 
 def test_unsigned_bitfield_extract_rules_try_native_bfe_before_shift_mask() -> None:
@@ -143,6 +188,47 @@ def test_bitfield_insert_rules_try_native_bfi_before_mask_merge_fallback() -> No
             )
         ]
     )
+
+
+def test_f32_copysign_rules_try_literal_bfi_before_register_mask() -> None:
+    compiled = _compiled_arithmetic_rules()
+
+    for source_op in (
+        scalar_arithmetic.scalar_copysignf,
+        vector.vector_copysignf,
+    ):
+        positions = _descriptor_sequence_positions(compiled, source_op)
+        assert (
+            positions[("amdgpu.v_bfi_b32.src0_lit",)]
+            < positions[("amdgpu.s_mov_b32", "amdgpu.v_bfi_b32")]
+        )
+
+
+def test_integer_extrema_rules_prefer_encoded_constants() -> None:
+    compiled = _compiled_integer_rules()
+
+    for source_op, suffix in (
+        (scalar_arithmetic.scalar_minsi, "min_i32"),
+        (scalar_arithmetic.scalar_maxsi, "max_i32"),
+        (scalar_arithmetic.scalar_minui, "min_u32"),
+        (scalar_arithmetic.scalar_maxui, "max_u32"),
+    ):
+        descriptor_sequences = tuple(
+            _rule_descriptor_keys(compiled, rule)
+            for rule in _rules_for_source_op(compiled, source_op)
+        )
+        assert descriptor_sequences == (
+            (f"amdgpu.s_{suffix}.rhs_inline",),
+            (f"amdgpu.s_{suffix}.rhs_inline",),
+            (f"amdgpu.s_{suffix}.lit",),
+            (f"amdgpu.s_{suffix}.lit",),
+            (f"amdgpu.v_{suffix}.src0_inline",),
+            (f"amdgpu.v_{suffix}.src0_inline",),
+            (f"amdgpu.v_{suffix}.lit",),
+            (f"amdgpu.v_{suffix}.lit",),
+            (f"amdgpu.s_{suffix}",),
+            (f"amdgpu.v_{suffix}",),
+        )
 
 
 def test_packed_i16_arithmetic_rules_try_native_pk_ops_before_word_ops() -> None:
@@ -288,6 +374,57 @@ def test_packed_f32_arithmetic_rules_publish_native_pk_ops() -> None:
         assert positions[(packed_descriptor,)] < positions[(scalar_descriptor,)]
 
 
+def test_32bit_vector_shape_contracts_match_lane_semantics() -> None:
+    compiled = _compiled_arithmetic_rules()
+    rank1_i32_source_ops: set[Op] = set()
+    rank1_f32_descriptors: set[str] = set()
+    static_i32_source_ops: set[Op] = set()
+    static_f32_source_ops: set[Op] = set()
+
+    for rule in compiled.rules:
+        for type_pattern in set(_rule_type_patterns(compiled, rule)):
+            if type_pattern.kind != "vector":
+                continue
+            if type_pattern.minimum_lanes is not None:
+                if type_pattern.element == "i32":
+                    rank1_i32_source_ops.add(rule.source_op)
+                    assert rule.emit_count == 0
+                elif type_pattern.element == "f32":
+                    descriptor_keys = _rule_descriptor_keys(compiled, rule)
+                    assert descriptor_keys
+                    rank1_f32_descriptors.update(descriptor_keys)
+            elif type_pattern.minimum_static_elements is not None:
+                if type_pattern.element == "i32":
+                    static_i32_source_ops.add(rule.source_op)
+                elif type_pattern.element == "f32":
+                    static_f32_source_ops.add(rule.source_op)
+
+    assert rank1_i32_source_ops == {
+        vector.vector_bitpack,
+        vector.vector_bitunpacks,
+        vector.vector_bitunpacku,
+    }
+    assert rank1_f32_descriptors == {
+        "amdgpu.v_pk_add_f32",
+        "amdgpu.v_pk_fma_f32",
+        "amdgpu.v_pk_mul_f32",
+    }
+    assert {
+        vector.vector_addi,
+        vector.vector_bitfield_extractu,
+        vector.vector_fptosi,
+        vector.vector_sitofp,
+    } <= static_i32_source_ops
+    assert {
+        vector.vector_addf,
+        vector.vector_clampf,
+        vector.vector_divf,
+        vector.vector_exp2f,
+        vector.vector_fmaf,
+        vector.vector_mulf,
+    } <= static_f32_source_ops
+
+
 def test_vector_extract_rules_publish_contract_only_shape_rows() -> None:
     compiled = _compiled_arithmetic_rules()
     rules = _rules_for_source_op(compiled, vector.vector_extract)
@@ -295,7 +432,7 @@ def test_vector_extract_rules_publish_contract_only_shape_rows() -> None:
         rule for rule in rules if rule.flags & LOWER_RULE_FLAG_CONTRACT_ONLY
     )
 
-    assert len(contract_rules) == 14
+    assert len(contract_rules) == 16
     for rule in contract_rules:
         assert rule.emit_count == 0
         guard_kinds = tuple(
@@ -363,3 +500,70 @@ def test_vector_packed_float_conversion_rules_publish_contract_only_shape_rows()
                 )
             )
             assert GuardKind.VALUE_STATIC_ELEMENT_COUNT_EQ in guard_kinds
+
+
+def test_vector_integer_conversion_contracts_preserve_storage_and_lane_counts() -> None:
+    compiled = _compiled_arithmetic_rules()
+    widening = {("i8", "i16"), ("i8", "i32"), ("i16", "i32")}
+    narrowing = {
+        ("i16", "i8"),
+        ("i32", "i8"),
+        ("i32", "i16"),
+        ("i64", "i8"),
+        ("i64", "i16"),
+        ("i64", "i32"),
+    }
+    to_float = {("i8", "f32"), ("i16", "f32"), ("i32", "f32")}
+    from_float = {(result, source) for source, result in to_float}
+    for source_op, expected_pairs in (
+        (vector.vector_extsi, widening),
+        (vector.vector_extui, widening),
+        (vector.vector_trunci, narrowing),
+        (vector.vector_sitofp, to_float),
+        (vector.vector_uitofp, to_float),
+        (vector.vector_fptosi, from_float),
+        (vector.vector_fptoui, from_float),
+    ):
+        pairs = set()
+        for rule in _rules_for_source_op(compiled, source_op):
+            if not rule.flags & LOWER_RULE_FLAG_CONTRACT_ONLY:
+                continue
+            assert rule.emit_count == 0
+            guards = compiled.guards[
+                rule.guard_start : rule.guard_start + rule.guard_count
+            ]
+            assert any(
+                guard.kind == GuardKind.VALUE_STATIC_ELEMENT_COUNT_EQ
+                for guard in guards
+            )
+            types = tuple(
+                compiled.type_patterns[guard.type_pattern_index].type_pattern
+                for guard in guards
+                if guard.kind == GuardKind.VALUE_TYPE
+            )
+            assert len(types) == 2
+            for type_pattern in types:
+                assert type_pattern.kind == "vector"
+                assert (
+                    type_pattern.minimum_lanes == 1
+                    or type_pattern.minimum_static_elements == 1
+                )
+            pairs.add(tuple(type_pattern.element for type_pattern in types))
+        assert pairs == expected_pairs
+
+
+def test_bitunpack_contract_preserves_packed_result_capacity() -> None:
+    compiled = _compiled_arithmetic_rules()
+
+    for source_op in (vector.vector_bitunpacku, vector.vector_bitunpacks):
+        maximum_lane_counts: list[int] = []
+        for rule in _rules_for_source_op(compiled, source_op):
+            guards = compiled.guards[
+                rule.guard_start : rule.guard_start + rule.guard_count
+            ]
+            maximum_lane_counts.extend(
+                guard.maximum_i64
+                for guard in guards
+                if guard.kind == GuardKind.VALUE_PACKED_INTEGER_LANES_FROM_PAYLOAD
+            )
+        assert sorted(maximum_lane_counts) == [32, 64]

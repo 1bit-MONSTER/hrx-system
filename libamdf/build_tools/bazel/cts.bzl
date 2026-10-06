@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Cross-linkage conformance matrix for the public libamdf ABI."""
+"""Grouped conformance corpora for the public libamdf ABI."""
 
 load("//build_tools/bazel:cc_attrs.bzl", "cc_attrs")
 load("//build_tools/bazel:executable.bzl", "iree_executable_test")
@@ -15,17 +15,20 @@ def amdf_cts_test_suite(
         name,
         srcs,
         deps,
+        linkage_modes = ["dynamic"],
         linkopts = None,
         tags = None,
         resource_group = None,
         target_compatible_with = None,
         visibility = None):
-    """Runs a CTS corpus through static, shared, and loaded providers.
+    """Runs one CTS corpus through the selected library providers.
 
     Args:
       name: Aggregate test-suite target name.
       srcs: Sources for one independently selectable conformance corpus.
       deps: Public API and test-helper dependencies of the corpus.
+      linkage_modes: Providers to link: dynamic (runtime-loaded, the default),
+        shared (link-time shared), or static. Each mode adds one executable.
       linkopts: Native libraries required by the foreign API under test.
       tags: Additional tags applied to every generated test target.
       resource_group: Shared native resource used by the test invocations.
@@ -54,7 +57,7 @@ def amdf_cts_test_suite(
     common_deps = [":" + corpus_name, "//libamdf/cts/util:test_main"]
     runtime_data = ["//libamdf:amdf_runtime"]
     tests = []
-    for mode in ["static", "shared", "dynamic"]:
+    for mode in linkage_modes:
         binary_name = name + "_" + mode + "_bin"
         data = runtime_data
         if mode != "static":

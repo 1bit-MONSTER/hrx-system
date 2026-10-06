@@ -84,6 +84,11 @@ iree_status_t loom_expression_walk_next(loom_expression_walk_t* walk,
 // Hashes regionless operations by their exact SSA structural identity.
 uint32_t loom_expression_hash(const loom_module_t* module, const loom_op_t* op);
 
+// Compares regionless operations by kind, exact SSA operands, result types,
+// attribute contents, operand segments, and instance flags.
+bool loom_expression_equal(const loom_module_t* module, const loom_op_t* a,
+                           const loom_op_t* b);
+
 // Finds the nearest structurally equivalent producer visible from |cursor| in
 // the shared index, without walking enclosing scopes. Callers compare its
 // epoch with their own invalidation epochs.
@@ -107,6 +112,13 @@ uint32_t loom_expression_observe_barriers(
 // Tests semantic eligibility: deterministic, regionless, no observable writes,
 // convergence, unique identity, or linear ownership transfer/consumption.
 bool loom_expression_is_reusable(const loom_expression_cursor_t* cursor);
+
+// Tests whether sharing results preserves ownership: the op neither transfers
+// operand ownership into results nor produces results consumed by a later move
+// or tied update, or shared through a required-identity use. Effect and
+// structural eligibility remain the caller's policy.
+bool loom_expression_can_share_result_ownership(const loom_module_t* module,
+                                                const loom_op_t* op);
 
 // Replaces all corresponding result uses and erases the redundant operation.
 iree_status_t loom_expression_replace(loom_module_t* module, loom_op_t* op,

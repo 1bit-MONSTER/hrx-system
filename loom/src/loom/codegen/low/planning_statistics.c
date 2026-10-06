@@ -28,6 +28,7 @@ void loom_low_planning_statistics_accumulate(
   LOOM_LOW_PLANNING_ACCUMULATE(repair.iteration_count);
   LOOM_LOW_PLANNING_ACCUMULATE(repair.spill_traffic_lowering_count);
   LOOM_LOW_PLANNING_ACCUMULATE(repair.rematerialized_operand_count);
+  LOOM_LOW_PLANNING_ACCUMULATE(repair.retained_placement_count);
   LOOM_LOW_PLANNING_ACCUMULATE(repair.live_range_split_operand_count);
   LOOM_LOW_PLANNING_ACCUMULATE(repair.pair_replication_attempt_count);
   LOOM_LOW_PLANNING_ACCUMULATE(repair.pair_replication_edit_count);

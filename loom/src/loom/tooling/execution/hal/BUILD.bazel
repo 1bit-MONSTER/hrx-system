@@ -4,6 +4,8 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//build_tools/bazel:executable.bzl", "iree_executable_test")
+load("//build_tools/bazel:test_resources.bzl", "GPU_DEVICE_RESOURCE_GROUP")
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
     "loom_cc_library",
@@ -23,10 +25,22 @@ _TASK_DRIVER_COMPATIBLE_WITH = loom_config_compatible_with([
     "//runtime/config/hal:driver_task",
 ])
 
+_AMDGPU_EXECUTION_COMPATIBLE_WITH = loom_config_compatible_with([
+    "//loom/config/execute:amdgpu_hal",
+])
+
+_AMDGPU_EXECUTION_TAGS = [
+    "iree-run-requirement=runtime.resource.amd_gpu",
+    "requires-gpu-amd",
+    "runtime-resource=amd-gpu",
+]
+
 exports_files([
     "testdata/buffer_bulk_hal_actual.loom",
     "testdata/dynamic_workgroup_hal_actual.loom",
     "testdata/launch_schedule_hal_actual.loom",
+    "testdata/scenario_batch_hal_actual.loom",
+    "testdata/scenario_compare_hal_vm.loom",
 ])
 
 loom_test(
@@ -35,8 +49,37 @@ loom_test(
         "testdata/buffer_bulk_hal_actual.loom",
         "testdata/dynamic_workgroup_hal_actual.loom",
         "testdata/launch_schedule_hal_actual.loom",
+        "testdata/scenario_batch_hal_actual.loom",
     ],
     execution_profiles = GPU_HARDWARE_PROFILES,
+)
+
+loom_test(
+    name = "scenario_compare_test",
+    srcs = ["testdata/scenario_compare_hal_vm.loom"],
+    execution_profiles = GPU_HARDWARE_PROFILES,
+)
+
+iree_executable_test(
+    name = "scenario_benchmark_test",
+    src = "//loom/src/loom/tools/iree-benchmark-loom",
+    args = [
+        "$(rootpath testdata/scenario_compare_hal_vm.loom)",
+        "--device=amdgpu",
+        "--case=@scenario_compare_hal_vm",
+        "--benchmark=@scenario_compare_hal_vm_throughput",
+        "--sample=2",
+        "--batch-size=2",
+        "--iterations=1",
+        "--warmup-iterations=0",
+        "--min-time-ms=0",
+        "--warmup-time-ms=0",
+        "--max-batches=1",
+    ],
+    data = ["testdata/scenario_compare_hal_vm.loom"],
+    resource_group = GPU_DEVICE_RESOURCE_GROUP,
+    tags = _AMDGPU_EXECUTION_TAGS,
+    target_compatible_with = _AMDGPU_EXECUTION_COMPATIBLE_WITH,
 )
 
 loom_cc_library(
@@ -66,7 +109,9 @@ loom_cc_library(
     srcs = ["runtime.c"],
     hdrs = ["runtime.h"],
     deps = [
+        "//loom/src/loom/ir",
         "//loom/src/loom/sanitizer:options",
+        "//loom/src/loom/sanitizer:runtime_requirements",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/util:proactor_pool",
         "//runtime/src/iree/base",
@@ -137,6 +182,7 @@ loom_cc_library(
         "//loom/src/loom/ops:special_values",
         "//loom/src/loom/ops/kernel",
         "//loom/src/loom/ops/target",
+        "//loom/src/loom/pass:pipeline_snapshot",
         "//loom/src/loom/sanitizer:options",
         "//loom/src/loom/target:function_version",
         "//loom/src/loom/target:provider",
@@ -149,6 +195,7 @@ loom_cc_library(
         "//loom/src/loom/tooling/execution:session",
         "//loom/src/loom/tooling/io:source",
         "//loom/src/loom/tooling/testbench",
+        "//loom/src/loom/tooling/testbench:api",
         "//loom/src/loom/tooling/testbench:invocation",
         "//loom/src/loom/tooling/testbench:requirements",
         "//loom/src/loom/tooling/testbench:value_materializer",
@@ -156,6 +203,26 @@ loom_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/tooling:device_util",
+    ],
+)
+
+loom_cc_library(
+    name = "scenario_profile",
+    srcs = ["scenario_profile.c"],
+    hdrs = ["scenario_profile.h"],
+    deps = [
+        ":invocation",
+        ":testbench_actual",
+        ":testbench_staging",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/func",
+        "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/kernel",
+        "//loom/src/loom/tooling/execution:benchmark",
+        "//loom/src/loom/tooling/testbench/scenario:executor",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
     ],
 )
 
@@ -185,6 +252,7 @@ loom_cc_library(
         ":device_provider",
         ":invocation",
         ":runtime",
+        "//loom/src/loom/pass:pipeline_snapshot",
         "//loom/src/loom/target:entry_selection",
         "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tooling/compile:report_capture",
@@ -194,6 +262,22 @@ loom_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/base:core_headers",
         "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_test(
+    name = "runtime_test",
+    srcs = ["runtime_test.cc"],
+    target_compatible_with = _TASK_DRIVER_COMPATIBLE_WITH,
+    deps = [
+        ":runtime",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async:platform",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/drivers/task:semaphore",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 
@@ -211,6 +295,7 @@ loom_cc_test(
         "//loom/src/loom/target/test:target_record_table",
         "//loom/src/loom/tooling/compile:options",
         "//loom/src/loom/tooling/execution:session",
+        "//loom/src/loom/transforms/cleanup:configured",
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/testing:gtest",
@@ -296,6 +381,8 @@ loom_cc_test(
         "//loom/src/loom/testing:module_ptr",
         "//loom/src/loom/tooling/execution:session",
         "//loom/src/loom/tooling/testbench",
+        "//loom/src/loom/tooling/testbench:api",
+        "//loom/src/loom/transforms/cleanup:configured",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/hal/testing:mock_device",

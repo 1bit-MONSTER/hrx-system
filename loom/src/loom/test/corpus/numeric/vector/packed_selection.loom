@@ -1,0 +1,322 @@
+// Expands one runtime packet into each vector width under test. The complete
+// 256-trial domain reaches every predicate pattern for every width.
+func.def inline @packed_select_masks(%trial: index) -> (vector<1xi1>, vector<3xi1>, vector<4xi1>, vector<7xi1>, vector<8xi1>) {
+  %ordinal = index.assume %trial [range(%trial, 0, 255)] : index
+  %packet = index.cast %ordinal : index to i32
+  %start = scalar.constant 0 : i32
+  %step = scalar.constant 1 : i32
+  %c1 = vector.constant 1 : vector<8xi32>
+  %c0 = vector.constant 0 : vector<8xi32>
+  %packets = vector.splat %packet : vector<8xi32>
+  %shifts = vector.iota %start step %step : vector<8xi32>
+  %shifted = vector.shrui %packets, %shifts : vector<8xi32>
+  %bits = vector.andi %shifted, %c1 : vector<8xi32>
+  %mask8 = vector.cmpi ne, %bits, %c0 : vector<8xi32> -> vector<8xi1>
+  %lane0 = vector.extract %mask8[0] : vector<8xi1> -> i1
+  %lane1 = vector.extract %mask8[1] : vector<8xi1> -> i1
+  %lane2 = vector.extract %mask8[2] : vector<8xi1> -> i1
+  %lane3 = vector.extract %mask8[3] : vector<8xi1> -> i1
+  %lane4 = vector.extract %mask8[4] : vector<8xi1> -> i1
+  %lane5 = vector.extract %mask8[5] : vector<8xi1> -> i1
+  %lane6 = vector.extract %mask8[6] : vector<8xi1> -> i1
+  %mask1 = vector.from_elements %lane0 : vector<1xi1>
+  %mask3 = vector.from_elements %lane0, %lane1, %lane2 : vector<3xi1>
+  %mask4 = vector.from_elements %lane0, %lane1, %lane2, %lane3 : vector<4xi1>
+  %mask7 = vector.from_elements %lane0, %lane1, %lane2, %lane3, %lane4, %lane5, %lane6 : vector<7xi1>
+  func.return %mask1, %mask3, %mask4, %mask7, %mask8 : vector<1xi1>, vector<3xi1>, vector<4xi1>, vector<7xi1>, vector<8xi1>
+}
+
+// Scalar input loads keep operand formation independent of packed vector
+// memory. packed_memory_tails.loom owns odd-width memory transfer coverage.
+func.def @select_packed_bytes(%trial: index, %true_input: buffer, %false_input: buffer, %output: buffer) {
+  %position = index.assume %trial [range(%trial, 0, 255)] : index
+  %mask1, %mask3, %mask4, %mask7, %mask8 = func.call @packed_select_masks(%position) : (index) -> (vector<1xi1>, vector<3xi1>, vector<4xi1>, vector<7xi1>, vector<8xi1>)
+  %base = index.constant 0 : offset
+  %true_i8 = buffer.view %true_input[%base] : buffer -> view<256xi8>
+  %false_i8 = buffer.view %false_input[%base] : buffer -> view<256xi8>
+  %output_i8 = buffer.view %output[%base] : buffer -> view<70xi8>
+  %true_i8_value = view.load %true_i8[%position] : view<256xi8> -> i8
+  %false_i8_value = view.load %false_i8[%position] : view<256xi8> -> i8
+  %true_i8_1 = vector.splat %true_i8_value : vector<1xi8>
+  %false_i8_1 = vector.splat %false_i8_value : vector<1xi8>
+  %result_i8_1 = vector.select %mask1, %true_i8_1, %false_i8_1 : vector<1xi8>
+  vector.store %result_i8_1, %output_i8[0] : vector<1xi8>, view<70xi8>
+  %true_i8_3 = vector.splat %true_i8_value : vector<3xi8>
+  %false_i8_3 = vector.splat %false_i8_value : vector<3xi8>
+  %result_i8_3 = vector.select %mask3, %true_i8_3, %false_i8_3 : vector<3xi8>
+  vector.store %result_i8_3, %output_i8[1] : vector<3xi8>, view<70xi8>
+  %true_i8_4 = vector.splat %true_i8_value : vector<4xi8>
+  %false_i8_4 = vector.splat %false_i8_value : vector<4xi8>
+  %result_i8_4 = vector.select %mask4, %true_i8_4, %false_i8_4 : vector<4xi8>
+  vector.store %result_i8_4, %output_i8[4] : vector<4xi8>, view<70xi8>
+  %true_i8_7 = vector.splat %true_i8_value : vector<7xi8>
+  %false_i8_7 = vector.splat %false_i8_value : vector<7xi8>
+  %result_i8_7 = vector.select %mask7, %true_i8_7, %false_i8_7 : vector<7xi8>
+  vector.store %result_i8_7, %output_i8[8] : vector<7xi8>, view<70xi8>
+  %true_i8_8 = vector.splat %true_i8_value : vector<8xi8>
+  %false_i8_8 = vector.splat %false_i8_value : vector<8xi8>
+  %result_i8_8 = vector.select %mask8, %true_i8_8, %false_i8_8 : vector<8xi8>
+  vector.store %result_i8_8, %output_i8[15] : vector<8xi8>, view<70xi8>
+  %true_e4 = buffer.view %true_input[%base] : buffer -> view<256xf8E4M3>
+  %false_e4 = buffer.view %false_input[%base] : buffer -> view<256xf8E4M3>
+  %output_e4 = buffer.view %output[%base] : buffer -> view<70xf8E4M3>
+  %true_e4_value = view.load %true_e4[%position] : view<256xf8E4M3> -> f8E4M3
+  %false_e4_value = view.load %false_e4[%position] : view<256xf8E4M3> -> f8E4M3
+  %true_e4_1 = vector.splat %true_e4_value : vector<1xf8E4M3>
+  %false_e4_1 = vector.splat %false_e4_value : vector<1xf8E4M3>
+  %result_e4_1 = vector.select %mask1, %true_e4_1, %false_e4_1 : vector<1xf8E4M3>
+  vector.store %result_e4_1, %output_e4[23] : vector<1xf8E4M3>, view<70xf8E4M3>
+  %true_e4_3 = vector.splat %true_e4_value : vector<3xf8E4M3>
+  %false_e4_3 = vector.splat %false_e4_value : vector<3xf8E4M3>
+  %result_e4_3 = vector.select %mask3, %true_e4_3, %false_e4_3 : vector<3xf8E4M3>
+  vector.store %result_e4_3, %output_e4[24] : vector<3xf8E4M3>, view<70xf8E4M3>
+  %true_e4_4 = vector.splat %true_e4_value : vector<4xf8E4M3>
+  %false_e4_4 = vector.splat %false_e4_value : vector<4xf8E4M3>
+  %result_e4_4 = vector.select %mask4, %true_e4_4, %false_e4_4 : vector<4xf8E4M3>
+  vector.store %result_e4_4, %output_e4[27] : vector<4xf8E4M3>, view<70xf8E4M3>
+  %true_e4_7 = vector.splat %true_e4_value : vector<7xf8E4M3>
+  %false_e4_7 = vector.splat %false_e4_value : vector<7xf8E4M3>
+  %result_e4_7 = vector.select %mask7, %true_e4_7, %false_e4_7 : vector<7xf8E4M3>
+  vector.store %result_e4_7, %output_e4[31] : vector<7xf8E4M3>, view<70xf8E4M3>
+  %true_e4_8 = vector.splat %true_e4_value : vector<8xf8E4M3>
+  %false_e4_8 = vector.splat %false_e4_value : vector<8xf8E4M3>
+  %result_e4_8 = vector.select %mask8, %true_e4_8, %false_e4_8 : vector<8xf8E4M3>
+  vector.store %result_e4_8, %output_e4[38] : vector<8xf8E4M3>, view<70xf8E4M3>
+  %true_e5 = buffer.view %true_input[%base] : buffer -> view<256xf8E5M2>
+  %false_e5 = buffer.view %false_input[%base] : buffer -> view<256xf8E5M2>
+  %output_e5 = buffer.view %output[%base] : buffer -> view<70xf8E5M2>
+  %true_e5_value = view.load %true_e5[%position] : view<256xf8E5M2> -> f8E5M2
+  %false_e5_value = view.load %false_e5[%position] : view<256xf8E5M2> -> f8E5M2
+  %true_e5_1 = vector.splat %true_e5_value : vector<1xf8E5M2>
+  %false_e5_1 = vector.splat %false_e5_value : vector<1xf8E5M2>
+  %result_e5_1 = vector.select %mask1, %true_e5_1, %false_e5_1 : vector<1xf8E5M2>
+  vector.store %result_e5_1, %output_e5[46] : vector<1xf8E5M2>, view<70xf8E5M2>
+  %true_e5_3 = vector.splat %true_e5_value : vector<3xf8E5M2>
+  %false_e5_3 = vector.splat %false_e5_value : vector<3xf8E5M2>
+  %result_e5_3 = vector.select %mask3, %true_e5_3, %false_e5_3 : vector<3xf8E5M2>
+  vector.store %result_e5_3, %output_e5[47] : vector<3xf8E5M2>, view<70xf8E5M2>
+  %true_e5_4 = vector.splat %true_e5_value : vector<4xf8E5M2>
+  %false_e5_4 = vector.splat %false_e5_value : vector<4xf8E5M2>
+  %result_e5_4 = vector.select %mask4, %true_e5_4, %false_e5_4 : vector<4xf8E5M2>
+  vector.store %result_e5_4, %output_e5[50] : vector<4xf8E5M2>, view<70xf8E5M2>
+  %true_e5_7 = vector.splat %true_e5_value : vector<7xf8E5M2>
+  %false_e5_7 = vector.splat %false_e5_value : vector<7xf8E5M2>
+  %result_e5_7 = vector.select %mask7, %true_e5_7, %false_e5_7 : vector<7xf8E5M2>
+  vector.store %result_e5_7, %output_e5[54] : vector<7xf8E5M2>, view<70xf8E5M2>
+  %true_e5_8 = vector.splat %true_e5_value : vector<8xf8E5M2>
+  %false_e5_8 = vector.splat %false_e5_value : vector<8xf8E5M2>
+  %result_e5_8 = vector.select %mask8, %true_e5_8, %false_e5_8 : vector<8xf8E5M2>
+  vector.store %result_e5_8, %output_e5[61] : vector<8xf8E5M2>, view<70xf8E5M2>
+  func.return
+}
+
+func.def @select_packed_words(%trial: index, %true_input: buffer, %false_input: buffer, %output: buffer) {
+  %packet = index.assume %trial [range(%trial, 0, 255)] : index
+  %mask1, %mask3, %mask4, %mask7, %mask8 = func.call @packed_select_masks(%packet) : (index) -> (vector<1xi1>, vector<3xi1>, vector<4xi1>, vector<7xi1>, vector<8xi1>)
+  %base = index.constant 0 : offset
+  %true_i16 = buffer.view %true_input[%base] : buffer -> view<256xi16>
+  %false_i16 = buffer.view %false_input[%base] : buffer -> view<256xi16>
+  %output_i16 = buffer.view %output[%base] : buffer -> view<70xi16>
+  %true_i16_value = view.load %true_i16[%packet] : view<256xi16> -> i16
+  %false_i16_value = view.load %false_i16[%packet] : view<256xi16> -> i16
+  %true_i16_1 = vector.splat %true_i16_value : vector<1xi16>
+  %false_i16_1 = vector.splat %false_i16_value : vector<1xi16>
+  %result_i16_1 = vector.select %mask1, %true_i16_1, %false_i16_1 : vector<1xi16>
+  vector.store %result_i16_1, %output_i16[0] : vector<1xi16>, view<70xi16>
+  %true_i16_3 = vector.splat %true_i16_value : vector<3xi16>
+  %false_i16_3 = vector.splat %false_i16_value : vector<3xi16>
+  %result_i16_3 = vector.select %mask3, %true_i16_3, %false_i16_3 : vector<3xi16>
+  vector.store %result_i16_3, %output_i16[1] : vector<3xi16>, view<70xi16>
+  %true_i16_4 = vector.splat %true_i16_value : vector<4xi16>
+  %false_i16_4 = vector.splat %false_i16_value : vector<4xi16>
+  %result_i16_4 = vector.select %mask4, %true_i16_4, %false_i16_4 : vector<4xi16>
+  vector.store %result_i16_4, %output_i16[4] : vector<4xi16>, view<70xi16>
+  %true_i16_7 = vector.splat %true_i16_value : vector<7xi16>
+  %false_i16_7 = vector.splat %false_i16_value : vector<7xi16>
+  %result_i16_7 = vector.select %mask7, %true_i16_7, %false_i16_7 : vector<7xi16>
+  vector.store %result_i16_7, %output_i16[8] : vector<7xi16>, view<70xi16>
+  %true_i16_8 = vector.splat %true_i16_value : vector<8xi16>
+  %false_i16_8 = vector.splat %false_i16_value : vector<8xi16>
+  %result_i16_8 = vector.select %mask8, %true_i16_8, %false_i16_8 : vector<8xi16>
+  vector.store %result_i16_8, %output_i16[15] : vector<8xi16>, view<70xi16>
+  %true_f16 = buffer.view %true_input[%base] : buffer -> view<256xf16>
+  %false_f16 = buffer.view %false_input[%base] : buffer -> view<256xf16>
+  %output_f16 = buffer.view %output[%base] : buffer -> view<70xf16>
+  %true_f16_value = view.load %true_f16[%packet] : view<256xf16> -> f16
+  %false_f16_value = view.load %false_f16[%packet] : view<256xf16> -> f16
+  %true_f16_1 = vector.splat %true_f16_value : vector<1xf16>
+  %false_f16_1 = vector.splat %false_f16_value : vector<1xf16>
+  %result_f16_1 = vector.select %mask1, %true_f16_1, %false_f16_1 : vector<1xf16>
+  vector.store %result_f16_1, %output_f16[23] : vector<1xf16>, view<70xf16>
+  %true_f16_3 = vector.splat %true_f16_value : vector<3xf16>
+  %false_f16_3 = vector.splat %false_f16_value : vector<3xf16>
+  %result_f16_3 = vector.select %mask3, %true_f16_3, %false_f16_3 : vector<3xf16>
+  vector.store %result_f16_3, %output_f16[24] : vector<3xf16>, view<70xf16>
+  %true_f16_4 = vector.splat %true_f16_value : vector<4xf16>
+  %false_f16_4 = vector.splat %false_f16_value : vector<4xf16>
+  %result_f16_4 = vector.select %mask4, %true_f16_4, %false_f16_4 : vector<4xf16>
+  vector.store %result_f16_4, %output_f16[27] : vector<4xf16>, view<70xf16>
+  %true_f16_7 = vector.splat %true_f16_value : vector<7xf16>
+  %false_f16_7 = vector.splat %false_f16_value : vector<7xf16>
+  %result_f16_7 = vector.select %mask7, %true_f16_7, %false_f16_7 : vector<7xf16>
+  vector.store %result_f16_7, %output_f16[31] : vector<7xf16>, view<70xf16>
+  %true_f16_8 = vector.splat %true_f16_value : vector<8xf16>
+  %false_f16_8 = vector.splat %false_f16_value : vector<8xf16>
+  %result_f16_8 = vector.select %mask8, %true_f16_8, %false_f16_8 : vector<8xf16>
+  vector.store %result_f16_8, %output_f16[38] : vector<8xf16>, view<70xf16>
+  %true_bf16 = buffer.view %true_input[%base] : buffer -> view<256xbf16>
+  %false_bf16 = buffer.view %false_input[%base] : buffer -> view<256xbf16>
+  %output_bf16 = buffer.view %output[%base] : buffer -> view<70xbf16>
+  %true_bf16_value = view.load %true_bf16[%packet] : view<256xbf16> -> bf16
+  %false_bf16_value = view.load %false_bf16[%packet] : view<256xbf16> -> bf16
+  %true_bf16_1 = vector.splat %true_bf16_value : vector<1xbf16>
+  %false_bf16_1 = vector.splat %false_bf16_value : vector<1xbf16>
+  %result_bf16_1 = vector.select %mask1, %true_bf16_1, %false_bf16_1 : vector<1xbf16>
+  vector.store %result_bf16_1, %output_bf16[46] : vector<1xbf16>, view<70xbf16>
+  %true_bf16_3 = vector.splat %true_bf16_value : vector<3xbf16>
+  %false_bf16_3 = vector.splat %false_bf16_value : vector<3xbf16>
+  %result_bf16_3 = vector.select %mask3, %true_bf16_3, %false_bf16_3 : vector<3xbf16>
+  vector.store %result_bf16_3, %output_bf16[47] : vector<3xbf16>, view<70xbf16>
+  %true_bf16_4 = vector.splat %true_bf16_value : vector<4xbf16>
+  %false_bf16_4 = vector.splat %false_bf16_value : vector<4xbf16>
+  %result_bf16_4 = vector.select %mask4, %true_bf16_4, %false_bf16_4 : vector<4xbf16>
+  vector.store %result_bf16_4, %output_bf16[50] : vector<4xbf16>, view<70xbf16>
+  %true_bf16_7 = vector.splat %true_bf16_value : vector<7xbf16>
+  %false_bf16_7 = vector.splat %false_bf16_value : vector<7xbf16>
+  %result_bf16_7 = vector.select %mask7, %true_bf16_7, %false_bf16_7 : vector<7xbf16>
+  vector.store %result_bf16_7, %output_bf16[54] : vector<7xbf16>, view<70xbf16>
+  %true_bf16_8 = vector.splat %true_bf16_value : vector<8xbf16>
+  %false_bf16_8 = vector.splat %false_bf16_value : vector<8xbf16>
+  %result_bf16_8 = vector.select %mask8, %true_bf16_8, %false_bf16_8 : vector<8xbf16>
+  vector.store %result_bf16_8, %output_bf16[61] : vector<8xbf16>, view<70xbf16>
+  func.return
+}
+
+check.scenario @packed_byte_selects {
+  // Every raw byte reaches every vector lane while the complete domain also
+  // enumerates all eight mask bits.
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %true_input = check.generate.iota offset(-128) step(1) period(256) : tensor<256xi8>
+    %false_input = check.generate.iota offset(127) step(-1) period(256) : tensor<256xi8>
+    %output = check.generate.fill value(-85) : tensor<70xi8>
+    check.compare<@select_packed_bytes>(%trial, %true_input, %false_input, %output) : (index, tensor<256xi8>, tensor<256xi8>, tensor<70xi8>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<70xi8>
+    }
+  }
+  check.return
+}
+
+check.scenario @packed_word_selects {
+  // A full signed-domain stride gives every lane 256 distinct raw values.
+  // Complementary false values exercise both arms without checked-in data.
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %true_input = check.generate.iota offset(-32768) step(257) : tensor<256xi16>
+    %false_input = check.generate.iota offset(32767) step(-257) : tensor<256xi16>
+    %output = check.generate.fill value(23130) : tensor<70xi16>
+    check.compare<@select_packed_words>(%trial, %true_input, %false_input, %output) : (index, tensor<256xi16>, tensor<256xi16>, tensor<70xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<70xi16>
+    }
+  }
+  // Raw values cover positive/negative zero and subnormal, f16 and bf16
+  // infinities and signaling/quiet NaNs, and the all-ones payload.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet = check.literal value(255) : index
+    %true_input = check.generate.fill value(0) : tensor<256xi16>
+    %false_input = check.generate.fill value(23130) : tensor<256xi16>
+    %output = check.generate.fill value(-21846) : tensor<70xi16>
+    check.compare<@select_packed_words>(%packet, %true_input, %false_input, %output) : (index, tensor<256xi16>, tensor<256xi16>, tensor<70xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<70xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet = check.literal value(255) : index
+    %true_input = check.generate.fill value(-32768) : tensor<256xi16>
+    %false_input = check.generate.fill value(23130) : tensor<256xi16>
+    %output = check.generate.fill value(-21846) : tensor<70xi16>
+    check.compare<@select_packed_words>(%packet, %true_input, %false_input, %output) : (index, tensor<256xi16>, tensor<256xi16>, tensor<70xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<70xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet = check.literal value(255) : index
+    %true_input = check.generate.fill value(1) : tensor<256xi16>
+    %false_input = check.generate.fill value(23130) : tensor<256xi16>
+    %output = check.generate.fill value(-21846) : tensor<70xi16>
+    check.compare<@select_packed_words>(%packet, %true_input, %false_input, %output) : (index, tensor<256xi16>, tensor<256xi16>, tensor<70xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<70xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet = check.literal value(255) : index
+    %true_input = check.generate.fill value(-32767) : tensor<256xi16>
+    %false_input = check.generate.fill value(23130) : tensor<256xi16>
+    %output = check.generate.fill value(-21846) : tensor<70xi16>
+    check.compare<@select_packed_words>(%packet, %true_input, %false_input, %output) : (index, tensor<256xi16>, tensor<256xi16>, tensor<70xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<70xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet = check.literal value(255) : index
+    %true_input = check.generate.fill value(31744) : tensor<256xi16>
+    %false_input = check.generate.fill value(23130) : tensor<256xi16>
+    %output = check.generate.fill value(-21846) : tensor<70xi16>
+    check.compare<@select_packed_words>(%packet, %true_input, %false_input, %output) : (index, tensor<256xi16>, tensor<256xi16>, tensor<70xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<70xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet = check.literal value(255) : index
+    %true_input = check.generate.fill value(31745) : tensor<256xi16>
+    %false_input = check.generate.fill value(23130) : tensor<256xi16>
+    %output = check.generate.fill value(-21846) : tensor<70xi16>
+    check.compare<@select_packed_words>(%packet, %true_input, %false_input, %output) : (index, tensor<256xi16>, tensor<256xi16>, tensor<70xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<70xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet = check.literal value(255) : index
+    %true_input = check.generate.fill value(32257) : tensor<256xi16>
+    %false_input = check.generate.fill value(23130) : tensor<256xi16>
+    %output = check.generate.fill value(-21846) : tensor<70xi16>
+    check.compare<@select_packed_words>(%packet, %true_input, %false_input, %output) : (index, tensor<256xi16>, tensor<256xi16>, tensor<70xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<70xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet = check.literal value(255) : index
+    %true_input = check.generate.fill value(32640) : tensor<256xi16>
+    %false_input = check.generate.fill value(23130) : tensor<256xi16>
+    %output = check.generate.fill value(-21846) : tensor<70xi16>
+    check.compare<@select_packed_words>(%packet, %true_input, %false_input, %output) : (index, tensor<256xi16>, tensor<256xi16>, tensor<70xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<70xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet = check.literal value(255) : index
+    %true_input = check.generate.fill value(32641) : tensor<256xi16>
+    %false_input = check.generate.fill value(23130) : tensor<256xi16>
+    %output = check.generate.fill value(-21846) : tensor<70xi16>
+    check.compare<@select_packed_words>(%packet, %true_input, %false_input, %output) : (index, tensor<256xi16>, tensor<256xi16>, tensor<70xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<70xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet = check.literal value(255) : index
+    %true_input = check.generate.fill value(32705) : tensor<256xi16>
+    %false_input = check.generate.fill value(23130) : tensor<256xi16>
+    %output = check.generate.fill value(-21846) : tensor<70xi16>
+    check.compare<@select_packed_words>(%packet, %true_input, %false_input, %output) : (index, tensor<256xi16>, tensor<256xi16>, tensor<70xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<70xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %packet = check.literal value(255) : index
+    %true_input = check.generate.fill value(-1) : tensor<256xi16>
+    %false_input = check.generate.fill value(23130) : tensor<256xi16>
+    %output = check.generate.fill value(-21846) : tensor<70xi16>
+    check.compare<@select_packed_words>(%packet, %true_input, %false_input, %output) : (index, tensor<256xi16>, tensor<256xi16>, tensor<70xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<70xi16>
+    }
+  }
+  check.return
+}

@@ -18,6 +18,7 @@ loom_check_test_suite(
         "boundary_transport.loom-test",
         "linearize_view_accesses.loom-test",
         "load_coalescing.loom-test",
+        "private_atomics.loom-test",
         "root_selection.loom-test",
         "transport.loom-test",
         "transport_offsets.loom-test",

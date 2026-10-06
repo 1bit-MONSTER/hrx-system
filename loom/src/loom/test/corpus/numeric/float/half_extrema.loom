@@ -1,0 +1,364 @@
+// Raw inputs preserve every NaN payload. Arithmetic results retain the quiet
+// bit while ignoring their implementation-selected NaN sign and payload.
+func.def inline @half_result_bits(%value: f16) -> (i16) {
+  %bits = scalar.bitcast %value : f16 to i16
+  %quiet_bit = scalar.constant 512 : i16
+  %exponent = scalar.constant 31744 : i16
+  %magnitude_mask = scalar.constant 32767 : i16
+  %magnitude = scalar.andi %bits, %magnitude_mask : i16
+  %nan = scalar.cmpi ugt, %magnitude, %exponent : i16
+  %quiet = scalar.andi %bits, %quiet_bit : i16
+  %tag = scalar.ori %quiet, %exponent : i16
+  %result = scf.select %nan, %tag, %bits : i16
+  func.return %result : i16
+}
+
+func.def @half_extrema_pair(%lhs_bits: i64, %rhs_bits: i64, %output: buffer) {
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<28xi16>
+  %lhs_half = scalar.trunci %lhs_bits : i64 to i16
+  %rhs_half = scalar.trunci %rhs_bits : i64 to i16
+  %lhs = scalar.bitcast %lhs_half : i16 to f16
+  %rhs = scalar.bitcast %rhs_half : i16 to f16
+  %minimumf = scalar.minimumf %lhs, %rhs : f16
+  %minimumf_bits = func.call @half_result_bits(%minimumf) : (f16) -> (i16)
+  view.store %minimumf_bits, %results[0] : i16, view<28xi16>
+  %maximumf = scalar.maximumf %lhs, %rhs : f16
+  %maximumf_bits = func.call @half_result_bits(%maximumf) : (f16) -> (i16)
+  view.store %maximumf_bits, %results[1] : i16, view<28xi16>
+  %minnumf = scalar.minnumf %lhs, %rhs : f16
+  %minnumf_bits = func.call @half_result_bits(%minnumf) : (f16) -> (i16)
+  view.store %minnumf_bits, %results[2] : i16, view<28xi16>
+  %maxnumf = scalar.maxnumf %lhs, %rhs : f16
+  %maxnumf_bits = func.call @half_result_bits(%maxnumf) : (f16) -> (i16)
+  view.store %maxnumf_bits, %results[3] : i16, view<28xi16>
+  %left = vector.from_elements %lhs, %rhs : vector<2xf16>
+  %right = vector.from_elements %rhs, %lhs : vector<2xf16>
+  %bound = vector.constant 1.0 : vector<2xf16>
+  %packed_minnumf = vector.minnumf %left, %right : vector<2xf16>
+  %packed_minnumf_0 = vector.extract %packed_minnumf[0] : vector<2xf16> -> f16
+  %packed_minnumf_0_bits = func.call @half_result_bits(%packed_minnumf_0) : (f16) -> (i16)
+  view.store %packed_minnumf_0_bits, %results[4] : i16, view<28xi16>
+  %packed_minnumf_1 = vector.extract %packed_minnumf[1] : vector<2xf16> -> f16
+  %packed_minnumf_1_bits = func.call @half_result_bits(%packed_minnumf_1) : (f16) -> (i16)
+  view.store %packed_minnumf_1_bits, %results[5] : i16, view<28xi16>
+  %packed_maxnumf = vector.maxnumf %left, %right : vector<2xf16>
+  %packed_maxnumf_0 = vector.extract %packed_maxnumf[0] : vector<2xf16> -> f16
+  %packed_maxnumf_0_bits = func.call @half_result_bits(%packed_maxnumf_0) : (f16) -> (i16)
+  view.store %packed_maxnumf_0_bits, %results[6] : i16, view<28xi16>
+  %packed_maxnumf_1 = vector.extract %packed_maxnumf[1] : vector<2xf16> -> f16
+  %packed_maxnumf_1_bits = func.call @half_result_bits(%packed_maxnumf_1) : (f16) -> (i16)
+  view.store %packed_maxnumf_1_bits, %results[7] : i16, view<28xi16>
+  %packed_minimumf = vector.minimumf %left, %right : vector<2xf16>
+  %packed_minimumf_0 = vector.extract %packed_minimumf[0] : vector<2xf16> -> f16
+  %packed_minimumf_0_bits = func.call @half_result_bits(%packed_minimumf_0) : (f16) -> (i16)
+  view.store %packed_minimumf_0_bits, %results[8] : i16, view<28xi16>
+  %packed_minimumf_1 = vector.extract %packed_minimumf[1] : vector<2xf16> -> f16
+  %packed_minimumf_1_bits = func.call @half_result_bits(%packed_minimumf_1) : (f16) -> (i16)
+  view.store %packed_minimumf_1_bits, %results[9] : i16, view<28xi16>
+  %packed_maximumf = vector.maximumf %left, %right : vector<2xf16>
+  %packed_maximumf_0 = vector.extract %packed_maximumf[0] : vector<2xf16> -> f16
+  %packed_maximumf_0_bits = func.call @half_result_bits(%packed_maximumf_0) : (f16) -> (i16)
+  view.store %packed_maximumf_0_bits, %results[10] : i16, view<28xi16>
+  %packed_maximumf_1 = vector.extract %packed_maximumf[1] : vector<2xf16> -> f16
+  %packed_maximumf_1_bits = func.call @half_result_bits(%packed_maximumf_1) : (f16) -> (i16)
+  view.store %packed_maximumf_1_bits, %results[11] : i16, view<28xi16>
+  %packed_clampf = vector.clampf<number> %left, %bound, %right : vector<2xf16>
+  %packed_clampf_0 = vector.extract %packed_clampf[0] : vector<2xf16> -> f16
+  %packed_clampf_0_bits = func.call @half_result_bits(%packed_clampf_0) : (f16) -> (i16)
+  view.store %packed_clampf_0_bits, %results[12] : i16, view<28xi16>
+  %packed_clampf_1 = vector.extract %packed_clampf[1] : vector<2xf16> -> f16
+  %packed_clampf_1_bits = func.call @half_result_bits(%packed_clampf_1) : (f16) -> (i16)
+  view.store %packed_clampf_1_bits, %results[13] : i16, view<28xi16>
+  %predicate_oeq = scalar.cmpf oeq, %lhs, %rhs : f16
+  %predicate_oeq_bits = scalar.extui %predicate_oeq : i1 to i16
+  view.store %predicate_oeq_bits, %results[14] : i16, view<28xi16>
+  %predicate_ogt = scalar.cmpf ogt, %lhs, %rhs : f16
+  %predicate_ogt_bits = scalar.extui %predicate_ogt : i1 to i16
+  view.store %predicate_ogt_bits, %results[15] : i16, view<28xi16>
+  %predicate_oge = scalar.cmpf oge, %lhs, %rhs : f16
+  %predicate_oge_bits = scalar.extui %predicate_oge : i1 to i16
+  view.store %predicate_oge_bits, %results[16] : i16, view<28xi16>
+  %predicate_olt = scalar.cmpf olt, %lhs, %rhs : f16
+  %predicate_olt_bits = scalar.extui %predicate_olt : i1 to i16
+  view.store %predicate_olt_bits, %results[17] : i16, view<28xi16>
+  %predicate_ole = scalar.cmpf ole, %lhs, %rhs : f16
+  %predicate_ole_bits = scalar.extui %predicate_ole : i1 to i16
+  view.store %predicate_ole_bits, %results[18] : i16, view<28xi16>
+  %predicate_one = scalar.cmpf one, %lhs, %rhs : f16
+  %predicate_one_bits = scalar.extui %predicate_one : i1 to i16
+  view.store %predicate_one_bits, %results[19] : i16, view<28xi16>
+  %predicate_ord = scalar.cmpf ord, %lhs, %rhs : f16
+  %predicate_ord_bits = scalar.extui %predicate_ord : i1 to i16
+  view.store %predicate_ord_bits, %results[20] : i16, view<28xi16>
+  %predicate_ueq = scalar.cmpf ueq, %lhs, %rhs : f16
+  %predicate_ueq_bits = scalar.extui %predicate_ueq : i1 to i16
+  view.store %predicate_ueq_bits, %results[21] : i16, view<28xi16>
+  %predicate_ugt = scalar.cmpf ugt, %lhs, %rhs : f16
+  %predicate_ugt_bits = scalar.extui %predicate_ugt : i1 to i16
+  view.store %predicate_ugt_bits, %results[22] : i16, view<28xi16>
+  %predicate_uge = scalar.cmpf uge, %lhs, %rhs : f16
+  %predicate_uge_bits = scalar.extui %predicate_uge : i1 to i16
+  view.store %predicate_uge_bits, %results[23] : i16, view<28xi16>
+  %predicate_ult = scalar.cmpf ult, %lhs, %rhs : f16
+  %predicate_ult_bits = scalar.extui %predicate_ult : i1 to i16
+  view.store %predicate_ult_bits, %results[24] : i16, view<28xi16>
+  %predicate_ule = scalar.cmpf ule, %lhs, %rhs : f16
+  %predicate_ule_bits = scalar.extui %predicate_ule : i1 to i16
+  view.store %predicate_ule_bits, %results[25] : i16, view<28xi16>
+  %predicate_une = scalar.cmpf une, %lhs, %rhs : f16
+  %predicate_une_bits = scalar.extui %predicate_une : i1 to i16
+  view.store %predicate_une_bits, %results[26] : i16, view<28xi16>
+  %predicate_uno = scalar.cmpf uno, %lhs, %rhs : f16
+  %predicate_uno_bits = scalar.extui %predicate_uno : i1 to i16
+  view.store %predicate_uno_bits, %results[27] : i16, view<28xi16>
+  func.return
+}
+
+// Widening is exact for every f16 value; extrema select an input or a NaN.
+// The independent VM reference evaluates arithmetic and predicates in f32.
+func.def inline @half_wide_result_bits(%value: f32) -> (i16) {
+  %narrow = scalar.fptrunc %value : f32 to f16
+  %bits = func.call @half_result_bits(%narrow) : (f16) -> (i16)
+  func.return %bits : i16
+}
+
+func.def @half_extrema_reference(%lhs_bits: i64, %rhs_bits: i64, %output: buffer) {
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<28xi16>
+  %lhs_half = scalar.trunci %lhs_bits : i64 to i16
+  %rhs_half = scalar.trunci %rhs_bits : i64 to i16
+  %lhs_narrow = scalar.bitcast %lhs_half : i16 to f16
+  %lhs = scalar.extf %lhs_narrow : f16 to f32
+  %rhs_narrow = scalar.bitcast %rhs_half : i16 to f16
+  %rhs = scalar.extf %rhs_narrow : f16 to f32
+  %minimumf = scalar.minimumf %lhs, %rhs : f32
+  %minimumf_bits = func.call @half_wide_result_bits(%minimumf) : (f32) -> (i16)
+  view.store %minimumf_bits, %results[0] : i16, view<28xi16>
+  %maximumf = scalar.maximumf %lhs, %rhs : f32
+  %maximumf_bits = func.call @half_wide_result_bits(%maximumf) : (f32) -> (i16)
+  view.store %maximumf_bits, %results[1] : i16, view<28xi16>
+  %minnumf = scalar.minnumf %lhs, %rhs : f32
+  %minnumf_bits = func.call @half_wide_result_bits(%minnumf) : (f32) -> (i16)
+  view.store %minnumf_bits, %results[2] : i16, view<28xi16>
+  %maxnumf = scalar.maxnumf %lhs, %rhs : f32
+  %maxnumf_bits = func.call @half_wide_result_bits(%maxnumf) : (f32) -> (i16)
+  view.store %maxnumf_bits, %results[3] : i16, view<28xi16>
+  %left = vector.from_elements %lhs, %rhs : vector<2xf32>
+  %right = vector.from_elements %rhs, %lhs : vector<2xf32>
+  %bound = vector.constant 1.0 : vector<2xf32>
+  %packed_minnumf = vector.minnumf %left, %right : vector<2xf32>
+  %packed_minnumf_0 = vector.extract %packed_minnumf[0] : vector<2xf32> -> f32
+  %packed_minnumf_0_bits = func.call @half_wide_result_bits(%packed_minnumf_0) : (f32) -> (i16)
+  view.store %packed_minnumf_0_bits, %results[4] : i16, view<28xi16>
+  %packed_minnumf_1 = vector.extract %packed_minnumf[1] : vector<2xf32> -> f32
+  %packed_minnumf_1_bits = func.call @half_wide_result_bits(%packed_minnumf_1) : (f32) -> (i16)
+  view.store %packed_minnumf_1_bits, %results[5] : i16, view<28xi16>
+  %packed_maxnumf = vector.maxnumf %left, %right : vector<2xf32>
+  %packed_maxnumf_0 = vector.extract %packed_maxnumf[0] : vector<2xf32> -> f32
+  %packed_maxnumf_0_bits = func.call @half_wide_result_bits(%packed_maxnumf_0) : (f32) -> (i16)
+  view.store %packed_maxnumf_0_bits, %results[6] : i16, view<28xi16>
+  %packed_maxnumf_1 = vector.extract %packed_maxnumf[1] : vector<2xf32> -> f32
+  %packed_maxnumf_1_bits = func.call @half_wide_result_bits(%packed_maxnumf_1) : (f32) -> (i16)
+  view.store %packed_maxnumf_1_bits, %results[7] : i16, view<28xi16>
+  %packed_minimumf = vector.minimumf %left, %right : vector<2xf32>
+  %packed_minimumf_0 = vector.extract %packed_minimumf[0] : vector<2xf32> -> f32
+  %packed_minimumf_0_bits = func.call @half_wide_result_bits(%packed_minimumf_0) : (f32) -> (i16)
+  view.store %packed_minimumf_0_bits, %results[8] : i16, view<28xi16>
+  %packed_minimumf_1 = vector.extract %packed_minimumf[1] : vector<2xf32> -> f32
+  %packed_minimumf_1_bits = func.call @half_wide_result_bits(%packed_minimumf_1) : (f32) -> (i16)
+  view.store %packed_minimumf_1_bits, %results[9] : i16, view<28xi16>
+  %packed_maximumf = vector.maximumf %left, %right : vector<2xf32>
+  %packed_maximumf_0 = vector.extract %packed_maximumf[0] : vector<2xf32> -> f32
+  %packed_maximumf_0_bits = func.call @half_wide_result_bits(%packed_maximumf_0) : (f32) -> (i16)
+  view.store %packed_maximumf_0_bits, %results[10] : i16, view<28xi16>
+  %packed_maximumf_1 = vector.extract %packed_maximumf[1] : vector<2xf32> -> f32
+  %packed_maximumf_1_bits = func.call @half_wide_result_bits(%packed_maximumf_1) : (f32) -> (i16)
+  view.store %packed_maximumf_1_bits, %results[11] : i16, view<28xi16>
+  %packed_clampf = vector.clampf<number> %left, %bound, %right : vector<2xf32>
+  %packed_clampf_0 = vector.extract %packed_clampf[0] : vector<2xf32> -> f32
+  %packed_clampf_0_bits = func.call @half_wide_result_bits(%packed_clampf_0) : (f32) -> (i16)
+  view.store %packed_clampf_0_bits, %results[12] : i16, view<28xi16>
+  %packed_clampf_1 = vector.extract %packed_clampf[1] : vector<2xf32> -> f32
+  %packed_clampf_1_bits = func.call @half_wide_result_bits(%packed_clampf_1) : (f32) -> (i16)
+  view.store %packed_clampf_1_bits, %results[13] : i16, view<28xi16>
+  %predicate_oeq = scalar.cmpf oeq, %lhs, %rhs : f32
+  %predicate_oeq_bits = scalar.extui %predicate_oeq : i1 to i16
+  view.store %predicate_oeq_bits, %results[14] : i16, view<28xi16>
+  %predicate_ogt = scalar.cmpf ogt, %lhs, %rhs : f32
+  %predicate_ogt_bits = scalar.extui %predicate_ogt : i1 to i16
+  view.store %predicate_ogt_bits, %results[15] : i16, view<28xi16>
+  %predicate_oge = scalar.cmpf oge, %lhs, %rhs : f32
+  %predicate_oge_bits = scalar.extui %predicate_oge : i1 to i16
+  view.store %predicate_oge_bits, %results[16] : i16, view<28xi16>
+  %predicate_olt = scalar.cmpf olt, %lhs, %rhs : f32
+  %predicate_olt_bits = scalar.extui %predicate_olt : i1 to i16
+  view.store %predicate_olt_bits, %results[17] : i16, view<28xi16>
+  %predicate_ole = scalar.cmpf ole, %lhs, %rhs : f32
+  %predicate_ole_bits = scalar.extui %predicate_ole : i1 to i16
+  view.store %predicate_ole_bits, %results[18] : i16, view<28xi16>
+  %predicate_one = scalar.cmpf one, %lhs, %rhs : f32
+  %predicate_one_bits = scalar.extui %predicate_one : i1 to i16
+  view.store %predicate_one_bits, %results[19] : i16, view<28xi16>
+  %predicate_ord = scalar.cmpf ord, %lhs, %rhs : f32
+  %predicate_ord_bits = scalar.extui %predicate_ord : i1 to i16
+  view.store %predicate_ord_bits, %results[20] : i16, view<28xi16>
+  %predicate_ueq = scalar.cmpf ueq, %lhs, %rhs : f32
+  %predicate_ueq_bits = scalar.extui %predicate_ueq : i1 to i16
+  view.store %predicate_ueq_bits, %results[21] : i16, view<28xi16>
+  %predicate_ugt = scalar.cmpf ugt, %lhs, %rhs : f32
+  %predicate_ugt_bits = scalar.extui %predicate_ugt : i1 to i16
+  view.store %predicate_ugt_bits, %results[22] : i16, view<28xi16>
+  %predicate_uge = scalar.cmpf uge, %lhs, %rhs : f32
+  %predicate_uge_bits = scalar.extui %predicate_uge : i1 to i16
+  view.store %predicate_uge_bits, %results[23] : i16, view<28xi16>
+  %predicate_ult = scalar.cmpf ult, %lhs, %rhs : f32
+  %predicate_ult_bits = scalar.extui %predicate_ult : i1 to i16
+  view.store %predicate_ult_bits, %results[24] : i16, view<28xi16>
+  %predicate_ule = scalar.cmpf ule, %lhs, %rhs : f32
+  %predicate_ule_bits = scalar.extui %predicate_ule : i1 to i16
+  view.store %predicate_ule_bits, %results[25] : i16, view<28xi16>
+  %predicate_une = scalar.cmpf une, %lhs, %rhs : f32
+  %predicate_une_bits = scalar.extui %predicate_une : i1 to i16
+  view.store %predicate_une_bits, %results[26] : i16, view<28xi16>
+  %predicate_uno = scalar.cmpf uno, %lhs, %rhs : f32
+  %predicate_uno_bits = scalar.extui %predicate_uno : i1 to i16
+  view.store %predicate_uno_bits, %results[27] : i16, view<28xi16>
+  func.return
+}
+
+check.scenario @half_extrema_special_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(0) : i64
+    %rhs = check.literal value(32768) : i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(32768) : i64
+    %rhs = check.literal value(0) : i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(1) : i64
+    %rhs = check.literal value(32769) : i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(1023) : i64
+    %rhs = check.literal value(1024) : i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(31743) : i64
+    %rhs = check.literal value(31744) : i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(64512) : i64
+    %rhs = check.literal value(31744) : i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(48128) : i64
+    %rhs = check.literal value(16384) : i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(32257) : i64
+    %rhs = check.literal value(15360) : i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(15360) : i64
+    %rhs = check.literal value(32257) : i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(31745) : i64
+    %rhs = check.literal value(15360) : i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(15360) : i64
+    %rhs = check.literal value(31745) : i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(64521) : i64
+    %rhs = check.literal value(16384) : i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(16384) : i64
+    %rhs = check.literal value(64521) : i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(32325) : i64
+    %rhs = check.literal value(31745) : i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %lhs = check.literal value(64521) : i64
+    %rhs = check.literal value(65093) : i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.return
+}
+
+check.scenario @half_extrema_random_values {
+  check.trial[8](%trial: index, %entropy: check.entropy) {
+    %lhs = check.entropy.read %entropy[0] : check.entropy -> i64
+    %rhs = check.entropy.read %entropy[1] : check.entropy -> i64
+    %output = check.generate.fill value(-1) : tensor<28xi16>
+    check.compare<@half_extrema_pair, @half_extrema_reference>(%lhs, %rhs, %output) : (i64, i64, tensor<28xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xi16>
+    }
+  }
+  check.return
+}

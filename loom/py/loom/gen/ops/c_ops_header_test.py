@@ -82,3 +82,22 @@ def test_scoped_enum_rejects_context_free_c_builder() -> None:
 
     with pytest.raises(ValueError, match="requires a domain-aware handwritten C builder"):
         generate_ops_h("test", 0, [op])
+
+
+def test_external_flags_use_the_owning_header() -> None:
+    flags = EnumDef(
+        "Flags",
+        [EnumCase("preserve", 2)],
+        c_type="test_flags_t",
+        c_const_prefix="TEST_FLAG",
+        c_include="test/flags.h",
+    )
+    op = Op(
+        "test.update",
+        group=Dialect("test"),
+        attrs=[AttrDef("flags", "flags", optional=True, enum_def=flags)],
+    )
+    header = generate_ops_h("test", 0, [op])
+    assert '#include "test/flags.h"' in header
+    assert "#define LOOM_TEST_FLAGS_PRESERVE" not in header
+    assert "LOOM_DEFINE_INSTANCE_FLAGS(loom_test_update_flags)" in header

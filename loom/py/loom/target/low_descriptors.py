@@ -95,6 +95,9 @@ class OperandFlag(CEnum):
     STATE_READ = "LOOM_LOW_OPERAND_FLAG_STATE_READ"
     STATE_WRITE = "LOOM_LOW_OPERAND_FLAG_STATE_WRITE"
     SCHEDULE_ONLY_STATE = "LOOM_LOW_OPERAND_FLAG_SCHEDULE_ONLY_STATE"
+    EXECUTION_MASK = "LOOM_LOW_OPERAND_FLAG_EXECUTION_MASK"
+    NARROWS_EXECUTION_MASK = "LOOM_LOW_OPERAND_FLAG_NARROWS_EXECUTION_MASK"
+    COMMUTATIVE_STATE_UPDATE = "LOOM_LOW_OPERAND_FLAG_COMMUTATIVE_STATE_UPDATE"
     STORAGE_CONTINUATION = "LOOM_LOW_OPERAND_FLAG_STORAGE_CONTINUATION"
     VARIADIC = "LOOM_LOW_OPERAND_FLAG_VARIADIC"
 
@@ -103,6 +106,7 @@ class RegClassAltFlag(CEnum):
     PREFERRED = "LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED"
     IMMEDIATE = "LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE"
     PHYSICAL_ONLY = "LOOM_LOW_REG_CLASS_ALT_FLAG_PHYSICAL_ONLY"
+    LATE_READ = "LOOM_LOW_REG_CLASS_ALT_FLAG_LATE_READ"
 
 
 class RegClassFlag(CEnum):
@@ -187,6 +191,7 @@ class ConstraintKind(CEnum):
     REMATERIALIZABLE = "LOOM_LOW_CONSTRAINT_KIND_REMATERIALIZABLE"
     FOLDABLE = "LOOM_LOW_CONSTRAINT_KIND_FOLDABLE"
     SAME_REGISTER_ORDINAL = "LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_ORDINAL"
+    SAME_REGISTER_VALUE_TYPE = "LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE"
 
 
 class LatencyKind(CEnum):
@@ -273,6 +278,9 @@ class DescriptorFlag(CEnum):
     ALLOCATION_MOVE = "LOOM_LOW_DESCRIPTOR_FLAG_ALLOCATION_MOVE"
     UNIQUE_IDENTITY = "LOOM_LOW_DESCRIPTOR_FLAG_UNIQUE_IDENTITY"
     ENUM_IMMEDIATES = "LOOM_LOW_DESCRIPTOR_FLAG_ENUM_IMMEDIATES"
+    SAFE_TO_SPECULATE = "LOOM_LOW_DESCRIPTOR_FLAG_SAFE_TO_SPECULATE"
+    STATE_ASSIGNMENT = "LOOM_LOW_DESCRIPTOR_FLAG_STATE_ASSIGNMENT"
+    LATE_READ = "LOOM_LOW_DESCRIPTOR_FLAG_LATE_READ"
 
 
 class DescriptorOpKind(CEnum):
@@ -306,7 +314,7 @@ class InstructionClass(CEnum):
     GENERIC_MEMORY = "LOOM_LOW_INSTRUCTION_CLASS_FLAG_GENERIC_MEMORY"
     ATOMIC = "LOOM_LOW_INSTRUCTION_CLASS_FLAG_ATOMIC"
     BRANCH = "LOOM_LOW_INSTRUCTION_CLASS_FLAG_BRANCH"
-    BARRIER = "LOOM_LOW_INSTRUCTION_CLASS_FLAG_BARRIER"
+    EXECUTION_BARRIER = "LOOM_LOW_INSTRUCTION_CLASS_FLAG_EXECUTION_BARRIER"
     CONTROL = "LOOM_LOW_INSTRUCTION_CLASS_FLAG_CONTROL"
     CONVERSION = "LOOM_LOW_INSTRUCTION_CLASS_FLAG_CONVERSION"
     CACHE = "LOOM_LOW_INSTRUCTION_CLASS_FLAG_CACHE"
@@ -444,6 +452,15 @@ class RegisterPart:
 class RegClassAlt:
     reg_class: str | None
     flags: tuple[RegClassAltFlag, ...] = (RegClassAltFlag.PREFERRED,)
+    # Required power-of-two base alignment in allocation units for this operand.
+    unit_alignment: int = 1
+    # Register part read or written when this alternative is selected, or None
+    # when the whole register is accessed.
+    register_part: str | None = None
+    # Input storage remains live through result writes. None selects ordinary
+    # read-before-write timing; zero applies in every execution mode, and a
+    # positive size restricts the late read to that selected subgroup width.
+    late_read_subgroup_size: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -459,7 +476,6 @@ class Operand:
     encoding_field_id: int = 0
     encoding_adapter_id: int = 0
     data_format_id: int = 0
-    register_part: str | None = None
     read_stage: int = 0
     ready_stage: int = 0
     read_event: str | None = None
@@ -734,6 +750,7 @@ class DescriptorSet:
     resources: tuple[Resource, ...]
     schedule_classes: tuple[ScheduleClass, ...]
     descriptors: tuple[Descriptor, ...]
+    # Dense target-table storage ordinal shared by views over the same tables.
     descriptor_set_ordinal: int | None = None
     physical_registers: tuple[PhysicalRegister, ...] = ()
     physical_register_views: tuple[PhysicalRegisterView, ...] = ()

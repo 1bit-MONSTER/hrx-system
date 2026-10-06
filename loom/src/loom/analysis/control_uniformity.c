@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "loom/ops/cfg/ops.h"
 #include "loom/ops/op_defs.h"
 #include "loom/util/cfg_dominance.h"
 #include "loom/util/cfg_graph.h"
@@ -195,6 +196,38 @@ static iree_status_t loom_control_uniformity_cfg_region(
   return iree_ok_status();
 }
 
+bool loom_control_uniformity_prove_single_entry(
+    const loom_control_uniformity_info_t* info, const loom_block_t* block,
+    loom_value_fact_uniform_scope_t required_scope,
+    loom_condition_assumption_t* out_condition) {
+  const loom_value_fact_cfg_region_t* region =
+      loom_value_fact_table_lookup_cfg_region(info->fact_table,
+                                              block->parent_region);
+  if (!region || block->region_index == 0) {
+    return false;
+  }
+  const loom_cfg_graph_t* graph = &region->graph;
+  if (!graph->blocks[block->region_index].reachable) {
+    return false;
+  }
+  const loom_cfg_edge_index_span_t incoming =
+      loom_cfg_graph_predecessor_edges(graph, block->region_index);
+  if (incoming.count != 1) {
+    return false;
+  }
+  const loom_cfg_edge_info_t* edge = &graph->edges[incoming.values[0]];
+  if (!loom_cfg_cond_br_isa(edge->terminator) ||
+      !loom_control_uniformity_prove_execution(info, edge->terminator,
+                                               required_scope, NULL)) {
+    return false;
+  }
+  *out_condition = (loom_condition_assumption_t){
+      .condition = edge->selector_value_id,
+      .assumed_truth = edge->successor_index == 0,
+  };
+  return true;
+}
+
 static bool loom_control_uniformity_prove_value(
     const loom_control_uniformity_info_t* info, const loom_op_t* control_op,
     loom_value_id_t control_value, loom_control_uniformity_source_t source,
@@ -326,11 +359,13 @@ bool loom_control_uniformity_prove_execution(
       continue;
     }
     if (!loom_loop_like_has_counted_range(loop)) {
-      loom_control_uniformity_prove_value(
-          info, ancestor_op, LOOM_VALUE_ID_INVALID,
-          LOOM_CONTROL_UNIFORMITY_SOURCE_LOOP_CONDITION, required_scope,
-          out_failure);
-      return false;
+      if (!loom_control_uniformity_prove_value(
+              info, ancestor_op, loom_loop_like_condition(loop),
+              LOOM_CONTROL_UNIFORMITY_SOURCE_LOOP_CONDITION, required_scope,
+              out_failure)) {
+        return false;
+      }
+      continue;
     }
     if (!loom_control_uniformity_prove_value(
             info, ancestor_op, loom_loop_like_lower_bound(loop),
@@ -350,6 +385,101 @@ bool loom_control_uniformity_prove_execution(
   return true;
 }
 
+static uint16_t loom_control_uniformity_branch_region_containing_operation(
+    const loom_control_uniformity_info_t* info, loom_region_branch_t branch,
+    const loom_op_t* operation) {
+  const loom_op_t* child = operation;
+  while (child && child->parent_op != branch.op) {
+    child = child->parent_op;
+  }
+  if (!child || !child->parent_block) {
+    return UINT16_MAX;
+  }
+  const loom_region_t* child_region = child->parent_block->parent_region;
+  for (uint16_t region_index = 0; region_index < branch.op->region_count;
+       ++region_index) {
+    if (loom_region_branch_region(info->module, branch,
+                                  (uint8_t)region_index) == child_region) {
+      return region_index;
+    }
+  }
+  return UINT16_MAX;
+}
+
+// Returns true when |operation| itself or an enclosing control scope may
+// execute repeatedly. A RegionBranch decision inside such a scope may choose
+// different alternatives on different iterations and cannot establish global
+// mutual exclusion.
+static bool loom_control_uniformity_ancestor_may_repeat(
+    const loom_control_uniformity_info_t* info, const loom_op_t* operation) {
+  for (const loom_op_t* current = operation; current;
+       current = current->parent_op) {
+    if (loom_loop_like_isa(
+            loom_loop_like_cast(info->module, (loom_op_t*)current))) {
+      return true;
+    }
+    const loom_block_t* block = current->parent_block;
+    if (!block || !block->parent_region ||
+        (block->parent_region->block_count <= 1 &&
+         !iree_any_bit_set(block->parent_region->flags,
+                           LOOM_REGION_INSTANCE_FLAG_CFG))) {
+      continue;
+    }
+    const loom_value_fact_cfg_region_t* facts =
+        loom_value_fact_table_lookup_cfg_region(info->fact_table,
+                                                block->parent_region);
+    if (!facts || block->region_index >= facts->graph.block_count ||
+        facts->graph.blocks[block->region_index].component_is_cyclic) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool loom_control_uniformity_prove_region_branch_exclusion(
+    const loom_control_uniformity_info_t* info, iree_host_size_t lhs_op_count,
+    const loom_op_t* const* lhs_ops, iree_host_size_t rhs_op_count,
+    const loom_op_t* const* rhs_ops,
+    loom_value_fact_uniform_scope_t required_scope) {
+  for (const loom_op_t* child = lhs_ops[0]; child && child->parent_op;
+       child = child->parent_op) {
+    const loom_region_branch_t branch =
+        loom_region_branch_cast(info->module, (loom_op_t*)child->parent_op);
+    if (!loom_region_branch_isa(branch) ||
+        loom_control_uniformity_ancestor_may_repeat(info, branch.op) ||
+        !loom_control_uniformity_prove_value(
+            info, branch.op, loom_region_branch_selector(branch),
+            LOOM_CONTROL_UNIFORMITY_SOURCE_REGION_SELECTOR, required_scope,
+            NULL)) {
+      continue;
+    }
+
+    bool all_contained = true;
+    for (iree_host_size_t i = 0; i < lhs_op_count && all_contained; ++i) {
+      const uint16_t lhs_region =
+          loom_control_uniformity_branch_region_containing_operation(
+              info, branch, lhs_ops[i]);
+      if (lhs_region == UINT16_MAX) {
+        all_contained = false;
+        break;
+      }
+      for (iree_host_size_t j = 0; j < rhs_op_count; ++j) {
+        const uint16_t rhs_region =
+            loom_control_uniformity_branch_region_containing_operation(
+                info, branch, rhs_ops[j]);
+        if (rhs_region == UINT16_MAX || rhs_region == lhs_region) {
+          all_contained = false;
+          break;
+        }
+      }
+    }
+    if (all_contained) {
+      return true;
+    }
+  }
+  return false;
+}
+
 iree_status_t loom_control_uniformity_prove_mutually_exclusive_execution(
     loom_control_uniformity_info_t* info, iree_host_size_t lhs_op_count,
     const loom_op_t* const* lhs_ops, iree_host_size_t rhs_op_count,
@@ -365,24 +495,38 @@ iree_status_t loom_control_uniformity_prove_mutually_exclusive_execution(
               required_scope == LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP ||
               required_scope == LOOM_VALUE_FACT_UNIFORM_SCOPE_CLUSTER);
   *out_proven = false;
+  for (iree_host_size_t i = 0; i < lhs_op_count; ++i) {
+    IREE_ASSERT_ARGUMENT(lhs_ops[i]);
+  }
+  for (iree_host_size_t i = 0; i < rhs_op_count; ++i) {
+    IREE_ASSERT_ARGUMENT(rhs_ops[i]);
+  }
+  if (loom_control_uniformity_prove_region_branch_exclusion(
+          info, lhs_op_count, lhs_ops, rhs_op_count, rhs_ops, required_scope)) {
+    *out_proven = true;
+    return iree_ok_status();
+  }
+
   const loom_block_t* first_block = lhs_ops[0]->parent_block;
   if (!first_block || !first_block->parent_region) {
     return iree_ok_status();
   }
   const loom_region_t* region = first_block->parent_region;
   for (iree_host_size_t i = 0; i < lhs_op_count; ++i) {
-    IREE_ASSERT_ARGUMENT(lhs_ops[i]);
     const loom_block_t* block = lhs_ops[i]->parent_block;
     if (!block || block->parent_region != region) {
       return iree_ok_status();
     }
   }
   for (iree_host_size_t i = 0; i < rhs_op_count; ++i) {
-    IREE_ASSERT_ARGUMENT(rhs_ops[i]);
     const loom_block_t* block = rhs_ops[i]->parent_block;
     if (!block || block->parent_region != region) {
       return iree_ok_status();
     }
+  }
+  if (loom_control_uniformity_ancestor_may_repeat(info,
+                                                  lhs_ops[0]->parent_op)) {
+    return iree_ok_status();
   }
 
   loom_control_uniformity_cfg_region_t* summary = NULL;

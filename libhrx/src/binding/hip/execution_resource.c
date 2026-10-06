@@ -8,7 +8,7 @@
 
 #include <string.h>
 
-#include "common/internal.h"
+#include "common/device.h"
 
 // "HRXR" identifies an HRX execution-resource token in the opaque HIP bytes.
 #define IREE_HIP_EXECUTION_RESOURCE_TOKEN_MAGIC 0x52585248u

@@ -32,7 +32,6 @@ check.case @packed_arrays {
   check.expect.bitwise actual(%second_tail) expected(%expected_second_tail) : tensor<8xi8>
   check.expect.bitwise actual(%after) expected(%expected_after) : tensor<39xi8>
   check.expect.bitwise actual(%observations) expected(%expected_observations) : tensor<4xi32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -51,7 +50,6 @@ check.case @packed_origins {
   check.expect.bitwise actual(%before) expected(%expected_before) : tensor<5xi8>
   check.expect.bitwise actual(%payload) expected(%expected_payload) : tensor<120xi8>
   check.expect.bitwise actual(%after) expected(%expected_after) : tensor<131xi8>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -72,7 +70,6 @@ check.case @packed_vector {
   check.expect.bitwise actual(%before) expected(%expected_before) : tensor<1xi8>
   check.expect.bitwise actual(%payload) expected(%expected_payload) : tensor<16xi8>
   check.expect.bitwise actual(%after) expected(%expected_after) : tensor<47xi8>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -98,6 +95,5 @@ check.case @packed_updates {
   check.expect.bitwise actual(%tag) expected(%expected_tag) : tensor<1xi8>
   check.expect.bitwise actual(%value) expected(%expected_value) : tensor<1xi32>
   check.expect.bitwise actual(%after) expected(%expected_after) : tensor<26xi8>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }

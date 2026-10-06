@@ -1,0 +1,497 @@
+// Runtime input buffers keep conversions out of constant folding. The
+// reference evaluator rounds each original operation directly; native paths
+// must agree bitwise, including every I8/I16 source pattern.
+
+func.def @i8_to_float_1(%input: buffer, %s_f16: buffer, %u_f16: buffer, %s_bf16: buffer, %u_bf16: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 256 : index
+  %step = index.constant 1 : index
+  %source = buffer.view %input[%base] : buffer -> view<256xi8>
+  %s_f16_view = buffer.view %s_f16[%base] : buffer -> view<256xf16>
+  %u_f16_view = buffer.view %u_f16[%base] : buffer -> view<256xf16>
+  %s_bf16_view = buffer.view %s_bf16[%base] : buffer -> view<256xbf16>
+  %u_bf16_view = buffer.view %u_bf16[%base] : buffer -> view<256xbf16>
+  scf.for %i = [%begin to %end step %step] {
+    %value = view.load %source[%i] : view<256xi8> -> i8
+    %s_f16_value = scalar.sitofp %value : i8 to f16
+    view.store %s_f16_value, %s_f16_view[%i] : f16, view<256xf16>
+    %u_f16_value = scalar.uitofp %value : i8 to f16
+    view.store %u_f16_value, %u_f16_view[%i] : f16, view<256xf16>
+    %s_bf16_value = scalar.sitofp %value : i8 to bf16
+    view.store %s_bf16_value, %s_bf16_view[%i] : bf16, view<256xbf16>
+    %u_bf16_value = scalar.uitofp %value : i8 to bf16
+    view.store %u_bf16_value, %u_bf16_view[%i] : bf16, view<256xbf16>
+  }
+  func.return
+}
+
+check.scenario @i8_to_float_1_values_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+    %s_f16 = check.generate.fill value(0.0) : tensor<256xf16>
+    %u_f16 = check.generate.fill value(0.0) : tensor<256xf16>
+    %s_bf16 = check.generate.fill value(0.0) : tensor<256xbf16>
+    %u_bf16 = check.generate.fill value(0.0) : tensor<256xbf16>
+    check.compare<@i8_to_float_1>(%input, %s_f16, %u_f16, %s_bf16, %u_bf16) : (tensor<256xi8>, tensor<256xf16>, tensor<256xf16>, tensor<256xbf16>, tensor<256xbf16>) -> () {
+      check.expect.bitwise actual(%s_f16) expected(%s_f16) : tensor<256xf16>
+      check.expect.bitwise actual(%u_f16) expected(%u_f16) : tensor<256xf16>
+      check.expect.bitwise actual(%s_bf16) expected(%s_bf16) : tensor<256xbf16>
+      check.expect.bitwise actual(%u_bf16) expected(%u_bf16) : tensor<256xbf16>
+    }
+  }
+  check.return
+}
+
+func.def @i8_to_float_4(%input: buffer, %s_f16: buffer, %u_f16: buffer, %s_bf16: buffer, %u_bf16: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 256 : index
+  %step = index.constant 4 : index
+  %source = buffer.view %input[%base] : buffer -> view<256xi8>
+  %s_f16_view = buffer.view %s_f16[%base] : buffer -> view<256xf16>
+  %u_f16_view = buffer.view %u_f16[%base] : buffer -> view<256xf16>
+  %s_bf16_view = buffer.view %s_bf16[%base] : buffer -> view<256xbf16>
+  %u_bf16_view = buffer.view %u_bf16[%base] : buffer -> view<256xbf16>
+  scf.for %i = [%begin to %end step %step] {
+    %value = vector.load %source[%i] : view<256xi8> -> vector<4xi8>
+    %s_f16_value = vector.sitofp %value : vector<4xi8> to vector<4xf16>
+    vector.store %s_f16_value, %s_f16_view[%i] : vector<4xf16>, view<256xf16>
+    %u_f16_value = vector.uitofp %value : vector<4xi8> to vector<4xf16>
+    vector.store %u_f16_value, %u_f16_view[%i] : vector<4xf16>, view<256xf16>
+    %s_bf16_value = vector.sitofp %value : vector<4xi8> to vector<4xbf16>
+    vector.store %s_bf16_value, %s_bf16_view[%i] : vector<4xbf16>, view<256xbf16>
+    %u_bf16_value = vector.uitofp %value : vector<4xi8> to vector<4xbf16>
+    vector.store %u_bf16_value, %u_bf16_view[%i] : vector<4xbf16>, view<256xbf16>
+  }
+  func.return
+}
+
+check.scenario @i8_to_float_4_values_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+    %s_f16 = check.generate.fill value(0.0) : tensor<256xf16>
+    %u_f16 = check.generate.fill value(0.0) : tensor<256xf16>
+    %s_bf16 = check.generate.fill value(0.0) : tensor<256xbf16>
+    %u_bf16 = check.generate.fill value(0.0) : tensor<256xbf16>
+    check.compare<@i8_to_float_4>(%input, %s_f16, %u_f16, %s_bf16, %u_bf16) : (tensor<256xi8>, tensor<256xf16>, tensor<256xf16>, tensor<256xbf16>, tensor<256xbf16>) -> () {
+      check.expect.bitwise actual(%s_f16) expected(%s_f16) : tensor<256xf16>
+      check.expect.bitwise actual(%u_f16) expected(%u_f16) : tensor<256xf16>
+      check.expect.bitwise actual(%s_bf16) expected(%s_bf16) : tensor<256xbf16>
+      check.expect.bitwise actual(%u_bf16) expected(%u_bf16) : tensor<256xbf16>
+    }
+  }
+  check.return
+}
+
+func.def @i16_to_float_1(%input: buffer, %s_f16: buffer, %u_f16: buffer, %s_bf16: buffer, %u_bf16: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 65536 : index
+  %step = index.constant 1 : index
+  %source = buffer.view %input[%base] : buffer -> view<65536xi16>
+  %s_f16_view = buffer.view %s_f16[%base] : buffer -> view<65536xf16>
+  %u_f16_view = buffer.view %u_f16[%base] : buffer -> view<65536xf16>
+  %s_bf16_view = buffer.view %s_bf16[%base] : buffer -> view<65536xbf16>
+  %u_bf16_view = buffer.view %u_bf16[%base] : buffer -> view<65536xbf16>
+  scf.for %i = [%begin to %end step %step] {
+    %value = view.load %source[%i] : view<65536xi16> -> i16
+    %s_f16_value = scalar.sitofp %value : i16 to f16
+    view.store %s_f16_value, %s_f16_view[%i] : f16, view<65536xf16>
+    %u_f16_value = scalar.uitofp %value : i16 to f16
+    view.store %u_f16_value, %u_f16_view[%i] : f16, view<65536xf16>
+    %s_bf16_value = scalar.sitofp %value : i16 to bf16
+    view.store %s_bf16_value, %s_bf16_view[%i] : bf16, view<65536xbf16>
+    %u_bf16_value = scalar.uitofp %value : i16 to bf16
+    view.store %u_bf16_value, %u_bf16_view[%i] : bf16, view<65536xbf16>
+  }
+  func.return
+}
+
+check.scenario @i16_to_float_1_values_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %s_f16 = check.generate.fill value(0.0) : tensor<65536xf16>
+    %u_f16 = check.generate.fill value(0.0) : tensor<65536xf16>
+    %s_bf16 = check.generate.fill value(0.0) : tensor<65536xbf16>
+    %u_bf16 = check.generate.fill value(0.0) : tensor<65536xbf16>
+    check.compare<@i16_to_float_1>(%input, %s_f16, %u_f16, %s_bf16, %u_bf16) : (tensor<65536xi16>, tensor<65536xf16>, tensor<65536xf16>, tensor<65536xbf16>, tensor<65536xbf16>) -> () {
+      check.expect.bitwise actual(%s_f16) expected(%s_f16) : tensor<65536xf16>
+      check.expect.bitwise actual(%u_f16) expected(%u_f16) : tensor<65536xf16>
+      check.expect.bitwise actual(%s_bf16) expected(%s_bf16) : tensor<65536xbf16>
+      check.expect.bitwise actual(%u_bf16) expected(%u_bf16) : tensor<65536xbf16>
+    }
+  }
+  check.return
+}
+
+func.def @i16_to_float_4(%input: buffer, %s_f16: buffer, %u_f16: buffer, %s_bf16: buffer, %u_bf16: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 65536 : index
+  %step = index.constant 4 : index
+  %source = buffer.view %input[%base] : buffer -> view<65536xi16>
+  %s_f16_view = buffer.view %s_f16[%base] : buffer -> view<65536xf16>
+  %u_f16_view = buffer.view %u_f16[%base] : buffer -> view<65536xf16>
+  %s_bf16_view = buffer.view %s_bf16[%base] : buffer -> view<65536xbf16>
+  %u_bf16_view = buffer.view %u_bf16[%base] : buffer -> view<65536xbf16>
+  scf.for %i = [%begin to %end step %step] {
+    %value = vector.load %source[%i] : view<65536xi16> -> vector<4xi16>
+    %s_f16_value = vector.sitofp %value : vector<4xi16> to vector<4xf16>
+    vector.store %s_f16_value, %s_f16_view[%i] : vector<4xf16>, view<65536xf16>
+    %u_f16_value = vector.uitofp %value : vector<4xi16> to vector<4xf16>
+    vector.store %u_f16_value, %u_f16_view[%i] : vector<4xf16>, view<65536xf16>
+    %s_bf16_value = vector.sitofp %value : vector<4xi16> to vector<4xbf16>
+    vector.store %s_bf16_value, %s_bf16_view[%i] : vector<4xbf16>, view<65536xbf16>
+    %u_bf16_value = vector.uitofp %value : vector<4xi16> to vector<4xbf16>
+    vector.store %u_bf16_value, %u_bf16_view[%i] : vector<4xbf16>, view<65536xbf16>
+  }
+  func.return
+}
+
+check.scenario @i16_to_float_4_values_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %s_f16 = check.generate.fill value(0.0) : tensor<65536xf16>
+    %u_f16 = check.generate.fill value(0.0) : tensor<65536xf16>
+    %s_bf16 = check.generate.fill value(0.0) : tensor<65536xbf16>
+    %u_bf16 = check.generate.fill value(0.0) : tensor<65536xbf16>
+    check.compare<@i16_to_float_4>(%input, %s_f16, %u_f16, %s_bf16, %u_bf16) : (tensor<65536xi16>, tensor<65536xf16>, tensor<65536xf16>, tensor<65536xbf16>, tensor<65536xbf16>) -> () {
+      check.expect.bitwise actual(%s_f16) expected(%s_f16) : tensor<65536xf16>
+      check.expect.bitwise actual(%u_f16) expected(%u_f16) : tensor<65536xf16>
+      check.expect.bitwise actual(%s_bf16) expected(%s_bf16) : tensor<65536xbf16>
+      check.expect.bitwise actual(%u_bf16) expected(%u_bf16) : tensor<65536xbf16>
+    }
+  }
+  check.return
+}
+
+func.def @i32_to_float_1(%input: buffer, %s_f16: buffer, %u_f16: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 64 : index
+  %step = index.constant 1 : index
+  %source = buffer.view %input[%base] : buffer -> view<64xi32>
+  %s_f16_view = buffer.view %s_f16[%base] : buffer -> view<64xf16>
+  %u_f16_view = buffer.view %u_f16[%base] : buffer -> view<64xf16>
+  scf.for %i = [%begin to %end step %step] {
+    %value = view.load %source[%i] : view<64xi32> -> i32
+    %s_f16_value = scalar.sitofp %value : i32 to f16
+    view.store %s_f16_value, %s_f16_view[%i] : f16, view<64xf16>
+    %u_f16_value = scalar.uitofp %value : i32 to f16
+    view.store %u_f16_value, %u_f16_view[%i] : f16, view<64xf16>
+  }
+  func.return
+}
+
+check.scenario @i32_to_float_1_values_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(65488) step(1) : tensor<64xi32>
+    %s_f16 = check.generate.fill value(0.0) : tensor<64xf16>
+    %u_f16 = check.generate.fill value(0.0) : tensor<64xf16>
+    check.compare<@i32_to_float_1>(%input, %s_f16, %u_f16) : (tensor<64xi32>, tensor<64xf16>, tensor<64xf16>) -> () {
+      check.expect.bitwise actual(%s_f16) expected(%s_f16) : tensor<64xf16>
+      check.expect.bitwise actual(%u_f16) expected(%u_f16) : tensor<64xf16>
+    }
+  }
+  check.return
+}
+
+check.scenario @i32_to_float_1_values_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-65551) step(1) : tensor<64xi32>
+    %s_f16 = check.generate.fill value(0.0) : tensor<64xf16>
+    %u_f16 = check.generate.fill value(0.0) : tensor<64xf16>
+    check.compare<@i32_to_float_1>(%input, %s_f16, %u_f16) : (tensor<64xi32>, tensor<64xf16>, tensor<64xf16>) -> () {
+      check.expect.bitwise actual(%s_f16) expected(%s_f16) : tensor<64xf16>
+      check.expect.bitwise actual(%u_f16) expected(%u_f16) : tensor<64xf16>
+    }
+  }
+  check.return
+}
+
+check.scenario @i32_to_float_1_values_2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(2147483584) step(1) : tensor<64xi32>
+    %s_f16 = check.generate.fill value(0.0) : tensor<64xf16>
+    %u_f16 = check.generate.fill value(0.0) : tensor<64xf16>
+    check.compare<@i32_to_float_1>(%input, %s_f16, %u_f16) : (tensor<64xi32>, tensor<64xf16>, tensor<64xf16>) -> () {
+      check.expect.bitwise actual(%s_f16) expected(%s_f16) : tensor<64xf16>
+      check.expect.bitwise actual(%u_f16) expected(%u_f16) : tensor<64xf16>
+    }
+  }
+  check.return
+}
+
+func.def @i32_to_float_4(%input: buffer, %s_f16: buffer, %u_f16: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 64 : index
+  %step = index.constant 4 : index
+  %source = buffer.view %input[%base] : buffer -> view<64xi32>
+  %s_f16_view = buffer.view %s_f16[%base] : buffer -> view<64xf16>
+  %u_f16_view = buffer.view %u_f16[%base] : buffer -> view<64xf16>
+  scf.for %i = [%begin to %end step %step] {
+    %value = vector.load %source[%i] : view<64xi32> -> vector<4xi32>
+    %s_f16_value = vector.sitofp %value : vector<4xi32> to vector<4xf16>
+    vector.store %s_f16_value, %s_f16_view[%i] : vector<4xf16>, view<64xf16>
+    %u_f16_value = vector.uitofp %value : vector<4xi32> to vector<4xf16>
+    vector.store %u_f16_value, %u_f16_view[%i] : vector<4xf16>, view<64xf16>
+  }
+  func.return
+}
+
+check.scenario @i32_to_float_4_values_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(65488) step(1) : tensor<64xi32>
+    %s_f16 = check.generate.fill value(0.0) : tensor<64xf16>
+    %u_f16 = check.generate.fill value(0.0) : tensor<64xf16>
+    check.compare<@i32_to_float_4>(%input, %s_f16, %u_f16) : (tensor<64xi32>, tensor<64xf16>, tensor<64xf16>) -> () {
+      check.expect.bitwise actual(%s_f16) expected(%s_f16) : tensor<64xf16>
+      check.expect.bitwise actual(%u_f16) expected(%u_f16) : tensor<64xf16>
+    }
+  }
+  check.return
+}
+
+check.scenario @i32_to_float_4_values_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-65551) step(1) : tensor<64xi32>
+    %s_f16 = check.generate.fill value(0.0) : tensor<64xf16>
+    %u_f16 = check.generate.fill value(0.0) : tensor<64xf16>
+    check.compare<@i32_to_float_4>(%input, %s_f16, %u_f16) : (tensor<64xi32>, tensor<64xf16>, tensor<64xf16>) -> () {
+      check.expect.bitwise actual(%s_f16) expected(%s_f16) : tensor<64xf16>
+      check.expect.bitwise actual(%u_f16) expected(%u_f16) : tensor<64xf16>
+    }
+  }
+  check.return
+}
+
+check.scenario @i32_to_float_4_values_2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(2147483584) step(1) : tensor<64xi32>
+    %s_f16 = check.generate.fill value(0.0) : tensor<64xf16>
+    %u_f16 = check.generate.fill value(0.0) : tensor<64xf16>
+    check.compare<@i32_to_float_4>(%input, %s_f16, %u_f16) : (tensor<64xi32>, tensor<64xf16>, tensor<64xf16>) -> () {
+      check.expect.bitwise actual(%s_f16) expected(%s_f16) : tensor<64xf16>
+      check.expect.bitwise actual(%u_f16) expected(%u_f16) : tensor<64xf16>
+    }
+  }
+  check.return
+}
+
+func.def @f16_to_integer_1(%input: buffer, %negative_input: buffer, %s_i8: buffer, %u_i8: buffer, %s_i16: buffer, %u_i16: buffer, %s_i32: buffer, %u_i32: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 128 : index
+  %step = index.constant 1 : index
+  %source = buffer.view %input[%base] : buffer -> view<128xf16>
+  %negative_source = buffer.view %negative_input[%base] : buffer -> view<128xf16>
+  %s_i8_view = buffer.view %s_i8[%base] : buffer -> view<128xi8>
+  %u_i8_view = buffer.view %u_i8[%base] : buffer -> view<128xi8>
+  %s_i16_view = buffer.view %s_i16[%base] : buffer -> view<128xi16>
+  %u_i16_view = buffer.view %u_i16[%base] : buffer -> view<128xi16>
+  %s_i32_view = buffer.view %s_i32[%base] : buffer -> view<128xi32>
+  %u_i32_view = buffer.view %u_i32[%base] : buffer -> view<128xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %value = view.load %source[%i] : view<128xf16> -> f16
+    %negative = view.load %negative_source[%i] : view<128xf16> -> f16
+    %s_i8_value = scalar.fptosi %negative : f16 to i8
+    view.store %s_i8_value, %s_i8_view[%i] : i8, view<128xi8>
+    %u_i8_value = scalar.fptoui %value : f16 to i8
+    view.store %u_i8_value, %u_i8_view[%i] : i8, view<128xi8>
+    %s_i16_value = scalar.fptosi %negative : f16 to i16
+    view.store %s_i16_value, %s_i16_view[%i] : i16, view<128xi16>
+    %u_i16_value = scalar.fptoui %value : f16 to i16
+    view.store %u_i16_value, %u_i16_view[%i] : i16, view<128xi16>
+    %s_i32_value = scalar.fptosi %negative : f16 to i32
+    view.store %s_i32_value, %s_i32_view[%i] : i32, view<128xi32>
+    %u_i32_value = scalar.fptoui %value : f16 to i32
+    view.store %u_i32_value, %u_i32_view[%i] : i32, view<128xi32>
+  }
+  func.return
+}
+
+check.scenario @f16_to_integer_1_fractional {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(0.5) step(1.0) : tensor<128xf16>
+    %negative_input = check.generate.iota offset(-0.5) step(-1.0) : tensor<128xf16>
+    %s_i8 = check.generate.fill value(42) : tensor<128xi8>
+    %u_i8 = check.generate.fill value(42) : tensor<128xi8>
+    %s_i16 = check.generate.fill value(42) : tensor<128xi16>
+    %u_i16 = check.generate.fill value(42) : tensor<128xi16>
+    %s_i32 = check.generate.fill value(42) : tensor<128xi32>
+    %u_i32 = check.generate.fill value(42) : tensor<128xi32>
+    check.compare<@f16_to_integer_1>(%input, %negative_input, %s_i8, %u_i8, %s_i16, %u_i16, %s_i32, %u_i32) : (tensor<128xf16>, tensor<128xf16>, tensor<128xi8>, tensor<128xi8>, tensor<128xi16>, tensor<128xi16>, tensor<128xi32>, tensor<128xi32>) -> () {
+      check.expect.bitwise actual(%s_i8) expected(%s_i8) : tensor<128xi8>
+      check.expect.bitwise actual(%u_i8) expected(%u_i8) : tensor<128xi8>
+      check.expect.bitwise actual(%s_i16) expected(%s_i16) : tensor<128xi16>
+      check.expect.bitwise actual(%u_i16) expected(%u_i16) : tensor<128xi16>
+      check.expect.bitwise actual(%s_i32) expected(%s_i32) : tensor<128xi32>
+      check.expect.bitwise actual(%u_i32) expected(%u_i32) : tensor<128xi32>
+    }
+  }
+  check.return
+}
+
+func.def @f16_to_integer_4(%input: buffer, %negative_input: buffer, %s_i8: buffer, %u_i8: buffer, %s_i16: buffer, %u_i16: buffer, %s_i32: buffer, %u_i32: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 128 : index
+  %step = index.constant 4 : index
+  %source = buffer.view %input[%base] : buffer -> view<128xf16>
+  %negative_source = buffer.view %negative_input[%base] : buffer -> view<128xf16>
+  %s_i8_view = buffer.view %s_i8[%base] : buffer -> view<128xi8>
+  %u_i8_view = buffer.view %u_i8[%base] : buffer -> view<128xi8>
+  %s_i16_view = buffer.view %s_i16[%base] : buffer -> view<128xi16>
+  %u_i16_view = buffer.view %u_i16[%base] : buffer -> view<128xi16>
+  %s_i32_view = buffer.view %s_i32[%base] : buffer -> view<128xi32>
+  %u_i32_view = buffer.view %u_i32[%base] : buffer -> view<128xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %value = vector.load %source[%i] : view<128xf16> -> vector<4xf16>
+    %negative = vector.load %negative_source[%i] : view<128xf16> -> vector<4xf16>
+    %s_i8_value = vector.fptosi %negative : vector<4xf16> to vector<4xi8>
+    vector.store %s_i8_value, %s_i8_view[%i] : vector<4xi8>, view<128xi8>
+    %u_i8_value = vector.fptoui %value : vector<4xf16> to vector<4xi8>
+    vector.store %u_i8_value, %u_i8_view[%i] : vector<4xi8>, view<128xi8>
+    %s_i16_value = vector.fptosi %negative : vector<4xf16> to vector<4xi16>
+    vector.store %s_i16_value, %s_i16_view[%i] : vector<4xi16>, view<128xi16>
+    %u_i16_value = vector.fptoui %value : vector<4xf16> to vector<4xi16>
+    vector.store %u_i16_value, %u_i16_view[%i] : vector<4xi16>, view<128xi16>
+    %s_i32_value = vector.fptosi %negative : vector<4xf16> to vector<4xi32>
+    vector.store %s_i32_value, %s_i32_view[%i] : vector<4xi32>, view<128xi32>
+    %u_i32_value = vector.fptoui %value : vector<4xf16> to vector<4xi32>
+    vector.store %u_i32_value, %u_i32_view[%i] : vector<4xi32>, view<128xi32>
+  }
+  func.return
+}
+
+check.scenario @f16_to_integer_4_fractional {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(0.5) step(1.0) : tensor<128xf16>
+    %negative_input = check.generate.iota offset(-0.5) step(-1.0) : tensor<128xf16>
+    %s_i8 = check.generate.fill value(42) : tensor<128xi8>
+    %u_i8 = check.generate.fill value(42) : tensor<128xi8>
+    %s_i16 = check.generate.fill value(42) : tensor<128xi16>
+    %u_i16 = check.generate.fill value(42) : tensor<128xi16>
+    %s_i32 = check.generate.fill value(42) : tensor<128xi32>
+    %u_i32 = check.generate.fill value(42) : tensor<128xi32>
+    check.compare<@f16_to_integer_4>(%input, %negative_input, %s_i8, %u_i8, %s_i16, %u_i16, %s_i32, %u_i32) : (tensor<128xf16>, tensor<128xf16>, tensor<128xi8>, tensor<128xi8>, tensor<128xi16>, tensor<128xi16>, tensor<128xi32>, tensor<128xi32>) -> () {
+      check.expect.bitwise actual(%s_i8) expected(%s_i8) : tensor<128xi8>
+      check.expect.bitwise actual(%u_i8) expected(%u_i8) : tensor<128xi8>
+      check.expect.bitwise actual(%s_i16) expected(%s_i16) : tensor<128xi16>
+      check.expect.bitwise actual(%u_i16) expected(%u_i16) : tensor<128xi16>
+      check.expect.bitwise actual(%s_i32) expected(%s_i32) : tensor<128xi32>
+      check.expect.bitwise actual(%u_i32) expected(%u_i32) : tensor<128xi32>
+    }
+  }
+  check.return
+}
+
+func.def @bf16_to_integer_1(%input: buffer, %negative_input: buffer, %s_i8: buffer, %u_i8: buffer, %s_i16: buffer, %u_i16: buffer, %s_i32: buffer, %u_i32: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 128 : index
+  %step = index.constant 1 : index
+  %source = buffer.view %input[%base] : buffer -> view<128xbf16>
+  %negative_source = buffer.view %negative_input[%base] : buffer -> view<128xbf16>
+  %s_i8_view = buffer.view %s_i8[%base] : buffer -> view<128xi8>
+  %u_i8_view = buffer.view %u_i8[%base] : buffer -> view<128xi8>
+  %s_i16_view = buffer.view %s_i16[%base] : buffer -> view<128xi16>
+  %u_i16_view = buffer.view %u_i16[%base] : buffer -> view<128xi16>
+  %s_i32_view = buffer.view %s_i32[%base] : buffer -> view<128xi32>
+  %u_i32_view = buffer.view %u_i32[%base] : buffer -> view<128xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %value = view.load %source[%i] : view<128xbf16> -> bf16
+    %negative = view.load %negative_source[%i] : view<128xbf16> -> bf16
+    %s_i8_value = scalar.fptosi %negative : bf16 to i8
+    view.store %s_i8_value, %s_i8_view[%i] : i8, view<128xi8>
+    %u_i8_value = scalar.fptoui %value : bf16 to i8
+    view.store %u_i8_value, %u_i8_view[%i] : i8, view<128xi8>
+    %s_i16_value = scalar.fptosi %negative : bf16 to i16
+    view.store %s_i16_value, %s_i16_view[%i] : i16, view<128xi16>
+    %u_i16_value = scalar.fptoui %value : bf16 to i16
+    view.store %u_i16_value, %u_i16_view[%i] : i16, view<128xi16>
+    %s_i32_value = scalar.fptosi %negative : bf16 to i32
+    view.store %s_i32_value, %s_i32_view[%i] : i32, view<128xi32>
+    %u_i32_value = scalar.fptoui %value : bf16 to i32
+    view.store %u_i32_value, %u_i32_view[%i] : i32, view<128xi32>
+  }
+  func.return
+}
+
+check.scenario @bf16_to_integer_1_fractional {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(0.5) step(1.0) : tensor<128xbf16>
+    %negative_input = check.generate.iota offset(-0.5) step(-1.0) : tensor<128xbf16>
+    %s_i8 = check.generate.fill value(42) : tensor<128xi8>
+    %u_i8 = check.generate.fill value(42) : tensor<128xi8>
+    %s_i16 = check.generate.fill value(42) : tensor<128xi16>
+    %u_i16 = check.generate.fill value(42) : tensor<128xi16>
+    %s_i32 = check.generate.fill value(42) : tensor<128xi32>
+    %u_i32 = check.generate.fill value(42) : tensor<128xi32>
+    check.compare<@bf16_to_integer_1>(%input, %negative_input, %s_i8, %u_i8, %s_i16, %u_i16, %s_i32, %u_i32) : (tensor<128xbf16>, tensor<128xbf16>, tensor<128xi8>, tensor<128xi8>, tensor<128xi16>, tensor<128xi16>, tensor<128xi32>, tensor<128xi32>) -> () {
+      check.expect.bitwise actual(%s_i8) expected(%s_i8) : tensor<128xi8>
+      check.expect.bitwise actual(%u_i8) expected(%u_i8) : tensor<128xi8>
+      check.expect.bitwise actual(%s_i16) expected(%s_i16) : tensor<128xi16>
+      check.expect.bitwise actual(%u_i16) expected(%u_i16) : tensor<128xi16>
+      check.expect.bitwise actual(%s_i32) expected(%s_i32) : tensor<128xi32>
+      check.expect.bitwise actual(%u_i32) expected(%u_i32) : tensor<128xi32>
+    }
+  }
+  check.return
+}
+
+func.def @bf16_to_integer_4(%input: buffer, %negative_input: buffer, %s_i8: buffer, %u_i8: buffer, %s_i16: buffer, %u_i16: buffer, %s_i32: buffer, %u_i32: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 128 : index
+  %step = index.constant 4 : index
+  %source = buffer.view %input[%base] : buffer -> view<128xbf16>
+  %negative_source = buffer.view %negative_input[%base] : buffer -> view<128xbf16>
+  %s_i8_view = buffer.view %s_i8[%base] : buffer -> view<128xi8>
+  %u_i8_view = buffer.view %u_i8[%base] : buffer -> view<128xi8>
+  %s_i16_view = buffer.view %s_i16[%base] : buffer -> view<128xi16>
+  %u_i16_view = buffer.view %u_i16[%base] : buffer -> view<128xi16>
+  %s_i32_view = buffer.view %s_i32[%base] : buffer -> view<128xi32>
+  %u_i32_view = buffer.view %u_i32[%base] : buffer -> view<128xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %value = vector.load %source[%i] : view<128xbf16> -> vector<4xbf16>
+    %negative = vector.load %negative_source[%i] : view<128xbf16> -> vector<4xbf16>
+    %s_i8_value = vector.fptosi %negative : vector<4xbf16> to vector<4xi8>
+    vector.store %s_i8_value, %s_i8_view[%i] : vector<4xi8>, view<128xi8>
+    %u_i8_value = vector.fptoui %value : vector<4xbf16> to vector<4xi8>
+    vector.store %u_i8_value, %u_i8_view[%i] : vector<4xi8>, view<128xi8>
+    %s_i16_value = vector.fptosi %negative : vector<4xbf16> to vector<4xi16>
+    vector.store %s_i16_value, %s_i16_view[%i] : vector<4xi16>, view<128xi16>
+    %u_i16_value = vector.fptoui %value : vector<4xbf16> to vector<4xi16>
+    vector.store %u_i16_value, %u_i16_view[%i] : vector<4xi16>, view<128xi16>
+    %s_i32_value = vector.fptosi %negative : vector<4xbf16> to vector<4xi32>
+    vector.store %s_i32_value, %s_i32_view[%i] : vector<4xi32>, view<128xi32>
+    %u_i32_value = vector.fptoui %value : vector<4xbf16> to vector<4xi32>
+    vector.store %u_i32_value, %u_i32_view[%i] : vector<4xi32>, view<128xi32>
+  }
+  func.return
+}
+
+check.scenario @bf16_to_integer_4_fractional {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(0.5) step(1.0) : tensor<128xbf16>
+    %negative_input = check.generate.iota offset(-0.5) step(-1.0) : tensor<128xbf16>
+    %s_i8 = check.generate.fill value(42) : tensor<128xi8>
+    %u_i8 = check.generate.fill value(42) : tensor<128xi8>
+    %s_i16 = check.generate.fill value(42) : tensor<128xi16>
+    %u_i16 = check.generate.fill value(42) : tensor<128xi16>
+    %s_i32 = check.generate.fill value(42) : tensor<128xi32>
+    %u_i32 = check.generate.fill value(42) : tensor<128xi32>
+    check.compare<@bf16_to_integer_4>(%input, %negative_input, %s_i8, %u_i8, %s_i16, %u_i16, %s_i32, %u_i32) : (tensor<128xbf16>, tensor<128xbf16>, tensor<128xi8>, tensor<128xi8>, tensor<128xi16>, tensor<128xi16>, tensor<128xi32>, tensor<128xi32>) -> () {
+      check.expect.bitwise actual(%s_i8) expected(%s_i8) : tensor<128xi8>
+      check.expect.bitwise actual(%u_i8) expected(%u_i8) : tensor<128xi8>
+      check.expect.bitwise actual(%s_i16) expected(%s_i16) : tensor<128xi16>
+      check.expect.bitwise actual(%u_i16) expected(%u_i16) : tensor<128xi16>
+      check.expect.bitwise actual(%s_i32) expected(%s_i32) : tensor<128xi32>
+      check.expect.bitwise actual(%u_i32) expected(%u_i32) : tensor<128xi32>
+    }
+  }
+  check.return
+}

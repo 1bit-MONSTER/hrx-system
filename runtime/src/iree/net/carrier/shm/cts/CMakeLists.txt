@@ -9,12 +9,38 @@
 
 iree_add_all_subdirs()
 
-iree_cc_test(
+iree_cc_library(
   NAME
-    transfer_trial_tests
+    backend
   SRCS
     "backend.cc"
   DEPS
+    iree::net::carrier::shm::factory
+    iree::net::cts::transport_backend
+    iree::testing::temp_file
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+
+iree_cc_test(
+  NAME
+    collective_trial_tests
+  DEPS
+    ::backend
+    iree::async::cts::util::platform_backends
+    iree::async::cts::util::test_main
+    iree::net::carrier::shm::factory
+    iree::net::cts::collective_trial_tests
+    iree::net::cts::transport_backend
+    iree::testing::temp_file
+)
+
+iree_cc_test(
+  NAME
+    transfer_trial_tests
+  DEPS
+    ::backend
     iree::async::cts::util::platform_backends
     iree::async::cts::util::test_main
     iree::net::carrier::shm::factory
@@ -26,9 +52,8 @@ iree_cc_test(
 iree_cc_test(
   NAME
     transport_tests
-  SRCS
-    "backend.cc"
   DEPS
+    ::backend
     iree::net::carrier::shm::factory
     iree::net::cts::transport_backend
     iree::net::cts::transport_tests
@@ -38,10 +63,69 @@ iree_cc_test(
 
 iree_cc_binary_benchmark(
   NAME
-    transfer_benchmarks
-  SRCS
-    "backend.cc"
+    collective_benchmarks
   DEPS
+    ::backend
+    iree::async::cts::util::benchmark_main
+    iree::async::cts::util::platform_backends
+    iree::net::carrier::shm::factory
+    iree::net::cts::collective_benchmarks
+    iree::net::cts::transport_backend
+    iree::testing::temp_file
+    iree::third_party::google_benchmark
+  TESTONLY
+)
+
+iree_cc_binary_benchmark(
+  NAME
+    expert_benchmarks
+  DEPS
+    ::backend
+    iree::async::cts::util::benchmark_main
+    iree::async::cts::util::platform_backends
+    iree::net::carrier::shm::factory
+    iree::net::cts::expert_benchmarks
+    iree::net::cts::transport_backend
+    iree::testing::temp_file
+    iree::third_party::google_benchmark
+  TESTONLY
+)
+
+iree_cc_binary_benchmark(
+  NAME
+    gather_benchmarks
+  DEPS
+    ::backend
+    iree::async::cts::util::benchmark_main
+    iree::async::cts::util::platform_backends
+    iree::net::carrier::shm::factory
+    iree::net::cts::gather_benchmarks
+    iree::net::cts::transport_backend
+    iree::testing::temp_file
+    iree::third_party::google_benchmark
+  TESTONLY
+)
+
+iree_cc_binary_benchmark(
+  NAME
+    pipeline_round_trip_benchmarks
+  DEPS
+    ::backend
+    iree::async::cts::util::benchmark_main
+    iree::async::cts::util::platform_backends
+    iree::net::carrier::shm::factory
+    iree::net::cts::pipeline_round_trip_benchmarks
+    iree::net::cts::transport_backend
+    iree::testing::temp_file
+    iree::third_party::google_benchmark
+  TESTONLY
+)
+
+iree_cc_binary_benchmark(
+  NAME
+    transfer_benchmarks
+  DEPS
+    ::backend
     iree::async::cts::util::benchmark_main
     iree::async::cts::util::platform_backends
     iree::net::carrier::shm::factory

@@ -27,6 +27,7 @@
 #include "loom/target/low_descriptor_registry.h"
 #include "loom/target/low_legality.h"
 #include "loom/target/math_policy.h"
+#include "loom/target/pass_environment.h"
 #include "loom/target/reporting/report.h"
 #include "loom/util/adaptive_sort.h"
 #include "loom/util/walk.h"
@@ -900,13 +901,16 @@ static iree_status_t loom_low_target_legalize_record_report_source_op(
 static bool loom_low_target_legalize_entry_matches(
     const loom_low_target_legalize_function_state_t* state,
     const loom_target_legalizer_entry_t* entry, const loom_op_t* op) {
-  if (!entry->first_operand_element_types) {
-    return true;
+  if (entry->first_operand_element_types) {
+    const loom_type_t operand_type =
+        loom_module_value_type(state->module, loom_op_operands(op)[0]);
+    if (!loom_scalar_type_set_contains(entry->first_operand_element_types,
+                                       loom_type_element_type(operand_type))) {
+      return false;
+    }
   }
-  const loom_type_t operand_type =
-      loom_module_value_type(state->module, loom_op_operands(op)[0]);
-  return loom_scalar_type_set_contains(entry->first_operand_element_types,
-                                       loom_type_element_type(operand_type));
+  return entry->match == NULL ||
+         entry->match(entry, &state->legalization_context, op);
 }
 
 // Filters a nonempty registry span to its first applicable row, or an empty
@@ -1143,10 +1147,17 @@ static bool loom_low_target_legalize_should_accept_legal_contract(
 
 static bool loom_low_target_legalize_should_skip_entry(
     const loom_low_target_legalize_function_state_t* state,
-    const loom_target_legalizer_entry_t* entry) {
-  return state->legalization_context.policy ==
-             LOOM_TARGET_LEGALIZATION_POLICY_REFERENCE_ONLY &&
-         entry->provider_strategy == LOOM_TARGET_LEGALIZER_STRATEGY_TARGET;
+    const loom_target_legalizer_entry_t* entry,
+    const loom_target_contract_query_result_t* query_result) {
+  if (state->legalization_context.policy ==
+      LOOM_TARGET_LEGALIZATION_POLICY_REFERENCE_ONLY) {
+    return entry->provider_strategy == LOOM_TARGET_LEGALIZER_STRATEGY_TARGET;
+  }
+  // An opted-in legal rewrite may decline an op for another target. That does
+  // not make ordinary fallback entries eligible to rewrite an accepted op.
+  return query_result->outcome == LOOM_TARGET_CONTRACT_QUERY_LEGAL &&
+         !iree_any_bit_set(entry->flags,
+                           LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REWRITE_LEGAL);
 }
 
 static bool loom_low_target_legalize_should_reject_reference_entry(
@@ -1427,6 +1438,8 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
     return iree_ok_status();
   }
 
+  state->legalization_context.fact_table = driver->fact_table;
+
   loom_target_legalizer_op_entry_t op_entry =
       loom_target_legalizer_registry_lookup_kind(state->legalizer_registry,
                                                  op->kind);
@@ -1446,7 +1459,6 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
                         : iree_string_view_empty();
   const uint32_t source_op_kind = op->kind;
 
-  state->legalization_context.fact_table = driver->fact_table;
   state->legalization_context.rewriter = &driver->rewriter;
   state->legalization_context.arena = driver->scratch_arena;
   loom_target_contract_query_result_t query_result =
@@ -1478,7 +1490,8 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
     if (i != 0 && !loom_low_target_legalize_entry_matches(state, entry, op)) {
       continue;
     }
-    if (loom_low_target_legalize_should_skip_entry(state, entry)) {
+    if (loom_low_target_legalize_should_skip_entry(state, entry,
+                                                   &query_result)) {
       continue;
     }
     if (iree_any_bit_set(
@@ -1682,8 +1695,6 @@ static iree_status_t loom_low_target_legalize_function(
           descriptor_registry,
           loom_low_source_selection_target_bundle(selection),
           &state.descriptor_set));
-  IREE_RETURN_IF_ERROR(
-      loom_low_target_legalize_capture_report_source_ops(&state));
 
   const loom_pass_value_fact_scope_t fact_scope =
       loom_pass_value_fact_scope_function_for_target(selection->func,
@@ -1702,12 +1713,6 @@ static iree_status_t loom_low_target_legalize_function(
       .max_errors = pass_state->max_errors,
   };
 
-  iree_arena_allocator_t rewrite_arena;
-  iree_arena_initialize(module->arena.block_pool, &rewrite_arena);
-  loom_greedy_rewrite_driver_t rewrite_driver;
-  loom_greedy_rewrite_driver_initialize(module, &rewrite_arena, fact_table,
-                                        &rewrite_driver);
-
   state.legalization_context = (loom_target_legalization_context_t){
       .pass = pass,
       .module = module,
@@ -1716,12 +1721,21 @@ static iree_status_t loom_low_target_legalize_function(
       .descriptor_set = state.descriptor_set,
       .mode = pass_state->mode,
       .policy = pass_state->policy,
+      .fact_table = fact_table,
       .contract_query =
           {
               .fn = loom_low_target_legalize_query_contract,
               .user_data = &state,
           },
   };
+  IREE_RETURN_IF_ERROR(
+      loom_low_target_legalize_capture_report_source_ops(&state));
+
+  iree_arena_allocator_t rewrite_arena;
+  iree_arena_initialize(module->arena.block_pool, &rewrite_arena);
+  loom_greedy_rewrite_driver_t rewrite_driver;
+  loom_greedy_rewrite_driver_initialize(module, &rewrite_arena, fact_table,
+                                        &rewrite_driver);
   const loom_greedy_rewrite_options_t rewrite_options = {
       .max_iterations = pass_state->max_iterations,
       .math_policy = loom_target_math_policy_registry_lookup_for_bundle(
@@ -1766,10 +1780,11 @@ static iree_status_t loom_low_target_legalize_function(
   uint32_t final_error_count = 0;
   if (iree_status_is_ok(status) && state.preflight_error_count == 0 &&
       pass_state->verify_source_legality && is_source_function) {
-    loom_pass_value_fact_scope_t final_scope = fact_scope;
-    final_scope.kind = LOOM_PASS_VALUE_FACT_SCOPE_CONDITIONED_FUNCTION;
-    status =
-        loom_pass_value_facts_acquire(pass, module, final_scope, &fact_table);
+    status = loom_pass_value_facts_acquire(
+        pass, module,
+        loom_pass_value_fact_scope_conditioned_function_for_target(
+            selection->func, selection->target_facts),
+        &fact_table);
     if (iree_status_is_ok(status)) {
       status = loom_low_target_legalize_verify_final(
           module, &state, pass_state, fact_table, &final_error_count);

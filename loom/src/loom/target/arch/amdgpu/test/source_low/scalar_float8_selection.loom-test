@@ -1,0 +1,94 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/scalar_float8_selection.loom-test
+// RUN: emit source-low target=amdgpu:gfx1151 output=low
+
+func.def @select_f8e4m3_uniform(%choice: i32, %left: f8E4M3, %right: f8E4M3) -> (f8E4M3, f8E4M3, f8E4M3) {
+  %threshold = scalar.constant 0 : i32
+  %condition = scalar.cmpi ne, %choice, %threshold : i32
+  %replacement = scalar.constant 1.0 : f8E4M3
+  %selected = scf.select %condition, %left, %right : f8E4M3
+  %right_constant = scf.select %condition, %left, %replacement : f8E4M3
+  %left_constant = scf.select %condition, %replacement, %right : f8E4M3
+  func.return %selected, %right_constant, %left_constant : f8E4M3, f8E4M3, f8E4M3
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @select_f8e4m3_uniform(%choice: reg<amdgpu.sgpr>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %18 = v_mov_b32_copy %choice
+  %condition = v_cmp_ne_i32_src1_inline %18 {rhs = 0}
+  %replacement = v_mov_b32 56
+  %selected = v_cndmask_b32 %right, %left, %condition
+  %right_constant = v_cndmask_b32 %replacement, %left, %condition
+  %left_constant = v_cndmask_b32 %right, %replacement, %condition
+  return %selected, %right_constant, %left_constant
+}
+
+// ====
+
+func.def @select_f8e4m3_divergent(%choices: vector<2xi32>, %left: f8E4M3, %right: f8E4M3) -> (f8E4M3, f8E4M3, f8E4M3) {
+  %choice = vector.extract %choices[0] : vector<2xi32> -> i32
+  %threshold = scalar.constant 0 : i32
+  %condition = scalar.cmpi ne, %choice, %threshold : i32
+  %replacement = scalar.constant 1.0 : f8E4M3
+  %selected = scf.select %condition, %left, %right : f8E4M3
+  %right_constant = scf.select %condition, %left, %replacement : f8E4M3
+  %left_constant = scf.select %condition, %replacement, %right : f8E4M3
+  func.return %selected, %right_constant, %left_constant : f8E4M3, f8E4M3, f8E4M3
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @select_f8e4m3_divergent(%choices: reg<amdgpu.vgpr x2>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %choice = slice %choices[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %condition = v_cmp_ne_i32_src1_inline %choice {rhs = 0}
+  %replacement = v_mov_b32 56
+  %selected = v_cndmask_b32 %right, %left, %condition
+  %right_constant = v_cndmask_b32 %replacement, %left, %condition
+  %left_constant = v_cndmask_b32 %right, %replacement, %condition
+  return %selected, %right_constant, %left_constant
+}
+
+// ====
+
+func.def @select_f8e5m2_uniform(%choice: i32, %left: f8E5M2, %right: f8E5M2) -> (f8E5M2, f8E5M2, f8E5M2) {
+  %threshold = scalar.constant 0 : i32
+  %condition = scalar.cmpi ne, %choice, %threshold : i32
+  %replacement = scalar.constant 1.0 : f8E5M2
+  %selected = scf.select %condition, %left, %right : f8E5M2
+  %right_constant = scf.select %condition, %left, %replacement : f8E5M2
+  %left_constant = scf.select %condition, %replacement, %right : f8E5M2
+  func.return %selected, %right_constant, %left_constant : f8E5M2, f8E5M2, f8E5M2
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @select_f8e5m2_uniform(%choice: reg<amdgpu.sgpr>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %18 = v_mov_b32_copy %choice
+  %condition = v_cmp_ne_i32_src1_inline %18 {rhs = 0}
+  %replacement = v_mov_b32 60
+  %selected = v_cndmask_b32 %right, %left, %condition
+  %right_constant = v_cndmask_b32 %replacement, %left, %condition
+  %left_constant = v_cndmask_b32 %right, %replacement, %condition
+  return %selected, %right_constant, %left_constant
+}
+
+// ====
+
+func.def @select_f8e5m2_divergent(%choices: vector<2xi32>, %left: f8E5M2, %right: f8E5M2) -> (f8E5M2, f8E5M2, f8E5M2) {
+  %choice = vector.extract %choices[0] : vector<2xi32> -> i32
+  %threshold = scalar.constant 0 : i32
+  %condition = scalar.cmpi ne, %choice, %threshold : i32
+  %replacement = scalar.constant 1.0 : f8E5M2
+  %selected = scf.select %condition, %left, %right : f8E5M2
+  %right_constant = scf.select %condition, %left, %replacement : f8E5M2
+  %left_constant = scf.select %condition, %replacement, %right : f8E5M2
+  func.return %selected, %right_constant, %left_constant : f8E5M2, f8E5M2, f8E5M2
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @select_f8e5m2_divergent(%choices: reg<amdgpu.vgpr x2>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %choice = slice %choices[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %condition = v_cmp_ne_i32_src1_inline %choice {rhs = 0}
+  %replacement = v_mov_b32 60
+  %selected = v_cndmask_b32 %right, %left, %condition
+  %right_constant = v_cndmask_b32 %replacement, %left, %condition
+  %left_constant = v_cndmask_b32 %right, %replacement, %condition
+  return %selected, %right_constant, %left_constant
+}

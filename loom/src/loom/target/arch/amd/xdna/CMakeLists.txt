@@ -10,6 +10,29 @@
 iree_add_all_subdirs()
 
 if(LOOM_TARGET_ARCH_XDNA)
+loom_generated_cc_library(
+  NAME
+    error_defs
+  GENERATOR
+    loom::py::loom::gen::error::c_errors
+  SOURCE
+    "error_catalog.c"
+  GENERATED_HDR_FLAGS
+    "--header"
+  GENERATED_HDRS
+    "error_catalog.h"
+  ARGS
+    "--catalog-symbol=loom_xdna_error_catalog"
+    "--fallback-catalog-symbol=loom_error_catalog_core"
+    "--fallback-public-header=loom/error/error_catalog.h"
+    "--public-header=loom/target/arch/amd/xdna/error_catalog.h"
+    "--shard=xdna"
+  DEPS
+    loom::error::error_defs
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
 loom_generated_file_family(
   NAME
     hardware_tables_gen

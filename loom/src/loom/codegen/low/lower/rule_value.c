@@ -127,6 +127,7 @@ loom_value_id_t loom_low_lower_rule_source_value_from_nodes(
           "source-memory dynamic term value ref needs a selected memory plan");
       IREE_BUILTIN_UNREACHABLE();
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET:
+    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_BYTE_OFFSET:
       IREE_ASSERT_UNREACHABLE(
           "source-memory byte offset value ref needs a selected memory plan");
       IREE_BUILTIN_UNREACHABLE();
@@ -138,6 +139,82 @@ loom_value_id_t loom_low_lower_rule_source_value_from_nodes(
       IREE_ASSERT_UNREACHABLE(
           "source-memory root value ref needs a selected memory plan");
       IREE_BUILTIN_UNREACHABLE();
+    case LOOM_LOW_LOWER_VALUE_REF_EXACT_LANE_ORIGIN_OPERAND:
+      IREE_ASSERT_UNREACHABLE(
+          "exact lane origin value ref needs a populated fact table");
+      IREE_BUILTIN_UNREACHABLE();
+    case LOOM_LOW_LOWER_VALUE_REF_EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND:
+      IREE_ASSERT_UNREACHABLE(
+          "exact uniform origin value ref needs a populated fact table");
+      IREE_BUILTIN_UNREACHABLE();
+    default:
+      IREE_ASSERT_UNREACHABLE("unknown generated value ref kind");
+      IREE_BUILTIN_UNREACHABLE();
+  }
+}
+
+bool loom_low_lower_rule_resolve_source_value_from_nodes(
+    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
+    const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
+    const loom_op_t* const* source_nodes, uint8_t source_node_count,
+    uint16_t value_ref_index, loom_value_id_t* out_source_value_id) {
+  *out_source_value_id = LOOM_VALUE_ID_INVALID;
+  const loom_low_lower_value_ref_t* value_ref =
+      &rule_set->value_refs[value_ref_index];
+  switch (value_ref->kind) {
+    case LOOM_LOW_LOWER_VALUE_REF_OPERAND:
+    case LOOM_LOW_LOWER_VALUE_REF_RESULT:
+      *out_source_value_id = loom_low_lower_rule_source_value_from_nodes(
+          module, rule_set, source_op, source_nodes, source_node_count,
+          value_ref_index);
+      return true;
+    case LOOM_LOW_LOWER_VALUE_REF_EXACT_LANE_ORIGIN_OPERAND: {
+      const loom_op_t* referenced_op =
+          loom_low_lower_rule_source_op(rule_set, source_op, source_nodes,
+                                        source_node_count, value_ref_index);
+      const loom_op_vtable_t* vtable = loom_op_vtable(module, referenced_op);
+      const loom_value_slice_t field =
+          loom_op_operand_field_span(vtable, referenced_op, value_ref->index);
+      IREE_ASSERT_LT(value_ref->element_index, field.count);
+      const loom_value_id_t value_id = field.values[value_ref->element_index];
+      loom_value_fact_exact_lane_origin_t origin = {0};
+      if (!loom_value_fact_table_query_exact_lane_origin(fact_table, module,
+                                                         value_id, &origin) ||
+          origin.source_lane_offset != 0 || origin.source_lane_stride != 1) {
+        return false;
+      }
+      uint64_t value_lane_count = 0;
+      uint64_t source_lane_count = 0;
+      if (!loom_type_static_element_count(
+              loom_module_value_type(module, value_id), &value_lane_count) ||
+          !loom_type_static_element_count(
+              loom_module_value_type(module, origin.source_value_id),
+              &source_lane_count) ||
+          value_lane_count != source_lane_count) {
+        return false;
+      }
+      *out_source_value_id = origin.source_value_id;
+      return true;
+    }
+    case LOOM_LOW_LOWER_VALUE_REF_EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND: {
+      const loom_op_t* referenced_op =
+          loom_low_lower_rule_source_op(rule_set, source_op, source_nodes,
+                                        source_node_count, value_ref_index);
+      const loom_op_vtable_t* vtable = loom_op_vtable(module, referenced_op);
+      const loom_value_slice_t field =
+          loom_op_operand_field_span(vtable, referenced_op, value_ref->index);
+      IREE_ASSERT_LT(value_ref->element_index, field.count);
+      return loom_value_fact_table_query_exact_uniform_element_origin(
+          fact_table, module, field.values[value_ref->element_index],
+          out_source_value_id);
+    }
+    case LOOM_LOW_LOWER_VALUE_REF_TEMPORARY:
+    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_DYNAMIC_TERM:
+    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET:
+    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_BYTE_OFFSET:
+    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ADDRESS:
+    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ROOT:
+      return false;
     default:
       IREE_ASSERT_UNREACHABLE("unknown generated value ref kind");
       IREE_BUILTIN_UNREACHABLE();
@@ -169,8 +246,11 @@ loom_value_slice_t loom_low_lower_rule_value_ref_field_span_from_nodes(
     case LOOM_LOW_LOWER_VALUE_REF_TEMPORARY:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_DYNAMIC_TERM:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET:
+    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_BYTE_OFFSET:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ADDRESS:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ROOT:
+    case LOOM_LOW_LOWER_VALUE_REF_EXACT_LANE_ORIGIN_OPERAND:
+    case LOOM_LOW_LOWER_VALUE_REF_EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND:
       return (loom_value_slice_t){0};
     default:
       IREE_ASSERT_UNREACHABLE("unknown generated value ref kind");

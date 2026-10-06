@@ -15,6 +15,7 @@ from loom.assembly import (
     GLUE,
     LPAREN,
     RPAREN,
+    Attr,
     OptionalGroup,
     Param,
     Ref,
@@ -1126,6 +1127,45 @@ class TestParseOptionalGroup:
 
         assert op.operands == [0]
         assert absent_op.operands == []
+
+    def test_inverted_group_prints_for_absent_anchor(self) -> None:
+        alternative_op = Op(
+            "test.optional_alternative",
+            group=test_ops,
+            attrs=[AttrDef("count", "i64", optional=True)],
+            format=[
+                OptionalGroup(
+                    [kw("count"), Attr("count")],
+                    anchor="count",
+                ),
+                OptionalGroup(
+                    [LPAREN, RPAREN],
+                    anchor="count",
+                    inverted=True,
+                ),
+            ],
+        )
+        parser = Parser()
+        parser.register_ops([alternative_op])
+        module = Module()
+        count_op = parser.parse_operation_from_text(
+            "test.optional_alternative count 2", module=module
+        )
+        empty_op = parser.parse_operation_from_text(
+            "test.optional_alternative ()", module=module
+        )
+
+        printer = Printer()
+        printer.register_ops([alternative_op])
+        assert count_op.attributes == {"count": 2}
+        assert empty_op.attributes == {}
+        assert (
+            printer.print_operation(count_op, module)
+            == "test.optional_alternative count 2"
+        )
+        assert (
+            printer.print_operation(empty_op, module) == "test.optional_alternative ()"
+        )
 
 
 class TestParseScopedEnumRef:
@@ -2844,6 +2884,15 @@ class TestPredicateRoundTrip:
         self._roundtrip_text(
             "test.func @f(%M: index, %K: index, %a: tensor<[%M]x[%K]xf32>) "
             "where [mul(%M, 16), lt(%K, 1024), range(%M, 32, 512)] {\n"
+            "  test.yield\n"
+            "}\n"
+        )
+
+    def test_unsigned_relation_predicates(self) -> None:
+        self._roundtrip_text(
+            "test.func @f(%lhs: i32, %rhs: i32) where "
+            "[ult(%lhs, %rhs), ule(%lhs, %rhs), ugt(%lhs, %rhs), "
+            "uge(%lhs, %rhs)] {\n"
             "  test.yield\n"
             "}\n"
         )

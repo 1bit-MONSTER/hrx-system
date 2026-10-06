@@ -1,0 +1,40 @@
+func.def @convert_scalar_f64(%single: f32, %double: f64) -> (f64, f32) {
+  %wide = scalar.extf %single : f32 to f64
+  %narrow = scalar.fptrunc %double : f64 to f32
+  func.return %wide, %narrow : f64, f32
+}
+
+// ====
+
+kernel.def @floating_arguments() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%single: f32, %double: f64, %output: buffer) {
+  %base = index.constant 0 : offset
+  %output_view = buffer.view %output[%base] : buffer -> view<3xf32>
+  %single_double = scalar.fptrunc %double : f64 to f32
+  %wide = scalar.extf %single : f32 to f64
+  %roundtrip = scalar.fptrunc %wide : f64 to f32
+  view.store %single, %output_view[0] : f32, view<3xf32>
+  view.store %single_double, %output_view[1] : f32, view<3xf32>
+  view.store %roundtrip, %output_view[2] : f32, view<3xf32>
+  kernel.return
+}
+
+// ====
+
+func.def @widen_narrow_to_f64(%e4: f8E4M3, %e5: f8E5M2, %half: f16, %brain: bf16) -> (f64, f64, f64, f64) {
+  %double_e4 = scalar.extf %e4 : f8E4M3 to f64
+  %double_e5 = scalar.extf %e5 : f8E5M2 to f64
+  %double_half = scalar.extf %half : f16 to f64
+  %double_brain = scalar.extf %brain : bf16 to f64
+  func.return %double_e4, %double_e5, %double_half, %double_brain : f64, f64, f64, f64
+}
+
+// ====
+
+func.def @widen_float8_chain(%input: f8E4M3) -> (f64) {
+  %single = scalar.extf %input : f8E4M3 to f32
+  %double = scalar.extf %single : f32 to f64
+  func.return %double : f64
+}

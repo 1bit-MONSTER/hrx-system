@@ -16,11 +16,16 @@ iree_py_library(
     srcs = [
         "__init__.py",
         "atomic.py",
+        "bfloat.py",
         "descriptor_rule.py",
+        "extended_math.py",
+        "float8.py",
         "index.py",
         "logical_core.py",
         "memory.py",
         "ordinary_vector.py",
+        "predicate.py",
+        "subgroup.py",
     ],
     deps = [
         "//loom/py/loom:core",
@@ -36,12 +41,15 @@ iree_py_library(
         "//loom/py/loom/target/arch/spirv:builtins",
         "//loom/py/loom/target/arch/spirv:cooperative_matrix",
         "//loom/py/loom/target/arch/spirv:descriptors",
+        "//loom/py/loom/target/arch/spirv:extended_math",
         "//loom/py/loom/target/arch/spirv:ordinary_vector",
         "//loom/py/loom/target/arch/spirv:scalar_alu",
         "//loom/py/loom/target/arch/spirv:scalar_constant",
         "//loom/py/loom/target/arch/spirv:scalar_conversion",
         "//loom/py/loom/target/arch/spirv:scalar_memory",
+        "//loom/py/loom/target/arch/spirv:subgroup",
         "//loom/py/loom/target/contracts",
+        "//loom/py/loom/target/emit:float_narrowing",
     ],
 )
 
@@ -78,12 +86,47 @@ iree_py_test(
 iree_py_test(
     name = "contracts_test",
     srcs = [
+        "float_narrowing_test.py",
         "index_test.py",
         "//loom/py/loom/tools:pytest_style_runner.py",
     ],
-    args = ["loom.target.arch.spirv.contracts.index_test"],
+    args = [
+        "loom.target.arch.spirv.contracts.float_narrowing_test",
+        "loom.target.arch.spirv.contracts.index_test",
+    ],
     main = "pytest_style_runner.py",
     deps = [
         ":contracts",
+    ],
+)
+
+iree_py_test(
+    name = "extended_math_test",
+    srcs = [
+        "extended_math_test.py",
+        "//loom/py/loom/tools:pytest_style_runner.py",
+    ],
+    args = ["loom.target.arch.spirv.contracts.extended_math_test"],
+    main = "pytest_style_runner.py",
+    deps = [
+        ":contracts",
+        "//loom/py/loom/target/arch/spirv:extended_math",
+        "//loom/py/loom/target/contracts",
+    ],
+)
+
+iree_py_test(
+    name = "subgroup_test",
+    size = "small",
+    srcs = [
+        "subgroup_test.py",
+        "//loom/py/loom/tools:pytest_style_runner.py",
+    ],
+    args = ["loom.target.arch.spirv.contracts.subgroup_test"],
+    main = "pytest_style_runner.py",
+    deps = [
+        ":contracts",
+        "//loom/py/loom/target/arch/spirv:subgroup",
+        "//loom/py/loom/target/contracts",
     ],
 )

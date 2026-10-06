@@ -1,0 +1,43 @@
+// RUN: with-checks emit source-low output=low sanitizer=race sanitizer-reporting=report-only
+
+amdgpu.target<gfx11-generic> @target {subgroup_size = 32}
+
+kernel.def target(@target) @race_report_coordinates() {
+  %c1 = index.constant 1 : index
+  %workgroup_size = index.constant 32 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%workgroup_size, %c1, %c1) : index
+} launch() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 128 : offset
+  %first = scalar.constant 1 : i32
+  %second = scalar.constant 2 : i32
+  %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<32xi32>
+  %thread = kernel.workitem.id<x> : index
+  view.store %first, %view[%thread] : i32, view<32xi32>
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  view.store %second, %view[%thread] : i32, view<32xi32>
+  kernel.return
+}
+
+// ----
+// Race report coordinates enter the kernel as uniform ABI state but are
+// copied once into VGPRs before the instrumented body. Both failure sites can
+// then share one report island without keeping the scalar ABI values live
+// through the island's reservation and packet-production CFG.
+CHECK: low.kernel.def * @race_report_coordinates() asm {
+CHECK: * = live_in<amdgpu.workgroup_id.x> : reg<amdgpu.sgpr>
+CHECK: * = live_in<amdgpu.workgroup_id.y> : reg<amdgpu.sgpr>
+CHECK: * = live_in<amdgpu.workgroup_id.z> : reg<amdgpu.sgpr>
+CHECK: * = live_in<amdgpu.dispatch_ptr> : reg<amdgpu.sgpr x2>
+CHECK: * = concat(*, *) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+CHECK: *{symbol = @iree_feedback_config}
+CHECK: global_store_b64_saddr *{offset = 24}
+CHECK: global_store_b32_saddr *{offset = 32}
+CHECK: global_store_b32_saddr *{offset = 36}
+CHECK: global_store_b32_saddr *{offset = 136}
+CHECK: global_store_b32_saddr *{offset = 140}
+CHECK: global_store_b32_saddr *{offset = 144}
+CHECK: ds_write_b32 *
+CHECK-NOT: *sanitizer.race.access*
+CHECK-NOT: *s_trap*

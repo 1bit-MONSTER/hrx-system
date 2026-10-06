@@ -37,7 +37,7 @@ func.def @moves_borrowed_resource(%resource: pool<16>) {
 func.def @rejects_use_after_move(%size: index) {
   %resource = test.resource.alloc %size : index -> pool<16>
   %moved = test.resource.move %resource : pool<16> -> pool<16>
-  // ERROR@+1: DOMINANCE/012 {phase_name="ownership-lifetime", value_name="resource", op_name="test.resource.borrow"}
+  // ERROR@+1: DOMINANCE/002 {value_name="resource"}
   test.resource.borrow %resource : pool<16>
   test.resource.release %moved : pool<16>
   func.return
@@ -188,4 +188,19 @@ func.def @external_calls_are_borrowed(%size: index) {
   test.resource.borrow %borrowed : pool<16>
   test.resource.release %resource : pool<16>
   func.return
+}
+
+// ====
+
+// Ownership summaries consume the direct body exit declared by FuncLike, not
+// a concrete dialect's return operation.
+test.func @make_test_resource(%size: index) -> (pool<16>) {
+  %resource = test.resource.alloc %size : index -> pool<16>
+  test.yield %resource : pool<16>
+}
+
+test.func @consume_test_resource(%size: index) {
+  %resource = test.invoke @make_test_resource(%size) : (index) -> (pool<16>)
+  test.resource.release %resource : pool<16>
+  test.yield
 }

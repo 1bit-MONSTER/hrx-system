@@ -31,21 +31,20 @@ unsigned update(unsigned* words, unsigned index, unsigned mask) {
 func.def public @update(%words: buffer, %words_byte_offset: offset, %index$2: i32, %mask: i32) -> (i32) {
   %5 = scalar.constant 1 : i32
   %index$6 = scalar.addi %index$2, %5 : i32
-  %22 = scalar.constant 2 : i32
-  %index$23 = scalar.addi %index$2, %22 : i32
   %9 = scalar.extui %index$6 : i32 to i64
-  %20 = scalar.constant 2 : i64
-  %21 = scalar.shli %9, %20 : i64
+  %22 = scalar.constant 2 : i64
+  %23 = scalar.shli %9, %22 : i64
   %12 = index.cast %words_byte_offset : offset to i64
-  %13 = scalar.addi %12, %21 : i64
+  %13 = scalar.addi %12, %23 : i64
   %14 = scalar.assume %13 [range(%13, 0, 9223372036854775807)] : i64
   %15 = index.cast %14 : i64 to offset
   %16 = buffer.view %words[%15] : buffer -> view<1xi32>
   %17 = view.load %16[0] : view<1xi32> -> i32
   %result = scalar.ori %17, %mask : i32
   view.store %result, %16[0] : i32, view<1xi32>
-  %19 = scalar.addi %result, %index$23 : i32
-  func.return %19 : i32
+  %20 = scalar.addi %index$6, %result : i32
+  %21 = scalar.addi %20, %5 : i32
+  func.return %21 : i32
 }
 
 // ====
@@ -177,6 +176,70 @@ config.decl @update.workgroup_count.x : index
 config.decl @update.workgroup_count.y : index
 
 config.decl @update.workgroup_count.z : index
+
+// ====
+// RUN: with-checks roundtrip
+// Scalar workgroup objects use ordinary scalar lvalue and address semantics.
+#include <loomcxx/kernel.h>
+[[loom::kernel, loom::workgroup_size(1, 1, 1),
+  loom::workgroup_count(1, 1, 1)]]
+void update(unsigned input, unsigned* output) {
+  [[loom::workgroup]] unsigned __attribute__((aligned(32))) slot;
+  unsigned* alias = &slot;
+  *alias = input;
+  slot += 5u;
+  loom::workgroup_barrier();
+  output[0] = *alias;
+}
+
+// ----
+CHECK: *index.constant 4 : offset
+CHECK: *buffer.alloca<workgroup> align(32)*
+CHECK: *buffer.view* -> view<1xi32>
+CHECK: *view.store %input*
+CHECK: *scalar.addi*
+CHECK: *kernel.barrier<workgroup>*
+CHECK: *view.load*
+
+// ====
+// RUN: with-checks roundtrip
+// Supported vector objects share the same workgroup storage contract.
+#include <loomcxx/kernel.h>
+using Words = unsigned __attribute__((vector_size(16)));
+[[loom::kernel, loom::workgroup_size(1, 1, 1),
+  loom::workgroup_count(1, 1, 1)]]
+void update(Words input, Words* output) {
+  [[loom::workgroup]] Words slot;
+  slot = input;
+  loom::workgroup_barrier();
+  output[0] = slot;
+}
+
+// ----
+CHECK: *index.constant 16 : offset
+CHECK: *buffer.alloca<workgroup> align(16)*
+CHECK: *buffer.view* -> view<4xi32>
+CHECK: *vector.store %input*
+CHECK: *kernel.barrier<workgroup>*
+CHECK: *vector.load*
+
+// ====
+// RUN: verify
+// Workgroup lifetime belongs to a kernel body.
+#include <loomcxx/kernel.h>
+void helper() {
+  // ERROR@+1: LOWERING/059 "workgroup storage requires a kernel body"
+  LOOM_WORKGROUP unsigned slot;
+}
+
+// ====
+// RUN: verify
+// Workgroup storage begins uninitialized for the cooperating invocations.
+#include <loomcxx/kernel.h>
+LOOM_KERNEL void initialized() {
+  // ERROR@+1: LOWERING/059 "workgroup storage cannot have an initializer"
+  LOOM_WORKGROUP unsigned slot = 0;
+}
 
 // ====
 // Discarded compound results emit exactly one volatile read and write.

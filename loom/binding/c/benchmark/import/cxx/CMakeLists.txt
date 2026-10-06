@@ -17,6 +17,7 @@ iree_c_embed_data(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/aiter_swiglu_f16.cxx"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/flash_attention.cxx"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/llama_rms_norm.cxx"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/mxfp_group_dot.cxx"
   C_FILE_OUTPUT
     "kernels.c"
   H_FILE_OUTPUT

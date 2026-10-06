@@ -44,7 +44,9 @@ static iree_status_t loom_cmd_program_composition_visit_successors(
       (const loom_cmd_program_composition_t*)user_data;
   IREE_ASSERT_LT(node, composition->references->symbol_count);
   loom_symbol_reference_occurrence_id_t occurrence_id =
-      composition->references->symbols[node].first_outgoing_occurrence_id;
+      loom_symbol_reference_table_symbol(composition->references,
+                                         (loom_symbol_id_t)node)
+          .first_outgoing_occurrence_id;
   while (occurrence_id != LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID) {
     const loom_symbol_reference_occurrence_t* occurrence =
         loom_symbol_reference_table_occurrence(composition->references,
@@ -103,9 +105,11 @@ static iree_status_t loom_cmd_program_composition_inline_component(
     loom_cmd_program_composition_t* composition, const loom_scc_t* component,
     loom_rewriter_t* rewriter) {
   IREE_ASSERT_EQ(component->node_count, 1u);
-  const iree_host_size_t source_symbol_id = component->nodes[0];
+  const loom_symbol_id_t source_symbol_id =
+      (loom_symbol_id_t)component->nodes[0];
   loom_symbol_reference_occurrence_id_t occurrence_id =
-      composition->references->symbols[source_symbol_id]
+      loom_symbol_reference_table_symbol(composition->references,
+                                         source_symbol_id)
           .first_outgoing_occurrence_id;
   iree_status_t status = iree_ok_status();
   while (occurrence_id != LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID &&

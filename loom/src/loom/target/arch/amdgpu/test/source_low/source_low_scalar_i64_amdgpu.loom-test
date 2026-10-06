@@ -21,23 +21,23 @@ func.def target(@target) @literal_logical_right_shifts(%values: vector<2xi64>) -
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @literal_logical_right_shifts(%values: reg<amdgpu.vgpr x4>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
-  %27 = slice %values[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-  %28 = slice %values[1] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-  %value = concat(%27, %28) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %47 = v_lshrrev_b32_src0_inline %27, 8
-  %48 = v_lshlrev_b32_src0_inline %28, 24
-  %49 = v_or_b32 %47, %48
-  %50 = v_lshrrev_b32_src0_inline %28, 8
-  %s8 = concat(%49, %50) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %54 = v_lshrrev_b32_src0_inline %27, 31
-  %55 = v_lshlrev_b32_src0_inline %28, 1
-  %56 = v_or_b32 %54, %55
-  %57 = v_lshrrev_b32_src0_inline %28, 31
-  %s31 = concat(%56, %57) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %61 = v_mov_b32 0
-  %s32 = concat(%28, %61) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %65 = v_lshrrev_b32_src0_inline %28, 1
-  %s33 = concat(%65, %61) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %s63 = concat(%57, %61) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %value = slice %values[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr x2>
+  %77 = slice %values[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %76 = slice %values[1] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %45 = v_lshrrev_b32_src0_inline %77, 8
+  %46 = v_lshlrev_b32_src0_inline %76, 24
+  %47 = v_or_b32 %45, %46
+  %48 = v_lshrrev_b32_src0_inline %76, 8
+  %s8 = concat(%47, %48) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %52 = v_lshrrev_b32_src0_inline %77, 31
+  %53 = v_lshlrev_b32_src0_inline %76, 1
+  %54 = v_or_b32 %52, %53
+  %55 = v_lshrrev_b32_src0_inline %76, 31
+  %s31 = concat(%54, %55) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %59 = v_mov_b32 0
+  %s32 = concat(%76, %59) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %63 = v_lshrrev_b32_src0_inline %76, 1
+  %s33 = concat(%63, %59) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %s63 = concat(%55, %59) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   return %value, %s8, %s31, %s32, %s33, %s63
 }

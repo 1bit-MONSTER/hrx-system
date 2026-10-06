@@ -15,6 +15,7 @@ exports_files([
     "attention/prefill_f16_wmma_amdgpu.loom",
     "synthetic/paired_matrix_helpers.loom",
     "synthetic/paired_scoped_matrix_helpers.loom",
+    "synthetic/packed_table_lookup_u4.loom",
     "synthetic/segmented_guarded_read_ahead.loom",
 ])
 
@@ -74,6 +75,16 @@ iree_c_embed_data(
     flatten = True,
     h_file_output = "synthetic_paired_matrix_smoke.h",
     identifier = "loomc_benchmark_synthetic_paired_matrix_smoke",
+)
+
+iree_c_embed_data(
+    name = "synthetic_packed_table_lookup_smoke",
+    testonly = True,
+    srcs = ["synthetic/packed_table_lookup_u4.loom"],
+    c_file_output = "synthetic_packed_table_lookup_smoke.c",
+    flatten = True,
+    h_file_output = "synthetic_packed_table_lookup_smoke.h",
+    identifier = "loomc_benchmark_synthetic_packed_table_lookup_smoke",
 )
 
 iree_c_embed_data(

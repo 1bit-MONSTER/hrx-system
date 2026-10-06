@@ -5,7 +5,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "loom/ir/module.h"
-#include "loom/ops/func/ops.h"
 #include "loom/ops/vector/fragment.h"
 #include "loom/target/arch/spirv/contracts/logical_core.h"
 #include "loom/target/arch/spirv/contracts/logical_core_lower_rules.h"
@@ -14,6 +13,7 @@
 #include "loom/target/arch/spirv/lower/lower.h"
 #include "loom/target/arch/spirv/lower/matrix.h"
 #include "loom/target/arch/spirv/lower/workgroup.h"
+#include "loom/target/arch/spirv/lower/workgroup_layout.h"
 #include "loom/target/arch/spirv/ops/types.h"
 #include "loom/target/arch/spirv/value_types.h"
 #include "loom/target/registers.h"
@@ -60,6 +60,11 @@ static bool loom_spirv_source_type_is_fp8(loom_type_t type) {
   const loom_scalar_type_t scalar_type = loom_type_element_type(type);
   return scalar_type == LOOM_SCALAR_TYPE_F8E4M3 ||
          scalar_type == LOOM_SCALAR_TYPE_F8E5M2;
+}
+
+static bool loom_spirv_source_type_is_bfloat16(loom_type_t type) {
+  return loom_type_is_scalar(type) &&
+         loom_type_element_type(type) == LOOM_SCALAR_TYPE_BF16;
 }
 
 static bool loom_spirv_source_type_supported(void* user_data,
@@ -163,6 +168,14 @@ static iree_status_t loom_spirv_map_type(void* user_data,
                                          loom_type_t source_type,
                                          loom_type_t* out_low_type) {
   (void)user_data;
+  if (loom_spirv_source_type_is_bfloat16(source_type) &&
+      !iree_all_bits_set(
+          loom_low_lower_context_bundle(context)->config->contract_feature_bits,
+          LOOM_SPIRV_FEATURE_BFLOAT16_TYPE_KHR)) {
+    return loom_spirv_make_typed_register_type(
+        context, SPIRV_LOGICAL_CORE_REG_CLASS_ID_ID,
+        loom_type_scalar(LOOM_SCALAR_TYPE_I32), out_low_type);
+  }
   if (loom_spirv_source_type_is_fp8(source_type)) {
     return loom_spirv_make_typed_register_type(
         context, SPIRV_LOGICAL_CORE_REG_CLASS_ID_ID,
@@ -211,7 +224,7 @@ static iree_status_t loom_spirv_map_value(void* user_data,
     }
   }
   if (loom_type_is_vector(source_type)) {
-    if (loom_func_return_isa(source_op)) {
+    if (loom_low_lower_source_op_is_callable_exit(context, source_op)) {
       return iree_ok_status();
     }
     loom_vector_fragment_fact_t fragment = {0};
@@ -344,6 +357,12 @@ static iree_status_t loom_spirv_emit_op(void* user_data,
   return loom_spirv_lower_workgroup_op(context, source_op, plan);
 }
 
+static iree_status_t loom_spirv_emit_entry_setup(
+    void* user_data, loom_low_lower_context_t* context) {
+  (void)user_data;
+  return loom_spirv_emit_workgroup_entry_setup(context);
+}
+
 static void loom_spirv_mark_plan_storage_demands(
     void* user_data, loom_low_lower_context_t* context,
     const loom_op_t* source_op, loom_low_lower_plan_t plan) {
@@ -361,7 +380,13 @@ static const loom_low_lower_policy_t kSpirvLowLowerPolicy = {
     .map_argument = {.fn = loom_spirv_map_argument, .user_data = NULL},
     .source_type_supported = {.fn = loom_spirv_source_type_supported,
                               .user_data = NULL},
+    .emit_entry_setup = {.fn = loom_spirv_emit_entry_setup, .user_data = NULL},
     .contract = LOOM_SPIRV_LOGICAL_CONTRACT,
+    .source_memory_root_byte_offset =
+        {
+            .fn = loom_spirv_workgroup_layout_source_memory_root_byte_offset,
+            .user_data = NULL,
+        },
     .descriptor_matrix =
         {
             .options = loom_spirv_descriptor_matrix_options,

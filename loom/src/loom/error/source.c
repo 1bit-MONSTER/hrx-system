@@ -9,6 +9,51 @@
 #include "iree/base/internal/unicode.h"
 #include "loom/ir/module.h"
 
+// Tagged locations preserve a single origin. Fused locations have no designated
+// primary file and cannot be represented by one source range.
+static const loom_location_entry_t* loom_source_file_location(
+    const loom_module_t* module, loom_location_id_t location) {
+  if (!module) {
+    return NULL;
+  }
+  while (location != LOOM_LOCATION_UNKNOWN) {
+    const loom_location_entry_t* entry =
+        loom_location_table_const_entry(&module->locations, location);
+    if (entry->kind == LOOM_LOCATION_FILE) {
+      return entry;
+    }
+    if (entry->kind != LOOM_LOCATION_TAGGED) {
+      return NULL;
+    }
+    location = entry->tagged.child;
+  }
+  return NULL;
+}
+
+bool loom_source_resolve(loom_source_resolver_t resolver,
+                         const loom_module_t* module,
+                         loom_location_id_t location,
+                         loom_source_range_t* out_range) {
+  if (resolver.fn &&
+      resolver.fn(resolver.user_data, module, location, out_range)) {
+    return true;
+  }
+  const loom_location_entry_t* entry =
+      loom_source_file_location(module, location);
+  if (!entry) {
+    return false;
+  }
+  *out_range = (loom_source_range_t){
+      .provenance = LOOM_SOURCE_PROVENANCE_UNAVAILABLE_SOURCE,
+      .filename = module->sources.entries[entry->file.source_id],
+      .start_line = entry->file.start_line,
+      .start_column = entry->file.start_col,
+      .end_line = entry->file.end_line,
+      .end_column = entry->file.end_col,
+  };
+  return true;
+}
+
 // Returns an exact position when present, while always publishing the clamped
 // byte offset used by source highlighting.
 static bool loom_source_find_position(iree_string_view_t source, uint32_t line,
@@ -50,25 +95,49 @@ iree_host_size_t loom_source_byte_offset(iree_string_view_t source,
   return offset;
 }
 
+iree_status_t loom_source_table_project(
+    void* user_data, const loom_module_t* source_module,
+    const loom_module_t* target_module,
+    const loom_source_id_t* target_sources) {
+  loom_source_table_projection_t* projection = user_data;
+  const loom_source_table_resolver_t* table = &projection->table;
+  iree_host_size_t count = table->count ? target_module->sources.count : 0;
+  loom_source_entry_t* entries = NULL;
+  if (count) {
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        projection->arena, count, sizeof(*entries), (void**)&entries));
+    for (iree_host_size_t i = 0; i < count; ++i) {
+      entries[i] = (loom_source_entry_t){.source_id = LOOM_SOURCE_ID_INVALID};
+    }
+    for (iree_host_size_t i = 0; i < table->count; ++i) {
+      const loom_source_entry_t* entry = &table->entries[i];
+      if (entry->source_id == LOOM_SOURCE_ID_INVALID) {
+        continue;
+      }
+      loom_source_id_t target_id = target_sources[entry->source_id];
+      if (target_id == LOOM_SOURCE_ID_INVALID) {
+        continue;
+      }
+      entries[target_id] = *entry;
+      entries[target_id].source_id = target_id;
+    }
+  }
+  projection->table = (loom_source_table_resolver_t){
+      .module = target_module, .entries = entries, .count = count};
+  return iree_ok_status();
+}
+
 bool loom_source_table_resolve(void* user_data, const loom_module_t* module,
                                loom_location_id_t location,
                                loom_source_range_t* out_range) {
   const loom_source_table_resolver_t* table =
       (const loom_source_table_resolver_t*)user_data;
-  if (!table || table->count == 0) {
-    return false;
-  }
-  if (location == LOOM_LOCATION_UNKNOWN) {
-    return false;
-  }
-
-  // Look up the location entry from the module's location table.
-  if ((iree_host_size_t)location >= module->locations.count) {
+  if (!table || table->module != module || table->count == 0) {
     return false;
   }
   const loom_location_entry_t* entry =
-      loom_location_table_const_entry(&module->locations, location);
-  if (entry->kind != LOOM_LOCATION_FILE) {
+      loom_source_file_location(module, location);
+  if (!entry) {
     return false;
   }
 

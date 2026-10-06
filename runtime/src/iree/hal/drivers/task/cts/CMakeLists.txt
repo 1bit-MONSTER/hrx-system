@@ -40,8 +40,6 @@ iree_cc_library(
 iree_cc_test(
   NAME
     queue_dispatch_concurrency_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
   DEPS
     ::backends
     ::executable_testdata
@@ -49,6 +47,7 @@ iree_cc_test(
     iree::hal::cts::queue::queue_dispatch_concurrency_test
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
+    iree::hal::cts::util::test_main
     iree::testing::gtest
 )
 

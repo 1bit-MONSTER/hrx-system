@@ -20,11 +20,14 @@ loom_check_test_suite(
     "memory_footprint_condition_loops.loom-test"
     "memory_footprint_conditions.loom-test"
     "memory_footprint_induction.loom-test"
+    "memory_footprint_quotient.loom-test"
+    "memory_footprint_remainder.loom-test"
     "memory_to_scalar.loom-test"
     "packed_memory_consumers.loom-test"
     "reduce_axes_to_scalar.loom-test"
     "sink_single_use_reads.loom-test"
     "to_scalar.loom-test"
+    "to_scalar_e8m0.loom-test"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

@@ -16,7 +16,7 @@ In this chapter, you will learn:
 - how program declarations and launches compose independently packaged
   subgraphs;
 - how `command.serial` and `command.concurrent` state dependency edges; and
-- what command preparation preserves, specializes, and emits.
+- what command planning preserves, specializes, and emits.
 
 ## The signature separates host decisions from storage
 
@@ -36,15 +36,15 @@ The arguments before `launch` specialize the program. The arguments after
 
 | Argument group | Becomes known | What it can control |
 | --- | --- | --- |
-| Specializations | Facts participate during linking and preparation; artifact-affecting scalar uses must resolve before portable lowering | Source control flow, parameter names, provider selection, direct launch counts, and exact scalar kernel arguments. |
-| Buffer roots | Roles are fixed during preparation; storage is bound during materialization or issue | Immutable parameter storage or replaceable invocation storage. |
+| Specializations | Facts participate during linking and planning; artifact-affecting scalar uses must resolve before portable lowering | Source control flow, parameter names, provider selection, direct launch counts, and exact scalar kernel arguments. |
+| Buffer roots | Roles are fixed during planning; storage is bound during materialization or issue | Immutable parameter storage or replaceable invocation storage. |
 
 This distinction is stronger than a conventional kernel argument list.
 Specializations are host-side program inputs, not push constants read by every
-kernel. Their known facts participate in preparation of the complete command
+kernel. Their known facts participate in planning the complete command
 root. An exact `%layer` can disappear into parameter placement and selected
 branches. A source root may retain `%element_count` while it remains linkable,
-but preparing a direct dispatch requires its physical count to become exact.
+but planning a direct dispatch requires its physical count to become exact.
 An issue-time dynamic count instead has an explicit `view<3xi32>` storage
 producer and lowers to indirect dispatch; it never becomes an implicit host
 callback outside the command artifact.
@@ -58,7 +58,7 @@ explicit command operations such as `kernel.launch`, `command.program.launch`,
 them is effect-free. Calls used to derive launch workloads therefore carry a
 `pure` contract, just as calls in a kernel launch-configuration region do.
 
-The distinction keeps preparation movable. The compiler can inline and fold
+The distinction keeps planning movable. The compiler can inline and fold
 pure shape arithmetic at its real caller-owned control-flow site. When a count
 must remain dynamic at issue time, an explicit device-side producer can write
 the indirect dispatch tuple without silently moving a memory observation or
@@ -70,13 +70,13 @@ The verifier enforces this at the source operation that violates the contract.
 An opaque ordinary call is rejected inside nested control flow instead of
 surviving until command outlining or schedule materialization.
 
-Schedule topology and parameter identity must be closed after preparation.
+Schedule topology and parameter identity must be closed after planning.
 Pure launch-count expressions either fold to exact direct counts or terminate
 in explicit indirect-count storage. They cannot leave an unresolved source
 branch, dynamic parameter key, or free scalar result in the materialized
 command program.
 
-The launch-binding group is intentionally buffers only. Preparation classifies
+The launch-binding group is intentionally buffers only. Planning classifies
 roots used by `command.parameter` as fixed materialization resources and
 ordinary roots as rebindable issue-time resources. Scalar specializations do
 not silently become host callbacks or device push constants. A scalar used by
@@ -96,7 +96,7 @@ disagree about which ABI carries a value.
 
 ## Launch configuration stays with its caller
 
-Command preparation does not open a selected kernel implementation. Linking
+Command planning does not open a selected kernel implementation. Linking
 projects only its logical contract and pure launch-configuration
 facet, then rewrites each workload-level launch at the same caller-owned CFG
 site:
@@ -137,7 +137,7 @@ typed view from one parameter root, and launches the kernel:
 
 [`command.parameter`](../reference/dialects/command/ops/parameter.md) is a
 declarative association. It performs no string lookup, allocation, transfer,
-or synchronization at execution time. During command preparation, each `{}` in
+or synchronization at execution time. During command planning, each `{}` in
 the pattern receives one canonical decimal index substitution. The complete
 key and exact view footprint become a parameter requirement attached to the
 source buffer root.
@@ -153,7 +153,7 @@ resource range while `%input` and `%output` remain replaceable issue-time
 bindings.
 
 The substitutions must become exact nonnegative indices before the program is
-prepared. The result type must also have an exact byte footprint. These are
+planned. The result type must also have an exact byte footprint. These are
 materialization contracts rather than runtime error cases: a program whose
 parameter identity or size remains unknown cannot describe an immutable
 command artifact.
@@ -176,7 +176,7 @@ command-program-specific device implementation.
 
 Model-level configuration can determine command topology without turning
 per-invocation shapes into global variants. This program resolves
-`@model.layer_count`, fully unrolls a source loop during command preparation,
+`@model.layer_count`, fully unrolls a source loop during command planning,
 and uses each exact induction value to select one layer's parameter block:
 
 **Source:** [`loom/docs/examples/guide/command-programs/stack.loom`](https://github.com/ROCm/hrx-system/blob/main/loom/docs/examples/guide/command-programs/stack.loom)
@@ -185,14 +185,14 @@ and uses each exact induction value to select one layer's parameter block:
 --8<-- "examples/guide/command-programs/stack.loom"
 ```
 
-The `unroll` policy is part of the source contract. Command preparation
+The `unroll` policy is part of the source contract. Command planning
 requires the layer count to resolve, expands the loop into a finite sequence,
 and then sees parameter keys such as `blk.0.projection.weight` and
 `blk.1.projection.weight`. The `%element_count` specialization remains a
 separate value that controls each kernel workload; it is not promoted to
 configuration merely because every layer consumes it. A host may keep the
 program parameterized in a source module, but it fixes that value before
-preparing a direct portable command artifact.
+planning a direct portable command artifact.
 
 ## Compose programs through exact contracts
 
@@ -223,7 +223,7 @@ The [linking workflow](../workflows/link-and-package.md#link-transitive-dependen
 shows the same model-to-layer-to-kernel shape across a standalone partial
 artifact.
 
-During command preparation, reachable program launches are clone-inlined in
+During command planning, reachable program launches are clone-inlined in
 callee-before-caller order. Each selected root becomes a closed command body,
 while independently selected roots and shared definitions remain ordinary
 symbols in the linked source. Recursive command composition is rejected
@@ -268,7 +268,7 @@ opaque device ABIs.
 
 ## Specialize the subgraph as one program
 
-Preparing one or more public command roots performs a bounded sequence of
+Planning one or more public command roots performs a bounded sequence of
 compiler operations:
 
 1. Link the dependency closure of the requested roots.
@@ -296,11 +296,11 @@ plan-wide executable-entry requirement while retaining root-local dense slots.
 Kernel specialization and cache policy remain an independent host workflow
 rather than a nested product of command compilation.
 
-Command preparation has two independent ownership channels:
+Command planning has two independent ownership channels:
 
 | Owner | Responsibility |
 | --- | --- |
-| Prepared command plan | Portable roots, atomic entry requirements, parameter placements, rebindable bindings, transients, and explicit indirect-count storage. |
+| Command program plan | Portable roots, atomic entry requirements, parameter placements, rebindable bindings, transients, and explicit indirect-count storage. |
 | Optional request recipient | Immutable ordinary Loom bytecode requests specialized only by distinctions that change generated kernels. |
 
 The plan never retains a request, source provider, kernel body, or
@@ -308,54 +308,38 @@ classification state. A request transfers to its recipient as it is published
 and can outlive the producer workspace; the parent operation's terminal result
 determines whether its provisional bindings are committed or cancelled.
 
-## Emit the portable deployment artifacts
+## Build one complete deployment transaction
 
-`loom-compile` prepares and serializes selected command roots without binding
-them to one device runtime:
+The public LoomC API plans and serializes selected command roots while
+publishing each live source-backed kernel request. Every request carries its
+exact parent requirement binding, so an embedding can enqueue compilation and
+bind the completed executable without rediscovering correspondence from names
+or files. Bodyless entries publish only binding requirements for executables
+the embedding already owns.
 
-```shell
-loom-compile model.loombc \
-  --root=@two_layer \
-  --format=loom-command \
-  --output=commands.json \
-  --emit-command-artifacts=commands/ \
-  --emit-kernel-requests=kernel-requests/
-```
-
-The manifest maps `@two_layer` to its `.loomcmd` artifact and lists the logical
-kernel entries required by that schedule. The portable artifact contains the
-closed command topology, resource bindings, dispatch counts, and executable
-slots. Each source-backed entry names a `.loombc` request under
-`kernel-requests/`; launch sites whose facts select the same semantic class
-share one request across every selected command root. Each request is an
-ordinary rooted Loom module that can enter the normal target compilation and
-caching workflow. Bodyless entries have no source request and can be supplied
-by an embedding that already owns a compatible executable entry.
-
-In Bazel, [`loom_command_binary`](../workflows/build-with-bazel.md#command-binaries-package-schedules-with-their-kernels)
-performs one selective link and emits the command manifest, `.loomcmd` files,
-and target-specific kernel executable together. Emission stops at the portable
-artifact boundary: loading buffers, binding executables, and issuing the
-schedule remain runtime responsibilities.
+Command construction and kernel request publication are one transaction.
+`loom-compile` deliberately does not expose a command output mode: separate
+invocations could emit bytes for both sides, but could not preserve the exact
+planner-owned correspondence between them. [Parallelize kernel JIT
+compilation](../integration/product-frontier.md) walks the LoomC lifecycle end
+to end.
 
 ## Keep failures in their owning contract
 
 | Symptom | Contract to inspect |
 | --- | --- |
-| Source control flow remains in the prepared schedule | Its condition did not specialize to an exact value; portable command topology must be closed. |
+| Source control flow remains in the planned schedule | Its condition did not specialize to an exact value; portable command topology must be closed. |
 | A direct dispatch count remains dynamic | Specialize it to an exact unsigned 32-bit value or produce an aligned `view<3xi32>` for indirect dispatch. |
 | A launch binding is rejected | The command ABI accepts buffer roots only. |
-| A parameter key cannot be prepared | A `{}` substitution did not become an exact nonnegative index. |
+| A parameter key cannot be resolved during planning | A `{}` substitution did not become an exact nonnegative index. |
 | A parameter view has unknown storage size | Its type does not provide an exact byte footprint. |
 | A child program remains unresolved | Its module omitted the exact declaration or library dependency. |
 | Two supposedly parallel commands race | The source placed a hazard inside `command.concurrent`. |
-| Composition preparation reports a cycle | Reachable command programs recursively launch one another. |
+| Composition planning reports a cycle | Reachable command programs recursively launch one another. |
 
 [Source modules and canonical text](source-modules.md) explains declaration
 and library ownership. [Facts and specialization](facts-and-specialization.md)
 shows how configuration, assumptions, and target facts constrain the values
-used here. [Split command and kernel
-compilation](../workflows/product-frontiers.md) follows local, linked, classified,
-and external kernels through one checked product. [Compile
-artifacts](../workflows/compile-artifacts.md#emit-portable-command-programs)
-covers the public command-line artifact workflow.
+used here. [Parallelize kernel JIT
+compilation](../integration/product-frontier.md) follows local, linked,
+classified, and external kernels through one checked LoomC transaction.

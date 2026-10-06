@@ -12,6 +12,15 @@ bazel_dep(name = "rules_cc", version = "0.2.21")
 bazel_dep(name = "rules_python", version = "2.1.0")
 bazel_dep(name = "rules_shell", version = "0.6.1")
 
+# Unstamped Python build metadata is known during analysis and does not need a
+# subprocess action for each binary and test.
+single_version_override(
+    module_name = "rules_python",
+    patch_strip = 1,
+    patches = ["//build_tools/third_party/rules_python:unstamped_build_data.patch"],
+    version = "2.1.0",
+)
+
 # Windows toolchains expose compiler-owned sanitizer artifacts and declare
 # whether the linker supports Bazel's automatic DLL export helper.
 # Sanitizer debug information uses compiler-specific feature flags on all hosts.
@@ -28,6 +37,15 @@ single_version_override(
 )
 
 bazel_dep(name = "rules_testing", version = "0.9.0", dev_dependency = True)
+
+wasi_sdk_repo = use_repo_rule(
+    "//build_tools/wasm:wasi_sdk_repo.bzl",
+    "wasi_sdk_repo",
+)
+
+wasi_sdk_repo(name = "wasi_sdk")
+
+register_toolchains("@wasi_sdk//:cc_toolchain")
 
 cc_configure = use_extension(
     "@rules_cc//cc:extensions.bzl",
@@ -56,7 +74,7 @@ register_toolchains("//build_tools/macos:all")
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
 python.defaults(python_version = "3.12")
 python.toolchain(python_version = "3.12")
-use_repo(python, "python_3_12")
+use_repo(python, "python_3_12", "python_3_12_host")
 
 amdgpu_device_toolchain_repo = use_repo_rule(
     "//build_tools/amdgpu:device_toolchain_repository.bzl",

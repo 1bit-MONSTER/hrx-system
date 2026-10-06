@@ -1,0 +1,215 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Each tile publishes two stripes through one workgroup allocation. Mirrored
+// reads cross subgroup boundaries, and the same storage is reused next tile.
+// The full inner unroll exposes global loads without moving the ordered stores.
+template.decl @ordered_read_ahead_rows(%input: buffer, %output: buffer, %end: index, %depth: index, %factor: index)
+
+template.def<@ordered_read_ahead_rows> @ordered_read_ahead_rows_impl(%input: buffer, %output: buffer, %end: index, %depth: index, %factor: index) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %width = index.constant 128 : index
+  %tile = index.constant 256 : index
+  %last = index.constant 127 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 1024 : offset
+  %lane = kernel.workitem.id<x> : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<1024xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<128xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<256xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<256xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %end step %c1](%sum = %identity : i32) -> (i32) pipeline(%depth) unroll(%factor) {
+    scf.for %stripe = [%c0 to %c2 step %c1] unroll {
+      %slot = index.madd %stripe, %width, %lane : index
+      %address = index.madd %row, %tile, %slot : index
+      %value = view.load %source[%address] : view<1024xi32> -> i32
+      view.store %value, %published[%slot] : i32, view<256xi32>
+    }
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %observed = view.load %consumed[%peer] : view<256xi32> -> i32
+    %second_peer = index.add %peer, %width : index
+    %second = view.load %consumed[%second_peer] : view<256xi32> -> i32
+    %pair = scalar.addi %observed, %second : i32
+    %next = scalar.addi %sum, %pair : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  view.store %result, %destination[%lane] : i32, view<128xi32>
+  template.return
+}
+
+kernel.def @ordered_rows_0_depth_2() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %end = index.constant 0 : index
+  %depth = index.constant 2 : index
+  %factor = index.constant 1 : index
+  template.apply<@ordered_read_ahead_rows>(%input, %output, %end, %depth, %factor) : (buffer, buffer, index, index, index)
+  kernel.return
+}
+
+check.case @ordered_rows_0_depth_2_case {
+  %input = check.generate.iota offset(1) step(1) : tensor<1024xi32>
+  %output = check.generate.fill value(37) : tensor<128xi32>
+  %expected = check.generate.iota offset(0) step(0) : tensor<128xi32>
+  kernel.launch @ordered_rows_0_depth_2(%input, %output) : (tensor<1024xi32>, tensor<128xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<128xi32>
+  check.return
+}
+
+kernel.def @ordered_rows_1_depth_3() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %end = index.constant 1 : index
+  %depth = index.constant 3 : index
+  %factor = index.constant 1 : index
+  template.apply<@ordered_read_ahead_rows>(%input, %output, %end, %depth, %factor) : (buffer, buffer, index, index, index)
+  kernel.return
+}
+
+check.case @ordered_rows_1_depth_3_case {
+  %input = check.generate.iota offset(1) step(1) : tensor<1024xi32>
+  %output = check.generate.fill value(37) : tensor<128xi32>
+  %expected = check.generate.iota offset(384) step(-2) : tensor<128xi32>
+  kernel.launch @ordered_rows_1_depth_3(%input, %output) : (tensor<1024xi32>, tensor<128xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<128xi32>
+  check.return
+}
+
+kernel.def @ordered_rows_2_depth_2() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %end = index.constant 2 : index
+  %depth = index.constant 2 : index
+  %factor = index.constant 1 : index
+  template.apply<@ordered_read_ahead_rows>(%input, %output, %end, %depth, %factor) : (buffer, buffer, index, index, index)
+  kernel.return
+}
+
+check.case @ordered_rows_2_depth_2_case {
+  %input = check.generate.iota offset(1) step(1) : tensor<1024xi32>
+  %output = check.generate.fill value(37) : tensor<128xi32>
+  %expected = check.generate.iota offset(1280) step(-4) : tensor<128xi32>
+  kernel.launch @ordered_rows_2_depth_2(%input, %output) : (tensor<1024xi32>, tensor<128xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<128xi32>
+  check.return
+}
+
+kernel.def @ordered_rows_2_depth_3() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %end = index.constant 2 : index
+  %depth = index.constant 3 : index
+  %factor = index.constant 1 : index
+  template.apply<@ordered_read_ahead_rows>(%input, %output, %end, %depth, %factor) : (buffer, buffer, index, index, index)
+  kernel.return
+}
+
+check.case @ordered_rows_2_depth_3_case {
+  %input = check.generate.iota offset(1) step(1) : tensor<1024xi32>
+  %output = check.generate.fill value(37) : tensor<128xi32>
+  %expected = check.generate.iota offset(1280) step(-4) : tensor<128xi32>
+  kernel.launch @ordered_rows_2_depth_3(%input, %output) : (tensor<1024xi32>, tensor<128xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<128xi32>
+  check.return
+}
+
+kernel.def @ordered_rows_3_depth_3() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %end = index.constant 3 : index
+  %depth = index.constant 3 : index
+  %factor = index.constant 1 : index
+  template.apply<@ordered_read_ahead_rows>(%input, %output, %end, %depth, %factor) : (buffer, buffer, index, index, index)
+  kernel.return
+}
+
+check.case @ordered_rows_3_depth_3_case {
+  %input = check.generate.iota offset(1) step(1) : tensor<1024xi32>
+  %output = check.generate.fill value(37) : tensor<128xi32>
+  %expected = check.generate.iota offset(2688) step(-6) : tensor<128xi32>
+  kernel.launch @ordered_rows_3_depth_3(%input, %output) : (tensor<1024xi32>, tensor<128xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<128xi32>
+  check.return
+}
+
+kernel.def @ordered_rows_4_depth_1() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %end = index.constant 4 : index
+  %depth = index.constant 1 : index
+  %factor = index.constant 1 : index
+  template.apply<@ordered_read_ahead_rows>(%input, %output, %end, %depth, %factor) : (buffer, buffer, index, index, index)
+  kernel.return
+}
+
+check.case @ordered_rows_4_depth_1_case {
+  %input = check.generate.iota offset(1) step(1) : tensor<1024xi32>
+  %output = check.generate.fill value(37) : tensor<128xi32>
+  %expected = check.generate.iota offset(4608) step(-8) : tensor<128xi32>
+  kernel.launch @ordered_rows_4_depth_1(%input, %output) : (tensor<1024xi32>, tensor<128xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<128xi32>
+  check.return
+}
+
+kernel.def @ordered_rows_4_depth_2() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %end = index.constant 4 : index
+  %depth = index.constant 2 : index
+  %factor = index.constant 1 : index
+  template.apply<@ordered_read_ahead_rows>(%input, %output, %end, %depth, %factor) : (buffer, buffer, index, index, index)
+  kernel.return
+}
+
+check.case @ordered_rows_4_depth_2_case {
+  %input = check.generate.iota offset(1) step(1) : tensor<1024xi32>
+  %output = check.generate.fill value(37) : tensor<128xi32>
+  %expected = check.generate.iota offset(4608) step(-8) : tensor<128xi32>
+  kernel.launch @ordered_rows_4_depth_2(%input, %output) : (tensor<1024xi32>, tensor<128xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<128xi32>
+  check.return
+}
+
+kernel.def @ordered_rows_4_depth_3_unroll_2() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %end = index.constant 4 : index
+  %depth = index.constant 3 : index
+  %factor = index.constant 2 : index
+  template.apply<@ordered_read_ahead_rows>(%input, %output, %end, %depth, %factor) : (buffer, buffer, index, index, index)
+  kernel.return
+}
+
+check.case @ordered_rows_4_depth_3_unroll_2_case {
+  %input = check.generate.iota offset(1) step(1) : tensor<1024xi32>
+  %output = check.generate.fill value(37) : tensor<128xi32>
+  %expected = check.generate.iota offset(4608) step(-8) : tensor<128xi32>
+  kernel.launch @ordered_rows_4_depth_3_unroll_2(%input, %output) : (tensor<1024xi32>, tensor<128xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<128xi32>
+  check.return
+}

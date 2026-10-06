@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from loom.target.arch.spirv.features import feature_bits_value
 from loom.target.arch.spirv.scalar_alu import (
     BFLOAT16_SCALAR_TYPE,
     FLOAT_SCALAR_ALU_TYPES,
@@ -29,6 +30,10 @@ _BIT_WIDTHS = {
     "f64": 64,
 }
 
+_FLOAT32_SCALAR_TYPE = next(
+    scalar for scalar in FLOAT_SCALAR_ALU_TYPES if scalar.source_type == "f32"
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ScalarConversion:
@@ -38,6 +43,7 @@ class ScalarConversion:
     opcode: str
     source_type: ScalarAluType
     result_type: ScalarAluType
+    feature_atoms: tuple[str, ...] = ()
 
     @property
     def key(self) -> str:
@@ -52,7 +58,11 @@ class ScalarConversion:
 
     @property
     def feature_bits(self) -> int:
-        return self.source_type.feature_bits | self.result_type.feature_bits
+        return (
+            self.source_type.feature_bits
+            | self.result_type.feature_bits
+            | feature_bits_value(self.feature_atoms)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,6 +274,23 @@ SCALAR_BITCAST_CONVERSIONS = _bitcast_conversions()
 DIRECT_SCALAR_CONVERSIONS = (
     *SIGNED_INTEGER_WIDTH_CONVERSIONS,
     *_float_width_conversions(),
+    ScalarConversion(
+        source_op_key="extf",
+        descriptor_suffix="f_convert",
+        mnemonic="OpFConvert",
+        opcode="LOOM_SPIRV_OP_F_CONVERT",
+        source_type=BFLOAT16_SCALAR_TYPE,
+        result_type=_FLOAT32_SCALAR_TYPE,
+        feature_atoms=("float32_denorm_preserve",),
+    ),
+    ScalarConversion(
+        source_op_key="fptrunc",
+        descriptor_suffix="f_convert",
+        mnemonic="OpFConvert",
+        opcode="LOOM_SPIRV_OP_F_CONVERT",
+        source_type=_FLOAT32_SCALAR_TYPE,
+        result_type=BFLOAT16_SCALAR_TYPE,
+    ),
     *_signed_integer_to_float_conversions(),
     *_float_to_signed_integer_conversions(),
     *SCALAR_BITCAST_CONVERSIONS,

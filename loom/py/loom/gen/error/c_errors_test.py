@@ -81,6 +81,8 @@ def test_generate_error_runtime_tables_uses_enum_source_of_truth() -> None:
     assert '[LOOM_DIAGNOSTIC_ERROR] = "error"' in tables_inl
     assert '[LOOM_ERROR_DOMAIN_AMDGPU] = "AMDGPU"' in tables_inl
     assert '[LOOM_ERROR_DOMAIN_SPIRV] = "SPIRV"' in tables_inl
+    assert '[LOOM_ERROR_DOMAIN_XDNA] = "XDNA"' in tables_inl
+    assert '[LOOM_ERROR_DOMAIN_EXPECT] = "EXPECT"' in tables_inl
     assert '[LOOM_EMITTER_BYTECODE_READER] = "bytecode_reader"' in tables_inl
     assert "Python ErrorDomain enum must match loom_error_domain_t" in tables_inl
     assert "loom_error_catalog_lookup" not in tables_inl

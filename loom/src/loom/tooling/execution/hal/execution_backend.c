@@ -11,6 +11,7 @@
 #include "iree/base/alignment.h"
 #include "iree/base/byte_sequence.h"
 #include "iree/base/internal/arena.h"
+#include "loom/pass/pipeline_snapshot.h"
 #include "loom/target/entry_selection.h"
 #include "loom/tooling/compile/pipeline.h"
 #include "loom/tooling/compile/report_capture.h"
@@ -128,6 +129,7 @@ static iree_status_t loom_run_hal_execution_backend_select_device_target(
 static iree_status_t loom_run_hal_execution_backend_run_pipeline(
     const loom_run_one_shot_request_t* request,
     loom_run_module_t* compile_module,
+    const loom_pass_pipeline_snapshot_t* pipeline_snapshot,
     const loom_compile_options_t* compile_options,
     const loom_target_entry_t* entry, const loom_device_target_t* device_target,
     loom_compile_pipeline_result_t* out_result) {
@@ -138,6 +140,11 @@ static iree_status_t loom_run_hal_execution_backend_run_pipeline(
   loom_compile_pipeline_options_t pipeline_options = {0};
   loom_compile_pipeline_options_initialize(&pipeline_options);
   pipeline_options.pipeline = request->pipeline;
+  if (pipeline_snapshot != NULL) {
+    pipeline_options.named_pipeline.module = pipeline_snapshot->module;
+    pipeline_options.named_pipeline.pipeline_op =
+        pipeline_snapshot->pipeline_op;
+  }
   pipeline_options.target_pipeline_options =
       compile_options->target_pipeline_options;
   pipeline_options.target_environment = request->target_environment;
@@ -148,6 +155,8 @@ static iree_status_t loom_run_hal_execution_backend_run_pipeline(
       };
   pipeline_options.low_descriptor_registry =
       loom_run_session_low_descriptor_registry(request->session);
+  pipeline_options.cleanup_pattern_provider_set =
+      loom_run_session_cleanup_pattern_provider_set(request->session);
   pipeline_options.source_resolver =
       loom_run_module_source_resolver(compile_module);
   pipeline_options.report = compile_options->report;
@@ -229,6 +238,7 @@ iree_status_t loom_run_hal_execution_backend_run_one_shot(
   loom_device_target_t device_target = {0};
   bool owns_device_target = false;
   loom_compile_pipeline_result_t pipeline_result = {0};
+  loom_pass_pipeline_snapshot_t pipeline_snapshot = {0};
   loom_run_module_t compile_module = {0};
   loom_run_hal_candidate_t candidate = {0};
   loom_run_hal_invocation_result_t invocation_result = {0};
@@ -262,9 +272,26 @@ iree_status_t loom_run_hal_execution_backend_run_one_shot(
   loom_run_hal_runtime_options_t runtime_options;
   loom_run_hal_runtime_options_initialize(device_provider->driver_name,
                                           &runtime_options);
-  runtime_options.runtime_features |=
-      loom_run_hal_runtime_features_from_sanitizer_options(
-          &compile_options.target_pipeline_options.sanitizer);
+  const bool has_named_pipeline =
+      loom_compile_pipeline_is_named(request->pipeline);
+  if (iree_status_is_ok(status) && entry_selected && has_named_pipeline) {
+    status = loom_pass_pipeline_snapshot_initialize(
+        request->run_module->module, request->pipeline,
+        IREE_SV("__loom_run_pipeline"), &block_pool, request->host_allocator,
+        &pipeline_snapshot);
+  }
+  if (iree_status_is_ok(status) && entry_selected) {
+    status = loom_run_module_clone(
+        request->session, request->run_module,
+        (iree_string_view_list_t){.count = 1, .values = &entry.func_name},
+        &compile_module);
+  }
+  if (iree_status_is_ok(status) && entry_selected) {
+    status = loom_run_hal_runtime_features_query(
+        compile_module.module,
+        &compile_options.target_pipeline_options.sanitizer,
+        request->host_allocator, &runtime_options.runtime_features);
+  }
   if (iree_status_is_ok(status) && entry_selected) {
     status = loom_run_hal_runtime_initialize(&runtime_options,
                                              request->host_allocator, &runtime);
@@ -275,17 +302,12 @@ iree_status_t loom_run_hal_execution_backend_run_one_shot(
         &owns_device_target, &device_target);
   }
   if (iree_status_is_ok(status) && entry_selected) {
-    status = loom_run_module_clone(
-        request->session, request->run_module,
-        (iree_string_view_list_t){.count = 1, .values = &entry.func_name},
-        &compile_module);
-  }
-  if (iree_status_is_ok(status) && entry_selected) {
     compile_options.source_resolver =
         loom_run_module_source_resolver(&compile_module);
     status = loom_run_hal_execution_backend_run_pipeline(
-        request, &compile_module, &compile_options, &entry, &device_target,
-        &pipeline_result);
+        request, &compile_module,
+        has_named_pipeline ? &pipeline_snapshot : NULL, &compile_options,
+        &entry, &device_target, &pipeline_result);
   }
   if (iree_status_is_ok(status) && entry_selected &&
       pipeline_result.pass.error_count != 0) {
@@ -371,6 +393,7 @@ iree_status_t loom_run_hal_execution_backend_run_one_shot(
                                          request->host_allocator);
   }
   loom_compile_pipeline_result_deinitialize(&pipeline_result);
+  loom_pass_pipeline_snapshot_deinitialize(&pipeline_snapshot);
   loom_run_module_deinitialize(&compile_module);
   loom_run_hal_runtime_deinitialize(&runtime);
   iree_arena_deinitialize(&arena);

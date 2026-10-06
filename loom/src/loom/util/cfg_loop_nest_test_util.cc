@@ -87,11 +87,16 @@ iree_status_t CheckLoopNest(const loom_cfg_loop_nest_t& nest) {
       }
     }
     std::vector<uint32_t> exits;
+    uint32_t direct_exit_count = 0;
     for (size_t i = 0; i < graph->edge_count; ++i) {
       const auto& edge = graph->edges[i];
       if (members[edge.source_block_index] &&
           !members[edge.target_block_index]) {
         exits.push_back(i);
+        if (loom_cfg_loop_nest_innermost(&nest, edge.source_block_index) ==
+            loop_index) {
+          ++direct_exit_count;
+        }
       }
     }
     auto edges_match = [](const loom_cfg_loop_edge_summary_t& summary,
@@ -105,6 +110,21 @@ iree_status_t CheckLoopNest(const loom_cfg_loop_nest_t& nest) {
         !edges_match(loop.exits, exits)) {
       return iree_make_status(IREE_STATUS_INTERNAL,
                               "incorrect edges for header %u", header);
+    }
+    uint16_t continuation = LOOM_CFG_LOOP_CONTINUATION_NONE;
+    if (!exits.empty()) {
+      continuation = graph->edges[exits[0]].target_block_index;
+      for (uint32_t edge : exits) {
+        if (graph->edges[edge].target_block_index != continuation) {
+          continuation = LOOM_CFG_LOOP_CONTINUATION_NONE;
+          break;
+        }
+      }
+    }
+    if (loop.direct_exit_count != direct_exit_count ||
+        loop.continuation_index != continuation) {
+      return iree_make_status(IREE_STATUS_INTERNAL,
+                              "incorrect exit ownership for header %u", header);
     }
     for (size_t block = 0; block < count; ++block) {
       if (loom_cfg_loop_nest_contains(&nest, loop_index, block) !=

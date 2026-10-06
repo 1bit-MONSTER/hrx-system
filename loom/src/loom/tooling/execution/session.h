@@ -22,6 +22,9 @@
 extern "C" {
 #endif
 
+typedef struct loom_cleanup_pattern_provider_set_t
+    loom_cleanup_pattern_provider_set_t;
+
 // Registers the dialect surface selected by an execution environment.
 typedef iree_status_t (*loom_run_register_context_fn_t)(
     void* user_data, loom_context_t* context);
@@ -56,6 +59,8 @@ typedef struct loom_run_session_options_t {
   // Descriptor registry initialization callback.
   loom_run_initialize_low_descriptor_registry_callback_t
       initialize_low_descriptor_registry;
+  // Cleanup rewrite providers linked into this runner.
+  const loom_cleanup_pattern_provider_set_t* cleanup_pattern_provider_set;
 } loom_run_session_options_t;
 
 typedef struct loom_run_session_t {
@@ -69,6 +74,8 @@ typedef struct loom_run_session_t {
   loom_context_t context;
   // Descriptor registry selected by the runner environment.
   loom_target_low_descriptor_registry_t low_descriptor_registry;
+  // Borrowed cleanup rewrite providers selected by the runner environment.
+  const loom_cleanup_pattern_provider_set_t* cleanup_pattern_provider_set;
   // True when |block_pool| has been initialized.
   bool block_pool_initialized;
   // True when |context| has been initialized and must be deinitialized.
@@ -96,6 +103,11 @@ iree_arena_block_pool_t* loom_run_session_block_pool(
 // Returns the target-low descriptor registry owned by |session|.
 const loom_target_low_descriptor_registry_t*
 loom_run_session_low_descriptor_registry(const loom_run_session_t* session);
+
+// Returns the cleanup rewrite providers selected by the runner environment.
+const loom_cleanup_pattern_provider_set_t*
+loom_run_session_cleanup_pattern_provider_set(
+    const loom_run_session_t* session);
 
 typedef struct loom_run_module_parse_options_t {
   // Source format, provider options, and diagnostic filename remapping.

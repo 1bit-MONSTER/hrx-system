@@ -11,16 +11,7 @@
 #include "loom/analysis/consumption.h"
 #include "loom/analysis/ownership.h"
 #include "loom/error/error_catalog.h"
-#include "loom/util/adaptive_sort.h"
 #include "loom/verify/verify_diagnostics.h"
-
-static bool loom_value_id_less(const loom_value_id_t* lhs,
-                               const loom_value_id_t* rhs) {
-  return *lhs < *rhs;
-}
-
-LOOM_DEFINE_ADAPTIVE_SORT(loom_value_id_sort, loom_value_id_t,
-                          loom_value_id_less)
 
 // Prepares the reusable tied-result scratch tables for an op with
 // |result_count| results and |operand_count| operands. Grows the
@@ -98,14 +89,6 @@ static iree_status_t loom_verify_tied_table_reset(
     tied_table->operand_field_occurrences[i] = operand_occurrence_base;
   }
 
-  if (operand_count > tied_table->operand_value_capacity) {
-    IREE_RETURN_IF_ERROR(
-        iree_arena_grow_array(arena, 0, operand_count, sizeof(loom_value_id_t),
-                              &tied_table->operand_value_capacity,
-                              (void**)&tied_table->operand_value_ids));
-  }
-  tied_table->operand_value_count = 0;
-
   return iree_ok_status();
 }
 
@@ -152,26 +135,6 @@ static bool loom_verify_tied_table_claim_operand(
   tied_table->first_operand_field_occurrences[operand_index] =
       *out_current_occurrence;
   return false;
-}
-
-// Returns true if |value_id| appears in more than one operand slot in the
-// current op's sorted operand-value scratch array.
-static bool loom_verify_tied_table_has_duplicate_operand_value(
-    const loom_verify_tied_table_t* tied_table, loom_value_id_t value_id) {
-  iree_host_size_t low = 0;
-  iree_host_size_t high = tied_table->operand_value_count;
-  while (low < high) {
-    iree_host_size_t mid = low + (high - low) / 2;
-    if (tied_table->operand_value_ids[mid] < value_id) {
-      low = mid + 1;
-    } else {
-      high = mid;
-    }
-  }
-  return low < tied_table->operand_value_count &&
-         tied_table->operand_value_ids[low] == value_id &&
-         (low + 1 < tied_table->operand_value_count &&
-          tied_table->operand_value_ids[low + 1] == value_id);
 }
 
 static void loom_verify_emit_consumed_value_use(loom_verify_state_t* state,
@@ -435,21 +398,10 @@ iree_status_t loom_verify_tied_results(loom_verify_state_t* state,
   iree_string_view_t op_name = loom_op_vtable_name(vtable);
   const loom_tied_result_t* tied = loom_op_tied_results(op);
 
-  // Copy and sort this op's valid operand values so ties to repeated operand
-  // values can be diagnosed as ambiguous.
-  for (uint16_t i = 0; i < tied_operand_count; ++i) {
-    loom_value_id_t value_id = tied_operands[i];
-    if (value_id == LOOM_VALUE_ID_INVALID ||
-        value_id >= state->module->values.count) {
-      continue;
-    }
-    state->tied_table
-        .operand_value_ids[state->tied_table.operand_value_count++] = value_id;
-  }
-  if (state->tied_table.operand_value_count > 1) {
-    loom_value_id_sort(state->tied_table.operand_value_ids,
-                       state->tied_table.operand_value_count);
-  }
+  // Retain one sorted copy so ties to repeated operand values can be
+  // diagnosed without repeatedly scanning the operand list.
+  IREE_RETURN_IF_ERROR(loom_verify_sorted_values_assign(state, tied_operands,
+                                                        tied_operand_count));
 
   for (uint16_t i = 0; i < op->tied_result_count; ++i) {
     if (tied[i].result_index >= op->result_count) {
@@ -503,8 +455,7 @@ iree_status_t loom_verify_tied_results(loom_verify_state_t* state,
     // the source slot of the earlier equal-value operand.
     if (consumed_id != LOOM_VALUE_ID_INVALID &&
         consumed_id < state->module->values.count &&
-        loom_verify_tied_table_has_duplicate_operand_value(&state->tied_table,
-                                                           consumed_id)) {
+        loom_verify_sorted_values_contain_duplicate(state, consumed_id)) {
       loom_diagnostic_field_ref_t operand_ref = loom_diagnostic_field_ref(
           LOOM_DIAGNOSTIC_FIELD_OPERAND, tied[i].operand_index);
       loom_diagnostic_param_t params[] = {

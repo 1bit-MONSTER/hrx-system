@@ -138,12 +138,15 @@ def _declare_test_module(
         dependency_infos,
         output_stem,
         mnemonic,
-        progress_message):
+        progress_message,
+        strip_check = False):
     dependencies = _collect_dependency_modules(dependency_infos)
     module = ctx.actions.declare_file(output_stem + ".loombc")
     args = ctx.actions.args()
     args.add("--mode=link")
     args.add("--include-input-tests")
+    if strip_check:
+        args.add("--strip-check")
     args.add("--to=bc")
     args.add("--output=%s" % module.path)
     args.add(root_module)

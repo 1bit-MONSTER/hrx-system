@@ -66,3 +66,43 @@ CHECK: * = index.constant 4294967296 : offset
 CHECK: * = index.add %window_offset, * : offset
 CHECK: %last = buffer.view %input[%last_offset] : buffer -> view<1xi32>
 CHECK-NOT: *index.cast*
+
+// ====
+
+func.def @forward_dynamic(%input: buffer, %count: index, %base: offset, %position: index) -> (i32) where [range(%position, 0, 2)] {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %first = buffer.view %input[%base] : buffer -> view<1xi32>
+  %last = scf.for %i = [%begin to %count step %step](%window = %first : view<1xi32>) -> (view<1xi32>) {
+    %next = view.subview %window[%position] : view<1xi32> -> view<1xi32>
+    scf.yield %next : view<1xi32>
+  }
+  %result = view.load %last[0] : view<1xi32> -> i32
+  func.return %result : i32
+}
+
+// ----
+CHECK: %last_offset = scf.for *(%window_offset = %base : offset) -> (offset) {
+CHECK: * = index.add %window_offset, * : offset
+CHECK-NOT: * = index.cast %window_offset : offset to i64
+CHECK: %last = buffer.view %input[%last_offset] : buffer -> view<1xi32>
+
+// ====
+
+func.def @backward_dynamic(%input: buffer, %count: index, %base: offset, %position: index) -> (i32) where [range(%position, -2, 0)] {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %first = buffer.view %input[%base] : buffer -> view<1xi32>
+  %last = scf.for %i = [%begin to %count step %step](%window = %first : view<1xi32>) -> (view<1xi32>) {
+    %next = view.subview %window[%position] : view<1xi32> -> view<1xi32>
+    scf.yield %next : view<1xi32>
+  }
+  %result = view.load %last[0] : view<1xi32> -> i32
+  func.return %result : i32
+}
+
+// ----
+CHECK: %last_offset = scf.for *(%window_offset = %base : offset) -> (offset) {
+CHECK: * = index.sub %window_offset, * : offset
+CHECK-NOT: * = index.cast %window_offset : offset to i64
+CHECK: %last = buffer.view %input[%last_offset] : buffer -> view<1xi32>

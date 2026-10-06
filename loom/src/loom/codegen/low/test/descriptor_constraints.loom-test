@@ -1,0 +1,30 @@
+// RUN: verify
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @matching_value_types(%lhs: reg<test.i64 : tile<1xi32>>, %rhs: reg<test.i32 : tile<1xi32>>) -> (reg<test.i32 : tile<1xi32>>) asm {
+  %result = test.same.register.value.types %lhs, %rhs : reg<test.i32 : tile<1xi32>>
+  return %result
+}
+
+// ====
+// RUN: verify
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @result_value_type_mismatch(%lhs: reg<test.i64 : tile<1xi32>>, %rhs: reg<test.i32 : tile<1xi32>>) -> (reg<test.i32 : tile<2xi32>>) asm {
+  // ERROR@+1: TYPE/001 {field_a="result", type_a="tile<2xi32>", field_b="lhs", type_b="tile<1xi32>"}
+  %result = test.same.register.value.types %lhs, %rhs : reg<test.i32 : tile<2xi32>>
+  return %result
+}
+
+// ====
+// RUN: verify
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @operand_value_type_mismatch(%lhs: reg<test.i64 : tile<1xi32>>, %rhs: reg<test.i32 : tile<2xi32>>) -> (reg<test.i32 : tile<1xi32>>) asm {
+  // ERROR@+1: TYPE/001 {field_a="lhs", type_a="tile<1xi32>", field_b="rhs", type_b="tile<2xi32>"}
+  %result = test.same.register.value.types %lhs, %rhs : reg<test.i32 : tile<1xi32>>
+  return %result
+}

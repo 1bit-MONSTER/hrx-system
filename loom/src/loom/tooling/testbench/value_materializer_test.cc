@@ -227,7 +227,7 @@ TEST_F(ValueMaterializerTest, MaterializesNarrowScalarLiterals) {
   case_plan.sample_count = 1;
 
   loom_testbench_value_table_t table = {};
-  IREE_ASSERT_OK(loom_testbench_value_table_initialize(
+  IREE_ASSERT_OK(loom_testbench_value_table_initialize_case(
       module, &case_plan, host_allocator_, &table));
   loom_testbench_value_materializer_options_t options = MaterializerOptions();
   IREE_ASSERT_OK(loom_testbench_materialize_case_sample(
@@ -256,6 +256,10 @@ check.case @generated {
   %fill = check.generate.fill value(1.5) : tensor<3xf32>
   %bf16 = check.generate.fill value(0.25) : tensor<2xbf16>
   %uniform = check.generate.random.uniform seed(%seed) range(-1.0 to 1.0) : tensor<4xf32>
+  %wide_up = check.generate.iota offset(-9223372036854775808) step(9223372036854775807) period(3) : tensor<5xi64>
+  %wide_down = check.generate.iota offset(9223372036854775807) step(-9223372036854775807) period(3) : tensor<5xi64>
+  %minimum_step = check.generate.iota offset(9223372036854775807) step(-9223372036854775808) period(2) : tensor<5xi64>
+  %wide_zero = check.generate.iota offset(-9223372036854775808) step(0) : tensor<5xi64>
   check.return
 }
 )");
@@ -266,14 +270,14 @@ check.case @generated {
   const loom_testbench_case_plan_t& case_plan = plan.cases[0];
 
   loom_testbench_value_table_t table = {};
-  IREE_ASSERT_OK(loom_testbench_value_table_initialize(
+  IREE_ASSERT_OK(loom_testbench_value_table_initialize_case(
       module, &case_plan, host_allocator_, &table));
   loom_testbench_value_materializer_options_t options = MaterializerOptions();
   IREE_ASSERT_OK(loom_testbench_materialize_case_sample(
       &options, &case_plan, /*sample_ordinal=*/1, &table));
 
   ASSERT_EQ(case_plan.parameter_count, 2u);
-  ASSERT_EQ(case_plan.value_source_count, 10u);
+  ASSERT_EQ(case_plan.value_source_count, 14u);
   loom_testbench_value_t scalar = {};
   IREE_ASSERT_OK(loom_testbench_value_table_lookup_retain(
       &table, case_plan.value_sources[0].value_id, &scalar));
@@ -359,6 +363,120 @@ check.case @generated {
   }
   loom_testbench_value_deinitialize(&uniform);
 
+  const std::vector<int64_t> expected_iotas[] = {
+      {INT64_MIN, -1, INT64_MAX - 1, INT64_MIN, -1},
+      {INT64_MAX, 0, -INT64_MAX, INT64_MAX, 0},
+      {INT64_MAX, -1, INT64_MAX, -1, INT64_MAX},
+      {INT64_MIN, INT64_MIN, INT64_MIN, INT64_MIN, INT64_MIN},
+  };
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(expected_iotas); ++i) {
+    loom_testbench_value_t value = {};
+    iree_hal_buffer_view_t* view = LookupBufferView(
+        &table, case_plan.value_sources[10 + i].value_id, &value);
+    ExpectBufferViewContents<int64_t>(view, {5}, IREE_HAL_ELEMENT_TYPE_SINT_64,
+                                      expected_iotas[i]);
+    loom_testbench_value_deinitialize(&value);
+  }
+
+  loom_testbench_value_table_deinitialize(&table);
+  loom_module_free(module);
+}
+
+TEST_F(ValueMaterializerTest, RejectsIotaOutsideElementRange) {
+  loom_module_t* module = ParseModule(R"(
+check.case @overflow_up {
+  %values = check.generate.iota offset(9223372036854775807) step(1) : tensor<2xi64>
+  check.return
+}
+check.case @overflow_down {
+  %values = check.generate.iota offset(-9223372036854775808) step(-1) : tensor<2xi64>
+  check.return
+}
+check.case @overflow_byte {
+  %values = check.generate.iota offset(-128) step(-1) : tensor<2xi8>
+  check.return
+}
+check.case @overflow_period {
+  %values = check.generate.iota offset(126) step(1) period(3) : tensor<4xi8>
+  check.return
+}
+)");
+  ASSERT_NE(module, nullptr);
+  loom_testbench_module_plan_t plan = PlanModule(module);
+  ASSERT_EQ(plan.case_count, 4u);
+  ASSERT_EQ(plan.issue_count, 0u);
+  loom_testbench_value_materializer_options_t options = MaterializerOptions();
+  for (iree_host_size_t i = 0; i < plan.case_count; ++i) {
+    loom_testbench_value_table_t table = {};
+    IREE_ASSERT_OK(loom_testbench_value_table_initialize_case(
+        module, &plan.cases[i], host_allocator_, &table));
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
+                          loom_testbench_materialize_case_sample(
+                              &options, &plan.cases[i], 0, &table));
+    loom_testbench_value_table_deinitialize(&table);
+  }
+  loom_module_free(module);
+}
+
+TEST_F(ValueMaterializerTest, MaterializesFullWidthRandomIntegers) {
+  loom_module_t* module = ParseModule(R"(
+check.case @wide_random {
+  %seed = check.param.seed base(7) count(1) : i64
+  %full = check.generate.random.uniform seed(%seed) range(-9223372036854775808 to 9223372036854775807) : tensor<128xi64>
+  %crossing = check.generate.random.uniform seed(%seed) range(-9223372036854775808 to 1) : tensor<128xi64>
+  %positive = check.generate.random.uniform seed(%seed) range(-1 to 9223372036854775807) : tensor<128xi64>
+  %minimum = check.generate.random.uniform seed(%seed) range(-9223372036854775808 to -9223372036854775808) : tensor<128xi64>
+  %maximum = check.generate.random.uniform seed(%seed) range(9223372036854775807 to 9223372036854775807) : tensor<128xi64>
+  %small = check.generate.random.uniform seed(%seed) range(-3 to 3) : tensor<128xi64>
+  check.return
+}
+)");
+  ASSERT_NE(module, nullptr);
+  loom_testbench_module_plan_t plan = PlanModule(module);
+  ASSERT_EQ(plan.case_count, 1u);
+  ASSERT_EQ(plan.issue_count, 0u);
+  const loom_testbench_case_plan_t& case_plan = plan.cases[0];
+  ASSERT_EQ(case_plan.value_source_count, 6u);
+  const int64_t lower[] = {INT64_MIN, INT64_MIN, -1, INT64_MIN, INT64_MAX, -3};
+  const int64_t upper[] = {INT64_MAX, 1, INT64_MAX, INT64_MIN, INT64_MAX, 3};
+  std::vector<std::vector<int64_t>> first_realization(6);
+
+  loom_testbench_value_table_t table = {};
+  IREE_ASSERT_OK(loom_testbench_value_table_initialize_case(
+      module, &case_plan, host_allocator_, &table));
+  loom_testbench_value_materializer_options_t options = MaterializerOptions();
+  for (int realization = 0; realization < 2; ++realization) {
+    loom_testbench_value_table_reset(&table);
+    IREE_ASSERT_OK(loom_testbench_materialize_case_sample(
+        &options, &case_plan, /*sample_ordinal=*/0, &table));
+    for (iree_host_size_t i = 0; i < case_plan.value_source_count; ++i) {
+      loom_testbench_value_t value = {};
+      iree_hal_buffer_view_t* view =
+          LookupBufferView(&table, case_plan.value_sources[i].value_id, &value);
+      std::vector<int64_t> contents(128);
+      IREE_ASSERT_OK(iree_hal_buffer_map_read(
+          iree_hal_buffer_view_buffer(view), /*source_offset=*/0,
+          contents.data(), contents.size() * sizeof(int64_t)));
+      bool has_negative = false;
+      bool has_positive = false;
+      for (int64_t element : contents) {
+        EXPECT_GE(element, lower[i]);
+        EXPECT_LE(element, upper[i]);
+        has_negative |= element < 0;
+        has_positive |= element > 0;
+      }
+      if (i == 0) {
+        EXPECT_TRUE(has_negative);
+        EXPECT_TRUE(has_positive);
+      }
+      if (realization == 0) {
+        first_realization[i] = contents;
+      } else {
+        EXPECT_EQ(contents, first_realization[i]);
+      }
+      loom_testbench_value_deinitialize(&value);
+    }
+  }
   loom_testbench_value_table_deinitialize(&table);
   loom_module_free(module);
 }
@@ -379,7 +497,7 @@ check.case @tensor_view {
   const loom_testbench_case_plan_t& case_plan = plan.cases[0];
 
   loom_testbench_value_table_t table = {};
-  IREE_ASSERT_OK(loom_testbench_value_table_initialize(
+  IREE_ASSERT_OK(loom_testbench_value_table_initialize_case(
       module, &case_plan, host_allocator_, &table));
   loom_testbench_value_materializer_options_t options = MaterializerOptions();
   IREE_ASSERT_OK(loom_testbench_materialize_case_sample(
@@ -421,7 +539,7 @@ check.case @tensor_view_out_of_range {
   const loom_testbench_case_plan_t& case_plan = plan.cases[0];
 
   loom_testbench_value_table_t table = {};
-  IREE_ASSERT_OK(loom_testbench_value_table_initialize(
+  IREE_ASSERT_OK(loom_testbench_value_table_initialize_case(
       module, &case_plan, host_allocator_, &table));
   loom_testbench_value_materializer_options_t options = MaterializerOptions();
   IREE_EXPECT_STATUS_IS(
@@ -458,7 +576,7 @@ check.case @sweep {
   EXPECT_TRUE(case_plan.sample_count_truncated);
 
   loom_testbench_value_table_t table = {};
-  IREE_ASSERT_OK(loom_testbench_value_table_initialize(
+  IREE_ASSERT_OK(loom_testbench_value_table_initialize_case(
       module, &case_plan, host_allocator_, &table));
   loom_testbench_value_materializer_options_t options = MaterializerOptions();
   IREE_ASSERT_OK(loom_testbench_materialize_case_sample(
@@ -499,7 +617,7 @@ check.case @file_io {
   const loom_testbench_case_plan_t& case_plan = plan.cases[0];
 
   loom_testbench_value_table_t table = {};
-  IREE_ASSERT_OK(loom_testbench_value_table_initialize(
+  IREE_ASSERT_OK(loom_testbench_value_table_initialize_case(
       module, &case_plan, host_allocator_, &table));
   loom_testbench_value_materializer_options_t options = MaterializerOptions();
   IREE_ASSERT_OK(loom_testbench_materialize_case_sample(

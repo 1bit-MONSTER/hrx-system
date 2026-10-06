@@ -14,14 +14,25 @@ load(
     "LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY",
     "LOOM_AMDGPU_DESCRIPTOR_SET_DEFINES",
     "LOOM_AMDGPU_DESCRIPTOR_SET_GENERATOR_TARGETS",
+    "LOOM_AMDGPU_TARGET_CAPABILITIES_BY_REPRESENTATION_CAPABILITY",
 )
 
 _INCOMPATIBLE_TARGET = ["@platforms//:incompatible"]
 
-def _descriptor_set_config_label(capability):
+def _descriptor_set_config_label(capability, prefix = ""):
     if capability not in LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITIES:
         fail("Unknown Loom AMDGPU descriptor-set capability: {}".format(capability))
+    if prefix:
+        capability = prefix + "_" + capability
     return "//loom/config/target/amdgpu:" + capability
+
+def _descriptor_set_capabilities_compatible_with(capabilities, prefix = ""):
+    compatibility = {
+        "//conditions:default": _INCOMPATIBLE_TARGET,
+    }
+    for capability in capabilities:
+        compatibility[_descriptor_set_config_label(capability, prefix)] = []
+    return select(compatibility)
 
 def loom_amdgpu_descriptor_set_compatible_with(capability):
     """Returns target compatibility for a selected descriptor-set capability.
@@ -31,6 +42,26 @@ def loom_amdgpu_descriptor_set_compatible_with(capability):
       `capability` is selected by Loom's AMDGPU target configuration.
     """
     return loom_config_compatible_with([_descriptor_set_config_label(capability)])
+
+def loom_amdgpu_iree_hal_representation_compatible_with(capability):
+    """Returns compatibility with IREE HAL targets supporting a representation.
+
+    Args:
+      capability: Descriptor-set capability used as the source representation.
+
+    Returns:
+      A `target_compatible_with` value for every IREE HAL-selected target
+      contract that can consume the representation.
+    """
+    target_capabilities = LOOM_AMDGPU_TARGET_CAPABILITIES_BY_REPRESENTATION_CAPABILITY.get(
+        capability,
+    )
+    if not target_capabilities:
+        fail("Unknown Loom AMDGPU representation capability: {}".format(capability))
+    return _descriptor_set_capabilities_compatible_with(
+        target_capabilities,
+        prefix = "iree_hal",
+    )
 
 def loom_amdgpu_descriptor_table_compatible_with(storage_generator_target):
     """Returns compatibility for contracts backed by a descriptor table.
@@ -50,12 +81,7 @@ def loom_amdgpu_descriptor_table_compatible_with(storage_generator_target):
     )
     if not capabilities:
         fail("Unknown AMDGPU descriptor storage target: {}".format(storage_generator_target))
-    compatibility = {
-        "//conditions:default": _INCOMPATIBLE_TARGET,
-    }
-    for capability in capabilities:
-        compatibility[_descriptor_set_config_label(capability)] = []
-    return select(compatibility)
+    return _descriptor_set_capabilities_compatible_with(capabilities)
 
 def loom_amdgpu_selected_descriptor_set_defines():
     """Returns C defines for the selected descriptor-set capabilities.

@@ -19,9 +19,9 @@ func.def @add_i32(%value: i32, %delta: i32) -> (i32) {
 // ----
 low.func.def public target<amd.xdna.aie2p.core> abi(object_function) @call_mixed_i32(%input: reg<aie2p.vec256 x2>, %delta: reg<aie2p.er>) -> (reg<aie2p.er>, reg<aie2p.er>) asm {
   %value = vextract.32.imm %input, 0
-  %31, %32 = add.carry %value, %delta
-  %41, %42 = add.carry %delta, %delta
-  return %31, %41
+  %result$25 = add.rr %value, %delta
+  %result$26 = add.rr %delta, %delta
+  return %result$25, %result$26
 }
 
 // ====

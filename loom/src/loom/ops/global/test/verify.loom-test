@@ -89,6 +89,32 @@ global.rodata.def @bad_rodata_alignment = align(3) bytes("00")
 
 // ====
 
+// Empty conflict sets use the absent optional form.
+// ERROR@+1: STRUCTURE/014 "bank_conflicts" "0" "non-empty symbol set"
+global.rodata.def @empty_conflicts = conflicts([]) bytes("00")
+
+// ====
+
+// A definition cannot conflict with itself.
+// ERROR@+1: SYMBOL/006 "bank_conflicts" "self_conflict" "self_conflict" "cannot conflict with itself"
+global.rodata.def @self_conflict = conflicts([@self_conflict]) bytes("00")
+
+// ====
+
+// Bank-conflict relations must be reciprocal.
+// ERROR@+1: SYMBOL/006 "bank_conflicts" "one_sided" "unconstrained" "does not reciprocate"
+global.rodata.def @one_sided = conflicts([@unconstrained]) bytes("00")
+global.rodata.def @unconstrained = bytes("00")
+
+// ====
+
+// Externally supplied data has no compiler-owned bank placement.
+global.rodata.decl @external_data
+// ERROR@+1: SYMBOL/006 "bank_conflicts" "conflicts_with_decl" "external_data" "not a read-only data definition"
+global.rodata.def @conflicts_with_decl = conflicts([@external_data]) bytes("00")
+
+// ====
+
 // Read-only data materializes as exactly one buffer root.
 global.rodata.def @message = bytes("6c6f6f6d")
 
@@ -139,3 +165,21 @@ func.def @view_global_load() {
   %view, %m, %layout = global.load @view_state : view<[%m]xf32, %layout>
   func.return
 }
+
+// ====
+
+// Global predicates constrain declaration-local dynamic dimensions in their
+// retained index domain.
+// ERROR@+1: TYPE/003 "predicates[0].arg[0]" "index" "floating-point scalar"
+global.constant @bad_dimension_predicate : tile<[%n]xf32> where [finite(%n)]
+
+// ====
+
+// The first predicate value identifies the dynamic dimension whose facts are
+// transported to each load.
+// ERROR@+1: STRUCTURE/032 {op_name="global.variable", field_name="predicates[0].arg[0]", required_origin="a declaration-local dynamic dimension"}
+global.variable @constant_first_predicate : tile<[%n]xf32> where [eq(4, %n)]
+
+// ====
+
+global.constant @valid_dimension_predicate : tile<[%m]x[%n]xf32> where [range(%m, 1, 4096), le(%m, %n)]

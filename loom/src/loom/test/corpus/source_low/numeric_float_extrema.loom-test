@@ -1,0 +1,35 @@
+func.def @float_extrema_f32(%lhs: f32, %rhs: f32) -> (f32, f32, f32, f32) {
+  %minimum = scalar.minimumf %lhs, %rhs : f32
+  %maximum = scalar.maximumf %lhs, %rhs : f32
+  %minnum = scalar.minnumf %lhs, %rhs : f32
+  %maxnum = scalar.maxnumf %lhs, %rhs : f32
+  func.return %minimum, %maximum, %minnum, %maxnum : f32, f32, f32, f32
+}
+
+// ====
+
+func.def @float_extrema_uniform(%lhs_bits: i32, %rhs_bits: i32) -> (f32, f32) {
+  %lhs = scalar.bitcast %lhs_bits : i32 to f32
+  %rhs = scalar.bitcast %rhs_bits : i32 to f32
+  %minimum = scalar.minnumf %lhs, %rhs : f32
+  %maximum = scalar.maxnumf %lhs, %rhs : f32
+  func.return %minimum, %maximum : f32, f32
+}
+
+// ====
+
+func.def @float_extrema_no_nan(%lhs: f32, %rhs: f32) -> (f32, f32, f32) {
+  %minimum = scalar.minnumf<nnan> %lhs, %rhs : f32
+  %maximum = scalar.maxnumf<nnan> %lhs, %rhs : f32
+  %upper_bound = scalar.constant 1.0 : f32
+  %bounded = scalar.minnumf<nnan> %lhs, %upper_bound : f32
+  func.return %minimum, %maximum, %bounded : f32, f32, f32
+}
+
+// ====
+
+func.def @float_extrema_vector(%lhs: vector<2xf32>, %rhs: vector<2xf32>) -> (vector<2xf32>, vector<2xf32>) {
+  %minimum = vector.minnumf %lhs, %rhs : vector<2xf32>
+  %maximum = vector.maxnumf %lhs, %rhs : vector<2xf32>
+  func.return %minimum, %maximum : vector<2xf32>, vector<2xf32>
+}

@@ -6,7 +6,6 @@
 
 #include "loom/target/arch/amdgpu/check/occupancy.h"
 
-#include "loom/codegen/low/target_binding.h"
 #include "loom/target/arch/amdgpu/planning/occupancy.h"
 #include "loom/target/arch/amdgpu/planning/storage_lease.h"
 #include "loom/tools/loom-check/diagnostics.h"
@@ -29,10 +28,7 @@ typedef struct loom_amdgpu_occupancy_check_emit_options_t {
   // Number of entries in |allocation_budgets|.
   iree_host_size_t allocation_budget_count;
   // Fixed low allocation requests parsed from target options.
-  loom_check_low_emit_fixed_value_spec_t allocation_fixed_value_specs
-      [LOOM_CHECK_LOW_EMIT_MAX_ALLOCATION_FIXED_VALUES];
-  // Number of entries in |allocation_fixed_value_specs|.
-  iree_host_size_t allocation_fixed_value_spec_count;
+  loom_check_low_emit_fixed_value_spec_list_t allocation_fixed_values;
 } loom_amdgpu_occupancy_check_emit_options_t;
 
 static bool loom_amdgpu_occupancy_check_emit_provider_matches(
@@ -107,9 +103,7 @@ static iree_status_t loom_amdgpu_occupancy_check_parse_option(
   return loom_check_low_emit_parse_allocation_option(
       token, IREE_SV("AMDGPU occupancy"), options->allocation_budgets,
       IREE_ARRAYSIZE(options->allocation_budgets),
-      &options->allocation_budget_count, options->allocation_fixed_value_specs,
-      IREE_ARRAYSIZE(options->allocation_fixed_value_specs),
-      &options->allocation_fixed_value_spec_count);
+      &options->allocation_budget_count, &options->allocation_fixed_values);
 }
 
 static iree_status_t loom_amdgpu_occupancy_check_parse_emit_options(
@@ -134,6 +128,8 @@ static iree_status_t loom_amdgpu_occupancy_check_parse_emit_options(
   out_options->function_symbol_name =
       iree_string_view_substr(symbol_name, 1, IREE_HOST_SIZE_MAX);
 
+  IREE_RETURN_IF_ERROR(loom_check_low_emit_fixed_value_spec_list_initialize(
+      option_text, request->case_arena, &out_options->allocation_fixed_values));
   while (!iree_string_view_is_empty(option_text)) {
     iree_string_view_t token = iree_string_view_empty();
     iree_string_view_t remaining = iree_string_view_empty();
@@ -148,46 +144,6 @@ static iree_status_t loom_amdgpu_occupancy_check_parse_emit_options(
   return iree_ok_status();
 }
 
-static iree_status_t loom_amdgpu_occupancy_check_resolve_residency_model(
-    const loom_check_emit_provider_request_t* request,
-    iree_string_view_t function_symbol_name,
-    const loom_target_residency_model_t** out_residency_model) {
-  *out_residency_model = NULL;
-  loom_check_diagnostic_emitter_capture_t diagnostic_capture = {
-      .diagnostic_collector = request->diagnostic_collector,
-      .module = request->module,
-      .source_resolver = request->source_resolver,
-      .emitter = LOOM_EMITTER_PASS,
-  };
-  iree_diagnostic_emitter_t emitter = {0};
-  if (request->diagnostic_collector != NULL) {
-    emitter = (iree_diagnostic_emitter_t){
-        .fn = loom_check_diagnostic_emitter_capture_emit,
-        .user_data = &diagnostic_capture,
-    };
-  }
-  loom_op_t* low_function = NULL;
-  IREE_RETURN_IF_ERROR(loom_check_low_emit_find_low_function_def(
-      request->module, function_symbol_name, request->test_case,
-      request->filename, request->diagnostic_collector, emitter,
-      &low_function));
-  if (!low_function) {
-    return iree_ok_status();
-  }
-  loom_symbol_fact_table_t symbol_facts = {0};
-  loom_symbol_fact_table_initialize(&symbol_facts, request->case_arena);
-  loom_low_resolved_target_t target = {0};
-  IREE_RETURN_IF_ERROR(loom_low_resolve_function_target(
-      request->module, &symbol_facts, low_function,
-      /*function_target_facts=*/NULL, &request->low_registry->registry, emitter,
-      &target));
-  if (target.descriptor_set == NULL) {
-    return iree_ok_status();
-  }
-  *out_residency_model = loom_amdgpu_occupancy_residency_model(&target);
-  return iree_ok_status();
-}
-
 static iree_status_t loom_amdgpu_occupancy_check_emit_provider_execute(
     const loom_check_emit_provider_t* provider,
     const loom_check_emit_provider_request_t* request) {
@@ -197,26 +153,26 @@ static iree_status_t loom_amdgpu_occupancy_check_emit_provider_execute(
       loom_amdgpu_occupancy_check_parse_emit_options(request, &options));
 
   loom_low_emission_frame_t frame = {0};
+  bool frame_accepted = false;
   loom_low_storage_lease_provider_t storage_lease_provider = {0};
   loom_amdgpu_storage_lease_provider(&storage_lease_provider);
-  const loom_target_residency_model_t* residency_model = NULL;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_occupancy_check_resolve_residency_model(
-      request, options.function_symbol_name, &residency_model));
   IREE_RETURN_IF_ERROR(loom_check_low_emit_packetize_function(
       request, options.function_symbol_name, options.schedule_strategy,
       /*schedule_diagnostic_flags=*/0,
       /*allocation_diagnostic_flags=*/0, options.allocation_budgets,
-      options.allocation_budget_count, options.allocation_fixed_value_specs,
-      options.allocation_fixed_value_spec_count, residency_model,
+      options.allocation_budget_count, options.allocation_fixed_values.specs,
+      options.allocation_fixed_values.count,
+      loom_amdgpu_occupancy_residency_view,
       loom_low_schedule_pair_affinity_list_empty(),
       loom_low_schedule_structural_state_read_list_empty(),
       &storage_lease_provider,
-      /*spill_free_options=*/NULL, &frame));
+      /*spill_free_options=*/NULL, &frame, &frame_accepted));
   if (request->diagnostic_collector != NULL &&
-      request->diagnostic_collector->count != 0) {
+      loom_check_diagnostic_collector_has_error(
+          request->diagnostic_collector)) {
     return iree_ok_status();
   }
-  if (frame.schedule.error_count != 0 || frame.allocation.error_count != 0) {
+  if (!frame_accepted) {
     return iree_ok_status();
   }
 

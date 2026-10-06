@@ -1,0 +1,273 @@
+// RUN: with-checks emit aie2p-array-plan @wide_fold
+
+// A 4 KiB sum stays private while 16 KiB inputs advance through two ring slots.
+// One counted span keeps accumulator immediates within 0..192.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @wide_fold() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %capacity = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %panels = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %records = constant.u32 9 : reg<aie2p.array.scalar : index>
+  %group = group %one
+  %worker = worker.fold %group, %zero, %panels, @copy_tile, 1, 1, "addf", 0
+  %input = binding 0, "read"
+  %output = binding 1, "write"
+  %source = sender %input, 0 : reg<aie2p.array.sender : tile<4096xf32>>
+  %worker_input = receiver %worker, 0 : reg<aie2p.array.receiver : tile<4096xf32>>
+  %worker_output = sender %worker, 1 : reg<aie2p.array.sender : tile<1024xf32>>
+  %target = receiver %output, 0 : reg<aie2p.array.receiver : tile<1024xf32>>
+  %input_channel = channel %source, %worker_input, %capacity, %records : reg<aie2p.array.channel : tile<4096xf32>>
+  %output_channel = channel %worker_output, %target, %capacity, %panels : reg<aie2p.array.channel : tile<1024xf32>>
+  constrain.location %worker, %zero, %capacity
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @copy_tile() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %output = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %zero = mov.short 0
+  %step = mov.i32 64
+  %end = mov.i32 4096
+  low.br ^copy(%zero: reg<aie2p.er>)
+^copy(%offset: reg<aie2p.er>):
+  %index = mov.address-index %offset
+  %value = vlda.acc.index %input, %index
+  vst.acc.index %value, %output, %index
+  %next = add.rr %offset, %step
+  %more = lt %next, %end
+  low.cond_br %more, ^advance, ^done : reg<aie2p.er>
+^advance:
+  low.br ^copy(%next: reg<aie2p.er>)
+^done:
+  return
+}
+
+// ----
+CHECK: worker-fold-state worker=0 offset=0x0c000 load-address=0x7c000 bytes=4096 spans=1
+CHECK: fold-span worker=0 index=0 output=0 output-offset=0 state-offset=0 bytes=256 repeat=16
+CHECK: slot channel=0 index=0 owner=(0,2) offset=0x00000 bytes=16384 sender=external receiver=0x70000
+CHECK: slot channel=0 index=1 owner=(0,2) offset=0x04000 bytes=16384 sender=external receiver=0x74000
+CHECK: slot channel=1 index=0 owner=(0,2) offset=0x08000 bytes=4096 sender=0x78000 receiver=external
+CHECK: slot channel=1 index=1 owner=(0,2) offset=0x0d000 bytes=4096 sender=0x7d000 receiver=external
+CHECK: binding-patch ordinal=1 * span=12288 transfer=12288 repeat=1 completion-route=0
+CHECK: resident worker=0 * resources=0 *
+CHECK: * = mov.local-address 507904
+CHECK: * = vadd.f32x64 *
+CHECK-NOT: * = resource*
+CHECK-NOT: * = mov.local-address 511744
+CHECK-NOT: * = vlda.acc *, 3840
+CHECK-NOT: vst.acc *, 3840
+
+// ====
+// RUN: with-checks emit aie2p-array-plan @large_fold
+
+// A 16 KiB output uses the same counted transfer body as the 4 KiB case.
+// Output-first rings occupy two full banks; both 4 KiB input slots fit in the
+// remaining streaming bank, separate from the 16 KiB private sum bank.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @large_fold() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %capacity = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %panels = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %records = constant.u32 24 : reg<aie2p.array.scalar : index>
+  %outputs = constant.u32 8 : reg<aie2p.array.scalar : index>
+  %group = group %one
+  %worker = worker.fold %group, %zero, %panels, @expand_tile, 1, 1, "addf", 0
+  %input = binding 0, "read"
+  %output = binding 1, "write"
+  %source = sender %input, 0 : reg<aie2p.array.sender : tile<1024xf32>>
+  %worker_input = receiver %worker, 0 : reg<aie2p.array.receiver : tile<1024xf32>>
+  %worker_output = sender %worker, 1 : reg<aie2p.array.sender : tile<4096xf32>>
+  %target = receiver %output, 0 : reg<aie2p.array.receiver : tile<4096xf32>>
+  %output_channel = channel %worker_output, %target, %capacity, %outputs : reg<aie2p.array.channel : tile<4096xf32>>
+  %input_channel = channel %source, %worker_input, %capacity, %records : reg<aie2p.array.channel : tile<1024xf32>>
+  constrain.location %worker, %zero, %capacity
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @expand_tile() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %output = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %zero = mov.short 0
+  %step = mov.i32 64
+  %end = mov.i32 16384
+  %input_mask = mov.i32 4095
+  low.br ^copy(%zero: reg<aie2p.er>)
+^copy(%offset: reg<aie2p.er>):
+  %input_offset = and %offset, %input_mask
+  %input_index = mov.address-index %input_offset
+  %output_index = mov.address-index %offset
+  %value = vlda.acc.index %input, %input_index
+  vst.acc.index %value, %output, %output_index
+  %next = add.rr %offset, %step
+  %more = lt %next, %end
+  low.cond_br %more, ^advance, ^done : reg<aie2p.er>
+^advance:
+  low.br ^copy(%next: reg<aie2p.er>)
+^done:
+  return
+}
+
+// ----
+CHECK: worker-fold-state worker=0 offset=0x0c000 load-address=0x7c000 bytes=16384 spans=1
+CHECK: fold-span worker=0 index=0 output=0 output-offset=0 state-offset=0 bytes=256 repeat=64
+CHECK: slot channel=0 index=0 owner=(0,2) offset=0x00000 bytes=16384 sender=0x70000 receiver=external
+CHECK: slot channel=0 index=1 owner=(0,2) offset=0x04000 bytes=16384 sender=0x74000 receiver=external
+CHECK: slot channel=1 index=0 owner=(0,2) offset=0x08000 bytes=4096 sender=external receiver=0x78000
+CHECK: slot channel=1 index=1 owner=(0,2) offset=0x09000 bytes=4096 sender=external receiver=0x79000
+CHECK: binding-patch ordinal=1 * span=131072 transfer=131072 repeat=1 completion-route=0
+CHECK: resident worker=0 * resources=0 *
+CHECK: * = mov.local-address 507904
+CHECK: * = vadd.f32x64 *
+CHECK-NOT: * = resource*
+CHECK-NOT: * = mov.local-address 524032
+CHECK-NOT: * = vlda.acc *, 16128
+CHECK-NOT: vst.acc *, 16128
+
+// ====
+// RUN: with-checks emit aie2p-array-plan @mixed_fold
+
+// A scalar followed by an 80-F32 output needs aligned private state and a
+// 16-F32 tail. Source-private storage remains independently linked and usable.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @mixed_fold() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %two = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %records = constant.u32 6 : reg<aie2p.array.scalar : index>
+  %outputs = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %group = group %one
+  %worker = worker.fold %group, %zero, %two, @copy_mixed, 1, 2, "addf", 0
+  %input = binding 0, "read"
+  %scalar_output = binding 1, "write"
+  %tile_output = binding 2, "write"
+  %source = sender %input, 0 : reg<aie2p.array.sender : tile<80xf32>>
+  %worker_input = receiver %worker, 0 : reg<aie2p.array.receiver : tile<80xf32>>
+  %worker_scalar = sender %worker, 1 : reg<aie2p.array.sender : tile<1xf32>>
+  %scalar_target = receiver %scalar_output, 0 : reg<aie2p.array.receiver : tile<1xf32>>
+  %worker_tile = sender %worker, 2 : reg<aie2p.array.sender : tile<80xf32>>
+  %tile_target = receiver %tile_output, 0 : reg<aie2p.array.receiver : tile<80xf32>>
+  %input_channel = channel %source, %worker_input, %two, %records : reg<aie2p.array.channel : tile<80xf32>>
+  %scalar_channel = channel %worker_scalar, %scalar_target, %two, %outputs : reg<aie2p.array.channel : tile<1xf32>>
+  %tile_channel = channel %worker_tile, %tile_target, %two, %outputs : reg<aie2p.array.channel : tile<80xf32>>
+  constrain.location %worker, %zero, %two
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @copy_mixed() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %scalar = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %output = resource<native_pointer> {index = 2, source_type = buffer} : reg<aie2p.ep>
+  %allocation = storage {byte_alignment = 64, byte_length = 64} : low.storage<workgroup>
+  %scratch = storage_address %allocation : low.storage<workgroup> -> reg<aie2p.ep>
+  %scalar_value = lda %input, 0
+  st %scalar_value, %scratch, 0
+  %stored_value = lda %scratch, 0
+  st %stored_value, %scalar, 0
+  %first = vlda.acc %input, 0
+  %second = vlda.acc %input, 64
+  %third = vlda.acc %input, 128
+  %fourth = vlda.acc %input, 192
+  %fifth = vlda.acc %input, 256
+  vst.acc %first, %output, 0
+  vst.acc %second, %output, 64
+  vst.acc %third, %output, 128
+  vst.acc %fourth, %output, 192
+  vst.acc %fifth, %output, 256
+  return
+}
+
+// ----
+CHECK: worker-storage worker=0 space=3 offset=0x0c000 load-address=0x7c000 bytes=64
+CHECK: worker-fold-state worker=0 offset=0x0c040 load-address=0x7c040 bytes=384 spans=3
+CHECK: fold-span worker=0 index=0 output=0 output-offset=0 state-offset=0 bytes=4 repeat=1
+CHECK: fold-span worker=0 index=1 output=1 output-offset=0 state-offset=64 bytes=256 repeat=1
+CHECK: fold-span worker=0 index=2 output=1 output-offset=256 state-offset=320 bytes=64 repeat=1
+CHECK: %allocation = storage {byte_alignment = 64, byte_length = 64} : low.storage<workgroup>
+CHECK: %scratch = storage_address %allocation : low.storage<workgroup> -> reg<aie2p.ep>
+CHECK: %stored_value = lda %scratch, 0
+CHECK: st %stored_value, %scalar, 0
+CHECK: resident worker=0 * resources=0 *
+
+// ====
+// RUN: with-checks emit aie2p-array-plan @mixed_repeated_fold
+
+// A scalar, two full vectors and a tail exercise both span transitions after
+// the counted backedge while preserving source-private storage ownership.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @mixed_repeated_fold() asm {
+  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %two = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %records = constant.u32 6 : reg<aie2p.array.scalar : index>
+  %outputs = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %group = group %one
+  %worker = worker.fold %group, %zero, %two, @copy_mixed_repeated, 1, 2, "addf", 0
+  %input = binding 0, "read"
+  %scalar_output = binding 1, "write"
+  %tile_output = binding 2, "write"
+  %source = sender %input, 0 : reg<aie2p.array.sender : tile<144xf32>>
+  %worker_input = receiver %worker, 0 : reg<aie2p.array.receiver : tile<144xf32>>
+  %worker_scalar = sender %worker, 1 : reg<aie2p.array.sender : tile<1xf32>>
+  %scalar_target = receiver %scalar_output, 0 : reg<aie2p.array.receiver : tile<1xf32>>
+  %worker_tile = sender %worker, 2 : reg<aie2p.array.sender : tile<144xf32>>
+  %tile_target = receiver %tile_output, 0 : reg<aie2p.array.receiver : tile<144xf32>>
+  %input_channel = channel %source, %worker_input, %two, %records : reg<aie2p.array.channel : tile<144xf32>>
+  %scalar_channel = channel %worker_scalar, %scalar_target, %two, %outputs : reg<aie2p.array.channel : tile<1xf32>>
+  %tile_channel = channel %worker_tile, %tile_target, %two, %outputs : reg<aie2p.array.channel : tile<144xf32>>
+  constrain.location %worker, %zero, %two
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @copy_mixed_repeated() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %scalar = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %output = resource<native_pointer> {index = 2, source_type = buffer} : reg<aie2p.ep>
+  %allocation = storage {byte_alignment = 64, byte_length = 64} : low.storage<workgroup>
+  %scratch = storage_address %allocation : low.storage<workgroup> -> reg<aie2p.ep>
+  %scalar_value = lda %input, 0
+  st %scalar_value, %scratch, 0
+  %stored_value = lda %scratch, 0
+  st %stored_value, %scalar, 0
+  %zero = mov.short 0
+  %step = mov.i32 64
+  %end = mov.i32 576
+  low.br ^copy(%zero: reg<aie2p.er>)
+^copy(%offset: reg<aie2p.er>):
+  %index = mov.address-index %offset
+  %value = vlda.acc.index %input, %index
+  vst.acc.index %value, %output, %index
+  %next = add.rr %offset, %step
+  %more = lt %next, %end
+  low.cond_br %more, ^advance, ^done : reg<aie2p.er>
+^advance:
+  low.br ^copy(%next: reg<aie2p.er>)
+^done:
+  return
+}
+
+// ----
+CHECK: worker-storage worker=0 space=3 offset=0x0c000 load-address=0x7c000 bytes=64
+CHECK: worker-fold-state worker=0 offset=0x0c040 load-address=0x7c040 bytes=640 spans=3
+CHECK: fold-span worker=0 index=0 output=0 output-offset=0 state-offset=0 bytes=4 repeat=1
+CHECK: fold-span worker=0 index=1 output=1 output-offset=0 state-offset=64 bytes=256 repeat=2
+CHECK: fold-span worker=0 index=2 output=1 output-offset=512 state-offset=576 bytes=64 repeat=1
+CHECK: %allocation = storage {byte_alignment = 64, byte_length = 64} : low.storage<workgroup>
+CHECK: %scratch = storage_address %allocation : low.storage<workgroup> -> reg<aie2p.ep>
+CHECK: %stored_value = lda %scratch, 0
+CHECK: st %stored_value, %scalar, 0
+CHECK: resident worker=0 * resources=0 *

@@ -272,6 +272,8 @@ static loom_target_math_op_t loom_math_legalize_scalar_op_kind(
       return loom_math_legalize_scalar_geluf_op(op);
     case LOOM_OP_SCALAR_ADDF:
       return LOOM_TARGET_MATH_OP_ADDF;
+    case LOOM_OP_SCALAR_SUBF:
+      return LOOM_TARGET_MATH_OP_SUBF;
     case LOOM_OP_SCALAR_MULF:
       return LOOM_TARGET_MATH_OP_MULF;
     default:
@@ -322,6 +324,8 @@ static loom_target_math_op_t loom_math_legalize_vector_op_kind(
       return loom_math_legalize_vector_geluf_op(op);
     case LOOM_OP_VECTOR_ADDF:
       return LOOM_TARGET_MATH_OP_ADDF;
+    case LOOM_OP_VECTOR_SUBF:
+      return LOOM_TARGET_MATH_OP_SUBF;
     case LOOM_OP_VECTOR_MULF:
       return LOOM_TARGET_MATH_OP_MULF;
     default:
@@ -484,11 +488,10 @@ static bool loom_math_legalize_policy_action_is_known(
   return false;
 }
 
-static iree_status_t loom_math_legalize_rewrite_op(
-    void* user_data, loom_greedy_rewrite_driver_t* driver, loom_op_t* op,
-    loom_greedy_rewrite_result_t* result, bool* out_changed) {
+static iree_status_t loom_math_legalize_rewrite(
+    loom_math_legalize_state_t* state, loom_rewriter_t* rewriter, loom_op_t* op,
+    bool* out_changed) {
   *out_changed = false;
-  loom_math_legalize_state_t* state = (loom_math_legalize_state_t*)user_data;
   if (loom_pass_has_error_diagnostics(state->pass)) {
     return iree_ok_status();
   }
@@ -530,12 +533,12 @@ static iree_status_t loom_math_legalize_rewrite_op(
       .query = query,
       .decision = decision,
   };
-  driver->rewriter.flags = 0;
-  const uint64_t created_op_count_before = driver->rewriter.created_op_count;
-  const uint64_t erased_op_count_before = driver->rewriter.erased_op_count;
+  rewriter->flags = 0;
+  const uint64_t created_op_count_before = rewriter->created_op_count;
+  const uint64_t erased_op_count_before = rewriter->erased_op_count;
   bool rewritten = false;
-  IREE_RETURN_IF_ERROR(loom_math_legalize_rewrite_recipe(
-      &context, op, &driver->rewriter, &rewritten));
+  IREE_RETURN_IF_ERROR(
+      loom_math_legalize_rewrite_recipe(&context, op, rewriter, &rewritten));
   if (!rewritten) {
     IREE_RETURN_IF_ERROR(loom_math_legalize_record_report_row(
         state, op, &query, &decision,
@@ -546,16 +549,293 @@ static iree_status_t loom_math_legalize_rewrite_op(
   IREE_RETURN_IF_ERROR(loom_math_legalize_record_report_row(
       state, op, &query, &decision,
       LOOM_TARGET_COMPILE_REPORT_MATH_ACTION_REWRITTEN,
-      driver->rewriter.created_op_count - created_op_count_before,
-      driver->rewriter.erased_op_count - erased_op_count_before));
-  loom_greedy_rewrite_result_record_rewriter_flags(result, &driver->rewriter);
-  if (iree_any_bit_set(driver->rewriter.flags, LOOM_REWRITER_FLAG_CHANGED)) {
+      rewriter->created_op_count - created_op_count_before,
+      rewriter->erased_op_count - erased_op_count_before));
+  *out_changed = true;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_math_legalize_rewrite_op(
+    void* user_data, loom_greedy_rewrite_driver_t* driver, loom_op_t* op,
+    loom_greedy_rewrite_result_t* result, bool* out_changed) {
+  IREE_RETURN_IF_ERROR(
+      loom_math_legalize_rewrite((loom_math_legalize_state_t*)user_data,
+                                 &driver->rewriter, op, out_changed));
+  if (*out_changed) {
+    loom_greedy_rewrite_result_record_rewriter_flags(result, &driver->rewriter);
     loom_greedy_rewrite_result_record_change(
         result, &driver->rewriter,
         LOOM_GREEDY_REWRITE_CHANGE_FLAG_COUNT_MODIFIED_OP);
-    *out_changed = true;
   }
   return iree_ok_status();
+}
+
+static iree_status_t loom_math_target_legalize_binary(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (!context->rewriter->math_policy) {
+    return iree_ok_status();
+  }
+  loom_math_legalize_state_t state = {
+      .pass = context->pass,
+      .module = context->module,
+      .function = context->function,
+      .target_facts = context->target_facts,
+      .policy = context->rewriter->math_policy,
+      .compile_report = loom_target_math_pass_capability_compile_report(
+          loom_target_math_pass_capability_from_pass(context->pass)),
+  };
+  bool changed = false;
+  IREE_RETURN_IF_ERROR(
+      loom_math_legalize_rewrite(&state, context->rewriter, op, &changed));
+  if (changed) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  }
+  return iree_ok_status();
+}
+
+typedef iree_status_t (*loom_math_conversion_builder_fn_t)(
+    loom_builder_t* builder, loom_value_id_t input, loom_type_t input_type,
+    loom_type_t result_type, loom_location_id_t location, loom_op_t** out_op);
+typedef iree_status_t (*loom_math_binary_builder_fn_t)(
+    loom_builder_t* builder, loom_value_id_t lhs, loom_value_id_t rhs,
+    loom_type_t result_type, loom_location_id_t location, loom_op_t** out_op);
+typedef iree_status_t (*loom_math_constant_builder_fn_t)(
+    loom_builder_t* builder, loom_attribute_t value, loom_type_t result_type,
+    loom_location_id_t location, loom_op_t** out_op);
+
+typedef struct loom_math_sign_builders_t {
+  // Builds an equal-width integer/floating-point representation change.
+  loom_math_conversion_builder_fn_t bitcast;
+  // Builds the sign or magnitude mask.
+  loom_math_constant_builder_fn_t constant;
+  // Clears all bits outside the selected mask.
+  loom_math_binary_builder_fn_t bitwise_and;
+  // Joins the magnitude and sign fields.
+  loom_math_binary_builder_fn_t bitwise_or;
+  // Toggles the sign field.
+  loom_math_binary_builder_fn_t bitwise_xor;
+} loom_math_sign_builders_t;
+
+static iree_status_t loom_math_build_conversion(
+    loom_math_conversion_builder_fn_t build, loom_builder_t* builder,
+    loom_location_id_t location, loom_value_id_t input, loom_type_t input_type,
+    loom_type_t result_type, loom_value_id_t* out_result) {
+  loom_op_t* op = NULL;
+  IREE_RETURN_IF_ERROR(
+      build(builder, input, input_type, result_type, location, &op));
+  *out_result = loom_op_results(op)[0];
+  return iree_ok_status();
+}
+
+static iree_status_t loom_math_build_binary(
+    loom_math_binary_builder_fn_t build, loom_builder_t* builder,
+    loom_location_id_t location, loom_value_id_t lhs, loom_value_id_t rhs,
+    loom_type_t result_type, loom_value_id_t* out_result) {
+  loom_op_t* op = NULL;
+  IREE_RETURN_IF_ERROR(build(builder, lhs, rhs, result_type, location, &op));
+  *out_result = loom_op_results(op)[0];
+  return iree_ok_status();
+}
+
+static iree_status_t loom_math_build_integer_constant(
+    loom_math_constant_builder_fn_t build, loom_builder_t* builder,
+    loom_location_id_t location, loom_type_t result_type, int64_t value,
+    loom_value_id_t* out_result) {
+  loom_op_t* op = NULL;
+  IREE_RETURN_IF_ERROR(
+      build(builder, loom_attr_i64(value), result_type, location, &op));
+  *out_result = loom_op_results(op)[0];
+  return iree_ok_status();
+}
+
+// Exact sign operations only change the sign field, preserving zero,
+// infinity, subnormal, and NaN payload encodings. Target contracts are queried
+// before this portable recipe, so native scalar and packed vector forms remain
+// preferred wherever they exist.
+static iree_status_t loom_math_target_legalize_narrow_float_sign(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+
+  const loom_value_id_t input = loom_op_operands(op)[0];
+  const loom_type_t float_type = loom_module_value_type(context->module, input);
+  const loom_scalar_type_t float_element = loom_type_element_type(float_type);
+  const loom_scalar_type_t integer_element =
+      loom_scalar_type_bitwidth(float_element) == 8 ? LOOM_SCALAR_TYPE_I8
+                                                    : LOOM_SCALAR_TYPE_I16;
+  loom_type_t integer_type = float_type;
+  integer_type.header = loom_type_make_header(
+      loom_type_kind(float_type), integer_element, loom_type_rank(float_type),
+      loom_type_flags(float_type));
+
+  const bool is_vector = loom_type_is_vector(float_type);
+  const loom_math_sign_builders_t builders = is_vector
+      ? (loom_math_sign_builders_t){
+            .bitcast = loom_vector_bitcast_build,
+            .constant = loom_vector_constant_build,
+            .bitwise_and = loom_vector_andi_build,
+            .bitwise_or = loom_vector_ori_build,
+            .bitwise_xor = loom_vector_xori_build,
+        }
+      : (loom_math_sign_builders_t){
+            .bitcast = loom_scalar_bitcast_build,
+            .constant = loom_scalar_constant_build,
+            .bitwise_and = loom_scalar_andi_build,
+            .bitwise_or = loom_scalar_ori_build,
+            .bitwise_xor = loom_scalar_xori_build,
+        };
+  const int32_t bit_width = loom_scalar_type_bitwidth(float_element);
+  const int64_t sign_mask = -(INT64_C(1) << (bit_width - 1));
+  const int64_t magnitude_mask = (INT64_C(1) << (bit_width - 1)) - 1;
+
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  loom_value_id_t input_bits = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(
+      loom_math_build_conversion(builders.bitcast, builder, op->location, input,
+                                 float_type, integer_type, &input_bits));
+
+  const bool is_absolute = loom_scalar_absf_isa(op) || loom_vector_absf_isa(op);
+  const bool is_negate = loom_scalar_negf_isa(op) || loom_vector_negf_isa(op);
+  loom_value_id_t result_bits = LOOM_VALUE_ID_INVALID;
+  if (is_absolute || is_negate) {
+    loom_value_id_t mask = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_math_build_integer_constant(
+        builders.constant, builder, op->location, integer_type,
+        is_absolute ? magnitude_mask : sign_mask, &mask));
+    IREE_RETURN_IF_ERROR(loom_math_build_binary(
+        is_absolute ? builders.bitwise_and : builders.bitwise_xor, builder,
+        op->location, input_bits, mask, integer_type, &result_bits));
+  } else {
+    loom_value_id_t sign_bits = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_math_build_conversion(
+        builders.bitcast, builder, op->location, loom_op_operands(op)[1],
+        float_type, integer_type, &sign_bits));
+    loom_value_id_t mask = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_math_build_integer_constant(
+        builders.constant, builder, op->location, integer_type, magnitude_mask,
+        &mask));
+    loom_value_id_t magnitude_bits = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_math_build_binary(builders.bitwise_and, builder,
+                                                op->location, input_bits, mask,
+                                                integer_type, &magnitude_bits));
+    IREE_RETURN_IF_ERROR(loom_math_build_integer_constant(
+        builders.constant, builder, op->location, integer_type, sign_mask,
+        &mask));
+    IREE_RETURN_IF_ERROR(loom_math_build_binary(builders.bitwise_and, builder,
+                                                op->location, sign_bits, mask,
+                                                integer_type, &sign_bits));
+    IREE_RETURN_IF_ERROR(loom_math_build_binary(
+        builders.bitwise_or, builder, op->location, magnitude_bits, sign_bits,
+        integer_type, &result_bits));
+  }
+
+  loom_value_id_t replacement = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_math_build_conversion(
+      builders.bitcast, builder, op->location, result_bits, integer_type,
+      float_type, &replacement));
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  return iree_ok_status();
+}
+
+// Keep narrow sign operations and arithmetic introduced by reference rewrites
+// in the target fixed point. Native contracts remain preferred, including
+// packed BF16.
+static const loom_target_legalizer_rule_t kMathLegalizerRules[] = {
+    {
+        .root_kind = LOOM_OP_SCALAR_ABSF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_narrow_float_sign,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_NEGF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_narrow_float_sign,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_COPYSIGNF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_narrow_float_sign,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_ABSF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_narrow_float_sign,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_NEGF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_narrow_float_sign,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_COPYSIGNF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_narrow_float_sign,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_ADDF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_binary,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_SUBF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_binary,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MULF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_binary,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_ADDF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_binary,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_SUBF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_binary,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MULF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_binary,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+    },
+};
+
+static const loom_target_legalizer_provider_t kMathLegalizerProvider = {
+    .name = IREE_SVL("math"),
+    .strategy = LOOM_TARGET_LEGALIZER_STRATEGY_REFERENCE,
+    .rules = kMathLegalizerRules,
+    .rule_count = IREE_ARRAYSIZE(kMathLegalizerRules),
+};
+
+const loom_target_legalizer_provider_t* loom_math_target_legalizer_provider(
+    void) {
+  return &kMathLegalizerProvider;
 }
 
 iree_status_t loom_math_legalize_run(loom_pass_t* pass, loom_module_t* module,

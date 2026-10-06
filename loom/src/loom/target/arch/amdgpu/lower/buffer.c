@@ -10,7 +10,7 @@
 
 #include "loom/ops/buffer/ops.h"
 #include "loom/target/arch/amdgpu/lower/constants.h"
-#include "loom/target/arch/amdgpu/lower/topology.h"
+#include "loom/target/arch/amdgpu/lower/source_alloca_layout.h"
 #include "loom/target/arch/amdgpu/lower/types.h"
 #include "loom/util/fact_table.h"
 
@@ -108,16 +108,18 @@ static iree_status_t loom_amdgpu_lower_buffer_alloca(
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_source_alloca_layout_for_lower_context(context, &layout));
   loom_value_id_t storage_root = LOOM_VALUE_ID_INVALID;
+  int64_t storage_byte_offset = 0;
   loom_amdgpu_source_alloca_layout_lookup_low_storage(
       layout, loom_buffer_alloca_memory_space(source_op),
-      loom_buffer_alloca_result(source_op), &storage_root);
+      loom_buffer_alloca_result(source_op), &storage_root,
+      &storage_byte_offset);
 
   loom_type_t vgpr_type = loom_type_none();
   IREE_RETURN_IF_ERROR(loom_amdgpu_make_vgpr_type(context, &vgpr_type));
   loom_op_t* address_op = NULL;
   IREE_RETURN_IF_ERROR(loom_low_storage_address_build(
-      builder, storage_root, /*offset=*/0, vgpr_type, source_op->location,
-      &address_op));
+      builder, storage_root, storage_byte_offset, vgpr_type,
+      source_op->location, &address_op));
   return loom_low_lower_bind_value(context,
                                    loom_buffer_alloca_result(source_op),
                                    loom_low_storage_address_result(address_op));

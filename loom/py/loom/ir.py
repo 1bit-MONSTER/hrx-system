@@ -926,7 +926,7 @@ PREDICATE_KINDS: dict[str, int] = {
     "le": 2,
     "gt": 2,
     "ge": 2,
-    "mul": 2,  # mul(a, n) — a is a multiple of n.
+    "mul": 2,  # mul(a, n) — a is a multiple of positive n.
     "min": 2,  # min(a, n) — a >= n.
     "max": 2,  # max(a, n) — a <= n.
     "pow2": 1,  # pow2(a) — a is a power of 2.
@@ -934,6 +934,10 @@ PREDICATE_KINDS: dict[str, int] = {
     "not_nan": 1,  # not_nan(a) — a is not NaN.
     "not_inf": 1,  # not_inf(a) — a is not positive or negative infinity.
     "finite": 1,  # finite(a) — a is not NaN or infinity.
+    "ult": 2,  # Sign-extended 64-bit carrier of a is unsigned less than b.
+    "ule": 2,  # Sign-extended 64-bit carrier of a is unsigned <= b.
+    "ugt": 2,  # Sign-extended 64-bit carrier of a is unsigned greater than b.
+    "uge": 2,  # Sign-extended 64-bit carrier of a is unsigned >= b.
 }
 
 
@@ -963,10 +967,10 @@ class PredicateArg:
 
 @dataclass(frozen=True, slots=True)
 class Predicate:
-    """A predicate constraint on dynamic dimension values.
+    """A predicate constraint on scalar values.
 
-    Used in function where clauses and assume ops to express
-    constraints like "M is a multiple of 16" or "K is between 32 and 512".
+    Used in function where clauses and assume ops to express constraints such
+    as "M is a multiple of 16" or "lhs is unsigned less than rhs".
 
     kind: Predicate kind name ("eq", "lt", "mul", "pow2", "range", etc.).
     args: Tuple of predicate arguments.
@@ -1023,6 +1027,24 @@ def _resolve_predicate_arg(
             raise ValueError(f"unknown predicate arg tag: {arg.tag!r}")
 
 
+def _evaluate_unsigned_relation(kind: str, lhs: int | float, rhs: int | float) -> bool:
+    if type(lhs) is not int or type(rhs) is not int:
+        return False
+    unsigned_lhs = lhs % (1 << 64)
+    unsigned_rhs = rhs % (1 << 64)
+    match kind:
+        case "ult":
+            return unsigned_lhs < unsigned_rhs
+        case "ule":
+            return unsigned_lhs <= unsigned_rhs
+        case "ugt":
+            return unsigned_lhs > unsigned_rhs
+        case "uge":
+            return unsigned_lhs >= unsigned_rhs
+        case _:
+            raise ValueError(f"unknown unsigned relation kind: {kind!r}")
+
+
 def evaluate_predicate(predicate: Predicate, values: dict[int, int | float]) -> bool:
     """Evaluate a predicate against concrete dimension values.
 
@@ -1048,6 +1070,8 @@ def evaluate_predicate(predicate: Predicate, values: dict[int, int | float]) -> 
             return args[0] > args[1]
         case "ge":
             return args[0] >= args[1]
+        case "ult" | "ule" | "ugt" | "uge":
+            return _evaluate_unsigned_relation(predicate.kind, args[0], args[1])
         case "mul":
             return args[1] != 0 and args[0] % args[1] == 0
         case "min":

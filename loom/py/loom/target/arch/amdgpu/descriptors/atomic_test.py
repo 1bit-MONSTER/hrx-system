@@ -6,7 +6,10 @@
 
 from dataclasses import replace
 
-from loom.target.arch.amdgpu.descriptors.api import _with_storage_lease_rows
+from loom.target.arch.amdgpu.descriptors.api import (
+    _AMDGPU_CORE_DESCRIPTOR_SET_BUILDER_FLAG_GFX125X,
+    _with_storage_lease_rows,
+)
 from loom.target.arch.amdgpu.descriptors.cdna import (
     _AMDGPU_CDNA3_CORE_DESCRIPTOR_SET_BASE,
     _AMDGPU_CDNA4_CORE_DESCRIPTOR_SET_BASE,
@@ -139,7 +142,10 @@ def test_flat_atomics_complete_both_domains_without_duplicate_accesses() -> None
             if overlay.descriptor_key.startswith("amdgpu.flat_atomic_")
         )
         descriptor_set = _with_storage_lease_rows(
-            replace(base, descriptors=descriptors), enable_gfx125x_xcnt=enable_xcnt
+            replace(base, descriptors=descriptors),
+            builder_flags=(
+                _AMDGPU_CORE_DESCRIPTOR_SET_BUILDER_FLAG_GFX125X if enable_xcnt else 0
+            ),
         )
         schedule_classes = {row.name: row for row in descriptor_set.schedule_classes}
         assert descriptors
@@ -173,7 +179,7 @@ def test_flat_atomics_complete_both_domains_without_duplicate_accesses() -> None
                 for lease in descriptor.storage_leases
                 if lease.kind is StorageLeaseKind.SOURCE_READ
             }
-            assert (_COUNTER_X in source_counters) == enable_xcnt
+            assert source_counters == ({_COUNTER_X} if enable_xcnt else set())
             # Counter completion does not duplicate the single read/write access
             # reported for an atomic, including compare-and-swap and wide forms.
             assert len(descriptor.effects) == 2

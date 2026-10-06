@@ -17,7 +17,7 @@
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
-#include "loom/codegen/low/target_binding.h"
+#include "loom/codegen/low/representation_binding.h"
 #include "loom/ir/ir.h"
 #include "loom/ir/local_value_domain.h"
 #include "loom/target/emit/spirv/module_abi.h"
@@ -25,13 +25,14 @@
 #include "loom/target/emit/spirv/module_storage.h"
 #include "loom/target/emit/spirv/module_types.h"
 #include "loom/target/emit/spirv/module_values.h"
+#include "loom/target/emit/spirv/program.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 enum {
-  LOOM_SPIRV_BUILTIN_VARIABLE_COUNT = 3,
+  LOOM_SPIRV_BUILTIN_VARIABLE_COUNT = 4,
 };
 
 // Module-owned resources shared by each function emitted into one module.
@@ -64,8 +65,8 @@ typedef struct loom_spirv_emit_state_t {
   loom_op_t* function_op;
   // Target-low function body being emitted.
   const loom_region_t* body;
-  // Resolved target record and descriptor set for function_op.
-  const loom_low_resolved_target_t* target;
+  // Prepared target and representation binding for |function_op|.
+  const loom_spirv_function_plan_t* function_plan;
   // Function-local scratch arena.
   iree_arena_allocator_t* scratch_arena;
   // Sectioned SPIR-V module builder.
@@ -78,6 +79,8 @@ typedef struct loom_spirv_emit_state_t {
   loom_spirv_type_context_t* type_context;
   // SPIR-V ID assigned to the function.
   uint32_t function_id;
+  // Descriptor feature requirements accumulated while emitting this entry.
+  loom_spirv_feature_bits_t required_feature_bits;
   // SPIR-V label ID of the currently open function-section block.
   uint32_t current_label_id;
   // Selected ABI plan for entry materialization.
@@ -137,12 +140,12 @@ iree_status_t loom_spirv_emit_low_op(loom_spirv_emit_state_t* state,
 
 // Emits one target-low function into |context->builder|.
 //
-// |function_op| and |target| are borrowed for the call. Module-wide IDs and
-// ABI state are retained in |context| for subsequent functions; all
-// function-local state is released before return.
+// |function_plan| is borrowed for the call. Module-wide IDs and ABI state are
+// retained in |context| for subsequent functions; all function-local state is
+// released before return.
 iree_status_t loom_spirv_emit_low_function(
-    loom_spirv_function_emission_context_t* context, loom_op_t* function_op,
-    const loom_low_resolved_target_t* target);
+    loom_spirv_function_emission_context_t* context,
+    const loom_spirv_function_plan_t* function_plan);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -279,6 +279,8 @@ static uint32_t loom_cmd_program_argument_byte_length(
     case LOOM_CMD_PROGRAM_ARGUMENT_KIND_B32:
       return 4;
     case LOOM_CMD_PROGRAM_ARGUMENT_KIND_B64:
+    case LOOM_CMD_PROGRAM_ARGUMENT_KIND_INDEX:
+    case LOOM_CMD_PROGRAM_ARGUMENT_KIND_OFFSET:
       return 8;
     default:
       return 0;

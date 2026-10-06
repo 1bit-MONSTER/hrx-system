@@ -245,7 +245,7 @@ static iree_status_t iree_benchmark_loom_prepare_hal_sequence_plans_for_sample(
     iree_host_size_t sample_ordinal, iree_allocator_t allocator,
     loom_run_hal_invocation_plan_t* out_plans) {
   loom_testbench_value_table_t table = {0};
-  iree_status_t status = loom_testbench_value_table_initialize(
+  iree_status_t status = loom_testbench_value_table_initialize_case(
       module_plan->module, case_plan, allocator, &table);
   if (iree_status_is_ok(status)) {
     status = loom_testbench_materialize_case_sample(

@@ -19,6 +19,19 @@ _PRESUBMIT_TEST_SIZE = "small"
 _PRESUBMIT_TEST_TAGS = ["manual"]
 
 py_library(
+    name = "command_line",
+    srcs = ["command_line.py"],
+)
+
+py_test(
+    name = "command_line_test",
+    size = _PRESUBMIT_TEST_SIZE,
+    srcs = ["command_line_test.py"],
+    tags = _PRESUBMIT_TEST_TAGS,
+    deps = [":command_line"],
+)
+
+py_library(
     name = "run_requirements",
     srcs = ["run_requirements.py"],
     data = [
@@ -61,7 +74,9 @@ py_library(
         "smoke_test_lib.py",
         "source_lock.py",
     ],
+    data = ["tsan.supp"],
     deps = [
+        ":command_line",
         ":run_requirements",
         "//build_tools/bazel:compile_commands_merge_lib",
         "//build_tools/bazel:configure",
@@ -76,6 +91,7 @@ py_binary(
         "ci.py",
         "ci_config.py",
     ],
+    data = ["tsan.supp"],
     deps = [
         ":run_requirements",
         "//build_tools/ci:windows_diagnostics",
@@ -159,18 +175,10 @@ py_test(
         "ci_test.py",
     ],
     data = [
-        "//:.github/scripts/check_vulkan_hardware_environment.sh",
+        "tsan.supp",
         "//:.github/scripts/fetch_rocm_toolchain.sh",
-        "//:.github/workflows/build_core_windows.yml",
-        "//:.github/workflows/ci_core_linux.yml",
-        "//:.github/workflows/ci_core_windows.yml",
-        "//:.github/workflows/ci_importers.yml",
-        "//:.github/workflows/ci_iree_bazel.yml",
-        "//:.github/workflows/ci_iree_cmake.yml",
-        "//:.github/workflows/ci_libhrx_bazel.yml",
+        "//:.github/workflows/ci_iree.yml",
         "//:.github/workflows/docs.yml",
-        "//:.github/workflows/presubmit.yml",
-        "//:.github/workflows/test_core_linux_gpu.yml",
         "//:.github/workflows/test_core_linux_gpu_source.yml",
     ],
     main = "ci_test.py",
@@ -205,7 +213,13 @@ py_test(
         "hooks.py",
         "importers.py",
         "presubmit.py",
+        "project_presubmit.py",
         "setup.py",
+    ],
+    data = [
+        "//:devtools_wrappers",
+        "//:requirements-importers-tilelang.lock.txt",
+        "//loom/binding/c:BUILD.bazel",
     ],
     main = "cli_test.py",
     tags = _PRESUBMIT_TEST_TAGS,
@@ -366,6 +380,10 @@ py_test(
         "setup.py",
         "setup_test.py",
     ],
+    data = [
+        "//:requirements-analysis.lock.txt",
+        "//loom/docs:requirements.lock.txt",
+    ],
     main = "setup_test.py",
     tags = _PRESUBMIT_TEST_TAGS,
 )
@@ -380,6 +398,7 @@ test_suite(
         ":cli_test",
         ":cmake_file_api_test",
         ":cmake_test",
+        ":command_line_test",
         ":command_plan_test",
         ":ctest_test",
         ":doctor_test",

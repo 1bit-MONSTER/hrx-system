@@ -32,13 +32,12 @@ low.func.def target<x86.avx2.core> abi(object_function) @derived_selection(%firs
 ^_bb2:
   low.br ^_bb3(%second_aligned: reg<x86.gpr64>, %base1: reg<x86.gpr64>)
 ^_bb3(%pair_root: reg<x86.gpr64>, %pair_offset: reg<x86.gpr64>):
-  %54 = copy %position : reg<x86.gpr64> -> reg<x86.gpr64>
-  %55 = shl.imm.gpr64 %54 {shift = 2}
-  %56 = copy %pair_offset : reg<x86.gpr64> -> reg<x86.gpr64>
-  %57 = add.gpr64 %56, %55
+  %53 = copy %position : reg<x86.gpr64> -> reg<x86.gpr64>
+  %54 = shl.imm.gpr64 %53 {shift = 2}
+  %55 = lea %pair_offset, %54
   low.cond_br %select_pair, ^_bb4, ^_bb5 : reg<x86.gpr32>
 ^_bb4:
-  low.br ^_bb6(%pair_root: reg<x86.gpr64>, %57: reg<x86.gpr64>)
+  low.br ^_bb6(%pair_root: reg<x86.gpr64>, %55: reg<x86.gpr64>)
 ^_bb5:
   low.br ^_bb6(%third_aligned: reg<x86.gpr64>, %base2: reg<x86.gpr64>)
 ^_bb6(%selected_root: reg<x86.gpr64>, %selected_offset: reg<x86.gpr64>):

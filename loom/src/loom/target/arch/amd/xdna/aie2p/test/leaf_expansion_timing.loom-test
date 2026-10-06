@@ -59,10 +59,10 @@ low.func.def target<amd.xdna.aie2p.core> @padded_accumulators(%left: reg<aie2p.v
 }
 
 // ----
-issue cycles: 27
-code bytes: 84
-coissued bundles: 2
-coissued components: 4
+issue cycles: 25
+code bytes: 82
+coissued bundles: 3
+coissued components: 7
 
 // ====
 
@@ -133,3 +133,151 @@ issue cycles: 30
 code bytes: 86
 coissued bundles: 2
 coissued components: 4
+
+// ====
+
+// The copy is a storage alias with no physical move. Its deferred value
+// readiness preserves the independent load-port bundle and full load latency.
+// RUN: emit aie2p-leaf @load_alias report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @load_alias(%left_pointer: reg<aie2p.ep>, %right_pointer: reg<aie2p.ep>, %output: reg<aie2p.ep>) asm {
+  %left = vlda.512.i32x16 %left_pointer, 0
+  %left_alias = copy %left : reg<aie2p.vec256 x2> -> reg<aie2p.vec256 x2>
+  %right = vldb.512.i32x16 %right_pointer, 0
+  %sum = vadd.32 %right, %left_alias
+  vst.512.i32x16 %sum, %output, 0
+  return
+}
+
+// ----
+issue cycles: 13
+code bytes: 36
+coissued bundles: 2
+coissued components: 4
+
+// ====
+
+// The volatile store is a read-only state fence. Its newer stage-1 saturation
+// read cannot retire the load's stage-7 read before the final state write.
+// RET may cover useful work in its delay window while preserving that fence.
+// RUN: emit aie2p-leaf @state_fence report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @state_fence(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>, %value: reg<aie2p.mbms>, %shift: reg<aie2p.es>) -> (reg<aie2p.mbms>) asm {
+  set.saturation 0
+  %loaded = vlda.ups.2x.w-to-b.unsigned %shift, %input, 0
+  vst.srs.2x.b-to-w.unsigned.volatile %value, %shift, %output, 0
+  set.saturation 1
+  return %loaded
+}
+
+// ----
+issue cycles: 9
+code bytes: 28
+coissued bundles: 1
+coissued components: 2
+
+// ====
+
+// Register-independent lock and memory effects retain both four-cycle
+// separations. Hoisted RET drains the release before returning to its caller.
+// RUN: emit aie2p-leaf @lock_effects report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @lock_effects(%lock_value: reg<aie2p.er>, %input: reg<aie2p.ep>) -> (reg<aie2p.mbms>) asm {
+  acq %lock_value, 5
+  %loaded = vlda.acc %input, 0
+  rel %lock_value, 37
+  return %loaded
+}
+
+// ----
+issue cycles: 12
+code bytes: 32
+coissued bundles: 0
+coissued components: 0
+
+// ====
+
+// Independent scalar work can share the load's issue cycle while the repeated
+// half still requires a generated register move. Both stores complete before
+// the leaf returns.
+// RUN: emit aie2p-leaf @late_scalar_unscoped report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @late_scalar_unscoped(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>, %count: reg<aie2p.er>) asm {
+  %loaded = vlda.512.i32x16 %input, 0
+  %half = slice %loaded[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %repeated = concat(%half, %half) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %next = add %count, -1
+  %sum = vadd.32 %repeated, %repeated
+  vst.512.i32x16 %sum, %output, 0
+  st %next, %output, 4
+  return
+}
+
+// ----
+issue cycles: 15
+code bytes: 44
+coissued bundles: 1
+coissued components: 2
+
+// ====
+
+// Four live C fragments leave one DM for both loaded A packets. Publication
+// retains the old BFP read before the new writes, and native issue preserves
+// that accepted order even when a signed anti-dependency latency would permit
+// backfilling the overwrite. The complete bytes bind both load pairs, both
+// conversions and return timing without another accumulator allocation.
+// RUN: emit aie2p-leaf @delayed_accumulator_reuse report=code
+
+low.func.def target<amd.xdna.aie2p.core> @delayed_accumulator_reuse(%first: reg<aie2p.ep>, %second: reg<aie2p.ep>, %c00: reg<aie2p.mbms x4>, %c01: reg<aie2p.mbms x4>, %c10: reg<aie2p.mbms x4>, %c11: reg<aie2p.mbms x4>) -> (reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mexa>, reg<aie2p.mexa>) asm {
+  %first_lower = vlda.convert.bf16x32.to.f32x32 %first, 0
+  %first_upper = vlda.convert.bf16x32.to.f32x32 %first, 64
+  %first_float = concat(%first_lower, %first_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  set.rounding 12
+  %first_encoded = vconv.bfp16ebs8.fp32 %first_float
+  %second_lower = vlda.convert.bf16x32.to.f32x32 %second, 0
+  %second_upper = vlda.convert.bf16x32.to.f32x32 %second, 64
+  %second_float = concat(%second_lower, %second_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  %second_encoded = vconv.bfp16ebs8.fp32 %second_float
+  return %c00, %c01, %c10, %c11, %first_encoded, %second_encoded
+}
+
+// ----
+code: 54 31 60 7f c5 00 98 6b 16 00 00 00 00 00 00 00 00 00 00 00 00 00 0c 6c 14 70 c5 20 98 6b 16 01 00 00 00 00 00 00 00 00 18 00 28 10 00 00 18 36 8a 08 00 00 00 00 00 00
+
+// ====
+
+// Locked source order closes both sides of each data instruction. Even
+// a safe delayed-write overlap cannot move a later load across that contract.
+// RUN: emit aie2p-leaf @locked_accumulator_reuse report=code
+
+low.func.def schedule(locked) target<amd.xdna.aie2p.core> @locked_accumulator_reuse(%first: reg<aie2p.ep>, %second: reg<aie2p.ep>, %c00: reg<aie2p.mbms x4>, %c01: reg<aie2p.mbms x4>, %c10: reg<aie2p.mbms x4>, %c11: reg<aie2p.mbms x4>) -> (reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mexa>, reg<aie2p.mexa>) asm {
+  %first_lower = vlda.convert.bf16x32.to.f32x32 %first, 0
+  %first_upper = vlda.convert.bf16x32.to.f32x32 %first, 64
+  %first_float = concat(%first_lower, %first_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  set.rounding 12
+  %first_encoded = vconv.bfp16ebs8.fp32 %first_float
+  %second_lower = vlda.convert.bf16x32.to.f32x32 %second, 0
+  %second_upper = vlda.convert.bf16x32.to.f32x32 %second, 64
+  %second_float = concat(%second_lower, %second_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  %second_encoded = vconv.bfp16ebs8.fp32 %second_float
+  return %c00, %c01, %c10, %c11, %first_encoded, %second_encoded
+}
+
+// ----
+code: 98 2b 06 00 98 6b 16 00 b8 18 b0 1f 00 00 00 00 00 00 00 00 00 00 18 36 0a 08 98 2b 06 01 98 6b 16 01 00 00 00 00 00 00 00 00 18 00 28 10 00 00 18 36 8a 08 00 00 00 00 00 00
+
+// ====
+
+// The store still reads r0 at stage seven. Its following stage-one write must
+// wait six cycles: accepting signed timing never drops a positive WAR bound.
+// RUN: emit aie2p-leaf @immediate_overwrite fixed=%old:physical_register:253:1 fixed=%next:physical_register:253:1 report=code
+
+low.func.def schedule(locked) target<amd.xdna.aie2p.core> @immediate_overwrite(%old: reg<aie2p.er>, %seed: reg<aie2p.er>, %output: reg<aie2p.ep>) asm {
+  st.s8 %old, %output, 0
+  %next = add %seed, 1
+  rel %next, 0
+  return
+}
+
+// ----
+code: 18 07 04 00 00 00 00 00 00 00 00 00 00 00 18 07 40 10 00 00 18 00 28 10 00 00 18 08 00 10 00 00 00 00 00 00

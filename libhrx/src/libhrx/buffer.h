@@ -1,0 +1,67 @@
+// Copyright 2026 The HRX Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+#ifndef LIBHRX_SRC_LIBHRX_BUFFER_H_
+#define LIBHRX_SRC_LIBHRX_BUFFER_H_
+
+#include "hrx_runtime.h"
+#include "iree/base/api.h"
+#include "iree/hal/api.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// Private representation of an HRX buffer allocation.
+typedef struct hrx_buffer_s {
+  // References held by callers of the public buffer handle.
+  iree_atomic_ref_count_t ref_count;
+
+  // HAL buffer owning the underlying allocation.
+  iree_hal_buffer_t* hal_buffer;
+
+  // HAL pool that materialized |hal_buffer|.
+  iree_hal_pool_t* hal_pool;
+
+  // Device associated with the buffer's allocation.
+  hrx_device_t device;
+
+  // Memory properties selected for the allocation.
+  hrx_memory_type_t mem_type;
+
+  // User-visible allocation length in bytes.
+  size_t size;
+
+  // Optional bounded pool that charged |allocation_budget_size|.
+  hrx_mem_pool_t allocation_budget_pool;
+
+  // Bytes charged against |allocation_budget_pool|.
+  size_t allocation_budget_size;
+
+  // Active scoped mapping, valid only while |is_mapped| is true.
+  iree_hal_buffer_mapping_t mapping;
+
+  // True when |mapping| currently owns an active mapping.
+  bool is_mapped;
+
+  // Cached host pointer for the active mapping.
+  void* mapped_ptr;
+} hrx_buffer_s;
+
+// Creates an HRX buffer wrapping |hal_buffer| for in-tree interop. The buffer
+// retains both |hal_buffer| and |device|; the caller owns the returned handle.
+// |hal_buffer| may be NULL for host-only allocations.
+iree_status_t hrx_buffer_create_from_hal(iree_hal_buffer_t* hal_buffer,
+                                         hrx_device_t device,
+                                         hrx_memory_type_t mem_type,
+                                         size_t size, void* mapped_ptr,
+                                         hrx_buffer_t* out_buffer);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif
+
+#endif  // LIBHRX_SRC_LIBHRX_BUFFER_H_

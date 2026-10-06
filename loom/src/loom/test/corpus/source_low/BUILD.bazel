@@ -38,7 +38,16 @@ loom_check_compile_tests(
 )
 
 loom_check_compile_tests(
-    name = "memory_wide_offsets",
-    src = "memory_wide_offsets.loom-test",
-    targets = ["//loom/target/amdgpu:" + target for target in LOOM_AMDGPU_SUPPORTED_TARGETS],
+    name = "narrow_float_arguments",
+    src = "narrow_float_arguments.loom-test",
+    targets = [
+        "//loom/target/amdgpu:gfx942",
+        "//loom/target/amdgpu:gfx950",
+        "//loom/target/amdgpu:gfx1100",
+        "//loom/target/amdgpu:gfx1151",
+        "//loom/target/amdgpu:gfx1170",
+        "//loom/target/amdgpu:gfx1200",
+        "//loom/target/amdgpu:gfx1250",
+        "//loom/target/spirv:vulkan1.3+bda+extended-types",
+    ],
 )

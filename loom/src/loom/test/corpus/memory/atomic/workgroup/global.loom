@@ -1,0 +1,228 @@
+// Two lanes in different waves hand off ordinary global and LDS payloads.
+// The global flag is initialized by the caller. Acknowledged reuse orders
+// ordinary LDS and global payloads without an execution rendezvous.
+kernel.def @global_workgroup_publication_i32() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%signal: buffer, %payload: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %local = buffer.view %scratch[%origin] : buffer -> view<1xi32>
+  %flag = buffer.view %signal[%origin] : buffer -> view<1xi32>
+  %global = buffer.view %payload[%origin] : buffer -> view<1xi32>
+  %results = buffer.view %output[%origin] : buffer -> view<32xi32>
+  %acknowledged = scalar.constant 0 : i32
+  %published = scalar.constant 1 : i32
+  %bias = scalar.constant 65536 : i32
+  %begin = index.constant 0 : index
+  %end = index.constant 16 : index
+  %step = index.constant 1 : index
+  %reader_lane = index.constant 64 : index
+  %lane = kernel.workitem.id<x> : index
+  %writer = index.cmp eq, %lane, %begin : index
+  %reader = index.cmp eq, %lane, %reader_lane : index
+  scf.if %writer {
+    scf.for %iteration = [%begin to %end step %step] {
+      scf.while {
+        %ack = view.atomic.load %flag[0] {ordering = acquire, scope = workgroup} : view<1xi32> -> i32
+        %pending = scalar.cmpi ne, %ack, %acknowledged : i32
+        scf.condition %pending : i1
+      } do {
+        scf.yield
+      }
+      %ordinal = index.cast %iteration : index to i32
+      %value = scalar.addi %ordinal, %bias : i32
+      view.store %value, %global[0] : i32, view<1xi32>
+      view.store %value, %local[0] : i32, view<1xi32>
+      view.atomic.store %published, %flag[0] {ordering = release, scope = workgroup} : i32, view<1xi32>
+    }
+  }
+  scf.if %reader {
+    scf.for %iteration = [%begin to %end step %step] {
+      scf.while {
+        %ready = view.atomic.load %flag[0] {ordering = acquire, scope = workgroup} : view<1xi32> -> i32
+        %pending = scalar.cmpi ne, %ready, %published : i32
+        scf.condition %pending : i1
+      } do {
+        scf.yield
+      }
+      %global_value = view.load %global[0] : view<1xi32> -> i32
+      %local_value = view.load %local[0] : view<1xi32> -> i32
+      %local_index = index.add %iteration, %end : index
+      view.store %global_value, %results[%iteration] : i32, view<32xi32>
+      view.store %local_value, %results[%local_index] : i32, view<32xi32>
+      view.atomic.store %acknowledged, %flag[0] {ordering = release, scope = workgroup} : i32, view<1xi32>
+    }
+  }
+  kernel.return
+}
+
+check.case public @global_workgroup_publication_values_i32 {
+  %signal = check.generate.fill value(0) : tensor<1xi32>
+  %payload = check.generate.fill value(-1) : tensor<1xi32>
+  %output = check.generate.fill value(-1) : tensor<32xi32>
+  kernel.launch @global_workgroup_publication_i32(%signal, %payload, %output) : (tensor<1xi32>, tensor<1xi32>, tensor<32xi32>)
+  %global_values = check.tensor.view %output offset(0) : tensor<32xi32> -> tensor<16xi32>
+  %local_values = check.tensor.view %output offset(64) : tensor<32xi32> -> tensor<16xi32>
+  %expected = check.generate.iota offset(65536) step(1) : tensor<16xi32>
+  check.expect.bitwise actual(%global_values) expected(%expected) : tensor<16xi32>
+  check.expect.bitwise actual(%local_values) expected(%expected) : tensor<16xi32>
+  check.return
+}
+
+// A no-return update publishes, failed CAS acquires, and exchange acknowledges.
+// The global flag is initialized by the caller. Acknowledged reuse orders
+// ordinary LDS and global payloads without an execution rendezvous.
+kernel.def @global_workgroup_publication_i64() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%signal: buffer, %payload: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 8 : offset
+  %scratch = buffer.alloca<workgroup> align(8) %bytes : buffer
+  %local = buffer.view %scratch[%origin] : buffer -> view<1xi64>
+  %flag = buffer.view %signal[%origin] : buffer -> view<1xi64>
+  %global = buffer.view %payload[%origin] : buffer -> view<1xi64>
+  %results = buffer.view %output[%origin] : buffer -> view<32xi64>
+  %acknowledged = scalar.constant 0 : i64
+  %published = scalar.constant 1 : i64
+  %unmatchable = scalar.constant -1 : i64
+  %bias = scalar.constant 4294967296 : i64
+  %begin = index.constant 0 : index
+  %end = index.constant 16 : index
+  %step = index.constant 1 : index
+  %reader_lane = index.constant 64 : index
+  %lane = kernel.workitem.id<x> : index
+  %writer = index.cmp eq, %lane, %begin : index
+  %reader = index.cmp eq, %lane, %reader_lane : index
+  scf.if %writer {
+    scf.for %iteration = [%begin to %end step %step] {
+      scf.while {
+        %ack = view.atomic.load %flag[0] {ordering = acquire, scope = workgroup} : view<1xi64> -> i64
+        %pending = scalar.cmpi ne, %ack, %acknowledged : i64
+        scf.condition %pending : i1
+      } do {
+        scf.yield
+      }
+      %ordinal = index.cast %iteration : index to i64
+      %value = scalar.addi %ordinal, %bias : i64
+      view.store %value, %global[0] : i64, view<1xi64>
+      view.store %value, %local[0] : i64, view<1xi64>
+      view.atomic.reduce<addi> %published, %flag[0] {ordering = release, scope = workgroup} : i64, view<1xi64>
+    }
+  }
+  scf.if %reader {
+    scf.for %iteration = [%begin to %end step %step] {
+      scf.while {
+        %ready = view.atomic.cmpxchg %unmatchable, %published, %flag[0] {failure_ordering = acquire, scope = workgroup, success_ordering = acq_rel} : i64, view<1xi64> -> i64
+        %pending = scalar.cmpi ne, %ready, %published : i64
+        scf.condition %pending : i1
+      } do {
+        scf.yield
+      }
+      %global_value = view.load %global[0] : view<1xi64> -> i64
+      %local_value = view.load %local[0] : view<1xi64> -> i64
+      %local_index = index.add %iteration, %end : index
+      view.store %global_value, %results[%iteration] : i64, view<32xi64>
+      view.store %local_value, %results[%local_index] : i64, view<32xi64>
+      %previous = view.atomic.rmw<xchgi> %acknowledged, %flag[0] {ordering = release, scope = workgroup} : i64, view<1xi64> -> i64
+    }
+  }
+  kernel.return
+}
+
+check.case public @global_workgroup_publication_values_i64 {
+  %signal = check.generate.fill value(0) : tensor<1xi64>
+  %payload = check.generate.fill value(-1) : tensor<1xi64>
+  %output = check.generate.fill value(-1) : tensor<32xi64>
+  kernel.launch @global_workgroup_publication_i64(%signal, %payload, %output) : (tensor<1xi64>, tensor<1xi64>, tensor<32xi64>)
+  %global_values = check.tensor.view %output offset(0) : tensor<32xi64> -> tensor<16xi64>
+  %local_values = check.tensor.view %output offset(128) : tensor<32xi64> -> tensor<16xi64>
+  %expected = check.generate.iota offset(4294967296) step(1) : tensor<16xi64>
+  check.expect.bitwise actual(%global_values) expected(%expected) : tensor<16xi64>
+  check.expect.bitwise actual(%local_values) expected(%expected) : tensor<16xi64>
+  check.return
+}
+
+// Explicit fences pair with relaxed flags for both handoff directions.
+// The generic flag addresses a global allocation initialized by the caller.
+// Acknowledged reuse orders LDS and global payloads without a rendezvous.
+kernel.def @generic_workgroup_fence_publication() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%signal: buffer, %payload: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %local = buffer.view %scratch[%origin] : buffer -> view<1xi32>
+  %generic_signal = buffer.assume.memory_space<generic> %signal : buffer
+  %generic_payload = buffer.assume.memory_space<generic> %payload : buffer
+  %flag = buffer.view %generic_signal[%origin] : buffer -> view<1xi32>
+  %global = buffer.view %generic_payload[%origin] : buffer -> view<1xi32>
+  %results = buffer.view %output[%origin] : buffer -> view<32xi32>
+  %acknowledged = scalar.constant 0 : i32
+  %published = scalar.constant 1 : i32
+  %bias = scalar.constant 65536 : i32
+  %begin = index.constant 0 : index
+  %end = index.constant 16 : index
+  %step = index.constant 1 : index
+  %reader_lane = index.constant 64 : index
+  %lane = kernel.workitem.id<x> : index
+  %writer = index.cmp eq, %lane, %begin : index
+  %reader = index.cmp eq, %lane, %reader_lane : index
+  scf.if %writer {
+    scf.for %iteration = [%begin to %end step %step] {
+      scf.while {
+        %ack = view.atomic.load %flag[0] {ordering = relaxed, scope = workgroup} : view<1xi32> -> i32
+        %pending = scalar.cmpi ne, %ack, %acknowledged : i32
+        scf.condition %pending : i1
+      } do {
+        scf.yield
+      }
+      buffer.fence scope(workgroup) ordering(acquire)
+      %ordinal = index.cast %iteration : index to i32
+      %value = scalar.addi %ordinal, %bias : i32
+      view.store %value, %global[0] : i32, view<1xi32>
+      view.store %value, %local[0] : i32, view<1xi32>
+      buffer.fence scope(workgroup) ordering(release)
+      view.atomic.store %published, %flag[0] {ordering = relaxed, scope = workgroup} : i32, view<1xi32>
+    }
+  }
+  scf.if %reader {
+    scf.for %iteration = [%begin to %end step %step] {
+      scf.while {
+        %ready = view.atomic.load %flag[0] {ordering = relaxed, scope = workgroup} : view<1xi32> -> i32
+        %pending = scalar.cmpi ne, %ready, %published : i32
+        scf.condition %pending : i1
+      } do {
+        scf.yield
+      }
+      buffer.fence scope(workgroup) ordering(acquire)
+      %global_value = view.load %global[0] : view<1xi32> -> i32
+      %local_value = view.load %local[0] : view<1xi32> -> i32
+      %local_index = index.add %iteration, %end : index
+      view.store %global_value, %results[%iteration] : i32, view<32xi32>
+      view.store %local_value, %results[%local_index] : i32, view<32xi32>
+      buffer.fence scope(workgroup) ordering(release)
+      view.atomic.store %acknowledged, %flag[0] {ordering = relaxed, scope = workgroup} : i32, view<1xi32>
+    }
+  }
+  kernel.return
+}
+
+check.case public @generic_workgroup_fence_values {
+  %signal = check.generate.fill value(0) : tensor<1xi32>
+  %payload = check.generate.fill value(-1) : tensor<1xi32>
+  %output = check.generate.fill value(-1) : tensor<32xi32>
+  kernel.launch @generic_workgroup_fence_publication(%signal, %payload, %output) : (tensor<1xi32>, tensor<1xi32>, tensor<32xi32>)
+  %global_values = check.tensor.view %output offset(0) : tensor<32xi32> -> tensor<16xi32>
+  %local_values = check.tensor.view %output offset(64) : tensor<32xi32> -> tensor<16xi32>
+  %expected = check.generate.iota offset(65536) step(1) : tensor<16xi32>
+  check.expect.bitwise actual(%global_values) expected(%expected) : tensor<16xi32>
+  check.expect.bitwise actual(%local_values) expected(%expected) : tensor<16xi32>
+  check.return
+}

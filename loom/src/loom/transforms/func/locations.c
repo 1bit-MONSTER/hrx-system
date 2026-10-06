@@ -83,9 +83,10 @@ static iree_status_t loom_materialize_location_define(
   loom_builder_initialize(module, &module->arena, loom_module_block(module),
                           &builder);
   loom_op_t* definition = NULL;
-  IREE_RETURN_IF_ERROR(loom_global_rodata_def_build(
-      &builder, 0, (loom_symbol_ref_t){0, symbol}, 0, bytes,
-      LOOM_LOCATION_UNKNOWN, &definition));
+  IREE_RETURN_IF_ERROR(
+      loom_global_rodata_def_build(&builder, 0, (loom_symbol_ref_t){0, symbol},
+                                   0, loom_symbol_ref_array_empty(), bytes,
+                                   LOOM_LOCATION_UNKNOWN, &definition));
   *out_symbol = (loom_symbol_ref_t){0, symbol};
   return iree_ok_status();
 }

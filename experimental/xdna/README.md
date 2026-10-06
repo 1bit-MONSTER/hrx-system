@@ -98,37 +98,6 @@ the image and data bindings, and finally closes the context, device,
 endpoint, and instance. A native error is reported without retry. Failed
 cleanup stops at its ownership boundary and returns failure.
 
-The adapter tests use real image parsing and caller-owned storage without a
-fake native provider. CLI tests exercise host argument and file ownership
-without creating a device.
-
-The native consumer tests in `cts/` select the matching canonical compiler
-image, allocate data and instruction backing through the public memory scopes,
-and execute three different inputs through one retained native allocation. They
-check all 48 integer products, immutable command bytes, native retirement and
-caller-ordered teardown. A second case alternates two retained contexts across
-three producer/consumer pairs with changing inputs, then releases the producer
-and continues using shared data in the consumer. Providers advertising fixed
-full-array backing are checked to place both contexts on the same physical
-array. Each output is poisoned before its submission so missing writes cannot
-pass. Both process- and instance-scoped native lifetimes use the shared CTS
-device owner.
-
-A full-width interleave prepares two contexts once and alternates three
-producer/consumer pairs. The consumer reads the producer's shared-DRAM result
-without a host payload operation between them. Changed inputs, poisoned output,
-exact products, guard checks, and immutable instruction bytes establish that
-independent commands work even when another context uses the entire array.
-
-```sh
-iree-bazel-test --config=asan //experimental/xdna/cts/...
-iree-cmake-test -R '^iree/experimental/xdna/cts/'
-```
-
-These tests carry the XDNA hardware requirement and share the AMDGPU resource
-group with native and interop CTS. The same sources run on Linux and Windows;
-hosts without an XDNA endpoint or a matching compiler fixture report a skip.
-
 ## Independent execution benchmarks
 
 `benchmarks/execution_benchmark` measures native publication of the same
@@ -152,15 +121,6 @@ waits use the infinite timeout contract;
 unexpected native errors or incorrect output terminate the benchmark instead
 of producing later samples. Successful execution checks complete teardown.
 
-The generated smoke test uses the XDNA hardware requirement and shared AMDGPU
-resource group, like the native CTS:
-
-```sh
-iree-bazel-test --config=asan \
-  //experimental/xdna/benchmarks:execution_benchmark_test
-iree-cmake-test -R '^iree/experimental/xdna/benchmarks/'
-```
-
 Performance runs use an optimized, non-sanitized build of the exact benchmark
 target. After building, run its executable with fixed iteration counts, for
 example `--benchmark_min_time=200x --benchmark_repetitions=5`, and retain JSON
@@ -169,6 +129,4 @@ bound the untimed completion and verification work in submit-only rows.
 Measurements require an otherwise idle device and host, separate from builds
 and other hardware jobs. The two rows describe independent kernel-mediated
 dispatch with prepared host resources. They exclude image preparation and do
-not measure pipelined throughput or resident execution. Earlier
-continuation-only measurements describe a different, conditional warm-reuse
-path and are not interchangeable with these rows.
+not measure pipelined throughput or resident execution.

@@ -219,7 +219,9 @@ amdf_cc_library(
     deps = [
         ":topology",
         "//libamdf/src:memory_profile",
+        "//libamdf/src/gpu/umd:memory",
         "//libamdf/src/platform/linux:dma_buf",
+        "//third_party:linux_amdgpu_uapi",
     ],
 )
 
@@ -248,9 +250,13 @@ amdf_cc_test(
     deps = [
         ":device_state",
         ":memory",
+        ":memory_profile",
+        "//libamdf/src/gpu:endpoint_profile",
         "//libamdf/src/gpu/umd:memory",
+        "//libamdf/src/gpu/umd/kfd/target:user_queue",
         "//third_party:google_test",
         "//third_party:google_test_main",
+        "//third_party:linux_amdgpu_uapi",
     ],
 )
 
@@ -278,10 +284,23 @@ amdf_cc_library(
 )
 
 amdf_cc_library(
+    name = "aql",
+    srcs = ["aql.c"],
+    hdrs = ["aql.h"],
+    target_compatible_with = KFD_COMPATIBILITY,
+    visibility = ["//libamdf/src/gpu/umd/kfd:__subpackages__"],
+    deps = [
+        "//libamdf/src/gpu/umd:user_queue",
+        "//libamdf/src/gpu/umd/kfd/target:queue_plan",
+    ],
+)
+
+amdf_cc_library(
     name = "user_queue",
     srcs = ["user_queue.c"],
     target_compatible_with = KFD_COMPATIBILITY,
     deps = [
+        ":aql",
         ":buffer",
         ":device_state",
         ":user_queue_native",
@@ -300,6 +319,7 @@ amdf_cc_test(
     srcs = ["user_queue_test.cc"],
     target_compatible_with = KFD_COMPATIBILITY,
     deps = [
+        ":aql",
         ":device_state",
         ":user_queue",
         ":user_queue_native",

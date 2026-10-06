@@ -177,4 +177,73 @@ func.def public target(@carrier_target) @reports_composed_rules(%first: buffer, 
 
 // ----
 CHECK: *"changed":true,*
-CHECK: *"cfg-edges-rewritten":2,"layout-projections":1,"layout-components":1,"view-projections":1,"view-components":2}*
+CHECK: *"cfg-edges-rewritten":2,"loops-rewritten":0,"layout-projections":1,"layout-components":1,"view-projections":1,"view-components":2}*
+
+// ====
+
+// Condition loops project their independent header and body/result tuples. The
+// condition creates an extra candidate descriptor for the body and results;
+// the body chooses that candidate as the next header descriptor.
+// RUN: pass specialize-target-callgraph,project-boundary-representations
+
+test.target<low_core> @carrier_target
+
+func.def public target(@carrier_target) @condition_loop_layout(%input: buffer, %base: offset, %initial_stride_input: index, %next_stride_input: index, %iterate: i1) -> (i32) {
+  %initial_stride = index.assume %initial_stride_input [range(%initial_stride_input, 4, 1024)] : index
+  %next_stride = index.assume %next_stride_input [range(%next_stride_input, 4, 1024)] : index
+  %initial_layout = encoding.layout.strided [%initial_stride, 1] : encoding<layout>
+  %terminal_layout, %candidate_layout = scf.while(%header_layout = %initial_layout : encoding<layout>) -> (encoding<layout>, encoding<layout>) {
+    %next_layout = encoding.layout.strided [%next_stride, 1] : encoding<layout>
+    scf.condition %iterate, %header_layout, %next_layout : i1, encoding<layout>, encoding<layout>
+  } do(%body_layout: encoding<layout>, %body_candidate: encoding<layout>) {
+    scf.yield %body_candidate : encoding<layout>
+  }
+  %view = buffer.view %input[%base] : buffer -> view<2x4xi32, %candidate_layout>
+  %value = view.load %view[1, 0] : view<2x4xi32, %candidate_layout> -> i32
+  func.return %value : i32
+}
+
+// ----
+test.target<low_core> @carrier_target
+
+func.def public target(@carrier_target) @condition_loop_layout(%input: buffer, %base: offset, %initial_stride_input: index, %next_stride_input: index, %iterate: i1) -> (i32) {
+  %initial_stride = index.assume %initial_stride_input [range(%initial_stride_input, 4, 1024)] : index
+  %next_stride = index.assume %next_stride_input [range(%next_stride_input, 4, 1024)] : index
+  %initial_layout = encoding.layout.strided [%initial_stride, 1] : encoding<layout>
+  %terminal_layout_stride_0, %candidate_layout_stride_0 = scf.while(%header_layout_stride_0 = %initial_stride : index) -> (index, index) {
+    %header_layout = encoding.layout.strided [%header_layout_stride_0, 1] : encoding<layout>
+    %next_layout = encoding.layout.strided [%next_stride, 1] : encoding<layout>
+    scf.condition %iterate, %header_layout_stride_0, %next_stride : i1, index, index
+  } do(%body_layout_stride_0: index, %body_candidate_stride_0: index) {
+    %body_layout = encoding.layout.strided [%body_layout_stride_0, 1] : encoding<layout>
+    %body_candidate = encoding.layout.strided [%body_candidate_stride_0, 1] : encoding<layout>
+    scf.yield %body_candidate_stride_0 : index
+  }
+  %candidate_layout = encoding.layout.strided [%candidate_layout_stride_0, 1] : encoding<layout>
+  %terminal_layout = encoding.layout.strided [%terminal_layout_stride_0, 1] : encoding<layout>
+  %view = buffer.view %input[%base] : buffer -> view<2x4xi32, %candidate_layout>
+  %value = view.load %view[1, 0] : view<2x4xi32, %candidate_layout> -> i32
+  func.return %value : i32
+}
+
+// ====
+// RUN: with-checks pass-report specialize-target-callgraph,project-boundary-representations
+
+test.target<low_core> @carrier_target
+
+func.def public target(@carrier_target) @reports_condition_loop_layout(%input: buffer, %base: offset, %initial_stride_input: index, %iterate: i1) -> (i32) {
+  %initial_stride = index.assume %initial_stride_input [range(%initial_stride_input, 4, 1024)] : index
+  %initial_layout = encoding.layout.strided [%initial_stride, 1] : encoding<layout>
+  %layout = scf.while(%header_layout = %initial_layout : encoding<layout>) -> (encoding<layout>) {
+    scf.condition %iterate, %header_layout : i1, encoding<layout>
+  } do(%body_layout: encoding<layout>) {
+    scf.yield %body_layout : encoding<layout>
+  }
+  %view = buffer.view %input[%base] : buffer -> view<2x4xi32, %layout>
+  %value = view.load %view[1, 0] : view<2x4xi32, %layout> -> i32
+  func.return %value : i32
+}
+
+// ----
+CHECK: *"changed":true,*
+CHECK: *"cfg-edges-rewritten":0,"loops-rewritten":1,"layout-projections":3,"layout-components":3,"view-projections":0,"view-components":0}*

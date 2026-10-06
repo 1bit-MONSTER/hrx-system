@@ -26,6 +26,10 @@ typedef struct loom_aie2p_array_resident_worker_t {
   loom_symbol_ref_t entry;
   // Private retained core Low function implementing the resident loop.
   loom_op_t* function_op;
+  // Invocation target facts borrowed from the source worker's compiler version.
+  const loom_target_facts_t* function_target_facts;
+  // Module-owned proof bindings translated into the resident invocation.
+  loom_low_memory_access_map_t* memory_accesses;
 } loom_aie2p_array_resident_worker_t;
 
 // Materialized resident core programs for one physical array plan.
@@ -38,18 +42,28 @@ typedef struct loom_aie2p_array_resident_program_t {
 
 // Materializes every planned worker as an independently compilable Low CFG.
 //
-// Each source worker function represents one channel firing. The materializer
-// clones its arbitrary CFG once, replaces resource imports with loop-carried
-// local-address values, surrounds the firing with the channel lock protocol,
-// and advances every channel ring independently after the firing completes.
+// |source_module| owns the selected array and core leaf IR retained by |plans|.
+// |resident_module| receives the retained read-only data definitions and all
+// generated functions and is the module used to compile and inspect them. The
+// modules must share a finalized context and may not alias. Materialization
+// does not mutate |source_module|.
+//
+// All plans sharing a resident module are materialized in one call. This keeps
+// one source-symbol projection across the batch, so a read-only data definition
+// referenced by several entries or workers is cloned exactly once. Each source
+// worker function represents one channel firing. The materializer clones its
+// arbitrary CFG once, replaces resource imports with loop-carried local-address
+// values, surrounds the firing with the channel lock protocol, and advances
+// every channel ring independently after the firing completes.
 // Single-predecessor block chains are fused so scheduling can overlap firing
-// and protocol work while preserving lock effects and shared loop headers.
-// The resulting functions have no imported resources or register ABI and are
+// and protocol work while preserving lock effects and shared loop headers. The
+// resulting functions have no imported resources or register ABI and are
 // retained as final array-image roots.
-iree_status_t loom_aie2p_array_materialize_resident_program(
-    loom_module_t* module, const loom_aie2p_array_plan_t* plan,
+iree_status_t loom_aie2p_array_materialize_resident_programs(
+    const loom_module_t* source_module, loom_module_t* resident_module,
+    const loom_aie2p_array_plan_t* plans, iree_host_size_t plan_count,
     iree_arena_allocator_t* arena,
-    loom_aie2p_array_resident_program_t* out_program);
+    loom_aie2p_array_resident_program_t* out_programs);
 
 #ifdef __cplusplus
 }  // extern "C"

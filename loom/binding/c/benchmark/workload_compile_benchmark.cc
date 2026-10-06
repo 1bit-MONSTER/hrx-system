@@ -23,6 +23,7 @@ namespace {
 enum class AttentionCompilePhase {
   kParse,
   kCloneSource,
+  kCombineSource,
   kCanonicalizeSource,
   kCseSource,
   kUnrollSource,
@@ -258,6 +259,9 @@ class AttentionCompileScenario final : public TargetCompileScenario {
                                            source_.get(), &source_template_));
 
     switch (phase_) {
+      case AttentionCompilePhase::kCombineSource:
+        return PreparePassProgram(
+            context_.get(), loomc_make_cstring_view("combine"), &pass_program_);
       case AttentionCompilePhase::kCanonicalizeSource:
         return PreparePassProgram(context_.get(),
                                   loomc_make_cstring_view("canonicalize"),
@@ -905,6 +909,8 @@ void RegisterAttentionCompileBenchmarks(const WorkloadCompileTarget& target,
 
   register_phase(AttentionCompilePhase::kParse, "Parse", {1, 2, 4, 8});
   register_phase(AttentionCompilePhase::kCloneSource, "CloneSource",
+                 {1, 2, 4, 8});
+  register_phase(AttentionCompilePhase::kCombineSource, "CombineSource",
                  {1, 2, 4, 8});
   register_phase(AttentionCompilePhase::kCanonicalizeSource,
                  "CanonicalizeSource", {1, 2, 4, 8});

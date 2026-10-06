@@ -15,7 +15,6 @@
 #include "loom/target/arch/amdgpu/facts.h"
 #include "loom/target/arch/amdgpu/planning/occupancy_model.h"
 #include "loom/target/arch/amdgpu/refs/target_refs.h"
-#include "loom/target/launch.h"
 #include "loom/target/types.h"
 #include "loom/util/json.h"
 #include "loom/util/stream.h"
@@ -73,13 +72,6 @@ static uint32_t loom_amdgpu_occupancy_register_class_index(
   }
   IREE_ASSERT(class_index < model->register_class_count);
   return class_index;
-}
-
-const loom_target_residency_model_t* loom_amdgpu_occupancy_residency_model(
-    const loom_low_resolved_target_t* target) {
-  const loom_amdgpu_occupancy_model_t* model =
-      loom_amdgpu_occupancy_select_target_model(target);
-  return &model->residency_model;
 }
 
 static void loom_amdgpu_occupancy_collect_allocations(
@@ -173,19 +165,16 @@ static iree_status_t loom_amdgpu_occupancy_collect_spills(
   return iree_ok_status();
 }
 
-static iree_status_t loom_amdgpu_occupancy_flat_workgroup_size(
-    const loom_target_export_plan_t* export_plan, uint32_t* out_flat_size) {
-  *out_flat_size = 0;
+static uint32_t loom_amdgpu_occupancy_flat_workgroup_size(
+    const loom_target_export_plan_t* export_plan) {
   if (!export_plan || export_plan->abi_kind != LOOM_TARGET_ABI_HAL_KERNEL) {
-    return iree_ok_status();
+    return 0;
   }
   const loom_target_workgroup_size_t size =
       export_plan->hal_kernel.required_workgroup_size;
-  if (!loom_target_workgroup_size_flat_product_u32(&size, out_flat_size)) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "AMDGPU workgroup size overflows uint32_t");
-  }
-  return iree_ok_status();
+  // Function target refinement already checks the complete launch shape
+  // against the hardware's flat and per-dimension limits.
+  return size.x * size.y * size.z;
 }
 
 static iree_status_t loom_amdgpu_occupancy_apply_residency_evaluation(
@@ -398,15 +387,74 @@ static uint32_t loom_amdgpu_occupancy_wave_limit_for_workgroups(
 
 static uint32_t loom_amdgpu_occupancy_rounded_local_memory_wave_limit(
     const loom_amdgpu_occupancy_model_t* model, uint32_t waves_per_workgroup,
-    uint32_t rounded_bytes) {
+    uint64_t rounded_bytes) {
   if (rounded_bytes == 0) {
     return model->max_waves_per_simd;
   }
-  IREE_ASSERT_LE(rounded_bytes, model->domain.local_memory_bytes);
   const uint32_t workgroup_count =
-      model->domain.local_memory_bytes / rounded_bytes;
+      (uint32_t)(model->domain.local_memory_bytes / rounded_bytes);
   return loom_amdgpu_occupancy_wave_limit_for_workgroups(
       model, waves_per_workgroup, workgroup_count);
+}
+
+// Fixed launch accounting shared by planning and final resource reporting.
+typedef struct loom_amdgpu_occupancy_launch_limits_t {
+  // Workgroup-local bytes after hardware allocation rounding.
+  uint64_t rounded_local_memory_bytes;
+  // Waves in one fixed workgroup, or zero for an unknown launch.
+  uint32_t waves_per_workgroup;
+  // Resident waves per SIMD allowed by wave and barrier slots.
+  uint32_t workgroup_wave_limit;
+  // Resident waves per SIMD allowed by workgroup-local storage.
+  uint32_t local_memory_wave_limit;
+} loom_amdgpu_occupancy_launch_limits_t;
+
+static loom_amdgpu_occupancy_launch_limits_t
+loom_amdgpu_occupancy_launch_limits(const loom_amdgpu_occupancy_model_t* model,
+                                    uint32_t wave_size,
+                                    uint32_t flat_workgroup_size,
+                                    uint64_t local_memory_bytes) {
+  loom_amdgpu_occupancy_launch_limits_t limits = {
+      .rounded_local_memory_bytes = loom_target_residency_round_resource_units(
+          local_memory_bytes,
+          model->domain.local_memory_allocation_granularity),
+      .workgroup_wave_limit = model->max_waves_per_simd,
+      .local_memory_wave_limit = model->max_waves_per_simd,
+  };
+  if (flat_workgroup_size == 0) {
+    return limits;
+  }
+  limits.waves_per_workgroup =
+      loom_amdgpu_occupancy_ceil_div_u32(flat_workgroup_size, wave_size);
+  const uint32_t wave_slots =
+      model->max_waves_per_simd * model->domain.simd_count;
+  const uint32_t workgroup_slot_count =
+      limits.waves_per_workgroup == 1
+          ? wave_slots
+          : iree_min(wave_slots / limits.waves_per_workgroup,
+                     model->domain.max_barrier_workgroup_count);
+  limits.workgroup_wave_limit = loom_amdgpu_occupancy_wave_limit_for_workgroups(
+      model, limits.waves_per_workgroup, workgroup_slot_count);
+  limits.local_memory_wave_limit =
+      loom_amdgpu_occupancy_rounded_local_memory_wave_limit(
+          model, limits.waves_per_workgroup, limits.rounded_local_memory_bytes);
+  return limits;
+}
+
+loom_target_residency_view_t loom_amdgpu_occupancy_residency_view(
+    const loom_low_resolved_target_t* target,
+    const loom_low_storage_layout_space_sizes_t* storage_sizes) {
+  const loom_amdgpu_occupancy_model_t* model =
+      loom_amdgpu_occupancy_select_target_model(target);
+  const loom_target_bundle_t* bundle = loom_low_resolved_target_bundle(target);
+  const loom_amdgpu_occupancy_launch_limits_t limits =
+      loom_amdgpu_occupancy_launch_limits(
+          model, bundle->snapshot->subgroup_size,
+          loom_amdgpu_occupancy_flat_workgroup_size(bundle->export_plan),
+          storage_sizes->workgroup_bytes);
+  return loom_target_residency_view(
+      &model->residency_model,
+      iree_min(limits.workgroup_wave_limit, limits.local_memory_wave_limit));
 }
 
 // Inverts ceil(workgroups * waves_per_workgroup / simd_count), then rounds
@@ -430,9 +478,9 @@ static void loom_amdgpu_occupancy_apply_launch_limits(
   table->flat_workgroup_size = flat_workgroup_size;
   const uint32_t granularity =
       model->domain.local_memory_allocation_granularity;
-  const uint32_t rounded_local_memory_bytes =
-      loom_amdgpu_occupancy_ceil_div_u32(local_memory_bytes, granularity) *
-      granularity;
+  const loom_amdgpu_occupancy_launch_limits_t limits =
+      loom_amdgpu_occupancy_launch_limits(
+          model, table->wave_size, flat_workgroup_size, local_memory_bytes);
   if (launch_constraints != NULL) {
     launch_constraints[0] = (loom_target_residency_constraint_t){
         .name = IREE_SVL("amdgpu.lds"),
@@ -442,7 +490,7 @@ static void loom_amdgpu_occupancy_apply_launch_limits(
         .allocation_scope = IREE_SVL("workgroup"),
         .pool_scope = IREE_SVL("occupancy domain"),
         .units = local_memory_bytes,
-        .rounded_units = rounded_local_memory_bytes,
+        .rounded_units = limits.rounded_local_memory_bytes,
         .pool_units = model->domain.local_memory_bytes,
         .allocation_granularity = granularity,
     };
@@ -463,22 +511,10 @@ static void loom_amdgpu_occupancy_apply_launch_limits(
     return;
   }
 
-  const uint32_t waves_per_workgroup =
-      loom_amdgpu_occupancy_ceil_div_u32(flat_workgroup_size, table->wave_size);
+  const uint32_t waves_per_workgroup = limits.waves_per_workgroup;
   table->waves_per_workgroup = waves_per_workgroup;
-  const uint32_t wave_slots =
-      model->max_waves_per_simd * model->domain.simd_count;
-  const uint32_t workgroup_slot_count =
-      waves_per_workgroup == 1
-          ? wave_slots
-          : iree_min(wave_slots / waves_per_workgroup,
-                     model->domain.max_barrier_workgroup_count);
-  const uint32_t workgroup_wave_limit =
-      loom_amdgpu_occupancy_wave_limit_for_workgroups(
-          model, waves_per_workgroup, workgroup_slot_count);
-  const uint32_t local_memory_wave_limit =
-      loom_amdgpu_occupancy_rounded_local_memory_wave_limit(
-          model, waves_per_workgroup, rounded_local_memory_bytes);
+  const uint32_t workgroup_wave_limit = limits.workgroup_wave_limit;
+  const uint32_t local_memory_wave_limit = limits.local_memory_wave_limit;
   if (launch_constraints != NULL) {
     launch_constraints[0].flags |=
         LOOM_TARGET_RESIDENCY_CONSTRAINT_FLAG_HAS_TIER;
@@ -553,8 +589,10 @@ static void loom_amdgpu_occupancy_apply_launch_limits(
         LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_HAS_UNIQUE_LIMITING_RESOURCE;
     summary->limiting_resource = IREE_SV("amdgpu.lds");
     summary->limiting_resource_units = local_memory_bytes;
-    const uint32_t current_budget = loom_amdgpu_occupancy_local_memory_budget(
-        model, waves_per_workgroup, tier);
+    const uint32_t current_budget =
+        tier != 0 ? loom_amdgpu_occupancy_local_memory_budget(
+                        model, waves_per_workgroup, tier)
+                  : model->domain.local_memory_bytes;
     if (current_budget < model->domain.local_memory_bytes) {
       summary->flags |=
           LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_HAS_LIMITING_RESOURCE_NEXT_WORSE_TIER;
@@ -955,8 +993,8 @@ iree_status_t loom_amdgpu_occupancy_build(
       .pressure_resources = pressure_resources,
       .pressure_resource_count = resource_table->resource_count,
   };
-  IREE_RETURN_IF_ERROR(loom_amdgpu_occupancy_flat_workgroup_size(
-      target_bundle->export_plan, &table.flat_workgroup_size));
+  table.flat_workgroup_size =
+      loom_amdgpu_occupancy_flat_workgroup_size(target_bundle->export_plan);
   for (iree_host_size_t i = 0; i < model->register_class_count; ++i) {
     register_classes[i] = (loom_amdgpu_occupancy_register_class_t){
         .register_class = model->register_classes[i].register_class,

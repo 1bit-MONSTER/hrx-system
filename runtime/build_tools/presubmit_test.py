@@ -7,8 +7,11 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 def load_presubmit_module():
@@ -26,21 +29,33 @@ class RuntimePresubmitTest(unittest.TestCase):
     def setUpClass(cls):
         cls.presubmit = load_presubmit_module()
 
-    def test_bazel_tests_exclude_runtime_resource_requirements(self):
+    def test_bazel_tests_leave_resource_selection_to_execution_policy(self):
         command = self.presubmit.bazel_test_command()
 
         self.assertEqual(command[:3], ["bazel", "test", "--config=presubmit"])
         self.assertIn("--", command)
         self.assertIn("//runtime/...", command)
 
-        tag_filter = next(
-            arg for arg in command if arg.startswith("--test_tag_filters=")
-        )
-        self.assertIn("-iree-run-requirement=runtime.resource.amd_gpu", tag_filter)
+        self.assertFalse(any(arg.startswith("--test_tag_filters=") for arg in command))
         self.assertIn(
             "-//runtime/src/iree/hal/drivers/task/executable/elf:elf_module_test",
             command,
         )
+
+    def test_bazel_tests_use_selected_execution_policy(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                self.presubmit.project_presubmit.BAZEL_CONFIGS_ENV: json.dumps(
+                    ["remote-execution", "local-tests"]
+                )
+            },
+            clear=True,
+        ):
+            command = self.presubmit.bazel_test_command()
+
+        self.assertIn("--config=remote-execution", command)
+        self.assertIn("--config=local-tests", command)
 
 
 if __name__ == "__main__":

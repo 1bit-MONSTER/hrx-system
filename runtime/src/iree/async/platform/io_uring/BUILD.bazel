@@ -54,6 +54,7 @@ iree_runtime_cc_library(
         "//runtime/src/iree/async",
         "//runtime/src/iree/async:types",
         "//runtime/src/iree/async/platform/linux:signal",
+        "//runtime/src/iree/async/platform/linux:socket_options",
         "//runtime/src/iree/async/util:continuation",
         "//runtime/src/iree/async/util:intrusive_list",
         "//runtime/src/iree/async/util:message_pool",

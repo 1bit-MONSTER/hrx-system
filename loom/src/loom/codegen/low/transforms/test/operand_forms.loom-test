@@ -1,0 +1,134 @@
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @equal_readonly_payloads(%condition: reg<test.i32>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %selected = test.select.i32 %condition, %value, %value
+  return %selected, %value
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @equal_readonly_payloads(%condition: reg<test.i32>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  return %value, %value
+}
+
+// ====
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @consume_sole_selected_owner(%condition: reg<test.i32>, %value: reg<test.i32>) -> (reg<test.i32>) asm {
+  %selected = test.select.i32 %condition, %value, %value
+  %changed = test.tied.any %selected
+  return %changed
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @consume_sole_selected_owner(%condition: reg<test.i32>, %value: reg<test.i32>) -> (reg<test.i32>) asm {
+  %changed = test.tied.any %value
+  return %changed
+}
+
+// ====
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @select_before_source_write(%condition: reg<test.i32>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %selected = test.select.i32 %condition, %value, %value
+  %changed = test.tied.any %value
+  return %selected, %changed
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @select_before_source_write(%condition: reg<test.i32>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %selected = slice %value[0] : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %value
+  return %selected, %changed
+}
+
+// ====
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @consume_selected_and_source(%condition: reg<test.i32>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %selected = test.select.i32 %condition, %value, %value
+  %selected_changed = test.tied.any %selected
+  %source_changed = test.tied.any %value
+  return %selected_changed, %source_changed
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @consume_selected_and_source(%condition: reg<test.i32>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %selected = slice %value[0] : reg<test.i32> -> reg<test.i32>
+  %selected_changed = test.tied.any %selected
+  %source_changed = test.tied.any %value
+  return %selected_changed, %source_changed
+}
+
+// ====
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @select_alias_before_parent_write(%condition: reg<test.i32>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %alias = low.assume %value [range(%value, 0, 1024)] : reg<test.i32>
+  %selected = test.select.i32 %condition, %alias, %alias
+  %changed = test.tied.any %value
+  return %selected, %changed
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @select_alias_before_parent_write(%condition: reg<test.i32>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %alias = low.assume %value [range(%value, 0, 1024)] : reg<test.i32>
+  %selected = slice %alias[0] : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %value
+  return %selected, %changed
+}
+
+// ====
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @select_result_alias_write(%condition: reg<test.i32>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %selected = test.select.i32 %condition, %value, %value
+  %alias = low.assume %selected [range(%selected, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %alias
+  return %value, %changed
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @select_result_alias_write(%condition: reg<test.i32>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %selected = slice %value[0] : reg<test.i32> -> reg<test.i32>
+  %alias = low.assume %selected [range(%selected, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %alias
+  return %value, %changed
+}
+
+// ====
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @fixed_condition_select_capture(%condition: reg<test.fixed.r0>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %selected = test.fixed.select.i32 %value, %value, %condition
+  %changed = test.tied.any %value
+  return %selected, %changed
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @fixed_condition_select_capture(%condition: reg<test.fixed.r0>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %selected = slice %value[0] : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %value
+  return %selected, %changed
+}

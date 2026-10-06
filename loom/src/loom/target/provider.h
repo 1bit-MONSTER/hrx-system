@@ -206,17 +206,19 @@ typedef struct loom_target_emit_request_t {
   iree_allocator_t allocator;
 } loom_target_emit_request_t;
 
-// Emits one target artifact from prepared target-low IR.
+// Emits one target artifact from prepared target-low IR. Structured semantic
+// rejection returns OK with |out_emitted| false and no artifact. Infrastructure
+// and output failures return a status and also leave |out_emitted| false.
 typedef iree_status_t (*loom_target_emit_fn_t)(
-    const loom_target_emit_request_t* request,
+    const loom_target_emit_request_t* request, bool* out_emitted,
     loom_target_emit_artifact_t* out_artifact);
 
 // Target-owned emission backend linked into a binary or embedding.
 typedef struct loom_target_emitter_t {
-  // Stable emitter name used in diagnostics.
+  // Stable nonempty emitter name used in diagnostics.
   iree_string_view_t name;
 
-  // Public artifact format string returned by binding layers.
+  // Unique nonempty public artifact format returned by binding layers.
   iree_string_view_t public_artifact_format;
 
   // Default artifact identifier used when the caller leaves it empty.
@@ -228,7 +230,7 @@ typedef struct loom_target_emitter_t {
   // Options for the default compiler pipeline preparing this artifact.
   loom_target_pipeline_options_t default_pipeline_options;
 
-  // Emission callback.
+  // Non-NULL emission callback.
   loom_target_emit_fn_t emit;
 } loom_target_emitter_t;
 
@@ -327,7 +329,8 @@ struct loom_target_provider_t {
   loom_target_emitter_list_t emitter_list;
   // Default emitter for ordinary function modules compiled for this family,
   // or NULL when callers must select an explicit format. Borrows an emitter
-  // with the provider's lifetime; kernel artifact selection is independent.
+  // with the provider's lifetime and is paired with
+  // |canonical_module_fact_type|; kernel artifact selection is independent.
   const loom_target_emitter_t* canonical_module_emitter;
   // Optional target-owned pass descriptors contributed by this target.
   const loom_pass_registry_t* pass_registry;
@@ -346,6 +349,20 @@ struct loom_target_provider_t {
   const loom_target_fact_type_t* target_fact_type;
   // Optional allocation-free named-profile selector.
   loom_target_provider_select_profile_fn_t select_profile;
+  // Target fact representation accepted by |canonical_module_emitter|. This
+  // association is independent of target fact ownership so architecture and
+  // artifact emission providers can be linked separately. Must be NULL if and
+  // only if |canonical_module_emitter| is NULL.
+  const loom_target_fact_type_t* canonical_module_fact_type;
+  // Default emitter for kernel products compiled for a target family, or NULL
+  // when callers must select an explicit format. The emitter must appear in
+  // |emitter_list|.
+  const loom_target_emitter_t* canonical_kernel_emitter;
+  // Target fact representation accepted by |canonical_kernel_emitter|. This
+  // association is independent of target fact ownership so architecture and
+  // artifact emission providers can be linked separately. Must be NULL if and
+  // only if |canonical_kernel_emitter| is NULL.
+  const loom_target_fact_type_t* canonical_kernel_fact_type;
 };
 
 // Static target provider table linked into a binary or embedding.
@@ -357,6 +374,25 @@ typedef struct loom_target_provider_set_t {
 } loom_target_provider_set_t;
 
 enum {
+  // Maximum number of providers retained by mutable provider-set storage.
+  LOOM_TARGET_PROVIDER_SET_STORAGE_CAPACITY = 64,
+};
+
+// Fixed-capacity storage for assembling a target provider set.
+//
+// The storage must not move or be copied after initialization because
+// |provider_set| points into |providers|. Provider order and duplicates are
+// preserved exactly. Static provider sets may exceed this capacity when they
+// do not require composition.
+typedef struct loom_target_provider_set_storage_t {
+  // Mutable provider table owned by this storage.
+  const loom_target_provider_t*
+      providers[LOOM_TARGET_PROVIDER_SET_STORAGE_CAPACITY];
+  // Provider-set view over the initialized prefix of |providers|.
+  loom_target_provider_set_t provider_set;
+} loom_target_provider_set_storage_t;
+
+enum {
   LOOM_TARGET_PROVIDER_DESCRIPTOR_SET_PROVIDER_CAPACITY = 256,
   LOOM_TARGET_PROVIDER_LOW_LOWER_POLICY_CAPACITY = 128,
   LOOM_TARGET_PROVIDER_MATH_POLICY_CAPACITY = 128,
@@ -366,6 +402,7 @@ enum {
   LOOM_TARGET_PROVIDER_LOW_ASM_DIAGNOSTIC_PROVIDER_CAPACITY = 64,
   LOOM_TARGET_PROVIDER_LOW_VERIFY_PROVIDER_CAPACITY = 64,
   LOOM_TARGET_PROVIDER_EMITTER_CAPACITY = 64,
+  LOOM_TARGET_PROVIDER_CANONICAL_EMITTER_CAPACITY = 64,
   LOOM_TARGET_PROVIDER_PASS_REGISTRY_CAPACITY = 64,
 };
 
@@ -432,8 +469,25 @@ static inline loom_target_provider_set_t loom_target_provider_set_make(
   };
 }
 
+// Initializes empty provider-set |storage|.
+void loom_target_provider_set_storage_initialize(
+    loom_target_provider_set_storage_t* storage);
+
+// Appends non-NULL |provider| to |storage|. Fails without changing |storage|
+// when full.
+iree_status_t loom_target_provider_set_storage_append(
+    loom_target_provider_set_storage_t* storage,
+    const loom_target_provider_t* provider);
+
+// Appends every provider in |provider_set| to |storage| in order. Fails
+// without changing |storage| when the complete set cannot fit.
+iree_status_t loom_target_provider_set_storage_append_set(
+    loom_target_provider_set_storage_t* storage,
+    const loom_target_provider_set_t* provider_set);
+
 // Initializes |out_environment| from |provider_set|. The environment borrows
-// |provider_set| until deinitialized.
+// |provider_set| until deinitialized. Profile families, target fact types, and
+// public artifact formats must each have exactly one owning provider.
 iree_status_t loom_target_environment_initialize(
     const loom_target_provider_set_t* provider_set,
     loom_target_environment_t* out_environment);
@@ -486,9 +540,12 @@ loom_low_verify_provider_list_t
 loom_target_environment_low_verify_provider_list(
     const loom_target_environment_t* environment);
 
-// Returns target-owned emitters linked into |environment|.
-loom_target_emitter_list_t loom_target_environment_emitter_list(
-    const loom_target_environment_t* environment);
+// Returns the unique emitter for |public_artifact_format|. An empty format
+// selects the only linked emitter. Returns NULL when no unique emitter exists;
+// environment initialization rejects duplicate nonempty public formats.
+const loom_target_emitter_t* loom_target_environment_lookup_emitter(
+    const loom_target_environment_t* environment,
+    iree_string_view_t public_artifact_format);
 
 // Returns target-owned pass descriptors linked into |environment|.
 const loom_pass_registry_t* loom_target_environment_pass_registry(
@@ -510,6 +567,20 @@ const loom_target_provider_t* loom_target_environment_lookup_profile_provider(
 // profile-based specialization so compiler-created authored roots retain a
 // complete resolved target.
 const loom_target_provider_t* loom_target_environment_lookup_fact_provider(
+    const loom_target_environment_t* environment,
+    const loom_target_fact_type_t* fact_type);
+
+// Returns the canonical ordinary-function module emitter for |fact_type|, or
+// NULL when the configured compiler has no canonical module format for it.
+const loom_target_emitter_t*
+loom_target_environment_lookup_canonical_module_emitter(
+    const loom_target_environment_t* environment,
+    const loom_target_fact_type_t* fact_type);
+
+// Returns the canonical kernel emitter for |fact_type|, or NULL when the
+// configured compiler has no canonical kernel format for it.
+const loom_target_emitter_t*
+loom_target_environment_lookup_canonical_kernel_emitter(
     const loom_target_environment_t* environment,
     const loom_target_fact_type_t* fact_type);
 

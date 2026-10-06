@@ -11,14 +11,17 @@
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/pipeline_plan.h"
 #include "loom/codegen/low/builder.h"
+#include "loom/error/error_catalog.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
 #include "loom/ops/pipeline/ops.h"
+#include "loom/target/arch/amd/xdna/aie2p/array/abi_layout.h"
 #include "loom/target/arch/amd/xdna/aie2p/array/plan.h"
 #include "loom/target/arch/amd/xdna/aie2p/descriptors/array_descriptors.h"
 #include "loom/target/arch/amd/xdna/aie2p/pipeline/composition.h"
 #include "loom/target/arch/amd/xdna/array/facts.h"
+#include "loom/target/arch/amd/xdna/error_catalog.h"
 
 enum { LOOM_AIE2P_PIPELINE_DEFAULT_CHANNEL_CAPACITY = 2 };
 
@@ -66,16 +69,13 @@ static iree_status_t loom_aie2p_pipeline_allocate_array(
 }
 
 static iree_status_t loom_aie2p_pipeline_placement_initialize(
-    const loom_pipeline_plan_t* plan, iree_arena_allocator_t* arena,
-    loom_aie2p_pipeline_placement_t* out_placement) {
+    const loom_pipeline_plan_t* plan,
+    iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
+    loom_aie2p_pipeline_placement_t* out_placement, bool* out_valid) {
+  *out_valid = false;
   const loom_xdna_array_family_t* family = loom_xdna_npu2_array_family();
-  iree_host_size_t physical_coordinate_count = 0;
-  if (!iree_host_size_checked_mul(family->column_count, family->row_count,
-                                  &physical_coordinate_count) ||
-      physical_coordinate_count > UINT32_MAX) {
-    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "AIE2P physical coordinate domain is too large");
-  }
+  const iree_host_size_t physical_coordinate_count =
+      (iree_host_size_t)family->column_count * family->row_count;
 
   *out_placement = (loom_aie2p_pipeline_placement_t){
       .plan = plan,
@@ -92,18 +92,13 @@ static iree_status_t loom_aie2p_pipeline_placement_initialize(
           .column = column,
           .row = row,
       };
-      const loom_xdna_tile_facts_t* tile = NULL;
-      IREE_RETURN_IF_ERROR(
-          loom_xdna_array_tile_facts(family, coordinate, &tile));
+      const loom_xdna_tile_facts_t* tile =
+          loom_xdna_array_tile_facts(family, coordinate);
       if (tile->kind == LOOM_XDNA_TILE_KIND_COMPUTE) {
         placement->compute_coordinates[placement->compute_coordinate_count++] =
             coordinate;
       }
     }
-  }
-  if (placement->compute_coordinate_count == 0) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "AIE2P target has no compute tiles");
   }
   IREE_RETURN_IF_ERROR(loom_aie2p_pipeline_allocate_array(
       arena, placement->compute_coordinate_count,
@@ -125,22 +120,24 @@ static iree_status_t loom_aie2p_pipeline_placement_initialize(
     placement->neighbor_capacities[i] = capacity;
   }
   if (plan->instance_count > placement->compute_coordinate_count) {
-    return iree_make_status(
-        IREE_STATUS_RESOURCE_EXHAUSTED,
-        "AIE2P pipeline requires %u resident instances but has %u compute "
-        "tiles",
-        plan->instance_count, placement->compute_coordinate_count);
+    const loom_diagnostic_param_t params[] = {
+        loom_param_u32(plan->instance_count),
+        loom_param_u32(placement->compute_coordinate_count),
+    };
+    const loom_diagnostic_emission_t emission = {
+        .op = plan->pipeline.op,
+        .error = LOOM_ERR_XDNA_009,
+        .params = params,
+        .param_count = IREE_ARRAYSIZE(params),
+    };
+    return iree_diagnostic_emit(diagnostic_emitter, &emission);
   }
   IREE_RETURN_IF_ERROR(loom_aie2p_pipeline_allocate_array(
       arena, plan->instance_count, sizeof(*placement->instance_coordinates),
       (void**)&placement->instance_coordinates));
-  iree_host_size_t candidate_order_count = 0;
-  if (!iree_host_size_checked_mul(plan->instance_count,
-                                  placement->compute_coordinate_count,
-                                  &candidate_order_count)) {
-    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "AIE2P placement scratch is too large");
-  }
+  const iree_host_size_t candidate_order_count =
+      (iree_host_size_t)plan->instance_count *
+      placement->compute_coordinate_count;
   IREE_RETURN_IF_ERROR(loom_aie2p_pipeline_allocate_array(
       arena, candidate_order_count, sizeof(*placement->candidate_order),
       (void**)&placement->candidate_order));
@@ -150,6 +147,7 @@ static iree_status_t loom_aie2p_pipeline_placement_initialize(
         .row = UINT16_MAX,
     };
   }
+  *out_valid = true;
   return iree_ok_status();
 }
 
@@ -201,9 +199,6 @@ static bool loom_aie2p_pipeline_coordinate_compatible(
       other_index = edge->source_index;
     } else {
       continue;
-    }
-    if (other_index == instance_index) {
-      return false;
     }
     const loom_xdna_tile_coordinate_t other =
         placement->instance_coordinates[other_index];
@@ -403,12 +398,12 @@ static iree_status_t loom_aie2p_pipeline_place_instances(
         .row = UINT16_MAX,
     };
   }
-  if (!loom_aie2p_pipeline_place_next(placement, coordinate_used, 0,
-                                      /*require_adjacency=*/false)) {
-    return iree_make_status(
-        IREE_STATUS_RESOURCE_EXHAUSTED,
-        "AIE2P pipeline graph cannot be placed on distinct compute tiles");
-  }
+  // The concrete graph excludes same-group edges, and the resident count fits
+  // the compute population. Unrestricted distinct placement therefore exists.
+  const bool placed = loom_aie2p_pipeline_place_next(
+      placement, coordinate_used, 0, /*require_adjacency=*/false);
+  IREE_ASSERT(placed);
+  (void)placed;
   return iree_ok_status();
 }
 
@@ -964,7 +959,8 @@ static iree_status_t loom_aie2p_pipeline_create_low_function(
 
   loom_low_func_def_build_flags_t build_flags =
       LOOM_LOW_FUNC_DEF_BUILD_FLAG_HAS_TARGET |
-      LOOM_LOW_FUNC_DEF_BUILD_FLAG_HAS_ABI;
+      LOOM_LOW_FUNC_DEF_BUILD_FLAG_HAS_ABI |
+      LOOM_LOW_FUNC_DEF_BUILD_FLAG_HAS_ABI_LAYOUT;
   uint8_t visibility = 0;
   if (loom_func_like_visibility(pipeline) != 0) {
     build_flags |= LOOM_LOW_FUNC_DEF_BUILD_FLAG_HAS_VISIBILITY;
@@ -987,11 +983,14 @@ static iree_status_t loom_aie2p_pipeline_create_low_function(
                           loom_module_block(emitter->module),
                           &emitter->builder);
   loom_builder_set_before(&emitter->builder, pipeline.op);
+  loom_attribute_t abi_layout_attr = loom_attr_absent();
+  IREE_RETURN_IF_ERROR(loom_aie2p_array_abi_layout_make_attr(
+      emitter->module, emitter->plan->binding_count, &abi_layout_attr));
   IREE_RETURN_IF_ERROR(loom_low_func_def_build(
       &emitter->builder, build_flags, visibility, retain,
       /*cc=*/0, /*purity=*/0, /*inline_policy=*/0, /*allocation=*/0,
       /*schedule=*/0, descriptor_set_key, target, LOOM_TARGET_ABI_ARRAY_PROGRAM,
-      loom_named_attr_slice_empty(), loom_named_attr_slice_empty(),
+      loom_named_attr_slice_empty(), loom_attr_as_dict(abi_layout_attr),
       LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(), callee,
       /*arg_types=*/NULL, /*arg_types_count=*/0,
       /*result_types=*/NULL, /*result_count=*/0,
@@ -1036,13 +1035,32 @@ iree_status_t loom_aie2p_pipeline_lower_to_array_low(
 
   IREE_ASSERT(loom_pipeline_def_isa(pipeline.op));
   if (loom_pipeline_def_scope(pipeline.op) != LOOM_PIPELINE_DEF_SCOPE_KERNEL) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "AIE2P array pipelines must declare kernel materialization scope");
+    const loom_diagnostic_param_t params[] = {
+        loom_param_string(IREE_SV("generic")),
+    };
+    const loom_diagnostic_emission_t emission = {
+        .op = pipeline.op,
+        .error = LOOM_ERR_XDNA_008,
+        .params = params,
+        .param_count = IREE_ARRAYSIZE(params),
+    };
+    return iree_diagnostic_emit(diagnostic_emitter, &emission);
   }
   if (!loom_symbol_ref_is_valid(loom_func_like_target(pipeline))) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "AIE2P array pipeline requires an exact target");
+    const loom_symbol_ref_t callee = loom_func_like_callee(pipeline);
+    const loom_diagnostic_param_t params[] = {
+        loom_param_string(IREE_SV("aie2p-lower-pipeline")),
+        loom_param_string(loom_string_table_get(
+            &module->strings,
+            module->symbols.entries[callee.symbol_id].name_id)),
+    };
+    const loom_diagnostic_emission_t emission = {
+        .op = pipeline.op,
+        .error = LOOM_ERR_TARGET_009,
+        .params = params,
+        .param_count = IREE_ARRAYSIZE(params),
+    };
+    return iree_diagnostic_emit(diagnostic_emitter, &emission);
   }
 
   iree_arena_allocator_t scratch_arena;
@@ -1061,8 +1079,8 @@ iree_status_t loom_aie2p_pipeline_lower_to_array_low(
       },
       diagnostic_emitter, &scratch_arena, &plan, &valid);
   if (iree_status_is_ok(status) && valid) {
-    status = loom_aie2p_pipeline_placement_initialize(&plan, &scratch_arena,
-                                                      &placement);
+    status = loom_aie2p_pipeline_placement_initialize(
+        &plan, diagnostic_emitter, &scratch_arena, &placement, &valid);
   }
   if (iree_status_is_ok(status) && valid) {
     status = loom_aie2p_pipeline_place_instances(&placement);

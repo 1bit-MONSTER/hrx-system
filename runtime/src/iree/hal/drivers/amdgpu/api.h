@@ -100,6 +100,9 @@ typedef enum iree_hal_amdgpu_pm4_command_buffer_publication_mode_e {
 // Default log2 local-memory bytes represented by one TSAN shadow entry.
 #define IREE_HAL_AMDGPU_TSAN_DEFAULT_MEMORY_GRANULE_SHIFT 2u
 
+// Maximum log2 local-memory bytes represented by one TSAN shadow entry.
+#define IREE_HAL_AMDGPU_TSAN_MAX_MEMORY_GRANULE_SHIFT 16u
+
 // Default local-memory byte capacity represented for each workgroup.
 // Zero selects the backend default group segment limit.
 #define IREE_HAL_AMDGPU_TSAN_DEFAULT_WORKGROUP_LOCAL_MEMORY_SIZE 0u

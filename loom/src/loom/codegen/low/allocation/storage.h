@@ -145,6 +145,16 @@ bool loom_low_allocation_storage_placement_relation_satisfied(
     const loom_low_allocation_assignment_t* result_assignment,
     const loom_low_allocation_assignment_t* source_assignment);
 
+// Tests the shared predicate semantics without materializing a placement row.
+// Explicit physical registers are interpreted by their declared views and
+// candidate ordinals, never by arithmetic on their encoded register IDs.
+bool loom_low_allocation_storage_relation_satisfied(
+    const loom_low_descriptor_set_t* descriptor_set,
+    loom_low_placement_relation_kind_t kind, uint32_t result_unit_offset,
+    uint32_t source_unit_offset, uint32_t unit_count, uint32_t location_mask,
+    const loom_low_allocation_assignment_t* result_assignment,
+    const loom_low_allocation_assignment_t* source_assignment);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

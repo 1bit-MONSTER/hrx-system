@@ -15,7 +15,6 @@ from loom.error.target import (
     ERR_TARGET_005,
     ERR_TARGET_006,
     ERR_TARGET_007,
-    ERR_TARGET_008,
 )
 from loom.target.contracts.diagnostics import (
     DiagnosticRef,
@@ -27,6 +26,7 @@ from loom.target.contracts.diagnostics import (
 )
 from loom.target.contracts.guards import Guard, GuardKind
 from loom.target.contracts.lower_rule_bindings import _f64_bits
+from loom.target.contracts.lower_rule_tables import SourceMemoryRejectionReason
 from loom.target.contracts.patterns import TypePattern
 from loom.target.contracts.source_memory import (
     SourceMemoryAddressMaterializer,
@@ -38,6 +38,8 @@ from loom.target.low_descriptors import (
 
 
 def _type_pattern_text(type_pattern: TypePattern) -> str:
+    if type_pattern.kind == "buffer":
+        return "buffer"
     element_text = _type_pattern_element_text(type_pattern)
     if type_pattern.kind == "scalar":
         return element_text
@@ -57,11 +59,17 @@ def _type_pattern_element_text(type_pattern: TypePattern) -> str:
     return "{" + ", ".join(type_pattern.elements) + "}"
 
 
-def _value_type_diagnostic(field: str, type_pattern: TypePattern) -> DiagnosticRef:
+def _value_type_diagnostic(
+    field: str,
+    type_pattern: TypePattern,
+    *,
+    element: int = 0,
+) -> DiagnosticRef:
+    field_name = f"{field}[{element}]" if element else field
     return target_diagnostic(
         ERR_TARGET_002,
-        string_param("field_name", field),
-        value_type_param("actual_type", field),
+        string_param("field_name", field_name),
+        value_type_param("actual_type", field, element=element),
         string_param("expected_type", _type_pattern_text(type_pattern)),
     )
 
@@ -232,6 +240,10 @@ def _exact_float_diagnostic(field: str) -> DiagnosticRef:
     return _named_constraint_diagnostic("value_fact", field, "exact_float")
 
 
+def _not_nan_diagnostic(field: str) -> DiagnosticRef:
+    return _named_constraint_diagnostic("value_fact", field, "not_nan")
+
+
 def _integer_range_diagnostic(
     field: str,
     minimum: int,
@@ -265,64 +277,66 @@ def _storage_element_format_diagnostic(field: str) -> DiagnosticRef:
     return _named_constraint_diagnostic("value", field, "storage_schema.element_format")
 
 
+def _storage_operand_schema_diagnostic(field: str) -> DiagnosticRef:
+    return _named_constraint_diagnostic(
+        "value", field, "storage_schema.encoded_operand"
+    )
+
+
 def _value_no_uses_diagnostic(field: str) -> DiagnosticRef:
     return _named_constraint_diagnostic("value", field, "no_ordinary_uses")
 
 
-def _instance_flags_diagnostic(field: str, enum_keyword: str) -> DiagnosticRef:
-    return _named_constraint_diagnostic("flags", field, f"has_all.{enum_keyword}")
+def _value_no_uses_after_diagnostic(field: str) -> DiagnosticRef:
+    return _named_constraint_diagnostic(
+        "value", field, "no_ordinary_uses_after_source_op"
+    )
+
+
+def _instance_flags_diagnostic(
+    field: str, enum_keyword: str, predicate: str
+) -> DiagnosticRef:
+    return _named_constraint_diagnostic("flags", field, f"{predicate}.{enum_keyword}")
 
 
 def _source_memory_diagnostic(
     constraint: SourceMemoryConstraint,
+    reason: SourceMemoryRejectionReason,
+    materializer: SourceMemoryAddressMaterializer | None,
 ) -> DiagnosticRef:
-    if constraint.diagnostic is not None:
-        ref = constraint.diagnostic.ref
+    override = None
+    if reason == SourceMemoryRejectionReason.MINIMUM_ALIGNMENT:
+        override = constraint.alignment_diagnostic
+    elif reason == SourceMemoryRejectionReason.BYTE_OFFSET_WIDTH:
+        override = constraint.byte_offset_diagnostic
+    elif reason == SourceMemoryRejectionReason.ADDRESS_LAYOUT:
+        override = constraint.address_layout_diagnostic
+    elif reason == SourceMemoryRejectionReason.ADDRESS_MATERIALIZATION:
+        override = materializer.diagnostic if materializer is not None else None
+    if override is None:
+        override = constraint.diagnostic
+    if override is not None:
+        ref = override.ref
         if ref is None:
-            raise ValueError("source-memory diagnostic is missing an error ref")
+            raise ValueError(
+                f"source-memory {reason.value} diagnostic is missing an error ref"
+            )
         return ref
-    return target_diagnostic(
-        ERR_TARGET_008,
-        string_param("operation_kind", constraint.operation.value),
+    return _named_constraint_diagnostic(
+        "source-memory",
+        "access",
+        reason.value,
     )
 
 
-def _source_memory_dynamic_offset_diagnostic(
-    constraint: SourceMemoryConstraint,
-) -> DiagnosticRef:
-    if constraint.dynamic_offset_diagnostic is not None:
-        ref = constraint.dynamic_offset_diagnostic.ref
-        if ref is None:
-            raise ValueError(
-                "source-memory dynamic-offset diagnostic is missing an error ref"
-            )
-        return ref
-    return _source_memory_diagnostic(constraint)
-
-
-def _source_memory_address_layout_diagnostic(
-    constraint: SourceMemoryConstraint,
-) -> DiagnosticRef:
-    if constraint.address_layout_diagnostic is not None:
-        ref = constraint.address_layout_diagnostic.ref
-        if ref is None:
-            raise ValueError(
-                "source-memory address-layout diagnostic is missing an error ref"
-            )
-        return ref
-    return _source_memory_diagnostic(constraint)
-
-
-def _source_memory_address_diagnostic(
+def _source_memory_diagnostics(
     constraint: SourceMemoryConstraint,
     materializer: SourceMemoryAddressMaterializer | None,
-) -> DiagnosticRef:
-    if materializer is not None and materializer.diagnostic is not None:
-        ref = materializer.diagnostic.ref
-        if ref is None:
-            raise ValueError("source-memory address diagnostic is missing an error ref")
-        return ref
-    return _source_memory_diagnostic(constraint)
+) -> tuple[DiagnosticRef, ...]:
+    return tuple(
+        _source_memory_diagnostic(constraint, reason, materializer)
+        for reason in SourceMemoryRejectionReason
+    )
 
 
 def _attr_diagnostic(field: str, attr_type: str) -> DiagnosticRef:

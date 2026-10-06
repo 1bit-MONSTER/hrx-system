@@ -1,0 +1,797 @@
+// RUN: pass canonicalize
+
+// The exact identity folds while the dynamic participant receives a new SSA
+// representative. Uses before the assumption retain the original value.
+func.def @same_block(%upper: index) -> (index, index, index) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %before = index.add %upper, %c1 : index
+  %bounded = index.assume %c0 [lt(%c0, %upper)] : index
+  %after = index.add %upper, %c1 : index
+  func.return %before, %bounded, %after : index, index, index
+}
+
+// ----
+func.def @same_block(%upper: index) -> (index, index, index) {
+  %c1 = index.constant 1 : index
+  %before = index.add %upper, %c1 : index
+  %bounded = index.constant 0 : index
+  %upper_refined = index.assume %upper [gt(%upper, 0)] : index
+  %after = index.add %upper_refined, %c1 : index
+  func.return %before, %bounded, %after : index, index, index
+}
+
+// ====
+
+// Operand fanout and predicate attributes use the same current representative.
+// Explicit uses of an authored assumption remain explicit instead of making
+// that assumption an implicit replacement for its source.
+func.def @operand_and_attribute_uses(%upper: index, %other: index) {
+  %c0 = index.constant 0 : index
+  %bounded = index.assume %c0 [lt(%c0, %upper)] : index
+  %other_bounded = index.assume %other [lt(%other, %upper)] : index
+  test.use %upper, %upper, %other_bounded, %other : index, index, index, index
+  func.return
+}
+
+// ----
+func.def @operand_and_attribute_uses(%upper: index, %other: index) {
+  %upper_refined = index.assume %upper [gt(%upper, 0)] : index
+  %other_bounded = index.assume %other [lt(%other, %upper_refined)] : index
+  test.use %upper_refined, %upper_refined, %other_bounded, %other : index, index, index, index
+  func.return
+}
+
+// ====
+
+// Relations retain their original direction when the dynamic participant is
+// on the left and invert when it is on the right.
+func.def @relation_orientation(%lower: index, %upper: index) {
+  %c5 = index.constant 5 : index
+  %upper_anchor = index.assume %c5 [lt(%c5, %upper)] : index
+  test.use %upper_anchor, %upper : index, index
+  %lower_anchor = index.assume %c5 [lt(%lower, %c5)] : index
+  test.use %lower_anchor, %lower : index, index
+  func.return
+}
+
+// ----
+func.def @relation_orientation(%lower: index, %upper: index) {
+  %upper_anchor = index.constant 5 : index
+  %upper_refined = index.assume %upper [gt(%upper, 5)] : index
+  test.use %upper_anchor, %upper_refined : index, index
+  %lower_anchor = index.constant 5 : index
+  %lower_refined = index.assume %lower [lt(%lower, 5)] : index
+  test.use %lower_anchor, %lower_refined : index, index
+  func.return
+}
+
+// ====
+
+// Equality, inequality, and inclusive order relations all survive literal
+// substitution. Equality exposes the dynamic participant as an exact value.
+func.def @relation_kinds(%equal: index, %unequal: index, %less: index, %less_equal: index, %greater: index, %greater_equal: index) {
+  %c1 = index.constant 1 : index
+  %equal_anchor = index.assume %c1 [eq(%equal, %c1)] : index
+  test.use %equal_anchor, %equal : index, index
+  %c2 = index.constant 2 : index
+  %unequal_anchor = index.assume %c2 [ne(%unequal, %c2)] : index
+  test.use %unequal_anchor, %unequal : index, index
+  %c3 = index.constant 3 : index
+  %less_anchor = index.assume %c3 [lt(%less, %c3)] : index
+  test.use %less_anchor, %less : index, index
+  %c4 = index.constant 4 : index
+  %less_equal_anchor = index.assume %c4 [le(%less_equal, %c4)] : index
+  test.use %less_equal_anchor, %less_equal : index, index
+  %c5 = index.constant 5 : index
+  %greater_anchor = index.assume %c5 [gt(%c5, %greater)] : index
+  test.use %greater_anchor, %greater : index, index
+  %c6 = index.constant 6 : index
+  %greater_equal_anchor = index.assume %c6 [ge(%c6, %greater_equal)] : index
+  test.use %greater_equal_anchor, %greater_equal : index, index
+  func.return
+}
+
+// ----
+func.def @relation_kinds(%equal: index, %unequal: index, %less: index, %less_equal: index, %greater: index, %greater_equal: index) {
+  %equal_anchor = index.constant 1 : index
+  %equal_refined = index.constant 1 : index
+  test.use %equal_anchor, %equal_refined : index, index
+  %unequal_anchor = index.constant 2 : index
+  %unequal_refined = index.assume %unequal [ne(%unequal, 2)] : index
+  test.use %unequal_anchor, %unequal_refined : index, index
+  %less_anchor = index.constant 3 : index
+  %less_refined = index.assume %less [lt(%less, 3)] : index
+  test.use %less_anchor, %less_refined : index, index
+  %less_equal_anchor = index.constant 4 : index
+  %less_equal_refined = index.assume %less_equal [le(%less_equal, 4)] : index
+  test.use %less_equal_anchor, %less_equal_refined : index, index
+  %greater_anchor = index.constant 5 : index
+  %greater_refined = index.assume %greater [lt(%greater, 5)] : index
+  test.use %greater_anchor, %greater_refined : index, index
+  %greater_equal_anchor = index.constant 6 : index
+  %greater_equal_refined = index.assume %greater_equal [le(%greater_equal, 6)] : index
+  test.use %greater_equal_anchor, %greater_equal_refined : index, index
+  func.return
+}
+
+// ====
+
+// Unsigned order relations retain their unsigned domain when exact folding
+// moves a literal from the left side to the right side.
+func.def @unsigned_relation_orientation(%less: i32, %less_equal: i32, %greater: i32, %greater_equal: i32) {
+  %c1 = scalar.constant 1 : i32
+  %less_anchor = scalar.assume %c1 [ugt(%c1, %less)] : i32
+  test.use %less_anchor, %less : i32, i32
+  %c2 = scalar.constant 2 : i32
+  %less_equal_anchor = scalar.assume %c2 [uge(%c2, %less_equal)] : i32
+  test.use %less_equal_anchor, %less_equal : i32, i32
+  %c3 = scalar.constant 3 : i32
+  %greater_anchor = scalar.assume %c3 [ult(%c3, %greater)] : i32
+  test.use %greater_anchor, %greater : i32, i32
+  %c4 = scalar.constant 4 : i32
+  %greater_equal_anchor = scalar.assume %c4 [ule(%c4, %greater_equal)] : i32
+  test.use %greater_equal_anchor, %greater_equal : i32, i32
+  func.return
+}
+
+// ----
+func.def @unsigned_relation_orientation(%less: i32, %less_equal: i32, %greater: i32, %greater_equal: i32) {
+  %less_anchor = scalar.constant 1 : i32
+  %less_refined = scalar.assume %less [ult(%less, 1)] : i32
+  test.use %less_anchor, %less_refined : i32, i32
+  %less_equal_anchor = scalar.constant 2 : i32
+  %less_equal_refined = scalar.assume %less_equal [ule(%less_equal, 2)] : i32
+  test.use %less_equal_anchor, %less_equal_refined : i32, i32
+  %greater_anchor = scalar.constant 3 : i32
+  %greater_refined = scalar.assume %greater [ugt(%greater, 3)] : i32
+  test.use %greater_anchor, %greater_refined : i32, i32
+  %greater_equal_anchor = scalar.constant 4 : i32
+  %greater_equal_refined = scalar.assume %greater_equal [uge(%greater_equal, 4)] : i32
+  test.use %greater_equal_anchor, %greater_equal_refined : i32, i32
+  func.return
+}
+
+// ====
+
+// Scalar integer assumptions use the same transport semantics.
+func.def @scalar_relation(%upper: i32) -> (i32, i32) {
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %bounded = scalar.assume %c0 [lt(%c0, %upper)] : i32
+  %after = scalar.addi %upper, %c1 : i32
+  func.return %bounded, %after : i32, i32
+}
+
+// ----
+func.def @scalar_relation(%upper: i32) -> (i32, i32) {
+  %c1 = scalar.constant 1 : i32
+  %bounded = scalar.constant 0 : i32
+  %upper_refined = scalar.assume %upper [gt(%upper, 0)] : i32
+  %after = scalar.addi %upper_refined, %c1 : i32
+  func.return %bounded, %after : i32, i32
+}
+
+// ====
+
+// A relation with no dominated consumer does not materialize a dead alias.
+func.def @unused_relation(%upper: index) -> (index) {
+  %c0 = index.constant 0 : index
+  %bounded = index.assume %c0 [lt(%c0, %upper)] : index
+  func.return %bounded : index
+}
+
+// ----
+func.def @unused_relation(%upper: index) -> (index) {
+  %bounded = index.constant 0 : index
+  func.return %bounded : index
+}
+
+// ====
+
+// Repeating the same fact in one dominance chain reuses its existing alias.
+func.def @duplicate_relation(%upper: index) {
+  %c0 = index.constant 0 : index
+  %first = index.assume %c0 [lt(%c0, %upper)] : index
+  %second = index.assume %c0 [lt(%c0, %upper)] : index
+  test.use %first, %second, %upper : index, index, index
+  func.return
+}
+
+// ----
+func.def @duplicate_relation(%upper: index) {
+  %first = index.constant 0 : index
+  %upper_refined = index.assume %upper [gt(%upper, 0)] : index
+  %second = index.constant 0 : index
+  test.use %first, %second, %upper_refined : index, index, index
+  func.return
+}
+
+// ====
+
+// Multiple transported predicates compose as an SSA chain. A later exact
+// assumption adds another predicate to that chain without turning its authored
+// result into an implicit replacement for the original exact source.
+func.def @composed_relations(%input: buffer, %upper: index) -> (f32) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
+  %c0 = index.constant 0 : index
+  %first = index.assume %c0 [lt(%c0, %upper), ne(%c0, %upper)] : index
+  %second = index.assume %c0 [le(%c0, %upper)] : index
+  test.use %first, %second : index, index
+  %value = view.load %view[%c0] : view<[%upper]xf32> -> f32
+  func.return %value : f32
+}
+
+// ----
+func.def @composed_relations(%input: buffer, %upper: index) -> (f32) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
+  %c0 = index.constant 0 : index
+  %first = index.constant 0 : index
+  %upper_refined$9 = index.assume %upper [ne(%upper, 0), gt(%upper, 0)] : index
+  %second = index.constant 0 : index
+  %upper_refined$10 = index.assume %upper_refined$9 [ge(%upper_refined$9, 0)] : index
+  %view_refined = view.refine %view : view<[%upper]xf32> -> view<[%upper_refined$10]xf32>
+  test.use %first, %second : index, index
+  %value = view.load %view_refined[%c0] : view<[%upper_refined$10]xf32> -> f32
+  func.return %value : f32
+}
+
+// ====
+
+// A relation established in one structured branch applies to that branch's
+// nested operations and does not leak to its sibling or enclosing continuation.
+func.def @structured_scope(%condition: i1, %upper: index) {
+  %c0 = index.constant 0 : index
+  scf.if %condition {
+    %bounded = index.assume %c0 [lt(%c0, %upper)] : index
+    test.use %bounded, %upper : index, index
+  } else {
+    test.use %upper : index
+  }
+  test.use %upper : index
+  func.return
+}
+
+// ----
+func.def @structured_scope(%condition: i1, %upper: index) {
+  scf.if %condition {
+    %bounded = index.constant 0 : index
+    %upper_refined = index.assume %upper [gt(%upper, 0)] : index
+    test.use %bounded, %upper_refined : index, index
+  } else {
+    test.use %upper : index
+  }
+  test.use %upper : index
+  func.return
+}
+
+// ====
+
+// An assumption before a structured operation dominates both child regions and
+// the continuation. The region operation itself remains an atomic boundary;
+// direct uses within and after it still consume the path-local alias.
+func.def @outer_structured_scope(%condition: i1, %upper: index) {
+  %c0 = index.constant 0 : index
+  %bounded = index.assume %c0 [lt(%c0, %upper)] : index
+  scf.if %condition {
+    test.use %bounded, %upper : index, index
+  } else {
+    test.use %upper : index
+  }
+  test.use %upper : index
+  func.return
+}
+
+// ----
+func.def @outer_structured_scope(%condition: i1, %upper: index) {
+  %bounded = index.constant 0 : index
+  %upper_refined = index.assume %upper [gt(%upper, 0)] : index
+  scf.if %condition {
+    test.use %bounded, %upper_refined : index, index
+  } else {
+    test.use %upper_refined : index
+  }
+  test.use %upper_refined : index
+  func.return
+}
+
+// ====
+
+// A relation in one CFG arm applies only to blocks it dominates. The sibling
+// arm and join remain on the incoming representative.
+func.def @cfg_scope(%condition: i1, %upper: index) {
+  %c0 = index.constant 0 : index
+  cfg.cond_br %condition, ^refined, ^plain
+^refined:
+  %bounded = index.assume %c0 [lt(%c0, %upper)] : index
+  test.use %bounded, %upper : index, index
+  cfg.br ^refined_child
+^refined_child:
+  test.use %upper : index
+  cfg.br ^join
+^plain:
+  test.use %upper : index
+  cfg.br ^join
+^join:
+  test.use %upper : index
+  func.return
+}
+
+// ----
+func.def @cfg_scope(%condition: i1, %upper: index) {
+  cfg.cond_br %condition, ^refined, ^plain
+^refined:
+  %bounded = index.constant 0 : index
+  %upper_refined = index.assume %upper [gt(%upper, 0)] : index
+  test.use %bounded, %upper_refined : index, index
+  cfg.br ^refined_child
+^refined_child:
+  test.use %upper_refined : index
+  cfg.br ^join
+^plain:
+  test.use %upper : index
+  cfg.br ^join
+^join:
+  test.use %upper : index
+  func.return
+}
+
+// ====
+
+// A cyclic solve may transiently narrow a loop-carried value to its exact
+// entry value before the backedge widens it. The retained observation is
+// revalidated against the final fixed point and cannot refine the dynamic
+// bound or carrier uses.
+func.def @cyclic_candidate_widens(%upper: index) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  cfg.br ^loop(%c0: index)
+^loop(%iteration: index):
+  %condition = index.cmp slt, %iteration, %upper : index
+  cfg.cond_br %condition, ^body, ^exit
+^body:
+  %bounded = index.assume %iteration [lt(%iteration, %upper)] : index
+  test.use %bounded, %upper : index, index
+  %next = index.add %bounded, %c1 : index
+  cfg.br ^loop(%next: index)
+^exit:
+  func.return
+}
+
+// ----
+func.def @cyclic_candidate_widens(%upper: index) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  cfg.br ^loop(%c0: index)
+^loop(%iteration: index):
+  %condition = index.cmp slt, %iteration, %upper : index
+  cfg.cond_br %condition, ^body, ^exit
+^body:
+  %bounded = index.assume %iteration [lt(%iteration, %upper)] : index
+  test.use %bounded, %upper : index, index
+  %next = index.add %bounded, %c1 : index
+  cfg.br ^loop(%next: index)
+^exit:
+  func.return
+}
+
+// ====
+
+// A loop body is a nested dominance scope. Its refinement applies throughout
+// the body and not after the possibly zero-trip loop.
+func.def @loop_scope(%upper: index, %count: index) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  scf.for %iteration = [%c0 to %count step %c1] {
+    %bounded = index.assume %c0 [lt(%c0, %upper)] : index
+    test.use %iteration, %bounded, %upper : index, index, index
+  }
+  test.use %upper : index
+  func.return
+}
+
+// ----
+func.def @loop_scope(%upper: index, %count: index) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  scf.for %iteration = [%c0 to %count step %c1] {
+    %bounded = index.constant 0 : index
+    %upper_refined = index.assume %upper [gt(%upper, 0)] : index
+    test.use %iteration, %bounded, %upper_refined : index, index, index
+  }
+  test.use %upper : index
+  func.return
+}
+
+// ====
+
+// Ordered branch initialization can introduce an assumption whose conjunction
+// makes one participant exact while retaining a relation to another. Edge fact
+// materialization moves the literal onto the dynamic participant before the
+// exact identity folds.
+func.def @branch_initialized_relation(%value: i32, %upper: i32) {
+  %c5 = scalar.constant 5 : i32
+  %equal = scalar.cmpi eq, %value, %c5 : i32
+  %below = scalar.cmpi slt, %value, %upper : i32
+  %guard = scalar.andi %equal, %below : i1
+  scf.if %guard {
+    test.use %value, %upper : i32, i32
+  }
+  func.return
+}
+
+// ----
+func.def @branch_initialized_relation(%value: i32, %upper: i32) {
+  %c5 = scalar.constant 5 : i32
+  %equal = scalar.cmpi eq, %value, %c5 : i32
+  %below = scalar.cmpi slt, %value, %upper : i32
+  %guard = scalar.andi %equal, %below : i1
+  scf.if %guard {
+    %7 = scalar.assume %upper [gt(%upper, 5)] : i32
+    %8 = scalar.constant 5 : i32
+    test.use %8, %7 : i32, i32
+  }
+  func.return
+}
+
+// ====
+
+// Edge-local exact values propagate through a relation chain before folding.
+// Both exact participants disappear, while the final dynamic bound retains the
+// literal implied by the complete conjunction.
+func.def @branch_initialized_relation_chain(%first: i32, %second: i32, %upper: i32) {
+  %c5 = scalar.constant 5 : i32
+  %first_equal = scalar.cmpi eq, %first, %c5 : i32
+  %second_equal = scalar.cmpi eq, %second, %first : i32
+  %below = scalar.cmpi slt, %second, %upper : i32
+  %equal_pair = scalar.andi %first_equal, %second_equal : i1
+  %guard = scalar.andi %equal_pair, %below : i1
+  scf.if %guard {
+    test.use %first, %second, %upper : i32, i32, i32
+  }
+  func.return
+}
+
+// ----
+func.def @branch_initialized_relation_chain(%first: i32, %second: i32, %upper: i32) {
+  %c5 = scalar.constant 5 : i32
+  %first_equal = scalar.cmpi eq, %first, %c5 : i32
+  %second_equal = scalar.cmpi eq, %second, %first : i32
+  %below = scalar.cmpi slt, %second, %upper : i32
+  %equal_pair = scalar.andi %first_equal, %second_equal : i1
+  %guard = scalar.andi %equal_pair, %below : i1
+  scf.if %guard {
+    %11 = scalar.assume %upper [gt(%upper, 5)] : i32
+    %12 = scalar.constant 5 : i32
+    %13 = scalar.constant 5 : i32
+    test.use %13, %12, %11 : i32, i32, i32
+  }
+  func.return
+}
+
+// ====
+
+// kernel.exit canonicalization creates the scf.if after ordered region
+// initialization. Its fixed-point branch facts still normalize exact aliases
+// before folding, so the dynamic participant receives the literal relation in
+// the same canonicalizer run.
+kernel.def @late_branch_initialized_relation() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%value: i32, %upper: i32) {
+  %c5 = scalar.constant 5 : i32
+  %equal = scalar.cmpi eq, %value, %c5 : i32
+  %below = scalar.cmpi slt, %value, %upper : i32
+  %guard = scalar.andi %equal, %below : i1
+  kernel.exit %guard : i1 {
+    test.use %value, %upper : i32, i32
+  }
+  kernel.return
+}
+
+// ----
+kernel.def @late_branch_initialized_relation() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%value: i32, %upper: i32) {
+  %c5 = scalar.constant 5 : i32
+  %equal = scalar.cmpi eq, %value, %c5 : i32
+  %below = scalar.cmpi slt, %value, %upper : i32
+  %guard = scalar.andi %equal, %below : i1
+  scf.if %guard {
+    %8 = scalar.assume %upper [gt(%upper, 5)] : i32
+    %9 = scalar.constant 5 : i32
+    test.use %9, %8 : i32, i32
+  } else {
+  }
+  kernel.return
+}
+
+// ====
+
+// A view defined before the assumption cannot acquire the later SSA value in
+// place. Its dominated use receives a path-local carrier refinement.
+func.def @preexisting_view(%input: buffer, %upper: index) -> (f32) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
+  %c0 = index.constant 0 : index
+  %bounded = index.assume %c0 [lt(%c0, %upper)] : index
+  %value = view.load %view[%bounded] : view<[%upper]xf32> -> f32
+  func.return %value : f32
+}
+
+// ----
+func.def @preexisting_view(%input: buffer, %upper: index) -> (f32) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
+  %bounded = index.constant 0 : index
+  %upper_refined = index.assume %upper [gt(%upper, 0)] : index
+  %view_refined = view.refine %view : view<[%upper]xf32> -> view<[%upper_refined]xf32>
+  %value = view.load %view_refined[%bounded] : view<[%upper_refined]xf32> -> f32
+  func.return %value : f32
+}
+
+// ====
+
+// One path-local carrier serves every compatible dominated use. Uses before
+// the relation, in the sibling branch, and after the join retain the original
+// carrier type and SSA identity.
+func.def @branch_scoped_view(%condition: i1, %input: buffer, %upper: index) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
+  %c0 = index.constant 0 : index
+  %before = view.load %view[%c0] : view<[%upper]xf32> -> f32
+  test.use %before : f32
+  scf.if %condition {
+    %bounded = index.assume %c0 [lt(%c0, %upper)] : index
+    %first = view.load %view[%bounded] : view<[%upper]xf32> -> f32
+    %second = view.load %view[%bounded] : view<[%upper]xf32> -> f32
+    test.use %first, %second : f32, f32
+  } else {
+    %plain = view.load %view[%c0] : view<[%upper]xf32> -> f32
+    test.use %plain : f32
+  }
+  %after = view.load %view[%c0] : view<[%upper]xf32> -> f32
+  test.use %after : f32
+  func.return
+}
+
+// ----
+func.def @branch_scoped_view(%condition: i1, %input: buffer, %upper: index) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
+  %c0 = index.constant 0 : index
+  %before = view.load %view[%c0] : view<[%upper]xf32> -> f32
+  test.use %before : f32
+  scf.if %condition {
+    %bounded = index.constant 0 : index
+    %upper_refined = index.assume %upper [gt(%upper, 0)] : index
+    %view_refined = view.refine %view : view<[%upper]xf32> -> view<[%upper_refined]xf32>
+    %first = view.load %view_refined[%bounded] : view<[%upper_refined]xf32> -> f32
+    %second = view.load %view_refined[%bounded] : view<[%upper_refined]xf32> -> f32
+    test.use %first, %second : f32, f32
+  } else {
+    %plain = view.load %view[%c0] : view<[%upper]xf32> -> f32
+    test.use %plain : f32
+  }
+  %after = view.load %view[%c0] : view<[%upper]xf32> -> f32
+  test.use %after : f32
+  func.return
+}
+
+// ====
+
+// A local memory use can consume the refined carrier while the callable return
+// boundary retains the function signature's original dependent type tuple.
+func.def @return_boundary(%input: buffer, %upper: index) -> (view<[%upper]xf32>) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
+  %c0 = index.constant 0 : index
+  %bounded = index.assume %c0 [lt(%c0, %upper)] : index
+  %value = view.load %view[%bounded] : view<[%upper]xf32> -> f32
+  test.use %value : f32
+  func.return %view : view<[%upper]xf32>
+}
+
+// ----
+func.def @return_boundary(%input: buffer, %upper: index) -> (view<[%upper]xf32>) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
+  %bounded = index.constant 0 : index
+  %upper_refined = index.assume %upper [gt(%upper, 0)] : index
+  %view_refined = view.refine %view : view<[%upper]xf32> -> view<[%upper_refined]xf32>
+  %value = view.load %view_refined[%bounded] : view<[%upper_refined]xf32> -> f32
+  test.use %value : f32
+  func.return %view : view<[%upper]xf32>
+}
+
+// ====
+
+// A structured-region terminator is another dependent tuple boundary. Uses in
+// the dominated branch receive the refinement, but the yielded carrier keeps
+// the result contract authored on scf.if.
+func.def @yield_boundary(%condition: i1, %input: buffer, %fallback: buffer, %upper: index) -> (view<[%upper]xf32>) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
+  %fallback_view = buffer.view %fallback[%base] : buffer -> view<[%upper]xf32>
+  %result = scf.if %condition -> (view<[%upper]xf32>) {
+    %c0 = index.constant 0 : index
+    %bounded = index.assume %c0 [lt(%c0, %upper)] : index
+    %value = view.load %view[%bounded] : view<[%upper]xf32> -> f32
+    test.use %value : f32
+    scf.yield %view : view<[%upper]xf32>
+  } else {
+    scf.yield %fallback_view : view<[%upper]xf32>
+  }
+  func.return %result : view<[%upper]xf32>
+}
+
+// ----
+func.def @yield_boundary(%condition: i1, %input: buffer, %fallback: buffer, %upper: index) -> (view<[%upper]xf32>) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
+  %fallback_view = buffer.view %fallback[%base] : buffer -> view<[%upper]xf32>
+  %result = scf.if %condition -> (view<[%upper]xf32>) {
+    %bounded = index.constant 0 : index
+    %upper_refined = index.assume %upper [gt(%upper, 0)] : index
+    %view_refined = view.refine %view : view<[%upper]xf32> -> view<[%upper_refined]xf32>
+    %value = view.load %view_refined[%bounded] : view<[%upper_refined]xf32> -> f32
+    test.use %value : f32
+    scf.yield %view : view<[%upper]xf32>
+  } else {
+    scf.yield %fallback_view : view<[%upper]xf32>
+  }
+  func.return %result : view<[%upper]xf32>
+}
+
+// ====
+
+// CallLike metadata protects the complete argument tuple: the ordinary load
+// uses a refined carrier, while the call continues to instantiate the callee
+// with the original extent and view identities.
+func.decl @consume(%extent: index, %input: view<[%extent]xf32>) -> (f32)
+
+func.def public @call_boundary(%input: buffer, %upper: index) -> (f32) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
+  %c0 = index.constant 0 : index
+  %bounded = index.assume %c0 [lt(%c0, %upper)] : index
+  %loaded = view.load %view[%bounded] : view<[%upper]xf32> -> f32
+  %called = func.call @consume(%upper, %view) : (index, view<[%upper]xf32>) -> (f32)
+  test.use %upper : index
+  %result = scalar.addf %loaded, %called : f32
+  func.return %result : f32
+}
+
+// ----
+func.decl @consume(%extent: index, %input: view<[%extent]xf32>) -> (f32)
+
+func.def public @call_boundary(%input: buffer, %upper: index) -> (f32) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
+  %bounded = index.constant 0 : index
+  %upper_refined = index.assume %upper [gt(%upper, 0)] : index
+  %view_refined = view.refine %view : view<[%upper]xf32> -> view<[%upper_refined]xf32>
+  %loaded = view.load %view_refined[%bounded] : view<[%upper_refined]xf32> -> f32
+  %called = func.call @consume(%upper, %view) : (index, view<[%upper]xf32>) -> (f32)
+  test.use %upper_refined : index
+  %result = scalar.addf %loaded, %called : f32
+  func.return %result : f32
+}
+
+// ====
+
+// A carrier defined after the relation can take the refined dimension in its
+// result type directly; no path-local carrier alias is needed.
+func.def @postexisting_view(%input: buffer, %upper: index) -> (f32) {
+  %base = index.constant 0 : offset
+  %c0 = index.constant 0 : index
+  %bounded = index.assume %c0 [lt(%c0, %upper)] : index
+  %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
+  %value = view.load %view[%bounded] : view<[%upper]xf32> -> f32
+  func.return %value : f32
+}
+
+// ----
+func.def @postexisting_view(%input: buffer, %upper: index) -> (f32) {
+  %base = index.constant 0 : offset
+  %bounded = index.constant 0 : index
+  %upper_refined = index.assume %upper [gt(%upper, 0)] : index
+  %view = buffer.view %input[%base] : buffer -> view<[%upper_refined]xf32>
+  %value = view.load %view[%bounded] : view<[%upper_refined]xf32> -> f32
+  func.return %value : f32
+}
+
+// ====
+
+// RUN: pass canonicalize,vector-memory-footprint
+
+// The transported bound is sufficient for the footprint verifier after the
+// exact access index becomes a constant.
+func.def @preexisting_view_footprint(%input: buffer, %upper: index) -> (f32) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
+  %c0 = index.constant 0 : index
+  %bounded = index.assume %c0 [lt(%c0, %upper)] : index
+  %value = view.load %view[%bounded] : view<[%upper]xf32> -> f32
+  func.return %value : f32
+}
+
+// ----
+func.def @preexisting_view_footprint(%input: buffer, %upper: index) -> (f32) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
+  %bounded = index.constant 0 : index
+  %upper_refined = index.assume %upper [gt(%upper, 0)] : index
+  %view_refined = view.refine %view : view<[%upper]xf32> -> view<[%upper_refined]xf32>
+  %value = view.load %view_refined[%bounded] : view<[%upper_refined]xf32> -> f32
+  func.return %value : f32
+}
+
+// ====
+
+// An authored exact identity is itself the path-local representative. Later
+// uses of its source become exact without materializing a redundant assume.
+func.def @exact_alias(%value: index) -> (index, index) {
+  %c1 = index.constant 1 : index
+  %exact = index.assume %value [eq(%value, 5)] : index
+  %after = index.add %value, %c1 : index
+  func.return %exact, %after : index, index
+}
+
+// ----
+func.def @exact_alias(%value: index) -> (index, index) {
+  %exact = index.constant 5 : index
+  %after = index.constant 6 : index
+  func.return %exact, %after : index, index
+}
+
+// ====
+
+// Independent refinements embedded in one carrier type compose into one
+// path-local carrier instead of creating a partially refined chain.
+func.def @multi_source_carrier(%input: buffer, %rows: index, %columns: index) -> (f32) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%rows]x[%columns]xf32>
+  %c0 = index.constant 0 : index
+  %row = index.assume %c0 [lt(%c0, %rows)] : index
+  %column = index.assume %c0 [lt(%c0, %columns)] : index
+  %value = view.load %view[%row, %column] : view<[%rows]x[%columns]xf32> -> f32
+  func.return %value : f32
+}
+
+// ----
+func.def @multi_source_carrier(%input: buffer, %rows: index, %columns: index) -> (f32) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %input[%base] : buffer -> view<[%rows]x[%columns]xf32>
+  %row = index.constant 0 : index
+  %rows_refined = index.assume %rows [gt(%rows, 0)] : index
+  %column = index.constant 0 : index
+  %columns_refined = index.assume %columns [gt(%columns, 0)] : index
+  %view_refined = view.refine %view : view<[%rows]x[%columns]xf32> -> view<[%rows_refined]x[%columns_refined]xf32>
+  %value = view.load %view_refined[%row, %column] : view<[%rows_refined]x[%columns_refined]xf32> -> f32
+  func.return %value : f32
+}
+
+// ====
+
+// Floating-point classifications use scalar.assume. Folding one result keeps
+// the classification attached to later uses of the dynamic operand.
+func.def @scalar_float_relation(%upper: f32) -> (f32, f32) {
+  %c0 = scalar.constant 0.0 : f32
+  %c1 = scalar.constant 1.0 : f32
+  %bounded = scalar.assume %c0 [finite(%upper)] : f32
+  %after = scalar.addf %upper, %c1 : f32
+  func.return %bounded, %after : f32, f32
+}
+
+// ----
+func.def @scalar_float_relation(%upper: f32) -> (f32, f32) {
+  %c1 = scalar.constant 1.0 : f32
+  %bounded = scalar.constant 0.0 : f32
+  %upper_refined = scalar.assume %upper [finite(%upper)] : f32
+  %after = scalar.addf %upper_refined, %c1 : f32
+  func.return %bounded, %after : f32, f32
+}

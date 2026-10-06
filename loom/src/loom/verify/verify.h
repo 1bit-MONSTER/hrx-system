@@ -26,7 +26,7 @@
 //     SameType, SameElementType, SameEncoding, SameShape, RanksMatch,
 //     OffsetCountMatchesRank, DimIndexInBounds, AllShapesMatch,
 //     BlockArgCount, BlockArgsMatchElementTypes,
-//     YieldCountMatchesResults, YieldTypesMatchResults.
+//     YieldCountMatches, YieldTypesMatch.
 //     Checked by a single interpreter walking per-op constraint tables.
 //
 //   SSA dominance
@@ -128,25 +128,26 @@
 //
 // When the resolver can't find original source text for an op, the
 // verifier falls back to printing the op and using the printed
-// representation as the diagnostic source. This guarantees every
-// diagnostic has a source line with carets — even for ops created
-// by passes that never existed in any input file.
+// representation in diagnostic.origin for carets, explicitly labeled as IR.
+// diagnostic.source_location retains the recorded original filename and
+// coordinates independently of that fallback.
 //
 // ==========================================================================
 // Usage
 // ==========================================================================
 //
-//   // Verification without carets (e.g., programmatic consumer):
+//   // Verification with locations and printed IR (no original source bytes):
 //   loom_verify_options_t options = {
 //       .sink = my_sink,
 //       .max_errors = 20,
 //   };
 //
-//   // Verification with carets (the common compilation path):
+//   // Verification with original source excerpts and carets:
 //   loom_source_entry_t sources[] = {
 //       {0, source_text, filename},
 //   };
 //   loom_source_table_resolver_t resolver_data = {
+//       .module = module,
 //       .entries = sources,
 //       .count = 1,
 //   };

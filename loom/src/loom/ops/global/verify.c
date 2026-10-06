@@ -128,6 +128,99 @@ static iree_status_t loom_global_emit(iree_diagnostic_emitter_t emitter,
   return iree_diagnostic_emit(emitter, &emission);
 }
 
+static iree_string_view_t loom_global_symbol_name(const loom_module_t* module,
+                                                  loom_symbol_ref_t ref) {
+  return loom_string_table_get(&module->strings,
+                               module->symbols.entries[ref.symbol_id].name_id);
+}
+
+static bool loom_global_symbol_set_contains(loom_symbol_ref_array_t set,
+                                            loom_symbol_ref_t ref) {
+  for (iree_host_size_t i = 0; i < set.count; ++i) {
+    if (set.values[i].module_id == ref.module_id &&
+        set.values[i].symbol_id == ref.symbol_id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static iree_status_t loom_global_emit_invalid_bank_conflict(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter, loom_symbol_ref_t source_ref,
+    loom_symbol_ref_t target_ref, iree_string_view_t reason,
+    const loom_op_t* target_op) {
+  const loom_diagnostic_param_t params[] = {
+      loom_param_with_field_ref(
+          loom_param_string(IREE_SV("bank_conflicts")),
+          loom_global_rodata_def_bank_conflicts_diagnostic_ref()),
+      loom_param_string(loom_global_symbol_name(module, source_ref)),
+      loom_param_string(loom_global_symbol_name(module, target_ref)),
+      loom_param_string(reason),
+  };
+  const loom_diagnostic_related_op_t related[] = {{
+      .label = IREE_SV("conflicting definition"),
+      .op = target_op,
+  }};
+  const loom_diagnostic_emission_t emission = {
+      .op = op,
+      .error = LOOM_ERR_SYMBOL_006,
+      .params = params,
+      .param_count = IREE_ARRAYSIZE(params),
+      .related_ops = target_op != NULL && target_op != op ? related : NULL,
+      .related_op_count =
+          target_op != NULL && target_op != op ? IREE_ARRAYSIZE(related) : 0,
+  };
+  return iree_diagnostic_emit(emitter, &emission);
+}
+
+static iree_status_t loom_global_emit_predicate_origin(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter, uint16_t predicate_index,
+    uint8_t argument_index) {
+  char field_name[40];
+  iree_snprintf(field_name, sizeof(field_name), "predicates[%u].arg[%u]",
+                predicate_index, argument_index);
+  const loom_diagnostic_param_t params[] = {
+      loom_param_string(loom_op_name(module, op)),
+      loom_param_string(iree_make_cstring_view(field_name)),
+      loom_param_string(IREE_SV("a declaration-local dynamic dimension")),
+  };
+  return loom_global_emit(emitter, op, LOOM_ERR_STRUCTURE_032, params,
+                          IREE_ARRAYSIZE(params));
+}
+
+static iree_status_t loom_global_verify_predicates(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter, loom_value_id_t global_value_id,
+    loom_attribute_t predicates) {
+  const loom_type_t global_type =
+      loom_module_value_type(module, global_value_id);
+  for (uint16_t predicate_index = 0; predicate_index < predicates.count;
+       ++predicate_index) {
+    const loom_predicate_t* predicate =
+        &predicates.predicate_list[predicate_index];
+    if (predicate->arg_tags[0] != LOOM_PRED_ARG_VALUE) {
+      return loom_global_emit_predicate_origin(module, op, emitter,
+                                               predicate_index, 0);
+    }
+    for (uint8_t argument_index = 0; argument_index < predicate->arg_count;
+         ++argument_index) {
+      if (predicate->arg_tags[argument_index] != LOOM_PRED_ARG_VALUE) {
+        continue;
+      }
+      const int64_t encoded_value_id = predicate->args[argument_index];
+      if (encoded_value_id < 0 || encoded_value_id > UINT32_MAX ||
+          !loom_global_type_references_dim_result(
+              global_type, (loom_value_id_t)encoded_value_id)) {
+        return loom_global_emit_predicate_origin(
+            module, op, emitter, predicate_index, argument_index);
+      }
+    }
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_global_verify_result_type(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter, loom_value_slice_t results,
@@ -286,27 +379,71 @@ static iree_status_t loom_global_verify_initializer(
 iree_status_t loom_global_rodata_def_verify(const loom_module_t* module,
                                             const loom_op_t* op,
                                             iree_diagnostic_emitter_t emitter) {
-  (void)module;
-  if (!loom_global_rodata_def_has_alignment(op)) {
-    return iree_ok_status();
-  }
-  int64_t value = loom_global_rodata_def_alignment(op);
-  if (iree_math_is_power_of_two_i64(value)) {
-    return iree_ok_status();
+  if (loom_global_rodata_def_has_alignment(op)) {
+    const int64_t value = loom_global_rodata_def_alignment(op);
+    if (!iree_math_is_power_of_two_i64(value)) {
+      const loom_diagnostic_param_t params[] = {
+          loom_param_string(IREE_SV("alignment")),
+          loom_param_i64(value),
+          loom_param_string(IREE_SV("positive power-of-two byte alignment")),
+      };
+      return loom_global_emit(emitter, op, LOOM_ERR_STRUCTURE_014, params,
+                              IREE_ARRAYSIZE(params));
+    }
   }
 
-  loom_diagnostic_param_t params[] = {
-      loom_param_string(IREE_SV("alignment")),
-      loom_param_i64(value),
-      loom_param_string(IREE_SV("positive power-of-two byte alignment")),
-  };
-  return loom_global_emit(emitter, op, LOOM_ERR_STRUCTURE_014, params,
-                          IREE_ARRAYSIZE(params));
+  const loom_symbol_ref_t source_ref = loom_global_rodata_def_symbol(op);
+  const loom_symbol_ref_array_t conflicts =
+      loom_global_rodata_def_bank_conflicts(op);
+  if (loom_global_rodata_def_has_bank_conflicts(op) && conflicts.count == 0) {
+    const loom_diagnostic_param_t params[] = {
+        loom_param_string(IREE_SV("bank_conflicts")),
+        loom_param_i64(0),
+        loom_param_string(IREE_SV("non-empty symbol set")),
+    };
+    return loom_global_emit(emitter, op, LOOM_ERR_STRUCTURE_014, params,
+                            IREE_ARRAYSIZE(params));
+  }
+  for (iree_host_size_t i = 0; i < conflicts.count; ++i) {
+    const loom_symbol_ref_t target_ref = conflicts.values[i];
+    if (target_ref.module_id == source_ref.module_id &&
+        target_ref.symbol_id == source_ref.symbol_id) {
+      return loom_global_emit_invalid_bank_conflict(
+          module, op, emitter, source_ref, target_ref,
+          IREE_SV("a read-only data definition cannot conflict with itself"),
+          op);
+    }
+
+    const loom_op_t* target_op =
+        module->symbols.entries[target_ref.symbol_id].defining_op;
+    if (!loom_global_rodata_def_isa(target_op)) {
+      return loom_global_emit_invalid_bank_conflict(
+          module, op, emitter, source_ref, target_ref,
+          IREE_SV("the target is not a read-only data definition"), target_op);
+    }
+    if (target_op->attribute_count <= 3 ||
+        (loom_op_const_attrs(target_op)[3].kind != LOOM_ATTR_ABSENT &&
+         loom_op_const_attrs(target_op)[3].kind != LOOM_ATTR_SYMBOL_SET)) {
+      // The target's own structural verification diagnoses malformed storage.
+      continue;
+    }
+    if (!loom_global_symbol_set_contains(
+            loom_global_rodata_def_bank_conflicts(target_op), source_ref)) {
+      return loom_global_emit_invalid_bank_conflict(
+          module, op, emitter, source_ref, target_ref,
+          IREE_SV("the target definition does not reciprocate the conflict"),
+          target_op);
+    }
+  }
+  return iree_ok_status();
 }
 
 iree_status_t loom_global_constant_verify(const loom_module_t* module,
                                           const loom_op_t* op,
                                           iree_diagnostic_emitter_t emitter) {
+  IREE_RETURN_IF_ERROR(loom_global_verify_predicates(
+      module, op, emitter, loom_global_constant_type(op),
+      loom_global_constant_predicates(op)));
   return loom_global_verify_initializer(module, op, emitter,
                                         loom_global_constant_type(op),
                                         loom_global_constant_initializer(op));
@@ -315,6 +452,9 @@ iree_status_t loom_global_constant_verify(const loom_module_t* module,
 iree_status_t loom_global_variable_verify(const loom_module_t* module,
                                           const loom_op_t* op,
                                           iree_diagnostic_emitter_t emitter) {
+  IREE_RETURN_IF_ERROR(loom_global_verify_predicates(
+      module, op, emitter, loom_global_variable_type(op),
+      loom_global_variable_predicates(op)));
   return loom_global_verify_initializer(module, op, emitter,
                                         loom_global_variable_type(op),
                                         loom_global_variable_initializer(op));

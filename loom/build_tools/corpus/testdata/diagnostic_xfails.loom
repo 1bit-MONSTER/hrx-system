@@ -1,0 +1,11 @@
+func.def @unsupported_vector_one(%input: vector<1xi32>) {
+  func.return
+}
+
+func.def @unsupported_vector_two(%input: vector<1xi32>) {
+  func.return
+}
+
+func.def @valid(%value: i32) -> (i32) {
+  func.return %value : i32
+}

@@ -269,6 +269,7 @@ class VerifyTest : public ::testing::Test {
     }};
     EXPECT_NE(source_entries[0].source_id, LOOM_SOURCE_ID_INVALID);
     loom_source_table_resolver_t resolver_data = {
+        /*.module=*/parsed_module,
         /*.entries=*/source_entries,
         /*.count=*/IREE_ARRAYSIZE(source_entries),
     };
@@ -356,8 +357,7 @@ TEST(VerifyTraitConsistencyTest, RejectsEffectiveIncompatibleHintTraits) {
       /*.symbol_kind=*/{},
       /*.constraint_count=*/{},
       /*.operand_descriptor_count=*/{},
-      /*.control_flow_flags=*/{},
-      /*.control_flow_reserved=*/{},
+      /*.operand_role_mask=*/{},
       /*.successor_selector_operand_index=*/{},
       /*.canonicalize=*/{},
       /*.infer_facts=*/{},
@@ -1214,6 +1214,41 @@ TEST_F(VerifyTest, PrintOpFallbackProvidesSourceRange) {
       << "Expected at least one diagnostic with a print-op source range";
 }
 
+TEST_F(VerifyTest, RecordedLocationSurvivesPrintedIrFallback) {
+  loom_type_t i32_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
+  loom_type_t arg_types[] = {i32_type, i32_type};
+  loom_value_id_t args[2];
+  EnterTestFunc(arg_types, 2, args);
+  loom_source_id_t source_id;
+  IREE_ASSERT_OK(
+      loom_module_register_source(module_, IREE_SV("kernel.cxx"), &source_id));
+  loom_location_id_t location;
+  IREE_ASSERT_OK(loom_module_add_location(
+      module_, loom_location_file_range(source_id, 7, 12, 7, 25), &location));
+  loom_op_t* op = nullptr;
+  IREE_ASSERT_OK(loom_test_addi_build(&builder_, args[0], args[1],
+                                      loom_type_scalar(LOOM_SCALAR_TYPE_F32),
+                                      location, &op));
+  TerminateFunc();
+  DiagnosticCapture capture;
+  EXPECT_GT(VerifyStructured(&capture).error_count, 0u);
+  ASSERT_FALSE(capture.diagnostics.empty());
+  for (const auto& diagnostic : capture.diagnostics) {
+    EXPECT_TRUE(iree_string_view_equal(diagnostic.source_location.filename,
+                                       IREE_SV("kernel.cxx")));
+    EXPECT_EQ(diagnostic.source_location.start_line, 7u);
+    EXPECT_EQ(diagnostic.source_location.start_column, 12u);
+    EXPECT_EQ(diagnostic.source_location.end_column, 25u);
+    EXPECT_EQ(diagnostic.source_location.provenance,
+              LOOM_SOURCE_PROVENANCE_UNAVAILABLE_SOURCE);
+    EXPECT_EQ(diagnostic.source_location.source.size, 0u);
+    EXPECT_EQ(diagnostic.origin.provenance,
+              LOOM_SOURCE_PROVENANCE_PRINTED_IR_FALLBACK);
+    EXPECT_NE(diagnostic.source_text.find("test.addi"), std::string::npos);
+    EXPECT_FALSE(diagnostic.highlights.empty());
+  }
+}
+
 TEST_F(VerifyTest, ParsedSourceResolverHighlightsExactResultAndOperandTokens) {
   static const char kSource[] =
       "%lhs = test.constant 1 : i32\n"
@@ -1233,6 +1268,7 @@ TEST_F(VerifyTest, ParsedSourceResolverHighlightsExactResultAndOperandTokens) {
   };
   ASSERT_NE(source_entries[0].source_id, LOOM_SOURCE_ID_INVALID);
   loom_source_table_resolver_t resolver_data = {
+      /*.module=*/parsed_module,
       /*.entries=*/source_entries,
       /*.count=*/IREE_ARRAYSIZE(source_entries),
   };
@@ -1304,6 +1340,7 @@ TEST_F(VerifyTest, ParsedUseAfterConsumeReportsRelatedConsumeLocation) {
   }};
   ASSERT_NE(source_entries[0].source_id, LOOM_SOURCE_ID_INVALID);
   loom_source_table_resolver_t resolver_data = {
+      /*.module=*/parsed_module,
       /*.entries=*/source_entries,
       /*.count=*/IREE_ARRAYSIZE(source_entries),
   };
@@ -1502,11 +1539,13 @@ TEST_F(VerifyTest, GoldenCaretNoSource) {
   EXPECT_EQ(output,
             "<verifier>:1:1: error [TYPE/004]: result 'result' has type f32,"
             " expected integer\n"
+            "  = note: current IR\n"
             " 1 | %2 = test.addi %0, %1 : f32\n"
             "   | ^^                         \n"
             "   = help: 'result' must satisfy type constraint 'integer'\n"
             "<verifier>:1:1: error [TYPE/001]: 'lhs' type i32 does not"
             " match 'result' type f32\n"
+            "  = note: current IR\n"
             " 1 | %2 = test.addi %0, %1 : f32\n"
             "   | ^^             ^^          \n"
             "   = help: Ensure 'lhs' and 'result' have the same"
@@ -1848,6 +1887,7 @@ TEST_F(VerifyTest, DuplicateTiedResultIndexDetected) {
       /*.filename=*/IREE_SV("duplicate_tied_result.loom"),
   }};
   loom_source_table_resolver_t resolver_data = {
+      /*.module=*/module_,
       /*.entries=*/source_entries,
       /*.count=*/IREE_ARRAYSIZE(source_entries),
   };

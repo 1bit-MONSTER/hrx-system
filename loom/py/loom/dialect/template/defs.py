@@ -313,7 +313,7 @@ template_apply = Op(
         "Compile-time family application. A specializing link selects one "
         "applicable implementation before executable lowering. In a command "
         "program this is source composition whose selected implementation is "
-        "inlined before portable command preparation."
+        "inlined before portable command planning."
     ),
     operands=[Operand("operands", ANY, variadic=True)],
     attrs=[
@@ -363,7 +363,7 @@ template_call = Op(
         "Exact compile-time implementation call. This bypasses candidate "
         "ranking but still checks the implementation contract. In a command "
         "program the implementation is inlined before portable command "
-        "preparation."
+        "planning."
     ),
     operands=[Operand("operands", ANY, variadic=True)],
     attrs=[

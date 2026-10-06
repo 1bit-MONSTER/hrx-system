@@ -1,0 +1,25 @@
+// RUN: with-checks emit source-low target=amdgpu:gfx11-generic output=low
+
+func.def @f8e4m3_quantize(%values: vector<4xf8E4M3>, %thresholds: vector<3xf8E4M3>) -> (vector<4xi8>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = lower} : vector<4xf8E4M3>, vector<3xf8E4M3> -> vector<4xi8>
+  func.return %codes : vector<4xi8>
+}
+
+// ----
+CHECK: * = v_perm_b32_src1_zero_src2_lit %values, *
+CHECK: * = v_cmp_lt_f32 *, *
+CHECK: %codes = v_perm_b32*
+CHECK-NOT: * = v_bfe_u32 *
+
+// ====
+
+func.def @f8e5m2_quantize(%values: vector<4xf8E5M2>, %thresholds: vector<3xf8E5M2>) -> (vector<4xi8>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = max, tie = upper} : vector<4xf8E5M2>, vector<3xf8E5M2> -> vector<4xi8>
+  func.return %codes : vector<4xi8>
+}
+
+// ----
+CHECK: * = v_perm_b32_src1_zero_src2_lit %values, *
+CHECK: * = v_cmp_ngt_f32 *, *
+CHECK: %codes = v_perm_b32*
+CHECK-NOT: * = v_bfe_u32 *

@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "bytecode target diagnostics retain original C++ locations without source text",
+      "steps": [
+        {
+          "name": "import",
+          "run": {
+            "tool": "loom-import-cxx",
+            "args": [
+              "{srcdir}/source_locations.cxx",
+              "--to=bc",
+              "--output={tmp}/input.loombc"
+            ]
+          },
+          "files": [
+            {
+              "path": "{tmp}/input.loombc",
+              "non_empty": true
+            }
+          ]
+        },
+        {
+          "name": "compile",
+          "run": {
+            "tool": "loom-compile",
+            "args": [
+              "{tmp}/input.loombc",
+              "--target=amdgpu:gfx1151",
+              "--output={tmp}/output.hsaco",
+              "--compile-report=details",
+              "--compile-report-output={tmp}/report.json"
+            ]
+          },
+          "stderr": {
+            "contains": [
+              "source_locations.cxx:9:15: error [TARGET/001]",
+              "no target-low contract for 'scalar.divui'"
+            ],
+            "not_contains": [
+              " | ",
+              "^"
+            ]
+          },
+          "files": [
+            {
+              "path": "{tmp}/report.json",
+              "contains": [
+                {
+                  "regex": "\"provenance\":\"unavailable_source\",\"filename\":\"[^\"]*source_locations.cxx\",\"start_line\":9,\"start_column\":15,\"end_line\":9,\"end_column\":34"
+                }
+              ],
+              "not_contains": [
+                "\"text\":"
+              ]
+            }
+          ],
+          "exit": 1
+        }
+      ]
+    }
+  ]
+}

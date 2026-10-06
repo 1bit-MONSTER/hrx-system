@@ -6,6 +6,8 @@
 
 """Tests for portable pipeline text and bytecode behavior."""
 
+import pytest
+
 from loom.builtin_types import ALL_BUILTIN_TYPES
 from loom.dialect.buffer import ALL_BUFFER_OPS
 from loom.dialect.func import ALL_FUNC_OPS
@@ -17,6 +19,7 @@ from loom.format.bytecode.reader import read_module
 from loom.format.bytecode.writer import write_module
 from loom.format.text.parser import Parser
 from loom.format.text.printer import Printer
+from loom.format.text.tokenizer import ParseError
 from loom.ir import Module
 
 _OPS = (
@@ -92,3 +95,8 @@ pipeline.def<kernel> public target(@array) @split_k() launch(%lhs: buffer, %rhs:
 
 def test_generic_pipeline_roundtrip() -> None:
     _roundtrip("pipeline.def @generic(%batch: index) launch(%input: buffer) {\n  pipeline.return\n}\n")
+
+
+def test_command_pipeline_scope_is_not_a_language_state() -> None:
+    with pytest.raises(ParseError, match="invalid enum value 'command'"):
+        _parse_module("pipeline.def<command> @unsupported() launch() {\n  pipeline.return\n}\n")

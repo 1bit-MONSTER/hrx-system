@@ -1,0 +1,91 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load(
+    "//build_tools/wasm:build_defs.bzl",
+    "iree_wasm_cc_library",
+)
+load(
+    "//loom/build_tools/bazel:build_defs.bzl",
+    "loom_cc_library",
+)
+
+package(
+    default_visibility = ["//visibility:private"],
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+exports_files(
+    ["execution_profiles.bzl"],
+    visibility = ["//visibility:public"],
+)
+
+_WASM_CHECK_VISIBILITY = ["//loom/src/loom/tools/loom-check:__pkg__"]
+
+iree_wasm_cc_library(
+    name = "host_js",
+    srcs = ["host.mjs"],
+    module = "loom_wasm_host",
+)
+
+loom_cc_library(
+    name = "host",
+    srcs = ["host.c"],
+    hdrs = ["host.h"],
+    deps = [
+        ":host_js",
+        "//loom/src/loom/target/emit/wasm:program",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "testbench",
+    srcs = ["testbench.c"],
+    hdrs = ["testbench.h"],
+    visibility = ["//loom/src/loom/tools/iree-test-loom:__pkg__"],
+    deps = [
+        ":host",
+        "//loom/src/loom/error:source",
+        "//loom/src/loom/link:linker",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/target:entry_selection",
+        "//loom/src/loom/target:provider",
+        "//loom/src/loom/target:selection",
+        "//loom/src/loom/target/emit/wasm:module_compiler",
+        "//loom/src/loom/tooling/compile:pipeline",
+        "//loom/src/loom/tooling/config",
+        "//loom/src/loom/tooling/testbench/scenario:executor",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/hal",
+    ],
+)
+
+loom_cc_library(
+    name = "loom_check",
+    srcs = ["check/loom_check.c"],
+    hdrs = ["check/loom_check.h"],
+    deps = [
+        "//loom/src/loom/target/emit/wasm:module_compiler",
+        "//loom/src/loom/target/tool:wasm",
+        "//loom/src/loom/tools/loom-check:execute",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "check_provider",
+    srcs = ["check/provider.c"],
+    hdrs = ["check/provider.h"],
+    visibility = _WASM_CHECK_VISIBILITY,
+    deps = [
+        ":loom_check",
+        "//loom/src/loom/tools/loom-check:provider",
+        "//runtime/src/iree/base",
+    ],
+)

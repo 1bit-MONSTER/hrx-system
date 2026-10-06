@@ -449,6 +449,14 @@ loom_call_like_t loom_call_like_cast(const loom_module_t* module,
   return (loom_call_like_t){.op = op, .vtable = vtable->call_like};
 }
 
+bool loom_call_like_is_direct_semantic(loom_call_like_t call) {
+  return loom_call_like_isa(call) &&
+         loom_call_like_kind(call) == LOOM_CALL_LIKE_KIND_SEMANTIC &&
+         loom_call_like_operand_offset(call) == 0 &&
+         loom_call_like_result_offset(call) == 0 &&
+         call.op->region_count == 0 && call.op->successor_count == 0;
+}
+
 loom_symbol_ref_t loom_call_like_callee(loom_call_like_t call) {
   if (!call.vtable) {
     return loom_symbol_ref_null();
@@ -584,6 +592,29 @@ loom_func_like_t loom_func_like_cast(const loom_module_t* module,
 
 loom_region_t* loom_func_like_body(loom_func_like_t func) {
   return loom_func_like_region(func, loom_func_like_body_region_index(func));
+}
+
+const loom_region_descriptor_t* loom_func_like_body_region_descriptor(
+    const loom_module_t* module, loom_func_like_t func) {
+  const uint8_t body_region_index = loom_func_like_body_region_index(func);
+  if (!loom_func_like_isa(func) || body_region_index >= func.op->region_count) {
+    return NULL;
+  }
+  return loom_op_vtable_region_descriptor(loom_op_vtable(module, func.op),
+                                          body_region_index);
+}
+
+bool loom_func_like_op_is_body_exit(const loom_module_t* module,
+                                    loom_func_like_t func,
+                                    const loom_op_t* op) {
+  if (op == NULL || op->parent_block == NULL ||
+      op->parent_block->parent_region != loom_func_like_body(func)) {
+    return false;
+  }
+  const loom_region_descriptor_t* descriptor =
+      loom_func_like_body_region_descriptor(module, func);
+  return descriptor != NULL && descriptor->terminator != LOOM_OP_KIND_UNKNOWN &&
+         op->kind == descriptor->terminator;
 }
 
 uint8_t loom_func_like_body_region_index(loom_func_like_t func) {
@@ -1061,6 +1092,15 @@ loom_region_t* loom_loop_like_condition_region(loom_loop_like_t loop) {
   return loom_op_regions(loop.op)[loop.vtable->condition_region_index];
 }
 
+loom_value_id_t loom_loop_like_condition(loom_loop_like_t loop) {
+  const loom_region_t* region = loom_loop_like_condition_region(loop);
+  if (!region) {
+    return LOOM_VALUE_ID_INVALID;
+  }
+  const loom_op_t* terminator = loom_region_const_entry_block(region)->last_op;
+  return loom_op_const_operands(terminator)[0];
+}
+
 loom_value_id_t loom_loop_like_iv(loom_loop_like_t loop) {
   if (!loop.vtable) {
     return LOOM_VALUE_ID_INVALID;
@@ -1197,6 +1237,20 @@ loom_value_id_t loom_region_branch_selector(loom_region_branch_t branch) {
   uint8_t selector_index = branch.vtable->selector_operand_index;
   IREE_ASSERT(selector_index < branch.op->operand_count);
   return loom_op_operands(branch.op)[selector_index];
+}
+
+loom_region_branch_truth_t loom_region_branch_region_truth(
+    loom_region_branch_t branch, uint8_t region_index) {
+  if (!branch.vtable || region_index >= branch.op->region_count) {
+    return LOOM_REGION_BRANCH_TRUTH_UNKNOWN;
+  }
+  if (region_index == branch.vtable->true_region_index) {
+    return LOOM_REGION_BRANCH_TRUTH_TRUE;
+  }
+  if (region_index == branch.vtable->false_region_index) {
+    return LOOM_REGION_BRANCH_TRUTH_FALSE;
+  }
+  return LOOM_REGION_BRANCH_TRUTH_UNKNOWN;
 }
 
 loom_region_t* loom_region_branch_region(const loom_module_t* module,
@@ -1583,9 +1637,9 @@ void loom_builder_initialize(loom_module_t* module,
   out_builder->ip.before_op = NULL;
   out_builder->on_op_finalized.fn = NULL;
   out_builder->on_op_finalized.user_data = NULL;
-  out_builder->reserved_result_ids = NULL;
-  out_builder->reserved_result_count = 0;
-  out_builder->reserved_result_next = 0;
+  out_builder->reserved_value_ids = NULL;
+  out_builder->reserved_value_count = 0;
+  out_builder->reserved_value_next = 0;
 }
 
 void loom_builder_set_block(loom_builder_t* builder, loom_block_t* block) {
@@ -1623,32 +1677,32 @@ void loom_builder_restore(loom_builder_t* builder, loom_builder_ip_t ip) {
   builder->ip = ip;
 }
 
-iree_status_t loom_builder_reserve_results(loom_builder_t* builder,
-                                           iree_host_size_t count,
-                                           loom_value_id_t* out_result_ids) {
-  if (builder->reserved_result_count > 0) {
+iree_status_t loom_builder_reserve_values(loom_builder_t* builder,
+                                          iree_host_size_t count,
+                                          loom_value_id_t* out_value_ids) {
+  if (builder->reserved_value_count > 0) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "cannot reserve results: %" PRIhsz
-                            " results already reserved",
-                            builder->reserved_result_count);
+                            "cannot reserve values: %" PRIhsz
+                            " values already reserved",
+                            builder->reserved_value_count);
   }
   loom_type_t none_type = {0};
   for (iree_host_size_t i = 0; i < count; ++i) {
     IREE_RETURN_IF_ERROR(loom_module_define_value(builder->module, none_type,
-                                                  &out_result_ids[i]));
+                                                  &out_value_ids[i]));
   }
-  builder->reserved_result_ids = out_result_ids;
-  builder->reserved_result_count = count;
-  builder->reserved_result_next = 0;
+  builder->reserved_value_ids = out_value_ids;
+  builder->reserved_value_count = count;
+  builder->reserved_value_next = 0;
   return iree_ok_status();
 }
 
 iree_status_t loom_builder_define_value(loom_builder_t* builder,
                                         loom_type_t type,
                                         loom_value_id_t* out_value_id) {
-  if (builder->reserved_result_next < builder->reserved_result_count) {
+  if (builder->reserved_value_next < builder->reserved_value_count) {
     loom_value_id_t id =
-        builder->reserved_result_ids[builder->reserved_result_next++];
+        builder->reserved_value_ids[builder->reserved_value_next++];
     IREE_RETURN_IF_ERROR(loom_module_set_value_type(builder->module, id, type));
     *out_value_id = id;
     return iree_ok_status();
@@ -2343,6 +2397,7 @@ iree_status_t loom_op_remove_results(loom_module_t* module, loom_op_t* op,
             (iree_host_size_t)operand_segment_count *
                 sizeof(*old_operand_segment_counts));
   }
+  loom_op_refresh_operand_ownership(module, op);
   return iree_ok_status();
 }
 
@@ -2856,114 +2911,6 @@ iree_status_t loom_region_remove_blocks(loom_module_t* module,
 // Use-def list maintenance
 //===----------------------------------------------------------------------===//
 
-// Initial overflow capacity when transitioning from inline to overflow.
-// 8 covers the common case of values used 4-8 times without further
-// reallocation. Values used more than 8 times get geometric growth.
-#define LOOM_USE_INITIAL_OVERFLOW_CAPACITY 8
-
-iree_status_t loom_value_add_use(loom_module_t* module,
-                                 loom_value_id_t value_id, loom_op_t* user_op,
-                                 uint16_t operand_index) {
-  loom_value_t* value = loom_module_value(module, value_id);
-  if (value->use_count >= LOOM_VALUE_MAX_USE_COUNT) {
-    return iree_make_status(
-        IREE_STATUS_RESOURCE_EXHAUSTED, "value %%%u has too many uses (%u max)",
-        (unsigned)value_id, (unsigned)LOOM_VALUE_MAX_USE_COUNT);
-  }
-  loom_use_t use = loom_use_make(user_op, operand_index);
-  loom_use_index_t* operand_use_indices = loom_op_operand_use_indices(user_op);
-  loom_use_index_t use_index = value->use_count;
-
-  if (!loom_value_has_overflow_uses(value)) {
-    if (value->use_count < LOOM_VALUE_INLINE_USE_COUNT) {
-      // Common path: store inline.
-      value->inline_uses[use_index] = use;
-      operand_use_indices[operand_index] = use_index;
-      ++value->use_count;
-      return iree_ok_status();
-    }
-    // Transition from inline to overflow: allocate array, copy inline
-    // uses, then add the new use.
-    uint32_t capacity = LOOM_USE_INITIAL_OVERFLOW_CAPACITY;
-    loom_use_t* overflow = NULL;
-    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        &module->arena, capacity, sizeof(loom_use_t), (void**)&overflow));
-    for (uint16_t i = 0; i < LOOM_VALUE_INLINE_USE_COUNT; ++i) {
-      overflow[i] = value->inline_uses[i];
-    }
-    overflow[use_index] = use;
-    value->overflow_uses = overflow;
-    value->overflow_capacity = capacity;
-    value->flags |= LOOM_VALUE_FLAG_OVERFLOW_USES;
-    operand_use_indices[operand_index] = use_index;
-    ++value->use_count;
-    return iree_ok_status();
-  }
-
-  // Already in overflow mode.
-  if (value->use_count < value->overflow_capacity) {
-    // Space available: append.
-    value->overflow_uses[use_index] = use;
-    operand_use_indices[operand_index] = use_index;
-    ++value->use_count;
-    return iree_ok_status();
-  }
-
-  // Overflow array is full: grow by 2x (floor to initial capacity as
-  // a safety net against zero-capacity invariant violations).
-  uint32_t new_capacity =
-      iree_max(value->overflow_capacity, LOOM_USE_INITIAL_OVERFLOW_CAPACITY);
-  if (new_capacity > LOOM_VALUE_MAX_USE_COUNT / 2) {
-    new_capacity = LOOM_VALUE_MAX_USE_COUNT;
-  } else {
-    new_capacity *= 2;
-  }
-  loom_use_t* new_overflow = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      &module->arena, new_capacity, sizeof(loom_use_t), (void**)&new_overflow));
-  memcpy(new_overflow, value->overflow_uses,
-         (iree_host_size_t)value->use_count * sizeof(loom_use_t));
-  new_overflow[use_index] = use;
-  value->overflow_uses = new_overflow;
-  value->overflow_capacity = new_capacity;
-  operand_use_indices[operand_index] = use_index;
-  ++value->use_count;
-  return iree_ok_status();
-}
-
-iree_status_t loom_value_remove_use(loom_module_t* module,
-                                    loom_value_id_t value_id,
-                                    loom_op_t* user_op,
-                                    uint16_t operand_index) {
-  loom_value_t* value = loom_module_value(module, value_id);
-  loom_use_index_t* operand_use_indices = loom_op_operand_use_indices(user_op);
-  loom_use_index_t use_index = operand_use_indices[operand_index];
-  loom_use_t* uses = loom_value_uses_mutable(value);
-  if (use_index < value->use_count &&
-      loom_use_user_op(uses[use_index]) == user_op &&
-      loom_use_operand_index(uses[use_index]) == operand_index) {
-    // Swap with last and decrement. Update the moved user's backpointer so
-    // future removals stay O(1).
-    loom_use_index_t last_index = value->use_count - 1;
-    if (use_index != last_index) {
-      loom_use_t moved_use = uses[last_index];
-      uses[use_index] = moved_use;
-      loom_op_t* moved_user_op = loom_use_user_op(moved_use);
-      uint16_t moved_operand_index = loom_use_operand_index(moved_use);
-      loom_op_operand_use_indices(moved_user_op)[moved_operand_index] =
-          use_index;
-    }
-    operand_use_indices[operand_index] = LOOM_USE_INDEX_INVALID;
-    --value->use_count;
-    return iree_ok_status();
-  }
-  iree_string_view_t op_name = loom_op_name(module, user_op);
-  return iree_make_status(IREE_STATUS_NOT_FOUND,
-                          "no matching use of value %%%u by %.*s operand %u",
-                          (unsigned)value_id, (int)op_name.size, op_name.data,
-                          (unsigned)operand_index);
-}
-
 void loom_module_link_symbol_defining_op(loom_module_t* module, loom_op_t* op,
                                          const loom_op_vtable_t* vtable) {
   if (!vtable || !vtable->symbol_def || !vtable->attr_descriptors) {
@@ -3009,32 +2956,25 @@ void loom_module_link_symbol_defining_op(loom_module_t* module, loom_op_t* op,
 }
 
 iree_status_t loom_builder_finalize_op(loom_builder_t* builder, loom_op_t* op) {
-  // Verify reserved results were fully consumed.
-  if (builder->reserved_result_count > 0) {
-    if (builder->reserved_result_next != builder->reserved_result_count) {
-      iree_host_size_t consumed = builder->reserved_result_next;
-      iree_host_size_t reserved = builder->reserved_result_count;
-      builder->reserved_result_ids = NULL;
-      builder->reserved_result_count = 0;
-      builder->reserved_result_next = 0;
+  // Verify reserved values were fully consumed.
+  if (builder->reserved_value_count > 0) {
+    if (builder->reserved_value_next != builder->reserved_value_count) {
+      iree_host_size_t consumed = builder->reserved_value_next;
+      iree_host_size_t reserved = builder->reserved_value_count;
+      builder->reserved_value_ids = NULL;
+      builder->reserved_value_count = 0;
+      builder->reserved_value_next = 0;
       return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                               "reserved %" PRIhsz
-                              " result(s) but op consumed %" PRIhsz,
+                              " value(s) but op consumed %" PRIhsz,
                               reserved, consumed);
     }
-    builder->reserved_result_ids = NULL;
-    builder->reserved_result_count = 0;
-    builder->reserved_result_next = 0;
+    builder->reserved_value_ids = NULL;
+    builder->reserved_value_count = 0;
+    builder->reserved_value_next = 0;
   }
 
-  // Register operand uses.
-  loom_value_id_t* operands = loom_op_operands(op);
-  for (uint16_t i = 0; i < op->operand_count; ++i) {
-    if (operands[i] != LOOM_VALUE_ID_INVALID) {
-      IREE_RETURN_IF_ERROR(
-          loom_value_add_use(builder->module, operands[i], op, i));
-    }
-  }
+  IREE_RETURN_IF_ERROR(loom_op_record_operand_uses(builder->module, op));
   // Set the def pointer on each result value.
   loom_value_id_t* results = loom_op_results(op);
   for (uint16_t i = 0; i < op->result_count; ++i) {
@@ -3065,26 +3005,6 @@ iree_status_t loom_builder_finalize_op(loom_builder_t* builder, loom_op_t* op) {
   return iree_ok_status();
 }
 
-iree_status_t loom_op_set_operand(loom_module_t* module, loom_op_t* op,
-                                  uint16_t operand_index,
-                                  loom_value_id_t new_value_id) {
-  loom_value_id_t* operands = loom_op_operands(op);
-  loom_value_id_t old_value_id = operands[operand_index];
-  if (old_value_id == new_value_id) {
-    return iree_ok_status();
-  }
-  if (old_value_id != LOOM_VALUE_ID_INVALID) {
-    IREE_RETURN_IF_ERROR(
-        loom_value_remove_use(module, old_value_id, op, operand_index));
-  }
-  operands[operand_index] = new_value_id;
-  if (new_value_id != LOOM_VALUE_ID_INVALID) {
-    IREE_RETURN_IF_ERROR(
-        loom_value_add_use(module, new_value_id, op, operand_index));
-  }
-  return iree_ok_status();
-}
-
 iree_status_t loom_op_set_attr(loom_module_t* module, loom_op_t* op,
                                uint8_t attribute_index,
                                loom_attribute_t attribute) {
@@ -3094,363 +3014,4 @@ iree_status_t loom_op_set_attr(loom_module_t* module, loom_op_t* op,
   loom_op_refresh_effective_traits(module, op);
   loom_module_update_op_direct_summaries(module, op, old_traits, op->traits);
   return iree_ok_status();
-}
-
-// Ensures a value's use list has capacity for at least |additional| more
-// entries. Used by RAUW to pre-allocate before bulk transfer.
-static iree_status_t loom_value_ensure_use_capacity(loom_module_t* module,
-                                                    loom_value_t* value,
-                                                    uint32_t additional) {
-  if (additional > LOOM_VALUE_MAX_USE_COUNT - value->use_count) {
-    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "value use count exceeds maximum (%u)",
-                            (unsigned)LOOM_VALUE_MAX_USE_COUNT);
-  }
-  uint32_t needed = value->use_count + additional;
-  if (!loom_value_has_overflow_uses(value)) {
-    if (needed <= LOOM_VALUE_INLINE_USE_COUNT) {
-      return iree_ok_status();
-    }
-    // Transition to overflow with enough capacity.
-    uint32_t capacity = LOOM_USE_INITIAL_OVERFLOW_CAPACITY;
-    while (capacity < needed) {
-      capacity *= 2;
-    }
-    loom_use_t* overflow = NULL;
-    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        &module->arena, capacity, sizeof(loom_use_t), (void**)&overflow));
-    for (uint32_t i = 0; i < value->use_count; ++i) {
-      overflow[i] = value->inline_uses[i];
-    }
-    value->overflow_uses = overflow;
-    value->overflow_capacity = capacity;
-    value->flags |= LOOM_VALUE_FLAG_OVERFLOW_USES;
-    return iree_ok_status();
-  }
-  if (needed <= value->overflow_capacity) {
-    return iree_ok_status();
-  }
-  // Grow overflow (floor to initial capacity for safety).
-  uint32_t new_capacity =
-      iree_max(value->overflow_capacity, LOOM_USE_INITIAL_OVERFLOW_CAPACITY);
-  while (new_capacity < needed) {
-    new_capacity *= 2;
-  }
-  loom_use_t* new_overflow = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      &module->arena, new_capacity, sizeof(loom_use_t), (void**)&new_overflow));
-  memcpy(new_overflow, value->overflow_uses,
-         (iree_host_size_t)value->use_count * sizeof(loom_use_t));
-  value->overflow_uses = new_overflow;
-  value->overflow_capacity = new_capacity;
-  return iree_ok_status();
-}
-
-iree_status_t loom_value_replace_all_uses_with(loom_module_t* module,
-                                               loom_value_id_t old_id,
-                                               loom_value_id_t new_id) {
-  if (old_id == new_id) {
-    return iree_ok_status();
-  }
-  loom_value_t* old_value = loom_module_value(module, old_id);
-  uint32_t old_use_count = old_value->use_count;
-
-  loom_value_t* new_value = loom_module_value(module, new_id);
-  IREE_RETURN_IF_ERROR(
-      loom_value_ensure_use_capacity(module, new_value, old_use_count));
-
-  if (loom_module_value_has_type_uses(module, old_id) ||
-      loom_value_has_attribute_uses(old_value)) {
-    loom_value_replacement_t replacement;
-    loom_value_replacement_initialize(module, old_id, new_id, &replacement);
-    iree_status_t status = loom_value_replacement_apply_types(&replacement);
-    while (loom_value_has_attribute_uses(old_value) &&
-           iree_status_is_ok(status)) {
-      // Mutation invalidates the cursor. Successful replacement removes this
-      // owner's old membership, so restarting selects an unprocessed owner.
-      loom_type_use_iterator_t users;
-      loom_attribute_users_begin(&module->type_uses, old_id, &users);
-      const loom_attribute_user_t use = loom_attribute_users_next(&users);
-      status = loom_value_replacement_apply_attribute(&replacement, use.op,
-                                                      use.attribute_index);
-      if (iree_status_is_ok(status)) {
-        loom_trait_flags_t old_traits = use.op->traits;
-        loom_op_refresh_effective_traits(module, use.op);
-        loom_module_update_op_direct_summaries(module, use.op, old_traits,
-                                               use.op->traits);
-      }
-    }
-    loom_value_replacement_deinitialize(&replacement);
-    IREE_RETURN_IF_ERROR(status);
-  }
-  if (old_use_count == 0) {
-    return iree_ok_status();
-  }
-
-  // Patch every user op's operand slot.
-  const loom_use_t* old_uses = loom_value_uses(old_value);
-  for (uint32_t i = 0; i < old_use_count; ++i) {
-    loom_op_t* user_op = loom_use_user_op(old_uses[i]);
-    uint16_t operand_index = loom_use_operand_index(old_uses[i]);
-    loom_op_operands(user_op)[operand_index] = new_id;
-  }
-
-  // Bulk-transfer use entries from old to new.
-  // Append old's entries to new's list. The old_uses pointer (captured
-  // above) is still valid: ensure_use_capacity only touches new_value,
-  // and old_id != new_id is guarded at entry.
-  loom_use_t* new_uses = loom_value_uses_mutable(new_value);
-  uint32_t new_use_start = new_value->use_count;
-  for (uint32_t i = 0; i < old_use_count; ++i) {
-    uint32_t new_use_index = new_use_start + i;
-    new_uses[new_use_index] = old_uses[i];
-    loom_op_t* user_op = loom_use_user_op(old_uses[i]);
-    uint16_t operand_index = loom_use_operand_index(old_uses[i]);
-    loom_op_operand_use_indices(user_op)[operand_index] = new_use_index;
-  }
-  new_value->use_count += old_use_count;
-
-  // Clear old value's use list.
-  old_value->use_count = 0;
-  old_value->flags &= ~LOOM_VALUE_FLAG_OVERFLOW_USES;
-  return iree_ok_status();
-}
-
-iree_status_t loom_value_replace_all_uses_except(loom_module_t* module,
-                                                 loom_value_id_t old_id,
-                                                 loom_value_id_t new_id,
-                                                 const loom_op_t* except_op) {
-  if (old_id == new_id) {
-    return iree_ok_status();
-  }
-  loom_value_t* old_value = loom_module_value(module, old_id);
-  if (old_value->use_count == 0) {
-    return iree_ok_status();
-  }
-
-  // Count how many uses will be transferred vs kept.
-  const loom_use_t* old_uses = loom_value_uses(old_value);
-  uint32_t transfer_count = 0;
-  for (uint32_t i = 0; i < old_value->use_count; ++i) {
-    if (loom_use_user_op(old_uses[i]) != except_op) {
-      ++transfer_count;
-    }
-  }
-  if (transfer_count == 0) {
-    return iree_ok_status();
-  }
-
-  // Ensure new has capacity.
-  loom_value_t* new_value = loom_module_value(module, new_id);
-  IREE_RETURN_IF_ERROR(
-      loom_value_ensure_use_capacity(module, new_value, transfer_count));
-
-  // Patch operand slots and transfer use entries.
-  // Walk old's list backwards so swap-removal doesn't skip entries.
-  loom_use_t* old_uses_mutable = loom_value_uses_mutable(old_value);
-  loom_use_t* new_uses = loom_value_uses_mutable(new_value);
-  for (uint32_t i = old_value->use_count; i-- > 0;) {
-    if (loom_use_user_op(old_uses_mutable[i]) == except_op) {
-      continue;
-    }
-    // Patch the operand slot.
-    loom_op_t* user_op = loom_use_user_op(old_uses_mutable[i]);
-    uint16_t operand_index = loom_use_operand_index(old_uses_mutable[i]);
-    loom_op_operands(user_op)[operand_index] = new_id;
-    // Add to new's list.
-    uint32_t new_use_index = new_value->use_count;
-    new_uses[new_use_index] = old_uses_mutable[i];
-    loom_op_operand_use_indices(user_op)[operand_index] = new_use_index;
-    ++new_value->use_count;
-    // Remove from old's list (swap with last).
-    uint32_t last_index = old_value->use_count - 1;
-    if (i != last_index) {
-      loom_use_t moved_use = old_uses_mutable[last_index];
-      old_uses_mutable[i] = moved_use;
-      loom_op_t* moved_user_op = loom_use_user_op(moved_use);
-      uint16_t moved_operand_index = loom_use_operand_index(moved_use);
-      loom_op_operand_use_indices(moved_user_op)[moved_operand_index] = i;
-    }
-    --old_value->use_count;
-  }
-
-  // If old is now empty and was overflow, clear the flag.
-  if (old_value->use_count == 0) {
-    old_value->flags &= ~LOOM_VALUE_FLAG_OVERFLOW_USES;
-  }
-  return iree_ok_status();
-}
-
-iree_status_t loom_value_replace_uses_if(loom_module_t* module,
-                                         loom_value_id_t old_id,
-                                         loom_value_id_t new_id,
-                                         loom_use_predicate_fn predicate,
-                                         void* user_data) {
-  if (old_id == new_id) {
-    return iree_ok_status();
-  }
-  loom_value_t* old_value = loom_module_value(module, old_id);
-  if (old_value->use_count == 0) {
-    return iree_ok_status();
-  }
-
-  // Count how many uses will be transferred.
-  const loom_use_t* old_uses = loom_value_uses(old_value);
-  uint32_t transfer_count = 0;
-  for (uint32_t i = 0; i < old_value->use_count; ++i) {
-    if (predicate(loom_use_user_op(old_uses[i]), user_data)) {
-      ++transfer_count;
-    }
-  }
-  if (transfer_count == 0) {
-    return iree_ok_status();
-  }
-
-  // Ensure new has capacity.
-  loom_value_t* new_value = loom_module_value(module, new_id);
-  IREE_RETURN_IF_ERROR(
-      loom_value_ensure_use_capacity(module, new_value, transfer_count));
-
-  // Patch and transfer (walk backwards for safe swap-removal).
-  loom_use_t* old_uses_mutable = loom_value_uses_mutable(old_value);
-  loom_use_t* new_uses = loom_value_uses_mutable(new_value);
-  for (uint32_t i = old_value->use_count; i-- > 0;) {
-    if (!predicate(loom_use_user_op(old_uses_mutable[i]), user_data)) {
-      continue;
-    }
-    loom_op_t* user_op = loom_use_user_op(old_uses_mutable[i]);
-    uint16_t operand_index = loom_use_operand_index(old_uses_mutable[i]);
-    loom_op_operands(user_op)[operand_index] = new_id;
-    uint32_t new_use_index = new_value->use_count;
-    new_uses[new_use_index] = old_uses_mutable[i];
-    loom_op_operand_use_indices(user_op)[operand_index] = new_use_index;
-    ++new_value->use_count;
-    uint32_t last_index = old_value->use_count - 1;
-    if (i != last_index) {
-      loom_use_t moved_use = old_uses_mutable[last_index];
-      old_uses_mutable[i] = moved_use;
-      loom_op_t* moved_user_op = loom_use_user_op(moved_use);
-      uint16_t moved_operand_index = loom_use_operand_index(moved_use);
-      loom_op_operand_use_indices(moved_user_op)[moved_operand_index] = i;
-    }
-    --old_value->use_count;
-  }
-  if (old_value->use_count == 0) {
-    old_value->flags &= ~LOOM_VALUE_FLAG_OVERFLOW_USES;
-  }
-  return iree_ok_status();
-}
-
-// Clears cached semantic summaries before rebuilding use/def state.
-static void loom_region_reset_summaries(loom_region_t* region) {
-  if (!region) {
-    return;
-  }
-  region->read_effect_count = 0;
-  region->write_effect_count = 0;
-  region->convergent_effect_count = 0;
-  region->observable_effect_count = 0;
-  region->memory_access_count = 0;
-  region->hint_source_count = 0;
-  loom_block_t* block = NULL;
-  loom_region_for_each_block(region, block) {
-    block->parent_region = region;
-    loom_op_t* op = NULL;
-    loom_block_for_each_op(block, op) {
-      op->flags &= ~LOOM_OP_FLAG_SUMMARIES_COUNTED;
-      loom_region_t** regions = loom_op_regions(op);
-      for (uint8_t i = 0; i < op->region_count; ++i) {
-        loom_region_reset_summaries(regions[i]);
-      }
-    }
-  }
-}
-
-// Walks all blocks in a region recursively, adding uses, setting def pointers,
-// setting parent pointers, and recording direct semantic summaries for each
-// op.
-static iree_status_t loom_region_compute_uses(loom_module_t* module,
-                                              loom_region_t* region,
-                                              loom_op_t* parent_op) {
-  if (!region) {
-    return iree_ok_status();
-  }
-  loom_block_t* block = NULL;
-  loom_region_for_each_block(region, block) {
-    block->parent_region = region;
-    // Set def pointers for block arguments.
-    for (uint16_t a = 0; a < block->arg_count; ++a) {
-      loom_value_id_t arg_id = loom_block_arg_id(block, a);
-      if (arg_id != LOOM_VALUE_ID_INVALID) {
-        loom_module_value(module, arg_id)->def =
-            loom_value_def_make_block(block, a);
-      }
-    }
-    loom_op_t* op = NULL;
-    loom_block_for_each_op(block, op) {
-      // Set parent pointers.
-      op->parent_op = parent_op;
-      op->parent_block = block;
-      loom_module_record_op_summaries(module, op);
-      IREE_RETURN_IF_ERROR(loom_module_refresh_op_attribute_uses(module, op));
-      // Register operand uses.
-      loom_value_id_t* operands = loom_op_operands(op);
-      for (uint16_t i = 0; i < op->operand_count; ++i) {
-        if (operands[i] != LOOM_VALUE_ID_INVALID) {
-          IREE_RETURN_IF_ERROR(loom_value_add_use(module, operands[i], op, i));
-        }
-      }
-      // Set def pointers on result values.
-      loom_value_id_t* results = loom_op_results(op);
-      for (uint16_t i = 0; i < op->result_count; ++i) {
-        if (results[i] != LOOM_VALUE_ID_INVALID) {
-          loom_module_value(module, results[i])->def =
-              loom_value_def_make_op(op, i);
-        }
-      }
-      // Refresh module-scope symbol links. Parsers and builders install
-      // nested symbol links at their construction boundary.
-      if (!parent_op) {
-        const loom_op_vtable_t* vtable = loom_op_vtable(module, op);
-        if (vtable &&
-            iree_any_bit_set(vtable->traits, LOOM_TRAIT_SYMBOL_DEFINE)) {
-          loom_module_link_symbol_defining_op(module, op, vtable);
-        }
-      }
-      // Recurse into nested regions.
-      for (uint8_t r = 0; r < op->region_count; ++r) {
-        loom_region_t* nested = loom_op_regions(op)[r];
-        IREE_RETURN_IF_ERROR(loom_region_compute_uses(module, nested, op));
-      }
-    }
-  }
-  return iree_ok_status();
-}
-
-iree_status_t loom_module_compute_uses(loom_module_t* module) {
-  loom_module_reset_attribute_uses(module);
-  loom_region_reset_summaries(module->body);
-  module->poison_op_count = 0;
-  // Clear all use data and live definition data on every value. Definition
-  // pointers to erased operations retain immutable producer semantics.
-  for (iree_host_size_t i = 0; i < module->values.count; ++i) {
-    loom_value_t* value = loom_module_value(module, (loom_value_id_t)i);
-    value->use_count = 0;
-    value->flags &=
-        ~(LOOM_VALUE_FLAG_OVERFLOW_USES | LOOM_VALUE_FLAG_ATTRIBUTE_USES);
-    if (loom_value_is_block_arg(value)) {
-      value->def = loom_value_def_make_none();
-    } else {
-      loom_op_t* defining_op = loom_value_def_op(value);
-      if (!defining_op ||
-          !iree_any_bit_set(defining_op->flags, LOOM_OP_FLAG_DEAD)) {
-        value->def = loom_value_def_make_none();
-      }
-    }
-    memset(value->inline_uses, 0,
-           LOOM_VALUE_INLINE_USE_COUNT * sizeof(loom_use_t));
-  }
-  // Walk all ops and re-add uses, def pointers, and parent pointers.
-  IREE_RETURN_IF_ERROR(loom_region_compute_uses(module, module->body, NULL));
-  return loom_module_recompute_type_uses(module);
 }

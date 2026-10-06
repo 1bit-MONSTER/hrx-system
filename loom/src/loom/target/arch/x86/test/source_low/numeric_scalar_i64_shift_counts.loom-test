@@ -171,9 +171,9 @@ func.def @wide_shift_low_word(%value: i64) -> (i32) {
 
 // ----
 low.func.def target<x86.avx2.core> abi(object_function) @wide_shift_low_word(%value: reg<x86.gpr64>) -> (reg<x86.gpr32>) asm {
-  %7 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %shifted = shl.imm.gpr64 %7 {shift = 6}
-  %result = mov.trunc.gpr32.gpr64 %shifted
+  %9 = mov.trunc.gpr32.gpr64 %value
+  %10 = copy %9 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = shl.imm.gpr32 %10 {shift = 6}
   return %result
 }
 

@@ -20,9 +20,16 @@
 extern "C" {
 #endif
 
-// Returns true when the source value can be represented as one or more native
-// 32-bit VGPR payload registers for AMDGPU collective packets.
-bool loom_amdgpu_collective_payload_is_supported(
+// Returns the native word count for fixed-width numeric bit transport, or zero
+// when the scalar/vector payload has no supported register storage. Packed
+// elements share words; wide elements span words. Predicate masks and logical
+// addresses have separate representations and are not numeric payloads.
+uint32_t loom_amdgpu_collective_transport_register_count(loom_type_t type);
+
+// Returns true for the 32-bit integer/float elements supported by native
+// arithmetic reduce and scan recipes. Transport word counts alone do not
+// establish arithmetic element boundaries.
+bool loom_amdgpu_collective_arithmetic_payload_is_supported(
     const loom_module_t* module, loom_value_id_t value_id,
     loom_amdgpu_subgroup_payload_kind_t* out_kind,
     uint32_t* out_register_count);
@@ -54,6 +61,8 @@ typedef struct loom_amdgpu_workgroup_collective_shape_t {
   uint32_t flat_workgroup_size;
   // Number of cross-wave partitions spanned by the workgroup.
   uint32_t wave_count;
+  // Exact LDS scratch extent emitted for this collective shape.
+  uint32_t scratch_byte_length;
   // Shape properties derived from the workgroup and partition sizes.
   loom_amdgpu_workgroup_collective_shape_flags_t flags;
 } loom_amdgpu_workgroup_collective_shape_t;

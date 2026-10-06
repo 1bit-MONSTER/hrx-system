@@ -286,7 +286,8 @@ static loomc_status_t loomc_spirv_iree_hal_query_facts(
       dispatch->launch.maximum_workgroup_size[2] == 0 ||
       dispatch->launch.maximum_workgroup_count[0] == 0 ||
       dispatch->launch.maximum_workgroup_count[1] == 0 ||
-      dispatch->launch.maximum_workgroup_count[2] == 0) {
+      dispatch->launch.maximum_workgroup_count[2] == 0 ||
+      dispatch->execution.maximum_workgroup_local_memory_size == 0) {
     return loomc_spirv_iree_hal_fail_cstring(
         result,
         "IREE HAL device spec does not expose complete dispatch capability "
@@ -345,6 +346,11 @@ static loomc_status_t loomc_spirv_iree_hal_query_facts(
       dispatch->launch.maximum_workgroup_invocations,
       loomc_make_cstring_view(
           "iree-hal:vulkan.device.max_compute_workgroup_invocations")));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_limit_fact(
+      out_facts, LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_STORAGE_BYTES,
+      dispatch->execution.maximum_workgroup_local_memory_size,
+      loomc_make_cstring_view(
+          "iree-hal:vulkan.device.max_compute_shared_memory_size")));
   LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_limit_fact(
       out_facts, LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_X,
       dispatch->launch.maximum_workgroup_size[0],

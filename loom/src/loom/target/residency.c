@@ -26,6 +26,16 @@ uint64_t loom_target_residency_round_resource_units(uint64_t units,
   return units > UINT64_MAX - delta ? UINT64_MAX : units + delta;
 }
 
+iree_host_size_t loom_target_residency_cliff_start_below_tier(
+    const loom_target_residency_cliff_t* cliffs, iree_host_size_t cliff_count,
+    uint32_t tier_limit) {
+  iree_host_size_t start = 0;
+  while (start < cliff_count && cliffs[start].tier_after >= tier_limit) {
+    ++start;
+  }
+  return start;
+}
+
 void loom_target_residency_evaluate_cliffs(
     const loom_target_residency_cliff_t* cliffs, iree_host_size_t cliff_count,
     uint32_t initial_tier, uint64_t units,
@@ -49,7 +59,8 @@ void loom_target_residency_evaluate_cliffs(
     last_crossed_cliff = cliff;
   }
   if (last_crossed_cliff != NULL) {
-    out_evaluation->better_tier = last_crossed_cliff->tier_before;
+    out_evaluation->better_tier =
+        iree_min(last_crossed_cliff->tier_before, initial_tier);
     out_evaluation->reduction_units_to_better_tier =
         units - last_crossed_cliff->cliff_units + 1u;
     out_evaluation->flags |=
@@ -66,14 +77,12 @@ static uint64_t loom_target_residency_direct_resource_units_with_override(
 }
 
 uint32_t loom_target_residency_evaluate_tier_with_direct_resource_override(
-    const loom_target_residency_model_t* model,
-    const uint32_t* direct_resource_units, uint16_t direct_resource_id,
-    uint32_t override_units) {
-  IREE_ASSERT_ARGUMENT(model);
-  IREE_ASSERT_ARGUMENT(direct_resource_units);
-  IREE_ASSERT_LT(direct_resource_id, model->direct_resources.resource_count);
-
-  uint32_t tier = model->best_tier;
+    loom_target_residency_view_t view, const uint32_t* direct_resource_units,
+    uint16_t direct_resource_id, uint32_t override_units) {
+  const loom_target_residency_model_t* model = view.model;
+  // Only the combined tier is consumed here. Evaluate complete chains from
+  // the model's best tier and apply the function ceiling through this minimum.
+  uint32_t tier = view.tier_limit;
   for (uint16_t resource_id = 0;
        resource_id < model->direct_resources.resource_count; ++resource_id) {
     const loom_target_residency_cliff_range_t range =

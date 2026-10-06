@@ -8,6 +8,9 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from itertools import product
+
 from loom.dialect.vector import defs as vector
 from loom.target.contracts import (
     DescriptorEmitForm,
@@ -40,12 +43,63 @@ _PACKED_I8_LOW7_MASK = 0x7F7F7F7F
 _PACKED_I8_SIGN_MASK = 0x80808080
 
 
-def packed_i8_add_rule(descriptors: DescriptorSet) -> DescriptorRule:
+def _register_bank_rules(
+    descriptors: DescriptorSet, rule: DescriptorRule, operands: tuple[str, ...]
+) -> tuple[DescriptorRule, ...]:
+    """Broadcasts scalar words only where packed VALU arithmetic requires them."""
+    move = descriptor_by_key(descriptors, "amdgpu.v_mov_b32_copy")
+    rules = []
+    for banks in product(("amdgpu.vgpr", "amdgpu.sgpr"), repeat=len(operands)):
+        replacements = {
+            ValueRef.operand(operand): ValueRef.temporary(operand + "_vgpr")
+            for operand, bank in zip(operands, banks, strict=True)
+            if bank == "amdgpu.sgpr"
+        }
+        broadcasts = tuple(
+            EmitDescriptorOp(
+                descriptor=move,
+                operands={"src": source},
+                results={"dst": result},
+                result_types={"dst": ValueRef.result("result")},
+                form=DescriptorEmitForm.PER_LANE_SEQUENCE,
+            )
+            for source, result in replacements.items()
+        )
+        rules.append(
+            replace(
+                rule,
+                guards=(
+                    *rule.guards,
+                    *(
+                        Guard.low_value_register_class(operand, bank)
+                        for operand, bank in zip(operands, banks, strict=True)
+                    ),
+                    *((Guard.descriptor_available(move),) if broadcasts else ()),
+                ),
+                emit=(
+                    *broadcasts,
+                    *(
+                        replace(
+                            step,
+                            operands={
+                                name: replacements.get(value, value)
+                                for name, value in step.operands.items()
+                            },
+                        )
+                        for step in rule.emit
+                    ),
+                ),
+            )
+        )
+    return tuple(rules)
+
+
+def packed_i8_add_rules(descriptors: DescriptorSet) -> tuple[DescriptorRule, ...]:
     and_literal = descriptor_by_key(descriptors, "amdgpu.v_and_b32.lit")
     add = descriptor_by_key(descriptors, "amdgpu.v_add_u32")
     xor_bits = descriptor_by_key(descriptors, "amdgpu.v_xor_b32")
     result_type = {"dst": ValueRef.result("result")}
-    return DescriptorRule(
+    rule = DescriptorRule(
         source_op=vector.vector_addi,
         descriptor=add,
         guards=(
@@ -111,15 +165,17 @@ def packed_i8_add_rule(descriptors: DescriptorSet) -> DescriptorRule:
         ),
     )
 
+    return _register_bank_rules(descriptors, rule, ("lhs", "rhs"))
 
-def packed_i8_sub_rule(descriptors: DescriptorSet) -> DescriptorRule:
+
+def packed_i8_sub_rules(descriptors: DescriptorSet) -> tuple[DescriptorRule, ...]:
     and_literal = descriptor_by_key(descriptors, "amdgpu.v_and_b32.lit")
     or_literal = descriptor_by_key(descriptors, "amdgpu.v_or_b32.lit")
     sub = descriptor_by_key(descriptors, "amdgpu.v_sub_u32")
     xor_bits = descriptor_by_key(descriptors, "amdgpu.v_xor_b32")
     xor_literal = descriptor_by_key(descriptors, "amdgpu.v_xor_b32.lit")
     result_type = {"dst": ValueRef.result("result")}
-    return DescriptorRule(
+    rule = DescriptorRule(
         source_op=vector.vector_subi,
         descriptor=sub,
         guards=(
@@ -195,6 +251,8 @@ def packed_i8_sub_rule(descriptors: DescriptorSet) -> DescriptorRule:
         ),
     )
 
+    return _register_bank_rules(descriptors, rule, ("lhs", "rhs"))
+
 
 def packed_i8_logical_shift_rules(
     descriptors: DescriptorSet,
@@ -221,35 +279,34 @@ def packed_i8_logical_shift_rules(
                 if source_op is vector.vector_shli
                 else 0xFF >> amount
             )
-            rules.append(
-                DescriptorRule(
-                    source_op=source_op,
-                    descriptor=shift_descriptor,
-                    guards=(
-                        *_TYPE_GUARDS,
-                        # A singleton element range proves equal runtime counts;
-                        # a common non-singleton range does not.
-                        Guard.value_i64_range("rhs", amount, amount),
-                        Guard.descriptor_available(shift_descriptor),
-                        Guard.descriptor_available(mask_descriptor),
+            rule = DescriptorRule(
+                source_op=source_op,
+                descriptor=shift_descriptor,
+                guards=(
+                    *_TYPE_GUARDS,
+                    # A singleton element range proves equal runtime counts;
+                    # a common non-singleton range does not.
+                    Guard.value_i64_range("rhs", amount, amount),
+                    Guard.descriptor_available(shift_descriptor),
+                    Guard.descriptor_available(mask_descriptor),
+                ),
+                emit=(
+                    EmitDescriptorOp(
+                        descriptor=shift_descriptor,
+                        operands={"value": ValueRef.operand("lhs")},
+                        results={"dst": ValueRef.temporary("shifted")},
+                        result_types={"dst": ValueRef.result("result")},
+                        immediates={"imm32": amount},
+                        form=DescriptorEmitForm.PER_LANE_SEQUENCE,
                     ),
-                    emit=(
-                        EmitDescriptorOp(
-                            descriptor=shift_descriptor,
-                            operands={"value": ValueRef.operand("lhs")},
-                            results={"dst": ValueRef.temporary("shifted")},
-                            result_types={"dst": ValueRef.result("result")},
-                            immediates={"imm32": amount},
-                            form=DescriptorEmitForm.PER_LANE_SEQUENCE,
-                        ),
-                        EmitDescriptorOp(
-                            descriptor=mask_descriptor,
-                            operands={"rhs": ValueRef.temporary("shifted")},
-                            results={"dst": ValueRef.result("result")},
-                            immediates={"imm32": byte_mask * 0x01010101},
-                            form=DescriptorEmitForm.PER_LANE_SEQUENCE,
-                        ),
+                    EmitDescriptorOp(
+                        descriptor=mask_descriptor,
+                        operands={"rhs": ValueRef.temporary("shifted")},
+                        results={"dst": ValueRef.result("result")},
+                        immediates={"imm32": byte_mask * 0x01010101},
+                        form=DescriptorEmitForm.PER_LANE_SEQUENCE,
                     ),
-                )
+                ),
             )
+            rules.extend(_register_bank_rules(descriptors, rule, ("lhs",)))
     return tuple(rules)

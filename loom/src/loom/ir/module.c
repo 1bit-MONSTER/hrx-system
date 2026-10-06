@@ -126,7 +126,8 @@ static iree_status_t loom_module_reserve_type_insert(
   }
   if (iree_status_is_ok(status)) {
     status = loom_intern_table_reserve_insert(
-        &module->arena, &module->type_intern, hash, inout_slot);
+        &module->arena, &module->type_intern, hash, /*insertion_count=*/1,
+        inout_slot);
   }
   if (iree_status_is_ok(status)) {
     module->types = types;
@@ -154,17 +155,6 @@ static iree_status_t loom_symbol_table_ensure_capacity(
   }
   IREE_RETURN_IF_ERROR(iree_arena_grow_array(
       arena, table->count, /*minimum_capacity=*/8, sizeof(loom_symbol_t),
-      &table->capacity, (void**)&table->entries));
-  return iree_ok_status();
-}
-
-static iree_status_t loom_source_table_ensure_capacity(
-    iree_arena_allocator_t* arena, loom_source_table_t* table) {
-  if (table->count < table->capacity) {
-    return iree_ok_status();
-  }
-  IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-      arena, table->count, /*minimum_capacity=*/4, sizeof(iree_string_view_t),
       &table->capacity, (void**)&table->entries));
   return iree_ok_status();
 }
@@ -611,7 +601,9 @@ void loom_value_u32_scratch_release_zeroed(loom_value_u32_scratch_t* scratch) {
 //===----------------------------------------------------------------------===//
 
 typedef struct loom_encoding_equal_context_t {
+  // Module owning the indexed canonical encoding rows.
   const loom_module_t* module;
+  // Candidate structural identity or display alias being queried.
   const loom_encoding_t* encoding;
 } loom_encoding_equal_context_t;
 
@@ -620,6 +612,23 @@ static bool loom_encoding_equal_fn(const void* context, uint32_t index) {
       (const loom_encoding_equal_context_t*)context;
   return loom_encoding_equal(&equal_context->module->encodings.entries[index],
                              equal_context->encoding);
+}
+
+static uint32_t loom_encoding_alias_hash(loom_string_id_t alias_id) {
+  return alias_id * 2654435769u;
+}
+
+static bool loom_encoding_alias_equal_fn(const void* context, uint32_t index) {
+  const loom_encoding_equal_context_t* equal_context = context;
+  return equal_context->module->encodings.entries[index].alias_id ==
+         equal_context->encoding->alias_id;
+}
+
+static void loom_module_index_encoding_alias(loom_module_t* module,
+                                             uint32_t hash, uint32_t index) {
+  const iree_host_size_t slot =
+      loom_intern_table_find_empty_slot(&module->encoding_intern, hash);
+  loom_intern_table_insert(&module->encoding_intern, slot, hash, index);
 }
 
 // Binds freshly canonicalized sparse parameters to their generated descriptor
@@ -707,6 +716,8 @@ iree_status_t loom_module_add_encoding(loom_module_t* module,
 
   loom_attribute_t canonical_attr_dict = {0};
   loom_string_id_t canonical_name_id = encoding->name_id;
+  iree_arena_checkpoint_t candidate_checkpoint;
+  iree_status_t status = iree_ok_status();
   if (name_resolution.alias) {
     const loom_encoding_alias_descriptor_t* alias = name_resolution.alias;
     IREE_RETURN_IF_ERROR(loom_module_intern_string(
@@ -761,22 +772,31 @@ iree_status_t loom_module_add_encoding(loom_module_t* module,
       authored_updates[i] = loom_named_attr_replace(
           encoding->attributes[i].name_id, encoding->attributes[i].value);
     }
-    IREE_RETURN_IF_ERROR(loom_module_replace_canonical_attr_dict(
+    // Family and parameter names outlive a duplicate candidate. Only the
+    // unpublished parameter payloads belong to this checkpoint.
+    candidate_checkpoint = iree_arena_checkpoint_save(&module->arena);
+    status = loom_module_replace_canonical_attr_dict(
         module,
         loom_make_named_attr_slice(alias_entries, alias->parameter_count),
         (loom_named_attr_update_slice_t){
             .updates = authored_updates,
             .count = encoding->attribute_count,
         },
-        &canonical_attr_dict));
+        &canonical_attr_dict);
   } else {
-    IREE_RETURN_IF_ERROR(loom_module_make_canonical_attr_dict(
+    candidate_checkpoint = iree_arena_checkpoint_save(&module->arena);
+    status = loom_module_make_canonical_attr_dict(
         module,
         loom_make_named_attr_slice(encoding->attributes,
                                    encoding->attribute_count),
-        &canonical_attr_dict));
+        &canonical_attr_dict);
+  }
+  if (!iree_status_is_ok(status)) {
+    iree_arena_checkpoint_restore(&candidate_checkpoint);
+    return status;
   }
   if (canonical_attr_dict.count > UINT8_MAX) {
+    iree_arena_checkpoint_restore(&candidate_checkpoint);
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "encoding '%.*s' has %u parameters, max %u",
                             (int)encoding_name.size, encoding_name.data,
@@ -813,19 +833,22 @@ iree_status_t loom_module_add_encoding(loom_module_t* module,
       &module->encoding_intern, hash, loom_encoding_equal_fn, &equal_context);
   const uint32_t existing_index = probe.index;
 
-  // Alias names are rare file-local shorthand. Scan only when one is authored
-  // and reject collisions against any structurally different encoding.
-  if (canonical_encoding.alias_id != LOOM_STRING_ID_INVALID) {
-    for (iree_host_size_t i = 0; i < module->encodings.count; ++i) {
-      if (i == existing_index) {
-        continue;
-      }
-      if (module->encodings.entries[i].alias_id !=
-          canonical_encoding.alias_id) {
-        continue;
-      }
+  // Structural and display-name keys share canonical rows and bucket storage.
+  // Each equality predicate checks its own key, including when a hash from
+  // the other domain collides. Anonymous entries only publish a structural key.
+  const bool has_alias = canonical_encoding.alias_id != LOOM_STRING_ID_INVALID;
+  const uint32_t alias_hash =
+      loom_encoding_alias_hash(canonical_encoding.alias_id);
+  loom_intern_probe_t alias_probe = {0};
+  if (has_alias) {
+    alias_probe =
+        loom_intern_table_probe(&module->encoding_intern, alias_hash,
+                                loom_encoding_alias_equal_fn, &equal_context);
+    if (alias_probe.index != UINT32_MAX &&
+        alias_probe.index != existing_index) {
       iree_string_view_t alias_name =
           loom_string_table_get(&module->strings, canonical_encoding.alias_id);
+      iree_arena_checkpoint_restore(&candidate_checkpoint);
       return iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
           "encoding alias '%.*s' already names a different encoding",
@@ -834,11 +857,17 @@ iree_status_t loom_module_add_encoding(loom_module_t* module,
   }
 
   if (existing_index != UINT32_MAX) {
+    iree_arena_checkpoint_restore(&candidate_checkpoint);
     if (module->encodings.entries[existing_index].alias_id ==
             LOOM_STRING_ID_INVALID &&
-        canonical_encoding.alias_id != LOOM_STRING_ID_INVALID) {
+        has_alias) {
+      IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
+          &module->arena, &module->encoding_intern, alias_hash,
+          /*insertion_count=*/1, &alias_probe.slot));
       module->encodings.entries[existing_index].alias_id =
           canonical_encoding.alias_id;
+      loom_intern_table_insert(&module->encoding_intern, alias_probe.slot,
+                               alias_hash, existing_index);
     }
     *out_encoding_id = (uint16_t)(existing_index + 1);
     return iree_ok_status();
@@ -859,25 +888,36 @@ iree_status_t loom_module_add_encoding(loom_module_t* module,
   // UINT16_MAX is the maximum representable ID, so we can store at
   // most UINT16_MAX entries (IDs 1 through UINT16_MAX).
   if (module->encodings.count >= UINT16_MAX) {
+    iree_arena_checkpoint_restore(&candidate_checkpoint);
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "encoding table full (%" PRIhsz " entries, max %u)",
                             module->encodings.count, (unsigned)UINT16_MAX);
   }
 
-  IREE_RETURN_IF_ERROR(
-      loom_encoding_table_ensure_capacity(&module->arena, &module->encodings));
+  // Stage row growth before the final fallible bucket reserve. Rehash can
+  // mutate existing buckets, so only infallible publication follows it.
+  loom_encoding_table_t encodings = module->encodings;
+  status = loom_encoding_table_ensure_capacity(&module->arena, &encodings);
   iree_host_size_t slot = probe.slot;
-  IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
-      &module->arena, &module->encoding_intern, hash, &slot));
-
-  const uint32_t new_index = (uint32_t)module->encodings.count;
-  loom_encoding_t* entry = &module->encodings.entries[new_index];
-  *entry = canonical_encoding;
-  loom_intern_table_insert(&module->encoding_intern, slot, hash, new_index);
-
-  *out_encoding_id = (uint16_t)(new_index + 1);
-  ++module->encodings.count;
-  return iree_ok_status();
+  if (iree_status_is_ok(status)) {
+    status = loom_intern_table_reserve_insert(
+        &module->arena, &module->encoding_intern, hash,
+        /*insertion_count=*/has_alias ? 2 : 1, &slot);
+  }
+  if (iree_status_is_ok(status)) {
+    const uint32_t new_index = (uint32_t)encodings.count;
+    encodings.entries[new_index] = canonical_encoding;
+    ++encodings.count;
+    module->encodings = encodings;
+    loom_intern_table_insert(&module->encoding_intern, slot, hash, new_index);
+    if (has_alias) {
+      loom_module_index_encoding_alias(module, alias_hash, new_index);
+    }
+    *out_encoding_id = (uint16_t)(new_index + 1);
+  } else {
+    iree_arena_checkpoint_restore(&candidate_checkpoint);
+  }
+  return status;
 }
 
 const loom_encoding_vtable_t* loom_module_encoding_vtable(
@@ -1468,6 +1508,10 @@ iree_status_t loom_module_compact_symbols_preserving_symbol_refs(
     const iree_host_size_t slot =
         loom_intern_table_find_empty_slot(&module->encoding_intern, hash);
     loom_intern_table_insert(&module->encoding_intern, slot, hash, (uint32_t)i);
+    if (encoding->alias_id != LOOM_STRING_ID_INVALID) {
+      loom_module_index_encoding_alias(
+          module, loom_encoding_alias_hash(encoding->alias_id), (uint32_t)i);
+    }
   }
 
   for (iree_host_size_t old_index = 0; old_index < old_symbol_count;
@@ -1506,52 +1550,6 @@ iree_status_t loom_module_compact_symbols(loom_module_t* module,
 //===----------------------------------------------------------------------===//
 // Location table
 //===----------------------------------------------------------------------===//
-
-iree_status_t loom_module_register_source(loom_module_t* module,
-                                          iree_string_view_t name,
-                                          loom_source_id_t* out_source_id) {
-  *out_source_id = LOOM_SOURCE_ID_INVALID;
-
-  // Check for existing entry with matching name.
-  for (iree_host_size_t i = 0; i < module->sources.count; ++i) {
-    if (iree_string_view_equal(module->sources.entries[i], name)) {
-      *out_source_id = (loom_source_id_t)i;
-      return iree_ok_status();
-    }
-  }
-
-  return loom_module_append_source(module, name, out_source_id);
-}
-
-iree_status_t loom_module_append_source(loom_module_t* module,
-                                        iree_string_view_t name,
-                                        loom_source_id_t* out_source_id) {
-  *out_source_id = LOOM_SOURCE_ID_INVALID;
-
-  // Source IDs are 0-based uint16_t. LOOM_SOURCE_ID_INVALID is the null
-  // sentinel, so the maximum valid ID is LOOM_SOURCE_ID_INVALID - 1.
-  if (module->sources.count >= LOOM_SOURCE_ID_INVALID) {
-    return iree_make_status(
-        IREE_STATUS_RESOURCE_EXHAUSTED,
-        "module source table full (%" PRIhsz " entries, max id %u)",
-        module->sources.count, (unsigned)(LOOM_SOURCE_ID_INVALID - 1));
-  }
-
-  IREE_RETURN_IF_ERROR(
-      loom_source_table_ensure_capacity(&module->arena, &module->sources));
-
-  char* interned = NULL;
-  if (!iree_string_view_is_empty(name)) {
-    IREE_RETURN_IF_ERROR(
-        iree_arena_allocate(&module->arena, name.size, (void**)&interned));
-    memcpy(interned, name.data, name.size);
-  }
-
-  iree_host_size_t index = module->sources.count++;
-  module->sources.entries[index] = iree_make_string_view(interned, name.size);
-  *out_source_id = (loom_source_id_t)index;
-  return iree_ok_status();
-}
 
 iree_status_t loom_module_add_location(loom_module_t* module,
                                        loom_location_entry_t entry,
@@ -2120,8 +2118,9 @@ iree_status_t loom_module_intern_string(loom_module_t* module,
     memcpy(copy, string.data, string.size);
   }
   iree_host_size_t slot = probe.slot;
-  IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
-      &module->arena, &module->string_intern, hash, &slot));
+  IREE_RETURN_IF_ERROR(
+      loom_intern_table_reserve_insert(&module->arena, &module->string_intern,
+                                       hash, /*insertion_count=*/1, &slot));
   const uint32_t new_index = (uint32_t)module->strings.count;
   loom_string_segment_t* segment =
       (loom_string_segment_t*)loom_segmented_storage_segment(
@@ -4604,67 +4603,147 @@ uint16_t loom_block_remove_args(loom_module_t* module, loom_block_t* block,
 //===----------------------------------------------------------------------===//
 
 #define LOOM_BLOCK_ORDINAL_STRIDE UINT64_C(0x100000000)
+// A directional repair always has at least half of the ordinal arena. Limiting
+// the number of gaps to floor(sqrt(UINT64_MAX / 2)) guarantees that the density
+// search finds a repair window before reaching its sentinel.
+#define LOOM_BLOCK_ORDINAL_MAX_OP_COUNT UINT32_C(3037000499)
+static_assert((uint64_t)LOOM_BLOCK_ORDINAL_MAX_OP_COUNT *
+                      LOOM_BLOCK_ORDINAL_MAX_OP_COUNT <=
+                  UINT64_MAX / 2,
+              "block ordinal capacity exceeds the directional repair bound");
+static_assert(
+    (uint64_t)(LOOM_BLOCK_ORDINAL_MAX_OP_COUNT + 1) *
+            (LOOM_BLOCK_ORDINAL_MAX_OP_COUNT + 1) >
+        UINT64_MAX / 2,
+    "block ordinal capacity must use the full directional repair bound");
 
-static iree_status_t loom_block_renumber_ordinals(loom_block_t* block) {
-  uint64_t ordinal = LOOM_BLOCK_ORDINAL_STRIDE;
-  loom_op_t* op = NULL;
-  loom_block_for_each_op(block, op) {
-    op->block_ordinal = ordinal;
-    if (op->next_op && UINT64_MAX - ordinal < LOOM_BLOCK_ORDINAL_STRIDE) {
-      return iree_make_status(
-          IREE_STATUS_RESOURCE_EXHAUSTED,
-          "block has too many operations to assign sparse ordinals");
+static uint64_t loom_block_ordinal_midpoint(uint64_t lower, uint64_t upper) {
+  return lower + (upper - lower) / 2;
+}
+
+// Chooses the side of a sparse gap that preserves room for a repeated
+// insertion stream. The denser outer gap identifies the endpoint that moved on
+// the preceding insertion; placing beside it leaves the current gap available
+// beside the stable endpoint. Equal-density gaps split at the midpoint.
+static uint64_t loom_block_choose_ordinal(const loom_op_t* prev_op,
+                                          const loom_op_t* next_op,
+                                          uint64_t lower, uint64_t upper) {
+  const uint64_t previous_gap =
+      prev_op ? lower - (prev_op->prev_op ? prev_op->prev_op->block_ordinal : 0)
+              : UINT64_MAX;
+  const uint64_t next_gap =
+      next_op
+          ? (next_op->next_op ? next_op->next_op->block_ordinal : UINT64_MAX) -
+                upper
+          : UINT64_MAX;
+  if (previous_gap < next_gap) {
+    return lower + 1;
+  }
+  if (next_gap < previous_gap) {
+    return upper - 1;
+  }
+  return loom_block_ordinal_midpoint(lower, upper);
+}
+
+// Redistributes |count| successive ops across |gap_count| equal-width gaps.
+// Quotient/remainder accumulation avoids an overflowing distance * index
+// intermediate while producing floor(distance * index / gap_count).
+IREE_ATTRIBUTE_NOINLINE static void loom_block_redistribute_ordinals_forward(
+    loom_op_t* first_op, uint32_t count, uint64_t lower, uint64_t distance,
+    uint32_t gap_count) {
+  const uint64_t quotient = distance / gap_count;
+  const uint64_t remainder = distance % gap_count;
+  uint64_t ordinal = lower;
+  uint64_t remainder_accumulator = 0;
+  loom_op_t* op = first_op;
+  for (uint32_t i = 0; i < count; ++i, op = op->next_op) {
+    ordinal += quotient;
+    remainder_accumulator += remainder;
+    if (remainder_accumulator >= gap_count) {
+      ++ordinal;
+      remainder_accumulator -= gap_count;
     }
-    ordinal += LOOM_BLOCK_ORDINAL_STRIDE;
+    op->block_ordinal = ordinal;
   }
-  return iree_ok_status();
 }
 
-static iree_status_t loom_block_append_ordinal(loom_block_t* block,
-                                               uint64_t* out_ordinal) {
+// Opens a congested gap by redistributing a forward run. The first run
+// whose ordinal span exceeds the square of its gap count has enough density
+// slack to pay for the relabeling amortized across the insertions that consumed
+// it. The supported block-size limit guarantees that a run exists.
+static uint64_t loom_block_repair_ordinal_gap_forward(loom_op_t* prev_op,
+                                                      loom_op_t* next_op) {
+  const uint64_t lower = prev_op ? prev_op->block_ordinal : 0;
+  loom_op_t* boundary_op = next_op;
+  uint32_t gap_count = 1;
+  while (true) {
+    const uint64_t upper =
+        boundary_op ? boundary_op->block_ordinal : UINT64_MAX;
+    const uint64_t distance = upper - lower;
+    if (distance > (uint64_t)gap_count * gap_count) {
+      loom_block_redistribute_ordinals_forward(next_op, gap_count - 1, lower,
+                                               distance, gap_count);
+      return loom_block_choose_ordinal(
+          prev_op, next_op, lower,
+          next_op ? next_op->block_ordinal : UINT64_MAX);
+    }
+    IREE_ASSERT(boundary_op);
+    boundary_op = boundary_op->next_op;
+    ++gap_count;
+  }
+}
+
+// Opens a congested gap by redistributing a backward run.
+static uint64_t loom_block_repair_ordinal_gap_backward(loom_block_t* block,
+                                                       loom_op_t* prev_op,
+                                                       loom_op_t* next_op) {
+  const uint64_t upper = next_op ? next_op->block_ordinal : UINT64_MAX;
+  loom_op_t* boundary_op = prev_op;
+  uint32_t gap_count = 1;
+  while (true) {
+    const uint64_t lower = boundary_op ? boundary_op->block_ordinal : 0;
+    const uint64_t distance = upper - lower;
+    if (distance > (uint64_t)gap_count * gap_count) {
+      loom_op_t* first_op =
+          boundary_op ? boundary_op->next_op : block->first_op;
+      loom_block_redistribute_ordinals_forward(first_op, gap_count - 1, lower,
+                                               distance, gap_count);
+      return loom_block_choose_ordinal(
+          prev_op, next_op, prev_op ? prev_op->block_ordinal : 0, upper);
+    }
+    IREE_ASSERT(boundary_op);
+    boundary_op = boundary_op->prev_op;
+    ++gap_count;
+  }
+}
+
+// Repairs an exhausted insertion gap. Kept out of line so the sparse-gap and
+// append paths do not carry the density search and redistribution machinery.
+IREE_ATTRIBUTE_NOINLINE static uint64_t loom_block_repair_ordinal_gap(
+    loom_block_t* block, loom_op_t* prev_op, loom_op_t* next_op) {
+  const uint64_t lower = prev_op ? prev_op->block_ordinal : 0;
+  if (lower < UINT64_MAX / 2) {
+    return loom_block_repair_ordinal_gap_forward(prev_op, next_op);
+  }
+  return loom_block_repair_ordinal_gap_backward(block, prev_op, next_op);
+}
+
+static uint64_t loom_block_insert_ordinal(loom_block_t* block,
+                                          loom_op_t* prev_op,
+                                          loom_op_t* next_op) {
   if (!block->last_op) {
-    *out_ordinal = LOOM_BLOCK_ORDINAL_STRIDE;
-    return iree_ok_status();
-  }
-  if (UINT64_MAX - block->last_op->block_ordinal > LOOM_BLOCK_ORDINAL_STRIDE) {
-    *out_ordinal = block->last_op->block_ordinal + LOOM_BLOCK_ORDINAL_STRIDE;
-    return iree_ok_status();
-  }
-  IREE_RETURN_IF_ERROR(loom_block_renumber_ordinals(block));
-  if (UINT64_MAX - block->last_op->block_ordinal <= LOOM_BLOCK_ORDINAL_STRIDE) {
-    return iree_make_status(
-        IREE_STATUS_RESOURCE_EXHAUSTED,
-        "block has too many operations to append another ordinal");
-  }
-  *out_ordinal = block->last_op->block_ordinal + LOOM_BLOCK_ORDINAL_STRIDE;
-  return iree_ok_status();
-}
-
-static iree_status_t loom_block_insert_ordinal(loom_block_t* block,
-                                               loom_op_t* prev_op,
-                                               loom_op_t* next_op,
-                                               uint64_t* out_ordinal) {
-  if (!next_op) {
-    return loom_block_append_ordinal(block, out_ordinal);
+    return LOOM_BLOCK_ORDINAL_STRIDE;
   }
 
-  uint64_t lower = prev_op ? prev_op->block_ordinal : 0;
-  uint64_t upper = next_op->block_ordinal;
-  if (lower + 1 < upper) {
-    *out_ordinal = prev_op ? lower + 1 : lower + (upper - lower) / 2;
-    return iree_ok_status();
+  const uint64_t lower = prev_op ? prev_op->block_ordinal : 0;
+  const uint64_t upper = next_op ? next_op->block_ordinal : UINT64_MAX;
+  if (upper - lower > 1) {
+    if (!next_op && upper - lower > LOOM_BLOCK_ORDINAL_STRIDE) {
+      return lower + LOOM_BLOCK_ORDINAL_STRIDE;
+    }
+    return loom_block_choose_ordinal(prev_op, next_op, lower, upper);
   }
-
-  IREE_RETURN_IF_ERROR(loom_block_renumber_ordinals(block));
-  lower = prev_op ? prev_op->block_ordinal : 0;
-  upper = next_op->block_ordinal;
-  if (lower + 1 >= upper) {
-    return iree_make_status(
-        IREE_STATUS_RESOURCE_EXHAUSTED,
-        "block has too many operations to assign an insertion ordinal");
-  }
-  *out_ordinal = prev_op ? lower + 1 : lower + (upper - lower) / 2;
-  return iree_ok_status();
+  return loom_block_repair_ordinal_gap(block, prev_op, next_op);
 }
 
 static iree_status_t loom_block_link_op_between(loom_module_t* module,
@@ -4673,9 +4752,11 @@ static iree_status_t loom_block_link_op_between(loom_module_t* module,
                                                 loom_op_t* next_op,
                                                 loom_op_t* op) {
   (void)module;
-  if (block->op_count == UINT32_MAX) {
-    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "block op count exceeds UINT32_MAX");
+  if (block->op_count >= LOOM_BLOCK_ORDINAL_MAX_OP_COUNT) {
+    return iree_make_status(
+        IREE_STATUS_RESOURCE_EXHAUSTED,
+        "block operation count exceeds sparse ordinal capacity %u",
+        (unsigned)LOOM_BLOCK_ORDINAL_MAX_OP_COUNT);
   }
   if (op->parent_block && op->parent_block != block) {
     return iree_make_status(
@@ -4688,9 +4769,7 @@ static iree_status_t loom_block_link_op_between(loom_module_t* module,
                             "cannot insert op already linked into a block");
   }
 
-  uint64_t ordinal = 0;
-  IREE_RETURN_IF_ERROR(
-      loom_block_insert_ordinal(block, prev_op, next_op, &ordinal));
+  const uint64_t ordinal = loom_block_insert_ordinal(block, prev_op, next_op);
 
   op->parent_block = block;
   op->block_ordinal = ordinal;

@@ -15,11 +15,13 @@ loom_cc_library(
   HDRS
     "projection_apply.h"
     "projection_driver.h"
+    "projection_loop.h"
     "projection_plan.h"
     "projection_rule.h"
   SRCS
     "projection_apply.c"
     "projection_driver.c"
+    "projection_loop.c"
     "projection_plan.c"
   DEPS
     iree::base
@@ -31,6 +33,7 @@ loom_cc_library(
     loom::ops::op_defs
     loom::pass::types
     loom::pass::value_facts
+    loom::rewrite::loop_like
     loom::rewrite::remap
     loom::rewrite::rewriter
     loom::target::function_version
@@ -58,6 +61,26 @@ loom_cc_test(
     loom::verify
 )
 
+loom_cc_test(
+  NAME
+    projection_loop_test
+  SRCS
+    "projection_loop_test.cc"
+  DEPS
+    ::projection_core
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::ir
+    loom::ops::index
+    loom::ops::op_defs
+    loom::ops::scf
+    loom::ops::test
+    loom::pass::value_facts
+    loom::util::walk
+    loom::verify
+)
+
 loom_cc_library(
   NAME
     projection
@@ -70,7 +93,7 @@ loom_cc_library(
     iree::base
     loom::pass::types
     loom::target::pass_environment
-    loom::transforms::encoding::cfg_layout_projection
+    loom::transforms::encoding::layout_projection
     loom::transforms::view::boundary_projection
   PUBLIC
 )

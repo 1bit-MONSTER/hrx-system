@@ -9,6 +9,7 @@
 
 #include "loom/codegen/low/builder.h"
 #include "loom/codegen/low/descriptors.h"
+#include "loom/codegen/low/lower/realization.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/cache.h"
@@ -195,6 +196,9 @@ static iree_status_t loom_amdgpu_emit_memory_packet(
       packet->access.source.access_flags, operands, operand_count, attrs,
       result_types, result_count, /*tied_results=*/NULL,
       /*tied_result_count=*/0, source_op->location, out_op));
+  IREE_RETURN_IF_ERROR(loom_low_lower_record_memory_packet(
+      context, *out_op, packet->access.descriptor, &packet->access.source,
+      loom_value_facts_exact_i64(0)));
   return loom_amdgpu_record_memory_packet_report(context, source_op, packet);
 }
 
@@ -727,6 +731,33 @@ iree_status_t loom_amdgpu_emit_hal_buffer_descriptor(
   return iree_ok_status();
 }
 
+static iree_status_t loom_amdgpu_emit_memory_buffer_descriptor(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t low_binding, const loom_amdgpu_memory_access_t* access,
+    loom_value_id_t* out_descriptor) {
+  if (access->realization.descriptor) {
+    *out_descriptor =
+        loom_low_lower_realization_value(access->realization.descriptor);
+    return iree_ok_status();
+  }
+  return loom_amdgpu_emit_hal_buffer_descriptor(
+      context, source_op, low_binding, &access->source, out_descriptor);
+}
+
+static iree_status_t loom_amdgpu_emit_memory_buffer_soffset(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_memory_access_t* access,
+    const loom_amdgpu_memory_dynamic_term_sequence_t* sequence,
+    loom_value_id_t* out_soffset) {
+  if (access->realization.soffset) {
+    *out_soffset =
+        loom_low_lower_realization_value(access->realization.soffset);
+    return iree_ok_status();
+  }
+  return loom_amdgpu_emit_sgpr_byte_offset_terms(
+      context, source_op, sequence, access->scalar_byte_offset, out_soffset);
+}
+
 static bool loom_amdgpu_memory_packet_operand_matches_field(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_operand_t* operand, iree_string_view_t field_name) {
@@ -837,27 +868,35 @@ static iree_status_t loom_amdgpu_append_memory_cache_attrs(
     loom_low_lower_context_t* context,
     const loom_amdgpu_memory_access_t* access, loom_named_attr_t* attrs,
     iree_host_size_t attr_capacity, iree_host_size_t* inout_attr_count) {
+  // LDS observations participate in ordering without a global cache policy.
+  if (access->source.memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
+    return iree_ok_status();
+  }
   if (access->source.operation_kind ==
-      LOOM_MEMORY_ACCESS_OPERATION_ATOMIC_STORE) {
+          LOOM_MEMORY_ACCESS_OPERATION_ATOMIC_STORE &&
+      access->source.atomic.scope > LOOM_ATOMIC_SCOPE_SUBGROUP) {
     return loom_amdgpu_system_memory_append_release_store_attrs_scoped(
         loom_low_lower_context_builder(context),
         loom_low_lower_context_descriptor_set(context),
-        loom_amdgpu_memory_coherence_scope(access->source.atomic.scope), attrs,
-        attr_capacity, inout_attr_count);
+        loom_amdgpu_memory_coherence_scope(
+            loom_low_lower_context_descriptor_set(context),
+            access->source.atomic.scope),
+        attrs, attr_capacity, inout_attr_count);
   }
   uint8_t read_scope = access->source.read_visibility_scope;
   if (access->source.operation_kind ==
       LOOM_MEMORY_ACCESS_OPERATION_ATOMIC_LOAD) {
     read_scope = iree_max(read_scope, access->source.atomic.scope);
   }
-  if (read_scope != LOOM_ATOMIC_SCOPE_THREAD) {
+  if (read_scope > LOOM_ATOMIC_SCOPE_SUBGROUP) {
     // The retained visibility obligation and atomic observation scope both
     // constrain these reads. Advisory cache preferences cannot weaken them.
     return loom_amdgpu_system_memory_append_load_attrs_scoped(
         loom_low_lower_context_builder(context),
         loom_low_lower_context_descriptor_set(context),
-        loom_amdgpu_memory_coherence_scope(read_scope), attrs, attr_capacity,
-        inout_attr_count);
+        loom_amdgpu_memory_coherence_scope(
+            loom_low_lower_context_descriptor_set(context), read_scope),
+        attrs, attr_capacity, inout_attr_count);
   }
   const loom_vector_memory_cache_policy_t* policy =
       &access->source.cache_policy;
@@ -1151,8 +1190,8 @@ static iree_status_t loom_amdgpu_lower_memory_packet_load(
 
   if (access->address_form == LOOM_AMDGPU_MEMORY_ADDRESS_FORM_BUFFER_OFF_ZERO) {
     loom_value_id_t low_descriptor = LOOM_VALUE_ID_INVALID;
-    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_hal_buffer_descriptor(
-        context, source_op, low_resource, &access->source, &low_descriptor));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_buffer_descriptor(
+        context, source_op, low_resource, access, &low_descriptor));
     loom_value_id_t operands[] = {low_descriptor};
     loom_op_t* low_op = NULL;
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_packet(
@@ -1180,11 +1219,11 @@ static iree_status_t loom_amdgpu_lower_memory_packet_load(
   }
 
   loom_value_id_t low_soffset = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_sgpr_byte_offset_terms(
-      context, source_op, &sequence, access->scalar_byte_offset, &low_soffset));
+  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_buffer_soffset(
+      context, source_op, access, &sequence, &low_soffset));
   loom_value_id_t low_descriptor = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_hal_buffer_descriptor(
-      context, source_op, low_resource, &access->source, &low_descriptor));
+  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_buffer_descriptor(
+      context, source_op, low_resource, access, &low_descriptor));
   loom_value_id_t operands[] = {
       low_descriptor,
       low_vaddr,
@@ -1208,8 +1247,16 @@ static iree_status_t loom_amdgpu_lower_memory_packet_store(
   loom_amdgpu_memory_dynamic_term_sequence_t sequence = {0};
   loom_amdgpu_memory_access_resolve_dynamic_terms(context, access, &sequence);
   IREE_RETURN_IF_ERROR(loom_amdgpu_ensure_memory_store_payload_vgpr(
-      context, source_op, access, source_value, packet->source_register_offset,
-      low_value, &low_value));
+      context, source_op, access, source_value,
+      packet->payload_byte_offset / 4u, low_value, &low_value));
+  const uint32_t register_byte_offset = packet->payload_byte_offset % 4u;
+  if (register_byte_offset != 0) {
+    loom_type_t lane_type = loom_type_none();
+    IREE_RETURN_IF_ERROR(loom_amdgpu_make_vgpr_type(context, &lane_type));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_vgpr_shift(
+        context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_LSHRREV_B32_LIT,
+        register_byte_offset * 8u, low_value, lane_type, &low_value));
+  }
   loom_value_id_t low_resource = LOOM_VALUE_ID_INVALID;
   if (loom_amdgpu_memory_access_needs_hal_resource(access)) {
     IREE_RETURN_IF_ERROR(loom_low_lower_lookup_value(
@@ -1296,8 +1343,8 @@ static iree_status_t loom_amdgpu_lower_memory_packet_store(
 
   if (access->address_form == LOOM_AMDGPU_MEMORY_ADDRESS_FORM_BUFFER_OFF_ZERO) {
     loom_value_id_t low_descriptor = LOOM_VALUE_ID_INVALID;
-    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_hal_buffer_descriptor(
-        context, source_op, low_resource, &access->source, &low_descriptor));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_buffer_descriptor(
+        context, source_op, low_resource, access, &low_descriptor));
     loom_value_id_t operands[] = {
         low_value,
         low_descriptor,
@@ -1332,11 +1379,11 @@ static iree_status_t loom_amdgpu_lower_memory_packet_store(
   }
 
   loom_value_id_t low_soffset = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_sgpr_byte_offset_terms(
-      context, source_op, &sequence, access->scalar_byte_offset, &low_soffset));
+  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_buffer_soffset(
+      context, source_op, access, &sequence, &low_soffset));
   loom_value_id_t low_descriptor = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_hal_buffer_descriptor(
-      context, source_op, low_resource, &access->source, &low_descriptor));
+  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_buffer_descriptor(
+      context, source_op, low_resource, access, &low_descriptor));
   loom_value_id_t operands[] = {
       low_value,
       low_descriptor,
@@ -1366,14 +1413,45 @@ iree_status_t loom_amdgpu_lower_memory_load(
   }
 
   loom_value_id_t low_results[LOOM_AMDGPU_MAX_MEMORY_PACKET_COUNT];
+  uint32_t low_result_count = 0;
   bool result_is_vgpr = false;
   IREE_RETURN_IF_ERROR(loom_amdgpu_memory_load_result_is_vgpr(
       context, source_op, &result_is_vgpr));
   for (uint32_t i = 0; i < plan->packet_count; ++i) {
+    const loom_amdgpu_memory_packet_plan_t* packet = &plan->packets[i];
+    loom_value_id_t low_result = LOOM_VALUE_ID_INVALID;
     IREE_RETURN_IF_ERROR(loom_amdgpu_lower_memory_packet_load(
-        context, source_op, &plan->packets[i], &low_results[i]));
-    IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_memory_load_packet_for_result(
-        context, source_op, result_is_vgpr, low_results[i], &low_results[i]));
+        context, source_op, packet, &low_result));
+    const uint32_t register_byte_offset = packet->payload_byte_offset % 4u;
+    if (register_byte_offset == 0) {
+      low_results[low_result_count++] = low_result;
+    } else {
+      // The final byte completes a zero-extended halfword in the same VGPR.
+      // Assemble before bank materialization so uniform results cross once.
+      loom_type_t lane_type = loom_type_none();
+      IREE_RETURN_IF_ERROR(loom_amdgpu_make_vgpr_type(context, &lane_type));
+      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_vgpr_shift(
+          context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_LSHLREV_B32_LIT,
+          register_byte_offset * 8u, low_result, lane_type, &low_result));
+      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_binary(
+          context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_OR_B32,
+          low_results[low_result_count - 1u], low_result, lane_type,
+          &low_results[low_result_count - 1u]));
+    }
+    // Materialize complete words immediately, retaining the existing ordering
+    // for full-register packets. A following partial packet finishes this word.
+    if (i + 1u == plan->packet_count ||
+        plan->packets[i + 1u].payload_byte_offset % 4u == 0) {
+      IREE_RETURN_IF_ERROR(
+          loom_amdgpu_materialize_memory_load_packet_for_result(
+              context, source_op, result_is_vgpr,
+              low_results[low_result_count - 1u],
+              &low_results[low_result_count - 1u]));
+    }
+  }
+  if (low_result_count == 1) {
+    return loom_amdgpu_bind_memory_load_result(context, source_op,
+                                               low_results[0]);
   }
 
   const loom_value_id_t source_result =
@@ -1383,7 +1461,7 @@ iree_status_t loom_amdgpu_lower_memory_load(
       context, source_op, source_result, &result_type));
   loom_op_t* concat_op = NULL;
   IREE_RETURN_IF_ERROR(loom_low_concat_build(
-      loom_low_lower_context_builder(context), low_results, plan->packet_count,
+      loom_low_lower_context_builder(context), low_results, low_result_count,
       result_type, source_op->location, &concat_op));
   return loom_amdgpu_bind_memory_load_result(context, source_op,
                                              loom_low_concat_result(concat_op));
@@ -1412,7 +1490,7 @@ iree_status_t loom_amdgpu_lower_memory_store(
         context, &packet->access, &packet_type));
     loom_value_id_t packet_value = LOOM_VALUE_ID_INVALID;
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_low_slice(
-        context, source_op, low_value, packet->source_register_offset,
+        context, source_op, low_value, packet->payload_byte_offset / 4u,
         packet_type, &packet_value));
     IREE_RETURN_IF_ERROR(loom_amdgpu_lower_memory_packet_store(
         context, source_op, packet, source_value, packet_value));

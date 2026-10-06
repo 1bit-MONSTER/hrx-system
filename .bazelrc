@@ -61,6 +61,10 @@ build:windows-msvc --//build_tools/windows:compiler=msvc
 # Windows diagnostics before subsequent CI phases can replace the inputs.
 build:windows --verbose_failures
 
+# Ordinary builds do not execute their outputs. Defer expensive Windows
+# runfiles trees until a local action, test, or run command requires them.
+build:windows --nobuild_runfile_links
+
 # Destinations are independent of compiler selection. Native builds infer their
 # destination; cross builds preserve the native host for code generators.
 build:windows-x86_64 --platforms=//build_tools/windows:windows_x86_64
@@ -112,6 +116,11 @@ build:sanitizer --features=sanitizer_debug_info
 build:sanitizer --force_ignore_dash_static
 build:sanitizer --test_timeout=120,600,1800,-1
 build:sanitizer --//build_tools/bazel:sanitizer=true
+
+# Keep Vulkan ICDs mapped for sanitizer exit scans and symbolization, matching
+# IREE's own sanitized dynamic-library lifetime. Loader-owned ICDs otherwise
+# unload independently of IREE and lose process-global allocation roots.
+build:sanitizer --test_env=VK_LOADER_DISABLE_DYNAMIC_LIBRARY_UNLOADING=1
 
 # AddressSanitizer.
 build:asan --config=sanitizer

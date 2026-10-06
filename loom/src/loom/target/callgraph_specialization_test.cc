@@ -33,6 +33,15 @@ namespace {
 
 using ModulePtr = ::loom::testing::ModulePtr;
 
+struct SpecializationResult {
+  explicit SpecializationResult(iree_arena_allocator_t* arena) {
+    loom_function_version_owner_initialize(arena, &function_versions);
+  }
+
+  loom_function_version_owner_t function_versions;
+  uint32_t error_count = 0;
+};
+
 typedef struct TestTargetProfile {
   // Generic target profile base.
   loom_target_profile_t base;
@@ -211,11 +220,11 @@ class TargetCallgraphSpecializationTest : public ::testing::Test {
     return false;
   }
 
-  loom_target_specialization_result_t Specialize(
+  SpecializationResult Specialize(
       loom_module_t* module,
       const loom_target_specialization_request_t* requests,
       iree_host_size_t request_count) {
-    loom_target_specialization_result_t result = {};
+    SpecializationResult result(&version_arena_);
     IREE_CHECK_OK(loom_target_specialize_functions(&environment_, module,
                                                    {
                                                        /*.values=*/requests,
@@ -223,7 +232,8 @@ class TargetCallgraphSpecializationTest : public ::testing::Test {
                                                    },
                                                    /*.bindings=*/{},
                                                    /*.diagnostic_emitter=*/{},
-                                                   &version_arena_, &result));
+                                                   &result.function_versions,
+                                                   &result.error_count));
     EXPECT_EQ(result.error_count, 0u);
     return result;
   }
@@ -318,7 +328,7 @@ func.def public @wide() -> (index) {
       {/*.function_name=*/IREE_SV("wide"),
        /*.target_profile=*/&wave64.base},
   };
-  loom_target_specialization_result_t specialization =
+  SpecializationResult specialization =
       Specialize(module.get(), requests, IREE_ARRAYSIZE(requests));
   ASSERT_EQ(specialization.function_versions.list.count, 3u);
   const iree_host_size_t source_symbol_count = module->symbols.count;
@@ -447,7 +457,7 @@ func.def public @wave64_root() {
       {/*.function_name=*/IREE_SV("wave64_root"),
        /*.target_profile=*/&wave64.base},
   };
-  loom_target_specialization_result_t specialization =
+  SpecializationResult specialization =
       Specialize(module.get(), requests, IREE_ARRAYSIZE(requests));
 
   ASSERT_TRUE(Run(module.get(), &specialization.function_versions));
@@ -491,7 +501,7 @@ func.def public @explicit_root() -> (index) {
       {/*.function_name=*/IREE_SV("explicit_root"),
        /*.target_profile=*/&explicit_wave32.base},
   };
-  loom_target_specialization_result_t specialization =
+  SpecializationResult specialization =
       Specialize(module.get(), requests, IREE_ARRAYSIZE(requests));
 
   ASSERT_TRUE(Run(module.get(), &specialization.function_versions));
@@ -541,8 +551,7 @@ func.def public @root() {
       /*.function_name=*/IREE_SV("root"),
       /*.target_profile=*/&wave32.base,
   };
-  loom_target_specialization_result_t specialization =
-      Specialize(module.get(), &request, 1);
+  SpecializationResult specialization = Specialize(module.get(), &request, 1);
 
   ASSERT_TRUE(Run(module.get(), &specialization.function_versions));
   ASSERT_EQ(specialization.function_versions.list.count, 2u);
@@ -610,7 +619,7 @@ func.def public @host() {
       {/*.function_name=*/IREE_SV("device_program"),
        /*.target_profile=*/&device_profile.base},
   };
-  loom_target_specialization_result_t specialization =
+  SpecializationResult specialization =
       Specialize(module.get(), requests, IREE_ARRAYSIZE(requests));
   ASSERT_EQ(specialization.function_versions.list.count, 2u);
   const loom_symbol_ref_t authored_target_ref =
@@ -722,7 +731,7 @@ func.def public @wave64_root() {
       {/*.function_name=*/IREE_SV("wave64_root"),
        /*.target_profile=*/&wave64.base},
   };
-  loom_target_specialization_result_t specialization =
+  SpecializationResult specialization =
       Specialize(module.get(), requests, IREE_ARRAYSIZE(requests));
   const iree_host_size_t symbol_count = module->symbols.count;
   const iree_host_size_t string_count = module->strings.count;
@@ -767,8 +776,7 @@ func.def public @wave32_root() {
       /*.function_name=*/IREE_SV("wave32_root"),
       /*.target_profile=*/&wave32.base,
   };
-  loom_target_specialization_result_t specialization =
-      Specialize(module.get(), &request, 1);
+  SpecializationResult specialization = Specialize(module.get(), &request, 1);
   const iree_host_size_t symbol_count = module->symbols.count;
   const iree_host_size_t string_count = module->strings.count;
   DiagnosticCollector collector;

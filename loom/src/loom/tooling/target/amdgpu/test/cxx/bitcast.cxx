@@ -82,7 +82,6 @@ LOOM_CHECK_CASE(packed_byte_order) {
                               loom::check::fill<unsigned, 32>(0x840200FDu));
   loom::check::expect_bitwise(input,
                               loom::check::fill<unsigned, 32>(0xFCFEFF80u));
-  loom::check::expect_event("device", "type", "asan_report", "count", 0);
 }
 
 LOOM_CHECK_CASE(packed_fp8_rescale) {
@@ -95,7 +94,6 @@ LOOM_CHECK_CASE(packed_fp8_rescale) {
                               loom::check::fill<unsigned, 32>(0x807E3B38u));
   loom::check::expect_bitwise(input,
                               loom::check::fill<unsigned, 32>(0x807E3A38u));
-  loom::check::expect_event("device", "type", "asan_report", "count", 0);
 }
 
 LOOM_CHECK_CASE(raw_floating_payloads) {
@@ -119,7 +117,6 @@ LOOM_CHECK_CASE(raw_floating_payloads) {
   loom::check::expect_bitwise(scalar, input);
   loom::check::expect_bitwise(output,
                               loom::check::fill<unsigned, 160>(0x7F817E80u));
-  loom::check::expect_event("device", "type", "asan_report", "count", 0);
 }
 
 LOOM_CHECK_CASE(signed_zero_payloads) {
@@ -140,7 +137,6 @@ LOOM_CHECK_CASE(signed_zero_payloads) {
   loom::check::expect_bitwise(scalar, input);
   loom::check::expect_bitwise(output,
                               loom::check::fill<unsigned, 160>(0x80000000u));
-  loom::check::expect_event("device", "type", "asan_report", "count", 0);
 }
 
 LOOM_CHECK_CASE(wide_word_order) {
@@ -155,7 +151,6 @@ LOOM_CHECK_CASE(wide_word_order) {
       loom::check::fill<unsigned long long, 1>(0x1032547698BADCFEull));
   loom::check::expect_bitwise(floats, loom::check::slice<1>(input, 0));
   loom::check::expect_bitwise(scalar, loom::check::slice<1>(input, 0));
-  loom::check::expect_event("device", "type", "asan_report", "count", 0);
 }
 
 LOOM_CHECK_CASE(wide_nan_payload) {
@@ -170,7 +165,6 @@ LOOM_CHECK_CASE(wide_nan_payload) {
       loom::check::fill<unsigned long long, 1>(0xCDAB89674523F17Full));
   loom::check::expect_bitwise(floats, loom::check::slice<1>(input, 0));
   loom::check::expect_bitwise(scalar, loom::check::slice<1>(input, 0));
-  loom::check::expect_event("device", "type", "asan_report", "count", 0);
 }
 
 constexpr Float8x4 kPackedScale = __builtin_bit_cast(Float8x4, 0x403c3830u);
@@ -210,7 +204,6 @@ LOOM_CHECK_CASE(constexpr_packed_scales) {
   loom::check::expect_bitwise(second, loom::check::fill<float, 1>(2.0f));
   loom::check::expect_bitwise(third, loom::check::fill<float, 1>(3.0f));
   loom::check::expect_bitwise(fourth, loom::check::fill<float, 1>(4.0f));
-  loom::check::expect_event("device", "type", "asan_report", "count", 0);
 }
 
 LOOM_CHECK_CASE(constexpr_raw_payloads) {
@@ -231,5 +224,4 @@ LOOM_CHECK_CASE(constexpr_raw_payloads) {
                               loom::check::fill<unsigned, 1>(0x7F812345u));
   loom::check::expect_bitwise(
       wide, loom::check::fill<unsigned long long, 1>(0x7FF0000012345678ULL));
-  loom::check::expect_event("device", "type", "asan_report", "count", 0);
 }

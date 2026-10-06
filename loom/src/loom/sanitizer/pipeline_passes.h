@@ -26,11 +26,6 @@ iree_status_t loom_sanitizer_insert_assertions_run(loom_pass_t* pass,
                                                    loom_module_t* module,
                                                    loom_func_like_t function);
 
-const loom_pass_info_t* loom_sanitizer_materialize_assertions_pass_info(void);
-
-iree_status_t loom_sanitizer_materialize_assertions_run(
-    loom_pass_t* pass, loom_module_t* module, loom_func_like_t function);
-
 #ifdef __cplusplus
 }  // extern "C"
 #endif

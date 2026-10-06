@@ -31,7 +31,6 @@ low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @spirv_
                OpName %value "value"
                OpName %ptr "ptr"
                OpName %loaded "loaded"
-               OpDecorate %_arr_int_uint_4 ArrayStride 4
        %void = OpTypeVoid
           %3 = OpTypeFunction %void
         %int = OpTypeInt 32 1

@@ -1681,6 +1681,29 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @gfx11_mad_u32_u24(%value:
 
 // ====
 
+// Inline VOP3 sources keep the multiply-add at two words. A literal form would
+// append a third instruction word.
+// RUN: emit amdgpu-native-words @gfx11_mad_u32_u24_inline waits=none strategy=source fixed=%value:physical_register:0:1 fixed=%addend:physical_register:2:1 fixed=%src0:physical_register:1:1 fixed=%src1:physical_register:3:1 fixed=%src2:physical_register:4:1
+amdgpu.target<gfx1100> @gfx11_target
+
+low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @gfx11_mad_u32_u24_inline(%value: reg<amdgpu.vgpr>, %addend: reg<amdgpu.sgpr>) asm {
+  %src0 = v_mad_u32_u24_src0_inline %value, %addend, 20
+  %src1 = v_mad_u32_u24_src1_inline %value, %addend, 20
+  %src2 = v_mad_u32_u24_src2_inline %value, %addend, 20
+  return
+}
+
+// ----
+0xD60B0001
+0x000A0094
+0xD60B0003
+0x00092900
+0xD60B0004
+0x02500500
+0xBFB00000
+
+// ====
+
 // RUN: emit amdgpu-assembly @gfx11_mad_u32_u24_literal waits=none
 amdgpu.target<gfx1100> @gfx11_target
 

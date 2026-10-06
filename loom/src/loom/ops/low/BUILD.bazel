@@ -30,6 +30,8 @@ _LOW_OPS_VISIBILITY = [
     "//loom/src/loom/target/emit:__subpackages__",
     "//loom/src/loom/target/reporting:__pkg__",
     "//loom/src/loom/tooling/compile:__pkg__",
+    "//loom/src/loom/tooling/target/vm:__pkg__",
+    "//loom/src/loom/tooling/target/wasm:__pkg__",
     "//loom/src/loom/tools/loom-check:__pkg__",
     "//loom/src/loom/transforms/cfg:__pkg__",
     "//loom/src/loom/transforms/symbol:__pkg__",
@@ -40,12 +42,14 @@ loom_generated_cc_library(
     name = "low",
     srcs = [
         "canonicalize.c",
+        "capture.c",
         "facts.c",
         "kernel.c",
         "schedule_scope.c",
         "verify.c",
     ],
     hdrs = [
+        "capture.h",
         "kernel.h",
         "ops.h",
         "schedule_scope.h",

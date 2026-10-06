@@ -1546,6 +1546,23 @@ class TestPredicateEvaluation:
             {3: 16},
         )
 
+    @pytest.mark.parametrize(
+        ("kind", "expected"),
+        [("ult", True), ("ule", True), ("ugt", False), ("uge", False)],
+    )
+    def test_unsigned_relations_order_carrier_bits(
+        self, kind: str, expected: bool
+    ) -> None:
+        predicate = self._pred(kind, ("value", 3), ("value", 7))
+        assert evaluate_predicate(predicate, {3: 1, 7: -1}) is expected
+        assert evaluate_predicate(predicate, {3: -1, 7: 1}) is not expected
+
+    def test_unsigned_relation_rejects_float(self) -> None:
+        assert not evaluate_predicate(
+            self._pred("ule", ("value", 3), ("const", 8)),
+            {3: 8.0},
+        )
+
     def test_mul_true(self) -> None:
         assert evaluate_predicate(
             self._pred("mul", ("value", 3), ("const", 16)),

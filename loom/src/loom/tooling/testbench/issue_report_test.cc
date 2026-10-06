@@ -15,6 +15,7 @@
 #include "loom/ir/module.h"
 #include "loom/ops/check/ops.h"
 #include "loom/ops/index/ops.h"
+#include "loom/ops/test/ops.h"
 
 namespace loom {
 namespace {
@@ -36,6 +37,7 @@ class TestbenchIssueReportTest : public ::testing::Test {
     loom_context_initialize(iree_allocator_system(), &context_);
     RegisterDialect(LOOM_DIALECT_CHECK, loom_check_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_INDEX, loom_index_dialect_vtables);
+    RegisterDialect(LOOM_DIALECT_TEST, loom_test_dialect_vtables);
     IREE_ASSERT_OK(loom_context_finalize(&context_));
   }
 
@@ -120,6 +122,47 @@ check.case @unsupported_constant_case {
                              IREE_SV("issue_report_test.loom")));
   EXPECT_TRUE(iree_string_view_equal(
       LookupObject(source_location, IREE_SV("start_line")), IREE_SV("3")));
+
+  iree_string_builder_deinitialize(&builder);
+  loom_module_free(module);
+}
+
+TEST_F(TestbenchIssueReportTest, IdentifiesScenarioPlanningIssues) {
+  loom_module_t* module = ParseModule(R"(
+test.func @identity(%input: i32) -> (i32) {
+  test.yield %input : i32
+}
+
+check.scenario @unsupported_scenario_body {
+  %configuration = index.constant 1 : index
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.literal value(1) : i32
+    check.invoke<@identity>(%input) : (i32) -> (i32)
+  }
+  check.return
+}
+)");
+  ASSERT_NE(module, nullptr);
+
+  loom_testbench_module_plan_t plan = {};
+  IREE_ASSERT_OK(
+      loom_testbench_plan_module(module, nullptr, &plan_arena_, &plan));
+  ASSERT_EQ(plan.issue_count, 1u);
+
+  iree_string_builder_t builder;
+  iree_string_builder_initialize(iree_allocator_system(), &builder);
+  loom_output_stream_t stream;
+  loom_output_stream_for_builder(&builder, &stream);
+  IREE_ASSERT_OK(
+      loom_testbench_issue_write_json(&plan, &plan.issues[0], &stream));
+
+  const iree_string_view_t issue = iree_string_builder_view(&builder);
+  EXPECT_TRUE(iree_string_view_equal(LookupObject(issue, IREE_SV("kind")),
+                                     IREE_SV("unsupported_scenario_body_op")));
+  EXPECT_TRUE(iree_string_view_equal(LookupObject(issue, IREE_SV("scenario")),
+                                     IREE_SV("unsupported_scenario_body")));
+  EXPECT_TRUE(iree_string_view_equal(LookupObject(issue, IREE_SV("op")),
+                                     IREE_SV("index.constant")));
 
   iree_string_builder_deinitialize(&builder);
   loom_module_free(module);

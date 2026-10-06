@@ -27,12 +27,12 @@ loom_cc_library(
     iree::base
     loom::binding::c::loomc
     loom::error::error_defs
+    loom::target::arch::spirv::compiler_provider
     loom::target::arch::spirv::cooperative_properties
     loom::target::arch::spirv::features
     loom::target::arch::spirv::profile
     loom::target::arch::spirv::provider
     loom::target::arch::spirv::records::target_records
-    loom::target::emit::spirv::module_emitter
     loom::target::types
   ALWAYSLINK
   PUBLIC

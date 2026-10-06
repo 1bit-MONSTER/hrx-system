@@ -176,6 +176,8 @@ def _predicate_capture_module() -> Module:
         parser.register_ops(operations)
     module = parser.parse(
         "func.decl @first(%extent: index) where [ge(%extent, 1)]\n"
+        "func.decl @unsigned(%lhs: i32, %rhs: i32) "
+        "where [ule(%lhs, %rhs)]\n"
         "func.def @capture(%condition: i1, %extent: index) "
         "where [ge(%extent, 2)] {\n"
         "  scf.if %condition {\n"
@@ -186,15 +188,19 @@ def _predicate_capture_module() -> Module:
         "  func.return\n"
         "}\n"
     )
-    nested = module.body.ops[1].regions[0].blocks[0].ops[0].regions[0].blocks[0]
+    nested = module.body.ops[2].regions[0].blocks[0].ops[0].regions[0].blocks[0]
     # Changing a display name leaves the resolved outer and inner IDs intact.
     module.values[nested.ops[0].results[0]].name = "extent"
     return module
 
 
 def _assert_predicate_identities(module: Module) -> None:
-    first, capture = module.body.ops
+    first, unsigned, capture = module.body.ops
     assert first.attributes["predicates"][0].args[0].value == first.operands[0]
+    unsigned_predicate = unsigned.attributes["predicates"][0]
+    assert unsigned_predicate.kind == "ule"
+    assert unsigned_predicate.args[0].value == unsigned.operands[0]
+    assert unsigned_predicate.args[1].value == unsigned.operands[1]
     body = capture.regions[0].blocks[0]
     extent = body.arg_ids[1]
     assert capture.attributes["predicates"][0].args[0].value == extent

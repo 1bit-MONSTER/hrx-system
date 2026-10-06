@@ -121,6 +121,11 @@ def _expected_rule_signatures() -> Counter[tuple[str, ...]]:
                             strategies.append(
                                 "bitcast" if operation.source_kind == "xchgf" else "cas"
                             )
+                        if (
+                            scalar.source_type == "f32"
+                            and operation.source_kind == "addf"
+                        ):
+                            strategies.append("cas_preserve")
                         forms = (
                             ("rmw", "reduce") if operation.supports_reduce else ("rmw",)
                         )
@@ -183,8 +188,28 @@ def test_atomic_contract_rule_matrix_is_complete() -> None:
     actual = Counter(_rule_signature(rule) for rule in _atomic_rules())
     expected = _expected_rule_signatures()
 
-    assert len(actual) == 1946
+    assert len(actual) == 1998
     assert actual == expected
+
+
+def test_float_add_rules_require_the_selected_subnormal_contract() -> None:
+    for rule in _atomic_rules():
+        if _rule_signature(rule)[2] != "addf":
+            continue
+        flag_guards = tuple(
+            guard
+            for guard in rule.guards
+            if guard.kind
+            in (GuardKind.INSTANCE_FLAGS_HAS_ALL, GuardKind.INSTANCE_FLAGS_HAS_NONE)
+        )
+        assert len(flag_guards) == 1
+        assert flag_guards[0].field == "memory_flags"
+        assert flag_guards[0].enum_keyword == "noftz"
+        assert flag_guards[0].kind == (
+            GuardKind.INSTANCE_FLAGS_HAS_ALL
+            if ".cas_preserve." in rule.descriptor.key
+            else GuardKind.INSTANCE_FLAGS_HAS_NONE
+        )
 
 
 def test_atomic_addresses_cover_units_in_index_first_order() -> None:

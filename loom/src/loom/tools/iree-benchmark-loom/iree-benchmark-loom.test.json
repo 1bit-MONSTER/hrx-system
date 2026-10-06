@@ -90,12 +90,12 @@
       }
     },
     {
-      "name": "captures events for benchmark correctness",
+      "name": "runs correctness without absence assertions",
       "run": {
         "tool": "iree-benchmark-loom",
         "args": [
           "{srcdir}/testdata/device_events.loom",
-          "--benchmark=@no_events_benchmark",
+          "--benchmark=@clean_benchmark",
           "--iterations=1",
           "--warmup-iterations=0",
           "--output-format=jsonl"

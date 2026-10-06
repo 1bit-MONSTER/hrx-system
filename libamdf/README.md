@@ -72,12 +72,10 @@ keeping the compiler, loader, and scheduler with their caller. Family-selective
 builds keep dependencies aligned with the hardware an application uses.
 Static, shared-linked, and runtime-loaded clients share one C ABI.
 
-## Implementation and qualification
+## Native providers
 
-The initial landing establishes native XDNA execution and the common memory
-foundation. It includes passive discovery, scope-based allocation, registration
-and external-memory sharing, explicit host visibility, native queues, and the
-same conformance corpus for static, shared-linked, and runtime-loaded clients.
+The library provides passive discovery, scope-based allocation, registration
+and external-memory sharing, explicit host visibility, and native queues.
 It does not replace the existing IREE AMDGPU HAL or implement XRT/ROCr API
 compatibility. The runtime can adopt this foundation without adopting either
 runtime's execution model.
@@ -90,13 +88,9 @@ runtime's execution model.
 | XDNA on Linux | Modern amdxdna DRM | NPU4/NPU5/NPU6 support, resident data, context-private instruction storage and kernel-mediated instruction submission. |
 | XDNA on Windows | MCDM / KMT | NPU4/NPU5/NPU6 support, resident data, context-private instruction storage and native transaction-interpreter submission. |
 
-Capability queries describe the implemented platform, target and driver
-combination. Native execution has been exercised on Linux NPU5 and Windows
-NPU4; the client CI jobs qualify Linux NPU4 and Windows NPU5. Those CI execution
-results are still required for the initial qualification matrix. Local hardware
-is not the support boundary. The first client jobs compile RDNA+XDNA while
-running host-only and XDNA hardware tests; broader GPU execution qualification
-and HAL integration build on the same memory foundation. CDNA targets Linux.
+Capability queries describe the implemented platform, target and native driver
+combination. Native interface support determines available operations; a driver
+package version does not select an implementation path. CDNA targets Linux.
 
 ## Working with the API
 
@@ -121,13 +115,7 @@ A caller follows an explicit resource lifecycle:
    required devices or contexts, then endpoints and the instance.
 
 The [enumeration example](examples/enumerate.c) shows ABI negotiation and
-passive selection. The [XDNA numerical consumer](../experimental/xdna/cts/execution_test.cc)
-loads canonical images, prepares instruction ranges, executes them against
-allocated, registered and imported data, and checks results and teardown.
-The [shared-pool consumer](../experimental/xdna/cts/shared_mapping_process_test.cc)
-transfers a native memory handle between processes, independently maps and
-registers the backing, and executes after the producer releases its mapping and
-memory handle. One registration covers the pool; bindings use explicit offsets.
+passive selection without activating a device.
 
 Focused design documents describe the contracts:
 
@@ -135,10 +123,18 @@ Focused design documents describe the contracts:
   queue families and native driver ownership.
 - [Memory fabric](docs/memory.md): scopes, shared backing, addresses, visibility
   and caller-owned lifetimes.
-- [XDNA execution](docs/xdna.md): instruction storage, submission and the native
-  Linux and Windows requirements.
 - [Performance contracts](docs/performance.md): method-level preparation,
   allocation, locking, native-call and steady-state cost guarantees.
+- [GPU execution](docs/gpu.md): mapped publication, kernel-mediated submission,
+  AQL fixed scratch, native signals and execution lifetimes.
+- [GPU command reference](../docs/reference/amd/gpu/README.md): PM4, SDMA and AQL commands,
+  native publication, memory visibility and execution ordering.
+- [GPU timing and counters](../docs/reference/amd/gpu/observability.md): clock domains,
+  timestamp completion, native profiling ownership and measurement boundaries.
+- [XDNA execution](docs/xdna.md): instruction storage, submission and
+  the native Linux and Windows requirements.
+- [XDNA timing, counters, and trace](../docs/reference/amd/xdna/observability.md): tile timers,
+  event selection, trace transport, and native firmware instrumentation.
 
 ## Native drivers
 
@@ -203,10 +199,9 @@ driver, which is available through
 or the computer manufacturer. Keep each device's complete signed package
 together so its kernel driver, firmware, and companion files agree.
 
-After building libamdf, run the enumeration example and the hardware-backed
-[verification](#verification) suites to check the available capabilities and
-actual execution. Updating a driver does not require adding its release number
-to libamdf.
+After building libamdf, the enumeration example reports passive endpoint
+identity and capabilities. Updating a compatible native driver does not require
+adding its release number to libamdf.
 
 ## Building and embedding
 
@@ -233,13 +228,11 @@ on the host's installed DRM/KFD/XDNA header versions. These are private build
 inputs: libamdf does not link libdrm, and installed clients need only the public
 amdf headers. Runtime driver capabilities are still queried independently.
 
-For a host-only build and test of libamdf without the legacy AMDGPU HAL:
+Build libamdf without the legacy AMDGPU HAL:
 
 ```bash
 iree-bazel-configure -DAMDF_BUILD=ON -DIREE_HAL_DRIVER_AMDGPU=OFF
-iree-bazel-test --config=asan \
-  --test_tag_filters=-iree-run-requirement=libamdf.resource.amd_gpu,-iree-run-requirement=libamdf.resource.xdna \
-  //libamdf/...
+iree-bazel-build //libamdf:amdf //libamdf:amdf_static
 iree-bazel-run //libamdf/examples:enumerate
 ```
 
@@ -248,71 +241,7 @@ The equivalent CMake build is:
 ```bash
 iree-cmake-configure -DAMDF_BUILD=ON -DIREE_HAL_DRIVER_AMDGPU=OFF -DLIBHRX_BUILD=OFF -DLOOM_BUILD=OFF
 iree-cmake-build amdf amdf_static
-iree-cmake-test -R '^libamdf/' -LE 'manual|runtime-resource='
 ```
-
-## Verification
-
-Hardware-backed tests declare the `libamdf.resource.amd_gpu` or
-`libamdf.resource.xdna` run requirement. CMake exposes the corresponding
-`runtime-resource=amd-gpu` and `runtime-resource=amd-xdna` labels. These tests
-remain discoverable by wildcard selection; host-only presubmit excludes their
-requirements. GPU/XDNA interoperability has a separate corpus requiring both
-families and both resources. Native suites share the AMD hardware resource group
-with those interop cases.
-
-XDNA device and numerical suites require successful activation and the baseline
-allocated execution path. Missing hardware, failed activation or a missing
-compatible image fixture fails the hardware job. Optional registration, import
-and placement cases use the capabilities of the live device. Strix, Halo and
-Krackan run through the same suites; new driver releases require no test or
-implementation allowlist update.
-
-Each CTS corpus compiles once and links static, shared, and dynamically loaded
-executables. Separate test invocations run each executable with process and
-instance native lifetimes. For example, `//libamdf/cts/core:memory_static` and
-`:memory_static_instance` run the same binary with different lifetime arguments.
-The same test cases query capabilities: host-registration scenarios run wherever
-registration is supported, and native-owner recreation scenarios require
-reclaimable VM acquisition. Ordinary memory, queue, and interop
-cases share one device per endpoint for the duration of each test process.
-
-GPU queue corpora are organized by PM4 and SDMA functionality, not ASIC names.
-Clients select a queue family by publication mode, operations, format version,
-and packet-format features before creating the device. Native profiles own
-hardware-specific encoding facts; CTS and HAL clients construct commands from
-those queried contracts without repeating a hardware database.
-
-The XDNA command configures, builds and tests the library and its ELF consumers,
-including the native device lifecycle and every CTS linkage mode:
-
-```bash
-python build_tools/devtools/ci.py iree-bazel-xdna-asan
-```
-
-The client configuration compiles RDNA and XDNA together, including GPU test
-binaries, while admitting only host and XDNA hardware execution. It covers
-`//libamdf/...` and `//experimental/xdna/...`, not the whole project, and does not
-require the ROCr-backed AMDGPU HAL:
-
-```bash
-# Linux client CI.
-python build_tools/devtools/ci.py iree-bazel-amd-client-asan
-# Windows client CI, in a configured native clang-cl environment.
-python build_tools/devtools/ci.py iree-bazel-amd-client
-```
-
-These commands select the worktree's build configuration. The corresponding
-[Linux](../.github/workflows/ci_iree_bazel_client_linux.yml) and
-[Windows](../.github/workflows/ci_iree_bazel_client_windows.yml) workflows own
-platform setup and hardware assignment. Resource requirements select tests;
-being compiled into the library does not declare a GPU available for testing.
-For the CMake XDNA build and test sequence, use
-`python build_tools/devtools/ci.py iree-cmake-xdna-asan`.
-
-Linux XDNA execution requires the host's `amdxdna` driver and `/dev/accel`
-devices to be accessible inside the test environment. GPU device access through
-`/dev/kfd` and `/dev/dri` does not provide XDNA device access.
 
 The [benchmark guide](benchmarks/README.md) separates memory lifecycle,
 publication-only, warm submission and completed execution measurements.

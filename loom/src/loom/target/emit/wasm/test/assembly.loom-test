@@ -426,7 +426,8 @@ low.func.def target<wasm.core.simd128>(@target) abi(wasm_function) @float_lane_m
   %product = f32x4.mul %sum, %bias
   %lane = f32x4.extract_lane %product, 1
   %bumped = f32.add %lane, %scalar
-  %updated = f32x4.replace_lane %product, %bumped, 2
+  %scaled = f32.mul %bumped, %scalar
+  %updated = f32x4.replace_lane %product, %scaled, 2
   return %updated
 }
 
@@ -513,6 +514,10 @@ Disassembly of section CODE:
   local.get  3
   local.get  2
   f32.add
+  local.set  3
+  local.get  3
+  local.get  2
+  f32.mul
   local.set  2
   local.get  0
   local.get  2
@@ -733,15 +738,16 @@ Disassembly of section CODE:
 
 wasm.target<simd128> @target
 
-low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @while_with_iter_arg(%limit: reg<wasm.i32>, %step: reg<wasm.i32>, %seed: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
-  %result = low.scf.while(%before = %seed : reg<wasm.i32>) -> (reg<wasm.i32>) {
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @while_with_condition_payload(%limit: reg<wasm.i32>, %step: reg<wasm.i32>, %seed: reg<wasm.i32>, %bias: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>) asm {
+  %result_state, %result_payload = low.scf.while(%before = %seed : reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>) {
     %keep_going = i32.lt_u %before, %limit
-    low.scf.condition %keep_going, %before : reg<wasm.i32>, reg<wasm.i32>
-  } do(%body: reg<wasm.i32>) {
-    %next = i32.add %body, %step
+    %payload = i32.add %before, %bias
+    low.scf.condition %keep_going, %before, %payload : reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>
+  } do(%body_state: reg<wasm.i32>, %body_payload: reg<wasm.i32>) {
+    %next = i32.add %body_payload, %step
     low.scf.yield %next : reg<wasm.i32>
   }
-  return %result
+  return %result_state, %result_payload
 }
 
 low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @while_swap(%condition: reg<wasm.i32>, %a: reg<wasm.i32>, %b: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>) asm {
@@ -760,20 +766,24 @@ Disassembly of section CODE:
 <CODE>:
         # 2 functions in section.
 
-<while_with_iter_arg>:
-        .local i32
+<while_with_condition_payload>:
+        .local i32, i32
   block
   loop
   local.get  2
   local.get  0
   i32.lt_u
-  local.set  3
+  local.set  4
+  local.get  2
   local.get  3
+  i32.add
+  local.set  5
+  local.get  4
   i32.eqz
   if
   br        2
   end
-  local.get  2
+  local.get  5
   local.get  1
   i32.add
   local.set  2
@@ -781,6 +791,7 @@ Disassembly of section CODE:
   end
   end
   local.get  2
+  local.get  5
   return
   end
 

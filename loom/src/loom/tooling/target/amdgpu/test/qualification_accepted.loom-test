@@ -1,0 +1,21 @@
+// RUN: emit source-low output=none
+
+kernel.def @qualified_empty() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch() {
+  kernel.return
+}
+
+// ====
+
+kernel.def @qualified_integer() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: i32, %output: buffer) {
+  %base = index.constant 0 : offset
+  %view = buffer.view %output[%base] : buffer -> view<1xi32>
+  %result = scalar.addi %input, %input : i32
+  view.store %result, %view[0] : i32, view<1xi32>
+  kernel.return
+}

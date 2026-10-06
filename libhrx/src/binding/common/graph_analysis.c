@@ -5,7 +5,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "common/graph.h"
-#include "common/internal.h"
 #include "iree/base/internal/math.h"
 
 //===----------------------------------------------------------------------===//

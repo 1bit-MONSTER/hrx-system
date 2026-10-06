@@ -15,7 +15,7 @@ void iree_hal_amdgpu_device_tsan_emplace_queue_initialize(
         queue_initialize_args,
     uint32_t max_workgroup_count,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr) {
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup) {
   iree_hal_amdgpu_tsan_queue_initialize_args_t* IREE_AMDGPU_RESTRICT kernargs =
       (iree_hal_amdgpu_tsan_queue_initialize_args_t*)kernarg_ptr;
   *kernargs = *queue_initialize_args;
@@ -37,7 +37,8 @@ void iree_hal_amdgpu_device_tsan_emplace_queue_initialize(
   kernargs->clear_byte_stride = (uint64_t)workgroup_count[0] * workgroup_size;
   iree_hal_amdgpu_device_dispatch_emplace_packet(
       queue_initialize_kernel_args, workgroup_count,
-      /*dynamic_workgroup_local_memory=*/0, dispatch_packet, kernarg_ptr);
+      /*dynamic_workgroup_local_memory=*/0, dispatch_packet, kernarg_ptr,
+      out_setup);
 }
 
 #if defined(IREE_AMDGPU_TARGET_DEVICE)

@@ -55,16 +55,19 @@ typedef struct loom_verify_tied_table_t {
 
   // Number of allocated operand occurrence entries.
   iree_host_size_t operand_field_occurrence_capacity;
-
-  // Sorted scratch copy of valid operand value IDs for the current op.
-  loom_value_id_t* operand_value_ids;
-
-  // Number of entries in operand_value_ids.
-  iree_host_size_t operand_value_count;
-
-  // Number of allocated operand_value_ids entries.
-  iree_host_size_t operand_value_capacity;
 } loom_verify_tied_table_t;
+
+// Reusable sorted value IDs for bounded membership and duplicate queries.
+typedef struct loom_verify_sorted_values_t {
+  // Sorted valid value IDs, including duplicates from the source list.
+  loom_value_id_t* values;
+
+  // Number of active entries in values.
+  iree_host_size_t count;
+
+  // Number of allocated entries in values.
+  iree_host_size_t capacity;
+} loom_verify_sorted_values_t;
 
 // Module-wide canonical type facts gathered before the op walk.
 typedef struct loom_verify_type_summary_t {
@@ -153,6 +156,9 @@ typedef struct loom_verify_state_t {
   // Reusable per-op scratch for tied-result uniqueness checks.
   loom_verify_tied_table_t tied_table;
 
+  // Reusable sorted value IDs for per-op membership and duplicate queries.
+  loom_verify_sorted_values_t sorted_values;
+
   // Reusable scratch for operand dictionaries exceeding one bitset word.
   struct {
     // Claimed operand ordinals, cleared before each dictionary.
@@ -213,6 +219,25 @@ void loom_verify_record_diagnostic_status(loom_verify_state_t* state,
                                           iree_status_t status);
 iree_status_t loom_verify_take_diagnostic_status(loom_verify_state_t* state);
 iree_status_t loom_verify_pending_diagnostic_status(loom_verify_state_t* state);
+
+// Replaces the reusable sorted values with valid IDs from |values|.
+iree_status_t loom_verify_sorted_values_assign(loom_verify_state_t* state,
+                                               const loom_value_id_t* values,
+                                               iree_host_size_t count);
+
+// Replaces the reusable sorted values with valid IDs from both slices.
+iree_status_t loom_verify_sorted_values_assign_pair(
+    loom_verify_state_t* state, const loom_value_id_t* first_values,
+    iree_host_size_t first_count, const loom_value_id_t* second_values,
+    iree_host_size_t second_count);
+
+// Returns true if the reusable sorted values contain |value_id|.
+bool loom_verify_sorted_values_contains(const loom_verify_state_t* state,
+                                        loom_value_id_t value_id);
+
+// Returns true if the reusable sorted values contain |value_id| twice.
+bool loom_verify_sorted_values_contain_duplicate(
+    const loom_verify_state_t* state, loom_value_id_t value_id);
 
 // Enters a scope, optionally hiding every enclosing definition in O(1).
 iree_status_t loom_verify_push_scope(loom_verify_state_t* state, bool isolated);

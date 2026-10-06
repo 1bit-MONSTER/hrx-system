@@ -46,10 +46,20 @@ uint32_t loom_low_allocation_live_range_interval_initial_unit_end_point(
 
 uint32_t loom_low_allocation_live_range_interval_alignment(
     const loom_low_descriptor_set_t* descriptor_set,
+    const loom_liveness_analysis_t* liveness,
+    const loom_low_placement_table_t* placement,
     const loom_liveness_interval_t* interval) {
-  return loom_low_reg_class_unit_alignment(
+  const uint32_t class_alignment = loom_low_reg_class_unit_alignment(
       &descriptor_set->reg_classes[interval->value_class.register_class_id],
       interval->unit_count);
+  const uint32_t operand_alignment =
+      placement->operand_constraints_by_interval != NULL
+          ? 1u << placement
+                      ->operand_constraints_by_interval[interval -
+                                                        liveness->intervals]
+                      .unit_alignment_log2
+          : 1u;
+  return iree_max(class_alignment, operand_alignment);
 }
 
 uint32_t loom_low_allocation_live_range_assignment_unit_end_point(

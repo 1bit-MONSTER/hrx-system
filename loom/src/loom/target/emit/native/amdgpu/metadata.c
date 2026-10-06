@@ -628,10 +628,9 @@ static iree_status_t loom_amdgpu_metadata_append_kernel_msgpack(
       &target_extension_ordinal, builder);
 }
 
-iree_status_t loom_amdgpu_metadata_append_msgpack(
+static iree_status_t loom_amdgpu_metadata_append_msgpack_unchecked(
     const loom_amdgpu_code_object_metadata_t* metadata,
     iree_string_builder_t* builder) {
-  IREE_RETURN_IF_ERROR(loom_amdgpu_metadata_validate(metadata));
   IREE_RETURN_IF_ERROR(loom_amdgpu_msgpack_append_map(builder, 3));
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_msgpack_append_string(builder, IREE_SV("amdhsa.kernels")));
@@ -651,6 +650,13 @@ iree_status_t loom_amdgpu_metadata_append_msgpack(
   IREE_RETURN_IF_ERROR(loom_amdgpu_msgpack_append_uint32(
       builder, LOOM_AMDGPU_METADATA_VERSION_MINOR));
   return iree_ok_status();
+}
+
+iree_status_t loom_amdgpu_metadata_append_msgpack(
+    const loom_amdgpu_code_object_metadata_t* metadata,
+    iree_string_builder_t* builder) {
+  IREE_RETURN_IF_ERROR(loom_amdgpu_metadata_validate(metadata));
+  return loom_amdgpu_metadata_append_msgpack_unchecked(metadata, builder);
 }
 
 //===----------------------------------------------------------------------===//
@@ -685,51 +691,85 @@ static iree_status_t loom_amdgpu_metadata_append_align4_padding(
       builder, iree_make_string_view((const char*)padding, padding_length));
 }
 
-iree_status_t loom_amdgpu_metadata_append_elf_note(
+iree_status_t loom_amdgpu_metadata_build_elf_note(
     const loom_amdgpu_code_object_metadata_t* metadata,
-    iree_string_builder_t* builder) {
-  iree_string_builder_t payload_builder;
-  iree_string_builder_initialize(iree_allocator_system(), &payload_builder);
+    iree_const_byte_span_t* out_note, iree_arena_allocator_t* arena) {
+  IREE_ASSERT_ARGUMENT(out_note);
+  *out_note = iree_make_const_byte_span(NULL, 0);
+  IREE_RETURN_IF_ERROR(loom_amdgpu_metadata_validate(metadata));
+
+  iree_string_builder_t measure_builder;
+  iree_string_builder_initialize(iree_allocator_null(), &measure_builder);
   iree_status_t status =
-      loom_amdgpu_metadata_append_msgpack(metadata, &payload_builder);
-  iree_string_view_t payload = iree_string_builder_view(&payload_builder);
-  if (iree_status_is_ok(status) && payload.size > UINT32_MAX) {
-    status = iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                              "AMDGPU metadata payload is too large for an "
-                              "ELF note descriptor");
+      loom_amdgpu_metadata_append_msgpack_unchecked(metadata, &measure_builder);
+  const iree_host_size_t payload_size =
+      iree_string_builder_size(&measure_builder);
+  iree_string_builder_deinitialize(&measure_builder);
+  IREE_RETURN_IF_ERROR(status);
+  if (payload_size > UINT32_MAX) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "AMDGPU metadata payload is too large for an "
+                            "ELF note descriptor");
+  }
+
+  const iree_string_view_t note_name = IREE_SV("AMDGPU");
+  const uint32_t note_name_size = (uint32_t)note_name.size + 1u;
+  iree_host_size_t aligned_name_size = 0;
+  iree_host_size_t aligned_payload_size = 0;
+  iree_host_size_t note_size = 0;
+  iree_host_size_t storage_size = 0;
+  if (!iree_host_size_checked_align(note_name_size, 4, &aligned_name_size) ||
+      !iree_host_size_checked_align(payload_size, 4, &aligned_payload_size) ||
+      !iree_host_size_checked_add(12u, aligned_name_size, &note_size) ||
+      !iree_host_size_checked_add(note_size, aligned_payload_size,
+                                  &note_size) ||
+      !iree_host_size_checked_add(note_size, 1u, &storage_size)) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "AMDGPU metadata ELF note size overflows");
+  }
+
+  char* note_data = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate(arena, storage_size, (void**)&note_data));
+  iree_string_builder_t builder;
+  iree_string_builder_initialize_with_storage(note_data, storage_size,
+                                              &builder);
+  status = loom_amdgpu_metadata_append_le_u32(&builder, note_name_size);
+  if (iree_status_is_ok(status)) {
+    status =
+        loom_amdgpu_metadata_append_le_u32(&builder, (uint32_t)payload_size);
   }
   if (iree_status_is_ok(status)) {
-    const iree_string_view_t note_name = IREE_SV("AMDGPU");
-    const uint32_t note_name_size = (uint32_t)note_name.size + 1u;
-    status = loom_amdgpu_metadata_append_le_u32(builder, note_name_size);
-    if (iree_status_is_ok(status)) {
-      status =
-          loom_amdgpu_metadata_append_le_u32(builder, (uint32_t)payload.size);
-    }
-    if (iree_status_is_ok(status)) {
-      status = loom_amdgpu_metadata_append_le_u32(
-          builder, LOOM_AMDGPU_METADATA_ELF_NOTE_NT_AMDGPU_METADATA);
-    }
-    if (iree_status_is_ok(status)) {
-      status = iree_string_builder_append_string(builder, note_name);
-    }
-    if (iree_status_is_ok(status)) {
-      const uint8_t null_terminator = 0;
-      status = iree_string_builder_append_string(
-          builder, iree_make_string_view((const char*)&null_terminator, 1));
-    }
-    if (iree_status_is_ok(status)) {
-      status =
-          loom_amdgpu_metadata_append_align4_padding(builder, note_name_size);
-    }
-    if (iree_status_is_ok(status)) {
-      status = iree_string_builder_append_string(builder, payload);
-    }
-    if (iree_status_is_ok(status)) {
-      status =
-          loom_amdgpu_metadata_append_align4_padding(builder, payload.size);
-    }
+    status = loom_amdgpu_metadata_append_le_u32(
+        &builder, LOOM_AMDGPU_METADATA_ELF_NOTE_NT_AMDGPU_METADATA);
   }
-  iree_string_builder_deinitialize(&payload_builder);
+  if (iree_status_is_ok(status)) {
+    status = iree_string_builder_append_string(&builder, note_name);
+  }
+  if (iree_status_is_ok(status)) {
+    const uint8_t null_terminator = 0;
+    status = iree_string_builder_append_string(
+        &builder, iree_make_string_view((const char*)&null_terminator, 1));
+  }
+  if (iree_status_is_ok(status)) {
+    status =
+        loom_amdgpu_metadata_append_align4_padding(&builder, note_name_size);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_amdgpu_metadata_append_msgpack_unchecked(metadata, &builder);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_amdgpu_metadata_append_align4_padding(&builder, payload_size);
+  }
+  if (iree_status_is_ok(status) &&
+      iree_string_builder_size(&builder) != note_size) {
+    status = iree_make_status(
+        IREE_STATUS_FAILED_PRECONDITION,
+        "AMDGPU metadata ELF note size changed between measure and emit");
+  }
+  iree_string_builder_deinitialize(&builder);
+  if (iree_status_is_ok(status)) {
+    *out_note = iree_make_const_byte_span(note_data, note_size);
+  }
   return status;
 }

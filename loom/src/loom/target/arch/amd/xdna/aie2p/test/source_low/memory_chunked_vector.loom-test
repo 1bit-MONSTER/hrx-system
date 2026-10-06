@@ -1,0 +1,486 @@
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @exchange_i8_1024(%input: buffer, %output: buffer, %replacement: vector<128xi8>) -> (vector<128xi8>) {
+  %base = index.constant 0 : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<128xi8>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<128xi8>
+  %value = vector.load %source[0] : view<128xi8> -> vector<128xi8>
+  vector.store %replacement, %destination[0] : vector<128xi8>, view<128xi8>
+  func.return %value : vector<128xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_i8_1024(%replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %16 = vlda.512.i8x64 %source, 0
+  %17 = vlda.512.i8x64 %source, 64
+  %value = concat(%16, %17) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %19 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.i8x64 %19, %destination, 0
+  %20 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.i8x64 %20, %destination, 64
+  return %value
+}
+
+// ====
+
+func.def @exchange_f8e4m3_1024(%input: buffer, %output: buffer, %replacement: vector<128xf8E4M3>) -> (vector<128xf8E4M3>) {
+  %base = index.constant 0 : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<128xf8E4M3>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<128xf8E4M3>
+  %value = vector.load %source[0] : view<128xf8E4M3> -> vector<128xf8E4M3>
+  vector.store %replacement, %destination[0] : vector<128xf8E4M3>, view<128xf8E4M3>
+  func.return %value : vector<128xf8E4M3>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_f8e4m3_1024(%replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %16 = vlda.512.i8x64 %source, 0
+  %17 = vlda.512.i8x64 %source, 64
+  %value = concat(%16, %17) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %19 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.i8x64 %19, %destination, 0
+  %20 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.i8x64 %20, %destination, 64
+  return %value
+}
+
+// ====
+
+func.def @exchange_f8e5m2_1024(%input: buffer, %output: buffer, %replacement: vector<128xf8E5M2>) -> (vector<128xf8E5M2>) {
+  %base = index.constant 0 : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<128xf8E5M2>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<128xf8E5M2>
+  %value = vector.load %source[0] : view<128xf8E5M2> -> vector<128xf8E5M2>
+  vector.store %replacement, %destination[0] : vector<128xf8E5M2>, view<128xf8E5M2>
+  func.return %value : vector<128xf8E5M2>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_f8e5m2_1024(%replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %16 = vlda.512.i8x64 %source, 0
+  %17 = vlda.512.i8x64 %source, 64
+  %value = concat(%16, %17) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %19 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.i8x64 %19, %destination, 0
+  %20 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.i8x64 %20, %destination, 64
+  return %value
+}
+
+// ====
+
+func.def @exchange_i16_1024(%input: buffer, %output: buffer, %replacement: vector<64xi16>) -> (vector<64xi16>) {
+  %base = index.constant 0 : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<64xi16>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<64xi16>
+  %value = vector.load %source[0] : view<64xi16> -> vector<64xi16>
+  vector.store %replacement, %destination[0] : vector<64xi16>, view<64xi16>
+  func.return %value : vector<64xi16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_i16_1024(%replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %16 = vlda.512.i16x32 %source, 0
+  %17 = vlda.512.i16x32 %source, 64
+  %value = concat(%16, %17) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %19 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.i16x32 %19, %destination, 0
+  %20 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.i16x32 %20, %destination, 64
+  return %value
+}
+
+// ====
+
+func.def @exchange_f16_1024(%input: buffer, %output: buffer, %replacement: vector<64xf16>) -> (vector<64xf16>) {
+  %base = index.constant 0 : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<64xf16>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<64xf16>
+  %value = vector.load %source[0] : view<64xf16> -> vector<64xf16>
+  vector.store %replacement, %destination[0] : vector<64xf16>, view<64xf16>
+  func.return %value : vector<64xf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_f16_1024(%replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %16 = vlda.512.i16x32 %source, 0
+  %17 = vlda.512.i16x32 %source, 64
+  %value = concat(%16, %17) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %19 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.i16x32 %19, %destination, 0
+  %20 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.i16x32 %20, %destination, 64
+  return %value
+}
+
+// ====
+
+func.def @exchange_bf16_1024(%input: buffer, %output: buffer, %replacement: vector<64xbf16>) -> (vector<64xbf16>) {
+  %base = index.constant 0 : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<64xbf16>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<64xbf16>
+  %value = vector.load %source[0] : view<64xbf16> -> vector<64xbf16>
+  vector.store %replacement, %destination[0] : vector<64xbf16>, view<64xbf16>
+  func.return %value : vector<64xbf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_bf16_1024(%replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %16 = vlda.512.bf16x32 %source, 0
+  %17 = vlda.512.bf16x32 %source, 64
+  %value = concat(%16, %17) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %19 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32 %19, %destination, 0
+  %20 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32 %20, %destination, 64
+  return %value
+}
+
+// ====
+
+func.def @exchange_i32_1024(%input: buffer, %output: buffer, %replacement: vector<32xi32>) -> (vector<32xi32>) {
+  %base = index.constant 0 : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<32xi32>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<32xi32>
+  %value = vector.load %source[0] : view<32xi32> -> vector<32xi32>
+  vector.store %replacement, %destination[0] : vector<32xi32>, view<32xi32>
+  func.return %value : vector<32xi32>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_i32_1024(%replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %16 = vlda.512.i32x16 %source, 0
+  %17 = vlda.512.i32x16 %source, 64
+  %value = concat(%16, %17) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %19 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.i32x16 %19, %destination, 0
+  %20 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.i32x16 %20, %destination, 64
+  return %value
+}
+
+// ====
+
+func.def @exchange_bf16_immediate_last_chunk(%input: buffer, %output: buffer, %replacement: vector<64xbf16>) -> (vector<64xbf16>) {
+  %base = index.constant 384 : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<64xbf16>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<64xbf16>
+  %value = vector.load %source[0] : view<64xbf16> -> vector<64xbf16>
+  vector.store %replacement, %destination[0] : vector<64xbf16>, view<64xbf16>
+  func.return %value : vector<64xbf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_bf16_immediate_last_chunk(%replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %16 = vlda.512.bf16x32 %source, 384
+  %17 = vlda.512.bf16x32 %source, 448
+  %value = concat(%16, %17) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %19 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32 %19, %destination, 384
+  %20 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32 %20, %destination, 448
+  return %value
+}
+
+// ====
+
+func.def @exchange_bf16_materialized_last_chunk(%input: buffer, %output: buffer, %replacement: vector<64xbf16>) -> (vector<64xbf16>) {
+  %base = index.constant 448 : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<64xbf16>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<64xbf16>
+  %value = vector.load %source[0] : view<64xbf16> -> vector<64xbf16>
+  vector.store %replacement, %destination[0] : vector<64xbf16>, view<64xbf16>
+  func.return %value : vector<64xbf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_bf16_materialized_last_chunk(%replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %16 = mov.static-byte-offset 448
+  %17 = mov.address-index %16
+  %18 = vlda.512.bf16x32.index %source, %17
+  %19 = mov.static-byte-offset 512
+  %20 = mov.address-index %19
+  %21 = vlda.512.bf16x32.index %source, %20
+  %value = concat(%18, %21) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %23 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32 %23, %destination, 448
+  %24 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32.index %24, %destination, %20
+  return %value
+}
+
+// ====
+
+func.def @exchange_bf16_materialized_signed_upper(%input: buffer, %output: buffer, %replacement: vector<64xbf16>) -> (vector<64xbf16>) {
+  %base = index.constant 2147483520 : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<64xbf16>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<64xbf16>
+  %value = vector.load %source[0] : view<64xbf16> -> vector<64xbf16>
+  vector.store %replacement, %destination[0] : vector<64xbf16>, view<64xbf16>
+  func.return %value : vector<64xbf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_bf16_materialized_signed_upper(%replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %16 = mov.static-byte-offset 2147483520
+  %17 = mov.address-index %16
+  %18 = vlda.512.bf16x32.index %source, %17
+  %19 = mov.static-byte-offset 2147483584
+  %20 = mov.address-index %19
+  %21 = vlda.512.bf16x32.index %source, %20
+  %value = concat(%18, %21) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %23 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32.index %23, %destination, %17
+  %26 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32.index %26, %destination, %20
+  return %value
+}
+
+// ====
+
+func.def @exchange_bf16_dynamic(%input: buffer, %output: buffer, %byte_offset: offset, %replacement: vector<64xbf16>) -> (vector<64xbf16>) {
+  %base = index.assume %byte_offset [range(%byte_offset, 64, 4096), mul(%byte_offset, 64)] : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<64xbf16>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<64xbf16>
+  %value = vector.load %source[0] : view<64xbf16> -> vector<64xbf16>
+  vector.store %replacement, %destination[0] : vector<64xbf16>, view<64xbf16>
+  func.return %value : vector<64xbf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_bf16_dynamic(%base: reg<aie2p.er>, %replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %18 = mov.address-index %base
+  %19 = vlda.512.bf16x32.index %source, %18
+  %20 = mov.static-byte-offset 64
+  %21 = add.rr %base, %20
+  %22 = mov.address-index %21
+  %23 = vlda.512.bf16x32.index %source, %22
+  %value = concat(%19, %23) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %25 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32.index %25, %destination, %18
+  %27 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %29 = add.rr %base, %20
+  %30 = mov.address-index %29
+  vst.512.bf16x32.index %27, %destination, %30
+  return %value
+}
+
+// ====
+
+func.def @exchange_bf16_dynamic_subtracted_origin(%input: buffer, %output: buffer, %byte_offset: offset, %replacement: vector<64xbf16>) -> (vector<64xbf16>) {
+  %base = index.assume %byte_offset [range(%byte_offset, 64, 4096), mul(%byte_offset, 64)] : offset
+  %prefix = index.constant 64 : offset
+  %origin = index.sub %base, %prefix : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%origin] : buffer -> view<64xbf16>
+  %destination = buffer.view %destination_aligned[%origin] : buffer -> view<64xbf16>
+  %value = vector.load %source[0] : view<64xbf16> -> vector<64xbf16>
+  vector.store %replacement, %destination[0] : vector<64xbf16>, view<64xbf16>
+  func.return %value : vector<64xbf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_bf16_dynamic_subtracted_origin(%base: reg<aie2p.er>, %replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %prefix = mov.short 64
+  %origin = sub %base, %prefix
+  %22 = mov.address-index %origin
+  %23 = vlda.512.bf16x32.index %source, %22
+  %24 = mov.static-byte-offset 64
+  %25 = add.rr %origin, %24
+  %26 = mov.address-index %25
+  %27 = vlda.512.bf16x32.index %source, %26
+  %value = concat(%23, %27) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %29 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32.index %29, %destination, %22
+  %31 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %33 = add.rr %origin, %24
+  %34 = mov.address-index %33
+  vst.512.bf16x32.index %31, %destination, %34
+  return %value
+}
+
+// ====
+
+func.def @exchange_bf16_dynamic_full_static(%input: buffer, %output: buffer, %byte_offset: offset, %replacement: vector<64xbf16>) -> (vector<64xbf16>) {
+  %base = index.assume %byte_offset [range(%byte_offset, 64, 4096), mul(%byte_offset, 64)] : offset
+  %prefix = index.constant 448 : offset
+  %origin = index.add %base, %prefix : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%origin] : buffer -> view<64xbf16>
+  %destination = buffer.view %destination_aligned[%origin] : buffer -> view<64xbf16>
+  %value = vector.load %source[0] : view<64xbf16> -> vector<64xbf16>
+  vector.store %replacement, %destination[0] : vector<64xbf16>, view<64xbf16>
+  func.return %value : vector<64xbf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_bf16_dynamic_full_static(%base: reg<aie2p.er>, %replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %20 = mov.static-byte-offset 448
+  %21 = add.rr %base, %20
+  %22 = mov.address-index %21
+  %23 = vlda.512.bf16x32.index %source, %22
+  %24 = mov.static-byte-offset 512
+  %25 = add.rr %base, %24
+  %26 = mov.address-index %25
+  %27 = vlda.512.bf16x32.index %source, %26
+  %value = concat(%23, %27) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %29 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %31 = add.rr %base, %20
+  %32 = mov.address-index %31
+  vst.512.bf16x32.index %29, %destination, %32
+  %33 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %35 = add.rr %base, %24
+  %36 = mov.address-index %35
+  vst.512.bf16x32.index %33, %destination, %36
+  return %value
+}
+
+// ====
+
+// Both authored observations precede the writes, which reuse the captured
+// pairs. Packetizing a store must not repeat either volatile read.
+func.def @observe_bf16_1024(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<64xbf16>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<64xbf16>
+  %first = vector.load<volatile> %source[0] : view<64xbf16> -> vector<64xbf16>
+  %second = vector.load<volatile> %source[0] : view<64xbf16> -> vector<64xbf16>
+  vector.store<volatile> %first, %destination[0] : vector<64xbf16>, view<64xbf16>
+  vector.store<volatile> %second, %destination[0] : vector<64xbf16>, view<64xbf16>
+  func.return
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @observe_bf16_1024() asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %17 = vlda.512.bf16x32.volatile<volatile> %source, 0
+  %18 = vlda.512.bf16x32.volatile<volatile> %source, 64
+  %19 = vlda.512.bf16x32.volatile<volatile> %source, 0
+  %20 = vlda.512.bf16x32.volatile<volatile> %source, 64
+  vst.512.bf16x32.volatile<volatile> %17, %destination, 0
+  vst.512.bf16x32.volatile<volatile> %18, %destination, 64
+  vst.512.bf16x32.volatile<volatile> %19, %destination, 0
+  vst.512.bf16x32.volatile<volatile> %20, %destination, 64
+  return
+}
+
+// ====
+
+func.def @transpose_bf16_1024(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<64xbf16>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<64xbf16>
+  %value = vector.load %source[0] : view<64xbf16> -> vector<64xbf16>
+  %matrix = vector.bitcast %value : vector<64xbf16> to vector<8x8xbf16>
+  %transposed = vector.transpose<[1, 0]> %matrix : vector<8x8xbf16> -> vector<8x8xbf16>
+  %flat = vector.bitcast %transposed : vector<8x8xbf16> to vector<64xbf16>
+  vector.store %flat, %destination[0] : vector<64xbf16>, view<64xbf16>
+  func.return
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @transpose_bf16_1024() asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %15 = vlda.512.bf16x32 %source, 0
+  %16 = vlda.512.bf16x32 %source, 64
+  %20 = mova.i32 52
+  %21 = vshuffle %15, %16, %20
+  %22 = mova.i32 53
+  %23 = vshuffle %15, %16, %22
+  vst.512.bf16x32 %21, %destination, 0
+  vst.512.bf16x32 %23, %destination, 64
+  return
+}
+
+// ====
+
+func.def @exchange_i64_1024(%input: buffer, %output: buffer, %replacement: vector<16xi64>) -> (vector<16xi64>) {
+  %base = index.constant 0 : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<16xi64>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<16xi64>
+  %value = vector.load %source[0] : view<16xi64> -> vector<16xi64>
+  vector.store %replacement, %destination[0] : vector<16xi64>, view<16xi64>
+  func.return %value : vector<16xi64>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_i64_1024(%replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %16 = vlda.512.i64x8 %source, 0
+  %17 = vlda.512.i64x8 %source, 64
+  %value = concat(%16, %17) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %19 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.i64x8 %19, %destination, 0
+  %20 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.i64x8 %20, %destination, 64
+  return %value
+}
+
+// ====
+
+func.def @exchange_f64_1024(%input: buffer, %output: buffer, %replacement: vector<16xf64>) -> (vector<16xf64>) {
+  %base = index.constant 0 : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<16xf64>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<16xf64>
+  %value = vector.load %source[0] : view<16xf64> -> vector<16xf64>
+  vector.store %replacement, %destination[0] : vector<16xf64>, view<16xf64>
+  func.return %value : vector<16xf64>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_f64_1024(%replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %16 = vlda.512.f64x8 %source, 0
+  %17 = vlda.512.f64x8 %source, 64
+  %value = concat(%16, %17) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %19 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.f64x8 %19, %destination, 0
+  %20 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.f64x8 %20, %destination, 64
+  return %value
+}

@@ -44,7 +44,8 @@ void AssemblyFragments::verify(loom_module_t* module,
   if (functions_.empty()) {
     return;
   }
-  loom_source_table_resolver_t sources = {sources_.data(), sources_.size()};
+  loom_source_table_resolver_t sources = {module, sources_.data(),
+                                          sources_.size()};
   const loom_verify_options_t options = {
       .sink = sink,
       .max_errors = 20,

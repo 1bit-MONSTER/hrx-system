@@ -18,7 +18,7 @@ kernel.def @uniform_select_guard() {
   %condition = scalar.cmpi sgt, %mode, %threshold : i32
   cfg.cond_br %condition, ^read, ^fallback
 ^read:
-  // ERROR@+1: TARGET/008 {op_name = "view.load", operation_kind = "load"}
+  // ERROR@+1: TARGET/003 {constraint_key="source_memory.memory_space"}
   %loaded = view.load %in[%lane] : view<64xi32> -> i32
   cfg.br ^finish(%loaded: i32)
 ^fallback:
@@ -26,7 +26,7 @@ kernel.def @uniform_select_guard() {
 ^finish(%value: i32):
   %selected = scf.select %condition, %number, %negative : i32
   %sum = scalar.addi %value, %selected : i32
-  // ERROR@+1: TARGET/008 {op_name = "view.store", operation_kind = "store"}
+  // ERROR@+1: TARGET/003 {constraint_key="source_memory.memory_space"}
   view.store %sum, %out[%lane] : i32, view<64xi32>
   kernel.return
 }
@@ -50,7 +50,7 @@ kernel.def @uniform_float_guard() {
   %condition = scalar.cmpf ogt, %mode, %threshold : f32
   cfg.cond_br %condition, ^read, ^fallback
 ^read:
-  // ERROR@+1: TARGET/008 {op_name = "view.load", operation_kind = "load"}
+  // ERROR@+1: TARGET/003 {constraint_key="source_memory.memory_space"}
   %loaded = view.load %in[%lane] : view<64xi32> -> i32
   cfg.br ^finish(%loaded: i32)
 ^fallback:
@@ -58,7 +58,7 @@ kernel.def @uniform_float_guard() {
 ^finish(%value: i32):
   %selected = scf.select %condition, %number, %negative : i32
   %sum = scalar.addi %value, %selected : i32
-  // ERROR@+1: TARGET/008 {op_name = "view.store", operation_kind = "store"}
+  // ERROR@+1: TARGET/003 {constraint_key="source_memory.memory_space"}
   view.store %sum, %out[%lane] : i32, view<64xi32>
   kernel.return
 }
@@ -81,7 +81,7 @@ kernel.def @varying_select_guard() {
   %condition = scalar.cmpi sgt, %number, %mode : i32
   cfg.cond_br %condition, ^read, ^fallback
 ^read:
-  // ERROR@+1: TARGET/008 {op_name = "view.load", operation_kind = "load"}
+  // ERROR@+1: TARGET/003 {constraint_key="source_memory.memory_space"}
   %loaded = view.load %in[%lane] : view<64xi32> -> i32
   cfg.br ^finish(%loaded: i32)
 ^fallback:
@@ -89,7 +89,7 @@ kernel.def @varying_select_guard() {
 ^finish(%value: i32):
   %selected = scf.select %condition, %number, %negative : i32
   %sum = scalar.addi %value, %selected : i32
-  // ERROR@+1: TARGET/008 {op_name = "view.store", operation_kind = "store"}
+  // ERROR@+1: TARGET/003 {constraint_key="source_memory.memory_space"}
   view.store %sum, %out[%lane] : i32, view<64xi32>
   kernel.return
 }

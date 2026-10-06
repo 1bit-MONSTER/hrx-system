@@ -211,49 +211,67 @@ TEST_F(FunctionContractVerifyTest,
   DiagnosticEmissionCapture capture;
   IREE_EXPECT_OK(loom_function_call_contract_verify(
       module_, call, loom_func_call_callee(call), loom_func_call_operands(call),
-      call_results, capture.emitter()));
+      call_results, /*argument_match_flags=*/0, capture.emitter()));
   EXPECT_TRUE(capture.emissions.empty());
   EXPECT_EQ(module_->types.count, type_count);
   EXPECT_EQ(module_->arena.used_allocation_size, retained_bytes);
 }
 
-TEST_F(FunctionContractVerifyTest, RejectsPredicateValueOutsideSignature) {
-  const loom_type_t i32 = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
-  loom_value_id_t foreign_value = LOOM_VALUE_ID_INVALID;
-  IREE_ASSERT_OK(loom_module_define_value(module_, i32, &foreign_value));
+TEST_F(FunctionContractVerifyTest, MaterializesStorageAtBufferCallBoundaries) {
+  const loom_type_t buffer_type = loom_type_buffer();
+  const uint64_t four = loom_dim_pack_static(4);
+  const loom_type_t tensor_type =
+      loom_type_shaped_1d(LOOM_TYPE_TENSOR, LOOM_SCALAR_TYPE_I32, four, 0);
+  const loom_type_t view_type =
+      loom_type_shaped_1d(LOOM_TYPE_VIEW, LOOM_SCALAR_TYPE_I32, four, 0);
 
-  loom_predicate_t predicate = {};
-  predicate.kind = LOOM_PREDICATE_EQ;
-  predicate.arg_count = 2;
-  predicate.arg_tags[0] = LOOM_PRED_ARG_VALUE;
-  predicate.args[0] = foreign_value;
-  predicate.arg_tags[1] = LOOM_PRED_ARG_CONST;
-  predicate.args[1] = 4;
+  bool matches = false;
+  IREE_EXPECT_OK(loom_function_call_argument_type_matches(
+      module_, tensor_type, buffer_type, /*value_remap=*/nullptr,
+      LOOM_FUNCTION_CALL_ARGUMENT_MATCH_FLAG_ALLOW_BUFFER_MATERIALIZATION,
+      &matches));
+  EXPECT_TRUE(matches);
+  IREE_EXPECT_OK(loom_function_call_argument_type_matches(
+      module_, view_type, buffer_type, /*value_remap=*/nullptr,
+      LOOM_FUNCTION_CALL_ARGUMENT_MATCH_FLAG_ALLOW_BUFFER_MATERIALIZATION,
+      &matches));
+  EXPECT_TRUE(matches);
 
-  loom_symbol_ref_t function_symbol = loom_symbol_ref_null();
-  AddSymbol(IREE_SV("invalid"), &function_symbol);
-  loom_op_t* function_op = nullptr;
-  IREE_ASSERT_OK(loom_func_def_build(
-      &builder_, LOOM_FUNC_DEF_BUILD_FLAG_HAS_PREDICATES,
-      /*visibility=*/0, /*retain=*/0, /*cc=*/0, /*purity=*/0,
-      /*temperature=*/0, /*inline_policy=*/0, loom_symbol_ref_null(),
-      /*abi=*/0, loom_named_attr_slice_empty(), LOOM_STRING_ID_INVALID,
-      loom_named_attr_slice_empty(), function_symbol, &i32, 1,
-      /*result_types=*/nullptr, /*result_count=*/0, /*tied_results=*/nullptr,
-      /*tied_result_count=*/0, &predicate, 1, LOOM_LOCATION_UNKNOWN,
-      &function_op));
+  IREE_EXPECT_OK(loom_function_call_argument_type_matches(
+      module_, tensor_type, buffer_type, /*value_remap=*/nullptr,
+      /*flags=*/0, &matches));
+  EXPECT_FALSE(matches);
 
+  loom_symbol_ref_t callee = loom_symbol_ref_null();
+  AddSymbol(IREE_SV("buffer_boundary"), &callee);
+  loom_op_t* declaration = nullptr;
+  IREE_ASSERT_OK(loom_func_decl_build(
+      &builder_, /*build_flags=*/0, /*visibility=*/0, /*retain=*/0,
+      LOOM_STRING_ID_INVALID, LOOM_STRING_ID_INVALID, /*cc=*/0,
+      /*purity=*/0, /*temperature=*/0, /*inline_policy=*/0,
+      loom_symbol_ref_null(), /*abi=*/0, loom_named_attr_slice_empty(),
+      LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(), callee,
+      &buffer_type, 1, /*result_types=*/nullptr, /*result_count=*/0,
+      /*tied_results=*/nullptr, /*tied_result_count=*/0,
+      /*predicates=*/nullptr, /*predicates_count=*/0, LOOM_LOCATION_UNKNOWN,
+      &declaration));
+  loom_value_id_t tensor_value = LOOM_VALUE_ID_INVALID;
+  IREE_ASSERT_OK(loom_module_define_value(module_, tensor_type, &tensor_value));
+  IREE_ASSERT_OK(
+      loom_block_add_arg(module_, loom_module_block(module_), tensor_value));
+  loom_op_t* call = nullptr;
+  IREE_ASSERT_OK(loom_func_call_build(
+      &builder_, /*build_flags=*/0, /*purity=*/0, /*temperature=*/0,
+      /*inline_policy=*/0, callee, &tensor_value, 1, /*result_types=*/nullptr,
+      /*result_count=*/0, /*tied_results=*/nullptr, /*tied_result_count=*/0,
+      LOOM_LOCATION_UNKNOWN, &call));
   DiagnosticEmissionCapture capture;
-  IREE_EXPECT_OK(
-      loom_function_contract_verify(module_, function_op, capture.emitter()));
-  ASSERT_EQ(capture.emissions.size(), 1u);
-  const auto& emission = capture.emissions.front();
-  EXPECT_EQ(emission.error, LOOM_ERR_STRUCTURE_032);
-  ASSERT_EQ(emission.string_params.size(), 3u);
-  EXPECT_EQ(emission.string_params[0], "func.def");
-  EXPECT_EQ(emission.string_params[1], "predicates[0].arg[0]");
-  EXPECT_EQ(emission.string_params[2], "a function argument or result");
+  IREE_EXPECT_OK(loom_function_call_contract_verify(
+      module_, call, callee, loom_func_call_operands(call),
+      loom_func_call_results(call),
+      LOOM_FUNCTION_CALL_ARGUMENT_MATCH_FLAG_ALLOW_BUFFER_MATERIALIZATION,
+      capture.emitter()));
+  EXPECT_TRUE(capture.emissions.empty());
 }
-
 }  // namespace
 }  // namespace loom

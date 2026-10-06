@@ -142,7 +142,8 @@ static void loom_link_dependency_visit_input_exact_occurrences(
         requirement->first_source_root_region_index_plus_one = 0;
       }
       requirement->target_interfaces |=
-          module->dependencies.target_interfaces[i];
+          loom_symbol_reference_contract_interfaces(
+              module->dependencies.contracts[i]);
     }
 
     for (iree_host_size_t local_symbol_ordinal = 0;
@@ -182,7 +183,8 @@ static void loom_link_dependency_visit_input_exact_occurrences(
                   .source_root_region_indices_plus_one[occurrence_ordinal];
         }
         requirement->target_interfaces |=
-            module->dependencies.target_interfaces[occurrence_ordinal];
+            loom_symbol_reference_contract_interfaces(
+                module->dependencies.contracts[occurrence_ordinal]);
       }
     }
   }

@@ -26,7 +26,8 @@ typedef enum loom_atomic_kind_e {
   LOOM_ATOMIC_KIND_XCHGF = 1,
   // Integer addition.
   LOOM_ATOMIC_KIND_ADDI = 2,
-  // Floating-point addition.
+  // Floating-point addition with native subnormal handling unless the access
+  // explicitly requests preservation. The returned old value is bit-preserving.
   LOOM_ATOMIC_KIND_ADDF = 3,
   // Integer subtraction.
   LOOM_ATOMIC_KIND_SUBI = 4,

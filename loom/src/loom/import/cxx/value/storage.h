@@ -16,13 +16,16 @@
 
 namespace loom::cxx_import {
 
-// An evaluated source lvalue origin. Alignment belongs to this object
-// projection, not to the two-component pointer value transported by the ABI.
+// An evaluated source lvalue origin with an admitted storage representation.
+// Alignment belongs to this object projection, not to the two-component
+// pointer value transported by the ABI.
 struct StorageProjection {
   // Allocation identity and byte origin of the projected object.
   Pointer pointer;
   // Source-layout byte alignment retained through fields and array indexing.
   uint64_t alignment;
+  // Whether the emitted origin already carries the source pointer-width fact.
+  bool pointer_width_constrained = false;
 };
 
 // One typed access, either a dynamic element of a retained array view or a
@@ -44,6 +47,8 @@ struct StorageAllocation {
 // Owns the source memory representation contract for one output module.
 // Operands are already evaluated by the caller. Fixed array views are recorded
 // at allocation and reused directly, including through source aliases.
+// Boolean objects and Boolean-enum objects use byte views; loads and stores
+// convert between those bytes and the i1 value representation.
 // Source, type, scalar, location and insertion-point owners outlive this
 // object.
 class Storage {
@@ -57,9 +62,15 @@ class Storage {
         locations_(locations),
         builder_(builder) {}
 
-  // Forms the source pointer for a kernel buffer binding.
+  // Forms a zero-origin source pointer for a kernel buffer binding. The buffer
+  // already carries any admitted parameter contracts.
   Pointer root(loom_value_id_t buffer, cxx::AST* owner);
-  // Starts an object projection with its ordinary source ABI alignment.
+  // Refines an opaque pointer origin to the configured source pointer width.
+  // The allocation root remains independent; this only publishes the range
+  // every valid source pointer representation already satisfies.
+  Pointer constrain_origin(Pointer pointer, cxx::AST* owner);
+  // Admits the object's storage layout and starts a projection with its
+  // ordinary source ABI alignment. Opaque pointer transport needs neither.
   // Nested fields use member() instead of resetting to their nominal type.
   StorageProjection project(Pointer pointer, const cxx::Type* object_type,
                             cxx::AST* owner);
@@ -88,9 +99,10 @@ class Storage {
   // Projects an object's scalar lane footprint at the pointer's current origin.
   StorageAccess dereference(StorageProjection base,
                             const cxx::Type* element_type, cxx::AST* owner);
-  // Reads an already resolved scalar/vector element. Reusing an
-  // access preserves its address across a source read/modify/write operation.
-  // The source element type supplies the footprint and memory qualifiers.
+  // Reads the value representation of an already resolved scalar/vector
+  // element. Reusing an access preserves its address across a read/modify/write
+  // operation. The source element type supplies the footprint and memory
+  // qualifiers.
   loom_value_id_t load(const StorageAccess& access,
                        const cxx::Type* element_type, cxx::AST* owner);
   // Writes to the same resolved location with the source element qualifiers.

@@ -82,6 +82,18 @@ http_archive(
         "//build_tools/third_party/cxx:constant_archive.patch",
         "//build_tools/third_party/cxx:constexpr_bitcast.patch",
         "//build_tools/third_party/cxx:list_initialization_diagnostics.patch",
+        "//build_tools/third_party/cxx:builtin_class_conversions.patch",
+        "//build_tools/third_party/cxx:constant_template_conversions.patch",
+        "//build_tools/third_party/cxx:reference_template_arguments.patch",
+        "//build_tools/third_party/cxx:interpreter_frame_stability.patch",
+        "//build_tools/third_party/cxx:semantic_model_generation.patch",
+        "//build_tools/third_party/cxx:reference_parameter_binding.patch",
+        "//build_tools/third_party/cxx:rooted_subobject_addresses.patch",
+        "//build_tools/third_party/cxx:selected_subobject_paths.patch",
+        "//build_tools/third_party/cxx:aggregate_member_defaults.patch",
+        "//build_tools/third_party/cxx:aggregate_initialization_failures.patch",
+        "//build_tools/third_party/cxx:constant_object_initialization.patch",
+        "//build_tools/third_party/cxx:const_default_initialization.patch",
     ],
     sha256 = "39e18971b03f3b5ae2afc8cb9313bcccaf6a51176a94eb57cb8fa4e683ef290b",
     strip_prefix = "cplusplus-bccf4d1e2d266b3d5d770c49e9eac59a2eab34b9",
@@ -89,6 +101,14 @@ http_archive(
 )
 
 rocm_repository = use_repo_rule("//build_tools/third_party/rocm:repository.bzl", "rocm_repository")
+
+http_archive(
+    name = "rdma_core_headers",
+    build_file = "//build_tools/third_party/rdma_core_headers:rdma_core_headers.BUILD.bazel",
+    sha256 = "42aaf7129fab9fee0bdd1e94fe74d3b75038055d86e164d8c153f9091cd5ab90",
+    strip_prefix = "rdma-core-headers-2d587c653b5b4b48ad1df0d74f0a6bac18c1c9b7",
+    url = "https://github.com/iree-org/rdma-core-headers/archive/2d587c653b5b4b48ad1df0d74f0a6bac18c1c9b7.tar.gz",
+)
 
 # Narrow syscall-header snapshots; no kernel or driver runtime is built.
 

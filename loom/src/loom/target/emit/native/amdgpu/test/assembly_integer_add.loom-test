@@ -1,0 +1,43 @@
+// Carry chains preserve SCC while encoding zero and the largest unsigned
+// inline constant in either source position. Words are checked with LLVM MC.
+// RUN: emit amdgpu-native-words @add_inline strategy=source
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @add_inline(%low: reg<amdgpu.sgpr>, %high: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %sum_low, %carry = s_add_co_u32_rhs_inline %low, 1
+  %rhs_zero, %carry_rhs_zero = s_addc_u32_rhs_inline %high, %carry, 0
+  %lhs_zero, %carry_lhs_zero = s_addc_u32_lhs_inline %rhs_zero, %carry_rhs_zero, 0
+  %rhs_limit, %carry_rhs_limit = s_addc_u32_rhs_inline %lhs_zero, %carry_lhs_zero, 64
+  %lhs_limit, %carry_lhs_limit = s_addc_u32_lhs_inline %rhs_limit, %carry_rhs_limit, 64
+  return %sum_low, %lhs_limit
+}
+
+// ----
+0x80008100
+0x82018001
+0x82010180
+0x8201C001
+0x820101C0
+0xBF810000
+
+// ====
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @add_inline(%low: reg<amdgpu.sgpr>, %high: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %sum_low, %carry = s_add_co_u32_rhs_inline %low, 1
+  %rhs_zero, %carry_rhs_zero = s_addc_u32_rhs_inline %high, %carry, 0
+  %lhs_zero, %carry_lhs_zero = s_addc_u32_lhs_inline %rhs_zero, %carry_rhs_zero, 0
+  %rhs_limit, %carry_rhs_limit = s_addc_u32_rhs_inline %lhs_zero, %carry_lhs_zero, 64
+  %lhs_limit, %carry_lhs_limit = s_addc_u32_lhs_inline %rhs_limit, %carry_rhs_limit, 64
+  return %sum_low, %lhs_limit
+}
+
+// ----
+0x80008100
+0x82018001
+0x82010180
+0x8201C001
+0x820101C0
+0xBFB00000

@@ -1,0 +1,413 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// The five outputs evaluate the same bounded table reduction with serial,
+// recurrence, pipelined recurrence, linear, and interleaved schedules. Bounds
+// near INT32_MAX exercise a narrow carrier without requiring large storage.
+// Expected sums use the mathematical half-open range and preserve the seed
+// when either the outer domain or nested repetition loop is empty.
+template.decl @loop_boundary.recurrence_sum(%values: view<32xi32>, %begin: index, %end: index, %repeat: index, %depth: index, %factor: index) -> (i32)
+
+template.def<@loop_boundary.recurrence_sum> @loop_boundary_recurrence_sum_impl(%values: view<32xi32>, %begin: index, %end: index, %repeat: index, %depth: index, %factor: index) -> (i32) {
+  %step = index.constant 2 : index
+  %initial = scalar.constant 37 : i32
+  %table_size = index.constant 32 : index
+  %repeat_begin = index.constant 0 : index
+  %unit = index.constant 1 : index
+  %result = scf.for %counter = [%begin to %end step %step](%sum = %initial : i32) -> (i32) pipeline(%depth) unroll(%factor) schedule(recurrence) {
+    %position = index.rem %counter, %table_size : index
+    %value = view.load %values[%position] : view<32xi32> -> i32
+    %updated = scf.for %round = [%repeat_begin to %repeat step %unit](%partial = %sum : i32) -> (i32) {
+      %next = scalar.addi %partial, %value : i32
+      scf.yield %next : i32
+    }
+    scf.yield %updated : i32
+  }
+  template.return %result : i32
+}
+
+template.decl @loop_boundary.linear_sum(%values: view<32xi32>, %begin: index, %end: index, %repeat: index, %depth: index, %factor: index) -> (i32)
+
+template.def<@loop_boundary.linear_sum> @loop_boundary_linear_sum_impl(%values: view<32xi32>, %begin: index, %end: index, %repeat: index, %depth: index, %factor: index) -> (i32) {
+  %step = index.constant 2 : index
+  %initial = scalar.constant 37 : i32
+  %table_size = index.constant 32 : index
+  %repeat_begin = index.constant 0 : index
+  %unit = index.constant 1 : index
+  %result = scf.for %counter = [%begin to %end step %step](%sum = %initial : i32) -> (i32) pipeline(%depth) unroll(%factor) schedule(linear) {
+    %position = index.rem %counter, %table_size : index
+    %value = view.load %values[%position] : view<32xi32> -> i32
+    %updated = scf.for %round = [%repeat_begin to %repeat step %unit](%partial = %sum : i32) -> (i32) {
+      %next = scalar.addi %partial, %value : i32
+      scf.yield %next : i32
+    }
+    scf.yield %updated : i32
+  }
+  template.return %result : i32
+}
+
+template.decl @loop_boundary.interleaved_sum(%values: view<32xi32>, %begin: index, %end: index, %repeat: index, %depth: index, %factor: index) -> (i32)
+
+template.def<@loop_boundary.interleaved_sum> @loop_boundary_interleaved_sum_impl(%values: view<32xi32>, %begin: index, %end: index, %repeat: index, %depth: index, %factor: index) -> (i32) {
+  %step = index.constant 2 : index
+  %initial = scalar.constant 37 : i32
+  %table_size = index.constant 32 : index
+  %repeat_begin = index.constant 0 : index
+  %unit = index.constant 1 : index
+  %result = scf.for %counter = [%begin to %end step %step](%sum = %initial : i32) -> (i32) pipeline(%depth) unroll(%factor) schedule(interleaved) {
+    %position = index.rem %counter, %table_size : index
+    %value = view.load %values[%position] : view<32xi32> -> i32
+    %updated = scf.for %round = [%repeat_begin to %repeat step %unit](%partial = %sum : i32) -> (i32) {
+      %next = scalar.addi %partial, %value : i32
+      scf.yield %next : i32
+    }
+    scf.yield %updated : i32
+  }
+  template.return %result : i32
+}
+
+kernel.def @loop_boundary_table_sum() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%begin_input: index, %end_input: index, %repeat_input: index, %input: buffer, %output: buffer) {
+  %begin = index.assume %begin_input [range(%begin_input, 2147483626, 2147483647)] : index
+  %end = index.assume %end_input [range(%end_input, 2147483626, 2147483647)] : index
+  %repeat = index.assume %repeat_input [range(%repeat_input, 0, 3)] : index
+  %base = index.constant 0 : offset
+  %plain_position = index.constant 0 : index
+  %unrolled_position = index.constant 1 : index
+  %pipeline_position = index.constant 2 : index
+  %linear_position = index.constant 3 : index
+  %interleaved_position = index.constant 4 : index
+  %interleaved_factor = index.constant 3 : index
+  %plain_depth = index.constant 1 : index
+  %plain_factor = index.constant 1 : index
+  %unrolled_factor = index.constant 4 : index
+  %pipeline_depth = index.constant 3 : index
+  %pipeline_factor = index.constant 2 : index
+  %input_aligned = buffer.assume.alignment %input {minimum_alignment = 4} : buffer
+  %output_aligned = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %source, %destination = buffer.assume.noalias %input_aligned, %output_aligned : buffer, buffer
+  %values = buffer.view %source[%base] : buffer -> view<32xi32>
+  %results = buffer.view %destination[%base] : buffer -> view<5xi32>
+  %plain = template.apply<@loop_boundary.recurrence_sum>(%values, %begin, %end, %repeat, %plain_depth, %plain_factor) : (view<32xi32>, index, index, index, index, index) -> (i32)
+  %unrolled = template.apply<@loop_boundary.recurrence_sum>(%values, %begin, %end, %repeat, %plain_depth, %unrolled_factor) : (view<32xi32>, index, index, index, index, index) -> (i32)
+  %linear = template.apply<@loop_boundary.linear_sum>(%values, %begin, %end, %repeat, %plain_depth, %unrolled_factor) : (view<32xi32>, index, index, index, index, index) -> (i32)
+  %interleaved = template.apply<@loop_boundary.interleaved_sum>(%values, %begin, %end, %repeat, %plain_depth, %interleaved_factor) : (view<32xi32>, index, index, index, index, index) -> (i32)
+  %pipelined = template.apply<@loop_boundary.recurrence_sum>(%values, %begin, %end, %repeat, %pipeline_depth, %pipeline_factor) : (view<32xi32>, index, index, index, index, index) -> (i32)
+  view.store %plain, %results[%plain_position] : i32, view<5xi32>
+  view.store %unrolled, %results[%unrolled_position] : i32, view<5xi32>
+  view.store %pipelined, %results[%pipeline_position] : i32, view<5xi32>
+  view.store %linear, %results[%linear_position] : i32, view<5xi32>
+  view.store %interleaved, %results[%interleaved_position] : i32, view<5xi32>
+  kernel.return
+}
+
+check.case public @loop_boundary_partial_tile {
+  %begin = check.literal value(2147483642) : index
+  %end = check.literal value(2147483647) : index
+  %repeat = check.literal value(1) : index
+  %input = check.generate.iota offset(1) step(1) : tensor<32xi32>
+  %output = check.generate.fill value(-1) : tensor<5xi32>
+  %expected = check.generate.fill value(124) : tensor<5xi32>
+  kernel.launch @loop_boundary_table_sum(%begin, %end, %repeat, %input, %output) : (index, index, index, tensor<32xi32>, tensor<5xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<5xi32>
+  check.return
+}
+
+check.case public @loop_boundary_single_iteration {
+  %begin = check.literal value(2147483646) : index
+  %end = check.literal value(2147483647) : index
+  %repeat = check.literal value(3) : index
+  %input = check.generate.iota offset(1) step(1) : tensor<32xi32>
+  %output = check.generate.fill value(-1) : tensor<5xi32>
+  %expected = check.generate.fill value(130) : tensor<5xi32>
+  kernel.launch @loop_boundary_table_sum(%begin, %end, %repeat, %input, %output) : (index, index, index, tensor<32xi32>, tensor<5xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<5xi32>
+  check.return
+}
+
+check.case public @loop_boundary_empty_equal {
+  %begin = check.literal value(2147483647) : index
+  %end = check.literal value(2147483647) : index
+  %repeat = check.literal value(2) : index
+  %input = check.generate.iota offset(1) step(1) : tensor<32xi32>
+  %output = check.generate.fill value(-1) : tensor<5xi32>
+  %expected = check.generate.fill value(37) : tensor<5xi32>
+  kernel.launch @loop_boundary_table_sum(%begin, %end, %repeat, %input, %output) : (index, index, index, tensor<32xi32>, tensor<5xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<5xi32>
+  check.return
+}
+
+check.case public @loop_boundary_empty_reversed {
+  %begin = check.literal value(2147483647) : index
+  %end = check.literal value(2147483640) : index
+  %repeat = check.literal value(2) : index
+  %input = check.generate.iota offset(1) step(1) : tensor<32xi32>
+  %output = check.generate.fill value(-1) : tensor<5xi32>
+  %expected = check.generate.fill value(37) : tensor<5xi32>
+  kernel.launch @loop_boundary_table_sum(%begin, %end, %repeat, %input, %output) : (index, index, index, tensor<32xi32>, tensor<5xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<5xi32>
+  check.return
+}
+
+check.case public @loop_boundary_several_tiles {
+  %begin = check.literal value(2147483626) : index
+  %end = check.literal value(2147483647) : index
+  %repeat = check.literal value(1) : index
+  %input = check.generate.iota offset(1) step(1) : tensor<32xi32>
+  %output = check.generate.fill value(-1) : tensor<5xi32>
+  %expected = check.generate.fill value(268) : tensor<5xi32>
+  kernel.launch @loop_boundary_table_sum(%begin, %end, %repeat, %input, %output) : (index, index, index, tensor<32xi32>, tensor<5xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<5xi32>
+  check.return
+}
+
+check.case public @loop_boundary_full_tile_past_maximum {
+  %begin = check.literal value(2147483640) : index
+  %end = check.literal value(2147483647) : index
+  %repeat = check.literal value(3) : index
+  %input = check.generate.iota offset(1) step(1) : tensor<32xi32>
+  %output = check.generate.fill value(-1) : tensor<5xi32>
+  %expected = check.generate.fill value(373) : tensor<5xi32>
+  kernel.launch @loop_boundary_table_sum(%begin, %end, %repeat, %input, %output) : (index, index, index, tensor<32xi32>, tensor<5xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<5xi32>
+  check.return
+}
+
+check.case public @loop_boundary_exact_terminal_bound {
+  %begin = check.literal value(2147483626) : index
+  %end = check.literal value(2147483646) : index
+  %repeat = check.literal value(2) : index
+  %input = check.generate.iota offset(1) step(1) : tensor<32xi32>
+  %output = check.generate.fill value(-1) : tensor<5xi32>
+  %expected = check.generate.fill value(437) : tensor<5xi32>
+  kernel.launch @loop_boundary_table_sum(%begin, %end, %repeat, %input, %output) : (index, index, index, tensor<32xi32>, tensor<5xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<5xi32>
+  check.return
+}
+
+check.case public @loop_boundary_empty_nested_loop {
+  %begin = check.literal value(2147483642) : index
+  %end = check.literal value(2147483647) : index
+  %repeat = check.literal value(0) : index
+  %input = check.generate.iota offset(1) step(1) : tensor<32xi32>
+  %output = check.generate.fill value(-1) : tensor<5xi32>
+  %expected = check.generate.fill value(37) : tensor<5xi32>
+  kernel.launch @loop_boundary_table_sum(%begin, %end, %repeat, %input, %output) : (index, index, index, tensor<32xi32>, tensor<5xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<5xi32>
+  check.return
+}
+
+// Full signed-carrier distances need all 32 unsigned bits. A large positive
+// step keeps execution short while exercising serial and three unroll schedules
+// across zero. The independent expected values apply hash = hash * 33 + counter
+// modulo 2^32 from seed 37 to every mathematical source iteration in order.
+kernel.def @loop_boundary_full_span_hash() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%begin_input: index, %end_input: index, %output: buffer) {
+  %begin = index.assume %begin_input [range(%begin_input, -2147483648, 2147483647)] : index
+  %end = index.assume %end_input [range(%end_input, -2147483648, 2147483647)] : index
+  %step = index.constant 536870911 : index
+  %factor = index.constant 4 : index
+  %seed = scalar.constant 37 : i32
+  %multiplier = scalar.constant 33 : i32
+  %base = index.constant 0 : offset
+  %output_aligned = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %results = buffer.view %output_aligned[%base] : buffer -> view<4xi32>
+
+  %position_serial = index.constant 0 : index
+  %hash_serial = scf.for %counter_serial = [%begin to %end step %step](%carry_serial = %seed : i32) -> (i32) {
+    %bits_serial = index.cast %counter_serial : index to i32
+    %scaled_serial = scalar.muli %carry_serial, %multiplier : i32
+    %next_serial = scalar.addi %scaled_serial, %bits_serial : i32
+    scf.yield %next_serial : i32
+  }
+  view.store %hash_serial, %results[%position_serial] : i32, view<4xi32>
+
+  %position_linear = index.constant 1 : index
+  %hash_linear = scf.for %counter_linear = [%begin to %end step %step](%carry_linear = %seed : i32) -> (i32) unroll(%factor) schedule(linear) {
+    %bits_linear = index.cast %counter_linear : index to i32
+    %scaled_linear = scalar.muli %carry_linear, %multiplier : i32
+    %next_linear = scalar.addi %scaled_linear, %bits_linear : i32
+    scf.yield %next_linear : i32
+  }
+  view.store %hash_linear, %results[%position_linear] : i32, view<4xi32>
+
+  %position_interleaved = index.constant 2 : index
+  %hash_interleaved = scf.for %counter_interleaved = [%begin to %end step %step](%carry_interleaved = %seed : i32) -> (i32) unroll(%factor) schedule(interleaved) {
+    %bits_interleaved = index.cast %counter_interleaved : index to i32
+    %scaled_interleaved = scalar.muli %carry_interleaved, %multiplier : i32
+    %next_interleaved = scalar.addi %scaled_interleaved, %bits_interleaved : i32
+    scf.yield %next_interleaved : i32
+  }
+  view.store %hash_interleaved, %results[%position_interleaved] : i32, view<4xi32>
+
+  %position_recurrence = index.constant 3 : index
+  %hash_recurrence = scf.for %counter_recurrence = [%begin to %end step %step](%carry_recurrence = %seed : i32) -> (i32) unroll(%factor) schedule(recurrence) {
+    %bits_recurrence = index.cast %counter_recurrence : index to i32
+    %scaled_recurrence = scalar.muli %carry_recurrence, %multiplier : i32
+    %next_recurrence = scalar.addi %scaled_recurrence, %bits_recurrence : i32
+    scf.yield %next_recurrence : i32
+  }
+  view.store %hash_recurrence, %results[%position_recurrence] : i32, view<4xi32>
+
+  kernel.return
+}
+
+check.case public @loop_boundary_full_span_signed_extrema {
+  %begin = check.literal value(-2147483648) : index
+  %end = check.literal value(2147483647) : index
+  %output = check.generate.fill value(-1) : tensor<4xi32>
+  %expected = check.generate.fill value(134608673) : tensor<4xi32>
+  kernel.launch @loop_boundary_full_span_hash(%begin, %end, %output) : (index, index, tensor<4xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<4xi32>
+  check.return
+}
+
+check.case public @loop_boundary_full_span_negative_single_iteration {
+  %begin = check.literal value(-2147483648) : index
+  %end = check.literal value(-2147483647) : index
+  %output = check.generate.fill value(-1) : tensor<4xi32>
+  %expected = check.generate.fill value(-2147482427) : tensor<4xi32>
+  kernel.launch @loop_boundary_full_span_hash(%begin, %end, %output) : (index, index, tensor<4xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<4xi32>
+  check.return
+}
+
+check.case public @loop_boundary_full_span_crosses_zero {
+  %begin = check.literal value(-100) : index
+  %end = check.literal value(2147483647) : index
+  %output = check.generate.fill value(-1) : tensor<4xi32>
+  %expected = check.generate.fill value(-1895552249) : tensor<4xi32>
+  kernel.launch @loop_boundary_full_span_hash(%begin, %end, %output) : (index, index, tensor<4xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<4xi32>
+  check.return
+}
+
+check.case public @loop_boundary_full_span_crosses_zero_tail {
+  %begin = check.literal value(-2147483648) : index
+  %end = check.literal value(1) : index
+  %output = check.generate.fill value(-1) : tensor<4xi32>
+  %expected = check.generate.fill value(374229499) : tensor<4xi32>
+  kernel.launch @loop_boundary_full_span_hash(%begin, %end, %output) : (index, index, tensor<4xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<4xi32>
+  check.return
+}
+
+check.case public @loop_boundary_full_span_positive_single_iteration {
+  %begin = check.literal value(2147483646) : index
+  %end = check.literal value(2147483647) : index
+  %output = check.generate.fill value(-1) : tensor<4xi32>
+  %expected = check.generate.fill value(-2147482429) : tensor<4xi32>
+  kernel.launch @loop_boundary_full_span_hash(%begin, %end, %output) : (index, index, tensor<4xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<4xi32>
+  check.return
+}
+
+check.case public @loop_boundary_full_span_reversed_extrema {
+  %begin = check.literal value(2147483647) : index
+  %end = check.literal value(-2147483648) : index
+  %output = check.generate.fill value(-1) : tensor<4xi32>
+  %expected = check.generate.fill value(37) : tensor<4xi32>
+  kernel.launch @loop_boundary_full_span_hash(%begin, %end, %output) : (index, index, tensor<4xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<4xi32>
+  check.return
+}
+
+// Four lane groups take 10, 9, 1, and 0 iterations through the same pipelined
+// loop. The varying lower bound exercises both sides of the read-ahead length
+// split and divergent loop retirement; factors one and three distinguish the
+// ordinary and unrolled CFG shapes.
+template.decl @loop_boundary.varying_start_sum(%values: view<64x20xi32>, %lane: index, %begin: index, %factor: index) -> (i32)
+
+template.def<@loop_boundary.varying_start_sum> @loop_boundary_varying_start_sum_impl(%values: view<64x20xi32>, %lane: index, %begin: index, %factor: index) -> (i32) {
+  %end = index.constant 20 : index
+  %step = index.constant 2 : index
+  %depth = index.constant 2 : index
+  %initial = scalar.constant 0 : i32
+  %result = scf.for %counter = [%begin to %end step %step](%sum = %initial : i32) -> (i32) pipeline(%depth) unroll(%factor) schedule(recurrence) {
+    %value = view.load %values[%lane, %counter] : view<64x20xi32> -> i32
+    %next = scalar.addi %sum, %value : i32
+    scf.yield %next : i32
+  }
+  template.return %result : i32
+}
+
+kernel.def @loop_boundary_varying_start() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %threshold0 = index.constant 16 : index
+  %threshold1 = index.constant 32 : index
+  %threshold2 = index.constant 48 : index
+  %start0 = index.constant 0 : index
+  %start1 = index.constant 2 : index
+  %start2 = index.constant 18 : index
+  %start3 = index.constant 20 : index
+  %in_group0 = index.cmp slt, %lane, %threshold0 : index
+  %in_group1 = index.cmp slt, %lane, %threshold1 : index
+  %in_group2 = index.cmp slt, %lane, %threshold2 : index
+  %late_start = scf.select %in_group2, %start2, %start3 : index
+  %nonzero_start = scf.select %in_group1, %start1, %late_start : index
+  %begin = scf.select %in_group0, %start0, %nonzero_start : index
+  %factor1 = index.constant 1 : index
+  %factor3 = index.constant 3 : index
+  %input_base = index.constant 0 : offset
+  %output_base = index.constant 16 : offset
+  %row0 = index.constant 0 : index
+  %row1 = index.constant 1 : index
+  %input_aligned = buffer.assume.alignment %input {minimum_alignment = 4} : buffer
+  %output_aligned = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %source, %destination = buffer.assume.noalias %input_aligned, %output_aligned : buffer, buffer
+  %values = buffer.view %source[%input_base] : buffer -> view<64x20xi32>
+  %results = buffer.view %destination[%output_base] : buffer -> view<2x68xi32>
+  %result1 = template.apply<@loop_boundary.varying_start_sum>(%values, %lane, %begin, %factor1) : (view<64x20xi32>, index, index, index) -> (i32)
+  %result3 = template.apply<@loop_boundary.varying_start_sum>(%values, %lane, %begin, %factor3) : (view<64x20xi32>, index, index, index) -> (i32)
+  view.store %result1, %results[%row0, %lane] : i32, view<2x68xi32>
+  view.store %result3, %results[%row1, %lane] : i32, view<2x68xi32>
+  kernel.return
+}
+
+check.case public @loop_boundary_varying_length_starts {
+  %input = check.generate.iota offset(1) step(1) period(20) : tensor<64x20xi32>
+  %output = check.generate.fill value(-77) : tensor<140xi32>
+  kernel.launch @loop_boundary_varying_start(%input, %output) : (tensor<64x20xi32>, tensor<140xi32>)
+
+  %expected0 = check.generate.fill value(100) : tensor<16xi32>
+  %expected1 = check.generate.fill value(99) : tensor<16xi32>
+  %expected2 = check.generate.fill value(19) : tensor<16xi32>
+  %expected3 = check.generate.fill value(0) : tensor<16xi32>
+  %expected_guard = check.generate.fill value(-77) : tensor<4xi32>
+
+  %prefix = check.tensor.view %output offset(0) : tensor<140xi32> -> tensor<4xi32>
+  %factor1_group0 = check.tensor.view %output offset(16) : tensor<140xi32> -> tensor<16xi32>
+  %factor1_group1 = check.tensor.view %output offset(80) : tensor<140xi32> -> tensor<16xi32>
+  %factor1_group2 = check.tensor.view %output offset(144) : tensor<140xi32> -> tensor<16xi32>
+  %factor1_group3 = check.tensor.view %output offset(208) : tensor<140xi32> -> tensor<16xi32>
+  %middle = check.tensor.view %output offset(272) : tensor<140xi32> -> tensor<4xi32>
+  %factor3_group0 = check.tensor.view %output offset(288) : tensor<140xi32> -> tensor<16xi32>
+  %factor3_group1 = check.tensor.view %output offset(352) : tensor<140xi32> -> tensor<16xi32>
+  %factor3_group2 = check.tensor.view %output offset(416) : tensor<140xi32> -> tensor<16xi32>
+  %factor3_group3 = check.tensor.view %output offset(480) : tensor<140xi32> -> tensor<16xi32>
+  %suffix = check.tensor.view %output offset(544) : tensor<140xi32> -> tensor<4xi32>
+
+  check.expect.equal actual(%prefix) expected(%expected_guard) : tensor<4xi32>
+  check.expect.equal actual(%factor1_group0) expected(%expected0) : tensor<16xi32>
+  check.expect.equal actual(%factor1_group1) expected(%expected1) : tensor<16xi32>
+  check.expect.equal actual(%factor1_group2) expected(%expected2) : tensor<16xi32>
+  check.expect.equal actual(%factor1_group3) expected(%expected3) : tensor<16xi32>
+  check.expect.equal actual(%middle) expected(%expected_guard) : tensor<4xi32>
+  check.expect.equal actual(%factor3_group0) expected(%expected0) : tensor<16xi32>
+  check.expect.equal actual(%factor3_group1) expected(%expected1) : tensor<16xi32>
+  check.expect.equal actual(%factor3_group2) expected(%expected2) : tensor<16xi32>
+  check.expect.equal actual(%factor3_group3) expected(%expected3) : tensor<16xi32>
+  check.expect.equal actual(%suffix) expected(%expected_guard) : tensor<4xi32>
+  check.return
+}

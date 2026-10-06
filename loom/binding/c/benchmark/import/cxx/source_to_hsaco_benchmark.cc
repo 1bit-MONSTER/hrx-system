@@ -18,9 +18,18 @@
 namespace loomc::bench {
 namespace {
 
+struct CxxKernel {
+  // Embedded source filename; one compilation unit may contain several kernels.
+  const char* source;
+  // Export selected for this JIT invocation.
+  const char* root;
+  // Concrete AMDGPU profile used for lowering and code object emission.
+  const char* target;
+};
+
 class CxxSourceScenario final : public TargetCompileScenario {
  public:
-  explicit CxxSourceScenario(const char* kernel) : kernel_(kernel) {}
+  explicit CxxSourceScenario(const CxxKernel& kernel) : kernel_(kernel) {}
 
   iree_host_size_t job_count() const override { return 1; }
 
@@ -32,7 +41,7 @@ class CxxSourceScenario final : public TargetCompileScenario {
     loomc_amdgpu_profile_options_t profile_options = {};
     profile_options.type = LOOMC_STRUCTURE_TYPE_AMDGPU_PROFILE_OPTIONS;
     profile_options.structure_size = sizeof(profile_options);
-    profile_options.identifier = loomc_make_cstring_view("gfx1151");
+    profile_options.identifier = loomc_make_cstring_view(kernel_.target);
     profile_options.identity.target = profile_options.identifier;
     loomc_target_profile_t* raw_profile = nullptr;
     IREE_RETURN_IF_ERROR(to_iree_status(loomc_target_profile_create_amdgpu(
@@ -42,10 +51,9 @@ class CxxSourceScenario final : public TargetCompileScenario {
         loomc_make_cstring_view("cxx-source-to-hsaco"),
         LOOMC_TARGET_CONTROL_FLOW_LOWERING_CFG));
 
-    std::string filename = std::string(kernel_) + ".cxx";
-    auto embedded = FindEmbeddedSource(loomc_cxx_benchmark_kernels_create(),
-                                       loomc_cxx_benchmark_kernels_size(),
-                                       filename.c_str());
+    auto embedded =
+        FindEmbeddedSource(loomc_cxx_benchmark_kernels_create(),
+                           loomc_cxx_benchmark_kernels_size(), kernel_.source);
     loomc_source_options_t source_options = {};
     source_options.type = LOOMC_STRUCTURE_TYPE_SOURCE_OPTIONS;
     source_options.structure_size = sizeof(source_options);
@@ -60,8 +68,9 @@ class CxxSourceScenario final : public TargetCompileScenario {
 
     std::string config;
     for (int axis = 0; axis < 3; ++axis) {
-      config += "config.def @" + std::string(kernel_) + ".workgroup_count." +
-                "xyz"[axis] + " = " + (axis == 0 ? "3" : "1") + " : index\n";
+      config += "config.def @" + std::string(kernel_.root) +
+                ".workgroup_count." + "xyz"[axis] + " = " +
+                (axis == 0 ? "3" : "1") + " : index\n";
     }
     return CreateTextModule(context_.get(), workspace_at(0).get(),
                             "launch-config.loom", config, &config_);
@@ -71,7 +80,7 @@ class CxxSourceScenario final : public TargetCompileScenario {
                        iree_host_size_t job_ordinal) override {
     (void)job_ordinal;
     auto& workspace = workspace_at(worker_ordinal);
-    auto root = loomc_make_cstring_view(kernel_);
+    auto root = loomc_make_cstring_view(kernel_.root);
     loomc_cxx_import_options_t import_options = {};
     import_options.type = LOOMC_STRUCTURE_TYPE_CXX_IMPORT_OPTIONS;
     import_options.structure_size = sizeof(import_options);
@@ -92,14 +101,9 @@ class CxxSourceScenario final : public TargetCompileScenario {
     IREE_RETURN_IF_ERROR(CompileModuleToPreparedLow(workspace, module, root,
                                                     root, config_.get(), 0));
 
-    loomc_amdgpu_emit_options_t amdgpu_options = {};
-    amdgpu_options.type = LOOMC_STRUCTURE_TYPE_AMDGPU_EMIT_OPTIONS;
-    amdgpu_options.structure_size = sizeof(amdgpu_options);
-    amdgpu_options.runtime_globals = LOOMC_AMDGPU_RUNTIME_GLOBAL_NONE;
     loomc_emit_options_t emit_options = {};
     emit_options.type = LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS;
     emit_options.structure_size = sizeof(emit_options);
-    emit_options.next = &amdgpu_options;
     emit_options.artifact_format =
         loomc_make_cstring_view(LOOMC_ARTIFACT_FORMAT_AMDGPU_HSACO);
     emit_options.identifier = root;
@@ -134,8 +138,8 @@ class CxxSourceScenario final : public TargetCompileScenario {
   }
 
  private:
-  // Static benchmark registration naming the sole exported kernel.
-  const char* kernel_;
+  // Static benchmark registration selecting source, export and target.
+  const CxxKernel& kernel_;
   // Immutable source text backed by the embedded corpus table.
   SourcePtr source_;
   // Ordinary immutable config module shared by source compilations.
@@ -146,18 +150,33 @@ std::unique_ptr<CompileScenario> CreateCxxSourceScenario(
     const ::benchmark::State& state, const void* user_data) {
   (void)state;
   return std::make_unique<CxxSourceScenario>(
-      static_cast<const char*>(user_data));
+      *static_cast<const CxxKernel*>(user_data));
 }
 
-void SourceToHsaco(::benchmark::State& state, const char* kernel) {
+void SourceToHsaco(::benchmark::State& state, const CxxKernel* kernel) {
   RunCompileBenchmarkDirect(state, CreateCxxSourceScenario, kernel);
 }
 
-BENCHMARK_CAPTURE(SourceToHsaco, FlashAttention, "flash_attention")
+constexpr CxxKernel kFlashAttention = {"flash_attention.cxx", "flash_attention",
+                                       "gfx1151"};
+constexpr CxxKernel kRmsNorm = {"llama_rms_norm.cxx", "llama_rms_norm",
+                                "gfx1151"};
+constexpr CxxKernel kSwiGlu = {"aiter_swiglu_f16.cxx", "aiter_swiglu_f16",
+                               "gfx1151"};
+constexpr CxxKernel kMxfp4 = {"mxfp_group_dot.cxx", "mxfp4_decode_dot",
+                              "gfx1250"};
+constexpr CxxKernel kMxfp8 = {"mxfp_group_dot.cxx", "mxfp8_decode_dot",
+                              "gfx1250"};
+
+BENCHMARK_CAPTURE(SourceToHsaco, FlashAttention, &kFlashAttention)
     ->Unit(::benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(SourceToHsaco, RmsNorm, "llama_rms_norm")
+BENCHMARK_CAPTURE(SourceToHsaco, RmsNorm, &kRmsNorm)
     ->Unit(::benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(SourceToHsaco, SwiGluF16, "aiter_swiglu_f16")
+BENCHMARK_CAPTURE(SourceToHsaco, SwiGluF16, &kSwiGlu)
+    ->Unit(::benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(SourceToHsaco, Mxfp4Gfx1250, &kMxfp4)
+    ->Unit(::benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(SourceToHsaco, Mxfp8Gfx1250, &kMxfp8)
     ->Unit(::benchmark::kMicrosecond);
 
 }  // namespace

@@ -31,11 +31,11 @@ iree_py_library(
 
 iree_py_library(
   NAME
-    packed_vector_select
+    narrow_float_subtraction
   MAIN
-    "packed_vector_select.py"
+    "narrow_float_subtraction.py"
   SRCS
-    "packed_vector_select.py"
+    "narrow_float_subtraction.py"
   DEPS
     loom::py::loom::gen::test::kernel_fixture
 )

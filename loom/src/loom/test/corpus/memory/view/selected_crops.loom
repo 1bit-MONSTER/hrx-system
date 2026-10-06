@@ -1,0 +1,86 @@
+// A retained helper returns several projections of one selected coordinate.
+func.def noinline @choose_crops(%left: view<8xi32>, %right: view<8xi32>, %choose_right: i1, %position: index) -> (view<1xi32>, view<1xi32>, view<1xi32>) where [range(%position, 0, 5)] {
+  %selected = scf.select %choose_right, %right, %left : view<8xi32>
+  %first = view.subview %selected[0] : view<8xi32> -> view<1xi32>
+  %suffix = view.subview %selected[1] : view<8xi32> -> view<7xi32>
+  %middle = view.subview %suffix[%position] : view<7xi32> -> view<1xi32>
+  %last = view.subview %selected[6] : view<8xi32> -> view<1xi32>
+  func.return %first, %middle, %last : view<1xi32>, view<1xi32>, view<1xi32>
+}
+
+func.def noinline @read_crop(%input: view<1xi32>) -> (i32) {
+  %value = view.load %input[0] : view<1xi32> -> i32
+  func.return %value : i32
+}
+
+func.def @call_selected_crops(%left_base_value: i64, %right_base_value: i64, %position_value: i64, %choice: i32) -> (i32, i32, i32, i32) {
+  %false = scalar.constant 0 : i32
+  %choose_right = scalar.cmpi ne, %choice, %false : i32
+  %length = index.constant 64 : offset
+  %c0 = index.constant 0 : offset
+  %left_storage = buffer.alloca<private> align(4) %length : buffer
+  %right_storage = buffer.alloca<private> align(4) %length : buffer
+  %clear = scalar.constant 0 : i32
+  buffer.fill %clear, %left_storage[%c0], %length : i32
+  buffer.fill %clear, %right_storage[%c0], %length : i32
+  %left_input = scalar.assume %left_base_value [range(%left_base_value, 0, 16)] : i64
+  %right_input = scalar.assume %right_base_value [range(%right_base_value, 0, 12)] : i64
+  %left_base = index.cast %left_input : i64 to offset
+  %right_base = index.cast %right_input : i64 to offset
+  %position_input = scalar.assume %position_value [range(%position_value, 0, 5)] : i64
+  %position = index.cast %position_input : i64 to index
+  %left = buffer.view %left_storage[%left_base] : buffer -> view<8xi32>
+  %right = buffer.view %right_storage[%right_base] : buffer -> view<8xi32>
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  %left_seed = scalar.constant 100 : i32
+  %right_seed = scalar.constant 200 : i32
+  scf.for %i = [%begin to %end step %step] {
+    %index = index.cast %i : index to i32
+    %left_value = scalar.addi %left_seed, %index : i32
+    %right_value = scalar.addi %right_seed, %index : i32
+    view.store %left_value, %left[%i] : i32, view<8xi32>
+    view.store %right_value, %right[%i] : i32, view<8xi32>
+  }
+  %first, %middle, %last = func.call @choose_crops(%left, %right, %choose_right, %position) : (view<8xi32>, view<8xi32>, i1, index) -> (view<1xi32>, view<1xi32>, view<1xi32>)
+  %first_value = func.call @read_crop(%first) : (view<1xi32>) -> (i32)
+  %middle_value = func.call @read_crop(%middle) : (view<1xi32>) -> (i32)
+  %last_value = func.call @read_crop(%last) : (view<1xi32>) -> (i32)
+  // Reversing the actuals keeps the second call's selected root independent.
+  %other_first, %other_middle, %other_last = func.call @choose_crops(%right, %left, %choose_right, %position) : (view<8xi32>, view<8xi32>, i1, index) -> (view<1xi32>, view<1xi32>, view<1xi32>)
+  %other_value = func.call @read_crop(%other_middle) : (view<1xi32>) -> (i32)
+  func.return %first_value, %middle_value, %last_value, %other_value : i32, i32, i32, i32
+}
+
+// Independent arithmetic oracle for the initialized storage and crop positions.
+func.def @expected_crops(%position: i64, %choice: i32) -> (i32, i32, i32, i32) {
+  %c0 = scalar.constant 0 : i32
+  %choose_right = scalar.cmpi ne, %choice, %c0 : i32
+  %left = scalar.constant 100 : i32
+  %right = scalar.constant 200 : i32
+  %seed = scf.select %choose_right, %right, %left : i32
+  %other_seed = scf.select %choose_right, %left, %right : i32
+  %index = scalar.trunci %position : i64 to i32
+  %c1 = scalar.constant 1 : i32
+  %c6 = scalar.constant 6 : i32
+  %displacement = scalar.addi %index, %c1 : i32
+  %expected_middle = scalar.addi %seed, %displacement : i32
+  %expected_last = scalar.addi %seed, %c6 : i32
+  %expected_other = scalar.addi %other_seed, %displacement : i32
+  func.return %seed, %expected_middle, %expected_last, %expected_other : i32, i32, i32, i32
+}
+
+check.case @selected_crops_case {
+  %left_base = check.param.choice values([0, 4, 16]) : i64
+  %right_base = check.param.choice values([0, 12]) : i64
+  %position = check.param.choice values([0, 2, 5]) : i64
+  %choice = check.param.choice values([0, 1]) : i32
+  %first, %middle, %last, %other = func.call @call_selected_crops(%left_base, %right_base, %position, %choice) : (i64, i64, i64, i32) -> (i32, i32, i32, i32)
+  %expected_first, %expected_middle, %expected_last, %expected_other = func.call @expected_crops(%position, %choice) : (i64, i32) -> (i32, i32, i32, i32)
+  check.expect.equal actual(%first) expected(%expected_first) : i32
+  check.expect.equal actual(%middle) expected(%expected_middle) : i32
+  check.expect.equal actual(%last) expected(%expected_last) : i32
+  check.expect.equal actual(%other) expected(%expected_other) : i32
+  check.return
+}

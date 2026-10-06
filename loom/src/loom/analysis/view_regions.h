@@ -137,13 +137,17 @@ typedef struct loom_view_region_table_t {
   // Per-local-value construction state for recursion guards.
   uint8_t* states_by_value_ordinal;
 
-  // Aggregate accesses through every alias of a storage root, indexed by the
-  // root's local value ordinal. Populated by analyze, including raw buffers.
-  loom_view_access_flags_t* root_access_flags_by_value_ordinal;
+  // Aggregate root accesses and value invariance, indexed by local ordinal.
+  // Populated by analyze, including raw buffers and nested execution scopes.
+  uint8_t* storage_flags_by_value_ordinal;
 
   // Memory spaces that may change through acquisition, unknown effects, or
   // writes without comparable storage identities. Bit i names memory space i.
   uint32_t interference_memory_spaces;
+
+  // Memory spaces written through scoped roots that can vary across executions.
+  // Such writes may interfere with other varying roots despite local noalias.
+  uint32_t varying_root_write_memory_spaces;
 
   // Compact region storage indexed by region ID.
   loom_view_region_t* regions;
@@ -157,7 +161,8 @@ typedef struct loom_view_region_table_t {
 
 // Initializes a view-region table from a caller-owned active local value
 // domain and its matching symbolic expression context. The value domain and
-// expression context must remain active until the table is dead.
+// expression context must remain active until the table is dead. Captured
+// reference backing roots are registered before allocating ordinal tables.
 iree_status_t loom_view_region_table_initialize(
     loom_local_value_domain_t* value_domain,
     loom_symbolic_expr_context_t* expression_context,
@@ -189,6 +194,7 @@ iree_status_t loom_view_region_table_derive_element_region(
 
 // Walks the table's local value domain region, constructs summaries for view
 // values, and derives per-view/root accesses and memory-space interference.
+// Retains cross-execution value invariance when scoped writes require it.
 // The result covers nested control flow and is invalidated by IR mutation.
 iree_status_t loom_view_region_table_analyze(loom_view_region_table_t* table);
 
@@ -198,9 +204,12 @@ loom_view_access_flags_t loom_view_region_table_root_access_flags(
     const loom_view_region_table_t* table, loom_value_id_t root_value_id);
 
 // Proves that an accessed storage root remains unchanged throughout the
-// analyzed function. Local read-only access alone is insufficient: acquisition
+// analyzed domain. Local read-only access alone is insufficient: acquisition
 // may import another participant's writes, and unknown effects or incomparable
 // written roots may alias it. Constant storage is immutable by contract.
+// Scoped noalias separates repeated accesses only when at least one root keeps
+// the same storage across executions. The analysis retains this correspondence
+// alongside the aggregate accesses; the query uses constant-time indexed facts.
 // |alias_scope_id| and |memory_space| are retained facts for the queried
 // access. Requires analyze to have completed; this query performs no IR
 // traversal.
@@ -218,7 +227,10 @@ bool loom_view_memory_spaces_are_disjoint(loom_value_fact_memory_space_t left,
 // Attempts to prove that two view regions cannot overlap. Same-root regions
 // use symbolic byte intervals. Distinct roots are disjoint when their concrete
 // memory spaces cannot alias or both carry comparable and different alias
-// scopes.
+// scopes. These identities and symbolic terms describe one execution. A caller
+// comparing different executions establishes root/term correspondence before
+// applying this proof; equal SSA IDs alone do not establish that
+// correspondence.
 iree_status_t loom_view_regions_prove_no_overlap(
     loom_view_region_table_t* table, const loom_view_region_t* left_region,
     const loom_view_region_t* right_region, bool* out_no_overlap);

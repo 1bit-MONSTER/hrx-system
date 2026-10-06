@@ -21,6 +21,7 @@ loom_cc_library(
     "lds_bank_service.c"
   DEPS
     iree::base
+    iree::base::internal
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::arch::amdgpu::target_info_defs
   PUBLIC

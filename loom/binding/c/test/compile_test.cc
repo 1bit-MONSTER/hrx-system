@@ -12,6 +12,8 @@
 
 #include "iree/testing/gtest.h"
 #include "loom/binding/c/src/product.h"
+#include "loom/binding/c/test/testdata/diagnostic_testdata.h"
+#include "loom/error/error_defs.h"
 #include "loomc/context.h"
 #include "loomc/module.h"
 #include "loomc/pass.h"
@@ -20,6 +22,8 @@
 #include "loomc/source.h"
 #include "loomc/status.h"
 #include "loomc/workspace.h"
+#include "src/diagnostic.h"
+#include "src/module.h"
 #include "test/util.h"
 
 namespace {
@@ -353,6 +357,103 @@ TEST(CompileTest, CompileModuleRunsPreparedPassProgram) {
   EXPECT_TRUE(loomc_result_succeeded(result_ptr.get()));
   EXPECT_EQ(loomc_result_diagnostic_count(result_ptr.get()), 0u);
   EXPECT_EQ(loomc_result_artifact_count(result_ptr.get()), 0u);
+}
+
+TEST(CompileTest, CompileModuleRunsNamedFunctionProgramAcrossFunctions) {
+  ContextPtr context = CreateContext();
+  WorkspacePtr workspace = CreateWorkspace();
+  CompilerPtr compiler = CreateCompiler(context.get());
+  SourcePtr pipeline_source = CreateTextSource("pipelines.loom", R"(
+pass.pipeline<func> @cleanup pipeline {
+  dce
+}
+)");
+  ModulePtr pipeline_module =
+      DeserializeModule(context.get(), workspace.get(), pipeline_source.get());
+  PassProgramPtr pass_program =
+      CreatePassProgramFromModuleSymbol(pipeline_module.get(), "@cleanup");
+  SourcePtr source = CreateTextSource("functions.loom", R"(
+func.def public @first(%x: i32) -> (i32) {
+  %dead = scalar.addi %x, %x : i32
+  func.return %x : i32
+}
+
+func.def public @second(%x: i32) -> (i32) {
+  %dead = scalar.addi %x, %x : i32
+  func.return %x : i32
+}
+)");
+  ModulePtr module =
+      DeserializeModule(context.get(), workspace.get(), source.get());
+
+  loomc_result_t* result = nullptr;
+  LOOMC_ASSERT_OK(loomc_compile_module(
+      compiler.get(), workspace.get(), pass_program.get(), module.get(),
+      nullptr, loomc_allocator_system(), &result));
+  ResultPtr result_ptr(result);
+  ExpectSucceededResult(result_ptr.get());
+
+  const std::string text = SerializeModuleToText(module.get());
+  EXPECT_EQ(text.find("scalar.addi"), std::string::npos) << text;
+}
+
+TEST(CompileTest, CompileModuleReportsPassControlFailureInResult) {
+  ContextPtr context = CreateContext();
+  WorkspacePtr workspace = CreateWorkspace();
+  CompilerPtr compiler = CreateCompiler(context.get());
+  SourcePtr pipeline_source = CreateTextSource("pipelines.loom", R"(
+pass.pipeline<module> @boom pipeline {
+  fail "compile pass sentinel"
+}
+)");
+  ModulePtr pipeline_module =
+      DeserializeModule(context.get(), workspace.get(), pipeline_source.get());
+  PassProgramPtr pass_program =
+      CreatePassProgramFromModuleSymbol(pipeline_module.get(), "@boom");
+  ModulePtr module = CreateValidModule(context.get(), workspace.get());
+
+  loomc_result_t* result = nullptr;
+  LOOMC_ASSERT_OK(loomc_compile_module(
+      compiler.get(), workspace.get(), pass_program.get(), module.get(),
+      nullptr, loomc_allocator_system(), &result));
+  ResultPtr result_ptr(result);
+  ExpectFailedResultCode(result_ptr.get(), "PASS_PROGRAM/EXECUTION");
+  ASSERT_EQ(loomc_result_diagnostic_count(result_ptr.get()), 1u);
+  const loomc_diagnostic_t* diagnostic =
+      loomc_result_diagnostic_at(result_ptr.get(), 0);
+  ASSERT_NE(diagnostic, nullptr);
+  EXPECT_NE(ToString(diagnostic->message).find("compile pass sentinel"),
+            std::string::npos);
+}
+
+TEST(CompileTest, CompileModuleRunsConfiguredCombineWithoutTarget) {
+  ContextPtr context = CreateContext();
+  WorkspacePtr workspace = CreateWorkspace();
+  CompilerPtr compiler = CreateCompiler(context.get());
+  PassProgramPtr pass_program =
+      CreatePassProgramFromPipelineText(context.get(), "combine");
+  SourcePtr source = CreateTextSource("combine.loom", R"(
+func.def public @entry(%table: vector<16xf32>, %left: index, %right: index) -> (vector<2xf32>) {
+  %a = vector.extract %table[%left] : vector<16xf32> -> f32
+  %b = vector.extract %table[%right] : vector<16xf32> -> f32
+  %result = vector.from_elements %a, %b : vector<2xf32>
+  func.return %result : vector<2xf32>
+}
+)");
+  ModulePtr module =
+      DeserializeModule(context.get(), workspace.get(), source.get());
+
+  loomc_result_t* result = nullptr;
+  loomc_status_t status = loomc_compile_module(
+      compiler.get(), workspace.get(), pass_program.get(), module.get(),
+      /*options=*/nullptr, loomc_allocator_system(), &result);
+  LOOMC_EXPECT_OK(status);
+  ResultPtr result_ptr(result);
+  ExpectSucceededResult(result_ptr.get());
+
+  const std::string text = SerializeModuleToText(module.get());
+  EXPECT_NE(text.find("vector.table.lookup"), std::string::npos) << text;
+  EXPECT_EQ(text.find("vector.extract"), std::string::npos) << text;
 }
 
 TEST(CompileTest, CompileModuleRunsPassProgramFromReleasedModuleSymbol) {
@@ -886,6 +987,126 @@ TEST(CompileTest, CompileModuleRejectsUnknownOptionStructure) {
       &options, loomc_allocator_system(), &result);
   LOOMC_EXPECT_STATUS_IS(LOOMC_STATUS_INVALID_ARGUMENT, status);
   EXPECT_EQ(result, nullptr);
+}
+
+ModulePtr CreateRelatedLocationsModule(loomc_context_t* context,
+                                       loomc_workspace_t* workspace,
+                                       const char* filename) {
+  const auto* file = loomc_diagnostic_testdata_create();
+  const std::string contents(file->data, file->size);
+  auto source = CreateTextSource(filename, contents.c_str());
+  return DeserializeModule(context, workspace, source.get());
+}
+
+TEST(CompileTest, RelatedDiagnosticLocationsSurviveAllCompilerOwners) {
+  ResultPtr result;
+  {
+    auto context = CreateContext();
+    auto workspace = CreateWorkspace();
+    auto compiler = CreateCompiler(context.get());
+    auto program = CreateEmptyPassProgram(context.get());
+    auto module = CreateRelatedLocationsModule(context.get(), workspace.get(),
+                                               "calls.loom");
+    loomc_result_t* compiled = nullptr;
+    LOOMC_ASSERT_OK(loomc_compile_module(compiler.get(), workspace.get(),
+                                         program.get(), module.get(), nullptr,
+                                         loomc_allocator_system(), &compiled));
+    result.reset(compiled);
+  }
+  ExpectFailedResultCode(result.get(), "TYPE/001");
+  ASSERT_EQ(loomc_result_diagnostic_count(result.get()), 1u);
+  const auto* diagnostic = loomc_result_diagnostic_at(result.get(), 0);
+  EXPECT_EQ(diagnostic->range.start_line, 5u);
+  EXPECT_EQ(diagnostic->range.start_column, 3u);
+  ASSERT_EQ(diagnostic->related_location_count, 1u);
+  EXPECT_EQ(diagnostic->related_location_omitted_count, 0u);
+  const auto& related = diagnostic->related_locations[0];
+  EXPECT_EQ(ToString(related.label), "contract defined here");
+  ASSERT_NE(related.range.source, nullptr);
+  EXPECT_EQ(ToString(loomc_source_identifier(related.range.source)),
+            "calls.loom");
+  EXPECT_EQ(related.range.start_line, 2u);
+  EXPECT_EQ(related.range.start_column, 1u);
+  EXPECT_EQ(related.range.end_line, 2u);
+  EXPECT_GT(related.range.end_column, related.range.start_column);
+  EXPECT_EQ(loomc_source_contents(related.range.source).data_length, 0u);
+  EXPECT_EQ(related.range.source, diagnostic->range.source);
+}
+
+TEST(CompileTest, EmissionNotesUseTheirOwnModuleAndCountOnlyResolvedOmissions) {
+  ResultPtr result;
+  {
+    auto context = CreateContext();
+    auto workspace = CreateWorkspace();
+    auto active = CreateRelatedLocationsModule(context.get(), workspace.get(),
+                                               "active.loom");
+    auto other = CreateRelatedLocationsModule(context.get(), workspace.get(),
+                                              "other.loom");
+    auto* active_module = loomc_module_loom_module(active.get());
+    const auto* other_module = loomc_module_const_loom_module(other.get());
+    auto* active_op = active_module->symbols.entries[0].defining_op;
+    auto* other_op = other_module->symbols.entries[0].defining_op;
+    auto* unknown_op = active_module->symbols.entries[1].defining_op;
+    unknown_op->location = LOOM_LOCATION_UNKNOWN;
+    loom_diagnostic_related_op_t related[7] = {};
+    related[0].label = IREE_SV("active module");
+    related[0].op = active_op;
+    related[1].label = IREE_SV("explicit module");
+    related[1].module = other_module;
+    related[1].op = other_op;
+    related[2] = related[0];
+    related[3] = related[1];
+    related[4] = related[0];
+    related[5].label = IREE_SV("no operation");
+    related[6].label = IREE_SV("unknown location");
+    related[6].op = unknown_op;
+    loom_diagnostic_param_t param = loom_param_string(IREE_SV("x"));
+    loom_diagnostic_emission_t emission = {};
+    emission.module = other_module;
+    emission.op = other_op;
+    emission.error = loom_error_def_lookup(LOOM_ERROR_DOMAIN_PARSE, 1);
+    emission.params = &param;
+    emission.param_count = 1;
+    emission.related_ops = related;
+    emission.related_op_count = IREE_ARRAYSIZE(related);
+    loomc_result_t* captured = nullptr;
+    LOOMC_ASSERT_OK(loomc_result_create(LOOMC_RESULT_STATE_FAILED,
+                                        loomc_allocator_system(), &captured));
+    result.reset(captured);
+    LOOMC_ASSERT_OK(loomc_result_add_loom_diagnostic_emission(
+        result.get(), active_module, LOOM_EMITTER_VERIFIER, &emission));
+    emission.op = nullptr;
+    LOOMC_ASSERT_OK(loomc_result_add_loom_diagnostic_emission(
+        result.get(), active_module, LOOM_EMITTER_VERIFIER, &emission));
+  }
+  const auto* diagnostic = loomc_result_diagnostic_at(result.get(), 0);
+  ASSERT_NE(diagnostic, nullptr);
+  EXPECT_EQ(ToString(loomc_source_identifier(diagnostic->range.source)),
+            "other.loom");
+  ASSERT_EQ(diagnostic->related_location_count, 4u);
+  EXPECT_EQ(diagnostic->related_location_omitted_count, 1u);
+  const auto* related = diagnostic->related_locations;
+  EXPECT_EQ(ToString(related[0].label), "active module");
+  EXPECT_EQ(ToString(loomc_source_identifier(related[0].range.source)),
+            "active.loom");
+  EXPECT_EQ(related[0].range.start_line, 2u);
+  EXPECT_EQ(ToString(related[1].label), "explicit module");
+  EXPECT_EQ(related[1].range.source, diagnostic->range.source);
+  EXPECT_EQ(related[2].range.source, related[0].range.source);
+  EXPECT_EQ(loomc_source_contents(related[0].range.source).data_length, 0u);
+
+  const auto* without_primary = loomc_result_diagnostic_at(result.get(), 1);
+  ASSERT_NE(without_primary, nullptr);
+  EXPECT_EQ(without_primary->range.source, nullptr);
+  ASSERT_EQ(without_primary->related_location_count, 4u);
+  EXPECT_EQ(without_primary->related_location_omitted_count, 1u);
+  related = without_primary->related_locations;
+  EXPECT_EQ(ToString(loomc_source_identifier(related[0].range.source)),
+            "active.loom");
+  EXPECT_EQ(ToString(loomc_source_identifier(related[1].range.source)),
+            "other.loom");
+  EXPECT_EQ(related[2].range.source, related[0].range.source);
+  EXPECT_EQ(related[3].range.source, related[1].range.source);
 }
 
 }  // namespace

@@ -393,11 +393,7 @@ class AmdgpuSanitizerRaceReportTest : public ::testing::Test {
         LOOM_LOCATION_UNKNOWN, out_packet_address);
   }
 
-  loom_amdgpu_sanitizer_race_report_t MakeReport(
-      const loom_amdgpu_feedback_config_values_t& config_values,
-      const loom_amdgpu_feedback_channel_header_values_t& channel_values) {
-    (void)config_values;
-    (void)channel_values;
+  loom_amdgpu_sanitizer_race_report_t MakeReport() {
     return {
         /*.check_kind=*/BuildVgprU32(1),
         /*.flags=*/BuildVgprU32(2),
@@ -441,8 +437,7 @@ TEST_F(AmdgpuSanitizerRaceReportTest, EmitsRaceReportPayloadStores) {
   IREE_ASSERT_OK(
       BuildFeedbackValues(&config_values, &channel_values, &packet_address));
 
-  const loom_amdgpu_sanitizer_race_report_t report =
-      MakeReport(config_values, channel_values);
+  const loom_amdgpu_sanitizer_race_report_t report = MakeReport();
   IREE_ASSERT_OK(loom_amdgpu_build_sanitizer_race_report_payload(
       &builder_, descriptor_set_, &packet_address, &report,
       LOOM_LOCATION_UNKNOWN));
@@ -583,8 +578,7 @@ TEST_F(AmdgpuSanitizerRaceReportTest, EmitsFatalRaceReportProducerCfg) {
       /*.workgroup_id_x=*/config_values.flags,
       /*.workitem_id_x=*/BuildVgprU32(9),
   };
-  const loom_amdgpu_sanitizer_race_report_t report =
-      MakeReport(config_values, channel_values);
+  const loom_amdgpu_sanitizer_race_report_t report = MakeReport();
   IREE_ASSERT_OK(loom_amdgpu_build_sanitizer_race_report_terminate(
       &builder_, descriptor_set_, config_symbol, &source, &report,
       LOOM_LOCATION_UNKNOWN));
@@ -674,21 +668,12 @@ TEST_F(AmdgpuSanitizerRaceReportTest, BranchesColdSitesToSharedReportIsland) {
 
   auto build_site_branch = [&](loom_block_t* site_block) {
     loom_builder_set_block(&builder_, site_block);
-    loom_amdgpu_feedback_config_values_t config_values = {};
-    IREE_ASSERT_OK(loom_amdgpu_build_feedback_config_values(
-        &builder_, descriptor_set_, config_symbol, LOOM_LOCATION_UNKNOWN,
-        &config_values));
-    loom_amdgpu_feedback_channel_header_values_t channel_values = {};
-    IREE_ASSERT_OK(loom_amdgpu_build_feedback_channel_header_values(
-        &builder_, descriptor_set_, config_values.channel_base,
-        LOOM_LOCATION_UNKNOWN, &channel_values));
     const loom_amdgpu_feedback_packet_source_t source = {
-        /*.dispatch_ptr=*/config_values.notify_signal,
-        /*.workgroup_id_x=*/config_values.flags,
+        /*.dispatch_ptr=*/BuildVgprU64(7),
+        /*.workgroup_id_x=*/BuildVgprU32(8),
         /*.workitem_id_x=*/BuildVgprU32(9),
     };
-    const loom_amdgpu_sanitizer_race_report_t report =
-        MakeReport(config_values, channel_values);
+    const loom_amdgpu_sanitizer_race_report_t report = MakeReport();
     IREE_ASSERT_OK(loom_amdgpu_build_sanitizer_race_report_branch(
         &builder_, descriptor_set_, &island, &source, &report,
         LOOM_LOCATION_UNKNOWN));
@@ -713,9 +698,9 @@ TEST_F(AmdgpuSanitizerRaceReportTest, BranchesColdSitesToSharedReportIsland) {
   EXPECT_EQ(island.report_args.prior_workitem_id_z,
             loom_block_arg_id(island.entry_block, 25));
   ExpectRegisterType(island.source_args.dispatch_ptr,
-                     LOOM_AMDGPU_REG_CLASS_ID_SGPR, 2);
+                     LOOM_AMDGPU_REG_CLASS_ID_VGPR, 2);
   ExpectRegisterType(island.source_args.workgroup_id_x,
-                     LOOM_AMDGPU_REG_CLASS_ID_SGPR, 1);
+                     LOOM_AMDGPU_REG_CLASS_ID_VGPR, 1);
   ExpectRegisterType(island.source_args.workitem_id_x,
                      LOOM_AMDGPU_REG_CLASS_ID_VGPR, 1);
   ExpectRegisterType(island.report_args.current_site_id,

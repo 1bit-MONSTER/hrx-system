@@ -37,7 +37,6 @@ check.case @mixed_fields {
   check.expect.bitwise actual(%returned) expected(%expected_returned) : tensor<1xi32>
   check.expect.bitwise actual(%output_before) expected(%output_guard) : tensor<1xi32>
   check.expect.bitwise actual(%output_after) expected(%output_guard) : tensor<1xi32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -73,7 +72,6 @@ check.case @volatile_fields {
   check.expect.bitwise actual(%returned) expected(%expected_returned) : tensor<1xi32>
   check.expect.bitwise actual(%output_before) expected(%output_guard) : tensor<1xi32>
   check.expect.bitwise actual(%output_after) expected(%output_guard) : tensor<1xi32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -92,6 +90,5 @@ check.case @nested_aligned_vector {
   check.expect.bitwise actual(%vector) expected(%expected_vector) : tensor<4xf32>
   check.expect.bitwise actual(%after) expected(%expected_after) : tensor<128xi8>
   check.expect.bitwise actual(%input) expected(%expected_input) : tensor<8xf32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }

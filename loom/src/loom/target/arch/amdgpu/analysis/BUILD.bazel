@@ -26,6 +26,7 @@ loom_cc_library(
         "//loom/src/loom/target/arch/amdgpu:target_info_defs",
         "//loom/src/loom/target/arch/amdgpu/refs:target_refs",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
     ],
 )
 

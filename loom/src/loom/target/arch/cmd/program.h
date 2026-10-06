@@ -57,14 +57,20 @@ typedef enum loom_cmd_program_argument_kind_e {
   LOOM_CMD_PROGRAM_ARGUMENT_KIND_B32 = 4,
   // An exact 64-bit scalar payload.
   LOOM_CMD_PROGRAM_ARGUMENT_KIND_B64 = 5,
+  // A signed logical index value stored in canonical 64-bit form.
+  LOOM_CMD_PROGRAM_ARGUMENT_KIND_INDEX = 6,
+  // An unsigned logical byte offset stored in canonical 64-bit form.
+  LOOM_CMD_PROGRAM_ARGUMENT_KIND_OFFSET = 7,
 } loom_cmd_program_argument_kind_t;
 
 // Logical argument schema for one executable-entry requirement.
 //
-// The schema identifies a program-local entry and describes every tagless
+// The schema identifies a program-local entry and describes every logical
 // dispatch payload targeting it. It does not encode native offsets, alignment,
 // or padding. Materializers combine the logical kinds with implementation
-// reflection when recording each dispatch.
+// reflection when recording each dispatch. INDEX and OFFSET retain their
+// source carrier semantics so materialization can validate and repack them to
+// a reflected target width; fixed-width B kinds require an exact width match.
 typedef struct loom_cmd_program_entry_schema_t {
   // Dense program-local executable entry requirement index.
   uint32_t entry_index;

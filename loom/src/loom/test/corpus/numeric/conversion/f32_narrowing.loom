@@ -1,0 +1,269 @@
+func.def public @narrow_f32(%input: f32) -> (bf16, f16, f8E4M3, f8E5M2) {
+  %bf16 = scalar.fptrunc %input : f32 to bf16
+  %f16 = scalar.fptrunc %input : f32 to f16
+  %e4m3 = scalar.fptrunc %input : f32 to f8E4M3
+  %e5m2 = scalar.fptrunc %input : f32 to f8E5M2
+  func.return %bf16, %f16, %e4m3, %e5m2 : bf16, f16, f8E4M3, f8E5M2
+}
+
+// Returns the exact destination carriers so finite rounding, signed zero,
+// saturation, and infinity behavior remain bitwise observable.
+func.def @narrow_f32_bits(%bits: i32) -> (i32, i32, i32, i32) {
+  %input = scalar.bitcast %bits : i32 to f32
+  %bf16, %f16, %e4m3, %e5m2 = func.call @narrow_f32(%input) : (f32) -> (bf16, f16, f8E4M3, f8E5M2)
+  %bf16_bits = scalar.bitcast %bf16 : bf16 to i16
+  %f16_bits = scalar.bitcast %f16 : f16 to i16
+  %e4m3_bits = scalar.bitcast %e4m3 : f8E4M3 to i8
+  %e5m2_bits = scalar.bitcast %e5m2 : f8E5M2 to i8
+  %bf16_result = scalar.extui %bf16_bits : i16 to i32
+  %f16_result = scalar.extui %f16_bits : i16 to i32
+  %e4m3_result = scalar.extui %e4m3_bits : i8 to i32
+  %e5m2_result = scalar.extui %e5m2_bits : i8 to i32
+  func.return %bf16_result, %f16_result, %e4m3_result, %e5m2_result : i32, i32, i32, i32
+}
+
+check.case @narrow_f32_positive_infinity {
+  %bits = check.literal value(2139095040) : i32
+  %bf16, %f16, %e4m3, %e5m2 = func.call @narrow_f32_bits(%bits) : (i32) -> (i32, i32, i32, i32)
+  %expected_bf16 = check.literal value(32640) : i32
+  %expected_f16 = check.literal value(31744) : i32
+  %expected_e4m3 = check.literal value(126) : i32
+  %expected_e5m2 = check.literal value(124) : i32
+  check.expect.equal actual(%bf16) expected(%expected_bf16) : i32
+  check.expect.equal actual(%f16) expected(%expected_f16) : i32
+  check.expect.equal actual(%e4m3) expected(%expected_e4m3) : i32
+  check.expect.equal actual(%e5m2) expected(%expected_e5m2) : i32
+  check.return
+}
+
+check.case @narrow_f32_negative_infinity {
+  %bits = check.literal value(-8388608) : i32
+  %bf16, %f16, %e4m3, %e5m2 = func.call @narrow_f32_bits(%bits) : (i32) -> (i32, i32, i32, i32)
+  %expected_bf16 = check.literal value(65408) : i32
+  %expected_f16 = check.literal value(64512) : i32
+  %expected_e4m3 = check.literal value(254) : i32
+  %expected_e5m2 = check.literal value(252) : i32
+  check.expect.equal actual(%bf16) expected(%expected_bf16) : i32
+  check.expect.equal actual(%f16) expected(%expected_f16) : i32
+  check.expect.equal actual(%e4m3) expected(%expected_e4m3) : i32
+  check.expect.equal actual(%e5m2) expected(%expected_e5m2) : i32
+  check.return
+}
+
+// NaN payloads have no cross-target identity contract; every result must
+// remain a NaN in the destination format.
+check.case @narrow_f32_nan {
+  %input = check.literal value(nan) : f32
+  %bf16, %f16, %e4m3, %e5m2 = func.call @narrow_f32(%input) : (f32) -> (bf16, f16, f8E4M3, f8E5M2)
+  %expected_bf16 = check.literal value(nan) : bf16
+  %expected_f16 = check.literal value(nan) : f16
+  %expected_e4m3 = check.literal value(nan) : f8E4M3
+  %expected_e5m2 = check.literal value(nan) : f8E5M2
+  check.expect.close actual(%bf16) expected(%expected_bf16) atol(0.0) rtol(0.0) nan(same) : bf16
+  check.expect.close actual(%f16) expected(%expected_f16) atol(0.0) rtol(0.0) nan(same) : f16
+  check.expect.close actual(%e4m3) expected(%expected_e4m3) atol(0.0) rtol(0.0) nan(same) : f8E4M3
+  check.expect.close actual(%e5m2) expected(%expected_e5m2) atol(0.0) rtol(0.0) nan(same) : f8E5M2
+  check.return
+}
+
+func.def @narrow_f32_pairs(%input: buffer, %bf16_output: buffer, %f16_output: buffer, %e4m3_output: buffer, %e5m2_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 64 : index
+  %step = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c1 = index.constant 1 : index
+  %sign = scalar.constant -2147483648 : i32
+  %input_view = buffer.view %input[%base] : buffer -> view<64xi32>
+  %bf16_view = buffer.view %bf16_output[%base] : buffer -> view<128xi32>
+  %f16_view = buffer.view %f16_output[%base] : buffer -> view<128xi32>
+  %e4m3_view = buffer.view %e4m3_output[%base] : buffer -> view<128xi32>
+  %e5m2_view = buffer.view %e5m2_output[%base] : buffer -> view<128xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %positive_bits = view.load %input_view[%i] : view<64xi32> -> i32
+    %negative_bits = scalar.ori %positive_bits, %sign : i32
+    %positive_bf16_bits, %positive_f16_bits, %positive_e4m3_bits, %positive_e5m2_bits = func.call @narrow_f32_bits(%positive_bits) : (i32) -> (i32, i32, i32, i32)
+    %positive_bf16, %positive_f16, %positive_e4m3, %positive_e5m2 = func.call @canonicalize_narrow_nan_bits(%positive_bf16_bits, %positive_f16_bits, %positive_e4m3_bits, %positive_e5m2_bits) : (i32, i32, i32, i32) -> (i32, i32, i32, i32)
+    %negative_bf16_bits, %negative_f16_bits, %negative_e4m3_bits, %negative_e5m2_bits = func.call @narrow_f32_bits(%negative_bits) : (i32) -> (i32, i32, i32, i32)
+    %negative_bf16, %negative_f16, %negative_e4m3, %negative_e5m2 = func.call @canonicalize_narrow_nan_bits(%negative_bf16_bits, %negative_f16_bits, %negative_e4m3_bits, %negative_e5m2_bits) : (i32, i32, i32, i32) -> (i32, i32, i32, i32)
+    %position = index.mul %i, %c2 : index
+    %negative_position = index.add %position, %c1 : index
+    view.store %positive_bf16, %bf16_view[%position] : i32, view<128xi32>
+    view.store %negative_bf16, %bf16_view[%negative_position] : i32, view<128xi32>
+    view.store %positive_f16, %f16_view[%position] : i32, view<128xi32>
+    view.store %negative_f16, %f16_view[%negative_position] : i32, view<128xi32>
+    view.store %positive_e4m3, %e4m3_view[%position] : i32, view<128xi32>
+    view.store %negative_e4m3, %e4m3_view[%negative_position] : i32, view<128xi32>
+    view.store %positive_e5m2, %e5m2_view[%position] : i32, view<128xi32>
+    view.store %negative_e5m2, %e5m2_view[%negative_position] : i32, view<128xi32>
+  }
+  func.return
+}
+
+// Canonicalizes only NaN carriers so classification can be compared without
+// imposing a cross-target payload or sign identity.
+func.def inline @canonicalize_narrow_nan_bits(%bf16: i32, %f16: i32, %e4m3: i32, %e5m2: i32) -> (i32, i32, i32, i32) {
+  %bf16_magnitude_mask = scalar.constant 32767 : i32
+  %bf16_infinity = scalar.constant 32640 : i32
+  %bf16_nan_bits = scalar.constant 32704 : i32
+  %bf16_magnitude = scalar.andi %bf16, %bf16_magnitude_mask : i32
+  %bf16_is_nan = scalar.cmpi ugt, %bf16_magnitude, %bf16_infinity : i32
+  %canonical_bf16 = scf.select %bf16_is_nan, %bf16_nan_bits, %bf16 : i32
+  %f16_magnitude_mask = scalar.constant 32767 : i32
+  %f16_infinity = scalar.constant 31744 : i32
+  %f16_nan_bits = scalar.constant 32256 : i32
+  %f16_magnitude = scalar.andi %f16, %f16_magnitude_mask : i32
+  %f16_is_nan = scalar.cmpi ugt, %f16_magnitude, %f16_infinity : i32
+  %canonical_f16 = scf.select %f16_is_nan, %f16_nan_bits, %f16 : i32
+  %float8_magnitude_mask = scalar.constant 127 : i32
+  %e4m3_nan_magnitude = scalar.constant 127 : i32
+  %e4m3_magnitude = scalar.andi %e4m3, %float8_magnitude_mask : i32
+  %e4m3_is_nan = scalar.cmpi eq, %e4m3_magnitude, %e4m3_nan_magnitude : i32
+  %canonical_e4m3 = scf.select %e4m3_is_nan, %e4m3_nan_magnitude, %e4m3 : i32
+  %e5m2_infinity = scalar.constant 124 : i32
+  %e5m2_nan_bits = scalar.constant 126 : i32
+  %e5m2_magnitude = scalar.andi %e5m2, %float8_magnitude_mask : i32
+  %e5m2_is_nan = scalar.cmpi ugt, %e5m2_magnitude, %e5m2_infinity : i32
+  %canonical_e5m2 = scf.select %e5m2_is_nan, %e5m2_nan_bits, %e5m2 : i32
+  func.return %canonical_bf16, %canonical_f16, %canonical_e4m3, %canonical_e5m2 : i32, i32, i32, i32
+}
+
+// Each 64-value window straddles one source or destination representation
+// boundary. Both signs are observed for every source value.
+func.def @narrow_f32_window(%window_base: i32, %output_offset: index, %bf16_output: buffer, %f16_output: buffer, %e4m3_output: buffer, %e5m2_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 64 : index
+  %step = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c1 = index.constant 1 : index
+  %sign = scalar.constant -2147483648 : i32
+  %bounded_output_offset = index.assume %output_offset [range(%output_offset, 0, 2304)] : index
+  %bf16_view = buffer.view %bf16_output[%base] : buffer -> view<2432xi32>
+  %f16_view = buffer.view %f16_output[%base] : buffer -> view<2432xi32>
+  %e4m3_view = buffer.view %e4m3_output[%base] : buffer -> view<2432xi32>
+  %e5m2_view = buffer.view %e5m2_output[%base] : buffer -> view<2432xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %ordinal = index.cast %i : index to i32
+    %positive_bits = scalar.addi %window_base, %ordinal : i32
+    %negative_bits = scalar.ori %positive_bits, %sign : i32
+    %positive_bf16, %positive_f16, %positive_e4m3, %positive_e5m2 = func.call @narrow_f32_bits(%positive_bits) : (i32) -> (i32, i32, i32, i32)
+    %negative_bf16, %negative_f16, %negative_e4m3, %negative_e5m2 = func.call @narrow_f32_bits(%negative_bits) : (i32) -> (i32, i32, i32, i32)
+    %pair_offset = index.mul %i, %c2 : index
+    %position = index.add %bounded_output_offset, %pair_offset : index
+    %negative_position = index.add %position, %c1 : index
+    view.store %positive_bf16, %bf16_view[%position] : i32, view<2432xi32>
+    view.store %negative_bf16, %bf16_view[%negative_position] : i32, view<2432xi32>
+    view.store %positive_f16, %f16_view[%position] : i32, view<2432xi32>
+    view.store %negative_f16, %f16_view[%negative_position] : i32, view<2432xi32>
+    view.store %positive_e4m3, %e4m3_view[%position] : i32, view<2432xi32>
+    view.store %negative_e4m3, %e4m3_view[%negative_position] : i32, view<2432xi32>
+    view.store %positive_e5m2, %e5m2_view[%position] : i32, view<2432xi32>
+    view.store %negative_e5m2, %e5m2_view[%negative_position] : i32, view<2432xi32>
+  }
+  func.return
+}
+
+func.def @narrow_f32_boundaries(%bf16_output: buffer, %f16_output: buffer, %e4m3_output: buffer, %e5m2_output: buffer) {
+  %offset0 = index.constant 0 : index
+  %offset1 = index.constant 128 : index
+  %offset2 = index.constant 256 : index
+  %offset3 = index.constant 384 : index
+  %offset4 = index.constant 512 : index
+  %offset5 = index.constant 640 : index
+  %offset6 = index.constant 768 : index
+  %offset7 = index.constant 896 : index
+  %offset8 = index.constant 1024 : index
+  %offset9 = index.constant 1152 : index
+  %offset10 = index.constant 1280 : index
+  %offset11 = index.constant 1408 : index
+  %offset12 = index.constant 1536 : index
+  %offset13 = index.constant 1664 : index
+  %offset14 = index.constant 1792 : index
+  %offset15 = index.constant 1920 : index
+  %offset16 = index.constant 2048 : index
+  %offset17 = index.constant 2176 : index
+  %offset18 = index.constant 2304 : index
+  %window0 = scalar.constant 0 : i32
+  %window1 = scalar.constant 8388576 : i32
+  %window2 = scalar.constant 2139094976 : i32
+  %window3 = scalar.constant 32736 : i32
+  %window4 = scalar.constant 8355808 : i32
+  %window5 = scalar.constant 1065385952 : i32
+  %window6 = scalar.constant 2139062240 : i32
+  %window7 = scalar.constant 855637984 : i32
+  %window8 = scalar.constant 947904480 : i32
+  %window9 = scalar.constant 1065357280 : i32
+  %window10 = scalar.constant 1199566816 : i32
+  %window11 = scalar.constant 981467104 : i32
+  %window12 = scalar.constant 1013972960 : i32
+  %window13 = scalar.constant 1065877472 : i32
+  %window14 = scalar.constant 1138753504 : i32
+  %window15 = scalar.constant 922746848 : i32
+  %window16 = scalar.constant 945815520 : i32
+  %window17 = scalar.constant 1066401760 : i32
+  %window18 = scalar.constant 1198522336 : i32
+  func.call @narrow_f32_window(%window0, %offset0, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window1, %offset1, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window2, %offset2, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window3, %offset3, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window4, %offset4, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window5, %offset5, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window6, %offset6, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window7, %offset7, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window8, %offset8, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window9, %offset9, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window10, %offset10, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window11, %offset11, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window12, %offset12, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window13, %offset13, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window14, %offset14, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window15, %offset15, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window16, %offset16, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window17, %offset17, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.call @narrow_f32_window(%window18, %offset18, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (i32, index, buffer, buffer, buffer, buffer)
+  func.return
+}
+
+check.scenario @f32_narrowing_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(0 to 2139095039) : tensor<64xi32>
+    %bf16_output = check.generate.fill value(-1) : tensor<128xi32>
+    %f16_output = check.generate.fill value(-1) : tensor<128xi32>
+    %e4m3_output = check.generate.fill value(-1) : tensor<128xi32>
+    %e5m2_output = check.generate.fill value(-1) : tensor<128xi32>
+    check.compare<@narrow_f32_pairs>(%input, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (tensor<64xi32>, tensor<128xi32>, tensor<128xi32>, tensor<128xi32>, tensor<128xi32>) -> () {
+      check.expect.bitwise actual(%bf16_output) expected(%bf16_output) : tensor<128xi32>
+      check.expect.bitwise actual(%f16_output) expected(%f16_output) : tensor<128xi32>
+      check.expect.bitwise actual(%e4m3_output) expected(%e4m3_output) : tensor<128xi32>
+      check.expect.bitwise actual(%e5m2_output) expected(%e5m2_output) : tensor<128xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %bf16_output = check.generate.fill value(-1) : tensor<2432xi32>
+    %f16_output = check.generate.fill value(-1) : tensor<2432xi32>
+    %e4m3_output = check.generate.fill value(-1) : tensor<2432xi32>
+    %e5m2_output = check.generate.fill value(-1) : tensor<2432xi32>
+    check.compare<@narrow_f32_boundaries>(%bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (tensor<2432xi32>, tensor<2432xi32>, tensor<2432xi32>, tensor<2432xi32>) -> () {
+      check.expect.bitwise actual(%bf16_output) expected(%bf16_output) : tensor<2432xi32>
+      check.expect.bitwise actual(%f16_output) expected(%f16_output) : tensor<2432xi32>
+      check.expect.bitwise actual(%e4m3_output) expected(%e4m3_output) : tensor<2432xi32>
+      check.expect.bitwise actual(%e5m2_output) expected(%e5m2_output) : tensor<2432xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %special_bits = check.generate.iota offset(2139095040) step(1) : tensor<64xi32>
+    %bf16_output = check.generate.fill value(-1) : tensor<128xi32>
+    %f16_output = check.generate.fill value(-1) : tensor<128xi32>
+    %e4m3_output = check.generate.fill value(-1) : tensor<128xi32>
+    %e5m2_output = check.generate.fill value(-1) : tensor<128xi32>
+    check.compare<@narrow_f32_pairs>(%special_bits, %bf16_output, %f16_output, %e4m3_output, %e5m2_output) : (tensor<64xi32>, tensor<128xi32>, tensor<128xi32>, tensor<128xi32>, tensor<128xi32>) -> () {
+      check.expect.bitwise actual(%bf16_output) expected(%bf16_output) : tensor<128xi32>
+      check.expect.bitwise actual(%f16_output) expected(%f16_output) : tensor<128xi32>
+      check.expect.bitwise actual(%e4m3_output) expected(%e4m3_output) : tensor<128xi32>
+      check.expect.bitwise actual(%e5m2_output) expected(%e5m2_output) : tensor<128xi32>
+    }
+  }
+  check.return
+}

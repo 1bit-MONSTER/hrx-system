@@ -28,6 +28,21 @@ low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @scalar_i32_unifo
 
 // ====
 
+func.def @scalar_i32_multiply_add(%a: i32, %b: i32, %c: i32) -> (i32) {
+  %product = scalar.muli %a, %b : i32
+  %result = scalar.addi %product, %c : i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @scalar_i32_multiply_add(%a: reg<amdgpu.sgpr>, %b: reg<amdgpu.sgpr>, %c: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>) asm {
+  %product = s_mul_i32 %a, %b
+  %result = s_add_u32 %product, %c
+  return %result
+}
+
+// ====
+
 func.def @scalar_i32_bitfield_sgpr(%word: i32) -> (i32, i32, i32, i32) {
   %unsigned_byte = scalar.bitfield.extractu %word {offset = 8, width = 8} : i32 -> i32
   %signed_byte = scalar.bitfield.extracts %word {offset = 16, width = 8} : i32 -> i32

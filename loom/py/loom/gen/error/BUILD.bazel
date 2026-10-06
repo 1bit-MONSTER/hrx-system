@@ -15,6 +15,7 @@ GENERATOR_VISIBILITY = [
     "//loom/py/loom/gen:__subpackages__",
     "//loom/src/loom/error:__pkg__",
     "//loom/src/loom/target/arch/amdgpu:__pkg__",
+    "//loom/src/loom/target/arch/amd/xdna:__pkg__",
     "//loom/src/loom/target/arch/spirv:__pkg__",
     "//loom/src/loom/target/emit/wasm:__pkg__",
 ]

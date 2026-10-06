@@ -29,6 +29,7 @@ extern "C" {
 // facts through the owning provider. Semantically equivalent but independently
 // produced contexts remain distinct.
 //
+// Source IDs are preserved by the complete module clone.
 // The source module and function versions remain unchanged. A non-target
 // function-version representation is rejected because this layer cannot prove
 // that its compiler-owned semantics survived the clone. The source module and
@@ -36,10 +37,16 @@ extern "C" {
 //
 // The caller owns |*out_projected_module| and must release it with
 // loom_module_free().
+//
+// When |out_versions| is non-NULL, it must be initialized and empty. The clone
+// retains independent target facts, applied schedules, and packet memory
+// proofs in that owner. It can outlive the source module and its compilation
+// storage. NULL requests only the standalone IR projection used by serializers.
 iree_status_t loom_target_function_versions_project_module(
     const loom_module_t* source_module,
     const loom_function_version_list_t* function_versions,
     iree_arena_block_pool_t* block_pool, iree_allocator_t allocator,
+    loom_function_version_owner_t* out_versions,
     loom_module_t** out_projected_module);
 
 #ifdef __cplusplus

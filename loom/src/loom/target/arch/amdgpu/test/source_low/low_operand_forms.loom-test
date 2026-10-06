@@ -127,7 +127,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @vop2_f32_literal_fallback_add(%
 
 amdgpu.target<gfx1100> @target
 
-low.func.def target<amdgpu.rdna3.core>(@target) @vop3_literal_mad(%a: reg<amdgpu.sgpr>, %addend: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+low.func.def target<amdgpu.rdna3.core>(@target) @vop3_inline_mad(%a: reg<amdgpu.sgpr>, %addend: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
   %b = v_mov_b32 9
   %result = v_mad_u32_u24 %a, %b, %addend
   return %result
@@ -136,8 +136,26 @@ low.func.def target<amdgpu.rdna3.core>(@target) @vop3_literal_mad(%a: reg<amdgpu
 // ----
 amdgpu.target<gfx1100> @target
 
+low.func.def target<amdgpu.rdna3.core>(@target) @vop3_inline_mad(%a: reg<amdgpu.sgpr>, %addend: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %result = v_mad_u32_u24_src1_inline %a, %addend, 9
+  return %result
+}
+
+// ====
+
+amdgpu.target<gfx1100> @target
+
 low.func.def target<amdgpu.rdna3.core>(@target) @vop3_literal_mad(%a: reg<amdgpu.sgpr>, %addend: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
-  %result = v_mad_u32_u24_src1_lit %a, %addend, 9
+  %b = v_mov_b32 128
+  %result = v_mad_u32_u24 %a, %b, %addend
+  return %result
+}
+
+// ----
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @vop3_literal_mad(%a: reg<amdgpu.sgpr>, %addend: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %result = v_mad_u32_u24_src1_lit %a, %addend, 128
   return %result
 }
 

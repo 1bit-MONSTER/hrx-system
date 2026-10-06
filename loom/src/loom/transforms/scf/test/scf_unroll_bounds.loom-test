@@ -202,3 +202,69 @@ func.def @dynamic_recurrence_nonunit_step(%payload: buffer, %base: offset, %end0
   test.use %total : i32
   func.return
 }
+
+// ====
+// RUN: pass unroll-scf-for,canonicalize
+
+// A structured true edge proves the complete tile without duplicating its
+// guard as an index.assume inside the branch.
+func.def @guarded_full_tile_unroll(%remaining: index) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %tile_size = index.constant 8 : index
+  %has_full_tile = index.cmp sge, %remaining, %tile_size : index
+  scf.if %has_full_tile {
+    %tile_end = index.min %remaining, %tile_size : index
+    scf.for %i = [%begin to %tile_end step %step] unroll {
+      test.use %i : index
+    }
+  }
+  func.return
+}
+
+// ----
+func.def @guarded_full_tile_unroll(%remaining: index) {
+  %tile_size = index.constant 8 : index
+  %has_full_tile = index.cmp sge, %remaining, %tile_size : index
+  scf.if %has_full_tile {
+    %i_0 = index.constant 0 : index
+    test.use %i_0 : index
+    %i_1 = index.constant 1 : index
+    test.use %i_1 : index
+    %i_2 = index.constant 2 : index
+    test.use %i_2 : index
+    %i_3 = index.constant 3 : index
+    test.use %i_3 : index
+    %i_4 = index.constant 4 : index
+    test.use %i_4 : index
+    %i_5 = index.constant 5 : index
+    test.use %i_5 : index
+    %i_6 = index.constant 6 : index
+    test.use %i_6 : index
+    %i_7 = index.constant 7 : index
+    test.use %i_7 : index
+  }
+  func.return
+}
+
+// ====
+// RUN: pass unroll-scf-for
+
+// The complementary edge only bounds the tail; its trip count remains
+// dynamic and cannot satisfy bare unroll.
+func.def @partial_tile_unroll_remains_dynamic(%remaining: index) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %tile_size = index.constant 8 : index
+  %has_full_tile = index.cmp sge, %remaining, %tile_size : index
+  scf.if %has_full_tile {
+    test.use %remaining : index
+  } else {
+    %tile_end = index.min %remaining, %tile_size : index
+    // ERROR@+1: STRUCTURE/014 {attr_name="unroll", expected_constraint="exact static trip count"}
+    scf.for %i = [%begin to %tile_end step %step] unroll {
+      test.use %i : index
+    }
+  }
+  func.return
+}

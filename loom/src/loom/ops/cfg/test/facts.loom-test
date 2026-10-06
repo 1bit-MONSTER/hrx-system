@@ -28,3 +28,49 @@ func.def @join_meets_unknown_incoming_edge(%condition: i1, %unknown: index) -> (
   %hi = scalar.constant 9223372036854775807 : i64
   func.return %lo, %hi : i64, i64
 }
+
+// ====
+
+// Floating classification survives a join whose predecessors have different
+// values. The join appears before its second predecessor in source order.
+func.def @join_finite_values(%condition: i1, %input: f32) -> (i1) {
+  %c0 = scalar.constant 0.0 : f32
+  cfg.cond_br %condition, ^finite_edge, ^zero_edge
+^finite_edge:
+  %finite_input = scalar.assume %input [finite(%input)] : f32
+  cfg.br ^join(%finite_input: f32)
+^join(%value: f32):
+  %finite = scalar.isfinitef %value : f32
+  func.return %finite : i1
+^zero_edge:
+  cfg.br ^join(%c0: f32)
+}
+
+// ----
+func.def @join_finite_values(%condition: i1, %input: f32) -> (i1) {
+  %c0 = scalar.constant 0.0 : f32
+  cfg.cond_br %condition, ^finite_edge, ^zero_edge
+^finite_edge:
+  %finite_input = scalar.assume %input [finite(%input)] : f32
+  cfg.br ^join(%finite_input: f32)
+^join(%value: f32):
+  %finite = scalar.constant true : i1
+  func.return %finite : i1
+^zero_edge:
+  cfg.br ^join(%c0: f32)
+}
+
+// ====
+
+// A later unknown predecessor prevents a finite classification at the join.
+func.def @join_unknown_float(%condition: i1, %input: f32) -> (i1) {
+  %c0 = scalar.constant 0.0 : f32
+  cfg.cond_br %condition, ^zero_edge, ^unknown_edge
+^zero_edge:
+  cfg.br ^join(%c0: f32)
+^join(%value: f32):
+  %finite = scalar.isfinitef %value : f32
+  func.return %finite : i1
+^unknown_edge:
+  cfg.br ^join(%input: f32)
+}

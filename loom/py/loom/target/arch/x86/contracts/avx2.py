@@ -19,6 +19,10 @@ from loom.dialect.scf import defs as scf
 from loom.dialect.vector import ALL_VECTOR_OPS
 from loom.dialect.vector import defs as vector
 from loom.dsl import Op
+from loom.target.arch.x86.contracts.floating_reduction import (
+    f32x4_reassociated_reduce_emit_chain,
+    ordered_f32_reduce_emit_chain,
+)
 from loom.target.arch.x86.contracts.memory import x86_vector_memory_rules
 from loom.target.arch.x86.descriptors import X86_AVX2_DESCRIPTOR_SET
 from loom.target.contracts import (
@@ -50,6 +54,7 @@ _DescriptorLookup = Callable[[str], Descriptor]
 _I1 = Scalar("i1")
 _I32 = Scalar("i32")
 _I64 = Scalar("i64")
+_BF16 = Scalar("bf16")
 _F32 = Scalar("f32")
 _F64 = Scalar("f64")
 _V2I64 = Vector("i64", lanes=2)
@@ -114,6 +119,35 @@ def _conversion_rule(
             _op_emit(
                 descriptor=descriptor,
                 operands={"input": ValueRef.operand("input")},
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
+def _bf16_to_f32_rule(descriptor_lookup: _DescriptorLookup) -> DescriptorRule:
+    shift = descriptor_lookup("x86.scalar.shl.imm.gpr32")
+    move = descriptor_lookup("x86.avx2.vmovd.xmm.gpr32")
+    # BF16 is the high half of the FP32 encoding. The shift discards unused
+    # carrier bits and preserves subnormals without floating-point arithmetic.
+    return DescriptorRule(
+        source_op=scalar_conversion.scalar_extf,
+        descriptor=move,
+        guards=(
+            Guard.value_type("input", _BF16),
+            Guard.value_type("result", _F32),
+        ),
+        emit=(
+            _op_emit(
+                descriptor=shift,
+                operands={"lhs": ValueRef.operand("input")},
+                results={"dst": ValueRef.temporary("bits")},
+                result_types={"dst": _I32},
+                immediates={"shift": 16},
+            ),
+            _op_emit(
+                descriptor=move,
+                operands={"input": ValueRef.temporary("bits")},
                 results={"dst": ValueRef.result("result")},
             ),
         ),
@@ -340,59 +374,31 @@ def _memory_rules(
     )
 
 
-def _f32x4_reduce_emit_chain(
-    input_value: ValueRef,
+def _reduce_f32x4_ordered_rule(
     descriptor_lookup: _DescriptorLookup,
-    *,
-    temporary_prefix: str = "",
-) -> tuple[EmitDescriptorOp, ...]:
-    shuffle = descriptor_lookup("x86.avx2.vpermilps.xmm")
-    addps = descriptor_lookup("x86.avx2.vaddps.xmm")
+) -> DescriptorRule:
     addss = descriptor_lookup("x86.avx2.vaddss.xmm")
-
-    def temp(name: str) -> ValueRef:
-        return ValueRef.temporary(f"{temporary_prefix}{name}")
-
-    return (
-        _op_emit(
-            descriptor=shuffle,
-            operands={"source": input_value},
-            results={"dst": temp("shuffle0")},
-            result_types={"dst": _V4F32},
-            immediates={"control": 78},
+    vpermilps = descriptor_lookup("x86.avx2.vpermilps.xmm")
+    return DescriptorRule(
+        source_op=vector.vector_reduce,
+        descriptor=addss,
+        guards=(
+            Guard.enum_attr_equals("kind", "addf"),
+            Guard.instance_flags_has_none("fastmath", "reassoc"),
+            Guard.value_type("input", _V4F32),
+            Guard.value_type("init", _F32),
+            Guard.value_type("result", _F32),
+            Guard.descriptor_available(vpermilps),
+            Guard.descriptor_available(addss),
         ),
-        _op_emit(
-            descriptor=addps,
-            operands={"lhs": input_value, "rhs": temp("shuffle0")},
-            results={"dst": temp("pair_sum")},
-            result_types={"dst": _V4F32},
-        ),
-        _op_emit(
-            descriptor=shuffle,
-            operands={"source": temp("pair_sum")},
-            results={"dst": temp("shuffle1")},
-            result_types={"dst": _V4F32},
-            immediates={"control": 177},
-        ),
-        _op_emit(
-            descriptor=addps,
-            operands={"lhs": temp("pair_sum"), "rhs": temp("shuffle1")},
-            results={"dst": temp("vector_sum")},
-            result_types={"dst": _V4F32},
-        ),
-        _op_emit(
-            descriptor=addss,
-            operands={
-                "lhs": ValueRef.operand("init"),
-                "rhs": temp("vector_sum"),
-            },
-            results={"dst": ValueRef.result("result")},
-            result_types={"dst": _F32},
+        emit=ordered_f32_reduce_emit_chain(
+            (ValueRef.operand("input"),),
+            descriptor_lookup,
         ),
     )
 
 
-def _reduce_f32x4_rule(
+def _reduce_f32x4_reassociated_rule(
     descriptor_lookup: _DescriptorLookup,
 ) -> DescriptorRule:
     addss = descriptor_lookup("x86.avx2.vaddss.xmm")
@@ -403,6 +409,7 @@ def _reduce_f32x4_rule(
         descriptor=addss,
         guards=(
             Guard.enum_attr_equals("kind", "addf"),
+            Guard.instance_flags_has_all("fastmath", "reassoc"),
             Guard.value_type("input", _V4F32),
             Guard.value_type("init", _F32),
             Guard.value_type("result", _F32),
@@ -410,9 +417,102 @@ def _reduce_f32x4_rule(
             Guard.descriptor_available(vaddps),
             Guard.descriptor_available(addss),
         ),
-        emit=_f32x4_reduce_emit_chain(
+        emit=f32x4_reassociated_reduce_emit_chain(
             ValueRef.operand("input"),
             descriptor_lookup,
+        ),
+    )
+
+
+def _f32x8_extract_emit_chain(extract: Descriptor) -> tuple[EmitDescriptorOp, ...]:
+    return (
+        _op_emit(
+            descriptor=extract,
+            operands={"source": ValueRef.operand("input")},
+            results={"dst": ValueRef.temporary("low_half")},
+            result_types={"dst": _V4F32},
+            immediates={"lane": 0},
+        ),
+        _op_emit(
+            descriptor=extract,
+            operands={"source": ValueRef.operand("input")},
+            results={"dst": ValueRef.temporary("high_half")},
+            result_types={"dst": _V4F32},
+            immediates={"lane": 1},
+        ),
+    )
+
+
+def _reduce_f32x8_ordered_rule(
+    descriptor_lookup: _DescriptorLookup,
+) -> DescriptorRule:
+    extract = descriptor_lookup("x86.avx2.vextractf128.xmm.ymm")
+    addss = descriptor_lookup("x86.avx2.vaddss.xmm")
+    vpermilps = descriptor_lookup("x86.avx2.vpermilps.xmm")
+    return DescriptorRule(
+        source_op=vector.vector_reduce,
+        descriptor=addss,
+        guards=(
+            Guard.enum_attr_equals("kind", "addf"),
+            Guard.instance_flags_has_none("fastmath", "reassoc"),
+            Guard.value_type("input", _V8F32),
+            Guard.value_type("init", _F32),
+            Guard.value_type("result", _F32),
+            Guard.descriptor_available(extract),
+            Guard.descriptor_available(vpermilps),
+            Guard.descriptor_available(addss),
+        ),
+        emit=(
+            *_f32x8_extract_emit_chain(extract),
+            *ordered_f32_reduce_emit_chain(
+                (
+                    ValueRef.temporary("low_half"),
+                    ValueRef.temporary("high_half"),
+                ),
+                descriptor_lookup,
+                temporary_prefix="ordered_",
+            ),
+        ),
+    )
+
+
+def _reduce_f32x8_reassociated_rule(
+    descriptor_lookup: _DescriptorLookup,
+) -> DescriptorRule:
+    extract = descriptor_lookup("x86.avx2.vextractf128.xmm.ymm")
+    addps = descriptor_lookup("x86.avx2.vaddps.xmm")
+    addss = descriptor_lookup("x86.avx2.vaddss.xmm")
+    vpermilps = descriptor_lookup("x86.avx2.vpermilps.xmm")
+    return DescriptorRule(
+        source_op=vector.vector_reduce,
+        descriptor=addss,
+        guards=(
+            Guard.enum_attr_equals("kind", "addf"),
+            Guard.instance_flags_has_all("fastmath", "reassoc"),
+            Guard.value_type("input", _V8F32),
+            Guard.value_type("init", _F32),
+            Guard.value_type("result", _F32),
+            Guard.descriptor_available(extract),
+            Guard.descriptor_available(vpermilps),
+            Guard.descriptor_available(addps),
+            Guard.descriptor_available(addss),
+        ),
+        emit=(
+            *_f32x8_extract_emit_chain(extract),
+            _op_emit(
+                descriptor=addps,
+                operands={
+                    "lhs": ValueRef.temporary("low_half"),
+                    "rhs": ValueRef.temporary("high_half"),
+                },
+                results={"dst": ValueRef.temporary("half_sum")},
+                result_types={"dst": _V4F32},
+            ),
+            *f32x4_reassociated_reduce_emit_chain(
+                ValueRef.temporary("half_sum"),
+                descriptor_lookup,
+                temporary_prefix="horizontal_",
+            ),
         ),
     )
 
@@ -420,6 +520,7 @@ def _reduce_f32x4_rule(
 def _cases() -> Sequence[ContractCase]:
     descriptor_lookup = _descriptor
     return (
+        _bf16_to_f32_rule(descriptor_lookup),
         *(
             _select_rule(type_pattern, descriptor_lookup)
             for type_pattern in (_F32, _F64)
@@ -524,7 +625,10 @@ def _cases() -> Sequence[ContractCase]:
             ),
             lane_count=4,
         ),
-        _reduce_f32x4_rule(descriptor_lookup),
+        _reduce_f32x4_ordered_rule(descriptor_lookup),
+        _reduce_f32x4_reassociated_rule(descriptor_lookup),
+        _reduce_f32x8_ordered_rule(descriptor_lookup),
+        _reduce_f32x8_reassociated_rule(descriptor_lookup),
     )
 
 

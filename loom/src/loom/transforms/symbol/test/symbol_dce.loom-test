@@ -225,3 +225,27 @@ func.def public @entry(%values: test.array<i32, metadata = {callee = @required}>
   test.use %values : test.array<i32, metadata = {callee = @required}>
   func.return
 }
+
+// ====
+
+// RUN: pass symbol-dce
+
+// Reciprocal placement constraints keep their definition cluster intact.
+global.rodata.def @table = conflicts([@peer]) bytes("00112233")
+
+global.rodata.def @peer = conflicts([@table]) bytes("44556677")
+
+func.def public @entry() -> (buffer) {
+  %table = global.load @table : buffer
+  func.return %table : buffer
+}
+
+// ----
+global.rodata.def @table = conflicts([@peer]) bytes("00112233")
+
+global.rodata.def @peer = conflicts([@table]) bytes("44556677")
+
+func.def public @entry() -> (buffer) {
+  %table = global.load @table : buffer
+  func.return %table : buffer
+}

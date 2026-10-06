@@ -1,0 +1,77 @@
+// A singleton predicate vector and its only element share the same mask.
+func.def @single_predicate(%input: vector<1xi1>) -> (i1) {
+  %result = vector.extract %input[0] : vector<1xi1> -> i1
+  func.return %result : i1
+}
+
+// ====
+
+func.def @predicate_lanes(%input: vector<4xi1>) -> (i1, i1) {
+  %first = vector.extract %input[0] : vector<4xi1> -> i1
+  %last = vector.extract %input[3] : vector<4xi1> -> i1
+  func.return %first, %last : i1, i1
+}
+
+// ====
+
+// Both consumers use the original comparison results.
+func.def @comparison_lane(%lhs: vector<4xi32>, %rhs: vector<4xi32>) -> (vector<4xi1>, i1) {
+  %mask = vector.cmpi slt, %lhs, %rhs : vector<4xi32> -> vector<4xi1>
+  %last = vector.extract %mask[3] : vector<4xi1> -> i1
+  func.return %mask, %last : vector<4xi1>, i1
+}
+
+// ====
+
+func.def @select_lane(%input: vector<4xi1>, %lhs: i32, %rhs: i32) -> (i32) {
+  %last = vector.extract %input[3] : vector<4xi1> -> i1
+  %selected = scf.select %last, %lhs, %rhs : i32
+  func.return %selected : i32
+}
+
+// ====
+
+// A CFG merge preserves every work item's predicate before the final select.
+func.def @merged_predicate(%input: vector<4xi1>, %choose_first: i1, %lhs: i32, %rhs: i32) -> (i32) {
+  cfg.cond_br %choose_first, ^first, ^last
+^first:
+  %first = vector.extract %input[0] : vector<4xi1> -> i1
+  cfg.br ^merge(%first: i1)
+^last:
+  %last = vector.extract %input[3] : vector<4xi1> -> i1
+  cfg.br ^merge(%last: i1)
+^merge(%condition: i1):
+  %selected = scf.select %condition, %lhs, %rhs : i32
+  func.return %selected : i32
+}
+
+// ====
+
+func.def @extracted_predicate_integer(%mask: vector<4xi1>) -> (i32, i32) {
+  %condition = vector.extract %mask[1] : vector<4xi1> -> i1
+  %unsigned = scalar.extui %condition : i1 to i32
+  %signed = scalar.extsi %condition : i1 to i32
+  func.return %unsigned, %signed : i32, i32
+}
+
+// ====
+
+func.def @dynamic_predicate_element(%mask: vector<4xi1>, %position: index) -> (i1) {
+  %lane = index.assume %position [range(%position, 0, 3)] : index
+  %selected = vector.extract %mask[%lane] : vector<4xi1> -> i1
+  func.return %selected : i1
+}
+
+// ====
+
+func.def @predicate_tail_slice(%mask: vector<2x2xi1>) -> (vector<2xi1>) {
+  %tail = vector.extract %mask[1] : vector<2x2xi1> -> vector<2xi1>
+  func.return %tail : vector<2xi1>
+}
+
+// ====
+
+func.def @multidimensional_predicate_element(%mask: vector<2x2xi1>) -> (i1) {
+  %selected = vector.extract %mask[1, 0] : vector<2x2xi1> -> i1
+  func.return %selected : i1
+}

@@ -41,7 +41,13 @@ from loom.target.low_descriptors import (
     LatencyKind,
     MemorySpace,
     ModelQuality,
+    Operand,
+    OperandRole,
     ScheduleClass,
+    StorageLease,
+    StorageLeaseAttachment,
+    StorageLeaseKind,
+    StorageLeaseReleaseScope,
 )
 
 
@@ -368,6 +374,55 @@ def test_skips_zero_counter_effects() -> None:
     assert range_row.descriptor_count == 0
     assert range_row.descriptor_lookup_count == 1
     assert range_row.max_descriptor_immediate_count == 0
+
+
+def test_rejects_wait_packets_with_nonconcrete_counter_effects() -> None:
+    descriptor = _descriptor(
+        "amdgpu.s_wait_loadcnt",
+        effects=(_wait_effect(_COUNTER_VMEM_LOAD),),
+        immediates=(_wait_immediate("loadcnt", _WAIT_COUNTER_VMEM_LOAD_ENCODING_ID),),
+    )
+    for extra_effect in (
+        _wait_effect(0),
+        _dependency_effect(EffectKind.READ, counter_id=_COUNTER_VMEM_LOAD),
+        _dependency_effect(EffectKind.WRITE, counter_id=_COUNTER_VMEM_STORE),
+        _dependency_effect(EffectKind.BARRIER),
+    ):
+        with _raises_value_error("must have only concrete counter effects"):
+            amdgpu_wait_packet_tables._descriptor_wait_packet_rows(
+                replace(descriptor, effects=(*descriptor.effects, extra_effect)),
+                {descriptor.key},
+                0,
+            )
+
+
+def test_rejects_wait_packets_with_register_or_lease_state() -> None:
+    descriptor = _descriptor(
+        "amdgpu.s_wait_loadcnt",
+        effects=(_wait_effect(_COUNTER_VMEM_LOAD),),
+        immediates=(_wait_immediate("loadcnt", _WAIT_COUNTER_VMEM_LOAD_ENCODING_ID),),
+    )
+    source_lease = StorageLease(
+        kind=StorageLeaseKind.SOURCE_READ,
+        attachment=StorageLeaseAttachment.OPERAND,
+        attachment_index=0,
+        unit_offset=0,
+        unit_count=1,
+        release_scope=StorageLeaseReleaseScope.PROGRESS_CLASS,
+        release_class_id=_COUNTER_VMEM_LOAD,
+        release_class_name="test.progress",
+        release_action_id=1,
+        release_action_name="test.release",
+        release_reason_id=1,
+        release_reason_name="test.retained",
+    )
+    for invalid_descriptor in (
+        replace(descriptor, operands=(Operand("value", OperandRole.OPERAND, ()),)),
+        replace(descriptor, operands=(Operand("result", OperandRole.RESULT, ()),)),
+        replace(descriptor, storage_leases=(source_lease,)),
+    ):
+        with _raises_value_error("cannot have register operands or storage leases"):
+            amdgpu_wait_packet_tables._descriptor_wait_packet_rows(invalid_descriptor, {descriptor.key}, 0)
 
 
 def test_rejects_missing_descriptor_ref() -> None:

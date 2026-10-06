@@ -32,8 +32,12 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) abi(hal_kernel) @scalar_float_
   %sum = s_add_f32 %lhs, %rhs
   %difference = s_sub_f32 %sum, %lhs
   %product = s_mul_f32 %sum, %difference
-  %minimum = s_min_f32 %product, %sum
-  %maximum = s_max_f32 %minimum, %difference
+  %40 = s_max_f32 %product, %product
+  %41 = s_max_f32 %sum, %sum
+  %minimum = s_min_f32 %40, %41
+  %43 = s_max_f32 %minimum, %minimum
+  %44 = s_max_f32 %difference, %difference
+  %maximum = s_max_f32 %43, %44
   %ceil = s_ceil_f32 %maximum
   %floor = s_floor_f32 %maximum
   %rounded = s_rndne_f32 %maximum

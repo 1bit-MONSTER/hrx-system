@@ -12,11 +12,10 @@ func.def target(@target) @narrow_i8_extui_i32(%input: i32) -> (i32) {
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @narrow_i8_extui_i32(%input: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>) asm {
-  %8 = v_mov_b32_copy %input
-  %small = v_bfe_i32_offset_width_inline %8 {offset = 0, width = 8}
+  %small = v_mov_b32_copy %input
   %wide = v_and_b32_lit %small, 255
-  %12 = v_mov_b32 1
-  %result = v_add_u32 %wide, %12
+  %11 = v_mov_b32 1
+  %result = v_add_u32 %wide, %11
   return %result
 }
 
@@ -34,17 +33,16 @@ func.def target(@target) @narrow_i8_extui_i64(%input: i32) -> (i64) {
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @narrow_i8_extui_i64(%input: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr x2>) asm {
-  %8 = v_mov_b32_copy %input
-  %small = v_bfe_i32_offset_width_inline %8 {offset = 0, width = 8}
-  %10 = v_and_b32_lit %small, 255
-  %11 = v_mov_b32 0
-  %13 = s_mov_b32 1
-  %14 = s_mov_b32 0
-  %17 = v_mov_b32_copy %13
-  %19 = v_mov_b32_copy %14
-  %25, %26 = v_add_co_u32 %10, %17
-  %27, %28 = v_add_co_ci_u32 %11, %19, %26
-  %result = concat(%25, %27) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %small = v_mov_b32_copy %input
+  %9 = v_and_b32_lit %small, 255
+  %10 = v_mov_b32 0
+  %12 = s_mov_b32 1
+  %13 = s_mov_b32 0
+  %16 = v_mov_b32_copy %12
+  %18 = v_mov_b32_copy %13
+  %24, %25 = v_add_co_u32 %9, %16
+  %26, %27 = v_add_co_ci_u32 %10, %18, %25
+  %result = concat(%24, %26) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   return %result
 }
 
@@ -62,8 +60,8 @@ func.def target(@target) @narrow_i8_extsi_i32(%input: i32) -> (i32) {
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @narrow_i8_extsi_i32(%input: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>) asm {
-  %8 = v_mov_b32_copy %input
-  %wide = v_bfe_i32_offset_width_inline %8 {offset = 0, width = 8}
+  %small = v_mov_b32_copy %input
+  %wide = v_bfe_i32_offset_width_inline %small {offset = 0, width = 8}
   %11 = v_mov_b32 1
   %result = v_add_u32 %wide, %11
   return %result
@@ -83,14 +81,14 @@ func.def target(@target) @narrow_i8_extsi_i64(%input: i32) -> (i64) {
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @narrow_i8_extsi_i64(%input: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr x2>) asm {
-  %8 = v_mov_b32_copy %input
-  %small = v_bfe_i32_offset_width_inline %8 {offset = 0, width = 8}
-  %10 = v_ashrrev_i32_src0_inline %small, 31
+  %small = v_mov_b32_copy %input
+  %9 = v_bfe_i32_offset_width_inline %small {offset = 0, width = 8}
+  %10 = v_ashrrev_i32_src0_inline %9, 31
   %12 = s_mov_b32 1
   %13 = s_mov_b32 0
   %16 = v_mov_b32_copy %12
   %18 = v_mov_b32_copy %13
-  %24, %25 = v_add_co_u32 %small, %16
+  %24, %25 = v_add_co_u32 %9, %16
   %26, %27 = v_add_co_ci_u32 %10, %18, %25
   %result = concat(%24, %26) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   return %result
@@ -110,11 +108,10 @@ func.def target(@target) @narrow_i16_extui_i32(%input: i32) -> (i32) {
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @narrow_i16_extui_i32(%input: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>) asm {
-  %8 = v_mov_b32_copy %input
-  %small = v_bfe_i32_offset_width_inline %8 {offset = 0, width = 16}
+  %small = v_mov_b32_copy %input
   %wide = v_and_b32_lit %small, 65535
-  %12 = v_mov_b32 1
-  %result = v_add_u32 %wide, %12
+  %11 = v_mov_b32 1
+  %result = v_add_u32 %wide, %11
   return %result
 }
 
@@ -132,17 +129,16 @@ func.def target(@target) @narrow_i16_extui_i64(%input: i32) -> (i64) {
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @narrow_i16_extui_i64(%input: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr x2>) asm {
-  %8 = v_mov_b32_copy %input
-  %small = v_bfe_i32_offset_width_inline %8 {offset = 0, width = 16}
-  %10 = v_and_b32_lit %small, 65535
-  %11 = v_mov_b32 0
-  %13 = s_mov_b32 1
-  %14 = s_mov_b32 0
-  %17 = v_mov_b32_copy %13
-  %19 = v_mov_b32_copy %14
-  %25, %26 = v_add_co_u32 %10, %17
-  %27, %28 = v_add_co_ci_u32 %11, %19, %26
-  %result = concat(%25, %27) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %small = v_mov_b32_copy %input
+  %9 = v_and_b32_lit %small, 65535
+  %10 = v_mov_b32 0
+  %12 = s_mov_b32 1
+  %13 = s_mov_b32 0
+  %16 = v_mov_b32_copy %12
+  %18 = v_mov_b32_copy %13
+  %24, %25 = v_add_co_u32 %9, %16
+  %26, %27 = v_add_co_ci_u32 %10, %18, %25
+  %result = concat(%24, %26) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   return %result
 }
 
@@ -160,8 +156,8 @@ func.def target(@target) @narrow_i16_extsi_i32(%input: i32) -> (i32) {
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @narrow_i16_extsi_i32(%input: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>) asm {
-  %8 = v_mov_b32_copy %input
-  %wide = v_bfe_i32_offset_width_inline %8 {offset = 0, width = 16}
+  %small = v_mov_b32_copy %input
+  %wide = v_bfe_i32_offset_width_inline %small {offset = 0, width = 16}
   %11 = v_mov_b32 1
   %result = v_add_u32 %wide, %11
   return %result
@@ -181,14 +177,14 @@ func.def target(@target) @narrow_i16_extsi_i64(%input: i32) -> (i64) {
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @narrow_i16_extsi_i64(%input: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr x2>) asm {
-  %8 = v_mov_b32_copy %input
-  %small = v_bfe_i32_offset_width_inline %8 {offset = 0, width = 16}
-  %10 = v_ashrrev_i32_src0_inline %small, 31
+  %small = v_mov_b32_copy %input
+  %9 = v_bfe_i32_offset_width_inline %small {offset = 0, width = 16}
+  %10 = v_ashrrev_i32_src0_inline %9, 31
   %12 = s_mov_b32 1
   %13 = s_mov_b32 0
   %16 = v_mov_b32_copy %12
   %18 = v_mov_b32_copy %13
-  %24, %25 = v_add_co_u32 %small, %16
+  %24, %25 = v_add_co_u32 %9, %16
   %26, %27 = v_add_co_ci_u32 %10, %18, %25
   %result = concat(%24, %26) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   return %result
@@ -208,11 +204,10 @@ func.def target(@target) @narrow_comparison(%input: i32, %other: i32) -> (i32) {
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @narrow_comparison(%input: reg<amdgpu.sgpr>, %other: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>) asm {
-  %10 = v_mov_b32_copy %input
-  %wide = v_bfe_i32_offset_width_inline %10 {offset = 0, width = 16}
-  %12 = v_mov_b32_copy %other
-  %condition = v_cmp_lt_i32 %wide, %12
-  %result = v_cndmask_b32 %12, %wide, %condition
+  %small = v_mov_b32_copy %input
+  %wide = v_bfe_i32_offset_width_inline %small {offset = 0, width = 16}
+  %13 = v_mov_b32_copy %other
+  %result = v_min_i32 %wide, %13
   return %result
 }
 
@@ -230,5 +225,164 @@ func.def target(@target) @uniform_word_arithmetic(%input: i32, %other: i32) -> (
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @uniform_word_arithmetic(%input: reg<amdgpu.sgpr>, %other: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>) asm {
   %sum = s_add_u32 %input, %other
   %result = s_mul_i32 %sum, %other
+  return %result
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @bitcast_f16_extsi(%input: f16) -> (i32) {
+  %bits = scalar.bitcast %input : f16 to i16
+  %result = scalar.extsi %bits : i16 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @bitcast_f16_extsi(%bits: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %result = v_bfe_i32_offset_width_inline %bits {offset = 0, width = 16}
+  return %result
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @bitcast_bf16_extui(%input: bf16) -> (i32) {
+  %bits = scalar.bitcast %input : bf16 to i16
+  %result = scalar.extui %bits : i16 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @bitcast_bf16_extui(%bits: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %result = v_and_b32_lit %bits, 65535
+  return %result
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @bitcast_f16_two_signed(%input: f16) -> (i32) {
+  %bits = scalar.bitcast %input : f16 to i16
+  %lhs = scalar.extsi %bits : i16 to i32
+  %rhs = scalar.extsi %bits : i16 to i32
+  %result = scalar.addi %lhs, %rhs : i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @bitcast_f16_two_signed(%bits: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %lhs = v_bfe_i32_offset_width_inline %bits {offset = 0, width = 16}
+  %result = v_add_u32 %lhs, %lhs
+  return %result
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @bitcast_f16_mixed_consumers(%input: f16) -> (i32, i32) {
+  %bits = scalar.bitcast %input : f16 to i16
+  %signed = scalar.extsi %bits : i16 to i32
+  %unsigned = scalar.extui %bits : i16 to i32
+  func.return %signed, %unsigned : i32, i32
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @bitcast_f16_mixed_consumers(%bits: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %signed = v_bfe_i32_offset_width_inline %bits {offset = 0, width = 16}
+  %unsigned = v_and_b32_lit %bits, 65535
+  return %signed, %unsigned
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @bitcast_f16_select_signed(%lhs: f16, %rhs: f16, %condition: i1) -> (i32) {
+  %lhs_bits = scalar.bitcast %lhs : f16 to i16
+  %rhs_bits = scalar.bitcast %rhs : f16 to i16
+  %selected = scf.select %condition, %lhs_bits, %rhs_bits : i16
+  %result = scalar.extsi %selected : i16 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @bitcast_f16_select_signed(%lhs_bits: reg<amdgpu.vgpr>, %rhs_bits: reg<amdgpu.vgpr>, %condition: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>) asm {
+  %selected = v_cndmask_b32 %rhs_bits, %lhs_bits, %condition
+  %result = v_bfe_i32_offset_width_inline %selected {offset = 0, width = 16}
+  return %result
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @bitcast_f16_select_constant_unsigned(%input: f16, %condition: i1) -> (i32, f32) {
+  %bits = scalar.bitcast %input : f16 to i16
+  %fallback = scalar.constant -1 : i16
+  %selected = scf.select %condition, %bits, %fallback : i16
+  %integer = scalar.extui %selected : i16 to i32
+  %floating = scalar.uitofp %selected : i16 to f32
+  func.return %integer, %floating : i32, f32
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @bitcast_f16_select_constant_unsigned(%bits: reg<amdgpu.vgpr>, %condition: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %fallback = v_mov_b32 4294967295
+  %selected = v_cndmask_b32 %fallback, %bits, %condition
+  %integer = v_and_b32_lit %selected, 65535
+  %floating = v_cvt_f32_u32 %integer
+  return %integer, %floating
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @bitcast_f16_low_bits_only(%input: f16) -> (f32) {
+  %bits = scalar.bitcast %input : f16 to i16
+  %restored = scalar.bitcast %bits : i16 to f16
+  %result = scalar.extf %restored : f16 to f32
+  func.return %result : f32
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @bitcast_f16_low_bits_only(%input: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %result = v_cvt_f32_f16 %input
+  return %result
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @narrow_extui_chain(%input: i8) -> (i32) {
+  %middle = scalar.extui %input : i8 to i16
+  %result = scalar.extui %middle : i16 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @narrow_extui_chain(%input: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %result = v_and_b32_lit %input, 255
+  return %result
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @nonnegative_narrow_constant_extui() -> (i32) {
+  %narrow = scalar.constant 7 : i16
+  %result = scalar.extui %narrow : i16 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @nonnegative_narrow_constant_extui() -> (reg<amdgpu.sgpr>) asm {
+  %result = s_mov_b32 7
   return %result
 }

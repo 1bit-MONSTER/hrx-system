@@ -21,6 +21,7 @@ from loom.target.contracts.emits import (
     EmitDescriptorOp,
     EmitRegisterConcat,
     EmitRegisterCopy,
+    EmitRegisterMove,
     EmitRegisterSlice,
 )
 from loom.target.contracts.guards import Guard
@@ -274,7 +275,12 @@ class DescriptorRule:
                 result_refs = tuple(emit.results.values())
             elif isinstance(
                 emit,
-                (EmitRegisterConcat, EmitRegisterCopy, EmitRegisterSlice),
+                (
+                    EmitRegisterConcat,
+                    EmitRegisterCopy,
+                    EmitRegisterMove,
+                    EmitRegisterSlice,
+                ),
             ):
                 result_refs = (emit.result,)
             else:
@@ -362,16 +368,26 @@ class DescriptorRule:
                 f"{self.source_op.name}: per-lane-sequence emits must form the "
                 "final contiguous emit-program tail"
             )
-        if len(sequence_emits) < 2:
+        if len(sequence_emits) == 1 and sequence_start == 0:
             raise ValueError(
-                f"{self.source_op.name}: per-lane-sequence emit programs need "
-                "at least two lane emits"
+                f"{self.source_op.name}: a single per-lane-sequence emit "
+                "requires shared setup"
             )
         for sequence_index, emit in enumerate(sequence_emits):
             emit_index = sequence_start + sequence_index
             result_bindings = emit.results if emit.results is not None else {}
             result_refs = []
             for descriptor_operand in emit.descriptor.operands:
+                if (
+                    descriptor_operand.role is not OperandRole.IMPLICIT
+                    and descriptor_operand.unit_count == 0
+                ):
+                    raise ValueError(
+                        f"{self.source_op.name}: per-lane-sequence descriptor "
+                        f"'{emit.descriptor.key}' field "
+                        f"'{descriptor_operand.field_name}' requires a fixed "
+                        "register width"
+                    )
                 if descriptor_operand.role not in (
                     OperandRole.RESULT,
                     OperandRole.OPERAND_RESULT,

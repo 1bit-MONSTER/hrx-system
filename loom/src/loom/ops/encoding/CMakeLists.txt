@@ -99,6 +99,8 @@ loom_cc_benchmark(
     loom::ops::vector
     loom::pass::value_facts
     loom::transforms::cleanup::canonicalizer
+    loom::transforms::cleanup::configured
+    loom::transforms::cleanup::patterns
     loom::util::fact_table
     loom::util::stream
     loom::verify

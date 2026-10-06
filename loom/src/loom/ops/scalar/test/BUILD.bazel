@@ -17,6 +17,7 @@ loom_check_test_suite(
     srcs = [
         "boolean_comparison.loom-test",
         "bytecode.loom-test",
+        "integer_extrema_facts.loom-test",
         "verify.loom-test",
     ],
 )

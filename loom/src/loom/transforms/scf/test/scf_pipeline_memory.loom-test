@@ -1,0 +1,372 @@
+// RUN: with-checks pass-report pipeline-scf-for
+
+// Global reads advance; two views of the same workgroup allocation remain ordered.
+kernel.def @ordered_workgroup_consumer() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %width = index.constant 64 : index
+  %last = index.constant 63 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 256 : offset
+  %lane = kernel.workitem.id<x> : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<256xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %c4 step %c1](%sum = %identity : i32) -> (i32) pipeline(%c2) {
+    %address = index.madd %row, %width, %lane : index
+    %value = view.load %source[%address] : view<256xi32> -> i32
+    view.store %value, %published[%lane] : i32, view<64xi32>
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %observed = view.load %consumed[%peer] : view<64xi32> -> i32
+    %next = scalar.addi %sum, %observed : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  view.store %result, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ----
+CHECK: *"loops-pipelined":1,"policies-cleared":0*
+CHECK: *"values_per_record":1,"read_count":1*
+CHECK: *"op":"view.load","stage":"producer"*
+CHECK: *"op":"view.load","stage":"consumer"*
+CHECK: *"op":"view.store","stage":"consumer"*
+CHECK: *"op":"kernel.barrier","stage":"consumer"*
+CHECK-NOT: *"op":"view.store","stage":"producer"*
+CHECK-NOT: *"op":"kernel.barrier","stage":"producer"*
+
+// ====
+
+// RUN: pass pipeline-scf-for
+
+kernel.def @unknown_write_space() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer, %unknown: view<64xi32>) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %width = index.constant 64 : index
+  %last = index.constant 63 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 256 : offset
+  %lane = kernel.workitem.id<x> : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<256xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %c4 step %c1](%sum = %identity : i32) -> (i32) pipeline(%c2) {
+    %address = index.madd %row, %width, %lane : index
+    %value = view.load %source[%address] : view<256xi32> -> i32
+    // ERROR@+1: STRUCTURE/014 {expected_constraint="workgroup-only stores and barriers in the ordered consumer"}
+    view.store %value, %unknown[%lane] : i32, view<64xi32>
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %observed = view.load %consumed[%peer] : view<64xi32> -> i32
+    %next = scalar.addi %sum, %observed : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  view.store %result, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ====
+
+// RUN: pass pipeline-scf-for
+
+kernel.def @global_write_consumer() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %width = index.constant 64 : index
+  %last = index.constant 63 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 256 : offset
+  %lane = kernel.workitem.id<x> : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<256xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %c4 step %c1](%sum = %identity : i32) -> (i32) pipeline(%c2) {
+    %address = index.madd %row, %width, %lane : index
+    %value = view.load %source[%address] : view<256xi32> -> i32
+    // ERROR@+1: STRUCTURE/014 {expected_constraint="workgroup-only stores and barriers in the ordered consumer"}
+    view.store %value, %destination[%lane] : i32, view<64xi32>
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %observed = view.load %consumed[%peer] : view<64xi32> -> i32
+    %next = scalar.addi %sum, %observed : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  view.store %result, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ====
+
+// RUN: pass pipeline-scf-for
+
+kernel.def @global_barrier_acquire() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %width = index.constant 64 : index
+  %last = index.constant 63 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 256 : offset
+  %lane = kernel.workitem.id<x> : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<256xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %c4 step %c1](%sum = %identity : i32) -> (i32) pipeline(%c2) {
+    %address = index.madd %row, %width, %lane : index
+    %value = view.load %source[%address] : view<256xi32> -> i32
+    view.store %value, %published[%lane] : i32, view<64xi32>
+    // ERROR@+1: STRUCTURE/014 {expected_constraint="workgroup-only stores and barriers in the ordered consumer"}
+    kernel.barrier<global> scope(workgroup) ordering(acquire)
+    %observed = view.load %consumed[%peer] : view<64xi32> -> i32
+    %next = scalar.addi %sum, %observed : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  view.store %result, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ====
+
+// RUN: pass pipeline-scf-for
+
+kernel.def @global_barrier_release() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %width = index.constant 64 : index
+  %last = index.constant 63 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 256 : offset
+  %lane = kernel.workitem.id<x> : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<256xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %c4 step %c1](%sum = %identity : i32) -> (i32) pipeline(%c2) {
+    %address = index.madd %row, %width, %lane : index
+    %value = view.load %source[%address] : view<256xi32> -> i32
+    view.store %value, %published[%lane] : i32, view<64xi32>
+    // ERROR@+1: STRUCTURE/014 {expected_constraint="workgroup-only stores and barriers in the ordered consumer"}
+    kernel.barrier<global> scope(workgroup) ordering(release)
+    %observed = view.load %consumed[%peer] : view<64xi32> -> i32
+    %next = scalar.addi %sum, %observed : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  view.store %result, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ====
+
+// RUN: pass pipeline-scf-for
+
+kernel.def @global_barrier_acq_rel() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %width = index.constant 64 : index
+  %last = index.constant 63 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 256 : offset
+  %lane = kernel.workitem.id<x> : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<256xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %c4 step %c1](%sum = %identity : i32) -> (i32) pipeline(%c2) {
+    %address = index.madd %row, %width, %lane : index
+    %value = view.load %source[%address] : view<256xi32> -> i32
+    view.store %value, %published[%lane] : i32, view<64xi32>
+    // ERROR@+1: STRUCTURE/014 {expected_constraint="workgroup-only stores and barriers in the ordered consumer"}
+    kernel.barrier<global> scope(workgroup) ordering(acq_rel)
+    %observed = view.load %consumed[%peer] : view<64xi32> -> i32
+    %next = scalar.addi %sum, %observed : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  view.store %result, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ====
+
+// RUN: pass pipeline-scf-for
+
+kernel.def @dynamic_ordered_participants() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer, %end: index) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %width = index.constant 64 : index
+  %last = index.constant 63 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 256 : offset
+  %lane = kernel.workitem.id<x> : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<256xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %end step %c1](%sum = %identity : i32) -> (i32) pipeline(%c2) {
+    %address = index.madd %row, %width, %lane : index
+    %value = view.load %source[%address] : view<256xi32> -> i32
+    // ERROR@+1: STRUCTURE/014 {expected_constraint="compile-time exact loop bounds to preserve ordered consumer participation"}
+    view.store %value, %published[%lane] : i32, view<64xi32>
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %observed = view.load %consumed[%peer] : view<64xi32> -> i32
+    %next = scalar.addi %sum, %observed : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  view.store %result, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ====
+
+// RUN: pass pipeline-scf-for
+
+kernel.def @carried_read_address() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %width = index.constant 64 : index
+  %last = index.constant 63 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 256 : offset
+  %lane = kernel.workitem.id<x> : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<256xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %c4 step %c1](%sum = %identity : i32) -> (i32) pipeline(%c2) {
+    // ERROR@+1: STRUCTURE/014 {expected_constraint="read-ahead prerequisites independent of loop-carried state"}
+    %carried_address = index.cast %sum : i32 to index
+    %address = index.madd %row, %width, %lane : index
+    %value = view.load %source[%carried_address] : view<256xi32> -> i32
+    view.store %value, %published[%lane] : i32, view<64xi32>
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %observed = view.load %consumed[%peer] : view<64xi32> -> i32
+    %next = scalar.addi %sum, %observed : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  view.store %result, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}
+
+// ====
+
+// RUN: pass pipeline-scf-for
+
+// A global load whose address comes from the ordered consumer cannot read ahead.
+kernel.def @consumer_dependent_read_address() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %width = index.constant 64 : index
+  %last = index.constant 63 : index
+  %origin = index.constant 0 : offset
+  %stage_bytes = index.constant 256 : offset
+  %lane = kernel.workitem.id<x> : index
+  %peer = index.sub %last, %lane : index
+  %source = buffer.view %input[%origin] : buffer -> view<256xi32>
+  %destination = buffer.view %output[%origin] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %stage_bytes : buffer
+  %published = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %consumed = buffer.view %scratch[%origin] : buffer -> view<64xi32>
+  %identity = scalar.constant 0 : i32
+  %result = scf.for %row = [%c0 to %c4 step %c1](%sum = %identity : i32) -> (i32) pipeline(%c2) {
+    %address = index.madd %row, %width, %lane : index
+    %value = view.load %source[%address] : view<256xi32> -> i32
+    view.store %value, %published[%lane] : i32, view<64xi32>
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    // ERROR@+1: STRUCTURE/014 {expected_constraint="read-ahead prerequisites independent of ordered or convergent consumers"}
+    %observed = view.load %consumed[%peer] : view<64xi32> -> i32
+    %observed_index = index.cast %observed : i32 to index
+    %selected_index = index.andi %observed_index, %last : index
+    %selected = view.load %source[%selected_index] : view<256xi32> -> i32
+    %next = scalar.addi %sum, %selected : i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %next : i32
+  }
+  view.store %result, %destination[%lane] : i32, view<64xi32>
+  kernel.return
+}

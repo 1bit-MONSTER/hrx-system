@@ -1,0 +1,36 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library")
+
+package(
+    default_visibility = ["//visibility:private"],
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+loom_cc_library(
+    name = "pass_environment",
+    srcs = ["pass_environment.c"],
+    hdrs = ["pass_environment.h"],
+    visibility = [
+        "//loom/binding/c:__pkg__",
+        "//loom/src/loom/codegen/low/testing:__pkg__",
+        "//loom/src/loom/codegen/low/transforms/pipeline:__pkg__",
+        "//loom/src/loom/target/arch/amdgpu:__pkg__",
+        "//loom/src/loom/tooling/compile:__pkg__",
+        "//loom/src/loom/tools/loom-check:__pkg__",
+        "//loom/src/loom/tools/loom-opt:__pkg__",
+    ],
+    deps = [
+        "//loom/src/loom/codegen/low/pipeline:pass_environment",
+        "//loom/src/loom/pass:environment",
+        "//loom/src/loom/target:math_policy",
+        "//loom/src/loom/target:pass_environment",
+        "//loom/src/loom/transforms/cleanup:pass_environment",
+        "//runtime/src/iree/base",
+    ],
+)

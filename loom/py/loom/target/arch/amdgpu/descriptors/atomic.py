@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .common import *
 
@@ -110,7 +110,7 @@ def _integer64_atomic_rows(
                 if suffix == "swap_u64"
                 else suffix
             ),
-            has_no_return_form=semantic != "exchange.u64",
+            has_no_return_form=semantic != "exchange.b64",
             value_units=2,
             width_bits=64,
         )
@@ -124,8 +124,71 @@ def _integer64_atomic_rows(
             ("and_b64", "and_x2", "and.b64", "FMT_NUM_B64"),
             ("or_b64", "or_x2", "or.b64", "FMT_NUM_B64"),
             ("xor_b64", "xor_x2", "xor.b64", "FMT_NUM_B64"),
-            ("swap_u64", "swap_x2", "exchange.u64", "FMT_NUM_B64"),
+            ("swap_u64", "swap_x2", "exchange.b64", "FMT_NUM_B64"),
         )
+    )
+
+
+def _float64_atomic_rows(
+    family: str, *, number_extrema: bool = False
+) -> tuple[_AtomicRow, ...]:
+    operations = (("add", "add"),)
+    if number_extrema:
+        operations += (("min_num", "minnum"), ("max_num", "maxnum"))
+    return tuple(
+        _atomic_row(
+            f"{operation}_f64",
+            f"{family}_ATOMIC_{operation.upper()}_F64",
+            f"{semantic}.f64",
+            "FMT_NUM_F64",
+            value_units=2,
+            width_bits=64,
+        )
+        for operation, semantic in operations
+    )
+
+
+def _gfx125x_atomic_instruction_facts(
+    spec: AmdgpuIsaFactSource,
+) -> tuple[AmdgpuIsaInstruction, ...]:
+    # LLVM FLATInstructions.td, BUFInstructions.td, and DSInstructions.td
+    # define these GFX125 operations missing from the RDNA4 XML. Their operands
+    # and encoding fields match the corresponding 64-bit integer additions.
+    rows = (
+        *(
+            (f"{family}_ATOMIC_{operation}_F64", f"{family}_ATOMIC_ADD_U64", opcode)
+            for family in ("BUFFER", "GLOBAL", "FLAT")
+            for operation, opcode in (
+                ("ADD", 0x55),
+                ("MIN_NUM", 0x5B),
+                ("MAX_NUM", 0x5C),
+            )
+        ),
+        ("DS_ADD_F64", "DS_ADD_U64", 0x54),
+        ("DS_ADD_RTN_F64", "DS_ADD_RTN_U64", 0x74),
+    )
+    instructions = spec.instruction_map(include_aliases=True)
+    return tuple(
+        replace(
+            instructions[integer_name],
+            name=name,
+            aliases=(),
+            encodings=tuple(
+                replace(
+                    encoding,
+                    opcode=opcode,
+                    operands=tuple(
+                        replace(operand, data_format_name="FMT_NUM_F64")
+                        if operand.data_format_name == "FMT_NUM_U64"
+                        else operand
+                        for operand in encoding.operands
+                    ),
+                )
+                for encoding in instructions[integer_name].encodings
+            ),
+        )
+        for name, integer_name, opcode in rows
+        if name not in instructions
     )
 
 
@@ -480,6 +543,7 @@ _GLOBAL_ATOMIC_GFX940_ROWS = (
     ),
     _atomic_row("add_f32", "GLOBAL_ATOMIC_ADD_F32", "add.f32", "FMT_NUM_F32"),
     *_integer64_atomic_rows("GLOBAL", cdna_mnemonics=True),
+    *_float64_atomic_rows("GLOBAL"),
 )
 
 
@@ -733,6 +797,7 @@ _FLAT_ATOMIC_GFX950_ROWS = (
     ),
     _atomic_row("add_f32", "FLAT_ATOMIC_ADD_F32", "add.f32", "FMT_NUM_F32"),
     *_integer64_atomic_rows("FLAT", cdna_mnemonics=True),
+    *_float64_atomic_rows("FLAT"),
     _atomic_row(
         "pk_add_f16",
         "FLAT_ATOMIC_PK_ADD_F16",
@@ -1437,6 +1502,8 @@ __all__ = (
     "_flat_atomic_cmpswap_overlay",
     "_flat_atomic_overlay",
     "_flat_atomic_overlays",
+    "_float64_atomic_rows",
+    "_gfx125x_atomic_instruction_facts",
     "_global_atomic_cmpswap_overlay",
     "_global_atomic_overlay",
     "_global_atomic_overlays",

@@ -20,11 +20,11 @@ namespace {
 
 // One operation exercises the dictionary representation API. Authored programs
 // and bytecode round trips live in test/operand_dictionary.loom-test.
-class OperandDictionaryTest : public ::testing::Test {
+class VerifyStructureTest : public ::testing::Test {
  protected:
   static iree_status_t Allocate(void* self, iree_allocator_command_t command,
                                 const void* parameters, void** pointer) {
-    auto* test = static_cast<OperandDictionaryTest*>(self);
+    auto* test = static_cast<VerifyStructureTest*>(self);
     if (test->fail_allocations_ && command != IREE_ALLOCATOR_COMMAND_FREE) {
       return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                               "injected allocation failure");
@@ -114,7 +114,7 @@ class OperandDictionaryTest : public ::testing::Test {
   loom_verify_state_t state_ = {};
 };
 
-TEST_F(OperandDictionaryTest, PermutationsAndScratchReuse) {
+TEST_F(VerifyStructureTest, PermutationsAndScratchReuse) {
   Check(Dictionary(0), 0);
   for (uint16_t count : {1, 63, 64, 65, 129, 128, 32, 129}) {
     SCOPED_TRACE(count);
@@ -139,7 +139,7 @@ TEST_F(OperandDictionaryTest, PermutationsAndScratchReuse) {
   }
 }
 
-TEST_F(OperandDictionaryTest, DuplicateOrdinalsAcrossWords) {
+TEST_F(VerifyStructureTest, DuplicateOrdinalsAcrossWords) {
   for (uint16_t count : {2, 64, 65, 128, 129}) {
     SCOPED_TRACE(count);
     loom_op_t* op = Dictionary(count);
@@ -155,7 +155,7 @@ TEST_F(OperandDictionaryTest, DuplicateOrdinalsAcrossWords) {
   }
 }
 
-TEST_F(OperandDictionaryTest, EveryRepeatedOrdinalIsDiagnosed) {
+TEST_F(VerifyStructureTest, EveryRepeatedOrdinalIsDiagnosed) {
   loom_op_t* op = Dictionary(65);
   auto names = Names(op);
   for (auto& entry : names) {
@@ -166,7 +166,7 @@ TEST_F(OperandDictionaryTest, EveryRepeatedOrdinalIsDiagnosed) {
   Check(op, 64);
 }
 
-TEST_F(OperandDictionaryTest, ErrorBudgetBoundsFallbackAttempts) {
+TEST_F(VerifyStructureTest, ErrorBudgetBoundsFallbackAttempts) {
   loom_op_t* op = Dictionary(65);
   auto names = Names(op);
   for (auto& entry : names) {
@@ -204,7 +204,7 @@ TEST_F(OperandDictionaryTest, ErrorBudgetBoundsFallbackAttempts) {
   }
 }
 
-TEST_F(OperandDictionaryTest, TypeErrorsAlsoBoundSuccessfulFallbackRendering) {
+TEST_F(VerifyStructureTest, TypeErrorsAlsoBoundSuccessfulFallbackRendering) {
   // The budget belongs to diagnostic emission, not dictionary checks. Wrong
   // index operand types remain printable, so this exercises full source text.
   loom_value_id_t tile = LOOM_VALUE_ID_INVALID;
@@ -239,7 +239,7 @@ TEST_F(OperandDictionaryTest, TypeErrorsAlsoBoundSuccessfulFallbackRendering) {
   EXPECT_EQ(sink_calls, 3u);
 }
 
-TEST_F(OperandDictionaryTest, ErrorBudgetBoundsCountsWithoutSink) {
+TEST_F(VerifyStructureTest, ErrorBudgetBoundsCountsWithoutSink) {
   loom_op_t* op = Dictionary(65);
   auto names = Names(op);
   for (auto& entry : names) {
@@ -251,7 +251,7 @@ TEST_F(OperandDictionaryTest, ErrorBudgetBoundsCountsWithoutSink) {
   Check(op, 2);
 }
 
-TEST_F(OperandDictionaryTest, SinkFailureAtErrorBudgetIsPreserved) {
+TEST_F(VerifyStructureTest, SinkFailureAtErrorBudgetIsPreserved) {
   loom_op_t* op = Dictionary(65);
   auto names = Names(op);
   for (auto& entry : names) {
@@ -274,7 +274,7 @@ TEST_F(OperandDictionaryTest, SinkFailureAtErrorBudgetIsPreserved) {
                         loom_verify_take_diagnostic_status(&state_));
 }
 
-TEST_F(OperandDictionaryTest, InvalidOrdinalsDoNotClaimBits) {
+TEST_F(VerifyStructureTest, InvalidOrdinalsDoNotClaimBits) {
   loom_op_t* op = Dictionary(65);
   auto names = Names(op);
   IREE_ASSERT_OK(loom_test_operand_dict_set_param_names(
@@ -288,7 +288,7 @@ TEST_F(OperandDictionaryTest, InvalidOrdinalsDoNotClaimBits) {
   Check(op, 3);
 }
 
-TEST_F(OperandDictionaryTest, InvalidKeyStillClaimsValidOrdinal) {
+TEST_F(VerifyStructureTest, InvalidKeyStillClaimsValidOrdinal) {
   loom_op_t* op = Dictionary(2);
   auto names = Names(op);
   IREE_ASSERT_OK(loom_test_operand_dict_set_param_names(
@@ -300,7 +300,7 @@ TEST_F(OperandDictionaryTest, InvalidKeyStillClaimsValidOrdinal) {
   Check(op, 2);
 }
 
-TEST_F(OperandDictionaryTest, AllocationFailurePreservesScratch) {
+TEST_F(VerifyStructureTest, AllocationFailurePreservesScratch) {
   fail_allocations_ = true;
   Check(Dictionary(64), 0);
   EXPECT_EQ(state_.arena.used_allocation_size, 0u);
@@ -332,7 +332,7 @@ TEST_F(OperandDictionaryTest, AllocationFailurePreservesScratch) {
   Check(op, 0);
 }
 
-TEST_F(OperandDictionaryTest, AllocationFailurePreservesPendingDiagnostic) {
+TEST_F(VerifyStructureTest, AllocationFailurePreservesPendingDiagnostic) {
   loom_op_t* op = Dictionary(65);
   fail_allocations_ = true;
   state_.diagnostic_status =
@@ -343,6 +343,45 @@ TEST_F(OperandDictionaryTest, AllocationFailurePreservesPendingDiagnostic) {
   IREE_EXPECT_OK(loom_verify_take_diagnostic_status(&state_));
   EXPECT_EQ(state_.operand_dictionary.bits, nullptr);
   EXPECT_EQ(state_.operand_dictionary.word_capacity, 0u);
+}
+
+TEST_F(VerifyStructureTest, AlternativeRequiredAncestorsAcceptEitherKind) {
+  const loom_op_kind_t required_ancestors[] = {
+      LOOM_OP_TEST_ISOLATED_REGION,
+      LOOM_OP_TEST_MAP,
+  };
+  const loom_op_placement_descriptor_t placement = {
+      /*.required_parents=*/nullptr,
+      /*.required_ancestors=*/nullptr,
+      /*.required_any_ancestors=*/required_ancestors,
+      /*.forbidden_ancestors=*/nullptr,
+      /*.required_any_ancestor_names=*/"test.isolated_region or test.map",
+      /*.required_parent_count=*/0,
+      /*.required_ancestor_count=*/0,
+      /*.required_any_ancestor_count=*/IREE_ARRAYSIZE(required_ancestors),
+      /*.forbidden_ancestor_count=*/0,
+  };
+  loom_op_t* op = Dictionary(0);
+  loom_op_vtable_t vtable = *loom_op_vtable(module_, op);
+  vtable.placement = &placement;
+
+  for (loom_op_kind_t ancestor_kind : required_ancestors) {
+    SCOPED_TRACE(ancestor_kind);
+    loom_op_t ancestor = {};
+    ancestor.kind = ancestor_kind;
+    op->parent_op = &ancestor;
+    result_ = {};
+    loom_verify_op_placement(&state_, op, &vtable);
+    EXPECT_EQ(result_.error_count, 0u);
+  }
+
+  loom_op_t wrong_ancestor = {};
+  wrong_ancestor.kind = LOOM_OP_TEST_CONSTANT;
+  op->parent_op = &wrong_ancestor;
+  result_ = {};
+  loom_verify_op_placement(&state_, op, &vtable);
+  EXPECT_EQ(result_.error_count, 1u);
+  op->parent_op = nullptr;
 }
 
 }  // namespace

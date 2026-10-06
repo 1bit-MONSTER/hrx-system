@@ -68,17 +68,47 @@ low.func.def public target<wasm.core.simd128> abi(wasm_function) @selected_offse
 
 // ====
 
+func.def public @selected_converted_offset(%choice: i32, %narrow: i32, %fallback: offset) -> (offset) {
+  %threshold = scalar.constant 0 : i32
+  %condition = scalar.cmpi ne, %choice, %threshold : i32
+  %converted = index.cast %narrow : i32 to offset
+  %selected = scf.select %condition, %converted, %fallback : offset
+  cfg.br ^forward(%selected: offset)
+^forward(%carried: offset):
+  func.return %carried : offset
+}
+
+// ----
+low.func.def public target<wasm.core.simd128> abi(wasm_function) @selected_converted_offset(%choice: reg<wasm.i32>, %converted: reg<wasm.i32>, %fallback: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
+  %threshold = i32.const 0
+  %condition = i32.ne %choice, %threshold
+  %selected = i32.select %converted, %fallback, %condition
+  return %selected
+}
+
+// ====
+
 func.def public @selected_extended_truncation(%input: vector<4xi32>, %left: i64, %right: i64) -> (i64) {
   %value = vector.extract %input[0] : vector<4xi32> -> i32
   %threshold = scalar.constant 0 : i32
   %condition = scalar.cmpi sgt, %value, %threshold : i32
   %selected = scf.select %condition, %left, %right : i64
   %narrowed = scalar.trunci %selected : i64 to i32
-  // ERROR@+1: TARGET/001 {op_name="scalar.extsi"}
   %payload = scalar.extsi %narrowed : i32 to i64
   cfg.br ^forward(%payload: i64)
 ^forward(%carried: i64):
   func.return %carried : i64
+}
+
+// ----
+low.func.def public target<wasm.core.simd128> abi(wasm_function) @selected_extended_truncation(%input: reg<wasm.v128>, %left: reg<wasm.i64>, %right: reg<wasm.i64>) -> (reg<wasm.i64>) asm {
+  %value = i32x4.extract_lane %input, 0
+  %threshold = i32.const 0
+  %condition = i32.gt_s %value, %threshold
+  %selected = i64.select %left, %right, %condition
+  %narrowed = i32.wrap_i64 %selected
+  %payload = i64.extend_i32_s %narrowed
+  return %payload
 }
 
 // ====

@@ -82,84 +82,86 @@ def _compile_report(
 def _add_bank_service_group(
     report: dict[str, object],
     *,
-    model_evidence: str,
+    model_evidence: str | None,
     exact_packet_count: int = 1,
     unknown_packet_count: int = 0,
+    unmodeled_packet_count: int = 0,
     conflicted_packet_count: int = 1,
     extra_round_count: int = 8,
+    source_root: str = "scratch",
+    function: str = "routed_linear",
 ) -> None:
-    report["source_low"] = {
-        "memory": {
-            "bank_service": {
-                "modeled_packet_count": exact_packet_count + unknown_packet_count,
-                "exact_packet_count": exact_packet_count,
-                "unknown_packet_count": unknown_packet_count,
-                "structural": {
-                    "conflict_free_packet_count": 0,
-                    "conflicted_packet_count": conflicted_packet_count,
-                    "required_round_count": 16,
-                    "uncontended_round_count": 8,
-                    "extra_round_count": extra_round_count,
-                    "maximum_request_multiplicity": 2,
-                },
-                "dynamic": {
-                    "exact_packet_count": exact_packet_count,
-                    "unknown_packet_count": unknown_packet_count,
-                    "packet_count": exact_packet_count,
-                    "required_round_count": 16,
-                    "uncontended_round_count": 8,
-                    "extra_round_count": extra_round_count,
-                },
-            },
-            "bank_service_group_count": 1,
-            "bank_service_groups": [
-                {
-                    "index": 0,
-                    "function": "routed_linear",
-                    "source_op": "vector.fragment.load",
-                    "source_op_kind": 80,
-                    "source_root": "scratch",
-                    "memory_space": "workgroup",
-                    "operation": "load",
-                    "packet": "amdgpu.ds_read_b128",
-                    "strategy": None,
-                    "model": {
-                        "key": ("amdgpu.lds.wave32.b128.quad-phases.read.count-each"),
-                        "revision": "ROCm/rocm-libraries@model",
-                        "evidence": model_evidence,
-                        "request_policy": "count-each",
-                        "wave_size": 32,
-                        "bank_count": 32,
-                        "bank_word_bytes": 4,
-                        "packet_bank_words": 4,
-                    },
-                    "summary": {
-                        "modeled_packet_count": (
-                            exact_packet_count + unknown_packet_count
-                        ),
-                        "exact_packet_count": exact_packet_count,
-                        "unknown_packet_count": unknown_packet_count,
-                        "structural": {
-                            "conflict_free_packet_count": 0,
-                            "conflicted_packet_count": conflicted_packet_count,
-                            "required_round_count": 16,
-                            "uncontended_round_count": 8,
-                            "extra_round_count": extra_round_count,
-                            "maximum_request_multiplicity": 2,
-                        },
-                        "dynamic": {
-                            "exact_packet_count": exact_packet_count,
-                            "unknown_packet_count": unknown_packet_count,
-                            "packet_count": exact_packet_count,
-                            "required_round_count": 16,
-                            "uncontended_round_count": 8,
-                            "extra_round_count": extra_round_count,
-                        },
-                    },
-                }
-            ],
-        }
+    uncontended = 8 * exact_packet_count
+    summary = {
+        "unmodeled_packet_count": unmodeled_packet_count,
+        "modeled_packet_count": exact_packet_count + unknown_packet_count,
+        "exact_packet_count": exact_packet_count,
+        "unknown_packet_count": unknown_packet_count,
+        "structural": {
+            "conflict_free_packet_count": exact_packet_count - conflicted_packet_count,
+            "conflicted_packet_count": conflicted_packet_count,
+            "required_round_count": uncontended + extra_round_count,
+            "uncontended_round_count": uncontended,
+            "extra_round_count": extra_round_count,
+            "maximum_request_multiplicity": (
+                (uncontended + extra_round_count + uncontended - 1) // uncontended
+                if uncontended
+                else 0
+            ),
+        },
+        "dynamic": {
+            "exact_packet_count": exact_packet_count,
+            "unknown_packet_count": unknown_packet_count + unmodeled_packet_count,
+            "packet_count": exact_packet_count,
+            "required_round_count": uncontended + extra_round_count,
+            "uncontended_round_count": uncontended,
+            "extra_round_count": extra_round_count,
+        },
     }
+    memory = report.setdefault("source_low", {}).setdefault("memory", {})
+    groups = memory.setdefault("bank_service_groups", [])
+    groups.append(
+        {
+            "index": len(groups),
+            "function": function,
+            "source_op": "vector.fragment.load",
+            "source_op_kind": 80,
+            "source_root": source_root,
+            "memory_space": "workgroup",
+            "operation": "load",
+            "packet": "amdgpu.ds_read_b128"
+            if model_evidence
+            else "amdgpu.ds_load_u16_d16",
+            "strategy": None,
+            "wave_size": 32,
+            "model": {
+                "key": "amdgpu.lds.wave32.b128.quad-phases.read.count-each",
+                "revision": "ROCm/rocm-libraries@model",
+                "evidence": model_evidence,
+                "request_policy": "count-each",
+                "wave_size": 32,
+                "bank_count": 32,
+                "bank_word_bytes": 4,
+                "packet_bytes": 16,
+            }
+            if model_evidence
+            else None,
+            "summary": summary,
+        }
+    )
+    memory["bank_service_group_count"] = len(groups)
+    aggregate = {}
+    for field, value in summary.items():
+        if isinstance(value, dict):
+            aggregate[field] = {
+                key: (max if key == "maximum_request_multiplicity" else sum)(
+                    group["summary"][field][key] for group in groups
+                )
+                for key in value
+            }
+        else:
+            aggregate[field] = sum(group["summary"][field] for group in groups)
+    memory["bank_service"] = aggregate
 
 
 def _add_fragment_packet_evidence(
@@ -311,6 +313,7 @@ def _fragment_wave_group(
         "active_lane_proof": "subgroup-uniform-control-full-wave",
         "lane_mapping": "digit-terms",
         "subgroup_size": subgroup_size,
+        "active_lane_count": subgroup_size,
         "per_lane_packet_bytes": packet_bytes,
         "linear_lane_stride_bytes": 0,
         "lane_terms": [
@@ -431,10 +434,18 @@ def _add_vmem_source_reuse_evidence(
                 "index": 0,
                 "function": "routed_linear",
                 "counter": "vmem_load",
+                "counter_id": 1,
                 "reason": "amdgpu.memory_source_reuse",
+                "reason_id": 10,
                 "summary": {
                     "action_count": action_count,
+                    "explicit_action_count": 0,
+                    "planned_action_count": action_count,
                     "full_drain_count": source_reuse_full_drain_count,
+                    "partial_wait_count": action_count - source_reuse_full_drain_count,
+                    "drained_count": source_reuse_full_drain_count * 3,
+                    "max_drained_count": 3,
+                    "max_outstanding_before": 3,
                     "max_full_drain_outstanding_before": 3,
                 },
             }
@@ -460,13 +471,35 @@ def _add_lds_ssa_use_evidence(
                 "index": 0,
                 "function": "routed_linear",
                 "counter": "lds",
+                "counter_id": 3,
                 "reason": "amdgpu.ssa_use",
+                "reason_id": 2,
                 "summary": {
                     "action_count": action_count,
+                    "explicit_action_count": 0,
+                    "planned_action_count": action_count,
                     "full_drain_count": ssa_use_full_drain_count,
                     "partial_wait_count": ssa_use_partial_wait_count,
+                    "drained_count": max_outstanding_before,
+                    "max_drained_count": max_outstanding_before,
                     "max_outstanding_before": max_outstanding_before,
+                    "max_full_drain_outstanding_before": (
+                        max_outstanding_before if ssa_use_full_drain_count else 0
+                    ),
                 },
+            }
+        ],
+    }
+    report["wait_action_rows"] = {
+        "count": 1,
+        "rows": [
+            {
+                "index": 0,
+                "function": "routed_linear",
+                "counter": "lds",
+                "reason": "amdgpu.ssa_use",
+                "producer_descriptor_key": "amdgpu.ds_bpermute_b32",
+                "consumer_descriptor_key": "amdgpu.v_add_f32",
             }
         ],
     }
@@ -476,7 +509,7 @@ def _add_single_subgroup_communication_evidence(
     report: dict[str, object],
     *,
     flat_workgroup_size: int,
-    barrier_count: int,
+    execution_barrier_count: int | None,
 ) -> None:
     entry = report["entries"]["rows"][0]
     entry["workload"] = {
@@ -489,9 +522,12 @@ def _add_single_subgroup_communication_evidence(
     }
     entry["local_memory_bytes"] = 528
     entry["static_instruction_mix"] = {
-        "barrier_count": barrier_count,
         "local_memory_count": 16,
     }
+    if execution_barrier_count is not None:
+        entry["static_instruction_mix"]["execution_barrier_count"] = (
+            execution_barrier_count
+        )
 
 
 def test_suggests_ordered_experiments_from_exact_target_evidence() -> None:
@@ -741,10 +777,21 @@ def test_suggests_dominant_lds_ssa_use_serialization() -> None:
 
     suggestion = result.suggestions[0]
     assert suggestion.suggestion_id == "amdgpu.lds_ssa_use_serialization"
-    assert "independent LDS or DS producers" in suggestion.action
+    assert "dependent chains such as subgroup reductions require these waits" in (
+        suggestion.action
+    )
+    assert "independent chains can issue producers together" in suggestion.action
     evidence = {item.path: item.value for item in suggestion.evidence}
     assert evidence["wait_reason_summary_rows.rows[0].summary.full_drain_count"] == 27
     assert evidence["wait_reason_summary_rows.rows[0].summary.partial_wait_count"] == 0
+    assert (
+        evidence["wait_action_rows.rows[0].producer_descriptor_key"]
+        == "amdgpu.ds_bpermute_b32"
+    )
+    assert (
+        evidence["wait_action_rows.rows[0].consumer_descriptor_key"]
+        == "amdgpu.v_add_f32"
+    )
     assert evidence["entries.rows[0].wait_plan.full_drain_count"] == 125
 
 
@@ -772,7 +819,7 @@ def test_suggests_single_subgroup_workgroup_communication() -> None:
     _add_single_subgroup_communication_evidence(
         report,
         flat_workgroup_size=64,
-        barrier_count=4,
+        execution_barrier_count=2,
     )
     document = parse_compile_report(report)
 
@@ -787,27 +834,30 @@ def test_suggests_single_subgroup_workgroup_communication() -> None:
     evidence = {item.path: item.value for item in suggestion.evidence}
     assert evidence["entries.rows[0].workload.workgroup_size.flat"] == 64
     assert evidence["entries.rows[0].target_resources.subgroup_size"] == 64
-    assert evidence["entries.rows[0].static_instruction_mix.barrier_count"] == 4
+    assert (
+        evidence["entries.rows[0].static_instruction_mix.execution_barrier_count"] == 2
+    )
     assert evidence["entries.rows[0].static_instruction_mix.local_memory_count"] == 16
     assert evidence["entries.rows[0].local_memory_bytes"] == 528
 
 
 @pytest.mark.parametrize(
-    ("flat_workgroup_size", "barrier_count"),
+    ("flat_workgroup_size", "execution_barrier_count"),
     [
         (128, 4),
         (64, 0),
+        (64, None),
     ],
 )
-def test_ignores_multi_subgroup_or_barrier_free_communication(
+def test_communication_advice_requires_single_subgroup_rendezvous_evidence(
     flat_workgroup_size: int,
-    barrier_count: int,
+    execution_barrier_count: int | None,
 ) -> None:
     report = _compile_report()
     _add_single_subgroup_communication_evidence(
         report,
         flat_workgroup_size=flat_workgroup_size,
-        barrier_count=barrier_count,
+        execution_barrier_count=execution_barrier_count,
     )
     document = parse_compile_report(report)
 
@@ -1059,7 +1109,7 @@ def test_calibrated_exact_bank_conflict_is_high_confidence() -> None:
     assert bank_suggestion.confidence == "high"
 
 
-def test_bank_suggestion_requires_complete_exact_conflict_evidence() -> None:
+def test_bank_suggestion_retains_proven_conflicts_with_unknown_packets() -> None:
     report = _compile_report(target_key="gfx1250-a0", subgroup_size=32)
     _add_bank_service_group(
         report,
@@ -1071,9 +1121,16 @@ def test_bank_suggestion_requires_complete_exact_conflict_evidence() -> None:
 
     result = AMDGPU_COMPILE_REPORT_SUGGESTION_PROVIDER.suggest(document)
 
-    assert "amdgpu.lds_bank_service" not in {
-        suggestion.suggestion_id for suggestion in result.suggestions
-    }
+    finding = next(
+        suggestion
+        for suggestion in result.suggestions
+        if suggestion.suggestion_id == "amdgpu.lds_bank_service"
+    )
+    assert "1 unknown and 0 unmodeled instruction sites" in finding.action
+    assert any(
+        evidence.path.endswith("unknown_packet_count") and evidence.value == 1
+        for evidence in finding.evidence
+    )
 
 
 def test_bank_suggestion_rejects_unknown_model_evidence_class() -> None:
@@ -1086,6 +1143,115 @@ def test_bank_suggestion_rejects_unknown_model_evidence_class() -> None:
 
     with pytest.raises(CompileReportError, match="unsupported evidence class"):
         AMDGPU_COMPILE_REPORT_SUGGESTION_PROVIDER.suggest(document)
+
+
+def test_bank_experiments_rank_static_service_and_scope_buffer_coverage() -> None:
+    report = _compile_report()
+    _add_bank_service_group(
+        report, model_evidence="silicon-calibrated-vendor-model", source_root="scores"
+    )
+    _add_bank_service_group(
+        report,
+        model_evidence="silicon-calibrated-vendor-model",
+        exact_packet_count=32,
+        conflicted_packet_count=32,
+        extra_round_count=1792,
+    )
+    for function, count in (("routed_linear", 64), ("other_entry", 128)):
+        _add_bank_service_group(
+            report,
+            model_evidence=None,
+            exact_packet_count=0,
+            conflicted_packet_count=0,
+            extra_round_count=0,
+            unmodeled_packet_count=count,
+            function=function,
+        )
+    document = parse_compile_report(report)
+    result = AMDGPU_COMPILE_REPORT_SUGGESTION_PROVIDER.suggest(document)
+    findings = [
+        s for s in result.suggestions if s.suggestion_id == "amdgpu.lds_bank_service"
+    ]
+
+    first, second = findings
+    assert "32/32 proven instruction sites" in first.action
+    assert "2,048 service rounds versus 256 uncontended (8.00x" in first.action
+    assert "16 B/lane" in first.action
+    assert "static counts, not cycles or a runtime ranking" in first.action
+    assert "0 unknown and 64 unmodeled" in first.action
+    assert "unmodeled" not in second.action
+    paths = {e.path: e.value for e in first.evidence}
+    assert (
+        paths[
+            "source_low.memory.bank_service_groups[1].summary.structural.extra_round_count"
+        ]
+        == 1792
+    )
+    assert (
+        paths["source_low.memory.bank_service_groups[2].summary.unmodeled_packet_count"]
+        == 64
+    )
+    assert not any("groups[3]" in path for path in paths)
+
+
+@pytest.mark.parametrize(("units", "additional_units"), [(32768, 1), (27904, 4865)])
+def test_bank_padding_uses_retained_first_worse_footprint(
+    units: int,
+    additional_units: int,
+) -> None:
+    report = _compile_report()
+    _add_bank_service_group(report, model_evidence="silicon-calibrated-vendor-model")
+    residency = report["entries"]["rows"][0]["target_resources"]["residency"]
+    residency.update(
+        current_tier=4,
+        next_better_tier=5,
+        unique_limiting_resource={
+            "name": "amdgpu.lds",
+            "units": units,
+            "next_worse": {
+                "tier": 3,
+                "cliff_units": units + additional_units,
+                "additional_units": additional_units,
+            },
+        },
+    )
+    report["residency_constraints"]["rows"][0].update(
+        name="amdgpu.lds",
+        unit="bytes",
+        allocation_scope="workgroup",
+        pool_scope="occupancy domain",
+        pool_units=131072,
+        allocation_granularity=512,
+        units=units,
+        rounded_units=((units + 511) // 512) * 512,
+        independent_tier=4,
+        reduction_units_to_next_better_tier=units - 26112,
+    )
+    finding = AMDGPU_COMPILE_REPORT_SUGGESTION_PROVIDER.suggest(
+        parse_compile_report(report)
+    ).suggestions[-1]
+    assert f"up to {additional_units - 1:,} B of growth" in finding.action
+    assert "4 -> 3 subgroups/SIMD" in finding.action
+    assert any(e.path.endswith("next_worse.additional_units") for e in finding.evidence)
+
+    # Resource pressure alone cannot supply a missing growth limit.
+    del residency["unique_limiting_resource"]["next_worse"]
+    without_cliff = AMDGPU_COMPILE_REPORT_SUGGESTION_PROVIDER.suggest(
+        parse_compile_report(report)
+    ).suggestions[-1]
+    assert "B of growth" not in without_cliff.action
+
+
+def test_failed_compilation_cannot_recommend_a_bank_layout() -> None:
+    report = _compile_report()
+    _add_bank_service_group(report, model_evidence="silicon-calibrated-vendor-model")
+    report["status"] = {"code": 13, "name": "INTERNAL"}
+    result = AMDGPU_COMPILE_REPORT_SUGGESTION_PROVIDER.suggest(
+        parse_compile_report(report)
+    )
+    assert not any(
+        s.suggestion_id == "amdgpu.lds_bank_service" for s in result.suggestions
+    )
 
 
 def _pipeline_copy_report() -> dict:
@@ -1144,6 +1310,10 @@ def test_pipeline_copy_waits_cite_native_consumers_and_source_policy() -> None:
     (finding,) = _pipeline_copy_suggestions(_pipeline_copy_report())
     assert finding.entry_name == "stream"
     assert "Full global-load waits precede branch-payload copies" in finding.action
+    assert "outstanding_before value counts packets in its scheduled block" in (
+        finding.action
+    )
+    assert "zero block-local count" not in finding.action
     assert "steady backedges from startup and tail edges" in finding.action
     assert "explicit unroll factors" in finding.action
     evidence = {row.path: row.value for row in finding.evidence}
@@ -1152,6 +1322,19 @@ def test_pipeline_copy_waits_cite_native_consumers_and_source_policy() -> None:
     assert evidence["wait_action_rows.rows[0].node_index"] == 146
     assert evidence["wait_action_rows.rows[0].target_count"] == 0
     assert evidence["wait_action_rows.rows[0].outstanding_before"] == 6
+
+
+def test_pipeline_copy_waits_explain_zero_block_local_outstanding() -> None:
+    report = _pipeline_copy_report()
+    report["wait_action_rows"]["rows"][0]["outstanding_before"] = 0
+
+    (finding,) = _pipeline_copy_suggestions(report)
+
+    assert "zero block-local count" in finding.action
+    assert "residual counter-epoch or control-flow hazard" in finding.action
+    assert "does not mean the hardware wait is redundant" in finding.action
+    evidence = {row.path: row.value for row in finding.evidence}
+    assert evidence["wait_action_rows.rows[0].outstanding_before"] == 0
 
 
 @pytest.mark.parametrize(
@@ -1200,8 +1383,9 @@ def test_pipeline_copy_waits_ignore_serial_controls_and_failed_compilations() ->
     assert _pipeline_copy_suggestions(report) == ()
 
 
-def test_pipeline_copy_waits_reject_malformed_native_evidence() -> None:
+@pytest.mark.parametrize("key", ["target_count", "outstanding_before"])
+def test_pipeline_copy_waits_reject_malformed_native_evidence(key: str) -> None:
     report = _pipeline_copy_report()
-    report["wait_action_rows"]["rows"][0]["target_count"] = False
-    with pytest.raises(CompileReportError, match="target_count: expected integer"):
+    report["wait_action_rows"]["rows"][0][key] = False
+    with pytest.raises(CompileReportError, match=rf"{key}: expected integer"):
         _pipeline_copy_suggestions(report)

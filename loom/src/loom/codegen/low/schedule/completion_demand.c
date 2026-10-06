@@ -40,8 +40,7 @@ iree_status_t loom_low_schedule_completion_demand_initialize(
       const uint32_t consumer =
           loom_low_schedule_dependency_index_group_at(index, group)
               ->consumer_node;
-      if (loom_low_schedule_dependency_index_group_has_ssa(index, group) &&
-          nodes[producer].block_index == nodes[consumer].block_index) {
+      if (nodes[producer].block_index == nodes[consumer].block_index) {
         ++starts[consumer + 1];
       }
     }
@@ -64,8 +63,7 @@ iree_status_t loom_low_schedule_completion_demand_initialize(
       const uint32_t consumer =
           loom_low_schedule_dependency_index_group_at(index, group)
               ->consumer_node;
-      if (loom_low_schedule_dependency_index_group_has_ssa(index, group) &&
-          nodes[producer].block_index == nodes[consumer].block_index) {
+      if (nodes[producer].block_index == nodes[consumer].block_index) {
         out_demand->producers[--starts[consumer + 1]] = producer;
       }
     }
@@ -79,7 +77,10 @@ iree_status_t loom_low_schedule_completion_demand_initialize(
   out_demand->words_per_domain = node_count / 64 + (node_count % 64 != 0);
   iree_host_size_t word_count = 0;
   if (!iree_host_size_checked_mul(out_demand->words_per_domain, domain_count,
-                                  &word_count)) {
+                                  &word_count) ||
+      !iree_host_size_checked_mul(
+          word_count, LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_KIND_COUNT,
+          &word_count)) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "low schedule completion demand size overflow");
   }
@@ -88,23 +89,29 @@ iree_status_t loom_low_schedule_completion_demand_initialize(
       (void**)&out_demand->demanded_bits));
   memset(out_demand->demanded_bits, 0,
          word_count * sizeof(*out_demand->demanded_bits));
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, domain_count,
-                                                 sizeof(*out_demand->roots),
-                                                 (void**)&out_demand->roots));
-  memset(out_demand->roots, 0xFF, domain_count * sizeof(*out_demand->roots));
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, domain_count, sizeof(*out_demand->domain_states),
+      (void**)&out_demand->domain_states));
+  for (uint16_t domain = 0; domain < domain_count; ++domain) {
+    out_demand->domain_states[domain] =
+        (struct loom_low_schedule_completion_domain_state_t){
+            .roots =
+                {
+                    LOOM_LOW_SCHEDULE_NODE_NONE,
+                    LOOM_LOW_SCHEDULE_NODE_NONE,
+                    LOOM_LOW_SCHEDULE_NODE_NONE,
+                },
+            .empty_transaction_root = LOOM_LOW_SCHEDULE_NODE_NONE,
+            .empty_final_nomination_generation = UINT32_MAX,
+        };
+  }
   out_demand->domain_count = domain_count;
-  uint32_t level_bit_count = node_count;
-  do {
-    const uint32_t level_word_count =
-        level_bit_count / 64 + (level_bit_count % 64 != 0);
-    out_demand->nominations
-        .level_starts[out_demand->nominations.level_count++] =
-        out_demand->nominations.words_per_domain;
-    out_demand->nominations.words_per_domain += level_word_count;
-    level_bit_count = level_word_count;
-  } while (level_bit_count > 1);
-  if (!iree_host_size_checked_mul(out_demand->nominations.words_per_domain,
-                                  domain_count, &word_count)) {
+  out_demand->nominations.layout = loom_index_set_calculate_layout(node_count);
+  if (!iree_host_size_checked_mul(out_demand->nominations.layout.word_count,
+                                  domain_count, &word_count) ||
+      !iree_host_size_checked_mul(
+          word_count, LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_KIND_COUNT,
+          &word_count)) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "low schedule completion nomination size overflow");
   }
@@ -117,69 +124,46 @@ iree_status_t loom_low_schedule_completion_demand_initialize(
 }
 
 void loom_low_schedule_completion_demand_nominate(
-    loom_low_schedule_completion_demand_t* demand, uint16_t domain,
+    loom_low_schedule_completion_demand_t* demand,
+    loom_low_schedule_completion_nomination_kind_t kind, uint16_t domain,
     uint32_t consumer) {
-  uint64_t* bits =
-      demand->nominations.bits +
-      (iree_host_size_t)domain * demand->nominations.words_per_domain;
-  uint32_t bit_index = consumer;
-  for (uint8_t level = 0; level < demand->nominations.level_count; ++level) {
-    uint64_t* word =
-        &bits[demand->nominations.level_starts[level] + bit_index / 64];
-    const uint64_t previous = *word;
-    *word |= UINT64_C(1) << (bit_index % 64);
-    if (previous != 0) {
-      break;
-    }
-    bit_index /= 64;
+  uint64_t* bits = demand->nominations.bits +
+                   ((iree_host_size_t)kind * demand->domain_count + domain) *
+                       demand->nominations.layout.word_count;
+  const bool inserted =
+      loom_index_set_insert(&demand->nominations.layout, bits, consumer);
+  if (inserted && kind == LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_FINAL) {
+    ++demand->domain_states[domain].final_nomination_generation;
   }
 }
 
 void loom_low_schedule_completion_demand_complete(
     loom_low_schedule_completion_demand_t* demand, uint32_t node) {
-  for (uint16_t domain = 0; domain < demand->domain_count; ++domain) {
-    uint64_t* bits =
-        demand->nominations.bits +
-        (iree_host_size_t)domain * demand->nominations.words_per_domain;
-    uint32_t bit_index = node;
-    for (uint8_t level = 0; level < demand->nominations.level_count; ++level) {
-      uint64_t* word =
-          &bits[demand->nominations.level_starts[level] + bit_index / 64];
-      const uint64_t previous = *word;
-      *word &= ~(UINT64_C(1) << (bit_index % 64));
-      if (previous == 0 || *word != 0) {
-        break;
-      }
-      bit_index /= 64;
+  for (uint8_t kind = 0;
+       kind < LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_KIND_COUNT; ++kind) {
+    for (uint16_t domain = 0; domain < demand->domain_count; ++domain) {
+      uint64_t* bits =
+          demand->nominations.bits +
+          ((iree_host_size_t)kind * demand->domain_count + domain) *
+              demand->nominations.layout.word_count;
+      loom_index_set_erase(&demand->nominations.layout, bits, node);
     }
   }
 }
 
-uint32_t loom_low_schedule_completion_demand_select(
+static loom_low_schedule_completion_nomination_kind_t
+loom_low_schedule_completion_demand_nomination_kind(
+    loom_low_schedule_completion_selection_kind_t selection_kind) {
+  return selection_kind == LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_TRANSACTION
+             ? LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_TRANSACTION
+             : LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_FINAL;
+}
+
+static void loom_low_schedule_completion_demand_mark_root(
     loom_low_schedule_completion_demand_t* demand,
-    const loom_low_schedule_node_t* nodes, uint16_t domain) {
-  const uint32_t previous_root = demand->roots[domain];
-  if (previous_root != LOOM_LOW_SCHEDULE_NODE_NONE &&
-      nodes[previous_root].scheduled_ordinal == LOOM_LOW_SCHEDULE_NODE_NONE) {
-    return previous_root;
-  }
-  const uint64_t* nominations =
-      demand->nominations.bits +
-      (iree_host_size_t)domain * demand->nominations.words_per_domain;
-  uint8_t level = demand->nominations.level_count - 1;
-  uint64_t word = nominations[demand->nominations.level_starts[level]];
-  if (word == 0) {
-    return LOOM_LOW_SCHEDULE_NODE_NONE;
-  }
-  uint32_t root = (uint32_t)iree_math_count_trailing_zeros_u64(word);
-  while (level != 0) {
-    --level;
-    word = nominations[demand->nominations.level_starts[level] + root];
-    root = root * 64 + (uint32_t)iree_math_count_trailing_zeros_u64(word);
-  }
-  demand->roots[domain] = root;
-  uint64_t* bits = demand->demanded_bits +
-                   (iree_host_size_t)domain * demand->words_per_domain;
+    const loom_low_schedule_node_t* nodes, iree_host_size_t channel,
+    uint32_t root) {
+  uint64_t* bits = demand->demanded_bits + channel * demand->words_per_domain;
   bits[root / 64] |= UINT64_C(1) << (root % 64);
   uint32_t worklist_count = 1;
   demand->worklist[0] = root;
@@ -198,5 +182,86 @@ uint32_t loom_low_schedule_completion_demand_select(
       demand->worklist[worklist_count++] = producer;
     }
   }
+}
+
+uint32_t loom_low_schedule_completion_demand_select(
+    loom_low_schedule_completion_demand_t* demand,
+    const loom_low_schedule_node_t* nodes,
+    loom_low_schedule_completion_selection_kind_t kind, uint16_t domain) {
+  const iree_host_size_t channel =
+      (iree_host_size_t)kind * demand->domain_count + domain;
+  uint32_t* root_slot = &demand->domain_states[domain].roots[kind];
+  const uint32_t previous_root = *root_slot;
+  if (previous_root != LOOM_LOW_SCHEDULE_NODE_NONE &&
+      nodes[previous_root].scheduled_ordinal == LOOM_LOW_SCHEDULE_NODE_NONE) {
+    return previous_root;
+  }
+  const loom_low_schedule_completion_nomination_kind_t nomination_kind =
+      loom_low_schedule_completion_demand_nomination_kind(kind);
+  const uint64_t* nominations =
+      demand->nominations.bits +
+      ((iree_host_size_t)nomination_kind * demand->domain_count + domain) *
+          demand->nominations.layout.word_count;
+  const uint32_t root =
+      loom_index_set_select(&demand->nominations.layout, nominations, 0);
+  if (root == LOOM_INDEX_SET_NONE) {
+    return LOOM_LOW_SCHEDULE_NODE_NONE;
+  }
+  *root_slot = root;
+  loom_low_schedule_completion_demand_mark_root(demand, nodes, channel, root);
   return root;
+}
+
+uint32_t loom_low_schedule_completion_demand_select_transaction_final(
+    loom_low_schedule_completion_demand_t* demand,
+    const loom_low_schedule_node_t* nodes, uint16_t domain) {
+  const loom_low_schedule_completion_selection_kind_t kind =
+      LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_TRANSACTION_FINAL;
+  const loom_low_schedule_completion_selection_kind_t parent_kind =
+      LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_TRANSACTION;
+  const iree_host_size_t channel =
+      (iree_host_size_t)kind * demand->domain_count + domain;
+  const iree_host_size_t parent_channel =
+      (iree_host_size_t)parent_kind * demand->domain_count + domain;
+  struct loom_low_schedule_completion_domain_state_t* domain_state =
+      &demand->domain_states[domain];
+  const uint64_t* parent_bits =
+      demand->demanded_bits + parent_channel * demand->words_per_domain;
+  const uint32_t previous_root = domain_state->roots[kind];
+  if (previous_root != LOOM_LOW_SCHEDULE_NODE_NONE &&
+      nodes[previous_root].scheduled_ordinal == LOOM_LOW_SCHEDULE_NODE_NONE &&
+      (parent_bits[previous_root / 64] &
+       (UINT64_C(1) << (previous_root % 64))) != 0) {
+    return previous_root;
+  }
+  const uint32_t parent_root = domain_state->roots[parent_kind];
+  if (domain_state->empty_transaction_root == parent_root &&
+      domain_state->empty_final_nomination_generation ==
+          domain_state->final_nomination_generation) {
+    return LOOM_LOW_SCHEDULE_NODE_NONE;
+  }
+
+  const loom_low_schedule_completion_nomination_kind_t nomination_kind =
+      loom_low_schedule_completion_demand_nomination_kind(kind);
+  const uint64_t* nominations =
+      demand->nominations.bits +
+      ((iree_host_size_t)nomination_kind * demand->domain_count + domain) *
+          demand->nominations.layout.word_count;
+  for (uint32_t word_index = 0; word_index < demand->words_per_domain;
+       ++word_index) {
+    const uint64_t word = nominations[word_index] & parent_bits[word_index];
+    if (word == 0) {
+      continue;
+    }
+    const uint32_t root =
+        word_index * 64 + (uint32_t)iree_math_count_trailing_zeros_u64(word);
+    domain_state->roots[kind] = root;
+    loom_low_schedule_completion_demand_mark_root(demand, nodes, channel, root);
+    return root;
+  }
+  domain_state->roots[kind] = LOOM_LOW_SCHEDULE_NODE_NONE;
+  domain_state->empty_transaction_root = parent_root;
+  domain_state->empty_final_nomination_generation =
+      domain_state->final_nomination_generation;
+  return LOOM_LOW_SCHEDULE_NODE_NONE;
 }

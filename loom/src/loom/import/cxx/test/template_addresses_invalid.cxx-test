@@ -1,0 +1,250 @@
+// RUN: verify
+// Constexpr contents do not give an automatic object static storage duration.
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  constexpr unsigned local = 5;
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<local>();
+}
+
+// ====
+// Pointer arguments use the same referent-lifetime validation.
+template <const unsigned* value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  constexpr unsigned local = 5;
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<&local>();
+}
+
+// ====
+// A parameter's address is not a static template argument.
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry(unsigned input) {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<input>();
+}
+
+// ====
+// A reference argument cannot bind a temporary value.
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a converted constant expression of type 'const unsigned int&'"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<5u>();
+}
+
+// ====
+// Reference conversion cannot discard the referent's const qualification.
+constexpr unsigned object = 5;
+template <unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a converted constant expression of type 'unsigned int&'"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<object>();
+}
+
+// ====
+// Converting the object value would create a temporary of the requested type.
+constexpr int object = 5;
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a converted constant expression of type 'const unsigned int&'"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<object>();
+}
+
+// ====
+// String literals are excluded even though their storage is static.
+template <const char* value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<"text">();
+}
+
+// ====
+// Thread storage is not a permitted static template referent.
+extern thread_local unsigned object;
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<object>();
+}
+
+// ====
+// A template pointer cannot designate an element outside the static array.
+constexpr unsigned table[3] = {3, 5, 7};
+template <const unsigned* value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<table - 1>();
+}
+
+// ====
+// A template pointer cannot designate an element outside the static array.
+constexpr unsigned table[3] = {3, 5, 7};
+template <const unsigned* value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<table + 4>();
+}
+
+// ====
+// One-past pointers are valid values, but cannot supply an object reference.
+constexpr unsigned table[3] = {3, 5, 7};
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<table[3]>();
+}
+
+// ====
+// An array with unknown extent cannot prove an element beyond its base.
+extern unsigned table[];
+template <const unsigned* value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<table + 3>();
+}
+
+// ====
+// Pointer offset arithmetic must not overflow the constant interpreter.
+constexpr unsigned table[3] = {3, 5, 7};
+template <const unsigned* value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a converted constant expression of type 'const unsigned int*'"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<(table + 0x7fffffffffffffffLL) + 1>();
+}
+
+// ====
+// Subtracting addresses of different objects is not a constant expression.
+constexpr unsigned left[1] = {5}, right[1] = {5};
+// ERROR@+2: PARSE/036 "static assertion expression is not an integral constant expression"
+// WARNING@+1: PARSE/036 "invalid binary expression"
+static_assert(right - left == 0);
+
+// ====
+// Nested array elements need a subobject path, not a sum of element offsets.
+constexpr unsigned table[2][2] = {{3, 5}, {7, 11}};
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a converted constant expression of type 'const unsigned int&'"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<table[0][1]>();
+}
+
+// ====
+// A constant address does not make the contents of a mutable global constant.
+unsigned object = 5;
+template <const unsigned& value>
+constexpr unsigned read() { return value; }
+// ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
+static_assert(read<object>() == 5);
+
+// ====
+// A const-qualified floating object still needs constexpr for a constant read.
+const float object = 1.5f;
+template <const float& value>
+constexpr float read() { return value; }
+// ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
+static_assert(read<object>() == 1.5f);
+
+// ====
+// Static member references obey the same constant-read requirements.
+struct Settings {
+  inline static const float scale = 1.5f;
+};
+template <const float& value>
+constexpr float read() { return value; }
+// ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
+static_assert(read<Settings::scale>() == 1.5f);
+
+// ====
+// Binding a reference does not permit a constant read of mutable storage.
+extern unsigned object;
+static constexpr unsigned read(const unsigned& value) { return value; }
+// ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
+static_assert(read(object) == 5);
+
+// ====
+// An unreadable reference shadows a readable parameter in an outer call.
+extern unsigned external;
+static constexpr unsigned read(const unsigned& value, unsigned depth) {
+  if (depth) return read(external, 0);
+  return value;
+}
+constexpr unsigned known = 5;
+// ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
+static_assert(read(known, 1) == 5);
+
+// ====
+// An unreadable reference cannot borrow a writable slot from an outer call.
+extern unsigned external;
+static constexpr void mutate(unsigned& value, unsigned depth) {
+  if (depth) {
+    mutate(external, 0);
+    return;
+  }
+  ++value;
+}
+static constexpr unsigned evaluate() {
+  unsigned value = 5;
+  mutate(value, 1);
+  return value;
+}
+// ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
+static_assert(evaluate() == 6);
+
+// ====
+// Forwarding a reference preserves its automatic storage duration.
+static constexpr const unsigned& forward(const unsigned& value) { return value; }
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  constexpr unsigned local = 5;
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<forward(local)>();
+}
+
+// ====
+// Virtual bases require one shared constant-object storage node. Until the
+// evaluator represents that node, reject the address instead of inventing a
+// separate nested object for each path through the diamond.
+struct VirtualBase {
+  unsigned value;
+};
+struct Left : virtual VirtualBase {};
+struct Right : virtual VirtualBase {};
+struct Diamond : Left, Right {};
+extern Diamond object;
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a converted constant expression of type 'const unsigned int&'"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<object.Left::value>();
+}

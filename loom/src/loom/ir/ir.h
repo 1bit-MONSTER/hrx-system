@@ -159,13 +159,22 @@ typedef uint8_t loom_field_ref_t;
 // On 64-bit: the op pointer and operand index are packed into a single
 // uint64_t. Userspace heap pointers on x86-64 and AArch64 use at most
 // 48 bits; the upper 16 bits carry the operand index. This gives direct
-// pointer access with no table indirection.
+// pointer access with no table indirection. The aligned pointer's low two bits
+// retain the consuming/required-identity classification of this occurrence.
 //
 // On 32-bit builds: the natural struct layout is 8 bytes because
 // pointers are 4 bytes. No packing needed.
 //
 // Both representations fit 3 uses inline in the value's 24-byte union,
 // preserving the 64-byte cache-line-aligned value layout.
+
+enum loom_use_flag_bits_e {
+  // The operand transfers or terminates its linear ownership.
+  LOOM_USE_FLAG_CONSUMES = 1u << 0,
+  // A result preserves this operand's identity rather than capturing a copy.
+  LOOM_USE_FLAG_IDENTITY = 1u << 1,
+};
+typedef uint8_t loom_use_flags_t;
 
 #if defined(IREE_PTR_SIZE_64)
 
@@ -178,14 +187,26 @@ typedef uint64_t loom_use_t;
 #define LOOM_USE_POINTER_MASK UINT64_C(0x0000FFFFFFFFFFFF)
 
 static inline loom_use_t loom_use_make(loom_op_t* user_op,
-                                       uint16_t operand_index) {
+                                       uint16_t operand_index,
+                                       loom_use_flags_t flags) {
   IREE_ASSERT(((uintptr_t)user_op & ~LOOM_USE_POINTER_MASK) == 0,
               "op pointer exceeds 48-bit address space");
-  return (uint64_t)(uintptr_t)user_op | ((uint64_t)operand_index << 48);
+  IREE_ASSERT(((uintptr_t)user_op & 3u) == 0,
+              "op alignment must leave room for ownership use tags");
+  return (uint64_t)(uintptr_t)user_op | ((uint64_t)operand_index << 48) | flags;
 }
 
 static inline loom_op_t* loom_use_user_op(loom_use_t use) {
-  return (loom_op_t*)(uintptr_t)(use & LOOM_USE_POINTER_MASK);
+  return (loom_op_t*)(uintptr_t)(use & (LOOM_USE_POINTER_MASK & ~UINT64_C(3)));
+}
+
+static inline loom_use_flags_t loom_use_flags(loom_use_t use) {
+  return (loom_use_flags_t)(use & 3u);
+}
+
+static inline loom_use_t loom_use_with_flags(loom_use_t use,
+                                             loom_use_flags_t flags) {
+  return (use & ~UINT64_C(3)) | flags;
 }
 
 static inline uint16_t loom_use_operand_index(loom_use_t use) {
@@ -195,19 +216,33 @@ static inline uint16_t loom_use_operand_index(loom_use_t use) {
 #else  // 32-bit
 
 typedef struct loom_use_t {
+  // Operation owning the operand occurrence.
   loom_op_t* user_op;
+  // Flat operand position within user_op.
   uint16_t operand_index;
-  uint16_t reserved;
+  // Ownership classification retained when operand uses are registered.
+  uint16_t flags;
 } loom_use_t;
 
 static inline loom_use_t loom_use_make(loom_op_t* user_op,
-                                       uint16_t operand_index) {
-  loom_use_t use = {user_op, operand_index, 0};
+                                       uint16_t operand_index,
+                                       loom_use_flags_t flags) {
+  loom_use_t use = {user_op, operand_index, flags};
   return use;
 }
 
 static inline loom_op_t* loom_use_user_op(loom_use_t use) {
   return use.user_op;
+}
+
+static inline loom_use_flags_t loom_use_flags(loom_use_t use) {
+  return (loom_use_flags_t)use.flags;
+}
+
+static inline loom_use_t loom_use_with_flags(loom_use_t use,
+                                             loom_use_flags_t flags) {
+  use.flags = flags;
+  return use;
 }
 
 static inline uint16_t loom_use_operand_index(loom_use_t use) {
@@ -343,19 +378,14 @@ enum loom_value_flag_bits_e {
   // stores a loom_block_t* (use loom_value_def_block to extract).
   LOOM_VALUE_FLAG_BLOCK_ARG = 1u << 0,
 
-  // This value has been consumed by a tied operand (linear ownership
-  // transfer). Any use of this value after the consuming op is a
-  // verification error. Set by the verifier or during IR construction.
-  LOOM_VALUE_FLAG_CONSUMED = 1u << 1,
-
   // The use list has overflowed inline storage. When set, access uses
   // through overflow_uses pointer instead of inline_uses array.
   // Check: if use_count > LOOM_VALUE_INLINE_USE_COUNT, this must be set.
-  LOOM_VALUE_FLAG_OVERFLOW_USES = 1u << 2,
+  LOOM_VALUE_FLAG_OVERFLOW_USES = 1u << 1,
 
   // This value has incoming operation attribute uses. Exact owners are retained
   // in the shared dependency index, separate from ordinary operand uses.
-  LOOM_VALUE_FLAG_ATTRIBUTE_USES = 1u << 3,
+  LOOM_VALUE_FLAG_ATTRIBUTE_USES = 1u << 2,
 };
 typedef uint16_t loom_value_flags_t;
 
@@ -427,22 +457,27 @@ typedef iree_alignas(64) struct loom_value_t {
 
   // Inline use storage (common path) or overflow pointer.
   //
-  // When use_count <= LOOM_VALUE_INLINE_USE_COUNT:
+  // When LOOM_VALUE_FLAG_OVERFLOW_USES is clear:
   //   Uses are stored directly in inline_uses[0..use_count-1].
   //   No pointer chase, no arena allocation.
   //
-  // When use_count > LOOM_VALUE_INLINE_USE_COUNT:
-  //   LOOM_VALUE_FLAG_OVERFLOW_USES is set.
+  // After use_count exceeds LOOM_VALUE_INLINE_USE_COUNT:
+  //   LOOM_VALUE_FLAG_OVERFLOW_USES remains set, including after removals.
   //   overflow_uses points to an arena-allocated array of
   //   overflow_capacity entries. When use_count reaches
   //   overflow_capacity, a new 2x array is arena-allocated and
   //   the old one is abandoned (arena frees all at module destruction).
   union {
+    // Up to three operand occurrences retained directly in the value.
     loom_use_t inline_uses[LOOM_VALUE_INLINE_USE_COUNT];
     struct {
+      // Module-arena storage for all operand occurrences after overflow.
       loom_use_t* overflow_uses;
+      // Number of use slots allocated at overflow_uses.
       uint32_t overflow_capacity;
-      uint32_t _reserved_0;
+      // Number of occurrences carrying consumption or identity ownership.
+      uint32_t overflow_ownership_use_count;
+      // Padding preserving the same union layout as three inline uses.
       uint64_t _reserved_1;
     };
   };
@@ -458,10 +493,6 @@ static_assert(sizeof(loom_value_t) == 64, "loom_value_t must be 64 bytes");
 
 static inline bool loom_value_is_block_arg(const loom_value_t* value) {
   return iree_any_bit_set(value->flags, LOOM_VALUE_FLAG_BLOCK_ARG);
-}
-
-static inline bool loom_value_is_consumed(const loom_value_t* value) {
-  return iree_any_bit_set(value->flags, LOOM_VALUE_FLAG_CONSUMED);
 }
 
 static inline bool loom_value_has_overflow_uses(const loom_value_t* value) {
@@ -488,6 +519,22 @@ static inline loom_use_t* loom_value_uses_mutable(loom_value_t* value) {
     return value->overflow_uses;
   }
   return value->inline_uses;
+}
+
+// Exact ownership-sensitive occurrence count. Inline storage requires at most
+// three cached-tag reads; overflow storage retains the count during mutation.
+// No user operation or transitive alias is inspected by this query.
+static inline uint32_t loom_value_ownership_use_count(
+    const loom_value_t* value) {
+  if (loom_value_has_overflow_uses(value)) {
+    return value->overflow_ownership_use_count;
+  }
+  uint32_t count = 0;
+  for (uint32_t i = 0; i < LOOM_VALUE_INLINE_USE_COUNT && i < value->use_count;
+       ++i) {
+    count += loom_use_flags(value->inline_uses[i]) != 0;
+  }
+  return count;
 }
 
 // Returns true if the value has no ordinary operand uses. Embedded references
@@ -940,17 +987,13 @@ enum loom_op_vtable_flag_bits_e {
   // The attr-only module-scope op is canonically projected by its generated
   // string key instead of physical module-body order.
   LOOM_OP_VTABLE_KEYED_MODULE_RECORD = 1u << 7,
+  // One successor alternative is selected by an explicit operand.
+  LOOM_OP_VTABLE_HAS_SUCCESSOR_SELECTOR = 1u << 8,
+  // At least one attribute carries a predicate list requiring semantic
+  // verification after its retained SSA references have been checked.
+  LOOM_OP_VTABLE_HAS_PREDICATE_LIST = 1u << 9,
 };
-typedef uint8_t loom_op_vtable_flags_t;
-
-// Compact control-flow metadata on the op vtable. These flags describe
-// structural successor semantics that are cheaper to store inline than as a
-// pointer-backed interface.
-enum loom_op_control_flow_flag_bits_e {
-  // One operand selects among this op's successor alternatives.
-  LOOM_OP_CONTROL_FLOW_HAS_SUCCESSOR_SELECTOR = 1u << 0,
-};
-typedef uint8_t loom_op_control_flow_flags_t;
+typedef uint16_t loom_op_vtable_flags_t;
 
 // Op-specific verification callback. Called after the standard
 // table-driven checks have established the op's structural invariants.
@@ -1026,7 +1069,8 @@ typedef struct loom_condition_refinement_descriptor_t {
   loom_condition_refinement_truth_flags_t truth_flags;
 } loom_condition_refinement_descriptor_t;
 
-static_assert(sizeof(loom_condition_refinement_descriptor_t) == 16,
+static_assert(sizeof(loom_condition_refinement_descriptor_t) ==
+                  (IREE_PTR_SIZE == 8 ? 16 : 8),
               "condition refinement descriptors must remain compact");
 
 //===----------------------------------------------------------------------===//
@@ -1277,17 +1321,17 @@ typedef struct loom_target_like_t {
 // Interface descriptor for loop-like ops. Lets generic passes (LICM,
 // loop-invariant sinking, trip count analysis, loop transformation
 // passes) operate on any iterating op without knowing its specific
-// kind. All ops implementing this interface represent iteration over
-// a single-block body region. A variadic iter_args field, matching variadic
-// results, and the body terminator form one verified loop-carried state cycle.
-// The result types describe the recurring tuple: each entry substitutes its
-// own argument identities for result identities. External references stay
-// invariant. The verifier also checks entry arity and counted IV type.
+// kind. All ops implementing this interface represent iteration over exactly
+// one single-block body region and variadic initial/result state fields.
+// Counted loops use one positional state cycle: initial operands, body entry,
+// body yield, and results agree. The result types describe its recurring type
+// scheme. The verifier also checks entry arity and counted IV type.
 // Exactly one of a counted range or condition region controls iteration.
-// Condition-controlled loops have a required single-block condition region.
-// Its entry arguments receive initial and backedge state; operand zero of its
-// terminator is the condition and the remaining operands forward the complete
-// state tuple to the body and results.
+// Condition-controlled loops have exactly one additional required single-block
+// condition region and two independent state cycles. Initial operands and body
+// yields enter the condition header scheme. Operand zero of the condition
+// terminator is the predicate; its remaining operands enter the independently
+// typed body/result scheme. Either scheme may have a different arity.
 //
 // Generated by c_tables.py from LoopLikeInterface declarations in
 // the Python DSL. One instance per implementing op kind.
@@ -1353,12 +1397,29 @@ typedef struct loom_loop_like_t {
 // is an alternative of the same decision. Ops with iterating body
 // regions do NOT implement this interface — their regions are
 // iterated, not branched.
+typedef enum loom_region_branch_truth_e {
+  // Region entry does not establish a Boolean truth value for the selector.
+  LOOM_REGION_BRANCH_TRUTH_UNKNOWN = 0,
+  // Region entry establishes that the selector is false.
+  LOOM_REGION_BRANCH_TRUTH_FALSE = 1,
+  // Region entry establishes that the selector is true.
+  LOOM_REGION_BRANCH_TRUTH_TRUE = 2,
+} loom_region_branch_truth_t;
+
 typedef struct loom_region_branch_vtable_t {
   // Index of the operand that drives the branch decision. For
   // scf.if this is the i1 condition; for scf.switch this is the
   // index selector. LOOM_OPERAND_INDEX_NONE is not valid — every
   // branch-like op has a selector operand.
   uint8_t selector_operand_index;
+
+  // Region entered when a Boolean selector is true, or LOOM_REGION_INDEX_NONE
+  // for keyed or otherwise non-Boolean branch semantics.
+  uint8_t true_region_index;
+
+  // Region entered when a Boolean selector is false, or LOOM_REGION_INDEX_NONE
+  // for keyed or otherwise non-Boolean branch semantics.
+  uint8_t false_region_index;
 } loom_region_branch_vtable_t;
 
 // Fat reference to a region-branch op. 16 bytes, passed by value.
@@ -1551,12 +1612,10 @@ struct loom_op_vtable_t {
   // Number of operand descriptors when it differs from the implied count.
   // Zero uses fixed_operand_count plus the variadic operand flag.
   uint8_t operand_descriptor_count;
-  // Structural control-flow semantics declared by the op kind.
-  loom_op_control_flow_flags_t control_flow_flags;
   // Bitmask of semantic operand roles present on this op kind.
   uint8_t operand_role_mask;
   // Selector operand index for multi-successor terminators. Valid only when
-  // control_flow_flags has LOOM_OP_CONTROL_FLOW_HAS_SUCCESSOR_SELECTOR.
+  // vtable_flags has LOOM_OP_VTABLE_HAS_SUCCESSOR_SELECTOR.
   uint16_t successor_selector_operand_index;
 
   loom_canonicalize_fn_t canonicalize;
@@ -1611,8 +1670,8 @@ struct loom_op_vtable_t {
   const loom_op_placement_descriptor_t* placement;
 };
 
-static_assert(sizeof(loom_op_vtable_t) == 192,
-              "loom_op_vtable_t must be 192 bytes");
+static_assert(sizeof(loom_op_vtable_t) == (IREE_PTR_SIZE == 8 ? 192 : 108),
+              "loom_op_vtable_t must retain its pointer-width layout");
 
 // Returns true when every operand is a declaration-owned signature definition
 // rather than a reference to a value defined elsewhere.
@@ -1705,8 +1764,9 @@ typedef struct loom_op_t {
   // its own mask constants in the per-dialect ops.h).
   uint8_t instance_flags;
   // Monotonic position key within parent_block. Live ops in a block have
-  // strictly increasing ordinals, enabling O(1) same-block order comparisons
-  // without carrying mutable array indices on every insertion.
+  // strictly increasing ordinals, enabling O(1) same-block order comparisons.
+  // Sparse placement and local density repair maintain the labels in O(log n)
+  // amortized work per insertion without persistent indexing state.
   uint64_t block_ordinal;
   // Op whose region contains this op's block. NULL for module-level
   // ops (direct children of the module body). Set during construction
@@ -1735,7 +1795,8 @@ typedef struct loom_op_t {
   //   uint16_t           operand_segment_counts[operand_descriptor_count]
 } loom_op_t;
 
-static_assert(sizeof(loom_op_t) == 64, "loom_op_t must be 64 bytes");
+static_assert(sizeof(loom_op_t) == (IREE_PTR_SIZE == 8 ? 64 : 48),
+              "loom_op_t must retain its pointer-width layout");
 
 //===----------------------------------------------------------------------===//
 // Op trailing data accessors
@@ -1886,7 +1947,8 @@ typedef struct loom_block_t {
   loom_region_t* parent_region;
 } loom_block_t;
 
-static_assert(sizeof(loom_block_t) == 48, "loom_block_t must be 48 bytes");
+static_assert(sizeof(loom_block_t) == (IREE_PTR_SIZE == 8 ? 48 : 32),
+              "loom_block_t must retain its pointer-width layout");
 
 // Returns the |arg_index|-th block argument value ID.
 static inline loom_value_id_t loom_block_arg_id(const loom_block_t* block,
@@ -2001,7 +2063,8 @@ typedef struct loom_region_t {
   loom_block_t* inline_blocks[1];
 } loom_region_t;
 
-static_assert(sizeof(loom_region_t) == 96, "loom_region_t must be 96 bytes");
+static_assert(sizeof(loom_region_t) == (IREE_PTR_SIZE == 8 ? 96 : 72),
+              "loom_region_t must retain its pointer-width layout");
 
 // Returns true and writes |out_block_index| when |block| is owned by |region|.
 static inline bool loom_region_try_block_index(const loom_region_t* region,
@@ -2534,7 +2597,8 @@ typedef struct loom_module_t {
   loom_intern_table_t string_intern;
   // Arena-owned deduplication buckets for canonical types.
   loom_intern_table_t type_intern;
-  // Arena-owned deduplication buckets for canonical encodings.
+  // Arena-owned structural and display-alias keys for canonical encodings.
+  // Both keys reference the same row; anonymous encodings have only one key.
   loom_intern_table_t encoding_intern;
 
   // Complete immutable canonical-payload identity index, published with types.

@@ -9,6 +9,7 @@
 #include <string>
 
 #include "iree/testing/gtest.h"
+#include "loomc/compile.h"
 #include "loomc/target/amdgpu.h"
 #include "test/util.h"
 
@@ -21,6 +22,11 @@ using ModulePtr = HandlePtr<loomc_module_t, loomc_module_release>;
 using ResultPtr = HandlePtr<loomc_result_t, loomc_result_release>;
 using EnvironmentPtr =
     HandlePtr<loomc_target_environment_t, loomc_target_environment_release>;
+
+using CompilerPtr = HandlePtr<loomc_compiler_t, loomc_compiler_release>;
+using ProgramPtr = HandlePtr<loomc_pass_program_t, loomc_pass_program_release>;
+using ProfilePtr =
+    HandlePtr<loomc_target_profile_t, loomc_target_profile_release>;
 
 ContextPtr CreateContext() {
   loomc_target_environment_t* environment = nullptr;
@@ -122,6 +128,143 @@ TEST(CxxAssemblyTest, SourceAndEnvironmentOwnershipSurvivesBothFormats) {
     workspace_owner.reset();
     EXPECT_EQ(Text(module), original);
   }
+}
+
+TEST(CxxDiagnosticTest,
+     BytecodeCompilationRetainsOriginalLocationAfterTeardown) {
+  const auto allocator = loomc_allocator_system();
+  SourcePtr bytecode;
+  {
+    auto context = CreateContext();
+    loomc_workspace_t* workspace = nullptr;
+    LOOMC_ASSERT_OK(loomc_workspace_create(nullptr, allocator, &workspace));
+    WorkspacePtr workspace_owner(workspace);
+    const char text[] =
+        "[[loom::kernel, loom::workgroup_count(1,1,1), "
+        "loom::workgroup_size(64,1,1)]]\n"
+        "void divide(const unsigned* input, unsigned* output) {\n"
+        "  output[0] = input[0] / input[1];\n"
+        "}\n";
+    loomc_source_options_t source_options = {};
+    source_options.identifier = loomc_make_cstring_view("virtual/division.cxx");
+    source_options.contents = loomc_make_byte_span(text, sizeof(text) - 1);
+    source_options.storage = LOOMC_SOURCE_STORAGE_COPY;
+    loomc_source_t* source = nullptr;
+    LOOMC_ASSERT_OK(loomc_source_create(&source_options, allocator, &source));
+    SourcePtr source_owner(source);
+    loomc_module_t* module = nullptr;
+    loomc_result_t* imported = nullptr;
+    LOOMC_ASSERT_OK(loomc_module_import_cxx(context.get(), workspace, source,
+                                            nullptr, allocator, &module,
+                                            &imported));
+    ModulePtr module_owner(module);
+    ResultPtr imported_owner(imported);
+    ASSERT_TRUE(loomc_result_succeeded(imported));
+    loomc_source_t* serialized = nullptr;
+    LOOMC_ASSERT_OK(loomc_module_serialize_bytecode_to_source(
+        module, nullptr, allocator, &serialized));
+    bytecode.reset(serialized);
+  }
+
+  // Only serialized bytes cross the importer/context ownership boundary.
+  ResultPtr result;
+  {
+    loomc_target_environment_t* environment = nullptr;
+    LOOMC_ASSERT_OK(
+        loomc_target_environment_create_amdgpu(allocator, &environment));
+    EnvironmentPtr environment_owner(environment);
+    loomc_context_target_options_t target_context_options = {};
+    target_context_options.type = LOOMC_STRUCTURE_TYPE_CONTEXT_TARGET_OPTIONS;
+    target_context_options.structure_size = sizeof(target_context_options);
+    target_context_options.target_environment = environment;
+    loomc_context_options_t context_options = {};
+    context_options.next = &target_context_options;
+    loomc_context_t* context = nullptr;
+    LOOMC_ASSERT_OK(
+        loomc_context_create(&context_options, allocator, &context));
+    ContextPtr context_owner(context);
+    loomc_workspace_t* workspace = nullptr;
+    LOOMC_ASSERT_OK(loomc_workspace_create(nullptr, allocator, &workspace));
+    WorkspacePtr workspace_owner(workspace);
+    loomc_module_t* module = nullptr;
+    loomc_result_t* admitted = nullptr;
+    LOOMC_ASSERT_OK(loomc_module_deserialize_bytecode_from_source(
+        context, workspace, bytecode.get(), nullptr, allocator, &module,
+        &admitted));
+    ModulePtr module_owner(module);
+    ResultPtr admitted_owner(admitted);
+    ASSERT_TRUE(loomc_result_succeeded(admitted));
+    bytecode.reset();
+
+    loomc_compiler_t* compiler = nullptr;
+    LOOMC_ASSERT_OK(
+        loomc_compiler_create(context, nullptr, allocator, &compiler));
+    CompilerPtr compiler_owner(compiler);
+    loomc_amdgpu_profile_options_t profile_options = {};
+    profile_options.type = LOOMC_STRUCTURE_TYPE_AMDGPU_PROFILE_OPTIONS;
+    profile_options.structure_size = sizeof(profile_options);
+    profile_options.identity.target = loomc_make_cstring_view("gfx1151");
+    loomc_target_profile_t* profile = nullptr;
+    LOOMC_ASSERT_OK(loomc_target_profile_create_amdgpu(
+        environment, &profile_options, allocator, &profile));
+    ProfilePtr profile_owner(profile);
+    loomc_target_pipeline_options_t pipeline_options = {};
+    pipeline_options.type = LOOMC_STRUCTURE_TYPE_TARGET_PIPELINE_OPTIONS;
+    pipeline_options.structure_size = sizeof(pipeline_options);
+    pipeline_options.kind = LOOMC_TARGET_PIPELINE_KIND_PREPARED_LOW;
+    pipeline_options.control_flow_lowering =
+        LOOMC_TARGET_CONTROL_FLOW_LOWERING_CFG;
+    pipeline_options.source_to_low_max_errors = 20;
+    loomc_pass_program_t* program = nullptr;
+    loomc_result_t* prepared = nullptr;
+    LOOMC_ASSERT_OK(loomc_pass_program_create_from_target_pipeline(
+        context, &pipeline_options, allocator, &program, &prepared));
+    ProgramPtr program_owner(program);
+    ResultPtr prepared_owner(prepared);
+    ASSERT_TRUE(loomc_result_succeeded(prepared));
+    loomc_target_specialization_t specialization = {};
+    specialization.function_symbol = loomc_make_cstring_view("divide");
+    specialization.target_profile = profile;
+    loomc_target_specialization_options_t target_options = {};
+    target_options.type = LOOMC_STRUCTURE_TYPE_TARGET_SPECIALIZATION_OPTIONS;
+    target_options.structure_size = sizeof(target_options);
+    target_options.specializations = &specialization;
+    target_options.specialization_count = 1;
+    loomc_compile_options_t compile_options = {};
+    compile_options.next = &target_options;
+    loomc_result_t* compiled = nullptr;
+    LOOMC_ASSERT_OK(loomc_compile_module(compiler, workspace, program, module,
+                                         &compile_options, allocator,
+                                         &compiled));
+    result.reset(compiled);
+  }
+
+  // The result alone owns the original identity after every compiler owner
+  // dies.
+  EXPECT_FALSE(loomc_result_succeeded(result.get()));
+  const loomc_diagnostic_t* failure = nullptr;
+  for (loomc_host_size_t i = 0; i < loomc_result_diagnostic_count(result.get());
+       ++i) {
+    const auto* diagnostic = loomc_result_diagnostic_at(result.get(), i);
+    if (std::string(diagnostic->code.data, diagnostic->code.size) ==
+        "TARGET/001") {
+      failure = diagnostic;
+    }
+  }
+  ASSERT_NE(failure, nullptr);
+  EXPECT_NE(std::string(failure->message.data, failure->message.size)
+                .find("scalar.divui"),
+            std::string::npos);
+  const auto& range = failure->range;
+  ASSERT_NE(range.source, nullptr);
+  auto identifier = loomc_source_identifier(range.source);
+  EXPECT_EQ(std::string(identifier.data, identifier.size),
+            "virtual/division.cxx");
+  EXPECT_EQ(range.start_line, 3u);
+  EXPECT_EQ(range.start_column, 15u);
+  EXPECT_EQ(range.end_line, 3u);
+  EXPECT_EQ(range.end_column, 34u);
+  EXPECT_EQ(loomc_source_contents(range.source).data_length, 0u);
 }
 
 }  // namespace

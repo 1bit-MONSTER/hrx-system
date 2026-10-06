@@ -560,10 +560,8 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
 ^then:
   low.br ^_bb4(%then_index: reg<amdgpu.vgpr>)
 ^_bb4(%selected_index$18: reg<amdgpu.vgpr>):
-  s_mov_b64_exec %29
-  %34 = s_and_b64 %29, %in_range
-  %35 = s_xor_b64_exec %34
-  low.cond_br %35, ^else, ^_bb6 : reg<amdgpu.scc>
+  %34 = s_andn2_b64_exec %29, %in_range
+  low.cond_br %34, ^else, ^_bb6 : reg<amdgpu.scc>
 ^else:
   s_mov_b64_exec %29
   %32 = v_cndmask_b32 %else_index, %selected_index$18, %in_range
@@ -612,10 +610,8 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
 ^then:
   low.br ^_bb4(%score: reg<amdgpu.vgpr>, %lane: reg<amdgpu.vgpr>)
 ^_bb4(%selected_score$19: reg<amdgpu.vgpr>, %selected_index$20: reg<amdgpu.vgpr>):
-  s_mov_b64_exec %29
-  %34 = s_and_b64 %29, %in_range
-  %35 = s_xor_b64_exec %34
-  low.cond_br %35, ^else, ^_bb6 : reg<amdgpu.scc>
+  %34 = s_andn2_b64_exec %29, %in_range
+  low.cond_br %34, ^else, ^_bb6 : reg<amdgpu.scc>
 ^else:
   s_mov_b64_exec %29
   %32 = v_cndmask_b32 %fallback_score, %selected_score$19, %in_range
@@ -659,21 +655,19 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   %20, %21 = s_and_saveexec_b64 %cond
   low.cond_br %21, ^then, ^_bb5 : reg<amdgpu.scc>
 ^then:
-  %34 = slice %state[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %then = concat(%lane, %34) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %33 = slice %state[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %then = concat(%lane, %33) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   low.br ^_bb4(%then: reg<amdgpu.vgpr x2>)
 ^_bb4(%result$15: reg<amdgpu.vgpr x2>):
-  s_mov_b64_exec %20
-  %31 = s_and_b64 %20, %cond
-  %32 = s_xor_b64_exec %31
-  low.cond_br %32, ^else, ^_bb6 : reg<amdgpu.scc>
+  %31 = s_andn2_b64_exec %20, %cond
+  low.cond_br %31, ^else, ^_bb6 : reg<amdgpu.scc>
 ^else:
-  %36 = v_mov_b32_copy %limit
-  %biased = v_sub_nc_u32 %36, %lane
-  %38 = slice %state[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %35 = v_mov_b32_copy %limit
+  %biased = v_sub_nc_u32 %35, %lane
+  %37 = slice %state[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   s_mov_b64_exec %20
   %25 = slice %result$15[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %26 = v_cndmask_b32 %38, %25, %cond
+  %26 = v_cndmask_b32 %37, %25, %cond
   %28 = slice %result$15[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %29 = v_cndmask_b32 %biased, %28, %cond
   %30 = concat(%26, %29) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
@@ -717,26 +711,24 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   %26, %27 = s_and_saveexec_b64 %cond
   low.cond_br %27, ^then, ^_bb5 : reg<amdgpu.scc>
 ^then:
-  %47 = slice %state[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %then = concat(%lane, %47) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %46 = slice %state[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %then = concat(%lane, %46) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   low.br ^_bb4(%then: reg<amdgpu.vgpr x2>, %state: reg<amdgpu.vgpr x2>)
 ^_bb4(%positive$19: reg<amdgpu.vgpr x2>, %negative$20: reg<amdgpu.vgpr x2>):
-  s_mov_b64_exec %26
-  %44 = s_and_b64 %26, %cond
-  %45 = s_xor_b64_exec %44
-  low.cond_br %45, ^else, ^_bb6 : reg<amdgpu.scc>
+  %44 = s_andn2_b64_exec %26, %cond
+  low.cond_br %44, ^else, ^_bb6 : reg<amdgpu.scc>
 ^else:
-  %49 = v_mov_b32_copy %limit
-  %biased = v_sub_nc_u32 %49, %lane
-  %51 = slice %state[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %48 = v_mov_b32_copy %limit
+  %biased = v_sub_nc_u32 %48, %lane
+  %50 = slice %state[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   s_mov_b64_exec %26
   %31 = slice %positive$19[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %32 = v_cndmask_b32 %51, %31, %cond
+  %32 = v_cndmask_b32 %50, %31, %cond
   %34 = slice %positive$19[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %35 = v_cndmask_b32 %biased, %34, %cond
   %36 = concat(%32, %35) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   %38 = slice %negative$20[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %39 = v_cndmask_b32 %51, %38, %cond
+  %39 = v_cndmask_b32 %50, %38, %cond
   %41 = slice %negative$20[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %42 = v_cndmask_b32 %biased, %41, %cond
   %43 = concat(%39, %42) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
@@ -788,46 +780,42 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   %28, %29 = s_and_saveexec_b64 %after_lower
   low.cond_br %29, ^after, ^_bb7 : reg<amdgpu.scc>
 ^after:
-  %41 = v_mov_b32_copy %upper
-  %before_upper = v_cmp_lt_i32 %lane, %41
-  %43, %44 = s_and_saveexec_b64 %before_upper
-  low.cond_br %44, ^inside, ^_bb10 : reg<amdgpu.scc>
+  %40 = v_mov_b32_copy %upper
+  %before_upper = v_cmp_lt_i32 %lane, %40
+  %42, %43 = s_and_saveexec_b64 %before_upper
+  low.cond_br %43, ^inside, ^_bb10 : reg<amdgpu.scc>
 ^inside:
-  %56 = v_mov_b32_copy %upper
-  %inside_value = v_add_u32 %lane, %56
-  %59 = slice %state[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %inside = concat(%inside_value, %59) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %54 = v_mov_b32_copy %upper
+  %inside_value = v_add_u32 %lane, %54
+  %57 = slice %state[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %inside = concat(%inside_value, %57) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   low.br ^_bb9(%inside: reg<amdgpu.vgpr x2>)
 ^_bb9(%result$23: reg<amdgpu.vgpr x2>):
-  s_mov_b64_exec %43
-  %54 = s_and_b64 %43, %before_upper
-  %55 = s_xor_b64_exec %54
-  low.cond_br %55, ^outside_high, ^_bb11 : reg<amdgpu.scc>
+  %53 = s_andn2_b64_exec %42, %before_upper
+  low.cond_br %53, ^outside_high, ^_bb11 : reg<amdgpu.scc>
 ^outside_high:
-  %61 = v_mov_b32_copy %upper
-  %high_value = v_sub_nc_u32 %lane, %61
-  %63 = slice %state[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  s_mov_b64_exec %43
-  %48 = slice %result$23[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %49 = v_cndmask_b32 %63, %48, %before_upper
-  %51 = slice %result$23[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %52 = v_cndmask_b32 %high_value, %51, %before_upper
-  %53 = concat(%49, %52) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  low.br ^_bb6(%53: reg<amdgpu.vgpr x2>)
+  %59 = v_mov_b32_copy %upper
+  %high_value = v_sub_nc_u32 %lane, %59
+  %61 = slice %state[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  s_mov_b64_exec %42
+  %47 = slice %result$23[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %48 = v_cndmask_b32 %61, %47, %before_upper
+  %50 = slice %result$23[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %51 = v_cndmask_b32 %high_value, %50, %before_upper
+  %52 = concat(%48, %51) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  low.br ^_bb6(%52: reg<amdgpu.vgpr x2>)
 ^_bb6(%result$21: reg<amdgpu.vgpr x2>):
-  s_mov_b64_exec %28
-  %39 = s_and_b64 %28, %after_lower
-  %40 = s_xor_b64_exec %39
-  low.cond_br %40, ^before, ^_bb8 : reg<amdgpu.scc>
+  %39 = s_andn2_b64_exec %28, %after_lower
+  low.cond_br %39, ^before, ^_bb8 : reg<amdgpu.scc>
 ^before:
-  %66 = v_mov_b32_copy %lower
-  %low_value = v_sub_nc_u32 %66, %lane
-  %69 = slice %state[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %64 = v_mov_b32_copy %lower
+  %low_value = v_sub_nc_u32 %64, %lane
+  %67 = slice %state[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   s_mov_b64_exec %28
   %33 = slice %result$21[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %34 = v_cndmask_b32 %low_value, %33, %after_lower
   %36 = slice %result$21[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %37 = v_cndmask_b32 %69, %36, %after_lower
+  %37 = v_cndmask_b32 %67, %36, %after_lower
   %38 = concat(%34, %37) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   low.br ^join(%38: reg<amdgpu.vgpr x2>)
 ^join(%result$20: reg<amdgpu.vgpr x2>):
@@ -841,12 +829,12 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   s_mov_b64_exec %28
   low.br ^join(%result$21: reg<amdgpu.vgpr x2>)
 ^_bb10:
-  s_mov_b64_exec %43
-  %45 = v_mov_b32 0
-  %46 = concat(%45, %45) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  low.br ^_bb9(%46: reg<amdgpu.vgpr x2>)
+  s_mov_b64_exec %42
+  %44 = v_mov_b32 0
+  %45 = concat(%44, %44) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  low.br ^_bb9(%45: reg<amdgpu.vgpr x2>)
 ^_bb11:
-  s_mov_b64_exec %43
+  s_mov_b64_exec %42
   low.br ^_bb6(%result$23: reg<amdgpu.vgpr x2>)
 }
 
@@ -897,28 +885,26 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @uniform
   %49, %50 = s_and_saveexec_b64 %before_upper
   low.cond_br %50, ^_bb3, ^_bb11 : reg<amdgpu.scc>
 ^_bb3:
-  %62 = v_mov_b32_copy %upper
-  %inside_value = v_add_u32 %lane, %62
-  %65 = slice %state[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  low.br ^_bb10(%inside_value: reg<amdgpu.vgpr>, %65: reg<amdgpu.vgpr>)
-^_bb10(%71: reg<amdgpu.vgpr>, %72: reg<amdgpu.vgpr>):
-  s_mov_b64_exec %49
-  %60 = s_and_b64 %49, %before_upper
-  %61 = s_xor_b64_exec %60
-  low.cond_br %61, ^_bb4, ^_bb12 : reg<amdgpu.scc>
+  %61 = v_mov_b32_copy %upper
+  %inside_value = v_add_u32 %lane, %61
+  %64 = slice %state[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  low.br ^_bb10(%inside_value: reg<amdgpu.vgpr>, %64: reg<amdgpu.vgpr>)
+^_bb10(%70: reg<amdgpu.vgpr>, %71: reg<amdgpu.vgpr>):
+  %60 = s_andn2_b64_exec %49, %before_upper
+  low.cond_br %60, ^_bb4, ^_bb12 : reg<amdgpu.scc>
 ^_bb4:
   s_mov_b64_exec %49
   %53 = slice %state[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %55 = v_cndmask_b32 %53, %71, %before_upper
+  %55 = v_cndmask_b32 %53, %70, %before_upper
   %56 = slice %state[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %58 = v_cndmask_b32 %56, %72, %before_upper
+  %58 = v_cndmask_b32 %56, %71, %before_upper
   low.br ^_bb5(%55: reg<amdgpu.vgpr>, %58: reg<amdgpu.vgpr>)
-^_bb5(%67: reg<amdgpu.vgpr>, %68: reg<amdgpu.vgpr>):
+^_bb5(%66: reg<amdgpu.vgpr>, %67: reg<amdgpu.vgpr>):
   s_mov_b64_exec %38
   %40 = slice %state[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %42 = v_cndmask_b32 %40, %67, %after_lower
+  %42 = v_cndmask_b32 %40, %66, %after_lower
   %43 = slice %state[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %45 = v_cndmask_b32 %43, %68, %after_lower
+  %45 = v_cndmask_b32 %43, %67, %after_lower
   %46 = concat(%42, %45) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   low.br ^_bb7(%46: reg<amdgpu.vgpr x2>)
 ^_bb6:
@@ -936,7 +922,7 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @uniform
   low.br ^_bb10(%51: reg<amdgpu.vgpr>, %51: reg<amdgpu.vgpr>)
 ^_bb12:
   s_mov_b64_exec %49
-  low.br ^_bb5(%71: reg<amdgpu.vgpr>, %72: reg<amdgpu.vgpr>)
+  low.br ^_bb5(%70: reg<amdgpu.vgpr>, %71: reg<amdgpu.vgpr>)
 }
 
 // ====
@@ -1334,11 +1320,11 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @uniform
   %high = v_and_b32_lit %high_i8, 255
   %scale_low = v_and_b32_lit %high, 15
   %scale_hi0 = v_and_b32_lit %low, 192
-  %scale_hi = v_lshrrev_b32_lit %scale_hi0, 2
+  %scale_hi = v_lshrrev_b32_src0_inline %scale_hi0, 2
   %scale$146 = v_or_b32 %scale_low, %scale_hi
-  %min_low = v_lshrrev_b32_lit %high, 4
+  %min_low = v_lshrrev_b32_src0_inline %high, 4
   %min_hi0 = v_and_b32_lit %mid, 192
-  %min_hi = v_lshrrev_b32_lit %min_hi0, 2
+  %min_hi = v_lshrrev_b32_src0_inline %min_hi0, 2
   %min$150 = v_or_b32 %min_low, %min_hi
   low.br ^_bb5(%scale$146: reg<amdgpu.vgpr>, %min$150: reg<amdgpu.vgpr>)
 ^_bb5(%scale_i32: reg<amdgpu.vgpr>, %min_i32: reg<amdgpu.vgpr>):
@@ -1379,13 +1365,11 @@ func.def target(@target) @divergent_if_q6_nibble_i8_result(%values: vector<2xi32
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @divergent_if_q6_nibble_i8_result(%values: reg<amdgpu.vgpr x2>, %limit: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>) asm {
   %code = slice %values[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %selector = slice %values[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %high_shifted = v_lshrrev_b32_lit %code, 4
-  %low_i32 = v_and_b32_lit %code, 15
-  %high_i32 = v_and_b32_lit %high_shifted, 15
-  %low = v_bfe_i32_offset_width_inline %low_i32 {offset = 0, width = 8}
-  %high = v_bfe_i32_offset_width_inline %high_i32 {offset = 0, width = 8}
-  %25 = v_mov_b32_copy %limit
-  %cond = v_cmp_lt_i32 %selector, %25
+  %high_shifted = v_lshrrev_b32_src0_inline %code, 4
+  %low = v_and_b32_lit %code, 15
+  %high = v_and_b32_lit %high_shifted, 15
+  %23 = v_mov_b32_copy %limit
+  %cond = v_cmp_lt_i32 %selector, %23
   %selected = v_cndmask_b32 %low, %high, %cond
   return %selected
 }
@@ -1417,13 +1401,11 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   %26, %27 = s_and_saveexec_b64 %lane_condition
   low.cond_br %27, ^then, ^_bb5 : reg<amdgpu.scc>
 ^then:
-  %33 = s_mov_b64_exec_read
-  low.br ^_bb4(%33: reg<amdgpu.sgpr x2>)
+  %32 = s_mov_b64_exec_read
+  low.br ^_bb4(%32: reg<amdgpu.sgpr x2>)
 ^_bb4(%selected_condition$17: reg<amdgpu.sgpr x2>):
-  s_mov_b64_exec %26
-  %31 = s_and_b64 %26, %lane_condition
-  %32 = s_xor_b64_exec %31
-  low.cond_br %32, ^else, ^_bb6 : reg<amdgpu.scc>
+  %31 = s_andn2_b64_exec %26, %lane_condition
+  low.cond_br %31, ^else, ^_bb6 : reg<amdgpu.scc>
 ^else:
   s_mov_b64_exec %26
   %30 = s_and_b64 %26, %lane_condition
@@ -1468,14 +1450,12 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   %26, %27 = s_and_saveexec_b64 %lane_condition
   low.cond_br %27, ^then, ^_bb5 : reg<amdgpu.scc>
 ^then:
-  %34 = s_mov_b32 0
-  %36 = concat(%34, %34) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  low.br ^_bb4(%36: reg<amdgpu.sgpr x2>)
+  %33 = s_mov_b32 0
+  %35 = concat(%33, %33) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  low.br ^_bb4(%35: reg<amdgpu.sgpr x2>)
 ^_bb4(%selected_condition$17: reg<amdgpu.sgpr x2>):
-  s_mov_b64_exec %26
-  %32 = s_and_b64 %26, %lane_condition
-  %33 = s_xor_b64_exec %32
-  low.cond_br %33, ^else, ^_bb6 : reg<amdgpu.scc>
+  %32 = s_andn2_b64_exec %26, %lane_condition
+  low.cond_br %32, ^else, ^_bb6 : reg<amdgpu.scc>
 ^else:
   s_mov_b64_exec %26
   %30 = s_and_b64 %26, %lane_condition
@@ -1520,26 +1500,24 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   %25, %26 = s_and_saveexec_b64 %lane_condition
   low.cond_br %26, ^then, ^_bb5 : reg<amdgpu.scc>
 ^then:
-  %35 = s_mov_b64_exec_read
-  low.br ^_bb4(%35: reg<amdgpu.sgpr x2>)
+  %34 = s_mov_b64_exec_read
+  low.br ^_bb4(%34: reg<amdgpu.sgpr x2>)
 ^_bb4(%selected_condition$18: reg<amdgpu.sgpr x2>):
-  s_mov_b64_exec %25
-  %33 = s_and_b64 %25, %lane_condition
-  %34 = s_xor_b64_exec %33
-  low.cond_br %34, ^else, ^_bb6 : reg<amdgpu.scc>
+  %33 = s_andn2_b64_exec %25, %lane_condition
+  low.cond_br %33, ^else, ^_bb6 : reg<amdgpu.scc>
 ^else:
-  %36 = s_cmp_lg_i32_src1_inline %fallback_condition {rhs = 0}
-  %37 = s_mov_b64_exec_read
-  %38 = slice %37[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %39 = slice %37[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %40 = s_mov_b32 0
-  %41 = s_cselect_b32 %38, %40, %36
-  %42 = s_cselect_b32 %39, %40, %36
-  %43 = concat(%41, %42) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %35 = s_cmp_lg_i32_src1_inline %fallback_condition {rhs = 0}
+  %36 = s_mov_b64_exec_read
+  %37 = slice %36[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %38 = slice %36[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %39 = s_mov_b32 0
+  %40 = s_cselect_b32 %37, %39, %35
+  %41 = s_cselect_b32 %38, %39, %35
+  %42 = concat(%40, %41) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
   s_mov_b64_exec %25
   %29 = s_and_b64 %25, %lane_condition
   %30 = s_xor_b64 %29, %25
-  %31 = s_and_b64 %30, %43
+  %31 = s_and_b64 %30, %42
   %32 = s_or_b64 %29, %31
   low.br ^join(%32: reg<amdgpu.sgpr x2>)
 ^join(%selected_condition$17: reg<amdgpu.sgpr x2>):
@@ -1581,27 +1559,25 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   %25, %26 = s_and_saveexec_b64 %lane_condition
   low.cond_br %26, ^then, ^_bb5 : reg<amdgpu.scc>
 ^then:
-  %34 = s_mov_b32 0
-  %36 = concat(%34, %34) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  low.br ^_bb4(%36: reg<amdgpu.sgpr x2>)
+  %33 = s_mov_b32 0
+  %35 = concat(%33, %33) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  low.br ^_bb4(%35: reg<amdgpu.sgpr x2>)
 ^_bb4(%selected_condition$18: reg<amdgpu.sgpr x2>):
-  s_mov_b64_exec %25
-  %32 = s_and_b64 %25, %lane_condition
-  %33 = s_xor_b64_exec %32
-  low.cond_br %33, ^else, ^_bb6 : reg<amdgpu.scc>
+  %32 = s_andn2_b64_exec %25, %lane_condition
+  low.cond_br %32, ^else, ^_bb6 : reg<amdgpu.scc>
 ^else:
-  %37 = s_cmp_lg_i32_src1_inline %fallback_condition {rhs = 0}
-  %38 = s_mov_b64_exec_read
-  %39 = slice %38[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %40 = slice %38[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %41 = s_mov_b32 0
-  %42 = s_cselect_b32 %39, %41, %37
-  %43 = s_cselect_b32 %40, %41, %37
-  %44 = concat(%42, %43) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %36 = s_cmp_lg_i32_src1_inline %fallback_condition {rhs = 0}
+  %37 = s_mov_b64_exec_read
+  %38 = slice %37[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %39 = slice %37[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %40 = s_mov_b32 0
+  %41 = s_cselect_b32 %38, %40, %36
+  %42 = s_cselect_b32 %39, %40, %36
+  %43 = concat(%41, %42) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
   s_mov_b64_exec %25
   %29 = s_and_b64 %25, %lane_condition
   %30 = s_xor_b64 %29, %25
-  %31 = s_and_b64 %30, %44
+  %31 = s_and_b64 %30, %43
   low.br ^join(%31: reg<amdgpu.sgpr x2>)
 ^join(%selected_condition$17: reg<amdgpu.sgpr x2>):
   %result = v_cndmask_b32 %false_value, %true_value, %selected_condition$17
@@ -1642,20 +1618,18 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   %25, %26 = s_and_saveexec_b64 %lane_condition
   low.cond_br %26, ^then, ^_bb5 : reg<amdgpu.scc>
 ^then:
-  %33 = s_cmp_lg_i32_src1_inline %fallback_condition {rhs = 0}
-  %34 = s_mov_b64_exec_read
-  %35 = slice %34[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %36 = slice %34[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %37 = s_mov_b32 0
-  %38 = s_cselect_b32 %35, %37, %33
-  %39 = s_cselect_b32 %36, %37, %33
-  %40 = concat(%38, %39) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  low.br ^_bb4(%40: reg<amdgpu.sgpr x2>)
+  %32 = s_cmp_lg_i32_src1_inline %fallback_condition {rhs = 0}
+  %33 = s_mov_b64_exec_read
+  %34 = slice %33[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %35 = slice %33[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %36 = s_mov_b32 0
+  %37 = s_cselect_b32 %34, %36, %32
+  %38 = s_cselect_b32 %35, %36, %32
+  %39 = concat(%37, %38) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  low.br ^_bb4(%39: reg<amdgpu.sgpr x2>)
 ^_bb4(%selected_condition$18: reg<amdgpu.sgpr x2>):
-  s_mov_b64_exec %25
-  %31 = s_and_b64 %25, %lane_condition
-  %32 = s_xor_b64_exec %31
-  low.cond_br %32, ^else, ^_bb6 : reg<amdgpu.scc>
+  %31 = s_andn2_b64_exec %25, %lane_condition
+  low.cond_br %31, ^else, ^_bb6 : reg<amdgpu.scc>
 ^else:
   s_mov_b64_exec %25
   %29 = s_and_b64 %25, %lane_condition
@@ -1700,20 +1674,18 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   %25, %26 = s_and_saveexec_b64 %lane_condition
   low.cond_br %26, ^then, ^_bb5 : reg<amdgpu.scc>
 ^then:
-  %35 = s_cmp_lg_i32_src1_inline %fallback_condition {rhs = 0}
-  %36 = s_mov_b64_exec_read
-  %37 = slice %36[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %38 = slice %36[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %39 = s_mov_b32 0
-  %40 = s_cselect_b32 %37, %39, %35
-  %41 = s_cselect_b32 %38, %39, %35
-  %42 = concat(%40, %41) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  low.br ^_bb4(%42: reg<amdgpu.sgpr x2>)
+  %34 = s_cmp_lg_i32_src1_inline %fallback_condition {rhs = 0}
+  %35 = s_mov_b64_exec_read
+  %36 = slice %35[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %37 = slice %35[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %38 = s_mov_b32 0
+  %39 = s_cselect_b32 %36, %38, %34
+  %40 = s_cselect_b32 %37, %38, %34
+  %41 = concat(%39, %40) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  low.br ^_bb4(%41: reg<amdgpu.sgpr x2>)
 ^_bb4(%selected_condition$18: reg<amdgpu.sgpr x2>):
-  s_mov_b64_exec %25
-  %33 = s_and_b64 %25, %lane_condition
-  %34 = s_xor_b64_exec %33
-  low.cond_br %34, ^else, ^_bb6 : reg<amdgpu.scc>
+  %33 = s_andn2_b64_exec %25, %lane_condition
+  low.cond_br %33, ^else, ^_bb6 : reg<amdgpu.scc>
 ^else:
   s_mov_b64_exec %25
   %29 = s_and_b64 %25, %lane_condition
@@ -1894,26 +1866,24 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   %24, %25 = s_and_saveexec_b64 %lane_condition
   low.cond_br %25, ^then, ^_bb5 : reg<amdgpu.scc>
 ^then:
-  %36 = s_mov_b64_exec_read
-  low.br ^_bb4(%36: reg<amdgpu.sgpr x2>)
+  %35 = s_mov_b64_exec_read
+  low.br ^_bb4(%35: reg<amdgpu.sgpr x2>)
 ^_bb4(%selected_condition$20: reg<amdgpu.sgpr x2>):
-  s_mov_b64_exec %24
-  %32 = s_and_b64 %24, %lane_condition
-  %33 = s_xor_b64_exec %32
-  low.cond_br %33, ^else, ^_bb6 : reg<amdgpu.scc>
+  %32 = s_andn2_b64_exec %24, %lane_condition
+  low.cond_br %32, ^else, ^_bb6 : reg<amdgpu.scc>
 ^else:
-  %37 = s_cmp_lg_i32_src1_inline %fallback_condition {rhs = 0}
-  %38 = s_mov_b64_exec_read
-  %39 = slice %38[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %40 = slice %38[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %41 = s_mov_b32 0
-  %42 = s_cselect_b32 %39, %41, %37
-  %43 = s_cselect_b32 %40, %41, %37
-  %44 = concat(%42, %43) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %36 = s_cmp_lg_i32_src1_inline %fallback_condition {rhs = 0}
+  %37 = s_mov_b64_exec_read
+  %38 = slice %37[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %39 = slice %37[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %40 = s_mov_b32 0
+  %41 = s_cselect_b32 %38, %40, %36
+  %42 = s_cselect_b32 %39, %40, %36
+  %43 = concat(%41, %42) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
   s_mov_b64_exec %24
   %28 = s_and_b64 %24, %lane_condition
   %29 = s_xor_b64 %28, %24
-  %30 = s_and_b64 %29, %44
+  %30 = s_and_b64 %29, %43
   %31 = s_or_b64 %28, %30
   low.br ^join(%31: reg<amdgpu.sgpr x2>)
 ^join(%selected_condition$19: reg<amdgpu.sgpr x2>):
@@ -1961,26 +1931,24 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   %29, %30 = s_and_saveexec_b64 %lane_condition
   low.cond_br %30, ^then, ^_bb5 : reg<amdgpu.scc>
 ^then:
-  %41 = s_mov_b64_exec_read
-  low.br ^_bb4(%41: reg<amdgpu.sgpr x2>)
+  %40 = s_mov_b64_exec_read
+  low.br ^_bb4(%40: reg<amdgpu.sgpr x2>)
 ^_bb4(%selected_condition$25: reg<amdgpu.sgpr x2>):
-  s_mov_b64_exec %29
-  %37 = s_and_b64 %29, %lane_condition
-  %38 = s_xor_b64_exec %37
-  low.cond_br %38, ^else, ^_bb6 : reg<amdgpu.scc>
+  %37 = s_andn2_b64_exec %29, %lane_condition
+  low.cond_br %37, ^else, ^_bb6 : reg<amdgpu.scc>
 ^else:
-  %42 = s_cmp_lg_i32_src1_inline %fallback_condition {rhs = 0}
-  %43 = s_mov_b64_exec_read
-  %44 = slice %43[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %45 = slice %43[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %46 = s_mov_b32 0
-  %47 = s_cselect_b32 %44, %46, %42
-  %48 = s_cselect_b32 %45, %46, %42
-  %49 = concat(%47, %48) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %41 = s_cmp_lg_i32_src1_inline %fallback_condition {rhs = 0}
+  %42 = s_mov_b64_exec_read
+  %43 = slice %42[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %44 = slice %42[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %45 = s_mov_b32 0
+  %46 = s_cselect_b32 %43, %45, %41
+  %47 = s_cselect_b32 %44, %45, %41
+  %48 = concat(%46, %47) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
   s_mov_b64_exec %29
   %33 = s_and_b64 %29, %lane_condition
   %34 = s_xor_b64 %33, %29
-  %35 = s_and_b64 %34, %49
+  %35 = s_and_b64 %34, %48
   %36 = s_or_b64 %33, %35
   low.br ^join(%36: reg<amdgpu.sgpr x2>)
 ^join(%selected_condition$24: reg<amdgpu.sgpr x2>):
@@ -2031,26 +1999,24 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   %27, %28 = s_and_saveexec_b64 %lane_condition
   low.cond_br %28, ^then, ^_bb5 : reg<amdgpu.scc>
 ^then:
-  %39 = s_mov_b64_exec_read
-  low.br ^_bb4(%39: reg<amdgpu.sgpr x2>)
+  %38 = s_mov_b64_exec_read
+  low.br ^_bb4(%38: reg<amdgpu.sgpr x2>)
 ^_bb4(%selected_condition$23: reg<amdgpu.sgpr x2>):
-  s_mov_b64_exec %27
-  %35 = s_and_b64 %27, %lane_condition
-  %36 = s_xor_b64_exec %35
-  low.cond_br %36, ^else, ^_bb6 : reg<amdgpu.scc>
+  %35 = s_andn2_b64_exec %27, %lane_condition
+  low.cond_br %35, ^else, ^_bb6 : reg<amdgpu.scc>
 ^else:
-  %40 = s_cmp_lg_i32_src1_inline %fallback_condition {rhs = 0}
-  %41 = s_mov_b64_exec_read
-  %42 = slice %41[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %43 = slice %41[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %44 = s_mov_b32 0
-  %45 = s_cselect_b32 %42, %44, %40
-  %46 = s_cselect_b32 %43, %44, %40
-  %47 = concat(%45, %46) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %39 = s_cmp_lg_i32_src1_inline %fallback_condition {rhs = 0}
+  %40 = s_mov_b64_exec_read
+  %41 = slice %40[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %42 = slice %40[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %43 = s_mov_b32 0
+  %44 = s_cselect_b32 %41, %43, %39
+  %45 = s_cselect_b32 %42, %43, %39
+  %46 = concat(%44, %45) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
   s_mov_b64_exec %27
   %31 = s_and_b64 %27, %lane_condition
   %32 = s_xor_b64 %31, %27
-  %33 = s_and_b64 %32, %47
+  %33 = s_and_b64 %32, %46
   %34 = s_or_b64 %31, %33
   low.br ^join(%34: reg<amdgpu.sgpr x2>)
 ^join(%selected_condition$22: reg<amdgpu.sgpr x2>):
@@ -2109,17 +2075,15 @@ low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_c
   %34, %35 = s_and_saveexec_b64 %positive_lane
   low.cond_br %35, ^_bb1, ^_bb5 : reg<amdgpu.scc>
 ^_bb1:
-  %53 = v_lshlrev_b32_src0_inline %lane, 4
-  %positive_values = global_load_b128_saddr %53, %positive_view
+  %52 = v_lshlrev_b32_src0_inline %lane, 4
+  %positive_values = global_load_b128_saddr %52, %positive_view
   low.br ^_bb4(%positive_values: reg<amdgpu.vgpr x4>)
 ^_bb4(%values$27: reg<amdgpu.vgpr x4>):
-  s_mov_b64_exec %34
-  %51 = s_and_b64 %34, %positive_lane
-  %52 = s_xor_b64_exec %51
-  low.cond_br %52, ^_bb2, ^_bb6 : reg<amdgpu.scc>
+  %51 = s_andn2_b64_exec %34, %positive_lane
+  low.cond_br %51, ^_bb2, ^_bb6 : reg<amdgpu.scc>
 ^_bb2:
-  %55 = v_lshlrev_b32_src0_inline %lane, 4
-  %negative_values = global_load_b128_saddr %55, %negative_view
+  %54 = v_lshlrev_b32_src0_inline %lane, 4
+  %negative_values = global_load_b128_saddr %54, %negative_view
   s_mov_b64_exec %34
   %38 = slice %negative_values[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
   %39 = slice %values$27[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
@@ -2136,8 +2100,8 @@ low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_c
   %50 = concat(%40, %43, %46, %49) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
   low.br ^_bb3(%50: reg<amdgpu.vgpr x4>)
 ^_bb3(%values$26: reg<amdgpu.vgpr x4>):
-  %57 = v_lshlrev_b32_src0_inline %lane, 4
-  global_store_b128_saddr %57, %values$26, %output_view
+  %56 = v_lshlrev_b32_src0_inline %lane, 4
+  global_store_b128_saddr %56, %values$26, %output_view
   return
 ^_bb5:
   s_mov_b64_exec %34
@@ -2195,37 +2159,35 @@ low.func.def target<amdgpu.cdna3.core>(@target) abi(hal_kernel) @divergent_loop_
   %42, %43 = s_and_saveexec_b64 %cond
   low.cond_br %43, ^_bb3, ^_bb10 : reg<amdgpu.scc>
 ^_bb3:
-  %56 = slice %iter[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %then = concat(%lane, %56) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %55 = slice %iter[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %then = concat(%lane, %55) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   low.br ^_bb9(%then: reg<amdgpu.vgpr x2>)
 ^_bb9(%next$32: reg<amdgpu.vgpr x2>):
-  s_mov_b64_exec %42
-  %53 = s_and_b64 %42, %cond
-  %54 = s_xor_b64_exec %53
-  low.cond_br %54, ^_bb4, ^_bb11 : reg<amdgpu.scc>
+  %53 = s_andn2_b64_exec %42, %cond
+  low.cond_br %53, ^_bb4, ^_bb11 : reg<amdgpu.scc>
 ^_bb4:
-  %58 = v_mov_b32 4
-  %biased = v_sub_u32 %58, %lane
-  %60 = slice %iter[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %57 = v_mov_b32 4
+  %biased = v_sub_u32 %57, %lane
+  %59 = slice %iter[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   s_mov_b64_exec %42
   %47 = slice %next$32[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %48 = v_cndmask_b32 %60, %47, %cond
+  %48 = v_cndmask_b32 %59, %47, %cond
   %50 = slice %next$32[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %51 = v_cndmask_b32 %biased, %50, %cond
   %52 = concat(%48, %51) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   low.br ^_bb5(%52: reg<amdgpu.vgpr x2>)
 ^_bb5(%next$31: reg<amdgpu.vgpr x2>):
-  %63 = s_add_u32 %i, %step
-  low.br ^_bb1(%63: reg<amdgpu.sgpr>, %next$31: reg<amdgpu.vgpr x2>)
+  %62 = s_add_u32 %i, %step
+  low.br ^_bb1(%62: reg<amdgpu.sgpr>, %next$31: reg<amdgpu.vgpr x2>)
 ^_bb6:
-  %64, %65 = s_and_saveexec_b64 %cond
-  low.cond_br %65, ^_bb7, ^_bb8 : reg<amdgpu.scc>
+  %63, %64 = s_and_saveexec_b64 %cond
+  low.cond_br %64, ^_bb7, ^_bb8 : reg<amdgpu.scc>
 ^_bb7:
-  %66 = v_mov_b32 0
-  global_store_dwordx2_saddr %66, %iter, %output_view
+  %65 = v_mov_b32 0
+  global_store_dwordx2_saddr %65, %iter, %output_view
   low.br ^_bb8
 ^_bb8:
-  s_mov_b64_exec %64
+  s_mov_b64_exec %63
   return
 ^_bb10:
   s_mov_b64_exec %42
@@ -2394,7 +2356,7 @@ low.kernel.def target<amdgpu.gfx11.generic.core>(@wave64_target) abi_layout({con
 ^_bb4:
   %86 = s_mov_b32 15
   %rhs_k_inner = v_and_b32 %86, %i
-  %rhs_col_inner = v_lshrrev_b32_lit %i, 4
+  %rhs_col_inner = v_lshrrev_b32_src0_inline %i, 4
   %89 = v_mov_b32_copy %kk
   %90 = v_add_u32 %rhs_k_inner, %89
   %91 = v_mad_u32_u24_src1_lit %rhs_col_inner, %90, 3072
@@ -2462,8 +2424,8 @@ low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_c
   %32 = v_mov_b32 0
   %index_value = global_load_b32_saddr %32, %control_view
   %padded = v_add_u32 %group_rounding_bias, %index_value
-  %group = v_lshrrev_b32_lit %padded, 3
-  %element = v_lshlrev_b32_lit %group, 2
+  %group = v_lshrrev_b32_src0_inline %padded, 3
+  %element = v_lshlrev_b32_src0_inline %group, 2
   %37 = v_readfirstlane_b32 %element
   low.br ^loop(%37: reg<amdgpu.sgpr>)
 ^loop(%active: reg<amdgpu.sgpr>):
@@ -2544,15 +2506,13 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   %36, %37 = s_and_saveexec_b64 %unresolved
   low.cond_br %37, ^resolve, ^_bb8 : reg<amdgpu.scc>
 ^resolve:
-  %42 = v_mov_b32_copy %limit
-  %less = v_cmp_lt_i32 %lane, %42
+  %41 = v_mov_b32_copy %limit
+  %less = v_cmp_lt_i32 %lane, %41
   %next = v_cndmask_b32_src1_lit_src0_inline %less {imm32 = 4294967295, false_value = 1}
   low.br ^_bb7(%next: reg<amdgpu.vgpr>)
 ^_bb7(%merged$25: reg<amdgpu.vgpr>):
-  s_mov_b64_exec %36
-  %40 = s_and_b64 %36, %unresolved
-  %41 = s_xor_b64_exec %40
-  low.cond_br %41, ^keep, ^_bb9 : reg<amdgpu.scc>
+  %40 = s_andn2_b64_exec %36, %unresolved
+  low.cond_br %40, ^keep, ^_bb9 : reg<amdgpu.scc>
 ^keep:
   s_mov_b64_exec %36
   %39 = v_cndmask_b32 %order, %merged$25, %unresolved
@@ -2561,8 +2521,8 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   %next_i = s_add_u32 %i, %c1
   low.br ^loop(%next_i: reg<amdgpu.sgpr>, %merged$24: reg<amdgpu.vgpr>)
 ^done:
-  %46 = v_mov_b32 0
-  global_store_b32_saddr %46, %order, %output_view
+  %45 = v_mov_b32 0
+  global_store_b32_saddr %45, %order, %output_view
   return
 ^_bb8:
   s_mov_b64_exec %36

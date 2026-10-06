@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "loom/analysis/condition_facts.h"
+#include "loom/analysis/symbolic_projection.h"
 #include "loom/analysis/symbolic_value.h"
 #include "loom/ir/attribute.h"
 #include "loom/util/adaptive_sort.h"
@@ -231,6 +232,18 @@ static iree_status_t loom_symbolic_expr_normalize_difference_into_scratch(
   if (!iree_checked_sub_i64(left_expression->constant,
                             right_expression->constant, out_constant)) {
     return iree_ok_status();
+  }
+
+  if (context->projections.count != 0) {
+    const loom_symbolic_projection_t* left_projection =
+        loom_symbolic_expr_lookup_projection(context, left_expression);
+    const loom_symbolic_projection_t* right_projection =
+        loom_symbolic_expr_lookup_projection(context, right_expression);
+    if (left_projection && right_projection &&
+        loom_symbolic_projection_equal(left_projection, right_projection)) {
+      *out_linear = true;
+      return iree_ok_status();
+    }
   }
 
   iree_host_size_t term_count = 0;
@@ -704,7 +717,7 @@ static iree_status_t loom_symbolic_expr_prove_le_by_condition_relations(
          expression_term_count * sizeof(*expression_terms));
 
   loom_condition_integer_operand_t
-      anchors[LOOM_SYMBOLIC_EXPR_DEFAULT_TERM_LIMIT * 2];
+      anchors[LOOM_SYMBOLIC_EXPR_DEFAULT_TERM_LIMIT * 2 + 2];
   iree_host_size_t anchor_count = 0;
   for (iree_host_size_t i = 0; i < expression_term_count; ++i) {
     const loom_value_id_t candidates[] = {
@@ -726,6 +739,25 @@ static iree_status_t loom_symbolic_expr_prove_le_by_condition_relations(
         };
       }
     }
+  }
+  // Retained CFG relations are indexed by either operand, so exact proof
+  // endpoints participate as anchors alongside symbolic term values.
+  const bool left_is_constant = loom_symbolic_expr_is_constant(left_expression);
+  if (left_is_constant) {
+    anchors[anchor_count++] = (loom_condition_integer_operand_t){
+        .kind = LOOM_CONDITION_INTEGER_OPERAND_CONSTANT,
+        .value_id = LOOM_VALUE_ID_INVALID,
+        .constant = left_expression->constant,
+    };
+  }
+  if (loom_symbolic_expr_is_constant(right_expression) &&
+      (!left_is_constant ||
+       left_expression->constant != right_expression->constant)) {
+    anchors[anchor_count++] = (loom_condition_integer_operand_t){
+        .kind = LOOM_CONDITION_INTEGER_OPERAND_CONSTANT,
+        .value_id = LOOM_VALUE_ID_INVALID,
+        .constant = right_expression->constant,
+    };
   }
 
   loom_symbolic_expr_condition_relation_proof_t proof = {

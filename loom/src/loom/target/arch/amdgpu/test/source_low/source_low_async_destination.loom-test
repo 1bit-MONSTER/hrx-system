@@ -28,9 +28,9 @@ low.kernel.def target<amdgpu.cdna3.core>(@target) abi_layout({constant_count = 0
   %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
   %global = resource<hal_binding> {extent = 256, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %16 = storage {byte_alignment = 16, byte_length = 1024} : low.storage<workgroup>
-  %18 = v_lshlrev_b32_src0_inline %lane, 2
-  %19 = s_mov_b32_m0_imm 0
-  global_load_lds_dword_saddr %18, %global, %19
+  %17 = v_lshlrev_b32_src0_inline %lane, 2
+  %18 = s_mov_b32_m0_imm 0
+  global_load_lds_dword_saddr %17, %global, %18
   s_waitcnt {vmcnt = 0}
   return
 }
@@ -65,9 +65,9 @@ low.kernel.def target<amdgpu.cdna3.core>(@target) abi_layout({constant_count = 0
   %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
   %global = resource<hal_binding> {extent = 256, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %16 = storage {byte_alignment = 16, byte_length = 1024} : low.storage<workgroup>
-  %18 = v_lshlrev_b32_src0_inline %lane, 2
-  %19 = s_mov_b32_m0_imm 0
-  global_load_lds_dword_saddr %18, %global, %19
+  %17 = v_lshlrev_b32_src0_inline %lane, 2
+  %18 = s_mov_b32_m0_imm 0
+  global_load_lds_dword_saddr %17, %global, %18
   s_waitcnt {vmcnt = 0}
   return
 }
@@ -101,9 +101,9 @@ low.kernel.def target<amdgpu.cdna3.core>(@target) abi_layout({constant_count = 0
   %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
   %global = resource<hal_binding> {extent = 256, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %15 = storage {byte_alignment = 16, byte_length = 1024} : low.storage<workgroup>
-  %17 = v_lshlrev_b32_src0_inline %lane, 2
-  %18 = s_mov_b32_m0_imm 0
-  global_load_lds_dword_saddr %17, %global, %18
+  %16 = v_lshlrev_b32_src0_inline %lane, 2
+  %17 = s_mov_b32_m0_imm 0
+  global_load_lds_dword_saddr %16, %global, %17
   s_waitcnt {vmcnt = 0}
   return
 }
@@ -137,10 +137,10 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
   %global = resource<hal_binding> {extent = 768, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %15 = storage {byte_alignment = 16, byte_length = 1024} : low.storage<workgroup>
-  %17 = v_mov_b32 12
-  %18 = v_mul_lo_u32 %lane, %17
-  %19 = s_mov_b32_m0_imm 0
-  global_load_lds_dwordx3_saddr %18, %global, %19
+  %16 = v_mov_b32 12
+  %17 = v_mul_lo_u32 %lane, %16
+  %18 = s_mov_b32_m0_imm 0
+  global_load_lds_dwordx3_saddr %17, %global, %18
   s_waitcnt {vmcnt = 0}
   return
 }

@@ -77,8 +77,32 @@ bool amdf_gpu_wddm_wkmi_endpoint_properties_translate(
     // The native adapter record identifies the packet layout. Clients receive
     // encoding features and never need to reconstruct them from GFX identity.
     amdf_queue_format_features_t format_features = 0;
+    // Rectangular geometry follows the native packet family, independently
+    // of the fence and scope fields below. Unknown families omit this command.
+    switch (provider_properties->gfx_ip_major) {
+      case 9:
+        format_features |= AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT;
+        break;
+      case 10:
+      case 11:
+        format_features |=
+            AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+            AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_EXTENDED_Z;
+        break;
+      case 12:
+        if (provider_properties->gfx_ip_minor == 0 ||
+            provider_properties->gfx_ip_minor == 5) {
+          format_features |= AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+                             AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_WIDE;
+        }
+        break;
+      default:
+        break;
+    }
     if (provider_properties->gfx_ip_major >= 12) {
       format_features |= AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM;
+    } else if (provider_properties->gfx_ip_major >= 10) {
+      format_features |= AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE;
     }
     if (provider_properties->gfx_ip_major == 12 &&
         provider_properties->gfx_ip_minor >= 5) {

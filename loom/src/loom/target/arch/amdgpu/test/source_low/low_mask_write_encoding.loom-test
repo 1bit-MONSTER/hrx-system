@@ -1,0 +1,91 @@
+// RUN: emit amdgpu-native-words @reuse strategy=source fixed=%mask:physical_register:0:2 fixed=%replacement:physical_register:0:2 fixed=%source:physical_register:4:2
+
+// Scalar overwrite drains only scalar destinations before address arithmetic.
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reuse(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %source: reg<amdgpu.sgpr x2>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  %replacement = s_or_b64 %source, %source
+  %result = s_and_b64 %replacement, %source
+  return
+}
+
+// ----
+0xD5010000
+0x00020080
+0x8C800404
+0xBF88FF9E
+0x8B800400
+0xBFB00000
+
+// ====
+// RUN: emit amdgpu-native-words @reuse strategy=source fixed=%mask:physical_register:0:2 fixed=%replacement:physical_register:0:2 fixed=%source:physical_register:4:2
+
+// VALU overwrite uses va_sdst instead of a full ALU drain.
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reuse(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %source: reg<amdgpu.sgpr x2>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  %replacement = v_cmp_eq_i32 %value, %value
+  %again = v_cndmask_b32_src0_inline %selected, %replacement {false_value = 0}
+  %result = s_and_b64 %replacement, %source
+  return
+}
+
+// ----
+0xD5010001
+0x00020080
+0xD4420000
+0x02020100
+0xBF88F19F
+0xBF870101
+0xD5010000
+0x00020280
+0x8B820400
+0xBFB00000
+
+// ====
+// RUN: emit amdgpu-native-words @reuse strategy=source
+
+// VALU VCC overwrites select their own dependency field.
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reuse(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.vcc>) asm {
+  %selected = v_cndmask_b32_src0_inline_vcc %value, %mask {false_value = 0}
+  %replacement = v_cmp_eq_i32_src0_inline_vcc %value {lhs = 0}
+  %again = v_cndmask_b32_src0_inline_vcc %selected, %replacement {false_value = 0}
+  return
+}
+
+// ----
+0x02020080
+0x7C840080
+0xBF88FF9D
+0xBF870002
+0x02000280
+0xBFB00000
+
+// ====
+// RUN: emit amdgpu-native-words @swap strategy=source fixed=%lhs:physical_register:1:1 fixed=%rhs:physical_register:0:1 fixed=%returned:physical_register:0:2
+
+// A reversed pair requires a resolved parallel-copy cycle on its return edge.
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @swap(%value: reg<amdgpu.vgpr>, %lhs: reg<amdgpu.sgpr>, %rhs: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>) asm {
+  %mask = concat(%rhs, %lhs) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  %pair = concat(%lhs, %rhs) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  low.br ^exit(%pair: reg<amdgpu.sgpr x2>)
+^exit(%returned: reg<amdgpu.sgpr x2>):
+  return %returned
+}
+
+// ----
+0xBE840000
+0xBE850001
+0xD5010000
+0x00120080
+0xBE820000
+0xBE800001
+0xBE810002
+0xBFB00000

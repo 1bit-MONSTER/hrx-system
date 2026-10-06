@@ -1,0 +1,607 @@
+// A decomposed tuple edge still reads the original zero after the changing
+// scalar loop value has stopped using it through SSA.
+// RUN: emit amdgpu-assembly @loop_preserves_tuple_component
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @loop_preserves_tuple_component(%count: reg<amdgpu.sgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %begin = s_mov_b32 0
+  %zero = v_mov_b32 0
+  %increment = v_mov_b32 1
+  %initial = concat(%zero, %zero) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  low.br ^header(%begin: reg<amdgpu.sgpr>, %zero: reg<amdgpu.vgpr>)
+^header(%index: reg<amdgpu.sgpr>, %sum: reg<amdgpu.vgpr>):
+  %continue = s_cmp_lt_i32 %index, %count
+  low.cond_br %continue, ^body, ^exit : reg<amdgpu.scc>
+^body:
+  %next_index = s_add_u32_rhs_inline %index, 1
+  %next_sum = v_add_u32 %sum, %increment
+  low.br ^header(%next_index: reg<amdgpu.sgpr>, %next_sum: reg<amdgpu.vgpr>)
+^exit:
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %sum, %output {offset = 8}
+  return
+}
+
+// ----
+  v_dual_mov_b32 v1, 1 :: v_dual_mov_b32 v4, 0
+  s_mov_b32 s1, 0
+  s_delay_alu instid0(VALU_DEP_1)
+  v_mov_b32 v2, v4
+.Lbb1:
+  s_cmp_lt_i32 s1, s0
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc0 .Lbb3
+.Lbb2:
+  v_add_u32 v2, v2, v1
+  s_add_u32 s1, s1, 1
+  s_branch .Lbb1
+.Lbb3:
+  v_mov_b32 v3, v4
+.Lbb4:
+  global_store_b64 v0, v[3:4], s[2:3] offset:0
+  global_store_b32 v0, v2, s[2:3] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// The backedge's destination remains physically observed after a successor
+// argument is defined, even though its semantic uses end before that join.
+// RUN: emit amdgpu-assembly @join_preserves_prior_tuple
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @join_preserves_prior_tuple(%again: reg<amdgpu.scc>, %seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %increment = v_mov_b32 1
+  low.br ^header(%seed: reg<amdgpu.vgpr>)
+^header(%current: reg<amdgpu.vgpr>):
+  %initial = concat(%current, %current) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %next = v_add_u32 %current, %increment
+  low.br ^join(%next: reg<amdgpu.vgpr>)
+^join(%future: reg<amdgpu.vgpr>):
+  low.cond_br %again, ^back, ^exit : reg<amdgpu.scc>
+^back:
+  low.br ^header(%future: reg<amdgpu.vgpr>)
+^exit:
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %future, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v2, 1
+  v_mov_b32 v4, v0
+.Lbb1:
+  v_add_u32 v0, v4, v2
+.Lbb2:
+  s_cbranch_scc0 .Lbb4
+.Lbb3:
+  v_mov_b32 v4, v0
+  s_branch .Lbb1
+.Lbb4:
+  v_mov_b32 v5, v4
+.Lbb5:
+  global_store_b64 v1, v[4:5], s[0:1] offset:0
+  global_store_b32 v1, v0, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// Destructive use of a copy must preserve the source for a later decomposed
+// edge, not just for its direct SSA users.
+// RUN: emit amdgpu-assembly @tied_copy_preserves_tuple_component
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @tied_copy_preserves_tuple_component(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %initial = concat(%seed, %seed) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %mutable = copy %seed : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %changed = v_fmac_f32 %mutable, %factor, %factor
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v4, v2
+  s_delay_alu instid0(VALU_DEP_1)
+  v_fmac_f32 v4, v0, v0
+  v_mov_b32 v3, v2
+.Lbb1:
+  global_store_b64 v1, v[2:3], s[0:1] offset:0
+  global_store_b32 v1, v4, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// A nested concat edge reads its immediate tuple component's assigned storage.
+// The changing loop tuple cannot overwrite that component before the exit.
+// RUN: emit amdgpu-assembly @nested_tuple_preserves_component
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @nested_tuple_preserves_component(%count: reg<amdgpu.sgpr>, %seed: reg<amdgpu.vgpr x2>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %begin = s_mov_b32 0
+  %increment = v_mov_b32 1
+  %low = slice %seed[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %high = slice %seed[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %pair = concat(%low, %high) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %initial = concat(%pair, %pair) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  low.br ^header(%begin: reg<amdgpu.sgpr>, %pair: reg<amdgpu.vgpr x2>)
+^header(%index: reg<amdgpu.sgpr>, %current: reg<amdgpu.vgpr x2>):
+  %continue = s_cmp_lt_i32 %index, %count
+  low.cond_br %continue, ^body, ^exit : reg<amdgpu.scc>
+^body:
+  %current_low = slice %current[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %next_low = v_add_u32 %current_low, %increment
+  %next = concat(%next_low, %high) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %next_index = s_add_u32_rhs_inline %index, 1
+  low.br ^header(%next_index: reg<amdgpu.sgpr>, %next: reg<amdgpu.vgpr x2>)
+^exit:
+  low.br ^output(%initial: reg<amdgpu.vgpr x4>)
+^output(%saved: reg<amdgpu.vgpr x4>):
+  global_store_b128_saddr %address, %saved, %output
+  global_store_b64_saddr %address, %current, %output {offset = 16}
+  return
+}
+
+// ----
+  v_mov_b32 v3, 1
+  s_mov_b32 s1, 0
+  v_mov_b32 v4, v0
+  v_mov_b32 v5, v1
+.Lbb1:
+  s_cmp_lt_i32 s1, s0
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc0 .Lbb3
+.Lbb2:
+  s_add_u32 s1, s1, 1
+  v_add_u32 v4, v4, v3
+  v_mov_b32 v5, v1
+  s_branch .Lbb1
+.Lbb3:
+  v_mov_b32 v8, v0
+  v_mov_b32 v9, v1
+  v_mov_b32 v10, v0
+  v_mov_b32 v11, v1
+.Lbb4:
+  global_store_b128 v2, v[8:11], s[2:3] offset:0
+  global_store_b64 v2, v[4:5], s[2:3] offset:16
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// Keeping the low slice for an edge does not preserve the untouched high slice
+// against a changing loop value that starts from it.
+// RUN: emit amdgpu-assembly @only_observed_slice_survives
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @only_observed_slice_survives(%count: reg<amdgpu.sgpr>, %seed: reg<amdgpu.vgpr x2>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %begin = s_mov_b32 0
+  %increment = v_mov_b32 1
+  %low = slice %seed[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %high = slice %seed[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %initial = concat(%low, %low) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  low.br ^header(%begin: reg<amdgpu.sgpr>, %high: reg<amdgpu.vgpr>)
+^header(%index: reg<amdgpu.sgpr>, %current: reg<amdgpu.vgpr>):
+  %continue = s_cmp_lt_i32 %index, %count
+  low.cond_br %continue, ^body, ^exit : reg<amdgpu.scc>
+^body:
+  %next = v_add_u32 %current, %increment
+  %next_index = s_add_u32_rhs_inline %index, 1
+  low.br ^header(%next_index: reg<amdgpu.sgpr>, %next: reg<amdgpu.vgpr>)
+^exit:
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %current, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v3, 1
+  s_mov_b32 s1, 0
+  v_mov_b32 v4, v1
+.Lbb1:
+  s_cmp_lt_i32 s1, s0
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc0 .Lbb3
+.Lbb2:
+  v_add_u32 v4, v4, v3
+  s_add_u32 s1, s1, 1
+  s_branch .Lbb1
+.Lbb3:
+  v_mov_b32 v1, v0
+.Lbb4:
+  global_store_b64 v2, v[0:1], s[2:3] offset:0
+  global_store_b32 v2, v4, s[2:3] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// The tuple observation is on a path that the changing loop cannot reach.
+// The source and loop state remain eligible to share one physical register.
+// RUN: emit amdgpu-assembly @disjoint_tuple_observation
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @disjoint_tuple_observation(%choose: reg<amdgpu.scc>, %count: reg<amdgpu.sgpr>, %seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %begin = s_mov_b32 0
+  %increment = v_mov_b32 1
+  %initial = concat(%seed, %seed) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  low.cond_br %choose, ^enter, ^preserve : reg<amdgpu.scc>
+^enter:
+  low.br ^header(%begin: reg<amdgpu.sgpr>, %seed: reg<amdgpu.vgpr>)
+^header(%index: reg<amdgpu.sgpr>, %current: reg<amdgpu.vgpr>):
+  %continue = s_cmp_lt_i32 %index, %count
+  low.cond_br %continue, ^body, ^exit : reg<amdgpu.scc>
+^body:
+  %next_index = s_add_u32_rhs_inline %index, 1
+  %next = v_add_u32 %current, %increment
+  low.br ^header(%next_index: reg<amdgpu.sgpr>, %next: reg<amdgpu.vgpr>)
+^exit:
+  global_store_b32_saddr %address, %current, %output
+  return
+^preserve:
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  return
+}
+
+// ----
+  v_mov_b32 v3, 1
+  s_mov_b32 s1, 0
+  s_cbranch_scc0 .Lbb5
+.Lbb1:
+  v_mov_b32 v1, v0
+.Lbb2:
+  s_cmp_lt_i32 s1, s0
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc0 .Lbb4
+.Lbb3:
+  v_add_u32 v1, v1, v3
+  s_add_u32 s1, s1, 1
+  s_branch .Lbb2
+.Lbb4:
+  global_store_b32 v2, v1, s[2:3] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+.Lbb5:
+  v_mov_b32 v1, v0
+.Lbb6:
+  global_store_b64 v2, v[0:1], s[2:3] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// Reentering the component's defining block creates a fresh zero before any
+// later tuple observation; the previous dynamic instance may be overwritten.
+// RUN: emit amdgpu-assembly @recreated_component_ends_observation
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @recreated_component_ends_observation(%count: reg<amdgpu.sgpr>, %threshold: reg<amdgpu.sgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %begin = s_mov_b32 0
+  %increment = v_mov_b32 1
+  low.br ^pack(%begin: reg<amdgpu.sgpr>)
+^pack(%index: reg<amdgpu.sgpr>):
+  %zero = v_mov_b32 0
+  %initial = concat(%zero, %zero) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %continue = s_cmp_lt_i32 %index, %count
+  low.cond_br %continue, ^enter, ^exit : reg<amdgpu.scc>
+^enter:
+  low.br ^inner(%index: reg<amdgpu.sgpr>, %zero: reg<amdgpu.vgpr>)
+^inner(%inner_index: reg<amdgpu.sgpr>, %current: reg<amdgpu.vgpr>):
+  %next_index = s_add_u32_rhs_inline %inner_index, 1
+  %next = v_add_u32 %current, %increment
+  %repeat = s_cmp_lt_i32 %next_index, %threshold
+  low.cond_br %repeat, ^back, ^repack : reg<amdgpu.scc>
+^back:
+  low.br ^inner(%next_index: reg<amdgpu.sgpr>, %next: reg<amdgpu.vgpr>)
+^repack:
+  low.br ^pack(%next_index: reg<amdgpu.sgpr>)
+^exit:
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  return
+}
+
+// ----
+  v_mov_b32 v1, 1
+  s_mov_b32 s4, 0
+.Lbb1:
+  v_mov_b32 v2, 0
+  s_cmp_lt_i32 s4, s0
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc0 .Lbb6
+.Lbb2:
+  v_mov_b32 v3, v2
+.Lbb3:
+  v_add_u32 v3, v3, v1
+  s_add_u32 s4, s4, 1
+  s_cmp_lt_i32 s4, s1
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc0 .Lbb5
+.Lbb4:
+  s_branch .Lbb3
+.Lbb5:
+  s_branch .Lbb1
+.Lbb6:
+  v_mov_b32 v3, v2
+.Lbb7:
+  global_store_b64 v0, v[2:3], s[2:3] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// Recreating an aggregate does not recreate its outer component. The original
+// zero remains observable on a later visit to the aggregate's defining block.
+// RUN: emit amdgpu-assembly @recreated_tuple_keeps_outer_component
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @recreated_tuple_keeps_outer_component(%count: reg<amdgpu.sgpr>, %threshold: reg<amdgpu.sgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %begin = s_mov_b32 0
+  %increment = v_mov_b32 1
+  %zero = v_mov_b32 0
+  low.br ^pack(%begin: reg<amdgpu.sgpr>)
+^pack(%index: reg<amdgpu.sgpr>):
+  %initial = concat(%zero, %zero) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %continue = s_cmp_lt_i32 %index, %count
+  low.cond_br %continue, ^enter, ^exit : reg<amdgpu.scc>
+^enter:
+  low.br ^inner(%index: reg<amdgpu.sgpr>, %zero: reg<amdgpu.vgpr>)
+^inner(%inner_index: reg<amdgpu.sgpr>, %current: reg<amdgpu.vgpr>):
+  %next_index = s_add_u32_rhs_inline %inner_index, 1
+  %next = v_add_u32 %current, %increment
+  %repeat = s_cmp_lt_i32 %next_index, %threshold
+  low.cond_br %repeat, ^back, ^repack : reg<amdgpu.scc>
+^back:
+  low.br ^inner(%next_index: reg<amdgpu.sgpr>, %next: reg<amdgpu.vgpr>)
+^repack:
+  low.br ^pack(%next_index: reg<amdgpu.sgpr>)
+^exit:
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  return
+}
+
+// ----
+  v_dual_mov_b32 v1, 1 :: v_dual_mov_b32 v4, 0
+  s_mov_b32 s4, 0
+.Lbb1:
+  s_cmp_lt_i32 s4, s0
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc0 .Lbb6
+.Lbb2:
+  v_mov_b32 v2, v4
+.Lbb3:
+  v_add_u32 v2, v2, v1
+  s_add_u32 s4, s4, 1
+  s_cmp_lt_i32 s4, s1
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc0 .Lbb5
+.Lbb4:
+  s_branch .Lbb3
+.Lbb5:
+  s_branch .Lbb1
+.Lbb6:
+  v_mov_b32 v3, v4
+.Lbb7:
+  global_store_b64 v0, v[3:4], s[2:3] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// A non-writing required alias observes the same physical source; renaming the
+// component does not let a changing loop overwrite it.
+// RUN: emit amdgpu-assembly @required_alias_preserves_tuple_component
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @required_alias_preserves_tuple_component(%count: reg<amdgpu.sgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %begin = s_mov_b32 0
+  %zero = v_mov_b32 0
+  %increment = v_mov_b32 1
+  %alias = low.assume %zero [range(%zero, 0, 1024)] : reg<amdgpu.vgpr>
+  %initial = concat(%alias, %alias) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  low.br ^header(%begin: reg<amdgpu.sgpr>, %zero: reg<amdgpu.vgpr>)
+^header(%index: reg<amdgpu.sgpr>, %sum: reg<amdgpu.vgpr>):
+  %continue = s_cmp_lt_i32 %index, %count
+  low.cond_br %continue, ^body, ^exit : reg<amdgpu.scc>
+^body:
+  %next_index = s_add_u32_rhs_inline %index, 1
+  %next_sum = v_add_u32 %sum, %increment
+  low.br ^header(%next_index: reg<amdgpu.sgpr>, %next_sum: reg<amdgpu.vgpr>)
+^exit:
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %sum, %output {offset = 8}
+  return
+}
+
+// ----
+  v_dual_mov_b32 v1, 1 :: v_dual_mov_b32 v4, 0
+  s_mov_b32 s1, 0
+  s_delay_alu instid0(VALU_DEP_1)
+  v_mov_b32 v2, v4
+.Lbb1:
+  s_cmp_lt_i32 s1, s0
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc0 .Lbb3
+.Lbb2:
+  v_add_u32 v2, v2, v1
+  s_add_u32 s1, s1, 1
+  s_branch .Lbb1
+.Lbb3:
+  v_mov_b32 v3, v4
+.Lbb4:
+  global_store_b64 v0, v[3:4], s[2:3] offset:0
+  global_store_b32 v0, v2, s[2:3] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// The same component lifetime is required by CDNA's mandatory wave64 path.
+// RUN: emit amdgpu-assembly @wave64_loop_preserves_tuple_component
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @wave64_loop_preserves_tuple_component(%count: reg<amdgpu.sgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %begin = s_mov_b32 0
+  %zero = v_mov_b32 0
+  %increment = v_mov_b32 1
+  %initial = concat(%zero, %zero) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  low.br ^header(%begin: reg<amdgpu.sgpr>, %zero: reg<amdgpu.vgpr>)
+^header(%index: reg<amdgpu.sgpr>, %sum: reg<amdgpu.vgpr>):
+  %continue = s_cmp_lt_i32 %index, %count
+  low.cond_br %continue, ^body, ^exit : reg<amdgpu.scc>
+^body:
+  %next_index = s_add_u32_rhs_inline %index, 1
+  %next_sum = v_add_u32 %sum, %increment
+  low.br ^header(%next_index: reg<amdgpu.sgpr>, %next_sum: reg<amdgpu.vgpr>)
+^exit:
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_dwordx2_saddr %address, %saved, %output
+  global_store_dword_saddr %address, %sum, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v1, 1
+  v_mov_b32 v2, 0
+  s_mov_b32 s1, 0
+  v_mov_b32 v3, v2
+.Lbb1:
+  s_cmp_lt_i32 s1, s0
+  s_cbranch_scc0 .Lbb3
+.Lbb2:
+  v_add_u32 v3, v3, v1
+  s_add_u32 s1, s1, 1
+  s_branch .Lbb1
+.Lbb3:
+  v_mov_b32 v4, v2
+  v_mov_b32 v5, v2
+.Lbb4:
+  global_store_dwordx2 v0, v[4:5], s[2:3] offset:0
+  global_store_dword v0, v3, s[2:3] offset:8
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+// Required-component observation also includes ordinary users of an alias,
+// independently of tuple decomposition.
+// RUN: emit amdgpu-assembly @required_alias_preserves_direct_observation
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @required_alias_preserves_direct_observation(%count: reg<amdgpu.sgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %begin = s_mov_b32 0
+  %zero = v_mov_b32 0
+  %increment = v_mov_b32 1
+  %alias = low.assume %zero [range(%zero, 0, 1024)] : reg<amdgpu.vgpr>
+  low.br ^header(%begin: reg<amdgpu.sgpr>, %zero: reg<amdgpu.vgpr>)
+^header(%index: reg<amdgpu.sgpr>, %sum: reg<amdgpu.vgpr>):
+  %continue = s_cmp_lt_i32 %index, %count
+  low.cond_br %continue, ^body, ^exit : reg<amdgpu.scc>
+^body:
+  %next_index = s_add_u32_rhs_inline %index, 1
+  %next_sum = v_add_u32 %sum, %increment
+  low.br ^header(%next_index: reg<amdgpu.sgpr>, %next_sum: reg<amdgpu.vgpr>)
+^exit:
+  global_store_b32_saddr %address, %alias, %output
+  global_store_b32_saddr %address, %sum, %output {offset = 4}
+  return
+}
+
+// ----
+  v_dual_mov_b32 v1, 1 :: v_dual_mov_b32 v2, 0
+  s_mov_b32 s1, 0
+  s_delay_alu instid0(VALU_DEP_1)
+  v_mov_b32 v3, v2
+.Lbb1:
+  s_cmp_lt_i32 s1, s0
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc0 .Lbb3
+.Lbb2:
+  v_add_u32 v3, v3, v1
+  s_add_u32 s1, s1, 1
+  s_branch .Lbb1
+.Lbb3:
+  global_store_b32 v0, v2, s[2:3] offset:0
+  global_store_b32 v0, v3, s[2:3] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// Recreating a non-writing alias does not recreate its required component.
+// Querying the origin preserves the zero needed by the next alias instance.
+// RUN: emit amdgpu-assembly @recreated_alias_keeps_outer_component
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @recreated_alias_keeps_outer_component(%count: reg<amdgpu.sgpr>, %threshold: reg<amdgpu.sgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %begin = s_mov_b32 0
+  %increment = v_mov_b32 1
+  %zero = v_mov_b32 0
+  low.br ^pack(%begin: reg<amdgpu.sgpr>)
+^pack(%index: reg<amdgpu.sgpr>):
+  %alias = low.assume %zero [range(%zero, 0, 1024)] : reg<amdgpu.vgpr>
+  %initial = concat(%alias, %alias) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %continue = s_cmp_lt_i32 %index, %count
+  low.cond_br %continue, ^enter, ^exit : reg<amdgpu.scc>
+^enter:
+  low.br ^inner(%index: reg<amdgpu.sgpr>, %alias: reg<amdgpu.vgpr>)
+^inner(%inner_index: reg<amdgpu.sgpr>, %current: reg<amdgpu.vgpr>):
+  %next_index = s_add_u32_rhs_inline %inner_index, 1
+  %next = v_add_u32 %current, %increment
+  %repeat = s_cmp_lt_i32 %next_index, %threshold
+  low.cond_br %repeat, ^back, ^repack : reg<amdgpu.scc>
+^back:
+  low.br ^inner(%next_index: reg<amdgpu.sgpr>, %next: reg<amdgpu.vgpr>)
+^repack:
+  low.br ^pack(%next_index: reg<amdgpu.sgpr>)
+^exit:
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  return
+}
+
+// ----
+  v_dual_mov_b32 v1, 1 :: v_dual_mov_b32 v4, 0
+  s_mov_b32 s4, 0
+.Lbb1:
+  s_cmp_lt_i32 s4, s0
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc0 .Lbb6
+.Lbb2:
+  v_mov_b32 v2, v4
+.Lbb3:
+  v_add_u32 v2, v2, v1
+  s_add_u32 s4, s4, 1
+  s_cmp_lt_i32 s4, s1
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc0 .Lbb5
+.Lbb4:
+  s_branch .Lbb3
+.Lbb5:
+  s_branch .Lbb1
+.Lbb6:
+  v_mov_b32 v3, v4
+.Lbb7:
+  global_store_b64 v0, v[3:4], s[2:3] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm

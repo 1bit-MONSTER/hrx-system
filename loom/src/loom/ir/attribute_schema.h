@@ -28,6 +28,9 @@ enum loom_attr_flag_bits_e {
   LOOM_ATTR_ELIDE_DEFAULT = 1u << 2,
   // Descriptor-aware text formats spell string values as bare identifiers.
   LOOM_ATTR_BARE_IDENTIFIER = 1u << 3,
+  // Predicate values are runtime observations of operation operands. Generic
+  // verification requires exact semantic types and explicit operand edges.
+  LOOM_ATTR_EXECUTABLE_PREDICATES = 1u << 4,
 };
 typedef uint8_t loom_attr_flags_t;
 
@@ -78,8 +81,63 @@ enum loom_symbol_reference_role_e {
   LOOM_SYMBOL_REFERENCE_ROLE_DEPENDENCY = 0,
   // The reference records where a symbol may be found without retaining it.
   LOOM_SYMBOL_REFERENCE_ROLE_AVAILABILITY = 1,
+  // The reference contributes to test reachability through the independent
+  // oracle profile but is not a deployable subject of the test.
+  LOOM_SYMBOL_REFERENCE_ROLE_ORACLE_DEPENDENCY = 2,
+  LOOM_SYMBOL_REFERENCE_ROLE_COUNT_ = 3,
 };
 typedef uint8_t loom_symbol_reference_role_t;
+
+// Returns true when |role| contributes to reachability and link closure.
+static inline bool loom_symbol_reference_role_is_dependency(
+    loom_symbol_reference_role_t role) {
+  return role == LOOM_SYMBOL_REFERENCE_ROLE_DEPENDENCY ||
+         role == LOOM_SYMBOL_REFERENCE_ROLE_ORACLE_DEPENDENCY;
+}
+
+// Compact durable contract for one dependency occurrence. The low 14 bits
+// retain the target interface constraint and the high two bits retain its
+// dependency role. Availability references never form dependency contracts.
+typedef uint16_t loom_symbol_reference_contract_t;
+#define LOOM_SYMBOL_REFERENCE_CONTRACT_ROLE_SHIFT 14u
+#define LOOM_SYMBOL_REFERENCE_CONTRACT_ROLE_MASK \
+  ((loom_symbol_reference_contract_t)0x3u        \
+   << LOOM_SYMBOL_REFERENCE_CONTRACT_ROLE_SHIFT)
+
+static_assert(LOOM_SYMBOL_INTERFACE_FLAG_MASK <
+                  (1u << LOOM_SYMBOL_REFERENCE_CONTRACT_ROLE_SHIFT),
+              "symbol interface flags must fit the dependency contract");
+
+static inline loom_symbol_reference_contract_t
+loom_symbol_reference_contract_make(loom_symbol_interface_flags_t interfaces,
+                                    loom_symbol_reference_role_t role) {
+  const loom_symbol_reference_contract_t encoded_role =
+      (loom_symbol_reference_contract_t)role
+      << LOOM_SYMBOL_REFERENCE_CONTRACT_ROLE_SHIFT;
+  return (loom_symbol_reference_contract_t)(interfaces | encoded_role);
+}
+
+static inline loom_symbol_interface_flags_t
+loom_symbol_reference_contract_interfaces(
+    loom_symbol_reference_contract_t contract) {
+  return (loom_symbol_interface_flags_t)(contract &
+                                         LOOM_SYMBOL_INTERFACE_FLAG_MASK);
+}
+
+static inline loom_symbol_reference_role_t loom_symbol_reference_contract_role(
+    loom_symbol_reference_contract_t contract) {
+  return (
+      loom_symbol_reference_role_t)((contract &
+                                     LOOM_SYMBOL_REFERENCE_CONTRACT_ROLE_MASK) >>
+                                    LOOM_SYMBOL_REFERENCE_CONTRACT_ROLE_SHIFT);
+}
+
+// Returns true when |contract| encodes a dependency-role reference.
+static inline bool loom_symbol_reference_contract_is_valid(
+    loom_symbol_reference_contract_t contract) {
+  return loom_symbol_reference_role_is_dependency(
+      loom_symbol_reference_contract_role(contract));
+}
 
 // Generated metadata for a symbol-reference attribute.
 typedef struct loom_symbol_reference_descriptor_t {
@@ -87,12 +145,13 @@ typedef struct loom_symbol_reference_descriptor_t {
   loom_bstring_t name;
   // Structural symbol interfaces accepted by this reference.
   loom_symbol_interface_flags_t interfaces;
-  // Compile-time graph role of each reference occurrence.
+  // Compile-time graph and test-profile role of each reference occurrence.
   loom_symbol_reference_role_t role;
 } loom_symbol_reference_descriptor_t;
 
-static_assert(sizeof(loom_symbol_reference_descriptor_t) == 16,
-              "symbol reference descriptors must remain 16 bytes");
+static_assert(sizeof(loom_symbol_reference_descriptor_t) ==
+                  (IREE_PTR_SIZE == 8 ? 16 : 12),
+              "symbol reference descriptors must remain compact");
 
 static inline iree_string_view_t loom_symbol_reference_descriptor_name(
     const loom_symbol_reference_descriptor_t* descriptor) {

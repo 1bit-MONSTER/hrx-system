@@ -9,6 +9,7 @@
 #include "iree/base/internal/arena.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/codegen/low/guarded_motion.h"
 #include "loom/codegen/low/packet.h"
 #include "loom/codegen/low/schedule/diagnostics.h"
 #include "loom/codegen/low/schedule/physical_issue.h"
@@ -18,8 +19,10 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
+#include "loom/target/facts_builder.h"
 #include "loom/target/test/descriptors.h"
 #include "loom/target/test/low_registry.h"
+#include "loom/target/test/target_records.h"
 #include "loom/testing/module_ptr.h"
 
 namespace loom {
@@ -84,8 +87,14 @@ low.func.def target<test.low.core> @structural_model() -> (reg<test.i32 x4>) asm
     options.descriptor_registry = &registry_.registry;
     options.schedule_structural_models = structural_models;
     options.schedule_strategy = schedule_strategy;
-    return loom_low_emission_frame_build(module, loom_block_op(module_block, 0),
-                                         &options, &arena_, out_frame);
+    bool accepted = false;
+    iree_status_t status =
+        loom_low_emission_frame_build(module, loom_block_op(module_block, 0),
+                                      &options, &arena_, out_frame, &accepted);
+    if (iree_status_is_ok(status)) {
+      EXPECT_TRUE(accepted);
+    }
+    return status;
   }
 
   const loom_low_schedule_node_t* FindNode(
@@ -103,6 +112,37 @@ low.func.def target<test.low.core> @structural_model() -> (reg<test.i32 x4>) asm
   loom_target_low_descriptor_registry_t registry_ = {};
   iree_arena_allocator_t arena_ = {};
 };
+
+TEST_F(LowEmissionFrameTest, ResidencyQueryConsumesRetainedFunctionFacts) {
+  ModulePtr module = ParseModule();
+  static const loom_target_residency_model_t model = {/*.best_tier=*/4};
+  loom_target_facts_t target_facts = {};
+  loom_target_facts_builder_initialize(&loom_test_target_fact_type,
+                                       loom_test_target_bundles.values[1],
+                                       &target_facts);
+  loom_low_emission_frame_options_t options = {};
+  options.descriptor_registry = &registry_.registry;
+  options.function_target_facts = &target_facts;
+  options.residency_query =
+      [](const loom_low_resolved_target_t* target,
+         const loom_low_storage_layout_space_sizes_t* storage_sizes) {
+        EXPECT_NE(target->target_facts, nullptr);
+        EXPECT_EQ(target->descriptor_set, loom_test_low_core_descriptor_set());
+        EXPECT_EQ(storage_sizes->workgroup_bytes, 64u);
+        return loom_target_residency_view(&model, 2);
+      };
+  loom_low_emission_frame_t frame = {};
+  bool accepted = false;
+  IREE_ASSERT_OK(loom_low_emission_frame_build(
+      module.get(), loom_block_op(loom_module_block(module.get()), 0), &options,
+      &arena_, &frame, &accepted));
+  ASSERT_TRUE(accepted);
+  // The function model has been released; the frame retains only the borrowed
+  // immutable policy and its value ceiling, not analysis-owned storage.
+  iree_arena_block_pool_trim(&block_pool_);
+  EXPECT_EQ(frame.residency.model, &model);
+  EXPECT_EQ(frame.residency.tier_limit, 2u);
+}
 
 TEST_F(LowEmissionFrameTest, ReusedRegisterWaitsForPreviousPhysicalRead) {
   const auto strategy = LOOM_LOW_SCHEDULE_STRATEGY_SOURCE_PRIORITY;
@@ -131,8 +171,10 @@ low.func.def target<test.low.core> @physical_reuse(%seed: reg<test.phys>) -> (re
   options.allocation_fixed_values = fixed_values;
   options.allocation_fixed_value_count = IREE_ARRAYSIZE(fixed_values);
   loom_low_emission_frame_t frame = {};
-  IREE_ASSERT_OK(loom_low_emission_frame_build(module.get(), function, &options,
-                                               &arena_, &frame));
+  bool frame_accepted = false;
+  IREE_ASSERT_OK(loom_low_emission_frame_build(
+      module.get(), function, &options, &arena_, &frame, &frame_accepted));
+  ASSERT_TRUE(frame_accepted);
   ASSERT_EQ(frame.schedule.error_count, 0u);
   ASSERT_EQ(frame.allocation.error_count, 0u);
   // Physical timing consumes the retained index after scheduler scratch dies.
@@ -156,12 +198,13 @@ low.func.def target<test.low.core> @physical_reuse(%seed: reg<test.phys>) -> (re
     }
     const loom_low_physical_instruction_t instruction = {
         packet.descriptor_ordinal, registers};
-    uint32_t cycle = 0;
     const uint32_t proposed_cycle =
         iree_max(iree_max(next_cycle, packet.node->issue_cycle),
                  loom_low_physical_issue_source_ready_cycle(&issue, i));
-    IREE_ASSERT_OK(loom_low_physical_issue_place(&issue, &instruction, 1,
-                                                 proposed_cycle, &cycle));
+    const uint32_t cycle = loom_low_physical_issue_find_earliest_issue_cycle(
+        &issue, &instruction, 1, proposed_cycle);
+    IREE_ASSERT_OK(
+        loom_low_physical_issue_commit(&issue, &instruction, 1, cycle));
     loom_low_physical_issue_commit_source(&issue, i, cycle);
     cycles[packet.node->source_ordinal] = cycle;
     next_cycle = cycle + 1;
@@ -181,6 +224,18 @@ low.func.def target<test.low.core> @physical_reuse(%seed: reg<test.phys>) -> (re
   write_registers[0] = 1;
   EXPECT_TRUE(
       loom_low_physical_issue_group_fits(frame.target.descriptor_set, pair, 2));
+
+  // A negative hardware RAW permits early native issue, but semantic source
+  // edges retain producer-before-consumer issue order in this admission model.
+  loom_low_physical_issue_t semantic_issue = {};
+  IREE_ASSERT_OK(loom_low_physical_issue_initialize(&frame.schedule, &arena_,
+                                                    &semantic_issue));
+  const auto producer_packet = loom_low_packet_at_node(&frame.schedule, 0);
+  loom_low_physical_issue_commit_source(
+      &semantic_issue, (uint32_t)producer_packet.packet_index, 10);
+  EXPECT_EQ(loom_low_physical_issue_source_ready_cycle(
+                &semantic_issue, (uint32_t)read_packet.packet_index),
+            10u);
 }
 
 TEST_F(LowEmissionFrameTest, EveryStrategyEnforcesIssueResourceCapacity) {
@@ -240,9 +295,11 @@ low.func.def target<test.low.core> @constant_pair(%input: reg<test.i32>) -> (reg
     options.schedule_pair_affinities = {&affinity, 1};
     options.schedule_strategy = strategy;
     loom_low_emission_frame_t frame = {};
+    bool frame_accepted = false;
     IREE_ASSERT_OK(loom_low_emission_frame_build(
         module.get(), loom_block_op(loom_module_block(module.get()), 0),
-        &options, &arena_, &frame));
+        &options, &arena_, &frame, &frame_accepted));
+    ASSERT_TRUE(frame_accepted);
     ASSERT_EQ(frame.schedule.error_count, 0u);
     EXPECT_EQ(frame.schedule.nodes[1].scheduled_ordinal,
               frame.schedule.nodes[0].scheduled_ordinal + 1);
@@ -278,9 +335,11 @@ low.func.def target<test.low.core> @bounded_pair(%address: reg<test.ptr>, %value
   options.allocation_budgets = &budget;
   options.allocation_budget_count = 1;
   loom_low_emission_frame_t frame = {};
+  bool frame_accepted = false;
   IREE_ASSERT_OK(loom_low_emission_frame_build(
       module.get(), loom_block_op(loom_module_block(module.get()), 0), &options,
-      &arena_, &frame));
+      &arena_, &frame, &frame_accepted));
+  ASSERT_TRUE(frame_accepted);
   ASSERT_EQ(frame.schedule.error_count, 0u);
   EXPECT_LT(frame.schedule.nodes[2].scheduled_ordinal,
             frame.schedule.nodes[1].scheduled_ordinal);
@@ -303,9 +362,11 @@ low.func.def target<test.low.core> @spills(%first: reg<test.i32>, %second: reg<t
   options.allocation_budgets = &budget;
   options.allocation_budget_count = 1;
   loom_low_emission_frame_t frame = {};
+  bool frame_accepted = false;
   IREE_ASSERT_OK(loom_low_emission_frame_build(
       module.get(), loom_block_op(loom_module_block(module.get()), 0), &options,
-      &arena_, &frame));
+      &arena_, &frame, &frame_accepted));
+  ASSERT_TRUE(frame_accepted);
   iree_arena_block_pool_trim(&block_pool_);
   const loom_low_allocation_table_t& allocation = frame.allocation;
   ASSERT_EQ(allocation.error_count, 0u);
@@ -380,9 +441,11 @@ low.func.def target<test.low.core> @feedback(%lhs: reg<test.i32>, %rhs: reg<test
   spill_free_options.materialization_options.supported_storage_spaces =
       LOOM_LOW_STORAGE_SPACE_SET_NONE;
   loom_low_emission_frame_t frame = {};
+  bool frame_accepted = false;
   IREE_ASSERT_OK(loom_low_emission_frame_build_spill_free(
       module.get(), loom_block_op(loom_module_block(module.get()), 0), &options,
-      &spill_free_options, &arena_, &frame));
+      &spill_free_options, &arena_, &frame, &frame_accepted));
+  ASSERT_TRUE(frame_accepted);
   ASSERT_EQ(frame.schedule.error_count, 0u);
   ASSERT_EQ(frame.allocation.error_count, 0u);
   EXPECT_EQ(statistics.frame_build_count, 1u);
@@ -396,9 +459,12 @@ low.func.def target<test.low.core> @feedback(%lhs: reg<test.i32>, %rhs: reg<test
   quiet_options.allocation_diagnostic_flags = 0;
   quiet_options.statistics = nullptr;
   loom_low_emission_frame_t quiet_frame = {};
+  bool quiet_frame_accepted = false;
   IREE_ASSERT_OK(loom_low_emission_frame_build_spill_free(
       module.get(), loom_block_op(loom_module_block(module.get()), 0),
-      &quiet_options, &spill_free_options, &arena_, &quiet_frame));
+      &quiet_options, &spill_free_options, &arena_, &quiet_frame,
+      &quiet_frame_accepted));
+  ASSERT_TRUE(quiet_frame_accepted);
   // Release pooled scratch before comparing schedules and formatting retained
   // diagnostics. ASAN catches any accidental result borrowing from that state.
   iree_arena_block_pool_trim(&block_pool_);
@@ -470,9 +536,11 @@ low.func.def target<test.low.core> @too_wide(%wide: reg<test.special x2>) -> (re
   spill_free_options.materialization_options.supported_storage_spaces =
       LOOM_LOW_STORAGE_SPACE_SET_NONE;
   loom_low_emission_frame_t frame = {};
+  bool frame_accepted = true;
   IREE_ASSERT_OK(loom_low_emission_frame_build_spill_free(
       module.get(), loom_block_op(loom_module_block(module.get()), 0), &options,
-      &spill_free_options, &arena_, &frame));
+      &spill_free_options, &arena_, &frame, &frame_accepted));
+  EXPECT_FALSE(frame_accepted);
   ASSERT_EQ(frame.allocation.error_count, 1u);
   EXPECT_EQ(captured.count, 1u);
   EXPECT_EQ(captured.op, frame.allocation.failure.op);
@@ -484,6 +552,39 @@ low.func.def target<test.low.core> @too_wide(%wide: reg<test.special x2>) -> (re
       &frame.allocation, /*flags=*/0, options.emitter));
   EXPECT_EQ(captured.count, 2u);
   EXPECT_EQ(arena_.used_allocation_size, used_bytes);
+}
+
+TEST_F(LowEmissionFrameTest, FinalValidatorRejectsWithoutDiagnosticSink) {
+  ModulePtr module = ParseModule();
+  loom_low_emission_frame_options_t options = {};
+  options.descriptor_registry = &registry_.registry;
+  options.schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_SOURCE_PRIORITY;
+  loom_low_emission_frame_spill_free_options_t spill_free_options = {};
+  spill_free_options.materialization_options.has_supported_storage_spaces =
+      true;
+  spill_free_options.materialization_options.supported_storage_spaces =
+      LOOM_LOW_STORAGE_SPACE_SET_NONE;
+  bool validator_invoked = false;
+  spill_free_options.validate_frame =
+      [](void* user_data, const loom_low_emission_frame_t* frame,
+         iree_arena_allocator_t* arena, bool* out_accepted) {
+        bool* invoked = static_cast<bool*>(user_data);
+        EXPECT_FALSE(*invoked);
+        *invoked = true;
+        EXPECT_EQ(frame->schedule.error_count, 0u);
+        EXPECT_EQ(frame->allocation.error_count, 0u);
+        (void)arena;
+        *out_accepted = false;
+        return iree_ok_status();
+      };
+  spill_free_options.validate_frame_user_data = &validator_invoked;
+  loom_low_emission_frame_t frame = {};
+  bool frame_accepted = true;
+  IREE_ASSERT_OK(loom_low_emission_frame_build_spill_free(
+      module.get(), loom_block_op(loom_module_block(module.get()), 0), &options,
+      &spill_free_options, &arena_, &frame, &frame_accepted));
+  EXPECT_TRUE(validator_invoked);
+  EXPECT_FALSE(frame_accepted);
 }
 
 TEST_F(LowEmissionFrameTest, InputErrorsAreNotDeferredOrReplayed) {
@@ -517,9 +618,11 @@ low.func.def target<test.low.core> @invalid_budget(%value: reg<test.i32>) -> (re
   spill_free_options.materialization_options.supported_storage_spaces =
       LOOM_LOW_STORAGE_SPACE_SET_NONE;
   loom_low_emission_frame_t frame = {};
+  bool frame_accepted = true;
   IREE_ASSERT_OK(loom_low_emission_frame_build_spill_free(
       module.get(), loom_block_op(loom_module_block(module.get()), 0), &options,
-      &spill_free_options, &arena_, &frame));
+      &spill_free_options, &arena_, &frame, &frame_accepted));
+  EXPECT_FALSE(frame_accepted);
   ASSERT_EQ(frame.allocation.error_count, 1u);
   EXPECT_FALSE(
       loom_low_allocation_failure_is_present(&frame.allocation.failure));
@@ -609,6 +712,92 @@ low.func.def target<test.low.core> @state_live_out(%state: reg<test.schedule_sta
   ASSERT_EQ(frame.schedule.error_count, 0u);
   ASSERT_EQ(frame.allocation.error_count, 0u);
   EXPECT_EQ(frame.schedule.liveness.region, nullptr);
+}
+
+TEST_F(LowEmissionFrameTest, FailedScheduleDoesNotPublishSourceSuffixBounds) {
+  ModulePtr module = ParseModule(R"(
+low.func.def target<test.low.core> @dependency_cycle(%lhs: reg<test.schedule_state>, %rhs: reg<test.schedule_state>) asm {
+  low.br ^cycle
+^cycle:
+  %old = test.add.schedule_state %lhs, %rhs
+  %writer = test.state.add.schedule_state %lhs, %rhs
+  %cycle = test.explicit.state.add.schedule_state %writer, %old
+  return
+}
+)");
+  uint32_t diagnostic_count = 0;
+  loom_low_emission_frame_options_t options = {};
+  options.descriptor_registry = &registry_.registry;
+  options.schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL;
+  options.emitter.fn = [](void* user_data,
+                          const loom_diagnostic_emission_t* emission) {
+    EXPECT_EQ(emission->error, LOOM_ERR_BACKEND_044);
+    ++*static_cast<uint32_t*>(user_data);
+    return iree_ok_status();
+  };
+  options.emitter.user_data = &diagnostic_count;
+  loom_low_emission_frame_t frame = {};
+  bool accepted = true;
+  IREE_ASSERT_OK(loom_low_emission_frame_build(
+      module.get(), loom_block_op(loom_module_block(module.get()), 0), &options,
+      &arena_, &frame, &accepted));
+
+  EXPECT_FALSE(accepted);
+  EXPECT_EQ(frame.schedule.error_count, 1u);
+  EXPECT_EQ(frame.schedule.source_suffix_issue_cycle_lower_bounds, nullptr);
+  EXPECT_EQ(diagnostic_count, 1u);
+}
+
+TEST_F(LowEmissionFrameTest, ProvenNoOpGuardedMotionSkipsTrialFrame) {
+  ModulePtr module = ParseModule(R"(
+low.func.def target<test.low.core> @guarded_tail(%base: reg<test.ptr>, %origin: reg<test.i32>, %pixel: reg<test.i32>, %color: reg<test.i32 x4>) -> (reg<test.i32>) asm {
+  %condition = test.event.fast.i32 %origin, %pixel
+  low.cond_br %condition, ^store, ^done : reg<test.i32>
+^store:
+  %index = test.total.add.i32 %origin, %pixel
+  test.store.index.v4i32 %base, %index, %color
+  %tail = test.event.fast.i32 %origin, %pixel
+  %result = test.add.i32 %tail, %pixel
+  return %result
+^done:
+  return %condition
+}
+)");
+  loom_low_planning_statistics_t statistics = {};
+  loom_low_emission_frame_options_t options = {};
+  options.descriptor_registry = &registry_.registry;
+  options.schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL;
+  options.statistics = &statistics;
+  loom_low_emission_frame_t frame = {};
+  bool accepted = false;
+  IREE_ASSERT_OK(loom_low_emission_frame_build(
+      module.get(), loom_block_op(loom_module_block(module.get()), 0), &options,
+      &arena_, &frame, &accepted));
+
+  EXPECT_TRUE(accepted);
+  EXPECT_NE(frame.schedule.source_suffix_issue_cycle_lower_bounds, nullptr);
+  EXPECT_EQ(statistics.frame_build_count, 1u);
+  EXPECT_EQ(statistics.allocation_run_count, 1u);
+
+  loom_low_schedule_table_t unproven_schedule = frame.schedule;
+  unproven_schedule.source_suffix_issue_cycle_lower_bounds = nullptr;
+  loom_low_guarded_motion_plan_t unproven_plan = {};
+  IREE_ASSERT_OK(loom_low_guarded_motion_plan(&unproven_schedule, &arena_,
+                                              &unproven_plan));
+  ASSERT_EQ(unproven_plan.region_count, 1u);
+  const loom_low_guarded_motion_region_t& region = unproven_plan.regions[0];
+  const uint32_t source_suffix = region.node_start + region.node_count;
+  const uint32_t source_block =
+      frame.schedule.nodes[region.node_start].block_index;
+  const loom_low_schedule_block_t& block = frame.schedule.blocks[source_block];
+  ASSERT_NE(block.issue_group_count, 0u);
+  const uint32_t source_extent =
+      frame.schedule
+          .issue_groups[block.issue_group_start + block.issue_group_count - 1]
+          .issue_cycle;
+  EXPECT_EQ(
+      frame.schedule.source_suffix_issue_cycle_lower_bounds[source_suffix],
+      source_extent);
 }
 
 TEST_F(LowEmissionFrameTest, OrderedEffectUsesDirectionalTimingEndpoints) {

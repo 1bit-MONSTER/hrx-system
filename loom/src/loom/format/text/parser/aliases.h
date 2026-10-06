@@ -7,34 +7,32 @@
 #ifndef LOOM_FORMAT_TEXT_PARSER_ALIASES_H_
 #define LOOM_FORMAT_TEXT_PARSER_ALIASES_H_
 
-#include "iree/base/api.h"
-#include "iree/base/internal/arena.h"
+#include "loom/ir/ir.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct loom_alias_entry_t {
-  // Bare alias name without '#', e.g. "q6_k".
-  iree_string_view_t name;
-  // 1-based index into the module encoding table.
-  uint16_t encoding_id;
-} loom_alias_entry_t;
-
+// Source names may outnumber canonical encodings and survive independently of
+// their display aliases. A zero-initialized table allocates lazily on
+// insertion.
 typedef struct loom_alias_table_t {
-  loom_alias_entry_t* entries;
-  iree_host_size_t capacity;
-  iree_host_size_t count;
+  // Parser-arena buckets mapping interned source names to 1-based encoding IDs.
+  loom_intern_table_t index;
 } loom_alias_table_t;
 
-// Registers an encoding alias. Grows the table via the arena.
+// Registers a known-unique, module-interned source name for an existing
+// encoding. Bucket growth reuses old segments; the parser arena owns their
+// lifetime.
 iree_status_t loom_alias_table_add(loom_alias_table_t* table,
                                    iree_arena_allocator_t* arena,
-                                   iree_string_view_t name,
+                                   loom_string_id_t name_id,
                                    uint16_t encoding_id);
 
-// Returns the encoding_id for |name|, or 0 if not found.
+// Returns the encoding ID for a bare source |name|, or 0 if not found.
+// Lookup does not intern unknown names or allocate storage.
 uint16_t loom_alias_table_lookup(const loom_alias_table_t* table,
+                                 const loom_module_t* module,
                                  iree_string_view_t name);
 
 #ifdef __cplusplus

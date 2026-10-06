@@ -60,11 +60,14 @@ typedef struct loom_amdgpu_hal_binding_materialization_result_t {
 // Function predicates over materialized direct arguments become zero-cost
 // low.assume identities before the signature values are removed, preserving
 // their facts for target-low consumers without retaining stale ABI metadata.
+// |kernarg_ptr| is the live-in retained by ABI verification, or INVALID when
+// it must be materialized. Continuing passes reuse that verified value.
 // Separate amdgpu.hal.buffer_descriptor pseudos materialize range, control, and
 // pointer-high descriptor bits only for selected descriptor-consuming packets.
 iree_status_t loom_amdgpu_hal_binding_materialize(
     loom_module_t* module, loom_op_t* function_op,
     const loom_low_descriptor_set_t* descriptor_set,
+    loom_value_id_t kernarg_ptr,
     loom_amdgpu_hal_binding_materialization_result_t* out_result,
     iree_arena_allocator_t* scratch_arena);
 

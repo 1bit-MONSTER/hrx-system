@@ -24,15 +24,47 @@
 #include "loom/ops/view/ops.h"
 
 namespace loom::cxx_import {
+namespace {
+
+// C++ bool objects occupy a byte while their computed values are predicates.
+// All other admitted scalar and vector objects share their value
+// representation.
+loom_type_t object_storage_type(loom_type_t value_type) {
+  return loom_type_element_type(value_type) == LOOM_SCALAR_TYPE_I1
+             ? loom_type_scalar(LOOM_SCALAR_TYPE_I8)
+             : value_type;
+}
+
+}  // namespace
 
 Pointer Storage::root(loom_value_id_t buffer, cxx::AST* owner) {
   return {buffer,
           scalars_.integer(0, LOOM_SCALAR_TYPE_OFFSET, locations_.get(owner))};
 }
 
+Pointer Storage::constrain_origin(Pointer pointer, cxx::AST* owner) {
+  if (unit_.control()->memoryLayout()->sizeOfPointer() != 4) {
+    return pointer;
+  }
+  auto source = locations_.get(owner);
+  auto offset_type = loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET);
+  loom_predicate_t range = {
+      .kind = LOOM_PREDICATE_RANGE,
+      .arg_count = 3,
+      .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
+                   LOOM_PRED_ARG_CONST},
+      .args = {pointer.byte_offset, 0, UINT32_MAX},
+  };
+  loom_op_t* op;
+  check(loom_index_assume_build(&builder_, &pointer.byte_offset, 1, &range, 1,
+                                &offset_type, 1, source, &op));
+  return {pointer.root, loom_op_results(op)[0]};
+}
+
 StorageProjection Storage::project(Pointer pointer,
                                    const cxx::Type* object_type,
                                    cxx::AST* owner) {
+  types_.storage_size(object_type, owner);
   auto alignment = unit_.control()->memoryLayout()->alignmentOf(object_type);
   if (!alignment) {
     diagnostics_.reject(unit_, owner, "unknown object alignment");
@@ -82,14 +114,18 @@ StorageProjection Storage::advance(StorageProjection base,
       .arg_count = 3,
       .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
                    LOOM_PRED_ARG_CONST},
-      .args = {byte_offset, 0, INT64_MAX},
+      .args = {byte_offset, 0,
+               unit_.control()->memoryLayout()->sizeOfPointer() == 4
+                   ? UINT32_MAX
+                   : INT64_MAX},
   };
   check(loom_scalar_assume_build(&builder_, &byte_offset, 1, &range, 1,
                                  &wide_type, 1, source, &op));
   check(loom_index_cast_build(&builder_, loom_op_results(op)[0], wide_type,
                               offset_type, source, &op));
   return {{base.pointer.root, loom_op_results(op)[0]},
-          std::gcd(base.alignment, static_cast<uint64_t>(bytes))};
+          std::gcd(base.alignment, static_cast<uint64_t>(bytes)),
+          true};
 }
 
 StorageProjection Storage::member(StorageProjection base,
@@ -101,14 +137,18 @@ StorageProjection Storage::member(StorageProjection base,
   check(loom_index_add_build(&builder_, base.pointer.byte_offset, field_offset,
                              loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET), source,
                              &op));
-  return {{base.pointer.root, loom_op_results(op)[0]},
-          std::gcd(base.alignment, *field->offsetInClass())};
+  Pointer pointer =
+      constrain_origin({base.pointer.root, loom_op_results(op)[0]}, owner);
+  return {pointer, std::gcd(base.alignment, *field->offsetInClass()), true};
 }
 
 StorageAccess Storage::dereference(StorageProjection base,
                                    const cxx::Type* element_type,
                                    cxx::AST* owner) {
-  auto element = types_.get(element_type, owner);
+  if (!base.pointer_width_constrained) {
+    base.pointer = constrain_origin(base.pointer, owner);
+  }
+  auto element = object_storage_type(types_.get(element_type, owner));
   auto* vector = types_.vector(element_type);
   auto view_type =
       loom_type_shaped_1d(LOOM_TYPE_VIEW, loom_type_element_type(element),
@@ -126,6 +166,7 @@ StorageAccess Storage::dereference(StorageProjection base,
 
 loom_value_id_t Storage::load(const StorageAccess& access,
                               const cxx::Type* element_type, cxx::AST* owner) {
+  auto value_type = types_.get(element_type, owner);
   int64_t selector = access.index ? INT64_MIN : 0;
   auto build = types_.vector(element_type) ? loom_vector_load_build
                                            : loom_view_load_build;
@@ -133,12 +174,21 @@ loom_value_id_t Storage::load(const StorageAccess& access,
   check(build(&builder_, 0, types_.memory_access_flags(element_type),
               access.view, access.index ? &*access.index : nullptr,
               access.index ? 1 : 0, &selector, 1, 0, 0,
-              types_.get(element_type, owner), locations_.get(owner), &op));
-  return loom_op_results(op)[0];
+              object_storage_type(value_type), locations_.get(owner), &op));
+  auto value = loom_op_results(op)[0];
+  return loom_type_element_type(value_type) == LOOM_SCALAR_TYPE_I1
+             ? scalars_.convert(value, unit_.control()->getUnsignedCharType(),
+                                element_type, owner)
+             : value;
 }
 
 void Storage::store(const StorageAccess& access, loom_value_id_t value,
                     const cxx::Type* element_type, cxx::AST* owner) {
+  if (loom_type_element_type(loom_module_value_type(builder_.module, value)) ==
+      LOOM_SCALAR_TYPE_I1) {
+    value = scalars_.convert(value, element_type,
+                             unit_.control()->getUnsignedCharType(), owner);
+  }
   int64_t selector = access.index ? INT64_MIN : 0;
   auto build = types_.vector(element_type) ? loom_vector_store_build
                                            : loom_view_store_build;
@@ -213,7 +263,8 @@ StorageAllocation Storage::allocate(const cxx::Type* type,
       scalars_.integer(0, LOOM_SCALAR_TYPE_OFFSET, locations_.get(owner));
   auto* array = cxx::type_cast<cxx::BoundedArrayType>(types_.unqualified(type));
   auto* vector = types_.vector(type);
-  auto element = types_.get(array ? array->elementType() : type, owner);
+  auto element = object_storage_type(
+      types_.get(array ? array->elementType() : type, owner));
   auto count = array ? array->size() : vector ? vector->elementCount() : 1;
   auto view_type = loom_type_shaped_1d(
       LOOM_TYPE_VIEW, loom_type_element_type(element), count, 0);

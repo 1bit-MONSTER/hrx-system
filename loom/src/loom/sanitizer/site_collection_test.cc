@@ -12,6 +12,7 @@
 #include "iree/testing/status_matchers.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
+#include "loom/ops/kernel/ops.h"
 #include "loom/ops/sanitizer/ops.h"
 #include "loom/ops/test/ops.h"
 
@@ -85,6 +86,13 @@ class SiteCollectionTest : public ::testing::Test {
         &context_, LOOM_DIALECT_SANITIZER, sanitizer_vtables,
         (uint16_t)sanitizer_vtable_count));
 
+    iree_host_size_t kernel_vtable_count = 0;
+    const loom_op_vtable_t* const* kernel_vtables =
+        loom_kernel_dialect_vtables(&kernel_vtable_count);
+    IREE_ASSERT_OK(loom_context_register_dialect(
+        &context_, LOOM_DIALECT_KERNEL, kernel_vtables,
+        (uint16_t)kernel_vtable_count));
+
     IREE_ASSERT_OK(loom_context_finalize(&context_));
     IREE_ASSERT_OK(loom_module_allocate(&context_, IREE_SV("test"),
                                         &block_pool_, NULL,
@@ -99,9 +107,23 @@ class SiteCollectionTest : public ::testing::Test {
     uint16_t symbol_id = LOOM_SYMBOL_ID_INVALID;
     IREE_ASSERT_OK(loom_module_add_symbol(module_, name_id, &symbol_id));
     loom_symbol_ref_t callee = {/*.module_id=*/0, /*.symbol_id=*/symbol_id};
-    IREE_ASSERT_OK(loom_test_func_build(&module_builder, 0, 0, 0, callee, NULL,
-                                        0, NULL, 0, NULL, 0, NULL, 0,
-                                        LOOM_LOCATION_UNKNOWN, &func_op_));
+    loom_type_t index_type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
+    IREE_ASSERT_OK(loom_module_intern_type(module_, index_type, &index_type));
+    IREE_ASSERT_OK(loom_kernel_def_build(
+        &module_builder, 0, 0, loom_symbol_ref_null(), LOOM_STRING_ID_INVALID,
+        0, callee, &index_type, 1, NULL, 0, NULL, 0, LOOM_LOCATION_UNKNOWN,
+        &func_op_));
+    loom_region_t* config = loom_kernel_def_config(func_op_);
+    loom_builder_t config_builder;
+    loom_builder_initialize(module_, &module_->arena,
+                            loom_region_entry_block(config), &config_builder);
+    loom_value_id_t workload =
+        loom_block_arg_id(loom_region_entry_block(config), 0);
+    loom_op_t* launch_config_op = NULL;
+    IREE_ASSERT_OK(loom_kernel_launch_config_build(
+        &config_builder, 0, workload, workload, workload, workload, workload,
+        workload, LOOM_VALUE_ID_INVALID, LOOM_VALUE_ID_INVALID,
+        LOOM_VALUE_ID_INVALID, LOOM_LOCATION_UNKNOWN, &launch_config_op));
     func_like_ = loom_func_like_cast(module_, func_op_);
     body_ = loom_func_like_body(func_like_);
     loom_builder_initialize(module_, &module_->arena,
@@ -120,6 +142,14 @@ class SiteCollectionTest : public ::testing::Test {
     IREE_CHECK_OK(loom_test_constant_build(
         &builder_, loom_attr_i64(value),
         loom_type_scalar(LOOM_SCALAR_TYPE_INDEX), LOOM_LOCATION_UNKNOWN, &op));
+    return op;
+  }
+
+  loom_op_t* BuildBooleanConstant(bool value) {
+    loom_op_t* op = NULL;
+    IREE_CHECK_OK(loom_test_constant_build(
+        &builder_, loom_attr_i64(value ? 1 : 0),
+        loom_type_scalar(LOOM_SCALAR_TYPE_I1), LOOM_LOCATION_UNKNOWN, &op));
     return op;
   }
 
@@ -183,6 +213,14 @@ class SiteCollectionTest : public ::testing::Test {
     return op;
   }
 
+  loom_op_t* BuildKernelAssert(loom_value_id_t condition,
+                               loom_location_id_t location) {
+    loom_op_t* op = NULL;
+    IREE_CHECK_OK(loom_kernel_assert_build(
+        &builder_, 0, condition, LOOM_STRING_ID_INVALID, location, &op));
+    return op;
+  }
+
   loom_location_id_t AddFileLocation(uint16_t start_line) {
     loom_source_id_t source_id = LOOM_SOURCE_ID_INVALID;
     IREE_CHECK_OK(loom_module_register_source(module_, IREE_SV("model.loom"),
@@ -227,7 +265,12 @@ class SiteCollectionTest : public ::testing::Test {
         iree_make_const_byte_span(storage, encoded_length));
   }
 
-  void FinalizeModule() { IREE_ASSERT_OK(loom_module_compute_uses(module_)); }
+  void FinalizeModule() {
+    loom_op_t* return_op = NULL;
+    IREE_ASSERT_OK(
+        loom_kernel_return_build(&builder_, LOOM_LOCATION_UNKNOWN, &return_op));
+    IREE_ASSERT_OK(loom_module_compute_uses(module_));
+  }
 
   iree_arena_block_pool_t block_pool_;
   loom_context_t context_;
@@ -343,7 +386,34 @@ TEST_F(SiteCollectionTest, UnknownLocationsStillProduceDistinctRegionRows) {
   iree_arena_deinitialize(&arena);
 }
 
-TEST_F(SiteCollectionTest, CollectsEverySanitizerReportSiteKind) {
+TEST_F(SiteCollectionTest, MaterializedKernelAssertRetainsSitePayload) {
+  loom_value_id_t condition =
+      loom_test_constant_result(BuildBooleanConstant(true));
+  const loom_sanitizer_site_payload_t payload =
+      MakePayload(LOOM_SANITIZER_CHECK_KIND_VALUE_RANGE);
+  loom_location_id_t source_location = AddFileLocation(25);
+  loom_location_id_t tagged_location =
+      AddSanitizerSiteLocation(source_location, payload);
+  loom_op_t* assert_op = BuildKernelAssert(condition, tagged_location);
+  FinalizeModule();
+
+  iree_arena_allocator_t arena;
+  iree_arena_initialize(&block_pool_, &arena);
+  loom_sanitizer_site_collection_t collection = {};
+  IREE_ASSERT_OK(loom_sanitizer_site_collection_build_function(
+      module_, func_like_, &arena, &collection));
+
+  ASSERT_EQ(collection.row_count, 1u);
+  EXPECT_EQ(collection.rows[0].op, assert_op);
+  EXPECT_EQ(collection.rows[0].op_kind, LOOM_OP_KERNEL_ASSERT);
+  EXPECT_EQ(collection.rows[0].location, tagged_location);
+  EXPECT_EQ(collection.rows[0].source_location, source_location);
+  ASSERT_TRUE(loom_sanitizer_site_row_has_payload(&collection.rows[0]));
+  ExpectSamePayload(payload, collection.rows[0].payload);
+  iree_arena_deinitialize(&arena);
+}
+
+TEST_F(SiteCollectionTest, CollectsSourceAndMaterializedReportSiteKinds) {
   loom_op_t* constant = BuildConstant(12);
   loom_value_id_t value = loom_test_constant_result(constant);
   loom_op_t* view = BuildViewValue(value);
@@ -355,6 +425,10 @@ TEST_F(SiteCollectionTest, CollectsEverySanitizerReportSiteKind) {
   loom_op_t* op_assert = BuildAssertOp(value, LOOM_LOCATION_UNKNOWN);
   loom_op_t* layout_assert =
       BuildAssertLayout(view_value, LOOM_LOCATION_UNKNOWN);
+  loom_value_id_t condition =
+      loom_test_constant_result(BuildBooleanConstant(true));
+  loom_op_t* kernel_assert =
+      BuildKernelAssert(condition, LOOM_LOCATION_UNKNOWN);
   loom_op_t* race_access = BuildRaceAccess(view_value, LOOM_LOCATION_UNKNOWN);
   FinalizeModule();
 
@@ -364,7 +438,7 @@ TEST_F(SiteCollectionTest, CollectsEverySanitizerReportSiteKind) {
   IREE_ASSERT_OK(loom_sanitizer_site_collection_build_region(
       module_, body_, &arena, &collection));
 
-  ASSERT_EQ(collection.row_count, 5u);
+  ASSERT_EQ(collection.row_count, 6u);
   EXPECT_EQ(collection.rows[0].site_id, 0u);
   EXPECT_EQ(collection.rows[0].op, access_assert);
   EXPECT_EQ(collection.rows[0].op_kind, LOOM_OP_SANITIZER_ASSERT_ACCESS);
@@ -378,8 +452,11 @@ TEST_F(SiteCollectionTest, CollectsEverySanitizerReportSiteKind) {
   EXPECT_EQ(collection.rows[3].op, layout_assert);
   EXPECT_EQ(collection.rows[3].op_kind, LOOM_OP_SANITIZER_ASSERT_LAYOUT);
   EXPECT_EQ(collection.rows[4].site_id, 4u);
-  EXPECT_EQ(collection.rows[4].op, race_access);
-  EXPECT_EQ(collection.rows[4].op_kind, LOOM_OP_SANITIZER_RACE_ACCESS);
+  EXPECT_EQ(collection.rows[4].op, kernel_assert);
+  EXPECT_EQ(collection.rows[4].op_kind, LOOM_OP_KERNEL_ASSERT);
+  EXPECT_EQ(collection.rows[5].site_id, 5u);
+  EXPECT_EQ(collection.rows[5].op, race_access);
+  EXPECT_EQ(collection.rows[5].op_kind, LOOM_OP_SANITIZER_RACE_ACCESS);
   iree_arena_deinitialize(&arena);
 }
 

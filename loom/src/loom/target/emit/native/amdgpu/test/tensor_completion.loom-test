@@ -1,0 +1,90 @@
+// A nonzero wait cannot complete the newest producer. The LDS consumer needs
+// a full drain even when the authored bound exceeds the local pending count.
+// RUN: emit amdgpu-assembly @newest_tensor_consumer strategy=source
+amdgpu.target<gfx1250> @target
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @newest_tensor_consumer(%d0: reg<amdgpu.sgpr x4>, %d1: reg<amdgpu.sgpr x8>, %address: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  tensor_load_to_lds_d2 %d0, %d1
+  s_wait_tensorcnt {tensorcnt = 10}
+  %value = ds_read_b32 %address
+  return %value
+}
+
+// ----
+  tensor_load_to_lds s[0:3], s[8:15]
+  s_wait_tensorcnt 10
+  s_wait_tensorcnt tensorcnt(0)
+  ds_read_b32 v0, v0 offset:0
+  s_wait_dscnt dscnt(0)
+  s_endpgm
+
+// ====
+
+// A wait on only one incoming path cannot discharge the other path's transfer.
+// RUN: emit amdgpu-assembly @tensor_completion_join strategy=source
+amdgpu.target<gfx1251> @target
+
+low.func.def target<amdgpu.rdna4.gfx1251.core>(@target) @tensor_completion_join(%d0: reg<amdgpu.sgpr x4>, %d1: reg<amdgpu.sgpr x8>, %address: reg<amdgpu.vgpr>, %left: reg<amdgpu.sgpr>, %right: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>) asm {
+  tensor_load_to_lds_d2 %d0, %d1
+  %condition = s_cmp_lt_i32 %left, %right
+  low.cond_br %condition, ^drained, ^pending : reg<amdgpu.scc>
+^drained:
+  s_wait_tensorcnt {tensorcnt = 0}
+  low.br ^join
+^pending:
+  s_wait_tensorcnt {tensorcnt = 1}
+  low.br ^join
+^join:
+  %value = ds_read_b32 %address
+  return %value
+}
+
+// ----
+  tensor_load_to_lds s[0:3], s[8:15]
+  s_cmp_lt_i32 s4, s5
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc0 .Lbb2
+.Lbb1:
+  s_wait_tensorcnt 0
+  s_branch .Lbb3
+.Lbb2:
+  s_wait_tensorcnt 1
+.Lbb3:
+  s_wait_tensorcnt tensorcnt(0)
+  ds_read_b32 v0, v0 offset:0
+  s_wait_dscnt dscnt(0)
+  s_endpgm
+
+// ====
+
+// A partial wait leaves a producer pending at the backedge. The next iteration's
+// LDS read must wait for that preceding dynamic execution to finish.
+// RUN: emit amdgpu-assembly @tensor_loop_backedge strategy=source
+amdgpu.target<gfx1251> @target
+
+low.func.def target<amdgpu.rdna4.gfx1251.core>(@target) @tensor_loop_backedge(%d0: reg<amdgpu.sgpr x4>, %d1: reg<amdgpu.sgpr x8>, %address: reg<amdgpu.vgpr>, %left: reg<amdgpu.sgpr>, %right: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>) asm {
+  low.br ^loop
+^loop:
+  %value = ds_read_b32 %address
+  tensor_load_to_lds_d2 %d0, %d1
+  s_wait_tensorcnt {tensorcnt = 10}
+  %condition = s_cmp_lt_i32 %left, %right
+  low.cond_br %condition, ^loop, ^done : reg<amdgpu.scc>
+^done:
+  s_wait_tensorcnt {tensorcnt = 0}
+  return %value
+}
+
+// ----
+.Lbb1:
+  s_wait_tensorcnt tensorcnt(0)
+  ds_read_b32 v1, v0 offset:0
+  s_wait_dscnt dscnt(0)
+  tensor_load_to_lds s[0:3], s[8:15]
+  s_wait_tensorcnt 10
+  s_cmp_lt_i32 s4, s5
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc1 .Lbb1
+.Lbb2:
+  s_wait_tensorcnt 0
+  s_endpgm

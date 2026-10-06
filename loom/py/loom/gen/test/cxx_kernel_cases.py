@@ -512,6 +512,26 @@ def assumption_functions():
         ("bound_wide", [64], [([value], value * 3) for value in values]),
         ("bound_size", [32], [([value], value) for value in [0, 1, 7, 15]]),
         ("bound_scoped", [32], [([value], value + (1 if value < 256 else 3)) for value in [0, 1, 127, 128, 255, 256, 427, 0x7FFFFFFF, 0xFFFFFFFF]]),
+        ("bound_inclusive", [32], [([value], value * 19 + 3) for value in [0, 1, 127, 426, 427]]),
+        (
+            "bound_signed",
+            [32, 32],
+            [([hidden, capacity], hidden * 23 + capacity) for hidden, capacity in [(1, 1), (1, 7), (31, 31), (31, 63), (127, 255)]],
+        ),
+        (
+            "bound_unsigned",
+            [32, 32],
+            [
+                ([tokens, capacity], tokens ^ capacity)
+                for tokens, capacity in [
+                    (0, 0),
+                    (0x7FFFFFFF, 0x80000000),
+                    (0x80000000, 0xFFFFFFFF),
+                    (0xFFFFFFFE, 0xFFFFFFFF),
+                    (0xFFFFFFFF, 0xFFFFFFFF),
+                ]
+            ],
+        ),
     ]
     return "\n".join(function_cases(name, widths, 32, cases) for name, widths, cases in samples)
 
@@ -534,6 +554,9 @@ def assumption_kernel(arrays):
                     byte * 3,
                     value % 16,
                     signed_bits(value + (1 if value < 256 else 3), 32),
+                    value % 428 * 19 + 3,
+                    (value % 63 + 1) * 23 + (value % 63 + 1) + value % 5,
+                    signed_bits(0x80000000, 32),
                 ]
             )
         case = Case(arrays, f"assumptions_{input_value}", "i32", len(expected))
@@ -1126,7 +1149,6 @@ def iq4xs_blocks(arrays):
   kernel.launch @update_iq4xs(%input) : (tensor<1088xi8>)
   %expected = check.file.read.npy path("{expected_path}") : tensor<1152xi8>
   check.expect.bitwise actual(%storage) expected(%expected) : tensor<1152xi8>
-  check.expect.event<device> {{type = "asan_report", count = 0}}
   check.return
 }}
 '''

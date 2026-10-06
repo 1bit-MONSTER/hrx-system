@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//build_tools/bazel:executable.bzl", "iree_wasi_executable_alias")
 load("//build_tools/testing:build_defs.bzl", "iree_execution_test_suite")
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
@@ -11,6 +12,7 @@ load(
     "loom_cc_binary",
     "loom_cc_library",
     "loom_cc_test",
+    "loom_config_compatible_with",
 )
 
 package(
@@ -64,12 +66,31 @@ _VM_TARGET_DEPS = iree_select({
     "//conditions:default": [],
 })
 
+_WASM_TARGET_COPTS = iree_select({
+    "//loom/config/target/arch:wasm": ["-DIREE_TEST_LOOM_HAVE_WASM=1"],
+    "//conditions:default": [],
+})
+
+_WASM_TARGET_DEPS = iree_select({
+    "//loom/config/target/arch:wasm": [
+        "//loom/src/loom/target/arch/wasm:provider",
+        "//loom/src/loom/tooling/target/wasm:testbench",
+    ],
+    "//conditions:default": [],
+})
+
 _IREE_TEST_LOOM_TARGET_COPTS = (
-    _AMDGPU_TARGET_COPTS + _SPIRV_VULKAN_TARGET_COPTS + _VM_TARGET_COPTS
+    _AMDGPU_TARGET_COPTS +
+    _SPIRV_VULKAN_TARGET_COPTS +
+    _VM_TARGET_COPTS +
+    _WASM_TARGET_COPTS
 )
 
 _IREE_TEST_LOOM_TARGET_DEPS = (
-    _AMDGPU_TARGET_DEPS + _SPIRV_VULKAN_TARGET_DEPS + _VM_TARGET_DEPS
+    _AMDGPU_TARGET_DEPS +
+    _SPIRV_VULKAN_TARGET_DEPS +
+    _VM_TARGET_DEPS +
+    _WASM_TARGET_DEPS
 )
 
 loom_cc_library(
@@ -103,6 +124,21 @@ loom_cc_test(
 )
 
 loom_cc_library(
+    name = "xfail",
+    srcs = ["xfail.c"],
+    hdrs = ["xfail.h"],
+    visibility = ["//visibility:private"],
+    deps = [
+        "//loom/src/loom/error:diagnostic",
+        "//loom/src/loom/error:error_defs",
+        "//loom/src/loom/tooling/testbench:api",
+        "//loom/src/loom/tooling/testbench:expectation",
+        "//loom/src/loom/util:json",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "main",
     srcs = [
         "main.c",
@@ -112,6 +148,7 @@ loom_cc_library(
     ],
     deps = [
         ":library_linker",
+        ":xfail",
         "//loom/src/loom/sanitizer:options",
         "//loom/src/loom/target:provider",
         "//loom/src/loom/tooling/cli:help",
@@ -119,6 +156,7 @@ loom_cc_library(
         "//loom/src/loom/tooling/context",
         "//loom/src/loom/tooling/execution:session",
         "//loom/src/loom/tooling/execution/hal:device_provider",
+        "//loom/src/loom/tooling/execution/hal:scenario_profile",
         "//loom/src/loom/tooling/execution/hal:testbench_actual",
         "//loom/src/loom/tooling/input:flags",
         "//loom/src/loom/tooling/io:file",
@@ -128,6 +166,9 @@ loom_cc_library(
         "//loom/src/loom/tooling/testbench:issue_report",
         "//loom/src/loom/tooling/testbench:reference",
         "//loom/src/loom/tooling/testbench:requirements",
+        "//loom/src/loom/tooling/testbench/scenario:entropy",
+        "//loom/src/loom/tooling/testbench/scenario:executor",
+        "//loom/src/loom/tooling/testbench/scenario:values",
         "//loom/src/loom/util:json",
         "//loom/src/loom/util:stream",
         "//loom/src/loom/verify",
@@ -146,8 +187,36 @@ loom_cc_binary(
         ":main",
         "//loom/src/loom/tooling/execution:execution_provider",
         "//loom/src/loom/tooling/input:configured",
+        "//loom/src/loom/transforms/cleanup:configured",
         "//runtime/src/iree/base",
     ] + _IREE_TEST_LOOM_TARGET_DEPS,
+)
+
+# Hosts the ordinary CLI as a WASI module. The outer wrapper selects the
+# JavaScript entry point; the C program never discovers or launches its host.
+iree_wasi_executable_alias(
+    name = "iree-test-loom-wasi",
+    src = ":iree-test-loom",
+    tags = [
+        "manual",
+        "skip-bazel_to_cmake",
+    ],
+    target_platform = "//loom/build_tools/bazel:iree_test_loom_wasm32_wasi",
+    wasm_main = "//build_tools/wasm:wasm_test_main.mjs",
+)
+
+loom_cc_binary(
+    name = "scenario_failure_test_tool",
+    testonly = True,
+    srcs = ["scenario_failure_test.c"],
+    deps = [
+        ":main",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/tooling/execution:execution_provider",
+        "//loom/src/loom/tooling/testbench/scenario:executor",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+    ],
 )
 
 iree_execution_test_suite(
@@ -157,6 +226,7 @@ iree_execution_test_suite(
         "testdata/linked_input_cases.loom",
         "testdata/requirement_cases.loom",
         "testdata/scalar_cases.loom",
+        "testdata/xfail_cases.loom",
         "//loom/src/loom/tooling/input:testdata/duplicate_symbols.loom-test",
     ],
     manifests = ["iree-test-loom.test.json"],
@@ -164,5 +234,26 @@ iree_execution_test_suite(
     tools = {
         "iree-test-loom": ":iree-test-loom",
         "loom-link": "//loom/src/loom/tools/loom-link",
+    },
+)
+
+iree_execution_test_suite(
+    name = "scenario_execution_test",
+    data = ["testdata/scenario_cases.loom"],
+    manifests = ["scenario_execution.test.json"],
+    tags = ["hostonly"],
+    target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),
+    tools = {
+        "iree-test-loom": ":iree-test-loom",
+    },
+)
+
+iree_execution_test_suite(
+    name = "scenario_failure_test",
+    data = ["testdata/scenario_failures.loom"],
+    manifests = ["scenario_failure.test.json"],
+    tags = ["hostonly"],
+    tools = {
+        "scenario-failure-test": ":scenario_failure_test_tool",
     },
 )

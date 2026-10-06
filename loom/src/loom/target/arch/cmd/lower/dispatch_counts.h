@@ -31,7 +31,7 @@ typedef enum loom_cmd_dispatch_count_kind_e {
   LOOM_CMD_DISPATCH_COUNT_KIND_INDIRECT_DYNAMIC = 2,
 } loom_cmd_dispatch_count_kind_t;
 
-// One prepared workgroup-count placement in schedule command order.
+// One resolved workgroup-count placement in schedule command order.
 typedef struct loom_cmd_dispatch_count_t {
   // Placement selecting the populated payload member.
   loom_cmd_dispatch_count_kind_t kind;

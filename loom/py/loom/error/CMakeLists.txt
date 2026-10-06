@@ -19,6 +19,7 @@ iree_py_library(
     "bytecode.py"
     "dominance.py"
     "encoding.py"
+    "expect.py"
     "fold.py"
     "lowering.py"
     "parse.py"
@@ -31,6 +32,7 @@ iree_py_library(
     "type.py"
     "wasm.py"
     "x86.py"
+    "xdna.py"
   DEPS
     loom::py::loom::core
 )

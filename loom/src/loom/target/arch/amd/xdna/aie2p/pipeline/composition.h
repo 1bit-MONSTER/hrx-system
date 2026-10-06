@@ -37,7 +37,9 @@ typedef struct loom_aie2p_pipeline_composition_t {
 // inline logical stage bodies in graph order, and use private local buffers for
 // internal pointwise flows. Composition happens in source IR so target entry
 // buffers remain ordinary values until the composite reaches source-to-Low.
-// Unsupported firing contracts emit a diagnostic and leave |out_valid| false.
+// Unsupported target, firing, storage, or ABI contracts emit a diagnostic and
+// leave |out_valid| false and |out_composition| empty. Failed materialization
+// erases all synthesized callables; no partial composition is published.
 // Status carries construction or diagnostic-sink failures.
 iree_status_t loom_aie2p_pipeline_composition_materialize(
     loom_module_t* module, const loom_pipeline_plan_t* plan,

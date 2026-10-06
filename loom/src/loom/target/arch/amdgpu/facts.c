@@ -6,6 +6,7 @@
 
 #include "loom/target/arch/amdgpu/facts.h"
 
+#include "loom/codegen/low/read_retention.h"
 #include "loom/codegen/low/target_binding.h"
 #include "loom/target/arch/amdgpu/target_info.h"
 #include "loom/target/facts_builder.h"
@@ -28,18 +29,25 @@ loom_amdgpu_target_processor_properties_from_resolved_target(
   return target_facts != NULL ? target_facts->properties.processor : NULL;
 }
 
-void loom_amdgpu_target_identity_initialize(
-    const loom_amdgpu_target_info_t* target,
-    loom_amdgpu_target_identity_t* out_identity) {
-  IREE_ASSERT_ARGUMENT(target);
-  IREE_ASSERT_ARGUMENT(out_identity);
-  const loom_amdgpu_processor_info_t* processor =
-      loom_amdgpu_target_info_target_processor(target);
-  IREE_ASSERT(processor != NULL);
-  *out_identity = (loom_amdgpu_target_identity_t){.target = target};
-  loom_amdgpu_amdhsa_feature_states_initialize(processor,
-                                               &out_identity->amdhsa_features);
-}
+// EXEC reads do not replace the wave64 VALU lane-mask latch. Ordinary scalar
+// sources, VCC, and M0 do, before the instruction publishes its new mask read.
+static const iree_string_view_t loom_amdgpu_mask_reset_register_classes[] = {
+    IREE_SVL("amdgpu.sgpr"),
+    IREE_SVL("amdgpu.vcc"),
+    IREE_SVL("amdgpu.m0"),
+};
+
+static const loom_low_read_retention_t loom_amdgpu_wave64_mask_retention = {
+    .subgroup_size = 64,
+    .register_class = IREE_SVL("amdgpu.sgpr"),
+    .reader_classes = LOOM_LOW_INSTRUCTION_CLASS_FLAG_VECTOR_ALU,
+    .writer_classes = LOOM_LOW_INSTRUCTION_CLASS_FLAG_SCALAR_ALU |
+                      LOOM_LOW_INSTRUCTION_CLASS_FLAG_VECTOR_ALU,
+    .retained_operand_role = LOOM_LOW_OPERAND_ROLE_PREDICATE,
+    .reset_register_class_count =
+        IREE_ARRAYSIZE(loom_amdgpu_mask_reset_register_classes),
+    .reset_register_classes = loom_amdgpu_mask_reset_register_classes,
+};
 
 void loom_amdgpu_target_identity_initialize_with_features(
     const loom_amdgpu_target_info_t* target, const uint64_t* feature_words,
@@ -71,68 +79,6 @@ void loom_amdgpu_target_identity_initialize_with_features(
     *state = positive ? LOOM_AMDGPU_TARGET_FEATURE_ON
                       : LOOM_AMDGPU_TARGET_FEATURE_OFF;
   }
-}
-
-bool loom_amdgpu_target_identity_equal(
-    const loom_amdgpu_target_identity_t* lhs,
-    const loom_amdgpu_target_identity_t* rhs) {
-  if (lhs == NULL || rhs == NULL || lhs->target == NULL ||
-      lhs->target != rhs->target) {
-    return false;
-  }
-
-  loom_amdgpu_target_id_feature_support_flags_t remaining_features =
-      LOOM_AMDGPU_TARGET_ID_FEATURE_SUPPORT_KNOWN_FLAGS;
-  while (remaining_features != 0) {
-    const loom_amdgpu_target_id_feature_support_bit_t feature =
-        (loom_amdgpu_target_id_feature_support_bit_t)(remaining_features &
-                                                      (0u -
-                                                       remaining_features));
-    remaining_features &= ~feature;
-    if (loom_amdgpu_amdhsa_feature_state_query(&lhs->amdhsa_features,
-                                               feature) !=
-        loom_amdgpu_amdhsa_feature_state_query(&rhs->amdhsa_features,
-                                               feature)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-bool loom_amdgpu_target_identity_satisfies_requirement(
-    const loom_amdgpu_target_identity_t* effective,
-    const loom_amdgpu_target_identity_t* requirement) {
-  if (effective == NULL || effective->target == NULL || requirement == NULL ||
-      requirement->target == NULL ||
-      !loom_amdgpu_target_satisfies_code_object_requirement(
-          effective->target, requirement->target)) {
-    return false;
-  }
-
-  const loom_amdgpu_processor_info_t* requirement_processor =
-      loom_amdgpu_target_info_target_processor(requirement->target);
-  loom_amdgpu_target_id_feature_support_flags_t remaining_features =
-      requirement_processor->target_id.supported_features;
-  IREE_ASSERT(iree_all_bits_set(
-      LOOM_AMDGPU_TARGET_ID_FEATURE_SUPPORT_KNOWN_FLAGS, remaining_features));
-  while (remaining_features != 0) {
-    const loom_amdgpu_target_id_feature_support_bit_t feature =
-        (loom_amdgpu_target_id_feature_support_bit_t)(remaining_features &
-                                                      (0u -
-                                                       remaining_features));
-    remaining_features &= ~feature;
-    const loom_amdgpu_target_feature_state_t required_state =
-        loom_amdgpu_amdhsa_feature_state_query(&requirement->amdhsa_features,
-                                               feature);
-    if (required_state == LOOM_AMDGPU_TARGET_FEATURE_ANY) {
-      continue;
-    }
-    if (loom_amdgpu_amdhsa_feature_state_query(&effective->amdhsa_features,
-                                               feature) != required_state) {
-      return false;
-    }
-  }
-  return true;
 }
 
 void loom_amdgpu_target_properties_resolve(
@@ -232,6 +178,11 @@ static void loom_amdgpu_target_facts_rebind(loom_target_facts_t* base_facts) {
   loom_amdgpu_target_facts_t* facts = (loom_amdgpu_target_facts_t*)base_facts;
   loom_amdgpu_target_properties_resolve(
       &facts->identity, &facts->base.storage.bundle, &facts->properties);
+  base_facts->read_retention =
+      iree_any_bit_set(facts->properties.processor->features.scheduling,
+                       LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_MASK_WRITE_DEPCTR)
+          ? &loom_amdgpu_wave64_mask_retention
+          : NULL;
   facts->subgroup_size_explicit = loom_target_facts_field_is_explicit(
       &facts->base, LOOM_TARGET_FACT_FIELD_SUBGROUP_SIZE);
   facts->contract_set_key_explicit = loom_target_facts_field_is_explicit(

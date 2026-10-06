@@ -25,20 +25,22 @@ static iree_status_t loom_target_specialize_module_with_arena(
   IREE_ASSERT_ARGUMENT(out_error_count);
   *out_error_count = 0;
 
-  loom_target_specialization_result_t specialization = {0};
+  loom_function_version_owner_t function_versions;
+  loom_function_version_owner_initialize(arena, &function_versions);
+  uint32_t error_count = 0;
   iree_status_t status = loom_target_specialize_functions(
-      environment, *inout_module, requests, bindings, diagnostic_emitter, arena,
-      &specialization);
+      environment, *inout_module, requests, bindings, diagnostic_emitter,
+      &function_versions, &error_count);
   if (iree_status_is_ok(status)) {
-    *out_error_count = specialization.error_count;
+    *out_error_count = error_count;
   }
 
   loom_module_t* projected_module = NULL;
-  if (iree_status_is_ok(status) && specialization.error_count == 0 &&
-      specialization.function_versions.list.count != 0) {
+  if (iree_status_is_ok(status) && error_count == 0 &&
+      function_versions.list.count != 0) {
     status = loom_target_function_versions_project_module(
-        *inout_module, &specialization.function_versions.list, block_pool,
-        allocator, &projected_module);
+        *inout_module, &function_versions.list, block_pool, allocator, NULL,
+        &projected_module);
   }
   if (iree_status_is_ok(status) && projected_module != NULL) {
     loom_module_free(*inout_module);

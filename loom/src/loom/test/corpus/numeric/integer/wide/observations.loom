@@ -1,0 +1,242 @@
+// Observes scalar-register and loaded i64 arithmetic, comparisons, selection,
+// shifts, and two-lane integer and floating-point transport.
+func.def @wide_scalar_observations(%uniform_lhs: i64, %uniform_rhs: i64, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %inputs = buffer.view %input[%base] : buffer -> view<5xi64>
+  %results = buffer.view %output[%base] : buffer -> view<50xi64>
+  %lhs = view.load %inputs[0] : view<5xi64> -> i64
+  %rhs = view.load %inputs[1] : view<5xi64> -> i64
+  %replacement = view.load %inputs[2] : view<5xi64> -> i64
+  %count_input = view.load %inputs[3] : view<5xi64> -> i64
+  %condition_bits = view.load %inputs[4] : view<5xi64> -> i64
+  %c0 = scalar.constant 0 : i64
+  %c1 = scalar.constant 1 : i64
+  %c32 = scalar.constant 32 : i64
+  %c63 = scalar.constant 63 : i64
+  %condition_bit = scalar.andi %condition_bits, %c1 : i64
+  %condition = scalar.cmpi ne, %condition_bit, %c0 : i64
+  %count_bits = scalar.andi %count_input, %c63 : i64
+  %count = scalar.assume %count_bits [range(%count_bits, 0, 63)] : i64
+  %uniform_count_bits = scalar.andi %uniform_rhs, %c63 : i64
+  %uniform_count = scalar.assume %uniform_count_bits [range(%uniform_count_bits, 0, 63)] : i64
+
+  %uniform_and = scalar.andi %uniform_lhs, %uniform_rhs : i64
+  %uniform_or = scalar.ori %uniform_and, %uniform_lhs : i64
+  %uniform_xor = scalar.xori %uniform_or, %uniform_rhs : i64
+  %uniform_sum = scalar.addi %uniform_lhs, %uniform_rhs : i64
+  %uniform_product = scalar.muli %uniform_lhs, %uniform_rhs : i64
+  %uniform_shift = scalar.shli %uniform_lhs, %uniform_count : i64
+  %uniform_eq = scalar.cmpi eq, %uniform_lhs, %uniform_rhs : i64
+  %uniform_ne = scalar.cmpi ne, %uniform_lhs, %uniform_rhs : i64
+  %uniform_slt = scalar.cmpi slt, %uniform_lhs, %uniform_rhs : i64
+  %uniform_eq_bit = scalar.extui %uniform_eq : i1 to i64
+  %uniform_ne_bit = scalar.extui %uniform_ne : i1 to i64
+  %uniform_slt_bit = scalar.extui %uniform_slt : i1 to i64
+  view.store %uniform_and, %results[0] : i64, view<50xi64>
+  view.store %uniform_or, %results[1] : i64, view<50xi64>
+  view.store %uniform_xor, %results[2] : i64, view<50xi64>
+  view.store %uniform_sum, %results[3] : i64, view<50xi64>
+  view.store %uniform_product, %results[4] : i64, view<50xi64>
+  view.store %uniform_shift, %results[5] : i64, view<50xi64>
+  view.store %uniform_eq_bit, %results[6] : i64, view<50xi64>
+  view.store %uniform_ne_bit, %results[7] : i64, view<50xi64>
+  view.store %uniform_slt_bit, %results[8] : i64, view<50xi64>
+
+  %sum = scalar.addi %lhs, %rhs : i64
+  %difference = scalar.subi %lhs, %rhs : i64
+  %shifted = scalar.shli %lhs, %count : i64
+  %product = scalar.muli %lhs, %rhs : i64
+  %mixed_product = scalar.xori %product, %replacement : i64
+  view.store %sum, %results[9] : i64, view<50xi64>
+  view.store %difference, %results[10] : i64, view<50xi64>
+  view.store %shifted, %results[11] : i64, view<50xi64>
+  view.store %mixed_product, %results[12] : i64, view<50xi64>
+
+  %eq = scalar.cmpi eq, %lhs, %rhs : i64
+  %ne = scalar.cmpi ne, %lhs, %rhs : i64
+  %slt = scalar.cmpi slt, %lhs, %rhs : i64
+  %sle = scalar.cmpi sle, %lhs, %rhs : i64
+  %sgt = scalar.cmpi sgt, %lhs, %rhs : i64
+  %sge = scalar.cmpi sge, %lhs, %rhs : i64
+  %ult = scalar.cmpi ult, %lhs, %rhs : i64
+  %ule = scalar.cmpi ule, %lhs, %rhs : i64
+  %ugt = scalar.cmpi ugt, %lhs, %rhs : i64
+  %uge = scalar.cmpi uge, %lhs, %rhs : i64
+  %eq_result = scf.select %eq, %lhs, %rhs : i64
+  %ne_result = scf.select %ne, %lhs, %rhs : i64
+  %slt_result = scf.select %slt, %lhs, %rhs : i64
+  %sle_result = scf.select %sle, %lhs, %rhs : i64
+  %sgt_result = scf.select %sgt, %lhs, %rhs : i64
+  %sge_result = scf.select %sge, %lhs, %rhs : i64
+  %ult_result = scf.select %ult, %lhs, %rhs : i64
+  %ule_result = scf.select %ule, %lhs, %rhs : i64
+  %ugt_result = scf.select %ugt, %lhs, %rhs : i64
+  %uge_result = scf.select %uge, %lhs, %rhs : i64
+  view.store %eq_result, %results[13] : i64, view<50xi64>
+  view.store %ne_result, %results[14] : i64, view<50xi64>
+  view.store %slt_result, %results[15] : i64, view<50xi64>
+  view.store %sle_result, %results[16] : i64, view<50xi64>
+  view.store %sgt_result, %results[17] : i64, view<50xi64>
+  view.store %sge_result, %results[18] : i64, view<50xi64>
+  view.store %ult_result, %results[19] : i64, view<50xi64>
+  view.store %ule_result, %results[20] : i64, view<50xi64>
+  view.store %ugt_result, %results[21] : i64, view<50xi64>
+  view.store %uge_result, %results[22] : i64, view<50xi64>
+  %branch_result = scf.if %slt -> (i64) {
+    scf.yield %lhs : i64
+  } else {
+    scf.yield %rhs : i64
+  }
+  view.store %branch_result, %results[23] : i64, view<50xi64>
+
+  %logical_word = scalar.shrui %lhs, %c32 : i64
+  %signed_word = scalar.shrsi %lhs, %c32 : i64
+  %logical_sign = scalar.shrui %lhs, %c63 : i64
+  %signed_sign = scalar.shrsi %lhs, %c63 : i64
+  %selected_shift = scf.select %condition, %logical_word, %signed_word : i64
+  view.store %logical_word, %results[24] : i64, view<50xi64>
+  view.store %signed_word, %results[25] : i64, view<50xi64>
+  view.store %logical_sign, %results[26] : i64, view<50xi64>
+  view.store %signed_sign, %results[27] : i64, view<50xi64>
+  view.store %selected_shift, %results[28] : i64, view<50xi64>
+
+  %lhs_word = scalar.trunci %lhs : i64 to i32
+  %rhs_word = scalar.trunci %rhs : i64 to i32
+  %lhs_f32 = scalar.bitcast %lhs_word : i32 to f32
+  %rhs_f32 = scalar.bitcast %rhs_word : i32 to f32
+  %selected_f32 = scf.select %condition, %lhs_f32, %rhs_f32 : f32
+  %selected_f32_word = scalar.bitcast %selected_f32 : f32 to i32
+  %selected_f32_bits = scalar.extui %selected_f32_word : i32 to i64
+  %lhs_f32_bits = scalar.extui %lhs_word : i32 to i64
+  %rhs_f32_bits = scalar.extui %rhs_word : i32 to i64
+  view.store %selected_f32_bits, %results[29] : i64, view<50xi64>
+  view.store %lhs_f32_bits, %results[30] : i64, view<50xi64>
+  view.store %rhs_f32_bits, %results[31] : i64, view<50xi64>
+  view.store %condition_bit, %results[32] : i64, view<50xi64>
+
+  %lhs_f64 = scalar.bitcast %lhs : i64 to f64
+  %rhs_f64 = scalar.bitcast %rhs : i64 to f64
+  %replacement_f64 = scalar.bitcast %replacement : i64 to f64
+  %constant_f64 = scalar.constant -1.1000000000000001 : f64
+  %constant_selected_f64 = scf.select %condition, %constant_f64, %rhs_f64 : f64
+  %selected_f64 = scf.select %condition, %lhs_f64, %rhs_f64 : f64
+  %constant_selected_f64_bits = scalar.bitcast %constant_selected_f64 : f64 to i64
+  %selected_f64_bits = scalar.bitcast %selected_f64 : f64 to i64
+  view.store %constant_selected_f64_bits, %results[33] : i64, view<50xi64>
+  view.store %selected_f64_bits, %results[34] : i64, view<50xi64>
+  view.store %lhs, %results[35] : i64, view<50xi64>
+  view.store %rhs, %results[36] : i64, view<50xi64>
+  view.store %condition_bit, %results[37] : i64, view<50xi64>
+
+  %integer_values = vector.from_elements %lhs, %rhs : vector<2xi64>
+  %integer_first = vector.extract %integer_values[0] : vector<2xi64> -> i64
+  %integer_second = vector.extract %integer_values[1] : vector<2xi64> -> i64
+  %integer_replace_first = vector.insert %replacement into %integer_values[0] : i64, vector<2xi64>
+  %integer_replace_second = vector.insert %replacement into %integer_values[1] : i64, vector<2xi64>
+  view.store %integer_first, %results[38] : i64, view<50xi64>
+  view.store %integer_second, %results[39] : i64, view<50xi64>
+  vector.store %integer_replace_first, %results[40] : vector<2xi64>, view<50xi64>
+  vector.store %integer_replace_second, %results[42] : vector<2xi64>, view<50xi64>
+
+  %float_values = vector.from_elements %lhs_f64, %rhs_f64 : vector<2xf64>
+  %float_first = vector.extract %float_values[0] : vector<2xf64> -> f64
+  %float_second = vector.extract %float_values[1] : vector<2xf64> -> f64
+  %float_replace_first = vector.insert %replacement_f64 into %float_values[0] : f64, vector<2xf64>
+  %float_replace_second = vector.insert %replacement_f64 into %float_values[1] : f64, vector<2xf64>
+  %float_replace_first_0 = vector.extract %float_replace_first[0] : vector<2xf64> -> f64
+  %float_replace_first_1 = vector.extract %float_replace_first[1] : vector<2xf64> -> f64
+  %float_replace_second_0 = vector.extract %float_replace_second[0] : vector<2xf64> -> f64
+  %float_replace_second_1 = vector.extract %float_replace_second[1] : vector<2xf64> -> f64
+  %float_first_bits = scalar.bitcast %float_first : f64 to i64
+  %float_second_bits = scalar.bitcast %float_second : f64 to i64
+  %float_replace_first_0_bits = scalar.bitcast %float_replace_first_0 : f64 to i64
+  %float_replace_first_1_bits = scalar.bitcast %float_replace_first_1 : f64 to i64
+  %float_replace_second_0_bits = scalar.bitcast %float_replace_second_0 : f64 to i64
+  %float_replace_second_1_bits = scalar.bitcast %float_replace_second_1 : f64 to i64
+  view.store %float_first_bits, %results[44] : i64, view<50xi64>
+  view.store %float_second_bits, %results[45] : i64, view<50xi64>
+  view.store %float_replace_first_0_bits, %results[46] : i64, view<50xi64>
+  view.store %float_replace_first_1_bits, %results[47] : i64, view<50xi64>
+  view.store %float_replace_second_0_bits, %results[48] : i64, view<50xi64>
+  view.store %float_replace_second_1_bits, %results[49] : i64, view<50xi64>
+  func.return
+}
+
+// Keeps dynamic vector indices in their own root so profiles without dynamic
+// lane insertion can xfail the unsupported operation without losing the other
+// scalar i64 observations.
+func.def @wide_dynamic_lane_observations(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %inputs = buffer.view %input[%base] : buffer -> view<4xi64>
+  %results = buffer.view %output[%base] : buffer -> view<4xi64>
+  %lhs = view.load %inputs[0] : view<4xi64> -> i64
+  %rhs = view.load %inputs[1] : view<4xi64> -> i64
+  %replacement = view.load %inputs[2] : view<4xi64> -> i64
+  %lane_input = view.load %inputs[3] : view<4xi64> -> i64
+  %c1 = scalar.constant 1 : i64
+  %lane_bits = scalar.andi %lane_input, %c1 : i64
+  %lane = index.cast %lane_bits : i64 to index
+
+  %integer_values = vector.from_elements %lhs, %rhs : vector<2xi64>
+  %integer_result = vector.insert %replacement into %integer_values[%lane] : i64, vector<2xi64>
+  vector.store %integer_result, %results[0] : vector<2xi64>, view<4xi64>
+
+  %lhs_f64 = scalar.bitcast %lhs : i64 to f64
+  %rhs_f64 = scalar.bitcast %rhs : i64 to f64
+  %replacement_f64 = scalar.bitcast %replacement : i64 to f64
+  %float_values = vector.from_elements %lhs_f64, %rhs_f64 : vector<2xf64>
+  %float_result = vector.insert %replacement_f64 into %float_values[%lane] : f64, vector<2xf64>
+  %float_result_0 = vector.extract %float_result[0] : vector<2xf64> -> f64
+  %float_result_1 = vector.extract %float_result[1] : vector<2xf64> -> f64
+  %float_result_0_bits = scalar.bitcast %float_result_0 : f64 to i64
+  %float_result_1_bits = scalar.bitcast %float_result_1 : f64 to i64
+  view.store %float_result_0_bits, %results[2] : i64, view<4xi64>
+  view.store %float_result_1_bits, %results[3] : i64, view<4xi64>
+  func.return
+}
+
+check.scenario @wide_scalar_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %lhs_entropy = check.entropy.fork %entropy name("uniform_lhs") : check.entropy
+    %rhs_entropy = check.entropy.fork %entropy name("uniform_rhs") : check.entropy
+    %input_entropy = check.entropy.fork %entropy name("input") : check.entropy
+    %uniform_lhs = check.entropy.read %lhs_entropy[%trial] : check.entropy -> i64
+    %uniform_rhs = check.entropy.read %rhs_entropy[%trial] : check.entropy -> i64
+    %input_seed = check.entropy.read %input_entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%input_seed) range(-9223372036854775808 to 9223372036854775807) : tensor<5xi64>
+    %unchanged_input = check.generate.random.uniform seed(%input_seed) range(-9223372036854775808 to 9223372036854775807) : tensor<5xi64>
+    %storage = check.generate.fill value(-7777) : tensor<66xi64>
+    %prefix = check.tensor.view %storage offset(0) : tensor<66xi64> -> tensor<8xi64>
+    %output = check.tensor.view %storage offset(64) : tensor<66xi64> -> tensor<50xi64>
+    %suffix = check.tensor.view %storage offset(464) : tensor<66xi64> -> tensor<8xi64>
+    %guard = check.generate.fill value(-7777) : tensor<8xi64>
+    check.compare<@wide_scalar_observations>(%uniform_lhs, %uniform_rhs, %input, %output) : (i64, i64, tensor<5xi64>, tensor<50xi64>) -> () {
+      check.expect.bitwise actual(%input) expected(%unchanged_input) : tensor<5xi64>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<50xi64>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<8xi64>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<8xi64>
+    }
+  }
+  check.return
+}
+
+check.scenario @wide_dynamic_lane_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %input_entropy = check.entropy.fork %entropy name("input") : check.entropy
+    %input_seed = check.entropy.read %input_entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%input_seed) range(-9223372036854775808 to 9223372036854775807) : tensor<4xi64>
+    %unchanged_input = check.generate.random.uniform seed(%input_seed) range(-9223372036854775808 to 9223372036854775807) : tensor<4xi64>
+    %storage = check.generate.fill value(-7777) : tensor<12xi64>
+    %prefix = check.tensor.view %storage offset(0) : tensor<12xi64> -> tensor<4xi64>
+    %output = check.tensor.view %storage offset(32) : tensor<12xi64> -> tensor<4xi64>
+    %suffix = check.tensor.view %storage offset(64) : tensor<12xi64> -> tensor<4xi64>
+    %guard = check.generate.fill value(-7777) : tensor<4xi64>
+    check.compare<@wide_dynamic_lane_observations>(%input, %output) : (tensor<4xi64>, tensor<4xi64>) -> () {
+      check.expect.bitwise actual(%input) expected(%unchanged_input) : tensor<4xi64>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<4xi64>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi64>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi64>
+    }
+  }
+  check.return
+}

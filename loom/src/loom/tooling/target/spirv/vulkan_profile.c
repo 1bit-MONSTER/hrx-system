@@ -12,6 +12,7 @@
 #include "loom/target/arch/spirv/cooperative_properties.h"
 #include "loom/target/arch/spirv/features.h"
 #include "loom/target/arch/spirv/records/target_records.h"
+#include "vulkan/vulkan_core.h"
 
 typedef struct loom_spirv_vulkan_hal_feature_row_t {
   // Vulkan HAL features required for this profile fact.
@@ -290,9 +291,19 @@ iree_status_t loom_spirv_vulkan_hal_profile_query(
       iree_hal_vulkan_device_spec_decode_facet(vulkan_facet, &vulkan_spec));
 
   out_facts->api_version = vulkan_spec.api_version;
+  out_facts->subgroup_supported_operations =
+      vulkan_spec.subgroup_supported_operations;
+  if (iree_any_bit_set(
+          vulkan_spec.flags,
+          IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_DENORM_PRESERVE)) {
+    out_facts->flags |=
+        LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_FLOAT32_DENORM_PRESERVE;
+  }
   out_facts->subgroup_size = dispatch->subgroup.default_size;
   out_facts->max_compute_workgroup_invocations =
       dispatch->launch.maximum_workgroup_invocations;
+  out_facts->max_compute_shared_memory_size =
+      dispatch->execution.maximum_workgroup_local_memory_size;
   out_facts->max_compute_workgroup_size.x =
       dispatch->launch.maximum_workgroup_size[0];
   out_facts->max_compute_workgroup_size.y =
@@ -382,6 +393,15 @@ static loom_spirv_feature_bits_t loom_spirv_vulkan_hal_profile_feature_bits(
         iree_all_bits_set(facts->flags, row->required_flags)) {
       feature_bits |= row->feature_bits;
     }
+  }
+  if (iree_any_bit_set(
+          facts->flags,
+          LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_FLOAT32_DENORM_PRESERVE)) {
+    feature_bits |= LOOM_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE;
+  }
+  if (iree_any_bit_set(facts->subgroup_supported_operations,
+                       VK_SUBGROUP_FEATURE_BALLOT_BIT)) {
+    feature_bits |= LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT;
   }
   return feature_bits;
 }
@@ -537,6 +557,7 @@ iree_status_t loom_spirv_vulkan_hal_target_profile_storage_initialize(
       LOOM_TARGET_FACT_FIELD_MAX_WORKGROUP_SIZE_Y,
       LOOM_TARGET_FACT_FIELD_MAX_WORKGROUP_SIZE_Z,
       LOOM_TARGET_FACT_FIELD_MAX_FLAT_WORKGROUP_SIZE,
+      LOOM_TARGET_FACT_FIELD_MAX_WORKGROUP_STORAGE_BYTES,
       LOOM_TARGET_FACT_FIELD_MAX_WORKGROUP_COUNT_X,
       LOOM_TARGET_FACT_FIELD_MAX_WORKGROUP_COUNT_Y,
       LOOM_TARGET_FACT_FIELD_MAX_WORKGROUP_COUNT_Z,
@@ -577,6 +598,11 @@ iree_status_t loom_spirv_vulkan_hal_profile_validate(
         IREE_STATUS_UNAVAILABLE,
         "Vulkan SPIR-V raw-BDA profile requires Vulkan 1.3");
   }
+  if (facts->max_compute_shared_memory_size == 0) {
+    return iree_make_status(
+        IREE_STATUS_UNAVAILABLE,
+        "Vulkan HAL device does not report maxComputeSharedMemorySize");
+  }
   IREE_RETURN_IF_ERROR(loom_spirv_vulkan_hal_profile_require_flag(
       facts, LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_RAW_BDA_EXECUTABLE,
       IREE_SV("Vulkan HAL device does not support the vulkan1.3+bda "
@@ -613,6 +639,8 @@ iree_status_t loom_spirv_vulkan_hal_profile_initialize_target_bundle(
   out_storage->snapshot.max_workgroup_size = facts->max_compute_workgroup_size;
   out_storage->snapshot.max_flat_workgroup_size =
       facts->max_compute_workgroup_invocations;
+  out_storage->snapshot.max_workgroup_storage_bytes =
+      facts->max_compute_shared_memory_size;
   out_storage->snapshot.subgroup_size = facts->subgroup_size;
   out_storage->snapshot.max_workgroup_count =
       facts->max_compute_workgroup_count;

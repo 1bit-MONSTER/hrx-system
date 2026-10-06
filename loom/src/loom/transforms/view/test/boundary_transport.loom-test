@@ -258,3 +258,62 @@ func.def public target(@carrier_target) @call_tied(%storage: buffer, %offset: of
 func.def public @spirv_direct(%input: view<1xi32>) -> (view<1xi32>) {
   func.return %input : view<1xi32>
 }
+
+// ====
+
+// RUN: pass specialize-target-callgraph,decompose-view-boundaries,dce
+
+// Related crops share the selected coordinate; the projection comes from the
+// retained view region even when several subviews separate it from the return.
+test.target<low_core> @carrier_target
+
+func.def public target(@carrier_target) @choose_crops(%left: view<8xi32>, %right: view<8xi32>, %condition: i1, %position: index) -> (view<1xi32>, view<1xi32>, view<1xi32>) {
+  %selected = scf.select %condition, %left, %right : view<8xi32>
+  %first = view.subview %selected[0] : view<8xi32> -> view<1xi32>
+  %suffix = view.subview %selected[1] : view<8xi32> -> view<7xi32>
+  %middle = view.subview %suffix[%position] : view<7xi32> -> view<1xi32>
+  %last = view.subview %selected[6] : view<8xi32> -> view<1xi32>
+  func.return %first, %middle, %last : view<1xi32>, view<1xi32>, view<1xi32>
+}
+
+// ----
+test.target<low_core> @carrier_target
+
+func.def public target(@carrier_target) @choose_crops(%left_root: buffer, %left_offset: offset, %right_root: buffer, %right_offset: offset, %condition: i1, %position: index) -> (buffer, offset, buffer, offset, buffer, offset) {
+  cfg.br ^_bb1(%left_root: buffer, %left_offset: offset, %right_root: buffer, %right_offset: offset, %condition: i1, %position: index)
+^_bb1(%12: buffer, %0: offset, %14: buffer, %1: offset, %2: i1, %3: index):
+  %selected_root, %selected_offset = scf.if %2 -> (buffer, offset) {
+    scf.yield %12, %0 : buffer, offset
+  } else {
+    scf.yield %14, %1 : buffer, offset
+  }
+  %18 = index.cast %selected_offset : offset to i64
+  %19 = scalar.constant 4 : i64
+  %20 = scalar.addi %18, %19 : i64
+  %21 = index.cast %3 : index to i64
+  %22 = scalar.constant 4 : i64
+  %23 = scalar.muli %21, %22 : i64
+  %24 = scalar.addi %20, %23 : i64
+  %25 = index.cast %24 : i64 to offset
+  %26 = index.constant 24 : offset
+  %27 = index.add %selected_offset, %26 : offset
+  func.return %selected_root, %selected_offset, %selected_root, %25, %selected_root, %27 : buffer, offset, buffer, offset, buffer, offset
+}
+
+// ====
+
+// RUN: with-checks pass specialize-target-callgraph,decompose-view-boundaries,dce
+
+test.target<low_core> @carrier_target
+
+func.def public target(@carrier_target) @choose_previous(%left: view<1xi32>, %right: view<1xi32>, %condition: i1, %position: index) -> (view<1xi32>) where [range(%position, -2, 0)] {
+  %selected = scf.select %condition, %left, %right : view<1xi32>
+  %previous = view.subview %selected[%position] : view<1xi32> -> view<1xi32>
+  func.return %previous : view<1xi32>
+}
+
+// ----
+CHECK: %selected_root, %selected_offset = scf.if * -> (buffer, offset) {
+CHECK: * = index.sub %selected_offset, * : offset
+CHECK: func.return %selected_root, * : buffer, offset
+CHECK-NOT: * = index.cast %selected_offset : offset to i64

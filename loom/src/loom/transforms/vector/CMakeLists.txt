@@ -11,23 +11,59 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
+    cleanup_patterns
+  HDRS
+    "cleanup_patterns.h"
+  SRCS
+    "cleanup_patterns.c"
+  DEPS
+    iree::base
+    loom::ir
+    loom::ops::special_values
+    loom::ops::vector
+    loom::rewrite::pattern_registry
+    loom::rewrite::rewriter
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    combine_patterns
+  HDRS
+    "combine_patterns.h"
+  SRCS
+    "combine_patterns.c"
+  DEPS
+    iree::base
+    loom::ir
+    loom::ops::scalar
+    loom::ops::vector
+    loom::rewrite::pattern_registry
+    loom::rewrite::rewriter
+    loom::transforms::conversion::chain
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     bank_sroa
   HDRS
     "bank_sroa.h"
+    "bank_sroa_projection.h"
   SRCS
     "bank_sroa.c"
+    "bank_sroa_projection.c"
   DEPS
     iree::base
-    iree::base::internal::arena
+    loom::codegen::low::pipeline::pass_environment
     loom::ir
     loom::ops::op_defs
-    loom::ops::scf
     loom::ops::vector
     loom::pass::types
-    loom::rewrite::materialize
-    loom::rewrite::remap
     loom::rewrite::rewriter
-    loom::util::walk
+    loom::target::pass_environment
+    loom::target::reporting::report
+    loom::transforms::boundary::projection_core
   PUBLIC
 )
 
@@ -153,11 +189,45 @@ loom_cc_library(
     "packet_legalization.c"
   DEPS
     iree::base
+    loom::analysis::motion
     loom::analysis::view_regions
     loom::ir
     loom::ops::buffer
     loom::ops::index
     loom::ops::scf
+    loom::ops::vector
+    loom::rewrite::rewriter
+    loom::target::legalization
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    table_legalization
+  HDRS
+    "table_legalization.h"
+  SRCS
+    "table_legalization.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::ops::vector
+    loom::rewrite::rewriter
+    loom::target::legalization
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    shape_legalization
+  HDRS
+    "shape_legalization.h"
+  SRCS
+    "shape_legalization.c"
+  DEPS
+    iree::base
+    loom::ir
     loom::ops::vector
     loom::rewrite::rewriter
     loom::target::legalization

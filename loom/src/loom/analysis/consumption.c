@@ -8,7 +8,50 @@
 
 #include <string.h>
 
+#include "loom/analysis/ownership.h"
 #include "loom/ir/module.h"
+
+bool loom_consumption_find_consuming_use(const loom_module_t* module,
+                                         const loom_value_t* value,
+                                         loom_consumption_use_t* out_use) {
+  if (out_use != NULL) {
+    *out_use = (loom_consumption_use_t){0};
+  }
+  const loom_use_t* use = NULL;
+  loom_value_for_each_use(value, use) {
+    const loom_op_t* user_op = loom_use_user_op(*use);
+    const uint16_t operand_index = loom_use_operand_index(*use);
+    const loom_tied_result_t* tied_results = loom_op_tied_results(user_op);
+    for (uint16_t i = 0; i < user_op->tied_result_count; ++i) {
+      if (tied_results[i].operand_index != operand_index) {
+        continue;
+      }
+      if (out_use != NULL) {
+        *out_use = (loom_consumption_use_t){
+            .op = user_op,
+            .operand_index = operand_index,
+        };
+      }
+      return true;
+    }
+    for (uint16_t i = 0; i < user_op->result_count; ++i) {
+      loom_ownership_result_effect_t effect = {0};
+      if (!loom_ownership_result_effect_at(module, user_op, i, &effect) ||
+          effect.effect != LOOM_RESULT_OWNERSHIP_MOVED ||
+          effect.source_operand_index != operand_index) {
+        continue;
+      }
+      if (out_use != NULL) {
+        *out_use = (loom_consumption_use_t){
+            .op = user_op,
+            .operand_index = operand_index,
+        };
+      }
+      return true;
+    }
+  }
+  return false;
+}
 
 static void loom_consumption_bitset_set(uint64_t* bits,
                                         iree_host_size_t word_count,
@@ -177,7 +220,7 @@ static bool loom_consumption_search_cfg_reachability(
   const loom_cfg_graph_t* graph = &region_query->cfg_graph;
   const iree_host_size_t word_count = query->reachable_word_count;
   if (!query->search_initialized) {
-    const loom_block_t* consuming_block = query->consuming_op->parent_block;
+    const loom_block_t* consuming_block = query->origin_block;
     const uint16_t consuming_index =
         (uint16_t)loom_cfg_graph_block_index(graph, consuming_block);
     if (query->recreation_block == consuming_block) {
@@ -243,31 +286,29 @@ static const loom_op_t* loom_consumption_region_anchor_op(
 
 iree_status_t loom_consumption_use_after_query_prepare(
     loom_consumption_region_query_t* region_query,
-    const loom_op_t* consuming_op, loom_value_id_t value_id,
+    const loom_block_t* origin_block, uint64_t first_observation_ordinal,
+    loom_value_id_t value_id, loom_consumption_query_flags_t flags,
     loom_consumption_use_after_query_t* out_query) {
-  if (!region_query || !consuming_op || !out_query) {
+  if (!region_query || !origin_block || !out_query) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
-        "consumption use-after query requires region query, operation, and "
+        "consumption use-after query requires region query, block, and "
         "output query");
   }
   *out_query = (loom_consumption_use_after_query_t){
       .region_query = region_query,
-      .consuming_op = consuming_op,
+      .origin_block = origin_block,
       .value_id = value_id,
+      .first_observation_ordinal = first_observation_ordinal,
   };
   if (!region_query->module || !region_query->region || !region_query->arena) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "consumption region query is not initialized");
   }
-  if (!consuming_op->parent_block) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "consuming op must belong to a block");
-  }
-  if (consuming_op->parent_block->parent_region != region_query->region) {
+  if (origin_block->parent_region != region_query->region) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
-        "consumption query must describe the consuming op region");
+        "consumption query must describe the origin block region");
   }
   if (value_id == LOOM_VALUE_ID_INVALID ||
       value_id >= region_query->module->values.count ||
@@ -288,14 +329,16 @@ iree_status_t loom_consumption_use_after_query_prepare(
   if (cfg_graph->malformed) {
     return iree_ok_status();
   }
-  if (region_query->liveness != NULL) {
+  if (region_query->liveness != NULL &&
+      !iree_any_bit_set(flags,
+                        LOOM_CONSUMPTION_QUERY_FLAG_INDIRECT_OBSERVATIONS)) {
     const loom_liveness_analysis_t* liveness = region_query->liveness;
     const loom_liveness_segment_range_t segments =
         loom_liveness_segment_range_for_value_ordinal(
             liveness, loom_local_value_domain_ordinal(
                           region_query->value_domain, value_id));
     const iree_host_size_t block_index =
-        loom_cfg_graph_block_index(cfg_graph, consuming_op->parent_block);
+        loom_cfg_graph_block_index(cfg_graph, origin_block);
     // Liveness already proves whether any path observes this dynamic value
     // after block exit. Without a live-out, only later same-block uses remain.
     if (!loom_liveness_segment_range_contains(
@@ -312,22 +355,27 @@ bool loom_consumption_use_after_query_contains(
     loom_consumption_use_after_query_t* query, loom_use_t use) {
   IREE_ASSERT_ARGUMENT(query);
   IREE_ASSERT_ARGUMENT(query->region_query);
-  IREE_ASSERT_ARGUMENT(query->consuming_op);
-  loom_consumption_region_query_t* region_query = query->region_query;
+  IREE_ASSERT_ARGUMENT(query->origin_block);
   const loom_op_t* use_op = loom_use_user_op(use);
   const uint16_t operand_index = loom_use_operand_index(use);
   IREE_ASSERT_LT(operand_index, use_op->operand_count);
   IREE_ASSERT_EQ(loom_op_const_operands(use_op)[operand_index],
                  query->value_id);
+  return loom_consumption_use_after_query_observes_operation(query, use_op);
+}
+
+bool loom_consumption_use_after_query_observes_operation(
+    loom_consumption_use_after_query_t* query, const loom_op_t* use_op) {
+  loom_consumption_region_query_t* region_query = query->region_query;
   const loom_op_t* anchor_op =
       loom_consumption_region_anchor_op(region_query->region, use_op);
   if (anchor_op == NULL) {
     return false;
   }
   const loom_block_t* anchor_block = anchor_op->parent_block;
-  const loom_block_t* consuming_block = query->consuming_op->parent_block;
+  const loom_block_t* consuming_block = query->origin_block;
   if (anchor_block == consuming_block &&
-      anchor_op->block_ordinal > query->consuming_op->block_ordinal) {
+      anchor_op->block_ordinal >= query->first_observation_ordinal) {
     return true;
   }
   if (query->reachable_word_count == 0) {
@@ -409,7 +457,8 @@ iree_status_t loom_consumption_find_use_after(
   }
   loom_consumption_use_after_query_t use_after_query = {0};
   IREE_RETURN_IF_ERROR(loom_consumption_use_after_query_prepare(
-      query, consuming_op, value_id, &use_after_query));
+      query, consuming_op->parent_block, consuming_op->block_ordinal + 1,
+      value_id, /*flags=*/0, &use_after_query));
   if (value_id == LOOM_VALUE_ID_INVALID ||
       value_id >= query->module->values.count) {
     return iree_ok_status();

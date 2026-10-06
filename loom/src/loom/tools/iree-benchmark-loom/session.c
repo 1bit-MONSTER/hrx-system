@@ -35,5 +35,7 @@ iree_status_t iree_benchmark_loom_session_initialize(
   };
   session_options.initialize_low_descriptor_registry =
       configuration->initialize_low_descriptor_registry;
+  session_options.cleanup_pattern_provider_set =
+      configuration->cleanup_pattern_provider_set;
   return loom_run_session_initialize(&session_options, out_session);
 }

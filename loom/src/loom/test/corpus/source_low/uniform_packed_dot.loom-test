@@ -1,0 +1,136 @@
+// Uniform, stable sources can retain scalar-register storage until the dot.
+kernel.def @f16_pairs() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs_buffer: buffer, %rhs_buffer: buffer, %seed_buffer: buffer, %output: buffer) {
+  %aligned_lhs = buffer.assume.alignment %lhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_rhs = buffer.assume.alignment %rhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_seed = buffer.assume.alignment %seed_buffer {minimum_alignment = 64} : buffer
+  %lhs_source, %rhs_source, %seed_source, %destination = buffer.assume.noalias %aligned_lhs, %aligned_rhs, %aligned_seed, %output : buffer, buffer, buffer, buffer
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_source[%base] : buffer -> view<4xf16>
+  %rhs_view = buffer.view %rhs_source[%base] : buffer -> view<4xf16>
+  %seed_view = buffer.view %seed_source[%base] : buffer -> view<2xf32>
+  %output_view = buffer.view %destination[%base] : buffer -> view<2xf32>
+  %lhs = vector.load %lhs_view[0] : view<4xf16> -> vector<4xf16>
+  %rhs = vector.load %rhs_view[0] : view<4xf16> -> vector<4xf16>
+  %seed = vector.load %seed_view[0] : view<2xf32> -> vector<2xf32>
+  %result = vector.dot2f %lhs, %rhs, %seed : vector<4xf16>, vector<4xf16>, vector<2xf32>
+  vector.store %result, %output_view[0] : vector<2xf32>, view<2xf32>
+  kernel.return
+}
+
+// ====
+
+kernel.def @bf16_pairs() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs_buffer: buffer, %rhs_buffer: buffer, %seed_buffer: buffer, %output: buffer) {
+  %aligned_lhs = buffer.assume.alignment %lhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_rhs = buffer.assume.alignment %rhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_seed = buffer.assume.alignment %seed_buffer {minimum_alignment = 64} : buffer
+  %lhs_source, %rhs_source, %seed_source, %destination = buffer.assume.noalias %aligned_lhs, %aligned_rhs, %aligned_seed, %output : buffer, buffer, buffer, buffer
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_source[%base] : buffer -> view<4xbf16>
+  %rhs_view = buffer.view %rhs_source[%base] : buffer -> view<4xbf16>
+  %seed_view = buffer.view %seed_source[%base] : buffer -> view<2xf32>
+  %output_view = buffer.view %destination[%base] : buffer -> view<2xf32>
+  %lhs = vector.load %lhs_view[0] : view<4xbf16> -> vector<4xbf16>
+  %rhs = vector.load %rhs_view[0] : view<4xbf16> -> vector<4xbf16>
+  %seed = vector.load %seed_view[0] : view<2xf32> -> vector<2xf32>
+  %result = vector.dot2f %lhs, %rhs, %seed : vector<4xbf16>, vector<4xbf16>, vector<2xf32>
+  vector.store %result, %output_view[0] : vector<2xf32>, view<2xf32>
+  kernel.return
+}
+
+// ====
+
+kernel.def @signed_bytes() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs_buffer: buffer, %rhs_buffer: buffer, %seed_buffer: buffer, %output: buffer) {
+  %aligned_lhs = buffer.assume.alignment %lhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_rhs = buffer.assume.alignment %rhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_seed = buffer.assume.alignment %seed_buffer {minimum_alignment = 64} : buffer
+  %lhs_source, %rhs_source, %seed_source, %destination = buffer.assume.noalias %aligned_lhs, %aligned_rhs, %aligned_seed, %output : buffer, buffer, buffer, buffer
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_source[%base] : buffer -> view<8xi8>
+  %rhs_view = buffer.view %rhs_source[%base] : buffer -> view<8xi8>
+  %seed_view = buffer.view %seed_source[%base] : buffer -> view<2xi32>
+  %output_view = buffer.view %destination[%base] : buffer -> view<2xi32>
+  %lhs = vector.load %lhs_view[0] : view<8xi8> -> vector<8xi8>
+  %rhs = vector.load %rhs_view[0] : view<8xi8> -> vector<8xi8>
+  %seed = vector.load %seed_view[0] : view<2xi32> -> vector<2xi32>
+  %result = vector.dot4i<s8s8> %lhs, %rhs, %seed : vector<8xi8>, vector<8xi8>, vector<2xi32>
+  vector.store %result, %output_view[0] : vector<2xi32>, view<2xi32>
+  kernel.return
+}
+
+// ====
+
+kernel.def @mixed_bytes() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs_buffer: buffer, %rhs_buffer: buffer, %seed_buffer: buffer, %output: buffer) {
+  %aligned_lhs = buffer.assume.alignment %lhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_rhs = buffer.assume.alignment %rhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_seed = buffer.assume.alignment %seed_buffer {minimum_alignment = 64} : buffer
+  %lhs_source, %rhs_source, %seed_source, %destination = buffer.assume.noalias %aligned_lhs, %aligned_rhs, %aligned_seed, %output : buffer, buffer, buffer, buffer
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_source[%base] : buffer -> view<8xi8>
+  %rhs_view = buffer.view %rhs_source[%base] : buffer -> view<8xi8>
+  %seed_view = buffer.view %seed_source[%base] : buffer -> view<2xi32>
+  %output_view = buffer.view %destination[%base] : buffer -> view<2xi32>
+  %lhs = vector.load %lhs_view[0] : view<8xi8> -> vector<8xi8>
+  %rhs = vector.load %rhs_view[0] : view<8xi8> -> vector<8xi8>
+  %seed = vector.load %seed_view[0] : view<2xi32> -> vector<2xi32>
+  %result = vector.dot4i<u8s8> %lhs, %rhs, %seed : vector<8xi8>, vector<8xi8>, vector<2xi32>
+  vector.store %result, %output_view[0] : vector<2xi32>, view<2xi32>
+  kernel.return
+}
+
+// ====
+
+kernel.def @unsigned_nibbles() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs_buffer: buffer, %rhs_buffer: buffer, %seed_buffer: buffer, %output: buffer) {
+  %aligned_lhs = buffer.assume.alignment %lhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_rhs = buffer.assume.alignment %rhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_seed = buffer.assume.alignment %seed_buffer {minimum_alignment = 64} : buffer
+  %lhs_source, %rhs_source, %seed_source, %destination = buffer.assume.noalias %aligned_lhs, %aligned_rhs, %aligned_seed, %output : buffer, buffer, buffer, buffer
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_source[%base] : buffer -> view<2xi32>
+  %rhs_view = buffer.view %rhs_source[%base] : buffer -> view<2xi32>
+  %seed_view = buffer.view %seed_source[%base] : buffer -> view<2xi32>
+  %output_view = buffer.view %destination[%base] : buffer -> view<2xi32>
+  %lhs = vector.load %lhs_view[0] : view<2xi32> -> vector<2xi32>
+  %rhs = vector.load %rhs_view[0] : view<2xi32> -> vector<2xi32>
+  %seed = vector.load %seed_view[0] : view<2xi32> -> vector<2xi32>
+  %result = vector.dot8i4<u4u4> %lhs, %rhs, %seed : vector<2xi32>
+  vector.store %result, %output_view[0] : vector<2xi32>, view<2xi32>
+  kernel.return
+}
+
+// ====
+
+kernel.def @fp8_pairs() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs_buffer: buffer, %rhs_buffer: buffer, %seed_buffer: buffer, %output: buffer) {
+  %aligned_lhs = buffer.assume.alignment %lhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_rhs = buffer.assume.alignment %rhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_seed = buffer.assume.alignment %seed_buffer {minimum_alignment = 64} : buffer
+  %lhs_source, %rhs_source, %seed_source, %destination = buffer.assume.noalias %aligned_lhs, %aligned_rhs, %aligned_seed, %output : buffer, buffer, buffer, buffer
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_source[%base] : buffer -> view<2xi32>
+  %rhs_view = buffer.view %rhs_source[%base] : buffer -> view<2xi32>
+  %seed_view = buffer.view %seed_source[%base] : buffer -> view<2xf32>
+  %output_view = buffer.view %destination[%base] : buffer -> view<2xf32>
+  %lhs = vector.load %lhs_view[0] : view<2xi32> -> vector<2xi32>
+  %rhs = vector.load %rhs_view[0] : view<2xi32> -> vector<2xi32>
+  %seed = vector.load %seed_view[0] : view<2xf32> -> vector<2xf32>
+  %result = vector.dot4f8<fp8fp8> %lhs, %rhs, %seed : vector<2xi32>, vector<2xf32>
+  vector.store %result, %output_view[0] : vector<2xf32>, view<2xf32>
+  kernel.return
+}

@@ -69,8 +69,8 @@ loom_target_compile_report_pressure_origin_from_instruction_classes(
     return LOOM_TARGET_COMPILE_REPORT_PRESSURE_ORIGIN_CONVERSION;
   }
   if (iree_all_bits_set(instruction_classes,
-                        LOOM_LOW_INSTRUCTION_CLASS_FLAG_BARRIER)) {
-    return LOOM_TARGET_COMPILE_REPORT_PRESSURE_ORIGIN_BARRIER;
+                        LOOM_LOW_INSTRUCTION_CLASS_FLAG_EXECUTION_BARRIER)) {
+    return LOOM_TARGET_COMPILE_REPORT_PRESSURE_ORIGIN_EXECUTION_BARRIER;
   }
   if (iree_any_bit_set(instruction_classes,
                        LOOM_LOW_INSTRUCTION_CLASS_FLAG_CONTROL |
@@ -266,10 +266,9 @@ static void loom_target_compile_report_accumulate_schedule_band_node(
           LOOM_TARGET_COMPILE_REPORT_SCHEDULE_BAND_DYNAMIC_INSTRUCTION_MIX)) {
     uint64_t multiplier = 1;
     const bool exact =
-        dynamic_context != NULL && dynamic_context->exact &&
+        dynamic_context != NULL &&
         loom_target_compile_report_low_node_execution_multiplier(
-            schedule->module, &dynamic_context->fact_table,
-            dynamic_context->block_multipliers, node, &multiplier) &&
+            schedule->module, dynamic_context, node, &multiplier) &&
         loom_target_compile_report_accumulate_scaled_static_mix(
             &row->dynamic_instruction_mix, &node_mix, multiplier);
     if (!exact) {
@@ -464,7 +463,8 @@ static iree_status_t loom_target_compile_report_record_schedule_band_rows(
         }
         band = (loom_target_compile_report_schedule_band_row_t){
             .flags =
-                dynamic_context != NULL && dynamic_context->exact
+                dynamic_context != NULL &&
+                        dynamic_context->block_multipliers != NULL
                     ? LOOM_TARGET_COMPILE_REPORT_SCHEDULE_BAND_DYNAMIC_INSTRUCTION_MIX
                     : 0,
             .function_name = report->function_name,

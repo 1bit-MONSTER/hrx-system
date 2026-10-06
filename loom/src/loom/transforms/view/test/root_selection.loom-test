@@ -191,14 +191,13 @@ func.def @derived_selection(%first: buffer, %second: buffer, %third: buffer, %po
   } else {
     scf.yield %second, %base1 : buffer, offset
   }
-  %22 = index.cast %pair_offset : offset to i64
-  %23 = index.cast %position : index to i64
-  %24 = scalar.constant 4 : i64
-  %25 = scalar.muli %23, %24 : i64
-  %26 = scalar.addi %22, %25 : i64
-  %27 = index.cast %26 : i64 to offset
+  %22 = index.cast %position : index to i64
+  %23 = scalar.constant 4 : i64
+  %24 = scalar.muli %22, %23 : i64
+  %25 = index.cast %24 : i64 to offset
+  %26 = index.add %pair_offset, %25 : offset
   %selected_root, %selected_offset = scf.if %select_pair -> (buffer, offset) {
-    scf.yield %pair_root, %27 : buffer, offset
+    scf.yield %pair_root, %26 : buffer, offset
   } else {
     scf.yield %third, %base2 : buffer, offset
   }

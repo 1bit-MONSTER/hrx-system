@@ -13,6 +13,7 @@ test_suite(
     name = "xdna",
     tests = [
         "//libamdf/cts/interop/gpu/xdna/linux:memory",
+        "//libamdf/cts/interop/gpu/xdna/recipes:execution",
         "//libamdf/cts/interop/gpu/xdna/windows:memory",
     ],
     visibility = ["//visibility:public"],

@@ -15,6 +15,7 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/check/ops.h"
+#include "loom/ops/test/ops.h"
 #include "loom/tools/iree-benchmark-loom/comparison_execution.h"
 
 namespace loom {
@@ -32,6 +33,7 @@ class BenchmarkWorkPlanTest : public ::testing::Test {
 
     loom_context_initialize(iree_allocator_system(), &context_);
     RegisterDialect(LOOM_DIALECT_CHECK, loom_check_dialect_vtables);
+    RegisterDialect(LOOM_DIALECT_TEST, loom_test_dialect_vtables);
     IREE_ASSERT_OK(loom_context_finalize(&context_));
   }
 
@@ -294,6 +296,93 @@ check.benchmark<@sampled> @all_b
   EXPECT_EQ(work_plan.work_items[0].case_sample_ordinal, 1u);
 
   iree_benchmark_loom_work_plan_deinitialize(&work_plan);
+}
+
+TEST_F(BenchmarkWorkPlanTest, PlansAndDeduplicatesScenarioTrials) {
+  const loom_testbench_module_plan_t module_plan = PlanModule(R"(
+test.func @identity(%input: i32) -> (i32) {
+  test.yield %input : i32
+}
+
+check.scenario @scenario configure[2](%configuration: index, %configuration_entropy: check.entropy) {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %input = check.literal value(1) : i32
+    check.invoke<@identity>(%input) : (i32) -> (i32)
+  }
+  check.trial[2](%trial: index, %entropy: check.entropy) {
+    %input = check.literal value(2) : i32
+    check.invoke<@identity>(%input) : (i32) -> (i32)
+  }
+  check.return
+}
+
+check.benchmark<@scenario> @first
+check.benchmark<@scenario> @second
+)");
+
+  iree_benchmark_loom_options_t options = {};
+  iree_benchmark_loom_options_initialize(&options);
+  options.selected_case = IREE_SV("scenario");
+  options.sample_ordinal = 4;
+
+  iree_benchmark_loom_work_plan_t work_plan = {};
+  IREE_ASSERT_OK(iree_benchmark_loom_work_plan_initialize(
+      &module_plan, &options, iree_allocator_system(), &work_plan));
+
+  ASSERT_EQ(work_plan.selected_benchmark_count, 2u);
+  EXPECT_EQ(work_plan.selected_benchmarks[0].case_plan, nullptr);
+  EXPECT_EQ(work_plan.selected_benchmarks[0].scenario_plan,
+            &module_plan.scenarios[0]);
+  EXPECT_EQ(work_plan.selected_benchmarks[0].policy.measure_kind,
+            IREE_BENCHMARK_LOOM_MEASURE_DISPATCH_COMPLETE);
+  EXPECT_TRUE(
+      iree_string_view_equal(work_plan.selected_benchmarks[0].policy.measure,
+                             IREE_SV("dispatch_complete")));
+  ASSERT_EQ(work_plan.logical_sample_count, 2u);
+  EXPECT_EQ(work_plan.hal_compile_item_count, 0u);
+  ASSERT_EQ(work_plan.work_item_count, 1u);
+  EXPECT_EQ(work_plan.work_items[0].kind,
+            IREE_BENCHMARK_LOOM_WORK_ITEM_SCENARIO_TRIAL);
+  EXPECT_EQ(work_plan.work_items[0].hal_compile_item_index,
+            IREE_BENCHMARK_LOOM_WORK_PLAN_INDEX_INVALID);
+  EXPECT_EQ(work_plan.work_items[0].scenario_coordinate.configuration_ordinal,
+            0u);
+  EXPECT_EQ(work_plan.work_items[0].scenario_coordinate.trial_index, 1u);
+  EXPECT_EQ(work_plan.work_items[0].scenario_coordinate.trial_ordinal, 1u);
+  EXPECT_EQ(work_plan.logical_samples[0].work_item_index, 0u);
+  EXPECT_EQ(work_plan.logical_samples[1].work_item_index, 0u);
+
+  iree_benchmark_loom_work_plan_deinitialize(&work_plan);
+}
+
+TEST_F(BenchmarkWorkPlanTest, RejectsCaseEndToEndScenarioMeasurement) {
+  const loom_testbench_module_plan_t module_plan = PlanModule(R"(
+test.func @identity(%input: i32) -> (i32) {
+  test.yield %input : i32
+}
+
+check.scenario @scenario {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.literal value(1) : i32
+    check.invoke<@identity>(%input) : (i32) -> (i32)
+  }
+  check.return
+}
+
+check.benchmark<@scenario> @scenario_latency
+)");
+
+  iree_benchmark_loom_options_t options = {};
+  iree_benchmark_loom_options_initialize(&options);
+  options.measure = IREE_SV("case_end_to_end");
+
+  iree_benchmark_loom_work_plan_t work_plan = {};
+  iree::Status status(iree_benchmark_loom_work_plan_initialize(
+      &module_plan, &options, iree_allocator_system(), &work_plan));
+
+  EXPECT_THAT(status, StatusIs(iree::StatusCode::kInvalidArgument));
+  EXPECT_THAT(status.ToString(),
+              HasSubstr("requires measure = \"dispatch_complete\""));
 }
 
 TEST_F(BenchmarkWorkPlanTest, RejectsSelectedBenchmarkWithZeroSamples) {

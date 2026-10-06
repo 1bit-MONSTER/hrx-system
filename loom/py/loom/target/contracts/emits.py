@@ -29,6 +29,7 @@ from loom.target.contracts.immediates import (
     SourceMemoryProjectKind,
     SourceOpProject,
     ValueProject,
+    ValueTypeProject,
 )
 from loom.target.contracts.kinds import SourceValueKind
 from loom.target.contracts.patterns import TypePattern
@@ -178,6 +179,46 @@ class EmitRegisterCopy:
 
 
 @dataclass(frozen=True, slots=True)
+class EmitRegisterMove:
+    """Transfers one temporary register value to a fresh identity."""
+
+    source: ValueRef
+    result: ValueRef
+    result_type: ResultTypeBinding | None = None
+
+    def validate(
+        self,
+        source_op: Op,
+        descriptor_set: DescriptorSet,
+        defined_temporaries: set[str],
+        *,
+        source_ops: Mapping[str, Op] | None = None,
+    ) -> tuple[str, ...]:
+        del descriptor_set
+        if self.source.kind is not SourceValueKind.TEMPORARY:
+            raise ValueError(
+                f"{source_op.name}: register move source must bind a temporary"
+            )
+        _validate_structural_source(
+            source_op,
+            self.source,
+            "register move source",
+            defined_temporaries,
+            source_ops,
+        )
+        produced_temporaries = _validate_structural_result(
+            source_op,
+            self.result,
+            self.result_type,
+            "register move result",
+            defined_temporaries,
+            source_ops=source_ops,
+        )
+        defined_temporaries.remove(self.source.field)
+        return produced_temporaries
+
+
+@dataclass(frozen=True, slots=True)
 class EmitRegisterConcat:
     """Concatenates register-unit sources into one aggregate value."""
 
@@ -226,7 +267,11 @@ class EmitRegisterConcat:
 
 
 type ContractEmit = (
-    EmitDescriptorOp | EmitRegisterCopy | EmitRegisterSlice | EmitRegisterConcat
+    EmitDescriptorOp
+    | EmitRegisterCopy
+    | EmitRegisterMove
+    | EmitRegisterSlice
+    | EmitRegisterConcat
 )
 
 
@@ -241,7 +286,12 @@ class EmitDescriptorOp:
     immediates: (
         Mapping[
             str,
-            AttrProject | SourceOpProject | ValueProject | SourceMemoryProject | int,
+            AttrProject
+            | SourceOpProject
+            | ValueProject
+            | ValueTypeProject
+            | SourceMemoryProject
+            | int,
         ]
         | Sequence[AttrProject]
     ) = ()
@@ -382,6 +432,7 @@ class EmitDescriptorOp:
                 if binding.kind in (
                     SourceValueKind.SOURCE_MEMORY_DYNAMIC_TERM,
                     SourceValueKind.SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET,
+                    SourceValueKind.SOURCE_MEMORY_BYTE_OFFSET,
                     SourceValueKind.SOURCE_MEMORY_ADDRESS,
                     SourceValueKind.SOURCE_MEMORY_ROOT,
                 ):
@@ -502,6 +553,8 @@ class EmitDescriptorOp:
                 materializer.add,
                 materializer.multiply,
                 materializer.shift_left,
+                materializer.multiply_add,
+                materializer.static_bias,
                 *(
                     conversion.descriptor
                     for conversion in materializer.integer_conversions
@@ -562,7 +615,10 @@ class EmitDescriptorOp:
                     f"selects {self.source_memory.dynamic_term_count}"
                 )
         for descriptor_field, value_ref in operand_bindings.items():
-            if value_ref.kind != SourceValueKind.SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET:
+            if value_ref.kind not in (
+                SourceValueKind.SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET,
+                SourceValueKind.SOURCE_MEMORY_BYTE_OFFSET,
+            ):
                 continue
             if self.source_memory is None:
                 raise ValueError(
@@ -616,7 +672,7 @@ class EmitDescriptorOp:
                     immediate_name,
                     "descriptor immediate binding",
                 )
-                if isinstance(binding, ValueProject):
+                if isinstance(binding, ValueProject | ValueTypeProject):
                     binding.validate(
                         source_op,
                         self.descriptor,
@@ -751,15 +807,12 @@ def _validate_structural_result(
         if result_type.kind in (
             SourceValueKind.SOURCE_MEMORY_DYNAMIC_TERM,
             SourceValueKind.SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET,
+            SourceValueKind.SOURCE_MEMORY_BYTE_OFFSET,
             SourceValueKind.SOURCE_MEMORY_ADDRESS,
             SourceValueKind.SOURCE_MEMORY_ROOT,
         ):
             raise ValueError(
                 f"{source_op.name}: {subject} type cannot bind source memory"
-            )
-        if result_type.kind == SourceValueKind.TEMPORARY:
-            raise ValueError(
-                f"{source_op.name}: {subject} type cannot bind a temporary"
             )
         _validate_value_ref(
             source_op,
@@ -988,6 +1041,25 @@ def _validate_byte_offset_materializer(
                 input_carriers=(carrier, carrier),
                 result_carrier=carrier,
             )
+    if materializer.multiply_add is not None:
+        _validate_materializer_descriptor(
+            source_op,
+            materializer.multiply_add,
+            subject="source-memory byte-offset multiply-add",
+            op_kind=DescriptorOpKind.OP,
+            input_carriers=(carrier, carrier, carrier),
+            result_carrier=carrier,
+        )
+    if materializer.static_bias is not None:
+        _validate_materializer_descriptor(
+            source_op,
+            materializer.static_bias,
+            subject="source-memory byte-offset static bias",
+            op_kind=DescriptorOpKind.OP,
+            input_carriers=(),
+            result_carrier=carrier,
+            bound_immediate=materializer.constant_immediate,
+        )
     _validate_integer_conversions(
         source_op, descriptor_set, materializer.integer_conversions, carrier
     )

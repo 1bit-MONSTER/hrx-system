@@ -458,11 +458,13 @@ iree_status_t iree_hal_amdgpu_logical_device_options_verify_supported_features(
                                 "invalid AMDGPU TSAN report policy value %u",
                                 (uint32_t)options->tsan.report_policy);
     }
-    if (options->tsan.memory_granule_shift > 16) {
+    if (options->tsan.memory_granule_shift >
+        IREE_HAL_AMDGPU_TSAN_MAX_MEMORY_GRANULE_SHIFT) {
       return iree_make_status(
           IREE_STATUS_OUT_OF_RANGE,
-          "AMDGPU TSAN memory granule shift %u exceeds max shift 16",
-          options->tsan.memory_granule_shift);
+          "AMDGPU TSAN memory granule shift %u exceeds max shift %u",
+          options->tsan.memory_granule_shift,
+          IREE_HAL_AMDGPU_TSAN_MAX_MEMORY_GRANULE_SHIFT);
     }
     if (options->tsan.workgroup_local_memory_size != 0 &&
         !iree_device_size_is_power_of_two(

@@ -26,6 +26,7 @@ from loom.target.arch.amdgpu.descriptors.sets import (
     _rdna4m_core_overlays,
 )
 from loom.target.arch.amdgpu.encoding import amdgpu_encoding_field_id
+from loom.target.low_descriptors import DescriptorFlag, EffectKind
 
 
 def test_rdna35_dpp_f32_overlays_model_uniform_rhs_forms() -> None:
@@ -111,7 +112,11 @@ def test_rdna35_dpp_integer_compare_overlays_derive_semantic_families() -> None:
                 assert overlay.instruction_name == base_overlay.instruction_name
                 assert overlay.semantic_tag == base_overlay.semantic_tag
                 assert overlay.encoding_name == expected_encoding
-                assert overlay.flags == base_overlay.flags
+                assert DescriptorFlag.DEAD_REMOVABLE in overlay.flags
+                assert DescriptorFlag.SAFE_TO_SPECULATE not in overlay.flags
+                assert any(
+                    effect.kind is EffectKind.CONVERGENT for effect in overlay.effects
+                )
 
             crosslane_operand = next(
                 operand

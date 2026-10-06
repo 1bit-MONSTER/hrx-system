@@ -23,8 +23,8 @@ from loom.dsl import (
     OperandDictionary,
     SameEncoding,
     VariadicValuesMatch,
-    YieldCountMatchesResults,
-    YieldTypesMatchResults,
+    YieldCountMatches,
+    YieldTypesMatch,
 )
 from loom.ir import I32, RegisterType, ShapedType, StaticDim, TypeKind
 
@@ -166,13 +166,29 @@ def test_yield_and_variadic_values() -> None:
     i32 = _FakeValue(ir.I32)
     f32 = _FakeValue(ir.F32)
 
-    count = YieldCountMatchesResults("body", "results")
+    count = YieldCountMatches("body", "results")
     assert count.check({"body": _FakeRegion([], [i32]), "results": [i32]})[0]
     assert not count.check({"body": _FakeRegion([], []), "results": [i32]})[0]
 
-    types = YieldTypesMatchResults("body", "results")
+    types = YieldTypesMatch("body", "results")
     assert types.check({"body": _FakeRegion([], [i32]), "results": [i32]})[0]
     assert not types.check({"body": _FakeRegion([], [f32]), "results": [i32]})[0]
+
+    header_count = YieldCountMatches("body", "header")
+    assert header_count.check(
+        {"body": _FakeRegion([], [i32]), "header": _FakeRegion([i32], None)}
+    )[0]
+    assert not header_count.check(
+        {"body": _FakeRegion([], []), "header": _FakeRegion([i32], None)}
+    )[0]
+
+    header_types = YieldTypesMatch("body", "header")
+    assert header_types.check(
+        {"body": _FakeRegion([], [i32]), "header": _FakeRegion([i32], None)}
+    )[0]
+    assert not header_types.check(
+        {"body": _FakeRegion([], [f32]), "header": _FakeRegion([i32], None)}
+    )[0]
 
     variadic = VariadicValuesMatch("lhs", "rhs")
     assert variadic.check({"lhs": [i32], "rhs": [i32]})[0]

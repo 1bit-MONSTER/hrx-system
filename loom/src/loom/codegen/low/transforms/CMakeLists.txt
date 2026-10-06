@@ -71,6 +71,7 @@ loom_cc_library(
     loom::codegen::low::descriptors
     loom::codegen::low::function
     loom::codegen::low::pipeline::pass_environment
+    loom::codegen::low::representation_binding
     loom::codegen::low::target_binding
     loom::ir
     loom::ops::op_defs
@@ -92,6 +93,7 @@ loom_cc_library(
     loom::codegen::low::descriptors
     loom::codegen::low::function
     loom::codegen::low::pipeline::pass_environment
+    loom::codegen::low::representation_binding
     loom::codegen::low::target_binding
     loom::error::emitter
     loom::ir
@@ -120,7 +122,9 @@ loom_cc_library(
     loom::codegen::low::descriptors
     loom::codegen::low::diagnostics
     loom::codegen::low::function
+    loom::codegen::low::memory_access
     loom::codegen::low::pipeline::pass_environment
+    loom::codegen::low::representation_binding
     loom::codegen::low::storage_relation
     loom::codegen::low::target_binding
     loom::error::error_defs

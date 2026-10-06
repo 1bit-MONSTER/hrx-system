@@ -27,12 +27,12 @@ func.def target(@target) @scalar_ctpopi_i64_vgpr(%inputs: vector<2xi64>) -> (i64
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @scalar_ctpopi_i64_vgpr(%inputs: reg<amdgpu.vgpr x4>) -> (reg<amdgpu.vgpr x2>) asm {
-  %6 = slice %inputs[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-  %7 = slice %inputs[1] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-  %10 = v_bcnt_u32_b32_src1_zero %6
-  %12 = v_bcnt_u32_b32 %7, %10
-  %13 = v_mov_b32 0
-  %result = concat(%12, %13) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %14 = slice %inputs[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %8 = v_bcnt_u32_b32_src1_zero %14
+  %13 = slice %inputs[1] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %10 = v_bcnt_u32_b32 %13, %8
+  %11 = v_mov_b32 0
+  %result = concat(%10, %11) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   return %result
 }
 

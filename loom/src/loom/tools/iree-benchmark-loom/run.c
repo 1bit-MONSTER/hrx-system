@@ -211,8 +211,6 @@ iree_status_t iree_benchmark_loom_run_file(
   iree_benchmark_loom_hal_context_initialize(options->configuration, allocator,
                                              &hal_context);
   hal_context.config_set = benchmark_options->config_set;
-  loom_run_hal_testbench_context_set_runtime_sanitizer_options(
-      &hal_context.execution, &benchmark_options->sanitizer);
   loom_testbench_device_event_capture_t device_event_capture = {0};
   bool device_event_capture_initialized = false;
   iree_arena_allocator_t plan_arena;
@@ -378,6 +376,12 @@ iree_status_t iree_benchmark_loom_run_file(
   }
 
   if (iree_status_is_ok(status) && failure_count == 0) {
+    status = loom_run_hal_testbench_context_add_module_runtime_requirements(
+        &hal_context.execution, run_module.module,
+        &benchmark_options->sanitizer);
+  }
+
+  if (iree_status_is_ok(status) && failure_count == 0) {
     iree_arena_initialize(loom_run_session_block_pool(&session), &plan_arena);
     iree_arena_initialize(loom_run_session_block_pool(&session),
                           &execution_arena);
@@ -424,15 +428,7 @@ iree_status_t iree_benchmark_loom_run_file(
       }
     }
 
-    bool needs_device_events = false;
-    for (iree_host_size_t i = 0;
-         iree_status_is_ok(status) && i < work_plan.selected_benchmark_count;
-         ++i) {
-      needs_device_events |= work_plan.selected_benchmarks[i]
-                                 .case_plan->has_device_event_expectation;
-    }
-    if (iree_status_is_ok(status) && !benchmark_options->dry_run &&
-        needs_device_events) {
+    if (iree_status_is_ok(status) && !benchmark_options->dry_run) {
       status = loom_testbench_device_event_capture_initialize(
           LOOM_TESTBENCH_DEVICE_EVENT_DEFAULT_CAPACITY, allocator,
           &device_event_capture);
@@ -448,21 +444,32 @@ iree_status_t iree_benchmark_loom_run_file(
     const loom_testbench_function_call_provider_callback_t function_calls =
         options->configuration->function_call_provider;
     if (iree_status_is_ok(status) && failure_count == 0 && function_calls.fn) {
+      iree_host_size_t selected_case_count = 0;
+      for (iree_host_size_t i = 0; i < work_plan.selected_benchmark_count;
+           ++i) {
+        selected_case_count +=
+            work_plan.selected_benchmarks[i].case_plan != NULL ? 1 : 0;
+      }
       const loom_testbench_case_plan_t** selected_cases = NULL;
-      status = iree_arena_allocate_array(
-          &plan_arena, work_plan.selected_benchmark_count,
-          sizeof(*selected_cases), (void**)&selected_cases);
+      status = iree_arena_allocate_array(&plan_arena, selected_case_count,
+                                         sizeof(*selected_cases),
+                                         (void**)&selected_cases);
       if (iree_status_is_ok(status)) {
+        iree_host_size_t selected_case_index = 0;
         for (iree_host_size_t i = 0; i < work_plan.selected_benchmark_count;
              ++i) {
-          selected_cases[i] = work_plan.selected_benchmarks[i].case_plan;
+          if (work_plan.selected_benchmarks[i].case_plan != NULL) {
+            selected_cases[selected_case_index++] =
+                work_plan.selected_benchmarks[i].case_plan;
+          }
         }
-        execution_options.invocation.function_call = function_calls.fn(
-            function_calls.user_data,
-            (loom_testbench_case_plan_list_t){
-                .values = selected_cases,
-                .count = work_plan.selected_benchmark_count},
-            loom_run_module_source_resolver(&run_module), &config_set);
+        if (selected_case_count != 0) {
+          execution_options.invocation.function_call = function_calls.fn(
+              function_calls.user_data,
+              (loom_testbench_case_plan_list_t){.values = selected_cases,
+                                                .count = selected_case_count},
+              &run_module.sources.table, &config_set);
+        }
       }
     }
 

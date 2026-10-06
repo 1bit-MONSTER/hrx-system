@@ -285,6 +285,101 @@ TEST(ByteSequenceTest, CloneCombinesSegmentsAndOwnsResult) {
   iree_allocator_free(iree_allocator_system(), clone.data);
 }
 
+TEST(ByteSequenceTest, ConcatRetainsInputsWithoutCopying) {
+  const uint8_t segment0[] = {0, 1};
+  const uint8_t segment1[] = {2, 3, 4};
+  const iree_const_byte_span_t segments0[] = {
+      iree_make_const_byte_span(segment0, sizeof(segment0)),
+  };
+  const iree_const_byte_span_t segments1[] = {
+      iree_make_const_byte_span(segment1, sizeof(segment1)),
+  };
+  int destroy_count0 = 0;
+  int destroy_count1 = 0;
+  test_byte_sequence_t sequence0;
+  test_byte_sequence_t sequence1;
+  test_byte_sequence_initialize(segments0, IREE_ARRAYSIZE(segments0),
+                                sizeof(segment0), &destroy_count0, &sequence0);
+  test_byte_sequence_initialize(segments1, IREE_ARRAYSIZE(segments1),
+                                sizeof(segment1), &destroy_count1, &sequence1);
+  iree_byte_sequence_t* inputs[] = {&sequence0.base, &sequence1.base};
+
+  iree_byte_sequence_t* sequence = NULL;
+  IREE_ASSERT_OK(iree_byte_sequence_create_concat(
+      IREE_ARRAYSIZE(inputs), inputs, iree_allocator_system(), &sequence));
+  iree_byte_sequence_release(&sequence0.base);
+  iree_byte_sequence_release(&sequence1.base);
+  EXPECT_EQ(destroy_count0, 0);
+  EXPECT_EQ(destroy_count1, 0);
+  EXPECT_EQ(iree_byte_sequence_length(sequence), 5u);
+  iree_const_byte_span_t contiguous_span = iree_const_byte_span_empty();
+  EXPECT_FALSE(
+      iree_byte_sequence_try_get_contiguous_span(sequence, &contiguous_span));
+  std::vector<uint8_t> actual;
+  IREE_EXPECT_OK(
+      iree_byte_sequence_enumerate(sequence, make_append_callback(&actual)));
+  EXPECT_THAT(actual, ElementsAre(0, 1, 2, 3, 4));
+
+  iree_byte_sequence_release(sequence);
+  EXPECT_EQ(destroy_count0, 1);
+  EXPECT_EQ(destroy_count1, 1);
+}
+
+TEST(ByteSequenceTest, ConcatReturnsSingleNonEmptyInputDirectly) {
+  const uint8_t data[] = {0, 1};
+  const iree_const_byte_span_t segments[] = {
+      iree_make_const_byte_span(data, sizeof(data)),
+  };
+  int empty_destroy_count = 0;
+  int data_destroy_count = 0;
+  test_byte_sequence_t empty_sequence;
+  test_byte_sequence_t data_sequence;
+  test_byte_sequence_initialize(NULL, 0, 0, &empty_destroy_count,
+                                &empty_sequence);
+  test_byte_sequence_initialize(segments, IREE_ARRAYSIZE(segments),
+                                sizeof(data), &data_destroy_count,
+                                &data_sequence);
+  iree_byte_sequence_t* inputs[] = {&empty_sequence.base, &data_sequence.base};
+
+  iree_byte_sequence_t* sequence = NULL;
+  IREE_ASSERT_OK(iree_byte_sequence_create_concat(
+      IREE_ARRAYSIZE(inputs), inputs, iree_allocator_null(), &sequence));
+  EXPECT_EQ(sequence, &data_sequence.base);
+  iree_byte_sequence_release(&data_sequence.base);
+  EXPECT_EQ(data_destroy_count, 0);
+  iree_byte_sequence_release(sequence);
+  EXPECT_EQ(data_destroy_count, 1);
+  iree_byte_sequence_release(&empty_sequence.base);
+  EXPECT_EQ(empty_destroy_count, 1);
+}
+
+TEST(ByteSequenceTest, ConcatFailureDoesNotRetainInputs) {
+  const uint8_t data[] = {0};
+  const iree_const_byte_span_t segments[] = {
+      iree_make_const_byte_span(data, sizeof(data)),
+  };
+  int destroy_count0 = 0;
+  int destroy_count1 = 0;
+  test_byte_sequence_t sequence0;
+  test_byte_sequence_t sequence1;
+  test_byte_sequence_initialize(segments, IREE_ARRAYSIZE(segments), 1,
+                                &destroy_count0, &sequence0);
+  test_byte_sequence_initialize(segments, IREE_ARRAYSIZE(segments), 1,
+                                &destroy_count1, &sequence1);
+  iree_byte_sequence_t* inputs[] = {&sequence0.base, &sequence1.base};
+
+  iree_byte_sequence_t* sequence = &sequence0.base;
+  EXPECT_THAT(
+      Status(iree_byte_sequence_create_concat(
+          IREE_ARRAYSIZE(inputs), inputs, iree_allocator_null(), &sequence)),
+      StatusIs(StatusCode::kInvalidArgument));
+  EXPECT_EQ(sequence, nullptr);
+  iree_byte_sequence_release(&sequence0.base);
+  iree_byte_sequence_release(&sequence1.base);
+  EXPECT_EQ(destroy_count0, 1);
+  EXPECT_EQ(destroy_count1, 1);
+}
+
 TEST(ByteSequenceTest, CloneEmptySequenceDoesNotAllocate) {
   test_byte_sequence_t sequence;
   test_byte_sequence_initialize(NULL, 0, 0, NULL, &sequence);

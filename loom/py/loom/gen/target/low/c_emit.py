@@ -44,12 +44,6 @@ def _has_positive_effect_separations(compiled: CompiledDescriptorSet, view: Desc
     )
 
 
-def _register_part_id_expr(compiled: CompiledDescriptorSet, part_name: str | None) -> str:
-    if part_name is None:
-        return "LOOM_LOW_REGISTER_PART_NONE"
-    return str(compiled.register_part_ids[part_name])
-
-
 def _operand_flag_expr(operand: Operand, rematerializable: bool) -> str:
     flag_expr = c_spelling.flag_expr(operand.flags)
     if not rematerializable:
@@ -574,9 +568,12 @@ def emit_source_for_views(
         [
             [
                 ".reg_class_id = " + ("LOOM_LOW_REG_CLASS_NONE" if reg_class_id is None else str(reg_class_id)) + ",",
+                ".register_part_id = " + ("LOOM_LOW_REGISTER_PART_NONE" if register_part_id is None else str(register_part_id)) + ",",
                 f".flags = {c_spelling.flag_expr(flags)},",
+                f".unit_alignment_log2 = {unit_alignment_log2},",
+                f".late_read_subgroup_size = {late_read_subgroup_size},",
             ]
-            for reg_class_id, flags in compiled.reg_class_alts
+            for reg_class_id, register_part_id, flags, unit_alignment_log2, late_read_subgroup_size in compiled.reg_class_alts
         ],
     )
     _emit_array(
@@ -600,7 +597,6 @@ def emit_source_for_views(
                 f".address_state_slot = {operand.address_state_slot},",
                 f".encoding_field_id = {operand.encoding_field_id},",
                 f".data_format_id = {operand.data_format_id},",
-                f".register_part_id = {_register_part_id_expr(compiled, operand.register_part)},",
                 f".read_stage = {operand.read_stage},",
                 f".ready_stage = {operand.ready_stage},",
                 ".read_event_id = " + ("LOOM_LOW_TIMING_EVENT_NONE" if operand.read_event is None else str(compiled.timing_event_ids[operand.read_event])) + ",",
@@ -719,8 +715,6 @@ def emit_source_for_views(
     )
     event_separation_ranges = {}
     for index, separation in enumerate(compiled.event_separations):
-        if separation.minimum_issue_separation_cycles <= 0:
-            continue
         start, count, maximum = event_separation_ranges.get(separation.producer_event, (index, 0, 0))
         event_separation_ranges[separation.producer_event] = (start, index - start + 1, max(maximum, separation.minimum_issue_separation_cycles))
     timing_event_rows = []
@@ -980,19 +974,33 @@ def emit_source_for_views(
                     for source_ordinal, alternative_ordinal in view.schedule_alternative_rows
                 ],
             )
+    storage_descriptor_ref_table_symbol = view_array_emitter.append_struct_array(
+        "loom_low_descriptor_ref_t",
+        f"k{spec.c_table_prefix}DescriptorRefs",
+        [
+            [
+                f".key_string_ref = {pool.ref(f'descriptor_{descriptor_key}')},",
+                f".descriptor_ordinal = {descriptor_ordinal},",
+            ]
+            for descriptor_key, descriptor_ordinal in compiled.descriptor_refs
+        ],
+    )
     descriptor_ref_table_symbols: dict[str, str] = {}
     for view in views:
-        descriptor_ref_table_symbols[view.spec.key] = view_array_emitter.append_struct_array(
-            "loom_low_descriptor_ref_t",
-            f"k{view.spec.c_table_prefix}DescriptorRefs",
-            [
+        if view.uses_storage_descriptor_ref_tables:
+            descriptor_ref_table_symbols[view.spec.key] = storage_descriptor_ref_table_symbol
+        else:
+            descriptor_ref_table_symbols[view.spec.key] = view_array_emitter.append_struct_array(
+                "loom_low_descriptor_ref_t",
+                f"k{view.spec.c_table_prefix}DescriptorRefs",
                 [
-                    f".key_string_ref = {pool.ref(f'descriptor_{descriptor_key}')},",
-                    f".descriptor_ordinal = {descriptor_ordinal},",
-                ]
-                for descriptor_key, descriptor_ordinal in view.descriptor_refs
-            ],
-        )
+                    [
+                        f".key_string_ref = {pool.ref(f'descriptor_{descriptor_key}')},",
+                        f".descriptor_ordinal = {descriptor_ordinal},",
+                    ]
+                    for descriptor_key, descriptor_ordinal in view.descriptor_refs
+                ],
+            )
     if asm_table_storage.operand_indices:
         c_arrays.append_value_array(
             lines,
@@ -1159,6 +1167,7 @@ def emit_source_for_views(
             f"    .descriptor_views = {descriptor_view_table_symbol},",
             f"    .descriptor_count = {view.descriptor_count},",
             f"    .resource_calendar_slot_count = {compiled.resource_calendar_slot_count},",
+            f"    .resource_calendar_lookback_cycles = {compiled.resource_calendar_lookback_cycles},",
             f"    .physical_register_unit_count = {max(compiled.physical_register_atomic_units, default=-1) + 1},",
             f"    .maximum_descriptor_operand_count = {max((len(descriptor.operands) for descriptor in compiled.descriptors), default=0)},",
             f"    .descriptor_refs = {descriptor_ref_table_symbol},",
@@ -1331,6 +1340,7 @@ def emit_source(compiled: CompiledDescriptorSet) -> str:
                 operand_forms=compiled.operand_forms,
                 uses_storage_descriptor_tables=True,
                 uses_storage_descriptor_view_tables=True,
+                uses_storage_descriptor_ref_tables=True,
                 uses_storage_asm_form_tables=True,
                 uses_storage_operand_form_tables=True,
                 uses_storage_schedule_alternative_tables=True,

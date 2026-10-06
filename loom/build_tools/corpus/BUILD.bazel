@@ -1,0 +1,70 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//build_tools/testing:build_defs.bzl", "iree_execution_test_suite")
+load(
+    "//loom/build_tools/bazel:build_defs.bzl",
+    "loom_cc_binary",
+    "loom_cc_library",
+    "loom_cc_test",
+    "loom_config_compatible_with",
+)
+
+package(
+    default_visibility = ["//visibility:private"],
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+loom_cc_library(
+    name = "diagnostic_report",
+    srcs = ["diagnostic_report.c"],
+    hdrs = ["diagnostic_report.h"],
+    deps = [
+        "//loom/src/loom/error:error_defs",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:json",
+    ],
+)
+
+loom_cc_binary(
+    name = "loom-corpus-compile-xfails",
+    srcs = ["compile_xfails.c"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":diagnostic_report",
+        "//loom/src/loom/target/tool:process",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/tooling:flags",
+        "//runtime/src/iree/io:file_handle",
+    ],
+)
+
+loom_cc_test(
+    name = "diagnostic_report_test",
+    srcs = ["diagnostic_report_test.cc"],
+    deps = [
+        ":diagnostic_report",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_execution_test_suite(
+    name = "compile_xfails_execution_test",
+    data = [
+        "testdata/all_roots_xfail.loom",
+        "testdata/diagnostic_xfails.loom",
+    ],
+    manifests = ["compile_xfails.test.json"],
+    tags = ["hostonly"],
+    target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),
+    tools = {
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+        "loom-corpus-compile-xfails": ":loom-corpus-compile-xfails",
+    },
+)

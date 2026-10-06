@@ -141,7 +141,7 @@ std::array<loom_value_id_t, 3> LaunchContracts::build_dimensions(
       loom_predicate_t predicate = {};
       loom_value_id_t value;
       if (dimensions) {
-        check(loom_builder_reserve_results(&declaration_builder, 1, &value));
+        check(loom_builder_reserve_values(&declaration_builder, 1, &value));
         predicate = {
             .kind = LOOM_PREDICATE_RANGE,
             .arg_count = 3,

@@ -11,6 +11,7 @@
 #include "loom/analysis/availability.h"
 #include "loom/analysis/scc.h"
 #include "loom/analysis/symbol_references.h"
+#include "loom/codegen/low/memory_access.h"
 #include "loom/error/error_catalog.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
@@ -872,12 +873,8 @@ static loom_inline_blocker_t loom_inline_validate_inline_body(
     return LOOM_INLINE_BLOCKER_RECURSIVE_BODY;
   }
 
-  const uint8_t body_region_index =
-      loom_func_like_body_region_index(entry->callee);
-  const loom_op_vtable_t* callee_vtable =
-      loom_op_vtable(module, entry->callee.op);
   const loom_region_descriptor_t* body_descriptor =
-      loom_op_vtable_region_descriptor(callee_vtable, body_region_index);
+      loom_func_like_body_region_descriptor(module, entry->callee);
   if (!body_descriptor || body_descriptor->terminator == LOOM_OP_KIND_UNKNOWN) {
     return LOOM_INLINE_BLOCKER_CALLEE_BODY_INVALID_TERMINATOR;
   }
@@ -1063,11 +1060,55 @@ static iree_status_t loom_inline_select_transfer_actions(
   return iree_ok_status();
 }
 
+// The inline plan already names both concrete versions. Copying a callee gets
+// a fresh captured namespace; moving its only invocation retains the namespace.
+static iree_status_t loom_inline_memory_products(
+    loom_inline_callables_plan_t* state, const loom_inline_plan_entry_t* entry,
+    loom_ir_clone_observer_t* out_observer) {
+  *out_observer = (loom_ir_clone_observer_t){0};
+  const loom_target_function_version_t* callee =
+      loom_target_function_version_snapshot_at(state->options.target_versions,
+                                               entry->target_symbol_id);
+  if (callee == NULL || callee->memory_accesses == NULL) {
+    return iree_ok_status();
+  }
+  loom_target_function_version_t* caller = loom_target_function_version_cast(
+      loom_target_function_version_snapshot_handle_at(
+          state->options.target_versions, entry->source_symbol_id));
+  // Target-bound Low inlining requires the caller's concrete target context.
+  IREE_ASSERT(caller != NULL);
+  if (entry->action == LOOM_INLINE_PLAN_ACTION_TRANSFER &&
+      caller->memory_accesses == NULL) {
+    caller->memory_accesses = callee->memory_accesses;
+    return iree_ok_status();
+  }
+  if (caller->memory_accesses == NULL) {
+    IREE_RETURN_IF_ERROR(loom_low_memory_access_map_create(
+        &state->module->arena, &caller->memory_accesses));
+  }
+  if (entry->action == LOOM_INLINE_PLAN_ACTION_TRANSFER) {
+    return loom_low_memory_access_map_transfer(callee->memory_accesses,
+                                               caller->memory_accesses);
+  }
+  loom_low_memory_access_clone_t* clone = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_memory_access_clone_create(
+      callee->memory_accesses, caller->memory_accesses, state->pass->arena,
+      &clone));
+  *out_observer = (loom_ir_clone_observer_t){
+      .fn = loom_low_memory_access_clone_op,
+      .user_data = clone,
+  };
+  return iree_ok_status();
+}
+
 static iree_status_t loom_inline_execute_entry(
     loom_inline_callables_plan_t* state, loom_rewriter_t* rewriter,
     const loom_availability_analysis_t* transfer_availability,
     loom_inline_plan_entry_t* entry, bool* out_changed_cfg_topology) {
   *out_changed_cfg_topology = false;
+  loom_ir_clone_observer_t clone_observer = {0};
+  IREE_RETURN_IF_ERROR(
+      loom_inline_memory_products(state, entry, &clone_observer));
   switch (entry->action) {
     case LOOM_INLINE_PLAN_ACTION_CLONE: {
       const bool body_is_linear =
@@ -1077,7 +1118,8 @@ static iree_status_t loom_inline_execute_entry(
               ? loom_low_br_build
               : loom_cfg_br_build;
       IREE_RETURN_IF_ERROR(loom_callable_inline_call_with_branch(
-          rewriter, entry->call_op, entry->callee, build_branch));
+          rewriter, entry->call_op, entry->callee, build_branch,
+          clone_observer));
       loom_pass_mark_changed(state->pass);
       ++state->statistics.calls_cloned;
       *out_changed_cfg_topology = !body_is_linear;
@@ -1437,10 +1479,12 @@ static iree_status_t loom_inline_execute_plan(
       const uint32_t clone_count = ready.clone_count;
       uint32_t site_index = 0;
       for (uint32_t clone_index = first_clone;
-           clone_index != LOOM_INLINE_PLAN_ENTRY_INVALID;
+           clone_index != LOOM_INLINE_PLAN_ENTRY_INVALID &&
+           iree_status_is_ok(status);
            clone_index = execution_entries[clone_index].next_clone_entry) {
         const loom_inline_plan_entry_t* entry = &state->entries[clone_index];
-        clone_sites[site_index++] = (loom_callable_inline_site_t){
+        loom_callable_inline_site_t* site = &clone_sites[site_index++];
+        *site = (loom_callable_inline_site_t){
             .call_op = entry->call_op,
             .callee = entry->callee,
             .build_branch = loom_call_like_kind(entry->call) ==
@@ -1448,9 +1492,13 @@ static iree_status_t loom_inline_execute_plan(
                                 ? loom_low_br_build
                                 : loom_cfg_br_build,
         };
+        status =
+            loom_inline_memory_products(state, entry, &site->clone_observer);
       }
-      status = loom_callable_inline_calls_with_branch(&rewriter, clone_sites,
-                                                      clone_count);
+      if (iree_status_is_ok(status)) {
+        status = loom_callable_inline_calls_with_branch(&rewriter, clone_sites,
+                                                        clone_count);
+      }
       if (!iree_status_is_ok(status)) {
         break;
       }
@@ -1462,7 +1510,8 @@ static iree_status_t loom_inline_execute_plan(
       ready.first_clone = LOOM_INLINE_PLAN_ENTRY_INVALID;
       ready.clone_count = 0;
       for (uint32_t clone_index = first_clone;
-           clone_index != LOOM_INLINE_PLAN_ENTRY_INVALID;
+           clone_index != LOOM_INLINE_PLAN_ENTRY_INVALID &&
+           iree_status_is_ok(status);
            clone_index = execution_entries[clone_index].next_clone_entry) {
         loom_inline_finish_clone(state, execution_symbols, execution_entries,
                                  clone_index, &ready);

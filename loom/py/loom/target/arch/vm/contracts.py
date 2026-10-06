@@ -946,7 +946,7 @@ def _view_cases():
                     minimum_alignment=(
                         0 if instruction in (BUFFER_LOAD, BUFFER_STORE) else width // 8
                     ),
-                    diagnostic=(
+                    alignment_diagnostic=(
                         None
                         if instruction in (BUFFER_LOAD, BUFFER_STORE)
                         else GuardDiagnostic(
@@ -1047,7 +1047,14 @@ def _view_cases():
                 yield DescriptorRule(
                     source_op=source_op,
                     descriptor=descriptor,
-                    guards=(Guard.value_type(value_field, Scalar(types)),),
+                    guards=(
+                        Guard.value_type(value_field, Scalar(types)),
+                        *(
+                            (Guard.instance_flags_has_none("memory_flags", "noftz"),)
+                            if instruction in (BUFFER_ATOMIC_REDUCE, BUFFER_ATOMIC_RMW)
+                            else ()
+                        ),
+                    ),
                     emit=emits,
                     priority=1 if zero_static else 0,
                 )

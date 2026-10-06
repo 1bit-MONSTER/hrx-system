@@ -577,10 +577,10 @@ TEST_F(TemplateDecisionModelTest, LargeCatalogLookupUsesOnlyDemandedFamilies) {
     EXPECT_EQ(model->family.symbol_id, family.symbol_id);
   }
 
-  ASSERT_GT(references.template_providers.count, 0u);
+  ASSERT_GT(references.template_provider_count, 0u);
   const loom_symbol_ref_t provider_symbol = {
       /*.module_id=*/0,
-      /*.symbol_id=*/references.template_providers.values[0].symbol_id,
+      /*.symbol_id=*/FindSymbol(module.get(), IREE_SV("provider_0")),
   };
   EXPECT_EQ(loom_template_decision_model_lookup(&models, provider_symbol),
             nullptr);

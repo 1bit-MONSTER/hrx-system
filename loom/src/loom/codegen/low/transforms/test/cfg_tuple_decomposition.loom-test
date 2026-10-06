@@ -345,3 +345,62 @@ low.func.def target<test.low.core>(@test_target) @scalar_control(%input: reg<tes
 CHECK: *"changed":true,*
 CHECK: *"block-args-decomposed":2,"lane-block-args-inserted":5,"branch-edges-decomposed":1,"slices-removed":2}*
 CHECK: *"category":"value-facts","acquisition_count":1,*"recomputation_count":1,*
+
+// ====
+
+// RUN: pass low-decompose-cfg-tuples,canonicalize,low-cse,low-dce
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @independent_lane_captures(%initial: reg<test.i32 x2>) -> (reg<test.i32>, reg<test.i32>) asm {
+  low.br ^join(%initial: reg<test.i32 x2>)
+^join(%state: reg<test.i32 x2>):
+  %first = slice %state[0] : reg<test.i32 x2> -> reg<test.i32>
+  %second = slice %state[0] : reg<test.i32 x2> -> reg<test.i32>
+  %first_changed = test.tied.any %first
+  %second_changed = test.tied.any %second
+  return %first_changed, %second_changed
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @independent_lane_captures(%initial: reg<test.i32 x2>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %10 = slice %initial[0] : reg<test.i32 x2> -> reg<test.i32>
+  %11 = slice %initial[1] : reg<test.i32 x2> -> reg<test.i32>
+  low.br ^join(%10: reg<test.i32>, %11: reg<test.i32>)
+^join(%8: reg<test.i32>, %9: reg<test.i32>):
+  %first = slice %8[0] : reg<test.i32> -> reg<test.i32>
+  %second = slice %8[0] : reg<test.i32> -> reg<test.i32>
+  %first_changed = test.tied.any %first
+  %second_changed = test.tied.any %second
+  return %first_changed, %second_changed
+}
+
+// ====
+
+// RUN: pass low-decompose-cfg-tuples,canonicalize,low-cse,low-dce
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @aliased_lane_capture_and_observer(%initial: reg<test.i32 x2>) -> (reg<test.i32>, reg<test.i32>) asm {
+  low.br ^join(%initial: reg<test.i32 x2>)
+^join(%state: reg<test.i32 x2>):
+  %first = slice %state[0] : reg<test.i32 x2> -> reg<test.i32>
+  %second = slice %state[0] : reg<test.i32 x2> -> reg<test.i32>
+  %alias = low.assume %first [range(%first, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %alias
+  return %changed, %second
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @aliased_lane_capture_and_observer(%initial: reg<test.i32 x2>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %10 = slice %initial[0] : reg<test.i32 x2> -> reg<test.i32>
+  %11 = slice %initial[1] : reg<test.i32 x2> -> reg<test.i32>
+  low.br ^join(%10: reg<test.i32>, %11: reg<test.i32>)
+^join(%8: reg<test.i32>, %9: reg<test.i32>):
+  %first = slice %8[0] : reg<test.i32> -> reg<test.i32>
+  %alias = low.assume %first [range(%first, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %alias
+  return %changed, %8
+}

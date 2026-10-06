@@ -181,7 +181,7 @@ def generate_ops_h(
             attr_def.enum_def.c_include
             for op in ops
             for attr_def in op.attrs
-            if attr_def.attr_type in ("enum", "enum_array", "signed_enum_set") and attr_def.enum_def is not None and attr_def.enum_def.c_include is not None
+            if attr_def.attr_type in ("enum", "enum_array", "signed_enum_set", ATTR_TYPE_FLAGS) and attr_def.enum_def is not None and attr_def.enum_def.c_include is not None
         }
         | {
             parameter.enum_def.c_include
@@ -198,7 +198,7 @@ def generate_ops_h(
         | {family.auxiliary_key_enum.c_include for family in encoding_families if family.auxiliary_key_enum is not None and family.auxiliary_key_enum.c_include is not None}
         | ({"loom/target/types.h"} if target_fact_type_symbols else set())
     )
-    lines.extend(f'#include "{include}"' for include in enum_includes)
+    lines.extend(f'#include "{include}"' for include in enum_includes if include != "loom/ops/op_defs.h")
     lines.append("")
 
     # Parameterized attribute family kind enum. Numeric local ordinals are
@@ -341,10 +341,12 @@ def generate_ops_h(
         for attr_def in op.attrs:
             if attr_def.attr_type != ATTR_TYPE_FLAGS or attr_def.enum_def is None:
                 continue
+            if attr_def.enum_def.c_type is not None:
+                continue
             if attr_def.enum_def.name in emitted_flag_enums:
                 continue
             emitted_flag_enums.add(attr_def.enum_def.name)
-            enum_prefix = "LOOM_" + op.namespace.upper() + "_" + attr_def.enum_def.name.upper()
+            enum_prefix = "LOOM_" + dialect_name.upper() + "_" + attr_def.enum_def.name.upper()
             if attr_def.enum_def.doc:
                 lines.extend(_doc_comment_lines(attr_def.enum_def.doc))
             lines.extend(f"#define {enum_prefix}_{_enum_case_c_ident(case.keyword)} ((uint8_t){case.value})" for case in attr_def.enum_def.cases)

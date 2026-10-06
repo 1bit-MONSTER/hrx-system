@@ -1,0 +1,33 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/semantic_assertions.loom-test
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=none control-flow=structured-low
+
+kernel.def @semantic_value_assertion() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value: i32) {
+  // ERROR@+1: TARGET/001 {op_name="kernel.assert"}
+  %checked = sanitizer.assert.value %value [ne(%value, 0)] : i32
+  kernel.return
+}
+
+// ====
+
+kernel.def @semantic_operation_assertion() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%denominator: i32) {
+  // ERROR@+1: TARGET/001 {op_name="kernel.assert"}
+  sanitizer.assert.op %denominator [ne(%denominator, 0)] : i32
+  kernel.return
+}
+
+// ====
+
+kernel.def @semantic_layout_assertion() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%extent: index, %view: view<[%extent]xi32>) {
+  // ERROR@+1: TARGET/001 {op_name="kernel.assert"}
+  %checked = sanitizer.assert.layout %view : view<[%extent]xi32> -> view<4xi32>
+  kernel.return
+}

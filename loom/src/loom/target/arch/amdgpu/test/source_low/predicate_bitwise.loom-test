@@ -1,0 +1,355 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/predicate_bitwise.loom-test
+// RUN: emit source-low target=amdgpu:gfx1151 output=low
+
+func.def @predicate_bitwise_four(%lhs: vector<4xi1>, %rhs: vector<4xi1>) -> (vector<4xi1>, vector<4xi1>, vector<4xi1>) {
+  %and_result = vector.andi %lhs, %rhs : vector<4xi1>
+  %or_result = vector.ori %lhs, %rhs : vector<4xi1>
+  %xor_result = vector.xori %lhs, %rhs : vector<4xi1>
+  func.return %and_result, %or_result, %xor_result : vector<4xi1>, vector<4xi1>, vector<4xi1>
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @predicate_bitwise_four(%lhs: reg<amdgpu.sgpr x8>, %rhs: reg<amdgpu.sgpr x8>) -> (reg<amdgpu.sgpr x8>, reg<amdgpu.sgpr x8>, reg<amdgpu.sgpr x8>) asm {
+  %13 = slice %lhs[0] : reg<amdgpu.sgpr x8> -> reg<amdgpu.sgpr x2>
+  %14 = slice %rhs[0] : reg<amdgpu.sgpr x8> -> reg<amdgpu.sgpr x2>
+  %15 = s_and_b64 %13, %14
+  %16 = slice %lhs[2] : reg<amdgpu.sgpr x8> -> reg<amdgpu.sgpr x2>
+  %17 = slice %rhs[2] : reg<amdgpu.sgpr x8> -> reg<amdgpu.sgpr x2>
+  %18 = s_and_b64 %16, %17
+  %19 = slice %lhs[4] : reg<amdgpu.sgpr x8> -> reg<amdgpu.sgpr x2>
+  %20 = slice %rhs[4] : reg<amdgpu.sgpr x8> -> reg<amdgpu.sgpr x2>
+  %21 = s_and_b64 %19, %20
+  %22 = slice %lhs[6] : reg<amdgpu.sgpr x8> -> reg<amdgpu.sgpr x2>
+  %23 = slice %rhs[6] : reg<amdgpu.sgpr x8> -> reg<amdgpu.sgpr x2>
+  %24 = s_and_b64 %22, %23
+  %and_result = concat(%15, %18, %21, %24) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) -> reg<amdgpu.sgpr x8>
+  %28 = s_or_b64 %13, %14
+  %31 = s_or_b64 %16, %17
+  %34 = s_or_b64 %19, %20
+  %37 = s_or_b64 %22, %23
+  %or_result = concat(%28, %31, %34, %37) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) -> reg<amdgpu.sgpr x8>
+  %41 = s_xor_b64 %13, %14
+  %44 = s_xor_b64 %16, %17
+  %47 = s_xor_b64 %19, %20
+  %50 = s_xor_b64 %22, %23
+  %xor_result = concat(%41, %44, %47, %50) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) -> reg<amdgpu.sgpr x8>
+  return %and_result, %or_result, %xor_result
+}
+
+// ====
+
+func.def @predicate_bitwise_single(%lhs: vector<1xi1>, %rhs: vector<1xi1>) -> (vector<1xi1>, vector<1xi1>, vector<1xi1>) {
+  %and_result = vector.andi %lhs, %rhs : vector<1xi1>
+  %or_result = vector.ori %lhs, %rhs : vector<1xi1>
+  %xor_result = vector.xori %lhs, %rhs : vector<1xi1>
+  func.return %and_result, %or_result, %xor_result : vector<1xi1>, vector<1xi1>, vector<1xi1>
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @predicate_bitwise_single(%lhs: reg<amdgpu.sgpr x2>, %rhs: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %and_result = s_and_b64 %lhs, %rhs
+  %or_result = s_or_b64 %lhs, %rhs
+  %xor_result = s_xor_b64 %lhs, %rhs
+  return %and_result, %or_result, %xor_result
+}
+
+// ====
+
+func.def @predicate_bitwise_partial(%lhs: vector<9xi1>, %rhs: vector<9xi1>) -> (vector<9xi1>, vector<9xi1>, vector<9xi1>) {
+  %and_result = vector.andi %lhs, %rhs : vector<9xi1>
+  %or_result = vector.ori %lhs, %rhs : vector<9xi1>
+  %xor_result = vector.xori %lhs, %rhs : vector<9xi1>
+  func.return %and_result, %or_result, %xor_result : vector<9xi1>, vector<9xi1>, vector<9xi1>
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @predicate_bitwise_partial(%lhs: reg<amdgpu.sgpr x18>, %rhs: reg<amdgpu.sgpr x18>) -> (reg<amdgpu.sgpr x18>, reg<amdgpu.sgpr x18>, reg<amdgpu.sgpr x18>) asm {
+  %13 = slice %lhs[0] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %14 = slice %rhs[0] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %15 = s_and_b64 %13, %14
+  %16 = slice %lhs[2] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %17 = slice %rhs[2] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %18 = s_and_b64 %16, %17
+  %19 = slice %lhs[4] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %20 = slice %rhs[4] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %21 = s_and_b64 %19, %20
+  %22 = slice %lhs[6] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %23 = slice %rhs[6] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %24 = s_and_b64 %22, %23
+  %25 = slice %lhs[8] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %26 = slice %rhs[8] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %27 = s_and_b64 %25, %26
+  %28 = slice %lhs[10] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %29 = slice %rhs[10] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %30 = s_and_b64 %28, %29
+  %31 = slice %lhs[12] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %32 = slice %rhs[12] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %33 = s_and_b64 %31, %32
+  %34 = slice %lhs[14] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %35 = slice %rhs[14] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %36 = s_and_b64 %34, %35
+  %37 = slice %lhs[16] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %38 = slice %rhs[16] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %39 = s_and_b64 %37, %38
+  %and_result = concat(%15, %18, %21, %24, %27, %30, %33, %36, %39) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) -> reg<amdgpu.sgpr x18>
+  %43 = s_or_b64 %13, %14
+  %46 = s_or_b64 %16, %17
+  %49 = s_or_b64 %19, %20
+  %52 = s_or_b64 %22, %23
+  %55 = s_or_b64 %25, %26
+  %58 = s_or_b64 %28, %29
+  %61 = s_or_b64 %31, %32
+  %64 = s_or_b64 %34, %35
+  %67 = s_or_b64 %37, %38
+  %or_result = concat(%43, %46, %49, %52, %55, %58, %61, %64, %67) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) -> reg<amdgpu.sgpr x18>
+  %71 = s_xor_b64 %13, %14
+  %74 = s_xor_b64 %16, %17
+  %77 = s_xor_b64 %19, %20
+  %80 = s_xor_b64 %22, %23
+  %83 = s_xor_b64 %25, %26
+  %86 = s_xor_b64 %28, %29
+  %89 = s_xor_b64 %31, %32
+  %92 = s_xor_b64 %34, %35
+  %95 = s_xor_b64 %37, %38
+  %xor_result = concat(%71, %74, %77, %80, %83, %86, %89, %92, %95) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) -> reg<amdgpu.sgpr x18>
+  return %and_result, %or_result, %xor_result
+}
+
+// ====
+
+func.def @predicate_bitwise_matrix(%lhs: vector<3x3xi1>, %rhs: vector<3x3xi1>) -> (vector<3x3xi1>, vector<3x3xi1>, vector<3x3xi1>) {
+  %and_result = vector.andi %lhs, %rhs : vector<3x3xi1>
+  %or_result = vector.ori %lhs, %rhs : vector<3x3xi1>
+  %xor_result = vector.xori %lhs, %rhs : vector<3x3xi1>
+  func.return %and_result, %or_result, %xor_result : vector<3x3xi1>, vector<3x3xi1>, vector<3x3xi1>
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @predicate_bitwise_matrix(%lhs: reg<amdgpu.sgpr x18>, %rhs: reg<amdgpu.sgpr x18>) -> (reg<amdgpu.sgpr x18>, reg<amdgpu.sgpr x18>, reg<amdgpu.sgpr x18>) asm {
+  %13 = slice %lhs[0] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %14 = slice %rhs[0] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %15 = s_and_b64 %13, %14
+  %16 = slice %lhs[2] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %17 = slice %rhs[2] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %18 = s_and_b64 %16, %17
+  %19 = slice %lhs[4] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %20 = slice %rhs[4] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %21 = s_and_b64 %19, %20
+  %22 = slice %lhs[6] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %23 = slice %rhs[6] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %24 = s_and_b64 %22, %23
+  %25 = slice %lhs[8] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %26 = slice %rhs[8] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %27 = s_and_b64 %25, %26
+  %28 = slice %lhs[10] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %29 = slice %rhs[10] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %30 = s_and_b64 %28, %29
+  %31 = slice %lhs[12] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %32 = slice %rhs[12] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %33 = s_and_b64 %31, %32
+  %34 = slice %lhs[14] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %35 = slice %rhs[14] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %36 = s_and_b64 %34, %35
+  %37 = slice %lhs[16] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %38 = slice %rhs[16] : reg<amdgpu.sgpr x18> -> reg<amdgpu.sgpr x2>
+  %39 = s_and_b64 %37, %38
+  %and_result = concat(%15, %18, %21, %24, %27, %30, %33, %36, %39) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) -> reg<amdgpu.sgpr x18>
+  %43 = s_or_b64 %13, %14
+  %46 = s_or_b64 %16, %17
+  %49 = s_or_b64 %19, %20
+  %52 = s_or_b64 %22, %23
+  %55 = s_or_b64 %25, %26
+  %58 = s_or_b64 %28, %29
+  %61 = s_or_b64 %31, %32
+  %64 = s_or_b64 %34, %35
+  %67 = s_or_b64 %37, %38
+  %or_result = concat(%43, %46, %49, %52, %55, %58, %61, %64, %67) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) -> reg<amdgpu.sgpr x18>
+  %71 = s_xor_b64 %13, %14
+  %74 = s_xor_b64 %16, %17
+  %77 = s_xor_b64 %19, %20
+  %80 = s_xor_b64 %22, %23
+  %83 = s_xor_b64 %25, %26
+  %86 = s_xor_b64 %28, %29
+  %89 = s_xor_b64 %31, %32
+  %92 = s_xor_b64 %34, %35
+  %95 = s_xor_b64 %37, %38
+  %xor_result = concat(%71, %74, %77, %80, %83, %86, %89, %92, %95) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) -> reg<amdgpu.sgpr x18>
+  return %and_result, %or_result, %xor_result
+}
+
+// ====
+
+func.def @predicate_bitwise_full(%lhs: vector<32xi1>, %rhs: vector<32xi1>) -> (vector<32xi1>, vector<32xi1>, vector<32xi1>) {
+  %and_result = vector.andi %lhs, %rhs : vector<32xi1>
+  %or_result = vector.ori %lhs, %rhs : vector<32xi1>
+  %xor_result = vector.xori %lhs, %rhs : vector<32xi1>
+  func.return %and_result, %or_result, %xor_result : vector<32xi1>, vector<32xi1>, vector<32xi1>
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @predicate_bitwise_full(%lhs: reg<amdgpu.sgpr x64>, %rhs: reg<amdgpu.sgpr x64>) -> (reg<amdgpu.sgpr x64>, reg<amdgpu.sgpr x64>, reg<amdgpu.sgpr x64>) asm {
+  %13 = slice %lhs[0] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %14 = slice %rhs[0] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %15 = s_and_b64 %13, %14
+  %16 = slice %lhs[2] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %17 = slice %rhs[2] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %18 = s_and_b64 %16, %17
+  %19 = slice %lhs[4] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %20 = slice %rhs[4] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %21 = s_and_b64 %19, %20
+  %22 = slice %lhs[6] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %23 = slice %rhs[6] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %24 = s_and_b64 %22, %23
+  %25 = slice %lhs[8] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %26 = slice %rhs[8] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %27 = s_and_b64 %25, %26
+  %28 = slice %lhs[10] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %29 = slice %rhs[10] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %30 = s_and_b64 %28, %29
+  %31 = slice %lhs[12] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %32 = slice %rhs[12] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %33 = s_and_b64 %31, %32
+  %34 = slice %lhs[14] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %35 = slice %rhs[14] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %36 = s_and_b64 %34, %35
+  %37 = slice %lhs[16] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %38 = slice %rhs[16] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %39 = s_and_b64 %37, %38
+  %40 = slice %lhs[18] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %41 = slice %rhs[18] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %42 = s_and_b64 %40, %41
+  %43 = slice %lhs[20] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %44 = slice %rhs[20] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %45 = s_and_b64 %43, %44
+  %46 = slice %lhs[22] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %47 = slice %rhs[22] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %48 = s_and_b64 %46, %47
+  %49 = slice %lhs[24] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %50 = slice %rhs[24] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %51 = s_and_b64 %49, %50
+  %52 = slice %lhs[26] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %53 = slice %rhs[26] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %54 = s_and_b64 %52, %53
+  %55 = slice %lhs[28] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %56 = slice %rhs[28] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %57 = s_and_b64 %55, %56
+  %58 = slice %lhs[30] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %59 = slice %rhs[30] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %60 = s_and_b64 %58, %59
+  %61 = slice %lhs[32] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %62 = slice %rhs[32] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %63 = s_and_b64 %61, %62
+  %64 = slice %lhs[34] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %65 = slice %rhs[34] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %66 = s_and_b64 %64, %65
+  %67 = slice %lhs[36] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %68 = slice %rhs[36] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %69 = s_and_b64 %67, %68
+  %70 = slice %lhs[38] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %71 = slice %rhs[38] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %72 = s_and_b64 %70, %71
+  %73 = slice %lhs[40] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %74 = slice %rhs[40] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %75 = s_and_b64 %73, %74
+  %76 = slice %lhs[42] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %77 = slice %rhs[42] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %78 = s_and_b64 %76, %77
+  %79 = slice %lhs[44] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %80 = slice %rhs[44] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %81 = s_and_b64 %79, %80
+  %82 = slice %lhs[46] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %83 = slice %rhs[46] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %84 = s_and_b64 %82, %83
+  %85 = slice %lhs[48] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %86 = slice %rhs[48] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %87 = s_and_b64 %85, %86
+  %88 = slice %lhs[50] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %89 = slice %rhs[50] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %90 = s_and_b64 %88, %89
+  %91 = slice %lhs[52] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %92 = slice %rhs[52] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %93 = s_and_b64 %91, %92
+  %94 = slice %lhs[54] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %95 = slice %rhs[54] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %96 = s_and_b64 %94, %95
+  %97 = slice %lhs[56] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %98 = slice %rhs[56] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %99 = s_and_b64 %97, %98
+  %100 = slice %lhs[58] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %101 = slice %rhs[58] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %102 = s_and_b64 %100, %101
+  %103 = slice %lhs[60] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %104 = slice %rhs[60] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %105 = s_and_b64 %103, %104
+  %106 = slice %lhs[62] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %107 = slice %rhs[62] : reg<amdgpu.sgpr x64> -> reg<amdgpu.sgpr x2>
+  %108 = s_and_b64 %106, %107
+  %and_result = concat(%15, %18, %21, %24, %27, %30, %33, %36, %39, %42, %45, %48, %51, %54, %57, %60, %63, %66, %69, %72, %75, %78, %81, %84, %87, %90, %93, %96, %99, %102, %105, %108) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) -> reg<amdgpu.sgpr x64>
+  %112 = s_or_b64 %13, %14
+  %115 = s_or_b64 %16, %17
+  %118 = s_or_b64 %19, %20
+  %121 = s_or_b64 %22, %23
+  %124 = s_or_b64 %25, %26
+  %127 = s_or_b64 %28, %29
+  %130 = s_or_b64 %31, %32
+  %133 = s_or_b64 %34, %35
+  %136 = s_or_b64 %37, %38
+  %139 = s_or_b64 %40, %41
+  %142 = s_or_b64 %43, %44
+  %145 = s_or_b64 %46, %47
+  %148 = s_or_b64 %49, %50
+  %151 = s_or_b64 %52, %53
+  %154 = s_or_b64 %55, %56
+  %157 = s_or_b64 %58, %59
+  %160 = s_or_b64 %61, %62
+  %163 = s_or_b64 %64, %65
+  %166 = s_or_b64 %67, %68
+  %169 = s_or_b64 %70, %71
+  %172 = s_or_b64 %73, %74
+  %175 = s_or_b64 %76, %77
+  %178 = s_or_b64 %79, %80
+  %181 = s_or_b64 %82, %83
+  %184 = s_or_b64 %85, %86
+  %187 = s_or_b64 %88, %89
+  %190 = s_or_b64 %91, %92
+  %193 = s_or_b64 %94, %95
+  %196 = s_or_b64 %97, %98
+  %199 = s_or_b64 %100, %101
+  %202 = s_or_b64 %103, %104
+  %205 = s_or_b64 %106, %107
+  %or_result = concat(%112, %115, %118, %121, %124, %127, %130, %133, %136, %139, %142, %145, %148, %151, %154, %157, %160, %163, %166, %169, %172, %175, %178, %181, %184, %187, %190, %193, %196, %199, %202, %205) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) -> reg<amdgpu.sgpr x64>
+  %209 = s_xor_b64 %13, %14
+  %212 = s_xor_b64 %16, %17
+  %215 = s_xor_b64 %19, %20
+  %218 = s_xor_b64 %22, %23
+  %221 = s_xor_b64 %25, %26
+  %224 = s_xor_b64 %28, %29
+  %227 = s_xor_b64 %31, %32
+  %230 = s_xor_b64 %34, %35
+  %233 = s_xor_b64 %37, %38
+  %236 = s_xor_b64 %40, %41
+  %239 = s_xor_b64 %43, %44
+  %242 = s_xor_b64 %46, %47
+  %245 = s_xor_b64 %49, %50
+  %248 = s_xor_b64 %52, %53
+  %251 = s_xor_b64 %55, %56
+  %254 = s_xor_b64 %58, %59
+  %257 = s_xor_b64 %61, %62
+  %260 = s_xor_b64 %64, %65
+  %263 = s_xor_b64 %67, %68
+  %266 = s_xor_b64 %70, %71
+  %269 = s_xor_b64 %73, %74
+  %272 = s_xor_b64 %76, %77
+  %275 = s_xor_b64 %79, %80
+  %278 = s_xor_b64 %82, %83
+  %281 = s_xor_b64 %85, %86
+  %284 = s_xor_b64 %88, %89
+  %287 = s_xor_b64 %91, %92
+  %290 = s_xor_b64 %94, %95
+  %293 = s_xor_b64 %97, %98
+  %296 = s_xor_b64 %100, %101
+  %299 = s_xor_b64 %103, %104
+  %302 = s_xor_b64 %106, %107
+  %xor_result = concat(%209, %212, %215, %218, %221, %224, %227, %230, %233, %236, %239, %242, %245, %248, %251, %254, %257, %260, %263, %266, %269, %272, %275, %278, %281, %284, %287, %290, %293, %296, %299, %302) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) -> reg<amdgpu.sgpr x64>
+  return %and_result, %or_result, %xor_result
+}

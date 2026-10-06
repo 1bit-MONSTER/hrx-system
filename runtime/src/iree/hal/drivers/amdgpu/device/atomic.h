@@ -130,6 +130,8 @@ void iree_hal_amdgpu_device_atomic_rmw_initialize_kernargs(
 // Populates a one-workitem atomic wait dispatch and its kernargs in
 // already-reserved storage. The caller owns packet header commit,
 // completion-signal assignment, and doorbell signaling.
+// The packet's first word is preserved; |out_setup| receives its setup bits in
+// private storage for the caller's atomic publication.
 //
 // |params| must have passed iree_hal_atomic_wait_params_validate() and
 // |target_ptr| must satisfy its natural width alignment.
@@ -137,11 +139,13 @@ void iree_hal_amdgpu_device_atomic_wait_emplace(
     const iree_hal_amdgpu_device_kernels_t* IREE_AMDGPU_RESTRICT kernels,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
     const void* target_ptr, iree_hal_atomic_wait_params_t params,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr);
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup);
 
 // Populates a one-workitem atomic store dispatch and its kernargs in
 // already-reserved storage. The caller owns packet header commit,
 // completion-signal assignment, and doorbell signaling.
+// The packet's first word is preserved; |out_setup| receives its setup bits in
+// private storage for the caller's atomic publication.
 //
 // |params| must have passed iree_hal_atomic_store_params_validate() and
 // |target_ptr| must satisfy its natural width alignment.
@@ -149,11 +153,13 @@ void iree_hal_amdgpu_device_atomic_store_emplace(
     const iree_hal_amdgpu_device_kernels_t* IREE_AMDGPU_RESTRICT kernels,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
     void* target_ptr, iree_hal_atomic_store_params_t params,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr);
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup);
 
 // Populates a one-workitem atomic RMW dispatch and its kernargs in
 // already-reserved storage. The caller owns packet header commit,
 // completion-signal assignment, and doorbell signaling.
+// The packet's first word is preserved; |out_setup| receives its setup bits in
+// private storage for the caller's atomic publication.
 //
 // |params| must have passed iree_hal_atomic_rmw_params_validate() and
 // |target_ptr| must satisfy its natural width alignment.
@@ -161,7 +167,7 @@ void iree_hal_amdgpu_device_atomic_rmw_emplace(
     const iree_hal_amdgpu_device_kernels_t* IREE_AMDGPU_RESTRICT kernels,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
     void* target_ptr, iree_hal_atomic_rmw_params_t params,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr);
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup);
 
 #endif  // !IREE_AMDGPU_TARGET_DEVICE
 

@@ -30,16 +30,18 @@ static_assert((uint64_t)LOOM_STRING_SEGMENT_CAPACITY *
                   (uint64_t)LOOM_STRING_ID_INVALID,
               "string storage must cover the full string ID domain");
 
-// Stable views into individually contiguous, module-owned string bytes.
+// Stable views into individually contiguous bytes whose lifetime is guaranteed
+// by the enclosing table producer.
 typedef struct loom_string_segment_t {
   // Immutable views indexed by the low bits of a canonical string ID.
   iree_string_view_t entries[LOOM_STRING_SEGMENT_CAPACITY];
 } loom_string_segment_t;
 
-// Append-only string views owned by the module arena. Canonical IDs, rows and
-// copied bytes remain stable until module destruction. Only the initialized
-// prefix named by count may be read; unused segment rows are uninitialized.
-// A separate content interner maps spellings to these dense canonical IDs.
+// Append-only string-view storage owned by an enclosing arena-backed producer.
+// Table IDs and rows remain stable for that owner's lifetime; viewed bytes must
+// have at least the same lifetime. Only the initialized prefix named by count
+// may be read; unused segment rows are uninitialized. Owners may use a separate
+// content interner to map spellings to these dense table-local IDs.
 typedef struct loom_string_table_t {
   // Number of published string views.
   iree_host_size_t count;
@@ -54,7 +56,7 @@ static inline iree_host_size_t loom_string_table_capacity(
          LOOM_STRING_SEGMENT_CAPACITY;
 }
 
-// Returns a published string view borrowing module-owned bytes.
+// Returns a published string view with the enclosing owner's byte lifetime.
 static inline iree_string_view_t loom_string_table_get(
     const loom_string_table_t* table, loom_string_id_t string_id) {
   IREE_ASSERT((iree_host_size_t)string_id < table->count);

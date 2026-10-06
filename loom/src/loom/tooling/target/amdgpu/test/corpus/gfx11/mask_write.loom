@@ -1,0 +1,58 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Wave64 masks are replaced with wide scalar offsets across a block boundary.
+// Check both the lane selection and the high word of the address arithmetic.
+amdgpu.target<gfx11-generic> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.gfx11.generic.core>(@target) @reuse(%value: reg<amdgpu.vgpr>, %origin: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %ready_origin = s_or_b64 %origin, %origin
+  %mask = v_cmp_eq_i32 %value, %value
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  low.br ^address
+^address:
+  %shift = s_mov_b32 11
+  %shifted = s_lshl_b64 %ready_origin, %shift
+  %high = slice %shifted[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %origin_high = slice %ready_origin[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %result = s_add_u32 %high, %origin_high
+  %vector = v_mov_b32_copy %result
+  return %vector, %selected
+}
+
+kernel.def target(@target) @reuse_kernel() {
+  %c1 = index.constant 1 : index
+  %groups = index.constant 1024 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%groups, %c1, %c1) workgroup_size(%width, %c1, %c1) : index
+} launch(%output: buffer, %selected_output: buffer, %origin: i64) {
+  %lane = kernel.workitem.id<x> : index
+  %group = kernel.workgroup.id<x> : index
+  %width = index.constant 64 : index
+  %start = index.mul %group, %width : index
+  %position = index.add %start, %lane : index
+  %value = index.cast %position : index to i32
+  %vector = vector.splat %value : vector<1xi32>
+  %result, %selected = low.invoke @reuse(%vector, %origin) : (vector<1xi32>, i64) -> (vector<1xi32>, vector<1xi32>)
+  %base = index.constant 0 : offset
+  %view = buffer.view %output[%base] : buffer -> view<65536xi32>
+  %selected_view = buffer.view %selected_output[%base] : buffer -> view<65536xi32>
+  vector.store %result, %view[%position] : vector<1xi32>, view<65536xi32>
+  vector.store %selected, %selected_view[%position] : vector<1xi32>, view<65536xi32>
+  kernel.return
+}
+
+check.case public @mask_reuse {
+  %output = check.generate.fill value(-1) : tensor<65536xi32>
+  %selected_output = check.generate.fill value(-1) : tensor<65536xi32>
+  %origin = check.literal value(67109632) : i64
+  kernel.launch @reuse_kernel(%output, %selected_output, %origin) : (tensor<65536xi32>, tensor<65536xi32>, i64)
+  %expected = check.generate.fill value(32) : tensor<65536xi32>
+  %selected_expected = check.generate.iota offset(0) step(1) : tensor<65536xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<65536xi32>
+  check.expect.equal actual(%selected_output) expected(%selected_expected) : tensor<65536xi32>
+  check.return
+}

@@ -24,12 +24,18 @@ static iree_status_t loomc_link_materialization_capture_diagnostic(
       state->diagnostics.result, state->diagnostics.source, diagnostic));
 }
 
+typedef struct loomc_link_materialization_capture_t {
+  // Result receiving target specialization diagnostics.
+  loomc_result_t* result;
+  // Borrowed module, live through specialization before projection replaces it.
+  const loom_module_t* module;
+} loomc_link_materialization_capture_t;
+
 static iree_status_t loomc_link_materialization_capture_emission(
     void* user_data, const loom_diagnostic_emission_t* emission) {
-  loomc_link_materialization_state_t* state =
-      (loomc_link_materialization_state_t*)user_data;
+  const loomc_link_materialization_capture_t* capture = user_data;
   return iree_status_from_loomc(loomc_result_add_loom_diagnostic_emission(
-      state->diagnostics.result, /*source=*/NULL, LOOM_EMITTER_PASS, emission));
+      capture->result, capture->module, LOOM_EMITTER_PASS, emission));
 }
 
 static loom_diagnostic_sink_t loomc_link_materialization_diagnostic_sink(
@@ -87,6 +93,8 @@ static iree_status_t loomc_link_materialization_prepare_module(
   status = loomc_target_specialization_options_make_lists(target, &arena,
                                                           &requests, &bindings);
   uint32_t error_count = 0;
+  loomc_link_materialization_capture_t capture = {
+      .result = state->diagnostics.result, .module = *inout_module};
   if (loomc_status_is_ok(status)) {
     status = loomc_status_from_iree(loom_target_specialize_module(
         loomc_target_environment_loom_target_environment(
@@ -94,7 +102,7 @@ static iree_status_t loomc_link_materialization_prepare_module(
         requests, bindings,
         (iree_diagnostic_emitter_t){
             .fn = loomc_link_materialization_capture_emission,
-            .user_data = state,
+            .user_data = &capture,
         },
         block_pool, allocator, inout_module, &error_count));
   }

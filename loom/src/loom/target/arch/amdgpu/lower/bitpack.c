@@ -97,12 +97,18 @@ static void loom_amdgpu_bitunpack_plan_from_accepted_op(
     IREE_BUILTIN_UNREACHABLE();
   }
 
+  const loom_type_t result_type =
+      loom_module_value_type(module, out_plan->result);
+  const uint32_t maximum_lane_count =
+      loom_type_element_type(result_type) == LOOM_SCALAR_TYPE_I8
+          ? LOOM_AMDGPU_MAX_PACKED_I8_LANES
+          : LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES;
   loom_vector_packed_integer_lanes_from_payload_match_t match = {0};
   const bool matched = loom_vector_packed_integer_lanes_from_payload_match(
-      loom_module_value_type(module, out_plan->source),
-      loom_module_value_type(module, out_plan->result), (uint32_t)width,
+      loom_module_value_type(module, out_plan->source), result_type,
+      (uint32_t)width,
       /*storage_unit_bit_count=*/32, LOOM_AMDGPU_MAX_PACKED_32BIT_REGISTERS,
-      LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES, &match);
+      maximum_lane_count, &match);
   IREE_ASSERT(matched);
 
   if (match.result_shape.element_type == LOOM_SCALAR_TYPE_I32) {
@@ -179,6 +185,8 @@ static iree_status_t loom_amdgpu_extract_vgpr_bitfield_fallback(
     loom_amdgpu_bitfield_extract_mode_t mode, loom_type_t lane_type,
     loom_value_id_t* out_value) {
   *out_value = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_low_vgpr_b32(
+      context, source_op, low_source, &low_source));
   switch (mode) {
     case LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_RAW_SHIFTED:
       if (bit_offset == 0) {
@@ -232,8 +240,8 @@ iree_status_t loom_amdgpu_extract_vgpr_bitfield(
   IREE_ASSERT(bit_offset + bit_count <= 32);
 
   if (bit_offset == 0 && bit_count == 32) {
-    *out_value = low_source;
-    return iree_ok_status();
+    return loom_amdgpu_materialize_low_vgpr_b32(context, source_op, low_source,
+                                                out_value);
   }
 
   if (mode == LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_RAW_SHIFTED) {

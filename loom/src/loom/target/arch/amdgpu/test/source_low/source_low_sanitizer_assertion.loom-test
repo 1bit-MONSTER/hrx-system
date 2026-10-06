@@ -1,0 +1,109 @@
+// RUN: with-checks emit source-low output=low
+
+amdgpu.target<gfx11-generic> @target
+
+kernel.def target(@target) @kernel_assert_uniform_word() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%condition: i1) {
+  kernel.assert %condition : i1
+  kernel.return
+}
+
+// ----
+// A durable uniform i1 arrives in an SGPR word. The hot path compares it
+// against zero and branches around the shared cold UBSAN report producer.
+CHECK: low.kernel.def * @kernel_assert_uniform_word(%condition: reg<amdgpu.sgpr>) asm {
+CHECK: * = live_in<amdgpu.workgroup_id.x> *
+CHECK: * = live_in<amdgpu.dispatch_ptr> *
+CHECK: * = live_in<amdgpu.workitem_id.x> *
+CHECK: * = s_cmp_eq_i32 %condition, *
+CHECK: low.cond_br * : reg<amdgpu.scc>
+CHECK: *{symbol = @iree_feedback_config}
+CHECK: * = v_mov_b32 6
+CHECK: global_store_b32_saddr * {offset = 72}
+CHECK: global_store_b64_saddr * {offset = 80}
+CHECK: s_sendmsg * {message = 1}
+CHECK-NOT: *kernel.assert*
+CHECK-NOT: *s_trap*
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+kernel.def target(@target) @kernel_assert_uniform_scc() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value: i32) {
+  %c0 = scalar.constant 0 : i32
+  %condition = scalar.cmpi ne, %value, %c0 : i32
+  kernel.assert %condition : i1
+  kernel.return
+}
+
+// ----
+// A single-use uniform comparison remains in SCC and branches directly on
+// success without first materializing an integer predicate.
+CHECK: %condition = s_cmp_lg_i32 %value, %c0
+CHECK: low.cond_br %condition, * : reg<amdgpu.scc>
+CHECK: *{symbol = @iree_feedback_config}
+CHECK: global_store_b32_saddr * {offset = 72}
+CHECK: global_store_b64_saddr * {offset = 80}
+CHECK-NOT: *kernel.assert*
+CHECK-NOT: *s_trap*
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+kernel.def target(@target) @kernel_assert_varying_mask() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch() {
+  %lane = kernel.workitem.id<x> : index
+  %limit = index.constant 32 : index
+  %condition = index.cmp ult, %lane, %limit : index
+  kernel.assert %condition : i1
+  kernel.return
+}
+
+// ----
+// Divergent assertions narrow EXEC to the active lanes whose predicate is
+// false. Those lanes then compete for the wave's single feedback packet, so
+// its representative source coordinates always belong to a failed lane.
+CHECK: %condition = v_cmp_lt_u32* %lane *
+CHECK: * = s_mov_b64_exec_read
+CHECK: * = s_and_b64 %condition, *
+CHECK: * = s_xor_b64 *
+CHECK: * = s_cmp_lg_u64 *
+CHECK: low.cond_br * : reg<amdgpu.scc>
+CHECK: *, * = s_and_saveexec_b64 *
+CHECK: global_store_b32_saddr *, %lane, * {offset = 36}
+CHECK: global_store_b32_saddr * {offset = 72}
+CHECK-NOT: *kernel.assert*
+CHECK-NOT: *s_trap*
+
+// ====
+// RUN: with-checks emit source-low output=low sanitizer-reporting=trap
+
+amdgpu.target<gfx11-generic> @target
+
+kernel.def target(@target) @kernel_assert_trap() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value: i32) {
+  %c0 = scalar.constant 0 : i32
+  %condition = scalar.cmpi ne, %value, %c0 : i32
+  kernel.assert %condition : i1
+  kernel.return
+}
+
+// ----
+CHECK: %condition = s_cmp_lg_i32 %value, %c0
+CHECK: low.cond_br %condition, * : reg<amdgpu.scc>
+CHECK: s_trap {trapid = 2}
+CHECK: s_sethalt {reason = 5}
+CHECK-NOT: *kernel.assert*
+CHECK-NOT: *@iree_feedback_config*
+CHECK-NOT: *global_store*

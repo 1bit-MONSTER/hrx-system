@@ -1,0 +1,87 @@
+// RUN: emit source-low target=wasm:simd128 output=low
+
+func.def @convert_integer_words(%word: i32, %wide: i64) -> (f32, f64, f32, f64, f32, f64, f32, f64) {
+  %signed_word_f32 = scalar.sitofp %word : i32 to f32
+  %signed_word_f64 = scalar.sitofp %word : i32 to f64
+  %unsigned_word_f32 = scalar.uitofp %word : i32 to f32
+  %unsigned_word_f64 = scalar.uitofp %word : i32 to f64
+  %signed_wide_f32 = scalar.sitofp %wide : i64 to f32
+  %signed_wide_f64 = scalar.sitofp %wide : i64 to f64
+  %unsigned_wide_f32 = scalar.uitofp %wide : i64 to f32
+  %unsigned_wide_f64 = scalar.uitofp %wide : i64 to f64
+  func.return %signed_word_f32, %signed_word_f64, %unsigned_word_f32, %unsigned_word_f64, %signed_wide_f32, %signed_wide_f64, %unsigned_wide_f32, %unsigned_wide_f64 : f32, f64, f32, f64, f32, f64, f32, f64
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @convert_integer_words(%word: reg<wasm.i32>, %wide: reg<wasm.i64>) -> (reg<wasm.f32>, reg<wasm.f64>, reg<wasm.f32>, reg<wasm.f64>, reg<wasm.f32>, reg<wasm.f64>, reg<wasm.f32>, reg<wasm.f64>) asm {
+  %signed_word_f32 = f32.convert_i32_s %word
+  %signed_word_f64 = f64.convert_i32_s %word
+  %unsigned_word_f32 = f32.convert_i32_u %word
+  %unsigned_word_f64 = f64.convert_i32_u %word
+  %signed_wide_f32 = f32.convert_i64_s %wide
+  %signed_wide_f64 = f64.convert_i64_s %wide
+  %unsigned_wide_f32 = f32.convert_i64_u %wide
+  %unsigned_wide_f64 = f64.convert_i64_u %wide
+  return %signed_word_f32, %signed_word_f64, %unsigned_word_f32, %unsigned_word_f64, %signed_wide_f32, %signed_wide_f64, %unsigned_wide_f32, %unsigned_wide_f64
+}
+
+// ====
+
+func.def @convert_signed_narrow(%flag: i1, %byte: i8, %word: i16) -> (f32, f64, f32, f64, f32, f64) {
+  %flag_f32 = scalar.sitofp %flag : i1 to f32
+  %flag_f64 = scalar.sitofp %flag : i1 to f64
+  %byte_f32 = scalar.sitofp %byte : i8 to f32
+  %byte_f64 = scalar.sitofp %byte : i8 to f64
+  %word_f32 = scalar.sitofp %word : i16 to f32
+  %word_f64 = scalar.sitofp %word : i16 to f64
+  func.return %flag_f32, %flag_f64, %byte_f32, %byte_f64, %word_f32, %word_f64 : f32, f64, f32, f64, f32, f64
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @convert_signed_narrow(%flag: reg<wasm.i32>, %byte: reg<wasm.i32>, %word: reg<wasm.i32>) -> (reg<wasm.f32>, reg<wasm.f64>, reg<wasm.f32>, reg<wasm.f64>, reg<wasm.f32>, reg<wasm.f64>) asm {
+  %24 = i32.const 31
+  %25 = i32.shl %flag, %24
+  %26 = i32.shr_s %25, %24
+  %flag_f32 = f32.convert_i32_s %26
+  %flag_f64 = f64.convert_i32_s %26
+  %32 = i32.const 24
+  %33 = i32.shl %byte, %32
+  %34 = i32.shr_s %33, %32
+  %byte_f32 = f32.convert_i32_s %34
+  %byte_f64 = f64.convert_i32_s %34
+  %40 = i32.const 16
+  %41 = i32.shl %word, %40
+  %42 = i32.shr_s %41, %40
+  %word_f32 = f32.convert_i32_s %42
+  %word_f64 = f64.convert_i32_s %42
+  return %flag_f32, %flag_f64, %byte_f32, %byte_f64, %word_f32, %word_f64
+}
+
+// ====
+
+func.def @convert_unsigned_narrow(%flag: i1, %byte: i8, %word: i16) -> (f32, f64, f32, f64, f32, f64) {
+  %flag_f32 = scalar.uitofp %flag : i1 to f32
+  %flag_f64 = scalar.uitofp %flag : i1 to f64
+  %byte_f32 = scalar.uitofp %byte : i8 to f32
+  %byte_f64 = scalar.uitofp %byte : i8 to f64
+  %word_f32 = scalar.uitofp %word : i16 to f32
+  %word_f64 = scalar.uitofp %word : i16 to f64
+  func.return %flag_f32, %flag_f64, %byte_f32, %byte_f64, %word_f32, %word_f64 : f32, f64, f32, f64, f32, f64
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @convert_unsigned_narrow(%flag: reg<wasm.i32>, %byte: reg<wasm.i32>, %word: reg<wasm.i32>) -> (reg<wasm.f32>, reg<wasm.f64>, reg<wasm.f32>, reg<wasm.f64>, reg<wasm.f32>, reg<wasm.f64>) asm {
+  %24 = i32.const 1
+  %25 = i32.and %flag, %24
+  %flag_f32 = f32.convert_i32_u %25
+  %flag_f64 = f64.convert_i32_u %25
+  %30 = i32.const 255
+  %31 = i32.and %byte, %30
+  %byte_f32 = f32.convert_i32_u %31
+  %byte_f64 = f64.convert_i32_u %31
+  %36 = i32.const 65535
+  %37 = i32.and %word, %36
+  %word_f32 = f32.convert_i32_u %37
+  %word_f64 = f64.convert_i32_u %37
+  return %flag_f32, %flag_f64, %byte_f32, %byte_f64, %word_f32, %word_f64
+}

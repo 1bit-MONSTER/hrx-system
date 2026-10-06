@@ -37,8 +37,8 @@ func.def target(@target) @spirv_i32_compare_select(%lhs: i32, %rhs: i32) -> (i32
 
 // ----
 low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @spirv_i32_compare_select(%lhs: reg<spirv.id : i32>, %rhs: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
-  %less = OpSLessThan %lhs, %rhs
-  %selected = OpSelect %less, %lhs, %rhs
+  %11 = OpSLessThan %lhs, %rhs
+  %selected = OpSelect %11, %lhs, %rhs
   return %selected
 }
 
@@ -102,29 +102,31 @@ low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @spirv_
 
 spirv.target<vulkan1_3> @target
 
-func.def target(@target) @spirv_i32_condition_loop(%initial: i32, %limit: i32) -> (i32) {
+func.def target(@target) @spirv_i32_condition_payload_loop(%initial: i32, %limit: i32, %bias: i32) -> (i32, i32) {
   %c1 = scalar.constant 1 : i32
-  %result = scf.while(%before = %initial : i32) -> (i32) {
+  %result_state, %result_payload = scf.while(%before = %initial : i32) -> (i32, i32) {
     %keep_going = scalar.cmpi slt, %before, %limit : i32
-    scf.condition %keep_going, %before : i1, i32
-  } do(%body: i32) {
-    %next = scalar.addi %body, %c1 : i32
+    %payload = scalar.addi %before, %bias : i32
+    scf.condition %keep_going, %before, %payload : i1, i32, i32
+  } do(%body_state: i32, %body_payload: i32) {
+    %next = scalar.addi %body_payload, %c1 : i32
     scf.yield %next : i32
   }
-  func.return %result : i32
+  func.return %result_state, %result_payload : i32, i32
 }
 
 // ----
-low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @spirv_i32_condition_loop(%initial: reg<spirv.id : i32>, %limit: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @spirv_i32_condition_payload_loop(%initial: reg<spirv.id : i32>, %limit: reg<spirv.id : i32>, %bias: reg<spirv.id : i32>) -> (reg<spirv.id : i32>, reg<spirv.id : i32>) asm {
   %c1 = OpConstant.i32 1
-  %result = low.scf.while(%before = %initial : reg<spirv.id : i32>) -> (reg<spirv.id : i32>) {
+  %result_state, %result_payload = low.scf.while(%before = %initial : reg<spirv.id : i32>) -> (reg<spirv.id : i32>, reg<spirv.id : i32>) {
     %keep_going = OpSLessThan %before, %limit
-    low.scf.condition %keep_going, %before : reg<spirv.id : i1>, reg<spirv.id : i32>
-  } do(%body: reg<spirv.id : i32>) {
-    %next = OpIAdd %body, %c1
+    %payload = OpIAdd %before, %bias
+    low.scf.condition %keep_going, %before, %payload : reg<spirv.id : i1>, reg<spirv.id : i32>, reg<spirv.id : i32>
+  } do(%body_state: reg<spirv.id : i32>, %body_payload: reg<spirv.id : i32>) {
+    %next = OpIAdd %body_payload, %c1
     low.scf.yield %next : reg<spirv.id : i32>
   }
-  return %result
+  return %result_state, %result_payload
 }
 
 // ====
@@ -318,8 +320,10 @@ kernel.def target(@hal_target) @spirv_dynamic_builtin_storage_buffer_i32() {
   %workgroup_x = kernel.workgroup.id<x> : index
   %local_y = kernel.workitem.id<y> : index
   %global_z = kernel.workitem.dispatch.id<z> : index
+  %subgroup_lane = kernel.subgroup.lane.id : index
   %sum = index.add %workgroup_x, %local_y : index
-  %linear = index.add %sum, %global_z : index
+  %sum_with_lane = index.add %sum, %subgroup_lane : index
+  %linear = index.add %sum_with_lane, %global_z : index
   %scale = index.constant 4 : index
   %byte_index = index.mul %linear, %scale : index
   %byte_offset = index.cast %byte_index : index to offset
@@ -340,16 +344,18 @@ low.kernel.def target<spirv.logical.core>(@hal_target) workgroup_size(1, 2, 1) w
   %workgroup_x = OpLoadBuiltin.workgroup_id.x
   %local_y = OpLoadBuiltin.local_invocation_id.y
   %global_z = OpLoadBuiltin.global_invocation_id.z
+  %subgroup_lane = OpLoadBuiltin.subgroup_local_invocation_id
   %sum = OpIAdd %workgroup_x, %local_y : reg<spirv.id : index>
-  %linear = OpIAdd %sum, %global_z : reg<spirv.id : index>
-  %29 = OpConstant.i32 2 : reg<spirv.id : index>
-  %byte_index = OpShiftLeftLogical %linear, %29 : reg<spirv.id : index>
-  %31 = OpBitcast.i32.u32 %byte_index
-  %byte_offset_aligned = OpUConvert.u32.offset64 %31
-  %33 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input_aligned, %byte_offset_aligned
-  %loaded = OpLoad.storage_buffer.i32 %33
-  %35 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output_aligned, %byte_offset_aligned
-  OpStore.storage_buffer.i32 %35, %loaded
+  %sum_with_lane = OpIAdd %sum, %subgroup_lane : reg<spirv.id : index>
+  %linear = OpIAdd %sum_with_lane, %global_z : reg<spirv.id : index>
+  %33 = OpConstant.i32 2 : reg<spirv.id : index>
+  %byte_index = OpShiftLeftLogical %linear, %33 : reg<spirv.id : index>
+  %35 = OpBitcast.i32.u32 %byte_index
+  %byte_offset_aligned = OpUConvert.u32.offset64 %35
+  %37 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input_aligned, %byte_offset_aligned
+  %loaded = OpLoad.storage_buffer.i32 %37
+  %39 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output_aligned, %byte_offset_aligned
+  OpStore.storage_buffer.i32 %39, %loaded
   return
 }
 
@@ -509,13 +515,13 @@ kernel.def target(@hal_target) @spirv_hal_resource_storage_buffer_i64() {
 low.kernel.def target<spirv.logical.core>(@hal_target) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_resource_storage_buffer_i64(%byte_offset_aligned: reg<spirv.offset64>) asm {
   %input_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %output_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
-  %16 = OpPtrAccessChain.storage_buffer.i64.byte_offset %input_aligned, %byte_offset_aligned
-  %loaded = OpLoad.storage_buffer.i64 %16
+  %19 = OpPtrAccessChain.storage_buffer.i64.byte_offset %input_aligned, %byte_offset_aligned
+  %loaded = OpLoad.storage_buffer.i64 %19
   %sum = OpIAdd.i64 %loaded, %loaded
-  %larger = OpSGreaterThan.i64 %sum, %loaded
-  %selected = OpSelect.i64 %larger, %sum, %loaded
-  %21 = OpPtrAccessChain.storage_buffer.i64.byte_offset %output_aligned, %byte_offset_aligned
-  OpStore.storage_buffer.i64 %21, %selected
+  %22 = OpSGreaterThan.i64 %sum, %loaded
+  %selected = OpSelect.i64 %22, %sum, %loaded
+  %24 = OpPtrAccessChain.storage_buffer.i64.byte_offset %output_aligned, %byte_offset_aligned
+  OpStore.storage_buffer.i64 %24, %selected
   return
 }
 

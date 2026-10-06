@@ -88,6 +88,21 @@ typedef struct loom_low_allocation_spill_plan_t {
   uint32_t reload_count;
 } loom_low_allocation_spill_plan_t;
 
+// Distinct fixed retained-read blockers encountered by spilled assignments, in
+// spill-decision order. Each assignment attempt owns its list independently of
+// the immutable fixed-value facts shared by alternative colorings. An index is
+// present iff it is the last entry or its successor is nonzero.
+typedef struct loom_low_allocation_retained_fixed_values_t {
+  // Arena-owned successors indexed by fixed value; each successor is encoded
+  // as index plus one. Zero terminates the list and marks absent non-tail
+  // entries. NULL for an empty list; otherwise sized to the fixed-value count.
+  uint32_t* next_indices_plus_one;
+  // First fixed-value index plus one, or zero for an empty list.
+  uint32_t first_index_plus_one;
+  // Last fixed-value index plus one, or zero for an empty list.
+  uint32_t last_index_plus_one;
+} loom_low_allocation_retained_fixed_values_t;
+
 // Copy/coalescing decision for one low.copy op.
 typedef struct loom_low_allocation_copy_decision_t {
   // Source SSA value consumed by the low.copy op.
@@ -213,10 +228,11 @@ typedef struct loom_low_allocation_table_t {
   const loom_low_allocation_assignment_t* assignments;
   // Number of records in |assignments|.
   iree_host_size_t assignment_count;
-  // Dense physical extents retained from assignment and move planning.
+  // Dense resource extents retained from assignment and move planning.
   struct {
     // Maximum one-past-last assigned or move-scratch location indexed by
-    // descriptor register class ID.
+    // descriptor register class ID. Excludes the descriptor's ABI-fixed range,
+    // which does not consume allocatable register resources.
     const uint32_t* ends_by_reg_class;
     // Number of entries in |ends_by_reg_class|.
     iree_host_size_t count;
@@ -234,6 +250,8 @@ typedef struct loom_low_allocation_table_t {
   const loom_low_allocation_spill_plan_t* spill_plans;
   // Number of records in |spill_plans|.
   iree_host_size_t spill_plan_count;
+  // Distinct retained-read blockers published by the accepted coloring.
+  loom_low_allocation_retained_fixed_values_t retained_fixed_values;
   // Allocation remarks in spill-decision order.
   const loom_low_allocation_remark_t* remarks;
   // Number of records in |remarks|.

@@ -12,6 +12,46 @@ CHECK: COMPILE-REPORT: source_low[*] * source_op=vector.fptrunc selection=plan p
 
 // ====
 
+amdgpu.target<gfx950> @target
+
+func.def target(@target) @report_i8_to_fp8_range_bounded_native(%input: vector<4xi8>) -> (vector<4xf8E4M3>) {
+  %floats = vector.sitofp %input : vector<4xi8> to vector<4xf32>
+  %converted = vector.fptrunc %floats : vector<4xf32> to vector<4xf8E4M3>
+  func.return %converted : vector<4xf8E4M3>
+}
+
+// ----
+CHECK: COMPILE-REPORT: source_low[*] * source_op=vector.fptrunc selection=plan plan_key=amdgpu.fp8_encode.strategy.f32_pair_range_bounded_native *
+
+// ====
+
+amdgpu.target<gfx950> @target
+
+func.def target(@target) @report_i16_to_fp8_saturating_native(%input: vector<4xi16>) -> (vector<4xf8E4M3>) {
+  %floats = vector.sitofp %input : vector<4xi16> to vector<4xf32>
+  %converted = vector.fptrunc %floats : vector<4xf32> to vector<4xf8E4M3>
+  func.return %converted : vector<4xf8E4M3>
+}
+
+// ----
+CHECK: COMPILE-REPORT: source_low[*] * source_op=vector.fptrunc selection=plan plan_key=amdgpu.fp8_encode.strategy.f32_pair_saturating_native *
+
+// ====
+
+amdgpu.target<gfx950> @target
+
+func.def target(@target) @report_schema_i8_to_fp8_range_bounded_native(%input: vector<4xi8>) -> (vector<4xf8E4M3>) {
+  %floats = vector.sitofp %input : vector<4xi8> to vector<4xf32>
+  %schema = encoding.define #encoding.f8e4m3fn<payload_elements=4> : encoding<schema>
+  %encoded = vector.encode %floats using %schema : vector<4xf32>, encoding<schema> -> vector<4xf8E4M3>
+  func.return %encoded : vector<4xf8E4M3>
+}
+
+// ----
+CHECK: COMPILE-REPORT: source_low[*] * source_op=vector.encode selection=plan plan_key=amdgpu.fp8_encode.strategy.f32_pair_range_bounded_native *
+
+// ====
+
 amdgpu.target<gfx1250> @target
 
 func.def target(@target) @report_f16_to_bf8_direct_native(%input: vector<4xf16>) -> (vector<4xf8E5M2>) {

@@ -1,0 +1,18 @@
+// RUN: with-checks compile-report source-to-low,low-dce
+
+// Pre-gfx1250 targets compose exact packed E8M0 scale materialization with
+// their existing FP8-to-F32 conversion and 16-bit packing strategies.
+amdgpu.target<gfx942> @target
+
+func.def target(@target) @report_materialized_e8m0_result_types(%payload: vector<8xf8E4M3>, %scale: vector<1xi32>) -> (vector<8xf32>, vector<8xbf16>, vector<8xf16>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=8, scale_format=e8m0, scale_group_elements=8, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %f32 = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<8xf8E4M3>, encoding<schema> -> vector<8xf32>
+  %bf16 = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<8xf8E4M3>, encoding<schema> -> vector<8xbf16>
+  %f16 = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<8xf8E4M3>, encoding<schema> -> vector<8xf16>
+  func.return %f32, %bf16, %f16 : vector<8xf32>, vector<8xbf16>, vector<8xf16>
+}
+
+// ----
+CHECK: COMPILE-REPORT: source_low[*] * source_op=vector.decode selection=plan plan_key=amdgpu.vector_16bit_float_conversion.strategy.fp8_scalee8m0_materialized_f32_decode *
+CHECK: COMPILE-REPORT: source_low[*] * source_op=vector.decode selection=plan plan_key=amdgpu.vector_16bit_float_conversion.strategy.fp8_scalee8m0_materialized_packed_bf16_decode *
+CHECK: COMPILE-REPORT: source_low[*] * source_op=vector.decode selection=plan plan_key=amdgpu.vector_16bit_float_conversion.strategy.fp8_scalee8m0_materialized_packed_f16_decode *

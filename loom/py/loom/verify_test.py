@@ -4,6 +4,8 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+import pytest
+
 import loom.ir as ir
 from loom.builtin_types import ALL_BUILTIN_TYPES
 from loom.diagnostics import DiagnosticEngine
@@ -15,6 +17,7 @@ from loom.dsl import (
     INTEGER,
     ISOLATED_FROM_ABOVE,
     HasAncestor,
+    HasAnyAncestor,
     InlinePolicy,
     Op,
     Operand,
@@ -75,7 +78,7 @@ def test_type_constraints_match_payload_scalars() -> None:
         assert not type_satisfies_constraint(value_type, TypeConstraint.PAYLOAD_SCALAR)
 
 
-def test_type_constraints_match_byte_pattern_scalars() -> None:
+def test_type_constraints_match_byte_patterns() -> None:
     accepted_kinds = (
         ir.ScalarTypeKind.I8,
         ir.ScalarTypeKind.I16,
@@ -89,8 +92,13 @@ def test_type_constraints_match_byte_pattern_scalars() -> None:
         ir.ScalarTypeKind.F64,
     )
     for kind in accepted_kinds:
+        scalar_type = ir.ScalarType(kind)
         assert type_satisfies_constraint(
-            ir.ScalarType(kind), TypeConstraint.BYTE_PATTERN_SCALAR
+            scalar_type, TypeConstraint.BYTE_PATTERN_SCALAR
+        )
+        assert type_satisfies_constraint(
+            ir.ShapedType(ir.TypeKind.VECTOR, scalar_type, (ir.StaticDim(1),)),
+            TypeConstraint.BYTE_PATTERN_ELEMENT,
         )
 
     rejected_kinds = (
@@ -99,9 +107,20 @@ def test_type_constraints_match_byte_pattern_scalars() -> None:
         ir.ScalarTypeKind.I1,
     )
     for kind in rejected_kinds:
+        scalar_type = ir.ScalarType(kind)
         assert not type_satisfies_constraint(
-            ir.ScalarType(kind), TypeConstraint.BYTE_PATTERN_SCALAR
+            scalar_type, TypeConstraint.BYTE_PATTERN_SCALAR
         )
+        assert not type_satisfies_constraint(
+            ir.ShapedType(ir.TypeKind.VECTOR, scalar_type, (ir.StaticDim(1),)),
+            TypeConstraint.BYTE_PATTERN_ELEMENT,
+        )
+
+    assert not type_satisfies_constraint(
+        ir.ShapedType(ir.TypeKind.VECTOR, ir.I32, (ir.StaticDim(1),)),
+        TypeConstraint.BYTE_PATTERN_SCALAR,
+    )
+    assert not type_satisfies_constraint(ir.I32, TypeConstraint.BYTE_PATTERN_ELEMENT)
 
 
 def test_type_constraints_match_exact_i32() -> None:
@@ -423,6 +442,108 @@ func.def @f(%condition: i1, %initial: index) -> (index) {
     )
 
 
+def test_python_verifier_checks_callable_exit_count() -> None:
+    parser = _test_parser()
+    module = parser.parse(
+        """
+test.func @f(%value: i32) -> (i32, i32) {
+  test.yield %value : i32
+}
+"""
+    )
+
+    diagnostics = verify_module(module, ops=ALL_TEST_OPS)
+
+    assert [diagnostic.error_id for diagnostic in diagnostics.diagnostics] == [
+        "ERR_STRUCTURE_008"
+    ]
+    assert diagnostics.diagnostics[0].source is not None
+    assert diagnostics.diagnostics[0].source.endswith("test.yield")
+
+
+def test_python_verifier_checks_callable_exit_type() -> None:
+    parser = _test_parser()
+    module = parser.parse(
+        """
+test.func @f(%value: i64) -> (i32) {
+  test.yield %value : i64
+}
+"""
+    )
+
+    diagnostics = verify_module(module, ops=ALL_TEST_OPS)
+
+    assert [diagnostic.error_id for diagnostic in diagnostics.diagnostics] == [
+        "ERR_TYPE_009"
+    ]
+    assert _diagnostic_text_contains(diagnostics, "callable exit type mismatch")
+
+
+def test_python_verifier_checks_only_direct_body_exits() -> None:
+    parser = _test_parser()
+    module = parser.parse(
+        """
+test.func @nested(%condition: i1, %value: index) -> (index) {
+  test.optional_region %condition {
+    test.yield
+  }
+  test.yield %value : index
+}
+
+test.split_func @projected(%value: i32) {
+  test.yield %value : i32
+} launch {
+  test.yield
+}
+"""
+    )
+
+    diagnostics = verify_module(module, ops=ALL_TEST_OPS)
+
+    assert not diagnostics.has_errors
+
+
+def test_python_verifier_remaps_dependent_callable_results() -> None:
+    from loom.builders import default_ops
+
+    parser = Parser()
+    parser.register_ops(default_ops())
+    parser.register_types(ALL_BUILTIN_TYPES)
+    module = parser.parse(
+        """
+func.def @f(%storage: buffer) -> (%result_layout: encoding<layout>, view<2x3xf32, %result_layout>) {
+  %layout = encoding.layout.dense : encoding<layout>
+  %base = index.constant 0 : offset
+  %view = buffer.view %storage[%base] : buffer -> view<2x3xf32, %layout>
+  func.return %layout, %view : encoding<layout>, view<2x3xf32, %layout>
+}
+"""
+    )
+
+    diagnostics = verify_module(module)
+
+    assert not diagnostics.has_errors
+
+
+def test_python_verifier_remaps_recursive_callable_results() -> None:
+    from loom.builders import default_ops
+
+    parser = Parser()
+    parser.register_ops(default_ops())
+    parser.register_types(ALL_BUILTIN_TYPES)
+    module = parser.parse(
+        """
+func.def @f(%width: index, %callback: (vector<[%width]xf32>) -> ()) -> (%result_width: index, (vector<[%result_width]xf32>) -> ()) {
+  func.return %width, %callback : index, (vector<[%width]xf32>) -> ()
+}
+"""
+    )
+
+    diagnostics = verify_module(module)
+
+    assert not diagnostics.has_errors
+
+
 def test_verifier_defers_template_ancestor_requirement() -> None:
     diagnostics = _verify_required_ancestor_in_template(
         Operation(name="test.requires_context")
@@ -492,6 +613,96 @@ def test_verifier_does_not_defer_through_nested_isolation() -> None:
     )
 
     assert _diagnostic_text_contains(diagnostics, "missing required ancestor")
+
+
+@pytest.mark.parametrize("ancestor_name", ["test.first_context", "test.second_context"])
+def test_verifier_accepts_any_required_ancestor(ancestor_name: str) -> None:
+    first_context = Op("test.first_context", regions=[RegionDef("body")])
+    second_context = Op("test.second_context", regions=[RegionDef("body")])
+    requires_context = Op(
+        "test.requires_any_context",
+        traits=[HasAnyAncestor("test.first_context", "test.second_context")],
+    )
+    module = _module_with_body_ops(
+        Operation(
+            name=ancestor_name,
+            regions=[
+                Region(
+                    blocks=[
+                        Block(
+                            ops=[
+                                Operation(name="test.requires_any_context"),
+                                Operation(name="test.yield"),
+                            ]
+                        )
+                    ]
+                )
+            ],
+        ),
+    )
+
+    diagnostics = verify_module(
+        module,
+        ops=(*ALL_TEST_OPS, first_context, second_context, requires_context),
+    )
+
+    assert not diagnostics.has_errors, str(diagnostics.diagnostics)
+
+
+def test_verifier_rejects_missing_any_required_ancestor() -> None:
+    first_context = Op("test.first_context")
+    second_context = Op("test.second_context")
+    requires_context = Op(
+        "test.requires_any_context",
+        traits=[HasAnyAncestor("test.first_context", "test.second_context")],
+    )
+    module = _module_with_body_ops(
+        Operation(name="test.requires_any_context"),
+        append_yield=False,
+    )
+
+    diagnostics = verify_module(
+        module,
+        ops=(*ALL_TEST_OPS, first_context, second_context, requires_context),
+    )
+
+    assert _diagnostic_text_contains(
+        diagnostics,
+        "expected one of ancestor ops 'test.first_context', 'test.second_context'",
+    )
+
+
+def test_verifier_defers_any_required_ancestor_for_inline_function() -> None:
+    requires_context = Op(
+        "test.requires_any_context",
+        traits=[HasAnyAncestor("test.first_context", "test.second_context")],
+    )
+    first_context = Op("test.first_context")
+    second_context = Op("test.second_context")
+    module = Module()
+    module.add_symbol(
+        _symbol(
+            "helper",
+            _func_def_with_ops(
+                "helper",
+                InlinePolicy.INLINE,
+                Operation(name="test.requires_any_context"),
+            ),
+        )
+    )
+
+    diagnostics = verify_module(
+        module,
+        ops=(
+            *ALL_TEST_OPS,
+            *ALL_FUNC_OPS,
+            first_context,
+            second_context,
+            requires_context,
+        ),
+    )
+
+    assert not diagnostics.has_errors
 
 
 def test_verifier_reports_missing_region_terminator() -> None:

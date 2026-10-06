@@ -37,6 +37,18 @@ func.def public @selected_offset(%input: vector<4xi32>, %left: i32, %right: i32)
 
 // ====
 
+func.def public @selected_converted_offset(%choice: i32, %narrow: i32, %fallback: offset) -> (offset) {
+  %threshold = scalar.constant 0 : i32
+  %condition = scalar.cmpi ne, %choice, %threshold : i32
+  %converted = index.cast %narrow : i32 to offset
+  %selected = scf.select %condition, %converted, %fallback : offset
+  cfg.br ^forward(%selected: offset)
+^forward(%carried: offset):
+  func.return %carried : offset
+}
+
+// ====
+
 func.def public @selected_extended_truncation(%input: vector<4xi32>, %left: i64, %right: i64) -> (i64) {
   %value = vector.extract %input[0] : vector<4xi32> -> i32
   %threshold = scalar.constant 0 : i32

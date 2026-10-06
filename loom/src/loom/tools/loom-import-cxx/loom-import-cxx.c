@@ -21,6 +21,9 @@
 #include "loom/tooling/cli/help.h"
 #include "loom/tooling/context/context.h"
 #include "loom/tooling/io/file.h"
+#include "loom/transforms/cleanup/configured.h"
+#include "loom/transforms/cleanup/pass_environment.h"
+#include "loom/transforms/cleanup/patterns.h"
 #include "loom/verify/verify.h"
 
 IREE_FLAG(string, output, "-", "Output path, or '-' for stdout.");
@@ -95,6 +98,7 @@ static iree_status_t loom_cxx_cli_write_module(
 static iree_status_t loom_cxx_cli_import(
     iree_string_view_t filename, loom_context_t* context,
     const loom_text_low_asm_environment_t* low_asm_environment,
+    const loom_cleanup_pattern_registry_t* cleanup_pattern_registry,
     iree_arena_block_pool_t* pool, iree_allocator_t allocator,
     bool* out_succeeded) {
   *out_succeeded = false;
@@ -161,8 +165,18 @@ static iree_status_t loom_cxx_cli_import(
                         filename, context, pool, &options, allocator, &module);
   }
   if (iree_status_is_ok(status) && module && FLAG_cleanup) {
+    const loom_cleanup_pass_capability_t cleanup_capability =
+        loom_cleanup_pass_capability_make(
+            cleanup_pattern_registry,
+            (loom_cleanup_canonicalizer_context_resolver_t){0});
+    const loom_pass_environment_capability_t* capabilities[] = {
+        &cleanup_capability.base,
+    };
+    const loom_pass_environment_t pass_environment =
+        loom_pass_environment_make(capabilities, IREE_ARRAYSIZE(capabilities));
     loom_pass_tool_run_options_t pass_options = {
         .registry = loom_pass_builtin_registry(),
+        .environment = pass_environment,
         .block_pool = pool,
     };
     loom_pass_run_result_t result = {0};
@@ -211,9 +225,16 @@ int main(int argc, char** argv) {
   iree_arena_block_pool_initialize(64 * 1024, allocator, &pool);
   loom_context_t context;
   loom_context_initialize(allocator, &context);
+  loom_cleanup_pattern_registry_storage_t cleanup_pattern_registry_storage = {
+      0};
+  iree_status_t status = loom_cleanup_pattern_registry_storage_initialize(
+      loom_cleanup_configured_pattern_provider_set(), allocator,
+      &cleanup_pattern_registry_storage);
   loom_target_environment_t target_environment = {0};
-  iree_status_t status = loom_target_environment_initialize(
-      loom_configured_target_provider_set(), &target_environment);
+  if (iree_status_is_ok(status)) {
+    status = loom_target_environment_initialize(
+        loom_configured_target_provider_set(), &target_environment);
+  }
   bool target_environment_initialized = iree_status_is_ok(status);
   loom_target_low_descriptor_registry_t low_registry = {0};
   loom_text_low_asm_environment_t low_asm_environment = {0};
@@ -236,13 +257,17 @@ int main(int argc, char** argv) {
   bool import_succeeded = false;
   if (iree_status_is_ok(status)) {
     status = loom_cxx_cli_import(iree_make_cstring_view(argv[1]), &context,
-                                 &low_asm_environment, &pool, allocator,
-                                 &import_succeeded);
+                                 &low_asm_environment,
+                                 loom_cleanup_pattern_registry_storage_registry(
+                                     &cleanup_pattern_registry_storage),
+                                 &pool, allocator, &import_succeeded);
   }
   loom_context_deinitialize(&context);
   if (target_environment_initialized) {
     loom_target_environment_deinitialize(&target_environment);
   }
+  loom_cleanup_pattern_registry_storage_deinitialize(
+      &cleanup_pattern_registry_storage);
   iree_arena_block_pool_deinitialize(&pool);
   if (!iree_status_is_ok(status)) {
     iree_status_fprint(stderr, status);

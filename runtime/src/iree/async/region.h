@@ -7,16 +7,17 @@
 // Registered memory region.
 //
 // An iree_async_region_t represents a contiguous memory range registered with
-// a proactor for zero-copy I/O. Registration produces backend-specific handles
-// (RDMA memory region keys, io_uring buffer group IDs, dma-buf descriptors)
-// that enable kernel-bypass or zero-copy data paths.
+// an I/O provider for zero-copy I/O. Registration produces backend-specific
+// handles (RDMA memory region keys, io_uring buffer group IDs, dma-buf
+// descriptors) that enable kernel-bypass or zero-copy data paths.
 //
 // Regions are ref-counted. When the last reference is released, the region's
 // destroy callback is invoked to deregister from the kernel, release the slab
 // reference, and free the region struct.
 //
 // Regions are created by iree_async_proactor_register_slab() (for slab-backed
-// memory) or iree_async_proactor_register_buffer() (for arbitrary host memory).
+// memory), iree_async_proactor_register_buffer() (for arbitrary host memory),
+// or a native registration provider with independently retained resources.
 // Callers interact with regions primarily through iree_async_span_t values.
 //
 // ## Slab relationship
@@ -27,7 +28,7 @@
 //
 // ## Backend teardown
 //
-// Each region has a destroy_fn callback set by the creating proactor backend.
+// Each region has a destroy_fn callback set by its registration provider.
 // This callback handles backend-specific deregistration (e.g.,
 // IORING_UNREGISTER_BUFFERS, ibv_dereg_mr) before releasing the slab reference
 // and freeing the region struct.
@@ -134,20 +135,22 @@ enum iree_async_region_type_e {
 };
 typedef uint8_t iree_async_region_type_t;
 
-// A registered memory region. Created by the proactor during slab or buffer
-// registration. Holds backend-specific handles for zero-copy I/O.
+// A registered memory region. Created by a proactor or explicit native resource
+// owner during registration. Holds backend-specific handles for zero-copy I/O.
 typedef struct iree_async_region_t {
+  // References to the registration and its retained backing.
   iree_atomic_ref_count_t ref_count;
 
-  // The proactor that owns this registration. Not retained.
-  // The proactor MUST outlive the region.
+  // Optional proactor owning this registration. Not retained; when non-NULL it
+  // must outlive the region. A provider with independent native ownership sets
+  // NULL and supplies destroy_fn to release that owner and the registration.
   iree_async_proactor_t* proactor;
 
   // Optional: slab backing this region. Retained reference.
   // NULL for non-slab regions (e.g., arbitrary host buffer registration).
   iree_async_slab_t* slab;
 
-  // Backend-specific destroy callback. Set by the creating proactor.
+  // Backend-specific destroy callback. Set by the registration provider.
   // Called when ref count reaches zero. Handles kernel deregistration,
   // slab release, and region struct free.
   // NULL falls back to legacy behavior (iree_allocator_free via proactor).
@@ -165,8 +168,10 @@ typedef struct iree_async_region_t {
   // Access flags set at registration time.
   iree_async_buffer_access_flags_t access_flags;
 
-  // Registered memory range.
+  // Optional CPU mapping of the registered range. Opaque device memory may have
+  // no CPU mapping; native transfers use provider handles, not this pointer.
   void* base_ptr;
+  // Registered range length in bytes.
   iree_host_size_t length;
 
   // Portable indexed buffer configuration (for buffer pools).
@@ -174,11 +179,14 @@ typedef struct iree_async_region_t {
   // 0 if this region is not subdivided into indexed buffers.
   // These are slab properties, independent of backend.
   iree_host_size_t buffer_size;
+  // Number of indexed buffers, or zero for an unpartitioned registration.
   uint32_t buffer_count;
 
   // Backend-specific handles produced by registration.
   union {
     struct {
+      // Base NIC virtual address. Independent of the optional CPU mapping.
+      uint64_t address;
       // Local access key.
       uint32_t lkey;
 
@@ -233,7 +241,8 @@ static inline void iree_async_region_release(iree_async_region_t* region) {
   }
 }
 
-// Returns the host pointer for a given offset within the region.
+// Returns the host pointer for a given offset within a CPU-mapped region.
+// The caller must establish that base_ptr is non-NULL before using this helper.
 static inline void* iree_async_region_ptr(const iree_async_region_t* region,
                                           iree_host_size_t offset) {
   return (uint8_t*)region->base_ptr + offset;

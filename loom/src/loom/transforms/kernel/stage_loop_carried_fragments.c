@@ -669,7 +669,7 @@ static iree_status_t loom_stage_loop_carried_fragments_reserve_result_scheme(
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       context->scratch_arena, kept_count, sizeof(*reserved_results),
       (void**)&reserved_results));
-  IREE_RETURN_IF_ERROR(loom_builder_reserve_results(
+  IREE_RETURN_IF_ERROR(loom_builder_reserve_values(
       &context->rewriter->builder, kept_count, reserved_results));
 
   loom_ir_remap_t remap = {0};

@@ -226,7 +226,11 @@ INTERFACES: tuple[InterfaceSpec, ...] = (
         name="RegionBranchInterface",
         c_struct="loom_region_branch_vtable_t",
         vtable_field="region_branch",
-        fields=(InterfaceFieldSpec("selector", "selector_operand_index", "operand"),),
+        fields=(
+            InterfaceFieldSpec("selector", "selector_operand_index", "operand"),
+            InterfaceFieldSpec("true_region", "true_region_index", "region"),
+            InterfaceFieldSpec("false_region", "false_region_index", "region"),
+        ),
     ),
     InterfaceSpec(
         python_class=MemoryAccessInterface,
@@ -486,28 +490,14 @@ def _validate_loop_like_interface(op: Op, iface: LoopLikeInterface, interface_na
     if not op.operands[iter_args_index].variadic:
         raise ValueError(f"{interface_name} on {op.name!r}: operand {iface.iter_args!r} must be variadic")
 
+    results_index = c_queries.resolve_result_index(op, iface.results, interface_name)
+    if len(op.results) != 1 or results_index != 0 or not op.results[results_index].variadic:
+        raise ValueError(f"{interface_name} on {op.name!r}: carried results {iface.results!r} must be the only variadic result field")
+
     body_index = c_queries.resolve_region_index(op, iface.body, interface_name)
     body = op.regions[body_index]
     if body.variadic or body.optional or not body.single_block or body.terminator is None:
         raise ValueError(f"{interface_name} on {op.name!r}: body {iface.body!r} must be a required single-block region with a terminator")
-    if body.arg_source != iface.iter_args:
-        raise ValueError(f"{interface_name} on {op.name!r}: body {iface.body!r} must source carried arguments from {iface.iter_args!r}")
-
-    result_constraints = [constraint for constraint in op.constraints if constraint.name == "IterArgsMatchResults" and constraint.args[:1] == (iface.iter_args,)]
-    if len(result_constraints) != 1 or len(result_constraints[0].args) != 2:
-        raise ValueError(f"{interface_name} on {op.name!r}: requires one IterArgsMatchResults constraint for {iface.iter_args!r}")
-    results_name = result_constraints[0].args[1]
-    results_index = c_queries.resolve_result_index(op, results_name, interface_name)
-    if len(op.results) != 1 or results_index != 0 or not op.results[results_index].variadic:
-        raise ValueError(f"{interface_name} on {op.name!r}: carried results {results_name!r} must be the only variadic result field")
-
-    required_constraints = (
-        ("YieldCountMatchesResults", (iface.body, results_name)),
-        ("YieldTypesMatchResults", (iface.body, results_name)),
-    )
-    for constraint_name, constraint_args in required_constraints:
-        if not any(constraint.name == constraint_name and constraint.args == constraint_args for constraint in op.constraints):
-            raise ValueError(f"{interface_name} on {op.name!r}: requires {constraint_name}{constraint_args!r}")
 
     bound_names = (iface.lower_bound, iface.upper_bound, iface.step)
     present_bound_count = sum(name is not None for name in bound_names)
@@ -518,7 +508,24 @@ def _validate_loop_like_interface(op: Op, iface: LoopLikeInterface, interface_na
     if has_counted_range == has_condition_region:
         raise ValueError(f"{interface_name} on {op.name!r}: requires exactly one of a counted range or condition region")
 
+    expected_region_count = 1 if has_counted_range else 2
+    if len(op.regions) != expected_region_count:
+        control = "counted" if has_counted_range else "condition-controlled"
+        raise ValueError(f"{interface_name} on {op.name!r}: {control} loops require exactly {expected_region_count} region(s), got {len(op.regions)}")
+
     if has_counted_range:
+        if body.arg_source != iface.iter_args:
+            raise ValueError(f"{interface_name} on {op.name!r}: counted body {iface.body!r} must source carried arguments from {iface.iter_args!r}")
+        result_constraints = [constraint for constraint in op.constraints if constraint.name == "IterArgsMatchResults" and constraint.args == (iface.iter_args, iface.results)]
+        if len(result_constraints) != 1:
+            raise ValueError(f"{interface_name} on {op.name!r}: counted loops require one IterArgsMatchResults{(iface.iter_args, iface.results)!r}")
+        required_constraints = (
+            ("YieldCountMatches", (iface.body, iface.results)),
+            ("YieldTypesMatch", (iface.body, iface.results)),
+        )
+        for constraint_name, constraint_args in required_constraints:
+            if not any(constraint.name == constraint_name and constraint.args == constraint_args for constraint in op.constraints):
+                raise ValueError(f"{interface_name} on {op.name!r}: requires {constraint_name}{constraint_args!r}")
         if iface.iv is None:
             raise ValueError(f"{interface_name} on {op.name!r}: counted loops require an induction variable")
         for bound_name in bound_names:
@@ -530,9 +537,13 @@ def _validate_loop_like_interface(op: Op, iface: LoopLikeInterface, interface_na
         if iv_index != 0 or len(body.implicit_args) != 1:
             raise ValueError(f"{interface_name} on {op.name!r}: induction variable must be the only implicit body argument")
     else:
+        if body.arg_source != iface.results:
+            raise ValueError(f"{interface_name} on {op.name!r}: condition body {iface.body!r} must source carried arguments from {iface.results!r}")
         if iface.iv is not None:
             raise ValueError(f"{interface_name} on {op.name!r}: condition loops cannot declare an induction variable")
         condition_index = c_queries.resolve_region_index(op, iface.condition_region, interface_name)
+        if condition_index == body_index:
+            raise ValueError(f"{interface_name} on {op.name!r}: condition and body must be distinct regions")
         condition = op.regions[condition_index]
         if condition.variadic or condition.optional or not condition.single_block or condition.terminator is None:
             raise ValueError(f"{interface_name} on {op.name!r}: condition region {iface.condition_region!r} must be a required single-block region with a terminator")
@@ -541,12 +552,14 @@ def _validate_loop_like_interface(op: Op, iface: LoopLikeInterface, interface_na
         condition_constraints = (
             (
                 "ConditionForwardedCountMatchesBlockArgs",
-                (iface.condition_region, iface.body, results_name),
+                (iface.condition_region, iface.body, iface.results),
             ),
             (
                 "ConditionForwardedTypesMatchBlockArgs",
-                (iface.condition_region, iface.body, results_name),
+                (iface.condition_region, iface.body, iface.results),
             ),
+            ("YieldCountMatches", (iface.body, iface.condition_region)),
+            ("YieldTypesMatch", (iface.body, iface.condition_region)),
         )
         for constraint_name, constraint_args in condition_constraints:
             if not any(constraint.name == constraint_name and constraint.args == constraint_args for constraint in op.constraints):
@@ -650,6 +663,14 @@ def _validate_cache_policy_interface(op: Op, iface: CachePolicyInterface, interf
             raise ValueError(f"{interface_name} on {op.name!r}: attr {name!r} must use the shared {c_type} enum")
 
 
+def _validate_region_branch_interface(op: Op, iface: RegionBranchInterface, interface_name: str) -> None:
+    """Validates the optional Boolean branch-region contract."""
+    if (iface.true_region is None) != (iface.false_region is None):
+        raise ValueError(f"{interface_name} on {op.name!r}: true_region and false_region must be declared together")
+    if iface.true_region is not None and iface.true_region == iface.false_region:
+        raise ValueError(f"{interface_name} on {op.name!r}: true_region and false_region must be distinct")
+
+
 def _interface_field_initializers(op: Op, spec: InterfaceSpec, iface: Any) -> list[str]:
     """Resolves and validates the fields of an implemented interface."""
     if isinstance(iface, CachePolicyInterface):
@@ -658,6 +679,8 @@ def _interface_field_initializers(op: Op, spec: InterfaceSpec, iface: Any) -> li
         _validate_call_like_interface(op, iface, spec.name)
     if isinstance(iface, LoopLikeInterface):
         _validate_loop_like_interface(op, iface, spec.name)
+    if isinstance(iface, RegionBranchInterface):
+        _validate_region_branch_interface(op, iface, spec.name)
     if isinstance(iface, MemoryAccessInterface):
         _validate_memory_access_interface(op, iface, spec.name)
     lines = ["    .available = true,"] if spec.inline else []

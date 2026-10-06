@@ -9,7 +9,6 @@
 #include "loom/target/arch/vm/descriptors/descriptors.h"
 #include "loom/target/arch/vm/lower.h"
 #include "loom/target/arch/vm/math_policy.h"
-#include "loom/target/arch/vm/module.h"
 #include "loom/target/arch/vm/ops/ops.h"
 #include "loom/target/arch/vm/ops/registry.h"
 #include "loom/target/arch/vm/records.h"
@@ -62,25 +61,10 @@ static void loom_vm_descriptor_registry_initialize(
       out_registry, kProviders, IREE_ARRAYSIZE(kProviders));
 }
 
-static const loom_target_emitter_t loom_vm_emitter = {
-    .name = IREE_SVL("vm"),
-    .public_artifact_format = IREE_SVL("vm"),
-    .default_identifier = IREE_SVL("module.vm"),
-    .target_artifact_format = LOOM_TARGET_ARTIFACT_FORMAT_VM_BINARY,
-    .emit = loom_vm_module_emit,
-};
-
-static const loom_target_emitter_t* const loom_vm_emitters[] = {
-    &loom_vm_emitter,
-};
-
 const loom_target_provider_t loom_vm_target_provider = {
     .profile_type = &kProfileType,
     .materialize_definition = loom_vm_materialize_definition,
     .select_profile = loom_vm_select_profile,
-    .emitter_list = {.values = loom_vm_emitters,
-                     .count = IREE_ARRAYSIZE(loom_vm_emitters)},
-    .canonical_module_emitter = &loom_vm_emitter,
     .select_low_call_policy = loom_target_select_low_call_policy_direct,
     .view_boundary_carrier = LOOM_TARGET_VIEW_BOUNDARY_CARRIER_BUFFER_OFFSET,
     .register_context = loom_vm_ops_register_dialect,

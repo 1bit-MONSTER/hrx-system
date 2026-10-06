@@ -10,7 +10,6 @@
 #include "loom/target/arch/amdgpu/lower/emit.h"
 #include "loom/target/arch/amdgpu/lower/memory.h"
 #include "loom/target/arch/amdgpu/lower/memory_coherence.h"
-#include "loom/target/arch/amdgpu/lower/types.h"
 #include "loom/target/arch/amdgpu/planning/wait_packets.h"
 #include "loom/target/arch/amdgpu/refs/target_refs.h"
 
@@ -70,22 +69,26 @@ bool loom_amdgpu_atomic_scope_supported(
     const loom_low_source_memory_access_plan_t* source,
     loom_type_t value_type) {
   if (source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
-    return source->atomic.scope == LOOM_ATOMIC_SCOPE_WORKGROUP;
+    return true;
   }
   if (!loom_amdgpu_atomic_memory_space_is_device_visible(
           source->memory_space)) {
     return false;
   }
-  if (source->atomic.scope == LOOM_ATOMIC_SCOPE_DEVICE) {
+  if (source->atomic.scope <= LOOM_ATOMIC_SCOPE_DEVICE) {
     return true;
   }
+  const int32_t bit_count =
+      loom_scalar_type_bitwidth(loom_type_element_type(value_type));
   if (source->atomic.scope != LOOM_ATOMIC_SCOPE_SYSTEM ||
-      (!loom_amdgpu_type_is_i32(value_type) &&
-       !loom_amdgpu_type_is_i64(value_type))) {
+      !loom_type_is_scalar(value_type) ||
+      (bit_count != 32 && bit_count != 64)) {
     return false;
   }
-  // System integer updates require both a coherence recipe and backing that
-  // admits the operation; mapping admission belongs to the runtime.
+  // System updates require a coherence recipe and backing that admits the
+  // operation; mapping admission belongs to the runtime. Native floating
+  // arithmetic also passes the numerical and memory-domain capability gate;
+  // bitwise exchange and compare-exchange preserve either carrier width.
   return loom_amdgpu_memory_coherence_rule(descriptor_set) != NULL;
 }
 
@@ -118,7 +121,8 @@ bool loom_amdgpu_atomic_orderings_supported(
                                                source->atomic.failure_ordering);
 }
 
-static bool loom_amdgpu_atomic_append_wait_counter_mask(
+// Keep wait selection shared across release and acquire packet sequences.
+IREE_ATTRIBUTE_NOINLINE static bool loom_amdgpu_atomic_append_wait_counter_mask(
     const loom_low_descriptor_set_t* descriptor_set, uint32_t counter_mask,
     loom_amdgpu_atomic_explicit_packet_selection_t* waits,
     iree_host_size_t wait_capacity, iree_host_size_t* inout_wait_count) {
@@ -155,7 +159,7 @@ loom_amdgpu_atomic_select_cache_packet(
   loom_amdgpu_memory_coherence_attr_t
       attrs[LOOM_AMDGPU_MEMORY_COHERENCE_ATTR_CAPACITY];
   packet.immediate_count = loom_amdgpu_memory_coherence_select_attrs(
-      rule->cache_attrs[scope == LOOM_CACHE_SCOPE_SYSTEM], scope, attrs);
+      rule->cache_attrs[scope], scope, attrs);
   for (iree_host_size_t i = 0; i < packet.immediate_count; ++i) {
     packet.immediates[i] = (loom_amdgpu_explicit_packet_immediate_template_t){
         .name = attrs[i].name,
@@ -227,6 +231,56 @@ static bool loom_amdgpu_atomic_select_global_acquire_cache_controls(
   return true;
 }
 
+static bool loom_amdgpu_atomic_select_workgroup_ordering(
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_amdgpu_memory_coherence_rule_t* rule,
+    const loom_low_source_memory_access_plan_t* source,
+    loom_amdgpu_atomic_operation_kind_t operation_kind,
+    loom_amdgpu_atomic_ordering_selection_t* ordering) {
+  if (loom_amdgpu_atomic_source_has_release_ordering(source)) {
+    for (uint8_t i = 0; i < rule->workgroup.release_wait_count; ++i) {
+      if (!loom_amdgpu_atomic_append_wait_counter_mask(
+              descriptor_set, rule->workgroup.release_wait_masks[i],
+              ordering->pre_atomic_packets,
+              IREE_ARRAYSIZE(ordering->pre_atomic_packets),
+              &ordering->pre_atomic_packet_count)) {
+        return false;
+      }
+    }
+  }
+  if (loom_amdgpu_atomic_source_has_acquire_ordering(source)) {
+    // Cross-address-space acquisition requires observation completion even
+    // when the following payload access does not consume the returned value.
+    const uint32_t counter_mask =
+        source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP
+            ? LOOM_AMDGPU_WAIT_COUNTER_MASK_LDS
+            : (operation_kind == LOOM_AMDGPU_ATOMIC_OPERATION_REDUCE
+                   ? LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_STORE
+                   : LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_LOAD);
+    if (!loom_amdgpu_atomic_append_wait_counter_mask(
+            descriptor_set, counter_mask, ordering->post_atomic_waits,
+            IREE_ARRAYSIZE(ordering->post_atomic_waits),
+            &ordering->post_atomic_wait_count)) {
+      return false;
+    }
+    if (source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC &&
+        !loom_amdgpu_atomic_append_wait_counter_mask(
+            descriptor_set, rule->local_wait_mask, ordering->post_atomic_waits,
+            IREE_ARRAYSIZE(ordering->post_atomic_waits),
+            &ordering->post_atomic_wait_count)) {
+      return false;
+    }
+    if (rule->workgroup.invalidate) {
+      ordering->post_atomic_visibility_packets[0] =
+          loom_amdgpu_atomic_select_cache_packet(
+              rule, rule->workgroup.invalidate,
+              (loom_cache_scope_t)rule->workgroup.cache_scope);
+      ordering->post_atomic_visibility_packet_count = 1;
+    }
+  }
+  return true;
+}
+
 bool loom_amdgpu_atomic_select_ordering(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_source_memory_access_plan_t* source,
@@ -235,8 +289,7 @@ bool loom_amdgpu_atomic_select_ordering(
   *ordering = (loom_amdgpu_atomic_ordering_selection_t){0};
   const loom_amdgpu_memory_coherence_rule_t* rule =
       loom_amdgpu_memory_coherence_rule(descriptor_set);
-  if (!loom_amdgpu_atomic_memory_space_is_device_visible(
-          source->memory_space) ||
+  if (source->atomic.scope <= LOOM_ATOMIC_SCOPE_SUBGROUP ||
       (!loom_amdgpu_atomic_source_has_release_ordering(source) &&
        !loom_amdgpu_atomic_source_has_acquire_ordering(source))) {
     return true;
@@ -244,11 +297,19 @@ bool loom_amdgpu_atomic_select_ordering(
   if (rule == NULL) {
     return false;
   }
+  // LDS limits the synchronization participants to its owning workgroup.
+  // Global payload accesses still participate in the workgroup recipe.
+  if (source->atomic.scope == LOOM_ATOMIC_SCOPE_WORKGROUP ||
+      source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
+    return loom_amdgpu_atomic_select_workgroup_ordering(
+        descriptor_set, rule, source, operation_kind, ordering);
+  }
 
   if (loom_amdgpu_atomic_source_has_release_ordering(source)) {
     if (!loom_amdgpu_atomic_select_global_release_packets(
             descriptor_set, rule,
-            loom_amdgpu_memory_coherence_scope(source->atomic.scope),
+            loom_amdgpu_memory_coherence_scope(descriptor_set,
+                                               source->atomic.scope),
             ordering)) {
       return false;
     }
@@ -268,7 +329,8 @@ bool loom_amdgpu_atomic_select_ordering(
     }
     if (!loom_amdgpu_atomic_select_global_acquire_cache_controls(
             descriptor_set, rule,
-            loom_amdgpu_memory_coherence_scope(source->atomic.scope),
+            loom_amdgpu_memory_coherence_scope(descriptor_set,
+                                               source->atomic.scope),
             ordering)) {
       return false;
     }
@@ -281,15 +343,17 @@ loom_amdgpu_memory_coherence_attr_t loom_amdgpu_atomic_select_packet_attr(
     const loom_low_source_memory_access_plan_t* source) {
   const loom_amdgpu_memory_coherence_rule_t* rule =
       loom_amdgpu_memory_coherence_rule(descriptor_set);
-  if (!rule || !loom_amdgpu_atomic_memory_space_is_device_visible(
-                   source->memory_space)) {
+  if (!rule || source->atomic.scope <= LOOM_ATOMIC_SCOPE_SUBGROUP ||
+      !loom_amdgpu_atomic_memory_space_is_device_visible(
+          source->memory_space)) {
     return (loom_amdgpu_memory_coherence_attr_t){0};
   }
   loom_amdgpu_memory_coherence_attr_t
       attrs[LOOM_AMDGPU_MEMORY_COHERENCE_ATTR_CAPACITY];
+  const loom_cache_scope_t scope =
+      loom_amdgpu_memory_coherence_scope(descriptor_set, source->atomic.scope);
   const uint8_t count = loom_amdgpu_memory_coherence_select_attrs(
-      rule->atomic_attrs[source->atomic.scope == LOOM_ATOMIC_SCOPE_SYSTEM],
-      loom_amdgpu_memory_coherence_scope(source->atomic.scope), attrs);
+      rule->atomic_attrs[scope], scope, attrs);
   // Atomic plans retain one scope field; return control stays in descriptors.
   IREE_ASSERT_LE(count, 1);
   return count ? attrs[0] : (loom_amdgpu_memory_coherence_attr_t){0};

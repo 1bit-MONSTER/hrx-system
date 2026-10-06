@@ -167,9 +167,17 @@ bool loom_amdgpu_source_memory_offset_fits_u32(
     const loom_low_source_memory_access_plan_t* source,
     int64_t static_byte_offset);
 
-// Selects a complete AMDGPU memory packet sequence from source IR and facts
-// into caller-owned bounded workspace. Operand paths use the same retained
-// source placement as value mapping.
+// Returns canonical term bits whose indices and strides have scalar register
+// placement. This is a capability query, independent of packet cost policy.
+uint32_t loom_amdgpu_source_memory_scalar_term_mask(
+    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
+    const loom_view_region_table_t* view_regions,
+    loom_amdgpu_source_value_analysis_t* analysis,
+    const loom_low_source_memory_access_plan_t* source);
+
+// Selects a complete AMDGPU memory packet sequence from a canonical source
+// access and facts into caller-owned bounded workspace. The mutable source
+// copy receives target visibility; operand paths use retained source placement.
 bool loom_amdgpu_memory_access_plan_select(
     const loom_module_t* module, const loom_value_fact_table_t* fact_table,
     const loom_low_descriptor_set_t* descriptor_set,
@@ -179,18 +187,25 @@ bool loom_amdgpu_memory_access_plan_select(
     loom_amdgpu_instruction_constraint_bits_t instruction_constraints,
     const loom_amdgpu_source_alloca_layout_t* alloca_layout,
     uint8_t read_visibility_scope, const loom_op_t* source_op,
-    loom_low_source_memory_access_plan_t* out_source,
+    loom_low_source_memory_access_plan_t* source,
     loom_amdgpu_memory_access_selection_t* out_selection,
-    loom_low_source_memory_access_diagnostic_t* out_source_diagnostic,
     loom_amdgpu_memory_access_diagnostic_t* out_diagnostic);
 
-// Selects a flat global address plan for instrumentation that needs the actual
-// application pointer rather than a memory packet for the source access.
-bool loom_amdgpu_memory_access_select_flat_global_address(
+// Selects a full-width flat address with every dynamic term routed through
+// VADDR. The byte offset initially belongs entirely to the pointer; packet
+// selection may split off a descriptor immediate afterward.
+bool loom_amdgpu_memory_access_select_flat_address(
     const loom_module_t* module,
     const loom_low_source_memory_access_plan_t* source,
     loom_amdgpu_memory_access_t* out_access,
     loom_amdgpu_memory_access_diagnostic_t* out_diagnostic);
+
+// Splits a flat packet's static byte offset between the selected descriptor's
+// immediate and its full-width pointer. Shared by observations and updates.
+bool loom_amdgpu_memory_access_select_flat_offset(
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint32_t descriptor_ordinal, loom_amdgpu_memory_access_t* access,
+    loom_amdgpu_memory_access_diagnostic_t* diagnostic);
 
 // Selects an explicit VGPR byte-offset expression for source access
 // instrumentation.
@@ -233,6 +248,15 @@ bool loom_amdgpu_memory_access_select_vaddr_dynamic_terms(
 // Routes all dynamic source terms through the VGPR byte-address operand.
 void loom_amdgpu_memory_access_route_dynamic_terms_through_vaddr(
     loom_amdgpu_memory_access_t* access);
+
+// Selects a bounds-checked buffer packet and partitions its static offset.
+// Dynamic contributions retain their canonical proof even when a physical
+// realization supplies the descriptor base and vector offset.
+bool loom_amdgpu_memory_access_try_select_buffer(
+    const loom_low_descriptor_set_t* descriptor_set,
+    loom_low_source_memory_operation_kind_t kind,
+    loom_amdgpu_memory_access_t* access,
+    loom_amdgpu_memory_access_diagnostic_t* diagnostic);
 
 // Emits the target buffer descriptor consumed by MUBUF-style packets from a low
 // HAL binding pointer. When the low resource has no explicit extent,
@@ -325,7 +349,6 @@ loom_amdgpu_memory_cache_policy_resolve(
 // the memory access.
 iree_string_view_t loom_amdgpu_memory_cache_policy_rejection_key(
     const loom_low_descriptor_set_t* descriptor_set,
-    const loom_amdgpu_memory_access_t* access,
     const loom_vector_memory_cache_policy_t* policy);
 
 // Returns the stable diagnostic constraint key for target-specific
@@ -416,15 +439,22 @@ void loom_amdgpu_mark_memory_access_plan_storage_demands(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_memory_access_plan_t* plan);
 
-// Returns whether the selected descriptor set contains a native packet
-// candidate for the atomic semantic tuple. This queries packet availability
-// only; source address, ordering, and operand representability remain the
-// responsibility of atomic plan selection.
-bool loom_amdgpu_atomic_has_descriptor_candidate(
+// Returns whether a native packet can satisfy the atomic numerical and memory
+// domain contract. Global space alone promises neither device residency nor
+// coarse-grained memory. Address, ordering and operand representability remain
+// the responsibility of atomic plan selection.
+bool loom_amdgpu_atomic_has_native_candidate(
     const loom_low_descriptor_set_t* descriptor_set,
     loom_value_fact_memory_space_t memory_space,
     loom_amdgpu_atomic_operation_kind_t operation_kind, uint8_t atomic_kind,
+    uint8_t scope, loom_memory_access_flags_t access_flags,
     loom_type_t value_type);
+
+// Returns whether the analyzed access is an aligned adjacent half pair.
+// Legalization and final selection share this shape contract; descriptor and
+// numerical availability are checked separately by native candidate lookup.
+bool loom_amdgpu_atomic_packed_half_source_shape(
+    const loom_low_source_memory_access_plan_t* source, loom_type_t value_type);
 
 // Selects an AMDGPU atomic packet plan.
 iree_status_t loom_amdgpu_select_atomic_plan(

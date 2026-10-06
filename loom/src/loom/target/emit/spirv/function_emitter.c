@@ -6,8 +6,6 @@
 
 #include "loom/target/emit/spirv/function_emitter.h"
 
-#include <inttypes.h>
-
 #include "loom/codegen/low/function.h"
 #include "loom/ir/context.h"
 #include "loom/ir/local_value_domain.h"
@@ -64,7 +62,7 @@ static iree_string_view_t loom_spirv_emit_function_name(
 static iree_string_view_t loom_spirv_emit_export_name(
     const loom_spirv_emit_state_t* state) {
   const iree_string_view_t export_symbol =
-      loom_low_resolved_target_bundle(state->target)
+      loom_spirv_function_plan_target_bundle(state->function_plan)
           ->export_plan->export_symbol;
   if (!iree_string_view_is_empty(export_symbol)) {
     return export_symbol;
@@ -148,7 +146,7 @@ static loom_spirv_module_abi_context_t loom_spirv_emit_abi_context(
   return (loom_spirv_module_abi_context_t){
       .module = state->module,
       .function_op = state->function_op,
-      .target = state->target,
+      .function_plan = state->function_plan,
       .scratch_arena = state->scratch_arena,
       .builder = state->builder,
       .type_context = state->type_context,
@@ -157,51 +155,69 @@ static loom_spirv_module_abi_context_t loom_spirv_emit_abi_context(
   };
 }
 
-static bool loom_spirv_emit_builtin_variable_info(
-    uint32_t builtin, uint8_t* out_slot, iree_string_view_t* out_name) {
+typedef struct loom_spirv_builtin_variable_info_t {
+  // Stable module-cache and entry-interface slot.
+  uint8_t slot;
+  // Debug name assigned to the SPIR-V Input variable.
+  iree_string_view_t name;
+  // Number of u32 components in the builtin value.
+  uint8_t component_count;
+} loom_spirv_builtin_variable_info_t;
+
+static loom_spirv_builtin_variable_info_t loom_spirv_emit_builtin_variable_info(
+    uint32_t builtin) {
   switch (builtin) {
     case LOOM_SPIRV_BUILT_IN_WORKGROUP_ID:
-      *out_slot = 0;
-      *out_name = IREE_SV("workgroup_id");
-      return true;
+      return (loom_spirv_builtin_variable_info_t){
+          .slot = 0, .name = IREE_SV("workgroup_id"), .component_count = 3};
     case LOOM_SPIRV_BUILT_IN_LOCAL_INVOCATION_ID:
-      *out_slot = 1;
-      *out_name = IREE_SV("local_invocation_id");
-      return true;
+      return (loom_spirv_builtin_variable_info_t){
+          .slot = 1,
+          .name = IREE_SV("local_invocation_id"),
+          .component_count = 3};
     case LOOM_SPIRV_BUILT_IN_GLOBAL_INVOCATION_ID:
-      *out_slot = 2;
-      *out_name = IREE_SV("global_invocation_id");
-      return true;
+      return (loom_spirv_builtin_variable_info_t){
+          .slot = 2,
+          .name = IREE_SV("global_invocation_id"),
+          .component_count = 3};
+    case LOOM_SPIRV_BUILT_IN_SUBGROUP_LOCAL_INVOCATION_ID:
+      return (loom_spirv_builtin_variable_info_t){
+          .slot = 3,
+          .name = IREE_SV("subgroup_local_invocation_id"),
+          .component_count = 1};
   }
-  return false;
+  IREE_ASSERT_UNREACHABLE(
+      "descriptor packet references unknown SPIR-V builtin");
+  return (loom_spirv_builtin_variable_info_t){0};
 }
 
 static iree_status_t loom_spirv_emit_builtin_variable(
-    loom_spirv_emit_state_t* state, uint32_t builtin,
-    uint32_t* out_variable_id) {
-  uint8_t slot = 0;
-  iree_string_view_t name = iree_string_view_empty();
-  if (!loom_spirv_emit_builtin_variable_info(builtin, &slot, &name)) {
-    return iree_make_status(IREE_STATUS_INTERNAL,
-                            "unknown SPIR-V builtin packet row %" PRIu32,
-                            builtin);
-  }
-  uint32_t variable_id = state->context->builtin_variable_ids[slot];
-  if (variable_id != 0) {
-    state->builtin_interface_variable_ids[slot] = variable_id;
-    *out_variable_id = variable_id;
-    return iree_ok_status();
-  }
+    loom_spirv_emit_state_t* state, uint32_t builtin, uint32_t* out_variable_id,
+    uint32_t* out_value_type_id, uint8_t* out_component_count) {
+  const loom_spirv_builtin_variable_info_t info =
+      loom_spirv_emit_builtin_variable_info(builtin);
 
   uint32_t u32_type_id = 0;
   IREE_RETURN_IF_ERROR(
       loom_spirv_emit_type_u32(state->type_context, &u32_type_id));
-  uint32_t vector_type_id = 0;
-  IREE_RETURN_IF_ERROR(loom_spirv_emit_type_vector(
-      state->type_context, u32_type_id, 3, &vector_type_id));
+  uint32_t value_type_id = u32_type_id;
+  if (info.component_count > 1) {
+    IREE_RETURN_IF_ERROR(
+        loom_spirv_emit_type_vector(state->type_context, u32_type_id,
+                                    info.component_count, &value_type_id));
+  }
+  uint32_t variable_id = state->context->builtin_variable_ids[info.slot];
+  if (variable_id != 0) {
+    state->builtin_interface_variable_ids[info.slot] = variable_id;
+    *out_variable_id = variable_id;
+    *out_value_type_id = value_type_id;
+    *out_component_count = info.component_count;
+    return iree_ok_status();
+  }
+
   uint32_t pointer_type_id = 0;
   IREE_RETURN_IF_ERROR(loom_spirv_emit_type_pointer(
-      state->type_context, LOOM_SPIRV_STORAGE_CLASS_INPUT, vector_type_id,
+      state->type_context, LOOM_SPIRV_STORAGE_CLASS_INPUT, value_type_id,
       /*pointer_array_stride=*/0, &pointer_type_id));
 
   variable_id = loom_spirv_emit_allocate_id(state);
@@ -223,10 +239,12 @@ static iree_status_t loom_spirv_emit_builtin_variable(
       loom_spirv_emit_section(state, LOOM_SPIRV_MODULE_SECTION_DECLARATION),
       LOOM_SPIRV_OP_VARIABLE, variable_operands,
       IREE_ARRAYSIZE(variable_operands)));
-  IREE_RETURN_IF_ERROR(loom_spirv_emit_op_name(state, variable_id, name));
-  state->context->builtin_variable_ids[slot] = variable_id;
-  state->builtin_interface_variable_ids[slot] = variable_id;
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_op_name(state, variable_id, info.name));
+  state->context->builtin_variable_ids[info.slot] = variable_id;
+  state->builtin_interface_variable_ids[info.slot] = variable_id;
   *out_variable_id = variable_id;
+  *out_value_type_id = value_type_id;
+  *out_component_count = info.component_count;
   return iree_ok_status();
 }
 
@@ -461,45 +479,42 @@ static iree_status_t loom_spirv_emit_load_builtin_packet(
     loom_spirv_emit_state_t* state, const loom_low_descriptor_packet_t* packet,
     const loom_spirv_packet_row_t* row) {
   uint32_t variable_id = 0;
+  uint32_t builtin_value_type_id = 0;
+  uint8_t component_count = 0;
   IREE_RETURN_IF_ERROR(loom_spirv_emit_builtin_variable(
-      state, row->payload.builtin_load.builtin, &variable_id));
+      state, row->payload.builtin_load.builtin, &variable_id,
+      &builtin_value_type_id, &component_count));
   uint32_t u32_type_id = 0;
   IREE_RETURN_IF_ERROR(
       loom_spirv_emit_type_u32(state->type_context, &u32_type_id));
-  uint32_t vector_type_id = 0;
-  IREE_RETURN_IF_ERROR(loom_spirv_emit_type_vector(
-      state->type_context, u32_type_id, 3, &vector_type_id));
 
-  uint32_t vector_id = 0;
+  uint32_t builtin_value_id = 0;
   IREE_RETURN_IF_ERROR(loom_spirv_module_emit_unary_result(
-      state->builder, LOOM_SPIRV_OP_LOAD, vector_type_id, variable_id,
-      &vector_id));
+      state->builder, LOOM_SPIRV_OP_LOAD, builtin_value_type_id, variable_id,
+      &builtin_value_id));
 
   uint32_t result_type_id = 0;
   IREE_RETURN_IF_ERROR(loom_spirv_emit_type_id_for_value_type(
       state->type_context, loom_spirv_packet_row_result_type(row),
       &result_type_id));
   uint32_t result_id = 0;
-  uint32_t component_id = 0;
-  if (result_type_id == u32_type_id) {
-    IREE_RETURN_IF_ERROR(loom_spirv_emit_prepare_packet_result(
-        state, packet, result_type_id, loom_spirv_packet_row_result_type(row),
-        &result_id));
-    component_id = result_id;
-  } else {
+  uint32_t component_id = builtin_value_id;
+  if (component_count > 1) {
     component_id = loom_spirv_emit_allocate_id(state);
+    const uint32_t extract_operands[] = {
+        u32_type_id,
+        component_id,
+        builtin_value_id,
+        row->payload.builtin_load.component_index,
+    };
+    IREE_RETURN_IF_ERROR(loom_spirv_binary_write_instruction(
+        loom_spirv_emit_section(state, LOOM_SPIRV_MODULE_SECTION_FUNCTION),
+        LOOM_SPIRV_OP_COMPOSITE_EXTRACT, extract_operands,
+        IREE_ARRAYSIZE(extract_operands)));
   }
-  const uint32_t extract_operands[] = {
-      u32_type_id,
-      component_id,
-      vector_id,
-      row->payload.builtin_load.component_index,
-  };
-  IREE_RETURN_IF_ERROR(loom_spirv_binary_write_instruction(
-      loom_spirv_emit_section(state, LOOM_SPIRV_MODULE_SECTION_FUNCTION),
-      LOOM_SPIRV_OP_COMPOSITE_EXTRACT, extract_operands,
-      IREE_ARRAYSIZE(extract_operands)));
-
+  if (result_type_id == u32_type_id) {
+    result_id = component_id;
+  }
   if (result_type_id != u32_type_id) {
     IREE_RETURN_IF_ERROR(loom_spirv_emit_prepare_packet_result(
         state, packet, result_type_id, loom_spirv_packet_row_result_type(row),
@@ -868,6 +883,75 @@ static iree_status_t loom_spirv_emit_control_barrier_packet(
       row->opcode, instruction_operands, IREE_ARRAYSIZE(instruction_operands));
 }
 
+static iree_status_t loom_spirv_emit_group_non_uniform_ballot_packet(
+    loom_spirv_emit_state_t* state, const loom_low_descriptor_packet_t* packet,
+    const loom_spirv_packet_row_t* row) {
+  loom_spirv_module_value_ref_t operands[1] = {0};
+  IREE_RETURN_IF_ERROR(
+      loom_spirv_emit_load_packet_operands(state, packet, row, operands));
+  uint32_t result_type_id = 0;
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_type_id_for_value_type(
+      state->type_context, loom_spirv_packet_row_result_type(row),
+      &result_type_id));
+  uint32_t result_id = 0;
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_prepare_packet_result(
+      state, packet, result_type_id, loom_spirv_packet_row_result_type(row),
+      &result_id));
+  uint32_t execution_scope_id = 0;
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_u32_constant(
+      state->type_context, row->payload.group_non_uniform.execution_scope,
+      &execution_scope_id));
+  const uint32_t instruction_operands[] = {
+      result_type_id,
+      result_id,
+      execution_scope_id,
+      operands[0].id,
+  };
+  IREE_RETURN_IF_ERROR(loom_spirv_binary_write_instruction(
+      loom_spirv_emit_section(state, LOOM_SPIRV_MODULE_SECTION_FUNCTION),
+      row->opcode, instruction_operands, IREE_ARRAYSIZE(instruction_operands)));
+  return loom_spirv_emit_define_packet_result(
+      state, packet, result_id, result_type_id,
+      loom_spirv_packet_row_result_type(row));
+}
+
+static iree_status_t loom_spirv_emit_extended_instruction_packet(
+    loom_spirv_emit_state_t* state, const loom_low_descriptor_packet_t* packet,
+    const loom_spirv_packet_row_t* row) {
+  loom_spirv_module_value_ref_t operands[LOOM_SPIRV_PACKET_MAX_OPERAND_COUNT] =
+      {0};
+  IREE_RETURN_IF_ERROR(
+      loom_spirv_emit_load_packet_operands(state, packet, row, operands));
+  uint32_t result_type_id = 0;
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_type_id_for_value_type(
+      state->type_context, loom_spirv_packet_row_result_type(row),
+      &result_type_id));
+  uint32_t result_id = 0;
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_prepare_packet_result(
+      state, packet, result_type_id, loom_spirv_packet_row_result_type(row),
+      &result_id));
+  uint32_t instruction_set_id = 0;
+  IREE_RETURN_IF_ERROR(
+      loom_spirv_module_builder_import_extended_instruction_set(
+          state->builder, row->payload.extended_instruction.instruction_set,
+          &instruction_set_id));
+  uint32_t instruction_operands[4 + LOOM_SPIRV_PACKET_MAX_OPERAND_COUNT] = {
+      result_type_id,
+      result_id,
+      instruction_set_id,
+      row->payload.extended_instruction.instruction,
+  };
+  for (uint8_t i = 0; i < row->operand_count; ++i) {
+    instruction_operands[4 + i] = operands[i].id;
+  }
+  IREE_RETURN_IF_ERROR(loom_spirv_binary_write_instruction(
+      loom_spirv_emit_section(state, LOOM_SPIRV_MODULE_SECTION_FUNCTION),
+      row->opcode, instruction_operands, 4 + row->operand_count));
+  return loom_spirv_emit_define_packet_result(
+      state, packet, result_id, result_type_id,
+      loom_spirv_packet_row_result_type(row));
+}
+
 static iree_status_t loom_spirv_emit_transfer(loom_spirv_emit_state_t* state,
                                               const loom_op_t* op) {
   loom_spirv_module_value_ref_t source = {0};
@@ -883,9 +967,10 @@ static iree_status_t loom_spirv_emit_descriptor_packet(
   for (uint16_t i = 0; i < packet->descriptor->feature_mask_word_count; ++i) {
     const uint32_t feature_mask_row =
         packet->descriptor->feature_mask_word_start + i;
-    const uint64_t feature_bits =
-        state->target->descriptor_set->feature_mask_words[feature_mask_row];
+    const uint64_t feature_bits = state->function_plan->descriptor_set
+                                      ->feature_mask_words[feature_mask_row];
     IREE_ASSERT(i == 0 || feature_bits == 0);
+    state->required_feature_bits |= (loom_spirv_feature_bits_t)feature_bits;
     loom_spirv_module_builder_require_feature_bits(
         state->builder, (loom_spirv_feature_bits_t)feature_bits);
   }
@@ -936,6 +1021,9 @@ static iree_status_t loom_spirv_emit_descriptor_packet(
                                                                row);
     case LOOM_SPIRV_PACKET_FORM_CONTROL_BARRIER:
       return loom_spirv_emit_control_barrier_packet(state, row);
+    case LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BALLOT:
+      return loom_spirv_emit_group_non_uniform_ballot_packet(state, packet,
+                                                             row);
     case LOOM_SPIRV_PACKET_FORM_ATOMIC:
       return loom_spirv_emit_atomic_packet(state, packet, row);
     case LOOM_SPIRV_PACKET_FORM_ATOMIC_COMPARE_EXCHANGE:
@@ -947,6 +1035,8 @@ static iree_status_t loom_spirv_emit_descriptor_packet(
     case LOOM_SPIRV_PACKET_FORM_ATOMIC_FLOAT_COMPARE_EXCHANGE:
       return loom_spirv_emit_atomic_float_compare_exchange_packet(state, packet,
                                                                   row);
+    case LOOM_SPIRV_PACKET_FORM_EXTENDED_INSTRUCTION:
+      return loom_spirv_emit_extended_instruction_packet(state, packet, row);
     case LOOM_SPIRV_PACKET_FORM_UNSUPPORTED:
       break;
   }
@@ -995,8 +1085,9 @@ iree_status_t loom_spirv_emit_low_op(loom_spirv_emit_state_t* state,
                                                       &state->abi_plan, op);
   }
   if (loom_low_storage_reserve_isa(op)) {
-    return loom_spirv_module_workgroup_storage_emit_reserve(
+    loom_spirv_module_workgroup_storage_emit_reserve(
         &state->value_domain, &state->workgroup_storage, op);
+    return iree_ok_status();
   }
   if (loom_low_storage_address_isa(op)) {
     loom_spirv_module_value_ref_t value_ref = {0};
@@ -1011,8 +1102,8 @@ iree_status_t loom_spirv_emit_low_op(loom_spirv_emit_state_t* state,
   }
 
   loom_low_descriptor_packet_t packet = {0};
-  loom_low_descriptor_packet_initialize(state->target->descriptor_set, op,
-                                        &packet);
+  loom_low_descriptor_packet_initialize(state->function_plan->descriptor_set,
+                                        op, &packet);
   if (packet.kind == LOOM_LOW_DESCRIPTOR_PACKET_NONE) {
     IREE_CHECK_UNREACHABLE("verified SPIR-V structural op");
     return iree_ok_status();
@@ -1069,10 +1160,24 @@ static iree_status_t loom_spirv_emit_entry_point(
       workgroup_size_x,   workgroup_size_y,
       workgroup_size_z,
   };
-  return loom_spirv_binary_write_instruction(
+  IREE_RETURN_IF_ERROR(loom_spirv_binary_write_instruction(
       loom_spirv_emit_section(state, LOOM_SPIRV_MODULE_SECTION_EXECUTION_MODE),
       LOOM_SPIRV_OP_EXECUTION_MODE, execution_mode_operands,
-      IREE_ARRAYSIZE(execution_mode_operands));
+      IREE_ARRAYSIZE(execution_mode_operands)));
+  if (iree_any_bit_set(state->required_feature_bits,
+                       LOOM_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE)) {
+    const uint32_t denorm_mode_operands[] = {
+        state->function_id,
+        LOOM_SPIRV_EXECUTION_MODE_DENORM_PRESERVE,
+        32,
+    };
+    IREE_RETURN_IF_ERROR(loom_spirv_binary_write_instruction(
+        loom_spirv_emit_section(state,
+                                LOOM_SPIRV_MODULE_SECTION_EXECUTION_MODE),
+        LOOM_SPIRV_OP_EXECUTION_MODE, denorm_mode_operands,
+        IREE_ARRAYSIZE(denorm_mode_operands)));
+  }
+  return iree_ok_status();
 }
 
 static iree_status_t loom_spirv_emit_function_signature(
@@ -1090,17 +1195,6 @@ static iree_status_t loom_spirv_emit_function_signature(
   return iree_ok_status();
 }
 
-static iree_status_t loom_spirv_emit_cfg_op_error(
-    loom_spirv_emit_state_t* state, const loom_op_t* op) {
-  const loom_op_vtable_t* vtable = loom_op_vtable(state->module, op);
-  const iree_string_view_t op_name =
-      vtable != NULL ? loom_op_vtable_name(vtable) : IREE_SV("<unknown>");
-  return iree_make_status(
-      IREE_STATUS_FAILED_PRECONDITION,
-      "verified SPIR-V low function still contains CFG op '%.*s'",
-      (int)op_name.size, op_name.data);
-}
-
 static iree_status_t loom_spirv_emit_function_entry_block(
     loom_spirv_emit_state_t* state, const loom_block_t* block) {
   IREE_RETURN_IF_ERROR(
@@ -1111,8 +1205,6 @@ static iree_status_t loom_spirv_emit_function_entry_block(
   for (const loom_op_t* op = block->first_op; op != NULL; op = op->next_op) {
     if (loom_low_return_isa(op)) {
       IREE_RETURN_IF_ERROR(loom_spirv_emit_return(state, op));
-    } else if (loom_low_br_isa(op) || loom_low_cond_br_isa(op)) {
-      return loom_spirv_emit_cfg_op_error(state, op);
     } else {
       IREE_RETURN_IF_ERROR(loom_spirv_emit_low_op(state, op));
     }
@@ -1170,31 +1262,23 @@ static void loom_spirv_emit_function_state_deinitialize(
 }
 
 static iree_status_t loom_spirv_emit_function_state_initialize(
-    loom_spirv_function_emission_context_t* context, loom_op_t* low_function_op,
-    const loom_low_resolved_target_t* target,
+    loom_spirv_function_emission_context_t* context,
+    const loom_spirv_function_plan_t* function_plan,
     loom_spirv_emit_state_t* out_state) {
+  loom_op_t* low_function_op = function_plan->function_op;
   *out_state = (loom_spirv_emit_state_t){
       .context = context,
       .module = context->module,
       .function_op = low_function_op,
-      .target = target,
+      .function_plan = function_plan,
       .scratch_arena = context->scratch_arena,
       .builder = context->builder,
       .type_context = context->type_context,
   };
 
   const loom_region_t* body = loom_low_function_const_body(low_function_op);
-  iree_status_t status = iree_ok_status();
-  if (body == NULL || body->block_count == 0) {
-    status =
-        iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                         "verified SPIR-V low function has no function body");
-  }
-  if (iree_status_is_ok(status)) {
-    status = loom_local_value_domain_acquire_for_region_tree(
-        context->module, body, context->scratch_arena,
-        &out_state->value_domain);
-  }
+  iree_status_t status = loom_local_value_domain_acquire_for_region_tree(
+      context->module, body, context->scratch_arena, &out_state->value_domain);
   if (iree_status_is_ok(status)) {
     status = loom_spirv_module_workgroup_storage_initialize(
         &out_state->value_domain, &out_state->workgroup_storage,
@@ -1212,17 +1296,11 @@ static iree_status_t loom_spirv_emit_function_state_initialize(
 }
 
 iree_status_t loom_spirv_emit_low_function(
-    loom_spirv_function_emission_context_t* context, loom_op_t* low_function_op,
-    const loom_low_resolved_target_t* target) {
-  if (!loom_low_function_def_isa(low_function_op)) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "SPIR-V emission requires a low function "
-                            "definition");
-  }
-
+    loom_spirv_function_emission_context_t* context,
+    const loom_spirv_function_plan_t* function_plan) {
   loom_spirv_emit_state_t function_state = {0};
   iree_status_t status = loom_spirv_emit_function_state_initialize(
-      context, low_function_op, target, &function_state);
+      context, function_plan, &function_state);
   if (iree_status_is_ok(status)) {
     status = loom_spirv_emit_function_contents(&function_state);
   }

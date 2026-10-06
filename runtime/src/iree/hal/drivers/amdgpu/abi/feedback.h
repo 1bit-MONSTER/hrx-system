@@ -61,6 +61,8 @@ enum iree_hal_amdgpu_feedback_packet_kind_bits_t {
   IREE_HAL_AMDGPU_FEEDBACK_PACKET_KIND_HOST_CALL = 3u,
   // Thread-sanitizer diagnostic packet.
   IREE_HAL_AMDGPU_FEEDBACK_PACKET_KIND_TSAN = 4u,
+  // Undefined-behavior sanitizer diagnostic packet.
+  IREE_HAL_AMDGPU_FEEDBACK_PACKET_KIND_UBSAN = 5u,
   // First packet kind reserved for user-defined packet schemas.
   IREE_HAL_AMDGPU_FEEDBACK_PACKET_KIND_USER = 0x8000u,
 };

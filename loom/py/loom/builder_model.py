@@ -306,7 +306,7 @@ def _check_duplicate_param_names(op: Op, params: list[BuilderParam]) -> None:
 
 
 def _return_hint(op: Op) -> str:
-    if not op.results:
+    if not op.results or op.has_signature_only_results:
         return "None"
     if len(op.results) == 1:
         if any(result.variadic for result in op.results):
@@ -320,13 +320,16 @@ def _extract_params(op: Op) -> list[BuilderParam]:  # noqa: C901
     layout = compute_layout(op)
     params: list[BuilderParam] = []
 
-    def collect_func_args_boundaries(
+    def collect_signature_boundaries(
         elements: tuple[FormatElement, ...],
     ) -> set[str]:
         boundaries: set[str] = set()
         for element in elements:
             match element:
-                case FuncArgs(start_attr=start_attr, end_attr=end_attr):
+                case (
+                    FuncArgs(start_attr=start_attr, end_attr=end_attr)
+                    | BlockArgs(start_attr=start_attr, end_attr=end_attr)
+                ):
                     if start_attr is not None:
                         boundaries.add(start_attr)
                     if end_attr is not None:
@@ -336,12 +339,12 @@ def _extract_params(op: Op) -> list[BuilderParam]:  # noqa: C901
                     | OptionalGroup(elements=nested)
                     | Scope(elements=nested)
                 ):
-                    boundaries.update(collect_func_args_boundaries(nested))
+                    boundaries.update(collect_signature_boundaries(nested))
                 case _:
                     pass
         return boundaries
 
-    covered_attrs = collect_func_args_boundaries(op.format)
+    covered_attrs = collect_signature_boundaries(op.format)
     region_defs = {region.name: region for region in op.regions}
 
     def append_attr_param(name: str) -> None:
@@ -373,22 +376,24 @@ def _extract_params(op: Op) -> list[BuilderParam]:  # noqa: C901
                 )
             )
 
-    def append_block_args_param(name: str) -> None:
-        region_def = region_defs.get(name)
+    def append_block_args_param(element: BlockArgs) -> None:
+        region_def = region_defs.get(element.region)
         has_derived_args = bool(
             region_def is not None
             and (region_def.arg_source or region_def.implicit_args)
         )
         if has_derived_args:
             return
+        group = element.group or element.region
         params.append(
             BuilderParam(
-                name=f"{name}_args",
+                name=f"{group}_args",
                 kind=BuilderParamKind.BLOCK_ARGS,
                 type_hint="Sequence[tuple[str, Type]]",
                 required=False,
-                region_field=name,
-                doc=f"Entry block args for region: {name}",
+                region_field=element.region,
+                end_attr_field=element.end_attr,
+                doc=f"Entry block args for region group: {group}",
             )
         )
 
@@ -635,8 +640,8 @@ def _extract_params(op: Op) -> list[BuilderParam]:  # noqa: C901
                         )
                     )
 
-                case BlockArgs(region=name):
-                    append_block_args_param(name)
+                case BlockArgs() as element:
+                    append_block_args_param(element)
 
                 case Flags(field=name):
                     attr_def = op.attr(name)

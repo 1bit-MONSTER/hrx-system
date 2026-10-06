@@ -1,0 +1,41 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_integer_extrema.loom-test
+// RUN: with-checks emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @integer_extrema_i32(%lhs: i32, %rhs: i32) -> (i32, i32, i32, i32) {
+  %signed_min = scalar.minsi %lhs, %rhs : i32
+  %signed_max = scalar.maxsi %lhs, %rhs : i32
+  %unsigned_min = scalar.minui %lhs, %rhs : i32
+  %unsigned_max = scalar.maxui %lhs, %rhs : i32
+  func.return %signed_min, %signed_max, %unsigned_min, %unsigned_max : i32, i32, i32, i32
+}
+
+// ----
+CHECK: * = lt.select %lhs, %rhs
+CHECK: * = lt.select %rhs, %lhs
+CHECK: * = ltu.select %lhs, %rhs
+CHECK: * = ltu.select %rhs, %lhs
+CHECK: %signed_min = sel.nez %lhs, %rhs, *
+CHECK: %signed_max = sel.nez %lhs, %rhs, *
+CHECK: %unsigned_min = sel.nez %lhs, %rhs, *
+CHECK: %unsigned_max = sel.nez %lhs, %rhs, *
+CHECK: return %signed_min, %signed_max, %unsigned_min, %unsigned_max
+
+// ====
+
+func.def @integer_extrema_i64(%lhs: i64, %rhs: i64) -> (i64, i64, i64, i64) {
+  %signed_min = scalar.minsi %lhs, %rhs : i64
+  %signed_max = scalar.maxsi %lhs, %rhs : i64
+  %unsigned_min = scalar.minui %lhs, %rhs : i64
+  %unsigned_max = scalar.maxui %lhs, %rhs : i64
+  func.return %signed_min, %signed_max, %unsigned_min, %unsigned_max : i64, i64, i64, i64
+}
+
+// ----
+CHECK: * = lt *
+CHECK: * = ltu *
+CHECK: * = sel.nez *
+CHECK: %signed_min = concat(*) : *
+CHECK: %signed_max = concat(*) : *
+CHECK: %unsigned_min = concat(*) : *
+CHECK: %unsigned_max = concat(*) : *
+CHECK: return %signed_min, %signed_max, %unsigned_min, %unsigned_max

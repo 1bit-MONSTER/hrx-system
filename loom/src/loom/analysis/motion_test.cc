@@ -222,6 +222,82 @@ TEST_F(MotionTest, LocalClassificationSeparatesEraseRelocateAndSpeculate) {
   EXPECT_TRUE(loom_motion_read_can_cross_op(module_, update_op));
 }
 
+TEST_F(MotionTest, ReadBarrierTableIndexesStrictIntervals) {
+  const loom_type_t i32_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
+
+  loom_op_t* first_read_op = nullptr;
+  IREE_ASSERT_OK(loom_test_constant_build(&builder_, loom_attr_i64(1), i32_type,
+                                          LOOM_LOCATION_UNKNOWN,
+                                          &first_read_op));
+  const loom_value_id_t first_read = loom_test_constant_result(first_read_op);
+
+  loom_op_t* pure_gap_op = nullptr;
+  IREE_ASSERT_OK(loom_test_constant_build(&builder_, loom_attr_i64(2), i32_type,
+                                          LOOM_LOCATION_UNKNOWN, &pure_gap_op));
+
+  loom_op_t* first_consumer_op = nullptr;
+  IREE_ASSERT_OK(loom_test_use_build(
+      &builder_, &first_read, 1, LOOM_LOCATION_UNKNOWN, &first_consumer_op));
+
+  loom_op_t* second_read_op = nullptr;
+  IREE_ASSERT_OK(loom_test_constant_build(&builder_, loom_attr_i64(3), i32_type,
+                                          LOOM_LOCATION_UNKNOWN,
+                                          &second_read_op));
+  const loom_value_id_t second_read = loom_test_constant_result(second_read_op);
+
+  loom_op_t* fence_op = nullptr;
+  IREE_ASSERT_OK(loom_test_memory_fence_build(
+      &builder_, second_read, i32_type, LOOM_LOCATION_UNKNOWN, &fence_op));
+
+  loom_op_t* second_consumer_op = nullptr;
+  IREE_ASSERT_OK(loom_test_use_build(
+      &builder_, &second_read, 1, LOOM_LOCATION_UNKNOWN, &second_consumer_op));
+
+  loom_motion_read_barrier_table_t* table = nullptr;
+  IREE_ASSERT_OK(
+      loom_motion_read_barrier_table_create(module_, &motion_arena_, &table));
+  EXPECT_TRUE(loom_motion_read_can_cross_op(module_, pure_gap_op));
+
+  bool can_cross = false;
+  IREE_ASSERT_OK(loom_motion_read_barrier_table_can_cross(
+      table, first_read_op, first_consumer_op, &can_cross));
+  EXPECT_TRUE(can_cross);
+
+  const loom_builder_ip_t saved_ip = builder_.ip;
+  loom_builder_set_before(&builder_, fence_op);
+  loom_op_t* generated_pure_op = nullptr;
+  IREE_ASSERT_OK(loom_test_constant_build(&builder_, loom_attr_i64(4), i32_type,
+                                          LOOM_LOCATION_UNKNOWN,
+                                          &generated_pure_op));
+  loom_builder_restore(&builder_, saved_ip);
+  IREE_ASSERT_OK(loom_motion_read_barrier_table_can_cross(
+      table, second_read_op, generated_pure_op, &can_cross));
+  EXPECT_TRUE(can_cross);
+
+  IREE_ASSERT_OK(loom_motion_read_barrier_table_can_cross(
+      table, second_read_op, fence_op, &can_cross));
+  EXPECT_TRUE(can_cross);
+
+  IREE_ASSERT_OK(loom_motion_read_barrier_table_can_cross(
+      table, second_read_op, second_consumer_op, &can_cross));
+  EXPECT_FALSE(can_cross);
+
+  IREE_ASSERT_OK(loom_motion_read_barrier_table_can_cross(
+      table, first_read_op, second_read_op, &can_cross));
+  EXPECT_FALSE(can_cross);
+
+  IREE_ASSERT_OK(loom_motion_read_barrier_table_can_cross(
+      table, second_read_op, first_read_op, &can_cross));
+  EXPECT_FALSE(can_cross);
+
+  loom_op_t* later_op = nullptr;
+  IREE_ASSERT_OK(loom_test_constant_build(&builder_, loom_attr_i64(5), i32_type,
+                                          LOOM_LOCATION_UNKNOWN, &later_op));
+  IREE_ASSERT_OK(loom_motion_read_barrier_table_can_cross(
+      table, second_read_op, later_op, &can_cross));
+  EXPECT_FALSE(can_cross);
+}
+
 TEST_F(MotionTest, SubtreeAllowsOperandsAvailableBeforeInsertion) {
   loom_type_t i32_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
 

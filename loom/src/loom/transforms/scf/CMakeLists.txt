@@ -11,15 +11,67 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
+    branch_fact_patterns
+  HDRS
+    "branch_fact_patterns.h"
+  SRCS
+    "branch_fact_patterns.c"
+  DEPS
+    iree::base
+    loom::analysis::condition_facts
+    loom::analysis::symbolic_expr
+    loom::ir
+    loom::ops::index
+    loom::ops::scalar
+    loom::ops::scf
+    loom::rewrite::pattern_registry
+    loom::rewrite::rewriter
+    loom::transforms::cleanup::patterns
+    loom::util::walk
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    combine_patterns
+  HDRS
+    "combine_patterns.h"
+  SRCS
+    "combine_patterns.c"
+  DEPS
+    iree::base
+    loom::ops::scf
+    loom::rewrite::pattern_registry
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    scf_memory
+  HDRS
+    "scf_memory.h"
+  SRCS
+    "scf_memory.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::rewrite::remap
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     scf_body
   HDRS
     "scf_body.h"
   SRCS
     "scf_body.c"
   DEPS
+    ::scf_memory
     iree::base
     iree::base::internal::arena
     loom::ir
+    loom::ops::kernel
     loom::ops::op_defs
     loom::ops::scf
     loom::util::walk
@@ -37,7 +89,9 @@ loom_cc_library(
     ::scf_body
     iree::base
     loom::ir
+    loom::ops::index
     loom::ops::op_defs
+    loom::ops::scf
   PUBLIC
 )
 
@@ -49,7 +103,9 @@ loom_cc_library(
   SRCS
     "scf_pipeline.c"
   DEPS
+    ::scf_memory
     ::scf_pipeline_plan
+    ::scf_unroll
     iree::base
     loom::error::emitter
     loom::error::error_defs
@@ -59,6 +115,7 @@ loom_cc_library(
     loom::ops::op_defs
     loom::ops::scalar
     loom::ops::scf
+    loom::ops::vector
     loom::pass::report
     loom::pass::types
     loom::pass::value_facts

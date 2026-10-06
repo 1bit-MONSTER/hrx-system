@@ -9,6 +9,7 @@
 #include <inttypes.h>
 #include <string.h>
 
+#include "common/context.h"
 #include "common/memory.h"
 
 iree_status_t iree_hal_streaming_validate_prepacked_kernel_arguments(

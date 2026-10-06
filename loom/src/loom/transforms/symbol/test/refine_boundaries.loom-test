@@ -1023,6 +1023,68 @@ func.def public @call_projected_dead_argument(%kept: index, %dead: index) {
 
 // ====
 
+// Return facts come from the direct body exit declared by FuncLike. A nested
+// operation may use the same terminator kind without contributing a function
+// result.
+test.func public @test_direct_body_exit(%condition: i1) -> (index) {
+  %nested = index.constant 99 : index
+  test.optional_region %condition {
+    test.yield %nested : index
+  }
+  %direct = index.constant 7 : index
+  test.yield %direct : index
+}
+
+func.def public @call_test_direct_body_exit(%condition: i1) {
+  %result = test.invoke @test_direct_body_exit(%condition) : (i1) -> (index)
+  test.use %result : index
+  func.return
+}
+
+// ----
+test.func public @test_direct_body_exit(%condition: i1) -> (index) {
+  %nested = index.constant 99 : index
+  test.optional_region %condition {
+    test.yield %nested : index
+  }
+  %direct = index.constant 7 : index
+  test.yield %direct : index
+}
+
+func.def public @call_test_direct_body_exit(%condition: i1) {
+  %6 = index.constant 7 : index
+  %result = test.invoke @test_direct_body_exit(%condition) : (i1) -> (index)
+  test.use %6 : index
+  func.return
+}
+
+// ====
+
+// Result pruning rebuilds the callable's declared body exit kind rather than
+// assuming a func.return terminator.
+test.func @test_prune_result(%kept: index, %dead: index) -> (index, index) {
+  test.yield %kept, %dead : index, index
+}
+
+func.def public @call_test_prune_result(%kept: index, %dead: index) {
+  %kept_result, %dead_result = test.invoke @test_prune_result(%kept, %dead) : (index, index) -> (index, index)
+  test.use %kept_result : index
+  func.return
+}
+
+// ----
+test.func @test_prune_result() {
+  test.yield
+}
+
+func.def public @call_test_prune_result(%kept: index, %dead: index) {
+  test.invoke @test_prune_result() : ()
+  test.use %kept : index
+  func.return
+}
+
+// ====
+
 // RUN: pass refine-boundaries{max-iterations=1}
 
 // ERROR@+1: LOWERING/043 {pass_name="refine-boundaries", max_iterations="1"}
@@ -1324,4 +1386,75 @@ func.def public @read_family_dense(%storage: buffer) -> (f32) {
   %input = buffer.view %storage[%base] : buffer -> view<2x3xf32, %layout>
   %result = template.apply<@family_read>(%layout, %input) : (encoding<layout>, view<2x3xf32, %layout>) -> (f32)
   func.return %result : f32
+}
+
+// ====
+
+// Different finite callers establish a common class inside a retained helper.
+func.def noinline @classify_finite(%value: f32) -> (i1) {
+  %finite = scalar.isfinitef %value : f32
+  func.return %finite : i1
+}
+
+func.def public @classify_one() -> (i1) {
+  %value = scalar.constant 1.0 : f32
+  %finite = func.call @classify_finite(%value) : (f32) -> (i1)
+  func.return %finite : i1
+}
+
+func.def public @classify_two() -> (i1) {
+  %value = scalar.constant 2.0 : f32
+  %finite = func.call @classify_finite(%value) : (f32) -> (i1)
+  func.return %finite : i1
+}
+
+// ----
+func.def noinline @classify_finite() {
+  func.return
+}
+
+func.def public @classify_one() -> (i1) {
+  %10 = scalar.constant true : i1
+  func.return %10 : i1
+}
+
+func.def public @classify_two() -> (i1) {
+  %11 = scalar.constant true : i1
+  func.return %11 : i1
+}
+
+// ====
+
+// A finite caller cannot impose its classification on an unknown caller.
+func.def noinline @classify_unknown(%value: f32) -> (i1) {
+  %finite = scalar.isfinitef %value : f32
+  func.return %finite : i1
+}
+
+func.def public @known_float() -> (i1) {
+  %value = scalar.constant 1.0 : f32
+  %finite = func.call @classify_unknown(%value) : (f32) -> (i1)
+  func.return %finite : i1
+}
+
+func.def public @unknown_float(%value: f32) -> (i1) {
+  %finite = func.call @classify_unknown(%value) : (f32) -> (i1)
+  func.return %finite : i1
+}
+
+// ----
+func.def noinline @classify_unknown(%value: f32) -> (i1) {
+  %finite = scalar.isfinitef %value : f32
+  func.return %finite : i1
+}
+
+func.def public @known_float() -> (i1) {
+  %value = scalar.constant 1.0 : f32
+  %finite = func.call pure @classify_unknown(%value) : (f32) -> (i1)
+  func.return %finite : i1
+}
+
+func.def public @unknown_float(%value: f32) -> (i1) {
+  %finite = func.call pure @classify_unknown(%value) : (f32) -> (i1)
+  func.return %finite : i1
 }

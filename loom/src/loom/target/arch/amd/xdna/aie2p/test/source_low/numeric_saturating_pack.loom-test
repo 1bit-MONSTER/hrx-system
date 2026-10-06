@@ -1,0 +1,664 @@
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @saturate_s4_64_min_max_lhs_lhs(%values: vector<64xi8>) -> (vector<32xi8>) {
+  %lower = vector.constant -8 : vector<64xi8>
+  %upper = vector.constant 7 : vector<64xi8>
+  %first = vector.maxsi %values, %lower : vector<64xi8>
+  %clamped = vector.minsi %first, %upper : vector<64xi8>
+  %packed = vector.bitpack<4> %clamped : vector<64xi8> -> vector<32xi8>
+  func.return %packed : vector<32xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_64_min_max_lhs_lhs(%values: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %9 = vpack.w.signed %values
+  %10 = slice %values[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %packed = concat(%9, %10) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %packed
+}
+
+// ====
+
+func.def @saturate_s4_64_min_max_lhs_rhs(%values: vector<64xi8>) -> (vector<32xi8>) {
+  %lower = vector.constant -8 : vector<64xi8>
+  %upper = vector.constant 7 : vector<64xi8>
+  %first = vector.maxsi %lower, %values : vector<64xi8>
+  %clamped = vector.minsi %first, %upper : vector<64xi8>
+  %packed = vector.bitpack<4> %clamped : vector<64xi8> -> vector<32xi8>
+  func.return %packed : vector<32xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_64_min_max_lhs_rhs(%values: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %9 = vpack.w.signed %values
+  %10 = slice %values[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %packed = concat(%9, %10) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %packed
+}
+
+// ====
+
+func.def @saturate_s4_64_min_max_rhs_lhs(%values: vector<64xi8>) -> (vector<32xi8>) {
+  %lower = vector.constant -8 : vector<64xi8>
+  %upper = vector.constant 7 : vector<64xi8>
+  %first = vector.maxsi %values, %lower : vector<64xi8>
+  %clamped = vector.minsi %upper, %first : vector<64xi8>
+  %packed = vector.bitpack<4> %clamped : vector<64xi8> -> vector<32xi8>
+  func.return %packed : vector<32xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_64_min_max_rhs_lhs(%values: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %9 = vpack.w.signed %values
+  %10 = slice %values[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %packed = concat(%9, %10) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %packed
+}
+
+// ====
+
+func.def @saturate_s4_64_min_max_rhs_rhs(%values: vector<64xi8>) -> (vector<32xi8>) {
+  %lower = vector.constant -8 : vector<64xi8>
+  %upper = vector.constant 7 : vector<64xi8>
+  %first = vector.maxsi %lower, %values : vector<64xi8>
+  %clamped = vector.minsi %upper, %first : vector<64xi8>
+  %packed = vector.bitpack<4> %clamped : vector<64xi8> -> vector<32xi8>
+  func.return %packed : vector<32xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_64_min_max_rhs_rhs(%values: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %9 = vpack.w.signed %values
+  %10 = slice %values[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %packed = concat(%9, %10) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %packed
+}
+
+// ====
+
+func.def @saturate_s4_64_max_min_lhs_lhs(%values: vector<64xi8>) -> (vector<32xi8>) {
+  %lower = vector.constant -8 : vector<64xi8>
+  %upper = vector.constant 7 : vector<64xi8>
+  %first = vector.minsi %values, %upper : vector<64xi8>
+  %clamped = vector.maxsi %first, %lower : vector<64xi8>
+  %packed = vector.bitpack<4> %clamped : vector<64xi8> -> vector<32xi8>
+  func.return %packed : vector<32xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_64_max_min_lhs_lhs(%values: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %9 = vpack.w.signed %values
+  %10 = slice %values[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %packed = concat(%9, %10) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %packed
+}
+
+// ====
+
+func.def @saturate_s4_64_max_min_lhs_rhs(%values: vector<64xi8>) -> (vector<32xi8>) {
+  %lower = vector.constant -8 : vector<64xi8>
+  %upper = vector.constant 7 : vector<64xi8>
+  %first = vector.minsi %upper, %values : vector<64xi8>
+  %clamped = vector.maxsi %first, %lower : vector<64xi8>
+  %packed = vector.bitpack<4> %clamped : vector<64xi8> -> vector<32xi8>
+  func.return %packed : vector<32xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_64_max_min_lhs_rhs(%values: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %9 = vpack.w.signed %values
+  %10 = slice %values[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %packed = concat(%9, %10) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %packed
+}
+
+// ====
+
+func.def @saturate_s4_64_max_min_rhs_lhs(%values: vector<64xi8>) -> (vector<32xi8>) {
+  %lower = vector.constant -8 : vector<64xi8>
+  %upper = vector.constant 7 : vector<64xi8>
+  %first = vector.minsi %values, %upper : vector<64xi8>
+  %clamped = vector.maxsi %lower, %first : vector<64xi8>
+  %packed = vector.bitpack<4> %clamped : vector<64xi8> -> vector<32xi8>
+  func.return %packed : vector<32xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_64_max_min_rhs_lhs(%values: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %9 = vpack.w.signed %values
+  %10 = slice %values[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %packed = concat(%9, %10) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %packed
+}
+
+// ====
+
+func.def @saturate_s4_64_max_min_rhs_rhs(%values: vector<64xi8>) -> (vector<32xi8>) {
+  %lower = vector.constant -8 : vector<64xi8>
+  %upper = vector.constant 7 : vector<64xi8>
+  %first = vector.minsi %upper, %values : vector<64xi8>
+  %clamped = vector.maxsi %lower, %first : vector<64xi8>
+  %packed = vector.bitpack<4> %clamped : vector<64xi8> -> vector<32xi8>
+  func.return %packed : vector<32xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_64_max_min_rhs_rhs(%values: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %9 = vpack.w.signed %values
+  %10 = slice %values[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %packed = concat(%9, %10) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %packed
+}
+
+// ====
+
+func.def @retain_lower_bound_64(%values: vector<64xi8>) -> (vector<32xi8>) {
+  %lower = vector.constant -7 : vector<64xi8>
+  %upper = vector.constant 7 : vector<64xi8>
+  %first = vector.maxsi %values, %lower : vector<64xi8>
+  %clamped = vector.minsi %first, %upper : vector<64xi8>
+  %packed = vector.bitpack<4> %clamped : vector<64xi8> -> vector<32xi8>
+  func.return %packed : vector<32xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @retain_lower_bound_64(%values: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %9 = mov.short -7
+  %lower = vbcst.8 %9
+  %11 = mov.short 7
+  %upper = vbcst.8 %11
+  %first = max.s8x64 %values, %lower
+  %clamped = min.s8x64 %first, %upper
+  set.saturation 0
+  set.pack-size 0
+  %15 = vpack.w.trunc %clamped
+  %16 = slice %clamped[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %packed = concat(%15, %16) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %packed
+}
+
+// ====
+
+func.def @retain_upper_bound_64(%values: vector<64xi8>) -> (vector<32xi8>) {
+  %lower = vector.constant -8 : vector<64xi8>
+  %upper = vector.constant 6 : vector<64xi8>
+  %first = vector.maxsi %values, %lower : vector<64xi8>
+  %clamped = vector.minsi %first, %upper : vector<64xi8>
+  %packed = vector.bitpack<4> %clamped : vector<64xi8> -> vector<32xi8>
+  func.return %packed : vector<32xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @retain_upper_bound_64(%values: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %9 = mov.short -8
+  %lower = vbcst.8 %9
+  %11 = mov.short 6
+  %upper = vbcst.8 %11
+  %first = max.s8x64 %values, %lower
+  %clamped = min.s8x64 %first, %upper
+  set.saturation 0
+  set.pack-size 0
+  %15 = vpack.w.trunc %clamped
+  %16 = slice %clamped[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %packed = concat(%15, %16) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %packed
+}
+
+// ====
+
+func.def @retain_dynamic_bound_64(%values: vector<64xi8>, %upper: vector<64xi8>) -> (vector<32xi8>) {
+  %lower = vector.constant -8 : vector<64xi8>
+  %first = vector.maxsi %values, %lower : vector<64xi8>
+  %clamped = vector.minsi %first, %upper : vector<64xi8>
+  %packed = vector.bitpack<4> %clamped : vector<64xi8> -> vector<32xi8>
+  func.return %packed : vector<32xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @retain_dynamic_bound_64(%values: reg<aie2p.vec256 x2>, %upper: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %10 = mov.short -8
+  %lower = vbcst.8 %10
+  %first = max.s8x64 %values, %lower
+  %clamped = min.s8x64 %first, %upper
+  set.saturation 0
+  set.pack-size 0
+  %14 = vpack.w.trunc %clamped
+  %15 = slice %clamped[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %packed = concat(%14, %15) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %packed
+}
+
+// ====
+
+func.def @retain_shared_inner_64(%values: vector<64xi8>) -> (vector<32xi8>, vector<64xi8>) {
+  %lower = vector.constant -8 : vector<64xi8>
+  %upper = vector.constant 7 : vector<64xi8>
+  %first = vector.maxsi %values, %lower : vector<64xi8>
+  %clamped = vector.minsi %first, %upper : vector<64xi8>
+  %packed = vector.bitpack<4> %clamped : vector<64xi8> -> vector<32xi8>
+  func.return %packed, %first : vector<32xi8>, vector<64xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @retain_shared_inner_64(%values: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
+  %11 = mov.short -8
+  %lower = vbcst.8 %11
+  %13 = mov.short 7
+  %upper = vbcst.8 %13
+  %first = max.s8x64 %values, %lower
+  %clamped = min.s8x64 %first, %upper
+  set.saturation 0
+  set.pack-size 0
+  %17 = vpack.w.trunc %clamped
+  %18 = slice %clamped[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %packed = concat(%17, %18) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %packed, %first
+}
+
+// ====
+
+func.def @retain_shared_outer_64(%values: vector<64xi8>) -> (vector<32xi8>, vector<64xi8>) {
+  %lower = vector.constant -8 : vector<64xi8>
+  %upper = vector.constant 7 : vector<64xi8>
+  %first = vector.maxsi %values, %lower : vector<64xi8>
+  %clamped = vector.minsi %first, %upper : vector<64xi8>
+  %packed = vector.bitpack<4> %clamped : vector<64xi8> -> vector<32xi8>
+  func.return %packed, %clamped : vector<32xi8>, vector<64xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @retain_shared_outer_64(%values: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
+  %11 = mov.short -8
+  %lower = vbcst.8 %11
+  %13 = mov.short 7
+  %upper = vbcst.8 %13
+  %first = max.s8x64 %values, %lower
+  %clamped = min.s8x64 %first, %upper
+  set.saturation 0
+  set.pack-size 0
+  %17 = vpack.w.trunc %clamped
+  %18 = slice %clamped[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %packed = concat(%17, %18) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %packed, %clamped
+}
+
+// ====
+
+func.def @retain_intervening_64(%values: vector<64xi8>) -> (vector<32xi8>, vector<64xi8>) {
+  %lower = vector.constant -8 : vector<64xi8>
+  %upper = vector.constant 7 : vector<64xi8>
+  %first = vector.maxsi %values, %lower : vector<64xi8>
+  %other = vector.minsi %values, %upper : vector<64xi8>
+  %clamped = vector.minsi %first, %upper : vector<64xi8>
+  %packed = vector.bitpack<4> %clamped : vector<64xi8> -> vector<32xi8>
+  func.return %packed, %other : vector<32xi8>, vector<64xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @retain_intervening_64(%values: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
+  %12 = mov.short -8
+  %lower = vbcst.8 %12
+  %14 = mov.short 7
+  %upper = vbcst.8 %14
+  %first = max.s8x64 %values, %lower
+  %other = min.s8x64 %values, %upper
+  %clamped = min.s8x64 %first, %upper
+  set.saturation 0
+  set.pack-size 0
+  %19 = vpack.w.trunc %clamped
+  %20 = slice %clamped[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %packed = concat(%19, %20) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %packed, %other
+}
+
+// ====
+
+func.def @saturate_s4_128_min_max_lhs_lhs(%values: vector<128xi8>) -> (vector<64xi8>) {
+  %lower = vector.constant -8 : vector<128xi8>
+  %upper = vector.constant 7 : vector<128xi8>
+  %first = vector.maxsi %values, %lower : vector<128xi8>
+  %clamped = vector.minsi %first, %upper : vector<128xi8>
+  %packed = vector.bitpack<4> %clamped : vector<128xi8> -> vector<64xi8>
+  func.return %packed : vector<64xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_128_min_max_lhs_lhs(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %packed = vpack.x.signed %values
+  return %packed
+}
+
+// ====
+
+func.def @saturate_s4_128_min_max_lhs_rhs(%values: vector<128xi8>) -> (vector<64xi8>) {
+  %lower = vector.constant -8 : vector<128xi8>
+  %upper = vector.constant 7 : vector<128xi8>
+  %first = vector.maxsi %lower, %values : vector<128xi8>
+  %clamped = vector.minsi %first, %upper : vector<128xi8>
+  %packed = vector.bitpack<4> %clamped : vector<128xi8> -> vector<64xi8>
+  func.return %packed : vector<64xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_128_min_max_lhs_rhs(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %packed = vpack.x.signed %values
+  return %packed
+}
+
+// ====
+
+func.def @saturate_s4_128_min_max_rhs_lhs(%values: vector<128xi8>) -> (vector<64xi8>) {
+  %lower = vector.constant -8 : vector<128xi8>
+  %upper = vector.constant 7 : vector<128xi8>
+  %first = vector.maxsi %values, %lower : vector<128xi8>
+  %clamped = vector.minsi %upper, %first : vector<128xi8>
+  %packed = vector.bitpack<4> %clamped : vector<128xi8> -> vector<64xi8>
+  func.return %packed : vector<64xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_128_min_max_rhs_lhs(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %packed = vpack.x.signed %values
+  return %packed
+}
+
+// ====
+
+func.def @saturate_s4_128_min_max_rhs_rhs(%values: vector<128xi8>) -> (vector<64xi8>) {
+  %lower = vector.constant -8 : vector<128xi8>
+  %upper = vector.constant 7 : vector<128xi8>
+  %first = vector.maxsi %lower, %values : vector<128xi8>
+  %clamped = vector.minsi %upper, %first : vector<128xi8>
+  %packed = vector.bitpack<4> %clamped : vector<128xi8> -> vector<64xi8>
+  func.return %packed : vector<64xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_128_min_max_rhs_rhs(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %packed = vpack.x.signed %values
+  return %packed
+}
+
+// ====
+
+func.def @saturate_s4_128_max_min_lhs_lhs(%values: vector<128xi8>) -> (vector<64xi8>) {
+  %lower = vector.constant -8 : vector<128xi8>
+  %upper = vector.constant 7 : vector<128xi8>
+  %first = vector.minsi %values, %upper : vector<128xi8>
+  %clamped = vector.maxsi %first, %lower : vector<128xi8>
+  %packed = vector.bitpack<4> %clamped : vector<128xi8> -> vector<64xi8>
+  func.return %packed : vector<64xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_128_max_min_lhs_lhs(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %packed = vpack.x.signed %values
+  return %packed
+}
+
+// ====
+
+func.def @saturate_s4_128_max_min_lhs_rhs(%values: vector<128xi8>) -> (vector<64xi8>) {
+  %lower = vector.constant -8 : vector<128xi8>
+  %upper = vector.constant 7 : vector<128xi8>
+  %first = vector.minsi %upper, %values : vector<128xi8>
+  %clamped = vector.maxsi %first, %lower : vector<128xi8>
+  %packed = vector.bitpack<4> %clamped : vector<128xi8> -> vector<64xi8>
+  func.return %packed : vector<64xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_128_max_min_lhs_rhs(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %packed = vpack.x.signed %values
+  return %packed
+}
+
+// ====
+
+func.def @saturate_s4_128_max_min_rhs_lhs(%values: vector<128xi8>) -> (vector<64xi8>) {
+  %lower = vector.constant -8 : vector<128xi8>
+  %upper = vector.constant 7 : vector<128xi8>
+  %first = vector.minsi %values, %upper : vector<128xi8>
+  %clamped = vector.maxsi %lower, %first : vector<128xi8>
+  %packed = vector.bitpack<4> %clamped : vector<128xi8> -> vector<64xi8>
+  func.return %packed : vector<64xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_128_max_min_rhs_lhs(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %packed = vpack.x.signed %values
+  return %packed
+}
+
+// ====
+
+func.def @saturate_s4_128_max_min_rhs_rhs(%values: vector<128xi8>) -> (vector<64xi8>) {
+  %lower = vector.constant -8 : vector<128xi8>
+  %upper = vector.constant 7 : vector<128xi8>
+  %first = vector.minsi %upper, %values : vector<128xi8>
+  %clamped = vector.maxsi %lower, %first : vector<128xi8>
+  %packed = vector.bitpack<4> %clamped : vector<128xi8> -> vector<64xi8>
+  func.return %packed : vector<64xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @saturate_s4_128_max_min_rhs_rhs(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>) asm {
+  set.saturation 1
+  set.pack-size 0
+  %packed = vpack.x.signed %values
+  return %packed
+}
+
+// ====
+
+func.def @retain_lower_bound_128(%values: vector<128xi8>) -> (vector<64xi8>) {
+  %lower = vector.constant -7 : vector<128xi8>
+  %upper = vector.constant 7 : vector<128xi8>
+  %first = vector.maxsi %values, %lower : vector<128xi8>
+  %clamped = vector.minsi %first, %upper : vector<128xi8>
+  %packed = vector.bitpack<4> %clamped : vector<128xi8> -> vector<64xi8>
+  func.return %packed : vector<64xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @retain_lower_bound_128(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>) asm {
+  %9 = mov.short -7
+  %10 = vbcst.8 %9
+  %12 = mov.short 7
+  %13 = vbcst.8 %12
+  %15 = slice %values[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %17 = max.s8x64 %15, %10
+  %18 = slice %values[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %20 = max.s8x64 %18, %10
+  %24 = min.s8x64 %17, %13
+  %27 = min.s8x64 %20, %13
+  %clamped = concat(%24, %27) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  set.saturation 0
+  set.pack-size 0
+  %packed = vpack.x.trunc %clamped
+  return %packed
+}
+
+// ====
+
+func.def @retain_upper_bound_128(%values: vector<128xi8>) -> (vector<64xi8>) {
+  %lower = vector.constant -8 : vector<128xi8>
+  %upper = vector.constant 6 : vector<128xi8>
+  %first = vector.maxsi %values, %lower : vector<128xi8>
+  %clamped = vector.minsi %first, %upper : vector<128xi8>
+  %packed = vector.bitpack<4> %clamped : vector<128xi8> -> vector<64xi8>
+  func.return %packed : vector<64xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @retain_upper_bound_128(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>) asm {
+  %9 = mov.short -8
+  %10 = vbcst.8 %9
+  %12 = mov.short 6
+  %13 = vbcst.8 %12
+  %15 = slice %values[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %17 = max.s8x64 %15, %10
+  %18 = slice %values[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %20 = max.s8x64 %18, %10
+  %24 = min.s8x64 %17, %13
+  %27 = min.s8x64 %20, %13
+  %clamped = concat(%24, %27) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  set.saturation 0
+  set.pack-size 0
+  %packed = vpack.x.trunc %clamped
+  return %packed
+}
+
+// ====
+
+func.def @retain_dynamic_bound_128(%values: vector<128xi8>, %upper: vector<128xi8>) -> (vector<64xi8>) {
+  %lower = vector.constant -8 : vector<128xi8>
+  %first = vector.maxsi %values, %lower : vector<128xi8>
+  %clamped = vector.minsi %first, %upper : vector<128xi8>
+  %packed = vector.bitpack<4> %clamped : vector<128xi8> -> vector<64xi8>
+  func.return %packed : vector<64xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @retain_dynamic_bound_128(%values: reg<aie2p.vec256 x4>, %upper: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>) asm {
+  %10 = mov.short -8
+  %11 = vbcst.8 %10
+  %13 = slice %values[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %15 = max.s8x64 %13, %11
+  %16 = slice %values[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %18 = max.s8x64 %16, %11
+  %21 = slice %upper[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %22 = min.s8x64 %15, %21
+  %24 = slice %upper[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %25 = min.s8x64 %18, %24
+  %clamped = concat(%22, %25) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  set.saturation 0
+  set.pack-size 0
+  %packed = vpack.x.trunc %clamped
+  return %packed
+}
+
+// ====
+
+func.def @retain_shared_inner_128(%values: vector<128xi8>) -> (vector<64xi8>, vector<128xi8>) {
+  %lower = vector.constant -8 : vector<128xi8>
+  %upper = vector.constant 7 : vector<128xi8>
+  %first = vector.maxsi %values, %lower : vector<128xi8>
+  %clamped = vector.minsi %first, %upper : vector<128xi8>
+  %packed = vector.bitpack<4> %clamped : vector<128xi8> -> vector<64xi8>
+  func.return %packed, %first : vector<64xi8>, vector<128xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @retain_shared_inner_128(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x4>) asm {
+  %11 = mov.short -8
+  %12 = vbcst.8 %11
+  %14 = mov.short 7
+  %15 = vbcst.8 %14
+  %17 = slice %values[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %19 = max.s8x64 %17, %12
+  %20 = slice %values[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %22 = max.s8x64 %20, %12
+  %first = concat(%19, %22) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %26 = min.s8x64 %19, %15
+  %29 = min.s8x64 %22, %15
+  %clamped = concat(%26, %29) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  set.saturation 0
+  set.pack-size 0
+  %packed = vpack.x.trunc %clamped
+  return %packed, %first
+}
+
+// ====
+
+func.def @retain_shared_outer_128(%values: vector<128xi8>) -> (vector<64xi8>, vector<128xi8>) {
+  %lower = vector.constant -8 : vector<128xi8>
+  %upper = vector.constant 7 : vector<128xi8>
+  %first = vector.maxsi %values, %lower : vector<128xi8>
+  %clamped = vector.minsi %first, %upper : vector<128xi8>
+  %packed = vector.bitpack<4> %clamped : vector<128xi8> -> vector<64xi8>
+  func.return %packed, %clamped : vector<64xi8>, vector<128xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @retain_shared_outer_128(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x4>) asm {
+  %11 = mov.short -8
+  %12 = vbcst.8 %11
+  %14 = mov.short 7
+  %15 = vbcst.8 %14
+  %17 = slice %values[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %19 = max.s8x64 %17, %12
+  %20 = slice %values[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %22 = max.s8x64 %20, %12
+  %26 = min.s8x64 %19, %15
+  %29 = min.s8x64 %22, %15
+  %clamped = concat(%26, %29) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  set.saturation 0
+  set.pack-size 0
+  %packed = vpack.x.trunc %clamped
+  return %packed, %clamped
+}
+
+// ====
+
+func.def @retain_intervening_128(%values: vector<128xi8>) -> (vector<64xi8>, vector<128xi8>) {
+  %lower = vector.constant -8 : vector<128xi8>
+  %upper = vector.constant 7 : vector<128xi8>
+  %first = vector.maxsi %values, %lower : vector<128xi8>
+  %other = vector.minsi %values, %upper : vector<128xi8>
+  %clamped = vector.minsi %first, %upper : vector<128xi8>
+  %packed = vector.bitpack<4> %clamped : vector<128xi8> -> vector<64xi8>
+  func.return %packed, %other : vector<64xi8>, vector<128xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @retain_intervening_128(%values: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x4>) asm {
+  %12 = mov.short -8
+  %13 = vbcst.8 %12
+  %15 = mov.short 7
+  %16 = vbcst.8 %15
+  %18 = slice %values[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %20 = max.s8x64 %18, %13
+  %21 = slice %values[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %23 = max.s8x64 %21, %13
+  %27 = min.s8x64 %18, %16
+  %30 = min.s8x64 %21, %16
+  %other = concat(%27, %30) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %34 = min.s8x64 %20, %16
+  %37 = min.s8x64 %23, %16
+  %clamped = concat(%34, %37) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  set.saturation 0
+  set.pack-size 0
+  %packed = vpack.x.trunc %clamped
+  return %packed, %other
+}

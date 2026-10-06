@@ -1,0 +1,222 @@
+// RUN: pass canonicalize
+
+// Fold conditional inversion before widening; the integer retains its name.
+func.def @select_unsigned_byte(%condition: i1, %left: i1) -> (i8) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %left, %c1 : i1
+  %left_byte = scalar.extui %inverse : i1 to i8
+  %right_byte = scalar.extui %left : i1 to i8
+  %result = scf.select %condition, %left_byte, %right_byte : i8
+  func.return %result : i8
+}
+
+// ----
+func.def @select_unsigned_byte(%condition: i1, %left: i1) -> (i8) {
+  %8 = scalar.xori %condition, %left : i1
+  %result = scalar.extui %8 : i1 to i8
+  func.return %result : i8
+}
+
+// ====
+
+// Sign extension preserves the all-ones representation of true.
+func.def @select_signed_wide(%condition: i1, %left: i1) -> (i64) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %left, %c1 : i1
+  %left_wide = scalar.extsi %inverse : i1 to i64
+  %right_wide = scalar.extsi %left : i1 to i64
+  %result = scf.select %condition, %left_wide, %right_wide : i64
+  func.return %result : i64
+}
+
+// ----
+func.def @select_signed_wide(%condition: i1, %left: i1) -> (i64) {
+  %8 = scalar.xori %condition, %left : i1
+  %result = scalar.extsi %8 : i1 to i64
+  func.return %result : i64
+}
+
+// ====
+
+// Independent arms retain their integer select representation.
+func.def @selected_byte_truth(%condition: i1, %left: i1, %right: i1) -> (i1) {
+  %left_byte = scalar.extui %left : i1 to i8
+  %right_byte = scalar.extui %right : i1 to i8
+  %selected = scf.select %condition, %left_byte, %right_byte : i8
+  %c0 = scalar.constant 0 : i8
+  %truth = scalar.cmpi ne, %selected, %c0 : i8
+  func.return %truth : i1
+}
+
+// ====
+
+func.def @selected_signed_zero(%condition: i1, %left: i1) -> (i1) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %left, %c1 : i1
+  %left_word = scalar.extsi %inverse : i1 to i32
+  %right_word = scalar.extsi %left : i1 to i32
+  %selected = scf.select %condition, %left_word, %right_word : i32
+  %c0 = scalar.constant 0 : i32
+  %is_zero = scalar.cmpi eq, %selected, %c0 : i32
+  func.return %is_zero : i1
+}
+
+// ----
+func.def @selected_signed_zero(%condition: i1, %left: i1) -> (i1) {
+  %10 = scalar.xori %condition, %left : i1
+  %12 = scalar.constant true : i1
+  %is_zero = scalar.xori %10, %12 : i1
+  func.return %is_zero : i1
+}
+
+// ====
+
+// Predicate algebra becomes visible after stored bytes are promoted to SSA.
+func.def @conditional_inversion(%condition: i1, %input: i1) -> (i1) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %input_byte = scalar.extui %input : i1 to i8
+  %inverse_byte = scalar.extui %inverse : i1 to i8
+  %selected = scf.select %condition, %inverse_byte, %input_byte : i8
+  %c0 = scalar.constant 0 : i8
+  %truth = scalar.cmpi ne, %selected, %c0 : i8
+  func.return %truth : i1
+}
+
+// ----
+func.def @conditional_inversion(%condition: i1, %input: i1) -> (i1) {
+  %10 = scalar.xori %condition, %input : i1
+  func.return %10 : i1
+}
+
+// ====
+
+// Ordered comparisons still consume the widened integer representation.
+func.def @selected_signed_order(%condition: i1, %left: i1, %threshold: i16) -> (i1) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %left, %c1 : i1
+  %left_word = scalar.extsi %inverse : i1 to i16
+  %right_word = scalar.extsi %left : i1 to i16
+  %selected = scf.select %condition, %left_word, %right_word : i16
+  %below = scalar.cmpi slt, %selected, %threshold : i16
+  func.return %below : i1
+}
+
+// ----
+func.def @selected_signed_order(%condition: i1, %left: i1, %threshold: i16) -> (i1) {
+  %10 = scalar.xori %condition, %left : i1
+  %selected = scalar.extsi %10 : i1 to i16
+  %below = scalar.cmpi slt, %selected, %threshold : i16
+  func.return %below : i1
+}
+
+// ====
+
+// Folding a retained arm would duplicate its extension.
+func.def @shared_true_extension(%condition: i1, %left: i1) -> (i32, i32) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %left, %c1 : i1
+  %left_word = scalar.extui %inverse : i1 to i32
+  %right_word = scalar.extui %left : i1 to i32
+  %result = scf.select %condition, %left_word, %right_word : i32
+  func.return %result, %left_word : i32, i32
+}
+
+// ====
+
+func.def @shared_false_extension(%condition: i1, %left: i1) -> (i32, i32) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %left, %c1 : i1
+  %left_word = scalar.extui %inverse : i1 to i32
+  %right_word = scalar.extui %left : i1 to i32
+  %result = scf.select %condition, %left_word, %right_word : i32
+  func.return %result, %right_word : i32, i32
+}
+
+// ====
+
+// Signed and unsigned true values have different integer bit patterns.
+func.def @mixed_extensions(%condition: i1, %left: i1) -> (i8) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %left, %c1 : i1
+  %left_byte = scalar.extsi %inverse : i1 to i8
+  %right_byte = scalar.extui %left : i1 to i8
+  %result = scf.select %condition, %left_byte, %right_byte : i8
+  func.return %result : i8
+}
+
+// ====
+
+func.def @different_source_types(%condition: i1, %left: i1, %right: i8) -> (i32) {
+  %left_word = scalar.extui %left : i1 to i32
+  %right_word = scalar.extui %right : i8 to i32
+  %result = scf.select %condition, %left_word, %right_word : i32
+  func.return %result : i32
+}
+
+// ====
+
+// Narrowing arbitrary integer selections is outside the predicate identity.
+func.def @integer_extensions(%condition: i1, %left: i8, %right: i8) -> (i32) {
+  %left_word = scalar.extui %left : i8 to i32
+  %right_word = scalar.extui %right : i8 to i32
+  %result = scf.select %condition, %left_word, %right_word : i32
+  func.return %result : i32
+}
+
+// ====
+
+// An attribute reference retains an extension without an ordinary operand use.
+func.def @attribute_retains_extension(%condition: i1, %left: i1, %payload: i32) -> (i32, i32) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %left, %c1 : i1
+  %left_word = scalar.extui %inverse : i1 to i32
+  %right_word = scalar.extui %left : i1 to i32
+  %tagged = test.attrs %payload {constraints = predicates[eq(%left_word, 0)]} : i32
+  %result = scf.select %condition, %left_word, %right_word : i32
+  func.return %result, %tagged : i32, i32
+}
+
+// ====
+
+// A type dependency also retains an arm without an ordinary operand use.
+func.def @type_retains_extension(%condition: i1, %left: i1) -> (i32) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %left, %c1 : i1
+  %left_word = scalar.extui %inverse : i1 to i32
+  %right_word = scalar.extui %left : i1 to i32
+  %typed, %unused = test.result_pair : i32 -> test.array<i32, metadata = {constraints = predicates[eq(%left_word, 0)]}>
+  test.use %typed : test.array<i32, metadata = {constraints = predicates[eq(%left_word, 0)]}>
+  %result = scf.select %condition, %left_word, %right_word : i32
+  func.return %result : i32
+}
+
+// ====
+
+func.def @commuted_extended_inversion(%condition: i1, %input: i1) -> (i32) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %c1, %input : i1
+  %input_word = scalar.extui %input : i1 to i32
+  %inverse_word = scalar.extui %inverse : i1 to i32
+  %result = scf.select %condition, %inverse_word, %input_word : i32
+  func.return %result : i32
+}
+
+// ----
+func.def @commuted_extended_inversion(%condition: i1, %input: i1) -> (i32) {
+  %8 = scalar.xori %condition, %input : i1
+  %result = scalar.extui %8 : i1 to i32
+  func.return %result : i32
+}
+
+// ====
+
+// Keep the widened form when narrowing would retain the arm inversion.
+func.def @extended_false_inversion(%condition: i1, %input: i1) -> (i32) {
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %input_word = scalar.extui %input : i1 to i32
+  %inverse_word = scalar.extui %inverse : i1 to i32
+  %result = scf.select %condition, %input_word, %inverse_word : i32
+  func.return %result : i32
+}

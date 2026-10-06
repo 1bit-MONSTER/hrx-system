@@ -20,12 +20,7 @@ package(
     licenses = ["notice"],
 )
 
-# Main entry points for CTS binaries.
-exports_files([
-    "test_main.cc",
-])
-
-# Proper package dependencies for composed CTS binaries.
+# Shared main entry point for composed CTS binaries.
 iree_runtime_cc_library(
     name = "test_main",
     testonly = True,

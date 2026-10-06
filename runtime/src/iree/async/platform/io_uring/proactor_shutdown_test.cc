@@ -18,7 +18,7 @@ namespace {
 
 enum class Observer { kEventSource, kPrimitiveRelay, kNotificationRelay };
 enum class ReceiptOrder { kPollFirst, kCancellationFirst };
-enum class Admission { kLogical, kStaged, kSubmitted };
+enum class Admission { kLogical, kStaged, kSubmitted, kNotified };
 
 enum ReceiptFlagBits {
   kPollReceived = 1u << 0,
@@ -99,6 +99,12 @@ extern "C" iree_host_size_t __wrap_iree_async_proactor_io_uring_process_cqe(
     return __real_iree_async_proactor_io_uring_process_cqe(proactor, cqe,
                                                            inout_status);
   }
+  // A readiness receipt racing shutdown does not retire a multishot poll.
+  // The production dispatcher suppresses its callback after unregistration.
+  if (is_poll && (cqe->flags & IREE_IORING_CQE_F_MORE)) {
+    return __real_iree_async_proactor_io_uring_process_cqe(proactor, cqe,
+                                                           inout_status);
+  }
   EXPECT_TRUE(witness->native_expected);
   EXPECT_EQ(witness->unregistered, 0);
   EXPECT_EQ(witness->ring_closes, 0);
@@ -175,7 +181,8 @@ class ProactorShutdownTest
       IREE_ASSERT_OK(iree_async_proactor_register_event_source(
           proactor_, source_.wait_primitive,
           {+[](void*, iree_async_event_source_t*, iree_async_poll_events_t) {
-             ADD_FAILURE() << "The source was never signaled";
+             ADD_FAILURE()
+                 << "Readiness must not dispatch after unregistration";
            },
            nullptr},
           &event_source_));
@@ -221,13 +228,25 @@ TEST_P(ProactorShutdownTest, JoinsNativeReceiptsBeforeOwnershipReturn) {
     iree_async_io_uring_notification_drain_pending(backend);
     EXPECT_EQ(*backend->ring.sq_head, *backend->ring.sq_tail);
     EXPECT_NE(backend->ring.sq_local_tail, *backend->ring.sq_tail);
-  } else if (admission == Admission::kSubmitted) {
+  } else if (admission == Admission::kSubmitted ||
+             admission == Admission::kNotified) {
     iree_status_t status =
         iree_async_proactor_poll(proactor_, iree_immediate_timeout(), nullptr);
     if (iree_status_is_deadline_exceeded(status)) {
       iree_status_free(status);
     } else {
       IREE_ASSERT_OK(status);
+    }
+  }
+
+  if (admission == Admission::kNotified) {
+    // Queue native readiness after arming but before the next GETEVENTS runs
+    // deferred task work. Cancellation must terminate the persistent poll even
+    // while that task work owns it; readiness is not terminal completion.
+    if (notification_) {
+      iree_async_notification_signal(notification_, 1);
+    } else {
+      iree_async_event_native_set(&source_);
     }
   }
 
@@ -253,13 +272,12 @@ TEST_P(ProactorShutdownTest, JoinsNativeReceiptsBeforeOwnershipReturn) {
 
 INSTANTIATE_TEST_SUITE_P(
     NativeOwnership, ProactorShutdownTest,
-    ::testing::Combine(::testing::Values(Observer::kEventSource,
-                                         Observer::kPrimitiveRelay,
-                                         Observer::kNotificationRelay),
-                       ::testing::Values(ReceiptOrder::kPollFirst,
-                                         ReceiptOrder::kCancellationFirst),
-                       ::testing::Values(Admission::kLogical,
-                                         Admission::kStaged,
-                                         Admission::kSubmitted)));
+    ::testing::Combine(
+        ::testing::Values(Observer::kEventSource, Observer::kPrimitiveRelay,
+                          Observer::kNotificationRelay),
+        ::testing::Values(ReceiptOrder::kPollFirst,
+                          ReceiptOrder::kCancellationFirst),
+        ::testing::Values(Admission::kLogical, Admission::kStaged,
+                          Admission::kSubmitted, Admission::kNotified)));
 
 }  // namespace

@@ -6,10 +6,64 @@
 
 #include "loom/transforms/scalar/target_legalization.h"
 
+#include <math.h>
+
 #include "loom/ir/module.h"
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/scf/ops.h"
 #include "loom/rewrite/rewriter.h"
+
+bool loom_scalar_match_multiply_add(
+    const loom_module_t* module, const loom_op_t* multiply_op,
+    loom_scalar_multiply_add_match_t* out_match) {
+  *out_match = (loom_scalar_multiply_add_match_t){0};
+  if (!loom_scalar_muli_isa(multiply_op) ||
+      loom_scalar_muli_overflow(multiply_op) != 0) {
+    return false;
+  }
+
+  const loom_value_id_t product = loom_scalar_muli_result(multiply_op);
+  const loom_value_t* product_value = loom_module_value(module, product);
+  const loom_use_t* product_use = loom_value_single_use(product_value);
+  if (product_use == NULL || loom_value_has_attribute_uses(product_value) ||
+      loom_module_value_has_type_uses(module, product)) {
+    return false;
+  }
+  loom_op_t* add_op = loom_use_user_op(*product_use);
+  if (!loom_scalar_addi_isa(add_op) || loom_scalar_addi_overflow(add_op) != 0) {
+    return false;
+  }
+  const loom_value_id_t addend = loom_scalar_addi_lhs(add_op) == product
+                                     ? loom_scalar_addi_rhs(add_op)
+                                     : loom_scalar_addi_lhs(add_op);
+  *out_match = (loom_scalar_multiply_add_match_t){
+      .multiply_op = (loom_op_t*)multiply_op,
+      .add_op = add_op,
+      .addend = addend,
+  };
+  return true;
+}
+
+iree_status_t loom_scalar_fuse_multiply_add_match(
+    loom_rewriter_t* rewriter, const loom_scalar_multiply_add_match_t* match) {
+  loom_builder_set_before(&rewriter->builder, match->add_op);
+  const loom_value_id_t value_checkpoint =
+      loom_rewriter_value_checkpoint(rewriter);
+  const loom_value_id_t result = loom_scalar_addi_result(match->add_op);
+  loom_op_t* replacement_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_scalar_fmai_build(
+      &rewriter->builder, /*instance_flags=*/0,
+      loom_scalar_muli_lhs(match->multiply_op),
+      loom_scalar_muli_rhs(match->multiply_op), match->addend,
+      loom_module_value_type(rewriter->module, result), match->add_op->location,
+      &replacement_op));
+  loom_value_id_t replacement = loom_scalar_fmai_result(replacement_op);
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, match->add_op, &replacement, 1, value_checkpoint));
+  IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_and_erase(
+      rewriter, match->add_op, &replacement, 1));
+  return loom_rewriter_erase(rewriter, match->multiply_op);
+}
 
 static iree_status_t loom_scalar_legalize_build_scalar_constant(
     loom_builder_t* builder, loom_location_id_t location, loom_type_t type,
@@ -345,11 +399,18 @@ static iree_status_t loom_scalar_legalize_extf(
   const loom_type_t result_type =
       loom_module_value_type(context->module, loom_scalar_extf_result(op));
   loom_scalar_type_fp8_format_t format = {0};
+  const bool is_fp8 =
+      loom_scalar_type_fp8_format(loom_type_element_type(input_type), &format);
+  const bool widen_to_f64 =
+      loom_type_element_type(result_type) == LOOM_SCALAR_TYPE_F64 &&
+      (is_fp8 ||
+       loom_scalar_type_set_contains(LOOM_SCALAR_TYPE_SET_16BIT_FLOAT,
+                                     loom_type_element_type(input_type)));
   if (!loom_type_is_scalar(input_type) ||
-      !loom_scalar_type_fp8_format(loom_type_element_type(input_type),
-                                   &format) ||
-      (loom_type_element_type(result_type) != LOOM_SCALAR_TYPE_F16 &&
-       loom_type_element_type(result_type) != LOOM_SCALAR_TYPE_F32)) {
+      (!widen_to_f64 &&
+       (!is_fp8 ||
+        (loom_type_element_type(result_type) != LOOM_SCALAR_TYPE_F16 &&
+         loom_type_element_type(result_type) != LOOM_SCALAR_TYPE_F32)))) {
     return iree_ok_status();
   }
 
@@ -367,16 +428,22 @@ static iree_status_t loom_scalar_legalize_extf(
     IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_fp8_to_f32(
         &rewriter->builder, op->location, byte_value, &format, &replacement));
   } else {
-    // F32 represents every FP8 value exactly. Keep this edge as an ordinary
-    // extension so the target can still select its native F32 conversion.
+    // F32 represents every narrow source value exactly. Keep this edge as an
+    // ordinary extension so the target can select its native F32 conversion.
     loom_op_t* widened = NULL;
     IREE_RETURN_IF_ERROR(
         loom_scalar_extf_build(&rewriter->builder, loom_scalar_extf_input(op),
                                input_type, f32_type, op->location, &widened));
     loom_op_t* converted = NULL;
-    IREE_RETURN_IF_ERROR(loom_scalar_fptrunc_build(
-        &rewriter->builder, loom_scalar_extf_result(widened), f32_type,
-        result_type, op->location, &converted));
+    if (widen_to_f64) {
+      IREE_RETURN_IF_ERROR(loom_scalar_extf_build(
+          &rewriter->builder, loom_scalar_extf_result(widened), f32_type,
+          result_type, op->location, &converted));
+    } else {
+      IREE_RETURN_IF_ERROR(loom_scalar_fptrunc_build(
+          &rewriter->builder, loom_scalar_extf_result(widened), f32_type,
+          result_type, op->location, &converted));
+    }
     replacement = loom_op_results(converted)[0];
   }
   IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
@@ -389,7 +456,7 @@ static iree_status_t loom_scalar_legalize_extf(
   return iree_ok_status();
 }
 
-static iree_status_t loom_scalar_legalize_extui(
+static iree_status_t loom_scalar_legalize_boolean_extension(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
     loom_target_legalizer_result_t* out_result) {
@@ -398,16 +465,9 @@ static iree_status_t loom_scalar_legalize_extui(
       .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
   };
 
-  const loom_type_t input_type =
-      loom_module_value_type(context->module, loom_scalar_extui_input(op));
+  const loom_value_id_t input = loom_op_operands(op)[0];
   const loom_type_t result_type =
-      loom_module_value_type(context->module, loom_scalar_extui_result(op));
-  if (!loom_type_equal(input_type, loom_type_scalar(LOOM_SCALAR_TYPE_I1)) ||
-      !loom_type_is_scalar(result_type) ||
-      !loom_scalar_type_is_integer(loom_type_element_type(result_type)) ||
-      loom_scalar_type_bitwidth(loom_type_element_type(result_type)) <= 1) {
-    return iree_ok_status();
-  }
+      loom_module_value_type(context->module, loom_op_results(op)[0]);
 
   loom_rewriter_t* rewriter = context->rewriter;
   loom_builder_set_before(&rewriter->builder, op);
@@ -415,14 +475,15 @@ static iree_status_t loom_scalar_legalize_extui(
       loom_rewriter_value_checkpoint(rewriter);
   loom_value_id_t true_value = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_scalar_constant(
-      &rewriter->builder, op->location, result_type, 1, &true_value));
+      &rewriter->builder, op->location, result_type,
+      loom_scalar_extsi_isa(op) ? -1 : 1, &true_value));
   loom_value_id_t false_value = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_scalar_constant(
       &rewriter->builder, op->location, result_type, 0, &false_value));
   loom_value_id_t replacement = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_select(
-      &rewriter->builder, op->location, result_type,
-      loom_scalar_extui_input(op), true_value, false_value, &replacement));
+      &rewriter->builder, op->location, result_type, input, true_value,
+      false_value, &replacement));
   IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
       rewriter, op, &replacement, 1, value_checkpoint));
   IREE_RETURN_IF_ERROR(
@@ -615,9 +676,13 @@ static iree_status_t loom_scalar_legalize_narrow_binary(
   const loom_type_t result_type =
       loom_module_value_type(context->module, loom_op_results(op)[0]);
 
-  const bool signed_operands = op->kind == LOOM_OP_SCALAR_DIVSI ||
-                               op->kind == LOOM_OP_SCALAR_REMSI ||
-                               op->kind == LOOM_OP_SCALAR_SHRSI;
+  // A left shift may sign-extend its narrow operands: every defined shift
+  // amount is nonnegative and truncation preserves the low result bits. Unlike
+  // zero extension, this form remains stable when generic canonicalization
+  // moves a proven shift before an extension.
+  const bool sign_extend_operands =
+      op->kind == LOOM_OP_SCALAR_DIVSI || op->kind == LOOM_OP_SCALAR_REMSI ||
+      op->kind == LOOM_OP_SCALAR_SHLI || op->kind == LOOM_OP_SCALAR_SHRSI;
   const loom_type_t working_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
   loom_rewriter_t* rewriter = context->rewriter;
   loom_builder_t* builder = &rewriter->builder;
@@ -625,7 +690,7 @@ static iree_status_t loom_scalar_legalize_narrow_binary(
   const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
   loom_value_id_t operands[2];
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_widen_integer_operands(
-      builder, op, signed_operands, operands));
+      builder, op, sign_extend_operands, operands));
 
   // The registered binary families have no attributes. Narrow no-wrap flags
   // do not describe the widened intermediate, so its flags remain empty.
@@ -681,7 +746,222 @@ static iree_status_t loom_scalar_legalize_narrow_cmpi(
   return iree_ok_status();
 }
 
+// Native extrema contracts take precedence over this comparison/selection
+// decomposition. Ordinary cleanup preserves it because extrema formation is
+// restricted to the pre-legalization combine phase.
+static iree_status_t loom_scalar_legalize_integer_extrema(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  const bool is_signed = loom_scalar_minsi_isa(op) || loom_scalar_maxsi_isa(op);
+  const bool is_minimum =
+      loom_scalar_minsi_isa(op) || loom_scalar_minui_isa(op);
+  const loom_scalar_cmpi_predicate_t predicate =
+      is_signed ? (is_minimum ? LOOM_SCALAR_CMPI_PREDICATE_SLT
+                              : LOOM_SCALAR_CMPI_PREDICATE_SGT)
+                : (is_minimum ? LOOM_SCALAR_CMPI_PREDICATE_ULT
+                              : LOOM_SCALAR_CMPI_PREDICATE_UGT);
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  const loom_value_id_t lhs = loom_op_operands(op)[0];
+  const loom_value_id_t rhs = loom_op_operands(op)[1];
+  const loom_type_t type = loom_module_value_type(context->module, lhs);
+  loom_op_t* comparison = NULL;
+  IREE_RETURN_IF_ERROR(loom_scalar_cmpi_build(builder, predicate, lhs, rhs,
+                                              op->location, &comparison));
+  loom_value_id_t replacement = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_select(
+      builder, op->location, type, loom_scalar_cmpi_result(comparison), lhs,
+      rhs, &replacement));
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  return iree_ok_status();
+}
+
+// F32 represents every numeric FP8, F16, and BF16 value exactly. Comparisons
+// therefore preserve their predicate result, while extrema and clamps return
+// an input value or a NaN that can be narrowed without intermediate rounding
+// or a NaN payload guarantee.
+static iree_status_t loom_scalar_legalize_exact_narrow_float(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  const loom_type_t type =
+      loom_module_value_type(context->module, loom_op_operands(op)[0]);
+  const loom_type_t working_type = loom_type_scalar(LOOM_SCALAR_TYPE_F32);
+  const iree_host_size_t operand_count = loom_scalar_clampf_isa(op) ? 3 : 2;
+  loom_value_id_t operands[3];
+  for (iree_host_size_t i = 0; i < operand_count; ++i) {
+    loom_op_t* extension = NULL;
+    IREE_RETURN_IF_ERROR(
+        loom_scalar_extf_build(builder, loom_op_operands(op)[i], type,
+                               working_type, op->location, &extension));
+    operands[i] = loom_scalar_extf_result(extension);
+  }
+
+  loom_op_t* widened = NULL;
+  if (loom_scalar_cmpf_isa(op)) {
+    IREE_RETURN_IF_ERROR(loom_scalar_cmpf_build(
+        builder, op->instance_flags, loom_scalar_cmpf_predicate(op),
+        operands[0], operands[1], op->location, &widened));
+  } else if (loom_scalar_clampf_isa(op)) {
+    IREE_RETURN_IF_ERROR(loom_scalar_clampf_build(
+        builder, loom_scalar_clampf_mode(op), op->instance_flags, operands[0],
+        operands[1], operands[2], working_type, op->location, &widened));
+  } else {
+    // All four extrema have the same attribute-free binary shape and flags.
+    IREE_RETURN_IF_ERROR(loom_builder_allocate_op(builder, op->kind, 2, 1, 0, 0,
+                                                  0, op->location, &widened));
+    widened->instance_flags = op->instance_flags;
+    loom_op_operands(widened)[0] = operands[0];
+    loom_op_operands(widened)[1] = operands[1];
+    IREE_RETURN_IF_ERROR(loom_builder_define_result(
+        builder, working_type, &loom_op_results(widened)[0]));
+    IREE_RETURN_IF_ERROR(loom_builder_finalize_op(builder, widened));
+  }
+
+  loom_value_id_t replacement = loom_op_results(widened)[0];
+  if (!loom_scalar_cmpf_isa(op)) {
+    loom_op_t* truncation = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_fptrunc_build(
+        builder, replacement, working_type, type, op->location, &truncation));
+    replacement = loom_scalar_fptrunc_result(truncation);
+  }
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  return iree_ok_status();
+}
+
+// Number-preferring extrema already implement signed-zero ordering. An
+// unordered comparison adds the IEEE NaN policy without changing numeric
+// operands or exposing a NaN payload guarantee.
+static iree_status_t loom_scalar_legalize_ieee_extrema(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  const loom_value_id_t lhs = loom_op_operands(op)[0];
+  const loom_value_id_t rhs = loom_op_operands(op)[1];
+  const loom_type_t type = loom_module_value_type(context->module, lhs);
+
+  loom_op_t* number = NULL;
+  if (loom_scalar_minimumf_isa(op)) {
+    IREE_RETURN_IF_ERROR(loom_scalar_minnumf_build(
+        builder, op->instance_flags, lhs, rhs, type, op->location, &number));
+  } else {
+    IREE_RETURN_IF_ERROR(loom_scalar_maxnumf_build(
+        builder, op->instance_flags, lhs, rhs, type, op->location, &number));
+  }
+  loom_op_t* unordered = NULL;
+  IREE_RETURN_IF_ERROR(loom_scalar_cmpf_build(
+      builder, op->instance_flags, LOOM_SCALAR_CMPF_PREDICATE_UNO, lhs, rhs,
+      op->location, &unordered));
+  loom_op_t* nan = NULL;
+  IREE_RETURN_IF_ERROR(loom_scalar_constant_build(builder, loom_attr_f64(NAN),
+                                                  type, op->location, &nan));
+  loom_op_t* select = NULL;
+  IREE_RETURN_IF_ERROR(loom_scf_select_build(
+      builder, loom_scalar_cmpf_result(unordered),
+      loom_scalar_constant_result(nan), loom_op_results(number)[0], type,
+      op->location, &select));
+  const loom_value_id_t replacement = loom_scf_select_result(select);
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  return iree_ok_status();
+}
+
 static const loom_target_legalizer_rule_t kScalarLegalizerRules[] = {
+    {
+        .root_kind = LOOM_OP_SCALAR_MINSI,
+        .legalize = loom_scalar_legalize_integer_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MAXSI,
+        .legalize = loom_scalar_legalize_integer_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MINUI,
+        .legalize = loom_scalar_legalize_integer_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MAXUI,
+        .legalize = loom_scalar_legalize_integer_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_CMPF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_scalar_legalize_exact_narrow_float,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_CLAMPF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_scalar_legalize_exact_narrow_float,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MINNUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_scalar_legalize_exact_narrow_float,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MAXNUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_scalar_legalize_exact_narrow_float,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MINIMUMF,
+        .first_operand_element_types =
+            LOOM_SCALAR_TYPE_SET_FLOAT_LE16 & ~LOOM_SCALAR_TYPE_SET_F16,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_scalar_legalize_exact_narrow_float,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MAXIMUMF,
+        .first_operand_element_types =
+            LOOM_SCALAR_TYPE_SET_FLOAT_LE16 & ~LOOM_SCALAR_TYPE_SET_F16,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_scalar_legalize_exact_narrow_float,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MINIMUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F16 |
+                                       LOOM_SCALAR_TYPE_SET_F32 |
+                                       LOOM_SCALAR_TYPE_SET_F64,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_scalar_legalize_ieee_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MAXIMUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F16 |
+                                       LOOM_SCALAR_TYPE_SET_F32 |
+                                       LOOM_SCALAR_TYPE_SET_F64,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_scalar_legalize_ieee_extrema,
+    },
     {
         .root_kind = LOOM_OP_SCALAR_CMPI,
         .first_operand_element_types =
@@ -779,8 +1059,14 @@ static const loom_target_legalizer_rule_t kScalarLegalizerRules[] = {
         .legalize = loom_scalar_legalize_extf,
     },
     {
+        .root_kind = LOOM_OP_SCALAR_EXTSI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I1,
+        .legalize = loom_scalar_legalize_boolean_extension,
+    },
+    {
         .root_kind = LOOM_OP_SCALAR_EXTUI,
-        .legalize = loom_scalar_legalize_extui,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I1,
+        .legalize = loom_scalar_legalize_boolean_extension,
     },
     {
         .root_kind = LOOM_OP_SCALAR_FMAI,

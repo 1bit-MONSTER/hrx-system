@@ -33,6 +33,7 @@ from loom.target.contracts import (
     LowerEmitKind,
     SourceMemoryAddressMaterializer,
     SourceMemoryByteOffsetMaterializer,
+    SourceMemoryRejectionReason,
     SourceNodeRelation,
     SourceValueKind,
     TypePattern,
@@ -53,6 +54,7 @@ _STRUCTURAL_EMIT_KINDS = (
     LowerEmitKind.REGISTER_SLICE,
     LowerEmitKind.REGISTER_CONCAT,
     LowerEmitKind.REGISTER_COPY,
+    LowerEmitKind.REGISTER_MOVE,
 )
 
 
@@ -247,6 +249,7 @@ def _generate_source(
             f"#if LOOM_LOW_LOWER_MAX_DIAGNOSTIC_PARAMS != {MAX_TARGET_DIAGNOSTIC_PARAMS}",
             '#error "target diagnostic parameter capacity mismatch"',
             "#endif",
+            f'static_assert(LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT == {len(SourceMemoryRejectionReason)}, "source-memory rejection reason count mismatch");',
         ]
     )
     lines.append("")
@@ -450,12 +453,29 @@ def _generate_source(
     )
 
     unique_guards, guard_refs = _intern_rows(table.guards)
+    storage_operand_schemas, _ = _intern_rows(tuple(row.storage_operand_schema for row in unique_guards if row.storage_operand_schema is not None))
+    storage_operand_schema_ordinals = {schema: ordinal for ordinal, schema in enumerate(storage_operand_schemas)}
+    storage_operand_schemas_name = f"k{c_table_prefix}StorageOperandSchemas"
+    lines.extend(
+        lower_rule_rows.emit_optional_array(
+            storage_operand_schemas_name,
+            "loom_encoding_operand_summary_t",
+            [lower_rule_rows.storage_operand_schema_row(schema) for schema in storage_operand_schemas],
+        )
+    )
     guards_name = f"k{c_table_prefix}Guards"
     lines.extend(
         lower_rule_rows.emit_optional_array(
             guards_name,
             "loom_low_lower_guard_t",
-            [lower_rule_rows.guard_row(descriptor_refs, row) for row in unique_guards],
+            [
+                lower_rule_rows.guard_row(
+                    descriptor_refs,
+                    row,
+                    storage_operand_schema_ordinals=storage_operand_schema_ordinals,
+                )
+                for row in unique_guards
+            ],
         )
     )
 
@@ -569,6 +589,8 @@ def _generate_source(
             diagnostic_param_refs_name=diagnostic_param_refs_name,
             guard_rows=unique_guards,
             guards_name=guards_name,
+            storage_operand_schemas=storage_operand_schemas,
+            storage_operand_schemas_name=storage_operand_schemas_name,
             guard_refs=guard_refs,
             guard_refs_name=guard_refs_name,
             attr_copies_name=attr_copies_name,
@@ -835,23 +857,28 @@ def _validate_c_table_shape(
                 f"{row_subject} dynamic byte stride",
             )
         _require_u8(
-            constraint.dynamic_offset_unsigned_bit_count,
-            f"{row_subject} dynamic offset unsigned bit count",
+            constraint.byte_offset_unsigned_bit_count,
+            f"{row_subject} byte offset unsigned bit count",
         )
-        for diagnostic_name, diagnostic_index in (
-            ("constraint", row.diagnostic_index),
-            ("dynamic-offset", row.dynamic_offset_diagnostic_index),
-            ("address-layout", row.address_layout_diagnostic_index),
-            ("address", row.address_diagnostic_index),
+        _require_u8(
+            constraint.dynamic_offset_unsigned_bit_count,
+            f"{row_subject} dynamic byte offset unsigned bit count",
+        )
+        if len(row.rejection_diagnostic_indices) != len(SourceMemoryRejectionReason):
+            raise ValueError(f"{row_subject} rejection diagnostic count disagrees with source-memory rejection reasons")
+        for reason, diagnostic_index in zip(
+            SourceMemoryRejectionReason,
+            row.rejection_diagnostic_indices,
+            strict=True,
         ):
             _require_u16(
                 diagnostic_index,
-                f"{row_subject} {diagnostic_name} diagnostic index",
+                f"{row_subject} {reason.value} diagnostic index",
             )
             _require_optional_table_index(
                 diagnostic_index,
                 len(table.diagnostics),
-                f"{row_subject} {diagnostic_name} diagnostic index",
+                f"{row_subject} {reason.value} diagnostic index",
                 "diagnostic",
             )
         if constraint.cache_policy_build_flags is not None:

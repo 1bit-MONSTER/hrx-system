@@ -1,0 +1,52 @@
+func.def @increment(%value: i32) -> (i32) {
+  %increment = scalar.constant 1 : i32
+  %result = scalar.addi %value, %increment : i32
+  func.return %result : i32
+}
+
+func.def @choose_buffer_reference(%choose_first: i1, %first: buffer, %second: buffer) -> (buffer) {
+  %selected = scf.select %choose_first, %first, %second : buffer
+  func.return %selected : buffer
+}
+
+check.scenario public @batched_vm {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %input = check.literal value(4) : i32
+    check.compare<@increment>(%input) : (i32) -> [actual(%actual: i32), expected(%expected: i32)] {
+      check.expect.equal actual(%actual) expected(%expected) : i32
+    }
+  }
+  check.trial[2](%trial: index, %entropy: check.entropy) {
+    %input = check.literal value(8) : i32
+    check.invoke<@increment>(%input) : (i32) -> (i32)
+  }
+  check.return
+}
+
+check.scenario public @returned_reference_vm {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %choose_first = check.literal value(true) : i1
+    %first_storage = check.generate.iota offset(17) step(3) : tensor<6xi32>
+    %second_storage = check.generate.iota offset(101) step(5) : tensor<6xi32>
+    %first = check.tensor.view %first_storage offset(4) : tensor<6xi32> -> tensor<4xi32>
+    %second = check.tensor.view %second_storage offset(4) : tensor<6xi32> -> tensor<4xi32>
+    check.compare<@choose_buffer_reference>(%choose_first, %first, %second) : (i1, tensor<4xi32>, tensor<4xi32>) -> [actual(%actual: buffer), expected(%expected: buffer)] {
+      check.expect.equal actual(%actual) expected(%expected) : buffer
+      check.expect.bitwise actual(%first_storage) expected(%first_storage) : tensor<6xi32>
+      check.expect.bitwise actual(%second_storage) expected(%second_storage) : tensor<6xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %choose_first = check.literal value(false) : i1
+    %first_storage = check.generate.iota offset(17) step(3) : tensor<6xi32>
+    %second_storage = check.generate.iota offset(101) step(5) : tensor<6xi32>
+    %first = check.tensor.view %first_storage offset(4) : tensor<6xi32> -> tensor<4xi32>
+    %second = check.tensor.view %second_storage offset(4) : tensor<6xi32> -> tensor<4xi32>
+    check.compare<@choose_buffer_reference>(%choose_first, %first, %second) : (i1, tensor<4xi32>, tensor<4xi32>) -> [actual(%actual: buffer), expected(%expected: buffer)] {
+      check.expect.equal actual(%actual) expected(%expected) : buffer
+      check.expect.bitwise actual(%first_storage) expected(%first_storage) : tensor<6xi32>
+      check.expect.bitwise actual(%second_storage) expected(%second_storage) : tensor<6xi32>
+    }
+  }
+  check.return
+}

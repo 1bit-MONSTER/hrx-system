@@ -1,0 +1,175 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// RUN: emit amdgpu-assembly @buffer_base_capture strategy=source fixed=%resource:physical_register:32:4 fixed=%next_resource:physical_register:32:4 fixed=%offset:physical_register:40:1 fixed=%first:physical_register:8:4 fixed=%second:physical_register:12:4
+
+// The next descriptor overwrites the first load's base before either result
+// completes. Both result tuples still require completion before returning.
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @buffer_base_capture(%base: reg<amdgpu.sgpr x2>, %address: reg<amdgpu.vgpr>, %offset: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr x4>, reg<amdgpu.vgpr x4>) asm {
+  %base_low = slice %base[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %base_high = slice %base[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %bound = s_mov_b32 1024
+  %format = s_mov_b32 822173696
+  %resource = concat(%base, %bound, %format) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x4>
+  %step = s_mov_b32 16
+  %zero = s_mov_b32 0
+  %first = buffer_load_b128 %resource, %address, %offset
+  %next_low, %carry = s_add_co_u32 %base_low, %step
+  %next_high, %next_carry = s_addc_u32 %base_high, %zero, %carry
+  %next_resource = concat(%next_low, %next_high, %bound, %format) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x4>
+  %second = buffer_load_b128 %next_resource, %address, %offset
+  return %first, %second
+}
+
+// ----
+  s_mov_b32 s0, s32
+  s_mov_b32 s1, s33
+  s_mov_b32 s34, 1024
+  s_mov_b32 s35, 822173696
+  s_mov_b32 s2, 16
+  s_mov_b32 s3, 0
+  buffer_load_b128 v[8:11], v0, s[32:35], s40 offen offset:0
+  s_add_u32 s32, s0, s2
+  s_addc_u32 s33, s1, s3
+  buffer_load_b128 v[12:15], v0, s[32:35], s40 offen offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @buffer_bound_capture strategy=source fixed=%resource:physical_register:32:4 fixed=%next_resource:physical_register:32:4 fixed=%next_bound:physical_register:34:1 fixed=%offset:physical_register:40:1 fixed=%first:physical_register:8:2 fixed=%second:physical_register:12:2
+
+// Changing the bound affects the second load, not the outstanding first load.
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @buffer_bound_capture(%base: reg<amdgpu.sgpr x2>, %address: reg<amdgpu.vgpr>, %offset: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %bound = s_mov_b32 1024
+  %format = s_mov_b32 822173696
+  %resource = concat(%base, %bound, %format) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x4>
+  %first = buffer_load_b64 %resource, %address, %offset
+  %next_bound = s_mov_b32 0
+  %next_resource = concat(%base, %next_bound, %format) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x4>
+  %second = buffer_load_b64 %next_resource, %address, %offset
+  return %first, %second
+}
+
+// ----
+  s_mov_b32 s2, 1024
+  s_mov_b32 s3, 822173696
+  s_mov_b32 s32, s0
+  s_mov_b32 s33, s1
+  s_mov_b32 s34, s2
+  s_mov_b32 s35, s3
+  buffer_load_b64 v[8:9], v0, s[32:35], s40 offen offset:0
+  s_mov_b32 s34, 0
+  s_mov_b32 s32, s0
+  s_mov_b32 s33, s1
+  s_mov_b32 s35, s3
+  buffer_load_b64 v[12:13], v0, s[32:35], s40 offen offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @buffer_offset_capture strategy=source fixed=%resource:physical_register:32:4 fixed=%offset:physical_register:40:1 fixed=%next_offset:physical_register:40:1 fixed=%first:physical_register:8:1 fixed=%second:physical_register:12:1
+
+// The generic gfx11 contract also captures SOFFSET independently of the result.
+amdgpu.target<gfx11-generic> @target
+
+low.func.def target<amdgpu.gfx11.generic.core>(@target) @buffer_offset_capture(%resource: reg<amdgpu.sgpr x4>, %address: reg<amdgpu.vgpr>, %offset: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %first = buffer_load_dword %resource, %address, %offset
+  %next_offset = s_add_u32_rhs_inline %offset, 4
+  %second = buffer_load_dword %resource, %address, %next_offset
+  return %first, %second
+}
+
+// ----
+  buffer_load_dword v8, v0, s[32:35], s40 offen offset:0
+  s_add_u32 s40, s40, 4
+  buffer_load_dword v12, v0, s[32:35], s40 offen offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @buffer_narrow_capture strategy=source fixed=%resource:physical_register:32:4 fixed=%offset:physical_register:40:1 fixed=%next_offset:physical_register:40:1 fixed=%loaded:physical_register:8:1 fixed=%output:physical_register:44:2
+
+// Narrow loads share scalar capture, but storing their result still waits for it.
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @buffer_narrow_capture(%resource: reg<amdgpu.sgpr x4>, %address: reg<amdgpu.vgpr>, %offset: reg<amdgpu.sgpr>, %output: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr>) asm {
+  %loaded = buffer_load_u8 %resource, %address, %offset
+  %next_offset = s_add_u32_rhs_inline %offset, 1
+  global_store_b32_saddr %address, %loaded, %output
+  return %next_offset
+}
+
+// ----
+  buffer_load_u8 v8, v0, s[32:35], s40 offen offset:0
+  s_add_u32 s40, s40, 1
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v0, v8, s[44:45] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @buffer_tied_half_capture strategy=source fixed=%resource:physical_register:32:4 fixed=%offset:physical_register:40:1 fixed=%next_offset:physical_register:40:1 fixed=%low_half:physical_register:8:1 fixed=%loaded:physical_register:8:1 fixed=%output:physical_register:44:2
+
+// The tied low half remains intact while the high half loads. Capturing the
+// scalar offset does not make the high-half result ready for its consumer.
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @buffer_tied_half_capture(%resource: reg<amdgpu.sgpr x4>, %address: reg<amdgpu.vgpr>, %offset: reg<amdgpu.sgpr>, %low_half: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr>) asm {
+  %loaded = buffer_load_d16_hi_b16 %low_half, %resource, %address, %offset
+  %next_offset = s_add_u32_rhs_inline %offset, 2
+  global_store_b32_saddr %address, %loaded, %output
+  return %next_offset
+}
+
+// ----
+  buffer_load_d16_hi_b16 v8, v0, s[32:35], s40 offen offset:0 glc:0 slc:0 dlc:0
+  s_add_u32 s40, s40, 2
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v0, v8, s[44:45] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @buffer_result_overwrite_waits strategy=source fixed=%resource:physical_register:32:4 fixed=%loaded:physical_register:8:1 fixed=%replacement:physical_register:8:1
+
+// Result storage is still owned by the outstanding load, even if its SSA value
+// is unused. Reusing that VGPR must wait before issuing the replacement write.
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @buffer_result_overwrite_waits(%resource: reg<amdgpu.sgpr x4>) -> (reg<amdgpu.vgpr>) asm {
+  %loaded = buffer_load_dword_off_zero %resource
+  %replacement = v_mov_b32 42
+  return %replacement
+}
+
+// ----
+  buffer_load_dword v8, off, s[32:35], 0 offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  v_mov_b32 v8, 42
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @buffer_store_source_lifetime strategy=source fixed=%resource:physical_register:32:4 fixed=%replacement:physical_register:32:1
+
+// Store scalar inputs are captured before memory completion too. The store
+// itself still completes before termination.
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @buffer_store_source_lifetime(%resource: reg<amdgpu.sgpr x4>, %value: reg<amdgpu.vgpr>) -> (reg<amdgpu.sgpr>) asm {
+  buffer_store_dword_off_zero %value, %resource
+  %replacement = s_mov_b32 0
+  return %replacement
+}
+
+// ----
+  buffer_store_dword v0, off, s[32:35], 0 offset:0
+  s_mov_b32 s32, 0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm

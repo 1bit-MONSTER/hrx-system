@@ -1,0 +1,36 @@
+func.def @transport_aliases(%delta: i32, %head: buffer, %tail: buffer, %other: buffer) -> (buffer, i32, i32, i32, i32, i32) {
+  %c0 = index.constant 0 : offset
+  %head_view = buffer.view %head[%c0] : buffer -> view<4xi32>
+  %tail_view = buffer.view %tail[%c0] : buffer -> view<4xi32>
+  %other_view = buffer.view %other[%c0] : buffer -> view<4xi32>
+  %head_value = view.load %head_view[0] : view<4xi32> -> i32
+  %tail_before = view.load %tail_view[0] : view<4xi32> -> i32
+  %tail_after = scalar.addi %tail_before, %delta : i32
+  view.store %tail_after, %tail_view[0] : i32, view<4xi32>
+  %other_before = view.load %other_view[0] : view<4xi32> -> i32
+  %other_after = scalar.subi %other_before, %delta : i32
+  view.store %other_after, %other_view[0] : i32, view<4xi32>
+  func.return %tail, %head_value, %tail_before, %tail_after, %other_before, %other_after : buffer, i32, i32, i32, i32, i32
+}
+
+check.scenario public @hosted_wasm_transport {
+  check.trial[2](%trial: index, %entropy: check.entropy) {
+    %delta = check.literal value(7) : i32
+    %primary_storage = check.generate.iota offset(10) step(3) : tensor<8xi32>
+    %other_storage = check.generate.iota offset(100) step(5) : tensor<6xi32>
+    %head = check.tensor.view %primary_storage offset(0) : tensor<8xi32> -> tensor<4xi32>
+    %tail = check.tensor.view %primary_storage offset(8) : tensor<8xi32> -> tensor<4xi32>
+    %other = check.tensor.view %other_storage offset(4) : tensor<6xi32> -> tensor<4xi32>
+    check.compare<@transport_aliases>(%delta, %head, %tail, %other) : (i32, tensor<4xi32>, tensor<4xi32>, tensor<4xi32>) -> [actual(%actual_buffer: buffer, %actual_head: i32, %actual_tail_before: i32, %actual_tail_after: i32, %actual_other_before: i32, %actual_other_after: i32), expected(%expected_buffer: buffer, %expected_head: i32, %expected_tail_before: i32, %expected_tail_after: i32, %expected_other_before: i32, %expected_other_after: i32)] {
+      check.expect.equal actual(%actual_buffer) expected(%expected_buffer) : buffer
+      check.expect.equal actual(%actual_head) expected(%expected_head) : i32
+      check.expect.equal actual(%actual_tail_before) expected(%expected_tail_before) : i32
+      check.expect.equal actual(%actual_tail_after) expected(%expected_tail_after) : i32
+      check.expect.equal actual(%actual_other_before) expected(%expected_other_before) : i32
+      check.expect.equal actual(%actual_other_after) expected(%expected_other_after) : i32
+      check.expect.bitwise actual(%primary_storage) expected(%primary_storage) : tensor<8xi32>
+      check.expect.bitwise actual(%other_storage) expected(%other_storage) : tensor<6xi32>
+    }
+  }
+  check.return
+}

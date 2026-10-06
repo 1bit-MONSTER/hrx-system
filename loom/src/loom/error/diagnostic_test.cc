@@ -18,6 +18,22 @@
 namespace loom {
 namespace {
 
+std::string FormatDiagnostic(const loom_diagnostic_t* diagnostic) {
+  iree_string_builder_t builder;
+  iree_string_builder_initialize(iree_allocator_system(), &builder);
+  loom_output_stream_t stream;
+  loom_output_stream_for_builder(&builder, &stream);
+  iree_status_t status = loom_diagnostic_format(diagnostic, &stream);
+  std::string result;
+  if (iree_status_is_ok(status)) {
+    result = std::string(iree_string_builder_buffer(&builder),
+                         iree_string_builder_size(&builder));
+  }
+  IREE_EXPECT_OK(status);
+  iree_string_builder_deinitialize(&builder);
+  return result;
+}
+
 // Helper to format a structured diagnostic and return the output string.
 std::string FormatStructured(
     const loom_error_def_t* error, const loom_diagnostic_param_t* params,
@@ -41,19 +57,7 @@ std::string FormatStructured(
     diagnostic.origin.end_column = column + (uint32_t)(end - start);
   }
 
-  iree_string_builder_t builder;
-  iree_string_builder_initialize(iree_allocator_system(), &builder);
-  loom_output_stream_t stream;
-  loom_output_stream_for_builder(&builder, &stream);
-  iree_status_t status = loom_diagnostic_format(&diagnostic, &stream);
-  std::string result;
-  if (iree_status_is_ok(status)) {
-    result = std::string(iree_string_builder_buffer(&builder),
-                         iree_string_builder_size(&builder));
-  }
-  IREE_EXPECT_OK(status);
-  iree_string_builder_deinitialize(&builder);
-  return result;
+  return FormatDiagnostic(&diagnostic);
 }
 
 //===----------------------------------------------------------------------===//
@@ -223,6 +227,71 @@ TEST(Diagnostic, NoSource) {
   EXPECT_NE(output.find("undefined SSA value '%missing'"), std::string::npos);
   // No caret or source line.
   EXPECT_EQ(output.find(" | "), std::string::npos);
+}
+
+TEST(Diagnostic, LocationsDoNotRequireSourceText) {
+  loom_diagnostic_param_t params[] = {loom_param_string(IREE_SV("x"))};
+  loom_diagnostic_t diagnostic = {};
+  diagnostic.severity = LOOM_DIAGNOSTIC_ERROR;
+  diagnostic.error = loom_error_def_lookup(LOOM_ERROR_DOMAIN_PARSE, 1);
+  diagnostic.params = params;
+  diagnostic.param_count = IREE_ARRAYSIZE(params);
+  diagnostic.origin.provenance = LOOM_SOURCE_PROVENANCE_UNAVAILABLE_SOURCE;
+  diagnostic.origin.filename = IREE_SV("kernel.cxx");
+  diagnostic.origin.start_line = 7;
+  diagnostic.origin.start_column = 12;
+  loom_diagnostic_related_location_t related = {};
+  related.label = IREE_SV("declared here");
+  related.source_location = diagnostic.origin;
+  related.source_location.filename = IREE_SV("header.h");
+  diagnostic.related_locations = &related;
+  diagnostic.related_location_count = 1;
+  auto output = FormatDiagnostic(&diagnostic);
+  EXPECT_EQ(output.find("kernel.cxx:7:12: error [PARSE/001]"), 0u);
+  EXPECT_NE(output.find("  = note[declared here]: header.h:7:12\n"),
+            std::string::npos);
+  EXPECT_EQ(output.find(" | "), std::string::npos);
+  EXPECT_EQ(output.find('^'), std::string::npos);
+
+  diagnostic.origin.start_column = 0;
+  EXPECT_EQ(FormatDiagnostic(&diagnostic).find("kernel.cxx:7: error"), 0u);
+  diagnostic.origin.start_line = 0;
+  EXPECT_EQ(FormatDiagnostic(&diagnostic).find("kernel.cxx: error"), 0u);
+  // Exact empty snapshots and positions at EOF still have a location header.
+  diagnostic.origin.provenance = LOOM_SOURCE_PROVENANCE_EXACT_SOURCE;
+  diagnostic.origin.start_line = 1;
+  diagnostic.origin.start_column = 1;
+  EXPECT_EQ(FormatDiagnostic(&diagnostic).find("kernel.cxx:1:1: error"), 0u);
+  diagnostic.origin.source = IREE_SV("x");
+  diagnostic.origin.start = diagnostic.origin.end = 1;
+  diagnostic.origin.start_column = 2;
+  output = FormatDiagnostic(&diagnostic);
+  EXPECT_EQ(output.find("kernel.cxx:1:2: error"), 0u);
+  EXPECT_EQ(output.find(" | "), std::string::npos);
+}
+
+TEST(Diagnostic, PrintedIrIsSeparateFromOriginalLocation) {
+  loom_diagnostic_param_t params[] = {loom_param_string(IREE_SV("x"))};
+  loom_diagnostic_t diagnostic = {};
+  diagnostic.severity = LOOM_DIAGNOSTIC_ERROR;
+  diagnostic.error = loom_error_def_lookup(LOOM_ERROR_DOMAIN_PARSE, 1);
+  diagnostic.params = params;
+  diagnostic.param_count = IREE_ARRAYSIZE(params);
+  diagnostic.origin.provenance = LOOM_SOURCE_PROVENANCE_PRINTED_IR_FALLBACK;
+  diagnostic.origin.filename = IREE_SV("<verifier>");
+  diagnostic.origin.source = IREE_SV("test.use %x : i32");
+  diagnostic.origin.end = diagnostic.origin.source.size;
+  diagnostic.origin.start_line = diagnostic.origin.start_column = 1;
+  diagnostic.source_location.provenance =
+      LOOM_SOURCE_PROVENANCE_UNAVAILABLE_SOURCE;
+  diagnostic.source_location.filename = IREE_SV("kernel.cxx");
+  diagnostic.source_location.start_line = 7;
+  diagnostic.source_location.start_column = 12;
+  auto output = FormatDiagnostic(&diagnostic);
+  EXPECT_EQ(output.find("kernel.cxx:7:12: error [PARSE/001]"), 0u);
+  EXPECT_NE(output.find("  = note: current IR\n 1 | test.use %x : i32\n"),
+            std::string::npos);
+  EXPECT_NE(output.find('^'), std::string::npos);
 }
 
 TEST(Diagnostic, RelatedLocationsFormatAsNotes) {

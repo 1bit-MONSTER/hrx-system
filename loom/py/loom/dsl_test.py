@@ -18,6 +18,7 @@ from loom.assembly import (
     EQUALS,
     AssemblyFormat,
     Attr,
+    BlockArgs,
     BlockRef,
     Clause,
     EncodingOf,
@@ -30,6 +31,7 @@ from loom.assembly import (
     Ref,
     Region,
     ResultType,
+    ResultTypeList,
     ScalarOf,
     Scope,
     ScopedEnumRef,
@@ -48,6 +50,7 @@ from loom.dsl import (
     ATTR_TYPE_SYMBOL_SET,
     BUFFER,
     BY_REFERENCE,
+    BYTE_PATTERN_ELEMENT,
     BYTE_PATTERN_SCALAR,
     COMMAND_EFFECT,
     COMMUTATIVE,
@@ -126,8 +129,10 @@ from loom.dsl import (
     HasAllStaticRankOneVector,
     HasAllStaticVector,
     HasAncestor,
+    HasAnyAncestor,
     HasBitwiseElement,
     HasBitwiseScalar,
+    HasBytePatternElement,
     HasF16OrBf16Element,
     HasF32Element,
     HasFloatElement,
@@ -186,8 +191,8 @@ from loom.dsl import (
     UnpackedPayloadBitCountMatchesStorage,
     ValueCountMatchesStaticElementCount,
     Writes,
-    YieldCountMatchesResults,
-    YieldTypesMatchResults,
+    YieldCountMatches,
+    YieldTypesMatch,
     binary_op,
     cast_op,
     comparison_op,
@@ -266,6 +271,7 @@ class TestTypeConstraints:
         assert ADDRESS == TypeConstraint.ADDRESS
         assert BUFFER == TypeConstraint.BUFFER
         assert BYTE_PATTERN_SCALAR == TypeConstraint.BYTE_PATTERN_SCALAR
+        assert BYTE_PATTERN_ELEMENT == TypeConstraint.BYTE_PATTERN_ELEMENT
         assert dsl.I32 == TypeConstraint.I32
         assert STORAGE == TypeConstraint.STORAGE
         assert ANY_ENCODING == TypeConstraint.ANY_ENCODING
@@ -288,6 +294,7 @@ class TestTypeConstraints:
         assert ADDRESS.value == "address"
         assert STORAGE.value == "storage"
         assert BYTE_PATTERN_SCALAR.value == "byte_pattern_scalar"
+        assert BYTE_PATTERN_ELEMENT.value == "byte_pattern_element"
         assert dsl.I32.value == "i32"
 
     def test_element_family_constraints_are_shaped_specific(self) -> None:
@@ -366,6 +373,14 @@ class TestAttrDef:
     def test_elide_default_requires_default(self) -> None:
         with _raises(ValueError, match="elide_default requires default"):
             AttrDef("offset", "i64", elide_default=True)
+
+    def test_executable_predicates_require_predicate_list(self) -> None:
+        predicates = AttrDef("predicates", "predicate_list", executable_predicates=True)
+        assert predicates.executable_predicates
+        with _raises(
+            ValueError, match="executable_predicates requires.*predicate_list"
+        ):
+            AttrDef("predicate", "i64", executable_predicates=True)
 
     def test_enum_attr(self) -> None:
         a = AttrDef("predicate", "enum", enum_def=_cmpi_preds)
@@ -1124,11 +1139,18 @@ class TestTraits:
 
     def test_ancestor_placement_traits(self) -> None:
         required = HasAncestor("low.func.def")
+        alternative = HasAnyAncestor("check.case", "check.scenario")
         forbidden = NoAncestor("low.func.def")
         assert required.name == "HasAncestor"
         assert required.args == ("low.func.def",)
+        assert alternative.name == "HasAnyAncestor"
+        assert alternative.args == ("check.case", "check.scenario")
         assert forbidden.name == "NoAncestor"
         assert forbidden.args == ("low.func.def",)
+
+    def test_any_ancestor_requires_an_alternative(self) -> None:
+        with _raises(ValueError, match="at least one op name"):
+            HasAnyAncestor()
 
     def test_implicit_terminator(self) -> None:
         t = ImplicitTerminator("scf.yield")
@@ -1431,7 +1453,7 @@ class TestConstraints:
             {"x": FakeValue(vector_type(F32))}
         )[0]
 
-    def test_bitwise_constraints_accept_integer_and_float_payloads(self) -> None:
+    def test_bitwise_and_byte_pattern_constraints(self) -> None:
         class FakeValue:
             def __init__(self, value_type: object):
                 self.type = value_type
@@ -1447,6 +1469,17 @@ class TestConstraints:
         assert HasBitwiseElement("x").check({"x": FakeValue(vector_type(I8))})[0]
         assert HasBitwiseElement("x").check({"x": FakeValue(vector_type(F32))})[0]
         assert not HasBitwiseElement("x").check({"x": FakeValue(vector_type(ir.I1))})[0]
+        assert HasBytePatternElement("x").check({"x": FakeValue(vector_type(I8))})[0]
+        assert HasBytePatternElement("x").check({"x": FakeValue(vector_type(F32))})[0]
+        assert not HasBytePatternElement("x").check(
+            {"x": FakeValue(vector_type(ir.I1))}
+        )[0]
+        assert not HasBytePatternElement("x").check(
+            {"x": FakeValue(vector_type(ir.INDEX))}
+        )[0]
+        assert not HasBytePatternElement("x").check(
+            {"x": FakeValue(vector_type(ir.OFFSET))}
+        )[0]
 
     def test_vector_shape_constraints_validate_vector_shape(self) -> None:
         class FakeValue:
@@ -1863,11 +1896,11 @@ class TestConstraints:
         assert block_args_type_match.error is not None
         assert block_args_type_match.error.error_id == "ERR_TYPE_013"
 
-        yield_count = YieldCountMatchesResults("body", "results")
+        yield_count = YieldCountMatches("body", "results")
         assert yield_count.error is not None
         assert yield_count.error.error_id == "ERR_STRUCTURE_008"
 
-        yield_types = YieldTypesMatchResults("body", "results")
+        yield_types = YieldTypesMatch("body", "results")
         assert yield_types.error is not None
         assert yield_types.error.error_id == "ERR_TYPE_009"
 
@@ -2671,6 +2704,41 @@ class TestOp:
         op = Op("test.op", results=[Result("out", FLOAT)])
         assert op.result("out") is not None
         assert op.result("missing") is None
+
+    def test_signature_only_results_require_a_local_signature(self) -> None:
+        op = Op(
+            "test.sink",
+            results=[Result("results", ANY, variadic=True, signature_only=True)],
+            format=[Scope([ResultTypeList("results")])],
+        )
+        assert op.has_signature_only_results
+
+        with _raises(ValueError, match="cannot be mixed"):
+            Op(
+                "test.mixed",
+                results=[
+                    Result("signature", ANY, signature_only=True),
+                    Result("value", ANY),
+                ],
+                format=[Scope([ResultType("signature"), ResultType("value")])],
+            )
+        with _raises(ValueError, match=r"inside Scope\(\.\.\.\)"):
+            Op(
+                "test.unscoped",
+                results=[Result("result", ANY, signature_only=True)],
+                format=[ResultType("result")],
+            )
+        with _raises(ValueError, match="require an explicit result type format"):
+            Op(
+                "test.implicit",
+                results=[Result("result", ANY, signature_only=True)],
+            )
+        with _raises(ValueError, match="cannot allocate resources"):
+            Op(
+                "test.allocating",
+                results=[Result("result", ANY, allocates=True, signature_only=True)],
+                format=[Scope([ResultType("result")])],
+            )
 
     def test_lookup_attr(self) -> None:
         op = Op("test.op", attrs=[AttrDef("axis", "i64")])
@@ -3561,6 +3629,129 @@ class TestSymbolKernelContract:
         )
 
         assert op.attr("specialization_count") is not None
+
+    def test_region_signature_may_have_contiguous_argument_groups(self) -> None:
+        op = Op(
+            "test.partitioned_region",
+            attrs=[AttrDef("actual_count", "i64")],
+            regions=[RegionDef("body")],
+            format=[
+                BlockArgs(
+                    "body",
+                    group="actual",
+                    end_attr="actual_count",
+                ),
+                BlockArgs(
+                    "body",
+                    group="expected",
+                    start_attr="actual_count",
+                ),
+                Region("body"),
+            ],
+        )
+
+        assert op.attr("actual_count") is not None
+
+    def test_region_signature_partition_allows_optional_boundary(self) -> None:
+        op = Op(
+            "test.partitioned_region",
+            attrs=[AttrDef("actual_count", "i64", optional=True)],
+            regions=[RegionDef("body")],
+            format=[
+                BlockArgs(
+                    "body",
+                    group="actual",
+                    end_attr="actual_count",
+                ),
+                BlockArgs(
+                    "body",
+                    group="expected",
+                    start_attr="actual_count",
+                ),
+                Region("body"),
+            ],
+        )
+
+        assert op.attr("actual_count") is not None
+
+    def test_region_signature_partition_requires_matching_boundaries(self) -> None:
+        with _raises(ValueError, match="must use 'actual_count'"):
+            Op(
+                "test.partitioned_region",
+                attrs=[
+                    AttrDef("actual_count", "i64"),
+                    AttrDef("wrong_count", "i64"),
+                ],
+                regions=[RegionDef("body")],
+                format=[
+                    BlockArgs(
+                        "body",
+                        group="actual",
+                        end_attr="actual_count",
+                    ),
+                    BlockArgs(
+                        "body",
+                        group="expected",
+                        start_attr="wrong_count",
+                    ),
+                    Region("body"),
+                ],
+            )
+
+    def test_region_signature_partition_requires_boundaries(self) -> None:
+        with _raises(ValueError, match="requires an end boundary"):
+            Op(
+                "test.partitioned_region",
+                regions=[RegionDef("body")],
+                format=[
+                    BlockArgs("body", group="actual"),
+                    BlockArgs("body", group="expected"),
+                    Region("body"),
+                ],
+            )
+
+    def test_region_signature_partition_requires_i64_boundary(self) -> None:
+        with _raises(ValueError, match="must name an i64 attribute"):
+            Op(
+                "test.partitioned_region",
+                attrs=[AttrDef("actual_count", "string")],
+                regions=[RegionDef("body")],
+                format=[
+                    BlockArgs(
+                        "body",
+                        group="actual",
+                        end_attr="actual_count",
+                    ),
+                    BlockArgs(
+                        "body",
+                        group="expected",
+                        start_attr="actual_count",
+                    ),
+                    Region("body"),
+                ],
+            )
+
+    def test_region_signature_partition_requires_explicit_arguments(self) -> None:
+        with _raises(ValueError, match="require explicit entry arguments"):
+            Op(
+                "test.partitioned_region",
+                operands=[Operand("inputs", ANY, variadic=True)],
+                attrs=[AttrDef("actual_count", "i64")],
+                regions=[RegionDef("body", arg_source="inputs")],
+                format=[
+                    BlockArgs(
+                        "body",
+                        group="actual",
+                        end_attr="actual_count",
+                    ),
+                    BlockArgs(
+                        "body",
+                        group="expected",
+                        start_attr="actual_count",
+                    ),
+                    Region("body"),
+                ],
+            )
 
     def test_body_signature_partition_requires_matching_boundaries(self) -> None:
         with _raises(ValueError, match="must use 'specialization_count'"):

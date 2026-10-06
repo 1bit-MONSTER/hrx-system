@@ -1,0 +1,186 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Writers permute the low lane bits; readers address the opposite 64-lane half
+// directly instead of reusing each writer's address expression.
+// Two workgroups also require independent allocations for the same local slots.
+kernel.def @workgroup_packet_exchange() {
+  %unit = index.constant 1 : index
+  %groups = index.constant 2 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%groups, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %group = kernel.workgroup.id<x> : index
+  %lane = kernel.workitem.id<x> : index
+  %shift = index.constant 4 : index
+  %half = index.constant 64 : index
+  %swizzle = index.shrui %lane, %shift : index
+  %write_slot = index.xori %lane, %swizzle : index
+  %read_slot = index.xori %lane, %half : index
+  %base = index.constant 0 : offset
+  %anchor_bytes = index.constant 512 : offset
+  %packet_bytes = index.constant 16384 : offset
+  %anchor = buffer.alloca<workgroup> align(16) %anchor_bytes : buffer
+  %packets = buffer.alloca<workgroup> align(16) %packet_bytes : buffer
+  %anchor_view = buffer.view %anchor[%base] : buffer -> view<128xi32>
+  %input_words = buffer.view %input[%base] : buffer -> view<2x128x4xi32>
+  %input_halves = buffer.view %input[%base] : buffer -> view<2x128x8xf16>
+  %input_bfloats = buffer.view %input[%base] : buffer -> view<2x128x8xbf16>
+  %input_bytes = buffer.view %input[%base] : buffer -> view<2x128x16xi8>
+  %input_shorts = buffer.view %input[%base] : buffer -> view<2x128x8xi16>
+  %results = buffer.view %output[%base] : buffer -> view<2x128x28xi32>
+  %word_base = index.constant 1024 : offset
+  %half_base = index.constant 4096 : offset
+  %bfloat_base = index.constant 8192 : offset
+  %scalar_base = index.constant 12288 : offset
+  %byte_base = index.constant 14336 : offset
+  %short_base = index.constant 14848 : offset
+  %bfloat_scalar_base = index.constant 15360 : offset
+  %strided_base = index.constant 15872 : offset
+  %words = buffer.view %packets[%word_base] : buffer -> view<128x4xi32>
+  %halves = buffer.view %packets[%half_base] : buffer -> view<128x8xf16>
+  %bfloats = buffer.view %packets[%bfloat_base] : buffer -> view<128x8xbf16>
+  %scalars = buffer.view %packets[%scalar_base] : buffer -> view<128x8xf16>
+  %bytes = buffer.view %packets[%byte_base] : buffer -> view<128x2xi8>
+  %shorts = buffer.view %packets[%short_base] : buffer -> view<128xi16>
+  %bfloat_scalars = buffer.view %packets[%bfloat_scalar_base] : buffer -> view<128xbf16>
+  %strided = buffer.view %packets[%strided_base] : buffer -> view<128x2xf16>
+  %word_payload = vector.load %input_words[%group, %lane, 0] : view<2x128x4xi32> -> vector<4xi32>
+  %half_payload = vector.load %input_halves[%group, %lane, 0] : view<2x128x8xf16> -> vector<8xf16>
+  %bfloat_payload = vector.load %input_bfloats[%group, %lane, 0] : view<2x128x8xbf16> -> vector<8xbf16>
+  %byte_payload = vector.load %input_bytes[%group, %lane, 0] : view<2x128x16xi8> -> vector<2xi8>
+  %short_payload = view.load %input_shorts[%group, %lane, 1] : view<2x128x8xi16> -> i16
+  %bfloat_scalar = view.load %input_bfloats[%group, %lane, 2] : view<2x128x8xbf16> -> bf16
+  %half_scalar = view.load %input_halves[%group, %lane, 0] : view<2x128x8xf16> -> f16
+  %first_word = vector.extract %word_payload[0] : vector<4xi32> -> i32
+  %anchor_mask = scalar.constant 1515870810 : i32
+  %anchor_payload = scalar.xori %first_word, %anchor_mask : i32
+  view.store %anchor_payload, %anchor_view[%write_slot] : i32, view<128xi32>
+  vector.store %word_payload, %words[%write_slot, 0] : vector<4xi32>, view<128x4xi32>
+  vector.store %half_payload, %halves[%write_slot, 0] : vector<8xf16>, view<128x8xf16>
+  vector.store %bfloat_payload, %bfloats[%write_slot, 0] : vector<8xbf16>, view<128x8xbf16>
+  vector.store %byte_payload, %bytes[%write_slot, 0] : vector<2xi8>, view<128x2xi8>
+  view.store %short_payload, %shorts[%write_slot] : i16, view<128xi16>
+  view.store %bfloat_scalar, %bfloat_scalars[%write_slot] : bf16, view<128xbf16>
+  view.store %half_scalar, %strided[%write_slot, 1] : f16, view<128x2xf16>
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  scf.for %column = [%begin to %end step %step] {
+    %element = view.load %input_halves[%group, %lane, %column] : view<2x128x8xf16> -> f16
+    view.store %element, %scalars[%write_slot, %column] : f16, view<128x8xf16>
+  }
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %word_result = vector.load %words[%read_slot, 0] : view<128x4xi32> -> vector<4xi32>
+  %half_result = vector.load %halves[%read_slot, 0] : view<128x8xf16> -> vector<8xf16>
+  %bfloat_result = vector.load %bfloats[%read_slot, 0] : view<128x8xbf16> -> vector<4xbf16>
+  %wide_bfloat_result = vector.load %bfloats[%read_slot, 0] : view<128x8xbf16> -> vector<8xbf16>
+  %short_half_result = vector.load %halves[%read_slot, 0] : view<128x8xf16> -> vector<4xf16>
+  %scalar_result = vector.load %scalars[%read_slot, 0] : view<128x8xf16> -> vector<8xf16>
+  %byte_result = vector.load %bytes[%read_slot, 0] : view<128x2xi8> -> vector<2xi8>
+  %short_result = view.load %shorts[%read_slot] : view<128xi16> -> i16
+  %bfloat_scalar_result = view.load %bfloat_scalars[%read_slot] : view<128xbf16> -> bf16
+  %strided_result = view.load %strided[%read_slot, 1] : view<128x2xf16> -> f16
+  %anchor_result = view.load %anchor_view[%read_slot] : view<128xi32> -> i32
+  %half_words = vector.bitcast %half_result : vector<8xf16> to vector<4xi32>
+  %bfloat_words = vector.bitcast %bfloat_result : vector<4xbf16> to vector<2xi32>
+  %wide_bfloat_words = vector.bitcast %wide_bfloat_result : vector<8xbf16> to vector<4xi32>
+  %short_half_words = vector.bitcast %short_half_result : vector<4xf16> to vector<2xi32>
+  %scalar_words = vector.bitcast %scalar_result : vector<8xf16> to vector<4xi32>
+  %byte_word = vector.bitcast %byte_result : vector<2xi8> to vector<1xi16>
+  %byte_bits = vector.extract %byte_word[0] : vector<1xi16> -> i16
+  %bfloat_bits = scalar.bitcast %bfloat_scalar_result : bf16 to i16
+  %strided_bits = scalar.bitcast %strided_result : f16 to i16
+  %byte_value = scalar.extui %byte_bits : i16 to i32
+  %short_value = scalar.extui %short_result : i16 to i32
+  %bfloat_value = scalar.extui %bfloat_bits : i16 to i32
+  %strided_value = scalar.extui %strided_bits : i16 to i32
+  vector.store %word_result, %results[%group, %lane, 0] : vector<4xi32>, view<2x128x28xi32>
+  vector.store %half_words, %results[%group, %lane, 4] : vector<4xi32>, view<2x128x28xi32>
+  vector.store %bfloat_words, %results[%group, %lane, 8] : vector<2xi32>, view<2x128x28xi32>
+  vector.store %scalar_words, %results[%group, %lane, 10] : vector<4xi32>, view<2x128x28xi32>
+  view.store %byte_value, %results[%group, %lane, 14] : i32, view<2x128x28xi32>
+  view.store %short_value, %results[%group, %lane, 15] : i32, view<2x128x28xi32>
+  view.store %bfloat_value, %results[%group, %lane, 16] : i32, view<2x128x28xi32>
+  view.store %strided_value, %results[%group, %lane, 17] : i32, view<2x128x28xi32>
+  view.store %anchor_result, %results[%group, %lane, 18] : i32, view<2x128x28xi32>
+  vector.store %wide_bfloat_words, %results[%group, %lane, 20] : vector<4xi32>, view<2x128x28xi32>
+  vector.store %short_half_words, %results[%group, %lane, 24] : vector<2xi32>, view<2x128x28xi32>
+  kernel.return
+}
+
+// The swizzle changes only the low four bits, so it is its own inverse. The
+// oracle gathers source words directly without shared storage or vector loads.
+func.def @workgroup_packet_exchange_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<2x128x4xi32>
+  %results = buffer.view %output[%base] : buffer -> view<2x128x28xi32>
+  %begin = index.constant 0 : index
+  %groups = index.constant 2 : index
+  %width = index.constant 128 : index
+  %columns = index.constant 4 : index
+  %step = index.constant 1 : index
+  %shift = index.constant 4 : index
+  %half = index.constant 64 : index
+  %half_bias = index.constant 4 : index
+  %bfloat_bias = index.constant 8 : index
+  %scalar_bias = index.constant 10 : index
+  %wide_bfloat_bias = index.constant 20 : index
+  %short_half_bias = index.constant 24 : index
+  %word_shift = scalar.constant 16 : i32
+  %word_mask = scalar.constant 65535 : i32
+  %anchor_mask = scalar.constant 1515870810 : i32
+  scf.for %group = [%begin to %groups step %step] {
+    scf.for %lane = [%begin to %width step %step] {
+      %slot = index.xori %lane, %half : index
+      %swizzle = index.shrui %slot, %shift : index
+      %owner = index.xori %slot, %swizzle : index
+      scf.for %column = [%begin to %columns step %step] {
+        %word = view.load %source[%group, %owner, %column] : view<2x128x4xi32> -> i32
+        %half_column = index.add %column, %half_bias : index
+        %scalar_column = index.add %column, %scalar_bias : index
+        %wide_bfloat_column = index.add %column, %wide_bfloat_bias : index
+        view.store %word, %results[%group, %lane, %column] : i32, view<2x128x28xi32>
+        view.store %word, %results[%group, %lane, %half_column] : i32, view<2x128x28xi32>
+        view.store %word, %results[%group, %lane, %scalar_column] : i32, view<2x128x28xi32>
+        view.store %word, %results[%group, %lane, %wide_bfloat_column] : i32, view<2x128x28xi32>
+        %is_bfloat = index.cmp ult, %column, %groups : index
+        scf.if %is_bfloat {
+          %bfloat_column = index.add %column, %bfloat_bias : index
+          %short_half_column = index.add %column, %short_half_bias : index
+          view.store %word, %results[%group, %lane, %bfloat_column] : i32, view<2x128x28xi32>
+          view.store %word, %results[%group, %lane, %short_half_column] : i32, view<2x128x28xi32>
+        }
+      }
+      %first = view.load %source[%group, %owner, 0] : view<2x128x4xi32> -> i32
+      %second = view.load %source[%group, %owner, 1] : view<2x128x4xi32> -> i32
+      %low = scalar.andi %first, %word_mask : i32
+      %high = scalar.shrui %first, %word_shift : i32
+      %bfloat = scalar.andi %second, %word_mask : i32
+      %anchor = scalar.xori %first, %anchor_mask : i32
+      view.store %low, %results[%group, %lane, 14] : i32, view<2x128x28xi32>
+      view.store %high, %results[%group, %lane, 15] : i32, view<2x128x28xi32>
+      view.store %bfloat, %results[%group, %lane, 16] : i32, view<2x128x28xi32>
+      view.store %low, %results[%group, %lane, 17] : i32, view<2x128x28xi32>
+      view.store %anchor, %results[%group, %lane, 18] : i32, view<2x128x28xi32>
+    }
+  }
+  func.return
+}
+
+check.scenario @workgroup_packet_exchange_bits {
+  check.trial[8](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(-2147483648 to 2147483647) : tensor<2x128x4xi32>
+    %unchanged_input = check.generate.random.uniform seed(%seed) range(-2147483648 to 2147483647) : tensor<2x128x4xi32>
+    %output = check.generate.fill value(-1) : tensor<2x128x28xi32>
+    check.compare<@workgroup_packet_exchange, @workgroup_packet_exchange_oracle>(%input, %output) : (tensor<2x128x4xi32>, tensor<2x128x28xi32>) -> () {
+      check.expect.bitwise actual(%input) expected(%unchanged_input) : tensor<2x128x4xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2x128x28xi32>
+    }
+  }
+  check.return
+}

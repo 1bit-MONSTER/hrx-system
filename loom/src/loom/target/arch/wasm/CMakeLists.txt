@@ -77,7 +77,7 @@ loom_cc_test(
   DEPS
     iree::testing::gtest
     iree::testing::gtest_main
-    loom::codegen::low::target_binding
+    loom::codegen::low::representation_binding
     loom::target::arch::wasm::descriptors
     loom::target::registers
   LABELS
@@ -92,6 +92,7 @@ loom_check_test_suite(
   SRCS
     "test/source_low/buffer_bulk.loom-test"
     "test/source_low/buffer_raw.loom-test"
+    "test/source_low/buffer_selection.loom-test"
     "test/source_low/callable_policy.loom-test"
     "test/source_low/callable_values.loom-test"
     "test/source_low/carried_counter_store.loom-test"
@@ -99,28 +100,46 @@ loom_check_test_suite(
     "test/source_low/loop_counter_offset.loom-test"
     "test/source_low/math_contraction.loom-test"
     "test/source_low/memory_access_flags.loom-test"
+    "test/source_low/memory_biased_offsets.loom-test"
+    "test/source_low/memory_float8.loom-test"
+    "test/source_low/memory_packed_tails.loom-test"
     "test/source_low/memory_scalar_narrow.loom-test"
+    "test/source_low/memory_signed_terms.loom-test"
     "test/source_low/memory_subview.loom-test"
+    "test/source_low/memory_tiled_channel.loom-test"
     "test/source_low/memory_wide_carriers.loom-test"
     "test/source_low/nested_view_selection.loom-test"
     "test/source_low/numeric_address_widening.loom-test"
-    "test/source_low/numeric_boolean_comparison.loom-test"
-    "test/source_low/numeric_constant_remainder.loom-test"
+    "test/source_low/numeric_f32_narrowing.loom-test"
     "test/source_low/numeric_float_comparison_flags.loom-test"
+    "test/source_low/numeric_index_extrema.loom-test"
     "test/source_low/numeric_index_operands.loom-test"
-    "test/source_low/numeric_scalar_i64.loom-test"
+    "test/source_low/numeric_integer_division.loom-test"
+    "test/source_low/numeric_integer_extrema.loom-test"
+    "test/source_low/numeric_integer_to_float.loom-test"
+    "test/source_low/numeric_offset_narrowing.loom-test"
     "test/source_low/numeric_scalar_i64_shift_counts.loom-test"
     "test/source_low/numeric_scalar_i64_subtract.loom-test"
-    "test/source_low/numeric_unsigned_constant_division.loom-test"
     "test/source_low/numeric_unsigned_remainder.loom-test"
+    "test/source_low/numeric_vector_constants.loom-test"
+    "test/source_low/numeric_vector_f32_values.loom-test"
+    "test/source_low/packed_memory_alignment.loom-test"
+    "test/source_low/packed_memory_values.loom-test"
+    "test/source_low/predicate_bitwise.loom-test"
+    "test/source_low/predicate_extension.loom-test"
+    "test/source_low/predicate_extract.loom-test"
+    "test/source_low/predicate_select.loom-test"
     "test/source_low/selected_payload_transport.loom-test"
+    "test/source_low/semantic_assertions.loom-test"
     "test/source_low/shared_conditional_values.loom-test"
     "test/source_low/source_low.loom-test"
     "test/source_low/source_low_diagnostics.loom-test"
     "test/source_low/source_low_invoke.loom-test"
     "test/source_low/source_low_wasm32_address_boundary.loom-test"
+    "test/source_low/split_barrier.loom-test"
     "test/source_low/structured_allocation.loom-test"
     "test/source_low/structured_control.loom-test"
+    "test/source_low/target_legalize_native_store.loom-test"
     "test/source_low/uniform_predicate_control.loom-test"
     "test/source_low/vector_large_insert.loom-test"
   TEST_NAME_PREFIX_TO_STRIP

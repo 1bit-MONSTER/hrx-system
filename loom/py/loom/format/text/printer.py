@@ -491,10 +491,10 @@ def _print_descriptor_backed_type(
                     stream.emit("(")
                     walk(inner)
                     stream.emit(")")
-                case OptionalGroup(elements=inner, anchor=anchor):
+                case OptionalGroup(elements=inner, anchor=anchor, inverted=inverted):
                     parameter = type_def.param(anchor)
                     assert isinstance(parameter, AttrDef)
-                    if has(parameter):
+                    if has(parameter) != inverted:
                         walk(inner)
                 case Glue():
                     stream.set_glue()
@@ -2074,16 +2074,30 @@ class Printer:
                         glue=element_index != 0 and glue,
                     )
 
-                case BindingList(field=name):
+                case BindingList(field=name, type_source=type_source):
                     assert isinstance(fields, ResolvedFields)
                     stream.emit(
-                        self._format_binding_list(fields, name, module), glue=True
+                        self._format_binding_list(
+                            fields, name, module, type_source=type_source
+                        ),
+                        glue=True,
                     )
 
-                case BlockArgs(region=name):
+                case BlockArgs(
+                    region=name,
+                    start_attr=start_attr,
+                    end_attr=end_attr,
+                ):
                     assert isinstance(fields, ResolvedFields)
                     stream.emit(
-                        self._format_block_args(fields, name, module), glue=True
+                        self._format_block_args(
+                            fields,
+                            name,
+                            module,
+                            start_attr=start_attr,
+                            end_attr=end_attr,
+                        ),
+                        glue=True,
                     )
 
                 case FuncArgs(
@@ -2131,8 +2145,8 @@ class Printer:
                             _format_predicate_list(predicates, self._value_name)
                         )
 
-                case OptionalGroup(elements=inner, anchor=anchor):
-                    if fields.is_present(anchor):
+                case OptionalGroup(elements=inner, anchor=anchor, inverted=inverted):
+                    if fields.is_present(anchor) != inverted:
                         stream = self._walk_format_inline(
                             inner,
                             op_decl,
@@ -2323,7 +2337,12 @@ class Printer:
         return "[" + ", ".join(parts) + "]"
 
     def _format_binding_list(
-        self, fields: ResolvedFields, name: str, module: Module
+        self,
+        fields: ResolvedFields,
+        name: str,
+        module: Module,
+        *,
+        type_source: str,
     ) -> str:
         """Format (%block_arg = %operand : type, ...)."""
         operand_ids = fields.value_ids(name)
@@ -2332,40 +2351,65 @@ class Printer:
 
         # Binding args are appended after any implicit region args, so use the
         # trailing block args that correspond to the binding operands.
-        block_arg_names: list[str] = []
+        binding_arg_ids: list[int] = []
         op = fields._op
         if op.regions:
             first_region = op.regions[0]
             if first_region.blocks:
                 entry_block = first_region.blocks[0]
-                binding_arg_ids = entry_block.arg_ids
-                if len(binding_arg_ids) > len(operand_ids):
-                    binding_arg_ids = binding_arg_ids[-len(operand_ids) :]
-                block_arg_names.extend(
-                    self._value_name(arg_id) for arg_id in binding_arg_ids
-                )
+                entry_arg_ids = entry_block.arg_ids
+                if len(entry_arg_ids) > len(operand_ids):
+                    entry_arg_ids = entry_arg_ids[-len(operand_ids) :]
+                binding_arg_ids.extend(entry_arg_ids)
 
         parts: list[str] = []
         for i, operand_id in enumerate(operand_ids):
             operand_name = self._value_name(operand_id)
-            operand_type = self._print_value_type(operand_id, module)
+            type_value_id = operand_id
+            if type_source == "block_arg" and i < len(binding_arg_ids):
+                type_value_id = binding_arg_ids[i]
+            operand_type = self._print_value_type(type_value_id, module)
 
-            if i < len(block_arg_names):
-                parts.append(f"{block_arg_names[i]} = {operand_name} : {operand_type}")
+            if i < len(binding_arg_ids):
+                block_arg_name = self._value_name(binding_arg_ids[i])
+                parts.append(f"{block_arg_name} = {operand_name} : {operand_type}")
             else:
                 parts.append(f"{operand_name} : {operand_type}")
 
         return "(" + ", ".join(parts) + ")"
 
     def _format_block_args(
-        self, fields: ResolvedFields, name: str, module: Module
+        self,
+        fields: ResolvedFields,
+        name: str,
+        module: Module,
+        *,
+        start_attr: str | None = None,
+        end_attr: str | None = None,
     ) -> str:
         """Format (%block_arg: type, ...)."""
         region = fields.region(name)
         entry_block = region.blocks[0] if region and region.blocks else None
         arg_value_ids = list(entry_block.arg_ids) if entry_block else []
+        start = fields.attr(start_attr) if start_attr is not None else 0
+        end = fields.attr(end_attr) if end_attr is not None else len(arg_value_ids)
+        if start is None:
+            start = 0
+        if end is None:
+            end = 0
+        if (
+            not isinstance(start, int)
+            or not isinstance(end, int)
+            or start < 0
+            or end < start
+            or end > len(arg_value_ids)
+        ):
+            raise ValueError(
+                f"region argument slice [{start}, {end}) is outside entry "
+                f"signature with {len(arg_value_ids)} arguments"
+            )
         parts: list[str] = []
-        for arg_value_id in arg_value_ids:
+        for arg_value_id in arg_value_ids[start:end]:
             arg_type = self._print_value_type(arg_value_id, module)
             parts.append(f"{self._value_name(arg_value_id)}: {arg_type}")
         return "(" + ", ".join(parts) + ")"

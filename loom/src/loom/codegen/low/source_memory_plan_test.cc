@@ -9,6 +9,96 @@
 namespace loom {
 namespace {
 
+TEST(SourceMemoryAccessPlanTest, ClassifiesRetainedRejectionBits) {
+  const struct {
+    loom_low_source_memory_access_rejection_flags_t bit;
+    loom_low_source_memory_rejection_reason_t reason;
+    iree_string_view_t key;
+  } cases[] = {
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_UNSUPPORTED_OP,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_UNSUPPORTED_OP,
+       IREE_SV("source_memory.unsupported_op")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_DESCRIBE_FAILED,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DESCRIBE_FAILED,
+       IREE_SV("source_memory.describe_failed")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_LAYOUT,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_LAYOUT,
+       IREE_SV("source_memory.layout")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_ELEMENT_WIDTH,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ELEMENT_WIDTH,
+       IREE_SV("source_memory.element_width")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VECTOR_RANK,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_RANK,
+       IREE_SV("source_memory.vector_rank")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VECTOR_LANE_COUNT,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_LANE_COUNT,
+       IREE_SV("source_memory.vector_lane_count")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VECTOR_AXIS_STRIDE,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_AXIS_STRIDE,
+       IREE_SV("source_memory.vector_axis_stride")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_STATIC_OFFSET,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_STATIC_OFFSET,
+       IREE_SV("source_memory.static_offset")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_DYNAMIC_INDEX_COUNT,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_INDEX_COUNT,
+       IREE_SV("source_memory.dynamic_index_count")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_DYNAMIC_AXIS,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_AXIS,
+       IREE_SV("source_memory.dynamic_axis")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_DYNAMIC_STRIDE,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_STRIDE,
+       IREE_SV("source_memory.dynamic_stride")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VIEW_SOURCE,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VIEW_SOURCE,
+       IREE_SV("source_memory.view_source")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VIEW_BASE,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VIEW_BASE,
+       IREE_SV("source_memory.view_base")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VIEW_BASE_OVERFLOW,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VIEW_BASE_OVERFLOW,
+       IREE_SV("source_memory.view_base_overflow")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_CACHE_POLICY,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_CACHE_POLICY,
+       IREE_SV("source_memory.cache_policy")},
+  };
+
+  for (const auto& test_case : cases) {
+    EXPECT_EQ(loom_low_source_memory_access_rejection_reason(test_case.bit),
+              test_case.reason);
+    EXPECT_TRUE(iree_string_view_equal(
+        loom_low_source_memory_access_rejection_key(test_case.bit),
+        test_case.key));
+  }
+  EXPECT_EQ(loom_low_source_memory_access_rejection_reason(0),
+            LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_REPRESENTABILITY);
+  EXPECT_EQ(loom_low_source_memory_access_rejection_reason(
+                LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_LAYOUT |
+                LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_CACHE_POLICY),
+            LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_LAYOUT);
+}
+
+TEST(SourceMemoryAccessPlanTest, IncludesPhysicalRootByteOffset) {
+  loom_low_source_memory_access_plan_t plan = {};
+  plan.static_byte_offset = 12;
+  EXPECT_TRUE(
+      loom_low_source_memory_access_plan_include_root_byte_offset(&plan, 20));
+  EXPECT_EQ(plan.static_byte_offset, 32);
+  EXPECT_EQ(plan.physical_root_byte_offset, 20);
+  EXPECT_TRUE(
+      loom_low_source_memory_access_plan_include_root_byte_offset(&plan, 8));
+  EXPECT_EQ(plan.static_byte_offset - plan.physical_root_byte_offset, 12);
+  EXPECT_EQ(plan.physical_root_byte_offset, 28);
+}
+
+TEST(SourceMemoryAccessPlanTest, RejectsPhysicalRootByteOffsetOverflow) {
+  loom_low_source_memory_access_plan_t plan = {};
+  plan.static_byte_offset = INT64_MAX - 4;
+  EXPECT_FALSE(
+      loom_low_source_memory_access_plan_include_root_byte_offset(&plan, 8));
+  EXPECT_EQ(plan.static_byte_offset, INT64_MAX - 4);
+  EXPECT_EQ(plan.physical_root_byte_offset, 0);
+}
+
 TEST_F(SourceMemoryPlanTest, DynamicViewOriginRetainsCompleteAddress) {
   const loom_value_id_t buffer = DefineBufferArg();
   const loom_value_id_t extent = DefineIndexArg();
@@ -578,14 +668,14 @@ TEST_F(SourceMemoryPlanTest, ViewMemoryOperationKindUsesInterfaceShape) {
       IREE_ARRAYSIZE(static_indices), 0, 0, LOOM_LOCATION_UNKNOWN, &store_op));
   loom_op_t* atomic_reduce_op = nullptr;
   IREE_ASSERT_OK(loom_view_atomic_reduce_build(
-      &builder_, 0, LOOM_ATOMIC_KIND_ADDI, value,
+      &builder_, 0, LOOM_ATOMIC_KIND_ADDI, /*instance_flags=*/0, value,
       loom_buffer_view_result(view_op), nullptr, 0, static_indices,
       IREE_ARRAYSIZE(static_indices), LOOM_ATOMIC_ORDERING_RELAXED,
       LOOM_ATOMIC_SCOPE_WORKGROUP, 0, 0, LOOM_LOCATION_UNKNOWN,
       &atomic_reduce_op));
   loom_op_t* atomic_rmw_op = nullptr;
   IREE_ASSERT_OK(loom_view_atomic_rmw_build(
-      &builder_, 0, LOOM_ATOMIC_KIND_ADDI, value,
+      &builder_, 0, LOOM_ATOMIC_KIND_ADDI, /*instance_flags=*/0, value,
       loom_buffer_view_result(view_op), nullptr, 0, static_indices,
       IREE_ARRAYSIZE(static_indices), LOOM_ATOMIC_ORDERING_RELAXED,
       LOOM_ATOMIC_SCOPE_WORKGROUP, 0, 0, loom_type_scalar(LOOM_SCALAR_TYPE_I32),
@@ -645,7 +735,7 @@ TEST_F(SourceMemoryPlanTest, VectorAtomicReduceTracksIdentityIotaOffsets) {
   int64_t static_indices[] = {0};
   loom_op_t* atomic_op = nullptr;
   IREE_ASSERT_OK(loom_vector_atomic_reduce_build(
-      &builder_, 0, LOOM_ATOMIC_KIND_ADDF, value,
+      &builder_, 0, LOOM_ATOMIC_KIND_ADDF, /*instance_flags=*/0, value,
       loom_buffer_view_result(view_op), nullptr, 0, static_indices,
       IREE_ARRAYSIZE(static_indices), offsets, LOOM_ATOMIC_ORDERING_RELAXED,
       LOOM_ATOMIC_SCOPE_WORKGROUP, 0, 0, LOOM_LOCATION_UNKNOWN, &atomic_op));
@@ -689,7 +779,7 @@ TEST_F(SourceMemoryPlanTest,
   int64_t static_indices[] = {0};
   loom_op_t* atomic_op = nullptr;
   IREE_ASSERT_OK(loom_vector_atomic_reduce_build(
-      &builder_, 0, LOOM_ATOMIC_KIND_ADDF, value,
+      &builder_, 0, LOOM_ATOMIC_KIND_ADDF, /*instance_flags=*/0, value,
       loom_buffer_view_result(view_op), nullptr, 0, static_indices,
       IREE_ARRAYSIZE(static_indices), offsets, LOOM_ATOMIC_ORDERING_RELAXED,
       LOOM_ATOMIC_SCOPE_WORKGROUP, 0, 0, LOOM_LOCATION_UNKNOWN, &atomic_op));
@@ -731,7 +821,7 @@ TEST_F(SourceMemoryPlanTest, VectorAtomicRmwClassifiesNonIdentityOffsets) {
   int64_t static_indices[] = {0};
   loom_op_t* atomic_op = nullptr;
   IREE_ASSERT_OK(loom_vector_atomic_rmw_build(
-      &builder_, 0, LOOM_ATOMIC_KIND_ADDF, value,
+      &builder_, 0, LOOM_ATOMIC_KIND_ADDF, /*instance_flags=*/0, value,
       loom_buffer_view_result(view_op), nullptr, 0, static_indices,
       IREE_ARRAYSIZE(static_indices), offsets, LOOM_ATOMIC_ORDERING_RELAXED,
       LOOM_ATOMIC_SCOPE_WORKGROUP, 0, 0, VectorType1D(LOOM_SCALAR_TYPE_F16, 2),
@@ -1209,13 +1299,24 @@ TEST_F(SourceMemoryPlanTest, SummaryCapturesStridedPacketSlot) {
   EXPECT_EQ(summary.strided_interval.begin_bytes, 16u);
   EXPECT_EQ(summary.strided_interval.end_bytes, 32u);
 
-  plan.static_byte_offset = 0;
+  ASSERT_TRUE(
+      loom_low_source_memory_access_plan_include_root_byte_offset(&plan, 280));
+  loom_low_byte_interval_t placed_interval = {};
+  loom_low_memory_access_summary_t placed_summary = {};
+  loom_low_source_memory_access_plan_make_summary(&plan, &placed_interval,
+                                                  &placed_summary);
+  EXPECT_EQ(placed_interval.begin_facts.range_lo, 16);
+  EXPECT_EQ(placed_interval.end_facts.range_hi, 32);
+  EXPECT_EQ(placed_summary.strided_interval.begin_bytes, 16u);
+  EXPECT_EQ(placed_summary.strided_interval.end_bytes, 32u);
+
+  plan.static_byte_offset = plan.physical_root_byte_offset;
   loom_low_byte_interval_t preceding_interval = {};
   loom_low_memory_access_summary_t preceding_summary = {};
   loom_low_source_memory_access_plan_make_summary(&plan, &preceding_interval,
                                                   &preceding_summary);
-  EXPECT_FALSE(
-      loom_low_memory_access_summaries_may_alias(&preceding_summary, &summary));
+  EXPECT_FALSE(loom_low_memory_access_summaries_may_alias(
+      &preceding_summary, &summary, LOOM_LOW_MEMORY_COMPARISON_INDEPENDENT));
 }
 
 TEST(SourceMemoryPlan, DynamicPacketOffsetsPreserveDivisibility) {
@@ -1254,6 +1355,36 @@ TEST(SourceMemoryPlan, DynamicPacketOffsetsPreserveDivisibility) {
   EXPECT_EQ(interval.end_facts.range_lo, 20);
   EXPECT_EQ(interval.end_facts.range_hi, 68);
   EXPECT_EQ(interval.end_facts.known_divisor, 4);
+}
+
+TEST(SourceMemoryComponentTest, RetainedComponentConvertsExactCoordinateUnits) {
+  loom_low_source_memory_dynamic_term_t term = {};
+  term.byte_stride = 4;
+  loom_low_source_memory_access_plan_t access = {};
+  access.retained_component = {&term, 0b1010};
+  EXPECT_EQ(loom_low_source_memory_access_retained_component(&access, 0, 1),
+            &access.retained_component);
+  EXPECT_EQ(loom_low_source_memory_access_retained_component(&access, 0, 4),
+            &access.retained_component);
+  EXPECT_EQ(loom_low_source_memory_access_retained_component(&access, 0, 8),
+            nullptr);
+  term.byte_stride = -4;
+  EXPECT_EQ(loom_low_source_memory_access_retained_component(&access, 0, 4),
+            &access.retained_component);
+}
+
+TEST(SourceMemoryComponentTest, MaterializedPrefixCannotOverlapComponent) {
+  loom_low_source_memory_dynamic_term_t term = {};
+  term.byte_stride = 4;
+  loom_low_source_memory_access_plan_t access = {};
+  access.retained_component = {&term, 0b1010};
+  EXPECT_EQ(loom_low_source_memory_access_retained_component(&access, 1, 1),
+            &access.retained_component);
+  EXPECT_EQ(loom_low_source_memory_access_retained_component(&access, 2, 1),
+            nullptr);
+  access.retained_component = {};
+  EXPECT_EQ(loom_low_source_memory_access_retained_component(&access, 0, 1),
+            nullptr);
 }
 
 }  // namespace

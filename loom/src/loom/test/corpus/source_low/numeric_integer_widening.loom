@@ -1,0 +1,42 @@
+func.def @widen_signed_word(%value: i32) -> (i64) {
+  %result = scalar.extsi %value : i32 to i64
+  func.return %result : i64
+}
+
+// ====
+func.def @widen_unsigned_word(%value: i32) -> (i64) {
+  %result = scalar.extui %value : i32 to i64
+  func.return %result : i64
+}
+
+// ====
+func.def @add_signed_word(%base: i64, %delta: i32) -> (i64) {
+  %wide_delta = scalar.extsi %delta : i32 to i64
+  %result = scalar.addi %base, %wide_delta : i64
+  func.return %result : i64
+}
+
+// ====
+func.def @assemble_wide_word(%low: i32, %high: i32) -> (i64) {
+  %low_word = scalar.extui %low : i32 to i64
+  %high_word = scalar.extui %high : i32 to i64
+  %word_bits = scalar.constant 32 : i64
+  %high_half = scalar.shli %high_word, %word_bits : i64
+  %result = scalar.ori %low_word, %high_half : i64
+  func.return %result : i64
+}
+
+// ====
+func.def @exchange_signed_position(%buffer: buffer, %position: i32, %replacement: i32) -> (i32) {
+  %bounded_position = scalar.assume %position [range(%position, -4, 4)] : i32
+  %wide_position = scalar.extsi %bounded_position : i32 to i64
+  %element_bytes = scalar.constant 4 : i64
+  %displacement = scalar.muli %wide_position, %element_bytes : i64
+  %center = scalar.constant 16 : i64
+  %wide_origin = scalar.addi %center, %displacement : i64
+  %origin = index.cast %wide_origin : i64 to offset
+  %view = buffer.view %buffer[%origin] : buffer -> view<1xi32>
+  %previous = view.load %view[0] : view<1xi32> -> i32
+  view.store %replacement, %view[0] : i32, view<1xi32>
+  func.return %previous : i32
+}

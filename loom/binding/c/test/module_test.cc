@@ -248,6 +248,80 @@ TEST(ModuleTest, RejectsContradictoryExplicitSerializeFormat) {
   EXPECT_EQ(serialized_source, nullptr);
 }
 
+TEST(ModuleTest, ParseDiagnosticRetainsRemappedIdentityAndText) {
+  auto context = CreateContext();
+  auto workspace = CreateWorkspace();
+  auto source = CreateTextSource("physical.loom", "?");
+  loomc_module_deserialize_options_t options = {};
+  options.identifier = loomc_make_cstring_view("virtual/main.loom");
+  loomc_module_t* module = nullptr;
+  loomc_result_t* result = nullptr;
+  LOOMC_ASSERT_OK(loomc_module_deserialize_text_from_source(
+      context.get(), workspace.get(), source.get(), &options,
+      loomc_allocator_system(), &module, &result));
+  ModulePtr module_owner(module);
+  ResultPtr result_owner(result);
+  EXPECT_FALSE(loomc_result_succeeded(result));
+  module_owner.reset();
+  source.reset();
+  context.reset();
+  workspace.reset();
+  ASSERT_NE(loomc_result_diagnostic_count(result), 0u);
+  const auto& range = loomc_result_diagnostic_at(result, 0)->range;
+  ASSERT_NE(range.source, nullptr);
+  EXPECT_EQ(ToString(loomc_source_identifier(range.source)),
+            "virtual/main.loom");
+  auto contents = loomc_source_contents(range.source);
+  EXPECT_EQ(std::string(reinterpret_cast<const char*>(contents.data),
+                        contents.data_length),
+            "?");
+  EXPECT_EQ(range.start_line, 1u);
+  EXPECT_EQ(range.start_column, 1u);
+}
+
+TEST(ModuleTest, BytecodeReaderDiagnosticRetainsContainerAndOffsets) {
+  for (const char* identifier : {"invalid.loombc", "virtual/input.loombc"}) {
+    SCOPED_TRACE(identifier);
+    auto context = CreateContext();
+    auto workspace = CreateWorkspace();
+    std::string bytes(64, '?');
+    auto source = CreateSource(LOOMC_SOURCE_FORMAT_BYTECODE, "invalid.loombc",
+                               bytes.c_str());
+    const auto* original_source = source.get();
+    loomc_module_deserialize_options_t options = {};
+    options.identifier = loomc_make_cstring_view(identifier);
+    loomc_module_t* module = nullptr;
+    loomc_result_t* result = nullptr;
+    LOOMC_ASSERT_OK(loomc_module_deserialize_bytecode_from_source(
+        context.get(), workspace.get(), source.get(), &options,
+        loomc_allocator_system(), &module, &result));
+    ModulePtr module_owner(module);
+    ResultPtr result_owner(result);
+    EXPECT_FALSE(loomc_result_succeeded(result));
+    module_owner.reset();
+    source.reset();
+    context.reset();
+    workspace.reset();
+    ASSERT_NE(loomc_result_diagnostic_count(result), 0u);
+    const auto* diagnostic = loomc_result_diagnostic_at(result, 0);
+    EXPECT_EQ(ToString(diagnostic->code), "BYTECODE/001");
+    const auto& range = diagnostic->range;
+    ASSERT_NE(range.source, nullptr);
+    if (strcmp(identifier, "invalid.loombc") == 0) {
+      EXPECT_EQ(range.source, original_source);
+    }
+    EXPECT_EQ(ToString(loomc_source_identifier(range.source)), identifier);
+    EXPECT_EQ(loomc_source_format(range.source), LOOMC_SOURCE_FORMAT_BYTECODE);
+    auto contents = loomc_source_contents(range.source);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(contents.data),
+                          contents.data_length),
+              bytes);
+    EXPECT_EQ(range.start, 0u);
+    EXPECT_EQ(range.end, 4u);
+    EXPECT_EQ(range.start_line, 0u);
+  }
+}
+
 TEST(ModuleTest, RejectsMalformedSerializeIdentifier) {
   ContextPtr context = CreateContext();
   WorkspacePtr workspace = CreateWorkspace();

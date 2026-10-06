@@ -275,7 +275,8 @@ typedef struct loom_amdgpu_hal_kernarg_resource_t {
 } loom_amdgpu_hal_kernarg_resource_t;
 
 typedef struct loom_amdgpu_hal_kernarg_direct_arg_t {
-  // Entry block argument value loaded from the HAL constant segment.
+  // Entry block argument loaded from the HAL constant segment, or INVALID
+  // when only its ABI metadata remains after argument materialization.
   loom_value_id_t arg_id;
   // Metadata name copied from the entry block argument when present.
   iree_string_view_t name;
@@ -321,6 +322,8 @@ typedef struct loom_amdgpu_hal_kernel_abi_layout_t {
 typedef struct loom_amdgpu_hal_kernel_abi_verify_result_t {
   // Number of AMDGPU HAL-kernel ABI errors emitted for the function.
   uint32_t error_count;
+  // Verified kernarg pointer live-in, or INVALID when not yet materialized.
+  loom_value_id_t kernarg_segment_ptr;
   // Bitset of verified ABI source kinds present in the function.
   uint64_t live_in_source_bits;
   // Launch workgroup-coordinate state required by the verified low function.

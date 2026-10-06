@@ -14,15 +14,18 @@
 #include "iree/hal/utils/device_spec_builder.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/target/arch/spirv/features.h"
 #include "loom/target/arch/spirv/profile.h"
 #include "loom/tooling/execution/hal/runtime.h"
 #include "loom/tooling/target/spirv/vulkan_profile.h"
+#include "vulkan/vulkan_core.h"
 
 namespace loom {
 namespace {
 
 static constexpr iree_hal_queue_priority_t kNormalQueuePriority =
     IREE_HAL_QUEUE_PRIORITY_NORMAL;
+static constexpr uint64_t kMaximumWorkgroupLocalMemorySize = 32 * 1024;
 
 struct DeviceSpecDeleter {
   void operator()(iree_hal_device_spec_t* device_spec) const {
@@ -103,6 +106,15 @@ static iree_status_t CreateDeviceSpec(
       {
           /*.unit_count=*/1,
           /*.group_count=*/1,
+          /*.maximum_resident_workgroup_count=*/0,
+          /*.maximum_resident_invocation_count=*/0,
+          /*.maximum_resident_subgroup_count=*/0,
+          /*.maximum_register_count=*/0,
+          /*.maximum_workgroup_register_count=*/0,
+          /*.maximum_local_memory_size=*/0,
+          /*.maximum_workgroup_local_memory_size=*/
+          kMaximumWorkgroupLocalMemorySize,
+          /*.maximum_workgroup_local_memory_size_optin=*/0,
       },
       /*.addressing=*/
       {
@@ -117,6 +129,8 @@ static iree_status_t CreateDeviceSpec(
       /*.physical_device_type=*/2,
       /*.enabled_features=*/enabled_features,
       /*.flags=*/IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
+      /*.subgroup_supported_operations=*/
+      VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT,
   };
   iree_host_size_t vulkan_payload_size = 0;
   IREE_RETURN_IF_ERROR(iree_hal_vulkan_device_spec_calculate_payload_size(
@@ -263,7 +277,11 @@ TEST_F(SpirvDeviceProviderTest, SelectsRawBdaTarget) {
             LOOM_TARGET_ARTIFACT_FORMAT_SPIRV_BINARY);
   EXPECT_EQ(target_bundle->snapshot->default_pointer_bitwidth, 64u);
   EXPECT_EQ(target_bundle->snapshot->offset_bitwidth, 64u);
+  EXPECT_EQ(target_bundle->snapshot->max_workgroup_storage_bytes,
+            kMaximumWorkgroupLocalMemorySize);
   EXPECT_EQ(target_bundle->export_plan->abi_kind, LOOM_TARGET_ABI_HAL_KERNEL);
+  EXPECT_TRUE(iree_all_bits_set(target_bundle->config->contract_feature_bits,
+                                LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT));
 }
 
 TEST_F(SpirvDeviceProviderTest, SelectsForcedStaticBdaTarget) {

@@ -6,8 +6,19 @@
 
 load("//build_tools/bazel:executable.bzl", "iree_executable_test")
 load("//build_tools/bazel:test_resources.bzl", "GPU_DEVICE_RESOURCE_GROUP")
+load(
+    "//loom/build_tools/amdgpu:descriptor_sets.bzl",
+    "loom_amdgpu_descriptor_set_compatible_with",
+    "loom_amdgpu_iree_hal_representation_compatible_with",
+)
+load(
+    "//loom/build_tools/amdgpu:target_config.bzl",
+    "LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY",
+    "LOOM_AMDGPU_SUPPORTED_TARGETS",
+)
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with")
-load("//loom/build_tools/bazel:defs.bzl", "loom_module")
+load("//loom/build_tools/bazel:defs.bzl", "loom_module", "loom_test", "loom_test_module")
+load("//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_ACCESS_PROFILE", "AMDGPU_HARDWARE_PROFILE")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -30,19 +41,85 @@ _GENERIC_COMPATIBLE_WITH = loom_config_compatible_with([
     "//loom/config/execute:amdgpu_hal",
 ])
 
-_GFX11_ARTIFACT_COMPATIBLE_WITH = loom_config_compatible_with([
-    "//loom/config/target/amdgpu:descriptor_set_gfx11_generic_core",
+_AMDGPU_SOURCE_COMPATIBLE_WITH = loom_config_compatible_with([
+    "//loom/config/target:amdgpu",
 ])
 
-_GFX11_COMPATIBLE_WITH = loom_config_compatible_with([
-    "//loom/config/execute:amdgpu_hal",
-    "//loom/config/target/amdgpu:iree_hal_descriptor_set_gfx11_generic_core",
-])
+_GFX11_GENERIC_REPRESENTATION = LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY["amdgpu.gfx11.generic.core"]
+
+_GFX11_ARTIFACT_COMPATIBLE_WITH = loom_amdgpu_descriptor_set_compatible_with(
+    _GFX11_GENERIC_REPRESENTATION,
+)
+
+_GFX11_COMPATIBLE_WITH = (
+    _GENERIC_COMPATIBLE_WITH +
+    _GFX11_ARTIFACT_COMPATIBLE_WITH +
+    loom_amdgpu_iree_hal_representation_compatible_with(
+        _GFX11_GENERIC_REPRESENTATION,
+    )
+)
 
 _CDNA3_COMPATIBLE_WITH = loom_config_compatible_with([
     "//loom/config/execute:amdgpu_hal",
     "//loom/config/target/amdgpu:iree_hal_descriptor_set_cdna3_core",
 ])
+
+_CDNA4_REPRESENTATION = LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY["amdgpu.cdna4.core"]
+
+_CDNA4_ARTIFACT_COMPATIBLE_WITH = (
+    _AMDGPU_SOURCE_COMPATIBLE_WITH +
+    loom_amdgpu_descriptor_set_compatible_with(
+        _CDNA4_REPRESENTATION,
+    )
+)
+
+_CDNA4_COMPATIBLE_WITH = loom_config_compatible_with([
+    "//loom/config/execute:amdgpu_hal",
+    "//loom/config/target/amdgpu:iree_hal_descriptor_set_cdna4_core",
+])
+
+loom_test(
+    name = "buffer_selection_test",
+    srcs = ["//loom/src/loom/test/corpus/source_low:buffer_selection.loom"],
+    compile_targets = [
+        "//loom/target/amdgpu:gfx942",
+        "//loom/target/amdgpu:gfx950",
+        "//loom/target/amdgpu:gfx1151",
+        "//loom/target/amdgpu:gfx1170",
+        "//loom/target/amdgpu:gfx1200",
+        "//loom/target/amdgpu:gfx1250",
+    ],
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        AMDGPU_ACCESS_PROFILE,
+    ],
+)
+
+loom_test(
+    name = "split_barrier_provider_test",
+    srcs = ["split_barrier_reuse.loom"],
+    compile_targets = [
+        "//loom/target/amdgpu:gfx942",
+        "//loom/target/amdgpu:gfx1100",
+        "//loom/target/amdgpu:gfx1200",
+        "//loom/target/amdgpu:gfx1250",
+        "//loom/target/spirv:vulkan1.3+bda",
+    ],
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        AMDGPU_ACCESS_PROFILE,
+    ],
+    target_compatible_with = _GENERIC_COMPATIBLE_WITH,
+)
+
+loom_test(
+    name = "mx_decode_test",
+    srcs = [
+        "//loom/src/loom/test/corpus/encoding:mxfp4_decode_bf16.loom",
+        "//loom/src/loom/test/corpus/encoding:mxfp8_decode.loom",
+    ],
+    compile_targets = ["//loom/target/amdgpu:" + target for target in LOOM_AMDGPU_SUPPORTED_TARGETS],
+)
 
 loom_module(
     name = "generic_test_module",
@@ -50,7 +127,6 @@ loom_module(
         "//loom/src/loom/test/corpus/authoring:authoring_cases",
         "//loom/src/loom/test/corpus/authoring/hip:portable_cases",
         "//loom/src/loom/test/corpus/checked_benchmarks:checked_benchmark_cases",
-        "//loom/src/loom/test/corpus/conformance:conformance_cases",
         "//loom/src/loom/test/corpus/encoding:numeric_conversion_cases",
     ] + glob(["generic/*.loom"]),
     output_format = "bc",
@@ -103,20 +179,6 @@ loom_module(
     ],
     output_format = "bc",
     target_compatible_with = _GFX11_ARTIFACT_COMPATIBLE_WITH,
-)
-
-iree_executable_test(
-    name = "loop_count_access_test",
-    src = "//loom/src/loom/tools/iree-test-loom",
-    args = [
-        "$(rootpath //loom/src/loom/test/corpus/conformance:loop_count.loom)",
-        "--device=amdgpu",
-        "--sanitizer=access",
-    ],
-    data = ["//loom/src/loom/test/corpus/conformance:loop_count.loom"],
-    resource_group = GPU_DEVICE_RESOURCE_GROUP,
-    tags = _EXECUTION_TAGS + ["notsan"],
-    target_compatible_with = _GENERIC_COMPATIBLE_WITH,
 )
 
 iree_executable_test(
@@ -182,6 +244,28 @@ iree_executable_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _EXECUTION_TAGS,
     target_compatible_with = _CDNA3_COMPATIBLE_WITH,
+)
+
+loom_test_module(
+    name = "gfx950_v4_lds_shared_qk_module",
+    srcs = ["gfx950/v4_lds_shared_qk.loom"],
+    target_compatible_with = _CDNA4_ARTIFACT_COMPATIBLE_WITH,
+)
+
+loom_test(
+    name = "gfx950_v4_lds_shared_qk_compile_test",
+    compile_targets = ["//loom/target/amdgpu:gfx950"],
+    module = ":gfx950_v4_lds_shared_qk_module",
+)
+
+loom_test(
+    name = "gfx950_v4_lds_shared_qk_execution_test",
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        AMDGPU_ACCESS_PROFILE,
+    ],
+    module = ":gfx950_v4_lds_shared_qk_module",
+    target_compatible_with = _CDNA4_COMPATIBLE_WITH,
 )
 
 loom_module(

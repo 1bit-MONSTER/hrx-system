@@ -20,6 +20,7 @@
 #include "loom/testing/context.h"
 #include "loom/testing/test_file.h"
 #include "loom/tools/loom-check/diagnostics.h"
+#include "loom/transforms/cleanup/configured.h"
 
 namespace loom {
 namespace {
@@ -144,22 +145,38 @@ iree_status_t TestEmitProviderExecute(
     const loom_check_emit_provider_t* provider,
     const loom_check_emit_provider_request_t* request) {
   (void)provider;
-  if (iree_string_view_equal(request->target_options,
-                             IREE_SV("status-after-diagnostic"))) {
+  const bool status_after_diagnostic = iree_string_view_equal(
+      request->target_options, IREE_SV("status-after-diagnostic"));
+  if (status_after_diagnostic ||
+      iree_string_view_equal(request->target_options, IREE_SV("remark")) ||
+      iree_string_view_equal(request->target_options,
+                             IREE_SV("empty-remark")) ||
+      iree_string_view_equal(request->target_options, IREE_SV("error"))) {
     loom_diagnostic_param_t params[] = {
         loom_param_string(IREE_SV("fake.emit")),
     };
     loom_diagnostic_t diagnostic = {
-        /*.severity=*/LOOM_DIAGNOSTIC_ERROR,
+        /*.severity=*/status_after_diagnostic ||
+                iree_string_view_equal(request->target_options,
+                                       IREE_SV("error"))
+            ? LOOM_DIAGNOSTIC_ERROR
+            : LOOM_DIAGNOSTIC_REMARK,
         /*.error=*/loom_error_def_lookup(LOOM_ERROR_DOMAIN_PARSE, 6),
         /*.params=*/params,
         /*.param_count=*/IREE_ARRAYSIZE(params),
         /*.emitter=*/LOOM_EMITTER_PASS,
     };
+    diagnostic.origin.filename = request->filename;
+    diagnostic.origin.start_line = 1;
     IREE_RETURN_IF_ERROR(loom_check_diagnostic_collector_sink(
         request->diagnostic_collector, &diagnostic));
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "synthetic provider status");
+    if (status_after_diagnostic) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "synthetic provider status");
+    }
+    if (!iree_string_view_equal(request->target_options, IREE_SV("remark"))) {
+      return iree_ok_status();
+    }
   }
   return iree_string_builder_append_cstring(&request->result->actual_output,
                                             "fake emit\n");
@@ -192,6 +209,8 @@ const loom_check_environment_t kExecuteTestEnvironment = {
         /*.user_data=*/nullptr,
     },
     /*.target_environment=*/{},
+    /*.cleanup_pattern_provider_set=*/
+    loom_cleanup_configured_pattern_provider_set(),
     /*.initialize_low_descriptor_registry=*/
     {
         /*.fn=*/InitializeTestLowDescriptorRegistry,
@@ -212,6 +231,8 @@ const loom_check_environment_t kExecuteTestProviderEnvironment = {
         /*.user_data=*/nullptr,
     },
     /*.target_environment=*/{},
+    /*.cleanup_pattern_provider_set=*/
+    loom_cleanup_configured_pattern_provider_set(),
     /*.initialize_low_descriptor_registry=*/
     {
         /*.fn=*/InitializeTestLowDescriptorRegistry,
@@ -1113,36 +1134,38 @@ TEST_F(ExecuteTest, PassModeIgnoresStandaloneFixtureComments) {
   loom_check_result_deinitialize(&result);
 }
 
-TEST_F(ExecuteTest, PassModeVerifiesTransformedModule) {
-  loom_check_result_t result;
-  IREE_ASSERT_OK(
-      ExecuteFirst("// RUN: pass dce\n"
-                   "func.def @f(%a: f32, %b: f32) -> (f32) {\n"
-                   "  %r = test.addi %a, %b : f32\n"
-                   "  func.return %r : f32\n"
-                   "}\n"
-                   "// ----\n"
-                   "func.def @f(%a: f32, %b: f32) -> (f32) {\n"
-                   "  %r = test.addi %a, %b : f32\n"
-                   "  func.return %r : f32\n"
-                   "}\n",
-                   &result));
-  EXPECT_EQ(result.final_outcome, LOOM_CHECK_FAIL);
-  EXPECT_GT(result.diagnostics.count, 0u);
-  EXPECT_NE(DiagnosticJsonString(result).find("\"emitter\":\"verifier\""),
-            std::string::npos);
-  EXPECT_NE(DetailString(result).find("TYPE/"), std::string::npos);
-  loom_check_result_deinitialize(&result);
+TEST_F(ExecuteTest, PassModesRejectInvalidInputBeforeDeadCodeElimination) {
+  for (const char* mode : {"pass", "pass-report", "compile-report"}) {
+    SCOPED_TRACE(mode);
+    std::string source = std::string("// RUN: ") + mode +
+                         " dce\n"
+                         "func.def @f(%a: f32, %b: f32) -> (f32) {\n"
+                         "  %dead = test.addi %a, %b : f32\n"
+                         "  func.return %a : f32\n"
+                         "}\n";
+    loom_check_result_t result;
+    IREE_ASSERT_OK(ExecuteFirst(source.c_str(), &result));
+    EXPECT_EQ(result.final_outcome, LOOM_CHECK_FAIL);
+    EXPECT_EQ(result.diagnostics.count, 3u);
+    EXPECT_NE(DiagnosticJsonString(result).find("\"emitter\":\"verifier\""),
+              std::string::npos);
+    EXPECT_NE(DetailString(result).find("TYPE/003"), std::string::npos);
+    EXPECT_NE(DetailString(result).find("TYPE/004"), std::string::npos);
+    EXPECT_FALSE(result.has_actual_output);
+    loom_check_result_deinitialize(&result);
+  }
 }
 
 TEST_F(ExecuteTest, PassModeCapturesPassDiagnostic) {
   loom_check_result_t result;
   IREE_ASSERT_OK(ExecuteFirst(
       "// RUN: pass vector-memory-footprint\n"
-      "func.def @f(%buffer: buffer, %base: offset) {\n"
+      "func.def @f(%buffer: buffer, %base: offset, %origin_input: index) {\n"
+      "  %origin = index.assume %origin_input [range(%origin_input, 0, 7)] : "
+      "index\n"
       "  %layout = encoding.layout.dense : encoding<layout>\n"
       "  %view = buffer.view %buffer[%base] : buffer -> view<8xf32, %layout>\n"
-      "  %loaded = vector.load %view[5] : view<8xf32, %layout> -> "
+      "  %loaded = vector.load %view[%origin] : view<8xf32, %layout> -> "
       "vector<4xf32>\n"
       "  func.return\n"
       "}\n",
@@ -1340,6 +1363,57 @@ TEST_F(ExecuteTest, EmitProviderStatusIsNotMaskedByMatchedDiagnostic) {
   EXPECT_EQ(result.raw_outcome, LOOM_CHECK_FAIL);
   EXPECT_EQ(result.final_outcome, LOOM_CHECK_FAIL);
   EXPECT_NE(DetailString(result).find("INVALID_ARGUMENT"), std::string::npos);
+  loom_check_result_deinitialize(&result);
+}
+
+TEST_F(ExecuteTest, EmitProviderRemarksPreserveOutputComparison) {
+  struct Case {
+    // Provider mode selects whether successful output is empty.
+    const char* request;
+    // Complete output expected alongside the remark.
+    const char* expected;
+    // A matched remark cannot hide an output mismatch.
+    loom_check_outcome_t outcome;
+  };
+  const Case cases[] = {
+      {"remark", "fake emit\n", LOOM_CHECK_PASS},
+      {"remark", "wrong output\n", LOOM_CHECK_FAIL},
+      {"empty-remark", "fake emit\n", LOOM_CHECK_FAIL},
+      {"empty-remark", "", LOOM_CHECK_PASS},
+  };
+  for (const auto& test_case : cases) {
+    SCOPED_TRACE(test_case.request);
+    SCOPED_TRACE(test_case.expected);
+    std::string source = std::string("// RUN: emit fake-emit ") +
+                         test_case.request +
+                         "\n// REMARK: PARSE/006\n"
+                         "func.def @f() {\n"
+                         "  func.return\n"
+                         "}\n"
+                         "// ----\n" +
+                         test_case.expected;
+    loom_check_result_t result;
+    IREE_ASSERT_OK(ExecuteFirstWithEnvironment(
+        source.c_str(), &provider_environment_, &result));
+    EXPECT_EQ(result.raw_outcome, test_case.outcome) << DetailString(result);
+    EXPECT_EQ(result.final_outcome, test_case.outcome);
+    EXPECT_TRUE(result.has_actual_output);
+    loom_check_result_deinitialize(&result);
+  }
+}
+
+TEST_F(ExecuteTest, EmitProviderExpectedErrorHasNoComparableOutput) {
+  loom_check_result_t result;
+  IREE_ASSERT_OK(
+      ExecuteFirstWithEnvironment("// RUN: emit fake-emit error\n"
+                                  "// ERROR: PARSE/006\n"
+                                  "func.def @f() {\n"
+                                  "  func.return\n"
+                                  "}\n",
+                                  &provider_environment_, &result));
+  EXPECT_EQ(result.raw_outcome, LOOM_CHECK_PASS) << DetailString(result);
+  EXPECT_EQ(result.final_outcome, LOOM_CHECK_PASS);
+  EXPECT_FALSE(result.has_actual_output);
   loom_check_result_deinitialize(&result);
 }
 

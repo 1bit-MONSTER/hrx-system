@@ -499,7 +499,11 @@ TEST_F(HostQueueCommandBufferTest,
       &logical_device->physical_devices[0]->prepublished_kernarg_storage;
   if (storage->mode ==
       IREE_HAL_AMDGPU_AQL_PREPUBLISHED_KERNARG_STORAGE_MODE_DISABLED) {
-    GTEST_SKIP() << "fine-grained GPU memory pool is not available";
+    const auto& memory = logical_device->physical_devices[0]->memory_system;
+    GTEST_SKIP() << "prepublished kernargs require a fine-grained GPU pool and "
+                    "coherent CPU access to device memory; fine pool="
+                 << memory.device_local.fine_host_visible
+                 << ", coherent host access=" << memory.svm.direct_host_access;
   }
 
   EXPECT_EQ(
@@ -532,7 +536,11 @@ TEST_F(HostQueueCommandBufferTest, DirectDispatchUsesPrepublishedKernargs) {
       &logical_device->physical_devices[0]->prepublished_kernarg_storage;
   if (storage->mode ==
       IREE_HAL_AMDGPU_AQL_PREPUBLISHED_KERNARG_STORAGE_MODE_DISABLED) {
-    GTEST_SKIP() << "fine-grained GPU memory pool is not available";
+    const auto& memory = logical_device->physical_devices[0]->memory_system;
+    GTEST_SKIP() << "prepublished kernargs require a fine-grained GPU pool and "
+                    "coherent CPU access to device memory; fine pool="
+                 << memory.device_local.fine_host_visible
+                 << ", coherent host access=" << memory.svm.direct_host_access;
   }
 
   iree_hal_executable_t* executable = NULL;

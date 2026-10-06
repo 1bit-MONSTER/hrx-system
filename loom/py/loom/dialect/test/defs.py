@@ -143,9 +143,9 @@ from loom.dsl import (
     TiedResult,
     TypeDef,
     Writes,
-    YieldCountMatchesResults,
-    YieldElementTypesMatchResults,
-    YieldTypesMatchResults,
+    YieldCountMatches,
+    YieldElementTypesMatch,
+    YieldTypesMatch,
     binary_op,
     cast_op,
     comparison_op,
@@ -1348,8 +1348,8 @@ test_map = Op(
         AllShapesMatch("inputs"),
         BlockArgCount("body", "inputs"),
         BlockArgsMatchElementTypes("body", "inputs"),
-        YieldCountMatchesResults("body", "result"),
-        YieldElementTypesMatchResults("body", "result"),
+        YieldCountMatches("body", "result"),
+        YieldElementTypesMatch("body", "result"),
     ],
     traits=[PURE, ELEMENTWISE, ImplicitTerminator("test.implicit_yield")],
     format=[
@@ -1447,6 +1447,41 @@ test_invoke = Op(
     ],
     examples=[
         "%output, %count = test.invoke @callee(%weights, %input) : (tile<4xf32>, index) -> (%weights as tile<4xf32>, index)",
+    ],
+)
+
+# ============================================================================
+# test.signature_sink — locally scoped call result signature
+# ============================================================================
+
+test_signature_sink = Op(
+    "test.signature_sink",
+    group=test_ops,
+    doc=("Test terminal-style signature results that retain result identities for dependent types without exposing SSA values to following ops."),
+    operands=[Operand("operands", ANY, variadic=True)],
+    results=[
+        Result(
+            "results",
+            ANY,
+            variadic=True,
+            signature_only=True,
+        )
+    ],
+    traits=[UNKNOWN_EFFECTS],
+    format=[
+        GLUE,
+        LPAREN,
+        Refs("operands"),
+        RPAREN,
+        COLON,
+        LPAREN,
+        TypesOf("operands"),
+        RPAREN,
+        ARROW,
+        Scope([ResultTypeList("results")]),
+    ],
+    examples=[
+        "test.signature_sink() : () -> (%width: index, vector<[%width]xf32>)",
     ],
 )
 
@@ -1694,6 +1729,7 @@ test_loop = Op(
         LoopLikeInterface(
             body="body",
             iter_args="iter_args",
+            results="results",
             iv="iv",
             lower_bound="lower_bound",
             upper_bound="upper_bound",
@@ -1702,8 +1738,8 @@ test_loop = Op(
     ],
     constraints=[
         IterArgsMatchResults("iter_args", "results"),
-        YieldCountMatchesResults("body", "results"),
-        YieldTypesMatchResults("body", "results"),
+        YieldCountMatches("body", "results"),
+        YieldTypesMatch("body", "results"),
     ],
     traits=[ImplicitTerminator("test.implicit_yield")],
     format=[
@@ -1765,6 +1801,46 @@ test_block_args = Op(
     ],
 )
 
+test_block_arg_groups = Op(
+    "test.block_arg_groups",
+    group=test_ops,
+    doc="Test projected groups of one region entry signature.",
+    attrs=[
+        AttrDef(
+            "actual_count",
+            "i64",
+            doc="Number of entry arguments in the actual result group.",
+        ),
+    ],
+    regions=[
+        RegionDef(
+            "body",
+            doc="Body receiving the concatenated actual and expected groups.",
+            single_block=True,
+            terminator="test.yield",
+        )
+    ],
+    traits=[ImplicitTerminator("test.implicit_yield")],
+    format=[
+        kw("actual"),
+        BlockArgs(
+            "body",
+            group="actual",
+            end_attr="actual_count",
+        ),
+        kw("expected"),
+        BlockArgs(
+            "body",
+            group="expected",
+            start_attr="actual_count",
+        ),
+        Region("body"),
+    ],
+    examples=[
+        "test.block_arg_groups actual(%actual: f32) expected(%expected: f32) {\n  test.yield\n}",
+    ],
+)
+
 # ============================================================================
 # test.branch — if/else with both regions present
 # ============================================================================
@@ -1791,7 +1867,13 @@ test_branch = Op(
             terminator="test.yield",
         ),
     ],
-    interfaces=[RegionBranchInterface(selector="condition")],
+    interfaces=[
+        RegionBranchInterface(
+            selector="condition",
+            true_region="then_region",
+            false_region="else_region",
+        )
+    ],
     traits=[ImplicitTerminator("test.implicit_yield")],
     format=[
         Ref("condition"),
@@ -3181,4 +3263,6 @@ ALL_TEST_OPS: tuple[Op, ...] = (
     test_module_metadata,
     test_memory_fence,
     test_result_pair,
+    test_block_arg_groups,
+    test_signature_sink,
 )

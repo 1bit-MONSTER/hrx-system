@@ -78,9 +78,13 @@ static bool loom_low_source_memory_access_plan_strided_interval(
   }
   int64_t access_begin = 0;
   int64_t access_end = 0;
-  if (!iree_checked_add_i64(plan->static_byte_offset, lane_begin_offset,
+  int64_t root_relative_byte_offset = 0;
+  if (!iree_checked_sub_i64(plan->static_byte_offset,
+                            plan->physical_root_byte_offset,
+                            &root_relative_byte_offset) ||
+      !iree_checked_add_i64(root_relative_byte_offset, lane_begin_offset,
                             &access_begin) ||
-      !iree_checked_add_i64(plan->static_byte_offset, lane_end_offset,
+      !iree_checked_add_i64(root_relative_byte_offset, lane_end_offset,
                             &access_end) ||
       access_end <= access_begin) {
     return false;
@@ -137,6 +141,9 @@ void loom_low_source_memory_access_plan_make_summary(
     loom_value_facts_t begin_facts =
         loom_low_source_memory_dynamic_offset_facts(plan,
                                                     plan->static_byte_offset);
+    const loom_value_facts_t physical_root =
+        loom_value_facts_exact_i64(plan->physical_root_byte_offset);
+    loom_value_facts_subi(&begin_facts, &physical_root, &begin_facts);
     loom_value_facts_t end_facts = begin_facts;
     const loom_value_facts_t begin_adjustment =
         loom_value_facts_exact_i64(lane_begin_offset);

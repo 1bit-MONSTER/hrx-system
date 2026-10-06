@@ -748,6 +748,26 @@ bool loom_low_source_memory_dynamic_offset_fits_unsigned_bit_count(
       bit_count);
 }
 
+bool loom_low_source_memory_access_plan_include_root_byte_offset(
+    loom_low_source_memory_access_plan_t* plan, uint64_t root_byte_offset) {
+  IREE_ASSERT_ARGUMENT(plan);
+  if (root_byte_offset > INT64_MAX) {
+    return false;
+  }
+  int64_t static_byte_offset = 0;
+  int64_t physical_root_byte_offset = 0;
+  if (!iree_checked_add_i64(plan->static_byte_offset, (int64_t)root_byte_offset,
+                            &static_byte_offset) ||
+      !iree_checked_add_i64(plan->physical_root_byte_offset,
+                            (int64_t)root_byte_offset,
+                            &physical_root_byte_offset)) {
+    return false;
+  }
+  plan->static_byte_offset = static_byte_offset;
+  plan->physical_root_byte_offset = physical_root_byte_offset;
+  return true;
+}
+
 static bool loom_low_source_memory_access_exact_positive_i64(
     const loom_value_fact_table_t* fact_table, loom_value_id_t value_id,
     int64_t* out_value) {
@@ -1073,6 +1093,19 @@ static bool loom_low_source_memory_access_add_view_base_byte_offset(
 
   plan->memory_space = view_region->memory_space;
   plan->root_value_id = view_region->root_value_id;
+  const loom_value_facts_t root_facts =
+      loom_value_fact_table_lookup(fact_table, view_region->root_value_id);
+  plan->root_uniform_scope = loom_value_facts_uniform_scope(root_facts);
+  loom_value_fact_buffer_reference_t root_reference = {0};
+  if (loom_value_facts_query_buffer_reference(&fact_table->context, root_facts,
+                                              &root_reference) &&
+      root_reference.has_root_symbol) {
+    plan->root_symbol = root_reference.root_symbol;
+  }
+  if (view_region->origin.kind == LOOM_VALUE_FACT_REFERENCE_ORIGIN_ALLOCATION &&
+      view_region->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
+    plan->root_uniform_scope = LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP;
+  }
   plan->root_minimum_alignment = loom_low_source_memory_clamp_alignment(
       view_region->root_minimum_alignment);
   plan->alias_scope_id = view_region->alias_scope_id;
@@ -1097,6 +1130,12 @@ static loom_type_t loom_low_source_memory_element_vector_type(
 static loom_type_t loom_low_source_memory_access_payload_vector_type(
     const loom_module_t* module, const loom_op_t* source_op,
     loom_memory_access_t access, loom_type_t view_type) {
+  if (loom_vector_memory_op_footprint_kind(module, source_op) ==
+      LOOM_VECTOR_MEMORY_FOOTPRINT_FRAGMENT) {
+    // The source address is the logical origin. The target's fragment layout
+    // supplies each lane's physical footprint, not the payload vector shape.
+    return loom_low_source_memory_element_vector_type(view_type);
+  }
   const loom_value_id_t value_id = loom_memory_access_value(access);
   if (value_id != LOOM_VALUE_ID_INVALID && value_id < module->values.count) {
     const loom_type_t value_type = loom_module_value_type(module, value_id);
@@ -1168,6 +1207,7 @@ static bool loom_low_source_memory_access_plan_from_components(
   out_plan->view_value_id = view_value_id;
   out_plan->base_view_value_id = view_value_id;
   out_plan->root_value_id = LOOM_VALUE_ID_INVALID;
+  out_plan->root_symbol = loom_symbol_ref_null();
   out_plan->root_minimum_alignment = 1;
   out_plan->alias_scope_id = LOOM_VALUE_FACT_ALIAS_SCOPE_ID_NONE;
   out_plan->dynamic_view_base_value_id = LOOM_VALUE_ID_INVALID;
@@ -1374,7 +1414,14 @@ static bool loom_low_source_memory_access_plan_from_components(
     if (loom_symbolic_expr_context_try_lookup_summary(
             view_regions->expression_context, source_index,
             &analyzed_summary)) {
-      index_summary = analyzed_summary;
+      // Incoming coordinates are already materialized at the block boundary.
+      // Keep that value instead of reconstructing its expression across the
+      // CFG edge. Proof consumers still have the complete canonical summary.
+      if (loom_value_is_block_arg(loom_module_value(module, source_index))) {
+        index_summary.expression.facts = analyzed_summary.expression.facts;
+      } else {
+        index_summary = analyzed_summary;
+      }
     }
 
     const loom_symbolic_expr_t* index_expression = &index_summary.expression;
@@ -1385,8 +1432,7 @@ static bool loom_low_source_memory_access_plan_from_components(
     if (dynamic_axis_count == 1 && stride_value_count == 0) {
       out_plan->source_index_byte_stride = expression_byte_stride;
     }
-    loom_value_facts_t expression_facts =
-        loom_value_fact_table_lookup(fact_table, source_index);
+    loom_value_facts_t expression_facts = index_expression->facts;
 
     // A coordinate suffix cannot become a static byte offset when its axis
     // stride contains a dynamic extent: the suffix is multiplied by that
@@ -1649,6 +1695,8 @@ static bool loom_low_source_memory_access_plan_build_byte_offset_impl(
       .address_layout = LOOM_LOW_SOURCE_MEMORY_ADDRESS_LAYOUT_COMPACT_ROW_MAJOR,
       .root_value_id = loom_value_fact_buffer_reference_resolve_root_value(
           reference, memory_value_id),
+      .root_symbol = reference.has_root_symbol ? reference.root_symbol
+                                               : loom_symbol_ref_null(),
       .root_minimum_alignment =
           loom_low_source_memory_clamp_alignment(reference.minimum_alignment),
       .alias_scope_id = reference.alias_scope_id,
@@ -1873,74 +1921,70 @@ bool loom_low_source_memory_access_plan_build_view(
       cache_policy, out_plan, out_diagnostic);
 }
 
+loom_low_source_memory_rejection_reason_t
+loom_low_source_memory_access_rejection_reason(
+    loom_low_source_memory_access_rejection_flags_t rejection_bits) {
+  const uint32_t known_rejection_bits =
+      rejection_bits &
+      ((LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_CACHE_POLICY << 1) - 1);
+  if (known_rejection_bits == 0) {
+    return LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_REPRESENTABILITY;
+  }
+  return (loom_low_source_memory_rejection_reason_t)
+      iree_math_count_trailing_zeros_u32(known_rejection_bits);
+}
+
 iree_string_view_t loom_low_source_memory_access_rejection_key(
     loom_low_source_memory_access_rejection_flags_t rejection_bits) {
-  if (iree_any_bit_set(
-          rejection_bits,
-          LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_UNSUPPORTED_OP)) {
-    return IREE_SV("source_memory.unsupported_op");
-  }
-  if (iree_any_bit_set(
-          rejection_bits,
-          LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_DESCRIBE_FAILED)) {
-    return IREE_SV("source_memory.describe_failed");
-  }
-  if (iree_any_bit_set(rejection_bits,
-                       LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_LAYOUT)) {
-    return IREE_SV("source_memory.layout");
-  }
-  if (iree_any_bit_set(rejection_bits,
-                       LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_ELEMENT_WIDTH)) {
-    return IREE_SV("source_memory.element_width");
-  }
-  if (iree_any_bit_set(rejection_bits,
-                       LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VECTOR_RANK)) {
-    return IREE_SV("source_memory.vector_rank");
-  }
-  if (iree_any_bit_set(
-          rejection_bits,
-          LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VECTOR_LANE_COUNT)) {
-    return IREE_SV("source_memory.vector_lane_count");
-  }
-  if (iree_any_bit_set(
-          rejection_bits,
-          LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VECTOR_AXIS_STRIDE)) {
-    return IREE_SV("source_memory.vector_axis_stride");
-  }
-  if (iree_any_bit_set(rejection_bits,
-                       LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_STATIC_OFFSET)) {
-    return IREE_SV("source_memory.static_offset");
-  }
-  if (iree_any_bit_set(
-          rejection_bits,
-          LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_DYNAMIC_INDEX_COUNT)) {
-    return IREE_SV("source_memory.dynamic_index_count");
-  }
-  if (iree_any_bit_set(rejection_bits,
-                       LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_DYNAMIC_AXIS)) {
-    return IREE_SV("source_memory.dynamic_axis");
-  }
-  if (iree_any_bit_set(
-          rejection_bits,
-          LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_DYNAMIC_STRIDE)) {
-    return IREE_SV("source_memory.dynamic_stride");
-  }
-  if (iree_any_bit_set(rejection_bits,
-                       LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VIEW_SOURCE)) {
-    return IREE_SV("source_memory.view_source");
-  }
-  if (iree_any_bit_set(rejection_bits,
-                       LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VIEW_BASE)) {
-    return IREE_SV("source_memory.view_base");
-  }
-  if (iree_any_bit_set(
-          rejection_bits,
-          LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VIEW_BASE_OVERFLOW)) {
-    return IREE_SV("source_memory.view_base_overflow");
-  }
-  if (iree_any_bit_set(rejection_bits,
-                       LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_CACHE_POLICY)) {
-    return IREE_SV("source_memory.cache_policy");
+  switch (loom_low_source_memory_access_rejection_reason(rejection_bits)) {
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_UNSUPPORTED_OP:
+      return IREE_SV("source_memory.unsupported_op");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DESCRIBE_FAILED:
+      return IREE_SV("source_memory.describe_failed");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_LAYOUT:
+      return IREE_SV("source_memory.layout");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ELEMENT_WIDTH:
+      return IREE_SV("source_memory.element_width");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_RANK:
+      return IREE_SV("source_memory.vector_rank");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_LANE_COUNT:
+      return IREE_SV("source_memory.vector_lane_count");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_AXIS_STRIDE:
+      return IREE_SV("source_memory.vector_axis_stride");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_STATIC_OFFSET:
+      return IREE_SV("source_memory.static_offset");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_INDEX_COUNT:
+      return IREE_SV("source_memory.dynamic_index_count");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_AXIS:
+      return IREE_SV("source_memory.dynamic_axis");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_STRIDE:
+      return IREE_SV("source_memory.dynamic_stride");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VIEW_SOURCE:
+      return IREE_SV("source_memory.view_source");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VIEW_BASE:
+      return IREE_SV("source_memory.view_base");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VIEW_BASE_OVERFLOW:
+      return IREE_SV("source_memory.view_base_overflow");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_CACHE_POLICY:
+      return IREE_SV("source_memory.cache_policy");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_REPRESENTABILITY:
+      return IREE_SV("source_memory.representability");
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_OPERATION_KIND:
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ROOT_VALUE:
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ROOT_KIND:
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_MEMORY_SPACE:
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ELEMENT_BYTE_COUNT:
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_LANE_BYTE_STRIDE:
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_MINIMUM_ALIGNMENT:
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_SOURCE_INDEX_PRESERVATION:
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_VIEW_BASE_TERM_COUNT:
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_STRIDE_VALUES:
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_INDEX_SOURCE:
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_LAYOUT:
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_BYTE_OFFSET_WIDTH:
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_MATERIALIZATION:
+    case LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT:
+      break;
   }
   return IREE_SV("source_memory.representability");
 }

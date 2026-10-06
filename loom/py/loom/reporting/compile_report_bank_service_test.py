@@ -21,6 +21,7 @@ from loom.reporting.compile_report_view import (
 
 def _bank_service_summary(
     *,
+    unmodeled_packets: int = 0,
     exact_packets: int = 1,
     unknown_packets: int = 0,
     conflict_free_packets: int = 0,
@@ -30,6 +31,7 @@ def _bank_service_summary(
     extra_rounds: int = 2,
 ) -> dict[str, object]:
     return {
+        "unmodeled_packet_count": unmodeled_packets,
         "modeled_packet_count": exact_packets + unknown_packets,
         "exact_packet_count": exact_packets,
         "unknown_packet_count": unknown_packets,
@@ -43,7 +45,7 @@ def _bank_service_summary(
         },
         "dynamic": {
             "exact_packet_count": exact_packets,
-            "unknown_packet_count": unknown_packets,
+            "unknown_packet_count": unknown_packets + unmodeled_packets,
             "packet_count": exact_packets,
             "required_round_count": required_rounds,
             "uncontended_round_count": uncontended_rounds,
@@ -71,7 +73,7 @@ def _bank_service_group() -> dict[str, object]:
             "wave_size": 32,
             "bank_count": 32,
             "bank_word_bytes": 4,
-            "packet_bank_words": 4,
+            "packet_bytes": 16,
         },
         "summary": _bank_service_summary(),
     }
@@ -211,3 +213,34 @@ def test_diff_rejects_duplicate_semantic_group_identity() -> None:
 
     with pytest.raises(CompileReportError, match="duplicate semantic group identity"):
         build_compile_report_diff(baseline, candidate)
+
+
+def test_unmodeled_coverage_remains_visible_in_show_and_diff() -> None:
+    baseline = parse_compile_report(_compile_report())
+    candidate_report = _compile_report()
+    memory = candidate_report["source_low"]["memory"]
+    summary = _bank_service_summary(
+        unmodeled_packets=1,
+        exact_packets=0,
+        conflicted_packets=0,
+        required_rounds=0,
+        uncontended_rounds=0,
+        extra_rounds=0,
+    )
+    memory["bank_service"] = summary
+    group = memory["bank_service_groups"][0]
+    group["summary"] = deepcopy(summary)
+    group["model"] = None
+    group["wave_size"] = 32
+    group["unknown_evidence"] = {
+        "reason": "target-model-unavailable",
+        "mixed_reasons": False,
+    }
+    candidate = parse_compile_report(candidate_report)
+    text = format_compile_report_show_text(build_compile_report_show(candidate))
+    assert "model: unavailable (wave32)" in text
+    assert "0 exact, 0 unknown, 1 unmodeled" in text
+    assert "target-model-unavailable" in text
+    difference = build_compile_report_diff(baseline, candidate)["bank_service"]
+    assert difference["groups"][0]["proof_loss"] is True
+    assert difference["summary"]["changed"]["unmodeled_packet_count"]["delta"] == 1

@@ -1,0 +1,283 @@
+// RUN: pass combine,combine
+
+// Only the low word is observed; signed and unsigned extensions have the same
+// low bits even when the complete wide result is outside either i32 range.
+func.def @mixed_extensions(%left: i32, %right: i32) -> (i32) {
+  %signed = scalar.extsi %left : i32 to i64
+  %unsigned = scalar.extui %right : i32 to i64
+  %product = scalar.muli %signed, %unsigned : i64
+  %result = scalar.trunci %product : i64 to i32
+  func.return %result : i32
+}
+
+// ----
+func.def @mixed_extensions(%left: i32, %right: i32) -> (i32) {
+  %result = scalar.muli %left, %right : i32
+  func.return %result : i32
+}
+
+// ====
+
+// The one residual truncation can be reused on either side of subtraction.
+func.def @right_residual(%left: i32, %right: i64) -> (i32) {
+  %wide = scalar.extsi %left : i32 to i64
+  %difference = scalar.subi %wide, %right : i64
+  %result = scalar.trunci %difference : i64 to i32
+  func.return %result : i32
+}
+
+func.def @left_residual(%left: i64, %right: i32) -> (i32) {
+  %wide = scalar.extui %right : i32 to i64
+  %difference = scalar.subi %left, %wide : i64
+  %result = scalar.trunci %difference : i64 to i32
+  func.return %result : i32
+}
+
+// ----
+func.def @right_residual(%left: i32, %right: i64) -> (i32) {
+  %5 = scalar.trunci %right : i64 to i32
+  %result = scalar.subi %left, %5 : i32
+  func.return %result : i32
+}
+
+func.def @left_residual(%left: i64, %right: i32) -> (i32) {
+  %11 = scalar.trunci %left : i64 to i32
+  %result = scalar.subi %11, %right : i32
+  func.return %result : i32
+}
+
+// ====
+
+// A constant is materialized directly with its low-word payload.
+func.def @constant_low_word(%input: i64) -> (i32) {
+  %constant = scalar.constant 8589934589 : i64
+  %sum = scalar.addi %input, %constant : i64
+  %result = scalar.trunci %sum : i64 to i32
+  func.return %result : i32
+}
+
+// ----
+func.def @constant_low_word(%input: i64) -> (i32) {
+  %5 = scalar.constant -3 : i32
+  %4 = scalar.trunci %input : i64 to i32
+  %result = scalar.addi %4, %5 : i32
+  func.return %result : i32
+}
+
+// ====
+
+// The replacement keeps every ordinary observer of the original result.
+func.def @multiple_observers(%left: i32, %right: i64) -> (i32, i32) {
+  %wide = scalar.extsi %left : i32 to i64
+  %sum = scalar.addi %wide, %right : i64
+  %result = scalar.trunci %sum : i64 to i32
+  %increment_step = scalar.constant 1 : i32
+  %increment = scalar.addi %result, %increment_step : i32
+  func.return %result, %increment : i32, i32
+}
+
+// ----
+func.def @multiple_observers(%left: i32, %right: i64) -> (i32, i32) {
+  %6 = scalar.trunci %right : i64 to i32
+  %result = scalar.addi %left, %6 : i32
+  %increment_step = scalar.constant 1 : i32
+  %increment = scalar.addi %result, %increment_step : i32
+  func.return %result, %increment : i32, i32
+}
+
+// ====
+
+// Embedded result references require full replacement rather than truncation
+// reuse; the predicate must still refer to the complete arithmetic result.
+func.def @attribute_observer(%left: i32, %right: i64) -> (i32) {
+  %wide = scalar.extsi %left : i32 to i64
+  %difference = scalar.subi %wide, %right : i64
+  %result = scalar.trunci %difference : i64 to i32
+  %aligned = scalar.assume %result [mul(%result, 8)] : i32
+  func.return %aligned : i32
+}
+
+// ----
+func.def @attribute_observer(%left: i32, %right: i64) -> (i32) {
+  %7 = scalar.trunci %right : i64 to i32
+  %result = scalar.subi %left, %7 : i32
+  %aligned = scalar.assume %result [mul(%result, 8)] : i32
+  func.return %aligned : i32
+}
+
+// ====
+
+// An exact shift valid in both widths can move before truncation.
+func.def @bounded_shift(%input: i64) -> (i32) {
+  %amount = scalar.constant 17 : i64
+  %shifted = scalar.shli %input, %amount : i64
+  %result = scalar.trunci %shifted : i64 to i32
+  func.return %result : i32
+}
+
+// ----
+func.def @bounded_shift(%input: i64) -> (i32) {
+  %5 = scalar.constant 17 : i32
+  %4 = scalar.trunci %input : i64 to i32
+  %result = scalar.shli %4, %5 : i32
+  func.return %result : i32
+}
+
+// ====
+
+// A later truncation must not alter a wide observer or duplicate arithmetic.
+func.def @shared_wide(%left: i32, %right: i64) -> (i64, i32) {
+  %wide = scalar.extui %left : i32 to i64
+  %sum = scalar.addi %wide, %right : i64
+  %result = scalar.trunci %sum : i64 to i32
+  func.return %sum, %result : i64, i32
+}
+
+// ====
+
+// An external predicate is an observer even without another ordinary operand.
+func.def @wide_attribute(%left: i32, %right: i64, %other: i64) -> (i32, i64) {
+  %wide = scalar.extsi %left : i32 to i64
+  %sum = scalar.addi %wide, %right : i64
+  %bounded = scalar.assume %other [mul(%sum, 8)] : i64
+  %result = scalar.trunci %sum : i64 to i32
+  func.return %result, %bounded : i32, i64
+}
+
+// ====
+
+// Two unresolved wide inputs would introduce an additional conversion.
+func.def @two_wide_inputs(%left: i64, %right: i64) -> (i32) {
+  %product = scalar.muli %left, %right : i64
+  %result = scalar.trunci %product : i64 to i32
+  func.return %result : i32
+}
+
+// ====
+
+// Overflow contracts and shift domains are not transferred to a smaller type.
+func.def @flagged_sum(%left: i32, %right: i64) -> (i32) {
+  %wide = scalar.extsi %left : i32 to i64
+  %sum = scalar.addi<nsw> %wide, %right : i64
+  %result = scalar.trunci %sum : i64 to i32
+  func.return %result : i32
+}
+
+func.def @dynamic_shift(%input: i32, %amount: i64) -> (i32) {
+  %wide = scalar.extsi %input : i32 to i64
+  %shifted = scalar.shli %wide, %amount : i64
+  %result = scalar.trunci %shifted : i64 to i32
+  func.return %result : i32
+}
+
+func.def @upper_word(%input: i64) -> (i32) {
+  %amount = scalar.constant 32 : i64
+  %shifted = scalar.shrui %input, %amount : i64
+  %result = scalar.trunci %shifted : i64 to i32
+  func.return %result : i32
+}
+
+// ====
+
+// A residual truncation in another block stays at the observation point.
+func.def @nested_observer(%left: i32, %right: i64, %condition: i1, %destination: view<1xi32>) -> (i32) {
+  %wide = scalar.extsi %left : i32 to i64
+  %difference = scalar.subi %wide, %right : i64
+  %output = scf.if %condition -> (i32) {
+    %result = scalar.trunci %difference : i64 to i32
+    view.store %result, %destination[0] : i32, view<1xi32>
+    scf.yield %result : i32
+  } else {
+    scf.yield %left : i32
+  }
+  func.return %output : i32
+}
+
+// ----
+func.def @nested_observer(%left: i32, %right: i64, %condition: i1, %destination: view<1xi32>) -> (i32) {
+  %output = scf.if %condition -> (i32) {
+    %9 = scalar.trunci %right : i64 to i32
+    %result = scalar.subi %left, %9 : i32
+    view.store %result, %destination[0] : i32, view<1xi32>
+    scf.yield %result : i32
+  } else {
+    scf.yield %left : i32
+  }
+  func.return %output : i32
+}
+
+// ====
+
+// Immediate producer retirement lets the worklist narrow successive layers.
+func.def @arithmetic_chain(%input: i32, %other: i64) -> (i32) {
+  %wide = scalar.extui %input : i32 to i64
+  %first = scalar.muli %other, %wide : i64
+  %second = scalar.muli %first, %wide : i64
+  %third = scalar.subi %wide, %second : i64
+  %result = scalar.trunci %third : i64 to i32
+  func.return %result : i32
+}
+
+// ----
+func.def @arithmetic_chain(%input: i32, %other: i64) -> (i32) {
+  %7 = scalar.trunci %other : i64 to i32
+  %10 = scalar.muli %7, %input : i32
+  %9 = scalar.muli %10, %input : i32
+  %result = scalar.subi %input, %9 : i32
+  func.return %result : i32
+}
+
+// ====
+
+// Explicit assumptions retain their facts across the truncation boundary.
+func.def @assumed_arithmetic(%input: i32, %other: i64) -> (i32) {
+  %wide = scalar.extui %input : i32 to i64
+  %sum = scalar.addi %wide, %other : i64
+  %bounded = scalar.assume %sum [range(%sum, 0, 4294967295)] : i64
+  %result = scalar.trunci %bounded : i64 to i32
+  func.return %result : i32
+}
+
+// ----
+func.def @assumed_arithmetic(%input: i32, %other: i64) -> (i32) {
+  %wide = scalar.extui %input : i32 to i64
+  %sum = scalar.addi %wide, %other : i64
+  %bounded = scalar.assume %sum [range(%sum, 0, 4294967295)] : i64
+  %result = scalar.trunci %bounded : i64 to i32
+  func.return %result : i32
+}
+
+// ====
+
+// The explicit truncation observes the same low bits as a direct offset cast.
+func.def @offset_word(%origin: offset) -> (i32) {
+  %wide = index.cast %origin : offset to i64
+  %result = scalar.trunci %wide : i64 to i32
+  func.return %result : i32
+}
+
+// ----
+func.def @offset_word(%origin: offset) -> (i32) {
+  %result = index.cast %origin : offset to i32
+  func.return %result : i32
+}
+
+// ====
+
+// Preserve the operand refinement needed by downstream numeric consumers.
+func.def @bounded_operand(%input: i64) -> (i32) {
+  %bounded = scalar.assume %input [range(%input, 0, 128), mul(%input, 8)] : i64
+  %prefix = scalar.constant 16 : i64
+  %sum = scalar.addi %bounded, %prefix : i64
+  %result = scalar.trunci %sum : i64 to i32
+  func.return %result : i32
+}
+
+// ----
+func.def @bounded_operand(%input: i64) -> (i32) {
+  %bounded = scalar.assume %input [range(%input, 0, 128), mul(%input, 8)] : i64
+  %6 = scalar.constant 16 : i32
+  %5 = scalar.trunci %bounded : i64 to i32
+  %result = scalar.addi %5, %6 : i32
+  func.return %result : i32
+}

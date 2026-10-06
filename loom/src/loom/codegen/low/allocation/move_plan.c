@@ -6,8 +6,7 @@
 
 #include "loom/codegen/low/allocation/move_plan.h"
 
-#include "loom/codegen/low/allocation/storage.h"
-#include "loom/codegen/low/allocation/unit_location.h"
+#include "loom/codegen/low/allocation/write_interference.h"
 #include "loom/codegen/low/schedule/types.h"
 
 typedef struct loom_low_allocation_move_plan_group_context_t {
@@ -18,43 +17,6 @@ typedef struct loom_low_allocation_move_plan_group_context_t {
   // Global move-row index corresponding to local output row zero.
   iree_host_size_t move_start;
 } loom_low_allocation_move_plan_group_context_t;
-
-static bool loom_low_allocation_move_group_uses_location(
-    const loom_low_descriptor_set_t* descriptor_set,
-    const loom_low_move_t* moves, iree_host_size_t move_count,
-    const loom_low_move_location_t* location) {
-  const loom_low_allocation_assignment_t location_assignment = {
-      .descriptor_reg_class_id = location->descriptor_reg_class_id,
-      .location_kind = location->location_kind,
-      .location_base = location->location,
-      .location_count = 1,
-  };
-  for (iree_host_size_t i = 0; i < move_count; ++i) {
-    const loom_low_move_location_t* source = &moves[i].source;
-    const loom_low_move_location_t* destination = &moves[i].destination;
-    const loom_low_allocation_assignment_t source_assignment = {
-        .descriptor_reg_class_id = source->descriptor_reg_class_id,
-        .location_kind = source->location_kind,
-        .location_base = source->location,
-        .location_count = 1,
-    };
-    if (loom_low_allocation_storage_assignment_ranges_overlap(
-            descriptor_set, &source_assignment, &location_assignment)) {
-      return true;
-    }
-    const loom_low_allocation_assignment_t destination_assignment = {
-        .descriptor_reg_class_id = destination->descriptor_reg_class_id,
-        .location_kind = destination->location_kind,
-        .location_base = destination->location,
-        .location_count = 1,
-    };
-    if (loom_low_allocation_storage_assignment_ranges_overlap(
-            descriptor_set, &destination_assignment, &location_assignment)) {
-      return true;
-    }
-  }
-  return false;
-}
 
 static iree_status_t loom_low_allocation_move_plan_record_scratch(
     void* user_data, iree_host_size_t move_index) {
@@ -74,7 +36,7 @@ static iree_status_t loom_low_allocation_move_plan_record_scratch(
 
 static iree_status_t loom_low_allocation_move_plan_resolve_temporary(
     void* user_data, const loom_low_move_location_t* storage_class,
-    const loom_low_move_t* moves, iree_host_size_t move_count,
+    const loom_low_move_sequence_location_set_t* occupied_locations,
     loom_low_move_location_t* out_temporary, bool* out_resolved) {
   const loom_low_allocation_move_plan_group_context_t* group_context =
       (const loom_low_allocation_move_plan_group_context_t*)user_data;
@@ -139,6 +101,13 @@ static iree_status_t loom_low_allocation_move_plan_resolve_temporary(
           ? iree_min((uint32_t)reg_class->allocatable_count,
                      capacity.is_bounded ? capacity.max_units : UINT32_MAX)
           : last_location + 1u;
+  loom_low_allocation_move_plan_t* plan = group_context->plan;
+  if (plan->storage_liveness_index.descriptor_set == NULL) {
+    IREE_RETURN_IF_ERROR(loom_low_allocation_storage_liveness_index_initialize(
+        context->descriptor_set, context->assignment_map.assignments,
+        context->assignment_map.assignment_count, context->unit_liveness,
+        plan->scratch_arena, &plan->storage_liveness_index));
+  }
   const uint32_t program_point = group_context->operation_point->start_point;
   for (uint32_t candidate_ordinal = 0; candidate_ordinal < candidate_count;
        ++candidate_ordinal) {
@@ -157,12 +126,14 @@ static iree_status_t loom_low_allocation_move_plan_resolve_temporary(
     if (loom_low_allocation_target_constraints_reserved_range_conflicts(
             context->target_constraints, temporary.descriptor_reg_class_id,
             temporary.location_kind, temporary.location, 1) ||
-        loom_low_allocation_unit_location_is_live_at_point(
-            context->descriptor_set, context->assignment_map.assignments,
-            context->assignment_map.assignment_count, context->unit_liveness,
-            &temporary, program_point) ||
-        loom_low_allocation_move_group_uses_location(
-            context->descriptor_set, moves, move_count, &temporary)) {
+        loom_low_allocation_storage_liveness_index_is_live_at_point(
+            &plan->storage_liveness_index, &temporary, program_point) ||
+        loom_low_move_sequence_location_set_contains(occupied_locations,
+                                                     &temporary) ||
+        loom_low_allocation_write_interference_temporary_conflicts(
+            context->unit_liveness->write_interference,
+            &context->assignment_map, group_context->operation_point->end_point,
+            &temporary)) {
       continue;
     }
     *out_temporary = temporary;
@@ -189,6 +160,7 @@ iree_status_t loom_low_allocation_move_plan_initialize(
   *out_plan = (loom_low_allocation_move_plan_t){
       .context = *context,
       .output_arena = output_arena,
+      .scratch_arena = scratch_arena,
       .scratch_move_index_capacity = move_input_capacity / 2,
   };
   const loom_low_schedule_table_t* schedule = context->schedule;

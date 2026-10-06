@@ -6,6 +6,8 @@
 
 #include "loom/rewrite/type_propagation.h"
 
+#include <vector>
+
 #include "iree/base/internal/arena.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -406,6 +408,355 @@ TEST_F(TypePropagationTest, RejectedCandidateClosureRunsOncePerIteration) {
   loom_type_propagator_deinitialize(propagator);
   loom_rewriter_deinitialize(&rewriter);
   iree_arena_deinitialize(&pass_arena);
+}
+
+class TypePropagationStorageTest : public TypePropagationTest {
+ protected:
+  struct Chain {
+    // First equality constraint, seeded by the static source type.
+    loom_op_t* first = nullptr;
+    // Initially dynamic values connected by the equality closure.
+    std::vector<loom_value_id_t> values;
+    // Expected type before a successful transaction commits.
+    loom_type_t dynamic_type;
+    // Type supplied by the source at the start of the closure.
+    loom_type_t static_type;
+  };
+
+  static iree_status_t Allocate(void* self, iree_allocator_command_t command,
+                                const void* parameters, void** pointer) {
+    auto* test = static_cast<TypePropagationStorageTest*>(self);
+    if (command != IREE_ALLOCATOR_COMMAND_FREE &&
+        test->allocation_count_++ == test->failure_index_) {
+      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                              "injected type propagation allocation failure");
+    }
+    const auto allocator = iree_allocator_system();
+    return allocator.ctl(allocator.self, command, parameters, pointer);
+  }
+
+  void InitializeScratch() {
+    allocation_count_ = 0;
+    failure_index_ = SIZE_MAX;
+    iree_arena_block_pool_initialize(32 * 1024, {this, Allocate},
+                                     &scratch_pool_);
+    iree_arena_initialize(&scratch_pool_, &scratch_arena_);
+    loom_rewriter_initialize(&rewriter_, module_, &scratch_arena_);
+  }
+
+  void DeinitializeScratch() {
+    loom_type_propagator_deinitialize(propagator_);
+    propagator_ = nullptr;
+    loom_rewriter_deinitialize(&rewriter_);
+    iree_arena_deinitialize(&scratch_arena_);
+    iree_arena_block_pool_deinitialize(&scratch_pool_);
+  }
+
+  void SetUp() override {
+    TypePropagationTest::SetUp();
+    InitializeScratch();
+  }
+
+  void TearDown() override {
+    DeinitializeScratch();
+    TypePropagationTest::TearDown();
+  }
+
+  void BuildChain(iree_host_size_t count, uint64_t extent, Chain* chain) {
+    loom_op_t* dimension = nullptr;
+    IREE_ASSERT_OK(BuildConstant(loom_attr_i64(0),
+                                 loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+                                 &dimension));
+    chain->dynamic_type = loom_type_shaped_1d(
+        LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I32,
+        loom_dim_pack_dynamic(loom_test_constant_result(dimension)), 0);
+    chain->static_type =
+        loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I32,
+                            loom_dim_pack_static(extent), 0);
+    loom_op_t* source = nullptr;
+    IREE_ASSERT_OK(
+        BuildConstant(loom_attr_i64(0), chain->static_type, &source));
+    loom_value_id_t previous = loom_test_constant_result(source);
+    for (iree_host_size_t i = 0; i < count; ++i) {
+      loom_op_t* op = nullptr;
+      IREE_ASSERT_OK(loom_test_attrs_build(
+          &builder_, 0, previous, (loom_named_attr_slice_t){0},
+          chain->dynamic_type, LOOM_LOCATION_UNKNOWN, &op));
+      if (i == 0) {
+        chain->first = op;
+      }
+      previous = loom_test_attrs_result(op);
+      chain->values.push_back(previous);
+    }
+  }
+
+  void Prepare() {
+    IREE_ASSERT_OK(loom_type_propagator_allocate(module_, {}, &scratch_arena_,
+                                                 &propagator_));
+    IREE_ASSERT_OK(
+        loom_type_propagator_prepare_function(propagator_, function_));
+    loom_type_propagator_begin_iteration(propagator_);
+  }
+
+  void ExpectTypes(const Chain& chain, loom_type_t expected) {
+    for (loom_value_id_t value : chain.values) {
+      EXPECT_TRUE(
+          loom_type_equal(loom_module_value_type(module_, value), expected))
+          << "value " << value;
+    }
+  }
+
+  void BuildConflict(Chain* chain, loom_op_t** out_seed) {
+    ASSERT_NO_FATAL_FAILURE(BuildChain(1025, 64, chain));
+    loom_type_t conflicting_type = loom_type_shaped_1d(
+        LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I32, loom_dim_pack_static(16), 0);
+    IREE_ASSERT_OK(loom_test_attrs_build(
+        &builder_, 0, chain->values.back(), (loom_named_attr_slice_t){0},
+        conflicting_type, LOOM_LOCATION_UNKNOWN, out_seed));
+  }
+
+  // Private pass scratch with the normal checker pool size.
+  iree_arena_block_pool_t scratch_pool_ = {};
+  // Scratch survives all transactions and iterations in this region run.
+  iree_arena_allocator_t scratch_arena_ = {};
+  // Production mutation path used for every committed type.
+  loom_rewriter_t rewriter_ = {};
+  // Arena-owned propagator retaining the region's local value domain.
+  loom_type_propagator_t* propagator_ = nullptr;
+  // Attempted backing allocations, excluding frees.
+  iree_host_size_t allocation_count_ = 0;
+  // Next backing allocation selected for injected failure, or SIZE_MAX.
+  iree_host_size_t failure_index_ = SIZE_MAX;
+};
+
+class TypePropagationStorageBoundaryTest
+    : public TypePropagationStorageTest,
+      public ::testing::WithParamInterface<iree_host_size_t> {};
+
+TEST_P(TypePropagationStorageBoundaryTest, ReusesPayloadsAcrossTransactions) {
+  Chain first;
+  Chain second;
+  ASSERT_NO_FATAL_FAILURE(BuildChain(GetParam(), 16, &first));
+  ASSERT_NO_FATAL_FAILURE(BuildChain(GetParam(), 32, &second));
+  ASSERT_NO_FATAL_FAILURE(Prepare());
+
+  bool changed = false;
+  IREE_ASSERT_OK(loom_type_propagator_apply_op(propagator_, &rewriter_,
+                                               first.first, &changed));
+  EXPECT_TRUE(changed);
+  ExpectTypes(first, first.static_type);
+  ExpectTypes(second, second.dynamic_type);
+  const auto allocation_count = allocation_count_;
+  const auto used_bytes = scratch_arena_.used_allocation_size;
+
+  IREE_ASSERT_OK(loom_type_propagator_apply_op(propagator_, &rewriter_,
+                                               second.first, &changed));
+  EXPECT_TRUE(changed);
+  ExpectTypes(first, first.static_type);
+  ExpectTypes(second, second.static_type);
+  EXPECT_EQ(allocation_count_, allocation_count);
+  EXPECT_EQ(scratch_arena_.used_allocation_size, used_bytes);
+  EXPECT_EQ(scratch_arena_.allocation_head, nullptr);
+}
+
+INSTANTIATE_TEST_SUITE_P(PayloadBoundaries, TypePropagationStorageBoundaryTest,
+                         ::testing::Values(31, 32, 33, 511, 512, 513, 1025));
+
+TEST_F(TypePropagationStorageTest, ReusesRejectionsAcrossIterations) {
+  Chain chain;
+  loom_op_t* seed = nullptr;
+  ASSERT_NO_FATAL_FAILURE(BuildConflict(&chain, &seed));
+  ASSERT_NO_FATAL_FAILURE(Prepare());
+  bool changed = true;
+  IREE_ASSERT_OK(
+      loom_type_propagator_apply_op(propagator_, &rewriter_, seed, &changed));
+  EXPECT_FALSE(changed);
+  ExpectTypes(chain, chain.dynamic_type);
+  EXPECT_EQ(loom_type_propagator_statistics(propagator_).conflict_count, 1u);
+  const auto allocation_count = allocation_count_;
+  const auto used_bytes = scratch_arena_.used_allocation_size;
+
+  IREE_ASSERT_OK(
+      loom_type_propagator_apply_op(propagator_, &rewriter_, seed, &changed));
+  EXPECT_FALSE(changed);
+  EXPECT_EQ(loom_type_propagator_statistics(propagator_).conflict_count, 1u);
+  EXPECT_GT(
+      loom_type_propagator_statistics(propagator_).rejection_cache_hit_count,
+      0u);
+  loom_type_propagator_begin_iteration(propagator_);
+  IREE_ASSERT_OK(
+      loom_type_propagator_apply_op(propagator_, &rewriter_, seed, &changed));
+  EXPECT_FALSE(changed);
+  EXPECT_EQ(loom_type_propagator_statistics(propagator_).conflict_count, 2u);
+  ExpectTypes(chain, chain.dynamic_type);
+  EXPECT_EQ(allocation_count_, allocation_count);
+  EXPECT_EQ(scratch_arena_.used_allocation_size, used_bytes);
+  EXPECT_EQ(scratch_arena_.allocation_head, nullptr);
+
+  // A distinct candidate in the same iteration must not match the rejected
+  // type. Successful narrowing also leaves the older rejection payload intact.
+  IREE_ASSERT_OK(loom_rewriter_set_value_type(
+      &rewriter_, loom_test_attrs_result(seed), chain.static_type));
+  IREE_ASSERT_OK(
+      loom_type_propagator_apply_op(propagator_, &rewriter_, seed, &changed));
+  EXPECT_TRUE(changed);
+  ExpectTypes(chain, chain.static_type);
+  EXPECT_EQ(allocation_count_, allocation_count);
+  EXPECT_EQ(scratch_arena_.used_allocation_size, used_bytes);
+}
+
+TEST_F(TypePropagationStorageTest,
+       ReplacesRejectedTypeWithinIterationWithoutGrowingStorage) {
+  Chain chain;
+  loom_op_t* seed = nullptr;
+  ASSERT_NO_FATAL_FAILURE(BuildConflict(&chain, &seed));
+  ASSERT_NO_FATAL_FAILURE(Prepare());
+  bool changed = true;
+  IREE_ASSERT_OK(
+      loom_type_propagator_apply_op(propagator_, &rewriter_, seed, &changed));
+  EXPECT_FALSE(changed);
+  const auto allocation_count = allocation_count_;
+  const auto used_bytes = scratch_arena_.used_allocation_size;
+
+  uint64_t extents[] = {32, 16};
+  for (uint64_t extent : extents) {
+    SCOPED_TRACE(extent);
+    const auto conflict_count =
+        loom_type_propagator_statistics(propagator_).conflict_count;
+    loom_type_t conflicting_type =
+        loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I32,
+                            loom_dim_pack_static(extent), 0);
+    IREE_ASSERT_OK(loom_rewriter_set_value_type(
+        &rewriter_, loom_test_attrs_result(seed), conflicting_type));
+    IREE_ASSERT_OK(
+        loom_type_propagator_apply_op(propagator_, &rewriter_, seed, &changed));
+    EXPECT_FALSE(changed);
+    EXPECT_EQ(loom_type_propagator_statistics(propagator_).conflict_count,
+              conflict_count + 1);
+    ExpectTypes(chain, chain.dynamic_type);
+
+    const auto cache_hit_count =
+        loom_type_propagator_statistics(propagator_).rejection_cache_hit_count;
+    IREE_ASSERT_OK(
+        loom_type_propagator_apply_op(propagator_, &rewriter_, seed, &changed));
+    EXPECT_FALSE(changed);
+    EXPECT_EQ(loom_type_propagator_statistics(propagator_).conflict_count,
+              conflict_count + 1);
+    EXPECT_GT(
+        loom_type_propagator_statistics(propagator_).rejection_cache_hit_count,
+        cache_hit_count);
+    EXPECT_EQ(allocation_count_, allocation_count);
+    EXPECT_EQ(scratch_arena_.used_allocation_size, used_bytes);
+    EXPECT_EQ(scratch_arena_.allocation_head, nullptr);
+  }
+}
+
+TEST_F(TypePropagationStorageTest,
+       ReusedPayloadSlotDoesNotChangeAnEarlierTransactionValue) {
+  Chain chain;
+  ASSERT_NO_FATAL_FAILURE(BuildChain(33, 16, &chain));
+  ASSERT_NO_FATAL_FAILURE(Prepare());
+  bool changed = false;
+  IREE_ASSERT_OK(loom_type_propagator_apply_op(propagator_, &rewriter_,
+                                               chain.first, &changed));
+  EXPECT_TRUE(changed);
+  ExpectTypes(chain, chain.static_type);
+
+  // A rewrite adds a conflicting consumer after the first transaction. The
+  // bridge reuses the first payload slot, but the older source still has its
+  // canonical extent16 and must not observe the bridge's candidate extent32.
+  loom_op_t* bridge = nullptr;
+  IREE_ASSERT_OK(loom_test_attrs_build(
+      &builder_, 0, chain.values.front(), (loom_named_attr_slice_t){0},
+      chain.dynamic_type, LOOM_LOCATION_UNKNOWN, &bridge));
+  loom_type_t conflicting_type = loom_type_shaped_1d(
+      LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I32, loom_dim_pack_static(32), 0);
+  loom_op_t* seed = nullptr;
+  IREE_ASSERT_OK(
+      loom_test_attrs_build(&builder_, 0, loom_test_attrs_result(bridge),
+                            (loom_named_attr_slice_t){0}, conflicting_type,
+                            LOOM_LOCATION_UNKNOWN, &seed));
+  IREE_ASSERT_OK(
+      loom_type_propagator_apply_op(propagator_, &rewriter_, seed, &changed));
+  EXPECT_FALSE(changed);
+  EXPECT_EQ(loom_type_propagator_statistics(propagator_).conflict_count, 1u);
+  ExpectTypes(chain, chain.static_type);
+  EXPECT_TRUE(loom_type_equal(
+      loom_module_value_type(module_, loom_test_attrs_result(bridge)),
+      chain.dynamic_type));
+}
+
+TEST_F(TypePropagationStorageTest,
+       PreservesRejectionsWhileRegisteringRewrittenValues) {
+  Chain rejected;
+  loom_op_t* seed = nullptr;
+  ASSERT_NO_FATAL_FAILURE(BuildConflict(&rejected, &seed));
+  ASSERT_NO_FATAL_FAILURE(Prepare());
+  bool changed = true;
+  IREE_ASSERT_OK(
+      loom_type_propagator_apply_op(propagator_, &rewriter_, seed, &changed));
+  EXPECT_FALSE(changed);
+  const auto value_count =
+      loom_type_propagator_value_domain(propagator_)->value_count;
+
+  // Rewrites may create values after domain acquisition. Their first candidate
+  // extends the ordinal tables while the earlier rejection cache is live.
+  Chain inserted;
+  ASSERT_NO_FATAL_FAILURE(BuildChain(513, 32, &inserted));
+  IREE_ASSERT_OK(loom_type_propagator_apply_op(propagator_, &rewriter_,
+                                               inserted.first, &changed));
+  EXPECT_TRUE(changed);
+  EXPECT_GT(loom_type_propagator_value_domain(propagator_)->value_count,
+            value_count);
+  ExpectTypes(inserted, inserted.static_type);
+  ExpectTypes(rejected, rejected.dynamic_type);
+
+  IREE_ASSERT_OK(
+      loom_type_propagator_apply_op(propagator_, &rewriter_, seed, &changed));
+  EXPECT_FALSE(changed);
+  EXPECT_EQ(loom_type_propagator_statistics(propagator_).conflict_count, 1u);
+  EXPECT_GT(
+      loom_type_propagator_statistics(propagator_).rejection_cache_hit_count,
+      0u);
+  ExpectTypes(rejected, rejected.dynamic_type);
+}
+
+TEST_F(TypePropagationStorageTest, CandidateAndRejectionFailuresLeaveIrIntact) {
+  Chain chain;
+  loom_op_t* seed = nullptr;
+  ASSERT_NO_FATAL_FAILURE(BuildConflict(&chain, &seed));
+  ASSERT_NO_FATAL_FAILURE(Prepare());
+  const auto prepare_allocations = allocation_count_;
+  bool changed = true;
+  IREE_ASSERT_OK(
+      loom_type_propagator_apply_op(propagator_, &rewriter_, seed, &changed));
+  EXPECT_FALSE(changed);
+  const auto closure_allocations = allocation_count_ - prepare_allocations;
+  ASSERT_GT(closure_allocations, 1u);
+
+  // Exercise every backing allocation in the real candidate/rejection path.
+  // Fresh pools keep reuse from masking the selected backing failure.
+  for (iree_host_size_t i = 0; i < closure_allocations; ++i) {
+    SCOPED_TRACE(i);
+    DeinitializeScratch();
+    InitializeScratch();
+    ASSERT_NO_FATAL_FAILURE(Prepare());
+    failure_index_ = allocation_count_ + i;
+    IREE_ASSERT_STATUS_IS(
+        IREE_STATUS_RESOURCE_EXHAUSTED,
+        loom_type_propagator_apply_op(propagator_, &rewriter_, seed, &changed));
+    EXPECT_FALSE(changed);
+    EXPECT_EQ(allocation_count_, failure_index_ + 1);
+    ExpectTypes(chain, chain.dynamic_type);
+    EXPECT_EQ(scratch_arena_.allocation_head, nullptr);
+
+    failure_index_ = SIZE_MAX;
+    loom_type_propagator_begin_iteration(propagator_);
+    IREE_ASSERT_OK(
+        loom_type_propagator_apply_op(propagator_, &rewriter_, seed, &changed));
+    EXPECT_FALSE(changed);
+    ExpectTypes(chain, chain.dynamic_type);
+  }
 }
 
 TEST_F(TypePropagationTest, SameShapeNarrowsVariadicInputs) {

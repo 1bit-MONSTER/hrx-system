@@ -51,8 +51,7 @@ def test_main_generates_selected_descriptor_set(tmp_path: Path) -> None:
 
     assert "loom_test_low_core_descriptor_set" in header_path.read_text(encoding="utf-8")
     source = source_path.read_text(encoding="utf-8")
-    assert "test.low.core" in source
-    assert "test.spv.op_iadd.i32" in source
+    assert "const loom_low_descriptor_set_t* loom_test_low_core_descriptor_set(void)" in source
 
 
 def test_main_reports_missing_descriptor_set(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

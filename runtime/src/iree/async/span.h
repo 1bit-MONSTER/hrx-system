@@ -45,8 +45,9 @@ extern "C" {
 // A non-owning reference to a contiguous byte range.
 //
 // When region is non-NULL, the span references a subrange of a registered
-// memory region (offset is relative to region->base_ptr). The proactor can
-// use the region's backend handles for zero-copy I/O.
+// memory region. The offset is relative to the registered range, independently
+// of its CPU mapping or native device address. Providers lower that offset
+// using the region's backend handles for zero-copy I/O.
 //
 // When region is NULL, the span references unregistered memory (offset holds
 // the raw pointer cast to iree_host_size_t). The proactor falls back to
@@ -56,7 +57,7 @@ typedef struct iree_async_span_t {
   // The region this span references. NULL for unregistered (raw pointer) spans.
   iree_async_region_t* region;
 
-  // When region is non-NULL: byte offset from region->base_ptr.
+  // When region is non-NULL: byte offset into the registered range.
   // When region is NULL: the raw pointer cast to iree_host_size_t.
   iree_host_size_t offset;
 
@@ -112,9 +113,8 @@ static inline bool iree_async_span_is_empty(iree_async_span_t span) {
 // For raw pointer spans (region == NULL), returns true (caller provided ptr).
 // For region spans, returns true if region->base_ptr is non-NULL.
 //
-// CPU-inaccessible spans (device-only dma-buf) can only be used with carriers
-// that support DEVICE_MEMORY_TX/RX, and cannot be used with codecs that
-// require content inspection (compression, encryption).
+// CPU-inaccessible spans require a provider accepting their native memory
+// handles. Host copying or content inspection requires CPU accessibility.
 static inline bool iree_async_span_is_cpu_accessible(iree_async_span_t span) {
   // Raw pointer spans are always CPU-accessible (caller gave us a pointer).
   if (!span.region) {
@@ -125,6 +125,7 @@ static inline bool iree_async_span_is_cpu_accessible(iree_async_span_t span) {
 }
 
 // Returns the host pointer for the start of the span.
+// Requires iree_async_span_is_cpu_accessible(span).
 // For registered spans, returns region->base_ptr + offset.
 // For raw pointer spans (region == NULL), returns the pointer stored in offset.
 static inline uint8_t* iree_async_span_ptr(iree_async_span_t span) {
@@ -135,11 +136,13 @@ static inline uint8_t* iree_async_span_ptr(iree_async_span_t span) {
 }
 
 // Returns the span's memory as an iree_byte_span_t (mutable).
+// Requires iree_async_span_is_cpu_accessible(span).
 static inline iree_byte_span_t iree_async_span_data(iree_async_span_t span) {
   return iree_make_byte_span(iree_async_span_ptr(span), span.length);
 }
 
 // Returns the span's memory as an iree_const_byte_span_t (read-only).
+// Requires iree_async_span_is_cpu_accessible(span).
 static inline iree_const_byte_span_t iree_async_span_const_data(
     iree_async_span_t span) {
   return iree_make_const_byte_span(iree_async_span_ptr(span), span.length);

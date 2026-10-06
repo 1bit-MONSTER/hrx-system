@@ -106,7 +106,7 @@ ERR_STRUCTURE_007 = ErrorDef(
     fix_hint="Match the region entry argument count to its declared input tuple",
 )
 
-# ERR_STRUCTURE_008: YieldCountMatchesResults violated.
+# ERR_STRUCTURE_008: YieldCountMatches violated.
 ERR_STRUCTURE_008 = ErrorDef(
     domain=ErrorDomain.STRUCTURE,
     code=8,
@@ -927,6 +927,25 @@ ERR_STRUCTURE_055 = ErrorDef(
     ),
 )
 
+# ERR_STRUCTURE_056: Invalid split-barrier phase lifetime.
+ERR_STRUCTURE_056 = ErrorDef(
+    domain=ErrorDomain.STRUCTURE,
+    code=56,
+    severity=Severity.ERROR,
+    summary="Invalid split-barrier phase lifetime.",
+    message=("{phase_name} found invalid split-barrier state at '{op_name}': {reason}"),
+    params=(
+        ErrorParam("phase_name", ParamKind.STRING),
+        ErrorParam("op_name", ParamKind.STRING),
+        ErrorParam("reason", ParamKind.STRING),
+    ),
+    fix_hint=(
+        "Pair every kernel.barrier.arrive with its unique wait on every path, "
+        "and keep other convergent operations and impure calls outside that "
+        "interval"
+    ),
+)
+
 ALL_STRUCTURE_ERRORS: tuple[ErrorDef, ...] = (
     ERR_STRUCTURE_001,
     ERR_STRUCTURE_002,
@@ -982,4 +1001,5 @@ ALL_STRUCTURE_ERRORS: tuple[ErrorDef, ...] = (
     ERR_STRUCTURE_053,
     ERR_STRUCTURE_054,
     ERR_STRUCTURE_055,
+    ERR_STRUCTURE_056,
 )

@@ -665,7 +665,8 @@ static iree_status_t loom_target_artifact_manifest_mark_function_closure(
   while (stack_count > 0) {
     const loom_symbol_id_t symbol_id = stack[--stack_count];
     loom_symbol_reference_occurrence_id_t edge_id =
-        reference_table->symbols[symbol_id].first_outgoing_occurrence_id;
+        loom_symbol_reference_table_symbol(reference_table, symbol_id)
+            .first_outgoing_occurrence_id;
     while (edge_id != LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID) {
       const loom_symbol_reference_occurrence_t* edge =
           loom_symbol_reference_table_occurrence(reference_table, edge_id);
@@ -712,7 +713,8 @@ static iree_status_t loom_target_artifact_manifest_mark_used_globals(
       continue;
     }
     loom_symbol_reference_occurrence_id_t edge_id =
-        reference_table->symbols[i].first_outgoing_occurrence_id;
+        loom_symbol_reference_table_symbol(reference_table, (loom_symbol_id_t)i)
+            .first_outgoing_occurrence_id;
     while (edge_id != LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID) {
       const loom_symbol_reference_occurrence_t* edge =
           loom_symbol_reference_table_occurrence(reference_table, edge_id);

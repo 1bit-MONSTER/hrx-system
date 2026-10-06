@@ -1,0 +1,222 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/scalar_float_conversion.loom-test
+// RUN: emit source-low target=spirv:vulkan1.3+bda+extended-types output=low control-flow=structured-low
+
+func.def @convert_scalar_f64(%single: f32, %double: f64) -> (f64, f32) {
+  %wide = scalar.extf %single : f32 to f64
+  %narrow = scalar.fptrunc %double : f64 to f32
+  func.return %wide, %narrow : f64, f32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @convert_scalar_f64(%single: reg<spirv.id : f32>, %double: reg<spirv.id : f64>) -> (reg<spirv.id : f64>, reg<spirv.id : f32>) asm {
+  %wide = OpFConvert.f32.f64 %single
+  %narrow = OpFConvert.f64.f32 %double
+  return %wide, %narrow
+}
+
+// ====
+
+kernel.def @floating_arguments() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%single: f32, %double: f64, %output: buffer) {
+  %base = index.constant 0 : offset
+  %output_view = buffer.view %output[%base] : buffer -> view<3xf32>
+  %single_double = scalar.fptrunc %double : f64 to f32
+  %wide = scalar.extf %single : f32 to f64
+  %roundtrip = scalar.fptrunc %wide : f64 to f32
+  view.store %single, %output_view[0] : f32, view<3xf32>
+  view.store %single_double, %output_view[1] : f32, view<3xf32>
+  view.store %roundtrip, %output_view[2] : f32, view<3xf32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @floating_arguments(%single: reg<spirv.id : f32>, %double: reg<spirv.id : f64>) asm {
+  %output = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %single_double = OpFConvert.f64.f32 %double
+  %13 = OpConstant.offset64 0
+  %14 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output, %13
+  OpStore.storage_buffer.f32 %14, %single
+  %15 = OpConstant.offset64 4
+  %16 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output, %15
+  OpStore.storage_buffer.f32 %16, %single_double
+  %17 = OpConstant.offset64 8
+  %18 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output, %17
+  OpStore.storage_buffer.f32 %18, %single
+  return
+}
+
+// ====
+
+func.def @widen_narrow_to_f64(%e4: f8E4M3, %e5: f8E5M2, %half: f16, %brain: bf16) -> (f64, f64, f64, f64) {
+  %double_e4 = scalar.extf %e4 : f8E4M3 to f64
+  %double_e5 = scalar.extf %e5 : f8E5M2 to f64
+  %double_half = scalar.extf %half : f16 to f64
+  %double_brain = scalar.extf %brain : bf16 to f64
+  func.return %double_e4, %double_e5, %double_half, %double_brain : f64, f64, f64, f64
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @widen_narrow_to_f64(%e4: reg<spirv.id : i8>, %e5: reg<spirv.id : i8>, %half: reg<spirv.id : f16>, %brain: reg<spirv.id : bf16>) -> (reg<spirv.id : f64>, reg<spirv.id : f64>, reg<spirv.id : f64>, reg<spirv.id : f64>) asm {
+  %139 = OpBitcast.i8.u8 %e4
+  %140 = OpUConvert.u8.u32 %139
+  %141 = OpBitcast.u32.i32 %140
+  %142 = OpConstant.i32 128
+  %143 = OpBitwiseAnd %141, %142
+  %144 = OpConstant.i32 24
+  %145 = OpShiftLeftLogical %143, %144
+  %146 = OpConstant.i32 120
+  %147 = OpBitwiseAnd %141, %146
+  %148 = OpConstant.i32 3
+  %149 = OpShiftRightLogical %147, %148
+  %150 = OpConstant.i32 7
+  %151 = OpBitwiseAnd %141, %150
+  %152 = OpIAdd %149, %146
+  %153 = OpConstant.i32 23
+  %154 = OpShiftLeftLogical %152, %153
+  %155 = OpConstant.i32 20
+  %156 = OpShiftLeftLogical %151, %155
+  %157 = OpBitwiseOr %145, %154
+  %158 = OpBitwiseOr %157, %156
+  %159 = OpConstant.i32 0
+  %160 = OpConstant.i32 2
+  %161 = OpBitwiseAnd %151, %160
+  %162 = OpINotEqual %161, %159
+  %163 = OpConstant.i32 1
+  %164 = OpSelect %162, %163, %159
+  %165 = OpConstant.i32 4
+  %166 = OpBitwiseAnd %151, %165
+  %167 = OpINotEqual %166, %159
+  %168 = OpSelect %167, %160, %164
+  %169 = OpConstant.i32 118
+  %170 = OpIAdd %168, %169
+  %171 = OpShiftLeftLogical %170, %153
+  %172 = OpISub %153, %168
+  %173 = OpShiftLeftLogical %151, %172
+  %174 = OpConstant.i32 8388607
+  %175 = OpBitwiseAnd %173, %174
+  %176 = OpBitwiseOr %145, %171
+  %177 = OpBitwiseOr %176, %175
+  %178 = OpIEqual %151, %159
+  %179 = OpSelect %178, %145, %177
+  %180 = OpIEqual %149, %159
+  %181 = OpSelect %180, %179, %158
+  %182 = OpConstant.i32 15
+  %183 = OpIEqual %149, %182
+  %184 = OpConstant.i32 2143289344
+  %185 = OpIEqual %151, %150
+  %186 = OpConstantFalse.bool
+  %187 = OpSelect.bool %183, %185, %186
+  %188 = OpSelect %187, %184, %181
+  %189 = OpBitcast.i32.f32 %188
+  %double_e4 = OpFConvert.f32.f64 %189
+  %191 = OpBitcast.i8.u8 %e5
+  %192 = OpUConvert.u8.u32 %191
+  %193 = OpBitcast.u32.i32 %192
+  %194 = OpBitwiseAnd %193, %142
+  %195 = OpShiftLeftLogical %194, %144
+  %196 = OpConstant.i32 124
+  %197 = OpBitwiseAnd %193, %196
+  %198 = OpShiftRightLogical %197, %160
+  %199 = OpBitwiseAnd %193, %148
+  %200 = OpConstant.i32 112
+  %201 = OpIAdd %198, %200
+  %202 = OpShiftLeftLogical %201, %153
+  %203 = OpConstant.i32 21
+  %204 = OpShiftLeftLogical %199, %203
+  %205 = OpBitwiseOr %195, %202
+  %206 = OpBitwiseOr %205, %204
+  %207 = OpBitwiseAnd %199, %160
+  %208 = OpINotEqual %207, %159
+  %209 = OpSelect %208, %163, %159
+  %210 = OpConstant.i32 111
+  %211 = OpIAdd %209, %210
+  %212 = OpShiftLeftLogical %211, %153
+  %213 = OpISub %153, %209
+  %214 = OpShiftLeftLogical %199, %213
+  %215 = OpBitwiseAnd %214, %174
+  %216 = OpBitwiseOr %195, %212
+  %217 = OpBitwiseOr %216, %215
+  %218 = OpIEqual %199, %159
+  %219 = OpSelect %218, %195, %217
+  %220 = OpIEqual %198, %159
+  %221 = OpSelect %220, %219, %206
+  %222 = OpConstant.i32 31
+  %223 = OpIEqual %198, %222
+  %224 = OpConstant.i32 2139095040
+  %225 = OpBitwiseOr %195, %224
+  %226 = OpSelect %218, %225, %184
+  %227 = OpSelect %223, %226, %221
+  %228 = OpBitcast.i32.f32 %227
+  %double_e5 = OpFConvert.f32.f64 %228
+  %double_half = OpFConvert.f16.f64 %half
+  %231 = OpFConvert.bf16.f32 %brain
+  %double_brain = OpFConvert.f32.f64 %231
+  return %double_e4, %double_e5, %double_half, %double_brain
+}
+
+// ====
+
+func.def @widen_float8_chain(%input: f8E4M3) -> (f64) {
+  %single = scalar.extf %input : f8E4M3 to f32
+  %double = scalar.extf %single : f32 to f64
+  func.return %double : f64
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @widen_float8_chain(%input: reg<spirv.id : i8>) -> (reg<spirv.id : f64>) asm {
+  %68 = OpBitcast.i8.u8 %input
+  %69 = OpUConvert.u8.u32 %68
+  %70 = OpBitcast.u32.i32 %69
+  %71 = OpConstant.i32 128
+  %72 = OpBitwiseAnd %70, %71
+  %73 = OpConstant.i32 24
+  %74 = OpShiftLeftLogical %72, %73
+  %75 = OpConstant.i32 120
+  %76 = OpBitwiseAnd %70, %75
+  %77 = OpConstant.i32 3
+  %78 = OpShiftRightLogical %76, %77
+  %79 = OpConstant.i32 7
+  %80 = OpBitwiseAnd %70, %79
+  %81 = OpIAdd %78, %75
+  %82 = OpConstant.i32 23
+  %83 = OpShiftLeftLogical %81, %82
+  %84 = OpConstant.i32 20
+  %85 = OpShiftLeftLogical %80, %84
+  %86 = OpBitwiseOr %74, %83
+  %87 = OpBitwiseOr %86, %85
+  %88 = OpConstant.i32 0
+  %89 = OpConstant.i32 2
+  %90 = OpBitwiseAnd %80, %89
+  %91 = OpINotEqual %90, %88
+  %92 = OpConstant.i32 1
+  %93 = OpSelect %91, %92, %88
+  %94 = OpConstant.i32 4
+  %95 = OpBitwiseAnd %80, %94
+  %96 = OpINotEqual %95, %88
+  %97 = OpSelect %96, %89, %93
+  %98 = OpConstant.i32 118
+  %99 = OpIAdd %97, %98
+  %100 = OpShiftLeftLogical %99, %82
+  %101 = OpISub %82, %97
+  %102 = OpShiftLeftLogical %80, %101
+  %103 = OpConstant.i32 8388607
+  %104 = OpBitwiseAnd %102, %103
+  %105 = OpBitwiseOr %74, %100
+  %106 = OpBitwiseOr %105, %104
+  %107 = OpIEqual %80, %88
+  %108 = OpSelect %107, %74, %106
+  %109 = OpIEqual %78, %88
+  %110 = OpSelect %109, %108, %87
+  %111 = OpConstant.i32 15
+  %112 = OpIEqual %78, %111
+  %113 = OpConstant.i32 2143289344
+  %114 = OpIEqual %80, %79
+  %115 = OpConstantFalse.bool
+  %116 = OpSelect.bool %112, %114, %115
+  %117 = OpSelect %116, %113, %110
+  %118 = OpBitcast.i32.f32 %117
+  %double = OpFConvert.f32.f64 %118
+  return %double
+}

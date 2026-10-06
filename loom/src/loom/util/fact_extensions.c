@@ -9,6 +9,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "iree/base/internal/math.h"
+#include "loom/ir/float_facts.h"
 #include "loom/ir/structural_hash.h"
 #include "loom/util/fact_table.h"
 
@@ -125,6 +127,12 @@ static uint32_t loom_value_fact_hash_buffer_reference(
   hash = loom_structural_hash_mix_u64(hash, reference.minimum_alignment);
   hash = loom_structural_hash_mix_u32(hash, (uint32_t)reference.memory_space);
   hash = loom_structural_hash_mix_u32(hash, reference.root_value_id);
+  hash = loom_structural_hash_mix_u32(hash, reference.has_root_symbol);
+  if (reference.has_root_symbol) {
+    hash = loom_structural_hash_mix_u32(
+        hash, reference.root_symbol.module_id |
+                  ((uint32_t)reference.root_symbol.symbol_id << 16));
+  }
   hash = loom_structural_hash_mix_u32(hash, reference.alias_scope_id);
   hash = loom_structural_hash_mix_u32(hash, reference.nullability);
   return loom_value_fact_hash_reference_origin(reference.origin, hash);
@@ -161,6 +169,10 @@ static bool loom_value_fact_buffer_reference_equal(
          lhs.minimum_alignment == rhs.minimum_alignment &&
          lhs.memory_space == rhs.memory_space &&
          lhs.root_value_id == rhs.root_value_id &&
+         lhs.has_root_symbol == rhs.has_root_symbol &&
+         (!lhs.has_root_symbol ||
+          (lhs.root_symbol.module_id == rhs.root_symbol.module_id &&
+           lhs.root_symbol.symbol_id == rhs.root_symbol.symbol_id)) &&
          lhs.alias_scope_id == rhs.alias_scope_id &&
          lhs.nullability == rhs.nullability &&
          loom_value_fact_reference_origin_equal(lhs.origin, rhs.origin);
@@ -496,10 +508,10 @@ static iree_status_t loom_value_fact_table_ensure_extension_buckets(
   return loom_value_fact_table_rehash_extensions(table, new_bucket_count);
 }
 
-static iree_status_t loom_value_fact_table_intern_extension_impl(
+static iree_status_t loom_value_fact_table_intern_extension(
     loom_value_fact_table_t* table,
     const loom_value_fact_extension_entry_t* candidate,
-    bool materialize_payload, loom_value_fact_extension_id_t* out_id) {
+    loom_value_fact_extension_id_t* out_id) {
   loom_value_fact_extension_entry_t entry = *candidate;
   entry.content_hash =
       loom_structural_hash_finalize(loom_value_fact_extension_hash(&entry));
@@ -534,24 +546,14 @@ static iree_status_t loom_value_fact_table_intern_extension_impl(
   bucket_index = (iree_host_size_t)entry.content_hash &
                  (table->extensions.bucket_count - 1);
   loom_value_fact_extension_id_t id = (loom_value_fact_extension_id_t)new_count;
-  if (materialize_payload) {
-    IREE_RETURN_IF_ERROR(
-        loom_value_fact_table_materialize_extension_payload(table, &entry));
-  }
+  IREE_RETURN_IF_ERROR(
+      loom_value_fact_table_materialize_extension_payload(table, &entry));
   entry.next_id = table->extensions.buckets[bucket_index];
   table->extensions.entries[table->extensions.count] = entry;
   table->extensions.buckets[bucket_index] = id;
   table->extensions.count = new_count;
   *out_id = id;
   return iree_ok_status();
-}
-
-static iree_status_t loom_value_fact_table_intern_extension(
-    loom_value_fact_table_t* table,
-    const loom_value_fact_extension_entry_t* candidate,
-    loom_value_fact_extension_id_t* out_id) {
-  return loom_value_fact_table_intern_extension_impl(table, candidate, true,
-                                                     out_id);
 }
 
 static iree_status_t loom_value_facts_make_extension(
@@ -662,6 +664,10 @@ static bool loom_value_fact_table_buffer_reference_equal(
          lhs.minimum_alignment == rhs.minimum_alignment &&
          lhs.memory_space == rhs.memory_space &&
          lhs.root_value_id == rhs.root_value_id &&
+         lhs.has_root_symbol == rhs.has_root_symbol &&
+         (!lhs.has_root_symbol ||
+          (lhs.root_symbol.module_id == rhs.root_symbol.module_id &&
+           lhs.root_symbol.symbol_id == rhs.root_symbol.symbol_id)) &&
          lhs.alias_scope_id == rhs.alias_scope_id &&
          lhs.nullability == rhs.nullability &&
          loom_value_fact_reference_origin_equal(lhs.origin, rhs.origin);
@@ -920,6 +926,100 @@ bool loom_value_facts_query_vector_iota(const loom_fact_context_t* context,
   return true;
 }
 
+static bool loom_value_facts_bounded_integer_range(loom_value_facts_t facts,
+                                                   int64_t* out_lower,
+                                                   int64_t* out_upper) {
+  if (loom_value_facts_is_float(facts) ||
+      (!loom_value_facts_is_exact(facts) &&
+       (facts.range_lo == INT64_MIN || facts.range_hi == INT64_MAX))) {
+    return false;
+  }
+  *out_lower = facts.range_lo;
+  *out_upper = facts.range_hi;
+  return true;
+}
+
+bool loom_value_facts_query_vector_integer_bounds(
+    const loom_fact_context_t* context, loom_value_facts_t facts,
+    uint64_t maximum_lane_count, int64_t* out_lower, int64_t* out_upper) {
+  const loom_value_fact_extension_entry_t* entry =
+      loom_value_facts_lookup_extension(context, facts);
+  if (!entry) {
+    return false;
+  }
+
+  switch (entry->kind) {
+    case LOOM_VALUE_FACT_EXTENSION_UNIFORM_ELEMENT:
+      return loom_value_facts_bounded_integer_range(
+          entry->payload.uniform_element.element, out_lower, out_upper);
+    case LOOM_VALUE_FACT_EXTENSION_SMALL_STATIC_LANES: {
+      loom_value_fact_small_static_lanes_t lanes =
+          entry->payload.small_static_lanes;
+      if (lanes.count == 0) {
+        *out_lower = 0;
+        *out_upper = -1;
+        return true;
+      }
+      int64_t lower = INT64_MAX;
+      int64_t upper = INT64_MIN;
+      for (iree_host_size_t i = 0; i < lanes.count; ++i) {
+        int64_t lane_lower = 0;
+        int64_t lane_upper = 0;
+        if (!loom_value_facts_bounded_integer_range(lanes.lanes[i], &lane_lower,
+                                                    &lane_upper)) {
+          return false;
+        }
+        lower = iree_min(lower, lane_lower);
+        upper = iree_max(upper, lane_upper);
+      }
+      *out_lower = lower;
+      *out_upper = upper;
+      return true;
+    }
+    case LOOM_VALUE_FACT_EXTENSION_VECTOR_IOTA: {
+      if (maximum_lane_count == UINT64_MAX) {
+        return false;
+      }
+      if (maximum_lane_count == 0) {
+        *out_lower = 0;
+        *out_upper = -1;
+        return true;
+      }
+
+      loom_value_fact_vector_iota_t iota = entry->payload.vector_iota;
+      int64_t base_lower = 0;
+      int64_t base_upper = 0;
+      int64_t step = 0;
+      if (!loom_value_facts_bounded_integer_range(iota.base, &base_lower,
+                                                  &base_upper) ||
+          !loom_value_facts_as_exact_i64(iota.step, &step) ||
+          maximum_lane_count - 1 > INT64_MAX) {
+        return false;
+      }
+
+      int64_t last_delta = 0;
+      if (!iree_checked_mul_i64((int64_t)(maximum_lane_count - 1), step,
+                                &last_delta)) {
+        return false;
+      }
+      if (step >= 0) {
+        if (!iree_checked_add_i64(base_upper, last_delta, out_upper)) {
+          return false;
+        }
+        *out_lower = base_lower;
+      } else {
+        if (!iree_checked_add_i64(base_lower, last_delta, out_lower)) {
+          return false;
+        }
+        *out_upper = base_upper;
+      }
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
 iree_status_t loom_value_facts_make_vector_prefix_mask(
     loom_fact_context_t* context, loom_value_fact_vector_prefix_mask_t mask,
     loom_value_facts_t* out) {
@@ -978,6 +1078,9 @@ bool loom_value_facts_query_encoding_summary(
 iree_status_t loom_value_facts_make_buffer_reference(
     loom_fact_context_t* context, loom_value_fact_buffer_reference_t reference,
     loom_value_facts_t* out) {
+  if (!reference.has_root_symbol) {
+    reference.root_symbol = loom_symbol_ref_null();
+  }
   loom_value_fact_extension_entry_t entry = {0};
   entry.kind = LOOM_VALUE_FACT_EXTENSION_BUFFER_REFERENCE;
   entry.payload.buffer_reference = reference;
@@ -1059,23 +1162,38 @@ bool loom_value_facts_query_extension_payload(
 // Cross-table transfers
 //===----------------------------------------------------------------------===//
 
-static iree_status_t loom_value_fact_table_clone_fact_array_between_tables(
+// Array payloads borrow bounded scratch until interning decides whether an
+// owned copy is needed. Keep that scratch out of scalar/reference transfers.
+IREE_ATTRIBUTE_NOINLINE static iree_status_t
+loom_value_fact_table_clone_array_extension(
     loom_value_fact_table_t* target, const loom_value_fact_table_t* source,
-    const loom_value_facts_t* source_facts, iree_host_size_t count,
-    const loom_value_facts_t** out_facts) {
-  *out_facts = NULL;
-  if (count == 0) {
-    return iree_ok_status();
+    loom_value_facts_t facts, loom_value_fact_extension_entry_t* entry,
+    loom_value_facts_t* out_facts) {
+  const loom_value_facts_t** array = NULL;
+  iree_host_size_t count = 0;
+  if (entry->kind == LOOM_VALUE_FACT_EXTENSION_SMALL_STATIC_LANES) {
+    array = &entry->payload.small_static_lanes.lanes;
+    count = entry->payload.small_static_lanes.count;
+  } else {
+    array = &entry->payload.encoding_summary.address_layout.strides;
+    count = entry->payload.encoding_summary.address_layout.rank;
   }
-  loom_value_facts_t* cloned_facts = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(target->transient_arena, count,
-                                                 sizeof(loom_value_facts_t),
-                                                 (void**)&cloned_facts));
+  static_assert(LOOM_VALUE_FACT_SMALL_STATIC_LANE_LIMIT >= LOOM_TYPE_MAX_RANK,
+                "array scratch must cover lanes and layout axes");
+  loom_value_facts_t cloned_facts[LOOM_VALUE_FACT_SMALL_STATIC_LANE_LIMIT];
+  IREE_ASSERT(count <= IREE_ARRAYSIZE(cloned_facts));
+  const loom_value_facts_t* source_facts = *array;
   for (iree_host_size_t i = 0; i < count; ++i) {
     IREE_RETURN_IF_ERROR(loom_value_fact_table_clone_fact(
         target, source, source_facts[i], &cloned_facts[i]));
   }
-  *out_facts = cloned_facts;
+  *array = cloned_facts;
+  loom_value_fact_extension_id_t extension_id =
+      LOOM_VALUE_FACT_EXTENSION_ID_NONE;
+  IREE_RETURN_IF_ERROR(
+      loom_value_fact_table_intern_extension(target, entry, &extension_id));
+  *out_facts = facts;
+  out_facts->extension_id = extension_id;
   return iree_ok_status();
 }
 
@@ -1107,12 +1225,8 @@ iree_status_t loom_value_fact_table_clone_fact(
       break;
     }
     case LOOM_VALUE_FACT_EXTENSION_SMALL_STATIC_LANES: {
-      IREE_RETURN_IF_ERROR(
-          loom_value_fact_table_clone_fact_array_between_tables(
-              target, source, source_entry->payload.small_static_lanes.lanes,
-              source_entry->payload.small_static_lanes.count,
-              &target_entry.payload.small_static_lanes.lanes));
-      break;
+      return loom_value_fact_table_clone_array_extension(
+          target, source, facts, &target_entry, out_facts);
     }
     case LOOM_VALUE_FACT_EXTENSION_VECTOR_IOTA: {
       IREE_RETURN_IF_ERROR(loom_value_fact_table_clone_fact(
@@ -1138,14 +1252,8 @@ iree_status_t loom_value_fact_table_clone_fact(
     case LOOM_VALUE_FACT_EXTENSION_ENCODING_SUMMARY: {
       if (source_entry->payload.encoding_summary.address_layout.kind ==
           LOOM_VALUE_FACT_ADDRESS_LAYOUT_STRIDED) {
-        loom_value_fact_address_layout_t* target_layout =
-            &target_entry.payload.encoding_summary.address_layout;
-        IREE_RETURN_IF_ERROR(
-            loom_value_fact_table_clone_fact_array_between_tables(
-                target, source,
-                source_entry->payload.encoding_summary.address_layout.strides,
-                source_entry->payload.encoding_summary.address_layout.rank,
-                &target_layout->strides));
+        return loom_value_fact_table_clone_array_extension(
+            target, source, facts, &target_entry, out_facts);
       }
       break;
     }
@@ -1167,15 +1275,6 @@ iree_status_t loom_value_fact_table_clone_fact(
       break;
     }
     case LOOM_VALUE_FACT_EXTENSION_TYPE_PAYLOAD:
-      if (source_entry->payload.type_payload.length > 0) {
-        void* data = NULL;
-        IREE_RETURN_IF_ERROR(iree_arena_allocate(
-            target->transient_arena, source_entry->payload.type_payload.length,
-            &data));
-        memcpy(data, source_entry->payload.type_payload.data,
-               source_entry->payload.type_payload.length);
-        target_entry.payload.type_payload.data = data;
-      }
       break;
     default:
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -1185,8 +1284,8 @@ iree_status_t loom_value_fact_table_clone_fact(
 
   loom_value_fact_extension_id_t target_extension_id =
       LOOM_VALUE_FACT_EXTENSION_ID_NONE;
-  IREE_RETURN_IF_ERROR(loom_value_fact_table_intern_extension_impl(
-      target, &target_entry, false, &target_extension_id));
+  IREE_RETURN_IF_ERROR(loom_value_fact_table_intern_extension(
+      target, &target_entry, &target_extension_id));
   *out_facts = facts;
   out_facts->extension_id = target_extension_id;
   return iree_ok_status();
@@ -1227,21 +1326,7 @@ iree_status_t loom_value_fact_table_meet_for_type(
   lhs_scalar.extension_id = LOOM_VALUE_FACT_EXTENSION_ID_NONE;
   loom_value_facts_t rhs_scalar = rhs;
   rhs_scalar.extension_id = LOOM_VALUE_FACT_EXTENSION_ID_NONE;
-  if (loom_value_facts_is_float(lhs_scalar) ||
-      loom_value_facts_is_float(rhs_scalar)) {
-    *out_facts = loom_value_facts_unknown();
-    if (loom_value_facts_is_lane_varying(lhs_scalar) ||
-        loom_value_facts_is_lane_varying(rhs_scalar)) {
-      loom_value_facts_mark_lane_distribution_for_type(type, out_facts);
-    } else {
-      const loom_value_fact_uniform_scope_t uniform_scope =
-          iree_min(loom_value_facts_uniform_scope(lhs_scalar),
-                   loom_value_facts_uniform_scope(rhs_scalar));
-      loom_value_facts_mark_uniform_at_scope(out_facts, uniform_scope);
-    }
-  } else {
-    loom_value_facts_meet(&lhs_scalar, &rhs_scalar, out_facts);
-  }
+  loom_value_facts_meet(&lhs_scalar, &rhs_scalar, out_facts);
 
   const loom_value_fact_domain_t* domain =
       loom_value_fact_domain_for_type(target, module, type);
@@ -1277,30 +1362,46 @@ iree_status_t loom_value_fact_table_widen_for_type(
                                                next_table, next, out_facts);
   }
 
-  *out_facts = loom_value_facts_unknown();
-  if (!loom_value_facts_is_float(previous) &&
-      !loom_value_facts_is_float(next)) {
+  loom_value_facts_meet(&previous, &next, out_facts);
+  if (loom_value_facts_is_float(previous) || loom_value_facts_is_float(next)) {
+    // Classifications have finite height. Retained intervals do not: a loop
+    // can expand one endpoint on every visit. Keep a stable interval, but
+    // forget changing bounds after the two precise join iterations above.
+    const loom_scalar_type_t scalar_type = loom_type_element_type(type);
+    double previous_lo = 0.0;
+    double previous_hi = 0.0;
+    double next_lo = 0.0;
+    double next_hi = 0.0;
+    const bool previous_has_range = loom_value_facts_as_float_range(
+        scalar_type, previous, &previous_lo, &previous_hi);
+    const bool next_has_range =
+        loom_value_facts_as_float_range(scalar_type, next, &next_lo, &next_hi);
+    if ((previous_has_range || next_has_range) &&
+        (previous_has_range != next_has_range ||
+         previous.range_lo != next.range_lo ||
+         previous.range_hi != next.range_hi)) {
+      loom_value_facts_drop_float_range(out_facts);
+    }
+  } else {
     // Range growth does not invalidate divisibility. Its join descends through
     // positive divisors, so it converges independently of interval widening.
-    loom_value_facts_t joined;
-    loom_value_facts_meet(&previous, &next, &joined);
+    const int64_t known_divisor = out_facts->known_divisor;
     int64_t range_lo = INT64_MIN;
     int64_t range_hi = INT64_MAX;
     if (loom_type_is_scalar(type)) {
       loom_value_facts_scalar_type_domain(loom_type_element_type(type),
                                           &range_lo, &range_hi);
     }
-    *out_facts =
-        loom_value_facts_make(range_lo, range_hi, joined.known_divisor);
-  }
-  if (loom_value_facts_is_lane_varying(previous) ||
-      loom_value_facts_is_lane_varying(next)) {
-    loom_value_facts_mark_lane_distribution_for_type(type, out_facts);
-  } else {
-    const loom_value_fact_uniform_scope_t uniform_scope =
-        iree_min(loom_value_facts_uniform_scope(previous),
-                 loom_value_facts_uniform_scope(next));
-    loom_value_facts_mark_uniform_at_scope(out_facts, uniform_scope);
+    *out_facts = loom_value_facts_make(range_lo, range_hi, known_divisor);
+    if (loom_value_facts_is_lane_varying(previous) ||
+        loom_value_facts_is_lane_varying(next)) {
+      loom_value_facts_mark_lane_distribution_for_type(type, out_facts);
+    } else {
+      const loom_value_fact_uniform_scope_t uniform_scope =
+          iree_min(loom_value_facts_uniform_scope(previous),
+                   loom_value_facts_uniform_scope(next));
+      loom_value_facts_mark_uniform_at_scope(out_facts, uniform_scope);
+    }
   }
   const loom_value_fact_domain_t* domain =
       loom_value_fact_domain_for_type(target, module, type);

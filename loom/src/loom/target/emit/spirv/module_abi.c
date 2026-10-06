@@ -96,9 +96,9 @@ static iree_status_t loom_spirv_module_abi_lookup_value(
 }
 
 static bool loom_spirv_module_abi_uses_raw_bda(
-    const loom_low_resolved_target_t* target) {
-  return loom_low_resolved_target_bundle(target)->export_plan->abi_kind ==
-         LOOM_TARGET_ABI_HAL_KERNEL;
+    const loom_spirv_function_plan_t* function_plan) {
+  return loom_spirv_function_plan_target_bundle(function_plan)
+             ->export_plan->abi_kind == LOOM_TARGET_ABI_HAL_KERNEL;
 }
 
 static bool loom_spirv_module_abi_type_is_named_opaque(
@@ -457,7 +457,7 @@ static iree_status_t loom_spirv_module_abi_build_raw_bda_plan(
 iree_status_t loom_spirv_module_abi_build_plan(
     loom_spirv_module_abi_context_t* context, const loom_block_t* entry_block,
     loom_spirv_module_abi_plan_t* plan) {
-  if (loom_spirv_module_abi_uses_raw_bda(context->target)) {
+  if (loom_spirv_module_abi_uses_raw_bda(context->function_plan)) {
     return loom_spirv_module_abi_build_raw_bda_plan(context, entry_block, plan);
   }
   return loom_spirv_module_abi_build_shader_entry_plan(context, entry_block,

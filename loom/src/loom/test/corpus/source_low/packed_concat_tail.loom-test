@@ -1,0 +1,18 @@
+func.def @i8_terminal_tail(%body: vector<32xi8>, %tail: vector<1xi8>) -> (vector<33xi8>) {
+  %result = vector.concat<0> %body, %tail : vector<32xi8>, vector<1xi8> -> vector<33xi8>
+  func.return %result : vector<33xi8>
+}
+
+// ====
+
+func.def @f8_terminal_tail(%body: vector<32xf8E4M3>, %tail: vector<1xf8E4M3>) -> (vector<33xf8E4M3>) {
+  %result = vector.concat<0> %body, %tail : vector<32xf8E4M3>, vector<1xf8E4M3> -> vector<33xf8E4M3>
+  func.return %result : vector<33xf8E4M3>
+}
+
+// ====
+
+func.def @f16_terminal_tail(%body: vector<16xf16>, %tail: vector<1xf16>) -> (vector<17xf16>) {
+  %result = vector.concat<0> %body, %tail : vector<16xf16>, vector<1xf16> -> vector<17xf16>
+  func.return %result : vector<17xf16>
+}

@@ -333,9 +333,18 @@ Semgrep's current high-core-count OCaml-domain failure mode while keeping the
 local/CI default comfortably fast for this repository size.
 
 Semgrep and clang-tidy select C/C++ files under `runtime/src/iree/`,
-`loom/src/loom/`, `libamdf/`, and `libhrx/`. Each Semgrep rule further scopes
-its applicable paths and languages. The no-goto rule covers libamdf C sources;
-IREE status-ownership rules apply to IREE consumers.
+`loom/src/loom/`, `libamdf/`, and `libhrx/`. Semgrep also selects the AMD hardware
+reference under `docs/reference/amd/`, library guides under `libamdf/docs/`,
+and `libamdf/README.md`. Its documentation rules keep the reference independent
+of libamdf APIs, CTS, and local implementation links, and library guides
+independent of CTS documentation.
+Each rule further scopes its applicable paths and languages. The no-goto rule
+covers libamdf C sources; IREE status-ownership rules apply to IREE consumers.
+
+Changes to the documentation rules run a regression through the real Semgrep
+engine, including its path filters. The cases exercise the reference's vocabulary
+and link rules, library-guide separation, valid external primary-source links,
+and exclusion of other documentation.
 
 In the Bazel lane, clang-tidy maps selected files to their nearest package and
 invokes the checked-in clang-tidy aspect. File-based and explicit-target analysis

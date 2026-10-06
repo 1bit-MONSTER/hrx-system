@@ -432,6 +432,7 @@ _OPTIONAL_TARGET_DOMAINS = frozenset(
         ErrorDomain.X86,
         ErrorDomain.WASM,
         ErrorDomain.SPIRV,
+        ErrorDomain.XDNA,
     }
 )
 
@@ -449,6 +450,7 @@ def _catalog_shard_errors(shard: str) -> list[ErrorDef]:
         "x86": ErrorDomain.X86,
         "wasm": ErrorDomain.WASM,
         "spirv": ErrorDomain.SPIRV,
+        "xdna": ErrorDomain.XDNA,
     }
     return [error for error in errors if error.domain == domain_by_shard[shard]]
 
@@ -458,7 +460,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Generate Loom error catalogs from Python definitions.")
     parser.add_argument(
         "--shard",
-        choices=("all", "core", "amdgpu", "x86", "wasm", "spirv"),
+        choices=("all", "core", "amdgpu", "x86", "wasm", "spirv", "xdna"),
         default="all",
         help="Named error catalog shard to generate.",
     )

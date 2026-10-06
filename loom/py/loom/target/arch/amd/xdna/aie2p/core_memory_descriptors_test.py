@@ -44,8 +44,8 @@ def test_lookup_loads_preserve_address_vectors_and_memory_effects() -> None:
                 "aie2p.vec256",
             ]
             assert all(operand.unit_count == 1 for operand in descriptor.operands)
-            assert descriptor.operands[0].register_part is None
-            assert descriptor.operands[1].register_part == (
+            assert descriptor.operands[0].reg_alts[0].register_part is None
+            assert descriptor.operands[1].reg_alts[0].register_part == (
                 f"aie2p.vec256.{'low' if half == 'lo' else 'high'}128"
             )
             assert len(descriptor.effects) == 1
@@ -234,10 +234,19 @@ def test_fifo_seeks_retain_tuple_and_dimension_ownership() -> None:
                 count = "dc" if addressing == "2d" else "dcl"
                 expected.add((count, "mod"))
                 register_class = "aie2p.ed" if addressing == "2d" else "aie2p.eds"
-                assert operands[count].reg_alts == operands["mod"].reg_alts
-                assert operands[count].reg_alts[0].reg_class == register_class
-                assert operands[count].register_part == f"{register_class}.counts"
-                assert operands["mod"].register_part == f"{register_class}.state"
+                assert (
+                    operands[count].reg_alts[0].reg_class
+                    == operands["mod"].reg_alts[0].reg_class
+                    == register_class
+                )
+                assert (
+                    operands[count].reg_alts[0].register_part
+                    == f"{register_class}.counts"
+                )
+                assert (
+                    operands["mod"].reg_alts[0].register_part
+                    == f"{register_class}.state"
+                )
                 assert operands[count].encoding_field_id == 0
                 assert OperandFlag.STORAGE_CONTINUATION not in operands["mod"].flags
                 assert "dch" not in operands
@@ -493,13 +502,10 @@ def test_vector_memory_descriptors_cover_each_native_width_and_value_shape() -> 
             ("bf16", 16),
             ("i32", 32),
             ("f32", 32),
+            ("i64", 64),
+            ("f64", 64),
         ):
             shape = f"{element_type}x{width_bits // element_bits}"
-            expected_register_class = (
-                "aie2p.ewl"
-                if width_bits == 128 and element_type == "bf16"
-                else "aie2p.vec256"
-            )
             for load_pipe in ("a", "b"):
                 for address_form in ("immediate", "register"):
                     descriptor = descriptors[
@@ -507,9 +513,9 @@ def test_vector_memory_descriptors_cover_each_native_width_and_value_shape() -> 
                         f"{address_form}"
                     ]
                     payload = descriptor.operands[0]
-                    assert payload.reg_alts[0].reg_class == expected_register_class
+                    assert payload.reg_alts[0].reg_class == "aie2p.vec256"
                     assert payload.unit_count == unit_count
-                    assert payload.register_part is None
+                    assert payload.reg_alts[0].register_part is None
                     assert all(
                         operand.field_name != "storage"
                         for operand in descriptor.operands
@@ -526,7 +532,7 @@ def test_vector_memory_descriptors_cover_each_native_width_and_value_shape() -> 
                     f"amd.xdna.aie2p.store.{shape}.indexed.{address_form}"
                 ]
                 payload = descriptor.operands[0]
-                assert payload.reg_alts[0].reg_class == expected_register_class
+                assert payload.reg_alts[0].reg_class == "aie2p.vec256"
                 assert payload.unit_count == unit_count
                 assert descriptor.effects[0].width_bits == width_bits
                 if address_form == "immediate":
@@ -535,15 +541,12 @@ def test_vector_memory_descriptors_cover_each_native_width_and_value_shape() -> 
             load = descriptors[f"amd.xdna.aie2p.load.a.{shape}.indexed.immediate"]
             store = descriptors[f"amd.xdna.aie2p.store.{shape}.indexed.immediate"]
             if width_bits == 128:
-                expected_part = (
-                    "aie2p.ewl.low128"
-                    if element_type == "bf16"
-                    else "aie2p.vec256.low128"
+                assert (
+                    store.operands[0].reg_alts[0].register_part == "aie2p.vec256.low128"
                 )
-                assert store.operands[0].register_part == expected_part
             else:
-                assert load.operands[0].register_part is None
-                assert store.operands[0].register_part is None
+                assert load.operands[0].reg_alts[0].register_part is None
+                assert store.operands[0].reg_alts[0].register_part is None
                 assert all(operand.field_name != "storage" for operand in load.operands)
 
 
@@ -556,6 +559,7 @@ def test_float_vector_memory_descriptors_reuse_bit_exact_physical_forms() -> Non
         for value_type, storage_type, element_bits in (
             ("bf16", "i16", 16),
             ("f32", "i32", 32),
+            ("f64", "i64", 64),
         ):
             value_shape = f"{value_type}x{width_bits // element_bits}"
             storage_shape = f"{storage_type}x{width_bits // element_bits}"
@@ -575,20 +579,7 @@ def test_float_vector_memory_descriptors_reuse_bit_exact_physical_forms() -> Non
                     assert value_descriptor.encoding_field_values == (
                         storage_descriptor.encoding_field_values
                     )
-                    if width_bits == 128 and value_type == "bf16":
-                        assert (
-                            value_descriptor.operands[1:]
-                            == storage_descriptor.operands[1:]
-                        )
-                        assert (
-                            value_descriptor.operands[0].reg_alts[0].reg_class
-                            == "aie2p.ewl"
-                        )
-                        assert value_descriptor.operands[0].register_part == (
-                            "aie2p.ewl.low128" if descriptor_family == "store" else None
-                        )
-                    else:
-                        assert value_descriptor.operands == storage_descriptor.operands
+                    assert value_descriptor.operands == storage_descriptor.operands
                     assert value_descriptor.immediates == storage_descriptor.immediates
 
 
@@ -667,8 +658,14 @@ def test_dimension_updates_retain_real_read_dependencies() -> None:
         # can acquire an independent physical index or lose its read dependency.
         assert len(descriptor.asm_forms[0].results) == 3
         result, source = descriptor.operands[2], descriptor.operands[4]
-        assert result.reg_alts == source.reg_alts
-        assert result.reg_alts[0].reg_class == f"aie2p.{register_class}"
+        full_register_class = f"aie2p.{register_class}"
+        assert (
+            result.reg_alts[0].reg_class
+            == source.reg_alts[0].reg_class
+            == full_register_class
+        )
+        assert result.reg_alts[0].register_part == f"{full_register_class}.counts"
+        assert source.reg_alts[0].register_part == f"{full_register_class}.state"
         assert result.encoding_field_id == 0
         assert result.ready_stage == source.read_stage == 1
         assert OperandFlag.STORAGE_CONTINUATION not in source.flags
@@ -705,7 +702,20 @@ def test_vector_address_updates_preserve_pointer_and_dimension_ownership() -> No
                     if addressing in ("2d", "3d"):
                         count = "dc" if addressing == "2d" else "dcl"
                         expected_ties.add((count, "mod"))
-                        assert operands[count].reg_alts == operands["mod"].reg_alts
+                        register_class = (
+                            "aie2p.ed" if addressing == "2d" else "aie2p.eds"
+                        )
+                        assert (
+                            operands[count].reg_alts[0].reg_class
+                            == operands["mod"].reg_alts[0].reg_class
+                            == register_class
+                        )
+                        assert operands[count].reg_alts[0].register_part == (
+                            f"{register_class}.counts"
+                        )
+                        assert operands["mod"].reg_alts[0].register_part == (
+                            f"{register_class}.state"
+                        )
                         assert operands[count].encoding_field_id == 0
                         assert (
                             operands[count].ready_stage
@@ -720,7 +730,7 @@ def test_vector_address_updates_preserve_pointer_and_dimension_ownership() -> No
                     assert tied_names == expected_ties
                     assert "storage" not in operands
                     if family != "store":
-                        assert operands["dst"].register_part is None
+                        assert operands["dst"].reg_alts[0].register_part is None
                     assert descriptor.effects[0].width_bits == width
                     assert descriptor.schedule_alternatives == (
                         (f"amd.xdna.aie2p.load.b.{shape}.{addressing}",)
@@ -742,7 +752,7 @@ def test_accumulator_address_updates_retain_raw_storage() -> None:
         )
         assert value.reg_alts[0].reg_class == "aie2p.mbms"
         assert value.unit_count == 1
-        assert value.register_part is None
+        assert value.reg_alts[0].register_part is None
         assert descriptor.effects[0].width_bits == 512
         assert all(
             not operand.field_name.startswith("implicit_")
@@ -787,7 +797,10 @@ def test_fused_address_updates_preserve_numeric_storage_and_state() -> None:
                 original = numeric_operands[operand.field_name]
                 assert operand.reg_alts == original.reg_alts
                 assert operand.unit_count == original.unit_count
-                assert operand.register_part == original.register_part
+                assert (
+                    operand.reg_alts[0].register_part
+                    == original.reg_alts[0].register_part
+                )
                 assert operand.flags == original.flags
                 numeric_fields.add(operand.field_name)
             assert numeric_fields == numeric_operands.keys()

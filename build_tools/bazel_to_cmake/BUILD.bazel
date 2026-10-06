@@ -28,6 +28,7 @@ py_test(
         "bazel_to_cmake_requirements.py",
         "bazel_to_cmake_targets.py",
         "bazel_to_cmake_test.py",
+        "loom_binary.py",
     ],
 )
 
@@ -48,6 +49,7 @@ py_test(
         "bazel_to_cmake_requirements.py",
         "bazel_to_cmake_targets.py",
         "config_test.py",
+        "loom_binary.py",
     ],
 )
 

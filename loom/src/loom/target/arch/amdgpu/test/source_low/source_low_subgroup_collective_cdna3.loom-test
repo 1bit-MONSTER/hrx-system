@@ -184,8 +184,8 @@ low.kernel.def target<amdgpu.cdna3.core>(@target) abi_layout({constant_count = 0
   %16 = v_lshlrev_b32_src0_inline %tid, 2
   %value = global_load_dword_saddr %16, %input_view
   %shuffle = v_mov_b32_dpp %value {dpp_ctrl = 177}
-  %21 = v_lshlrev_b32_src0_inline %tid, 2
-  global_store_dword_saddr %21, %shuffle, %output_view
+  %19 = v_lshlrev_b32_src0_inline %tid, 2
+  global_store_dword_saddr %19, %shuffle, %output_view
   return
 }
 
@@ -218,8 +218,8 @@ low.kernel.def target<amdgpu.cdna3.core>(@target) abi_layout({constant_count = 0
   %16 = v_lshlrev_b32_src0_inline %tid, 2
   %value = global_load_dword_saddr %16, %input_view
   %shuffle = ds_swizzle_b32 %value {offset = 4127}
-  %21 = v_lshlrev_b32_src0_inline %tid, 2
-  global_store_dword_saddr %21, %shuffle, %output_view
+  %19 = v_lshlrev_b32_src0_inline %tid, 2
+  global_store_dword_saddr %19, %shuffle, %output_view
   return
 }
 
@@ -252,8 +252,8 @@ low.kernel.def target<amdgpu.cdna3.core>(@target) abi_layout({constant_count = 0
   %16 = v_lshlrev_b32_src0_inline %tid, 2
   %value = global_load_dword_saddr %16, %input_view
   %shuffle = ds_swizzle_b32 %value {offset = 8223}
-  %21 = v_lshlrev_b32_src0_inline %tid, 2
-  global_store_dword_saddr %21, %shuffle, %output_view
+  %19 = v_lshlrev_b32_src0_inline %tid, 2
+  global_store_dword_saddr %19, %shuffle, %output_view
   return
 }
 

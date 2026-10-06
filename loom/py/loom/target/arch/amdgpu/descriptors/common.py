@@ -585,11 +585,15 @@ def _predefined(
 
 
 def _instruction_encoding_opcode(
-    spec: AmdgpuIsaFactSource, instruction_name: str, encoding_name: str
+    spec: AmdgpuIsaFactSource,
+    instruction_name: str,
+    encoding_name: str,
+    *,
+    include_aliases: bool = False,
 ) -> int:
     opcodes = set()
     for summary in spec.instruction_encoding_summaries(
-        (instruction_name,), include_aliases=False
+        (instruction_name,), include_aliases=include_aliases
     ):
         if summary.encoding_name == encoding_name:
             opcodes.add(summary.opcode)
@@ -724,6 +728,9 @@ _GLOBAL_SADDR_OFFSET_ONLY_SIZE_REASON = (
     "saddr-enabled-global-address-uses-one-offset-vgpr"
 )
 _D16_PARTIAL_REGISTER_SIZE_REASON = AMDGPU_D16_PARTIAL_REGISTER_SIZE_REASON
+_BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON = (
+    "byte-store-reads-low-8-bits-of-low16-register-part"
+)
 _D16_PARTIAL_REGISTER_ADDRESSABLE_UNIT_COUNT = (
     AMDGPU_D16_PARTIAL_REGISTER_ADDRESSABLE_UNIT_COUNT
 )
@@ -783,6 +790,7 @@ class AmdgpuMemoryDescriptorDomain(CEnum):
     GLOBAL_FLAT = "LOOM_AMDGPU_MEMORY_DESCRIPTOR_DOMAIN_GLOBAL_FLAT"
     GLOBAL_SMEM = "LOOM_AMDGPU_MEMORY_DESCRIPTOR_DOMAIN_GLOBAL_SMEM"
     SCRATCH = "LOOM_AMDGPU_MEMORY_DESCRIPTOR_DOMAIN_SCRATCH"
+    GENERIC_FLAT = "LOOM_AMDGPU_MEMORY_DESCRIPTOR_DOMAIN_GENERIC_FLAT"
 
 
 class AmdgpuMemoryOperationKind(CEnum):
@@ -819,6 +827,7 @@ class AmdgpuAtomicKind(CEnum):
     ORI = "LOOM_ATOMIC_KIND_ORI"
     XORI = "LOOM_ATOMIC_KIND_XORI"
     XCHGI = "LOOM_ATOMIC_KIND_XCHGI"
+    XCHGF = "LOOM_ATOMIC_KIND_XCHGF"
     ADDF = "LOOM_ATOMIC_KIND_ADDF"
     MINNUMF = "LOOM_ATOMIC_KIND_MINNUMF"
     MAXNUMF = "LOOM_ATOMIC_KIND_MAXNUMF"
@@ -830,6 +839,7 @@ class AmdgpuAtomicValueKind(CEnum):
     B64 = "LOOM_AMDGPU_ATOMIC_VALUE_KIND_B64"
     I32 = "LOOM_AMDGPU_ATOMIC_VALUE_KIND_I32"
     F32 = "LOOM_AMDGPU_ATOMIC_VALUE_KIND_F32"
+    F64 = "LOOM_AMDGPU_ATOMIC_VALUE_KIND_F64"
     I64 = "LOOM_AMDGPU_ATOMIC_VALUE_KIND_I64"
     PACKED_F16 = "LOOM_AMDGPU_ATOMIC_VALUE_KIND_PACKED_F16"
     PACKED_BF16 = "LOOM_AMDGPU_ATOMIC_VALUE_KIND_PACKED_BF16"
@@ -1494,9 +1504,8 @@ def _sgpr_result(
     return Operand(
         field_name,
         OperandRole.RESULT,
-        _SGPR_ALT,
+        (replace(_SGPR_ALT[0], register_part=register_part),),
         unit_count=units,
-        register_part=register_part,
     )
 
 
@@ -1506,9 +1515,8 @@ def _sgpr_operand(
     return Operand(
         field_name,
         OperandRole.OPERAND,
-        _SGPR_ALT,
+        (replace(_SGPR_ALT[0], register_part=register_part),),
         unit_count=units,
-        register_part=register_part,
     )
 
 
@@ -1689,7 +1697,10 @@ def _with_execution_mask_state_read(descriptor: Descriptor) -> Descriptor:
         return descriptor
     if any(_is_exec_state_read(operand) for operand in descriptor.operands):
         return descriptor
-    return replace(descriptor, operands=(*descriptor.operands, _exec_state_read()))
+    operand = _exec_state_read()
+    if DescriptorFlag.SAFE_TO_SPECULATE in descriptor.flags:
+        operand = replace(operand, flags=(*operand.flags, OperandFlag.EXECUTION_MASK))
+    return replace(descriptor, operands=(*descriptor.operands, operand))
 
 
 def _with_execution_mask_state_reads(
@@ -1717,11 +1728,10 @@ def _vgpr_result(
     return Operand(
         field_name,
         OperandRole.RESULT,
-        _VGPR_ALT,
+        (replace(_VGPR_ALT[0], register_part=register_part),),
         unit_count=units,
         address_map_kind=address_map_kind,
         addressable_unit_count=addressable_unit_count,
-        register_part=register_part,
     )
 
 
@@ -1736,11 +1746,10 @@ def _vgpr_operand(
     return Operand(
         field_name,
         OperandRole.OPERAND,
-        _VGPR_ALT,
+        (replace(_VGPR_ALT[0], register_part=register_part),),
         unit_count=units,
         address_map_kind=address_map_kind,
         addressable_unit_count=addressable_unit_count,
-        register_part=register_part,
     )
 
 
@@ -1776,8 +1785,23 @@ def _vgpr_agpr_result(field_name: str = "dst", *, units: int = 1) -> Operand:
     return Operand(field_name, OperandRole.RESULT, _VGPR_AGPR_ALT, unit_count=units)
 
 
-def _vgpr_agpr_operand(field_name: str, *, units: int = 1) -> Operand:
-    return Operand(field_name, OperandRole.OPERAND, _VGPR_AGPR_ALT, unit_count=units)
+def _vgpr_agpr_operand(
+    field_name: str,
+    *,
+    units: int = 1,
+    vgpr_register_part: str | None = None,
+) -> Operand:
+    return Operand(
+        field_name,
+        OperandRole.OPERAND,
+        tuple(
+            replace(alternative, register_part=vgpr_register_part)
+            if alternative.reg_class == _REG_VGPR
+            else alternative
+            for alternative in _VGPR_AGPR_ALT
+        ),
+        unit_count=units,
+    )
 
 
 def _vgpr_agpr_const_operand(field_name: str, *, units: int = 1) -> Operand:
@@ -1888,6 +1912,7 @@ _MANUAL_SCALAR_DESCRIPTOR_KEYS = (
     "amdgpu.s_mov_b64_exec",
     "amdgpu.s_mov_b64_exec.full",
     "amdgpu.s_mov_b64_exec_read",
+    "amdgpu.s_andn2_b64_exec",
     "amdgpu.s_xor_b64_exec",
 )
 
@@ -1909,12 +1934,35 @@ def _s_mov_b32_contract_overlay() -> AmdgpuDescriptorOverlay:
     )
 
 
+def _s_mov_b64_exec_read_contract_overlay() -> AmdgpuDescriptorOverlay:
+    return AmdgpuDescriptorOverlay(
+        descriptor_key="amdgpu.s_mov_b64_exec_read",
+        instruction_name="S_MOV_B64",
+        mnemonic="s_mov_b64",
+        encoding_name="ENC_SOP1",
+        semantic_tag="control.exec.read",
+        schedule_class=_SCHEDULE_SALU,
+        operands=(AmdgpuOperandOverlay("SDST", _sgpr_result(units=2)),),
+        implicit_operands=(
+            AmdgpuImplicitOperandOverlay(
+                "OPR_SSRC",
+                descriptor_operand=_exec_value_read(),
+                xml_operand_required=False,
+            ),
+        ),
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
 def _manual_scalar_descriptors(
     spec: AmdgpuIsaFactSource,
 ) -> tuple[Descriptor, ...]:
     s_mov_b32_opcode = _instruction_encoding_opcode(spec, "S_MOV_B32", "ENC_SOP1")
     s_getpc_b64_opcode = _instruction_encoding_opcode(spec, "S_GETPC_B64", "ENC_SOP1")
     s_mov_b64_opcode = _instruction_encoding_opcode(spec, "S_MOV_B64", "ENC_SOP1")
+    s_andn2_b64_opcode = _instruction_encoding_opcode(
+        spec, "S_ANDN2_B64", "ENC_SOP2", include_aliases=True
+    )
     s_xor_b64_opcode = _instruction_encoding_opcode(spec, "S_XOR_B64", "ENC_SOP2")
     return (
         Descriptor(
@@ -2018,7 +2066,7 @@ def _manual_scalar_descriptors(
             schedule_class=_SCHEDULE_SALU,
             encoding_format_id=AMDGPU_ENCODING_FORMAT_SOP1,
             encoding_id=s_mov_b32_opcode,
-            flags=(DescriptorFlag.DEAD_REMOVABLE,),
+            flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.STATE_ASSIGNMENT),
         ),
         Descriptor(
             key="amdgpu.s_mov_b32_m0.imm",
@@ -2046,7 +2094,7 @@ def _manual_scalar_descriptors(
             schedule_class=_SCHEDULE_SALU,
             encoding_format_id=AMDGPU_ENCODING_FORMAT_SOP1,
             encoding_id=s_mov_b32_opcode,
-            flags=(DescriptorFlag.DEAD_REMOVABLE,),
+            flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.STATE_ASSIGNMENT),
         ),
         Descriptor(
             key="amdgpu.s_mov_b64_exec",
@@ -2137,6 +2185,51 @@ def _manual_scalar_descriptors(
             encoding_format_id=AMDGPU_ENCODING_FORMAT_SOP1,
             encoding_id=s_mov_b64_opcode,
             flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        ),
+        Descriptor(
+            key="amdgpu.s_andn2_b64_exec",
+            mnemonic="s_andn2_b64",
+            semantic_tag="control.exec.and_not",
+            operands=(
+                _scc_result("active"),
+                Operand(
+                    "saved_exec",
+                    OperandRole.OPERAND,
+                    _SGPR_ALT,
+                    encoding_field_id=amdgpu_encoding_field_id("SSRC0"),
+                    unit_count=2,
+                ),
+                Operand(
+                    "condition",
+                    OperandRole.OPERAND,
+                    _SGPR_ALT,
+                    encoding_field_id=amdgpu_encoding_field_id("SSRC1"),
+                    unit_count=2,
+                ),
+                _exec_clobber("exec_out"),
+            ),
+            encoding_field_values=(
+                EncodingFieldValue(
+                    amdgpu_encoding_field_id("SDST"),
+                    spec.operand_predefined_value("OPR_SDST_EXEC", "EXEC_LO"),
+                ),
+            ),
+            asm_forms=_asm(
+                mnemonic="s_andn2_b64_exec",
+                native_assembly_mnemonic="s_andn2_b64",
+                results=("active",),
+                operands=("saved_exec", "condition"),
+                native_assembly_values=(
+                    _native_literal("exec"),
+                    _native_operand("saved_exec"),
+                    _native_operand("condition"),
+                ),
+            ),
+            effects=(_CONVERGENT_EFFECT,),
+            schedule_class=_SCHEDULE_SALU,
+            encoding_format_id=AMDGPU_ENCODING_FORMAT_SOP2,
+            encoding_id=s_andn2_b64_opcode,
+            flags=(DescriptorFlag.SIDE_EFFECTING,),
         ),
         Descriptor(
             key="amdgpu.s_xor_b64_exec",
@@ -2472,6 +2565,11 @@ _WORKGROUP_BARRIER_EFFECT = Effect(
     EffectKind.BARRIER,
     memory_space=MemorySpace.WORKGROUP,
     flags=(EffectFlag.ORDERED, EffectFlag.DEPENDENCY),
+)
+
+_EXECUTION_BARRIER_EFFECT = Effect(
+    EffectKind.BARRIER,
+    flags=(EffectFlag.ORDERED,),
 )
 
 _CACHE_CONTROL_EFFECT = Effect(
@@ -3394,6 +3492,7 @@ __all__ = (
     "_AMDGPU_TRANS_DESCRIPTOR_LATENCY_CYCLES",
     "_AMDGPU_TRANS_PROXY_LATENCY_CYCLES",
     "_BUFFER_ATOMIC_VDATA_INPUT_REASON",
+    "_BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON",
     "_CACHE_CONTROL_EFFECT",
     "_CDNA_SMEM_OFFSET_ONLY_FIXED_FIELDS",
     "_CDNA_SMEM_SGPR_IMM_FIXED_FIELDS",
@@ -3621,6 +3720,7 @@ __all__ = (
     "_X_WAIT_EFFECT",
     "_X_WAIT_HAZARDS",
     "_WORKGROUP_BARRIER_EFFECT",
+    "_EXECUTION_BARRIER_EFFECT",
     "_amdgpu_camel_case",
     "_amdgpu_core_descriptor_set",
     "_amdgpu_core_descriptor_set_intersection",
@@ -3704,6 +3804,7 @@ __all__ = (
     "_offset_immediate",
     "_predefined",
     "_s_mov_b32_contract_overlay",
+    "_s_mov_b64_exec_read_contract_overlay",
     "_scc_clobber",
     "_scc_input",
     "_scc_output",

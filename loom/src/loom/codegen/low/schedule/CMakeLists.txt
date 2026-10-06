@@ -73,6 +73,7 @@ loom_cc_library(
   SRCS
     "event_frontier.c"
   DEPS
+    ::dependencies
     iree::base
     iree::base::internal::arena
     loom::codegen::low::descriptors
@@ -119,8 +120,11 @@ loom_cc_library(
     "diagnostics.h"
     "json.h"
     "run.h"
+    "source_suffix.h"
     "types.h"
   SRCS
+    "block.c"
+    "block.h"
     "candidate_policy.c"
     "candidate_policy.h"
     "completion_demand.c"
@@ -137,12 +141,17 @@ loom_cc_library(
     "pressure.h"
     "pressure_alias.c"
     "pressure_alias.h"
+    "pressure_lifetime.c"
+    "pressure_lifetime.h"
     "pressure_priority.c"
     "ready_policy.c"
     "ready_policy.h"
     "run.c"
     "scopes.c"
     "scopes.h"
+    "setup_order.c"
+    "setup_order.h"
+    "source_suffix.c"
     "storage_lifetime.c"
     "storage_lifetime.h"
     "storage_relation_index.c"
@@ -171,6 +180,7 @@ loom_cc_library(
     loom::codegen::low::immediates
     loom::codegen::low::memory_access
     loom::codegen::low::placement
+    loom::codegen::low::representation_binding
     loom::codegen::low::storage_layout
     loom::codegen::low::storage_relation
     loom::codegen::low::target_binding
@@ -184,10 +194,78 @@ loom_cc_library(
     loom::target::residency
     loom::util::cfg_graph
     loom::util::cfg_loop
+    loom::util::index_set
     loom::util::json
     loom::util::segmented_storage
     loom::util::stream
   PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    block_test
+  SRCS
+    "block.h"
+    "block_test.cc"
+    "context.h"
+    "pressure.h"
+    "pressure_alias.h"
+    "ready_policy.h"
+    "setup_order.h"
+    "storage_lifetime.h"
+    "storage_relation_index.h"
+    "target_pressure.h"
+  DEPS
+    ::dependency_index
+    ::ready_frontier
+    ::resource_calendar
+    ::schedule
+    iree::base
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::analysis::liveness
+    loom::codegen::low::function
+    loom::codegen::low::memory_access
+    loom::codegen::low::representation_binding
+    loom::codegen::low::storage_relation
+    loom::codegen::low::target_binding
+    loom::ir
+    loom::target::test::descriptors
+    loom::util::cfg_graph
+    loom::util::segmented_storage
+)
+
+loom_cc_test(
+  NAME
+    pressure_alias_test
+  SRCS
+    "context.h"
+    "pressure.h"
+    "pressure_alias.h"
+    "pressure_alias_test.cc"
+    "ready_policy.h"
+    "setup_order.h"
+    "storage_lifetime.h"
+    "storage_relation_index.h"
+  DEPS
+    ::dependency_index
+    ::ready_frontier
+    ::resource_calendar
+    ::schedule
+    iree::base
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::analysis::liveness
+    loom::codegen::low::function
+    loom::codegen::low::memory_access
+    loom::codegen::low::representation_binding
+    loom::codegen::low::storage_relation
+    loom::codegen::low::target_binding
+    loom::ir
+    loom::util::cfg_graph
+    loom::util::segmented_storage
 )
 
 loom_cc_test(
@@ -212,6 +290,20 @@ loom_cc_test(
   DEPS
     ::dependencies
     ::dependency_index
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_test(
+  NAME
+    source_suffix_test
+  SRCS
+    "source_suffix_test.cc"
+  DEPS
+    ::dependencies
+    ::dependency_index
+    ::schedule
+    iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
 )

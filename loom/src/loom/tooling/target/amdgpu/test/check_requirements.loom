@@ -8,7 +8,6 @@ kernel.def @device_kernel() {
 check.case @device_case {
   check.requires<hal.amdgpu.descriptor_set> {descriptor_set = "amdgpu.rdna3_5.core"}
   kernel.launch @device_kernel() : ()
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 

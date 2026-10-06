@@ -59,6 +59,38 @@ class ValueRef:
         )
 
     @classmethod
+    def exact_lane_origin_operand(
+        cls,
+        field: str,
+        *,
+        source_node: str = "",
+        element: int = 0,
+    ) -> Self:
+        """References the exact whole-vector lane origin of an operand."""
+        return cls(
+            kind=SourceValueKind.EXACT_LANE_ORIGIN_OPERAND,
+            field=field,
+            source_node=source_node,
+            element=element,
+        )
+
+    @classmethod
+    def exact_uniform_element_origin_operand(
+        cls,
+        field: str,
+        *,
+        source_node: str = "",
+        element: int = 0,
+    ) -> Self:
+        """References the exact scalar origin shared by every operand element."""
+        return cls(
+            kind=SourceValueKind.EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND,
+            field=field,
+            source_node=source_node,
+            element=element,
+        )
+
+    @classmethod
     def temporary(cls, field: str) -> Self:
         return cls(kind=SourceValueKind.TEMPORARY, field=field)
 
@@ -74,6 +106,14 @@ class ValueRef:
     def source_memory_dynamic_byte_offset(cls) -> Self:
         return cls(
             kind=SourceValueKind.SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET,
+            field="",
+        )
+
+    @classmethod
+    def source_memory_byte_offset(cls) -> Self:
+        """Returns the complete byte offset selected by source-memory analysis."""
+        return cls(
+            kind=SourceValueKind.SOURCE_MEMORY_BYTE_OFFSET,
             field="",
         )
 
@@ -103,6 +143,8 @@ class ValueRef:
         if self.source_node and self.kind not in (
             SourceValueKind.OPERAND,
             SourceValueKind.RESULT,
+            SourceValueKind.EXACT_LANE_ORIGIN_OPERAND,
+            SourceValueKind.EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND,
         ):
             raise ValueError(
                 f"{source_op.name}: {subject} source node requires an operand or result"
@@ -116,7 +158,11 @@ class ValueRef:
                 raise ValueError(
                     f"{source_op.name}: {subject} materializer requires an operand"
                 )
-        if self.kind == SourceValueKind.OPERAND:
+        if self.kind in (
+            SourceValueKind.OPERAND,
+            SourceValueKind.EXACT_LANE_ORIGIN_OPERAND,
+            SourceValueKind.EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND,
+        ):
             if not self.field:
                 raise ValueError(f"{source_op.name}: {subject} field must be non-empty")
             operand = _require_operand(source_op, self.field, subject)
@@ -156,7 +202,10 @@ class ValueRef:
                     "non-negative"
                 )
             return
-        if self.kind == SourceValueKind.SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET:
+        if self.kind in (
+            SourceValueKind.SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET,
+            SourceValueKind.SOURCE_MEMORY_BYTE_OFFSET,
+        ):
             if self.field:
                 raise ValueError(
                     f"{source_op.name}: {subject} source-memory byte offset must "

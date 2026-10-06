@@ -72,10 +72,12 @@ loom_cc_library(
   SRCS
     "control_uniformity.c"
   DEPS
+    ::condition_facts
     iree::base
     iree::base::internal::arena
     loom::ir
     loom::ir::facts
+    loom::ops::cfg
     loom::ops::op_defs
     loom::util::cfg_control
     loom::util::cfg_dominance
@@ -83,6 +85,97 @@ loom_cc_library(
     loom::util::fact_control
     loom::util::fact_table
   PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    storage_interference
+  HDRS
+    "storage_interference.h"
+  SRCS
+    "storage_interference.c"
+  DEPS
+    ::control_uniformity
+    ::value_relation
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::ops::buffer
+    loom::ops::kernel
+    loom::ops::op_defs
+    loom::util::cfg_postdominance
+    loom::util::fact_table
+    loom::util::walk
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    storage_interference_test
+  SRCS
+    "storage_interference_test.cc"
+  DEPS
+    ::storage_interference
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::format::text::parser
+    loom::ir
+    loom::ops::buffer
+    loom::ops::op_defs
+    loom::ops::type_registry
+    loom::testing::context
+    loom::testing::module_ptr
+    loom::util::fact_table
+)
+
+loom_cc_library(
+  NAME
+    storage_layout
+  HDRS
+    "storage_layout.h"
+  SRCS
+    "storage_layout.c"
+  DEPS
+    iree::base
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    storage_layout_test
+  SRCS
+    "storage_layout_test.cc"
+  DEPS
+    ::storage_layout
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_library(
+  NAME
+    source_storage_packing
+  HDRS
+    "source_storage_packing.h"
+  SRCS
+    "source_storage_packing.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    source_storage_packing_test
+  SRCS
+    "source_storage_packing_test.cc"
+  DEPS
+    ::source_storage_packing
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
 )
 
 loom_cc_library(
@@ -166,7 +259,9 @@ loom_cc_test(
     loom::ir
     loom::ops::cfg
     loom::ops::func
+    loom::ops::index
     loom::ops::scalar
+    loom::ops::scf
     loom::ops::test
     loom::testing::module_ptr
 )
@@ -239,10 +334,12 @@ loom_cc_library(
     iree::base::internal::arena
     loom::ir
     loom::ir::facts
-    loom::ops::index
-    loom::ops::scalar
+    loom::ops::index::comparison
+    loom::ops::index::op_defs
+    loom::ops::scalar::comparison
+    loom::ops::scalar::op_defs
     loom::util::adaptive_sort
-    loom::util::fact_table
+    loom::util::fact_table_api
   PUBLIC
 )
 
@@ -265,6 +362,22 @@ loom_cc_test(
 
 loom_cc_library(
   NAME
+    condition_edge_projection
+  HDRS
+    "condition_edge_projection.h"
+  SRCS
+    "condition_edge_projection.c"
+  DEPS
+    ::condition_facts
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::util::adaptive_sort
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     condition_fact_scope
   HDRS
     "condition_fact_scope.h"
@@ -272,6 +385,7 @@ loom_cc_library(
     "condition_fact_scope.c"
   DEPS
     ::cfg_condition_facts
+    ::condition_edge_projection
     ::condition_facts
     iree::base
     loom::util::fact_table
@@ -311,6 +425,7 @@ loom_cc_test(
     loom::ir
     loom::ops::cfg
     loom::ops::scalar
+    loom::ops::scf
     loom::ops::test
     loom::pass::value_facts
 )
@@ -332,11 +447,15 @@ loom_cc_benchmark(
   SRCS
     "condition_facts_benchmark.cc"
   DEPS
+    ::condition_edge_projection
     ::condition_facts
     iree::base::internal::arena
     iree::testing::benchmark_main
     loom::ir
+    loom::ops::func
     loom::ops::scalar
+    loom::ops::scf
+    loom::pass::value_facts
     loom::util::fact_table
   TESTONLY
 )
@@ -501,6 +620,7 @@ loom_cc_library(
     "consumption.c"
   DEPS
     ::liveness
+    ::ownership
     iree::base
     iree::base::internal::arena
     loom::ir
@@ -540,7 +660,6 @@ loom_cc_library(
     loom::error::error_defs
     loom::ir
     loom::ops::cfg
-    loom::ops::func
     loom::ops::op_defs
     loom::util::cfg_graph
     loom::util::walk
@@ -584,6 +703,45 @@ loom_cc_library(
     loom::ops::op_defs
     loom::util::fact_table
   PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    kernel_barrier_lifetime
+  HDRS
+    "kernel_barrier_lifetime.h"
+  SRCS
+    "kernel_barrier_lifetime.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::error::emitter
+    loom::error::error_defs
+    loom::ir
+    loom::ops::kernel
+    loom::ops::op_defs
+    loom::util::cfg_graph
+    loom::util::fact_table
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    kernel_barrier_lifetime_test
+  SRCS
+    "kernel_barrier_lifetime_test.cc"
+  DEPS
+    ::kernel_barrier_lifetime
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::format::text::parser
+    loom::ir
+    loom::ops::op_defs
+    loom::ops::type_registry
+    loom::testing::context
+    loom::testing::module_ptr
+    loom::util::fact_table
 )
 
 loom_cc_library(
@@ -868,12 +1026,26 @@ loom_cc_test(
 
 loom_cc_library(
   NAME
+    liveness_uses
+  HDRS
+    "liveness_uses.h"
+  SRCS
+    "liveness_uses.c"
+  DEPS
+    iree::base
+    loom::ir
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     liveness_dataflow
   HDRS
     "liveness_dataflow.h"
   SRCS
     "liveness_dataflow.c"
   DEPS
+    ::liveness_uses
     iree::base
     iree::base::internal::arena
     loom::ir
@@ -883,13 +1055,44 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    liveness_events
+  HDRS
+    "liveness_events.h"
+  SRCS
+    "liveness_events.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::util::adaptive_sort
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    liveness_events_test
+  SRCS
+    "liveness_events_test.cc"
+  DEPS
+    ::liveness_events
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_library(
+  NAME
     liveness
   HDRS
     "liveness.h"
+    "liveness_pressure.h"
   SRCS
     "liveness.c"
+    "liveness_pressure.c"
   DEPS
     ::liveness_dataflow
+    ::liveness_events
+    ::liveness_uses
     iree::base
     iree::base::internal
     iree::base::internal::arena
@@ -900,6 +1103,20 @@ loom_cc_library(
     loom::util::cfg_graph
     loom::util::segmented_storage
   PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    liveness_pressure_test
+  SRCS
+    "liveness_pressure_test.cc"
+  DEPS
+    ::liveness
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::target::registers
+    loom::target::test::descriptors
 )
 
 loom_cc_test(
@@ -1216,11 +1433,17 @@ loom_cc_library(
   NAME
     symbolic_expr
   HDRS
+    "symbolic_congruence.h"
     "symbolic_expr.h"
     "symbolic_expr_proof.h"
+    "symbolic_projection.h"
   SRCS
+    "symbolic_congruence.c"
     "symbolic_expr.c"
     "symbolic_expr_proof.c"
+    "symbolic_projection.c"
+    "symbolic_quotient.c"
+    "symbolic_quotient.h"
     "symbolic_value.c"
     "symbolic_value.h"
   DEPS
@@ -1242,6 +1465,29 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_test(
+  NAME
+    symbolic_congruence_test
+  SRCS
+    "symbolic_congruence_test.cc"
+  DEPS
+    ::symbolic_expr
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_test(
+  NAME
+    symbolic_projection_test
+  SRCS
+    "symbolic_projection_test.cc"
+  DEPS
+    ::symbolic_expr
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
 loom_cc_library(
   NAME
     symbolic_expr_test_fixture
@@ -1253,6 +1499,7 @@ loom_cc_library(
     iree::testing::gtest
     loom::ir
     loom::ops::index
+    loom::ops::sanitizer
     loom::ops::scalar
     loom::ops::scf
     loom::util::fact_table
@@ -1353,8 +1600,10 @@ loom_cc_test(
     loom::ir
     loom::ops::index
     loom::ops::op_defs
+    loom::ops::sanitizer
     loom::ops::scalar
     loom::ops::scf
+    loom::target::facts
 )
 
 loom_cc_test(
@@ -1373,6 +1622,7 @@ loom_cc_test(
     loom::ops::index
     loom::ops::kernel
     loom::ops::op_defs
+    loom::ops::sanitizer
     loom::ops::scalar
     loom::ops::scf
     loom::util::fact_table

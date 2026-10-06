@@ -5,7 +5,11 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with")
-load("//loom/build_tools/bazel:defs.bzl", "loom_target_profile")
+load(
+    "//loom/build_tools/bazel:defs.bzl",
+    "loom_target_profile",
+    "loom_target_set",
+)
 
 package(default_visibility = ["//visibility:public"])
 
@@ -16,4 +20,13 @@ loom_target_profile(
     family = "vm",
     selector = "core",
     target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),
+)
+
+loom_target_set(
+    name = "all",
+    allow_empty = True,
+    targets = select({
+        "//loom/config/target/arch:vm": [":core"],
+        "//conditions:default": [],
+    }),
 )

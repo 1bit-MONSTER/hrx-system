@@ -1,0 +1,42 @@
+func.def @predicate_bitwise_four(%lhs: vector<4xi1>, %rhs: vector<4xi1>) -> (vector<4xi1>, vector<4xi1>, vector<4xi1>) {
+  %and_result = vector.andi %lhs, %rhs : vector<4xi1>
+  %or_result = vector.ori %lhs, %rhs : vector<4xi1>
+  %xor_result = vector.xori %lhs, %rhs : vector<4xi1>
+  func.return %and_result, %or_result, %xor_result : vector<4xi1>, vector<4xi1>, vector<4xi1>
+}
+
+// ====
+
+func.def @predicate_bitwise_single(%lhs: vector<1xi1>, %rhs: vector<1xi1>) -> (vector<1xi1>, vector<1xi1>, vector<1xi1>) {
+  %and_result = vector.andi %lhs, %rhs : vector<1xi1>
+  %or_result = vector.ori %lhs, %rhs : vector<1xi1>
+  %xor_result = vector.xori %lhs, %rhs : vector<1xi1>
+  func.return %and_result, %or_result, %xor_result : vector<1xi1>, vector<1xi1>, vector<1xi1>
+}
+
+// ====
+
+func.def @predicate_bitwise_partial(%lhs: vector<9xi1>, %rhs: vector<9xi1>) -> (vector<9xi1>, vector<9xi1>, vector<9xi1>) {
+  %and_result = vector.andi %lhs, %rhs : vector<9xi1>
+  %or_result = vector.ori %lhs, %rhs : vector<9xi1>
+  %xor_result = vector.xori %lhs, %rhs : vector<9xi1>
+  func.return %and_result, %or_result, %xor_result : vector<9xi1>, vector<9xi1>, vector<9xi1>
+}
+
+// ====
+
+func.def @predicate_bitwise_matrix(%lhs: vector<3x3xi1>, %rhs: vector<3x3xi1>) -> (vector<3x3xi1>, vector<3x3xi1>, vector<3x3xi1>) {
+  %and_result = vector.andi %lhs, %rhs : vector<3x3xi1>
+  %or_result = vector.ori %lhs, %rhs : vector<3x3xi1>
+  %xor_result = vector.xori %lhs, %rhs : vector<3x3xi1>
+  func.return %and_result, %or_result, %xor_result : vector<3x3xi1>, vector<3x3xi1>, vector<3x3xi1>
+}
+
+// ====
+
+func.def @predicate_bitwise_full(%lhs: vector<32xi1>, %rhs: vector<32xi1>) -> (vector<32xi1>, vector<32xi1>, vector<32xi1>) {
+  %and_result = vector.andi %lhs, %rhs : vector<32xi1>
+  %or_result = vector.ori %lhs, %rhs : vector<32xi1>
+  %xor_result = vector.xori %lhs, %rhs : vector<32xi1>
+  func.return %and_result, %or_result, %xor_result : vector<32xi1>, vector<32xi1>, vector<32xi1>
+}

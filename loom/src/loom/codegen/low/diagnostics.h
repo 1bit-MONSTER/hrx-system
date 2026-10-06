@@ -12,6 +12,7 @@
 #include "iree/base/api.h"
 #include "loom/analysis/liveness.h"
 #include "loom/codegen/low/target_binding.h"
+#include "loom/error/emitter.h"
 #include "loom/ir/ir.h"
 
 #ifdef __cplusplus
@@ -43,6 +44,19 @@ iree_string_view_t loom_low_diagnostic_config_key(
 // Returns the low function symbol name for |function_op|, or "<unnamed>".
 iree_string_view_t loom_low_diagnostic_function_name(
     const loom_module_t* module, const loom_op_t* function_op);
+
+// Emits LOOM_ERR_TARGET_026 for a target-dependent use of |function_op|.
+iree_status_t loom_low_diagnostic_emit_missing_target(
+    const loom_module_t* module, const loom_op_t* function_op,
+    iree_diagnostic_emitter_t emitter);
+
+// Checks |workgroup_storage_bytes| against the resolved target limit. Emits
+// LOOM_ERR_TARGET_051 and sets |out_valid| false when the nonzero limit is
+// exceeded. |out_valid| may be NULL when the caller counts emitted errors.
+iree_status_t loom_low_diagnostic_validate_workgroup_storage_limit(
+    const loom_module_t* module, const loom_op_t* function_op,
+    const loom_low_resolved_target_t* target, uint64_t workgroup_storage_bytes,
+    iree_diagnostic_emitter_t emitter, bool* out_valid);
 
 // Returns the dotted operation mnemonic for |op|, or "<unknown>".
 iree_string_view_t loom_low_diagnostic_operation_name(

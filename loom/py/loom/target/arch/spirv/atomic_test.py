@@ -21,7 +21,7 @@ from loom.target.arch.spirv.atomic import (
     float_atomic_native_feature_bits,
 )
 from loom.target.arch.spirv.descriptors import SPIRV_LOGICAL_CORE_DESCRIPTOR_SET
-from loom.target.arch.spirv.features import atom_by_key
+from loom.target.arch.spirv.features import atom_by_key, feature_bit_value
 
 
 def _atomic_descriptors():
@@ -181,7 +181,10 @@ def test_integer_atomic_descriptor_matrix_is_complete() -> None:
     actual_keys = {
         key
         for key in descriptors
-        if ".native." not in key and ".bitcast." not in key and ".cas." not in key
+        if not any(
+            strategy in key
+            for strategy in (".native.", ".bitcast.", ".cas.", ".cas_preserve.")
+        )
     }
     assert len(expected_keys) == 356
     assert actual_keys == expected_keys
@@ -217,24 +220,33 @@ def test_float_atomic_descriptor_matrix_is_complete() -> None:
                             )
                     if scalar.integer_scalar_enum is None:
                         continue
-                    strategy = "bitcast" if operation.source_kind == "xchgf" else "cas"
+                    strategies = (
+                        ("bitcast",) if operation.source_kind == "xchgf" else ("cas",)
+                    )
+                    if scalar.source_type == "f32" and operation.source_kind == "addf":
+                        strategies += ("cas_preserve",)
                     forms = ("rmw", "reduce") if operation.supports_reduce else ("rmw",)
-                    for form in forms:
-                        key = float_atomic_descriptor_key(
-                            form,
-                            strategy,
-                            scalar,
-                            storage_class,
-                            scope,
-                            operation=operation,
-                        )
-                        expected_keys.add(key)
-                        feature_mask = float_atomic_cas_feature_bits(
-                            scalar, storage_class, scope
-                        )
-                        assert descriptors[key].feature_mask_words == (
-                            (feature_mask,) if feature_mask else ()
-                        )
+                    for strategy in strategies:
+                        for form in forms:
+                            key = float_atomic_descriptor_key(
+                                form,
+                                strategy,
+                                scalar,
+                                storage_class,
+                                scope,
+                                operation=operation,
+                            )
+                            expected_keys.add(key)
+                            feature_mask = float_atomic_cas_feature_bits(
+                                scalar, storage_class, scope
+                            )
+                            if strategy == "cas_preserve":
+                                feature_mask |= feature_bit_value(
+                                    "float32_denorm_preserve"
+                                )
+                            assert descriptors[key].feature_mask_words == (
+                                (feature_mask,) if feature_mask else ()
+                            )
                 if scalar.integer_scalar_enum is None:
                     continue
                 for success_ordering in scope.orderings:
@@ -257,11 +269,14 @@ def test_float_atomic_descriptor_matrix_is_complete() -> None:
     actual_keys = {
         key
         for key in descriptors
-        if ".native." in key or ".bitcast." in key or ".cas." in key
+        if any(
+            strategy in key
+            for strategy in (".native.", ".bitcast.", ".cas.", ".cas_preserve.")
+        )
     }
-    assert len(expected_keys) == 300
+    assert len(expected_keys) == 316
     assert actual_keys == expected_keys
-    assert len(descriptors) == 656
+    assert len(descriptors) == 672
 
 
 def test_workgroup_float_fallback_descriptors_use_integer_pointer_classes() -> None:

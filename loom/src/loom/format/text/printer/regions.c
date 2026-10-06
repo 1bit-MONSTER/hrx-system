@@ -182,11 +182,13 @@ iree_status_t loom_print_op(loom_print_context_t* ctx, const loom_op_t* op,
 
   iree_status_t status = iree_ok_status();
 
-  // Print results on the LHS. Symbol-defining ops (functions, globals)
-  // carry result values for type information but don't produce SSA values.
+  // Print results on the LHS. Symbol and signature-only result values carry
+  // local type information and do not define SSA values in the surrounding
+  // block.
   bool print_results =
       op->result_count > 0 &&
-      !iree_any_bit_set(vtable->traits, LOOM_TRAIT_SYMBOL_DEFINE);
+      !iree_any_bit_set(vtable->traits, LOOM_TRAIT_SYMBOL_DEFINE) &&
+      !loom_op_vtable_has_signature_only_results(vtable);
   if (iree_status_is_ok(status) && print_results) {
     const loom_value_id_t* results = loom_op_const_results(op);
     for (uint16_t j = 0; j < op->result_count && iree_status_is_ok(status);

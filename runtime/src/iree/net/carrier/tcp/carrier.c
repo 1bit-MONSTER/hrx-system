@@ -138,6 +138,9 @@ struct iree_net_tcp_carrier_t {
   // Maximum generated-prefix bytes available per send slot.
   iree_host_size_t generated_prefix_capacity;
 
+  // Minimum attempted native send extent for requesting kernel copy avoidance.
+  iree_host_size_t zero_copy_min_send_size;
+
   // Cache-line-isolated byte stride between generated-prefix slices.
   iree_host_size_t generated_prefix_stride;
 
@@ -644,6 +647,10 @@ static iree_status_t iree_net_tcp_submit_send_slot_locked(
     slot->submitted_length += slot->operation.buffers.values[i].length;
   }
   slot->operation.send_flags = IREE_ASYNC_SOCKET_SEND_FLAG_REPORT_PROGRESS;
+  if (slot->submitted_length < carrier->zero_copy_min_send_size ||
+      carrier->zero_copy_min_send_size == IREE_HOST_SIZE_MAX) {
+    slot->operation.send_flags |= IREE_ASYNC_SOCKET_SEND_FLAG_NO_ZERO_COPY;
+  }
   return iree_async_proactor_submit_one(carrier->proactor,
                                         &slot->operation.base);
 }
@@ -1459,6 +1466,7 @@ IREE_API_EXPORT iree_status_t iree_net_tcp_carrier_create(
       (iree_net_tcp_send_slot_t*)((uint8_t*)carrier + send_slots_offset);
   carrier->send_slot_count = options->max_send_operations;
   carrier->generated_prefix_capacity = options->generated_prefix_capacity;
+  carrier->zero_copy_min_send_size = options->zero_copy_min_send_size;
   carrier->generated_prefix_stride = generated_prefix_stride;
   if (generated_prefix_slab_size > 0) {
     carrier->generated_prefix_slab =
@@ -1483,7 +1491,8 @@ IREE_API_EXPORT iree_status_t iree_net_tcp_carrier_create(
       IREE_NET_CARRIER_CAPABILITY_ZERO_COPY_RX;
   const iree_async_proactor_capabilities_t proactor_capabilities =
       iree_async_proactor_query_capabilities(proactor);
-  if (iree_any_bit_set(socket->flags, IREE_ASYNC_SOCKET_FLAG_ZERO_COPY) &&
+  if (options->zero_copy_min_send_size != IREE_HOST_SIZE_MAX &&
+      iree_any_bit_set(socket->flags, IREE_ASYNC_SOCKET_FLAG_ZERO_COPY) &&
       iree_any_bit_set(proactor_capabilities,
                        IREE_ASYNC_PROACTOR_CAPABILITY_ZERO_COPY_SEND)) {
     capabilities |= IREE_NET_CARRIER_CAPABILITY_ZERO_COPY_TX;

@@ -267,16 +267,35 @@ def translate_format_elements(op: Op, format_elements: tuple[FormatElement, ...]
                     payload = str(sta_index) if glue else f"LOOM_FORMAT_INDEX_LIST_DATA({sta_index}, false)"
                     elements.append(("LOOM_FORMAT_KIND_INDEX_LIST", dyn_index, payload))
 
-                case BindingList(field=name, kind=binding_kind):
+                case BindingList(
+                    field=name,
+                    kind=binding_kind,
+                    type_source=type_source,
+                ):
                     _field_kind, index = resolve_field(name)
-                    binding_kind_name = "LOOM_BINDING_ELEMENT" if binding_kind == "element" else "LOOM_BINDING_CAPTURE"
+                    binding_kind_name = "LOOM_BINDING_LIST_ELEMENT" if binding_kind == "element" else "LOOM_BINDING_LIST_CAPTURE"
+                    if type_source == "block_arg":
+                        binding_kind_name += " | LOOM_BINDING_LIST_ANNOTATES_BLOCK_ARGS"
+                    elif type_source != "operand":
+                        raise ValueError(f"Op '{op.name}': BindingList type_source '{type_source}' must be 'operand' or 'block_arg'")
+                    if binding_kind == "element" and type_source == "block_arg":
+                        raise ValueError(f"Op '{op.name}': element BindingList annotations must describe operand types")
                     elements.append(("LOOM_FORMAT_KIND_BINDING_LIST", index, binding_kind_name))
 
-                case BlockArgs(region=name):
+                case BlockArgs(
+                    region=name,
+                    start_attr=start_attr,
+                    end_attr=end_attr,
+                ):
                     kind, index = resolve_field(name)
                     if kind != FieldKind.REGION:
                         raise ValueError(f"Op '{op.name}': BlockArgs region field '{name}' is not a region field")
-                    elements.append(("LOOM_FORMAT_KIND_BLOCK_ARGS", index, "0"))
+                    start_attr_index = c_queries.resolve_attr_index(op, start_attr, "BlockArgs")
+                    end_attr_index = c_queries.resolve_attr_index(op, end_attr, "BlockArgs")
+                    data = "0"
+                    if start_attr is not None or end_attr is not None:
+                        data = f"LOOM_FORMAT_BLOCK_ARGS_DATA({start_attr_index}, {end_attr_index})"
+                    elements.append(("LOOM_FORMAT_KIND_BLOCK_ARGS", index, data))
 
                 case FuncArgs(
                     field=name,
@@ -295,7 +314,11 @@ def translate_format_elements(op: Op, format_elements: tuple[FormatElement, ...]
                     _field_kind, index = resolve_field(name)
                     elements.append(("LOOM_FORMAT_KIND_PREDICATE_LIST", index, "0"))
 
-                case OptionalGroup(elements=inner, anchor=anchor):
+                case OptionalGroup(
+                    elements=inner,
+                    anchor=anchor,
+                    inverted=inverted,
+                ):
                     # Resolve anchor to determine category.
                     anchor_desc = layout.fields.get(anchor)
                     if anchor_desc is None:
@@ -322,7 +345,7 @@ def translate_format_elements(op: Op, format_elements: tuple[FormatElement, ...]
                     elements.append(("LOOM_FORMAT_KIND_OPTIONAL_GROUP", 0, "0"))
                     walk(inner)
                     inner_count = len(elements) - inner_start - 1
-                    data = f"({inner_count} << 2) | {anchor_category}"
+                    data = f"LOOM_FORMAT_OPTIONAL_GROUP_DATA({inner_count}, {anchor_category}, true)" if inverted else f"({inner_count} << 2) | {anchor_category}"
                     elements[inner_start] = (
                         "LOOM_FORMAT_KIND_OPTIONAL_GROUP",
                         anchor_index,

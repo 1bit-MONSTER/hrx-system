@@ -1,0 +1,352 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/packed_lookup_widths.loom-test
+// RUN: with-checks emit source-low target=amdgpu:gfx11-generic output=low
+
+func.def @byte_table_4_lanes_1(%table: vector<4xi8>, %input: vector<1xi8>) -> (vector<1xi8>) {
+  %mask = vector.constant 3 : vector<1xi8>
+  %indices = vector.andi %input, %mask : vector<1xi8>
+  %values = vector.table.lookup %table[%indices] : vector<4xi8>, vector<1xi8> -> vector<1xi8>
+  func.return %values : vector<1xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+
+// ====
+
+func.def @byte_table_4_lanes_2(%table: vector<4xi8>, %input: vector<2xi8>) -> (vector<2xi8>) {
+  %mask = vector.constant 3 : vector<2xi8>
+  %indices = vector.andi %input, %mask : vector<2xi8>
+  %values = vector.table.lookup %table[%indices] : vector<4xi8>, vector<2xi8> -> vector<2xi8>
+  func.return %values : vector<2xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+
+// ====
+
+func.def @byte_table_4_lanes_3(%table: vector<4xi8>, %input: vector<3xi8>) -> (vector<3xi8>) {
+  %mask = vector.constant 3 : vector<3xi8>
+  %indices = vector.andi %input, %mask : vector<3xi8>
+  %values = vector.table.lookup %table[%indices] : vector<4xi8>, vector<3xi8> -> vector<3xi8>
+  func.return %values : vector<3xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+
+// ====
+
+func.def @byte_table_4_lanes_4(%table: vector<4xi8>, %input: vector<4xi8>) -> (vector<4xi8>) {
+  %mask = vector.constant 3 : vector<4xi8>
+  %indices = vector.andi %input, %mask : vector<4xi8>
+  %values = vector.table.lookup %table[%indices] : vector<4xi8>, vector<4xi8> -> vector<4xi8>
+  func.return %values : vector<4xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+
+// ====
+
+func.def @byte_table_4_lanes_5(%table: vector<4xi8>, %input: vector<5xi8>) -> (vector<5xi8>) {
+  %mask = vector.constant 3 : vector<5xi8>
+  %indices = vector.andi %input, %mask : vector<5xi8>
+  %values = vector.table.lookup %table[%indices] : vector<4xi8>, vector<5xi8> -> vector<5xi8>
+  func.return %values : vector<5xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+CHECK: *concat(*)*-> reg<amdgpu.vgpr x2>
+
+// ====
+
+func.def @byte_table_4_lanes_7(%table: vector<4xi8>, %input: vector<7xi8>) -> (vector<7xi8>) {
+  %mask = vector.constant 3 : vector<7xi8>
+  %indices = vector.andi %input, %mask : vector<7xi8>
+  %values = vector.table.lookup %table[%indices] : vector<4xi8>, vector<7xi8> -> vector<7xi8>
+  func.return %values : vector<7xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+CHECK: *concat(*)*-> reg<amdgpu.vgpr x2>
+
+// ====
+
+func.def @byte_table_4_lanes_8(%table: vector<4xi8>, %input: vector<8xi8>) -> (vector<8xi8>) {
+  %mask = vector.constant 3 : vector<8xi8>
+  %indices = vector.andi %input, %mask : vector<8xi8>
+  %values = vector.table.lookup %table[%indices] : vector<4xi8>, vector<8xi8> -> vector<8xi8>
+  func.return %values : vector<8xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+CHECK: *concat(*)*-> reg<amdgpu.vgpr x2>
+
+// ====
+
+func.def @byte_table_4_lanes_16(%table: vector<4xi8>, %input: vector<16xi8>) -> (vector<16xi8>) {
+  %mask = vector.constant 3 : vector<16xi8>
+  %indices = vector.andi %input, %mask : vector<16xi8>
+  %values = vector.table.lookup %table[%indices] : vector<4xi8>, vector<16xi8> -> vector<16xi8>
+  func.return %values : vector<16xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+CHECK: *concat(*)*-> reg<amdgpu.vgpr x4>
+
+// ====
+
+func.def @byte_table_4_lanes_32(%table: vector<4xi8>, %input: vector<32xi8>) -> (vector<32xi8>) {
+  %mask = vector.constant 3 : vector<32xi8>
+  %indices = vector.andi %input, %mask : vector<32xi8>
+  %values = vector.table.lookup %table[%indices] : vector<4xi8>, vector<32xi8> -> vector<32xi8>
+  func.return %values : vector<32xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+CHECK: *concat(*)*-> reg<amdgpu.vgpr x8>
+
+// ====
+
+func.def @byte_table_4_lanes_63(%table: vector<4xi8>, %input: vector<63xi8>) -> (vector<63xi8>) {
+  %mask = vector.constant 3 : vector<63xi8>
+  %indices = vector.andi %input, %mask : vector<63xi8>
+  %values = vector.table.lookup %table[%indices] : vector<4xi8>, vector<63xi8> -> vector<63xi8>
+  func.return %values : vector<63xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+CHECK: *concat(*)*-> reg<amdgpu.vgpr x16>
+
+// ====
+
+func.def @byte_table_4_lanes_64(%table: vector<4xi8>, %input: vector<64xi8>) -> (vector<64xi8>) {
+  %mask = vector.constant 3 : vector<64xi8>
+  %indices = vector.andi %input, %mask : vector<64xi8>
+  %values = vector.table.lookup %table[%indices] : vector<4xi8>, vector<64xi8> -> vector<64xi8>
+  func.return %values : vector<64xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+CHECK: *concat(*)*-> reg<amdgpu.vgpr x16>
+
+// ====
+
+func.def @byte_table_16_lanes_1(%table: vector<16xi8>, %input: vector<1xi8>) -> (vector<1xi8>) {
+  %mask = vector.constant 15 : vector<1xi8>
+  %indices = vector.andi %input, %mask : vector<1xi8>
+  %values = vector.table.lookup %table[%indices] : vector<16xi8>, vector<1xi8> -> vector<1xi8>
+  func.return %values : vector<1xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+
+// ====
+
+func.def @byte_table_16_lanes_2(%table: vector<16xi8>, %input: vector<2xi8>) -> (vector<2xi8>) {
+  %mask = vector.constant 15 : vector<2xi8>
+  %indices = vector.andi %input, %mask : vector<2xi8>
+  %values = vector.table.lookup %table[%indices] : vector<16xi8>, vector<2xi8> -> vector<2xi8>
+  func.return %values : vector<2xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+
+// ====
+
+func.def @byte_table_16_lanes_3(%table: vector<16xi8>, %input: vector<3xi8>) -> (vector<3xi8>) {
+  %mask = vector.constant 15 : vector<3xi8>
+  %indices = vector.andi %input, %mask : vector<3xi8>
+  %values = vector.table.lookup %table[%indices] : vector<16xi8>, vector<3xi8> -> vector<3xi8>
+  func.return %values : vector<3xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+
+// ====
+
+func.def @byte_table_16_lanes_4(%table: vector<16xi8>, %input: vector<4xi8>) -> (vector<4xi8>) {
+  %mask = vector.constant 15 : vector<4xi8>
+  %indices = vector.andi %input, %mask : vector<4xi8>
+  %values = vector.table.lookup %table[%indices] : vector<16xi8>, vector<4xi8> -> vector<4xi8>
+  func.return %values : vector<4xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+
+// ====
+
+func.def @byte_table_16_lanes_5(%table: vector<16xi8>, %input: vector<5xi8>) -> (vector<5xi8>) {
+  %mask = vector.constant 15 : vector<5xi8>
+  %indices = vector.andi %input, %mask : vector<5xi8>
+  %values = vector.table.lookup %table[%indices] : vector<16xi8>, vector<5xi8> -> vector<5xi8>
+  func.return %values : vector<5xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+CHECK: *concat(*)*-> reg<amdgpu.vgpr x2>
+
+// ====
+
+func.def @byte_table_16_lanes_7(%table: vector<16xi8>, %input: vector<7xi8>) -> (vector<7xi8>) {
+  %mask = vector.constant 15 : vector<7xi8>
+  %indices = vector.andi %input, %mask : vector<7xi8>
+  %values = vector.table.lookup %table[%indices] : vector<16xi8>, vector<7xi8> -> vector<7xi8>
+  func.return %values : vector<7xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+CHECK: *concat(*)*-> reg<amdgpu.vgpr x2>
+
+// ====
+
+func.def @byte_table_16_lanes_8(%table: vector<16xi8>, %input: vector<8xi8>) -> (vector<8xi8>) {
+  %mask = vector.constant 15 : vector<8xi8>
+  %indices = vector.andi %input, %mask : vector<8xi8>
+  %values = vector.table.lookup %table[%indices] : vector<16xi8>, vector<8xi8> -> vector<8xi8>
+  func.return %values : vector<8xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+CHECK: *concat(*)*-> reg<amdgpu.vgpr x2>
+
+// ====
+
+func.def @byte_table_16_lanes_16(%table: vector<16xi8>, %input: vector<16xi8>) -> (vector<16xi8>) {
+  %mask = vector.constant 15 : vector<16xi8>
+  %indices = vector.andi %input, %mask : vector<16xi8>
+  %values = vector.table.lookup %table[%indices] : vector<16xi8>, vector<16xi8> -> vector<16xi8>
+  func.return %values : vector<16xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+CHECK: *concat(*)*-> reg<amdgpu.vgpr x4>
+
+// ====
+
+func.def @byte_table_16_lanes_32(%table: vector<16xi8>, %input: vector<32xi8>) -> (vector<32xi8>) {
+  %mask = vector.constant 15 : vector<32xi8>
+  %indices = vector.andi %input, %mask : vector<32xi8>
+  %values = vector.table.lookup %table[%indices] : vector<16xi8>, vector<32xi8> -> vector<32xi8>
+  func.return %values : vector<32xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+CHECK: *concat(*)*-> reg<amdgpu.vgpr x8>
+
+// ====
+
+func.def @byte_table_16_lanes_63(%table: vector<16xi8>, %input: vector<63xi8>) -> (vector<63xi8>) {
+  %mask = vector.constant 15 : vector<63xi8>
+  %indices = vector.andi %input, %mask : vector<63xi8>
+  %values = vector.table.lookup %table[%indices] : vector<16xi8>, vector<63xi8> -> vector<63xi8>
+  func.return %values : vector<63xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+CHECK: *concat(*)*-> reg<amdgpu.vgpr x16>
+
+// ====
+
+func.def @byte_table_16_lanes_64(%table: vector<16xi8>, %input: vector<64xi8>) -> (vector<64xi8>) {
+  %mask = vector.constant 15 : vector<64xi8>
+  %indices = vector.andi %input, %mask : vector<64xi8>
+  %values = vector.table.lookup %table[%indices] : vector<16xi8>, vector<64xi8> -> vector<64xi8>
+  func.return %values : vector<64xi8>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+CHECK: *concat(*)*-> reg<amdgpu.vgpr x16>
+
+// ====
+
+func.def @nibble_lookup_to_float_8(%table: vector<16xi8>, %packed: vector<4xi8>) -> (vector<8xf32>) {
+  %indices = vector.bitunpacku<4> %packed : vector<4xi8> -> vector<8xi8>
+  %values = vector.table.lookup %table[%indices] : vector<16xi8>, vector<8xi8> -> vector<8xi8>
+  %converted = vector.sitofp %values : vector<8xi8> to vector<8xf32>
+  func.return %converted : vector<8xf32>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK: *v_cvt_f32_i32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*
+
+// ====
+
+func.def @nibble_lookup_to_float_16(%table: vector<16xi8>, %packed: vector<8xi8>) -> (vector<16xf32>) {
+  %indices = vector.bitunpacku<4> %packed : vector<8xi8> -> vector<16xi8>
+  %values = vector.table.lookup %table[%indices] : vector<16xi8>, vector<16xi8> -> vector<16xi8>
+  %converted = vector.sitofp %values : vector<16xi8> to vector<16xf32>
+  func.return %converted : vector<16xf32>
+}
+
+// ----
+CHECK: *v_perm_b32*
+CHECK: *v_cvt_f32_i32*
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask*

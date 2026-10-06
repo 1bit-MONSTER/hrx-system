@@ -15,9 +15,12 @@
 #include "iree/testing/status_matchers.h"
 #include "loom/target/arch/spirv/cooperative_properties.h"
 #include "loom/target/arch/spirv/features.h"
+#include "vulkan/vulkan_core.h"
 
 namespace loom {
 namespace {
+
+constexpr uint64_t kMaximumWorkgroupLocalMemorySize = 32 * 1024;
 
 typedef struct fake_hal_device_t {
   // HAL resource header used by device vtable dispatch.
@@ -75,7 +78,8 @@ static iree_hal_vulkan_features_t AtomicVulkanFeatures() {
 }
 
 static iree_status_t CreateDeviceSpec(
-    iree_hal_vulkan_features_t enabled_features, bool include_target,
+    iree_hal_vulkan_features_t enabled_features,
+    iree_hal_vulkan_device_spec_flags_t flags, bool include_target,
     iree_host_size_t cooperative_matrix_property_count,
     const iree_hal_vulkan_cooperative_matrix_property_t*
         cooperative_matrix_properties,
@@ -99,6 +103,15 @@ static iree_status_t CreateDeviceSpec(
       {
           /*.unit_count=*/1,
           /*.group_count=*/1,
+          /*.maximum_resident_workgroup_count=*/0,
+          /*.maximum_resident_invocation_count=*/0,
+          /*.maximum_resident_subgroup_count=*/0,
+          /*.maximum_register_count=*/0,
+          /*.maximum_workgroup_register_count=*/0,
+          /*.maximum_local_memory_size=*/0,
+          /*.maximum_workgroup_local_memory_size=*/
+          kMaximumWorkgroupLocalMemorySize,
+          /*.maximum_workgroup_local_memory_size_optin=*/0,
       },
       /*.addressing=*/
       {
@@ -112,7 +125,9 @@ static iree_status_t CreateDeviceSpec(
       /*.driver_version=*/1,
       /*.physical_device_type=*/2,
       /*.enabled_features=*/enabled_features,
-      /*.flags=*/IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
+      /*.flags=*/flags,
+      /*.subgroup_supported_operations=*/
+      VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT,
   };
   iree_host_size_t vulkan_payload_size = 0;
   IREE_RETURN_IF_ERROR(iree_hal_vulkan_device_spec_calculate_payload_size(
@@ -169,8 +184,11 @@ static loom_spirv_vulkan_hal_profile_facts_t BaselineFacts() {
       /*.flags=*/LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_RAW_BDA_EXECUTABLE |
           LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_BUFFER_DEVICE_ADDRESS |
           LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_SHADER_INT64,
+      /*.subgroup_supported_operations=*/0,
       /*.subgroup_size=*/32,
       /*.max_compute_workgroup_invocations=*/256,
+      /*.max_compute_shared_memory_size=*/
+      kMaximumWorkgroupLocalMemorySize,
       /*.max_compute_workgroup_size=*/
       {
           /*.x=*/256,
@@ -250,11 +268,11 @@ static iree_hal_vulkan_cooperative_matrix_property_t U8DeviceMatrixRow() {
 
 TEST(VulkanProfileTest, QueryReadsHalDeviceFacts) {
   iree_hal_device_spec_t* device_spec = NULL;
-  IREE_ASSERT_OK(CreateDeviceSpec(BaselineVulkanFeatures(),
-                                  /*include_target=*/true,
-                                  /*cooperative_matrix_property_count=*/0,
-                                  /*cooperative_matrix_properties=*/nullptr,
-                                  &device_spec));
+  IREE_ASSERT_OK(CreateDeviceSpec(
+      BaselineVulkanFeatures(), IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
+      /*include_target=*/true,
+      /*cooperative_matrix_property_count=*/0,
+      /*cooperative_matrix_properties=*/nullptr, &device_spec));
   fake_hal_device_t device = {};
   InitializeFakeHalDevice(device_spec, &device);
 
@@ -303,8 +321,12 @@ TEST(VulkanProfileTest, QueryReadsHalDeviceFacts) {
   EXPECT_FALSE(iree_all_bits_set(
       facts.flags,
       LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_VULKAN_MEMORY_MODEL_DEVICE_SCOPE));
+  EXPECT_EQ(facts.subgroup_supported_operations,
+            VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT);
   EXPECT_EQ(facts.subgroup_size, 32u);
   EXPECT_EQ(facts.max_compute_workgroup_invocations, 256u);
+  EXPECT_EQ(facts.max_compute_shared_memory_size,
+            kMaximumWorkgroupLocalMemorySize);
   EXPECT_EQ(facts.max_compute_workgroup_size.x, 256u);
   EXPECT_EQ(facts.max_compute_workgroup_size.y, 128u);
   EXPECT_EQ(facts.max_compute_workgroup_size.z, 64u);
@@ -316,11 +338,11 @@ TEST(VulkanProfileTest, QueryReadsHalDeviceFacts) {
 
 TEST(VulkanProfileTest, QueryKeepsExecutableTargetSupportSeparate) {
   iree_hal_device_spec_t* device_spec = NULL;
-  IREE_ASSERT_OK(CreateDeviceSpec(BaselineVulkanFeatures(),
-                                  /*include_target=*/false,
-                                  /*cooperative_matrix_property_count=*/0,
-                                  /*cooperative_matrix_properties=*/nullptr,
-                                  &device_spec));
+  IREE_ASSERT_OK(CreateDeviceSpec(
+      BaselineVulkanFeatures(), IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
+      /*include_target=*/false,
+      /*cooperative_matrix_property_count=*/0,
+      /*cooperative_matrix_properties=*/nullptr, &device_spec));
   fake_hal_device_t device = {};
   InitializeFakeHalDevice(device_spec, &device);
 
@@ -337,11 +359,11 @@ TEST(VulkanProfileTest, QueryKeepsExecutableTargetSupportSeparate) {
 
 TEST(VulkanProfileTest, QueryProjectsAtomicFeatures) {
   iree_hal_device_spec_t* device_spec = NULL;
-  IREE_ASSERT_OK(CreateDeviceSpec(AtomicVulkanFeatures(),
-                                  /*include_target=*/true,
-                                  /*cooperative_matrix_property_count=*/0,
-                                  /*cooperative_matrix_properties=*/nullptr,
-                                  &device_spec));
+  IREE_ASSERT_OK(CreateDeviceSpec(
+      AtomicVulkanFeatures(), IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
+      /*include_target=*/true,
+      /*cooperative_matrix_property_count=*/0,
+      /*cooperative_matrix_properties=*/nullptr, &device_spec));
   fake_hal_device_t device = {};
   InitializeFakeHalDevice(device_spec, &device);
 
@@ -369,14 +391,39 @@ TEST(VulkanProfileTest, QueryProjectsAtomicFeatures) {
   iree_hal_device_spec_release(device_spec);
 }
 
+TEST(VulkanProfileTest, ProjectsIndependentFloat32Preservation) {
+  for (auto flags :
+       {IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
+        IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_DENORM_PRESERVE}) {
+    iree_hal_device_spec_t* device_spec = nullptr;
+    IREE_ASSERT_OK(CreateDeviceSpec(BaselineVulkanFeatures(), flags,
+                                    /*include_target=*/true,
+                                    /*cooperative_matrix_property_count=*/0,
+                                    /*cooperative_matrix_properties=*/nullptr,
+                                    &device_spec));
+    fake_hal_device_t device = {};
+    InitializeFakeHalDevice(device_spec, &device);
+    loom_spirv_vulkan_hal_profile_facts_t facts = {};
+    IREE_ASSERT_OK(loom_spirv_vulkan_hal_profile_query(
+        (iree_hal_device_t*)&device, &facts));
+    loom_target_bundle_storage_t storage = {};
+    IREE_ASSERT_OK(loom_spirv_vulkan_hal_profile_initialize_target_bundle(
+        &facts, &storage));
+    EXPECT_EQ(iree_any_bit_set(storage.config.contract_feature_bits,
+                               LOOM_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE),
+              flags != IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE);
+    iree_hal_device_spec_release(device_spec);
+  }
+}
+
 TEST(VulkanProfileTest, CopiesCooperativeMatrixRowsFromDeviceSpec) {
   const iree_hal_vulkan_cooperative_matrix_property_t source_row =
       F16DeviceMatrixRow();
   iree_hal_device_spec_t* device_spec = NULL;
-  IREE_ASSERT_OK(CreateDeviceSpec(BaselineVulkanFeatures(),
-                                  /*include_target=*/true,
-                                  /*cooperative_matrix_property_count=*/1,
-                                  &source_row, &device_spec));
+  IREE_ASSERT_OK(CreateDeviceSpec(
+      BaselineVulkanFeatures(), IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
+      /*include_target=*/true,
+      /*cooperative_matrix_property_count=*/1, &source_row, &device_spec));
   fake_hal_device_t device = {};
   InitializeFakeHalDevice(device_spec, &device);
 
@@ -416,6 +463,8 @@ TEST(VulkanProfileTest, MaterializesRawBdaHalKernelTarget) {
   EXPECT_EQ(storage.snapshot.offset_bitwidth, 64u);
   EXPECT_EQ(storage.snapshot.subgroup_size, 32u);
   EXPECT_EQ(storage.snapshot.max_flat_workgroup_size, 256u);
+  EXPECT_EQ(storage.snapshot.max_workgroup_storage_bytes,
+            kMaximumWorkgroupLocalMemorySize);
   EXPECT_EQ(storage.snapshot.max_workgroup_size.x, 256u);
   EXPECT_EQ(storage.snapshot.max_workgroup_size.y, 128u);
   EXPECT_EQ(storage.snapshot.max_workgroup_size.z, 64u);
@@ -429,6 +478,25 @@ TEST(VulkanProfileTest, MaterializesRawBdaHalKernelTarget) {
       storage.config.name, IREE_SV("spirv.logical.core.vulkan1.3.bda")));
   EXPECT_EQ(storage.config.contract_feature_bits,
             LOOM_SPIRV_FEATURE_PROFILE_VULKAN_1_3_BDA);
+}
+
+TEST(VulkanProfileTest, MaterializesAdvertisedBallotCapability) {
+  for (uint32_t subgroup_operations :
+       {uint32_t{VK_SUBGROUP_FEATURE_BASIC_BIT},
+        uint32_t{VK_SUBGROUP_FEATURE_BASIC_BIT |
+                 VK_SUBGROUP_FEATURE_BALLOT_BIT}}) {
+    SCOPED_TRACE(subgroup_operations);
+    loom_spirv_vulkan_hal_profile_facts_t facts = BaselineFacts();
+    facts.subgroup_supported_operations = subgroup_operations;
+    loom_target_bundle_storage_t storage = {};
+    IREE_ASSERT_OK(loom_spirv_vulkan_hal_profile_initialize_target_bundle(
+        &facts, &storage));
+
+    EXPECT_EQ(
+        iree_any_bit_set(storage.config.contract_feature_bits,
+                         LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT),
+        iree_any_bit_set(subgroup_operations, VK_SUBGROUP_FEATURE_BALLOT_BIT));
+  }
 }
 
 TEST(VulkanProfileTest, RejectsVulkan12) {
@@ -464,6 +532,16 @@ TEST(VulkanProfileTest, RejectsMissingBufferDeviceAddress) {
 TEST(VulkanProfileTest, RejectsMissingShaderInt64) {
   loom_spirv_vulkan_hal_profile_facts_t facts = BaselineFacts();
   facts.flags &= ~LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_SHADER_INT64;
+
+  loom_target_bundle_storage_t storage = {};
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_UNAVAILABLE,
+      loom_spirv_vulkan_hal_profile_initialize_target_bundle(&facts, &storage));
+}
+
+TEST(VulkanProfileTest, RejectsMissingWorkgroupStorageLimit) {
+  loom_spirv_vulkan_hal_profile_facts_t facts = BaselineFacts();
+  facts.max_compute_shared_memory_size = 0;
 
   loom_target_bundle_storage_t storage = {};
   IREE_EXPECT_STATUS_IS(
@@ -635,6 +713,7 @@ TEST(VulkanProfileTest, PreservesDeviceInputsWithoutChoosingSubgroupWidth) {
                        LOOM_TARGET_FACT_FIELD_MAX_WORKGROUP_SIZE_Y,
                        LOOM_TARGET_FACT_FIELD_MAX_WORKGROUP_SIZE_Z,
                        LOOM_TARGET_FACT_FIELD_MAX_FLAT_WORKGROUP_SIZE,
+                       LOOM_TARGET_FACT_FIELD_MAX_WORKGROUP_STORAGE_BYTES,
                        LOOM_TARGET_FACT_FIELD_MAX_WORKGROUP_COUNT_X,
                        LOOM_TARGET_FACT_FIELD_MAX_WORKGROUP_COUNT_Y,
                        LOOM_TARGET_FACT_FIELD_MAX_WORKGROUP_COUNT_Z,
@@ -647,8 +726,9 @@ TEST(VulkanProfileTest, PreservesDeviceInputsWithoutChoosingSubgroupWidth) {
               subgroup_size != 0);
     EXPECT_EQ(storage.target_bundle_storage.snapshot.subgroup_size,
               subgroup_size);
-    EXPECT_FALSE(loom_target_fact_field_set_contains(
-        explicit_fields, LOOM_TARGET_FACT_FIELD_MAX_WORKGROUP_STORAGE_BYTES));
+    EXPECT_EQ(
+        storage.target_bundle_storage.snapshot.max_workgroup_storage_bytes,
+        kMaximumWorkgroupLocalMemorySize);
     loom_spirv_vulkan_hal_target_profile_storage_deinitialize(
         &storage, iree_allocator_system());
   }

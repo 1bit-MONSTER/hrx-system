@@ -139,26 +139,23 @@ LOOMC_API_PRIVATE loomc_status_t loomc_module_serialize_explicit_source(
     loomc_module_source_encoder_fn_t encoder, loomc_allocator_t allocator,
     loomc_source_t** out_source);
 
-// Clears prior compiler products and returns their module-owned arena.
-//
-// The returned arena remains live until the next compilation or module
-// destruction. Compilation retains applied configuration and function versions
-// here for later loomc_emit_module calls.
-LOOMC_API_PRIVATE iree_arena_allocator_t* loomc_module_prepare_compilation(
+// Returns the owner carried by continuing compiler invocations on this module.
+// Its products live until a failed mutation or module destruction.
+LOOMC_API_PRIVATE loom_function_version_owner_t*
+loomc_module_function_version_owner(loomc_module_t* module);
+
+// Clears products after a failed mutation invalidates their construction.
+LOOMC_API_PRIVATE void loomc_module_invalidate_compilation(
     loomc_module_t* module);
 
 // Captures applied invocation bindings into the module's compiler storage.
 LOOMC_API_PRIVATE loom_tooling_config_binding_sink_t
 loomc_module_config_binding_sink(loomc_module_t* module);
 
-// Returns the last compilation's bindings, valid for the module's lifetime or
-// until another compilation replaces its invocation products.
+// Returns accumulated applied bindings, valid until a failed mutation or
+// module destruction.
 LOOMC_API_PRIVATE const loomc_config_binding_list_t*
 loomc_module_config_bindings(const loomc_module_t* module);
-
-// Publishes function versions produced by a successful compilation.
-LOOMC_API_PRIVATE void loomc_module_publish_function_versions(
-    loomc_module_t* module, loom_function_version_owner_t function_versions);
 
 // Returns function versions from the last successful compilation, or NULL.
 LOOMC_API_PRIVATE const loom_function_version_list_t*

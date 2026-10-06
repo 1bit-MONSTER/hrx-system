@@ -8,8 +8,7 @@
 
 #include "loom/target/arch/spirv/descriptors/low_registry.h"
 #include "loom/target/arch/spirv/profile.h"
-#include "loom/target/emit/spirv/module_builder.h"
-#include "loom/target/emit/spirv/module_emitter.h"
+#include "loom/target/emit/spirv/module_compiler.h"
 #include "loom/target/entry_selection.h"
 #include "loom/target/function_contract.h"
 #include "loom/target/reporting/artifact_manifest_collect.h"
@@ -61,17 +60,20 @@ static iree_status_t loom_spirv_artifact_provider_emit_entries(
     bool* out_emitted, loom_artifact_t* out_artifact) {
   *out_emitted = false;
 
-  loom_op_t** entry_ops = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      arena, entries.count, sizeof(*entry_ops), (void**)&entry_ops));
+  loom_spirv_compile_entry_t* compile_entries = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, entries.count,
+                                                 sizeof(*compile_entries),
+                                                 (void**)&compile_entries));
   for (uint16_t i = 0; i < entries.count; ++i) {
-    entry_ops[i] = entries.values[i].func.op;
+    compile_entries[i] = (loom_spirv_compile_entry_t){
+        .function_op = entries.values[i].func.op,
+        .target_facts = entries.values[i].target_facts,
+    };
   }
-  loom_spirv_emit_low_module_options_t emit_options = {0};
-  loom_spirv_emit_low_module_options_initialize(&emit_options);
-  emit_options.function_versions = target_options->function_versions;
-  emit_options.entry_ops = entry_ops;
-  emit_options.entry_count = entries.count;
+  loom_spirv_compile_options_t compile_options = {0};
+  compile_options.function_versions = target_options->function_versions;
+  compile_options.entries = compile_entries;
+  compile_options.entry_count = entries.count;
 
   loom_spirv_compile_artifact_storage_t* storage = NULL;
   IREE_RETURN_IF_ERROR(
@@ -79,11 +81,12 @@ static iree_status_t loom_spirv_artifact_provider_emit_entries(
   *storage = (loom_spirv_compile_artifact_storage_t){0};
 
   loom_spirv_module_binary_t module_binary = {0};
-  iree_status_t status = loom_spirv_emit_low_module(
+  bool module_emitted = false;
+  iree_status_t status = loom_spirv_compile_module_binary(
       module, &low_registry->registry,
-      loom_target_entry_emitter(diagnostic_emitter), arena, &emit_options,
-      &module_binary, allocator);
-  if (iree_status_is_ok(status) && diagnostic_emitter->error_count == 0) {
+      loom_target_entry_emitter(diagnostic_emitter), arena, &compile_options,
+      allocator, &module_emitted, &module_binary);
+  if (iree_status_is_ok(status) && module_emitted) {
     iree_byte_span_t module_contents = iree_make_byte_span(
         module_binary.words, module_binary.word_count * sizeof(uint32_t));
     status = iree_byte_sequence_create_from_span_move(
@@ -92,11 +95,11 @@ static iree_status_t loom_spirv_artifact_provider_emit_entries(
       module_binary = (loom_spirv_module_binary_t){0};
     }
   }
-  if (iree_status_is_ok(status) && diagnostic_emitter->error_count == 0) {
+  if (iree_status_is_ok(status) && module_emitted) {
     storage->target_bundle_storage = entries.values[0].target_facts->storage;
     loom_target_bundle_storage_rebind(&storage->target_bundle_storage);
   }
-  if (iree_status_is_ok(status) && diagnostic_emitter->error_count == 0 &&
+  if (iree_status_is_ok(status) && module_emitted &&
       artifact_manifest != NULL &&
       artifact_manifest->mode != LOOM_TARGET_ARTIFACT_MANIFEST_MODE_NONE) {
     loom_target_artifact_manifest_collect_options_t manifest_options;
@@ -132,7 +135,7 @@ static iree_status_t loom_spirv_artifact_provider_emit_entries(
     loom_target_artifact_manifest_json_release(&artifact_manifest_json,
                                                allocator);
   }
-  if (iree_status_is_ok(status) && diagnostic_emitter->error_count == 0) {
+  if (iree_status_is_ok(status) && module_emitted) {
     *out_artifact = (loom_artifact_t){
         .target_key = target->target_key,
         .target_bundle = &storage->target_bundle_storage.bundle,
@@ -232,8 +235,6 @@ static void loom_spirv_artifact_provider_deinitialize_artifact(
 
 const loom_artifact_provider_t loom_spirv_vulkan_artifact_provider = {
     .name = IREE_SVL("spirv-vulkan-hal"),
-    .public_artifact_format = IREE_SVL("spirv-binary"),
-    .flags = LOOM_ARTIFACT_PROVIDER_FLAG_CANONICAL,
     .target_profile_type = &loom_spirv_target_profile_type,
     .artifact_kind = LOOM_TARGET_COMPILE_ARTIFACT_KIND_HAL_EXECUTABLE,
     .default_pipeline_options =

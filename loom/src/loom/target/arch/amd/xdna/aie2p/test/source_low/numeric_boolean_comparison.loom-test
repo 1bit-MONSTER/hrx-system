@@ -165,3 +165,110 @@ low.func.def public target<amd.xdna.aie2p.core> abi(object_function) @boolean_un
   %wide = concat(%29, %31) : (reg<aie2p.er>, reg<aie2p.er>) -> reg<aie2p.er x2>
   return %word, %wide
 }
+
+// ====
+
+func.def public @conditional_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %inverse, %input : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<amd.xdna.aie2p.core> abi(object_function) @conditional_inversion(%input_bits: reg<aie2p.er>, %enabled_bits: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
+  %c0 = mov.short 0
+  %input = nez %input_bits
+  %enabled = nez %enabled_bits
+  %selected = xor %enabled, %input
+  %21 = mov.short 1
+  %22 = copy %selected : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %result = sel.nez %21, %c0, %22
+  return %result
+}
+
+// ====
+
+func.def public @conditional_inversion_false(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %input, %inverse : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<amd.xdna.aie2p.core> abi(object_function) @conditional_inversion_false(%input_bits: reg<aie2p.er>, %enabled_bits: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
+  %c0 = mov.short 0
+  %input = nez %input_bits
+  %enabled = nez %enabled_bits
+  %c1 = mov.short 1
+  %inverse = xor %input, %c1
+  %selected = xor %enabled, %inverse
+  %24 = copy %selected : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %result = sel.nez %c1, %c0, %24
+  return %result
+}
+
+// ====
+
+// This is the SSA shape of a promoted byte-sized Boolean local.
+func.def public @conditional_byte_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %input_byte = scalar.extui %input : i1 to i8
+  %inverse_byte = scalar.extui %inverse : i1 to i8
+  %selected = scf.select %enabled, %inverse_byte, %input_byte : i8
+  %c0_i8 = scalar.constant 0 : i8
+  %truth = scalar.cmpi ne, %selected, %c0_i8 : i8
+  %result = scalar.extui %truth : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<amd.xdna.aie2p.core> abi(object_function) @conditional_byte_inversion(%input_bits: reg<aie2p.er>, %enabled_bits: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
+  %c0 = mov.short 0
+  %input = nez %input_bits
+  %enabled = nez %enabled_bits
+  %25 = xor %enabled, %input
+  %26 = mov.short 1
+  %27 = copy %25 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %result = sel.nez %26, %c0, %27
+  return %result
+}
+
+// ====
+
+func.def public @conditional_signed_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %input_word = scalar.extsi %input : i1 to i32
+  %inverse_word = scalar.extsi %inverse : i1 to i32
+  %result = scf.select %enabled, %inverse_word, %input_word : i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<amd.xdna.aie2p.core> abi(object_function) @conditional_signed_inversion(%input_bits: reg<aie2p.er>, %enabled_bits: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
+  %c0 = mov.short 0
+  %input = nez %input_bits
+  %enabled = nez %enabled_bits
+  %22 = xor %enabled, %input
+  %23 = mov.short -1
+  %24 = copy %22 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %result = sel.nez %23, %c0, %24
+  return %result
+}

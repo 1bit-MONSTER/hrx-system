@@ -55,7 +55,9 @@ struct RecordPartition final : Partition {
 struct EncodingPartition final : Partition {
   // Concrete source specialization retaining copy and object-layout semantics.
   cxx::ClassSymbol* source;
-  // Number of axes described by this source layout object.
+  // Semantic role preserved across calls, records, and structured results.
+  loom_encoding_role_t role;
+  // Number of layout axes, or zero for a numeric schema.
   size_t rank;
 };
 
@@ -101,8 +103,10 @@ class Types {
       : unit_(unit), diagnostics_(diagnostics) {}
 
   // Projects a leaf value's representation independently of top-level cv
-  // qualifiers. Pointers admit their pointee through storage_size(); aggregate
-  // values use partition(). Access semantics belong to memory_access_flags().
+  // qualifiers. Object pointers carry a buffer and byte offset independently
+  // of pointee layout; storage_size() admits actual object projections.
+  // Aggregate values use partition(). Access semantics belong to
+  // memory_access_flags().
   // Unsupported representations diagnose at owner and throw SourceRejected.
   loom_type_t get(const cxx::Type* input, cxx::AST* owner);
   // Admits an addressable scalar, vector, plain record or fixed array of those

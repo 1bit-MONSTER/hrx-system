@@ -1009,7 +1009,7 @@ def _validate_operand_width(
                 "exception, but the low operand width is unknown"
             )
         return
-    if low_width_bits == xml_operand.size_bits:
+    if low_width_bits == {xml_operand.size_bits}:
         if size_exception_reason is not None:
             raise AmdgpuDescriptorOverlayError(
                 f"descriptor overlay '{overlay.descriptor_key}' maps XML field "
@@ -1024,26 +1024,23 @@ def _validate_operand_width(
         f"descriptor overlay '{overlay.descriptor_key}' maps XML field "
         f"'{operand_overlay.xml_field_name}' to low operand "
         f"'{operand_overlay.descriptor_operand.field_name}' with "
-        f"{low_width_bits}-bit low width, but XML operand size is "
+        f"{', '.join(str(width) for width in sorted(low_width_bits))}-bit low "
+        "width, but XML operand size is "
         f"{xml_operand.size_bits} bits"
     )
 
 
-def _operand_low_width_bits(operand: Operand) -> int | None:
-    if operand.register_part is not None:
-        register_part_width = _REGISTER_PART_WIDTH_BITS.get(operand.register_part)
-        if register_part_width is None:
-            return None
-        return register_part_width * operand.unit_count
-
-    alt_widths = {
-        _REGISTER_WIDTH_BITS[reg_alt.reg_class]
-        for reg_alt in operand.reg_alts
-        if reg_alt.reg_class in _REGISTER_WIDTH_BITS
-    }
-    if len(alt_widths) != 1:
-        return None
-    return next(iter(alt_widths)) * operand.unit_count
+def _operand_low_width_bits(operand: Operand) -> set[int] | None:
+    alt_widths: set[int] = set()
+    for reg_alt in operand.reg_alts:
+        if reg_alt.register_part is not None:
+            register_part_width = _REGISTER_PART_WIDTH_BITS.get(reg_alt.register_part)
+            if register_part_width is None:
+                return None
+            alt_widths.add(register_part_width * operand.unit_count)
+        elif reg_alt.reg_class in _REGISTER_WIDTH_BITS:
+            alt_widths.add(_REGISTER_WIDTH_BITS[reg_alt.reg_class] * operand.unit_count)
+    return alt_widths or None
 
 
 def _operand_role_mismatch_is_explicitly_allowed(

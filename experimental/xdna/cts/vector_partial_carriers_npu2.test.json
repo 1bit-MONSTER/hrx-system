@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "Captured and partial vector carriers preserve snapshots and exact extents on NPU2",
+      "steps": [
+        {
+          "name": "fixtures",
+          "run": {
+            "tool": "generate-cases",
+            "args": [
+              "{tmp}/fixtures"
+            ]
+          }
+        },
+        {
+          "name": "compile",
+          "run": {
+            "tool": "loom-compile",
+            "args": [
+              "{srcdir}/testdata/vector_partial_carriers.loom",
+              "--root=@partial_carriers",
+              "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+              "--output={tmp}/partial-carriers.xdna",
+              "--compile-report=text-details",
+              "--compile-report-output={tmp}/compile-report.txt"
+            ]
+          },
+          "files": [
+            {
+              "path": "{tmp}/compile-report.txt",
+              "contains": {
+                "unordered": [
+                  {
+                    "regex": "COMPILE-REPORT: pipeline\\.worker\\[0\\] .* code_bytes=500 code_capacity_bytes=16384 .* max_bank_storage_bytes=512 bank_capacity_bytes=16384\\n"
+                  },
+                  {
+                    "regex": "COMPILE-REPORT: static_instruction_mix .* memory_read_bytes=133 memory_write_bytes=1121 "
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "execute",
+          "run": {
+            "tool": "iree-xdna-run",
+            "args": [
+              "--image={tmp}/partial-carriers.xdna",
+              "--columns=1",
+              "--entry=partial_carriers",
+              "--invocation_count=1",
+              "--binding_memory=system",
+              "--binding={tmp}/fixtures/input.bin",
+              "--binding={tmp}/fixtures/output.bin",
+              "--output=0={tmp}/input-readback.bin",
+              "--output=1={tmp}/output-readback.bin"
+            ]
+          },
+          "files": [
+            {
+              "path": "{tmp}/input-readback.bin",
+              "equals": "{tmp}/fixtures/input.bin"
+            },
+            {
+              "path": "{tmp}/output-readback.bin",
+              "equals": "{tmp}/fixtures/expected.bin"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

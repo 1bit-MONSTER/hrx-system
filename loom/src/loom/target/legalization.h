@@ -32,6 +32,8 @@ extern "C" {
 
 typedef struct loom_view_region_table_t loom_view_region_table_t;
 typedef struct loom_local_value_domain_t loom_local_value_domain_t;
+typedef struct loom_motion_read_barrier_table_t
+    loom_motion_read_barrier_table_t;
 typedef struct loom_target_legalizer_entry_t loom_target_legalizer_entry_t;
 typedef struct loom_target_legalizer_rule_t loom_target_legalizer_rule_t;
 typedef struct loom_target_legalizer_provider_t
@@ -119,6 +121,8 @@ typedef struct loom_target_legalization_context_t {
   const loom_value_fact_table_t* fact_table;
   // Analyzed view-region table visible to legalizers.
   const loom_view_region_table_t* view_regions;
+  // Lazy block-local read motion barriers visible to legalizers.
+  loom_motion_read_barrier_table_t* read_motion_barriers;
   // Function-local value domain extendable during the current callback.
   loom_local_value_domain_t* value_domain;
   // Active rewriter for mutating the function body.
@@ -148,6 +152,12 @@ typedef iree_status_t (*loom_target_legalizer_fn_t)(
     loom_target_legalization_context_t* context, loom_op_t* op,
     loom_target_legalizer_result_t* out_result);
 
+// Returns true when a legalizer entry applies to |op|. Matchers run before the
+// target contract query and must remain cheap, allocation-free, and read-only.
+typedef bool (*loom_target_legalizer_match_fn_t)(
+    const loom_target_legalizer_entry_t* entry,
+    const loom_target_legalization_context_t* context, const loom_op_t* op);
+
 // Provider-owned rule copied into a composed legalizer registry.
 struct loom_target_legalizer_rule_t {
   // Entry-specific behavior flags.
@@ -158,6 +168,9 @@ struct loom_target_legalizer_rule_t {
   // A constrained rule's root kind must have at least one operand. Dispatch
   // checks this domain before querying the target contract or applying policy.
   loom_scalar_type_set_t first_operand_element_types;
+  // Optional target-owned applicability predicate evaluated before querying
+  // the target contract. NULL applies to every matching root and type.
+  loom_target_legalizer_match_fn_t match;
   // Rewriter callback for root_kind.
   loom_target_legalizer_fn_t legalize;
 };
@@ -175,6 +188,8 @@ struct loom_target_legalizer_entry_t {
   iree_string_view_t provider_name;
   // Rewrite strategy attached while composing the dense registry.
   loom_target_legalizer_strategy_t provider_strategy;
+  // Optional target-owned applicability predicate copied from the rule.
+  loom_target_legalizer_match_fn_t match;
   // Rewriter callback for root_kind.
   loom_target_legalizer_fn_t legalize;
 };

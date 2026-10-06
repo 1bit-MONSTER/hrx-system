@@ -1,0 +1,110 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_biased_offsets.loom
+// RUN: emit source-low target=vm:core output=low
+
+func.def @exchange_biased_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
+  %signed_position = index.assume %position [range(%position, -4, 4)] : index
+  %center = index.constant 4 : index
+  %element = index.add %signed_position, %center : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
+  %previous = view.load %view[%element] : view<9xi32> -> i32
+  view.store %replacement, %view[%element] : i32, view<9xi32>
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @exchange_biased_word(%view: reg<vm.ref : buffer>, %signed_position: reg<vm.value : i64>, %replacement: reg<vm.value : i32>) -> (reg<vm.value : i32>) asm {
+  %14 = constant.i64 16
+  %15 = constant.i64 2 : reg<vm.value>
+  %16 = integer.shift.left.i64 %signed_position, %15
+  %17 = integer.add.i64 %16, %14
+  %previous = buffer.load %view, %17, %17, 0, "i32.x1" : reg<vm.value : i32>
+  buffer.store %view, %17, %17, %replacement, 0, "i32.x1"
+  return %previous
+}
+
+// ====
+
+func.def @exchange_nonnegative_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
+  %bounded_position = index.assume %position [range(%position, 0, 4)] : index
+  %center = index.constant 4 : index
+  %element = index.add %bounded_position, %center : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
+  %previous = view.load %view[%element] : view<9xi32> -> i32
+  view.store %replacement, %view[%element] : i32, view<9xi32>
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @exchange_nonnegative_word(%view: reg<vm.ref : buffer>, %bounded_position: reg<vm.value : i64>, %replacement: reg<vm.value : i32>) -> (reg<vm.value : i32>) asm {
+  %14 = constant.i64 16
+  %15 = constant.i64 2 : reg<vm.value>
+  %16 = integer.shift.left.i64 %bounded_position, %15
+  %17 = integer.add.i64 %16, %14
+  %previous = buffer.load %view, %17, %17, 0, "i32.x1" : reg<vm.value : i32>
+  buffer.store %view, %17, %17, %replacement, 0, "i32.x1"
+  return %previous
+}
+
+// ====
+
+func.def @copy_biased_vector(%source: buffer, %destination: buffer, %position: index) {
+  %signed_position = index.assume %position [range(%position, -4, 4)] : index
+  %center = index.constant 4 : index
+  %element = index.add %signed_position, %center : index
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<12xi32>
+  %destination_view = buffer.view %destination[%base] : buffer -> view<12xi32>
+  %values = vector.load %source_view[%element] : view<12xi32> -> vector<4xi32>
+  vector.store %values, %destination_view[%element] : vector<4xi32>, view<12xi32>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @copy_biased_vector(%source_view: reg<vm.ref : buffer>, %destination_view: reg<vm.ref : buffer>, %signed_position: reg<vm.value : i64>) asm {
+  %38 = constant.i64 16
+  %39 = constant.i64 2 : reg<vm.value>
+  %40 = integer.shift.left.i64 %signed_position, %39
+  %41 = integer.add.i64 %40, %38
+  %42 = buffer.load %source_view, %41, %41, 0, "i32.x1" : reg<vm.value : i32>
+  %43 = constant.i64 20
+  %46 = integer.add.i64 %40, %43
+  %47 = buffer.load %source_view, %46, %46, 0, "i32.x1" : reg<vm.value : i32>
+  %48 = constant.i64 24
+  %51 = integer.add.i64 %40, %48
+  %52 = buffer.load %source_view, %51, %51, 0, "i32.x1" : reg<vm.value : i32>
+  %53 = constant.i64 28
+  %56 = integer.add.i64 %40, %53
+  %57 = buffer.load %source_view, %56, %56, 0, "i32.x1" : reg<vm.value : i32>
+  buffer.store %destination_view, %41, %41, %42, 0, "i32.x1"
+  buffer.store %destination_view, %46, %46, %47, 0, "i32.x1"
+  buffer.store %destination_view, %51, %51, %52, 0, "i32.x1"
+  buffer.store %destination_view, %56, %56, %57, 0, "i32.x1"
+  return
+}
+
+// ====
+
+// The static contribution fits U32 but has its sign bit set in an i32 carrier.
+func.def @exchange_large_bias_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
+  %signed_position = index.assume %position [range(%position, -1073741820, -1073741812)] : index
+  %center = index.constant 1073741820 : index
+  %element = index.add %signed_position, %center : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
+  %previous = view.load %view[%element] : view<9xi32> -> i32
+  view.store %replacement, %view[%element] : i32, view<9xi32>
+  func.return %previous : i32
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @exchange_large_bias_word(%view: reg<vm.ref : buffer>, %signed_position: reg<vm.value : i64>, %replacement: reg<vm.value : i32>) -> (reg<vm.value : i32>) asm {
+  %14 = constant.i64 4294967280
+  %15 = constant.i64 2 : reg<vm.value>
+  %16 = integer.shift.left.i64 %signed_position, %15
+  %17 = integer.add.i64 %16, %14
+  %previous = buffer.load %view, %17, %17, 0, "i32.x1" : reg<vm.value : i32>
+  buffer.store %view, %17, %17, %replacement, 0, "i32.x1"
+  return %previous
+}

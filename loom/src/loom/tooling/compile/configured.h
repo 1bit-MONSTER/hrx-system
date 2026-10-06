@@ -10,18 +10,20 @@
 #define LOOM_TOOLING_COMPILE_CONFIGURED_H_
 
 #include "loom/target/provider.h"
-#include "loom/tooling/compile/artifact.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+typedef struct loom_cleanup_pattern_provider_set_t
+    loom_cleanup_pattern_provider_set_t;
+
 // Borrowed process-lifetime view of configured offline compiler providers.
 typedef struct loom_tooling_compile_environment_t {
   // Target compiler environment, including portable command descriptors.
   const loom_target_environment_t* target_environment;
-  // Loadable artifact providers selected by the build configuration.
-  const loom_artifact_provider_registry_t* artifact_provider_registry;
+  // Cleanup rewrite providers selected by the build configuration.
+  const loom_cleanup_pattern_provider_set_t* cleanup_pattern_provider_set;
 } loom_tooling_compile_environment_t;
 
 // Returns the immutable configured offline compiler environment.

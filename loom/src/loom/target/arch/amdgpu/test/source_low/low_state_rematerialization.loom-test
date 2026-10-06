@@ -275,6 +275,38 @@ low.func.def target<amdgpu.rdna3.core>(@target) @scc_block_argument_crosses_tran
   s_endpgm
 
 // ====
+// RUN: emit amdgpu-assembly @scc_compare_rematerializes_for_repeated_assertion_branches strategy=source waits=none
+
+amdgpu.target<gfx1100> @target
+
+// Two lowered assertions may branch on the same source predicate. The first
+// branch consumes SCC, while work on its success path may clobber SCC before
+// the second branch. The source comparison must be rematerialized there.
+low.func.def target<amdgpu.rdna3.core>(@target) @scc_compare_rematerializes_for_repeated_assertion_branches(%ordinal: reg<amdgpu.sgpr>, %limit: reg<amdgpu.sgpr>, %increment: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>) asm {
+  %valid = s_cmp_lt_u32 %ordinal, %limit
+  low.cond_br %valid, ^second_assertion, ^failure : reg<amdgpu.scc>
+^second_assertion:
+  %advanced = s_add_u32 %ordinal, %increment
+  low.cond_br %valid, ^success, ^failure : reg<amdgpu.scc>
+^success:
+  return %advanced
+^failure:
+  return %ordinal
+}
+
+// ----
+  s_cmp_lt_u32 s2, s1
+  s_cbranch_scc0 .Lbb3
+.Lbb1:
+  s_add_u32 s0, s2, s0
+  s_cmp_lt_u32 s2, s1
+  s_cbranch_scc0 .Lbb3
+.Lbb2:
+  s_endpgm
+.Lbb3:
+  s_endpgm
+
+// ====
 // RUN: emit amdgpu-assembly @imported_scc_clobber_is_diagnosed strategy=source waits=none
 
 amdgpu.target<gfx1100> @target

@@ -19,11 +19,15 @@ package(
 
 loom_cc_library(
     name = "op_defs",
-    srcs = ["op_defs.c"],
+    srcs = [
+        "op_defs.c",
+        "use_list.c",
+    ],
     hdrs = [
         "attribute_accessors.h",
         "builder_macros.h",
         "op_defs.h",
+        "use_list.h",
     ],
     deps = [
         ":format",
@@ -48,6 +52,22 @@ loom_cc_library(
         "//loom/src/loom/ir",
         "//loom/src/loom/util:bstring",
         "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_test(
+    name = "use_list_test",
+    srcs = ["use_list_test.cc"],
+    deps = [
+        ":op_defs",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/test",
+        "//loom/src/loom/target:registers",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 

@@ -493,6 +493,67 @@ func.def @global_barrier_rejects_sequentially_consistent_ordering() {
 
 // ====
 
+func.def @split_barrier_requires_wait() {
+  // ERROR@+1: DOMINANCE/009 "phase" "0" "exactly one kernel.barrier.wait use"
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  func.return
+}
+
+// ====
+
+func.def @split_barrier_rejects_non_wait_use() {
+  // ERROR@+1: DOMINANCE/010 "phase" "test.use" "kernel.barrier.wait phase operand"
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  test.use %phase : kernel.barrier.phase
+  func.return
+}
+
+// ====
+
+func.def @split_barrier_wait_requires_arrival(%phase: kernel.barrier.phase) {
+  // ERROR@+1: DOMINANCE/010 "phase" "<null>" "kernel.barrier.arrive result"
+  kernel.barrier.wait %phase : kernel.barrier.phase
+  func.return
+}
+
+// ====
+
+func.def @split_barrier_wait_requires_phase_type(%value: i32) {
+  // ERROR@+1: TYPE/003 "phase" "i32" "kernel.barrier.phase"
+  kernel.barrier.wait %value : i32
+  func.return
+}
+
+// ====
+
+func.def @split_barrier_rejects_acquire_ordering() {
+  // ERROR@+1: STRUCTURE/014 "ordering" "1" "acq_rel ordering for workgroup memory"
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acquire) -> kernel.barrier.phase
+  kernel.barrier.wait %phase : kernel.barrier.phase
+  func.return
+}
+
+// ====
+
+kernel.def @split_barrier_wait_rejects_lane_predicated_branch() {
+  %c1 = index.constant 1 : index
+  %c64 = index.constant 64 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c64, %c1, %c1) : index
+} launch() {
+  %limit = index.constant 32 : index
+  %lane = kernel.workitem.id<x> : index
+  %active = index.cmp ult, %lane, %limit : index
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  scf.if %active {
+    // ERROR@+1: STRUCTURE/038 {op_name="kernel.barrier.wait", required_uniform_scope="workgroup", control_kind="region_selector", control_value="active", control_op_name="scf.if", control_distribution="lane_predicate"}
+    kernel.barrier.wait %phase : kernel.barrier.phase
+    scf.yield
+  }
+  kernel.return
+}
+
+// ====
+
 kernel.def @workgroup_barrier_accepts_uniform_branch() {
   %c1 = index.constant 1 : index
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
@@ -561,6 +622,208 @@ kernel.def target(@test_target) @workgroup_barrier_accepts_config_derived_loop_b
   %tile_count = index.div %rounded_token_count, %tile_size : index
   scf.for %tile = [%loop_begin to %tile_count step %loop_step] {
     kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  }
+  kernel.return
+}
+
+// ====
+
+// The continuation depends only on the uniform counter and bound. A separate
+// carried lane value must not weaken that proof in either loop region.
+kernel.def @while_barriers_accept_uniform_recurrence_with_varying_data() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%limit: i32) {
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %lane = kernel.workitem.id<x> : index
+  %lane_word = index.cast %lane : index to i32
+  %final_counter, %final_data = scf.while(%counter = %c0 : i32, %data = %lane_word : i32) -> (i32, i32) {
+    %remaining = scalar.cmpi ult, %counter, %limit : i32
+    kernel.barrier<global> scope(workgroup) ordering(acq_rel)
+    scf.condition %remaining, %counter, %data : i1, i32, i32
+  } do(%counter: i32, %data: i32) {
+    kernel.barrier<global> scope(workgroup) ordering(acq_rel)
+    %next_counter = scalar.addi %counter, %c1 : i32
+    %next_data = scalar.addi %data, %lane_word : i32
+    scf.yield %next_counter, %next_data : i32, i32
+  }
+  kernel.return
+}
+
+// ====
+
+test.target<low_core> @test_target {abi = hal_kernel, subgroup_size = 32}
+
+// The two subgroups take different iteration counts, but each subgroup has a
+// uniform continuation. A workgroup barrier would join different iterations.
+kernel.def target(@test_target) @while_barrier_scope_distinguishes_subgroup_guard() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch() {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %subgroup = kernel.subgroup.id : index
+  %limit = index.add %subgroup, %c1 : index
+  %final_counter = scf.while(%counter = %c0 : index) -> (index) {
+    %remaining = index.cmp ult, %counter, %limit : index
+    kernel.barrier<global> scope(subgroup) ordering(acq_rel)
+    scf.condition %remaining, %counter : i1, index
+  } do(%counter: index) {
+    kernel.barrier<global> scope(subgroup) ordering(acq_rel)
+    // ERROR@+1: STRUCTURE/038 {op_name="kernel.barrier", required_uniform_scope="workgroup", control_kind="loop_condition", control_value="remaining", control_op_name="scf.while", control_distribution="subgroup"}
+    kernel.barrier<global> scope(workgroup) ordering(acq_rel)
+    %next_counter = index.add %counter, %c1 : index
+    scf.yield %next_counter : index
+  }
+  kernel.return
+}
+
+// ====
+
+kernel.def @while_condition_barrier_rejects_lane_varying_initial_state() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch() {
+  %c1 = index.constant 1 : index
+  %limit = index.constant 32 : index
+  %lane = kernel.workitem.id<x> : index
+  %final_counter = scf.while(%counter = %lane : index) -> (index) {
+    %remaining = index.cmp ult, %counter, %limit : index
+    // ERROR@+1: STRUCTURE/038 {op_name="kernel.barrier", required_uniform_scope="subgroup", control_kind="loop_condition", control_value="remaining", control_op_name="scf.while", control_distribution="lane_predicate"}
+    kernel.barrier<global> scope(subgroup) ordering(acq_rel)
+    scf.condition %remaining, %counter : i1, index
+  } do(%counter: index) {
+    %next_counter = index.add %counter, %c1 : index
+    scf.yield %next_counter : index
+  }
+  kernel.return
+}
+
+// ====
+
+kernel.def @while_body_barrier_rejects_lane_varying_initial_state() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch() {
+  %c1 = index.constant 1 : index
+  %limit = index.constant 32 : index
+  %lane = kernel.workitem.id<x> : index
+  %final_counter = scf.while(%counter = %lane : index) -> (index) {
+    %remaining = index.cmp ult, %counter, %limit : index
+    scf.condition %remaining, %counter : i1, index
+  } do(%counter: index) {
+    // ERROR@+1: STRUCTURE/038 {op_name="kernel.barrier", required_uniform_scope="subgroup", control_kind="loop_condition", control_value="remaining", control_op_name="scf.while", control_distribution="lane_predicate"}
+    kernel.barrier<global> scope(subgroup) ordering(acq_rel)
+    %next_counter = index.add %counter, %c1 : index
+    scf.yield %next_counter : index
+  }
+  kernel.return
+}
+
+// ====
+
+kernel.def @while_barrier_rejects_unknown_guard() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%arg: i32) {
+  // test.cast has no fact transfer, so this guard has no proven distribution.
+  %unknown = test.cast %arg : i32 to f32
+  %threshold = scalar.constant 0.0 : f32
+  scf.while {
+    %continuing = scalar.cmpf ogt, %unknown, %threshold : f32
+    scf.condition %continuing : i1
+  } do {
+    // ERROR@+1: STRUCTURE/038 {op_name="kernel.barrier", required_uniform_scope="subgroup", control_kind="loop_condition", control_value="continuing", control_op_name="scf.while", control_distribution="unknown"}
+    kernel.barrier<global> scope(subgroup) ordering(acq_rel)
+    scf.yield
+  }
+  kernel.return
+}
+
+// ====
+
+// A common initial condition does not prove participation on later visits.
+// The lane-dependent increment makes the carried counter and guard varying.
+kernel.def @while_condition_barrier_rejects_divergent_backedge() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch() {
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %limit = scalar.constant 64 : i32
+  %lane = kernel.workitem.id<x> : index
+  %lane_word = index.cast %lane : index to i32
+  %step = scalar.addi %lane_word, %c1 : i32
+  %final_counter = scf.while(%counter = %c0 : i32) -> (i32) {
+    %remaining = scalar.cmpi ult, %counter, %limit : i32
+    // ERROR@+1: STRUCTURE/038 {op_name="kernel.barrier", required_uniform_scope="subgroup", control_kind="loop_condition", control_value="remaining", control_op_name="scf.while", control_distribution="lane_predicate"}
+    kernel.barrier<global> scope(subgroup) ordering(acq_rel)
+    scf.condition %remaining, %counter : i1, i32
+  } do(%counter: i32) {
+    %next_counter = scalar.addi %counter, %step : i32
+    scf.yield %next_counter : i32
+  }
+  kernel.return
+}
+
+// ====
+
+kernel.def @while_body_barrier_rejects_divergent_backedge() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch() {
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %limit = scalar.constant 64 : i32
+  %lane = kernel.workitem.id<x> : index
+  %lane_word = index.cast %lane : index to i32
+  %step = scalar.addi %lane_word, %c1 : i32
+  %final_counter = scf.while(%counter = %c0 : i32) -> (i32) {
+    %remaining = scalar.cmpi ult, %counter, %limit : i32
+    scf.condition %remaining, %counter : i1, i32
+  } do(%counter: i32) {
+    // ERROR@+1: STRUCTURE/038 {op_name="kernel.barrier", required_uniform_scope="subgroup", control_kind="loop_condition", control_value="remaining", control_op_name="scf.while", control_distribution="lane_predicate"}
+    kernel.barrier<global> scope(subgroup) ordering(acq_rel)
+    %next_counter = scalar.addi %counter, %step : i32
+    scf.yield %next_counter : i32
+  }
+  kernel.return
+}
+
+// ====
+
+// Proving the inner loop's continuation does not establish participation in
+// an enclosing lane-dependent branch.
+kernel.def @while_barrier_rejects_enclosing_lane_selector() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch() {
+  %first_lane = index.constant 0 : index
+  %lane = kernel.workitem.id<x> : index
+  %active = index.cmp eq, %lane, %first_lane : index
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %limit = scalar.constant 4 : i32
+  scf.if %active {
+    %final_counter = scf.while(%counter = %c0 : i32) -> (i32) {
+      %remaining = scalar.cmpi ult, %counter, %limit : i32
+      scf.condition %remaining, %counter : i1, i32
+    } do(%counter: i32) {
+      // ERROR@+1: STRUCTURE/038 {op_name="kernel.barrier", required_uniform_scope="subgroup", control_kind="region_selector", control_value="active", control_op_name="scf.if", control_distribution="lane_predicate"}
+      kernel.barrier<global> scope(subgroup) ordering(acq_rel)
+      %next_counter = scalar.addi %counter, %c1 : i32
+      scf.yield %next_counter : i32
+    }
+    scf.yield
   }
   kernel.return
 }
@@ -1278,4 +1541,32 @@ func.def @async_tensor_store_rejects_constant_dest(%buffer: buffer, %offset: off
   %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
   kernel.async.wait %group {newer_groups = 0} : kernel.async.group
   func.return
+}
+
+// ====
+
+// Kernel declarations expose the same function-like predicate contract as
+// ordinary source functions.
+// ERROR@+1: TYPE/003 "predicates[0].arg[0]" "f32" "integer, index, or offset scalar"
+kernel.decl @bad_predicate_domain() launch(%value: f32) where [range(%value, 0, 4)]
+
+// ====
+
+// ERROR@+1: STRUCTURE/032 {op_name="kernel.decl", field_name="predicates[0].arg[0]", required_origin="a function argument or result"}
+kernel.decl @constant_predicate() launch(%value: i32) where [eq(4, %value)]
+
+// ====
+
+kernel.decl @valid_predicate_contract() launch(%tokens: i32, %capacity: i32) where [ule(%tokens, %capacity)]
+
+// ====
+
+// Kernel definitions also run the shared function contract before their
+// launch-purity and barrier-control checks.
+// ERROR@+1: STRUCTURE/032 {op_name="kernel.def", field_name="predicates[0].arg[0]", required_origin="a function argument or result"}
+kernel.def @bad_definition_predicate() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%value: i32) where [eq(4, %value)] {
+  kernel.return
 }

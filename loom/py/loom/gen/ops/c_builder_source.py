@@ -11,9 +11,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from loom.assembly import StableKeyRef
+from loom.assembly import BINDING_TYPE_BLOCK_ARG, StableKeyRef
 from loom.builder_model import fixed_result_type_constraints
-from loom.dsl import EncodingFamilyDef, Op, ParameterizedAttrDef, TypeConstraint
+from loom.dsl import (
+    EncodingFamilyDef,
+    LoopLikeInterface,
+    Op,
+    ParameterizedAttrDef,
+    TypeConstraint,
+)
 from loom.fields import FieldKind, compute_layout
 from loom.gen.ops import c_builder_model, c_queries
 from loom.gen.ops.c_enum_attrs import SharedEnumMap
@@ -187,6 +193,20 @@ def _c_parameter_name(name: object) -> str:
     return c_builder_model.c_parameter_name(name)
 
 
+def _condition_loop_result_fallback_source(op: Op) -> str | None:
+    """Returns the initial-state field used for optional result inference."""
+    loop_like = c_queries.find_interface(op, LoopLikeInterface)
+    if loop_like is None or loop_like.condition_region is None:
+        return None
+    return loop_like.iter_args
+
+
+def _has_result_backed_region(op: Op) -> bool:
+    """Returns whether a region entry tuple is sourced from op results."""
+    result_names = {result.name for result in op.results}
+    return any(region.arg_source in result_names for region in op.regions)
+
+
 def _single_builder_type_result_exprs(op: Op) -> list[str]:
     """Returns fixed result type expressions for a compact result_type builder."""
     result_exprs: list[str] = []
@@ -212,6 +232,8 @@ def _generate_builder_implementation(
     params = c_builder_model.extract_c_params(op, shared_enums)
     layout = compute_layout(op)
     result_count_source = c_builder_model.variadic_result_count_source(op)
+    condition_result_fallback_source = _condition_loop_result_fallback_source(op)
+    condition_result_fallback_name = _c_parameter_name(condition_result_fallback_source) if condition_result_fallback_source is not None else None
     params_by_field: dict[str, list[dict[str, Any]]] = {}
     for param in params:
         if "name" not in param:
@@ -300,6 +322,22 @@ def _generate_builder_implementation(
             max_value="UINT16_MAX",
             label=f"{op.name} result",
         )
+        has_result_backed_region = any(
+            param["kind"] == "auto_region" and not param.get("binding") and param.get("arg_source") and layout.fields[param["arg_source"]].kind == FieldKind.RESULT for param in params
+        )
+        if has_result_backed_region:
+            lines.append("  if (result_count > 0 && !result_types) {")
+            if condition_result_fallback_name is not None:
+                lines.append(f"    if (result_count != {condition_result_fallback_name}_count) {{")
+                lines.append("      return iree_make_status(")
+                lines.append("          IREE_STATUS_INVALID_ARGUMENT,")
+                lines.append(f'          "{op.name} requires explicit result types when initial and result counts differ");')
+                lines.append("    }")
+            else:
+                lines.append("    return iree_make_status(")
+                lines.append("        IREE_STATUS_INVALID_ARGUMENT,")
+                lines.append(f'        "{op.name} result type storage is NULL for non-zero result count");')
+            lines.append("  }")
     for param in params:
         if param["kind"] == "auto_region_table":
             _emit_builder_count_check(
@@ -344,6 +382,21 @@ def _generate_builder_implementation(
                 max_value="UINT16_MAX",
                 label=f"{op.name} i64 array attribute",
             )
+
+    block_arg_params_by_region: dict[str, list[dict[str, Any]]] = {}
+    for param in params:
+        if param["kind"] == "block_args":
+            block_arg_params_by_region.setdefault(str(param["region"]), []).append(param)
+    for region, block_arg_params in block_arg_params_by_region.items():
+        if len(block_arg_params) < 2:
+            continue
+        total_count = " + ".join(f"{_c_parameter_name(param['name'])}_count" for param in block_arg_params)
+        _emit_builder_count_check(
+            lines,
+            count=total_count,
+            max_value="UINT16_MAX",
+            label=f"{op.name} {region} block arguments",
+        )
 
     symbol_sets = [param for param in params if param["kind"] == "attr" and param["attr_type"] == "symbol_set"]
     for param in symbol_sets:
@@ -669,22 +722,34 @@ def _generate_builder_implementation(
         binding = param.get("binding")
         block_args = param.get("block_args")
         if block_args:
-            block_args_name = _c_parameter_name(block_args)
-            lines.append(f"{inner_indent}for (iree_host_size_t _i = 0; _i < {block_args_name}_count; ++_i) {{")
-            lines.append(f"{inner_indent}  loom_value_id_t _arg_id = LOOM_VALUE_ID_INVALID;")
-            lines.append(f"{inner_indent}  IREE_RETURN_IF_ERROR(loom_builder_define_block_arg(")
-            lines.append(f"{inner_indent}      builder, _block, {block_args_name}[_i], &_arg_id));")
-            lines.append(f"{inner_indent}}}")
+            for block_args_param in block_args:
+                block_args_name = _c_parameter_name(block_args_param["name"])
+                lines.append(f"{inner_indent}for (iree_host_size_t _i = 0; _i < {block_args_name}_count; ++_i) {{")
+                lines.append(f"{inner_indent}  loom_value_id_t _arg_id = LOOM_VALUE_ID_INVALID;")
+                lines.append(f"{inner_indent}  IREE_RETURN_IF_ERROR(loom_builder_define_block_arg(")
+                lines.append(f"{inner_indent}      builder, _block, {block_args_name}[_i], &_arg_id));")
+                lines.append(f"{inner_indent}}}")
         elif binding:
             binding_name = _c_parameter_name(binding["name"])
             binding_kind = binding["binding_kind"]
+            binding_type_source = binding["type_source"]
             if binding_kind == "capture":
                 lines.append(f"{inner_indent}for (iree_host_size_t _i = 0; _i < {binding_name}_count; ++_i) {{")
                 lines.append(f"{inner_indent}  loom_type_t _arg_type =")
-                lines.append(f"{inner_indent}      loom_module_value_type(builder->module, {binding_name}[_i]);")
+                if binding_type_source == BINDING_TYPE_BLOCK_ARG:
+                    lines.append(f"{inner_indent}      {binding_name}_types ? {binding_name}_types[_i] :")
+                    lines.append(f"{inner_indent}      loom_module_value_type(builder->module, {binding_name}[_i]);")
+                else:
+                    lines.append(f"{inner_indent}      loom_module_value_type(builder->module, {binding_name}[_i]);")
                 lines.append(f"{inner_indent}  loom_value_id_t _arg_id = LOOM_VALUE_ID_INVALID;")
-                lines.append(f"{inner_indent}  IREE_RETURN_IF_ERROR(loom_builder_define_block_arg(")
-                lines.append(f"{inner_indent}      builder, _block, _arg_type, &_arg_id));")
+                if binding_type_source == BINDING_TYPE_BLOCK_ARG:
+                    lines.append(f"{inner_indent}  IREE_RETURN_IF_ERROR(")
+                    lines.append(f"{inner_indent}      loom_builder_define_value(builder, _arg_type, &_arg_id));")
+                    lines.append(f"{inner_indent}  IREE_RETURN_IF_ERROR(")
+                    lines.append(f"{inner_indent}      loom_block_add_arg(builder->module, _block, _arg_id));")
+                else:
+                    lines.append(f"{inner_indent}  IREE_RETURN_IF_ERROR(loom_builder_define_block_arg(")
+                    lines.append(f"{inner_indent}      builder, _block, _arg_type, &_arg_id));")
                 lines.append(f"{inner_indent}}}")
             elif binding_kind == "element":
                 lines.append(f"{inner_indent}for (iree_host_size_t _i = 0; _i < {binding_name}_count; ++_i) {{")
@@ -704,9 +769,21 @@ def _generate_builder_implementation(
         arg_source = param.get("arg_source")
         if arg_source and not binding:
             arg_source_name = _c_parameter_name(arg_source)
-            lines.append(f"{inner_indent}for (iree_host_size_t _i = 0; _i < {arg_source_name}_count; ++_i) {{")
+            arg_source_desc = layout.fields[arg_source]
+            if arg_source_desc.kind == FieldKind.RESULT:
+                if not arg_source_desc.variadic:
+                    raise ValueError(f"Op '{op.name}': result-backed region arguments require a variadic result field")
+                arg_count = "result_count"
+                if condition_result_fallback_name is not None:
+                    arg_type = f"result_types ? result_types[_i] : loom_module_value_type(builder->module, {condition_result_fallback_name}[_i])"
+                else:
+                    arg_type = "result_types[_i]"
+            else:
+                arg_count = f"{arg_source_name}_count"
+                arg_type = f"loom_module_value_type(builder->module, {arg_source_name}[_i])"
+            lines.append(f"{inner_indent}for (iree_host_size_t _i = 0; _i < {arg_count}; ++_i) {{")
             lines.append(f"{inner_indent}  loom_type_t _arg_type =")
-            lines.append(f"{inner_indent}      loom_module_value_type(builder->module, {arg_source_name}[_i]);")
+            lines.append(f"{inner_indent}      {arg_type};")
             lines.append(f"{inner_indent}  loom_value_id_t _arg_id = LOOM_VALUE_ID_INVALID;")
             lines.append(f"{inner_indent}  IREE_RETURN_IF_ERROR(loom_builder_define_block_arg(")
             lines.append(f"{inner_indent}      builder, _block, _arg_type, &_arg_id));")
@@ -1010,7 +1087,34 @@ def _generate_builder_implementation(
         if end_attr_index == 0xFF:
             continue
         cumulative_count = " + ".join(func_arg_count_terms)
-        lines.append(f"  loom_op_attrs(*out_op)[{end_attr_index}] = loom_attr_i64((int64_t)({cumulative_count}));")
+        end_attr = op.attrs[end_attr_index]
+        if end_attr.optional:
+            lines.append(f"  if (({cumulative_count}) != 0) {{")
+            lines.append(f"    loom_op_attrs(*out_op)[{end_attr_index}] = loom_attr_i64((int64_t)({cumulative_count}));")
+            lines.append("  }")
+        else:
+            lines.append(f"  loom_op_attrs(*out_op)[{end_attr_index}] = loom_attr_i64((int64_t)({cumulative_count}));")
+
+    # BlockArgs boundary attributes are derived from each concatenated region
+    # entry group rather than exposed as redundant builder parameters.
+    block_arg_count_terms_by_region: dict[str, list[str]] = {}
+    for param in params:
+        if param["kind"] != "block_args":
+            continue
+        region = str(param["region"])
+        block_arg_count_terms = block_arg_count_terms_by_region.setdefault(region, [])
+        block_arg_count_terms.append(f"{param['name']}_count")
+        end_attr_index = param["end_attr_index"]
+        if end_attr_index == 0xFF:
+            continue
+        cumulative_count = " + ".join(block_arg_count_terms)
+        end_attr = op.attrs[end_attr_index]
+        if end_attr.optional:
+            lines.append(f"  if (({cumulative_count}) != 0) {{")
+            lines.append(f"    loom_op_attrs(*out_op)[{end_attr_index}] = loom_attr_i64((int64_t)({cumulative_count}));")
+            lines.append("  }")
+        else:
+            lines.append(f"  loom_op_attrs(*out_op)[{end_attr_index}] = loom_attr_i64((int64_t)({cumulative_count}));")
 
     # Define result values in the module's value table.
     for param in params:
@@ -1019,8 +1123,17 @@ def _generate_builder_implementation(
             lines.append(f"      builder, {_c_parameter_name(param['name'])}, &loom_op_results(*out_op)[{param['result_index']}]));")
         elif param["kind"] == "result_types" and result_count_source is None:
             if has_variadic_result:
-                lines.append("  IREE_RETURN_IF_ERROR(loom_builder_define_results(")
-                lines.append("      builder, result_types, result_count, loom_op_results(*out_op)));")
+                if condition_result_fallback_name is not None:
+                    lines.append("  for (iree_host_size_t _i = 0; _i < result_count; ++_i) {")
+                    lines.append("    loom_type_t _result_type = result_types ? result_types[_i] :")
+                    lines.append("        loom_module_value_type(builder->module,")
+                    lines.append(f"                               {condition_result_fallback_name}[_i]);")
+                    lines.append("    IREE_RETURN_IF_ERROR(loom_builder_define_result(")
+                    lines.append("        builder, _result_type, &loom_op_results(*out_op)[_i]));")
+                    lines.append("  }")
+                else:
+                    lines.append("  IREE_RETURN_IF_ERROR(loom_builder_define_results(")
+                    lines.append("      builder, result_types, result_count, loom_op_results(*out_op)));")
             elif layout.fixed_result_count == 1:
                 lines.append("  IREE_RETURN_IF_ERROR(loom_builder_define_result(")
                 lines.append("      builder, result_type, &loom_op_results(*out_op)[0]));")
@@ -1077,6 +1190,27 @@ def _generate_builder_implementation(
             lines.append(f"        entry->arg_ids + {offset}, {inferred_result_name}_count));")
             lines.append("  }")
 
+    # Result-backed region entries instantiate the result scheme with their
+    # own SSA identities. They are created before op results are defined, so
+    # remap the completed result tuple onto them here.
+    for param in params:
+        if param["kind"] != "auto_region" or param.get("binding"):
+            continue
+        arg_source = param.get("arg_source")
+        if not arg_source:
+            continue
+        arg_source_desc = layout.fields[arg_source]
+        if arg_source_desc.kind != FieldKind.RESULT:
+            continue
+        index = param["region_index"]
+        offset = len(param.get("implicit_args", ()))
+        lines.append("  if (result_count > 0) {")
+        lines.append(f"    loom_block_t* entry = loom_region_entry_block(loom_op_regions(*out_op)[{index}]);")
+        lines.append("    IREE_RETURN_IF_ERROR(loom_ir_remap_assign_value_types(")
+        lines.append("        builder->module, loom_op_results(*out_op),")
+        lines.append(f"        entry->arg_ids + {offset}, result_count));")
+        lines.append("  }")
+
     # Populate tied result metadata.
     if static_ties:
         for tie_index, (result_idx, operand_idx) in enumerate(static_ties):
@@ -1119,7 +1253,7 @@ def generate_builders_c(
     lines.append("")
     lines.append('#include "loom/ir/module.h"')
     lines.append('#include "loom/ops/builder_macros.h"')
-    if any(c_builder_model.variadic_result_count_source(op) is not None for op in ops):
+    if any(c_builder_model.variadic_result_count_source(op) is not None or _has_result_backed_region(op) for op in ops):
         lines.append('#include "loom/rewrite/remap.h"')
     if any(isinstance(element, StableKeyRef) for op in ops for element in c_builder_model.flatten_format(op.format)):
         lines.append('#include "loom/util/stable_id.h"')

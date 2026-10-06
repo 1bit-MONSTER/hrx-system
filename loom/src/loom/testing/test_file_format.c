@@ -187,6 +187,7 @@ static iree_status_t loom_test_file_format_verify_module(
       .filename = filename,
   };
   const loom_source_table_resolver_t source_table = {
+      .module = module,
       .entries = &source_entry,
       .count = 1,
   };

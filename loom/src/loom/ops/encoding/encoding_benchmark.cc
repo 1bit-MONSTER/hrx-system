@@ -37,6 +37,8 @@
 #include "loom/ops/vector/ops.h"
 #include "loom/pass/value_facts.h"
 #include "loom/transforms/cleanup/canonicalizer.h"
+#include "loom/transforms/cleanup/configured.h"
+#include "loom/transforms/cleanup/patterns.h"
 #include "loom/util/fact_table.h"
 #include "loom/util/stream.h"
 #include "loom/verify/verify.h"
@@ -1133,6 +1135,7 @@ static bool IsCanonicalDynamicEncodingQueryBranchModule(loom_module_t* module,
 
 static iree_status_t CanonicalizeDynamicEncodingQueryBranches(
     loom_module_t* module, iree_arena_block_pool_t* block_pool,
+    const loom_cleanup_pattern_registry_t* cleanup_pattern_registry,
     loom_canonicalizer_result_t* out_result) {
   loom_func_like_t function = GetOnlyFunction(module);
   if (!function.op) {
@@ -1146,10 +1149,22 @@ static iree_status_t CanonicalizeDynamicEncodingQueryBranches(
   loom_pass_value_fact_owner_initialize(block_pool, &value_facts);
   loom_canonicalizer_t canonicalizer;
   iree_status_t status = loom_canonicalizer_initialize(
-      module, &pass_arena, &value_facts, &canonicalizer);
+      module, &pass_arena, &value_facts,
+      cleanup_pattern_registry->special_value_policy,
+      cleanup_pattern_registry->fact_refinement_policy, &canonicalizer);
   if (iree_status_is_ok(status)) {
-    status = loom_canonicalizer_run_function(&canonicalizer, function,
-                                             /*options=*/nullptr, out_result);
+    const loom_canonicalizer_options_t options = {
+        /*.max_iterations=*/0,
+        /*.patterns=*/
+        loom_canonicalizer_pattern_registries_from_cleanup_registry(
+            cleanup_pattern_registry),
+        /*.target_facts=*/nullptr,
+        /*.math_policy=*/nullptr,
+        /*.seed_facts=*/{},
+        /*.refine_boundary=*/{},
+    };
+    status = loom_canonicalizer_run_function(&canonicalizer, function, &options,
+                                             out_result);
     loom_canonicalizer_deinitialize(&canonicalizer);
   }
   loom_pass_value_fact_owner_deinitialize(&value_facts);
@@ -1171,15 +1186,23 @@ static void BM_CanonicalizeDynamicEncodingQueryBranches(
 
   ScopedBlockPool module_pool;
   ScopedBlockPool pass_pool;
+  loom_cleanup_pattern_registry_storage_t cleanup_pattern_storage = {};
+  IREE_CHECK_OK(loom_cleanup_pattern_registry_storage_initialize(
+      loom_cleanup_configured_pattern_provider_set(), iree_allocator_system(),
+      &cleanup_pattern_storage));
+  const loom_cleanup_pattern_registry_t* cleanup_pattern_registry =
+      loom_cleanup_pattern_registry_storage_registry(&cleanup_pattern_storage);
   OperationMemoryTracker memory_tracker(pass_pool.get());
   loom_module_t* warm_module = ReadModule(fixture, bytes, module_pool.get());
   loom_canonicalizer_result_t warm_result = {};
   IREE_CHECK_OK(CanonicalizeDynamicEncodingQueryBranches(
-      warm_module, pass_pool.get(), &warm_result));
+      warm_module, pass_pool.get(), cleanup_pattern_registry, &warm_result));
   if (!warm_result.changed ||
       !IsCanonicalDynamicEncodingQueryBranchModule(warm_module, branch_count)) {
     state.SkipWithError("dynamic encoding queries did not canonicalize");
     loom_module_free(warm_module);
+    loom_cleanup_pattern_registry_storage_deinitialize(
+        &cleanup_pattern_storage);
     return;
   }
   memory_tracker.MarkWarmupComplete(warm_module);
@@ -1192,7 +1215,7 @@ static void BM_CanonicalizeDynamicEncodingQueryBranches(
     state.ResumeTiming();
 
     iree_status_t status = CanonicalizeDynamicEncodingQueryBranches(
-        module, pass_pool.get(), &result);
+        module, pass_pool.get(), cleanup_pattern_registry, &result);
 
     state.PauseTiming();
     IREE_CHECK_OK(status);
@@ -1205,6 +1228,7 @@ static void BM_CanonicalizeDynamicEncodingQueryBranches(
   }
   memory_tracker.SetCounters(state);
   state.SetItemsProcessed(state.iterations() * branch_count * 2);
+  loom_cleanup_pattern_registry_storage_deinitialize(&cleanup_pattern_storage);
 }
 BENCHMARK(BM_CanonicalizeDynamicEncodingQueryBranches)
     ->Apply(ScaledEncodingCounts);

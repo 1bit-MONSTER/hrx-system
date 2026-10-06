@@ -146,12 +146,18 @@ iree_status_t loom_xdna_register_field_encode(
                             " is outside [%" PRId64 ", %" PRId64 "]",
                             field_id, value, minimum, maximum);
   }
+  *out_register_bits =
+      loom_xdna_register_field_encode_admitted(field_id, value);
+  return iree_ok_status();
+}
+
+uint32_t loom_xdna_register_field_encode_admitted(
+    loom_xdna_register_field_id_t field_id, int64_t value) {
+  const loom_xdna_register_field_t* field = &kLoomXdnaRegisterFields[field_id];
   const uint32_t value_mask = field->bit_width == 32
                                   ? UINT32_MAX
                                   : (UINT32_C(1) << field->bit_width) - 1;
-  *out_register_bits = ((uint32_t)value & value_mask)
-                       << field->least_significant_bit;
-  return iree_ok_status();
+  return ((uint32_t)value & value_mask) << field->least_significant_bit;
 }
 
 iree_status_t loom_xdna_register_field_address(
@@ -188,4 +194,19 @@ iree_status_t loom_xdna_register_field_address(
   return loom_xdna_array_register_address(
       family, coordinate, (loom_xdna_register_module_t)pattern->module,
       register_offset, out_address);
+}
+
+uint64_t loom_xdna_register_field_address_admitted(
+    const loom_xdna_array_family_t* family,
+    loom_xdna_register_field_id_t field_id,
+    loom_xdna_tile_coordinate_t coordinate, const uint16_t* indices) {
+  const loom_xdna_register_field_t* field = &kLoomXdnaRegisterFields[field_id];
+  const loom_xdna_register_pattern_t* pattern =
+      &kLoomXdnaRegisterPatterns[field->pattern_id];
+  uint32_t register_offset = pattern->base_offset;
+  for (uint8_t i = 0; i < pattern->dimension_count; ++i) {
+    register_offset += indices[i] * pattern->dimensions[i].stride;
+  }
+  return ((uint64_t)coordinate.column << family->column_shift) |
+         ((uint64_t)coordinate.row << family->row_shift) | register_offset;
 }

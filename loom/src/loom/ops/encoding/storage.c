@@ -646,7 +646,11 @@ bool loom_encoding_query_storage_schema_content_facts(
                        LOOM_VALUE_FACT_ROUNDING_POLICY_FLUSH_SUBNORMAL)) {
     out_facts->flags |= LOOM_VALUE_FACT_NOT_SUBNORMAL;
   }
-  return out_facts->flags != 0;
+  if (out_facts->flags == 0) {
+    return false;
+  }
+  out_facts->flags |= LOOM_VALUE_FACT_FLOAT;
+  return true;
 }
 
 bool loom_encoding_query_type_storage_content_facts(

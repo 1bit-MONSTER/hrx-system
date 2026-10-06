@@ -18,13 +18,15 @@ extern "C" {
 #endif  // __cplusplus
 
 #define IREE_HAL_VULKAN_DEVICE_SPEC_SCHEMA_ID "iree.hal.drivers.vulkan.device"
-#define IREE_HAL_VULKAN_DEVICE_SPEC_SCHEMA_VERSION 4u
+#define IREE_HAL_VULKAN_DEVICE_SPEC_SCHEMA_VERSION 5u
 
 // Stable Vulkan device spec flags.
 typedef uint32_t iree_hal_vulkan_device_spec_flags_t;
 typedef enum iree_hal_vulkan_device_spec_flag_bits_e {
   // No Vulkan device spec flags are present.
   IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE = 0u,
+  // F32 subnormals can be preserved independently of other floating widths.
+  IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_DENORM_PRESERVE = 1u << 0,
 } iree_hal_vulkan_device_spec_flag_bits_t;
 
 // Borrowed view of encoded Vulkan cooperative matrix property rows.
@@ -47,6 +49,8 @@ typedef struct iree_hal_vulkan_device_spec_t {
   iree_hal_vulkan_features_t enabled_features;
   // Stable Vulkan device spec flags.
   iree_hal_vulkan_device_spec_flags_t flags;
+  // VkPhysicalDeviceSubgroupProperties::supportedOperations value.
+  uint32_t subgroup_supported_operations;
   // Cooperative matrix properties enabled on the logical device.
   iree_hal_vulkan_cooperative_matrix_property_table_t cooperative_matrix;
 } iree_hal_vulkan_device_spec_t;

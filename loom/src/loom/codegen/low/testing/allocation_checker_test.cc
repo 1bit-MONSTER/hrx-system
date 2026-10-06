@@ -207,6 +207,37 @@ TEST_F(AllocationCheckerTest, AcceptsDisjointAssignments) {
   EXPECT_EQ(result.violation_count, 0u);
 }
 
+TEST_F(AllocationCheckerTest, AcceptsAcquisitionBeforeTiedSourceDefinition) {
+  // Region layout puts the tied descendant before its dominating source. The
+  // source owns storage from the descendant's start, not just its own start.
+  intervals_[0].start_point = 3;
+  assignments_[1].location_base = assignments_[0].location_base;
+  loom_low_placement_relation_t relation =
+      MakeAliasRelation(1, 0, LOOM_LOW_PLACEMENT_RELATION_FLAG_HARD);
+  relation.cause = LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT;
+  frame_.allocation.placement.relations = &relation;
+  frame_.allocation.placement.relation_count = 1;
+  EXPECT_EQ(Check().violation_count, 0u);
+}
+
+TEST_F(AllocationCheckerTest, RejectsAcquisitionAfterSemanticStart) {
+  assignments_[0].start_point = 1;
+  const auto result = Check();
+  EXPECT_GT(result.violation_count, 0u);
+  EXPECT_EQ(result.first_violation.kind,
+            LOOM_LOW_ALLOCATION_CHECK_VIOLATION_ASSIGNMENT_SHAPE);
+}
+
+TEST_F(AllocationCheckerTest, EarlyAcquisitionConflictsBeforeDefinition) {
+  intervals_[0].start_point = 2;
+  intervals_[1].end_point = assignments_[1].end_point = unit_end_points_[1] = 2;
+  assignments_[1].location_base = assignments_[0].location_base;
+  const auto result = Check();
+  EXPECT_GT(result.violation_count, 0u);
+  EXPECT_EQ(result.first_violation.kind,
+            LOOM_LOW_ALLOCATION_CHECK_VIOLATION_STORAGE_CONFLICT);
+}
+
 TEST_F(AllocationCheckerTest, RejectsOverlappingLiveAssignments) {
   assignments_[1].location_base = assignments_[0].location_base;
   const loom_low_allocation_check_result_t result = Check();

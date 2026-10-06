@@ -383,6 +383,27 @@ class TargetConfig:
         return [descriptor_set_capability(key) for key in self.descriptor_set_keys]
 
     @property
+    def target_capabilities_by_representation_capability(
+        self,
+    ) -> list[tuple[str, list[str]]]:
+        """Returns target contracts that can consume each representation."""
+        return [
+            (
+                descriptor_set_capability(key),
+                [
+                    descriptor_set_capability(target_key)
+                    for target_key in (
+                        key,
+                        *self._target_info.amdgpu_descriptor_set_supported_target_contract_keys(
+                            self.descriptor_set_info(key)
+                        ),
+                    )
+                ],
+            )
+            for key in self.descriptor_set_keys
+        ]
+
+    @property
     def descriptor_set_keys(self) -> list[str]:
         keys: list[str] = []
         for target in self._targets:
@@ -563,6 +584,10 @@ def render_bzl(config: TargetConfig) -> str:
                 bzl_string_dict(
                     "LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY",
                     descriptor_capability_pairs,
+                ),
+                bzl_list_dict(
+                    "LOOM_AMDGPU_TARGET_CAPABILITIES_BY_REPRESENTATION_CAPABILITY",
+                    config.target_capabilities_by_representation_capability,
                 ),
                 bzl_list_dict(
                     "LOOM_AMDGPU_DESCRIPTOR_SET_EXACT_PROCESSORS",

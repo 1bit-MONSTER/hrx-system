@@ -78,7 +78,9 @@ enum {
   LOOM_OP_KERNEL_LAUNCH_YIELD = LOOM_OP_KIND(LOOM_DIALECT_KERNEL, 51),
   LOOM_OP_KERNEL_LAUNCH_SERIAL = LOOM_OP_KIND(LOOM_DIALECT_KERNEL, 52),
   LOOM_OP_KERNEL_LAUNCH_CONCURRENT = LOOM_OP_KIND(LOOM_DIALECT_KERNEL, 53),
-  LOOM_OP_KERNEL_COUNT_ = 54,
+  LOOM_OP_KERNEL_BARRIER_ARRIVE = LOOM_OP_KIND(LOOM_DIALECT_KERNEL, 54),
+  LOOM_OP_KERNEL_BARRIER_WAIT = LOOM_OP_KIND(LOOM_DIALECT_KERNEL, 55),
+  LOOM_OP_KERNEL_COUNT_ = 56,
 };
 
 // Private symbol retention policy. Absent (0) permits ordinary DCE.
@@ -1124,6 +1126,9 @@ iree_status_t loom_kernel_decl_build(
     iree_host_size_t predicates_count,
     loom_location_id_t location,
     loom_op_t** out_op);
+iree_status_t loom_kernel_decl_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
 
 // LOOM_OP_KERNEL_ENTRY_DECL: Bodyless declaration of an executable kernel entry. The declaration owns the device ABI but has no workload-to-workgroup configuration contract, execution geometry, or implementation body.
 // kernel.entry.decl @fill(%count: index, %output: buffer)
@@ -1225,6 +1230,38 @@ iree_status_t loom_kernel_launch_concurrent_build(
     loom_location_id_t location,
     loom_op_t** out_op);
 iree_status_t loom_kernel_launch_schedule_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
+
+// LOOM_OP_KERNEL_BARRIER_ARRIVE: Arrive at a split execution barrier and begin its memory-ordering lifetime. Release ordering is applied at arrival; acquire ordering is completed by the unique kernel.barrier.wait consuming the returned phase. Every participant in the execution scope must execute matching dynamic arrive and wait instances. The interval may contain ordinary per-invocation work and pure calls. Other convergent operations, barriers, and impure calls must remain outside the interval.
+// %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+LOOM_DEFINE_ISA(loom_kernel_barrier_arrive_isa, LOOM_OP_KERNEL_BARRIER_ARRIVE)
+LOOM_DEFINE_RESULT(loom_kernel_barrier_arrive_phase, 0)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_kernel_barrier_arrive_memory_space, 0, loom_value_fact_memory_space_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_kernel_barrier_arrive_ordering, 1, loom_atomic_ordering_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_kernel_barrier_arrive_scope, 2, loom_atomic_scope_t)
+iree_status_t loom_kernel_barrier_arrive_build(
+    loom_builder_t* builder,
+    loom_value_fact_memory_space_t memory_space,
+    loom_atomic_scope_t scope,
+    loom_atomic_ordering_t ordering,
+    loom_type_t result_type,
+    loom_location_id_t location,
+    loom_op_t** out_op);
+iree_status_t loom_kernel_barrier_arrive_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
+
+// LOOM_OP_KERNEL_BARRIER_WAIT: Wait for every participant in a split-barrier phase to arrive and complete the acquire portion of that phase's memory ordering. The operand must be the unique use of a kernel.barrier.arrive result.
+// kernel.barrier.wait %phase : kernel.barrier.phase
+LOOM_DEFINE_ISA(loom_kernel_barrier_wait_isa, LOOM_OP_KERNEL_BARRIER_WAIT)
+LOOM_DEFINE_OPERAND(loom_kernel_barrier_wait_phase, 0)
+iree_status_t loom_kernel_barrier_wait_build(
+    loom_builder_t* builder,
+    loom_value_id_t phase,
+    loom_location_id_t location,
+    loom_op_t** out_op);
+iree_status_t loom_kernel_barrier_wait_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 

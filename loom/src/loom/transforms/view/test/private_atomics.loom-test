@@ -1,0 +1,246 @@
+// RUN: pass combine,promote-private-fragments,canonicalize,dce
+
+func.def @integer_updates(%initial: i64, %update: i64) -> (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 8 : offset
+  %storage = buffer.alloca<private> align(8) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xi64>
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_xchgi = view.atomic.rmw<xchgi> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_xchgi = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_addi = view.atomic.rmw<addi> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_addi = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_subi = view.atomic.rmw<subi> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_subi = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_andi = view.atomic.rmw<andi> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_andi = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_ori = view.atomic.rmw<ori> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_ori = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_xori = view.atomic.rmw<xori> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_xori = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_minsi = view.atomic.rmw<minsi> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_minsi = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_maxsi = view.atomic.rmw<maxsi> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_maxsi = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_minui = view.atomic.rmw<minui> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_minui = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_maxui = view.atomic.rmw<maxui> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_maxui = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.atomic.reduce<addi> %update, %cell[0] {ordering = seq_cst, scope = device} : i64, view<1xi64>
+  %reduced = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  func.return %final_xchgi, %final_addi, %final_subi, %final_andi, %final_ori, %final_xori, %final_minsi, %final_maxsi, %final_minui, %final_maxui, %reduced : i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64
+}
+
+// ----
+func.def @integer_updates(%initial: i64, %update: i64) -> (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) {
+  %67 = scalar.addi %initial, %update : i64
+  %64 = scalar.subi %initial, %update : i64
+  %61 = scalar.andi %initial, %update : i64
+  %58 = scalar.ori %initial, %update : i64
+  %55 = scalar.xori %initial, %update : i64
+  %52 = scalar.minsi %initial, %update : i64
+  %49 = scalar.maxsi %initial, %update : i64
+  %46 = scalar.minui %initial, %update : i64
+  %43 = scalar.maxui %initial, %update : i64
+  %40 = scalar.addi %43, %update : i64
+  func.return %update, %67, %64, %61, %58, %55, %52, %49, %46, %43, %40 : i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64
+}
+
+// ====
+
+func.def @floating_updates(%initial: f64, %update: f64) -> (f64, f64, f64, f64, f64, f64, f64) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 8 : offset
+  %storage = buffer.alloca<private> align(8) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf64>
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : f64, view<1xf64>
+  %old_xchgf = view.atomic.rmw<xchgf> %update, %cell[0] {ordering = acq_rel, scope = system} : f64, view<1xf64> -> f64
+  %final_xchgf = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xf64> -> f64
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : f64, view<1xf64>
+  %old_addf = view.atomic.rmw<addf> %update, %cell[0] {ordering = acq_rel, scope = system} : f64, view<1xf64> -> f64
+  %final_addf = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xf64> -> f64
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : f64, view<1xf64>
+  %old_minimumf = view.atomic.rmw<minimumf> %update, %cell[0] {ordering = acq_rel, scope = system} : f64, view<1xf64> -> f64
+  %final_minimumf = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xf64> -> f64
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : f64, view<1xf64>
+  %old_maximumf = view.atomic.rmw<maximumf> %update, %cell[0] {ordering = acq_rel, scope = system} : f64, view<1xf64> -> f64
+  %final_maximumf = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xf64> -> f64
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : f64, view<1xf64>
+  %old_minnumf = view.atomic.rmw<minnumf> %update, %cell[0] {ordering = acq_rel, scope = system} : f64, view<1xf64> -> f64
+  %final_minnumf = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xf64> -> f64
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : f64, view<1xf64>
+  %old_maxnumf = view.atomic.rmw<maxnumf> %update, %cell[0] {ordering = acq_rel, scope = system} : f64, view<1xf64> -> f64
+  %final_maxnumf = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xf64> -> f64
+  view.atomic.reduce<addf> %update, %cell[0] {ordering = seq_cst, scope = device} : f64, view<1xf64>
+  %reduced = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xf64> -> f64
+  func.return %final_xchgf, %final_addf, %final_minimumf, %final_maximumf, %final_minnumf, %final_maxnumf, %reduced : f64, f64, f64, f64, f64, f64, f64
+}
+
+// ----
+func.def @floating_updates(%initial: f64, %update: f64) -> (f64, f64, f64, f64, f64, f64, f64) {
+  %43 = scalar.addf %initial, %update : f64
+  %40 = scalar.minimumf %initial, %update : f64
+  %37 = scalar.maximumf %initial, %update : f64
+  %34 = scalar.minnumf %initial, %update : f64
+  %31 = scalar.maxnumf %initial, %update : f64
+  %28 = scalar.addf %31, %update : f64
+  func.return %update, %43, %40, %37, %34, %31, %28 : f64, f64, f64, f64, f64, f64, f64
+}
+
+// ====
+
+func.def @bitwise_compare_i8(%initial: i8, %expected: i8, %replacement: i8) -> (i8, i8) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 1 : offset
+  %storage = buffer.alloca<private> align(1) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xi8>
+  view.store %initial, %cell[0] : i8, view<1xi8>
+  %old = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = acquire, scope = system, success_ordering = seq_cst} : i8, view<1xi8> -> i8
+  %final = view.load %cell[0] : view<1xi8> -> i8
+  func.return %old, %final : i8, i8
+}
+
+// ----
+func.def @bitwise_compare_i8(%initial: i8, %expected: i8, %replacement: i8) -> (i8, i8) {
+  %12 = scalar.cmpi eq, %initial, %expected : i8
+  %13 = scf.select %12, %replacement, %initial : i8
+  func.return %initial, %13 : i8, i8
+}
+
+// ====
+
+func.def @bitwise_compare_f16(%initial: f16, %expected: f16, %replacement: f16) -> (f16, f16) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 2 : offset
+  %storage = buffer.alloca<private> align(2) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf16>
+  view.store %initial, %cell[0] : f16, view<1xf16>
+  %old = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = acquire, scope = system, success_ordering = seq_cst} : f16, view<1xf16> -> f16
+  %final = view.load %cell[0] : view<1xf16> -> f16
+  func.return %old, %final : f16, f16
+}
+
+// ----
+func.def @bitwise_compare_f16(%initial: f16, %expected: f16, %replacement: f16) -> (f16, f16) {
+  %12 = scalar.bitcast %initial : f16 to i16
+  %13 = scalar.bitcast %expected : f16 to i16
+  %14 = scalar.cmpi eq, %12, %13 : i16
+  %15 = scf.select %14, %replacement, %initial : f16
+  func.return %initial, %15 : f16, f16
+}
+
+// ====
+
+func.def @bitwise_compare_f64(%initial: f64, %expected: f64, %replacement: f64) -> (f64, f64) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 8 : offset
+  %storage = buffer.alloca<private> align(8) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf64>
+  view.store %initial, %cell[0] : f64, view<1xf64>
+  %old = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = acquire, scope = system, success_ordering = seq_cst} : f64, view<1xf64> -> f64
+  %final = view.load %cell[0] : view<1xf64> -> f64
+  func.return %old, %final : f64, f64
+}
+
+// ----
+func.def @bitwise_compare_f64(%initial: f64, %expected: f64, %replacement: f64) -> (f64, f64) {
+  %12 = scalar.bitcast %initial : f64 to i64
+  %13 = scalar.bitcast %expected : f64 to i64
+  %14 = scalar.cmpi eq, %12, %13 : i64
+  %15 = scf.select %14, %replacement, %initial : f64
+  func.return %initial, %15 : f64, f64
+}
+
+// ====
+
+func.def @noftz_needs_target_mode(%initial: f32, %increment: f32) -> (f32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %storage = buffer.alloca<private> align(4) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf32>
+  view.store %initial, %cell[0] : f32, view<1xf32>
+  %old = view.atomic.rmw<addf, noftz> %increment, %cell[0] {ordering = acq_rel, scope = system} : f32, view<1xf32> -> f32
+  func.return %old : f32
+}
+
+// ====
+
+func.def @shared_storage_stays_atomic(%input: buffer, %expected: i32, %replacement: i32) -> (i32, i32, i32) {
+  %origin = index.constant 0 : offset
+  %storage = buffer.assume.memory_space<global> %input : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xi32>
+  view.atomic.store %replacement, %cell[0] {ordering = release, scope = thread} : i32, view<1xi32>
+  %loaded = view.atomic.load %cell[0] {ordering = acquire, scope = thread} : view<1xi32> -> i32
+  %old = view.atomic.rmw<addi> %replacement, %cell[0] {ordering = acq_rel, scope = thread} : i32, view<1xi32> -> i32
+  %compared = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = seq_cst, scope = thread, success_ordering = seq_cst} : i32, view<1xi32> -> i32
+  view.atomic.reduce<subi> %replacement, %cell[0] {ordering = relaxed, scope = thread} : i32, view<1xi32>
+  func.return %loaded, %old, %compared : i32, i32, i32
+}
+
+// ----
+func.def @shared_storage_stays_atomic(%input: buffer, %expected: i32, %replacement: i32) -> (i32, i32, i32) {
+  %origin = index.constant 0 : offset
+  %storage = buffer.assume.memory_space<global> %input : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xi32>
+  view.atomic.store %replacement, %cell[0] {ordering = release, scope = thread} : i32, view<1xi32>
+  %loaded = view.atomic.load %cell[0] {ordering = acquire, scope = thread} : view<1xi32> -> i32
+  %old = view.atomic.rmw<addi> %replacement, %cell[0] {ordering = acq_rel, scope = thread} : i32, view<1xi32> -> i32
+  %compared = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = seq_cst, scope = thread, success_ordering = seq_cst} : i32, view<1xi32> -> i32
+  view.atomic.reduce<subi> %replacement, %cell[0] {ordering = relaxed, scope = thread} : i32, view<1xi32>
+  func.return %loaded, %old, %compared : i32, i32, i32
+}
+
+// ====
+
+func.def @private_indices_and_cache(%input: buffer, %row: index, %column: index, %update: i16) -> (i16) {
+  %origin = index.constant 0 : offset
+  %storage = buffer.assume.memory_space<private> %input : buffer
+  %cells = buffer.view %storage[%origin] : buffer -> view<2x4xi16>
+  %old = view.atomic.rmw<subi> %update, %cells[%row, %column] {cache_scope = system, cache_temporal = non_temporal, ordering = acq_rel, scope = system} : i16, view<2x4xi16> -> i16
+  buffer.fence scope(system) ordering(seq_cst)
+  func.return %old : i16
+}
+
+// ----
+func.def @private_indices_and_cache(%input: buffer, %row: index, %column: index, %update: i16) -> (i16) {
+  %origin = index.constant 0 : offset
+  %storage = buffer.assume.memory_space<private> %input : buffer
+  %cells = buffer.view %storage[%origin] : buffer -> view<2x4xi16>
+  %old = view.load %cells[%row, %column] {cache_scope = system, cache_temporal = non_temporal} : view<2x4xi16> -> i16
+  %10 = scalar.subi %old, %update : i16
+  view.store %10, %cells[%row, %column] {cache_scope = system, cache_temporal = non_temporal} : i16, view<2x4xi16>
+  buffer.fence scope(system) ordering(seq_cst)
+  func.return %old : i16
+}
+
+// ====
+
+func.def @private_alias_and_branch(%initial: i32, %increment: i32, %enabled: i1) -> (i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %storage = buffer.alloca<private> align(4) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xi32>
+  %alias = buffer.view %storage[%origin] : buffer -> view<1xi32>
+  view.atomic.store %initial, %cell[0] {ordering = relaxed, scope = system} : i32, view<1xi32>
+  scf.if %enabled {
+    view.atomic.reduce<addi> %increment, %alias[0] {ordering = release, scope = system} : i32, view<1xi32>
+  }
+  %final = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi32> -> i32
+  func.return %final : i32
+}
+
+// ----
+func.def @private_alias_and_branch(%initial: i32, %increment: i32, %enabled: i1) -> (i32) {
+  %11 = scalar.addi %initial, %increment : i32
+  %14 = scf.select %enabled, %11, %initial : i32
+  func.return %14 : i32
+}

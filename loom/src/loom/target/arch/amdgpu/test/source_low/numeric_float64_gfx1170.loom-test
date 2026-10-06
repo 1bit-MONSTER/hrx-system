@@ -1,0 +1,130 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_float64.loom-test
+// RUN: emit source-low target=amdgpu:gfx1170 output=low
+
+// Scalar addition, numerical extrema, and ordered/unordered predicates.
+func.def @float64_add_extrema(%lhs: f64, %rhs: f64) -> (f64, f64, f64, f64, f64) {
+  %addf = scalar.addf %lhs, %rhs : f64
+  %minimumf = scalar.minimumf %lhs, %rhs : f64
+  %maximumf = scalar.maximumf %lhs, %rhs : f64
+  %minnumf = scalar.minnumf %lhs, %rhs : f64
+  %maxnumf = scalar.maxnumf %lhs, %rhs : f64
+  func.return %addf, %minimumf, %maximumf, %minnumf, %maxnumf : f64, f64, f64, f64, f64
+}
+
+// ----
+low.func.def target<amdgpu.rdna4m.core> abi(hal_kernel) @float64_add_extrema(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %addf = v_add_f64 %lhs, %rhs
+  %minimumf = v_minimum_f64 %lhs, %rhs
+  %maximumf = v_maximum_f64 %lhs, %rhs
+  %minnumf = v_min_num_f64 %lhs, %rhs
+  %maxnumf = v_max_num_f64 %lhs, %rhs
+  return %addf, %minimumf, %maximumf, %minnumf, %maxnumf
+}
+
+// ====
+
+// Uniform f64 values retain SGPR storage until a packet requires a VGPR source.
+func.def @float64_uniform_add(%lhs_bits: i64, %rhs_bits: i64) -> (f64) {
+  %lhs = scalar.bitcast %lhs_bits : i64 to f64
+  %rhs = scalar.bitcast %rhs_bits : i64 to f64
+  %sum = scalar.addf %lhs, %rhs : f64
+  func.return %sum : f64
+}
+
+// ----
+low.func.def target<amdgpu.rdna4m.core> abi(hal_kernel) @float64_uniform_add(%lhs: reg<amdgpu.sgpr x2>, %rhs: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %sum = v_add_f64 %lhs, %rhs
+  return %sum
+}
+
+// ====
+
+// A mixed VGPR/SGPR pair already consumes only one VOP3 scalar source.
+func.def @float64_mixed_add(%lhs: f64, %rhs_bits: i64) -> (f64) {
+  %rhs = scalar.bitcast %rhs_bits : i64 to f64
+  %sum = scalar.addf %lhs, %rhs : f64
+  func.return %sum : f64
+}
+
+// ----
+low.func.def target<amdgpu.rdna4m.core> abi(hal_kernel) @float64_mixed_add(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %sum = v_add_f64 %rhs, %lhs
+  return %sum
+}
+
+// ====
+
+func.def @float64_predicates(%lhs: f64, %rhs: f64) -> (i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1) {
+  %oeq = scalar.cmpf oeq, %lhs, %rhs : f64
+  %ogt = scalar.cmpf ogt, %lhs, %rhs : f64
+  %oge = scalar.cmpf oge, %lhs, %rhs : f64
+  %olt = scalar.cmpf olt, %lhs, %rhs : f64
+  %ole = scalar.cmpf ole, %lhs, %rhs : f64
+  %one = scalar.cmpf one, %lhs, %rhs : f64
+  %ord = scalar.cmpf ord, %lhs, %rhs : f64
+  %ueq = scalar.cmpf ueq, %lhs, %rhs : f64
+  %ugt = scalar.cmpf ugt, %lhs, %rhs : f64
+  %uge = scalar.cmpf uge, %lhs, %rhs : f64
+  %ult = scalar.cmpf ult, %lhs, %rhs : f64
+  %ule = scalar.cmpf ule, %lhs, %rhs : f64
+  %une = scalar.cmpf une, %lhs, %rhs : f64
+  %uno = scalar.cmpf uno, %lhs, %rhs : f64
+  func.return %oeq, %ogt, %oge, %olt, %ole, %one, %ord, %ueq, %ugt, %uge, %ult, %ule, %une, %uno : i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1
+}
+
+// ----
+low.func.def target<amdgpu.rdna4m.core> abi(hal_kernel) @float64_predicates(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %oeq = v_cmp_eq_f64 %lhs, %rhs
+  %ogt = v_cmp_gt_f64 %lhs, %rhs
+  %oge = v_cmp_ge_f64 %lhs, %rhs
+  %olt = v_cmp_lt_f64 %lhs, %rhs
+  %ole = v_cmp_le_f64 %lhs, %rhs
+  %one = v_cmp_lg_f64 %lhs, %rhs
+  %ord = v_cmp_o_f64 %lhs, %rhs
+  %ueq = v_cmp_nlg_f64 %lhs, %rhs
+  %ugt = v_cmp_nle_f64 %lhs, %rhs
+  %uge = v_cmp_nlt_f64 %lhs, %rhs
+  %ult = v_cmp_nge_f64 %lhs, %rhs
+  %ule = v_cmp_ngt_f64 %lhs, %rhs
+  %une = v_cmp_neq_f64 %lhs, %rhs
+  %uno = v_cmp_u_f64 %lhs, %rhs
+  return %oeq, %ogt, %oge, %olt, %ole, %one, %ord, %ueq, %ugt, %uge, %ult, %ule, %une, %uno
+}
+
+// ====
+
+func.def @float64_number_without_nan(%lhs: f64, %rhs: f64) -> (f64, f64) {
+  %minimum = scalar.minnumf<nnan> %lhs, %rhs : f64
+  %maximum = scalar.maxnumf<nnan> %lhs, %rhs : f64
+  func.return %minimum, %maximum : f64, f64
+}
+
+// ----
+low.func.def target<amdgpu.rdna4m.core> abi(hal_kernel) @float64_number_without_nan(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %minimum = v_min_num_f64 %lhs, %rhs
+  %maximum = v_max_num_f64 %lhs, %rhs
+  return %minimum, %maximum
+}
+
+// ====
+
+func.def @float64_number_vectors(%lhs: vector<2xf64>, %rhs: vector<2xf64>) -> (vector<2xf64>, vector<2xf64>) {
+  %minimum = vector.minnumf %lhs, %rhs : vector<2xf64>
+  %maximum = vector.maxnumf %lhs, %rhs : vector<2xf64>
+  func.return %minimum, %maximum : vector<2xf64>, vector<2xf64>
+}
+
+// ----
+low.func.def target<amdgpu.rdna4m.core> abi(hal_kernel) @float64_number_vectors(%lhs: reg<amdgpu.vgpr x4>, %rhs: reg<amdgpu.vgpr x4>) -> (reg<amdgpu.vgpr x4>, reg<amdgpu.vgpr x4>) asm {
+  %10 = slice %lhs[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr x2>
+  %11 = slice %rhs[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr x2>
+  %12 = v_min_num_f64 %10, %11
+  %13 = slice %lhs[2] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr x2>
+  %14 = slice %rhs[2] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr x2>
+  %15 = v_min_num_f64 %13, %14
+  %minimum = concat(%12, %15) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  %19 = v_max_num_f64 %10, %11
+  %22 = v_max_num_f64 %13, %14
+  %maximum = concat(%19, %22) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  return %minimum, %maximum
+}

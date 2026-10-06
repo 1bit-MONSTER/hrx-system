@@ -154,7 +154,7 @@ class ParserTest : public ::testing::Test {
   // Parses source text and expects parse errors (diagnostics emitted,
   // module is NULL, but status is ok — parse errors are not infrastructure
   // failures).
-  const std::vector<CapturedDiagnostic>& ParseExpectErrors(const char* source) {
+  const std::deque<CapturedDiagnostic>& ParseExpectErrors(const char* source) {
     loom_module_t* module = nullptr;
     IREE_EXPECT_OK(Parse(source, &module));
     EXPECT_EQ(module, nullptr);
@@ -1120,9 +1120,11 @@ TEST_F(ParserTest, ReturnsSymbolReferencesFromParsedSnapshot) {
   ASSERT_NE(provider_id, LOOM_SYMBOL_ID_INVALID);
 
   const loom_symbol_reference_occurrence_id_t dependency_occurrence_id =
-      symbol_references.symbols[dependency_id].first_incoming_occurrence_id;
+      loom_symbol_reference_table_symbol(&symbol_references, dependency_id)
+          .first_incoming_occurrence_id;
   const loom_symbol_reference_occurrence_id_t availability_occurrence_id =
-      symbol_references.symbols[provider_id].first_incoming_occurrence_id;
+      loom_symbol_reference_table_symbol(&symbol_references, provider_id)
+          .first_incoming_occurrence_id;
   ASSERT_NE(dependency_occurrence_id,
             LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID);
   ASSERT_NE(availability_occurrence_id,

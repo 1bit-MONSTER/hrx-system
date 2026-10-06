@@ -90,6 +90,10 @@ static bool loom_low_call_predicate_integer_relation(
     case LOOM_PREDICATE_MAX:
       *out_integer_relation = LOOM_SYMBOLIC_INTEGER_RELATION_LE;
       return true;
+    case LOOM_PREDICATE_ULT:
+    case LOOM_PREDICATE_ULE:
+    case LOOM_PREDICATE_UGT:
+    case LOOM_PREDICATE_UGE:
     case LOOM_PREDICATE_MUL:
     case LOOM_PREDICATE_POW2:
     case LOOM_PREDICATE_RANGE:

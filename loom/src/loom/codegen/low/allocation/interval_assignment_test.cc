@@ -23,11 +23,13 @@ class LowAllocationIntervalAssignmentTest : public ::testing::Test {
     iree_arena_block_pool_initialize(4096, iree_allocator_system(),
                                      &block_pool_);
     iree_arena_initialize(&block_pool_, &arena_);
+    iree_arena_initialize(&block_pool_, &decision_arena_);
     loom_context_initialize(iree_allocator_system(), &context_);
     IREE_ASSERT_OK(loom_context_finalize(&context_));
   }
 
   void TearDown() override {
+    iree_arena_deinitialize(&decision_arena_);
     iree_arena_deinitialize(&arena_);
     loom_context_deinitialize(&context_);
     iree_arena_block_pool_deinitialize(&block_pool_);
@@ -48,8 +50,13 @@ class LowAllocationIntervalAssignmentTest : public ::testing::Test {
     return value_id;
   }
 
+  // Shared pool for published results and allocation decision storage.
   iree_arena_block_pool_t block_pool_;
+  // Owns prerequisite analyses and published assignment tables.
   iree_arena_allocator_t arena_;
+  // Owns allocation decisions and checkpoint-scoped assignment scratch.
+  iree_arena_allocator_t decision_arena_;
+  // Context for the module-local value domain.
   loom_context_t context_;
 };
 
@@ -78,7 +85,12 @@ TEST_F(LowAllocationIntervalAssignmentTest,
       /*.value_class=*/value_class,
       /*.unit_count=*/2,
   };
-  const loom_value_id_t value_ids[] = {value};
+  loom_value_id_t value_ids[] = {value};
+  loom_local_value_domain_t value_domain = {};
+  value_domain.module = module;
+  value_domain.value_ids = value_ids;
+  value_domain.value_count = IREE_ARRAYSIZE(value_ids);
+  value_domain.flags = LOOM_LOCAL_VALUE_DOMAIN_FLAG_ACQUIRED;
   const uint32_t interval_indices[] = {0};
   loom_liveness_analysis_t liveness = {};
   liveness.intervals = &interval;
@@ -87,12 +99,12 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_start[] = {0};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {{0, 0}};
   uint32_t unit_start_points[] = {0, 0};
   uint32_t unit_end_points[] = {8, 8};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_start;
+  unit_liveness.values = unit_values;
   unit_liveness.start_points = unit_start_points;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
@@ -106,6 +118,7 @@ TEST_F(LowAllocationIntervalAssignmentTest,
       },
   };
   loom_low_placement_table_t placement = {};
+  placement.module = module;
   placement.value_ids = value_ids;
   placement.value_count = IREE_ARRAYSIZE(value_ids);
   placement.ranges_by_result_ordinal = placement_ranges;
@@ -138,19 +151,29 @@ TEST_F(LowAllocationIntervalAssignmentTest,
       /*.function_op=*/&function_op,
       /*.target=*/&target,
       /*.liveness=*/&liveness,
-      /*.value_domain=*/nullptr,
+      /*.value_domain=*/&value_domain,
       /*.schedule=*/nullptr,
       /*.placement=*/&placement,
+      /*.preferences=*/nullptr,
       /*.target_constraints=*/&target_constraints,
       /*.unit_liveness=*/&unit_liveness,
       /*.storage_leases=*/&storage_leases,
       /*.arena=*/&arena_,
   };
   loom_low_allocation_interval_assignment_result_t result = {};
-  IREE_ASSERT_OK(
-      loom_low_allocation_interval_assignment_build(&context, &result));
+  // The enclosing allocator may retain facts in the scratch arena's prefix.
+  uint32_t* retained_fact = nullptr;
+  IREE_ASSERT_OK(iree_arena_allocate(&decision_arena_, sizeof(*retained_fact),
+                                     (void**)&retained_fact));
+  *retained_fact = 42;
+  const iree_host_size_t decision_bytes = decision_arena_.used_allocation_size;
+  IREE_ASSERT_OK(loom_low_allocation_interval_assignment_build(
+      &context, &decision_arena_, &result));
+  EXPECT_EQ(decision_arena_.used_allocation_size, decision_bytes);
+  EXPECT_EQ(*retained_fact, 42u);
 
   // The returned tables remain valid after assignment scratch is reclaimed.
+  iree_arena_reset(&decision_arena_);
   iree_arena_block_pool_trim(&block_pool_);
   ASSERT_EQ(result.assignment_count, 1u);
   ASSERT_NE(result.assignments, nullptr);
@@ -170,8 +193,7 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   EXPECT_EQ(result.remarks, nullptr);
   EXPECT_TRUE(result.has_packable_aggregates);
 
-  loom_module_value_ordinal_scratch_clear(module, value);
-  loom_module_value_ordinal_scratch_release(module);
+  loom_local_value_domain_release(&value_domain);
   loom_module_free(module);
 }
 
@@ -213,8 +235,12 @@ TEST_F(LowAllocationIntervalAssignmentTest,
           /*.unit_count=*/2,
       },
   };
-  const loom_value_id_t value_ids[] = {first_value, second_value,
-                                       aggregate_value};
+  loom_value_id_t value_ids[] = {first_value, second_value, aggregate_value};
+  loom_local_value_domain_t value_domain = {};
+  value_domain.module = module;
+  value_domain.value_ids = value_ids;
+  value_domain.value_count = IREE_ARRAYSIZE(value_ids);
+  value_domain.flags = LOOM_LOCAL_VALUE_DOMAIN_FLAG_ACQUIRED;
   const uint32_t interval_indices[] = {0, 1, 2};
   loom_liveness_analysis_t liveness = {};
   liveness.intervals = intervals;
@@ -223,12 +249,13 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_starts[] = {0, 1, 2};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {
+      {0, 0}, {1, 0}, {2, 5}};
   uint32_t unit_start_points[] = {0, 0, 5, 5};
   uint32_t unit_end_points[] = {4, 4, 8, 8};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.start_points = unit_start_points;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
@@ -237,6 +264,7 @@ TEST_F(LowAllocationIntervalAssignmentTest,
 
   loom_low_placement_relation_range_t placement_ranges[3] = {};
   loom_low_placement_table_t placement = {};
+  placement.module = module;
   placement.value_ids = value_ids;
   placement.value_count = IREE_ARRAYSIZE(value_ids);
   placement.ranges_by_result_ordinal = placement_ranges;
@@ -349,17 +377,18 @@ TEST_F(LowAllocationIntervalAssignmentTest,
       /*.function_op=*/&function_op,
       /*.target=*/&target,
       /*.liveness=*/&liveness,
-      /*.value_domain=*/nullptr,
+      /*.value_domain=*/&value_domain,
       /*.schedule=*/nullptr,
       /*.placement=*/&placement,
+      /*.preferences=*/nullptr,
       /*.target_constraints=*/&target_constraints,
       /*.unit_liveness=*/&unit_liveness,
       /*.storage_leases=*/&storage_leases,
       /*.arena=*/&arena_,
   };
   loom_low_allocation_interval_assignment_result_t result = {};
-  IREE_ASSERT_OK(
-      loom_low_allocation_interval_assignment_build(&context, &result));
+  IREE_ASSERT_OK(loom_low_allocation_interval_assignment_build(
+      &context, &decision_arena_, &result));
 
   ASSERT_EQ(result.assignment_count, 3u);
   EXPECT_FALSE(result.has_packable_aggregates);
@@ -377,18 +406,15 @@ TEST_F(LowAllocationIntervalAssignmentTest,
       IREE_ARRAYSIZE(view_ordinals);
   descriptor_set.physical_register_view_count =
       IREE_ARRAYSIZE(physical_register_views);
-  IREE_ASSERT_OK(
-      loom_low_allocation_interval_assignment_build(&context, &result));
+  IREE_ASSERT_OK(loom_low_allocation_interval_assignment_build(
+      &context, &decision_arena_, &result));
   ASSERT_EQ(result.assignment_count, 3u);
   EXPECT_EQ(result.assignments[0].location_base, 1u);
   EXPECT_EQ(result.assignments[1].location_base, 0u);
   EXPECT_EQ(result.assignments[2].location_base, 3u);
   EXPECT_EQ(result.assignments[2].location_count, 2u);
 
-  loom_module_value_ordinal_scratch_clear(module, first_value);
-  loom_module_value_ordinal_scratch_clear(module, second_value);
-  loom_module_value_ordinal_scratch_clear(module, aggregate_value);
-  loom_module_value_ordinal_scratch_release(module);
+  loom_local_value_domain_release(&value_domain);
   loom_module_free(module);
 }
 
@@ -431,12 +457,12 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_starts[] = {0, 1};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {{0, 0}, {1, 2}};
   uint32_t unit_start_points[] = {0, 0};
   uint32_t unit_end_points[] = {6, 6};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.start_points = unit_start_points;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
@@ -450,7 +476,8 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   relation.unit_count = 1;
   relation.kind = LOOM_LOW_PLACEMENT_RELATION_SAME_STORAGE;
   relation.cause = LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT;
-  relation.flags = LOOM_LOW_PLACEMENT_RELATION_FLAG_HARD;
+  relation.flags = LOOM_LOW_PLACEMENT_RELATION_FLAG_HARD |
+                   LOOM_LOW_PLACEMENT_RELATION_FLAG_CAN_ALIAS_STORAGE;
   loom_low_placement_relation_range_t ranges_by_result[] = {
       {
           /*.start=*/0,
@@ -472,6 +499,7 @@ TEST_F(LowAllocationIntervalAssignmentTest,
       },
   };
   loom_low_placement_table_t placement = {};
+  placement.module = module;
   placement.value_ids = value_ids;
   placement.value_count = IREE_ARRAYSIZE(value_ids);
   placement.relations = &relation;
@@ -479,6 +507,11 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   placement.ranges_by_result_ordinal = ranges_by_result;
   placement.relation_indices_by_source_ordinal = relation_indices_by_source;
   placement.ranges_by_source_ordinal = ranges_by_source;
+  const loom_value_ordinal_t tied_origins[] = {0, 0};
+  placement.tied_storage_origins_by_value_ordinal = tied_origins;
+  const loom_value_ordinal_t storage_order[] = {1, 0};
+  placement.storage_value_order = storage_order;
+  placement.storage_value_order_count = IREE_ARRAYSIZE(storage_order);
 
   loom_low_reg_class_t reg_class = {};
   reg_class.flags = LOOM_LOW_REG_CLASS_FLAG_PHYSICAL;
@@ -529,17 +562,18 @@ TEST_F(LowAllocationIntervalAssignmentTest,
       /*.function_op=*/&function_op,
       /*.target=*/&target,
       /*.liveness=*/&liveness,
-      /*.value_domain=*/nullptr,
+      /*.value_domain=*/&value_domain,
       /*.schedule=*/nullptr,
       /*.placement=*/&placement,
+      /*.preferences=*/nullptr,
       /*.target_constraints=*/&target_constraints,
       /*.unit_liveness=*/&unit_liveness,
       /*.storage_leases=*/&storage_leases,
       /*.arena=*/&arena_,
   };
   loom_low_allocation_interval_assignment_result_t result = {};
-  IREE_ASSERT_OK(
-      loom_low_allocation_interval_assignment_build(&context, &result));
+  IREE_ASSERT_OK(loom_low_allocation_interval_assignment_build(
+      &context, &decision_arena_, &result));
 
   ASSERT_EQ(result.assignment_count, 2u);
   EXPECT_EQ(result.assignment_indices_by_value_ordinal[0], 0u);
@@ -550,9 +584,7 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   EXPECT_EQ(result.assignments[1].location_base, 3u);
   EXPECT_FALSE(result.has_packable_aggregates);
 
-  loom_module_value_ordinal_scratch_clear(module, source_value);
-  loom_module_value_ordinal_scratch_clear(module, result_value);
-  loom_module_value_ordinal_scratch_release(module);
+  loom_local_value_domain_release(&value_domain);
   loom_module_free(module);
 }
 

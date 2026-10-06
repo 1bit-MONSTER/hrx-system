@@ -25,6 +25,9 @@ class _MetricSpec:
 
 
 _METRIC_SPECS = (
+    _MetricSpec(
+        "unmodeled_packet_count", "unmodeled packets", "unmodeled_packet_count"
+    ),
     _MetricSpec("modeled_packet_count", "modeled packets", "modeled_packet_count"),
     _MetricSpec("exact_packet_count", "exact packets", "exact_packet_count"),
     _MetricSpec("unknown_packet_count", "unknown packets", "unknown_packet_count"),
@@ -110,7 +113,7 @@ _MODEL_FIELDS = (
     "wave_size",
     "bank_count",
     "bank_word_bytes",
-    "packet_bank_words",
+    "packet_bytes",
 )
 
 
@@ -150,7 +153,20 @@ def build_bank_service_show(
         )
         for index, value in enumerate(group_values)
     ]
-    shown_groups.sort(key=_group_key)
+    for index, group in enumerate(shown_groups):
+        if group["report_index"] != index:
+            raise CompileReportError(
+                f"source_low.memory.bank_service_groups[{index}].index: "
+                f"expected {index}, got {group['report_index']}"
+            )
+    # Structural service is a useful order for layout experiments, independent
+    # of the source order. It does not establish runtime frequency or latency.
+    shown_groups.sort(
+        key=lambda group: (
+            -_expect_dict(group["summary"])["extra_round_count"],
+            _group_key(group),
+        )
+    )
     return {
         "summary": _show_metrics(
             summary_object,
@@ -263,7 +279,14 @@ def append_bank_service_show_text(
     bank_service: dict[str, object],
 ) -> None:
     """Appends the human-readable bank-service view."""
-    lines.extend(("", "Bank service (compiler analysis)"))
+    lines.extend(
+        (
+            "",
+            "Bank service (compiler analysis)",
+            "  Service rounds cover proven instruction sites; they are not cycles.",
+            "  Groups are ordered by extra static rounds, not runtime cost.",
+        )
+    )
     _append_metrics(lines, _expect_dict(bank_service["summary"]), indent="  ")
     actionable_groups = [
         _expect_dict(value)
@@ -366,15 +389,22 @@ def _show_group(value: object, source: str) -> dict[str, object]:
         field: _identity_component(group.get(field), f"{source}.{field}")
         for field in _GROUP_IDENTITY_FIELDS
     }
-    model = _require_object(group.get("model"), f"{source}.model")
+    model_value = group.get("model")
+    if model_value is None:
+        shown_model = {
+            "wave_size": _require_integer(group.get("wave_size"), f"{source}.wave_size")
+        }
+    else:
+        model = _require_object(model_value, f"{source}.model")
+        shown_model = {
+            field: _model_component(model.get(field), f"{source}.model.{field}")
+            for field in _MODEL_FIELDS
+        }
     summary = _require_object(group.get("summary"), f"{source}.summary")
     shown: dict[str, object] = {
         "report_index": _require_integer(group.get("index"), f"{source}.index"),
         "identity": identity,
-        "model": {
-            field: _model_component(model.get(field), f"{source}.model.{field}")
-            for field in _MODEL_FIELDS
-        },
+        "model": shown_model,
         "summary": _show_metrics(summary, f"{source}.summary"),
     }
     if "unknown_evidence" in group:
@@ -501,6 +531,7 @@ def _proof_lost(
     return (
         candidate["exact_packet_count"] < baseline["exact_packet_count"]
         or candidate["unknown_packet_count"] > baseline["unknown_packet_count"]
+        or candidate["unmodeled_packet_count"] > baseline["unmodeled_packet_count"]
     )
 
 
@@ -584,20 +615,25 @@ def _append_group(
     if include_identity:
         lines.append(f"{indent}{_format_group_identity(identity)}")
         indent += "  "
-    lines.append(
-        f"{indent}model: {model['key']} @ {model['revision']} "
-        f"({model['evidence']}, {model['request_policy']})"
-    )
+    if "key" in model:
+        lines.append(
+            f"{indent}model: {model['key']} @ {model['revision']} "
+            f"({model['evidence']}, {model['request_policy']})"
+        )
+    else:
+        lines.append(f"{indent}model: unavailable (wave{model['wave_size']})")
     lines.append(
         f"{indent}proof: {summary['exact_packet_count']} exact, "
-        f"{summary['unknown_packet_count']} unknown"
+        f"{summary['unknown_packet_count']} unknown, "
+        f"{summary['unmodeled_packet_count']} unmodeled"
     )
-    lines.append(
-        f"{indent}structural service: "
-        f"{summary['required_round_count']} required, "
-        f"{summary['uncontended_round_count']} uncontended, "
-        f"{summary['extra_round_count']} extra rounds"
-    )
+    if summary["exact_packet_count"]:
+        lines.append(
+            f"{indent}structural service of proven packets: "
+            f"{summary['required_round_count']} required, "
+            f"{summary['uncontended_round_count']} uncontended, "
+            f"{summary['extra_round_count']} extra rounds"
+        )
     unknown_evidence = group.get("unknown_evidence")
     if isinstance(unknown_evidence, dict):
         lines.append(
@@ -607,7 +643,11 @@ def _append_group(
 
 def _group_is_actionable(group: dict[str, object]) -> bool:
     summary = _expect_dict(group["summary"])
-    return summary["conflicted_packet_count"] > 0 or summary["unknown_packet_count"] > 0
+    return (
+        summary["conflicted_packet_count"] > 0
+        or summary["unknown_packet_count"] > 0
+        or summary["unmodeled_packet_count"] > 0
+    )
 
 
 def _format_group_identity(identity: dict[str, object]) -> str:

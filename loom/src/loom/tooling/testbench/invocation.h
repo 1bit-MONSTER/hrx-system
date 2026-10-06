@@ -86,14 +86,15 @@ typedef struct loom_testbench_case_plan_list_t {
 } loom_testbench_case_plan_list_t;
 
 // Binds one borrowed function-call provider to the runner's selected cases.
-// The caller owns callback state. The case list, source resolver and optional
+// The caller owns callback state. The case list, source table and optional
 // config set remain live through the final invocation; provider teardown must
 // not access them after the runner returns. Configuration applies to private
-// compilation copies. Resolvers support copies preserving source IDs.
+// compilation copies. Providers project snapshots through their compiler
+// copies.
 typedef loom_testbench_invocation_provider_t(
     IREE_API_PTR* loom_testbench_function_call_provider_fn_t)(
     void* user_data, loom_testbench_case_plan_list_t cases,
-    loom_source_resolver_t source_resolver,
+    const loom_source_table_resolver_t* sources,
     const loom_tooling_config_set_t* config_set);
 
 typedef struct loom_testbench_function_call_provider_callback_t {

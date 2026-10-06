@@ -1,0 +1,50 @@
+// RUN: roundtrip
+long long widen_signed_word(int value) { return value; }
+unsigned long long widen_unsigned_word(unsigned value) { return value; }
+unsigned long long signed_word_to_unsigned(int value) { return value; }
+long long unsigned_word_to_signed(unsigned value) { return value; }
+
+unsigned long long add_signed_word(unsigned long long base, int delta) {
+  return base + delta;
+}
+
+unsigned long long assemble_wide_word(unsigned low, unsigned high) {
+  return (static_cast<unsigned long long>(high) << 32) | low;
+}
+
+// ----
+func.def public @widen_signed_word(%value: i32) -> (i64) {
+  %2 = scalar.extsi %value : i32 to i64
+  func.return %2 : i64
+}
+
+func.def public @widen_unsigned_word(%value: i32) -> (i64) {
+  %5 = scalar.extui %value : i32 to i64
+  func.return %5 : i64
+}
+
+func.def public @signed_word_to_unsigned(%value: i32) -> (i64) {
+  %8 = scalar.extsi %value : i32 to i64
+  func.return %8 : i64
+}
+
+func.def public @unsigned_word_to_signed(%value: i32) -> (i64) {
+  %11 = scalar.extui %value : i32 to i64
+  func.return %11 : i64
+}
+
+func.def public @add_signed_word(%base: i64, %delta: i32) -> (i64) {
+  %15 = scalar.extsi %delta : i32 to i64
+  %16 = scalar.addi %base, %15 : i64
+  func.return %16 : i64
+}
+
+func.def public @assemble_wide_word(%low: i32, %high: i32) -> (i64) {
+  %20 = scalar.extui %high : i32 to i64
+  %21 = scalar.constant 32 : i32
+  %22 = scalar.extsi %21 : i32 to i64
+  %23 = scalar.shli %20, %22 : i64
+  %24 = scalar.extui %low : i32 to i64
+  %25 = scalar.ori %23, %24 : i64
+  func.return %25 : i64
+}

@@ -183,15 +183,6 @@ class CheckBuilder(DialectBuilder):
         dims: list[int | ValueRef],
         location_id: int | None = ...,
     ) -> None: ...
-    def expect(
-        self,
-        *,
-        provider: str,
-        actual: ValueRef,
-        expected: ValueRef,
-        attrs: Mapping[str, Any] | None = ...,
-        location_id: int | None = ...,
-    ) -> None: ...
     def event(
         self,
         *,
@@ -212,6 +203,67 @@ class CheckBuilder(DialectBuilder):
         *,
         source: ValueRef,
         byte_offset: int,
+        results: list[Type | TiedResultSpec],
+        name: str | None = ...,
+        names: Sequence[str] | None = ...,
+        result_names: Sequence[str] | None = ...,
+        location_id: int | None = ...,
+    ) -> ValueRef: ...
+    def scenario(
+        self,
+        *,
+        visibility: str | None = ...,
+        scenario_symbol: str,
+        configuration_count: int | None = ...,
+        configuration_args: Sequence[tuple[str, Type]] = ...,
+        body: Region | None = ...,
+        location_id: int | None = ...,
+    ) -> None: ...
+    def trial(
+        self,
+        *,
+        trial_count: int,
+        trial_args: Sequence[tuple[str, Type]] = ...,
+        body: Region | None = ...,
+        location_id: int | None = ...,
+    ) -> None: ...
+    def compare(
+        self,
+        *,
+        callee: str,
+        oracle_callee: str | None = ...,
+        call_parameters: list[ValueRef] = ...,
+        arguments: list[ValueRef] = ...,
+        actual_args: Sequence[tuple[str, Type]] = ...,
+        expected_args: Sequence[tuple[str, Type]] = ...,
+        comparison: Region | None = ...,
+        location_id: int | None = ...,
+    ) -> None: ...
+    def invoke(
+        self,
+        *,
+        callee: str,
+        call_parameters: list[ValueRef] = ...,
+        arguments: list[ValueRef] = ...,
+        results: list[Type | TiedResultSpec],
+        location_id: int | None = ...,
+    ) -> None: ...
+    def fork(
+        self,
+        *,
+        entropy: ValueRef,
+        fork_name: str,
+        results: list[Type | TiedResultSpec],
+        name: str | None = ...,
+        names: Sequence[str] | None = ...,
+        result_names: Sequence[str] | None = ...,
+        location_id: int | None = ...,
+    ) -> ValueRef: ...
+    def read(
+        self,
+        *,
+        entropy: ValueRef,
+        ordinals: list[int | ValueRef],
         results: list[Type | TiedResultSpec],
         name: str | None = ...,
         names: Sequence[str] | None = ...,

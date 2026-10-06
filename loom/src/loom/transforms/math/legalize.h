@@ -10,10 +10,17 @@
 #define LOOM_TRANSFORMS_MATH_LEGALIZE_H_
 
 #include "loom/pass/types.h"
+#include "loom/target/legalization.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Returns the shared reference provider for narrow basic arithmetic created
+// during target legalization. It reuses the selected target's math policy and
+// recipes after native contract rejection, without another function traversal.
+const loom_target_legalizer_provider_t* loom_math_target_legalizer_provider(
+    void);
 
 // Returns immutable metadata for the legalize-math pass.
 const loom_pass_info_t* loom_math_legalize_pass_info(void);

@@ -1,0 +1,73 @@
+// RUN: pass licm
+
+// The loaded and written banks alternate order, but are disjoint for either
+// phase. The phase is fixed over all executions of the inner loop.
+func.def @complementary_banks(%storage: buffer, %phase: index, %initial: vector<4xi32>) -> (vector<4xi32>) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %stride = index.constant 16 : offset
+  %bank = index.andi %phase, %c1 : index
+  %advanced = index.add %phase, %c1 : index
+  %other = index.andi %advanced, %c1 : index
+  %read_offset = index.scale %bank, %stride : index, offset -> offset
+  %write_offset = index.scale %other, %stride : index, offset -> offset
+  %read = buffer.view %storage[%read_offset] : buffer -> view<4xi32>
+  %write = buffer.view %storage[%write_offset] : buffer -> view<4xi32>
+  %result = scf.for %i = [%c0 to %c2 step %c1](%sum = %initial : vector<4xi32>) -> (vector<4xi32>) {
+    %loaded = vector.load %read[0] : view<4xi32> -> vector<4xi32>
+    vector.store %sum, %write[0] : vector<4xi32>, view<4xi32>
+    %added = vector.addi %sum, %loaded : vector<4xi32>
+    scf.yield %added : vector<4xi32>
+  }
+  func.return %result : vector<4xi32>
+}
+
+// ----
+func.def @complementary_banks(%storage: buffer, %phase: index, %initial: vector<4xi32>) -> (vector<4xi32>) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %stride = index.constant 16 : offset
+  %bank = index.andi %phase, %c1 : index
+  %advanced = index.add %phase, %c1 : index
+  %other = index.andi %advanced, %c1 : index
+  %read_offset = index.scale %bank, %stride : index, offset -> offset
+  %write_offset = index.scale %other, %stride : index, offset -> offset
+  %read = buffer.view %storage[%read_offset] : buffer -> view<4xi32>
+  %write = buffer.view %storage[%write_offset] : buffer -> view<4xi32>
+  %loaded = vector.load %read[0] : view<4xi32> -> vector<4xi32>
+  %result = scf.for %i = [%c0 to %c2 step %c1](%sum = %initial : vector<4xi32>) -> (vector<4xi32>) {
+    vector.store %sum, %write[0] : vector<4xi32>, view<4xi32>
+    %added = vector.addi %sum, %loaded : vector<4xi32>
+    scf.yield %added : vector<4xi32>
+  }
+  func.return %result : vector<4xi32>
+}
+
+// ====
+
+// RUN: pass licm
+
+// Each packet crosses the bank boundary. Periodic origins cannot justify
+// hoisting an overlapping read even though the bank indices are different.
+func.def @crosses_bank_boundary(%storage: buffer, %phase: index, %initial: vector<4xi32>) -> (vector<4xi32>) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %stride = index.constant 8 : offset
+  %bank = index.andi %phase, %c1 : index
+  %advanced = index.add %phase, %c1 : index
+  %other = index.andi %advanced, %c1 : index
+  %read_offset = index.scale %bank, %stride : index, offset -> offset
+  %write_offset = index.scale %other, %stride : index, offset -> offset
+  %read = buffer.view %storage[%read_offset] : buffer -> view<4xi32>
+  %write = buffer.view %storage[%write_offset] : buffer -> view<4xi32>
+  %result = scf.for %i = [%c0 to %c2 step %c1](%sum = %initial : vector<4xi32>) -> (vector<4xi32>) {
+    %loaded = vector.load %read[0] : view<4xi32> -> vector<4xi32>
+    vector.store %sum, %write[0] : vector<4xi32>, view<4xi32>
+    %added = vector.addi %sum, %loaded : vector<4xi32>
+    scf.yield %added : vector<4xi32>
+  }
+  func.return %result : vector<4xi32>
+}

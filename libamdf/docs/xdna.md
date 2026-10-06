@@ -1,9 +1,12 @@
-# XDNA native execution
+# XDNA execution through libamdf
 
 libamdf supplies device admission, scoped memory, addresses, and native queue
 submission. A HAL supplies instruction bytes, ELF loading and relocation, tile
 programs, and scheduling. ARRAY and CONTROL are image-layer concepts; neither
 appears in the driver API.
+
+[XDNA timing, counters, and trace](../../docs/reference/amd/xdna/observability.md) describes tile timer
+reads, event counters, trace routing, and native firmware instrumentation.
 
 ## One caller flow
 
@@ -33,8 +36,16 @@ and successful prior completion do not provide that contract.
 
 Ordinary data buffers have no per-submission BO list. Allocation establishes
 their native mappings and residency. The caller maintains visibility, ordering,
-and lifetime, including references followed by device-side streaming after a
-kernel submission retires. Completion does not discover those references.
+and lifetime, including uses by independently scheduled consumers such as a
+GPU program. Retiring the XDNA command does not join those consumers. Its own
+tile workers and transfers must be quiescent before the controller finishes.
+
+For Linux SVA, physical page pinning alone does not establish continuously usable
+device translation. Compaction can temporarily invalidate a process mapping
+without moving its pinned backing. The [host-memory translation reference](../../docs/reference/amd/xdna/execution.md#host-memory-translation-and-page-pinning)
+describes the observed registered-memory failure, the qualified scope of an
+allocation-specific mitigation and the progress requirements for resident
+workers during native invalidation handling.
 
 For CPU/NPU interchange, the caller queries `memory_query_pair_info` with its
 concrete host mapping and device access plus queue-family ordinal. The result
@@ -92,12 +103,26 @@ Replacing a role or program inside one still-running invocation does not take
 this native-entry boundary. Its services remain owned by that invocation. A GPU
 consumer can also continue using shared output after NPU retirement, under its
 own execution and memory-lifetime protocol; that does not keep the NPU placement
-owned. The execution CTS covers complete setup after full-width context
-switches, independent context teardown with shared data retained, and prequeued
-program/binding rotation. Those tests exercise ordinary native handoff, not
-arbitrary recovery of an incorrectly terminated program.
+owned. These are separate lifetime boundaries: shared data can outlive a
+context, while application tile state requires its own execution protocol.
 
 ## Native requirements
+
+The [endpoint profile](../src/xdna/device_profile.c) reports the following
+canonical targets with architecture `AMDF_XDNA_ARCHITECTURE_AIE2P`. The native
+driver uses separate product names for their PCI identities:
+
+| Canonical target | Native product name | PCI device / revision |
+| --- | --- | --- |
+| `amd.xdna.strix.17f0_10` | NPU4 | `0x17f0 / 0x10` |
+| `amd.xdna.strix_halo.17f0_11` | NPU5 | `0x17f0 / 0x11` |
+| `amd.xdna.krackan.17f0_20` | NPU6 | `0x17f0 / 0x20` |
+
+The [pinned native device table](https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_pci_drv.c#L79-L84)
+supplies those product names. Array geometry comes from the activated device;
+sharing AIE2P does not imply equal row or column counts. The AIE2IPU register
+tables and AIE4 native interfaces discussed in the observability reference are
+separately scoped source contracts, not additional execution admission.
 
 | Boundary | Linux modern DRM | Windows MCDM |
 | --- | --- | --- |
@@ -230,15 +255,12 @@ failure. A successful refresh may report no new progress, including when another
 host caller is consuming results. Native observation failure leaves the output
 unchanged and does not cancel accepted work.
 
-The [canonical ELF consumer](../../experimental/xdna/cts/execution_test.cc)
-shows the complete flow, including target selection, image loading, relocation,
-cold host preparation, independent execution, numerical checks and teardown. The
-ELF decoder and materializer live in the runtime image layer; libamdf receives
-only the prepared native range. Reusing that range does not repeat image
-loading or require an indirect data-buffer list. Each independent submission
-uses the complete setup-and-execution range to establish its application tile
-state; time-sliced context lifetime alone does not guarantee that state survives
-between submissions.
+An ELF decoder and materializer can prepare the native instruction range before
+publication. Reusing that range does not repeat image loading or require an
+indirect data-buffer list. Each independent submission uses the complete
+setup-and-execution range to establish its application tile state; time-sliced
+context lifetime alone does not guarantee that state survives between
+submissions.
 
 ## Program sets and run-local bindings
 
@@ -283,14 +305,9 @@ Changing an embedded address requires either a different prepared range or
 retirement of all users of the range being rebound. Queue and argument backing
 remains live through its actual last device use, including downstream consumers.
 
-The [execution CTS](../../experimental/xdna/cts/execution_test.cc) prepares a
-multiplication program and an addition program with different binding addresses
-in one instruction allocation. Both are submitted before the completion wait;
-addition consumes multiplication's output without a host copy. Each full
-invocation waits for its output DMA, and repeated pairs exercise rotation back
-to multiplication and queue-slot reuse. This native sequence does not imply
-FIFO ordering at the HAL API: the HAL still establishes application dependency
-edges before choosing where and when to publish native work.
+A HAL establishes application dependency edges before choosing where and when
+to publish native work. Ordering accepted native commands does not add implicit
+FIFO semantics to a higher-level queue API or join another engine's users.
 
 Program replacement *within* a resident invocation has a different boundary.
 The running program can consume addresses of replacement code from its own
@@ -400,8 +417,32 @@ its own qualified native control and readback before receiving that label.
 The measurement record includes native power policy, observed power state,
 clock policy, driver/firmware, idle intervals and concurrent CPU/GPU/NPU work.
 A cooperative machine benchmark lease serializes participating benchmarks, not
-all device users. Default correctness tests retain normal power management;
-libamdf issues no keepalive work and changes no machine power policy.
+all device users. libamdf issues no keepalive work and changes no machine
+power policy.
+
+## Observation result memory
+
+A counter-reply or trace destination is ordinary device-writable memory. The
+caller selects a scope and memory profile with the intended NPU and host or
+GPU consumers, then obtains backing with `memory_create`, registration, or
+`memory_import`.
+
+`memory_query_address(memory, access_ordinal, AMDF_MEMORY_ADDRESS_XDNA_DMA,
+&address)` returns the address interpretation used by shim DMA. An offset into
+the allocation is added to that address. The firmware address interpretation
+is separate; the caller does not translate it using a fixed platform constant.
+
+The prepared observation configuration lives with the other controller
+instructions in context-private EXECUTE memory. `kernel_queue_submit`
+publishes that range without parsing or modifying it. It does not start a
+collector or inspect the observation destination.
+
+After the program's completion edge, the reader applies the visibility recipe
+from `memory_query_pair_info`. A host acquire requiring cache invalidation uses
+`host_mapping_cache_control` on the relevant range. Cache control establishes
+visibility; it does not wait for a still-running writer. A GPU reader can
+consume the same backing under its own ordering and lifetime contract. The
+[memory reference](memory.md) describes those operations in detail.
 
 ## Asynchronous host observation
 
@@ -469,8 +510,9 @@ caller-owned target-native instructions and tile programs. Changing between
 finite dispatches and resident work queues does not require a different libamdf
 submission API. Native retirement establishes when the caller may reuse the
 submitted instruction storage. The caller keeps all indirectly referenced
-memory live until its tile and DMA users have finished; neither libamdf nor the
-HAL discovers or tracks those uses.
+memory live until its tile, DMA and independently scheduled users have finished.
+libamdf does not discover or track those uses; the caller supplies the explicit
+last-use dependencies required by its execution model.
 
 Native context scheduling and placement constrain those execution models.
 Fixed physical backing does not grant exclusive ownership or uninterrupted
@@ -489,9 +531,9 @@ NPU6 (Krackan) uses the AIE2P path and NPU4 firmware bootstrap. AMD's
 [driver definition](https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/npu6_regs.c)
 shares NPU4 firmware, hardware operations and feature contracts. Array geometry
 is queried from the installed driver on both platforms. Krackan retains its own
-PCI and target identity while the numerical consumer shares the compatible
-Strix image profile. Image ABI, instruction format, context bounds and required
-capabilities remain checked.
+PCI and target identity. A compiler or image loader separately establishes
+image ABI, instruction format, context bounds and required capabilities; sharing
+firmware does not by itself make executable images interchangeable.
 
 The [memory fabric](memory.md) describes the shared scope, address, visibility,
 and lifetime contracts used by GPU and XDNA callers.

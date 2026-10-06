@@ -26,6 +26,7 @@
 #include "loom/pass/builtin_registry.h"
 #include "loom/target/arch/cmd/artifact_builder.h"
 #include "loom/target/arch/cmd/artifact_set.h"
+#include "loom/transforms/cleanup/configured.h"
 #include "loom/transforms/kernel/kernel_class_materializer.h"
 #include "loom/transforms/kernel/kernel_request_producer.h"
 #include "loomc/compile.h"
@@ -81,7 +82,7 @@ typedef struct loomc_cmd_program_product_invocation_t {
     loomc_allocator_t allocator;
   } request;
 
-  // Operation result receiving command preparation diagnostics.
+  // Operation result receiving command planning diagnostics.
   loomc_result_t* result;
 
   // Optional embedding sink accepting source-backed kernel requests.
@@ -395,7 +396,7 @@ static iree_status_t loomc_cmd_program_product_capture_diagnostic(
   loomc_cmd_program_product_invocation_t* invocation =
       (loomc_cmd_program_product_invocation_t*)user_data;
   return iree_status_from_loomc(loomc_result_add_loom_diagnostic_emission(
-      invocation->result, /*source=*/NULL, LOOM_EMITTER_PASS, emission));
+      invocation->result, /*module=*/NULL, LOOM_EMITTER_PASS, emission));
 }
 
 static loomc_status_t loomc_cmd_program_product_translate_plan_status(
@@ -505,6 +506,8 @@ static loomc_status_t loomc_cmd_program_product_build_indexed(
                 .plan_options =
                     request_sink.publish != NULL ? &plan_options : NULL,
                 .pass_registry = loom_pass_builtin_registry(),
+                .cleanup_pattern_provider_set =
+                    loom_cleanup_configured_pattern_provider_set(),
                 .diagnostic_emitter =
                     {
                         .fn = loomc_cmd_program_product_capture_diagnostic,
@@ -522,7 +525,7 @@ static loomc_status_t loomc_cmd_program_product_build_indexed(
     if (loomc_result_diagnostic_count(result) == diagnostic_count_before) {
       status = loomc_make_status(
           LOOMC_STATUS_INTERNAL,
-          "command program preparation failed without a diagnostic");
+          "command program planning failed without a diagnostic");
     } else {
       status = loomc_result_set_state(result, LOOMC_RESULT_STATE_FAILED);
     }

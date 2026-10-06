@@ -12,53 +12,44 @@ const loom_xdna_array_family_t* loom_xdna_npu2_array_family(void) {
   return &kLoomXdnaNpu2ArrayFamily;
 }
 
-iree_status_t loom_xdna_array_tile_facts(
+const loom_xdna_tile_facts_t* loom_xdna_array_tile_facts(
     const loom_xdna_array_family_t* family,
-    loom_xdna_tile_coordinate_t coordinate,
-    const loom_xdna_tile_facts_t** out_facts) {
-  IREE_ASSERT_ARGUMENT(family);
-  IREE_ASSERT_ARGUMENT(out_facts);
-  *out_facts = NULL;
-  if (coordinate.column >= family->column_count ||
-      coordinate.row >= family->row_count) {
-    return iree_make_status(
-        IREE_STATUS_OUT_OF_RANGE,
-        "XDNA tile coordinate (%u, %u) is outside %ux%u family %s",
-        coordinate.column, coordinate.row, family->column_count,
-        family->row_count, family->key);
-  }
+    loom_xdna_tile_coordinate_t coordinate) {
   for (uint8_t i = 0; i < family->tile_count; ++i) {
     const loom_xdna_tile_facts_t* facts = &family->tiles[i];
     if (coordinate.row >= facts->first_row &&
         coordinate.row < facts->first_row + facts->row_count) {
-      *out_facts = facts;
-      return iree_ok_status();
+      return facts;
     }
   }
-  return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                          "XDNA family %s has incomplete row facts",
-                          family->key);
+  IREE_ASSERT_UNREACHABLE("generated tile rows cover admitted coordinates");
+  return NULL;
 }
 
-iree_status_t loom_xdna_array_stream_port_range(
+const loom_xdna_tile_facts_t* loom_xdna_array_tile_kind_facts(
+    const loom_xdna_array_family_t* family, loom_xdna_tile_kind_t tile_kind) {
+  for (uint8_t i = 0; i < family->tile_count; ++i) {
+    const loom_xdna_tile_facts_t* facts = &family->tiles[i];
+    if (facts->kind == tile_kind) {
+      return facts;
+    }
+  }
+  IREE_ASSERT_UNREACHABLE("generated tile kinds cover target planning");
+  return NULL;
+}
+
+const loom_xdna_stream_port_range_t* loom_xdna_array_stream_port_range(
     const loom_xdna_array_family_t* family, loom_xdna_tile_kind_t tile_kind,
-    loom_xdna_stream_direction_t direction, loom_xdna_stream_port_t port,
-    const loom_xdna_stream_port_range_t** out_range) {
-  IREE_ASSERT_ARGUMENT(family);
-  IREE_ASSERT_ARGUMENT(out_range);
-  *out_range = NULL;
+    loom_xdna_stream_direction_t direction, loom_xdna_stream_port_t port) {
   for (uint8_t i = 0; i < family->stream_port_count; ++i) {
     const loom_xdna_stream_port_range_t* range = &family->stream_ports[i];
     if (range->tile_kind == tile_kind && range->direction == direction &&
         range->port == port) {
-      *out_range = range;
-      return iree_ok_status();
+      return range;
     }
   }
-  return iree_make_status(
-      IREE_STATUS_NOT_FOUND,
-      "XDNA tile kind %u has no stream port %u in direction %u", tile_kind,
-      port, direction);
+  IREE_ASSERT_UNREACHABLE("generated stream ports cover target routing");
+  return NULL;
 }
 
 iree_status_t loom_xdna_array_register_address(
@@ -68,8 +59,8 @@ iree_status_t loom_xdna_array_register_address(
   IREE_ASSERT_ARGUMENT(family);
   IREE_ASSERT_ARGUMENT(out_address);
   *out_address = 0;
-  const loom_xdna_tile_facts_t* tile = NULL;
-  IREE_RETURN_IF_ERROR(loom_xdna_array_tile_facts(family, coordinate, &tile));
+  const loom_xdna_tile_facts_t* tile =
+      loom_xdna_array_tile_facts(family, coordinate);
   if (module == 0 || module > LOOM_XDNA_REGISTER_MODULE_SHIM_PL ||
       (tile->register_module_bits & LOOM_XDNA_REGISTER_MODULE_BIT(module)) ==
           0) {
@@ -115,8 +106,8 @@ iree_status_t loom_xdna_array_resolve_local_memory(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "XDNA memory placement must not be empty");
   }
-  const loom_xdna_tile_facts_t* tile = NULL;
-  IREE_RETURN_IF_ERROR(loom_xdna_array_tile_facts(family, coordinate, &tile));
+  const loom_xdna_tile_facts_t* tile =
+      loom_xdna_array_tile_facts(family, coordinate);
   uint32_t owner_offset = 0;
   if (!loom_xdna_array_memory_range_contains(
           tile->memory.local_base, tile->memory.local_capacity, address,
@@ -145,9 +136,8 @@ iree_status_t loom_xdna_array_resolve_load_memory(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "XDNA memory placement must not be empty");
   }
-  const loom_xdna_tile_facts_t* accessor_tile = NULL;
-  IREE_RETURN_IF_ERROR(
-      loom_xdna_array_tile_facts(family, accessor, &accessor_tile));
+  const loom_xdna_tile_facts_t* accessor_tile =
+      loom_xdna_array_tile_facts(family, accessor);
   if (memory_space == LOOM_XDNA_MEMORY_SPACE_PROGRAM) {
     uint32_t owner_offset = 0;
     if (!loom_xdna_array_memory_range_contains(
@@ -194,9 +184,8 @@ iree_status_t loom_xdna_array_resolve_load_memory(
         .column = (uint16_t)owner_column,
         .row = (uint16_t)owner_row,
     };
-    const loom_xdna_tile_facts_t* owner_tile = NULL;
-    IREE_RETURN_IF_ERROR(
-        loom_xdna_array_tile_facts(family, owner, &owner_tile));
+    const loom_xdna_tile_facts_t* owner_tile =
+        loom_xdna_array_tile_facts(family, owner);
     if (owner_tile->kind != window->owner_kind) {
       return iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
@@ -230,11 +219,10 @@ iree_status_t loom_xdna_array_form_load_address(
                             "XDNA memory placement must not be empty");
   }
 
-  const loom_xdna_tile_facts_t* accessor_tile = NULL;
-  IREE_RETURN_IF_ERROR(
-      loom_xdna_array_tile_facts(family, accessor, &accessor_tile));
-  const loom_xdna_tile_facts_t* owner_tile = NULL;
-  IREE_RETURN_IF_ERROR(loom_xdna_array_tile_facts(family, owner, &owner_tile));
+  const loom_xdna_tile_facts_t* accessor_tile =
+      loom_xdna_array_tile_facts(family, accessor);
+  const loom_xdna_tile_facts_t* owner_tile =
+      loom_xdna_array_tile_facts(family, owner);
   const uint64_t owner_end = (uint64_t)owner_offset + byte_length;
   if (memory_space == LOOM_XDNA_MEMORY_SPACE_PROGRAM) {
     if (accessor.column != owner.column || accessor.row != owner.row) {
@@ -286,11 +274,10 @@ iree_status_t loom_xdna_array_form_lock_selector(
   IREE_ASSERT_ARGUMENT(out_selector);
   *out_selector = 0;
 
-  const loom_xdna_tile_facts_t* accessor_tile = NULL;
-  IREE_RETURN_IF_ERROR(
-      loom_xdna_array_tile_facts(family, accessor, &accessor_tile));
-  const loom_xdna_tile_facts_t* owner_tile = NULL;
-  IREE_RETURN_IF_ERROR(loom_xdna_array_tile_facts(family, owner, &owner_tile));
+  const loom_xdna_tile_facts_t* accessor_tile =
+      loom_xdna_array_tile_facts(family, accessor);
+  const loom_xdna_tile_facts_t* owner_tile =
+      loom_xdna_array_tile_facts(family, owner);
   if (owner_lock_ordinal >= owner_tile->lock_count) {
     return iree_make_status(
         IREE_STATUS_OUT_OF_RANGE,

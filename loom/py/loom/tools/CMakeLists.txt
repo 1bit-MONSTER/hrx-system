@@ -11,6 +11,37 @@ iree_add_all_subdirs()
 
 iree_py_library(
   NAME
+    source_inventory
+  SRCS
+    "source_inventory.py"
+  IMPORTS
+    "../.."
+)
+
+iree_py_test(
+  NAME
+    source_inventory_test
+  MAIN
+    "pytest_style_runner.py"
+  SRCS
+    "pytest_style_runner.py"
+    "source_inventory_test.py"
+  ARGS
+    "loom.tools.source_inventory_test"
+  DEPS
+    loom::py::loom::tools::source_inventory
+  LABELS
+    "manual"
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+  TIMEOUT
+    60
+)
+
+iree_py_library(
+  NAME
     tools
   SRCS
     "__init__.py"
@@ -98,12 +129,14 @@ iree_py_test(
     "compile_report_test.py"
     "loom_opt_test.py"
     "pytest_style_runner.py"
+    "pytest_style_runner_test.py"
     "source_lint_test.py"
     "source_surface_test.py"
   ARGS
     "loom.tools.amdgpu_asm_test"
     "loom.tools.compile_report_test"
     "loom.tools.loom_opt_test"
+    "loom.tools.pytest_style_runner_test"
     "loom.tools.source_surface_test"
     "loom.tools.source_lint_test"
   DEPS

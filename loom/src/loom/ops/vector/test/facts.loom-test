@@ -58,6 +58,25 @@ func.def @extsi_uniform_i1(%x: i1) -> (i64, i64) {
 
 // ====
 
+// Unsigned extension describes every lane even when the input vector has no
+// aggregate lane summary. This is the dynamic byte-index domain used by
+// memory-backed lookup tables.
+func.def @extui_unknown_i8_vector(%x: vector<4xi8>) -> (i64, i64) {
+  %wide = vector.extui %x : vector<4xi8> to vector<4xi32>
+  %lane = vector.extract %wide[2] : vector<4xi32> -> i32
+  %lo = test.fact_range_lo %lane : i32 -> i64
+  %hi = test.fact_range_hi %lane : i32 -> i64
+  func.return %lo, %hi : i64, i64
+}
+// ----
+func.def @extui_unknown_i8_vector(%x: vector<4xi8>) -> (i64, i64) {
+  %lo = scalar.constant 0 : i64
+  %hi = scalar.constant 255 : i64
+  func.return %lo, %hi : i64, i64
+}
+
+// ====
+
 // Compile-time vectors have the same value in every workitem even though their
 // logical elements are represented by an extension fact.
 func.def @constant_is_workgroup_uniform() -> (i1, i1) {
@@ -690,6 +709,30 @@ func.def @bitpack_bitunpack_q4_round_trip() -> (i8, i8, i8) {
 
 // ====
 
+// Large bitstream results retain their source-independent lane bounds without
+// materializing per-lane facts beyond the small-static representation limit.
+func.def @bitunpack_large_uniform_bounds(%packed: vector<32xi8>) -> (i64, i64, i64, i64) {
+  %unsigned = vector.bitunpacku<4> %packed : vector<32xi8> -> vector<64xi8>
+  %signed = vector.bitunpacks<4> %packed : vector<32xi8> -> vector<64xi8>
+  %unsigned_lane = vector.extract %unsigned[63] : vector<64xi8> -> i8
+  %signed_lane = vector.extract %signed[31] : vector<64xi8> -> i8
+  %unsigned_lo = test.fact_range_lo %unsigned_lane : i8 -> i64
+  %unsigned_hi = test.fact_range_hi %unsigned_lane : i8 -> i64
+  %signed_lo = test.fact_range_lo %signed_lane : i8 -> i64
+  %signed_hi = test.fact_range_hi %signed_lane : i8 -> i64
+  func.return %unsigned_lo, %unsigned_hi, %signed_lo, %signed_hi : i64, i64, i64, i64
+}
+// ----
+func.def @bitunpack_large_uniform_bounds(%packed: vector<32xi8>) -> (i64, i64, i64, i64) {
+  %unsigned_lo = scalar.constant 0 : i64
+  %unsigned_hi = scalar.constant 15 : i64
+  %signed_lo = scalar.constant -8 : i64
+  %signed_hi = scalar.constant 7 : i64
+  func.return %unsigned_lo, %unsigned_hi, %signed_lo, %signed_hi : i64, i64, i64, i64
+}
+
+// ====
+
 // Table lookup facts compose exact code lanes with explicit register tables.
 func.def @table_lookup_small_lanes() -> (f16, f16) {
   %g0 = scalar.constant -1.0 : f16
@@ -1138,6 +1181,34 @@ func.def @dot8i4_small_static_lanes() -> (i32) {
 func.def @dot8i4_small_static_lanes() -> (i32) {
   %r0 = scalar.constant 72 : i32
   func.return %r0 : i32
+}
+
+// ====
+
+// Integer dot facts retain exact results when accumulation wraps modulo i32.
+func.def @integer_dot_facts_wrap_i32() -> (i32, i32) {
+  %c255_i8 = scalar.constant -1 : i8
+  %c1_i8 = scalar.constant 1 : i8
+  %c0_i8 = scalar.constant 0 : i8
+  %lhs4 = vector.from_elements %c255_i8, %c0_i8, %c0_i8, %c0_i8 : vector<4xi8>
+  %rhs4 = vector.from_elements %c1_i8, %c0_i8, %c0_i8, %c0_i8 : vector<4xi8>
+  %max = scalar.constant 2147483647 : i32
+  %acc = vector.from_elements %max : vector<1xi32>
+  %dot4 = vector.dot4i<u8s8> %lhs4, %rhs4, %acc : vector<4xi8>, vector<4xi8>, vector<1xi32>
+  %result4 = vector.extract %dot4[0] : vector<1xi32> -> i32
+
+  %packed_one = scalar.constant 1 : i32
+  %lhs8 = vector.from_elements %packed_one : vector<1xi32>
+  %rhs8 = vector.from_elements %packed_one : vector<1xi32>
+  %dot8 = vector.dot8i4<u4u4> %lhs8, %rhs8, %acc : vector<1xi32>
+  %result8 = vector.extract %dot8[0] : vector<1xi32> -> i32
+  func.return %result4, %result8 : i32, i32
+}
+// ----
+func.def @integer_dot_facts_wrap_i32() -> (i32, i32) {
+  %result4 = scalar.constant -2147483394 : i32
+  %result8 = scalar.constant -2147483648 : i32
+  func.return %result4, %result8 : i32, i32
 }
 
 // ====
@@ -1958,4 +2029,66 @@ func.def @finite_numeric_format_vector_decode_content(%payload: vector<1xi32>) -
   %fp6_finite = scalar.constant true : i1
   %bf6_finite = scalar.constant true : i1
   func.return %fp4_finite, %fp6_finite, %bf6_finite : i1, i1, i1
+}
+
+// ====
+
+// Native grouped arithmetic may differ under cancellation. Compile-time
+// evaluation retains the target-independent ordered f32 reference.
+func.def @dot2f_f16_reference_cancellation() -> (f32, f32) {
+  %a0 = scalar.constant 1.0 : f16
+  %a1 = scalar.constant 2.0 : f16
+  %a2 = scalar.constant -3.0 : f16
+  %a3 = scalar.constant 4.0 : f16
+  %b0 = scalar.constant 5.0 : f16
+  %b1 = scalar.constant -6.0 : f16
+  %b2 = scalar.constant 7.0 : f16
+  %b3 = scalar.constant 8.0 : f16
+  %seed0 = scalar.constant 9.0 : f32
+  %seed1 = scalar.constant -10.0 : f32
+  %lhs = vector.from_elements %a0, %a1, %a2, %a3 : vector<4xf16>
+  %rhs = vector.from_elements %b0, %b1, %b2, %b3 : vector<4xf16>
+  %seed = vector.from_elements %seed0, %seed1 : vector<2xf32>
+  %result = vector.dot2f %lhs, %rhs, %seed : vector<4xf16>, vector<4xf16>, vector<2xf32>
+  %first = vector.extract %result[0] : vector<2xf32> -> f32
+  %second = vector.extract %result[1] : vector<2xf32> -> f32
+  func.return %first, %second : f32, f32
+}
+
+// ----
+func.def @dot2f_f16_reference_cancellation() -> (f32, f32) {
+  %first = scalar.constant 2.0 : f32
+  %second = scalar.constant 1.0 : f32
+  func.return %first, %second : f32, f32
+}
+
+// ====
+
+// Native grouped arithmetic may differ under cancellation. Compile-time
+// evaluation retains the target-independent ordered f32 reference.
+func.def @dot2f_bf16_reference_cancellation() -> (f32, f32) {
+  %a0 = scalar.constant 1.0 : bf16
+  %a1 = scalar.constant 2.0 : bf16
+  %a2 = scalar.constant -3.0 : bf16
+  %a3 = scalar.constant 4.0 : bf16
+  %b0 = scalar.constant 5.0 : bf16
+  %b1 = scalar.constant -6.0 : bf16
+  %b2 = scalar.constant 7.0 : bf16
+  %b3 = scalar.constant 8.0 : bf16
+  %seed0 = scalar.constant 9.0 : f32
+  %seed1 = scalar.constant -10.0 : f32
+  %lhs = vector.from_elements %a0, %a1, %a2, %a3 : vector<4xbf16>
+  %rhs = vector.from_elements %b0, %b1, %b2, %b3 : vector<4xbf16>
+  %seed = vector.from_elements %seed0, %seed1 : vector<2xf32>
+  %result = vector.dot2f %lhs, %rhs, %seed : vector<4xbf16>, vector<4xbf16>, vector<2xf32>
+  %first = vector.extract %result[0] : vector<2xf32> -> f32
+  %second = vector.extract %result[1] : vector<2xf32> -> f32
+  func.return %first, %second : f32, f32
+}
+
+// ----
+func.def @dot2f_bf16_reference_cancellation() -> (f32, f32) {
+  %first = scalar.constant 2.0 : f32
+  %second = scalar.constant 1.0 : f32
+  func.return %first, %second : f32, f32
 }

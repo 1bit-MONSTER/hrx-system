@@ -24,5 +24,5 @@ iree_status_t loom_func_call_verify(const loom_module_t* module,
                                     iree_diagnostic_emitter_t emitter) {
   return loom_function_call_contract_verify(
       module, op, loom_func_call_callee(op), loom_func_call_operands(op),
-      loom_func_call_results(op), emitter);
+      loom_func_call_results(op), /*argument_match_flags=*/0, emitter);
 }

@@ -16,6 +16,7 @@ from loom.reporting.compile_report import (
     CompileReportError,
     compile_report_entry_identity,
 )
+from loom.reporting.compile_report_bank_service import build_bank_service_show
 from loom.reporting.compile_report_loop_pipelines import build_loop_pipeline_show
 from loom.reporting.compile_report_move_causes import (
     CompileReportMoveCause,
@@ -188,6 +189,7 @@ def _suggest_pipeline_copy_waits(
         if not waits:
             continue
         evidence = list(policy_evidence[index])
+        has_zero_block_local_outstanding = False
         for path, row in waits:
             for key in (
                 "block_index",
@@ -195,22 +197,31 @@ def _suggest_pipeline_copy_waits(
                 "target_count",
                 "outstanding_before",
             ):
-                evidence.append(
-                    CompileReportSuggestionEvidence(
-                        f"{path}.{key}", _report_integer(row.get(key), f"{path}.{key}")
-                    )
-                )
+                value = _report_integer(row.get(key), f"{path}.{key}")
+                if key == "outstanding_before" and value == 0:
+                    has_zero_block_local_outstanding = True
+                evidence.append(CompileReportSuggestionEvidence(f"{path}.{key}", value))
+        zero_outstanding_explanation = ""
+        if has_zero_block_local_outstanding:
+            zero_outstanding_explanation = (
+                " A zero block-local count still denotes a planned residual "
+                "counter-epoch or control-flow hazard; it does not mean the "
+                "hardware wait is redundant."
+            )
         suggestions.append(
             CompileReportSuggestion(
                 suggestion_id="amdgpu.pipeline_copy_waits",
                 entry_name=compile_report_entry_identity(entry).display_name(),
                 action=(
                     "Full global-load waits precede branch-payload copies in this "
-                    "read-ahead entry. Inspect the cited blocks "
+                    "read-ahead entry. Each cited outstanding_before value counts "
+                    "packets in its scheduled block, not the whole hardware "
+                    "counter."
+                    f"{zero_outstanding_explanation} Inspect the cited blocks "
                     "to distinguish steady backedges from startup and tail edges. "
                     "For steady backedges, compare explicit unroll factors with "
                     "schedule(recurrence) at fixed pipeline depth. Check for fewer "
-                    "queue moves and loads still pending at the backedge, then "
+                    "queue moves and useful loads still pending at the backedge, then "
                     "compare registers, occupancy, code size, and measured runtime."
                 ),
                 evidence=tuple(evidence),
@@ -303,9 +314,12 @@ def _suggest_wait_serialization(
             )
             suggestion_id = "amdgpu.lds_ssa_use_serialization"
             action = (
-                "Issue independent LDS or DS producers before consuming their "
-                "SSA results so waits can remain partial; then require "
-                "LDS SSA-use full drains to fall before benchmarking."
+                "Repeated LDS or DS results are consumed after full counter "
+                "drains. Inspect the cited producer/consumer pairs: dependent "
+                "chains such as subgroup reductions require these waits, while "
+                "independent chains can issue producers together so waits remain "
+                "partial. Benchmark only when the report shows fewer LDS "
+                "SSA-use full drains."
             )
             reason_evidence = (
                 CompileReportSuggestionEvidence(
@@ -315,6 +329,12 @@ def _suggest_wait_serialization(
                 CompileReportSuggestionEvidence(
                     path=f"{row_path}.summary.max_outstanding_before",
                     value=max_outstanding,
+                ),
+                *_wait_descriptor_evidence(
+                    document,
+                    function_name=function_name,
+                    counter="lds",
+                    reason="amdgpu.ssa_use",
                 ),
             )
         suggestions.append(
@@ -340,6 +360,56 @@ def _suggest_wait_serialization(
             )
         )
     return tuple(suggestions)
+
+
+def _wait_descriptor_evidence(
+    document: CompileReportDocument,
+    *,
+    function_name: str | None,
+    counter: str,
+    reason: str,
+) -> tuple[CompileReportSuggestionEvidence, ...]:
+    actions_value = document.report.get("wait_action_rows")
+    if actions_value is None:
+        return ()
+    rows = _report_indexed_rows(
+        _report_object(actions_value, "wait_action_rows"), "wait_action_rows"
+    )
+    evidence = []
+    seen_pairs: set[tuple[str, str]] = set()
+    for position, row in enumerate(rows):
+        if (
+            row.get("function") != function_name
+            or row.get("counter") != counter
+            or row.get("reason") != reason
+        ):
+            continue
+        row_path = f"wait_action_rows.rows[{position}]"
+        producer = _report_string(
+            row.get("producer_descriptor_key"),
+            f"{row_path}.producer_descriptor_key",
+        )
+        consumer = _report_string(
+            row.get("consumer_descriptor_key"),
+            f"{row_path}.consumer_descriptor_key",
+        )
+        pair = (producer, consumer)
+        if pair in seen_pairs:
+            continue
+        seen_pairs.add(pair)
+        evidence.extend(
+            (
+                CompileReportSuggestionEvidence(
+                    path=f"{row_path}.producer_descriptor_key",
+                    value=producer,
+                ),
+                CompileReportSuggestionEvidence(
+                    path=f"{row_path}.consumer_descriptor_key",
+                    value=consumer,
+                ),
+            )
+        )
+    return tuple(evidence)
 
 
 def _suggest_spill_traffic(
@@ -509,15 +579,15 @@ def _suggest_single_subgroup_communication(
         return None
     flat_workgroup_size = _integer(workgroup_size.get("flat"))
     subgroup_size = _integer(target_resources.get("subgroup_size"))
-    barrier_count = _integer(instruction_mix.get("barrier_count"))
+    execution_barrier_count = _integer(instruction_mix.get("execution_barrier_count"))
     if (
         flat_workgroup_size is None
         or flat_workgroup_size == 0
         or subgroup_size is None
         or subgroup_size == 0
         or flat_workgroup_size > subgroup_size
-        or barrier_count is None
-        or barrier_count == 0
+        or execution_barrier_count is None
+        or execution_barrier_count == 0
     ):
         return None
 
@@ -531,8 +601,8 @@ def _suggest_single_subgroup_communication(
             value=subgroup_size,
         ),
         CompileReportSuggestionEvidence(
-            path=f"{path_prefix}.static_instruction_mix.barrier_count",
-            value=barrier_count,
+            path=f"{path_prefix}.static_instruction_mix.execution_barrier_count",
+            value=execution_barrier_count,
         ),
     ]
     local_memory_instruction_count = _integer(instruction_mix.get("local_memory_count"))
@@ -558,7 +628,8 @@ def _suggest_single_subgroup_communication(
             "The workgroup fits within one subgroup but still emits workgroup "
             "barriers. Inspect whether workgroup exchange or reduction can use "
             "subgroup operations, or whether the barriers are redundant; then "
-            "require barrier and local-memory traffic to fall before "
+            "require fewer execution-barrier packets or less local-memory "
+            "traffic before "
             "benchmarking."
         ),
         evidence=tuple(evidence),
@@ -1186,83 +1257,104 @@ def _format_integer_range(values: list[int]) -> str:
     return f"{minimum:,}-{maximum:,}"
 
 
+def _bank_storage_key(
+    identity: dict[str, object],
+) -> tuple[object, object, object, object] | None:
+    if not identity["function"] or (
+        not identity["source_root"] and identity["source_root_argument_index"] is None
+    ):
+        return None
+    return (
+        identity["function"],
+        identity["source_root"],
+        identity["source_root_argument_index"],
+        identity["memory_space"],
+    )
+
+
+def _lds_padding_context(
+    entry: dict[str, object] | None,
+) -> tuple[str, tuple[CompileReportSuggestionEvidence, ...]]:
+    if entry is None:
+        return "", ()
+    summary = residency_summary(entry)
+    limit = summary.get("unique_limiting_resource")
+    if limit is None:
+        return "", ()
+    path = f"entries.rows[{entry['index']}].target_resources.residency"
+    limit_path = f"{path}.unique_limiting_resource"
+    limit = _report_object(limit, limit_path)
+    if limit.get("name") != "amdgpu.lds" or "next_worse" not in limit:
+        return "", ()
+    # The compiler owns the resource model and its rounded allocation cliff.
+    # This view only converts its first-worse footprint into inclusive headroom.
+    next_worse = _report_object(limit["next_worse"], f"{limit_path}.next_worse")
+    current = _report_integer(summary.get("current_tier"), f"{path}.current_tier")
+    units = _report_integer(limit.get("units"), f"{limit_path}.units")
+    worse = {
+        key: _report_integer(value, f"{limit_path}.next_worse.{key}")
+        for key, value in (
+            ("tier", next_worse.get("tier")),
+            ("cliff_units", next_worse.get("cliff_units")),
+            ("additional_units", next_worse.get("additional_units")),
+        )
+    }
+    if (
+        units < 0
+        or not 0 <= worse["tier"] < current
+        or worse["additional_units"] <= 0
+        or worse["cliff_units"] != units + worse["additional_units"]
+    ):
+        raise CompileReportError(f"{limit_path}.next_worse: inconsistent growth limit")
+    headroom = worse["additional_units"] - 1
+    evidence = (
+        CompileReportSuggestionEvidence(f"{path}.current_tier", current),
+        CompileReportSuggestionEvidence(f"{limit_path}.name", limit["name"]),
+        CompileReportSuggestionEvidence(f"{limit_path}.units", units),
+        *(
+            CompileReportSuggestionEvidence(f"{limit_path}.next_worse.{key}", value)
+            for key, value in worse.items()
+        ),
+    )
+    return (
+        f" LDS is {units:,} B/workgroup; with launch and other resources fixed, "
+        f"up to {headroom:,} B of growth stays below the recorded "
+        f"{current} -> {worse['tier']} subgroups/SIMD cliff at "
+        f"{worse['cliff_units']:,} B.",
+        evidence,
+    )
+
+
 def _suggest_lds_bank_service(
     document: CompileReportDocument,
     options: CompileReportSuggestionOptions,
 ) -> tuple[CompileReportSuggestion, ...]:
-    source_low = document.report.get("source_low")
-    if source_low is None:
+    if document.status_code != 0:
         return ()
-    source_low_object = _report_object(source_low, "source_low")
-    memory = source_low_object.get("memory")
-    if memory is None:
+    bank_service = build_bank_service_show(document)
+    if bank_service is None:
         return ()
-    memory_object = _report_object(memory, "source_low.memory")
-    group_values = memory_object.get("bank_service_groups")
-    if group_values is None:
-        return ()
-    if not isinstance(group_values, list):
-        raise CompileReportError(
-            "source_low.memory.bank_service_groups: expected array"
-        )
-    group_count = _report_integer(
-        memory_object.get("bank_service_group_count"),
-        "source_low.memory.bank_service_group_count",
-    )
-    if group_count != len(group_values):
-        raise CompileReportError(
-            "source_low.memory.bank_service_group_count: "
-            f"expected {len(group_values)}, got {group_count}"
-        )
+    groups = cast(list[dict[str, object]], bank_service["groups"])
+    storage_groups: dict[
+        tuple[object, object, object, object], list[dict[str, object]]
+    ] = {}
+    for group in groups:
+        identity = cast(dict[str, object], group["identity"])
+        key = _bank_storage_key(identity)
+        if key is not None:
+            storage_groups.setdefault(key, []).append(group)
 
     suggestions = []
-    for group_position, group_value in enumerate(group_values):
-        path_prefix = f"source_low.memory.bank_service_groups[{group_position}]"
-        group = _report_object(group_value, path_prefix)
-        report_index = _report_integer(group.get("index"), f"{path_prefix}.index")
-        if report_index != group_position:
-            raise CompileReportError(
-                f"{path_prefix}.index: expected {group_position}, got {report_index}"
-            )
-        model = _report_object(group.get("model"), f"{path_prefix}.model")
-        summary = _report_object(group.get("summary"), f"{path_prefix}.summary")
-        structural = _report_object(
-            summary.get("structural"),
-            f"{path_prefix}.summary.structural",
-        )
-
-        exact_packet_count = _report_integer(
-            summary.get("exact_packet_count"),
-            f"{path_prefix}.summary.exact_packet_count",
-        )
-        unknown_packet_count = _report_integer(
-            summary.get("unknown_packet_count"),
-            f"{path_prefix}.summary.unknown_packet_count",
-        )
-        conflicted_packet_count = _report_integer(
-            structural.get("conflicted_packet_count"),
-            f"{path_prefix}.summary.structural.conflicted_packet_count",
-        )
-        extra_round_count = _report_integer(
-            structural.get("extra_round_count"),
-            f"{path_prefix}.summary.structural.extra_round_count",
-        )
-        maximum_request_multiplicity = _report_integer(
-            structural.get("maximum_request_multiplicity"),
-            (f"{path_prefix}.summary.structural.maximum_request_multiplicity"),
-        )
-        if (
-            exact_packet_count == 0
-            or unknown_packet_count != 0
-            or conflicted_packet_count == 0
-            or extra_round_count == 0
-        ):
+    for group in groups:
+        path_prefix = f"source_low.memory.bank_service_groups[{group['report_index']}]"
+        summary = cast(dict[str, int], group["summary"])
+        exact_count = summary["exact_packet_count"]
+        conflicted_count = summary["conflicted_packet_count"]
+        extra_rounds = summary["extra_round_count"]
+        if exact_count == 0 or conflicted_count == 0 or extra_rounds == 0:
             continue
-
-        model_evidence = _report_string(
-            model.get("evidence"),
-            f"{path_prefix}.model.evidence",
-        )
+        model = cast(dict[str, object], group["model"])
+        model_evidence = model["evidence"]
         if model_evidence in (
             AMDGPU_LDS_BANK_SERVICE_EVIDENCE_PUBLIC_VENDOR_DOCUMENTATION,
             AMDGPU_LDS_BANK_SERVICE_EVIDENCE_SILICON_CALIBRATED_VENDOR_MODEL,
@@ -1281,80 +1373,91 @@ def _suggest_lds_bank_service(
                 f"{model_evidence!r}"
             )
 
-        function_name = _optional_report_string(
-            group.get("function"),
-            f"{path_prefix}.function",
-        )
-        source_op = _optional_report_string(
-            group.get("source_op"),
-            f"{path_prefix}.source_op",
-        )
-        source_root = _optional_report_string(
-            group.get("source_root"),
-            f"{path_prefix}.source_root",
-        )
-        source_root_argument_index_value = group.get("source_root_argument_index")
-        if source_root_argument_index_value is not None:
-            source_root_argument_index = _report_integer(
-                source_root_argument_index_value,
-                f"{path_prefix}.source_root_argument_index",
+        required = summary["required_round_count"]
+        uncontended = summary["uncontended_round_count"]
+        if uncontended <= 0 or required != uncontended + extra_rounds:
+            raise CompileReportError(
+                f"{path_prefix}.summary.structural: inconsistent service rounds"
             )
-            if source_root is None:
-                source_root = f"arg{source_root_argument_index}"
-        packet = _optional_report_string(
-            group.get("packet"),
-            f"{path_prefix}.packet",
+        packet_bytes = _report_integer(
+            model["packet_bytes"], f"{path_prefix}.model.packet_bytes"
         )
-        entry_name = _entry_name_for_function(document, function_name)
+        identity = cast(dict[str, object], group["identity"])
+        function_name = cast(str | None, identity["function"])
+        source_root = identity["source_root"]
+        if source_root is None and identity["source_root_argument_index"] is not None:
+            source_root = f"arg{identity['source_root_argument_index']}"
         location = "/".join(
-            value for value in (source_op, source_root, packet) if value is not None
+            str(value)
+            for value in (identity["source_op"], source_root, identity["packet"])
+            if value is not None
         )
+        fields = (
+            ("exact_packet_count", exact_count),
+            ("structural.conflicted_packet_count", conflicted_count),
+            ("structural.extra_round_count", extra_rounds),
+            ("structural.required_round_count", required),
+            ("structural.uncontended_round_count", uncontended),
+            (
+                "structural.maximum_request_multiplicity",
+                summary["maximum_request_multiplicity"],
+            ),
+        )
+        evidence = [
+            CompileReportSuggestionEvidence(f"{path_prefix}.summary.{key}", value)
+            for key, value in fields
+        ]
+        evidence.extend(
+            CompileReportSuggestionEvidence(f"{path_prefix}.model.{key}", model[key])
+            for key in ("packet_bytes", "evidence", "revision")
+        )
+
+        key = _bank_storage_key(identity)
+        related = storage_groups[key] if key is not None else [group]
+        coverage = {"unknown_packet_count": 0, "unmodeled_packet_count": 0}
+        for sibling in related:
+            sibling_summary = cast(dict[str, int], sibling["summary"])
+            for field in coverage:
+                count = sibling_summary[field]
+                coverage[field] += count
+                if count:
+                    evidence.append(
+                        CompileReportSuggestionEvidence(
+                            f"source_low.memory.bank_service_groups[{sibling['report_index']}].summary.{field}",
+                            count,
+                        )
+                    )
+        incomplete = ""
+        if any(coverage.values()):
+            scope = "this buffer" if key is not None else "this access group"
+            incomplete = (
+                f" Across {scope}: {coverage['unknown_packet_count']:,} unknown "
+                f"and {coverage['unmodeled_packet_count']:,} unmodeled instruction "
+                "sites remain; this finding covers proven accesses only."
+            )
+        padding, padding_evidence = _lds_padding_context(
+            _entry_for_function(document, function_name)
+        )
+        evidence.extend(padding_evidence)
         suggestions.append(
             CompileReportSuggestion(
                 suggestion_id="amdgpu.lds_bank_service",
-                entry_name=entry_name,
+                entry_name=_entry_name_for_function(document, function_name),
                 confidence=confidence,
                 action=(
-                    f"Search layout variants for {location or 'this LDS access'} "
-                    "using pitch or padding, lane mapping, fragment layout, or "
-                    "packet width to reduce exact structural extra rounds. "
-                    "Recompile each candidate, reject spill or occupancy "
-                    "regressions, and select only from hardware timing."
+                    "Test a pitch or padding change for "
+                    f"{location or 'this LDS access'}: "
+                    f"{conflicted_count:,}/{exact_count:,} proven instruction sites "
+                    f"conflict, needing {required:,} service rounds versus "
+                    f"{uncontended:,} uncontended ({required / uncontended:.2f}x; "
+                    f"{extra_rounds:,} extra). These are static counts, not cycles "
+                    "or a runtime ranking. Update producer and consumer views "
+                    f"together and recheck the current {packet_bytes} B/lane "
+                    f"instruction width.{padding}{incomplete} Recompile, compare "
+                    "all access directions, check spill or occupancy regressions, "
+                    "and select only from hardware timing."
                 ),
-                evidence=(
-                    CompileReportSuggestionEvidence(
-                        path=f"{path_prefix}.summary.exact_packet_count",
-                        value=exact_packet_count,
-                    ),
-                    CompileReportSuggestionEvidence(
-                        path=(
-                            f"{path_prefix}.summary.structural.conflicted_packet_count"
-                        ),
-                        value=conflicted_packet_count,
-                    ),
-                    CompileReportSuggestionEvidence(
-                        path=(f"{path_prefix}.summary.structural.extra_round_count"),
-                        value=extra_round_count,
-                    ),
-                    CompileReportSuggestionEvidence(
-                        path=(
-                            f"{path_prefix}.summary.structural."
-                            "maximum_request_multiplicity"
-                        ),
-                        value=maximum_request_multiplicity,
-                    ),
-                    CompileReportSuggestionEvidence(
-                        path=f"{path_prefix}.model.evidence",
-                        value=model_evidence,
-                    ),
-                    CompileReportSuggestionEvidence(
-                        path=f"{path_prefix}.model.revision",
-                        value=_report_string(
-                            model.get("revision"),
-                            f"{path_prefix}.model.revision",
-                        ),
-                    ),
-                ),
+                evidence=tuple(evidence),
             )
         )
     return tuple(suggestions)

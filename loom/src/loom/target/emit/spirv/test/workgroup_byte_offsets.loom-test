@@ -38,7 +38,6 @@ func.def target(@target) @workgroup_byte_offset_i32(%value: i32, %byte_offset0: 
                OpDecorate %8 Binding 1
                OpDecorate %13 DescriptorSet 0
                OpDecorate %13 Binding 2
-               OpDecorate %_arr_int_uint_32 ArrayStride 4
         %int = OpTypeInt 32 1
       %int_0 = OpConstant %int 0
   %_struct_5 = OpTypeStruct %int
@@ -114,7 +113,6 @@ func.def target(@target) @workgroup_byte_offset_i64(%value: i64, %byte_offset0: 
                OpDecorate %9 Binding 1
                OpDecorate %14 DescriptorSet 0
                OpDecorate %14 Binding 2
-               OpDecorate %_arr_long_uint_32 ArrayStride 8
         %int = OpTypeInt 32 1
       %int_0 = OpConstant %int 0
        %long = OpTypeInt 64 1

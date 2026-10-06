@@ -1,0 +1,285 @@
+func.def @vector_f32_unary(%input_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input_buffer[%base] : buffer -> view<4xf32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf32>
+  %input = vector.load %input_view[0] : view<4xf32> -> vector<4xf32>
+  %absolute = vector.absf %input : vector<4xf32>
+  vector.store %absolute, %output_view[0] : vector<4xf32>, view<28xf32>
+  %negated = vector.negf %input : vector<4xf32>
+  vector.store %negated, %output_view[4] : vector<4xf32>, view<28xf32>
+  %ceil = vector.ceilf %input : vector<4xf32>
+  vector.store %ceil, %output_view[8] : vector<4xf32>, view<28xf32>
+  %floor = vector.floorf %input : vector<4xf32>
+  vector.store %floor, %output_view[12] : vector<4xf32>, view<28xf32>
+  %roundeven = vector.roundevenf %input : vector<4xf32>
+  vector.store %roundeven, %output_view[16] : vector<4xf32>, view<28xf32>
+  %trunc = vector.truncf %input : vector<4xf32>
+  vector.store %trunc, %output_view[20] : vector<4xf32>, view<28xf32>
+  %square_root = vector.sqrtf %input : vector<4xf32>
+  vector.store %square_root, %output_view[24] : vector<4xf32>, view<28xf32>
+  func.return
+}
+
+func.def @vector_f32_arithmetic(%lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xf32>
+  %rhs_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xf32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<16xf32>
+  %lhs = vector.load %lhs_view[0] : view<4xf32> -> vector<4xf32>
+  %rhs = vector.load %rhs_view[0] : view<4xf32> -> vector<4xf32>
+  %sum = vector.addf %lhs, %rhs : vector<4xf32>
+  vector.store %sum, %output_view[0] : vector<4xf32>, view<16xf32>
+  %difference = vector.subf %lhs, %rhs : vector<4xf32>
+  vector.store %difference, %output_view[4] : vector<4xf32>, view<16xf32>
+  %product = vector.mulf %lhs, %rhs : vector<4xf32>
+  vector.store %product, %output_view[8] : vector<4xf32>, view<16xf32>
+  %quotient = vector.divf %lhs, %rhs : vector<4xf32>
+  vector.store %quotient, %output_view[12] : vector<4xf32>, view<16xf32>
+  func.return
+}
+
+func.def @vector_f32_extrema(%lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xf32>
+  %rhs_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xf32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<8xf32>
+  %lhs = vector.load %lhs_view[0] : view<4xf32> -> vector<4xf32>
+  %rhs = vector.load %rhs_view[0] : view<4xf32> -> vector<4xf32>
+  %minimum = vector.minimumf %lhs, %rhs : vector<4xf32>
+  vector.store %minimum, %output_view[0] : vector<4xf32>, view<8xf32>
+  %maximum = vector.maximumf %lhs, %rhs : vector<4xf32>
+  vector.store %maximum, %output_view[4] : vector<4xf32>, view<8xf32>
+  func.return
+}
+
+func.def @vector_f32_comparisons(%lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xf32>
+  %rhs_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xf32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<24xi32>
+  %lhs = vector.load %lhs_view[0] : view<4xf32> -> vector<4xf32>
+  %rhs = vector.load %rhs_view[0] : view<4xf32> -> vector<4xf32>
+  %true = vector.constant -1 : vector<4xi32>
+  %false = vector.constant 0 : vector<4xi32>
+  %equal = vector.cmpf oeq, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %equal_words = vector.select %equal, %true, %false : vector<4xi32>
+  vector.store %equal_words, %output_view[0] : vector<4xi32>, view<24xi32>
+  %greater = vector.cmpf ogt, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %greater_words = vector.select %greater, %true, %false : vector<4xi32>
+  vector.store %greater_words, %output_view[4] : vector<4xi32>, view<24xi32>
+  %greater_equal = vector.cmpf oge, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %greater_equal_words = vector.select %greater_equal, %true, %false : vector<4xi32>
+  vector.store %greater_equal_words, %output_view[8] : vector<4xi32>, view<24xi32>
+  %less = vector.cmpf olt, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %less_words = vector.select %less, %true, %false : vector<4xi32>
+  vector.store %less_words, %output_view[12] : vector<4xi32>, view<24xi32>
+  %less_equal = vector.cmpf ole, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %less_equal_words = vector.select %less_equal, %true, %false : vector<4xi32>
+  vector.store %less_equal_words, %output_view[16] : vector<4xi32>, view<24xi32>
+  %not_equal_or_unordered = vector.cmpf une, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %not_equal_or_unordered_words = vector.select %not_equal_or_unordered, %true, %false : vector<4xi32>
+  vector.store %not_equal_or_unordered_words, %output_view[20] : vector<4xi32>, view<24xi32>
+  func.return
+}
+
+// The nnan contract makes the ordered and unordered spellings equivalent.
+func.def @vector_f32_comparisons_no_nan(%lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xf32>
+  %rhs_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xf32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<24xi32>
+  %lhs = vector.load %lhs_view[0] : view<4xf32> -> vector<4xf32>
+  %rhs = vector.load %rhs_view[0] : view<4xf32> -> vector<4xf32>
+  %true = vector.constant -1 : vector<4xi32>
+  %false = vector.constant 0 : vector<4xi32>
+  %not_equal = vector.cmpf<nnan> one, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %not_equal_words = vector.select %not_equal, %true, %false : vector<4xi32>
+  vector.store %not_equal_words, %output_view[0] : vector<4xi32>, view<24xi32>
+  %unordered_equal = vector.cmpf<nnan> ueq, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %unordered_equal_words = vector.select %unordered_equal, %true, %false : vector<4xi32>
+  vector.store %unordered_equal_words, %output_view[4] : vector<4xi32>, view<24xi32>
+  %unordered_greater = vector.cmpf<nnan> ugt, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %unordered_greater_words = vector.select %unordered_greater, %true, %false : vector<4xi32>
+  vector.store %unordered_greater_words, %output_view[8] : vector<4xi32>, view<24xi32>
+  %unordered_greater_equal = vector.cmpf<nnan> uge, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %unordered_greater_equal_words = vector.select %unordered_greater_equal, %true, %false : vector<4xi32>
+  vector.store %unordered_greater_equal_words, %output_view[12] : vector<4xi32>, view<24xi32>
+  %unordered_less = vector.cmpf<nnan> ult, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %unordered_less_words = vector.select %unordered_less, %true, %false : vector<4xi32>
+  vector.store %unordered_less_words, %output_view[16] : vector<4xi32>, view<24xi32>
+  %unordered_less_equal = vector.cmpf<nnan> ule, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %unordered_less_equal_words = vector.select %unordered_less_equal, %true, %false : vector<4xi32>
+  vector.store %unordered_less_equal_words, %output_view[20] : vector<4xi32>, view<24xi32>
+  func.return
+}
+
+// Raw BF16 bits make the widening origin observable across the callable
+// boundary. The fixed scale is itself exact in BF16; the F32 result retains
+// products below the F32 normal range instead of flushing them.
+func.def @vector_bf16_origin_scale(%input_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input_buffer[%base] : buffer -> view<16xbf16>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<16xf32>
+  %input = vector.load %input_view[0] : view<16xbf16> -> vector<16xbf16>
+  %wide = vector.extf %input : vector<16xbf16> to vector<16xf32>
+  %scale = vector.constant 1.4453125 : vector<16xf32>
+  %product = vector.mulf<nnan> %wide, %scale : vector<16xf32>
+  vector.store %product, %output_view[0] : vector<16xf32>, view<16xf32>
+  func.return
+}
+
+// Each trial covers four independent lanes. The random finite domain exercises
+// ordinary ML values; target-specific suites own representation details such
+// as NaN payloads, subnormals, and signed zeros.
+check.scenario @numeric_vector_f32_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %input_entropy = check.entropy.fork %entropy name("unary_input") : check.entropy
+    %input_seed = check.entropy.read %input_entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%input_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %expected_input = check.generate.random.uniform seed(%input_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %storage = check.generate.fill value(-123.5) : tensor<36xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<36xf32> -> tensor<28xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<36xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(128) : tensor<36xf32> -> tensor<4xf32>
+    %guard = check.generate.fill value(-123.5) : tensor<4xf32>
+    check.compare<@vector_f32_unary>(%input, %output) : (tensor<4xf32>, tensor<28xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(9.9999999999999995e-07) nan(same) : tensor<28xf32>
+      check.expect.bitwise actual(%input) expected(%expected_input) : tensor<4xf32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xf32>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %lhs_entropy = check.entropy.fork %entropy name("extrema_lhs") : check.entropy
+    %rhs_entropy = check.entropy.fork %entropy name("extrema_rhs") : check.entropy
+    %lhs_seed = check.entropy.read %lhs_entropy[%trial] : check.entropy -> i64
+    %rhs_seed = check.entropy.read %rhs_entropy[%trial] : check.entropy -> i64
+    %lhs = check.generate.random.uniform seed(%lhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %rhs = check.generate.random.uniform seed(%rhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %expected_lhs = check.generate.random.uniform seed(%lhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %expected_rhs = check.generate.random.uniform seed(%rhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %storage = check.generate.fill value(-123.5) : tensor<16xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<16xf32> -> tensor<8xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(48) : tensor<16xf32> -> tensor<4xf32>
+    %guard = check.generate.fill value(-123.5) : tensor<4xf32>
+    check.compare<@vector_f32_extrema>(%lhs, %rhs, %output) : (tensor<4xf32>, tensor<4xf32>, tensor<8xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<8xf32>
+      check.expect.bitwise actual(%lhs) expected(%expected_lhs) : tensor<4xf32>
+      check.expect.bitwise actual(%rhs) expected(%expected_rhs) : tensor<4xf32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xf32>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %lhs_entropy = check.entropy.fork %entropy name("arithmetic_lhs") : check.entropy
+    %rhs_entropy = check.entropy.fork %entropy name("arithmetic_rhs") : check.entropy
+    %lhs_seed = check.entropy.read %lhs_entropy[%trial] : check.entropy -> i64
+    %rhs_seed = check.entropy.read %rhs_entropy[%trial] : check.entropy -> i64
+    %lhs = check.generate.random.uniform seed(%lhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %rhs = check.generate.random.uniform seed(%rhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %expected_lhs = check.generate.random.uniform seed(%lhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %expected_rhs = check.generate.random.uniform seed(%rhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %storage = check.generate.fill value(-123.5) : tensor<24xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<24xf32> -> tensor<16xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<24xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(80) : tensor<24xf32> -> tensor<4xf32>
+    %guard = check.generate.fill value(-123.5) : tensor<4xf32>
+    check.compare<@vector_f32_arithmetic>(%lhs, %rhs, %output) : (tensor<4xf32>, tensor<4xf32>, tensor<16xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(9.9999999999999995e-07) nan(same) : tensor<16xf32>
+      check.expect.bitwise actual(%lhs) expected(%expected_lhs) : tensor<4xf32>
+      check.expect.bitwise actual(%rhs) expected(%expected_rhs) : tensor<4xf32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xf32>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %lhs_entropy = check.entropy.fork %entropy name("comparison_lhs") : check.entropy
+    %rhs_entropy = check.entropy.fork %entropy name("comparison_rhs") : check.entropy
+    %lhs_seed = check.entropy.read %lhs_entropy[%trial] : check.entropy -> i64
+    %rhs_seed = check.entropy.read %rhs_entropy[%trial] : check.entropy -> i64
+    %lhs = check.generate.random.uniform seed(%lhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %rhs = check.generate.random.uniform seed(%rhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %storage = check.generate.fill value(1515870810) : tensor<32xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<32xi32> -> tensor<24xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<32xi32> -> tensor<4xi32>
+    %suffix = check.tensor.view %storage offset(112) : tensor<32xi32> -> tensor<4xi32>
+    %guard = check.generate.fill value(1515870810) : tensor<4xi32>
+    check.compare<@vector_f32_comparisons>(%lhs, %rhs, %output) : (tensor<4xf32>, tensor<4xf32>, tensor<24xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<24xi32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi32>
+    }
+  }
+  check.trial[16](%trial: index, %entropy: check.entropy) {
+    %input_entropy = check.entropy.fork %entropy name("equal_comparison_input") : check.entropy
+    %input_seed = check.entropy.read %input_entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%input_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %output = check.generate.fill value(1515870810) : tensor<24xi32>
+    check.compare<@vector_f32_comparisons>(%input, %input, %output) : (tensor<4xf32>, tensor<4xf32>, tensor<24xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<24xi32>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %lhs_entropy = check.entropy.fork %entropy name("no_nan_lhs") : check.entropy
+    %rhs_entropy = check.entropy.fork %entropy name("no_nan_rhs") : check.entropy
+    %lhs_seed = check.entropy.read %lhs_entropy[%trial] : check.entropy -> i64
+    %rhs_seed = check.entropy.read %rhs_entropy[%trial] : check.entropy -> i64
+    %lhs = check.generate.random.uniform seed(%lhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %rhs = check.generate.random.uniform seed(%rhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %output = check.generate.fill value(1515870810) : tensor<24xi32>
+    check.compare<@vector_f32_comparisons_no_nan>(%lhs, %rhs, %output) : (tensor<4xf32>, tensor<4xf32>, tensor<24xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<24xi32>
+    }
+  }
+  check.return
+}
+
+// Positive and negative BF16 subnormals, the native-repair cutoff, normal
+// values, finite overflow, and infinities distinguish the full product from a
+// multiply that flushes F32 subnormal results.
+check.scenario @vector_bf16_origin_scale_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(0) step(1) : tensor<16xi16>
+    %output = check.generate.fill value(0.0) : tensor<16xf32>
+    check.compare<@vector_bf16_origin_scale>(%input, %output) : (tensor<16xi16>, tensor<16xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-32768) step(1) : tensor<16xi16>
+    %output = check.generate.fill value(0.0) : tensor<16xf32>
+    check.compare<@vector_bf16_origin_scale>(%input, %output) : (tensor<16xi16>, tensor<16xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(80) step(1) : tensor<16xi16>
+    %output = check.generate.fill value(0.0) : tensor<16xf32>
+    check.compare<@vector_bf16_origin_scale>(%input, %output) : (tensor<16xi16>, tensor<16xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(16248) step(1) : tensor<16xi16>
+    %output = check.generate.fill value(0.0) : tensor<16xf32>
+    check.compare<@vector_bf16_origin_scale>(%input, %output) : (tensor<16xi16>, tensor<16xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(32624) step(1) : tensor<16xi16>
+    %output = check.generate.fill value(0.0) : tensor<16xf32>
+    check.compare<@vector_bf16_origin_scale>(%input, %output) : (tensor<16xi16>, tensor<16xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(32640) : tensor<16xi16>
+    %output = check.generate.fill value(0.0) : tensor<16xf32>
+    check.compare<@vector_bf16_origin_scale>(%input, %output) : (tensor<16xi16>, tensor<16xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xf32>
+    }
+  }
+  check.return
+}

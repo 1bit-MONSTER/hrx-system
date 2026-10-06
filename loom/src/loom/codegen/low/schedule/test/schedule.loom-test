@@ -458,25 +458,170 @@ low.func.def target<test.low.core>(@test_target) @resource_stall_defers_non_acti
 }
 
 // ====
-// RUN: emit low-schedule-json @resource_stall_closes_unspillable_storage_before_reopening strategy=resource-stall diagnostics=candidates output=none
+// RUN: with-checks emit low-schedule-json @resource_stall_closes_unspillable_storage_before_reopening strategy=resource-stall
 
 test.target<low_core> @test_target
 
 low.func.def target<test.low.core>(@test_target) @resource_stall_closes_unspillable_storage_before_reopening(%condition: reg<test.i32>, %lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
   // The first fixed-register setup cannot expose its consumer until the
   // multiply is scheduled.
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="0", chosen_packet="test.mul.i32", rejected_packet="low.copy"}
   %prepared = test.mul.i32 %lhs, %rhs
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="1", chosen_packet="low.copy", rejected_packet="low.copy"}
   %fixed0 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
   // Completing the open unspillable value must beat a zero-stall setup that
   // would require a second physical register in a one-register class.
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="2", chosen_packet="test.fixed.select.i32", rejected_packet="low.copy"}
   %select0 = test.fixed.select.i32 %prepared, %rhs, %fixed0
   %fixed1 = copy %prepared : reg<test.i32> -> reg<test.fixed.r0>
   %select1 = test.fixed.select.i32 %lhs, %rhs, %fixed1
   return %select0, %select1
 }
+
+// ----
+CHECK: *"scheduled_node_indices":[0,1,2,3,4,5]*
+CHECK: *{"from":0,"to":1,"kind":"order",*
+
+// ====
+// RUN: with-checks emit low-schedule-json @resource_stall_advances_exact_two_consumer_handoff strategy=resource-stall
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @resource_stall_advances_exact_two_consumer_handoff(%condition: reg<test.i32>, %lhs: reg<test.i32>, %rhs: reg<test.i32>, %other_lhs: reg<test.i32>, %other_rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %fixed = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
+  low.schedule.fence
+  // The fixed value has two consumers, so ordinary sole-consumer demand
+  // cannot nominate either one. The first select consumes one branch and
+  // exposes the other as the exact remaining consumer of the full register.
+  %unrelated = test.add.i32 %other_lhs, %other_rhs
+  %handoff = test.fixed.select.i32 %lhs, %rhs, %fixed
+  %completed = test.fixed.select.i32 %handoff, %rhs, %fixed
+  return %completed, %unrelated
+}
+
+// ----
+CHECK: *"scheduled_node_indices":[0,1,3,4,2,5]*
+
+// ====
+// RUN: with-checks emit low-schedule-json @resource_stall_finishes_nested_unspillable_release strategy=resource-stall test.i32=12
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @resource_stall_finishes_nested_unspillable_release(%pad0: reg<test.explicit32>, %pad1: reg<test.explicit32>, %state_source: reg<test.i32>, %other_source: reg<test.i32>, %setup_lhs: reg<test.i32 x4>, %setup_rhs: reg<test.i32 x4>) -> (reg<test.explicit32>, reg<test.explicit32>, reg<test.i32 x4>, reg<test.i32 x2>) asm {
+  %other = copy %other_source : reg<test.i32> -> reg<test.explicit32>
+  // Consume the first fanout before the boundary so %other's retained sink is
+  // complete while its final release remains inside %state's transaction.
+  %first = test.explicit.release.v4i32 %other
+  %state = copy %state_source : reg<test.i32> -> reg<test.explicit32>
+  low.schedule.fence
+  // Both ready candidates advance the pinned %state transaction while all
+  // four explicit registers are live. Finish %other's exact release before
+  // opening the sibling setup needed by the same downstream update.
+  %setup = test.add.v4i32 %setup_lhs, %setup_rhs
+  %released = test.explicit.release.v4i32 %other
+  %delta = test.add.v4i32 %released, %setup
+  %updated = test.explicit.expand.i32 %state, %delta
+  %result = copy %updated : reg<test.explicit32 x2> -> reg<test.i32 x2>
+  return %pad0, %pad1, %first, %result
+}
+
+// ----
+CHECK: *"scheduled_node_indices":[*,3,5,4,*
+
+// ====
+// RUN: with-checks emit low-schedule-json @resource_stall_accounts_for_future_unspillable_activation strategy=resource-stall
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @resource_stall_accounts_for_future_unspillable_activation(%live0: reg<test.explicit32>, %live1: reg<test.explicit32>, %live2: reg<test.explicit32>, %lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.explicit32>, reg<test.explicit32>, reg<test.explicit32>, reg<test.i32>, reg<test.i32>) asm {
+  // This branch eventually occupies the last explicit register. Keep the
+  // virtual branch ahead until it completes instead of opening that pressure.
+  %physical_path = test.add.i32 %lhs, %rhs
+  %physical = copy %physical_path : reg<test.i32> -> reg<test.explicit32>
+  %physical_result = copy %physical : reg<test.explicit32> -> reg<test.i32>
+  %virtual_path = test.mul.i32 %lhs, %rhs
+  %virtual0 = copy %virtual_path : reg<test.i32> -> reg<test.i32>
+  %virtual1 = copy %virtual0 : reg<test.i32> -> reg<test.i32>
+  return %live0, %live1, %live2, %physical_result, %virtual1
+}
+
+// ----
+CHECK: *"scheduled_node_indices":[3,0,*
+
+// ====
+// RUN: with-checks emit low-schedule-json @resource_stall_accounts_for_non_ssa_unlock_activation strategy=resource-stall
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @resource_stall_accounts_for_non_ssa_unlock_activation(%live0: reg<test.explicit32>, %live1: reg<test.explicit32>, %live2: reg<test.explicit32>, %address: reg<test.ptr>, %value: reg<test.i32 x4>, %lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.explicit32>, reg<test.explicit32>, reg<test.explicit32>, reg<test.i32>, reg<test.i32>, reg<test.i32 x4>, reg<test.i32>, reg<test.i32>) asm {
+  // Memory ordering makes the store the last non-SSA predecessor of a load
+  // chain that opens the final explicit register. Carry that activation to
+  // the ready store and finish the virtual branch first.
+  test.store.v4i32 %address, %value
+  %loaded = test.load.v4i32 %address
+  %lane = test.extract_lane.i32 %loaded, 0
+  %physical = copy %lane : reg<test.i32> -> reg<test.explicit32>
+  %physical_result = copy %physical : reg<test.explicit32> -> reg<test.i32>
+  %virtual_path = test.mul.i32 %lhs, %rhs
+  %virtual0 = copy %virtual_path : reg<test.i32> -> reg<test.i32>
+  %virtual1 = copy %virtual0 : reg<test.i32> -> reg<test.i32>
+  return %live0, %live1, %live2, %physical_result, %virtual1, %value, %lhs, %rhs
+}
+
+// ----
+CHECK: *"scheduled_node_indices":[5,0,*
+
+// ====
+// RUN: emit low-schedule-json @resource_stall_excludes_live_ins_from_unspillable_activation strategy=resource-stall diagnostics=candidates output=none
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @resource_stall_excludes_live_ins_from_unspillable_activation(%live0: reg<test.explicit32>, %live1: reg<test.explicit32>, %live2: reg<test.explicit32>, %lhs0: reg<test.i32>, %rhs0: reg<test.i32>, %lhs1: reg<test.i32>, %rhs1: reg<test.i32>) -> (reg<test.explicit32>, reg<test.explicit32>, reg<test.explicit32>, reg<test.i32>, reg<test.i32>) asm {
+  // Block inputs are already part of current pressure. Reaching the return
+  // does not activate three additional physical registers.
+  // REMARK@+1: BACKEND/015 {chosen_packet="test.add.i32", rejected_packet="test.mul.i32", chosen_pressure_cliff_penalty="0", rejected_pressure_cliff_penalty="0"}
+  %first = test.add.i32 %lhs0, %rhs0
+  %second = test.mul.i32 %lhs1, %rhs1
+  return %live0, %live1, %live2, %first, %second
+}
+
+// ====
+// RUN: emit low-schedule-json @resource_stall_excludes_prior_ranges_from_unspillable_activation strategy=resource-stall diagnostics=candidates output=none
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @resource_stall_excludes_prior_ranges_from_unspillable_activation(%seed: reg<test.i32>, %lhs0: reg<test.i32>, %rhs0: reg<test.i32>, %lhs1: reg<test.i32>, %rhs1: reg<test.i32>) -> (reg<test.explicit32>, reg<test.explicit32>, reg<test.explicit32>, reg<test.i32>, reg<test.i32>) asm {
+  %live0 = copy %seed : reg<test.i32> -> reg<test.explicit32>
+  %carry0 = copy %live0 : reg<test.explicit32> -> reg<test.i32>
+  %live1 = copy %carry0 : reg<test.i32> -> reg<test.explicit32>
+  %carry1 = copy %live1 : reg<test.explicit32> -> reg<test.i32>
+  %live2 = copy %carry1 : reg<test.i32> -> reg<test.explicit32>
+  low.schedule.fence
+  // The three physical results are already live when this source range opens.
+  // REMARK@+1: BACKEND/015 {chosen_packet="test.add.i32", rejected_packet="test.mul.i32", chosen_pressure_cliff_penalty="0", rejected_pressure_cliff_penalty="0"}
+  %first = test.add.i32 %lhs0, %rhs0
+  %second = test.mul.i32 %lhs1, %rhs1
+  return %live0, %live1, %live2, %first, %second
+}
+
+// ====
+// RUN: with-checks emit low-schedule-json @resource_stall_excludes_loop_handoffs_from_unspillable_activation strategy=resource-stall
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @resource_stall_excludes_loop_handoffs_from_unspillable_activation(%seed0: reg<test.explicit32>, %seed1: reg<test.explicit32>, %seed2: reg<test.explicit32>, %lhs: reg<test.i32>, %rhs: reg<test.i32>) asm {
+  low.br ^loop(%seed0: reg<test.explicit32>, %seed1: reg<test.explicit32>, %seed2: reg<test.explicit32>)
+^loop(%state0: reg<test.explicit32>, %state1: reg<test.explicit32>, %state2: reg<test.explicit32>):
+  // Each backedge value replaces an already-live loop argument. Keep the
+  // first update moving instead of charging both replacements as new storage.
+  %value0 = copy %state0 : reg<test.explicit32> -> reg<test.i32>
+  %path0 = test.add.i32 %value0, %lhs
+  %next0 = copy %path0 : reg<test.i32> -> reg<test.explicit32>
+  %value1 = copy %state1 : reg<test.explicit32> -> reg<test.i32>
+  %path1 = test.add.i32 %value1, %rhs
+  %next1 = copy %path1 : reg<test.i32> -> reg<test.explicit32>
+  low.br ^loop(%next0: reg<test.explicit32>, %next1: reg<test.explicit32>, %state2: reg<test.explicit32>)
+}
+
+// ----
+CHECK: *"scheduled_node_indices":[0,1,2,*
 
 // ====
 // RUN: emit low-schedule-json @resource_stall_advances_smallest_active_unspillable_completion strategy=resource-stall diagnostics=candidates output=none
@@ -503,84 +648,74 @@ low.func.def target<test.low.core>(@test_target) @resource_stall_advances_smalle
 }
 
 // ====
-// RUN: emit low-schedule-json @resource_stall_recovers_beyond_deferred_setup_window strategy=resource-stall diagnostics=candidates output=none
+// RUN: emit low-schedule-json @resource_stall_advances_tightest_feasible_unspillable_completion strategy=resource-stall diagnostics=candidates output=none
 
 test.target<low_core> @test_target
 
-low.func.def target<test.low.core>(@test_target) @resource_stall_recovers_beyond_deferred_setup_window(%condition: reg<test.i32>, %lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>) asm {
-  // These fill the bounded source-order nominee window. None is actionable
-  // until %prepared is available, and every destination is the same physical
-  // register, so issuing any copy first would create avoidable storage debt.
-  // REMARK@+1: BACKEND/015
+low.func.def target<test.low.core>(@test_target) @resource_stall_advances_tightest_feasible_unspillable_completion(%condition: reg<test.i32>, %lhs: reg<test.i32>, %rhs: reg<test.i32>, %explicit0: reg<test.explicit32>, %explicit1: reg<test.explicit32>, %explicit2: reg<test.explicit32>, %explicit3: reg<test.explicit32>) -> (reg<test.i32>, reg<test.i32>, reg<test.explicit32>, reg<test.explicit32>, reg<test.explicit32>) asm {
+  %fixed = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
+  low.schedule.fence
+  // Both full banks have feasible completion candidates. Close the singleton
+  // bank before the four-register bank, even though its candidate appears
+  // later in source order.
+  %explicit_result = copy %explicit0 : reg<test.explicit32> -> reg<test.i32>
+  // REMARK@+1: BACKEND/015 {scheduled_ordinal="2", chosen_packet="test.fixed.select.i32", rejected_packet="low.copy"}
+  %selected = test.fixed.select.i32 %lhs, %rhs, %fixed
+  return %selected, %explicit_result, %explicit1, %explicit2, %explicit3
+}
+
+// ====
+// RUN: with-checks emit low-schedule-json @resource_stall_keeps_exclusive_setup_out_of_ready_window strategy=resource-stall
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @resource_stall_keeps_exclusive_setup_out_of_ready_window(%condition: reg<test.i32>, %lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>) asm {
+  // Every destination is the same physical register. These copies stay outside
+  // the ready set until %prepared is available, so the bounded nominee window
+  // exposes the work that must precede their consumers.
   %fixed0 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015
   %fixed1 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015
   %fixed2 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015
   %fixed3 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015
   %fixed4 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015
   %fixed5 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015
   %fixed6 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015
   %fixed7 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015
   %fixed8 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015
   %fixed9 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015
   %fixed10 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015
   %fixed11 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015
   %fixed12 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015
   %fixed13 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015
   %fixed14 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
   %fixed15 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="0", ready_candidate_count="17", scored_candidate_count="17", chosen_packet="test.const.i32", rejected_packet="low.copy"}
   %constant = test.const.i32 1
-  // The rematerializable leaf sits beyond the bounded source-order window but
-  // is the only safe way to expose the consumer shared by every fixed setup.
-  // REMARK@+1: BACKEND/015
+  // Preparation precedes all fixed setup, then each selection releases the
+  // register before the next copy occupies it.
   %prepared = test.add.i32 %lhs, %constant
-  // REMARK@+1: BACKEND/015
   %select0 = test.fixed.select.i32 %prepared, %rhs, %fixed0
-  // REMARK@+1: BACKEND/015
   %select1 = test.fixed.select.i32 %prepared, %rhs, %fixed1
-  // REMARK@+1: BACKEND/015
   %select2 = test.fixed.select.i32 %prepared, %rhs, %fixed2
-  // REMARK@+1: BACKEND/015
   %select3 = test.fixed.select.i32 %prepared, %rhs, %fixed3
-  // REMARK@+1: BACKEND/015
   %select4 = test.fixed.select.i32 %prepared, %rhs, %fixed4
-  // REMARK@+1: BACKEND/015
   %select5 = test.fixed.select.i32 %prepared, %rhs, %fixed5
-  // REMARK@+1: BACKEND/015
   %select6 = test.fixed.select.i32 %prepared, %rhs, %fixed6
-  // REMARK@+1: BACKEND/015
   %select7 = test.fixed.select.i32 %prepared, %rhs, %fixed7
-  // REMARK@+1: BACKEND/015
   %select8 = test.fixed.select.i32 %prepared, %rhs, %fixed8
-  // REMARK@+1: BACKEND/015
   %select9 = test.fixed.select.i32 %prepared, %rhs, %fixed9
-  // REMARK@+1: BACKEND/015
   %select10 = test.fixed.select.i32 %prepared, %rhs, %fixed10
-  // REMARK@+1: BACKEND/015
   %select11 = test.fixed.select.i32 %prepared, %rhs, %fixed11
-  // REMARK@+1: BACKEND/015
   %select12 = test.fixed.select.i32 %prepared, %rhs, %fixed12
-  // REMARK@+1: BACKEND/015
   %select13 = test.fixed.select.i32 %prepared, %rhs, %fixed13
-  // REMARK@+1: BACKEND/015
   %select14 = test.fixed.select.i32 %prepared, %rhs, %fixed14
   %select15 = test.fixed.select.i32 %prepared, %rhs, %fixed15
   return %select15
 }
+
+// ----
+CHECK: *"scheduled_node_indices":[16,17,0,18,1,19,2,20,3,21,4,22,5,23,6,24,7,25,8,26,9,27,10,28,11,29,12,30,13,31,14,32,15,33,34]*
+CHECK: *{"from":17,"to":0,"kind":"order",*
+CHECK: *{"from":17,"to":15,"kind":"order",*
 
 // ====
 // RUN: emit low-schedule-json @resource_stall_preserves_unconstrained_leaf_order strategy=resource-stall diagnostics=candidates output=none
@@ -617,26 +752,27 @@ low.func.def target<test.low.core>(@test_target) @resource_stall_materializes_op
 }
 
 // ====
-// RUN: emit low-schedule-json @resource_stall_prefers_actionable_rematerialization strategy=resource-stall diagnostics=candidates output=none
+// RUN: with-checks emit low-schedule-json @resource_stall_orders_exclusive_setup_after_prerequisites strategy=resource-stall
 
 test.target<low_core> @test_target
 
-low.func.def target<test.low.core>(@test_target) @resource_stall_prefers_actionable_rematerialization(%condition: reg<test.i32>, %lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>) asm {
+low.func.def target<test.low.core>(@test_target) @resource_stall_orders_exclusive_setup_after_prerequisites(%condition: reg<test.i32>, %lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>) asm {
   // Neither fixed-register setup can expose its consumer until %prepared is
   // available. Materializing %constant first immediately exposes that work and
   // avoids occupying the singleton register while the arithmetic chain runs.
-  // REMARK@+1: BACKEND/015
   %fixed0 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
   %fixed1 = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="0", chosen_packet="test.const.i32", rejected_packet="low.copy"}
   %constant = test.const.i32 1
-  // REMARK@+1: BACKEND/015
   %prepared = test.add.i32 %lhs, %constant
-  // REMARK@+1: BACKEND/015
   %select0 = test.fixed.select.i32 %prepared, %rhs, %fixed0
   %select1 = test.fixed.select.i32 %select0, %rhs, %fixed1
   return %select1
 }
+
+// ----
+CHECK: *"scheduled_node_indices":[2,3,0,4,1,5,6]*
+CHECK: *{"from":3,"to":0,"kind":"order",*
+CHECK: *{"from":4,"to":1,"kind":"order",*
 
 // ====
 // RUN: emit low-schedule-json @resource_stall_fills_unconstrained_issue_gap strategy=resource-stall diagnostics=candidates output=none
@@ -866,6 +1002,23 @@ low.func.def target<test.low.core>(@test_target) @resource_stall_completes_long_
 }
 
 // ====
+// RUN: emit low-schedule-json @resource_stall_preserves_source_order_without_pressure_progress strategy=resource-stall diagnostics=candidates test.i32=6 output=none
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @resource_stall_preserves_source_order_without_pressure_progress(%short_lhs: reg<test.i32>, %short_rhs: reg<test.i32>, %long_lhs: reg<test.i32>, %long_rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>, reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
+  // Both candidates grow pressure by one unit and issue after one cycle. Keep
+  // the older multiply instead of opening the later add's live range merely
+  // because its delay is a data stall rather than a resource stall.
+  // REMARK@+1: BACKEND/015 {scheduled_ordinal="1", chosen_packet="test.mul.i32", rejected_packet="test.add.i32", chosen_data_ready_stall_cycles="0", chosen_resource_stall_cycles="1", rejected_data_ready_stall_cycles="1", rejected_resource_stall_cycles="0"}
+  %short = test.mul.i32 %short_lhs, %short_rhs
+  // REMARK@+1: BACKEND/015 {scheduled_ordinal="0", chosen_packet="test.add.i32", rejected_packet="test.mul.i32"}
+  %long0 = test.add.i32 %long_lhs, %long_rhs
+  %long1 = test.add.i32 %long0, %long_rhs
+  return %short, %long1, %short_lhs, %short_rhs, %long0, %long_rhs
+}
+
+// ====
 // RUN: emit low-schedule-json @resource_stall_opens_load_on_real_issue_timeline strategy=resource-stall diagnostics=candidates output=none
 
 test.target<low_core> @test_target
@@ -976,6 +1129,21 @@ low.func.def target<test.low.core>(@test_target) @resource_stall_avoids_creating
   // REMARK@+1: BACKEND/015 {scheduled_ordinal="0", chosen_packet="test.move.from.pressure.alias32.x5", rejected_packet="test.move.to.pressure.alias32", chosen_projected_live_units="8", rejected_projected_live_units="8", chosen_pressure_cliff_penalty="0", rejected_pressure_cliff_penalty="1", rejected_pressure_cliff_units="8"}
   %retired_alias = test.move.from.pressure.alias32.x5 %narrow
   return %wide0, %wide1, %new_alias, %retired_alias
+}
+
+// ====
+// RUN: emit low-schedule-json @resource_stall_preserves_cross_bank_headroom strategy=resource-stall diagnostics=candidates output=none
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @resource_stall_preserves_cross_bank_headroom(%wide0: reg<test.pressure.alias64>, %wide1: reg<test.pressure.alias64>, %alias: reg<test.pressure.alias32 x5>, %alias_source: reg<test.i32>, %phys_lhs: reg<test.phys>, %phys_rhs: reg<test.phys>) -> (reg<test.pressure.alias64>, reg<test.pressure.alias64>, reg<test.pressure.alias32 x5>, reg<test.pressure.alias32>, reg<test.phys>, reg<test.phys>, reg<test.phys>) asm {
+  // Moving a final scalar into the crowded alias bank is aggregate-neutral,
+  // while retaining both add operands grows total live units. The physical
+  // bank with available headroom must decide the order.
+  %new_alias = test.move.to.pressure.alias32 %alias_source
+  // REMARK@+1: BACKEND/015 {scheduled_ordinal="0", chosen_packet="test.add.phys", rejected_packet="test.move.to.pressure.alias32", chosen_pressure_cliff_penalty="0", rejected_pressure_cliff_penalty="1"}
+  %phys = test.add.phys %phys_lhs, %phys_rhs
+  return %wide0, %wide1, %alias, %new_alias, %phys, %phys_lhs, %phys_rhs
 }
 
 // ====
@@ -1561,7 +1729,7 @@ low.func.def target<test.low.core>(@test_target) @tied_storage_retains_disjoint_
 }
 
 // ----
-{"format":"loom.low.schedule.v1","function":"tied_storage_retains_disjoint_read_for_later_write","target":"test_target","descriptor_set":"test.low.core","block_count":1,"node_count":4,"dependency_count":4,"dependency_group_count":4,"issue_group_count":4,"unlock_summary_publication_count":0,"candidate_decision_count":0,"resource_use_count":4,"effect_use_count":1,"hazard_use_count":1,"hazard_gap_count":0,"model_summary_count":2,"resource_summary_count":3,"blocks":[{"index":0,"node_start":0,"node_count":4,"scheduled_node_start":0,"scheduled_node_count":4,"issue_group_start":0,"issue_group_count":4}],"source_order_boundaries":[3],"nodes":[{"index":0,"block":0,"source_ordinal":0,"scheduled_ordinal":0,"issue_cycle":0,"issue_group":0,"kind":"descriptor","op":"low.op","descriptor":"test.read.low16.i32","schedule_class":"test.scalar.alu","latency_cycles":1,"latency_kind":1,"latency_kind_name":"exact","model_quality":1,"model_quality_name":"exact","issue_use_count":1,"hazard_count":0,"effect_count":0},{"index":1,"block":0,"source_ordinal":1,"scheduled_ordinal":1,"issue_cycle":1,"issue_group":1,"kind":"descriptor","op":"low.op","descriptor":"test.write.high16.i32","schedule_class":"test.load","latency_cycles":4,"latency_kind":3,"latency_kind_name":"variable","model_quality":4,"model_quality_name":"fallback","issue_use_count":2,"hazard_count":1,"effect_count":1},{"index":2,"block":0,"source_ordinal":2,"scheduled_ordinal":2,"issue_cycle":5,"issue_group":2,"kind":"descriptor","op":"low.op","descriptor":"test.tied.any","schedule_class":"test.scalar.alu","latency_cycles":1,"latency_kind":1,"latency_kind_name":"exact","model_quality":1,"model_quality_name":"exact","issue_use_count":1,"hazard_count":0,"effect_count":0},{"index":3,"block":0,"source_ordinal":3,"scheduled_ordinal":3,"issue_cycle":6,"issue_group":3,"kind":"terminator","op":"low.return","descriptor":null,"schedule_class":null,"latency_cycles":0,"latency_kind":0,"latency_kind_name":"unknown","model_quality":0,"model_quality_name":"unknown","issue_use_count":0,"hazard_count":0,"effect_count":0}],"scheduled_node_indices":[0,1,2,3],"issue_groups":[{"index":0,"block":0,"issue_cycle":0,"scheduled_node_start":0,"scheduled_node_count":1},{"index":1,"block":0,"issue_cycle":1,"scheduled_node_start":1,"scheduled_node_count":1},{"index":2,"block":0,"issue_cycle":5,"scheduled_node_start":2,"scheduled_node_count":1},{"index":3,"block":0,"issue_cycle":6,"scheduled_node_start":3,"scheduled_node_count":1}],"dependencies":[{"from":0,"to":2,"kind":"storage","operand":0,"producer_attachment_kind":"operand","producer_attachment":1,"producer_event":null,"consumer_attachment_kind":"operand","consumer_attachment":0,"consumer_event":null,"minimum_issue_separation_cycles":1,"separation_source":"schedule_class","model_quality":1,"model_quality_name":"exact"},{"from":1,"to":2,"kind":"ssa","operand":0,"producer_attachment_kind":"operand","producer_attachment":0,"producer_event":null,"consumer_attachment_kind":"operand","consumer_attachment":1,"consumer_event":null,"minimum_issue_separation_cycles":4,"separation_source":"schedule_class","model_quality":4,"model_quality_name":"fallback"},{"from":0,"to":3,"kind":"ssa","operand":0,"producer_attachment_kind":"operand","producer_attachment":0,"producer_event":null,"consumer_attachment_kind":"none","consumer_attachment":null,"consumer_event":null,"minimum_issue_separation_cycles":1,"separation_source":"schedule_class","model_quality":1,"model_quality_name":"exact"},{"from":2,"to":3,"kind":"ssa","operand":1,"producer_attachment_kind":"operand","producer_attachment":0,"producer_event":null,"consumer_attachment_kind":"none","consumer_attachment":null,"consumer_event":null,"minimum_issue_separation_cycles":1,"separation_source":"schedule_class","model_quality":1,"model_quality_name":"exact"}],"scheduled_resource_uses":[{"node":0,"block":0,"scheduled_ordinal":0,"issue_cycle":0,"issue_use_ordinal":0,"issue_use_kind":0,"issue_use_kind_name":"required","resource":"test.scalar","resource_kind":1,"resource_kind_name":"scalar_alu","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"stage":0,"cycles":1,"units":1},{"node":1,"block":0,"scheduled_ordinal":1,"issue_cycle":1,"issue_use_ordinal":0,"issue_use_kind":0,"issue_use_kind_name":"required","resource":"test.address","resource_kind":7,"resource_kind_name":"address","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"stage":0,"cycles":1,"units":1},{"node":1,"block":0,"scheduled_ordinal":1,"issue_cycle":1,"issue_use_ordinal":1,"issue_use_kind":0,"issue_use_kind_name":"required","resource":"test.load","resource_kind":4,"resource_kind_name":"load","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"stage":1,"cycles":1,"units":1},{"node":2,"block":0,"scheduled_ordinal":2,"issue_cycle":5,"issue_use_ordinal":0,"issue_use_kind":0,"issue_use_kind_name":"required","resource":"test.scalar","resource_kind":1,"resource_kind_name":"scalar_alu","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"stage":0,"cycles":1,"units":1}],"scheduled_effect_uses":[{"node":1,"block":0,"scheduled_ordinal":1,"issue_cycle":1,"effect_ordinal":0,"kind":1,"kind_name":"read","memory_space":1,"memory_space_name":"generic","scope":0,"effect_flags":2,"counter":0,"width_bits":128}],"scheduled_hazard_uses":[{"node":1,"block":0,"scheduled_ordinal":1,"issue_cycle":1,"hazard_ordinal":0,"kind":1,"kind_name":"min_distance","reference_kind":1,"reference_kind_name":"resource","reference":"test.load","producer_stage":1,"consumer_stage":1,"distance":2,"hazard_flags":0}],"model_summaries":[{"schedule_class":"test.scalar.alu","first_node":0,"use_count":2,"latency_cycles":1,"latency_kind":1,"latency_kind_name":"exact","model_quality":1,"model_quality_name":"exact","issue_use_count":1,"hazard_count":0},{"schedule_class":"test.load","first_node":1,"use_count":1,"latency_cycles":4,"latency_kind":3,"latency_kind_name":"variable","model_quality":4,"model_quality_name":"fallback","issue_use_count":2,"hazard_count":1}],"resource_summaries":[{"resource":"test.scalar","resource_kind":1,"resource_kind_name":"scalar_alu","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"use_count":2,"total_occupied_cycles":2,"total_unit_cycles":2,"estimated_min_cycles":2,"peak_units_per_cycle":1},{"resource":"test.address","resource_kind":7,"resource_kind_name":"address","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"use_count":1,"total_occupied_cycles":1,"total_unit_cycles":1,"estimated_min_cycles":1,"peak_units_per_cycle":1},{"resource":"test.load","resource_kind":4,"resource_kind_name":"load","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"use_count":1,"total_occupied_cycles":1,"total_unit_cycles":1,"estimated_min_cycles":1,"peak_units_per_cycle":1}],"liveness":{"format":"loom.liveness.v0","is_cfg":false,"block_count":1,"value_count":5,"blocks":[{"index":0,"label":null,"start_point":0,"end_point":4,"live_in":[],"live_out":[]}],"intervals":[{"value":{"id":0,"name":"state","type":"reg<test.i32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"start_point":0,"end_point":2,"unit_count":1},{"value":{"id":1,"name":"ptr","type":"reg<test.ptr>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":4},"start_point":0,"end_point":2,"unit_count":1},{"value":{"id":4,"name":"low_read","type":"reg<test.i32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"start_point":1,"end_point":4,"unit_count":1},{"value":{"id":5,"name":"high_next","type":"reg<test.i32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"start_point":2,"end_point":3,"unit_count":1},{"value":{"id":6,"name":"full_next","type":"reg<test.i32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"start_point":3,"end_point":4,"unit_count":1}],"pressure_summaries":[{"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"peak_live_units":2,"peak_live_values":2,"peak_block":0,"peak_op":3,"peak_point":3},{"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":4},"peak_live_units":1,"peak_live_values":1,"peak_block":0,"peak_op":1,"peak_point":1}]}}
+{"format":"loom.low.schedule.v1","function":"tied_storage_retains_disjoint_read_for_later_write","target":"test_target","descriptor_set":"test.low.core","block_count":1,"node_count":4,"dependency_count":5,"dependency_group_count":4,"issue_group_count":4,"unlock_summary_publication_count":0,"candidate_decision_count":0,"resource_use_count":4,"effect_use_count":1,"hazard_use_count":1,"hazard_gap_count":0,"model_summary_count":2,"resource_summary_count":3,"blocks":[{"index":0,"node_start":0,"node_count":4,"scheduled_node_start":0,"scheduled_node_count":4,"issue_group_start":0,"issue_group_count":4}],"source_order_boundaries":[3],"nodes":[{"index":0,"block":0,"source_ordinal":0,"scheduled_ordinal":0,"issue_cycle":0,"issue_group":0,"kind":"descriptor","op":"low.op","descriptor":"test.read.low16.i32","schedule_class":"test.scalar.alu","latency_cycles":1,"latency_kind":1,"latency_kind_name":"exact","model_quality":1,"model_quality_name":"exact","issue_use_count":1,"hazard_count":0,"effect_count":0},{"index":1,"block":0,"source_ordinal":1,"scheduled_ordinal":1,"issue_cycle":1,"issue_group":1,"kind":"descriptor","op":"low.op","descriptor":"test.write.high16.i32","schedule_class":"test.load","latency_cycles":4,"latency_kind":3,"latency_kind_name":"variable","model_quality":4,"model_quality_name":"fallback","issue_use_count":2,"hazard_count":1,"effect_count":1},{"index":2,"block":0,"source_ordinal":2,"scheduled_ordinal":2,"issue_cycle":5,"issue_group":2,"kind":"descriptor","op":"low.op","descriptor":"test.tied.any","schedule_class":"test.scalar.alu","latency_cycles":1,"latency_kind":1,"latency_kind_name":"exact","model_quality":1,"model_quality_name":"exact","issue_use_count":1,"hazard_count":0,"effect_count":0},{"index":3,"block":0,"source_ordinal":3,"scheduled_ordinal":3,"issue_cycle":6,"issue_group":3,"kind":"terminator","op":"low.return","descriptor":null,"schedule_class":null,"latency_cycles":0,"latency_kind":0,"latency_kind_name":"unknown","model_quality":0,"model_quality_name":"unknown","issue_use_count":0,"hazard_count":0,"effect_count":0}],"scheduled_node_indices":[0,1,2,3],"issue_groups":[{"index":0,"block":0,"issue_cycle":0,"scheduled_node_start":0,"scheduled_node_count":1},{"index":1,"block":0,"issue_cycle":1,"scheduled_node_start":1,"scheduled_node_count":1},{"index":2,"block":0,"issue_cycle":5,"scheduled_node_start":2,"scheduled_node_count":1},{"index":3,"block":0,"issue_cycle":6,"scheduled_node_start":3,"scheduled_node_count":1}],"dependencies":[{"from":1,"to":2,"kind":"storage","operand":0,"producer_attachment_kind":"operand","producer_attachment":1,"producer_event":null,"consumer_attachment_kind":"operand","consumer_attachment":0,"consumer_event":null,"minimum_issue_separation_cycles":4,"separation_source":"schedule_class","model_quality":4,"model_quality_name":"fallback"},{"from":0,"to":2,"kind":"storage","operand":0,"producer_attachment_kind":"operand","producer_attachment":1,"producer_event":null,"consumer_attachment_kind":"operand","consumer_attachment":0,"consumer_event":null,"minimum_issue_separation_cycles":1,"separation_source":"schedule_class","model_quality":1,"model_quality_name":"exact"},{"from":1,"to":2,"kind":"ssa","operand":0,"producer_attachment_kind":"operand","producer_attachment":0,"producer_event":null,"consumer_attachment_kind":"operand","consumer_attachment":1,"consumer_event":null,"minimum_issue_separation_cycles":4,"separation_source":"schedule_class","model_quality":4,"model_quality_name":"fallback"},{"from":0,"to":3,"kind":"ssa","operand":0,"producer_attachment_kind":"operand","producer_attachment":0,"producer_event":null,"consumer_attachment_kind":"none","consumer_attachment":null,"consumer_event":null,"minimum_issue_separation_cycles":1,"separation_source":"schedule_class","model_quality":1,"model_quality_name":"exact"},{"from":2,"to":3,"kind":"ssa","operand":1,"producer_attachment_kind":"operand","producer_attachment":0,"producer_event":null,"consumer_attachment_kind":"none","consumer_attachment":null,"consumer_event":null,"minimum_issue_separation_cycles":1,"separation_source":"schedule_class","model_quality":1,"model_quality_name":"exact"}],"scheduled_resource_uses":[{"node":0,"block":0,"scheduled_ordinal":0,"issue_cycle":0,"issue_use_ordinal":0,"issue_use_kind":0,"issue_use_kind_name":"required","resource":"test.scalar","resource_kind":1,"resource_kind_name":"scalar_alu","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"stage":0,"cycles":1,"units":1},{"node":1,"block":0,"scheduled_ordinal":1,"issue_cycle":1,"issue_use_ordinal":0,"issue_use_kind":0,"issue_use_kind_name":"required","resource":"test.address","resource_kind":7,"resource_kind_name":"address","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"stage":0,"cycles":1,"units":1},{"node":1,"block":0,"scheduled_ordinal":1,"issue_cycle":1,"issue_use_ordinal":1,"issue_use_kind":0,"issue_use_kind_name":"required","resource":"test.load","resource_kind":4,"resource_kind_name":"load","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"stage":1,"cycles":1,"units":1},{"node":2,"block":0,"scheduled_ordinal":2,"issue_cycle":5,"issue_use_ordinal":0,"issue_use_kind":0,"issue_use_kind_name":"required","resource":"test.scalar","resource_kind":1,"resource_kind_name":"scalar_alu","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"stage":0,"cycles":1,"units":1}],"scheduled_effect_uses":[{"node":1,"block":0,"scheduled_ordinal":1,"issue_cycle":1,"effect_ordinal":0,"kind":1,"kind_name":"read","memory_space":1,"memory_space_name":"generic","scope":0,"effect_flags":2,"counter":0,"width_bits":128}],"scheduled_hazard_uses":[{"node":1,"block":0,"scheduled_ordinal":1,"issue_cycle":1,"hazard_ordinal":0,"kind":1,"kind_name":"min_distance","reference_kind":1,"reference_kind_name":"resource","reference":"test.load","producer_stage":1,"consumer_stage":1,"distance":2,"hazard_flags":0}],"model_summaries":[{"schedule_class":"test.scalar.alu","first_node":0,"use_count":2,"latency_cycles":1,"latency_kind":1,"latency_kind_name":"exact","model_quality":1,"model_quality_name":"exact","issue_use_count":1,"hazard_count":0},{"schedule_class":"test.load","first_node":1,"use_count":1,"latency_cycles":4,"latency_kind":3,"latency_kind_name":"variable","model_quality":4,"model_quality_name":"fallback","issue_use_count":2,"hazard_count":1}],"resource_summaries":[{"resource":"test.scalar","resource_kind":1,"resource_kind_name":"scalar_alu","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"use_count":2,"total_occupied_cycles":2,"total_unit_cycles":2,"estimated_min_cycles":2,"peak_units_per_cycle":1},{"resource":"test.address","resource_kind":7,"resource_kind_name":"address","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"use_count":1,"total_occupied_cycles":1,"total_unit_cycles":1,"estimated_min_cycles":1,"peak_units_per_cycle":1},{"resource":"test.load","resource_kind":4,"resource_kind_name":"load","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"use_count":1,"total_occupied_cycles":1,"total_unit_cycles":1,"estimated_min_cycles":1,"peak_units_per_cycle":1}],"liveness":{"format":"loom.liveness.v0","is_cfg":false,"block_count":1,"value_count":5,"blocks":[{"index":0,"label":null,"start_point":0,"end_point":4,"live_in":[],"live_out":[]}],"intervals":[{"value":{"id":0,"name":"state","type":"reg<test.i32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"start_point":0,"end_point":2,"unit_count":1},{"value":{"id":1,"name":"ptr","type":"reg<test.ptr>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":4},"start_point":0,"end_point":2,"unit_count":1},{"value":{"id":4,"name":"low_read","type":"reg<test.i32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"start_point":1,"end_point":4,"unit_count":1},{"value":{"id":5,"name":"high_next","type":"reg<test.i32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"start_point":2,"end_point":3,"unit_count":1},{"value":{"id":6,"name":"full_next","type":"reg<test.i32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"start_point":3,"end_point":4,"unit_count":1}],"pressure_summaries":[{"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"peak_live_units":2,"peak_live_values":2,"peak_block":0,"peak_op":3,"peak_point":3},{"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":4},"peak_live_units":1,"peak_live_values":1,"peak_block":0,"peak_op":1,"peak_point":1}]}}
 
 // ====
 // RUN: emit low-schedule-json @repeated_barrier_schedule_segments strategy=resource-stall
@@ -1609,65 +1777,6 @@ low.func.def target<test.low.core>(@test_target) @encoding_equivalent_schedule_a
 
 // ----
 {"format":"loom.low.schedule.v1","function":"encoding_equivalent_schedule_alternatives","target":"test_target","descriptor_set":"test.low.core","block_count":1,"node_count":3,"dependency_count":2,"dependency_group_count":2,"issue_group_count":2,"unlock_summary_publication_count":1,"candidate_decision_count":0,"resource_use_count":2,"effect_use_count":0,"hazard_use_count":0,"hazard_gap_count":0,"model_summary_count":2,"resource_summary_count":2,"blocks":[{"index":0,"node_start":0,"node_count":3,"scheduled_node_start":0,"scheduled_node_count":3,"issue_group_start":0,"issue_group_count":2}],"source_order_boundaries":[2],"nodes":[{"index":0,"block":0,"source_ordinal":0,"scheduled_ordinal":0,"issue_cycle":0,"issue_group":0,"kind":"descriptor","op":"low.op","descriptor":"test.schedule.alternative.a.i32","schedule_class":"test.scalar.alu","latency_cycles":1,"latency_kind":1,"latency_kind_name":"exact","model_quality":1,"model_quality_name":"exact","issue_use_count":1,"hazard_count":0,"effect_count":0},{"index":1,"block":0,"source_ordinal":1,"scheduled_ordinal":1,"issue_cycle":0,"issue_group":0,"kind":"descriptor","op":"low.op","descriptor":"test.schedule.alternative.b.i32","source_descriptor":"test.schedule.alternative.a.i32","schedule_class":"test.schedule.alternative_b","latency_cycles":1,"latency_kind":1,"latency_kind_name":"exact","model_quality":1,"model_quality_name":"exact","issue_use_count":1,"hazard_count":0,"effect_count":0},{"index":2,"block":0,"source_ordinal":2,"scheduled_ordinal":2,"issue_cycle":1,"issue_group":1,"kind":"terminator","op":"low.return","descriptor":null,"schedule_class":null,"latency_cycles":0,"latency_kind":0,"latency_kind_name":"unknown","model_quality":0,"model_quality_name":"unknown","issue_use_count":0,"hazard_count":0,"effect_count":0}],"scheduled_node_indices":[0,1,2],"issue_groups":[{"index":0,"block":0,"issue_cycle":0,"scheduled_node_start":0,"scheduled_node_count":2},{"index":1,"block":0,"issue_cycle":1,"scheduled_node_start":2,"scheduled_node_count":1}],"dependencies":[{"from":0,"to":2,"kind":"ssa","operand":0,"producer_attachment_kind":"operand","producer_attachment":0,"producer_event":null,"consumer_attachment_kind":"none","consumer_attachment":null,"consumer_event":null,"minimum_issue_separation_cycles":1,"separation_source":"schedule_class","model_quality":1,"model_quality_name":"exact"},{"from":1,"to":2,"kind":"ssa","operand":1,"producer_attachment_kind":"operand","producer_attachment":0,"producer_event":null,"consumer_attachment_kind":"none","consumer_attachment":null,"consumer_event":null,"minimum_issue_separation_cycles":1,"separation_source":"schedule_class","model_quality":1,"model_quality_name":"exact"}],"scheduled_pressure_steps":[{"node":0,"block":0,"scheduled_ordinal":0,"issue_cycle":0,"live_units_before":4,"killed_live_units":2,"produced_live_units":1,"live_units_after":3},{"node":1,"block":0,"scheduled_ordinal":1,"issue_cycle":0,"live_units_before":3,"killed_live_units":2,"produced_live_units":1,"live_units_after":2},{"node":2,"block":0,"scheduled_ordinal":2,"issue_cycle":1,"live_units_before":2,"killed_live_units":2,"produced_live_units":0,"live_units_after":0}],"scheduled_resource_uses":[{"node":0,"block":0,"scheduled_ordinal":0,"issue_cycle":0,"issue_use_ordinal":0,"issue_use_kind":0,"issue_use_kind_name":"required","resource":"test.scalar","resource_kind":1,"resource_kind_name":"scalar_alu","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"stage":0,"cycles":1,"units":1},{"node":1,"block":0,"scheduled_ordinal":1,"issue_cycle":0,"issue_use_ordinal":0,"issue_use_kind":0,"issue_use_kind_name":"required","resource":"test.shared_a","resource_kind":1,"resource_kind_name":"scalar_alu","resource_flags":0,"capacity_per_cycle":2,"contention_group":1,"stage":0,"cycles":1,"units":1}],"model_summaries":[{"schedule_class":"test.scalar.alu","first_node":0,"use_count":1,"latency_cycles":1,"latency_kind":1,"latency_kind_name":"exact","model_quality":1,"model_quality_name":"exact","issue_use_count":1,"hazard_count":0},{"schedule_class":"test.schedule.alternative_b","first_node":1,"use_count":1,"latency_cycles":1,"latency_kind":1,"latency_kind_name":"exact","model_quality":1,"model_quality_name":"exact","issue_use_count":1,"hazard_count":0}],"resource_summaries":[{"resource":"test.scalar","resource_kind":1,"resource_kind_name":"scalar_alu","resource_flags":0,"capacity_per_cycle":1,"contention_group":0,"use_count":1,"total_occupied_cycles":1,"total_unit_cycles":1,"estimated_min_cycles":1,"peak_units_per_cycle":1},{"resource":"test.shared_a","resource_kind":1,"resource_kind_name":"scalar_alu","resource_flags":0,"capacity_per_cycle":2,"contention_group":1,"use_count":1,"total_occupied_cycles":1,"total_unit_cycles":1,"estimated_min_cycles":1,"peak_units_per_cycle":1}],"liveness":{"format":"loom.liveness.v0","is_cfg":false,"block_count":1,"value_count":6,"blocks":[{"index":0,"label":null,"start_point":0,"end_point":3,"live_in":[],"live_out":[]}],"intervals":[{"value":{"id":0,"name":"lhs0","type":"reg<test.i32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"start_point":0,"end_point":1,"unit_count":1},{"value":{"id":1,"name":"rhs0","type":"reg<test.i32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"start_point":0,"end_point":1,"unit_count":1},{"value":{"id":2,"name":"lhs1","type":"reg<test.i32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"start_point":0,"end_point":2,"unit_count":1},{"value":{"id":3,"name":"rhs1","type":"reg<test.i32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"start_point":0,"end_point":2,"unit_count":1},{"value":{"id":6,"name":"a","type":"reg<test.i32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"start_point":1,"end_point":3,"unit_count":1},{"value":{"id":7,"name":"b","type":"reg<test.i32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"start_point":2,"end_point":3,"unit_count":1}],"pressure_summaries":[{"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_descriptor_set":2548000952762826130,"register_class_id":0},"peak_live_units":4,"peak_live_values":4,"peak_block":0,"peak_op":0,"peak_point":0}]}}
-
-// ====
-// RUN: emit low-schedule-json @register_packing_avoids_fragmentation strategy=resource-stall diagnostics=candidates test.packed.narrow=4 test.packed.wide=8 output=none
-
-test.target<low_core> @test_target
-
-low.func.def target<test.low.core>(@test_target) @register_packing_avoids_fragmentation(%lhs_source0: reg<test.i32>, %lhs_source1: reg<test.i32>, %rhs_source0: reg<test.i32>, %rhs_source1: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="0", scored_candidate_count="4", chosen_packet="test.packing.create", rejected_packet="test.packing.create"}
-  %lhs_narrow0 = test.packing.create %lhs_source0
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="5", scored_candidate_count="2", chosen_packet="test.packing.create", rejected_packet="test.packing.create"}
-  %lhs_narrow1 = test.packing.create %lhs_source1
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="2", chosen_packet="test.packing.create", rejected_packet="test.packing.create"}
-  %rhs_narrow0 = test.packing.create %rhs_source0
-  %rhs_narrow1 = test.packing.create %rhs_source1
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="1", chosen_packet="test.packing.expand", rejected_packet="test.packing.create"}
-  %lhs_wide0 = test.packing.expand %lhs_narrow0
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="6", chosen_packet="test.packing.expand", rejected_packet="test.packing.create"}
-  %lhs_wide1 = test.packing.expand %lhs_narrow1
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="3", chosen_packet="test.packing.expand", rejected_packet="test.packing.create"}
-  %rhs_wide0 = test.packing.expand %rhs_narrow0
-  %rhs_wide1 = test.packing.expand %rhs_narrow1
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="4", chosen_packet="test.packing.retire", rejected_packet="test.packing.create"}
-  %result0 = test.packing.retire %lhs_wide0, %rhs_wide0
-  %result1 = test.packing.retire %lhs_wide1, %rhs_wide1
-  return %result0, %result1
-}
-
-// ====
-// RUN: emit low-schedule-json @register_packing_materializes_active_completion strategy=resource-stall diagnostics=candidates output=none
-
-test.target<low_core> @test_target
-
-low.func.def target<test.low.core>(@test_target) @register_packing_materializes_active_completion(%source0: reg<test.i32>, %source1: reg<test.i32>, %source2: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
-  // The fence establishes two live narrow values in the packing resource.
-  // Their configuration leaves must complete an active transaction before
-  // the third transaction opens, even though those leaves grow scalar pressure.
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="0", chosen_packet="test.packing.create", rejected_packet="test.packing.create"}
-  %narrow0 = test.packing.create %source0
-  %narrow1 = test.packing.create %source1
-  low.schedule.fence
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="3", chosen_packet="test.const.i32", rejected_packet="test.const.i32"}
-  %config0 = test.const.i32 0
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="4", chosen_packet="test.packing.configured.expand", rejected_packet="test.const.i32"}
-  %lhs_wide0, %rhs_wide0 = test.packing.configured.expand %narrow0, %config0
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="5", chosen_packet="test.packing.retire", rejected_packet="test.const.i32"}
-  %result0 = test.packing.retire %lhs_wide0, %rhs_wide0
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="6", chosen_packet="test.const.i32", rejected_packet="test.const.i32"}
-  %config1 = test.const.i32 1
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="7", chosen_packet="test.packing.configured.expand", rejected_packet="test.const.i32"}
-  %lhs_wide1, %rhs_wide1 = test.packing.configured.expand %narrow1, %config1
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="8", chosen_packet="test.packing.retire", rejected_packet="test.packing.create"}
-  %result1 = test.packing.retire %lhs_wide1, %rhs_wide1
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="9", chosen_packet="test.packing.create", rejected_packet="test.const.i32"}
-  %narrow2 = test.packing.create %source2
-  %config2 = test.const.i32 2
-  %lhs_wide2, %rhs_wide2 = test.packing.configured.expand %narrow2, %config2
-  %result2 = test.packing.retire %lhs_wide2, %rhs_wide2
-  return %result0, %result1, %result2
-}
 
 // ====
 

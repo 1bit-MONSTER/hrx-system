@@ -21,22 +21,79 @@ extern "C" {
 #endif
 
 // Immutable preferences for one allocation attempt. Full scalar affinities
-// carry their common physical domain and storage horizon. Narrower overlapping
-// domains discourage a broader value from occupying their candidates. These
-// preferences never establish interference or permission to alias storage.
+// carry their common physical domain and storage horizon. Atomic storage
+// coverage relates classes whose named physical candidates differ. When broad
+// demand exceeds general capacity, disjoint lifetimes reuse idle narrower
+// storage while overlapping narrow demand retains the capacity it requires.
+// These preferences never establish interference or permission to alias
+// storage.
 typedef struct loom_low_allocation_physical_domains_t {
   // Word offsets indexed by liveness interval index. UINT32_MAX denotes an
   // inert row; NULL denotes a function without physical scalar candidates.
   const uint32_t* offsets;
-  // One penalty bit per semantic candidate ordinal in the interval's class.
+  // Primary penalty bits indexed by semantic candidate ordinal in the
+  // interval's class.
   // Rows are word-aligned and have ceil(allocatable_count / 64) words.
-  const uint64_t* words;
+  const uint64_t* penalty_words;
+  // Candidates outside the common domain of a storage-affinity component.
+  const uint64_t* affinity_words;
+  // Reserved-narrower-storage bits. These also provide the second rank bit
+  // when idle narrower storage is preferred.
+  const uint64_t* reservation_words;
 } loom_low_allocation_physical_domains_t;
 
-// Returns the retained candidate-penalty row for an interval, or NULL when
-// no preference row is needed. Bits address semantic candidate
-// ordinals in the interval's register class, not physical-register IDs.
-const uint64_t* loom_low_allocation_physical_domains_for_interval(
+typedef struct loom_low_allocation_physical_domain_row_t {
+  // Primary candidate-penalty bits, or NULL when the row is inert.
+  const uint64_t* penalty_words;
+  // Candidates outside the component's common affinity domain, or NULL when
+  // the row is inert.
+  const uint64_t* affinity_words;
+  // Reserved-narrower-storage bits, or NULL when the row is inert.
+  const uint64_t* reservation_words;
+} loom_low_allocation_physical_domain_row_t;
+
+// Returns the retained rank for a semantic candidate ordinal. Rank zero is
+// preferred; higher ranks violate more retained affinity or capacity
+// preferences.
+static inline uint32_t loom_low_allocation_physical_domain_row_candidate_rank(
+    loom_low_allocation_physical_domain_row_t row, uint16_t candidate_ordinal) {
+  if (!row.penalty_words) {
+    return 0;
+  }
+  const uint64_t bit = UINT64_C(1) << (candidate_ordinal % 64);
+  return (uint32_t)((row.penalty_words[candidate_ordinal / 64] & bit) != 0) +
+         (uint32_t)((row.reservation_words[candidate_ordinal / 64] & bit) != 0);
+}
+
+// Returns true when the candidate occupies capacity reserved for a narrower
+// physical domain. An inert row has no alternative candidate to preserve.
+static inline bool
+loom_low_allocation_physical_domain_row_candidate_is_reserved(
+    loom_low_allocation_physical_domain_row_t row, uint16_t candidate_ordinal) {
+  if (!row.penalty_words) {
+    return false;
+  }
+  const uint64_t bit = UINT64_C(1) << (candidate_ordinal % 64);
+  return (row.reservation_words[candidate_ordinal / 64] & bit) != 0;
+}
+
+// Returns true when the candidate lies outside the common physical domain of
+// the interval's storage-affinity component.
+static inline bool
+loom_low_allocation_physical_domain_row_candidate_breaks_affinity(
+    loom_low_allocation_physical_domain_row_t row, uint16_t candidate_ordinal) {
+  if (!row.penalty_words) {
+    return false;
+  }
+  const uint64_t bit = UINT64_C(1) << (candidate_ordinal % 64);
+  return (row.affinity_words[candidate_ordinal / 64] & bit) != 0;
+}
+
+// Returns the retained candidate-penalty row for an interval. Bits address
+// semantic candidate ordinals in the interval's register class, not
+// physical-register IDs.
+loom_low_allocation_physical_domain_row_t
+loom_low_allocation_physical_domains_for_interval(
     const loom_low_allocation_physical_domains_t* domains,
     const loom_liveness_analysis_t* liveness,
     const loom_liveness_interval_t* interval);

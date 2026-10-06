@@ -1,0 +1,70 @@
+func.decl @scenario_wrong_result(%input: i32) -> (i32)
+
+func.decl @scenario_wrong_post_state(%storage: tensor<3xi32>)
+
+func.decl @scenario_wrong_guard(%payload: tensor<3xi32>)
+
+func.decl @scenario_wrong_reference(%first: tensor<4xi32>, %second: tensor<4xi32>) -> (buffer)
+
+func.decl @scenario_missing_outcome(%input: i32) -> (i32)
+
+check.scenario public @wrong_result {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %input = check.literal value(41) : i32
+    check.compare<@scenario_wrong_result>(%input) : (i32) -> [actual(%actual: i32), expected(%expected: i32)] {
+      check.expect.equal actual(%actual) expected(%expected) : i32
+    }
+  }
+  check.return
+}
+
+check.scenario public @wrong_post_state {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.iota offset(10) step(1) : tensor<3xi32>
+    check.compare<@scenario_wrong_post_state>(%storage) : (tensor<3xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<3xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario public @wrong_guard {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(17) : tensor<5xi32>
+    %prefix_guard = check.tensor.view %storage offset(0) : tensor<5xi32> -> tensor<1xi32>
+    %payload = check.tensor.view %storage offset(4) : tensor<5xi32> -> tensor<3xi32>
+    %suffix_guard = check.tensor.view %storage offset(16) : tensor<5xi32> -> tensor<1xi32>
+    check.compare<@scenario_wrong_guard>(%payload) : (tensor<3xi32>) -> () {
+      check.expect.bitwise actual(%prefix_guard) expected(%prefix_guard) : tensor<1xi32>
+      check.expect.bitwise actual(%payload) expected(%payload) : tensor<3xi32>
+      check.expect.bitwise actual(%suffix_guard) expected(%suffix_guard) : tensor<1xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario public @wrong_reference {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %first_storage = check.generate.iota offset(17) step(3) : tensor<6xi32>
+    %second_storage = check.generate.iota offset(101) step(5) : tensor<6xi32>
+    %first = check.tensor.view %first_storage offset(4) : tensor<6xi32> -> tensor<4xi32>
+    %second = check.tensor.view %second_storage offset(4) : tensor<6xi32> -> tensor<4xi32>
+    check.compare<@scenario_wrong_reference>(%first, %second) : (tensor<4xi32>, tensor<4xi32>) -> [actual(%actual: buffer), expected(%expected: buffer)] {
+      check.expect.equal actual(%actual) expected(%expected) : buffer
+      check.expect.bitwise actual(%first_storage) expected(%first_storage) : tensor<6xi32>
+      check.expect.bitwise actual(%second_storage) expected(%second_storage) : tensor<6xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario public @missing_outcome {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.literal value(7) : i32
+    check.compare<@scenario_missing_outcome>(%input) : (i32) -> [actual(%actual: i32), expected(%expected: i32)] {
+      check.expect.equal actual(%actual) expected(%expected) : i32
+      check.expect.event<device> {count = 1, type = "asan_report"}
+    }
+  }
+  check.return
+}

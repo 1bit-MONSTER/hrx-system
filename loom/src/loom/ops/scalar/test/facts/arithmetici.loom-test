@@ -104,6 +104,24 @@ func.def @assume_relational_external_bounds(%value: i32, %upper0: i32, %lower0: 
 
 // ====
 
+// A literal lower endpoint remains useful when the upper endpoint is a
+// dynamically bounded scalar value.
+func.def @assume_symbolic_range_bound(%value: i32, %upper0: i32) -> (i64, i64) {
+  %upper = scalar.assume %upper0 [range(%upper0, 32, 2048)] : i32
+  %bounded = scalar.assume %value [range(%value, 0, %upper)] : i32
+  %bounded_lo = test.fact_range_lo %bounded : i32 -> i64
+  %bounded_hi = test.fact_range_hi %bounded : i32 -> i64
+  func.return %bounded_lo, %bounded_hi : i64, i64
+}
+// ----
+func.def @assume_symbolic_range_bound(%value: i32, %upper0: i32) -> (i64, i64) {
+  %bounded_lo = scalar.constant 0 : i64
+  %bounded_hi = scalar.constant 2048 : i64
+  func.return %bounded_lo, %bounded_hi : i64, i64
+}
+
+// ====
+
 // remui is bounded by the non-negative dividend as well as by the dynamic
 // divisor range.
 func.def @remui_dynamic_divisor_uses_dividend_bound(%x0: i32, %d0: i32) -> (i64, i64) {
@@ -119,6 +137,74 @@ func.def @remui_dynamic_divisor_uses_dividend_bound(%x0: i32, %d0: i32) -> (i64,
   %lo = scalar.constant 0 : i64
   %hi = scalar.constant 63 : i64
   func.return %lo, %hi : i64, i64
+}
+
+// ====
+
+// Unsigned remainder uses the declared width for an otherwise unknown
+// dividend, proving the complete result range below a constant divisor.
+func.def @remui_unknown_dividend_uses_declared_width(%value: i32) -> (i64, i64) {
+  %count = scalar.constant 9 : i32
+  %remainder = scalar.remui %value, %count : i32
+  %minimum = test.fact_range_lo %remainder : i32 -> i64
+  %maximum = test.fact_range_hi %remainder : i32 -> i64
+  func.return %minimum, %maximum : i64, i64
+}
+
+// ----
+func.def @remui_unknown_dividend_uses_declared_width(%value: i32) -> (i64, i64) {
+  %minimum = scalar.constant 0 : i64
+  %maximum = scalar.constant 8 : i64
+  func.return %minimum, %maximum : i64, i64
+}
+
+// ====
+
+// Negative signed representations retain their raw unsigned interpretation at
+// each declared width.
+func.def @divui_negative_representation_uses_declared_width() -> (i32, i32, i64, i64) {
+  %narrow_value = scalar.constant -30 : i32
+  %narrow_divisor = scalar.constant 5 : i32
+  %narrow_quotient = scalar.divui %narrow_value, %narrow_divisor : i32
+  %narrow_remainder = scalar.remui %narrow_value, %narrow_divisor : i32
+  %wide_value = scalar.constant -30 : i64
+  %wide_divisor = scalar.constant 5 : i64
+  %wide_quotient = scalar.divui %wide_value, %wide_divisor : i64
+  %wide_remainder = scalar.remui %wide_value, %wide_divisor : i64
+  func.return %narrow_quotient, %narrow_remainder, %wide_quotient, %wide_remainder : i32, i32, i64, i64
+}
+
+// ----
+func.def @divui_negative_representation_uses_declared_width() -> (i32, i32, i64, i64) {
+  %narrow_quotient = scalar.constant 858993453 : i32
+  %narrow_remainder = scalar.constant 1 : i32
+  %wide_quotient = scalar.constant 3689348814741910317 : i64
+  %wide_remainder = scalar.constant 1 : i64
+  func.return %narrow_quotient, %narrow_remainder, %wide_quotient, %wide_remainder : i32, i32, i64, i64
+}
+
+// ====
+
+// A negative i8 constant denotes an unsigned high-bit divisor. The quotient
+// and remainder bounds remain representable in the signed fact domain.
+func.def @unsigned_high_bit_divisor_uses_raw_bits(%value: i8) -> (i64, i64, i64, i64) {
+  %divisor = scalar.constant -128 : i8
+  %quotient = scalar.divui %value, %divisor : i8
+  %remainder = scalar.remui %value, %divisor : i8
+  %quotient_minimum = test.fact_range_lo %quotient : i8 -> i64
+  %quotient_maximum = test.fact_range_hi %quotient : i8 -> i64
+  %remainder_minimum = test.fact_range_lo %remainder : i8 -> i64
+  %remainder_maximum = test.fact_range_hi %remainder : i8 -> i64
+  func.return %quotient_minimum, %quotient_maximum, %remainder_minimum, %remainder_maximum : i64, i64, i64, i64
+}
+
+// ----
+func.def @unsigned_high_bit_divisor_uses_raw_bits(%value: i8) -> (i64, i64, i64, i64) {
+  %quotient_minimum = scalar.constant 0 : i64
+  %quotient_maximum = scalar.constant 1 : i64
+  %remainder_minimum = scalar.constant 0 : i64
+  %remainder_maximum = scalar.constant 127 : i64
+  func.return %quotient_minimum, %quotient_maximum, %remainder_minimum, %remainder_maximum : i64, i64, i64, i64
 }
 
 // ====

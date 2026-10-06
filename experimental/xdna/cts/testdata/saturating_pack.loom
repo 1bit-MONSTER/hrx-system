@@ -1,0 +1,98 @@
+// Clamp signed bytes to the INT4 range and pack adjacent lanes. Each input
+// is also packed without clamping; alternating the operations exercises their
+// independent conversion semantics and preserves the surrounding guards.
+// Equivalent min/max operand orders must select the same packing behavior.
+aie2p.target<array> @array_target
+aie2p.target<core> @core_target
+
+pipeline.def<kernel> public retain target(@array_target) @pack64_packets() launch(%input: buffer, %output: buffer) {
+  %count = index.constant 2 : index
+  %zero = index.constant 0 : offset
+  %workers = group.create %count : index -> group
+  %input_view = buffer.view %input[%zero] : buffer -> view<2x3x256xi8>
+  %output_view = buffer.view %output[%zero] : buffer -> view<2x3x384xi8>
+  %packets = pipeline.scatter %input_view across %workers : view<2x3x256xi8>, group -> pipeline.flow<tile<256xi8>>
+  %packed = pipeline.stage @pack64_entry on %workers(%packets) : (group, pipeline.flow<tile<256xi8>>) -> (pipeline.flow<tile<384xi8>>)
+  pipeline.write %packed to %output_view : pipeline.flow<tile<384xi8>>, view<2x3x384xi8>
+  pipeline.return
+}
+
+func.def target(@core_target) @pack64_entry(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %zero = index.constant 0 : offset
+  %input_view = buffer.view %source[%zero] : buffer -> view<256xi8>
+  %output_view = buffer.view %destination[%zero] : buffer -> view<384xi8>
+  %guard = vector.constant -91 : vector<64xi8>
+  vector.store %guard, %output_view[0] : vector<64xi8>, view<384xi8>
+  vector.store %guard, %output_view[320] : vector<64xi8>, view<384xi8>
+  %lower = vector.constant -8 : vector<64xi8>
+  %upper = vector.constant 7 : vector<64xi8>
+  %values_0 = vector.load %input_view[0] : view<256xi8> -> vector<64xi8>
+  %lower_clamped_0 = vector.maxsi %values_0, %lower : vector<64xi8>
+  %clamped_0 = vector.minsi %lower_clamped_0, %upper : vector<64xi8>
+  %saturated_0 = vector.bitpack<4> %clamped_0 : vector<64xi8> -> vector<32xi8>
+  vector.store %saturated_0, %output_view[64] : vector<32xi8>, view<384xi8>
+  %truncated_0 = vector.bitpack<4> %values_0 : vector<64xi8> -> vector<32xi8>
+  vector.store %truncated_0, %output_view[192] : vector<32xi8>, view<384xi8>
+  %values_1 = vector.load %input_view[64] : view<256xi8> -> vector<64xi8>
+  %lower_clamped_1 = vector.maxsi %lower, %values_1 : vector<64xi8>
+  %clamped_1 = vector.minsi %lower_clamped_1, %upper : vector<64xi8>
+  %saturated_1 = vector.bitpack<4> %clamped_1 : vector<64xi8> -> vector<32xi8>
+  vector.store %saturated_1, %output_view[96] : vector<32xi8>, view<384xi8>
+  %truncated_1 = vector.bitpack<4> %values_1 : vector<64xi8> -> vector<32xi8>
+  vector.store %truncated_1, %output_view[224] : vector<32xi8>, view<384xi8>
+  %values_2 = vector.load %input_view[128] : view<256xi8> -> vector<64xi8>
+  %lower_clamped_2 = vector.maxsi %values_2, %lower : vector<64xi8>
+  %clamped_2 = vector.minsi %upper, %lower_clamped_2 : vector<64xi8>
+  %saturated_2 = vector.bitpack<4> %clamped_2 : vector<64xi8> -> vector<32xi8>
+  vector.store %saturated_2, %output_view[128] : vector<32xi8>, view<384xi8>
+  %truncated_2 = vector.bitpack<4> %values_2 : vector<64xi8> -> vector<32xi8>
+  vector.store %truncated_2, %output_view[256] : vector<32xi8>, view<384xi8>
+  %values_3 = vector.load %input_view[192] : view<256xi8> -> vector<64xi8>
+  %lower_clamped_3 = vector.maxsi %lower, %values_3 : vector<64xi8>
+  %clamped_3 = vector.minsi %upper, %lower_clamped_3 : vector<64xi8>
+  %saturated_3 = vector.bitpack<4> %clamped_3 : vector<64xi8> -> vector<32xi8>
+  vector.store %saturated_3, %output_view[160] : vector<32xi8>, view<384xi8>
+  %truncated_3 = vector.bitpack<4> %values_3 : vector<64xi8> -> vector<32xi8>
+  vector.store %truncated_3, %output_view[288] : vector<32xi8>, view<384xi8>
+  func.return
+}
+
+pipeline.def<kernel> public retain target(@array_target) @pack128_packets() launch(%input: buffer, %output: buffer) {
+  %count = index.constant 2 : index
+  %zero = index.constant 0 : offset
+  %workers = group.create %count : index -> group
+  %input_view = buffer.view %input[%zero] : buffer -> view<2x3x256xi8>
+  %output_view = buffer.view %output[%zero] : buffer -> view<2x3x384xi8>
+  %packets = pipeline.scatter %input_view across %workers : view<2x3x256xi8>, group -> pipeline.flow<tile<256xi8>>
+  %packed = pipeline.stage @pack128_entry on %workers(%packets) : (group, pipeline.flow<tile<256xi8>>) -> (pipeline.flow<tile<384xi8>>)
+  pipeline.write %packed to %output_view : pipeline.flow<tile<384xi8>>, view<2x3x384xi8>
+  pipeline.return
+}
+
+func.def target(@core_target) @pack128_entry(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %zero = index.constant 0 : offset
+  %input_view = buffer.view %source[%zero] : buffer -> view<256xi8>
+  %output_view = buffer.view %destination[%zero] : buffer -> view<384xi8>
+  %guard = vector.constant -91 : vector<64xi8>
+  vector.store %guard, %output_view[0] : vector<64xi8>, view<384xi8>
+  vector.store %guard, %output_view[320] : vector<64xi8>, view<384xi8>
+  %lower = vector.constant -8 : vector<128xi8>
+  %upper = vector.constant 7 : vector<128xi8>
+  %values_0 = vector.load %input_view[0] : view<256xi8> -> vector<128xi8>
+  %upper_clamped_0 = vector.minsi %values_0, %upper : vector<128xi8>
+  %clamped_0 = vector.maxsi %upper_clamped_0, %lower : vector<128xi8>
+  %saturated_0 = vector.bitpack<4> %clamped_0 : vector<128xi8> -> vector<64xi8>
+  vector.store %saturated_0, %output_view[64] : vector<64xi8>, view<384xi8>
+  %truncated_0 = vector.bitpack<4> %values_0 : vector<128xi8> -> vector<64xi8>
+  vector.store %truncated_0, %output_view[192] : vector<64xi8>, view<384xi8>
+  %values_1 = vector.load %input_view[128] : view<256xi8> -> vector<128xi8>
+  %upper_clamped_1 = vector.minsi %upper, %values_1 : vector<128xi8>
+  %clamped_1 = vector.maxsi %lower, %upper_clamped_1 : vector<128xi8>
+  %saturated_1 = vector.bitpack<4> %clamped_1 : vector<128xi8> -> vector<64xi8>
+  vector.store %saturated_1, %output_view[128] : vector<64xi8>, view<384xi8>
+  %truncated_1 = vector.bitpack<4> %values_1 : vector<128xi8> -> vector<64xi8>
+  vector.store %truncated_1, %output_view[256] : vector<64xi8>, view<384xi8>
+  func.return
+}

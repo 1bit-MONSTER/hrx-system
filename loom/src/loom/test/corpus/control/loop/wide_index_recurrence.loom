@@ -1,0 +1,48 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// A wide logical index must retain its high word when a cyclic CFG meet loses
+// the seed's exact range. The three subtractions cross the backedge before the
+// final value is compared against another wide index.
+kernel.def @wide_index_cfg_recurrence() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%output: buffer) {
+  %initial = index.constant 4294967303 : index
+  %iteration_count = scalar.constant 3 : i32
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %step = index.constant 1 : index
+  %base = index.constant 0 : offset
+  %aligned_output = buffer.assume.alignment %output {minimum_alignment = 8} : buffer
+  %output_view = buffer.view %aligned_output[%base] : buffer -> view<1xi32>
+  cfg.br ^header(%iteration_count: i32, %initial: index)
+^header(%remaining: i32, %value: index):
+  %more = scalar.cmpi sgt, %remaining, %c0 : i32
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  %next_remaining = scalar.subi %remaining, %c1 : i32
+  %next_value = index.sub %value, %step : index
+  cfg.br ^header(%next_remaining: i32, %next_value: index)
+^exit:
+  %expected = index.constant 4294967300 : index
+  %matches = index.cmp eq, %value, %expected : index
+  cfg.cond_br %matches, ^match, ^mismatch
+^match:
+  view.store %c1, %output_view[0] : i32, view<1xi32>
+  kernel.return
+^mismatch:
+  view.store %c0, %output_view[0] : i32, view<1xi32>
+  kernel.return
+}
+
+check.case public @wide_index_cfg_recurrence_case {
+  %actual = check.generate.fill value(-1) : tensor<1xi32>
+  %expected = check.generate.fill value(1) : tensor<1xi32>
+  kernel.launch @wide_index_cfg_recurrence(%actual) : (tensor<1xi32>)
+  check.expect.equal actual(%actual) expected(%expected) : tensor<1xi32>
+  check.return
+}

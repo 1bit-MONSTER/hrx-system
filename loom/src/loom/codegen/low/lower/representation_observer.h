@@ -37,11 +37,20 @@ enum loom_low_lower_representation_boundary_flag_bits_e {
 };
 typedef uint8_t loom_low_lower_representation_boundary_flags_t;
 
+typedef enum loom_low_lower_representation_callable_boundary_kind_e {
+  // Active source FuncLike operation.
+  LOOM_LOW_LOWER_REPRESENTATION_CALLABLE_DEFINITION = 0,
+  // Direct semantic CallLike operation.
+  LOOM_LOW_LOWER_REPRESENTATION_CALLABLE_CALL = 1,
+  // Direct terminator of the active source FuncLike body.
+  LOOM_LOW_LOWER_REPRESENTATION_CALLABLE_EXIT = 2,
+} loom_low_lower_representation_callable_boundary_kind_t;
+
 // One target boundary observed for an exact source operation kind. The source
 // function op is observed during begin; body ops are observed during the
-// compiler-owned source-plan traversal. Tables must be strictly increasing by
-// |op_kind| and are verified by target tests or their generators rather than
-// rescanned during compilation.
+// compiler-owned source-plan traversal. Rows within each dialect span must be
+// strictly increasing by |op_kind| and are verified by target tests or their
+// generators rather than rescanned during compilation.
 typedef struct loom_low_lower_representation_boundary_t {
   // Exact source operation kind that invokes the target observer.
   loom_op_kind_t op_kind;
@@ -53,12 +62,25 @@ typedef struct loom_low_lower_representation_boundary_t {
 static_assert(sizeof(loom_low_lower_representation_boundary_t) == 4,
               "representation boundaries must stay compact");
 
+// One contiguous dialect slice in a representation boundary table. Boundaries
+// within each non-empty span must be strictly increasing. Dense dialect spans
+// keep unrelated dialects out of each operation's hot lookup path.
+typedef struct loom_low_lower_representation_boundary_span_t {
+  // First row in the provider's boundary table.
+  uint16_t first_boundary;
+  // Number of consecutive boundary rows in this dialect.
+  uint16_t boundary_count;
+} loom_low_lower_representation_boundary_span_t;
+static_assert(sizeof(loom_low_lower_representation_boundary_span_t) == 4,
+              "representation boundary spans must stay compact");
+
 typedef struct loom_low_lower_representation_recorder_t
     loom_low_lower_representation_recorder_t;
 
 typedef bool (*loom_low_lower_representation_relation_fn_t)(
     void* user_data, loom_low_lower_context_t* context,
-    const loom_op_t* source_op, const loom_value_relation_t* relation);
+    const loom_op_t* source_op, const loom_value_relation_t* relation,
+    loom_low_lower_representation_recorder_t* recorder);
 
 typedef void (*loom_low_lower_representation_boundary_fn_t)(
     void* user_data, uint8_t action,
@@ -66,20 +88,39 @@ typedef void (*loom_low_lower_representation_boundary_fn_t)(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_low_lower_representation_recorder_t* recorder);
 
+typedef void (*loom_low_lower_representation_callable_boundary_fn_t)(
+    void* user_data,
+    loom_low_lower_representation_callable_boundary_kind_t kind,
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_low_lower_representation_recorder_t* recorder);
+
 // Target policy for one function-local physical-representation plan.
 typedef struct loom_low_lower_representation_provider_t {
   // Returns true when a common relation on |source_op| requires the two source
-  // values to use one target representation. This callback is infallible and
-  // must not walk source IR.
+  // values to use one target representation. The callback may also record
+  // exact candidate domains for either value through |recorder|. It is
+  // infallible and must not walk source IR.
   loom_low_lower_representation_relation_fn_t relation;
-  // Observes operation boundaries selected by |boundaries|. |flags| identifies
-  // the source operation ports relevant to the target action. Failures and
-  // exact alternatives are recorded through |recorder|.
+  // Observes operation boundaries selected by |boundary_spans| and
+  // |boundaries|. |flags| identifies the source operation ports relevant to
+  // the target action. Failures and exact alternatives are recorded through
+  // |recorder|.
   loom_low_lower_representation_boundary_fn_t observe_boundary;
-  // Strictly increasing source operation boundary table.
+  // Observes generic FuncLike definitions and exits and direct semantic
+  // CallLike operations. This keeps target policy independent of concrete
+  // callable dialects.
+  loom_low_lower_representation_callable_boundary_fn_t
+      observe_callable_boundary;
+  // Source operation boundaries, contiguous and ordered within each span.
   const loom_low_lower_representation_boundary_t* boundaries;
-  // Number of rows in |boundaries|.
+  // Dense dialect spans indexed by dialect id minus |boundary_dialect_base_id|.
+  const loom_low_lower_representation_boundary_span_t* boundary_spans;
+  // Total number of rows in |boundaries|.
   uint16_t boundary_count;
+  // First dialect id covered by |boundary_spans|.
+  uint8_t boundary_dialect_base_id;
+  // Number of dense dialect slots in |boundary_spans|.
+  uint8_t boundary_dialect_count;
   // Common relation kinds offered to |relation|. Zero disables structural
   // relation observation and requires |relation| to be NULL.
   loom_value_relation_mask_t relation_mask;
@@ -96,6 +137,15 @@ void loom_low_lower_representation_record_union(
 // Adds one exact candidate domain for a source value at the current operation
 // boundary. Candidate rows are copied into function-local storage.
 void loom_low_lower_representation_record_candidates(
+    loom_low_lower_representation_recorder_t* recorder,
+    loom_value_id_t source_value_id,
+    const loom_low_representation_candidate_t* candidates,
+    iree_host_size_t candidate_count);
+
+// Adds costs for representations selected by an exact producer domain in the
+// same component. Cost rows may be observed before the producer or relation
+// that activates the component. They do not activate a component themselves.
+void loom_low_lower_representation_record_costs(
     loom_low_lower_representation_recorder_t* recorder,
     loom_value_id_t source_value_id,
     const loom_low_representation_candidate_t* candidates,
@@ -128,7 +178,15 @@ iree_status_t loom_low_lower_representation_observer_end(
 // Returns the selected representation for |source_value_id|, or NONE when its
 // component remained unconstrained. The representation observer must have
 // completed successfully before this query.
-iree_status_t loom_low_lower_representation_lookup(
+void loom_low_lower_representation_lookup(
+    loom_low_lower_context_t* context, loom_value_id_t source_value_id,
+    loom_low_representation_id_t* out_representation);
+
+// Returns the selected representation when observation has completed, or NONE
+// before the function-local plan is ready. This permits value mapping shared by
+// boundary validation and planned lowering to consume the same policy without
+// making the earlier validation phase depend on observer ordering.
+void loom_low_lower_representation_lookup_if_ready(
     loom_low_lower_context_t* context, loom_value_id_t source_value_id,
     loom_low_representation_id_t* out_representation);
 

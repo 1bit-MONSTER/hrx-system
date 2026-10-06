@@ -2314,6 +2314,8 @@ class Parser:
                 return name == attr_name
             case FuncArgs(start_attr=start_attr, end_attr=end_attr):
                 return start_attr == attr_name or end_attr == attr_name
+            case BlockArgs(start_attr=start_attr, end_attr=end_attr):
+                return start_attr == attr_name or end_attr == attr_name
             case (
                 OperandDict(names=name) | AttrTable(keys=name) | RegionTable(keys=name)
             ):
@@ -3199,11 +3201,19 @@ class Parser:
                 case IndexList(dynamic=dynamic_field, static=static_field):
                     self._parse_index_list(parsed, op_decl, dynamic_field, static_field)
 
-                case BindingList(field=name, kind=binding_kind):
-                    self._parse_binding_list(parsed, op_decl, name, binding_kind)
+                case BindingList(
+                    field=name,
+                    kind=binding_kind,
+                    type_source=type_source,
+                ):
+                    self._parse_binding_list(
+                        parsed, op_decl, name, binding_kind, type_source
+                    )
 
-                case BlockArgs(region=name):
+                case BlockArgs(region=name, end_attr=end_attr):
                     self._parse_block_args(parsed, name)
+                    if end_attr is not None:
+                        parsed.attributes[end_attr] = len(parsed.region_arg_ids)
 
                 case FuncArgs(field=name, end_attr=end_attr):
                     tok.expect(TokenKind.LPAREN)
@@ -3707,6 +3717,7 @@ class Parser:
         op_decl: Op,
         field_name: str,
         kind: str = "capture",
+        type_source: str = "operand",
     ) -> None:
         """Parse (%block_arg = %operand : type, ...).
 
@@ -3716,17 +3727,54 @@ class Parser:
         """
         tok = self._tokenizer
         tok.expect(TokenKind.LPAREN)
-
-        if not tok.at(TokenKind.RPAREN):
-            parsed.region_arg_ids.append(
-                self._parse_one_binding(parsed, op_decl, field_name, kind)
-            )
-            while tok.try_consume(TokenKind.COMMA):
+        operand_scope = self._scope
+        argument_scope = operand_scope
+        if type_source == "block_arg":
+            argument_scope = operand_scope.push()
+            self._scope = argument_scope
+        try:
+            if not tok.at(TokenKind.RPAREN):
                 parsed.region_arg_ids.append(
-                    self._parse_one_binding(parsed, op_decl, field_name, kind)
+                    self._parse_one_binding(
+                        parsed,
+                        op_decl,
+                        field_name,
+                        kind,
+                        type_source,
+                        operand_scope,
+                    )
                 )
+                while tok.try_consume(TokenKind.COMMA):
+                    parsed.region_arg_ids.append(
+                        self._parse_one_binding(
+                            parsed,
+                            op_decl,
+                            field_name,
+                            kind,
+                            type_source,
+                            operand_scope,
+                        )
+                    )
 
-        tok.expect(TokenKind.RPAREN)
+            tok.expect(TokenKind.RPAREN)
+            if type_source == "block_arg":
+                for name, value_id in argument_scope.local_items():
+                    if not isinstance(
+                        self._module.values[value_id].type, PlaceholderType
+                    ):
+                        continue
+                    location = (
+                        argument_scope.placeholder_location(name)
+                        or tok.current_location()
+                    )
+                    raise ParseError(
+                        f"unresolved forward reference to '%{name}' in "
+                        "binding arguments",
+                        location,
+                        tok._filename,
+                    )
+        finally:
+            self._scope = operand_scope
 
     def _project_loop_entry_types(
         self,
@@ -3738,9 +3786,7 @@ class Parser:
         """Instantiate a loop's result type scheme at one recurring entry."""
         if loop_like is None:
             return
-        counted = loop_like.iv is not None
-        projected_region = loop_like.body if counted else loop_like.condition_region
-        if region_name != projected_region:
+        if loop_like.iv is None or region_name != loop_like.body:
             return
 
         # Arity mismatches belong to verification. Projection is only defined
@@ -3820,6 +3866,8 @@ class Parser:
         op_decl: Op,
         field_name: str,
         kind: str,
+        type_source: str,
+        operand_scope: NameScope,
     ) -> int:
         """Parse one binding: %block_arg = %operand : type.
 
@@ -3827,11 +3875,12 @@ class Parser:
         from the operand annotation according to the binding kind.
         """
         tok = self._tokenizer
-        block_arg_name = tok.expect(TokenKind.SSA_VALUE).text
+        block_arg_token = tok.expect(TokenKind.SSA_VALUE)
+        block_arg_name = block_arg_token.text
         tok.expect(TokenKind.EQUALS)
         operand_token = tok.expect(TokenKind.SSA_VALUE)
         try:
-            operand_id = self._scope.lookup(operand_token.text)
+            operand_id = operand_scope.lookup(operand_token.text)
         except KeyError:
             raise ParseError(
                 f"undefined SSA value '%{operand_token.text}'",
@@ -3839,11 +3888,33 @@ class Parser:
                 tok._filename,
             ) from None
         tok.expect(TokenKind.COLON)
-        operand_type = self._parse_type(tok, self._scope, TypeParseMode.BODY)
+        block_arg_id: int | None = None
+        if type_source == "block_arg":
+            try:
+                block_arg_id = self._scope.lookup_local(block_arg_name)
+                block_arg_value = self._module.values[block_arg_id]
+                if not isinstance(block_arg_value.type, PlaceholderType):
+                    raise ParseError(
+                        f"SSA name '%{block_arg_name}' already defined",
+                        block_arg_token.location,
+                        tok._filename,
+                    )
+            except KeyError:
+                block_arg_id = self._module.add_value(
+                    Value(name=block_arg_name, type=PlaceholderType())
+                )
+                self._scope.define(block_arg_name, block_arg_id)
+            operand_type = self._parse_type(tok, self._scope, TypeParseMode.SIGNATURE)
+        else:
+            operand_type = self._parse_type(tok, self._scope, TypeParseMode.BODY)
         parsed.operand_ids.append(operand_id)
         self._record_operand_ids(parsed, op_decl, field_name, [operand_id])
 
         # Derive block arg type based on binding kind.
+        if type_source == "block_arg":
+            assert block_arg_id is not None
+            self._module.values[block_arg_id].type = operand_type
+            return block_arg_id
         if kind == "element":
             block_arg_type = binding_element_type(operand_type)
         else:

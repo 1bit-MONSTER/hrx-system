@@ -14,6 +14,7 @@
 #define LOOM_CODEGEN_LOW_VERIFY_H_
 
 #include "iree/base/api.h"
+#include "loom/codegen/low/representation_binding.h"
 #include "loom/codegen/low/target_binding.h"
 #include "loom/error/emitter.h"
 #include "loom/ir/function_version.h"
@@ -52,7 +53,10 @@ struct loom_low_verify_provider_t {
   loom_low_verify_provider_begin_module_fn_t begin_module;
   // Initializes target-owned function-local verification state.
   loom_low_verify_provider_begin_function_fn_t begin_function;
-  // Verifies one op as part of the generic low verifier's body walk.
+  // Verifies each body op after shared checks, including compile-time-only
+  // operations. Structural operations have packet kind NONE. Required native
+  // scheduling controls are admitted by the shared verifier before this hook.
+  // Call-context checks follow this hook when the target admits the call.
   loom_low_verify_provider_verify_op_fn_t verify_op;
   // Finalizes target-owned function-local verification state.
   loom_low_verify_provider_end_function_fn_t end_function;

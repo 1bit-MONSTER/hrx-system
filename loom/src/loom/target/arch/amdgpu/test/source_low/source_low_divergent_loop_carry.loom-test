@@ -144,3 +144,40 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @while_c
 ^_bb3:
   return %order
 }
+
+// ====
+
+// RUN: with-checks emit source-low output=low
+
+amdgpu.target<gfx9-4-generic> @target
+
+// The late vector select makes %choose a native mask and thereby forces
+// %final_value through the scalar select into VGPR. The loop placement cycle
+// must not retain the provisional SGPR answer observed at its backedge.
+func.def target(@target) @loop_carrier_late_vgpr_demand(%seed: i32, %count: i32, %true_vector: vector<2xi32>, %false_vector: vector<2xi32>) -> (i32, vector<2xi32>) {
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %choose = scalar.cmpi ne, %count, %c0 : i32
+  %final_i, %final_value = scf.while(%i = %c0 : i32, %value = %seed : i32) -> (i32, i32) {
+    %keep_going = scalar.cmpi slt, %i, %count : i32
+    scf.condition %keep_going, %i, %value : i1, i32, i32
+  } do(%i: i32, %value: i32) {
+    %parity = scalar.andi %i, %c1 : i32
+    %odd = scalar.cmpi ne, %parity, %c0 : i32
+    %incremented = scalar.addi %value, %c1 : i32
+    %next_value = scf.select %odd, %value, %incremented : i32
+    %next_i = scalar.addi %i, %c1 : i32
+    scf.yield %next_i, %next_value : i32, i32
+  }
+  %selected_value = scf.select %choose, %final_value, %seed : i32
+  %selected_vector = scf.select %choose, %true_vector, %false_vector : vector<2xi32>
+  func.return %selected_value, %selected_vector : i32, vector<2xi32>
+}
+
+// ----
+CHECK: low.func.def *@loop_carrier_late_vgpr_demand(* -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr x2>) asm {
+CHECK: low.br ^*(%c0: reg<amdgpu.sgpr>, *: reg<amdgpu.vgpr>)
+CHECK: ^*(%i: reg<amdgpu.sgpr>, %value: reg<amdgpu.vgpr>):
+CHECK: %incremented = v_add_u32 %value, *
+CHECK: %next_value = v_cndmask_b32 *
+CHECK: low.br ^*(%next_i: reg<amdgpu.sgpr>, %next_value: reg<amdgpu.vgpr>)

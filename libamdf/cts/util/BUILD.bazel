@@ -34,6 +34,15 @@ amdf_cc_library(
 )
 
 amdf_cc_library(
+    name = "mapped_memory",
+    testonly = True,
+    srcs = ["mapped_memory.cc"],
+    hdrs = ["mapped_memory.h"],
+    includes = [".."],
+    deps = ["//third_party:google_test"],
+)
+
+amdf_cc_library(
     name = "native_event_headers",
     testonly = True,
     hdrs = ["native_event.h"],

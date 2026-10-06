@@ -1,0 +1,416 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_signed_terms.loom-test
+// TEMPLATE-EXCLUDE: @workgroup_negative_vector_coefficient VM functions have no workgroup memory address space.
+// RUN: emit source-low target=vm:core output=low
+
+func.def @signed_uniform_word(%input: i32, %table: buffer) -> (i32) {
+  %signed = scalar.assume %input [range(%input, -128, 127)] : i32
+  %bias = scalar.constant 128 : i32
+  %ordinal = scalar.addi %signed, %bias : i32
+  %position = index.cast %ordinal : i32 to index
+  %base = index.constant 0 : offset
+  %view = buffer.view %table[%base] : buffer -> view<256xi32>
+  %value = view.load %view[%position] : view<256xi32> -> i32
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @signed_uniform_word(%signed: reg<vm.value : i32>, %view: reg<vm.ref : buffer>) -> (reg<vm.value : i32>) asm {
+  %13 = constant.i64 512
+  %14 = conversion.integer %signed, "s32.to.i64" : reg<vm.value>
+  %15 = constant.i64 2 : reg<vm.value>
+  %16 = integer.shift.left.i64 %14, %15 : reg<vm.value>
+  %17 = integer.add.i64 %16, %13
+  %value = buffer.load %view, %17, %17, 0, "i32.x1" : reg<vm.value : i32>
+  return %value
+}
+
+// ====
+
+func.def @signed_varying_word(%input: buffer, %table: buffer) -> (i32) {
+  %source_origin = index.constant 0 : offset
+  %source = buffer.view %input[%source_origin] : buffer -> view<1xi32>
+  %raw = view.load %source[0] : view<1xi32> -> i32
+  %signed = scalar.assume %raw [range(%raw, -128, 127)] : i32
+  %bias = scalar.constant 128 : i32
+  %ordinal = scalar.addi %signed, %bias : i32
+  %position = index.cast %ordinal : i32 to index
+  %base = index.constant 0 : offset
+  %view = buffer.view %table[%base] : buffer -> view<256xi32>
+  %value = view.load %view[%position] : view<256xi32> -> i32
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @signed_varying_word(%source: reg<vm.ref : buffer>, %view: reg<vm.ref : buffer>) -> (reg<vm.value : i32>) asm {
+  %16 = constant.i64 0
+  %signed = buffer.load %source, %16, %16, 0, "i32.x1" : reg<vm.value : i32>
+  %18 = constant.i64 512
+  %19 = conversion.integer %signed, "s32.to.i64" : reg<vm.value>
+  %20 = constant.i64 2 : reg<vm.value>
+  %21 = integer.shift.left.i64 %19, %20 : reg<vm.value>
+  %22 = integer.add.i64 %21, %18
+  %value = buffer.load %view, %22, %22, 0, "i32.x1" : reg<vm.value : i32>
+  return %value
+}
+
+// ====
+
+func.def @signed_factored_word(%input: buffer, %table: buffer) -> (i32) {
+  %source_origin = index.constant 0 : offset
+  %source = buffer.view %input[%source_origin] : buffer -> view<1xi32>
+  %raw = view.load %source[0] : view<1xi32> -> i32
+  %signed = scalar.assume %raw [range(%raw, -64, 63)] : i32
+  %bias = scalar.constant 64 : i32
+  %ordinal = scalar.addi %signed, %bias : i32
+  %position = index.cast %ordinal : i32 to index
+  %base = index.constant 0 : offset
+  %layout = encoding.layout.strided [2] : encoding<layout>
+  %view = buffer.view %table[%base] : buffer -> view<128xi32, %layout>
+  %value = view.load %view[%position] : view<128xi32, %layout> -> i32
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @signed_factored_word(%source: reg<vm.ref : buffer>, %view: reg<vm.ref : buffer>) -> (reg<vm.value : i32>) asm {
+  %17 = constant.i64 0
+  %signed = buffer.load %source, %17, %17, 0, "i32.x1" : reg<vm.value : i32>
+  %19 = constant.i64 512
+  %20 = conversion.integer %signed, "s32.to.i64" : reg<vm.value>
+  %21 = constant.i64 3 : reg<vm.value>
+  %22 = integer.shift.left.i64 %20, %21 : reg<vm.value>
+  %23 = integer.add.i64 %22, %19
+  %value = buffer.load %view, %23, %23, 0, "i32.x1" : reg<vm.value : i32>
+  return %value
+}
+
+// ====
+
+func.def @signed_varying_byte(%input: buffer, %table: buffer) -> (i8) {
+  %source_origin = index.constant 0 : offset
+  %source = buffer.view %input[%source_origin] : buffer -> view<1xi32>
+  %raw = view.load %source[0] : view<1xi32> -> i32
+  %signed = scalar.assume %raw [range(%raw, -128, 127)] : i32
+  %position = index.cast %signed : i32 to index
+  %base = index.constant 128 : offset
+  %view = buffer.view %table[%base] : buffer -> view<256xi8>
+  %bias = index.constant 128 : index
+  %ordinal = index.add %position, %bias : index
+  %value = view.load %view[%ordinal] : view<256xi8> -> i8
+  func.return %value : i8
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @signed_varying_byte(%source: reg<vm.ref : buffer>, %view: reg<vm.ref : buffer>) -> (reg<vm.value : i8>) asm {
+  %16 = constant.i64 0
+  %signed = buffer.load %source, %16, %16, 0, "i32.x1" : reg<vm.value : i32>
+  %18 = constant.i64 256
+  %19 = conversion.integer %signed, "s32.to.i64" : reg<vm.value>
+  %20 = integer.add.i64 %19, %18
+  %value = buffer.load %view, %20, %20, 0, "i8.x1" : reg<vm.value : i8>
+  return %value
+}
+
+// ====
+
+func.def @signed_irregular_stride(%input: buffer, %table: buffer) -> (i32) {
+  %source_origin = index.constant 0 : offset
+  %source = buffer.view %input[%source_origin] : buffer -> view<1xi32>
+  %raw = view.load %source[0] : view<1xi32> -> i32
+  %signed = scalar.assume %raw [range(%raw, -128, 127)] : i32
+  %position = index.cast %signed : i32 to index
+  %bias = index.constant 128 : index
+  %ordinal = index.add %position, %bias : index
+  %base = index.constant 0 : offset
+  %layout = encoding.layout.strided [3] : encoding<layout>
+  %view = buffer.view %table[%base] : buffer -> view<256xi32, %layout>
+  %value = view.load %view[%ordinal] : view<256xi32, %layout> -> i32
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @signed_irregular_stride(%source: reg<vm.ref : buffer>, %view: reg<vm.ref : buffer>) -> (reg<vm.value : i32>) asm {
+  %17 = constant.i64 0
+  %signed = buffer.load %source, %17, %17, 0, "i32.x1" : reg<vm.value : i32>
+  %19 = constant.i64 1536
+  %20 = conversion.integer %signed, "s32.to.i64" : reg<vm.value>
+  %21 = constant.i64 12 : reg<vm.value>
+  %22 = integer.mul.i64 %20, %21 : reg<vm.value>
+  %23 = integer.add.i64 %22, %19
+  %value = buffer.load %view, %23, %23, 0, "i32.x1" : reg<vm.value : i32>
+  return %value
+}
+
+// ====
+
+func.def @signed_high_bit_stride(%input: buffer, %table: buffer) -> (i8) {
+  %source_origin = index.constant 0 : offset
+  %source = buffer.view %input[%source_origin] : buffer -> view<1xi32>
+  %raw = view.load %source[0] : view<1xi32> -> i32
+  %signed = scalar.assume %raw [range(%raw, -1, 1)] : i32
+  %coordinate = index.cast %signed : i32 to index
+  %bias = index.constant 1 : index
+  %position = index.add %coordinate, %bias : index
+  %base = index.constant 0 : offset
+  %layout = encoding.layout.strided [2147483649] : encoding<layout>
+  %view = buffer.view %table[%base] : buffer -> view<3xi8, %layout>
+  %value = view.load %view[%position] : view<3xi8, %layout> -> i8
+  func.return %value : i8
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @signed_high_bit_stride(%source: reg<vm.ref : buffer>, %view: reg<vm.ref : buffer>) -> (reg<vm.value : i8>) asm {
+  %17 = constant.i64 0
+  %signed = buffer.load %source, %17, %17, 0, "i32.x1" : reg<vm.value : i32>
+  %19 = constant.i64 2147483649
+  %20 = conversion.integer %signed, "s32.to.i64" : reg<vm.value>
+  %21 = constant.i64 2147483649 : reg<vm.value>
+  %22 = integer.mul.i64 %20, %21 : reg<vm.value>
+  %23 = integer.add.i64 %22, %19
+  %value = buffer.load %view, %23, %23, 0, "i8.x1" : reg<vm.value : i8>
+  return %value
+}
+
+// ====
+
+func.def @signed_wide_stride(%input: buffer, %table: buffer) -> (i32) {
+  %source_origin = index.constant 0 : offset
+  %source = buffer.view %input[%source_origin] : buffer -> view<1xi32>
+  %raw = view.load %source[0] : view<1xi32> -> i32
+  %signed = scalar.assume %raw [range(%raw, -1, 1)] : i32
+  %coordinate = index.cast %signed : i32 to index
+  %bias = index.constant 1 : index
+  %position = index.add %coordinate, %bias : index
+  %base = index.constant 0 : offset
+  %layout = encoding.layout.strided [1073741825] : encoding<layout>
+  %view = buffer.view %table[%base] : buffer -> view<3xi32, %layout>
+  %value = view.load %view[%position] : view<3xi32, %layout> -> i32
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @signed_wide_stride(%source: reg<vm.ref : buffer>, %view: reg<vm.ref : buffer>) -> (reg<vm.value : i32>) asm {
+  %17 = constant.i64 0
+  %signed = buffer.load %source, %17, %17, 0, "i32.x1" : reg<vm.value : i32>
+  %19 = constant.i64 4294967300
+  %20 = conversion.integer %signed, "s32.to.i64" : reg<vm.value>
+  %21 = constant.i64 4294967300 : reg<vm.value>
+  %22 = integer.mul.i64 %20, %21 : reg<vm.value>
+  %23 = integer.add.i64 %22, %19
+  %value = buffer.load %view, %23, %23, 0, "i32.x1" : reg<vm.value : i32>
+  return %value
+}
+
+// ====
+
+func.def @signed_dynamic_stride(%input: buffer, %bias0: index, %stride0: index, %table: buffer) -> (i32) {
+  %source_origin = index.constant 0 : offset
+  %source = buffer.view %input[%source_origin] : buffer -> view<1xi32>
+  %raw = view.load %source[0] : view<1xi32> -> i32
+  %signed = scalar.assume %raw [range(%raw, -128, 127)] : i32
+  %coordinate = index.cast %signed : i32 to index
+  %bias = index.assume %bias0 [range(%bias0, 128, 256)] : index
+  %stride = index.assume %stride0 [range(%stride0, 1, 16)] : index
+  %position = index.add %coordinate, %bias : index
+  %base = index.constant 0 : offset
+  %layout = encoding.layout.strided [%stride] : encoding<layout>
+  %view = buffer.view %table[%base] : buffer -> view<512xi32, %layout>
+  %value = view.load %view[%position] : view<512xi32, %layout> -> i32
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @signed_dynamic_stride(%source: reg<vm.ref : buffer>, %bias: reg<vm.value : i64>, %stride: reg<vm.value : i64>, %view: reg<vm.ref : buffer>) -> (reg<vm.value : i32>) asm {
+  %22 = constant.i64 0
+  %signed = buffer.load %source, %22, %22, 0, "i32.x1" : reg<vm.value : i32>
+  %24 = integer.mul.i64 %bias, %stride
+  %25 = constant.i64 2 : reg<vm.value>
+  %26 = integer.shift.left.i64 %24, %25
+  %27 = conversion.integer %signed, "s32.to.i64" : reg<vm.value>
+  %28 = integer.mul.i64 %27, %stride : reg<vm.value>
+  %30 = integer.shift.left.i64 %28, %25 : reg<vm.value>
+  %31 = integer.add.i64 %26, %30
+  %value = buffer.load %view, %31, %31, 0, "i32.x1" : reg<vm.value : i32>
+  return %value
+}
+
+// ====
+
+func.def @dynamic_stride_static_bias(%table: buffer, %position0: index, %stride0: index) -> (i8) {
+  %position = index.assume %position0 [range(%position0, 0, 31)] : index
+  %stride = index.assume %stride0 [range(%stride0, 1, 16)] : index
+  %base = index.constant 128 : offset
+  %layout = encoding.layout.strided [%stride] : encoding<layout>
+  %view = buffer.view %table[%base] : buffer -> view<32xi8, %layout>
+  %value = view.load %view[%position] : view<32xi8, %layout> -> i8
+  func.return %value : i8
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @dynamic_stride_static_bias(%view: reg<vm.ref : buffer>, %position: reg<vm.value : i64>, %stride: reg<vm.value : i64>) -> (reg<vm.value : i8>) asm {
+  %14 = constant.i64 128
+  %15 = integer.mul.i64 %position, %stride
+  %16 = integer.add.i64 %15, %14
+  %value = buffer.load %view, %16, %16, 0, "i8.x1" : reg<vm.value : i8>
+  return %value
+}
+
+// ====
+
+func.def @unsigned_high_bit_offset(%input: buffer, %table: buffer) -> (i8) {
+  %source_origin = index.constant 0 : offset
+  %source = buffer.view %input[%source_origin] : buffer -> view<1xi32>
+  %raw = view.load %source[0] : view<1xi32> -> i32
+  %origin = index.cast %raw : i32 to offset
+  %view = buffer.view %table[%origin] : buffer -> view<1xi8>
+  %value = view.load %view[0] : view<1xi8> -> i8
+  func.return %value : i8
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @unsigned_high_bit_offset(%source: reg<vm.ref : buffer>, %view: reg<vm.ref : buffer>) -> (reg<vm.value : i8>) asm {
+  %12 = constant.i64 0
+  %raw = buffer.load %source, %12, %12, 0, "i32.x1" : reg<vm.value : i32>
+  %origin = conversion.integer %raw, "u32.to.i64"
+  %value = buffer.load %view, %origin, %origin, 0, "i8.x1" : reg<vm.value : i8>
+  return %value
+}
+
+// ====
+
+func.def @signed_dynamic_wide_stride(%input: buffer, %bias0: index, %stride0: index, %table: buffer) -> (i32) {
+  %source_origin = index.constant 0 : offset
+  %source = buffer.view %input[%source_origin] : buffer -> view<1xi32>
+  %raw = view.load %source[0] : view<1xi32> -> i32
+  %signed = scalar.assume %raw [range(%raw, -128, 127)] : i32
+  %coordinate = index.cast %signed : i32 to index
+  %bias = index.assume %bias0 [range(%bias0, 128, 256)] : index
+  %stride = index.assume %stride0 [range(%stride0, 1073741824, 2147483647)] : index
+  %position = index.add %coordinate, %bias : index
+  %base = index.constant 0 : offset
+  %layout = encoding.layout.strided [%stride] : encoding<layout>
+  %view = buffer.view %table[%base] : buffer -> view<512xi32, %layout>
+  %value = view.load %view[%position] : view<512xi32, %layout> -> i32
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @signed_dynamic_wide_stride(%source: reg<vm.ref : buffer>, %bias: reg<vm.value : i64>, %stride: reg<vm.value : i64>, %view: reg<vm.ref : buffer>) -> (reg<vm.value : i32>) asm {
+  %22 = constant.i64 0
+  %signed = buffer.load %source, %22, %22, 0, "i32.x1" : reg<vm.value : i32>
+  %24 = integer.mul.i64 %bias, %stride
+  %25 = constant.i64 2 : reg<vm.value>
+  %26 = integer.shift.left.i64 %24, %25
+  %27 = conversion.integer %signed, "s32.to.i64" : reg<vm.value>
+  %28 = integer.mul.i64 %27, %stride : reg<vm.value>
+  %30 = integer.shift.left.i64 %28, %25 : reg<vm.value>
+  %31 = integer.add.i64 %26, %30
+  %value = buffer.load %view, %31, %31, 0, "i32.x1" : reg<vm.value : i32>
+  return %value
+}
+
+// ====
+
+func.def @signed_wide_source(%input: i64, %table: buffer) -> (i32) {
+  %signed = scalar.assume %input [range(%input, -128, 127)] : i64
+  %bias = scalar.constant 128 : i64
+  %ordinal = scalar.addi %signed, %bias : i64
+  %position = index.cast %ordinal : i64 to index
+  %base = index.constant 0 : offset
+  %view = buffer.view %table[%base] : buffer -> view<256xi32>
+  %value = view.load %view[%position] : view<256xi32> -> i32
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @signed_wide_source(%signed: reg<vm.value : i64>, %view: reg<vm.ref : buffer>) -> (reg<vm.value : i32>) asm {
+  %13 = constant.i64 512
+  %14 = constant.i64 2 : reg<vm.value>
+  %15 = integer.shift.left.i64 %signed, %14
+  %16 = integer.add.i64 %15, %13
+  %value = buffer.load %view, %16, %16, 0, "i32.x1" : reg<vm.value : i32>
+  return %value
+}
+
+// ====
+
+func.def @negative_uniform_coefficient(%selector0: i32, %value: i32, %table: buffer) {
+  %selector = scalar.assume %selector0 [range(%selector0, 0, 1)] : i32
+  %coordinate = index.cast %selector : i32 to index
+  %c1 = index.constant 1 : index
+  %position = index.sub %c1, %coordinate : index
+  %word_bytes = index.constant 4 : offset
+  %origin = index.scale %position, %word_bytes : index, offset -> offset
+  %view = buffer.view %table[%origin] : buffer -> view<1xi32>
+  view.store %value, %view[0] : i32, view<1xi32>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @negative_uniform_coefficient(%selector: reg<vm.value : i32>, %value: reg<vm.value : i32>, %view: reg<vm.ref : buffer>) asm {
+  %13 = constant.i64 4
+  %14 = conversion.integer %selector, "s32.to.i64" : reg<vm.value>
+  %15 = constant.i64 -4 : reg<vm.value>
+  %16 = integer.mul.i64 %14, %15 : reg<vm.value>
+  %17 = integer.add.i64 %16, %13
+  buffer.store %view, %17, %17, %value, 0, "i32.x1"
+  return
+}
+
+// ====
+
+func.def @negative_varying_coefficient(%input: buffer, %table: buffer) -> (i32) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi32>
+  %raw = view.load %source[0] : view<1xi32> -> i32
+  %signed = scalar.assume %raw [range(%raw, -1, 0)] : i32
+  %coordinate = index.cast %signed : i32 to index
+  %c0 = index.constant 0 : index
+  %position = index.sub %c0, %coordinate : index
+  %word_bytes = index.constant 4 : offset
+  %origin = index.scale %position, %word_bytes : index, offset -> offset
+  %view = buffer.view %table[%origin] : buffer -> view<1xi32>
+  %value = view.load %view[0] : view<1xi32> -> i32
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @negative_varying_coefficient(%source: reg<vm.ref : buffer>, %view: reg<vm.ref : buffer>) -> (reg<vm.value : i32>) asm {
+  %17 = constant.i64 0
+  %signed = buffer.load %source, %17, %17, 0, "i32.x1" : reg<vm.value : i32>
+  %coordinate = conversion.integer %signed, "s32.to.i64"
+  %position = integer.sub.i64 %17, %coordinate
+  %word_bytes = constant.i64 4
+  %origin = integer.mul.i64 %position, %word_bytes
+  %value = buffer.load %view, %origin, %origin, 0, "i32.x1" : reg<vm.value : i32>
+  return %value
+}
+
+// ====
+
+func.def @negative_wide_coefficient(%input: buffer, %table: buffer) -> (i8) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi32>
+  %raw = view.load %source[0] : view<1xi32> -> i32
+  %selector = scalar.assume %raw [range(%raw, 0, 1)] : i32
+  %coordinate = index.cast %selector : i32 to index
+  %c1 = index.constant 1 : index
+  %position = index.sub %c1, %coordinate : index
+  %wide_stride = index.constant 4294967297 : offset
+  %origin = index.scale %position, %wide_stride : index, offset -> offset
+  %view = buffer.view %table[%origin] : buffer -> view<1xi8>
+  %value = view.load %view[0] : view<1xi8> -> i8
+  func.return %value : i8
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @negative_wide_coefficient(%source: reg<vm.ref : buffer>, %view: reg<vm.ref : buffer>) -> (reg<vm.value : i8>) asm {
+  %17 = constant.i64 0
+  %selector = buffer.load %source, %17, %17, 0, "i32.x1" : reg<vm.value : i32>
+  %19 = constant.i64 4294967297
+  %20 = conversion.integer %selector, "s32.to.i64" : reg<vm.value>
+  %21 = constant.i64 -4294967297 : reg<vm.value>
+  %22 = integer.mul.i64 %20, %21 : reg<vm.value>
+  %23 = integer.add.i64 %22, %19
+  %value = buffer.load %view, %23, %23, 0, "i8.x1" : reg<vm.value : i8>
+  return %value
+}

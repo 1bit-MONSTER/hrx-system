@@ -71,3 +71,100 @@ func.def target(@target) @spirv_unbounded_workgroup_storage(%value: i32, %byte_l
   view.store %value, %scratch_view[0] : i32, view<1xi32>
   func.return
 }
+
+// ====
+
+// RUN: pass source-to-low
+
+spirv.target<vulkan1_3> @limited {max_workgroup_storage_bytes = 128}
+
+// Simultaneously live roots share one typed arena but retain disjoint ranges.
+// ERROR@+1: TARGET/051 {function_name="spirv_overlapping_workgroup_storage_exceeds_limit", target_name="limited", reserved_bytes="192", limit_bytes="128"}
+func.def target(@limited) @spirv_overlapping_workgroup_storage_exceeds_limit(%first_value: i32, %second_value: i32) -> (i32, i32) {
+  %base = index.constant 0 : offset
+  %first_bytes = index.constant 64 : offset
+  %second_bytes = index.constant 128 : offset
+  %first = buffer.alloca<workgroup> align(4) %first_bytes : buffer
+  %second = buffer.alloca<workgroup> align(4) %second_bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  view.store %first_value, %first_view[0] : i32, view<1xi32>
+  view.store %second_value, %second_view[0] : i32, view<1xi32>
+  %first_result = view.load %first_view[0] : view<1xi32> -> i32
+  %second_result = view.load %second_view[0] : view<1xi32> -> i32
+  func.return %first_result, %second_result : i32, i32
+}
+
+// ====
+
+// RUN: with-checks pass source-to-low
+
+spirv.target<vulkan1_3> @limited {max_workgroup_storage_bytes = 128}
+
+// A full Workgroup barrier lets the larger root reuse the same physical range.
+func.def target(@limited) @spirv_workgroup_storage_limit_uses_peak_lifetime(%first_value: i32, %second_value: i32) -> (i32, i32) {
+  %base = index.constant 0 : offset
+  %first_bytes = index.constant 64 : offset
+  %second_bytes = index.constant 128 : offset
+  %first = buffer.alloca<workgroup> align(4) %first_bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  view.store %first_value, %first_view[0] : i32, view<1xi32>
+  %first_result = view.load %first_view[0] : view<1xi32> -> i32
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %second = buffer.alloca<workgroup> align(4) %second_bytes : buffer
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  view.store %second_value, %second_view[0] : i32, view<1xi32>
+  %second_result = view.load %second_view[0] : view<1xi32> -> i32
+  func.return %first_result, %second_result : i32, i32
+}
+
+// ----
+CHECK: *storage {byte_alignment = 4, byte_length = 128} : low.storage<workgroup>
+CHECK-NOT: *storage {byte_alignment = 4, byte_length = 192} : low.storage<workgroup>
+
+// ====
+
+// RUN: pass source-to-low
+
+spirv.target<vulkan1_3> @limited {max_workgroup_storage_bytes = 79}
+
+// Distinct typed arenas retain their own alignments in physical root order.
+// ERROR@+1: TARGET/051 {function_name="spirv_workgroup_storage_limit_includes_root_padding", target_name="limited", reserved_bytes="80", limit_bytes="79"}
+func.def target(@limited) @spirv_workgroup_storage_limit_includes_root_padding(%float_value: f32, %integer_value: i32) -> (f32, i32) {
+  %base = index.constant 0 : offset
+  %float_bytes = index.constant 48 : offset
+  %integer_bytes = index.constant 16 : offset
+  %float_storage = buffer.alloca<workgroup> align(16) %float_bytes : buffer
+  %integer_storage = buffer.alloca<workgroup> align(32) %integer_bytes : buffer
+  %float_view = buffer.view %float_storage[%base] : buffer -> view<1xf32>
+  %integer_view = buffer.view %integer_storage[%base] : buffer -> view<1xi32>
+  view.store %float_value, %float_view[0] : f32, view<1xf32>
+  view.store %integer_value, %integer_view[0] : i32, view<1xi32>
+  %float_result = view.load %float_view[0] : view<1xf32> -> f32
+  %integer_result = view.load %integer_view[0] : view<1xi32> -> i32
+  func.return %float_result, %integer_result : f32, i32
+}
+
+// ====
+
+// RUN: with-checks pass source-to-low
+
+spirv.target<vulkan1_3> @limited {max_workgroup_storage_bytes = 64}
+
+// Demand pruning removes an unreferenced root before physical layout.
+func.def target(@limited) @spirv_workgroup_storage_limit_ignores_elided_root(%value: i32) -> (i32) {
+  %base = index.constant 0 : offset
+  %unused_bytes = index.constant 32768 : offset
+  %live_bytes = index.constant 64 : offset
+  %unused = buffer.alloca<workgroup> align(256) %unused_bytes : buffer
+  %unused_view = buffer.view %unused[%base] : buffer -> view<1xi32>
+  %live = buffer.alloca<workgroup> align(4) %live_bytes : buffer
+  %live_view = buffer.view %live[%base] : buffer -> view<1xi32>
+  view.store %value, %live_view[0] : i32, view<1xi32>
+  %result = view.load %live_view[0] : view<1xi32> -> i32
+  func.return %result : i32
+}
+
+// ----
+CHECK: *storage {byte_alignment = 4, byte_length = 64} : low.storage<workgroup>
+CHECK-NOT: *storage {byte_alignment = 256, byte_length = 32768} : low.storage<workgroup>

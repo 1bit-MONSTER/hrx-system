@@ -15,9 +15,11 @@ loom_check_test_suite(
   SRCS
     "attribute_visibility.loom-test"
     "dominance.loom-test"
+    "func_like_exits.loom-test"
     "function_entry.loom-test"
     "isolation.loom-test"
     "operand_dictionary.loom-test"
+    "predicate_list.loom-test"
     "type_visibility.loom-test"
     "unreachable_definitions.loom-test"
 )

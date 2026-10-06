@@ -8,8 +8,6 @@
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
-#include "loom/codegen/low/target_binding.h"
-#include "loom/target/registers.h"
 
 namespace loom {
 namespace {
@@ -72,9 +70,6 @@ struct RequirementTables {
 
 void InitializeRequirementTables(RequirementTables* tables) {
   *tables = {};
-  for (loom_low_operand_t& operand : tables->operands) {
-    operand.register_part_id = LOOM_LOW_REGISTER_PART_NONE;
-  }
   for (loom_low_reg_class_t& reg_class : tables->reg_classes) {
     reg_class.full_register_part_mask = 1;
   }
@@ -86,6 +81,7 @@ void InitializeRequirementTables(RequirementTables* tables) {
   tables->reg_classes[0].spill_slot_space = LOOM_LOW_SPILL_SLOT_SPACE_STACK;
 
   tables->reg_class_alts[0].reg_class_id = 0;
+  tables->reg_class_alts[0].register_part_id = LOOM_LOW_REGISTER_PART_NONE;
   tables->reg_class_alts[0].flags = LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED;
 
   tables->operands[0].field_name_string_ref = REQUIREMENT_STRING_REF(field_dst);
@@ -181,60 +177,6 @@ TEST(LowDescriptorRequirementsTest, VerifiesTargetLowFoundation) {
 
   IREE_ASSERT_OK(loom_low_descriptor_set_verify_requirements(
       &tables.set, LOOM_LOW_DESCRIPTOR_REQUIREMENT_TARGET_LOW_FOUNDATION));
-}
-
-TEST(LowRegisterTypeResolverTest, ResolvesCompactRegisterTypes) {
-  RequirementTables tables;
-  InitializeRequirementTables(&tables);
-  loom_low_register_type_resolver_t resolver =
-      loom_low_register_type_resolver_for_descriptor_set(&tables.set);
-
-  uint16_t descriptor_register_class_id = LOOM_LOW_REG_CLASS_NONE;
-  const loom_low_reg_class_t* descriptor_register_class = nullptr;
-  bool found = loom_low_register_type_resolver_try_resolve(
-      &resolver, loom_low_register_type(tables.set.stable_id, 0, 4),
-      &descriptor_register_class_id, &descriptor_register_class);
-  ASSERT_TRUE(found);
-  ASSERT_NE(descriptor_register_class, nullptr);
-  EXPECT_EQ(descriptor_register_class_id, 0);
-  EXPECT_TRUE(iree_string_view_equal(
-      loom_low_descriptor_set_string(
-          &tables.set, descriptor_register_class->name_string_ref),
-      IREE_SV("test.gpr")));
-}
-
-TEST(LowRegisterTypeResolverTest, RejectsUnknownAndNonRegisterTypes) {
-  RequirementTables tables;
-  InitializeRequirementTables(&tables);
-  loom_low_register_type_resolver_t resolver =
-      loom_low_register_type_resolver_for_descriptor_set(&tables.set);
-
-  uint16_t descriptor_register_class_id = LOOM_LOW_REG_CLASS_NONE;
-  const loom_low_reg_class_t* descriptor_register_class = nullptr;
-  bool found = loom_low_register_type_resolver_try_resolve(
-      &resolver,
-      loom_low_register_type(
-          /*descriptor_set_stable_id=*/tables.set.stable_id + 1, 0, 1),
-      &descriptor_register_class_id, &descriptor_register_class);
-  EXPECT_FALSE(found);
-  EXPECT_EQ(descriptor_register_class_id, LOOM_LOW_REG_CLASS_NONE);
-  EXPECT_EQ(descriptor_register_class, nullptr);
-
-  found = loom_low_register_type_resolver_try_resolve(
-      &resolver,
-      loom_low_register_type(tables.set.stable_id,
-                             (uint16_t)tables.set.reg_class_count, 1),
-      &descriptor_register_class_id, &descriptor_register_class);
-  EXPECT_FALSE(found);
-  EXPECT_EQ(descriptor_register_class_id, LOOM_LOW_REG_CLASS_NONE);
-  EXPECT_EQ(descriptor_register_class, nullptr);
-
-  found = loom_low_register_type_resolver_try_resolve(
-      &resolver, loom_type_scalar(LOOM_SCALAR_TYPE_I32),
-      &descriptor_register_class_id, &descriptor_register_class);
-  EXPECT_FALSE(found);
-  EXPECT_EQ(descriptor_register_class_id, LOOM_LOW_REG_CLASS_NONE);
-  EXPECT_EQ(descriptor_register_class, nullptr);
 }
 
 TEST(LowRegisterClassLookupTest, LooksUpDescriptorRegisterClassNames) {

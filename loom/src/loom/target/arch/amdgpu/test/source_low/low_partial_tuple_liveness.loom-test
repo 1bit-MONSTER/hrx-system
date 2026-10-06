@@ -1,0 +1,138 @@
+// Dead tuple words can be reused while other words cross a live-through block.
+// RUN: emit amdgpu-assembly @partial_tuple_cfg strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @partial_tuple_cfg(%bindings: reg<amdgpu.sgpr x4>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %early = slice %bindings[0] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr>
+  %vector = v_mov_b32_copy %early
+  low.br ^later
+^later:
+  %temporary = s_mov_b64_exec_read
+  low.br ^consume
+^consume:
+  %late = slice %bindings[2] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr x2>
+  %combined = s_and_b64 %temporary, %late
+  return %vector, %combined
+}
+
+// ----
+  v_mov_b32_copy v0, s0
+.Lbb1:
+  s_mov_b64_exec_read s[0:1]
+.Lbb2:
+  s_and_b64 s[0:1], s[0:1], s[2:3]
+  s_endpgm
+
+// ====
+
+// A loop-carried handoff reads the high pair before its next producer in layout
+// order. The pair must survive the backedge and remain distinct from the payload.
+// RUN: emit amdgpu-assembly @partial_tuple_reverse_layout strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @partial_tuple_reverse_layout(%bindings: reg<amdgpu.sgpr x4>, %limit: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %early = slice %bindings[0] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr>
+  %vector = v_mov_b32_copy %early
+  %zero = s_mov_b32 0
+  %initial = s_mov_b64_exec_read
+  low.br ^consume(%initial: reg<amdgpu.sgpr x2>)
+^consume(%received: reg<amdgpu.sgpr x2>):
+  %late = slice %bindings[2] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr x2>
+  %combined = s_and_b64 %received, %late
+  %repeat = s_cmp_eq_i32 %limit, %zero
+  low.cond_br %repeat, ^producer, ^exit : reg<amdgpu.scc>
+^producer:
+  %temporary = s_mov_b64_exec_read
+  low.br ^consume(%temporary: reg<amdgpu.sgpr x2>)
+^exit:
+  return %vector, %combined
+}
+
+// ----
+  v_mov_b32_copy v0, s0
+  s_mov_b32 s0, 0
+  s_mov_b64_exec_read s[4:5]
+.Lbb1:
+  s_and_b64 s[4:5], s[4:5], s[2:3]
+  s_cmp_eq_i32 s1, s0
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc0 .Lbb3
+.Lbb2:
+  s_mov_b64_exec_read s[4:5]
+  s_branch .Lbb1
+.Lbb3:
+  s_endpgm
+
+// ====
+
+// A repeated high-word read protects that word through the loop backedge even
+// though the last read in layout order precedes the temporary's definition.
+// RUN: emit amdgpu-assembly @partial_tuple_loop strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @partial_tuple_loop(%bindings: reg<amdgpu.sgpr x4>, %limit: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %low = slice %bindings[0] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr x2>
+  %zero = s_mov_b32 0
+  low.br ^header
+^header:
+  %high = slice %bindings[2] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr>
+  %vector = v_mov_b32_copy %high
+  low.br ^body
+^body:
+  %temporary = s_mov_b64_exec_read
+  %repeat = s_cmp_eq_i32 %limit, %zero
+  low.cond_br %repeat, ^header, ^exit : reg<amdgpu.scc>
+^exit:
+  return %low, %vector, %temporary
+}
+
+// ----
+  s_mov_b32 s4, 0
+.Lbb1:
+  v_mov_b32_copy v0, s2
+.Lbb2:
+  s_mov_b64_exec_read s[6:7]
+  s_cmp_eq_i32 s3, s4
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc1 .Lbb1
+.Lbb3:
+  s_endpgm
+
+// ====
+
+// Alternative successors demand different tuple words. Both demands protect
+// their words before the branch; alternatives cannot discard either use.
+// RUN: emit amdgpu-assembly @partial_tuple_alternatives strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @partial_tuple_alternatives(%bindings: reg<amdgpu.sgpr x4>, %selector: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>) asm {
+  %zero = s_mov_b32 0
+  %temporary = s_mov_b64_exec_read
+  %condition = s_cmp_eq_i32 %selector, %zero
+  low.cond_br %condition, ^left, ^right : reg<amdgpu.scc>
+^left:
+  %low = slice %bindings[0] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr x2>
+  %left_result = s_and_b64 %temporary, %low
+  return %left_result
+^right:
+  %high = slice %bindings[2] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr x2>
+  %right_result = s_and_b64 %temporary, %high
+  return %right_result
+}
+
+// ----
+  s_mov_b32 s1, 0
+  s_mov_b64_exec_read s[2:3]
+  s_cmp_eq_i32 s0, s1
+  s_delay_alu instid0(SALU_CYCLE_1)
+  s_cbranch_scc0 .Lbb2
+.Lbb1:
+  s_and_b64 s[0:1], s[2:3], s[4:5]
+  s_endpgm
+.Lbb2:
+  s_and_b64 s[0:1], s[2:3], s[6:7]
+  s_endpgm

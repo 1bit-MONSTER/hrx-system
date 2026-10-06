@@ -16,11 +16,13 @@ extern "C" {
 // Static metadata for descriptor-backed machine expression elimination.
 const loom_pass_info_t* loom_low_cse_pass_info(void);
 
-// Commoning for Low function and kernel definitions. Descriptor state writes
-// remain distinct; implicit reads require an unchanged architectural state
-// epoch and straight-line control flow. Constants and arithmetic use the same
-// dominance-scoped SSA identity; register allocation owns physical lifetimes.
-// Source definitions are handled by the cse pass.
+// Commoning for Low function and kernel definitions. Identical replacement
+// assignments to architectural state may reuse the last assignment in the same
+// block while that class and the execution boundary remain unchanged. Other
+// state writes remain distinct. Implicit reads require an unchanged state epoch
+// and straight-line control flow. Constants and arithmetic use dominance-scoped
+// SSA identity; register allocation owns physical lifetimes. Source definitions
+// are handled by the cse pass.
 iree_status_t loom_low_cse_run(loom_pass_t* pass, loom_module_t* module,
                                loom_func_like_t function);
 

@@ -76,17 +76,52 @@ low.func.def public target<x86.avx2.core> abi(object_function) @selected_offset(
 
 // ====
 
+func.def public @selected_converted_offset(%choice: i32, %narrow: i32, %fallback: offset) -> (offset) {
+  %threshold = scalar.constant 0 : i32
+  %condition = scalar.cmpi ne, %choice, %threshold : i32
+  %converted = index.cast %narrow : i32 to offset
+  %selected = scf.select %condition, %converted, %fallback : offset
+  cfg.br ^forward(%selected: offset)
+^forward(%carried: offset):
+  func.return %carried : offset
+}
+
+// ----
+low.func.def public target<x86.avx2.core> abi(object_function) @selected_converted_offset(%choice: reg<x86.gpr32>, %narrow: reg<x86.gpr32>, %fallback: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %condition = cmp.ne.imm.gpr32 %choice, 0
+  %converted = movzx.gpr64.gpr32 %narrow
+  %16 = copy %fallback : reg<x86.gpr64> -> reg<x86.gpr64>
+  %selected = select.gpr64 %condition, %converted, %16
+  low.br ^forward(%selected: reg<x86.gpr64>)
+^forward(%carried: reg<x86.gpr64>):
+  return %carried
+}
+
+// ====
+
 func.def public @selected_extended_truncation(%input: vector<4xi32>, %left: i64, %right: i64) -> (i64) {
   %value = vector.extract %input[0] : vector<4xi32> -> i32
   %threshold = scalar.constant 0 : i32
   %condition = scalar.cmpi sgt, %value, %threshold : i32
   %selected = scf.select %condition, %left, %right : i64
   %narrowed = scalar.trunci %selected : i64 to i32
-  // ERROR@+1: TARGET/001 {op_name="scalar.extsi"}
   %payload = scalar.extsi %narrowed : i32 to i64
   cfg.br ^forward(%payload: i64)
 ^forward(%carried: i64):
   func.return %carried : i64
+}
+
+// ----
+low.func.def public target<x86.avx2.core> abi(object_function) @selected_extended_truncation(%input: reg<x86.xmm>, %left: reg<x86.gpr64>, %right: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %value = vpextrd.xmm %input, 0
+  %condition = cmp.sgt.imm.gpr32 %value, 0
+  %18 = copy %right : reg<x86.gpr64> -> reg<x86.gpr64>
+  %selected = select.gpr64 %condition, %left, %18
+  %narrowed = mov.trunc.gpr32.gpr64 %selected
+  %payload = movsxd.gpr64.gpr32 %narrowed
+  low.br ^forward(%payload: reg<x86.gpr64>)
+^forward(%carried: reg<x86.gpr64>):
+  return %carried
 }
 
 // ====
@@ -127,10 +162,6 @@ func.def public @independent_assumption_payload(%input: vector<4xi32>, %left: i3
 
 // ----
 low.func.def public target<x86.avx2.core> abi(object_function) @independent_assumption_payload(%input: reg<x86.xmm>, %left: reg<x86.gpr32>, %right: reg<x86.gpr32>, %payload: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %value = vpextrd.xmm %input, 0
-  %condition = cmp.sgt.imm.gpr32 %value, 0
-  %20 = copy %right : reg<x86.gpr32> -> reg<x86.gpr32>
-  %bounded = select.gpr32 %condition, %left, %20
   low.br ^forward(%payload: reg<x86.gpr32>)
 ^forward(%carried: reg<x86.gpr32>):
   return %carried
@@ -177,13 +208,9 @@ func.def public @independent_transformed_assumption_payload(%input: vector<4xi32
 
 // ----
 low.func.def public target<x86.avx2.core> abi(object_function) @independent_transformed_assumption_payload(%input: reg<x86.xmm>, %left: reg<x86.gpr32>, %right: reg<x86.gpr32>, %payload: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %value = vpextrd.xmm %input, 0
-  %condition = cmp.sgt.imm.gpr32 %value, 0
-  %22 = copy %right : reg<x86.gpr32> -> reg<x86.gpr32>
-  %bounded = select.gpr32 %condition, %left, %22
   %increment = mov.imm32 3
-  %25 = copy %payload : reg<x86.gpr32> -> reg<x86.gpr32>
-  %transformed = add.gpr32 %25, %increment
+  %21 = copy %payload : reg<x86.gpr32> -> reg<x86.gpr32>
+  %transformed = add.gpr32 %21, %increment
   low.br ^forward(%transformed: reg<x86.gpr32>)
 ^forward(%carried: reg<x86.gpr32>):
   return %carried

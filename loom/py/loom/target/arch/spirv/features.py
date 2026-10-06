@@ -384,6 +384,26 @@ FEATURE_ATOMS = (
         minimum_spirv_version=SPIRV_VERSION_1_3,
         capabilities=("LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM",),
     ),
+    FeatureAtom(
+        key="float32_denorm_preserve",
+        c_suffix="FLOAT32_DENORM_PRESERVE",
+        name="spirv.float32_denorm_preserve",
+        doc="F32 DenormPreserve independent of other floating-point widths.",
+        required=("vulkan_shader",),
+        minimum_spirv_version=SPIRV_VERSION_1_3,
+        extensions=("SPV_KHR_float_controls",),
+        capabilities=("LOOM_SPIRV_CAPABILITY_DENORM_PRESERVE",),
+    ),
+    FeatureAtom(
+        key="group_non_uniform_ballot",
+        c_suffix="GROUP_NON_UNIFORM_BALLOT",
+        name="spirv.group_non_uniform.ballot",
+        doc="Subgroup ballot operations.",
+        required=("group_non_uniform",),
+        minimum_spirv_version=SPIRV_VERSION_1_3,
+        capabilities=("LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_BALLOT",),
+        opcodes=("LOOM_SPIRV_OP_GROUP_NON_UNIFORM_BALLOT",),
+    ),
 )
 
 FEATURE_PROFILES = (
@@ -450,6 +470,30 @@ def feature_bits_value(
     for atom_key in atom_keys:
         bits |= feature_bit_value(atom_key, atoms=atoms)
     return bits
+
+
+def feature_dependency_keys(
+    atom_key: str,
+    *,
+    atoms: Iterable[FeatureAtom] = FEATURE_ATOMS,
+) -> tuple[str, ...]:
+    """Returns every transitive dependency of an atom in catalog order."""
+    atom_rows = tuple(atoms)
+    atoms_by_key = atom_by_key(atom_rows)
+    if atom_key not in atoms_by_key:
+        raise ValueError(f"unknown SPIR-V feature atom {atom_key!r}")
+
+    dependencies: set[str] = set()
+
+    def collect(key: str) -> None:
+        for required_key in atoms_by_key[key].required:
+            if required_key in dependencies:
+                continue
+            dependencies.add(required_key)
+            collect(required_key)
+
+    collect(atom_key)
+    return tuple(atom.key for atom in atom_rows if atom.key in dependencies)
 
 
 def feature_row_capacity(

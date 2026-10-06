@@ -12,7 +12,7 @@ from dataclasses import replace
 
 from loom.target.arch.amd.xdna.aie2p.core_descriptor_spec import _DescriptorSpec
 from loom.target.arch.amd.xdna.aie2p.core_machine_data import DIMENSION_FIELDS
-from loom.target.low_descriptors import DescriptorOpKind, RegisterPart
+from loom.target.low_descriptors import DescriptorFlag, DescriptorOpKind, RegisterPart
 
 _TARGET_KEY = "amd.xdna.aie2p"
 _SCALAR_MEMORY_FORMS = (
@@ -227,6 +227,7 @@ def _address_descriptor_specs() -> tuple[_DescriptorSpec, ...]:
                     "address.add.i20",
                     f"II_{form}",
                     asm_mnemonic=f"padd{lane}{mnemonic_suffix}",
+                    flags=(DescriptorFlag.SAFE_TO_SPECULATE,),
                 )
             )
     return tuple(result)

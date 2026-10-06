@@ -270,6 +270,9 @@ TEST_F(CfgLoopTest, AcyclicDiamondDoesNotHaveExactCounts) {
   uint64_t block_counts[4] = {0};
   EXPECT_FALSE(loom_cfg_loop_forest_calculate_block_execution_counts(
       &forest, &graph, nullptr, block_counts));
+  EXPECT_TRUE(loom_cfg_loop_forest_calculate_block_multipliers(
+      &forest, &graph, nullptr, block_counts));
+  EXPECT_THAT(block_counts, ::testing::ElementsAre(1u, 1u, 1u, 1u));
 }
 
 TEST_F(CfgLoopTest, UnreachableBranchDoesNotInvalidateCounts) {
@@ -316,6 +319,9 @@ TEST_F(CfgLoopTest, RejectsUnmodeledBranchingInsideLoop) {
   uint64_t block_counts[5] = {0};
   EXPECT_FALSE(loom_cfg_loop_forest_calculate_block_execution_counts(
       &forest, &graph, trip_counts, block_counts));
+  EXPECT_TRUE(loom_cfg_loop_forest_calculate_block_multipliers(
+      &forest, &graph, trip_counts, block_counts));
+  EXPECT_THAT(block_counts, ::testing::ElementsAre(1u, 5u, 4u, 4u, 1u));
 }
 
 TEST_F(CfgLoopTest, RejectsUnrepresentedBackwardEdges) {

@@ -10,23 +10,27 @@ from __future__ import annotations
 
 from loom.dialect.vector import defs as vector
 from loom.dsl import Op
+from loom.target.arch.amd.xdna.aie2p.contracts.bfp import (
+    BFP_ENCODE_GUARDS,
+    bfp_encode_emits,
+)
 from loom.target.arch.amd.xdna.aie2p.contracts.data_path import (
     BF16_CONVERSION_ROUNDING,
 )
 from loom.target.arch.amd.xdna.aie2p.contracts.memory import (
-    _MEMORY_ROOTS,
     _descriptor,
     _memory_constraint,
+    _memory_roots,
     _MemoryAddressForm,
     _register_address_emits,
 )
 from loom.target.arch.amd.xdna.aie2p.contracts.packet_conversion import (
-    BF16_F32_PACKET_LANE_COUNTS,
+    FLOAT_PACKET_LANE_COUNTS,
     I4_UNPACK_SOURCE_LANE_COUNTS,
-    INTEGER_PACK_CASES,
-    INTEGER_WIDEN_CASES,
-    IntegerPackCase,
-    IntegerWidenCase,
+    INTEGER_PACK_INSTRUCTIONS,
+    INTEGER_WIDEN_INSTRUCTIONS,
+    IntegerPackInstruction,
+    IntegerWidenInstruction,
     integer_pack_state_emits,
     integer_unpack_state_emits,
     integer_widen_result_emits,
@@ -59,6 +63,8 @@ def _fused_memory_access_emits(
     access_preamble: tuple[ContractEmit, ...] = (),
     results: dict[str, ValueRef] | None = None,
     result_types: dict[str, DescriptorResultType] | None = None,
+    additional_static_byte_offset: int = 0,
+    temporary_suffix: str = "",
 ) -> tuple[ContractEmit, ...]:
     """Builds one fused memory access after realizing its canonical address."""
 
@@ -66,11 +72,17 @@ def _fused_memory_access_emits(
     address_emits: tuple[EmitDescriptorOp, ...] = ()
     immediates: dict[str, SourceMemoryProject] = {}
     if address_form is _MemoryAddressForm.IMMEDIATE:
-        immediates["imm"] = SourceMemoryProject.static_byte_offset()
+        immediates["imm"] = (
+            SourceMemoryProject.static_byte_offset_plus(additional_static_byte_offset)
+            if additional_static_byte_offset
+            else SourceMemoryProject.static_byte_offset()
+        )
     else:
         address_emits, address_index = _register_address_emits(
             source_memory,
             address_form,
+            additional_static_byte_offset=additional_static_byte_offset,
+            temporary_suffix=temporary_suffix,
         )
         access_operands["dj"] = address_index
     return (
@@ -275,6 +287,82 @@ def _fused_float_load_rule(
     )
 
 
+def _fused_bfp_encode_load_rule(
+    address_form: _MemoryAddressForm,
+    *,
+    root_kind: SourceMemoryRootKind,
+    memory_spaces: tuple[str, ...],
+    volatile: bool,
+) -> DescriptorRule:
+    source_type = Vector("bf16", lanes=64)
+    address_family = (
+        "immediate" if address_form is _MemoryAddressForm.IMMEDIATE else "register"
+    )
+    descriptor_key = (
+        f"amd.xdna.aie2p.load.convert.bf16x32.to.f32x32.indexed.{address_family}"
+    )
+    if volatile:
+        descriptor_key = f"{descriptor_key}.volatile"
+    memory_descriptor = _descriptor(descriptor_key)
+    source_memory = _memory_constraint(
+        SourceMemoryOperation.LOAD,
+        address_form,
+        root_kind=root_kind,
+        memory_spaces=memory_spaces,
+        element_byte_count=2,
+        vector_lane_count=64,
+        minimum_alignment=64,
+        immediate_offset_minimum=-512,
+        immediate_offset_maximum=448,
+        maximum_additional_static_byte_offset=64,
+    )
+    emits: list[ContractEmit] = []
+    float_halves = (
+        ValueRef.temporary("float_half_0"),
+        ValueRef.temporary("float_half_1"),
+    )
+    for half_index, float_half in enumerate(float_halves):
+        emits.extend(
+            _fused_memory_access_emits(
+                address_form,
+                memory_descriptor,
+                source_memory,
+                {"ptr": ValueRef.operand("view")},
+                results={"op": float_half},
+                result_types={"op": DescriptorResultType()},
+                additional_static_byte_offset=half_index * 64,
+                temporary_suffix=f"_{half_index}",
+            )
+        )
+    emits.extend(
+        bfp_encode_emits(float_halves, ValueRef.result("result", source_node="encode"))
+    )
+    return DescriptorRule(
+        source_op=vector.vector_load,
+        descriptor=memory_descriptor,
+        source_nodes=(
+            SourceNode.adjacent_unique_user(
+                "encode",
+                source_op=vector.vector_encode,
+                parent_result=ValueRef.result("result"),
+                node_operand=ValueRef.operand("source"),
+                guards=BFP_ENCODE_GUARDS,
+            ),
+        ),
+        guards=(
+            *(
+                (Guard.instance_flags_has_all("memory_flags", "volatile"),)
+                if volatile
+                else ()
+            ),
+            Guard.value_type("result", source_type),
+        ),
+        emit=tuple(emits),
+        priority=1,
+        report_key="native_memory_load_bf16x64_to_bfp16ebs8",
+    )
+
+
 def _fused_integer_widen_load_rule(
     address_form: _MemoryAddressForm,
     *,
@@ -282,16 +370,18 @@ def _fused_integer_widen_load_rule(
     memory_spaces: tuple[str, ...],
     source_op: Op,
     signedness: str,
-    widen_case: IntegerWidenCase,
+    instruction: IntegerWidenInstruction,
     volatile: bool,
 ) -> DescriptorRule:
-    source_type = Vector(widen_case.input_element, lanes=widen_case.lane_count)
-    result_type = Vector(widen_case.result_element, lanes=widen_case.lane_count)
+    source_type = Vector(instruction.input_element, lanes=instruction.native_lane_count)
+    result_type = Vector(
+        instruction.result_element, lanes=instruction.native_lane_count
+    )
     address_family = (
         "immediate" if address_form is _MemoryAddressForm.IMMEDIATE else "register"
     )
     descriptor_key = (
-        f"amd.xdna.aie2p.load.widen.{widen_case.physical_shape}."
+        f"amd.xdna.aie2p.load.widen.{instruction.physical_shape}."
         f"{signedness}.configured.indexed.{address_family}"
     )
     if volatile:
@@ -302,14 +392,14 @@ def _fused_integer_widen_load_rule(
         address_form,
         root_kind=root_kind,
         memory_spaces=memory_spaces,
-        element_byte_count=int(widen_case.input_element[1:]) // 8,
-        vector_lane_count=widen_case.lane_count,
-        memory_width_bits=widen_case.memory_width_bits,
+        element_byte_count=int(instruction.input_element[1:]) // 8,
+        vector_lane_count=instruction.native_lane_count,
+        memory_width_bits=instruction.memory_width_bits,
     )
-    shift, state_emits = integer_widen_state_emits(widen_case.ups_mode)
+    shift, state_emits = integer_widen_state_emits(instruction.ups_mode)
     converted_result = ValueRef.result("result", source_node="convert")
     native_result, output_emits = integer_widen_result_emits(
-        widen_case,
+        instruction,
         converted_result,
     )
     return DescriptorRule(
@@ -348,7 +438,7 @@ def _fused_integer_widen_load_rule(
                 results={"dst": native_result},
                 result_types=(
                     None
-                    if widen_case.direct_accumulator_result
+                    if instruction.direct_accumulator_result
                     else {"dst": DescriptorResultType()}
                 ),
             ),
@@ -356,9 +446,9 @@ def _fused_integer_widen_load_rule(
         ),
         priority=1,
         report_key=(
-            f"native_memory_load_{signedness}_{widen_case.input_element}x"
-            f"{widen_case.lane_count}_to_{widen_case.result_element}x"
-            f"{widen_case.lane_count}"
+            f"native_memory_load_{signedness}_{instruction.input_element}x"
+            f"{instruction.native_lane_count}_to_{instruction.result_element}x"
+            f"{instruction.native_lane_count}"
         ),
     )
 
@@ -460,16 +550,22 @@ def _fused_integer_pack_store_rule(
     *,
     root_kind: SourceMemoryRootKind,
     memory_spaces: tuple[str, ...],
-    pack_case: IntegerPackCase,
+    pack_instruction: IntegerPackInstruction,
     volatile: bool,
 ) -> DescriptorRule:
-    source_type = Vector(pack_case.input_element, lanes=pack_case.input_lanes)
-    result_type = Vector("i8", lanes=pack_case.result_lanes)
+    source_type = Vector(
+        pack_instruction.input_element,
+        lanes=pack_instruction.native_lane_count,
+    )
+    result_type = Vector(
+        pack_instruction.result_element,
+        lanes=pack_instruction.result_lanes,
+    )
     address_family = (
         "immediate" if address_form is _MemoryAddressForm.IMMEDIATE else "register"
     )
     descriptor_key = (
-        f"amd.xdna.aie2p.store.pack.{pack_case.physical_width}.trunc."
+        f"amd.xdna.aie2p.store.pack.{pack_instruction.physical_width}.trunc."
         f"configured.indexed.{address_family}"
     )
     if volatile:
@@ -480,9 +576,9 @@ def _fused_integer_pack_store_rule(
         address_form,
         root_kind=root_kind,
         memory_spaces=memory_spaces,
-        element_byte_count=1,
-        vector_lane_count=pack_case.result_lanes,
-        memory_width_bits=pack_case.memory_width_bits,
+        element_byte_count=int(pack_instruction.result_element[1:]) // 8,
+        vector_lane_count=pack_instruction.result_lanes,
+        memory_width_bits=pack_instruction.memory_width_bits,
     )
     return DescriptorRule(
         source_op=vector.vector_store,
@@ -490,22 +586,22 @@ def _fused_integer_pack_store_rule(
         source_nodes=(
             SourceNode.adjacent_definition(
                 "convert",
-                source_op=pack_case.source_op,
+                source_op=pack_instruction.source_op,
                 parent_operand=ValueRef.operand("value"),
                 node_result=ValueRef.result("result"),
                 guards=(
-                    Guard.value_type(pack_case.source_field, source_type),
+                    Guard.value_type(pack_instruction.source_field, source_type),
                     Guard.value_type("result", result_type),
                     *(
                         (
                             Guard.attr_kind("width", "i64"),
                             Guard.i64_range(
                                 "width",
-                                pack_case.bit_width,
-                                pack_case.bit_width,
+                                pack_instruction.bit_width,
+                                pack_instruction.bit_width,
                             ),
                         )
-                        if pack_case.bit_width is not None
+                        if pack_instruction.bit_width is not None
                         else ()
                     ),
                 ),
@@ -525,15 +621,15 @@ def _fused_integer_pack_store_rule(
             source_memory,
             {
                 "src": ValueRef.operand(
-                    pack_case.source_field,
+                    pack_instruction.source_field,
                     source_node="convert",
                 ),
                 "ptr": ValueRef.operand("view"),
             },
-            access_preamble=integer_pack_state_emits(pack_case.pack_size),
+            access_preamble=integer_pack_state_emits(pack_instruction.pack_size),
         ),
         priority=1,
-        report_key=f"native_memory_store_{pack_case.report_key}",
+        report_key=f"native_memory_store_{pack_instruction.report_key}",
     )
 
 
@@ -549,7 +645,7 @@ def _fused_memory_rules(*, volatile: bool) -> tuple[DescriptorRule, ...]:
                 source_lane_count=source_lane_count,
                 volatile=volatile,
             )
-            for root_kind, memory_spaces in _MEMORY_ROOTS
+            for root_kind, memory_spaces in _memory_roots(SourceMemoryOperation.LOAD)
             for source_op, source_kind in (
                 (vector.vector_bitunpacku, "u"),
                 (vector.vector_bitunpacks, "s"),
@@ -565,8 +661,18 @@ def _fused_memory_rules(*, volatile: bool) -> tuple[DescriptorRule, ...]:
                 lane_count=lane_count,
                 volatile=volatile,
             )
-            for root_kind, memory_spaces in _MEMORY_ROOTS
-            for lane_count in BF16_F32_PACKET_LANE_COUNTS
+            for root_kind, memory_spaces in _memory_roots(SourceMemoryOperation.LOAD)
+            for lane_count in FLOAT_PACKET_LANE_COUNTS
+            for address_form in _MemoryAddressForm
+        ),
+        *(
+            _fused_bfp_encode_load_rule(
+                address_form,
+                root_kind=root_kind,
+                memory_spaces=memory_spaces,
+                volatile=volatile,
+            )
+            for root_kind, memory_spaces in _memory_roots(SourceMemoryOperation.LOAD)
             for address_form in _MemoryAddressForm
         ),
         *(
@@ -576,15 +682,15 @@ def _fused_memory_rules(*, volatile: bool) -> tuple[DescriptorRule, ...]:
                 memory_spaces=memory_spaces,
                 source_op=source_op,
                 signedness=signedness,
-                widen_case=widen_case,
+                instruction=instruction,
                 volatile=volatile,
             )
-            for root_kind, memory_spaces in _MEMORY_ROOTS
+            for root_kind, memory_spaces in _memory_roots(SourceMemoryOperation.LOAD)
             for source_op, signedness in (
                 (vector.vector_extui, "unsigned"),
                 (vector.vector_extsi, "signed"),
             )
-            for widen_case in INTEGER_WIDEN_CASES
+            for instruction in INTEGER_WIDEN_INSTRUCTIONS
             for address_form in _MemoryAddressForm
         ),
         *(
@@ -595,8 +701,8 @@ def _fused_memory_rules(*, volatile: bool) -> tuple[DescriptorRule, ...]:
                 lane_count=lane_count,
                 volatile=volatile,
             )
-            for root_kind, memory_spaces in _MEMORY_ROOTS
-            for lane_count in BF16_F32_PACKET_LANE_COUNTS
+            for root_kind, memory_spaces in _memory_roots(SourceMemoryOperation.STORE)
+            for lane_count in FLOAT_PACKET_LANE_COUNTS
             for address_form in _MemoryAddressForm
         ),
         *(
@@ -604,11 +710,11 @@ def _fused_memory_rules(*, volatile: bool) -> tuple[DescriptorRule, ...]:
                 address_form,
                 root_kind=root_kind,
                 memory_spaces=memory_spaces,
-                pack_case=pack_case,
+                pack_instruction=pack_instruction,
                 volatile=volatile,
             )
-            for root_kind, memory_spaces in _MEMORY_ROOTS
-            for pack_case in INTEGER_PACK_CASES
+            for root_kind, memory_spaces in _memory_roots(SourceMemoryOperation.STORE)
+            for pack_instruction in INTEGER_PACK_INSTRUCTIONS
             for address_form in _MemoryAddressForm
         ),
     )

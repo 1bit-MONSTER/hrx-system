@@ -6,6 +6,8 @@
 
 #include "loom/transforms/vector/target_legalization.h"
 
+#include <math.h>
+
 #include "loom/ir/module.h"
 #include "loom/ir/types.h"
 #include "loom/ops/kernel/ops.h"
@@ -103,6 +105,40 @@ static iree_status_t loom_vector_legalize_descriptor(
     *out_result = (loom_target_legalizer_result_t){
         .action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN,
     };
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_vector_legalize_non_dense_memory(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  bool rewritten = false;
+  IREE_RETURN_IF_ERROR(loom_vector_to_scalar_rewrite_op(
+      context->pass, context->rewriter, op, &rewritten));
+  if (rewritten) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_vector_legalize_atomic(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  bool rewritten = false;
+  IREE_RETURN_IF_ERROR(loom_vector_atomic_to_scalar_rewrite_op(
+      context->pass, context->rewriter, op, &rewritten));
+  if (rewritten) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
   }
   return iree_ok_status();
 }
@@ -424,7 +460,120 @@ static iree_status_t loom_vector_legalize_predicate_extension(
   return iree_ok_status();
 }
 
+// Number-preferring extrema already implement signed-zero ordering. An
+// unordered comparison adds the IEEE NaN policy without changing numeric
+// operands or exposing a NaN payload guarantee.
+static iree_status_t loom_vector_legalize_ieee_extrema(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  const loom_value_id_t lhs = loom_op_operands(op)[0];
+  const loom_value_id_t rhs = loom_op_operands(op)[1];
+  const loom_type_t type = loom_module_value_type(context->module, lhs);
+  loom_type_t predicate_type = type;
+  predicate_type.header =
+      loom_type_make_header(loom_type_kind(type), LOOM_SCALAR_TYPE_I1,
+                            loom_type_rank(type), loom_type_flags(type));
+
+  loom_op_t* number = NULL;
+  if (loom_vector_minimumf_isa(op)) {
+    IREE_RETURN_IF_ERROR(loom_vector_minnumf_build(
+        builder, op->instance_flags, lhs, rhs, type, op->location, &number));
+  } else {
+    IREE_RETURN_IF_ERROR(loom_vector_maxnumf_build(
+        builder, op->instance_flags, lhs, rhs, type, op->location, &number));
+  }
+  loom_op_t* unordered = NULL;
+  IREE_RETURN_IF_ERROR(loom_vector_cmpf_build(
+      builder, op->instance_flags, LOOM_VECTOR_CMPF_PREDICATE_UNO, lhs, rhs,
+      type, predicate_type, op->location, &unordered));
+  loom_op_t* nan = NULL;
+  IREE_RETURN_IF_ERROR(loom_vector_constant_build(builder, loom_attr_f64(NAN),
+                                                  type, op->location, &nan));
+  loom_op_t* select = NULL;
+  IREE_RETURN_IF_ERROR(loom_vector_select_build(
+      builder, loom_vector_cmpf_result(unordered),
+      loom_vector_constant_result(nan), loom_op_results(number)[0], type,
+      op->location, &select));
+  const loom_value_id_t replacement = loom_vector_select_result(select);
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  return iree_ok_status();
+}
+
 static const loom_target_legalizer_rule_t kVectorLegalizerRules[] = {
+    {
+        .root_kind = LOOM_OP_VECTOR_LOAD_MASK,
+        .legalize = loom_vector_legalize_non_dense_memory,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_STORE_MASK,
+        .legalize = loom_vector_legalize_non_dense_memory,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_LOAD_EXPAND,
+        .legalize = loom_vector_legalize_non_dense_memory,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_STORE_COMPRESS,
+        .legalize = loom_vector_legalize_non_dense_memory,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MINIMUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_vector_legalize_ieee_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MAXIMUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_vector_legalize_ieee_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_GATHER,
+        .legalize = loom_vector_legalize_non_dense_memory,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_GATHER_MASK,
+        .legalize = loom_vector_legalize_non_dense_memory,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_SCATTER,
+        .legalize = loom_vector_legalize_non_dense_memory,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_SCATTER_MASK,
+        .legalize = loom_vector_legalize_non_dense_memory,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_ATOMIC_REDUCE,
+        .legalize = loom_vector_legalize_atomic,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_ATOMIC_REDUCE_MASK,
+        .legalize = loom_vector_legalize_atomic,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_ATOMIC_RMW,
+        .legalize = loom_vector_legalize_atomic,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_ATOMIC_RMW_MASK,
+        .legalize = loom_vector_legalize_atomic,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_ATOMIC_CMPXCHG,
+        .legalize = loom_vector_legalize_atomic,
+    },
     {
         .root_kind = LOOM_OP_VECTOR_EXTSI,
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I1,
@@ -451,6 +600,26 @@ static const loom_target_legalizer_rule_t kVectorLegalizerRules[] = {
     },
     {
         .root_kind = LOOM_OP_VECTOR_CMPF,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_vector_legalize_descriptor,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MINNUMF,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_vector_legalize_descriptor,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MAXNUMF,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_vector_legalize_descriptor,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MINIMUMF,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_vector_legalize_descriptor,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MAXIMUMF,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .legalize = loom_vector_legalize_descriptor,
     },
@@ -484,6 +653,10 @@ static const loom_target_legalizer_rule_t kVectorLegalizerRules[] = {
     },
     {
         .root_kind = LOOM_OP_VECTOR_BITUNPACKS,
+        .legalize = loom_vector_legalize_descriptor,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_TABLE_QUANTIZE,
         .legalize = loom_vector_legalize_descriptor,
     },
     {

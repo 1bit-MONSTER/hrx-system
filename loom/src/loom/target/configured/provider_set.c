@@ -6,6 +6,8 @@
 
 #include "loom/target/configured/provider_set.h"
 
+#include "loom/target/arch/cmd/provider.h"
+
 #ifndef LOOM_CONFIG_TARGET_HAVE_VM
 #define LOOM_CONFIG_TARGET_HAVE_VM 0
 #endif  // LOOM_CONFIG_TARGET_HAVE_VM
@@ -24,11 +26,6 @@
 #ifndef LOOM_CONFIG_TARGET_HAVE_X86
 #define LOOM_CONFIG_TARGET_HAVE_X86 0
 #endif  // LOOM_CONFIG_TARGET_HAVE_X86
-
-#define LOOM_CONFIG_TARGET_HAVE_ANY_PROVIDER                          \
-  (LOOM_CONFIG_TARGET_HAVE_AMDGPU || LOOM_CONFIG_TARGET_HAVE_SPIRV || \
-   LOOM_CONFIG_TARGET_HAVE_WASM || LOOM_CONFIG_TARGET_HAVE_X86 ||     \
-   LOOM_CONFIG_TARGET_HAVE_VM || LOOM_CONFIG_TARGET_HAVE_XDNA)
 
 #if LOOM_CONFIG_TARGET_HAVE_VM
 #include "loom/target/arch/vm/provider.h"
@@ -50,8 +47,8 @@
 #include "loom/target/arch/x86/provider.h"
 #endif  // LOOM_CONFIG_TARGET_HAVE_X86
 
-#if LOOM_CONFIG_TARGET_HAVE_ANY_PROVIDER
 static const loom_target_provider_t* const kConfiguredTargetProviders[] = {
+    &loom_cmd_target_provider,
 #if LOOM_CONFIG_TARGET_HAVE_VM
     &loom_vm_target_provider,
 #endif  // LOOM_CONFIG_TARGET_HAVE_VM
@@ -71,16 +68,10 @@ static const loom_target_provider_t* const kConfiguredTargetProviders[] = {
     &loom_x86_target_provider,
 #endif  // LOOM_CONFIG_TARGET_HAVE_X86
 };
-#endif  // LOOM_CONFIG_TARGET_HAVE_ANY_PROVIDER
 
 static const loom_target_provider_set_t kConfiguredTargetProviderSet = {
-#if LOOM_CONFIG_TARGET_HAVE_ANY_PROVIDER
     .providers = kConfiguredTargetProviders,
     .provider_count = IREE_ARRAYSIZE(kConfiguredTargetProviders),
-#else
-    .providers = NULL,
-    .provider_count = 0,
-#endif  // LOOM_CONFIG_TARGET_HAVE_ANY_PROVIDER
 };
 
 const loom_target_provider_set_t* loom_configured_target_provider_set(void) {

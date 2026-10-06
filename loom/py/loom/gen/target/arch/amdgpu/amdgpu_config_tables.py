@@ -23,11 +23,13 @@ from loom.target.arch.amdgpu.names import (
     amdgpu_descriptor_set_ordinal_constant_name,
     amdgpu_encoding_table_symbol,
     amdgpu_low_descriptor_provider_symbol,
+    amdgpu_low_descriptor_storage_view_provider_symbol,
 )
 from loom.target.arch.amdgpu.target_info import (
     AmdgpuDescriptorSetInfo,
     AmdgpuProcessorInfo,
     AmdgpuTargetInfo,
+    amdgpu_descriptor_set_supported_target_contract_keys,
     amdgpu_target_descriptor_set_key,
 )
 
@@ -98,31 +100,58 @@ def _emit_low_registry_tables(
         ),
         "#ifdef LOOM_AMDGPU_LOW_DESCRIPTOR_PROVIDER_DECL",
     ]
-    for descriptor_set in descriptor_sets:
-        define = amdgpu_descriptor_set_define(descriptor_set.key)
-        provider = amdgpu_low_descriptor_provider_symbol(descriptor_set.key)
-        lines.extend(
-            [
-                f"#if defined({define})",
-                f"LOOM_AMDGPU_LOW_DESCRIPTOR_PROVIDER_DECL({provider})",
-                "#endif",
-            ]
-        )
+    lines.extend(_emit_low_registry_provider_rows(descriptor_sets, "LOOM_AMDGPU_LOW_DESCRIPTOR_PROVIDER_DECL"))
     lines.extend(["#endif  // LOOM_AMDGPU_LOW_DESCRIPTOR_PROVIDER_DECL", ""])
 
     lines.append("#ifdef LOOM_AMDGPU_LOW_DESCRIPTOR_PROVIDER")
-    for descriptor_set in descriptor_sets:
-        define = amdgpu_descriptor_set_define(descriptor_set.key)
-        provider = amdgpu_low_descriptor_provider_symbol(descriptor_set.key)
-        lines.extend(
-            [
-                f"#if defined({define})",
-                f"LOOM_AMDGPU_LOW_DESCRIPTOR_PROVIDER({provider})",
-                "#endif",
-            ]
-        )
+    lines.extend(_emit_low_registry_provider_rows(descriptor_sets, "LOOM_AMDGPU_LOW_DESCRIPTOR_PROVIDER"))
     lines.extend(["#endif  // LOOM_AMDGPU_LOW_DESCRIPTOR_PROVIDER", ""])
     return "\n".join(lines)
+
+
+def _emit_low_registry_provider_rows(descriptor_sets: Sequence[AmdgpuDescriptorSetInfo], macro: str) -> list[str]:
+    infos_by_key = {info.key: info for info in descriptor_sets}
+    lines: list[str] = []
+    for descriptor_set in descriptor_sets:
+        if not descriptor_set.member_generator_targets:
+            branches = (
+                (
+                    (amdgpu_descriptor_set_define(descriptor_set.key),),
+                    amdgpu_low_descriptor_provider_symbol(descriptor_set.key),
+                ),
+            )
+        else:
+            canonical_storage_target = descriptor_set.storage_generator_target
+            if canonical_storage_target is None:
+                raise ValueError(f"portable AMDGPU descriptor set '{descriptor_set.key}' has no canonical storage target")
+            defines_by_storage_target: dict[str, list[str]] = {canonical_storage_target: [amdgpu_descriptor_set_define(descriptor_set.key)]}
+            for contract_key in amdgpu_descriptor_set_supported_target_contract_keys(descriptor_set):
+                try:
+                    contract_info = infos_by_key[contract_key]
+                except KeyError as exc:
+                    raise ValueError(f"portable AMDGPU descriptor set '{descriptor_set.key}' references absent target contract '{contract_key}'") from exc
+                storage_target = contract_info.storage_generator_target or contract_info.generator_target
+                defines_by_storage_target.setdefault(storage_target, []).append(amdgpu_descriptor_set_define(contract_info.key))
+            storage_targets = (
+                canonical_storage_target,
+                *sorted(storage_target for storage_target in defines_by_storage_target if storage_target != canonical_storage_target),
+            )
+            branches = tuple(
+                (
+                    tuple(defines_by_storage_target[storage_target]),
+                    amdgpu_low_descriptor_provider_symbol(descriptor_set.key)
+                    if storage_target == canonical_storage_target
+                    else amdgpu_low_descriptor_storage_view_provider_symbol(descriptor_set.key, storage_target),
+                )
+                for storage_target in storage_targets
+            )
+
+        for branch_index, (defines, provider) in enumerate(branches):
+            directive = "#if" if branch_index == 0 else "#elif"
+            condition = " || ".join(f"defined({define})" for define in defines)
+            lines.extend([f"{directive} {condition}", f"{macro}({provider})"])
+        lines.append("#endif")
+    return lines
 
 
 def _emit_encoding_tables(

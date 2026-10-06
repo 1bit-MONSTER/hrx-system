@@ -21,12 +21,14 @@ class QualificationTest(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
         self.corpus = self.root / "corpus.loom-test"
-        self.corpus.write_bytes(Path(_ARGS.corpus).read_bytes())
+        source = Path(_ARGS.accepted).read_text()
+        self.corpus.write_text(source, newline="\n")
         self.fixture = self.root / "fixture.loom-test"
-        source = Path(_ARGS.fixture).read_text()
-        source = "// TEMPLATE: corpus.loom-test\n" + source.split("\n", 1)[1]
-        # Keep the copied fixture in its canonical LF form.
-        self.fixture.write_text(source, newline="\n")
+        self.fixture.write_text(
+            "// TEMPLATE: corpus.loom-test\n" + source, newline="\n"
+        )
+        self.rejected = self.root / "rejected.loom-test"
+        self.rejected.write_bytes(Path(_ARGS.rejected).read_bytes())
 
     def check(self, source, *arguments):
         return subprocess.run(
@@ -41,32 +43,49 @@ class QualificationTest(unittest.TestCase):
             text=True,
         )
 
-    def test_native_diagnostics_are_independent_of_low_goldens(self):
+    def test_native_compilation_uses_authored_cases(self):
         result = self.check(self.fixture)
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(
-            report["summary"], {"total": 13, "passed": 13, "failed": 0, "skipped": 0}
+            report["summary"], {"total": 2, "passed": 2, "failed": 0, "skipped": 0}
         )
         self.assertTrue(all(case["mode"] == "compile" for case in report["cases"]))
 
+    def test_expected_target_diagnostic_passes(self):
+        result = self.check(self.rejected)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(
+            report["summary"], {"total": 1, "passed": 1, "failed": 0, "skipped": 0}
+        )
+
     def test_wrong_diagnostic_identity_fails(self):
-        self.fixture.write_text(
-            self.fixture.read_text().replace("AMDGPU/023", "AMDGPU/022"),
+        self.rejected.write_text(
+            self.rejected.read_text().replace("AMDGPU/026", "AMDGPU/025"),
             newline="\n",
         )
-        result = self.check(self.fixture)
+        result = self.check(self.rejected)
         self.assertNotEqual(result.returncode, 0)
         report = json.loads(result.stdout)
-        self.assertEqual(report["summary"]["failed"], 2)
+        self.assertEqual(report["summary"]["failed"], 1)
         self.assertEqual(report["summary"]["skipped"], 0)
 
     def test_unannotated_unsupported_source_fails(self):
-        result = self.check(self.corpus)
+        self.rejected.write_text(
+            "\n".join(
+                line
+                for line in self.rejected.read_text().splitlines()
+                if not line.startswith("// ERROR")
+            )
+            + "\n",
+            newline="\n",
+        )
+        result = self.check(self.rejected)
         self.assertNotEqual(result.returncode, 0)
         report = json.loads(result.stdout)
-        self.assertEqual(report["summary"]["passed"], 11)
-        self.assertEqual(report["summary"]["failed"], 2)
+        self.assertEqual(report["summary"]["passed"], 0)
+        self.assertEqual(report["summary"]["failed"], 1)
 
     def test_compilation_uses_concrete_cases_without_template_synchronization(self):
         self.fixture.write_text(
@@ -86,11 +105,11 @@ class QualificationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(
-            report["summary"], {"total": 13, "passed": 13, "failed": 0, "skipped": 0}
+            report["summary"], {"total": 2, "passed": 2, "failed": 0, "skipped": 0}
         )
         self.assertEqual(self.fixture.read_bytes(), original)
 
-    def test_update_does_not_rewrite_goldens(self):
+    def test_update_does_not_rewrite_targeted_input(self):
         original = self.fixture.read_bytes()
         result = self.check(self.fixture, "--update")
         self.assertNotEqual(result.returncode, 0)
@@ -125,16 +144,16 @@ class QualificationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_native_entry_report_and_publication(self):
-        output = self.root / "module.hal"
-        native_output = self.root / "module.hsaco"
+        artifact_path = self.root / "module.hsaco"
         report_path = self.root / "report.json"
+        roots = ["address_guarded_rows", "address_materialized_wide_offset"]
         result = subprocess.run(
             [
                 _ARGS.compiler,
                 _ARGS.realizations,
                 "--target=amdgpu:gfx942",
-                f"--output={output}",
-                f"--emit-target-artifact={native_output}",
+                *[f"--root=@{root}" for root in roots],
+                f"--output={artifact_path}",
                 "--compile-report=summary",
                 f"--compile-report-output={report_path}",
             ],
@@ -142,53 +161,49 @@ class QualificationTest(unittest.TestCase):
             text=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertGreater(output.stat().st_size, 0)
-        self.assertGreater(native_output.stat().st_size, 0)
+        self.assertGreater(artifact_path.stat().st_size, 0)
         report = json.loads(report_path.read_text())
         self.assertEqual(report["target_key"], "gfx942")
-        self.assertEqual(report["entries"]["count"], 8)
-        self.assertEqual(len(report["entries"]["rows"]), 8)
+        self.assertEqual(report["entries"]["count"], len(roots))
+        self.assertCountEqual(
+            [row["source_function"] for row in report["entries"]["rows"]], roots
+        )
         self.assertTrue(
             all(row["code_byte_count"] > 0 for row in report["entries"]["rows"])
         )
 
     def test_rejected_compilation_does_not_publish_output(self):
-        output = self.root / "rejected.hal"
-        native_output = self.root / "rejected.hsaco"
+        artifact_path = self.root / "rejected.hsaco"
         for contents in (None, b"previous artifact"):
             with self.subTest(existing_output=contents is not None):
                 if contents is not None:
-                    output.write_bytes(contents)
-                    native_output.write_bytes(contents)
+                    artifact_path.write_bytes(contents)
                 result = subprocess.run(
                     [
                         _ARGS.compiler,
-                        str(self.corpus),
+                        str(self.rejected),
                         "--target=amdgpu:gfx942",
-                        "--root=@global_atomic_minnum_maxnum_f32",
-                        f"--output={output}",
-                        f"--emit-target-artifact={native_output}",
+                        "--root=@unsupported_wave_size",
+                        f"--output={artifact_path}",
                     ],
                     capture_output=True,
                     text=True,
                 )
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("AMDGPU/023", result.stderr)
-                self.assertIn("atomic.descriptor_missing", result.stderr)
+                self.assertIn("AMDGPU/026", result.stderr)
                 self.assertEqual(result.stdout, "")
-                for artifact in (output, native_output):
-                    if contents is None:
-                        self.assertFalse(artifact.exists())
-                    else:
-                        self.assertEqual(artifact.read_bytes(), contents)
+                if contents is None:
+                    self.assertFalse(artifact_path.exists())
+                else:
+                    self.assertEqual(artifact_path.read_bytes(), contents)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("checker")
-    parser.add_argument("corpus")
-    parser.add_argument("fixture")
+    parser.add_argument("accepted")
     parser.add_argument("compiler")
     parser.add_argument("realizations")
+    parser.add_argument("rejected")
     _ARGS = parser.parse_args()
     unittest.main(argv=[sys.argv[0]])

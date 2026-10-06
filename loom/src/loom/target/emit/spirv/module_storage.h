@@ -44,7 +44,7 @@ iree_status_t loom_spirv_module_workgroup_storage_initialize(
     iree_arena_allocator_t* scratch_arena);
 
 // Records a low.storage.reserve Workgroup storage declaration.
-iree_status_t loom_spirv_module_workgroup_storage_emit_reserve(
+void loom_spirv_module_workgroup_storage_emit_reserve(
     const loom_local_value_domain_t* value_domain,
     loom_spirv_module_workgroup_storage_state_t* state, const loom_op_t* op);
 

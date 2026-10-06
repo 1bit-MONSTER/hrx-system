@@ -493,10 +493,9 @@ iree_status_t loom_spirv_emit_scf_while(loom_spirv_emit_state_t* state,
       loom_low_scf_condition_forwarded(condition_op);
   const loom_value_slice_t yielded = loom_low_scf_yield_values(yield_op);
   IREE_ASSERT_EQ(before_block->arg_count, iter_args.count);
-  IREE_ASSERT_EQ(after_block->arg_count, iter_args.count);
-  IREE_ASSERT_EQ(forwarded.count, iter_args.count);
+  IREE_ASSERT_EQ(after_block->arg_count, results.count);
+  IREE_ASSERT_EQ(forwarded.count, results.count);
   IREE_ASSERT_EQ(yielded.count, iter_args.count);
-  IREE_ASSERT_EQ(results.count, iter_args.count);
 
   const uint32_t preheader_label_id = state->current_label_id;
   const uint32_t header_label_id = loom_spirv_emit_allocate_id(state);
@@ -518,19 +517,23 @@ iree_status_t loom_spirv_emit_scf_while(loom_spirv_emit_state_t* state,
         iree_arena_allocate_array(state->scratch_arena, iter_args.count,
                                   sizeof(*next_refs), (void**)&next_refs));
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        state->scratch_arena, iter_args.count, sizeof(*forwarded_refs),
-        (void**)&forwarded_refs));
-    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
         state->scratch_arena, iter_args.count, sizeof(*before_phi_ids),
         (void**)&before_phi_ids));
+  }
+  if (results.count > 0) {
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        state->scratch_arena, iter_args.count, sizeof(*after_phi_ids),
+        state->scratch_arena, results.count, sizeof(*forwarded_refs),
+        (void**)&forwarded_refs));
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        state->scratch_arena, results.count, sizeof(*after_phi_ids),
         (void**)&after_phi_ids));
   }
   for (uint16_t i = 0; i < iter_args.count; ++i) {
     IREE_RETURN_IF_ERROR(loom_spirv_emit_lookup_value(
         state, iter_args.values[i], &initial_refs[i]));
     before_phi_ids[i] = loom_spirv_emit_allocate_id(state);
+  }
+  for (uint16_t i = 0; i < results.count; ++i) {
     after_phi_ids[i] = loom_spirv_emit_allocate_id(state);
   }
   for (uint16_t i = 0; i < yielded.count; ++i) {
@@ -540,13 +543,10 @@ iree_status_t loom_spirv_emit_scf_while(loom_spirv_emit_state_t* state,
       if (yielded_value_id != loom_block_arg_id(after_block, j)) {
         continue;
       }
-      IREE_ASSERT_EQ(initial_refs[i].type_id, initial_refs[j].type_id);
-      IREE_ASSERT(loom_spirv_value_type_equal(initial_refs[i].value_type,
-                                              initial_refs[j].value_type));
       next_refs[i] = (loom_spirv_module_value_ref_t){
           .id = after_phi_ids[j],
-          .type_id = initial_refs[j].type_id,
-          .value_type = initial_refs[j].value_type,
+          .type_id = initial_refs[i].type_id,
+          .value_type = initial_refs[i].value_type,
       };
       yielded_after_arg = true;
       break;
@@ -613,9 +613,6 @@ iree_status_t loom_spirv_emit_scf_while(loom_spirv_emit_state_t* state,
 
   IREE_RETURN_IF_ERROR(loom_spirv_emit_label_id(state, body_label_id));
   for (uint16_t i = 0; i < forwarded.count; ++i) {
-    IREE_ASSERT_EQ(initial_refs[i].type_id, forwarded_refs[i].type_id);
-    IREE_ASSERT(loom_spirv_value_type_equal(initial_refs[i].value_type,
-                                            forwarded_refs[i].value_type));
     const uint32_t operands[] = {
         forwarded_refs[i].type_id,
         after_phi_ids[i],

@@ -1,0 +1,121 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Each view is a one-element window over the same backing buffer. Advance
+// them in opposite directions and check both the visited data and exit state.
+kernel.def @view_window_walk() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer, %count: index) {
+  %iterations = index.assume %count [range(%count, 0, 3)] : index
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %forward_base = index.constant 4 : offset
+  %backward_base = index.constant 196 : offset
+  %input_aligned = buffer.assume.alignment %input {minimum_alignment = 4} : buffer
+  %output_aligned = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %first_forward = buffer.view %input_aligned[%forward_base] : buffer -> view<1xi32>
+  %first_backward = buffer.view %input_aligned[%backward_base] : buffer -> view<1xi32>
+  %destination = buffer.view %output_aligned[%forward_base] : buffer -> view<4xi32>
+  %initial_sum = scalar.constant 0 : i32
+  %last_forward, %last_backward, %forward_sum, %backward_sum = scf.for %i = [%begin to %iterations step %step](%forward = %first_forward : view<1xi32>, %backward = %first_backward : view<1xi32>, %forward_total = %initial_sum : i32, %backward_total = %initial_sum : i32) -> (view<1xi32>, view<1xi32>, i32, i32) {
+    %forward_value = view.load %forward[0] : view<1xi32> -> i32
+    %backward_value = view.load %backward[0] : view<1xi32> -> i32
+    %next_forward_total = scalar.addi %forward_total, %forward_value : i32
+    %next_backward_total = scalar.addi %backward_total, %backward_value : i32
+    %next_forward = view.subview %forward[8] : view<1xi32> -> view<1xi32>
+    %next_backward = view.subview %backward[-8] : view<1xi32> -> view<1xi32>
+    scf.yield %next_forward, %next_backward, %next_forward_total, %next_backward_total : view<1xi32>, view<1xi32>, i32, i32
+  }
+  %forward_final = view.load %last_forward[0] : view<1xi32> -> i32
+  %backward_final = view.load %last_backward[0] : view<1xi32> -> i32
+  view.store %forward_sum, %destination[0] : i32, view<4xi32>
+  view.store %backward_sum, %destination[1] : i32, view<4xi32>
+  view.store %forward_final, %destination[2] : i32, view<4xi32>
+  view.store %backward_final, %destination[3] : i32, view<4xi32>
+  kernel.return
+}
+
+check.case public @view_window_walk_0 {
+  %count = check.literal value(0) : index
+  %input = check.generate.iota offset(100) step(1) : tensor<56xi32>
+  %input_expected = check.generate.iota offset(100) step(1) : tensor<56xi32>
+  %output = check.generate.fill value(-99) : tensor<6xi32>
+  kernel.launch @view_window_walk(%input, %output, %count) : (tensor<56xi32>, tensor<6xi32>, index)
+  %forward_sum = check.tensor.view %output offset(4) : tensor<6xi32> -> tensor<1xi32>
+  %forward_sum_expected = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%forward_sum) expected(%forward_sum_expected) : tensor<1xi32>
+  %backward_sum = check.tensor.view %output offset(8) : tensor<6xi32> -> tensor<1xi32>
+  %backward_sum_expected = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%backward_sum) expected(%backward_sum_expected) : tensor<1xi32>
+  %forward_final = check.tensor.view %output offset(12) : tensor<6xi32> -> tensor<1xi32>
+  %forward_final_expected = check.generate.fill value(101) : tensor<1xi32>
+  check.expect.bitwise actual(%forward_final) expected(%forward_final_expected) : tensor<1xi32>
+  %backward_final = check.tensor.view %output offset(16) : tensor<6xi32> -> tensor<1xi32>
+  %backward_final_expected = check.generate.fill value(149) : tensor<1xi32>
+  check.expect.bitwise actual(%backward_final) expected(%backward_final_expected) : tensor<1xi32>
+  %prefix = check.tensor.view %output offset(0) : tensor<6xi32> -> tensor<1xi32>
+  %suffix = check.tensor.view %output offset(20) : tensor<6xi32> -> tensor<1xi32>
+  %guard = check.generate.fill value(-99) : tensor<1xi32>
+  check.expect.bitwise actual(%prefix) expected(%guard) : tensor<1xi32>
+  check.expect.bitwise actual(%suffix) expected(%guard) : tensor<1xi32>
+  check.expect.bitwise actual(%input) expected(%input_expected) : tensor<56xi32>
+  check.return
+}
+
+check.case public @view_window_walk_1 {
+  %count = check.literal value(1) : index
+  %input = check.generate.iota offset(100) step(1) : tensor<56xi32>
+  %input_expected = check.generate.iota offset(100) step(1) : tensor<56xi32>
+  %output = check.generate.fill value(-99) : tensor<6xi32>
+  kernel.launch @view_window_walk(%input, %output, %count) : (tensor<56xi32>, tensor<6xi32>, index)
+  %forward_sum = check.tensor.view %output offset(4) : tensor<6xi32> -> tensor<1xi32>
+  %forward_sum_expected = check.generate.fill value(101) : tensor<1xi32>
+  check.expect.bitwise actual(%forward_sum) expected(%forward_sum_expected) : tensor<1xi32>
+  %backward_sum = check.tensor.view %output offset(8) : tensor<6xi32> -> tensor<1xi32>
+  %backward_sum_expected = check.generate.fill value(149) : tensor<1xi32>
+  check.expect.bitwise actual(%backward_sum) expected(%backward_sum_expected) : tensor<1xi32>
+  %forward_final = check.tensor.view %output offset(12) : tensor<6xi32> -> tensor<1xi32>
+  %forward_final_expected = check.generate.fill value(109) : tensor<1xi32>
+  check.expect.bitwise actual(%forward_final) expected(%forward_final_expected) : tensor<1xi32>
+  %backward_final = check.tensor.view %output offset(16) : tensor<6xi32> -> tensor<1xi32>
+  %backward_final_expected = check.generate.fill value(141) : tensor<1xi32>
+  check.expect.bitwise actual(%backward_final) expected(%backward_final_expected) : tensor<1xi32>
+  %prefix = check.tensor.view %output offset(0) : tensor<6xi32> -> tensor<1xi32>
+  %suffix = check.tensor.view %output offset(20) : tensor<6xi32> -> tensor<1xi32>
+  %guard = check.generate.fill value(-99) : tensor<1xi32>
+  check.expect.bitwise actual(%prefix) expected(%guard) : tensor<1xi32>
+  check.expect.bitwise actual(%suffix) expected(%guard) : tensor<1xi32>
+  check.expect.bitwise actual(%input) expected(%input_expected) : tensor<56xi32>
+  check.return
+}
+
+check.case public @view_window_walk_3 {
+  %count = check.literal value(3) : index
+  %input = check.generate.iota offset(100) step(1) : tensor<56xi32>
+  %input_expected = check.generate.iota offset(100) step(1) : tensor<56xi32>
+  %output = check.generate.fill value(-99) : tensor<6xi32>
+  kernel.launch @view_window_walk(%input, %output, %count) : (tensor<56xi32>, tensor<6xi32>, index)
+  %forward_sum = check.tensor.view %output offset(4) : tensor<6xi32> -> tensor<1xi32>
+  %forward_sum_expected = check.generate.fill value(327) : tensor<1xi32>
+  check.expect.bitwise actual(%forward_sum) expected(%forward_sum_expected) : tensor<1xi32>
+  %backward_sum = check.tensor.view %output offset(8) : tensor<6xi32> -> tensor<1xi32>
+  %backward_sum_expected = check.generate.fill value(423) : tensor<1xi32>
+  check.expect.bitwise actual(%backward_sum) expected(%backward_sum_expected) : tensor<1xi32>
+  %forward_final = check.tensor.view %output offset(12) : tensor<6xi32> -> tensor<1xi32>
+  %forward_final_expected = check.generate.fill value(125) : tensor<1xi32>
+  check.expect.bitwise actual(%forward_final) expected(%forward_final_expected) : tensor<1xi32>
+  %backward_final = check.tensor.view %output offset(16) : tensor<6xi32> -> tensor<1xi32>
+  %backward_final_expected = check.generate.fill value(125) : tensor<1xi32>
+  check.expect.bitwise actual(%backward_final) expected(%backward_final_expected) : tensor<1xi32>
+  %prefix = check.tensor.view %output offset(0) : tensor<6xi32> -> tensor<1xi32>
+  %suffix = check.tensor.view %output offset(20) : tensor<6xi32> -> tensor<1xi32>
+  %guard = check.generate.fill value(-99) : tensor<1xi32>
+  check.expect.bitwise actual(%prefix) expected(%guard) : tensor<1xi32>
+  check.expect.bitwise actual(%suffix) expected(%guard) : tensor<1xi32>
+  check.expect.bitwise actual(%input) expected(%input_expected) : tensor<56xi32>
+  check.return
+}

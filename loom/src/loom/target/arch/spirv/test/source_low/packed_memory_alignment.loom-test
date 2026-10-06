@@ -1,0 +1,481 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/packed_memory_alignment.loom-test
+// RUN: emit source-low target=spirv:vulkan1.3+bda+extended-types output=low control-flow=structured-low
+
+// Packed byte accesses retain their byte alignment when split into words.
+kernel.def @byte_origin() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %start = index.constant 1 : offset
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%start] : buffer -> view<32xi8>
+  %value = vector.load %source_view[0] : view<32xi8> -> vector<32xi8>
+  %destination_view = buffer.view %destination[%c0] : buffer -> view<32xi8>
+  vector.store %value, %destination_view[0] : vector<32xi8>, view<32xi8>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @byte_origin() asm {
+  %source = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %destination = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %78 = OpConstant.offset64 1
+  %79 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %78
+  %80 = OpLoad.storage_buffer.i8 %79
+  %81 = OpConstant.offset64 2
+  %82 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %81
+  %83 = OpLoad.storage_buffer.i8 %82
+  %84 = OpConstant.offset64 3
+  %85 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %84
+  %86 = OpLoad.storage_buffer.i8 %85
+  %87 = OpConstant.offset64 4
+  %88 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %87
+  %89 = OpLoad.storage_buffer.i8 %88
+  %90 = OpConstant.offset64 5
+  %91 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %90
+  %92 = OpLoad.storage_buffer.i8 %91
+  %93 = OpConstant.offset64 6
+  %94 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %93
+  %95 = OpLoad.storage_buffer.i8 %94
+  %96 = OpConstant.offset64 7
+  %97 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %96
+  %98 = OpLoad.storage_buffer.i8 %97
+  %99 = OpConstant.offset64 8
+  %100 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %99
+  %101 = OpLoad.storage_buffer.i8 %100
+  %102 = OpConstant.offset64 9
+  %103 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %102
+  %104 = OpLoad.storage_buffer.i8 %103
+  %105 = OpConstant.offset64 10
+  %106 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %105
+  %107 = OpLoad.storage_buffer.i8 %106
+  %108 = OpConstant.offset64 11
+  %109 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %108
+  %110 = OpLoad.storage_buffer.i8 %109
+  %111 = OpConstant.offset64 12
+  %112 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %111
+  %113 = OpLoad.storage_buffer.i8 %112
+  %114 = OpConstant.offset64 13
+  %115 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %114
+  %116 = OpLoad.storage_buffer.i8 %115
+  %117 = OpConstant.offset64 14
+  %118 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %117
+  %119 = OpLoad.storage_buffer.i8 %118
+  %120 = OpConstant.offset64 15
+  %121 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %120
+  %122 = OpLoad.storage_buffer.i8 %121
+  %123 = OpConstant.offset64 16
+  %124 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %123
+  %125 = OpLoad.storage_buffer.i8 %124
+  %126 = OpConstant.offset64 17
+  %127 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %126
+  %128 = OpLoad.storage_buffer.i8 %127
+  %129 = OpConstant.offset64 18
+  %130 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %129
+  %131 = OpLoad.storage_buffer.i8 %130
+  %132 = OpConstant.offset64 19
+  %133 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %132
+  %134 = OpLoad.storage_buffer.i8 %133
+  %135 = OpConstant.offset64 20
+  %136 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %135
+  %137 = OpLoad.storage_buffer.i8 %136
+  %138 = OpConstant.offset64 21
+  %139 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %138
+  %140 = OpLoad.storage_buffer.i8 %139
+  %141 = OpConstant.offset64 22
+  %142 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %141
+  %143 = OpLoad.storage_buffer.i8 %142
+  %144 = OpConstant.offset64 23
+  %145 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %144
+  %146 = OpLoad.storage_buffer.i8 %145
+  %147 = OpConstant.offset64 24
+  %148 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %147
+  %149 = OpLoad.storage_buffer.i8 %148
+  %150 = OpConstant.offset64 25
+  %151 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %150
+  %152 = OpLoad.storage_buffer.i8 %151
+  %153 = OpConstant.offset64 26
+  %154 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %153
+  %155 = OpLoad.storage_buffer.i8 %154
+  %156 = OpConstant.offset64 27
+  %157 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %156
+  %158 = OpLoad.storage_buffer.i8 %157
+  %159 = OpConstant.offset64 28
+  %160 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %159
+  %161 = OpLoad.storage_buffer.i8 %160
+  %162 = OpConstant.offset64 29
+  %163 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %162
+  %164 = OpLoad.storage_buffer.i8 %163
+  %165 = OpConstant.offset64 30
+  %166 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %165
+  %167 = OpLoad.storage_buffer.i8 %166
+  %168 = OpConstant.offset64 31
+  %169 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %168
+  %170 = OpLoad.storage_buffer.i8 %169
+  %171 = OpConstant.offset64 32
+  %172 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %171
+  %173 = OpLoad.storage_buffer.i8 %172
+  %174 = OpConstant.offset64 0
+  %175 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %174
+  OpStore.storage_buffer.i8 %175, %80
+  %177 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %78
+  OpStore.storage_buffer.i8 %177, %83
+  %179 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %81
+  OpStore.storage_buffer.i8 %179, %86
+  %181 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %84
+  OpStore.storage_buffer.i8 %181, %89
+  %183 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %87
+  OpStore.storage_buffer.i8 %183, %92
+  %185 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %90
+  OpStore.storage_buffer.i8 %185, %95
+  %187 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %93
+  OpStore.storage_buffer.i8 %187, %98
+  %189 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %96
+  OpStore.storage_buffer.i8 %189, %101
+  %191 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %99
+  OpStore.storage_buffer.i8 %191, %104
+  %193 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %102
+  OpStore.storage_buffer.i8 %193, %107
+  %195 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %105
+  OpStore.storage_buffer.i8 %195, %110
+  %197 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %108
+  OpStore.storage_buffer.i8 %197, %113
+  %199 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %111
+  OpStore.storage_buffer.i8 %199, %116
+  %201 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %114
+  OpStore.storage_buffer.i8 %201, %119
+  %203 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %117
+  OpStore.storage_buffer.i8 %203, %122
+  %205 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %120
+  OpStore.storage_buffer.i8 %205, %125
+  %207 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %123
+  OpStore.storage_buffer.i8 %207, %128
+  %209 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %126
+  OpStore.storage_buffer.i8 %209, %131
+  %211 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %129
+  OpStore.storage_buffer.i8 %211, %134
+  %213 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %132
+  OpStore.storage_buffer.i8 %213, %137
+  %215 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %135
+  OpStore.storage_buffer.i8 %215, %140
+  %217 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %138
+  OpStore.storage_buffer.i8 %217, %143
+  %219 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %141
+  OpStore.storage_buffer.i8 %219, %146
+  %221 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %144
+  OpStore.storage_buffer.i8 %221, %149
+  %223 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %147
+  OpStore.storage_buffer.i8 %223, %152
+  %225 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %150
+  OpStore.storage_buffer.i8 %225, %155
+  %227 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %153
+  OpStore.storage_buffer.i8 %227, %158
+  %229 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %156
+  OpStore.storage_buffer.i8 %229, %161
+  %231 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %159
+  OpStore.storage_buffer.i8 %231, %164
+  %233 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %162
+  OpStore.storage_buffer.i8 %233, %167
+  %235 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %165
+  OpStore.storage_buffer.i8 %235, %170
+  %237 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %168
+  OpStore.storage_buffer.i8 %237, %173
+  return
+}
+
+// ====
+
+// A halfword origin preserves two-byte alignment within a wider payload.
+kernel.def @halfword_origin() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %start = index.constant 2 : offset
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%start] : buffer -> view<16xi16>
+  %value = vector.load %source_view[0] : view<16xi16> -> vector<16xi16>
+  %destination_view = buffer.view %destination[%c0] : buffer -> view<16xi16>
+  vector.store %value, %destination_view[0] : vector<16xi16>, view<16xi16>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @halfword_origin() asm {
+  %source = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %destination = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %46 = OpConstant.offset64 2
+  %47 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %46
+  %48 = OpLoad.storage_buffer.i16 %47
+  %49 = OpConstant.offset64 4
+  %50 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %49
+  %51 = OpLoad.storage_buffer.i16 %50
+  %52 = OpConstant.offset64 6
+  %53 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %52
+  %54 = OpLoad.storage_buffer.i16 %53
+  %55 = OpConstant.offset64 8
+  %56 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %55
+  %57 = OpLoad.storage_buffer.i16 %56
+  %58 = OpConstant.offset64 10
+  %59 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %58
+  %60 = OpLoad.storage_buffer.i16 %59
+  %61 = OpConstant.offset64 12
+  %62 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %61
+  %63 = OpLoad.storage_buffer.i16 %62
+  %64 = OpConstant.offset64 14
+  %65 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %64
+  %66 = OpLoad.storage_buffer.i16 %65
+  %67 = OpConstant.offset64 16
+  %68 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %67
+  %69 = OpLoad.storage_buffer.i16 %68
+  %70 = OpConstant.offset64 18
+  %71 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %70
+  %72 = OpLoad.storage_buffer.i16 %71
+  %73 = OpConstant.offset64 20
+  %74 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %73
+  %75 = OpLoad.storage_buffer.i16 %74
+  %76 = OpConstant.offset64 22
+  %77 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %76
+  %78 = OpLoad.storage_buffer.i16 %77
+  %79 = OpConstant.offset64 24
+  %80 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %79
+  %81 = OpLoad.storage_buffer.i16 %80
+  %82 = OpConstant.offset64 26
+  %83 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %82
+  %84 = OpLoad.storage_buffer.i16 %83
+  %85 = OpConstant.offset64 28
+  %86 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %85
+  %87 = OpLoad.storage_buffer.i16 %86
+  %88 = OpConstant.offset64 30
+  %89 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %88
+  %90 = OpLoad.storage_buffer.i16 %89
+  %91 = OpConstant.offset64 32
+  %92 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %91
+  %93 = OpLoad.storage_buffer.i16 %92
+  %94 = OpConstant.offset64 0
+  %95 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %94
+  OpStore.storage_buffer.i16 %95, %48
+  %97 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %46
+  OpStore.storage_buffer.i16 %97, %51
+  %99 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %49
+  OpStore.storage_buffer.i16 %99, %54
+  %101 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %52
+  OpStore.storage_buffer.i16 %101, %57
+  %103 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %55
+  OpStore.storage_buffer.i16 %103, %60
+  %105 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %58
+  OpStore.storage_buffer.i16 %105, %63
+  %107 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %61
+  OpStore.storage_buffer.i16 %107, %66
+  %109 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %64
+  OpStore.storage_buffer.i16 %109, %69
+  %111 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %67
+  OpStore.storage_buffer.i16 %111, %72
+  %113 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %70
+  OpStore.storage_buffer.i16 %113, %75
+  %115 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %73
+  OpStore.storage_buffer.i16 %115, %78
+  %117 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %76
+  OpStore.storage_buffer.i16 %117, %81
+  %119 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %79
+  OpStore.storage_buffer.i16 %119, %84
+  %121 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %82
+  OpStore.storage_buffer.i16 %121, %87
+  %123 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %85
+  OpStore.storage_buffer.i16 %123, %90
+  %125 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %88
+  OpStore.storage_buffer.i16 %125, %93
+  return
+}
+
+// ====
+
+// A word origin retains four-byte alignment within a wider payload.
+kernel.def @word_origin() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%input: buffer, %output: buffer) {
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %source, %destination = buffer.assume.noalias %aligned, %output : buffer, buffer
+  %start = index.constant 4 : offset
+  %c0 = index.constant 0 : offset
+  %source_view = buffer.view %source[%start] : buffer -> view<32xi8>
+  %value = vector.load %source_view[0] : view<32xi8> -> vector<32xi8>
+  %destination_view = buffer.view %destination[%c0] : buffer -> view<32xi8>
+  vector.store %value, %destination_view[0] : vector<32xi8>, view<32xi8>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @word_origin() asm {
+  %source = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %destination = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %78 = OpConstant.offset64 4
+  %79 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %78
+  %80 = OpLoad.storage_buffer.i8 %79
+  %81 = OpConstant.offset64 5
+  %82 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %81
+  %83 = OpLoad.storage_buffer.i8 %82
+  %84 = OpConstant.offset64 6
+  %85 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %84
+  %86 = OpLoad.storage_buffer.i8 %85
+  %87 = OpConstant.offset64 7
+  %88 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %87
+  %89 = OpLoad.storage_buffer.i8 %88
+  %90 = OpConstant.offset64 8
+  %91 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %90
+  %92 = OpLoad.storage_buffer.i8 %91
+  %93 = OpConstant.offset64 9
+  %94 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %93
+  %95 = OpLoad.storage_buffer.i8 %94
+  %96 = OpConstant.offset64 10
+  %97 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %96
+  %98 = OpLoad.storage_buffer.i8 %97
+  %99 = OpConstant.offset64 11
+  %100 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %99
+  %101 = OpLoad.storage_buffer.i8 %100
+  %102 = OpConstant.offset64 12
+  %103 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %102
+  %104 = OpLoad.storage_buffer.i8 %103
+  %105 = OpConstant.offset64 13
+  %106 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %105
+  %107 = OpLoad.storage_buffer.i8 %106
+  %108 = OpConstant.offset64 14
+  %109 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %108
+  %110 = OpLoad.storage_buffer.i8 %109
+  %111 = OpConstant.offset64 15
+  %112 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %111
+  %113 = OpLoad.storage_buffer.i8 %112
+  %114 = OpConstant.offset64 16
+  %115 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %114
+  %116 = OpLoad.storage_buffer.i8 %115
+  %117 = OpConstant.offset64 17
+  %118 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %117
+  %119 = OpLoad.storage_buffer.i8 %118
+  %120 = OpConstant.offset64 18
+  %121 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %120
+  %122 = OpLoad.storage_buffer.i8 %121
+  %123 = OpConstant.offset64 19
+  %124 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %123
+  %125 = OpLoad.storage_buffer.i8 %124
+  %126 = OpConstant.offset64 20
+  %127 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %126
+  %128 = OpLoad.storage_buffer.i8 %127
+  %129 = OpConstant.offset64 21
+  %130 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %129
+  %131 = OpLoad.storage_buffer.i8 %130
+  %132 = OpConstant.offset64 22
+  %133 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %132
+  %134 = OpLoad.storage_buffer.i8 %133
+  %135 = OpConstant.offset64 23
+  %136 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %135
+  %137 = OpLoad.storage_buffer.i8 %136
+  %138 = OpConstant.offset64 24
+  %139 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %138
+  %140 = OpLoad.storage_buffer.i8 %139
+  %141 = OpConstant.offset64 25
+  %142 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %141
+  %143 = OpLoad.storage_buffer.i8 %142
+  %144 = OpConstant.offset64 26
+  %145 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %144
+  %146 = OpLoad.storage_buffer.i8 %145
+  %147 = OpConstant.offset64 27
+  %148 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %147
+  %149 = OpLoad.storage_buffer.i8 %148
+  %150 = OpConstant.offset64 28
+  %151 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %150
+  %152 = OpLoad.storage_buffer.i8 %151
+  %153 = OpConstant.offset64 29
+  %154 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %153
+  %155 = OpLoad.storage_buffer.i8 %154
+  %156 = OpConstant.offset64 30
+  %157 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %156
+  %158 = OpLoad.storage_buffer.i8 %157
+  %159 = OpConstant.offset64 31
+  %160 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %159
+  %161 = OpLoad.storage_buffer.i8 %160
+  %162 = OpConstant.offset64 32
+  %163 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %162
+  %164 = OpLoad.storage_buffer.i8 %163
+  %165 = OpConstant.offset64 33
+  %166 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %165
+  %167 = OpLoad.storage_buffer.i8 %166
+  %168 = OpConstant.offset64 34
+  %169 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %168
+  %170 = OpLoad.storage_buffer.i8 %169
+  %171 = OpConstant.offset64 35
+  %172 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %171
+  %173 = OpLoad.storage_buffer.i8 %172
+  %174 = OpConstant.offset64 0
+  %175 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %174
+  OpStore.storage_buffer.i8 %175, %80
+  %176 = OpConstant.offset64 1
+  %177 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %176
+  OpStore.storage_buffer.i8 %177, %83
+  %178 = OpConstant.offset64 2
+  %179 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %178
+  OpStore.storage_buffer.i8 %179, %86
+  %180 = OpConstant.offset64 3
+  %181 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %180
+  OpStore.storage_buffer.i8 %181, %89
+  %183 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %78
+  OpStore.storage_buffer.i8 %183, %92
+  %185 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %81
+  OpStore.storage_buffer.i8 %185, %95
+  %187 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %84
+  OpStore.storage_buffer.i8 %187, %98
+  %189 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %87
+  OpStore.storage_buffer.i8 %189, %101
+  %191 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %90
+  OpStore.storage_buffer.i8 %191, %104
+  %193 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %93
+  OpStore.storage_buffer.i8 %193, %107
+  %195 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %96
+  OpStore.storage_buffer.i8 %195, %110
+  %197 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %99
+  OpStore.storage_buffer.i8 %197, %113
+  %199 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %102
+  OpStore.storage_buffer.i8 %199, %116
+  %201 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %105
+  OpStore.storage_buffer.i8 %201, %119
+  %203 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %108
+  OpStore.storage_buffer.i8 %203, %122
+  %205 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %111
+  OpStore.storage_buffer.i8 %205, %125
+  %207 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %114
+  OpStore.storage_buffer.i8 %207, %128
+  %209 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %117
+  OpStore.storage_buffer.i8 %209, %131
+  %211 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %120
+  OpStore.storage_buffer.i8 %211, %134
+  %213 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %123
+  OpStore.storage_buffer.i8 %213, %137
+  %215 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %126
+  OpStore.storage_buffer.i8 %215, %140
+  %217 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %129
+  OpStore.storage_buffer.i8 %217, %143
+  %219 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %132
+  OpStore.storage_buffer.i8 %219, %146
+  %221 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %135
+  OpStore.storage_buffer.i8 %221, %149
+  %223 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %138
+  OpStore.storage_buffer.i8 %223, %152
+  %225 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %141
+  OpStore.storage_buffer.i8 %225, %155
+  %227 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %144
+  OpStore.storage_buffer.i8 %227, %158
+  %229 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %147
+  OpStore.storage_buffer.i8 %229, %161
+  %231 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %150
+  OpStore.storage_buffer.i8 %231, %164
+  %233 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %153
+  OpStore.storage_buffer.i8 %233, %167
+  %235 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %156
+  OpStore.storage_buffer.i8 %235, %170
+  %237 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %159
+  OpStore.storage_buffer.i8 %237, %173
+  return
+}

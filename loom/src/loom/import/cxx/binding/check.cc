@@ -37,6 +37,9 @@ std::optional<CheckIntrinsic::Operation> CheckIntrinsic::parse_operation(
   if (name == "check.expect.equal") {
     return Operation::Equal;
   }
+  if (name == "check.expect.close") {
+    return Operation::Close;
+  }
   if (name == "check.generate.fill") {
     return Operation::Fill;
   }
@@ -98,6 +101,31 @@ std::optional<CheckIntrinsic> CheckIntrinsic::resolve(
       if (types.unqualified(parameters[0]) !=
           result.result_tensor->element_type) {
         fail("check.generate.fill payload must match its tensor element type");
+      }
+      break;
+    }
+    case Operation::Close: {
+      if (!returns_void || parameters.size() != 5 ||
+          types.unqualified(parameters[0]) !=
+              types.unqualified(parameters[1]) ||
+          types.unqualified(parameters[2])->kind() != cxx::TypeKind::kDouble ||
+          types.unqualified(parameters[3])->kind() != cxx::TypeKind::kDouble ||
+          !is_string_type(types, parameters[4])) {
+        fail(
+            "check.expect.close requires void(T, T, double, double, const "
+            "char*)");
+      }
+      const auto& partition = types.partition(parameters[0], owner);
+      if (partition.kind == ValueKind::SSA && types.is_float(parameters[0])) {
+        result.scalar_type = types.get(parameters[0], owner);
+      } else if (partition.kind == ValueKind::Tensor &&
+                 types.is_float(static_cast<const TensorPartition&>(partition)
+                                    .element_type)) {
+        result.source_tensor = static_cast<const TensorPartition*>(&partition);
+      } else {
+        fail(
+            "check.expect.close requires floating-point scalar or tensor "
+            "operands");
       }
       break;
     }

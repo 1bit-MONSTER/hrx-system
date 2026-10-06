@@ -4,14 +4,27 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+# Wasm toolchain and JavaScript bundling rules have no CMake surface.
+# bazel-to-cmake: skip
+
 load("@rules_python//python:defs.bzl", "py_binary", "py_test")
 
 exports_files(
     [
         "wasi_sdk_repo.bzl",
         "wasi_sdk_version.bzl",
+        "wasi_toolchain.bzl",
         "wasm_node_test_runner.sh",
         "wasm_test_main.mjs",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+platform(
+    name = "wasm32_wasi",
+    constraint_values = [
+        "@platforms//cpu:wasm32",
+        "@platforms//os:wasi",
     ],
     visibility = ["//visibility:public"],
 )

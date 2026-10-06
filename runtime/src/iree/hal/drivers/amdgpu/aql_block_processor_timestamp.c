@@ -171,7 +171,8 @@ static void iree_hal_amdgpu_aql_block_processor_timestamp_emit_dispatches(
   iree_hal_amdgpu_dispatch_timestamp_harvest_source_t* sources =
       iree_hal_amdgpu_device_timestamp_emplace_dispatch_harvest(
           processor->harvest.kernel_args, processor->dispatches.count,
-          &processor->harvest.packet->dispatch, processor->harvest.kernarg_ptr);
+          &processor->harvest.packet->dispatch, processor->harvest.kernarg_ptr,
+          &out_result->harvest.setup);
   for (uint32_t i = 0; i < processor->dispatches.count; ++i) {
     const iree_hal_amdgpu_aql_block_processor_timestamp_dispatch_t* dispatch =
         &processor->dispatches.values[i];
@@ -203,7 +204,6 @@ static void iree_hal_amdgpu_aql_block_processor_timestamp_emit_dispatches(
   out_result->dispatches.count = processor->dispatches.count;
   out_result->harvest.header = iree_hal_amdgpu_aql_make_header(
       IREE_HSA_PACKET_TYPE_KERNEL_DISPATCH, processor->harvest.packet_control);
-  out_result->harvest.setup = processor->harvest.packet->dispatch.setup;
 }
 
 void iree_hal_amdgpu_aql_block_processor_timestamp_initialize(

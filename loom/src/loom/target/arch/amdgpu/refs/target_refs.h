@@ -71,6 +71,16 @@ typedef enum loom_amdgpu_vmem_result_order_class_e {
   LOOM_AMDGPU_VMEM_RESULT_ORDER_CLASS_COUNT = 5,
 } loom_amdgpu_vmem_result_order_class_t;
 
+// Compact memory properties use three bits for result order, three for the
+// one-based retained payload operand, and two for the VALU overwrite window.
+typedef struct loom_amdgpu_store_data_wait_t {
+  // Descriptor operand carrying the retained VGPR payload, when cycles is
+  // nonzero.
+  uint8_t operand_index;
+  // Intervening issue slots before VALU overwrite. Other writes need one less.
+  uint8_t cycles;
+} loom_amdgpu_store_data_wait_t;
+
 typedef enum loom_amdgpu_reg_class_trait_bit_e {
   // Register class is the CDNA accumulator file.
   LOOM_AMDGPU_REG_CLASS_TRAIT_AGPR = 1u << 0,
@@ -112,6 +122,11 @@ loom_amdgpu_descriptor_traits_t loom_amdgpu_descriptor_traits(
 // Returns the generated VMEM result completion-order class for |descriptor|.
 loom_amdgpu_vmem_result_order_class_t
 loom_amdgpu_descriptor_vmem_result_order_class(
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_descriptor_t* descriptor);
+
+// Returns the wide-store source retention contract, or zero cycles when absent.
+loom_amdgpu_store_data_wait_t loom_amdgpu_descriptor_store_data_wait(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_descriptor_t* descriptor);
 

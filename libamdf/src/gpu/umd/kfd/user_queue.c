@@ -14,6 +14,7 @@
 
 #include "libamdf/src/allocator.h"
 #include "libamdf/src/atomics.h"
+#include "libamdf/src/gpu/umd/kfd/aql.h"
 #include "libamdf/src/gpu/umd/kfd/buffer.h"
 #include "libamdf/src/gpu/umd/kfd/device.h"
 #include "libamdf/src/gpu/umd/kfd/target/user_queue.h"
@@ -274,13 +275,18 @@ static bool amdf_gpu_kfd_user_queue_select_plan(
     if (create_info->command_type == family->command_type &&
         create_info->format_version == family->format_version &&
         create_info->priority == AMDF_QUEUE_PRIORITY_NORMAL &&
-        create_info->producer_mode == AMDF_QUEUE_PRODUCER_MODE_SINGLE &&
+        (family->producer_modes & (1u << create_info->producer_mode)) != 0 &&
         (create_info->required_capabilities &
          ~family->user_queue_capabilities) == 0 &&
         create_info->roles == family->roles &&
         (create_info->ring_byte_length == 0 ||
-         create_info->ring_byte_length == family->minimum_ring_byte_length)) {
+         (create_info->ring_byte_length >= family->minimum_ring_byte_length &&
+          create_info->ring_byte_length <= family->maximum_ring_byte_length))) {
       *out_plan = *plan;
+      if (create_info->ring_byte_length != 0) {
+        out_plan->ring.primary_byte_length = create_info->ring_byte_length;
+        out_plan->ring.storage.byte_length = create_info->ring_byte_length;
+      }
       return true;
     }
   }
@@ -299,6 +305,17 @@ amdf_status_t amdf_gpu_umd_user_queue_create(
   amdf_gpu_kfd_user_queue_plan_t plan;
   if (device->user_queue_native_api == NULL ||
       !amdf_gpu_kfd_user_queue_select_plan(device, create_info, &plan)) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+  }
+
+  amdf_gpu_kfd_aql_descriptor_t aql_descriptor = {0};
+  if (plan.aql.xcc_count != 0) {
+    const amdf_status_t status = amdf_gpu_kfd_aql_descriptor_initialize(
+        &plan, create_info, &aql_descriptor);
+    if (!amdf_status_is_ok(status)) {
+      return status;
+    }
+  } else if (create_info->scratch.byte_length != 0) {
     return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
   }
 
@@ -334,13 +351,40 @@ amdf_status_t amdf_gpu_umd_user_queue_create(
         &queue->retirement_flush_trigger);
   }
   if (amdf_status_is_ok(status) && queue->context.host_pointer != NULL) {
-    struct kfd_context_save_area_header* header =
-        (struct kfd_context_save_area_header*)queue->context.host_pointer;
-    header->debug_offset = queue->plan.compute.debug_byte_offset;
-    header->debug_size = queue->plan.compute.debug_byte_length;
-    if (queue->plan.control.error_payload_byte_length != 0) {
-      header->err_payload_addr = queue->control.device_address +
-                                 queue->plan.control.error_payload_byte_offset;
+    for (uint32_t i = 0; i < queue->plan.compute.context_count; ++i) {
+      const size_t context_byte_offset =
+          (size_t)i * queue->plan.compute.context_save_restore_byte_length;
+      struct kfd_context_save_area_header* header =
+          (struct kfd_context_save_area_header*)((uint8_t*)queue->context
+                                                     .host_pointer +
+                                                 context_byte_offset);
+      header->debug_offset =
+          queue->plan.compute.debug_byte_offset - (uint32_t)context_byte_offset;
+      header->debug_size = queue->plan.compute.debug_byte_length;
+      if (queue->plan.control.error_payload_byte_length != 0) {
+        header->err_payload_addr =
+            queue->control.device_address +
+            queue->plan.control.error_payload_byte_offset;
+      }
+    }
+  }
+  if (amdf_status_is_ok(status) && queue->plan.aql.xcc_count != 0) {
+    aql_descriptor.ring_address = queue->ring.device_address;
+    aql_descriptor.id = queue->control.device_address;
+    aql_descriptor.inactive_signal_address =
+        queue->control.device_address +
+        queue->plan.aql.inactive_signal_byte_offset;
+    memcpy(queue->control.host_pointer, &aql_descriptor,
+           sizeof(aql_descriptor));
+    amdf_gpu_kfd_aql_signal_t* inactive_signal =
+        (amdf_gpu_kfd_aql_signal_t*)((uint8_t*)queue->control.host_pointer +
+                                     queue->plan.aql
+                                         .inactive_signal_byte_offset);
+    inactive_signal->kind = 1;
+    for (size_t offset = 0; offset < queue->plan.ring.primary_byte_length;
+         offset += 64) {
+      // Zero is a vendor packet, not an empty AQL slot.
+      *(uint32_t*)((uint8_t*)queue->ring.host_pointer + offset) = 1;
     }
   }
 
@@ -480,10 +524,26 @@ amdf_status_t amdf_gpu_umd_user_queue_query_status(
   amdf_gpu_kfd_user_queue_sample_progress(queue, &producer_index,
                                           &consumed_index);
   amdf_status_t terminal_status = AMDF_STATUS_OK;
+  if (queue->plan.aql.xcc_count != 0) {
+    const uint64_t inactive_value =
+        amdf_atomic_uint64_load_acquire(amdf_gpu_kfd_user_queue_control_value(
+            queue, queue->plan.aql.inactive_signal_byte_offset +
+                       offsetof(amdf_gpu_kfd_aql_signal_t, value)));
+    if (inactive_value != 0) {
+      // Fixed scratch never services firmware grow/reclaim requests. Preserve
+      // the native CP reason for the caller, including insufficient scratch.
+      terminal_status = inactive_value > UINT32_MAX
+                            ? amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL)
+                            : amdf_make_status(AMDF_STATUS_DOMAIN_FIRMWARE,
+                                               (uint32_t)inactive_value);
+    }
+  }
   if (queue->plan.control.error_payload_byte_length != 0) {
     const uint64_t error_payload = amdf_atomic_uint64_load_acquire(
         amdf_gpu_kfd_user_queue_error_payload(queue));
-    terminal_status = amdf_gpu_kfd_user_queue_classify_error(error_payload);
+    if (error_payload != 0) {
+      terminal_status = amdf_gpu_kfd_user_queue_classify_error(error_payload);
+    }
   }
   if (consumed_index > producer_index) {
     terminal_status = amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL);

@@ -17,6 +17,7 @@
 #include "loom/codegen/low/allocation.h"
 #include "loom/codegen/low/schedule/types.h"
 #include "loom/target/arch/amdgpu/hal/kernel_abi.h"
+#include "loom/target/arch/amdgpu/target_identity.h"
 #include "loom/target/arch/amdgpu/target_info.h"
 #include "loom/target/emit/native/amdgpu/descriptor.h"
 #include "loom/target/emit/native/amdgpu/metadata.h"
@@ -33,11 +34,8 @@ typedef struct loom_amdgpu_kernel_record_t {
   iree_string_view_t symbol;
   // Loader-visible kernel descriptor symbol.
   iree_string_view_t descriptor_symbol;
-  // Canonical artifact target key retaining every exact target feature.
-  iree_string_view_t artifact_target_key;
-  // Full AMDHSA code-object target ID such as
-  // `amdgcn-amd-amdhsa--gfx11-generic`.
-  iree_string_view_t code_object_target_id;
+  // Resolved compiler target and normalized AMDHSA feature states.
+  loom_amdgpu_target_identity_t target_identity;
   // Processor facts selected by the AMDGPU target record.
   const loom_amdgpu_processor_info_t* processor;
   // HAL kernel ABI layout derived from function-local low.resource imports.

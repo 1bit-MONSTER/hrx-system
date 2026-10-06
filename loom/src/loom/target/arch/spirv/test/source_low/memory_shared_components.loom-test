@@ -1,0 +1,119 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_shared_components.loom-test
+// RUN: with-checks emit source-low target=spirv:vulkan1.3+bda output=low control-flow=structured-low
+
+// A preheader access materializes row*16+column. The loop adds a varying
+// element while preserving that exact invariant sum across the access boundary.
+func.def @shared_loop_origin(%input: buffer, %row: index, %column: index) -> (i32) {
+  %bounded_row = index.assume %row [range(%row, 0, 7)] : index
+  %bounded_column = index.assume %column [range(%column, 0, 7)] : index
+  %stride = index.constant 16 : index
+  %origin = index.madd %bounded_row, %stride, %bounded_column : index
+  %base = index.constant 0 : offset
+  %data = buffer.view %input[%base] : buffer -> view<128xi32>
+  %first = view.load %data[%origin] : view<128xi32> -> i32
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %sum = scf.for %iteration = [%begin to %end step %step](%total = %first : i32) -> (i32) {
+    %position = index.add %origin, %iteration : index
+    %value = view.load %data[%position] : view<128xi32> -> i32
+    %next = scalar.addi %total, %value : i32
+    scf.yield %next : i32
+  }
+  func.return %sum : i32
+}
+
+// ----
+CHECK: %sum = low.scf.for signed *
+CHECK: * = OpIMul.offset64 *
+CHECK: %next = OpIAdd %total, %value
+
+// ====
+
+// Both accesses have the same dynamic byte sum but distinct static offsets.
+// Retaining the index must preserve its element-to-byte conversion exactly.
+func.def @shared_static_suffix(%input: buffer, %row: index, %column: index) -> (i32) {
+  %bounded_row = index.assume %row [range(%row, 0, 7)] : index
+  %bounded_column = index.assume %column [range(%column, 0, 7)] : index
+  %stride = index.constant 16 : index
+  %origin = index.madd %bounded_row, %stride, %bounded_column : index
+  %distance = index.constant 8 : index
+  %later = index.add %origin, %distance : index
+  %base = index.constant 0 : offset
+  %data = buffer.view %input[%base] : buffer -> view<128xi32>
+  %first = view.load %data[%origin] : view<128xi32> -> i32
+  %second = view.load %data[%later] : view<128xi32> -> i32
+  %sum = scalar.addi %first, %second : i32
+  func.return %sum : i32
+}
+
+// ----
+CHECK: %origin = OpIMulAdd %bounded_row, %stride, %bounded_column : reg<spirv.id : index>
+CHECK: * = OpSConvert.i32.offset64 %origin
+CHECK: * = OpConstant.offset64 32
+CHECK: %sum = OpIAdd %first, %second
+
+// ====
+
+// Equal canonical terms in sibling branches do not make a branch-local SSA
+// realization available in the other branch.
+func.def @sibling_origins(%input: buffer, %row: index, %column: index, %condition: i1) -> (i32) {
+  %bounded_row = index.assume %row [range(%row, 0, 7)] : index
+  %bounded_column = index.assume %column [range(%column, 0, 7)] : index
+  %stride = index.constant 16 : index
+  %base = index.constant 0 : offset
+  %data = buffer.view %input[%base] : buffer -> view<128xi32>
+  %result = scf.if %condition -> (i32) {
+    %left_origin = index.madd %bounded_row, %stride, %bounded_column : index
+    %left = view.load<volatile> %data[%left_origin] : view<128xi32> -> i32
+    view.store<volatile> %left, %data[%left_origin] : i32, view<128xi32>
+    scf.yield %left : i32
+  } else {
+    %right_origin = index.madd %bounded_row, %stride, %bounded_column : index
+    %distance = index.constant 8 : index
+    %later = index.add %right_origin, %distance : index
+    %right = view.load<volatile> %data[%later] : view<128xi32> -> i32
+    scf.yield %right : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+CHECK: * = OpSConvert.i32.offset64 %bounded_row
+CHECK: %left = OpLoad.storage_buffer.i32<volatile> *
+CHECK: OpStore.storage_buffer.i32<volatile> *, %left
+CHECK: %right = OpLoad.storage_buffer.i32<volatile> *
+
+// ====
+
+// An enclosing address component remains available through nested scopes and
+// after both loops exit. Volatile accesses keep every observation in the IR.
+func.def @nested_scoped_origin(%input: buffer, %row: index, %column: index) -> (i32) {
+  %bounded_row = index.assume %row [range(%row, 0, 7)] : index
+  %bounded_column = index.assume %column [range(%column, 0, 7)] : index
+  %stride = index.constant 16 : index
+  %origin = index.madd %bounded_row, %stride, %bounded_column : index
+  %distance = index.constant 8 : index
+  %later = index.add %origin, %distance : index
+  %base = index.constant 0 : offset
+  %data = buffer.view %input[%base] : buffer -> view<128xi32>
+  %first = view.load<volatile> %data[%origin] : view<128xi32> -> i32
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  scf.for %outer = [%begin to %end step %step] {
+    scf.for %inner = [%begin to %end step %step] {
+      %value = view.load<volatile> %data[%later] : view<128xi32> -> i32
+      view.store<volatile> %value, %data[%later] : i32, view<128xi32>
+    }
+  }
+  %last = view.load<volatile> %data[%later] : view<128xi32> -> i32
+  %result = scalar.addi %first, %last : i32
+  func.return %result : i32
+}
+
+// ----
+CHECK: %origin = OpIMulAdd %bounded_row, %stride, %bounded_column : reg<spirv.id : index>
+CHECK: %value = OpLoad.storage_buffer.i32<volatile> *
+CHECK: %last = OpLoad.storage_buffer.i32<volatile> *
+CHECK-NOT: * = OpSConvert.i32.offset64 %bounded_row

@@ -1,0 +1,562 @@
+// Thirteen 512-bit broadcasts exceed the 24 vector-register units at the
+// block boundary. The repaired native program streams each broadcast into
+// the running sum instead of retaining the entire invariant set.
+// RUN: with-checks emit aie2p-leaf @broadcast_pressure report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @broadcast_pressure(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>) asm {
+  %scalar0 = mov.i32 1
+  %vector0 = vbcst.32 %scalar0
+  %scalar1 = mov.i32 2
+  %vector1 = vbcst.32 %scalar1
+  %scalar2 = mov.i32 3
+  %vector2 = vbcst.32 %scalar2
+  %scalar3 = mov.i32 4
+  %vector3 = vbcst.32 %scalar3
+  %scalar4 = mov.i32 5
+  %vector4 = vbcst.32 %scalar4
+  %scalar5 = mov.i32 6
+  %vector5 = vbcst.32 %scalar5
+  %scalar6 = mov.i32 7
+  %vector6 = vbcst.32 %scalar6
+  %scalar7 = mov.i32 8
+  %vector7 = vbcst.32 %scalar7
+  %scalar8 = mov.i32 9
+  %vector8 = vbcst.32 %scalar8
+  %scalar9 = mov.i32 10
+  %vector9 = vbcst.32 %scalar9
+  %scalar10 = mov.i32 11
+  %vector10 = vbcst.32 %scalar10
+  %scalar11 = mov.i32 12
+  %vector11 = vbcst.32 %scalar11
+  %scalar12 = mov.i32 13
+  %vector12 = vbcst.32 %scalar12
+  low.br ^consume
+^consume:
+  %input_value = vlda.512.i32x16 %input, 0
+  %sum0 = vadd.32 %input_value, %vector0
+  %sum1 = vadd.32 %sum0, %vector1
+  %sum2 = vadd.32 %sum1, %vector2
+  %sum3 = vadd.32 %sum2, %vector3
+  %sum4 = vadd.32 %sum3, %vector4
+  %sum5 = vadd.32 %sum4, %vector5
+  %sum6 = vadd.32 %sum5, %vector6
+  %sum7 = vadd.32 %sum6, %vector7
+  %sum8 = vadd.32 %sum7, %vector8
+  %sum9 = vadd.32 %sum8, %vector9
+  %sum10 = vadd.32 %sum9, %vector10
+  %sum11 = vadd.32 %sum10, %vector11
+  %sum12 = vadd.32 %sum11, %vector12
+  vst.512.i32x16 %sum12, %output, 0
+  return
+}
+
+// ----
+CHECK: issue cycles: 50
+CHECK: code bytes: 210
+
+// ====
+
+// Both vector and accumulator materializations exceed their physical classes.
+// Repair accumulator consumers before broadcasts so cloned consumers receive
+// their own short-lived vector setup within the same allocation repair.
+// RUN: with-checks emit aie2p-leaf @dependent_cross_block report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @dependent_cross_block(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>) asm {
+  %scalar0 = mov.i32 1
+  %vector0 = vbcst.32 %scalar0
+  %scalar1 = mov.i32 2
+  %vector1 = vbcst.32 %scalar1
+  %scalar2 = mov.i32 3
+  %vector2 = vbcst.32 %scalar2
+  %scalar3 = mov.i32 4
+  %vector3 = vbcst.32 %scalar3
+  %scalar4 = mov.i32 5
+  %vector4 = vbcst.32 %scalar4
+  %scalar5 = mov.i32 6
+  %vector5 = vbcst.32 %scalar5
+  %scalar6 = mov.i32 7
+  %vector6 = vbcst.32 %scalar6
+  %scalar7 = mov.i32 8
+  %vector7 = vbcst.32 %scalar7
+  %scalar8 = mov.i32 9
+  %vector8 = vbcst.32 %scalar8
+  %scalar9 = mov.i32 10
+  %vector9 = vbcst.32 %scalar9
+  %scalar10 = mov.i32 11
+  %vector10 = vbcst.32 %scalar10
+  %scalar11 = mov.i32 12
+  %vector11 = vbcst.32 %scalar11
+  %scalar12 = mov.i32 13
+  %vector12 = vbcst.32 %scalar12
+  %scalar13 = mov.i32 14
+  %vector13 = vbcst.32 %scalar13
+  %scalar14 = mov.i32 15
+  %vector14 = vbcst.32 %scalar14
+  %scalar15 = mov.i32 16
+  %vector15 = vbcst.32 %scalar15
+  %scalar16 = mov.i32 17
+  %vector16 = vbcst.32 %scalar16
+  %scalar17 = mov.i32 18
+  %vector17 = vbcst.32 %scalar17
+  %scalar18 = mov.i32 19
+  %vector18 = vbcst.32 %scalar18
+  %scalar19 = mov.i32 20
+  %vector19 = vbcst.32 %scalar19
+  %scalar20 = mov.i32 21
+  %vector20 = vbcst.32 %scalar20
+  low.br ^materialize
+^materialize:
+  %accumulator0 = vmov.vector512.to.accumulator512 %vector0
+  %accumulator1 = vmov.vector512.to.accumulator512 %vector1
+  %accumulator2 = vmov.vector512.to.accumulator512 %vector2
+  %accumulator3 = vmov.vector512.to.accumulator512 %vector3
+  %accumulator4 = vmov.vector512.to.accumulator512 %vector4
+  %accumulator5 = vmov.vector512.to.accumulator512 %vector5
+  %accumulator6 = vmov.vector512.to.accumulator512 %vector6
+  %accumulator7 = vmov.vector512.to.accumulator512 %vector7
+  %accumulator8 = vmov.vector512.to.accumulator512 %vector8
+  %accumulator9 = vmov.vector512.to.accumulator512 %vector9
+  %accumulator10 = vmov.vector512.to.accumulator512 %vector10
+  %accumulator11 = vmov.vector512.to.accumulator512 %vector11
+  %accumulator12 = vmov.vector512.to.accumulator512 %vector12
+  %accumulator13 = vmov.vector512.to.accumulator512 %vector13
+  %accumulator14 = vmov.vector512.to.accumulator512 %vector14
+  %accumulator15 = vmov.vector512.to.accumulator512 %vector15
+  %accumulator16 = vmov.vector512.to.accumulator512 %vector16
+  %accumulator17 = vmov.vector512.to.accumulator512 %vector17
+  %accumulator18 = vmov.vector512.to.accumulator512 %vector18
+  %accumulator19 = vmov.vector512.to.accumulator512 %vector19
+  %accumulator20 = vmov.vector512.to.accumulator512 %vector20
+  low.br ^consume
+^consume:
+  %input_value = vlda.512.i32x16 %input, 0
+  %back0 = vmov.accumulator512.to.vector512 %accumulator0
+  %sum0 = vadd.32 %input_value, %back0
+  %back1 = vmov.accumulator512.to.vector512 %accumulator1
+  %sum1 = vadd.32 %sum0, %back1
+  %back2 = vmov.accumulator512.to.vector512 %accumulator2
+  %sum2 = vadd.32 %sum1, %back2
+  %back3 = vmov.accumulator512.to.vector512 %accumulator3
+  %sum3 = vadd.32 %sum2, %back3
+  %back4 = vmov.accumulator512.to.vector512 %accumulator4
+  %sum4 = vadd.32 %sum3, %back4
+  %back5 = vmov.accumulator512.to.vector512 %accumulator5
+  %sum5 = vadd.32 %sum4, %back5
+  %back6 = vmov.accumulator512.to.vector512 %accumulator6
+  %sum6 = vadd.32 %sum5, %back6
+  %back7 = vmov.accumulator512.to.vector512 %accumulator7
+  %sum7 = vadd.32 %sum6, %back7
+  %back8 = vmov.accumulator512.to.vector512 %accumulator8
+  %sum8 = vadd.32 %sum7, %back8
+  %back9 = vmov.accumulator512.to.vector512 %accumulator9
+  %sum9 = vadd.32 %sum8, %back9
+  %back10 = vmov.accumulator512.to.vector512 %accumulator10
+  %sum10 = vadd.32 %sum9, %back10
+  %back11 = vmov.accumulator512.to.vector512 %accumulator11
+  %sum11 = vadd.32 %sum10, %back11
+  %back12 = vmov.accumulator512.to.vector512 %accumulator12
+  %sum12 = vadd.32 %sum11, %back12
+  %back13 = vmov.accumulator512.to.vector512 %accumulator13
+  %sum13 = vadd.32 %sum12, %back13
+  %back14 = vmov.accumulator512.to.vector512 %accumulator14
+  %sum14 = vadd.32 %sum13, %back14
+  %back15 = vmov.accumulator512.to.vector512 %accumulator15
+  %sum15 = vadd.32 %sum14, %back15
+  %back16 = vmov.accumulator512.to.vector512 %accumulator16
+  %sum16 = vadd.32 %sum15, %back16
+  %back17 = vmov.accumulator512.to.vector512 %accumulator17
+  %sum17 = vadd.32 %sum16, %back17
+  %back18 = vmov.accumulator512.to.vector512 %accumulator18
+  %sum18 = vadd.32 %sum17, %back18
+  %back19 = vmov.accumulator512.to.vector512 %accumulator19
+  %sum19 = vadd.32 %sum18, %back19
+  %back20 = vmov.accumulator512.to.vector512 %accumulator20
+  %sum20 = vadd.32 %sum19, %back20
+  vst.512.i32x16 %sum20, %output, 0
+  return
+}
+
+// ----
+CHECK: issue cycles: 112
+CHECK: code bytes: 482
+
+// ====
+
+// Shared zero padding has multiple consumers on both sides of an ownership
+// move. Setup ordering must preserve that fan-out and the source-order boundary
+// while keeping the rematerialized broadcasts out of persistent vector storage.
+// RUN: emit aie2p-leaf @bounded_padding report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @bounded_padding(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>) asm {
+  %zeros = acc.clear.f32x64
+  %mode = mova.i32 60
+  %scalar0 = mov.i32 1065353216
+  %vector0 = vbcst.32 %scalar0
+  %scalar1 = mov.i32 1073741824
+  %vector1 = vbcst.32 %scalar1
+  %scalar2 = mov.i32 1082130432
+  %vector2 = vbcst.32 %scalar2
+  %scalar3 = mov.i32 1090519040
+  %vector3 = vbcst.32 %scalar3
+  %scalar4 = mov.i32 1065353216
+  %vector4 = vbcst.32 %scalar4
+  %scalar5 = mov.i32 1073741824
+  %vector5 = vbcst.32 %scalar5
+  %scalar6 = mov.i32 1082130432
+  %vector6 = vbcst.32 %scalar6
+  %scalar7 = mov.i32 1090519040
+  %vector7 = vbcst.32 %scalar7
+  %scalar8 = mov.i32 1065353216
+  %vector8 = vbcst.32 %scalar8
+  %scalar9 = mov.i32 1073741824
+  %vector9 = vbcst.32 %scalar9
+  %scalar10 = mov.i32 1082130432
+  %vector10 = vbcst.32 %scalar10
+  %scalar11 = mov.i32 1090519040
+  %vector11 = vbcst.32 %scalar11
+  %scalar12 = mov.i32 1065353216
+  %vector12 = vbcst.32 %scalar12
+  low.br ^consume
+^consume:
+  %input_value = vlda.512.f32x16 %input, 0
+  %padding = slice %zeros[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %left0 = vmov.vector512.to.accumulator512 %input_value
+  %right0 = vmov.vector512.to.accumulator512 %vector0
+  %left_padded0 = concat(%left0, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %right_padded0 = concat(%right0, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %sum0 = vadd.f32x64 %left_padded0, %right_padded0, %mode
+  %quarter0 = slice %sum0[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %result0 = vmov.accumulator512.to.vector512 %quarter0
+  %left1 = vmov.vector512.to.accumulator512 %result0
+  %right1 = vmov.vector512.to.accumulator512 %vector1
+  %left_padded1 = concat(%left1, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %right_padded1 = concat(%right1, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %sum1 = vadd.f32x64 %left_padded1, %right_padded1, %mode
+  %quarter1 = slice %sum1[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %result1 = vmov.accumulator512.to.vector512 %quarter1
+  %left2 = vmov.vector512.to.accumulator512 %result1
+  %right2 = vmov.vector512.to.accumulator512 %vector2
+  %left_padded2 = concat(%left2, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %right_padded2 = concat(%right2, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %sum2 = vadd.f32x64 %left_padded2, %right_padded2, %mode
+  %quarter2 = slice %sum2[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %result2 = vmov.accumulator512.to.vector512 %quarter2
+  %left3 = vmov.vector512.to.accumulator512 %result2
+  %right3 = vmov.vector512.to.accumulator512 %vector3
+  %left_padded3 = concat(%left3, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %right_padded3 = concat(%right3, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %sum3 = vadd.f32x64 %left_padded3, %right_padded3, %mode
+  %quarter3 = slice %sum3[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %result3 = vmov.accumulator512.to.vector512 %quarter3
+  %left4 = vmov.vector512.to.accumulator512 %result3
+  %right4 = vmov.vector512.to.accumulator512 %vector4
+  %left_padded4 = concat(%left4, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %right_padded4 = concat(%right4, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %sum4 = vadd.f32x64 %left_padded4, %right_padded4, %mode
+  %quarter4 = slice %sum4[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %result4 = vmov.accumulator512.to.vector512 %quarter4
+  %left5 = vmov.vector512.to.accumulator512 %result4
+  %right5 = vmov.vector512.to.accumulator512 %vector5
+  %left_padded5 = concat(%left5, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %right_padded5 = concat(%right5, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %sum5 = vadd.f32x64 %left_padded5, %right_padded5, %mode
+  %quarter5 = slice %sum5[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %result5 = vmov.accumulator512.to.vector512 %quarter5
+  %boundary_result = move %result5 : reg<aie2p.vec256 x2> -> reg<aie2p.vec256 x2>
+  %left6 = vmov.vector512.to.accumulator512 %boundary_result
+  %right6 = vmov.vector512.to.accumulator512 %vector6
+  %left_padded6 = concat(%left6, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %right_padded6 = concat(%right6, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %sum6 = vadd.f32x64 %left_padded6, %right_padded6, %mode
+  %quarter6 = slice %sum6[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %result6 = vmov.accumulator512.to.vector512 %quarter6
+  %left7 = vmov.vector512.to.accumulator512 %result6
+  %right7 = vmov.vector512.to.accumulator512 %vector7
+  %left_padded7 = concat(%left7, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %right_padded7 = concat(%right7, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %sum7 = vadd.f32x64 %left_padded7, %right_padded7, %mode
+  %quarter7 = slice %sum7[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %result7 = vmov.accumulator512.to.vector512 %quarter7
+  %left8 = vmov.vector512.to.accumulator512 %result7
+  %right8 = vmov.vector512.to.accumulator512 %vector8
+  %left_padded8 = concat(%left8, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %right_padded8 = concat(%right8, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %sum8 = vadd.f32x64 %left_padded8, %right_padded8, %mode
+  %quarter8 = slice %sum8[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %result8 = vmov.accumulator512.to.vector512 %quarter8
+  %left9 = vmov.vector512.to.accumulator512 %result8
+  %right9 = vmov.vector512.to.accumulator512 %vector9
+  %left_padded9 = concat(%left9, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %right_padded9 = concat(%right9, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %sum9 = vadd.f32x64 %left_padded9, %right_padded9, %mode
+  %quarter9 = slice %sum9[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %result9 = vmov.accumulator512.to.vector512 %quarter9
+  %left10 = vmov.vector512.to.accumulator512 %result9
+  %right10 = vmov.vector512.to.accumulator512 %vector10
+  %left_padded10 = concat(%left10, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %right_padded10 = concat(%right10, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %sum10 = vadd.f32x64 %left_padded10, %right_padded10, %mode
+  %quarter10 = slice %sum10[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %result10 = vmov.accumulator512.to.vector512 %quarter10
+  %left11 = vmov.vector512.to.accumulator512 %result10
+  %right11 = vmov.vector512.to.accumulator512 %vector11
+  %left_padded11 = concat(%left11, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %right_padded11 = concat(%right11, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %sum11 = vadd.f32x64 %left_padded11, %right_padded11, %mode
+  %quarter11 = slice %sum11[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %result11 = vmov.accumulator512.to.vector512 %quarter11
+  %left12 = vmov.vector512.to.accumulator512 %result11
+  %right12 = vmov.vector512.to.accumulator512 %vector12
+  %left_padded12 = concat(%left12, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %right_padded12 = concat(%right12, %padding, %padding, %padding) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %sum12 = vadd.f32x64 %left_padded12, %right_padded12, %mode
+  %quarter12 = slice %sum12[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %result12 = vmov.accumulator512.to.vector512 %quarter12
+  vst.512.f32x16 %result12, %output, 0
+  return
+}
+
+// ----
+issue cycles: 187
+code bytes: 752
+coissued bundles: 12
+coissued components: 25
+
+// ====
+
+// Keep a record's 26 loaded fields resident across a seven-word stream. The
+// initial scalar pressure requires rematerializing stream offsets and shifts.
+// Their input-free clones must remain use-local while indexed memory consumers
+// are blocked, or rescheduling exceeds the same 32-register bank again.
+// RUN: with-checks emit aie2p-leaf @retained_scalar_stream report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @retained_scalar_stream(%record_input: reg<aie2p.ep>, %stream_input: reg<aie2p.ep>, %stream_output: reg<aie2p.ep>, %record_output: reg<aie2p.ep>) asm {
+  %retained0, %read1 = lda.i32.post %record_input, 4
+  %retained1, %read2 = lda.i32.post %read1, 4
+  %retained2, %read3 = lda.i32.post %read2, 4
+  %retained3, %read4 = lda.i32.post %read3, 4
+  %retained4, %read5 = lda.i32.post %read4, 4
+  %retained5, %read6 = lda.i32.post %read5, 4
+  %retained6, %read7 = lda.i32.post %read6, 4
+  %retained7, %read8 = lda.i32.post %read7, 4
+  %retained8, %read9 = lda.i32.post %read8, 4
+  %retained9, %read10 = lda.i32.post %read9, 4
+  %retained10, %read11 = lda.i32.post %read10, 4
+  %retained11, %read12 = lda.i32.post %read11, 4
+  %retained12, %read13 = lda.i32.post %read12, 4
+  %retained13, %read14 = lda.i32.post %read13, 4
+  %retained14, %read15 = lda.i32.post %read14, 4
+  %retained15, %read16 = lda.i32.post %read15, 4
+  %retained16, %read17 = lda.i32.post %read16, 4
+  %retained17, %read18 = lda.i32.post %read17, 4
+  %retained18, %read19 = lda.i32.post %read18, 4
+  %retained19, %read20 = lda.i32.post %read19, 4
+  %retained20, %read21 = lda.i32.post %read20, 4
+  %retained21, %read22 = lda.i32.post %read21, 4
+  %retained22, %read23 = lda.i32.post %read22, 4
+  %retained23, %read24 = lda.i32.post %read23, 4
+  %retained24, %read25 = lda.i32.post %read24, 4
+  %retained25, %read26 = lda.i32.post %read25, 4
+  %scale_shift = mov.short 2
+  %offset0 = mov.static-byte-offset 0
+  %offset1 = mov.static-byte-offset 4
+  %offset2 = mov.static-byte-offset 8
+  %offset3 = mov.static-byte-offset 12
+  %offset4 = mov.static-byte-offset 16
+  %offset5 = mov.static-byte-offset 20
+  %offset6 = mov.static-byte-offset 24
+  low.br ^work
+^work:
+  %index0 = mov.address-index %offset0
+  %value0 = lda.i32.index %stream_input, %index0
+  %scaled0 = lshl %value0, %scale_shift
+  st.i32.index %scaled0, %stream_output, %index0
+  %index1 = mov.address-index %offset1
+  %value1 = lda.i32.index %stream_input, %index1
+  %scaled1 = lshl %value1, %scale_shift
+  st.i32.index %scaled1, %stream_output, %index1
+  %index2 = mov.address-index %offset2
+  %value2 = lda.i32.index %stream_input, %index2
+  %scaled2 = lshl %value2, %scale_shift
+  st.i32.index %scaled2, %stream_output, %index2
+  %index3 = mov.address-index %offset3
+  %value3 = lda.i32.index %stream_input, %index3
+  %scaled3 = lshl %value3, %scale_shift
+  st.i32.index %scaled3, %stream_output, %index3
+  %index4 = mov.address-index %offset4
+  %value4 = lda.i32.index %stream_input, %index4
+  %scaled4 = lshl %value4, %scale_shift
+  st.i32.index %scaled4, %stream_output, %index4
+  %index5 = mov.address-index %offset5
+  %value5 = lda.i32.index %stream_input, %index5
+  %scaled5 = lshl %value5, %scale_shift
+  st.i32.index %scaled5, %stream_output, %index5
+  %index6 = mov.address-index %offset6
+  %value6 = lda.i32.index %stream_input, %index6
+  %scaled6 = lshl %value6, %scale_shift
+  st.i32.index %scaled6, %stream_output, %index6
+  low.br ^finish
+^finish:
+  %write1 = st.i32.post %retained0, %record_output, 4
+  %write2 = st.i32.post %retained1, %write1, 4
+  %write3 = st.i32.post %retained2, %write2, 4
+  %write4 = st.i32.post %retained3, %write3, 4
+  %write5 = st.i32.post %retained4, %write4, 4
+  %write6 = st.i32.post %retained5, %write5, 4
+  %write7 = st.i32.post %retained6, %write6, 4
+  %write8 = st.i32.post %retained7, %write7, 4
+  %write9 = st.i32.post %retained8, %write8, 4
+  %write10 = st.i32.post %retained9, %write9, 4
+  %write11 = st.i32.post %retained10, %write10, 4
+  %write12 = st.i32.post %retained11, %write11, 4
+  %write13 = st.i32.post %retained12, %write12, 4
+  %write14 = st.i32.post %retained13, %write13, 4
+  %write15 = st.i32.post %retained14, %write14, 4
+  %write16 = st.i32.post %retained15, %write15, 4
+  %write17 = st.i32.post %retained16, %write16, 4
+  %write18 = st.i32.post %retained17, %write17, 4
+  %write19 = st.i32.post %retained18, %write18, 4
+  %write20 = st.i32.post %retained19, %write19, 4
+  %write21 = st.i32.post %retained20, %write20, 4
+  %write22 = st.i32.post %retained21, %write21, 4
+  %write23 = st.i32.post %retained22, %write22, 4
+  %write24 = st.i32.post %retained23, %write23, 4
+  %write25 = st.i32.post %retained24, %write24, 4
+  %write26 = st.i32.post %retained25, %write25, 4
+  return
+}
+
+// ----
+CHECK: issue cycles: 129
+CHECK: code bytes: 476
+
+// ====
+
+// These source-adjacent store indices can move ahead of the load's address
+// prerequisites while memory ordering keeps their stores blocked. Allocation
+// repair retains their private placement without cloning unchanged producers.
+// Four resident accumulator fragments keep the loaded-C storage shape intact.
+// RUN: emit aie2p-leaf @effect_blocked_store_indices report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @effect_blocked_store_indices(%source: reg<aie2p.ep>, %destination: reg<aie2p.ep>, %cell: reg<aie2p.er>, %position0: reg<aie2p.er>, %position1: reg<aie2p.er>, %position2: reg<aie2p.er>, %position3: reg<aie2p.er>, %position4: reg<aie2p.er>, %position5: reg<aie2p.er>, %position6: reg<aie2p.er>, %position7: reg<aie2p.er>, %position8: reg<aie2p.er>, %accumulator00: reg<aie2p.mbms x4>, %accumulator01: reg<aie2p.mbms x4>, %accumulator10: reg<aie2p.mbms x4>, %accumulator11: reg<aie2p.mbms x4>, %resident_piece: reg<aie2p.mbms>) -> (reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>) asm {
+  %cell_offset = mov.static-byte-offset 256
+  %cell_stride = mov.i32 256
+  %load_position = mac %cell_offset, %cell, %cell_stride
+  %load_index = mov.address-index %load_position
+  %loaded_piece = vlda.acc.index %source, %load_index
+  vst.acc %loaded_piece, %destination, 0
+  %store_index0 = mov.address-index %position0
+  vst.acc.index %resident_piece, %destination, %store_index0
+  %store_index1 = mov.address-index %position1
+  vst.acc.index %resident_piece, %destination, %store_index1
+  %store_index2 = mov.address-index %position2
+  vst.acc.index %resident_piece, %destination, %store_index2
+  %store_index3 = mov.address-index %position3
+  vst.acc.index %resident_piece, %destination, %store_index3
+  %store_index4 = mov.address-index %position4
+  vst.acc.index %resident_piece, %destination, %store_index4
+  %store_index5 = mov.address-index %position5
+  vst.acc.index %resident_piece, %destination, %store_index5
+  %store_index6 = mov.address-index %position6
+  vst.acc.index %resident_piece, %destination, %store_index6
+  %store_index7 = mov.address-index %position7
+  vst.acc.index %resident_piece, %destination, %store_index7
+  %store_index8 = mov.address-index %position8
+  vst.acc.index %resident_piece, %destination, %store_index8
+  return %accumulator00, %accumulator01, %accumulator10, %accumulator11
+}
+
+// ----
+issue cycles: 30
+code bytes: 118
+coissued bundles: 4
+coissued components: 8
+
+// ====
+
+// Loading the store payload leaves a feasible initial schedule. Private
+// indices retain normal latency scheduling until allocation requires repair.
+// Eagerly forcing every index next to its store would serialize this control.
+// RUN: emit aie2p-leaf @payload_dependent_store_indices report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @payload_dependent_store_indices(%source: reg<aie2p.ep>, %destination: reg<aie2p.ep>, %cell: reg<aie2p.er>, %position0: reg<aie2p.er>, %position1: reg<aie2p.er>, %position2: reg<aie2p.er>, %position3: reg<aie2p.er>, %position4: reg<aie2p.er>, %position5: reg<aie2p.er>, %position6: reg<aie2p.er>, %position7: reg<aie2p.er>, %position8: reg<aie2p.er>) asm {
+  %cell_offset = mov.static-byte-offset 256
+  %cell_stride = mov.i32 256
+  %load_position = mac %cell_offset, %cell, %cell_stride
+  %load_index = mov.address-index %load_position
+  %payload = vlda.acc.index %source, %load_index
+  %store_index0 = mov.address-index %position0
+  vst.acc.index %payload, %destination, %store_index0
+  %store_index1 = mov.address-index %position1
+  vst.acc.index %payload, %destination, %store_index1
+  %store_index2 = mov.address-index %position2
+  vst.acc.index %payload, %destination, %store_index2
+  %store_index3 = mov.address-index %position3
+  vst.acc.index %payload, %destination, %store_index3
+  %store_index4 = mov.address-index %position4
+  vst.acc.index %payload, %destination, %store_index4
+  %store_index5 = mov.address-index %position5
+  vst.acc.index %payload, %destination, %store_index5
+  %store_index6 = mov.address-index %position6
+  vst.acc.index %payload, %destination, %store_index6
+  %store_index7 = mov.address-index %position7
+  vst.acc.index %payload, %destination, %store_index7
+  %store_index8 = mov.address-index %position8
+  vst.acc.index %payload, %destination, %store_index8
+  return
+}
+
+// ----
+issue cycles: 27
+code bytes: 110
+coissued bundles: 5
+coissued components: 10
+
+// ====
+
+// Source-order allocation has no scheduling consumer for retained placement.
+// Each data-dependent index has one user, but all nine results must coexist:
+// genuine per-user cloning cannot make them fit the eight-register class.
+// RUN: pass low-materialize-allocation
+
+low.func.def target<amd.xdna.aie2p.core> @irreducible_private_indices(%position0: reg<aie2p.er>, %position1: reg<aie2p.er>, %position2: reg<aie2p.er>, %position3: reg<aie2p.er>, %position4: reg<aie2p.er>, %position5: reg<aie2p.er>, %position6: reg<aie2p.er>, %position7: reg<aie2p.er>, %position8: reg<aie2p.er>) -> (reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>) asm {
+  %index0 = mov.address-index %position0
+  %index1 = mov.address-index %position1
+  %index2 = mov.address-index %position2
+  %index3 = mov.address-index %position3
+  %index4 = mov.address-index %position4
+  %index5 = mov.address-index %position5
+  %index6 = mov.address-index %position6
+  %index7 = mov.address-index %position7
+  // ERROR@+1: BACKEND/005 "aie2p.edj" "budget 8" "peak 9" "unspillable-register-exhausted"
+  %index8 = mov.address-index %position8
+  return %index0, %index1, %index2, %index3, %index4, %index5, %index6, %index7, %index8
+}
+
+// ----
+
+// ====
+
+// Fifteen two-register live-ins leave two ER registers available. Three early
+// extract/zero-extend pairs exceed the bank until allocation replays both
+// instructions next to their reduction uses. The extracts read immutable
+// vaddSign0 target state, so replay preserves their zero-extension mode.
+// RUN: emit aie2p-leaf @packed_extract_extend_pressure report=emission
+
+low.func.def schedule(locked) target<amd.xdna.aie2p.core> @packed_extract_extend_pressure(%packed: reg<aie2p.vec256 x2>, %keep0: reg<aie2p.er x2>, %keep1: reg<aie2p.er x2>, %keep2: reg<aie2p.er x2>, %keep3: reg<aie2p.er x2>, %keep4: reg<aie2p.er x2>, %keep5: reg<aie2p.er x2>, %keep6: reg<aie2p.er x2>, %keep7: reg<aie2p.er x2>, %keep8: reg<aie2p.er x2>, %keep9: reg<aie2p.er x2>, %keep10: reg<aie2p.er x2>, %keep11: reg<aie2p.er x2>, %keep12: reg<aie2p.er x2>, %keep13: reg<aie2p.er x2>, %keep14: reg<aie2p.er x2>) -> (reg<aie2p.er>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>) asm {
+  %byte0 = vextract.8.imm %packed, 0
+  %wide0 = extend.u8 %byte0
+  %byte1 = vextract.8.imm %packed, 1
+  %wide1 = extend.u8 %byte1
+  %byte2 = vextract.8.imm %packed, 2
+  %wide2 = extend.u8 %byte2
+  %sum1 = add.rr %wide0, %wide1
+  %sum2 = add.rr %sum1, %wide2
+  return %sum2, %keep0, %keep1, %keep2, %keep3, %keep4, %keep5, %keep6, %keep7, %keep8, %keep9, %keep10, %keep11, %keep12, %keep13, %keep14
+}
+
+// ----
+issue cycles: 13
+code bytes: 44
+coissued bundles: 1
+coissued components: 2

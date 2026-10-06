@@ -113,8 +113,11 @@ class GreedyRewriteTest : public ::testing::Test {
   loom_builder_t builder_;
 };
 
-static iree_status_t pattern_one_to_two(const loom_pattern_t*, loom_op_t* op,
-                                        loom_rewriter_t* rewriter) {
+static iree_status_t pattern_one_to_two(const loom_rewrite_pattern_t*, void*,
+                                        loom_op_t* op,
+                                        loom_rewriter_t* rewriter,
+                                        bool* out_changed) {
+  *out_changed = false;
   if (!loom_test_constant_isa(op)) {
     return iree_ok_status();
   }
@@ -128,16 +131,24 @@ static iree_status_t pattern_one_to_two(const loom_pattern_t*, loom_op_t* op,
   IREE_RETURN_IF_ERROR(loom_test_constant_build(
       &rewriter->builder, loom_attr_i64(2), type, op->location, &replacement));
   loom_value_id_t new_result = loom_test_constant_result(replacement);
-  return loom_rewriter_replace_all_uses_and_erase(rewriter, op, &new_result, 1);
-}
-
-static iree_status_t pattern_two_no_match(const loom_pattern_t*, loom_op_t*,
-                                          loom_rewriter_t*) {
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &new_result, 1));
+  *out_changed = true;
   return iree_ok_status();
 }
 
-static iree_status_t pattern_two_to_ten(const loom_pattern_t*, loom_op_t* op,
-                                        loom_rewriter_t* rewriter) {
+static iree_status_t pattern_two_no_match(const loom_rewrite_pattern_t*, void*,
+                                          loom_op_t*, loom_rewriter_t*,
+                                          bool* out_changed) {
+  *out_changed = false;
+  return iree_ok_status();
+}
+
+static iree_status_t pattern_two_to_ten(const loom_rewrite_pattern_t*, void*,
+                                        loom_op_t* op,
+                                        loom_rewriter_t* rewriter,
+                                        bool* out_changed) {
+  *out_changed = false;
   if (!loom_test_constant_isa(op)) {
     return iree_ok_status();
   }
@@ -151,11 +162,16 @@ static iree_status_t pattern_two_to_ten(const loom_pattern_t*, loom_op_t* op,
   IREE_RETURN_IF_ERROR(loom_test_constant_build(
       &rewriter->builder, loom_attr_i64(10), type, op->location, &replacement));
   loom_value_id_t new_result = loom_test_constant_result(replacement);
-  return loom_rewriter_replace_all_uses_and_erase(rewriter, op, &new_result, 1);
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &new_result, 1));
+  *out_changed = true;
+  return iree_ok_status();
 }
 
-static iree_status_t pattern_two_error(const loom_pattern_t*, loom_op_t* op,
-                                       loom_rewriter_t*) {
+static iree_status_t pattern_two_error(const loom_rewrite_pattern_t*, void*,
+                                       loom_op_t* op, loom_rewriter_t*,
+                                       bool* out_changed) {
+  *out_changed = false;
   if (!loom_test_constant_isa(op)) {
     return iree_ok_status();
   }
@@ -164,6 +180,21 @@ static iree_status_t pattern_two_error(const loom_pattern_t*, loom_op_t* op,
     return iree_ok_status();
   }
   return iree_make_status(IREE_STATUS_INTERNAL, "pattern error on value 2");
+}
+
+static void initialize_pattern_registry(
+    const loom_rewrite_pattern_t* patterns, uint16_t pattern_count,
+    loom_rewrite_pattern_registry_storage_t* out_storage) {
+  const loom_rewrite_pattern_provider_t provider = {
+      /*.name=*/IREE_SVL("test"),
+      /*.patterns=*/patterns,
+      /*.pattern_count=*/pattern_count,
+  };
+  const loom_rewrite_pattern_provider_t* provider_values[] = {&provider};
+  IREE_ASSERT_OK(loom_rewrite_pattern_registry_storage_initialize(
+      loom_rewrite_pattern_provider_list_make(provider_values,
+                                              IREE_ARRAYSIZE(provider_values)),
+      iree_allocator_system(), out_storage));
 }
 
 TEST_F(GreedyRewriteTest, ChainedPatternsReachFixedPoint) {
@@ -178,17 +209,23 @@ TEST_F(GreedyRewriteTest, ChainedPatternsReachFixedPoint) {
   IREE_ASSERT_OK(loom_test_use_build(&builder_, &original, 1,
                                      LOOM_LOCATION_UNKNOWN, &use));
 
-  loom_pattern_t patterns[] = {
-      {LOOM_OP_TEST_CONSTANT, pattern_one_to_two},
-      {LOOM_OP_TEST_CONSTANT, pattern_two_no_match},
-      {LOOM_OP_TEST_CONSTANT, pattern_two_to_ten},
+  const loom_rewrite_pattern_t patterns[] = {
+      {LOOM_OP_TEST_CONSTANT, pattern_one_to_two, nullptr},
+      {LOOM_OP_TEST_CONSTANT, pattern_two_no_match, nullptr},
+      {LOOM_OP_TEST_CONSTANT, pattern_two_to_ten, nullptr},
   };
+  loom_rewrite_pattern_registry_storage_t pattern_storage = {};
+  initialize_pattern_registry(patterns, IREE_ARRAYSIZE(patterns),
+                              &pattern_storage);
 
   iree_arena_allocator_t arena;
   iree_arena_initialize(&block_pool_, &arena);
-  IREE_ASSERT_OK(
-      loom_greedy_rewrite(&arena, module_, function_, patterns, 3, NULL));
+  IREE_ASSERT_OK(loom_greedy_rewrite(
+      &arena, module_, function_,
+      loom_rewrite_pattern_registry_storage_registry(&pattern_storage),
+      /*pattern_context=*/nullptr, /*config=*/nullptr));
   iree_arena_deinitialize(&arena);
+  loom_rewrite_pattern_registry_storage_deinitialize(&pattern_storage);
 
   loom_value_id_t final_result = loom_op_operands(use)[0];
   loom_value_t* value = loom_module_value(module_, final_result);
@@ -209,17 +246,24 @@ TEST_F(GreedyRewriteTest, PatternErrorPropagates) {
   IREE_ASSERT_OK(loom_test_use_build(&builder_, &original, 1,
                                      LOOM_LOCATION_UNKNOWN, &use));
 
-  loom_pattern_t patterns[] = {
-      {LOOM_OP_TEST_CONSTANT, pattern_one_to_two},
-      {LOOM_OP_TEST_CONSTANT, pattern_two_error},
+  const loom_rewrite_pattern_t patterns[] = {
+      {LOOM_OP_TEST_CONSTANT, pattern_one_to_two, nullptr},
+      {LOOM_OP_TEST_CONSTANT, pattern_two_error, nullptr},
   };
+  loom_rewrite_pattern_registry_storage_t pattern_storage = {};
+  initialize_pattern_registry(patterns, IREE_ARRAYSIZE(patterns),
+                              &pattern_storage);
 
   iree_arena_allocator_t arena;
   iree_arena_initialize(&block_pool_, &arena);
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INTERNAL,
-      loom_greedy_rewrite(&arena, module_, function_, patterns, 2, NULL));
+      loom_greedy_rewrite(
+          &arena, module_, function_,
+          loom_rewrite_pattern_registry_storage_registry(&pattern_storage),
+          /*pattern_context=*/nullptr, /*config=*/nullptr));
   iree_arena_deinitialize(&arena);
+  loom_rewrite_pattern_registry_storage_deinitialize(&pattern_storage);
 }
 
 TEST_F(GreedyRewriteTest, UnmatchedPatternsLeaveIrUntouched) {
@@ -229,16 +273,22 @@ TEST_F(GreedyRewriteTest, UnmatchedPatternsLeaveIrUntouched) {
   IREE_ASSERT_OK(loom_test_constant_build(&builder_, loom_attr_i64(42), i32,
                                           LOOM_LOCATION_UNKNOWN, &const_op));
 
-  loom_pattern_t patterns[] = {
-      {LOOM_OP_TEST_CONSTANT, pattern_one_to_two},
-      {LOOM_OP_TEST_CONSTANT, pattern_two_to_ten},
+  const loom_rewrite_pattern_t patterns[] = {
+      {LOOM_OP_TEST_CONSTANT, pattern_one_to_two, nullptr},
+      {LOOM_OP_TEST_CONSTANT, pattern_two_to_ten, nullptr},
   };
+  loom_rewrite_pattern_registry_storage_t pattern_storage = {};
+  initialize_pattern_registry(patterns, IREE_ARRAYSIZE(patterns),
+                              &pattern_storage);
 
   iree_arena_allocator_t arena;
   iree_arena_initialize(&block_pool_, &arena);
-  IREE_ASSERT_OK(
-      loom_greedy_rewrite(&arena, module_, function_, patterns, 2, NULL));
+  IREE_ASSERT_OK(loom_greedy_rewrite(
+      &arena, module_, function_,
+      loom_rewrite_pattern_registry_storage_registry(&pattern_storage),
+      /*pattern_context=*/nullptr, /*config=*/nullptr));
   iree_arena_deinitialize(&arena);
+  loom_rewrite_pattern_registry_storage_deinitialize(&pattern_storage);
 
   EXPECT_EQ(loom_attr_as_i64(loom_test_constant_value(const_op)), 42);
 }
@@ -416,6 +466,88 @@ TEST_F(GreedyRewriteTest, OperandMutationRequeuesUsersWhenFactsRemainEqual) {
   }
   EXPECT_TRUE(saw_producer);
   EXPECT_TRUE(saw_user);
+
+  loom_rewriter_deinitialize(&rewriter);
+  loom_pass_value_fact_owner_deinitialize(&fact_owner);
+  iree_arena_deinitialize(&arena);
+}
+
+TEST_F(GreedyRewriteTest, OperandTupleMutationPublishesFinalStateOnce) {
+  const loom_type_t i32 = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
+  loom_op_t* constants[4] = {};
+  for (int64_t i = 0; i < 4; ++i) {
+    IREE_ASSERT_OK(loom_test_constant_build(&builder_, loom_attr_i64(i + 1),
+                                            i32, LOOM_LOCATION_UNKNOWN,
+                                            &constants[i]));
+  }
+  loom_op_t* producer = nullptr;
+  IREE_ASSERT_OK(loom_test_addi_build(&builder_,
+                                      loom_test_constant_result(constants[0]),
+                                      loom_test_constant_result(constants[1]),
+                                      i32, LOOM_LOCATION_UNKNOWN, &producer));
+  loom_op_t* user = nullptr;
+  IREE_ASSERT_OK(loom_test_neg_build(&builder_, loom_test_addi_result(producer),
+                                     i32, LOOM_LOCATION_UNKNOWN, &user));
+
+  iree_arena_allocator_t arena;
+  iree_arena_initialize(&block_pool_, &arena);
+  loom_pass_value_fact_owner_t fact_owner;
+  loom_pass_value_fact_owner_initialize(&block_pool_, &fact_owner);
+  loom_value_fact_table_t* facts = nullptr;
+  IREE_ASSERT_OK(loom_pass_value_fact_owner_acquire(
+      &fact_owner, module_, loom_pass_value_fact_scope_function(function_),
+      &facts));
+  loom_rewriter_t rewriter;
+  loom_rewriter_initialize(&rewriter, module_, &arena);
+  IREE_ASSERT_OK(loom_rewriter_enable_worklist(&rewriter));
+  loom_rewriter_attach_value_facts(&rewriter, facts);
+
+  int64_t exact_value = 0;
+  ASSERT_TRUE(loom_value_facts_as_exact_i64(
+      loom_rewriter_value_facts(&rewriter, loom_test_addi_result(producer)),
+      &exact_value));
+  EXPECT_EQ(exact_value, 3);
+
+  const loom_value_id_t replacement_operands[] = {
+      loom_test_constant_result(constants[2]),
+      loom_test_constant_result(constants[3]),
+  };
+  IREE_ASSERT_OK(
+      loom_rewriter_set_operands(&rewriter, producer, replacement_operands));
+  EXPECT_EQ(loom_test_addi_lhs(producer), replacement_operands[0]);
+  EXPECT_EQ(loom_test_addi_rhs(producer), replacement_operands[1]);
+  EXPECT_EQ(loom_module_value(module_, loom_test_constant_result(constants[0]))
+                ->use_count,
+            0u);
+  EXPECT_EQ(loom_module_value(module_, loom_test_constant_result(constants[1]))
+                ->use_count,
+            0u);
+  for (uint16_t i = 0; i < 2; ++i) {
+    const loom_value_t* value =
+        loom_module_value(module_, replacement_operands[i]);
+    ASSERT_EQ(value->use_count, 1u);
+    EXPECT_EQ(loom_use_user_op(loom_value_uses(value)[0]), producer);
+    EXPECT_EQ(loom_use_operand_index(loom_value_uses(value)[0]), i);
+  }
+  ASSERT_TRUE(loom_value_facts_as_exact_i64(
+      loom_rewriter_value_facts(&rewriter, loom_test_addi_result(producer)),
+      &exact_value));
+  EXPECT_EQ(exact_value, 7);
+
+  bool saw_producer = false;
+  bool saw_user = false;
+  while (loom_op_t* op = loom_rewriter_pop(&rewriter)) {
+    saw_producer |= op == producer;
+    saw_user |= op == user;
+  }
+  EXPECT_TRUE(saw_producer);
+  EXPECT_TRUE(saw_user);
+
+  rewriter.flags = 0;
+  IREE_ASSERT_OK(
+      loom_rewriter_set_operands(&rewriter, producer, replacement_operands));
+  EXPECT_EQ(rewriter.flags, 0u);
+  EXPECT_EQ(loom_rewriter_pop(&rewriter), nullptr);
 
   loom_rewriter_deinitialize(&rewriter);
   loom_pass_value_fact_owner_deinitialize(&fact_owner);
@@ -1372,7 +1504,9 @@ TEST_P(ConditionInductionFactsRewriteTest, SemanticEditsMatchFreshAnalysis) {
                                    loom_index_constant_result(payload)};
   loom_op_t* loop = nullptr;
   IREE_ASSERT_OK(loom_scf_while_build(&builder_, seeds, 2,
-                                      /*result_types=*/nullptr, nullptr, 0,
+                                      /*iter_args_types=*/nullptr,
+                                      /*result_types=*/nullptr,
+                                      /*result_count=*/2, nullptr, 0,
                                       LOOM_LOCATION_UNKNOWN, &loop));
   const auto loop_like = loom_loop_like_cast(module_, loop);
   auto* before = loom_loop_like_condition_region(loop_like);
@@ -1616,8 +1750,10 @@ TEST_P(StructuredForwardingFactsRewriteTest,
   loom_op_t* loop = nullptr;
   if (is_while) {
     IREE_ASSERT_OK(loom_scf_while_build(&rewriter.builder, seeds.data(), count,
-                                        /*result_types=*/nullptr, nullptr, 0,
-                                        LOOM_LOCATION_UNKNOWN, &loop));
+                                        /*iter_args_types=*/nullptr,
+                                        /*result_types=*/nullptr, count,
+                                        nullptr, 0, LOOM_LOCATION_UNKNOWN,
+                                        &loop));
   } else {
     IREE_ASSERT_OK(loom_scf_for_build(
         &rewriter.builder, 0, begin, limit, step, seeds.data(), count,

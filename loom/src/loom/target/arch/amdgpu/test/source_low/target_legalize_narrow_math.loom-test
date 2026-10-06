@@ -1,0 +1,69 @@
+// RUN: pass target-legalize{mode=final}
+
+amdgpu.target<gfx1151> @target
+
+func.def target(@target) @narrow_scalar_arithmetic(%lhs: bf16, %rhs: bf16) -> (bf16, bf16, bf16) {
+  %sum = scalar.addf %lhs, %rhs : bf16
+  %difference = scalar.subf %lhs, %rhs : bf16
+  %product = scalar.mulf %lhs, %rhs : bf16
+  func.return %sum, %difference, %product : bf16, bf16, bf16
+}
+
+// ----
+amdgpu.target<gfx1151> @target
+
+func.def target(@target) @narrow_scalar_arithmetic(%lhs: bf16, %rhs: bf16) -> (bf16, bf16, bf16) {
+  %16 = scalar.extf %lhs : bf16 to f32
+  %17 = scalar.extf %rhs : bf16 to f32
+  %18 = scalar.addf %16, %17 : f32
+  %sum = scalar.fptrunc %18 : f32 to bf16
+  %12 = scalar.extf %lhs : bf16 to f32
+  %13 = scalar.extf %rhs : bf16 to f32
+  %14 = scalar.subf %12, %13 : f32
+  %difference = scalar.fptrunc %14 : f32 to bf16
+  %8 = scalar.extf %lhs : bf16 to f32
+  %9 = scalar.extf %rhs : bf16 to f32
+  %10 = scalar.mulf %8, %9 : f32
+  %product = scalar.fptrunc %10 : f32 to bf16
+  func.return %sum, %difference, %product : bf16, bf16, bf16
+}
+
+// ====
+
+amdgpu.target<gfx1151> @target
+
+func.def target(@target) @narrow_vector_arithmetic(%lhs: vector<2xbf16>, %rhs: vector<2xbf16>) -> (vector<2xbf16>, vector<2xbf16>, vector<2xbf16>) {
+  %sum = vector.addf %lhs, %rhs : vector<2xbf16>
+  %difference = vector.subf %lhs, %rhs : vector<2xbf16>
+  %product = vector.mulf %lhs, %rhs : vector<2xbf16>
+  func.return %sum, %difference, %product : vector<2xbf16>, vector<2xbf16>, vector<2xbf16>
+}
+
+// ----
+amdgpu.target<gfx1151> @target
+
+func.def target(@target) @narrow_vector_arithmetic(%lhs: vector<2xbf16>, %rhs: vector<2xbf16>) -> (vector<2xbf16>, vector<2xbf16>, vector<2xbf16>) {
+  %16 = vector.extf %lhs : vector<2xbf16> to vector<2xf32>
+  %17 = vector.extf %rhs : vector<2xbf16> to vector<2xf32>
+  %18 = vector.addf %16, %17 : vector<2xf32>
+  %sum = vector.fptrunc %18 : vector<2xf32> to vector<2xbf16>
+  %12 = vector.extf %lhs : vector<2xbf16> to vector<2xf32>
+  %13 = vector.extf %rhs : vector<2xbf16> to vector<2xf32>
+  %14 = vector.subf %12, %13 : vector<2xf32>
+  %difference = vector.fptrunc %14 : vector<2xf32> to vector<2xbf16>
+  %8 = vector.extf %lhs : vector<2xbf16> to vector<2xf32>
+  %9 = vector.extf %rhs : vector<2xbf16> to vector<2xf32>
+  %10 = vector.mulf %8, %9 : vector<2xf32>
+  %product = vector.fptrunc %10 : vector<2xf32> to vector<2xbf16>
+  func.return %sum, %difference, %product : vector<2xbf16>, vector<2xbf16>, vector<2xbf16>
+}
+
+// ====
+
+amdgpu.target<gfx1250> @target
+
+func.def target(@target) @native_packed_arithmetic(%lhs: vector<2xbf16>, %rhs: vector<2xbf16>) -> (vector<2xbf16>, vector<2xbf16>) {
+  %sum = vector.addf %lhs, %rhs : vector<2xbf16>
+  %product = vector.mulf %lhs, %rhs : vector<2xbf16>
+  func.return %sum, %product : vector<2xbf16>, vector<2xbf16>
+}

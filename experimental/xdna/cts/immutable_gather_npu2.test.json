@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "Immutable native-width gathers return exact values on NPU2",
+      "steps": [
+        {
+          "name": "fixtures",
+          "run": {
+            "tool": "generate-cases",
+            "args": [
+              "{tmp}/fixtures"
+            ]
+          }
+        },
+        {
+          "name": "compile",
+          "run": {
+            "tool": "loom-compile",
+            "args": [
+              "{srcdir}/testdata/immutable_gather.loom",
+              "--root=@immutable_gather_packets",
+              "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+              "--output={tmp}/immutable-gather.xdna",
+              "--compile-report=text-details",
+              "--compile-report-output={tmp}/compile-report.txt"
+            ]
+          },
+          "files": [
+            {
+              "path": "{tmp}/compile-report.txt",
+              "contains": {
+                "unordered": [
+                  {
+                    "regex": "COMPILE-REPORT: allocation .* spills=0 spill_plans=0 .* materialized_spill_storage_bytes=0 .* materialized_reload_bytes=0 .*\\n"
+                  },
+                  {
+                    "regex": "COMPILE-REPORT: pipeline\\.worker\\[0\\] .* code_bytes=[1-9][0-9]{0,3} code_capacity_bytes=16384 .* max_bank_storage_bytes=[1-9][0-9]{0,2} bank_capacity_bytes=16384\\n"
+                  },
+                  {
+                    "regex": "COMPILE-REPORT: source_low\\[[0-9]+\\] .* source_op=vector\\.gather .* plan_key=read-only-data\\.gather\\.vldb16x32 .*\\n"
+                  },
+                  {
+                    "regex": "COMPILE-REPORT: source_low\\[[0-9]+\\] .* source_op=vector\\.gather .* plan_key=read-only-data\\.gather\\.vldb32x16 .*\\n"
+                  },
+                  {
+                    "regex": "COMPILE-REPORT: source_low\\[[0-9]+\\] .* source_op=vector\\.gather .* plan_key=read-only-data\\.gather\\.vldb64x8 .*\\n"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "execute",
+          "run": {
+            "tool": "iree-xdna-run",
+            "args": [
+              "--image={tmp}/immutable-gather.xdna",
+              "--columns=1",
+              "--entry=immutable_gather_packets",
+              "--invocation_count=1",
+              "--binding_memory=system",
+              "--binding={tmp}/fixtures/input.bin",
+              "--binding={tmp}/fixtures/output.bin",
+              "--output=0={tmp}/input-readback.bin",
+              "--output=1={tmp}/output-readback.bin"
+            ]
+          },
+          "files": [
+            {
+              "path": "{tmp}/input-readback.bin",
+              "equals": "{tmp}/fixtures/input.bin"
+            },
+            {
+              "path": "{tmp}/output-readback.bin",
+              "equals": "{tmp}/fixtures/expected.bin"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

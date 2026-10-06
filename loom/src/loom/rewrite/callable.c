@@ -151,10 +151,8 @@ static iree_status_t loom_callable_validate_single_block_body(
   }
   loom_op_t* terminator_op =
       loom_block_op(entry_block, entry_block->op_count - 1);
-  const uint8_t body_region_index = loom_func_like_body_region_index(callee);
-  const loom_op_vtable_t* callee_vtable = loom_op_vtable(module, callee.op);
   const loom_region_descriptor_t* body_descriptor =
-      loom_op_vtable_region_descriptor(callee_vtable, body_region_index);
+      loom_func_like_body_region_descriptor(module, callee);
   if (!body_descriptor ||
       !loom_op_has_trait(module, terminator_op, LOOM_TRAIT_TERMINATOR) ||
       (body_descriptor->terminator != LOOM_OP_KIND_UNKNOWN &&
@@ -182,10 +180,8 @@ bool loom_callable_body_is_linear(const loom_module_t* module,
     return false;
   }
   const loom_op_t* terminator = loom_block_const_last_op(entry_block);
-  const loom_op_vtable_t* callee_vtable = loom_op_vtable(module, callee.op);
   const loom_region_descriptor_t* body_descriptor =
-      loom_op_vtable_region_descriptor(
-          callee_vtable, loom_func_like_body_region_index(callee));
+      loom_func_like_body_region_descriptor(module, callee);
   return body_descriptor != NULL &&
          body_descriptor->terminator != LOOM_OP_KIND_UNKNOWN &&
          terminator->kind == body_descriptor->terminator;
@@ -246,10 +242,8 @@ static iree_status_t loom_callable_validate_cfg_body(
                             "cannot inline a call from inside its callee body");
   }
 
-  const uint8_t body_region_index = loom_func_like_body_region_index(callee);
-  const loom_op_vtable_t* callee_vtable = loom_op_vtable(module, callee.op);
   const loom_region_descriptor_t* body_descriptor =
-      loom_op_vtable_region_descriptor(callee_vtable, body_region_index);
+      loom_func_like_body_region_descriptor(module, callee);
   if (!body_descriptor || body_descriptor->terminator == LOOM_OP_KIND_UNKNOWN) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
@@ -394,7 +388,8 @@ static iree_status_t loom_callable_preserve_consuming_call_result_names(
 }
 
 static iree_status_t loom_callable_inline_single_block_call(
-    loom_rewriter_t* rewriter, loom_op_t* call_op, loom_func_like_t callee) {
+    loom_rewriter_t* rewriter, loom_op_t* call_op, loom_func_like_t callee,
+    loom_ir_clone_observer_t clone_observer) {
   if (!call_op->parent_block ||
       iree_any_bit_set(call_op->flags, LOOM_OP_FLAG_DEAD)) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
@@ -413,9 +408,12 @@ static iree_status_t loom_callable_inline_single_block_call(
   IREE_RETURN_IF_ERROR(loom_callable_validate_single_block_body(
       rewriter->module, call_op, callee, &entry_block, &terminator_op));
 
+  const loom_ir_remap_options_t remap_options = {.clone_observer =
+                                                     clone_observer};
   loom_ir_remap_t remap = {0};
-  IREE_RETURN_IF_ERROR(loom_ir_remap_initialize(
-      rewriter->module, rewriter->module, rewriter->arena, NULL, &remap));
+  IREE_RETURN_IF_ERROR(
+      loom_ir_remap_initialize(rewriter->module, rewriter->module,
+                               rewriter->arena, &remap_options, &remap));
   IREE_RETURN_IF_ERROR(loom_callable_bind_entry_args(&remap, callee, call));
 
   loom_value_slice_t call_results = loom_call_like_results(call);
@@ -588,7 +586,8 @@ static iree_status_t loom_callable_inline_cfg_call(
     loom_rewriter_t* rewriter, loom_op_t* call_op, loom_func_like_t callee,
     loom_call_like_t call, const loom_callable_cfg_body_t* body,
     loom_callable_build_branch_fn_t build_branch,
-    loom_callable_block_order_t* block_order) {
+    loom_callable_block_order_t* block_order,
+    loom_ir_clone_observer_t clone_observer) {
   if (!build_branch) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
@@ -628,6 +627,7 @@ static iree_status_t loom_callable_inline_cfg_call(
         loom_callable_collect_return_projections(body, return_projections));
   }
   const loom_ir_remap_options_t remap_options = {
+      .clone_observer = clone_observer,
       .op_projection =
           {
               .entries = return_projections,
@@ -751,7 +751,8 @@ static iree_status_t loom_callable_inline_cfg_call(
 static iree_status_t loom_callable_inline_call_impl(
     loom_rewriter_t* rewriter, loom_op_t* call_op, loom_func_like_t callee,
     loom_callable_build_branch_fn_t build_branch,
-    loom_callable_block_order_t* block_order) {
+    loom_callable_block_order_t* block_order,
+    loom_ir_clone_observer_t clone_observer) {
   if (!call_op || !call_op->parent_block ||
       iree_any_bit_set(call_op->flags, LOOM_OP_FLAG_DEAD)) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
@@ -769,17 +770,20 @@ static iree_status_t loom_callable_inline_call_impl(
   IREE_RETURN_IF_ERROR(loom_callable_validate_cfg_body(rewriter->module,
                                                        call_op, callee, &body));
   if (loom_callable_body_is_linear(rewriter->module, callee)) {
-    return loom_callable_inline_single_block_call(rewriter, call_op, callee);
+    return loom_callable_inline_single_block_call(rewriter, call_op, callee,
+                                                  clone_observer);
   }
   return loom_callable_inline_cfg_call(rewriter, call_op, callee, call, &body,
-                                       build_branch, block_order);
+                                       build_branch, block_order,
+                                       clone_observer);
 }
 
 iree_status_t loom_callable_inline_call_with_branch(
     loom_rewriter_t* rewriter, loom_op_t* call_op, loom_func_like_t callee,
-    loom_callable_build_branch_fn_t build_branch) {
+    loom_callable_build_branch_fn_t build_branch,
+    loom_ir_clone_observer_t clone_observer) {
   return loom_callable_inline_call_impl(rewriter, call_op, callee, build_branch,
-                                        NULL);
+                                        NULL, clone_observer);
 }
 
 static bool loom_callable_inline_site_less(
@@ -806,7 +810,8 @@ static iree_status_t loom_callable_inline_region_calls(
     iree_host_size_t site_count) {
   if (site_count == 1) {
     return loom_callable_inline_call_with_branch(
-        rewriter, sites[0]->call_op, sites[0]->callee, sites[0]->build_branch);
+        rewriter, sites[0]->call_op, sites[0]->callee, sites[0]->build_branch,
+        sites[0]->clone_observer);
   }
 
   loom_region_t* region = sites[0]->call_op->parent_block->parent_region;
@@ -829,8 +834,9 @@ static iree_status_t loom_callable_inline_region_calls(
   for (iree_host_size_t i = 0; i < site_count && iree_status_is_ok(status);
        ++i) {
     const loom_callable_inline_site_t* site = sites[i];
-    status = loom_callable_inline_call_impl(
-        rewriter, site->call_op, site->callee, site->build_branch, &order);
+    status = loom_callable_inline_call_impl(rewriter, site->call_op,
+                                            site->callee, site->build_branch,
+                                            &order, site->clone_observer);
   }
   if (iree_status_is_ok(status) && order.next_blocks) {
     uint16_t physical_index = 0;
@@ -883,7 +889,8 @@ iree_status_t loom_callable_inline_call(loom_rewriter_t* rewriter,
                                         loom_op_t* call_op,
                                         loom_func_like_t callee) {
   return loom_callable_inline_call_with_branch(rewriter, call_op, callee,
-                                               loom_cfg_br_build);
+                                               loom_cfg_br_build,
+                                               (loom_ir_clone_observer_t){0});
 }
 
 static iree_status_t loom_callable_collect_return_ops(
@@ -1134,8 +1141,8 @@ static iree_status_t loom_callable_clone_remap_symbol(
 
 iree_status_t loom_callable_clone_definition(
     loom_builder_t* builder, loom_func_like_t source,
-    loom_symbol_ref_t target_ref, loom_func_like_t* out_cloned,
-    iree_arena_allocator_t* scratch_arena) {
+    loom_symbol_ref_t target_ref, loom_ir_clone_observer_t clone_observer,
+    loom_func_like_t* out_cloned, iree_arena_allocator_t* scratch_arena) {
   *out_cloned = (loom_func_like_t){0};
   IREE_RETURN_IF_ERROR(
       loom_callable_validate_same_module_callee(builder->module, source));
@@ -1161,6 +1168,7 @@ iree_status_t loom_callable_clone_definition(
       .remap_symbol = loom_ir_remap_symbol_callback_make(
           loom_callable_clone_remap_symbol, &symbol_state),
       .remap_same_module_symbols = true,
+      .clone_observer = clone_observer,
   };
   loom_ir_remap_t remap = {0};
   IREE_RETURN_IF_ERROR(loom_ir_remap_initialize(

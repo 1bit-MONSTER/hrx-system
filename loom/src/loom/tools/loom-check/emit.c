@@ -116,10 +116,7 @@ typedef struct loom_check_emit_request_t {
   // Number of entries in |low_allocation_budgets|.
   iree_host_size_t low_allocation_budget_count;
   // Fixed low allocation requests parsed from the RUN line.
-  loom_check_low_emit_fixed_value_spec_t low_allocation_fixed_value_specs
-      [LOOM_CHECK_LOW_EMIT_MAX_ALLOCATION_FIXED_VALUES];
-  // Number of entries in |low_allocation_fixed_value_specs|.
-  iree_host_size_t low_allocation_fixed_value_spec_count;
+  loom_check_low_emit_fixed_value_spec_list_t low_allocation_fixed_values;
   // Low allocation diagnostic feedback requested by the RUN line.
   loom_low_allocation_diagnostic_flags_t low_allocation_diagnostic_flags;
   // True once a low allocation diagnostics option has been parsed.
@@ -196,9 +193,7 @@ static iree_status_t loom_check_emit_parse_low_allocation_option(
         token, target_name, request->low_allocation_budgets,
         IREE_ARRAYSIZE(request->low_allocation_budgets),
         &request->low_allocation_budget_count,
-        request->low_allocation_fixed_value_specs,
-        IREE_ARRAYSIZE(request->low_allocation_fixed_value_specs),
-        &request->low_allocation_fixed_value_spec_count);
+        &request->low_allocation_fixed_values);
   }
   if (request->has_low_allocation_diagnostics_option) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -386,9 +381,7 @@ static iree_status_t loom_check_emit_parse_low_packet_option(
       token, IREE_SV("low-packet-json"), request->low_allocation_budgets,
       IREE_ARRAYSIZE(request->low_allocation_budgets),
       &request->low_allocation_budget_count,
-      request->low_allocation_fixed_value_specs,
-      IREE_ARRAYSIZE(request->low_allocation_fixed_value_specs),
-      &request->low_allocation_fixed_value_spec_count);
+      &request->low_allocation_fixed_values);
 }
 
 static iree_status_t loom_check_emit_parse_low_packet_options(
@@ -470,13 +463,13 @@ static iree_status_t loom_check_emit_fail_unknown_target(
 }
 
 static iree_status_t loom_check_emit_parse_request(
-    iree_string_view_t emit_target, loom_check_emit_request_t* out_request) {
+    iree_string_view_t emit_target, iree_arena_allocator_t* arena,
+    loom_check_emit_request_t* out_request) {
   *out_request = (loom_check_emit_request_t){
       .format = LOOM_CHECK_EMIT_LIVENESS_JSON,
       .emit_target_name = IREE_SV("emit"),
       .analysis_symbol_name = iree_string_view_empty(),
       .low_allocation_budget_count = 0,
-      .low_allocation_fixed_value_spec_count = 0,
       .low_allocation_diagnostic_flags = 0,
       .has_low_allocation_diagnostics_option = false,
       .low_schedule_diagnostic_flags = 0,
@@ -491,6 +484,8 @@ static iree_status_t loom_check_emit_parse_request(
   iree_string_view_t target_name = iree_string_view_empty();
   iree_string_view_t target_options = iree_string_view_empty();
   loom_check_emit_split_target(emit_target, &target_name, &target_options);
+  IREE_RETURN_IF_ERROR(loom_check_low_emit_fixed_value_spec_list_initialize(
+      target_options, arena, &out_request->low_allocation_fixed_values));
   if (!iree_string_view_is_empty(target_name)) {
     out_request->emit_target_name = target_name;
   }
@@ -966,8 +961,8 @@ static iree_status_t loom_check_emit_write_low_schedule_json(
       .direct_resources = pressure_cliffs,
   };
   loom_low_schedule_options_t options = {
-      .residency_model =
-          pressure_cliff_spec_count != 0 ? &residency_model : NULL,
+      .residency = loom_target_residency_view(
+          pressure_cliff_spec_count != 0 ? &residency_model : NULL, UINT32_MAX),
       .allocation_budgets = budgets,
       .allocation_budget_count = budget_count,
       .emitter = emitter,
@@ -1256,9 +1251,11 @@ static iree_status_t loom_check_emit_write_low_packet_json(
       .emitter = emitter,
   };
   loom_low_emission_frame_t frame = {0};
-  IREE_RETURN_IF_ERROR(loom_low_emission_frame_build(
-      module, low_function, &frame_options, analysis_arena, &frame));
-  if (frame.schedule.error_count != 0 || frame.allocation.error_count != 0) {
+  bool frame_accepted = false;
+  IREE_RETURN_IF_ERROR(
+      loom_low_emission_frame_build(module, low_function, &frame_options,
+                                    analysis_arena, &frame, &frame_accepted));
+  if (!frame_accepted) {
     return iree_ok_status();
   }
   const loom_target_low_packet_diagnostics_options_t diagnostic_options = {
@@ -1338,7 +1335,8 @@ iree_status_t loom_check_execute_emit(
 
   loom_check_emit_request_t request;
   if (provider == NULL) {
-    status = loom_check_emit_parse_request(test_case->emit_target, &request);
+    status = loom_check_emit_parse_request(test_case->emit_target,
+                                           &diagnostic_arena, &request);
     if (!iree_status_is_ok(status)) {
       status = loom_check_emit_finish_status_failure(
           status, request.emit_target_name, result);
@@ -1410,7 +1408,8 @@ iree_status_t loom_check_execute_emit(
     iree_arena_deinitialize(&diagnostic_arena);
     return status;
   }
-  if (!module || diagnostic_collector.count > 0) {
+  if (!module ||
+      loom_check_diagnostic_collector_has_error(&diagnostic_collector)) {
     status = loom_check_diagnostic_collector_finish(&diagnostic_collector,
                                                     test_case, case_index,
                                                     report, allocator, result);
@@ -1442,7 +1441,7 @@ iree_status_t loom_check_execute_emit(
       iree_arena_deinitialize(&diagnostic_arena);
       return status;
     }
-    if (diagnostic_collector.count > 0) {
+    if (loom_check_diagnostic_collector_has_error(&diagnostic_collector)) {
       status = loom_check_diagnostic_collector_finish(
           &diagnostic_collector, test_case, case_index, report, allocator,
           result);
@@ -1450,6 +1449,10 @@ iree_status_t loom_check_execute_emit(
       iree_arena_deinitialize(&diagnostic_arena);
       return status;
     }
+    // Providers may rewind workspace while rebuilding a frame. Collected
+    // diagnostics must survive those rewinds and the provider invocation.
+    iree_arena_allocator_t case_arena;
+    iree_arena_initialize(block_pool, &case_arena);
     const loom_check_emit_provider_request_t provider_request = {
         .emit_target = test_case->emit_target,
         .target_name = provider_target_name,
@@ -1461,17 +1464,18 @@ iree_status_t loom_check_execute_emit(
         .source_resolver = source_resolver,
         .low_registry = &low_registry,
         .diagnostic_collector = &diagnostic_collector,
-        .case_arena = &diagnostic_arena,
+        .case_arena = &case_arena,
         .block_pool = block_pool,
         .host_allocator = allocator,
         .result = result,
     };
-    iree_host_size_t actual_output_size = result->actual_output.size;
     status = provider->execute(provider, &provider_request);
-    if (iree_status_is_ok(status) &&
-        result->actual_output.size != actual_output_size) {
-      result->has_actual_output = true;
-    }
+    iree_arena_deinitialize(&case_arena);
+    // Successful emission owns a comparable output even when it is empty.
+    // Remarks do not suppress that comparison; compilation errors do.
+    result->has_actual_output =
+        iree_status_is_ok(status) &&
+        !loom_check_diagnostic_collector_has_error(&diagnostic_collector);
     loom_input_module_deinitialize(&input);
     diagnostic_collector.module = NULL;
     if (!iree_status_is_ok(status)) {
@@ -1559,7 +1563,8 @@ iree_status_t loom_check_execute_emit(
       iree_arena_deinitialize(&diagnostic_arena);
       return status;
     }
-    if (verify_result.error_count > 0 || diagnostic_collector.count > 0) {
+    if (verify_result.error_count > 0 ||
+        loom_check_diagnostic_collector_has_error(&diagnostic_collector)) {
       status = loom_check_diagnostic_collector_finish(
           &diagnostic_collector, test_case, case_index, report, allocator,
           result);
@@ -1593,8 +1598,9 @@ iree_status_t loom_check_execute_emit(
           loom_low_verify_scratch_for_module(module);
       status = loom_low_verify_module(module, &low_verify_options,
                                       &low_verify_scratch, &low_verify_result);
-      if (iree_status_is_ok(status) && (low_verify_result.error_count > 0 ||
-                                        diagnostic_collector.count > 0)) {
+      if (iree_status_is_ok(status) &&
+          (low_verify_result.error_count > 0 ||
+           loom_check_diagnostic_collector_has_error(&diagnostic_collector))) {
         status = loom_check_diagnostic_collector_finish(
             &diagnostic_collector, test_case, case_index, report, allocator,
             result);
@@ -1648,8 +1654,8 @@ iree_status_t loom_check_execute_emit(
             module, request.analysis_symbol_name, &low_registry.registry,
             test_case, filename, &diagnostic_collector,
             request.low_allocation_budgets, request.low_allocation_budget_count,
-            request.low_allocation_fixed_value_specs,
-            request.low_allocation_fixed_value_spec_count,
+            request.low_allocation_fixed_values.specs,
+            request.low_allocation_fixed_values.count,
             request.low_allocation_diagnostic_flags,
             (iree_diagnostic_emitter_t){
                 .fn = loom_check_diagnostic_emitter_capture_emit,
@@ -1661,8 +1667,8 @@ iree_status_t loom_check_execute_emit(
             module, request.analysis_symbol_name, &low_registry.registry,
             test_case, filename, &diagnostic_collector,
             request.low_allocation_budgets, request.low_allocation_budget_count,
-            request.low_allocation_fixed_value_specs,
-            request.low_allocation_fixed_value_spec_count,
+            request.low_allocation_fixed_values.specs,
+            request.low_allocation_fixed_values.count,
             request.low_allocation_diagnostic_flags,
             (iree_diagnostic_emitter_t){
                 .fn = loom_check_diagnostic_emitter_capture_emit,
@@ -1684,8 +1690,8 @@ iree_status_t loom_check_execute_emit(
             test_case, filename, &diagnostic_collector,
             request.low_schedule_strategy, request.low_allocation_budgets,
             request.low_allocation_budget_count,
-            request.low_allocation_fixed_value_specs,
-            request.low_allocation_fixed_value_spec_count,
+            request.low_allocation_fixed_values.specs,
+            request.low_allocation_fixed_values.count,
             environment->low_packet_diagnostic_provider_list,
             request.low_packet_diagnostic_flags,
             (iree_diagnostic_emitter_t){

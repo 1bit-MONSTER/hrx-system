@@ -4,10 +4,17 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include "common/init.h"
+
 #include <string.h>
 
 #include "common/amdgpu_architecture.h"
-#include "common/internal.h"
+#include "common/context.h"
+#include "common/device.h"
+#include "common/hrx_bridge.h"
+#include "libhrx/src/libhrx/device.h"
+#include "libhrx/src/libhrx/runtime.h"
+
 //===----------------------------------------------------------------------===//
 // Global state
 //===----------------------------------------------------------------------===//

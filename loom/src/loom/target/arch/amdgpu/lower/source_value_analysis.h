@@ -47,6 +47,8 @@ typedef struct loom_amdgpu_source_value_analysis_record_t {
   loom_amdgpu_source_value_analysis_bits_t active_bits;
   // Computed true/false values keyed by known_bits.
   loom_amdgpu_source_value_analysis_bits_t value_bits;
+  // Cached bits whose computation crossed an active recursive query.
+  loom_amdgpu_source_value_analysis_bits_t provisional_bits;
   // Cached register shape used when the REGISTER_SHAPE value bit is set.
   loom_amdgpu_register_shape_t register_shape;
 } loom_amdgpu_source_value_analysis_record_t;
@@ -64,7 +66,20 @@ typedef struct loom_amdgpu_source_value_analysis_t {
   loom_amdgpu_source_value_analysis_record_t* records;
   // Number of initialized records.
   iree_host_size_t record_count;
+  // State shared by nested queries in the active cache transaction.
+  struct {
+    // Dense ordinals with one or more provisional cached bits.
+    loom_value_ordinal_t* provisional_ordinals;
+    // Number of entries in provisional_ordinals.
+    iree_host_size_t provisional_count;
+    // Generation incremented when an answer depends on a recursion cut.
+    uint32_t generation;
+    // Number of non-recursive cache misses currently being evaluated.
+    uint32_t depth;
+  } query;
 } loom_amdgpu_source_value_analysis_t;
+
+typedef uint32_t loom_amdgpu_source_value_analysis_query_token_t;
 
 typedef uint32_t loom_amdgpu_source_producer_flags_t;
 
@@ -126,11 +141,13 @@ bool loom_amdgpu_source_value_analysis_cached_bit(
 bool loom_amdgpu_source_value_analysis_begin_bit(
     loom_amdgpu_source_value_analysis_t* analysis,
     loom_value_id_t source_value_id,
-    loom_amdgpu_source_value_analysis_bits_t bit);
+    loom_amdgpu_source_value_analysis_bits_t bit,
+    loom_amdgpu_source_value_analysis_query_token_t* out_token);
 void loom_amdgpu_source_value_analysis_end_bit(
     loom_amdgpu_source_value_analysis_t* analysis,
     loom_value_id_t source_value_id,
-    loom_amdgpu_source_value_analysis_bits_t bit, bool value);
+    loom_amdgpu_source_value_analysis_bits_t bit,
+    loom_amdgpu_source_value_analysis_query_token_t token, bool value);
 bool loom_amdgpu_source_value_analysis_cached_register_shape(
     loom_amdgpu_source_value_analysis_t* analysis,
     loom_value_id_t source_value_id, bool* out_has_shape,

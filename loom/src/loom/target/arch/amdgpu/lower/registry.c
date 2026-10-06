@@ -39,6 +39,7 @@
 #include "loom/target/arch/amdgpu/descriptors/lower_capabilities.h"
 #include "loom/target/arch/amdgpu/error_catalog.h"
 #include "loom/target/arch/amdgpu/lower/abi.h"
+#include "loom/target/arch/amdgpu/lower/address_realization.h"
 #include "loom/target/arch/amdgpu/lower/arithmetic.h"
 #include "loom/target/arch/amdgpu/lower/async.h"
 #include "loom/target/arch/amdgpu/lower/bitpack.h"
@@ -49,19 +50,19 @@
 #include "loom/target/arch/amdgpu/lower/dot.h"
 #include "loom/target/arch/amdgpu/lower/emit.h"
 #include "loom/target/arch/amdgpu/lower/encoding/vector_conversion.h"
+#include "loom/target/arch/amdgpu/lower/fragment_memory/emit.h"
+#include "loom/target/arch/amdgpu/lower/fragment_memory/packet.h"
+#include "loom/target/arch/amdgpu/lower/fragment_memory/plan.h"
 #include "loom/target/arch/amdgpu/lower/legality.h"
 #include "loom/target/arch/amdgpu/lower/mask.h"
 #include "loom/target/arch/amdgpu/lower/matrix.h"
-#include "loom/target/arch/amdgpu/lower/matrix_fragment_memory_emit.h"
-#include "loom/target/arch/amdgpu/lower/matrix_fragment_memory_packet.h"
-#include "loom/target/arch/amdgpu/lower/matrix_fragment_memory_plan.h"
 #include "loom/target/arch/amdgpu/lower/matrix_fragment_repack.h"
-#include "loom/target/arch/amdgpu/lower/matrix_representation.h"
 #include "loom/target/arch/amdgpu/lower/memory.h"
 #include "loom/target/arch/amdgpu/lower/memory_ordering.h"
 #include "loom/target/arch/amdgpu/lower/preamble.h"
 #include "loom/target/arch/amdgpu/lower/sanitizer.h"
 #include "loom/target/arch/amdgpu/lower/sanitizer_race.h"
+#include "loom/target/arch/amdgpu/lower/source_representation.h"
 #include "loom/target/arch/amdgpu/lower/structural.h"
 #include "loom/target/arch/amdgpu/lower/subgroup.h"
 #include "loom/target/arch/amdgpu/lower/sync.h"
@@ -131,8 +132,10 @@ enum loom_amdgpu_storage_policy_e {
   LOOM_AMDGPU_STORAGE_ASYNC_CLUSTER = 14,
   // Subgroup shuffle plans own their payload and dynamic lane demands.
   LOOM_AMDGPU_STORAGE_SUBGROUP_SHUFFLE = 15,
+  // Table lookups omit index storage when every selected lane is static.
+  LOOM_AMDGPU_STORAGE_TABLE_LOOKUP = 16,
   // Maximum storage-policy value accepted by dispatch row policy bits.
-  LOOM_AMDGPU_STORAGE_MAX = LOOM_AMDGPU_STORAGE_SUBGROUP_SHUFFLE,
+  LOOM_AMDGPU_STORAGE_MAX = LOOM_AMDGPU_STORAGE_TABLE_LOOKUP,
 };
 
 enum loom_amdgpu_preselect_policy_e {
@@ -178,9 +181,9 @@ enum loom_amdgpu_report_key_kind_e {
 
 // Packing constants bridge the storage and preselection enum domains into the
 // byte representation; they are not themselves a semantic enum domain.
-#define LOOM_AMDGPU_LOWER_POLICY_STORAGE_MASK UINT8_C(0x0F)
-#define LOOM_AMDGPU_LOWER_POLICY_PRESELECT_SHIFT UINT8_C(4)
-#define LOOM_AMDGPU_LOWER_POLICY_PRESELECT_MASK UINT8_C(0x30)
+#define LOOM_AMDGPU_LOWER_POLICY_STORAGE_MASK UINT8_C(0x1F)
+#define LOOM_AMDGPU_LOWER_POLICY_PRESELECT_SHIFT UINT8_C(5)
+#define LOOM_AMDGPU_LOWER_POLICY_PRESELECT_MASK UINT8_C(0x60)
 
 static_assert((LOOM_AMDGPU_STORAGE_MAX &
                ~LOOM_AMDGPU_LOWER_POLICY_STORAGE_MASK) == 0,
@@ -413,6 +416,15 @@ static iree_status_t loom_amdgpu_select_kernel_barrier_dispatch(
   return loom_amdgpu_select_kernel_barrier_plan(context, source_op, out_plan);
 }
 
+static iree_status_t loom_amdgpu_select_kernel_split_barrier_dispatch(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_lower_dispatch_row_t* row,
+    loom_low_lower_plan_t* out_plan) {
+  (void)row;
+  return loom_amdgpu_select_kernel_split_barrier_plan(context, source_op,
+                                                      out_plan);
+}
+
 static iree_status_t loom_amdgpu_select_memory_fence_dispatch(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_lower_dispatch_row_t* row,
@@ -430,6 +442,15 @@ static iree_status_t loom_amdgpu_emit_kernel_barrier_dispatch(
     const loom_amdgpu_lower_dispatch_row_t* row, loom_low_lower_plan_t plan) {
   (void)row;
   return loom_amdgpu_lower_kernel_barrier(
+      context, source_op,
+      (const loom_amdgpu_kernel_barrier_plan_t*)plan.target_data);
+}
+
+static iree_status_t loom_amdgpu_emit_kernel_split_barrier_dispatch(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_lower_dispatch_row_t* row, loom_low_lower_plan_t plan) {
+  (void)row;
+  return loom_amdgpu_lower_kernel_split_barrier(
       context, source_op,
       (const loom_amdgpu_kernel_barrier_plan_t*)plan.target_data);
 }
@@ -606,9 +627,27 @@ LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_scalar_clampf_dispatch,
                              loom_amdgpu_clampf_plan_t,
                              loom_amdgpu_lower_clampf)
 
-LOOM_AMDGPU_DEFINE_DATA_SELECT(loom_amdgpu_select_vector_fragment_load_dispatch,
-                               loom_amdgpu_fragment_memory_plan_t,
-                               loom_amdgpu_select_vector_fragment_load_plan)
+static iree_status_t loom_amdgpu_select_vector_fragment_load_dispatch(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_lower_dispatch_row_t* row,
+    loom_low_lower_plan_t* out_plan) {
+  (void)row;
+  loom_amdgpu_fragment_memory_plan_t candidate = {0};
+  bool selected = false;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_select_vector_fragment_load_plan(
+      context, source_op, &candidate, &selected));
+  if (!selected) {
+    return iree_ok_status();
+  }
+  loom_amdgpu_fragment_memory_plan_t* plan = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_low_lower_allocate_plan_data(context, sizeof(*plan), (void**)&plan));
+  *plan = candidate;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_prepare_fragment_address_realization(
+      context, source_op, plan));
+  *out_plan = loom_low_lower_plan_make(source_op->kind, plan);
+  return iree_ok_status();
+}
 
 LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_vector_fragment_load_dispatch,
                              loom_amdgpu_fragment_memory_plan_t,
@@ -725,8 +764,12 @@ LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_vector_bitcast_dispatch,
                              loom_amdgpu_lower_vector_bitcast)
 
 LOOM_AMDGPU_DEFINE_DATA_SELECT(loom_amdgpu_select_vector_concat_dispatch,
-                               loom_amdgpu_vector_register_map_plan_t,
+                               loom_amdgpu_vector_concat_plan_t,
                                loom_amdgpu_select_vector_concat_plan)
+
+LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_vector_concat_dispatch,
+                             loom_amdgpu_vector_concat_plan_t,
+                             loom_amdgpu_lower_vector_concat)
 
 LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_vector_register_map_dispatch,
                              loom_amdgpu_vector_register_map_plan_t,
@@ -749,8 +792,12 @@ LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_vector_interleave_dispatch,
                              loom_amdgpu_lower_vector_interleave)
 
 LOOM_AMDGPU_DEFINE_DATA_SELECT(loom_amdgpu_select_vector_shuffle_dispatch,
-                               loom_amdgpu_vector_register_map_plan_t,
+                               loom_amdgpu_vector_shuffle_plan_t,
                                loom_amdgpu_select_vector_shuffle_plan)
+
+LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_vector_shuffle_dispatch,
+                             loom_amdgpu_vector_shuffle_plan_t,
+                             loom_amdgpu_lower_vector_shuffle)
 
 LOOM_AMDGPU_DEFINE_DATA_SELECT(loom_amdgpu_select_vector_transpose_dispatch,
                                loom_amdgpu_vector_register_map_plan_t,
@@ -804,6 +851,14 @@ LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_view_prefetch_dispatch,
                              loom_amdgpu_prefetch_plan_t,
                              loom_amdgpu_lower_view_prefetch)
 
+LOOM_AMDGPU_DEFINE_DATA_SELECT(loom_amdgpu_select_kernel_assert_dispatch,
+                               loom_amdgpu_kernel_assert_plan_t,
+                               loom_amdgpu_select_kernel_assert_plan)
+
+LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_kernel_assert_dispatch,
+                             loom_amdgpu_kernel_assert_plan_t,
+                             loom_amdgpu_lower_kernel_assert)
+
 LOOM_AMDGPU_DEFINE_DATA_SELECT(
     loom_amdgpu_select_sanitizer_assert_access_dispatch,
     loom_amdgpu_sanitizer_access_plan_t,
@@ -821,6 +876,16 @@ LOOM_AMDGPU_DEFINE_DATA_SELECT(
 LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_sanitizer_race_access_dispatch,
                              loom_amdgpu_sanitizer_race_access_plan_t,
                              loom_amdgpu_lower_sanitizer_race_access)
+
+LOOM_AMDGPU_DEFINE_DATA_SELECT(
+    loom_amdgpu_select_sanitizer_race_fragment_access_dispatch,
+    loom_amdgpu_sanitizer_race_fragment_access_plan_t,
+    loom_amdgpu_select_sanitizer_race_fragment_access_plan)
+
+LOOM_AMDGPU_DEFINE_DATA_EMIT(
+    loom_amdgpu_emit_sanitizer_race_fragment_access_dispatch,
+    loom_amdgpu_sanitizer_race_fragment_access_plan_t,
+    loom_amdgpu_lower_sanitizer_race_fragment_access)
 
 LOOM_AMDGPU_DEFINE_DATA_SELECT(loom_amdgpu_select_sanitizer_race_sync_dispatch,
                                loom_amdgpu_sanitizer_race_sync_plan_t,
@@ -1219,14 +1284,12 @@ LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_clampf_plan_t, lower, 1);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_clampf_plan_t, upper, 2);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_vector_bitcast_plan_t,
                                         source, 0);
+LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_vector_shuffle_plan_t,
+                                        source, 0);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_fragment_repack_plan_t,
                                         source, 0);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_vector_deinterleave_plan_t,
                                         source, 0);
-LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_table_lookup_plan_t, table,
-                                        0);
-LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_table_lookup_plan_t,
-                                        indices, 1);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_vector_slice_plan_t, source,
                                         0);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_subgroup_shuffle_plan_t,
@@ -1334,6 +1397,21 @@ static iree_status_t loom_amdgpu_preselect_op(void* user_data,
   }
 }
 
+static iree_status_t loom_amdgpu_prepare_source_memory(
+    void* user_data, loom_low_lower_context_t* context,
+    const loom_op_t* source_op, loom_low_lower_plan_t* out_plan) {
+  (void)user_data;
+  const loom_amdgpu_lower_dispatch_row_t* row =
+      loom_amdgpu_find_lower_dispatch_row(source_op->kind);
+  const loom_amdgpu_storage_policy_t storage =
+      loom_amdgpu_dispatch_row_storage_policy(row);
+  if (storage == LOOM_AMDGPU_STORAGE_MEMORY_PLAN ||
+      storage == LOOM_AMDGPU_STORAGE_FRAGMENT_MEMORY) {
+    return loom_amdgpu_select_dispatch_row(context, source_op, row, out_plan);
+  }
+  return iree_ok_status();
+}
+
 static void loom_amdgpu_mark_plan_storage_demands(
     void* user_data, loom_low_lower_context_t* context,
     const loom_op_t* source_op, loom_low_lower_plan_t plan) {
@@ -1364,9 +1442,18 @@ static void loom_amdgpu_mark_plan_storage_demands(
           (const loom_amdgpu_prefetch_plan_t*)plan.target_data);
       return;
     case LOOM_AMDGPU_STORAGE_FRAGMENT_MEMORY:
-      loom_amdgpu_mark_fragment_memory_plan_storage_demands(
-          context, source_op,
-          (const loom_amdgpu_fragment_memory_plan_t*)plan.target_data);
+      if (plan.id == LOOM_OP_SANITIZER_RACE_FRAGMENT_ACCESS) {
+        const loom_amdgpu_sanitizer_race_fragment_access_plan_t*
+            fragment_access_plan =
+                (const loom_amdgpu_sanitizer_race_fragment_access_plan_t*)
+                    plan.target_data;
+        loom_amdgpu_mark_fragment_memory_address_storage_demands(
+            context, &fragment_access_plan->fragment_memory);
+      } else {
+        loom_amdgpu_mark_fragment_memory_plan_storage_demands(
+            context, source_op,
+            (const loom_amdgpu_fragment_memory_plan_t*)plan.target_data);
+      }
       return;
     case LOOM_AMDGPU_STORAGE_SUBGROUP_BROADCAST:
       loom_amdgpu_mark_subgroup_broadcast_plan_storage_demands(
@@ -1378,6 +1465,15 @@ static void loom_amdgpu_mark_plan_storage_demands(
           context, source_op,
           (const loom_amdgpu_subgroup_shuffle_plan_t*)plan.target_data);
       return;
+    case LOOM_AMDGPU_STORAGE_TABLE_LOOKUP: {
+      const loom_amdgpu_table_lookup_plan_t* lookup =
+          (const loom_amdgpu_table_lookup_plan_t*)plan.target_data;
+      loom_low_lower_require_source_value_storage(context, lookup->table);
+      if (lookup->indices != LOOM_VALUE_ID_INVALID) {
+        loom_low_lower_require_source_value_storage(context, lookup->indices);
+      }
+      return;
+    }
     case LOOM_AMDGPU_STORAGE_NONE:
       return;
     case LOOM_AMDGPU_STORAGE_ASYNC_GATHER:
@@ -1447,6 +1543,10 @@ static iree_string_view_t loom_amdgpu_kernel_barrier_plan_key(
     case LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_SPLIT_BARRIER:
       return IREE_SV(
           "amdgpu.kernel_barrier.strategy.split_barrier.workgroup_rendezvous");
+    case LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_SPLIT_ARRIVE:
+      return IREE_SV("amdgpu.kernel_barrier.strategy.split_barrier.arrive");
+    case LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_SPLIT_WAIT:
+      return IREE_SV("amdgpu.kernel_barrier.strategy.split_barrier.wait");
     case LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_NONE:
       return iree_string_view_empty();
   }
@@ -1533,7 +1633,9 @@ static iree_string_view_t loom_amdgpu_table_lookup_plan_key(
     const loom_amdgpu_table_lookup_plan_t* plan) {
   switch (plan->strategy) {
     case LOOM_AMDGPU_TABLE_LOOKUP_STRATEGY_F32_LADDER:
-      return IREE_SV("amdgpu.table_lookup.strategy.f32_ladder");
+      return plan->indices == LOOM_VALUE_ID_INVALID
+                 ? IREE_SV("amdgpu.table_lookup.strategy.f32_static")
+                 : IREE_SV("amdgpu.table_lookup.strategy.f32_ladder");
     case LOOM_AMDGPU_TABLE_LOOKUP_STRATEGY_PACKED_I8_PERMUTE:
       return IREE_SV("amdgpu.table_lookup.strategy.packed_i8_permute");
     case LOOM_AMDGPU_TABLE_LOOKUP_STRATEGY_PACKED_I8_U4_PERMUTE:
@@ -1709,6 +1811,7 @@ static const loom_low_lower_policy_t kAmdgpuLowLowerPolicy = {
     .map_contract_value = {.fn = loom_amdgpu_map_contract_value,
                            .user_data = NULL},
     .map_argument = {.fn = loom_amdgpu_map_argument, .user_data = NULL},
+    .join_result_type = loom_amdgpu_join_result_type,
     .map_abi_layout = {.fn = loom_amdgpu_map_abi_layout, .user_data = NULL},
     .emit_preamble = {.fn = loom_amdgpu_emit_preamble, .user_data = NULL},
     .emit_entry_setup = {.fn = loom_amdgpu_emit_entry_setup, .user_data = NULL},
@@ -1726,7 +1829,8 @@ static const loom_low_lower_policy_t kAmdgpuLowLowerPolicy = {
             .attrs = loom_amdgpu_descriptor_matrix_attrs,
             .user_data = NULL,
         },
-    .source_plan_observer = &loom_amdgpu_matrix_representation_observer,
+    .source_plan_observer = &loom_amdgpu_source_representation_observer,
+    .prepare_source_memory = {.fn = loom_amdgpu_prepare_source_memory},
     .visibility_model = loom_amdgpu_memory_visibility_model,
     .preselect_op = {.fn = loom_amdgpu_preselect_op, .user_data = NULL},
     .select_op = {.fn = loom_amdgpu_select_op, .user_data = NULL},

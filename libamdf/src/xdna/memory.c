@@ -50,7 +50,7 @@ static amdf_status_t amdf_xdna_memory_describe_site(
   }
   const amdf_memory_site_query_t query = {
       .access = memory->accesses[access_ordinal].info.access,
-      .flags = memory->accesses[access_ordinal].info.flags,
+      .flags = memory->info.flags | memory->accesses[access_ordinal].info.flags,
       .queue_family_info = &queue_family_info,
   };
   return amdf_xdna_umd_memory_describe_site(&query, out_description);

@@ -367,6 +367,8 @@ iree_status_t loom_check_prepare_source_low_module(
   compile_options.target_environment = environment->target_environment;
   compile_options.target_specializations = options->target_specializations;
   compile_options.low_descriptor_registry = low_registry;
+  compile_options.cleanup_pattern_provider_set =
+      environment->cleanup_pattern_provider_set;
   compile_options.diagnostic_sink =
       (loom_diagnostic_sink_t){.fn = loom_check_diagnostic_collector_sink,
                                .user_data = diagnostic_collector};
@@ -568,7 +570,7 @@ iree_status_t loom_check_source_low_emit(
         request->output == LOOM_CHECK_EMIT_SOURCE_LOW_OUTPUT_MODULE) {
       status = loom_target_function_versions_project_module(
           module, &pipeline_result.function_versions.list, block_pool,
-          module->allocator, &projected_module);
+          module->allocator, NULL, &projected_module);
     }
     if (iree_status_is_ok(status)) {
       status = loom_check_emit_write_source_low(

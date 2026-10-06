@@ -159,6 +159,8 @@ class CompiledDescriptorSet:
     resource_calendars: list[CompiledResourceCalendar]
     # Total occupancy slots across distinct resource calendars.
     resource_calendar_slot_count: int
+    # Earlier issue distance retained before the native issue high-water mark.
+    resource_calendar_lookback_cycles: int
     schedule_classes: list[ScheduleClass]
     timing_events: list[TimingEvent]
     event_separations: list[EventSeparation]
@@ -170,7 +172,7 @@ class CompiledDescriptorSet:
     timing_event_ids: dict[str, int]
     enum_domain_ids: dict[str, int]
     string_pool: CStringPool
-    reg_class_alts: list[tuple[int | None, tuple[RegClassAltFlag, ...]]]
+    reg_class_alts: list[tuple[int | None, int | None, tuple[RegClassAltFlag, ...], int, int]]
     operands: list[Operand]
     operand_source_value_indices: list[int | None]
     operand_alt_starts: list[int]
@@ -221,6 +223,8 @@ class DescriptorSetView:
     uses_storage_descriptor_tables: bool
     # View-owned descriptor rows are a prefix of the storage table.
     uses_storage_descriptor_view_tables: bool
+    # Descriptor-key references address the shared storage descriptor prefix.
+    uses_storage_descriptor_ref_tables: bool
     uses_storage_asm_form_tables: bool
     uses_storage_operand_form_tables: bool
     uses_storage_schedule_alternative_tables: bool

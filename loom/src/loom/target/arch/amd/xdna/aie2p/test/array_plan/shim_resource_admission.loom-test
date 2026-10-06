@@ -1,0 +1,161 @@
+// RUN: with-checks emit aie2p-array-plan @full_shim_egress
+
+// One multicast worker source can consume every physical shim
+// stream-to-memory DMA endpoint without exceeding the array.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @full_shim_egress() asm {
+  %worker_count = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %worker_ordinal = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %channel_capacity = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %records_per_invocation = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %tile_column = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %tile_row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %workers = group %worker_count
+  %worker = worker %workers, %worker_ordinal, @produce
+  %binding0 = binding 0, "write"
+  %binding1 = binding 1, "write"
+  %binding2 = binding 2, "write"
+  %binding3 = binding 3, "write"
+  %binding4 = binding 4, "write"
+  %binding5 = binding 5, "write"
+  %binding6 = binding 6, "write"
+  %binding7 = binding 7, "write"
+  %binding8 = binding 8, "write"
+  %binding9 = binding 9, "write"
+  %binding10 = binding 10, "write"
+  %binding11 = binding 11, "write"
+  %binding12 = binding 12, "write"
+  %binding13 = binding 13, "write"
+  %binding14 = binding 14, "write"
+  %binding15 = binding 15, "write"
+  %sender = sender %worker, 0 : reg<aie2p.array.sender : tile<1xi32>>
+  %receiver0 = receiver %binding0, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver1 = receiver %binding1, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver2 = receiver %binding2, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver3 = receiver %binding3, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver4 = receiver %binding4, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver5 = receiver %binding5, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver6 = receiver %binding6, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver7 = receiver %binding7, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver8 = receiver %binding8, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver9 = receiver %binding9, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver10 = receiver %binding10, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver11 = receiver %binding11, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver12 = receiver %binding12, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver13 = receiver %binding13, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver14 = receiver %binding14, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver15 = receiver %binding15, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %channel0 = channel %sender, %receiver0, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel1 = channel %sender, %receiver1, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel2 = channel %sender, %receiver2, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel3 = channel %sender, %receiver3, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel4 = channel %sender, %receiver4, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel5 = channel %sender, %receiver5, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel6 = channel %sender, %receiver6, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel7 = channel %sender, %receiver7, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel8 = channel %sender, %receiver8, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel9 = channel %sender, %receiver9, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel10 = channel %sender, %receiver10, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel11 = channel %sender, %receiver11, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel12 = channel %sender, %receiver12, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel13 = channel %sender, %receiver13, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel14 = channel %sender, %receiver14, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel15 = channel %sender, %receiver15, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  constrain.location %worker, %tile_column, %tile_row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @produce() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %value = mov.short 7
+  st %value, %output, 0
+  return
+}
+
+// ----
+CHECK: array @full_shim_egress * groups=1 workers=1 bindings=16 channels=16 slots=16 locks=2 dma=17 *
+
+// ====
+// RUN: emit aie2p-array-plan @oversubscribed_shim_egress
+
+// The seventeenth independent egress branch exceeds the sixteen physical
+// stream-to-memory shim DMA endpoints and is rejected at its channel.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @oversubscribed_shim_egress() asm {
+  %worker_count = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %worker_ordinal = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %channel_capacity = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %records_per_invocation = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %tile_column = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %tile_row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %workers = group %worker_count
+  %worker = worker %workers, %worker_ordinal, @produce
+  %binding0 = binding 0, "write"
+  %binding1 = binding 1, "write"
+  %binding2 = binding 2, "write"
+  %binding3 = binding 3, "write"
+  %binding4 = binding 4, "write"
+  %binding5 = binding 5, "write"
+  %binding6 = binding 6, "write"
+  %binding7 = binding 7, "write"
+  %binding8 = binding 8, "write"
+  %binding9 = binding 9, "write"
+  %binding10 = binding 10, "write"
+  %binding11 = binding 11, "write"
+  %binding12 = binding 12, "write"
+  %binding13 = binding 13, "write"
+  %binding14 = binding 14, "write"
+  %binding15 = binding 15, "write"
+  %binding16 = binding 16, "write"
+  %sender = sender %worker, 0 : reg<aie2p.array.sender : tile<1xi32>>
+  %receiver0 = receiver %binding0, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver1 = receiver %binding1, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver2 = receiver %binding2, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver3 = receiver %binding3, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver4 = receiver %binding4, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver5 = receiver %binding5, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver6 = receiver %binding6, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver7 = receiver %binding7, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver8 = receiver %binding8, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver9 = receiver %binding9, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver10 = receiver %binding10, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver11 = receiver %binding11, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver12 = receiver %binding12, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver13 = receiver %binding13, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver14 = receiver %binding14, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver15 = receiver %binding15, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %receiver16 = receiver %binding16, 0 : reg<aie2p.array.receiver : tile<1xi32>>
+  %channel0 = channel %sender, %receiver0, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel1 = channel %sender, %receiver1, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel2 = channel %sender, %receiver2, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel3 = channel %sender, %receiver3, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel4 = channel %sender, %receiver4, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel5 = channel %sender, %receiver5, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel6 = channel %sender, %receiver6, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel7 = channel %sender, %receiver7, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel8 = channel %sender, %receiver8, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel9 = channel %sender, %receiver9, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel10 = channel %sender, %receiver10, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel11 = channel %sender, %receiver11, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel12 = channel %sender, %receiver12, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel13 = channel %sender, %receiver13, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel14 = channel %sender, %receiver14, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  %channel15 = channel %sender, %receiver15, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  // ERROR@+1: XDNA/006 {channel="16", column="0", row="2", capacity="1", record_bytes="4", reason="the array has no remaining shim stream-to-memory DMA channel"}
+  %channel16 = channel %sender, %receiver16, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<1xi32>>
+  constrain.location %worker, %tile_column, %tile_row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @produce() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %value = mov.short 7
+  st %value, %output, 0
+  return
+}

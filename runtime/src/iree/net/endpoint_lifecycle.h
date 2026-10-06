@@ -6,7 +6,7 @@
 
 // Coordinates endpoint- and connection-level transport deactivation.
 //
-// Message endpoints are borrowed from connections. An endpoint consumer may
+// Endpoints are borrowed from connections. An endpoint consumer may
 // begin deactivation immediately before its owning connection begins draining
 // all endpoints. Both requests must join the same carrier drain: exactly one
 // request starts deactivation, the endpoint callback observes completion, and
@@ -64,7 +64,7 @@ typedef struct iree_net_endpoint_deactivation_barrier_t {
   iree_net_connection_deactivate_callback_t callback;
 } iree_net_endpoint_deactivation_barrier_t;
 
-// Lifecycle state embedded in each message endpoint implementation.
+// Lifecycle state embedded in each message or direct endpoint implementation.
 typedef struct iree_net_endpoint_lifecycle_t {
   // Serializes deactivation requests against carrier completion.
   iree_slim_mutex_t mutex;

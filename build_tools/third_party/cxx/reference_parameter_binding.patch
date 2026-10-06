@@ -1,0 +1,49 @@
+diff --git a/src/parser/cxx/ast_interpreter.cc b/src/parser/cxx/ast_interpreter.cc
+--- a/src/parser/cxx/ast_interpreter.cc
++++ b/src/parser/cxx/ast_interpreter.cc
+@@ -460,6 +460,7 @@
+     if (ref != it->refs.end()) return *ref->second;
+     auto found = it->locals.find(sym);
+     if (found != it->locals.end()) return found->second;
++    if (it->referenceAddresses.contains(sym)) return std::nullopt;
+   }
+   return std::nullopt;
+ }
+@@ -470,6 +471,7 @@
+     if (ref != it->refs.end()) return ref->second;
+     auto found = it->locals.find(sym);
+     if (found != it->locals.end()) return &found->second;
++    if (it->referenceAddresses.contains(sym)) return nullptr;
+   }
+   return nullptr;
+ }
+@@ -514,8 +516,9 @@
+         return true;
+       }
+       auto referent = loadAddress(**address, 0, param->type());
+-      if (!referent) return false;
+-      frame.locals.insert_or_assign(paramSymbol, std::move(*referent));
++      if (referent) {
++        frame.locals.insert_or_assign(paramSymbol, std::move(*referent));
++      }
+       return true;
+     }
+     if (auto slot = lvalue(argExpr)) {
+diff --git a/src/parser/cxx/ast_interpreter.h b/src/parser/cxx/ast_interpreter.h
+--- a/src/parser/cxx/ast_interpreter.h
++++ b/src/parser/cxx/ast_interpreter.h
+@@ -486,9 +486,14 @@
+     Frame(const Frame&) = delete;
+     auto operator=(const Frame&) -> Frame& = delete;
+
++    // Values owned by this invocation, including readable constant referents.
+     std::unordered_map<const Symbol*, ConstValue> locals;
++    // Slots borrowed from existing storage for reference bindings.
+     std::unordered_map<const Symbol*, ConstValue*> refs;
++    // Reference identities, including referents without a readable value.
++    // Every binding shadows the same parameter in an outer recursive call.
+     std::unordered_map<const Symbol*, ConstValue> referenceAddresses;
++    // Local objects whose lifetimes end with this invocation.
+     std::vector<VariableSymbol*> automaticObjects;
+   };
+   std::vector<Frame> frames_;

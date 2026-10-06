@@ -9,66 +9,6 @@
 
 iree_add_all_subdirs()
 
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-iree_py_test(
-  NAME
-    artifact_test
-  MAIN
-    "artifact_test.py"
-  SRCS
-    "artifact_test.py"
-  ARGS
-    "{{$<TARGET_FILE:loom::tools::loom-compile::loom-compile>}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/sum.loom}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/loop_state.loom}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/scalar_memory.loom}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/typed_addresses.loom}}"
-    "--corpus"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_address_widening.loom-test}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/address_widening.mjs}}"
-    "--corpus"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_boolean_comparison.loom-test}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/boolean.mjs}}"
-    "--corpus"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_index_operands.loom-test}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/index_operands.mjs}}"
-    "--corpus"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_scalar_i64_shift_counts.loom-test}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/index_shifts.mjs}}"
-    "--corpus"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_scalar_narrow.loom}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_access_flags.loom-test}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/byte_access.loom}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/narrow_memory.mjs}}"
-  DATA
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/address_widening.mjs"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/boolean.mjs"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/byte_access.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/index_operands.mjs"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/index_shifts.mjs"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/loop_state.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/loop_state.mjs"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/narrow_memory.mjs"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/scalar_memory.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/scalar_memory.mjs"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/sum.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/sum.mjs"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/typed_addresses.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/typed_addresses.mjs"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_access_flags.loom-test"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_scalar_narrow.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_address_widening.loom-test"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_boolean_comparison.loom-test"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_index_operands.loom-test"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_scalar_i64_shift_counts.loom-test"
-    "loom::tools::loom-compile::loom-compile"
-  PACKAGE_DIRS
-    "${PROJECT_SOURCE_DIR}/loom/py"
-    "${PROJECT_BINARY_DIR}/loom/py"
-    "${PROJECT_SOURCE_DIR}"
-)
-endif()
-
 if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
 loom_check_test_suite(
   NAME

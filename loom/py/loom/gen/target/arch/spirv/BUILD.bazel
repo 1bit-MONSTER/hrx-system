@@ -118,6 +118,7 @@ iree_py_binary(
         "//loom/py/loom/target/arch/spirv:builtins",
         "//loom/py/loom/target/arch/spirv:cooperative_matrix",
         "//loom/py/loom/target/arch/spirv:descriptors",
+        "//loom/py/loom/target/arch/spirv:extended_math",
         "//loom/py/loom/target/arch/spirv:ordinary_vector",
         "//loom/py/loom/target/arch/spirv:ordinary_vector_bit_layout",
         "//loom/py/loom/target/arch/spirv:ordinary_vector_float",
@@ -127,6 +128,7 @@ iree_py_binary(
         "//loom/py/loom/target/arch/spirv:scalar_constant",
         "//loom/py/loom/target/arch/spirv:scalar_conversion",
         "//loom/py/loom/target/arch/spirv:scalar_memory",
+        "//loom/py/loom/target/arch/spirv:subgroup",
     ],
 )
 
@@ -140,6 +142,7 @@ iree_py_test(
     main = "pytest_style_runner.py",
     deps = [
         ":packet_rows",
+        "//loom/py/loom/target/arch/spirv:extended_math",
     ],
 )
 

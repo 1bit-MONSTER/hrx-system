@@ -97,6 +97,14 @@ void loom_low_allocation_storage_lease_unit_index_insert(
     const loom_low_descriptor_set_t* descriptor_set,
     uint32_t storage_lease_index);
 
+// Reindexes completed instances after a bijective physical renumbering. The
+// set of units and their lease membership are unchanged, so the original
+// node capacity is sufficient. No selections or cursors may exist yet.
+void loom_low_allocation_storage_lease_unit_index_rebuild(
+    loom_low_allocation_storage_lease_unit_index_t* index,
+    const loom_low_descriptor_set_t* descriptor_set,
+    iree_host_size_t lease_count);
+
 // Retains a changed endpoint for a materialized lease. Cursors remain valid
 // while endpoints shorten. Construction is complete before any selection is
 // initialized.

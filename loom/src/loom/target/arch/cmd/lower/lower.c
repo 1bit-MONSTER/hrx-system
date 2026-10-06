@@ -56,6 +56,10 @@ typedef struct loom_cmd_lower_types_t {
   loom_type_t b32;
   // Portable tagless 64-bit argument register type.
   loom_type_t b64;
+  // Portable logical index argument register type.
+  loom_type_t index_argument;
+  // Portable logical byte-offset argument register type.
+  loom_type_t offset_argument;
   // Fixed buffer resource register type.
   loom_type_t fixed_buffer;
   // Issue-time binding resource register type.
@@ -79,7 +83,7 @@ typedef struct loom_cmd_lower_buffer_tuple_t {
   loom_value_id_t byte_length;
 } loom_cmd_lower_buffer_tuple_t;
 
-// Prepared low representations associated with one source SSA value.
+// Materialized low representations associated with one source SSA value.
 typedef struct loom_cmd_lower_source_value_t {
   // Resolved buffer tuple when the source is a buffer or view.
   loom_cmd_lower_buffer_tuple_t buffer;
@@ -88,7 +92,7 @@ typedef struct loom_cmd_lower_source_value_t {
 } loom_cmd_lower_source_value_t;
 
 typedef struct loom_cmd_lower_resources_t {
-  // Prepared representations indexed directly by source value ID.
+  // Materialized representations indexed directly by source value ID.
   loom_cmd_lower_source_value_t* source_values;
   // Number of entries in |source_values|.
   iree_host_size_t source_value_count;
@@ -286,6 +290,16 @@ static iree_status_t loom_cmd_lower_build_dispatch_argument_constant(
       descriptor_ordinal = CMD_CORE_DESCRIPTOR_REF_CONSTANT_B64;
       cached_type = &state->types.b64;
       reg_class_id = CMD_CORE_REG_CLASS_ID_B64;
+      break;
+    case LOOM_CMD_LOWER_DISPATCH_ARGUMENT_KIND_INDEX:
+      descriptor_ordinal = CMD_CORE_DESCRIPTOR_REF_CONSTANT_INDEX;
+      cached_type = &state->types.index_argument;
+      reg_class_id = CMD_CORE_REG_CLASS_ID_INDEX;
+      break;
+    case LOOM_CMD_LOWER_DISPATCH_ARGUMENT_KIND_OFFSET:
+      descriptor_ordinal = CMD_CORE_DESCRIPTOR_REF_CONSTANT_OFFSET;
+      cached_type = &state->types.offset_argument;
+      reg_class_id = CMD_CORE_REG_CLASS_ID_OFFSET;
       break;
     default:
       IREE_ASSERT_UNREACHABLE("dispatch scalar argument kind is valid");

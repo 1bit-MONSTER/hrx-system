@@ -289,9 +289,9 @@ TEST_P(LowAllocationStorageLeaseReleasePointTest,
       /*value_id=*/value_ids[0], /*descriptor_reg_class_id=*/0,
       /*start_point=*/0, /*end_point=*/1, /*location_base=*/10,
       /*location_count=*/4);
-  IREE_ASSERT_OK(loom_low_allocation_storage_lease_state_record_assignment(
+  loom_low_allocation_storage_lease_state_record_assignment(
       &state, &descriptor_set, &liveness, &leased_assignment,
-      /*assignment_index=*/0, /*value_ordinal=*/0));
+      /*assignment_index=*/0, /*value_ordinal=*/0);
   ASSERT_EQ(state.instance_count, 1u);
   const loom_low_allocation_storage_lease_t* lease = &state.instances[0];
   EXPECT_EQ(lease->value_id, value_ids[0]);

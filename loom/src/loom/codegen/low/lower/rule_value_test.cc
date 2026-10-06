@@ -18,6 +18,7 @@
 #include "loom/ir/module.h"
 #include "loom/ops/func/ops.h"
 #include "loom/ops/scalar/ops.h"
+#include "loom/ops/vector/ops.h"
 
 namespace loom {
 namespace {
@@ -60,7 +61,16 @@ class LowLowerRuleValueTest : public ::testing::Test {
         /*.symbol_id=*/symbol_id,
     };
     const loom_type_t i32_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
-    const loom_type_t argument_types[] = {i32_type, i32_type};
+    const loom_type_t bf16_vector_type = loom_type_shaped_1d(
+        LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_BF16, loom_dim_pack_static(16), 0);
+    const loom_type_t f32_vector_type = loom_type_shaped_1d(
+        LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_F32, loom_dim_pack_static(16), 0);
+    const loom_type_t argument_types[] = {
+        i32_type,
+        i32_type,
+        bf16_vector_type,
+        f32_vector_type,
+    };
     loom_op_t* function_op = nullptr;
     IREE_ASSERT_OK(loom_func_def_build(
         &module_builder, /*build_flags=*/0, /*visibility=*/0, /*retain=*/0,
@@ -73,7 +83,7 @@ class LowLowerRuleValueTest : public ::testing::Test {
 
     uint16_t argument_count = 0;
     arguments_ = loom_func_like_arg_ids(function_, &argument_count);
-    ASSERT_EQ(argument_count, 2u);
+    ASSERT_EQ(argument_count, 4u);
     loom_builder_t body_builder;
     loom_builder_initialize(
         module_, &module_->arena,
@@ -85,6 +95,20 @@ class LowLowerRuleValueTest : public ::testing::Test {
     IREE_ASSERT_OK(loom_scalar_muli_build(
         &body_builder, /*overflow_flags=*/0, loom_scalar_addi_result(addi_op_),
         arguments_[1], i32_type, LOOM_LOCATION_UNKNOWN, &muli_op_));
+    IREE_ASSERT_OK(loom_vector_extf_build(
+        &body_builder, arguments_[2], bf16_vector_type, f32_vector_type,
+        LOOM_LOCATION_UNKNOWN, &direct_extf_op_));
+    IREE_ASSERT_OK(loom_vector_fptrunc_build(
+        &body_builder, arguments_[3], f32_vector_type, bf16_vector_type,
+        LOOM_LOCATION_UNKNOWN, &fptrunc_op_));
+    IREE_ASSERT_OK(loom_vector_extf_build(
+        &body_builder, loom_vector_fptrunc_result(fptrunc_op_),
+        bf16_vector_type, f32_vector_type, LOOM_LOCATION_UNKNOWN,
+        &roundtrip_extf_op_));
+    IREE_ASSERT_OK(loom_vector_negf_build(
+        &body_builder, /*instance_flags=*/0,
+        loom_vector_extf_result(roundtrip_extf_op_), f32_vector_type,
+        LOOM_LOCATION_UNKNOWN, &vector_consumer_op_));
     const loom_type_t assume_result_types[] = {i32_type, i32_type};
     IREE_ASSERT_OK(loom_scalar_assume_build(
         &body_builder, arguments_, 2, /*predicates=*/nullptr,
@@ -115,6 +139,10 @@ class LowLowerRuleValueTest : public ::testing::Test {
   loom_op_t* variadic_result_op_ = nullptr;
   loom_op_t* integer_constant_op_ = nullptr;
   loom_op_t* float_constant_op_ = nullptr;
+  loom_op_t* direct_extf_op_ = nullptr;
+  loom_op_t* fptrunc_op_ = nullptr;
+  loom_op_t* roundtrip_extf_op_ = nullptr;
+  loom_op_t* vector_consumer_op_ = nullptr;
   loom_value_fact_table_t fact_table_ = {};
 };
 
@@ -219,6 +247,74 @@ TEST_F(LowLowerRuleValueTest, ResolvesValuesAcrossSourceGraphNodes) {
           IREE_ARRAYSIZE(source_nodes), 2);
   ASSERT_EQ(result_field.count, 1u);
   EXPECT_EQ(result_field.values[0], loom_scalar_muli_result(muli_op_));
+}
+
+TEST_F(LowLowerRuleValueTest,
+       ExactLaneOriginsStopAtLossyConversionsAndResolveWholeOperands) {
+  IREE_ASSERT_OK(
+      loom_value_fact_table_compute_op(&fact_table_, module_, direct_extf_op_));
+  loom_value_fact_exact_lane_origin_t direct_origin = {};
+  ASSERT_TRUE(loom_value_fact_table_query_exact_lane_origin(
+      &fact_table_, module_, loom_vector_extf_result(direct_extf_op_),
+      &direct_origin));
+  EXPECT_EQ(direct_origin.source_value_id, arguments_[2]);
+
+  IREE_ASSERT_OK(
+      loom_value_fact_table_compute_op(&fact_table_, module_, fptrunc_op_));
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&fact_table_, module_,
+                                                  roundtrip_extf_op_));
+  const loom_value_id_t truncated = loom_vector_fptrunc_result(fptrunc_op_);
+  const loom_value_id_t extended = loom_vector_extf_result(roundtrip_extf_op_);
+  loom_value_fact_exact_lane_origin_t exact_origin = {};
+  EXPECT_FALSE(loom_value_fact_table_query_exact_lane_origin(
+      &fact_table_, module_, truncated, &exact_origin));
+  ASSERT_TRUE(loom_value_fact_table_query_exact_lane_origin(
+      &fact_table_, module_, extended, &exact_origin));
+  EXPECT_EQ(exact_origin.source_value_id, truncated);
+
+  loom_value_fact_static_lane_origin_t provenance_origin = {};
+  ASSERT_TRUE(loom_value_fact_table_query_static_lane_origin(
+      &fact_table_, module_, extended, &provenance_origin));
+  EXPECT_EQ(provenance_origin.source_value_id, arguments_[3]);
+
+  const loom_low_lower_value_ref_t value_ref = {
+      /*.kind=*/LOOM_LOW_LOWER_VALUE_REF_EXACT_LANE_ORIGIN_OPERAND,
+      /*.source_node_index=*/0,
+      /*.index=*/0,
+  };
+  loom_low_lower_rule_set_t rule_set = {};
+  rule_set.value_refs = &value_ref;
+  rule_set.value_ref_count = 1;
+  loom_value_id_t resolved = LOOM_VALUE_ID_INVALID;
+  ASSERT_TRUE(loom_low_lower_rule_resolve_source_value_from_nodes(
+      module_, &fact_table_, &rule_set, vector_consumer_op_,
+      /*source_nodes=*/nullptr, /*source_node_count=*/1,
+      /*value_ref_index=*/0, &resolved));
+  EXPECT_EQ(resolved, truncated);
+}
+
+TEST_F(LowLowerRuleValueTest, ResolvesExactUniformElementOrigins) {
+  const loom_value_id_t aggregate = loom_vector_extf_result(roundtrip_extf_op_);
+  const loom_value_id_t scalar =
+      loom_scalar_constant_result(float_constant_op_);
+  IREE_ASSERT_OK(loom_value_fact_table_define_uniform_element_origin(
+      &fact_table_, aggregate, scalar, scalar));
+
+  const loom_low_lower_value_ref_t value_ref = {
+      /*.kind=*/
+      LOOM_LOW_LOWER_VALUE_REF_EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND,
+      /*.source_node_index=*/0,
+      /*.index=*/0,
+  };
+  loom_low_lower_rule_set_t rule_set = {};
+  rule_set.value_refs = &value_ref;
+  rule_set.value_ref_count = 1;
+  loom_value_id_t resolved = LOOM_VALUE_ID_INVALID;
+  ASSERT_TRUE(loom_low_lower_rule_resolve_source_value_from_nodes(
+      module_, &fact_table_, &rule_set, vector_consumer_op_,
+      /*source_nodes=*/nullptr, /*source_node_count=*/1,
+      /*value_ref_index=*/0, &resolved));
+  EXPECT_EQ(resolved, scalar);
 }
 
 TEST_F(LowLowerRuleValueTest, ProjectsExactScalarFacts) {

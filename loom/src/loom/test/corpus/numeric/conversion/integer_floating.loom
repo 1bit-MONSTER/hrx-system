@@ -1,0 +1,326 @@
+// Integer signedness and f32 rounding stay observable after scalar and packed
+// conversion. The oracle walks scalar elements instead of converting vectors.
+kernel.def @integer_floating_shapes() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%uniform_bits: i64, %scale: f32, %input: buffer, %output: buffer) {
+  %uniform = scalar.trunci %uniform_bits : i64 to i32
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 16} : buffer
+  %bytes = buffer.view %aligned[%base] : buffer -> view<16xi8>
+  %halves = buffer.view %aligned[%base] : buffer -> view<8xi16>
+  %words = buffer.view %aligned[%base] : buffer -> view<4xi32>
+  %result = buffer.view %output[%base] : buffer -> view<32xf32>
+  %byte = scalar.trunci %uniform : i32 to i8
+  %half = scalar.trunci %uniform : i32 to i16
+  %signed_word = scalar.sitofp %uniform : i32 to f32
+  %unsigned_word = scalar.uitofp %uniform : i32 to f32
+  %signed_byte = scalar.sitofp %byte : i8 to f32
+  %unsigned_byte = scalar.uitofp %byte : i8 to f32
+  %signed_half = scalar.sitofp %half : i16 to f32
+  %unsigned_half = scalar.uitofp %half : i16 to f32
+  view.store %signed_word, %result[0] : f32, view<32xf32>
+  view.store %unsigned_word, %result[1] : f32, view<32xf32>
+  view.store %signed_byte, %result[2] : f32, view<32xf32>
+  view.store %unsigned_byte, %result[3] : f32, view<32xf32>
+  view.store %signed_half, %result[4] : f32, view<32xf32>
+  view.store %unsigned_half, %result[5] : f32, view<32xf32>
+  %loaded = view.load %bytes[0] : view<16xi8> -> i8
+  %loaded_float = scalar.sitofp %loaded : i8 to f32
+  view.store %loaded_float, %result[6] : f32, view<32xf32>
+  %bytes4 = vector.load %bytes[0] : view<16xi8> -> vector<4xi8>
+  %bytes8 = vector.load %bytes[0] : view<16xi8> -> vector<8xi8>
+  %halves2 = vector.load %halves[0] : view<8xi16> -> vector<2xi16>
+  %words2 = vector.load %words[0] : view<4xi32> -> vector<2xi32>
+  %signed_bytes4 = vector.sitofp %bytes4 : vector<4xi8> to vector<4xf32>
+  %unsigned_bytes4 = vector.uitofp %bytes4 : vector<4xi8> to vector<4xf32>
+  %unsigned_bytes8 = vector.uitofp %bytes8 : vector<8xi8> to vector<8xf32>
+  %signed_halves2 = vector.sitofp %halves2 : vector<2xi16> to vector<2xf32>
+  %unsigned_halves2 = vector.uitofp %halves2 : vector<2xi16> to vector<2xf32>
+  %signed_words2 = vector.sitofp %words2 : vector<2xi32> to vector<2xf32>
+  %unsigned_words2 = vector.uitofp %words2 : vector<2xi32> to vector<2xf32>
+  %scales = vector.splat %scale : vector<2xf32>
+  %scaled = vector.mulf %signed_words2, %scales : vector<2xf32>
+  vector.store %signed_bytes4, %result[8] : vector<4xf32>, view<32xf32>
+  vector.store %unsigned_bytes4, %result[12] : vector<4xf32>, view<32xf32>
+  vector.store %unsigned_bytes8, %result[16] : vector<8xf32>, view<32xf32>
+  vector.store %signed_halves2, %result[24] : vector<2xf32>, view<32xf32>
+  vector.store %unsigned_halves2, %result[26] : vector<2xf32>, view<32xf32>
+  vector.store %scaled, %result[28] : vector<2xf32>, view<32xf32>
+  vector.store %unsigned_words2, %result[30] : vector<2xf32>, view<32xf32>
+  kernel.return
+}
+
+func.def @integer_floating_shapes_oracle(%uniform_bits: i64, %scale: f32, %input: buffer, %output: buffer) {
+  %uniform = scalar.trunci %uniform_bits : i64 to i32
+  %base = index.constant 0 : offset
+  %bytes = buffer.view %input[%base] : buffer -> view<16xi8>
+  %halves = buffer.view %input[%base] : buffer -> view<8xi16>
+  %words = buffer.view %input[%base] : buffer -> view<4xi32>
+  %result = buffer.view %output[%base] : buffer -> view<32xf32>
+  %byte = scalar.trunci %uniform : i32 to i8
+  %half = scalar.trunci %uniform : i32 to i16
+  %signed_word = scalar.sitofp %uniform : i32 to f32
+  %unsigned_word = scalar.uitofp %uniform : i32 to f32
+  %signed_byte = scalar.sitofp %byte : i8 to f32
+  %unsigned_byte = scalar.uitofp %byte : i8 to f32
+  %signed_half = scalar.sitofp %half : i16 to f32
+  %unsigned_half = scalar.uitofp %half : i16 to f32
+  view.store %signed_word, %result[0] : f32, view<32xf32>
+  view.store %unsigned_word, %result[1] : f32, view<32xf32>
+  view.store %signed_byte, %result[2] : f32, view<32xf32>
+  view.store %unsigned_byte, %result[3] : f32, view<32xf32>
+  view.store %signed_half, %result[4] : f32, view<32xf32>
+  view.store %unsigned_half, %result[5] : f32, view<32xf32>
+  %loaded = view.load %bytes[0] : view<16xi8> -> i8
+  %loaded_float = scalar.sitofp %loaded : i8 to f32
+  view.store %loaded_float, %result[6] : f32, view<32xf32>
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %c8 = index.constant 8 : index
+  %c12 = index.constant 12 : index
+  %c16 = index.constant 16 : index
+  %c24 = index.constant 24 : index
+  %c26 = index.constant 26 : index
+  %c28 = index.constant 28 : index
+  %c30 = index.constant 30 : index
+  scf.for %i = [%begin to %end step %step] {
+    %byte = view.load %bytes[%i] : view<16xi8> -> i8
+    %unsigned = scalar.uitofp %byte : i8 to f32
+    %wide_position = index.add %i, %c16 : index
+    view.store %unsigned, %result[%wide_position] : f32, view<32xf32>
+    %below4 = index.cmp ult, %i, %c4 : index
+    scf.if %below4 {
+      %signed = scalar.sitofp %byte : i8 to f32
+      %signed_position = index.add %i, %c8 : index
+      %unsigned_position = index.add %i, %c12 : index
+      view.store %signed, %result[%signed_position] : f32, view<32xf32>
+      view.store %unsigned, %result[%unsigned_position] : f32, view<32xf32>
+    }
+    %below2 = index.cmp ult, %i, %c2 : index
+    scf.if %below2 {
+      %half = view.load %halves[%i] : view<8xi16> -> i16
+      %word = view.load %words[%i] : view<4xi32> -> i32
+      %signed_half = scalar.sitofp %half : i16 to f32
+      %unsigned_half = scalar.uitofp %half : i16 to f32
+      %signed_word = scalar.sitofp %word : i32 to f32
+      %unsigned_word = scalar.uitofp %word : i32 to f32
+      %scaled = scalar.mulf %signed_word, %scale : f32
+      %half_signed_position = index.add %i, %c24 : index
+      %half_unsigned_position = index.add %i, %c26 : index
+      %word_signed_position = index.add %i, %c28 : index
+      %word_unsigned_position = index.add %i, %c30 : index
+      view.store %signed_half, %result[%half_signed_position] : f32, view<32xf32>
+      view.store %unsigned_half, %result[%half_unsigned_position] : f32, view<32xf32>
+      view.store %scaled, %result[%word_signed_position] : f32, view<32xf32>
+      view.store %unsigned_word, %result[%word_unsigned_position] : f32, view<32xf32>
+    }
+  }
+  func.return
+}
+
+check.scenario @integer_floating_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %uniform = check.literal value(-2147483648) : i64
+    %scale = check.literal value(1.5) : f32
+    %input = check.generate.iota offset(16777215) step(1) : tensor<4xi32>
+    %storage = check.generate.fill value(-123.0) : tensor<40xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<40xf32> -> tensor<32xf32>
+    check.compare<@integer_floating_shapes, @integer_floating_shapes_oracle>(%uniform, %scale, %input, %output) : (i64, f32, tensor<4xi32>, tensor<32xf32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<40xf32>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %uniform_entropy = check.entropy.fork %entropy name("uniform") : check.entropy
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %uniform = check.entropy.read %uniform_entropy[%trial] : check.entropy -> i64
+    %scale = check.literal value(-0.5) : f32
+    %input = check.generate.random.uniform seed(%seed) range(-2147483648 to 2147483647) : tensor<4xi32>
+    %storage = check.generate.fill value(-123.0) : tensor<40xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<40xf32> -> tensor<32xf32>
+    check.compare<@integer_floating_shapes, @integer_floating_shapes_oracle>(%uniform, %scale, %input, %output) : (i64, f32, tensor<4xi32>, tensor<32xf32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<40xf32>
+    }
+  }
+  check.return
+}
+
+// All float-to-integer inputs are finite and within the destination range.
+// Narrow results use fractional values around zero and both signed boundaries;
+// wide results separately exercise the full signed and unsigned i32 domains.
+kernel.def @floating_integer_shapes() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %wide_input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 16} : buffer
+  %source = buffer.view %aligned[%base] : buffer -> view<8xf32>
+  %wide_source = buffer.view %wide_input[%base] : buffer -> view<4xf32>
+  %bytes = buffer.view %output[%base] : buffer -> view<30xi8>
+  %half_base = index.constant 32 : offset
+  %word_base = index.constant 40 : offset
+  %scalar_half_base = index.constant 72 : offset
+  %scalar_word_base = index.constant 76 : offset
+  %halves = buffer.view %output[%half_base] : buffer -> view<4xi16>
+  %words = buffer.view %output[%word_base] : buffer -> view<8xi32>
+  %scalar_halves = buffer.view %output[%scalar_half_base] : buffer -> view<2xi16>
+  %scalar_words = buffer.view %output[%scalar_word_base] : buffer -> view<2xi32>
+  %values8 = vector.load %source[0] : view<8xf32> -> vector<8xf32>
+  %values4 = vector.load %source[0] : view<8xf32> -> vector<4xf32>
+  %values3 = vector.load %source[0] : view<8xf32> -> vector<3xf32>
+  %values2 = vector.load %source[0] : view<8xf32> -> vector<2xf32>
+  %bias8 = vector.constant 128.0 : vector<8xf32>
+  %bias4 = vector.constant 128.0 : vector<4xf32>
+  %bias2 = vector.constant 128.0 : vector<2xf32>
+  %signed8 = vector.subf %values8, %bias8 : vector<8xf32>
+  %signed4 = vector.subf %values4, %bias4 : vector<4xf32>
+  %signed2 = vector.subf %values2, %bias2 : vector<2xf32>
+  %s8 = vector.fptosi %signed8 : vector<8xf32> to vector<8xi8>
+  %u8 = vector.fptoui %values8 : vector<8xf32> to vector<8xi8>
+  %s4 = vector.fptosi %signed4 : vector<4xf32> to vector<4xi8>
+  %u4 = vector.fptoui %values4 : vector<4xf32> to vector<4xi8>
+  %u3 = vector.fptoui %values3 : vector<3xf32> to vector<3xi8>
+  %s2 = vector.fptosi %signed2 : vector<2xf32> to vector<2xi16>
+  %u2 = vector.fptoui %values2 : vector<2xf32> to vector<2xi16>
+  vector.store %s8, %bytes[0] : vector<8xi8>, view<30xi8>
+  vector.store %u8, %bytes[8] : vector<8xi8>, view<30xi8>
+  vector.store %s4, %bytes[16] : vector<4xi8>, view<30xi8>
+  vector.store %u4, %bytes[20] : vector<4xi8>, view<30xi8>
+  vector.store %u3, %bytes[24] : vector<3xi8>, view<30xi8>
+  vector.store %s2, %halves[0] : vector<2xi16>, view<4xi16>
+  vector.store %u2, %halves[2] : vector<2xi16>, view<4xi16>
+  %wide_values = vector.load %wide_source[0] : view<4xf32> -> vector<4xf32>
+  %wide_bias = vector.constant 2147483648.0 : vector<4xf32>
+  %wide_signed = vector.subf %wide_values, %wide_bias : vector<4xf32>
+  %signed_words = vector.fptosi %wide_signed : vector<4xf32> to vector<4xi32>
+  %unsigned_words = vector.fptoui %wide_values : vector<4xf32> to vector<4xi32>
+  vector.store %signed_words, %words[0] : vector<4xi32>, view<8xi32>
+  vector.store %unsigned_words, %words[4] : vector<4xi32>, view<8xi32>
+  %scalar = view.load %source[0] : view<8xf32> -> f32
+  %bias = scalar.constant 128.0 : f32
+  %negative = scalar.subf %scalar, %bias : f32
+  %signed_byte = scalar.fptosi %negative : f32 to i8
+  %unsigned_byte = scalar.fptoui %scalar : f32 to i8
+  %signed_half = scalar.fptosi %negative : f32 to i16
+  %unsigned_half = scalar.fptoui %scalar : f32 to i16
+  %wide_scalar = view.load %wide_source[0] : view<4xf32> -> f32
+  %scalar_bias = scalar.constant 2147483648.0 : f32
+  %signed_scalar = scalar.subf %wide_scalar, %scalar_bias : f32
+  %signed_word = scalar.fptosi %signed_scalar : f32 to i32
+  %unsigned_word = scalar.fptoui %wide_scalar : f32 to i32
+  view.store %signed_byte, %bytes[28] : i8, view<30xi8>
+  view.store %unsigned_byte, %bytes[29] : i8, view<30xi8>
+  view.store %signed_half, %scalar_halves[0] : i16, view<2xi16>
+  view.store %unsigned_half, %scalar_halves[1] : i16, view<2xi16>
+  view.store %signed_word, %scalar_words[0] : i32, view<2xi32>
+  view.store %unsigned_word, %scalar_words[1] : i32, view<2xi32>
+  kernel.return
+}
+
+func.def @floating_integer_shapes_oracle(%input: buffer, %wide_input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<8xf32>
+  %wide_source = buffer.view %wide_input[%base] : buffer -> view<4xf32>
+  %bytes = buffer.view %output[%base] : buffer -> view<30xi8>
+  %half_base = index.constant 32 : offset
+  %word_base = index.constant 40 : offset
+  %scalar_half_base = index.constant 72 : offset
+  %scalar_word_base = index.constant 76 : offset
+  %halves = buffer.view %output[%half_base] : buffer -> view<4xi16>
+  %words = buffer.view %output[%word_base] : buffer -> view<8xi32>
+  %scalar_halves = buffer.view %output[%scalar_half_base] : buffer -> view<2xi16>
+  %scalar_words = buffer.view %output[%scalar_word_base] : buffer -> view<2xi32>
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c3 = index.constant 3 : index
+  %c4 = index.constant 4 : index
+  %c8 = index.constant 8 : index
+  %c16 = index.constant 16 : index
+  %c20 = index.constant 20 : index
+  %c24 = index.constant 24 : index
+  %bias = scalar.constant 128.0 : f32
+  %wide_bias = scalar.constant 2147483648.0 : f32
+  scf.for %i = [%begin to %end step %step] {
+    %value = view.load %source[%i] : view<8xf32> -> f32
+    %negative = scalar.subf %value, %bias : f32
+    %signed_byte = scalar.fptosi %negative : f32 to i8
+    %unsigned_byte = scalar.fptoui %value : f32 to i8
+    %unsigned_position = index.add %i, %c8 : index
+    view.store %signed_byte, %bytes[%i] : i8, view<30xi8>
+    view.store %unsigned_byte, %bytes[%unsigned_position] : i8, view<30xi8>
+    %below4 = index.cmp ult, %i, %c4 : index
+    scf.if %below4 {
+      %signed_position = index.add %i, %c16 : index
+      %unsigned_position = index.add %i, %c20 : index
+      view.store %signed_byte, %bytes[%signed_position] : i8, view<30xi8>
+      view.store %unsigned_byte, %bytes[%unsigned_position] : i8, view<30xi8>
+      %wide_value = view.load %wide_source[%i] : view<4xf32> -> f32
+      %wide_signed = scalar.subf %wide_value, %wide_bias : f32
+      %signed_word = scalar.fptosi %wide_signed : f32 to i32
+      %unsigned_word = scalar.fptoui %wide_value : f32 to i32
+      %unsigned_word_position = index.add %i, %c4 : index
+      view.store %signed_word, %words[%i] : i32, view<8xi32>
+      view.store %unsigned_word, %words[%unsigned_word_position] : i32, view<8xi32>
+    }
+    %below3 = index.cmp ult, %i, %c3 : index
+    scf.if %below3 {
+      %position = index.add %i, %c24 : index
+      view.store %unsigned_byte, %bytes[%position] : i8, view<30xi8>
+    }
+    %below2 = index.cmp ult, %i, %c2 : index
+    scf.if %below2 {
+      %signed_half = scalar.fptosi %negative : f32 to i16
+      %unsigned_half = scalar.fptoui %value : f32 to i16
+      %unsigned_half_position = index.add %i, %c2 : index
+      view.store %signed_half, %halves[%i] : i16, view<4xi16>
+      view.store %unsigned_half, %halves[%unsigned_half_position] : i16, view<4xi16>
+    }
+  }
+  %scalar = view.load %source[0] : view<8xf32> -> f32
+  %negative = scalar.subf %scalar, %bias : f32
+  %signed_byte = scalar.fptosi %negative : f32 to i8
+  %unsigned_byte = scalar.fptoui %scalar : f32 to i8
+  %signed_half = scalar.fptosi %negative : f32 to i16
+  %unsigned_half = scalar.fptoui %scalar : f32 to i16
+  %wide_scalar = view.load %wide_source[0] : view<4xf32> -> f32
+  %signed_scalar = scalar.subf %wide_scalar, %wide_bias : f32
+  %signed_word = scalar.fptosi %signed_scalar : f32 to i32
+  %unsigned_word = scalar.fptoui %wide_scalar : f32 to i32
+  view.store %signed_byte, %bytes[28] : i8, view<30xi8>
+  view.store %unsigned_byte, %bytes[29] : i8, view<30xi8>
+  view.store %signed_half, %scalar_halves[0] : i16, view<2xi16>
+  view.store %unsigned_half, %scalar_halves[1] : i16, view<2xi16>
+  view.store %signed_word, %scalar_words[0] : i32, view<2xi32>
+  view.store %unsigned_word, %scalar_words[1] : i32, view<2xi32>
+  func.return
+}
+
+check.scenario @floating_integer_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(0.75) step(36.375) : tensor<8xf32>
+    %wide_input = check.generate.iota offset(0.0) step(1431655680.0) : tensor<4xf32>
+    %storage = check.generate.fill value(-123) : tensor<116xi8>
+    %output = check.tensor.view %storage offset(16) : tensor<116xi8> -> tensor<84xi8>
+    check.compare<@floating_integer_shapes, @floating_integer_shapes_oracle>(%input, %wide_input, %output) : (tensor<8xf32>, tensor<4xf32>, tensor<84xi8>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<116xi8>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %wide_entropy = check.entropy.fork %entropy name("wide") : check.entropy
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %wide_seed = check.entropy.read %wide_entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(0.0 to 255.75) : tensor<8xf32>
+    %wide_input = check.generate.random.uniform seed(%wide_seed) range(0.0 to 4294967040.0) : tensor<4xf32>
+    %storage = check.generate.fill value(-123) : tensor<116xi8>
+    %output = check.tensor.view %storage offset(16) : tensor<116xi8> -> tensor<84xi8>
+    check.compare<@floating_integer_shapes, @floating_integer_shapes_oracle>(%input, %wide_input, %output) : (tensor<8xf32>, tensor<4xf32>, tensor<84xi8>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<116xi8>
+    }
+  }
+  check.return
+}

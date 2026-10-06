@@ -199,7 +199,8 @@ static const loom_numeric_format_info_t
                                      LOOM_NUMERIC_FORMAT_KIND_FLOAT,
                                      LOOM_NUMERIC_FLOAT_FAMILY_F8_E8M0, 8, 8, 0,
                                      LOOM_SCALAR_TYPE_NONE,
-                                     LOOM_NUMERIC_FORMAT_FLAG_FINITE_ONLY),
+                                     LOOM_NUMERIC_FORMAT_FLAG_HAS_NAN |
+                                         LOOM_NUMERIC_FORMAT_FLAG_FINITE_ONLY),
         LOOM_NUMERIC_FORMAT_INFO_ROW(
             29, LOOM_VALUE_FACT_NUMERIC_FORMAT_BF8,
             LOOM_NUMERIC_FORMAT_KIND_FLOAT, LOOM_NUMERIC_FLOAT_FAMILY_BF8, 8, 5,

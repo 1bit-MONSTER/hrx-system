@@ -47,19 +47,6 @@ static iree_status_t loom_symbol_value_predicate_const_arg(
   return iree_ok_status();
 }
 
-static bool loom_symbol_value_is_multiple_of(int64_t value, int64_t divisor) {
-  if (divisor == 0) {
-    return false;
-  }
-  if (divisor == INT64_MIN) {
-    return value == 0 || value == INT64_MIN;
-  }
-  if (divisor < 0) {
-    divisor = -divisor;
-  }
-  return value % divisor == 0;
-}
-
 static bool loom_symbol_value_is_power_of_two(int64_t value) {
   return value > 0 && (value & (value - 1)) == 0;
 }
@@ -115,10 +102,39 @@ static iree_status_t loom_symbol_value_predicate_satisfied(
       *out_satisfied = value >= constant;
       return iree_ok_status();
     }
+    case LOOM_PREDICATE_ULT: {
+      IREE_RETURN_IF_ERROR(
+          loom_symbol_value_predicate_const_arg(predicate, 1, &constant));
+      *out_satisfied = (uint64_t)value < (uint64_t)constant;
+      return iree_ok_status();
+    }
+    case LOOM_PREDICATE_ULE: {
+      IREE_RETURN_IF_ERROR(
+          loom_symbol_value_predicate_const_arg(predicate, 1, &constant));
+      *out_satisfied = (uint64_t)value <= (uint64_t)constant;
+      return iree_ok_status();
+    }
+    case LOOM_PREDICATE_UGT: {
+      IREE_RETURN_IF_ERROR(
+          loom_symbol_value_predicate_const_arg(predicate, 1, &constant));
+      *out_satisfied = (uint64_t)value > (uint64_t)constant;
+      return iree_ok_status();
+    }
+    case LOOM_PREDICATE_UGE: {
+      IREE_RETURN_IF_ERROR(
+          loom_symbol_value_predicate_const_arg(predicate, 1, &constant));
+      *out_satisfied = (uint64_t)value >= (uint64_t)constant;
+      return iree_ok_status();
+    }
     case LOOM_PREDICATE_MUL: {
       IREE_RETURN_IF_ERROR(
           loom_symbol_value_predicate_const_arg(predicate, 1, &constant));
-      *out_satisfied = loom_symbol_value_is_multiple_of(value, constant);
+      if (constant <= 0) {
+        return iree_make_status(
+            IREE_STATUS_INVALID_ARGUMENT,
+            "symbol value constraint 'mul' requires a positive divisor");
+      }
+      *out_satisfied = value % constant == 0;
       return iree_ok_status();
     }
     case LOOM_PREDICATE_MIN: {

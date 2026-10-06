@@ -16,6 +16,7 @@ loom_generated_cc_library(
     loom::py::loom::gen::ops::c_tables_low_generator
   SRCS
     "canonicalize.c"
+    "capture.c"
     "facts.c"
     "kernel.c"
     "schedule_scope.c"
@@ -29,6 +30,7 @@ loom_generated_cc_library(
     "builders.c"
     "tables.c"
   HDRS
+    "capture.h"
     "kernel.h"
     "ops.h"
     "schedule_scope.h"

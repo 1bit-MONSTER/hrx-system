@@ -840,10 +840,14 @@ TEST_F(EncodingStorageTest, InternExactComposedStorageSummary) {
       module, storage_encoding_id, &decoded_schema));
   EXPECT_EQ(decoded_schema.static_spec_encoding_id, schema_encoding_id);
 
-  uint16_t duplicate_encoding_id = 0;
-  IREE_ASSERT_OK(loom_encoding_intern_exact_summary(module, &summary,
-                                                    &duplicate_encoding_id));
-  EXPECT_EQ(duplicate_encoding_id, storage_encoding_id);
+  const iree_host_size_t retained_bytes = module->arena.used_allocation_size;
+  for (int i = 0; i < 8; ++i) {
+    uint16_t duplicate_encoding_id = 0;
+    IREE_ASSERT_OK(loom_encoding_intern_exact_summary(module, &summary,
+                                                      &duplicate_encoding_id));
+    EXPECT_EQ(duplicate_encoding_id, storage_encoding_id);
+    EXPECT_EQ(module->arena.used_allocation_size, retained_bytes);
+  }
   loom_module_free(module);
 }
 

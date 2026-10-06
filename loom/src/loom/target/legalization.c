@@ -167,6 +167,7 @@ static void loom_target_legalizer_registry_fill_entries(
                 source_rule->first_operand_element_types,
             .provider_name = provider->name,
             .provider_strategy = provider->strategy,
+            .match = source_rule->match,
             .legalize = source_rule->legalize,
         };
       }

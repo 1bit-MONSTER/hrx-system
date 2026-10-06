@@ -51,16 +51,16 @@
 #include "loom/target/arch/spirv/check/provider.h"
 #endif  // LOOM_CHECK_HAVE_TARGET_SPIRV
 #if LOOM_CHECK_HAVE_EMIT_SPIRV
-#include "loom/target/emit/spirv/check/provider.h"
+#include "loom/tooling/target/spirv/check/provider.h"
 #endif  // LOOM_CHECK_HAVE_EMIT_SPIRV
 #if LOOM_CHECK_HAVE_TARGET_WASM
 #include "loom/target/arch/wasm/check/provider.h"
 #endif  // LOOM_CHECK_HAVE_TARGET_WASM
 #if LOOM_CHECK_HAVE_TARGET_VM
-#include "loom/target/arch/vm/check.h"
+#include "loom/tooling/target/vm/check.h"
 #endif  // LOOM_CHECK_HAVE_TARGET_VM
 #if LOOM_CHECK_HAVE_EMIT_WASM
-#include "loom/target/emit/wasm/check/provider.h"
+#include "loom/tooling/target/wasm/check/provider.h"
 #endif  // LOOM_CHECK_HAVE_EMIT_WASM
 #if LOOM_CHECK_HAVE_TARGET_X86
 #include "loom/target/arch/x86/check/provider.h"

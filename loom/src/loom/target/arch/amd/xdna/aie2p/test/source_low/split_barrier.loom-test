@@ -1,0 +1,11 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/split_barrier.loom-test
+// RUN: emit source-low target=amd.xdna.aie2p:core output=none
+
+func.def @split_workgroup_barrier(%value: i32) -> (i32) {
+  // ERROR@+1: TARGET/032 {op_name="kernel.barrier.arrive", op_constraint="target_contract.kernel_synchronization.provider_required"}
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  %doubled = scalar.addi %value, %value : i32
+  // ERROR@+1: TARGET/032 {op_name="kernel.barrier.wait", op_constraint="target_contract.kernel_synchronization.provider_required"}
+  kernel.barrier.wait %phase : kernel.barrier.phase
+  func.return %doubled : i32
+}

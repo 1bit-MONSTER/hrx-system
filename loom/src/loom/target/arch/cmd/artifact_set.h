@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Complete in-memory products for prepared portable command programs.
+// Complete in-memory products for planned portable command programs.
 
 #ifndef LOOM_TARGET_ARCH_CMD_ARTIFACT_SET_H_
 #define LOOM_TARGET_ARCH_CMD_ARTIFACT_SET_H_

@@ -29,6 +29,8 @@ typedef struct loom_low_lower_rule_source_memory_state_t {
   bool plan_available;
   // Caller-owned storage receiving the canonical source-memory plan.
   loom_low_source_memory_access_plan_t* access_plan;
+  // Shared preselection's immutable source plan, or NULL in read-only legality.
+  const loom_low_source_memory_access_plan_t* retained_access;
   // Exact source-access rejection facts when planning did not succeed.
   loom_low_source_memory_access_diagnostic_t diagnostic;
 } loom_low_lower_rule_source_memory_state_t;
@@ -67,6 +69,7 @@ bool loom_low_lower_rule_source_memory_matches(
     const loom_low_lower_source_memory_t* source_memory,
     const loom_low_lower_source_memory_diagnostics_t* diagnostics,
     const loom_low_source_memory_access_plan_t* source_memory_access,
+    loom_low_source_memory_access_rejection_flags_t access_rejection_bits,
     uint16_t* out_diagnostic_index);
 
 // Matches every source-memory emit attached to |rule|.
@@ -76,10 +79,31 @@ loom_low_lower_rule_source_memory_emits_match(
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
     const loom_low_lower_rule_t* rule);
 
+// Resolves one canonical dynamic address term in the descriptor-declared byte
+// arithmetic carrier. Fixed-width source integers use the selected memory
+// contract's numeric conversion before the term is consumed directly by a
+// target descriptor.
+iree_status_t loom_low_lower_rule_materialize_source_memory_dynamic_term(
+    loom_low_lower_context_t* context,
+    const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
+    const loom_low_lower_source_memory_t* source_memory,
+    const loom_low_source_memory_access_plan_t* source_memory_access,
+    uint8_t term_ordinal, loom_value_id_t* out_value_id);
+
 // Materializes the canonical dynamic byte offset selected by a source-memory
 // plan in the descriptor-declared carrier. Wider source terms are projected
 // before arithmetic; the selected memory contract owns the address range proof.
 iree_status_t loom_low_lower_rule_materialize_source_memory_byte_offset(
+    loom_low_lower_context_t* context,
+    const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
+    const loom_low_lower_source_memory_t* source_memory,
+    const loom_low_source_memory_access_plan_t* source_memory_access,
+    loom_value_id_t* out_value_id);
+
+// Materializes the complete byte offset, including the static bias selected by
+// the source-memory plan, in the descriptor-declared carrier.
+iree_status_t
+loom_low_lower_rule_materialize_source_memory_complete_byte_offset(
     loom_low_lower_context_t* context,
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
     const loom_low_lower_source_memory_t* source_memory,

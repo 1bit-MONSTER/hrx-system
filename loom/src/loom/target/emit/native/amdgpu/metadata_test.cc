@@ -382,7 +382,7 @@ TEST(AmdgpuMetadataTest, AppendsCanonicalMsgpackMapOrder) {
                                   "amdhsa.version"});
 }
 
-TEST(AmdgpuMetadataTest, AppendsElfNoteMetadata) {
+TEST(AmdgpuMetadataTest, BuildsElfNoteMetadata) {
   loom_amdgpu_metadata_kernel_t kernel = MinimalKernel();
   loom_amdgpu_code_object_metadata_t metadata = MetadataForKernel(&kernel);
 
@@ -393,12 +393,11 @@ TEST(AmdgpuMetadataTest, AppendsElfNoteMetadata) {
   std::string payload = BuilderString(payload_builder);
   iree_string_builder_deinitialize(&payload_builder);
 
-  iree_string_builder_t note_builder;
-  iree_string_builder_initialize(iree_allocator_system(), &note_builder);
-  IREE_ASSERT_OK(
-      loom_amdgpu_metadata_append_elf_note(&metadata, &note_builder));
-  std::string note = BuilderString(note_builder);
-  iree_string_builder_deinitialize(&note_builder);
+  TestArena arena;
+  iree_const_byte_span_t note_span = iree_const_byte_span_empty();
+  IREE_ASSERT_OK(loom_amdgpu_metadata_build_elf_note(&metadata, &note_span,
+                                                     arena.arena()));
+  std::string note((const char*)note_span.data, note_span.data_length);
 
   const char note_name[] = {'A', 'M', 'D', 'G', 'P', 'U', '\0'};
   constexpr size_t kHeaderSize = 12;
@@ -426,12 +425,11 @@ TEST(AmdgpuMetadataTest, WritesElfEnvelopeContainingMetadataNote) {
   loom_amdgpu_metadata_kernel_t kernel = MinimalKernel();
   loom_amdgpu_code_object_metadata_t metadata = MetadataForKernel(&kernel);
 
-  iree_string_builder_t note_builder;
-  iree_string_builder_initialize(iree_allocator_system(), &note_builder);
-  IREE_ASSERT_OK(
-      loom_amdgpu_metadata_append_elf_note(&metadata, &note_builder));
-  std::string note = BuilderString(note_builder);
-  iree_string_builder_deinitialize(&note_builder);
+  TestArena note_arena;
+  iree_const_byte_span_t note_span = iree_const_byte_span_empty();
+  IREE_ASSERT_OK(loom_amdgpu_metadata_build_elf_note(&metadata, &note_span,
+                                                     note_arena.arena()));
+  std::string note((const char*)note_span.data, note_span.data_length);
 
   const loom_native_elf_section_t sections[] = {{
       /*.name=*/IREE_SV(".note"),

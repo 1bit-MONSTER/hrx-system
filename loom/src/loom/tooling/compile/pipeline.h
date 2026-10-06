@@ -31,6 +31,8 @@ extern "C" {
 #endif
 
 typedef struct loom_target_environment_t loom_target_environment_t;
+typedef struct loom_cleanup_pattern_provider_set_t
+    loom_cleanup_pattern_provider_set_t;
 
 typedef enum loom_compile_default_pipeline_e {
   // Build the shared source/kernel-to-target-low pipeline. This is useful for
@@ -52,9 +54,17 @@ typedef enum loom_compile_default_pipeline_e {
 
 typedef struct loom_compile_pipeline_options_t {
   // Pass pipeline spelling. Empty or "default" runs |default_pipeline|;
-  // "none" skips pass execution; "@symbol" runs a module-local pass.pipeline;
-  // otherwise the value is parsed as a comma-separated pass list.
+  // "none" skips pass execution; "@symbol" runs |named_pipeline|; otherwise
+  // the value is parsed as a comma-separated pass list.
   iree_string_view_t pipeline;
+  // Borrowed named pipeline definition selected before subject materialization.
+  // Both fields are required when |pipeline| names a symbol.
+  struct {
+    // Module owning |pipeline_op| and its transitive pass.call definitions.
+    loom_module_t* module;
+    // Selected pass.pipeline operation in |module|.
+    const loom_op_t* pipeline_op;
+  } named_pipeline;
   // Default pipeline used when |pipeline| is empty or "default".
   loom_compile_default_pipeline_t default_pipeline;
   // Options used when constructing the selected default target pipeline.
@@ -65,6 +75,8 @@ typedef struct loom_compile_pipeline_options_t {
   loom_target_specialization_request_list_t target_specializations;
   // Target-low descriptor registry package initialized for this session.
   const loom_target_low_descriptor_registry_t* low_descriptor_registry;
+  // Cleanup pattern providers linked into this compile front door.
+  const loom_cleanup_pattern_provider_set_t* cleanup_pattern_provider_set;
   // Diagnostic sink used by pass execution.
   loom_diagnostic_sink_t diagnostic_sink;
   // Source resolver used to render source-attributed diagnostics.
@@ -108,6 +120,9 @@ bool loom_compile_pipeline_is_disabled(iree_string_view_t pipeline);
 
 // Returns true when |pipeline| requests the configured default pipeline.
 bool loom_compile_pipeline_is_default(iree_string_view_t pipeline);
+
+// Returns true when |pipeline| names an authored pass.pipeline symbol.
+bool loom_compile_pipeline_is_named(iree_string_view_t pipeline);
 
 // Verifies authored input, then runs the selected compile pipeline on |module|.
 // Structural and target-Low verification precede specialization and all passes,

@@ -1,0 +1,19 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/predicate_select.loom-test
+// TEMPLATE-EXCLUDE: @predicate_select_partial Wasm SIMD predicates have four 32-bit lanes.
+// TEMPLATE-EXCLUDE: @predicate_select_crossing Wasm SIMD predicates have four 32-bit lanes.
+// TEMPLATE-EXCLUDE: @predicate_select_full Wasm SIMD predicates have four 32-bit lanes.
+// TEMPLATE-EXCLUDE: @predicate_select_partial_matrix Wasm SIMD predicates have four 32-bit lanes.
+// TEMPLATE-EXCLUDE: @predicate_select_full_matrix Wasm SIMD predicates have four 32-bit lanes.
+// TEMPLATE-EXCLUDE: @predicate_select_single Wasm SIMD predicates have four 32-bit lanes.
+// RUN: emit source-low target=wasm:simd128 output=low control-flow=structured-low
+
+func.def @predicate_select_four(%mask: vector<4xi1>, %true_value: vector<4xi1>, %false_value: vector<4xi1>) -> (vector<4xi1>) {
+  %selected = vector.select %mask, %true_value, %false_value : vector<4xi1>
+  func.return %selected : vector<4xi1>
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @predicate_select_four(%mask: reg<wasm.v128>, %true_value: reg<wasm.v128>, %false_value: reg<wasm.v128>) -> (reg<wasm.v128>) asm {
+  %selected = v128.bitselect %true_value, %false_value, %mask
+  return %selected
+}

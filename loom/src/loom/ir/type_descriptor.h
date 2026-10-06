@@ -57,6 +57,18 @@ typedef struct loom_type_format_element_t {
   uint16_t data;
 } loom_type_format_element_t;
 
+// Descriptor type optional groups use the high bit for polarity, the next
+// seven bits for the child count, and the low byte for the anchor parameter.
+#define LOOM_TYPE_FORMAT_OPTIONAL_INVERTED ((uint16_t)(1u << 15))
+#define LOOM_TYPE_FORMAT_OPTIONAL_DATA(skip_count, anchor_index, inverted) \
+  ((uint16_t)((((uint16_t)(skip_count) & 0x7Fu) << 8) |                    \
+              (uint16_t)(anchor_index) |                                   \
+              ((inverted) ? LOOM_TYPE_FORMAT_OPTIONAL_INVERTED : 0u)))
+#define LOOM_TYPE_FORMAT_OPTIONAL_SKIP_COUNT(data) \
+  ((uint16_t)(((data) >> 8) & 0x7Fu))
+#define LOOM_TYPE_FORMAT_OPTIONAL_IS_INVERTED(data) \
+  iree_any_bit_set((data), LOOM_TYPE_FORMAT_OPTIONAL_INVERTED)
+
 // External identity of an exact managed reference type. Names are nonempty,
 // NUL-free UTF-8 and independent of the type's source spelling. Providers bind
 // this identity to their native ownership implementation; compiler metadata

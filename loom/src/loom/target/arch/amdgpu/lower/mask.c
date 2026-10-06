@@ -36,14 +36,9 @@ static bool loom_amdgpu_select_vector_storage(
                        LOOM_AMDGPU_VECTOR_STORAGE_KIND_FLAG_SGPR_MASK)) {
     return false;
   }
-  const bool full_width_storage = iree_any_bit_set(
-      storage_flags,
-      LOOM_AMDGPU_VECTOR_STORAGE_KIND_FLAG_ANALYZE_REGISTER_BANK);
   const bool packed_payload_storage = iree_any_bit_set(
       storage_flags, LOOM_AMDGPU_VECTOR_STORAGE_KIND_FLAG_PACKED_PAYLOAD);
-  if (!full_width_storage && !packed_payload_storage) {
-    return false;
-  }
+  const bool full_width_storage = !packed_payload_storage;
   *out_full_width_storage = full_width_storage;
   *out_allows_lane_immediates =
       full_width_storage && out_storage->element_register_count == 1;
@@ -236,8 +231,11 @@ static bool loom_amdgpu_select_scalar_storage(
     *out_register_count = 2;
     return true;
   }
-  if (loom_amdgpu_type_is_i8(type) || loom_amdgpu_type_is_i16(type) ||
-      loom_amdgpu_type_is_f16_or_bf16(type)) {
+  if (loom_type_is_scalar(type) &&
+      loom_scalar_type_set_contains(LOOM_SCALAR_TYPE_SET_I8 |
+                                        LOOM_SCALAR_TYPE_SET_I16 |
+                                        LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+                                    loom_type_element_type(type))) {
     *out_register_count = 1;
     return true;
   }
@@ -475,9 +473,11 @@ iree_status_t loom_amdgpu_select_scf_select_plan(
   IREE_RETURN_IF_ERROR(loom_low_lower_map_value(context, source_op, condition,
                                                 &condition_low_type));
   loom_type_t result_low_type = loom_type_none();
-  IREE_RETURN_IF_ERROR(loom_amdgpu_low_result_type(context, source_op, result,
-                                                   &result_low_type));
-
+  IREE_RETURN_IF_ERROR(
+      loom_low_lower_map_value(context, source_op, result, &result_low_type));
+  if (!loom_low_type_is_register(result_low_type)) {
+    return iree_ok_status();
+  }
   if (loom_amdgpu_type_is_address_scalar(result_type)) {
     register_count = loom_low_register_type_unit_count(result_low_type);
     allows_lane_immediates = register_count == 1;
@@ -851,15 +851,15 @@ static iree_status_t loom_amdgpu_select_immediate_materialize_operand(
       IREE_RETURN_IF_ERROR(loom_amdgpu_slice_source_lane_if_needed(
           context, source_op, low_false_value, plan->lane_count, lane,
           lane_type, out_operand));
-      return loom_amdgpu_materialize_low_vgpr_b32(context, source_op,
-                                                  *out_operand, out_operand);
+      return loom_amdgpu_materialize_full_low_vgpr_b32(
+          context, source_op, *out_operand, out_operand);
     }
     case LOOM_AMDGPU_SELECT_IMMEDIATE_OPERAND_TRUE_LANE: {
       IREE_RETURN_IF_ERROR(loom_amdgpu_slice_source_lane_if_needed(
           context, source_op, low_true_value, plan->lane_count, lane, lane_type,
           out_operand));
-      return loom_amdgpu_materialize_low_vgpr_b32(context, source_op,
-                                                  *out_operand, out_operand);
+      return loom_amdgpu_materialize_full_low_vgpr_b32(
+          context, source_op, *out_operand, out_operand);
     }
   }
   IREE_ASSERT_UNREACHABLE("unknown AMDGPU select immediate operand kind");
@@ -927,7 +927,7 @@ static iree_status_t loom_amdgpu_emit_vector_select_immediate_lane(
     IREE_RETURN_IF_ERROR(loom_amdgpu_slice_source_lane_if_needed(
         context, source_op, low_true_value, plan->lane_count, lane, lane_type,
         out_result));
-    IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_low_vgpr_b32(
+    IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_full_low_vgpr_b32(
         context, source_op, *out_result, out_result));
     *out_emitted = true;
     return iree_ok_status();
@@ -1251,13 +1251,13 @@ static iree_status_t loom_amdgpu_lower_packed_select(
     IREE_RETURN_IF_ERROR(loom_amdgpu_slice_source_lane_if_needed(
         context, source_op, true_value, plan->lane_count, word, word_type,
         &true_word));
-    IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_low_vgpr_b32(
+    IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_full_low_vgpr_b32(
         context, source_op, true_word, &true_word));
     loom_value_id_t false_word = LOOM_VALUE_ID_INVALID;
     IREE_RETURN_IF_ERROR(loom_amdgpu_slice_source_lane_if_needed(
         context, source_op, false_value, plan->lane_count, word, word_type,
         &false_word));
-    IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_low_vgpr_b32(
+    IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_full_low_vgpr_b32(
         context, source_op, false_word, &false_word));
 
     const uint32_t first_element = word * elements_per_word;
@@ -1407,7 +1407,7 @@ iree_status_t loom_amdgpu_lower_select(
       IREE_RETURN_IF_ERROR(loom_amdgpu_slice_source_lane_if_needed(
           context, source_op, low_true_value, lane_count, i, lane_type,
           &lane_results[i]));
-      IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_low_vgpr_b32(
+      IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_full_low_vgpr_b32(
           context, source_op, lane_results[i], &lane_results[i]));
       continue;
     }
@@ -1416,13 +1416,13 @@ iree_status_t loom_amdgpu_lower_select(
     IREE_RETURN_IF_ERROR(loom_amdgpu_slice_source_lane_if_needed(
         context, source_op, low_true_value, lane_count, i, lane_type,
         &lane_true_value));
-    IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_low_vgpr_b32(
+    IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_full_low_vgpr_b32(
         context, source_op, lane_true_value, &lane_true_value));
     loom_value_id_t lane_false_value = LOOM_VALUE_ID_INVALID;
     IREE_RETURN_IF_ERROR(loom_amdgpu_slice_source_lane_if_needed(
         context, source_op, low_false_value, lane_count, i, lane_type,
         &lane_false_value));
-    IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_low_vgpr_b32(
+    IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_full_low_vgpr_b32(
         context, source_op, lane_false_value, &lane_false_value));
     if (lane_false_value == lane_true_value) {
       lane_results[i] = lane_true_value;

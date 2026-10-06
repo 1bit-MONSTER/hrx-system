@@ -154,8 +154,10 @@ typedef struct iree_benchmark_loom_benchmark_result_event_t {
   const loom_module_t* module;
   // Benchmark plan owning the result.
   const loom_testbench_benchmark_plan_t* benchmark_plan;
-  // Case plan referenced by |benchmark_plan|.
+  // Case plan referenced by |benchmark_plan|, or NULL for a scenario result.
   const loom_testbench_case_plan_t* case_plan;
+  // Scenario plan referenced by |benchmark_plan|, or NULL for a case result.
+  const loom_testbench_scenario_plan_t* scenario_plan;
   // Effective benchmark policy used by the measurement.
   const iree_benchmark_loom_benchmark_policy_t* policy;
   // Borrowed benchmark result payload.
@@ -369,6 +371,7 @@ iree_status_t iree_benchmark_loom_event_sink_emit_benchmark_result(
     iree_host_size_t work_item_index, const loom_module_t* module,
     const loom_testbench_benchmark_plan_t* benchmark_plan,
     const loom_testbench_case_plan_t* case_plan,
+    const loom_testbench_scenario_plan_t* scenario_plan,
     const iree_benchmark_loom_benchmark_policy_t* policy,
     const iree_benchmark_loom_benchmark_result_t* benchmark_result,
     iree_host_size_t correctness_sample_count,

@@ -14,6 +14,8 @@ iree_py_library(
     contracts
   SRCS
     "__init__.py"
+    "accumulator_structural.py"
+    "bfp.py"
     "conversion.py"
     "core.py"
     "core_contract.py"
@@ -33,9 +35,12 @@ iree_py_library(
     "reduction.py"
     "scalar_program.py"
     "structural.py"
+    "table.py"
   DEPS
     loom::py::loom::core
     loom::py::loom::dialect::buffer::buffer
+    loom::py::loom::dialect::encoding::encoding
+    loom::py::loom::dialect::globals::globals
     loom::py::loom::dialect::index::index
     loom::py::loom::dialect::scalar::scalar
     loom::py::loom::dialect::scf::scf
@@ -96,14 +101,18 @@ iree_py_test(
   MAIN
     "../../../../../../tools/pytest_style_runner.py"
   SRCS
+    "accumulator_structural_test.py"
     "core_test.py"
+    "floating_test.py"
     "i64_test.py"
     "integer_division_test.py"
     "nonlinear_test.py"
     "structural_test.py"
     "../../../../../../tools/pytest_style_runner.py"
   ARGS
+    "loom.target.arch.amd.xdna.aie2p.contracts.accumulator_structural_test"
     "loom.target.arch.amd.xdna.aie2p.contracts.core_test"
+    "loom.target.arch.amd.xdna.aie2p.contracts.floating_test"
     "loom.target.arch.amd.xdna.aie2p.contracts.i64_test"
     "loom.target.arch.amd.xdna.aie2p.contracts.integer_division_test"
     "loom.target.arch.amd.xdna.aie2p.contracts.nonlinear_test"
@@ -161,6 +170,8 @@ iree_py_test(
     "loom.target.arch.amd.xdna.aie2p.contracts.packet_memory_test"
   DEPS
     loom::py::loom::target::arch::amd::xdna::aie2p::contracts::contracts
+    loom::py::loom::core
+    loom::py::loom::dialect::encoding::encoding
     loom::py::loom::dialect::vector::vector
     loom::py::loom::dialect::view::view
     loom::py::loom::target::contracts::contracts

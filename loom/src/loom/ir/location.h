@@ -91,6 +91,9 @@ typedef struct loom_source_table_t {
   iree_host_size_t capacity;
   // Module-arena-owned source identifier entries.
   iree_string_view_t* entries;
+  // Lazy arena-owned name index. Its count identifies the indexed prefix of
+  // entries; trusted unique appends are incorporated by the next registration.
+  struct loom_intern_table_t* name_index;
 } loom_source_table_t;
 
 // Location kind.
@@ -143,7 +146,7 @@ typedef struct loom_location_field_span_t {
 static_assert(sizeof(loom_location_field_span_t) == 16,
               "loom_location_field_span_t must be 16 bytes");
 
-// A source location entry. 32 bytes. Tagged union.
+// A compact, pointer-width-dependent source location entry. Tagged union.
 //
 // The kind field determines which union variant is active. File locations (the
 // 90% case) use uint16_t line/column numbers, supporting up to 65K lines per
@@ -196,8 +199,8 @@ typedef struct loom_location_entry_t {
   };
 } loom_location_entry_t;
 
-static_assert(sizeof(loom_location_entry_t) == 32,
-              "loom_location_entry_t must be 32 bytes");
+static_assert(sizeof(loom_location_entry_t) == (IREE_PTR_SIZE == 8 ? 32 : 24),
+              "loom_location_entry_t must remain compact");
 
 // Number of rows in one stable location segment.
 #define LOOM_LOCATION_SEGMENT_CAPACITY 256u

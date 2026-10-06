@@ -78,3 +78,154 @@ func.def @negative_start_is_not_nonnegative(%output: buffer) {
 ^exit:
   func.return
 }
+
+// ====
+
+// RUN: pass vector-memory-footprint
+
+// A loaded next position is a true data recurrence. The initializer and exit
+// guard do not establish a range for every value returned by the load.
+func.def @load_dependent_position(%links: buffer, %output: buffer) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %base = index.constant 0 : offset
+  %link_index = index.constant 0 : index
+  %aligned_links = buffer.assume.alignment %links {minimum_alignment = 4} : buffer
+  %aligned_output = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %link_view = buffer.view %aligned_links[%base] : buffer -> view<1xi32>
+  %output_view = buffer.view %aligned_output[%base] : buffer -> view<4xi32>
+  cfg.br ^header(%begin: index)
+^header(%position: index):
+  %more = index.cmp slt, %position, %end : index
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  %value = index.cast %position : index to i32
+  // ERROR@+1: SUBRANGE/023
+  view.store %value, %output_view[%position] : i32, view<4xi32>
+  %next_i32 = view.load %link_view[%link_index] : view<1xi32> -> i32
+  %next = index.cast %next_i32 : i32 to index
+  cfg.br ^header(%next: index)
+^exit:
+  func.return
+}
+
+// ====
+
+// RUN: with-checks pass scf-to-cfg,vector-memory-footprint
+
+// The structured form must retain the fixed recurrence after SCF lowering.
+func.def @lowered_counted_position(%output: buffer) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %base = index.constant 0 : offset
+  %aligned_output = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %output_view = buffer.view %aligned_output[%base] : buffer -> view<4xi32>
+  %terminal = scf.while(%before = %begin : index) -> (index) {
+    %more = index.cmp slt, %before, %end : index
+    scf.condition %more, %before : i1, index
+  } do(%position: index) {
+    %value = index.cast %position : index to i32
+    view.store %value, %output_view[%position] : i32, view<4xi32>
+    %next = index.add %position, %step : index
+    scf.yield %next : index
+  }
+  func.return
+}
+
+// ----
+CHECK: func.def @lowered_counted_position*
+CHECK: cfg.cond_br %more, *
+CHECK: view.store %value, %output_view[%before] : i32, view<4xi32>
+CHECK-NOT: scf.while *
+
+// ====
+
+// RUN: pass scf-to-cfg,vector-memory-footprint
+
+// SCF lowering must not turn a loaded recurrence into a counted CFG loop.
+func.def @lowered_load_dependent_position(%links: buffer, %output: buffer) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %base = index.constant 0 : offset
+  %link_index = index.constant 0 : index
+  %aligned_links = buffer.assume.alignment %links {minimum_alignment = 4} : buffer
+  %aligned_output = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %link_view = buffer.view %aligned_links[%base] : buffer -> view<1xi32>
+  %output_view = buffer.view %aligned_output[%base] : buffer -> view<4xi32>
+  %terminal = scf.while(%before = %begin : index) -> (index) {
+    %more = index.cmp slt, %before, %end : index
+    scf.condition %more, %before : i1, index
+  } do(%position: index) {
+    %value = index.cast %position : index to i32
+    // ERROR@+1: SUBRANGE/023
+    view.store %value, %output_view[%position] : i32, view<4xi32>
+    %next_i32 = view.load %link_view[%link_index] : view<1xi32> -> i32
+    %next = index.cast %next_i32 : i32 to index
+    scf.yield %next : index
+  }
+  func.return
+}
+
+// ====
+
+// RUN: with-checks pass scf-to-cfg,vector-memory-footprint
+
+// The false header edge fixes the terminal value at the end bound. Proving a
+// one-element store at terminal - end exercises conditioned CFG facts after
+// the structured loop and its result forwarding have both been lowered.
+func.def @lowered_terminal_position(%output: buffer) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %base = index.constant 0 : offset
+  %aligned_output = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %output_view = buffer.view %aligned_output[%base] : buffer -> view<1xi32>
+  %terminal = scf.while(%before = %begin : index) -> (index) {
+    %more = index.cmp slt, %before, %end : index
+    scf.condition %more, %before : i1, index
+  } do(%position: index) {
+    %next = index.add %position, %step : index
+    scf.yield %next : index
+  }
+  %terminal_offset = index.sub %terminal, %end : index
+  %value = index.cast %terminal : index to i32
+  view.store %value, %output_view[%terminal_offset] : i32, view<1xi32>
+  func.return
+}
+
+// ----
+CHECK: func.def @lowered_terminal_position*
+CHECK: cfg.cond_br %more, *
+CHECK: view.store %value, %output_view[%terminal_offset] : i32, view<1xi32>
+CHECK-NOT: *scf.while *
+
+// ====
+
+// RUN: pass scf-to-cfg,vector-memory-footprint
+
+// The same false edge proves terminal - end is nonnegative for a loaded
+// recurrence, but it cannot prove the value is at most zero.
+func.def @lowered_loaded_terminal_position(%links: buffer, %output: buffer) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %base = index.constant 0 : offset
+  %link_index = index.constant 0 : index
+  %aligned_links = buffer.assume.alignment %links {minimum_alignment = 4} : buffer
+  %aligned_output = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %link_view = buffer.view %aligned_links[%base] : buffer -> view<1xi32>
+  %output_view = buffer.view %aligned_output[%base] : buffer -> view<1xi32>
+  %terminal = scf.while(%before = %begin : index) -> (index) {
+    %more = index.cmp slt, %before, %end : index
+    scf.condition %more, %before : i1, index
+  } do(%position: index) {
+    %next_i32 = view.load %link_view[%link_index] : view<1xi32> -> i32
+    %next = index.cast %next_i32 : i32 to index
+    scf.yield %next : index
+  }
+  %terminal_offset = index.sub %terminal, %end : index
+  %value = index.cast %terminal : index to i32
+  // ERROR@+1: SUBRANGE/024
+  view.store %value, %output_view[%terminal_offset] : i32, view<1xi32>
+  func.return
+}

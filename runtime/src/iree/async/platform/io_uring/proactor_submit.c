@@ -379,20 +379,18 @@ iree_async_span_query_fixed_buffer_send(
 // Uses IORING_OP_SEND[_ZC] for single-buffer sends, IORING_OP_SENDMSG[_ZC] for
 // scatter-gather (multiple buffers). Zero-copy variants are used when the
 // socket has IREE_ASYNC_SOCKET_OPTION_ZERO_COPY AND the capability is
-// available. ZERO_COPY is a socket-level hint ("use ZC if you can"), not a
-// requirement - sends fall back to regular SEND/SENDMSG on kernels < 6.0 that
-// lack ZC support.
+// available, unless the send suppresses the hint with NO_ZERO_COPY. Kernels
+// without ZC support use regular SEND/SENDMSG.
 static void iree_async_proactor_io_uring_fill_socket_send(
     iree_async_proactor_io_uring_t* proactor, iree_io_uring_sqe_t* sqe,
     iree_async_operation_t* base_operation) {
   iree_async_socket_send_operation_t* send =
       (iree_async_socket_send_operation_t*)base_operation;
 
-  // Zero-copy is determined by socket flags, not per-send flags.
-  // The socket flag is set at creation (from option) or import time.
-  // The kernel capability must also be available.
   bool zero_copy_requested =
-      iree_any_bit_set(send->socket->flags, IREE_ASYNC_SOCKET_FLAG_ZERO_COPY);
+      iree_any_bit_set(send->socket->flags, IREE_ASYNC_SOCKET_FLAG_ZERO_COPY) &&
+      !iree_any_bit_set(send->send_flags,
+                        IREE_ASYNC_SOCKET_SEND_FLAG_NO_ZERO_COPY);
   bool zero_copy_available = iree_any_bit_set(
       proactor->capabilities, IREE_ASYNC_PROACTOR_CAPABILITY_ZERO_COPY_SEND);
   bool use_zero_copy = zero_copy_requested && zero_copy_available;
@@ -476,9 +474,11 @@ static void iree_async_proactor_io_uring_fill_socket_sendto(
   // Clear output fields.
   sendto->bytes_sent = 0;
 
-  // Zero-copy is determined by socket flags, not per-send flags.
   bool zero_copy_requested =
-      iree_any_bit_set(sendto->socket->flags, IREE_ASYNC_SOCKET_FLAG_ZERO_COPY);
+      iree_any_bit_set(sendto->socket->flags,
+                       IREE_ASYNC_SOCKET_FLAG_ZERO_COPY) &&
+      !iree_any_bit_set(sendto->send_flags,
+                        IREE_ASYNC_SOCKET_SEND_FLAG_NO_ZERO_COPY);
   bool zero_copy_available = iree_any_bit_set(
       capabilities, IREE_ASYNC_PROACTOR_CAPABILITY_ZERO_COPY_SEND);
   bool use_zero_copy = zero_copy_requested && zero_copy_available;

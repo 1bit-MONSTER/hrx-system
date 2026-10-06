@@ -1,0 +1,48 @@
+func.def @exchange_biased_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
+  %signed_position = index.assume %position [range(%position, -4, 4)] : index
+  %center = index.constant 4 : index
+  %element = index.add %signed_position, %center : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
+  %previous = view.load %view[%element] : view<9xi32> -> i32
+  view.store %replacement, %view[%element] : i32, view<9xi32>
+  func.return %previous : i32
+}
+
+// ====
+func.def @exchange_nonnegative_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
+  %bounded_position = index.assume %position [range(%position, 0, 4)] : index
+  %center = index.constant 4 : index
+  %element = index.add %bounded_position, %center : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
+  %previous = view.load %view[%element] : view<9xi32> -> i32
+  view.store %replacement, %view[%element] : i32, view<9xi32>
+  func.return %previous : i32
+}
+
+// ====
+func.def @copy_biased_vector(%source: buffer, %destination: buffer, %position: index) {
+  %signed_position = index.assume %position [range(%position, -4, 4)] : index
+  %center = index.constant 4 : index
+  %element = index.add %signed_position, %center : index
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<12xi32>
+  %destination_view = buffer.view %destination[%base] : buffer -> view<12xi32>
+  %values = vector.load %source_view[%element] : view<12xi32> -> vector<4xi32>
+  vector.store %values, %destination_view[%element] : vector<4xi32>, view<12xi32>
+  func.return
+}
+
+// ====
+// The static contribution fits U32 but has its sign bit set in an i32 carrier.
+func.def @exchange_large_bias_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
+  %signed_position = index.assume %position [range(%position, -1073741820, -1073741812)] : index
+  %center = index.constant 1073741820 : index
+  %element = index.add %signed_position, %center : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
+  %previous = view.load %view[%element] : view<9xi32> -> i32
+  view.store %replacement, %view[%element] : i32, view<9xi32>
+  func.return %previous : i32
+}

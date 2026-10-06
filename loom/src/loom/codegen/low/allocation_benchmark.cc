@@ -10,17 +10,21 @@
 // separate untimed pass observes requested live memory and allocation traffic.
 
 #include <algorithm>
+#include <charconv>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "benchmark/benchmark.h"
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/liveness.h"
 #include "loom/codegen/low/allocation.h"
+#include "loom/codegen/low/allocation/unit_liveness.h"
 #include "loom/codegen/low/placement.h"
 #include "loom/codegen/low/text_asm.h"
 #include "loom/codegen/low/verify.h"
@@ -98,12 +102,48 @@ struct AllocationObserver {
   iree_allocator_t allocator() { return {this, Control}; }
 };
 
-enum class Shape { kLinear, kLoop, kBranch, kTied, kFanout };
-enum class Phase { kModel, kLiveness, kPlacement, kAllocation };
+enum class Shape {
+  kLinear,
+  kLoop,
+  kLoopRelocation,
+  kMoveScratch,
+  kBranch,
+  kTied,
+  kFanout
+};
+enum class Phase {
+  kModel,
+  kLiveness,
+  kPlacement,
+  kUnitLiveness,
+  kAllocation,
+};
 
 std::string MakeSource(uint32_t chain_length, uint32_t component_count,
                        uint32_t width, Shape shape) {
   const std::string type = "reg<test.i32 x" + std::to_string(width) + ">";
+  if (shape == Shape::kMoveScratch) {
+    std::string source =
+        "test.target<low_core> @target\n"
+        "low.func.def target<test.low.core>(@target) @kernel() -> "
+        "(reg<test.i32 x2>, reg<test.i32>) asm {\n"
+        "  %cycle_lhs = test.const.i32 23\n"
+        "  %cycle_rhs = test.const.i32 17\n";
+    for (uint32_t i = 0; i < component_count; ++i) {
+      source += "  %blocker" + std::to_string(i) + " = test.const.i32 " +
+                std::to_string(i) + "\n";
+    }
+    source +=
+        "  %cycle_pair = concat(%cycle_lhs, %cycle_rhs) : "
+        "(reg<test.i32>, reg<test.i32>) -> reg<test.i32 x2>\n"
+        "  %sum1 = test.add.i32 %blocker0, %blocker1\n";
+    for (uint32_t i = 2; i < component_count; ++i) {
+      source += "  %sum" + std::to_string(i) + " = test.add.i32 %sum" +
+                std::to_string(i - 1) + ", %blocker" + std::to_string(i) + "\n";
+    }
+    return source + "  return %cycle_pair, %sum" +
+           std::to_string(component_count - 1) + "\n}\n";
+  }
   if (shape == Shape::kFanout) {
     const uint32_t count = chain_length * component_count;
     std::string source =
@@ -139,6 +179,95 @@ std::string MakeSource(uint32_t chain_length, uint32_t component_count,
         source += ", ";
       }
       source += "%next" + std::to_string(i);
+    }
+    return source + "\n}\n";
+  }
+  if (shape == Shape::kLoopRelocation) {
+    std::string source =
+        "test.target<low_core> @target\n"
+        "low.func.def target<test.low.core>(@target) @kernel("
+        "%condition: reg<test.i32>";
+    for (uint32_t i = 0; i < component_count; ++i) {
+      source += ", %seed" + std::to_string(i) + ": reg<test.i32>";
+    }
+    source += ", %lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (";
+    for (uint32_t i = 0; i < component_count; ++i) {
+      if (i != 0) {
+        source += ", ";
+      }
+      source += "reg<test.i32>";
+    }
+    source += ") asm {\n  low.br ^loop(";
+    for (uint32_t i = 0; i < component_count; ++i) {
+      if (i != 0) {
+        source += ", ";
+      }
+      source += "%seed" + std::to_string(i) + ": reg<test.i32>";
+    }
+    source += ")\n^loop(";
+    for (uint32_t i = 0; i < component_count; ++i) {
+      if (i != 0) {
+        source += ", ";
+      }
+      source += "%state" + std::to_string(i) + ": reg<test.i32>";
+    }
+    source +=
+        "):\n  low.cond_br %condition, ^body, ^exit : reg<test.i32>\n"
+        "^body:\n";
+    if (chain_length == 1) {
+      source +=
+          "  %early0 = test.add.i32 %lhs, %rhs\n"
+          "  %early1 = test.mul.i32 %early0, %rhs\n"
+          "  %early2 = test.add.i32 %early1, %rhs\n"
+          "  %acc0 = test.add.i32 %state0, %early2\n";
+      for (uint32_t i = 1; i < component_count; ++i) {
+        source += "  %acc" + std::to_string(i) + " = test.add.i32 %acc" +
+                  std::to_string(i - 1) + ", %state" + std::to_string(i) + "\n";
+      }
+    } else {
+      Require(chain_length == component_count && component_count >= 2,
+              "Dense relocation requires one color per component");
+      for (uint32_t i = 0; i < component_count; ++i) {
+        source += "  %early" + std::to_string(i) +
+                  (i % 2 == 0 ? " = test.add.i32 %lhs, %rhs\n"
+                              : " = test.mul.i32 %lhs, %rhs\n");
+      }
+      source += "  %early_acc0 = test.add.i32 %early0, %early1\n";
+      for (uint32_t i = 2; i < component_count; ++i) {
+        source += "  %early_acc" + std::to_string(i - 1) +
+                  " = test.add.i32 %early_acc" + std::to_string(i - 2) +
+                  ", %early" + std::to_string(i) + "\n";
+      }
+    }
+    for (uint32_t i = 0; i < component_count; ++i) {
+      source += "  %next" + std::to_string(i);
+      if (chain_length == 1) {
+        source += i % 2 == 0 ? " = test.mul.i32 %lhs, %rhs\n"
+                             : " = test.add.i32 %lhs, %rhs\n";
+      } else {
+        source += " = test.add.i32 %state" + std::to_string(i) + ", %rhs\n";
+      }
+    }
+    if (chain_length == 1) {
+      source += "  %sink = test.mul.i32 %acc" +
+                std::to_string(component_count - 1) + ", %rhs\n";
+    } else {
+      source += "  %sink = test.mul.i32 %early_acc" +
+                std::to_string(component_count - 2) + ", %rhs\n";
+    }
+    source += "  low.br ^loop(";
+    for (uint32_t i = 0; i < component_count; ++i) {
+      if (i != 0) {
+        source += ", ";
+      }
+      source += "%next" + std::to_string(i) + ": reg<test.i32>";
+    }
+    source += ")\n^exit:\n  return ";
+    for (uint32_t i = 0; i < component_count; ++i) {
+      if (i != 0) {
+        source += ", ";
+      }
+      source += "%state" + std::to_string(i);
     }
     return source + "\n}\n";
   }
@@ -238,11 +367,20 @@ struct RunResult {
   uint32_t copy_count = 0;
   // Copies requiring real moves; live fan-out copies must remain independent.
   uint32_t materialized_copy_count = 0;
+  // Physical backedge moves remaining after loop-edge relocation.
+  uint64_t backedge_move_count = 0;
+  // Final moves used to sequence the forced cyclic group.
+  uint64_t scratch_group_move_count = 0;
+  // Cycle-scratch writes in the forced cyclic group.
+  uint64_t scratch_move_count = 0;
+  // First cycle-scratch location selected for the forced cyclic group.
+  uint64_t scratch_location = UINT64_MAX;
 };
 
 class AllocationBenchmark {
  public:
-  AllocationBenchmark(const std::string& source, Phase phase,
+  AllocationBenchmark(const std::string& source, Phase phase, Shape shape,
+                      uint32_t chain_length, uint32_t component_count,
                       iree_allocator_t allocator)
       : phase_(phase) {
     iree_arena_block_pool_initialize(128 * 1024, allocator, &source_pool_);
@@ -274,13 +412,108 @@ class AllocationBenchmark {
     auto symbol = loom_module_find_symbol(module_, name);
     Require(symbol != LOOM_SYMBOL_ID_INVALID, "Kernel symbol missing");
     function_ = module_->symbols.entries[symbol].defining_op;
+    if (shape == Shape::kLoopRelocation) {
+      const loom_region_t* body = loom_low_func_def_body(function_);
+      Require(body->block_count == 4, "Relocation loop shape changed");
+      backedge_terminator_ =
+          loom_block_const_last_op(loom_region_const_block(body, 2));
+      Require(loom_low_br_isa(backedge_terminator_),
+              "Relocation loop backedge missing");
+    }
+    if (shape == Shape::kMoveScratch) {
+      has_scratch_cycle_ = true;
+      expected_scratch_location_ = component_count + 2;
+      fixed_values_.reserve(component_count + 3);
+      for (loom_value_id_t value_id = 0; value_id < module_->values.count;
+           ++value_id) {
+        const iree_string_view_t name =
+            loom_module_value_name(module_, value_id);
+        uint32_t location = UINT32_MAX;
+        auto name_equals = [&](const char* expected) {
+          const iree_host_size_t length = std::strlen(expected);
+          return name.size == length &&
+                 std::memcmp(name.data, expected, length) == 0;
+        };
+        uint32_t location_count = 1;
+        if (name_equals("cycle_lhs")) {
+          location = 1;
+        } else if (name_equals("cycle_rhs")) {
+          location = 0;
+        } else if (name_equals("cycle_pair")) {
+          location = 0;
+          location_count = 2;
+        } else {
+          const char* prefix = "blocker";
+          const iree_host_size_t prefix_length = std::strlen(prefix);
+          if (name.size > prefix_length &&
+              std::memcmp(name.data, prefix, prefix_length) == 0) {
+            uint32_t index = 0;
+            const auto parsed = std::from_chars(name.data + prefix_length,
+                                                name.data + name.size, index);
+            if (parsed.ec == std::errc{} &&
+                parsed.ptr == name.data + name.size &&
+                index < component_count) {
+              location = index + 2;
+            }
+          }
+        }
+        if (location == UINT32_MAX) {
+          continue;
+        }
+        fixed_values_.push_back({
+            value_id,
+            LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID,
+            location,
+            location_count,
+        });
+      }
+      Require(fixed_values_.size() == component_count + 3,
+              "Scratch group fixed values missing");
+    }
+    if (shape == Shape::kLoopRelocation && chain_length != 1) {
+      fixed_values_.resize(component_count);
+      std::vector<uint8_t> found(component_count);
+      for (loom_value_id_t value_id = 0; value_id < module_->values.count;
+           ++value_id) {
+        const iree_string_view_t name =
+            loom_module_value_name(module_, value_id);
+        if (name.size <= 4 || std::memcmp(name.data, "next", 4) != 0) {
+          continue;
+        }
+        uint32_t next_index = 0;
+        const auto parsed =
+            std::from_chars(name.data + 4, name.data + name.size, next_index);
+        if (parsed.ec != std::errc{} || parsed.ptr != name.data + name.size ||
+            next_index >= component_count) {
+          continue;
+        }
+        auto& fixed_value = fixed_values_[next_index];
+        fixed_value.value_id = value_id;
+        fixed_value.location_kind = LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID;
+        fixed_value.location_base =
+            next_index < 2 ? next_index : component_count + 1 + next_index;
+        fixed_value.location_count = 1;
+        found[next_index] = 1;
+      }
+      Require(std::all_of(found.begin(), found.end(),
+                          [](uint8_t value) { return value != 0; }),
+              "Dense relocation source values missing");
+    }
     if (phase_ != Phase::kModel) {
       InitializeModel(&base_arena_, &model_);
     }
-    if (phase_ == Phase::kPlacement) {
-      IREE_CHECK_OK(loom_liveness_analyze_local_value_domain_with_cfg_graph(
-          &model_.value_domain, &model_.cfg_graph, loom_liveness_order_empty(),
-          &base_arena_, &liveness_));
+    if (phase_ == Phase::kPlacement || phase_ == Phase::kUnitLiveness) {
+      IREE_CHECK_OK(loom_liveness_analyze_local_value_domain_with_dataflow(
+          &model_.value_domain, &model_.liveness_dataflow,
+          loom_liveness_order_empty(), &base_arena_, &liveness_));
+    }
+    if (phase_ == Phase::kUnitLiveness) {
+      loom_low_placement_preference_index_t preferences = {};
+      IREE_CHECK_OK(loom_low_placement_analyze_region(
+          module_, model_.body, model_.target.descriptor_set,
+          &model_.value_domain, &liveness_,
+          loom_low_placement_pair_use_list_empty(), {}, &base_arena_,
+          &base_arena_, &placement_, &preferences));
     }
   }
 
@@ -309,21 +542,35 @@ class AllocationBenchmark {
       loom_low_function_model_deinitialize(&model);
     } else if (phase_ == Phase::kLiveness) {
       loom_liveness_analysis_t liveness = {};
-      IREE_CHECK_OK(loom_liveness_analyze_local_value_domain_with_cfg_graph(
-          &model_.value_domain, &model_.cfg_graph, loom_liveness_order_empty(),
-          &arena, &liveness));
+      IREE_CHECK_OK(loom_liveness_analyze_local_value_domain_with_dataflow(
+          &model_.value_domain, &model_.liveness_dataflow,
+          loom_liveness_order_empty(), &arena, &liveness));
       result.value_count = liveness.value_count;
       benchmark::DoNotOptimize(liveness.intervals);
     } else if (phase_ == Phase::kPlacement) {
       loom_low_placement_table_t placement = {};
+      loom_low_placement_preference_index_t preferences = {};
       IREE_CHECK_OK(loom_low_placement_analyze_region(
           module_, model_.body, model_.target.descriptor_set,
           &model_.value_domain, &liveness_,
-          loom_low_placement_pair_use_list_empty(), &arena, &placement));
+          loom_low_placement_pair_use_list_empty(), {}, &arena, &arena,
+          &placement, &preferences));
       result.value_count = placement.value_count;
       benchmark::DoNotOptimize(placement.relations);
+    } else if (phase_ == Phase::kUnitLiveness) {
+      iree_arena_allocator_t decision_arena;
+      iree_arena_initialize(&analysis_pool_, &decision_arena);
+      loom_low_allocation_unit_liveness_t unit_liveness = {};
+      IREE_CHECK_OK(loom_low_allocation_unit_liveness_initialize(
+          &model_.target, &placement_, &model_.value_domain, &liveness_,
+          &model_.cfg_graph, &arena, &decision_arena, &unit_liveness));
+      result.value_count = liveness_.value_count;
+      benchmark::DoNotOptimize(unit_liveness.end_points);
+      iree_arena_deinitialize(&decision_arena);
     } else {
       loom_low_allocation_options_t options = {};
+      options.fixed_values = fixed_values_.data();
+      options.fixed_value_count = fixed_values_.size();
       loom_low_allocation_table_t allocation = {};
       IREE_CHECK_OK(
           loom_low_allocate_function(&model_, &options, &arena, &allocation));
@@ -332,6 +579,68 @@ class AllocationBenchmark {
       result.value_count = model_.value_domain.value_count;
       result.copy_count = allocation.copy_decision_count;
       result.materialized_copy_count = allocation.materialized_copy_count;
+      if (backedge_terminator_ != nullptr) {
+        result.backedge_move_count = UINT64_MAX;
+        for (iree_host_size_t i = 0; i < allocation.edge_copy_group_count;
+             ++i) {
+          const auto& group = allocation.edge_copy_groups[i];
+          if (group.terminator_op == backedge_terminator_) {
+            result.backedge_move_count = group.move_group.moves.count;
+            break;
+          }
+        }
+      }
+      if (has_scratch_cycle_) {
+        const loom_low_move_group_t* scratch_group = nullptr;
+        for (iree_host_size_t i = 0; i < allocation.packet_move_group_count;
+             ++i) {
+          const auto& group = allocation.packet_move_groups[i].move_group;
+          if (group.scratch_move_index_count != 0) {
+            Require(scratch_group == nullptr,
+                    "Multiple scratch groups in scaling witness");
+            scratch_group = &group;
+          }
+        }
+        Require(scratch_group != nullptr, "Scratch move group missing");
+        result.scratch_group_move_count = scratch_group->moves.count;
+        result.scratch_move_count = scratch_group->scratch_move_index_count;
+        Require(scratch_group->scratch_move_index_count == 1,
+                "Scratch group cycle missing");
+        const iree_host_size_t scratch_move_index =
+            allocation
+                .scratch_move_indices[scratch_group->scratch_move_index_start];
+        Require(scratch_move_index >= scratch_group->moves.start &&
+                    scratch_move_index <
+                        scratch_group->moves.start + scratch_group->moves.count,
+                "Scratch move index outside move group");
+        result.scratch_location =
+            allocation.moves[scratch_move_index].destination.location;
+        Require(result.scratch_location == expected_scratch_location_,
+                "Scratch group did not choose the first free location");
+
+        uint32_t lhs = 23;
+        uint32_t rhs = 17;
+        uint32_t scratch = 0;
+        auto value_at = [&](uint32_t location) -> uint32_t& {
+          if (location == 0) {
+            return lhs;
+          }
+          if (location == 1) {
+            return rhs;
+          }
+          Require(location == result.scratch_location,
+                  "Scratch group touched an unexpected location");
+          return scratch;
+        };
+        const loom_low_move_t* moves =
+            allocation.moves + scratch_group->moves.start;
+        for (iree_host_size_t i = 0; i < scratch_group->moves.count; ++i) {
+          value_at(moves[i].destination.location) =
+              value_at(moves[i].source.location);
+        }
+        Require(lhs == 17 && rhs == 23,
+                "Scratch group sequence did not preserve the swap");
+      }
       benchmark::DoNotOptimize(allocation.assignments);
     }
     result.used_bytes = arena.used_allocation_size;
@@ -374,8 +683,18 @@ class AllocationBenchmark {
   loom_target_low_descriptor_registry_t registry_ = {};
   // Retained function model when model construction is outside the timed phase.
   loom_low_function_model_t model_ = {};
-  // Retained semantic liveness for placement-only measurements.
+  // Retained semantic liveness for placement and unit-liveness measurements.
   loom_liveness_analysis_t liveness_ = {};
+  // Retained placement facts for unit-liveness-only measurements.
+  loom_low_placement_table_t placement_ = {};
+  // Dense relocation source colors fixed outside the header destination set.
+  std::vector<loom_low_allocation_fixed_value_t> fixed_values_;
+  // Generated loop backedge used to validate final edge-copy materialization.
+  const loom_op_t* backedge_terminator_ = nullptr;
+  // Whether the generated packet-local cycle must use scratch storage.
+  bool has_scratch_cycle_ = false;
+  // Lowest location not occupied by the cyclic edge's live source values.
+  uint32_t expected_scratch_location_ = UINT32_MAX;
 };
 
 struct AllocationTraffic {
@@ -405,11 +724,14 @@ struct MemoryObservation {
   uint64_t retained_pool_bytes = 0;
 };
 
-MemoryObservation ObserveMemory(const std::string& source, Phase phase) {
+MemoryObservation ObserveMemory(const std::string& source, Phase phase,
+                                Shape shape, uint32_t chain_length,
+                                uint32_t component_count) {
   AllocationObserver observer;
   MemoryObservation observation;
   {
-    AllocationBenchmark observed(source, phase, observer.allocator());
+    AllocationBenchmark observed(source, phase, shape, chain_length,
+                                 component_count, observer.allocator());
     const auto before_live = observer.live_bytes;
     observation.setup_live_bytes = before_live;
     const auto before_requested = observer.requested_bytes;
@@ -437,8 +759,10 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
   const uint32_t component_count = static_cast<uint32_t>(state.range(1));
   const uint32_t width = static_cast<uint32_t>(state.range(2));
   const auto source = MakeSource(chain_length, component_count, width, shape);
-  const auto memory = ObserveMemory(source, phase);
-  AllocationBenchmark fixture(source, phase, iree_allocator_system());
+  const auto memory =
+      ObserveMemory(source, phase, shape, chain_length, component_count);
+  AllocationBenchmark fixture(source, phase, shape, chain_length,
+                              component_count, iree_allocator_system());
   RunResult result = fixture.Run();
   for (auto _ : state) {
     result = fixture.Run();
@@ -446,10 +770,16 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
   }
   if (phase == Phase::kAllocation) {
     const uint32_t expected_copy_count =
-        shape == Shape::kTied ? 0
-                              : chain_length * component_count *
-                                    (shape == Shape::kBranch ? 2 : 1);
+        shape == Shape::kTied || shape == Shape::kLoopRelocation ||
+                shape == Shape::kMoveScratch
+            ? 0
+            : chain_length * component_count *
+                  (shape == Shape::kBranch ? 2 : 1);
     Require(result.copy_count == expected_copy_count, "Copy decisions missing");
+    if (shape == Shape::kLoopRelocation) {
+      Require(result.backedge_move_count == 0,
+              "Loop-edge relocation left branch copies");
+    }
     if (shape == Shape::kFanout) {
       Require(result.materialized_copy_count >=
                   expected_copy_count - component_count,
@@ -459,6 +789,10 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
   state.counters["value_count"] = result.value_count;
   state.counters["copy_count"] = result.copy_count;
   state.counters["materialized_copy_count"] = result.materialized_copy_count;
+  state.counters["backedge_move_count"] = result.backedge_move_count;
+  state.counters["scratch_group_move_count"] = result.scratch_group_move_count;
+  state.counters["scratch_move_count"] = result.scratch_move_count;
+  state.counters["scratch_location"] = result.scratch_location;
   state.counters["arena_used_bytes"] = result.used_bytes;
   state.counters["arena_owned_bytes"] = result.owned_bytes;
   state.counters["setup_live_requested_bytes"] = memory.setup_live_bytes;
@@ -473,25 +807,50 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
 }
 
 [[maybe_unused]] const bool kBenchmarksRegistered = [] {
-  for (auto shape : {Shape::kLinear, Shape::kLoop, Shape::kBranch, Shape::kTied,
-                     Shape::kFanout}) {
+  for (auto shape :
+       {Shape::kLinear, Shape::kLoop, Shape::kLoopRelocation,
+        Shape::kMoveScratch, Shape::kBranch, Shape::kTied, Shape::kFanout}) {
     for (auto phase : {Phase::kModel, Phase::kLiveness, Phase::kPlacement,
-                       Phase::kAllocation}) {
+                       Phase::kUnitLiveness, Phase::kAllocation}) {
+      if (shape == Shape::kLoopRelocation && phase != Phase::kAllocation) {
+        continue;
+      }
+      if (shape == Shape::kMoveScratch && phase != Phase::kAllocation) {
+        continue;
+      }
       const std::string name =
           "LowAllocation/" +
-          std::string(shape == Shape::kLinear   ? "linear/"
-                      : shape == Shape::kLoop   ? "loop/"
-                      : shape == Shape::kBranch ? "branch/"
-                      : shape == Shape::kTied   ? "tied/"
-                                                : "fanout/") +
-          (phase == Phase::kModel       ? "model"
-           : phase == Phase::kLiveness  ? "liveness"
-           : phase == Phase::kPlacement ? "placement"
-                                        : "allocation");
+          std::string(shape == Shape::kLinear           ? "linear/"
+                      : shape == Shape::kLoop           ? "loop/"
+                      : shape == Shape::kLoopRelocation ? "loop_relocation/"
+                      : shape == Shape::kMoveScratch    ? "move_scratch/"
+                      : shape == Shape::kBranch         ? "branch/"
+                      : shape == Shape::kTied           ? "tied/"
+                                                        : "fanout/") +
+          (phase == Phase::kModel          ? "model"
+           : phase == Phase::kLiveness     ? "liveness"
+           : phase == Phase::kPlacement    ? "placement"
+           : phase == Phase::kUnitLiveness ? "unit_liveness"
+                                           : "allocation");
       auto* registration = benchmark::RegisterBenchmark(
           name.c_str(),
           [=](benchmark::State& state) { RunBenchmark(state, shape, phase); });
       registration->ArgNames({"length", "components", "width"});
+      if (shape == Shape::kLoopRelocation) {
+        for (int64_t components : {32, 64, 128, 256, 512, 1024}) {
+          registration->Args({1, components, 1});
+        }
+        for (int64_t components : {8, 16, 32, 64, 128, 256}) {
+          registration->Args({components, components, 1});
+        }
+        continue;
+      }
+      if (shape == Shape::kMoveScratch) {
+        for (int64_t blockers : {32, 64, 128, 256, 512, 1024, 2048}) {
+          registration->Args({1, blockers, 1});
+        }
+        continue;
+      }
       for (int64_t count : {8, 16, 32, 64, 128, 256, 512, 1024, 2048}) {
         registration->Args({count, 1, 1});
       }

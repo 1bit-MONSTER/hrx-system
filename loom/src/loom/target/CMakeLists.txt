@@ -105,6 +105,7 @@ loom_cc_library(
     iree::base::internal::arena
     loom::analysis::symbol_facts
     loom::analysis::symbol_references
+    loom::codegen::low::memory_access
     loom::error::error_defs
     loom::ir
     loom::ops::func_symbol_facts
@@ -168,10 +169,12 @@ loom_cc_library(
   SRCS
     "function_version_projection.c"
   DEPS
+    ::facts_builder
     ::function_version
     ::provider
     iree::base
     iree::base::internal::arena
+    loom::codegen::low::memory_access
     loom::ir
     loom::ops::op_defs
     loom::rewrite::module_projection
@@ -622,9 +625,7 @@ loom_cc_library(
     loom::ir
     loom::ops::buffer
     loom::ops::cfg
-    loom::ops::func
     loom::ops::index
-    loom::ops::kernel
     loom::ops::low
     loom::ops::op_defs
     loom::ops::scf
@@ -849,6 +850,8 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::analysis::symbol_facts
+    loom::error::error_defs
+    loom::error::source
     loom::format::text::parser
     loom::ir
     loom::ops::func

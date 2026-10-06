@@ -68,6 +68,30 @@ def trait_op_kinds(
     return kinds
 
 
+def any_ancestor_op_kinds(
+    op: Op,
+    ops_by_name: dict[str, Op],
+) -> tuple[list[str], tuple[str, ...]]:
+    """Returns the one alternative required-ancestor group for an op."""
+    traits = [trait for trait in op.traits if trait.name == "HasAnyAncestor"]
+    if not traits:
+        return [], ()
+    if len(traits) != 1:
+        raise ValueError(f"Op '{op.name}': duplicate HasAnyAncestor traits are not supported")
+    names = traits[0].args
+    if not names:
+        raise ValueError(f"Op '{op.name}': HasAnyAncestor requires at least one op name argument")
+    if len(set(names)) != len(names):
+        raise ValueError(f"Op '{op.name}': HasAnyAncestor contains duplicate op names")
+    kinds: list[str] = []
+    for ancestor_name in names:
+        ancestor_op = ops_by_name.get(ancestor_name)
+        if ancestor_op is None:
+            raise ValueError(f"Op '{op.name}': HasAnyAncestor '{ancestor_name}' must name an op in the '{op.namespace}' dialect")
+        kinds.append(c_enum_name(ancestor_op))
+    return kinds, names
+
+
 def _has_trait(op: Op, trait_name: str) -> bool:
     return any(trait.name == trait_name for trait in op.traits)
 

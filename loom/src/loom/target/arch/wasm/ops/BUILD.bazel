@@ -15,7 +15,10 @@ package(
     licenses = ["notice"],  # Apache 2.0
 )
 
-_WASM_ROOT_VISIBILITY = ["//loom/src/loom/target/arch/wasm:__pkg__"]
+_WASM_ROOT_VISIBILITY = [
+    "//loom/src/loom/target/arch/wasm:__pkg__",
+    "//loom/src/loom/target/emit/wasm:__pkg__",
+]
 
 loom_generated_cc_library(
     name = "ops",

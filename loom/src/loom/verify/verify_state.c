@@ -7,6 +7,15 @@
 #include "loom/verify/verify_state.h"
 
 #include "loom/ops/op_defs.h"
+#include "loom/util/adaptive_sort.h"
+
+static bool loom_verify_value_id_less(const loom_value_id_t* lhs,
+                                      const loom_value_id_t* rhs) {
+  return *lhs < *rhs;
+}
+
+LOOM_DEFINE_ADAPTIVE_SORT(loom_verify_value_id_sort, loom_value_id_t,
+                          loom_verify_value_id_less)
 
 void loom_verify_record_diagnostic_status(loom_verify_state_t* state,
                                           iree_status_t status) {
@@ -32,6 +41,79 @@ iree_status_t loom_verify_pending_diagnostic_status(
     return iree_ok_status();
   }
   return loom_verify_take_diagnostic_status(state);
+}
+
+iree_status_t loom_verify_sorted_values_assign(loom_verify_state_t* state,
+                                               const loom_value_id_t* values,
+                                               iree_host_size_t count) {
+  return loom_verify_sorted_values_assign_pair(state, values, count, NULL, 0);
+}
+
+iree_status_t loom_verify_sorted_values_assign_pair(
+    loom_verify_state_t* state, const loom_value_id_t* first_values,
+    iree_host_size_t first_count, const loom_value_id_t* second_values,
+    iree_host_size_t second_count) {
+  iree_host_size_t total_count = 0;
+  if (!iree_host_size_checked_add(first_count, second_count, &total_count)) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "verifier value-set size overflow");
+  }
+  if (total_count > state->sorted_values.capacity) {
+    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+        &state->arena, state->sorted_values.count, total_count,
+        sizeof(loom_value_id_t), &state->sorted_values.capacity,
+        (void**)&state->sorted_values.values));
+  }
+  state->sorted_values.count = 0;
+  const loom_value_id_t* slices[] = {first_values, second_values};
+  const iree_host_size_t counts[] = {first_count, second_count};
+  for (iree_host_size_t slice = 0; slice < IREE_ARRAYSIZE(slices); ++slice) {
+    for (iree_host_size_t i = 0; i < counts[slice]; ++i) {
+      const loom_value_id_t value_id = slices[slice][i];
+      if (value_id == LOOM_VALUE_ID_INVALID ||
+          value_id >= state->module->values.count) {
+        continue;
+      }
+      state->sorted_values.values[state->sorted_values.count++] = value_id;
+    }
+  }
+  if (state->sorted_values.count > 1) {
+    loom_verify_value_id_sort(state->sorted_values.values,
+                              state->sorted_values.count);
+  }
+  return iree_ok_status();
+}
+
+static iree_host_size_t loom_verify_sorted_values_lower_bound(
+    const loom_verify_state_t* state, loom_value_id_t value_id) {
+  iree_host_size_t low = 0;
+  iree_host_size_t high = state->sorted_values.count;
+  while (low < high) {
+    const iree_host_size_t middle = low + (high - low) / 2;
+    if (state->sorted_values.values[middle] < value_id) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
+}
+
+bool loom_verify_sorted_values_contains(const loom_verify_state_t* state,
+                                        loom_value_id_t value_id) {
+  const iree_host_size_t index =
+      loom_verify_sorted_values_lower_bound(state, value_id);
+  return index < state->sorted_values.count &&
+         state->sorted_values.values[index] == value_id;
+}
+
+bool loom_verify_sorted_values_contain_duplicate(
+    const loom_verify_state_t* state, loom_value_id_t value_id) {
+  const iree_host_size_t index =
+      loom_verify_sorted_values_lower_bound(state, value_id);
+  return index + 1 < state->sorted_values.count &&
+         state->sorted_values.values[index] == value_id &&
+         state->sorted_values.values[index + 1] == value_id;
 }
 
 // Returns true if this op has a function signature scope whose arguments are

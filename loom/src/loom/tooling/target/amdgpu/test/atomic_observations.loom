@@ -23,7 +23,6 @@ check.case public @atomic_observation_wide_bits {
   check.expect.bitwise actual(%storage_after) expected(%storage_guard) : tensor<2xi64>
   check.expect.bitwise actual(%output_before) expected(%output_guard) : tensor<2xi64>
   check.expect.bitwise actual(%output_after) expected(%output_guard) : tensor<2xi64>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -38,7 +37,6 @@ check.case public @atomic_observation_high_bit {
   %expected_stored = check.generate.fill value(0) : tensor<6xi64>
   check.expect.bitwise actual(%observed) expected(%expected_observed) : tensor<6xi64>
   check.expect.bitwise actual(%stored) expected(%expected_stored) : tensor<6xi64>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -68,7 +66,6 @@ check.case public @atomic_float_observation_nan_bits {
   check.expect.bitwise actual(%storage_after) expected(%storage_guard) : tensor<2xi64>
   check.expect.bitwise actual(%output_before) expected(%output_before_guard) : tensor<2xi64>
   check.expect.bitwise actual(%output_after) expected(%output_after_guard) : tensor<3xi64>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -83,7 +80,6 @@ check.case public @atomic_float_observation_signed_zero {
   %expected_stored = check.generate.fill value(0) : tensor<6xi64>
   check.expect.bitwise actual(%observed) expected(%expected_observed) : tensor<7xi64>
   check.expect.bitwise actual(%stored) expected(%expected_stored) : tensor<6xi64>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -101,6 +97,5 @@ check.case public @float64_memory_payloads {
   %after = check.tensor.view %output offset(136) : tensor<18xi64> -> tensor<1xi64>
   check.expect.bitwise actual(%before) expected(%guard) : tensor<1xi64>
   check.expect.bitwise actual(%after) expected(%guard) : tensor<1xi64>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }

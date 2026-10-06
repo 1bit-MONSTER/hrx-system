@@ -1,5 +1,25 @@
 // RUN: pass canonicalize
 
+// Vector integer facts use the element width when interpreting unsigned
+// operands. Each unknown i8 lane modulo nine is in [0, 8].
+func.def @remui_unknown_lanes_use_element_width(%values: vector<4xi8>) -> (i64, i64) {
+  %divisors = vector.constant 9 : vector<4xi8>
+  %remainders = vector.remui %values, %divisors : vector<4xi8>
+  %lane = vector.extract %remainders[0] : vector<4xi8> -> i8
+  %minimum = test.fact_range_lo %lane : i8 -> i64
+  %maximum = test.fact_range_hi %lane : i8 -> i64
+  func.return %minimum, %maximum : i64, i64
+}
+
+// ----
+func.def @remui_unknown_lanes_use_element_width(%values: vector<4xi8>) -> (i64, i64) {
+  %minimum = scalar.constant 0 : i64
+  %maximum = scalar.constant 8 : i64
+  func.return %minimum, %maximum : i64, i64
+}
+
+// ====
+
 // One mask bounds every unknown lane without enumerating a large vector or
 // claiming that the runtime lane values are equal.
 func.def @uniform_mask(%input: vector<32xi8>) -> (i64, i64, i1) {
@@ -81,6 +101,64 @@ func.def @lane_masks(%input: vector<4xi8>) -> (i64, i64, i64, i64) {
   %hi2 = scalar.constant 63 : i64
   %hi3 = scalar.constant 0 : i64
   func.return %hi0, %hi1, %hi2, %hi3 : i64, i64, i64, i64
+}
+
+// ====
+
+// Large vectors carry the shared OR bound without enumerating their lanes or
+// claiming that the runtime values are equal across invocations.
+func.def @uniform_bitwise_bounds(%low: vector<32xi32>, %high: vector<32xi32>) -> (i64, i64, i1) {
+  %low_mask = vector.constant 255 : vector<32xi32>
+  %high_mask = vector.constant 256 : vector<32xi32>
+  %low_bits = vector.andi %low, %low_mask : vector<32xi32>
+  %high_bits = vector.andi %high, %high_mask : vector<32xi32>
+  %codes = vector.ori %low_bits, %high_bits : vector<32xi32>
+  %lo = test.fact_all_equal_range_lo %codes : vector<32xi32> -> i64
+  %hi = test.fact_all_equal_range_hi %codes : vector<32xi32> -> i64
+  %uniform = test.fact_subgroup_uniform %codes : vector<32xi32> -> i1
+  func.return %lo, %hi, %uniform : i64, i64, i1
+}
+// ----
+func.def @uniform_bitwise_bounds(%low: vector<32xi32>, %high: vector<32xi32>) -> (i64, i64, i1) {
+  %lo = scalar.constant 0 : i64
+  %hi = scalar.constant 511 : i64
+  %uniform = scalar.constant false : i1
+  func.return %lo, %hi, %uniform : i64, i64, i1
+}
+
+// ====
+
+// Per-lane OR facts survive extraction and reduction with different high bits.
+func.def @independent_bitwise_bounds(%low: vector<4xi32>, %high: vector<4xi32>) -> (i64, i64, i64, i64, i64) {
+  %low_mask = vector.constant 7 : vector<4xi32>
+  %low_bits = vector.andi %low, %low_mask : vector<4xi32>
+  %c8 = scalar.constant 8 : i32
+  %c128 = scalar.constant 128 : i32
+  %c256 = scalar.constant 256 : i32
+  %c0 = scalar.constant 0 : i32
+  %high_masks = vector.from_elements %c8, %c128, %c256, %c0 : vector<4xi32>
+  %high_bits = vector.andi %high, %high_masks : vector<4xi32>
+  %codes = vector.ori %high_bits, %low_bits : vector<4xi32>
+  %lane0 = vector.extract %codes[0] : vector<4xi32> -> i32
+  %lane1 = vector.extract %codes[1] : vector<4xi32> -> i32
+  %lane2 = vector.extract %codes[2] : vector<4xi32> -> i32
+  %lane3 = vector.extract %codes[3] : vector<4xi32> -> i32
+  %reduced = vector.reduce<ori> %codes, %c0 : vector<4xi32>, i32
+  %hi0 = test.fact_range_hi %lane0 : i32 -> i64
+  %hi1 = test.fact_range_hi %lane1 : i32 -> i64
+  %hi2 = test.fact_range_hi %lane2 : i32 -> i64
+  %hi3 = test.fact_range_hi %lane3 : i32 -> i64
+  %reduced_hi = test.fact_range_hi %reduced : i32 -> i64
+  func.return %hi0, %hi1, %hi2, %hi3, %reduced_hi : i64, i64, i64, i64, i64
+}
+// ----
+func.def @independent_bitwise_bounds(%low: vector<4xi32>, %high: vector<4xi32>) -> (i64, i64, i64, i64, i64) {
+  %hi0 = scalar.constant 15 : i64
+  %hi1 = scalar.constant 255 : i64
+  %hi2 = scalar.constant 511 : i64
+  %hi3 = scalar.constant 7 : i64
+  %reduced_hi = scalar.constant 511 : i64
+  func.return %hi0, %hi1, %hi2, %hi3, %reduced_hi : i64, i64, i64, i64, i64
 }
 
 // ====

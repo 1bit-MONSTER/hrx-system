@@ -15,76 +15,68 @@
 // Value numbering (per-function)
 //===----------------------------------------------------------------------===//
 
+// Issues a nonzero generation selecting a fresh value-index namespace.
+static uint32_t loom_bytecode_value_scope_begin(
+    loom_bytecode_numbering_t* numbering) {
+  // A module has fewer than 2^16 symbols. Each function issues at most 2^8
+  // scopes total: one signature and fewer than 2^8 root regions. Each global
+  // uses only its retained closure and signature. One writer invocation
+  // therefore issues fewer than 2^24 generations across all passes.
+  return ++numbering->types.index.binding_generation;
+}
+
+// Returns the mutable direct-index row for |value_id|, growing the segmented
+// index through that ID when first encountered.
+static iree_status_t loom_bytecode_value_scope_row(
+    loom_bytecode_numbering_t* numbering, loom_value_id_t value_id,
+    loom_bytecode_value_scope_row_t** out_row) {
+  const uint32_t segment_index = value_id >> LOOM_VALUE_SEGMENT_SHIFT;
+  while (numbering->value_scopes.segments.segment_count <= segment_index) {
+    loom_bytecode_value_scope_segment_t* segment = NULL;
+    IREE_RETURN_IF_ERROR(loom_segmented_storage_append(
+        &numbering->value_scopes.segments, numbering->arena, (void**)&segment));
+    memset(segment, 0, sizeof(*segment));
+  }
+  loom_bytecode_value_scope_segment_t* segment =
+      (loom_bytecode_value_scope_segment_t*)loom_segmented_storage_segment(
+          &numbering->value_scopes.segments, segment_index);
+  *out_row = &segment->rows[value_id & LOOM_VALUE_SEGMENT_MASK];
+  return iree_ok_status();
+}
+
 void loom_bytecode_value_numbering_initialize(
     loom_bytecode_value_numbering_t* value_numbering,
     loom_bytecode_numbering_t* numbering) {
   *value_numbering = (loom_bytecode_value_numbering_t){
-      .module = numbering->module,
-      .arena = numbering->arena,
-      .binding_generation = ++numbering->types.index.binding_generation,
+      .numbering = numbering,
   };
-}
-
-static iree_host_size_t loom_bytecode_value_numbering_lower_bound(
-    const loom_bytecode_value_numbering_t* value_numbering,
-    loom_value_id_t value_id, bool* out_found) {
-  iree_host_size_t lo = 0;
-  iree_host_size_t hi = value_numbering->count;
-  while (lo < hi) {
-    iree_host_size_t mid = lo + (hi - lo) / 2;
-    if (value_numbering->entries[mid].value_id < value_id) {
-      lo = mid + 1;
-    } else {
-      hi = mid;
-    }
-  }
-  *out_found = lo < value_numbering->count &&
-               value_numbering->entries[lo].value_id == value_id;
-  return lo;
-}
-
-iree_status_t loom_bytecode_value_numbering_ensure_capacity(
-    loom_bytecode_value_numbering_t* value_numbering,
-    iree_host_size_t minimum_capacity) {
-  if (minimum_capacity <= value_numbering->capacity) {
-    return iree_ok_status();
-  }
-  return iree_arena_grow_array(
-      value_numbering->arena, value_numbering->count, minimum_capacity,
-      sizeof(*value_numbering->entries), &value_numbering->capacity,
-      (void**)&value_numbering->entries);
 }
 
 iree_status_t loom_bytecode_value_numbering_assign_value(
     loom_bytecode_value_numbering_t* value_numbering,
     loom_value_id_t value_id) {
-  if (value_id >= value_numbering->module->values.count) {
+  loom_bytecode_numbering_t* numbering = value_numbering->numbering;
+  if (value_id >= numbering->module->values.count) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "value_id %u exceeds module value count %" PRIhsz,
-                            value_id, value_numbering->module->values.count);
+                            value_id, numbering->module->values.count);
   }
-  bool found = false;
-  iree_host_size_t entry_index = loom_bytecode_value_numbering_lower_bound(
-      value_numbering, value_id, &found);
-  if (found) {
+  if (value_numbering->scope_generation == 0) {
+    value_numbering->scope_generation =
+        loom_bytecode_value_scope_begin(numbering);
+  }
+  loom_bytecode_value_scope_row_t* row = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_bytecode_value_scope_row(numbering, value_id, &row));
+  if (row->generation == value_numbering->scope_generation) {
     return iree_ok_status();
   }
   if (value_numbering->next_number == UINT32_MAX) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "bytecode local value number exceeds uint32");
   }
-  IREE_RETURN_IF_ERROR(loom_bytecode_value_numbering_ensure_capacity(
-      value_numbering, value_numbering->count + 1));
-  memmove(&value_numbering->entries[entry_index + 1],
-          &value_numbering->entries[entry_index],
-          (value_numbering->count - entry_index) *
-              sizeof(*value_numbering->entries));
-  value_numbering->entries[entry_index] =
-      (loom_bytecode_value_numbering_entry_t){
-          .value_id = value_id,
-          .number = value_numbering->next_number++,
-      };
-  ++value_numbering->count;
+  row->generation = value_numbering->scope_generation;
+  row->number = value_numbering->next_number++;
   return iree_ok_status();
 }
 
@@ -94,21 +86,29 @@ iree_status_t loom_bytecode_value_numbering_assign_value(
 iree_status_t loom_bytecode_resolve_value_number(
     const loom_bytecode_value_numbering_t* value_numbering,
     loom_value_id_t value_id, uint32_t* out_number) {
-  if (value_id >= value_numbering->module->values.count) {
+  const loom_bytecode_numbering_t* numbering = value_numbering->numbering;
+  if (value_id >= numbering->module->values.count) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "value_id %u exceeds module value count %" PRIhsz,
-                            value_id, value_numbering->module->values.count);
+                            value_id, numbering->module->values.count);
   }
-  bool found = false;
-  iree_host_size_t entry_index = loom_bytecode_value_numbering_lower_bound(
-      value_numbering, value_id, &found);
-  if (!found) {
+  const uint32_t segment_index = value_id >> LOOM_VALUE_SEGMENT_SHIFT;
+  const loom_bytecode_value_scope_row_t* row = NULL;
+  if (segment_index < numbering->value_scopes.segments.segment_count) {
+    const loom_bytecode_value_scope_segment_t* segment =
+        (const loom_bytecode_value_scope_segment_t*)
+            loom_segmented_storage_const_segment(
+                &numbering->value_scopes.segments, segment_index);
+    row = &segment->rows[value_id & LOOM_VALUE_SEGMENT_MASK];
+  }
+  if (value_numbering->scope_generation == 0 || row == NULL ||
+      row->generation != value_numbering->scope_generation) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "value_id %u has no assigned value number "
                             "(undefined or not in scope)",
                             value_id);
   }
-  *out_number = value_numbering->entries[entry_index].number;
+  *out_number = row->number;
   return iree_ok_status();
 }
 
@@ -212,48 +212,40 @@ static uint8_t loom_bytecode_find_symbol_attr_index(
   return LOOM_ATTR_INDEX_NONE;
 }
 
-static iree_status_t loom_bytecode_global_value_list_reserve(
-    loom_bytecode_global_value_list_t* list,
-    iree_host_size_t minimum_capacity) {
-  if (minimum_capacity <= list->capacity) {
-    return iree_ok_status();
-  }
-  iree_host_size_t new_capacity = list->capacity ? list->capacity : 4;
-  while (new_capacity < minimum_capacity) {
-    if (new_capacity > IREE_HOST_SIZE_MAX / 2) {
-      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                              "global declaration-local value list overflow");
-    }
-    new_capacity *= 2;
-  }
-  loom_value_id_t* new_values = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      list->arena, new_capacity, sizeof(loom_value_id_t), (void**)&new_values));
-  if (list->count > 0) {
-    memcpy(new_values, list->values, list->count * sizeof(loom_value_id_t));
-  }
-  list->values = new_values;
-  list->capacity = new_capacity;
-  return iree_ok_status();
-}
-
 static iree_status_t loom_bytecode_global_value_list_push_unique(
     loom_bytecode_global_value_list_t* list, loom_value_id_t value_id) {
-  if (value_id >= list->module->values.count) {
+  loom_bytecode_numbering_t* numbering = list->numbering;
+  if (value_id >= numbering->module->values.count) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "global declaration-local value id %u out of range (module has %" PRIhsz
         " values)",
-        value_id, list->module->values.count);
+        value_id, numbering->module->values.count);
   }
-  for (iree_host_size_t i = 0; i < list->count; ++i) {
-    if (list->values[i] == value_id) {
-      return iree_ok_status();
-    }
-  }
+  loom_bytecode_value_scope_row_t* row = NULL;
   IREE_RETURN_IF_ERROR(
-      loom_bytecode_global_value_list_reserve(list, list->count + 1));
-  list->values[list->count++] = value_id;
+      loom_bytecode_value_scope_row(numbering, value_id, &row));
+  if (row->generation == list->generation) {
+    return iree_ok_status();
+  }
+
+  const iree_host_size_t chunk_offset =
+      list->count % LOOM_BYTECODE_GLOBAL_VALUE_CHUNK_CAPACITY;
+  if (chunk_offset == 0) {
+    loom_bytecode_global_value_chunk_t* chunk = NULL;
+    IREE_RETURN_IF_ERROR(iree_arena_allocate(list->numbering->arena,
+                                             sizeof(*chunk), (void**)&chunk));
+    chunk->next = NULL;
+    if (list->last) {
+      list->last->next = chunk;
+    } else {
+      list->first = chunk;
+    }
+    list->last = chunk;
+  }
+  list->last->values[chunk_offset] = value_id;
+  ++list->count;
+  row->generation = list->generation;
   return iree_ok_status();
 }
 
@@ -264,12 +256,14 @@ static iree_status_t loom_bytecode_collect_global_type_value_ref(
 }
 
 static iree_status_t loom_bytecode_collect_global_value_type_refs(
-    loom_bytecode_global_value_list_t* list, iree_host_size_t* scan_index) {
-  while (*scan_index < list->count) {
-    loom_value_id_t value_id = list->values[(*scan_index)++];
-    loom_type_t type = loom_module_value_type(list->module, value_id);
+    loom_bytecode_global_value_list_t* list,
+    loom_bytecode_global_value_iterator_t* iterator) {
+  const loom_module_t* module = list->numbering->module;
+  loom_value_id_t value_id = LOOM_VALUE_ID_INVALID;
+  while (loom_bytecode_global_value_iterator_next(iterator, &value_id)) {
+    loom_type_t type = loom_module_value_type(module, value_id);
     IREE_RETURN_IF_ERROR(loom_type_walk_value_refs(
-        list->module, type, loom_bytecode_collect_global_type_value_ref, list));
+        module, type, loom_bytecode_collect_global_type_value_ref, list));
   }
   return iree_ok_status();
 }
@@ -337,25 +331,59 @@ static iree_status_t loom_bytecode_collect_global_attr_value_refs(
       list, attr, /*aggregate_depth=*/0);
 }
 
-iree_status_t loom_bytecode_collect_global_values(
-    iree_arena_allocator_t* arena, const loom_module_t* module,
-    const loom_op_t* op, loom_bytecode_global_value_list_t* out_values) {
-  *out_values = (loom_bytecode_global_value_list_t){
-      .arena = arena,
-      .module = module,
+static iree_status_t loom_bytecode_global_value_slot(
+    loom_bytecode_numbering_t* numbering, loom_symbol_id_t symbol_id,
+    loom_bytecode_global_value_list_t*** out_slot) {
+  IREE_ASSERT(symbol_id < numbering->module->symbols.count);
+  const uint32_t segment_index =
+      symbol_id / LOOM_BYTECODE_GLOBAL_VALUE_SEGMENT_CAPACITY;
+  while (numbering->global_values.segments.segment_count <= segment_index) {
+    loom_bytecode_global_value_segment_t* segment = NULL;
+    IREE_RETURN_IF_ERROR(
+        loom_segmented_storage_append(&numbering->global_values.segments,
+                                      numbering->arena, (void**)&segment));
+    memset(segment, 0, sizeof(*segment));
+  }
+  loom_bytecode_global_value_segment_t* segment =
+      (loom_bytecode_global_value_segment_t*)loom_segmented_storage_segment(
+          &numbering->global_values.segments, segment_index);
+  *out_slot =
+      &segment->values[symbol_id % LOOM_BYTECODE_GLOBAL_VALUE_SEGMENT_CAPACITY];
+  return iree_ok_status();
+}
+
+iree_status_t loom_bytecode_prepare_global_values(
+    loom_bytecode_numbering_t* numbering, loom_symbol_id_t symbol_id,
+    const loom_op_t* op, const loom_bytecode_global_value_list_t** out_values) {
+  *out_values = NULL;
+  loom_bytecode_global_value_list_t** slot = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_bytecode_global_value_slot(numbering, symbol_id, &slot));
+  if (*slot) {
+    *out_values = *slot;
+    return iree_ok_status();
+  }
+
+  loom_bytecode_global_value_list_t* values = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate(numbering->arena, sizeof(*values), (void**)&values));
+  *values = (loom_bytecode_global_value_list_t){
+      .numbering = numbering,
+      .generation = loom_bytecode_value_scope_begin(numbering),
   };
 
   const loom_value_id_t* result_ids = loom_op_const_results(op);
   for (uint16_t i = 0; i < op->result_count; ++i) {
     IREE_RETURN_IF_ERROR(
-        loom_bytecode_global_value_list_push_unique(out_values, result_ids[i]));
+        loom_bytecode_global_value_list_push_unique(values, result_ids[i]));
   }
 
-  iree_host_size_t scan_index = 0;
+  loom_bytecode_global_value_iterator_t iterator =
+      loom_bytecode_global_value_iterator_begin(values);
   IREE_RETURN_IF_ERROR(
-      loom_bytecode_collect_global_value_type_refs(out_values, &scan_index));
+      loom_bytecode_collect_global_value_type_refs(values, &iterator));
 
-  const loom_op_vtable_t* vtable = loom_op_vtable(module, op);
+  const loom_op_vtable_t* vtable = loom_op_vtable(numbering->module, op);
   if (!vtable || (op->attribute_count > 0 && !vtable->attr_descriptors)) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
@@ -372,10 +400,30 @@ iree_status_t loom_bytecode_collect_global_values(
       continue;
     }
     IREE_RETURN_IF_ERROR(
-        loom_bytecode_collect_global_attr_value_refs(out_values, attrs[i]));
+        loom_bytecode_collect_global_attr_value_refs(values, attrs[i]));
   }
 
-  return loom_bytecode_collect_global_value_type_refs(out_values, &scan_index);
+  IREE_RETURN_IF_ERROR(
+      loom_bytecode_collect_global_value_type_refs(values, &iterator));
+  *slot = values;
+  *out_values = values;
+  return iree_ok_status();
+}
+
+const loom_bytecode_global_value_list_t* loom_bytecode_global_values_for_symbol(
+    const loom_bytecode_numbering_t* numbering, loom_symbol_id_t symbol_id) {
+  IREE_ASSERT(symbol_id < numbering->module->symbols.count);
+  const uint32_t segment_index =
+      symbol_id / LOOM_BYTECODE_GLOBAL_VALUE_SEGMENT_CAPACITY;
+  IREE_ASSERT(segment_index < numbering->global_values.segments.segment_count);
+  const loom_bytecode_global_value_segment_t* segment =
+      (const loom_bytecode_global_value_segment_t*)
+          loom_segmented_storage_const_segment(
+              &numbering->global_values.segments, segment_index);
+  const loom_bytecode_global_value_list_t* values =
+      segment->values[symbol_id % LOOM_BYTECODE_GLOBAL_VALUE_SEGMENT_CAPACITY];
+  IREE_ASSERT(values != NULL);
+  return values;
 }
 
 iree_status_t loom_bytecode_number_global(
@@ -387,9 +435,11 @@ iree_status_t loom_bytecode_number_global(
       loom_bytecode_numbering_intern_op(numbering, op, &unused_id));
 
   const loom_module_t* module = numbering->module;
-  for (iree_host_size_t i = 0; i < local_values->count; ++i) {
-    const loom_value_t* value =
-        loom_module_value(module, local_values->values[i]);
+  loom_bytecode_global_value_iterator_t iterator =
+      loom_bytecode_global_value_iterator_begin(local_values);
+  loom_value_id_t value_id = LOOM_VALUE_ID_INVALID;
+  while (loom_bytecode_global_value_iterator_next(&iterator, &value_id)) {
+    const loom_value_t* value = loom_module_value(module, value_id);
     if (value->name_id != LOOM_STRING_ID_INVALID) {
       IREE_RETURN_IF_ERROR(loom_bytecode_numbering_intern_module_string(
           numbering, value->name_id, &unused_id));

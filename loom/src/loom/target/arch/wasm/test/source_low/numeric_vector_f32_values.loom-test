@@ -1,0 +1,159 @@
+// RUN: with-checks emit source-low target=wasm:simd128 output=low
+
+func.def @vector_f32_unary(%input_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input_buffer[%base] : buffer -> view<4xf32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf32>
+  %input = vector.load %input_view[0] : view<4xf32> -> vector<4xf32>
+  %absolute = vector.absf %input : vector<4xf32>
+  vector.store %absolute, %output_view[0] : vector<4xf32>, view<28xf32>
+  %negated = vector.negf %input : vector<4xf32>
+  vector.store %negated, %output_view[4] : vector<4xf32>, view<28xf32>
+  %ceil = vector.ceilf %input : vector<4xf32>
+  vector.store %ceil, %output_view[8] : vector<4xf32>, view<28xf32>
+  %floor = vector.floorf %input : vector<4xf32>
+  vector.store %floor, %output_view[12] : vector<4xf32>, view<28xf32>
+  %roundeven = vector.roundevenf %input : vector<4xf32>
+  vector.store %roundeven, %output_view[16] : vector<4xf32>, view<28xf32>
+  %trunc = vector.truncf %input : vector<4xf32>
+  vector.store %trunc, %output_view[20] : vector<4xf32>, view<28xf32>
+  %square_root = vector.sqrtf %input : vector<4xf32>
+  vector.store %square_root, %output_view[24] : vector<4xf32>, view<28xf32>
+  func.return
+}
+
+// ----
+CHECK: * = f32x4.abs *
+CHECK: * = f32x4.neg *
+CHECK: * = f32x4.ceil *
+CHECK: * = f32x4.floor *
+CHECK: * = f32x4.nearest *
+CHECK: * = f32x4.trunc *
+CHECK: * = f32x4.sqrt *
+
+// ====
+
+func.def @vector_f32_arithmetic(%lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xf32>
+  %rhs_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xf32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<16xf32>
+  %lhs = vector.load %lhs_view[0] : view<4xf32> -> vector<4xf32>
+  %rhs = vector.load %rhs_view[0] : view<4xf32> -> vector<4xf32>
+  %sum = vector.addf %lhs, %rhs : vector<4xf32>
+  vector.store %sum, %output_view[0] : vector<4xf32>, view<16xf32>
+  %difference = vector.subf %lhs, %rhs : vector<4xf32>
+  vector.store %difference, %output_view[4] : vector<4xf32>, view<16xf32>
+  %product = vector.mulf %lhs, %rhs : vector<4xf32>
+  vector.store %product, %output_view[8] : vector<4xf32>, view<16xf32>
+  %quotient = vector.divf %lhs, %rhs : vector<4xf32>
+  vector.store %quotient, %output_view[12] : vector<4xf32>, view<16xf32>
+  func.return
+}
+
+// ----
+CHECK: * = f32x4.add *
+CHECK: * = f32x4.sub *
+CHECK: * = f32x4.mul *
+CHECK: * = f32x4.div *
+
+// ====
+
+func.def @vector_f32_extrema(%lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xf32>
+  %rhs_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xf32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<8xf32>
+  %lhs = vector.load %lhs_view[0] : view<4xf32> -> vector<4xf32>
+  %rhs = vector.load %rhs_view[0] : view<4xf32> -> vector<4xf32>
+  %minimum = vector.minimumf %lhs, %rhs : vector<4xf32>
+  vector.store %minimum, %output_view[0] : vector<4xf32>, view<8xf32>
+  %maximum = vector.maximumf %lhs, %rhs : vector<4xf32>
+  vector.store %maximum, %output_view[4] : vector<4xf32>, view<8xf32>
+  func.return
+}
+
+// ----
+CHECK: * = f32x4.min *
+CHECK: * = f32x4.max *
+
+// ====
+
+func.def @vector_f32_comparisons(%lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xf32>
+  %rhs_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xf32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<24xi32>
+  %lhs = vector.load %lhs_view[0] : view<4xf32> -> vector<4xf32>
+  %rhs = vector.load %rhs_view[0] : view<4xf32> -> vector<4xf32>
+  %true = vector.constant -1 : vector<4xi32>
+  %false = vector.constant 0 : vector<4xi32>
+  %equal = vector.cmpf oeq, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %equal_words = vector.select %equal, %true, %false : vector<4xi32>
+  vector.store %equal_words, %output_view[0] : vector<4xi32>, view<24xi32>
+  %greater = vector.cmpf ogt, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %greater_words = vector.select %greater, %true, %false : vector<4xi32>
+  vector.store %greater_words, %output_view[4] : vector<4xi32>, view<24xi32>
+  %greater_equal = vector.cmpf oge, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %greater_equal_words = vector.select %greater_equal, %true, %false : vector<4xi32>
+  vector.store %greater_equal_words, %output_view[8] : vector<4xi32>, view<24xi32>
+  %less = vector.cmpf olt, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %less_words = vector.select %less, %true, %false : vector<4xi32>
+  vector.store %less_words, %output_view[12] : vector<4xi32>, view<24xi32>
+  %less_equal = vector.cmpf ole, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %less_equal_words = vector.select %less_equal, %true, %false : vector<4xi32>
+  vector.store %less_equal_words, %output_view[16] : vector<4xi32>, view<24xi32>
+  %not_equal_or_unordered = vector.cmpf une, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %not_equal_or_unordered_words = vector.select %not_equal_or_unordered, %true, %false : vector<4xi32>
+  vector.store %not_equal_or_unordered_words, %output_view[20] : vector<4xi32>, view<24xi32>
+  func.return
+}
+
+// ----
+CHECK: * = f32x4.eq *
+CHECK: * = f32x4.gt *
+CHECK: * = f32x4.ge *
+CHECK: * = f32x4.lt *
+CHECK: * = f32x4.le *
+CHECK: * = f32x4.ne *
+
+// ====
+
+// The nnan contract makes the ordered and unordered spellings equivalent.
+func.def @vector_f32_comparisons_no_nan(%lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xf32>
+  %rhs_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xf32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<24xi32>
+  %lhs = vector.load %lhs_view[0] : view<4xf32> -> vector<4xf32>
+  %rhs = vector.load %rhs_view[0] : view<4xf32> -> vector<4xf32>
+  %true = vector.constant -1 : vector<4xi32>
+  %false = vector.constant 0 : vector<4xi32>
+  %not_equal = vector.cmpf<nnan> one, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %not_equal_words = vector.select %not_equal, %true, %false : vector<4xi32>
+  vector.store %not_equal_words, %output_view[0] : vector<4xi32>, view<24xi32>
+  %unordered_equal = vector.cmpf<nnan> ueq, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %unordered_equal_words = vector.select %unordered_equal, %true, %false : vector<4xi32>
+  vector.store %unordered_equal_words, %output_view[4] : vector<4xi32>, view<24xi32>
+  %unordered_greater = vector.cmpf<nnan> ugt, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %unordered_greater_words = vector.select %unordered_greater, %true, %false : vector<4xi32>
+  vector.store %unordered_greater_words, %output_view[8] : vector<4xi32>, view<24xi32>
+  %unordered_greater_equal = vector.cmpf<nnan> uge, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %unordered_greater_equal_words = vector.select %unordered_greater_equal, %true, %false : vector<4xi32>
+  vector.store %unordered_greater_equal_words, %output_view[12] : vector<4xi32>, view<24xi32>
+  %unordered_less = vector.cmpf<nnan> ult, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %unordered_less_words = vector.select %unordered_less, %true, %false : vector<4xi32>
+  vector.store %unordered_less_words, %output_view[16] : vector<4xi32>, view<24xi32>
+  %unordered_less_equal = vector.cmpf<nnan> ule, %lhs, %rhs : vector<4xf32> -> vector<4xi1>
+  %unordered_less_equal_words = vector.select %unordered_less_equal, %true, %false : vector<4xi32>
+  vector.store %unordered_less_equal_words, %output_view[20] : vector<4xi32>, view<24xi32>
+  func.return
+}
+
+// ----
+CHECK: * = f32x4.ne *
+CHECK: * = f32x4.eq *
+CHECK: * = f32x4.gt *
+CHECK: * = f32x4.ge *
+CHECK: * = f32x4.lt *
+CHECK: * = f32x4.le *

@@ -37,6 +37,7 @@
 #include "loom/target/arch/amdgpu/planning/descriptor_semantics.h"
 #include "loom/target/arch/amdgpu/planning/occupancy.h"
 #include "loom/target/arch/amdgpu/planning/packet_plan.h"
+#include "loom/target/arch/amdgpu/planning/placement.h"
 #include "loom/target/arch/amdgpu/planning/storage_lease.h"
 #include "loom/target/arch/amdgpu/planning/vopd_plan.h"
 #include "loom/target/arch/amdgpu/provider.h"
@@ -44,6 +45,7 @@
 #include "loom/target/low_descriptor_registry.h"
 #include "loom/target/provider.h"
 #include "loom/tooling/compile/pipeline.h"
+#include "loom/transforms/cleanup/configured.h"
 
 namespace {
 
@@ -489,6 +491,8 @@ class PacketPlanFixture {
       loom_compile_pipeline_options_initialize(&pipeline_options);
       pipeline_options.target_environment = &target_environment_;
       pipeline_options.low_descriptor_registry = &target_registry_;
+      pipeline_options.cleanup_pattern_provider_set =
+          loom_cleanup_configured_pattern_provider_set();
       pipeline_options.diagnostic_sink = {
           /*.fn=*/loom_diagnostic_stderr_sink,
           /*.user_data=*/nullptr,
@@ -551,9 +555,9 @@ class PacketPlanFixture {
     loom_amdgpu_storage_lease_provider(&storage_lease_provider);
     loom_low_emission_frame_options_t frame_options = {};
     frame_options.descriptor_registry = &target_registry_.registry;
-    frame_options.memory_access_table = loom_low_memory_access_table_empty();
-    frame_options.residency_model =
-        loom_amdgpu_occupancy_residency_model(&resolved_target);
+    frame_options.residency_query = loom_amdgpu_occupancy_residency_view;
+    frame_options.instruction_preferences =
+        loom_amdgpu_placement_instruction_preferences(&resolved_target);
     frame_options.schedule_pair_affinities = pair_affinities;
     frame_options.schedule_structural_state_reads = structural_state_reads;
     frame_options.schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL;
@@ -561,11 +565,11 @@ class PacketPlanFixture {
     frame_options.allocation_fixed_value_count =
         abi_verify_result.fixed_value_count;
     frame_options.storage_lease_provider = &storage_lease_provider;
-    AbortOnError(loom_low_emission_frame_build(
-        module_, low_function, &frame_options, &frame_arena_, &frame_));
-    if (frame_.schedule.error_count != 0 ||
-        frame_.allocation.error_count != 0 ||
-        frame_.allocation.spill_plan_count != 0) {
+    bool frame_accepted = false;
+    AbortOnError(loom_low_emission_frame_build(module_, low_function,
+                                               &frame_options, &frame_arena_,
+                                               &frame_, &frame_accepted));
+    if (!frame_accepted || frame_.allocation.spill_plan_count != 0) {
       std::abort();
     }
 

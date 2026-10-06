@@ -28,7 +28,8 @@ enum {
   LOOM_OP_SANITIZER_RACE_ACCESS = LOOM_OP_KIND(LOOM_DIALECT_SANITIZER, 4),
   LOOM_OP_SANITIZER_RACE_SYNC = LOOM_OP_KIND(LOOM_DIALECT_SANITIZER, 5),
   LOOM_OP_SANITIZER_ASSERT_ACCESSES = LOOM_OP_KIND(LOOM_DIALECT_SANITIZER, 6),
-  LOOM_OP_SANITIZER_COUNT_ = 7,
+  LOOM_OP_SANITIZER_RACE_FRAGMENT_ACCESS = LOOM_OP_KIND(LOOM_DIALECT_SANITIZER, 7),
+  LOOM_OP_SANITIZER_COUNT_ = 8,
 };
 
 // Logical memory access kind covered by a sanitizer access assertion.
@@ -54,6 +55,22 @@ typedef enum loom_sanitizer_assert_accesses_kind_e {
   LOOM_SANITIZER_ASSERT_ACCESSES_KIND_READ_WRITE = 2,
   LOOM_SANITIZER_ASSERT_ACCESSES_KIND_COUNT_ = 3,
 } loom_sanitizer_assert_accesses_kind_t;
+
+// Memory effect observed for a matrix-fragment race access.
+typedef enum loom_sanitizer_race_fragment_access_kind_e {
+  LOOM_SANITIZER_RACE_FRAGMENT_ACCESS_KIND_READ = 0,
+  LOOM_SANITIZER_RACE_FRAGMENT_ACCESS_KIND_WRITE = 1,
+  LOOM_SANITIZER_RACE_FRAGMENT_ACCESS_KIND_COUNT_ = 2,
+} loom_sanitizer_race_fragment_access_kind_t;
+
+// Matrix address-mapping role of a fragment race access.
+typedef enum loom_sanitizer_race_fragment_access_role_e {
+  LOOM_SANITIZER_RACE_FRAGMENT_ACCESS_ROLE_LHS = 0,
+  LOOM_SANITIZER_RACE_FRAGMENT_ACCESS_ROLE_RHS = 1,
+  LOOM_SANITIZER_RACE_FRAGMENT_ACCESS_ROLE_INIT = 2,
+  LOOM_SANITIZER_RACE_FRAGMENT_ACCESS_ROLE_RESULT = 3,
+  LOOM_SANITIZER_RACE_FRAGMENT_ACCESS_ROLE_COUNT_ = 4,
+} loom_sanitizer_race_fragment_access_role_t;
 
 // LOOM_OP_SANITIZER_ASSERT_ACCESS: Assert that a logical indexed view access is valid. The assertion has the same index-list shape as ordinary view memory operations so source-level memory contracts remain typed until target lowering materializes address checks.
 // sanitizer.assert.access<read> %view[%row, %col] : view<[%M]x[%N]xf32, %layout>
@@ -227,6 +244,42 @@ iree_status_t loom_sanitizer_assert_accesses_build(
     loom_location_id_t location,
     loom_op_t** out_op);
 iree_status_t loom_sanitizer_assert_accesses_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
+
+// LOOM_OP_SANITIZER_RACE_FRAGMENT_ACCESS: Observe the target-selected physical memory activity of a matrix fragment load or store. The fragment payload, logical origin, matrix shape, and role preserve the source contract until target lowering selects the same lane participation and addresses as the corresponding fragment memory operation.
+// sanitizer.race.fragment_access<write> %acc, %view[%row, %col] shape [%m, %n] {role = result} : vector<8xf32>, view<128x128xbf16>
+LOOM_DEFINE_ISA(loom_sanitizer_race_fragment_access_isa, LOOM_OP_SANITIZER_RACE_FRAGMENT_ACCESS)
+LOOM_DEFINE_SEGMENTED_OPERAND(loom_sanitizer_race_fragment_access_fragment, 0)
+LOOM_DEFINE_SEGMENTED_OPERAND(loom_sanitizer_race_fragment_access_view, 1)
+LOOM_DEFINE_SEGMENTED_OPERANDS(loom_sanitizer_race_fragment_access_indices, 2)
+LOOM_DEFINE_SEGMENTED_OPTIONAL_OPERAND(loom_sanitizer_race_fragment_access_blocks, 3)
+LOOM_DEFINE_SEGMENTED_OPERAND(loom_sanitizer_race_fragment_access_rows, 4)
+LOOM_DEFINE_SEGMENTED_OPERAND(loom_sanitizer_race_fragment_access_columns, 5)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_sanitizer_race_fragment_access_kind, 0, loom_sanitizer_race_fragment_access_kind_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_sanitizer_race_fragment_access_role, 1, loom_sanitizer_race_fragment_access_role_t)
+LOOM_DEFINE_ATTR_I64_ARRAY(loom_sanitizer_race_fragment_access_static_indices, 2)
+enum loom_sanitizer_race_fragment_access_build_flag_bits_e {
+  LOOM_SANITIZER_RACE_FRAGMENT_ACCESS_BUILD_FLAG_HAS_BLOCKS = 1u << 0,
+};
+typedef uint32_t loom_sanitizer_race_fragment_access_build_flags_t;
+iree_status_t loom_sanitizer_race_fragment_access_build(
+    loom_builder_t* builder,
+    loom_sanitizer_race_fragment_access_build_flags_t build_flags,
+    loom_sanitizer_race_fragment_access_kind_t kind,
+    loom_value_id_t fragment,
+    loom_value_id_t view,
+    const loom_value_id_t* indices,
+    iree_host_size_t indices_count,
+    const int64_t* static_indices,
+    iree_host_size_t static_indices_count,
+    loom_optional loom_value_id_t blocks,
+    loom_value_id_t rows,
+    loom_value_id_t columns,
+    loom_sanitizer_race_fragment_access_role_t role,
+    loom_location_id_t location,
+    loom_op_t** out_op);
+iree_status_t loom_sanitizer_race_fragment_access_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 

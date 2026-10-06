@@ -234,3 +234,241 @@ low.func.def target<test.low.core>(@test_target) @backedge_visibility_boundary(%
 ^finish:
   return %loop_read, %bias
 }
+
+// ====
+
+// Reading a class does not invalidate its assignment. Removing the repeated
+// assignment also preserves the epoch used by ordinary state-read CSE.
+// RUN: pass low-cse
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @identical_state_assignment(%value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  test.state.assign.i32 %value
+  %before = test.state.read.i32 %value
+  test.state.assign.i32 %value
+  %after = test.state.read.i32 %value
+  return %before, %after
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @identical_state_assignment(%value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  test.state.assign.i32 %value
+  %before = test.state.read.i32 %value
+  return %before, %before
+}
+
+// ====
+
+// A write to another architectural class preserves the remembered assignment.
+// RUN: pass low-cse
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @assignment_survives_disjoint_write(%value: reg<test.i32>, %schedule: reg<test.schedule_state>) -> (reg<test.schedule_state>) asm {
+  test.state.assign.i32 %value
+  %updated = test.state.add.schedule_state %schedule, %schedule
+  test.state.assign.i32 %value
+  return %updated
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @assignment_survives_disjoint_write(%value: reg<test.i32>, %schedule: reg<test.schedule_state>) -> (reg<test.schedule_state>) asm {
+  test.state.assign.i32 %value
+  %updated = test.state.add.schedule_state %schedule, %schedule
+  return %updated
+}
+
+// ====
+
+// Immediate assignments use exact structural identity even when no operation
+// produces an SSA value. Changed values and the final reset remain observable.
+// RUN: pass low-cse
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @immediate_assignment_and_reset() asm {
+  test.state.assign.i32.immediate 12
+  test.state.assign.i32.immediate 12
+  test.state.assign.i32.immediate 0
+  test.state.assign.i32.immediate 12
+  return
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @immediate_assignment_and_reset() asm {
+  test.state.assign.i32.immediate 12
+  test.state.assign.i32.immediate 0
+  test.state.assign.i32.immediate 12
+  return
+}
+
+// ====
+
+// Explicit SSA inputs are compared by identity, not by the setter's opcode.
+// An arbitrary same-class writer also expires the remembered assignment.
+// RUN: pass low-cse
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @assignment_inputs_and_clobbers(%first: reg<test.i32>, %second: reg<test.i32>) -> (reg<test.i32>) asm {
+  test.state.assign.i32 %first
+  test.state.assign.i32 %second
+  test.state.assign.i32 %first
+  %updated = test.state.add.i32 %first, %second
+  test.state.assign.i32 %first
+  return %updated
+}
+
+// ====
+
+// No value epoch advances in this body. Distinct zero-result fences still
+// prevent assignment reuse across their source-order boundaries.
+// RUN: pass low-cse
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @assignment_zero_result_boundaries() asm {
+  test.state.assign.i32.immediate 12
+  test.barrier
+  test.state.assign.i32.immediate 12
+  low.schedule.fence
+  test.state.assign.i32.immediate 12
+  return
+}
+
+// ====
+
+// Call purity promises deterministic memory-free results, not preservation of
+// a caller's architectural configuration. Unknown calls are boundaries too.
+// RUN: pass low-cse
+test.target<low_core> @test_target
+
+low.func.decl pure target<test.low.core>(@test_target) @pure_helper()
+
+low.func.decl target<test.low.core>(@test_target) @unknown_helper()
+
+low.func.def target<test.low.core>(@test_target) @assignment_call_boundaries() asm {
+  test.state.assign.i32.immediate 12
+  low.func.call pure @pure_helper() : ()
+  test.state.assign.i32.immediate 12
+  low.func.call @unknown_helper() : ()
+  test.state.assign.i32.immediate 12
+  return
+}
+
+// ====
+
+// Assignment availability is block-local. A conditional region cannot import
+// the outer assignment or publish its branch-local replacement to the caller.
+// RUN: pass low-cse
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @assignment_nested_regions(%condition: reg<test.i32>) asm {
+  test.state.assign.i32.immediate 12
+  low.scf.if %condition {
+    test.state.assign.i32.immediate 12
+    test.state.assign.i32.immediate 12
+  } else {
+    test.state.assign.i32.immediate 12
+    test.state.assign.i32.immediate 12
+  }
+  test.state.assign.i32.immediate 12
+  return
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @assignment_nested_regions(%condition: reg<test.i32>) asm {
+  test.state.assign.i32.immediate 12
+  low.scf.if %condition {
+    test.state.assign.i32.immediate 12
+  } else {
+    test.state.assign.i32.immediate 12
+  }
+  test.state.assign.i32.immediate 12
+  return
+}
+
+// ====
+
+// Sibling blocks and their join each need an assignment. Repeated assignments
+// within each sibling still fold without importing another path's state.
+// RUN: pass low-cse
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @assignment_cfg_boundaries(%condition: reg<test.i32>) asm {
+  test.state.assign.i32.immediate 12
+  low.cond_br %condition, ^left, ^right : reg<test.i32>
+^left:
+  test.state.assign.i32.immediate 12
+  test.state.assign.i32.immediate 12
+  low.br ^join
+^right:
+  test.state.assign.i32.immediate 12
+  test.state.assign.i32.immediate 12
+  low.br ^join
+^join:
+  test.state.assign.i32.immediate 12
+  return
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @assignment_cfg_boundaries(%condition: reg<test.i32>) asm {
+  test.state.assign.i32.immediate 12
+  low.cond_br %condition, ^left, ^right : reg<test.i32>
+^left:
+  test.state.assign.i32.immediate 12
+  low.br ^join
+^right:
+  test.state.assign.i32.immediate 12
+  low.br ^join
+^join:
+  test.state.assign.i32.immediate 12
+  return
+}
+
+// ====
+
+// Ordinary described memory writes do not change architectural configuration.
+// An individually observable access remains a conservative boundary.
+// RUN: pass low-cse
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @assignment_memory_observations(%configuration: reg<test.i32>, %address: reg<test.ptr>, %payload: reg<test.i32 x4>) asm {
+  test.state.assign.i32 %configuration
+  test.store.v4i32 %address, %payload
+  test.state.assign.i32 %configuration
+  test.store.v4i32<volatile> %address, %payload
+  test.state.assign.i32 %configuration
+  return
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @assignment_memory_observations(%configuration: reg<test.i32>, %address: reg<test.ptr>, %payload: reg<test.i32 x4>) asm {
+  test.state.assign.i32 %configuration
+  test.store.v4i32 %address, %payload
+  test.store.v4i32<volatile> %address, %payload
+  test.state.assign.i32 %configuration
+  return
+}
+
+// ====
+
+// Dynamic participant changes invalidate assignment availability even when
+// they leave this particular architectural class alone.
+// RUN: pass low-cse
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @assignment_convergent_boundary(%value: reg<test.i32>) -> (reg<test.i32>) asm {
+  test.state.assign.i32.immediate 12
+  %participating = test.convergent.i32 %value
+  test.state.assign.i32.immediate 12
+  return %participating
+}

@@ -19,6 +19,8 @@ class VerifyStateTest : public ::testing::Test {
   void SetUp() override {
     iree_arena_block_pool_initialize(4096, iree_allocator_system(), &pool_);
     iree_arena_initialize(&pool_, &state_.arena);
+    module_.values.count = IREE_ARRAYSIZE(definition_depths_);
+    state_.module = &module_;
     state_.visibility.definition_depths = definition_depths_;
     state_.visibility.minimum_depth = 1;
   }
@@ -31,9 +33,31 @@ class VerifyStateTest : public ::testing::Test {
   iree_arena_block_pool_t pool_ = {};
   // Zero-initialized definition tags for every supported scope depth.
   uint8_t definition_depths_[LOOM_VERIFY_MAX_SCOPE_DEPTH + 1] = {};
-  // Only scope and definition fields are used by these API tests.
+  // Minimal module header supplying the valid value-ID range.
+  loom_module_t module_ = {};
+  // Verifier state exercised directly without a constructed operation tree.
   loom_verify_state_t state_ = {};
 };
+
+TEST_F(VerifyStateTest, ReusableSortedValuesSupportMembershipAndDuplicates) {
+  const loom_value_id_t first[] = {5, 2, 5, LOOM_VALUE_ID_INVALID, 40};
+  IREE_ASSERT_OK(
+      loom_verify_sorted_values_assign(&state_, first, IREE_ARRAYSIZE(first)));
+  EXPECT_EQ(state_.sorted_values.count, 3u);
+  EXPECT_TRUE(loom_verify_sorted_values_contains(&state_, 2));
+  EXPECT_TRUE(loom_verify_sorted_values_contains(&state_, 5));
+  EXPECT_FALSE(loom_verify_sorted_values_contains(&state_, 3));
+  EXPECT_FALSE(loom_verify_sorted_values_contains(&state_, 40));
+  EXPECT_TRUE(loom_verify_sorted_values_contain_duplicate(&state_, 5));
+  EXPECT_FALSE(loom_verify_sorted_values_contain_duplicate(&state_, 2));
+
+  const loom_value_id_t second[] = {7};
+  IREE_ASSERT_OK(loom_verify_sorted_values_assign(&state_, second,
+                                                  IREE_ARRAYSIZE(second)));
+  EXPECT_EQ(state_.sorted_values.count, 1u);
+  EXPECT_TRUE(loom_verify_sorted_values_contains(&state_, 7));
+  EXPECT_FALSE(loom_verify_sorted_values_contains(&state_, 5));
+}
 
 TEST_F(VerifyStateTest, RootDefinitionsAndUndefinedValues) {
   EXPECT_FALSE(loom_verify_value_is_visible(&state_, 0));

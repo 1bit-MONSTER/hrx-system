@@ -4,9 +4,9 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// AMDGPU HAL kernel-library emission for prepared target-low Loom modules.
+// AMDGPU HAL kernel-library compilation from prepared target-low Loom modules.
 //
-// This emits prepared low.kernel.def entries into native HSACO bytes.
+// This compiles prepared low.kernel.def entries into native HSACO bytes.
 // Source-to-low lowering, HAL ABI/resource materialization, and target-low
 // preparation are owned by the caller's compile pipeline.
 
@@ -18,7 +18,6 @@
 #include "loom/error/diagnostic.h"
 #include "loom/error/source.h"
 #include "loom/ir/ir.h"
-#include "loom/target/emit/native/amdgpu/runtime_globals.h"
 #include "loom/target/provider.h"
 #include "loom/target/reporting/artifact_manifest_collect.h"
 #include "loom/target/reporting/report.h"
@@ -30,14 +29,12 @@ extern "C" {
 
 typedef struct loom_amdgpu_hal_kernel_library_options_t {
   // Optional concrete compiler function versions participating in this
-  // emission. The list and its version objects are borrowed for the call.
+  // compilation. The list and its version objects are borrowed for the call.
   const loom_function_version_list_t* function_versions;
-  // Optional AMDGPU runtime support globals emitted into the HSACO.
-  loom_amdgpu_runtime_global_flags_t runtime_globals;
-  // Optional caller-owned code-object data symbols emitted into the HSACO.
-  const loom_amdgpu_hsaco_data_symbol_t* data_symbols;
-  // Number of entries in |data_symbols|.
-  iree_host_size_t data_symbol_count;
+  // Optional raw diagnostic emitter preserving operation identity for an
+  // enclosing target-emission boundary. When present, diagnostics bypass
+  // |diagnostic_sink| and |source_resolver| for the enclosing layer to render.
+  iree_diagnostic_emitter_t diagnostic_emitter;
   // Diagnostic sink used for verification, materialization, scheduling, and
   // allocation diagnostics. A NULL callback still counts diagnostics.
   loom_diagnostic_sink_t diagnostic_sink;
@@ -79,22 +76,27 @@ typedef struct loom_amdgpu_hal_kernel_library_t {
 void loom_amdgpu_hal_kernel_library_deinitialize(
     loom_amdgpu_hal_kernel_library_t* library, iree_allocator_t allocator);
 
-// Emits |module| into an allocator-owned AMDGPU HAL kernel library.
+// Compiles |module| into an allocator-owned AMDGPU HAL kernel library.
 //
 // |module| must be verified and contain the prepared target-low entries
-// intended for the artifact. Emission consumes those invariants without
+// intended for the artifact. Compilation consumes those invariants without
 // repeating module verification. Other targets may have functions in the same
-// module; only selected AMDGPU entries participate in native emission. Target
-// records are resolved through the linked descriptor registry without
-// materializing companion target records in the IR. |out_emitted| is false when
-// target preflight or diagnostics rejected the module; status remains reserved
-// for infrastructure failures. The caller owns |out_library| when |out_emitted|
-// is true and must release it with loom_amdgpu_hal_kernel_library_deinitialize.
-iree_status_t loom_amdgpu_emit_hal_kernel_library(
+// module; only selected AMDGPU entries participate in native compilation.
+// Target records are resolved through the linked descriptor registry without
+// materializing companion target records in the IR. All selected entries must
+// resolve to one exact AMDGPU target identity because one HSACO carries one
+// code-object target. |out_emitted| is false when target planning or
+// diagnostics rejected the module; status remains reserved for infrastructure
+// failures. The caller owns |out_library| when |out_emitted| is true and must
+// release it with loom_amdgpu_hal_kernel_library_deinitialize.
+iree_status_t loom_amdgpu_compile_hal_kernel_library(
     loom_module_t* module,
     const loom_amdgpu_hal_kernel_library_options_t* options,
     iree_allocator_t allocator, bool* out_emitted,
     loom_amdgpu_hal_kernel_library_t* out_library);
+
+// Optional AMDGPU HAL kernel-library emission for a target environment.
+extern const loom_target_provider_t loom_amdgpu_hal_kernel_library_provider;
 
 #ifdef __cplusplus
 }  // extern "C"

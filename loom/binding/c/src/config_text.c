@@ -120,8 +120,7 @@ loomc_status_t loomc_config_apply_text_to_module(
   }
   if (loomc_status_is_ok(status) &&
       materialize_result.materialized_count != 0) {
-    status = loomc_result_verify_loom_module(options->module, /*source=*/NULL,
-                                             options->result);
+    status = loomc_result_verify_loom_module(options->module, options->result);
   }
   if (loomc_status_is_ok(status) && loomc_result_succeeded(options->result) &&
       iree_any_bit_set(options->config->flags,

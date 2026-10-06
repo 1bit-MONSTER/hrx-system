@@ -6,6 +6,7 @@
 
 #include "loom/codegen/low/storage_layout.h"
 
+#include "loom/analysis/storage_layout.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
 #include "loom/ops/type_registry.h"
@@ -96,24 +97,15 @@ static iree_status_t loom_low_storage_layout_pack_reservation(
       (uint64_t)loom_low_storage_reserve_byte_length(reserve_op);
   const uint64_t byte_alignment =
       (uint64_t)loom_low_storage_reserve_byte_alignment(reserve_op);
-  uint64_t aligned_space_size = 0;
-  if (!iree_checked_align_u64(*space_size, byte_alignment,
-                              &aligned_space_size)) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "low storage layout alignment overflows");
-  }
-  uint64_t next_space_size = 0;
-  if (!iree_checked_add_u64(aligned_space_size, byte_size, &next_space_size)) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "low storage layout space size overflows");
-  }
+  uint64_t byte_offset = 0;
+  IREE_RETURN_IF_ERROR(loom_storage_layout_append(byte_size, byte_alignment,
+                                                  space_size, &byte_offset));
   *out_reservation = (loom_low_storage_layout_reservation_t){
       .space = storage_space,
-      .byte_offset = aligned_space_size,
+      .byte_offset = byte_offset,
       .byte_size = byte_size,
       .byte_alignment = byte_alignment,
   };
-  *space_size = next_space_size;
   return iree_ok_status();
 }
 

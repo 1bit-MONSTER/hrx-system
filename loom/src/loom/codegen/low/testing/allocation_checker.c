@@ -76,7 +76,9 @@ static bool loom_low_allocation_checker_assignment_start_shape_is_valid(
   if (!iree_any_bit_set(
           assignment->flags,
           LOOM_LOW_ALLOCATION_ASSIGNMENT_FLAG_REFINED_UNIT_STARTS)) {
-    return assignment->start_point == interval->start_point;
+    // Mandatory descendants can need storage before their source's semantic
+    // start in region order. Check coverage, not the allocator's chosen order.
+    return assignment->start_point <= interval->start_point;
   }
   return assignment->unit_count != 0 &&
          assignment->start_point <= interval->start_point;

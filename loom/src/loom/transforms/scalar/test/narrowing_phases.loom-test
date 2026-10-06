@@ -1,0 +1,10 @@
+// RUN: pass canonicalize
+
+// Ordinary cleanup retains the selected width. Arithmetic narrowing belongs to
+// source combination, before legalization chooses physical representations.
+func.def @wide_source_arithmetic(%left: i32, %right: i64) -> (i32) {
+  %wide = scalar.extsi %left : i32 to i64
+  %sum = scalar.addi %wide, %right : i64
+  %result = scalar.trunci %sum : i64 to i32
+  func.return %result : i32
+}

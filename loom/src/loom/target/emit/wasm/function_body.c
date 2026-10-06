@@ -7,9 +7,9 @@
 #include "loom/target/emit/wasm/function_body.h"
 
 #include <inttypes.h>
+#include <string.h>
 
-#include "loom/codegen/low/function.h"
-#include "loom/codegen/low/target_binding.h"
+#include "loom/codegen/low/representation_binding.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
@@ -45,41 +45,13 @@ enum {
   LOOM_WASM_OPCODE_I32_STORE16 = 0x3B,
   LOOM_WASM_OPCODE_I32_CONST = 0x41,
   LOOM_WASM_OPCODE_I64_CONST = 0x42,
-  LOOM_WASM_OPCODE_I32_EQZ = 0x45,
-  LOOM_WASM_OPCODE_I32_EQ = 0x46,
-  LOOM_WASM_OPCODE_I32_ADD = 0x6A,
-  LOOM_WASM_OPCODE_I32_SUB = 0x6B,
-  LOOM_WASM_OPCODE_I32_MUL = 0x6C,
-  LOOM_WASM_OPCODE_I32_REM_U = 0x70,
-  LOOM_WASM_OPCODE_I32_AND = 0x71,
-  LOOM_WASM_OPCODE_I32_OR = 0x72,
-  LOOM_WASM_OPCODE_I32_SHL = 0x74,
-  LOOM_WASM_OPCODE_I32_SHR_U = 0x76,
-  LOOM_WASM_OPCODE_I64_OR = 0x84,
-  LOOM_WASM_OPCODE_I64_SHL = 0x86,
-  LOOM_WASM_OPCODE_I64_SHR_U = 0x88,
-  LOOM_WASM_OPCODE_I32_LT_S = 0x48,
-  LOOM_WASM_OPCODE_I32_LT_U = 0x49,
-  LOOM_WASM_OPCODE_F32_ADD = 0x92,
-  LOOM_WASM_OPCODE_I32_WRAP_I64 = 0xA7,
-  LOOM_WASM_OPCODE_I64_EXTEND_I32_S = 0xAC,
-  LOOM_WASM_OPCODE_I64_EXTEND_I32_U = 0xAD,
-  LOOM_WASM_OPCODE_I32_REINTERPRET_F32 = 0xBC,
-  LOOM_WASM_OPCODE_I64_REINTERPRET_F64 = 0xBD,
   LOOM_WASM_OPCODE_F32_CONST = 0x43,
   LOOM_WASM_OPCODE_F64_CONST = 0x44,
-  LOOM_WASM_OPCODE_I32_XOR = 0x73,
-  LOOM_WASM_OPCODE_I32_SHR_S = 0x75,
-  LOOM_WASM_OPCODE_I64_ADD = 0x7C,
-  LOOM_WASM_OPCODE_I64_SUB = 0x7D,
-  LOOM_WASM_OPCODE_I64_MUL = 0x7E,
-  LOOM_WASM_OPCODE_I64_REM_U = 0x82,
-  LOOM_WASM_OPCODE_I64_AND = 0x83,
-  LOOM_WASM_OPCODE_I64_XOR = 0x85,
-  LOOM_WASM_OPCODE_I64_SHR_S = 0x87,
-  LOOM_WASM_OPCODE_F32_REINTERPRET_I32 = 0xBE,
-  LOOM_WASM_OPCODE_F64_REINTERPRET_I64 = 0xBF,
+  LOOM_WASM_OPCODE_I32_EQZ = 0x45,
+  LOOM_WASM_OPCODE_I32_EQ = 0x46,
   LOOM_WASM_OPCODE_I32_NE = 0x47,
+  LOOM_WASM_OPCODE_I32_LT_S = 0x48,
+  LOOM_WASM_OPCODE_I32_LT_U = 0x49,
   LOOM_WASM_OPCODE_I32_GT_S = 0x4A,
   LOOM_WASM_OPCODE_I32_GT_U = 0x4B,
   LOOM_WASM_OPCODE_I32_LE_S = 0x4C,
@@ -96,6 +68,67 @@ enum {
   LOOM_WASM_OPCODE_I64_LE_U = 0x58,
   LOOM_WASM_OPCODE_I64_GE_S = 0x59,
   LOOM_WASM_OPCODE_I64_GE_U = 0x5A,
+  LOOM_WASM_OPCODE_F32_EQ = 0x5B,
+  LOOM_WASM_OPCODE_F32_NE = 0x5C,
+  LOOM_WASM_OPCODE_F32_LT = 0x5D,
+  LOOM_WASM_OPCODE_F32_GT = 0x5E,
+  LOOM_WASM_OPCODE_F32_LE = 0x5F,
+  LOOM_WASM_OPCODE_F32_GE = 0x60,
+  LOOM_WASM_OPCODE_I32_ADD = 0x6A,
+  LOOM_WASM_OPCODE_I32_SUB = 0x6B,
+  LOOM_WASM_OPCODE_I32_MUL = 0x6C,
+  LOOM_WASM_OPCODE_I32_DIV_S = 0x6D,
+  LOOM_WASM_OPCODE_I32_DIV_U = 0x6E,
+  LOOM_WASM_OPCODE_I32_REM_S = 0x6F,
+  LOOM_WASM_OPCODE_I32_REM_U = 0x70,
+  LOOM_WASM_OPCODE_I32_AND = 0x71,
+  LOOM_WASM_OPCODE_I32_OR = 0x72,
+  LOOM_WASM_OPCODE_I32_XOR = 0x73,
+  LOOM_WASM_OPCODE_I32_SHL = 0x74,
+  LOOM_WASM_OPCODE_I32_SHR_S = 0x75,
+  LOOM_WASM_OPCODE_I32_SHR_U = 0x76,
+  LOOM_WASM_OPCODE_I64_ADD = 0x7C,
+  LOOM_WASM_OPCODE_I64_SUB = 0x7D,
+  LOOM_WASM_OPCODE_I64_MUL = 0x7E,
+  LOOM_WASM_OPCODE_I64_DIV_S = 0x7F,
+  LOOM_WASM_OPCODE_I64_DIV_U = 0x80,
+  LOOM_WASM_OPCODE_I64_REM_S = 0x81,
+  LOOM_WASM_OPCODE_I64_REM_U = 0x82,
+  LOOM_WASM_OPCODE_I64_AND = 0x83,
+  LOOM_WASM_OPCODE_I64_OR = 0x84,
+  LOOM_WASM_OPCODE_I64_XOR = 0x85,
+  LOOM_WASM_OPCODE_I64_SHL = 0x86,
+  LOOM_WASM_OPCODE_I64_SHR_S = 0x87,
+  LOOM_WASM_OPCODE_I64_SHR_U = 0x88,
+  LOOM_WASM_OPCODE_F32_ABS = 0x8B,
+  LOOM_WASM_OPCODE_F32_NEG = 0x8C,
+  LOOM_WASM_OPCODE_F32_CEIL = 0x8D,
+  LOOM_WASM_OPCODE_F32_FLOOR = 0x8E,
+  LOOM_WASM_OPCODE_F32_TRUNC = 0x8F,
+  LOOM_WASM_OPCODE_F32_NEAREST = 0x90,
+  LOOM_WASM_OPCODE_F32_SQRT = 0x91,
+  LOOM_WASM_OPCODE_F32_ADD = 0x92,
+  LOOM_WASM_OPCODE_F32_SUB = 0x93,
+  LOOM_WASM_OPCODE_F32_MUL = 0x94,
+  LOOM_WASM_OPCODE_F32_DIV = 0x95,
+  LOOM_WASM_OPCODE_F32_MIN = 0x96,
+  LOOM_WASM_OPCODE_F32_MAX = 0x97,
+  LOOM_WASM_OPCODE_F32_COPYSIGN = 0x98,
+  LOOM_WASM_OPCODE_I32_WRAP_I64 = 0xA7,
+  LOOM_WASM_OPCODE_I64_EXTEND_I32_S = 0xAC,
+  LOOM_WASM_OPCODE_I64_EXTEND_I32_U = 0xAD,
+  LOOM_WASM_OPCODE_F32_CONVERT_I32_S = 0xB2,
+  LOOM_WASM_OPCODE_F32_CONVERT_I32_U = 0xB3,
+  LOOM_WASM_OPCODE_F32_CONVERT_I64_S = 0xB4,
+  LOOM_WASM_OPCODE_F32_CONVERT_I64_U = 0xB5,
+  LOOM_WASM_OPCODE_F64_CONVERT_I32_S = 0xB7,
+  LOOM_WASM_OPCODE_F64_CONVERT_I32_U = 0xB8,
+  LOOM_WASM_OPCODE_F64_CONVERT_I64_S = 0xB9,
+  LOOM_WASM_OPCODE_F64_CONVERT_I64_U = 0xBA,
+  LOOM_WASM_OPCODE_I32_REINTERPRET_F32 = 0xBC,
+  LOOM_WASM_OPCODE_I64_REINTERPRET_F64 = 0xBD,
+  LOOM_WASM_OPCODE_F32_REINTERPRET_I32 = 0xBE,
+  LOOM_WASM_OPCODE_F64_REINTERPRET_I64 = 0xBF,
   LOOM_WASM_OPCODE_SIMD_PREFIX = 0xFD,
 };
 
@@ -131,16 +164,31 @@ enum {
   LOOM_WASM_SIMD_SUBOPCODE_I32X4_GE_S = 0x3F,
   LOOM_WASM_SIMD_SUBOPCODE_I32X4_GE_U = 0x40,
   LOOM_WASM_SIMD_SUBOPCODE_F32X4_EQ = 0x41,
+  LOOM_WASM_SIMD_SUBOPCODE_F32X4_NE = 0x42,
   LOOM_WASM_SIMD_SUBOPCODE_F32X4_LT = 0x43,
   LOOM_WASM_SIMD_SUBOPCODE_F32X4_GT = 0x44,
   LOOM_WASM_SIMD_SUBOPCODE_F32X4_LE = 0x45,
   LOOM_WASM_SIMD_SUBOPCODE_F32X4_GE = 0x46,
+  LOOM_WASM_SIMD_SUBOPCODE_V128_AND = 0x4E,
+  LOOM_WASM_SIMD_SUBOPCODE_V128_OR = 0x50,
+  LOOM_WASM_SIMD_SUBOPCODE_V128_XOR = 0x51,
   LOOM_WASM_SIMD_SUBOPCODE_V128_BITSELECT = 0x52,
+  LOOM_WASM_SIMD_SUBOPCODE_F32X4_CEIL = 0x67,
+  LOOM_WASM_SIMD_SUBOPCODE_F32X4_FLOOR = 0x68,
+  LOOM_WASM_SIMD_SUBOPCODE_F32X4_TRUNC = 0x69,
+  LOOM_WASM_SIMD_SUBOPCODE_F32X4_NEAREST = 0x6A,
   LOOM_WASM_SIMD_SUBOPCODE_I32X4_ADD = 0xAE,
   LOOM_WASM_SIMD_SUBOPCODE_I32X4_SUB = 0xB1,
   LOOM_WASM_SIMD_SUBOPCODE_I32X4_MUL = 0xB5,
+  LOOM_WASM_SIMD_SUBOPCODE_F32X4_ABS = 0xE0,
+  LOOM_WASM_SIMD_SUBOPCODE_F32X4_NEG = 0xE1,
+  LOOM_WASM_SIMD_SUBOPCODE_F32X4_SQRT = 0xE3,
   LOOM_WASM_SIMD_SUBOPCODE_F32X4_ADD = 0xE4,
+  LOOM_WASM_SIMD_SUBOPCODE_F32X4_SUB = 0xE5,
   LOOM_WASM_SIMD_SUBOPCODE_F32X4_MUL = 0xE6,
+  LOOM_WASM_SIMD_SUBOPCODE_F32X4_DIV = 0xE7,
+  LOOM_WASM_SIMD_SUBOPCODE_F32X4_MIN = 0xE8,
+  LOOM_WASM_SIMD_SUBOPCODE_F32X4_MAX = 0xE9,
 };
 
 enum {
@@ -206,6 +254,8 @@ enum {
       (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_I32X4_GE_U,
   LOOM_WASM_ENCODING_F32X4_EQ =
       (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_F32X4_EQ,
+  LOOM_WASM_ENCODING_F32X4_NE =
+      (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_F32X4_NE,
   LOOM_WASM_ENCODING_F32X4_LT =
       (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_F32X4_LT,
   LOOM_WASM_ENCODING_F32X4_GT =
@@ -214,6 +264,20 @@ enum {
       (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_F32X4_LE,
   LOOM_WASM_ENCODING_F32X4_GE =
       (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_F32X4_GE,
+  LOOM_WASM_ENCODING_F32X4_CEIL =
+      (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_F32X4_CEIL,
+  LOOM_WASM_ENCODING_F32X4_FLOOR = (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) |
+                                   LOOM_WASM_SIMD_SUBOPCODE_F32X4_FLOOR,
+  LOOM_WASM_ENCODING_F32X4_TRUNC = (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) |
+                                   LOOM_WASM_SIMD_SUBOPCODE_F32X4_TRUNC,
+  LOOM_WASM_ENCODING_F32X4_NEAREST = (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) |
+                                     LOOM_WASM_SIMD_SUBOPCODE_F32X4_NEAREST,
+  LOOM_WASM_ENCODING_V128_AND =
+      (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_V128_AND,
+  LOOM_WASM_ENCODING_V128_OR =
+      (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_V128_OR,
+  LOOM_WASM_ENCODING_V128_XOR =
+      (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_V128_XOR,
   LOOM_WASM_ENCODING_V128_BITSELECT = (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) |
                                       LOOM_WASM_SIMD_SUBOPCODE_V128_BITSELECT,
   LOOM_WASM_ENCODING_I32X4_ADD =
@@ -222,39 +286,29 @@ enum {
       (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_I32X4_SUB,
   LOOM_WASM_ENCODING_I32X4_MUL =
       (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_I32X4_MUL,
+  LOOM_WASM_ENCODING_F32X4_ABS =
+      (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_F32X4_ABS,
+  LOOM_WASM_ENCODING_F32X4_NEG =
+      (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_F32X4_NEG,
+  LOOM_WASM_ENCODING_F32X4_SQRT =
+      (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_F32X4_SQRT,
   LOOM_WASM_ENCODING_F32X4_ADD =
       (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_F32X4_ADD,
+  LOOM_WASM_ENCODING_F32X4_SUB =
+      (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_F32X4_SUB,
   LOOM_WASM_ENCODING_F32X4_MUL =
       (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_F32X4_MUL,
+  LOOM_WASM_ENCODING_F32X4_DIV =
+      (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_F32X4_DIV,
+  LOOM_WASM_ENCODING_F32X4_MIN =
+      (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_F32X4_MIN,
+  LOOM_WASM_ENCODING_F32X4_MAX =
+      (LOOM_WASM_OPCODE_SIMD_PREFIX << 8) | LOOM_WASM_SIMD_SUBOPCODE_F32X4_MAX,
 };
-
-typedef struct loom_wasm_local_entry_t {
-  // Descriptor-set-local register class ID from allocation.
-  uint16_t descriptor_reg_class_id;
-  // Class-local target-id assignment base from allocation.
-  uint32_t location_base;
-  // Wasm value type stored in this local.
-  loom_wasm_value_type_t value_type;
-  // Function-local Wasm index assigned by this emitter.
-  uint32_t local_index;
-} loom_wasm_local_entry_t;
-
-typedef struct loom_wasm_local_value_entry_t {
-  // Function-local Wasm index assigned to this SSA value.
-  uint32_t local_index;
-  // Wasm value type stored in this local.
-  loom_wasm_value_type_t value_type;
-} loom_wasm_local_value_entry_t;
 
 typedef struct loom_wasm_local_layout_t {
   // Allocator used for local metadata arrays.
   iree_allocator_t allocator;
-  // Map from class-local allocation target ids to Wasm local indices.
-  loom_wasm_local_entry_t* entries;
-  // Number of initialized map entries.
-  iree_host_size_t entry_count;
-  // Allocated map entry capacity.
-  iree_host_size_t entry_capacity;
   // Wasm value types indexed by final Wasm local index.
   loom_wasm_value_type_t* local_types;
   // Number of Wasm locals including parameters.
@@ -263,18 +317,14 @@ typedef struct loom_wasm_local_layout_t {
   iree_host_size_t local_type_capacity;
   // Number of ABI parameter locals at the start of |local_types|.
   uint32_t parameter_count;
-  // Value-ordinal to local lookup table.
-  loom_wasm_local_value_entry_t* values;
-  // Number of records in |values|.
-  iree_host_size_t value_count;
 } loom_wasm_local_layout_t;
 
 typedef struct loom_wasm_emit_state_t {
-  // Allocation table supplying class-local target ids.
-  const loom_low_allocation_table_t* allocation;
-  // Module-owned options used by structural instructions such as calls.
-  const loom_wasm_function_body_options_t* options;
-  // Derived Wasm local namespace layout.
+  // Prepared module-wide physical program.
+  const loom_wasm_program_plan_t* program;
+  // Prepared function being emitted.
+  const loom_wasm_function_plan_t* function;
+  // Mutable copy of the prepared local namespace.
   loom_wasm_local_layout_t locals;
   // Mutable body payload writer.
   loom_wasm_binary_writer_t writer;
@@ -300,55 +350,8 @@ static iree_status_t loom_wasm_write_opcode(loom_wasm_binary_writer_t* writer,
 
 static void loom_wasm_local_layout_deinitialize(
     loom_wasm_local_layout_t* layout) {
-  iree_allocator_free(layout->allocator, layout->entries);
   iree_allocator_free(layout->allocator, layout->local_types);
-  iree_allocator_free(layout->allocator, layout->values);
   *layout = (loom_wasm_local_layout_t){0};
-}
-
-static iree_status_t loom_wasm_local_layout_initialize_values(
-    loom_wasm_local_layout_t* layout, iree_host_size_t value_count) {
-  layout->value_count = value_count;
-  if (value_count == 0) {
-    return iree_ok_status();
-  }
-  iree_host_size_t byte_length = 0;
-  if (!iree_host_size_checked_mul(value_count, sizeof(*layout->values),
-                                  &byte_length)) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "Wasm local value map size overflow");
-  }
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc(layout->allocator, byte_length,
-                                             (void**)&layout->values));
-  for (iree_host_size_t i = 0; i < value_count; ++i) {
-    layout->values[i] = (loom_wasm_local_value_entry_t){
-        .local_index = UINT32_MAX,
-    };
-  }
-  return iree_ok_status();
-}
-
-static iree_status_t loom_wasm_local_layout_reserve_entries(
-    loom_wasm_local_layout_t* layout, iree_host_size_t minimum_capacity) {
-  if (minimum_capacity <= layout->entry_capacity) {
-    return iree_ok_status();
-  }
-  iree_host_size_t new_capacity =
-      layout->entry_capacity ? layout->entry_capacity * 2 : 16;
-  if (new_capacity < layout->entry_capacity ||
-      new_capacity < minimum_capacity) {
-    new_capacity = minimum_capacity;
-  }
-  iree_host_size_t byte_length = 0;
-  if (!iree_host_size_checked_mul(new_capacity, sizeof(*layout->entries),
-                                  &byte_length)) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "Wasm local entry table size overflow");
-  }
-  IREE_RETURN_IF_ERROR(iree_allocator_realloc(layout->allocator, byte_length,
-                                              (void**)&layout->entries));
-  layout->entry_capacity = new_capacity;
-  return iree_ok_status();
 }
 
 static iree_status_t loom_wasm_local_layout_reserve_types(
@@ -374,23 +377,10 @@ static iree_status_t loom_wasm_local_layout_reserve_types(
   return iree_ok_status();
 }
 
-static loom_wasm_local_entry_t* loom_wasm_local_layout_find_entry(
-    loom_wasm_local_layout_t* layout, uint16_t descriptor_reg_class_id,
-    uint32_t location_base) {
-  for (iree_host_size_t i = 0; i < layout->entry_count; ++i) {
-    loom_wasm_local_entry_t* entry = &layout->entries[i];
-    if (entry->descriptor_reg_class_id == descriptor_reg_class_id &&
-        entry->location_base == location_base) {
-      return entry;
-    }
-  }
-  return NULL;
-}
-
 static iree_status_t loom_wasm_local_layout_append_type(
     loom_wasm_local_layout_t* layout, loom_wasm_value_type_t value_type,
     uint32_t* out_local_index) {
-  if (layout->local_type_count > UINT32_MAX) {
+  if (layout->local_type_count >= UINT32_MAX) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "Wasm local index exceeds u32");
   }
@@ -401,188 +391,69 @@ static iree_status_t loom_wasm_local_layout_append_type(
   return iree_ok_status();
 }
 
-static iree_status_t loom_wasm_local_layout_add_entry(
-    loom_wasm_local_layout_t* layout, uint16_t descriptor_reg_class_id,
-    uint32_t location_base, loom_wasm_value_type_t value_type,
-    uint32_t local_index) {
-  IREE_RETURN_IF_ERROR(
-      loom_wasm_local_layout_reserve_entries(layout, layout->entry_count + 1));
-  layout->entries[layout->entry_count++] = (loom_wasm_local_entry_t){
-      .descriptor_reg_class_id = descriptor_reg_class_id,
-      .location_base = location_base,
-      .value_type = value_type,
-      .local_index = local_index,
-  };
-  return iree_ok_status();
-}
-
-static iree_status_t loom_wasm_validate_target_id_assignment(
-    const loom_low_allocation_assignment_t* assignment,
-    loom_wasm_value_type_t* out_value_type) {
-  if (assignment->location_kind != LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "Wasm value %u is not allocated to a target-local id",
-        (unsigned)assignment->value_id);
-  }
-  if (assignment->location_count != 1 || assignment->unit_count != 1) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "Wasm value %u uses a multi-unit target-id assignment",
-        (unsigned)assignment->value_id);
-  }
-  if (assignment->value_class.type_kind != LOOM_TYPE_REGISTER) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "Wasm value %u is not allocated as a register value",
-        (unsigned)assignment->value_id);
-  }
-  return loom_wasm_value_type_from_descriptor_register_class(
-      assignment->descriptor_reg_class_id, out_value_type);
-}
-
-static iree_status_t loom_wasm_local_layout_set_value(
-    loom_wasm_local_layout_t* layout, loom_value_ordinal_t value_ordinal,
-    uint32_t local_index, loom_wasm_value_type_t value_type) {
-  if (value_ordinal >= layout->value_count) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "Wasm allocation ordinal %u is out of local range",
-                            (unsigned)value_ordinal);
-  }
-  loom_wasm_local_value_entry_t* value = &layout->values[value_ordinal];
-  if (value->local_index != UINT32_MAX) {
-    if (value->local_index != local_index || value->value_type != value_type) {
-      return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                              "Wasm allocation ordinal %u changed local "
-                              "mapping",
-                              (unsigned)value_ordinal);
-    }
-    return iree_ok_status();
-  }
-  *value = (loom_wasm_local_value_entry_t){
-      .local_index = local_index,
-      .value_type = value_type,
-  };
-  return iree_ok_status();
-}
-
-static iree_status_t loom_wasm_local_layout_add_parameter(
-    const loom_low_allocation_table_t* allocation,
-    loom_wasm_local_layout_t* layout, loom_value_id_t value_id) {
-  const loom_value_ordinal_t value_ordinal =
-      loom_module_value_ordinal_scratch_lookup(allocation->module, value_id);
-  const loom_type_t type = loom_module_value_type(allocation->module, value_id);
-  loom_wasm_value_type_t value_type = 0;
-  IREE_RETURN_IF_ERROR(loom_wasm_value_type_from_descriptor_register_class(
-      loom_low_register_type_class_id(type), &value_type));
-  uint32_t local_index = 0;
-  IREE_RETURN_IF_ERROR(
-      loom_wasm_local_layout_append_type(layout, value_type, &local_index));
-
-  const loom_low_allocation_assignment_t* assignment =
-      loom_low_allocation_assignment_for_value_ordinal(allocation,
-                                                       value_ordinal, NULL);
-  // The signature owns all parameter locals, including unused parameters that
-  // have no allocator location. Their indices never depend on storage demand.
-  if (assignment == NULL) {
-    return iree_ok_status();
-  }
-  loom_wasm_local_entry_t* existing = loom_wasm_local_layout_find_entry(
-      layout, assignment->descriptor_reg_class_id, assignment->location_base);
-  if (existing) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "Wasm parameters %u and %" PRIu32 " share allocator target id %" PRIu32
-        " for one register class",
-        existing->local_index, local_index, assignment->location_base);
-  }
-  IREE_RETURN_IF_ERROR(loom_wasm_local_layout_add_entry(
-      layout, assignment->descriptor_reg_class_id, assignment->location_base,
-      value_type, local_index));
-  return loom_wasm_local_layout_set_value(layout, value_ordinal, local_index,
-                                          value_type);
-}
-
-static iree_status_t loom_wasm_local_layout_add_assignment(
-    const loom_low_allocation_table_t* allocation,
-    loom_wasm_local_layout_t* layout,
-    const loom_low_allocation_assignment_t* assignment) {
-  const loom_value_ordinal_t value_ordinal =
-      loom_module_value_ordinal_scratch_lookup(allocation->module,
-                                               assignment->value_id);
-  if (value_ordinal == LOOM_VALUE_ORDINAL_INVALID) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "Wasm value %u has no allocation ordinal",
-                            (unsigned)assignment->value_id);
-  }
-  loom_wasm_value_type_t value_type = 0;
-  IREE_RETURN_IF_ERROR(
-      loom_wasm_validate_target_id_assignment(assignment, &value_type));
-  loom_wasm_local_entry_t* existing = loom_wasm_local_layout_find_entry(
-      layout, assignment->descriptor_reg_class_id, assignment->location_base);
-  if (existing) {
-    if (existing->value_type != value_type) {
-      return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                              "Wasm target id %" PRIu32 " changes value type",
-                              assignment->location_base);
-    }
-    return loom_wasm_local_layout_set_value(layout, value_ordinal,
-                                            existing->local_index, value_type);
-  }
-
-  uint32_t local_index = 0;
-  IREE_RETURN_IF_ERROR(
-      loom_wasm_local_layout_append_type(layout, value_type, &local_index));
-  IREE_RETURN_IF_ERROR(loom_wasm_local_layout_add_entry(
-      layout, assignment->descriptor_reg_class_id, assignment->location_base,
-      value_type, local_index));
-  return loom_wasm_local_layout_set_value(layout, value_ordinal, local_index,
-                                          value_type);
-}
-
-static iree_status_t loom_wasm_build_local_layout(
-    const loom_low_allocation_table_t* allocation, iree_allocator_t allocator,
+static iree_status_t loom_wasm_local_layout_initialize(
+    const loom_wasm_function_plan_t* function, iree_allocator_t allocator,
     loom_wasm_local_layout_t* out_layout) {
   *out_layout = (loom_wasm_local_layout_t){
       .allocator = allocator,
+      .parameter_count = function->parameter_count,
   };
-
-  loom_func_like_t function =
-      loom_func_like_const_cast(allocation->module, allocation->function_op);
-  if (!loom_func_like_isa(function)) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "Wasm emission requires a func-like low function");
+  if (function->local_count == 0) {
+    return iree_ok_status();
   }
-
-  IREE_RETURN_IF_ERROR(loom_wasm_local_layout_initialize_values(
-      out_layout, allocation->liveness.value_count));
-  uint16_t parameter_count = 0;
-  const loom_value_id_t* parameter_ids =
-      loom_func_like_arg_ids(function, &parameter_count);
-  out_layout->parameter_count = parameter_count;
-  iree_status_t status = iree_ok_status();
-  for (uint32_t i = 0; i < parameter_count && iree_status_is_ok(status); ++i) {
-    status = loom_wasm_local_layout_add_parameter(allocation, out_layout,
-                                                  parameter_ids[i]);
-  }
-  for (iree_host_size_t i = 0;
-       i < allocation->assignment_count && iree_status_is_ok(status); ++i) {
-    status = loom_wasm_local_layout_add_assignment(allocation, out_layout,
-                                                   &allocation->assignments[i]);
-  }
-  if (!iree_status_is_ok(status)) {
-    loom_wasm_local_layout_deinitialize(out_layout);
-  }
-  return status;
+  IREE_RETURN_IF_ERROR(
+      loom_wasm_local_layout_reserve_types(out_layout, function->local_count));
+  memcpy(out_layout->local_types, function->local_types,
+         function->local_count * sizeof(*function->local_types));
+  out_layout->local_type_count = function->local_count;
+  return iree_ok_status();
 }
 
-// Unused block parameters have no local. Every emitted value read and
-// instruction-result write has a location in the completed allocation.
+static void loom_wasm_value_ordinals_acquire(
+    const loom_wasm_emit_state_t* state) {
+  loom_module_t* module = state->program->module;
+  loom_module_value_ordinal_scratch_acquire(module);
+  for (loom_value_ordinal_t value_ordinal = 0;
+       value_ordinal < state->function->value_count; ++value_ordinal) {
+    loom_module_value_ordinal_scratch_set(
+        module, state->function->value_ids[value_ordinal], value_ordinal);
+  }
+}
+
+static void loom_wasm_value_ordinals_release(
+    const loom_wasm_emit_state_t* state) {
+  loom_module_t* module = state->program->module;
+  for (loom_value_ordinal_t value_ordinal = 0;
+       value_ordinal < state->function->value_count; ++value_ordinal) {
+    loom_module_value_ordinal_scratch_clear(
+        module, state->function->value_ids[value_ordinal]);
+  }
+  loom_module_value_ordinal_scratch_release(module);
+}
+
+// Returns the prepared local for a value. Unused structured-result destinations
+// intentionally have no local and retain the NONE sentinel.
+static uint32_t loom_wasm_try_local_index(const loom_wasm_emit_state_t* state,
+                                          loom_value_id_t value_id) {
+  const loom_value_ordinal_t value_ordinal =
+      loom_module_value_ordinal_scratch_lookup(state->program->module,
+                                               value_id);
+  IREE_ASSERT(value_ordinal != LOOM_VALUE_ORDINAL_INVALID &&
+                  value_ordinal < state->function->value_count,
+              "prepared Wasm value %u must be in the function value domain",
+              (unsigned)value_id);
+  IREE_ASSERT_EQ(state->function->value_ids[value_ordinal], value_id);
+  return state->function->local_indices_by_value_ordinal[value_ordinal];
+}
+
+// Every emitted value read and instruction-result write has a prepared local.
 static uint32_t loom_wasm_local_index(const loom_wasm_emit_state_t* state,
                                       loom_value_id_t value_id) {
-  const loom_value_ordinal_t ordinal = loom_module_value_ordinal_scratch_lookup(
-      state->allocation->module, value_id);
-  return state->locals.values[ordinal].local_index;
+  const uint32_t local_index = loom_wasm_try_local_index(state, value_id);
+  IREE_ASSERT(local_index != LOOM_WASM_PROGRAM_INDEX_NONE,
+              "prepared Wasm value %u must have a physical local",
+              (unsigned)value_id);
+  return local_index;
 }
 
 static iree_status_t loom_wasm_emit_local_get_index(
@@ -810,6 +681,9 @@ static iree_status_t loom_wasm_emit_descriptor_packet(
     case LOOM_WASM_OPCODE_I32_ADD:
     case LOOM_WASM_OPCODE_I32_SUB:
     case LOOM_WASM_OPCODE_I32_MUL:
+    case LOOM_WASM_OPCODE_I32_DIV_S:
+    case LOOM_WASM_OPCODE_I32_DIV_U:
+    case LOOM_WASM_OPCODE_I32_REM_S:
     case LOOM_WASM_OPCODE_I32_REM_U:
     case LOOM_WASM_OPCODE_I32_AND:
     case LOOM_WASM_OPCODE_I32_OR:
@@ -825,6 +699,9 @@ static iree_status_t loom_wasm_emit_descriptor_packet(
     case LOOM_WASM_OPCODE_I64_ADD:
     case LOOM_WASM_OPCODE_I64_SUB:
     case LOOM_WASM_OPCODE_I64_MUL:
+    case LOOM_WASM_OPCODE_I64_DIV_S:
+    case LOOM_WASM_OPCODE_I64_DIV_U:
+    case LOOM_WASM_OPCODE_I64_REM_S:
     case LOOM_WASM_OPCODE_I64_REM_U:
     case LOOM_WASM_OPCODE_I64_AND:
     case LOOM_WASM_OPCODE_I64_XOR:
@@ -847,7 +724,22 @@ static iree_status_t loom_wasm_emit_descriptor_packet(
     case LOOM_WASM_OPCODE_I64_LE_U:
     case LOOM_WASM_OPCODE_I64_GE_S:
     case LOOM_WASM_OPCODE_I64_GE_U:
+    case LOOM_WASM_OPCODE_F32_EQ:
+    case LOOM_WASM_OPCODE_F32_NE:
+    case LOOM_WASM_OPCODE_F32_LT:
+    case LOOM_WASM_OPCODE_F32_GT:
+    case LOOM_WASM_OPCODE_F32_LE:
+    case LOOM_WASM_OPCODE_F32_GE:
     case LOOM_WASM_OPCODE_F32_ADD:
+    case LOOM_WASM_OPCODE_F32_SUB:
+    case LOOM_WASM_OPCODE_F32_MUL:
+    case LOOM_WASM_OPCODE_F32_DIV:
+    case LOOM_WASM_OPCODE_F32_MIN:
+    case LOOM_WASM_OPCODE_F32_MAX:
+    case LOOM_WASM_OPCODE_F32_COPYSIGN:
+    case LOOM_WASM_ENCODING_V128_AND:
+    case LOOM_WASM_ENCODING_V128_OR:
+    case LOOM_WASM_ENCODING_V128_XOR:
     case LOOM_WASM_ENCODING_I32X4_EQ:
     case LOOM_WASM_ENCODING_I32X4_NE:
     case LOOM_WASM_ENCODING_I32X4_LT_S:
@@ -862,12 +754,17 @@ static iree_status_t loom_wasm_emit_descriptor_packet(
     case LOOM_WASM_ENCODING_I32X4_SUB:
     case LOOM_WASM_ENCODING_I32X4_MUL:
     case LOOM_WASM_ENCODING_F32X4_EQ:
+    case LOOM_WASM_ENCODING_F32X4_NE:
     case LOOM_WASM_ENCODING_F32X4_LT:
     case LOOM_WASM_ENCODING_F32X4_GT:
     case LOOM_WASM_ENCODING_F32X4_LE:
     case LOOM_WASM_ENCODING_F32X4_GE:
     case LOOM_WASM_ENCODING_F32X4_ADD:
+    case LOOM_WASM_ENCODING_F32X4_SUB:
     case LOOM_WASM_ENCODING_F32X4_MUL:
+    case LOOM_WASM_ENCODING_F32X4_DIV:
+    case LOOM_WASM_ENCODING_F32X4_MIN:
+    case LOOM_WASM_ENCODING_F32X4_MAX:
       return loom_wasm_emit_binary_stack_op(state, op, descriptor);
     case LOOM_WASM_OPCODE_SELECT:
       return loom_wasm_emit_ternary_stack_op(state, op, descriptor);
@@ -876,8 +773,30 @@ static iree_status_t loom_wasm_emit_descriptor_packet(
     case LOOM_WASM_OPCODE_I32_WRAP_I64:
     case LOOM_WASM_OPCODE_I64_EXTEND_I32_S:
     case LOOM_WASM_OPCODE_I64_EXTEND_I32_U:
+    case LOOM_WASM_OPCODE_F32_CONVERT_I32_S:
+    case LOOM_WASM_OPCODE_F32_CONVERT_I32_U:
+    case LOOM_WASM_OPCODE_F32_CONVERT_I64_S:
+    case LOOM_WASM_OPCODE_F32_CONVERT_I64_U:
+    case LOOM_WASM_OPCODE_F64_CONVERT_I32_S:
+    case LOOM_WASM_OPCODE_F64_CONVERT_I32_U:
+    case LOOM_WASM_OPCODE_F64_CONVERT_I64_S:
+    case LOOM_WASM_OPCODE_F64_CONVERT_I64_U:
     case LOOM_WASM_OPCODE_I32_REINTERPRET_F32:
     case LOOM_WASM_OPCODE_I64_REINTERPRET_F64:
+    case LOOM_WASM_OPCODE_F32_ABS:
+    case LOOM_WASM_OPCODE_F32_NEG:
+    case LOOM_WASM_OPCODE_F32_CEIL:
+    case LOOM_WASM_OPCODE_F32_FLOOR:
+    case LOOM_WASM_OPCODE_F32_TRUNC:
+    case LOOM_WASM_OPCODE_F32_NEAREST:
+    case LOOM_WASM_OPCODE_F32_SQRT:
+    case LOOM_WASM_ENCODING_F32X4_ABS:
+    case LOOM_WASM_ENCODING_F32X4_NEG:
+    case LOOM_WASM_ENCODING_F32X4_CEIL:
+    case LOOM_WASM_ENCODING_F32X4_FLOOR:
+    case LOOM_WASM_ENCODING_F32X4_TRUNC:
+    case LOOM_WASM_ENCODING_F32X4_NEAREST:
+    case LOOM_WASM_ENCODING_F32X4_SQRT:
       return loom_wasm_emit_unary_stack_op(state, op, descriptor);
     case LOOM_WASM_ENCODING_V128_BITSELECT:
       return loom_wasm_emit_ternary_stack_op(state, op, descriptor);
@@ -1014,7 +933,7 @@ static iree_status_t loom_wasm_emit_descriptor_packet(
               .i64);
     default: {
       iree_string_view_t key = loom_low_descriptor_set_string(
-          state->allocation->target.descriptor_set, descriptor->key_string_ref);
+          loom_wasm_core_simd128_descriptor_set(), descriptor->key_string_ref);
       return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                               "Wasm descriptor '%.*s' is unsupported",
                               (int)key.size, key.data);
@@ -1026,7 +945,7 @@ static iree_status_t loom_wasm_emit_descriptor_packet(
 static iree_status_t loom_wasm_record_descriptor_flags(
     loom_wasm_emit_state_t* state, const loom_low_descriptor_t* descriptor) {
   const loom_low_descriptor_set_t* descriptor_set =
-      state->allocation->target.descriptor_set;
+      loom_wasm_core_simd128_descriptor_set();
   const uint16_t schedule_class_id =
       loom_low_descriptor_set_descriptor_view(descriptor_set, descriptor)
           ->schedule_class_id;
@@ -1059,27 +978,20 @@ static iree_status_t loom_wasm_emit_low_transfer(loom_wasm_emit_state_t* state,
 
 static iree_status_t loom_wasm_emit_low_func_call(loom_wasm_emit_state_t* state,
                                                   const loom_op_t* op) {
-  if (!loom_low_func_call_isa(op)) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "Wasm call emission requires low.func.call");
-  }
-  if (state->options == NULL ||
-      state->options->resolve_function_index == NULL) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "Wasm function-body emission requires a module function-index resolver "
-        "for low.func.call");
-  }
-
   loom_value_slice_t operands = loom_low_func_call_operands(op);
   for (iree_host_size_t i = 0; i < operands.count; ++i) {
     IREE_RETURN_IF_ERROR(loom_wasm_emit_local_get(state, operands.values[i]));
   }
 
-  uint32_t function_index = 0;
-  IREE_RETURN_IF_ERROR(state->options->resolve_function_index(
-      state->options->resolve_function_index_user_data,
-      loom_low_func_call_callee(op), &function_index));
+  const loom_symbol_ref_t callee = loom_low_func_call_callee(op);
+  IREE_ASSERT(loom_symbol_ref_is_valid(callee) && callee.module_id == 0,
+              "prepared Wasm calls must name local functions");
+  IREE_ASSERT(callee.symbol_id < state->program->symbol_count,
+              "prepared Wasm call symbol must be in range");
+  const uint32_t function_index =
+      state->program->function_indices_by_symbol[callee.symbol_id];
+  IREE_ASSERT(function_index != LOOM_WASM_PROGRAM_INDEX_NONE,
+              "prepared Wasm call must name an emitted function");
   IREE_RETURN_IF_ERROR(
       loom_wasm_binary_write_u8(&state->writer, LOOM_WASM_OPCODE_CALL));
   IREE_RETURN_IF_ERROR(
@@ -1143,8 +1055,8 @@ static iree_status_t loom_wasm_emit_parallel_value_move_spans(
     const loom_wasm_value_move_span_t* span = &spans[span_index];
     for (iree_host_size_t i = 0; i < span->value_count; ++i) {
       const uint32_t target_local_index =
-          loom_wasm_local_index(state, span->target_values[i]);
-      if (target_local_index == UINT32_MAX) {
+          loom_wasm_try_local_index(state, span->target_values[i]);
+      if (target_local_index == LOOM_WASM_PROGRAM_INDEX_NONE) {
         continue;
       }
       const uint32_t source_local_index =
@@ -1160,8 +1072,8 @@ static iree_status_t loom_wasm_emit_parallel_value_move_spans(
     const loom_wasm_value_move_span_t* span = &spans[span_index - 1];
     for (iree_host_size_t i = span->value_count; i > 0; --i) {
       const uint32_t target_local_index =
-          loom_wasm_local_index(state, span->target_values[i - 1]);
-      if (target_local_index == UINT32_MAX) {
+          loom_wasm_try_local_index(state, span->target_values[i - 1]);
+      if (target_local_index == LOOM_WASM_PROGRAM_INDEX_NONE) {
         continue;
       }
       const uint32_t source_local_index =
@@ -1211,9 +1123,9 @@ static iree_status_t loom_wasm_emit_low_scf_if(loom_wasm_emit_state_t* state,
   IREE_ASSERT(results.count == 0 || else_region != NULL,
               "verified resultful low.scf.if must have an else region");
   loom_region_branch_t branch =
-      loom_region_branch_cast(state->allocation->module, (loom_op_t*)op);
-  loom_op_t* then_yield = loom_region_branch_region_terminator(
-      state->allocation->module, branch, 0);
+      loom_region_branch_cast(state->program->module, (loom_op_t*)op);
+  loom_op_t* then_yield =
+      loom_region_branch_region_terminator(state->program->module, branch, 0);
 
   IREE_RETURN_IF_ERROR(
       loom_wasm_emit_local_get(state, loom_low_scf_if_condition(op)));
@@ -1228,8 +1140,8 @@ static iree_status_t loom_wasm_emit_low_scf_if(loom_wasm_emit_state_t* state,
       state, then_yield, results.values, results.count));
 
   if (else_region != NULL) {
-    loom_op_t* else_yield = loom_region_branch_region_terminator(
-        state->allocation->module, branch, 1);
+    loom_op_t* else_yield =
+        loom_region_branch_region_terminator(state->program->module, branch, 1);
     IREE_RETURN_IF_ERROR(
         loom_wasm_binary_write_u8(&state->writer, LOOM_WASM_OPCODE_ELSE));
     IREE_RETURN_IF_ERROR(loom_wasm_emit_structured_region_before_terminator(
@@ -1402,12 +1314,10 @@ static iree_status_t loom_wasm_emit_low_scf_while(loom_wasm_emit_state_t* state,
   const loom_value_slice_t yielded = loom_low_scf_yield_values(yield);
   IREE_ASSERT_EQ(before_block->arg_count, iter_args.count,
                  "verified Wasm while condition args must match iter args");
-  IREE_ASSERT_EQ(after_block->arg_count, iter_args.count,
-                 "verified Wasm while body args must match iter args");
-  IREE_ASSERT_EQ(results.count, iter_args.count,
-                 "verified Wasm while results must match iter args");
-  IREE_ASSERT_EQ(forwarded.count, iter_args.count,
-                 "verified Wasm while condition payload must match iter args");
+  IREE_ASSERT_EQ(after_block->arg_count, results.count,
+                 "verified Wasm while body args must match results");
+  IREE_ASSERT_EQ(forwarded.count, results.count,
+                 "verified Wasm while condition payload must match results");
   IREE_ASSERT_EQ(yielded.count, iter_args.count,
                  "verified Wasm while yield must match iter args");
 
@@ -1473,7 +1383,7 @@ static iree_status_t loom_wasm_emit_structural_op(loom_wasm_emit_state_t* state,
   if (loom_low_scf_while_isa(op)) {
     return loom_wasm_emit_low_scf_while(state, op);
   }
-  iree_string_view_t op_name = loom_op_name(state->allocation->module, op);
+  iree_string_view_t op_name = loom_op_name(state->program->module, op);
   return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                           "verified Wasm low function contains unsupported "
                           "structural op '%.*s'",
@@ -1486,8 +1396,8 @@ static iree_status_t loom_wasm_emit_op(loom_wasm_emit_state_t* state,
     return iree_ok_status();
   }
   loom_low_descriptor_packet_t packet = {0};
-  loom_low_descriptor_packet_initialize(
-      state->allocation->target.descriptor_set, op, &packet);
+  loom_low_descriptor_packet_initialize(loom_wasm_core_simd128_descriptor_set(),
+                                        op, &packet);
   if (packet.kind == LOOM_LOW_DESCRIPTOR_PACKET_NONE) {
     return loom_wasm_emit_structural_op(state, op);
   }
@@ -1537,42 +1447,8 @@ static iree_status_t loom_wasm_emit_region(loom_wasm_emit_state_t* state,
 
 static iree_status_t loom_wasm_emit_function_body_payload(
     loom_wasm_emit_state_t* state) {
-  const loom_region_t* body =
-      loom_low_function_const_body(state->allocation->function_op);
-  IREE_RETURN_IF_ERROR(loom_wasm_emit_region(state, body));
+  IREE_RETURN_IF_ERROR(loom_wasm_emit_region(state, state->function->body));
   return loom_wasm_binary_write_u8(&state->writer, LOOM_WASM_OPCODE_END);
-}
-
-static iree_status_t loom_wasm_validate_allocation(
-    const loom_low_allocation_table_t* allocation) {
-  if (allocation->module == NULL || allocation->function_op == NULL) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "Wasm emission requires an allocation table naming a low function");
-  }
-  if (allocation->target.descriptor_set !=
-      loom_wasm_core_simd128_descriptor_set()) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "Wasm emission requires wasm.core.simd128");
-  }
-  if (allocation->spill_count != 0 || allocation->spill_plan_count != 0) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "Wasm emission requires unspilled allocation tables");
-  }
-  if (allocation->edge_copy_count != 0 ||
-      allocation->edge_copy_group_count != 0) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "Wasm emission requires structured allocation tables without CFG edge "
-        "copies");
-  }
-  if (allocation->packet_move_group_count != 0) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "Wasm emission requires allocation tables without packet-local moves");
-  }
-  return iree_ok_status();
 }
 
 void loom_wasm_function_body_deinitialize(loom_wasm_function_body_t* body,
@@ -1585,25 +1461,22 @@ void loom_wasm_function_body_deinitialize(loom_wasm_function_body_t* body,
 }
 
 iree_status_t loom_wasm_emit_function_body(
-    const loom_low_allocation_table_t* allocation,
-    const loom_wasm_function_body_options_t* options,
-    iree_allocator_t allocator, loom_wasm_function_body_t* out_body) {
-  IREE_ASSERT_ARGUMENT(allocation);
+    const loom_wasm_program_plan_t* program,
+    const loom_wasm_function_plan_t* function, iree_allocator_t allocator,
+    loom_wasm_function_body_t* out_body) {
+  IREE_ASSERT_ARGUMENT(program);
+  IREE_ASSERT_ARGUMENT(function);
   IREE_ASSERT_ARGUMENT(out_body);
   *out_body = (loom_wasm_function_body_t){0};
-  IREE_RETURN_IF_ERROR(loom_wasm_validate_allocation(allocation));
 
   loom_wasm_emit_state_t state = {
-      .allocation = allocation,
-      .options = options,
+      .program = program,
+      .function = function,
   };
+  loom_wasm_value_ordinals_acquire(&state);
   loom_wasm_binary_writer_initialize(allocator, &state.writer);
-  loom_low_allocation_value_scratch_t scratch = {0};
   iree_status_t status =
-      loom_low_allocation_acquire_value_scratch(allocation, &scratch);
-  if (iree_status_is_ok(status)) {
-    status = loom_wasm_build_local_layout(allocation, allocator, &state.locals);
-  }
+      loom_wasm_local_layout_initialize(function, allocator, &state.locals);
   if (iree_status_is_ok(status)) {
     status = loom_wasm_emit_function_body_payload(&state);
   }
@@ -1651,8 +1524,8 @@ iree_status_t loom_wasm_emit_function_body(
   }
 
   loom_wasm_binary_writer_deinitialize(&output_writer);
-  loom_low_allocation_release_value_scratch(&scratch);
   loom_wasm_binary_writer_deinitialize(&state.writer);
   loom_wasm_local_layout_deinitialize(&state.locals);
+  loom_wasm_value_ordinals_release(&state);
   return status;
 }

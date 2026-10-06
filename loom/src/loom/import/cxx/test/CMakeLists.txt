@@ -14,6 +14,7 @@ loom_check_test_suite(
   NAME
     compiler_test
   SRCS
+    "aggregate_constants.cxx-test"
     "assembly.cxx-test"
     "assembly_invalid.cxx-test"
     "assumptions.cxx-test"
@@ -27,15 +28,22 @@ loom_check_test_suite(
     "bitcast.cxx-test"
     "bitcast_folding.cxx-test"
     "bitcast_invalid.cxx-test"
+    "boolean_storage.cxx-test"
+    "boolean_storage_cleanup.cxx-test"
     "check.cxx-test"
+    "check_close.cxx-test"
+    "check_close_invalid.cxx-test"
     "check_records.cxx-test"
     "check_resources.cxx-test"
+    "class_conversions.cxx-test"
+    "class_conversions_invalid.cxx-test"
     "condition_declarations.cxx-test"
     "conditionals.cxx-test"
     "config.cxx-test"
     "config_cleanup.cxx-test"
     "config_invalid.cxx-test"
     "const.cxx-test"
+    "const_default_initialization.cxx-test"
     "constexpr.cxx-test"
     "constexpr_bitcast.cxx-test"
     "constexpr_bitcast_cleanup.cxx-test"
@@ -43,6 +51,8 @@ loom_check_test_suite(
     "constexpr_semantics.cxx-test"
     "control_invalid.cxx-test"
     "data_models.cxx-test"
+    "encoding_schemas.cxx-test"
+    "encoding_schemas_invalid.cxx-test"
     "enum_semantics.cxx-test"
     "enums.cxx-test"
     "enums_invalid.cxx-test"
@@ -53,6 +63,7 @@ loom_check_test_suite(
     "functions.cxx-test"
     "initializer_dependencies.cxx-test"
     "integer_intrinsics.cxx-test"
+    "integer_widening.cxx-test"
     "intrinsics_invalid.cxx-test"
     "kernel_intrinsics.cxx-test"
     "kernel_intrinsics_invalid.cxx-test"
@@ -66,9 +77,18 @@ loom_check_test_suite(
     "locations.cxx-test"
     "loops.cxx-test"
     "macro_operators.cxx-test"
+    "mxfp_group_dot.cxx-test"
+    "narrow_float_subtraction.cxx-test"
     "offsetof.cxx-test"
     "offsetof_roundtrip.cxx-test"
+    "opaque_pointers.cxx-test"
+    "opaque_pointers_invalid.cxx-test"
+    "packed_group_dot.cxx-test"
     "packed_memory.cxx-test"
+    "parameter_alignment.cxx-test"
+    "parameter_alignment_invalid.cxx-test"
+    "parameter_noalias.cxx-test"
+    "parameter_noalias_invalid.cxx-test"
     "pointers.cxx-test"
     "record_arrays.cxx-test"
     "record_memory.cxx-test"
@@ -90,13 +110,22 @@ loom_check_test_suite(
     "subgroups_invalid.cxx-test"
     "symbols.cxx-test"
     "symbols_invalid.cxx-test"
+    "template_addresses.cxx-test"
+    "template_addresses_invalid.cxx-test"
     "template_calls.cxx-test"
+    "template_conversions.cxx-test"
+    "template_conversions_invalid.cxx-test"
+    "value_initialization.cxx-test"
     "vector_constants.cxx-test"
     "vector_conversion.cxx-test"
     "vector_conversion_invalid.cxx-test"
+    "vector_decode.cxx-test"
+    "vector_decode_invalid.cxx-test"
     "vector_list_assignment.cxx-test"
     "vector_list_assignment_invalid.cxx-test"
     "vector_lookup.cxx-test"
+    "vector_math.cxx-test"
+    "vector_math_invalid.cxx-test"
     "vectors.cxx-test"
     "vectors_invalid.cxx-test"
     "view_values.cxx-test"
@@ -105,15 +134,70 @@ loom_check_test_suite(
     "volatile_views.cxx-test"
   DATA
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/aligned_layout.h"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/check_close.cxx"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/check_records.cxx"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/enum_semantics.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/locations.h"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/mxfp_group_dot.cxx"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/offsetof_layout.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/packed_enums.h"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/packed_group_dot.cxx"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/packed_layout.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/record_layout.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/record_values.cxx"
 )
+endif()
+
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_VM)
+loom_test_module(
+  NAME
+    boolean_storage_test_module
+  SRCS
+    "boolean_storage.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_VM)
+if(LOOM_TARGET_ARCH_VM)
+loom_execution_test(
+  NAME
+    boolean_storage_test_execute_vm_reference_test
+  MODULE
+    "::boolean_storage_test_module"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+    "loom-execution-profile=vm_reference"
+    "loom-target-family=vm"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+)
+endif()
+endif()
+
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_VM)
+loom_test_module(
+  NAME
+    check_close_test_module
+  SRCS
+    "check_close.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_VM)
+if(LOOM_TARGET_ARCH_VM)
+loom_execution_test(
+  NAME
+    check_close_test_execute_vm_reference_test
+  MODULE
+    "::check_close_test_module"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+    "loom-execution-profile=vm_reference"
+    "loom-target-family=vm"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+)
+endif()
 endif()
 
 if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_VM)
@@ -262,6 +346,35 @@ loom_execution_test(
     local_names_test_execute_vm_reference_test
   MODULE
     "::local_names_test_module"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+    "loom-execution-profile=vm_reference"
+    "loom-target-family=vm"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+)
+endif()
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    pointer_origins_module
+  SRCS
+    "pointer_origins.cxx"
+    "pointer_origins.loom"
+  INPUTOPTS
+    "cxx:data-model=ilp32"
+)
+endif()
+
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_VM)
+if(LOOM_TARGET_ARCH_VM)
+loom_execution_test(
+  NAME
+    pointer_origins_test_execute_vm_reference_test
+  MODULE
+    "::pointer_origins_module"
   LABELS
     "iree-build-requirement=loom.target.arch.vm"
     "loom-execution-profile=vm_reference"
@@ -1061,6 +1174,26 @@ loom_check_test_suite(
 )
 endif()
 
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_X86)
+loom_check_test_suite(
+  NAME
+    x86_compiler_test
+  SRCS
+    "x86_lowering.cxx-test"
+)
+endif()
+
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_WASM)
+loom_check_test_suite(
+  NAME
+    wasm_compiler_test
+  SRCS
+    "wasm_lowering.cxx-test"
+    "wasm_lowering_invalid.cxx-test"
+    "wasm_pointer_narrowing.cxx-test"
+)
+endif()
+
 if(LOOM_IMPORT_CXX)
 loom_test_module(
   NAME
@@ -1068,6 +1201,16 @@ loom_test_module(
   SRCS
     "atomic_builtins.cxx"
     "atomics.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    boolean_storage_module
+  SRCS
+    "boolean_storage.cxx"
+    "boolean_storage_kernels.loom"
 )
 endif()
 
@@ -1098,6 +1241,69 @@ loom_test_module(
   SRCS
     "record_memory.cxx"
     "record_memory_kernels.loom"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    mxfp_group_dot_module
+  SRCS
+    "mxfp_group_dot.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    packed_byte_arithmetic_module
+  SRCS
+    "packed_byte_arithmetic.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    packed_float16_conversion_module
+  SRCS
+    "packed_float16_conversion.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    packed_float8_conversion_module
+  SRCS
+    "packed_float8_conversion.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    packed_group_dot_module
+  SRCS
+    "packed_group_dot.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    vector_lookup_module
+  SRCS
+    "vector_lookup.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    vector_math_module
+  SRCS
+    "vector_math.cxx"
 )
 endif()
 

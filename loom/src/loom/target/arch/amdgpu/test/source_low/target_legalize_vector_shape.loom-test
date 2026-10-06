@@ -1,0 +1,117 @@
+// RUN: with-checks pass target-legalize{mode=final,policy=require-native}
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @leading_broadcast(%row: vector<4xf32>) -> (vector<2x4xf32>) {
+  %tile = vector.broadcast %row : vector<4xf32> -> vector<2x4xf32>
+  func.return %tile : vector<2x4xf32>
+}
+
+// ----
+CHECK: * = vector.concat<0> %row, %row : vector<4xf32>, vector<4xf32> -> vector<8xf32>
+CHECK: %tile = vector.bitcast * : vector<8xf32> to vector<2x4xf32>
+CHECK-NOT: vector.broadcast
+CHECK-NOT: scalar.
+
+// ====
+
+// RUN: with-checks pass target-legalize{mode=final,policy=require-native}
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @singleton_axis_broadcast(%column: vector<2x1xi32>) -> (vector<2x2xi32>) {
+  %tile = vector.broadcast %column : vector<2x1xi32> -> vector<2x2xi32>
+  func.return %tile : vector<2x2xi32>
+}
+
+// ----
+CHECK: * = vector.bitcast %column : vector<2x1xi32> to vector<2xi32>
+CHECK: * = vector.shuffle<[0, 0]> * : vector<2xi32>
+CHECK: * = vector.shuffle<[1, 1]> * : vector<2xi32>
+CHECK: * = vector.concat<0> *, * : vector<2xi32>, vector<2xi32> -> vector<4xi32>
+CHECK: %tile = vector.bitcast * : vector<4xi32> to vector<2x2xi32>
+CHECK-NOT: vector.broadcast
+CHECK-NOT: scalar.
+
+// ====
+
+// RUN: with-checks pass target-legalize{mode=final,policy=require-native}
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @tail_insert(%row: vector<2xf32>, %dest: vector<3x2xf32>) -> (vector<3x2xf32>) {
+  %tile = vector.insert %row into %dest[1] : vector<2xf32>, vector<3x2xf32>
+  func.return %tile : vector<3x2xf32>
+}
+
+// ----
+CHECK: * = vector.bitcast %dest : vector<3x2xf32> to vector<6xf32>
+CHECK: * = vector.slice *[0] : vector<6xf32> -> vector<2xf32>
+CHECK: * = vector.slice *[4] : vector<6xf32> -> vector<2xf32>
+CHECK: * = vector.concat<0> *, %row, * : vector<2xf32>, vector<2xf32>, vector<2xf32> -> vector<6xf32>
+CHECK: %tile = vector.bitcast * : vector<6xf32> to vector<3x2xf32>
+CHECK-NOT: scalar.
+
+// ====
+
+// RUN: with-checks pass target-legalize{mode=final,policy=require-native}
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @scalar_insert(%value: i32, %dest: vector<2x2xi32>) -> (vector<2x2xi32>) {
+  %tile = vector.insert %value into %dest[1, 0] : i32, vector<2x2xi32>
+  func.return %tile : vector<2x2xi32>
+}
+
+// ----
+CHECK: * = vector.bitcast %dest : vector<2x2xi32> to vector<4xi32>
+CHECK: * = vector.insert %value into *[2] : i32, vector<4xi32>
+CHECK: %tile = vector.bitcast * : vector<4xi32> to vector<2x2xi32>
+CHECK-NOT: scalar.
+
+// ====
+
+// RUN: with-checks pass target-legalize{mode=eager,policy=require-native}
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @oversized_broadcast(%row: vector<4xf32>) -> (vector<9x4xf32>) {
+  %tile = vector.broadcast %row : vector<4xf32> -> vector<9x4xf32>
+  func.return %tile : vector<9x4xf32>
+}
+
+// ----
+CHECK: %tile = vector.broadcast %row : vector<4xf32> -> vector<9x4xf32>
+CHECK-NOT: vector.concat
+
+// ====
+
+// RUN: with-checks pass target-legalize{mode=final},canonicalize,cse
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @multidimensional_gather_scatter(%input: buffer, %output: buffer, %origin: index, %offsets: vector<2x2xi32>, %mask: vector<2x2xi1>, %passthrough: vector<2x2xf32>, %value: vector<2x2xf32>) -> (vector<2x2xf32>, vector<2x2xf32>) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<64xf32>
+  %output_view = buffer.view %output[%base] : buffer -> view<64xf32>
+  %gathered = vector.gather %input_view[%origin][%offsets] : view<64xf32>, vector<2x2xi32> -> vector<2x2xf32>
+  vector.scatter %value, %output_view[%origin][%offsets] : vector<2x2xf32>, view<64xf32>, vector<2x2xi32>
+  %masked = vector.gather.mask %input_view[%origin][%offsets], %mask, %passthrough : view<64xf32>, vector<2x2xi32>, vector<2x2xi1>, vector<2x2xf32>
+  vector.scatter.mask %value, %output_view[%origin][%offsets], %mask : vector<2x2xf32>, view<64xf32>, vector<2x2xi32>, vector<2x2xi1>
+  func.return %gathered, %masked : vector<2x2xf32>, vector<2x2xf32>
+}
+
+// ----
+CHECK: * = vector.extract %offsets[0, 0] : vector<2x2xi32> -> i32
+CHECK: * = view.load %input_view[*] : view<64xf32> -> f32
+CHECK: %gathered = vector.from_elements * : vector<2x2xf32>
+CHECK: * = vector.extract %value[0, 0] : vector<2x2xf32> -> f32
+CHECK: view.store * %output_view[*] : f32, view<64xf32>
+CHECK: * = vector.extract %mask[0, 0] : vector<2x2xi1> -> i1
+CHECK: * = scf.if * -> (f32) {
+CHECK: * = view.load %input_view[*] : view<64xf32> -> f32
+CHECK: %masked = vector.from_elements * : vector<2x2xf32>
+CHECK: scf.if * {
+CHECK: view.store * %output_view[*] : f32, view<64xf32>
+CHECK-NOT: vector.gather
+CHECK-NOT: vector.scatter

@@ -1,0 +1,61 @@
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @widen_e5m2_packet(%input: vector<24xf8E5M2>) -> (vector<24xf32>) {
+  %result = vector.extf %input : vector<24xf8E5M2> to vector<24xf32>
+  func.return %result : vector<24xf32>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @widen_e5m2_packet(%input: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x4>) asm {
+  %5 = vsub.8 %input, %input
+  %6 = mova.i32 20
+  %7 = vshuffle %input, %5, %6
+  %8 = vshuffle %5, %input, %6
+  %9 = mov.i32 32895
+  %10 = vbcst.16 %9
+  %11 = vband %7, %10
+  %12 = vband %8, %10
+  %13 = vadd.16 %11, %11
+  %14 = vadd.16 %13, %13
+  %15 = vadd.16 %14, %14
+  %16 = vadd.16 %15, %15
+  %17 = vadd.16 %16, %16
+  %18 = vadd.16 %17, %17
+  %19 = mov.short 128
+  %20 = vbcst.16 %19
+  %21 = mov.i32 14336
+  %22 = vbcst.16 %21
+  %23 = vadd.16 %17, %22
+  %24 = vsub.16 %22, %20
+  %25 = veqz.16.el.low32 %11
+  %26 = predicate.complete.zero.high32 %25, 0
+  %27 = vsel.16.mask64 %24, %5, %26
+  %28 = vadd.16 %18, %24
+  %29 = vlt.u16x32.el.low32 %18, %20
+  %30 = predicate.complete.zero.high32 %29, 0
+  %31 = vsel.16.mask64 %28, %27, %30
+  %32 = vlt.u16x32.el.low32 %17, %20
+  %33 = predicate.complete.zero.high32 %32, 0
+  %34 = vsel.16.mask64 %23, %31, %33
+  %35 = vbor %34, %12
+  %36 = mov.i32 32704
+  %37 = vbcst.16 %36
+  %38 = mov.short 124
+  %39 = vbcst.16 %38
+  %40 = vlt.u16x32.el.low32 %11, %39
+  %41 = predicate.complete.zero.high32 %40, 0
+  %42 = vsub.16 %11, %39
+  %43 = veqz.16.el.low32 %42
+  %44 = predicate.complete.zero.high32 %43, 0
+  %45 = vadd.16 %23, %22
+  %46 = vbor %45, %12
+  %47 = vsel.16.mask64 %37, %46, %44
+  %48 = vsel.16.mask64 %47, %35, %41
+  %49 = vconv.fp32.bf16 %48
+  %50 = slice %49[0] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
+  %51 = vmov.accumulator512.to.vector512 %50
+  %52 = slice %49[1] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
+  %53 = vmov.accumulator512.to.vector512 %52
+  %result = concat(%51, %53) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %result
+}

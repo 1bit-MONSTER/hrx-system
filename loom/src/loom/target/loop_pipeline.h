@@ -11,12 +11,23 @@
 
 #include "iree/base/api.h"
 
-// One source operation's position in the applied read-ahead schedule.
+typedef enum loom_source_loop_pipeline_partition_e {
+  // The complete source operation belongs to one stage.
+  LOOM_SOURCE_LOOP_PIPELINE_PARTITION_NONE = 0,
+  // A conditional's read closure and ordered remainder belong to two stages.
+  LOOM_SOURCE_LOOP_PIPELINE_PARTITION_GUARDED = 1,
+} loom_source_loop_pipeline_partition_t;
+
+// One source operation copy's position in the applied read-ahead schedule.
 typedef struct loom_source_loop_pipeline_operation_t {
+  // Position of the operation in the original source loop body.
+  uint32_t source_position;
   // Source mnemonic borrowed from the compilation context's dialect tables.
   iree_string_view_t op_name;
   // Original iterations ahead of the ordered consumer; zero for consumers.
   uint32_t iteration_lookahead;
+  // Interior partition used to place this operation copy.
+  loom_source_loop_pipeline_partition_t partition;
 } loom_source_loop_pipeline_operation_t;
 
 // An immutable applied policy, independent of subsequent IR replacement.
@@ -33,7 +44,8 @@ typedef struct loom_source_loop_pipeline_t {
   uint32_t values_per_record;
   // Number of ordinary source reads in the producer stage.
   uint32_t read_count;
-  // Applied stage per source operation, in source body order.
+  // Applied copies in source body order. Reconstructed arithmetic has both
+  // producer and consumer entries.
   const loom_source_loop_pipeline_operation_t* operations;
   // Number of entries in operations; zero for a depth-one policy.
   uint32_t operation_count;

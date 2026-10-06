@@ -333,6 +333,12 @@ static iree_status_t loom_vector_verify_atomic_kind(
     iree_diagnostic_emitter_t emitter, const loom_op_t* op,
     iree_string_view_t value_name, loom_type_t value_type, uint8_t kind,
     bool allow_exchange) {
+  if (iree_any_bit_set(op->instance_flags, LOOM_MEMORY_ACCESS_FLAG_NOFTZ) &&
+      kind != LOOM_ATOMIC_KIND_ADDF) {
+    return loom_vector_emit_attribute_value_constraint(
+        emitter, op, IREE_SV("memory_flags"), op->instance_flags,
+        IREE_SV("noftz requires floating-point atomic addition"));
+  }
   if (!allow_exchange && loom_atomic_kind_is_exchange(kind)) {
     return loom_vector_emit_attribute_value_constraint(
         emitter, op, IREE_SV("kind"), kind,

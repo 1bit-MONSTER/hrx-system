@@ -18,6 +18,7 @@
 #define LOOM_CODEGEN_LOW_SCHEDULE_TYPES_H_
 
 #include "iree/base/api.h"
+#include "iree/base/bitmap.h"
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/liveness.h"
 #include "loom/codegen/low/descriptors.h"
@@ -75,6 +76,11 @@ enum loom_low_schedule_node_flag_bits_e {
       LOOM_LOW_SCHEDULE_NODE_FLAG_PAIR_TRANSPARENT << 1u,
   // Structural node has an issue-cycle anchor but consumes no issue width.
   LOOM_LOW_SCHEDULE_NODE_FLAG_ZERO_ISSUE_WIDTH = 1u << 7,
+  // Setup whose complete consumer chain must follow its external prerequisites.
+  LOOM_LOW_SCHEDULE_NODE_FLAG_ORDERED_SETUP = 1u << 8,
+  // Ordinal payload ends with a u32 bitmap of inputs read through result
+  // writes.
+  LOOM_LOW_SCHEDULE_NODE_FLAG_LATE_READS = 1u << 9,
 };
 typedef uint16_t loom_low_schedule_node_flags_t;
 
@@ -158,6 +164,11 @@ enum loom_low_schedule_flag_bits_e {
   LOOM_LOW_SCHEDULE_FLAG_RETAIN_PRESSURE_STEPS = 1u << 1,
   // Retains grouped dependencies for final software-timed instruction issue.
   LOOM_LOW_SCHEDULE_FLAG_RETAIN_DEPENDENCY_INDEX = 1u << 2,
+  // Retains block pressure contributions for subsequent scoped rescheduling.
+  LOOM_LOW_SCHEDULE_FLAG_RETAIN_BLOCK_PRESSURE = 1u << 3,
+  // Retains final-issue lower bounds for source suffixes consumed by guarded
+  // motion profitability planning.
+  LOOM_LOW_SCHEDULE_FLAG_RETAIN_SOURCE_SUFFIX_BOUNDS = 1u << 4,
 };
 typedef uint32_t loom_low_schedule_flags_t;
 
@@ -172,7 +183,6 @@ typedef enum loom_low_schedule_strategy_e {
   LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL = 3,
 } loom_low_schedule_strategy_t;
 
-#define LOOM_LOW_SCHEDULE_MEMORY_ACCESS_RECORD_NONE UINT32_MAX
 #define LOOM_LOW_SCHEDULE_PRESSURE_CLIFF_NONE UINT32_MAX
 
 // One target-provided pair-affinity row.
@@ -300,8 +310,6 @@ typedef struct loom_low_schedule_node_t {
   uint32_t issue_cycle;
   // Table-wide issue-group ordinal containing this node.
   uint32_t issue_group_ordinal;
-  // Source memory-access record attached to this node, or NONE.
-  uint32_t memory_access_record_index;
   // Present immediate fields in canonical dictionary key order. Retained for
   // this immutable function snapshot; descriptor alternatives preserve keys.
   uint32_t immediate_presence;
@@ -319,7 +327,8 @@ typedef struct loom_low_schedule_node_t {
   loom_low_schedule_node_flags_t flags;
   // Dense schedule-class identifier, or LOOM_LOW_SCHEDULE_CLASS_NONE.
   uint16_t schedule_class_id;
-  // Operand ordinals followed by result ordinals. Small nodes store ordinals
+  // Operand ordinals followed by result ordinals and, with LATE_READS, an
+  // operand-indexed u32 bitmap. Small nodes store the complete payload
   // inline to avoid an extra pointer chase; large nodes store one contiguous
   // arena allocation through overflow_value_ordinals.
   union {
@@ -362,6 +371,19 @@ static inline const loom_value_ordinal_t*
 loom_low_schedule_node_const_operand_ordinals(
     const loom_low_schedule_node_t* node) {
   return loom_low_schedule_node_const_value_ordinals(node);
+}
+
+// Consumes read timing resolved once against the effective target and selected
+// operand register classes during graph construction.
+static inline bool loom_low_schedule_node_operand_reads_after_write(
+    const loom_low_schedule_node_t* node, uint16_t operand_index) {
+  if (!iree_any_bit_set(node->flags, LOOM_LOW_SCHEDULE_NODE_FLAG_LATE_READS)) {
+    return false;
+  }
+  const uint32_t* words = loom_low_schedule_node_const_value_ordinals(node) +
+                          node->operand_count + node->result_count;
+  return (words[operand_index / 32u] &
+          (UINT32_C(1) << (operand_index % 32u))) != 0;
 }
 
 static inline loom_value_ordinal_t* loom_low_schedule_node_result_ordinals(
@@ -415,7 +437,7 @@ typedef struct loom_low_schedule_candidate_decision_t {
   uint32_t scored_candidate_count;
   // Chosen schedule node.
   uint32_t chosen_node;
-  // Best rejected schedule node, or LOOM_LOW_SCHEDULE_NODE_NONE.
+  // Best rejected schedule node. Decisions always have an alternative.
   uint32_t rejected_node;
   // Chosen maximum same-block producer latency among SSA operands.
   uint16_t chosen_dependency_latency_cycles;
@@ -676,15 +698,42 @@ typedef struct loom_low_schedule_block_t {
   uint32_t issue_group_start;
   // Number of issue groups owned by this block.
   uint32_t issue_group_count;
+  // Original selection explanations owned by this block's schedule.
+  struct {
+    // First entry in the table candidate-decision array.
+    uint32_t start;
+    // Number of candidate decisions recorded for the block.
+    uint32_t count;
+  } candidate_decisions;
 } loom_low_schedule_block_t;
+
+// Accepted resource-stall block schedules preserved by a scoped IR transform.
+//
+// The caller proves that unmarked blocks retain their operation identities,
+// source order, semantics, local dependencies, and entry execution state. CFG
+// topology, target contracts, and scheduling options remain unchanged; the
+// function has no structured scopes. Marked blocks are rescheduled; unmarked
+// blocks keep their accepted choices even when the new function's pressure
+// policy would choose differently. Allocation and final native profitability
+// checks remain the transaction owner's job.
+// All borrowed storage must outlive scheduling. The result owns its retained
+// rows independently of this input and preserves their original diagnostics.
+typedef struct loom_low_schedule_retained_blocks_t {
+  // Accepted schedule with retained block pressure and matching diagnostics.
+  const struct loom_low_schedule_table_t* schedule;
+  // Transform-owned membership indexed by the unchanged CFG block domain.
+  iree_bitmap_t changed_blocks;
+} loom_low_schedule_retained_blocks_t;
 
 // Options controlling low schedule construction.
 typedef struct loom_low_schedule_options_t {
+  // Optional accepted block outcomes preserved by the transformation owner.
+  const loom_low_schedule_retained_blocks_t* retained_blocks;
   // Optional source-derived memory summaries for the modeled function. Empty
   // uses conservative descriptor effect summaries.
-  loom_low_memory_access_table_t memory_access_table;
-  // Optional immutable target residency policy.
-  const loom_target_residency_model_t* residency_model;
+  const loom_low_memory_access_map_t* memory_accesses;
+  // Function-local view of the immutable target residency policy.
+  loom_target_residency_view_t residency;
   // Optional explicit allocation budgets. These are interpreted as hard
   // pressure limits by the scheduler so resource-stall scheduling can shorten
   // live ranges before allocation reaches the final physical storage ceiling.
@@ -695,6 +744,14 @@ typedef struct loom_low_schedule_options_t {
   loom_low_schedule_pair_affinity_list_t pair_affinities;
   // Optional concrete pair groups preferred when rescheduling rewritten IR.
   loom_low_placement_pair_use_list_t preferred_pair_uses;
+  // Borrowed module-value membership retained by allocation repair. Marked
+  // results have private per-user placement, either from cloning or from
+  // retaining an already-adjacent definition separated by scheduling.
+  // Nonempty membership enables static setup ordering and defers blocked
+  // materializations during ready selection. Consumer cloning and spill
+  // insertion invalidate placement at the rematerialization owner. Empty
+  // outside repair.
+  iree_bitmap_t per_user_placement_values;
   // Optional target-provided implicit state reads for structural low
   // materializations that emit target packets without descriptor rows.
   loom_low_schedule_structural_state_read_list_t structural_state_reads;
@@ -721,7 +778,7 @@ typedef struct loom_low_schedule_table_t {
   // Resolved target context selected by |function_op|.
   loom_low_resolved_target_t target;
   // Borrowed source-derived memory summaries attached to scheduled nodes.
-  loom_low_memory_access_table_t memory_access_table;
+  const loom_low_memory_access_map_t* memory_accesses;
   // Declared interfaces and storage retained from the immutable function model.
   loom_low_function_requirements_t requirements;
   // Function-local value IDs indexed by local value ordinal.
@@ -740,6 +797,10 @@ typedef struct loom_low_schedule_table_t {
   const loom_low_schedule_block_t* blocks;
   // Number of block records.
   iree_host_size_t block_count;
+  // Per-block register-class high-water contributions to derived resources,
+  // dense by block index then descriptor register-class ID. Present only with
+  // RETAIN_BLOCK_PRESSURE and a nonempty derived-resource pressure model.
+  const uint64_t* block_pressure_peaks;
   // Final top-level operation order retained for downstream liveness analysis.
   loom_liveness_order_t operation_order;
   // Read-only control-flow graph shared by target planning overlays.
@@ -750,6 +811,10 @@ typedef struct loom_low_schedule_table_t {
   const loom_low_schedule_node_t* nodes;
   // Number of schedule nodes.
   iree_host_size_t node_count;
+  // Conservative lower bound on the final block issue cycle after discarding
+  // every earlier source node in the containing block, indexed by the first
+  // retained node. Present only with RETAIN_SOURCE_SUFFIX_BOUNDS.
+  const uint32_t* source_suffix_issue_cycle_lower_bounds;
   // Source-ordered low.func.call node indices retained for ABI frame planning.
   const uint32_t* call_node_indices;
   // Number of entries in |call_node_indices|. Leaves have no call-table
@@ -790,7 +855,7 @@ typedef struct loom_low_schedule_table_t {
   iree_host_size_t pressure_step_count;
   // Candidate decisions in scheduled order when requested by diagnostic flags.
   // Empty for source-priority scheduling and scored scheduling without
-  // candidate diagnostics.
+  // candidate diagnostics. Retained blocks carry their original decisions.
   const loom_low_schedule_candidate_decision_t* candidate_decisions;
   // Number of candidate decision records.
   iree_host_size_t candidate_decision_count;

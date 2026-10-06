@@ -23,6 +23,101 @@ namespace iree::async::cts {
 
 class SendFlagsTest : public SocketTestBase<> {
  protected:
+  void TestMixedCopyPolicy(iree_async_socket_type_t type,
+                           iree_host_size_t span_count) {
+    iree_async_socket_t* sender = nullptr;
+    iree_async_socket_t* receiver = nullptr;
+    iree_async_socket_t* listener = nullptr;
+    iree_async_address_t destination = {};
+    if (type == IREE_ASYNC_SOCKET_TYPE_TCP) {
+      EstablishConnectionWithOptions(&sender, &receiver, &listener,
+                                     IREE_ASYNC_SOCKET_OPTION_NO_DELAY |
+                                         IREE_ASYNC_SOCKET_OPTION_ZERO_COPY,
+                                     IREE_ASYNC_SOCKET_OPTION_NONE);
+    } else {
+      IREE_ASSERT_OK(iree_async_socket_create(
+          proactor_, type, IREE_ASYNC_SOCKET_OPTION_ZERO_COPY, &sender));
+      IREE_ASSERT_OK(iree_async_socket_create(
+          proactor_, type, IREE_ASYNC_SOCKET_OPTION_NONE, &receiver));
+      iree_async_address_t bind_address;
+      IREE_ASSERT_OK(
+          iree_async_address_from_ipv4(IREE_SV("127.0.0.1"), 0, &bind_address));
+      IREE_ASSERT_OK(iree_async_socket_bind(receiver, &bind_address));
+      IREE_ASSERT_OK(
+          iree_async_socket_query_local_address(receiver, &destination));
+    }
+
+    // Change policy on the same socket, reusing source storage only after
+    // retirement. The receiver must still see the pre-overwrite contents.
+    const iree_async_socket_send_flags_t policies[] = {
+        IREE_ASYNC_SOCKET_SEND_FLAG_NO_ZERO_COPY,
+        IREE_ASYNC_SOCKET_SEND_FLAG_NONE,
+        IREE_ASYNC_SOCKET_SEND_FLAG_NO_ZERO_COPY,
+    };
+    for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(policies); ++i) {
+      std::array<uint8_t, 32> source;
+      source.fill(static_cast<uint8_t>(0x31 + i));
+      const auto expected = source;
+      iree_async_span_t spans[2] = {
+          iree_async_span_from_ptr(source.data(), source.size() / span_count),
+          iree_async_span_from_ptr(source.data() + source.size() / 2,
+                                   source.size() / 2),
+      };
+      const iree_async_socket_send_flags_t flags =
+          policies[i] | IREE_ASYNC_SOCKET_SEND_FLAG_REPORT_PROGRESS;
+      iree_async_socket_send_operation_t send;
+      iree_async_socket_sendto_operation_t sendto;
+      CompletionTracker completion;
+      if (type == IREE_ASYNC_SOCKET_TYPE_TCP) {
+        InitSendOperation(&send, sender, spans, span_count, flags,
+                          CompletionTracker::Callback, &completion);
+        IREE_ASSERT_OK(iree_async_proactor_submit_one(proactor_, &send.base));
+      } else {
+        InitSendtoOperation(&sendto, sender, spans, span_count, flags,
+                            &destination, CompletionTracker::Callback,
+                            &completion);
+        IREE_ASSERT_OK(iree_async_proactor_submit_one(proactor_, &sendto.base));
+      }
+      PollUntilCondition([&] {
+        return completion.call_count > 0 &&
+               !iree_any_bit_set(completion.last_flags,
+                                 IREE_ASYNC_COMPLETION_FLAG_MORE);
+      });
+      IREE_EXPECT_OK(completion.ConsumeStatus());
+      if (policies[i] & IREE_ASYNC_SOCKET_SEND_FLAG_NO_ZERO_COPY) {
+        EXPECT_EQ(completion.call_count, 1);
+        EXPECT_EQ(completion.last_flags &
+                      IREE_ASYNC_COMPLETION_FLAG_ZERO_COPY_ACHIEVED,
+                  0u);
+      }
+      source.fill(0xFF);
+
+      std::array<uint8_t, 32> received = {};
+      if (type == IREE_ASYNC_SOCKET_TYPE_TCP) {
+        EXPECT_EQ(send.bytes_sent, source.size());
+        EXPECT_EQ(RecvAll(receiver, received.data(), received.size()),
+                  received.size());
+      } else {
+        EXPECT_EQ(sendto.bytes_sent, source.size());
+        iree_async_span_t span =
+            iree_async_span_from_ptr(received.data(), received.size());
+        iree_async_socket_recvfrom_operation_t receive;
+        CompletionTracker receive_completion;
+        InitRecvfromOperation(&receive, receiver, &span, 1,
+                              CompletionTracker::Callback, &receive_completion);
+        IREE_ASSERT_OK(
+            iree_async_proactor_submit_one(proactor_, &receive.base));
+        PollUntilCondition([&] { return receive_completion.call_count == 1; });
+        IREE_EXPECT_OK(receive_completion.ConsumeStatus());
+        EXPECT_EQ(receive.bytes_received, received.size());
+      }
+      EXPECT_EQ(received, expected);
+    }
+    iree_async_socket_release(receiver);
+    iree_async_socket_release(sender);
+    iree_async_socket_release(listener);
+  }
+
   void TestReportedProgress(iree_async_socket_options_t socket_options,
                             bool cancel_at_progress = false) {
     iree_async_socket_t* client = nullptr;
@@ -111,6 +206,22 @@ class SendFlagsTest : public SocketTestBase<> {
   }
 };
 
+TEST_P(SendFlagsTest, MixedCopyPolicyConnectedSend) {
+  TestMixedCopyPolicy(IREE_ASYNC_SOCKET_TYPE_TCP, 1);
+}
+
+TEST_P(SendFlagsTest, MixedCopyPolicyConnectedScatterSend) {
+  TestMixedCopyPolicy(IREE_ASYNC_SOCKET_TYPE_TCP, 2);
+}
+
+TEST_P(SendFlagsTest, MixedCopyPolicyDatagramSend) {
+  TestMixedCopyPolicy(IREE_ASYNC_SOCKET_TYPE_UDP, 1);
+}
+
+TEST_P(SendFlagsTest, MixedCopyPolicyDatagramScatterSend) {
+  TestMixedCopyPolicy(IREE_ASYNC_SOCKET_TYPE_UDP, 2);
+}
+
 TEST_P(SendFlagsTest, ReportProgressWithCopiedWrites) {
   TestReportedProgress(IREE_ASYNC_SOCKET_OPTION_NONE);
 }
@@ -149,7 +260,7 @@ TEST_P(SendFlagsTest, ZeroCopySendBasic) {
   iree_async_span_t send_span =
       iree_async_span_from_ptr((void*)send_data, send_length);
 
-  // Submit send (ZC is determined by socket option, not per-send flag).
+  // Submit send with the socket's default zero-copy preference.
   iree_async_socket_send_operation_t send_op;
   CompletionTracker send_tracker;
   InitSendOperation(&send_op, client, &send_span, 1,

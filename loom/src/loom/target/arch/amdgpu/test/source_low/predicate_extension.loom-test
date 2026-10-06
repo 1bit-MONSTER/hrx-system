@@ -1,0 +1,79 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/predicate_extension.loom-test
+// RUN: emit source-low target=amdgpu:gfx1151 output=low
+
+func.def @predicate_extension_i8(%condition: i1) -> (i8, i8) {
+  %signed = scalar.extsi %condition : i1 to i8
+  %unsigned = scalar.extui %condition : i1 to i8
+  func.return %signed, %unsigned : i8, i8
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @predicate_extension_i8(%condition: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %14 = v_mov_b32 4294967295
+  %15 = v_mov_b32 0
+  %signed = v_cndmask_b32 %15, %14, %condition
+  %17 = v_mov_b32 1
+  %unsigned = v_cndmask_b32 %15, %17, %condition
+  return %signed, %unsigned
+}
+
+// ====
+
+func.def @predicate_extension_i16(%condition: i1) -> (i16, i16) {
+  %signed = scalar.extsi %condition : i1 to i16
+  %unsigned = scalar.extui %condition : i1 to i16
+  func.return %signed, %unsigned : i16, i16
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @predicate_extension_i16(%condition: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %14 = v_mov_b32 4294967295
+  %15 = v_mov_b32 0
+  %signed = v_cndmask_b32 %15, %14, %condition
+  %17 = v_mov_b32 1
+  %unsigned = v_cndmask_b32 %15, %17, %condition
+  return %signed, %unsigned
+}
+
+// ====
+
+func.def @predicate_extension_i32(%condition: i1) -> (i32, i32) {
+  %signed = scalar.extsi %condition : i1 to i32
+  %unsigned = scalar.extui %condition : i1 to i32
+  func.return %signed, %unsigned : i32, i32
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @predicate_extension_i32(%condition: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %14 = s_mov_b32 4294967295
+  %15 = s_mov_b32 0
+  %16 = s_cmp_lg_i32_src1_inline %condition {rhs = 0}
+  %signed = s_cselect_b32 %14, %15, %16
+  %18 = s_mov_b32 1
+  %19 = s_cmp_lg_i32_src1_inline %condition {rhs = 0}
+  %unsigned = s_cselect_b32 %18, %15, %19
+  return %signed, %unsigned
+}
+
+// ====
+
+func.def @predicate_extension_i64(%condition: i1) -> (i64, i64) {
+  %signed = scalar.extsi %condition : i1 to i64
+  %unsigned = scalar.extui %condition : i1 to i64
+  func.return %signed, %unsigned : i64, i64
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @predicate_extension_i64(%condition: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %14 = s_mov_b32 4294967295
+  %17 = s_mov_b32 0
+  %20 = s_cmp_lg_i32_src1_inline %condition {rhs = 0}
+  %23 = s_cselect_b32 %14, %17, %20
+  %signed = concat(%23, %23) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %28 = s_mov_b32 1
+  %31 = s_cmp_lg_i32_src1_inline %condition {rhs = 0}
+  %34 = s_cselect_b32 %28, %17, %31
+  %37 = s_cselect_b32 %17, %17, %31
+  %unsigned = concat(%34, %37) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  return %signed, %unsigned
+}

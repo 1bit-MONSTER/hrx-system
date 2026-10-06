@@ -71,9 +71,11 @@ iree_runtime_cc_library(
     ] + select({
         "@platforms//os:android": [
             "//runtime/src/iree/async/platform/linux:signal",
+            "//runtime/src/iree/async/platform/linux:socket_options",
         ],
         "@platforms//os:linux": [
             "//runtime/src/iree/async/platform/linux:signal",
+            "//runtime/src/iree/async/platform/linux:socket_options",
         ],
         "//conditions:default": [],
     }),

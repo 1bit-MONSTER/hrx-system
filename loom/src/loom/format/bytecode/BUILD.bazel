@@ -248,7 +248,10 @@ loom_cc_test(
         ":format",
         ":varint",
         ":writer",
+        "//loom/src/loom/format/bytecode/writer:body",
+        "//loom/src/loom/format/bytecode/writer:encoder",
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops/func",
         "//loom/src/loom/ops/global",
         "//loom/src/loom/ops/test",
         "//runtime/src/iree/base/internal:arena",
@@ -316,6 +319,7 @@ loom_cc_benchmark(
     deps = [
         ":writer",
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops/global",
         "//loom/src/loom/ops/test",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/io:stream",

@@ -95,16 +95,14 @@ amdf_status_t amdf_gpu_umd_device_create(
   device->physical_adapter_index = endpoint->physical_adapter_index;
   device->memory_capabilities = memory_capabilities;
 
-  amdf_wkmi_bridge_gpu_properties_t properties = {0};
   status = amdf_gpu_wddm_wkmi_loader_initialize(host_allocator,
                                                 &device->wkmi_loader);
   if (amdf_status_is_ok(status)) {
     status = amdf_gpu_wddm_wkmi_adapter_initialize(
         &device->wkmi_loader, endpoint->adapter,
         endpoint->physical_adapter_index, host_allocator, &device->wkmi_adapter,
-        &properties);
+        &device->properties);
   }
-  (void)properties;
 
   D3DKMT_CREATEDEVICE create_device = {0};
   create_device.hAdapter = endpoint->adapter;

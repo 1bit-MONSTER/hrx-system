@@ -15,6 +15,7 @@ loom_check_test_suite(
   SRCS
     "insert_assertions.loom-test"
     "insert_race_observations.loom-test"
+    "materialize_assertions.loom-test"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

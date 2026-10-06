@@ -153,6 +153,37 @@ class SymbolReferencesTest : public ::testing::Test {
     return table;
   }
 
+  loom_symbol_reference_symbol_occurrences_t Symbol(
+      const loom_symbol_reference_table_t& table, loom_symbol_id_t symbol_id) {
+    return loom_symbol_reference_table_symbol(&table, symbol_id);
+  }
+
+  uint32_t CountOutgoing(const loom_symbol_reference_table_t& table,
+                         loom_symbol_id_t symbol_id) {
+    uint32_t count = 0;
+    auto occurrence_id = Symbol(table, symbol_id).first_outgoing_occurrence_id;
+    while (occurrence_id != LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID) {
+      ++count;
+      occurrence_id =
+          loom_symbol_reference_table_occurrence(&table, occurrence_id)
+              ->next_outgoing_occurrence_id;
+    }
+    return count;
+  }
+
+  uint32_t CountIncoming(const loom_symbol_reference_table_t& table,
+                         loom_symbol_id_t symbol_id) {
+    uint32_t count = 0;
+    auto occurrence_id = Symbol(table, symbol_id).first_incoming_occurrence_id;
+    while (occurrence_id != LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID) {
+      ++count;
+      occurrence_id =
+          loom_symbol_reference_table_occurrence(&table, occurrence_id)
+              ->next_incoming_occurrence_id;
+    }
+    return count;
+  }
+
   ModulePtr MakeRepeatedReferences(iree_host_size_t count,
                                    std::vector<loom_op_t*>* user_ops) {
     ModulePtr module = AllocateModule();
@@ -210,7 +241,7 @@ class SymbolReferencesTest : public ::testing::Test {
     }
 
     loom_symbol_reference_occurrence_id_t occurrence_id =
-        table.symbols[source_symbol_id].first_outgoing_occurrence_id;
+        Symbol(table, source_symbol_id).first_outgoing_occurrence_id;
     while (occurrence_id != LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID) {
       const loom_symbol_reference_occurrence_t* occurrence =
           loom_symbol_reference_table_occurrence(&table, occurrence_id);
@@ -277,6 +308,135 @@ class ObservedReferenceArena {
   }
 };
 
+TEST_F(SymbolReferencesTest, EmptyRowsNeedNoAnalysisStorage) {
+  constexpr iree_host_size_t kSymbolCount = 32768;
+  ModulePtr module = AllocateModule();
+  loom_string_id_t name_id = LOOM_STRING_ID_INVALID;
+  IREE_ASSERT_OK(
+      loom_module_intern_string(module.get(), IREE_SV("symbol"), &name_id));
+  for (iree_host_size_t i = 0; i < kSymbolCount; ++i) {
+    loom_symbol_id_t symbol_id = LOOM_SYMBOL_ID_INVALID;
+    IREE_ASSERT_OK(loom_module_add_symbol(module.get(), name_id, &symbol_id));
+    ASSERT_EQ(symbol_id, i);
+  }
+
+  ObservedReferenceArena storage(4096);
+  loom_symbol_reference_table_t table = {};
+  IREE_ASSERT_OK(
+      loom_symbol_reference_table_build(module.get(), &storage.arena, &table));
+  EXPECT_EQ(table.symbol_count, kSymbolCount);
+  EXPECT_EQ(table.symbol_segments, nullptr);
+  EXPECT_EQ(table.occurrence_count, 0u);
+  EXPECT_EQ(storage.allocation_count, 0u);
+  const loom_symbol_id_t probe_symbol_ids[] = {
+      0, 127, 128, (loom_symbol_id_t)(kSymbolCount - 1)};
+  for (const loom_symbol_id_t symbol_id : probe_symbol_ids) {
+    const auto symbol = loom_symbol_reference_table_symbol(&table, symbol_id);
+    EXPECT_EQ(symbol.first_outgoing_occurrence_id,
+              LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID);
+    EXPECT_EQ(symbol.first_incoming_occurrence_id,
+              LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID);
+    EXPECT_EQ(symbol.first_template_demand_id, LOOM_TEMPLATE_DEMAND_ID_INVALID);
+    EXPECT_EQ(symbol.template_demand_count, 0u);
+  }
+}
+
+TEST_F(SymbolReferencesTest, LargeProviderModuleNeedsNoDenseIndex) {
+  constexpr iree_host_size_t kSymbolCount = 32768;
+  ModulePtr module = AllocateModule();
+  const loom_symbol_ref_t family = AddSymbol(module.get(), IREE_SV("family"));
+  const loom_symbol_ref_t provider =
+      AddSymbol(module.get(), IREE_SV("provider"));
+  loom_string_id_t padding_name_id = LOOM_STRING_ID_INVALID;
+  IREE_ASSERT_OK(loom_module_intern_string(module.get(), IREE_SV("padding"),
+                                           &padding_name_id));
+  while (module->symbols.count < kSymbolCount) {
+    loom_symbol_id_t symbol_id = LOOM_SYMBOL_ID_INVALID;
+    IREE_ASSERT_OK(
+        loom_module_add_symbol(module.get(), padding_name_id, &symbol_id));
+  }
+
+  loom_builder_t builder = {};
+  loom_builder_initialize(module.get(), &module->arena,
+                          loom_module_block(module.get()), &builder);
+  loom_op_t* definition = nullptr;
+  IREE_ASSERT_OK(loom_template_def_build(
+      &builder, 0, family, 0, 0, 0, 0, 0, loom_symbol_ref_null(),
+      loom_parameterized_attr_array_empty(), 0, provider, nullptr, 0, nullptr,
+      0, nullptr, 0, nullptr, 0, LOOM_LOCATION_UNKNOWN, &definition));
+  loom_builder_enter_region(&builder, definition,
+                            loom_template_def_body(definition));
+  loom_op_t* terminator = nullptr;
+  IREE_ASSERT_OK(loom_template_return_build(
+      &builder, nullptr, 0, LOOM_LOCATION_UNKNOWN, &terminator));
+
+  ObservedReferenceArena storage(4096);
+  loom_symbol_reference_table_t table = {};
+  IREE_ASSERT_OK(
+      loom_symbol_reference_table_build(module.get(), &storage.arena, &table));
+  EXPECT_EQ(table.template_provider_count, 1u);
+  EXPECT_EQ(table.symbol_count, kSymbolCount);
+  EXPECT_EQ(storage.arena.allocation_head, nullptr);
+  EXPECT_LE(storage.largest_allocation, 4096u);
+}
+
+TEST_F(SymbolReferencesTest, SparseRowsSkipUntouchedSegments) {
+  constexpr iree_host_size_t kTargetCount =
+      2 * LOOM_SYMBOL_REFERENCE_SYMBOL_SEGMENT_CAPACITY + 1;
+  ModulePtr module = AllocateModule();
+  loom_string_id_t name_id = LOOM_STRING_ID_INVALID;
+  IREE_ASSERT_OK(
+      loom_module_intern_string(module.get(), IREE_SV("symbol"), &name_id));
+  loom_symbol_ref_t targets[kTargetCount];
+  for (iree_host_size_t i = 0; i < kTargetCount; ++i) {
+    loom_symbol_id_t symbol_id = LOOM_SYMBOL_ID_INVALID;
+    IREE_ASSERT_OK(loom_module_add_symbol(module.get(), name_id, &symbol_id));
+    targets[i] = {/*.module_id=*/0, /*.symbol_id=*/symbol_id};
+  }
+  loom_symbol_id_t source_symbol_id = LOOM_SYMBOL_ID_INVALID;
+  IREE_ASSERT_OK(
+      loom_module_add_symbol(module.get(), name_id, &source_symbol_id));
+
+  loom_builder_t builder = {};
+  loom_builder_initialize(module.get(), &module->arena,
+                          loom_module_block(module.get()), &builder);
+  loom_op_t* function = nullptr;
+  const loom_symbol_ref_t source = {/*.module_id=*/0,
+                                    /*.symbol_id=*/source_symbol_id};
+  IREE_ASSERT_OK(loom_test_func_build(&builder, 0, 0, 0, source, nullptr, 0,
+                                      nullptr, 0, nullptr, 0, nullptr, 0,
+                                      LOOM_LOCATION_UNKNOWN, &function));
+  loom_builder_enter_region(&builder, function, loom_test_func_body(function));
+  const loom_symbol_ref_t dependencies[] = {targets[0],
+                                            targets[kTargetCount - 1]};
+  loom_op_t* user_op = nullptr;
+  IREE_ASSERT_OK(loom_test_symbol_array_attrs_build(
+      &builder, 0, loom_make_symbol_ref_array(dependencies, 2),
+      loom_symbol_ref_array_empty(), LOOM_LOCATION_UNKNOWN, &user_op));
+  loom_op_t* terminator = nullptr;
+  IREE_ASSERT_OK(loom_test_yield_build(&builder, nullptr, 0,
+                                       LOOM_LOCATION_UNKNOWN, &terminator));
+
+  ObservedReferenceArena storage(4096);
+  loom_symbol_reference_table_t table = {};
+  IREE_ASSERT_OK(
+      loom_symbol_reference_table_build(module.get(), &storage.arena, &table));
+  ASSERT_NE(table.symbol_segments, nullptr);
+  EXPECT_NE(table.symbol_segments[0], nullptr);
+  EXPECT_EQ(table.symbol_segments[1], nullptr);
+  EXPECT_NE(table.symbol_segments[2], nullptr);
+  EXPECT_EQ(CountIncoming(table, targets[0].symbol_id), 1u);
+  EXPECT_EQ(CountIncoming(table, targets[kTargetCount - 1].symbol_id), 1u);
+  EXPECT_EQ(CountOutgoing(table, source_symbol_id), 2u);
+  const auto untouched = loom_symbol_reference_table_symbol(
+      &table, LOOM_SYMBOL_REFERENCE_SYMBOL_SEGMENT_CAPACITY);
+  EXPECT_EQ(untouched.first_outgoing_occurrence_id,
+            LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID);
+  EXPECT_EQ(untouched.first_incoming_occurrence_id,
+            LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID);
+  EXPECT_LE(storage.largest_allocation, 4096u);
+}
+
 TEST_F(SymbolReferencesTest, IndexedRowsAndAdjacencyCrossSegmentBoundaries) {
   constexpr uint32_t kSegment =
       LOOM_SYMBOL_REFERENCE_OCCURRENCE_SEGMENT_CAPACITY;
@@ -293,8 +453,8 @@ TEST_F(SymbolReferencesTest, IndexedRowsAndAdjacencyCrossSegmentBoundaries) {
     ASSERT_EQ(table.occurrence_count, count);
     EXPECT_EQ(table.calls.count, 0u);
     EXPECT_EQ(table.calls.template_count, 0u);
-    ASSERT_EQ(table.symbols[0].incoming_count, count);
-    ASSERT_EQ(table.symbols[1].outgoing_count, count);
+    ASSERT_EQ(CountIncoming(table, 0), count);
+    ASSERT_EQ(CountOutgoing(table, 1), count);
     EXPECT_EQ(table.occurrences.segment_count,
               (count + kSegment - 1) / kSegment);
     EXPECT_EQ(table.module_occurrence_count, 0u);
@@ -319,8 +479,8 @@ TEST_F(SymbolReferencesTest, IndexedRowsAndAdjacencyCrossSegmentBoundaries) {
       EXPECT_EQ(row->next_outgoing_occurrence_id, previous_id);
       previous_id = id;
     }
-    EXPECT_EQ(table.symbols[0].first_incoming_occurrence_id, previous_id);
-    EXPECT_EQ(table.symbols[1].first_outgoing_occurrence_id, previous_id);
+    EXPECT_EQ(Symbol(table, 0).first_incoming_occurrence_id, previous_id);
+    EXPECT_EQ(Symbol(table, 1).first_outgoing_occurrence_id, previous_id);
     EXPECT_LE(storage.largest_allocation, 32768u);
   }
 }
@@ -438,8 +598,8 @@ func.def @entry() -> (index) {
   EXPECT_EQ(write_occurrence->source_root_region_index_plus_one, 1u);
   EXPECT_EQ(call_occurrence->source_root_region_index_plus_one, 1u);
 
-  EXPECT_EQ(table.symbols[state].incoming_count, 2u);
-  EXPECT_EQ(table.symbols[reader].incoming_count, 1u);
+  EXPECT_EQ(CountIncoming(table, state), 2u);
+  EXPECT_EQ(CountIncoming(table, reader), 1u);
 }
 
 TEST_F(SymbolReferencesTest, KernelReferencesRetainDistinctTargetInterfaces) {
@@ -626,9 +786,9 @@ func.def public @entry(%arg: i32) -> (i32) {
       &table, undemanded_family_symbol_id));
   const loom_symbol_id_t source_symbol_ids[] = {outer_provider, entry};
   for (loom_symbol_id_t source_symbol_id : source_symbol_ids) {
-    ASSERT_EQ(table.symbols[source_symbol_id].template_demand_count, 1u);
+    ASSERT_EQ(Symbol(table, source_symbol_id).template_demand_count, 1u);
     loom_template_demand_id_t demand_id =
-        table.symbols[source_symbol_id].first_template_demand_id;
+        Symbol(table, source_symbol_id).first_template_demand_id;
     ASSERT_NE(demand_id, LOOM_TEMPLATE_DEMAND_ID_INVALID);
     const loom_template_demand_t& demand =
         table.template_demands.values[demand_id];
@@ -640,26 +800,7 @@ func.def public @entry(%arg: i32) -> (i32) {
     EXPECT_EQ(demand.next_source_demand_id, LOOM_TEMPLATE_DEMAND_ID_INVALID);
   }
 
-  ASSERT_EQ(table.template_providers.count, 2u);
-  ASSERT_NE(table.template_providers.first_by_family_symbol_id, nullptr);
-  loom_template_provider_reference_id_t provider_id =
-      table.template_providers
-          .first_by_family_symbol_id[undemanded_family_symbol_id];
-  ASSERT_NE(provider_id, LOOM_TEMPLATE_PROVIDER_REFERENCE_ID_INVALID);
-  EXPECT_EQ(table.template_providers.values[provider_id].symbol_id,
-            outer_provider);
-  EXPECT_EQ(
-      table.template_providers.values[provider_id].next_family_provider_id,
-      LOOM_TEMPLATE_PROVIDER_REFERENCE_ID_INVALID);
-
-  provider_id =
-      table.template_providers.first_by_family_symbol_id[family_symbol_id];
-  ASSERT_NE(provider_id, LOOM_TEMPLATE_PROVIDER_REFERENCE_ID_INVALID);
-  EXPECT_EQ(table.template_providers.values[provider_id].symbol_id,
-            FindSymbol(module.get(), IREE_SV("demo_provider")));
-  EXPECT_EQ(
-      table.template_providers.values[provider_id].next_family_provider_id,
-      LOOM_TEMPLATE_PROVIDER_REFERENCE_ID_INVALID);
+  EXPECT_EQ(table.template_provider_count, 2u);
 }
 
 TEST_F(SymbolReferencesTest, TemplateDemandFamiliesAreUniqueAndSorted) {
@@ -735,7 +876,7 @@ template.def<@demo.contract> requires [#target.subgroup.size<64>] @conditional(%
   loom_symbol_reference_table_t table = BuildTable(module.get());
 
   ASSERT_EQ(table.symbol_count, 2u);
-  EXPECT_EQ(table.symbols[conditional].outgoing_count, 1u);
+  EXPECT_EQ(CountOutgoing(table, conditional), 1u);
   EXPECT_EQ(table.occurrence_count, 1u);
   EXPECT_NE(FindOccurrence(table, conditional, family,
                            LOOM_SYMBOL_REFERENCE_OCCURRENCE_SYMBOL_ATTR),
@@ -762,7 +903,7 @@ func.def @reader() -> (i1) {
   ASSERT_NE(config_occurrence, nullptr);
   ASSERT_NE(config_occurrence->user_op, nullptr);
   EXPECT_EQ(config_occurrence->user_op->kind, LOOM_OP_CONFIG_GET);
-  EXPECT_EQ(table.symbols[enable_mtp].incoming_count, 1u);
+  EXPECT_EQ(CountIncoming(table, enable_mtp), 1u);
 }
 
 TEST_F(SymbolReferencesTest, NestedDictRefsFeedSymbolSccGraph) {
@@ -860,11 +1001,11 @@ func.def @typed(%arg: test.matrix<bf16, scope = subgroup, rows = 16, target = @d
   ASSERT_NE(nested_availability, nullptr);
   EXPECT_EQ(nested_availability->role, LOOM_SYMBOL_REFERENCE_ROLE_AVAILABILITY);
 
-  EXPECT_EQ(table.symbols[provider].incoming_count, 3u);
+  EXPECT_EQ(CountIncoming(table, provider), 3u);
   uint32_t dependency_count = 0;
   uint32_t availability_count = 0;
   loom_symbol_reference_occurrence_id_t occurrence_id =
-      table.symbols[provider].first_incoming_occurrence_id;
+      Symbol(table, provider).first_incoming_occurrence_id;
   while (occurrence_id != LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID) {
     const loom_symbol_reference_occurrence_t* occurrence =
         loom_symbol_reference_table_occurrence(&table, occurrence_id);
@@ -910,7 +1051,7 @@ func.def @typed(%arg: test.matrix<bf16, scope = subgroup, rows = 16, target = @t
 
   uint32_t occurrence_count = 0;
   loom_symbol_reference_occurrence_id_t occurrence_id =
-      table.symbols[typed].first_outgoing_occurrence_id;
+      Symbol(table, typed).first_outgoing_occurrence_id;
   while (occurrence_id != LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID) {
     const loom_symbol_reference_occurrence_t* occurrence =
         loom_symbol_reference_table_occurrence(&table, occurrence_id);
@@ -940,14 +1081,14 @@ func.def @consumer() {
   loom_symbol_id_t consumer = FindSymbol(module.get(), IREE_SV("consumer"));
   loom_symbol_reference_table_t table = BuildTable(module.get());
 
-  EXPECT_EQ(table.symbols[provider_a].incoming_count, 3u);
-  EXPECT_EQ(table.symbols[provider_b].incoming_count, 1u);
-  EXPECT_EQ(table.symbols[consumer].outgoing_count, 4u);
+  EXPECT_EQ(CountIncoming(table, provider_a), 3u);
+  EXPECT_EQ(CountIncoming(table, provider_b), 1u);
+  EXPECT_EQ(CountOutgoing(table, consumer), 4u);
 
   uint32_t provider_a_dependency_count = 0;
   uint32_t provider_a_availability_count = 0;
   loom_symbol_reference_occurrence_id_t occurrence_id =
-      table.symbols[provider_a].first_incoming_occurrence_id;
+      Symbol(table, provider_a).first_incoming_occurrence_id;
   while (occurrence_id != LOOM_SYMBOL_REFERENCE_OCCURRENCE_ID_INVALID) {
     const loom_symbol_reference_occurrence_t* occurrence =
         loom_symbol_reference_table_occurrence(&table, occurrence_id);

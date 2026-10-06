@@ -7,7 +7,8 @@
 #ifndef HRX_BINDING_COMMON_KERNEL_ARGUMENTS_H_
 #define HRX_BINDING_COMMON_KERNEL_ARGUMENTS_H_
 
-#include "common/internal.h"
+#include "common/module.h"
+#include "common/stream.h"
 
 #ifdef __cplusplus
 extern "C" {

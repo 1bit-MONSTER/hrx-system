@@ -1,5 +1,31 @@
 // RUN: roundtrip
 
+// Signature-only results preserve result-to-result type dependencies without
+// exposing the local binders to following operations.
+test.func @signature_only_results() {
+  test.signature_sink() : () -> (%width: index, vector<[%width]xf32>)
+  %width = test.constant 4 : index
+  test.use %width : index
+  test.yield
+}
+
+// ====
+
+// One region entry signature can expose named, typed projections without
+// materializing carrier operands for either group.
+test.func @projected_block_argument_groups() {
+  test.block_arg_groups actual(%actual_scalar: f32, %actual_vector: vector<4xf32>) expected(%expected_scalar: f32, %expected_vector: vector<4xf32>) {
+    test.use %actual_scalar : f32
+    test.use %actual_vector : vector<4xf32>
+    test.use %expected_scalar : f32
+    test.use %expected_vector : vector<4xf32>
+    test.yield
+  }
+  test.yield
+}
+
+// ====
+
 // Independently typed results retain their declared slots even when the
 // assembly spells their types in the opposite order.
 test.func @separate_result_types() {

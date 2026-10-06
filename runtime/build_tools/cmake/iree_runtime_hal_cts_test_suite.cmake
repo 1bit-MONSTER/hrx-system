@@ -45,13 +45,7 @@ function(iree_runtime_hal_cts_test_suite)
 
   set(_COMMON_DEPS
     ${_RULE_BACKENDS}
-    iree::base::tooling::flags
-    iree::hal::cts::util::registry
-    iree::hal::cts::util::test_base
-    iree::testing::gtest
-  )
-  set(_TEST_MAIN
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/cts/util/test_main.cc"
+    iree::hal::cts::util::test_main
   )
 
   set(_ARGS_BLOCK "")
@@ -70,7 +64,6 @@ function(iree_runtime_hal_cts_test_suite)
   foreach(_CATEGORY buffer command_buffer core file queue)
     iree_cc_test(
       NAME "${_PREFIX}${_CATEGORY}_tests"
-      SRCS "${_TEST_MAIN}"
       DEPS
         ${_COMMON_DEPS}
         "iree::hal::cts::${_CATEGORY}::all_tests"
@@ -92,7 +85,6 @@ function(iree_runtime_hal_cts_test_suite)
       list(GET _PAIR 1 _TEST_LIB)
       iree_cc_test(
         NAME "${_PREFIX}${_SUFFIX}"
-        SRCS "${_TEST_MAIN}"
         DEPS
           ${_COMMON_DEPS}
           ${_RULE_TESTDATA_LIBS}

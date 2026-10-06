@@ -125,6 +125,46 @@ The distinction gives lowering freedom. A transpose may become a register
 permutation, disappear into the consumers' operand forms, or influence the
 selected load layout without changing its source semantics.
 
+## Carry logical vector banks through loops
+
+A loop can carry one logical vector bank even when its body updates fixed
+components independently. This keeps the source aligned with the algorithm and
+gives the compiler the complete aggregate relationship:
+
+**Source:** [`loop-vector-bank.loom`](https://github.com/ROCm/hrx-system/blob/main/loom/docs/examples/guide/structured-compute/loop-vector-bank.loom)
+
+```loom
+--8<-- "examples/guide/structured-compute/loop-vector-bank.loom"
+```
+
+Here the carried value remains `vector<4x4xf32>` in source. The fixed
+`vector.extract` and `vector.insert` prefix selects one homogeneous
+`vector<4xf32>` row. When every recurrence endpoint uses the same static
+component shape, Loom can represent the loop as four independently carried
+rows and remove aggregate reconstruction from the loop. A fully indexed
+`vector<4x4xf32>` bank can similarly become sixteen scalar slots.
+
+This representation decision is access driven. A dynamic component index or a
+mixture of row and scalar component shapes cannot name one fixed decomposition.
+A native matrix fragment or other vector consumed as a whole correctly remains
+one value. Keeping that distinction in the compiler lets a motif retain its
+logical shape instead of hand-expanding every bank into scalar SSA.
+
+A detailed compile report makes the decision observable:
+
+```text
+Source boundary projections
+  selected=1 preserved=0 rejected=0
+  update_vector_bank scf.for[0] loop_state[0]: loop-vector-bank selected vector<4x4xf32> -> 4 x vector<4xf32> reason=static_component_accesses
+```
+
+`loom-compile-report suggest` proposes a controlled source experiment when a
+dynamic index, inconsistent component shape, or incompatible whole-bank use
+blocks decomposition. The report treats ordinary whole-value fragments as
+preserved state rather than an optimization failure.
+The [compile-report workflow](../workflows/compile-reports.md) explains how to
+inspect these decisions and compare their final register and runtime costs.
+
 ## Choose the contraction that states the numeric contract
 
 A reduction combines lanes; a dot product additionally states how products and

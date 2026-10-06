@@ -2,9 +2,11 @@
 
 `iree-benchmark-loom` measures workloads selected by
 [`check.benchmark`](../reference/dialects/check/ops/benchmark.md). Each benchmark
-row names a [`check.case`](../reference/dialects/check/ops/case.md) and may bind
-its runtime parameters. The tool owns measurement policy, compilation,
-correctness gating, device-buffer materialization, and structured results.
+row names a [`check.case`](../reference/dialects/check/ops/case.md) or
+`check.scenario`. Case benchmarks may bind runtime parameters; scenario
+benchmarks select from the scenario's finite sample domain. The tool owns
+measurement policy, compilation, device-buffer materialization, and structured
+results.
 
 This separation is deliberate: source describes *what* workload to measure;
 the invocation describes *how* to measure it.
@@ -35,8 +37,8 @@ execution, candidate compilation, allocation, or timing.
 
 ## Measure the complete case
 
-The default `case_end_to_end` mode measures the executable `check.case` program
-as one operation:
+The default `auto` policy resolves a `check.case` benchmark to
+`case_end_to_end` and measures the executable case program as one operation:
 
 ```shell
 iree-benchmark-loom program.loom \
@@ -90,6 +92,13 @@ A batch size of one exercises isolated dispatch latency. A serialized
 multi-dispatch batch amortizes submission overhead and is the stronger primary
 shape for sub-microsecond GPU kernels. The batch size is part of the experiment
 and remains visible in the result policy.
+
+A `check.scenario` benchmark resolves `auto` to `dispatch_complete`. Its target
+product and target-local inputs are prepared before timing. A comparison trial
+is benchmarked as a target-only invocation: the oracle, output comparison, and
+readback do not execute in the measured path. The exact configuration, trial,
+and ordinal remain in the result so the corresponding correctness trial can be
+replayed.
 
 ## Understand benchmark assignments
 

@@ -7,7 +7,9 @@
 // Memory pool management. Pools are now backed by hrx_mem_pool_t from
 // libhrx. This file only contains the device-level accessors.
 
-#include "common/internal.h"
+#include "common/mem_pool.h"
+
+#include "common/device.h"
 
 //===----------------------------------------------------------------------===//
 // Device pool accessors

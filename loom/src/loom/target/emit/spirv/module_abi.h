@@ -18,12 +18,12 @@
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
-#include "loom/codegen/low/target_binding.h"
 #include "loom/ir/ir.h"
 #include "loom/target/arch/spirv/value_types.h"
 #include "loom/target/emit/spirv/module_builder.h"
 #include "loom/target/emit/spirv/module_types.h"
 #include "loom/target/emit/spirv/module_values.h"
+#include "loom/target/emit/spirv/program.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -92,8 +92,8 @@ typedef struct loom_spirv_module_abi_context_t {
   const loom_module_t* module;
   // Target-low function definition being emitted.
   const loom_op_t* function_op;
-  // Resolved target record and descriptor set for function_op.
-  const loom_low_resolved_target_t* target;
+  // Prepared target and representation binding for |function_op|.
+  const loom_spirv_function_plan_t* function_plan;
   // Function scratch arena used for transient ABI plans.
   iree_arena_allocator_t* scratch_arena;
   // Sectioned SPIR-V module builder.

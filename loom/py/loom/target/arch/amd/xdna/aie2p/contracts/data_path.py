@@ -9,6 +9,9 @@
 # AIE2P crRnd encoding for IEEE round-to-nearest, ties-to-even conversion.
 BF16_CONVERSION_ROUNDING = 12
 
+# T8_2x64_lo interleaves the low thirty-two byte lanes of two X carriers.
+I8_INTERLEAVE_CONTROL = 20
+
 
 def vector_data_path_control(
     *,
@@ -33,3 +36,13 @@ def vector_data_path_control(
         | multiplication_mode << 3
         | compute_mode << 5
     )
+
+
+# Shared configured-add mode for native binary32 accumulator arithmetic.
+F32_ACCUMULATOR_ADD_CONTROL = vector_data_path_control(
+    sign_x=False,
+    sign_y=False,
+    accumulator_mode=2,
+    multiplication_mode=3,
+    compute_mode=1,
+)

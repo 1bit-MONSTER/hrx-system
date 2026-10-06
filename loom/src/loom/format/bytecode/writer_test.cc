@@ -6,8 +6,10 @@
 
 #include "loom/format/bytecode/writer.h"
 
+#include <cstdio>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "iree/base/internal/arena.h"
@@ -16,8 +18,11 @@
 #include "iree/testing/status_matchers.h"
 #include "loom/format/bytecode/format.h"
 #include "loom/format/bytecode/varint.h"
+#include "loom/format/bytecode/writer/body.h"
+#include "loom/format/bytecode/writer/encoder.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
+#include "loom/ops/func/ops.h"
 #include "loom/ops/global/ops.h"
 #include "loom/ops/test/ops.h"
 
@@ -47,6 +52,12 @@ class WriterTest : public ::testing::Test {
     loom_context_initialize({this, AllocateContext}, &context_);
 
     // Register dialects so the writer can resolve op names.
+    iree_host_size_t func_op_count = 0;
+    const loom_op_vtable_t* const* func_vtables =
+        loom_func_dialect_vtables(&func_op_count);
+    IREE_ASSERT_OK(loom_context_register_dialect(
+        &context_, LOOM_DIALECT_FUNC, func_vtables, (uint16_t)func_op_count));
+
     iree_host_size_t global_op_count = 0;
     const loom_op_vtable_t* const* global_vtables =
         loom_global_dialect_vtables(&global_op_count);
@@ -765,6 +776,164 @@ TEST_F(WriterTest, FunctionSymbolKindUsesDenseWireEnum) {
   loom_module_free(module);
 }
 
+TEST_F(WriterTest, ExportOffsetsCrossWriterPageBoundary) {
+  constexpr uint32_t kSymbolCount =
+      LOOM_BYTECODE_WRITER_PAGE_SIZE / sizeof(uint64_t) + 3;
+  loom_module_t* module = CreateModule("exports");
+  loom_builder_t builder;
+  loom_builder_initialize(module, &module->arena, loom_module_block(module),
+                          &builder);
+
+  for (uint32_t i = 0; i < kSymbolCount; ++i) {
+    const std::string name = "export_" + std::to_string(i);
+    loom_string_id_t name_id = LOOM_STRING_ID_INVALID;
+    IREE_ASSERT_OK(loom_builder_intern_string(
+        &builder, iree_make_string_view(name.data(), name.size()), &name_id));
+    loom_symbol_id_t symbol_id = LOOM_SYMBOL_ID_INVALID;
+    IREE_ASSERT_OK(loom_module_add_symbol(module, name_id, &symbol_id));
+    loom_op_t* function_op = nullptr;
+    IREE_ASSERT_OK(loom_test_func_build(
+        &builder, LOOM_TEST_FUNC_BUILD_FLAG_HAS_VISIBILITY,
+        LOOM_TEST_VISIBILITY_PUBLIC, /*cc=*/0,
+        {/*.module_id=*/0, /*.symbol_id=*/symbol_id}, /*arg_types=*/nullptr,
+        /*arg_count=*/0, /*result_types=*/nullptr, /*result_count=*/0,
+        /*tied_results=*/nullptr, /*tied_result_count=*/0,
+        /*predicates=*/nullptr, /*predicate_count=*/0, LOOM_LOCATION_NONE,
+        &function_op));
+  }
+
+  const std::vector<uint8_t> bytes = WriteModule(module);
+  const size_t module_directory_offset = 24;
+  const uint64_t module_offset = ReadU64LE(bytes, module_directory_offset + 8);
+  const std::vector<SectionEntry> sections =
+      ReadSectionDirectory(bytes, module_offset);
+  SectionEntry symbols = {};
+  ASSERT_TRUE(FindSection(sections, LOOM_BYTECODE_SECTION_SYMBOLS, &symbols));
+  const size_t section_start = (size_t)module_offset + symbols.offset;
+  const size_t section_end = section_start + symbols.length;
+  size_t cursor = section_start;
+  ASSERT_EQ(ReadUVarint(bytes, &cursor), kSymbolCount);
+  ASSERT_EQ(ReadUVarint(bytes, &cursor), 0u);  // import_count
+  ASSERT_EQ(ReadUVarint(bytes, &cursor), kSymbolCount);
+  ReadUVarint(bytes, &cursor);  // root_region_payload_count
+
+  const size_t export_table_start = cursor;
+  const size_t entries_start =
+      export_table_start + kSymbolCount * sizeof(uint64_t);
+  ASSERT_GT(entries_start - export_table_start, LOOM_BYTECODE_WRITER_PAGE_SIZE);
+  uint64_t previous_entry_offset = 0;
+  for (uint32_t i = 0; i < kSymbolCount; ++i) {
+    const uint64_t entry_offset =
+        ReadU64LE(bytes, export_table_start + i * sizeof(uint64_t));
+    if (i == 0) {
+      EXPECT_EQ(entry_offset, 0u);
+    } else {
+      EXPECT_GT(entry_offset, previous_entry_offset);
+    }
+    previous_entry_offset = entry_offset;
+
+    size_t entry_cursor = entries_start + (size_t)entry_offset;
+    ASSERT_LT(entry_cursor, section_end);
+    ReadUVarint(bytes, &entry_cursor);  // name_id
+    ASSERT_EQ(bytes[entry_cursor++], LOOM_BYTECODE_SYMBOL_FUNC_DEF);
+    ASSERT_EQ(bytes[entry_cursor++], LOOM_BYTECODE_SYMBOL_VISIBILITY_PUBLIC);
+    EXPECT_NE(ReadU16LE(bytes, entry_cursor) & LOOM_BYTECODE_SYMBOL_FLAG_EXPORT,
+              0u);
+  }
+
+  loom_module_free(module);
+}
+
+TEST_F(WriterTest, ImportAndExportOffsetsAddressMatchingEntries) {
+  loom_module_t* module = CreateModule("linkage");
+  loom_builder_t builder;
+  loom_builder_initialize(module, &module->arena, loom_module_block(module),
+                          &builder);
+
+  loom_string_id_t import_name = LOOM_STRING_ID_INVALID;
+  loom_string_id_t import_module = LOOM_STRING_ID_INVALID;
+  loom_string_id_t import_symbol = LOOM_STRING_ID_INVALID;
+  IREE_ASSERT_OK(
+      loom_builder_intern_string(&builder, IREE_SV("local"), &import_name));
+  IREE_ASSERT_OK(loom_builder_intern_string(&builder, IREE_SV("provider"),
+                                            &import_module));
+  IREE_ASSERT_OK(
+      loom_builder_intern_string(&builder, IREE_SV("remote"), &import_symbol));
+  loom_symbol_id_t import_symbol_id = LOOM_SYMBOL_ID_INVALID;
+  IREE_ASSERT_OK(
+      loom_module_add_symbol(module, import_name, &import_symbol_id));
+  loom_op_t* import_op = nullptr;
+  IREE_ASSERT_OK(loom_func_decl_build(
+      &builder,
+      LOOM_FUNC_DECL_BUILD_FLAG_HAS_IMPORT_MODULE |
+          LOOM_FUNC_DECL_BUILD_FLAG_HAS_IMPORT_SYMBOL,
+      /*visibility=*/0, /*retain=*/0, import_module, import_symbol,
+      /*cc=*/0, /*purity=*/0, /*temperature=*/0, /*inline_policy=*/0,
+      loom_symbol_ref_null(), /*abi=*/0, loom_named_attr_slice_empty(),
+      LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(),
+      {/*.module_id=*/0, /*.symbol_id=*/import_symbol_id},
+      /*arg_types=*/nullptr, /*arg_types_count=*/0, /*result_types=*/nullptr,
+      /*result_count=*/0, /*tied_results=*/nullptr, /*tied_result_count=*/0,
+      /*predicates=*/nullptr, /*predicates_count=*/0, LOOM_LOCATION_NONE,
+      &import_op));
+
+  loom_string_id_t export_name = LOOM_STRING_ID_INVALID;
+  IREE_ASSERT_OK(
+      loom_builder_intern_string(&builder, IREE_SV("exported"), &export_name));
+  loom_symbol_id_t export_symbol_id = LOOM_SYMBOL_ID_INVALID;
+  IREE_ASSERT_OK(
+      loom_module_add_symbol(module, export_name, &export_symbol_id));
+  loom_op_t* export_op = nullptr;
+  IREE_ASSERT_OK(loom_test_func_build(
+      &builder, LOOM_TEST_FUNC_BUILD_FLAG_HAS_VISIBILITY,
+      LOOM_TEST_VISIBILITY_PUBLIC, /*cc=*/0,
+      {/*.module_id=*/0, /*.symbol_id=*/export_symbol_id},
+      /*arg_types=*/nullptr, /*arg_count=*/0, /*result_types=*/nullptr,
+      /*result_count=*/0, /*tied_results=*/nullptr, /*tied_result_count=*/0,
+      /*predicates=*/nullptr, /*predicate_count=*/0, LOOM_LOCATION_NONE,
+      &export_op));
+
+  const std::vector<uint8_t> bytes = WriteModule(module);
+  const size_t module_directory_offset = 24;
+  const uint64_t module_offset = ReadU64LE(bytes, module_directory_offset + 8);
+  const std::vector<SectionEntry> sections =
+      ReadSectionDirectory(bytes, module_offset);
+  SectionEntry symbols = {};
+  ASSERT_TRUE(FindSection(sections, LOOM_BYTECODE_SECTION_SYMBOLS, &symbols));
+  const size_t section_start = (size_t)module_offset + symbols.offset;
+  const size_t section_end = section_start + symbols.length;
+  size_t cursor = section_start;
+  ASSERT_EQ(ReadUVarint(bytes, &cursor), 2u);  // symbol_count
+  ASSERT_EQ(ReadUVarint(bytes, &cursor), 1u);  // import_count
+  ASSERT_EQ(ReadUVarint(bytes, &cursor), 1u);  // export_count
+  ReadUVarint(bytes, &cursor);                 // root_region_payload_count
+
+  const uint64_t import_offset = ReadU64LE(bytes, cursor);
+  const uint64_t export_offset = ReadU64LE(bytes, cursor + sizeof(uint64_t));
+  const size_t entries_start = cursor + 2 * sizeof(uint64_t);
+
+  size_t import_cursor = entries_start + (size_t)import_offset;
+  ASSERT_LT(import_cursor, section_end);
+  ReadUVarint(bytes, &import_cursor);  // name_id
+  EXPECT_EQ(bytes[import_cursor++], LOOM_BYTECODE_SYMBOL_FUNC_DECL);
+  EXPECT_EQ(bytes[import_cursor++], LOOM_BYTECODE_SYMBOL_VISIBILITY_PRIVATE);
+  const uint16_t import_flags = ReadU16LE(bytes, import_cursor);
+  EXPECT_NE(import_flags & LOOM_BYTECODE_SYMBOL_FLAG_IMPORT, 0u);
+  EXPECT_NE(import_flags & LOOM_BYTECODE_SYMBOL_FLAG_IMPORT_SYMBOL, 0u);
+  EXPECT_EQ(import_flags & LOOM_BYTECODE_SYMBOL_FLAG_EXPORT, 0u);
+
+  size_t export_cursor = entries_start + (size_t)export_offset;
+  ASSERT_LT(export_cursor, section_end);
+  ReadUVarint(bytes, &export_cursor);  // name_id
+  EXPECT_EQ(bytes[export_cursor++], LOOM_BYTECODE_SYMBOL_FUNC_DEF);
+  EXPECT_EQ(bytes[export_cursor++], LOOM_BYTECODE_SYMBOL_VISIBILITY_PUBLIC);
+  const uint16_t export_flags = ReadU16LE(bytes, export_cursor);
+  EXPECT_NE(export_flags & LOOM_BYTECODE_SYMBOL_FLAG_EXPORT, 0u);
+  EXPECT_EQ(export_flags & LOOM_BYTECODE_SYMBOL_FLAG_IMPORT, 0u);
+
+  loom_module_free(module);
+}
+
 TEST_F(WriterTest, UnsupportedRegionSourceFlagsFailLoudly) {
   loom_module_t* module = CreateAttrsModule(/*reverse_attr_order=*/false);
   loom_op_t* func_op = module->symbols.entries[0].defining_op;
@@ -1019,10 +1188,15 @@ TEST_F(WriterTest, CanonicalAttrDictInputOrderDoesNotAffectBytes) {
   loom_module_free(module_b);
 }
 
-TEST_F(WriterTest, TypeCatalogBytesDoNotDependOnNestedPayloadSharing) {
+TEST_F(WriterTest, TypeCatalogBytesDoNotDependOnTypeConstructionOrder) {
   std::vector<uint8_t> canonical_bytes;
   for (int variant = 0; variant < 2; ++variant) {
     loom_module_t* module = CreateModule("type_catalog");
+    loom_type_id_t result = LOOM_TYPE_ID_INVALID;
+    if (variant == 1) {
+      IREE_ASSERT_OK(loom_module_intern_type_id(
+          module, loom_type_scalar(LOOM_SCALAR_TYPE_I32), &result));
+    }
     loom_type_id_t child = LOOM_TYPE_ID_INVALID;
     IREE_ASSERT_OK(loom_module_intern_type_id(
         module, loom_type_scalar(LOOM_SCALAR_TYPE_F32), &child));
@@ -1038,9 +1212,8 @@ TEST_F(WriterTest, TypeCatalogBytesDoNotDependOnNestedPayloadSharing) {
           module, loom_type_function(data), dependencies, 2, &child));
     }
 
-    // The two public construction paths retain identical types with different
-    // payload sharing. Both must number the same structural dependencies.
-    loom_type_id_t result = LOOM_TYPE_ID_INVALID;
+    // The two public construction paths retain identical canonical types in
+    // different module order. Wire IDs follow first use through the graph.
     IREE_ASSERT_OK(loom_module_intern_type_id(
         module, loom_type_scalar(LOOM_SCALAR_TYPE_I32), &result));
     loom_type_id_t parent = LOOM_TYPE_ID_INVALID;
@@ -1079,7 +1252,12 @@ TEST_F(WriterTest, TypeCatalogBytesDoNotDependOnNestedPayloadSharing) {
         &builder, LOOM_TEST_RECORD_BUILD_FLAG_HAS_DICT, 0, {0, symbol},
         loom_make_named_attr_slice(&entry, 1), LOOM_LOCATION_NONE, &record));
 
+    const auto source_storage = module->arena.used_allocation_size;
+    const auto source_type_count = module->types.count;
     auto bytes = WriteModule(module);
+    EXPECT_EQ(WriteModule(module), bytes);
+    EXPECT_EQ(module->arena.used_allocation_size, source_storage);
+    EXPECT_EQ(module->types.count, source_type_count);
     size_t offset = SectionPayloadOffset(bytes, LOOM_BYTECODE_SECTION_TYPES);
     ASSERT_NE(offset, 0u);
     EXPECT_EQ(ReadUVarint(bytes, &offset), 11u);
@@ -1227,6 +1405,134 @@ TEST_F(WriterTest, ProjectsModuleSymbolsIntoPresentationOrder) {
   EXPECT_GT(bytes.size(), 0u);
   EXPECT_EQ(wire_symbol_ordinals[0], 1u);
   EXPECT_EQ(wire_symbol_ordinals[1], 0u);
+
+  loom_module_free(module);
+}
+
+TEST_F(WriterTest, BodyPayloadIndexUsesSparsePoolSizedPages) {
+  constexpr iree_host_size_t kPageCapacity =
+      LOOM_BYTECODE_IR_REGION_PAGE_CAPACITY;
+  constexpr iree_host_size_t kSymbolCount = 2 * kPageCapacity + 1;
+  const loom_symbol_id_t body_symbol_ids[] = {
+      0,
+      (loom_symbol_id_t)(kPageCapacity - 1),
+      (loom_symbol_id_t)(2 * kPageCapacity),
+  };
+
+  loom_module_t* module = CreateModule("body_payload_index");
+  loom_builder_t module_builder;
+  loom_builder_initialize(module, &module->arena, loom_module_block(module),
+                          &module_builder);
+  for (iree_host_size_t i = 0; i < kSymbolCount; ++i) {
+    char name[32];
+    std::snprintf(name, sizeof(name), "function_%08zu", i);
+    loom_string_id_t name_id = LOOM_STRING_ID_INVALID;
+    IREE_ASSERT_OK(loom_module_intern_string(
+        module, iree_make_cstring_view(name), &name_id));
+    loom_symbol_id_t symbol_id = LOOM_SYMBOL_ID_INVALID;
+    IREE_ASSERT_OK(loom_module_add_symbol(module, name_id, &symbol_id));
+    ASSERT_EQ(symbol_id, i);
+
+    const bool has_body = symbol_id == body_symbol_ids[0] ||
+                          symbol_id == body_symbol_ids[1] ||
+                          symbol_id == body_symbol_ids[2];
+    if (has_body) {
+      loom_op_t* function_op = nullptr;
+      IREE_ASSERT_OK(loom_test_func_build(
+          &module_builder, /*build_flags=*/0, /*visibility=*/0, /*cc=*/0,
+          {/*.module_id=*/0, /*.symbol_id=*/symbol_id}, /*arg_types=*/nullptr,
+          /*arg_count=*/0, /*result_types=*/nullptr, /*result_count=*/0,
+          /*tied_results=*/nullptr, /*tied_result_count=*/0,
+          /*predicates=*/nullptr, /*predicates_count=*/0, LOOM_LOCATION_NONE,
+          &function_op));
+      loom_builder_t body_builder;
+      loom_builder_initialize(
+          module, &module->arena,
+          loom_region_entry_block(loom_test_func_body(function_op)),
+          &body_builder);
+      loom_op_t* yield_op = nullptr;
+      IREE_ASSERT_OK(loom_test_yield_build(&body_builder, /*values=*/nullptr,
+                                           /*values_count=*/0,
+                                           LOOM_LOCATION_NONE, &yield_op));
+    } else {
+      loom_op_t* declaration_op = nullptr;
+      IREE_ASSERT_OK(loom_test_decl_build(
+          &module_builder, /*build_flags=*/0, /*visibility=*/0, /*cc=*/0,
+          {/*.module_id=*/0, /*.symbol_id=*/symbol_id}, /*arg_types=*/nullptr,
+          /*arg_types_count=*/0, /*result_types=*/nullptr, /*result_count=*/0,
+          /*tied_results=*/nullptr, /*tied_result_count=*/0, LOOM_LOCATION_NONE,
+          &declaration_op));
+    }
+  }
+
+  iree_arena_allocator_t writer_arena;
+  iree_arena_initialize(&block_pool_, &writer_arena);
+  loom_bytecode_numbering_t numbering;
+  IREE_ASSERT_OK(
+      loom_bytecode_numbering_initialize(&numbering, module, &writer_arena));
+  iree_io_stream_t* stream = nullptr;
+  IREE_ASSERT_OK(iree_io_vec_stream_create(
+      IREE_IO_STREAM_MODE_WRITABLE | IREE_IO_STREAM_MODE_SEEKABLE |
+          IREE_IO_STREAM_MODE_RESIZABLE,
+      4096, iree_allocator_system(), &stream));
+  loom_bytecode_page_writer_t page_writer;
+  loom_bytecode_page_writer_initialize(&page_writer, stream);
+  loom_bytecode_ir_region_index_t index = {};
+  IREE_ASSERT_OK(
+      loom_bytecode_write_ir_section(&page_writer, &numbering, &index));
+  IREE_ASSERT_OK(loom_bytecode_page_writer_flush(&page_writer));
+
+  ASSERT_NE(index.pages, nullptr);
+  EXPECT_NE(index.pages[0], nullptr);
+  EXPECT_EQ(index.pages[1], nullptr);
+  EXPECT_NE(index.pages[2], nullptr);
+  EXPECT_EQ(index.payload_count, IREE_ARRAYSIZE(body_symbol_ids));
+  uint64_t previous_end = 0;
+  for (loom_symbol_id_t symbol_id : body_symbol_ids) {
+    const loom_bytecode_ir_region_list_t list =
+        loom_bytecode_ir_region_index_list(&index, symbol_id);
+    ASSERT_EQ(list.count, 1u);
+    ASSERT_NE(list.values, nullptr);
+    EXPECT_EQ(list.values[0].region_index, 0u);
+    EXPECT_GT(list.values[0].length, 0u);
+    EXPECT_GE(list.values[0].offset, previous_end);
+    previous_end = list.values[0].offset + list.values[0].length;
+  }
+  const loom_symbol_id_t empty_symbol_ids[] = {
+      1,
+      (loom_symbol_id_t)(kPageCapacity - 2),
+      (loom_symbol_id_t)kPageCapacity,
+      (loom_symbol_id_t)(2 * kPageCapacity - 1),
+  };
+  for (loom_symbol_id_t symbol_id : empty_symbol_ids) {
+    const loom_bytecode_ir_region_list_t list =
+        loom_bytecode_ir_region_index_list(&index, symbol_id);
+    EXPECT_EQ(list.values, nullptr);
+    EXPECT_EQ(list.count, 0u);
+  }
+  EXPECT_EQ(writer_arena.allocation_head, nullptr);
+
+  iree_io_stream_release(stream);
+  iree_arena_deinitialize(&writer_arena);
+
+  iree_arena_block_pool_statistics_t before;
+  iree_arena_block_pool_query_statistics(&block_pool_, &before);
+  const std::vector<uint8_t> bytes = WriteModule(module);
+  iree_arena_block_pool_statistics_t after;
+  iree_arena_block_pool_query_statistics(&block_pool_, &after);
+  EXPECT_EQ(after.oversized_allocation_count,
+            before.oversized_allocation_count);
+  EXPECT_EQ(after.oversized_allocation_bytes,
+            before.oversized_allocation_bytes);
+
+  size_t symbols_offset =
+      SectionPayloadOffset(bytes, LOOM_BYTECODE_SECTION_SYMBOLS);
+  ASSERT_NE(symbols_offset, 0u);
+  EXPECT_EQ(ReadUVarint(bytes, &symbols_offset), kSymbolCount);
+  ReadUVarint(bytes, &symbols_offset);  // Import count.
+  ReadUVarint(bytes, &symbols_offset);  // Export count.
+  EXPECT_EQ(ReadUVarint(bytes, &symbols_offset),
+            IREE_ARRAYSIZE(body_symbol_ids));
 
   loom_module_free(module);
 }
@@ -1550,6 +1856,136 @@ TEST_F(WriterTest, GlobalSymbolWritesDeclarationLocalValues) {
   EXPECT_EQ(bytes[offset++], 8u);
 
   loom_module_free(module);
+}
+
+TEST_F(WriterTest, ValueNumberingFollowsPhysicalDefinitionOrder) {
+  constexpr uint32_t kValueCount = 513;
+  std::vector<uint8_t> canonical_bytes;
+  for (bool reverse_allocation_order : {false, true}) {
+    loom_module_t* module = CreateModule("value_order");
+    loom_type_t i32_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
+    IREE_ASSERT_OK(loom_module_intern_type(module, i32_type, &i32_type));
+
+    loom_builder_t module_builder;
+    loom_builder_initialize(module, &module->arena, loom_module_block(module),
+                            &module_builder);
+    loom_string_id_t name_id = LOOM_STRING_ID_INVALID;
+    IREE_ASSERT_OK(loom_builder_intern_string(
+        &module_builder, IREE_SV("ordered_values"), &name_id));
+    loom_symbol_id_t symbol_id = LOOM_SYMBOL_ID_INVALID;
+    IREE_ASSERT_OK(loom_module_add_symbol(module, name_id, &symbol_id));
+    loom_op_t* func_op = nullptr;
+    IREE_ASSERT_OK(loom_test_func_build(
+        &module_builder, /*build_flags=*/0, /*visibility=*/0, /*cc=*/0,
+        {/*.module_id=*/0, /*.symbol_id=*/symbol_id}, /*arg_types=*/nullptr,
+        /*arg_count=*/0, /*result_types=*/nullptr, /*result_count=*/0,
+        /*arg_names=*/nullptr, /*arg_name_count=*/0, /*result_names=*/nullptr,
+        /*result_name_count=*/0, LOOM_LOCATION_NONE, &func_op));
+
+    loom_block_t* body = loom_region_entry_block(
+        loom_func_like_body(loom_func_like_cast(module, func_op)));
+    loom_builder_t body_builder;
+    loom_builder_initialize(module, &module->arena, body, &body_builder);
+    std::vector<loom_op_t*> constants(kValueCount);
+    std::vector<loom_value_id_t> values(kValueCount);
+    for (uint32_t i = 0; i < kValueCount; ++i) {
+      const uint32_t logical_index =
+          reverse_allocation_order ? kValueCount - i - 1 : i;
+      IREE_ASSERT_OK(loom_test_constant_build(
+          &body_builder, loom_attr_i64(logical_index), i32_type,
+          LOOM_LOCATION_NONE, &constants[logical_index]));
+      values[logical_index] = loom_op_results(constants[logical_index])[0];
+    }
+    loom_op_t* yield_op = nullptr;
+    IREE_ASSERT_OK(loom_test_yield_build(&body_builder, values.data(),
+                                         values.size(), LOOM_LOCATION_NONE,
+                                         &yield_op));
+
+    if (reverse_allocation_order) {
+      for (loom_op_t* constant : constants) {
+        loom_block_unlink_op(module, constant);
+        IREE_ASSERT_OK(
+            loom_block_insert_before_op(module, body, yield_op, constant));
+      }
+    }
+
+    std::vector<uint8_t> bytes = WriteModule(module);
+    if (canonical_bytes.empty()) {
+      canonical_bytes = std::move(bytes);
+    } else {
+      EXPECT_EQ(bytes, canonical_bytes);
+    }
+    loom_module_free(module);
+  }
+}
+
+TEST_F(WriterTest, GlobalValueClosureRetainsFirstDiscoveryOrder) {
+  constexpr uint32_t kLocalValueCount = 300;
+  std::vector<uint8_t> canonical_bytes;
+  for (bool reverse_allocation_order : {false, true}) {
+    loom_module_t* module = CreateModule("global_value_order");
+    loom_type_t index_type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
+    IREE_ASSERT_OK(loom_module_intern_type(module, index_type, &index_type));
+
+    std::vector<loom_value_id_t> values(kLocalValueCount);
+    for (uint32_t i = 0; i < kLocalValueCount; ++i) {
+      const uint32_t logical_index =
+          reverse_allocation_order ? kLocalValueCount - i - 1 : i;
+      IREE_ASSERT_OK(
+          loom_module_define_value(module, index_type, &values[logical_index]));
+    }
+    std::vector<loom_predicate_t> predicates(2 * kLocalValueCount);
+    for (iree_host_size_t i = 0; i < predicates.size(); ++i) {
+      const uint32_t logical_index = (uint32_t)i % kLocalValueCount;
+      predicates[i] = loom_predicate_t{
+          /*.kind=*/LOOM_PREDICATE_MUL,
+          /*.arg_count=*/2,
+          /*.arg_tags=*/{LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST},
+          /*.reserved=*/{},
+          /*.args=*/{(int64_t)values[logical_index], 1},
+      };
+    }
+
+    loom_builder_t builder;
+    loom_builder_initialize(module, &module->arena, loom_module_block(module),
+                            &builder);
+    loom_string_id_t name_id = LOOM_STRING_ID_INVALID;
+    IREE_ASSERT_OK(loom_builder_intern_string(
+        &builder, IREE_SV("captured_values"), &name_id));
+    loom_symbol_id_t symbol_id = LOOM_SYMBOL_ID_INVALID;
+    IREE_ASSERT_OK(loom_module_add_symbol(module, name_id, &symbol_id));
+    loom_op_t* global_op = nullptr;
+    IREE_ASSERT_OK(loom_global_constant_build(
+        &builder, LOOM_GLOBAL_CONSTANT_BUILD_FLAG_HAS_PREDICATES,
+        {/*.module_id=*/0, /*.symbol_id=*/symbol_id}, index_type,
+        predicates.data(), predicates.size(), loom_attr_i64(0),
+        LOOM_LOCATION_NONE, &global_op));
+
+    std::vector<uint8_t> bytes = WriteModule(module);
+    size_t offset = SectionPayloadOffset(bytes, LOOM_BYTECODE_SECTION_SYMBOLS);
+    ASSERT_GT(offset, 0u);
+    ASSERT_EQ(ReadUVarint(bytes, &offset), 1u);  // symbol_count
+    const uint64_t import_count = ReadUVarint(bytes, &offset);
+    const uint64_t export_count = ReadUVarint(bytes, &offset);
+    ReadUVarint(bytes, &offset);  // root_region_payload_count
+    offset += (import_count + export_count) * sizeof(uint64_t);
+    ReadUVarint(bytes, &offset);  // name_id
+    ASSERT_EQ(bytes[offset++], LOOM_BYTECODE_SYMBOL_GLOBAL);
+    offset += 1;                  // visibility
+    offset += sizeof(uint16_t);   // flags
+    ReadUVarint(bytes, &offset);  // location
+    ReadUVarint(bytes, &offset);  // defining op kind
+    SkipSourceTrivia(bytes, &offset);
+    ASSERT_EQ(ReadUVarint(bytes, &offset), 1u);  // result_count
+    EXPECT_EQ(ReadUVarint(bytes, &offset), kLocalValueCount + 1);
+
+    if (canonical_bytes.empty()) {
+      canonical_bytes = std::move(bytes);
+    } else {
+      EXPECT_EQ(bytes, canonical_bytes);
+    }
+    loom_module_free(module);
+  }
 }
 
 TEST_F(WriterTest, ExecutableSymbolFailsLoudly) {

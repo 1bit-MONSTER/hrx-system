@@ -28,6 +28,11 @@ bool loom_value_is_poison(const loom_module_t* module,
   return loom_op_is_poison(loom_value_def_op(value));
 }
 
+bool loom_type_has_poison_materializer(loom_type_t type) {
+  return loom_type_is_scalar(type) ||
+         (loom_type_is_vector(type) && !loom_type_has_static_zero_extent(type));
+}
+
 iree_status_t loom_poison_build(loom_builder_t* builder,
                                 loom_type_t result_type,
                                 loom_location_id_t location,

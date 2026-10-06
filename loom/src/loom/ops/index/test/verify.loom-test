@@ -166,3 +166,31 @@ func.def @assume_rejects_count_mismatch(%x: index, %y: index) -> (index) {
   %r = index.assume %x, %y [] : index
   func.return %r : index
 }
+
+// ====
+
+// Unsigned ordering describes fixed-width integer bit patterns, not logical
+// coordinates or physical byte offsets.
+func.def @assume_rejects_unsigned_index_predicate(%x: index) -> (index) {
+  // ERROR@+1: TYPE/003 "predicates[0].arg[0]" "index" "fixed-width integer scalar"
+  %r = index.assume %x [ult(%x, 4)] : index
+  func.return %r : index
+}
+
+// ====
+
+// Offset literals remain inside the nonnegative address domain.
+func.def @assume_rejects_negative_offset_literal(%x: offset) -> (offset) {
+  // ERROR@+1: STRUCTURE/014 "predicates[0].arg[1]" "-1" "canonical numeric domain"
+  %r = index.assume %x [ge(%x, -1)] : offset
+  func.return %r : offset
+}
+
+// ====
+
+// Signed relations compare mathematical address values across logical and
+// physical address domains.
+func.def @assume_accepts_mixed_address_domains(%x: index, %y: offset) -> (index, offset) {
+  %rx, %ry = index.assume %x, %y [lt(%x, %y)] : index, offset
+  func.return %rx, %ry : index, offset
+}

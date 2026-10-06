@@ -6,10 +6,12 @@
 
 // Sparse physical-representation selection for source SSA values.
 //
-// Targets contribute finite exact alternatives for individual values. Common
-// lowering contributes equality relations between values whose physical
-// representation must agree. The plan intersects alternatives and minimizes
-// their aggregate target costs once all relations are known.
+// Targets contribute finite exact alternatives for producer values and costs
+// at consumers. Common lowering contributes equality relations between values
+// whose physical representation must agree. The plan intersects producer
+// domains and minimizes aggregate producer and consumer costs once all
+// relations are known. Consumer costs alone never make a component
+// participate.
 
 #ifndef LOOM_CODEGEN_LOW_REPRESENTATION_PLAN_H_
 #define LOOM_CODEGEN_LOW_REPRESENTATION_PLAN_H_
@@ -87,6 +89,16 @@ iree_status_t loom_low_representation_plan_union(
 
 // Adds one operation-local exact representation domain and its target costs.
 iree_status_t loom_low_representation_plan_constrain(
+    loom_low_representation_plan_t* plan, loom_value_ordinal_t value_ordinal,
+    const loom_low_representation_candidate_t* candidates,
+    iree_host_size_t candidate_count);
+
+// Adds operation-local costs for representations when |value_ordinal|'s
+// component has an exact domain. Cost rows recorded before a producer domain or
+// before a later union remain attached to the component. A missing row adds no
+// cost and does not exclude that representation. Cost contributions alone do
+// not make an otherwise unconstrained component participate.
+iree_status_t loom_low_representation_plan_contribute_costs(
     loom_low_representation_plan_t* plan, loom_value_ordinal_t value_ordinal,
     const loom_low_representation_candidate_t* candidates,
     iree_host_size_t candidate_count);

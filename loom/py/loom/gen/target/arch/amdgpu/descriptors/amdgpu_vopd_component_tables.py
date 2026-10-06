@@ -81,10 +81,10 @@ _SOURCE_NONE = "LOOM_AMDGPU_VOPD_COMPONENT_SOURCE_NONE"
 _SOURCE_SRC0 = "LOOM_AMDGPU_VOPD_COMPONENT_SOURCE_SRC0"
 _SOURCE_VSRC1 = "LOOM_AMDGPU_VOPD_COMPONENT_SOURCE_VSRC1"
 
-_PLACEMENT_COMPONENT_FIRST = "LOOM_LOW_PLACEMENT_PAIR_COMPONENT_FIRST"
-_PLACEMENT_COMPONENT_SECOND = "LOOM_LOW_PLACEMENT_PAIR_COMPONENT_SECOND"
-_PLACEMENT_VALUE_OPERAND = "LOOM_LOW_PLACEMENT_PAIR_VALUE_OPERAND"
-_PLACEMENT_VALUE_RESULT = "LOOM_LOW_PLACEMENT_PAIR_VALUE_RESULT"
+_PLACEMENT_COMPONENT_FIRST = "0"
+_PLACEMENT_COMPONENT_SECOND = "1"
+_PLACEMENT_VALUE_OPERAND = "LOOM_LOW_PLACEMENT_VALUE_OPERAND"
+_PLACEMENT_VALUE_RESULT = "LOOM_LOW_PLACEMENT_VALUE_RESULT"
 _PLACEMENT_DIFFERENT_MASKED = "LOOM_LOW_PLACEMENT_RELATION_DIFFERENT_MASKED_LOCATION"
 _PLACEMENT_DISJOINT = "LOOM_LOW_PLACEMENT_RELATION_DISJOINT_STORAGE"
 
@@ -1349,8 +1349,8 @@ def _pair_placement_recipe_initializer(
     return "\n".join(
         [
             f"    [{recipe_index}] = {{",
-            f"        .relations = &kVopdPairPlacementRelations[{first_relation}],",
-            f"        .relation_count = {relation_count},",
+            f"        .preferences = &kVopdPairPlacementPreferences[{first_relation}],",
+            f"        .preference_count = {relation_count},",
             f"        .alternative_count = {len(recipe.alternatives)},",
             f"        .packet_savings = {recipe.packet_savings},",
             "    },",
@@ -1358,26 +1358,13 @@ def _pair_placement_recipe_initializer(
     )
 
 
-def _pair_placement_relation_initializer(
-    relation: _VopdPairPlacementRelation,
-) -> str:
+def _placement_predicate_initializer(relation: _VopdPairPlacementRelation) -> str:
     return "\n".join(
         [
             "    {",
-            "        .result =",
-            "            {",
-            f"                .component = {relation.result.component},",
-            f"                .kind = {relation.result.kind},",
-            f"                .index = {relation.result.index},",
-            f"                .unit_offset = {relation.result.unit_offset},",
-            "            },",
-            "        .source =",
-            "            {",
-            f"                .component = {relation.source.component},",
-            f"                .kind = {relation.source.kind},",
-            f"                .index = {relation.source.index},",
-            f"                .unit_offset = {relation.source.unit_offset},",
-            "            },",
+            "        .result = 0, .source = 1,",
+            f"        .result_unit_offset = {relation.result.unit_offset},",
+            f"        .source_unit_offset = {relation.source.unit_offset},",
             f"        .unit_count = {relation.unit_count},",
             f"        .kind = {relation.kind},",
             f"        .location_mask = 0x{relation.location_mask:X},",
@@ -1389,7 +1376,12 @@ def _pair_placement_relation_initializer(
 def _emit_source(tables: _VopdComponentTables) -> str:
     component_infos, info_index_by_op_value = _canonical_component_infos(tables.rules)
     recipe_initializers: list[str] = []
-    relation_initializers: list[str] = []
+    preference_indices: dict[_VopdPairPlacementRelation, int] = {}
+    predicate_indices: dict[tuple[str, int, int, int, int], int] = {}
+    predicate_initializers: list[str] = []
+    value_initializers: list[str] = []
+    preference_initializers: list[str] = []
+    alternative_initializers: list[str] = []
     first_relation = 0
     for recipe_index, recipe in enumerate(tables.pair_placement_recipes):
         recipe_initializers.append(
@@ -1399,7 +1391,23 @@ def _emit_source(tables: _VopdComponentTables) -> str:
                 recipe,
             )
         )
-        relation_initializers.extend(_pair_placement_relation_initializer(relation) for alternative in recipe.alternatives for relation in alternative)
+        for alternative in recipe.alternatives:
+            for relation in alternative:
+                if relation not in preference_indices:
+                    preference_indices[relation] = len(preference_indices)
+                    predicate_key = (relation.kind, relation.location_mask, relation.unit_count, relation.result.unit_offset, relation.source.unit_offset)
+                    if predicate_key not in predicate_indices:
+                        predicate_indices[predicate_key] = len(predicate_indices)
+                        predicate_initializers.append(_placement_predicate_initializer(relation))
+                    first_value = len(value_initializers)
+                    value_initializers.extend(f"    {{{ref.component}, {ref.kind}, {ref.index}}}," for ref in (relation.result, relation.source))
+                    preference_initializers.append(
+                        "    {"
+                        f".values = &kVopdPlacementValues[{first_value}], "
+                        f".predicates = &kVopdPlacementPredicates[{predicate_indices[predicate_key]}], "
+                        ".clauses = &kVopdPlacementClause, .value_count = 2, .clause_count = 1},"
+                    )
+                alternative_initializers.append(f"    &kVopdPlacementPreferences[{preference_indices[relation]}],")
         first_relation += len(recipe.alternatives[0]) * len(recipe.alternatives)
 
     op_lookup_initializers = [f"    [{component.op}] = {index + 1}," for index, component in enumerate(component_infos)]
@@ -1453,9 +1461,25 @@ def _emit_source(tables: _VopdComponentTables) -> str:
                 *(_pair_affinity_range_initializer(row) for row in tables.pair_affinity_ranges),
                 "};",
                 "",
-                "static const loom_low_placement_pair_relation_t",
-                "    kVopdPairPlacementRelations[] = {",
-                *relation_initializers,
+                "static const loom_low_placement_clause_t kVopdPlacementClause = {",
+                "    .predicate_count = 1, .weight = 1, .kind = LOOM_LOW_PLACEMENT_CLAUSE_ANY,",
+                "};",
+                "",
+                "static const loom_low_placement_value_ref_t kVopdPlacementValues[] = {",
+                *value_initializers,
+                "};",
+                "",
+                "static const loom_low_placement_predicate_t kVopdPlacementPredicates[] = {",
+                *predicate_initializers,
+                "};",
+                "",
+                "static const loom_low_placement_preference_t kVopdPlacementPreferences[] = {",
+                *preference_initializers,
+                "};",
+                "",
+                "static const loom_low_placement_preference_t* const",
+                "    kVopdPairPlacementPreferences[] = {",
+                *alternative_initializers,
                 "};",
                 "",
                 "const loom_low_placement_pair_recipe_t",

@@ -36,6 +36,7 @@ loom_cc_library(
     "profile_report.h"
     "report.h"
     "run.h"
+    "scenario_execution.h"
     "session.h"
     "snapshot.h"
     "testbench.h"
@@ -64,6 +65,7 @@ loom_cc_library(
     "profile_report.c"
     "report.c"
     "run.c"
+    "scenario_execution.c"
     "session.c"
     "snapshot.c"
     "testbench.c"
@@ -103,6 +105,7 @@ loom_cc_library(
     loom::tooling::execution::hal::device_provider
     loom::tooling::execution::hal::invocation
     loom::tooling::execution::hal::runtime
+    loom::tooling::execution::hal::scenario_profile
     loom::tooling::execution::hal::testbench_actual
     loom::tooling::execution::one_shot
     loom::tooling::execution::session
@@ -110,12 +113,16 @@ loom_cc_library(
     loom::tooling::input::flags
     loom::tooling::io::file
     loom::tooling::testbench
+    loom::tooling::testbench::api
     loom::tooling::testbench::device_event
     loom::tooling::testbench::executor
     loom::tooling::testbench::invocation
     loom::tooling::testbench::issue_report
     loom::tooling::testbench::reference
     loom::tooling::testbench::requirements
+    loom::tooling::testbench::scenario::entropy
+    loom::tooling::testbench::scenario::executor
+    loom::tooling::testbench::scenario::values
     loom::tooling::testbench::value_materializer
     loom::util::json
     loom::util::stream
@@ -180,6 +187,7 @@ loom_cc_test(
     loom::format::text::parser
     loom::ir
     loom::ops::check
+    loom::ops::test
     loom::tooling::testbench
 )
 
@@ -264,6 +272,7 @@ loom_cc_binary(
     loom::tooling::execution::hal::artifact
     loom::tooling::execution::hal::device_provider
     loom::tooling::input::configured
+    loom::transforms::cleanup::configured
     ${_iree_benchmark_loom_platform_deps}
 )
 

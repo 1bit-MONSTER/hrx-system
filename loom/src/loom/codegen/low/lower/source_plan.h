@@ -17,16 +17,29 @@
 #define LOOM_CODEGEN_LOW_LOWER_SOURCE_PLAN_H_
 
 #include "loom/codegen/low/lower/rules.h"
+#include "loom/codegen/low/lower/source_memory.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef struct loom_low_lower_resolved_emit_t loom_low_lower_resolved_emit_t;
+typedef struct loom_low_representation_plan_t loom_low_representation_plan_t;
+typedef struct loom_low_lower_realizations_t loom_low_lower_realizations_t;
 
 enum loom_low_lower_value_storage_flag_bits_e {
   // The source value must be materialized as a target-Low SSA value.
   LOOM_LOW_LOWER_VALUE_STORAGE_REQUIRED = (uint8_t)1u << 0,
+  // One selected memory plan can reuse this source realization. A second plan
+  // requires storage so shared authored arithmetic is not rebuilt per access.
+  LOOM_LOW_LOWER_VALUE_STORAGE_MEMORY_REALIZATION_SEEN = (uint8_t)1u << 1,
+  // A selected rule addresses this source value through a retained fact.
+  // Source-DAG rules must preserve a Low mapping for the value even though the
+  // fact reference is not an ordinary SSA use visible while matching the DAG.
+  LOOM_LOW_LOWER_VALUE_STORAGE_FACT_REFERENCE = (uint8_t)1u << 2,
+  // Storage was required before backward selected-plan demand analysis.
+  // Refinement retains these structural and function-boundary requirements.
+  LOOM_LOW_LOWER_VALUE_STORAGE_BASELINE_REQUIRED = (uint8_t)1u << 3,
 };
 typedef uint8_t loom_low_lower_value_storage_flags_t;
 
@@ -109,8 +122,29 @@ typedef struct loom_low_lower_source_plan_t {
   // dominance when all blocks are reachable. Unreachable blocks follow in
   // storage order. NULL preserves the single-block structured path.
   const uint16_t* block_order;
+  // Function-local physical-representation plan, or NULL when the target has
+  // no representation observer or before that observer begins.
+  loom_low_representation_plan_t* representation_plan;
+  // Shared pure-value placement, initialization and supplemental CFG payloads.
+  loom_low_lower_realizations_t* realizations;
   // Per-source-value storage demand flags indexed by source value ordinal.
   loom_low_lower_value_storage_flags_t* value_storage_flags;
+  // Number of values addressed through selected fact-derived references.
+  // Zero keeps ordinary rule selection and demand analysis on the direct path.
+  loom_value_ordinal_t fact_storage_demand_count;
+  // True only while backward selected-plan storage demands are being marked.
+  // Requirements established before this phase survive plan refinement.
+  bool is_analyzing_storage_demands;
+  // Canonical accesses joined across observation and selection without an op
+  // lookup table or a second address-analysis walk.
+  struct {
+    // First retained access in shared source traversal order.
+    loom_low_lower_source_memory_record_t* first;
+    // Next access to consume during per-operation selection.
+    const loom_low_lower_source_memory_record_t* cursor;
+    // Access visible to the current observer or selector, or NULL.
+    const loom_low_lower_source_memory_record_t* current;
+  } memory;
   // Selected plans in source traversal order.
   loom_low_lower_selected_plan_t* selected_plans;
   // Number of populated selected plans.
@@ -125,7 +159,9 @@ typedef struct loom_low_lower_source_plan_t {
 //
 // The caller must have initialized the function value domain, selected a
 // descriptor set, composed the target contract index, and validated the source
-// function boundary. The function owns its planning scratch arena lifetime and
+// function arguments. Discovery establishes target-neutral result mappings;
+// targets with a physical representation plan refine those mappings after the
+// plan is solved. The function owns its planning scratch arena lifetime and
 // retains plan data in the lowering context's function arena.
 iree_status_t loom_low_lower_source_plan_build(
     loom_low_lower_context_t* context, loom_region_t* source_body);

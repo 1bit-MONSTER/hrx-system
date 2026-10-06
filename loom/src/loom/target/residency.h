@@ -130,6 +130,25 @@ typedef struct loom_target_residency_model_t {
   loom_target_residency_derived_resource_table_t derived_resources;
 } loom_target_residency_model_t;
 
+// Function-local view of immutable target curves under a fixed residency
+// ceiling. Launch shape or resources not being varied by a planner can make
+// upper tiers unattainable without changing the underlying hardware curves.
+typedef struct loom_target_residency_view_t {
+  // Borrowed immutable target policy, or NULL when unavailable.
+  const loom_target_residency_model_t* model;
+  // Highest attainable tier, at most model->best_tier. Zero is a real limit.
+  uint32_t tier_limit;
+} loom_target_residency_view_t;
+
+// Binds a fixed ceiling to a model. UINT32_MAX selects the model's full range;
+// an unavailable model produces an empty view without retaining the ceiling.
+static inline loom_target_residency_view_t loom_target_residency_view(
+    const loom_target_residency_model_t* model, uint32_t tier_limit) {
+  loom_target_residency_view_t view = {
+      model, model != NULL ? iree_min(model->best_tier, tier_limit) : 0};
+  return view;
+}
+
 // Flags describing one cliff-chain evaluation.
 typedef uint32_t loom_target_residency_cliff_evaluation_flags_t;
 enum loom_target_residency_cliff_evaluation_flag_bits_e {
@@ -391,26 +410,35 @@ loom_target_residency_derived_resource_member_range(
   return table->member_ranges_by_direct_resource[direct_resource_id];
 }
 
-// Evaluates one complete or suffix residency-cliff chain.
+// Evaluates one actionable residency-cliff chain.
 //
-// |initial_tier| is the tier before the first supplied cliff. This lets an
-// incremental planner evaluate only cliffs that remain actionable. The cliff
-// chain must be strictly ordered, contiguous in tier, and descending.
+// |initial_tier| bounds the tier before the first supplied cliff. Every
+// supplied cliff must lead below that bound. Incremental planners pass their
+// retained actionable suffix; complete model chains use the model's best tier.
+// The chain must be strictly ordered, contiguous and descending. Evaluation
+// does not rediscover the suffix or rewrite the chain to represent a function
+// ceiling.
 void loom_target_residency_evaluate_cliffs(
     const loom_target_residency_cliff_t* cliffs, iree_host_size_t cliff_count,
     uint32_t initial_tier, uint64_t units,
     loom_target_residency_cliff_evaluation_t* out_evaluation);
 
+// Returns the first cliff below |tier_limit|, or |cliff_count| when none can
+// lower it. Incremental planners retain this cursor instead of reconsidering
+// unattainable tiers for each candidate.
+iree_host_size_t loom_target_residency_cliff_start_below_tier(
+    const loom_target_residency_cliff_t* cliffs, iree_host_size_t cliff_count,
+    uint32_t tier_limit);
+
 // Evaluates the whole-model tier after overriding one direct resource.
 //
-// |direct_resource_units| is a trusted planning vector dense by direct
-// resource ID with the count declared by |model|. The selected resource is
-// evaluated with |override_units| instead of its vector entry. This performs no
-// allocation and is intended for hot-path candidate comparisons.
+// |view.model| is available. |direct_resource_units| is a planning vector dense
+// by direct resource ID with the count declared by |view.model|. The selected
+// resource is evaluated with |override_units| instead of its vector entry. This
+// performs no allocation and is intended for hot-path candidate comparisons.
 uint32_t loom_target_residency_evaluate_tier_with_direct_resource_override(
-    const loom_target_residency_model_t* model,
-    const uint32_t* direct_resource_units, uint16_t direct_resource_id,
-    uint32_t override_units);
+    loom_target_residency_view_t view, const uint32_t* direct_resource_units,
+    uint16_t direct_resource_id, uint32_t override_units);
 
 // Evaluates all resources and the resulting whole-model residency tier.
 //

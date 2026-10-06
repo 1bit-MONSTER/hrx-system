@@ -98,10 +98,14 @@ IREE_AMDGPU_STATIC_ASSERT(
 // The caller owns packet header commit, completion-signal assignment, and
 // doorbell writes. Zero workgroup counts are preserved verbatim and produce a
 // valid zero-grid dispatch packet.
+// The first 32-bit header/setup word is untouched. |out_setup| receives the
+// setup bits for the caller's atomic publication of that word and must point
+// outside the live queue slot. A private packet template may use its own setup
+// field as the output.
 //
 // Preconditions:
-//   - |kernel_args|, |workgroup_count|, |dispatch_packet|, and |kernarg_ptr|
-//     are non-NULL.
+//   - |kernel_args|, |workgroup_count|, |dispatch_packet|, and |out_setup|
+//     are non-NULL. |kernarg_ptr| may be NULL for a private packet template.
 //   - |kernel_args->workgroup_size| and
 //     |kernel_args->group_segment_size + dynamic_workgroup_local_memory| are
 //     valid for the target kernel.
@@ -113,7 +117,7 @@ void iree_hal_amdgpu_device_dispatch_emplace_packet(
         kernel_args,
     const uint32_t workgroup_count[3], uint32_t dynamic_workgroup_local_memory,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr);
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup);
 
 // Initializes the fixed HIP/OpenCL implicit-argument suffix.
 //
@@ -190,10 +194,12 @@ void iree_hal_amdgpu_device_dispatch_emplace_custom_kernargs(
 // Populates the builtin patch dispatch that updates an indirect-parameter
 // dispatch packet and then publishes its header.
 //
-// The target dispatch packet must already contain every non-header field. The
+// The target dispatch packet must already contain its complete body. The
 // patch dispatch reads |workgroup_count| on device, updates the target packet's
 // grid-size fields and optional implicit args, then atomically publishes the
 // provided final dispatch header/setup word.
+// |patch_packet|'s first word is preserved; |out_setup| receives its setup bits
+// in private storage for the caller's atomic publication.
 void iree_hal_amdgpu_device_dispatch_emplace_indirect_params_patch(
     const iree_hal_amdgpu_device_kernel_args_t* IREE_AMDGPU_RESTRICT
         patch_kernel_args,
@@ -202,10 +208,12 @@ void iree_hal_amdgpu_device_dispatch_emplace_indirect_params_patch(
     uint16_t dispatch_header, uint16_t dispatch_setup,
     iree_amdgpu_kernel_implicit_args_t* IREE_AMDGPU_RESTRICT implicit_args,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT patch_packet,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr);
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup);
 
 // Populates the builtin patch dispatch that updates resident PM4 command-buffer
 // kernarg templates from a queue_execute binding table.
+// |patch_packet|'s first word is preserved; |out_setup| receives its setup bits
+// in private storage for the caller's atomic publication.
 void iree_hal_amdgpu_device_dispatch_emplace_pm4_binding_patch(
     const iree_hal_amdgpu_device_kernel_args_t* IREE_AMDGPU_RESTRICT
         patch_kernel_args,
@@ -214,7 +222,7 @@ void iree_hal_amdgpu_device_dispatch_emplace_pm4_binding_patch(
         entries,
     uint8_t* IREE_AMDGPU_RESTRICT target_base, uint32_t entry_count,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT patch_packet,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr);
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup);
 
 #if defined(IREE_AMDGPU_TARGET_DEVICE)
 

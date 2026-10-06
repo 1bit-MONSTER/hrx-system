@@ -471,6 +471,7 @@ between Bazel and CMake.
 | `AMDF_FAMILY_XDNA` | `ON`, `OFF` | Admits XDNA implementation packages to libamdf. | Adds or removes `xdna` from the libamdf implementation-family scope. | `--//libamdf/config:families=<complete-family-list>` |
 | `IREE_ENABLE_VULKAN` | `ON`, `OFF` | Enables Vulkan API clients independently of HAL drivers. Defaults to `ON`; the Vulkan HAL also enables API availability. | Selects Vulkan API clients with the same default and HAL implication. | `--//build_tools/vulkan/config:enabled=<bool>` |
 | `IREE_ENABLE_D3D12` | `ON`, `OFF` | Enables D3D12 API clients for Windows targets. Defaults to `ON`. | Selects D3D12 API clients for Windows targets, including cross-compilation. Defaults to `ON`. | `--//build_tools/d3d12/config:enabled=<bool>` |
+| `IREE_NET_RDMA` | `ON`, `OFF` | Enables native RDMA resources and registration on Linux. Defaults to `OFF`. | Enables the same native RDMA packages; no host carrier is implicitly registered. Defaults to `OFF`. | `--//runtime/config/net:rdma=<bool>` |
 | `IREE_HAL_DRIVER_AMDGPU` | `ON`, `OFF` | Builds the AMDGPU runtime HAL driver. | Adds or removes `amdgpu` from the runtime driver registry and recursive package scope. | `--//runtime/config/hal:drivers=<complete-driver-list>` |
 | `IREE_HAL_DRIVER_TASK` | `ON`, `OFF` | Builds the task runtime HAL driver. | Adds or removes `task` from the runtime driver registry. | `--//runtime/config/hal:drivers=<complete-driver-list>` |
 | `IREE_HAL_DRIVER_VULKAN` | `ON`, `OFF` | Builds the Vulkan runtime HAL driver. | Adds or removes `vulkan` from the runtime driver registry and recursive package scope. | `--//runtime/config/hal:drivers=<complete-driver-list>` |
@@ -635,11 +636,13 @@ remains a separate concern controlled by Loom execution support and the runtime
 `IREE_HAL_DRIVER_*` options.
 
 The default dependency-satisfied Loom target set is
-`amdgpu,spirv,xdna,x86`. AMDGPU and SPIR-V target compilation use pinned
-source dependencies by default and do not enable the matching runtime HAL
-drivers. WebAssembly remains opt-in until the WASI SDK repository is available
-in this checkout. The default execution substrate set is `iree_hal`; HAL
-execution providers still require a matching runtime HAL driver such as
+`amdgpu,spirv,vm,xdna,x86`. VM compilation and function execution provide the
+standard evaluator for `check.case` and `check.benchmark`. AMDGPU and SPIR-V
+target compilation use pinned source dependencies by default and do not enable
+the matching runtime HAL drivers. WebAssembly remains opt-in until the WASI SDK
+repository is available in this checkout. The default execution substrate set
+is `iree_hal`; HAL execution providers still require a matching runtime HAL
+driver such as
 `IREE_HAL_DRIVER_VULKAN` or `IREE_HAL_DRIVER_AMDGPU`.
 
 CMake exposes `LOOM_TARGET_DEFAULTS` and `LOOM_EXECUTE_DEFAULTS` to set the
@@ -714,12 +717,12 @@ should usually keep `loom_defaults`.
 | `LOOM_EXECUTE_IREE_HAL` | `ON`, `OFF` | Builds Loom execution providers that run through IREE HAL when a matching runtime HAL driver is enabled. | Adds or removes `iree_hal` from the Loom execute substrate set. | `--//loom/config/execute:enable=<complete-execute-list>` |
 
 The native Loom target flag is a complete list. The default target set is
-`amdgpu,spirv,xdna,x86`, and the default execution substrate set is
+`amdgpu,spirv,vm,xdna,x86`, and the default execution substrate set is
 `iree_hal`:
 
 ```bash
 python dev.py bazel configure \
-  --//loom/config/target:enable=amdgpu,spirv,xdna,x86
+  --//loom/config/target:enable=amdgpu,spirv,vm,xdna,x86
 ```
 
 AMDGPU compiler target selection is also a complete list. Bazel uses

@@ -269,10 +269,10 @@ static iree_status_t loom_amdgpu_sanitizer_define_race_report_island_args(
     loom_block_t* entry_block,
     loom_amdgpu_sanitizer_race_report_island_t* island) {
   IREE_RETURN_IF_ERROR(loom_amdgpu_sanitizer_race_define_register_block_arg(
-      builder, descriptor_set, entry_block, LOOM_AMDGPU_REG_CLASS_ID_SGPR, 2,
+      builder, descriptor_set, entry_block, LOOM_AMDGPU_REG_CLASS_ID_VGPR, 2,
       &island->source_args.dispatch_ptr));
   IREE_RETURN_IF_ERROR(loom_amdgpu_sanitizer_race_define_register_block_arg(
-      builder, descriptor_set, entry_block, LOOM_AMDGPU_REG_CLASS_ID_SGPR, 1,
+      builder, descriptor_set, entry_block, LOOM_AMDGPU_REG_CLASS_ID_VGPR, 1,
       &island->source_args.workgroup_id_x));
   IREE_RETURN_IF_ERROR(loom_amdgpu_sanitizer_race_define_register_block_arg(
       builder, descriptor_set, entry_block, LOOM_AMDGPU_REG_CLASS_ID_VGPR, 1,
@@ -384,78 +384,44 @@ iree_status_t loom_amdgpu_build_sanitizer_race_report_branch(
   IREE_ASSERT(builder->ip.before_op == NULL,
               "AMDGPU sanitizer race report branch must be built at the end "
               "of a low block");
-  loom_amdgpu_sanitizer_race_require_register_class(
-      builder, descriptor_set, source->dispatch_ptr, 2,
-      LOOM_AMDGPU_REG_CLASS_ID_SGPR);
-  loom_amdgpu_sanitizer_race_require_register_class(
-      builder, descriptor_set, source->workgroup_id_x, 1,
-      LOOM_AMDGPU_REG_CLASS_ID_SGPR);
-
-  loom_value_id_t args[26] = {0};
-  args[0] = source->dispatch_ptr;
-  args[1] = source->workgroup_id_x;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, source->workitem_id_x, 1, location, &args[2]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->check_kind, 1, location, &args[3]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->flags, 1, location, &args[4]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->memory_space, 1, location, &args[5]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->current_access_kind, 1, location,
-      &args[6]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->prior_access_kind, 1, location,
-      &args[7]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->access_size, 1, location, &args[8]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->current_site_id, 2, location, &args[9]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->prior_site_id, 2, location, &args[10]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->memory_address, 2, location, &args[11]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->shadow_address, 2, location, &args[12]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->shadow_value, 2, location, &args[13]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->current_workgroup_id_x, 1, location,
-      &args[14]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->current_workgroup_id_y, 1, location,
-      &args[15]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->current_workgroup_id_z, 1, location,
-      &args[16]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->current_workitem_id_x, 1, location,
-      &args[17]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->current_workitem_id_y, 1, location,
-      &args[18]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->current_workitem_id_z, 1, location,
-      &args[19]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->prior_workgroup_id_x, 1, location,
-      &args[20]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->prior_workgroup_id_y, 1, location,
-      &args[21]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->prior_workgroup_id_z, 1, location,
-      &args[22]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->prior_workitem_id_x, 1, location,
-      &args[23]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->prior_workitem_id_y, 1, location,
-      &args[24]));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_build_feedback_vgpr_registers(
-      builder, descriptor_set, report->prior_workitem_id_z, 1, location,
-      &args[25]));
+  const loom_value_id_t args[] = {
+      source->dispatch_ptr,
+      source->workgroup_id_x,
+      source->workitem_id_x,
+      report->check_kind,
+      report->flags,
+      report->memory_space,
+      report->current_access_kind,
+      report->prior_access_kind,
+      report->access_size,
+      report->current_site_id,
+      report->prior_site_id,
+      report->memory_address,
+      report->shadow_address,
+      report->shadow_value,
+      report->current_workgroup_id_x,
+      report->current_workgroup_id_y,
+      report->current_workgroup_id_z,
+      report->current_workitem_id_x,
+      report->current_workitem_id_y,
+      report->current_workitem_id_z,
+      report->prior_workgroup_id_x,
+      report->prior_workgroup_id_y,
+      report->prior_workgroup_id_z,
+      report->prior_workitem_id_x,
+      report->prior_workitem_id_y,
+      report->prior_workitem_id_z,
+  };
+  static const uint8_t arg_unit_counts[] = {
+      2, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2,
+      2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  };
+  IREE_ASSERT_EQ(IREE_ARRAYSIZE(args), IREE_ARRAYSIZE(arg_unit_counts));
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(args); ++i) {
+    loom_amdgpu_sanitizer_race_require_register_class(
+        builder, descriptor_set, args[i], arg_unit_counts[i],
+        LOOM_AMDGPU_REG_CLASS_ID_VGPR);
+  }
 
   loom_op_t* branch_op = NULL;
   return loom_low_br_build(builder, island->entry_block, args,

@@ -1,0 +1,111 @@
+// Runtime bit patterns cover every BF16 bin with discarded significands on
+// either side of a tie. NaN payload/sign choices are ignored; losing the NaN
+// or quiet bit is still a mismatch, and every finite result is compared exactly.
+func.def @bfloat_rounding(%upper_bits: buffer, %discarded: i32, %output: buffer, %packed_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 65536 : index
+  %step = index.constant 1 : index
+  %magnitude_mask = scalar.constant 32767 : i16
+  %exponent = scalar.constant 32640 : i16
+  %quiet_bit = scalar.constant 64 : i16
+  %input = buffer.view %upper_bits[%base] : buffer -> view<65536xi32>
+  %result = buffer.view %output[%base] : buffer -> view<65536xi16>
+  scf.for %i = [%begin to %end step %step] {
+    %upper = view.load %input[%i] : view<65536xi32> -> i32
+    %bits = scalar.ori %upper, %discarded : i32
+    %value = scalar.bitcast %bits : i32 to f32
+    %narrow = scalar.fptrunc %value : f32 to bf16
+    %narrow_bits = scalar.bitcast %narrow : bf16 to i16
+    %magnitude = scalar.andi %narrow_bits, %magnitude_mask : i16
+    %nan = scalar.cmpi ugt, %magnitude, %exponent : i16
+    %quiet = scalar.andi %narrow_bits, %quiet_bit : i16
+    %nan_tag = scalar.ori %quiet, %exponent : i16
+    %normalized = scf.select %nan, %nan_tag, %narrow_bits : i16
+    view.store %normalized, %result[%i] : i16, view<65536xi16>
+  }
+  %packed_step = index.constant 4 : index
+  %discarded_lanes = vector.splat %discarded : vector<4xi32>
+  %magnitude_masks = vector.constant 32767 : vector<4xi16>
+  %exponents = vector.constant 32640 : vector<4xi16>
+  %quiet_bits = vector.constant 64 : vector<4xi16>
+  %packed_result = buffer.view %packed_output[%base] : buffer -> view<65536xi16>
+  scf.for %i = [%begin to %end step %packed_step] {
+    %upper = vector.load %input[%i] : view<65536xi32> -> vector<4xi32>
+    %bits = vector.ori %upper, %discarded_lanes : vector<4xi32>
+    %value = vector.bitcast %bits : vector<4xi32> to vector<4xf32>
+    %narrow = vector.fptrunc %value : vector<4xf32> to vector<4xbf16>
+    %narrow_bits = vector.bitcast %narrow : vector<4xbf16> to vector<4xi16>
+    %magnitude = vector.andi %narrow_bits, %magnitude_masks : vector<4xi16>
+    %nan = vector.cmpi ugt, %magnitude, %exponents : vector<4xi16> -> vector<4xi1>
+    %quiet = vector.andi %narrow_bits, %quiet_bits : vector<4xi16>
+    %nan_tag = vector.ori %quiet, %exponents : vector<4xi16>
+    %normalized = vector.select %nan, %nan_tag, %narrow_bits : vector<4xi16>
+    vector.store %normalized, %packed_result[%i] : vector<4xi16>, view<65536xi16>
+  }
+  func.return
+}
+
+check.scenario @bfloat_rounding_all_bins {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %upper_bits = check.generate.iota offset(-2147483648) step(65536) : tensor<65536xi32>
+    %discarded = check.literal value(0) : i32
+    %output = check.generate.fill value(-1) : tensor<65536xi16>
+    %packed_output = check.generate.fill value(-1) : tensor<65536xi16>
+    check.compare<@bfloat_rounding>(%upper_bits, %discarded, %output, %packed_output) : (tensor<65536xi32>, i32, tensor<65536xi16>, tensor<65536xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<65536xi16>
+      check.expect.bitwise actual(%packed_output) expected(%packed_output) : tensor<65536xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %upper_bits = check.generate.iota offset(-2147483648) step(65536) : tensor<65536xi32>
+    %discarded = check.literal value(1) : i32
+    %output = check.generate.fill value(-1) : tensor<65536xi16>
+    %packed_output = check.generate.fill value(-1) : tensor<65536xi16>
+    check.compare<@bfloat_rounding>(%upper_bits, %discarded, %output, %packed_output) : (tensor<65536xi32>, i32, tensor<65536xi16>, tensor<65536xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<65536xi16>
+      check.expect.bitwise actual(%packed_output) expected(%packed_output) : tensor<65536xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %upper_bits = check.generate.iota offset(-2147483648) step(65536) : tensor<65536xi32>
+    %discarded = check.literal value(32767) : i32
+    %output = check.generate.fill value(-1) : tensor<65536xi16>
+    %packed_output = check.generate.fill value(-1) : tensor<65536xi16>
+    check.compare<@bfloat_rounding>(%upper_bits, %discarded, %output, %packed_output) : (tensor<65536xi32>, i32, tensor<65536xi16>, tensor<65536xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<65536xi16>
+      check.expect.bitwise actual(%packed_output) expected(%packed_output) : tensor<65536xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %upper_bits = check.generate.iota offset(-2147483648) step(65536) : tensor<65536xi32>
+    %discarded = check.literal value(32768) : i32
+    %output = check.generate.fill value(-1) : tensor<65536xi16>
+    %packed_output = check.generate.fill value(-1) : tensor<65536xi16>
+    check.compare<@bfloat_rounding>(%upper_bits, %discarded, %output, %packed_output) : (tensor<65536xi32>, i32, tensor<65536xi16>, tensor<65536xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<65536xi16>
+      check.expect.bitwise actual(%packed_output) expected(%packed_output) : tensor<65536xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %upper_bits = check.generate.iota offset(-2147483648) step(65536) : tensor<65536xi32>
+    %discarded = check.literal value(32769) : i32
+    %output = check.generate.fill value(-1) : tensor<65536xi16>
+    %packed_output = check.generate.fill value(-1) : tensor<65536xi16>
+    check.compare<@bfloat_rounding>(%upper_bits, %discarded, %output, %packed_output) : (tensor<65536xi32>, i32, tensor<65536xi16>, tensor<65536xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<65536xi16>
+      check.expect.bitwise actual(%packed_output) expected(%packed_output) : tensor<65536xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %upper_bits = check.generate.iota offset(-2147483648) step(65536) : tensor<65536xi32>
+    %discarded = check.literal value(65535) : i32
+    %output = check.generate.fill value(-1) : tensor<65536xi16>
+    %packed_output = check.generate.fill value(-1) : tensor<65536xi16>
+    check.compare<@bfloat_rounding>(%upper_bits, %discarded, %output, %packed_output) : (tensor<65536xi32>, i32, tensor<65536xi16>, tensor<65536xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<65536xi16>
+      check.expect.bitwise actual(%packed_output) expected(%packed_output) : tensor<65536xi16>
+    }
+  }
+  check.return
+}

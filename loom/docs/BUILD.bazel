@@ -13,6 +13,11 @@ package(
     licenses = ["notice"],  # Apache 2.0
 )
 
+exports_files(
+    ["requirements.lock.txt"],
+    visibility = ["//build_tools/devtools:__pkg__"],
+)
+
 filegroup(
     name = "source_pages",
     srcs = glob(["src/**/*.md"]),

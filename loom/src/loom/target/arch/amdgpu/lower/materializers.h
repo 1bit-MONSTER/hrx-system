@@ -16,6 +16,32 @@
 extern "C" {
 #endif
 
+// Returns true when the source value has an SGPR or VGPR register mapping
+// whose bits can be consumed by a VGPR operand.
+iree_status_t loom_amdgpu_value_can_materialize_as_vgpr_registers(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t value_id, bool* out_can_materialize);
+
+// Reuses the bound VGPR value or copies each bound SGPR word into a VGPR.
+// Preserves all payload bits, including unspecified upper bits of narrow
+// values.
+iree_status_t loom_amdgpu_lookup_or_materialize_vgpr_registers(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t source_value, loom_value_id_t* out_low_value);
+
+// Returns true when a source value can occupy the second operand of a binary
+// VOP3 packet after applying the active target's scalar-source limit.
+iree_status_t loom_amdgpu_value_can_materialize_as_vop3_binary_rhs(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t value_id, bool* out_can_materialize);
+
+// Reuses the source value when the target permits two VOP3 scalar sources.
+// Targets limited to one scalar source copy an SGPR source into VGPRs; an
+// existing VGPR source is reused.
+iree_status_t loom_amdgpu_lookup_or_materialize_vop3_binary_rhs(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t source_value, loom_value_id_t* out_low_value);
+
 // Returns true when a source i32 scalar or vector value can be materialized as
 // a VGPR operand for vector-style packets.
 iree_status_t loom_amdgpu_value_can_materialize_as_vgpr_i32(
@@ -46,8 +72,9 @@ iree_status_t loom_amdgpu_value_can_materialize_as_sgpr_address(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t value_id, bool* out_can_materialize);
 
-// Returns true when a source scalar i1 value can be materialized as an
-// EXEC-width SGPR mask for divergent predicate arithmetic.
+// Returns true when a source scalar i1 value can be materialized in one of the
+// native AMDGPU predicate representations: SCC, a durable SGPR word, or an
+// EXEC-width SGPR mask.
 iree_status_t loom_amdgpu_value_can_materialize_as_native_i1_mask(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t value_id, bool* out_can_materialize);

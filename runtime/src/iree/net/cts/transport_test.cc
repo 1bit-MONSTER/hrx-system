@@ -11,6 +11,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "iree/async/buffer_pool.h"
@@ -747,16 +748,20 @@ class TransportTest : public ::testing::Test {
     return status_code == IREE_STATUS_OK ? state_ptr : nullptr;
   }
 
-  iree_net_message_endpoint_t OpenEndpoint(iree_net_connection_t* connection,
-                                           iree_async_proactor_t* proactor,
-                                           PollSide side) {
-    EndpointReadyState* state = SubmitOpenEndpoint(connection, side);
-    if (!state) {
+  std::pair<iree_net_message_endpoint_t, iree_net_message_endpoint_t>
+  OpenEndpoints() {
+    auto* client = SubmitOpenEndpoint(client_connection_, kClientPolling);
+    auto* server = SubmitOpenEndpoint(server_connection_, kServerPolling);
+    if (!client || !server) {
       return {};
     }
-    PollUntil(proactor, side, [&] { return state->callback_count == 1; });
-    EXPECT_EQ(state->status_code, IREE_STATUS_OK);
-    return state->endpoint;
+    // Native setup may need peer geometry before either endpoint is ready.
+    PollBothUntil([&] {
+      return client->callback_count == 1 && server->callback_count == 1;
+    });
+    EXPECT_EQ(client->status_code, IREE_STATUS_OK);
+    EXPECT_EQ(server->status_code, IREE_STATUS_OK);
+    return {client->endpoint, server->endpoint};
   }
 
   void WaitForSendSlots(iree_net_message_endpoint_t endpoint,
@@ -855,6 +860,52 @@ TEST_F(TransportTest, ReportsRequiredCapabilities) {
   const iree_net_transport_capabilities_t capabilities =
       iree_net_transport_factory_query_capabilities(factory_);
   EXPECT_TRUE(iree_all_bits_set(capabilities, backend_->required_capabilities));
+}
+
+TEST_F(TransportTest, OptionalDirectOpenPreservesMessageOrdinals) {
+  ASSERT_NO_FATAL_FAILURE(EstablishConnection());
+  struct Ready {
+    // Owner-side callback witness shared with the fixture.
+    int* current_side;
+    // Expected executor for this borrowed view.
+    PollSide expected_side;
+    // Exactly-once accepted result count.
+    uint32_t count = 0;
+    static void Complete(void* user_data, iree_status_t status,
+                         iree_net_direct_endpoint_t endpoint) {
+      auto* self = static_cast<Ready*>(user_data);
+      EXPECT_EQ(*self->current_side, self->expected_side);
+      IREE_CHECK_OK(status);
+      EXPECT_NE(endpoint.self, nullptr);
+      ++self->count;
+    }
+  } client{&current_poll_side_, kClientPolling},
+      server{&current_poll_side_, kServerPolling};
+  ScopedConnectionDrain drain{this};
+  iree_status_t client_status = iree_net_connection_open_direct_endpoint(
+      client_connection_, {Ready::Complete, &client});
+  iree_status_t server_status = iree_net_connection_open_direct_endpoint(
+      server_connection_, {Ready::Complete, &server});
+  auto code = iree_status_code(client_status);
+  EXPECT_EQ(iree_status_code(server_status), code);
+  iree_status_free(client_status);
+  iree_status_free(server_status);
+  ASSERT_TRUE(code == IREE_STATUS_OK || code == IREE_STATUS_UNIMPLEMENTED);
+  EXPECT_EQ(client.count, 0u);
+  EXPECT_EQ(server.count, 0u);
+  if (code == IREE_STATUS_OK) {
+    PollBothUntil([&] { return client.count == 1 && server.count == 1; });
+  }
+  uint32_t message_count =
+      iree_net_connection_max_endpoint_count(client_connection_) -
+      (code == IREE_STATUS_OK ? 1u : 0u);
+  for (uint32_t i = 0; i < message_count; ++i) {
+    auto endpoints = OpenEndpoints();
+    EXPECT_NE(endpoints.first.self, nullptr);
+    EXPECT_NE(endpoints.second.self, nullptr);
+  }
+  EXPECT_EQ(client.count, code == IREE_STATUS_OK ? 1u : 0u);
+  EXPECT_EQ(server.count, client.count);
 }
 
 TEST_F(TransportTest, ListenerStopIsAsynchronousAndRefusesConnections) {
@@ -968,18 +1019,15 @@ TEST_F(TransportTest, ConcurrentCancellationJoinsBeforeCallerStorageReuse) {
 TEST_F(TransportTest, CancellationAfterPublicationLeavesConnectionUsable) {
   ASSERT_NO_FATAL_FAILURE(EstablishConnection());
   iree_net_transport_connect_operation_cancel(&connect_state_.operation);
-  auto endpoint =
-      OpenEndpoint(client_connection_, client_proactor_, kClientPolling);
-  EXPECT_NE(endpoint.self, nullptr);
+  auto endpoints = OpenEndpoints();
+  EXPECT_NE(endpoints.first.self, nullptr);
+  EXPECT_NE(endpoints.second.self, nullptr);
   EXPECT_EQ(connect_state_.callback_count, 1);
 }
 
 TEST_F(TransportTest, RoutesBidirectionalMessagesOnOwningProactors) {
   ASSERT_NO_FATAL_FAILURE(EstablishConnection());
-  iree_net_message_endpoint_t client_endpoint =
-      OpenEndpoint(client_connection_, client_proactor_, kClientPolling);
-  iree_net_message_endpoint_t server_endpoint =
-      OpenEndpoint(server_connection_, server_proactor_, kServerPolling);
+  auto [client_endpoint, server_endpoint] = OpenEndpoints();
   ASSERT_NE(client_endpoint.self, nullptr);
   ASSERT_NE(server_endpoint.self, nullptr);
 
@@ -1010,12 +1058,11 @@ TEST_F(TransportTest, RoutesBidirectionalMessagesOnOwningProactors) {
   };
   IREE_ASSERT_OK(iree_net_message_endpoint_send(client_endpoint, &send_params));
   client_prefix[0] = 'X';
-  PollImmediate(client_proactor_, kClientPolling);
-  PollUntil(server_proactor_, kServerPolling,
-            [&] { return server_messages_.messages.size() == 1; });
+  PollBothUntil([&] {
+    return server_messages_.messages.size() == 1 &&
+           client_send_.callback_count == 1;
+  });
   EXPECT_EQ(server_messages_.messages[0], "client-message");
-  PollUntil(client_proactor_, kClientPolling,
-            [&] { return client_send_.callback_count == 1; });
   EXPECT_EQ(client_send_.status_code, IREE_STATUS_OK);
 
   char server_payload[] = "server-message";
@@ -1031,12 +1078,11 @@ TEST_F(TransportTest, RoutesBidirectionalMessagesOnOwningProactors) {
   };
   IREE_ASSERT_OK(iree_net_message_endpoint_send(server_endpoint, &send_params));
   server_payload[0] = 'X';
-  PollImmediate(server_proactor_, kServerPolling);
-  PollUntil(client_proactor_, kClientPolling,
-            [&] { return client_messages_.messages.size() == 1; });
+  PollBothUntil([&] {
+    return client_messages_.messages.size() == 1 &&
+           server_send_.callback_count == 1;
+  });
   EXPECT_EQ(client_messages_.messages[0], "server-message");
-  PollUntil(server_proactor_, kServerPolling,
-            [&] { return server_send_.callback_count == 1; });
   EXPECT_EQ(server_send_.status_code, IREE_STATUS_OK);
   EXPECT_EQ(client_messages_.error_count, 0);
   EXPECT_EQ(server_messages_.error_count, 0);
@@ -1044,10 +1090,7 @@ TEST_F(TransportTest, RoutesBidirectionalMessagesOnOwningProactors) {
 
 TEST_F(TransportTest, CallbackHandoffPreservesQueuedMessageOrder) {
   ASSERT_NO_FATAL_FAILURE(EstablishConnection());
-  iree_net_message_endpoint_t client_endpoint =
-      OpenEndpoint(client_connection_, client_proactor_, kClientPolling);
-  iree_net_message_endpoint_t server_endpoint =
-      OpenEndpoint(server_connection_, server_proactor_, kServerPolling);
+  auto [client_endpoint, server_endpoint] = OpenEndpoints();
   ASSERT_NE(client_endpoint.self, nullptr);
   ASSERT_NE(server_endpoint.self, nullptr);
 
@@ -1111,10 +1154,7 @@ TEST_F(TransportTest, CallbackHandoffPreservesQueuedMessageOrder) {
 
 TEST_F(TransportTest, CarriesControlDataAndGoaway) {
   ASSERT_NO_FATAL_FAILURE(EstablishConnection());
-  iree_net_message_endpoint_t client_endpoint =
-      OpenEndpoint(client_connection_, client_proactor_, kClientPolling);
-  iree_net_message_endpoint_t server_endpoint =
-      OpenEndpoint(server_connection_, server_proactor_, kServerPolling);
+  auto [client_endpoint, server_endpoint] = OpenEndpoints();
   ASSERT_NE(client_endpoint.self, nullptr);
   ASSERT_NE(server_endpoint.self, nullptr);
 
@@ -1197,10 +1237,7 @@ TEST_F(TransportTest, CarriesControlDataAndGoaway) {
 
 TEST_F(TransportTest, CarriesQueueCommandsAndAdvances) {
   ASSERT_NO_FATAL_FAILURE(EstablishConnection());
-  iree_net_message_endpoint_t client_endpoint =
-      OpenEndpoint(client_connection_, client_proactor_, kClientPolling);
-  iree_net_message_endpoint_t server_endpoint =
-      OpenEndpoint(server_connection_, server_proactor_, kServerPolling);
+  auto [client_endpoint, server_endpoint] = OpenEndpoints();
   ASSERT_NE(client_endpoint.self, nullptr);
   ASSERT_NE(server_endpoint.self, nullptr);
 
@@ -1264,16 +1301,11 @@ TEST_F(TransportTest, CarriesQueueCommandsAndAdvances) {
   IREE_ASSERT_OK(iree_net_queue_channel_send_advance(server_queue_channel_,
                                                      &advance_params));
 
-  PollImmediate(client_proactor_, kClientPolling);
-  PollImmediate(server_proactor_, kServerPolling);
-  PollUntil(server_proactor_, kServerPolling,
-            [&] { return server_queue_messages_.command_count == 1; });
-  PollUntil(client_proactor_, kClientPolling,
-            [&] { return client_queue_messages_.advance_count == 1; });
-  PollUntil(client_proactor_, kClientPolling,
-            [&] { return command_send.callback_count == 1; });
-  PollUntil(server_proactor_, kServerPolling,
-            [&] { return advance_send.callback_count == 1; });
+  PollBothUntil([&] {
+    return server_queue_messages_.command_count == 1 &&
+           client_queue_messages_.advance_count == 1 &&
+           command_send.callback_count == 1 && advance_send.callback_count == 1;
+  });
 
   EXPECT_EQ(server_queue_messages_.command_queue_id, 7u);
   ASSERT_EQ(server_queue_messages_.command_wait_frontier.size(), 2u);
@@ -1301,10 +1333,7 @@ TEST_F(TransportTest, CarriesQueueCommandsAndAdvances) {
 
 TEST_F(TransportTest, CarriesCreditBoundedBulkTransfer) {
   ASSERT_NO_FATAL_FAILURE(EstablishConnection());
-  iree_net_message_endpoint_t client_endpoint =
-      OpenEndpoint(client_connection_, client_proactor_, kClientPolling);
-  iree_net_message_endpoint_t server_endpoint =
-      OpenEndpoint(server_connection_, server_proactor_, kServerPolling);
+  auto [client_endpoint, server_endpoint] = OpenEndpoints();
   ASSERT_NE(client_endpoint.self, nullptr);
   ASSERT_NE(server_endpoint.self, nullptr);
 
@@ -1480,10 +1509,7 @@ TEST_F(TransportTest, CarriesCreditBoundedBulkTransfer) {
 
 TEST_F(TransportTest, GeneratesLargeTransientPrefixWithoutSizeCliff) {
   ASSERT_NO_FATAL_FAILURE(EstablishConnection());
-  iree_net_message_endpoint_t client_endpoint =
-      OpenEndpoint(client_connection_, client_proactor_, kClientPolling);
-  iree_net_message_endpoint_t server_endpoint =
-      OpenEndpoint(server_connection_, server_proactor_, kServerPolling);
+  auto [client_endpoint, server_endpoint] = OpenEndpoints();
 
   server_messages_.current_poll_side = &current_poll_side_;
   server_messages_.expected_poll_side = kServerPolling;
@@ -1511,21 +1537,17 @@ TEST_F(TransportTest, GeneratesLargeTransientPrefixWithoutSizeCliff) {
   IREE_ASSERT_OK(iree_net_message_endpoint_send(client_endpoint, &send_params));
   std::fill(prefix.begin(), prefix.end(), 'x');
 
-  PollImmediate(client_proactor_, kClientPolling);
-  PollUntil(server_proactor_, kServerPolling,
-            [&] { return server_messages_.messages.size() == 1; });
+  PollBothUntil([&] {
+    return server_messages_.messages.size() == 1 &&
+           send_state.callback_count == 1;
+  });
   EXPECT_EQ(server_messages_.messages[0], expected);
-  PollUntil(client_proactor_, kClientPolling,
-            [&] { return send_state.callback_count == 1; });
   EXPECT_EQ(send_state.status_code, IREE_STATUS_OK);
 }
 
 TEST_F(TransportTest, SaturatedAdmissionResumesFromCompletion) {
   ASSERT_NO_FATAL_FAILURE(EstablishConnection());
-  iree_net_message_endpoint_t client_endpoint =
-      OpenEndpoint(client_connection_, client_proactor_, kClientPolling);
-  iree_net_message_endpoint_t server_endpoint =
-      OpenEndpoint(server_connection_, server_proactor_, kServerPolling);
+  auto [client_endpoint, server_endpoint] = OpenEndpoints();
   client_messages_.current_poll_side = &current_poll_side_;
   client_messages_.expected_poll_side = kClientPolling;
   server_messages_.current_poll_side = &current_poll_side_;
@@ -1676,10 +1698,7 @@ TEST_F(TransportTest, MovedMessagesSurviveConnectionTeardown) {
   ScopedConnectionDrain drain{this};
 
   ASSERT_NO_FATAL_FAILURE(EstablishConnection());
-  iree_net_message_endpoint_t client_endpoint =
-      OpenEndpoint(client_connection_, client_proactor_, kClientPolling);
-  iree_net_message_endpoint_t server_endpoint =
-      OpenEndpoint(server_connection_, server_proactor_, kServerPolling);
+  auto [client_endpoint, server_endpoint] = OpenEndpoints();
   client_messages_.current_poll_side = &current_poll_side_;
   client_messages_.expected_poll_side = kClientPolling;
   iree_net_message_endpoint_set_callbacks(client_endpoint,
@@ -1712,10 +1731,7 @@ TEST_F(TransportTest, MovedMessagesSurviveConnectionTeardown) {
   EXPECT_EQ(retained.errors, 0);
 
   // A separate endpoint must progress while the first retains its messages.
-  iree_net_message_endpoint_t other_client =
-      OpenEndpoint(client_connection_, client_proactor_, kClientPolling);
-  iree_net_message_endpoint_t other_server =
-      OpenEndpoint(server_connection_, server_proactor_, kServerPolling);
+  auto [other_client, other_server] = OpenEndpoints();
   server_messages_.current_poll_side = &current_poll_side_;
   server_messages_.expected_poll_side = kServerPolling;
   iree_net_message_endpoint_set_callbacks(other_client,
@@ -1819,12 +1835,9 @@ TEST_F(TransportTest, PendingSubmissionRetainsFactoryAndProactors) {
   ASSERT_EQ(accept_state_.status_code, IREE_STATUS_OK);
   ASSERT_NE(client_connection_, nullptr);
   ASSERT_NE(server_connection_, nullptr);
-  EXPECT_NE(
-      OpenEndpoint(client_connection_, client_proactor_, kClientPolling).self,
-      nullptr);
-  EXPECT_NE(
-      OpenEndpoint(server_connection_, server_proactor_, kServerPolling).self,
-      nullptr);
+  auto endpoints = OpenEndpoints();
+  EXPECT_NE(endpoints.first.self, nullptr);
+  EXPECT_NE(endpoints.second.self, nullptr);
 }
 
 }  // namespace

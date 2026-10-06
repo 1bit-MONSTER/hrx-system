@@ -145,6 +145,16 @@ func.def @global_barriers() {
 
 // ====
 
+func.def @split_workgroup_barrier() {
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  %value = scalar.constant 1 : i32
+  %twice = scalar.addi %value, %value : i32
+  kernel.barrier.wait %phase : kernel.barrier.phase
+  func.return
+}
+
+// ====
+
 kernel.def @workitem_coordinates() {
   %c1 = index.constant 1 : index
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index

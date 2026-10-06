@@ -1,0 +1,258 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_bfloat_narrow.loom
+// RUN: emit spirv-dis input=source-low target=spirv:vulkan1.3+bda+extended-types validate
+// REQUIRES: spirv-dis, spirv-val
+
+func.def @narrow_bfloat(%input: f32) -> (bf16) {
+  %narrow = scalar.fptrunc %input : f32 to bf16
+  func.return %narrow : bf16
+}
+
+// ----
+               OpCapability Shader
+               OpCapability VulkanMemoryModel
+               OpCapability PhysicalStorageBufferAddresses
+               OpCapability Int64
+               OpCapability Float16
+               OpCapability Float64
+               OpCapability Int8
+               OpCapability Int16
+               OpCapability StorageBuffer8BitAccess
+               OpCapability StorageBuffer16BitAccess
+               OpCapability BFloat16TypeKHR
+               OpExtension "SPV_KHR_vulkan_memory_model"
+               OpExtension "SPV_KHR_physical_storage_buffer"
+               OpExtension "SPV_KHR_8bit_storage"
+               OpExtension "SPV_KHR_16bit_storage"
+               OpExtension "SPV_KHR_bfloat16"
+               OpMemoryModel PhysicalStorageBuffer64 Vulkan
+               OpEntryPoint GLCompute %narrow_bfloat "narrow_bfloat"
+               OpExecutionMode %narrow_bfloat LocalSize 1 1 1
+               OpName %narrow_bfloat "narrow_bfloat"
+               OpName %input "input"
+               OpName %narrow "narrow"
+               OpMemberDecorate %_struct_6 0 Offset 0
+               OpDecorate %_struct_6 Block
+               OpDecorate %4 DescriptorSet 0
+               OpDecorate %4 Binding 0
+               OpMemberDecorate %_struct_11 0 Offset 0
+               OpDecorate %_struct_11 Block
+               OpDecorate %9 DescriptorSet 0
+               OpDecorate %9 Binding 1
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+      %float = OpTypeFloat 32
+  %_struct_6 = OpTypeStruct %float
+%_ptr_StorageBuffer__struct_6 = OpTypePointer StorageBuffer %_struct_6
+%_ptr_StorageBuffer_float = OpTypePointer StorageBuffer %float
+          %4 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+   %bfloat16 = OpTypeFloat 16 BFloat16KHR
+ %_struct_11 = OpTypeStruct %bfloat16
+%_ptr_StorageBuffer__struct_11 = OpTypePointer StorageBuffer %_struct_11
+%_ptr_StorageBuffer_bfloat16 = OpTypePointer StorageBuffer %bfloat16
+          %9 = OpVariable %_ptr_StorageBuffer__struct_11 StorageBuffer
+       %void = OpTypeVoid
+         %15 = OpTypeFunction %void
+     %int_16 = OpConstant %int 16
+      %int_1 = OpConstant %int 1
+  %int_32767 = OpConstant %int 32767
+%int_2147483647 = OpConstant %int 2147483647
+%int_2139095040 = OpConstant %int 2139095040
+       %bool = OpTypeBool
+     %int_64 = OpConstant %int 64
+      %short = OpTypeInt 16 1
+%narrow_bfloat = OpFunction %void None %15
+         %16 = OpLabel
+         %17 = OpAccessChain %_ptr_StorageBuffer_float %4 %int_0
+      %input = OpLoad %float %17 Aligned 4
+         %19 = OpBitcast %int %input
+         %21 = OpShiftRightLogical %int %19 %int_16
+         %23 = OpBitwiseAnd %int %21 %int_1
+         %25 = OpIAdd %int %int_32767 %23
+         %26 = OpIAdd %int %19 %25
+         %27 = OpShiftRightLogical %int %26 %int_16
+         %29 = OpBitwiseAnd %int %19 %int_2147483647
+         %32 = OpSGreaterThan %bool %29 %int_2139095040
+         %34 = OpBitwiseOr %int %21 %int_64
+         %35 = OpSelect %int %32 %34 %27
+         %37 = OpSConvert %short %35
+     %narrow = OpBitcast %bfloat16 %37
+         %39 = OpAccessChain %_ptr_StorageBuffer_bfloat16 %9 %int_0
+               OpStore %39 %narrow Aligned 2
+               OpReturn
+               OpFunctionEnd
+
+// ====
+
+func.def @store_narrow_bfloat(%input: f32, %output: buffer) {
+  %base = index.constant 0 : offset
+  %target = buffer.view %output[%base] : buffer -> view<1xbf16>
+  %narrow = scalar.fptrunc %input : f32 to bf16
+  view.store %narrow, %target[0] : bf16, view<1xbf16>
+  func.return
+}
+
+// ----
+               OpCapability Shader
+               OpCapability VulkanMemoryModel
+               OpCapability PhysicalStorageBufferAddresses
+               OpCapability Int64
+               OpCapability Float16
+               OpCapability Float64
+               OpCapability Int8
+               OpCapability Int16
+               OpCapability StorageBuffer8BitAccess
+               OpCapability StorageBuffer16BitAccess
+               OpCapability BFloat16TypeKHR
+               OpExtension "SPV_KHR_vulkan_memory_model"
+               OpExtension "SPV_KHR_physical_storage_buffer"
+               OpExtension "SPV_KHR_8bit_storage"
+               OpExtension "SPV_KHR_16bit_storage"
+               OpExtension "SPV_KHR_bfloat16"
+               OpMemoryModel PhysicalStorageBuffer64 Vulkan
+               OpEntryPoint GLCompute %store_narrow_bfloat "store_narrow_bfloat"
+               OpExecutionMode %store_narrow_bfloat LocalSize 1 1 1
+               OpName %store_narrow_bfloat "store_narrow_bfloat"
+               OpName %input "input"
+               OpName %output "output"
+               OpName %narrow "narrow"
+               OpMemberDecorate %_struct_6 0 Offset 0
+               OpDecorate %_struct_6 Block
+               OpDecorate %4 DescriptorSet 0
+               OpDecorate %4 Binding 0
+               OpMemberDecorate %_struct_11 0 Offset 0
+               OpDecorate %_struct_11 Block
+               OpDecorate %9 DescriptorSet 0
+               OpDecorate %9 Binding 1
+               OpDecorate %_ptr_PhysicalStorageBuffer_bfloat16 ArrayStride 2
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+      %float = OpTypeFloat 32
+  %_struct_6 = OpTypeStruct %float
+%_ptr_StorageBuffer__struct_6 = OpTypePointer StorageBuffer %_struct_6
+%_ptr_StorageBuffer_float = OpTypePointer StorageBuffer %float
+          %4 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+      %ulong = OpTypeInt 64 0
+ %_struct_11 = OpTypeStruct %ulong
+%_ptr_StorageBuffer__struct_11 = OpTypePointer StorageBuffer %_struct_11
+%_ptr_StorageBuffer_ulong = OpTypePointer StorageBuffer %ulong
+          %9 = OpVariable %_ptr_StorageBuffer__struct_11 StorageBuffer
+       %void = OpTypeVoid
+         %15 = OpTypeFunction %void
+     %int_16 = OpConstant %int 16
+      %int_1 = OpConstant %int 1
+  %int_32767 = OpConstant %int 32767
+%int_2147483647 = OpConstant %int 2147483647
+%int_2139095040 = OpConstant %int 2139095040
+       %bool = OpTypeBool
+     %int_64 = OpConstant %int 64
+      %short = OpTypeInt 16 1
+   %bfloat16 = OpTypeFloat 16 BFloat16KHR
+    %ulong_0 = OpConstant %ulong 0
+%_ptr_PhysicalStorageBuffer_bfloat16 = OpTypePointer PhysicalStorageBuffer %bfloat16
+%store_narrow_bfloat = OpFunction %void None %15
+         %16 = OpLabel
+         %17 = OpAccessChain %_ptr_StorageBuffer_float %4 %int_0
+      %input = OpLoad %float %17 Aligned 4
+         %19 = OpAccessChain %_ptr_StorageBuffer_ulong %9 %int_0
+     %output = OpLoad %ulong %19 Aligned 8
+         %21 = OpBitcast %int %input
+         %23 = OpShiftRightLogical %int %21 %int_16
+         %25 = OpBitwiseAnd %int %23 %int_1
+         %27 = OpIAdd %int %int_32767 %25
+         %28 = OpIAdd %int %21 %27
+         %29 = OpShiftRightLogical %int %28 %int_16
+         %31 = OpBitwiseAnd %int %21 %int_2147483647
+         %34 = OpSGreaterThan %bool %31 %int_2139095040
+         %36 = OpBitwiseOr %int %23 %int_64
+         %37 = OpSelect %int %34 %36 %29
+         %39 = OpSConvert %short %37
+     %narrow = OpBitcast %bfloat16 %39
+         %43 = OpIAdd %ulong %output %ulong_0
+         %45 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer_bfloat16 %43
+               OpStore %45 %narrow Aligned 2
+               OpReturn
+               OpFunctionEnd
+
+// ====
+
+func.def @narrow_bfloat_bits(%input: f32) -> (i16) {
+  %narrow = scalar.fptrunc %input : f32 to bf16
+  %bits = scalar.bitcast %narrow : bf16 to i16
+  func.return %bits : i16
+}
+
+// ----
+               OpCapability Shader
+               OpCapability VulkanMemoryModel
+               OpCapability PhysicalStorageBufferAddresses
+               OpCapability Int64
+               OpCapability Float16
+               OpCapability Float64
+               OpCapability Int8
+               OpCapability Int16
+               OpCapability StorageBuffer8BitAccess
+               OpCapability StorageBuffer16BitAccess
+               OpCapability BFloat16TypeKHR
+               OpExtension "SPV_KHR_vulkan_memory_model"
+               OpExtension "SPV_KHR_physical_storage_buffer"
+               OpExtension "SPV_KHR_8bit_storage"
+               OpExtension "SPV_KHR_16bit_storage"
+               OpExtension "SPV_KHR_bfloat16"
+               OpMemoryModel PhysicalStorageBuffer64 Vulkan
+               OpEntryPoint GLCompute %narrow_bfloat_bits "narrow_bfloat_bits"
+               OpExecutionMode %narrow_bfloat_bits LocalSize 1 1 1
+               OpName %narrow_bfloat_bits "narrow_bfloat_bits"
+               OpName %input "input"
+               OpName %narrow "narrow"
+               OpName %bits "bits"
+               OpMemberDecorate %_struct_6 0 Offset 0
+               OpDecorate %_struct_6 Block
+               OpDecorate %4 DescriptorSet 0
+               OpDecorate %4 Binding 0
+               OpMemberDecorate %_struct_11 0 Offset 0
+               OpDecorate %_struct_11 Block
+               OpDecorate %9 DescriptorSet 0
+               OpDecorate %9 Binding 1
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+      %float = OpTypeFloat 32
+  %_struct_6 = OpTypeStruct %float
+%_ptr_StorageBuffer__struct_6 = OpTypePointer StorageBuffer %_struct_6
+%_ptr_StorageBuffer_float = OpTypePointer StorageBuffer %float
+          %4 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+      %short = OpTypeInt 16 1
+ %_struct_11 = OpTypeStruct %short
+%_ptr_StorageBuffer__struct_11 = OpTypePointer StorageBuffer %_struct_11
+%_ptr_StorageBuffer_short = OpTypePointer StorageBuffer %short
+          %9 = OpVariable %_ptr_StorageBuffer__struct_11 StorageBuffer
+       %void = OpTypeVoid
+         %15 = OpTypeFunction %void
+     %int_16 = OpConstant %int 16
+      %int_1 = OpConstant %int 1
+  %int_32767 = OpConstant %int 32767
+%int_2147483647 = OpConstant %int 2147483647
+%int_2139095040 = OpConstant %int 2139095040
+       %bool = OpTypeBool
+     %int_64 = OpConstant %int 64
+   %bfloat16 = OpTypeFloat 16 BFloat16KHR
+%narrow_bfloat_bits = OpFunction %void None %15
+         %16 = OpLabel
+         %17 = OpAccessChain %_ptr_StorageBuffer_float %4 %int_0
+      %input = OpLoad %float %17 Aligned 4
+         %19 = OpBitcast %int %input
+         %21 = OpShiftRightLogical %int %19 %int_16
+         %23 = OpBitwiseAnd %int %21 %int_1
+         %25 = OpIAdd %int %int_32767 %23
+         %26 = OpIAdd %int %19 %25
+         %27 = OpShiftRightLogical %int %26 %int_16
+         %29 = OpBitwiseAnd %int %19 %int_2147483647
+         %32 = OpSGreaterThan %bool %29 %int_2139095040
+         %34 = OpBitwiseOr %int %21 %int_64
+         %35 = OpSelect %int %32 %34 %27
+         %36 = OpSConvert %short %35
+     %narrow = OpBitcast %bfloat16 %36
+       %bits = OpBitcast %short %narrow
+         %40 = OpAccessChain %_ptr_StorageBuffer_short %9 %int_0
+               OpStore %40 %bits Aligned 2
+               OpReturn
+               OpFunctionEnd

@@ -1,0 +1,22 @@
+// RUN: with-checks emit source-low @extrema target=amdgpu:gfx1151 output=low
+
+// Ordinary ternaries reach integer min/max without a source intrinsic.
+[[loom::kernel, loom::workgroup_size(1, 1, 1), loom::workgroup_count(1, 1, 1)]]
+void extrema(const int* input, int* output) {
+  int lhs = input[0];
+  int rhs = input[1];
+  output[0] = lhs < rhs ? lhs : rhs;
+  output[1] = lhs <= rhs ? rhs : lhs;
+  unsigned left = static_cast<unsigned>(lhs);
+  unsigned right = static_cast<unsigned>(rhs);
+  output[2] = static_cast<int>(left > right ? right : left);
+  output[3] = static_cast<int>(left >= right ? left : right);
+}
+
+// ----
+CHECK: * = v_min_i32 *
+CHECK: * = v_max_i32 *
+CHECK: * = v_min_u32 *
+CHECK: * = v_max_u32 *
+CHECK-NOT: *v_cmp_*
+CHECK-NOT: *v_cndmask_*

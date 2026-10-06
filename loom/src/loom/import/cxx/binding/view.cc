@@ -19,6 +19,7 @@
 
 #include "iree/base/api.h"
 #include "loom/import/cxx/source/error.h"
+#include "loom/import/cxx/value/storage.h"
 #include "loom/ops/buffer/ops.h"
 #include "loom/ops/encoding/ops.h"
 #include "loom/ops/index/ops.h"
@@ -32,9 +33,11 @@ const EncodingPartition& require_encoding(cxx::TranslationUnit& unit,
                                           Types& types, const cxx::Type* type,
                                           cxx::AST* owner) {
   const auto& partition = types.partition(type, owner);
-  if (partition.kind != ValueKind::Encoding) {
+  if (partition.kind != ValueKind::Encoding ||
+      static_cast<const EncodingPartition&>(partition).role !=
+          LOOM_ENCODING_ROLE_ADDRESS_LAYOUT) {
     diagnostics.reject(unit, owner,
-                       "encoding operation requires an encoding value");
+                       "view operation requires a layout encoding value");
   }
   return static_cast<const EncodingPartition&>(partition);
 }
@@ -278,7 +281,7 @@ std::optional<ViewIntrinsic> ViewIntrinsic::resolve(
 
 std::optional<Value> ViewIntrinsic::call(std::span<const Value> arguments,
                                          Types& types, ValueArena& arena,
-                                         cxx::AST* owner,
+                                         Storage& storage, cxx::AST* owner,
                                          loom_builder_t* builder,
                                          loom_location_id_t location) const {
   loom_op_t* op;
@@ -325,17 +328,22 @@ std::optional<Value> ViewIntrinsic::call(std::span<const Value> arguments,
         }
       }
 
+      std::optional<Pointer> pointer;
+      if (operation_ == Operation::BufferView) {
+        pointer = storage.constrain_origin(arguments[0].pointer(), owner);
+      }
+
       loom_value_id_t result_id;
-      check(loom_builder_reserve_results(builder, 1, &result_id));
+      check(loom_builder_reserve_values(builder, 1, &result_id));
       components[component_count++] = result_id;
       std::vector<loom_type_t> result_types;
       types.append_bound(result_source_type_, owner,
                          {components.data(), component_count}, result_types);
       auto result_type = result_types.back();
       if (operation_ == Operation::BufferView) {
-        auto pointer = arguments[0].pointer();
-        check(loom_buffer_view_build(builder, pointer.root, pointer.byte_offset,
-                                     result_type, location, &op));
+        check(loom_buffer_view_build(builder, pointer->root,
+                                     pointer->byte_offset, result_type,
+                                     location, &op));
       } else {
         const int64_t static_offsets[2] = {
             std::numeric_limits<int64_t>::min(),

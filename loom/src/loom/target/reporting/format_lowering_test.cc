@@ -199,7 +199,7 @@ TEST(CompileReportFormatTest, FormatsSourceToLowSelectionAndMemory) {
   memory.bank_service.wave_size = 32;
   memory.bank_service.bank_count = 32;
   memory.bank_service.bank_word_byte_count = 4;
-  memory.bank_service.packet_word_count = 4;
+  memory.bank_service.packet_byte_count = 16;
   memory.bank_service.phase_count = 2;
   memory.bank_service.phase_lane_counts[0] = 4;
   memory.bank_service.phase_lane_counts[1] = 4;
@@ -217,6 +217,7 @@ TEST(CompileReportFormatTest, FormatsSourceToLowSelectionAndMemory) {
   memory.subgroup_access.lane_mapping = IREE_SVL("linear");
   memory.subgroup_access.interval_coverage = IREE_SVL("gapped");
   memory.subgroup_access.subgroup_size = 32;
+  memory.subgroup_access.active_lane_count = 32;
   memory.subgroup_access.lane_term_count = 1;
   memory.subgroup_access.lane_terms[0] = {
       /*.divisor=*/1,
@@ -421,6 +422,58 @@ TEST(CompileReportFormatTest, FormatsSourceToLowSelectionAndMemory) {
       &second_phase_rounds));
   EXPECT_EQ(second_phase_rounds, 2u);
 
+  iree_string_builder_deinitialize(&builder);
+  loom_target_compile_report_deinitialize(&report);
+}
+
+TEST(CompileReportFormatTest, KeepsUnmodeledBankCoverageWithoutAModel) {
+  loom_target_compile_report_t entry_report = {};
+  loom_target_compile_report_initialize(&entry_report, iree_allocator_system());
+  entry_report.function_name = IREE_SVL("kernel");
+  loom_target_compile_report_source_low_memory_row_t memory = {};
+  memory.function_name = entry_report.function_name;
+  memory.source_op_name = IREE_SVL("vector.load");
+  memory.source_root_name = IREE_SVL("scratch");
+  memory.source_root_argument_index = UINT16_MAX;
+  memory.memory_space = IREE_SVL("workgroup");
+  memory.operation_kind = IREE_SVL("load");
+  memory.packet_key = IREE_SVL("test.lds.load.i32");
+  memory.element_byte_count = 4;
+  memory.vector_lane_count = 1;
+  memory.issued_read_byte_count = 4;
+  memory.bank_service.proof = IREE_SVL("unmodeled");
+  memory.bank_service.unknown_reason = IREE_SVL("target-model-unavailable");
+  memory.bank_service.wave_size = 32;
+  IREE_ASSERT_OK(loom_target_compile_report_record_source_low_memory_row(
+      &entry_report, &memory));
+  loom_target_compile_report_t report = {};
+  loom_target_compile_report_initialize(&report, iree_allocator_system());
+  IREE_ASSERT_OK(
+      loom_target_compile_report_record_entry_report(&report, &entry_report));
+  loom_target_compile_report_deinitialize(&entry_report);
+
+  iree_string_builder_t builder;
+  iree_string_builder_initialize(iree_allocator_system(), &builder);
+  loom_output_stream_t stream;
+  loom_output_stream_for_builder(&builder, &stream);
+  const loom_target_compile_report_format_options_t options = {
+      /*.mode=*/LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_DETAILS,
+  };
+  IREE_ASSERT_OK(
+      loom_target_compile_report_format_json(&report, &options, &stream));
+  const auto root = ParseJsonDocument(iree_string_builder_view(&builder));
+  const auto memory_summary = LookupObject(
+      LookupObject(root, IREE_SV("source_low")), IREE_SV("memory"));
+  const auto summary = LookupObject(memory_summary, IREE_SV("bank_service"));
+  ExpectObjectUint64Equals(summary, IREE_SV("unmodeled_packet_count"), 1);
+  ExpectObjectUint64Equals(summary, IREE_SV("modeled_packet_count"), 0);
+  const auto group = LookupArrayElement(
+      LookupObject(memory_summary, IREE_SV("bank_service_groups")), 0);
+  ExpectObjectValueEquals(group, IREE_SV("model"), IREE_SV("null"));
+  ExpectObjectUint64Equals(group, IREE_SV("wave_size"), 32);
+  ExpectObjectValueEquals(LookupObject(group, IREE_SV("unknown_evidence")),
+                          IREE_SV("reason"),
+                          IREE_SV("target-model-unavailable"));
   iree_string_builder_deinitialize(&builder);
   loom_target_compile_report_deinitialize(&report);
 }

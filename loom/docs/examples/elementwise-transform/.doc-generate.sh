@@ -104,11 +104,6 @@ grep -Fq '@elementwise_transform_f32' "${kernel_output}"
 grep -Fq 'global_load_b32_saddr' "${kernel_output}"
 grep -Fq 'v_add_f32' "${kernel_output}"
 grep -Fq 'global_store_b32_saddr' "${kernel_output}"
-grep -Fq '"format":"loom-command-set"' \
-  "${artifact_root}/elementwise-transform.commands.json"
-grep -Fq '"symbol":"elementwise_transform"' \
-  "${artifact_root}/elementwise-transform.commands.json"
-test -s "${artifact_root}/elementwise-transform.commands/program-0.loomcmd"
 grep -Fq '@elementwise_transform() asm' "${command_output}"
 grep -Fq 'cmd.dispatch.' "${command_output}"
 

@@ -186,8 +186,8 @@ iree_status_t loom_amdgpu_select_kernel_subgroup_scan_plan(
   loom_amdgpu_subgroup_payload_kind_t payload_kind =
       LOOM_AMDGPU_SUBGROUP_PAYLOAD_NONE;
   uint32_t register_count = 0;
-  if (!loom_amdgpu_collective_payload_is_supported(module, value, &payload_kind,
-                                                   &register_count)) {
+  if (!loom_amdgpu_collective_arithmetic_payload_is_supported(
+          module, value, &payload_kind, &register_count)) {
     return iree_ok_status();
   }
 
@@ -279,8 +279,8 @@ iree_status_t loom_amdgpu_select_kernel_workgroup_scan_plan(
   loom_amdgpu_subgroup_payload_kind_t payload_kind =
       LOOM_AMDGPU_SUBGROUP_PAYLOAD_NONE;
   uint32_t register_count = 0;
-  if (!loom_amdgpu_collective_payload_is_supported(module, value, &payload_kind,
-                                                   &register_count)) {
+  if (!loom_amdgpu_collective_arithmetic_payload_is_supported(
+          module, value, &payload_kind, &register_count)) {
     return iree_ok_status();
   }
 
@@ -413,6 +413,7 @@ iree_status_t loom_amdgpu_select_kernel_workgroup_scan_plan(
   out_plan->identity_bits = identity_bits;
   out_plan->partition_wavefront_size = partition_wavefront_size;
   out_plan->flat_workgroup_size = shape.flat_workgroup_size;
+  out_plan->scratch_byte_length = shape.scratch_byte_length;
   *out_selected = true;
   return iree_ok_status();
 }
@@ -785,11 +786,10 @@ iree_status_t loom_amdgpu_lower_kernel_workgroup_scan(
       partition_wavefront_size - 1, lane_type, &lane_id));
 
   const uint32_t register_count = plan->register_count;
-  const uint32_t scratch_byte_length = partition_count * register_count * 4u;
   loom_builder_t* builder = loom_low_lower_context_builder(context);
   loom_op_t* storage_op = NULL;
   IREE_RETURN_IF_ERROR(loom_low_storage_reserve_build(
-      builder, scratch_byte_length, /*byte_alignment=*/4,
+      builder, (int64_t)plan->scratch_byte_length, /*byte_alignment=*/4,
       loom_type_storage(LOOM_STORAGE_SPACE_WORKGROUP), source_op->location,
       &storage_op));
   loom_op_t* storage_address_op = NULL;
@@ -1090,8 +1090,8 @@ iree_status_t loom_amdgpu_low_legality_verify_kernel_workgroup_scan(
   loom_amdgpu_subgroup_payload_kind_t payload_kind =
       LOOM_AMDGPU_SUBGROUP_PAYLOAD_NONE;
   uint32_t unused_register_count = 0;
-  if (!loom_amdgpu_collective_payload_is_supported(module, value, &payload_kind,
-                                                   &unused_register_count)) {
+  if (!loom_amdgpu_collective_arithmetic_payload_is_supported(
+          module, value, &payload_kind, &unused_register_count)) {
     return loom_amdgpu_low_legality_reject(context, op,
                                            IREE_SV("workgroup_scan.payload"));
   }
@@ -1222,8 +1222,8 @@ iree_status_t loom_amdgpu_low_legality_verify_kernel_subgroup_scan(
   loom_amdgpu_subgroup_payload_kind_t payload_kind =
       LOOM_AMDGPU_SUBGROUP_PAYLOAD_NONE;
   uint32_t unused_register_count = 0;
-  if (!loom_amdgpu_collective_payload_is_supported(module, value, &payload_kind,
-                                                   &unused_register_count)) {
+  if (!loom_amdgpu_collective_arithmetic_payload_is_supported(
+          module, value, &payload_kind, &unused_register_count)) {
     return loom_amdgpu_low_legality_reject(context, op,
                                            IREE_SV("subgroup_scan.payload"));
   }

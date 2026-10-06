@@ -88,6 +88,11 @@ def _dma_buffer_descriptor_patterns(
     )
 
 
+_COMPUTE_DMA_TRANSFER_LENGTH_FIELD = _field("buffer_length", 0, 14)
+_MEMORY_DMA_TRANSFER_LENGTH_FIELD = _field("buffer_length", 0, 17)
+_SHIM_DMA_TRANSFER_LENGTH_FIELD = _field("buffer_length", 0, 32)
+
+
 _COMPUTE_DMA_BD_PATTERNS = _dma_buffer_descriptor_patterns(
     key="compute_memory.dma.bd",
     module=RegisterModule.COMPUTE_MEMORY,
@@ -96,7 +101,7 @@ _COMPUTE_DMA_BD_PATTERNS = _dma_buffer_descriptor_patterns(
     words=(
         (
             _field("base_address", 14, 14),
-            _field("buffer_length", 0, 14),
+            _COMPUTE_DMA_TRANSFER_LENGTH_FIELD,
         ),
         (
             _field("enable_compression", 31),
@@ -144,7 +149,7 @@ _MEMORY_DMA_BD_PATTERNS = _dma_buffer_descriptor_patterns(
             _field("packet_type", 28, 3),
             _field("packet_id", 23, 5),
             _field("out_of_order_bd_id", 17, 6),
-            _field("buffer_length", 0, 17),
+            _MEMORY_DMA_TRANSFER_LENGTH_FIELD,
         ),
         (
             _field("d0_zero_before", 26, 6),
@@ -196,7 +201,7 @@ _SHIM_DMA_BD_PATTERNS = _dma_buffer_descriptor_patterns(
     base_offset=0x1D000,
     buffer_descriptor_count=16,
     words=(
-        (_field("buffer_length", 0, 32),),
+        (_SHIM_DMA_TRANSFER_LENGTH_FIELD,),
         (_field("base_address_low", 2, 30),),
         (
             _field("enable_packet", 30),
@@ -736,7 +741,16 @@ NPU2_ARRAY_FAMILY = ArrayFamily(
             kind=TileKind.SHIM_NOC,
             first_row=0,
             row_count=1,
-            memory=TileMemoryFacts(0, 0, 0, 0, 0, 0, ()),
+            memory=TileMemoryFacts(
+                local_base=0,
+                local_capacity=0,
+                local_load_base=0,
+                bank_count=0,
+                program_base=0,
+                program_capacity=0,
+                program_load_base=0,
+                load_windows=(),
+            ),
             lock_count=16,
             lock_value_minimum=-64,
             lock_value_maximum=63,
@@ -752,6 +766,7 @@ NPU2_ARRAY_FAMILY = ArrayFamily(
                 address_encoding_shift=0,
                 transfer_length_granularity=4,
                 transfer_length_offset=0,
+                transfer_length_field=_SHIM_DMA_TRANSFER_LENGTH_FIELD,
                 memory_to_stream_port_base=3,
                 memory_to_stream_port_stride=4,
                 stream_to_memory_port_base=2,
@@ -774,6 +789,7 @@ NPU2_ARRAY_FAMILY = ArrayFamily(
             memory=TileMemoryFacts(
                 local_base=0,
                 local_capacity=512 * 1024,
+                local_load_base=0x80000,
                 bank_count=8,
                 program_base=0,
                 program_capacity=0,
@@ -806,6 +822,7 @@ NPU2_ARRAY_FAMILY = ArrayFamily(
                 address_encoding_shift=2,
                 transfer_length_granularity=4,
                 transfer_length_offset=0,
+                transfer_length_field=_MEMORY_DMA_TRANSFER_LENGTH_FIELD,
                 memory_to_stream_port_base=0,
                 memory_to_stream_port_stride=1,
                 stream_to_memory_port_base=0,
@@ -828,6 +845,7 @@ NPU2_ARRAY_FAMILY = ArrayFamily(
             memory=TileMemoryFacts(
                 local_base=0,
                 local_capacity=64 * 1024,
+                local_load_base=0x70000,
                 bank_count=4,
                 program_base=0,
                 program_capacity=16 * 1024,
@@ -863,6 +881,7 @@ NPU2_ARRAY_FAMILY = ArrayFamily(
                 address_encoding_shift=2,
                 transfer_length_granularity=4,
                 transfer_length_offset=0,
+                transfer_length_field=_COMPUTE_DMA_TRANSFER_LENGTH_FIELD,
                 memory_to_stream_port_base=0,
                 memory_to_stream_port_stride=1,
                 stream_to_memory_port_base=0,

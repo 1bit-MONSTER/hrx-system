@@ -342,3 +342,30 @@ low.func.def target<spirv.logical.core>(@target) @unsupported_structural_op() as
   %value = live_in<spirv.arg0> : reg<spirv.id : i32>
   return
 }
+
+// ====
+
+// RUN: verify
+
+spirv.target<vulkan1_3> @target
+
+low.func.def target<spirv.logical.core>(@target) @variadic_compile_time_identities(%integer: reg<spirv.id : i32>, %floating: reg<spirv.id : f32>) -> (reg<spirv.id : i32>, reg<spirv.id : f32>) asm {
+  %integer_alias, %floating_alias = low.assume %integer, %floating [] : reg<spirv.id : i32>, reg<spirv.id : f32>
+  low.schedule.fence
+  %sum = OpIAdd %integer_alias, %integer_alias
+  return %sum, %floating_alias
+}
+
+// ====
+
+// RUN: verify
+
+spirv.target<vulkan1_3> @target
+
+// The register spelling is shared, but identity retains the packet's u32 type.
+low.func.def target<spirv.logical.core>(@target) @assumed_return_value_type_mismatch(%value: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  %unsigned = OpBitcast.i32.u32 %value : reg<spirv.id : i32>
+  %signed_alias, %unsigned_alias = low.assume %value, %unsigned [] : reg<spirv.id : i32>, reg<spirv.id : i32>
+  // ERROR@+1: SPIRV/014 {function_name="assumed_return_value_type_mismatch", result_index="0", value_name="unsigned_alias", expected_value_type="s32", actual_value_type="u32"}
+  return %unsigned_alias
+}

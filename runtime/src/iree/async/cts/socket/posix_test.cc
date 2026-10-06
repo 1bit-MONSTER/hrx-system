@@ -19,11 +19,13 @@
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <string>
 
 #include "iree/async/cts/util/registry.h"
@@ -266,6 +268,125 @@ TEST_P(SocketPosixTest, VerifyOption_NoDelay) {
 
   iree_async_socket_release(socket);
 }
+
+#if defined(IREE_PLATFORM_LINUX) || defined(IREE_PLATFORM_ANDROID)
+
+// The native option can be supported at runtime even with older libc headers.
+static constexpr int kTcpDelayedAckMaxMicroseconds = 46;
+
+class SocketAckPolicyTest : public SocketTestBase<> {
+ protected:
+  void VerifyConnectedPolicy(iree_async_socket_type_t type,
+                             iree_async_address_t address) {
+    using Socket = std::unique_ptr<iree_async_socket_t,
+                                   decltype(&iree_async_socket_release)>;
+    iree_async_socket_t* raw_socket = nullptr;
+    IREE_ASSERT_OK(iree_async_socket_create(
+        proactor_, type, IREE_ASYNC_SOCKET_OPTION_LOW_LATENCY_ACK,
+        &raw_socket));
+    Socket listener(raw_socket, iree_async_socket_release);
+    IREE_ASSERT_OK(iree_async_socket_bind(listener.get(), &address));
+    IREE_ASSERT_OK(iree_async_socket_listen(listener.get(), 1));
+    IREE_ASSERT_OK(
+        iree_async_socket_query_local_address(listener.get(), &address));
+
+    IREE_ASSERT_OK(iree_async_socket_create(
+        proactor_, type, IREE_ASYNC_SOCKET_OPTION_LOW_LATENCY_ACK,
+        &raw_socket));
+    Socket client(raw_socket, iree_async_socket_release);
+    iree_async_socket_accept_operation_t accept_op;
+    CompletionTracker accept_tracker;
+    InitAcceptOperation(&accept_op, listener.get(), CompletionTracker::Callback,
+                        &accept_tracker);
+    iree_async_socket_connect_operation_t connect_op;
+    CompletionTracker connect_tracker;
+    InitConnectOperation(&connect_op, client.get(), address,
+                         CompletionTracker::Callback, &connect_tracker);
+    IREE_ASSERT_OK(iree_async_proactor_submit_one(proactor_, &accept_op.base));
+    IREE_ASSERT_OK(iree_async_proactor_submit_one(proactor_, &connect_op.base));
+    PollUntilCondition([&] {
+      return accept_tracker.call_count && connect_tracker.call_count;
+    });
+    Socket accepted(accept_op.accepted_socket, iree_async_socket_release);
+    IREE_ASSERT_OK(accept_tracker.ConsumeStatus());
+    IREE_ASSERT_OK(connect_tracker.ConsumeStatus());
+
+    int caps[3] = {};
+    size_t index = 0;
+    for (auto* socket : {listener.get(), client.get(), accepted.get()}) {
+      socklen_t length = sizeof(caps[index]);
+      int result =
+          getsockopt(socket->primitive.value.fd, IPPROTO_TCP,
+                     kTcpDelayedAckMaxMicroseconds, &caps[index], &length);
+      if (result != 0 && errno == ENOPROTOOPT) {
+        GTEST_SKIP()
+            << "Kernel has no persistent delayed-ACK cap; hint accepted";
+      }
+      ASSERT_EQ(result, 0) << strerror(errno);
+      ++index;
+    }
+    EXPECT_EQ(caps[0], caps[1]);
+    EXPECT_EQ(caps[0], caps[2]);
+    struct timespec resolution;
+    ASSERT_EQ(clock_getres(CLOCK_MONOTONIC_COARSE, &resolution), 0);
+    int tick_microseconds = (int)((resolution.tv_nsec + 999) / 1000);
+    EXPECT_GE(caps[0], 2000);
+    EXPECT_LE(caps[0],
+              iree_max(2000, 2 * tick_microseconds) + tick_microseconds);
+  }
+};
+
+TEST_P(SocketAckPolicyTest, IPv4_ClientAndAcceptedCap) {
+  iree_async_address_t address;
+  IREE_ASSERT_OK(
+      iree_async_address_from_ipv4(IREE_SV("127.0.0.1"), 0, &address));
+  VerifyConnectedPolicy(IREE_ASYNC_SOCKET_TYPE_TCP, address);
+}
+
+TEST_P(SocketAckPolicyTest, IPv6_ClientAndAcceptedCap) {
+  iree_async_address_t address;
+  IREE_ASSERT_OK(iree_async_address_from_ipv6(IREE_SV("::1"), 0, &address));
+  VerifyConnectedPolicy(IREE_ASYNC_SOCKET_TYPE_TCP6, address);
+}
+
+TEST_P(SocketAckPolicyTest, ImportPreservesCallerCap) {
+  int raw_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  ASSERT_GE(raw_fd, 0);
+  int cap_microseconds = 100000;
+  int result = setsockopt(raw_fd, IPPROTO_TCP, kTcpDelayedAckMaxMicroseconds,
+                          &cap_microseconds, sizeof(cap_microseconds));
+  if (result != 0) {
+    int error = errno;
+    close(raw_fd);
+    if (error == ENOPROTOOPT) {
+      GTEST_SKIP() << "Kernel has no delayed-ACK cap";
+    }
+    FAIL() << strerror(error);
+  }
+  socklen_t length = sizeof(cap_microseconds);
+  EXPECT_EQ(getsockopt(raw_fd, IPPROTO_TCP, kTcpDelayedAckMaxMicroseconds,
+                       &cap_microseconds, &length),
+            0);
+  iree_async_socket_t* imported = nullptr;
+  iree_status_t status = iree_async_socket_import(
+      proactor_, iree_async_primitive_from_fd(raw_fd),
+      IREE_ASYNC_SOCKET_TYPE_TCP, IREE_ASYNC_SOCKET_FLAG_NONE, &imported);
+  if (!iree_status_is_ok(status)) {
+    close(raw_fd);
+  }
+  IREE_ASSERT_OK(status);
+  int imported_cap = 0;
+  length = sizeof(imported_cap);
+  EXPECT_EQ(getsockopt(imported->primitive.value.fd, IPPROTO_TCP,
+                       kTcpDelayedAckMaxMicroseconds, &imported_cap, &length),
+            0);
+  EXPECT_EQ(imported_cap, cap_microseconds);
+  iree_async_socket_release(imported);
+}
+
+CTS_REGISTER_TEST_SUITE(SocketAckPolicyTest);
+
+#endif  // IREE_PLATFORM_LINUX || IREE_PLATFORM_ANDROID
 
 // Verify SO_KEEPALIVE is applied to the underlying socket.
 TEST_P(SocketPosixTest, VerifyOption_KeepAlive) {

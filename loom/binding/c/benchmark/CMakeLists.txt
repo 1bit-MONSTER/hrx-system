@@ -119,6 +119,22 @@ loom_cc_benchmark(
 
 loom_cc_benchmark(
   NAME
+    link_sources_benchmark
+  SRCS
+    "link_sources_benchmark.cc"
+  DEPS
+    ::benchmark_support
+    iree::base
+    iree::testing::benchmark_main
+    loom::binding::c::loomc
+  ARGS
+    "--benchmark_filter=Bytecode/1/1/1"
+    "--benchmark_min_time=1x"
+  TESTONLY
+)
+
+loom_cc_benchmark(
+  NAME
     product_throughput_benchmark
   SRCS
     "product_throughput_benchmark.cc"

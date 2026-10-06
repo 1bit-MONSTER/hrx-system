@@ -11,13 +11,253 @@ iree_add_all_subdirs()
 
 iree_cc_library(
   NAME
+    collective_transport
+  HDRS
+    "collective_transport.h"
+  SRCS
+    "collective_transport.cc"
+  DEPS
+    ::transfer_trial
+    ::transport_backend
+    iree::async
+    iree::async::cts::util::registry
+    iree::base
+    iree::base::core_headers
+    iree::net::channel::queue::queue_channel
+    iree::net::connection
+    iree::net::direct_endpoint
+    iree::net::message_endpoint
+    iree::net::transport_factory
+  TESTONLY
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    collective_trial
+  HDRS
+    "collective_trial.h"
+  SRCS
+    "collective_trial.cc"
+  DEPS
+    ::collective_transport
+    ::transfer_trial
+    ::transport_backend
+    iree::async
+    iree::async::cts::util::registry
+    iree::base
+    iree::base::core_headers
+  TESTONLY
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    collective_benchmarks
+  SRCS
+    "collective_benchmark.cc"
+  DEPS
+    ::collective_trial
+    ::transfer_trial
+    ::transport_backend
+    iree::async::cts::util::registry
+    iree::third_party::google_benchmark
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    expert_benchmarks
+  SRCS
+    "expert_benchmark.cc"
+  DEPS
+    ::expert_trial
+    ::transfer_trial
+    ::transport_backend
+    iree::async::cts::util::registry
+    iree::third_party::google_benchmark
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    gather_benchmarks
+  SRCS
+    "gather_benchmark.cc"
+  DEPS
+    ::gather_trial
+    ::transfer_trial
+    ::transport_backend
+    iree::async::cts::util::registry
+    iree::third_party::google_benchmark
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    expert_trial
+  HDRS
+    "expert_trial.h"
+  SRCS
+    "expert_trial.cc"
+  DEPS
+    ::collective_transport
+    ::transfer_trial
+    ::transport_backend
+    iree::async
+    iree::async::cts::util::registry
+    iree::base
+    iree::base::core_headers
+  TESTONLY
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    collective_trial_tests
+  SRCS
+    "collective_trial_test.cc"
+    "expert_trial_test.cc"
+    "gather_trial_test.cc"
+    "pipeline_round_trip_test.cc"
+  DEPS
+    ::collective_trial
+    ::expert_trial
+    ::gather_trial
+    ::pipeline_round_trip
+    ::transport_backend
+    iree::async::cts::util::registry
+    iree::testing::gtest
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    gather_trial
+  HDRS
+    "gather_trial.h"
+  SRCS
+    "gather_trial.cc"
+  DEPS
+    ::collective_transport
+    ::transfer_trial
+    ::transport_backend
+    iree::async
+    iree::async::cts::util::registry
+    iree::base
+    iree::base::core_headers
+  TESTONLY
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    pipeline_round_trip_benchmarks
+  SRCS
+    "pipeline_round_trip_benchmark.cc"
+  DEPS
+    ::pipeline_round_trip
+    ::transfer_trial
+    ::transport_backend
+    iree::async::cts::util::registry
+    iree::third_party::google_benchmark
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    pipeline_round_trip
+  HDRS
+    "pipeline_round_trip.h"
+  SRCS
+    "pipeline_round_trip.cc"
+  DEPS
+    ::collective_transport
+    ::transfer_trial
+    ::transport_backend
+    iree::async
+    iree::async::cts::util::registry
+    iree::base
+    iree::base::core_headers
+  TESTONLY
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
     transport_backend
   HDRS
     "transport_backend.h"
   DEPS
+    iree::async
     iree::base
     iree::net::transport_factory
   TESTONLY
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    direct_transfer_trial
+  HDRS
+    "direct_transfer_trial.h"
+  SRCS
+    "direct_transfer_trial.cc"
+  DEPS
+    ::transfer_trial
+    ::transport_backend
+    iree::async
+    iree::async::cts::util::registry
+    iree::base
+    iree::base::core_headers
+    iree::net::channel::queue::queue_channel
+    iree::net::connection
+    iree::net::direct_endpoint
+    iree::net::message_endpoint
+    iree::net::transport_factory
+  TESTONLY
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    direct_transfer_benchmarks
+  SRCS
+    "direct_transfer_benchmark.cc"
+  DEPS
+    ::direct_transfer_trial
+    ::transfer_trial
+    ::transport_backend
+    iree::async::cts::util::registry
+    iree::third_party::google_benchmark
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    direct_transfer_trial_tests
+  SRCS
+    "direct_transfer_trial_test.cc"
+  DEPS
+    ::direct_transfer_trial
+    ::transfer_trial
+    ::transport_backend
+    iree::async::cts::util::registry
+    iree::testing::gtest
+  TESTONLY
+  ALWAYSLINK
   PUBLIC
 )
 

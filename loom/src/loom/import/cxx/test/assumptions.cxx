@@ -65,17 +65,43 @@ template <unsigned Limit>
   return value + 3u;
 }
 
+[[loom::force_inline]] unsigned bound_inclusive(unsigned tokens) {
+  constexpr unsigned capacity = 427u;
+  loom::assume(tokens <= capacity);
+  return tokens * 19u + 3u;
+}
+
+[[loom::force_inline]] int bound_signed(int hidden, int capacity) {
+  loom::assume(hidden > 0 && hidden <= capacity);
+  return hidden * 23 + capacity;
+}
+
+[[loom::force_inline]] unsigned bound_unsigned(unsigned tokens,
+                                               unsigned capacity) {
+  loom::assume(tokens <= capacity);
+  return tokens ^ capacity;
+}
+
 [[loom::kernel, loom::workgroup_size(64, 1, 1), loom::workgroup_count(1, 1, 1)]]
 void assumption_kernel(unsigned* output, unsigned input) {
   unsigned lane = threadIdx.x;
   unsigned value = input + lane;
-  output[lane * 9u] = bound_pair(value & 255u, (value >> 8u) & 255u);
-  output[lane * 9u + 1u] = bound_seven(value & 255u, 1u, 2u, 3u, 5u, 7u, 11u);
-  output[lane * 9u + 2u] = bound_repeated(value & 31u);
-  output[lane * 9u + 3u] = bound_capacity(value % 428u);
-  output[lane * 9u + 4u] = bound_cast(value & 15u);
-  output[lane * 9u + 5u] = bound_byte((unsigned char)value);
-  output[lane * 9u + 6u] = bound_wide(value & 255u);
-  output[lane * 9u + 7u] = bound_size(value & 15u);
-  output[lane * 9u + 8u] = bound_scoped(value);
+  unsigned output_offset = lane * 12u;
+  output[output_offset] = bound_pair(value & 255u, (value >> 8u) & 255u);
+  output[output_offset + 1u] =
+      bound_seven(value & 255u, 1u, 2u, 3u, 5u, 7u, 11u);
+  output[output_offset + 2u] = bound_repeated(value & 31u);
+  output[output_offset + 3u] = bound_capacity(value % 428u);
+  output[output_offset + 4u] = bound_cast(value & 15u);
+  output[output_offset + 5u] = bound_byte((unsigned char)value);
+  output[output_offset + 6u] = bound_wide(value & 255u);
+  output[output_offset + 7u] = bound_size(value & 15u);
+  output[output_offset + 8u] = bound_scoped(value);
+  output[output_offset + 9u] = bound_inclusive(value % 428u);
+  int hidden = (int)(value % 63u) + 1;
+  int capacity = hidden + (int)(value % 5u);
+  output[output_offset + 10u] = (unsigned)bound_signed(hidden, capacity);
+  unsigned tokens = value & 0x7fffffffu;
+  unsigned token_capacity = tokens | 0x80000000u;
+  output[output_offset + 11u] = bound_unsigned(tokens, token_capacity);
 }

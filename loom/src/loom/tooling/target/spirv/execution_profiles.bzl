@@ -20,7 +20,9 @@ load(
     "HAL_VULKAN",
 )
 
-def _spirv_vulkan_hardware_profile(name, runner_args = []):
+def _spirv_vulkan_hardware_profile(
+        name,
+        runner_args = []):
     return loom_execution_profile(
         name = name,
         build_requirements = [

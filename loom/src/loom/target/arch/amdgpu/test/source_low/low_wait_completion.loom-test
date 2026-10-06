@@ -4,11 +4,11 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// RUN: emit amdgpu-assembly @copied_backedge_completes_address_use strategy=source fixed=%base:physical_register:0:2 fixed=%offset:physical_register:0:1 fixed=%seed:physical_register:8:1 fixed=%carried:physical_register:8:1 fixed=%future:physical_register:4:1
+// RUN: emit amdgpu-assembly @copied_backedge_completes_result strategy=source fixed=%base:physical_register:0:2 fixed=%offset:physical_register:0:1 fixed=%seed:physical_register:8:1 fixed=%carried:physical_register:8:1 fixed=%future:physical_register:4:1
 
 amdgpu.target<gfx1151> @target
 
-low.func.def target<amdgpu.rdna3_5.core>(@target) @copied_backedge_completes_address_use(%base: reg<amdgpu.sgpr x2>, %offset: reg<amdgpu.vgpr>, %seed: reg<amdgpu.vgpr>) asm {
+low.func.def target<amdgpu.rdna3_5.core>(@target) @copied_backedge_completes_result(%base: reg<amdgpu.sgpr x2>, %offset: reg<amdgpu.vgpr>, %seed: reg<amdgpu.vgpr>) asm {
   %increment = s_mov_b32 16
   %base_low = slice %base[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
   %zero = s_mov_b32 0
@@ -23,8 +23,8 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @copied_backedge_completes_add
   low.br ^loop(%future: reg<amdgpu.vgpr>)
 }
 
-// The edge copy reads the new result and completes its address use. The next
-// iteration can overwrite the address without waiting again.
+// The edge copy waits for the new result. Captured scalar address storage is
+// independently reusable on the next iteration.
 // ----
   s_mov_b32 s2, 16
   s_mov_b32 s3, 0
@@ -38,11 +38,11 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @copied_backedge_completes_add
   s_branch .Lbb1
 
 // ====
-// RUN: emit amdgpu-assembly @younger_backedge_load_retains_address_use strategy=source fixed=%base:physical_register:0:2 fixed=%offset:physical_register:0:1 fixed=%seed:physical_register:8:1 fixed=%carried:physical_register:8:1 fixed=%future:physical_register:4:1 fixed=%pending:physical_register:5:1 fixed=%younger:physical_register:5:1 fixed=%initial_pending:physical_register:5:1
+// RUN: emit amdgpu-assembly @younger_backedge_result_does_not_retain_address strategy=source fixed=%base:physical_register:0:2 fixed=%offset:physical_register:0:1 fixed=%seed:physical_register:8:1 fixed=%carried:physical_register:8:1 fixed=%future:physical_register:4:1 fixed=%pending:physical_register:5:1 fixed=%younger:physical_register:5:1 fixed=%initial_pending:physical_register:5:1
 
 amdgpu.target<gfx1151> @target
 
-low.func.def target<amdgpu.rdna3_5.core>(@target) @younger_backedge_load_retains_address_use(%base: reg<amdgpu.sgpr x2>, %offset: reg<amdgpu.vgpr>, %seed: reg<amdgpu.vgpr>, %initial_pending: reg<amdgpu.vgpr>) asm {
+low.func.def target<amdgpu.rdna3_5.core>(@target) @younger_backedge_result_does_not_retain_address(%base: reg<amdgpu.sgpr x2>, %offset: reg<amdgpu.vgpr>, %seed: reg<amdgpu.vgpr>, %initial_pending: reg<amdgpu.vgpr>) asm {
   %increment = s_mov_b32 16
   %base_low = slice %base[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
   %zero = s_mov_b32 0
@@ -58,15 +58,15 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @younger_backedge_load_retains
   low.br ^loop(%future: reg<amdgpu.vgpr>, %younger: reg<amdgpu.vgpr>)
 }
 
-// Only the older result is copied. The younger load can remain pending and
-// still protects the scalar address when the next iteration begins.
+// Only the older result is copied. The younger result remains pending, but
+// scalar address arithmetic can proceed before its consumer waits.
 // ----
   s_mov_b32 s2, 16
   s_mov_b32 s3, 0
 .Lbb1:
-  s_waitcnt vmcnt(0) lgkmcnt(63)
   s_add_u32 s4, s0, s2
   s_addc_u32 s5, s1, s3
+  s_waitcnt vmcnt(0) lgkmcnt(63)
   v_add_u32 v1, v8, v5
   global_load_b32 v4, v0, s[4:5] offset:0
   global_load_b32 v5, v0, s[4:5] offset:4
@@ -75,11 +75,11 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @younger_backedge_load_retains
   s_branch .Lbb1
 
 // ====
-// RUN: emit amdgpu-assembly @both_paths_complete_source_lease strategy=source amdgpu.sgpr=2
+// RUN: emit amdgpu-assembly @both_paths_complete_result strategy=source amdgpu.sgpr=2
 
 amdgpu.target<gfx1151> @target
 
-low.func.def target<amdgpu.rdna3_5.core>(@target) @both_paths_complete_source_lease(%base: reg<amdgpu.sgpr x2>, %offset: reg<amdgpu.vgpr>, %condition: reg<amdgpu.scc>) -> (reg<amdgpu.sgpr>) asm {
+low.func.def target<amdgpu.rdna3_5.core>(@target) @both_paths_complete_result(%base: reg<amdgpu.sgpr x2>, %offset: reg<amdgpu.vgpr>, %condition: reg<amdgpu.scc>) -> (reg<amdgpu.sgpr>) asm {
   %loaded = global_load_b32_saddr %offset, %base
   low.cond_br %condition, ^left, ^right : reg<amdgpu.scc>
 ^left:
@@ -93,8 +93,8 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @both_paths_complete_source_le
   return %replacement
 }
 
-// Each predecessor consumes the load. Its source lease is complete at the
-// join even though the two paths emitted different wait instructions.
+// Each predecessor consumes the load and waits independently. Captured scalar
+// address storage is reusable at the join without another completion wait.
 // ----
   global_load_b32 v1, v0, s[0:1] offset:0
   s_cbranch_scc0 .Lbb2
@@ -110,11 +110,11 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @both_paths_complete_source_le
   s_endpgm
 
 // ====
-// RUN: emit amdgpu-assembly @bypass_retains_source_lease strategy=source amdgpu.sgpr=2
+// RUN: emit amdgpu-assembly @bypass_reuses_captured_base strategy=source amdgpu.sgpr=2
 
 amdgpu.target<gfx1151> @target
 
-low.func.def target<amdgpu.rdna3_5.core>(@target) @bypass_retains_source_lease(%base: reg<amdgpu.sgpr x2>, %offset: reg<amdgpu.vgpr>, %condition: reg<amdgpu.scc>) -> (reg<amdgpu.sgpr>) asm {
+low.func.def target<amdgpu.rdna3_5.core>(@target) @bypass_reuses_captured_base(%base: reg<amdgpu.sgpr x2>, %offset: reg<amdgpu.vgpr>, %condition: reg<amdgpu.scc>) -> (reg<amdgpu.sgpr>) asm {
   %loaded = global_load_b32_saddr %offset, %base
   low.cond_br %condition, ^consume, ^join : reg<amdgpu.scc>
 ^consume:
@@ -125,8 +125,8 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @bypass_retains_source_lease(%
   return %replacement
 }
 
-// The bypass reaches the register write with the load's source still live.
-// Completion on just the consuming predecessor cannot remove the join wait.
+// The bypass need not consume the result. Neither path retains the captured
+// scalar base, so the join overwrites it without a completion wait.
 // ----
   global_load_b32 v1, v0, s[0:1] offset:0
   s_cbranch_scc0 .Lbb2
@@ -134,16 +134,15 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @bypass_retains_source_lease(%
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_add_u32 v0, v1, v0
 .Lbb2:
-  s_waitcnt vmcnt(0) lgkmcnt(63)
   s_mov_b32 s0, 16
   s_endpgm
 
 // ====
-// RUN: emit amdgpu-assembly @new_producer_after_completion_retains_source_lease strategy=source amdgpu.sgpr=2
+// RUN: emit amdgpu-assembly @new_producer_captures_base_before_edge strategy=source amdgpu.sgpr=2
 
 amdgpu.target<gfx1151> @target
 
-low.func.def target<amdgpu.rdna3_5.core>(@target) @new_producer_after_completion_retains_source_lease(%base: reg<amdgpu.sgpr x2>, %offset: reg<amdgpu.vgpr>) -> (reg<amdgpu.sgpr>) asm {
+low.func.def target<amdgpu.rdna3_5.core>(@target) @new_producer_captures_base_before_edge(%base: reg<amdgpu.sgpr x2>, %offset: reg<amdgpu.vgpr>) -> (reg<amdgpu.sgpr>) asm {
   %first = global_load_b32_saddr %offset, %base
   %used = v_add_u32 %first, %offset
   %second = global_load_b32_saddr %offset, %base {offset = 4}
@@ -153,15 +152,14 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @new_producer_after_completion
   return %replacement
 }
 
-// Consuming the first result closes its epoch. The second producer starts a
-// new one and remains protected across the edge.
+// The second result remains pending across the edge, but its scalar address
+// was captured. Reusing the base does not require result completion.
 // ----
   global_load_b32 v1, v0, s[0:1] offset:0
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_add_u32 v1, v1, v0
   global_load_b32 v0, v0, s[0:1] offset:4
 .Lbb1:
-  s_waitcnt vmcnt(0) lgkmcnt(63)
   s_mov_b32 s0, 16
   s_endpgm
 
@@ -226,9 +224,9 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @translation_release_kee
   s_mov_b32 s2, 16
   s_mov_b32 s3, 0
 .Lbb1:
-  s_wait_loadcnt loadcnt(0)
   s_add_u32 s4, s0, s2
   s_addc_u32 s5, s1, s3
+  s_wait_loadcnt loadcnt(0)
   v_add_u32 v1, v8, v5
   global_load_b32 v4, v0, s[4:5] offset:0
   global_load_b32 v5, v0, s[4:5] offset:4

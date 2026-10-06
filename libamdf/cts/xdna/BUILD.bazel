@@ -59,6 +59,7 @@ test_suite(
         ":memory",
         ":xdna_extension",
         "//libamdf/cts/xdna/linux:memory",
+        "//libamdf/cts/xdna/recipes:execution",
     ],
     visibility = ["//visibility:public"],
 )

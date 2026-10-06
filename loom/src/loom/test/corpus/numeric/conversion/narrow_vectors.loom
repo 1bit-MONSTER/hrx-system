@@ -1,0 +1,144 @@
+// Odd-width vectors cross memory boundaries with raw narrow-float payloads.
+// Numerical comparisons ignore NaN payload choices; signed zeros remain exact.
+kernel.def @narrow_vector_floating_shapes() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%bits: buffer, %input: buffer, %wide_output: buffer, %half_output: buffer, %bfloat_output: buffer) {
+  %base = index.constant 0 : offset
+  %aligned_bits = buffer.assume.alignment %bits {minimum_alignment = 8} : buffer
+  %halves = buffer.view %aligned_bits[%base] : buffer -> view<4xf16>
+  %brains = buffer.view %aligned_bits[%base] : buffer -> view<4xbf16>
+  %floats = buffer.view %input[%base] : buffer -> view<3xf32>
+  %wide = buffer.view %wide_output[%base] : buffer -> view<12xf32>
+  %half_result = buffer.view %half_output[%base] : buffer -> view<4xf16>
+  %brain_result = buffer.view %bfloat_output[%base] : buffer -> view<8xbf16>
+  %half = view.load %halves[0] : view<4xf16> -> f16
+  %brain = view.load %brains[0] : view<4xbf16> -> bf16
+  %half_wide = scalar.extf %half : f16 to f32
+  %brain_wide = scalar.extf %brain : bf16 to f32
+  view.store %half_wide, %wide[0] : f32, view<12xf32>
+  view.store %brain_wide, %wide[1] : f32, view<12xf32>
+  %half2 = vector.load %halves[0] : view<4xf16> -> vector<2xf16>
+  %half3 = vector.load %halves[0] : view<4xf16> -> vector<3xf16>
+  %brain3 = vector.load %brains[0] : view<4xbf16> -> vector<3xbf16>
+  %brain4 = vector.load %brains[0] : view<4xbf16> -> vector<4xbf16>
+  %half2_wide = vector.extf %half2 : vector<2xf16> to vector<2xf32>
+  %half3_wide = vector.extf %half3 : vector<3xf16> to vector<3xf32>
+  %brain3_wide = vector.extf %brain3 : vector<3xbf16> to vector<3xf32>
+  vector.store %half2_wide, %wide[2] : vector<2xf32>, view<12xf32>
+  vector.store %half3_wide, %wide[4] : vector<3xf32>, view<12xf32>
+  vector.store %brain3_wide, %wide[8] : vector<3xf32>, view<12xf32>
+  %values = vector.load %floats[0] : view<3xf32> -> vector<3xf32>
+  %half_narrow = vector.fptrunc %values : vector<3xf32> to vector<3xf16>
+  %brain_narrow = vector.fptrunc %values : vector<3xf32> to vector<3xbf16>
+  vector.store %half_narrow, %half_result[0] : vector<3xf16>, view<4xf16>
+  vector.store %brain_narrow, %brain_result[0] : vector<3xbf16>, view<8xbf16>
+  %first_value = view.load %floats[0] : view<3xf32> -> f32
+  %half_scalar = scalar.fptrunc %first_value : f32 to f16
+  %brain_scalar = scalar.fptrunc %first_value : f32 to bf16
+  view.store %half_scalar, %half_result[3] : f16, view<4xf16>
+  view.store %brain_scalar, %brain_result[3] : bf16, view<8xbf16>
+  %brain4_wide = vector.extf %brain4 : vector<4xbf16> to vector<4xf32>
+  %roundtrip = vector.fptrunc %brain4_wide : vector<4xf32> to vector<4xbf16>
+  vector.store %roundtrip, %brain_result[4] : vector<4xbf16>, view<8xbf16>
+  kernel.return
+}
+
+func.def @narrow_vector_floating_shapes_oracle(%bits: buffer, %input: buffer, %wide_output: buffer, %half_output: buffer, %bfloat_output: buffer) {
+  %base = index.constant 0 : offset
+  %halves = buffer.view %bits[%base] : buffer -> view<4xf16>
+  %brains = buffer.view %bits[%base] : buffer -> view<4xbf16>
+  %floats = buffer.view %input[%base] : buffer -> view<3xf32>
+  %wide = buffer.view %wide_output[%base] : buffer -> view<12xf32>
+  %half_result = buffer.view %half_output[%base] : buffer -> view<4xf16>
+  %brain_result = buffer.view %bfloat_output[%base] : buffer -> view<8xbf16>
+  %half = view.load %halves[0] : view<4xf16> -> f16
+  %brain = view.load %brains[0] : view<4xbf16> -> bf16
+  %half_wide = scalar.extf %half : f16 to f32
+  %brain_wide = scalar.extf %brain : bf16 to f32
+  view.store %half_wide, %wide[0] : f32, view<12xf32>
+  view.store %brain_wide, %wide[1] : f32, view<12xf32>
+  %first_value = view.load %floats[0] : view<3xf32> -> f32
+  %half_scalar = scalar.fptrunc %first_value : f32 to f16
+  %brain_scalar = scalar.fptrunc %first_value : f32 to bf16
+  view.store %half_scalar, %half_result[3] : f16, view<4xf16>
+  view.store %brain_scalar, %brain_result[3] : bf16, view<8xbf16>
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c3 = index.constant 3 : index
+  %c8 = index.constant 8 : index
+  scf.for %i = [%begin to %end step %step] {
+    %brain = view.load %brains[%i] : view<4xbf16> -> bf16
+    %brain_wide = scalar.extf %brain : bf16 to f32
+    %roundtrip = scalar.fptrunc %brain_wide : f32 to bf16
+    %roundtrip_position = index.add %i, %end : index
+    view.store %roundtrip, %brain_result[%roundtrip_position] : bf16, view<8xbf16>
+    %below3 = index.cmp ult, %i, %c3 : index
+    scf.if %below3 {
+      %half = view.load %halves[%i] : view<4xf16> -> f16
+      %half_wide = scalar.extf %half : f16 to f32
+      %half_position = index.add %i, %end : index
+      %brain_position = index.add %i, %c8 : index
+      view.store %half_wide, %wide[%half_position] : f32, view<12xf32>
+      view.store %brain_wide, %wide[%brain_position] : f32, view<12xf32>
+      %value = view.load %floats[%i] : view<3xf32> -> f32
+      %half_narrow = scalar.fptrunc %value : f32 to f16
+      %brain_narrow = scalar.fptrunc %value : f32 to bf16
+      view.store %half_narrow, %half_result[%i] : f16, view<4xf16>
+      view.store %brain_narrow, %brain_result[%i] : bf16, view<8xbf16>
+      %below2 = index.cmp ult, %i, %c2 : index
+      scf.if %below2 {
+        %position = index.add %i, %c2 : index
+        view.store %half_wide, %wide[%position] : f32, view<12xf32>
+      }
+    }
+  }
+  func.return
+}
+
+check.scenario @narrow_vector_floating_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %bits = check.generate.iota offset(-32768) step(21845) : tensor<4xi16>
+    %input = check.generate.iota offset(-2049.0) step(2049.0) : tensor<3xf32>
+    %wide_storage = check.generate.fill value(-123.0) : tensor<20xf32>
+    %half_storage = check.generate.fill value(-123.0) : tensor<12xf16>
+    %brain_storage = check.generate.fill value(-123.0) : tensor<16xbf16>
+    %wide = check.tensor.view %wide_storage offset(16) : tensor<20xf32> -> tensor<12xf32>
+    %half = check.tensor.view %half_storage offset(8) : tensor<12xf16> -> tensor<4xf16>
+    %brain = check.tensor.view %brain_storage offset(8) : tensor<16xbf16> -> tensor<8xbf16>
+    %signed_zeros = check.tensor.view %wide offset(0) : tensor<12xf32> -> tensor<3xf32>
+    %truncated_brain = check.tensor.view %brain offset(0) : tensor<8xbf16> -> tensor<4xbf16>
+    %roundtrip_zero = check.tensor.view %brain offset(8) : tensor<8xbf16> -> tensor<1xbf16>
+    check.compare<@narrow_vector_floating_shapes, @narrow_vector_floating_shapes_oracle>(%bits, %input, %wide, %half, %brain) : (tensor<4xi16>, tensor<3xf32>, tensor<12xf32>, tensor<4xf16>, tensor<8xbf16>) -> () {
+      check.expect.close actual(%wide_storage) expected(%wide_storage) atol(0.0) rtol(0.0) nan(same) : tensor<20xf32>
+      check.expect.bitwise actual(%half_storage) expected(%half_storage) : tensor<12xf16>
+      check.expect.close actual(%brain_storage) expected(%brain_storage) atol(0.0) rtol(0.0) nan(same) : tensor<16xbf16>
+      check.expect.bitwise actual(%signed_zeros) expected(%signed_zeros) : tensor<3xf32>
+      check.expect.bitwise actual(%truncated_brain) expected(%truncated_brain) : tensor<4xbf16>
+      check.expect.bitwise actual(%roundtrip_zero) expected(%roundtrip_zero) : tensor<1xbf16>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %input_entropy = check.entropy.fork %entropy name("float") : check.entropy
+    %bits_seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_seed = check.entropy.read %input_entropy[%trial] : check.entropy -> i64
+    %bits = check.generate.random.uniform seed(%bits_seed) range(-32768 to 32767) : tensor<4xi16>
+    %input = check.generate.random.uniform seed(%input_seed) range(-65000.0 to 65000.0) : tensor<3xf32>
+    %wide_storage = check.generate.fill value(-123.0) : tensor<20xf32>
+    %half_storage = check.generate.fill value(-123.0) : tensor<12xf16>
+    %brain_storage = check.generate.fill value(-123.0) : tensor<16xbf16>
+    %wide = check.tensor.view %wide_storage offset(16) : tensor<20xf32> -> tensor<12xf32>
+    %half = check.tensor.view %half_storage offset(8) : tensor<12xf16> -> tensor<4xf16>
+    %brain = check.tensor.view %brain_storage offset(8) : tensor<16xbf16> -> tensor<8xbf16>
+    %truncated_brain = check.tensor.view %brain offset(0) : tensor<8xbf16> -> tensor<4xbf16>
+    check.compare<@narrow_vector_floating_shapes, @narrow_vector_floating_shapes_oracle>(%bits, %input, %wide, %half, %brain) : (tensor<4xi16>, tensor<3xf32>, tensor<12xf32>, tensor<4xf16>, tensor<8xbf16>) -> () {
+      check.expect.close actual(%wide_storage) expected(%wide_storage) atol(0.0) rtol(0.0) nan(same) : tensor<20xf32>
+      check.expect.bitwise actual(%half_storage) expected(%half_storage) : tensor<12xf16>
+      check.expect.close actual(%brain_storage) expected(%brain_storage) atol(0.0) rtol(0.0) nan(same) : tensor<16xbf16>
+      check.expect.bitwise actual(%truncated_brain) expected(%truncated_brain) : tensor<4xbf16>
+    }
+  }
+  check.return
+}

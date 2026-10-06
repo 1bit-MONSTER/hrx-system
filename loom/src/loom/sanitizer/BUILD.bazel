@@ -22,6 +22,22 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "runtime_requirements",
+    srcs = ["runtime_requirements.c"],
+    hdrs = ["runtime_requirements.h"],
+    deps = [
+        ":options",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/kernel",
+        "//loom/src/loom/ops/sanitizer",
+        "//loom/src/loom/util:walk",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "pipeline_passes",
     srcs = ["pipeline_passes.c"],
     hdrs = ["pipeline_passes.h"],
@@ -30,6 +46,7 @@ loom_cc_library(
         ":options",
         ":site_location",
         ":site_payload",
+        "//loom/src/loom/decision:predicate",
         "//loom/src/loom/error:error_defs",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/index",
@@ -42,6 +59,25 @@ loom_cc_library(
         "//loom/src/loom/pass:registry",
         "//loom/src/loom/pass:types",
         "//loom/src/loom/pass:value_facts",
+        "//loom/src/loom/rewrite:rewriter",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "materialize_assertions",
+    srcs = ["materialize_assertions.c"],
+    hdrs = ["materialize_assertions.h"],
+    deps = [
+        "//loom/src/loom/error:error_defs",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/kernel",
+        "//loom/src/loom/ops/sanitizer",
+        "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/view",
+        "//loom/src/loom/pass:types",
         "//loom/src/loom/rewrite:rewriter",
         "//runtime/src/iree/base",
     ],
@@ -105,6 +141,7 @@ loom_cc_library(
         ":site_payload",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/kernel",
         "//loom/src/loom/ops/sanitizer",
         "//loom/src/loom/util:walk",
         "//runtime/src/iree/base",
@@ -142,6 +179,22 @@ loom_cc_test(
         ":site_collection",
         ":site_payload",
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops/kernel",
+        "//loom/src/loom/ops/sanitizer",
+        "//loom/src/loom/ops/test",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "runtime_requirements_test",
+    srcs = ["runtime_requirements_test.cc"],
+    deps = [
+        ":runtime_requirements",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/kernel",
         "//loom/src/loom/ops/sanitizer",
         "//loom/src/loom/ops/test",
         "//runtime/src/iree/base/internal:arena",

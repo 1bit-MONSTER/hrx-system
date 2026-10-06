@@ -10,7 +10,7 @@
 #include <string.h>
 
 #include "loom/codegen/low/function.h"
-#include "loom/codegen/low/target_binding.h"
+#include "loom/codegen/low/representation_binding.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
 #include "loom/target/arch/amdgpu/error_catalog.h"
@@ -1439,6 +1439,9 @@ static iree_status_t loom_amdgpu_hal_kernel_abi_verify_live_ins(
     }
     live_in_ops[source_index] = live_in_op;
     live_in_values[source_index] = loom_low_live_in_result(live_in_op);
+    if (source_kind == LOOM_AMDGPU_HAL_KERNEL_ABI_SOURCE_KERNARG_SEGMENT_PTR) {
+      result->kernarg_segment_ptr = live_in_values[source_index];
+    }
     result->live_in_source_bits |= UINT64_C(1) << source_index;
     result->launch_workgroup_id_flags |= source_info->launch_workgroup_id_flags;
 
@@ -1504,7 +1507,9 @@ iree_status_t loom_amdgpu_hal_kernel_abi_verify_low(
     iree_diagnostic_emitter_t emitter,
     loom_amdgpu_hal_kernel_abi_verify_result_t* out_result,
     iree_arena_allocator_t* arena) {
-  *out_result = (loom_amdgpu_hal_kernel_abi_verify_result_t){0};
+  *out_result = (loom_amdgpu_hal_kernel_abi_verify_result_t){
+      .kernarg_segment_ptr = LOOM_VALUE_ID_INVALID,
+  };
   if (module == NULL || function_op == NULL || descriptor_set == NULL ||
       arena == NULL) {
     return iree_make_status(

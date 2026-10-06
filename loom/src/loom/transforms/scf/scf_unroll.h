@@ -20,10 +20,44 @@
 
 #include "iree/base/api.h"
 #include "loom/pass/types.h"
+#include "loom/rewrite/remap.h"
+#include "loom/rewrite/rewriter.h"
+#include "loom/util/fact_table.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Scalar domain retained independently of the source analysis and SSA identity.
+// Emission binds a dynamic lower value from the current loop operand.
+typedef struct loom_scf_unroll_full_plan_t {
+  // Finite iteration count established by the original value analysis.
+  uint32_t count;
+  // Whether the current lower operand supplies the first induction value.
+  bool dynamic_lower;
+  // Exact first induction value for a static domain.
+  int64_t lower;
+  // Exact positive induction step.
+  int64_t step;
+} loom_scf_unroll_full_plan_t;
+
+// Returns a full linear plan when the verified loop explicitly requests one.
+// Partial, interleaved, pipelined or unresolved policies remain with their
+// owning pass. This query consumes the original fact table before mutation.
+bool loom_scf_unroll_plan_full(loom_pass_t* pass, loom_module_t* module,
+                               loom_value_fact_table_t* facts, loom_op_t* op,
+                               loom_scf_unroll_full_plan_t* out_plan);
+
+// Materializes a selected full-linear plan using the ordinary unroller's body
+// emitter. The caller owns |remap| and may supply selected operation projection
+// entries in iteration/clone visitation order. The source loop is replaced;
+// no value-fact table is consulted or updated during materialization.
+iree_status_t loom_scf_unroll_emit_full(loom_pass_t* pass,
+                                        loom_module_t* module,
+                                        loom_rewriter_t* rewriter,
+                                        loom_op_t* op,
+                                        const loom_scf_unroll_full_plan_t* plan,
+                                        loom_ir_remap_t* remap);
 
 const loom_pass_info_t* loom_scf_unroll_pass_info(void);
 

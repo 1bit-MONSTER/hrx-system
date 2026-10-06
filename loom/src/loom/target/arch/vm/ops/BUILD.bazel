@@ -7,7 +7,10 @@
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_generated_cc_library")
 
 package(
-    default_visibility = ["//loom/src/loom/target/arch/vm:__pkg__"],
+    default_visibility = [
+        "//loom/src/loom/target/arch/vm:__pkg__",
+        "//loom/src/loom/target/emit/vm:__pkg__",
+    ],
     features = ["layering_check"],
     licenses = ["notice"],  # Apache 2.0
 )

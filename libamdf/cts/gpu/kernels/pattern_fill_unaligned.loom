@@ -1,0 +1,111 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Each grid-strided block writes up to four packed 16-byte vectors. The last
+// block writes the exact byte tail; a tail-only fill belongs to linear lane 0.
+// Pattern is an eight-byte repetition with phase zero at the target address.
+kernel.def export("pattern_fill_unaligned") @pattern_fill_unaligned(%groups_x: index, %groups_y: index) {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%groups_x, %groups_y, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%target: buffer, %byte_length: i64, %pattern: i64, %grid_size_x: i32, %grid_size_y: i32, %workgroup_size_x: i32) {
+  %zero = scalar.constant 0 : i64
+  %one = scalar.constant 1 : i64
+  %two = scalar.constant 2 : i64
+  %three = scalar.constant 3 : i64
+  %four = scalar.constant 4 : i64
+  %seven = scalar.constant 7 : i64
+  %fifteen = scalar.constant 15 : i64
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %two_words = index.constant 2 : index
+  %block_elements = index.constant 4 : index
+  %vector_bytes = index.constant 16 : offset
+  %full_element_count = scalar.shrui %byte_length, %four : i64
+  %rounded_elements = scalar.addi %full_element_count, %three : i64
+  %vector_block_count = scalar.shrui %rounded_elements, %two : i64
+  %element_count = index.cast %full_element_count : i64 to index
+  %tail_offset = index.scale %element_count, %vector_bytes : index, offset -> offset
+  %tail_byte_count = scalar.andi %byte_length, %fifteen : i64
+  %tail_length = index.cast %tail_byte_count : i64 to index
+  %target_tail = buffer.view %target[%tail_offset] : buffer -> view<[%tail_length]xi8>
+  %pattern_vector = vector.splat %pattern : vector<2xi64>
+
+  %group_x = kernel.workgroup.id<x> : index
+  %group_y = kernel.workgroup.id<y> : index
+  %lane_x = kernel.workitem.id<x> : index
+  %group_x_wide = index.cast %group_x : index to i64
+  %group_y_wide = index.cast %group_y : index to i64
+  %lane_x_wide = index.cast %lane_x : index to i64
+  %grid_x = scalar.extui %grid_size_x : i32 to i64
+  %grid_y = scalar.extui %grid_size_y : i32 to i64
+  %width = scalar.extui %workgroup_size_x : i32 to i64
+  %group_begin = scalar.muli %group_x_wide, %width : i64
+  %id_x = scalar.addi %group_begin, %lane_x_wide : i64
+  %row_begin = scalar.muli %group_y_wide, %grid_x : i64
+  %first_block = scalar.addi %row_begin, %id_x : i64
+  %block_stride = scalar.muli %grid_x, %grid_y : i64
+
+  %tail_only = scalar.cmpi eq, %vector_block_count, %zero : i64
+  scf.if %tail_only {
+    %first_lane = scalar.cmpi eq, %first_block, %zero : i64
+    scf.if %first_lane {
+      scf.for %byte = [%begin to %tail_length step %step] {
+        %byte_wide = index.cast %byte : index to i64
+        %pattern_byte = scalar.andi %byte_wide, %seven : i64
+        %pattern_shift = scalar.shli %pattern_byte, %three : i64
+        %shifted = scalar.shrui %pattern, %pattern_shift : i64
+        %value = scalar.trunci %shifted : i64 to i8
+        view.store %value, %target_tail[%byte] : i8, view<[%tail_length]xi8>
+      }
+    }
+  } else {
+    %finished_block = scf.while(%next_block = %first_block : i64) -> (i64) {
+      %in_bounds = scalar.cmpi ult, %next_block, %vector_block_count : i64
+      scf.condition %in_bounds, %next_block : i1, i64
+    } do(%block: i64) {
+      %element_offset = scalar.muli %block, %four : i64
+      %first_element = index.cast %element_offset : i64 to index
+      %block_offset = index.scale %first_element, %vector_bytes : index, offset -> offset
+      %remaining = scalar.subi %full_element_count, %element_offset : i64
+      %full_block = scalar.cmpi uge, %remaining, %four : i64
+      scf.if %full_block {
+        // Four packed elements occupy exactly this complete 64-byte block.
+        %target_block = buffer.view %target[%block_offset] : buffer -> view<8xi64, align(1)>
+        scf.for %element = [%begin to %block_elements step %step] unroll {
+          %word = index.mul %element, %two_words : index
+          vector.store %pattern_vector, %target_block[%word] : vector<2xi64>, view<8xi64, align(1)>
+        }
+      } else {
+        %partial_count = index.cast %remaining : i64 to index
+        scf.for %element = [%begin to %partial_count step %step] {
+          %position = index.add %first_element, %element : index
+          %position_offset = index.scale %position, %vector_bytes : index, offset -> offset
+          %target_element = buffer.view %target[%position_offset] : buffer -> view<2xi64, align(1)>
+          vector.store %pattern_vector, %target_element[%begin] : vector<2xi64>, view<2xi64, align(1)>
+        }
+      }
+      %following_block = scalar.addi %block, %one : i64
+      %last_block = scalar.cmpi eq, %following_block, %vector_block_count : i64
+      scf.if %last_block {
+        scf.for %byte = [%begin to %tail_length step %step] {
+          %byte_wide = index.cast %byte : index to i64
+          %pattern_byte = scalar.andi %byte_wide, %seven : i64
+          %pattern_shift = scalar.shli %pattern_byte, %three : i64
+          %shifted = scalar.shrui %pattern, %pattern_shift : i64
+          %value = scalar.trunci %shifted : i64 to i8
+          view.store %value, %target_tail[%byte] : i8, view<[%tail_length]xi8>
+        }
+      }
+      // A wrapped grid stride terminates instead of revisiting earlier data.
+      %advanced = scalar.addi %block, %block_stride : i64
+      %wrapped = scalar.cmpi ult, %advanced, %block : i64
+      %next = scf.select %wrapped, %vector_block_count, %advanced : i64
+      scf.yield %next : i64
+    }
+  }
+  kernel.return
+}

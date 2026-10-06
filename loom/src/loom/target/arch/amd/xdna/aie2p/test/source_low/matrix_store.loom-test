@@ -156,7 +156,7 @@ func.def target(@target) @unaligned_store(%value: vector<64xi32>, %output: buffe
   %base = index.constant 4 : offset
   %view = buffer.view %aligned[%base] : buffer -> view<8x8xi32>
   %extent = index.constant 8 : index
-  // ERROR@+1: TARGET/008
+  // ERROR@+1: TARGET/003 {constraint_key="source_memory.minimum_alignment"}
   vector.fragment.store<result> %value, %view[0, 0] shape [%extent, %extent] : vector<64xi32>, view<8x8xi32>
   func.return
 }
@@ -171,7 +171,7 @@ func.def target(@target) @strided_store(%value: vector<64xi32>, %output: buffer)
   %base = index.constant 0 : offset
   %view = buffer.view %aligned[%base] : buffer -> view<8x8xi32, #encoding.layout.strided<strides=[16, 1]>>
   %extent = index.constant 8 : index
-  // ERROR@+1: TARGET/008
+  // ERROR@+1: TARGET/003 {constraint_key="source_memory.address_layout"}
   vector.fragment.store<result> %value, %view[0, 0] shape [%extent, %extent] : vector<64xi32>, view<8x8xi32, #encoding.layout.strided<strides=[16, 1]>>
   func.return
 }

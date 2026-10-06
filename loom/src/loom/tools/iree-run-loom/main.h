@@ -18,6 +18,8 @@ extern "C" {
 #endif
 
 typedef struct loom_target_environment_t loom_target_environment_t;
+typedef struct loom_cleanup_pattern_provider_set_t
+    loom_cleanup_pattern_provider_set_t;
 
 typedef struct iree_run_loom_configuration_t {
   // Borrowed optional source importers selected by the final application.
@@ -31,6 +33,8 @@ typedef struct iree_run_loom_configuration_t {
       initialize_low_descriptor_registry;
   // Target environment linked into this runner and used for pass pipelines.
   const loom_target_environment_t* target_environment;
+  // Cleanup rewrite providers linked into this runner.
+  const loom_cleanup_pattern_provider_set_t* cleanup_pattern_provider_set;
   // Execution backends linked into this runner.
   loom_run_execution_backend_registry_t execution_backend_registry;
 } iree_run_loom_configuration_t;

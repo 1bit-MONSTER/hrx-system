@@ -193,6 +193,50 @@ TEST_F(StorageTest, InteriorPointersRetainSignedDisplacementsAndRootIdentity) {
   EXPECT_NE(restored.pointer().byte_offset, first.pointer().byte_offset);
 }
 
+TEST_F(StorageTest, ILP32PointersPublishTheirSourceRepresentationRange) {
+  auto source_options = options();
+  source_options.data_model = LOOM_CXX_DATA_MODEL_ILP32;
+  Source source(IREE_SV("int entry();"), IREE_SV("storage_ilp32.cpp"),
+                source_options);
+  Types types(source.unit(), source.diagnostics());
+  Locations locations(source.unit(), source.diagnostics(), module_);
+  Scalars scalars(source.unit(), source.diagnostics(), types, locations,
+                  builder_);
+  Storage storage(source.unit(), source.diagnostics(), types, scalars,
+                  locations, builder_);
+  auto* control = source.unit().control();
+  auto* owner = source.unit().ast();
+  auto allocation =
+      storage.allocate(control->getBoundedArrayType(control->getIntType(), 64),
+                       LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP, 0, owner);
+  auto origin = scalars.integer(16, LOOM_SCALAR_TYPE_OFFSET);
+  auto constrained =
+      storage.constrain_origin({allocation.pointer.root, origin}, owner);
+  EXPECT_EQ(constrained.root, allocation.pointer.root);
+  auto* assumed = producer(constrained.byte_offset);
+  ASSERT_TRUE(loom_index_assume_isa(assumed));
+  auto predicates = loom_index_assume_predicates(assumed);
+  ASSERT_EQ(predicates.count, 1u);
+  EXPECT_EQ(predicates.predicate_list[0].args[0], loom_op_operands(assumed)[0]);
+  EXPECT_EQ(predicates.predicate_list[0].args[1], 0);
+  EXPECT_EQ(predicates.predicate_list[0].args[2], UINT32_MAX);
+  EXPECT_EQ(loom_op_operands(assumed)[0], origin);
+
+  auto* pointer_type = control->getPointerType(control->getIntType());
+  auto advanced =
+      storage.advance(storage.project({allocation.pointer.root, origin},
+                                      control->getIntType(), owner),
+                      scalars.integer(1, LOOM_SCALAR_TYPE_I32), pointer_type,
+                      control->getIntType(), cxx::TokenKind::T_PLUS, owner);
+  EXPECT_TRUE(advanced.pointer_width_constrained);
+  auto* advanced_assume =
+      producer(loom_index_cast_input(producer(advanced.pointer.byte_offset)));
+  ASSERT_TRUE(loom_scalar_assume_isa(advanced_assume));
+  predicates = loom_scalar_assume_predicates(advanced_assume);
+  ASSERT_EQ(predicates.count, 1u);
+  EXPECT_EQ(predicates.predicate_list[0].args[2], UINT32_MAX);
+}
+
 TEST_F(StorageTest, UnsignedDisplacementsExtendBeforeScaling) {
   Locations locations(source_.unit(), source_.diagnostics(), module_);
   Scalars scalars(source_.unit(), source_.diagnostics(), types_, locations,
@@ -326,6 +370,63 @@ TEST_F(StorageTest, ResolvedVectorAccessPreservesItsFootprint) {
   EXPECT_EQ(loom_vector_store_view(store), loom_vector_load_view(load));
   EXPECT_EQ(loom_vector_store_memory_flags(store),
             LOOM_MEMORY_ACCESS_FLAG_VOLATILE);
+}
+
+TEST_F(StorageTest, BooleanByteAccessRetainsAliasesIndicesAndQualifiers) {
+  Locations locations(source_.unit(), source_.diagnostics(), module_);
+  Scalars scalars(source_.unit(), source_.diagnostics(), types_, locations,
+                  builder_);
+  Storage storage(source_.unit(), source_.diagnostics(), types_, scalars,
+                  locations, builder_);
+  auto* control = source_.unit().control();
+  auto* owner = source_.unit().ast();
+  auto* element = control->getQualType(control->getBoolType(),
+                                       cxx::CvQualifiers::kVolatile);
+  auto* array = control->getBoundedArrayType(element, 7);
+  auto allocation =
+      storage.allocate(array, LOOM_VALUE_FACT_MEMORY_SPACE_PRIVATE, 8, owner);
+  auto* alloca = producer(allocation.pointer.root);
+  EXPECT_EQ(loom_buffer_alloca_base_alignment(alloca), 8);
+  EXPECT_EQ(loom_attr_as_i64(loom_index_constant_value(
+                producer(loom_buffer_alloca_byte_length(alloca)))),
+            7);
+  EXPECT_TRUE(loom_type_equal(
+      loom_module_value_type(module_, allocation.view),
+      loom_type_shaped_1d(LOOM_TYPE_VIEW, LOOM_SCALAR_TYPE_I8, 7, 0)));
+  auto access =
+      storage.subscript(storage.project(allocation.pointer, array, owner),
+                        scalars.integer(3, LOOM_SCALAR_TYPE_I32), array,
+                        control->getIntType(), owner);
+  EXPECT_EQ(access.view, allocation.view);
+  ASSERT_TRUE(access.index.has_value());
+  auto value = storage.load(access, element, owner);
+  EXPECT_EQ(loom_type_element_type(loom_module_value_type(module_, value)),
+            LOOM_SCALAR_TYPE_I1);
+  auto* truth = producer(value);
+  ASSERT_TRUE(loom_scalar_cmpi_isa(truth));
+  auto* load = producer(loom_scalar_cmpi_lhs(truth));
+  ASSERT_TRUE(loom_view_load_isa(load));
+  EXPECT_EQ(loom_view_load_view(load), allocation.view);
+  EXPECT_EQ(loom_view_load_memory_flags(load),
+            LOOM_MEMORY_ACCESS_FLAG_VOLATILE);
+  EXPECT_EQ(loom_view_load_indices(load).values[0], *access.index);
+  storage.store(access, value, element, owner);
+  auto* store = loom_block_const_last_op(loom_module_block(module_));
+  ASSERT_TRUE(loom_view_store_isa(store));
+  EXPECT_EQ(loom_view_store_view(store), allocation.view);
+  EXPECT_EQ(loom_view_store_indices(store).values[0], *access.index);
+  EXPECT_EQ(loom_view_store_memory_flags(store),
+            LOOM_MEMORY_ACCESS_FLAG_VOLATILE);
+  EXPECT_EQ(loom_type_element_type(
+                loom_module_value_type(module_, loom_view_store_value(store))),
+            LOOM_SCALAR_TYPE_I8);
+  auto alias = storage.dereference(
+      storage.project(allocation.pointer, element, owner), element, owner);
+  EXPECT_EQ(loom_buffer_view_buffer(producer(alias.view)),
+            allocation.pointer.root);
+  EXPECT_TRUE(loom_type_equal(
+      loom_module_value_type(module_, alias.view),
+      loom_type_shaped_1d(LOOM_TYPE_VIEW, LOOM_SCALAR_TYPE_I8, 1, 0)));
 }
 
 }  // namespace

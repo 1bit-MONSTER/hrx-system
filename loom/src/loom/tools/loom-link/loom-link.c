@@ -95,7 +95,8 @@ IREE_FLAG_NAMED(bool, include_input_exports, "include-input-exports", false,
                 "In link mode, add exported input symbols as roots.");
 IREE_FLAG_NAMED(
     bool, include_input_tests, "include-input-tests", false,
-    "In link mode, add test/benchmark-only input symbols as roots.");
+    "In link mode, add test/benchmark-only input symbols as roots; with "
+    "--strip-check, retain their direct callable subjects instead.");
 IREE_FLAG_NAMED(bool, strip_check, "strip-check", false,
                 "Strip test/benchmark-only symbols before output.");
 IREE_FLAG_NAMED(
@@ -905,7 +906,8 @@ static iree_status_t loom_link_cli_capture_sources(
     const loom_link_cli_input_t* input =
         index->provider_inputs[module->provider_ordinal];
     IREE_RETURN_IF_ERROR(loom_tooling_source_storage_project(
-        sources, &input->source.sources.table, projection->values));
+        sources, product->module, &input->source.sources.table,
+        projection->values));
   }
   return iree_ok_status();
 }

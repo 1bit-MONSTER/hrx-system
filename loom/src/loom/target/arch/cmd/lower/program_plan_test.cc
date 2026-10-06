@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <vector>
 
+#include "iree/base/alignment.h"
 #include "iree/io/vec_stream.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -18,6 +19,7 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/link/module_index.h"
+#include "loom/ops/index/ops.h"
 #include "loom/ops/low/ops.h"
 #include "loom/ops/op_registry.h"
 #include "loom/pass/builtin_registry.h"
@@ -28,6 +30,7 @@
 #include "loom/target/arch/cmd/program.h"
 #include "loom/testing/diagnostic_matchers.h"
 #include "loom/testing/module_ptr.h"
+#include "loom/transforms/cleanup/configured.h"
 #include "loom/verify/verify.h"
 
 namespace loom {
@@ -71,6 +74,27 @@ static iree_status_t CaptureKernelRequest(
 typedef struct RejectKernelRequestState {
   iree_host_size_t publish_count;
 } RejectKernelRequestState;
+
+typedef struct CleanupPatternVisitState {
+  iree_host_size_t count;
+} CleanupPatternVisitState;
+
+typedef struct CleanupPatternVisitData {
+  CleanupPatternVisitState* state;
+} CleanupPatternVisitData;
+
+static iree_status_t CountCleanupPatternVisits(
+    const loom_rewrite_pattern_t* pattern, void* context, loom_op_t* op,
+    loom_rewriter_t* rewriter, bool* out_changed) {
+  (void)context;
+  (void)op;
+  (void)rewriter;
+  const CleanupPatternVisitData* data =
+      static_cast<const CleanupPatternVisitData*>(pattern->user_data);
+  ++data->state->count;
+  *out_changed = false;
+  return iree_ok_status();
+}
 
 static iree_status_t RejectKernelRequest(
     void* user_data, const loom_cmd_program_kernel_request_t* request) {
@@ -181,6 +205,57 @@ class CmdProgramPlanTest : public ::testing::Test {
   loom_context_t context_;
 };
 
+TEST_F(CmdProgramPlanTest, UsesSelectedCleanupProvidersInNestedPipeline) {
+  ModulePtr source_module = ParseAndVerify(R"(
+kernel.entry.decl @step()
+
+command.program.def public @root() launch() {
+  %count = index.constant 1 : index
+  kernel.dispatch @step[%count]() : [index]()
+  command.return
+}
+)");
+  ASSERT_NE(source_module, nullptr);
+
+  CleanupPatternVisitState visit_state = {};
+  const CleanupPatternVisitData pattern_data = {&visit_state};
+  const loom_rewrite_pattern_t pattern = {
+      /*.root_kind=*/LOOM_OP_INDEX_CONSTANT,
+      /*.match_and_rewrite=*/CountCleanupPatternVisits,
+      /*.user_data=*/&pattern_data,
+  };
+  const loom_rewrite_pattern_provider_t provider = {
+      /*.name=*/IREE_SVL("cmd-program-plan-test"),
+      /*.patterns=*/&pattern,
+      /*.pattern_count=*/1,
+  };
+  const loom_rewrite_pattern_provider_t* providers[] = {&provider};
+  const loom_cleanup_pattern_provider_set_t provider_set = {
+      /*.region_initialization=*/{},
+      /*.universal_pre_fold=*/
+      loom_rewrite_pattern_provider_list_make(providers,
+                                              IREE_ARRAYSIZE(providers)),
+      /*.universal_post_type=*/{},
+      /*.source_combine=*/{},
+  };
+
+  const loom_symbol_ref_t root_ref =
+      FindSymbolRef(source_module.get(), IREE_SV("root"));
+  loom_link_plan_materialization_t materialization = {};
+  materialization.module = source_module.release();
+  loom_cmd_program_plan_t plan = {};
+  bool valid = false;
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_materialization(
+      &materialization, &root_ref, /*program_count=*/1,
+      /*kernel_source=*/nullptr, loom_pass_builtin_registry(), &provider_set,
+      /*diagnostic_emitter=*/{}, &block_pool_, &valid, &plan,
+      iree_allocator_system()));
+
+  ASSERT_TRUE(valid);
+  EXPECT_GT(visit_state.count, 0u);
+  loom_cmd_program_plan_deinitialize(&plan);
+}
+
 TEST_F(CmdProgramPlanTest, OwnsMultipleRootsAndDeduplicatesEntries) {
   ModulePtr source_module = ParseAndVerify(R"(
 kernel.entry.decl @increment(%source: buffer, %target: buffer)
@@ -210,9 +285,10 @@ command.program.def public @increment_twice() launch(%source: buffer, %scratch: 
 
   loom_cmd_program_plan_t plan = {};
   bool valid = false;
-  IREE_ASSERT_OK(loom_cmd_program_plan_prepare_materialization(
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_materialization(
       &materialization, program_refs, IREE_ARRAYSIZE(program_refs),
       /*kernel_source=*/nullptr, loom_pass_builtin_registry(),
+      loom_cleanup_configured_pattern_provider_set(),
       /*diagnostic_emitter=*/{}, &block_pool_, &valid, &plan,
       iree_allocator_system()));
   ASSERT_TRUE(valid);
@@ -349,10 +425,12 @@ command.program.def public @selected_schedule() launch(%storage: buffer) {
       /*.user_data=*/nullptr,
       /*.allocator=*/iree_allocator_system(),
   };
-  iree_status_t status = loom_cmd_program_plan_prepare_index(
+  iree_status_t status = loom_cmd_program_plan_build_from_index(
       index, &root_symbol_ordinal, 1, /*options=*/nullptr,
-      loom_pass_builtin_registry(), diagnostic_capture.emitter(), &environment,
-      &scratch_arena, &valid, &plan);
+      loom_pass_builtin_registry(),
+      loom_cleanup_configured_pattern_provider_set(),
+      diagnostic_capture.emitter(), &environment, &scratch_arena, &valid,
+      &plan);
   loom_link_module_index_free(index);
   source_module.reset();
   iree_arena_deinitialize(&scratch_arena);
@@ -460,10 +538,12 @@ command.program.def public @root() launch() {
   iree_arena_initialize(&block_pool_, &body_blind_arena);
   loom_cmd_program_plan_t body_blind_plan = {};
   bool body_blind_valid = false;
-  IREE_ASSERT_OK(loom_cmd_program_plan_prepare_index(
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_index(
       index, &root->ordinal, /*program_count=*/1, /*options=*/nullptr,
-      loom_pass_builtin_registry(), /*diagnostic_emitter=*/{}, &environment,
-      &body_blind_arena, &body_blind_valid, &body_blind_plan));
+      loom_pass_builtin_registry(),
+      loom_cleanup_configured_pattern_provider_set(),
+      /*diagnostic_emitter=*/{}, &environment, &body_blind_arena,
+      &body_blind_valid, &body_blind_plan));
   ASSERT_TRUE(body_blind_valid);
   ASSERT_EQ(body_blind_plan.root_count, 1u);
   ASSERT_EQ(body_blind_plan.entry_requirement_count, 1u);
@@ -483,10 +563,12 @@ command.program.def public @root() launch() {
   iree_arena_initialize(&block_pool_, &request_arena);
   loom_cmd_program_plan_t request_plan = {};
   bool request_valid = false;
-  IREE_EXPECT_NOT_OK(loom_cmd_program_plan_prepare_index(
+  IREE_EXPECT_NOT_OK(loom_cmd_program_plan_build_from_index(
       index, &root->ordinal, /*program_count=*/1, &request_options,
-      loom_pass_builtin_registry(), /*diagnostic_emitter=*/{}, &environment,
-      &request_arena, &request_valid, &request_plan));
+      loom_pass_builtin_registry(),
+      loom_cleanup_configured_pattern_provider_set(),
+      /*diagnostic_emitter=*/{}, &environment, &request_arena, &request_valid,
+      &request_plan));
   EXPECT_FALSE(request_valid);
   EXPECT_EQ(request_plan.root_module, nullptr);
   EXPECT_TRUE(request_capture.requests.empty());
@@ -597,10 +679,12 @@ command.program.def public @root_b() launch(%storage: buffer) {
   loom_cmd_program_plan_t plan = {};
   DiagnosticEmissionCapture diagnostic_capture;
   bool valid = false;
-  IREE_ASSERT_OK(loom_cmd_program_plan_prepare_index(
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_index(
       index, root_symbol_ordinals, IREE_ARRAYSIZE(root_symbol_ordinals),
-      &plan_options, loom_pass_builtin_registry(), diagnostic_capture.emitter(),
-      &environment, &scratch_arena, &valid, &plan));
+      &plan_options, loom_pass_builtin_registry(),
+      loom_cleanup_configured_pattern_provider_set(),
+      diagnostic_capture.emitter(), &environment, &scratch_arena, &valid,
+      &plan));
   ASSERT_TRUE(valid);
 
   RejectKernelRequestState reject_state = {};
@@ -614,9 +698,10 @@ command.program.def public @root_b() launch(%storage: buffer) {
   bool rejected_valid = false;
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_ABORTED,
-      loom_cmd_program_plan_prepare_index(
+      loom_cmd_program_plan_build_from_index(
           index, root_symbol_ordinals, IREE_ARRAYSIZE(root_symbol_ordinals),
           &plan_options, loom_pass_builtin_registry(),
+          loom_cleanup_configured_pattern_provider_set(),
           diagnostic_capture.emitter(), &environment, &reject_scratch_arena,
           &rejected_valid, &rejected_plan));
   EXPECT_FALSE(rejected_valid);
@@ -698,9 +783,10 @@ command.program.def public @parameterized() launch(%parameters: buffer, %target:
 
   loom_cmd_program_plan_t plan = {};
   bool valid = false;
-  IREE_ASSERT_OK(loom_cmd_program_plan_prepare_materialization(
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_materialization(
       &materialization, program_refs, IREE_ARRAYSIZE(program_refs),
       /*kernel_source=*/nullptr, loom_pass_builtin_registry(),
+      loom_cleanup_configured_pattern_provider_set(),
       /*diagnostic_emitter=*/{}, &block_pool_, &valid, &plan,
       iree_allocator_system()));
   ASSERT_TRUE(valid);
@@ -740,16 +826,19 @@ command.program.def public @parameterized() launch(%parameters: buffer, %target:
 
 TEST_F(CmdProgramPlanTest, OwnsBodylessEntryRequirementsAndArtifact) {
   ModulePtr source_module = ParseAndVerify(R"(
-kernel.entry.decl @configured_a(%scale: i8, %output: buffer)
+kernel.entry.decl @configured_a(%element_index: index, %byte_offset: offset, %raw_bits: i64, %scale: i8, %output: buffer)
 kernel.entry.decl @configured_b(%output: buffer)
 
 command.program.def public @bodyless() launch(%output: buffer) {
   %count_x = index.constant 7 : index
   %count_y = index.constant 5 : index
+  %element_index = index.constant 64 : index
+  %byte_offset = index.constant 4294967296 : offset
+  %raw_bits = scalar.constant 4886718345 : i64
   %scale = scalar.constant -1 : i8
   command.concurrent {
-    kernel.dispatch @configured_a[%count_x](%scale, %output) : [index](i8, buffer)
-    kernel.dispatch @configured_a[%count_x](%scale, %output) : [index](i8, buffer)
+    kernel.dispatch @configured_a[%count_x](%element_index, %byte_offset, %raw_bits, %scale, %output) : [index](index, offset, i64, i8, buffer)
+    kernel.dispatch @configured_a[%count_x](%element_index, %byte_offset, %raw_bits, %scale, %output) : [index](index, offset, i64, i8, buffer)
   }
   kernel.dispatch @configured_b[%count_x, %count_y](%output) : [index, index](buffer)
   command.return
@@ -764,9 +853,10 @@ command.program.def public @bodyless() launch(%output: buffer) {
 
   loom_cmd_program_plan_t plan = {};
   bool valid = false;
-  IREE_ASSERT_OK(loom_cmd_program_plan_prepare_materialization(
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_materialization(
       &materialization, program_refs, IREE_ARRAYSIZE(program_refs),
       /*kernel_source=*/nullptr, loom_pass_builtin_registry(),
+      loom_cleanup_configured_pattern_provider_set(),
       /*diagnostic_emitter=*/{}, &block_pool_, &valid, &plan,
       iree_allocator_system()));
   ASSERT_TRUE(valid);
@@ -798,6 +888,7 @@ command.program.def public @bodyless() launch(%output: buffer) {
       iree_make_const_byte_span(data.data, data.data_length), &program));
   EXPECT_EQ(program.requirements.executable_count, 2u);
   EXPECT_EQ(program.requirements.entry_count, 2u);
+  ASSERT_EQ(program.entry_schemas.count, 2u);
   ASSERT_EQ(program.commands.count, 3u);
   const loom_cmd_program_command_t first =
       loom_cmd_program_command_at(&program, 0);
@@ -813,6 +904,30 @@ command.program.def public @bodyless() launch(%output: buffer) {
   EXPECT_EQ(first.payload.dispatch_direct.workgroup_count_x, 7u);
   EXPECT_EQ(first.payload.dispatch_direct.workgroup_count_y, 1u);
   EXPECT_EQ(first.payload.dispatch_direct.workgroup_count_z, 1u);
+  const loom_cmd_program_entry_schema_t first_schema =
+      loom_cmd_program_entry_schema_at(&program, first.argument_schema_index);
+  EXPECT_EQ(first_schema.entry_index, 0u);
+  ASSERT_EQ(first_schema.argument_count, 5u);
+  EXPECT_EQ(first_schema.argument_byte_length, 49u);
+  EXPECT_EQ(loom_cmd_program_entry_schema_kind_at(&program, &first_schema, 0),
+            LOOM_CMD_PROGRAM_ARGUMENT_KIND_INDEX);
+  EXPECT_EQ(loom_cmd_program_entry_schema_kind_at(&program, &first_schema, 1),
+            LOOM_CMD_PROGRAM_ARGUMENT_KIND_OFFSET);
+  EXPECT_EQ(loom_cmd_program_entry_schema_kind_at(&program, &first_schema, 2),
+            LOOM_CMD_PROGRAM_ARGUMENT_KIND_B64);
+  EXPECT_EQ(loom_cmd_program_entry_schema_kind_at(&program, &first_schema, 3),
+            LOOM_CMD_PROGRAM_ARGUMENT_KIND_B8);
+  EXPECT_EQ(loom_cmd_program_entry_schema_kind_at(&program, &first_schema, 4),
+            LOOM_CMD_PROGRAM_ARGUMENT_KIND_BUFFER);
+  const iree_const_byte_span_t first_argument_data =
+      loom_cmd_program_command_argument_data(&program, &first);
+  ASSERT_EQ(first_argument_data.data_length, 49u);
+  EXPECT_EQ(iree_unaligned_load_le_u64(first_argument_data.data), 64u);
+  EXPECT_EQ(iree_unaligned_load_le_u64(first_argument_data.data + 8),
+            UINT64_C(4294967296));
+  EXPECT_EQ(iree_unaligned_load_le_u64(first_argument_data.data + 16),
+            UINT64_C(4886718345));
+  EXPECT_EQ(first_argument_data.data[24], 255u);
   EXPECT_EQ(third.payload.dispatch_direct.executable_index, 1u);
   EXPECT_EQ(third.payload.dispatch_direct.entry_index, 1u);
   EXPECT_EQ(third.payload.dispatch_direct.workgroup_count_x, 7u);
@@ -857,9 +972,10 @@ command.program.def public @dynamic_root() launch() {
 
   loom_cmd_program_plan_t plan = {};
   bool valid = false;
-  IREE_ASSERT_OK(loom_cmd_program_plan_prepare_materialization(
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_materialization(
       &materialization, program_refs, IREE_ARRAYSIZE(program_refs),
       /*kernel_source=*/nullptr, loom_pass_builtin_registry(),
+      loom_cleanup_configured_pattern_provider_set(),
       /*diagnostic_emitter=*/{}, &block_pool_, &valid, &plan,
       iree_allocator_system()));
   ASSERT_TRUE(valid);

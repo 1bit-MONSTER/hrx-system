@@ -155,14 +155,20 @@ bool loom_low_allocation_storage_assignment_unit_physical_register(
     *out_physical_register_id = assignment->location_base;
     return true;
   }
-  loom_low_allocation_explicit_register_view_t view;
-  if (!loom_low_allocation_storage_resolve_explicit_register_view(
+  const loom_low_physical_register_view_t* view =
+      loom_low_descriptor_set_find_physical_register_view(
           descriptor_set, assignment->descriptor_reg_class_id,
-          assignment->location_base, assignment->location_count, unit_index,
-          &view)) {
+          assignment->location_base, assignment->location_count);
+  if (view == NULL) {
     return false;
   }
-  *out_physical_register_id = view.requested_unit_physical_register_id;
+  const uint16_t* unit_candidate_ordinals =
+      loom_low_descriptor_set_physical_register_view_unit_candidate_ordinals(
+          descriptor_set, view);
+  *out_physical_register_id =
+      loom_low_descriptor_set_physical_register_candidate(
+          descriptor_set, assignment->descriptor_reg_class_id,
+          unit_candidate_ordinals[unit_index]);
   return true;
 }
 
@@ -716,32 +722,31 @@ bool loom_low_allocation_storage_assignment_subranges_overlap(
   return lhs_begin < rhs_end && rhs_begin < lhs_end;
 }
 
-bool loom_low_allocation_storage_placement_relation_satisfied(
+bool loom_low_allocation_storage_relation_satisfied(
     const loom_low_descriptor_set_t* descriptor_set,
-    const loom_low_placement_relation_t* relation,
+    loom_low_placement_relation_kind_t kind, uint32_t result_unit_offset,
+    uint32_t source_unit_offset, uint32_t unit_count, uint32_t location_mask,
     const loom_low_allocation_assignment_t* result_assignment,
     const loom_low_allocation_assignment_t* source_assignment) {
   IREE_ASSERT_ARGUMENT(descriptor_set);
-  IREE_ASSERT_ARGUMENT(relation);
   IREE_ASSERT_ARGUMENT(result_assignment);
   IREE_ASSERT_ARGUMENT(source_assignment);
-  IREE_ASSERT_LE(relation->result_unit_offset, result_assignment->unit_count);
-  IREE_ASSERT_LE(relation->unit_count,
-                 result_assignment->unit_count - relation->result_unit_offset);
-  IREE_ASSERT_LE(relation->source_unit_offset, source_assignment->unit_count);
-  IREE_ASSERT_LE(relation->unit_count,
-                 source_assignment->unit_count - relation->source_unit_offset);
+  IREE_ASSERT_LE(result_unit_offset, result_assignment->unit_count);
+  IREE_ASSERT_LE(unit_count,
+                 result_assignment->unit_count - result_unit_offset);
+  IREE_ASSERT_LE(source_unit_offset, source_assignment->unit_count);
+  IREE_ASSERT_LE(unit_count,
+                 source_assignment->unit_count - source_unit_offset);
 
-  switch (relation->kind) {
+  switch (kind) {
     case LOOM_LOW_PLACEMENT_RELATION_SAME_STORAGE:
     case LOOM_LOW_PLACEMENT_RELATION_SUBRANGE:
     case LOOM_LOW_PLACEMENT_RELATION_CONTIGUOUS_PART:
       return loom_low_allocation_storage_assignment_subranges_equal(
-          descriptor_set, result_assignment, relation->result_unit_offset,
-          source_assignment, relation->source_unit_offset,
-          relation->unit_count);
+          descriptor_set, result_assignment, result_unit_offset,
+          source_assignment, source_unit_offset, unit_count);
     case LOOM_LOW_PLACEMENT_RELATION_DIFFERENT_MASKED_LOCATION:
-      IREE_ASSERT_NE(relation->location_mask, 0u);
+      IREE_ASSERT_NE(location_mask, 0u);
       if (!loom_low_allocation_storage_assignment_classes_share(
               descriptor_set, result_assignment, source_assignment)) {
         return false;
@@ -751,18 +756,17 @@ bool loom_low_allocation_storage_placement_relation_satisfied(
         return false;
       }
       return ((((uint64_t)result_assignment->location_base +
-                relation->result_unit_offset) ^
+                result_unit_offset) ^
                ((uint64_t)source_assignment->location_base +
-                relation->source_unit_offset)) &
-              relation->location_mask) != 0;
+                source_unit_offset)) &
+              location_mask) != 0;
     case LOOM_LOW_PLACEMENT_RELATION_DISJOINT_STORAGE:
       return !loom_low_allocation_storage_assignment_subranges_overlap(
-          descriptor_set, result_assignment, relation->result_unit_offset,
-          source_assignment, relation->source_unit_offset,
-          relation->unit_count);
+          descriptor_set, result_assignment, result_unit_offset,
+          source_assignment, source_unit_offset, unit_count);
     case LOOM_LOW_PLACEMENT_RELATION_SAME_REGISTER_ORDINAL: {
-      if (relation->result_unit_offset != 0 ||
-          relation->source_unit_offset != 0 || relation->unit_count != 1 ||
+      if (result_unit_offset != 0 || source_unit_offset != 0 ||
+          unit_count != 1 ||
           result_assignment->location_kind !=
               LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER ||
           source_assignment->location_kind !=
@@ -784,4 +788,15 @@ bool loom_low_allocation_storage_placement_relation_satisfied(
     default:
       return false;
   }
+}
+
+bool loom_low_allocation_storage_placement_relation_satisfied(
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_placement_relation_t* relation,
+    const loom_low_allocation_assignment_t* result_assignment,
+    const loom_low_allocation_assignment_t* source_assignment) {
+  return loom_low_allocation_storage_relation_satisfied(
+      descriptor_set, relation->kind, relation->result_unit_offset,
+      relation->source_unit_offset, relation->unit_count,
+      relation->location_mask, result_assignment, source_assignment);
 }

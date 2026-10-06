@@ -24,6 +24,7 @@ ABI_HDRS = [
     "signal.h",
     "timestamp.h",
     "tsan.h",
+    "ubsan.h",
 ]
 
 filegroup(

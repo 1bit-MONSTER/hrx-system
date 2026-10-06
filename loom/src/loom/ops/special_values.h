@@ -34,6 +34,9 @@ iree_status_t loom_poison_build(loom_builder_t* builder,
                                 loom_location_id_t location,
                                 loom_value_id_t* out_value_id);
 
+// Returns true when |type| currently has a supported poison materializer.
+bool loom_type_has_poison_materializer(loom_type_t type);
+
 // Returns true when |type| currently has a supported constant materializer.
 bool loom_type_has_constant_materializer(loom_type_t type);
 

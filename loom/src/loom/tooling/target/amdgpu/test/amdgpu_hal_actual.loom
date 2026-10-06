@@ -30,7 +30,6 @@ check.case @store_i32_case {
   kernel.launch @store_i32(%output) : (tensor<1xi32>)
   %expected = check.generate.fill value(42) : tensor<1xi32>
   check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 
@@ -40,7 +39,6 @@ check.case @store_then_double_i32_case {
   kernel.launch @double_i32(%output) : (tensor<1xi32>)
   %expected = check.generate.fill value(84) : tensor<1xi32>
   check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
-  check.expect.event<device> {count = 0, type = "asan_report"}
   check.return
 }
 

@@ -29,6 +29,26 @@ static const loom_target_snapshot_t kSpirvVulkan13Snapshot = {
         },
 };
 
+static const loom_target_snapshot_t kSpirvVulkan13Subgroup32Snapshot = {
+    .name = IREE_SVL("spirv-vulkan1.3-subgroup32"),
+    .codegen_format = LOOM_TARGET_CODEGEN_FORMAT_SPIRV,
+    .artifact_format = LOOM_TARGET_ARTIFACT_FORMAT_SPIRV_BINARY,
+    .default_pointer_bitwidth = 64,
+    .index_bitwidth = 32,
+    .offset_bitwidth = 64,
+    .subgroup_size = 32,
+    .memory_spaces =
+        {
+            .generic = LOOM_SPIRV_STORAGE_CLASS_GENERIC,
+            .global = LOOM_SPIRV_STORAGE_CLASS_CROSS_WORKGROUP,
+            .workgroup = LOOM_SPIRV_STORAGE_CLASS_WORKGROUP,
+            .constant = LOOM_SPIRV_STORAGE_CLASS_UNIFORM,
+            .private_memory = LOOM_SPIRV_STORAGE_CLASS_FUNCTION,
+            .host = UINT32_MAX,
+            .descriptor = LOOM_SPIRV_STORAGE_CLASS_PHYSICAL_STORAGE_BUFFER,
+        },
+};
+
 static const loom_target_export_plan_t kSpirvVulkan13ExportPlan = {
     .name = IREE_SVL("spirv-shader-entry-point"),
     .abi_kind = LOOM_TARGET_ABI_SHADER_ENTRY_POINT,
@@ -57,7 +77,8 @@ static const loom_target_config_t kSpirvExtendedTypesConfig = {
         LOOM_SPIRV_FEATURE_INT16 |
         LOOM_SPIRV_FEATURE_STORAGE_BUFFER_8BIT_ACCESS |
         LOOM_SPIRV_FEATURE_STORAGE_BUFFER_16BIT_ACCESS |
-        LOOM_SPIRV_FEATURE_BFLOAT16_TYPE_KHR,
+        LOOM_SPIRV_FEATURE_BFLOAT16_TYPE_KHR |
+        LOOM_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE,
 };
 
 const loom_target_bundle_t loom_spirv_low_target_bundle_extended_types = {
@@ -78,6 +99,21 @@ const loom_target_bundle_t loom_spirv_low_target_bundle_hal_kernel = {
     .snapshot = &kSpirvVulkan13Snapshot,
     .export_plan = &kSpirvHalKernelExportPlan,
     .config = &kSpirvVulkan13Config,
+};
+
+static const loom_target_config_t kSpirvSubgroup32BallotConfig = {
+    .name = IREE_SVL("spirv.logical.core.subgroup32.ballot"),
+    .contract_set_key = IREE_SVL("spirv.logical.core"),
+    .contract_feature_bits = LOOM_SPIRV_FEATURE_PROFILE_VULKAN_1_3_BDA |
+                             LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
+};
+
+const loom_target_bundle_t loom_spirv_low_target_bundle_subgroup32_ballot_hal =
+    {
+        .name = IREE_SVL("spirv-vulkan1.3-subgroup32-ballot-hal"),
+        .snapshot = &kSpirvVulkan13Subgroup32Snapshot,
+        .export_plan = &kSpirvHalKernelExportPlan,
+        .config = &kSpirvSubgroup32BallotConfig,
 };
 
 static const loom_target_bundle_t* const kSpirvTargetBundleValues[] = {

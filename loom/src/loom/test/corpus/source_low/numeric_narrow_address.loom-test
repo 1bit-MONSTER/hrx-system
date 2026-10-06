@@ -14,6 +14,18 @@ func.def @unsigned_narrow_offsets(%byte: i8, %halfword: i16) -> (offset, offset)
 
 // ====
 
+func.def @normalize_truncated_narrow_addresses(%input: i32) -> (index, offset, index, offset) {
+  %byte = scalar.trunci %input : i32 to i8
+  %halfword = scalar.trunci %input : i32 to i16
+  %byte_coordinate = index.cast %byte : i8 to index
+  %byte_offset = index.cast %byte : i8 to offset
+  %halfword_coordinate = index.cast %halfword : i16 to index
+  %halfword_offset = index.cast %halfword : i16 to offset
+  func.return %byte_coordinate, %byte_offset, %halfword_coordinate, %halfword_offset : index, offset, index, offset
+}
+
+// ====
+
 func.def @narrow_coordinate_payloads(%coordinate: index) -> (i8, i16, i1) {
   %byte = index.cast %coordinate : index to i8
   %halfword = index.cast %coordinate : index to i16

@@ -75,6 +75,18 @@ func.def target(@target) @unsigned_i16_conversion_requires_target_features(%lhs:
 
 // ====
 
+// Vulkan baseline, Int64, subgroup, and BF16 type support without F32 denorm
+// preservation cannot implement the exact BF16 extension contract.
+spirv.target<vulkan1_3> @target {contract_feature_bits = 2147520518}
+
+func.def target(@target) @bfloat_widen_requires_f32_denorm_preservation(%input: bf16) -> (f32) {
+  // ERROR@+1: TARGET/003 {subject_role="descriptor", subject_name="spirv.op_f_convert.bf16.f32", constraint_key="descriptor_available"}
+  %wide = scalar.extf %input : bf16 to f32
+  func.return %wide : f32
+}
+
+// ====
+
 spirv.target<vulkan1_3> @target
 
 func.def target(@target) @unsupported_semantic_math(%input: f32) -> (f32) {
@@ -329,6 +341,20 @@ func.def target(@target) @workgroup_i32_rejects_unaligned_byte_offset(%byte_offs
 
 spirv.target<vulkan1_3> @target
 
+func.def target(@target) @private_i32_reports_memory_space() -> (i32) {
+  %byte_length = index.constant 4 : offset
+  %base = index.constant 0 : offset
+  %storage = buffer.alloca<private> align(4) %byte_length : buffer
+  %view = buffer.view %storage[%base] : buffer -> view<1xi32>
+  // ERROR@+1: TARGET/003 {subject_role="source-memory", subject_name="access", constraint_key="source_memory.memory_space"}
+  %loaded = view.load %view[0] : view<1xi32> -> i32
+  func.return %loaded : i32
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target
+
 func.def target(@target) @int8_operation_requires_target_feature(%lhs: i8, %rhs: i8) -> (i8) {
   // ERROR@+3: TARGET/003 {subject_role="descriptor", subject_name="spirv.op_u_convert.u8.u32", constraint_key="descriptor_available"}
   // ERROR@+2: TARGET/003 {subject_role="descriptor", subject_name="spirv.op_u_convert.u8.u32", constraint_key="descriptor_available"}
@@ -383,6 +409,63 @@ func.def target(@target) @i64_to_index_requires_s32_proof(%input: i64) -> (index
   // ERROR@+1: SPIRV/026 {source_type="i64", result_type="index", required_range_lo="-2147483648", required_range_hi="2147483647", constraint_key="index_cast.s32_exact"}
   %result = index.cast %input : i64 to index
   func.return %result : index
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target {abi = hal_kernel}
+
+kernel.def target(@target) @subgroup_ballot_requires_known_width() {
+  %c1 = index.constant 1 : index
+  %c32 = index.constant 32 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c32, %c1, %c1) : index
+} launch(%output: buffer) {
+  %predicate = scalar.constant true : i1
+  // ERROR@+1: TARGET/003 {subject_role="target", subject_name="subgroup_size", constraint_key="range"}
+  %mask = kernel.subgroup.vote.ballot %predicate : i1 -> i32
+  %base = index.constant 0 : offset
+  %position = index.constant 0 : index
+  %output_view = buffer.view %output[%base] : buffer -> view<1xi32>
+  view.store %mask, %output_view[%position] : i32, view<1xi32>
+  kernel.return
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target {abi = hal_kernel, subgroup_size = 64}
+
+kernel.def target(@target) @subgroup_ballot_rejects_narrow_mask() {
+  %c1 = index.constant 1 : index
+  %c64 = index.constant 64 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c64, %c1, %c1) : index
+} launch(%output: buffer) {
+  %predicate = scalar.constant true : i1
+  // ERROR@+1: TARGET/003 {subject_role="target", subject_name="subgroup_size", constraint_key="range"}
+  %mask = kernel.subgroup.vote.ballot %predicate : i1 -> i32
+  %base = index.constant 0 : offset
+  %position = index.constant 0 : index
+  %output_view = buffer.view %output[%base] : buffer -> view<1xi32>
+  view.store %mask, %output_view[%position] : i32, view<1xi32>
+  kernel.return
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target {abi = hal_kernel, subgroup_size = 32}
+
+kernel.def target(@target) @subgroup_ballot_requires_target_capability() {
+  %c1 = index.constant 1 : index
+  %c32 = index.constant 32 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c32, %c1, %c1) : index
+} launch(%output: buffer) {
+  %predicate = scalar.constant true : i1
+  // ERROR@+1: TARGET/003 {subject_role="descriptor", subject_name="spirv.op_group_non_uniform_ballot.v4u32", constraint_key="descriptor_available"}
+  %mask = kernel.subgroup.vote.ballot %predicate : i1 -> i32
+  %base = index.constant 0 : offset
+  %position = index.constant 0 : index
+  %output_view = buffer.view %output[%base] : buffer -> view<1xi32>
+  view.store %mask, %output_view[%position] : i32, view<1xi32>
+  kernel.return
 }
 
 // ====
@@ -447,6 +530,20 @@ func.def target(@target) @index_shift_requires_u5_amount(%input: index, %amount0
   // ERROR@+1: SPIRV/027 {field_name="rhs", value_type="index", required_range_lo="0", required_range_hi="31", constraint_key="spirv.index.shift_amount.u5"}
   %result = index.shrui %input, %amount : index
   func.return %result : index
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @index_shift_requires_bounded_amount(%input: index, %amount: index) -> (index, index, index) {
+  // ERROR@+1: SPIRV/027 {op_name="index.shli", field_name="rhs", constraint_key="spirv.index.shift_amount.u5"}
+  %left = index.shli %input, %amount : index
+  // ERROR@+1: SPIRV/027 {op_name="index.shrui", field_name="rhs", constraint_key="spirv.index.shift_amount.u5"}
+  %logical = index.shrui %input, %amount : index
+  // ERROR@+1: SPIRV/027 {op_name="index.shrsi", field_name="rhs", constraint_key="spirv.index.shift_amount.u5"}
+  %signed = index.shrsi %input, %amount : index
+  func.return %left, %logical, %signed : index, index, index
 }
 
 // ====

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from loom.dsl import EncodingOperandSummaryDef
 from loom.gen.support.c import c_i64_literal as _c_i64_literal
 from loom.gen.support.string_pool import CStringPool
 from loom.gen.target.contracts import lower_rule_spelling
@@ -38,6 +39,7 @@ from loom.target.contracts import (
     SourceMemoryAddressMaterializer,
     SourceMemoryByteOffsetMaterializer,
     SourceMemoryIntegerConversion,
+    SourceMemoryRejectionReason,
     SourceNodeRelation,
     TypePattern,
 )
@@ -59,15 +61,18 @@ _GUARD_VALUE_REF_KINDS = frozenset(
         GuardKind.VALUE_EXACT_POWER_OF_TWO_I64,
         GuardKind.VALUE_U32_DIVISOR_MAGIC_IS_ADD,
         GuardKind.VALUE_EXACT_FLOAT,
+        GuardKind.VALUE_NOT_NAN,
         GuardKind.VALUE_I64_RANGE,
         GuardKind.VALUE_I64_RANGE_LE,
         GuardKind.VALUE_I64_RANGE_GE,
         GuardKind.VALUE_FLOAT_EQUALS,
         GuardKind.VALUE_STORAGE_ELEMENT_FORMAT,
+        GuardKind.VALUE_STORAGE_OPERAND_SCHEMA,
         GuardKind.VALUE_MEMORY_SPACE,
         GuardKind.VALUE_PACKED_INTEGER_PAYLOAD_FROM_LANES,
         GuardKind.VALUE_PACKED_INTEGER_LANES_FROM_PAYLOAD,
         GuardKind.VALUE_NO_USES,
+        GuardKind.VALUE_NO_USES_AFTER,
         GuardKind.VECTOR_EXTRACT_SHAPE,
     )
 )
@@ -98,6 +103,8 @@ _ATTR_COPY_VALUE_REF_KINDS = frozenset(
         LowerAttrCopyKind.VALUE_FLOAT_BITS,
         LowerAttrCopyKind.VALUE_FLOAT_AS_F32_I32,
         LowerAttrCopyKind.VALUE_FLOAT_AS_F64_I32_WORD,
+        LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_SCALED,
+        LowerAttrCopyKind.VALUE_TYPE_LITERAL_MINUS_STATIC_DIM_SCALED,
     )
 )
 
@@ -333,6 +340,11 @@ def source_memory_row(
         )
     _append_field(
         fields,
+        "byte_offset_unsigned_bit_count",
+        constraint.byte_offset_unsigned_bit_count,
+    )
+    _append_field(
+        fields,
         "dynamic_offset_unsigned_bit_count",
         constraint.dynamic_offset_unsigned_bit_count,
     )
@@ -358,29 +370,24 @@ def source_memory_row(
 
 def source_memory_diagnostic_indices(
     row: LowerSourceMemory,
-) -> tuple[int, int, int, int]:
-    return (
-        row.diagnostic_index,
-        row.dynamic_offset_diagnostic_index,
-        row.address_layout_diagnostic_index,
-        row.address_diagnostic_index,
-    )
+) -> tuple[int, ...]:
+    if len(row.rejection_diagnostic_indices) != len(SourceMemoryRejectionReason):
+        raise ValueError("source-memory rejection diagnostic count disagrees with its reasons")
+    return row.rejection_diagnostic_indices
 
 
 def source_memory_diagnostics_row(
-    indices: tuple[int, int, int, int],
+    indices: tuple[int, ...],
 ) -> list[str]:
-    (
-        constraint_diagnostic_index,
-        dynamic_offset_diagnostic_index,
-        address_layout_diagnostic_index,
-        address_diagnostic_index,
-    ) = indices
+    if len(indices) != len(SourceMemoryRejectionReason):
+        raise ValueError("source-memory rejection diagnostic count disagrees with its reasons")
     return [
-        ".constraint_diagnostic_index = " + lower_rule_spelling.diagnostic_index(constraint_diagnostic_index),
-        ".dynamic_offset_diagnostic_index = " + lower_rule_spelling.diagnostic_index(dynamic_offset_diagnostic_index),
-        ".address_layout_diagnostic_index = " + lower_rule_spelling.diagnostic_index(address_layout_diagnostic_index),
-        ".address_diagnostic_index = " + lower_rule_spelling.diagnostic_index(address_diagnostic_index),
+        f".rejection_diagnostic_indices[LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_{reason.name}] = " + lower_rule_spelling.diagnostic_index(index)
+        for reason, index in zip(
+            SourceMemoryRejectionReason,
+            indices,
+            strict=True,
+        )
     ]
 
 
@@ -419,6 +426,8 @@ def source_memory_byte_offset_materializer_row(
         f".constant_descriptor_ref = {_descriptor_ref_index(descriptor_refs, row.constant)}",
         f".add_descriptor_ref = {_descriptor_ref_index(descriptor_refs, row.add)}",
         f".multiply_descriptor_ref = {_descriptor_ref_index(descriptor_refs, row.multiply)}",
+        f".multiply_add_descriptor_ref = {_descriptor_ref_index(descriptor_refs, row.multiply_add)}",
+        f".static_bias_descriptor_ref = {_descriptor_ref_index(descriptor_refs, row.static_bias)}",
         f".shift_left_descriptor_ref = {_descriptor_ref_index(descriptor_refs, row.shift_left)}",
     ]
 
@@ -460,6 +469,8 @@ def descriptor_ref_keys(table: CompiledLowerRuleSet, source_contract: ContractFr
                     materializer.add,
                     materializer.multiply,
                     materializer.shift_left,
+                    materializer.multiply_add,
+                    materializer.static_bias,
                     *(conversion.descriptor for conversion in materializer.integer_conversions),
                 )
                 if descriptor is not None
@@ -502,7 +513,12 @@ def _rule_flags_c_expression(flags: int) -> str:
     return f"0x{flags:X}"
 
 
-def guard_row(descriptor_refs: Mapping[str, int], row: LowerGuard) -> list[str]:
+def guard_row(
+    descriptor_refs: Mapping[str, int],
+    row: LowerGuard,
+    *,
+    storage_operand_schema_ordinals: Mapping[EncodingOperandSummaryDef, int] | None = None,
+) -> list[str]:
     fields: list[str] = []
     _append_field(fields, "kind", lower_rule_spelling.GUARD_KIND_C_NAMES[row.kind], always=True)
 
@@ -544,6 +560,17 @@ def guard_row(descriptor_refs: Mapping[str, int], row: LowerGuard) -> list[str]:
             f"{{.element_index = {row.u64}}}",
             always=True,
         )
+    elif row.kind == GuardKind.VALUE_STORAGE_OPERAND_SCHEMA:
+        if row.storage_operand_schema is None:
+            raise ValueError("storage operand-schema guard is missing its schema")
+        if storage_operand_schema_ordinals is None:
+            raise ValueError("storage operand-schema guard is missing its table")
+        _append_field(
+            fields,
+            "index",
+            f"{{.element_index = {storage_operand_schema_ordinals[row.storage_operand_schema]}}}",
+            always=True,
+        )
     if row.diagnostic_index != 0xFFFF:
         _append_field(
             fields,
@@ -565,6 +592,7 @@ def guard_row(descriptor_refs: Mapping[str, int], row: LowerGuard) -> list[str]:
         GuardKind.VALUE_U32_DIVISOR_MAGIC_IS_ADD,
         GuardKind.VALUE_FLOAT_EQUALS,
         GuardKind.INSTANCE_FLAGS_HAS_ALL,
+        GuardKind.INSTANCE_FLAGS_HAS_NONE,
     ):
         u64_payload = lower_rule_spelling.u64_c_literal(row.u64)
     elif row.kind == GuardKind.VALUE_STORAGE_ELEMENT_FORMAT:
@@ -601,6 +629,7 @@ def guard_row(descriptor_refs: Mapping[str, int], row: LowerGuard) -> list[str]:
         GuardKind.I64_ARRAY_ELEMENT_RANGE,
         GuardKind.I64_ARRAY_ELEMENTS_RANGE,
         GuardKind.VALUE_I64_RANGE,
+        GuardKind.TARGET_SUBGROUP_SIZE_RANGE,
     ):
         _append_field(
             fields,
@@ -618,6 +647,52 @@ def guard_row(descriptor_refs: Mapping[str, int], row: LowerGuard) -> list[str]:
             f"{{.packed_integer = {{.storage_payload_multiple = UINT32_C({row.u64}), .storage_unit_bit_count = UINT32_C({row.minimum_i64}), .maximum_lane_count = UINT32_C({row.maximum_i64})}}}}",
             always=True,
         )
+    return fields
+
+
+def storage_operand_schema_row(schema: EncodingOperandSummaryDef) -> list[str]:
+    """Returns one exact encoded-operand schema initializer."""
+
+    fields: list[str] = []
+    for field_name in (
+        "element_format",
+        "scale_format",
+        "secondary_scale_format",
+    ):
+        value = getattr(schema, field_name)
+        _append_field(fields, field_name, lower_rule_spelling.u64_c_literal(value))
+    for field_name in (
+        "payload_packing",
+        "scale_topology",
+        "affine_policy",
+        "rounding_policy",
+        "codebook_policy",
+        "sparsity_policy",
+    ):
+        _append_field(fields, field_name, getattr(schema, field_name))
+    if schema.zero_scale_fallback:
+        _append_field(
+            fields,
+            "flags",
+            "LOOM_VALUE_FACT_ENCODED_OPERAND_FLAG_ZERO_SCALE_FALLBACK",
+        )
+    if schema.sparsity_group_nonzero_element_count or schema.sparsity_group_element_count:
+        _append_field(
+            fields,
+            "sparsity_group",
+            f"{{.nonzero_element_count = {schema.sparsity_group_nonzero_element_count}, .element_count = {schema.sparsity_group_element_count}}}",
+        )
+    _append_field(fields, "payload_register_count", schema.payload_register_count)
+    _append_field(fields, "payload_element_count", schema.payload_element_count)
+    if schema.scale_group_element_count or schema.scale_group_shape:
+        shape = ", ".join(str(extent) for extent in schema.scale_group_shape)
+        shape_field = f", .shape = {{{shape}}}" if shape else ""
+        _append_field(
+            fields,
+            "scale_group",
+            f"{{.element_count = {schema.scale_group_element_count}{shape_field}}}",
+        )
+    _append_field(fields, "scale_operand_count", schema.scale_operand_count)
     return fields
 
 
@@ -671,6 +746,8 @@ def attr_copy_row(
         LowerAttrCopyKind.I64_ARRAY_LANE_BYTE,
         LowerAttrCopyKind.VALUE_EXACT_I64_I32_WORD,
         LowerAttrCopyKind.VALUE_FLOAT_AS_F64_I32_WORD,
+        LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_SCALED,
+        LowerAttrCopyKind.VALUE_TYPE_LITERAL_MINUS_STATIC_DIM_SCALED,
     ):
         _append_field(
             fields,
@@ -682,6 +759,8 @@ def attr_copy_row(
         LowerAttrCopyKind.I64_ARRAY_PACK_ELEMENTS,
         LowerAttrCopyKind.ATTRS_PACK_CONSECUTIVE,
         LowerAttrCopyKind.I64_ARRAY_LANE_BYTE,
+        LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_SCALED,
+        LowerAttrCopyKind.VALUE_TYPE_LITERAL_MINUS_STATIC_DIM_SCALED,
     ):
         _append_field(
             fields,
@@ -714,6 +793,8 @@ def attr_copy_row(
         LowerAttrCopyKind.SOURCE_MEMORY_STATIC_BYTE_OFFSET_REMAINDER,
         LowerAttrCopyKind.VALUE_U32_DIVISOR_MAGIC_SHIFT,
         LowerAttrCopyKind.VALUE_U32_DIVISOR_MAGIC_MULTIPLIER,
+        LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_SCALED,
+        LowerAttrCopyKind.VALUE_TYPE_LITERAL_MINUS_STATIC_DIM_SCALED,
     ):
         _append_field(
             fields,
@@ -926,6 +1007,8 @@ def rule_set_row(
     diagnostic_param_refs_name: str,
     guard_rows: tuple[LowerGuard, ...],
     guards_name: str,
+    storage_operand_schemas: tuple[EncodingOperandSummaryDef, ...],
+    storage_operand_schemas_name: str,
     guard_refs: tuple[int, ...],
     guard_refs_name: str,
     attr_copies_name: str,
@@ -1011,6 +1094,12 @@ def rule_set_row(
         diagnostic_param_refs_name,
     )
     _append_table_fields(fields, "guards", guard_rows, guards_name)
+    _append_table_fields(
+        fields,
+        "storage_operand_schemas",
+        storage_operand_schemas,
+        storage_operand_schemas_name,
+    )
     _append_table_fields(fields, "guard_refs", guard_refs, guard_refs_name)
     _append_table_fields(fields, "attr_copies", table.attr_copies, attr_copies_name)
     _append_table_fields(fields, "tied_results", table.tied_results, tied_results_name)
@@ -1110,15 +1199,15 @@ def diagnostic_param_row(
 
 
 def type_pattern_row(type_pattern: TypePattern) -> list[str]:
-    flags = [
-        "LOOM_LOW_LOWER_TYPE_PATTERN_FLAG_KIND",
-        "LOOM_LOW_LOWER_TYPE_PATTERN_FLAG_ELEMENT",
-    ]
+    flags = ["LOOM_LOW_LOWER_TYPE_PATTERN_FLAG_KIND"]
+    if type_pattern.elements:
+        flags.append("LOOM_LOW_LOWER_TYPE_PATTERN_FLAG_ELEMENT")
     row = [
         ".flags = " + " | ".join(flags),
         f".type_kind = {lower_rule_spelling.type_kind_c_name(type_pattern)}",
-        f".element_type_mask = {lower_rule_spelling.scalar_type_mask_c_expr(type_pattern.elements)}",
     ]
+    if type_pattern.elements:
+        row.append(f".element_type_mask = {lower_rule_spelling.scalar_type_mask_c_expr(type_pattern.elements)}")
     if type_pattern.dims:
         row[0] += " | LOOM_LOW_LOWER_TYPE_PATTERN_FLAG_RANK"
         row.extend(

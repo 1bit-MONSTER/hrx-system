@@ -11,6 +11,8 @@ import pytest
 
 from loom.gen.target.low import compiler
 from loom.target.low_descriptors import (
+    Constraint,
+    ConstraintKind,
     DescriptorFlag,
     EncodingFieldValue,
     EnumDomain,
@@ -21,7 +23,14 @@ from loom.target.low_descriptors import (
     IssueUse,
     IssueUseKind,
     LatencyKind,
+    MemorySpace,
     ModelQuality,
+    OperandForm,
+    OperandFormMatch,
+    OperandFormMatchKind,
+    PhysicalRegisterView,
+    RegClassAlt,
+    RegClassAltFlag,
     Resource,
     ResourceKind,
     ScheduleClass,
@@ -31,7 +40,123 @@ from loom.target.test.descriptors import (
     TEST_LOW_ADD_I32_DESCRIPTOR,
     TEST_LOW_CONST_I32_DESCRIPTOR,
     TEST_LOW_CORE_DESCRIPTOR_SET,
+    TEST_LOW_LOAD_V4I32_DESCRIPTOR,
+    TEST_LOW_WRITE_LOW16_I32_DESCRIPTOR,
 )
+
+
+@pytest.mark.parametrize("alignment", [0, 3, 6, 65536])
+def test_operand_alignment_requires_representable_power_of_two(alignment) -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operand = base.operands[0]
+    alternative = replace(operand.reg_alts[0], unit_alignment=alignment)
+    descriptor = replace(base, operands=(replace(operand, reg_alts=(alternative,)), *base.operands[1:]))
+    with pytest.raises(ValueError, match="register alignment"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+
+
+def test_operand_alignment_is_part_of_interned_alternative() -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operands = tuple(replace(operand, reg_alts=(replace(operand.reg_alts[0], unit_alignment=alignment),)) for operand, alignment in zip(base.operands, (1, 2, 4), strict=True))
+    compiled = compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(replace(base, operands=operands),)))
+    assert [row[3] for row in compiled.reg_class_alts] == [0, 1, 2]
+
+
+def test_register_part_is_owned_by_each_register_alternative() -> None:
+    base = TEST_LOW_WRITE_LOW16_I32_DESCRIPTOR
+    mixed_result = replace(
+        base.operands[0],
+        reg_alts=(
+            base.operands[0].reg_alts[0],
+            RegClassAlt("test.i64"),
+        ),
+    )
+    descriptor = replace(base, operands=(mixed_result, *base.operands[1:]))
+    compiled = compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+    result_alt_start = compiled.operand_alt_starts[0]
+    result_alternatives = compiled.reg_class_alts[result_alt_start : result_alt_start + 2]
+    assert [row[0] for row in result_alternatives] == [
+        compiled.reg_class_ids["test.i32"],
+        compiled.reg_class_ids["test.i64"],
+    ]
+    assert [row[1] for row in result_alternatives] == [
+        compiled.register_part_ids[base.operands[0].reg_alts[0].register_part],
+        None,
+    ]
+
+
+def test_register_alternative_rejects_part_for_another_class() -> None:
+    base = TEST_LOW_WRITE_LOW16_I32_DESCRIPTOR
+    result = replace(
+        base.operands[0],
+        reg_alts=(replace(base.operands[0].reg_alts[0], reg_class="test.i64"),),
+    )
+    descriptor = replace(base, operands=(result, *base.operands[1:]))
+    with pytest.raises(ValueError, match=r"uses register part .* for register class"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+
+
+def test_immediate_alternative_rejects_register_part() -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operand = replace(
+        base.operands[1],
+        reg_alts=(
+            RegClassAlt(
+                None,
+                flags=(RegClassAltFlag.IMMEDIATE,),
+                register_part=TEST_LOW_WRITE_LOW16_I32_DESCRIPTOR.operands[0].reg_alts[0].register_part,
+            ),
+        ),
+    )
+    descriptor = replace(base, operands=(base.operands[0], operand, *base.operands[2:]))
+    with pytest.raises(ValueError, match="immediate alternative cannot name"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+
+
+def test_immediate_alternative_has_no_register_alignment() -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operand = replace(base.operands[1], reg_alts=(RegClassAlt(None, (RegClassAltFlag.IMMEDIATE,), unit_alignment=2),))
+    descriptor = replace(base, operands=(base.operands[0], operand, *base.operands[2:]))
+    with pytest.raises(ValueError, match="immediate alternative cannot require register alignment"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+
+
+def test_late_read_alternative_is_interned_with_its_execution_mode() -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operands = tuple(replace(operand, reg_alts=(replace(operand.reg_alts[0], late_read_subgroup_size=width),)) for operand, width in zip(base.operands, (None, 0, 64), strict=True))
+    compiled = compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(replace(base, operands=operands),)))
+    assert [(RegClassAltFlag.LATE_READ in row[2], row[4]) for row in compiled.reg_class_alts] == [(False, 0), (True, 0), (True, 64)]
+    assert DescriptorFlag.LATE_READ in compiled.descriptors[0].flags
+
+
+@pytest.mark.parametrize("width", [-1, 65536])
+def test_late_read_subgroup_size_is_representable(width) -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operand = base.operands[1]
+    operand = replace(operand, reg_alts=(replace(operand.reg_alts[0], late_read_subgroup_size=width),))
+    descriptor = replace(base, operands=(base.operands[0], operand, base.operands[2]))
+    with pytest.raises(ValueError, match="late-read subgroup size"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+
+
+@pytest.mark.parametrize("operand_index", [0, 1])
+def test_late_read_requires_a_register_input(operand_index) -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operand = base.operands[operand_index]
+    alternative = replace(operand.reg_alts[0], late_read_subgroup_size=0) if operand_index == 0 else RegClassAlt(None, (RegClassAltFlag.IMMEDIATE,), late_read_subgroup_size=0)
+    operands = list(base.operands)
+    operands[operand_index] = replace(operand, reg_alts=(alternative,))
+    with pytest.raises(ValueError, match="late read requires an explicit register input"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(replace(base, operands=tuple(operands)),)))
+
+
+def test_late_read_cannot_be_tied_to_a_result() -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operand = base.operands[1]
+    operand = replace(operand, reg_alts=(replace(operand.reg_alts[0], late_read_subgroup_size=0),))
+    descriptor = replace(base, operands=(base.operands[0], operand, base.operands[2]), constraints=(Constraint(ConstraintKind.TIED, 0, 1),))
+    with pytest.raises(ValueError, match="late read cannot share a tied result"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
 
 
 @pytest.mark.parametrize("names", permutations(("zulu", "alpha", "i32_value", "beta")))
@@ -192,6 +317,26 @@ def test_physical_packing_order_preserves_pairs_and_semantic_ordinals(candidate_
         assert view.packing_rank == min(ranks[ordinal] for ordinal in units)
 
 
+@pytest.mark.parametrize(
+    ("view_units", "expected_order"),
+    [
+        (("test.r2", "test.r3"), [0, 1, 2, 3]),
+        (("test.r1", "test.r3"), [0, 1, 3, 2]),
+    ],
+)
+def test_physical_packing_order_groups_partial_views_in_place(view_units, expected_order) -> None:
+    reg_class = next(row for row in TEST_LOW_CORE_DESCRIPTOR_SET.reg_classes if row.name == "test.explicit32")
+    views = (
+        PhysicalRegisterView(
+            physical_register="test.partial",
+            reg_class=reg_class.name,
+            units=view_units,
+        ),
+    )
+
+    assert compiler._physical_register_packing_order(reg_class, views) == expected_order
+
+
 def test_physical_packing_order_is_independent_of_view_declaration_order() -> None:
     compiled = compiler.compile_descriptor_set(TEST_LOW_CORE_DESCRIPTOR_SET)
     reversed_views = compiler.compile_descriptor_set(
@@ -305,3 +450,33 @@ def test_physical_view_lookup_preserves_exact_class_and_unit_relations() -> None
             offset = class_id - lookup.class_base
             actual = ordinals[offset] if 0 <= offset < lookup.class_count else 0xFFFFFFFF
             assert actual == expected.get((physical_id, class_id), 0xFFFFFFFF)
+
+
+@pytest.mark.parametrize("change", ["none", "width", "space", "order"])
+def test_operand_form_preserves_effect_identity(change: str) -> None:
+    base = TEST_LOW_LOAD_V4I32_DESCRIPTOR
+    effects = (base.effects[0], replace(base.effects[0], memory_space=MemorySpace.WORKGROUP))
+    replacement_effects = effects
+    if change == "width":
+        replacement_effects = (replace(effects[0], width_bits=256), effects[1])
+    elif change == "space":
+        replacement_effects = (replace(effects[0], memory_space=MemorySpace.GLOBAL), effects[1])
+    elif change == "order":
+        replacement_effects = tuple(reversed(effects))
+    replacement = replace(base, key="test.load.variant", mnemonic="test.load.variant", operands=base.operands[:1], asm_forms=(), effects=replacement_effects)
+    source = replace(
+        base,
+        effects=effects,
+        operand_forms=(
+            OperandForm(
+                replacement_descriptor=replacement.key,
+                matches=(OperandFormMatch(source_operand="address", match_kind=OperandFormMatchKind.ALL_EQUAL_I64, match_i64=0),),
+            ),
+        ),
+    )
+    descriptor_set = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(source, replacement))
+    if change == "none":
+        compiler.compile_descriptor_set(descriptor_set)
+    else:
+        with pytest.raises(ValueError, match="must preserve semantic effect ordinals"):
+            compiler.compile_descriptor_set(descriptor_set)
