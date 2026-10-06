@@ -140,6 +140,8 @@ loom_check_test_suite(
     "volatile.cxx-test"
     "volatile_invalid.cxx-test"
     "volatile_views.cxx-test"
+    "workload_config.cxx-test"
+    "workload_config_invalid.cxx-test"
   DATA
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/aligned_layout.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/check_close.cxx"

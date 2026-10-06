@@ -108,6 +108,14 @@ class Translator {
     fail(owner, "kernel intrinsic requires a kernel or force-inline helper");
   }
 
+  void require_launch_configuration_context(cxx::AST* owner) {
+    if (current_function_.kind != FunctionKind::LaunchConfiguration &&
+        current_function_.kind != FunctionKind::ClusteredLaunchConfiguration) {
+      fail(owner,
+           "target launch query requires a kernel configuration function");
+    }
+  }
+
   Value convert(cxx::ExpressionAST* input_ast, const cxx::Type* output_type,
                 cxx::AST* owner) {
     auto value = expression(input_ast);
@@ -226,8 +234,23 @@ class Translator {
   };
 
   void function(cxx::FunctionSymbol* symbol) {
-    current_function_ =
-        functions_.define(symbol, types_, locations_, &builder_);
+    auto defined = functions_.define(symbol, types_, locations_, &builder_);
+    if (defined.configuration) {
+      function_body(*defined.configuration);
+      auto* region = defined.configuration->region;
+      if (loom_region_has_read_effects(region) ||
+          loom_region_has_write_effects(region) ||
+          loom_region_has_convergent_effects(region) ||
+          loom_region_has_observable_effects(region)) {
+        fail(defined.configuration->source,
+             "kernel configuration body must be pure");
+      }
+    }
+    function_body(defined.body);
+  }
+
+  void function_body(const FunctionBody& body_contract) {
+    current_function_ = body_contract;
     const auto& defined = current_function_;
     auto* body = defined.body;
     auto* op = defined.operation;
@@ -239,7 +262,7 @@ class Translator {
       loom_builder_restore(&builder_, saved);
       return;
     }
-    auto parameters = symbol->parameters();
+    auto parameters = defined.source->symbol->parameters();
     control_.emplace(unit_, diagnostics_, types_, body);
     auto saved = loom_builder_enter_region(&builder_, op, region);
     values_.clear();
@@ -285,6 +308,30 @@ class Translator {
     if (defined.kind == FunctionKind::Kernel) {
       check(loom_kernel_return_build(&builder_, locations_.get(returned.source),
                                      &terminator));
+    } else if (defined.kind == FunctionKind::LaunchConfiguration ||
+               defined.kind == FunctionKind::ClusteredLaunchConfiguration) {
+      auto source = locations_.get(returned.source);
+      std::array<loom_value_id_t, 9> dimensions = {};
+      auto index_type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
+      for (size_t i = 0; i < returned.values.size(); ++i) {
+        check(loom_index_cast_build(&builder_, returned.values[i],
+                                    value_type(returned.values[i]), index_type,
+                                    source, &terminator));
+        dimensions[i] = result(terminator);
+      }
+      bool clustered =
+          defined.kind == FunctionKind::ClusteredLaunchConfiguration;
+      loom_kernel_launch_config_build_flags_t flags =
+          clustered
+              ? LOOM_KERNEL_LAUNCH_CONFIG_BUILD_FLAG_HAS_WORKGROUP_CLUSTER_SIZE_X |
+                    LOOM_KERNEL_LAUNCH_CONFIG_BUILD_FLAG_HAS_WORKGROUP_CLUSTER_SIZE_Y |
+                    LOOM_KERNEL_LAUNCH_CONFIG_BUILD_FLAG_HAS_WORKGROUP_CLUSTER_SIZE_Z
+              : 0;
+      check(loom_kernel_launch_config_build(
+          &builder_, flags, dimensions[0], dimensions[1], dimensions[2],
+          dimensions[3], dimensions[4], dimensions[5],
+          clustered ? dimensions[6] : 0, clustered ? dimensions[7] : 0,
+          clustered ? dimensions[8] : 0, source, &terminator));
     } else {
       check(loom_func_return_build(
           &builder_, returned.values.data(), returned.values.size(),
@@ -1305,6 +1352,9 @@ class Translator {
       if (binding && std::holds_alternative<SubgroupIntrinsic>(*binding)) {
         require_kernel_context(ast);
       }
+      if (binding && std::holds_alternative<TargetIntrinsic>(*binding)) {
+        require_launch_configuration_context(ast);
+      }
       auto* assembly =
           binding ? std::get_if<AssemblyIntrinsic>(binding) : nullptr;
       loom_symbol_ref_t fragment = {};
@@ -1356,7 +1406,7 @@ class Translator {
             ast,
             "call must resolve to an owned intrinsic or defined device helper");
       }
-      auto symbol = functions_.declare(function);
+      auto symbol = functions_.declare(function, ast);
       auto arguments = flatten_arguments();
       std::array<const cxx::Type*, 1> result_sources = {ast->type};
       auto results = bind_signature(types_, result_sources, ast, &builder_);
@@ -1969,7 +2019,7 @@ class Translator {
         for (auto* argument : cxx::ListView{call->expressionList}) {
           expression(argument).append_to(arguments);
         }
-        auto callee = functions_.declare(function);
+        auto callee = functions_.declare(function, ast);
         loom_op_t* op;
         check(loom_func_call_build(&builder_, 0, 0, 0, 0, callee,
                                    arguments.data(), arguments.size(), nullptr,

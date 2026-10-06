@@ -1,0 +1,179 @@
+// RUN: verify
+// A kernel configuration requires one resolved function name.
+#include <loomcxx/kernel.h>
+
+// ERROR@+1: LOWERING/059 "kernel configuration requires one unambiguous function name"
+[[loom::kernel()]] void missing() {}
+
+// ====
+#include <loomcxx/kernel.h>
+
+static loom::launch_config ambiguous(unsigned value) {
+  return {{value, 1, 1}, {1, 1, 1}};
+}
+static loom::launch_config ambiguous(int value) {
+  return {{static_cast<unsigned>(value), 1, 1}, {1, 1, 1}};
+}
+// ERROR@+1: LOWERING/059 "kernel configuration requires one unambiguous function name"
+[[loom::kernel(ambiguous)]] void entry() {}
+
+// ====
+// A declaration has one kernel annotation and one launch contract.
+#include <loomcxx/kernel.h>
+
+static loom::launch_config configure() { return {{1, 1, 1}, {1, 1, 1}}; }
+[[loom::kernel(configure),
+  // ERROR@+1: LOWERING/059 "one kernel annotation is allowed on a declaration"
+  loom::kernel(configure)]] void duplicate() {}
+
+// ====
+#include <loomcxx/kernel.h>
+
+static loom::launch_config first_configuration() {
+  return {{1, 1, 1}, {1, 1, 1}};
+}
+static loom::launch_config second_configuration() {
+  return {{1, 1, 1}, {1, 1, 1}};
+}
+[[loom::kernel(first_configuration)]] void conflicting();
+// ERROR@+1: LOWERING/059 "conflicting kernel configuration functions across declarations"
+[[loom::kernel(second_configuration)]] void conflicting() {}
+
+// ====
+#include <loomcxx/kernel.h>
+
+static loom::launch_config configure() { return {{1, 1, 1}, {1, 1, 1}}; }
+// ERROR@+1: LOWERING/059 "kernel configuration functions cannot be combined with launch dimension annotations"
+[[loom::kernel(configure), loom::workgroup_size(64, 1, 1)]] void mixed() {}
+
+// ====
+// Configuration bodies are internal implementation details of their kernels.
+#include <loomcxx/kernel.h>
+
+static loom::launch_config declared_only(unsigned item_count);
+// ERROR@+1: LOWERING/059 "kernel configuration function requires a definition"
+[[loom::kernel(declared_only)]] void missing_definition() {}
+
+// ====
+#include <loomcxx/kernel.h>
+
+loom::launch_config external_configuration(unsigned item_count) {
+  return {{item_count, 1, 1}, {1, 1, 1}};
+}
+// ERROR@-3: LOWERING/059 "kernel configuration requires an internal non-template namespace-scope ordinary function"
+[[loom::kernel(external_configuration)]] void external() {}
+
+// ====
+#include <loomcxx/kernel.h>
+
+template <typename T>
+static loom::launch_config template_configuration(T item_count) {
+  return {{static_cast<unsigned>(item_count), 1, 1}, {1, 1, 1}};
+}
+// ERROR@-3: LOWERING/059 "kernel configuration requires an internal non-template namespace-scope ordinary function"
+[[loom::kernel(template_configuration<unsigned>)]] void templated() {}
+
+// ====
+// Workload arguments are integer values with stable, non-volatile identities.
+#include <loomcxx/kernel.h>
+
+static loom::launch_config boolean_workload(bool enabled) {
+  return {{enabled ? 1u : 0u, 1, 1}, {1, 1, 1}};
+}
+// ERROR@-3: LOWERING/059 "kernel configuration workloads require non-volatile non-boolean integer value parameters"
+[[loom::kernel(boolean_workload)]] void boolean_parameter() {}
+
+// ====
+#include <loomcxx/kernel.h>
+
+static loom::launch_config pointer_workload(unsigned* item_count) {
+  return {{*item_count, 1, 1}, {1, 1, 1}};
+}
+// ERROR@-3: LOWERING/059 "kernel configuration workloads require non-volatile non-boolean integer value parameters"
+[[loom::kernel(pointer_workload)]] void pointer_parameter() {}
+
+// ====
+#include <loomcxx/kernel.h>
+
+static loom::launch_config reference_workload(unsigned& item_count) {
+  return {{item_count, 1, 1}, {1, 1, 1}};
+}
+// ERROR@-3: LOWERING/059 "kernel configuration workloads require non-volatile non-boolean integer value parameters"
+[[loom::kernel(reference_workload)]] void reference_parameter() {}
+
+// ====
+#include <loomcxx/kernel.h>
+
+static loom::launch_config volatile_workload(volatile unsigned item_count) {
+  return {{item_count, 1, 1}, {1, 1, 1}};
+}
+// ERROR@-3: LOWERING/059 "kernel configuration workloads require non-volatile non-boolean integer value parameters"
+[[loom::kernel(volatile_workload)]] void volatile_parameter() {}
+
+// ====
+#include <loomcxx/kernel.h>
+
+static loom::launch_config variadic_workload(unsigned item_count, ...) {
+  return {{item_count, 1, 1}, {1, 1, 1}};
+}
+// ERROR@-3: LOWERING/059 "kernel configuration requires a fixed function signature"
+[[loom::kernel(variadic_workload)]] void variadic_parameter() {}
+
+// ====
+// The result names and unsigned field types define launch geometry exactly.
+#include <loomcxx/kernel.h>
+
+struct malformed_dimensions {
+  unsigned x;
+  unsigned y;
+  int z;
+};
+struct [[loom::launch_config]] malformed_configuration {
+  malformed_dimensions workgroup_count;
+  loom::uint3 workgroup_size;
+};
+static malformed_configuration malformed() {
+  return {{1, 1, 1}, {1, 1, 1}};
+}
+// ERROR@-3: LOWERING/059 "kernel launch configuration aggregates require unsigned x, y, and z fields for each dimension group"
+[[loom::kernel(malformed)]] void malformed_result() {}
+
+// ====
+// The config region's retained effect facts enforce source purity.
+#include <loomcxx/kernel.h>
+
+static unsigned helper(unsigned value) { return value + 1; }
+static loom::launch_config calls_helper(unsigned item_count) {
+  return {{helper(item_count), 1, 1}, {1, 1, 1}};
+}
+// ERROR@-3: LOWERING/059 "kernel configuration body must be pure"
+[[loom::kernel(calls_helper)]] void effectful() {}
+
+// ====
+#include <loomcxx/kernel.h>
+
+static unsigned scalar_result(unsigned item_count) { return item_count; }
+// ERROR@-1: LOWERING/059 "kernel configuration must return loom::launch_config or loom::clustered_launch_config"
+[[loom::kernel(scalar_result)]] void wrong_result() {}
+
+// ====
+// Target launch queries are available only while computing launch geometry.
+#include <loomcxx/kernel.h>
+
+unsigned query_target() {
+  // ERROR@+1: LOWERING/059 "target launch query requires a kernel configuration function"
+  return loom::target::subgroup_size();
+}
+
+// ====
+// Configuration functions cannot also be selected as ordinary callables.
+#include <loomcxx/kernel.h>
+
+static loom::launch_config configure(unsigned count) {
+  return {{count, 1, 1}, {1, 1, 1}};
+}
+[[loom::kernel(configure)]] void configured() {}
+unsigned call_configuration() {
+  // ERROR@+1: LOWERING/059 "kernel configuration functions are owned by their kernels and cannot be selected or called"
+  return configure(1).workgroup_count.x;
+}

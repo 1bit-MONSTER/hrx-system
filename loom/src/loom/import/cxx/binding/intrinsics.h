@@ -24,6 +24,7 @@
 #include "loom/import/cxx/binding/kernel.h"
 #include "loom/import/cxx/binding/scalar_bindings.h"
 #include "loom/import/cxx/binding/shaped.h"
+#include "loom/import/cxx/binding/target.h"
 #include "loom/import/cxx/binding/template_apply.h"
 #include "loom/import/cxx/binding/view.h"
 #include "loom/import/cxx/source/source.h"
@@ -68,7 +69,8 @@ class Intrinsics {
       std::variant<ScalarBinding, ShapedIntrinsic, EncodingIntrinsic,
                    DecodeIntrinsic, ViewIntrinsic, AtomicIntrinsic,
                    FenceIntrinsic, SubgroupIntrinsic, BarrierIntrinsic,
-                   AssemblyIntrinsic, TemplateApplyIntrinsic, CheckIntrinsic>;
+                   TargetIntrinsic, AssemblyIntrinsic, TemplateApplyIntrinsic,
+                   CheckIntrinsic>;
 
   Intrinsics(cxx::TranslationUnit& unit, Diagnostics& diagnostics, Types& types,
              Locations& locations, SymbolNames& names, loom_module_t* module)

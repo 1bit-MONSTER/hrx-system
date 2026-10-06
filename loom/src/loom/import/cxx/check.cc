@@ -279,7 +279,7 @@ class CheckBody {
         for (auto* argument : cxx::ListView{call->expressionList}) {
           expression(argument).append_to(arguments);
         }
-        auto symbol = functions_.declare(binding.kernel);
+        auto symbol = functions_.declare(binding.kernel, call);
         check(loom_kernel_launch_build(&builder_, symbol, nullptr, 0,
                                        arguments.data(), arguments.size(),
                                        location, &op));
@@ -323,7 +323,7 @@ class CheckBody {
         }
       }
     }
-    auto symbol = functions_.declare(function);
+    auto symbol = functions_.declare(function, call);
     loom_op_t* op;
     check(loom_func_call_build(&builder_, 0, 0, 0, 0, symbol, arguments.data(),
                                arguments.size(), results.data(), results.size(),

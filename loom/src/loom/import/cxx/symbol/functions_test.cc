@@ -53,8 +53,9 @@ TEST_F(FunctionsTest, RootsQueueEachConcreteHelperOnceWithPrivateVisibility) {
   const iree_string_view_t roots[] = {IREE_SV("entry")};
   functions.select(roots);
   ASSERT_EQ(functions.pending().size(), 1u);
-  auto entry =
+  auto entry_definition =
       functions.define(functions.pending()[0], types, locations, &builder_);
+  const auto& entry = entry_definition.body;
   EXPECT_EQ(entry.kind, FunctionKind::Ordinary);
   EXPECT_EQ(loom_func_def_visibility(entry.operation),
             LOOM_FUNC_VISIBILITY_PUBLIC);
@@ -66,8 +67,9 @@ TEST_F(FunctionsTest, RootsQueueEachConcreteHelperOnceWithPrivateVisibility) {
   auto second = functions.declare(calls.symbols[1]);
   EXPECT_EQ(first.symbol_id, second.symbol_id);
   ASSERT_EQ(functions.pending().size(), 2u);
-  auto helper =
+  auto helper_definition =
       functions.define(functions.pending()[1], types, locations, &builder_);
+  const auto& helper = helper_definition.body;
   EXPECT_EQ(loom_func_def_visibility(helper.operation), 0);
   auto name_id = module_->symbols.entries[first.symbol_id].name_id;
   auto name = loom_string_table_get(&module_->strings, name_id);
@@ -98,8 +100,9 @@ TEST_F(FunctionsTest,
                       launches, configs, names);
   functions.select({});
   ASSERT_EQ(functions.pending().size(), 2u);
-  auto definition =
+  auto defined =
       functions.define(functions.pending()[0], types, locations, &builder_);
+  const auto& definition = defined.body;
   EXPECT_EQ(definition.kind, FunctionKind::Kernel);
   EXPECT_TRUE(loom_kernel_def_isa(definition.operation));
   EXPECT_EQ(definition.region, loom_kernel_def_body(definition.operation));

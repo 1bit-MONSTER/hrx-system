@@ -307,6 +307,29 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_cc_library(
   NAME
+    target
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "target.h"
+  SRCS
+    "target.cc"
+  DEPS
+    iree::third_party::cxx_parser
+    loom::import::cxx::source::error
+    loom::import::cxx::value::types
+    loom::ops::index
+    loom::ops::target
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
     intrinsics
   CXX_STANDARD
     23
@@ -326,6 +349,7 @@ loom_cc_library(
     ::kernel
     ::scalar_bindings
     ::shaped
+    ::target
     ::template_apply
     ::view
     iree::third_party::cxx_parser
@@ -359,6 +383,7 @@ loom_cc_library(
     loom::import::cxx::source::attributes
     loom::import::cxx::source::error
     loom::import::cxx::symbol::names
+    loom::import::cxx::value::types
     loom::ir
     loom::ops::config
     loom::ops::index

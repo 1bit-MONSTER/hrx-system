@@ -220,6 +220,10 @@ Intrinsics::Binding Intrinsics::resolve(cxx::FunctionSymbol* function,
                                                  function, attribute, owner)) {
     return *subgroup;
   }
+  if (auto target = TargetIntrinsic::resolve(unit_, diagnostics_, types_,
+                                             function, attribute, owner)) {
+    return *target;
+  }
   if (auto barrier = BarrierIntrinsic::resolve(unit_, diagnostics_, function,
                                                attribute, owner)) {
     return *barrier;
@@ -373,6 +377,9 @@ IntrinsicCallResult Intrinsics::call(const Binding& admitted,
   }
   if (auto* subgroup = std::get_if<SubgroupIntrinsic>(binding)) {
     return {Value(subgroup->call(arguments, builder, location))};
+  }
+  if (auto* target = std::get_if<TargetIntrinsic>(binding)) {
+    return {Value(target->call(builder, location))};
   }
   if (auto* barrier = std::get_if<BarrierIntrinsic>(binding)) {
     barrier->call(builder, location);
