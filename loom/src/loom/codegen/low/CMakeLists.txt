@@ -568,6 +568,7 @@ loom_cc_library(
     ::function
     ::function_model
     ::placement
+    ::storage_layout
     ::storage_lease
     ::target_binding
     iree::base
@@ -578,6 +579,7 @@ loom_cc_library(
     loom::codegen::low::allocation::active_unit
     loom::codegen::low::allocation::assignment
     loom::codegen::low::allocation::assignment_map
+    loom::codegen::low::allocation::call
     loom::codegen::low::allocation::coalescing
     loom::codegen::low::allocation::copy_decision
     loom::codegen::low::allocation::destructive_reuse
@@ -655,6 +657,7 @@ loom_cc_library(
     iree::base
     iree::base::internal::arena
     loom::codegen::low::allocation::spill_plan
+    loom::codegen::low::allocation::storage
     loom::error::error_defs
     loom::ir
     loom::ops::low

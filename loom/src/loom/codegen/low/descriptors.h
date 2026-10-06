@@ -186,7 +186,9 @@ typedef uint32_t loom_low_register_part_mask_t;
 // in physical allocation. This does not constrain whether values carry a
 // semantic value type.
 #define LOOM_LOW_REG_CLASS_FLAG_PHYSICAL ((uint16_t)1u << 1)
-// Register class contains reference-counted or GC-visible references.
+// Register class contains reference-counted or GC-visible references. A
+// spillable reference class requires target storage transfers that preserve
+// ownership; otherwise the class also declares UNSPILLABLE.
 #define LOOM_LOW_REG_CLASS_FLAG_REFERENCE ((uint16_t)1u << 2)
 // Register class cannot be represented in spill storage.
 #define LOOM_LOW_REG_CLASS_FLAG_UNSPILLABLE ((uint16_t)1u << 3)

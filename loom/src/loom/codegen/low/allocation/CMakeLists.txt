@@ -11,6 +11,18 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
+    call
+  HDRS
+    "call.h"
+  DEPS
+    ::assignment
+    iree::base
+    loom::ir
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     active_capacity
   HDRS
     "active_capacity.h"
@@ -893,6 +905,7 @@ loom_cc_library(
     "unit_liveness.c"
   DEPS
     ::assignment
+    ::call
     ::live_range
     ::storage
     ::write_interference
@@ -969,6 +982,7 @@ loom_cc_library(
     "target_constraints.c"
   DEPS
     ::assignment
+    ::call
     ::live_range
     ::storage
     ::unit_liveness
@@ -1118,6 +1132,7 @@ loom_cc_library(
     ::assignment_map
     ::move
     ::move_sequence
+    ::storage
     ::storage_liveness_index
     ::target_constraints
     ::unit_liveness
@@ -1126,6 +1141,7 @@ loom_cc_library(
     iree::base::internal::arena
     loom::codegen::low::descriptors
     loom::codegen::low::schedule
+    loom::codegen::low::storage_layout
     loom::ir
   PUBLIC
 )

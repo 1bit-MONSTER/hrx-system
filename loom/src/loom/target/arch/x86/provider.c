@@ -120,11 +120,20 @@ static const loom_target_legalizer_provider_t* kLoomX86LegalizerProviders[] = {
     &loom_x86_target_legalizer_provider_storage,
 };
 
+static loom_target_low_call_policy_t loom_x86_select_low_call_policy(
+    const loom_resolved_target_t* resolved_target) {
+  // Native callable emission implements the scalar profile's SysV contract.
+  // Vector profiles still require inlining to resolve their value carriers.
+  return resolved_target->facts->selector == LOOM_X86_TARGET_KIND_SCALAR
+             ? LOOM_TARGET_LOW_CALL_POLICY_DIRECT
+             : LOOM_TARGET_LOW_CALL_POLICY_REQUIRE_INLINE;
+}
+
 const loom_target_provider_t loom_x86_target_provider = {
     .profile_type = &kProfileType,
     .select_profile = loom_x86_select_profile,
     .materialize_definition = loom_x86_materialize_definition,
-    .select_low_call_policy = loom_target_select_low_call_policy_require_inline,
+    .select_low_call_policy = loom_x86_select_low_call_policy,
     .register_context = loom_x86_ops_register_dialect,
     .initialize_low_descriptor_registry =
         loom_x86_low_descriptor_registry_initialize,

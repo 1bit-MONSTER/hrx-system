@@ -109,6 +109,7 @@ uint16_t loom_x86_encoding_gpr_writes(
     case LOOM_X86_ENCODING_FORM_BRANCH_NONZERO:
       return 0;
     case LOOM_X86_ENCODING_FORM_PUSH:
+    case LOOM_X86_ENCODING_FORM_CALL:
     case LOOM_X86_ENCODING_FORM_RETURN:
       return 1u << 4;
     case LOOM_X86_ENCODING_FORM_POP:
@@ -227,7 +228,9 @@ void loom_x86_encode_instruction(
       loom_x86_encode_integer(instruction, operands->immediate, 4);
       return;
     case LOOM_X86_ENCODING_FORM_JUMP:
-      loom_x86_encode_byte(instruction, 0xe9);
+    case LOOM_X86_ENCODING_FORM_CALL:
+      loom_x86_encode_byte(instruction,
+                           form == LOOM_X86_ENCODING_FORM_CALL ? 0xe8 : 0xe9);
       loom_x86_encode_integer(instruction, operands->immediate, 4);
       return;
     case LOOM_X86_ENCODING_FORM_PUSH:

@@ -70,7 +70,7 @@ typedef struct loom_check_emit_entry_location_spec_t {
   // Original formal-argument ordinal from the RUN line.
   uint32_t argument_ordinal;
   // Incoming location supplied by the invocation boundary.
-  loom_low_allocation_entry_location_t location;
+  loom_low_allocation_abi_location_t location;
 } loom_check_emit_entry_location_spec_t;
 
 typedef struct loom_check_emit_entry_locations_t {
@@ -1134,14 +1134,14 @@ static iree_status_t loom_check_emit_resolve_entry_locations(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "entry argument exceeds the function arity");
   }
-  loom_low_allocation_entry_location_t* locations = NULL;
+  loom_low_allocation_abi_location_t* locations = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       arena, block->arg_count, sizeof(*locations), (void**)&locations));
   memset(locations, 0, block->arg_count * sizeof(*locations));
   const loom_low_descriptor_set_t* descriptors = model->target.descriptor_set;
   for (iree_host_size_t i = 0; i < entry->count; ++i) {
     const uint32_t ordinal = entry->specs[i].argument_ordinal;
-    const loom_low_allocation_entry_location_t* location =
+    const loom_low_allocation_abi_location_t* location =
         &entry->specs[i].location;
     if (ordinal >= block->arg_count) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,

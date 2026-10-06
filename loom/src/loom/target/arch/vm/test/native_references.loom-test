@@ -83,31 +83,24 @@ vm.module core(0.0) {
   }
 
   section functions alignment(8) {
-    func @function0 : @callable5 flags([has_call]) frame(local_bytes = 0, value_registers = 0, ref_registers = 5, function_registers = 0, local_refs = 1, local_functions = 0) {
+    func @function0 : @callable5 flags([has_call]) frame(local_bytes = 0, value_registers = 0, ref_registers = 6, function_registers = 0, local_refs = 0, local_functions = 0) {
     ^bb0:
       control.block
-      ref.stack.store.retain %r0, #r0
       control.call @import3 {direct_ref_move_mask = 0x0001}
-      ref.stack.store.move %r0, #r0
-      %r0 = ref.stack.load.move #r0
-      ref.stack.store.retain %r0, #r0
+      %r3 = ref.retain %r0
       %r0 = ref.retain %r1
       control.call @import4 {direct_ref_move_mask = 0x0001}
-      %r1 = ref.move %r0
-      %r0 = ref.stack.load.move #r0
-      ref.stack.store.retain %r0, #r0
+      %r1 = ref.retain %r0
       %r0 = ref.retain %r2
       control.call @import2 {direct_ref_move_mask = 0x0001}
-      %r2 = ref.move %r0
-      %r0 = ref.stack.load.move #r0
-      ref.stack.store.retain %r0, #r0
+      %r2 = ref.retain %r0
       control.call @import1 {direct_ref_move_mask = 0x0000}
-      %r3 = ref.move %r0
-      %r0 = ref.stack.load.move #r0
-      ref.stack.store.retain %r0, #r0
+      %r4 = ref.retain %r0
       control.call @import0 {direct_ref_move_mask = 0x0000}
-      %r4 = ref.move %r0
-      %r0 = ref.stack.load.move #r0
+      %r5 = ref.retain %r3
+      %r3 = ref.retain %r4
+      %r4 = ref.retain %r0
+      %r0 = ref.retain %r5
       control.return
     }
   }
@@ -168,18 +161,15 @@ vm.module core(0.0) {
   }
 
   section functions alignment(8) {
-    func @function0 : @callable1 flags([has_call]) frame(local_bytes = 0, value_registers = 0, ref_registers = 2, function_registers = 0, local_refs = 1, local_functions = 0) {
+    func @function0 : @callable1 flags([has_call]) frame(local_bytes = 0, value_registers = 0, ref_registers = 3, function_registers = 0, local_refs = 0, local_functions = 0) {
     ^bb0:
       control.block
-      ref.stack.store.retain %r0, #r0
       control.call @import0 {direct_ref_move_mask = 0x0001}
-      ref.stack.store.move %r0, #r0
-      %r0 = ref.stack.load.move #r0
-      ref.stack.store.retain %r0, #r0
+      %r2 = ref.retain %r0
       %r0 = ref.retain %r1
       control.call @import0 {direct_ref_move_mask = 0x0001}
-      %r1 = ref.move %r0
-      %r0 = ref.stack.load.move #r0
+      %r1 = ref.retain %r0
+      %r0 = ref.retain %r2
       control.return
     }
   }

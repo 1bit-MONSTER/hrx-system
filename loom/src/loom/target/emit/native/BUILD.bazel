@@ -82,7 +82,7 @@ loom_cc_library(
     name = "object",
     srcs = ["object.c"],
     hdrs = ["object.h"],
-    visibility = _NATIVE_AIE2P_VISIBILITY,
+    visibility = _NATIVE_AIE2P_VISIBILITY + _NATIVE_X86_VISIBILITY,
     deps = [
         ":contribution",
         "//runtime/src/iree/base",

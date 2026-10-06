@@ -7,9 +7,9 @@ low.func.def target<vm.core>(@vm) abi(vm_function) @wide_identity(%a0: reg<vm.va
   return %a0, %a16
 }
 
-// The outgoing packet precedes ordinary locals and the saved caller prefix.
+// The outgoing packet precedes ordinary locals.
 // A local view and a nested call must select disjoint physical byte ranges.
-// The trailing partial local cell must not misalign the saved caller prefix.
+// The trailing partial local cell remains part of the reserved frame extent.
 low.func.def public target<vm.core>(@vm) abi(vm_function) @local(%a: reg<vm.value : i64>, %b: reg<vm.value : i64>) -> (reg<vm.value : i64>, reg<vm.value : i64>, reg<vm.value : i64>) asm {
   %storage = storage {byte_alignment = 8, byte_length = 33} : low.storage<stack>
   %view = storage_view %storage {byte_length = 16, offset = 8} : low.storage<stack> -> low.storage<stack>
@@ -48,33 +48,27 @@ vm.module core(0.0) {
       control.block
       control.return
     }
-    func @function1 : @callable0 flags([has_call]) frame(local_bytes = 176, value_registers = 16, ref_registers = 0, function_registers = 0, local_refs = 0, local_functions = 0) {
+    func @function1 : @callable0 flags([has_call]) frame(local_bytes = 41, value_registers = 16, ref_registers = 0, function_registers = 0, local_refs = 0, local_functions = 0) {
     ^bb0:
       control.block
       stack.store.i64 #v24, %v0.x1
-      stack.store.i64 #v48, %v0.x8
-      stack.store.i64 #v112, %v8.x8
       stack.store.i64 #v0, %v1.x1
-      %v1.x1 = stack.load.i64 #v48
-      %v2.x1 = stack.load.i64 #v48
-      %v3.x1 = stack.load.i64 #v48
-      %v4.x1 = stack.load.i64 #v48
-      %v5.x1 = stack.load.i64 #v48
-      %v6.x1 = stack.load.i64 #v48
-      %v7.x1 = stack.load.i64 #v48
-      %v8.x1 = stack.load.i64 #v48
-      %v9.x1 = stack.load.i64 #v48
-      %v10.x1 = stack.load.i64 #v48
-      %v11.x1 = stack.load.i64 #v48
-      %v12.x1 = stack.load.i64 #v48
-      %v13.x1 = stack.load.i64 #v48
-      %v14.x1 = stack.load.i64 #v48
-      %v15.x1 = stack.load.i64 #v48
+      %v1 = value.copy %v0
+      %v2 = value.copy %v0
+      %v3 = value.copy %v0
+      %v4 = value.copy %v0
+      %v5 = value.copy %v0
+      %v6 = value.copy %v0
+      %v7 = value.copy %v0
+      %v8 = value.copy %v0
+      %v9 = value.copy %v0
+      %v10 = value.copy %v0
+      %v11 = value.copy %v0
+      %v12 = value.copy %v0
+      %v13 = value.copy %v0
+      %v14 = value.copy %v0
+      %v15 = value.copy %v0
       control.call @function0 {direct_ref_move_mask = 0x0000}
-      stack.store.i64 #v48, %v0.x1
-      stack.store.i64 #v56, %v1.x1
-      %v0.x8 = stack.load.i64 #v48
-      %v8.x8 = stack.load.i64 #v112
       %v2.x1 = stack.load.i64 #v24
       %v3 = value.copy %v2
       %v2 = value.copy %v1

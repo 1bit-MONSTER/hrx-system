@@ -8,6 +8,23 @@
 
 #include <string.h>
 
+loom_storage_space_t loom_low_allocation_storage_space_for_spill_slot(
+    loom_low_spill_slot_space_t slot_space) {
+  switch (slot_space) {
+    case LOOM_LOW_SPILL_SLOT_SPACE_STACK:
+      return LOOM_STORAGE_SPACE_STACK;
+    case LOOM_LOW_SPILL_SLOT_SPACE_SCRATCH:
+      return LOOM_STORAGE_SPACE_SCRATCH;
+    case LOOM_LOW_SPILL_SLOT_SPACE_PRIVATE:
+      return LOOM_STORAGE_SPACE_PRIVATE;
+    case LOOM_LOW_SPILL_SLOT_SPACE_LDS:
+      return LOOM_STORAGE_SPACE_WORKGROUP;
+    default:
+      IREE_CHECK_UNREACHABLE("unknown generated spill slot space");
+      return LOOM_STORAGE_SPACE_COUNT_;
+  }
+}
+
 typedef struct loom_low_allocation_explicit_register_view_t {
   // Borrowed global atomic-unit IDs for the physical register.
   const uint16_t* atomic_units;

@@ -141,7 +141,7 @@ static bool loom_low_allocation_interval_assignment_find_entry_location(
   if (value_ordinal >= context->entry_location_count) {
     return false;
   }
-  const loom_low_allocation_entry_location_t* entry =
+  const loom_low_allocation_abi_location_t* entry =
       &context->entry_locations[value_ordinal];
   if (entry->location_kind != capacity->location_kind) {
     return false;

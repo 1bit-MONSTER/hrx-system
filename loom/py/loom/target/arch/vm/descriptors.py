@@ -437,7 +437,6 @@ VM_CORE_DESCRIPTOR_SET = DescriptorSet(
             flags=(
                 RegClassFlag.PHYSICAL,
                 RegClassFlag.REFERENCE,
-                RegClassFlag.UNSPILLABLE,
             ),
             allocatable_count=256,
         ),

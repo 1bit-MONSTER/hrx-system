@@ -93,6 +93,15 @@ TEST(NativeObjectTest, ResolvesSymbolsAndFixupsThroughContributionLayout) {
           /*.visibility=*/LOOM_NATIVE_OBJECT_SYMBOL_VISIBILITY_HIDDEN,
           /*.kind=*/LOOM_NATIVE_OBJECT_SYMBOL_KIND_FUNCTION,
       },
+      {
+          /*.name=*/IREE_SV("external"),
+          /*.section_contribution_index=*/IREE_HOST_SIZE_MAX,
+          /*.section_offset=*/0,
+          /*.size=*/0,
+          /*.binding=*/LOOM_NATIVE_OBJECT_SYMBOL_BINDING_GLOBAL,
+          /*.visibility=*/LOOM_NATIVE_OBJECT_SYMBOL_VISIBILITY_DEFAULT,
+          /*.kind=*/LOOM_NATIVE_OBJECT_SYMBOL_KIND_FUNCTION,
+      },
   };
   loom_native_object_symbol_layout_t layouts[IREE_ARRAYSIZE(symbols)] = {};
   IREE_ASSERT_OK(loom_native_object_resolve_symbol_layouts(
@@ -103,6 +112,8 @@ TEST(NativeObjectTest, ResolvesSymbolsAndFixupsThroughContributionLayout) {
   EXPECT_EQ(layouts[0].section_offset, 1u);
   EXPECT_EQ(layouts[1].section_index, 0u);
   EXPECT_EQ(layouts[1].section_offset, 10u);
+  EXPECT_EQ(layouts[2].section_index, IREE_HOST_SIZE_MAX);
+  EXPECT_EQ(layouts[2].section_offset, 0u);
 
   const loom_native_object_fixup_t fixups[] = {{
       /*.section_contribution_index=*/2,

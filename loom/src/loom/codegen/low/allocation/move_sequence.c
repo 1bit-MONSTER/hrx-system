@@ -23,11 +23,12 @@ static bool loom_low_move_locations_share_target_storage(
       rhs->descriptor_reg_class_id);
 }
 
-static bool loom_low_move_locations_share_storage_class(
-    const loom_low_move_location_t* lhs, const loom_low_move_location_t* rhs) {
-  return lhs->location_kind == rhs->location_kind &&
-         lhs->descriptor_reg_class_id == rhs->descriptor_reg_class_id;
-}
+struct loom_low_move_sequence_temporary_t {
+  // Kind requested by the cycle, which may differ from the selected storage.
+  uint16_t requested_kind;
+  // Resolved unit in the requested register class.
+  loom_low_move_location_t location;
+};
 
 #define LOOM_LOW_MOVE_SEQUENCE_INDEX_NONE IREE_HOST_SIZE_MAX
 
@@ -77,7 +78,7 @@ typedef struct loom_low_move_sequence_state_t {
   loom_low_move_sequence_scratch_t* scratch;
   // Options controlling target storage aliasing and cycle scratch resolution.
   const loom_low_move_sequence_options_t* options;
-  // Number of active, non-identity moves in |scratch->moves|.
+  // Number of input moves, including identities whose locations stay occupied.
   iree_host_size_t move_count;
   // Number of moves that have not been emitted yet.
   iree_host_size_t active_count;
@@ -374,9 +375,12 @@ static iree_status_t loom_low_move_sequence_resolve_temporary(
   *out_first_use = false;
   loom_low_move_sequence_scratch_t* scratch = state->scratch;
   for (iree_host_size_t i = 0; i < scratch->temporary_count; ++i) {
-    if (loom_low_move_locations_share_storage_class(&scratch->temporaries[i],
-                                                    storage_class)) {
-      *out_temporary = &scratch->temporaries[i];
+    const loom_low_move_sequence_temporary_t* temporary =
+        &scratch->temporaries[i];
+    if (temporary->requested_kind == storage_class->location_kind &&
+        temporary->location.descriptor_reg_class_id ==
+            storage_class->descriptor_reg_class_id) {
+      *out_temporary = &temporary->location;
       return iree_ok_status();
     }
   }
@@ -391,7 +395,7 @@ static iree_status_t loom_low_move_sequence_resolve_temporary(
         scratch->arena, temporary_capacity, sizeof(*scratch->temporaries),
         (void**)&scratch->temporaries));
   }
-  loom_low_move_location_t* temporary =
+  loom_low_move_sequence_temporary_t* temporary =
       &scratch->temporaries[scratch->temporary_count];
   const loom_low_move_sequence_location_set_t occupied_locations = {
       .scratch = scratch,
@@ -401,13 +405,14 @@ static iree_status_t loom_low_move_sequence_resolve_temporary(
   bool resolved = false;
   IREE_RETURN_IF_ERROR(state->options->resolve_temporary.fn(
       state->options->resolve_temporary.user_data, storage_class,
-      &occupied_locations, temporary, &resolved));
+      &occupied_locations, &temporary->location, &resolved));
   if (!resolved) {
     state->complete = false;
     return iree_ok_status();
   }
   ++scratch->temporary_count;
-  *out_temporary = temporary;
+  temporary->requested_kind = storage_class->location_kind;
+  *out_temporary = &temporary->location;
   *out_first_use = true;
   return iree_ok_status();
 }

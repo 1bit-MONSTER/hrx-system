@@ -347,14 +347,17 @@ static iree_status_t loom_target_entry_try_entry(
     const loom_target_function_version_snapshot_t* function_versions,
     loom_symbol_id_t symbol_id, loom_target_entry_predicate_t predicate,
     loom_target_entry_diagnostic_emitter_t* diagnostic_emitter,
-    iree_string_view_t pipeline_name, bool require_export,
+    iree_string_view_t pipeline_name, loom_target_entry_selection_flags_t flags,
     bool require_compatible, bool* out_compatible,
     loom_target_entry_t* out_entry) {
   *out_compatible = false;
   const loom_func_symbol_facts_t* func_facts = NULL;
   IREE_RETURN_IF_ERROR(loom_target_entry_lookup_func_facts(
       module, fact_table, symbol_id, &func_facts));
-  if (!func_facts || !func_facts->has_body) {
+  if (!func_facts ||
+      (!func_facts->has_body &&
+       !iree_any_bit_set(flags,
+                         LOOM_TARGET_ENTRY_SELECTION_INCLUDE_DECLARATIONS))) {
     if (!require_compatible) {
       return iree_ok_status();
     }
@@ -366,7 +369,8 @@ static iree_status_t loom_target_entry_try_entry(
         (int)pipeline_name.size, pipeline_name.data, (int)symbol_name.size,
         symbol_name.data);
   }
-  if (require_export && !func_facts->exports) {
+  if (!iree_any_bit_set(flags, LOOM_TARGET_ENTRY_SELECTION_INCLUDE_PRIVATE) &&
+      !func_facts->exports) {
     return iree_ok_status();
   }
   const loom_target_function_version_t* function_version =
@@ -431,7 +435,8 @@ static iree_status_t loom_target_entry_select_named_entry(
   bool compatible = false;
   IREE_RETURN_IF_ERROR(loom_target_entry_try_entry(
       module, fact_table, function_versions, symbol_id, predicate,
-      diagnostic_emitter, pipeline_name, /*require_export=*/false,
+      diagnostic_emitter, pipeline_name,
+      LOOM_TARGET_ENTRY_SELECTION_INCLUDE_PRIVATE,
       /*require_compatible=*/true, &compatible, out_entry));
   *out_selected = compatible;
   return iree_ok_status();
@@ -451,7 +456,8 @@ static iree_status_t loom_target_entry_select_single_entry(
     loom_target_entry_t candidate = {0};
     IREE_RETURN_IF_ERROR(loom_target_entry_try_entry(
         module, fact_table, function_versions, (loom_symbol_id_t)i, predicate,
-        diagnostic_emitter, pipeline_name, /*require_export=*/false,
+        diagnostic_emitter, pipeline_name,
+        LOOM_TARGET_ENTRY_SELECTION_INCLUDE_PRIVATE,
         /*require_compatible=*/false, &compatible, &candidate));
     if (!compatible) {
       continue;
@@ -539,7 +545,7 @@ iree_status_t loom_target_entry_select_all_entries(
     loom_target_entry_t candidate = {0};
     IREE_RETURN_IF_ERROR(loom_target_entry_try_entry(
         module, &fact_table, &function_versions, symbol_id, predicate,
-        diagnostic_emitter, entry_kind, /*require_export=*/true,
+        diagnostic_emitter, entry_kind, options ? options->flags : 0,
         /*require_compatible=*/false, &compatible, &candidate));
     if (!compatible) {
       continue;

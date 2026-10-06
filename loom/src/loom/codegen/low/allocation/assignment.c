@@ -13,6 +13,7 @@ bool loom_low_allocation_location_kind_is_known(
     case LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER:
     case LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID:
     case LOOM_LOW_ALLOCATION_LOCATION_SPILL_SLOT:
+    case LOOM_LOW_ALLOCATION_LOCATION_MOVE_STORAGE:
       return true;
     default:
       return false;
@@ -30,6 +31,8 @@ iree_string_view_t loom_low_allocation_location_kind_name(
       return IREE_SV("target_id");
     case LOOM_LOW_ALLOCATION_LOCATION_SPILL_SLOT:
       return IREE_SV("spill_slot");
+    case LOOM_LOW_ALLOCATION_LOCATION_MOVE_STORAGE:
+      return IREE_SV("move_storage");
     default:
       return IREE_SV("unknown");
   }

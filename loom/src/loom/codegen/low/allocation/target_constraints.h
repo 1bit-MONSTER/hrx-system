@@ -13,6 +13,7 @@
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/liveness.h"
 #include "loom/codegen/low/allocation/assignment.h"
+#include "loom/codegen/low/allocation/call.h"
 #include "loom/codegen/low/allocation/fixed_storage_index.h"
 #include "loom/codegen/low/allocation/unit_liveness.h"
 #include "loom/codegen/low/descriptors.h"
@@ -54,18 +55,6 @@ typedef struct loom_low_allocation_fixed_value_t {
   // IDs.
   uint32_t location_count;
 } loom_low_allocation_fixed_value_t;
-
-// Location of one formal argument at invocation entry, before the first body
-// block. The ABI producer supplies a valid register-like location in the
-// argument's register class and width. Allocation may choose different storage
-// for its SSA lifetime and retains the required entry transport.
-typedef struct loom_low_allocation_entry_location_t {
-  // Incoming storage kind, or UNASSIGNED when supplied outside register entry
-  // transport (for example, an ABI stack argument loaded by the prologue).
-  loom_low_allocation_location_kind_t location_kind;
-  // Incoming physical register view or first linear target location.
-  uint32_t location_base;
-} loom_low_allocation_entry_location_t;
 
 // Whole-function location range owned by target machinery.
 //

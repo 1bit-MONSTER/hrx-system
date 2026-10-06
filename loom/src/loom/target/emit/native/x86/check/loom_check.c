@@ -6,6 +6,7 @@
 
 #include "loom/target/emit/native/x86/check/loom_check.h"
 
+#include "loom/target/emit/native/x86/abi.h"
 #include "loom/target/emit/native/x86/function.h"
 #include "loom/tools/loom-check/diagnostics.h"
 #include "loom/tools/loom-check/low_emit.h"
@@ -167,6 +168,7 @@ static iree_status_t loom_x86_loom_check_emit_provider_execute(
       .location_count = 1,
   };
   const loom_low_emission_frame_options_t frame_options = {
+      .call_contracts = {.fn = loom_x86_function_call_contract},
       .schedule_strategy = options.schedule_strategy,
       .allocation_budgets = options.allocation_budgets,
       .allocation_budget_count = options.allocation_budget_count,

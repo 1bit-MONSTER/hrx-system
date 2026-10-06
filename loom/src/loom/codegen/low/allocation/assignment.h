@@ -27,6 +27,10 @@ typedef enum loom_low_allocation_location_kind_e {
   LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID = 2,
   // Interval must be spilled into a stack, scratch, or private slot.
   LOOM_LOW_ALLOCATION_LOCATION_SPILL_SLOT = 3,
+  // Final invocation-owned cell used by transport. The location indexes the
+  // allocation's move-storage cells, never a provisional spill request or an
+  // SSA assignment. Its lifetime is one sequential move group.
+  LOOM_LOW_ALLOCATION_LOCATION_MOVE_STORAGE = 4,
 } loom_low_allocation_location_kind_t;
 
 enum loom_low_allocation_assignment_flag_bits_e {

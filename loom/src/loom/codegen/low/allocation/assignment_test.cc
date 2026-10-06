@@ -32,6 +32,10 @@ TEST(LowAllocationAssignmentRangeTest, MatchesPhysicalRegisterClass) {
       LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID));
   EXPECT_TRUE(loom_low_allocation_location_kind_is_known(
       LOOM_LOW_ALLOCATION_LOCATION_SPILL_SLOT));
+  EXPECT_TRUE(loom_low_allocation_location_kind_is_known(
+      LOOM_LOW_ALLOCATION_LOCATION_MOVE_STORAGE));
+  EXPECT_FALSE(loom_low_allocation_location_kind_is_register_like(
+      LOOM_LOW_ALLOCATION_LOCATION_MOVE_STORAGE));
   EXPECT_FALSE(loom_low_allocation_location_kind_is_known(
       (loom_low_allocation_location_kind_t)99));
 

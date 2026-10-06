@@ -61,7 +61,8 @@ static iree_status_t loom_native_object_validate_symbol(
           IREE_STATUS_INVALID_ARGUMENT,
           "native object symbol %" PRIhsz " kind is invalid", index);
   }
-  if (symbol->section_contribution_index >= section_layout_count) {
+  if (symbol->section_contribution_index != IREE_HOST_SIZE_MAX &&
+      symbol->section_contribution_index >= section_layout_count) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "native object symbol %" PRIhsz
                             " section contribution index %" PRIhsz
@@ -84,6 +85,12 @@ iree_status_t loom_native_object_resolve_symbol_layouts(
     const loom_native_object_symbol_t* symbol = &symbols[i];
     IREE_RETURN_IF_ERROR(
         loom_native_object_validate_symbol(symbol, i, section_layout_count));
+    if (symbol->section_contribution_index == IREE_HOST_SIZE_MAX) {
+      out_symbol_layouts[i] = (loom_native_object_symbol_layout_t){
+          .section_index = IREE_HOST_SIZE_MAX,
+      };
+      continue;
+    }
     const loom_native_section_contribution_layout_t* section_layout =
         &section_layouts[symbol->section_contribution_index];
     uint64_t final_offset = 0;

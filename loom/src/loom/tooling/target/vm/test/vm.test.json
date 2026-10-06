@@ -442,7 +442,7 @@
         "args": ["{srcdir}/invalid_storage.loom", "--root=wrong_space", "--format=vm", "--output={tmp}/invalid.vm"]
       },
       "exit": 1,
-      "stderr": {"contains": ["VM local storage requires the stack space"]}
+      "stderr": {"contains": ["VM local storage requires stack or private space"]}
     }
   ]
 }
