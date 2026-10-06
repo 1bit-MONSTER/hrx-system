@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from .bitwise import _v_alignbit_b32_overlay
 from .common import *
 
@@ -3880,6 +3882,14 @@ def _v_fmamk_f32_overlay() -> AmdgpuDescriptorOverlay:
     )
 
 
+def _v_fmamk_f32_product_flushing_overlay() -> AmdgpuDescriptorOverlay:
+    return replace(
+        _v_fmamk_f32_overlay(),
+        descriptor_key="amdgpu.v_fmamk_f32.flush_product",
+        semantic_tag="float.fmamk.flush_product.f32",
+    )
+
+
 def _s_fmaak_f32_overlay() -> AmdgpuDescriptorOverlay:
     return AmdgpuDescriptorOverlay(
         descriptor_key="amdgpu.s_fmaak_f32",
@@ -7433,6 +7443,7 @@ __all__ = (
     "_v_fmac_f64_overlay",
     "_v_fmamk_f16_overlay",
     "_v_fmamk_f32_overlay",
+    "_v_fmamk_f32_product_flushing_overlay",
     "_v_pk_ashrrev_i16_overlay",
     "_v_pk_add_f16_overlay",
     "_v_pk_add_f32_overlay",

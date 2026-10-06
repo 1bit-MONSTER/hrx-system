@@ -50,6 +50,7 @@ from loom.target.contracts import (
     DescriptorAccumulatorSeed,
     DescriptorAccumulatorTree,
     DescriptorEmitForm,
+    DescriptorOperandMaterialization,
     DescriptorRule,
     EmitDescriptorOp,
     Guard,
@@ -561,6 +562,19 @@ def test_emit_row_overlays_descriptor_table_ranges() -> None:
 
     assert ".payload.descriptor.attr_copy_start = 2" in row
     assert ".payload.descriptor.tied_result_start = 5" in row
+
+
+def test_emit_row_spells_target_operand_materialization() -> None:
+    row = emit_row(
+        {TEST_LOW_ADD_F32_DESCRIPTOR.key: 1},
+        LowerEmit(
+            kind=LowerEmitKind.DESCRIPTOR_OP,
+            descriptor=TEST_LOW_ADD_F32_DESCRIPTOR,
+            operand_materialization=DescriptorOperandMaterialization.TARGET,
+        ),
+    )
+
+    assert (".operand_materialization = LOOM_LOW_LOWER_OPERAND_MATERIALIZATION_TARGET") in row
 
 
 def test_emit_row_overlays_result_type_ranges() -> None:

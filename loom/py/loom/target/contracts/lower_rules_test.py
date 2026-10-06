@@ -29,6 +29,7 @@ from loom.target.contracts import (
     AttrProject,
     ContractFragment,
     DescriptorEmitForm,
+    DescriptorOperandMaterialization,
     DescriptorResultType,
     DescriptorRule,
     DirectDescriptorCase,
@@ -2462,6 +2463,45 @@ def test_compile_lower_rule_set_keeps_operandless_op_emit() -> None:
 
     assert len(compiled.emits) == 1
     assert compiled.emits[0].kind == LowerEmitKind.DESCRIPTOR_OP
+
+
+def test_compile_lower_rule_set_keeps_target_operand_materialization() -> None:
+    table = ContractFragment(
+        name="test.target-operand-materialization",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=[
+            DescriptorRule(
+                source_op=scalar_arithmetic.scalar_addi,
+                descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                guards=(
+                    Guard.value_type("lhs", Scalar("i32")),
+                    Guard.value_type("rhs", Scalar("i32")),
+                    Guard.value_type("result", Scalar("i32")),
+                ),
+                emit=(
+                    EmitDescriptorOp(
+                        descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                        operands={
+                            "lhs": ValueRef.operand("lhs"),
+                            "rhs": ValueRef.operand("rhs"),
+                        },
+                        results={"dst": ValueRef.result("result")},
+                        operand_materialization=(
+                            DescriptorOperandMaterialization.TARGET
+                        ),
+                    ),
+                ),
+            )
+        ],
+    )
+
+    compiled = compile_lower_rule_set(table, dialect_ops={"scalar": ALL_SCALAR_OPS})
+
+    assert len(compiled.emits) == 1
+    assert (
+        compiled.emits[0].operand_materialization
+        is DescriptorOperandMaterialization.TARGET
+    )
 
 
 def test_contract_rejects_op_form_for_const_descriptor() -> None:

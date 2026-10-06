@@ -17,6 +17,7 @@ from loom.errors import ErrorDef
 from loom.target.contracts.diagnostics import (
     DiagnosticParamKind,
 )
+from loom.target.contracts.emits import DescriptorOperandMaterialization
 from loom.target.contracts.guards import GuardKind
 from loom.target.contracts.kinds import SourceValueKind
 from loom.target.contracts.patterns import TypePattern
@@ -277,6 +278,9 @@ class LowerEmit:
 
     kind: LowerEmitKind
     descriptor: Descriptor | None = None
+    operand_materialization: DescriptorOperandMaterialization = (
+        DescriptorOperandMaterialization.DIRECT
+    )
     flags: int = 0
     operand_ref_start: int = 0
     operand_ref_count: int = 0

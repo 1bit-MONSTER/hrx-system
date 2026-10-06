@@ -1704,6 +1704,7 @@ class _LowerRuleSetCompiler:
             LowerEmit(
                 kind=emit_kind,
                 descriptor=emit.descriptor,
+                operand_materialization=emit.operand_materialization,
                 flags=flags,
                 operand_ref_start=operand_ref_start,
                 operand_ref_count=operand_ref_count,

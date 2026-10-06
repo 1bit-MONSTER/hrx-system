@@ -1253,7 +1253,7 @@ iree_status_t loom_scalar_geluf_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 
-// LOOM_OP_SCALAR_FMAF: Fused multiply-add: a*b + c with single rounding.
+// LOOM_OP_SCALAR_FMAF: Fused multiply-add: a*b + c with single rounding. AFN permits a target-native fused form with weaker subnormal handling.
 // %result = scalar.fmaf %a, %b, %c : f32
 LOOM_DEFINE_ISA(loom_scalar_fmaf_isa, LOOM_OP_SCALAR_FMAF)
 LOOM_DEFINE_OPERAND(loom_scalar_fmaf_a, 0)

@@ -124,6 +124,7 @@ from loom.target.arch.amdgpu.descriptors import (
     _gfx940_core_overlays,
     _gfx950_core_overlays,
     _predefined,
+    _rdna4m_core_overlays,
     _record_amdgpu_atomic_candidate,
     _validate_address_immediate_units,
     _validate_descriptor_encoding_formats,
@@ -3517,17 +3518,17 @@ def test_sop2_bfe_literal_forms_fix_control_to_literal_source() -> None:
 
 def test_fmamk_f32_descriptor_pins_literal_multiply_slot() -> None:
     descriptor_sets = (
-        _gfx940_core_overlays(),
-        _gfx950_core_overlays(),
-        _gfx11_core_overlays(),
-        _gfx12_core_overlays(),
-        _gfx125x_core_overlays(),
+        (_gfx940_core_overlays(), "amdgpu.v_fmamk_f32.flush_product"),
+        (_gfx950_core_overlays(), "amdgpu.v_fmamk_f32.flush_product"),
+        (_gfx11_core_overlays(), "amdgpu.v_fmamk_f32"),
+        (_gfx12_core_overlays(), "amdgpu.v_fmamk_f32"),
+        (_gfx125x_core_overlays(), "amdgpu.v_fmamk_f32"),
     )
-    for descriptor_set in descriptor_sets:
+    for descriptor_set, descriptor_key in descriptor_sets:
         descriptors = {
             descriptor.descriptor_key: descriptor for descriptor in descriptor_set
         }
-        descriptor = descriptors["amdgpu.v_fmamk_f32"]
+        descriptor = descriptors[descriptor_key]
         assert descriptor.instruction_name == "V_FMAMK_F32"
         assert tuple(operand.xml_field_name for operand in descriptor.operands) == (
             "VDST",
@@ -3541,6 +3542,41 @@ def test_fmamk_f32_descriptor_pins_literal_multiply_slot() -> None:
         assert tuple(immediate.field_name for immediate in descriptor.immediates) == (
             "imm32",
         )
+
+
+def test_f32_literal_fma_descriptors_follow_target_denormal_semantics() -> None:
+    fmaak = "amdgpu.v_fmaak_f32"
+    exact_fmamk = "amdgpu.v_fmamk_f32"
+    product_flushing_fmamk = "amdgpu.v_fmamk_f32.flush_product"
+
+    for descriptor_set in (
+        _gfx940_core_overlays(),
+        _gfx950_core_overlays(),
+        _gfx9_4_generic_core_overlays(),
+    ):
+        descriptors = {
+            descriptor.descriptor_key: descriptor for descriptor in descriptor_set
+        }
+        assert fmaak in descriptors
+        assert exact_fmamk not in descriptors
+        assert (
+            descriptors[product_flushing_fmamk].semantic_tag
+            == "float.fmamk.flush_product.f32"
+        )
+
+    for descriptor_set in (
+        _gfx11_core_overlays(),
+        _gfx115x_core_overlays(),
+        _rdna4m_core_overlays(),
+        _gfx12_core_overlays(),
+        _gfx125x_core_overlays(),
+    ):
+        descriptors = {
+            descriptor.descriptor_key: descriptor for descriptor in descriptor_set
+        }
+        assert fmaak in descriptors
+        assert exact_fmamk in descriptors
+        assert product_flushing_fmamk not in descriptors
 
 
 def test_scalar_f16_fma_descriptor_families_are_arch_specific() -> None:

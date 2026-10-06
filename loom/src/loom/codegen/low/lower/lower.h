@@ -307,6 +307,10 @@ typedef struct loom_low_lower_materialize_structural_operand_callback_t {
   void* user_data;
 } loom_low_lower_materialize_structural_operand_callback_t;
 
+typedef iree_status_t (*loom_low_lower_materialize_descriptor_operands_fn_t)(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t* low_operands, iree_host_size_t operand_count);
+
 typedef iree_status_t (*loom_low_lower_emit_cond_branch_fn_t)(
     void* user_data, loom_low_lower_context_t* context,
     const loom_op_t* source_op, loom_value_id_t low_condition,
@@ -869,6 +873,12 @@ typedef struct loom_low_lower_policy_t {
   // and target storage contract, including the selected callable result type.
   loom_low_lower_materialize_structural_operand_callback_t
       materialize_structural_operand;
+  // Optionally materializes relationships across a complete descriptor
+  // operand group after copies, lane projection, and operand permutation when
+  // an emit row explicitly selects target materialization. Replacements do not
+  // change canonical source value mappings.
+  loom_low_lower_materialize_descriptor_operands_fn_t
+      materialize_descriptor_operands;
   // Optionally emits conditional branches that need target-specific structural
   // control packets instead of plain low.cond_br.
   loom_low_lower_emit_cond_branch_callback_t emit_cond_branch;

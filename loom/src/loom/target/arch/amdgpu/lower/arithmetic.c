@@ -513,7 +513,9 @@ iree_status_t loom_amdgpu_emit_fmaf_literal_operand_form_diagnostic(
           .key_string_ref);
   const bool selected_literal =
       iree_string_view_equal(descriptor_name, IREE_SV("amdgpu.v_fmaak_f32")) ||
-      iree_string_view_equal(descriptor_name, IREE_SV("amdgpu.v_fmamk_f32"));
+      iree_string_view_equal(descriptor_name, IREE_SV("amdgpu.v_fmamk_f32")) ||
+      iree_string_view_equal(descriptor_name,
+                             IREE_SV("amdgpu.v_fmamk_f32.flush_product"));
   const bool selected_plain_fma =
       iree_string_view_equal(descriptor_name, IREE_SV("amdgpu.v_fma_f32"));
   if (!selected_literal && !selected_plain_fma) {
