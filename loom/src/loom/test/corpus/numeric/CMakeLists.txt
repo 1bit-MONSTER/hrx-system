@@ -60,6 +60,7 @@ loom_corpus_sources(
     "predicate/truncation.loom"
     "predicate/vector_logic.loom"
     "vector/conversion.loom"
+    "vector/constants.loom"
     "vector/f32.loom"
     "vector/floating.loom"
     "vector/float_comparison.loom"
