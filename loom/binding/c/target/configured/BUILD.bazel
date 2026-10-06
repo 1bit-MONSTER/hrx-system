@@ -48,6 +48,12 @@ _CONFIGURED_TARGET_COPTS = (
             "-DLOOMC_CONFIGURED_HAVE_XDNA=1",
         ],
         "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target/arch:x86": [
+            "-DLOOMC_CONFIGURED_HAVE_X86=1",
+        ],
+        "//conditions:default": [],
     })
 )
 
@@ -79,6 +85,12 @@ _CONFIGURED_TARGET_DEPS = (
     iree_select({
         "//loom/config/target:xdna_artifacts": [
             "//loom/binding/c/target/amd/xdna",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target/arch:x86": [
+            "//loom/src/loom/target/arch/x86:compiler_provider",
         ],
         "//conditions:default": [],
     })

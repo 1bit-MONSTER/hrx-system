@@ -121,6 +121,7 @@ loom_cc_library(
   SRCS
     "compiler_provider.c"
   DEPS
+    ::provider
     loom::target::arch::x86::ops
     loom::target::emit::native::x86::module
     loom::target::provider

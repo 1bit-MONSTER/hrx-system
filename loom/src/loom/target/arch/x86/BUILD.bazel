@@ -117,8 +117,12 @@ loom_cc_library(
     name = "compiler_provider",
     srcs = ["compiler_provider.c"],
     hdrs = ["compiler_provider.h"],
-    visibility = ["//loom/src/loom/tooling/compile:__pkg__"],
+    visibility = [
+        "//loom/binding/c/target/configured:__pkg__",
+        "//loom/src/loom/tooling/compile:__pkg__",
+    ],
     deps = [
+        ":provider",
         "//loom/src/loom/target:provider",
         "//loom/src/loom/target/arch/x86/ops",
         "//loom/src/loom/target/emit/native/x86:module",

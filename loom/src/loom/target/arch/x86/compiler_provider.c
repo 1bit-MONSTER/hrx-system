@@ -7,6 +7,7 @@
 #include "loom/target/arch/x86/compiler_provider.h"
 
 #include "loom/target/arch/x86/ops/ops.h"
+#include "loom/target/arch/x86/provider.h"
 #include "loom/target/emit/native/x86/module.h"
 
 static iree_status_t loom_x86_compiler_emit_module(
@@ -38,4 +39,14 @@ const loom_target_provider_t loom_x86_compiler_provider = {
         },
     .canonical_module_emitter = &loom_x86_module_emitter,
     .canonical_module_fact_type = &loom_x86_target_fact_type,
+};
+
+static const loom_target_provider_t* const kLoomX86CompilerProviders[] = {
+    &loom_x86_target_provider,
+    &loom_x86_compiler_provider,
+};
+
+const loom_target_provider_set_t loom_x86_compiler_provider_set = {
+    .providers = kLoomX86CompilerProviders,
+    .provider_count = IREE_ARRAYSIZE(kLoomX86CompilerProviders),
 };

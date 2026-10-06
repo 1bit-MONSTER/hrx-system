@@ -26,6 +26,9 @@
 #ifndef LOOMC_CONFIGURED_HAVE_XDNA
 #define LOOMC_CONFIGURED_HAVE_XDNA 0
 #endif  // LOOMC_CONFIGURED_HAVE_XDNA
+#ifndef LOOMC_CONFIGURED_HAVE_X86
+#define LOOMC_CONFIGURED_HAVE_X86 0
+#endif  // LOOMC_CONFIGURED_HAVE_X86
 
 namespace {
 
@@ -61,6 +64,9 @@ TEST(ConfiguredTargetTest, ContainsSelectedEmitters) {
   EXPECT_EQ(loom_target_environment_lookup_emitter(internal_environment,
                                                    IREE_SV("xdna")) != nullptr,
             static_cast<bool>(LOOMC_CONFIGURED_HAVE_XDNA));
+  EXPECT_EQ(loom_target_environment_lookup_emitter(
+                internal_environment, IREE_SV("x86-elf")) != nullptr,
+            static_cast<bool>(LOOMC_CONFIGURED_HAVE_X86));
 }
 
 }  // namespace
