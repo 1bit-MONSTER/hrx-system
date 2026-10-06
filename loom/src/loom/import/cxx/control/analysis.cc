@@ -7,7 +7,6 @@
 #include "loom/import/cxx/control/analysis.h"
 
 #include <cxx/ast.h>
-#include <cxx/initialization.h>
 #include <cxx/symbols.h>
 #include <cxx/translation_unit.h>
 #include <cxx/types.h>
@@ -16,14 +15,15 @@
 
 #include "loom/import/cxx/source/attributes.h"
 #include "loom/import/cxx/source/constants.h"
+#include "loom/import/cxx/source/expressions.h"
 
 namespace loom::cxx_import {
 namespace {
 
 cxx::ExpressionAST* unwrapped(cxx::ExpressionAST* expression) {
-  expression = cxx::Initializer::stripImplicitCasts(expression);
+  expression = strip_implicit_casts(expression);
   while (auto* nested = cxx::ast_cast<cxx::NestedExpressionAST>(expression)) {
-    expression = cxx::Initializer::stripImplicitCasts(nested->expression);
+    expression = strip_implicit_casts(nested->expression);
   }
   return expression;
 }
@@ -69,11 +69,6 @@ const CountedLoop* ControlFlow::counted(cxx::ForStatementAST* loop) const {
   // the loop. Consult complete address demand, including later source uses.
   auto* bound = std::get_if<CountedLoop::Bound>(&found->second.upper);
   return bound && addressed(bound->binding) ? nullptr : &found->second;
-}
-
-cxx::ConditionExpressionAST* ControlFlow::condition_declaration(
-    cxx::VariableSymbol* variable) const {
-  return conditions_.at(variable);
 }
 
 unsigned ControlFlow::paths(cxx::StatementAST* statement) const {
@@ -180,11 +175,6 @@ void ControlFlow::visit(cxx::IfStatementAST* ast) {
   } else {
     cxx::ASTVisitor::visit(ast);
   }
-}
-
-void ControlFlow::visit(cxx::ConditionExpressionAST* ast) {
-  conditions_.emplace(ast->symbol, ast);
-  cxx::ASTVisitor::visit(ast);
 }
 
 void ControlFlow::visit(cxx::AssignmentExpressionAST* ast) {

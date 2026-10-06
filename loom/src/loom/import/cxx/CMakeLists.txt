@@ -63,6 +63,7 @@ loom_cc_library(
     loom::import::cxx::source::catalog
     loom::import::cxx::source::constants
     loom::import::cxx::source::error
+    loom::import::cxx::source::expressions
     loom::import::cxx::source::locations
     loom::import::cxx::source::options
     loom::import::cxx::symbol::functions

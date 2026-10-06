@@ -69,7 +69,9 @@ TEST(ConstantArchiveTest, PreservesComplexAndIndeterminateValues) {
   loom_cxx_import_options_t options;
   loom_cxx_import_options_initialize(&options);
   const std::array<cxx::ConstValue, 2> values = {
-      std::make_shared<cxx::ConstComplex>(1.25f, -2.5f),
+      std::make_shared<cxx::ConstComplex>(
+          cxx::ConstFloat::fromValue(cxx::ConstFloat::Format::kFloat, 1.25f),
+          cxx::ConstFloat::fromValue(cxx::ConstFloat::Format::kFloat, -2.5f)),
       cxx::IndeterminateValue{},
   };
   for (const auto& value : values) {
@@ -109,8 +111,12 @@ TEST(ConstantArchiveTest, PreservesComplexAndIndeterminateValues) {
     if (auto* complex = std::get_if<std::shared_ptr<cxx::ConstComplex>>(
             &*variable->constValue())) {
       ASSERT_NE(*complex, nullptr);
-      EXPECT_EQ(std::get<float>((*complex)->real()), 1.25f);
-      EXPECT_EQ(std::get<float>((*complex)->imag()), -2.5f);
+      EXPECT_EQ(
+          std::get<cxx::ConstFloat>((*complex)->real()),
+          cxx::ConstFloat::fromValue(cxx::ConstFloat::Format::kFloat, 1.25f));
+      EXPECT_EQ(
+          std::get<cxx::ConstFloat>((*complex)->imag()),
+          cxx::ConstFloat::fromValue(cxx::ConstFloat::Format::kFloat, -2.5f));
     }
   }
 }
@@ -215,7 +221,7 @@ TEST(ConstantArchiveTest, EvaluatesAggregateDefaultsAfterSourceDestruction) {
     SCOPED_TRACE(elements);
     auto value = interpreter.evaluateCall(function, {elements});
     ASSERT_TRUE(value);
-    EXPECT_EQ(std::get<std::intmax_t>(*value), elements + 3 * elements / 8);
+    EXPECT_EQ(interpreter.toInt(*value), elements + 3 * elements / 8);
   }
 }
 
@@ -265,7 +271,7 @@ TEST(ConstantArchiveTest, ExecutesNestedConstructorsAfterSourceDestruction) {
     SCOPED_TRACE(extra);
     auto value = interpreter.evaluateCall(*functions.begin(), {extra});
     ASSERT_TRUE(value);
-    EXPECT_EQ(std::get<std::intmax_t>(*value), 12 + extra);
+    EXPECT_EQ(interpreter.toInt(*value), 12 + extra);
   }
 
   // Construction retains every element's initialized fields across the archive.
@@ -286,8 +292,8 @@ TEST(ConstantArchiveTest, ExecutesNestedConstructorsAfterSourceDestruction) {
     for (const auto& [column, column_type] : columns->elements) {
       auto format = std::get<std::shared_ptr<cxx::ConstObject>>(column);
       ASSERT_EQ(format->members().size(), 2u);
-      EXPECT_EQ(std::get<std::intmax_t>(format->members()[0].value), 32);
-      EXPECT_EQ(std::get<std::intmax_t>(format->members()[1].value), 4);
+      EXPECT_EQ(interpreter.toInt(format->members()[0].value), 32);
+      EXPECT_EQ(interpreter.toInt(format->members()[1].value), 4);
     }
   }
 }
@@ -623,7 +629,7 @@ TEST(ConstantArchiveTest, PreservesTypedAggregateReadsAfterDecoderDestruction) {
     cxx::ASTInterpreter interpreter(&destination.unit());
     auto value = interpreter.evaluateCall(*functions.begin(), {input});
     ASSERT_TRUE(value);
-    EXPECT_EQ(std::get<std::intmax_t>(*value), 2 * input + 11);
+    EXPECT_EQ(interpreter.toInt(*value), 2 * input + 11);
   }
 }
 
@@ -677,7 +683,7 @@ TEST(ConstantArchiveTest, ExecutesDestructorsAfterDecoderDestruction) {
     cxx::ASTInterpreter interpreter(&destination.unit());
     auto value = interpreter.evaluateCall(*functions.begin(), {input});
     ASSERT_TRUE(value);
-    EXPECT_EQ(std::get<std::intmax_t>(*value), input * 100 + 32);
+    EXPECT_EQ(interpreter.toInt(*value), input * 100 + 32);
   }
 }
 

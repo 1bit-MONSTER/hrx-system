@@ -27,19 +27,19 @@ auto offset() { return __builtin_offsetof(Packet, items[1].missing); }
 // ====
 // INPUT: cxx
 struct Packet { unsigned values[3]; };
-// ERROR@+1: PARSE/036 "offsetof member designator requires a record type"
+// ERROR@+1: PARSE/036 "offsetof requires a class or union type"
 auto offset() { return __builtin_offsetof(Packet, values[1].missing); }
 
 // ====
 // INPUT: cxx
 struct Packet { unsigned* values; };
-// ERROR@+1: PARSE/036 "offsetof subscript requires an array member"
+// ERROR@+1: PARSE/036 "offsetof requires an array type"
 auto offset() { return __builtin_offsetof(Packet, values[1]); }
 
 // ====
 // INPUT: cxx
 struct Packet { unsigned values[3]; };
-// ERROR@+1: PARSE/036 "negative offsetof indices are not supported"
+// ERROR@+1: PARSE/036 "offsetof index must be a nonnegative integral constant expression"
 auto offset() { return __builtin_offsetof(Packet, values[-1]); }
 
 // ====
@@ -51,13 +51,13 @@ auto offset(unsigned index) { return __builtin_offsetof(Packet, values[index]); 
 // ====
 // INPUT: cxx data-model=ilp32
 struct Packet { unsigned values[3]; };
-// ERROR@+1: PARSE/036 "offsetof result exceeds source size_t"
+// ERROR@+1: PARSE/036 "offsetof result exceeds the target size type"
 auto offset() { return __builtin_offsetof(Packet, values[0x40000000ULL]); }
 
 // ====
 // INPUT: cxx data-model=lp64
 struct Packet { unsigned values[3]; };
-// ERROR@+1: PARSE/036 "offsetof result exceeds source size_t"
+// ERROR@+1: PARSE/036 "offsetof result exceeds the target size type"
 auto offset() { return __builtin_offsetof(Packet, values[0x4000000000000000ULL]); }
 
 // ====
@@ -78,6 +78,6 @@ auto offset() { return __builtin_offsetof(Packet, items[1].value); }
 struct Item { char tag; char value; };
 struct Packet { char prefix; Item items[1]; };
 auto offset() {
-  // ERROR@+1: PARSE/036 "offsetof result exceeds source size_t"
+  // ERROR@+1: PARSE/036 "offsetof result exceeds the target size type"
   return __builtin_offsetof(Packet, items[0x7fffffffffffffffULL].value);
 }

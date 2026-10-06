@@ -8,7 +8,6 @@
 
 #include <cxx/ast.h>
 #include <cxx/ast_interpreter.h>
-#include <cxx/initialization.h>
 #include <cxx/token.h>
 
 #include <bit>
@@ -18,6 +17,7 @@
 #include <variant>
 
 #include "loom/import/cxx/source/constants.h"
+#include "loom/import/cxx/source/expressions.h"
 
 namespace loom::cxx_import {
 namespace {
@@ -33,9 +33,9 @@ struct IntegerConstant {
 using ComparisonOperand = std::variant<AssumptionValue, IntegerConstant>;
 
 cxx::ExpressionAST* unwrapped(cxx::ExpressionAST* expression) {
-  expression = cxx::Initializer::stripImplicitCasts(expression);
+  expression = strip_implicit_casts(expression);
   while (auto* nested = cxx::ast_cast<cxx::NestedExpressionAST>(expression)) {
-    expression = cxx::Initializer::stripImplicitCasts(nested->expression);
+    expression = strip_implicit_casts(nested->expression);
   }
   return expression;
 }

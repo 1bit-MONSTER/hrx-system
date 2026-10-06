@@ -130,7 +130,7 @@ TEST(SourceTest, VectorConversionSurvivesSemanticArchiveAndClone) {
     auto* conversion = conversions.expressions.front();
     ASSERT_NE(conversion->expression, nullptr);
     ASSERT_NE(conversion->typeId, nullptr);
-    EXPECT_TRUE(conversion->convertLoc);
+    EXPECT_TRUE(conversion->convertVectorLoc);
     EXPECT_TRUE(conversion->rparenLoc);
     EXPECT_EQ(conversion->valueCategory, cxx::ValueCategory::kPrValue);
     EXPECT_EQ(conversion->typeId->type, conversion->type);

@@ -52,10 +52,9 @@ func.def public @entry(%count: i32) -> (i64) {
     %wide$37 = scalar.addi %wide$30, %36 : i64
     scf.yield %wide$37 : i64
   }
-  %38 = scalar.extui %narrow$10 : i8 to i32
-  %39 = scalar.extsi %38 : i32 to i64
-  %40 = scalar.addi %wide$31, %39 : i64
-  func.return %40 : i64
+  %38 = scalar.extui %narrow$10 : i8 to i64
+  %39 = scalar.addi %wide$31, %38 : i64
+  func.return %39 : i64
 }
 
 // ====

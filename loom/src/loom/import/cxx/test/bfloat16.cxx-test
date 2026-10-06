@@ -158,3 +158,21 @@ func.def public @pair_sum(%input: buffer, %input_byte_offset: offset) -> (f32) {
   %25 = scalar.addf %13, %24 : f32
   func.return %25 : f32
 }
+
+// ====
+
+#include <stdfloat>
+
+std::bfloat16_t mixed(std::bfloat16_t first, std::float16_t second) {
+  return first + second;
+}
+
+// ----
+func.def public @mixed(%first: bf16, %second: f16) -> (bf16) {
+  %3 = scalar.extf %first : bf16 to f32
+  %4 = scalar.fptrunc %3 : f32 to f16
+  %5 = scalar.addf %4, %second : f16
+  %6 = scalar.extf %5 : f16 to f32
+  %7 = scalar.fptrunc %6 : f32 to bf16
+  func.return %7 : bf16
+}

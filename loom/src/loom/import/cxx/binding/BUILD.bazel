@@ -71,6 +71,7 @@ loom_cc_library(
     deps = [
         "//loom/src/loom/import/cxx/source",
         "//loom/src/loom/import/cxx/source:constants",
+        "//loom/src/loom/import/cxx/source:expressions",
         "//loom/src/loom/ir",
         "//third_party:cxx_parser",
     ],

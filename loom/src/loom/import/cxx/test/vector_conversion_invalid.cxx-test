@@ -1,14 +1,14 @@
 // RUN: verify
 using Float4 = float __attribute__((ext_vector_type(4)));
 Float4 entry(float value) {
-  // ERROR@+1: PARSE/036 "requires source and destination vector types"
+  // ERROR@+1: PARSE/036 "operand of '__builtin_convertvector' must be a vector"
   return __builtin_convertvector(value, Float4);
 }
 
 // ====
 using Float4 = float __attribute__((ext_vector_type(4)));
 float entry(Float4 value) {
-  // ERROR@+1: PARSE/036 "requires source and destination vector types"
+  // ERROR@+1: PARSE/036 "target of '__builtin_convertvector' must be a vector type"
   return __builtin_convertvector(value, float);
 }
 
@@ -16,14 +16,14 @@ float entry(Float4 value) {
 using Float4 = float __attribute__((ext_vector_type(4)));
 using Int2 = int __attribute__((ext_vector_type(2)));
 Int2 entry(Float4 value) {
-  // ERROR@+1: PARSE/036 "requires the same number of elements"
+  // ERROR@+1: PARSE/036 "requires vectors with the same number of elements"
   return __builtin_convertvector(value, Int2);
 }
 
 // ====
 using Float4 = float __attribute__((ext_vector_type(4)));
 Float4 entry(Float4 value) {
-  // ERROR@+1: PARSE/036 "requires source and destination vector types"
+  // ERROR@+1: PARSE/036 "target of '__builtin_convertvector' must be a vector type"
   return __builtin_convertvector(value, Float4&);
 }
 
@@ -39,7 +39,7 @@ int entry() { return 0; }
 using Float4 = float __attribute__((ext_vector_type(4)));
 using Int2 = int __attribute__((ext_vector_type(2)));
 template <typename To, typename From>
-// ERROR@+1: PARSE/036 "requires the same number of elements"
+// ERROR@+1: PARSE/036 "requires vectors with the same number of elements"
 To convert(From value) { return __builtin_convertvector(value, To); }
 // REMARK@+1: PARSE/036 "in instantiation of function template specialization"
 Int2 entry(Float4 value) { return convert<Int2>(value); }

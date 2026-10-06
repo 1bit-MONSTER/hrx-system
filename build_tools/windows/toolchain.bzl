@@ -35,6 +35,7 @@ def windows_cross_toolchain(name, repository_path, execution_architecture, msvc_
         name = "linker_files",
         srcs = native.glob(["lib/**/*.lib"]) + [
             "bin/lld-link",
+            "runtime/clang_rt.builtins-x86_64.lib",
             "tools/lld-link",
             ":host_dynamic_libraries",
         ],
@@ -56,7 +57,9 @@ def windows_cross_toolchain(name, repository_path, execution_architecture, msvc_
         repository_path + "/include/" + component
         for component in ["crt", "ucrt", "shared", "um", "winrt", "cppwinrt"]
     ]
-    library_directories = [repository_path + "/lib/" + component for component in ["crt", "ucrt", "um"]]
+    library_directories = [repository_path + "/lib/" + component for component in ["crt", "ucrt", "um"]] + [
+        repository_path + "/runtime",
+    ]
     cc_toolchain_config(
         name = "config",
         cpu = "x64_windows",
@@ -100,6 +103,7 @@ def windows_cross_toolchain(name, repository_path, execution_architecture, msvc_
         ] + ["/imsvc" + directory for directory in include_directories],
         default_link_flags = [
             "/MACHINE:X64",
+            "/DEFAULTLIB:clang_rt.builtins-x86_64.lib",
         ] + ["/LIBPATH:" + directory for directory in library_directories],
         archiver_flags = ["/MACHINE:X64"],
         dbg_mode_debug_flag = "/DEBUG",
