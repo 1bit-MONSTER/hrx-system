@@ -18,6 +18,7 @@
 #include "loom/import/cxx/binding/intrinsics.h"
 #include "loom/import/cxx/binding/launch.h"
 #include "loom/import/cxx/binding/parameter_contracts.h"
+#include "loom/import/cxx/binding/target_definitions.h"
 #include "loom/import/cxx/source/locations.h"
 #include "loom/import/cxx/symbol/names.h"
 #include "loom/import/cxx/value/types.h"
@@ -68,13 +69,15 @@ class Functions {
  public:
   Functions(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
             loom_module_t* module, Intrinsics& intrinsics,
-            LaunchContracts& launches, Configs& configs, SymbolNames& names)
+            LaunchContracts& launches, Configs& configs,
+            TargetDefinitions& target_definitions, SymbolNames& names)
       : unit_(unit),
         diagnostics_(diagnostics),
         module_(module),
         intrinsics_(intrinsics),
         launches_(launches),
         configs_(configs),
+        target_definitions_(target_definitions),
         names_(names),
         parameter_contracts_(unit, diagnostics) {}
 
@@ -130,6 +133,8 @@ class Functions {
   LaunchContracts& launches_;
   // Reconciles named scalar settings before root selection and body lowering.
   Configs& configs_;
+  // Owns source target definitions and the kernel bindings that reference them.
+  TargetDefinitions& target_definitions_;
   // Exact callable/configuration names and generated private names.
   SymbolNames& names_;
   // Pointer entry preconditions reconciled before body construction.

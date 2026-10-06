@@ -4,7 +4,9 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include <loomcxx/check.h>
 #include <loomcxx/kernel.h>
+#include <loomcxx/target/amdgpu.h>
 
 using loom::atomic::ordering;
 using loom::atomic::scope;
@@ -112,4 +114,68 @@ using UInt4 = unsigned __attribute__((ext_vector_type(4)));
   unsigned mask = loom::subgroup_ballot<unsigned>(lane == 31);
   unsigned active = loom::subgroup_active_mask<unsigned>();
   return (mask != 0x80000000u) | ((active != 0xffffffffu) << 1);
+}
+
+constexpr loom::amdgpu::target wave32{
+    .kind = "gfx11-generic",
+    .subgroup_size = 32,
+};
+
+constexpr loom::amdgpu::target wave64{
+    .kind = "gfx11-generic",
+    .subgroup_size = 64,
+};
+
+static loom::kernel::configuration configure_wave() {
+  return {{1, 1, 1}, {96, 1, 1}};
+}
+
+[[loom::kernel(configure_wave), loom::target(wave32)]] void cooperate_wave32(
+    const unsigned* payload,
+    [[loom::assume_aligned(4)]] const unsigned* publication, unsigned* output) {
+  unsigned failures = cooperative_subgroup(payload, publication, 32);
+  failures |= narrow_subgroup();
+  output[loom::workitem_id.x + 1] = failures;
+}
+
+[[loom::kernel(configure_wave), loom::target(wave64)]] void cooperate_wave64(
+    const unsigned* payload,
+    [[loom::assume_aligned(4)]] const unsigned* publication, unsigned* output) {
+  unsigned failures = cooperative_subgroup(payload, publication, 64);
+  output[loom::workitem_id.x + 1] = failures;
+}
+
+LOOM_CHECK_CASE(cooperative_wave32) {
+  // Ordered global observations require the RDNA 3.5 system-scope provider.
+  loom::check::require("hal.amdgpu.descriptor_set", "descriptor_set",
+                       "amdgpu.rdna3_5.core");
+  const auto payload = loom::check::iota<unsigned, 96>(19, 13);
+  const auto publication = loom::check::fill<unsigned, 96>(1);
+  const auto output = loom::check::fill<unsigned, 98>(37);
+  loom::check::launch<cooperate_wave32>(payload, publication, output);
+  const auto before = loom::check::slice<1>(output, 0);
+  const auto values = loom::check::slice<96>(output, 1);
+  const auto after = loom::check::slice<1>(output, 97);
+  const auto guard = loom::check::fill<unsigned, 1>(37);
+  const auto success = loom::check::fill<unsigned, 96>(0);
+  loom::check::expect_bitwise(values, success);
+  loom::check::expect_bitwise(before, guard);
+  loom::check::expect_bitwise(after, guard);
+}
+
+LOOM_CHECK_CASE(cooperative_wave64_tail) {
+  loom::check::require("hal.amdgpu.descriptor_set", "descriptor_set",
+                       "amdgpu.rdna3_5.core");
+  const auto payload = loom::check::iota<unsigned, 96>(19, 13);
+  const auto publication = loom::check::fill<unsigned, 96>(1);
+  const auto output = loom::check::fill<unsigned, 98>(37);
+  loom::check::launch<cooperate_wave64>(payload, publication, output);
+  const auto before = loom::check::slice<1>(output, 0);
+  const auto values = loom::check::slice<96>(output, 1);
+  const auto after = loom::check::slice<1>(output, 97);
+  const auto guard = loom::check::fill<unsigned, 1>(37);
+  const auto success = loom::check::fill<unsigned, 96>(0);
+  loom::check::expect_bitwise(values, success);
+  loom::check::expect_bitwise(before, guard);
+  loom::check::expect_bitwise(after, guard);
 }

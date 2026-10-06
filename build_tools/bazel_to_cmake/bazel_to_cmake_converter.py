@@ -2073,7 +2073,11 @@ class BuildFileFunctions(object):
             "H_FILE_OUTPUT", h_file_output
         )
         testonly_block = self._convert_option_block("TESTONLY", testonly)
-        strip_prefix_block = self._convert_option_block("STRIP_PREFIX", strip_prefix)
+        if strip_prefix and not os.path.isabs(strip_prefix):
+            strip_prefix = "${PROJECT_SOURCE_DIR}/" + strip_prefix
+        strip_prefix_block = self._convert_string_arg_block(
+            "STRIP_PREFIX", strip_prefix
+        )
         identifier_block = self._convert_string_arg_block("IDENTIFIER", identifier)
         flatten_block = self._convert_option_block("FLATTEN", flatten)
         deps_block = self._convert_target_list_block("DEPS", deps)

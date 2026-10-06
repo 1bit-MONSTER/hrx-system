@@ -114,6 +114,8 @@ loom_check_test_suite(
     "subgroups_invalid.cxx-test"
     "symbols.cxx-test"
     "symbols_invalid.cxx-test"
+    "targets.cxx-test"
+    "targets_invalid.cxx-test"
     "template_addresses.cxx-test"
     "template_addresses_invalid.cxx-test"
     "template_apply.cxx-test"

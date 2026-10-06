@@ -143,10 +143,7 @@ loom_test(
 
 loom_test(
     name = "subgroups_test",
-    srcs = [
-        "subgroups.cxx",
-        "subgroups.loom",
-    ],
+    srcs = ["subgroups.cxx"],
     execution_profiles = _EXECUTION_PROFILES,
     target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
 )
@@ -189,6 +186,7 @@ loom_check_test(
         "opaque_pointers",
         "parameter_alignment",
         "parameter_noalias",
+        "targets",
         "vector_lookup",
     ]
 ]

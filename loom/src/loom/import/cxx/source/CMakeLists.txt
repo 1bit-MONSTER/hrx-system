@@ -41,6 +41,8 @@ iree_c_embed_data(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/math.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/numeric.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/scalar.h"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/target.h"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/target/amdgpu.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/vector.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/view.h"
   C_FILE_OUTPUT
@@ -49,7 +51,8 @@ iree_c_embed_data(
     "embedded_loomcxx_headers.h"
   IDENTIFIER
     "loom_cxx_embedded_loomcxx_headers"
-  FLATTEN
+  STRIP_PREFIX
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/"
   PUBLIC
 )
 endif()

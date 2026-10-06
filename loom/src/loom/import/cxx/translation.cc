@@ -31,6 +31,7 @@
 #include "loom/import/cxx/binding/intrinsics.h"
 #include "loom/import/cxx/binding/launch.h"
 #include "loom/import/cxx/binding/loop_schedule.h"
+#include "loom/import/cxx/binding/target_definitions.h"
 #include "loom/import/cxx/check.h"
 #include "loom/import/cxx/control/analysis.h"
 #include "loom/import/cxx/source/attributes.h"
@@ -68,13 +69,14 @@ class Translator {
         scalars_(unit, diagnostics, types_, locations_, builder_),
         names_(unit, diagnostics),
         configs_(unit, diagnostics, types_, scalars_, locations_, names_),
+        target_definitions_(unit, diagnostics, locations_, names_, module),
         vectors_(unit, diagnostics, types_, scalars_, locations_, builder_),
         storage_(unit, diagnostics, types_, scalars_, locations_, builder_),
         launches_(unit, diagnostics),
         intrinsics_(unit, diagnostics, types_, locations_, names_, launches_,
                     module),
         functions_(unit, diagnostics, module, intrinsics_, launches_, configs_,
-                   names_),
+                   target_definitions_, names_),
         options_(options),
         math_flags_(iree_any_bit_set(options.flags,
                                      LOOM_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS)
@@ -2064,6 +2066,9 @@ class Translator {
   SymbolNames names_;
   // Namespace-scope scalar configs retain key identity across source aliases.
   Configs configs_;
+  // Source target definitions bind kernels without target-specific importer
+  // code.
+  TargetDefinitions target_definitions_;
   // Explicit vector builders retain lane widths and full-width source masks.
   Vectors vectors_;
   // Memory representations retain declared array extents and access shape.

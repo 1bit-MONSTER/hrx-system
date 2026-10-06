@@ -1,0 +1,36 @@
+// RUN: roundtrip
+#include <loomcxx/kernel.h>
+#include <loomcxx/target/amdgpu.h>
+
+constexpr loom::amdgpu::target feature_target{
+    .kind = "gfx942",
+    .subgroup_size = 64,
+    .features = {
+        .sramecc = loom::target::feature::enabled,
+        .xnack = loom::target::feature::disabled,
+    },
+};
+
+[[loom::kernel, loom::target(feature_target),
+  loom::workgroup_size(64, 1, 1)]] void feature_kernel() {}
+
+// ----
+amdgpu.target<gfx942> @feature_target {features = [sramecc, -xnack], subgroup_size = 64}
+
+kernel.def target(@feature_target) @feature_kernel() {
+  %workgroup_count_x = config.get @feature_kernel.workgroup_count.x : index
+  %workgroup_count_y = config.get @feature_kernel.workgroup_count.y : index
+  %workgroup_count_z = config.get @feature_kernel.workgroup_count.z : index
+  %6 = index.constant 64 : index
+  %7 = index.constant 1 : index
+  %8 = index.constant 1 : index
+  kernel.launch.config workgroups(%workgroup_count_x, %workgroup_count_y, %workgroup_count_z) workgroup_size(%6, %7, %8) : index
+} launch() {
+  kernel.return
+}
+
+config.decl @feature_kernel.workgroup_count.x : index
+
+config.decl @feature_kernel.workgroup_count.y : index
+
+config.decl @feature_kernel.workgroup_count.z : index

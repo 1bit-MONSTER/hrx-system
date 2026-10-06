@@ -2194,7 +2194,6 @@ loom_test_module(
     subgroups_test_module
   SRCS
     "subgroups.cxx"
-    "subgroups.loom"
 )
 endif()
 
@@ -2357,6 +2356,20 @@ iree_native_test(
   WORKING_DIRECTORY "${IREE_ROOT_DIR}"
   ARGS
     "{{${CMAKE_CURRENT_SOURCE_DIR}/parameter_noalias.cxx-test}}"
+  SRC
+    loom::tools::loom-check
+  LABELS
+    "loom-check"
+)
+endif()
+
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+iree_native_test(
+  NAME
+    "targets"
+  WORKING_DIRECTORY "${IREE_ROOT_DIR}"
+  ARGS
+    "{{${CMAKE_CURRENT_SOURCE_DIR}/targets.cxx-test}}"
   SRC
     loom::tools::loom-check
   LABELS

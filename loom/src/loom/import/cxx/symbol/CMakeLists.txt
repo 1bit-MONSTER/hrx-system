@@ -48,6 +48,7 @@ loom_cc_library(
     loom::import::cxx::binding::intrinsics
     loom::import::cxx::binding::launch
     loom::import::cxx::binding::parameter_contracts
+    loom::import::cxx::binding::target_definitions
     loom::import::cxx::source
     loom::import::cxx::source::attributes
     loom::import::cxx::source::error

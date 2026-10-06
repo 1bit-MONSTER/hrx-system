@@ -6,17 +6,15 @@
 
 #include "loom/import/cxx/binding/encoding.h"
 
-#include <cxx/ast_interpreter.h>
 #include <cxx/const_value.h>
 #include <cxx/names.h>
 #include <cxx/symbols.h>
 #include <cxx/types.h>
 
-#include <cstdint>
-#include <limits>
 #include <string>
 #include <vector>
 
+#include "loom/import/cxx/binding/constant_attributes.h"
 #include "loom/import/cxx/source/error.h"
 #include "loom/ir/attribute_schema.h"
 #include "loom/ir/context.h"
@@ -31,56 +29,26 @@ loom_attribute_t scalar_parameter(cxx::TranslationUnit& unit,
                                   const loom_attr_descriptor_t& descriptor,
                                   const cxx::Type* type,
                                   const cxx::ConstValue& value,
-                                  cxx::AST* owner) {
-  auto traits = unit.typeTraits();
-  type = traits.remove_cv(type);
-  cxx::ASTInterpreter interpreter(&unit);
-  if (descriptor.attr_kind == LOOM_ATTR_BOOL &&
-      type->kind() == cxx::TypeKind::kBool) {
-    if (auto flag = interpreter.toBool(value)) {
-      return loom_attr_bool(*flag);
-    }
-  } else if (descriptor.attr_kind == LOOM_ATTR_I64 &&
-             traits.is_integral(type) && type->kind() != cxx::TypeKind::kBool) {
-    if (traits.is_unsigned(type)) {
-      auto integer = interpreter.toUInt(value);
-      if (integer && *integer <= std::numeric_limits<int64_t>::max()) {
-        return loom_attr_i64(static_cast<int64_t>(*integer));
-      }
-    } else if (auto integer = interpreter.toInt(value)) {
-      return loom_attr_i64(*integer);
-    }
-  } else if (descriptor.attr_kind == LOOM_ATTR_ENUM) {
-    cxx::ScopeSymbol* scope = nullptr;
-    if (auto* enumeration = cxx::type_cast<cxx::EnumType>(type)) {
-      scope = enumeration->symbol();
-    } else if (auto* enumeration = cxx::type_cast<cxx::ScopedEnumType>(type)) {
-      scope = enumeration->symbol();
-    }
-    if (scope) {
-      auto integer = interpreter.toInt(value);
-      std::optional<uint8_t> selected;
-      for (auto* member : scope->members()) {
-        auto* enumerator = cxx::symbol_cast<cxx::EnumeratorSymbol>(member);
-        if (!enumerator || !enumerator->value() || !integer ||
-            interpreter.toInt(*enumerator->value()) != integer) {
-          continue;
-        }
-        uint8_t candidate;
-        if (!loom_attr_descriptor_find_enum_case(
-                &descriptor, view(cxx::to_string(enumerator->name())),
-                &candidate) ||
-            (selected && *selected != candidate)) {
-          diagnostics.reject(unit, owner,
-                             "encoding enum value must identify one family "
-                             "parameter keyword");
-        }
-        selected = candidate;
-      }
-      if (selected) {
-        return loom_attr_enum(*selected);
-      }
-    }
+                                  loom_module_t* module, cxx::AST* owner) {
+  auto* unqualified = unit.typeTraits().remove_cv(type);
+  bool enum_source = cxx::type_cast<cxx::EnumType>(unqualified) ||
+                     cxx::type_cast<cxx::ScopedEnumType>(unqualified);
+  if (descriptor.attr_kind == LOOM_ATTR_ENUM && !enum_source) {
+    diagnostics.reject(
+        unit, owner,
+        "encoding parameter '" +
+            string(loom_attr_descriptor_name(&descriptor)) +
+            "' requires a matching integer, boolean, or named enum constant");
+  }
+  auto decoded =
+      decode_constant_attribute(unit, module, descriptor, type, value);
+  if (decoded) {
+    return decoded.value;
+  }
+  if (decoded.error == ConstantAttributeError::EnumKeyword) {
+    diagnostics.reject(unit, owner,
+                       "encoding enum value must identify one family "
+                       "parameter keyword");
   }
   diagnostics.reject(
       unit, owner,
@@ -188,8 +156,9 @@ EncodingIntrinsic EncodingIntrinsic::resolve(
     }
     loom_named_attr_t parameter = {};
     check(loom_module_intern_string(module, view(name), &parameter.name_id));
-    parameter.value = scalar_parameter(unit, diagnostics, *descriptor,
-                                       field->type(), member.value, owner);
+    parameter.value =
+        scalar_parameter(unit, diagnostics, *descriptor, field->type(),
+                         member.value, module, owner);
     parameters.push_back(parameter);
   }
   loom_encoding_t encoding = {};

@@ -1,0 +1,50 @@
+// RUN: roundtrip
+// Target definitions use their registered dialect schema without
+// target-specific importer code. Source objects and kernel attributes retain
+// the binding.
+#include <loomcxx/kernel.h>
+#include <loomcxx/target.h>
+
+enum class codegen { low_native };
+
+struct [[loom::target("target.generic")]] generic_target {
+  const char* kind;
+  loom::target::optional<codegen> codegen_format;
+  loom::target::optional<unsigned long long> default_pointer_bitwidth;
+  loom::target::optional<unsigned long long> subgroup_size;
+  loom::target::optional<const char*> export_symbol;
+};
+
+namespace library {
+constexpr generic_target reference{
+    .kind = "reference",
+    .codegen_format = codegen::low_native,
+    .default_pointer_bitwidth = 64,
+    .subgroup_size = 32,
+    .export_symbol = "dispatch",
+};
+}  // namespace library
+
+[[loom::kernel, loom::target(library::reference),
+  loom::workgroup_size(32, 1, 1)]] void dispatch() {}
+
+// ----
+target.generic<reference> @library.reference {codegen_format = low_native, default_pointer_bitwidth = 64, export_symbol = "dispatch", subgroup_size = 32}
+
+kernel.def target(@library.reference) @dispatch() {
+  %workgroup_count_x = config.get @dispatch.workgroup_count.x : index
+  %workgroup_count_y = config.get @dispatch.workgroup_count.y : index
+  %workgroup_count_z = config.get @dispatch.workgroup_count.z : index
+  %6 = index.constant 32 : index
+  %7 = index.constant 1 : index
+  %8 = index.constant 1 : index
+  kernel.launch.config workgroups(%workgroup_count_x, %workgroup_count_y, %workgroup_count_z) workgroup_size(%6, %7, %8) : index
+} launch() {
+  kernel.return
+}
+
+config.decl @dispatch.workgroup_count.x : index
+
+config.decl @dispatch.workgroup_count.y : index
+
+config.decl @dispatch.workgroup_count.z : index
