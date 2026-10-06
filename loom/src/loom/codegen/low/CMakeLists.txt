@@ -319,6 +319,24 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_library(
+  NAME
+    storage_transport
+  HDRS
+    "storage_transport.h"
+  SRCS
+    "storage_transport.c"
+  DEPS
+    ::function_model
+    ::storage_layout
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::ops::low
+    loom::target::registers
+  PUBLIC
+)
+
 loom_cc_test(
   NAME
     function_requirements_test
@@ -567,7 +585,9 @@ loom_cc_library(
     ::function
     ::function_model
     ::placement
+    ::storage_layout
     ::storage_lease
+    ::storage_transport
     ::target_binding
     iree::base
     iree::base::internal::arena
@@ -577,6 +597,7 @@ loom_cc_library(
     loom::codegen::low::allocation::active_unit
     loom::codegen::low::allocation::assignment
     loom::codegen::low::allocation::assignment_map
+    loom::codegen::low::allocation::call
     loom::codegen::low::allocation::coalescing
     loom::codegen::low::allocation::copy_decision
     loom::codegen::low::allocation::destructive_reuse
@@ -654,6 +675,7 @@ loom_cc_library(
     iree::base
     iree::base::internal::arena
     loom::codegen::low::allocation::spill_plan
+    loom::codegen::low::allocation::storage
     loom::error::error_defs
     loom::ir
     loom::ops::low
@@ -966,6 +988,7 @@ loom_cc_library(
     ::rematerialization
     ::storage_layout
     ::storage_lease
+    ::storage_transport
     iree::base
     iree::base::internal::arena
     loom::codegen::low::schedule

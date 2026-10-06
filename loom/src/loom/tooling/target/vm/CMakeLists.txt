@@ -194,6 +194,7 @@ loom_cc_test(
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::codegen::low::text_asm
     loom::ir
     loom::ops::func
     loom::ops::op_registry

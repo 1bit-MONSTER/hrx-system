@@ -422,6 +422,8 @@ loom_cc_library(
     loom::codegen::low::packet_progress
     loom::codegen::low::schedule
     loom::codegen::low::schedule::dependencies
+    loom::codegen::low::storage_layout
+    loom::codegen::low::storage_transport
     loom::ir
     loom::target::test::provider
   TESTONLY

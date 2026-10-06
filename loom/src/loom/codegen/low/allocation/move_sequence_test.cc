@@ -166,6 +166,8 @@ struct TemporaryResolver {
   const loom_low_move_location_t* occupancy_probe = nullptr;
   // Result of the most recent optional occupancy probe.
   bool occupancy_probe_result = false;
+  // Number of resolver calls, used to check reuse across independent cycles.
+  unsigned call_count = 0;
 };
 
 iree_status_t ResolveTemporary(
@@ -173,6 +175,7 @@ iree_status_t ResolveTemporary(
     const loom_low_move_sequence_location_set_t* occupied_locations,
     loom_low_move_location_t* out_temporary, bool* out_resolved) {
   auto* resolver = static_cast<TemporaryResolver*>(user_data);
+  ++resolver->call_count;
   if (resolver->occupancy_probe != nullptr) {
     resolver->occupancy_probe_result =
         loom_low_move_sequence_location_set_contains(occupied_locations,
@@ -181,7 +184,9 @@ iree_status_t ResolveTemporary(
   *out_resolved = false;
   for (iree_host_size_t i = 0; i < resolver->count; ++i) {
     const loom_low_move_location_t* location = &resolver->locations[i];
-    if (location->location_kind == storage_class->location_kind &&
+    if ((location->location_kind == storage_class->location_kind ||
+         location->location_kind ==
+             LOOM_LOW_ALLOCATION_LOCATION_MOVE_STORAGE) &&
         location->descriptor_reg_class_id ==
             storage_class->descriptor_reg_class_id &&
         !loom_low_move_sequence_location_set_contains(occupied_locations,
@@ -301,6 +306,85 @@ TEST(LowMoveSequenceTest, UsesTemporaryForCycle) {
 
   EXPECT_THAT(ResolveMoves(moves, IREE_ARRAYSIZE(moves), &temporary, 1),
               ::testing::ElementsAre("0:9<-1", "0:1<-0", "0:0<-9"));
+}
+
+TEST(LowMoveSequenceTest, ReusesMemoryTemporaryAcrossCycles) {
+  TestArena arena;
+  loom_low_move_sequence_scratch_t scratch = {};
+  IREE_ASSERT_OK(
+      loom_low_move_sequence_scratch_initialize(arena.arena(), 5, &scratch));
+  scratch.moves[0] = Move(0, 1);
+  scratch.moves[1] = Move(1, 0);
+  scratch.moves[2] = Move(2, 3);
+  scratch.moves[3] = Move(3, 2);
+  scratch.moves[4] = Move(4, 4);
+  auto temporary = Location(0);
+  temporary.location_kind = LOOM_LOW_ALLOCATION_LOCATION_MOVE_STORAGE;
+  TemporaryResolver resolver = {&temporary, 1};
+  const loom_low_move_sequence_options_t options = {
+      IndependentDescriptorSet(), {ResolveTemporary, &resolver}};
+  loom_low_move_t output[6] = {};
+  iree_host_size_t count = 0;
+  bool complete = false;
+  IREE_ASSERT_OK(loom_low_move_sequence_resolve(&scratch, 5, &options,
+                                                IREE_ARRAYSIZE(output), output,
+                                                &count, &complete));
+  ASSERT_TRUE(complete);
+  ASSERT_EQ(count, 6u);
+  EXPECT_EQ(resolver.call_count, 1u);
+  uint64_t registers[] = {11, 22, 33, 44, 55};
+  uint64_t cell = 0;
+  for (const auto& move : output) {
+    const uint64_t value =
+        move.source.location_kind == LOOM_LOW_ALLOCATION_LOCATION_MOVE_STORAGE
+            ? cell
+            : registers[move.source.location];
+    if (move.destination.location_kind ==
+        LOOM_LOW_ALLOCATION_LOCATION_MOVE_STORAGE) {
+      cell = value;
+    } else {
+      registers[move.destination.location] = value;
+    }
+  }
+  EXPECT_THAT(registers, ::testing::ElementsAre(22, 11, 44, 33, 55));
+}
+
+TEST(LowMoveSequenceTest, IdentityDestinationCannotBecomeCycleScratch) {
+  const loom_low_move_location_t temporaries[] = {Location(2), Location(3)};
+  const loom_low_descriptor_set_t* descriptor_sets[] = {
+      IndependentDescriptorSet(), AliasDescriptorSet()};
+  for (const auto* descriptor_set : descriptor_sets) {
+    const loom_low_move_t moves[] = {
+        Move(2, 2, descriptor_set == AliasDescriptorSet() ? 1 : 0),
+        Move(0, 1),
+        Move(1, 0),
+    };
+    EXPECT_THAT(ResolveMoves(moves, IREE_ARRAYSIZE(moves), temporaries,
+                             IREE_ARRAYSIZE(temporaries), descriptor_set),
+                ::testing::ElementsAre("0:3<-1", "0:1<-0", "0:0<-3"));
+  }
+}
+
+TEST(LowMoveSequenceTest, IdentityExcludesAliasedPhysicalScratch) {
+  TestArena arena;
+  loom_low_move_sequence_scratch_t scratch = {};
+  IREE_ASSERT_OK(
+      loom_low_move_sequence_scratch_initialize(arena.arena(), 3, &scratch));
+  scratch.moves[0] = Move(0, 0);
+  scratch.moves[1] = Move(2, 3);
+  scratch.moves[2] = Move(3, 2);
+  // View 1 overlaps the low atomic unit of the identity's wider view 0.
+  const loom_low_move_location_t temporary = Location(1);
+  TemporaryResolver resolver = {&temporary, 1};
+  const loom_low_move_sequence_options_t options = {
+      ExplicitDescriptorSet(), {ResolveTemporary, &resolver}};
+  loom_low_move_t output[4] = {};
+  iree_host_size_t output_count = 0;
+  bool complete = false;
+  IREE_ASSERT_OK(loom_low_move_sequence_resolve(&scratch, 3, &options,
+                                                IREE_ARRAYSIZE(output), output,
+                                                &output_count, &complete));
+  EXPECT_FALSE(complete);
 }
 
 TEST(LowMoveSequenceTest, AliasedCyclePreservesTransferWidths) {

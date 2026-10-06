@@ -10,6 +10,7 @@
 #include "iree/base/internal/arena.h"
 #include "iree/io/stream.h"
 #include "iree/vm/bytecode/wire/module.h"
+#include "loom/codegen/low/allocation/call.h"
 #include "loom/codegen/low/descriptors.h"
 #include "loom/error/emitter.h"
 #include "loom/ir/ir.h"
@@ -27,6 +28,8 @@ typedef struct loom_vm_function_signature_t {
   // Module-owned argument descriptors followed by result descriptors, in
   // source order. Metadata planning finalizes them before function emission.
   iree_vm_bytecode_v0_signature_descriptor_row_t* fields;
+  // Argument/result register positions finalized with the logical fields.
+  loom_low_allocation_abi_location_t* registers;
 } loom_vm_function_signature_t;
 
 // Compiler-owned callable binding retained while building a VM program plan.
@@ -58,6 +61,10 @@ typedef struct loom_vm_program_callable_t {
   uint8_t target_kind;
   // Exact logical fields and their physical argument/result bank counts.
   loom_vm_function_signature_t signature;
+  // Shared allocation contract borrowing the classified signature registers.
+  loom_low_call_contract_t call_contract;
+  // Value and reference prefixes overwritten by argument/result transport.
+  loom_low_call_clobber_t call_clobbers[2];
 } loom_vm_program_callable_t;
 
 // Compiler-owned state shared across function planning. This representation
@@ -100,14 +107,16 @@ typedef struct loom_vm_program_build_t {
 // come from the produced stream, not nominal instruction sizes.
 //
 // The shared allocator owns edge and packet moves, including cycle
-// temporaries. Common allocation repair materializes scalar spills; the
-// scheduler's stack layout owns their relative byte offsets. Outgoing overflow
-// packets occupy the canonical offset-zero prefix; ordinary locals follow,
-// then aligned call snapshots. Overflow entry loads execute once before the
-// branchable body; overflow returns store exact value cells before direct
-// register permutations. Reference overflow uses an independent local-ref
-// prefix ahead of caller snapshots. Returning a ref through overflow preserves
-// its source in one local-ref slot until all aliased results are published.
+// temporaries. Common allocation repair materializes value and reference
+// spills; the scheduler's storage layout owns their relative byte offsets.
+// Value cells use stack storage and owned references use private storage.
+// Outgoing overflow packets occupy the canonical offset-zero prefix; ordinary
+// locals follow, with live caller values allocated outside the ABI prefixes.
+// Overflow entry loads execute once before the branchable body; overflow
+// returns store exact value cells before direct register permutations.
+// Reference overflow uses an independent local-ref prefix, followed by private
+// reference cells. Returning a ref through overflow preserves its source in one
+// local-ref slot until all aliased results are published.
 //
 // |program| supplies callable signatures and symbol ordinals; data operands
 // append their referenced payload once to its read-only data plan. All frame

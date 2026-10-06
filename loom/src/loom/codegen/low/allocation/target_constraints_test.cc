@@ -140,7 +140,7 @@ TEST_F(LowAllocationTargetConstraintsTest,
   EXPECT_EQ(constraints.failure.required_unit_count, 3u);
 }
 
-TEST_F(LowAllocationTargetConstraintsTest, ReferenceClassCannotSpill) {
+TEST_F(LowAllocationTargetConstraintsTest, ReferenceSpillingIsTargetDeclared) {
   const uint16_t reg_class_id = RegisterClassId(IREE_SV("test.i32"));
   loom_low_descriptor_set_t descriptor_set = *target_.descriptor_set;
   std::vector<loom_low_reg_class_t> reg_classes(
@@ -158,6 +158,11 @@ TEST_F(LowAllocationTargetConstraintsTest, ReferenceClassCannotSpill) {
       &arena_, &constraints));
 
   loom_low_allocation_class_capacity_t capacity = {};
+  IREE_ASSERT_OK(loom_low_allocation_target_constraints_reg_class_capacity(
+      &constraints, reg_class_id, &capacity));
+  EXPECT_TRUE(capacity.is_spillable);
+
+  reg_classes[reg_class_id].flags |= LOOM_LOW_REG_CLASS_FLAG_UNSPILLABLE;
   IREE_ASSERT_OK(loom_low_allocation_target_constraints_reg_class_capacity(
       &constraints, reg_class_id, &capacity));
   EXPECT_FALSE(capacity.is_spillable);

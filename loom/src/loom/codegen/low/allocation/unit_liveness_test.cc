@@ -195,7 +195,7 @@ TEST_P(LowAllocationUnitLivenessExtentTest, BoundsExtentBeforePointAllocation) {
   IREE_EXPECT_STATUS_IS(
       fits ? IREE_STATUS_RESOURCE_EXHAUSTED : IREE_STATUS_OUT_OF_RANGE,
       loom_low_allocation_unit_liveness_initialize(
-          &target, &placement, &domain, &liveness, &graph, &result_arena,
+          &target, &placement, &domain, &liveness, &graph, {}, &result_arena,
           &decision_arena_, &result));
   // On a 32-bit host, a legal index extent may still overflow the byte size;
   // arena allocation rejects that before asking its backing allocator.
@@ -280,7 +280,7 @@ TEST_F(LowAllocationUnitLivenessTest, RetainsImplicitReadsWithoutClobbering) {
   IREE_ASSERT_OK(
       loom_cfg_graph_build(module, module->body, &arena_, &cfg_graph));
   IREE_ASSERT_OK(loom_low_allocation_unit_liveness_initialize(
-      &target, nullptr, &domain, &liveness, &cfg_graph, &arena_,
+      &target, nullptr, &domain, &liveness, &cfg_graph, {}, &arena_,
       &decision_arena_, &result));
   ASSERT_NE(result.implicit_location_counts_by_reg_class, nullptr);
   EXPECT_EQ(result.implicit_location_counts_by_reg_class[0], 3u);
@@ -356,7 +356,7 @@ TEST_F(LowAllocationUnitLivenessTest, InitializesUnitStartsAndBoundaryUses) {
   loom_cfg_graph_t cfg_graph = {};
   IREE_ASSERT_OK(loom_cfg_graph_build(module, body, &arena_, &cfg_graph));
   IREE_ASSERT_OK(loom_low_allocation_unit_liveness_initialize(
-      &target, nullptr, &value_domain, &liveness, &cfg_graph, &arena_,
+      &target, nullptr, &value_domain, &liveness, &cfg_graph, {}, &arena_,
       &decision_arena_, &unit_liveness));
 
   EXPECT_EQ(loom_low_allocation_unit_liveness_point_start_for_value_ordinal(
@@ -434,7 +434,7 @@ TEST_F(LowAllocationUnitLivenessTest, ExtendsTiedResultSourceUnits) {
   loom_cfg_graph_t cfg_graph = {};
   IREE_ASSERT_OK(loom_cfg_graph_build(module, body, &arena_, &cfg_graph));
   IREE_ASSERT_OK(loom_low_allocation_unit_liveness_initialize(
-      &target, nullptr, &value_domain, &liveness, &cfg_graph, &arena_,
+      &target, nullptr, &value_domain, &liveness, &cfg_graph, {}, &arena_,
       &decision_arena_, &unit_liveness));
   ASSERT_EQ(unit_liveness.point_count, 4u);
   EXPECT_EQ(unit_liveness.end_points[0], 1u);
@@ -896,7 +896,7 @@ TEST_F(LowAllocationUnitLivenessTest,
   loom_cfg_graph_t cfg_graph = {};
   IREE_ASSERT_OK(loom_cfg_graph_build(module, body, &arena_, &cfg_graph));
   IREE_ASSERT_OK(loom_low_allocation_unit_liveness_initialize(
-      &target, nullptr, &value_domain, &liveness, &cfg_graph, &arena_,
+      &target, nullptr, &value_domain, &liveness, &cfg_graph, {}, &arena_,
       &decision_arena_, &unit_liveness));
 
   loom_low_placement_relation_t relations[] = {

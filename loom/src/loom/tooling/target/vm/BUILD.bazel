@@ -151,6 +151,7 @@ loom_cc_test(
     deps = [
         ":emission_test_data",
         ":native_references_bytecode",
+        "//loom/src/loom/codegen/low:text_asm",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_registry",
         "//loom/src/loom/ops/func",

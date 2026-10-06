@@ -165,7 +165,7 @@ TEST_F(LowAllocationNumberingTest, ImprovesCostWithoutGrowingStorage) {
 }
 
 TEST_F(LowAllocationNumberingTest, EntryIdentitiesKeepExternalCoordinates) {
-  const loom_low_allocation_entry_location_t entry[] = {
+  const loom_low_allocation_abi_location_t entry[] = {
       {LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 0},
       {LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 4},
   };
@@ -176,7 +176,7 @@ TEST_F(LowAllocationNumberingTest, EntryIdentitiesKeepExternalCoordinates) {
 }
 
 TEST_F(LowAllocationNumberingTest, EntryMoveSourceKeepsExternalCoordinates) {
-  const loom_low_allocation_entry_location_t entry[] = {
+  const loom_low_allocation_abi_location_t entry[] = {
       {}, {}, {LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 4}};
   loom_low_move_t move = {};
   move.source.location_kind = move.destination.location_kind =

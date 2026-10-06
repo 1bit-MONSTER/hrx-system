@@ -13,7 +13,42 @@
 
 // SysV AMD64 integer-class arguments use RDI, RSI, RDX, RCX, R8, and R9.
 // Unused source parameters consume positions even when they need no interval.
-static const uint8_t kSysvArgumentRegisters[] = {7, 6, 2, 1, 8, 9};
+static const loom_low_allocation_abi_location_t kSysvArgumentRegisters[] = {
+    {LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 7},
+    {LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 6},
+    {LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 2},
+    {LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 1},
+    {LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 8},
+    {LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 9},
+};
+
+const loom_low_call_contract_t* loom_x86_function_call_contract(
+    void* user_data, loom_symbol_ref_t callee) {
+  (void)user_data;
+  (void)callee;
+  static const loom_low_allocation_abi_location_t results[] = {
+      {LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 0},
+  };
+  static const loom_low_call_clobber_t clobbers[] = {
+      {LOOM_X86_REGISTER_CLASS_GPR64, 0, 1},
+      {LOOM_X86_REGISTER_CLASS_GPR64, 1, 1},
+      {LOOM_X86_REGISTER_CLASS_GPR64, 2, 1},
+      {LOOM_X86_REGISTER_CLASS_GPR64, 6, 1},
+      {LOOM_X86_REGISTER_CLASS_GPR64, 7, 1},
+      {LOOM_X86_REGISTER_CLASS_GPR64, 8, 1},
+      {LOOM_X86_REGISTER_CLASS_GPR64, 9, 1},
+      {LOOM_X86_REGISTER_CLASS_GPR64, 10, 1},
+      {LOOM_X86_REGISTER_CLASS_GPR64, 11, 1},
+  };
+  static const loom_low_call_contract_t contract = {
+      .arguments = kSysvArgumentRegisters,
+      .argument_count = IREE_ARRAYSIZE(kSysvArgumentRegisters),
+      .results = results,
+      .result_count = IREE_ARRAYSIZE(results),
+      .clobbers = {clobbers, IREE_ARRAYSIZE(clobbers)},
+  };
+  return &contract;
+}
 
 static iree_status_t loom_x86_callable_reject(
     const loom_module_t* module, const loom_target_entry_t* entry,
@@ -79,7 +114,9 @@ static bool loom_x86_callable_layout_supported(const loom_module_t* module,
                                                loom_func_like_t function) {
   const loom_op_t* function_op = function.op;
   const loom_named_attr_slice_t layout =
-      loom_low_func_def_abi_layout(function_op);
+      loom_low_func_decl_isa(function_op)
+          ? loom_low_func_decl_abi_layout(function_op)
+          : loom_low_func_def_abi_layout(function_op);
   if (layout.count == 0) {
     return true;
   }
@@ -126,9 +163,10 @@ iree_status_t loom_x86_function_abi_prepare(loom_module_t* module,
                                             loom_x86_function_abi_t* out_abi) {
   *out_accepted = false;
   *out_abi = (loom_x86_function_abi_t){0};
-  if (!iree_string_view_equal(
-          loom_target_entry_bundle(entry)->export_plan->calling_convention,
-          IREE_SV("sysv"))) {
+  const iree_string_view_t convention =
+      loom_target_entry_bundle(entry)->export_plan->calling_convention;
+  if (!iree_string_view_is_empty(convention) &&
+      !iree_string_view_equal(convention, IREE_SV("sysv"))) {
     return loom_x86_callable_reject(
         module, entry,
         IREE_SV("native x86 supports the sysv calling convention"), emitter);
@@ -143,22 +181,18 @@ iree_status_t loom_x86_function_abi_prepare(loom_module_t* module,
   uint16_t argument_count = 0;
   const loom_value_id_t* arguments =
       loom_func_like_arg_ids(entry->func, &argument_count);
-  if (argument_count > IREE_ARRAYSIZE(kSysvArgumentRegisters) ||
-      entry->func.op->result_count > 1) {
+  if (entry->func.op->result_count > 1) {
     return loom_x86_callable_reject(
-        module, entry,
-        IREE_SV("native x86 supports at most six register arguments and one "
-                "result"),
+        module, entry, IREE_SV("native x86 supports at most one scalar result"),
         emitter);
   }
   bool arguments_supported = true;
   for (uint16_t i = 0; i < argument_count && arguments_supported; ++i) {
     arguments_supported = loom_x86_callable_type_supported(
         loom_module_value_type(module, arguments[i]));
-    out_abi->entry_locations[i] = (loom_low_allocation_entry_location_t){
-        .location_kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER,
-        .location_base = kSysvArgumentRegisters[i],
-    };
+    if (i < IREE_ARRAYSIZE(kSysvArgumentRegisters)) {
+      out_abi->entry_locations[i] = kSysvArgumentRegisters[i];
+    }
   }
   if (!arguments_supported) {
     return loom_x86_callable_reject(
@@ -174,7 +208,8 @@ iree_status_t loom_x86_function_abi_prepare(loom_module_t* module,
         IREE_SV("native x86 results require scalar i32, i64, or pointers"),
         emitter);
   }
-  out_abi->entry_location_count = argument_count;
+  out_abi->entry_location_count =
+      iree_min(argument_count, IREE_ARRAYSIZE(kSysvArgumentRegisters));
   *out_accepted = true;
   return iree_ok_status();
 }

@@ -282,3 +282,366 @@ func.def public @sum_previous_instances(%limit: index) -> (i32) {
   }
   func.return %sum : i32
 }
+
+func.def noinline @draw_arguments(%local: buffer, %a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %last: i64) -> (i64) {
+  %c0 = index.constant 0 : offset
+  %values = buffer.view %local[%c0] : buffer -> view<2xi64>
+  %stored = view.load %values[1] : view<2xi64> -> i64
+  %c3 = scalar.constant 3 : i64
+  %c5 = scalar.constant 5 : i64
+  %c7 = scalar.constant 7 : i64
+  %c11 = scalar.constant 11 : i64
+  %c13 = scalar.constant 13 : i64
+  %c17 = scalar.constant 17 : i64
+  %c19 = scalar.constant 19 : i64
+  %pa = scalar.muli %a, %c3 : i64
+  %pb = scalar.muli %b, %c5 : i64
+  %pc = scalar.muli %c, %c7 : i64
+  %pd = scalar.muli %d, %c11 : i64
+  %pe = scalar.muli %e, %c13 : i64
+  %pf = scalar.muli %f, %c17 : i64
+  %pg = scalar.muli %last, %c19 : i64
+  %ab = scalar.addi %pa, %pb : i64
+  %cd = scalar.addi %pc, %pd : i64
+  %ef = scalar.addi %pe, %pf : i64
+  %sg = scalar.addi %stored, %pg : i64
+  %abcd = scalar.addi %ab, %cd : i64
+  %efsg = scalar.addi %ef, %sg : i64
+  %result = scalar.addi %abcd, %efsg : i64
+  func.return %result : i64
+}
+
+// Two complete calls own the 5 and 9 overflow values independently. The first
+// result, the local pointer, and both inputs remain live across another call.
+func.def public @call_pair(%x: i64, %y: i64) -> (i64) {
+  %length = index.constant 16 : offset
+  %c0 = index.constant 0 : offset
+  %local = buffer.alloca<private> align(64) %length : buffer
+  %values = buffer.view %local[%c0] : buffer -> view<2xi64>
+  view.store %x, %values[0] : i64, view<2xi64>
+  view.store %y, %values[1] : i64, view<2xi64>
+  %c5 = scalar.constant 5 : i64
+  %c9 = scalar.constant 9 : i64
+  %first = func.call @draw_arguments(%local, %x, %y, %x, %y, %x, %y, %c5) : (buffer, i64, i64, i64, i64, i64, i64, i64) -> (i64)
+  %second = func.call @draw_arguments(%local, %y, %x, %y, %x, %y, %x, %c9) : (buffer, i64, i64, i64, i64, i64, i64, i64) -> (i64)
+  %both = scalar.addi %first, %second : i64
+  %live = scalar.xori %x, %y : i64
+  %result = scalar.addi %both, %live : i64
+  func.return %result : i64
+}
+
+func.def public @incoming_eight(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %g: i64, %h: i64) -> (i64) {
+  %ab = scalar.addi %a, %b : i64
+  %cd = scalar.xori %c, %d : i64
+  %ef = scalar.muli %e, %f : i64
+  %gh = scalar.muli %g, %h : i64
+  %first = scalar.addi %ab, %cd : i64
+  %second = scalar.addi %ef, %gh : i64
+  %result = scalar.xori %first, %second : i64
+  func.return %result : i64
+}
+
+func.def public noinline @recursive_sum(%n: i64) -> (i64) {
+  %c0 = scalar.constant 0 : i64
+  %c1 = scalar.constant 1 : i64
+  %done = scalar.cmpi eq, %n, %c0 : i64
+  cfg.cond_br %done, ^exit, ^recurse
+^exit:
+  func.return %c0 : i64
+^recurse:
+  %previous = scalar.subi %n, %c1 : i64
+  %tail = func.call @recursive_sum(%previous) : (i64) -> (i64)
+  %result = scalar.addi %tail, %n : i64
+  func.return %result : i64
+}
+
+// Ordinary unresolved C linkage is resolved by the artifact's linker.
+func.decl @native_host_mix(%x: i64, %y: i64) -> (i64)
+
+func.def public @call_host(%x: i64, %y: i64) -> (i64) {
+  %value = func.call @native_host_mix(%y, %x) : (i64, i64) -> (i64)
+  %result = scalar.xori %value, %x : i64
+  func.return %result : i64
+}
+
+// Mixed register/stack widths and a void call use the ordinary C boundary.
+func.decl @native_host_store(%output: buffer, %a: i32, %b: i64, %c: i32, %d: i64, %e: i32, %f: i64, %g: i32)
+
+func.def public @call_store(%output: buffer, %word: i32, %wide: i64) -> (i64) {
+  func.call @native_host_store(%output, %word, %wide, %word, %wide, %word, %wide, %word) : (buffer, i32, i64, i32, i64, i32, i64, i32)
+  %c0 = index.constant 0 : offset
+  %result_view = buffer.view %output[%c0] : buffer -> view<1xi64>
+  %result = view.load %result_view[0] : view<1xi64> -> i64
+  func.return %result : i64
+}
+
+// Dying inputs can occupy the ABI prefix. Reversing them requires a genuine
+// parallel permutation, including sources that also feed stack arguments.
+func.def public @reverse_eight(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %g: i64, %h: i64) -> (i64) {
+  %result = func.call @incoming_eight(%h, %g, %f, %e, %d, %c, %b, %a) : (i64, i64, i64, i64, i64, i64, i64, i64) -> (i64)
+  func.return %result : i64
+}
+
+func.decl @native_host_alignment(%pointer: buffer) -> (i64)
+
+// Incoming stack arguments remain relative to the caller's stack even when
+// this function realigns its own frame and reserves another outgoing packet.
+func.def public @incoming_aligned(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %g: i64, %h: i64) -> (i64) {
+  %length = index.constant 16 : offset
+  %c0 = index.constant 0 : offset
+  %local = buffer.alloca<private> align(64) %length : buffer
+  %values = buffer.view %local[%c0] : buffer -> view<2xi64>
+  view.store %g, %values[0] : i64, view<2xi64>
+  view.store %h, %values[1] : i64, view<2xi64>
+  %weighted = func.call @draw_arguments(%local, %a, %b, %c, %d, %e, %f, %g) : (buffer, i64, i64, i64, i64, i64, i64, i64) -> (i64)
+  %alignment = func.call @native_host_alignment(%local) : (buffer) -> (i64)
+  %result = scalar.addi %weighted, %alignment : i64
+  func.return %result : i64
+}
+
+func.decl @native_host_fifteen(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %g: i64, %h: i64, %i: i64, %j: i64, %k: i64, %l: i64, %m: i64, %n: i64, %o: i64) -> (i64)
+
+// The operands fill all allocatable GPRs. Register-cycle scratch becomes
+// available after the call has copied its overflow operands onto the stack.
+func.def public @call_fifteen(%seed: i64) -> (i64) {
+  %a = scalar.addi %seed, %seed : i64
+  %b = scalar.addi %a, %seed : i64
+  %c = scalar.addi %b, %seed : i64
+  %d = scalar.addi %c, %seed : i64
+  %e = scalar.addi %d, %seed : i64
+  %f = scalar.addi %e, %seed : i64
+  %g = scalar.addi %f, %seed : i64
+  %h = scalar.addi %g, %seed : i64
+  %i = scalar.addi %h, %seed : i64
+  %j = scalar.addi %i, %seed : i64
+  %k = scalar.addi %j, %seed : i64
+  %l = scalar.addi %k, %seed : i64
+  %m = scalar.addi %l, %seed : i64
+  %n = scalar.addi %m, %seed : i64
+  %o = scalar.addi %n, %seed : i64
+  %result = func.call @native_host_fifteen(%a, %b, %c, %d, %e, %f, %g, %h, %i, %j, %k, %l, %m, %n, %o) : (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> (i64)
+  func.return %result : i64
+}
+
+// The induction state and accumulated result both survive each external call.
+func.def public @call_loop(%seed: i64, %count: index) -> (i64) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %c0 = scalar.constant 0 : i64
+  %c1 = scalar.constant 1 : i64
+  %result, %last = scf.for %i = [%begin to %count step %step](%sum = %c0 : i64, %value = %seed : i64) -> (i64, i64) {
+    %mixed = func.call @native_host_mix(%value, %sum) : (i64, i64) -> (i64)
+    %next_sum = scalar.addi %sum, %mixed : i64
+    %next_value = scalar.addi %value, %c1 : i64
+    scf.yield %next_sum, %next_value : i64, i64
+  }
+  func.return %result : i64
+}
+
+// Fourteen loop-carried words and a counter occupy every allocatable GPR.
+// Swapping each pair requires invocation-owned cycle storage: no register can
+// be reserved for transport without spilling an actual program value.
+low.func.def public target<x86.scalar.core> abi(object_function) @saturated_permutation(%word0: reg<x86.gpr64>, %word1: reg<x86.gpr64>, %word2: reg<x86.gpr64>, %word3: reg<x86.gpr64>, %word4: reg<x86.gpr64>, %word5: reg<x86.gpr64>, %word6: reg<x86.gpr64>, %word7: reg<x86.gpr64>, %word8: reg<x86.gpr64>, %word9: reg<x86.gpr64>, %word10: reg<x86.gpr64>, %word11: reg<x86.gpr64>, %word12: reg<x86.gpr64>, %word13: reg<x86.gpr64>, %iterations: reg<x86.gpr32>) -> (reg<x86.gpr64>) asm {
+  low.br ^header(%word0: reg<x86.gpr64>, %word1: reg<x86.gpr64>, %word2: reg<x86.gpr64>, %word3: reg<x86.gpr64>, %word4: reg<x86.gpr64>, %word5: reg<x86.gpr64>, %word6: reg<x86.gpr64>, %word7: reg<x86.gpr64>, %word8: reg<x86.gpr64>, %word9: reg<x86.gpr64>, %word10: reg<x86.gpr64>, %word11: reg<x86.gpr64>, %word12: reg<x86.gpr64>, %word13: reg<x86.gpr64>, %iterations: reg<x86.gpr32>)
+^header(%lane0: reg<x86.gpr64>, %lane1: reg<x86.gpr64>, %lane2: reg<x86.gpr64>, %lane3: reg<x86.gpr64>, %lane4: reg<x86.gpr64>, %lane5: reg<x86.gpr64>, %lane6: reg<x86.gpr64>, %lane7: reg<x86.gpr64>, %lane8: reg<x86.gpr64>, %lane9: reg<x86.gpr64>, %lane10: reg<x86.gpr64>, %lane11: reg<x86.gpr64>, %lane12: reg<x86.gpr64>, %lane13: reg<x86.gpr64>, %remaining: reg<x86.gpr32>):
+  low.cond_br %remaining, ^body, ^exit : reg<x86.gpr32>
+^body:
+  %next = sub.imm.gpr32 %remaining {imm32 = 1}
+  low.br ^header(%lane1: reg<x86.gpr64>, %lane0: reg<x86.gpr64>, %lane3: reg<x86.gpr64>, %lane2: reg<x86.gpr64>, %lane5: reg<x86.gpr64>, %lane4: reg<x86.gpr64>, %lane7: reg<x86.gpr64>, %lane6: reg<x86.gpr64>, %lane9: reg<x86.gpr64>, %lane8: reg<x86.gpr64>, %lane11: reg<x86.gpr64>, %lane10: reg<x86.gpr64>, %lane13: reg<x86.gpr64>, %lane12: reg<x86.gpr64>, %next: reg<x86.gpr32>)
+^exit:
+  %difference0 = sub.gpr64 %lane0, %lane1
+  %difference1 = sub.gpr64 %lane2, %lane3
+  %difference2 = sub.gpr64 %lane4, %lane5
+  %difference3 = sub.gpr64 %lane6, %lane7
+  %difference4 = sub.gpr64 %lane8, %lane9
+  %difference5 = sub.gpr64 %lane10, %lane11
+  %difference6 = sub.gpr64 %lane12, %lane13
+  %sum1 = add.gpr64 %difference0, %difference1
+  %sum2 = add.gpr64 %sum1, %difference2
+  %sum3 = add.gpr64 %sum2, %difference3
+  %sum4 = add.gpr64 %sum3, %difference4
+  %sum5 = add.gpr64 %sum4, %difference5
+  %sum6 = add.gpr64 %sum5, %difference6
+  return %sum6
+}
+
+// Distinct mixed-width arguments exceed the register bank in both directions.
+// The incoming frame realigns, and the first call result survives the second.
+func.decl @host_weighted(%value0: i32, %value1: i64, %value2: i32, %value3: i64, %value4: i32, %value5: i64, %value6: i32, %value7: i64, %value8: i32, %value9: i64, %value10: i32, %value11: i64, %value12: i32, %value13: i64, %value14: i32, %value15: i64, %value16: i32, %value17: i64, %value18: i32, %value19: i64, %value20: i32, %value21: i64, %value22: i32, %value23: i64, %value24: i32, %value25: i64, %value26: i32, %value27: i64, %value28: i32, %value29: i64, %value30: i32, %value31: i64) -> (i64)
+
+func.def public @incoming_many(%value0: i32, %value1: i64, %value2: i32, %value3: i64, %value4: i32, %value5: i64, %value6: i32, %value7: i64, %value8: i32, %value9: i64, %value10: i32, %value11: i64, %value12: i32, %value13: i64, %value14: i32, %value15: i64, %value16: i32, %value17: i64, %value18: i32, %value19: i64, %value20: i32, %value21: i64, %value22: i32, %value23: i64, %value24: i32, %value25: i64, %value26: i32, %value27: i64, %value28: i32, %value29: i64, %value30: i32, %value31: i64) -> (i64) {
+  %weight0 = scalar.constant 1 : i64
+  %wide0 = scalar.extui %value0 : i32 to i64
+  %product0 = scalar.muli %wide0, %weight0 : i64
+  %weight1 = scalar.constant 2 : i64
+  %product1 = scalar.muli %value1, %weight1 : i64
+  %sum1 = scalar.addi %product0, %product1 : i64
+  %weight2 = scalar.constant 3 : i64
+  %wide2 = scalar.extui %value2 : i32 to i64
+  %product2 = scalar.muli %wide2, %weight2 : i64
+  %sum2 = scalar.addi %sum1, %product2 : i64
+  %weight3 = scalar.constant 4 : i64
+  %product3 = scalar.muli %value3, %weight3 : i64
+  %sum3 = scalar.addi %sum2, %product3 : i64
+  %weight4 = scalar.constant 5 : i64
+  %wide4 = scalar.extui %value4 : i32 to i64
+  %product4 = scalar.muli %wide4, %weight4 : i64
+  %sum4 = scalar.addi %sum3, %product4 : i64
+  %weight5 = scalar.constant 6 : i64
+  %product5 = scalar.muli %value5, %weight5 : i64
+  %sum5 = scalar.addi %sum4, %product5 : i64
+  %weight6 = scalar.constant 7 : i64
+  %wide6 = scalar.extui %value6 : i32 to i64
+  %product6 = scalar.muli %wide6, %weight6 : i64
+  %sum6 = scalar.addi %sum5, %product6 : i64
+  %weight7 = scalar.constant 8 : i64
+  %product7 = scalar.muli %value7, %weight7 : i64
+  %sum7 = scalar.addi %sum6, %product7 : i64
+  %weight8 = scalar.constant 9 : i64
+  %wide8 = scalar.extui %value8 : i32 to i64
+  %product8 = scalar.muli %wide8, %weight8 : i64
+  %sum8 = scalar.addi %sum7, %product8 : i64
+  %weight9 = scalar.constant 10 : i64
+  %product9 = scalar.muli %value9, %weight9 : i64
+  %sum9 = scalar.addi %sum8, %product9 : i64
+  %weight10 = scalar.constant 11 : i64
+  %wide10 = scalar.extui %value10 : i32 to i64
+  %product10 = scalar.muli %wide10, %weight10 : i64
+  %sum10 = scalar.addi %sum9, %product10 : i64
+  %weight11 = scalar.constant 12 : i64
+  %product11 = scalar.muli %value11, %weight11 : i64
+  %sum11 = scalar.addi %sum10, %product11 : i64
+  %weight12 = scalar.constant 13 : i64
+  %wide12 = scalar.extui %value12 : i32 to i64
+  %product12 = scalar.muli %wide12, %weight12 : i64
+  %sum12 = scalar.addi %sum11, %product12 : i64
+  %weight13 = scalar.constant 14 : i64
+  %product13 = scalar.muli %value13, %weight13 : i64
+  %sum13 = scalar.addi %sum12, %product13 : i64
+  %weight14 = scalar.constant 15 : i64
+  %wide14 = scalar.extui %value14 : i32 to i64
+  %product14 = scalar.muli %wide14, %weight14 : i64
+  %sum14 = scalar.addi %sum13, %product14 : i64
+  %weight15 = scalar.constant 16 : i64
+  %product15 = scalar.muli %value15, %weight15 : i64
+  %sum15 = scalar.addi %sum14, %product15 : i64
+  %weight16 = scalar.constant 17 : i64
+  %wide16 = scalar.extui %value16 : i32 to i64
+  %product16 = scalar.muli %wide16, %weight16 : i64
+  %sum16 = scalar.addi %sum15, %product16 : i64
+  %weight17 = scalar.constant 18 : i64
+  %product17 = scalar.muli %value17, %weight17 : i64
+  %sum17 = scalar.addi %sum16, %product17 : i64
+  %weight18 = scalar.constant 19 : i64
+  %wide18 = scalar.extui %value18 : i32 to i64
+  %product18 = scalar.muli %wide18, %weight18 : i64
+  %sum18 = scalar.addi %sum17, %product18 : i64
+  %weight19 = scalar.constant 20 : i64
+  %product19 = scalar.muli %value19, %weight19 : i64
+  %sum19 = scalar.addi %sum18, %product19 : i64
+  %weight20 = scalar.constant 21 : i64
+  %wide20 = scalar.extui %value20 : i32 to i64
+  %product20 = scalar.muli %wide20, %weight20 : i64
+  %sum20 = scalar.addi %sum19, %product20 : i64
+  %weight21 = scalar.constant 22 : i64
+  %product21 = scalar.muli %value21, %weight21 : i64
+  %sum21 = scalar.addi %sum20, %product21 : i64
+  %weight22 = scalar.constant 23 : i64
+  %wide22 = scalar.extui %value22 : i32 to i64
+  %product22 = scalar.muli %wide22, %weight22 : i64
+  %sum22 = scalar.addi %sum21, %product22 : i64
+  %weight23 = scalar.constant 24 : i64
+  %product23 = scalar.muli %value23, %weight23 : i64
+  %sum23 = scalar.addi %sum22, %product23 : i64
+  %weight24 = scalar.constant 25 : i64
+  %wide24 = scalar.extui %value24 : i32 to i64
+  %product24 = scalar.muli %wide24, %weight24 : i64
+  %sum24 = scalar.addi %sum23, %product24 : i64
+  %weight25 = scalar.constant 26 : i64
+  %product25 = scalar.muli %value25, %weight25 : i64
+  %sum25 = scalar.addi %sum24, %product25 : i64
+  %weight26 = scalar.constant 27 : i64
+  %wide26 = scalar.extui %value26 : i32 to i64
+  %product26 = scalar.muli %wide26, %weight26 : i64
+  %sum26 = scalar.addi %sum25, %product26 : i64
+  %weight27 = scalar.constant 28 : i64
+  %product27 = scalar.muli %value27, %weight27 : i64
+  %sum27 = scalar.addi %sum26, %product27 : i64
+  %weight28 = scalar.constant 29 : i64
+  %wide28 = scalar.extui %value28 : i32 to i64
+  %product28 = scalar.muli %wide28, %weight28 : i64
+  %sum28 = scalar.addi %sum27, %product28 : i64
+  %weight29 = scalar.constant 30 : i64
+  %product29 = scalar.muli %value29, %weight29 : i64
+  %sum29 = scalar.addi %sum28, %product29 : i64
+  %weight30 = scalar.constant 31 : i64
+  %wide30 = scalar.extui %value30 : i32 to i64
+  %product30 = scalar.muli %wide30, %weight30 : i64
+  %sum30 = scalar.addi %sum29, %product30 : i64
+  %weight31 = scalar.constant 32 : i64
+  %product31 = scalar.muli %value31, %weight31 : i64
+  %sum31 = scalar.addi %sum30, %product31 : i64
+  %length = index.constant 16 : offset
+  %local = buffer.alloca<private> align(64) %length : buffer
+  %alignment = func.call @native_host_alignment(%local) : (buffer) -> (i64)
+  %result = scalar.addi %sum31, %alignment : i64
+  func.return %result : i64
+}
+
+func.def public @outgoing_many(%input: buffer) -> (i64) {
+  %input_offset = index.constant 0 : offset
+  %values = buffer.view %input[%input_offset] : buffer -> view<31xi64>
+  %wide0 = view.load %values[0] : view<31xi64> -> i64
+  %value0 = scalar.trunci %wide0 : i64 to i32
+  %value1 = view.load %values[1] : view<31xi64> -> i64
+  %wide2 = view.load %values[2] : view<31xi64> -> i64
+  %value2 = scalar.trunci %wide2 : i64 to i32
+  %value3 = view.load %values[3] : view<31xi64> -> i64
+  %wide4 = view.load %values[4] : view<31xi64> -> i64
+  %value4 = scalar.trunci %wide4 : i64 to i32
+  %value5 = view.load %values[5] : view<31xi64> -> i64
+  %wide6 = view.load %values[6] : view<31xi64> -> i64
+  %value6 = scalar.trunci %wide6 : i64 to i32
+  %value7 = view.load %values[7] : view<31xi64> -> i64
+  %wide8 = view.load %values[8] : view<31xi64> -> i64
+  %value8 = scalar.trunci %wide8 : i64 to i32
+  %value9 = view.load %values[9] : view<31xi64> -> i64
+  %wide10 = view.load %values[10] : view<31xi64> -> i64
+  %value10 = scalar.trunci %wide10 : i64 to i32
+  %value11 = view.load %values[11] : view<31xi64> -> i64
+  %wide12 = view.load %values[12] : view<31xi64> -> i64
+  %value12 = scalar.trunci %wide12 : i64 to i32
+  %value13 = view.load %values[13] : view<31xi64> -> i64
+  %wide14 = view.load %values[14] : view<31xi64> -> i64
+  %value14 = scalar.trunci %wide14 : i64 to i32
+  %value15 = view.load %values[15] : view<31xi64> -> i64
+  %wide16 = view.load %values[16] : view<31xi64> -> i64
+  %value16 = scalar.trunci %wide16 : i64 to i32
+  %value17 = view.load %values[17] : view<31xi64> -> i64
+  %wide18 = view.load %values[18] : view<31xi64> -> i64
+  %value18 = scalar.trunci %wide18 : i64 to i32
+  %value19 = view.load %values[19] : view<31xi64> -> i64
+  %wide20 = view.load %values[20] : view<31xi64> -> i64
+  %value20 = scalar.trunci %wide20 : i64 to i32
+  %value21 = view.load %values[21] : view<31xi64> -> i64
+  %wide22 = view.load %values[22] : view<31xi64> -> i64
+  %value22 = scalar.trunci %wide22 : i64 to i32
+  %value23 = view.load %values[23] : view<31xi64> -> i64
+  %wide24 = view.load %values[24] : view<31xi64> -> i64
+  %value24 = scalar.trunci %wide24 : i64 to i32
+  %value25 = view.load %values[25] : view<31xi64> -> i64
+  %wide26 = view.load %values[26] : view<31xi64> -> i64
+  %value26 = scalar.trunci %wide26 : i64 to i32
+  %value27 = view.load %values[27] : view<31xi64> -> i64
+  %wide28 = view.load %values[28] : view<31xi64> -> i64
+  %value28 = scalar.trunci %wide28 : i64 to i32
+  %value29 = view.load %values[29] : view<31xi64> -> i64
+  %wide30 = view.load %values[30] : view<31xi64> -> i64
+  %value30 = scalar.trunci %wide30 : i64 to i32
+  %forward_tail = scalar.constant 5 : i64
+  %reverse_tail = scalar.constant 9 : i64
+  %first = func.call @host_weighted(%value0, %value1, %value2, %value3, %value4, %value5, %value6, %value7, %value8, %value9, %value10, %value11, %value12, %value13, %value14, %value15, %value16, %value17, %value18, %value19, %value20, %value21, %value22, %value23, %value24, %value25, %value26, %value27, %value28, %value29, %value30, %forward_tail) : (i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64) -> (i64)
+  %second = func.call @host_weighted(%value30, %value29, %value28, %value27, %value26, %value25, %value24, %value23, %value22, %value21, %value20, %value19, %value18, %value17, %value16, %value15, %value14, %value13, %value12, %value11, %value10, %value9, %value8, %value7, %value6, %value5, %value4, %value3, %value2, %value1, %value0, %reverse_tail) : (i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64, i32, i64) -> (i64)
+  %result = scalar.xori %first, %second : i64
+  func.return %result : i64
+}

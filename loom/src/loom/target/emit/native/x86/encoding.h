@@ -50,7 +50,15 @@ typedef enum loom_x86_encoding_form_e {
   LOOM_X86_ENCODING_FORM_POP = 23,
   LOOM_X86_ENCODING_FORM_RETURN = 24,
   LOOM_X86_ENCODING_FORM_BRANCH_ZERO = 25,
+  LOOM_X86_ENCODING_FORM_CALL = 26,
 } loom_x86_encoding_form_t;
+
+// Native fixup identities. Object adapters supply their format's mapping.
+typedef enum loom_x86_relocation_kind_e {
+  LOOM_X86_RELOCATION_NONE = 0,
+  // Signed rel32 call displacement, relative to the end of its four-byte field.
+  LOOM_X86_RELOCATION_CALL = 1,
+} loom_x86_relocation_kind_t;
 
 enum loom_x86_encoding_flag_bits_e {
   LOOM_X86_ENCODING_OPCODE_0F = 1u << 8,

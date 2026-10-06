@@ -87,6 +87,8 @@ loom_cc_library(
     iree::base::internal::arena
     iree::io::stream
     iree::vm::bytecode::wire
+    loom::analysis::storage_layout
+    loom::codegen::low::allocation::call
     loom::codegen::low::allocation::move_sequence
     loom::codegen::low::descriptors
     loom::codegen::low::frame
@@ -123,6 +125,7 @@ loom_cc_library(
     loom::ir
     loom::ops::global
     loom::ops::low
+    loom::target::arch::vm::descriptors
     loom::target::function_version
   PUBLIC
 )

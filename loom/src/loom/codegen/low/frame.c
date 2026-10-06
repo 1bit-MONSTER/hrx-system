@@ -197,6 +197,11 @@ static iree_status_t loom_low_emission_frame_build_impl(
       module, low_func_op, options->function_target_facts,
       options->descriptor_registry, options->emitter,
       LOOM_LOW_FUNCTION_MODEL_FLAG_REGION_TREE, arena, &model);
+  const loom_low_storage_transport_t* storage_transport = NULL;
+  if (iree_status_is_ok(status) && model.error_count == 0) {
+    status = loom_low_storage_transport_build(
+        &model, options->synchronous_storage_spaces, arena, &storage_transport);
+  }
   if (iree_status_is_ok(status) && model.error_count == 0 &&
       options->residency_query != NULL) {
     if (model.target.target_facts == NULL) {
@@ -209,6 +214,7 @@ static iree_status_t loom_low_emission_frame_build_impl(
     }
   }
   loom_low_schedule_options_t schedule_options = {
+      .storage_transport = storage_transport,
       .retained_blocks = retained_blocks,
       .memory_accesses = options->memory_accesses,
       .residency = out_frame->residency,
@@ -255,6 +261,9 @@ static iree_status_t loom_low_emission_frame_build_impl(
       .fixed_value_count = options->allocation_fixed_value_count,
       .entry_locations = options->allocation_entry_locations,
       .entry_location_count = options->allocation_entry_location_count,
+      .call_contracts = options->call_contracts,
+      .storage_transport = storage_transport,
+      .move_storage_spaces = options->synchronous_storage_spaces,
       .reserved_ranges = options->allocation_reserved_ranges,
       .reserved_range_count = options->allocation_reserved_range_count,
       .required_register_values = required_register_values,

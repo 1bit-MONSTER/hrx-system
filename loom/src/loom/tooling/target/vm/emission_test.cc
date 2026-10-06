@@ -10,6 +10,7 @@
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/codegen/low/text_asm.h"
 #include "loom/ir/context.h"
 #include "loom/ops/func/ops.h"
 #include "loom/ops/op_registry.h"
@@ -91,6 +92,8 @@ class VMEmissionTest : public ::testing::Test {
     loom_input_request_t request = {};
     request.source = source;
     request.path = IREE_SV("emission.loom");
+    loom_low_descriptor_text_asm_environment_initialize(
+        &registry_.registry, &request.parse_options.low_asm_environment);
     IREE_ASSERT_OK(loom_input_module_load(&loom_input_text_provider, &request,
                                           &context_, &pool_,
                                           iree_allocator_system(), &input_));

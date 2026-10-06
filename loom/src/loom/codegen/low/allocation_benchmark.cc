@@ -563,7 +563,7 @@ class AllocationBenchmark {
       loom_low_allocation_unit_liveness_t unit_liveness = {};
       IREE_CHECK_OK(loom_low_allocation_unit_liveness_initialize(
           &model_.target, &placement_, &model_.value_domain, &liveness_,
-          &model_.cfg_graph, &arena, &decision_arena, &unit_liveness));
+          &model_.cfg_graph, {}, &arena, &decision_arena, &unit_liveness));
       result.value_count = liveness_.value_count;
       benchmark::DoNotOptimize(unit_liveness.end_points);
       iree_arena_deinitialize(&decision_arena);

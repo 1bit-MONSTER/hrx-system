@@ -32,6 +32,7 @@ loom_check_test_suite(
     "hazard_plan.loom-test"
     "packet.loom-test"
     "register_parts.loom-test"
+    "storage_transport.loom-test"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

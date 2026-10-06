@@ -34,5 +34,6 @@ loom_check_test_suite(
         "hazard_plan.loom-test",
         "packet.loom-test",
         "register_parts.loom-test",
+        "storage_transport.loom-test",
     ],
 )

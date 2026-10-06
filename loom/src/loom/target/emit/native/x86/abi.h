@@ -22,10 +22,15 @@ extern "C" {
 // selects a calling convention.
 typedef struct loom_x86_function_abi_t {
   // ABI registers in original parameter order, including unused arguments.
-  loom_low_allocation_entry_location_t entry_locations[6];
+  loom_low_allocation_abi_location_t entry_locations[6];
   // Number of original parameters represented in |entry_locations|.
   iree_host_size_t entry_location_count;
 } loom_x86_function_abi_t;
+
+// Returns the scalar SysV register boundary and caller-clobbered locations.
+// Signature admission is performed by ABI preparation before emission.
+const loom_low_call_contract_t* loom_x86_function_call_contract(
+    void* user_data, loom_symbol_ref_t callee);
 
 // Admits the logical and physical callable signature and materializes the
 // platform's incoming locations. Unsupported user boundaries produce a

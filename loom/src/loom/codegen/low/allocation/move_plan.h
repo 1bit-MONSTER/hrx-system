@@ -18,6 +18,7 @@
 #include "loom/codegen/low/allocation/target_constraints.h"
 #include "loom/codegen/low/allocation/unit_liveness.h"
 #include "loom/codegen/low/descriptors.h"
+#include "loom/codegen/low/storage_layout.h"
 #include "loom/ir/ir.h"
 
 #ifdef __cplusplus
@@ -38,6 +39,8 @@ typedef struct loom_low_allocation_move_plan_context_t {
   loom_low_allocation_assignment_map_t assignment_map;
   // Accepted schedule used by assignment liveness, or NULL for source order.
   const struct loom_low_schedule_table_t* schedule;
+  // Spaces supported by synchronous final move emission.
+  loom_low_storage_space_set_t storage_spaces;
 } loom_low_allocation_move_plan_context_t;
 
 // Source-preorder traversal position for one structural move producer. A
@@ -79,6 +82,14 @@ typedef struct loom_low_allocation_move_plan_t {
   iree_host_size_t scratch_move_index_capacity;
   // Reusable caller-populated and solver scratch.
   loom_low_move_sequence_scratch_t sequence_scratch;
+  // Final invocation-owned cells allocated only for register-saturated cycles.
+  loom_low_move_storage_t* storage;
+  // Number of initialized cells.
+  iree_host_size_t storage_count;
+  // Capacity of the lazily grown cell array.
+  iree_host_size_t storage_capacity;
+  // Temporary direct index from descriptor class to cell, or UINT32_MAX.
+  uint32_t* storage_indices_by_class;
 } loom_low_allocation_move_plan_t;
 
 // Initializes a plan for at most |move_input_capacity| input rows across all

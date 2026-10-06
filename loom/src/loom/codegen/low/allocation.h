@@ -19,6 +19,7 @@
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/liveness.h"
 #include "loom/codegen/low/allocation/assignment.h"
+#include "loom/codegen/low/allocation/call.h"
 #include "loom/codegen/low/allocation/diagnostics.h"
 #include "loom/codegen/low/allocation/move_topology.h"
 #include "loom/codegen/low/allocation/storage.h"
@@ -26,7 +27,9 @@
 #include "loom/codegen/low/allocation/target_constraints.h"
 #include "loom/codegen/low/descriptors.h"
 #include "loom/codegen/low/function_model.h"
+#include "loom/codegen/low/storage_layout.h"
 #include "loom/codegen/low/storage_lease.h"
+#include "loom/codegen/low/storage_transport.h"
 #include "loom/codegen/low/target_binding.h"
 #include "loom/error/emitter.h"
 #include "loom/ir/ir.h"
@@ -54,9 +57,16 @@ typedef struct loom_low_allocation_options_t {
   // Borrowed invocation locations indexed by formal-argument ordinal, including
   // unused arguments. The entry arguments prefix the local value domain. A
   // missing suffix has no entry transport; these are not lifetime constraints.
-  const loom_low_allocation_entry_location_t* entry_locations;
+  const loom_low_allocation_abi_location_t* entry_locations;
   // Number of entries in |entry_locations|, at most the formal argument count.
   iree_host_size_t entry_location_count;
+  // Physical call effects resolved from retained target convention bindings.
+  loom_low_call_contract_query_t call_contracts;
+  // Proven synchronous boundary storage for this immutable function snapshot.
+  const loom_low_storage_transport_t* storage_transport;
+  // Spaces the consumer can access synchronously within final move groups.
+  // Empty for targets requiring separately scheduled spill expansion.
+  loom_low_storage_space_set_t move_storage_spaces;
   // Whole-function target-owned location ranges.
   const loom_low_allocation_reserved_range_t* reserved_ranges;
   // Number of entries in |reserved_ranges|.

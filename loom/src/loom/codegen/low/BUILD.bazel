@@ -331,6 +331,21 @@ loom_cc_library(
     ],
 )
 
+loom_cc_library(
+    name = "storage_transport",
+    srcs = ["storage_transport.c"],
+    hdrs = ["storage_transport.h"],
+    deps = [
+        ":function_model",
+        ":storage_layout",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target:registers",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
 loom_cc_test(
     name = "function_requirements_test",
     srcs = ["function_requirements_test.cc"],
@@ -549,7 +564,9 @@ loom_cc_library(
         ":function",
         ":function_model",
         ":placement",
+        ":storage_layout",
         ":storage_lease",
+        ":storage_transport",
         ":target_binding",
         "//loom/src/loom/analysis:consumption",
         "//loom/src/loom/analysis:liveness",
@@ -557,6 +574,7 @@ loom_cc_library(
         "//loom/src/loom/codegen/low/allocation:active_unit",
         "//loom/src/loom/codegen/low/allocation:assignment",
         "//loom/src/loom/codegen/low/allocation:assignment_map",
+        "//loom/src/loom/codegen/low/allocation:call",
         "//loom/src/loom/codegen/low/allocation:coalescing",
         "//loom/src/loom/codegen/low/allocation:copy_decision",
         "//loom/src/loom/codegen/low/allocation:destructive_reuse",
@@ -629,6 +647,7 @@ loom_cc_library(
         ":function",
         ":storage_layout",
         "//loom/src/loom/codegen/low/allocation:spill_plan",
+        "//loom/src/loom/codegen/low/allocation:storage",
         "//loom/src/loom/error:error_defs",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
@@ -901,6 +920,7 @@ loom_cc_library(
         ":rematerialization",
         ":storage_layout",
         ":storage_lease",
+        ":storage_transport",
         "//loom/src/loom/codegen/low/schedule",
         "//loom/src/loom/error:emitter",
         "//loom/src/loom/error:error_defs",

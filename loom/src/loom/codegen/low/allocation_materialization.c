@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "loom/codegen/low/allocation/spill_plan.h"
+#include "loom/codegen/low/allocation/storage.h"
 #include "loom/codegen/low/diagnostics.h"
 #include "loom/codegen/low/function.h"
 #include "loom/error/error_catalog.h"
@@ -146,23 +147,6 @@ static iree_status_t loom_low_allocation_emit_materialized_spill(
   return iree_diagnostic_emit(emitter, &emission);
 }
 
-static loom_storage_space_t loom_low_allocation_map_slot_space(
-    loom_low_spill_slot_space_t slot_space) {
-  switch (slot_space) {
-    case LOOM_LOW_SPILL_SLOT_SPACE_STACK:
-      return LOOM_STORAGE_SPACE_STACK;
-    case LOOM_LOW_SPILL_SLOT_SPACE_SCRATCH:
-      return LOOM_STORAGE_SPACE_SCRATCH;
-    case LOOM_LOW_SPILL_SLOT_SPACE_PRIVATE:
-      return LOOM_STORAGE_SPACE_PRIVATE;
-    case LOOM_LOW_SPILL_SLOT_SPACE_LDS:
-      return LOOM_STORAGE_SPACE_WORKGROUP;
-    default:
-      IREE_CHECK_UNREACHABLE("unknown generated spill slot space");
-      return LOOM_STORAGE_SPACE_COUNT_;
-  }
-}
-
 static iree_status_t loom_low_allocation_emit_unsupported_spill_storage_space(
     const loom_low_allocation_table_t* table,
     const loom_low_allocation_spill_plan_t* plan,
@@ -214,7 +198,7 @@ loom_low_allocation_validate_supported_spill_storage_spaces(
   for (iree_host_size_t i = 0; i < spill_plan_count; ++i) {
     const loom_low_allocation_spill_plan_t* plan = &table->spill_plans[i];
     const loom_storage_space_t storage_space =
-        loom_low_allocation_map_slot_space(plan->slot_space);
+        loom_low_allocation_storage_space_for_spill_slot(plan->slot_space);
     if (loom_low_storage_space_set_contains(options->supported_storage_spaces,
                                             storage_space)) {
       continue;
@@ -382,7 +366,7 @@ static iree_status_t loom_low_allocation_insert_storage_reserves(
   for (iree_host_size_t i = 0; i < spill_plan_count; ++i) {
     const loom_low_allocation_spill_plan_t* plan = &table->spill_plans[i];
     const loom_storage_space_t storage_space =
-        loom_low_allocation_map_slot_space(plan->slot_space);
+        loom_low_allocation_storage_space_for_spill_slot(plan->slot_space);
 
     loom_op_t* reserve_op = NULL;
     IREE_RETURN_IF_ERROR(loom_low_storage_reserve_build(

@@ -14,6 +14,32 @@
 
 namespace {
 
+std::string WriteObject(const loom_native_object_contribution_t& object,
+                        const uint32_t* relocation_types = nullptr) {
+  iree_arena_block_pool_t pool;
+  iree_arena_block_pool_initialize(4096, iree_allocator_system(), &pool);
+  iree_arena_allocator_t arena;
+  iree_arena_initialize(&pool, &arena);
+  iree_io_stream_t* stream = nullptr;
+  IREE_CHECK_OK(iree_io_vec_stream_create(
+      IREE_IO_STREAM_MODE_READABLE | IREE_IO_STREAM_MODE_WRITABLE |
+          IREE_IO_STREAM_MODE_SEEKABLE | IREE_IO_STREAM_MODE_RESIZABLE,
+      1024, iree_allocator_system(), &stream));
+  IREE_CHECK_OK(
+      loom_native_object_write_elf64le(&object, LOOM_NATIVE_ELF_MACHINE_X86_64,
+                                       relocation_types, stream, &arena));
+  iree_arena_deinitialize(&arena);
+  iree_arena_block_pool_deinitialize(&pool);
+
+  // The output owns every table and payload after the compiler workspace dies.
+  std::string bytes(static_cast<size_t>(iree_io_stream_length(stream)), '\0');
+  IREE_CHECK_OK(iree_io_stream_seek(stream, IREE_IO_STREAM_SEEK_SET, 0));
+  IREE_CHECK_OK(
+      iree_io_stream_read(stream, bytes.size(), bytes.data(), nullptr));
+  iree_io_stream_release(stream);
+  return bytes;
+}
+
 TEST(NativeObjectElfTest, PlacesStorageAndTranslatesSymbolSemantics) {
   const uint8_t first[] = {0x90, 0xc3};
   const uint8_t second[] = {0x48, 0x31, 0xc0, 0xc3};
@@ -57,27 +83,7 @@ TEST(NativeObjectElfTest, PlacesStorageAndTranslatesSymbolSemantics) {
       /*.symbols=*/symbols,
       /*.symbol_count=*/IREE_ARRAYSIZE(symbols),
   };
-  iree_arena_block_pool_t pool;
-  iree_arena_block_pool_initialize(4096, iree_allocator_system(), &pool);
-  iree_arena_allocator_t arena;
-  iree_arena_initialize(&pool, &arena);
-  iree_io_stream_t* stream = nullptr;
-  IREE_CHECK_OK(iree_io_vec_stream_create(
-      IREE_IO_STREAM_MODE_READABLE | IREE_IO_STREAM_MODE_WRITABLE |
-          IREE_IO_STREAM_MODE_SEEKABLE | IREE_IO_STREAM_MODE_RESIZABLE,
-      1024, iree_allocator_system(), &stream));
-  IREE_ASSERT_OK(loom_native_object_write_elf64le(
-      &object, LOOM_NATIVE_ELF_MACHINE_X86_64, stream, &arena));
-  iree_arena_deinitialize(&arena);
-  iree_arena_block_pool_deinitialize(&pool);
-
-  // Read only after the compiler workspace has been destroyed. All tables and
-  // payload bytes must have escaped into the artifact, including joined text.
-  std::string bytes(static_cast<size_t>(iree_io_stream_length(stream)), '\0');
-  IREE_CHECK_OK(iree_io_stream_seek(stream, IREE_IO_STREAM_SEEK_SET, 0));
-  IREE_CHECK_OK(
-      iree_io_stream_read(stream, bytes.size(), bytes.data(), nullptr));
-  iree_io_stream_release(stream);
+  const std::string bytes = WriteObject(object);
   auto u16 = [&](size_t offset) {
     return iree_unaligned_load_le_u16(bytes.data() + offset);
   };
@@ -128,6 +134,103 @@ TEST(NativeObjectElfTest, PlacesStorageAndTranslatesSymbolSemantics) {
   EXPECT_STREQ(bytes.c_str() + strings + u32(global), "alpha");
   EXPECT_STREQ(bytes.c_str() + strings + u32(weak), "beta");
   EXPECT_EQ(u64(headers + 5 * 64 + 8), 0u);  // Stack has no executable flag.
+}
+
+TEST(NativeObjectElfTest, RelocatesJoinedSectionsAndReorderedSymbols) {
+  const uint8_t contents[16] = {};
+  loom_native_section_contribution_t sections[3] = {};
+  sections[0].section_name = IREE_SV(".text");
+  sections[0].access =
+      LOOM_NATIVE_SECTION_ACCESS_READ | LOOM_NATIVE_SECTION_ACCESS_EXECUTE;
+  sections[0].contents = iree_make_const_byte_span(contents, sizeof(contents));
+  sections[0].contribution_alignment = 16;
+  sections[1] = sections[0];
+  sections[1].section_name = IREE_SV(".data");
+  sections[1].access =
+      LOOM_NATIVE_SECTION_ACCESS_READ | LOOM_NATIVE_SECTION_ACCESS_WRITE;
+  sections[2] = sections[0];
+
+  // Symbol ordinals are contribution identities, not ELF table positions.
+  loom_native_object_symbol_t symbols[4] = {};
+  symbols[0].name = IREE_SV("entry");
+  symbols[0].binding = LOOM_NATIVE_OBJECT_SYMBOL_BINDING_GLOBAL;
+  symbols[0].kind = LOOM_NATIVE_OBJECT_SYMBOL_KIND_FUNCTION;
+  symbols[0].size = sizeof(contents);
+  symbols[1] = symbols[0];
+  symbols[1].name = IREE_SV("external");
+  symbols[1].section_contribution_index = IREE_HOST_SIZE_MAX;
+  symbols[1].size = 0;
+  symbols[2] = symbols[0];
+  symbols[2].name = IREE_SV("helper");
+  symbols[2].binding = LOOM_NATIVE_OBJECT_SYMBOL_BINDING_LOCAL;
+  symbols[2].section_contribution_index = 2;
+  symbols[3] = symbols[1];
+  symbols[3].name = IREE_SV("optional");
+  symbols[3].binding = LOOM_NATIVE_OBJECT_SYMBOL_BINDING_WEAK;
+  const loom_native_object_fixup_t fixups[] = {
+      {0, 1, 1, 1, -4},
+      {1, 0, 2, 2, 7},
+      {2, 3, 1, 2, -4},
+  };
+  // Target kind 1 is a call (R_X86_64_PLT32); kind 2 is an absolute address
+  // (R_X86_64_64). The generic writer does not assume ELF kind numbering.
+  const uint32_t relocation_types[] = {0, 4, 1};
+  const loom_native_object_contribution_t object = {
+      sections, IREE_ARRAYSIZE(sections), symbols, IREE_ARRAYSIZE(symbols),
+      fixups,   IREE_ARRAYSIZE(fixups),
+  };
+  const std::string bytes = WriteObject(object, relocation_types);
+  auto u16 = [&](size_t offset) {
+    return iree_unaligned_load_le_u16(bytes.data() + offset);
+  };
+  auto u32 = [&](size_t offset) {
+    return iree_unaligned_load_le_u32(bytes.data() + offset);
+  };
+  auto u64 = [&](size_t offset) {
+    return iree_unaligned_load_le_u64(bytes.data() + offset);
+  };
+  const size_t headers = static_cast<size_t>(u64(40));
+  ASSERT_EQ(u16(60), 9u);
+  const size_t symbol_header = headers + 3 * 64;
+  EXPECT_EQ(u32(symbol_header + 44), 2u);  // First non-local symbol.
+  const size_t symbol_table = static_cast<size_t>(u64(symbol_header + 24));
+  const size_t strings = static_cast<size_t>(u64(headers + 4 * 64 + 24));
+  const size_t helper = symbol_table + 24;
+  EXPECT_STREQ(bytes.c_str() + strings + u32(helper), "helper");
+  EXPECT_EQ(u16(helper + 6), 1u);
+  EXPECT_EQ(u64(helper + 8), 16u);
+  const size_t entry = symbol_table + 48;
+  EXPECT_STREQ(bytes.c_str() + strings + u32(entry), "entry");
+  const size_t external = symbol_table + 72;
+  EXPECT_STREQ(bytes.c_str() + strings + u32(external), "external");
+  EXPECT_EQ(u16(external + 6), 0u);  // SHN_UNDEF.
+  EXPECT_EQ(u64(external + 8), 0u);
+  EXPECT_EQ(u64(external + 16), 0u);
+  const size_t optional = symbol_table + 96;
+  EXPECT_EQ(static_cast<uint8_t>(bytes[optional + 4]), 0x22);  // WEAK/FUNC.
+  EXPECT_EQ(u16(optional + 6), 0u);
+
+  const size_t text_relocations = headers + 6 * 64;
+  EXPECT_EQ(u32(text_relocations + 4), 4u);   // SHT_RELA.
+  EXPECT_EQ(u32(text_relocations + 40), 3u);  // Link to .symtab.
+  EXPECT_EQ(u32(text_relocations + 44), 1u);  // Applies to .text.
+  EXPECT_EQ(u64(text_relocations + 32), 48u);
+  EXPECT_EQ(u64(text_relocations + 56), 24u);
+  const size_t text_records = static_cast<size_t>(u64(text_relocations + 24));
+  EXPECT_EQ(u64(text_records), 1u);
+  EXPECT_EQ(u64(text_records + 8), (uint64_t{3} << 32) | 4u);
+  EXPECT_EQ(u64(text_records + 16), static_cast<uint64_t>(-4));
+  EXPECT_EQ(u64(text_records + 24), 19u);  // Second contribution + local site.
+  EXPECT_EQ(u64(text_records + 32), (uint64_t{1} << 32) | 4u);
+  EXPECT_EQ(u64(text_records + 40), static_cast<uint64_t>(-4));
+
+  const size_t data_relocations = headers + 7 * 64;
+  EXPECT_EQ(u32(data_relocations + 44), 2u);  // Applies to .data.
+  EXPECT_EQ(u64(data_relocations + 32), 24u);
+  const size_t data_record = static_cast<size_t>(u64(data_relocations + 24));
+  EXPECT_EQ(u64(data_record), 0u);
+  EXPECT_EQ(u64(data_record + 8), (uint64_t{1} << 32) | 1u);
+  EXPECT_EQ(u64(data_record + 16), 7u);
 }
 
 }  // namespace

@@ -200,6 +200,11 @@ TEST(EncodingTest, FullWidthBranchAndRelativeDisplacements) {
                  {0x85, 0xc9, 0x0f, 0x85, 0xfa, 0xff, 0xff, 0xff}, 0);
   ExpectEncoding(LOOM_X86_ENCODING_FORM_JUMP, 0, operands,
                  {0xe9, 0xfa, 0xff, 0xff, 0xff}, 0);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_CALL, 0, operands,
+                 {0xe8, 0xfa, 0xff, 0xff, 0xff}, 1u << 4);
+  operands.immediate = 0x12345678;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_CALL, 0, operands,
+                 {0xe8, 0x78, 0x56, 0x34, 0x12}, 1u << 4);
   ExpectEncoding(LOOM_X86_ENCODING_FORM_RETURN, 0, operands, {0xc3}, 1u << 4);
 }
 

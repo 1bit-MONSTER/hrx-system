@@ -6,6 +6,9 @@
 
 #include "loom/codegen/low/allocation/move_plan.h"
 
+#include <string.h>
+
+#include "loom/codegen/low/allocation/storage.h"
 #include "loom/codegen/low/allocation/write_interference.h"
 #include "loom/codegen/low/schedule/types.h"
 
@@ -147,6 +150,44 @@ static iree_status_t loom_low_allocation_move_plan_resolve_temporary(
     return iree_ok_status();
   }
 
+  if (capacity.is_spillable && context->storage_spaces &&
+      loom_low_storage_space_set_contains(
+          context->storage_spaces,
+          loom_low_allocation_storage_space_for_spill_slot(
+              reg_class->spill_slot_space))) {
+    if (plan->storage_indices_by_class == NULL) {
+      const iree_host_size_t bytes =
+          context->descriptor_set->reg_class_count * sizeof(uint32_t);
+      IREE_RETURN_IF_ERROR(iree_arena_allocate(
+          plan->scratch_arena, bytes, (void**)&plan->storage_indices_by_class));
+      memset(plan->storage_indices_by_class, 0xff, bytes);
+    }
+    uint32_t* index =
+        &plan->storage_indices_by_class[storage_class->descriptor_reg_class_id];
+    if (*index == UINT32_MAX) {
+      IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+          plan->output_arena, plan->storage_count, plan->storage_count + 1,
+          sizeof(*plan->storage), &plan->storage_capacity,
+          (void**)&plan->storage));
+      *index = (uint32_t)plan->storage_count++;
+      const uint32_t byte_length =
+          ((uint32_t)reg_class->alloc_unit_bits + 7) / 8;
+      plan->storage[*index] = (loom_low_move_storage_t){
+          .register_class = storage_class->descriptor_reg_class_id,
+          .space = loom_low_allocation_storage_space_for_spill_slot(
+              reg_class->spill_slot_space),
+          .byte_length = byte_length,
+          .byte_alignment = iree_math_round_up_to_pow2_u32(byte_length),
+      };
+    }
+    *out_temporary = (loom_low_move_location_t){
+        .location_kind = LOOM_LOW_ALLOCATION_LOCATION_MOVE_STORAGE,
+        .descriptor_reg_class_id = storage_class->descriptor_reg_class_id,
+        .location = *index,
+    };
+    *out_resolved = true;
+    return iree_ok_status();
+  }
   loom_low_allocation_target_constraints_record_move_failure(
       context->target_constraints, op, storage_class->descriptor_reg_class_id,
       capacity.is_bounded ? capacity.max_units : UINT32_MAX, 1,

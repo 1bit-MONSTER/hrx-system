@@ -19,8 +19,8 @@ namespace {
 loom_x86_instruction_t Instruction(loom_x86_encoding_form_t form,
                                    uint16_t encoding_id = 0,
                                    loom_x86_encoding_operands_t operands = {},
-                                   uint32_t branch_target = UINT32_MAX) {
-  return {operands, branch_target, static_cast<uint16_t>(form), encoding_id};
+                                   uint32_t control_target = UINT32_MAX) {
+  return {operands, control_target, static_cast<uint16_t>(form), encoding_id};
 }
 
 // Encoding has independent bitfield tests. These tests isolate the writer's
@@ -74,7 +74,8 @@ TEST_F(FunctionTest, EmptyLeafNeedsOnlyReturn) {
   function.block_starts = block_starts;
   function.block_count = 1;
 
-  IREE_ASSERT_OK(loom_x86_function_write(&function, stream_, &arena_));
+  IREE_ASSERT_OK(loom_x86_function_write(&function, nullptr, 0, nullptr,
+                                         stream_, &arena_));
   EXPECT_EQ(Read(), Encode(Instruction(LOOM_X86_ENCODING_FORM_RETURN)));
 }
 
@@ -100,12 +101,14 @@ TEST_F(FunctionTest, RestoreStackAndRegistersAfterResultTransport) {
   const loom_x86_function_t function = {
       /*.instructions=*/instructions,
       /*.instruction_count=*/IREE_ARRAYSIZE(instructions),
+      /*.call_count=*/0,
       /*.block_starts=*/block_starts,
       /*.block_count=*/1,
       /*.saved_registers=*/(1u << 3) | (1u << 12),
       /*.stack=*/{24, 16, {}},
   };
-  IREE_ASSERT_OK(loom_x86_function_write(&function, stream_, &arena_));
+  IREE_ASSERT_OK(loom_x86_function_write(&function, nullptr, 0, nullptr,
+                                         stream_, &arena_));
 
   loom_x86_encoding_operands_t rbx = {};
   rbx.inputs[0] = 3;
@@ -153,6 +156,7 @@ TEST_F(FunctionTest, BranchesSkipEntryTransportAndPreservation) {
   const loom_x86_function_t function = {
       /*.instructions=*/instructions,
       /*.instruction_count=*/IREE_ARRAYSIZE(instructions),
+      /*.call_count=*/0,
       /*.block_starts=*/block_starts,
       /*.block_count=*/4,
       /*.saved_registers=*/1u << 3,
@@ -162,7 +166,8 @@ TEST_F(FunctionTest, BranchesSkipEntryTransportAndPreservation) {
   // Layout also works when a previous function has already used the stream.
   const std::string prefix = Encode(Instruction(LOOM_X86_ENCODING_FORM_RETURN));
   IREE_ASSERT_OK(iree_io_stream_write(stream_, prefix.size(), prefix.data()));
-  IREE_ASSERT_OK(loom_x86_function_write(&function, stream_, &arena_));
+  IREE_ASSERT_OK(loom_x86_function_write(&function, nullptr, 0, nullptr,
+                                         stream_, &arena_));
   EXPECT_EQ(iree_io_stream_offset(stream_), iree_io_stream_length(stream_));
 
   const size_t branch_length = Encode(instructions[1]).size();
@@ -202,7 +207,8 @@ TEST_F(FunctionTest, RealignmentRestoresTheSavedStackPointerBeforePops) {
   function.stack.realignment.mask = -64;
   function.stack.realignment.saved_pointer_offset = 8;
   function.stack.realignment.scratch_register = 11;
-  IREE_ASSERT_OK(loom_x86_function_write(&function, stream_, &arena_));
+  IREE_ASSERT_OK(loom_x86_function_write(&function, nullptr, 0, nullptr,
+                                         stream_, &arena_));
 
   loom_x86_encoding_operands_t rbx = {};
   rbx.inputs[0] = 3;

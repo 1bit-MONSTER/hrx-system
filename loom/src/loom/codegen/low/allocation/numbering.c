@@ -296,7 +296,7 @@ static void loom_low_numbering_constrain_blocks(
                                     fixed->location_count);
   }
   for (iree_host_size_t i = 0; i < context->entry_location_count; ++i) {
-    const loom_low_allocation_entry_location_t* entry =
+    const loom_low_allocation_abi_location_t* entry =
         &context->entry_locations[i];
     const uint32_t assignment_index =
         allocation->assignment_indices_by_value_ordinal[i];

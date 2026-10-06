@@ -17,6 +17,16 @@ package(
 )
 
 loom_cc_library(
+    name = "call",
+    hdrs = ["call.h"],
+    deps = [
+        ":assignment",
+        "//loom/src/loom/ir",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "active_capacity",
     srcs = ["active_capacity.c"],
     hdrs = ["active_capacity.h"],
@@ -794,6 +804,7 @@ loom_cc_library(
     hdrs = ["unit_liveness.h"],
     deps = [
         ":assignment",
+        ":call",
         ":live_range",
         ":storage",
         ":write_interference",
@@ -866,6 +877,7 @@ loom_cc_library(
     ],
     deps = [
         ":assignment",
+        ":call",
         ":live_range",
         ":storage",
         ":unit_liveness",
@@ -997,11 +1009,13 @@ loom_cc_library(
         ":assignment_map",
         ":move",
         ":move_sequence",
+        ":storage",
         ":storage_liveness_index",
         ":target_constraints",
         ":unit_liveness",
         ":write_interference",
         "//loom/src/loom/codegen/low:descriptors",
+        "//loom/src/loom/codegen/low:storage_layout",
         "//loom/src/loom/codegen/low/schedule",
         "//loom/src/loom/ir",
         "//runtime/src/iree/base",
@@ -1089,6 +1103,7 @@ loom_cc_library(
         "//loom/src/loom/codegen/low:descriptors",
         "//loom/src/loom/codegen/low:placement",
         "//loom/src/loom/codegen/low:storage_lease",
+        "//loom/src/loom/codegen/low:storage_transport",
         "//loom/src/loom/codegen/low:target_binding",
         "//loom/src/loom/ir",
         "//loom/src/loom/util:cfg_graph",

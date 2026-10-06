@@ -1,0 +1,178 @@
+// Synchronous boundaries may consume private cells without simultaneously
+// demanding registers. Source effects and ordinary instruction uses remain.
+
+// RUN: emit low-schedule-query @entry_return storage-transport=stack
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @entry_return(%input: reg<test.i32>) -> (reg<test.i32>) asm {
+  %slot = storage {byte_alignment = 4, byte_length = 4} : low.storage<stack>
+  low.spill %input, %slot : reg<test.i32>, low.storage<stack>
+  %loaded = low.reload %slot : low.storage<stack> -> reg<test.i32>
+  return %loaded
+}
+
+// ----
+stored %input: stack+0
+stored %loaded: stack+0
+
+// ====
+
+// RUN: emit low-schedule-query @pure_call_order storage-transport=stack kind=effect consumer=3,4
+
+test.target<low_core> @target
+
+low.func.decl pure target<test.low.core>(@target) @helper(%0: reg<test.i32>) -> (reg<test.i32>)
+
+low.func.def target<test.low.core>(@target) @pure_call_order(%first: reg<test.i32>, %second: reg<test.i32>) -> (reg<test.i32>) asm {
+  %slot = storage {byte_alignment = 4, byte_length = 4} : low.storage<stack>
+  low.spill %first, %slot : reg<test.i32>, low.storage<stack>
+  %loaded = low.reload %slot : low.storage<stack> -> reg<test.i32>
+  %result = low.func.call pure @helper(%loaded) : (reg<test.i32>) -> (reg<test.i32>)
+  low.spill %second, %slot : reg<test.i32>, low.storage<stack>
+  return %result
+}
+
+// ----
+stored %loaded: stack+0
+node 3 <- 2
+node 4 <- 2, 3
+
+// ====
+
+// RUN: emit low-schedule-query @result_store storage-transport=stack kind=effect consumer=3
+
+test.target<low_core> @target
+
+low.func.decl pure target<test.low.core>(@target) @helper(%0: reg<test.i32>) -> (reg<test.i32>)
+
+low.func.def target<test.low.core>(@target) @result_store(%input: reg<test.i32>) -> (reg<test.i32>) asm {
+  %slot = storage {byte_alignment = 4, byte_length = 4} : low.storage<stack>
+  %result = low.func.call pure @helper(%input) : (reg<test.i32>) -> (reg<test.i32>)
+  low.spill %result, %slot : reg<test.i32>, low.storage<stack>
+  %loaded = low.reload %slot : low.storage<stack> -> reg<test.i32>
+  return %loaded
+}
+
+// ----
+stored %result: stack+0
+stored %loaded: stack+0
+node 3 <- 2
+
+// ====
+
+// RUN: emit low-schedule-query @intervening_store storage-transport=stack
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @intervening_store(%first: reg<test.i32>, %second: reg<test.i32>) -> (reg<test.i32>) asm {
+  %slot = storage {byte_alignment = 4, byte_length = 4} : low.storage<stack>
+  low.spill %first, %slot : reg<test.i32>, low.storage<stack>
+  %loaded = low.reload %slot : low.storage<stack> -> reg<test.i32>
+  low.spill %second, %slot : reg<test.i32>, low.storage<stack>
+  return %loaded
+}
+
+// ----
+stored values: none
+
+// ====
+
+// RUN: emit low-schedule-query @ordinary_register_consumer storage-transport=stack
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @ordinary_register_consumer(%input: reg<test.i32>) -> (reg<test.i32>) asm {
+  %slot = storage {byte_alignment = 4, byte_length = 4} : low.storage<stack>
+  low.spill %input, %slot : reg<test.i32>, low.storage<stack>
+  %loaded = low.reload %slot : low.storage<stack> -> reg<test.i32>
+  %sum = test.add.i32 %loaded, %loaded
+  return %sum
+}
+
+// ----
+stored %input: stack+0
+
+// ====
+
+// RUN: emit low-schedule-query @projected_storage storage-transport=stack
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @projected_storage(%input: reg<test.i32>) -> (reg<test.i32>) asm {
+  %slot = storage {byte_alignment = 4, byte_length = 16} : low.storage<stack>
+  %view = storage_view %slot {byte_length = 4, offset = 8} : low.storage<stack> -> low.storage<stack>
+  low.spill %input, %view : reg<test.i32>, low.storage<stack>
+  %loaded = low.reload %view : low.storage<stack> -> reg<test.i32>
+  return %loaded
+}
+
+// ----
+stored %loaded: stack+8
+
+// ====
+
+// RUN: emit low-schedule-query @wide_registers storage-transport=stack
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @wide_registers(%input: reg<test.i32 x4>) -> (reg<test.i32 x4>) asm {
+  %slot = storage {byte_alignment = 16, byte_length = 16} : low.storage<stack>
+  low.spill %input, %slot : reg<test.i32 x4>, low.storage<stack>
+  %loaded = low.reload %slot : low.storage<stack> -> reg<test.i32 x4>
+  return %loaded
+}
+
+// ----
+stored values: none
+
+// ====
+
+// RUN: emit low-schedule-query @unselected_space storage-transport=stack
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @unselected_space(%input: reg<test.i32>) -> (reg<test.i32>) asm {
+  %slot = storage {byte_alignment = 4, byte_length = 4} : low.storage<workgroup>
+  low.spill %input, %slot : reg<test.i32>, low.storage<workgroup>
+  %loaded = low.reload %slot : low.storage<workgroup> -> reg<test.i32>
+  return %loaded
+}
+
+// ----
+stored values: none
+
+// ====
+
+// One reload can supply repeated boundary operands without recreating registers.
+// RUN: emit low-schedule-query @repeated_operand storage-transport=stack
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @repeated_operand(%input: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %slot = storage {byte_alignment = 4, byte_length = 4} : low.storage<stack>
+  low.spill %input, %slot : reg<test.i32>, low.storage<stack>
+  %loaded = low.reload %slot : low.storage<stack> -> reg<test.i32>
+  return %loaded, %loaded
+}
+
+// ----
+stored %input: stack+0
+stored %loaded: stack+0
+
+// ====
+
+// The starting byte is valid; the target's full physical cell does not fit.
+// RUN: emit low-schedule-query @full_cell_bounds storage-transport=stack
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @full_cell_bounds(%input: reg<test.i32>) -> (reg<test.i32>) asm {
+  %slot = storage {byte_alignment = 4, byte_length = 4} : low.storage<stack>
+  low.spill %input, %slot {offset = 1} : reg<test.i32>, low.storage<stack>
+  %loaded = low.reload %slot {offset = 1} : low.storage<stack> -> reg<test.i32>
+  return %loaded
+}
+
+// ----
+stored values: none

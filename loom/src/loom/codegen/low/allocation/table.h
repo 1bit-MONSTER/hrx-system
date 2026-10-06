@@ -17,6 +17,7 @@
 #include "loom/codegen/low/descriptors.h"
 #include "loom/codegen/low/placement.h"
 #include "loom/codegen/low/storage_lease.h"
+#include "loom/codegen/low/storage_transport.h"
 #include "loom/codegen/low/target_binding.h"
 #include "loom/ir/ir.h"
 #include "loom/util/cfg_graph.h"
@@ -170,6 +171,21 @@ typedef struct loom_low_allocation_packet_move_group_t {
   loom_low_move_group_t move_group;
 } loom_low_allocation_packet_move_group_t;
 
+// Call transport belongs to the call that consumes the arguments. Each range
+// indexes the allocation's common move table, after cycle resolution.
+typedef struct loom_low_allocation_call_moves_t {
+  // Source-order ordinal of the retained low.func.call.
+  uint32_t source_ordinal;
+  // Complete semantic argument count, including storage ABI operands.
+  uint16_t argument_count;
+  // Complete semantic result count, including storage ABI results.
+  uint16_t result_count;
+  // Register transport immediately before transferring control to the callee.
+  loom_low_move_range_t arguments;
+  // Register transport immediately after the callee returns.
+  loom_low_move_range_t results;
+} loom_low_allocation_call_moves_t;
+
 // Assignment-backed storage lease over target-visible physical units.
 //
 // Each record corresponds to one entry in |storage_leases.records|. The lease
@@ -209,6 +225,8 @@ typedef struct loom_low_allocation_table_t {
   const loom_op_t* function_op;
   // Resolved target context selected by |function_op|.
   loom_low_resolved_target_t target;
+  // Final invocation-owned cells consumed by STORAGE assignments and moves.
+  const loom_low_storage_transport_t* storage_transport;
   // Liveness analysis that produced the allocated intervals.
   loom_liveness_analysis_t liveness;
   // Arena-owned physical reservations indexed by assignment segment ranges.
@@ -278,10 +296,18 @@ typedef struct loom_low_allocation_table_t {
   const loom_low_allocation_packet_move_group_t* packet_move_groups;
   // Number of records in |packet_move_groups|.
   iree_host_size_t packet_move_group_count;
+  // Call transport in source order; absent for call-free functions.
+  const loom_low_allocation_call_moves_t* call_moves;
+  // Number of records in |call_moves|.
+  iree_host_size_t call_move_count;
   // Final sequential physical move rows shared by all move groups.
   const loom_low_move_t* moves;
   // Number of final move rows across edge and packet-local move groups.
   iree_host_size_t move_count;
+  // Final invocation-owned transport cells, indexed by MOVE_STORAGE locations.
+  const loom_low_move_storage_t* move_storage;
+  // Number of cells; zero when every cycle has a free register.
+  iree_host_size_t move_storage_count;
   // Indices into |moves| for the first row writing each cycle-scratch location.
   const iree_host_size_t* scratch_move_indices;
   // Number of final move rows across packet-local move groups.
@@ -372,6 +398,12 @@ loom_low_allocation_find_edge_copy_group_by_source_ordinal(
 // NULL when the node emits no final moves.
 const loom_low_allocation_packet_move_group_t*
 loom_low_allocation_find_packet_move_group_by_source_ordinal(
+    const loom_low_allocation_table_t* table, uint32_t source_ordinal);
+
+// Returns the retained register transport for a call, or NULL when allocation
+// was performed without a target call contract.
+const loom_low_allocation_call_moves_t*
+loom_low_allocation_find_call_moves_by_source_ordinal(
     const loom_low_allocation_table_t* table, uint32_t source_ordinal);
 
 // Resolves the descriptor-set register class spelling for |assignment|.

@@ -24,7 +24,7 @@ typedef struct loom_low_move_location_t {
   uint16_t location_kind;
   // Register class in the owning plan's descriptor set.
   uint16_t descriptor_reg_class_id;
-  // Physical register, target ID, or spill slot ordinal.
+  // Physical register, target ID, provisional spill slot, or move-cell ordinal.
   uint32_t location;
 } loom_low_move_location_t;
 
@@ -38,6 +38,20 @@ typedef struct loom_low_move_t {
   // Unit read by the move.
   loom_low_move_location_t source;
 } loom_low_move_t;
+
+// Invocation-owned cell for a final synchronous transport temporary. Cells
+// are disjoint from each other, authored storage, and outgoing ABI packets.
+// The target's frame layout assigns concrete offsets once before emission.
+typedef struct loom_low_move_storage_t {
+  // Register class defining value or ownership-preserving reference transfers.
+  uint16_t register_class;
+  // Function-local storage space, a loom_storage_space_t value.
+  uint16_t space;
+  // Bytes in one saved allocation unit.
+  uint32_t byte_length;
+  // Required power-of-two byte alignment.
+  uint32_t byte_alignment;
+} loom_low_move_storage_t;
 
 // Contiguous range in an allocation-owned move row table.
 typedef struct loom_low_move_range_t {

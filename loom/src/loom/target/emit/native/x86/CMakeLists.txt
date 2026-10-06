@@ -59,6 +59,7 @@ loom_cc_library(
     loom::ir
     loom::ops::low
     loom::target::arch::x86::register_classes
+    loom::target::emit::native::object
   PUBLIC
 )
 endif()
@@ -116,6 +117,7 @@ loom_cc_library(
     iree::base::internal::arena
     iree::io::stream
     loom::codegen::low::frame
+    loom::ops::low
     loom::target::emit::native::object_elf
     loom::target::entry_selection
     loom::target::provider
@@ -132,6 +134,7 @@ loom_cc_library(
   SRCS
     "check/loom_check.c"
   DEPS
+    ::abi
     ::function
     iree::base
     loom::tools::loom-check::execute
