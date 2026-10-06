@@ -20,6 +20,7 @@ enum loom_check_test_schedule_option_flag_bits_e {
   LOOM_CHECK_TEST_SCHEDULE_OPTION_FLAG_HAS_STRATEGY = 1u << 1,
   LOOM_CHECK_TEST_SCHEDULE_OPTION_FLAG_HAS_TIMING = 1u << 2,
   LOOM_CHECK_TEST_SCHEDULE_OPTION_FLAG_HAS_DIAGNOSTICS = 1u << 3,
+  LOOM_CHECK_TEST_SCHEDULE_OPTION_FLAG_HAS_PRESSURE_LIMIT = 1u << 4,
 };
 typedef uint32_t loom_check_test_schedule_option_flags_t;
 
@@ -54,6 +55,8 @@ typedef struct loom_check_test_schedule_options_t {
   iree_string_view_t dependency_edges;
   // Register class whose scheduled pressure summary is requested.
   iree_string_view_t pressure_register_class;
+  // Inclusive live-unit ceiling requested for scheduled pressure.
+  uint32_t pressure_limit;
   // Producer and consumer source nodes whose dependency timing is requested.
   uint32_t timing_producer_node;
   uint32_t timing_consumer_node;
@@ -303,6 +306,31 @@ static iree_status_t loom_check_test_schedule_parse_option(
     options->pressure_register_class = value;
     return iree_ok_status();
   }
+  if (iree_string_view_equal(name, IREE_SV("scheduled-pressure-limit"))) {
+    if (!iree_string_view_is_empty(options->pressure_register_class)) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "duplicate low-schedule-query scheduled pressure option");
+    }
+    iree_string_view_t register_class = iree_string_view_empty();
+    iree_string_view_t limit = iree_string_view_empty();
+    iree_string_view_split(value, ':', &register_class, &limit);
+    register_class = iree_string_view_trim(register_class);
+    limit = iree_string_view_trim(limit);
+    if (iree_string_view_is_empty(register_class) ||
+        iree_string_view_is_empty(limit) ||
+        iree_string_view_find_char(limit, ':', 0) != IREE_STRING_VIEW_NPOS ||
+        !iree_string_view_atoi_uint32(limit, &options->pressure_limit)) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "low-schedule-query option 'scheduled-pressure-limit' expected "
+          "<register-class>:<maximum-live-units>, got '%.*s'",
+          (int)value.size, value.data);
+    }
+    options->pressure_register_class = register_class;
+    options->flags |= LOOM_CHECK_TEST_SCHEDULE_OPTION_FLAG_HAS_PRESSURE_LIMIT;
+    return iree_ok_status();
+  }
   iree_string_view_t* node_list = NULL;
   if (iree_string_view_equal(name, IREE_SV("consumer"))) {
     node_list = &options->consumer_nodes;
@@ -387,7 +415,8 @@ static iree_status_t loom_check_test_schedule_parse_options(
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "low-schedule-query requires option 'consumer', 'order', 'issue', "
-        "'descriptor', 'edge', 'timing', or 'scheduled-pressure'");
+        "'descriptor', 'edge', 'timing', 'scheduled-pressure', or "
+        "'scheduled-pressure-limit'");
   }
   return iree_ok_status();
 }
@@ -767,7 +796,10 @@ static iree_status_t loom_check_test_schedule_append_edges(
 static iree_status_t loom_check_test_schedule_append_pressure(
     const loom_low_schedule_table_t* schedule,
     const loom_liveness_analysis_t* scheduled_liveness,
-    iree_string_view_t register_class_name, iree_string_builder_t* builder) {
+    const loom_check_test_schedule_options_t* options,
+    iree_string_builder_t* builder) {
+  const iree_string_view_t register_class_name =
+      options->pressure_register_class;
   if (iree_string_view_is_empty(register_class_name)) {
     return iree_ok_status();
   }
@@ -796,9 +828,33 @@ static iree_status_t loom_check_test_schedule_append_pressure(
     match = summary;
   }
   if (match == NULL) {
+    if (iree_any_bit_set(
+            options->flags,
+            LOOM_CHECK_TEST_SCHEDULE_OPTION_FLAG_HAS_PRESSURE_LIMIT)) {
+      return iree_string_builder_append_format(
+          builder, "scheduled pressure %.*s: peak-live-units<=%" PRIu32 "\n",
+          (int)register_class_name.size, register_class_name.data,
+          options->pressure_limit);
+    }
     return iree_string_builder_append_format(
         builder, "scheduled pressure %.*s: none\n",
         (int)register_class_name.size, register_class_name.data);
+  }
+  if (iree_any_bit_set(
+          options->flags,
+          LOOM_CHECK_TEST_SCHEDULE_OPTION_FLAG_HAS_PRESSURE_LIMIT)) {
+    if (match->peak_live_units <= options->pressure_limit) {
+      return iree_string_builder_append_format(
+          builder, "scheduled pressure %.*s: peak-live-units<=%" PRIu32 "\n",
+          (int)register_class_name.size, register_class_name.data,
+          options->pressure_limit);
+    }
+    return iree_string_builder_append_format(
+        builder,
+        "scheduled pressure %.*s: peak-live-units=%" PRIu32
+        " exceeds-limit=%" PRIu32 "\n",
+        (int)register_class_name.size, register_class_name.data,
+        match->peak_live_units, options->pressure_limit);
   }
   return iree_string_builder_append_format(
       builder,
@@ -898,7 +954,7 @@ static iree_status_t loom_check_test_schedule_execute(
   IREE_RETURN_IF_ERROR(loom_check_test_schedule_append_descriptors(
       &schedule, options.descriptor_nodes, &request->result->actual_output));
   IREE_RETURN_IF_ERROR(loom_check_test_schedule_append_pressure(
-      &schedule, &scheduled_liveness, options.pressure_register_class,
+      &schedule, &scheduled_liveness, &options,
       &request->result->actual_output));
   if (iree_string_view_equal(options.consumer_nodes, IREE_SV("*"))) {
     IREE_RETURN_IF_ERROR(loom_check_test_schedule_append_all_predecessors(
