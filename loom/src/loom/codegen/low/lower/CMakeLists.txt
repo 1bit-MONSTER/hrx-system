@@ -74,6 +74,7 @@ loom_cc_library(
     loom::analysis::kernel_async_legality
     loom::analysis::kernel_barrier_lifetime
     loom::analysis::native_layout
+    loom::analysis::storage_interference
     loom::analysis::symbol_facts
     loom::analysis::symbolic_expr
     loom::analysis::vector_memory_footprint

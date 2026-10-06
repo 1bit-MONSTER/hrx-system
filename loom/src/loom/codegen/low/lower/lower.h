@@ -1192,6 +1192,14 @@ iree_status_t loom_low_lower_context_view_regions(
     loom_low_lower_context_t* context,
     const loom_view_region_table_t** out_view_regions);
 
+typedef struct loom_storage_interference_t loom_storage_interference_t;
+
+// Returns function-owned source storage analysis, constructing it once on
+// demand. Static allocation selection and physical packing share this result.
+iree_status_t loom_low_lower_context_storage_interference(
+    loom_low_lower_context_t* context,
+    loom_storage_interference_t** out_interference);
+
 // Returns the number of non-structural source-op lowering plans selected during
 // planning. Preamble callbacks may inspect these plans before body emission.
 iree_host_size_t loom_low_lower_context_selected_plan_count(
@@ -1474,6 +1482,12 @@ iree_status_t loom_low_lower_emit_source_type_unsupported(
 iree_status_t loom_low_lower_emit_function_storage_extent_unsupported(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_storage_space_t storage_space, loom_value_id_t byte_length_value);
+
+// Emits ERR_TARGET_092 when a fixed slot cannot prove allocation-instance
+// lifetimes disjoint. The source allocation remains semantically valid.
+iree_status_t loom_low_lower_emit_function_storage_lifetime_unsupported(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t allocation_value);
 
 // Emits ERR_TARGET_066 when generic lowering would need to change the carrier
 // width of a typed register without a target-defined semantic relation.

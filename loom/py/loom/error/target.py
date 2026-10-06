@@ -1572,6 +1572,29 @@ ERR_TARGET_091 = ErrorDef(
     fix_hint="Convert returning values to a representation supported on every path.",
 )
 
+# ERR_TARGET_092: Function storage cannot preserve live allocation instances.
+ERR_TARGET_092 = ErrorDef(
+    domain=ErrorDomain.TARGET,
+    code=92,
+    severity=Severity.ERROR,
+    summary="Function storage cannot preserve live allocation instances.",
+    message=(
+        "target '{target_key}' export '{export_name}' config '{config_key}' "
+        "rejected '{op_name}' in '@{function_name}': cannot prove earlier "
+        "instances of allocation '{allocation_value}' are no longer accessible "
+        "when it executes again; the selected lowering requires one fixed slot"
+    ),
+    params=(
+        *_TARGET_CONTEXT_PARAMS,
+        ErrorParam("allocation_value", ParamKind.STRING),
+    ),
+    fix_hint=(
+        "Complete every use, including asynchronous transfers, before the "
+        "allocation executes again, or use distinct roots for overlapping lifetimes. "
+        "Shared storage also requires a workgroup rendezvous before reuse."
+    ),
+)
+
 ALL_TARGET_ERRORS = (
     ERR_TARGET_001,
     ERR_TARGET_002,
@@ -1648,4 +1671,5 @@ ALL_TARGET_ERRORS = (
     ERR_TARGET_089,
     ERR_TARGET_090,
     ERR_TARGET_091,
+    ERR_TARGET_092,
 )

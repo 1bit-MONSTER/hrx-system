@@ -1,5 +1,32 @@
 // RUN: pass source-to-low
 
+// A prior instance remains live across a new execution of the allocation.
+// Fixed storage selection must diagnose this before constructing Low addresses.
+test.target<low_core> @target
+
+func.def target(@target) @overlapping_instances(%again: i1, %value: vector<4xi32>) -> (vector<4xi32>) {
+  %bytes = index.constant 16 : offset
+  %base = index.constant 0 : offset
+  %initial = buffer.alloca<private> align(16) %bytes : buffer
+  %initial_view = buffer.view %initial[%base] : buffer -> view<4xi32>
+  vector.store %value, %initial_view[0] : vector<4xi32>, view<4xi32>
+  cfg.br ^loop(%initial: buffer)
+^loop(%previous: buffer):
+  // ERROR@+1: TARGET/092 {allocation_value="storage"}
+  %storage = buffer.alloca<private> align(16) %bytes : buffer
+  %view = buffer.view %storage[%base] : buffer -> view<4xi32>
+  vector.store %value, %view[0] : vector<4xi32>, view<4xi32>
+  %previous_view = buffer.view %previous[%base] : buffer -> view<4xi32>
+  %old = vector.load %previous_view[0] : view<4xi32> -> vector<4xi32>
+  cfg.cond_br %again, ^backedge, ^exit
+^backedge:
+  cfg.br ^loop(%storage: buffer)
+^exit:
+  func.return %old : vector<4xi32>
+}
+
+// ====
+
 // Each allocation retains its own identity and ownership space. Address types
 // come from the target mapping; extent constants need no Low registers.
 test.target<low_core> @target

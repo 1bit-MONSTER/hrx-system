@@ -48,10 +48,19 @@ typedef struct loom_low_lower_function_storage_plan_t {
   loom_storage_space_t storage_space;
 } loom_low_lower_function_storage_plan_t;
 
+// Proves that a fixed slot preserves the allocation's per-execution identity.
+// Roots outside repeated control require only indexed execution facts. Repeated
+// roots share the function's retained storage analysis with physical packing.
+// An unproven lifetime emits a target diagnostic and sets |out_supported|
+// false; status reports construction or diagnostic-sink failure.
+iree_status_t loom_low_lower_function_storage_check_lifetime(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    bool* out_supported);
+
 // Selects one buffer.alloca using the active policy and established value
 // facts. An unsupported space remains unselected for other lowering mechanisms.
-// An invalid extent is selected but diagnosed, with a NULL plan; the shared
-// diagnostic boundary prevents emission of that function.
+// An invalid extent or lifetime is selected but diagnosed, with a NULL plan;
+// the shared diagnostic boundary prevents emission of that function.
 iree_status_t loom_low_lower_function_storage_select(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     bool* out_selected,

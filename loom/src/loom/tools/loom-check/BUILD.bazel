@@ -157,6 +157,7 @@ loom_cc_library(
 loom_cc_library(
     name = "execute",
     srcs = [
+        "analysis.c",
         "comparison.c",
         "diagnostics.c",
         "emit.c",
@@ -170,6 +171,7 @@ loom_cc_library(
         "verify.c",
     ],
     hdrs = [
+        "analysis.h",
         "comparison.h",
         "diagnostics.h",
         "execute.h",
@@ -186,6 +188,7 @@ loom_cc_library(
         "//loom/src/loom/analysis:liveness",
         "//loom/src/loom/analysis:liveness_json",
         "//loom/src/loom/analysis:pipeline_plan",
+        "//loom/src/loom/analysis:storage_interference",
         "//loom/src/loom/codegen:pass_environment",
         "//loom/src/loom/codegen/low:allocation",
         "//loom/src/loom/codegen/low:allocation_json",
@@ -211,6 +214,8 @@ loom_cc_library(
         "//loom/src/loom/format/text:printer",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops:type_registry",
+        "//loom/src/loom/ops/buffer",
         "//loom/src/loom/ops/func",
         "//loom/src/loom/ops/kernel",
         "//loom/src/loom/ops/low",

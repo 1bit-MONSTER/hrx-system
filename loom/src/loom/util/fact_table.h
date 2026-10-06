@@ -435,18 +435,25 @@ bool loom_value_fact_table_values_equal(const loom_value_fact_table_t* table,
 const loom_cfg_graph_t* loom_value_fact_table_lookup_cfg_graph(
     const loom_value_fact_table_t* table, const loom_region_t* region);
 
-// Publishes the temporal distribution inherited from enclosing CFG cycles.
-// The region traversal owns this transitive context; nested regions import
-// their parent block's scope before computing any child facts.
+// Publishes the temporal distribution and repetition inherited from enclosing
+// control flow. |may_repeat| includes structured loops and enclosing CFG
+// cycles. The region traversal owns this transitive context; nested regions
+// import their parent block's scope before computing any child facts.
 iree_status_t loom_value_fact_table_set_region_temporal_scope(
     loom_value_fact_table_t* table, const loom_region_t* region,
-    loom_value_facts_t scope);
+    loom_value_facts_t scope, bool may_repeat);
 
 // Returns inherited temporal context met with this block's execution scope
 // when it belongs to a CFG cycle. This bounds facts for operations whose
 // results can differ between dynamic executions. Missing context is unknown;
 // a detached op cannot establish uniformity across unknown enclosing cycles.
 loom_value_facts_t loom_value_fact_table_block_temporal_scope(
+    const loom_value_fact_table_t* table, const loom_block_t* block);
+
+// Returns whether a block may execute more than once per function invocation.
+// Consumes retained enclosing repetition and the block's own CFG component.
+// Missing context cannot prove single execution and returns true.
+bool loom_value_fact_table_block_may_repeat(
     const loom_value_fact_table_t* table, const loom_block_t* block);
 
 // Publishes condition facts and their SSA mapping onto |region| arguments. The

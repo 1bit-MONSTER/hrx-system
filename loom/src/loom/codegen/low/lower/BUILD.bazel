@@ -89,6 +89,7 @@ loom_cc_library(
         "//loom/src/loom/analysis:kernel_async_legality",
         "//loom/src/loom/analysis:kernel_barrier_lifetime",
         "//loom/src/loom/analysis:native_layout",
+        "//loom/src/loom/analysis:storage_interference",
         "//loom/src/loom/analysis:symbol_facts",
         "//loom/src/loom/analysis:symbolic_expr",
         "//loom/src/loom/analysis:vector_memory_footprint",

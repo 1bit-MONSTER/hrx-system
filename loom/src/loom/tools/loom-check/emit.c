@@ -7,8 +7,6 @@
 #include <inttypes.h>
 #include <string.h>
 
-#include "loom/analysis/liveness.h"
-#include "loom/analysis/liveness_json.h"
 #include "loom/analysis/pipeline_plan.h"
 #include "loom/codegen/low/allocation.h"
 #include "loom/codegen/low/allocation_json.h"
@@ -37,6 +35,7 @@
 #include "loom/pass/pipeline.h"
 #include "loom/target/entry_selection.h"
 #include "loom/target/low_packet_diagnostics.h"
+#include "loom/tools/loom-check/analysis.h"
 #include "loom/tools/loom-check/comparison.h"
 #include "loom/tools/loom-check/diagnostics.h"
 #include "loom/tools/loom-check/execute.h"
@@ -59,6 +58,7 @@ typedef enum loom_check_emit_format_e {
   LOOM_CHECK_EMIT_SOURCE_LOW_TEXT = 6,
   LOOM_CHECK_EMIT_LOW_COMPILE_REPORT = 7,
   LOOM_CHECK_EMIT_PIPELINE_PLAN = 8,
+  LOOM_CHECK_EMIT_STORAGE_INTERFERENCE = 9,
 } loom_check_emit_format_t;
 
 enum {
@@ -106,13 +106,14 @@ typedef struct loom_check_emit_low_allocation_summary_row_t {
 } loom_check_emit_low_allocation_summary_row_t;
 
 static const iree_string_view_t kLoomCheckEmitCoreTargetNames[] = {
-    IREE_SVL("liveness-json"),       IREE_SVL("liveness"),
-    IREE_SVL("low-schedule-json"),   IREE_SVL("low-schedule"),
-    IREE_SVL("low-allocation-json"), IREE_SVL("low-allocation-summary"),
-    IREE_SVL("low-allocation"),      IREE_SVL("low-packet-json"),
-    IREE_SVL("low-packet"),          IREE_SVL("target-low-registry-manifest"),
-    IREE_SVL("source-low"),          IREE_SVL("source-to-low"),
-    IREE_SVL("low-compile-report"),  IREE_SVL("pipeline-plan"),
+    IREE_SVL("liveness-json"),        IREE_SVL("liveness"),
+    IREE_SVL("low-schedule-json"),    IREE_SVL("low-schedule"),
+    IREE_SVL("low-allocation-json"),  IREE_SVL("low-allocation-summary"),
+    IREE_SVL("low-allocation"),       IREE_SVL("low-packet-json"),
+    IREE_SVL("low-packet"),           IREE_SVL("target-low-registry-manifest"),
+    IREE_SVL("source-low"),           IREE_SVL("source-to-low"),
+    IREE_SVL("low-compile-report"),   IREE_SVL("pipeline-plan"),
+    IREE_SVL("storage-interference"),
 };
 
 typedef struct loom_check_emit_request_t {
@@ -567,10 +568,12 @@ static iree_status_t loom_check_emit_parse_request(
   }
 
   if (iree_string_view_equal(target_name, IREE_SV("liveness-json")) ||
-      iree_string_view_equal(target_name, IREE_SV("liveness"))) {
+      iree_string_view_equal(target_name, IREE_SV("liveness")) ||
+      iree_string_view_equal(target_name, IREE_SV("storage-interference"))) {
     if (!iree_string_view_starts_with(target_options, IREE_SV("@"))) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "liveness-json requires a function symbol name");
+                              "%.*s requires a function symbol name",
+                              (int)target_name.size, target_name.data);
     }
     out_request->analysis_symbol_name =
         iree_string_view_substr(target_options, 1, IREE_HOST_SIZE_MAX);
@@ -578,7 +581,10 @@ static iree_status_t loom_check_emit_parse_request(
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "function symbol name is required");
     }
-    out_request->format = LOOM_CHECK_EMIT_LIVENESS_JSON;
+    out_request->format =
+        iree_string_view_equal(target_name, IREE_SV("storage-interference"))
+            ? LOOM_CHECK_EMIT_STORAGE_INTERFERENCE
+            : LOOM_CHECK_EMIT_LIVENESS_JSON;
     return iree_ok_status();
   } else if (iree_string_view_equal(target_name, IREE_SV("pipeline-plan"))) {
     iree_string_view_t symbol_name;
@@ -815,9 +821,10 @@ static iree_status_t loom_check_emit_find_func_like(
   return iree_ok_status();
 }
 
-static iree_status_t loom_check_emit_write_liveness_json(
+static iree_status_t loom_check_emit_write_function_analysis(
     loom_module_t* module, iree_string_view_t symbol_name,
-    const loom_test_case_t* test_case, iree_string_view_t filename,
+    loom_check_emit_format_t format, const loom_test_case_t* test_case,
+    iree_string_view_t filename,
     loom_check_diagnostic_collector_t* diagnostic_collector,
     iree_diagnostic_emitter_t emitter, iree_arena_allocator_t* analysis_arena,
     loom_check_result_t* result) {
@@ -828,10 +835,12 @@ static iree_status_t loom_check_emit_write_liveness_json(
   if (!loom_func_like_isa(function)) {
     return iree_ok_status();
   }
-  loom_liveness_analysis_t analysis = {0};
-  IREE_RETURN_IF_ERROR(loom_liveness_analyze_region(
-      module, loom_func_like_body(function), analysis_arena, &analysis));
-  return loom_liveness_format_json(&analysis, NULL, &result->actual_output);
+  if (format == LOOM_CHECK_EMIT_STORAGE_INTERFERENCE) {
+    return loom_check_emit_storage_interference(
+        module, function, analysis_arena, &result->actual_output);
+  }
+  return loom_check_emit_liveness(module, function, analysis_arena,
+                                  &result->actual_output);
 }
 
 static iree_status_t loom_check_emit_pipeline_plan(
@@ -1707,6 +1716,7 @@ iree_status_t loom_check_execute_emit(
   }
 
   if (request.format == LOOM_CHECK_EMIT_LIVENESS_JSON ||
+      request.format == LOOM_CHECK_EMIT_STORAGE_INTERFERENCE ||
       request.format == LOOM_CHECK_EMIT_PIPELINE_PLAN ||
       request.format == LOOM_CHECK_EMIT_LOW_SCHEDULE_JSON ||
       request.format == LOOM_CHECK_EMIT_LOW_ALLOCATION_JSON ||
@@ -1784,10 +1794,11 @@ iree_status_t loom_check_execute_emit(
     };
     iree_host_size_t actual_output_size = result->actual_output.size;
     if (iree_status_is_ok(status)) {
-      if (request.format == LOOM_CHECK_EMIT_LIVENESS_JSON) {
-        status = loom_check_emit_write_liveness_json(
-            module, request.analysis_symbol_name, test_case, filename,
-            &diagnostic_collector,
+      if (request.format == LOOM_CHECK_EMIT_LIVENESS_JSON ||
+          request.format == LOOM_CHECK_EMIT_STORAGE_INTERFERENCE) {
+        status = loom_check_emit_write_function_analysis(
+            module, request.analysis_symbol_name, request.format, test_case,
+            filename, &diagnostic_collector,
             (iree_diagnostic_emitter_t){
                 .fn = loom_check_diagnostic_emitter_capture_emit,
                 .user_data = &pass_diagnostic_capture,

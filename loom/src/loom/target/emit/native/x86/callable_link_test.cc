@@ -32,6 +32,7 @@ extern "C" uint64_t pressure64(const uint64_t* values);
 extern "C" uint32_t pressure32(const uint32_t* values);
 extern "C" uint64_t storage_spaces(uint64_t input, uint32_t word);
 extern "C" uint64_t local_pair(uint64_t first, uint64_t second, uint64_t index);
+extern "C" uint32_t sum_previous_instances(uint64_t count);
 
 namespace {
 
@@ -107,6 +108,13 @@ TEST(NativeCallableTest, StackStorageAndAllocationSpills) {
               wide[0] ^ (wide[0] + 258) ^ narrow[0]);
     ASSERT_EQ(local_pair(wide[0], wide[1], 0), wide[0]);
     ASSERT_EQ(local_pair(wide[0], wide[1], 1), wide[1]);
+  }
+}
+
+TEST(NativeCallableTest, ReusesOnlyDeadAllocationInstances) {
+  for (uint32_t count = 0; count < 20; ++count) {
+    const uint32_t expected = count == 0 ? 0 : count * (count - 1) / 2;
+    EXPECT_EQ(sum_previous_instances(count), expected);
   }
 }
 

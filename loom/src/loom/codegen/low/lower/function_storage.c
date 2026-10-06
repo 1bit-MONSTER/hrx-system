@@ -10,6 +10,28 @@
 #include "loom/ops/buffer/ops.h"
 #include "loom/ops/low/ops.h"
 
+iree_status_t loom_low_lower_function_storage_check_lifetime(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    bool* out_supported) {
+  *out_supported = true;
+  if (!loom_value_fact_table_block_may_repeat(
+          loom_low_lower_context_fact_table(context),
+          source_op->parent_block)) {
+    return iree_ok_status();
+  }
+  loom_storage_interference_t* interference = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_low_lower_context_storage_interference(context, &interference));
+  const loom_value_id_t root_value = loom_buffer_alloca_result(source_op);
+  *out_supported = loom_storage_interference_root_has_single_live_instance(
+      interference, root_value);
+  if (*out_supported) {
+    return iree_ok_status();
+  }
+  return loom_low_lower_emit_function_storage_lifetime_unsupported(
+      context, source_op, root_value);
+}
+
 iree_status_t loom_low_lower_function_storage_select(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     bool* out_selected,
@@ -31,6 +53,13 @@ iree_status_t loom_low_lower_function_storage_select(
     return iree_ok_status();
   }
   *out_selected = true;
+
+  bool lifetime_supported = false;
+  IREE_RETURN_IF_ERROR(loom_low_lower_function_storage_check_lifetime(
+      context, source_op, &lifetime_supported));
+  if (!lifetime_supported) {
+    return iree_ok_status();
+  }
 
   int64_t byte_length = 0;
   if (!loom_value_facts_as_non_negative_i64_maximum(

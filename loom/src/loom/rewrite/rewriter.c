@@ -134,11 +134,15 @@ static iree_status_t loom_rewriter_seed_nested_temporal_scope(
   }
   const loom_value_facts_t scope = loom_value_fact_table_block_temporal_scope(
       rewriter->fact_table, op->parent_block);
+  const bool may_repeat =
+      loom_loop_like_isa(loom_loop_like_cast(rewriter->module, op)) ||
+      loom_value_fact_table_block_may_repeat(rewriter->fact_table,
+                                             op->parent_block);
   loom_region_t** regions = loom_op_regions(op);
   for (uint8_t i = 0; i < op->region_count; ++i) {
     if (regions[i]) {
       IREE_RETURN_IF_ERROR(loom_value_fact_table_set_region_temporal_scope(
-          rewriter->fact_table, regions[i], scope));
+          rewriter->fact_table, regions[i], scope, may_repeat));
     }
   }
   return iree_ok_status();

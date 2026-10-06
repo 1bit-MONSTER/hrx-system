@@ -92,6 +92,10 @@ iree_status_t loom_test_low_lower_map_type(void* user_data,
                                            loom_type_t source_type,
                                            loom_type_t* out_low_type) {
   (void)user_data;
+  if (loom_type_is_buffer(source_type)) {
+    return loom_test_low_make_register_type(
+        context, TEST_LOW_CORE_REG_CLASS_ID_TEST_PTR, 1, out_low_type);
+  }
   if (loom_test_low_is_i32(source_type) || loom_test_low_is_i1(source_type) ||
       loom_test_low_is_index_like(source_type)) {
     return loom_test_low_make_register_type(

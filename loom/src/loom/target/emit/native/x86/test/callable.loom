@@ -258,3 +258,27 @@ func.def public @local_pair(%first: i64, %second: i64, %index: index) -> (i64) {
   %result = view.load %values[%position] : view<2xi64> -> i64
   func.return %result : i64
 }
+
+// The previous allocation dies before recreation. Volatile accesses keep the
+// addressable loop storage observable through the ordinary native function ABI.
+func.def public @sum_previous_instances(%limit: index) -> (i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %seed = scalar.constant 0 : i32
+  %increment = scalar.constant 1 : i32
+  %initial_storage = buffer.alloca<private> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial_storage[%origin] : buffer -> view<1xi32>
+  view.store<volatile> %seed, %initial_view[0] : i32, view<1xi32>
+  %sum, %value, %last = scf.for %i = [%begin to %limit step %step](%accumulator = %seed : i32, %previous_value = %seed : i32, %previous = %initial_view : view<1xi32>) -> (i32, i32, view<1xi32>) {
+    %old_value = view.load<volatile> %previous[0] : view<1xi32> -> i32
+    %storage = buffer.alloca<private> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    %next_value = scalar.addi %previous_value, %increment : i32
+    view.store<volatile> %next_value, %slot[0] : i32, view<1xi32>
+    %next_sum = scalar.addi %accumulator, %old_value : i32
+    scf.yield %next_sum, %next_value, %slot : i32, i32, view<1xi32>
+  }
+  func.return %sum : i32
+}

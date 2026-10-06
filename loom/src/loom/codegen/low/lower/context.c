@@ -131,6 +131,17 @@ iree_status_t loom_low_lower_emit_function_storage_extent_unsupported(
       context, source_op, LOOM_ERR_TARGET_080, params, IREE_ARRAYSIZE(params));
 }
 
+iree_status_t loom_low_lower_emit_function_storage_lifetime_unsupported(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t allocation_value) {
+  const loom_diagnostic_param_t params[] = {
+      loom_param_string(loom_low_diagnostic_value_name(
+          loom_low_lower_context_module(context), allocation_value)),
+  };
+  return loom_low_lower_emit_target_context_error(
+      context, source_op, LOOM_ERR_TARGET_092, params, IREE_ARRAYSIZE(params));
+}
+
 iree_status_t loom_low_lower_emit_register_width_relation_unsupported(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_type_t actual_type, uint32_t result_unit_count) {
@@ -362,6 +373,21 @@ iree_status_t loom_low_lower_context_view_regions(
     analysis->phase = LOOM_LOW_LOWER_FUNCTION_ANALYSIS_VIEW_REGIONS;
   }
   *out_view_regions = &analysis->view_regions;
+  return iree_ok_status();
+}
+
+iree_status_t loom_low_lower_context_storage_interference(
+    loom_low_lower_context_t* context,
+    loom_storage_interference_t** out_interference) {
+  loom_low_lower_function_analysis_t* analysis =
+      &context->lowering.function_analysis;
+  if (!analysis->storage_interference) {
+    IREE_RETURN_IF_ERROR(loom_storage_interference_analyze_function(
+        context->module, context->lowering.fact_table,
+        &context->lowering.value_domain, context->source_function,
+        &context->function_arena, &analysis->storage_interference));
+  }
+  *out_interference = analysis->storage_interference;
   return iree_ok_status();
 }
 

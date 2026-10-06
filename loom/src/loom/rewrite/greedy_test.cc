@@ -638,7 +638,7 @@ TEST_F(GreedyRewriteTest, CyclicFactsNarrowAfterSemanticUpdates) {
   };
   // Non-CFG region context must not be exposed as a structural snapshot.
   IREE_ASSERT_OK(loom_value_fact_table_set_region_temporal_scope(
-      facts, module_->body, loom_value_facts_unknown()));
+      facts, module_->body, loom_value_facts_unknown(), /*may_repeat=*/false));
   IREE_ASSERT_OK(loom_rewriter_refresh_cfg_facts(&rewriter, body));
   IREE_ASSERT_OK(loom_rewriter_refresh_cfg_facts(&rewriter, body));
   EXPECT_NE(loom_value_fact_table_lookup_cfg_graph(facts, body), nullptr);

@@ -17,6 +17,7 @@
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/cfg_value_identity.h"
+#include "loom/analysis/storage_interference.h"
 #include "loom/analysis/symbolic_expr.h"
 #include "loom/analysis/view_regions.h"
 #include "loom/codegen/low/builder.h"
@@ -73,6 +74,8 @@ typedef struct loom_low_lower_function_analysis_t {
   loom_view_region_table_t view_regions;
   // Source body multiplicities retained independently of optional reports.
   loom_low_lower_execution_counts_t execution_counts;
+  // Shared source allocation provenance, accesses, and instance lifetimes.
+  loom_storage_interference_t* storage_interference;
 } loom_low_lower_function_analysis_t;
 
 typedef struct loom_low_lowering_frame_t {

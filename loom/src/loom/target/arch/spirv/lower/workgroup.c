@@ -102,6 +102,14 @@ static iree_status_t loom_spirv_select_workgroup_alloca(
       LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
     return iree_ok_status();
   }
+  bool lifetime_supported = false;
+  IREE_RETURN_IF_ERROR(loom_low_lower_function_storage_check_lifetime(
+      context, source_op, &lifetime_supported));
+  if (!lifetime_supported) {
+    *out_plan =
+        loom_low_lower_plan_make(LOOM_SPIRV_WORKGROUP_PLAN_ALLOCA, NULL);
+    return iree_ok_status();
+  }
   loom_spirv_workgroup_alloca_plan_t plan = {0};
   const loom_value_fact_table_t* fact_table =
       loom_low_lower_context_fact_table(context);
