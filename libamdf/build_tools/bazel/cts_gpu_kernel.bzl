@@ -9,7 +9,7 @@
 load("//libamdf/requirements:package_policy.bzl", "apply_amdf_target_policy")
 load("//loom/build_tools/amdgpu:descriptor_sets.bzl", "loom_amdgpu_selected_descriptor_set_values")
 load("//loom/build_tools/amdgpu:target_config.bzl", "LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_TARGET")
-load("//loom/build_tools/bazel:defs.bzl", "loom_kernel_binary")
+load("//loom/build_tools/bazel:defs.bzl", "loom_kernel_binary", "loom_library")
 load(":cc.bzl", "amdf_cc_library")
 
 def _embed_gpu_kernel_set_impl(ctx):
@@ -47,18 +47,50 @@ _embed_gpu_kernel_set = rule(
     },
 )
 
-def amdf_cts_gpu_kernel_set(name, srcs, targets, entry_point, namespace, visibility = None):
-    """Compiles one behavior for each target and embeds its immutable products.
+def amdf_cts_gpu_kernel_set(
+        name,
+        srcs,
+        targets,
+        entry_point,
+        namespace,
+        data = [],
+        input_format = "",
+        inputopts = [],
+        visibility = None,
+        target_compatible_with = []):
+    """Compiles one source module for each target and embeds its products.
+
+    Sources are admitted once into a private relocatable library. Each physical
+    target then links that same library, keeping frontend work independent of
+    the number of emitted products.
 
     Args:
       name: Library and generated header/implementation stem.
-      srcs: Authored Loom source files linked into each program.
+      srcs: Sources admitted together into the relocatable program library.
       targets: Physical selectors, also naming package-local target profiles.
       entry_point: Exported kernel symbol to extract.
       namespace: C++ namespace containing the kKernels set.
+      data: Declared inputs used while admitting the authored sources.
+      input_format: Optional source provider override.
+      inputopts: Provider-scoped source admission options.
       visibility: Visibility of the generated kernel library.
+      target_compatible_with: Source-provider constraints inherited by the
+          relocatable library and every generated target.
     """
+    source_name = name + "_source"
+    loom_library(
+        name = source_name,
+        srcs = srcs,
+        data = data,
+        input_format = input_format,
+        inputopts = inputopts,
+        tags = ["manual"],
+        target_compatible_with = target_compatible_with,
+        visibility = ["//visibility:private"],
+    )
+
     policy = apply_amdf_target_policy({})
+    policy["target_compatible_with"] += target_compatible_with
     products = {}
     selectors = {}
     compatibility = {"//conditions:default": ["@platforms//:incompatible"]}
@@ -69,7 +101,7 @@ def amdf_cts_gpu_kernel_set(name, srcs, targets, entry_point, namespace, visibil
         loom_kernel_binary(
             name = product_name,
             testonly = True,
-            srcs = srcs,
+            deps = [":" + source_name],
             out = product_name + ".hsaco",
             roots = ["@" + entry_point],
             target = ":" + target,
@@ -96,6 +128,6 @@ def amdf_cts_gpu_kernel_set(name, srcs, targets, entry_point, namespace, visibil
         srcs = [name + ".cc"],
         hdrs = [name + ".h"],
         deps = ["//libamdf/cts/gpu/kernels:kernel"],
-        target_compatible_with = selected_compatibility,
+        target_compatible_with = target_compatible_with + selected_compatibility,
         visibility = visibility,
     )

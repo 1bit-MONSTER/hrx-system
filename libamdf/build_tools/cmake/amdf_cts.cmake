@@ -33,18 +33,29 @@ function(amdf_cts_binary)
   )
 endfunction()
 
-# Compiles one authored behavior for its available physical target profiles,
+# Admits one source module, links it for each available physical target profile,
 # then embeds those products with a small declaration-only header.
 function(amdf_cts_gpu_kernel_set)
   if(NOT IREE_BUILD_TESTS)
     return()
   endif()
-  cmake_parse_arguments(_RULE "" "NAME;ENTRY_POINT;NAMESPACE"
-    "SRCS;TARGETS" ${ARGN})
+  cmake_parse_arguments(_RULE "" "NAME;ENTRY_POINT;NAMESPACE;INPUT_FORMAT"
+    "SRCS;DATA;INPUTOPTS;TARGETS" ${ARGN})
   if(_RULE_UNPARSED_ARGUMENTS OR NOT _RULE_NAME OR NOT _RULE_SRCS OR
      NOT _RULE_ENTRY_POINT OR NOT _RULE_NAMESPACE OR NOT _RULE_TARGETS)
     message(FATAL_ERROR "Incomplete GPU CTS kernel set declaration")
   endif()
+  set(_SOURCE "${_RULE_NAME}_source")
+  loom_module(
+    NAME "${_SOURCE}"
+    SRCS ${_RULE_SRCS}
+    DATA ${_RULE_DATA}
+    INPUT_FORMAT "${_RULE_INPUT_FORMAT}"
+    INPUTOPTS ${_RULE_INPUTOPTS}
+    MODE merge
+    OUTPUT_FORMAT bc
+    STRICT_DEPS
+  )
   set(_INPUTS)
   set(_SELECTORS)
   foreach(_SELECTOR IN LISTS _RULE_TARGETS)
@@ -58,7 +69,7 @@ function(amdf_cts_gpu_kernel_set)
       NAME "${_PRODUCT}"
       TARGET "::${_SELECTOR}"
       OUTPUT "${_PRODUCT}.hsaco"
-      SRCS ${_RULE_SRCS}
+      LIBRARIES "::${_SOURCE}"
       ROOTS "@${_RULE_ENTRY_POINT}"
       TESTONLY
     )
