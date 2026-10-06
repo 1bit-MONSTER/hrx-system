@@ -731,8 +731,9 @@ loom_low_allocation_interval_assignment_initialize_result_storage(
         state->context->unit_liveness, state->context->placement,
         state->scratch_arena->block_pool, &capacity));
     IREE_RETURN_IF_ERROR(loom_low_allocation_active_set_initialize(
-        order->interval_count, capacity.program_point_count,
-        capacity.unit_count, state->scratch_arena, &state->active));
+        state->context->target->descriptor_set, order->interval_count,
+        capacity.program_point_count, capacity.unit_count, state->scratch_arena,
+        &state->active));
   }
 
   state->result.assignment_map = (loom_low_allocation_assignment_map_t){

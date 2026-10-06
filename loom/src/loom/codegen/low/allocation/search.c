@@ -368,6 +368,51 @@ uint32_t loom_low_allocation_search_assignment_residency_tier(
       context->residency, extents, reg_class, units);
 }
 
+// Evaluates one linear candidate selected in the caller's semantic order.
+// Returns true when no later candidate can improve the selected choice.
+static bool loom_low_allocation_search_consider_linear_location(
+    loom_low_allocation_search_context_t* context,
+    const loom_low_allocation_assignment_t* candidate_template,
+    const loom_low_allocation_search_location_query_t* query, uint32_t base,
+    loom_low_allocation_storage_release_policy_t release_policy,
+    loom_low_allocation_search_location_choice_t* out_choice) {
+  if (base < 64 && (query->active_conflicts & (UINT64_C(1) << base))) {
+    return false;
+  }
+  loom_low_allocation_assignment_t candidate = *candidate_template;
+  candidate.location_base = base;
+  if (loom_low_allocation_search_assignment_conflicts(
+          context, &candidate,
+          /*ignored_value_ids=*/NULL, /*ignored_value_count=*/0,
+          /*ignored_storage_lease_value_ids=*/NULL,
+          /*ignored_storage_lease_value_count=*/0, release_policy)) {
+    return false;
+  }
+  const uint32_t preference_penalty =
+      loom_low_allocation_search_location_preference_penalty(context, query,
+                                                             &candidate);
+  const uint32_t tier =
+      query->preferences.structural.placement != NULL ||
+              query->preferences.use_count != 0
+          ? loom_low_allocation_search_assignment_residency_tier(context,
+                                                                 &candidate)
+          : query->tier_limit;
+  if (out_choice->found &&
+      (tier < out_choice->residency_tier ||
+       (tier == out_choice->residency_tier &&
+        preference_penalty >= out_choice->preference_penalty))) {
+    return false;
+  }
+  *out_choice = (loom_low_allocation_search_location_choice_t){
+      .base = base,
+      .candidate_ordinal = base,
+      .preference_penalty = preference_penalty,
+      .residency_tier = tier,
+      .found = true,
+  };
+  return preference_penalty == 0 && tier == query->tier_limit;
+}
+
 static void loom_low_allocation_search_find_location_for_release_policy(
     loom_low_allocation_search_context_t* context,
     const loom_low_allocation_assignment_t* candidate_template,
@@ -387,6 +432,60 @@ static void loom_low_allocation_search_find_location_for_release_policy(
                ->reg_classes[candidate_template->descriptor_reg_class_id],
           candidate_template->unit_count));
 
+  // Continuous scalars can skip dense active conflicts through the retained
+  // ordered active-unit index. Every returned base still passes the complete
+  // conflict and preference query below; only locations that are provably
+  // illegal under the same predicate are omitted.
+  const bool can_skip_active_locations =
+      alignment == 1 && preferred_alignment == 1 &&
+      packing_count <= candidate_count &&
+      loom_low_allocation_active_unit_index_can_order_candidate(
+          &context->active_set->units, candidate_template);
+  if (can_skip_active_locations) {
+    if (packing_count != 0 && minimum_base < packing_count) {
+      uint32_t maximum_base = iree_min(last_base, (uint32_t)packing_count - 1u);
+      while (minimum_base <= maximum_base) {
+        uint32_t base = 0;
+        if (!loom_low_allocation_active_unit_index_find_unoccupied_location(
+                &context->active_set->units, candidate_template, minimum_base,
+                maximum_base, LOOM_LOW_ALLOCATION_LOCATION_SEARCH_DESCENDING,
+                &base)) {
+          break;
+        }
+        if (loom_low_allocation_search_consider_linear_location(
+                context, candidate_template, query, base, release_policy,
+                out_choice)) {
+          return;
+        }
+        if (base == 0) {
+          break;
+        }
+        maximum_base = base - 1u;
+      }
+    }
+
+    uint32_t next_base = iree_max(minimum_base, (uint32_t)packing_count);
+    while (next_base <= last_base) {
+      uint32_t base = 0;
+      if (!loom_low_allocation_active_unit_index_find_unoccupied_location(
+              &context->active_set->units, candidate_template, next_base,
+              last_base, LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING,
+              &base)) {
+        break;
+      }
+      if (loom_low_allocation_search_consider_linear_location(
+              context, candidate_template, query, base, release_policy,
+              out_choice)) {
+        return;
+      }
+      if (base == UINT32_MAX) {
+        break;
+      }
+      next_base = base + 1u;
+    }
+    return;
+  }
+
   // Scalars pack from high to low below their frontier, then low to high above
   // it. Tuples visit preferred-aligned bases before the remaining legal bases.
   // This breaks ties between equal penalties, so the first legal zero-penalty
@@ -398,41 +497,9 @@ static void loom_low_allocation_search_find_location_for_release_policy(
     if (base < minimum_base) {
       continue;
     }
-    if (base < 64 && (query->active_conflicts & (UINT64_C(1) << base))) {
-      continue;
-    }
-    loom_low_allocation_assignment_t candidate = *candidate_template;
-    candidate.location_base = base;
-    if (loom_low_allocation_search_assignment_conflicts(
-            context, &candidate,
-            /*ignored_value_ids=*/NULL, /*ignored_value_count=*/0,
-            /*ignored_storage_lease_value_ids=*/NULL,
-            /*ignored_storage_lease_value_count=*/0, release_policy)) {
-      continue;
-    }
-    const uint32_t preference_penalty =
-        loom_low_allocation_search_location_preference_penalty(context, query,
-                                                               &candidate);
-    const uint32_t tier =
-        query->preferences.structural.placement != NULL ||
-                query->preferences.use_count != 0
-            ? loom_low_allocation_search_assignment_residency_tier(context,
-                                                                   &candidate)
-            : query->tier_limit;
-    if (out_choice->found &&
-        (tier < out_choice->residency_tier ||
-         (tier == out_choice->residency_tier &&
-          preference_penalty >= out_choice->preference_penalty))) {
-      continue;
-    }
-    *out_choice = (loom_low_allocation_search_location_choice_t){
-        .base = base,
-        .candidate_ordinal = base,
-        .preference_penalty = preference_penalty,
-        .residency_tier = tier,
-        .found = true,
-    };
-    if (preference_penalty == 0 && tier == query->tier_limit) {
+    if (loom_low_allocation_search_consider_linear_location(
+            context, candidate_template, query, base, release_policy,
+            out_choice)) {
       return;
     }
   }

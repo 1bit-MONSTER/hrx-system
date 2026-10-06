@@ -34,9 +34,11 @@ static bool loom_low_allocation_active_set_scan_conflicts(
 }
 
 iree_status_t loom_low_allocation_active_set_initialize(
+    const loom_low_descriptor_set_t* descriptor_set,
     iree_host_size_t assignment_capacity, iree_host_size_t program_point_count,
     iree_host_size_t unit_capacity, iree_arena_allocator_t* arena,
     loom_low_allocation_active_set_t* out_active_set) {
+  IREE_ASSERT_ARGUMENT(descriptor_set);
   IREE_ASSERT_ARGUMENT(arena);
   IREE_ASSERT_ARGUMENT(out_active_set);
   *out_active_set = (loom_low_allocation_active_set_t){0};
@@ -55,7 +57,8 @@ iree_status_t loom_low_allocation_active_set_initialize(
            program_point_count * sizeof(*out_active_set->expiration_heads));
   }
   return loom_low_allocation_active_unit_index_initialize(
-      assignment_capacity, unit_capacity, arena, &out_active_set->units);
+      descriptor_set, assignment_capacity, unit_capacity, arena,
+      &out_active_set->units);
 }
 
 bool loom_low_allocation_active_assignment_conflicts(
