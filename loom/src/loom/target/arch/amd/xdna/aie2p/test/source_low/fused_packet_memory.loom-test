@@ -472,7 +472,7 @@ func.def target(@target) @report_store_fptrunc_once(%input: vector<32xf32>, %out
 
 // ----
 COMPILE-REPORT: summary artifact=none status=OK function=- backend=- bundle=- export=- export_symbol=- config=- lowered=-
-COMPILE-REPORT: source_low selected_ops=3 emitted_ops=2 rows=3
+COMPILE-REPORT: source_low selected_ops=3 emitted_ops=2 rows=3 unkeyed_maximum_emitted_ops=0
 COMPILE-REPORT: source_low[0] function=report_store_fptrunc_once source_op=index.constant selection=rule descriptor_key=amd.xdna.aie2p.constant.i32.short descriptor_semantic_tag=integer.const.i32 emitted_ops=0
 COMPILE-REPORT: source_low[1] function=report_store_fptrunc_once source_op=buffer.view selection=rule emitted_ops=0
 COMPILE-REPORT: source_low[2] function=report_store_fptrunc_once source_op=vector.store selection=rule plan_key=native_memory_store_f32x32_to_bf16x32 descriptor_key=amd.xdna.aie2p.store.convert.f32x32.to.bf16x32.indexed.immediate descriptor_semantic_tag=convert.floating.f32x32.to.bf16x32.memory.store emitted_ops=2
@@ -493,7 +493,7 @@ func.def target(@target) @report_load_bitunpack_once(%source: buffer) -> (vector
 
 // ----
 COMPILE-REPORT: summary artifact=none status=OK function=- backend=- bundle=- export=- export_symbol=- config=- lowered=-
-COMPILE-REPORT: source_low selected_ops=3 emitted_ops=2 rows=3
+COMPILE-REPORT: source_low selected_ops=3 emitted_ops=2 rows=3 unkeyed_maximum_emitted_ops=0
 COMPILE-REPORT: source_low[0] function=report_load_bitunpack_once source_op=index.constant selection=rule descriptor_key=amd.xdna.aie2p.constant.i32.short descriptor_semantic_tag=integer.const.i32 emitted_ops=0
 COMPILE-REPORT: source_low[1] function=report_load_bitunpack_once source_op=buffer.view selection=rule emitted_ops=0
 COMPILE-REPORT: source_low[2] function=report_load_bitunpack_once source_op=vector.load selection=rule plan_key=native_memory_load_unsigned_i4x64_to_i8x64 descriptor_key=amd.xdna.aie2p.load.unpack.u4x64.to.u8x64.configured.indexed.immediate descriptor_semantic_tag=convert.integer.unpack.u4x64.to.u8x64.configured.memory.load emitted_ops=2

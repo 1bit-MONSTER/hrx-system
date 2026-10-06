@@ -40,6 +40,7 @@ NUMERIC_CORPUS = loom_corpus_manifest(
         "float/sign.loom",
         "float/turns.loom",
         "integer/arithmetic.loom",
+        "integer/bit_count.loom",
         "integer/bitfield.loom",
         "integer/constant_unsigned_division.loom",
         "integer/division.loom",

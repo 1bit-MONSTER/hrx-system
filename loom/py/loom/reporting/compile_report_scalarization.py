@@ -251,11 +251,7 @@ def suggest_scalarization(
 ) -> tuple[CompileReportSuggestion, ...]:
     """Emits one high-confidence finding for every scalarized source op."""
     inventory = document.scalarization_inventory
-    if (
-        inventory is None
-        or inventory.scalarized_op_count == 0
-        or document.status_code != 0
-    ):
+    if inventory is None or inventory.scalarized_op_count == 0:
         return ()
     if not inventory.events:
         entry_name = _summary_entry_name(document)

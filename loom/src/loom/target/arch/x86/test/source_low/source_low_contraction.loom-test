@@ -207,7 +207,7 @@ func.def target(@target) @report_i8_blocked_mma(%lhs_data: vector<32xi8>, %rhs_d
 
 // ----
 COMPILE-REPORT: summary artifact=none status=OK function=- backend=- bundle=- export=- export_symbol=- config=- lowered=-
-COMPILE-REPORT: source_low selected_ops=5 emitted_ops=2 rows=5
+COMPILE-REPORT: source_low selected_ops=5 emitted_ops=2 rows=5 unkeyed_maximum_emitted_ops=0
 COMPILE-REPORT: source_low[0] function=report_i8_blocked_mma source_op=index.constant selection=rule descriptor_key=x86.scalar.movimm.gpr64 descriptor_semantic_tag=integer.const.i64 emitted_ops=0
 COMPILE-REPORT: source_low[1] function=report_i8_blocked_mma source_op=index.constant selection=rule descriptor_key=x86.scalar.movimm.gpr64 descriptor_semantic_tag=integer.const.i64 emitted_ops=0
 COMPILE-REPORT: source_low[2] function=report_i8_blocked_mma source_op=index.constant selection=rule descriptor_key=x86.scalar.movimm.gpr64 descriptor_semantic_tag=integer.const.i64 emitted_ops=0

@@ -104,6 +104,6 @@ func.def target(@gfx942_target) @i8_selector_working_set(%values: vector<40xi8>)
 }
 
 // ----
-CHECK: COMPILE-REPORT: source_low selected_ops=19 * rows=19
-CHECK: COMPILE-REPORT: target_legalization * scalarized=0 * rows=19
+CHECK: COMPILE-REPORT: source_low selected_ops=19 * rows=19 *
+CHECK: COMPILE-REPORT: target_legalization * scalarized=0 * rows=19 *
 CHECK-NOT: scalarized=true

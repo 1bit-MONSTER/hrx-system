@@ -161,6 +161,53 @@
       ]
     },
     {
+      "name": "surfaces retained math expansion costs through public report tools",
+      "steps": [
+        {
+          "name": "capture-math-expansions",
+          "run": {
+            "tool": "loom-compile",
+            "args": [
+              "{srcdir}/selected_root_amdgpu.loom",
+              "--root=@targetless_math_f32",
+              "--target=amdgpu:gfx1151",
+              "--output={tmp}/math.hsaco",
+              "--compile-report=details",
+              "--compile-report-output={tmp}/math.json"
+            ]
+          },
+          "files": [{"path": "{tmp}/math.hsaco", "non_empty": true}]
+        },
+        {
+          "name": "show-math-expansions",
+          "run": {
+            "tool": "loom-compile-report",
+            "args": ["show", "{tmp}/math.json"]
+          },
+          "stdout": {
+            "contains": [
+              "Per-operation expansion warnings",
+              {"regex": "WARNING: [^\\n]*scalar.roundf: up to 9 source IR operations per source operation via round-away"}
+            ]
+          }
+        },
+        {
+          "name": "suggest-math-expansion-investigation",
+          "run": {
+            "tool": "loom-compile-report",
+            "args": ["suggest", "{tmp}/math.json", "--format=json"]
+          },
+          "stdout": {
+            "contains": {"unordered": [
+              "\"id\":\"lowering.reduce_expansion\"",
+              "scalar.roundf: up to 9 source IR operations per source operation via round-away",
+              "preserves the source semantics"
+            ]}
+          }
+        }
+      ]
+    },
+    {
       "name": "excludes kernel roots before target specialization",
       "run": {
         "tool": "loom-compile",

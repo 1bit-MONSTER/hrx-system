@@ -14,6 +14,59 @@ import pytest
 from loom.tools.compile_report import main
 
 
+@pytest.mark.parametrize(
+    "target_family", ["amdgpu", "amd.xdna.aie2p", "spirv", "vm", "wasm"]
+)
+def test_failed_compilation_keeps_source_expansion_warnings(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    target_family: str,
+) -> None:
+    report_path = tmp_path / "failed.report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "kind": "loom.compile_report",
+                "schema_version": 0,
+                "mode": "summary",
+                "target_family": target_family,
+                "status": {"code": 9, "name": "FAILED_PRECONDITION"},
+                "entries": {"count": 0, "rows": []},
+                "source_low": {
+                    "selection_summaries": {
+                        "count": 1,
+                        "rows": [
+                            {
+                                "index": 0,
+                                "function": "multiply",
+                                "source_op": "scalar.mulf",
+                                "plan_key": "exact_binary32",
+                                "selected_op_count": 16,
+                                "emitted_low_op_count": 2608,
+                                "maximum_emitted_low_op_count": 163,
+                            }
+                        ],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert main(["show", str(report_path)]) == 0
+    assert (
+        "WARNING: multiply scalar.mulf: up to 163 Low operations"
+        in capsys.readouterr().out
+    )
+    assert main(["suggest", str(report_path), "--format=json"]) == 0
+    view = json.loads(capsys.readouterr().out)
+    assert view["status"] == "available"
+    assert view["provider"] == "source"
+    assert view["target_unavailable_reason"] == "compile_status_not_ok"
+    assert [finding["id"] for finding in view["findings"]] == [
+        "lowering.reduce_expansion"
+    ]
+
+
 def _write_report(
     path: Path,
     *,
@@ -594,7 +647,9 @@ def test_scalarization_stands_out_in_show_and_suggest(
     view = json.loads(capsys.readouterr().out)
     assert view["provider"] == "source"
     assert view["target_unavailable_reason"] == "unsupported_target_family"
-    (finding,) = view["findings"]
+    expansion, finding = view["findings"]
+    assert expansion["id"] == "lowering.reduce_expansion"
+    assert expansion["evidence"]["target_legalization.rows[0].created_op_count"] == 81
     assert finding["id"] == "vector.eliminate_scalarization"
     assert finding["evidence"]["target_legalization.rows[0].created_op_count"] == 81
 

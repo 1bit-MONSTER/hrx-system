@@ -181,6 +181,40 @@ loom-compile-report show kernel.report.json --format=json \
 The view is smaller and more stable for dashboards and agents than the complete
 compiler report.
 
+## Spot expensive math and scalar fallback
+
+`show` and `suggest` prominently flag a source operation that creates more than
+five operations during math legalization, target legalization, or selection to
+Low. The same check covers scalar math, vector math, conversions, and other
+source operations on every target using those stages. A scalar software recipe
+can be expensive without scalarizing a vector; fast-math flags do not prove
+that a compact implementation was selected.
+
+For example, a long scalar multiply recipe appears as:
+
+```text
+WARNING: multiply scalar.mulf: up to 163 Low operations per source operation via exact_binary32
+```
+
+The five-operation threshold is an investigation heuristic, not a compilation
+limit. Summary reports retain the **largest single expansion**, so many cheap
+operations cannot average away one expensive occurrence. Detailed reports name
+the source function, operation, selected recipe or legalizer, and evidence row.
+Summary legalization alarms request details when the source identity was not
+retained. Explicit **Scalar lane expansion** feedback remains separate: even a
+short scalarization can replace a useful vector path. Retained source warnings
+remain available if compilation subsequently fails.
+
+These counts describe operations emitted at one compiler stage, not final
+hardware instructions or elapsed time. A source operation can appear at several
+stages; adding those rows would double-count work. They also do not reconstruct
+the cumulative cost of earlier rewrites or expansion inside a target driver.
+Missing per-operation evidence is unavailable, not proof of cheap code. A
+warning identifies a lowering to investigate for a compact, semantics-preserving
+implementation; final instruction counts, registers, spills, and workload
+measurements establish its actual cost. Changing numerical requirements is a
+separate author decision, not an automatic response to the warning.
+
 ## Diagnose LDS bank conflicts
 
 For an AMDGPU kernel using workgroup memory, capture a `details` report and run

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from loom.reporting.compile_report_expansions import CompileReportExpansionInventory
     from loom.reporting.compile_report_scalarization import (
         CompileReportScalarizationInventory,
     )
@@ -155,6 +156,8 @@ class CompileReportDocument:
     residency_constraints_by_function: dict[str, tuple[dict[str, object], ...]]
     # Validated scalar legalization events indexed once at the input boundary.
     scalarization_inventory: CompileReportScalarizationInventory | None
+    # Validated per-operation lowering counts, independent of scalarization.
+    expansion_inventory: CompileReportExpansionInventory
     # Validated wait reasons indexed once at the document input boundary.
     wait_reason_inventory: CompileReportWaitReasonInventory | None
 
@@ -331,6 +334,7 @@ def parse_compile_report(
     # Kept local to avoid making report view modules part of this module's
     # definition-time dependency cycle. Report parsing is the public boundary
     # and owns construction of every retained index.
+    from loom.reporting.compile_report_expansions import parse_compile_report_expansions
     from loom.reporting.compile_report_scalarization import (
         parse_compile_report_scalarization,
     )
@@ -349,6 +353,7 @@ def parse_compile_report(
         envelope_context=envelope_context,
         residency_constraints_by_function=_index_residency_constraints(report, source),
         scalarization_inventory=scalarization_inventory,
+        expansion_inventory=parse_compile_report_expansions(report, mode, source),
         wait_reason_inventory=wait_reason_inventory,
     )
 
