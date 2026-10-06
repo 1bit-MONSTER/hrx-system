@@ -380,9 +380,11 @@ bool loom_numeric_float_encoding(loom_scalar_type_t type,
   loom_numeric_float_special_layout_t special_layout =
       LOOM_NUMERIC_FLOAT_SPECIAL_LAYOUT_IEEE;
   uint64_t special_magnitude = 0;
+  uint64_t quiet_nan_bit = 0;
   if (iree_all_bits_set(info->flags, LOOM_NUMERIC_FORMAT_FLAG_HAS_INFINITY)) {
     special_magnitude = ((UINT64_C(1) << info->exponent_bit_count) - 1)
                         << info->mantissa_bit_count;
+    quiet_nan_bit = UINT64_C(1) << (info->mantissa_bit_count - 1);
   } else if (iree_all_bits_set(info->flags,
                                LOOM_NUMERIC_FORMAT_FLAG_FINITE_ONLY) &&
              !iree_any_bit_set(info->flags,
@@ -398,6 +400,7 @@ bool loom_numeric_float_encoding(loom_scalar_type_t type,
       .special_layout = special_layout,
       .magnitude_mask = magnitude_mask,
       .special_magnitude = special_magnitude,
+      .quiet_nan_bit = quiet_nan_bit,
   };
   return true;
 }

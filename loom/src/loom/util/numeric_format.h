@@ -194,6 +194,9 @@ typedef struct loom_numeric_float_encoding_t {
 
   // Infinity magnitude for IEEE formats or NaN magnitude for finite formats.
   uint64_t special_magnitude;
+
+  // Quiet-NaN bit for IEEE formats or zero for finite-only formats.
+  uint64_t quiet_nan_bit;
 } loom_numeric_float_encoding_t;
 
 typedef struct loom_numeric_format_info_t {

@@ -79,6 +79,8 @@ loom_corpus_sources(
     "vector/f32.loom"
     "vector/fields.loom"
     "vector/floating.loom"
+    "vector/float_comparison.loom"
+    "vector/float_extrema.loom"
     "vector/indexing.loom"
     "vector/integer_bitwise.loom"
     "vector/integer_comparison.loom"

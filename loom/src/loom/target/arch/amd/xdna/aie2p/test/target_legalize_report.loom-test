@@ -47,3 +47,18 @@ func.def @static_slice(%values: vector<3x4xf32>) -> (vector<1x4xf32>) {
 // ----
 CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=0 target_rewritten=1 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=1
 CHECK: COMPILE-REPORT: target_legalization[0] * source_op=vector.slice * action=rewritten * legalizer=aie2p strategy=target * scalarized=false * created_ops=3 erased_ops=1
+
+// ====
+
+// RUN: with-checks compile-report target=amd.xdna.aie2p:core target-legalize{mode=final}
+
+func.def @vector_f64_extrema(%value: vector<2xf64>, %lhs: vector<2xf64>, %rhs: vector<2xf64>) -> (vector<2xf64>, vector<2xf64>) {
+  %minimum = vector.minimumf %lhs, %rhs : vector<2xf64>
+  %ieee = vector.clampf<ieee> %value, %lhs, %rhs : vector<2xf64>
+  func.return %minimum, %ieee : vector<2xf64>, vector<2xf64>
+}
+
+// ----
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=2 scalarized=0 target_rewritten=2 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=2
+CHECK: COMPILE-REPORT: target_legalization[*] function=vector_f64_extrema source_op=vector.minimumf * action=rewritten * legalizer=aie2p strategy=target * scalarized=false *
+CHECK: COMPILE-REPORT: target_legalization[*] function=vector_f64_extrema source_op=vector.clampf * action=rewritten * legalizer=aie2p strategy=target * scalarized=false *

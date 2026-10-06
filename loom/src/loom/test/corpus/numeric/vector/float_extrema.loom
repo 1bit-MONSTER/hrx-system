@@ -1,0 +1,350 @@
+// Every subject exercises the complete vector floating extrema family over
+// four independent lanes. Inputs arrive as raw bits so signed zeros,
+// subnormals, infinities, and NaNs survive the callable boundary. Finite trials
+// compare exact output bits; special-value trials permit unspecified NaN
+// payloads while requiring the same lanes to remain NaNs. Float8 results widen
+// exactly to F32 because close expectations do not consume Float8 buffers.
+
+func.def @vector_float_extrema_f8e4m3(%value_buffer: buffer, %lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %value_bits_view = buffer.view %value_buffer[%base] : buffer -> view<4xi8>
+  %lhs_bits_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xi8>
+  %rhs_bits_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xi8>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf32>
+  %value_bits = vector.load %value_bits_view[0] : view<4xi8> -> vector<4xi8>
+  %lhs_bits = vector.load %lhs_bits_view[0] : view<4xi8> -> vector<4xi8>
+  %rhs_bits = vector.load %rhs_bits_view[0] : view<4xi8> -> vector<4xi8>
+  %value = vector.bitcast %value_bits : vector<4xi8> to vector<4xf8E4M3>
+  %lhs = vector.bitcast %lhs_bits : vector<4xi8> to vector<4xf8E4M3>
+  %rhs = vector.bitcast %rhs_bits : vector<4xi8> to vector<4xf8E4M3>
+  %minimum = vector.minimumf %lhs, %rhs : vector<4xf8E4M3>
+  %minimum_output = vector.extf %minimum : vector<4xf8E4M3> to vector<4xf32>
+  vector.store %minimum_output, %output_view[0] : vector<4xf32>, view<28xf32>
+  %maximum = vector.maximumf %lhs, %rhs : vector<4xf8E4M3>
+  %maximum_output = vector.extf %maximum : vector<4xf8E4M3> to vector<4xf32>
+  vector.store %maximum_output, %output_view[4] : vector<4xf32>, view<28xf32>
+  %minnum = vector.minnumf %lhs, %rhs : vector<4xf8E4M3>
+  %minnum_output = vector.extf %minnum : vector<4xf8E4M3> to vector<4xf32>
+  vector.store %minnum_output, %output_view[8] : vector<4xf32>, view<28xf32>
+  %maxnum = vector.maxnumf %lhs, %rhs : vector<4xf8E4M3>
+  %maxnum_output = vector.extf %maxnum : vector<4xf8E4M3> to vector<4xf32>
+  vector.store %maxnum_output, %output_view[12] : vector<4xf32>, view<28xf32>
+  %ordered = vector.clampf<ordered> %value, %lhs, %rhs : vector<4xf8E4M3>
+  %ordered_output = vector.extf %ordered : vector<4xf8E4M3> to vector<4xf32>
+  vector.store %ordered_output, %output_view[16] : vector<4xf32>, view<28xf32>
+  %number = vector.clampf<number> %value, %lhs, %rhs : vector<4xf8E4M3>
+  %number_output = vector.extf %number : vector<4xf8E4M3> to vector<4xf32>
+  vector.store %number_output, %output_view[20] : vector<4xf32>, view<28xf32>
+  %ieee = vector.clampf<ieee> %value, %lhs, %rhs : vector<4xf8E4M3>
+  %ieee_output = vector.extf %ieee : vector<4xf8E4M3> to vector<4xf32>
+  vector.store %ieee_output, %output_view[24] : vector<4xf32>, view<28xf32>
+  func.return
+}
+
+func.def @vector_float_extrema_f8e5m2(%value_buffer: buffer, %lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %value_bits_view = buffer.view %value_buffer[%base] : buffer -> view<4xi8>
+  %lhs_bits_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xi8>
+  %rhs_bits_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xi8>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf32>
+  %value_bits = vector.load %value_bits_view[0] : view<4xi8> -> vector<4xi8>
+  %lhs_bits = vector.load %lhs_bits_view[0] : view<4xi8> -> vector<4xi8>
+  %rhs_bits = vector.load %rhs_bits_view[0] : view<4xi8> -> vector<4xi8>
+  %value = vector.bitcast %value_bits : vector<4xi8> to vector<4xf8E5M2>
+  %lhs = vector.bitcast %lhs_bits : vector<4xi8> to vector<4xf8E5M2>
+  %rhs = vector.bitcast %rhs_bits : vector<4xi8> to vector<4xf8E5M2>
+  %minimum = vector.minimumf %lhs, %rhs : vector<4xf8E5M2>
+  %minimum_output = vector.extf %minimum : vector<4xf8E5M2> to vector<4xf32>
+  vector.store %minimum_output, %output_view[0] : vector<4xf32>, view<28xf32>
+  %maximum = vector.maximumf %lhs, %rhs : vector<4xf8E5M2>
+  %maximum_output = vector.extf %maximum : vector<4xf8E5M2> to vector<4xf32>
+  vector.store %maximum_output, %output_view[4] : vector<4xf32>, view<28xf32>
+  %minnum = vector.minnumf %lhs, %rhs : vector<4xf8E5M2>
+  %minnum_output = vector.extf %minnum : vector<4xf8E5M2> to vector<4xf32>
+  vector.store %minnum_output, %output_view[8] : vector<4xf32>, view<28xf32>
+  %maxnum = vector.maxnumf %lhs, %rhs : vector<4xf8E5M2>
+  %maxnum_output = vector.extf %maxnum : vector<4xf8E5M2> to vector<4xf32>
+  vector.store %maxnum_output, %output_view[12] : vector<4xf32>, view<28xf32>
+  %ordered = vector.clampf<ordered> %value, %lhs, %rhs : vector<4xf8E5M2>
+  %ordered_output = vector.extf %ordered : vector<4xf8E5M2> to vector<4xf32>
+  vector.store %ordered_output, %output_view[16] : vector<4xf32>, view<28xf32>
+  %number = vector.clampf<number> %value, %lhs, %rhs : vector<4xf8E5M2>
+  %number_output = vector.extf %number : vector<4xf8E5M2> to vector<4xf32>
+  vector.store %number_output, %output_view[20] : vector<4xf32>, view<28xf32>
+  %ieee = vector.clampf<ieee> %value, %lhs, %rhs : vector<4xf8E5M2>
+  %ieee_output = vector.extf %ieee : vector<4xf8E5M2> to vector<4xf32>
+  vector.store %ieee_output, %output_view[24] : vector<4xf32>, view<28xf32>
+  func.return
+}
+
+func.def @vector_float_extrema_f16(%value_buffer: buffer, %lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %value_bits_view = buffer.view %value_buffer[%base] : buffer -> view<4xi16>
+  %lhs_bits_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xi16>
+  %rhs_bits_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xi16>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf16>
+  %value_bits = vector.load %value_bits_view[0] : view<4xi16> -> vector<4xi16>
+  %lhs_bits = vector.load %lhs_bits_view[0] : view<4xi16> -> vector<4xi16>
+  %rhs_bits = vector.load %rhs_bits_view[0] : view<4xi16> -> vector<4xi16>
+  %value = vector.bitcast %value_bits : vector<4xi16> to vector<4xf16>
+  %lhs = vector.bitcast %lhs_bits : vector<4xi16> to vector<4xf16>
+  %rhs = vector.bitcast %rhs_bits : vector<4xi16> to vector<4xf16>
+  %minimum = vector.minimumf %lhs, %rhs : vector<4xf16>
+  vector.store %minimum, %output_view[0] : vector<4xf16>, view<28xf16>
+  %maximum = vector.maximumf %lhs, %rhs : vector<4xf16>
+  vector.store %maximum, %output_view[4] : vector<4xf16>, view<28xf16>
+  %minnum = vector.minnumf %lhs, %rhs : vector<4xf16>
+  vector.store %minnum, %output_view[8] : vector<4xf16>, view<28xf16>
+  %maxnum = vector.maxnumf %lhs, %rhs : vector<4xf16>
+  vector.store %maxnum, %output_view[12] : vector<4xf16>, view<28xf16>
+  %ordered = vector.clampf<ordered> %value, %lhs, %rhs : vector<4xf16>
+  vector.store %ordered, %output_view[16] : vector<4xf16>, view<28xf16>
+  %number = vector.clampf<number> %value, %lhs, %rhs : vector<4xf16>
+  vector.store %number, %output_view[20] : vector<4xf16>, view<28xf16>
+  %ieee = vector.clampf<ieee> %value, %lhs, %rhs : vector<4xf16>
+  vector.store %ieee, %output_view[24] : vector<4xf16>, view<28xf16>
+  func.return
+}
+
+func.def @vector_float_extrema_bf16(%value_buffer: buffer, %lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %value_bits_view = buffer.view %value_buffer[%base] : buffer -> view<4xi16>
+  %lhs_bits_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xi16>
+  %rhs_bits_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xi16>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xbf16>
+  %value_bits = vector.load %value_bits_view[0] : view<4xi16> -> vector<4xi16>
+  %lhs_bits = vector.load %lhs_bits_view[0] : view<4xi16> -> vector<4xi16>
+  %rhs_bits = vector.load %rhs_bits_view[0] : view<4xi16> -> vector<4xi16>
+  %value = vector.bitcast %value_bits : vector<4xi16> to vector<4xbf16>
+  %lhs = vector.bitcast %lhs_bits : vector<4xi16> to vector<4xbf16>
+  %rhs = vector.bitcast %rhs_bits : vector<4xi16> to vector<4xbf16>
+  %minimum = vector.minimumf %lhs, %rhs : vector<4xbf16>
+  vector.store %minimum, %output_view[0] : vector<4xbf16>, view<28xbf16>
+  %maximum = vector.maximumf %lhs, %rhs : vector<4xbf16>
+  vector.store %maximum, %output_view[4] : vector<4xbf16>, view<28xbf16>
+  %minnum = vector.minnumf %lhs, %rhs : vector<4xbf16>
+  vector.store %minnum, %output_view[8] : vector<4xbf16>, view<28xbf16>
+  %maxnum = vector.maxnumf %lhs, %rhs : vector<4xbf16>
+  vector.store %maxnum, %output_view[12] : vector<4xbf16>, view<28xbf16>
+  %ordered = vector.clampf<ordered> %value, %lhs, %rhs : vector<4xbf16>
+  vector.store %ordered, %output_view[16] : vector<4xbf16>, view<28xbf16>
+  %number = vector.clampf<number> %value, %lhs, %rhs : vector<4xbf16>
+  vector.store %number, %output_view[20] : vector<4xbf16>, view<28xbf16>
+  %ieee = vector.clampf<ieee> %value, %lhs, %rhs : vector<4xbf16>
+  vector.store %ieee, %output_view[24] : vector<4xbf16>, view<28xbf16>
+  func.return
+}
+
+func.def @vector_float_extrema_f32(%value_buffer: buffer, %lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %value_bits_view = buffer.view %value_buffer[%base] : buffer -> view<4xi32>
+  %lhs_bits_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xi32>
+  %rhs_bits_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xi32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf32>
+  %value_bits = vector.load %value_bits_view[0] : view<4xi32> -> vector<4xi32>
+  %lhs_bits = vector.load %lhs_bits_view[0] : view<4xi32> -> vector<4xi32>
+  %rhs_bits = vector.load %rhs_bits_view[0] : view<4xi32> -> vector<4xi32>
+  %value = vector.bitcast %value_bits : vector<4xi32> to vector<4xf32>
+  %lhs = vector.bitcast %lhs_bits : vector<4xi32> to vector<4xf32>
+  %rhs = vector.bitcast %rhs_bits : vector<4xi32> to vector<4xf32>
+  %minimum = vector.minimumf %lhs, %rhs : vector<4xf32>
+  vector.store %minimum, %output_view[0] : vector<4xf32>, view<28xf32>
+  %maximum = vector.maximumf %lhs, %rhs : vector<4xf32>
+  vector.store %maximum, %output_view[4] : vector<4xf32>, view<28xf32>
+  %minnum = vector.minnumf %lhs, %rhs : vector<4xf32>
+  vector.store %minnum, %output_view[8] : vector<4xf32>, view<28xf32>
+  %maxnum = vector.maxnumf %lhs, %rhs : vector<4xf32>
+  vector.store %maxnum, %output_view[12] : vector<4xf32>, view<28xf32>
+  %ordered = vector.clampf<ordered> %value, %lhs, %rhs : vector<4xf32>
+  vector.store %ordered, %output_view[16] : vector<4xf32>, view<28xf32>
+  %number = vector.clampf<number> %value, %lhs, %rhs : vector<4xf32>
+  vector.store %number, %output_view[20] : vector<4xf32>, view<28xf32>
+  %ieee = vector.clampf<ieee> %value, %lhs, %rhs : vector<4xf32>
+  vector.store %ieee, %output_view[24] : vector<4xf32>, view<28xf32>
+  func.return
+}
+
+func.def @vector_float_extrema_f64(%value_buffer: buffer, %lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %value_bits_view = buffer.view %value_buffer[%base] : buffer -> view<4xi64>
+  %lhs_bits_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xi64>
+  %rhs_bits_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xi64>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf64>
+  %value_bits = vector.load %value_bits_view[0] : view<4xi64> -> vector<4xi64>
+  %lhs_bits = vector.load %lhs_bits_view[0] : view<4xi64> -> vector<4xi64>
+  %rhs_bits = vector.load %rhs_bits_view[0] : view<4xi64> -> vector<4xi64>
+  %value = vector.bitcast %value_bits : vector<4xi64> to vector<4xf64>
+  %lhs = vector.bitcast %lhs_bits : vector<4xi64> to vector<4xf64>
+  %rhs = vector.bitcast %rhs_bits : vector<4xi64> to vector<4xf64>
+  %minimum = vector.minimumf %lhs, %rhs : vector<4xf64>
+  vector.store %minimum, %output_view[0] : vector<4xf64>, view<28xf64>
+  %maximum = vector.maximumf %lhs, %rhs : vector<4xf64>
+  vector.store %maximum, %output_view[4] : vector<4xf64>, view<28xf64>
+  %minnum = vector.minnumf %lhs, %rhs : vector<4xf64>
+  vector.store %minnum, %output_view[8] : vector<4xf64>, view<28xf64>
+  %maxnum = vector.maxnumf %lhs, %rhs : vector<4xf64>
+  vector.store %maxnum, %output_view[12] : vector<4xf64>, view<28xf64>
+  %ordered = vector.clampf<ordered> %value, %lhs, %rhs : vector<4xf64>
+  vector.store %ordered, %output_view[16] : vector<4xf64>, view<28xf64>
+  %number = vector.clampf<number> %value, %lhs, %rhs : vector<4xf64>
+  vector.store %number, %output_view[20] : vector<4xf64>, view<28xf64>
+  %ieee = vector.clampf<ieee> %value, %lhs, %rhs : vector<4xf64>
+  vector.store %ieee, %output_view[24] : vector<4xf64>, view<28xf64>
+  func.return
+}
+
+check.scenario @vector_float_extrema_f8e4m3_values {
+  // Opposing signed-zero operands exercise IEEE extrema ordering while the
+  // alternating value tests ordered clamp's compare/select tie behavior.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(0) step(-128) period(2) : tensor<4xi8>
+    %lhs = check.generate.iota offset(0) step(-128) period(2) : tensor<4xi8>
+    %rhs = check.generate.fill value(-128) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e4m3>(%value, %lhs, %rhs, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  // The representational special boundary covers maximum finite values,
+  // infinities where present, signaling NaNs, and quiet NaNs.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(124) step(1) : tensor<4xi8>
+    %lhs = check.generate.iota offset(124) step(1) : tensor<4xi8>
+    %rhs = check.generate.iota offset(127) step(-1) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e4m3>(%value, %lhs, %rhs, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xf32>
+    }
+  }
+  check.return
+}
+
+check.scenario @vector_float_extrema_f8e5m2_values {
+  // Opposing signed-zero operands exercise IEEE extrema ordering while the
+  // alternating value tests ordered clamp's compare/select tie behavior.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(0) step(-128) period(2) : tensor<4xi8>
+    %lhs = check.generate.iota offset(0) step(-128) period(2) : tensor<4xi8>
+    %rhs = check.generate.fill value(-128) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e5m2>(%value, %lhs, %rhs, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  // The representational special boundary covers maximum finite values,
+  // infinities where present, signaling NaNs, and quiet NaNs.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(124) step(1) : tensor<4xi8>
+    %lhs = check.generate.iota offset(123) step(1) : tensor<4xi8>
+    %rhs = check.generate.iota offset(126) step(-1) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e5m2>(%value, %lhs, %rhs, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xf32>
+    }
+  }
+  check.return
+}
+
+check.scenario @vector_float_extrema_f16_values {
+  // Opposing signed-zero operands exercise IEEE extrema ordering while the
+  // alternating value tests ordered clamp's compare/select tie behavior.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(0) step(-32768) period(2) : tensor<4xi16>
+    %lhs = check.generate.iota offset(0) step(-32768) period(2) : tensor<4xi16>
+    %rhs = check.generate.fill value(-32768) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xf16>
+    check.compare<@vector_float_extrema_f16>(%value, %lhs, %rhs, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xf16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf16>
+    }
+  }
+  // The representational special boundary covers maximum finite values,
+  // infinities where present, signaling NaNs, and quiet NaNs.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(31744) step(1) : tensor<4xi16>
+    %lhs = check.generate.iota offset(31743) step(1) : tensor<4xi16>
+    %rhs = check.generate.iota offset(32256) step(1) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xf16>
+    check.compare<@vector_float_extrema_f16>(%value, %lhs, %rhs, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xf16>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xf16>
+    }
+  }
+  check.return
+}
+
+check.scenario @vector_float_extrema_bf16_values {
+  // Opposing signed-zero operands exercise IEEE extrema ordering while the
+  // alternating value tests ordered clamp's compare/select tie behavior.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(0) step(-32768) period(2) : tensor<4xi16>
+    %lhs = check.generate.iota offset(0) step(-32768) period(2) : tensor<4xi16>
+    %rhs = check.generate.fill value(-32768) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xbf16>
+    check.compare<@vector_float_extrema_bf16>(%value, %lhs, %rhs, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xbf16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xbf16>
+    }
+  }
+  // The representational special boundary covers maximum finite values,
+  // infinities where present, signaling NaNs, and quiet NaNs.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(32640) step(1) : tensor<4xi16>
+    %lhs = check.generate.iota offset(32639) step(1) : tensor<4xi16>
+    %rhs = check.generate.iota offset(32704) step(1) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xbf16>
+    check.compare<@vector_float_extrema_bf16>(%value, %lhs, %rhs, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xbf16>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xbf16>
+    }
+  }
+  check.return
+}
+
+check.scenario @vector_float_extrema_f32_values {
+  // Opposing signed-zero operands exercise IEEE extrema ordering while the
+  // alternating value tests ordered clamp's compare/select tie behavior.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(0) step(-2147483648) period(2) : tensor<4xi32>
+    %lhs = check.generate.iota offset(0) step(-2147483648) period(2) : tensor<4xi32>
+    %rhs = check.generate.fill value(-2147483648) : tensor<4xi32>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f32>(%value, %lhs, %rhs, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<4xi32>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  // The representational special boundary covers maximum finite values,
+  // infinities where present, signaling NaNs, and quiet NaNs.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(2139095040) step(1) : tensor<4xi32>
+    %lhs = check.generate.iota offset(2139095039) step(1) : tensor<4xi32>
+    %rhs = check.generate.iota offset(2143289344) step(1) : tensor<4xi32>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f32>(%value, %lhs, %rhs, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<4xi32>, tensor<28xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xf32>
+    }
+  }
+  check.return
+}
+
+check.scenario @vector_float_extrema_f64_values {
+  // Opposing signed-zero operands exercise IEEE extrema ordering while the
+  // alternating value tests ordered clamp's compare/select tie behavior.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(0) step(-9223372036854775808) period(2) : tensor<4xi64>
+    %lhs = check.generate.iota offset(0) step(-9223372036854775808) period(2) : tensor<4xi64>
+    %rhs = check.generate.fill value(-9223372036854775808) : tensor<4xi64>
+    %output = check.generate.fill value(0.0) : tensor<28xf64>
+    check.compare<@vector_float_extrema_f64>(%value, %lhs, %rhs, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<4xi64>, tensor<28xf64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf64>
+    }
+  }
+  // The representational special boundary covers maximum finite values,
+  // infinities where present, signaling NaNs, and quiet NaNs.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(9218868437227405312) step(1) : tensor<4xi64>
+    %lhs = check.generate.iota offset(9218868437227405311) step(1) : tensor<4xi64>
+    %rhs = check.generate.iota offset(9221120237041090560) step(1) : tensor<4xi64>
+    %output = check.generate.fill value(0.0) : tensor<28xf64>
+    check.compare<@vector_float_extrema_f64>(%value, %lhs, %rhs, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<4xi64>, tensor<28xf64>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xf64>
+    }
+  }
+  check.return
+}
