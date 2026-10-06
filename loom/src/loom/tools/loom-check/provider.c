@@ -122,23 +122,6 @@ int loom_check_provider_main(int argc, char** argv,
       .target_environment = &state.target_environment,
       .cleanup_pattern_provider_set =
           loom_cleanup_configured_pattern_provider_set(),
-      .pass_registry =
-          loom_target_environment_pass_registry(&state.target_environment),
-      .low_legality_provider_list =
-          loom_target_environment_low_legality_provider_list(
-              &state.target_environment),
-      .legalizer_provider_list =
-          loom_target_environment_legalizer_provider_list(
-              &state.target_environment),
-      .low_packet_diagnostic_provider_list =
-          loom_target_environment_low_packet_diagnostic_provider_list(
-              &state.target_environment),
-      .low_asm_diagnostic_provider_list =
-          loom_target_environment_low_asm_diagnostic_provider_list(
-              &state.target_environment),
-      .low_verify_provider_list =
-          loom_target_environment_low_verify_provider_list(
-              &state.target_environment),
       .emit_providers =
           {
               .providers = state.emit_providers,

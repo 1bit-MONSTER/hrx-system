@@ -195,20 +195,17 @@ static loomc_status_t loomc_target_pass_environment_initialize(
   const loom_target_environment_t* internal_environment =
       &target_environment->environment;
   out_environment->target_environment = internal_environment;
-  LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(
-      loom_target_environment_initialize_low_descriptor_registry(
-          internal_environment, &out_environment->low_descriptor_registry)));
+  out_environment->low_descriptor_registry =
+      loom_target_environment_low_descriptor_registry(internal_environment);
   out_environment->diagnostic_type_print_options.flags =
       LOOM_TEXT_PRINT_DEFAULT;
   loom_low_descriptor_text_asm_environment_initialize(
       &out_environment->low_descriptor_registry.registry,
       &out_environment->diagnostic_type_print_options.low_asm_environment);
-  LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(
-      loom_target_environment_initialize_low_lower_policy_registry(
-          internal_environment, &out_environment->low_lower_policy_registry)));
-  LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(
-      loom_target_environment_initialize_math_policy_registry(
-          internal_environment, &out_environment->math_policy_registry)));
+  out_environment->low_lower_policy_registry =
+      loom_target_environment_low_lower_policy_registry(internal_environment);
+  out_environment->math_policy_registry =
+      loom_target_environment_math_policy_registry(internal_environment);
   out_environment->low_legality_provider_list =
       loom_target_environment_low_legality_provider_list(internal_environment);
   LOOMC_RETURN_IF_ERROR(

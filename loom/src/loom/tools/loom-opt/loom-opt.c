@@ -312,8 +312,9 @@ static iree_status_t loom_opt_initialize_low_descriptor_registry(
     void* user_data, loom_target_low_descriptor_registry_t* out_registry) {
   const loom_target_environment_t* target_environment =
       (const loom_target_environment_t*)user_data;
-  return loom_target_environment_initialize_low_descriptor_registry(
-      target_environment, out_registry);
+  *out_registry =
+      loom_target_environment_low_descriptor_registry(target_environment);
+  return iree_ok_status();
 }
 
 static bool loom_opt_resolve_emission_location(
@@ -927,13 +928,10 @@ static iree_status_t loom_opt_run_passes(
       .emitter = LOOM_EMITTER_PASS,
   };
 
-  loom_low_lower_policy_registry_t low_lower_policy_registry = {0};
-  IREE_RETURN_IF_ERROR(
-      loom_target_environment_initialize_low_lower_policy_registry(
-          target_environment, &low_lower_policy_registry));
-  loom_target_math_policy_registry_t math_policy_registry = {0};
-  IREE_RETURN_IF_ERROR(loom_target_environment_initialize_math_policy_registry(
-      target_environment, &math_policy_registry));
+  const loom_low_lower_policy_registry_t low_lower_policy_registry =
+      loom_target_environment_low_lower_policy_registry(target_environment);
+  const loom_target_math_policy_registry_t math_policy_registry =
+      loom_target_environment_math_policy_registry(target_environment);
   const loom_target_low_legality_provider_list_t low_legality_provider_list =
       loom_target_environment_low_legality_provider_list(target_environment);
   const loom_target_legalizer_provider_list_t legalizer_provider_list =

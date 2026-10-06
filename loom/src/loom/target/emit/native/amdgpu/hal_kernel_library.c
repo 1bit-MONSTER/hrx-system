@@ -1113,8 +1113,8 @@ iree_status_t loom_amdgpu_compile_hal_kernel_library(
       &loom_amdgpu_target_provider_set, &target_environment);
   loom_target_low_descriptor_registry_t low_registry = {0};
   if (iree_status_is_ok(status)) {
-    status = loom_target_environment_initialize_low_descriptor_registry(
-        &target_environment, &low_registry);
+    low_registry =
+        loom_target_environment_low_descriptor_registry(&target_environment);
   }
   loom_target_entry_diagnostic_emitter_t diagnostic_emitter = {0};
   if (options != NULL && options->diagnostic_emitter.fn != NULL) {

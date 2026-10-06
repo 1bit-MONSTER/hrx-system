@@ -200,8 +200,8 @@ static iree_status_t loom_vm_testbench_compile(
   }
   loom_target_low_descriptor_registry_t registry = {0};
   if (iree_status_is_ok(status)) {
-    status = loom_target_environment_initialize_low_descriptor_registry(
-        testbench->target_environment, &registry);
+    registry = loom_target_environment_low_descriptor_registry(
+        testbench->target_environment);
   }
   loom_compile_pipeline_result_t pipeline = {0};
   loom_compile_pipeline_options_t options;

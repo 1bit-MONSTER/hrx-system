@@ -209,12 +209,6 @@ const loom_check_environment_t kExecuteTestProviderEnvironment = {
     /*.target_environment=*/{},
     /*.cleanup_pattern_provider_set=*/
     loom_cleanup_configured_pattern_provider_set(),
-    /*.pass_registry=*/{},
-    /*.low_legality_provider_list=*/{},
-    /*.legalizer_provider_list=*/{},
-    /*.low_packet_diagnostic_provider_list=*/{},
-    /*.low_asm_diagnostic_provider_list=*/{},
-    /*.low_verify_provider_list=*/{},
     /*.emit_providers=*/
     {
         /*.providers=*/kTestEmitProviders,
