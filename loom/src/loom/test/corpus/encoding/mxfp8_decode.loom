@@ -108,3 +108,36 @@ check.case public @mxfp8_decode_one_e8m0_group_case {
   check.expect.equal actual(%output) expected(%expected) : tensor<32xi16>
   check.return
 }
+
+// Returns the second of two ordinary MXFP8 groups so the packed scale byte
+// selection is observable independently of the payload conversion.
+kernel.def @mxfp8_decode_second_e8m0_group() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%payload_buffer: buffer, %scale_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %origin = index.constant 0 : index
+  %payload_view = buffer.view %payload_buffer[%base] : buffer -> view<64xi8>
+  %scale_view = buffer.view %scale_buffer[%base] : buffer -> view<1xi32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<32xi16>
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=64, scale_format=e8m0, scale_group_elements=32, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %payload_bits = vector.load %payload_view[%origin] : view<64xi8> -> vector<64xi8>
+  %payload = vector.bitcast %payload_bits : vector<64xi8> to vector<64xf8E4M3>
+  %scale = vector.load %scale_view[%origin] : view<1xi32> -> vector<1xi32>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<64xf8E4M3>, encoding<schema> -> vector<64xbf16>
+  %second_group = vector.slice %decoded[32] : vector<64xbf16> -> vector<32xbf16>
+  %bits = vector.bitcast %second_group : vector<32xbf16> to vector<32xi16>
+  vector.store %bits, %output_view[%origin] : vector<32xi16>, view<32xi16>
+  kernel.return
+}
+
+check.case public @mxfp8_decode_second_e8m0_group_case {
+  %payload = check.generate.fill value(56) : tensor<64xi8>
+  // The low scale byte is identity while the second byte doubles 1.0 to 2.0.
+  %scale = check.generate.fill value(32895) : tensor<1xi32>
+  %output = check.generate.fill value(0) : tensor<32xi16>
+  %expected = check.generate.fill value(16384) : tensor<32xi16>
+  kernel.launch @mxfp8_decode_second_e8m0_group(%payload, %scale, %output) : (tensor<64xi8>, tensor<1xi32>, tensor<32xi16>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<32xi16>
+  check.return
+}

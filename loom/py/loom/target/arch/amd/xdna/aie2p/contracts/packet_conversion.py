@@ -281,12 +281,30 @@ class Float8PacketFormat:
 class _Float8WidenProgram:
     """Reusable values emitted while widening one FP8 packet."""
 
-    # Widened BF16 packet.
-    result: ValueRef
+    # Widened BF16 packet, or None when a consumer uses the components directly.
+    result: ValueRef | None
+    # Unsigned finite BF16 payload magnitude.
+    finite_magnitude: ValueRef
+    # BF16 sign bits for the source payload.
+    sign: ValueRef
     # Canonical BF16 NaN packet.
     canonical_nan: ValueRef
     # E4M3FN NaN predicate, or None for formats with infinity encodings.
     is_nan: ValueRef | None
+    # Ordered descriptor program defining the reusable values.
+    emits: tuple[ContractEmit, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _MxBf16PayloadProgram:
+    """BF16 components produced from one finite MX payload group."""
+
+    # Unsigned finite BF16 payload magnitude.
+    finite_magnitude: ValueRef
+    # BF16 sign bits for the source payload.
+    sign: ValueRef
+    # Canonical BF16 NaN packet used for an E8M0 NaN scale.
+    canonical_nan: ValueRef
     # Ordered descriptor program defining the reusable values.
     emits: tuple[ContractEmit, ...]
 
@@ -772,8 +790,9 @@ _CANONICAL_BF16_NAN = 0x7FC0
 
 
 def _mxfp8_e4m3fn_e8m0_schema(lane_count: int) -> EncodingOperandSummaryDef:
-    """Builds one exact dense MXFP8 group schema."""
+    """Builds one exact dense MXFP8 schema with groups of at most 32 lanes."""
 
+    scale_group_element_count = min(lane_count, 32)
     return EncodingOperandSummaryDef(
         element_format=encoding.enum_fact(encoding.NumericFormat, "f8e4m3fn"),
         scale_format=encoding.enum_fact(encoding.NumericFormat, "e8m0"),
@@ -781,18 +800,49 @@ def _mxfp8_e4m3fn_e8m0_schema(lane_count: int) -> EncodingOperandSummaryDef:
         scale_topology=encoding.enum_fact(encoding.ScaleTopology, "block_1d"),
         affine_policy=encoding.enum_fact(encoding.AffinePolicy, "scale_only"),
         payload_element_count=lane_count,
-        scale_group_element_count=lane_count,
-        scale_group_shape=(lane_count,),
+        scale_group_element_count=scale_group_element_count,
+        scale_group_shape=(scale_group_element_count,),
         scale_operand_count=1,
     )
 
 
 MXFP8_E4M3FN_E8M0_X8_SCHEMA = _mxfp8_e4m3fn_e8m0_schema(8)
 MXFP8_E4M3FN_E8M0_X32_SCHEMA = _mxfp8_e4m3fn_e8m0_schema(32)
+MXFP8_E4M3FN_E8M0_X64_SCHEMA = _mxfp8_e4m3fn_e8m0_schema(64)
 
 _MXFP8_E4M3FN_E8M0_RULE_SHAPES = (
     (8, MXFP8_E4M3FN_E8M0_X8_SCHEMA),
     (32, MXFP8_E4M3FN_E8M0_X32_SCHEMA),
+    (64, MXFP8_E4M3FN_E8M0_X64_SCHEMA),
+)
+
+
+def _mxfp4_e2m1_e8m0_schema(lane_count: int) -> EncodingOperandSummaryDef:
+    """Builds one exact packed MXFP4 group schema."""
+
+    return EncodingOperandSummaryDef(
+        element_format=encoding.enum_fact(encoding.NumericFormat, "f4e2m1"),
+        scale_format=encoding.enum_fact(encoding.NumericFormat, "e8m0"),
+        payload_packing=encoding.enum_fact(
+            encoding.PayloadPacking, "little_endian_nibbles"
+        ),
+        scale_topology=encoding.enum_fact(encoding.ScaleTopology, "block_1d"),
+        affine_policy=encoding.enum_fact(encoding.AffinePolicy, "scale_only"),
+        zero_scale_fallback=True,
+        payload_register_count=lane_count // 8,
+        payload_element_count=lane_count,
+        scale_group_element_count=32,
+        scale_group_shape=(32,),
+        scale_operand_count=1,
+    )
+
+
+MXFP4_E2M1_E8M0_X32_SCHEMA = _mxfp4_e2m1_e8m0_schema(32)
+MXFP4_E2M1_E8M0_X64_SCHEMA = _mxfp4_e2m1_e8m0_schema(64)
+
+_MXFP4_E2M1_E8M0_RULE_SHAPES = (
+    (32, MXFP4_E2M1_E8M0_X32_SCHEMA),
+    (64, MXFP4_E2M1_E8M0_X64_SCHEMA),
 )
 
 _I16_TO_I8_W_PACK = IntegerPackInstruction("i16", 32, "i8", None)
@@ -1607,10 +1657,12 @@ def _fp8_to_bf16_emits(
     *,
     result_name: str | None,
     source: ValueRef | None = None,
+    materialize_result: bool = True,
+    temporary_prefix: str = "fp8_",
 ) -> _Float8WidenProgram:
     """Widens up to thirty-two FP8 lanes into exact BF16 bit patterns."""
 
-    program = _PacketProgram(16, "fp8_")
+    program = _PacketProgram(16, temporary_prefix)
     if source is None:
         source = ValueRef.operand("input")
     zero = program.operation("zero", "sub.i8x64", "d", s1=source, s2=source)
@@ -1710,11 +1762,17 @@ def _fp8_to_bf16_emits(
     finite_unsigned = program.select(
         "finite_unsigned", subnormal, normal, exponent_is_zero
     )
-    finite = program.binary("finite", "or.bits512", finite_unsigned, sign)
+    finite = (
+        program.binary("finite", "or.bits512", finite_unsigned, sign)
+        if materialize_result
+        else None
+    )
     canonical_nan = program.splat("canonical_nan", _CANONICAL_BF16_NAN)
 
     is_nan = None
     if fp8_format.has_infinity:
+        if finite is None:
+            raise ValueError("component-only FP8 widening requires a finite format")
         special_payload = program.splat("special_payload", fp8_format.special_payload)
         is_finite = program.compare_unsigned_less_than(
             "is_finite", payload, special_payload
@@ -1733,32 +1791,37 @@ def _fp8_to_bf16_emits(
         nan_payload = program.splat("nan_payload", 0x7F)
         nan_delta = program.binary("nan_delta", "sub.i16x32", payload, nan_payload)
         is_nan = program.compare_zero("is_nan", nan_delta)
-        result = program.select(result_name, canonical_nan, finite, is_nan)
+        if finite is not None:
+            result = program.select(result_name, canonical_nan, finite, is_nan)
+        else:
+            result = None
 
     return _Float8WidenProgram(
         result=result,
+        finite_magnitude=finite_unsigned,
+        sign=sign,
         canonical_nan=canonical_nan,
         is_nan=is_nan,
         emits=tuple(program.emits),
     )
 
 
-def _mxfp8_e4m3fn_e8m0_to_bf16_rule(
-    lane_count: int,
-    schema: EncodingOperandSummaryDef,
-) -> DescriptorRule:
-    """Decodes one MXFP8 block without scalarizing its payload lanes."""
+def _e8m0_scale_bf16_group_emits(
+    *,
+    finite_magnitude: ValueRef,
+    sign: ValueRef,
+    canonical_nan: ValueRef,
+    payload_is_nan: ValueRef | None,
+    scale: ValueRef,
+    scale_byte_ordinal: int,
+    result_name: str | None,
+    temporary_prefix: str,
+) -> tuple[ValueRef, tuple[ContractEmit, ...]]:
+    """Applies one packed E8M0 scale byte to a BF16 packet."""
 
-    payload_program = _fp8_to_bf16_emits(
-        _F8E4M3_PACKET_FORMAT,
-        result_name="payload_bf16",
-        source=ValueRef.operand("payload"),
-    )
-    if payload_program.is_nan is None:
-        raise ValueError("MXFP8 E4M3FN widening must produce a NaN predicate")
-    payload_bf16 = payload_program.result
-    program = _PacketProgram(16, "mxfp8_")
-    scale = ValueRef.operand("auxiliary", element=0)
+    if scale_byte_ordinal < 0 or scale_byte_ordinal > 3:
+        raise ValueError("E8M0 scale byte ordinal must be in [0, 3]")
+    program = _PacketProgram(16, temporary_prefix)
 
     scale_word = program.operation(
         "scale_word",
@@ -1767,6 +1830,14 @@ def _mxfp8_e4m3fn_e8m0_to_bf16_rule(
         immediates={"idx": 0},
         s1=scale,
     )
+    if scale_byte_ordinal:
+        scale_word = program.operation(
+            "selected_scale_word",
+            "lshl.i32",
+            "d0",
+            s0=scale_word,
+            s1=program.constant("scale_byte_shift", -8 * scale_byte_ordinal),
+        )
     byte_mask = program.constant("byte_mask", 0xFF)
     scale_byte = program.operation(
         "scale_byte", "and.i32", "d0", s0=scale_word, s1=byte_mask
@@ -1781,11 +1852,8 @@ def _mxfp8_e4m3fn_e8m0_to_bf16_rule(
     normal_origin = program.constant("normal_origin", 128)
     overflow_origin = program.constant("overflow_origin", 382)
 
-    sign_mask = program.splat("sign_mask", 0x8000)
-    absolute_mask = program.splat("absolute_mask", 0x7FFF)
     infinity = program.splat("infinity", 0x7F80)
-    sign = program.binary("sign", "and.bits512", payload_bf16, sign_mask)
-    magnitude = program.binary("magnitude", "and.bits512", payload_bf16, absolute_mask)
+    magnitude = finite_magnitude
 
     exponent_delta = program.operation(
         "exponent_delta",
@@ -1937,7 +2005,7 @@ def _mxfp8_e4m3fn_e8m0_to_bf16_rule(
     unused_high = program.temporary("unused_high")
     program.emits.append(
         EmitRegisterSlice(
-            source=payload_bf16,
+            source=finite_magnitude,
             result=unused_high,
             unit_offset=1,
             unit_count=1,
@@ -2091,27 +2159,97 @@ def _mxfp8_e4m3fn_e8m0_to_bf16_rule(
     zero_fixed_result = program.select(
         "zero_fixed_result", sign, signed_result, payload_is_zero
     )
-    payload_fixed_result = program.select(
-        "payload_fixed_result",
-        payload_program.canonical_nan,
-        zero_fixed_result,
-        payload_program.is_nan,
-    )
+    payload_fixed_result = zero_fixed_result
+    if payload_is_nan is not None:
+        payload_fixed_result = program.select(
+            "payload_fixed_result",
+            canonical_nan,
+            zero_fixed_result,
+            payload_is_nan,
+        )
     scale_is_nan = program.operation(
         "scale_is_nan", "cmp.eq.i32", "d0", s0=scale_byte, s1=byte_mask
     )
-    program.operation(
-        None,
+    result = program.operation(
+        result_name,
         "select.i32x16",
         "d",
-        s1=payload_program.canonical_nan,
+        s1=canonical_nan,
         s2=payload_fixed_result,
         sel=scalar_mask("scale_nan_mask", scale_is_nan),
     )
 
+    return result, tuple(program.emits)
+
+
+def _mxfp8_e4m3fn_e8m0_to_bf16_rule(
+    lane_count: int,
+    schema: EncodingOperandSummaryDef,
+) -> DescriptorRule:
+    """Decodes one or two MXFP8 groups without scalarizing payload lanes."""
+
+    group_count = 2 if lane_count == 64 else 1
+    emits: list[ContractEmit] = []
+    group_results: list[ValueRef] = []
+    payload_source = ValueRef.operand("payload")
+    for group_ordinal in range(group_count):
+        if group_ordinal:
+            high_payload = ValueRef.temporary("mxfp8_high_payload_w")
+            payload_source = ValueRef.temporary("mxfp8_high_payload_x")
+            emits.extend(
+                (
+                    EmitRegisterSlice(
+                        source=ValueRef.operand("payload"),
+                        result=high_payload,
+                        unit_offset=1,
+                        unit_count=1,
+                    ),
+                    EmitRegisterConcat(
+                        sources=(high_payload, high_payload),
+                        result=payload_source,
+                        result_type=_exact_vector("f8E4M3", 64),
+                    ),
+                )
+            )
+        payload_program = _fp8_to_bf16_emits(
+            _F8E4M3_PACKET_FORMAT,
+            result_name=None,
+            source=payload_source,
+            materialize_result=False,
+            temporary_prefix=f"mxfp8_g{group_ordinal}_payload_",
+        )
+        if payload_program.is_nan is None:
+            raise ValueError("MXFP8 E4M3FN widening must produce a NaN predicate")
+        emits.extend(payload_program.emits)
+        group_result_name = None if group_count == 1 else "result"
+        group_result, group_emits = _e8m0_scale_bf16_group_emits(
+            finite_magnitude=payload_program.finite_magnitude,
+            sign=payload_program.sign,
+            canonical_nan=payload_program.canonical_nan,
+            payload_is_nan=payload_program.is_nan,
+            scale=ValueRef.operand("auxiliary", element=0),
+            scale_byte_ordinal=group_ordinal,
+            result_name=group_result_name,
+            temporary_prefix=f"mxfp8_g{group_ordinal}_scale_",
+        )
+        emits.extend(group_emits)
+        group_results.append(group_result)
+
+    if group_count == 2:
+        emits.append(
+            EmitRegisterConcat(
+                sources=group_results,
+                result=ValueRef.result("result"),
+            )
+        )
+
     return DescriptorRule(
         source_op=vector.vector_decode,
-        descriptor=program.emits[-1].descriptor,
+        descriptor=next(
+            emit.descriptor
+            for emit in reversed(emits)
+            if isinstance(emit, EmitDescriptorOp)
+        ),
         guards=(
             Guard.value_type("payload", _exact_vector("f8E4M3", lane_count)),
             Guard.value_storage_operand_schema("schema", schema),
@@ -2119,8 +2257,162 @@ def _mxfp8_e4m3fn_e8m0_to_bf16_rule(
             Guard.value_type("auxiliary", _exact_vector("i32", 1), element=0),
             Guard.value_type("result", _exact_vector("bf16", lane_count)),
         ),
-        emit=(*payload_program.emits, *program.emits),
+        emit=tuple(emits),
         report_key=(f"native_mxfp8_e4m3fn_e8m0x{lane_count}_to_bfloat16x{lane_count}"),
+    )
+
+
+def _mxfp4_e2m1_to_bf16_components(
+    source: ValueRef,
+    *,
+    temporary_prefix: str,
+) -> _MxBf16PayloadProgram:
+    """Expands thirty-two unpacked E2M1 lanes into BF16 components."""
+
+    program = _PacketProgram(16, temporary_prefix)
+    zero = program.operation("zero", "sub.i8x64", "d", s1=source, s2=source)
+    interleave_control = program.constant(
+        "interleave_control",
+        I8_INTERLEAVE_CONTROL,
+        descriptor_key="amd.xdna.aie2p.constant.i32.mova",
+    )
+    low_bytes = program.operation(
+        "low_bytes",
+        "shuffle.x.configured",
+        "dst",
+        s1=source,
+        s2=zero,
+        mod=interleave_control,
+    )
+    high_bytes = program.operation(
+        "high_bytes",
+        "shuffle.x.configured",
+        "dst",
+        s1=zero,
+        s2=source,
+        mod=interleave_control,
+    )
+
+    magnitude_mask = program.splat("magnitude_mask", 0x0007)
+    magnitude = program.binary("magnitude", "and.bits512", low_bytes, magnitude_mask)
+    sign_mask = program.splat("sign_mask", 0x0800)
+    sign = program.binary("sign_x1", "and.bits512", high_bytes, sign_mask)
+    for shift in range(1, 5):
+        sign = program.binary(f"sign_x{1 << shift}", "add.i16x32", sign, sign)
+
+    positioned_magnitude = magnitude
+    for shift in range(1, 7):
+        positioned_magnitude = program.binary(
+            f"magnitude_x{1 << shift}",
+            "add.i16x32",
+            positioned_magnitude,
+            positioned_magnitude,
+        )
+    normal_base = program.splat("normal_base", 0x3F00)
+    normal = program.binary("normal", "add.i16x32", normal_base, positioned_magnitude)
+    two = program.splat("two", 2)
+    below_two = program.compare_unsigned_less_than("below_two", magnitude, two)
+    is_zero = program.compare_zero("is_zero", magnitude)
+    small = program.select("small", zero, normal_base, is_zero)
+    finite_magnitude = program.select("finite_magnitude", small, normal, below_two)
+    canonical_nan = program.splat("canonical_nan", _CANONICAL_BF16_NAN)
+    return _MxBf16PayloadProgram(
+        finite_magnitude=finite_magnitude,
+        sign=sign,
+        canonical_nan=canonical_nan,
+        emits=tuple(program.emits),
+    )
+
+
+def _mxfp4_e2m1_e8m0_to_bf16_rule(
+    lane_count: int,
+    schema: EncodingOperandSummaryDef,
+) -> DescriptorRule:
+    """Decodes one or two packed MXFP4 groups without scalar lane operations."""
+
+    group_count = lane_count // 32
+    packed_payload = ValueRef.temporary("mxfp4_packed_payload_w")
+    unpacked_payload = ValueRef.temporary("mxfp4_unpacked_payload_x")
+    unpack = _descriptor("amd.xdna.aie2p.unpack.u4x64.to.u8x64.configured")
+    emits: list[ContractEmit] = [
+        EmitRegisterSlice(
+            source=ValueRef.operand("payload"),
+            result=packed_payload,
+            unit_count=1,
+        ),
+        *integer_unpack_state_emits(),
+        EmitDescriptorOp(
+            descriptor=unpack,
+            operands={"src": packed_payload},
+            results={"dst": unpacked_payload},
+            result_types={"dst": DescriptorResultType()},
+            form=DescriptorEmitForm.OP,
+        ),
+    ]
+    group_results: list[ValueRef] = []
+    payload_source = unpacked_payload
+    for group_ordinal in range(group_count):
+        if group_ordinal:
+            high_payload = ValueRef.temporary("mxfp4_high_payload_w")
+            payload_source = ValueRef.temporary("mxfp4_high_payload_x")
+            emits.extend(
+                (
+                    EmitRegisterSlice(
+                        source=unpacked_payload,
+                        result=high_payload,
+                        unit_offset=1,
+                        unit_count=1,
+                    ),
+                    EmitRegisterConcat(
+                        sources=(high_payload, high_payload),
+                        result=payload_source,
+                        result_type=_exact_vector("i8", 64),
+                    ),
+                )
+            )
+        payload_program = _mxfp4_e2m1_to_bf16_components(
+            payload_source,
+            temporary_prefix=f"mxfp4_g{group_ordinal}_payload_",
+        )
+        emits.extend(payload_program.emits)
+        group_result_name = None if group_count == 1 else "result"
+        group_result, group_emits = _e8m0_scale_bf16_group_emits(
+            finite_magnitude=payload_program.finite_magnitude,
+            sign=payload_program.sign,
+            canonical_nan=payload_program.canonical_nan,
+            payload_is_nan=None,
+            scale=ValueRef.operand("auxiliary", element=0),
+            scale_byte_ordinal=group_ordinal,
+            result_name=group_result_name,
+            temporary_prefix=f"mxfp4_g{group_ordinal}_scale_",
+        )
+        emits.extend(group_emits)
+        group_results.append(group_result)
+
+    if group_count == 2:
+        emits.append(
+            EmitRegisterConcat(
+                sources=group_results,
+                result=ValueRef.result("result"),
+            )
+        )
+
+    return DescriptorRule(
+        source_op=vector.vector_decode,
+        descriptor=next(
+            emit.descriptor
+            for emit in reversed(emits)
+            if isinstance(emit, EmitDescriptorOp)
+        ),
+        guards=(
+            Guard.value_type("payload", _exact_vector("i32", lane_count // 8)),
+            Guard.value_storage_operand_schema("schema", schema),
+            Guard.operand_segment_count("auxiliary", 1),
+            Guard.value_type("auxiliary", _exact_vector("i32", 1), element=0),
+            Guard.value_type("result", _exact_vector("bf16", lane_count)),
+        ),
+        emit=tuple(emits),
+        report_key=(f"native_mxfp4_e2m1_e8m0x{lane_count}_to_bfloat16x{lane_count}"),
     )
 
 
@@ -2149,6 +2441,8 @@ def _fp8_to_f32_vector_rule(
     rule_shape: FloatPacketRuleShape,
 ) -> DescriptorRule:
     program = _fp8_to_bf16_emits(fp8_format, result_name="decoded_bf16")
+    if program.result is None:
+        raise ValueError("FP8-to-F32 widening requires a materialized BF16 packet")
     convert_emits = _bf16_to_f32_emits(
         rule_shape, program.result, temporary_prefix="fp8_widen_"
     )
@@ -2877,6 +3171,10 @@ def _saturating_i4_pack_rule(
 
 
 AIE2P_PACKET_CONVERSION_RULES = (
+    *(
+        _mxfp4_e2m1_e8m0_to_bf16_rule(lane_count, schema)
+        for lane_count, schema in _MXFP4_E2M1_E8M0_RULE_SHAPES
+    ),
     *(
         _mxfp8_e4m3fn_e8m0_to_bf16_rule(lane_count, schema)
         for lane_count, schema in _MXFP8_E4M3FN_E8M0_RULE_SHAPES

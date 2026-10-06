@@ -740,7 +740,7 @@ loom_check_test_suite(
     "test/source_low/numeric_conversion_fp8_packet.loom-test"
     "test/source_low/numeric_conversion_materialized.loom-test"
     "test/source_low/numeric_conversion_wide.loom-test"
-    "test/source_low/numeric_decode_mxfp8.loom-test"
+    "test/source_low/numeric_decode_mx.loom-test"
     "test/source_low/numeric_f32.loom-test"
     "test/source_low/numeric_f32_packetization.loom-test"
     "test/source_low/numeric_float8_constants.loom-test"

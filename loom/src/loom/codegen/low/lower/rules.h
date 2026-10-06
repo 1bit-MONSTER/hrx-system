@@ -960,8 +960,7 @@ typedef struct loom_low_lower_rule_t {
   // One-based report-key table ordinal. Zero means the selected rule has no
   // stable strategy key for compile reports.
   uint16_t report_key_ordinal;
-  // Number of rule-local temporary low values available while emitting this
-  // rule.
+  // Number of liveness-packed rule-local temporary slots.
   uint16_t temporary_count;
   // Packed first related source-node row and row count. The root source op is
   // implicit node zero.
