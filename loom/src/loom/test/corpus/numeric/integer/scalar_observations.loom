@@ -232,14 +232,15 @@ check.scenario @portable_index_arithmetic_values {
 }
 
 // Rotates use a single-bit payload so their result is independent of the target
-// carrier width. The leading-zero result is normalized by moving that bit to
-// the target's most significant position and counting again.
+// carrier width. Leading counts are observed as the occupied width, and
+// trailing counts are capped at 32 so a zero input is portable too.
 func.def @portable_index_bitwise_observations(%ordinal: index, %lhs_bits: i64, %rhs_bits: i64, %output: buffer) {
   %c65535_i32 = scalar.constant 65535 : i32
   %c1_index = index.constant 1 : index
   %c31_index = index.constant 31 : index
+  %c32_index = index.constant 32 : index
   %base = index.constant 0 : offset
-  %results = buffer.view %output[%base] : buffer -> view<11xi32>
+  %results = buffer.view %output[%base] : buffer -> view<17xi32>
 
   %bounded_ordinal = index.assume %ordinal [range(%ordinal, 0, 255)] : index
   %lhs_word = scalar.trunci %lhs_bits : i64 to i32
@@ -248,9 +249,8 @@ func.def @portable_index_bitwise_observations(%ordinal: index, %lhs_bits: i64, %
   %rhs_bits32 = scalar.andi %rhs_word, %c65535_i32 : i32
   %lhs = index.cast %lhs_bits32 : i32 to index
   %rhs = index.cast %rhs_bits32 : i32 to index
-  %amount0 = index.rem %bounded_ordinal, %c31_index : index
-  %amount1 = index.add %amount0, %c1_index : index
-  %amount = index.assume %amount1 [range(%amount1, 1, 31)] : index
+  %amount0 = index.rem %bounded_ordinal, %c32_index : index
+  %amount = index.assume %amount0 [range(%amount0, 0, 31)] : index
 
   %and = index.andi %lhs, %rhs : index
   %or = index.ori %lhs, %rhs : index
@@ -264,8 +264,24 @@ func.def @portable_index_bitwise_observations(%ordinal: index, %lhs_bits: i64, %
   %top_count = index.ctlzi %c1_index : index
   %top_bit = index.shli %c1_index, %top_count : index
   %normalized_leading = index.ctlzi %top_bit : index
+  %carrier_width = index.add %top_count, %c1_index : index
+  %ordinal_leading = index.ctlzi %bounded_ordinal : index
+  %ordinal_width = index.sub %carrier_width, %ordinal_leading : index
+  %ordinal_trailing = index.cttzi %bounded_ordinal : index
+  %bounded_trailing = index.min %ordinal_trailing, %c32_index : index
   %trailing = index.cttzi %rotated_left : index
   %population = index.ctpopi %or : index
+  // The scalar payload arguments use vector registers on GPU targets. The
+  // first trial supplies zero to both count operations without constant folding.
+  %varying_bits = index.mul %lhs, %bounded_ordinal : index
+  %varying_leading = index.ctlzi %varying_bits : index
+  %varying_width = index.sub %carrier_width, %varying_leading : index
+  %varying_trailing = index.cttzi %varying_bits : index
+  %varying_bounded_trailing = index.min %varying_trailing, %c32_index : index
+  %varying_amount = index.andi %rhs, %c31_index : index
+  %varying_rotated_left = index.rotli %c1_index, %varying_amount : index
+  %varying_right_source = index.shli %c1_index, %varying_amount : index
+  %varying_rotated_right = index.rotri %varying_right_source, %varying_amount : index
 
   %and_word = index.cast %and : index to i32
   %or_word = index.cast %or : index to i32
@@ -278,8 +294,14 @@ func.def @portable_index_bitwise_observations(%ordinal: index, %lhs_bits: i64, %
   %normalized_leading_word = index.cast %normalized_leading : index to i32
   %trailing_word = index.cast %trailing : index to i32
   %population_word = index.cast %population : index to i32
-  %observations = vector.from_elements %and_word, %or_word, %xor_word, %left_word, %signed_right_word, %unsigned_right_word, %rotated_left_word, %rotated_right_word, %normalized_leading_word, %trailing_word, %population_word : vector<11xi32>
-  vector.store %observations, %results[0] : vector<11xi32>, view<11xi32>
+  %ordinal_width_word = index.cast %ordinal_width : index to i32
+  %bounded_trailing_word = index.cast %bounded_trailing : index to i32
+  %varying_width_word = index.cast %varying_width : index to i32
+  %varying_trailing_word = index.cast %varying_bounded_trailing : index to i32
+  %varying_left_word = index.cast %varying_rotated_left : index to i32
+  %varying_right_word = index.cast %varying_rotated_right : index to i32
+  %observations = vector.from_elements %and_word, %or_word, %xor_word, %left_word, %signed_right_word, %unsigned_right_word, %rotated_left_word, %rotated_right_word, %normalized_leading_word, %trailing_word, %population_word, %ordinal_width_word, %bounded_trailing_word, %varying_width_word, %varying_trailing_word, %varying_left_word, %varying_right_word : vector<17xi32>
+  vector.store %observations, %results[0] : vector<17xi32>, view<17xi32>
   func.return
 }
 
@@ -289,13 +311,13 @@ check.scenario @portable_index_bitwise_values {
     %rhs_entropy = check.entropy.fork %entropy name("rhs") : check.entropy
     %lhs_bits = check.entropy.read %lhs_entropy[%trial] : check.entropy -> i64
     %rhs_bits = check.entropy.read %rhs_entropy[%trial] : check.entropy -> i64
-    %storage = check.generate.fill value(-123) : tensor<19xi32>
-    %prefix = check.tensor.view %storage offset(0) : tensor<19xi32> -> tensor<4xi32>
-    %output = check.tensor.view %storage offset(16) : tensor<19xi32> -> tensor<11xi32>
-    %suffix = check.tensor.view %storage offset(60) : tensor<19xi32> -> tensor<4xi32>
+    %storage = check.generate.fill value(-123) : tensor<25xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<25xi32> -> tensor<4xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<25xi32> -> tensor<17xi32>
+    %suffix = check.tensor.view %storage offset(84) : tensor<25xi32> -> tensor<4xi32>
     %guard = check.generate.fill value(-123) : tensor<4xi32>
-    check.compare<@portable_index_bitwise_observations>(%trial, %lhs_bits, %rhs_bits, %output) : (index, i64, i64, tensor<11xi32>) -> () {
-      check.expect.bitwise actual(%output) expected(%output) : tensor<11xi32>
+    check.compare<@portable_index_bitwise_observations>(%trial, %lhs_bits, %rhs_bits, %output) : (index, i64, i64, tensor<17xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<17xi32>
       check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi32>
       check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi32>
     }
@@ -456,25 +478,33 @@ check.scenario @scalar_i32_arithmetic_values {
 
 func.def @scalar_i32_bitfield_observations(%word_bits: i64, %output: buffer) {
   %base = index.constant 0 : offset
-  %results = buffer.view %output[%base] : buffer -> view<4xi32>
+  %results = buffer.view %output[%base] : buffer -> view<8xi32>
   %word = scalar.trunci %word_bits : i64 to i32
   %unsigned_byte = scalar.bitfield.extractu %word {offset = 8, width = 8} : i32 -> i32
   %signed_byte = scalar.bitfield.extracts %word {offset = 16, width = 8} : i32 -> i32
   %unsigned_nibble = scalar.bitfield.extractu %word {offset = 4, width = 4} : i32 -> i32
   %signed_nibble = scalar.bitfield.extracts %word {offset = 4, width = 4} : i32 -> i32
-  view.store %unsigned_byte, %results[0] : i32, view<4xi32>
-  view.store %signed_byte, %results[1] : i32, view<4xi32>
-  view.store %unsigned_nibble, %results[2] : i32, view<4xi32>
-  view.store %signed_nibble, %results[3] : i32, view<4xi32>
+  %low_bit = scalar.bitfield.extractu %word {offset = 0, width = 1} : i32 -> i32
+  %signed_high_bit = scalar.bitfield.extracts %word {offset = 31, width = 1} : i32 -> i32
+  %unsigned_wide_field = scalar.bitfield.extractu %word {offset = 0, width = 31} : i32 -> i32
+  %signed_wide_field = scalar.bitfield.extracts %word {offset = 0, width = 31} : i32 -> i32
+  view.store %unsigned_byte, %results[0] : i32, view<8xi32>
+  view.store %signed_byte, %results[1] : i32, view<8xi32>
+  view.store %unsigned_nibble, %results[2] : i32, view<8xi32>
+  view.store %signed_nibble, %results[3] : i32, view<8xi32>
+  view.store %low_bit, %results[4] : i32, view<8xi32>
+  view.store %signed_high_bit, %results[5] : i32, view<8xi32>
+  view.store %unsigned_wide_field, %results[6] : i32, view<8xi32>
+  view.store %signed_wide_field, %results[7] : i32, view<8xi32>
   func.return
 }
 
 check.scenario @scalar_i32_bitfield_values {
   check.trial[256](%trial: index, %entropy: check.entropy) {
     %word_bits = check.entropy.read %entropy[%trial] : check.entropy -> i64
-    %output = check.generate.fill value(0) : tensor<4xi32>
-    check.compare<@scalar_i32_bitfield_observations>(%word_bits, %output) : (i64, tensor<4xi32>) -> () {
-      check.expect.bitwise actual(%output) expected(%output) : tensor<4xi32>
+    %output = check.generate.fill value(0) : tensor<8xi32>
+    check.compare<@scalar_i32_bitfield_observations>(%word_bits, %output) : (i64, tensor<8xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<8xi32>
     }
   }
   check.return

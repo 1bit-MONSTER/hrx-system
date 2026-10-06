@@ -447,6 +447,7 @@ index_ctlzi = unary_op(
     type_constraint=INDEX,
     doc="Count leading zeros in a logical coordinate value.",
     facts="loom_index_ctlzi_facts",
+    traits=[DISTRIBUTION_TRANSFER],
     examples=["%r = index.ctlzi %input : index"],
 )
 
@@ -457,6 +458,7 @@ index_cttzi = unary_op(
     type_constraint=INDEX,
     doc="Count trailing zeros in a logical coordinate value.",
     facts="loom_index_cttzi_facts",
+    traits=[DISTRIBUTION_TRANSFER],
     examples=["%r = index.cttzi %input : index"],
 )
 
@@ -467,6 +469,7 @@ index_ctpopi = unary_op(
     type_constraint=INDEX,
     doc="Count set bits in a logical coordinate value.",
     facts="loom_index_ctpopi_facts",
+    traits=[DISTRIBUTION_TRANSFER],
     examples=["%r = index.ctpopi %input : index"],
 )
 

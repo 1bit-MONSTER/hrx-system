@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from loom.dialect.index import defs as index
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
+from loom.dialect.scalar import bitwise as scalar_bitwise
 from loom.dialect.vector import defs as vector
 from loom.dsl import Op
 from loom.target.arch.amdgpu.contracts.arithmetic import (
@@ -24,7 +25,9 @@ from loom.target.contracts import (
     LOWER_RULE_FLAG_CONTRACT_ONLY,
     CompiledLowerRuleSet,
     GuardKind,
+    LowerAttrCopyKind,
     LowerRule,
+    Scalar,
     SourceValueKind,
     TypePattern,
     compile_lower_rule_set,
@@ -113,6 +116,75 @@ def test_index_madd_rules_accept_wrapping_carrier_results() -> None:
                 )
 
 
+def test_index_bit_operations_cover_scalar_and_vector_registers() -> None:
+    compiled = _compiled_integer_rules()
+    for source_op, scalar_sequence, vector_sequence in (
+        (
+            index.index_ctlzi,
+            ("s_clz_i32_u32", "s_mov_b32", "s_min_u32"),
+            ("v_clz_i32_u32", "v_mov_b32", "v_min_u32"),
+        ),
+        (
+            index.index_cttzi,
+            ("s_ctz_i32_b32", "s_mov_b32", "s_min_u32"),
+            ("v_ctz_i32_b32", "v_mov_b32", "v_min_u32"),
+        ),
+        (index.index_ctpopi, ("s_bcnt1_i32_b32",), ("v_bcnt_u32_b32.src1_zero",)),
+        (
+            index.index_rotli,
+            ("s_mov_b32", "s_sub_u32", "s_lshl_b32", "s_lshr_b32", "s_or_b32"),
+            ("v_mov_b32", "v_sub_u32", "v_alignbit_b32"),
+        ),
+        (
+            index.index_rotri,
+            ("s_mov_b32", "s_sub_u32", "s_lshr_b32", "s_lshl_b32", "s_or_b32"),
+            ("v_alignbit_b32",),
+        ),
+    ):
+        rules = _rules_for_source_op(compiled, source_op)
+        assert tuple(_rule_descriptor_keys(compiled, rule) for rule in rules) == (
+            tuple(f"amdgpu.{key}" for key in scalar_sequence),
+            tuple(f"amdgpu.{key}" for key in vector_sequence),
+        )
+        for rule in rules:
+            assert set(_rule_type_patterns(compiled, rule)) == {Scalar("index")}
+
+
+def test_constant_unsigned_quotients_cover_both_register_classes() -> None:
+    compiled = _compiled_integer_rules()
+    scalar_rules = _rules_for_source_op(compiled, scalar_arithmetic.scalar_divui)
+    scalar_sequences = tuple(
+        _rule_descriptor_keys(compiled, rule) for rule in scalar_rules
+    )
+    index_sequences = tuple(
+        _rule_descriptor_keys(compiled, rule)
+        for rule in _rules_for_source_op(compiled, index.index_div)
+        if any(
+            key.endswith("mul_hi_u32") for key in _rule_descriptor_keys(compiled, rule)
+        )
+    )
+    # Both magic variants share the index implementation, with scalar i32
+    # materialization instead of nonnegative address-value materialization.
+    assert len(index_sequences) == 4
+    assert scalar_sequences[:4] == index_sequences
+    assert scalar_sequences[4:] == (
+        (
+            "amdgpu.s_cmp_ge_u32",
+            "amdgpu.s_mov_b32",
+            "amdgpu.s_mov_b32",
+            "amdgpu.s_cselect_b32",
+        ),
+        (
+            "amdgpu.v_cmp_uge_u32",
+            "amdgpu.v_mov_b32",
+            "amdgpu.v_mov_b32",
+            "amdgpu.v_cndmask_b32",
+        ),
+    )
+    for rule in scalar_rules:
+        assert set(_rule_type_patterns(compiled, rule)) == {Scalar("i32")}
+
+
 def test_unsigned_bitfield_extract_rules_try_native_bfe_before_shift_mask() -> None:
     positions = _descriptor_sequence_positions(
         _compiled_arithmetic_rules(),
@@ -154,6 +226,27 @@ def test_signed_bitfield_extract_rules_try_native_bfe_before_shift_pair() -> Non
             )
         ]
     )
+
+
+def test_scalar_bitfield_controls_use_isa_offset_and_width_fields() -> None:
+    compiled = _compiled_integer_rules()
+    for source_op, descriptor_key in (
+        (scalar_bitwise.scalar_bitfield_extractu, "amdgpu.s_bfe_u32.lit"),
+        (scalar_bitwise.scalar_bitfield_extracts, "amdgpu.s_bfe_i32.lit"),
+    ):
+        matching_rules = [
+            rule
+            for rule in _rules_for_source_op(compiled, source_op)
+            if _rule_descriptor_keys(compiled, rule) == (descriptor_key,)
+        ]
+        assert len(matching_rules) == 1
+        emit = compiled.emits[matching_rules[0].emit_start]
+        assert emit.attr_copy_count == 1
+        control = compiled.attr_copies[emit.attr_copy_start]
+        assert control.kind == LowerAttrCopyKind.ATTRS_PACK_CONSECUTIVE
+        assert control.source_attr_index == 0
+        assert control.source_element_count == 2
+        assert control.source_element_bit_width == 16
 
 
 def test_bitfield_insert_rules_try_native_bfi_before_mask_merge_fallback() -> None:

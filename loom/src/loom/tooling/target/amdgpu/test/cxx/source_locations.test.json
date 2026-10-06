@@ -35,8 +35,8 @@
           },
           "stderr": {
             "contains": [
-              "source_locations.cxx:9:15: error [TARGET/001]",
-              "no target-low contract for 'scalar.divui'"
+              "source_locations.cxx:9:15: error [TARGET/003]",
+              "rejected 'scalar.divui' divisor 'u32'"
             ],
             "not_contains": [
               " | ",

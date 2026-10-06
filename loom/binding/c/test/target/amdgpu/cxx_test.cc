@@ -247,7 +247,7 @@ TEST(CxxDiagnosticTest,
        ++i) {
     const auto* diagnostic = loomc_result_diagnostic_at(result.get(), i);
     if (std::string(diagnostic->code.data, diagnostic->code.size) ==
-        "TARGET/001") {
+        "TARGET/003") {
       failure = diagnostic;
     }
   }

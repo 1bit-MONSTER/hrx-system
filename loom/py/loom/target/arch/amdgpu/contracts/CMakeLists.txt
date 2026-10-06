@@ -22,6 +22,7 @@ iree_py_library(
     "config.py"
     "dispatch_ownership.py"
     "dot.py"
+    "index_bitwise.py"
     "integer.py"
     "integer_division.py"
     "materializers.py"

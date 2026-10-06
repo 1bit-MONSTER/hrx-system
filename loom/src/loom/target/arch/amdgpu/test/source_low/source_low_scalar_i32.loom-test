@@ -53,10 +53,10 @@ func.def @scalar_i32_bitfield_sgpr(%word: i32) -> (i32, i32, i32, i32) {
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @scalar_i32_bitfield_sgpr(%word: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
-  %unsigned_byte = s_bfe_u32_lit %word, 2056
-  %signed_byte = s_bfe_i32_lit %word, 2064
-  %unsigned_nibble = s_bfe_u32_lit %word, 1028
-  %signed_nibble = s_bfe_i32_lit %word, 1028
+  %unsigned_byte = s_bfe_u32_lit %word, 524296
+  %signed_byte = s_bfe_i32_lit %word, 524304
+  %unsigned_nibble = s_bfe_u32_lit %word, 262148
+  %signed_nibble = s_bfe_i32_lit %word, 262148
   return %unsigned_byte, %signed_byte, %unsigned_nibble, %signed_nibble
 }
 
