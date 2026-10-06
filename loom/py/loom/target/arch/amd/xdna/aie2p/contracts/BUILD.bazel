@@ -17,6 +17,7 @@ iree_py_library(
         "__init__.py",
         "accumulator_structural.py",
         "bfp.py",
+        "carrier.py",
         "conversion.py",
         "core.py",
         "core_contract.py",
