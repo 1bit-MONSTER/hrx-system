@@ -34,6 +34,7 @@ loom_cc_test(
     loom::ops::func::location_capture
     loom::ops::op_defs
     loom::ops::op_registry
+    loom::target::provider
     loom::testing::test_file
     loom::tooling::input
     loom::tools::loom-check::execute

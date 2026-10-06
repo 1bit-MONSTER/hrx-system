@@ -111,6 +111,7 @@ loom_cc_library(
     loom::target::math_policy
     loom::target::pipeline
     loom::target::predicate
+    loom::target::provider
     loom::target::reporting::format
     loom::target::reporting::low
     loom::target::selection
@@ -344,6 +345,7 @@ loom_cc_test(
     iree::testing::gtest_main
     iree::testing::temp_file
     loom::ir
+    loom::target::provider
     loom::testing::context
 )
 

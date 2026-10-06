@@ -238,6 +238,7 @@ loom_cc_library(
         "//loom/src/loom/target:math_policy",
         "//loom/src/loom/target:pipeline",
         "//loom/src/loom/target:predicate",
+        "//loom/src/loom/target:provider",
         "//loom/src/loom/target:selection",
         "//loom/src/loom/target:types",
         "//loom/src/loom/target/reporting:format",
@@ -440,6 +441,7 @@ loom_cc_test(
     deps = [
         ":file",
         "//loom/src/loom/ir",
+        "//loom/src/loom/target:provider",
         "//loom/src/loom/testing:context",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",

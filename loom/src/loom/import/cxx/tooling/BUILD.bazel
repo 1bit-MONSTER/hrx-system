@@ -26,6 +26,7 @@ loom_cc_test(
         "//loom/src/loom/ops:op_registry",
         "//loom/src/loom/ops/func",
         "//loom/src/loom/ops/func:location_capture",
+        "//loom/src/loom/target:provider",
         "//loom/src/loom/testing:test_file",
         "//loom/src/loom/tooling/input",
         "//loom/src/loom/tools/loom-check:execute",

@@ -23,6 +23,7 @@
 #include "loom/pass/report.h"
 #include "loom/pass/tooling.h"
 #include "loom/target/predicate.h"
+#include "loom/target/provider.h"
 #include "loom/target/reporting/format.h"
 #include "loom/tools/loom-check/comparison.h"
 #include "loom/tools/loom-check/diagnostics.h"
@@ -215,26 +216,22 @@ iree_status_t loom_check_context_register_and_finalize(
 iree_status_t loom_check_environment_initialize_low_descriptor_registry(
     const loom_check_environment_t* environment,
     loom_target_low_descriptor_registry_t* out_registry) {
-  *out_registry = (loom_target_low_descriptor_registry_t){0};
-  return environment->initialize_low_descriptor_registry.fn(
-      environment->initialize_low_descriptor_registry.user_data, out_registry);
+  return loom_target_environment_initialize_low_descriptor_registry(
+      environment->target_environment, out_registry);
 }
 
 iree_status_t loom_check_environment_initialize_low_lower_policy_registry(
     const loom_check_environment_t* environment,
     loom_low_lower_policy_registry_t* out_registry) {
-  *out_registry = (loom_low_lower_policy_registry_t){0};
-  return environment->initialize_low_lower_policy_registry.fn(
-      environment->initialize_low_lower_policy_registry.user_data,
-      out_registry);
+  return loom_target_environment_initialize_low_lower_policy_registry(
+      environment->target_environment, out_registry);
 }
 
 iree_status_t loom_check_environment_initialize_math_policy_registry(
     const loom_check_environment_t* environment,
     loom_target_math_policy_registry_t* out_registry) {
-  *out_registry = (loom_target_math_policy_registry_t){0};
-  return environment->initialize_math_policy_registry.fn(
-      environment->initialize_math_policy_registry.user_data, out_registry);
+  return loom_target_environment_initialize_math_policy_registry(
+      environment->target_environment, out_registry);
 }
 
 //===----------------------------------------------------------------------===//
@@ -624,18 +621,14 @@ static iree_status_t loom_check_execute_pass_with_output(
     loom_low_lower_policy_registry_t low_lower_policy_registry = {0};
     const loom_low_lower_policy_registry_t* low_lower_policy_registry_ref =
         NULL;
-    if (environment &&
-        environment->initialize_low_lower_policy_registry.fn != NULL) {
-      status = loom_check_environment_initialize_low_lower_policy_registry(
-          environment, &low_lower_policy_registry);
-      if (iree_status_is_ok(status)) {
-        low_lower_policy_registry_ref = &low_lower_policy_registry;
-      }
+    status = loom_check_environment_initialize_low_lower_policy_registry(
+        environment, &low_lower_policy_registry);
+    if (iree_status_is_ok(status)) {
+      low_lower_policy_registry_ref = &low_lower_policy_registry;
     }
     loom_target_math_policy_registry_t math_policy_registry = {0};
     const loom_target_math_policy_registry_t* math_policy_registry_ref = NULL;
-    if (iree_status_is_ok(status) && environment &&
-        environment->initialize_math_policy_registry.fn != NULL) {
+    if (iree_status_is_ok(status)) {
       status = loom_check_environment_initialize_math_policy_registry(
           environment, &math_policy_registry);
       if (iree_status_is_ok(status)) {

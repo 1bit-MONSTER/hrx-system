@@ -23,6 +23,7 @@
 #include "loom/ops/func/location_capture.h"
 #include "loom/ops/op_defs.h"
 #include "loom/ops/op_registry.h"
+#include "loom/target/provider.h"
 #include "loom/testing/test_file.h"
 #include "loom/tools/loom-check/file.h"
 #include "loom/tools/loom-check/test_util.h"
@@ -54,12 +55,6 @@ iree_status_t RegisterContext(void*, loom_context_t* context) {
   return loom_op_registry_register_all_dialects(context);
 }
 
-iree_status_t EmptyLowRegistry(
-    void*, loom_target_low_descriptor_registry_t* registry) {
-  *registry = {};
-  return iree_ok_status();
-}
-
 const loom_input_provider_t* const kInputs[] = {&loom_cxx_input_provider};
 
 class InputTest : public ::testing::Test {
@@ -70,14 +65,18 @@ class InputTest : public ::testing::Test {
     loom_context_initialize(iree_allocator_system(), &context_);
     IREE_ASSERT_OK(RegisterContext(nullptr, &context_));
     IREE_ASSERT_OK(loom_context_finalize(&context_));
+    target_provider_set_ = loom_target_provider_set_make(nullptr, 0);
+    IREE_ASSERT_OK(loom_target_environment_initialize(&target_provider_set_,
+                                                      &target_environment_));
     environment_.input_providers = {kInputs, IREE_ARRAYSIZE(kInputs)};
     environment_.register_context.fn = RegisterContext;
-    environment_.initialize_low_descriptor_registry.fn = EmptyLowRegistry;
+    environment_.target_environment = &target_environment_;
   }
 
   void TearDown() override {
     loom_input_module_deinitialize(&input_);
     loom_context_deinitialize(&context_);
+    loom_target_environment_deinitialize(&target_environment_);
     iree_arena_block_pool_deinitialize(&pool_);
   }
 
@@ -113,6 +112,10 @@ class InputTest : public ::testing::Test {
   loom_context_t context_ = {};
   // Loaded module and retained sources under test.
   loom_input_module_t input_ = {};
+  // Empty target contribution set used by target-neutral input checks.
+  loom_target_provider_set_t target_provider_set_ = {};
+  // Composed target environment consumed by the generic check runner.
+  loom_target_environment_t target_environment_ = {};
   // Generic check runner with the C++ input contribution.
   loom_check_environment_t environment_ = {};
 };

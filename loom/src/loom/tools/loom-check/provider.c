@@ -100,30 +100,6 @@ static iree_status_t loom_check_provider_register_context(
       &state->target_environment, context);
 }
 
-static iree_status_t loom_check_provider_initialize_low_descriptor_registry(
-    void* user_data, loom_target_low_descriptor_registry_t* out_registry) {
-  loom_check_provider_environment_state_t* state =
-      (loom_check_provider_environment_state_t*)user_data;
-  return loom_target_environment_initialize_low_descriptor_registry(
-      &state->target_environment, out_registry);
-}
-
-static iree_status_t loom_check_provider_initialize_low_lower_policy_registry(
-    void* user_data, loom_low_lower_policy_registry_t* out_registry) {
-  loom_check_provider_environment_state_t* state =
-      (loom_check_provider_environment_state_t*)user_data;
-  return loom_target_environment_initialize_low_lower_policy_registry(
-      &state->target_environment, out_registry);
-}
-
-static iree_status_t loom_check_provider_initialize_math_policy_registry(
-    void* user_data, loom_target_math_policy_registry_t* out_registry) {
-  loom_check_provider_environment_state_t* state =
-      (loom_check_provider_environment_state_t*)user_data;
-  return loom_target_environment_initialize_math_policy_registry(
-      &state->target_environment, out_registry);
-}
-
 int loom_check_provider_main(int argc, char** argv,
                              const loom_check_provider_set_t* provider_set,
                              loom_input_provider_list_t input_providers) {
@@ -146,21 +122,6 @@ int loom_check_provider_main(int argc, char** argv,
       .target_environment = &state.target_environment,
       .cleanup_pattern_provider_set =
           loom_cleanup_configured_pattern_provider_set(),
-      .initialize_low_descriptor_registry =
-          {
-              .fn = loom_check_provider_initialize_low_descriptor_registry,
-              .user_data = &state,
-          },
-      .initialize_low_lower_policy_registry =
-          {
-              .fn = loom_check_provider_initialize_low_lower_policy_registry,
-              .user_data = &state,
-          },
-      .initialize_math_policy_registry =
-          {
-              .fn = loom_check_provider_initialize_math_policy_registry,
-              .user_data = &state,
-          },
       .pass_registry =
           loom_target_environment_pass_registry(&state.target_environment),
       .low_legality_provider_list =
