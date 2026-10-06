@@ -1629,14 +1629,16 @@ static iree_status_t loom_amdgpu_append_mubuf_load_lds_packet(
 static bool loom_amdgpu_descriptor_uses_global_scalar_base_format(
     const loom_native_assembly_packet_context_t* context) {
   const loom_low_descriptor_t* descriptor = context->packet->descriptor;
-  const uint16_t address_operand_index = descriptor->result_count;
-  if (address_operand_index >= descriptor->operand_count) {
-    return false;
-  }
   const loom_low_descriptor_set_t* descriptor_set =
       context->schedule->target.descriptor_set;
   const loom_low_operand_t* operands =
       &descriptor_set->operands[descriptor->operand_start];
+  // A partial load's implicit tied source carries the preserved register part;
+  // the following operand, not that source, determines the address format.
+  const uint16_t address_operand_index =
+      descriptor->result_count +
+      iree_any_bit_set(operands[descriptor->result_count].flags,
+                       LOOM_LOW_OPERAND_FLAG_STORAGE_CONTINUATION);
   return operands[address_operand_index].unit_count == 1;
 }
 
