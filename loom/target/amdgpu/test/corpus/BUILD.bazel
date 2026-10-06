@@ -21,7 +21,6 @@ load("//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
 package(default_visibility = ["//visibility:public"])
 
 _NO_DEVICE_SUBJECTS = [
-    "memory/atomic/operations.loom",
     "memory/view/access.loom",
     "memory/view/boundary_transport.loom",
     "memory/view/nested_selection.loom",

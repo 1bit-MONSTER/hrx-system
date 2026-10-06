@@ -323,7 +323,6 @@ loom_corpus_test(
     "kernel"
     "function"
   SOURCES
-    "memory/atomic/operations.loom"
     "memory/view/access.loom"
     "memory/view/boundary_transport.loom"
     "memory/view/nested_selection.loom"

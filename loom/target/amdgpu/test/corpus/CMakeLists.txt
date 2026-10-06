@@ -98,9 +98,6 @@ loom_corpus_build(
     "memory/atomic/float64.loom"
     "AMDGPU has no module artifact format."
     "loom::target::amdgpu::all"
-    "memory/atomic/operations.loom"
-    "AMDGPU has no module artifact format."
-    "loom::target::amdgpu::all"
     "memory/buffer/allocation_freshness.loom"
     "AMDGPU has no module artifact format."
     "loom::target::amdgpu::all"
@@ -652,8 +649,6 @@ loom_corpus_test(
     "kernel/workgroup/reduce_partial.loom"
     "kernel/workgroup/reduce_tree.loom"
   EXCLUDES
-    "memory/atomic/operations.loom"
-    "The source has no AMDGPU device subject."
     "memory/view/access.loom"
     "The source has no AMDGPU device subject."
     "memory/view/boundary_transport.loom"

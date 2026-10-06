@@ -54,7 +54,6 @@ loom_corpus_sources(
     "atomic/narrow/observations.loom"
     "atomic/narrow/scopes.loom"
     "atomic/narrow/vector.loom"
-    "atomic/operations.loom"
     "atomic/private.loom"
     "atomic/vector.loom"
     "atomic/workgroup/cmpxchg.loom"
