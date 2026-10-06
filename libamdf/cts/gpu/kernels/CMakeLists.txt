@@ -9,6 +9,18 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX11_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_5_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE)
+loom_module(
+  NAME
+    completed_tick_cxx
+  SRCS
+    "completed_tick.cxx"
+  MODE merge
+  OUTPUT_FORMAT bc
+  STRICT_DEPS
+)
+endif()
+
 loom_target_profile(
   NAME
     "gfx1100"
@@ -619,8 +631,9 @@ amdf_cts_gpu_kernel_set(
   NAME
     "file_latency_cxx_kernels"
   SRCS
-    "completed_tick.loom"
     "file_latency.cxx"
+  LIBRARIES
+    "::completed_tick_cxx"
   INPUTOPTS
     "cxx:root=file_latency"
   TARGETS
@@ -709,8 +722,9 @@ amdf_cts_gpu_kernel_set(
   NAME
     "file_demand_cxx_kernels"
   SRCS
-    "completed_tick.loom"
     "file_demand.cxx"
+  LIBRARIES
+    "::completed_tick_cxx"
   INPUTOPTS
     "cxx:root=file_demand"
   TARGETS

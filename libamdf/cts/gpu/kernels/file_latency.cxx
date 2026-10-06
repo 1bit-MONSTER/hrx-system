@@ -9,8 +9,8 @@
 namespace {
 
 // Target providers select the reference-clock implementations while linking.
-LOOM_TEMPLATE("completed_tick") unsigned completed_tick();
-LOOM_TEMPLATE("completed_tick64") unsigned long long completed_tick64();
+LOOM_TEMPLATE_DECL("completed_tick") unsigned completed_tick();
+LOOM_TEMPLATE_DECL("completed_tick64") unsigned long long completed_tick64();
 
 // Native Linux io_uring submission entry fields used by this program. The
 // untouched fields arrive zero initialized from the host.

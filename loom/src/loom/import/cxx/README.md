@@ -1024,6 +1024,66 @@ global-and-workgroup-memory contract. Native payload widths and synchronization
 support follow the corresponding High operations; source import does not split
 values or insert target-specific instructions.
 
+## Target-selected template providers
+
+`LOOM_TEMPLATE_DECL` declares a typed family whose call sites remain
+`template.apply` operations until linking. `LOOM_TEMPLATE_DEF` supplies one
+bodyful implementation. A provider can bind a source-owned target and priority,
+so ordinary C++ templates express alternatives that CUDA and HIP source often
+select with preprocessor branches:
+
+```cpp
+#include <loomcxx/kernel.h>
+#include <loomcxx/target/amdgpu.h>
+
+LOOM_TEMPLATE_DECL("guide.target_value") unsigned target_value();
+
+constexpr loom::amdgpu::target gfx11{.kind = "gfx11-generic"};
+constexpr loom::amdgpu::target gfx12{.kind = "gfx12-generic"};
+
+struct Gfx11 {};
+struct Gfx12 {};
+
+template <class Target>
+unsigned target_value_provider();
+
+template <>
+LOOM_TEMPLATE_DEF(target_value)
+[[loom::target(gfx11), loom::priority(20)]]
+unsigned target_value_provider<Gfx11>() {
+  return 11;
+}
+
+template <>
+LOOM_TEMPLATE_DEF(target_value)
+[[loom::target(gfx12), loom::priority(20)]]
+unsigned target_value_provider<Gfx12>() {
+  return 12;
+}
+```
+
+A call to `target_value()` uses normal C++ type checking and imports as
+`template.apply<@guide.target_value>`. Linking for `gfx1100` retains the first
+provider; linking for `gfx1200` retains the second. Providers are module-owned
+definitions rather than ordinary C++ callees or roots. The importer retains
+them even when an explicit root list does not reach their implementation
+symbols, while unselected providers and their transitive helpers disappear
+during linking.
+
+The provider signature must exactly match its family after C++ type resolution.
+The family also owns the calling convention: a `LOOM_DEVICE LOOM_TEMPLATE_DECL`
+declaration makes every provider device code without repeating `LOOM_DEVICE`.
+Provider declarations and definitions may repeat the same family, target and
+priority annotations; conflicting redeclarations diagnose at the source
+attribute. Calling or selecting an implementation function directly is an
+error because it would bypass late template selection.
+
+Providers compose across translation units. A header-only library can publish
+them with its callers, while a provider-only `.cxx` file can import to its own
+Loom module and link as a normal library dependency. The latter keeps target
+recipes independent of kernel roots and lets several kernel modules reuse one
+provider set.
+
 ## Embedded Low assembly
 
 `loom::low::assembly` embeds a typed descriptor-backed instruction fragment in

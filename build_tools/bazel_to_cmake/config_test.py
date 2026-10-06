@@ -112,7 +112,7 @@ class ConfigTest(unittest.TestCase):
                 self.assertIn('"${CMAKE_CURRENT_BINARY_DIR}/mul.xdna"', converter.body)
                 self.assertNotIn("$<TARGET_FILE:", converter.body)
 
-    def test_loom_binary_rules_are_available_to_other_project_converters(self):
+    def test_loom_rules_are_available_to_other_project_converters(self):
         repo_cfg = SimpleNamespace(
             PROJECTS=[],
             REPO_MAP={"@hrx": ""},
@@ -120,16 +120,20 @@ class ConfigTest(unittest.TestCase):
         )
         output = bazel_to_cmake_converter.convert_build_file(
             """
-load("//loom/build_tools/bazel:defs.bzl", "loom_target_profile", "loom_kernel_binary")
+load("//loom/build_tools/bazel:defs.bzl", "loom_kernel_binary", "loom_library", "loom_target_profile")
+loom_library(name="support", srcs=["support.cxx"])
 loom_target_profile(name="profile", family="amd.xdna.aie2p", selector="exact")
-loom_kernel_binary(name="program", srcs=["program.loom"], target=":profile")
+loom_kernel_binary(name="program", srcs=["program.loom"], deps=[":support"], target=":profile")
 """,
             repo_cfg,
             "/repo/consumer",
             repo_root="/repo",
         )
+        self.assertIn("loom_module(", output)
+        self.assertIn("  NAME\n    support", output)
         self.assertIn("loom_target_profile(", output)
         self.assertIn("loom_kernel_binary(", output)
+        self.assertIn("  LIBRARIES\n    ::support", output)
         self.assertIn('OUTPUT\n    "program"', output)
 
     def test_selects_longest_matching_project_for_build_path(self):

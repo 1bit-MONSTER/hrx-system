@@ -12,7 +12,7 @@ load("//libamdf/requirements:package_policy.bzl", "apply_amdf_target_policy")
 load("//loom/build_tools/amdgpu:descriptor_sets.bzl", "loom_amdgpu_selected_descriptor_set_values")
 load("//loom/build_tools/amdgpu:target_config.bzl", "LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITIES", "LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_TARGET", "LOOM_AMDGPU_SUPPORTED_TARGETS")
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with")
-load("//loom/build_tools/bazel:defs.bzl", "loom_target_profile")
+load("//loom/build_tools/bazel:defs.bzl", "loom_library", "loom_target_profile")
 
 package(
     default_visibility = ["//libamdf/cts:__subpackages__"],
@@ -22,6 +22,7 @@ package(
 exports_files([
     "README.md",
     "byte_copy_unaligned.loom",
+    "completed_tick.cxx",
     "completed_tick.loom",
     "file_demand.cxx",
     "file_demand.loom",
@@ -85,6 +86,13 @@ _COMPLETED_TICK_COMPATIBILITY = loom_config_compatible_with(_COMPLETED_TICK_CONF
 
 _CXX_COMPLETED_TICK_COMPATIBILITY = loom_config_compatible_with(
     ["//loom/config/import:cxx"] + _COMPLETED_TICK_CONFIGS,
+)
+
+loom_library(
+    name = "completed_tick_cxx",
+    srcs = ["completed_tick.cxx"],
+    target_compatible_with = _CXX_COMPLETED_TICK_COMPATIBILITY,
+    visibility = ["//visibility:private"],
 )
 
 [
@@ -227,15 +235,13 @@ amdf_cts_gpu_kernel_set(
 
 amdf_cts_gpu_kernel_set(
     name = "file_latency_cxx_kernels",
-    srcs = [
-        "completed_tick.loom",
-        "file_latency.cxx",
-    ],
+    srcs = ["file_latency.cxx"],
     entry_point = "file_latency",
     inputopts = ["cxx:root=file_latency"],
     namespace = "kernels::file_latency_cxx",
     target_compatible_with = _CXX_COMPLETED_TICK_COMPATIBILITY,
     targets = _RDNA_KERNEL_TARGETS,
+    deps = [":completed_tick_cxx"],
 )
 
 amdf_cc_library(
@@ -264,15 +270,13 @@ amdf_cc_library(
 
 amdf_cts_gpu_kernel_set(
     name = "file_demand_cxx_kernels",
-    srcs = [
-        "completed_tick.loom",
-        "file_demand.cxx",
-    ],
+    srcs = ["file_demand.cxx"],
     entry_point = "file_demand",
     inputopts = ["cxx:root=file_demand"],
     namespace = "kernels::file_demand_cxx",
     target_compatible_with = _CXX_COMPLETED_TICK_COMPATIBILITY,
     targets = _RDNA_KERNEL_TARGETS,
+    deps = [":completed_tick_cxx"],
 )
 
 amdf_cts_gpu_kernel_set(
