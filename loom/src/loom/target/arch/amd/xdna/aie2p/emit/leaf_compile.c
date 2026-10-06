@@ -22,6 +22,7 @@ static iree_status_t loom_aie2p_leaf_build_frame(
       .function_target_facts = options->function_target_facts,
       .allocation_fixed_values = options->allocation_fixed_values,
       .allocation_fixed_value_count = options->allocation_fixed_value_count,
+      .allocation_diagnostic_flags = options->allocation_diagnostic_flags,
       .memory_accesses = options->memory_accesses,
       .schedule_structural_models = loom_aie2p_low_structural_schedule_models(),
       .schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL,

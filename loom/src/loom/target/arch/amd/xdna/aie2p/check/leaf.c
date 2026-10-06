@@ -40,6 +40,8 @@ static iree_status_t loom_aie2p_leaf_check_execute(
   IREE_RETURN_IF_ERROR(loom_check_low_emit_fixed_value_spec_list_initialize(
       remaining, request->case_arena, &fixed_specs));
   iree_string_view_t registers = iree_string_view_empty();
+  loom_low_allocation_diagnostic_flags_t allocation_diagnostic_flags = 0;
+  bool has_allocation_diagnostics_option = false;
   loom_aie2p_leaf_check_report_t report_kind =
       LOOM_AIE2P_LEAF_CHECK_REPORT_NONE;
   while (!iree_string_view_is_empty(iree_string_view_trim(remaining))) {
@@ -53,6 +55,14 @@ static iree_status_t loom_aie2p_leaf_check_execute(
           value, IREE_SV("aie2p-leaf"), &fixed_specs));
     } else if (iree_string_view_equal(name, IREE_SV("registers"))) {
       registers = value;
+    } else if (iree_string_view_equal(name, IREE_SV("diagnostics"))) {
+      if (has_allocation_diagnostics_option) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "duplicate aie2p-leaf option 'diagnostics'");
+      }
+      IREE_RETURN_IF_ERROR(loom_check_low_emit_parse_allocation_diagnostics(
+          value, IREE_SV("aie2p-leaf"), &allocation_diagnostic_flags));
+      has_allocation_diagnostics_option = true;
     } else if (iree_string_view_equal(name, IREE_SV("report")) &&
                iree_string_view_equal(value, IREE_SV("emission"))) {
       report_kind = LOOM_AIE2P_LEAF_CHECK_REPORT_EMISSION;
@@ -85,6 +95,7 @@ static iree_status_t loom_aie2p_leaf_check_execute(
   }
   loom_aie2p_leaf_compile_options_t options = {
       .descriptor_registry = &request->low_registry->registry,
+      .allocation_diagnostic_flags = allocation_diagnostic_flags,
       .diagnostic_emitter = emitter,
   };
   bool resolved = false;

@@ -802,6 +802,7 @@ loom_cc_library(
         "//loom/src/loom/analysis:symbol_facts",
         "//loom/src/loom/codegen/low:descriptors",
         "//loom/src/loom/codegen/low:frame",
+        "//loom/src/loom/codegen/low/allocation:diagnostics",
         "//loom/src/loom/codegen/low/allocation:target_constraints",
         "//loom/src/loom/ir",
         "//loom/src/loom/target/reporting:low",

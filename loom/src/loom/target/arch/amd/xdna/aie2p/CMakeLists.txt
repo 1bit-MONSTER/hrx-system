@@ -916,6 +916,7 @@ loom_cc_library(
     iree::base
     iree::base::internal::arena
     loom::analysis::symbol_facts
+    loom::codegen::low::allocation::diagnostics
     loom::codegen::low::allocation::target_constraints
     loom::codegen::low::descriptors
     loom::codegen::low::frame

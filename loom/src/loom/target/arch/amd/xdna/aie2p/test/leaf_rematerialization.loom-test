@@ -543,8 +543,13 @@ low.func.def target<amd.xdna.aie2p.core> @irreducible_private_indices(%position0
 // extract/zero-extend pairs exceed the bank until allocation replays both
 // instructions next to their reduction uses. The extracts read immutable
 // vaddSign0 target state, so replay preserves their zero-extension mode.
-// RUN: emit aie2p-leaf @packed_extract_extend_pressure report=emission
+// RUN: emit aie2p-leaf @packed_extract_extend_pressure diagnostics=predicted-spills
 
+// REMARK@+5: BACKEND/045 {function_name="packed_extract_extend_pressure", value_name="wide0", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+4: BACKEND/045 {function_name="packed_extract_extend_pressure", value_name="wide1", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+3: BACKEND/045 {function_name="packed_extract_extend_pressure", value_name="byte1", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+2: BACKEND/045 {function_name="packed_extract_extend_pressure", value_name="wide2", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+1: BACKEND/045 {function_name="packed_extract_extend_pressure", value_name="byte2", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
 low.func.def schedule(locked) target<amd.xdna.aie2p.core> @packed_extract_extend_pressure(%packed: reg<aie2p.vec256 x2>, %keep0: reg<aie2p.er x2>, %keep1: reg<aie2p.er x2>, %keep2: reg<aie2p.er x2>, %keep3: reg<aie2p.er x2>, %keep4: reg<aie2p.er x2>, %keep5: reg<aie2p.er x2>, %keep6: reg<aie2p.er x2>, %keep7: reg<aie2p.er x2>, %keep8: reg<aie2p.er x2>, %keep9: reg<aie2p.er x2>, %keep10: reg<aie2p.er x2>, %keep11: reg<aie2p.er x2>, %keep12: reg<aie2p.er x2>, %keep13: reg<aie2p.er x2>, %keep14: reg<aie2p.er x2>) -> (reg<aie2p.er>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>) asm {
   %byte0 = vextract.8.imm %packed, 0
   %wide0 = extend.u8 %byte0
@@ -558,7 +563,3 @@ low.func.def schedule(locked) target<amd.xdna.aie2p.core> @packed_extract_extend
 }
 
 // ----
-issue cycles: 13
-code bytes: 44
-coissued bundles: 1
-coissued components: 2
