@@ -80,36 +80,8 @@ iree_status_t loom_compile_report_capture_initialize(
   loom_target_compile_report_initialize(&out_capture->report, host_allocator);
   loom_json_value_list_initialize(host_allocator,
                                   &out_capture->diagnostics.json_values);
-  switch (options->detail_mode) {
-    case LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_SUMMARY:
-      out_capture->report.requested_detail_flags =
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_RESIDENCY_CONSTRAINTS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_CONFIG_BINDING_ROWS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_SCHEDULE_BAND_SUMMARY_ROWS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_SOURCE_LOW_ROWS;
-      break;
-    case LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_DETAILS:
-      out_capture->report.requested_detail_flags =
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_RESIDENCY_CONSTRAINTS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_CONFIG_BINDING_ROWS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_PRESSURE_ROWS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_PRESSURE_ORIGIN_ROWS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_SCHEDULE_BAND_ROWS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_SCHEDULE_BAND_SUMMARY_ROWS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_SPILL_ROWS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_ALLOCATION_FAILURE_ROWS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_ALLOCATION_HIGH_WATER_ROWS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_SOURCE_LOW_ROWS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_MATH_LEGALIZATION_ROWS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_TARGET_LEGALIZATION_ROWS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_WAIT_PLAN |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_TARGET_CAPABILITY_ROWS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_TARGET_INSERTION_ROWS |
-          LOOM_TARGET_COMPILE_REPORT_DETAIL_PIPELINE_PLAN_ROWS;
-      break;
-    case LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_NONE:
-      break;
-  }
+  out_capture->report.requested_detail_flags =
+      loom_target_compile_report_requested_detail_flags(options->detail_mode);
   return iree_ok_status();
 }
 

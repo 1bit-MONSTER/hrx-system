@@ -158,6 +158,36 @@ iree_status_t EmitFakeArtifactWithDiagnostic(
   };
   IREE_RETURN_IF_ERROR(
       iree_diagnostic_emit(request->diagnostic_emitter, &emission));
+  if (request->compile_report != nullptr) {
+    const loom_target_compile_report_wait_action_row_t wait_action = {
+        /*.function_name=*/IREE_SVL("entry"),
+        /*.counter_name=*/IREE_SVL("fake.counter"),
+        /*.action_name=*/IREE_SVL("planned"),
+        /*.reason_name=*/IREE_SVL("fake.reason"),
+        /*.counter_id=*/1,
+        /*.action_id=*/2,
+        /*.reason_id=*/3,
+        /*.block_index=*/4,
+        /*.node_index=*/5,
+        /*.scheduled_ordinal=*/6,
+        /*.producer_node=*/7,
+        /*.producer_scheduled_ordinal=*/8,
+        /*.producer_operation_name=*/IREE_SVL("test.identity"),
+        /*.producer_descriptor_key=*/iree_string_view_empty(),
+        /*.producer_semantic_tag=*/iree_string_view_empty(),
+        /*.consumer_node=*/5,
+        /*.consumer_scheduled_ordinal=*/6,
+        /*.consumer_operation_name=*/IREE_SVL("test.identity"),
+        /*.consumer_descriptor_key=*/iree_string_view_empty(),
+        /*.consumer_semantic_tag=*/iree_string_view_empty(),
+        /*.target_count=*/0,
+        /*.outstanding_before=*/1,
+        /*.outstanding_after=*/0,
+        /*.drained_count=*/1,
+    };
+    IREE_RETURN_IF_ERROR(loom_target_compile_report_record_wait_action_row(
+        request->compile_report, &wait_action));
+  }
   return EmitFakeArtifact(request, out_emitted, out_artifact);
 }
 
@@ -912,6 +942,9 @@ TEST(TargetTest, EmitRetainsDiagnosticsInDetailedCompileReport) {
   EXPECT_NE(contents.find("\"emitter\":\"verifier\""), std::string::npos);
   EXPECT_NE(contents.find("fake.fold"), std::string::npos);
   EXPECT_NE(contents.find("test-sentinel"), std::string::npos);
+  EXPECT_NE(contents.find("\"wait_action_rows\":{\"count\":1"),
+            std::string::npos);
+  EXPECT_NE(contents.find("\"counter\":\"fake.counter\""), std::string::npos);
 }
 
 TEST(TargetTest, EmitArtifactManifestLooseOptionsOverrideTypedDefaults) {

@@ -400,25 +400,6 @@ loomc_emit_target_compile_report_mode(loomc_compile_report_mode_t mode) {
   }
 }
 
-static loom_target_compile_report_detail_flags_t
-loomc_emit_compile_report_requested_detail_flags(
-    loomc_compile_report_mode_t mode) {
-  if (mode == LOOMC_COMPILE_REPORT_MODE_NONE) {
-    return LOOM_TARGET_COMPILE_REPORT_DETAIL_NONE;
-  }
-  if (mode == LOOMC_COMPILE_REPORT_MODE_SUMMARY) {
-    return LOOM_TARGET_COMPILE_REPORT_DETAIL_RESIDENCY_CONSTRAINTS |
-           LOOM_TARGET_COMPILE_REPORT_DETAIL_CONFIG_BINDING_ROWS;
-  }
-  return LOOM_TARGET_COMPILE_REPORT_DETAIL_RESIDENCY_CONSTRAINTS |
-         LOOM_TARGET_COMPILE_REPORT_DETAIL_CONFIG_BINDING_ROWS |
-         LOOM_TARGET_COMPILE_REPORT_DETAIL_PRESSURE_ROWS |
-         LOOM_TARGET_COMPILE_REPORT_DETAIL_SPILL_ROWS |
-         LOOM_TARGET_COMPILE_REPORT_DETAIL_SOURCE_LOW_ROWS |
-         LOOM_TARGET_COMPILE_REPORT_DETAIL_TARGET_LEGALIZATION_ROWS |
-         LOOM_TARGET_COMPILE_REPORT_DETAIL_TARGET_INSERTION_ROWS;
-}
-
 static loomc_status_t loomc_emit_result_fail_format_message(
     loomc_result_t* result, const char* message, loomc_string_view_t format,
     loomc_allocator_t allocator) {
@@ -702,8 +683,9 @@ loomc_status_t loomc_emit_transaction_initialize(
         &out_transaction->compile_report,
         iree_allocator_from_loomc(loomc_result_allocator(result)));
     out_transaction->compile_report.requested_detail_flags =
-        loomc_emit_compile_report_requested_detail_flags(
-            out_transaction->options.compile_report_mode);
+        loom_target_compile_report_requested_detail_flags(
+            loomc_emit_target_compile_report_mode(
+                out_transaction->options.compile_report_mode));
     out_transaction->compile_report_initialized = true;
   }
   if (loomc_status_is_ok(status) &&
