@@ -349,6 +349,7 @@ loom_corpus_test(
     "numeric/vector/integer_bitwise.loom"
     "numeric/vector/integer_comparison.loom"
     "numeric/vector/integer_widening.loom"
+    "numeric/vector/interleave.loom"
     "numeric/vector/packed_arithmetic.loom"
     "numeric/vector/packed_selection.loom"
     "numeric/vector/reductions.loom"

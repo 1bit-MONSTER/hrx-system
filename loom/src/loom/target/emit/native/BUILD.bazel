@@ -45,8 +45,14 @@ loom_cc_library(
 
 loom_cc_library(
     name = "elf",
-    srcs = ["elf.c"],
-    hdrs = ["elf.h"],
+    srcs = [
+        "elf.c",
+        "elf_symbols.c",
+    ],
+    hdrs = [
+        "elf.h",
+        "elf_symbols.h",
+    ],
     visibility = _NATIVE_AMDGPU_VISIBILITY + _NATIVE_XDNA_VISIBILITY,
     deps = [
         "//runtime/src/iree/base",
@@ -102,6 +108,18 @@ loom_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/io:stream",
+    ],
+)
+
+loom_cc_test(
+    name = "elf_symbols_test",
+    srcs = ["elf_symbols_test.cc"],
+    deps = [
+        ":elf",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 
