@@ -27,7 +27,6 @@ loom_cc_test(
     loom::error::source
     loom::format::location
     loom::import::cxx
-    loom::import::cxx::source::catalog
     loom::import::cxx::source::options
     loom::ir
     loom::ops::func

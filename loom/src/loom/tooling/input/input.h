@@ -50,11 +50,11 @@ typedef struct loom_input_request_t {
   loom_tooling_source_path_options_t source_path_options;
 } loom_input_request_t;
 
-// Retains the exact bytes admitted by a frontend before its storage expires.
+// Retains exact source bytes associated with an output module.
 typedef struct loom_input_source_capture_t {
-  // Called for the main source and every admitted header; failure aborts load.
-  iree_status_t (*fn)(void* user_data, iree_string_view_t filename,
-                      iree_string_view_t source);
+  // Called for each retained source with its assigned module source ID.
+  iree_status_t (*fn)(void* user_data, loom_source_id_t source_id,
+                      iree_string_view_t filename, iree_string_view_t source);
   // Capture owner borrowed for the duration of loading.
   void* user_data;
 } loom_input_source_capture_t;

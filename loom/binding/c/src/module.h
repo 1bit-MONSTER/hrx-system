@@ -74,6 +74,11 @@ LOOMC_API_PRIVATE loomc_context_t* loomc_module_context(
 LOOMC_API_PRIVATE iree_arena_block_pool_t* loomc_module_block_pool(
     loomc_module_t* module);
 
+// Copies an exact source snapshot at its producer-assigned module source ID.
+LOOMC_API_PRIVATE loomc_status_t loomc_module_insert_source_snapshot(
+    loomc_module_t* module, loom_source_id_t source_id,
+    iree_string_view_t filename, iree_string_view_t source);
+
 // Structural admission already established by the native producer.
 typedef enum loomc_module_input_state_e {
   LOOMC_MODULE_INPUT_UNVERIFIED = 0,

@@ -63,7 +63,7 @@ class Translator {
       : unit_(unit),
         diagnostics_(diagnostics),
         module_(module),
-        locations_(unit, diagnostics, module),
+        locations_(unit, diagnostics, module, options.source_observer),
         types_(unit, diagnostics),
         scalars_(unit, diagnostics, types_, locations_, builder_),
         names_(unit, diagnostics),

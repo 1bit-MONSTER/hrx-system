@@ -520,6 +520,15 @@ iree_arena_block_pool_t* loomc_module_block_pool(loomc_module_t* module) {
   return module ? loomc_workspace_block_pool(module->workspace) : NULL;
 }
 
+loomc_status_t loomc_module_insert_source_snapshot(loomc_module_t* module,
+                                                   loom_source_id_t source_id,
+                                                   iree_string_view_t filename,
+                                                   iree_string_view_t source) {
+  IREE_ASSERT_ARGUMENT(module);
+  return loomc_status_from_iree(loom_source_storage_insert(
+      &module->sources, source_id, filename, source));
+}
+
 void loomc_module_set_loom_module(loomc_module_t* module,
                                   loom_module_t* internal_module,
                                   loomc_module_input_state_t input_state) {

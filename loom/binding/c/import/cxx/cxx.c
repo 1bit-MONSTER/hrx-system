@@ -185,6 +185,15 @@ static iree_status_t loomc_cxx_capture_diagnostic(
                                        /*type_printer=*/NULL));
 }
 
+static iree_status_t loomc_cxx_capture_source(void* user_data,
+                                              loom_source_id_t source_id,
+                                              iree_string_view_t filename,
+                                              iree_string_view_t source) {
+  loomc_module_t* module = (loomc_module_t*)user_data;
+  return iree_status_from_loomc(
+      loomc_module_insert_source_snapshot(module, source_id, filename, source));
+}
+
 loomc_status_t loomc_module_import_cxx(
     loomc_context_t* context, loomc_workspace_t* workspace,
     const loomc_source_t* source, const loomc_cxx_import_options_t* options,
@@ -213,6 +222,8 @@ loomc_status_t loomc_module_import_cxx(
   if (loomc_status_is_ok(status)) {
     native_options.diagnostic_sink =
         (loom_diagnostic_sink_t){loomc_cxx_capture_diagnostic, &invocation};
+    native_options.source_observer =
+        (loom_cxx_source_observer_t){loomc_cxx_capture_source, module};
     loomc_target_pass_environment_initialize_text_asm_environment(
         loomc_context_target_pass_environment(context),
         &native_options.low_asm_environment);
