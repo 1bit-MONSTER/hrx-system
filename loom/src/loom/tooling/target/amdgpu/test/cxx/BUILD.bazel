@@ -80,6 +80,7 @@ _MODULES = [
     "vector_math",
     "vector_values",
     "volatile_memory",
+    "workload_configuration",
 ]
 
 [

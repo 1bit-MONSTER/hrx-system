@@ -193,6 +193,7 @@ loom_cc_library(
     cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
     cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
     deps = [
+        ":launch",
         "//loom/src/loom/import/cxx/source:attributes",
         "//loom/src/loom/import/cxx/value:types",
         "//third_party:cxx_parser",
@@ -217,6 +218,21 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "target",
+    srcs = ["target.cc"],
+    hdrs = ["target.h"],
+    cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
+    cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
+    deps = [
+        "//loom/src/loom/import/cxx/source:error",
+        "//loom/src/loom/import/cxx/value:types",
+        "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/target",
+        "//third_party:cxx_parser",
+    ],
+)
+
+loom_cc_library(
     name = "intrinsics",
     srcs = ["intrinsics.cc"],
     hdrs = ["intrinsics.h"],
@@ -229,8 +245,10 @@ loom_cc_library(
         ":decode",
         ":encoding",
         ":kernel",
+        ":launch",
         ":scalar_bindings",
         ":shaped",
+        ":target",
         ":template_apply",
         ":view",
         "//loom/src/loom/import/cxx/source",
@@ -255,6 +273,7 @@ loom_cc_library(
         "//loom/src/loom/import/cxx/source:attributes",
         "//loom/src/loom/import/cxx/source:error",
         "//loom/src/loom/import/cxx/symbol:names",
+        "//loom/src/loom/import/cxx/value:types",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/ops/config",

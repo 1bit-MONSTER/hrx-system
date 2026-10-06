@@ -186,8 +186,8 @@ Intrinsics::Binding Intrinsics::resolve(cxx::FunctionSymbol* function,
     return EncodingIntrinsic::resolve(*encoding, unit_, diagnostics_, types_,
                                       function, module_, owner);
   }
-  if (auto binding = CheckIntrinsic::resolve(unit_, diagnostics_, types_,
-                                             function, attribute, owner)) {
+  if (auto binding = CheckIntrinsic::resolve(
+          unit_, diagnostics_, types_, launches_, function, attribute, owner)) {
     return *binding;
   }
   if (auto* scalar =
@@ -219,6 +219,10 @@ Intrinsics::Binding Intrinsics::resolve(cxx::FunctionSymbol* function,
   if (auto subgroup = SubgroupIntrinsic::resolve(unit_, diagnostics_, types_,
                                                  function, attribute, owner)) {
     return *subgroup;
+  }
+  if (auto target = TargetIntrinsic::resolve(unit_, diagnostics_, types_,
+                                             function, attribute, owner)) {
+    return *target;
   }
   if (auto barrier = BarrierIntrinsic::resolve(unit_, diagnostics_, function,
                                                attribute, owner)) {
@@ -373,6 +377,9 @@ IntrinsicCallResult Intrinsics::call(const Binding& admitted,
   }
   if (auto* subgroup = std::get_if<SubgroupIntrinsic>(binding)) {
     return {Value(subgroup->call(arguments, builder, location))};
+  }
+  if (auto* target = std::get_if<TargetIntrinsic>(binding)) {
+    return {Value(target->call(builder, location))};
   }
   if (auto* barrier = std::get_if<BarrierIntrinsic>(binding)) {
     barrier->call(builder, location);

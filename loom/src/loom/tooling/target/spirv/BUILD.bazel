@@ -263,6 +263,7 @@ loom_test(
         "packed_float8_conversion",
         "pointer_origins",
         "vector_lookup",
+        "workload_configuration",
     ]
 ]
 

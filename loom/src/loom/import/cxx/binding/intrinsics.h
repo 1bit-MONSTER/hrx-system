@@ -22,8 +22,10 @@
 #include "loom/import/cxx/binding/decode.h"
 #include "loom/import/cxx/binding/encoding.h"
 #include "loom/import/cxx/binding/kernel.h"
+#include "loom/import/cxx/binding/launch.h"
 #include "loom/import/cxx/binding/scalar_bindings.h"
 #include "loom/import/cxx/binding/shaped.h"
+#include "loom/import/cxx/binding/target.h"
 #include "loom/import/cxx/binding/template_apply.h"
 #include "loom/import/cxx/binding/view.h"
 #include "loom/import/cxx/source/source.h"
@@ -68,15 +70,18 @@ class Intrinsics {
       std::variant<ScalarBinding, ShapedIntrinsic, EncodingIntrinsic,
                    DecodeIntrinsic, ViewIntrinsic, AtomicIntrinsic,
                    FenceIntrinsic, SubgroupIntrinsic, BarrierIntrinsic,
-                   AssemblyIntrinsic, TemplateApplyIntrinsic, CheckIntrinsic>;
+                   TargetIntrinsic, AssemblyIntrinsic, TemplateApplyIntrinsic,
+                   CheckIntrinsic>;
 
   Intrinsics(cxx::TranslationUnit& unit, Diagnostics& diagnostics, Types& types,
-             Locations& locations, SymbolNames& names, loom_module_t* module)
+             Locations& locations, SymbolNames& names,
+             LaunchContracts& launches, loom_module_t* module)
       : unit_(unit),
         diagnostics_(diagnostics),
         types_(types),
         locations_(locations),
         names_(names),
+        launches_(launches),
         module_(module) {}
 
   // Admits raw attribute arguments before the frontend's string-only semantic
@@ -137,6 +142,8 @@ class Intrinsics {
   Locations& locations_;
   // Shared output namespace preventing external-family/callable collisions.
   SymbolNames& names_;
+  // Source launch contracts supplying configured-kernel workload signatures.
+  LaunchContracts& launches_;
   // Invocation-owned output module interning static source specifications.
   loom_module_t* module_;
   // Validated bindings indexed by canonical semantic function symbol.

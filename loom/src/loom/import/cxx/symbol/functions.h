@@ -7,6 +7,7 @@
 #ifndef LOOM_IMPORT_CXX_SYMBOL_FUNCTIONS_H_
 #define LOOM_IMPORT_CXX_SYMBOL_FUNCTIONS_H_
 
+#include <optional>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -23,7 +24,13 @@
 
 namespace loom::cxx_import {
 
-enum class FunctionKind { Ordinary, Kernel, CheckCase };
+enum class FunctionKind {
+  Ordinary,
+  Kernel,
+  LaunchConfiguration,
+  ClusteredLaunchConfiguration,
+  CheckCase,
+};
 
 // Admitted definition ready for recursive body construction. The source owns
 // AST/types and the module owns native IR; both outlive this borrowed contract.
@@ -42,6 +49,15 @@ struct FunctionBody {
   FunctionKind kind;
   // Incoming pointer contracts in source parameter order, empty when absent.
   std::span<const ParameterContract> parameter_contracts;
+};
+
+// Native definition and any source-owned launch configuration body that must
+// be projected before its ordinary body.
+struct DefinedFunction {
+  // Function, kernel, or check body selected by the pending worklist.
+  FunctionBody body;
+  // Kernel configuration projected into the definition's config region.
+  std::optional<FunctionBody> configuration;
 };
 
 // Owns root selection, native symbol identities and reachable function order.
@@ -68,7 +84,8 @@ class Functions {
   // Retains one identity and queues a newly reached source function exactly
   // once. The caller has admitted a concrete definition through selection or
   // definition().
-  loom_symbol_ref_t declare(cxx::FunctionSymbol* function);
+  loom_symbol_ref_t declare(cxx::FunctionSymbol* function,
+                            cxx::AST* owner = nullptr);
   // Returns the concrete definition retained for a semantic declaration, or
   // the frontend-owned definition of a reached concrete template instance.
   cxx::FunctionSymbol* definition(cxx::FunctionSymbol* function) const;
@@ -81,8 +98,8 @@ class Functions {
   std::span<cxx::FunctionSymbol* const> pending() const { return pending_; }
   // Builds the selected native definition and launch contract at the caller's
   // module insertion point. The caller then enters and fills the returned body.
-  FunctionBody define(cxx::FunctionSymbol* symbol, Types& types,
-                      Locations& locations, loom_builder_t* builder);
+  DefinedFunction define(cxx::FunctionSymbol* symbol, Types& types,
+                         Locations& locations, loom_builder_t* builder);
 
  private:
   enum class DeclarationScope { Namespace, Nested };
