@@ -28,7 +28,7 @@ loom_cc_library(
     deps = [
         "//loom/src/loom/target/arch/amdgpu:profile",
         "//loom/src/loom/target/emit/native/amdgpu:hal_kernel_library",
-        "//loom/src/loom/tooling/compile:artifact",
+        "//loom/src/loom/tooling/execution/hal:artifact",
         "//runtime/src/iree/base",
     ],
 )

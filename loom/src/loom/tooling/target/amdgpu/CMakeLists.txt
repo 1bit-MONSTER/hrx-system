@@ -21,7 +21,7 @@ loom_cc_library(
     iree::base
     loom::target::arch::amdgpu::profile
     loom::target::emit::native::amdgpu::hal_kernel_library
-    loom::tooling::compile::artifact
+    loom::tooling::execution::hal::artifact
   PUBLIC
 )
 endif()

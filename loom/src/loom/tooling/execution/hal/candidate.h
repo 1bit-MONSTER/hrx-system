@@ -10,8 +10,8 @@
 #define LOOM_TOOLING_EXECUTION_HAL_CANDIDATE_H_
 
 #include "iree/base/api.h"
-#include "loom/tooling/compile/artifact.h"
 #include "loom/tooling/compile/options.h"
+#include "loom/tooling/execution/hal/artifact.h"
 #include "loom/tooling/execution/hal/device_provider.h"
 #include "loom/tooling/execution/session.h"
 

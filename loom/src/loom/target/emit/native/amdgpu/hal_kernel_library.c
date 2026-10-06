@@ -1261,7 +1261,7 @@ static iree_status_t loom_amdgpu_hal_kernel_library_emit(
   return status;
 }
 
-static const loom_target_emitter_t loom_amdgpu_hal_kernel_library_emitter = {
+const loom_target_emitter_t loom_amdgpu_hal_kernel_library_emitter = {
     .name = IREE_SVL("amdgpu-hal"),
     .public_artifact_format = IREE_SVL("amdgpu-hsaco"),
     .default_identifier = IREE_SVL("module.hsaco"),

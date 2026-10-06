@@ -62,7 +62,7 @@ loom_cc_library(
     loom::target::function_contract
     loom::target::low_descriptor_registry
     loom::target::types
-    loom::tooling::compile::artifact
+    loom::tooling::execution::hal::artifact
   PUBLIC
 )
 endif()

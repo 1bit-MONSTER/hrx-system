@@ -43,6 +43,8 @@ typedef struct SelectionObservation {
   const iree_hal_executable_target_t* executable_target;
   // Number of function versions visible to artifact emission.
   iree_host_size_t emitted_function_version_count;
+  // Source-to-low error limit inherited from the target-owned emitter.
+  uint32_t emitted_source_to_low_max_errors;
   // True when artifact emission retained the selected executable target key.
   bool emission_target_key_matches_selection;
 } SelectionObservation;
@@ -167,6 +169,8 @@ static iree_status_t EmitFakeArtifact(const loom_artifact_provider_t* provider,
   g_observation.emitted_function_version_count =
       options->function_versions != nullptr ? options->function_versions->count
                                             : 0;
+  g_observation.emitted_source_to_low_max_errors =
+      options->target_pipeline_options.source_to_low_max_errors;
   g_observation.emission_target_key_matches_selection =
       g_observation.executable_target != nullptr &&
       iree_string_view_equal(target->target_key,
@@ -175,6 +179,27 @@ static iree_status_t EmitFakeArtifact(const loom_artifact_provider_t* provider,
   *out_artifact = (loom_artifact_t){};
   return iree_ok_status();
 }
+
+static iree_status_t EmitFakeTargetArtifact(
+    const loom_target_emit_request_t* request, bool* out_emitted,
+    loom_target_emit_artifact_t* out_artifact) {
+  (void)request;
+  *out_emitted = false;
+  *out_artifact = {};
+  return iree_ok_status();
+}
+
+static const loom_target_emitter_t kFakeTargetEmitter = {
+    /*.name=*/IREE_SVL("fake-hal"),
+    /*.public_artifact_format=*/IREE_SVL("fake-hal"),
+    /*.default_identifier=*/IREE_SVL("fake.bin"),
+    /*.target_artifact_format=*/LOOM_TARGET_ARTIFACT_FORMAT_ELF,
+    /*.default_pipeline_options=*/
+    {
+        /*.source_to_low_max_errors=*/73,
+    },
+    /*.emit=*/EmitFakeTargetArtifact,
+};
 
 static iree_status_t RegisterContext(void* user_data, loom_context_t* context) {
   (void)user_data;
@@ -255,8 +280,7 @@ pass.pipeline<module> @debug pipeline {
   loom_artifact_provider_t artifact_provider = {};
   artifact_provider.name = IREE_SV("fake-hal");
   artifact_provider.target_profile_type = &kFakeTargetProfileType;
-  artifact_provider.artifact_kind =
-      LOOM_TARGET_COMPILE_ARTIFACT_KIND_HAL_EXECUTABLE;
+  artifact_provider.target_emitter = &kFakeTargetEmitter;
   artifact_provider.emit_artifact = EmitFakeArtifact;
 
   loom_device_provider_t device_provider = {};
@@ -273,6 +297,7 @@ pass.pipeline<module> @debug pipeline {
   loom_compile_options_initialize(&compile_options);
   compile_options.source_resolver =
       loom_run_module_source_resolver(&run_module);
+  compile_options.target_pipeline_options.source_to_low_max_errors = 11;
   loom_run_one_shot_options_t run_options = {};
   loom_run_one_shot_options_initialize(&run_options);
   run_options.hal_function_name = IREE_SV("entry");
@@ -305,6 +330,7 @@ pass.pipeline<module> @debug pipeline {
   EXPECT_EQ(g_observation.projected_profile, &kFakeTargetProfile.base);
   EXPECT_EQ(g_observation.emitted_profile, &kFakeTargetProfile.base);
   EXPECT_EQ(g_observation.emitted_function_version_count, 1u);
+  EXPECT_EQ(g_observation.emitted_source_to_low_max_errors, 73u);
   EXPECT_TRUE(g_observation.emission_target_key_matches_selection);
 
   loom_run_one_shot_result_deinitialize(&result);

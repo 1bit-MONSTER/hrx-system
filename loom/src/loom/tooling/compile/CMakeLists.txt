@@ -27,23 +27,6 @@ loom_cc_library(
   PUBLIC
 )
 
-loom_cc_library(
-  NAME
-    artifact
-  HDRS
-    "artifact.h"
-  DEPS
-    ::options
-    iree::base
-    loom::ir
-    loom::target::pipeline_options
-    loom::target::profile
-    loom::target::provider
-    loom::target::reporting::report
-    loom::target::types
-  PUBLIC
-)
-
 set(_configured_platform_copts "")
 if(LOOM_TARGET_ARCH_X86)
   list(APPEND _configured_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_X86_ARTIFACTS=1")

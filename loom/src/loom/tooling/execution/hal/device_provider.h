@@ -17,7 +17,7 @@
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
 #include "loom/target/profile.h"
-#include "loom/tooling/compile/artifact.h"
+#include "loom/tooling/execution/hal/artifact.h"
 
 #ifdef __cplusplus
 extern "C" {

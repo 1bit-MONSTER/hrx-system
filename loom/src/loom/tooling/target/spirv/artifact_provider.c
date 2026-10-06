@@ -189,12 +189,7 @@ static void loom_spirv_artifact_provider_deinitialize_artifact(
 const loom_artifact_provider_t loom_spirv_vulkan_artifact_provider = {
     .name = IREE_SVL("spirv-vulkan-hal"),
     .target_profile_type = &loom_spirv_target_profile_type,
-    .artifact_kind = LOOM_TARGET_COMPILE_ARTIFACT_KIND_HAL_EXECUTABLE,
-    .default_pipeline_options =
-        {
-            .control_flow_lowering =
-                LOOM_TARGET_CONTROL_FLOW_LOWERING_STRUCTURED_LOW,
-        },
+    .target_emitter = &loom_spirv_module_emitter,
     .emit_artifact = loom_spirv_artifact_provider_emit_artifact,
     .deinitialize_artifact = loom_spirv_artifact_provider_deinitialize_artifact,
 };
