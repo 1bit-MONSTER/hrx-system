@@ -298,6 +298,8 @@ typedef struct loom_low_target_legalize_report_decision_t {
   loom_target_compile_report_legalizer_strategy_t strategy;
   // Whether the latest rewrite expanded vector semantics into scalar lanes.
   bool scalarized;
+  // Source operations created by the latest rewrite, including summary mode.
+  uint64_t created_op_count;
   // Authored target-contract result captured before projected packet queries.
   loom_target_contract_query_result_t authored_query_result;
   // True after an authored target-contract query has populated the result.
@@ -1014,6 +1016,7 @@ static iree_status_t loom_low_target_legalize_retain_report_decision(
   decision->action = action;
   decision->strategy = legalizer_strategy;
   decision->scalarized = scalarized;
+  decision->created_op_count = created_op_count;
   if (!decision->row) {
     return iree_ok_status();
   }
@@ -1091,7 +1094,7 @@ static iree_status_t loom_low_target_legalize_publish_report(
     } else {
       loom_target_compile_report_record_legalization_summary(
           state->compile_report, decision->action, decision->strategy,
-          decision->scalarized);
+          decision->scalarized, decision->created_op_count);
     }
   }
   return status;

@@ -584,12 +584,14 @@ static iree_status_t loom_target_compile_report_format_summary(
         builder,
         "COMPILE-REPORT: math_legalization rewritten=%" PRIu64
         " rejected=%" PRIu64 " missing_policy=%" PRIu64
-        " missing_recipe=%" PRIu64 " rows=%" PRIhsz "\n",
+        " missing_recipe=%" PRIu64 " rows=%" PRIhsz
+        " maximum_created_ops=%" PRIu64 "\n",
         report->math_legalization_rewritten_op_count,
         report->math_legalization_rejected_op_count,
         report->math_legalization_missing_policy_op_count,
         report->math_legalization_missing_recipe_op_count,
-        report->math_legalization_rows.count));
+        report->math_legalization_rows.count,
+        report->math_legalization_maximum_created_op_count));
   }
 
   if (iree_any_bit_set(report->detail_flags,
@@ -597,9 +599,11 @@ static iree_status_t loom_target_compile_report_format_summary(
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
         builder,
         "COMPILE-REPORT: source_low selected_ops=%" PRIu64
-        " emitted_ops=%" PRIu64 " rows=%" PRIhsz "\n",
+        " emitted_ops=%" PRIu64 " rows=%" PRIhsz
+        " unkeyed_maximum_emitted_ops=%u\n",
         report->source_low_selected_op_count,
-        report->source_low_emitted_op_count, report->source_low_rows.count));
+        report->source_low_emitted_op_count, report->source_low_rows.count,
+        report->source_low_unkeyed_maximum_emitted_op_count));
     if (report->source_low_memory_summary.packet_count != 0) {
       const loom_target_compile_report_source_low_memory_summary_t* summary =
           &report->source_low_memory_summary;
@@ -650,7 +654,8 @@ static iree_status_t loom_target_compile_report_format_summary(
         " rewritten=%" PRIu64 " scalarized=%" PRIu64
         " target_rewritten=%" PRIu64 " reference_rewritten=%" PRIu64
         " deferred=%" PRIu64 " invalid_ir=%" PRIu64 " unsupported=%" PRIu64
-        " unhandled=%" PRIu64 " rows=%" PRIhsz "\n",
+        " unhandled=%" PRIu64 " rows=%" PRIhsz " maximum_created_ops=%" PRIu64
+        "\n",
         report->target_legalization_legal_op_count,
         report->target_legalization_rewritten_op_count,
         report->target_legalization_scalarized_op_count,
@@ -660,7 +665,8 @@ static iree_status_t loom_target_compile_report_format_summary(
         report->target_legalization_invalid_ir_op_count,
         report->target_legalization_unsupported_op_count,
         report->target_legalization_unhandled_op_count,
-        report->target_legalization_rows.count));
+        report->target_legalization_rows.count,
+        report->target_legalization_maximum_created_op_count));
   }
 
   if (iree_any_bit_set(report->detail_flags,

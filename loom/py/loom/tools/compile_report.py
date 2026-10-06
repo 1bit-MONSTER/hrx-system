@@ -50,6 +50,15 @@ identities with the experiment. `--comparison=target` admits target
 specialization changes within one target and backend family. `--force` retains
 identity mismatches for historical inspection; its result is observational.
 
+`show` and `suggest` flag individual source operations expanding beyond five
+operations, alongside explicit scalar lane expansion. Summary maxima cannot
+hide an expensive occurrence in an average. Counts belong to math legalization,
+target legalization, or source-to-Low selection; they are not cumulative costs
+or final hardware instructions. Inspect the cited recipe for a compact lowering
+that preserves source semantics, then check final resources and runtime.
+Fast-math flags alone do not guarantee cheap output. Source warnings remain
+useful even when later compilation fails; missing counts are not a clean bill.
+
 `show` also lists explicit source loop pipeline depths and queued SSA values;
 detailed reports include the producer/consumer operation schedule. `suggest`
 combines source policy evidence with the selected target provider's experiments.
@@ -94,7 +103,7 @@ layout candidates, compare all access directions and resources, and benchmark.
 
 ```shell
 loom-compile-report show kernel.report.json --format=json | \\
-  jq '{status, identity, workload, entries, missing_evidence}'
+  jq '{status, identity, expansions, scalarization, entries, missing_evidence}'
 loom-compile-report diff baseline.report.json candidate.report.json \\
   --format=json | \\
   jq '{identity_mismatches, changed_entry_count, entries}'

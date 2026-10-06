@@ -47,6 +47,10 @@ from loom.reporting.compile_report_execution_economics import (
     build_execution_economics_show,
     execution_economics_diff_has_changes,
 )
+from loom.reporting.compile_report_expansions import (
+    append_expansion_show_text,
+    build_expansion_show,
+)
 from loom.reporting.compile_report_loop_pipelines import (
     append_loop_pipeline_show_text,
     build_loop_pipeline_show,
@@ -430,6 +434,9 @@ def build_compile_report_show(
     scalarization = build_scalarization_show(document)
     if scalarization is not None:
         view["scalarization"] = scalarization
+    expansions = build_expansion_show(document)
+    if expansions is not None:
+        view["expansions"] = expansions
     loop_pipelines = build_loop_pipeline_show(document)
     if loop_pipelines is not None:
         view["loop_pipelines"] = loop_pipelines
@@ -694,6 +701,9 @@ def format_compile_report_show_text(view: dict[str, object]) -> str:
             lines.append(f"    {binding['key']} = {binding['value']}")
     lines.append("")
     append_workload_show_text(lines, _expect_dict(view["workload"]))
+    expansions = view.get("expansions")
+    if isinstance(expansions, dict):
+        append_expansion_show_text(lines, expansions)
     scalarization = view.get("scalarization")
     if isinstance(scalarization, dict):
         append_scalarization_show_text(lines, scalarization)

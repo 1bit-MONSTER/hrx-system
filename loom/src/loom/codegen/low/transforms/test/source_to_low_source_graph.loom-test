@@ -95,7 +95,7 @@ func.def target(@test_target) @reports_fused_source_graph_once(%lhs: i32, %rhs: 
 
 // ----
 COMPILE-REPORT: summary artifact=none status=OK function=- backend=- bundle=- export=- export_symbol=- config=- lowered=-
-COMPILE-REPORT: source_low selected_ops=1 emitted_ops=1 rows=1
+COMPILE-REPORT: source_low selected_ops=1 emitted_ops=1 rows=1 unkeyed_maximum_emitted_ops=0
 COMPILE-REPORT: source_low[0] function=reports_fused_source_graph_once source_op=scalar.addi selection=rule plan_key=test.fused.add_mul.i32 descriptor_key=test.add_mul.i32 descriptor_semantic_tag=test.fused.add_mul.i32 emitted_ops=1
 
 // ====
@@ -112,5 +112,5 @@ func.def target(@test_target) @reports_claimed_definition_once(%lhs: i32, %rhs: 
 
 // ----
 COMPILE-REPORT: summary artifact=none status=OK function=- backend=- bundle=- export=- export_symbol=- config=- lowered=-
-COMPILE-REPORT: source_low selected_ops=1 emitted_ops=1 rows=1
+COMPILE-REPORT: source_low selected_ops=1 emitted_ops=1 rows=1 unkeyed_maximum_emitted_ops=0
 COMPILE-REPORT: source_low[0] function=reports_claimed_definition_once source_op=scalar.addi selection=rule plan_key=test.fused.mul_add.i32 descriptor_key=test.mul_add.i32 descriptor_semantic_tag=test.fused.mul_add.i32 emitted_ops=1

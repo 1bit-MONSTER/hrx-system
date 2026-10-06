@@ -8,7 +8,7 @@ func.def target(@test_target) @unanswered_select_contract_preserves_native_selec
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=0 unhandled=1 rows=1
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=0 unhandled=1 rows=1 *
 CHECK: COMPILE-REPORT: target_legalization[*] * source_op=scf.select mode=eager policy=prefer-native action=unhandled outcome=unhandled contract=unhandled legalizer=- strategy=none * scalarized=false source_rejections=0x00000000 source_rejection_detail=0 target_rejections=0x00000000 missing_features=0x00000000 missing_facts=0x00000000 *
 
 // ====
@@ -22,7 +22,7 @@ func.def target(@test_target) @unanswered_select_contract_does_not_reject_native
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=0 unhandled=1 rows=1
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=0 unhandled=1 rows=1 *
 CHECK: COMPILE-REPORT: target_legalization[*] * source_op=scf.select mode=eager policy=require-native action=unhandled outcome=unhandled contract=unhandled legalizer=- strategy=none * source_rejections=0x00000000 source_rejection_detail=0 target_rejections=0x00000000 missing_features=0x00000000 missing_facts=0x00000000 *
 
 // ====
@@ -36,7 +36,7 @@ func.def target(@test_target) @reference_policy_requests_whole_vector_scalarizat
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=1 target_rewritten=0 reference_rewritten=1 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=1
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=1 target_rewritten=0 reference_rewritten=1 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=1 *
 CHECK: COMPILE-REPORT: target_legalization[*] * source_op=scf.select mode=eager policy=reference-only action=rewritten outcome=reference-fallback contract=unhandled legalizer=vector strategy=reference * scalarized=true source_rejections=0x00000000 source_rejection_detail=0 target_rejections=0x00000000 missing_features=0x00000000 missing_facts=0x00000000 *
 
 // ====
@@ -50,7 +50,7 @@ func.def target(@test_target) @records_reduce_axes_reference_rewrite(%v: vector<
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=1 target_rewritten=0 reference_rewritten=1 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=1
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=1 target_rewritten=0 reference_rewritten=1 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=1 *
 CHECK: COMPILE-REPORT: target_legalization[*] * source_op=vector.reduce.axes mode=eager policy=prefer-native action=rewritten outcome=reference-fallback contract=unhandled legalizer=vector strategy=reference * scalarized=true source_rejections=0x00000000 source_rejection_detail=0 target_rejections=0x00000000 missing_features=0x00000000 missing_facts=0x00000000 *
 
 // ====
@@ -65,7 +65,7 @@ func.def target(@test_target) @records_decode_reference_rewrite(%payload: vector
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=1 target_rewritten=0 reference_rewritten=1 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=1
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=1 target_rewritten=0 reference_rewritten=1 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=1 *
 CHECK: COMPILE-REPORT: target_legalization[*] * source_op=vector.decode mode=eager policy=prefer-native action=rewritten outcome=reference-fallback contract=unhandled legalizer=vector strategy=reference * source_rejections=0x00000000 source_rejection_detail=0 target_rejections=0x00000000 missing_features=0x00000000 missing_facts=0x00000000 *
 
 // ====
@@ -82,7 +82,7 @@ func.def target(@test_target) @reports_vector_store_deferred_to_later_phase(%out
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=1 invalid_ir=0 unsupported=0 unhandled=0 rows=1
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=1 invalid_ir=0 unsupported=0 unhandled=0 rows=1 *
 CHECK: COMPILE-REPORT: target_legalization[*] * source_op=vector.store mode=eager policy=prefer-native action=deferred outcome=deferred contract=unsupported legalizer=vector strategy=reference * source_rejections=0x00000000 source_rejection_detail=0 target_rejections=0x00000000 missing_features=0x00000000 missing_facts=0x00000000 *
 
 // ====
@@ -97,7 +97,7 @@ func.def target(@test_target) @reports_require_native_reduce_axes_reference_reje
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=1 unhandled=0 rows=1
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=1 unhandled=0 rows=1 *
 CHECK: COMPILE-REPORT: target_legalization[*] * source_op=vector.reduce.axes mode=final policy=require-native action=reject-unsupported-final outcome=reject-unsupported contract=unhandled legalizer=vector strategy=reference * source_rejections=0x00000040 source_rejection_detail=0 target_rejections=0x00000000 missing_features=0x00000000 missing_facts=0x00000000 *
 
 // ====
@@ -118,7 +118,7 @@ func.def target(@test_target) @reports_target_shaped_mma_fragment_rejection(%lhs
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=1 unhandled=0 rows=1
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=1 unhandled=0 rows=1 *
 CHECK: COMPILE-REPORT: target_legalization[*] * source_op=vector.mma mode=final policy=prefer-native action=reject-unsupported-final outcome=reject-unsupported contract=unhandled legalizer=vector strategy=reference * source_rejections=0x00000010 source_rejection_detail=1 target_rejections=0x00000000 missing_features=0x00000000 missing_facts=0x00000000 *
 
 // ====
@@ -138,7 +138,7 @@ func.def target(@test_target) @reports_matrix_descriptor_reference_fallback(%lhs
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=1 target_rewritten=0 reference_rewritten=1 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=1
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=1 target_rewritten=0 reference_rewritten=1 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=1 *
 CHECK: COMPILE-REPORT: target_legalization[*] * source_op=vector.mma mode=final policy=prefer-native action=rewritten outcome=reference-fallback contract=unsupported legalizer=vector strategy=reference * source_rejections=0x00000000 source_rejection_detail=0 target_rejections=0x00000000 missing_features=0x00000000 missing_facts=0x00000000 *
 
 // ====
@@ -158,7 +158,7 @@ func.def target(@test_target) @reports_reference_only_matrix_override(%lhs_data:
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=1 target_rewritten=0 reference_rewritten=1 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=1
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=1 target_rewritten=0 reference_rewritten=1 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=1 *
 CHECK: COMPILE-REPORT: target_legalization[*] * source_op=vector.mma mode=final policy=reference-only action=rewritten outcome=reference-fallback contract=legal legalizer=vector strategy=reference * descriptor_key=test.mma.i32.2x2x2 source_rejections=0x00000000 source_rejection_detail=0 target_rejections=0x00000000 missing_features=0x00000000 missing_facts=0x00000000 *
 
 // ====

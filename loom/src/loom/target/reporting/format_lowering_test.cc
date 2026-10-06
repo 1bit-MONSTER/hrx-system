@@ -426,6 +426,104 @@ TEST(CompileReportFormatTest, FormatsSourceToLowSelectionAndMemory) {
   loom_target_compile_report_deinitialize(&report);
 }
 
+TEST(CompileReportFormatTest,
+     SelectionSummariesRetainPeakExpansionAcrossEntries) {
+  loom_target_compile_report_t report = {};
+  loom_target_compile_report_initialize(&report, iree_allocator_system());
+  for (uint32_t entry_index = 0; entry_index < 2; ++entry_index) {
+    loom_target_compile_report_t entry = {};
+    loom_target_compile_report_initialize(&entry, iree_allocator_system());
+    entry.function_name =
+        entry_index == 0 ? IREE_SV("first") : IREE_SV("second");
+    loom_target_compile_report_source_low_row_t selection = {};
+    selection.function_name = IREE_SVL("multiply");
+    selection.source_op_name = IREE_SVL("scalar.mulf");
+    selection.selection_kind =
+        LOOM_TARGET_COMPILE_REPORT_SOURCE_LOW_SELECTION_PLAN;
+    selection.plan_key = IREE_SVL("exact_binary32");
+    for (uint32_t operation_index = 0; operation_index < 100;
+         ++operation_index) {
+      selection.emitted_low_op_count =
+          entry_index == 0 && operation_index == 0 ? 163 : 1;
+      ++entry.source_low_selected_op_count;
+      entry.source_low_emitted_op_count += selection.emitted_low_op_count;
+      IREE_ASSERT_OK(
+          loom_target_compile_report_record_source_low_row(&entry, &selection));
+    }
+    // Anonymous callbacks retain a peak without creating more summary keys.
+    selection.plan_key = iree_string_view_empty();
+    selection.emitted_low_op_count = entry_index == 0 ? 97 : 2;
+    ++entry.source_low_selected_op_count;
+    entry.source_low_emitted_op_count += selection.emitted_low_op_count;
+    IREE_ASSERT_OK(
+        loom_target_compile_report_record_source_low_row(&entry, &selection));
+    IREE_ASSERT_OK(
+        loom_target_compile_report_record_entry_report(&report, &entry));
+    loom_target_compile_report_deinitialize(&entry);
+  }
+
+  iree_string_builder_t builder;
+  iree_string_builder_initialize(iree_allocator_system(), &builder);
+  loom_output_stream_t stream;
+  loom_output_stream_for_builder(&builder, &stream);
+  const loom_target_compile_report_format_options_t options = {
+      /*.mode=*/LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_SUMMARY,
+  };
+  IREE_ASSERT_OK(
+      loom_target_compile_report_format_json(&report, &options, &stream));
+  const auto root = ParseJsonDocument(iree_string_builder_view(&builder));
+  ExpectObjectUint64Equals(LookupObject(root, IREE_SV("source_low")),
+                           IREE_SV("unkeyed_maximum_emitted_op_count"), 97);
+  const auto summaries = LookupObject(LookupObject(root, IREE_SV("source_low")),
+                                      IREE_SV("selection_summaries"));
+  ExpectObjectUint64Equals(summaries, IREE_SV("count"), 1);
+  const auto summary =
+      LookupArrayElement(LookupObject(summaries, IREE_SV("rows")), 0);
+  ExpectObjectUint64Equals(summary, IREE_SV("selected_op_count"), 200);
+  ExpectObjectUint64Equals(summary, IREE_SV("emitted_low_op_count"), 362);
+  ExpectObjectUint64Equals(summary, IREE_SV("maximum_emitted_low_op_count"),
+                           163);
+  iree_string_builder_deinitialize(&builder);
+  loom_target_compile_report_deinitialize(&report);
+}
+
+TEST(CompileReportFormatTest, LegalizationPeaksDoNotRequireDetailedRows) {
+  loom_target_compile_report_t report = {};
+  loom_target_compile_report_initialize(&report, iree_allocator_system());
+  for (uint64_t created_op_count : {40, 2}) {
+    loom_target_compile_report_math_row_t math = {};
+    math.action = LOOM_TARGET_COMPILE_REPORT_MATH_ACTION_REWRITTEN;
+    math.created_op_count = created_op_count;
+    math.erased_op_count = 1;
+    IREE_ASSERT_OK(loom_target_compile_report_record_math_row(&report, &math));
+    loom_target_compile_report_record_legalization_summary(
+        &report, LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_REWRITTEN,
+        LOOM_TARGET_COMPILE_REPORT_LEGALIZER_STRATEGY_REFERENCE,
+        /*scalarized=*/true, created_op_count);
+  }
+  EXPECT_EQ(report.math_legalization_rows.count, 0u);
+  EXPECT_EQ(report.target_legalization_rows.count, 0u);
+  iree_string_builder_t builder;
+  iree_string_builder_initialize(iree_allocator_system(), &builder);
+  loom_output_stream_t stream;
+  loom_output_stream_for_builder(&builder, &stream);
+  const loom_target_compile_report_format_options_t options = {
+      /*.mode=*/LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_SUMMARY,
+  };
+  IREE_ASSERT_OK(
+      loom_target_compile_report_format_json(&report, &options, &stream));
+  const auto root = ParseJsonDocument(iree_string_builder_view(&builder));
+  const iree_string_view_t sections[] = {IREE_SVL("math_legalization"),
+                                         IREE_SVL("target_legalization")};
+  for (iree_string_view_t section : sections) {
+    const auto summary = LookupObject(root, section);
+    ExpectObjectUint64Equals(summary, IREE_SV("maximum_created_op_count"), 40);
+    ExpectObjectUint64Equals(summary, IREE_SV("rewritten_op_count"), 2);
+  }
+  iree_string_builder_deinitialize(&builder);
+  loom_target_compile_report_deinitialize(&report);
+}
+
 TEST(CompileReportFormatTest, KeepsUnmodeledBankCoverageWithoutAModel) {
   loom_target_compile_report_t entry_report = {};
   loom_target_compile_report_initialize(&entry_report, iree_allocator_system());
@@ -577,10 +675,13 @@ TEST(CompileReportFormatTest, FormatsMathAndTargetLegalization) {
       LookupArrayElement(LookupObject(math_json, IREE_SV("rows")), /*index=*/0);
   ExpectObjectValueEquals(math_row, IREE_SV("recipe"), IREE_SV("round-away"));
   ExpectObjectUint64Equals(math_row, IREE_SV("created_op_count"), 10);
+  ExpectObjectUint64Equals(math_json, IREE_SV("maximum_created_op_count"), 10);
   const iree_string_view_t legalization_json =
       LookupObject(root, IREE_SV("target_legalization"));
   ExpectObjectUint64Equals(legalization_json, IREE_SV("scalarized_op_count"),
                            1);
+  ExpectObjectUint64Equals(legalization_json,
+                           IREE_SV("maximum_created_op_count"), 6);
   const iree_string_view_t legalization_row = LookupArrayElement(
       LookupObject(legalization_json, IREE_SV("rows")), /*index=*/0);
   ExpectObjectValueEquals(legalization_row, IREE_SV("legalizer_strategy"),

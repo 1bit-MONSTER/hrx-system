@@ -25,7 +25,7 @@ kernel.def target(@target) @report_tensor_load_to_lds() {
 // ----
 COMPILE-REPORT: summary artifact=none status=OK function=- backend=- bundle=- export=- export_symbol=- config=- lowered=-
 COMPILE-REPORT: workload workgroup_size=64x1x1 flat_workgroup_size=64 workgroup_count=1x1x1 dispatch_workgroup_count=1 dispatch_workitem_count=64
-COMPILE-REPORT: source_low selected_ops=11 emitted_ops=42 rows=11
+COMPILE-REPORT: source_low selected_ops=11 emitted_ops=42 rows=11 unkeyed_maximum_emitted_ops=9
 COMPILE-REPORT: source_low[0] function=report_tensor_load_to_lds source_op=index.constant selection=plan emitted_ops=0
 COMPILE-REPORT: source_low[1] function=report_tensor_load_to_lds source_op=index.constant selection=plan emitted_ops=0
 COMPILE-REPORT: source_low[2] function=report_tensor_load_to_lds source_op=vector.constant selection=plan emitted_ops=5

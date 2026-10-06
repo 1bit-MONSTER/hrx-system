@@ -475,6 +475,9 @@ loom_target_compile_report_format_source_low_selection_summary_rows(
           " dynamic_selected_ops=%" PRIu64 " dynamic_emitted_ops=%" PRIu64,
           row->exact_dynamic_op_count, row->unknown_dynamic_op_count,
           row->dynamic_selected_op_count, row->dynamic_emitted_low_op_count));
+      IREE_RETURN_IF_ERROR(
+          iree_string_builder_append_format(builder, " maximum_emitted_ops=%u",
+                                            row->maximum_emitted_low_op_count));
       IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(builder, "\n"));
     }
   }

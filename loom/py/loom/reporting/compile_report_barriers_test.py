@@ -133,7 +133,7 @@ def test_show_omits_barrier_section_without_barrier_summaries() -> None:
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
-        ("count", "count: does not match summary rows"),
+        ("count", "count: does not match rows"),
         ("index", r"rows\[1\].index: expected 1"),
         ("dynamic", "dynamic evidence exceeds selected source operations"),
     ],

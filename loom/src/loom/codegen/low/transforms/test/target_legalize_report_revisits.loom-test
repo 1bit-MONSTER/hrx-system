@@ -11,7 +11,7 @@ func.def target(@test_target) @counts_distinct_selections_once_after_dce(%condit
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=0 unhandled=2 rows=2
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=0 unhandled=2 rows=2 *
 CHECK: COMPILE-REPORT: target_legalization[0] * source_op=scf.select * action=unhandled *
 CHECK: COMPILE-REPORT: target_legalization[1] * source_op=scf.select * action=unhandled *
 
@@ -31,7 +31,7 @@ func.def target(@test_target) @counts_deferred_store_once_after_dce(%out_buffer:
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=1 invalid_ir=0 unsupported=0 unhandled=0 rows=1
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=1 invalid_ir=0 unsupported=0 unhandled=0 rows=1 *
 CHECK: COMPILE-REPORT: target_legalization[*] * source_op=vector.store * action=deferred *
 
 // ====
@@ -48,7 +48,7 @@ func.def target(@test_target) @counts_policy_rejection_once_after_dce(%v: vector
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=1 unhandled=0 rows=1
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=1 unhandled=0 rows=1 *
 CHECK: COMPILE-REPORT: target_legalization[*] * source_op=vector.reduce.axes * action=reject-unsupported-final *
 
 // ====
@@ -71,7 +71,7 @@ func.def target(@test_target) @counts_fragment_rejection_once_after_dce(%lhs_dat
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=1 unhandled=0 rows=1
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=1 unhandled=0 rows=1 *
 CHECK: COMPILE-REPORT: target_legalization[*] * source_op=vector.mma * action=reject-unsupported-final *
 
 // ====
@@ -93,7 +93,7 @@ func.def target(@test_target) @retains_source_rewrite_and_omits_generated_operat
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=1 target_rewritten=0 reference_rewritten=1 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=1
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=1 target_rewritten=0 reference_rewritten=1 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=1 *
 CHECK: COMPILE-REPORT: target_legalization[*] * source_op=vector.mma * action=rewritten *
 CHECK-NOT: COMPILE-REPORT: target_legalization[*] * source_op=scalar.fmai *
 CHECK-NOT: COMPILE-REPORT: target_legalization[*] * source_op=vector.extract *
@@ -117,7 +117,7 @@ func.def target(@test_target) @counts_original_sources_in_nested_regions(%condit
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=0 unhandled=2 rows=2
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 target_rewritten=0 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=0 unhandled=2 rows=2 *
 CHECK: COMPILE-REPORT: target_legalization[0] * source_op=scf.select * action=unhandled *
 CHECK: COMPILE-REPORT: target_legalization[1] * source_op=scf.select * action=unhandled *
 
@@ -133,7 +133,7 @@ func.def target(@test_target) @retains_independent_pass_decisions(%condition: i1
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=1 target_rewritten=0 reference_rewritten=1 deferred=0 invalid_ir=0 unsupported=0 unhandled=1 rows=2
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=1 target_rewritten=0 reference_rewritten=1 deferred=0 invalid_ir=0 unsupported=0 unhandled=1 rows=2 *
 CHECK: COMPILE-REPORT: target_legalization[0] * source_op=scf.select * action=unhandled *
 CHECK: COMPILE-REPORT: target_legalization[1] * source_op=scf.select * action=rewritten *
 
