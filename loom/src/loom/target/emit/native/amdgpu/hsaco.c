@@ -21,5 +21,8 @@ iree_status_t loom_amdgpu_hsaco_write_plan(
       .segments = plan->segments,
       .segment_count = LOOM_AMDGPU_HSACO_PLAN_SEGMENT_COUNT,
   };
-  return loom_native_elf64le_write_file(&elf_file, stream, scratch_arena);
+  loom_native_elf_layout_t layout = {0};
+  IREE_RETURN_IF_ERROR(
+      loom_native_elf64le_build_layout(&elf_file, &layout, scratch_arena));
+  return loom_native_elf64le_write_file(&elf_file, &layout, stream);
 }

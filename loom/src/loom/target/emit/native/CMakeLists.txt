@@ -31,8 +31,10 @@ loom_cc_library(
     elf
   HDRS
     "elf.h"
+    "elf_symbols.h"
   SRCS
     "elf.c"
+    "elf_symbols.c"
   DEPS
     iree::base
     iree::base::internal::arena
@@ -84,8 +86,10 @@ loom_cc_library(
   NAME
     object_elf
   HDRS
+    "image_elf.h"
     "object_elf.h"
   SRCS
+    "image_elf.c"
     "object_elf.c"
   DEPS
     ::contribution
@@ -96,6 +100,19 @@ loom_cc_library(
     iree::base::internal::arena
     iree::io::stream
   PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    elf_symbols_test
+  SRCS
+    "elf_symbols_test.cc"
+  DEPS
+    ::elf
+    iree::base
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
 )
 
 loom_cc_test(

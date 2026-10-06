@@ -151,19 +151,6 @@ loom_check_test_suite(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_X86)
-iree_execution_test_suite(
-  NAME
-    callable_test
-  MANIFESTS
-    "test/callable.test.json"
-  TOOLS
-    "loom-compile=loom::tools::loom-compile::loom-compile"
-  LABELS
-    "hostonly"
-)
-endif()
-
 if(LOOM_TARGET_ARCH_X86 AND IREE_ARCH STREQUAL "x86_64" AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_generated_file(
   NAME

@@ -469,8 +469,10 @@ TEST(AmdgpuMetadataTest, WritesElfEnvelopeContainingMetadataNote) {
 
   StreamPtr stream = CreateStream();
   TestArena arena;
+  loom_native_elf_layout_t layout = {};
   IREE_ASSERT_OK(
-      loom_native_elf64le_write_file(&file, stream.get(), arena.arena()));
+      loom_native_elf64le_build_layout(&file, &layout, arena.arena()));
+  IREE_ASSERT_OK(loom_native_elf64le_write_file(&file, &layout, stream.get()));
   std::string bytes = StreamBytes(stream.get());
 
   EXPECT_EQ(bytes.substr(0, 4), std::string("\x7f"

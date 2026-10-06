@@ -14,8 +14,9 @@
 
 namespace {
 
-std::string WriteObject(const loom_native_object_contribution_t& object,
-                        const uint32_t* relocation_types = nullptr) {
+std::string WriteObject(
+    const loom_native_object_contribution_t& object,
+    const loom_native_elf_relocation_t* relocations = nullptr) {
   iree_arena_block_pool_t pool;
   iree_arena_block_pool_initialize(4096, iree_allocator_system(), &pool);
   iree_arena_allocator_t arena;
@@ -25,9 +26,8 @@ std::string WriteObject(const loom_native_object_contribution_t& object,
       IREE_IO_STREAM_MODE_READABLE | IREE_IO_STREAM_MODE_WRITABLE |
           IREE_IO_STREAM_MODE_SEEKABLE | IREE_IO_STREAM_MODE_RESIZABLE,
       1024, iree_allocator_system(), &stream));
-  IREE_CHECK_OK(
-      loom_native_object_write_elf64le(&object, LOOM_NATIVE_ELF_MACHINE_X86_64,
-                                       relocation_types, stream, &arena));
+  IREE_CHECK_OK(loom_native_object_write_elf64le(
+      &object, LOOM_NATIVE_ELF_MACHINE_X86_64, relocations, stream, &arena));
   iree_arena_deinitialize(&arena);
   iree_arena_block_pool_deinitialize(&pool);
 
@@ -174,12 +174,15 @@ TEST(NativeObjectElfTest, RelocatesJoinedSectionsAndReorderedSymbols) {
   };
   // Target kind 1 is a call (R_X86_64_PLT32); kind 2 is an absolute address
   // (R_X86_64_64). The generic writer does not assume ELF kind numbering.
-  const uint32_t relocation_types[] = {0, 4, 1};
+  const loom_native_elf_relocation_t relocations[] = {
+      {},
+      {4, LOOM_NATIVE_ELF_FIXUP_PC_RELATIVE_32},
+      {1, LOOM_NATIVE_ELF_FIXUP_ABSOLUTE_64}};
   const loom_native_object_contribution_t object = {
       sections, IREE_ARRAYSIZE(sections), symbols, IREE_ARRAYSIZE(symbols),
       fixups,   IREE_ARRAYSIZE(fixups),
   };
-  const std::string bytes = WriteObject(object, relocation_types);
+  const std::string bytes = WriteObject(object, relocations);
   auto u16 = [&](size_t offset) {
     return iree_unaligned_load_le_u16(bytes.data() + offset);
   };

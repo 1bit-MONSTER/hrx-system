@@ -19,6 +19,18 @@ static const uint8_t kSymbolKinds[] = {
     [LOOM_NATIVE_OBJECT_SYMBOL_KIND_DATA] = 1,
 };
 
+void loom_native_object_elf_encode_symbol(
+    const loom_native_object_symbol_t* symbol, uint32_t name_offset,
+    uint16_t section_index, uint64_t value, uint8_t* record) {
+  iree_unaligned_store_le_u32(record, name_offset);
+  record[4] = (uint8_t)((kSymbolBindings[symbol->binding] << 4) |
+                        kSymbolKinds[symbol->kind]);
+  record[5] = (uint8_t)symbol->visibility;
+  iree_unaligned_store_le_u16(record + 6, section_index);
+  iree_unaligned_store_le_u64(record + 8, value);
+  iree_unaligned_store_le_u64(record + 16, symbol->size);
+}
+
 typedef struct loom_native_elf_relocation_section_t {
   // Number of fixups whose contributions were joined into this section.
   iree_host_size_t count;
@@ -31,9 +43,9 @@ typedef struct loom_native_elf_relocation_section_t {
 static iree_status_t loom_native_object_elf_relocations(
     const loom_native_object_contribution_t* contribution,
     const loom_native_section_contribution_assembly_t* assembly,
-    const uint32_t* relocation_types, const uint32_t* symbol_indices,
-    loom_native_elf_section_t* sections, iree_host_size_t* section_count,
-    iree_arena_allocator_t* arena) {
+    const loom_native_elf_relocation_t* relocations,
+    const uint32_t* symbol_indices, loom_native_elf_section_t* sections,
+    iree_host_size_t* section_count, iree_arena_allocator_t* arena) {
   if (contribution->fixup_count == 0) {
     return iree_ok_status();
   }
@@ -86,7 +98,7 @@ static iree_status_t loom_native_object_elf_relocations(
     iree_unaligned_store_le_u64(
         record + 8,
         ((uint64_t)symbol_indices[fixup->target_symbol_index] << 32) |
-            relocation_types[fixup->relocation_kind]);
+            relocations[fixup->relocation_kind].type);
     iree_unaligned_store_le_u64(record + 16, (uint64_t)fixup->addend);
     relocation_sections[layout->section_index].cursor += kRelocationSize;
   }
@@ -95,8 +107,9 @@ static iree_status_t loom_native_object_elf_relocations(
 
 iree_status_t loom_native_object_write_elf64le(
     const loom_native_object_contribution_t* contribution,
-    loom_native_elf_machine_t machine, const uint32_t* relocation_types,
-    iree_io_stream_t* stream, iree_arena_allocator_t* arena) {
+    loom_native_elf_machine_t machine,
+    const loom_native_elf_relocation_t* relocations, iree_io_stream_t* stream,
+    iree_arena_allocator_t* arena) {
   loom_native_section_contribution_assembly_t assembly = {0};
   IREE_RETURN_IF_ERROR(loom_native_assemble_section_contributions(
       contribution->sections, contribution->section_count, &assembly, arena));
@@ -153,10 +166,6 @@ iree_status_t loom_native_object_write_elf64le(
       symbol_indices[i] = symbol_index;
     }
     uint8_t* symbol = symbols + (iree_host_size_t)symbol_index * kSymbolSize;
-    iree_unaligned_store_le_u32(symbol, name_offset);
-    symbol[4] = (uint8_t)((kSymbolBindings[source->binding] << 4) |
-                          kSymbolKinds[source->kind]);
-    symbol[5] = (uint8_t)source->visibility;
     uint16_t section_index = 0;
     uint64_t section_offset = 0;
     if (source->section_contribution_index != IREE_HOST_SIZE_MAX) {
@@ -165,9 +174,8 @@ iree_status_t loom_native_object_write_elf64le(
       section_index = (uint16_t)(layout->section_index + 1);
       section_offset = layout->section_offset + source->section_offset;
     }
-    iree_unaligned_store_le_u16(symbol + 6, section_index);
-    iree_unaligned_store_le_u64(symbol + 8, section_offset);
-    iree_unaligned_store_le_u64(symbol + 16, source->size);
+    loom_native_object_elf_encode_symbol(source, name_offset, section_index,
+                                         section_offset, symbol);
     memcpy(strings + name_offset, source->name.data, source->name.size);
     name_offset += (uint32_t)source->name.size;
     strings[name_offset++] = 0;
@@ -204,7 +212,7 @@ iree_status_t loom_native_object_write_elf64le(
   };
   iree_host_size_t section_count = assembly.section_count + 3;
   IREE_RETURN_IF_ERROR(loom_native_object_elf_relocations(
-      contribution, &assembly, relocation_types, symbol_indices, sections,
+      contribution, &assembly, relocations, symbol_indices, sections,
       &section_count, arena));
   if (section_count > 0xff00u - 2u) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
@@ -216,5 +224,7 @@ iree_status_t loom_native_object_write_elf64le(
       .sections = sections,
       .section_count = section_count,
   };
-  return loom_native_elf64le_write_file(&file, stream, arena);
+  loom_native_elf_layout_t layout = {0};
+  IREE_RETURN_IF_ERROR(loom_native_elf64le_build_layout(&file, &layout, arena));
+  return loom_native_elf64le_write_file(&file, &layout, stream);
 }
