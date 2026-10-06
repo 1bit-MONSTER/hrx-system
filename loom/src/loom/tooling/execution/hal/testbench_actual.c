@@ -270,7 +270,6 @@ void loom_run_hal_testbench_actual_provider_initialize(
   *out_provider = (loom_run_hal_testbench_actual_provider_t){
       .context = options->context,
       .session = options->session,
-      .target_environment = options->target_environment,
       .run_module = options->run_module,
       .pipeline = options->pipeline,
       .target = options->target,
@@ -642,11 +641,6 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
                                   export_symbol)
           : entry_symbol;
 
-  if (provider->target_environment == NULL) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "HAL kernel launches require a target environment");
-  }
-
   if (provider->compile_device_target.artifact_target.target_profile == NULL) {
     const loom_device_provider_t* device_provider =
         provider->context->device_provider;
@@ -663,7 +657,7 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
     } else {
       IREE_RETURN_IF_ERROR(loom_device_provider_select_explicit_target(
           device_provider, &provider->context->runtime,
-          provider->target_environment, target_specification,
+          provider->session->target_environment, target_specification,
           &provider->compile_device_target));
     }
   }
@@ -684,7 +678,7 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
       provider->context->device_provider->artifact_provider->target_emitter
           ->default_pipeline_options;
   pipeline_options.target_pipeline_options.sanitizer = provider->sanitizer;
-  pipeline_options.target_environment = provider->target_environment;
+  pipeline_options.target_environment = provider->session->target_environment;
   const loom_target_specialization_request_t specialization_request = {
       .function_name = entry_symbol,
       .target_profile =
@@ -1745,7 +1739,6 @@ iree_status_t loom_run_hal_testbench_actual_sequence_initialize(
     const loom_run_hal_testbench_actual_provider_options_t provider_options = {
         .context = options->context,
         .session = options->session,
-        .target_environment = options->target_environment,
         .run_module = options->run_module,
         .pipeline = options->pipeline,
         .target = options->target,

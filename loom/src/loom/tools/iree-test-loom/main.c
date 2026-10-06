@@ -308,7 +308,6 @@ static iree_status_t iree_test_loom_configure_hal_actual_sequence(
   const loom_run_hal_testbench_actual_sequence_options_t sequence_options = {
       .context = hal_context,
       .session = session,
-      .target_environment = configuration->target_environment,
       .run_module = run_module,
       .pipeline = iree_make_cstring_view(FLAG_pipeline),
       .target = iree_make_cstring_view(FLAG_target),
@@ -1002,7 +1001,6 @@ int iree_test_loom_main(int argc, char** argv,
             provider_options = {
                 .context = &hal_context,
                 .session = &session,
-                .target_environment = configuration->target_environment,
                 .run_module = &run_module,
                 .pipeline = iree_make_cstring_view(FLAG_pipeline),
                 .target = target,

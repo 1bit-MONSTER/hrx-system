@@ -27,6 +27,8 @@
 namespace loom {
 namespace {
 
+extern const loom_target_provider_t kFakeTargetProvider;
+
 class HalTestbenchActualTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -39,6 +41,8 @@ class HalTestbenchActualTest : public ::testing::Test {
     loom_target_provider_set_storage_initialize(&target_provider_storage_);
     IREE_ASSERT_OK(loom_target_provider_set_storage_append(
         &target_provider_storage_, &target_provider_));
+    IREE_ASSERT_OK(loom_target_provider_set_storage_append(
+        &target_provider_storage_, &kFakeTargetProvider));
     IREE_ASSERT_OK(loom_target_environment_initialize(
         &target_provider_storage_.provider_set, &target_environment_));
 
@@ -194,8 +198,7 @@ static loom_target_provider_t MakeFakeTargetProvider() {
   return provider;
 }
 
-static const loom_target_provider_t kFakeTargetProvider =
-    MakeFakeTargetProvider();
+const loom_target_provider_t kFakeTargetProvider = MakeFakeTargetProvider();
 
 static iree_status_t FakeHalSelectDeviceTarget(
     const loom_device_provider_t* provider,
@@ -379,14 +382,6 @@ pass.pipeline<module> @debug pipeline {
   IREE_ASSERT_OK(loom_run_hal_testbench_select_kernel_launch(
       &module_plan.cases[0], &kernel_launch));
 
-  const loom_target_provider_t* target_providers[] = {&kFakeTargetProvider};
-  const loom_target_provider_set_t target_provider_set =
-      loom_target_provider_set_make(target_providers,
-                                    IREE_ARRAYSIZE(target_providers));
-  loom_target_environment_t target_environment = {};
-  IREE_ASSERT_OK(loom_target_environment_initialize(&target_provider_set,
-                                                    &target_environment));
-
   loom_run_hal_testbench_context_t context = {};
   loom_run_hal_testbench_context_initialize(
       /*device_provider_registry=*/nullptr, iree_allocator_system(), &context);
@@ -399,7 +394,6 @@ pass.pipeline<module> @debug pipeline {
   loom_run_hal_testbench_actual_provider_options_t options = {};
   options.context = &context;
   options.session = &session_;
-  options.target_environment = &target_environment;
   options.run_module = &run_module;
   options.pipeline = IREE_SV("@debug");
   options.target = target;
@@ -441,7 +435,6 @@ pass.pipeline<module> @debug pipeline {
 
   loom_run_hal_testbench_actual_provider_deinitialize(&provider);
   loom_run_hal_testbench_context_deinitialize(&context);
-  loom_target_environment_deinitialize(&target_environment);
   loom_run_module_deinitialize(&run_module);
 }
 
@@ -1112,9 +1105,8 @@ func.def inline @linked_identity(%value: index) -> (index) {
 
   loom_run_hal_testbench_context_t context = {};
   context.device_provider = &kFakeDeviceProvider;
-  // Provider compile only needs target selection before the fake artifact
-  // provider rejects this source; avoid requiring a real HAL device for a
-  // rooted-link contract test.
+  // The fake artifact provider rejects emission after the rooted module has
+  // been cloned. Disable transforms so this test can inspect that clone.
   context.runtime_initialized = true;
   context.host_allocator = iree_allocator_system();
 
@@ -1122,12 +1114,13 @@ func.def inline @linked_identity(%value: index) -> (index) {
   options.context = &context;
   options.session = &session_;
   options.run_module = &run_module;
+  options.pipeline = IREE_SV("none");
   options.kernel_launch = kernel_launch;
 
   loom_run_hal_testbench_actual_provider_t provider = {};
   loom_run_hal_testbench_actual_provider_initialize(&options, &provider);
   IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_FAILED_PRECONDITION,
+      IREE_STATUS_INVALID_ARGUMENT,
       loom_run_hal_testbench_actual_provider_compile(&provider));
   EXPECT_TRUE(
       ModuleHasSymbol(provider.compile_module.module, IREE_SV("selected")));
