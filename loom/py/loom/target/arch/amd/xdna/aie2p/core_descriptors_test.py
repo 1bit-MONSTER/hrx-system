@@ -1076,6 +1076,42 @@ def test_vector_predicates_use_one_partially_addressable_el_value() -> None:
         descriptor.key: descriptor
         for descriptor in AIE2P_CORE_DESCRIPTOR_SET.descriptors
     }
+    low_constant = descriptors["amd.xdna.aie2p.constant.i32.predicate.low32"]
+    assert low_constant.op_kind is DescriptorOpKind.CONST
+    assert low_constant.operands[0].reg_alts[0].reg_class == "aie2p.elpredicate"
+    assert (
+        low_constant.operands[0].reg_alts[0].register_part == "aie2p.elpredicate.low32"
+    )
+    assert low_constant.operands[0].encoding_adapter_id != 0
+    assert low_constant.immediates[0].field_name == "i"
+    assert low_constant.immediates[0].signed_min == -(1 << 31)
+    assert low_constant.immediates[0].unsigned_max == (1 << 31) - 1
+
+    high_constant = descriptors["amd.xdna.aie2p.predicate.complete.constant.high32"]
+    assert [operand.field_name for operand in high_constant.operands] == [
+        "dst",
+        "storage",
+    ]
+    assert (
+        high_constant.operands[0].reg_alts[0].register_part
+        == "aie2p.elpredicate.high32"
+    )
+    assert high_constant.operands[0].encoding_adapter_id != 0
+    assert (
+        high_constant.operands[1].reg_alts[0].register_part == "aie2p.elpredicate.low32"
+    )
+    assert set(high_constant.operands[1].flags) == {
+        OperandFlag.IMPLICIT,
+        OperandFlag.STORAGE_CONTINUATION,
+    }
+    assert high_constant.constraints == (
+        Constraint(ConstraintKind.REMATERIALIZABLE, 0),
+        Constraint(ConstraintKind.TIED, 0, 1),
+    )
+    assert high_constant.asm_forms[0].operands == ("storage",)
+    assert high_constant.immediates[0].signed_min == -(1 << 31)
+    assert high_constant.immediates[0].unsigned_max == (1 << 31) - 1
+
     for width in (16, 32):
         compare = descriptors[
             f"amd.xdna.aie2p.cmp.lt.signed.i{width}x{512 // width}.el.low32"

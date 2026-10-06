@@ -80,10 +80,19 @@ def test_el_subregister_adapters_are_derived_from_owned_register_facts() -> None
         adapter.name: adapter for adapter in CORE_MACHINE_TABLE.register_adapters
     }
     lda_values = dict(adapters["OP_mLdaCg"].effective_register_encodings)
+    scalar_constant_values = dict(
+        adapters["OP_mMvSclDstCg"].effective_register_encodings
+    )
     low_values = dict(adapters["LOOM_eL_low32"].effective_register_encodings)
     high_values = dict(adapters["LOOM_eL_high32"].effective_register_encodings)
     lda_high_values = dict(
         adapters["LOOM_eL_high32_OP_mLdaCg"].effective_register_encodings
+    )
+    scalar_constant_low_values = dict(
+        adapters["LOOM_eL_low32_OP_mMvSclDstCg"].effective_register_encodings
+    )
+    scalar_constant_high_values = dict(
+        adapters["LOOM_eL_high32_OP_mMvSclDstCg"].effective_register_encodings
     )
 
     assert classes["eLPredicate"].candidates == tuple(
@@ -92,6 +101,8 @@ def test_el_subregister_adapters_are_derived_from_owned_register_facts() -> None
     assert tuple(low_values) == classes["eLPredicate"].candidates
     assert tuple(high_values) == classes["eLPredicate"].candidates
     assert tuple(lda_high_values) == classes["eLPredicate"].candidates
+    assert tuple(scalar_constant_low_values) == classes["eLPredicate"].candidates
+    assert tuple(scalar_constant_high_values) == classes["eLPredicate"].candidates
     for register_name in classes["eLPredicate"].candidates:
         register = registers[register_name]
         low_register, high_register = register.subregisters
@@ -99,6 +110,14 @@ def test_el_subregister_adapters_are_derived_from_owned_register_facts() -> None
         assert low_values[register_name] == registers[low_register].hardware_encoding
         assert high_values[register_name] == registers[high_register].hardware_encoding
         assert lda_high_values[register_name] == lda_values[high_register]
+        assert (
+            scalar_constant_low_values[register_name]
+            == scalar_constant_values[low_register]
+        )
+        assert (
+            scalar_constant_high_values[register_name]
+            == scalar_constant_values[high_register]
+        )
 
 
 def test_vector_storage_adapters_are_derived_from_owned_register_facts() -> None:
