@@ -65,12 +65,6 @@ int main(int argc, char** argv) {
   const iree_run_loom_configuration_t configuration = {
       .input_providers = loom_configured_input_providers(),
       .tool_name = "iree-run-loom",
-      .register_context =
-          loom_run_execution_environment_register_context_callback(
-              &environment),
-      .initialize_low_descriptor_registry =
-          loom_run_execution_environment_low_descriptor_registry_callback(
-              &environment),
       .target_environment =
           loom_run_execution_environment_target_environment(&environment),
       .cleanup_pattern_provider_set =

@@ -12,7 +12,6 @@
 #include "iree/base/api.h"
 #include "loom/target/provider.h"
 #include "loom/tooling/execution/execution_backend.h"
-#include "loom/tooling/execution/session.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -66,18 +65,6 @@ iree_status_t loom_run_execution_environment_initialize(
 
 // Resets |environment| to an empty state. No provider-owned storage is freed.
 void loom_run_execution_environment_deinitialize(
-    loom_run_execution_environment_t* environment);
-
-// Returns a session context-registration callback backed by |environment|.
-loom_run_register_context_callback_t
-loom_run_execution_environment_register_context_callback(
-    loom_run_execution_environment_t* environment);
-
-// Returns a session descriptor-registry callback backed by |environment|. The
-// returned registry view borrows immutable tables owned by |environment| and
-// remains valid until |environment| deinitialization.
-loom_run_initialize_low_descriptor_registry_callback_t
-loom_run_execution_environment_low_descriptor_registry_callback(
     loom_run_execution_environment_t* environment);
 
 // Returns the target environment composed from |environment|'s providers.

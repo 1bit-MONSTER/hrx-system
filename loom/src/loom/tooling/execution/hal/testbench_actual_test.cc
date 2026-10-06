@@ -27,36 +27,6 @@
 namespace loom {
 namespace {
 
-using DialectVtablesFn = const loom_op_vtable_t* const* (*)(iree_host_size_t*);
-
-iree_status_t RegisterDialect(loom_context_t* context, uint8_t dialect_id,
-                              DialectVtablesFn dialect_vtables_fn) {
-  iree_host_size_t count = 0;
-  const loom_op_vtable_t* const* vtables = dialect_vtables_fn(&count);
-  return loom_context_register_dialect(context, dialect_id, vtables,
-                                       (uint16_t)count);
-}
-
-iree_status_t RegisterContext(void* user_data, loom_context_t* context) {
-  (void)user_data;
-  IREE_RETURN_IF_ERROR(
-      RegisterDialect(context, LOOM_DIALECT_CHECK, loom_check_dialect_vtables));
-  IREE_RETURN_IF_ERROR(
-      RegisterDialect(context, LOOM_DIALECT_FUNC, loom_func_dialect_vtables));
-  IREE_RETURN_IF_ERROR(
-      RegisterDialect(context, LOOM_DIALECT_INDEX, loom_index_dialect_vtables));
-  IREE_RETURN_IF_ERROR(RegisterDialect(context, LOOM_DIALECT_KERNEL,
-                                       loom_kernel_dialect_vtables));
-  return RegisterDialect(context, LOOM_DIALECT_PASS, loom_pass_dialect_vtables);
-}
-
-iree_status_t InitializeLowDescriptorRegistry(
-    void* user_data, loom_target_low_descriptor_registry_t* out_registry) {
-  (void)user_data;
-  loom_target_core_test_low_descriptor_registry_initialize(out_registry);
-  return iree_ok_status();
-}
-
 class HalTestbenchActualTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -64,15 +34,17 @@ class HalTestbenchActualTest : public ::testing::Test {
                                      &block_pool_);
     iree_arena_initialize(&block_pool_, &plan_arena_);
 
+    target_provider_.initialize_low_descriptor_registry =
+        loom_target_core_test_low_descriptor_registry_initialize;
+    loom_target_provider_set_storage_initialize(&target_provider_storage_);
+    IREE_ASSERT_OK(loom_target_provider_set_storage_append(
+        &target_provider_storage_, &target_provider_));
+    IREE_ASSERT_OK(loom_target_environment_initialize(
+        &target_provider_storage_.provider_set, &target_environment_));
+
     loom_run_session_options_t options = {};
     loom_run_session_options_initialize(&options);
-    options.register_context = (loom_run_register_context_callback_t){
-        /*.fn=*/RegisterContext,
-    };
-    options.initialize_low_descriptor_registry =
-        (loom_run_initialize_low_descriptor_registry_callback_t){
-            /*.fn=*/InitializeLowDescriptorRegistry,
-        };
+    options.target_environment = &target_environment_;
     options.cleanup_pattern_provider_set =
         loom_cleanup_configured_pattern_provider_set();
     IREE_ASSERT_OK(loom_run_session_initialize(&options, &session_));
@@ -80,6 +52,7 @@ class HalTestbenchActualTest : public ::testing::Test {
 
   void TearDown() override {
     loom_run_session_deinitialize(&session_);
+    loom_target_environment_deinitialize(&target_environment_);
     iree_arena_deinitialize(&plan_arena_);
     iree_arena_block_pool_deinitialize(&block_pool_);
   }
@@ -103,6 +76,9 @@ class HalTestbenchActualTest : public ::testing::Test {
   iree_arena_block_pool_t block_pool_;
   iree_arena_allocator_t plan_arena_;
   loom_run_session_t session_ = {};
+  loom_target_provider_t target_provider_ = {};
+  loom_target_provider_set_storage_t target_provider_storage_ = {};
+  loom_target_environment_t target_environment_ = {};
 };
 
 static loom_testbench_value_t I32Value(int32_t value) {

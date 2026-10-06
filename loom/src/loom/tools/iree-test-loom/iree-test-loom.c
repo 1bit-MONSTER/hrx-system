@@ -193,9 +193,6 @@ int main(int argc, char** argv) {
   iree_test_loom_configuration_t configuration = {
       .input_providers = loom_configured_input_providers(),
       .tool_name = "iree-test-loom",
-      .register_context =
-          loom_run_execution_environment_register_context_callback(
-              &environment),
       .target_environment =
           loom_run_execution_environment_target_environment(&environment),
       .cleanup_pattern_provider_set =
@@ -205,9 +202,6 @@ int main(int argc, char** argv) {
           {
               .fn = iree_test_loom_populate_requirement_providers,
           },
-      .initialize_low_descriptor_registry =
-          loom_run_execution_environment_low_descriptor_registry_callback(
-              &environment),
   };
 #if IREE_TEST_LOOM_HAVE_VM
   loom_vm_testbench_t vm_testbench;

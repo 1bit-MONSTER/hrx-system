@@ -13,35 +13,13 @@
 #include "iree/base/byte_sequence.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
-#include "loom/ops/func/ops.h"
 #include "loom/target/low_descriptor_registry_core_test.h"
 #include "loom/target/profile.h"
+#include "loom/target/provider.h"
 #include "loom/testing/byte_sequence.h"
 
 namespace loom {
 namespace {
-
-using DialectVtablesFn = const loom_op_vtable_t* const* (*)(iree_host_size_t*);
-
-iree_status_t RegisterDialect(loom_context_t* context, uint8_t dialect_id,
-                              DialectVtablesFn dialect_vtables_fn) {
-  iree_host_size_t count = 0;
-  const loom_op_vtable_t* const* vtables = dialect_vtables_fn(&count);
-  return loom_context_register_dialect(context, dialect_id, vtables,
-                                       (uint16_t)count);
-}
-
-iree_status_t RegisterContext(void* user_data, loom_context_t* context) {
-  (void)user_data;
-  return RegisterDialect(context, LOOM_DIALECT_FUNC, loom_func_dialect_vtables);
-}
-
-iree_status_t InitializeLowDescriptorRegistry(
-    void* user_data, loom_target_low_descriptor_registry_t* out_registry) {
-  (void)user_data;
-  loom_target_core_test_low_descriptor_registry_initialize(out_registry);
-  return iree_ok_status();
-}
 
 constexpr char kHalSource[] =
     "func.def @empty() {\n"
@@ -210,19 +188,24 @@ class HalCandidateTest : public ::testing::Test {
     g_fake_hal_emit_function_versions = nullptr;
     g_fake_hal_emit_source_to_low_max_errors = 0;
     g_fake_hal_artifact_release_count = 0;
+    target_provider_.initialize_low_descriptor_registry =
+        loom_target_core_test_low_descriptor_registry_initialize;
+    loom_target_provider_set_storage_initialize(&target_provider_storage_);
+    IREE_ASSERT_OK(loom_target_provider_set_storage_append(
+        &target_provider_storage_, &target_provider_));
+    IREE_ASSERT_OK(loom_target_environment_initialize(
+        &target_provider_storage_.provider_set, &target_environment_));
+
     loom_run_session_options_t options = {};
     loom_run_session_options_initialize(&options);
-    options.register_context = (loom_run_register_context_callback_t){
-        /*.fn=*/RegisterContext,
-    };
-    options.initialize_low_descriptor_registry =
-        (loom_run_initialize_low_descriptor_registry_callback_t){
-            /*.fn=*/InitializeLowDescriptorRegistry,
-        };
+    options.target_environment = &target_environment_;
     IREE_ASSERT_OK(loom_run_session_initialize(&options, &session_));
   }
 
-  void TearDown() override { loom_run_session_deinitialize(&session_); }
+  void TearDown() override {
+    loom_run_session_deinitialize(&session_);
+    loom_target_environment_deinitialize(&target_environment_);
+  }
 
   iree_status_t Parse(iree_string_view_t source,
                       loom_run_module_t* out_module) {
@@ -240,6 +223,9 @@ class HalCandidateTest : public ::testing::Test {
   }
 
   loom_run_session_t session_ = {};
+  loom_target_provider_t target_provider_ = {};
+  loom_target_provider_set_storage_t target_provider_storage_ = {};
+  loom_target_environment_t target_environment_ = {};
 };
 
 TEST_F(HalCandidateTest, EmitHalExecutableCandidate) {

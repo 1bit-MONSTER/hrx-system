@@ -402,7 +402,6 @@ loom_cc_test(
     iree::hal
     iree::testing::gtest
     iree::testing::gtest_main
-    loom::ops::op_registry
     loom::ops::test
     loom::target::low_descriptor_registry_core_test
     loom::target::provider
@@ -440,9 +439,9 @@ loom_cc_test(
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
-    loom::ops::func
     loom::target::low_descriptor_registry_core_test
     loom::target::profile
+    loom::target::provider
     loom::target::types
     loom::testing::byte_sequence
     loom::tooling::execution::session

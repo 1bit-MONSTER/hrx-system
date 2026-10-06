@@ -97,7 +97,6 @@ loom_cc_library(
     loom::tooling::compile::pipeline
     loom::tooling::compile::report_capture
     loom::tooling::config
-    loom::tooling::context
     loom::tooling::execution::benchmark
     loom::tooling::execution::hal::artifact
     loom::tooling::execution::hal::benchmark
@@ -230,7 +229,7 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     iree::testing::temp_file
-    loom::target::low_descriptor_registry_core_test
+    loom::target::provider
 )
 
 set(_iree_benchmark_loom_platform_copts "")

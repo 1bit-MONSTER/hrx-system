@@ -14,7 +14,6 @@
 #include "loom/error/source.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
-#include "loom/target/low_descriptor_registry.h"
 #include "loom/tooling/input/input.h"
 #include "loom/tooling/io/source.h"
 
@@ -24,28 +23,7 @@ extern "C" {
 
 typedef struct loom_cleanup_pattern_provider_set_t
     loom_cleanup_pattern_provider_set_t;
-
-// Registers the dialect surface selected by an execution environment.
-typedef iree_status_t (*loom_run_register_context_fn_t)(
-    void* user_data, loom_context_t* context);
-
-typedef struct loom_run_register_context_callback_t {
-  // Function that registers dialects and encoding families.
-  loom_run_register_context_fn_t fn;
-  // Caller-owned payload forwarded to |fn|.
-  void* user_data;
-} loom_run_register_context_callback_t;
-
-// Initializes the target-low descriptor registry linked into this runner.
-typedef iree_status_t (*loom_run_initialize_low_descriptor_registry_fn_t)(
-    void* user_data, loom_target_low_descriptor_registry_t* out_registry);
-
-typedef struct loom_run_initialize_low_descriptor_registry_callback_t {
-  // Function that initializes the selected target-low descriptor package.
-  loom_run_initialize_low_descriptor_registry_fn_t fn;
-  // Caller-owned payload forwarded to |fn|.
-  void* user_data;
-} loom_run_initialize_low_descriptor_registry_callback_t;
+typedef struct loom_target_environment_t loom_target_environment_t;
 
 typedef struct loom_run_session_options_t {
   // Borrowed optional input providers linked by the final application.
@@ -54,11 +32,9 @@ typedef struct loom_run_session_options_t {
   iree_allocator_t host_allocator;
   // Total bytes retained per transient parser/compiler arena block.
   iree_host_size_t block_pool_block_size;
-  // Dialect and encoding registration callback.
-  loom_run_register_context_callback_t register_context;
-  // Descriptor registry initialization callback.
-  loom_run_initialize_low_descriptor_registry_callback_t
-      initialize_low_descriptor_registry;
+  // Required borrowed target environment supplying target dialects and low
+  // descriptors. Must outlive the session.
+  const loom_target_environment_t* target_environment;
   // Cleanup rewrite providers linked into this runner.
   const loom_cleanup_pattern_provider_set_t* cleanup_pattern_provider_set;
 } loom_run_session_options_t;
@@ -72,8 +48,8 @@ typedef struct loom_run_session_t {
   iree_arena_block_pool_t block_pool;
   // Finalized context containing the linked dialect surface.
   loom_context_t context;
-  // Descriptor registry selected by the runner environment.
-  loom_target_low_descriptor_registry_t low_descriptor_registry;
+  // Borrowed target environment, live through the session lifetime.
+  const loom_target_environment_t* target_environment;
   // Borrowed cleanup rewrite providers selected by the runner environment.
   const loom_cleanup_pattern_provider_set_t* cleanup_pattern_provider_set;
   // True when |block_pool| has been initialized.
@@ -99,10 +75,6 @@ loom_context_t* loom_run_session_context(loom_run_session_t* session);
 // Returns the transient block pool owned by |session|.
 iree_arena_block_pool_t* loom_run_session_block_pool(
     loom_run_session_t* session);
-
-// Returns the target-low descriptor registry owned by |session|.
-const loom_target_low_descriptor_registry_t*
-loom_run_session_low_descriptor_registry(const loom_run_session_t* session);
 
 // Returns the cleanup rewrite providers selected by the runner environment.
 const loom_cleanup_pattern_provider_set_t*

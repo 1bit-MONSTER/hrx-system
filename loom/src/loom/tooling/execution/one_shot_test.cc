@@ -8,40 +8,33 @@
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
-#include "loom/ops/op_registry.h"
 #include "loom/target/low_descriptor_registry_core_test.h"
+#include "loom/target/provider.h"
 
 namespace loom {
 namespace {
 
-iree_status_t RegisterContext(void* user_data, loom_context_t* context) {
-  (void)user_data;
-  return loom_op_registry_register_all_dialects(context);
-}
-
-iree_status_t InitializeLowDescriptorRegistry(
-    void* user_data, loom_target_low_descriptor_registry_t* out_registry) {
-  (void)user_data;
-  loom_target_core_test_low_descriptor_registry_initialize(out_registry);
-  return iree_ok_status();
-}
-
 class OneShotTest : public ::testing::Test {
  protected:
   void SetUp() override {
+    target_provider_.initialize_low_descriptor_registry =
+        loom_target_core_test_low_descriptor_registry_initialize;
+    loom_target_provider_set_storage_initialize(&target_provider_storage_);
+    IREE_ASSERT_OK(loom_target_provider_set_storage_append(
+        &target_provider_storage_, &target_provider_));
+    IREE_ASSERT_OK(loom_target_environment_initialize(
+        &target_provider_storage_.provider_set, &target_environment_));
+
     loom_run_session_options_t options = {};
     loom_run_session_options_initialize(&options);
-    options.register_context = (loom_run_register_context_callback_t){
-        /*.fn=*/RegisterContext,
-    };
-    options.initialize_low_descriptor_registry =
-        (loom_run_initialize_low_descriptor_registry_callback_t){
-            /*.fn=*/InitializeLowDescriptorRegistry,
-        };
+    options.target_environment = &target_environment_;
     IREE_ASSERT_OK(loom_run_session_initialize(&options, &session_));
   }
 
-  void TearDown() override { loom_run_session_deinitialize(&session_); }
+  void TearDown() override {
+    loom_run_session_deinitialize(&session_);
+    loom_target_environment_deinitialize(&target_environment_);
+  }
 
   iree_status_t Parse(iree_string_view_t source,
                       loom_run_module_t* out_module) {
@@ -53,6 +46,9 @@ class OneShotTest : public ::testing::Test {
   }
 
   loom_run_session_t session_ = {};
+  loom_target_provider_t target_provider_ = {};
+  loom_target_provider_set_storage_t target_provider_storage_ = {};
+  loom_target_environment_t target_environment_ = {};
 };
 
 TEST_F(OneShotTest, AppliesStaticHalWorkgroupCountFromSingleKernel) {

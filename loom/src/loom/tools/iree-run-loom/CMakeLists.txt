@@ -27,7 +27,6 @@ loom_cc_library(
     loom::tooling::cli::help
     loom::tooling::compile::options
     loom::tooling::compile::report_capture
-    loom::tooling::context
     loom::tooling::execution::execution_backend
     loom::tooling::execution::one_shot
     loom::tooling::execution::session

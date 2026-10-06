@@ -118,11 +118,10 @@ TEST(ExecutionProviderTest, ComposesDescriptorRegistryAndExecutionBackends) {
                 execution_backend_registry, IREE_SV("fake")),
             &kFakeExecutionBackend);
 
-  loom_target_low_descriptor_registry_t low_registry = {};
-  const loom_run_initialize_low_descriptor_registry_callback_t callback =
-      loom_run_execution_environment_low_descriptor_registry_callback(
-          &environment);
-  IREE_ASSERT_OK(callback.fn(callback.user_data, &low_registry));
+  const loom_target_environment_t* target_environment =
+      loom_run_execution_environment_target_environment(&environment);
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(target_environment);
   const loom_low_descriptor_set_t* descriptor_set =
       loom_low_descriptor_registry_lookup(&low_registry.registry,
                                           IREE_SV("test.low.core"));
