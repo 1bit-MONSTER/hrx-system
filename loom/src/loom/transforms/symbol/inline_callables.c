@@ -11,6 +11,7 @@
 #include "loom/analysis/availability.h"
 #include "loom/analysis/scc.h"
 #include "loom/analysis/symbol_references.h"
+#include "loom/codegen/low/function.h"
 #include "loom/codegen/low/memory_access.h"
 #include "loom/error/error_catalog.h"
 #include "loom/ir/context.h"
@@ -167,15 +168,13 @@ typedef enum loom_inline_blocker_e {
   LOOM_INLINE_BLOCKER_CALLEE_MISSING_BODY = 10,
   LOOM_INLINE_BLOCKER_CALLEE_BODY_EMPTY = 11,
   LOOM_INLINE_BLOCKER_RECURSIVE_BODY = 12,
-  LOOM_INLINE_BLOCKER_CALLEE_BODY_MISSING_TERMINATOR = 13,
-  LOOM_INLINE_BLOCKER_CALLEE_BODY_INVALID_TERMINATOR = 14,
-  LOOM_INLINE_BLOCKER_TARGET_REQUIRES_INLINE = 15,
-  LOOM_INLINE_BLOCKER_LOW_CALLEE_KIND = 16,
-  LOOM_INLINE_BLOCKER_LOW_ALLOCATION = 17,
-  LOOM_INLINE_BLOCKER_LOW_ENTRY_RESOURCE = 18,
-  LOOM_INLINE_BLOCKER_LOW_LOCKED_NESTED_REGION = 19,
-  LOOM_INLINE_BLOCKER_CALLEE_SUCCESSOR_OUTSIDE_BODY = 20,
-  LOOM_INLINE_BLOCKER_CALLER_REGION_NOT_CFG_CAPABLE = 21,
+  LOOM_INLINE_BLOCKER_CALLEE_BODY_INVALID_TERMINATOR = 13,
+  LOOM_INLINE_BLOCKER_TARGET_REQUIRES_INLINE = 14,
+  LOOM_INLINE_BLOCKER_LOW_CALLEE_KIND = 15,
+  LOOM_INLINE_BLOCKER_LOW_ALLOCATION = 16,
+  LOOM_INLINE_BLOCKER_LOW_ENTRY_RESOURCE = 17,
+  LOOM_INLINE_BLOCKER_LOW_LOCKED_NESTED_REGION = 18,
+  LOOM_INLINE_BLOCKER_CALLER_REGION_NOT_CFG_CAPABLE = 19,
 } loom_inline_blocker_t;
 
 typedef struct loom_inline_symbol_info_t {
@@ -350,8 +349,6 @@ static iree_string_view_t loom_inline_blocker_code(
       return IREE_SV("callee_body_empty");
     case LOOM_INLINE_BLOCKER_RECURSIVE_BODY:
       return IREE_SV("recursive_body");
-    case LOOM_INLINE_BLOCKER_CALLEE_BODY_MISSING_TERMINATOR:
-      return IREE_SV("callee_body_missing_terminator");
     case LOOM_INLINE_BLOCKER_CALLEE_BODY_INVALID_TERMINATOR:
       return IREE_SV("callee_body_invalid_terminator");
     case LOOM_INLINE_BLOCKER_TARGET_REQUIRES_INLINE:
@@ -364,8 +361,6 @@ static iree_string_view_t loom_inline_blocker_code(
       return IREE_SV("low_entry_resource");
     case LOOM_INLINE_BLOCKER_LOW_LOCKED_NESTED_REGION:
       return IREE_SV("low_locked_nested_region");
-    case LOOM_INLINE_BLOCKER_CALLEE_SUCCESSOR_OUTSIDE_BODY:
-      return IREE_SV("callee_successor_outside_body");
     case LOOM_INLINE_BLOCKER_CALLER_REGION_NOT_CFG_CAPABLE:
       return IREE_SV("caller_region_not_cfg_capable");
     case LOOM_INLINE_BLOCKER_NONE:
@@ -902,30 +897,8 @@ static loom_inline_blocker_t loom_inline_validate_inline_body(
     }
   }
 
-  // Function contracts are verified at the input boundary. Caller types may
-  // have been refined since then; materialization substitutes the actual
-  // arguments and remaps dependent dimensions/layouts in the cloned body.
-  for (uint16_t block_index = 0; block_index < body->block_count;
-       ++block_index) {
-    loom_block_t* block = loom_region_block(body, block_index);
-    if (block->op_count == 0) {
-      return LOOM_INLINE_BLOCKER_CALLEE_BODY_MISSING_TERMINATOR;
-    }
-    loom_op_t* terminator = loom_block_op(block, block->op_count - 1);
-    if (!loom_op_has_trait(module, terminator, LOOM_TRAIT_TERMINATOR)) {
-      return LOOM_INLINE_BLOCKER_CALLEE_BODY_INVALID_TERMINATOR;
-    }
-    for (uint8_t successor_index = 0;
-         successor_index < terminator->successor_count; ++successor_index) {
-      uint16_t ignored_index = 0;
-      if (!loom_region_try_block_index(
-              body, loom_op_successors(terminator)[successor_index],
-              &ignored_index)) {
-        return LOOM_INLINE_BLOCKER_CALLEE_SUCCESSOR_OUTSIDE_BODY;
-      }
-    }
-  }
-
+  // Input verification establishes the callee's signature and CFG. The call
+  // site must still be able to represent the cloned control flow.
   if (!state->symbols[entry->target_symbol_id].body_will_be_linear &&
       !loom_callable_call_site_allows_cfg_splice(module, entry->call_op)) {
     return LOOM_INLINE_BLOCKER_CALLER_REGION_NOT_CFG_CAPABLE;
@@ -1153,34 +1126,6 @@ static iree_status_t loom_inline_execute_entry(
   }
 }
 
-// Expands a phased helper's implicit scope before its function boundary is
-// removed. Explicit controls retain each cloned invocation's identity and
-// close every returning path, including nested CFG splices. Entry resources
-// remain before ordinary body operations as required by the Low preamble.
-static iree_status_t loom_inline_materialize_phased_low_schedule(
-    loom_func_like_t function, loom_rewriter_t* rewriter) {
-  loom_region_t* body = loom_func_like_body(function);
-  loom_op_t* first_op = loom_region_entry_block(body)->first_op;
-  while (loom_low_live_in_isa(first_op) || loom_low_resource_isa(first_op)) {
-    first_op = first_op->next_op;
-  }
-  loom_builder_set_before(&rewriter->builder, first_op);
-  loom_op_t* control_op = NULL;
-  IREE_RETURN_IF_ERROR(loom_low_schedule_begin_build(
-      &rewriter->builder, first_op->location, &control_op));
-  for (uint16_t block_index = 0; block_index < body->block_count;
-       ++block_index) {
-    loom_op_t* terminator = body->blocks[block_index]->last_op;
-    if (!loom_low_return_isa(terminator)) {
-      continue;
-    }
-    loom_builder_set_before(&rewriter->builder, terminator);
-    IREE_RETURN_IF_ERROR(loom_low_schedule_end_build(
-        &rewriter->builder, terminator->location, &control_op));
-  }
-  return iree_ok_status();
-}
-
 // Makes Low scheduling contracts explicit before a body crosses a callable
 // boundary. Locked blocks receive a fence before and after each instruction;
 // phased functions receive one scope closed at every return. Clearing the
@@ -1198,36 +1143,14 @@ static iree_status_t loom_inline_materialize_low_schedules(
     }
     const loom_low_schedule_t schedule =
         loom_low_func_def_schedule(entry->callee.op);
-    if (schedule == LOOM_LOW_SCHEDULE_PHASED) {
-      IREE_RETURN_IF_ERROR(
-          loom_inline_materialize_phased_low_schedule(entry->callee, rewriter));
-    } else if (schedule != LOOM_LOW_SCHEDULE_LOCKED) {
+    if (schedule != LOOM_LOW_SCHEDULE_PHASED &&
+        schedule != LOOM_LOW_SCHEDULE_LOCKED) {
       continue;
     }
 
     loom_region_t* body = loom_func_like_body(entry->callee);
-    for (uint16_t block_index = 0; schedule == LOOM_LOW_SCHEDULE_LOCKED &&
-                                   block_index < body->block_count;
-         ++block_index) {
-      loom_block_t* block = loom_region_block(body, block_index);
-      loom_op_t* terminator = block->last_op;
-      loom_op_t* first_op = block->first_op;
-      if (first_op == terminator) {
-        continue;
-      }
-
-      loom_builder_set_before(&rewriter->builder, first_op);
-      loom_op_t* fence_op = NULL;
-      IREE_RETURN_IF_ERROR(loom_low_schedule_fence_build(
-          &rewriter->builder, first_op->location, &fence_op));
-      for (loom_op_t* op = first_op; op != terminator;) {
-        loom_op_t* next_op = op->next_op;
-        loom_builder_set_after(&rewriter->builder, op);
-        IREE_RETURN_IF_ERROR(loom_low_schedule_fence_build(
-            &rewriter->builder, op->location, &fence_op));
-        op = next_op;
-      }
-    }
+    IREE_RETURN_IF_ERROR(loom_low_function_materialize_schedule(
+        &rewriter->builder, schedule, body->blocks, body->block_count));
     IREE_RETURN_IF_ERROR(loom_low_func_def_rewrite_schedule(
         rewriter, entry->callee.op, loom_attr_absent()));
     loom_pass_mark_changed(state->pass);

@@ -1,0 +1,289 @@
+// RUN: emit aie2p-array-plan @locked_pipeline output=low
+
+// Both workers clone the same locked leaf. Its fences enclose only the source
+// instructions, leaving resource binding and per-record fold work outside.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @locked_pipeline() asm {
+  %lane = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %column = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %lane_count = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %capacity = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %input_records = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %fold_records = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %output_records = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %record_row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %fold_row = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %record_group = group %lane_count
+  %fold_group = group %lane_count
+  %record_worker = worker %record_group, %lane, @ordered_copy
+  %fold_worker = worker.fold %fold_group, %lane, %fold_records, @ordered_copy, 1, 1, "addf", 64
+  %input = binding 0, "read"
+  %output = binding 1, "write"
+  %input_sender = sender %input, 0 : reg<aie2p.array.sender : tile<32xf32>>
+  %record_input = receiver %record_worker, 0 : reg<aie2p.array.receiver : tile<32xf32>>
+  %record_output = sender %record_worker, 1 : reg<aie2p.array.sender : tile<32xf32>>
+  %fold_input = receiver %fold_worker, 0 : reg<aie2p.array.receiver : tile<32xf32>>
+  %fold_output = sender %fold_worker, 1 : reg<aie2p.array.sender : tile<32xf32>>
+  %output_receiver = receiver %output, 0 : reg<aie2p.array.receiver : tile<32xf32>>
+  %incoming = channel %input_sender, %record_input, %capacity, %input_records : reg<aie2p.array.channel : tile<32xf32>>
+  %intermediate = channel %record_output, %fold_input, %capacity, %input_records : reg<aie2p.array.channel : tile<32xf32>>
+  %outgoing = channel %fold_output, %output_receiver, %capacity, %output_records : reg<aie2p.array.channel : tile<32xf32>>
+  constrain.location %record_worker, %column, %record_row
+  constrain.location %fold_worker, %column, %fold_row
+  return
+}
+
+low.func.def schedule(locked) target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @ordered_copy() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %output = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %low = vlda.acc %input, 0
+  vst.acc %low, %output, 0
+  %high = vlda.acc %input, 64
+  vst.acc %high, %output, 64
+  return
+}
+
+// ----
+low.func.def retain target<amd.xdna.aie2p.core> @locked_pipeline$worker$0() asm {
+  %acquire_delta = mov.short -1
+  %release_delta = mov.short 1
+  %10 = mov.local-address 458752
+  %11 = mov.local-address 475136
+  low.br ^_bb1(%10: reg<aie2p.ep>, %11: reg<aie2p.ep>)
+^_bb1(%6: reg<aie2p.ep>, %8: reg<aie2p.ep>):
+  acq %acquire_delta, 49
+  acq %acquire_delta, 50
+  %input = copy %6 : reg<aie2p.ep> -> reg<aie2p.ep>
+  %output = copy %8 : reg<aie2p.ep> -> reg<aie2p.ep>
+  low.schedule.fence
+  %low = vlda.acc %input, 0
+  low.schedule.fence
+  vst.acc %low, %output, 0
+  low.schedule.fence
+  %high = vlda.acc %input, 64
+  low.schedule.fence
+  vst.acc %high, %output, 64
+  low.schedule.fence
+  rel %release_delta, 51
+  rel %release_delta, 48
+  low.br ^_bb1(%6: reg<aie2p.ep>, %8: reg<aie2p.ep>)
+}
+
+low.func.def retain target<amd.xdna.aie2p.core> @locked_pipeline$worker$1() asm {
+  %acquire_delta = mov.short -1
+  %release_delta = mov.short 1
+  %fold_zero = mov.short 0
+  %fold_record_count = mov.i32 2
+  %fold_mode = mova.i32 60
+  %30 = acc.clear.f32x64
+  %31 = slice %30[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %42 = mov.local-address 278528
+  %43 = mov.local-address 458752
+  low.br ^_bb1(%42: reg<aie2p.ep>, %43: reg<aie2p.ep>)
+^_bb1(%22: reg<aie2p.ep>, %23: reg<aie2p.ep>):
+  acq %acquire_delta, 48
+  low.br ^_bb2(%22: reg<aie2p.ep>, %23: reg<aie2p.ep>, %30: reg<aie2p.mbms x4>, %fold_record_count: reg<aie2p.er>, %release_delta: reg<aie2p.er>)
+^_bb2(%18: reg<aie2p.ep>, %20: reg<aie2p.ep>, %24: reg<aie2p.mbms x4>, %25: reg<aie2p.er>, %26: reg<aie2p.er>):
+  acq %acquire_delta, 3
+  %input = copy %18 : reg<aie2p.ep> -> reg<aie2p.ep>
+  %output = copy %20 : reg<aie2p.ep> -> reg<aie2p.ep>
+  low.schedule.fence
+  %low = vlda.acc %input, 0
+  low.schedule.fence
+  vst.acc %low, %output, 0
+  low.schedule.fence
+  %high = vlda.acc %input, 64
+  low.schedule.fence
+  vst.acc %high, %output, 64
+  low.schedule.fence
+  %33 = vlda.acc %20, 0
+  %34 = vlda.acc %20, 64
+  %35 = concat(%33, %34, %31, %31) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %36 = nez %26
+  low.cond_br %36, ^_bb3, ^_bb4 : reg<aie2p.er>
+^_bb3:
+  low.br ^_bb5(%35: reg<aie2p.mbms x4>)
+^_bb4:
+  %37 = vadd.f32x64 %24, %35, %fold_mode
+  low.br ^_bb5(%37: reg<aie2p.mbms x4>)
+^_bb5(%32: reg<aie2p.mbms x4>):
+  rel %release_delta, 2
+  %38 = sub %25, %release_delta
+  %39 = nez %38
+  low.cond_br %39, ^_bb6, ^_bb7 : reg<aie2p.er>
+^_bb6:
+  low.br ^_bb2(%18: reg<aie2p.ep>, %20: reg<aie2p.ep>, %32: reg<aie2p.mbms x4>, %38: reg<aie2p.er>, %fold_zero: reg<aie2p.er>)
+^_bb7:
+  %40 = slice %32[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  vst.acc %40, %20, 0
+  %41 = slice %32[1] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  vst.acc %41, %20, 64
+  rel %release_delta, 49
+  low.br ^_bb1(%18: reg<aie2p.ep>, %20: reg<aie2p.ep>)
+}
+
+// ====
+// RUN: emit aie2p-array-plan @locked_branch_pipeline output=low
+
+// Both source exits retain their ordered stores before branching to the
+// generated recordwise or folded latch in each independent clone.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @locked_branch_pipeline() asm {
+  %lane = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %column = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %lane_count = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %capacity = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %input_records = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %fold_records = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %output_records = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %record_row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %fold_row = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %record_group = group %lane_count
+  %fold_group = group %lane_count
+  %record_worker = worker %record_group, %lane, @choose_halves
+  %fold_worker = worker.fold %fold_group, %lane, %fold_records, @choose_halves, 1, 1, "addf", 64
+  %input = binding 0, "read"
+  %output = binding 1, "write"
+  %input_sender = sender %input, 0 : reg<aie2p.array.sender : tile<32xf32>>
+  %record_input = receiver %record_worker, 0 : reg<aie2p.array.receiver : tile<32xf32>>
+  %record_output = sender %record_worker, 1 : reg<aie2p.array.sender : tile<32xf32>>
+  %fold_input = receiver %fold_worker, 0 : reg<aie2p.array.receiver : tile<32xf32>>
+  %fold_output = sender %fold_worker, 1 : reg<aie2p.array.sender : tile<32xf32>>
+  %output_receiver = receiver %output, 0 : reg<aie2p.array.receiver : tile<32xf32>>
+  %incoming = channel %input_sender, %record_input, %capacity, %input_records : reg<aie2p.array.channel : tile<32xf32>>
+  %intermediate = channel %record_output, %fold_input, %capacity, %input_records : reg<aie2p.array.channel : tile<32xf32>>
+  %outgoing = channel %fold_output, %output_receiver, %capacity, %output_records : reg<aie2p.array.channel : tile<32xf32>>
+  constrain.location %record_worker, %column, %record_row
+  constrain.location %fold_worker, %column, %fold_row
+  return
+}
+
+low.func.def schedule(locked) target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @choose_halves() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %output = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %selector = lda %input, 0
+  %low = vlda.acc %input, 0
+  %high = vlda.acc %input, 64
+  low.cond_br %selector, ^forward, ^reverse : reg<aie2p.er>
+^forward:
+  vst.acc %low, %output, 0
+  vst.acc %high, %output, 64
+  return
+^reverse:
+  vst.acc %high, %output, 0
+  vst.acc %low, %output, 64
+  return
+}
+
+// ----
+low.func.def retain target<amd.xdna.aie2p.core> @locked_branch_pipeline$worker$0() asm {
+  %acquire_delta = mov.short -1
+  %release_delta = mov.short 1
+  %11 = mov.local-address 458752
+  %12 = mov.local-address 475136
+  low.br ^_bb1(%11: reg<aie2p.ep>, %12: reg<aie2p.ep>)
+^_bb1(%7: reg<aie2p.ep>, %9: reg<aie2p.ep>):
+  acq %acquire_delta, 49
+  acq %acquire_delta, 50
+  %input = copy %7 : reg<aie2p.ep> -> reg<aie2p.ep>
+  %output = copy %9 : reg<aie2p.ep> -> reg<aie2p.ep>
+  low.schedule.fence
+  %selector = lda %input, 0
+  low.schedule.fence
+  %low = vlda.acc %input, 0
+  low.schedule.fence
+  %high = vlda.acc %input, 64
+  low.schedule.fence
+  low.cond_br %selector, ^_bb2, ^_bb3 : reg<aie2p.er>
+^_bb2:
+  low.schedule.fence
+  vst.acc %low, %output, 0
+  low.schedule.fence
+  vst.acc %high, %output, 64
+  low.schedule.fence
+  low.br ^_bb4
+^_bb3:
+  low.schedule.fence
+  vst.acc %high, %output, 0
+  low.schedule.fence
+  vst.acc %low, %output, 64
+  low.schedule.fence
+  low.br ^_bb4
+^_bb4:
+  rel %release_delta, 51
+  rel %release_delta, 48
+  low.br ^_bb1(%7: reg<aie2p.ep>, %9: reg<aie2p.ep>)
+}
+
+low.func.def retain target<amd.xdna.aie2p.core> @locked_branch_pipeline$worker$1() asm {
+  %acquire_delta = mov.short -1
+  %release_delta = mov.short 1
+  %fold_zero = mov.short 0
+  %fold_record_count = mov.i32 2
+  %fold_mode = mova.i32 60
+  %32 = acc.clear.f32x64
+  %33 = slice %32[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %44 = mov.local-address 278528
+  %45 = mov.local-address 458752
+  low.br ^_bb1(%44: reg<aie2p.ep>, %45: reg<aie2p.ep>)
+^_bb1(%24: reg<aie2p.ep>, %25: reg<aie2p.ep>):
+  acq %acquire_delta, 48
+  low.br ^_bb2(%24: reg<aie2p.ep>, %25: reg<aie2p.ep>, %32: reg<aie2p.mbms x4>, %fold_record_count: reg<aie2p.er>, %release_delta: reg<aie2p.er>)
+^_bb2(%20: reg<aie2p.ep>, %22: reg<aie2p.ep>, %26: reg<aie2p.mbms x4>, %27: reg<aie2p.er>, %28: reg<aie2p.er>):
+  acq %acquire_delta, 3
+  %input = copy %20 : reg<aie2p.ep> -> reg<aie2p.ep>
+  %output = copy %22 : reg<aie2p.ep> -> reg<aie2p.ep>
+  low.schedule.fence
+  %selector = lda %input, 0
+  low.schedule.fence
+  %low = vlda.acc %input, 0
+  low.schedule.fence
+  %high = vlda.acc %input, 64
+  low.schedule.fence
+  low.cond_br %selector, ^_bb3, ^_bb4 : reg<aie2p.er>
+^_bb3:
+  low.schedule.fence
+  vst.acc %low, %output, 0
+  low.schedule.fence
+  vst.acc %high, %output, 64
+  low.schedule.fence
+  low.br ^_bb5
+^_bb4:
+  low.schedule.fence
+  vst.acc %high, %output, 0
+  low.schedule.fence
+  vst.acc %low, %output, 64
+  low.schedule.fence
+  low.br ^_bb5
+^_bb5:
+  %35 = vlda.acc %22, 0
+  %36 = vlda.acc %22, 64
+  %37 = concat(%35, %36, %33, %33) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %38 = nez %28
+  low.cond_br %38, ^_bb6, ^_bb7 : reg<aie2p.er>
+^_bb6:
+  low.br ^_bb8(%37: reg<aie2p.mbms x4>)
+^_bb7:
+  %39 = vadd.f32x64 %26, %37, %fold_mode
+  low.br ^_bb8(%39: reg<aie2p.mbms x4>)
+^_bb8(%34: reg<aie2p.mbms x4>):
+  rel %release_delta, 2
+  %40 = sub %27, %release_delta
+  %41 = nez %40
+  low.cond_br %41, ^_bb9, ^_bb10 : reg<aie2p.er>
+^_bb9:
+  low.br ^_bb2(%20: reg<aie2p.ep>, %22: reg<aie2p.ep>, %34: reg<aie2p.mbms x4>, %40: reg<aie2p.er>, %fold_zero: reg<aie2p.er>)
+^_bb10:
+  %42 = slice %34[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  vst.acc %42, %22, 0
+  %43 = slice %34[1] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  vst.acc %43, %22, 64
+  rel %release_delta, 49
+  low.br ^_bb1(%20: reg<aie2p.ep>, %22: reg<aie2p.ep>)
+}

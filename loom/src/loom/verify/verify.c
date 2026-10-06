@@ -242,6 +242,9 @@ static iree_status_t loom_verify_region(
     }
     return iree_ok_status();
   }
+  if (contract && region->block_count == 0) {
+    return loom_verify_emit_missing_terminator(state, contract);
+  }
   if (contract &&
       iree_any_bit_set(contract->descriptor->flags, LOOM_REGION_SINGLE_BLOCK) &&
       region->block_count != 1) {
@@ -381,18 +384,15 @@ static iree_status_t loom_verify_region(
     }
     if (contract && iree_status_is_ok(status) &&
         !loom_verify_at_error_limit(state)) {
-      const bool is_cfg =
-          iree_any_bit_set(region->flags, LOOM_REGION_INSTANCE_FLAG_CFG);
-      // A branch marks its containing region as CFG, but cannot relax the
-      // declared terminator of a single-block structured region.
-      const bool requires_declared_terminator =
-          !is_cfg || iree_any_bit_set(contract->descriptor->flags,
-                                      LOOM_REGION_SINGLE_BLOCK);
-      if (!terminator_op && requires_declared_terminator) {
+      // Every block requires a terminator. Only an actual branch in a
+      // CFG-capable region may continue without using its declared exit kind.
+      if (!terminator_op) {
         status = loom_verify_emit_missing_terminator(state, contract);
-      } else if (terminator_op && requires_declared_terminator &&
-                 !loom_region_descriptor_matches_terminator(
-                     contract->descriptor, terminator_op->kind)) {
+      } else if (!loom_region_descriptor_matches_terminator(
+                     contract->descriptor, terminator_op->kind) &&
+                 (terminator_op->successor_count == 0 ||
+                  iree_any_bit_set(contract->descriptor->flags,
+                                   LOOM_REGION_SINGLE_BLOCK))) {
         status =
             loom_verify_emit_wrong_terminator(state, contract, terminator_op);
       }

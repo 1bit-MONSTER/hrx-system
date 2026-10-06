@@ -55,6 +55,9 @@ typedef struct loom_aie2p_array_resident_program_t {
 // arbitrary CFG once, replaces resource imports with loop-carried local-address
 // values, surrounds the firing with the channel lock protocol, and advances
 // every channel ring independently after the firing completes.
+// Source scheduling contracts become explicit controls around the cloned body,
+// ending at each source return before the generated latch and fold protocol.
+// The source stays immutable; generated protocol work retains its own ordering.
 // Single-predecessor block chains are fused so scheduling can overlap firing
 // and protocol work while preserving lock effects and shared loop headers. The
 // resulting functions have no imported resources or register ABI and are
