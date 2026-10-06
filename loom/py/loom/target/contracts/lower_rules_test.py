@@ -831,6 +831,113 @@ def test_compile_lower_rule_set_compiles_descriptor_result_type_binding() -> Non
     assert compiled.value_refs[emit.result_ref_start].kind == SourceValueKind.TEMPORARY
 
 
+def test_compile_lower_rule_set_packs_disjoint_temporary_lifetimes() -> None:
+    table = ContractFragment(
+        name="test.temporary-lifetimes",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=[
+            DescriptorRule(
+                source_op=scalar_arithmetic.scalar_addi,
+                descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                guards=(
+                    Guard.value_type("lhs", Scalar("i32")),
+                    Guard.value_type("rhs", Scalar("i32")),
+                    Guard.value_type("result", Scalar("i32")),
+                ),
+                emit=(
+                    EmitDescriptorOp(
+                        descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                        operands={
+                            "lhs": ValueRef.operand("lhs"),
+                            "rhs": ValueRef.operand("rhs"),
+                        },
+                        results={"dst": ValueRef.temporary("first")},
+                        result_types={"dst": DescriptorResultType()},
+                    ),
+                    EmitDescriptorOp(
+                        descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                        operands={
+                            "lhs": ValueRef.temporary("first"),
+                            "rhs": ValueRef.operand("rhs"),
+                        },
+                        results={"dst": ValueRef.temporary("second")},
+                        result_types={"dst": DescriptorResultType()},
+                    ),
+                    EmitDescriptorOp(
+                        descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                        operands={
+                            "lhs": ValueRef.temporary("second"),
+                            "rhs": ValueRef.operand("rhs"),
+                        },
+                        results={"dst": ValueRef.result("result")},
+                    ),
+                ),
+            )
+        ],
+    )
+
+    compiled = compile_lower_rule_set(table, dialect_ops={"scalar": ALL_SCALAR_OPS})
+
+    assert compiled.rules[0].temporary_count == 1
+    temporary_refs = [
+        value_ref
+        for value_ref in compiled.value_refs
+        if value_ref.kind is SourceValueKind.TEMPORARY
+    ]
+    assert temporary_refs
+    assert {value_ref.index for value_ref in temporary_refs} == {0}
+
+
+def test_compile_lower_rule_set_preserves_overlapping_temporary_lifetimes() -> None:
+    table = ContractFragment(
+        name="test.overlapping-temporary-lifetimes",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=[
+            DescriptorRule(
+                source_op=scalar_arithmetic.scalar_addi,
+                descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                guards=(
+                    Guard.value_type("lhs", Scalar("i32")),
+                    Guard.value_type("rhs", Scalar("i32")),
+                    Guard.value_type("result", Scalar("i32")),
+                ),
+                emit=(
+                    *(
+                        EmitDescriptorOp(
+                            descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                            operands={
+                                "lhs": ValueRef.operand("lhs"),
+                                "rhs": ValueRef.operand("rhs"),
+                            },
+                            results={"dst": ValueRef.temporary(name)},
+                            result_types={"dst": DescriptorResultType()},
+                        )
+                        for name in ("first", "second")
+                    ),
+                    EmitDescriptorOp(
+                        descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                        operands={
+                            "lhs": ValueRef.temporary("first"),
+                            "rhs": ValueRef.temporary("second"),
+                        },
+                        results={"dst": ValueRef.result("result")},
+                    ),
+                ),
+            )
+        ],
+    )
+
+    compiled = compile_lower_rule_set(table, dialect_ops={"scalar": ALL_SCALAR_OPS})
+
+    assert compiled.rules[0].temporary_count == 2
+    final_emit = compiled.emits[-1]
+    final_operand_refs = compiled.value_refs[
+        final_emit.operand_ref_start : final_emit.operand_ref_start
+        + final_emit.operand_ref_count
+    ]
+    assert {value_ref.index for value_ref in final_operand_refs} == {0, 1}
+
+
 def test_compile_lower_rule_set_infers_vector_per_lane_emit() -> None:
     table = ContractFragment(
         name="test.vector",
@@ -928,8 +1035,17 @@ def test_compile_lower_rule_set_compiles_setup_before_per_lane_sequence() -> Non
                             "lhs": ValueRef.operand("lhs"),
                             "rhs": ValueRef.temporary("bias"),
                         },
-                        results={"dst": ValueRef.result("result")},
+                        results={"dst": ValueRef.temporary("partial")},
                         result_types={"dst": ValueRef.result("result")},
+                        form=DescriptorEmitForm.PER_LANE_SEQUENCE,
+                    ),
+                    EmitDescriptorOp(
+                        descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                        operands={
+                            "lhs": ValueRef.temporary("partial"),
+                            "rhs": ValueRef.operand("rhs"),
+                        },
+                        results={"dst": ValueRef.result("result")},
                         form=DescriptorEmitForm.PER_LANE_SEQUENCE,
                     ),
                 ),
@@ -940,10 +1056,17 @@ def test_compile_lower_rule_set_compiles_setup_before_per_lane_sequence() -> Non
     compiled = compile_lower_rule_set(table, dialect_ops={"vector": ALL_VECTOR_OPS})
 
     assert compiled.rules[0].primary_emit_ordinal == 1
+    assert compiled.rules[0].temporary_count == 2
     assert tuple(emit.kind for emit in compiled.emits) == (
         LowerEmitKind.DESCRIPTOR_CONST,
         LowerEmitKind.DESCRIPTOR_OP_PER_LANE_SEQUENCE,
+        LowerEmitKind.DESCRIPTOR_OP_PER_LANE_SEQUENCE,
     )
+    bias_ref = compiled.value_refs[compiled.emits[1].operand_ref_start + 1]
+    partial_ref = compiled.value_refs[compiled.emits[2].operand_ref_start]
+    assert bias_ref.kind is SourceValueKind.TEMPORARY
+    assert partial_ref.kind is SourceValueKind.TEMPORARY
+    assert bias_ref.index != partial_ref.index
 
 
 def test_descriptor_rule_rejects_single_per_lane_sequence_without_setup() -> None:

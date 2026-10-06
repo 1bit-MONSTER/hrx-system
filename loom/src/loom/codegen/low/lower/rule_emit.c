@@ -1085,9 +1085,8 @@ static iree_status_t loom_low_lower_rule_bind_results(
       case LOOM_LOW_LOWER_VALUE_REF_TEMPORARY:
         IREE_ASSERT_LT(value_ref->index, state->temporary_count);
         IREE_ASSERT(state->temporaries != NULL);
-        IREE_ASSERT(state->temporaries[value_ref->index] ==
-                        LOOM_VALUE_ID_INVALID ||
-                    state->temporaries[value_ref->index] == low_results[i]);
+        // Generated temporary slots are liveness-packed and may retain a dead
+        // value when the next nonoverlapping value is bound to the same slot.
         state->temporaries[value_ref->index] = low_results[i];
         break;
       case LOOM_LOW_LOWER_VALUE_REF_OPERAND:

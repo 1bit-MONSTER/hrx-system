@@ -33,6 +33,7 @@ iree_py_library(
     "source.py"
     "source_memory.py"
     "templates.py"
+    "temporary_allocation.py"
   DEPS
     loom::py::loom::core
     loom::py::loom::error::error

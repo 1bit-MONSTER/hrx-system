@@ -461,8 +461,13 @@ TEST_LOW_CORE_CONTRACT_FRAGMENT = ContractFragment(
                 ),
                 EmitRegisterMove(
                     source=ValueRef.temporary("reclassified"),
-                    result=ValueRef.result("result"),
+                    result=ValueRef.temporary("moved"),
                     result_type=ValueRef.temporary("reclassified"),
+                ),
+                EmitRegisterMove(
+                    source=ValueRef.temporary("moved"),
+                    result=ValueRef.result("result"),
+                    result_type=ValueRef.temporary("moved"),
                 ),
             ),
         ),

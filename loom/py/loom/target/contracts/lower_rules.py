@@ -143,6 +143,7 @@ from loom.target.contracts.source_memory import (
     SourceMemoryByteOffsetMaterializer,
     SourceMemoryConstraint,
 )
+from loom.target.contracts.temporary_allocation import allocate_temporary_slots
 from loom.target.low_descriptors import ConstraintKind, EffectKind
 
 
@@ -457,10 +458,14 @@ class _LowerRuleSetCompiler:
 
         emit_start = len(self._emits)
         transferred_fields_by_emit = _transferred_descriptor_fields_by_emit(rule)
+        temporary_slot_plan = allocate_temporary_slots(rule.emit)
         temporary_ordinals: dict[str, int] = {}
         primary_emit_ordinal = LOWER_RULE_PRIMARY_EMIT_NONE
-        for emit, transferred_descriptor_fields in zip(
-            rule.emit, transferred_fields_by_emit, strict=True
+        for emit, transferred_descriptor_fields, temporary_definition_slots in zip(
+            rule.emit,
+            transferred_fields_by_emit,
+            temporary_slot_plan.definition_slots,
+            strict=True,
         ):
             if (
                 primary_emit_ordinal == LOWER_RULE_PRIMARY_EMIT_NONE
@@ -473,12 +478,13 @@ class _LowerRuleSetCompiler:
                 emit,
                 type_patterns_by_source_node,
                 temporary_ordinals,
+                temporary_definition_slots,
                 transferred_descriptor_fields,
             )
         self._rules.append(
             LowerRule(
                 source_op=rule.source_op,
-                temporary_count=len(temporary_ordinals),
+                temporary_count=temporary_slot_plan.temporary_count,
                 guard_start=guard_start,
                 guard_count=len(self._guards) - guard_start,
                 emit_start=emit_start,
@@ -1444,6 +1450,7 @@ class _LowerRuleSetCompiler:
             dict[tuple[str, int], TypePattern],
         ],
         temporary_ordinals: dict[str, int],
+        temporary_definition_slots: Mapping[str, int],
         transferred_descriptor_fields: frozenset[str],
     ) -> None:
         if isinstance(emit, EmitDescriptorOp):
@@ -1452,6 +1459,7 @@ class _LowerRuleSetCompiler:
                 emit,
                 type_patterns_by_source_node,
                 temporary_ordinals,
+                temporary_definition_slots,
                 transferred_descriptor_fields,
             )
             return
@@ -1463,6 +1471,7 @@ class _LowerRuleSetCompiler:
                 emit.result,
                 emit.result_type,
                 temporary_ordinals,
+                temporary_definition_slots,
                 structural_offset=emit.unit_offset,
                 structural_unit_count=emit.unit_count or 0,
             )
@@ -1475,6 +1484,7 @@ class _LowerRuleSetCompiler:
                 emit.result,
                 emit.result_type,
                 temporary_ordinals,
+                temporary_definition_slots,
             )
             return
         if isinstance(emit, EmitRegisterCopy):
@@ -1485,6 +1495,7 @@ class _LowerRuleSetCompiler:
                 emit.result,
                 emit.result_type,
                 temporary_ordinals,
+                temporary_definition_slots,
             )
             return
         if isinstance(emit, EmitRegisterMove):
@@ -1495,6 +1506,7 @@ class _LowerRuleSetCompiler:
                 emit.result,
                 emit.result_type,
                 temporary_ordinals,
+                temporary_definition_slots,
             )
             return
         raise TypeError(f"unsupported contract emit type: {type(emit).__name__}")
@@ -1508,6 +1520,7 @@ class _LowerRuleSetCompiler:
             dict[tuple[str, int], TypePattern],
         ],
         temporary_ordinals: dict[str, int],
+        temporary_definition_slots: Mapping[str, int],
         transferred_descriptor_fields: frozenset[str],
     ) -> None:
         emit_kind = _lower_emit_kind(
@@ -1548,10 +1561,9 @@ class _LowerRuleSetCompiler:
             value_ref = result_bindings.get(descriptor_operand.field_name)
             if value_ref is not None:
                 if value_ref.kind == SourceValueKind.TEMPORARY:
-                    temporary_ordinals.setdefault(
-                        value_ref.field,
-                        len(temporary_ordinals),
-                    )
+                    temporary_ordinals[value_ref.field] = temporary_definition_slots[
+                        value_ref.field
+                    ]
                 result_bind_refs.append(
                     self._lower_value_ref(source_op, value_ref, temporary_ordinals)
                 )
@@ -1717,6 +1729,7 @@ class _LowerRuleSetCompiler:
         result: ValueRef,
         result_type: ResultTypeBinding | None,
         temporary_ordinals: dict[str, int],
+        temporary_definition_slots: Mapping[str, int],
         *,
         structural_offset: int = 0,
         structural_unit_count: int = 0,
@@ -1728,7 +1741,7 @@ class _LowerRuleSetCompiler:
         operand_ref_start = self._append_value_ref_sequence(operand_refs)
 
         if result.kind == SourceValueKind.TEMPORARY:
-            temporary_ordinals.setdefault(result.field, len(temporary_ordinals))
+            temporary_ordinals[result.field] = temporary_definition_slots[result.field]
         result_bind_ref = self._lower_value_ref(
             source_op,
             result,
