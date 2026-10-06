@@ -80,9 +80,7 @@ using Float2 = float __attribute__((ext_vector_type(2)));
 using Half8 = _Float16 __attribute__((ext_vector_type(8)));
 struct Vectors { Int4 integers; Float2 scales; Half8 halves; };
 constexpr Vectors values{
-    {3, 5, 7, 9}, {1.5f, 2.5f},
-    {_Float16(1), _Float16(2), _Float16(3), _Float16(4),
-     _Float16(5), _Float16(6), _Float16(7), _Float16(8)}};
+    {3, 5, 7, 9}, {1.5f, 2.5f}, {1, 2, 3, 4, 5, 6, 7, 8}};
 static_assert(values.integers[2] == 7);
 static_assert(values.scales[1] == 2.5f);
 static_assert(values.halves[7] == 8);
