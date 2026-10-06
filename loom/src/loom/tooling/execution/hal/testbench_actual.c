@@ -695,8 +695,6 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
           .values = &specialization_request,
           .count = 1,
       };
-  pipeline_options.low_descriptor_registry =
-      loom_run_session_low_descriptor_registry(provider->session);
   pipeline_options.cleanup_pattern_provider_set =
       loom_run_session_cleanup_pattern_provider_set(provider->session);
   pipeline_options.diagnostic_sink = diagnostic_sink;

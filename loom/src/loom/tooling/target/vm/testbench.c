@@ -211,7 +211,6 @@ static iree_status_t loom_vm_testbench_compile(
       .fn = loom_source_table_resolve, .user_data = &sources.table};
   options.target_specializations =
       (loom_target_specialization_request_list_t){requests, request_count};
-  options.low_descriptor_registry = &registry;
   options.cleanup_pattern_provider_set =
       testbench->cleanup_pattern_provider_set;
   loom_vm_testbench_pipeline_diagnostic_capture_t pipeline_diagnostic = {

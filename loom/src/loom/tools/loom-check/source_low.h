@@ -105,7 +105,6 @@ void loom_check_prepare_source_low_options_initialize(
 iree_status_t loom_check_prepare_source_low_module(
     loom_module_t* module,
     const loom_check_prepare_source_low_options_t* options,
-    const loom_target_low_descriptor_registry_t* low_registry,
     const loom_check_environment_t* environment,
     loom_source_resolver_t source_resolver,
     loom_check_diagnostic_collector_t* diagnostic_collector,
@@ -117,7 +116,6 @@ iree_status_t loom_check_prepare_source_low_module(
 // return a status. The module is owned by the caller and may be transformed.
 iree_status_t loom_check_source_low_emit(
     loom_module_t* module, const loom_check_source_low_request_t* request,
-    const loom_target_low_descriptor_registry_t* low_registry,
     const loom_check_environment_t* environment,
     loom_source_resolver_t source_resolver,
     loom_check_diagnostic_collector_t* diagnostic_collector,

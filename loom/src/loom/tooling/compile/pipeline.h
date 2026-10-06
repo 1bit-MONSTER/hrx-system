@@ -20,7 +20,6 @@
 #include "loom/ir/ir.h"
 #include "loom/pass/interpreter.h"
 #include "loom/pass/trace.h"
-#include "loom/target/low_descriptor_registry.h"
 #include "loom/target/pipeline.h"
 #include "loom/target/reporting/report.h"
 #include "loom/target/specialization.h"
@@ -73,8 +72,6 @@ typedef struct loom_compile_pipeline_options_t {
   const loom_target_environment_t* target_environment;
   // Per-function target specialization requests for this invocation.
   loom_target_specialization_request_list_t target_specializations;
-  // Target-low descriptor registry package initialized for this session.
-  const loom_target_low_descriptor_registry_t* low_descriptor_registry;
   // Cleanup pattern providers linked into this compile front door.
   const loom_cleanup_pattern_provider_set_t* cleanup_pattern_provider_set;
   // Diagnostic sink used by pass execution.

@@ -262,7 +262,6 @@ static iree_status_t loom_cmd_program_plan_check_emit_provider_execute(
       LOOM_COMPILE_DEFAULT_PIPELINE_EXPANDED_SOURCE;
   pipeline_options.target_environment =
       request->environment->target_environment;
-  pipeline_options.low_descriptor_registry = request->low_registry;
   pipeline_options.cleanup_pattern_provider_set =
       request->environment->cleanup_pattern_provider_set;
   pipeline_options.diagnostic_sink =

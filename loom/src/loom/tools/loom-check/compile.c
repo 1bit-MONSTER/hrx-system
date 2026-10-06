@@ -16,6 +16,9 @@
 
 static iree_status_t loom_check_compile_verify_input(
     loom_module_t* module, const loom_compile_pipeline_options_t* options) {
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          options->target_environment);
   const loom_target_entry_options_t entry_options = {
       .diagnostic_sink = options->diagnostic_sink,
       .source_resolver = options->source_resolver,
@@ -34,9 +37,8 @@ static iree_status_t loom_check_compile_verify_input(
       loom_low_verify_scratch_for_module(module);
   loom_low_verify_result_t low_result = {0};
   return loom_target_entry_verify_low_module(
-      module, options->low_descriptor_registry, &entry_options, &emitter,
-      options->max_errors, loom_low_verify_provider_list_empty(), &scratch,
-      &low_result);
+      module, &low_registry, &entry_options, &emitter, options->max_errors,
+      loom_low_verify_provider_list_empty(), &scratch, &low_result);
 }
 
 static iree_status_t loom_check_compile_emit(
@@ -61,10 +63,12 @@ static iree_status_t loom_check_compile_emit(
   // alias.
   iree_arena_allocator_t scratch_arena;
   iree_arena_initialize(block_pool, &scratch_arena);
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          pipeline_options->target_environment);
   const loom_target_emit_request_t emit_request = {
       .target_environment = pipeline_options->target_environment,
-      .low_descriptor_registry =
-          &pipeline_options->low_descriptor_registry->registry,
+      .low_descriptor_registry = &low_registry.registry,
       .module = module,
       .function_versions = &pipeline_result->function_versions.list,
       .identifier = emitter->default_identifier,
@@ -193,7 +197,6 @@ iree_status_t loom_check_execute_compile(
   loom_compile_pipeline_options_t pipeline_options;
   loom_compile_pipeline_options_initialize(&pipeline_options);
   pipeline_options.target_environment = environment->target_environment;
-  pipeline_options.low_descriptor_registry = &low_registry;
   pipeline_options.cleanup_pattern_provider_set =
       environment->cleanup_pattern_provider_set;
   pipeline_options.diagnostic_sink = parse_options.diagnostic_sink;

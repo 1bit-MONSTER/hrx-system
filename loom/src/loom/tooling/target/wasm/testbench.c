@@ -284,7 +284,6 @@ static iree_status_t loom_wasm_testbench_compile_product(
           .values = &target_specialization,
           .count = 1,
       };
-  pipeline_options.low_descriptor_registry = &low_registry;
   pipeline_options.cleanup_pattern_provider_set =
       testbench->cleanup_pattern_provider_set;
   pipeline_options.source_resolver = (loom_source_resolver_t){

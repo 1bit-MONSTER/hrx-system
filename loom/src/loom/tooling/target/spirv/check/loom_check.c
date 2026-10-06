@@ -351,9 +351,9 @@ static iree_status_t loom_spirv_loom_check_emit_provider_execute(
           (loom_target_specialization_request_list_t){&specialization, 1};
     }
     status = loom_check_prepare_source_low_module(
-        request->module, &prepare_options, request->low_registry,
-        request->environment, request->source_resolver,
-        request->diagnostic_collector, request->block_pool, &pipeline_result);
+        request->module, &prepare_options, request->environment,
+        request->source_resolver, request->diagnostic_collector,
+        request->block_pool, &pipeline_result);
   } else {
     status = loom_spirv_loom_check_verify_low_module(request);
   }
