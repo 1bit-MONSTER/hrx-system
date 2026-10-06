@@ -12,7 +12,7 @@
 #include "loom/ops/vector/ops.h"
 #include "loom/target/arch/amd/xdna/aie2p/descriptors/core_descriptors.h"
 #include "loom/target/arch/amd/xdna/aie2p/gather.h"
-#include "loom/target/arch/amd/xdna/aie2p/legalization_compare.h"
+#include "loom/target/arch/amd/xdna/aie2p/legalization_float.h"
 #include "loom/target/arch/amd/xdna/aie2p/legalization_table.h"
 #include "loom/transforms/scalar/target_legalization.h"
 #include "loom/transforms/vector/packet_legalization.h"
@@ -679,6 +679,7 @@ static const loom_target_legalizer_rule_t kAie2pLegalizerRules[] = {
     },
     {
         .root_kind = LOOM_OP_VECTOR_CMPF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT,
         .legalize = loom_aie2p_legalize_vector_cmpf,
     },
     {

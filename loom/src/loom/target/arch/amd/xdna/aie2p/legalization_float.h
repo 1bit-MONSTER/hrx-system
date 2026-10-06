@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_LEGALIZATION_COMPARE_H_
-#define LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_LEGALIZATION_COMPARE_H_
+#ifndef LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_LEGALIZATION_FLOAT_H_
+#define LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_LEGALIZATION_FLOAT_H_
 
 #include "loom/target/legalization.h"
 
@@ -13,9 +13,9 @@
 extern "C" {
 #endif
 
-// Lowers F16, BF16, and F32 comparisons through packed integer order keys.
-// Preserves NaNs, signed zeros, infinities, and subnormal ordering without
-// converting floating-point values or extracting individual lanes.
+// Lowers comparisons for every direct floating-point encoding through packed
+// integer order keys. Preserves NaNs, signed zeros, infinities, and subnormal
+// ordering without converting floating-point values or extracting lanes.
 iree_status_t loom_aie2p_legalize_vector_cmpf(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
@@ -25,4 +25,4 @@ iree_status_t loom_aie2p_legalize_vector_cmpf(
 }  // extern "C"
 #endif
 
-#endif  // LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_LEGALIZATION_COMPARE_H_
+#endif  // LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_LEGALIZATION_FLOAT_H_

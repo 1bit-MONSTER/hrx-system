@@ -187,12 +187,12 @@ loom_cc_library(
     name = "legalization",
     srcs = [
         "legalization.c",
-        "legalization_compare.c",
+        "legalization_float.c",
         "legalization_table.c",
     ],
     hdrs = [
         "legalization.h",
-        "legalization_compare.h",
+        "legalization_float.h",
         "legalization_table.h",
     ],
     deps = [
@@ -210,6 +210,7 @@ loom_cc_library(
         "//loom/src/loom/transforms/vector:target_legalization",
         "//loom/src/loom/transforms/vector:to_scalar",
         "//loom/src/loom/util:fact_table",
+        "//loom/src/loom/util:numeric_format",
         "//runtime/src/iree/base",
     ],
 )

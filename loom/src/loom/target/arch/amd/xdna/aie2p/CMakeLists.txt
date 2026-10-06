@@ -229,11 +229,11 @@ loom_cc_library(
     legalization
   HDRS
     "legalization.h"
-    "legalization_compare.h"
+    "legalization_float.h"
     "legalization_table.h"
   SRCS
     "legalization.c"
-    "legalization_compare.c"
+    "legalization_float.c"
     "legalization_table.c"
   DEPS
     ::core_descriptors
@@ -251,6 +251,7 @@ loom_cc_library(
     loom::transforms::vector::target_legalization
     loom::transforms::vector::to_scalar
     loom::util::fact_table
+    loom::util::numeric_format
   PUBLIC
 )
 endif()
