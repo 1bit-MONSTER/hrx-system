@@ -672,36 +672,6 @@ static bool loom_low_schedule_candidate_advances_register_packing_completion(
     const loom_low_schedule_pressure_state_t* pressure_state,
     uint32_t candidate_node_index,
     const loom_low_register_packing_resource_t* resource) {
-  const uint16_t resource_id =
-      (uint16_t)(resource -
-                 state->target.descriptor_set->register_packing_resources);
-  const uint32_t completion_sink =
-      state->node_register_packing.completion_sinks
-          [(iree_host_size_t)candidate_node_index *
-               state->target.descriptor_set->register_packing_resource_count +
-           resource_id];
-  if (completion_sink != LOOM_LOW_SCHEDULE_NODE_NONE) {
-    const loom_low_schedule_node_t* sink = &state->nodes[completion_sink];
-    const loom_value_ordinal_t* sink_operand_ordinals =
-        loom_low_schedule_node_const_operand_ordinals(sink);
-    const uint16_t member_end = resource->member_start + resource->member_count;
-    for (uint16_t operand_index = 0; operand_index < sink->operand_count;
-         ++operand_index) {
-      const loom_low_schedule_value_record_t* value =
-          &state->values[sink_operand_ordinals[operand_index]];
-      if (!iree_any_bit_set(value->flags, LOOM_LOW_SCHEDULE_VALUE_FLAG_LIVE)) {
-        continue;
-      }
-      for (uint16_t member_index = resource->member_start;
-           member_index < member_end; ++member_index) {
-        if (state->target.descriptor_set
-                ->register_packing_resource_members[member_index]
-                .reg_class_id == value->register_class_id) {
-          return true;
-        }
-      }
-    }
-  }
   uint64_t candidate_activation_units = 0;
   const uint64_t candidate_working_set =
       loom_low_schedule_node_register_packing_working_set(

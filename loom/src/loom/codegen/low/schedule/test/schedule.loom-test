@@ -565,6 +565,27 @@ low.func.def target<test.low.core>(@test_target) @resource_stall_accounts_for_no
 block 0 order: 5, 0
 
 // ====
+// The old value and its independent replacement share the last explicit
+// register. The old producer's retained activation already accounts for its
+// release; its consumer's activation is not another producer-relative reserve.
+// RUN: emit low-schedule-query @resource_stall_projects_ssa_activation strategy=resource-stall order=0,1,2,3 scheduled-pressure=test.explicit32 diagnostics=candidates
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @resource_stall_projects_ssa_activation(%live0: reg<test.explicit32>, %live1: reg<test.explicit32>, %live2: reg<test.explicit32>, %seed: reg<test.i32>, %replacement_seed: reg<test.i32>) -> (reg<test.explicit32>, reg<test.explicit32>, reg<test.explicit32>, reg<test.i32 x4>, reg<test.explicit32>) asm {
+  // REMARK@+1: BACKEND/015 {chosen_pressure_cliff_source="test.explicit32", chosen_pressure_cliff_penalty="1", rejected_pressure_cliff_penalty="1"}
+  %old = copy %seed : reg<test.i32> -> reg<test.explicit32>
+  // REMARK@+1: BACKEND/015
+  %retained = test.explicit.release.v4i32 %old
+  %replacement = copy %replacement_seed : reg<test.i32> -> reg<test.explicit32>
+  return %live0, %live1, %live2, %retained, %replacement
+}
+
+// ----
+block 0 order: 0, 1, 2, 3
+scheduled pressure test.explicit32: peak-live-units=4 peak-live-values=4
+
+// ====
 // RUN: emit low-schedule-json @resource_stall_excludes_live_ins_from_unspillable_activation strategy=resource-stall diagnostics=candidates output=none
 
 test.target<low_core> @test_target

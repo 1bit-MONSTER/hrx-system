@@ -317,3 +317,20 @@ low.func.def target<amd.xdna.aie2p.core> @vector_move_alias_views(%input: reg<ai
 
 // ----
 code: e4 45 02 00 00 05 f8 22 40 18 f8 5c 82 18 00 00 00 00 00 00
+
+// ====
+
+// Eleven live vector pairs leave one X register for the load and replacement.
+// The load's producer-relative activation permits its old value to be read
+// into BM before opening the independent replacement in the same X storage.
+// RUN: emit aie2p-leaf @move_overwrite report=code
+
+low.func.def target<amd.xdna.aie2p.core> @move_overwrite(%input: reg<aie2p.ep>, %incoming: reg<aie2p.mbms>, %live0: reg<aie2p.vec256 x2>, %live1: reg<aie2p.vec256 x2>, %live2: reg<aie2p.vec256 x2>, %live3: reg<aie2p.vec256 x2>, %live4: reg<aie2p.vec256 x2>, %live5: reg<aie2p.vec256 x2>, %live6: reg<aie2p.vec256 x2>, %live7: reg<aie2p.vec256 x2>, %live8: reg<aie2p.vec256 x2>, %live9: reg<aie2p.vec256 x2>, %live10: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.mbms>, reg<aie2p.vec256 x2>) asm {
+  %old = vlda.512.i32x16 %input, 0
+  %retained = vmov.vector512.to.accumulator512 %old
+  %replacement = vmov.accumulator512.to.vector512 %incoming
+  return %live0, %live1, %live2, %live3, %live4, %live5, %live6, %live7, %live8, %live9, %live10, %retained, %replacement
+}
+
+// ----
+code: 98 db 06 00 00 00 00 00 00 00 18 00 28 10 00 00 00 00 f8 92 56 18 f8 12 a0 1d 00 00

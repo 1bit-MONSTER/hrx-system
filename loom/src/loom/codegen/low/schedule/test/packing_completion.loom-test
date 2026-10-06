@@ -1,3 +1,65 @@
+// Memory ordering is the store's only connection to the packed continuation.
+// Its unlock still carries downstream packing activation. The live wide value
+// leaves room in both classes but only one shared slot. The retained demand
+// reaches that shared limit without reaching either class limit.
+// RUN: emit low-schedule-query @register_packing_non_ssa_unlock strategy=resource-stall order=0,5 diagnostics=candidates
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @register_packing_non_ssa_unlock(%live: reg<test.packed.wide>, %address: reg<test.ptr>, %payload: reg<test.i32 x4>, %lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.packed.wide>, reg<test.i32>, reg<test.i32>, reg<test.i32 x4>, reg<test.i32>, reg<test.i32>) asm {
+  // REMARK@+1: BACKEND/015 {chosen_pressure_cliff_source="test.pair_slots", chosen_pressure_cliff_penalty="0", chosen_units_until_pressure_cliff="0"}
+  test.store.v4i32 %address, %payload
+  // REMARK@+1: BACKEND/015
+  %loaded = test.load.v4i32 %address
+  // REMARK@+1: BACKEND/015
+  %lane = test.extract_lane.i32 %loaded, 0
+  // REMARK@+1: BACKEND/015
+  %narrow = test.packing.create %lane
+  // REMARK@+1: BACKEND/015
+  %physical_result = copy %narrow : reg<test.packed.narrow> -> reg<test.i32>
+  %virtual_path = test.mul.i32 %lhs, %rhs
+  %virtual0 = copy %virtual_path : reg<test.i32> -> reg<test.i32>
+  %virtual1 = copy %virtual0 : reg<test.i32> -> reg<test.i32>
+  return %live, %physical_result, %virtual1, %payload, %lhs, %rhs
+}
+
+// ----
+block 0 order: 0, 5
+
+// ====
+
+// The first load has both an effect-only successor with packed activation and
+// an SSA-only scalar successor. Publishing the latter must preserve the demand
+// already accumulated from the former.
+// RUN: emit low-schedule-query @register_packing_mixed_unlock_publication strategy=resource-stall order=0,6 diagnostics=candidates kind=effect consumer=1
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @register_packing_mixed_unlock_publication(%live: reg<test.packed.wide>, %address: reg<test.ptr>, %lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.packed.wide>, reg<test.i32 x4>, reg<test.i32>, reg<test.i32>, reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
+  // REMARK@+1: BACKEND/015 {chosen_pressure_cliff_source="test.pair_slots", chosen_pressure_cliff_penalty="0", chosen_units_until_pressure_cliff="0"}
+  %first = test.load.ordered.v4i32 %address
+  // REMARK@+1: BACKEND/015
+  %second = test.load.ordered.v4i32 %address
+  // REMARK@+1: BACKEND/015
+  %retained = test.extract_lane.i32 %first, 0
+  // REMARK@+1: BACKEND/015
+  %lane = test.extract_lane.i32 %second, 0
+  // REMARK@+1: BACKEND/015
+  %narrow = test.packing.create %lane
+  // REMARK@+1: BACKEND/015
+  %physical_result = copy %narrow : reg<test.packed.narrow> -> reg<test.i32>
+  %virtual_path = test.mul.i32 %lhs, %rhs
+  %virtual0 = copy %virtual_path : reg<test.i32> -> reg<test.i32>
+  %virtual1 = copy %virtual0 : reg<test.i32> -> reg<test.i32>
+  return %live, %first, %retained, %physical_result, %virtual1, %lhs, %rhs
+}
+
+// ----
+block 0 order: 0, 6
+node 1 <- 0
+
+// ====
+
 // Prepare both narrow peers and expand them in their existing pair slots.
 // Retire each transaction before opening the next one.
 // RUN: emit low-schedule-query @register_packing_avoids_fragmentation strategy=resource-stall order=0,1,2,3,4,5,6,7,8,9
@@ -338,3 +400,27 @@ low.func.def target<test.low.core>(@target) @register_packing_completion_through
   %ordinary_result = test.packing.retire %ordinary, %ordinary
   return %ordinary_result, %overlapping_result
 }
+
+// ====
+
+// A live wide value needs a scalar-to-narrow-to-wide peer before it can retire.
+// The independent transaction competes for the remaining shared slot. Retain
+// both results and scalar inputs while checking the complete chosen order.
+// RUN: emit low-schedule-query @register_packing_prepares_live_in_peer strategy=resource-stall order=0,1,2,3,4,5,6,7 scheduled-pressure=test.packed.wide
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @register_packing_prepares_live_in_peer(%live: reg<test.packed.wide x2>, %other_source: reg<test.i32>, %lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
+  %other_narrow = test.packing.create %other_source
+  %prepared = test.add.i32 %lhs, %rhs
+  %peer_narrow = test.packing.create %prepared
+  %peer_wide = test.packing.expand %peer_narrow
+  %result = test.packing.retire %live, %peer_wide
+  %other_wide = test.packing.expand %other_narrow
+  %other_result = test.packing.retire %other_wide, %other_wide
+  return %result, %other_result, %other_source, %lhs, %rhs
+}
+
+// ----
+block 0 order: 1, 2, 3, 4, 0, 5, 6, 7
+scheduled pressure test.packed.wide: peak-live-units=4 peak-live-values=2

@@ -1281,8 +1281,12 @@ static bool loom_low_schedule_descriptor_frontier_is_non_growing(
 
 void loom_low_schedule_pressure_publish_unlock_consumer(
     loom_low_schedule_build_state_t* state,
-    loom_low_schedule_pressure_state_t* pressure_state, uint32_t producer_node,
-    uint32_t consumer_node) {
+    loom_low_schedule_pressure_state_t* pressure_state, uint32_t group_index) {
+  const loom_low_schedule_dependency_group_t* group =
+      loom_low_schedule_dependency_index_group_at(&state->dependency_index,
+                                                  group_index);
+  const uint32_t producer_node = group->producer_node;
+  const uint32_t consumer_node = group->consumer_node;
   if (state->nodes[producer_node].block_index !=
       state->nodes[consumer_node].block_index) {
     return;
@@ -1294,7 +1298,13 @@ void loom_low_schedule_pressure_publish_unlock_consumer(
   record->activation_units =
       iree_max(record->activation_units,
                state->node_pressure_activation_units[consumer_node]);
-  if (pressure_state->unlocks.register_packing_activation_units != NULL) {
+  // The reverse SSA sweep already projects physical activation relative to the
+  // producer's result footprint. Only non-SSA groups contribute the unprojected
+  // consumer overlay; skipping an SSA contribution preserves other unlocks.
+  const bool has_ssa = loom_low_schedule_dependency_index_group_has_ssa(
+      &state->dependency_index, group_index);
+  if (!has_ssa &&
+      pressure_state->unlocks.register_packing_activation_units != NULL) {
     uint32_t* producer_activation = loom_low_schedule_register_packing_row(
         state, pressure_state->unlocks.register_packing_activation_units,
         producer_node);
@@ -1310,7 +1320,8 @@ void loom_low_schedule_pressure_publish_unlock_consumer(
           producer_activation[resource_id], consumer_activation[resource_id]);
     }
   }
-  if (pressure_state->unlocks.unspillable_activation_units != NULL) {
+  if (!has_ssa &&
+      pressure_state->unlocks.unspillable_activation_units != NULL) {
     uint32_t* producer_activation = loom_low_schedule_unspillable_pressure_row(
         state, pressure_state->unlocks.unspillable_activation_units,
         producer_node);
@@ -1419,12 +1430,12 @@ iree_status_t loom_low_schedule_pressure_initialize_unlock_summaries(
   }
   for (uint32_t consumer_node = 0; consumer_node < node_count;
        ++consumer_node) {
-    const uint32_t producer_node =
-        loom_low_schedule_dependency_frontier_remaining_producer(
+    const uint32_t group_index =
+        loom_low_schedule_dependency_frontier_remaining_group(
             &pressure_state->unlocks.frontier, consumer_node);
-    if (producer_node != LOOM_LOW_SCHEDULE_DEPENDENCY_GROUP_NONE) {
-      loom_low_schedule_pressure_publish_unlock_consumer(
-          state, pressure_state, producer_node, consumer_node);
+    if (group_index != LOOM_LOW_SCHEDULE_DEPENDENCY_GROUP_NONE) {
+      loom_low_schedule_pressure_publish_unlock_consumer(state, pressure_state,
+                                                         group_index);
     }
   }
   return iree_ok_status();

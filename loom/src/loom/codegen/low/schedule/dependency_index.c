@@ -146,6 +146,7 @@ static void loom_low_schedule_dependency_index_fill_groups(
             index, next_group_index++) = (loom_low_schedule_dependency_group_t){
             .consumer_node = consumer_node,
             .minimum_issue_separation_cycles = INT32_MIN,
+            .producer_node = producer_node,
         };
       }
       const uint32_t group_index = consumer_group_indices[consumer_node];
@@ -285,12 +286,12 @@ iree_status_t loom_low_schedule_dependency_frontier_initialize(
       sizeof(*out_frontier->remaining_producer_counts),
       (void**)&out_frontier->remaining_producer_counts));
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      arena, index->node_count, sizeof(*out_frontier->remaining_producer_xors),
-      (void**)&out_frontier->remaining_producer_xors));
+      arena, index->node_count, sizeof(*out_frontier->remaining_group_xors),
+      (void**)&out_frontier->remaining_group_xors));
   memset(out_frontier->remaining_producer_counts, 0,
          index->node_count * sizeof(*out_frontier->remaining_producer_counts));
-  memset(out_frontier->remaining_producer_xors, 0,
-         index->node_count * sizeof(*out_frontier->remaining_producer_xors));
+  memset(out_frontier->remaining_group_xors, 0,
+         index->node_count * sizeof(*out_frontier->remaining_group_xors));
   for (uint32_t producer_node = 0; producer_node < index->node_count;
        ++producer_node) {
     const uint32_t group_begin =
@@ -305,14 +306,14 @@ iree_status_t loom_low_schedule_dependency_frontier_initialize(
       IREE_ASSERT_NE(out_frontier->remaining_producer_counts[consumer_node],
                      UINT32_MAX);
       ++out_frontier->remaining_producer_counts[consumer_node];
-      out_frontier->remaining_producer_xors[consumer_node] ^= producer_node;
+      out_frontier->remaining_group_xors[consumer_node] ^= group_index;
     }
   }
   return iree_ok_status();
 }
 
 uint32_t loom_low_schedule_dependency_frontier_consume_group(
-    loom_low_schedule_dependency_frontier_t* frontier, uint32_t producer_node,
+    loom_low_schedule_dependency_frontier_t* frontier, uint32_t group_index,
     const loom_low_schedule_dependency_group_t* group) {
   const uint32_t consumer_node = group->consumer_node;
   IREE_ASSERT_LT(consumer_node, frontier->node_count);
@@ -320,9 +321,8 @@ uint32_t loom_low_schedule_dependency_frontier_consume_group(
       &frontier->remaining_producer_counts[consumer_node];
   IREE_ASSERT_NE(*remaining_count, 0u);
   --*remaining_count;
-  frontier->remaining_producer_xors[consumer_node] ^= producer_node;
+  frontier->remaining_group_xors[consumer_node] ^= group_index;
   ++frontier->consumed_group_count;
-  return *remaining_count == 1
-             ? frontier->remaining_producer_xors[consumer_node]
-             : LOOM_LOW_SCHEDULE_DEPENDENCY_GROUP_NONE;
+  return *remaining_count == 1 ? frontier->remaining_group_xors[consumer_node]
+                               : LOOM_LOW_SCHEDULE_DEPENDENCY_GROUP_NONE;
 }
