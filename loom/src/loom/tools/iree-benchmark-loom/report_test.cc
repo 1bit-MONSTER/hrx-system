@@ -298,8 +298,7 @@ TEST(BenchmarkReportTest, WritesCanonicalCompileReportTree) {
   capture_options.sink_format = LOOM_COMPILE_REPORT_SINK_FORMAT_JSON;
   capture_options.detail_mode = LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_SUMMARY;
   loom_compile_report_capture_t capture = {};
-  IREE_ASSERT_OK(loom_compile_report_capture_initialize(&capture_options,
-                                                        allocator, &capture));
+  loom_compile_report_capture_initialize(&capture_options, allocator, &capture);
 
   loom_target_compile_report_t* report = &capture.report;
   report->artifact_kind = LOOM_TARGET_COMPILE_ARTIFACT_KIND_TARGET_ARTIFACT;

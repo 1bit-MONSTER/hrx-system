@@ -148,13 +148,9 @@ loom_cc_library(
     hdrs = ["report_capture.h"],
     deps = [
         ":options",
-        "//loom/src/loom/error:diagnostic",
-        "//loom/src/loom/error:json_sink",
-        "//loom/src/loom/error:renderer",
         "//loom/src/loom/target/reporting:format",
         "//loom/src/loom/target/reporting:report",
         "//loom/src/loom/tooling/config",
-        "//loom/src/loom/util:json",
         "//runtime/src/iree/base",
     ],
 )
@@ -203,8 +199,6 @@ loom_cc_test(
     deps = [
         ":options",
         ":report_capture",
-        "//loom/src/loom/error:error_defs",
-        "//loom/src/loom/error:json_sink",
         "//runtime/src/iree/base",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",

@@ -126,13 +126,9 @@ loom_cc_library(
   DEPS
     ::options
     iree::base
-    loom::error::diagnostic
-    loom::error::json_sink
-    loom::error::renderer
     loom::target::reporting::format
     loom::target::reporting::report
     loom::tooling::config
-    loom::util::json
   PUBLIC
 )
 
@@ -182,8 +178,6 @@ loom_cc_test(
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
-    loom::error::error_defs
-    loom::error::json_sink
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

@@ -6,7 +6,6 @@
 
 #include "loom/tooling/compile/report_capture.h"
 
-#include "loom/error/json_sink.h"
 #include "loom/tooling/config/config.h"
 
 void loom_compile_report_capture_options_initialize(
@@ -69,20 +68,16 @@ bool loom_compile_report_capture_is_enabled(
          loom_compile_report_capture_options_is_enabled(&capture->options);
 }
 
-iree_status_t loom_compile_report_capture_initialize(
+void loom_compile_report_capture_initialize(
     const loom_compile_report_capture_options_t* options,
     iree_allocator_t host_allocator,
     loom_compile_report_capture_t* out_capture) {
   *out_capture = (loom_compile_report_capture_t){
       .options = *options,
-      .host_allocator = host_allocator,
   };
   loom_target_compile_report_initialize(&out_capture->report, host_allocator);
-  loom_json_value_list_initialize(host_allocator,
-                                  &out_capture->diagnostics.json_values);
   out_capture->report.requested_detail_flags =
       loom_target_compile_report_requested_detail_flags(options->detail_mode);
-  return iree_ok_status();
 }
 
 void loom_compile_report_capture_configure_compile_options(
@@ -124,29 +119,6 @@ loom_tooling_config_binding_sink_t loom_compile_report_config_binding_sink(
   };
 }
 
-iree_status_t loom_compile_report_capture_record_diagnostic(
-    loom_compile_report_capture_t* capture, const loom_diagnostic_t* diagnostic,
-    loom_type_formatter_t type_formatter) {
-  if (!loom_compile_report_capture_is_enabled(capture) || diagnostic == NULL) {
-    return iree_ok_status();
-  }
-  if (capture->options.sink_format == LOOM_COMPILE_REPORT_SINK_FORMAT_JSON &&
-      capture->options.detail_mode ==
-          LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_DETAILS) {
-    loom_output_stream_t stream;
-    IREE_RETURN_IF_ERROR(loom_json_value_list_begin_value(
-        &capture->diagnostics.json_values, &stream));
-    const loom_type_formatter_t formatter =
-        type_formatter.fn
-            ? type_formatter
-            : (loom_type_formatter_t){loom_type_format_minimal, NULL};
-    IREE_RETURN_IF_ERROR(
-        loom_diagnostic_json_write_object(&stream, diagnostic, formatter));
-  }
-  ++capture->diagnostics.count;
-  return iree_ok_status();
-}
-
 static iree_status_t loom_compile_report_capture_append_separator(
     iree_string_builder_t* builder) {
   iree_host_size_t builder_size = iree_string_builder_size(builder);
@@ -160,7 +132,7 @@ static iree_status_t loom_compile_report_capture_append_separator(
   return iree_string_builder_append_string(builder, IREE_SV("\n"));
 }
 
-iree_status_t loom_compile_report_capture_append_text(
+static iree_status_t loom_compile_report_capture_append_text(
     const loom_compile_report_capture_t* capture,
     iree_string_builder_t* builder) {
   if (!loom_compile_report_capture_is_enabled(capture)) {
@@ -169,12 +141,6 @@ iree_status_t loom_compile_report_capture_append_text(
   IREE_RETURN_IF_ERROR(loom_compile_report_capture_append_separator(builder));
   const loom_target_compile_report_format_options_t format_options = {
       .mode = capture->options.detail_mode,
-      .diagnostics =
-          {
-              .json_objects =
-                  loom_json_value_list_body(&capture->diagnostics.json_values),
-              .count = capture->diagnostics.count,
-          },
   };
   return loom_target_compile_report_format_text(&capture->report,
                                                 &format_options, builder);
@@ -188,12 +154,6 @@ iree_status_t loom_compile_report_capture_append_json(
   }
   const loom_target_compile_report_format_options_t format_options = {
       .mode = capture->options.detail_mode,
-      .diagnostics =
-          {
-              .json_objects =
-                  loom_json_value_list_body(&capture->diagnostics.json_values),
-              .count = capture->diagnostics.count,
-          },
   };
   return loom_target_compile_report_format_json(&capture->report,
                                                 &format_options, stream);
@@ -223,42 +183,11 @@ iree_status_t loom_compile_report_capture_append_output(
   }
 }
 
-iree_status_t loom_compile_report_capture_write_output(
-    const loom_compile_report_capture_t* capture, loom_output_stream_t* stream,
-    iree_allocator_t host_allocator) {
-  if (!loom_compile_report_capture_is_enabled(capture)) {
-    return iree_ok_status();
-  }
-  switch (capture->options.sink_format) {
-    case LOOM_COMPILE_REPORT_SINK_FORMAT_JSON: {
-      IREE_RETURN_IF_ERROR(
-          loom_compile_report_capture_append_json(capture, stream));
-      return loom_output_stream_write_cstring(stream, "\n");
-    }
-    case LOOM_COMPILE_REPORT_SINK_FORMAT_TEXT: {
-      iree_string_builder_t builder;
-      iree_string_builder_initialize(host_allocator, &builder);
-      iree_status_t status =
-          loom_compile_report_capture_append_text(capture, &builder);
-      if (iree_status_is_ok(status)) {
-        status = loom_output_stream_write(stream,
-                                          iree_string_builder_view(&builder));
-      }
-      iree_string_builder_deinitialize(&builder);
-      return status;
-    }
-    case LOOM_COMPILE_REPORT_SINK_FORMAT_NONE:
-    default:
-      return iree_ok_status();
-  }
-}
-
 void loom_compile_report_capture_deinitialize(
     loom_compile_report_capture_t* capture) {
   if (capture == NULL) {
     return;
   }
-  loom_json_value_list_deinitialize(&capture->diagnostics.json_values);
   loom_target_compile_report_deinitialize(&capture->report);
   *capture = (loom_compile_report_capture_t){0};
 }

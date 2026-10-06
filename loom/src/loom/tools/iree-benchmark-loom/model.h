@@ -253,8 +253,6 @@ typedef struct iree_benchmark_loom_hal_actual_provider_t {
   iree_string_view_t hal_executable_path;
   // Owned debug/full bundle HAL executable artifact path.
   char* hal_executable_path_storage;
-  // True when |compile_report_capture| owns initialized capture state.
-  bool compile_report_capture_initialized;
 } iree_benchmark_loom_hal_actual_provider_t;
 
 typedef struct iree_benchmark_loom_hal_actual_sequence_t {

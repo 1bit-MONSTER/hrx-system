@@ -144,13 +144,11 @@ static iree_status_t iree_benchmark_loom_initialize_single_compile_context(
   }
 
   if (iree_status_is_ok(status)) {
-    status = iree_benchmark_loom_hal_actual_provider_initialize(
+    iree_benchmark_loom_hal_actual_provider_initialize(
         options->hal_context, options->session, options->run_module,
         options->benchmark_options, kernel_launch, iree_string_view_empty(),
         options->compile_report_options, options->artifact_manifest_options,
         &context->hal_provider);
-  }
-  if (iree_status_is_ok(status)) {
     context->hal_provider_initialized = true;
     context->execution_options.materializer.device_allocator =
         iree_hal_device_allocator(
