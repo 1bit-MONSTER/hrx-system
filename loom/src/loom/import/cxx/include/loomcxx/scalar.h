@@ -116,7 +116,8 @@ template <class Float> requires (__is_floating_point(Float))
 template <class Float> requires (__is_floating_point(Float))
 [[loom::op("scalar.floorf")]] Float floorf(Float input);
 
-// Fused multiply-add: a*b + c with single rounding.
+// Fused multiply-add: a*b + c with single rounding. AFN permits a target-
+// native fused form with weaker subnormal handling.
 template <class Float> requires (__is_floating_point(Float))
 [[loom::op("scalar.fmaf")]] Float fmaf(Float a, Float b, Float c);
 
@@ -320,7 +321,8 @@ template <class Float> requires (__is_floating_point(Float))
 template <class Float> requires (__is_floating_point(Float))
 [[loom::op("scalar.floorf", "afn")]] Float floorf(Float input);
 
-// Fused multiply-add: a*b + c with single rounding.
+// Fused multiply-add: a*b + c with single rounding. AFN permits a target-
+// native fused form with weaker subnormal handling.
 template <class Float> requires (__is_floating_point(Float))
 [[loom::op("scalar.fmaf", "afn")]] Float fmaf(Float a, Float b, Float c);
 

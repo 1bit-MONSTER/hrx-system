@@ -1665,7 +1665,7 @@ iree_status_t loom_vector_copysignf_facts(
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
 
-// LOOM_OP_VECTOR_FMAF: Lanewise fused multiply-add of same-typed floating-point vectors. Each result lane computes a*b + c with one final rounding; use separate vector.mulf/vector.addf when unfused rounding is required.
+// LOOM_OP_VECTOR_FMAF: Lanewise fused multiply-add of same-typed floating-point vectors. Each result lane computes a*b + c with one final rounding; use separate vector.mulf/vector.addf when unfused rounding is required. AFN permits target-native fused forms with weaker subnormal handling.
 // %r = vector.fmaf %a, %b, %c : vector<16xf32>
 LOOM_DEFINE_ISA(loom_vector_fmaf_isa, LOOM_OP_VECTOR_FMAF)
 LOOM_DEFINE_OPERAND(loom_vector_fmaf_a, 0)

@@ -130,6 +130,7 @@ _DESCRIPTOR_KEYS = (
     "amdgpu.v_fma_f32",
     "amdgpu.v_fmaak_f32",
     "amdgpu.v_fmamk_f32",
+    "amdgpu.v_fmamk_f32.flush_product",
     "amdgpu.v_pk_add_f32",
     "amdgpu.v_pk_mul_f32",
     "amdgpu.v_pk_fma_f32",
@@ -2049,6 +2050,8 @@ def _divf_exact_rule(source_op: Op, type_pattern: TypePattern) -> DescriptorRule
     negate = _descriptor("amdgpu.v_xor_b32.lit")
     multiply = _descriptor("amdgpu.v_mul_f32")
     fma = _descriptor("amdgpu.v_fma_f32")
+    # DIV_SCALE keeps this product near one. It cannot enter the subnormal
+    # range where the literal FMAAK form has weaker behavior on CDNA.
     fmaak = _descriptor("amdgpu.v_fmaak_f32")
     fmas = _descriptor("amdgpu.v_div_fmas_f32")
     fixup = _descriptor("amdgpu.v_div_fixup_f32")
@@ -3060,6 +3063,7 @@ def _f32_fmaak_literal_rule(
     type_pattern: TypePattern,
     *,
     a_register_class: str,
+    extra_guards: tuple[Guard, ...] = (),
 ) -> DescriptorRule:
     descriptor = _descriptor("amdgpu.v_fmaak_f32")
     return DescriptorRule(
@@ -3067,6 +3071,7 @@ def _f32_fmaak_literal_rule(
         descriptor=descriptor,
         guards=(
             *_typed_guards(("a", "b", "c", "result"), type_pattern),
+            *extra_guards,
             _register_class("a", a_register_class),
             Guard.value_exact_float(
                 "c",
@@ -3103,13 +3108,16 @@ def _f32_fmamk_literal_rule(
     literal_source: str,
     multiply_source: str,
     multiply_register_class: str,
+    descriptor_key: str = "amdgpu.v_fmamk_f32",
+    extra_guards: tuple[Guard, ...] = (),
 ) -> DescriptorRule:
-    descriptor = _descriptor("amdgpu.v_fmamk_f32")
+    descriptor = _descriptor(descriptor_key)
     return DescriptorRule(
         source_op=source_op,
         descriptor=descriptor,
         guards=(
             *_typed_guards(("a", "b", "c", "result"), type_pattern),
+            *extra_guards,
             _register_class(multiply_source, multiply_register_class),
             Guard.value_exact_float(
                 literal_source,
@@ -3145,12 +3153,24 @@ def _f32_fma_rules(
 ) -> tuple[DescriptorRule, ...]:
     rules: list[DescriptorRule] = []
     register_classes = ("amdgpu.sgpr", "amdgpu.vgpr")
+    # Exact FMAMK availability records product preservation for the target's
+    # VOP2 literal FMA family. FMAAK shares that family contract.
+    exact_literal_fma = _descriptor("amdgpu.v_fmamk_f32")
     for register_class in register_classes:
         rules.append(
             _f32_fmaak_literal_rule(
                 source_op,
                 type_pattern,
                 a_register_class=register_class,
+                extra_guards=(Guard.descriptor_available(exact_literal_fma),),
+            )
+        )
+        rules.append(
+            _f32_fmaak_literal_rule(
+                source_op,
+                type_pattern,
+                a_register_class=register_class,
+                extra_guards=(Guard.instance_flags_has_all("fastmath", "afn"),),
             )
         )
         rules.append(
@@ -3166,9 +3186,31 @@ def _f32_fma_rules(
             _f32_fmamk_literal_rule(
                 source_op,
                 type_pattern,
+                literal_source="a",
+                multiply_source="b",
+                multiply_register_class=register_class,
+                descriptor_key="amdgpu.v_fmamk_f32.flush_product",
+                extra_guards=(Guard.instance_flags_has_all("fastmath", "afn"),),
+            )
+        )
+        rules.append(
+            _f32_fmamk_literal_rule(
+                source_op,
+                type_pattern,
                 literal_source="b",
                 multiply_source="a",
                 multiply_register_class=register_class,
+            )
+        )
+        rules.append(
+            _f32_fmamk_literal_rule(
+                source_op,
+                type_pattern,
+                literal_source="b",
+                multiply_source="a",
+                multiply_register_class=register_class,
+                descriptor_key="amdgpu.v_fmamk_f32.flush_product",
+                extra_guards=(Guard.instance_flags_has_all("fastmath", "afn"),),
             )
         )
     for a_register_class in register_classes:

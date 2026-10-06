@@ -2716,7 +2716,8 @@ vector_fmaf = Op(
     doc=(
         "Lanewise fused multiply-add of same-typed floating-point vectors. "
         "Each result lane computes a*b + c with one final rounding; use "
-        "separate vector.mulf/vector.addf when unfused rounding is required."
+        "separate vector.mulf/vector.addf when unfused rounding is required. "
+        "AFN permits target-native fused forms with weaker subnormal handling."
     ),
     operands=[
         Operand("a", VECTOR),

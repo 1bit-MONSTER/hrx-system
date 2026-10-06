@@ -415,7 +415,7 @@ scalar_fmaf = Op(
     "scalar.fmaf",
     group=scalar_ops,
     phase=OpPhase.EXECUTABLE,
-    doc="Fused multiply-add: a*b + c with single rounding.",
+    doc=("Fused multiply-add: a*b + c with single rounding. AFN permits a target-native fused form with weaker subnormal handling."),
     operands=[
         Operand("a", FLOAT),
         Operand("b", FLOAT),
