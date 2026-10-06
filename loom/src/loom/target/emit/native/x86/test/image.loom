@@ -1,0 +1,66 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// These ordinary functions have no HAL, target, register, or platform ABI
+// annotation. The caller provides eight input words, one depth word, and four
+// output words. Retained private calls cross register and stack ABI arguments.
+func.def noinline @combine(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %g: i64, %h: i64) -> (i64) {
+  %ab = scalar.addi %a, %b : i64
+  %cd = scalar.xori %c, %d : i64
+  %ef = scalar.muli %e, %f : i64
+  %gh = scalar.muli %g, %h : i64
+  %first = scalar.addi %ab, %cd : i64
+  %second = scalar.addi %ef, %gh : i64
+  %result = scalar.xori %first, %second : i64
+  func.return %result : i64
+}
+
+func.def noinline @sum_depth(%depth: i64) -> (i64) {
+  %c0 = scalar.constant 0 : i64
+  %c1 = scalar.constant 1 : i64
+  %done = scalar.cmpi eq, %depth, %c0 : i64
+  cfg.cond_br %done, ^exit, ^recurse
+^exit:
+  func.return %c0 : i64
+^recurse:
+  %previous = scalar.subi %depth, %c1 : i64
+  %tail = func.call @sum_depth(%previous) : (i64) -> (i64)
+  %result = scalar.addi %tail, %depth : i64
+  func.return %result : i64
+}
+
+func.def public @evaluate(%input: buffer, %configuration: buffer, %output: buffer) -> (i32) {
+  %base = index.constant 0 : offset
+  %inputs = buffer.view %input[%base] : buffer -> view<8xi64>
+  %parameters = buffer.view %configuration[%base] : buffer -> view<1xi64>
+  %outputs = buffer.view %output[%base] : buffer -> view<4xi64>
+  %a = view.load %inputs[0] : view<8xi64> -> i64
+  %b = view.load %inputs[1] : view<8xi64> -> i64
+  %c = view.load %inputs[2] : view<8xi64> -> i64
+  %d = view.load %inputs[3] : view<8xi64> -> i64
+  %e = view.load %inputs[4] : view<8xi64> -> i64
+  %f = view.load %inputs[5] : view<8xi64> -> i64
+  %g = view.load %inputs[6] : view<8xi64> -> i64
+  %h = view.load %inputs[7] : view<8xi64> -> i64
+  %raw_depth = view.load %parameters[0] : view<1xi64> -> i64
+  %mask = scalar.constant 15 : i64
+  %depth = scalar.andi %raw_depth, %mask : i64
+  %forward = func.call @combine(%a, %b, %c, %d, %e, %f, %g, %h) : (i64, i64, i64, i64, i64, i64, i64, i64) -> (i64)
+  %reverse = func.call @combine(%h, %g, %f, %e, %d, %c, %b, %a) : (i64, i64, i64, i64, i64, i64, i64, i64) -> (i64)
+  %sum = func.call @sum_depth(%depth) : (i64) -> (i64)
+  %live = scalar.addi %forward, %a : i64
+  %combined = scalar.xori %live, %reverse : i64
+  view.store %forward, %outputs[0] : i64, view<4xi64>
+  view.store %reverse, %outputs[1] : i64, view<4xi64>
+  view.store %sum, %outputs[2] : i64, view<4xi64>
+  view.store %combined, %outputs[3] : i64, view<4xi64>
+  %success = scalar.constant 0 : i32
+  func.return %success : i32
+}
+
+// A declaration alone is not a runtime import. Only a referenced declaration
+// prevents this module from being emitted as a self-contained image.
+func.decl @unused_import(%value: i64) -> (i64)

@@ -34,15 +34,6 @@ enum {
 };
 
 enum {
-  LOOM_AMDGPU_HSACO_DYN_NULL = 0,
-  LOOM_AMDGPU_HSACO_DYN_HASH = 4,
-  LOOM_AMDGPU_HSACO_DYN_STRTAB = 5,
-  LOOM_AMDGPU_HSACO_DYN_SYMTAB = 6,
-  LOOM_AMDGPU_HSACO_DYN_STRSZ = 10,
-  LOOM_AMDGPU_HSACO_DYN_SYMENT = 11,
-};
-
-enum {
   LOOM_AMDGPU_HSACO_SYMBOL_BIND_LOCAL = 0,
   LOOM_AMDGPU_HSACO_SYMBOL_BIND_GLOBAL = 1,
 };
@@ -1025,27 +1016,27 @@ static iree_status_t loom_amdgpu_hsaco_build_dynamic_table(
       &dynamic_table));
   iree_host_size_t offset = 0;
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
-      dynamic_table, &offset, LOOM_AMDGPU_HSACO_DYN_HASH));
+      dynamic_table, &offset, LOOM_NATIVE_ELF_DYNAMIC_HASH));
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_hsaco_append_u64(dynamic_table, &offset, hash->address));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
-      dynamic_table, &offset, LOOM_AMDGPU_HSACO_DYN_STRTAB));
+      dynamic_table, &offset, LOOM_NATIVE_ELF_DYNAMIC_STRTAB));
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_hsaco_append_u64(dynamic_table, &offset, dynstr->address));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
-      dynamic_table, &offset, LOOM_AMDGPU_HSACO_DYN_SYMTAB));
+      dynamic_table, &offset, LOOM_NATIVE_ELF_DYNAMIC_SYMTAB));
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_hsaco_append_u64(dynamic_table, &offset, dynsym->address));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
-      dynamic_table, &offset, LOOM_AMDGPU_HSACO_DYN_STRSZ));
+      dynamic_table, &offset, LOOM_NATIVE_ELF_DYNAMIC_STRSZ));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
       dynamic_table, &offset, dynstr->contents.data_length));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
-      dynamic_table, &offset, LOOM_AMDGPU_HSACO_DYN_SYMENT));
+      dynamic_table, &offset, LOOM_NATIVE_ELF_DYNAMIC_SYMENT));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
       dynamic_table, &offset, LOOM_AMDGPU_HSACO_SYMBOL_ENTRY_SIZE));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
-      dynamic_table, &offset, LOOM_AMDGPU_HSACO_DYN_NULL));
+      dynamic_table, &offset, LOOM_NATIVE_ELF_DYNAMIC_NULL));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(dynamic_table, &offset, 0));
   *out_dynamic_table =
       iree_make_const_byte_span(dynamic_table.data, dynamic_table.data_length);

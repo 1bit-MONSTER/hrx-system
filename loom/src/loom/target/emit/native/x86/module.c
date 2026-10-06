@@ -10,7 +10,7 @@
 
 #include "iree/io/vec_stream.h"
 #include "loom/ops/low/ops.h"
-#include "loom/target/emit/native/object_elf.h"
+#include "loom/target/emit/native/image_elf.h"
 #include "loom/target/emit/native/x86/abi.h"
 #include "loom/target/emit/native/x86/function.h"
 
@@ -239,16 +239,18 @@ static iree_status_t loom_x86_module_function(
   return status;
 }
 
-static iree_status_t loom_x86_module_build_object(
+static iree_status_t loom_x86_module_build_artifact(
     const loom_target_emit_request_t* request,
-    const loom_target_fact_type_t* target_fact_type, bool* out_emitted,
+    const loom_target_fact_type_t* target_fact_type,
+    loom_native_elf_file_type_t file_type, bool* out_emitted,
     loom_target_emit_artifact_t* out_artifact) {
   *out_emitted = false;
   *out_artifact = (loom_target_emit_artifact_t){0};
   if (request->artifact_manifest.mode !=
       LOOM_TARGET_ARTIFACT_MANIFEST_MODE_NONE) {
-    return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                            "x86 objects do not support artifact manifests");
+    return iree_make_status(
+        IREE_STATUS_UNIMPLEMENTED,
+        "x86 native artifacts do not support artifact manifests");
   }
   const loom_target_entry_options_t options = {
       .flags = LOOM_TARGET_ENTRY_SELECTION_INCLUDE_PRIVATE |
@@ -266,7 +268,7 @@ static iree_status_t loom_x86_module_build_object(
           .fn = loom_x86_module_accept_entry,
           .user_data = (void*)target_fact_type,
       },
-      &diagnostics, IREE_SV("x86 native object"), request->scratch_arena,
+      &diagnostics, IREE_SV("x86 native artifact"), request->scratch_arena,
       &accepted, &entries));
   if (!accepted) {
     return iree_ok_status();
@@ -325,12 +327,27 @@ static iree_status_t loom_x86_module_build_object(
         .fixups = fixups.values,
         .fixup_count = fixups.count,
     };
-    static const uint32_t relocation_types[] = {
-        [LOOM_X86_RELOCATION_CALL] = 4,  // R_X86_64_PLT32.
+    static const loom_native_elf_relocation_t relocations[] = {
+        [LOOM_X86_RELOCATION_CALL] =
+            {
+                .type = 4,  // R_X86_64_PLT32.
+                .image_encoding = LOOM_NATIVE_ELF_FIXUP_PC_RELATIVE_32,
+            },
     };
-    status = loom_native_object_write_elf64le(
-        &object, LOOM_NATIVE_ELF_MACHINE_X86_64, relocation_types, stream,
-        request->scratch_arena);
+    if (file_type == LOOM_NATIVE_ELF_FILE_TYPE_DYN) {
+      const loom_native_elf_image_options_t options = {
+          .machine = LOOM_NATIVE_ELF_MACHINE_X86_64,
+          .page_alignment = 4096,
+          .relative_relocation_type = 8,  // R_X86_64_RELATIVE.
+          .relocations = relocations,
+      };
+      status = loom_native_image_write_elf64le(&object, &options, stream,
+                                               request->scratch_arena);
+    } else {
+      status = loom_native_object_write_elf64le(
+          &object, LOOM_NATIVE_ELF_MACHINE_X86_64, relocations, stream,
+          request->scratch_arena);
+    }
   }
   if (iree_status_is_ok(status) && accepted) {
     status = iree_io_vec_stream_move_contents(stream, &out_artifact->contents);
@@ -345,12 +362,13 @@ static iree_status_t loom_x86_module_build_object(
 
 iree_status_t loom_x86_module_emit(
     const loom_target_emit_request_t* request,
-    const loom_target_fact_type_t* target_fact_type, bool* out_emitted,
+    const loom_target_fact_type_t* target_fact_type,
+    loom_native_elf_file_type_t file_type, bool* out_emitted,
     loom_target_emit_artifact_t* out_artifact) {
   const iree_arena_checkpoint_t checkpoint =
       iree_arena_checkpoint_save(request->scratch_arena);
-  iree_status_t status = loom_x86_module_build_object(
-      request, target_fact_type, out_emitted, out_artifact);
+  iree_status_t status = loom_x86_module_build_artifact(
+      request, target_fact_type, file_type, out_emitted, out_artifact);
   iree_arena_checkpoint_restore(&checkpoint);
   return status;
 }

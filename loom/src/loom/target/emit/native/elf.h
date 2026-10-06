@@ -85,6 +85,18 @@ typedef enum loom_native_elf_section_flag_bits_e {
   LOOM_NATIVE_ELF_SECTION_FLAG_STRINGS = 0x20,
 } loom_native_elf_section_flag_bits_t;
 
+typedef enum loom_native_elf_dynamic_tag_e {
+  LOOM_NATIVE_ELF_DYNAMIC_NULL = 0,
+  LOOM_NATIVE_ELF_DYNAMIC_HASH = 4,
+  LOOM_NATIVE_ELF_DYNAMIC_STRTAB = 5,
+  LOOM_NATIVE_ELF_DYNAMIC_SYMTAB = 6,
+  LOOM_NATIVE_ELF_DYNAMIC_RELA = 7,
+  LOOM_NATIVE_ELF_DYNAMIC_RELASZ = 8,
+  LOOM_NATIVE_ELF_DYNAMIC_RELAENT = 9,
+  LOOM_NATIVE_ELF_DYNAMIC_STRSZ = 10,
+  LOOM_NATIVE_ELF_DYNAMIC_SYMENT = 11,
+} loom_native_elf_dynamic_tag_t;
+
 typedef enum loom_native_elf_amdgpu_flag_bits_e {
   LOOM_NATIVE_ELF_AMDGPU_FLAG_MACH_MASK = 0x0ff,
   LOOM_NATIVE_ELF_AMDGPU_FLAG_MACH_GFX1100 = 0x041,

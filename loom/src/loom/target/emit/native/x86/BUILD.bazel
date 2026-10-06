@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//build_tools/embed_data:build_defs.bzl", "iree_c_embed_data")
 load("//build_tools/testing:build_defs.bzl", "iree_execution_test_suite")
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
@@ -178,6 +179,52 @@ loom_cc_test(
         "@platforms//os:linux",
     ],
     deps = [
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+# The image crosses a process boundary before the existing task ELF loader
+# executes it. This test has no compiler library or external linker dependency.
+loom_generated_file(
+    name = "native_image",
+    testonly = True,
+    args = [
+        "$(location test/image.loom)",
+        "--target=x86:scalar",
+        "--format=x86-elf-shared",
+    ],
+    generator = "//loom/src/loom/tools/loom-compile:loom-compile",
+    inputs = ["test/image.loom"],
+    output = "native_image.so",
+    output_flag = "--output=",
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:x86",
+    ]) + ["@platforms//cpu:x86_64"],
+)
+
+iree_c_embed_data(
+    name = "image_data",
+    testonly = True,
+    srcs = [":native_image"],
+    c_file_output = "image_data.c",
+    h_file_output = "image_data.h",
+    identifier = "native_image_data",
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:x86",
+    ]) + ["@platforms//cpu:x86_64"],
+)
+
+loom_cc_test(
+    name = "image_load_test",
+    srcs = ["image_load_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:x86",
+    ]) + ["@platforms//cpu:x86_64"],
+    deps = [
+        ":image_data",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal/drivers/task/executable/elf:elf_module",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],

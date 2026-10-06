@@ -139,6 +139,45 @@ the completed executable. [Parallelize kernel JIT
 compilation](../integration/product-frontier.md) follows that transaction end to
 end.
 
+## Emit native callable functions
+
+An installation with x86 enabled can compile ordinary functions using the
+scalar profile's SysV ABI. Save this as `mix.loom`:
+
+```loom
+func.def public @mix(%input: i64, %delta: i64) -> (i64) {
+  %sum = scalar.addi %input, %delta : i64
+  %result = scalar.xori %sum, %input : i64
+  func.return %result : i64
+}
+```
+
+The default native output is a relocatable object for linking with a host
+program. The explicit shared format produces a self-contained loadable image:
+
+```shell
+loom-compile mix.loom --target=x86:scalar --output=mix.o
+loom-compile mix.loom --target=x86:scalar \
+  --format=x86-elf-shared --output=mix.so
+```
+
+`x86-elf` emits ELF64 `ET_REL`; `x86-elf-shared` emits ELF64 `ET_DYN` directly,
+without invoking an assembler or linker. The scalar function contract supports
+`i32`, `i64`, and pointer arguments and results, including stack arguments,
+retained calls, and recursion. SysV is the default regardless of the compiler's
+host platform; a caller on another ABI needs a matching call bridge.
+
+The shared image exports public definitions, binds internal calls locally,
+and keeps private helpers out of the dynamic export table. A referenced
+undefined function fails shared-image emission; relocatable objects can retain
+that reference for the host linker. Code and data use separate load permissions.
+
+IREE's `iree_elf_module_initialize_from_memory` loader accepts this image and
+owns its mapped storage. The compiler and original artifact bytes may be
+released before looking up and calling its exports. This output supplies
+ordinary function exports; task HAL dispatch additionally requires its kernel
+entry adaptation and executable-library metadata.
+
 ## Emit a WebAssembly module
 
 An installation with Wasm enabled can compile ordinary functions into a binary

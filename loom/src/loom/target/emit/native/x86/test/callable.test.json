@@ -123,6 +123,33 @@
           ]
         }
       ]
+    },
+    {
+      "name": "linked images reject unresolved references before publishing an artifact",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "--target=x86:scalar",
+          "--format=x86-elf-shared",
+          "--output={tmp}/unresolved.so"
+        ],
+        "stdin": {
+          "text": "func.decl @host_value(%value: i64) -> (i64)\n\nfunc.def public @evaluate(%value: i64) -> (i64) {\n  %result = func.call @host_value(%value) : (i64) -> (i64)\n  func.return %result : i64\n}\n"
+        }
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": [
+          "native ELF image cannot resolve imported symbol 'host_value'",
+          "relocatable object for external linking"
+        ]
+      },
+      "files": [
+        {
+          "path": "{tmp}/unresolved.so",
+          "exists": false
+        }
+      ]
     }
   ]
 }
