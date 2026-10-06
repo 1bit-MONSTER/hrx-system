@@ -1,6 +1,6 @@
 // Only one source element exists. A dynamic mask selects the first load while
 // the absent second element always comes from the passthrough value.
-func.def public @masked_tail_load(%active: i1, %value: i32, %old: i32) -> (i32, i32) {
+func.def @masked_tail_load(%active: i1, %value: i32, %old: i32) -> (i32, i32) {
   %length = index.constant 4 : offset
   %base = index.constant 0 : offset
   %storage = buffer.alloca<private> align(4) %length : buffer
@@ -15,29 +15,9 @@ func.def public @masked_tail_load(%active: i1, %value: i32, %old: i32) -> (i32, 
   func.return %first, %second : i32, i32
 }
 
-check.case @masked_tail_load_active {
-  %active = check.literal value(true) : i1
-  %value = check.param.choice values([-7, 0, 23]) : i32
-  %old = check.param.choice values([55, 99]) : i32
-  %first, %second = func.call @masked_tail_load(%active, %value, %old) : (i1, i32, i32) -> (i32, i32)
-  check.expect.equal actual(%first) expected(%value) : i32
-  check.expect.equal actual(%second) expected(%old) : i32
-  check.return
-}
-
-check.case @masked_tail_load_inactive {
-  %active = check.literal value(false) : i1
-  %value = check.param.choice values([-7, 0, 23]) : i32
-  %old = check.param.choice values([55, 99]) : i32
-  %first, %second = func.call @masked_tail_load(%active, %value, %old) : (i1, i32, i32) -> (i32, i32)
-  check.expect.equal actual(%first) expected(%old) : i32
-  check.expect.equal actual(%second) expected(%old) : i32
-  check.return
-}
-
 // The target view ends before the adjacent canary. Inactive lanes neither
 // write past that view nor change the initialized first element.
-func.def public @masked_tail_store(%active: i1, %value: i32) -> (i32, i32) {
+func.def @masked_tail_store(%active: i1, %value: i32) -> (i32, i32) {
   %length = index.constant 8 : offset
   %base = index.constant 0 : offset
   %storage = buffer.alloca<private> align(4) %length : buffer
@@ -56,29 +36,8 @@ func.def public @masked_tail_store(%active: i1, %value: i32) -> (i32, i32) {
   func.return %first, %second : i32, i32
 }
 
-check.case @masked_tail_store_active {
-  %active = check.literal value(true) : i1
-  %value = check.param.choice values([-7, 0, 23]) : i32
-  %first, %second = func.call @masked_tail_store(%active, %value) : (i1, i32) -> (i32, i32)
-  %canary = check.literal value(91) : i32
-  check.expect.equal actual(%first) expected(%value) : i32
-  check.expect.equal actual(%second) expected(%canary) : i32
-  check.return
-}
-
-check.case @masked_tail_store_inactive {
-  %active = check.literal value(false) : i1
-  %value = check.param.choice values([-7, 0, 23]) : i32
-  %first, %second = func.call @masked_tail_store(%active, %value) : (i1, i32) -> (i32, i32)
-  %initial = check.literal value(19) : i32
-  %canary = check.literal value(91) : i32
-  check.expect.equal actual(%first) expected(%initial) : i32
-  check.expect.equal actual(%second) expected(%canary) : i32
-  check.return
-}
-
 // No element exists at this origin, but an all-false mask performs no access.
-func.def public @masked_empty_view(%value: i32) -> (i32, i32) {
+func.def @masked_empty_view(%value: i32) -> (i32, i32) {
   %length = index.constant 0 : offset
   %storage = buffer.alloca<private> align(4) %length : buffer
   %view = buffer.view %storage[%length] : buffer -> view<0xi32>
@@ -91,18 +50,10 @@ func.def public @masked_empty_view(%value: i32) -> (i32, i32) {
   func.return %first, %second : i32, i32
 }
 
-check.case @masked_empty_view_no_access {
-  %value = check.param.choice values([-7, 0, 23]) : i32
-  %first, %second = func.call @masked_empty_view(%value) : (i32) -> (i32, i32)
-  check.expect.equal actual(%first) expected(%value) : i32
-  check.expect.equal actual(%second) expected(%value) : i32
-  check.return
-}
-
 // Two active lanes of a four-lane vector consume two compact memory elements.
 // Checking the expanded lanes separately prevents inverse errors in expansion
 // and compression from canceling each other in the round trip.
-func.def public @compact_masked_memory(%left: i32, %right: i32, %old: i32) -> (i32, i32, i32, i32, i32, i32) {
+func.def @compact_masked_memory(%left: i32, %right: i32, %old: i32) -> (i32, i32, i32, i32, i32, i32) {
   %length = index.constant 8 : offset
   %base = index.constant 0 : offset
   %input = buffer.alloca<private> align(4) %length : buffer
@@ -126,16 +77,35 @@ func.def public @compact_masked_memory(%left: i32, %right: i32, %old: i32) -> (i
   func.return %lane0, %lane1, %lane2, %lane3, %first, %second : i32, i32, i32, i32, i32, i32
 }
 
-check.case @compact_masked_memory_lane_order {
-  %left = check.param.choice values([-7, 0, 23]) : i32
-  %right = check.param.choice values([55, 99]) : i32
-  %old = check.literal value(123) : i32
-  %lane0, %lane1, %lane2, %lane3, %first, %second = func.call @compact_masked_memory(%left, %right, %old) : (i32, i32, i32) -> (i32, i32, i32, i32, i32, i32)
-  check.expect.equal actual(%lane0) expected(%old) : i32
-  check.expect.equal actual(%lane1) expected(%left) : i32
-  check.expect.equal actual(%lane2) expected(%old) : i32
-  check.expect.equal actual(%lane3) expected(%right) : i32
-  check.expect.equal actual(%first) expected(%left) : i32
-  check.expect.equal actual(%second) expected(%right) : i32
+func.def @masked_memory_observations(%ordinal: index, %left_entropy: i64, %right_entropy: i64, %old_entropy: i64, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %active = index.cmp ne, %ordinal, %c0 : index
+  %left = scalar.trunci %left_entropy : i64 to i32
+  %right = scalar.trunci %right_entropy : i64 to i32
+  %old = scalar.trunci %old_entropy : i64 to i32
+  %load0, %load1 = func.call @masked_tail_load(%active, %left, %old) : (i1, i32, i32) -> (i32, i32)
+  %store0, %store1 = func.call @masked_tail_store(%active, %left) : (i1, i32) -> (i32, i32)
+  %empty0, %empty1 = func.call @masked_empty_view(%old) : (i32) -> (i32, i32)
+  %lane0, %lane1, %lane2, %lane3, %compact0, %compact1 = func.call @compact_masked_memory(%left, %right, %old) : (i32, i32, i32) -> (i32, i32, i32, i32, i32, i32)
+  %values = vector.from_elements %load0, %load1, %store0, %store1, %empty0, %empty1, %lane0, %lane1, %lane2, %lane3, %compact0, %compact1 : vector<12xi32>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<12xi32>
+  vector.store %values, %results[0] : vector<12xi32>, view<12xi32>
+  func.return
+}
+
+check.scenario @masked_memory_values {
+  check.trial[32](%trial: index, %entropy: check.entropy) {
+    %left_source = check.entropy.fork %entropy name("left") : check.entropy
+    %right_source = check.entropy.fork %entropy name("right") : check.entropy
+    %old_source = check.entropy.fork %entropy name("old") : check.entropy
+    %left = check.entropy.read %left_source[%trial] : check.entropy -> i64
+    %right = check.entropy.read %right_source[%trial] : check.entropy -> i64
+    %old = check.entropy.read %old_source[%trial] : check.entropy -> i64
+    %output = check.generate.fill value(0) : tensor<12xi32>
+    check.compare<@masked_memory_observations>(%trial, %left, %right, %old, %output) : (index, i64, i64, i64, tensor<12xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<12xi32>
+    }
+  }
   check.return
 }
