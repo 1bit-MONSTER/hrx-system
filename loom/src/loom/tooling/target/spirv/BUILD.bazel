@@ -216,6 +216,7 @@ loom_cc_test(
         "//loom/src/loom/target/arch/spirv/descriptors:low_registry",
         "//loom/src/loom/target/arch/spirv/ops",
         "//loom/src/loom/target/emit/spirv:module_compiler",
+        "//loom/src/loom/testing:byte_sequence",
         "//loom/src/loom/testing:module_ptr",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",

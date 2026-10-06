@@ -13,6 +13,7 @@ void loom_target_emit_artifact_release(loom_target_emit_artifact_t* artifact) {
   IREE_ASSERT(artifact->sidecar_count == 0 || artifact->sidecars != NULL);
   IREE_ASSERT(artifact->storage == NULL || artifact->release_storage != NULL);
   iree_byte_sequence_release(artifact->contents);
+  iree_byte_sequence_release(artifact->target_listing_contents);
   if (artifact->sidecars != NULL) {
     for (iree_host_size_t i = 0; i < artifact->sidecar_count; ++i) {
       iree_byte_sequence_release(artifact->sidecars[i].contents);

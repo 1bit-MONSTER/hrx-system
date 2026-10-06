@@ -122,6 +122,18 @@ loom_target_select_low_call_policy_require_inline(
 // Target emission artifact storage release callback.
 typedef void (*loom_target_emit_artifact_storage_release_fn_t)(void* storage);
 
+// Optional metadata and debug products requested during target emission.
+typedef enum loom_target_emit_request_flag_bits_e {
+  LOOM_TARGET_EMIT_REQUEST_FLAG_NONE = 0u,
+  // Retains the exact target bundle selected by emission in the artifact.
+  LOOM_TARGET_EMIT_REQUEST_FLAG_RETAIN_TARGET_BUNDLE = 1u << 0,
+  // Captures a target-owned textual listing when the emitter supports one.
+  LOOM_TARGET_EMIT_REQUEST_FLAG_TARGET_LISTING = 1u << 1,
+} loom_target_emit_request_flag_bits_t;
+
+// Bitfield of loom_target_emit_request_flag_bits_t values.
+typedef uint32_t loom_target_emit_request_flags_t;
+
 typedef enum loom_target_emit_sidecar_artifact_kind_e {
   // Machine-readable artifact manifest for the primary artifact.
   LOOM_TARGET_EMIT_SIDECAR_ARTIFACT_KIND_ARTIFACT_MANIFEST = 0,
@@ -143,12 +155,24 @@ typedef struct loom_target_emit_sidecar_artifact_t {
 
 // One target artifact produced by an emitter.
 typedef struct loom_target_emit_artifact_t {
+  // Exact target bundle selected by emission when requested by the caller.
+  // The pointer is owned by |storage| and lives until artifact release.
+  const loom_target_bundle_t* target_bundle;
+
   // Target-neutral artifact format produced by the emitter.
   loom_target_artifact_format_t target_artifact_format;
 
   // Immutable primary artifact contents. The artifact owns one reference;
   // callers may retain the sequence when they need it to outlive the artifact.
   iree_byte_sequence_t* contents;
+
+  // Target-owned textual listing format, such as `amdgpu-assembly`.
+  iree_string_view_t target_listing_format;
+
+  // Optional immutable textual target listing. The artifact owns one
+  // reference; callers may retain the sequence when they need it to outlive
+  // the artifact.
+  iree_byte_sequence_t* target_listing_contents;
 
   // Optional emitter-owned sidecar artifacts.
   const loom_target_emit_sidecar_artifact_t* sidecars;
@@ -199,6 +223,9 @@ typedef struct loom_target_emit_request_t {
 
   // Optional artifact manifest request.
   loom_target_emit_artifact_manifest_request_t artifact_manifest;
+
+  // Optional metadata and debug artifacts to retain in the emitted artifact.
+  loom_target_emit_request_flags_t flags;
 
   // Optional caller-owned structured compile report to populate.
   loom_target_compile_report_t* compile_report;

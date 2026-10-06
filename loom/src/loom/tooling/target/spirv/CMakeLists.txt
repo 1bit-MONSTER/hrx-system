@@ -228,6 +228,7 @@ loom_cc_test(
     loom::target::function_version
     loom::target::profile
     loom::target::types
+    loom::testing::byte_sequence
     loom::testing::module_ptr
   LABELS
     "iree-build-requirement=loom.target.arch.spirv"
