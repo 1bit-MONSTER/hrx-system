@@ -75,6 +75,31 @@ low.func.def target<test.low.core>(@test_target) @nested_slice(%source: reg<test
 
 test.target<low_core> @test_target
 
+low.func.def target<test.low.core>(@test_target) @retained_nested_slices(%source: reg<test.i32 x7>) -> (reg<test.i32 x6>, reg<test.i32 x5>, reg<test.i32 x4>, reg<test.i32 x3>, reg<test.i32 x2>) asm {
+  %six = slice %source[1] : reg<test.i32 x7> -> reg<test.i32 x6>
+  %five = slice %six[1] : reg<test.i32 x6> -> reg<test.i32 x5>
+  %four = slice %five[1] : reg<test.i32 x5> -> reg<test.i32 x4>
+  %three = slice %four[1] : reg<test.i32 x4> -> reg<test.i32 x3>
+  %two = slice %three[1] : reg<test.i32 x3> -> reg<test.i32 x2>
+  return %six, %five, %four, %three, %two
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @retained_nested_slices(%source: reg<test.i32 x7>) -> (reg<test.i32 x6>, reg<test.i32 x5>, reg<test.i32 x4>, reg<test.i32 x3>, reg<test.i32 x2>) asm {
+  %six = slice %source[1] : reg<test.i32 x7> -> reg<test.i32 x6>
+  %five = slice %source[2] : reg<test.i32 x7> -> reg<test.i32 x5>
+  %four = slice %source[3] : reg<test.i32 x7> -> reg<test.i32 x4>
+  %three = slice %source[4] : reg<test.i32 x7> -> reg<test.i32 x3>
+  %two = slice %source[5] : reg<test.i32 x7> -> reg<test.i32 x2>
+  return %six, %five, %four, %three, %two
+}
+
+// ====
+
+test.target<low_core> @test_target
+
 low.func.def target<test.low.core>(@test_target) @slice_only_concat(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
   %pair = concat(%lhs, %rhs) : (reg<test.i32>, reg<test.i32>) -> reg<test.i32 x2>
   %lo = slice %pair[0] : reg<test.i32 x2> -> reg<test.i32>
