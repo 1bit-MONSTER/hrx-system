@@ -445,7 +445,6 @@ class VMSourceCaptureTest : public VMImportsTest {
     loom_compile_pipeline_options_t options;
     loom_compile_pipeline_options_initialize(&options);
     options.target_environment = &environment;
-    options.low_descriptor_registry = &registry;
     options.cleanup_pattern_provider_set =
         loom_cleanup_configured_pattern_provider_set();
     options.target_specializations = {&specialization, 1};

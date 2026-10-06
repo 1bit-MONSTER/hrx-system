@@ -579,7 +579,6 @@ class AmdgpuHalKernelLibraryTest : public ::testing::Test {
     loom_compile_pipeline_options_t options = {};
     loom_compile_pipeline_options_initialize(&options);
     options.target_environment = &target_environment_;
-    options.low_descriptor_registry = &low_registry_;
     options.cleanup_pattern_provider_set =
         loom_cleanup_configured_pattern_provider_set();
     options.diagnostic_sink = capture->sink();

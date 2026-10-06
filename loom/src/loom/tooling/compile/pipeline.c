@@ -216,16 +216,16 @@ iree_status_t loom_compile_run_pipeline(
                             "require a target environment");
   }
   if (!loom_compile_pipeline_is_disabled(pipeline) &&
-      options->low_descriptor_registry == NULL) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "Loom compile pass pipelines require a target-low "
-                            "descriptor registry");
-  }
-  if (!loom_compile_pipeline_is_disabled(pipeline) &&
       options->cleanup_pattern_provider_set == NULL) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
         "Loom compile pass pipelines require cleanup pattern providers");
+  }
+
+  loom_target_low_descriptor_registry_t low_descriptor_registry = {0};
+  if (options->target_environment != NULL) {
+    low_descriptor_registry = loom_target_environment_low_descriptor_registry(
+        options->target_environment);
   }
 
   const loom_target_entry_options_t entry_options = {
@@ -250,8 +250,10 @@ iree_status_t loom_compile_run_pipeline(
       loom_low_verify_scratch_for_module(module);
   loom_low_verify_result_t low_verify_result = {0};
   IREE_RETURN_IF_ERROR(loom_target_entry_verify_low_module(
-      module, options->low_descriptor_registry, &entry_options,
-      &verifier_emitter, LOOM_COMPILE_DEFAULT_MAX_PIPELINE_ERRORS,
+      module,
+      options->target_environment != NULL ? &low_descriptor_registry : NULL,
+      &entry_options, &verifier_emitter,
+      LOOM_COMPILE_DEFAULT_MAX_PIPELINE_ERRORS,
       options->target_environment
           ? loom_target_environment_low_verify_provider_list(
                 options->target_environment)
@@ -343,7 +345,7 @@ iree_status_t loom_compile_run_pipeline(
     trace_ptr = &trace;
   }
   const loom_codegen_pass_environment_options_t environment_options = {
-      .descriptor_registry = &options->low_descriptor_registry->registry,
+      .descriptor_registry = &low_descriptor_registry.registry,
       .lower_policy_registry = &low_lower_policy_registry,
       .legality_provider_list = &low_legality_provider_list,
       .legalizer_registry = loom_target_legalizer_registry_storage_registry(

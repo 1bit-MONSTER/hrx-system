@@ -367,7 +367,6 @@ iree_status_t loom_check_prepare_source_low_module(
   compile_options.target_pipeline_options.sanitizer = options->sanitizer;
   compile_options.target_environment = environment->target_environment;
   compile_options.target_specializations = options->target_specializations;
-  compile_options.low_descriptor_registry = low_registry;
   compile_options.cleanup_pattern_provider_set =
       environment->cleanup_pattern_provider_set;
   compile_options.diagnostic_sink =
