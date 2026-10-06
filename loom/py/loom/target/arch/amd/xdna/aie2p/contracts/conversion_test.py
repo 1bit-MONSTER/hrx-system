@@ -32,8 +32,11 @@ from loom.target.arch.amd.xdna.aie2p.contracts.packet_conversion import (
     INTEGER_TRUNCATION_INSTRUCTIONS,
     INTEGER_TRUNCATION_RULE_SHAPES,
     INTEGER_WIDEN_RULE_SHAPES,
+    MXFP4_E2M1_E8M0_X32_SCHEMA,
+    MXFP4_E2M1_E8M0_X64_SCHEMA,
     MXFP8_E4M3FN_E8M0_X8_SCHEMA,
     MXFP8_E4M3FN_E8M0_X32_SCHEMA,
+    MXFP8_E4M3FN_E8M0_X64_SCHEMA,
     Float8PacketFormat,
     FloatPacketSourceFormat,
     IntegerPackInstruction,
@@ -176,7 +179,7 @@ def _evaluate(rule: DescriptorRule, input_value: int | tuple[int, int]) -> int:
     return result
 
 
-_MXFP8_PACKET_DESCRIPTOR_KEYS = frozenset(
+_MX_PACKET_DESCRIPTOR_KEYS = frozenset(
     {
         "and.i32",
         "cmp.eq.i32",
@@ -197,13 +200,13 @@ _MXFP8_PACKET_DESCRIPTOR_KEYS = frozenset(
 )
 
 
-def _evaluate_mxfp8_packet_descriptor(
+def _evaluate_mx_packet_descriptor(
     descriptor_key: str,
     operands: dict[str, int],
     immediates: dict[str, int],
     state: dict[str, int],
 ) -> int:
-    """Evaluates one lane of an MXFP8-specific packet descriptor."""
+    """Evaluates one lane of an MX decode packet descriptor."""
 
     if descriptor_key == "extract.i32.immediate":
         assert immediates["idx"] == 0
@@ -249,11 +252,15 @@ def _evaluate_mxfp8_packet_descriptor(
         assert state["srs-mode"] == 1
         assert state["saturation"] == 0
         return (_s32(operands["src"]) >> operands["su"]) & 0xFFFF
-    raise AssertionError(f"unmodeled MXFP8 packet descriptor {descriptor_key}")
+    raise AssertionError(f"unmodeled MX packet descriptor {descriptor_key}")
 
 
 def _evaluate_packet_lane(
-    rule: DescriptorRule, input_value: int, *, scale_value: int | None = None
+    rule: DescriptorRule,
+    input_value: int,
+    *,
+    scale_value: int | None = None,
+    result_group_ordinal: int = 0,
 ) -> int:
     """Evaluates one replicated lane through a native packet program."""
 
@@ -272,9 +279,11 @@ def _evaluate_packet_lane(
             continue
         if isinstance(emit, EmitRegisterConcat):
             source_values = [values[source] for source in emit.sources]
-            # This evaluator follows lane zero. Register concatenation places
-            # the first source in the low lanes containing that observation.
-            values[emit.result] = source_values[0]
+            source_ordinal = (
+                result_group_ordinal if emit.result == ValueRef.result("result") else 0
+            )
+            assert source_ordinal < len(source_values)
+            values[emit.result] = source_values[source_ordinal]
             continue
 
         descriptor_key = emit.descriptor.key.removeprefix("amd.xdna.aie2p.")
@@ -289,10 +298,13 @@ def _evaluate_packet_lane(
             value = emit.immediates["i"]
         else:
             operands = {name: values[ref] for name, ref in emit.operands.items()}
-            if descriptor_key in _MXFP8_PACKET_DESCRIPTOR_KEYS:
-                value = _evaluate_mxfp8_packet_descriptor(
+            if descriptor_key in _MX_PACKET_DESCRIPTOR_KEYS:
+                value = _evaluate_mx_packet_descriptor(
                     descriptor_key, operands, emit.immediates, state
                 )
+            elif descriptor_key == "unpack.u4x64.to.u8x64.configured":
+                assert state["unpack-size"] == 0
+                value = operands["src"] & 0xF
             elif descriptor_key == "sub.i8x64":
                 value = (operands["s1"] - operands["s2"]) & 0xFF
             elif descriptor_key == "shuffle.x.configured":
@@ -504,18 +516,9 @@ def _reference_fp8_to_f32(
     return _float_bits(-value if sign else value)
 
 
-def _reference_mxfp8_e4m3fn_e8m0_to_bf16(payload_bits: int, scale_bits: int) -> int:
-    """Returns the exact BF16 bits for one MXFP8 E4M3FN/E8M0 lane."""
+def _reference_e8m0_scale_bf16(payload_bf16: int, scale_bits: int) -> int:
+    """Applies one E8M0 scale byte to an exact BF16 payload."""
 
-    payload_bf16 = (
-        _reference_fp8_to_f32(
-            payload_bits,
-            exponent_bits=4,
-            mantissa_bits=3,
-            has_infinity=False,
-        )
-        >> 16
-    )
     magnitude = payload_bf16 & 0x7FFF
     if scale_bits == 0xFF or magnitude == _CANONICAL_BF16_NAN:
         return _CANONICAL_BF16_NAN
@@ -534,6 +537,35 @@ def _reference_mxfp8_e4m3fn_e8m0_to_bf16(payload_bits: int, scale_bits: int) -> 
     subnormal_shift = -(scaled_exponent + 126)
     subnormal = _round_unsigned_to_even(0x80 | fraction, subnormal_shift)
     return sign | subnormal
+
+
+def _reference_mxfp8_e4m3fn_e8m0_to_bf16(payload_bits: int, scale_bits: int) -> int:
+    """Returns the exact BF16 bits for one MXFP8 E4M3FN/E8M0 lane."""
+
+    payload_bf16 = (
+        _reference_fp8_to_f32(
+            payload_bits,
+            exponent_bits=4,
+            mantissa_bits=3,
+            has_infinity=False,
+        )
+        >> 16
+    )
+    return _reference_e8m0_scale_bf16(payload_bf16, scale_bits)
+
+
+def _reference_mxfp4_e2m1_e8m0_to_bf16(payload_bits: int, scale_bits: int) -> int:
+    """Returns the exact BF16 bits for one MXFP4 E2M1/E8M0 lane."""
+
+    sign = (payload_bits & 0x8) << 12
+    magnitude = payload_bits & 0x7
+    if magnitude == 0:
+        payload_bf16 = sign
+    elif magnitude == 1:
+        payload_bf16 = sign | 0x3F00
+    else:
+        payload_bf16 = sign | (0x3F00 + (magnitude << 6))
+    return _reference_e8m0_scale_bf16(payload_bf16, scale_bits)
 
 
 def _reference_f32_to_bf16(input_bits: int) -> int:
@@ -1229,10 +1261,14 @@ def test_float8_packet_widening_covers_every_native_logical_width() -> None:
 def test_mxfp8_decode_has_exact_group_schemas_and_shared_packet_program() -> None:
     rules = tuple(
         _rule(f"native_mxfp8_e4m3fn_e8m0x{lane_count}_to_bfloat16x{lane_count}")
-        for lane_count in (8, 32)
+        for lane_count in (8, 32, 64)
     )
-    schemas = (MXFP8_E4M3FN_E8M0_X8_SCHEMA, MXFP8_E4M3FN_E8M0_X32_SCHEMA)
-    for lane_count, schema, rule in zip((8, 32), schemas, rules, strict=True):
+    schemas = (
+        MXFP8_E4M3FN_E8M0_X8_SCHEMA,
+        MXFP8_E4M3FN_E8M0_X32_SCHEMA,
+        MXFP8_E4M3FN_E8M0_X64_SCHEMA,
+    )
+    for lane_count, schema, rule in zip((8, 32, 64), schemas, rules, strict=True):
         assert rule.source_op is vector.vector_decode
         assert rule.guards == (
             Guard.value_type("payload", Vector("f8E4M3", lanes=lane_count)),
@@ -1250,11 +1286,12 @@ def test_mxfp8_decode_has_exact_group_schemas_and_shared_packet_program() -> Non
     assert four_x8_group_schema not in schemas
     assert rules[0].emit == rules[1].emit
 
+    # The common one-group program is interned across the x8 and x32 guards.
     compiled = compile_lower_rule_set(
         ContractFragment(
             name="amd.xdna.aie2p.mxfp8.packet.test",
             descriptor_set=AIE2P_CORE_DESCRIPTOR_SET,
-            cases=rules,
+            cases=rules[:2],
         ),
         dialect_ops={"vector": ALL_VECTOR_OPS},
     )
@@ -1262,28 +1299,91 @@ def test_mxfp8_decode_has_exact_group_schemas_and_shared_packet_program() -> Non
     assert compiled.rules[0].emit_start == compiled.rules[1].emit_start
     assert compiled.rules[0].emit_count == compiled.rules[1].emit_count
 
-    descriptor_keys = [
-        emit.descriptor.key
-        for emit in rules[0].emit
-        if isinstance(emit, EmitDescriptorOp)
-    ]
-    assert [key for key in descriptor_keys if ".extract." in key] == [
-        "amd.xdna.aie2p.extract.i32.immediate"
-    ]
-    assert all(".insert." not in key for key in descriptor_keys)
-    assert "amd.xdna.aie2p.convert.floor.bf16x16.to.i32x16" in descriptor_keys
-    assert "amd.xdna.aie2p.multiply.i16x32.configured" in descriptor_keys
+    for group_count, rule in zip((1, 1, 2), rules, strict=True):
+        descriptor_keys = [
+            emit.descriptor.key
+            for emit in rule.emit
+            if isinstance(emit, EmitDescriptorOp)
+        ]
+        assert [key for key in descriptor_keys if ".extract." in key] == [
+            "amd.xdna.aie2p.extract.i32.immediate"
+        ] * group_count
+        assert all(".insert." not in key for key in descriptor_keys)
+        assert (
+            descriptor_keys.count("amd.xdna.aie2p.convert.floor.bf16x16.to.i32x16")
+            == group_count
+        )
+        assert (
+            descriptor_keys.count("amd.xdna.aie2p.multiply.i16x32.configured")
+            == group_count
+        )
+
+    assert isinstance(rules[2].emit[-1], EmitRegisterConcat)
+    assert rules[2].emit[-1].result == ValueRef.result("result")
+    assert any(
+        isinstance(emit, EmitDescriptorOp)
+        and emit.form is DescriptorEmitForm.CONST
+        and emit.immediates.get("i") == -8
+        for emit in rules[2].emit
+    )
+
+
+def test_mxfp4_decode_has_exact_group_schemas_and_one_unpack() -> None:
+    rules = tuple(
+        _rule(f"native_mxfp4_e2m1_e8m0x{lane_count}_to_bfloat16x{lane_count}")
+        for lane_count in (32, 64)
+    )
+    schemas = (MXFP4_E2M1_E8M0_X32_SCHEMA, MXFP4_E2M1_E8M0_X64_SCHEMA)
+    for lane_count, schema, rule in zip((32, 64), schemas, rules, strict=True):
+        assert rule.source_op is vector.vector_decode
+        assert rule.guards == (
+            Guard.value_type("payload", Vector("i32", lanes=lane_count // 8)),
+            Guard.value_storage_operand_schema("schema", schema),
+            Guard.operand_segment_count("auxiliary", 1),
+            Guard.value_type("auxiliary", Vector("i32", lanes=1), element=0),
+            Guard.value_type("result", Vector("bf16", lanes=lane_count)),
+        )
+
+    for group_count, rule in zip((1, 2), rules, strict=True):
+        descriptor_keys = [
+            emit.descriptor.key
+            for emit in rule.emit
+            if isinstance(emit, EmitDescriptorOp)
+        ]
+        assert (
+            descriptor_keys.count("amd.xdna.aie2p.unpack.u4x64.to.u8x64.configured")
+            == 1
+        )
+        assert [key for key in descriptor_keys if ".extract." in key] == [
+            "amd.xdna.aie2p.extract.i32.immediate"
+        ] * group_count
+        assert all(".insert." not in key for key in descriptor_keys)
+
+    assert isinstance(rules[1].emit[-1], EmitRegisterConcat)
+    assert rules[1].emit[-1].result == ValueRef.result("result")
+    assert any(
+        isinstance(emit, EmitDescriptorOp)
+        and emit.form is DescriptorEmitForm.CONST
+        and emit.immediates.get("i") == -8
+        for emit in rules[1].emit
+    )
 
 
 def _assert_mxfp8_packet_decode_matches_oracle(
     values: Iterable[tuple[int, int]],
     *,
     lane_count: int = 8,
+    scale_byte_ordinal: int = 0,
 ) -> None:
     rule = _rule(f"native_mxfp8_e4m3fn_e8m0x{lane_count}_to_bfloat16x{lane_count}")
     for payload_bits, scale_bits in values:
         expected = _reference_mxfp8_e4m3fn_e8m0_to_bf16(payload_bits, scale_bits)
-        actual = _evaluate_packet_lane(rule, payload_bits, scale_value=scale_bits)
+        actual = _evaluate_packet_lane(
+            rule,
+            payload_bits,
+            scale_value=scale_bits << (scale_byte_ordinal * 8),
+            result_group_ordinal=scale_byte_ordinal,
+        )
         assert actual == expected, (
             hex(payload_bits),
             hex(scale_bits),
@@ -1304,6 +1404,15 @@ def test_mxfp8_packet_decode_matches_boundary_oracles() -> None:
             ),
             lane_count=lane_count,
         )
+    _assert_mxfp8_packet_decode_matches_oracle(
+        (
+            (payload, scale)
+            for payload in payloads
+            for scale in _mxfp8_scale_boundaries(payload)
+        ),
+        lane_count=64,
+        scale_byte_ordinal=1,
+    )
 
 
 @pytest.mark.exhaustive
@@ -1311,6 +1420,29 @@ def test_mxfp8_packet_decode_matches_exhaustive_oracles() -> None:
     _assert_mxfp8_packet_decode_matches_oracle(
         (payload, scale) for payload in range(1 << 8) for scale in range(1 << 8)
     )
+
+
+def test_mxfp4_packet_decode_matches_exhaustive_oracle() -> None:
+    rules = (
+        (_rule("native_mxfp4_e2m1_e8m0x32_to_bfloat16x32"), 0),
+        (_rule("native_mxfp4_e2m1_e8m0x64_to_bfloat16x64"), 1),
+    )
+    for rule, scale_byte_ordinal in rules:
+        for payload_bits in range(1 << 4):
+            for scale_bits in range(1 << 8):
+                expected = _reference_mxfp4_e2m1_e8m0_to_bf16(payload_bits, scale_bits)
+                actual = _evaluate_packet_lane(
+                    rule,
+                    payload_bits,
+                    scale_value=scale_bits << (scale_byte_ordinal * 8),
+                    result_group_ordinal=scale_byte_ordinal,
+                )
+                assert actual == expected, (
+                    hex(payload_bits),
+                    hex(scale_bits),
+                    hex(actual),
+                    hex(expected),
+                )
 
 
 def _assert_float8_packet_widening_matches_oracles(
