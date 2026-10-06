@@ -281,3 +281,39 @@ low.func.def schedule(locked) target<amd.xdna.aie2p.core> @immediate_overwrite(%
 
 // ----
 code: 18 07 04 00 00 00 00 00 00 00 00 00 00 00 18 07 40 10 00 00 18 00 28 10 00 00 18 08 00 10 00 00 00 00 00 00
+
+// ====
+
+// The four typed X/BM moves select distinct native timing domains. X forwards
+// through the move bypass; accumulator reads retain their storage latency.
+// Exact bytes cover the complete chain after ordinary scheduling/allocation.
+// RUN: emit aie2p-leaf @typed_vector_move_chain report=code
+
+low.func.def target<amd.xdna.aie2p.core> @typed_vector_move_chain(%input: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %vector_copy = vmov.512 %input
+  %accumulator = vmov.vector512.to.accumulator512 %vector_copy
+  %accumulator_copy = vmov.accumulator512 %accumulator
+  %result = vmov.accumulator512.to.vector512 %accumulator_copy
+  return %result
+}
+
+// ----
+code: f8 92 20 18 e4 25 01 00 00 05 00 00 f8 12 00 18 00 00 f8 12 20 18 00 00
+
+// ====
+
+// Repeating a moved half exercises W bypass timing across authored and
+// allocation-generated moves. A separate packed BFP value retains its full
+// EX move in the same shared vector-storage bank.
+// RUN: emit aie2p-leaf @vector_move_alias_views report=code
+
+low.func.def target<amd.xdna.aie2p.core> @vector_move_alias_views(%input: reg<aie2p.vec256 x2>, %packed: reg<aie2p.mexa>) -> (reg<aie2p.vec256 x2>, reg<aie2p.mexa>) asm {
+  %half = slice %input[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %half_copy = vmov.256 %half
+  %repeated = concat(%half_copy, %half_copy) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %packed_copy = vmov.bfp576 %packed
+  return %repeated, %packed_copy
+}
+
+// ----
+code: e4 45 02 00 00 05 f8 22 40 18 f8 5c 82 18 00 00 00 00 00 00

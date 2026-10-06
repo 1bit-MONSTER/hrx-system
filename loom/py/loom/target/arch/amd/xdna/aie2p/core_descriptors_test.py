@@ -7,13 +7,17 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from itertools import combinations
+from itertools import combinations, product
 
 import pytest
 
 from loom.target.arch.amd.xdna.aie.machine import MachineOperandKind, has_property
 from loom.target.arch.amd.xdna.aie.schedule import (
+    DependencyKind,
     PipelineStageKind,
+    bypass_class,
+    dependency_separation,
+    itinerary_payload,
     pipeline_uses,
 )
 from loom.target.arch.amd.xdna.aie2p.core_descriptor_constraints import (
@@ -377,6 +381,164 @@ def test_complete_schedule_domain_drives_selected_low_descriptors() -> None:
                 if expected.kind is PipelineStageKind.REQUIRED
                 else IssueUseKind.RESERVED
             )
+
+
+@pytest.mark.parametrize(
+    ("key", "destination_class", "source_class"),
+    [
+        ("vector512", "mXm", "mXm"),
+        ("vector512.to.accumulator512", "mBMs", "mXm"),
+        ("accumulator512.to.vector512", "mXm", "mBMs"),
+        ("accumulator512", "mBMs", "mBMs"),
+    ],
+)
+def test_vector_move_itineraries_cover_complete_storage_domains(
+    key: str, destination_class: str, source_class: str
+) -> None:
+    specifications = {spec.key: spec for spec in _DESCRIPTOR_SPECS}
+    spec = specifications[f"amd.xdna.aie2p.move.{key}"]
+    classes = {row.name: row for row in CORE_MACHINE_TABLE.register_classes}
+    adapters = {row.name: row for row in CORE_MACHINE_TABLE.register_adapters}
+    itineraries = {row.name: row for row in CORE_SCHEDULE_TABLE.itineraries}
+    domains = {
+        "mXm": ("eXe", "eXo"),
+        "mBMs": ("eBMLL", "eBMLH", "eBMHL", "eBMHH"),
+    }
+    for operand, register_class in zip(
+        ("dst", "src"), (destination_class, source_class), strict=True
+    ):
+        adapter = adapters[dict(spec.encoding_adapter_overrides)[operand]]
+        assert adapter.register_class == register_class
+        assert {
+            register
+            for domain in domains[register_class]
+            for register in classes[domain].candidates
+        } == set(classes[register_class].candidates)
+
+    # Every subview/parity pair shares the complete payload, so the selected
+    # representative does not restrict the physical register domain.
+    selected_payload = itinerary_payload(_itinerary(spec))
+    for destination, source in product(
+        domains[destination_class], domains[source_class]
+    ):
+        native = itineraries[f"II_VMOV_alu_mv_mv_x_{destination}_{source}"]
+        assert selected_payload == itinerary_payload(native)
+
+
+@pytest.mark.parametrize(
+    ("key", "itinerary_suffix", "bypasses", "resources", "allocation_move"),
+    [
+        ("vector512", "x_eXe_eXe", ("MV_Bypass", "MV_Bypass"), (), False),
+        (
+            "vector512.to.accumulator512",
+            "x_eBMLL_eXe",
+            (None, "MV_Bypass"),
+            (("DM_WM_L0_PORT", 1),),
+            False,
+        ),
+        (
+            "accumulator512.to.vector512",
+            "x_eXe_eBMLL",
+            ("MV_Bypass", None),
+            (("DM_RM_L0_PORT", 0),),
+            False,
+        ),
+        (
+            "accumulator512",
+            "x_eBMLL_eBMLL",
+            (None, None),
+            (("DM_RM_L0_PORT", 0), ("DM_WM_L0_PORT", 1)),
+            True,
+        ),
+        ("vec256", "w", ("MV_Bypass", "MV_Bypass"), (), True),
+        ("bfp576", "ex", ("MV_Bypass", "MV_Bypass"), (), True),
+    ],
+)
+def test_vector_move_descriptors_retain_native_endpoints_and_resources(
+    key: str,
+    itinerary_suffix: str,
+    bypasses: tuple[str | None, str | None],
+    resources: tuple[tuple[str, int], ...],
+    allocation_move: bool,
+) -> None:
+    specifications = {spec.key: spec for spec in _DESCRIPTOR_SPECS}
+    descriptors = {row.key: row for row in AIE2P_CORE_DESCRIPTOR_SET.descriptors}
+    spec = specifications[f"amd.xdna.aie2p.move.{key}"]
+    descriptor = descriptors[spec.key]
+    assert spec.itinerary == f"II_VMOV_alu_mv_mv_{itinerary_suffix}"
+    itinerary = _itinerary(spec)
+    assert itinerary.operand_cycles == (2, 1)
+    assert tuple(bypass_class(itinerary, index) for index in range(2)) == bypasses
+    assert itinerary.memory is None
+    assert itinerary.micro_ops == 1
+    assert [
+        (use.resources, use.start_cycle, use.cycles, use.kind)
+        for use in pipeline_uses(itinerary)
+    ] == [
+        ((resource,), stage, 1, PipelineStageKind.REQUIRED)
+        for resource, stage in resources
+    ]
+    assert [
+        (
+            operand.read_stage,
+            operand.ready_stage,
+            operand.read_event,
+            operand.write_event,
+        )
+        for operand in descriptor.operands
+    ] == [
+        (0, 2, None, _register_event_name("write", 2, bypasses[0])),
+        (1, 0, _register_event_name("read", 1, bypasses[1]), None),
+    ]
+    assert (DescriptorFlag.ALLOCATION_MOVE in descriptor.flags) == allocation_move
+
+
+@pytest.mark.parametrize(
+    ("key", "register_class"),
+    [
+        ("accumulator512", "aie2p.mbms"),
+        ("vec256", "aie2p.vec256"),
+        ("bfp576", "aie2p.mexa"),
+    ],
+)
+def test_vector_allocation_move_routes_reuse_typed_descriptors(
+    key: str, register_class: str
+) -> None:
+    descriptor_set = AIE2P_CORE_DESCRIPTOR_SET
+    classes = {row.name: row for row in descriptor_set.reg_classes}
+    routes = [
+        (
+            move.key,
+            classes[move.operands[0].reg_alts[0].reg_class].physical_registers,
+            classes[move.operands[1].reg_alts[0].reg_class].physical_registers,
+        )
+        for move in descriptor_set.descriptors
+        if DescriptorFlag.ALLOCATION_MOVE in move.flags
+    ]
+    # Generated route masks consume these same class memberships and descriptor
+    # ordinals; every concrete pair has exactly the typed move above.
+    for destination, source in product(
+        classes[register_class].physical_registers, repeat=2
+    ):
+        assert [
+            move_key
+            for move_key, destinations, sources in routes
+            if destination in destinations and source in sources
+        ] == [f"amd.xdna.aie2p.move.{key}"]
+
+
+def test_vector_move_reverse_bypass_prevents_early_overwrite() -> None:
+    specifications = {spec.key: spec for spec in _DESCRIPTOR_SPECS}
+    reader = _itinerary(
+        specifications["amd.xdna.aie2p.move.vector512.to.accumulator512"]
+    )
+    writer = _itinerary(
+        specifications["amd.xdna.aie2p.move.accumulator512.to.vector512"]
+    )
+    # The X source observes the replacement through the move bypass. Equal
+    # nominal read/write endpoints therefore do not permit earlier writer issue.
+    assert dependency_separation(reader, 1, writer, 0, DependencyKind.WAR) == 0
+    assert dependency_separation(writer, 0, reader, 1, DependencyKind.RAW) == 1
 
 
 def test_scalar_memory_forms_use_storage_specialized_itineraries() -> None:
