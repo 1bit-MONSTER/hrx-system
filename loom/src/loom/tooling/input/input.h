@@ -105,10 +105,12 @@ iree_status_t loom_input_provider_select(
 typedef struct loom_input_module_t {
   // Owned module, or NULL when source admission did not produce one.
   loom_module_t* module;
-  // Logical main-source filename, valid even after source rejection.
+  // Owned logical main-source filename, valid even after source rejection.
   iree_string_view_t filename;
-  // Owned snapshots indexed by the module's source IDs, released last.
+  // Owned snapshots indexed by the module's source IDs, released after module.
   loom_source_storage_t sources;
+  // Allocator owning the logical filename and source snapshots.
+  iree_allocator_t host_allocator;
 } loom_input_module_t;
 
 // Loads an input and retains source snapshots through module teardown. Always

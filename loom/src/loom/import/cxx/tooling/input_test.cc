@@ -205,6 +205,8 @@ TEST_F(InputTest, HeaderSnapshotsSurviveFrontendAndFilesystemChanges) {
   request.source_path_options.prefix_maps = {IREE_ARRAYSIZE(maps), maps};
   IREE_ASSERT_OK(Load(request));
   ASSERT_NE(input_.module, nullptr);
+  EXPECT_EQ(String(input_.filename),
+            "/logical" + main.path().substr(directory.size()));
   source.assign(source.size(), '?');
   IREE_ASSERT_OK(Write(header.path(), "#error source changed after import\n"));
 

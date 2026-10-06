@@ -496,7 +496,7 @@ loomc_status_t loomc_module_create_empty(loomc_context_t* context,
   loomc_context_retain(context);
   module->workspace = workspace;
   loomc_workspace_retain(workspace);
-  loom_source_storage_initialize(loomc_workspace_block_pool(workspace),
+  loom_source_storage_initialize(iree_allocator_from_loomc(allocator),
                                  &module->sources);
   iree_arena_initialize(loomc_workspace_block_pool(workspace),
                         &module->compilation.arena);
@@ -578,7 +578,7 @@ loomc_status_t loomc_module_replace_source_table(
     return loomc_ok_status();
   }
   loom_source_storage_t replacement;
-  loom_source_storage_initialize(loomc_module_block_pool(module), &replacement);
+  loom_source_storage_initialize(module->sources.allocator, &replacement);
   replacement.table.module = internal_module;
   loomc_status_t status = loomc_ok_status();
   for (iree_host_size_t i = 0;
@@ -602,7 +602,7 @@ loomc_status_t loomc_module_replace_source_table(
 void loomc_module_clear_sources(loomc_module_t* module,
                                 const loom_module_t* internal_module) {
   loom_source_storage_deinitialize(&module->sources);
-  loom_source_storage_initialize(loomc_module_block_pool(module),
+  loom_source_storage_initialize(iree_allocator_from_loomc(module->allocator),
                                  &module->sources);
   module->sources.table.module = internal_module;
 }

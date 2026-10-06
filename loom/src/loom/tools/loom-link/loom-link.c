@@ -903,9 +903,13 @@ static iree_status_t loom_link_cli_capture_sources(
         loom_link_module_index_module_at(index->module_index, i);
     const loom_link_cli_input_t* input =
         index->provider_inputs[module->provider_ordinal];
-    IREE_RETURN_IF_ERROR(loom_source_storage_project(
-        sources, product->module, &input->source.sources.table,
-        projection->values));
+    loom_source_storage_projection_t source_projection = {
+        .source = &input->source.sources.table,
+        .target = sources,
+    };
+    IREE_RETURN_IF_ERROR(
+        loom_source_storage_project(&source_projection, input->source.module,
+                                    product->module, projection->values));
   }
   return iree_ok_status();
 }
@@ -1196,7 +1200,7 @@ int main(int argc, char** argv) {
   loom_link_cli_index_t link_index = {0};
   loom_link_index_materialization_t materialization = {0};
   loom_source_storage_t sources;
-  loom_source_storage_initialize(&block_pool, &sources);
+  loom_source_storage_initialize(allocator, &sources);
 
   loom_module_format_t input_format = LOOM_MODULE_FORMAT_AUTO;
   loom_module_format_t output_format = LOOM_MODULE_FORMAT_TEXT;

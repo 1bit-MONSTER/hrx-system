@@ -11,20 +11,11 @@
 #include "loom/tooling/io/file.h"
 
 typedef struct iree_test_loom_link_sources_t {
-  // Snapshots for the module currently being added.
-  const loom_source_table_resolver_t* input;
+  // Source projection updated for the module currently being added.
+  loom_source_storage_projection_t projection;
   // Owned snapshots in linked-module source-ID order.
   loom_source_storage_t output;
 } iree_test_loom_link_sources_t;
-
-static iree_status_t iree_test_loom_capture_sources(
-    void* user_data, const loom_module_t* source_module,
-    const loom_module_t* target_module,
-    const loom_source_id_t* target_sources) {
-  iree_test_loom_link_sources_t* sources = user_data;
-  return loom_source_storage_project(&sources->output, target_module,
-                                     sources->input, target_sources);
-}
 
 static iree_status_t iree_test_loom_add_library(
     loom_run_session_t* session, iree_string_view_t library_path,
@@ -50,7 +41,7 @@ static iree_status_t iree_test_loom_add_library(
     status = loom_run_module_parse(session, &parse_options, &library_module);
   }
   if (iree_status_is_ok(status)) {
-    sources->input = &library_module.sources.table;
+    sources->projection.source = &library_module.sources.table;
     status = loom_linker_add_module(linker, library_module.module,
                                     /*options=*/NULL);
   }
@@ -74,15 +65,14 @@ iree_status_t iree_test_loom_link_libraries(
 
   loom_linker_t* linker = NULL;
   loom_module_t* linked_module = NULL;
-  iree_test_loom_link_sources_t sources = {
-      .input = &run_module->sources.table,
-  };
-  loom_source_storage_initialize(loom_run_session_block_pool(session),
-                                 &sources.output);
+  iree_test_loom_link_sources_t sources = {0};
+  sources.projection.source = &run_module->sources.table;
+  loom_source_storage_initialize(session->host_allocator, &sources.output);
+  sources.projection.target = &sources.output;
   const loom_linker_options_t linker_options = {
       .module_name = IREE_SV("linked"),
-      .source_callback = {.fn = iree_test_loom_capture_sources,
-                          .user_data = &sources},
+      .source_callback = {.fn = loom_source_storage_project,
+                          .user_data = &sources.projection},
   };
   iree_status_t status = loom_linker_allocate(
       loom_run_session_context(session), &linker_options,

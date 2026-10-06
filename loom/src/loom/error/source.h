@@ -82,14 +82,22 @@ typedef struct loom_source_table_projection_t {
 typedef struct loom_source_storage_t {
   // Source-ID-indexed entries. Missing snapshots have an invalid source ID.
   loom_source_table_resolver_t table;
-  // Owns the table, filenames, and source bytes.
-  iree_arena_allocator_t arena;
+  // Allocator owning the table and one compact block per snapshot.
+  iree_allocator_t allocator;
   // Allocated entries in the table.
   iree_host_size_t capacity;
 } loom_source_storage_t;
 
-// Initializes empty owned source storage backed by |block_pool|.
-void loom_source_storage_initialize(iree_arena_block_pool_t* block_pool,
+// Copies one link input's source snapshots into target-owned storage.
+typedef struct loom_source_storage_projection_t {
+  // Input snapshots borrowed for the duration of the linker callback.
+  const loom_source_table_resolver_t* source;
+  // Destination storage owned by the linked module.
+  loom_source_storage_t* target;
+} loom_source_storage_projection_t;
+
+// Initializes empty owned source storage using |allocator|.
+void loom_source_storage_initialize(iree_allocator_t allocator,
                                     loom_source_storage_t* out_storage);
 
 // Releases all source snapshots and table storage.
@@ -102,14 +110,12 @@ iree_status_t loom_source_storage_insert(loom_source_storage_t* storage,
                                          iree_string_view_t filename,
                                          iree_string_view_t source);
 
-// Copies captured snapshots through a producer-owned source correspondence.
-// |target_sources| is indexed by input source ID. Inputs with no snapshot need
-// no entry in |source_table|; invalid target IDs represent omitted sources.
-// All projections into |storage| belong to the same |target_module|.
+// Linker source callback for a loom_source_storage_projection_t. Copies
+// snapshots through the producer-owned source correspondence. Inputs without
+// snapshots allocate nothing; invalid target IDs represent omitted sources.
 iree_status_t loom_source_storage_project(
-    loom_source_storage_t* storage, const loom_module_t* target_module,
-    const loom_source_table_resolver_t* source_table,
-    const loom_source_id_t* target_sources);
+    void* user_data, const loom_module_t* source_module,
+    const loom_module_t* target_module, const loom_source_id_t* target_sources);
 
 // Returns a resolver borrowing |storage| and its source snapshots.
 loom_source_resolver_t loom_source_storage_resolver(

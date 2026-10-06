@@ -392,7 +392,7 @@ static iree_status_t loom_run_hal_testbench_clone_compile_module(
 static iree_status_t loom_run_hal_testbench_link_selected_root(
     loom_run_hal_testbench_actual_provider_t* provider,
     const loom_module_t* source_module, iree_string_view_t entry_symbol,
-    loom_source_table_projection_t* sources, loom_module_t** out_module) {
+    loom_linker_source_callback_t source_callback, loom_module_t** out_module) {
   *out_module = NULL;
   const loom_module_t* const source_modules[] = {source_module};
   iree_string_view_t module_name = iree_string_view_empty();
@@ -410,8 +410,7 @@ static iree_status_t loom_run_hal_testbench_link_selected_root(
                   .count = IREE_ARRAYSIZE(root_symbols),
                   .values = root_symbols,
               },
-          .source_callback = {.fn = loom_source_table_project,
-                              .user_data = sources},
+          .source_callback = source_callback,
       },
       loom_run_session_block_pool(provider->session),
       provider->context->host_allocator, out_module);
@@ -421,31 +420,40 @@ static iree_status_t loom_run_hal_testbench_select_compile_root(
     loom_run_hal_testbench_actual_provider_t* provider,
     iree_string_view_t entry_symbol) {
   const loom_module_t* source_module = provider->compile_module.module;
-  loom_source_table_projection_t launch_sources = {
-      .table = provider->compile_module.sources.table,
-      .arena = &provider->compile_module.sources.arena};
-  loom_source_table_projection_t compile_sources = launch_sources;
+  loom_source_storage_t compile_sources;
+  loom_source_storage_initialize(provider->context->host_allocator,
+                                 &compile_sources);
+  loom_source_storage_projection_t source_projection = {
+      .source = &provider->compile_module.sources.table,
+      .target = &compile_sources,
+  };
+  const loom_linker_source_callback_t source_callback = {
+      .fn = loom_source_storage_project,
+      .user_data = &source_projection,
+  };
   loom_module_t* launch_config_module = NULL;
   iree_status_t status = loom_run_hal_testbench_link_selected_root(
-      provider, source_module, entry_symbol, &launch_sources,
+      provider, source_module, entry_symbol, source_callback,
       &launch_config_module);
   loom_module_t* compile_module = NULL;
   if (iree_status_is_ok(status)) {
     status = loom_run_hal_testbench_link_selected_root(
-        provider, source_module, entry_symbol, &compile_sources,
+        provider, source_module, entry_symbol, source_callback,
         &compile_module);
   }
   if (!iree_status_is_ok(status)) {
     loom_module_free(launch_config_module);
+    loom_source_storage_deinitialize(&compile_sources);
     return status;
   }
 
   loom_module_free(provider->compile_module.module);
+  loom_source_storage_deinitialize(&provider->compile_module.sources);
   provider->compile_module.module = compile_module;
-  provider->compile_module.sources.table = compile_sources.table;
-  provider->compile_module.sources.capacity = compile_sources.table.count;
+  provider->compile_module.sources = compile_sources;
   provider->launch_config_module = launch_config_module;
-  provider->launch_config_sources = launch_sources.table;
+  provider->launch_config_sources = compile_sources.table;
+  provider->launch_config_sources.module = launch_config_module;
   return iree_ok_status();
 }
 

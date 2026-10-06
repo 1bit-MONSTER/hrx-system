@@ -164,6 +164,29 @@ TEST_F(SourceResolverTest, SnapshotsAreQualifiedByModuleEvenWithMatchingNames) {
   loom_module_free(other);
 }
 
+TEST_F(SourceResolverTest, UnorderedSnapshotTablesResolveBySourceIdentity) {
+  loom_source_id_t unused_source_id;
+  IREE_ASSERT_OK(loom_module_register_source(module, IREE_SV("unused.h"),
+                                             &unused_source_id));
+  EXPECT_EQ(unused_source_id, 0u);
+  loom_source_id_t source_id;
+  IREE_ASSERT_OK(
+      loom_module_register_source(module, IREE_SV("kernel.h"), &source_id));
+  ASSERT_EQ(source_id, 1u);
+  const loom_source_entry_t source = {
+      source_id,
+      IREE_SV("kernel"),
+      IREE_SV("kernel.h"),
+  };
+  loom_source_table_resolver_t table = {module, &source, 1};
+  loom_location_id_t location;
+  IREE_ASSERT_OK(loom_module_add_location(
+      module, loom_location_file_range(source_id, 1, 1, 1, 7), &location));
+  loom_source_range_t range = {};
+  ASSERT_TRUE(loom_source_table_resolve(&table, module, location, &range));
+  EXPECT_TRUE(iree_string_view_equal(range.source, IREE_SV("kernel")));
+}
+
 TEST_F(SourceResolverTest, TaggedOriginsResolveWithAndWithoutText) {
   auto location = FileLocation(IREE_SV("empty.cxx"), 1, 1, 1, 1);
   IREE_ASSERT_OK(loom_module_add_location(
@@ -187,7 +210,7 @@ class SourceStorageTest : public ::testing::Test {
  protected:
   void SetUp() override {
     iree_arena_block_pool_initialize(4096, iree_allocator_system(), &pool_);
-    loom_source_storage_initialize(&pool_, &sources_);
+    loom_source_storage_initialize(iree_allocator_system(), &sources_);
     loom_context_initialize(iree_allocator_system(), &context_);
     IREE_ASSERT_OK(loom_context_finalize(&context_));
   }
@@ -204,7 +227,7 @@ class SourceStorageTest : public ::testing::Test {
     return module;
   }
 
-  // Pool shared by source storage and the modules under test.
+  // Pool backing the modules under test.
   iree_arena_block_pool_t pool_;
   // Owns snapshots independently of source modules and caller buffers.
   loom_source_storage_t sources_;
@@ -236,21 +259,13 @@ TEST_F(SourceStorageTest, CopiesEmptyAndSparseSnapshotsAndRejectsConflicts) {
 }
 
 TEST_F(SourceStorageTest, LinkMappingRetainsBytesAfterInputTeardown) {
-  struct Capture {
-    // Input snapshots alive only for one add call.
-    loom_source_table_resolver_t input;
-    // Destination retains all admitted bytes.
-    loom_source_storage_t* output;
-  } capture = {{}, &sources_};
-  loom_linker_options_t options = {};
-  options.source_callback.user_data = &capture;
-  options.source_callback.fn = [](void* user_data, const loom_module_t*,
-                                  const loom_module_t* target_module,
-                                  const loom_source_id_t* target_sources) {
-    auto* capture = static_cast<Capture*>(user_data);
-    return loom_source_storage_project(capture->output, target_module,
-                                       &capture->input, target_sources);
+  loom_source_table_resolver_t input_sources = {};
+  loom_source_storage_projection_t projection = {
+      &input_sources,
+      &sources_,
   };
+  loom_linker_options_t options = {};
+  options.source_callback = {loom_source_storage_project, &projection};
   loom_linker_t* linker = nullptr;
   IREE_ASSERT_OK(loom_linker_allocate(&context_, &options, &pool_,
                                       iree_allocator_system(), &linker));
@@ -263,7 +278,7 @@ TEST_F(SourceStorageTest, LinkMappingRetainsBytesAfterInputTeardown) {
     std::string bytes = i == 0 ? "first\nmain\n" : "second\nlibrary\n";
     loom_source_entry_t entry = {
         source_id, iree_make_cstring_view(bytes.c_str()), filename};
-    capture.input = {input, &entry, 1};
+    input_sources = {input, &entry, 1};
     IREE_ASSERT_OK(loom_linker_add_module(linker, input, nullptr));
     loom_module_free(input);
     bytes.assign("released");
