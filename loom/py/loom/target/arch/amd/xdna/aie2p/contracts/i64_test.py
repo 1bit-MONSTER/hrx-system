@@ -193,6 +193,96 @@ def _evaluate_vector_select_rule(
     return result
 
 
+def _evaluate_pair_vector_rule(
+    rule: DescriptorRule,
+    lhs: tuple[int, ...],
+    rhs: tuple[int, ...],
+) -> int | tuple[int, ...]:
+    values: dict[ValueRef, int | tuple[int, ...]] = {
+        ValueRef.operand("lhs"): lhs,
+        ValueRef.operand("rhs"): rhs,
+    }
+    for emit in rule.emit:
+        assert isinstance(emit, EmitDescriptorOp)
+        operands = {name: values[ref] for name, ref in emit.operands.items()}
+        semantic_tag = emit.descriptor.semantic_tag
+        result: int | tuple[int, ...]
+        if semantic_tag == "integer.const.i32":
+            result = emit.immediates["i"]
+            assert isinstance(result, int)
+        elif semantic_tag in ("integer.and.bits512", "integer.or.bits512"):
+            lhs_words = operands["s1"]
+            rhs_words = operands["s2"]
+            assert isinstance(lhs_words, tuple)
+            assert isinstance(rhs_words, tuple)
+            operation = (
+                int.__and__ if semantic_tag == "integer.and.bits512" else int.__or__
+            )
+            result = tuple(
+                operation(a, b) for a, b in zip(lhs_words, rhs_words, strict=True)
+            )
+        elif semantic_tag == "integer.sub.i32x16":
+            lhs_words = operands["s1"]
+            rhs_words = operands["s2"]
+            assert isinstance(lhs_words, tuple)
+            assert isinstance(rhs_words, tuple)
+            result = tuple(
+                _u32(a - b) for a, b in zip(lhs_words, rhs_words, strict=True)
+            )
+        elif semantic_tag == "register.shuffle.x.configured":
+            source = operands["s1"]
+            control = operands["mod"]
+            assert isinstance(source, tuple)
+            assert isinstance(control, int)
+            assert control in (4, 5)
+            selected = source[(control - 4) :: 2]
+            result = (*selected, *selected)
+        elif semantic_tag == "integer.cmp.eq.i32x16.low32":
+            words = operands["s2"]
+            assert isinstance(words, tuple)
+            result = sum((word == 0) << index for index, word in enumerate(words))
+        elif semantic_tag in (
+            "integer.cmp.lt.signed.i32x16.low32",
+            "integer.cmp.lt.unsigned.i32x16.low32",
+            "integer.cmp.ge.unsigned.i32x16.low32",
+        ):
+            lhs_words = operands["s1"]
+            rhs_words = operands["s2"]
+            assert isinstance(lhs_words, tuple)
+            assert isinstance(rhs_words, tuple)
+            signed = ".signed." in semantic_tag
+            relation = int.__ge__ if ".ge." in semantic_tag else int.__lt__
+            result = sum(
+                (relation(_s32(a), _s32(b)) if signed else relation(a, b)) << index
+                for index, (a, b) in enumerate(zip(lhs_words, rhs_words, strict=True))
+            )
+        elif semantic_tag in (
+            "integer.predicate.and.low32",
+            "integer.predicate.or.low32",
+        ):
+            lhs_value = operands["s0"]
+            rhs_value = operands["s1"]
+            assert isinstance(lhs_value, int)
+            assert isinstance(rhs_value, int)
+            operation = (
+                int.__and__
+                if semantic_tag == "integer.predicate.and.low32"
+                else int.__or__
+            )
+            result = operation(lhs_value, rhs_value)
+        elif semantic_tag == "integer.predicate.complete.zero.high32":
+            result = operands["storage"]
+            assert isinstance(result, int)
+        else:
+            raise AssertionError(f"unsupported pair-vector operation {semantic_tag}")
+        assert len(emit.results) == 1
+        values[next(iter(emit.results.values()))] = (
+            _u32(result) if isinstance(result, int) else result
+        )
+
+    return values[ValueRef.result("result")]
+
+
 def _rule(source_op, *, predicate: str | None = None) -> DescriptorRule:
     candidates = [
         rule
@@ -238,6 +328,40 @@ def _i64_shift_basis() -> tuple[int, ...]:
         *single_bits,
         *(_U64_MASK ^ bit for bit in single_bits),
     )
+
+
+def _pair_vector_words(values: tuple[int, ...]) -> tuple[int, ...]:
+    return tuple(word for value in values for word in _split_i64(value))
+
+
+def _pair_vector_samples() -> list[tuple[tuple[int, ...], tuple[int, ...]]]:
+    edges = (
+        0,
+        1,
+        2**31 - 1,
+        2**31,
+        2**32 - 1,
+        2**32,
+        2**63 - 1,
+        2**63,
+        2**64 - 1,
+    )
+    samples = [
+        (
+            tuple(edges[(offset + lane) % len(edges)] for lane in range(8)),
+            tuple(edges[(offset - lane - 1) % len(edges)] for lane in range(8)),
+        )
+        for offset in range(len(edges))
+    ]
+    generator = random.Random(0xA1E2_5164)
+    samples.extend(
+        (
+            tuple(generator.getrandbits(64) for _ in range(8)),
+            tuple(generator.getrandbits(64) for _ in range(8)),
+        )
+        for _ in range(256)
+    )
+    return samples
 
 
 def test_i64_binary_recipes_are_exact() -> None:
@@ -323,6 +447,68 @@ def test_i64_comparison_recipes_are_exact() -> None:
         for predicate, reference in references.items():
             assert _evaluate_rule(rules[predicate], lhs, rhs) == int(
                 reference(lhs, rhs)
+            )
+
+
+def test_i64_vector_bitwise_recipes_are_exact() -> None:
+    rules = (
+        (_rule(vector.vector_andi), int.__and__),
+        (_rule(vector.vector_ori), int.__or__),
+        (_rule(vector.vector_xori), int.__xor__),
+    )
+    for lhs_lanes, rhs_lanes in _pair_vector_samples():
+        lhs_words = _pair_vector_words(lhs_lanes)
+        rhs_words = _pair_vector_words(rhs_lanes)
+        for rule, operation in rules:
+            result = _evaluate_pair_vector_rule(rule, lhs_words, rhs_words)
+            assert isinstance(result, tuple)
+            expected = _pair_vector_words(
+                tuple(
+                    operation(lhs, rhs)
+                    for lhs, rhs in zip(lhs_lanes, rhs_lanes, strict=True)
+                )
+            )
+            assert result == expected
+
+
+def test_i64_vector_comparison_recipes_are_exact() -> None:
+    def signed(value: int) -> int:
+        return value if value < 2**63 else value - 2**64
+
+    references = {
+        "eq": lambda lhs, rhs: lhs == rhs,
+        "ne": lambda lhs, rhs: lhs != rhs,
+        "slt": lambda lhs, rhs: signed(lhs) < signed(rhs),
+        "sle": lambda lhs, rhs: signed(lhs) <= signed(rhs),
+        "sgt": lambda lhs, rhs: signed(lhs) > signed(rhs),
+        "sge": lambda lhs, rhs: signed(lhs) >= signed(rhs),
+        "ult": lambda lhs, rhs: lhs < rhs,
+        "ule": lambda lhs, rhs: lhs <= rhs,
+        "ugt": lambda lhs, rhs: lhs > rhs,
+        "uge": lambda lhs, rhs: lhs >= rhs,
+    }
+    rules = {
+        predicate: _rule(vector.vector_cmpi, predicate=predicate)
+        for predicate in references
+    }
+    for lhs_lanes, rhs_lanes in _pair_vector_samples():
+        lhs_words = _pair_vector_words(lhs_lanes)
+        rhs_words = _pair_vector_words(rhs_lanes)
+        for predicate, reference in references.items():
+            result = _evaluate_pair_vector_rule(rules[predicate], lhs_words, rhs_words)
+            assert isinstance(result, int)
+            expected = sum(
+                reference(lhs, rhs) << lane
+                for lane, (lhs, rhs) in enumerate(
+                    zip(lhs_lanes, rhs_lanes, strict=True)
+                )
+            )
+            assert result & 0xFF == expected, (
+                predicate,
+                lhs_lanes,
+                rhs_lanes,
+                result,
+                expected,
             )
 
 

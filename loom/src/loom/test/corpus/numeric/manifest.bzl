@@ -78,6 +78,7 @@ NUMERIC_CORPUS = loom_corpus_manifest(
         "vector/floating.loom",
         "vector/indexing.loom",
         "vector/integer_bitwise.loom",
+        "vector/integer_comparison.loom",
         "vector/integer_widening.loom",
         "vector/packed_arithmetic.loom",
         "vector/packed_selection.loom",

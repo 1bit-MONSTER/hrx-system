@@ -1,0 +1,138 @@
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @i16x33_comparison(%lhs: vector<33xi16>, %rhs: vector<33xi16>) -> (vector<33xi1>) {
+  %result = vector.cmpi slt, %lhs, %rhs : vector<33xi16> -> vector<33xi1>
+  func.return %result : vector<33xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i16x33_comparison(%lhs: reg<aie2p.vec256 x4>, %rhs: reg<aie2p.vec256 x4>) -> (reg<aie2p.elpredicate>) asm {
+  %14 = slice %lhs[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %15 = slice %rhs[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %16 = vlt.s16x32.el.low32 %14, %15
+  %17 = predicate.complete.zero.high32 %16, 0
+  %18 = slice %lhs[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %19 = slice %rhs[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %20 = vlt.s16x32.el.low32 %18, %19
+  %21 = predicate.complete.zero.high32 %20, 0
+  %22 = mov.short 0
+  %result = predicate.shift.low32.to.high32 %21, %22, %17
+  return %result
+}
+
+// ====
+
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @i64x9_comparison(%lhs: vector<9xi64>, %rhs: vector<9xi64>) -> (vector<9xi1>) {
+  %result = vector.cmpi ugt, %lhs, %rhs : vector<9xi64> -> vector<9xi1>
+  func.return %result : vector<9xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i64x9_comparison(%lhs: reg<aie2p.vec256 x4>, %rhs: reg<aie2p.vec256 x4>) -> (reg<aie2p.elpredicate>) asm {
+  %14 = slice %lhs[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %15 = slice %rhs[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %16 = mova.i32 4
+  %17 = mova.i32 5
+  %18 = vshuffle %14, %14, %16
+  %19 = vshuffle %14, %14, %17
+  %20 = vshuffle %15, %15, %16
+  %21 = vshuffle %15, %15, %17
+  %22 = vsub.32 %21, %19
+  %23 = veqz.32.el.low32 %22
+  %24 = vlt.u32x16.el.low32 %21, %19
+  %25 = vlt.u32x16.el.low32 %20, %18
+  %26 = predicate.and.low32 %23, %25
+  %27 = predicate.or.low32 %24, %26
+  %28 = predicate.complete.zero.high32 %27, 0
+  %29 = slice %lhs[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %30 = slice %rhs[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %33 = vshuffle %29, %29, %16
+  %34 = vshuffle %29, %29, %17
+  %35 = vshuffle %30, %30, %16
+  %36 = vshuffle %30, %30, %17
+  %37 = vsub.32 %36, %34
+  %38 = veqz.32.el.low32 %37
+  %39 = vlt.u32x16.el.low32 %36, %34
+  %40 = vlt.u32x16.el.low32 %35, %33
+  %41 = predicate.and.low32 %38, %40
+  %42 = predicate.or.low32 %39, %41
+  %43 = predicate.complete.zero.high32 %42, 0
+  %44 = mov.short 8
+  %45 = mova.i32 255
+  %46 = predicate.mask.low32.to.low32 %28, %45
+  %47 = predicate.shift.low32 %43, %44
+  %48 = predicate.or.low32.rhs_tied %46, %47
+  %result = predicate.complete.zero.high32 %48, 0
+  return %result
+}
+
+// ====
+
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @i8x65_comparison(%lhs: vector<65xi8>, %rhs: vector<65xi8>) -> (vector<65xi1>) {
+  %result = vector.cmpi sge, %lhs, %rhs : vector<65xi8> -> vector<65xi1>
+  func.return %result : vector<65xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i8x65_comparison(%lhs: reg<aie2p.vec256 x4>, %rhs: reg<aie2p.vec256 x4>) -> (reg<aie2p.elpredicate x2>) asm {
+  %14 = slice %lhs[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %15 = slice %rhs[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %16 = vge.s8x64 %14, %15
+  %17 = slice %lhs[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %18 = slice %rhs[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %19 = vge.s8x64 %17, %18
+  %result = concat(%16, %19) : (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) -> reg<aie2p.elpredicate x2>
+  return %result
+}
+
+// ====
+
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @shaped_i64_comparison(%lhs: vector<3x3xi64>, %rhs: vector<3x3xi64>) -> (vector<3x3xi1>) {
+  %result = vector.cmpi sle, %lhs, %rhs : vector<3x3xi64> -> vector<3x3xi1>
+  func.return %result : vector<3x3xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @shaped_i64_comparison(%lhs: reg<aie2p.vec256 x4>, %rhs: reg<aie2p.vec256 x4>) -> (reg<aie2p.elpredicate>) asm {
+  %17 = slice %lhs[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %18 = slice %rhs[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %19 = mova.i32 4
+  %20 = mova.i32 5
+  %21 = vshuffle %17, %17, %19
+  %22 = vshuffle %17, %17, %20
+  %23 = vshuffle %18, %18, %19
+  %24 = vshuffle %18, %18, %20
+  %25 = vsub.32 %22, %24
+  %26 = veqz.32.el.low32 %25
+  %27 = vlt.s32x16.el.low32 %22, %24
+  %28 = vge.u32x16.el.low32 %23, %21
+  %29 = predicate.and.low32 %26, %28
+  %30 = predicate.or.low32 %27, %29
+  %31 = predicate.complete.zero.high32 %30, 0
+  %32 = slice %lhs[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %33 = slice %rhs[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %36 = vshuffle %32, %32, %19
+  %37 = vshuffle %32, %32, %20
+  %38 = vshuffle %33, %33, %19
+  %39 = vshuffle %33, %33, %20
+  %40 = vsub.32 %37, %39
+  %41 = veqz.32.el.low32 %40
+  %42 = vlt.s32x16.el.low32 %37, %39
+  %43 = vge.u32x16.el.low32 %38, %36
+  %44 = predicate.and.low32 %41, %43
+  %45 = predicate.or.low32 %42, %44
+  %46 = predicate.complete.zero.high32 %45, 0
+  %47 = mov.short 8
+  %48 = mova.i32 255
+  %49 = predicate.mask.low32.to.low32 %31, %48
+  %50 = predicate.shift.low32 %46, %47
+  %51 = predicate.or.low32.rhs_tied %49, %50
+  %result = predicate.complete.zero.high32 %51, 0
+  return %result
+}

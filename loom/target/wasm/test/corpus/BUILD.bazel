@@ -142,6 +142,7 @@ _HOSTED_EXECUTION_SOURCES = [
     "numeric/predicate/vector_logic.loom",
     "numeric/vector/f32.loom",
     "numeric/vector/integer_bitwise.loom",
+    "numeric/vector/integer_comparison.loom",
 ]
 
 loom_corpus_build(

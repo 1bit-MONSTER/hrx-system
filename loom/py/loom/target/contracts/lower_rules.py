@@ -2259,6 +2259,8 @@ class _LowerRuleSetCompiler:
             kind = LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_SCALED
         elif project.kind == ValueTypeProjectKind.LITERAL_MINUS_STATIC_DIM_SCALED:
             kind = LowerAttrCopyKind.VALUE_TYPE_LITERAL_MINUS_STATIC_DIM_SCALED
+        elif project.kind == ValueTypeProjectKind.STATIC_DIM_LOW_BITS_MASK:
+            kind = LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_LOW_BITS_MASK
         else:
             raise ValueError(
                 f"{source_op.name}: immediate projection '{project.kind.value}' is "

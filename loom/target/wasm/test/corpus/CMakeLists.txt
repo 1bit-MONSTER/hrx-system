@@ -978,6 +978,7 @@ loom_corpus_test(
     "numeric/predicate/vector_logic.loom"
     "numeric/vector/f32.loom"
     "numeric/vector/integer_bitwise.loom"
+    "numeric/vector/integer_comparison.loom"
   XFAILS
     "numeric/conversion/narrow_arithmetic.loom"
     "@arithmetic_bf16_values"

@@ -2836,6 +2836,19 @@ def test_compile_lower_rule_set_projects_guarded_variadic_value_type_dimension()
                         },
                         form=DescriptorEmitForm.CONST,
                     ),
+                    EmitDescriptorOp(
+                        descriptor=TEST_LOW_CONST_I32_DESCRIPTOR,
+                        results={"dst": ValueRef.temporary("mask")},
+                        result_types={"dst": DescriptorResultType()},
+                        immediates={
+                            "i32_value": ValueTypeProject.static_dim_low_bits_mask(
+                                source,
+                                dimension=1,
+                                addend=-1,
+                            )
+                        },
+                        form=DescriptorEmitForm.CONST,
+                    ),
                 ),
             ),
         ),
@@ -2863,7 +2876,7 @@ def test_compile_lower_rule_set_projects_guarded_variadic_value_type_dimension()
 
     compiled = compile_lower_rule_set(table, dialect_ops={"vector": ALL_VECTOR_OPS})
 
-    scaled, remaining = compiled.attr_copies
+    scaled, remaining, mask = compiled.attr_copies
     assert scaled.kind == LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_SCALED
     assert scaled.source_element_index == 1
     assert scaled.source_element_count == 4
@@ -2874,7 +2887,12 @@ def test_compile_lower_rule_set_projects_guarded_variadic_value_type_dimension()
     assert remaining.source_element_index == 1
     assert remaining.source_element_count == 4
     assert remaining.literal_i64 == 64
+    assert mask.kind == LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_LOW_BITS_MASK
+    assert mask.source_element_index == 1
+    assert mask.source_element_count == 1
+    assert mask.literal_i64 == -1
     assert scaled.value_ref_index == remaining.value_ref_index
+    assert scaled.value_ref_index == mask.value_ref_index
     assert compiled.value_refs[scaled.value_ref_index].element_index == 1
 
 

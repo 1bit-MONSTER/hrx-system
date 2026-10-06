@@ -1136,28 +1136,30 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
         if rule.source_op in (vector.vector_andi, vector.vector_ori, vector.vector_xori)
         and not rule.descriptor.key.startswith("amd.xdna.aie2p.predicate.")
     ]
-    assert [rule.descriptor.key for rule in payload_bitwise_rules] == [
-        "amd.xdna.aie2p.and.bits512",
-        "amd.xdna.aie2p.and.bits512",
-        "amd.xdna.aie2p.and.bits512",
-        "amd.xdna.aie2p.or.bits512",
-        "amd.xdna.aie2p.or.bits512",
-        "amd.xdna.aie2p.or.bits512",
-        "amd.xdna.aie2p.sub.i8x64",
-        "amd.xdna.aie2p.sub.i16x32",
-        "amd.xdna.aie2p.sub.i32x16",
-    ]
-    assert [len(rule.emit) for rule in payload_bitwise_rules] == [
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-        3,
-        3,
-        3,
-    ]
+    payload_bitwise_rules_by_type = {
+        (rule.source_op, rule.guards[0].type_pattern.element): rule
+        for rule in payload_bitwise_rules
+    }
+    payload_types = ("i8", "i16", "i32", "i64")
+    payload_operations = (
+        (vector.vector_andi, "amd.xdna.aie2p.and.bits512", 1),
+        (vector.vector_ori, "amd.xdna.aie2p.or.bits512", 1),
+        (vector.vector_xori, None, 3),
+    )
+    assert set(payload_bitwise_rules_by_type) == {
+        (operation, element)
+        for operation, _, _ in payload_operations
+        for element in payload_types
+    }
+    for operation, descriptor_key, emit_count in payload_operations:
+        for element in payload_types:
+            rule = payload_bitwise_rules_by_type[(operation, element)]
+            expected_descriptor_key = descriptor_key
+            if expected_descriptor_key is None:
+                width = min(int(element[1:]), 32)
+                expected_descriptor_key = f"amd.xdna.aie2p.sub.i{width}x{512 // width}"
+            assert rule.descriptor.key == expected_descriptor_key
+            assert len(rule.emit) == emit_count
 
     vector_splat_rules = [
         rule for rule in rules if rule.source_op is vector.vector_splat
@@ -1280,55 +1282,32 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
     vector_compare_rules = [
         rule for rule in rules if rule.source_op is vector.vector_cmpi
     ]
-    assert len(vector_compare_rules) == 30
-    assert [len(rule.emit) for rule in vector_compare_rules] == [
-        2,
-        4,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-        3,
-        4,
-        2,
-        2,
-        2,
-        2,
-        2,
-        2,
-        2,
-        2,
-        3,
-        4,
-        2,
-        2,
-        2,
-        2,
-        2,
-        2,
-        2,
-        2,
-    ]
-    assert [emit.descriptor.key for emit in vector_compare_rules[1].emit[-2:]] == [
+    predicates = ("eq", "ne", "slt", "sle", "sgt", "sge", "ult", "ule", "ugt", "uge")
+    compare_rules = {
+        (rule.guards[1].type_pattern.element, rule.guards[0].enum_keyword): rule
+        for rule in vector_compare_rules
+    }
+    assert set(compare_rules) == {
+        (element, predicate)
+        for element in ("i8", "i16", "i32", "i64")
+        for predicate in predicates
+    }
+    assert [emit.descriptor.key for emit in compare_rules[("i8", "ne")].emit[-2:]] == [
         "amd.xdna.aie2p.predicate.or.low32.rhs_tied",
         "amd.xdna.aie2p.predicate.or.high32.rhs_tied",
     ]
-    assert [emit.descriptor.key for emit in vector_compare_rules[10].emit] == [
+    assert [emit.descriptor.key for emit in compare_rules[("i16", "eq")].emit] == [
         "amd.xdna.aie2p.sub.i16x32",
         "amd.xdna.aie2p.cmp.eqz.i16x32.el.low32",
         "amd.xdna.aie2p.predicate.complete.zero.high32",
     ]
-    assert [emit.descriptor.key for emit in vector_compare_rules[11].emit] == [
+    assert [emit.descriptor.key for emit in compare_rules[("i16", "ne")].emit] == [
         "amd.xdna.aie2p.cmp.lt.unsigned.i16x32.el.low32",
         "amd.xdna.aie2p.cmp.lt.unsigned.i16x32.el.low32",
         "amd.xdna.aie2p.predicate.or.low32",
         "amd.xdna.aie2p.predicate.complete.zero.high32",
     ]
-    swapped_signed_less_equal = vector_compare_rules[13].emit[0]
+    swapped_signed_less_equal = compare_rules[("i16", "sle")].emit[0]
     assert swapped_signed_less_equal.operands["s1"].field == "rhs"
     assert swapped_signed_less_equal.operands["s2"].field == "lhs"
 
@@ -1794,6 +1773,7 @@ def test_predicate_not_equal_reuses_only_complete_comparison_storage() -> None:
         if isinstance(case, DescriptorRule)
         and case.source_op is vector.vector_cmpi
         and case.guards[0].enum_keyword == "ne"
+        and case.guards[1].type_pattern.element in ("i8", "i16", "i32")
     ]
     assert [rule.guards[1].type_pattern.element for rule in rules] == [
         "i8",

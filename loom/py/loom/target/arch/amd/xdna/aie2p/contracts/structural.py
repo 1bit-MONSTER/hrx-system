@@ -13,8 +13,15 @@ from loom.target.arch.amd.xdna.aie2p.contracts.accumulator_structural import (
     _ACCUMULATOR_VECTOR_SLICE_RULES,
     _F32X32_ACCUMULATOR,
 )
+from loom.target.arch.amd.xdna.aie2p.contracts.carrier import (
+    concat_x_carriers_emits,
+    concat_x_carriers_with_controls_emits,
+)
 from loom.target.arch.amd.xdna.aie2p.contracts.data_path import (
     I8_INTERLEAVE_CONTROL,
+)
+from loom.target.arch.amd.xdna.aie2p.contracts.predicate_concat import (
+    AIE2P_PREDICATE_CONCAT_RULES,
 )
 from loom.target.arch.amd.xdna.aie2p.core_descriptors import (
     AIE2P_CORE_DESCRIPTOR_SET,
@@ -606,7 +613,7 @@ def _vector_transpose_i8_4x4_rule() -> DescriptorRule:
     )
     for first, result in zip((0, 2), column_pairs, strict=True):
         emits.extend(
-            _vector_concat_merge_with_controls_emits(
+            concat_x_carriers_with_controls_emits(
                 columns[first],
                 columns[first + 1],
                 result,
@@ -618,7 +625,7 @@ def _vector_transpose_i8_4x4_rule() -> DescriptorRule:
         )
 
     emits.extend(
-        _vector_concat_merge_with_controls_emits(
+        concat_x_carriers_with_controls_emits(
             column_pairs[0],
             column_pairs[1],
             ValueRef.result("result"),
@@ -1221,86 +1228,6 @@ def _vector_concat_half_carrier_rule(
     )
 
 
-def _vector_concat_merge_with_controls_emits(
-    left: ValueRef,
-    right: ValueRef,
-    result: ValueRef,
-    *,
-    left_bytes: ValueRef,
-    remaining_bytes: ValueRef,
-    temporary_prefix: str = "",
-    result_type: DescriptorResultType | None = None,
-) -> tuple[ContractEmit, ...]:
-    """Joins the suffix-aligned left payload to the right carrier prefix."""
-
-    shift = _descriptor("amd.xdna.aie2p.shift.bytes.x.configured")
-    rotated_left = ValueRef.temporary(f"{temporary_prefix}rotated_left")
-    return (
-        EmitDescriptorOp(
-            descriptor=shift,
-            operands={"s1": left, "s2": left, "shift": left_bytes},
-            results={"d": rotated_left},
-            result_types={"d": DescriptorResultType()},
-            form=DescriptorEmitForm.OP,
-        ),
-        EmitDescriptorOp(
-            descriptor=shift,
-            operands={
-                "s1": rotated_left,
-                "s2": right,
-                "shift": remaining_bytes,
-            },
-            results={"d": result},
-            result_types=({"d": result_type} if result_type is not None else None),
-            form=DescriptorEmitForm.OP,
-        ),
-    )
-
-
-def _vector_concat_merge_emits(
-    left: ValueRef,
-    right: ValueRef,
-    result: ValueRef,
-    *,
-    left_byte_count: ValueTypeProject,
-    remaining_byte_count: ValueTypeProject,
-    temporary_prefix: str = "",
-    result_type: DescriptorResultType | None = None,
-) -> tuple[ContractEmit, ...]:
-    """Joins the suffix-aligned left payload to the right carrier prefix."""
-
-    constant = _descriptor("amd.xdna.aie2p.constant.i32.mova")
-    left_bytes = ValueRef.temporary(f"{temporary_prefix}left_bytes")
-    remaining_bytes = ValueRef.temporary(f"{temporary_prefix}remaining_bytes")
-    merge_emits = _vector_concat_merge_with_controls_emits(
-        left,
-        right,
-        result,
-        left_bytes=left_bytes,
-        remaining_bytes=remaining_bytes,
-        temporary_prefix=temporary_prefix,
-        result_type=result_type,
-    )
-    return (
-        EmitDescriptorOp(
-            descriptor=constant,
-            results={"dst": left_bytes},
-            result_types={"dst": DescriptorResultType()},
-            immediates={"i": left_byte_count},
-            form=DescriptorEmitForm.CONST,
-        ),
-        merge_emits[0],
-        EmitDescriptorOp(
-            descriptor=constant,
-            results={"dst": remaining_bytes},
-            result_types={"dst": DescriptorResultType()},
-            immediates={"i": remaining_byte_count},
-            form=DescriptorEmitForm.CONST,
-        ),
-        merge_emits[1],
-    )
-
-
 def _vector_concat_shift_rule(
     element_types: tuple[str, ...],
     element_byte_count: int,
@@ -1332,7 +1259,7 @@ def _vector_concat_shift_rule(
                 ),
             ),
         ),
-        emit=_vector_concat_merge_emits(
+        emit=concat_x_carriers_emits(
             left,
             right,
             ValueRef.result("result"),
@@ -1394,7 +1321,7 @@ def _vector_concat_narrow_left_wide_result_rule(
         ),
         emit=(
             *prepare_right,
-            *_vector_concat_merge_emits(
+            *concat_x_carriers_emits(
                 left,
                 right_low,
                 low,
@@ -1482,7 +1409,7 @@ def _vector_concat_wide_left_rule(
                 unit_offset=2,
                 unit_count=2,
             ),
-            *_vector_concat_merge_emits(
+            *concat_x_carriers_emits(
                 left_high,
                 right,
                 result_high,
@@ -1670,11 +1597,8 @@ AIE2P_STRUCTURAL_RULES = (
             ),
         )
     ),
+    *AIE2P_PREDICATE_CONCAT_RULES,
     *_ACCUMULATOR_CONCAT_RULES,
-    _register_concat_pair_rule(
-        Vector("i1", lanes=64),
-        _WIDE_PREDICATE_VECTOR,
-    ),
     *(
         _register_concat_pair_rule(input_type, result_type)
         for input_type, result_type in _WIDE_VECTOR_CONCAT_SPECS

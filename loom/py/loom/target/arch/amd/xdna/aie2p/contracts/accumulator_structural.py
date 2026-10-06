@@ -9,6 +9,9 @@
 from dataclasses import dataclass
 
 from loom.dialect.vector import defs as vector
+from loom.target.arch.amd.xdna.aie2p.contracts.carrier import (
+    concat_x_carriers_emits,
+)
 from loom.target.arch.amd.xdna.aie2p.core_descriptors import (
     AIE2P_CORE_DESCRIPTOR_SET,
 )
@@ -659,59 +662,6 @@ _ACCUMULATOR_BITCAST_TYPE_GROUPS = (
 )
 
 
-def _vector_concat_merge_emits(
-    left: ValueRef,
-    right: ValueRef,
-    result: ValueRef,
-    *,
-    left_byte_count: ValueTypeProject,
-    remaining_byte_count: ValueTypeProject,
-    temporary_prefix: str = "",
-    result_type: DescriptorResultType | None = None,
-) -> tuple[ContractEmit, ...]:
-    """Joins the suffix-aligned left payload to the right carrier prefix."""
-
-    constant = _descriptor("amd.xdna.aie2p.constant.i32.mova")
-    shift = _descriptor("amd.xdna.aie2p.shift.bytes.x.configured")
-    left_bytes = ValueRef.temporary(f"{temporary_prefix}left_bytes")
-    rotated_left = ValueRef.temporary(f"{temporary_prefix}rotated_left")
-    remaining_bytes = ValueRef.temporary(f"{temporary_prefix}remaining_bytes")
-    return (
-        EmitDescriptorOp(
-            descriptor=constant,
-            results={"dst": left_bytes},
-            result_types={"dst": DescriptorResultType()},
-            immediates={"i": left_byte_count},
-            form=DescriptorEmitForm.CONST,
-        ),
-        EmitDescriptorOp(
-            descriptor=shift,
-            operands={"s1": left, "s2": left, "shift": left_bytes},
-            results={"d": rotated_left},
-            result_types={"d": DescriptorResultType()},
-            form=DescriptorEmitForm.OP,
-        ),
-        EmitDescriptorOp(
-            descriptor=constant,
-            results={"dst": remaining_bytes},
-            result_types={"dst": DescriptorResultType()},
-            immediates={"i": remaining_byte_count},
-            form=DescriptorEmitForm.CONST,
-        ),
-        EmitDescriptorOp(
-            descriptor=shift,
-            operands={
-                "s1": rotated_left,
-                "s2": right,
-                "shift": remaining_bytes,
-            },
-            results={"d": result},
-            result_types=({"d": result_type} if result_type is not None else None),
-            form=DescriptorEmitForm.OP,
-        ),
-    )
-
-
 def _accumulator_concat_x_packet(
     shape: _AccumulatorConcatOperandShape,
     input_index: int,
@@ -923,7 +873,7 @@ def _accumulator_concat_rule(
         merged_packets = [ValueRef.temporary(f"result_packet_{first_packet_index}")]
         temporary_prefix = "accumulator_boundary_"
         emits.extend(
-            _vector_concat_merge_emits(
+            concat_x_carriers_emits(
                 left_tail,
                 right_packets[0],
                 merged_packets[0],
