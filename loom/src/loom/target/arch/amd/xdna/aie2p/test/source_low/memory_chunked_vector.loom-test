@@ -284,17 +284,13 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_bf16_dyn
   %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
   %18 = mov.address-index %base
   %19 = vlda.512.bf16x32.index %source, %18
-  %20 = mov.static-byte-offset 64
-  %21 = add.rr %base, %20
-  %22 = mov.address-index %21
-  %23 = vlda.512.bf16x32.index %source, %22
-  %value = concat(%19, %23) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
-  %25 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  vst.512.bf16x32.index %25, %destination, %18
-  %27 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %29 = add.rr %base, %20
-  %30 = mov.address-index %29
-  vst.512.bf16x32.index %27, %destination, %30
+  %20 = add.address-index.immediate %base, 64
+  %21 = vlda.512.bf16x32.index %source, %20
+  %value = concat(%19, %21) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %23 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32.index %23, %destination, %18
+  %25 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32.index %25, %destination, %20
   return %value
 }
 
@@ -320,17 +316,13 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_bf16_dyn
   %origin = sub %base, %prefix
   %22 = mov.address-index %origin
   %23 = vlda.512.bf16x32.index %source, %22
-  %24 = mov.static-byte-offset 64
-  %25 = add.rr %origin, %24
-  %26 = mov.address-index %25
-  %27 = vlda.512.bf16x32.index %source, %26
-  %value = concat(%23, %27) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
-  %29 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  vst.512.bf16x32.index %29, %destination, %22
-  %31 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %33 = add.rr %origin, %24
-  %34 = mov.address-index %33
-  vst.512.bf16x32.index %31, %destination, %34
+  %24 = add.address-index.immediate %origin, 64
+  %25 = vlda.512.bf16x32.index %source, %24
+  %value = concat(%23, %25) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %27 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32.index %27, %destination, %22
+  %29 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32.index %29, %destination, %24
   return %value
 }
 
@@ -353,22 +345,16 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_bf16_dyn
   %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
   %20 = mov.static-byte-offset 448
-  %21 = add.rr %base, %20
-  %22 = mov.address-index %21
-  %23 = vlda.512.bf16x32.index %source, %22
-  %24 = mov.static-byte-offset 512
-  %25 = add.rr %base, %24
-  %26 = mov.address-index %25
-  %27 = vlda.512.bf16x32.index %source, %26
-  %value = concat(%23, %27) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
-  %29 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %31 = add.rr %base, %20
-  %32 = mov.address-index %31
-  vst.512.bf16x32.index %29, %destination, %32
-  %33 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %35 = add.rr %base, %24
-  %36 = mov.address-index %35
-  vst.512.bf16x32.index %33, %destination, %36
+  %21 = add.address-index %base, %20
+  %22 = vlda.512.bf16x32.index %source, %21
+  %23 = mov.static-byte-offset 512
+  %24 = add.address-index %base, %23
+  %25 = vlda.512.bf16x32.index %source, %24
+  %value = concat(%22, %25) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %27 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32.index %27, %destination, %21
+  %30 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32.index %30, %destination, %24
   return %value
 }
 
@@ -483,4 +469,75 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_f64_1024
   %20 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
   vst.512.f64x8 %20, %destination, 64
   return %value
+}
+
+// ====
+
+// The two ordinary-vector chunks have effective byte biases 64 and 128.
+func.def @exchange_bf16_biased_chunks(%input: buffer, %output: buffer, %byte_offset: offset, %replacement: vector<64xbf16>) -> (vector<64xbf16>) {
+  %base = index.assume %byte_offset [range(%byte_offset, 64, 4096), mul(%byte_offset, 64)] : offset
+  %payload_prefix = index.constant 64 : offset
+  %origin = index.add %base, %payload_prefix : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%origin] : buffer -> view<64xbf16>
+  %destination = buffer.view %destination_aligned[%origin] : buffer -> view<64xbf16>
+  %previous = vector.load %source[0] : view<64xbf16> -> vector<64xbf16>
+  vector.store %replacement, %destination[0] : vector<64xbf16>, view<64xbf16>
+  func.return %previous : vector<64xbf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_bf16_biased_chunks(%base: reg<aie2p.er>, %replacement: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %20 = add.address-index.immediate %base, 64
+  %21 = vlda.512.bf16x32.index %source, %20
+  %22 = mov.static-byte-offset 128
+  %23 = add.address-index %base, %22
+  %24 = vlda.512.bf16x32.index %source, %23
+  %previous = concat(%21, %24) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %26 = slice %replacement[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32.index %26, %destination, %20
+  %28 = slice %replacement[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  vst.512.bf16x32.index %28, %destination, %23
+  return %previous
+}
+
+// ====
+
+// Zero authored bias still needs additions for the later accumulator chunks.
+func.def @exchange_f32_zero_bias_chunks(%input: buffer, %output: buffer, %byte_offset: offset, %replacement: vector<64xf32>) -> (vector<64xf32>) {
+  %base = index.assume %byte_offset [range(%byte_offset, 64, 4096), mul(%byte_offset, 64)] : offset
+  %source_aligned, %destination_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %source = buffer.view %source_aligned[%base] : buffer -> view<64xf32>
+  %destination = buffer.view %destination_aligned[%base] : buffer -> view<64xf32>
+  %previous = vector.load %source[0] : view<64xf32> -> vector<64xf32>
+  vector.store %replacement, %destination[0] : vector<64xf32>, view<64xf32>
+  func.return %previous : vector<64xf32>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_f32_zero_bias_chunks(%base: reg<aie2p.er>, %replacement: reg<aie2p.mbms x4>) -> (reg<aie2p.mbms x4>) asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %destination = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %16 = mov.address-index %base
+  %17 = vlda.acc.index %source, %16
+  %18 = add.address-index.immediate %base, 64
+  %19 = vlda.acc.index %source, %18
+  %20 = mov.static-byte-offset 128
+  %21 = add.address-index %base, %20
+  %22 = vlda.acc.index %source, %21
+  %23 = mov.static-byte-offset 192
+  %24 = add.address-index %base, %23
+  %25 = vlda.acc.index %source, %24
+  %previous = concat(%17, %19, %22, %25) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %27 = slice %replacement[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  vst.acc.index %27, %destination, %16
+  %29 = slice %replacement[1] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  vst.acc.index %29, %destination, %18
+  %31 = slice %replacement[2] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  vst.acc.index %31, %destination, %21
+  %34 = slice %replacement[3] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  vst.acc.index %34, %destination, %24
+  return %previous
 }

@@ -92,11 +92,8 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_signed_p
   %view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %26 = mov.i32 2
   %27 = lshl %bounded_position, %26
-  %28 = add %27, 16
-  %29 = mov.address-index %28
-  %previous = lda.i32.index %view, %29
-  %33 = add %27, 16
-  %34 = mov.address-index %33
-  st.i32.index %replacement, %view, %34
+  %28 = add.address-index.immediate %27, 16
+  %previous = lda.i32.index %view, %28
+  st.i32.index %replacement, %view, %28
   return %previous
 }

@@ -20,11 +20,57 @@ from loom.target.arch.amd.xdna.aie2p.core_descriptors import (
 from loom.target.low_descriptors import (
     Constraint,
     ConstraintKind,
+    DescriptorFlag,
     EffectFlag,
     EffectKind,
+    ImmediateKind,
     MemorySpace,
     OperandFlag,
 )
+
+
+def test_address_add_forms_write_rematerializable_indices_without_carry() -> None:
+    descriptors = {
+        descriptor.key: descriptor
+        for descriptor in AIE2P_CORE_DESCRIPTOR_SET.descriptors
+    }
+    specifications = {spec.key: spec for spec in _DESCRIPTOR_SPECS}
+    for addressing, form, mnemonic, inputs in (
+        ("register", "ADD_NC_mv_add_rr", "add.address-index", ("s0", "s1")),
+        ("immediate", "ADD_NC_mv_add_ri", "add.address-index.immediate", ("s0",)),
+    ):
+        key = f"amd.xdna.aie2p.address.index.add.{addressing}"
+        descriptor = descriptors[key]
+        specification = specifications[key]
+        assert specification.form_name == form
+        assert specification.itinerary == f"II_{form}_eDJ"
+        assert [
+            (operand.field_name, operand.reg_alts[0].reg_class)
+            for operand in descriptor.operands
+        ] == [
+            ("dst", "aie2p.edj"),
+            *((name, "aie2p.er") for name in inputs),
+        ]
+        assert not descriptor.effects
+        assert all(
+            OperandFlag.IMPLICIT not in operand.flags for operand in descriptor.operands
+        )
+        assert DescriptorFlag.SAFE_TO_SPECULATE in descriptor.flags
+        assert Constraint(ConstraintKind.REMATERIALIZABLE, 0) in descriptor.constraints
+        assert descriptor.asm_forms[0].mnemonic == mnemonic
+        assert descriptor.asm_forms[0].results == ("dst",)
+        assert descriptor.asm_forms[0].operands == inputs
+        if addressing == "immediate":
+            assert len(descriptor.immediates) == 1
+            immediate = descriptor.immediates[0]
+            assert immediate.field_name == "imm"
+            assert immediate.kind is ImmediateKind.SIGNED
+            assert immediate.bit_width == 8
+            assert immediate.signed_min == -128
+            assert immediate.unsigned_max == 127
+            assert immediate.value_step == 1
+        else:
+            assert not descriptor.immediates
 
 
 def test_lookup_loads_preserve_address_vectors_and_memory_effects() -> None:

@@ -30,43 +30,34 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @uniform_table(%po
   %117 = lshl %position_bounded, %116
   %118 = mov.address-index %117
   %119 = lda.i8.index %source_view, %118
-  %122 = add %117, 1
-  %123 = mov.address-index %122
-  %124 = lda.i8.index %source_view, %123
-  %127 = add %117, 2
-  %128 = mov.address-index %127
-  %129 = lda.i8.index %source_view, %128
-  %132 = add %117, 3
-  %133 = mov.address-index %132
-  %134 = lda.i8.index %source_view, %133
-  %135 = mov.short 0
-  %136 = vbcst.8 %135
-  %137 = slice %136[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
-  %138 = vlda.128.i8x16 %table_view, 0
-  %table = concat(%138, %137) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
-  %140 = mov.short 15
-  %141 = and %119, %140
+  %122 = add.address-index.immediate %117, 1
+  %123 = lda.i8.index %source_view, %122
+  %126 = add.address-index.immediate %117, 2
+  %127 = lda.i8.index %source_view, %126
+  %130 = add.address-index.immediate %117, 3
+  %131 = lda.i8.index %source_view, %130
+  %132 = mov.short 0
+  %133 = vbcst.8 %132
+  %134 = slice %133[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %135 = vlda.128.i8x16 %table_view, 0
+  %table = concat(%135, %134) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %137 = mov.short 15
+  %138 = and %119, %137
+  %139 = extend.s8 %138
+  %140 = vextract.8.reg %table, %139
+  %141 = and %123, %137
   %142 = extend.s8 %141
   %143 = vextract.8.reg %table, %142
-  %144 = and %124, %140
+  %144 = and %127, %137
   %145 = extend.s8 %144
   %146 = vextract.8.reg %table, %145
-  %147 = and %129, %140
+  %147 = and %131, %137
   %148 = extend.s8 %147
   %149 = vextract.8.reg %table, %148
-  %150 = and %134, %140
-  %151 = extend.s8 %150
-  %152 = vextract.8.reg %table, %151
-  st.i8.index %143, %output_view, %118
-  %158 = add %117, 1
-  %159 = mov.address-index %158
-  st.i8.index %146, %output_view, %159
-  %162 = add %117, 2
-  %163 = mov.address-index %162
-  st.i8.index %149, %output_view, %163
-  %166 = add %117, 3
-  %167 = mov.address-index %166
-  st.i8.index %152, %output_view, %167
+  st.i8.index %140, %output_view, %118
+  st.i8.index %143, %output_view, %122
+  st.i8.index %146, %output_view, %126
+  st.i8.index %149, %output_view, %130
   return
 }
 

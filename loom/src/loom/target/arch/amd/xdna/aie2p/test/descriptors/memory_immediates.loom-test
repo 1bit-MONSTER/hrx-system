@@ -1,3 +1,31 @@
+// Address additions write the DJ projection directly and accept signed bytes.
+// RUN: verify
+
+low.func.def target<amd.xdna.aie2p.core> @index_add_bounds(%origin: reg<aie2p.er>, %bias: reg<aie2p.er>) -> (reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>) asm {
+  %lower = add.address-index.immediate %origin, -128
+  %upper = add.address-index.immediate %origin, 127
+  %dynamic = add.address-index %origin, %bias
+  return %lower, %upper, %dynamic
+}
+
+// ====
+
+low.func.def target<amd.xdna.aie2p.core> @index_add_underflow(%origin: reg<aie2p.er>) asm {
+  // ERROR@+1: STRUCTURE/014 "imm" "-129"
+  %unused = add.address-index.immediate %origin, -129
+  return
+}
+
+// ====
+
+low.func.def target<amd.xdna.aie2p.core> @index_add_overflow(%origin: reg<aie2p.er>) asm {
+  // ERROR@+1: STRUCTURE/014 "imm" "128"
+  %unused = add.address-index.immediate %origin, 128
+  return
+}
+
+// ====
+
 // Accumulator loads use signed 10-bit byte offsets aligned to 64 bytes.
 // RUN: verify
 

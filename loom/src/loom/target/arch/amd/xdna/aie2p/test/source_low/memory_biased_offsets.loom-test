@@ -17,12 +17,9 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_biased_w
   %view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %14 = mov.i32 2
   %15 = lshl %signed_position, %14
-  %16 = add %15, 16
-  %17 = mov.address-index %16
-  %previous = lda.i32.index %view, %17
-  %21 = add %15, 16
-  %22 = mov.address-index %21
-  st.i32.index %replacement, %view, %22
+  %16 = add.address-index.immediate %15, 16
+  %previous = lda.i32.index %view, %16
+  st.i32.index %replacement, %view, %16
   return %previous
 }
 
@@ -44,12 +41,9 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @exchange_nonnegat
   %view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %14 = mov.i32 2
   %15 = lshl %bounded_position, %14
-  %16 = add %15, 16
-  %17 = mov.address-index %16
-  %previous = lda.i32.index %view, %17
-  %21 = add %15, 16
-  %22 = mov.address-index %21
-  st.i32.index %replacement, %view, %22
+  %16 = add.address-index.immediate %15, 16
+  %previous = lda.i32.index %view, %16
+  st.i32.index %replacement, %view, %16
   return %previous
 }
 
@@ -73,30 +67,18 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @copy_biased_vecto
   %destination_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
   %56 = mov.i32 2
   %57 = lshl %signed_position, %56
-  %58 = add %57, 16
-  %59 = mov.address-index %58
-  %60 = lda.i32.index %source_view, %59
-  %63 = add %57, 20
-  %64 = mov.address-index %63
-  %65 = lda.i32.index %source_view, %64
-  %68 = add %57, 24
-  %69 = mov.address-index %68
-  %70 = lda.i32.index %source_view, %69
-  %73 = add %57, 28
-  %74 = mov.address-index %73
-  %75 = lda.i32.index %source_view, %74
-  %78 = add %57, 16
-  %79 = mov.address-index %78
-  st.i32.index %60, %destination_view, %79
-  %82 = add %57, 20
-  %83 = mov.address-index %82
-  st.i32.index %65, %destination_view, %83
-  %86 = add %57, 24
-  %87 = mov.address-index %86
-  st.i32.index %70, %destination_view, %87
-  %90 = add %57, 28
-  %91 = mov.address-index %90
-  st.i32.index %75, %destination_view, %91
+  %58 = add.address-index.immediate %57, 16
+  %59 = lda.i32.index %source_view, %58
+  %62 = add.address-index.immediate %57, 20
+  %63 = lda.i32.index %source_view, %62
+  %66 = add.address-index.immediate %57, 24
+  %67 = lda.i32.index %source_view, %66
+  %70 = add.address-index.immediate %57, 28
+  %71 = lda.i32.index %source_view, %70
+  st.i32.index %59, %destination_view, %58
+  st.i32.index %63, %destination_view, %62
+  st.i32.index %67, %destination_view, %66
+  st.i32.index %71, %destination_view, %70
   return
 }
 

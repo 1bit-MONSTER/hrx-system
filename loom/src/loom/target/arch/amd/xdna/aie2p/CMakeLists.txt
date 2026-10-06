@@ -712,6 +712,7 @@ loom_check_test_suite(
     "test/source_low/matrix_multiply.loom-test"
     "test/source_low/matrix_store.loom-test"
     "test/source_low/memory_access_flags.loom-test"
+    "test/source_low/memory_address_bias_boundaries.loom-test"
     "test/source_low/memory_biased_offsets.loom-test"
     "test/source_low/memory_chunked_vector.loom-test"
     "test/source_low/memory_float8.loom-test"
