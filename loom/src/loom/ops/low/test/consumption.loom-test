@@ -1,0 +1,195 @@
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @direct_reuse(%seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %changed = test.tied.any %seed
+  // ERROR@+1: DOMINANCE/002 {value_name="seed"}
+  return %seed
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @exclusive_structured_consumers(%condition: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %result = low.scf.if %condition -> (reg<test.i32>) {
+    %left = test.tied.any %seed
+    low.scf.yield %left : reg<test.i32>
+  } else {
+    %right = test.tied.any %seed
+    low.scf.yield %right : reg<test.i32>
+  }
+  return %result
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @structured_outer_owner_reconsumed(%lower: reg<test.i32>, %upper: reg<test.i32>, %step: reg<test.i32>, %seed: reg<test.i32>) asm {
+  low.scf.for signed [%lower to %upper step %step] do(%iv: reg<test.i32>) {
+    // ERROR@+1: DOMINANCE/002 {value_name="seed"}
+    %changed = test.tied.any %seed
+  }
+  return
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @nested_consume_excludes_cfg_sibling(%condition: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  low.cond_br %condition, ^left, ^right : reg<test.i32>
+^left:
+  %result = low.scf.if %condition -> (reg<test.i32>) {
+    %changed = test.tied.any %seed
+    low.scf.yield %changed : reg<test.i32>
+  } else {
+    low.scf.yield %seed : reg<test.i32>
+  }
+  return %result
+^right:
+  return %seed
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @nested_consume_reaches_cfg_successor(%condition: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  low.scf.if %condition {
+    %changed = test.tied.any %seed
+  }
+  low.br ^observe
+^observe:
+  // ERROR@+1: DOMINANCE/002 {value_name="seed"}
+  return %seed
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @structured_recreated_capture(%lower: reg<test.i32>, %upper: reg<test.i32>, %step: reg<test.i32>, %seed: reg<test.i32>) asm {
+  low.scf.for signed [%lower to %upper step %step] do(%iv: reg<test.i32>) {
+    %owner = copy %seed : reg<test.i32> -> reg<test.i32>
+    %changed = test.tied.any %owner
+  }
+  return
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @structured_loop_carried_owner(%lower: reg<test.i32>, %upper: reg<test.i32>, %step: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %result = low.scf.for signed [%lower to %upper step %step] iter_args(%seed: reg<test.i32>) -> (reg<test.i32>) do(%iv: reg<test.i32>, %state: reg<test.i32>) {
+    %changed = test.tied.any %state
+    low.scf.yield %changed : reg<test.i32>
+  }
+  return %result
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @structured_nested_loop_capture(%lower: reg<test.i32>, %upper: reg<test.i32>, %step: reg<test.i32>, %seed: reg<test.i32>) asm {
+  low.scf.for signed [%lower to %upper step %step] do(%iv: reg<test.i32>) {
+    %owner = copy %seed : reg<test.i32> -> reg<test.i32>
+    low.scf.for signed [%lower to %upper step %step] do(%jv: reg<test.i32>) {
+      // ERROR@+1: DOMINANCE/002 {value_name="owner"}
+      %changed = test.tied.any %owner
+    }
+  }
+  return
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @while_carried_owners(%condition: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %result = low.scf.while(%before = %seed : reg<test.i32>) -> (reg<test.i32>) {
+    %forwarded = test.tied.any %before
+    low.scf.condition %condition, %forwarded : reg<test.i32>, reg<test.i32>
+  } do(%body: reg<test.i32>) {
+    %changed = move %body : reg<test.i32> -> reg<test.i32>
+    low.scf.yield %changed : reg<test.i32>
+  }
+  return %result
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @while_condition_captured_owner(%condition: reg<test.i32>, %seed: reg<test.i32>) asm {
+  low.scf.while {
+    // ERROR@+1: DOMINANCE/002 {value_name="seed"}
+    %changed = test.tied.any %seed
+    low.scf.condition %condition : reg<test.i32>
+  } do {
+    low.scf.yield
+  }
+  return
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @while_body_captured_owner(%condition: reg<test.i32>, %seed: reg<test.i32>) asm {
+  low.scf.while {
+    low.scf.condition %condition : reg<test.i32>
+  } do {
+    // ERROR@+1: DOMINANCE/002 {value_name="seed"}
+    %changed = move %seed : reg<test.i32> -> reg<test.i32>
+    low.scf.yield
+  }
+  return
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @nested_consumption_across_cfg_backedge(%condition: reg<test.i32>, %seed: reg<test.i32>) asm {
+  low.br ^loop
+^loop:
+  low.scf.if %condition {
+    // ERROR@+1: DOMINANCE/002 {value_name="seed"}
+    %changed = move %seed : reg<test.i32> -> reg<test.i32>
+  }
+  low.cond_br %condition, ^loop, ^exit : reg<test.i32>
+^exit:
+  return
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @nested_recreation_across_cfg_backedge(%condition: reg<test.i32>, %seed: reg<test.i32>) asm {
+  low.br ^loop
+^loop:
+  %owner = copy %seed : reg<test.i32> -> reg<test.i32>
+  low.scf.if %condition {
+    %changed = move %owner : reg<test.i32> -> reg<test.i32>
+  }
+  low.cond_br %condition, ^loop, ^exit : reg<test.i32>
+^exit:
+  return
+}

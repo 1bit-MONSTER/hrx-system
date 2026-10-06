@@ -1,0 +1,70 @@
+// A kernel exit body and the normal continuation are mutually exclusive.
+// RUN: verify
+kernel.def @exit_owner() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%done: i1, %resource: pool<16>) {
+  kernel.exit %done : i1 {
+    %moved = test.resource.move %resource : pool<16> -> pool<16>
+    test.resource.borrow %moved : pool<16>
+  }
+  test.resource.borrow %resource : pool<16>
+  kernel.return
+}
+
+// ====
+
+// An elementwise region repeats its capture but recreates each element arg.
+// RUN: verify
+func.def @map_captured_owner(%input: tile<4xf32>, %resource: pool<16>) -> (tile<4xf32>) {
+  %result = test.map(%element = %input : tile<4xf32>) {
+    // ERROR@+1: DOMINANCE/002 {value_name="resource"}
+    %moved = test.resource.move %resource : pool<16> -> pool<16>
+    test.resource.borrow %moved : pool<16>
+    test.yield %element : f32
+  } -> (tile<4xf32>)
+  func.return %result : tile<4xf32>
+}
+
+// ====
+
+// Each optional branch may consume the same captured owner.
+// RUN: verify
+func.def @optional_branch_owner(%condition: i1, %resource: pool<16>) {
+  test.optional_region %condition {
+    %left = test.resource.move %resource : pool<16> -> pool<16>
+    test.resource.borrow %left : pool<16>
+    test.yield
+  } else {
+    %right = test.resource.move %resource : pool<16> -> pool<16>
+    test.resource.borrow %right : pool<16>
+    test.yield
+  }
+  func.return
+}
+
+// ====
+// Numeric fact identity does not require shared physical ownership.
+// RUN: verify
+test.decl @consume_index(%input: index) -> (%input as index)
+
+test.func @independent_numeric_identity(%input: index) {
+  %identity = index.assume %input [] : index
+  %changed = test.invoke @consume_index(%input) : (index) -> (%input as index)
+  test.use %identity, %changed : index, index
+  test.yield
+}
+
+// ====
+// Managed aliases borrow the resource referent, not a physical register owner.
+// Moving the owning reference preserves the referent for both borrowed forms.
+// RUN: verify
+test.func @managed_referent_survives_move(%resource: pool<16>) {
+  %alias = test.resource.alias %resource : pool<16> -> pool<16>
+  %borrowed = test.resource.borrowed %resource : pool<16> -> pool<16>
+  %moved = test.resource.move %resource : pool<16> -> pool<16>
+  test.resource.borrow %alias : pool<16>
+  test.resource.borrow %borrowed : pool<16>
+  test.resource.borrow %moved : pool<16>
+  test.yield
+}

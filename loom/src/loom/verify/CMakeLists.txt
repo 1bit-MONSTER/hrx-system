@@ -15,6 +15,7 @@ loom_cc_library(
   HDRS
     "verify.h"
     "verify_constraints.h"
+    "verify_consumption.h"
     "verify_diagnostics.h"
     "verify_ownership.h"
     "verify_state.h"
@@ -23,6 +24,7 @@ loom_cc_library(
   SRCS
     "verify.c"
     "verify_constraints.c"
+    "verify_consumption.c"
     "verify_diagnostics.c"
     "verify_ownership.c"
     "verify_state.c"
@@ -31,8 +33,8 @@ loom_cc_library(
   DEPS
     iree::base
     iree::base::internal::arena
-    loom::analysis::consumption
     loom::analysis::ownership
+    loom::analysis::value_relation
     loom::error::diagnostic
     loom::error::emitter
     loom::error::error_defs
@@ -47,7 +49,25 @@ loom_cc_library(
     loom::util::adaptive_sort
     loom::util::cfg_dominance
     loom::util::cfg_graph
+    loom::util::segmented_storage
   PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    verify_consumption_test
+  SRCS
+    "verify_consumption_test.cc"
+  DEPS
+    ::verify
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::ir
+    loom::ops::low
+    loom::ops::test
+    loom::target::registers
+    loom::target::test::descriptors
+    loom::testing::diagnostic_matchers
 )
 
 loom_cc_test(

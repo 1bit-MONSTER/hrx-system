@@ -694,6 +694,19 @@ static inline loom_symbol_kind_t loom_symbol_bytecode_kind(
   return symbol->definition ? symbol->definition->bytecode_kind : symbol->kind;
 }
 
+// Dynamic execution of a region within one invocation of its owning op.
+enum loom_region_execution_e {
+  // Executes zero or one time, then may continue after the owning op.
+  LOOM_REGION_EXECUTION_ONCE = 0,
+  // May repeat without reentering the owning op. Each entry recreates local
+  // definitions, but captured values retain their original dynamic instance.
+  LOOM_REGION_EXECUTION_REPEATED = 1,
+  // Executing the region never continues after its owning op. For example,
+  // the body of a conditional kernel exit returns from the kernel instead.
+  LOOM_REGION_EXECUTION_EXIT = 2,
+};
+typedef uint8_t loom_region_execution_t;
+
 // Per-region metadata in the op vtable.
 typedef struct loom_region_descriptor_t {
   // Required explicit terminator kind, or LOOM_OP_KIND_UNKNOWN if any
@@ -707,6 +720,10 @@ typedef struct loom_region_descriptor_t {
 
   // Region structure flags such as single-block enforcement.
   loom_region_flags_t flags;
+
+  // Recurrence and continuation contract supplied by the region declaration
+  // or its owning control-flow interface.
+  loom_region_execution_t execution;
 } loom_region_descriptor_t;
 
 static_assert(sizeof(loom_region_descriptor_t) == 6,

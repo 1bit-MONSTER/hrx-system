@@ -20,6 +20,7 @@ loom_check_test_suite(
     "isolation.loom-test"
     "operand_dictionary.loom-test"
     "predicate_list.loom-test"
+    "region_consumption.loom-test"
     "type_visibility.loom-test"
     "unreachable_definitions.loom-test"
 )

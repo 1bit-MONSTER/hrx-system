@@ -242,23 +242,23 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @capture_before_partial_write(
   s_endpgm
 
 // ====
-// The untouched low half can be read through its original alias after a
-// high-half write. Register identity does not erase the partial-write mask.
+// A low-half read precedes ownership transfer in source. The disjoint high-half
+// write needs no save of the old value and adds no wait before the narrow read.
 // RUN: emit amdgpu-assembly @preserved_half_read strategy=source
 
 amdgpu.target<gfx1151> @target
 
 low.func.def target<amdgpu.rdna3_5.core>(@target) @preserved_half_read(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
   %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
-  %changed = ds_load_u16_d16_hi %alias, %address
   global_store_short_saddr %address, %seed, %output
+  %changed = ds_load_u16_d16_hi %alias, %address
   global_store_b32_saddr %address, %changed, %output {offset = 4}
   return
 }
 
 // ----
-  ds_load_u16_d16_hi v0, v1 offset:0
   global_store_short v1, v0, s[0:1] offset:0
+  ds_load_u16_d16_hi v0, v1 offset:0
   s_waitcnt vmcnt(63) lgkmcnt(0)
   global_store_b32 v1, v0, s[0:1] offset:4
   s_waitcnt_vscnt vscnt(0)
@@ -374,16 +374,16 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @optional_writer_after_alias_c
   s_endpgm
 
 // ====
-// A read of the preserved low half through an older name must precede a
-// later whole-register write through the partial-write result.
+// A read preceding consumption must still order a later whole-register write
+// through the partial-write result, even though the high-half write is disjoint.
 // RUN: emit amdgpu-assembly @preserved_half_before_full_write
 
 amdgpu.target<gfx1151> @target
 
 low.func.def target<amdgpu.rdna3_5.core>(@target) @preserved_half_before_full_write(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
   %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
-  %partial = ds_load_u16_d16_hi %alias, %address
   %old_low = v_cvt_f32_f16 %seed
+  %partial = ds_load_u16_d16_hi %alias, %address
   %changed = v_fmac_f32 %partial, %factor, %factor
   low.br ^exit(%old_low: reg<amdgpu.vgpr>)
 ^exit(%saved: reg<amdgpu.vgpr>):
@@ -412,8 +412,8 @@ amdgpu.target<gfx1151> @target
 
 low.func.def target<amdgpu.rdna3_5.core>(@target) @preserved_half_write_dependency(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
   %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
-  %partial = ds_load_u16_d16_hi %alias, %address
   %old_low = v_cvt_f32_f16 %seed
+  %partial = ds_load_u16_d16_hi %alias, %address
   %changed = v_fmac_f32 %partial, %factor, %factor
   low.br ^exit(%old_low: reg<amdgpu.vgpr>)
 ^exit(%saved: reg<amdgpu.vgpr>):
@@ -424,3 +424,31 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @preserved_half_write_dependen
 
 // ----
 node 3 <- 1, 2
+
+// ====
+// A partial write consumes the whole old SSA owner, even when a later read
+// would happen to observe preserved bits. The result names the new owner.
+// RUN: verify
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @partial_write_consumes_original(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = ds_load_u16_d16_hi %seed, %address
+  // ERROR@+1: DOMINANCE/002 {value_name="seed"}
+  global_store_short_saddr %address, %seed, %output
+  return
+}
+
+// ====
+// Introducing a required alias cannot relax the same linear SSA contract.
+// RUN: verify
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @partial_write_consumes_alias_owner(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %changed = ds_load_u16_d16_hi %alias, %address
+  // ERROR@+1: DOMINANCE/002 {value_name="seed"}
+  global_store_short_saddr %address, %seed, %output
+  return
+}

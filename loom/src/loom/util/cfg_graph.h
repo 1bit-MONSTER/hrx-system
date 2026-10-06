@@ -79,6 +79,9 @@ typedef struct loom_cfg_block_info_t {
   iree_host_size_t predecessor_edge_start;
   // True when the block is reachable from the region entry block.
   bool reachable;
+  // True when an entry-reachable block can reach a block without successors.
+  // Retained during component construction; false for unreachable blocks.
+  bool can_reach_exit;
   // Entry-rooted DFS preorder, or UINT16_MAX for an unreachable block.
   uint16_t preorder;
   // Dense DFS-tree parent index, or UINT16_MAX for the entry/unreachable
