@@ -1,10 +1,23 @@
 diff --git a/cc/private/toolchain/BUILD.windows.tpl b/cc/private/toolchain/BUILD.windows.tpl
 --- a/cc/private/toolchain/BUILD.windows.tpl
 +++ b/cc/private/toolchain/BUILD.windows.tpl
-@@ -57,6 +57,26 @@
+@@ -57,6 +57,39 @@
  filegroup(
      name = "clangcl_compiler_files",
      srcs = [":builtin_include_directory_paths_clangcl"]
++)
++
++filegroup(
++    name = "clangcl_x64_linker_files",
++    srcs = ["clang_rt.builtins-x86_64.lib"],
++)
++
++filegroup(
++    name = "clangcl_x64_all_files",
++    srcs = [
++        ":clangcl_compiler_files",
++        ":clangcl_x64_linker_files",
++    ],
 +)
 +
 +filegroup(
@@ -28,6 +41,33 @@ diff --git a/cc/private/toolchain/BUILD.windows.tpl b/cc/private/toolchain/BUILD
  )
 
  filegroup(
+@@ -601,12 +634,12 @@
+     name = "cc-compiler-x64_windows-clang-cl",
+     toolchain_identifier = "clang_cl_x64",
+     toolchain_config = ":clang_cl_x64",
+-    all_files = ":empty",
++    all_files = ":clangcl_x64_all_files",
+     ar_files = ":empty",
+     as_files = ":clangcl_compiler_files",
+     compiler_files = ":clangcl_compiler_files",
+     dwp_files = ":empty",
+-    linker_files = ":empty",
++    linker_files = ":clangcl_x64_linker_files",
+     objcopy_files = ":empty",
+     strip_files = ":empty",
+     supports_param_files = 1,
+@@ -644,7 +677,10 @@
+         "strip": "wrapper/bin/msvc_nop.bat",
+     },
+     archiver_flags = ["/MACHINE:X64"],
+-    default_link_flags = ["/MACHINE:X64"],
++    default_link_flags = [
++        "/MACHINE:X64",
++        "/DEFAULTLIB:clang_rt.builtins-x86_64.lib",
++    ],
+     dbg_mode_debug_flag = "%{clang_cl_dbg_mode_debug_flag_x64}",
+     fastbuild_mode_debug_flag = "%{clang_cl_fastbuild_mode_debug_flag_x64}",
+     supports_parse_showincludes = %{clang_cl_parse_showincludes_x64},
 diff --git a/cc/private/toolchain/windows_cc_configure.bzl b/cc/private/toolchain/windows_cc_configure.bzl
 --- a/cc/private/toolchain/windows_cc_configure.bzl
 +++ b/cc/private/toolchain/windows_cc_configure.bzl
@@ -54,7 +94,7 @@ diff --git a/cc/private/toolchain/windows_cc_configure.bzl b/cc/private/toolchai
 
      escaped_cxx_include_directories = []
      for path in escaped_include_paths.split(";"):
-@@ -819,9 +835,21 @@
+@@ -819,9 +835,26 @@
      clang_version = _get_clang_version(repository_ctx, clang_cl_path)
      clang_dir = _get_clang_dir(repository_ctx, llvm_path, clang_version)
      clang_include_path = (clang_dir + "\\include").replace("\\", "\\\\")
@@ -63,6 +103,11 @@ diff --git a/cc/private/toolchain/windows_cc_configure.bzl b/cc/private/toolchai
 
 -    clang_cl_include_directories = msvc_vars["%{msvc_cxx_builtin_include_directories_" + target_arch + "}"] + (",\n        \"%s\"" % clang_include_path)
 +    if target_arch == "x64":
++        builtins_name = "clang_rt.builtins-x86_64.lib"
++        builtins_path = repository_ctx.path(clang_dir + "\\lib\\windows\\" + builtins_name)
++        if not builtins_path.exists:
++            auto_configure_fail("Clang installation is missing the x86-64 Windows compiler runtime: %s" % builtins_path)
++        repository_ctx.symlink(builtins_path, builtins_name)
 +        for runtime_file in [
 +            "clang_rt.asan_dynamic-x86_64.dll",
 +            "clang_rt.asan_dynamic-x86_64.lib",

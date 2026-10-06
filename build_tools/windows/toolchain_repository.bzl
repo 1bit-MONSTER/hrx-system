@@ -84,6 +84,11 @@ def _windows_toolchain_repository_impl(repository_ctx):
         fail("Could not query LLVM resource directory:\n" + resource_result.stderr)
     resource_root = _required_path(repository_ctx, resource_result.stdout.strip())
     _project(repository_ctx, resource_root.get_child("include"), "resource/include")
+    _project(
+        repository_ctx,
+        resource_root.get_child("lib", "windows", "clang_rt.builtins-x86_64.lib"),
+        "runtime/clang_rt.builtins-x86_64.lib",
+    )
 
     runtime_root = repository_ctx.getenv("WINDOWS_COMPILER_RT_ROOT")
     if runtime_root:

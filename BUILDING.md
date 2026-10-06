@@ -114,9 +114,12 @@ selected Linux LLVM installation.
 
 #### Cross-compilation from Linux
 
-Provide a Linux LLVM installation and a Windows SDK/MSVC sysroot. The Bazel
-repository reads `LLVM_ROOT` and `WINSDK_ROOT` from the environment or explicit
-`--repo_env` options; acquisition is independent of the build configuration.
+Provide a Linux LLVM installation with the x86-64 Windows compiler runtime and
+a Windows SDK/MSVC sysroot. The LLVM resource directory must contain
+`lib/windows/clang_rt.builtins-x86_64.lib`; the compiler can emit calls to
+these helpers for ordinary C and C++ operations. The Bazel repository reads
+`LLVM_ROOT` and `WINSDK_ROOT` from the environment or explicit `--repo_env`
+options; acquisition is independent of the build configuration.
 For example, [xwin](https://github.com/Jake-Shadle/xwin) can prepare a sysroot
 with the required versioned MSVC/Windows Kits layout and case-correction
 symlinks:
