@@ -41,9 +41,9 @@ TEST_F(FunctionsTest, RootsQueueEachConcreteHelperOnceWithPrivateVisibility) {
   Types types(source.unit(), source.diagnostics());
   Locations locations(source.unit(), source.diagnostics(), module_);
   SymbolNames names(source.unit(), source.diagnostics());
-  Intrinsics intrinsics(source.unit(), source.diagnostics(), types, locations,
-                        names, module_);
   LaunchContracts launches(source.unit(), source.diagnostics());
+  Intrinsics intrinsics(source.unit(), source.diagnostics(), types, locations,
+                        names, launches, module_);
   Scalars scalars(source.unit(), source.diagnostics(), types, locations,
                   builder_);
   Configs configs(source.unit(), source.diagnostics(), types, scalars,
@@ -89,9 +89,9 @@ TEST_F(FunctionsTest,
   Types types(source.unit(), source.diagnostics());
   Locations locations(source.unit(), source.diagnostics(), module_);
   SymbolNames names(source.unit(), source.diagnostics());
-  Intrinsics intrinsics(source.unit(), source.diagnostics(), types, locations,
-                        names, module_);
   LaunchContracts launches(source.unit(), source.diagnostics());
+  Intrinsics intrinsics(source.unit(), source.diagnostics(), types, locations,
+                        names, launches, module_);
   Scalars scalars(source.unit(), source.diagnostics(), types, locations,
                   builder_);
   Configs configs(source.unit(), source.diagnostics(), types, scalars,

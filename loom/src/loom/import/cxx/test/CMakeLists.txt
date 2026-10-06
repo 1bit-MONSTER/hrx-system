@@ -1318,6 +1318,15 @@ loom_test_module(
 endif()
 
 if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    workload_configuration_module
+  SRCS
+    "workload_configuration.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
 loom_generated_file_family(
   NAME
     aiter_swiglu_f16_checks_gen

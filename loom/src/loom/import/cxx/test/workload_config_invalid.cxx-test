@@ -177,3 +177,102 @@ unsigned call_configuration() {
   // ERROR@+1: LOWERING/059 "kernel configuration functions are owned by their kernels and cannot be selected or called"
   return configure(1).workgroup_count.x;
 }
+
+// ====
+// Configured check launches spell workloads separately from device arguments.
+#include <loomcxx/check.h>
+#include <loomcxx/kernel.h>
+
+static loom::launch_config configure(unsigned count) {
+  return {{count, 1, 1}, {1, 1, 1}};
+}
+[[loom::kernel(configure)]] void configured() {}
+LOOM_CHECK_CASE(missing_workload) {
+  // ERROR@+1: LOWERING/059 "configured kernel launches require loom::workload(...) before the kernel arguments"
+  loom::check::launch<configured>();
+}
+
+// ====
+#include <loomcxx/check.h>
+#include <loomcxx/kernel.h>
+
+[[loom::kernel, loom::workgroup_count(1, 1, 1),
+  loom::workgroup_size(1, 1, 1)]] void fixed() {}
+LOOM_CHECK_CASE(unexpected_workload) {
+  // ERROR@+1: LOWERING/059 "loom::workload(...) requires a kernel configuration with workload parameters"
+  loom::check::launch<fixed>(loom::workload(1u));
+}
+
+// ====
+#include <loomcxx/check.h>
+#include <loomcxx/kernel.h>
+
+static loom::launch_config configure(unsigned rows, unsigned columns) {
+  return {{rows * columns, 1, 1}, {1, 1, 1}};
+}
+[[loom::kernel(configure)]] void configured() {}
+LOOM_CHECK_CASE(wrong_workload_count) {
+  // ERROR@+1: LOWERING/059 "loom::workload arguments must match the kernel configuration signature"
+  loom::check::launch<configured>(loom::workload(1u));
+}
+
+// ====
+#include <loomcxx/check.h>
+#include <loomcxx/kernel.h>
+
+static loom::launch_config configure(unsigned count) {
+  return {{count, 1, 1}, {1, 1, 1}};
+}
+[[loom::kernel(configure)]] void configured() {}
+LOOM_CHECK_CASE(wrong_workload_type) {
+  loom::check::launch<configured>(loom::workload(
+      // ERROR@+1: LOWERING/059 "loom::workload argument types must match the kernel configuration parameters"
+      1));
+}
+
+// ====
+#include <loomcxx/check.h>
+#include <loomcxx/kernel.h>
+
+static loom::launch_config configure(unsigned count) {
+  return {{count, 1, 1}, {1, 1, 1}};
+}
+[[loom::kernel(configure)]] void configured() {}
+LOOM_CHECK_CASE(forged_workload) {
+  // ERROR@+1: LOWERING/059 "kernel workloads must use loom::workload(...) directly in the launch"
+  loom::check::launch<configured>(loom::workload_values<unsigned>{});
+}
+
+// ====
+// Iota periods are static positive element counts.
+#include <loomcxx/check.h>
+
+LOOM_CHECK_CASE(zero_iota_period) {
+  // ERROR@+1: LOWERING/059 "check iota period must be a positive i64 integer constant"
+  const auto values = loom::check::iota<int, 4>(0, 1, 0);
+  loom::check::expect_bitwise(values, values);
+}
+
+// ====
+#include <loomcxx/check.h>
+
+static __SIZE_TYPE__ runtime_period() { return 4; }
+LOOM_CHECK_CASE(dynamic_iota_period) {
+  // ERROR@+1: LOWERING/059 "check iota period must be a positive i64 integer constant"
+  const auto values = loom::check::iota<int, 4>(0, 1, runtime_period());
+  loom::check::expect_bitwise(values, values);
+}
+
+// ====
+// Iota generation owns a tensor result with matching literal payload types.
+#include <loomcxx/check.h>
+
+// ERROR@+1: LOWERING/059 "check operation requires a tensor handle"
+[[loom::op("check.generate.iota")]] int scalar_iota(int offset, int step);
+
+// ====
+#include <loomcxx/check.h>
+
+// ERROR@+1: LOWERING/059 "check.generate.iota offset and step must match the tensor element type, with an integer period"
+[[loom::op("check.generate.iota")]] loom::check::tensor<int, 4> mixed_iota(
+    float offset, int step);

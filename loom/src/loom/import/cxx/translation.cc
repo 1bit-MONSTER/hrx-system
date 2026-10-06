@@ -70,8 +70,9 @@ class Translator {
         configs_(unit, diagnostics, types_, scalars_, locations_, names_),
         vectors_(unit, diagnostics, types_, scalars_, locations_, builder_),
         storage_(unit, diagnostics, types_, scalars_, locations_, builder_),
-        intrinsics_(unit, diagnostics, types_, locations_, names_, module),
         launches_(unit, diagnostics),
+        intrinsics_(unit, diagnostics, types_, locations_, names_, launches_,
+                    module),
         functions_(unit, diagnostics, module, intrinsics_, launches_, configs_,
                    names_),
         options_(options),
@@ -2067,12 +2068,12 @@ class Translator {
   Vectors vectors_;
   // Memory representations retain declared array extents and access shape.
   Storage storage_;
+  // Admitted launch contracts, including bounds from function redeclarations.
+  LaunchContracts launches_;
   // Retained generated operation bindings for reached source declarations.
   Intrinsics intrinsics_;
   // Literal admission records one batch for source-boundary verification.
   AssemblyFragments assembly_fragments_;
-  // Admitted launch contracts, including bounds from function redeclarations.
-  LaunchContracts launches_;
   // Root selection, native definition contracts and reachable identities.
   Functions functions_;
   // Borrowed source configuration for this invocation.

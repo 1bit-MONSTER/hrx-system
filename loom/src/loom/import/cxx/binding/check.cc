@@ -6,9 +6,11 @@
 
 #include "loom/import/cxx/binding/check.h"
 
+#include <cxx/ast.h>
 #include <cxx/symbols.h>
 #include <cxx/types.h>
 
+#include "loom/import/cxx/binding/launch.h"
 #include "loom/import/cxx/source/attributes.h"
 
 namespace loom::cxx_import {
@@ -30,6 +32,11 @@ bool is_string_type(Types& types, const cxx::Type* type) {
                         cxx::TypeKind::kChar;
 }
 
+bool is_workload_type(Types& types, const cxx::Type* type) {
+  auto* record = cxx::type_cast<cxx::ClassType>(types.unqualified(type));
+  return record && annotated(record->definition(), "workload");
+}
+
 }  // namespace
 
 std::optional<CheckIntrinsic::Operation> CheckIntrinsic::parse_operation(
@@ -42,6 +49,9 @@ std::optional<CheckIntrinsic::Operation> CheckIntrinsic::parse_operation(
   }
   if (name == "check.generate.fill") {
     return Operation::Fill;
+  }
+  if (name == "check.generate.iota") {
+    return Operation::Iota;
   }
   if (name == "check.tensor.view") {
     return Operation::Slice;
@@ -63,8 +73,8 @@ std::optional<CheckIntrinsic::Operation> CheckIntrinsic::parse_operation(
 
 std::optional<CheckIntrinsic> CheckIntrinsic::resolve(
     cxx::TranslationUnit& unit, Diagnostics& diagnostics, Types& types,
-    cxx::FunctionSymbol* function, const cxx::Attribute& attribute,
-    cxx::AST* owner) {
+    LaunchContracts& launches, cxx::FunctionSymbol* function,
+    const cxx::Attribute& attribute, cxx::AST* owner) {
   auto operation = parse_operation(attribute.arguments[0]->name());
   if (!operation) {
     return std::nullopt;
@@ -101,6 +111,26 @@ std::optional<CheckIntrinsic> CheckIntrinsic::resolve(
       if (types.unqualified(parameters[0]) !=
           result.result_tensor->element_type) {
         fail("check.generate.fill payload must match its tensor element type");
+      }
+      break;
+    }
+    case Operation::Iota: {
+      if ((parameters.size() != 2 && parameters.size() != 3) || returns_void) {
+        fail(
+            "check.generate.iota requires offset, step, an optional period, "
+            "and a tensor result");
+      }
+      result.result_tensor = &require_tensor(unit, diagnostics, types,
+                                             signature->returnType(), owner);
+      if (types.unqualified(parameters[0]) !=
+              result.result_tensor->element_type ||
+          types.unqualified(parameters[1]) !=
+              result.result_tensor->element_type ||
+          (parameters.size() == 3 &&
+           !unit.typeTraits().is_integral(parameters[2]))) {
+        fail(
+            "check.generate.iota offset and step must match the tensor "
+            "element type, with an integer period");
       }
       break;
     }
@@ -190,18 +220,41 @@ std::optional<CheckIntrinsic> CheckIntrinsic::resolve(
           !annotated(result.kernel, "kernel")) {
         fail("kernel.launch requires a kernel as its first template argument");
       }
+      if (!result.kernel->templateArguments().empty() &&
+          result.kernel->declaration()) {
+        launches.declaration(result.kernel,
+                             result.kernel->declaration()->attributeList);
+      }
+      result.configuration = launches.configuration_function(result.kernel);
       auto* kernel_type =
           cxx::type_cast<cxx::FunctionType>(result.kernel->type());
       auto kernel_parameters = kernel_type->parameterTypes();
-      if (kernel_parameters.size() != parameters.size()) {
+      bool has_workload =
+          !parameters.empty() && is_workload_type(types, parameters[0]);
+      bool requires_workload =
+          result.configuration && !result.configuration->parameters().empty();
+      if (requires_workload && !has_workload) {
+        fail(
+            "configured kernel launches require loom::workload(...) before "
+            "the kernel arguments");
+      }
+      if (!requires_workload && has_workload) {
+        fail(
+            "loom::workload(...) requires a kernel configuration with "
+            "workload parameters");
+      }
+      size_t parameter_offset = has_workload ? 1 : 0;
+      if (kernel_parameters.size() + parameter_offset != parameters.size()) {
         fail("kernel.launch arguments must match the kernel signature");
       }
-      for (size_t index = 0; index < parameters.size(); ++index) {
+      for (size_t index = 0; index < kernel_parameters.size(); ++index) {
         auto expected = types.get(kernel_parameters[index], owner);
         if (loom_type_kind(expected) == LOOM_TYPE_BUFFER) {
-          require_tensor(unit, diagnostics, types, parameters[index], owner);
-        } else if (!loom_type_equal(expected,
-                                    types.get(parameters[index], owner))) {
+          require_tensor(unit, diagnostics, types,
+                         parameters[index + parameter_offset], owner);
+        } else if (!loom_type_equal(
+                       expected, types.get(parameters[index + parameter_offset],
+                                           owner))) {
           fail(
               "kernel.launch scalar arguments must match the kernel parameter "
               "types");
@@ -217,7 +270,8 @@ bool CheckIntrinsic::equivalent(const CheckIntrinsic& other) const {
   return operation == other.operation &&
          loom_type_equal(scalar_type, other.scalar_type) &&
          source_tensor == other.source_tensor &&
-         result_tensor == other.result_tensor && kernel == other.kernel;
+         result_tensor == other.result_tensor && kernel == other.kernel &&
+         configuration == other.configuration;
 }
 
 }  // namespace loom::cxx_import

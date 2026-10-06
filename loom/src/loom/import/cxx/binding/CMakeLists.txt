@@ -272,6 +272,7 @@ loom_cc_library(
   SRCS
     "check.cc"
   DEPS
+    ::launch
     iree::third_party::cxx_parser
     loom::import::cxx::source::attributes
     loom::import::cxx::value::types
@@ -347,6 +348,7 @@ loom_cc_library(
     ::decode
     ::encoding
     ::kernel
+    ::launch
     ::scalar_bindings
     ::shaped
     ::target

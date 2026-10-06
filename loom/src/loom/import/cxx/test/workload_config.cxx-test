@@ -49,6 +49,7 @@ kernel.def @transform(%item_count: i32, %row_count: i32) {
 
 // ====
 // A configuration function may be shared and merged across redeclarations.
+#include <loomcxx/check.h>
 #include <loomcxx/kernel.h>
 
 static loom::launch_config fixed_configuration() {
@@ -60,6 +61,11 @@ void first() {}
 
 [[loom::kernel(fixed_configuration)]] void second();
 [[loom::kernel(fixed_configuration)]] void second() {}
+
+LOOM_CHECK_CASE(fixed_configuration_case) {
+  loom::check::launch<first>();
+  loom::check::launch<second>();
+}
 
 // ----
 kernel.def @first() {
@@ -96,6 +102,12 @@ kernel.def @second() {
   kernel.launch.config workgroups(%18, %19, %20) workgroup_size(%21, %22, %23) : index
 } launch() {
   kernel.return
+}
+
+check.case public @fixed_configuration_case {
+  kernel.launch @first() : ()
+  kernel.launch @second() : ()
+  check.return
 }
 
 // ====
@@ -168,5 +180,158 @@ kernel.def @typed_workload(%row_count: i16, %item_count: i64) {
   %13 = index.cast %7 : i32 to index
   kernel.launch.config workgroups(%8, %9, %10) workgroup_size(%11, %12, %13) : index
 } launch() {
+  kernel.return
+}
+
+// ====
+// Check launches keep configuration workloads separate from device arguments.
+#include <loomcxx/check.h>
+#include <loomcxx/kernel.h>
+
+static loom::launch_config configure_copy(unsigned item_count) {
+  unsigned width = loom::target::subgroup_size();
+  return {{(item_count + width - 1) / width, 1, 1}, {width, 1, 1}};
+}
+
+[[loom::kernel(configure_copy)]] void configured_copy(unsigned item_count,
+                                                      const float* input,
+                                                      float* output) {
+  unsigned item =
+      loom::workgroup_id.x * loom::workgroup_size.x + loom::workitem_id.x;
+  if (item < item_count) {
+    output[item] = input[item];
+  }
+}
+
+LOOM_CHECK_CASE(configured_copy_case) {
+  const auto input = loom::check::iota<float, 67>(-1.0f, 0.25f, 8);
+  const auto output = loom::check::fill<float, 67>(0.0f);
+  loom::check::launch<configured_copy>(loom::workload(67u), 67u, input, output);
+  loom::check::expect_bitwise(output, input);
+}
+
+// ----
+kernel.def @configured_copy(%item_count: i32) {
+  %4 = target.subgroup.size : index
+  %width = index.cast %4 : index to i32
+  %6 = scalar.addi %item_count, %width : i32
+  %7 = scalar.constant 1 : i32
+  %8 = scalar.subi %6, %7 : i32
+  %9 = scalar.divui %8, %width : i32
+  %10 = scalar.constant 1 : i32
+  %11 = scalar.constant 1 : i32
+  %12 = scalar.constant 1 : i32
+  %13 = scalar.constant 1 : i32
+  %14 = index.cast %9 : i32 to index
+  %15 = index.cast %10 : i32 to index
+  %16 = index.cast %11 : i32 to index
+  %17 = index.cast %width : i32 to index
+  %18 = index.cast %12 : i32 to index
+  %19 = index.cast %13 : i32 to index
+  kernel.launch.config workgroups(%14, %15, %16) workgroup_size(%17, %18, %19) : index
+} launch(%item_count: i32, %input: buffer, %output: buffer) {
+  %input_byte_offset = index.constant 0 : offset
+  %output_byte_offset = index.constant 0 : offset
+  %workgroup_id_x = kernel.workgroup.id<x> : index
+  %23 = index.cast %workgroup_id_x : index to i32
+  %workgroup_size_x = kernel.workgroup.size<x> : index
+  %25 = index.cast %workgroup_size_x : index to i32
+  %26 = scalar.muli %23, %25 : i32
+  %workitem_id_x = kernel.workitem.id<x> : index
+  %28 = index.cast %workitem_id_x : index to i32
+  %item = scalar.addi %26, %28 : i32
+  %30 = scalar.cmpi ult, %item, %item_count : i32
+  scf.if %30 {
+    %31 = scalar.extui %item : i32 to i64
+    %32 = scalar.constant 4 : i64
+    %33 = scalar.muli %31, %32 : i64
+    %34 = index.cast %input_byte_offset : offset to i64
+    %35 = scalar.addi %34, %33 : i64
+    %36 = scalar.assume %35 [range(%35, 0, 9223372036854775807)] : i64
+    %37 = index.cast %36 : i64 to offset
+    %38 = buffer.view %input[%37] : buffer -> view<1xf32>
+    %39 = view.load %38[0] : view<1xf32> -> f32
+    %40 = scalar.extui %item : i32 to i64
+    %41 = scalar.constant 4 : i64
+    %42 = scalar.muli %40, %41 : i64
+    %43 = index.cast %output_byte_offset : offset to i64
+    %44 = scalar.addi %43, %42 : i64
+    %45 = scalar.assume %44 [range(%44, 0, 9223372036854775807)] : i64
+    %46 = index.cast %45 : i64 to offset
+    %47 = buffer.view %output[%46] : buffer -> view<1xf32>
+    view.store %39, %47[0] : f32, view<1xf32>
+  }
+  kernel.return
+}
+
+check.case public @configured_copy_case {
+  %input = check.generate.iota offset(-1.0) step(0.25) period(8) : tensor<67xf32>
+  %output = check.generate.fill value(0.0) : tensor<67xf32>
+  %50 = check.literal value(67) : i32
+  %51 = check.literal value(67) : i32
+  kernel.launch @configured_copy[%50](%51, %input, %output) : [i32](i32, tensor<67xf32>, tensor<67xf32>)
+  check.expect.bitwise actual(%output) expected(%input) : tensor<67xf32>
+  check.return
+}
+
+// ====
+// Kernel specializations retain their source-owned configuration contract.
+#include <loomcxx/check.h>
+#include <loomcxx/kernel.h>
+
+static loom::launch_config configure_specialization(unsigned item_count) {
+  return {{item_count, 1, 1}, {1, 1, 1}};
+}
+
+template <class T>
+[[loom::kernel(configure_specialization)]] void configured_template(
+    T* output) {
+  output[0] = T(42);
+}
+
+LOOM_CHECK_CASE(configured_template_case) {
+  const auto output = loom::check::fill<unsigned, 1>(0u);
+  loom::check::launch<configured_template<unsigned>>(loom::workload(1u),
+                                                      output);
+  loom::check::expect_bitwise(output,
+                              loom::check::fill<unsigned, 1>(42u));
+}
+
+// ----
+check.case public @configured_template_case {
+  %output = check.generate.fill value(0) : tensor<1xi32>
+  %1 = check.literal value(1) : i32
+  kernel.launch @configured_template_unsigned_int[%1](%output) : [i32](tensor<1xi32>)
+  %2 = check.generate.fill value(42) : tensor<1xi32>
+  check.expect.bitwise actual(%output) expected(%2) : tensor<1xi32>
+  check.return
+}
+
+kernel.def @configured_template_unsigned_int(%item_count: i32) {
+  %5 = scalar.constant 1 : i32
+  %6 = scalar.constant 1 : i32
+  %7 = scalar.constant 1 : i32
+  %8 = scalar.constant 1 : i32
+  %9 = scalar.constant 1 : i32
+  %10 = index.cast %item_count : i32 to index
+  %11 = index.cast %5 : i32 to index
+  %12 = index.cast %6 : i32 to index
+  %13 = index.cast %7 : i32 to index
+  %14 = index.cast %8 : i32 to index
+  %15 = index.cast %9 : i32 to index
+  kernel.launch.config workgroups(%10, %11, %12) workgroup_size(%13, %14, %15) : index
+} launch(%output: buffer) {
+  %output_byte_offset = index.constant 0 : offset
+  %17 = scalar.constant 42 : i32
+  %18 = scalar.constant 0 : i32
+  %19 = scalar.extsi %18 : i32 to i64
+  %20 = scalar.constant 4 : i64
+  %21 = scalar.muli %19, %20 : i64
+  %22 = index.cast %output_byte_offset : offset to i64
+  %23 = scalar.addi %22, %21 : i64
+  %24 = scalar.assume %23 [range(%23, 0, 9223372036854775807)] : i64
+  %25 = index.cast %24 : i64 to offset
+  %26 = buffer.view %output[%25] : buffer -> view<1xi32>
+  view.store %17, %26[0] : i32, view<1xi32>
   kernel.return
 }

@@ -472,6 +472,7 @@ loom_test_module(
         "packed_group_dot",
         "vector_lookup",
         "vector_math",
+        "workload_configuration",
     ]
 ]
 

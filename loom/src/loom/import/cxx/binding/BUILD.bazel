@@ -193,6 +193,7 @@ loom_cc_library(
     cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
     cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
     deps = [
+        ":launch",
         "//loom/src/loom/import/cxx/source:attributes",
         "//loom/src/loom/import/cxx/value:types",
         "//third_party:cxx_parser",
@@ -244,6 +245,7 @@ loom_cc_library(
         ":decode",
         ":encoding",
         ":kernel",
+        ":launch",
         ":scalar_bindings",
         ":shaped",
         ":target",

@@ -13,6 +13,8 @@
 #include <cxx/types.h>
 
 #include <cmath>
+#include <cstdint>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -157,6 +159,62 @@ class CheckBody {
     fail(source, "check attributes require pure scalar constants");
   }
 
+  cxx::CallExpressionAST* direct_call(cxx::ExpressionAST* source) {
+    if (auto* nested = cxx::ast_cast<cxx::NestedExpressionAST>(source)) {
+      return direct_call(nested->expression);
+    }
+    if (auto* initializer =
+            cxx::ast_cast<cxx::DefaultInitializerExpressionAST>(source)) {
+      return direct_call(initializer->expression);
+    }
+    if (auto* cast = cxx::ast_cast<cxx::ImplicitCastExpressionAST>(source)) {
+      if (!cast->conversionFunction) {
+        return direct_call(cast->expression);
+      }
+    }
+    return cxx::ast_cast<cxx::CallExpressionAST>(source);
+  }
+
+  void append_workloads(cxx::ExpressionAST* source,
+                        const CheckIntrinsic& binding,
+                        std::vector<loom_value_id_t>& workloads) {
+    auto* call = direct_call(source);
+    auto* function = call ? callee(call) : nullptr;
+    if (!function || !annotated(function, "workload")) {
+      fail(source,
+           "kernel workloads must use loom::workload(...) directly in the "
+           "launch");
+    }
+    auto parameters = binding.configuration->parameters();
+    auto* argument = call->expressionList;
+    for (auto* parameter : parameters) {
+      if (!argument) {
+        fail(source,
+             "loom::workload arguments must match the kernel configuration "
+             "signature");
+      }
+      if (types_.unqualified(argument->value->type) !=
+          types_.unqualified(parameter->type())) {
+        fail(argument->value,
+             "loom::workload argument types must match the kernel "
+             "configuration parameters");
+      }
+      auto value = expression(argument->value);
+      if (value.components().size() != 1 ||
+          loom_type_kind(loom_module_value_type(
+              builder_.module, value.components()[0])) != LOOM_TYPE_SCALAR) {
+        fail(argument->value, "kernel workloads require scalar values");
+      }
+      workloads.push_back(value.components()[0]);
+      argument = argument->next;
+    }
+    if (argument) {
+      fail(source,
+           "loom::workload arguments must match the kernel configuration "
+           "signature");
+    }
+  }
+
   double tolerance(cxx::ExpressionAST* source) {
     double value = loom_attr_as_f64(constant(source));
     if (!std::isfinite(value) || value < 0.0) {
@@ -210,6 +268,28 @@ class CheckBody {
         check(loom_check_generate_fill_build(&builder_, constant(first->value),
                                              binding.result_tensor->type,
                                              location, &op));
+        return value_arena_.capture(*binding.result_tensor,
+                                    {loom_op_results(op), 1});
+      }
+      case Operation::Iota: {
+        auto* step = first->next;
+        loom_check_generate_iota_build_flags_t flags = 0;
+        int64_t period = 0;
+        if (step->next) {
+          auto value = integer_constant(unit_, step->next->value);
+          if (!value || *value <= 0 ||
+              static_cast<std::uintmax_t>(*value) >
+                  static_cast<std::uintmax_t>(
+                      std::numeric_limits<int64_t>::max())) {
+            fail(step->next->value,
+                 "check iota period must be a positive i64 integer constant");
+          }
+          flags = LOOM_CHECK_GENERATE_IOTA_BUILD_FLAG_HAS_PERIOD;
+          period = static_cast<int64_t>(*value);
+        }
+        check(loom_check_generate_iota_build(
+            &builder_, flags, constant(first->value), constant(step->value),
+            period, binding.result_tensor->type, location, &op));
         return value_arena_.capture(*binding.result_tensor,
                                     {loom_op_results(op), 1});
       }
@@ -275,14 +355,21 @@ class CheckBody {
         if (!functions_.definition(binding.kernel)) {
           fail(call, "check launches require a defined kernel");
         }
+        std::vector<loom_value_id_t> workloads;
+        auto* argument = call->expressionList;
+        if (binding.configuration &&
+            !binding.configuration->parameters().empty()) {
+          append_workloads(argument->value, binding, workloads);
+          argument = argument->next;
+        }
         std::vector<loom_value_id_t> arguments;
-        for (auto* argument : cxx::ListView{call->expressionList}) {
-          expression(argument).append_to(arguments);
+        for (; argument; argument = argument->next) {
+          expression(argument->value).append_to(arguments);
         }
         auto symbol = functions_.declare(binding.kernel, call);
-        check(loom_kernel_launch_build(&builder_, symbol, nullptr, 0,
-                                       arguments.data(), arguments.size(),
-                                       location, &op));
+        check(loom_kernel_launch_build(&builder_, symbol, workloads.data(),
+                                       workloads.size(), arguments.data(),
+                                       arguments.size(), location, &op));
         break;
       }
     }

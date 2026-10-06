@@ -186,8 +186,8 @@ Intrinsics::Binding Intrinsics::resolve(cxx::FunctionSymbol* function,
     return EncodingIntrinsic::resolve(*encoding, unit_, diagnostics_, types_,
                                       function, module_, owner);
   }
-  if (auto binding = CheckIntrinsic::resolve(unit_, diagnostics_, types_,
-                                             function, attribute, owner)) {
+  if (auto binding = CheckIntrinsic::resolve(
+          unit_, diagnostics_, types_, launches_, function, attribute, owner)) {
     return *binding;
   }
   if (auto* scalar =
