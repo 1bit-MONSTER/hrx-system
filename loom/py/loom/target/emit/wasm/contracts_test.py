@@ -4,7 +4,8 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-from loom.dialect.scalar import conversion
+from loom.dialect.index import defs as index
+from loom.dialect.scalar import bitwise, conversion
 from loom.ir import ScalarType
 from loom.scalar_type import ScalarTypeKind, scalar_type_name
 from loom.target.contracts import DescriptorRule, GuardKind
@@ -84,3 +85,33 @@ def test_exact_recipes_cover_every_non_native_pair() -> None:
     }
 
     assert exact_recipe_pairs == _expected_narrowing_pairs() - native_pairs
+
+
+def test_bit_operations_use_native_instructions_for_each_integer_carrier() -> None:
+    for scalar_op, index_op, instruction in (
+        (bitwise.scalar_rotli, index.index_rotli, "rotl"),
+        (bitwise.scalar_rotri, index.index_rotri, "rotr"),
+        (bitwise.scalar_ctlzi, index.index_ctlzi, "clz"),
+        (bitwise.scalar_cttzi, index.index_cttzi, "ctz"),
+        (bitwise.scalar_ctpopi, index.index_ctpopi, "popcnt"),
+    ):
+        actual = {}
+        for rule in WASM_CORE_SIMD128_CONTRACT_FRAGMENT.cases:
+            if not isinstance(rule, DescriptorRule):
+                continue
+            if rule.source_op not in (scalar_op, index_op):
+                continue
+            result_guard = next(
+                guard
+                for guard in rule.guards
+                if guard.kind is GuardKind.VALUE_TYPE and guard.field == "result"
+            )
+            assert len(rule.emit) == 1
+            actual[(rule.source_op, result_guard.type_pattern.elements[0])] = rule.emit[
+                0
+            ].descriptor.key
+        assert actual == {
+            (scalar_op, "i32"): f"wasm.i32.{instruction}",
+            (scalar_op, "i64"): f"wasm.i64.{instruction}",
+            (index_op, "index"): f"wasm.i32.{instruction}",
+        }

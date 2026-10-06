@@ -369,6 +369,65 @@ def _unary_rule(
     )
 
 
+def _integer_sign_rules(
+    value_type: TypePattern, type_name: str, sign_shift: int
+) -> Iterable[DescriptorRule]:
+    subtract = _descriptor(f"wasm.{type_name}.sub")
+    input_value = ValueRef.operand("input")
+    for source_op, constant, intermediate_emits, lhs, rhs in (
+        (
+            scalar_arithmetic.scalar_negi,
+            0,
+            (),
+            ValueRef.temporary("constant"),
+            input_value,
+        ),
+        (
+            scalar_arithmetic.scalar_absi,
+            sign_shift,
+            (
+                EmitDescriptorOp(
+                    descriptor=_descriptor(f"wasm.{type_name}.shr_s"),
+                    operands={
+                        "lhs": input_value,
+                        "rhs": ValueRef.temporary("constant"),
+                    },
+                    results={"dst": ValueRef.temporary("sign")},
+                    result_types={"dst": value_type},
+                ),
+                EmitDescriptorOp(
+                    descriptor=_descriptor(f"wasm.{type_name}.xor"),
+                    operands={"lhs": input_value, "rhs": ValueRef.temporary("sign")},
+                    results={"dst": ValueRef.temporary("magnitude")},
+                    result_types={"dst": value_type},
+                ),
+            ),
+            ValueRef.temporary("magnitude"),
+            ValueRef.temporary("sign"),
+        ),
+    ):
+        yield DescriptorRule(
+            source_op=source_op,
+            descriptor=subtract,
+            guards=_typed_guards(("input", "result"), value_type),
+            emit=(
+                EmitDescriptorOp(
+                    descriptor=_descriptor(f"wasm.{type_name}.const"),
+                    results={"dst": ValueRef.temporary("constant")},
+                    result_types={"dst": value_type},
+                    immediates={f"{type_name}_value": constant},
+                    form=DescriptorEmitForm.CONST,
+                ),
+                *intermediate_emits,
+                EmitDescriptorOp(
+                    descriptor=subtract,
+                    operands={"lhs": lhs, "rhs": rhs},
+                    results={"dst": ValueRef.result("result")},
+                ),
+            ),
+        )
+
+
 def _index_madd_rule() -> DescriptorRule:
     multiply = _descriptor("wasm.i32.mul")
     add = _descriptor("wasm.i32.add")
@@ -1219,6 +1278,8 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
         *_view_alias_rules(),
         _buffer_load_i8_u_rule(),
         _buffer_store_i8_rule(),
+        *_integer_sign_rules(_I32, "i32", 31),
+        *_integer_sign_rules(_I64, "i64", 63),
         *(
             _binary_rule(source_op, value_type, f"wasm.{type_name}.{operation}")
             for value_type, type_name in ((_I32, "i32"), (_I64, "i64"))
@@ -1236,6 +1297,17 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
                 (scalar_bitwise.scalar_shli, "shl"),
                 (scalar_bitwise.scalar_shrsi, "shr_s"),
                 (scalar_bitwise.scalar_shrui, "shr_u"),
+                (scalar_bitwise.scalar_rotli, "rotl"),
+                (scalar_bitwise.scalar_rotri, "rotr"),
+            )
+        ),
+        *(
+            _unary_rule(source_op, value_type, f"wasm.{type_name}.{operation}")
+            for value_type, type_name in ((_I32, "i32"), (_I64, "i64"))
+            for source_op, operation in (
+                (scalar_bitwise.scalar_ctlzi, "clz"),
+                (scalar_bitwise.scalar_cttzi, "ctz"),
+                (scalar_bitwise.scalar_ctpopi, "popcnt"),
             )
         ),
         *(
@@ -1635,6 +1707,16 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
                 (index.index_shli, "shl"),
                 (index.index_shrsi, "shr_s"),
                 (index.index_shrui, "shr_u"),
+                (index.index_rotli, "rotl"),
+                (index.index_rotri, "rotr"),
+            )
+        ),
+        *(
+            _unary_rule(source_op, _INDEX, f"wasm.i32.{operation}")
+            for source_op, operation in (
+                (index.index_ctlzi, "clz"),
+                (index.index_cttzi, "ctz"),
+                (index.index_ctpopi, "popcnt"),
             )
         ),
         *(
