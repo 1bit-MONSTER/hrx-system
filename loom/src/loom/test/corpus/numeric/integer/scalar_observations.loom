@@ -50,6 +50,366 @@ func.def inline @predicate_comparison_mask(%lhs: i1, %rhs: i1) -> (i32) {
   func.return %mask9 : i32
 }
 
+// Packs every signed and unsigned ordering of two coordinates into a word.
+func.def inline @index_comparison_mask(%lhs: index, %rhs: index) -> (i32) {
+  %c1 = scalar.constant 1 : i32
+  %c2 = scalar.constant 2 : i32
+  %c3 = scalar.constant 3 : i32
+  %c4 = scalar.constant 4 : i32
+  %c5 = scalar.constant 5 : i32
+  %c6 = scalar.constant 6 : i32
+  %c7 = scalar.constant 7 : i32
+  %c8 = scalar.constant 8 : i32
+  %c9 = scalar.constant 9 : i32
+  %eq = index.cmp eq, %lhs, %rhs : index
+  %ne = index.cmp ne, %lhs, %rhs : index
+  %slt = index.cmp slt, %lhs, %rhs : index
+  %sle = index.cmp sle, %lhs, %rhs : index
+  %sgt = index.cmp sgt, %lhs, %rhs : index
+  %sge = index.cmp sge, %lhs, %rhs : index
+  %ult = index.cmp ult, %lhs, %rhs : index
+  %ule = index.cmp ule, %lhs, %rhs : index
+  %ugt = index.cmp ugt, %lhs, %rhs : index
+  %uge = index.cmp uge, %lhs, %rhs : index
+  %eq_bit = scalar.extui %eq : i1 to i32
+  %ne_bit = scalar.extui %ne : i1 to i32
+  %slt_bit = scalar.extui %slt : i1 to i32
+  %sle_bit = scalar.extui %sle : i1 to i32
+  %sgt_bit = scalar.extui %sgt : i1 to i32
+  %sge_bit = scalar.extui %sge : i1 to i32
+  %ult_bit = scalar.extui %ult : i1 to i32
+  %ule_bit = scalar.extui %ule : i1 to i32
+  %ugt_bit = scalar.extui %ugt : i1 to i32
+  %uge_bit = scalar.extui %uge : i1 to i32
+  %ne_shifted = scalar.shli %ne_bit, %c1 : i32
+  %slt_shifted = scalar.shli %slt_bit, %c2 : i32
+  %sle_shifted = scalar.shli %sle_bit, %c3 : i32
+  %sgt_shifted = scalar.shli %sgt_bit, %c4 : i32
+  %sge_shifted = scalar.shli %sge_bit, %c5 : i32
+  %ult_shifted = scalar.shli %ult_bit, %c6 : i32
+  %ule_shifted = scalar.shli %ule_bit, %c7 : i32
+  %ugt_shifted = scalar.shli %ugt_bit, %c8 : i32
+  %uge_shifted = scalar.shli %uge_bit, %c9 : i32
+  %mask1 = scalar.ori %eq_bit, %ne_shifted : i32
+  %mask2 = scalar.ori %mask1, %slt_shifted : i32
+  %mask3 = scalar.ori %mask2, %sle_shifted : i32
+  %mask4 = scalar.ori %mask3, %sgt_shifted : i32
+  %mask5 = scalar.ori %mask4, %sge_shifted : i32
+  %mask6 = scalar.ori %mask5, %ult_shifted : i32
+  %mask7 = scalar.ori %mask6, %ule_shifted : i32
+  %mask8 = scalar.ori %mask7, %ugt_shifted : i32
+  %mask9 = scalar.ori %mask8, %uge_shifted : i32
+  func.return %mask9 : i32
+}
+
+// Packs every signed and unsigned ordering of two byte offsets into a word.
+func.def inline @offset_comparison_mask(%lhs: offset, %rhs: offset) -> (i32) {
+  %c1 = scalar.constant 1 : i32
+  %c2 = scalar.constant 2 : i32
+  %c3 = scalar.constant 3 : i32
+  %c4 = scalar.constant 4 : i32
+  %c5 = scalar.constant 5 : i32
+  %c6 = scalar.constant 6 : i32
+  %c7 = scalar.constant 7 : i32
+  %c8 = scalar.constant 8 : i32
+  %c9 = scalar.constant 9 : i32
+  %eq = index.cmp eq, %lhs, %rhs : offset
+  %ne = index.cmp ne, %lhs, %rhs : offset
+  %slt = index.cmp slt, %lhs, %rhs : offset
+  %sle = index.cmp sle, %lhs, %rhs : offset
+  %sgt = index.cmp sgt, %lhs, %rhs : offset
+  %sge = index.cmp sge, %lhs, %rhs : offset
+  %ult = index.cmp ult, %lhs, %rhs : offset
+  %ule = index.cmp ule, %lhs, %rhs : offset
+  %ugt = index.cmp ugt, %lhs, %rhs : offset
+  %uge = index.cmp uge, %lhs, %rhs : offset
+  %eq_bit = scalar.extui %eq : i1 to i32
+  %ne_bit = scalar.extui %ne : i1 to i32
+  %slt_bit = scalar.extui %slt : i1 to i32
+  %sle_bit = scalar.extui %sle : i1 to i32
+  %sgt_bit = scalar.extui %sgt : i1 to i32
+  %sge_bit = scalar.extui %sge : i1 to i32
+  %ult_bit = scalar.extui %ult : i1 to i32
+  %ule_bit = scalar.extui %ule : i1 to i32
+  %ugt_bit = scalar.extui %ugt : i1 to i32
+  %uge_bit = scalar.extui %uge : i1 to i32
+  %ne_shifted = scalar.shli %ne_bit, %c1 : i32
+  %slt_shifted = scalar.shli %slt_bit, %c2 : i32
+  %sle_shifted = scalar.shli %sle_bit, %c3 : i32
+  %sgt_shifted = scalar.shli %sgt_bit, %c4 : i32
+  %sge_shifted = scalar.shli %sge_bit, %c5 : i32
+  %ult_shifted = scalar.shli %ult_bit, %c6 : i32
+  %ule_shifted = scalar.shli %ule_bit, %c7 : i32
+  %ugt_shifted = scalar.shli %ugt_bit, %c8 : i32
+  %uge_shifted = scalar.shli %uge_bit, %c9 : i32
+  %mask1 = scalar.ori %eq_bit, %ne_shifted : i32
+  %mask2 = scalar.ori %mask1, %slt_shifted : i32
+  %mask3 = scalar.ori %mask2, %sle_shifted : i32
+  %mask4 = scalar.ori %mask3, %sgt_shifted : i32
+  %mask5 = scalar.ori %mask4, %sge_shifted : i32
+  %mask6 = scalar.ori %mask5, %ult_shifted : i32
+  %mask7 = scalar.ori %mask6, %ule_shifted : i32
+  %mask8 = scalar.ori %mask7, %ugt_shifted : i32
+  %mask9 = scalar.ori %mask8, %uge_shifted : i32
+  func.return %mask9 : i32
+}
+
+// Keeps arithmetic inside the common 32-bit address domain. Comparisons retain
+// the full i32 payload so signed and unsigned orderings diverge.
+func.def @portable_index_arithmetic_observations(%lhs_bits: i64, %rhs_bits: i64, %output: buffer) {
+  %c1_i32 = scalar.constant 1 : i32
+  %c1023_i32 = scalar.constant 1023 : i32
+  %c65535_i32 = scalar.constant 65535 : i32
+  %positive_mask = scalar.constant 2147483647 : i32
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<13xi32>
+
+  %lhs_word = scalar.trunci %lhs_bits : i64 to i32
+  %rhs_word = scalar.trunci %rhs_bits : i64 to i32
+  %small_bits = scalar.andi %lhs_word, %c65535_i32 : i32
+  %divisor_bits0 = scalar.andi %rhs_word, %c1023_i32 : i32
+  %divisor_bits = scalar.ori %divisor_bits0, %c1_i32 : i32
+  %lhs = index.cast %small_bits : i32 to index
+  %rhs0 = index.cast %divisor_bits : i32 to index
+  %rhs = index.assume %rhs0 [range(%rhs0, 1, 1023)] : index
+  %lhs_offset = index.cast %small_bits : i32 to offset
+  %rhs_offset = index.cast %divisor_bits : i32 to offset
+  %comparison_lhs = index.cast %lhs_word : i32 to index
+  %comparison_rhs = index.cast %rhs_word : i32 to index
+  %comparison_lhs_offset_bits = scalar.andi %lhs_word, %positive_mask : i32
+  %comparison_rhs_offset_bits = scalar.andi %rhs_word, %positive_mask : i32
+  %comparison_lhs_offset = index.cast %comparison_lhs_offset_bits : i32 to offset
+  %comparison_rhs_offset = index.cast %comparison_rhs_offset_bits : i32 to offset
+
+  %add = index.add %lhs, %rhs : index
+  %sub = index.sub %lhs, %rhs : index
+  %mul = index.mul %lhs, %rhs : index
+  %div = index.div %lhs, %rhs : index
+  %rem = index.rem %lhs, %rhs : index
+  %minimum = index.min %lhs, %rhs : index
+  %maximum = index.max %lhs, %rhs : index
+  %madd = index.madd %lhs, %rhs, %sub : index
+  %scaled = index.scale %lhs, %rhs_offset : index, offset -> offset
+  %offset_add = index.add %lhs_offset, %rhs_offset : offset
+  %offset_sub = index.sub %lhs_offset, %rhs_offset : offset
+  %index_comparisons = func.call @index_comparison_mask(%comparison_lhs, %comparison_rhs) : (index, index) -> (i32)
+  %offset_comparisons = func.call @offset_comparison_mask(%comparison_lhs_offset, %comparison_rhs_offset) : (offset, offset) -> (i32)
+
+  %add_word = index.cast %add : index to i32
+  %sub_word = index.cast %sub : index to i32
+  %mul_word = index.cast %mul : index to i32
+  %div_word = index.cast %div : index to i32
+  %rem_word = index.cast %rem : index to i32
+  %minimum_word = index.cast %minimum : index to i32
+  %maximum_word = index.cast %maximum : index to i32
+  %madd_word = index.cast %madd : index to i32
+  %scaled_word = index.cast %scaled : offset to i32
+  %offset_add_word = index.cast %offset_add : offset to i32
+  %offset_sub_word = index.cast %offset_sub : offset to i32
+  %observations = vector.from_elements %add_word, %sub_word, %mul_word, %div_word, %rem_word, %minimum_word, %maximum_word, %madd_word, %scaled_word, %offset_add_word, %offset_sub_word, %index_comparisons, %offset_comparisons : vector<13xi32>
+  vector.store %observations, %results[0] : vector<13xi32>, view<13xi32>
+  func.return
+}
+
+check.scenario @portable_index_arithmetic_values {
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %lhs_entropy = check.entropy.fork %entropy name("lhs") : check.entropy
+    %rhs_entropy = check.entropy.fork %entropy name("rhs") : check.entropy
+    %lhs_bits = check.entropy.read %lhs_entropy[%trial] : check.entropy -> i64
+    %rhs_bits = check.entropy.read %rhs_entropy[%trial] : check.entropy -> i64
+    %storage = check.generate.fill value(-123) : tensor<21xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<21xi32> -> tensor<4xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<21xi32> -> tensor<13xi32>
+    %suffix = check.tensor.view %storage offset(68) : tensor<21xi32> -> tensor<4xi32>
+    %guard = check.generate.fill value(-123) : tensor<4xi32>
+    check.compare<@portable_index_arithmetic_observations>(%lhs_bits, %rhs_bits, %output) : (i64, i64, tensor<13xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<13xi32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi32>
+    }
+  }
+  check.return
+}
+
+// Rotates use a single-bit payload so their result is independent of the target
+// carrier width. The leading-zero result is normalized by moving that bit to
+// the target's most significant position and counting again.
+func.def @portable_index_bitwise_observations(%ordinal: index, %lhs_bits: i64, %rhs_bits: i64, %output: buffer) {
+  %c65535_i32 = scalar.constant 65535 : i32
+  %c1_index = index.constant 1 : index
+  %c31_index = index.constant 31 : index
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<11xi32>
+
+  %bounded_ordinal = index.assume %ordinal [range(%ordinal, 0, 255)] : index
+  %lhs_word = scalar.trunci %lhs_bits : i64 to i32
+  %rhs_word = scalar.trunci %rhs_bits : i64 to i32
+  %lhs_bits32 = scalar.andi %lhs_word, %c65535_i32 : i32
+  %rhs_bits32 = scalar.andi %rhs_word, %c65535_i32 : i32
+  %lhs = index.cast %lhs_bits32 : i32 to index
+  %rhs = index.cast %rhs_bits32 : i32 to index
+  %amount0 = index.rem %bounded_ordinal, %c31_index : index
+  %amount1 = index.add %amount0, %c1_index : index
+  %amount = index.assume %amount1 [range(%amount1, 1, 31)] : index
+
+  %and = index.andi %lhs, %rhs : index
+  %or = index.ori %lhs, %rhs : index
+  %xor = index.xori %lhs, %rhs : index
+  %left = index.shli %lhs, %amount : index
+  %signed_right = index.shrsi %lhs, %amount : index
+  %unsigned_right = index.shrui %lhs, %amount : index
+  %rotated_left = index.rotli %c1_index, %amount : index
+  %rotated_right_source = index.shli %c1_index, %amount : index
+  %rotated_right = index.rotri %rotated_right_source, %amount : index
+  %top_count = index.ctlzi %c1_index : index
+  %top_bit = index.shli %c1_index, %top_count : index
+  %normalized_leading = index.ctlzi %top_bit : index
+  %trailing = index.cttzi %rotated_left : index
+  %population = index.ctpopi %or : index
+
+  %and_word = index.cast %and : index to i32
+  %or_word = index.cast %or : index to i32
+  %xor_word = index.cast %xor : index to i32
+  %left_word = index.cast %left : index to i32
+  %signed_right_word = index.cast %signed_right : index to i32
+  %unsigned_right_word = index.cast %unsigned_right : index to i32
+  %rotated_left_word = index.cast %rotated_left : index to i32
+  %rotated_right_word = index.cast %rotated_right : index to i32
+  %normalized_leading_word = index.cast %normalized_leading : index to i32
+  %trailing_word = index.cast %trailing : index to i32
+  %population_word = index.cast %population : index to i32
+  %observations = vector.from_elements %and_word, %or_word, %xor_word, %left_word, %signed_right_word, %unsigned_right_word, %rotated_left_word, %rotated_right_word, %normalized_leading_word, %trailing_word, %population_word : vector<11xi32>
+  vector.store %observations, %results[0] : vector<11xi32>, view<11xi32>
+  func.return
+}
+
+check.scenario @portable_index_bitwise_values {
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %lhs_entropy = check.entropy.fork %entropy name("lhs") : check.entropy
+    %rhs_entropy = check.entropy.fork %entropy name("rhs") : check.entropy
+    %lhs_bits = check.entropy.read %lhs_entropy[%trial] : check.entropy -> i64
+    %rhs_bits = check.entropy.read %rhs_entropy[%trial] : check.entropy -> i64
+    %storage = check.generate.fill value(-123) : tensor<19xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<19xi32> -> tensor<4xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<19xi32> -> tensor<11xi32>
+    %suffix = check.tensor.view %storage offset(60) : tensor<19xi32> -> tensor<4xi32>
+    %guard = check.generate.fill value(-123) : tensor<4xi32>
+    check.compare<@portable_index_bitwise_observations>(%trial, %lhs_bits, %rhs_bits, %output) : (index, i64, i64, tensor<11xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<11xi32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi32>
+    }
+  }
+  check.return
+}
+
+// Exercises every scalar payload width at the signed coordinate and unsigned
+// byte-offset boundaries. The i64 inputs are first reduced to the 32-bit
+// address domain so both 32-bit and 64-bit target carriers observe the same
+// values. Narrow round trips retain the original payload width.
+func.def @address_cast_observations(%payload_bits: i64, %output: buffer) {
+  %c0_i32 = scalar.constant 0 : i32
+  %c1_i32 = scalar.constant 1 : i32
+  %positive_mask = scalar.constant 2147483647 : i32
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<20xi64>
+
+  %word = scalar.trunci %payload_bits : i64 to i32
+  %half = scalar.trunci %payload_bits : i64 to i16
+  %byte = scalar.trunci %payload_bits : i64 to i8
+  %flag_bit = scalar.andi %word, %c1_i32 : i32
+  %flag = scalar.cmpi ne, %flag_bit, %c0_i32 : i32
+  %signed_wide = scalar.extsi %word : i32 to i64
+  %unsigned_wide = scalar.extui %word : i32 to i64
+  %positive_word = scalar.andi %word, %positive_mask : i32
+
+  %flag_index = index.cast %flag : i1 to index
+  %flag_offset = index.cast %flag : i1 to offset
+  %index_flag = index.cast %flag_index : index to i1
+  %offset_flag = index.cast %flag_offset : offset to i1
+  %flag_index_wide = index.cast %flag_index : index to i64
+  %flag_offset_wide = index.cast %flag_offset : offset to i64
+  %index_flag_wide = scalar.extui %index_flag : i1 to i64
+  %offset_flag_wide = scalar.extui %offset_flag : i1 to i64
+
+  %byte_index = index.cast %byte : i8 to index
+  %byte_index_wide = index.cast %byte_index : index to i64
+  %byte_roundtrip = index.cast %byte_index : index to i8
+  %byte_roundtrip_wide = scalar.extsi %byte_roundtrip : i8 to i64
+  %half_index = index.cast %half : i16 to index
+  %half_index_wide = index.cast %half_index : index to i64
+  %half_roundtrip = index.cast %half_index : index to i16
+  %half_roundtrip_wide = scalar.extsi %half_roundtrip : i16 to i64
+  %word_index = index.cast %word : i32 to index
+  %word_index_wide = index.cast %word_index : index to i64
+  %word_roundtrip = index.cast %word_index : index to i32
+  %word_roundtrip_wide = scalar.extsi %word_roundtrip : i32 to i64
+  %wide_index = index.cast %signed_wide : i64 to index
+  %wide_index_roundtrip = index.cast %wide_index : index to i64
+
+  %byte_offset = index.cast %byte : i8 to offset
+  %byte_offset_wide = index.cast %byte_offset : offset to i64
+  %byte_offset_roundtrip = index.cast %byte_offset : offset to i8
+  %byte_offset_roundtrip_wide = scalar.extui %byte_offset_roundtrip : i8 to i64
+  %half_offset = index.cast %half : i16 to offset
+  %half_offset_wide = index.cast %half_offset : offset to i64
+  %half_offset_roundtrip = index.cast %half_offset : offset to i16
+  %half_offset_roundtrip_wide = scalar.extui %half_offset_roundtrip : i16 to i64
+  %word_offset = index.cast %word : i32 to offset
+  %word_offset_wide = index.cast %word_offset : offset to i64
+  %word_offset_roundtrip = index.cast %word_offset : offset to i32
+  %word_offset_roundtrip_wide = scalar.extui %word_offset_roundtrip : i32 to i64
+  %wide_offset = index.cast %unsigned_wide : i64 to offset
+  %wide_offset_roundtrip = index.cast %wide_offset : offset to i64
+
+  %positive_index = index.cast %positive_word : i32 to index
+  %positive_offset = index.cast %positive_word : i32 to offset
+  %index_as_offset = index.cast %positive_index : index to offset
+  %offset_as_index = index.cast %positive_offset : offset to index
+  %index_as_offset_wide = index.cast %index_as_offset : offset to i64
+  %offset_as_index_wide = index.cast %offset_as_index : index to i64
+
+  view.store %flag_index_wide, %results[0] : i64, view<20xi64>
+  view.store %flag_offset_wide, %results[1] : i64, view<20xi64>
+  view.store %index_flag_wide, %results[2] : i64, view<20xi64>
+  view.store %offset_flag_wide, %results[3] : i64, view<20xi64>
+  view.store %byte_index_wide, %results[4] : i64, view<20xi64>
+  view.store %byte_roundtrip_wide, %results[5] : i64, view<20xi64>
+  view.store %half_index_wide, %results[6] : i64, view<20xi64>
+  view.store %half_roundtrip_wide, %results[7] : i64, view<20xi64>
+  view.store %word_index_wide, %results[8] : i64, view<20xi64>
+  view.store %word_roundtrip_wide, %results[9] : i64, view<20xi64>
+  view.store %wide_index_roundtrip, %results[10] : i64, view<20xi64>
+  view.store %byte_offset_wide, %results[11] : i64, view<20xi64>
+  view.store %byte_offset_roundtrip_wide, %results[12] : i64, view<20xi64>
+  view.store %half_offset_wide, %results[13] : i64, view<20xi64>
+  view.store %half_offset_roundtrip_wide, %results[14] : i64, view<20xi64>
+  view.store %word_offset_wide, %results[15] : i64, view<20xi64>
+  view.store %word_offset_roundtrip_wide, %results[16] : i64, view<20xi64>
+  view.store %wide_offset_roundtrip, %results[17] : i64, view<20xi64>
+  view.store %index_as_offset_wide, %results[18] : i64, view<20xi64>
+  view.store %offset_as_index_wide, %results[19] : i64, view<20xi64>
+  func.return
+}
+
+check.scenario @address_cast_values {
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %payload_entropy = check.entropy.fork %entropy name("payload") : check.entropy
+    %payload_bits = check.entropy.read %payload_entropy[%trial] : check.entropy -> i64
+    %storage = check.generate.fill value(-123) : tensor<28xi64>
+    %prefix = check.tensor.view %storage offset(0) : tensor<28xi64> -> tensor<4xi64>
+    %output = check.tensor.view %storage offset(32) : tensor<28xi64> -> tensor<20xi64>
+    %suffix = check.tensor.view %storage offset(192) : tensor<28xi64> -> tensor<4xi64>
+    %guard = check.generate.fill value(-123) : tensor<4xi64>
+    check.compare<@address_cast_observations>(%payload_bits, %output) : (i64, tensor<20xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<20xi64>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi64>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+
 // Entropy supplies full-width arithmetic and address payloads. The ordinal
 // independently enumerates every predicate pair and every valid shift count.
 func.def @scalar_integer_address_observations(%ordinal: index, %lhs_bits: i64, %rhs_bits: i64, %addend_bits: i64, %word_output: buffer, %wide_output: buffer) {
