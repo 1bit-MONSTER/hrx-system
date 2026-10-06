@@ -11,6 +11,7 @@
 #include "loom/util/cfg_dominance.h"
 #include "loom/util/cfg_graph.h"
 #include "loom/verify/verify_constraints.h"
+#include "loom/verify/verify_consumption.h"
 #include "loom/verify/verify_diagnostics.h"
 #include "loom/verify/verify_ownership.h"
 #include "loom/verify/verify_state.h"
@@ -255,7 +256,7 @@ static iree_status_t loom_verify_region(
       state->result->error_count == contract->owner_initial_error_count) {
     callable_op = contract->op;
   }
-  // Single-block regions need only the ordinary lexical scope. Multi-block
+  // One-block dominance needs only the ordinary lexical scope. Multi-block
   // regions share one graph between dominance and consumed-value queries.
   // Keep the indexed tree local: per-use checks remain a depth-table lookup.
   loom_cfg_graph_t graph = {0};
@@ -274,21 +275,15 @@ static iree_status_t loom_verify_region(
     }
   }
   const loom_verify_region_scope_t saved_region_scope = state->region_scope;
-  loom_consumption_region_query_t consumption_query;
+  uint32_t region_index = 0;
+  IREE_RETURN_IF_ERROR(loom_verify_consumption_record_region(
+      state, region, contract ? contract->op : NULL,
+      contract ? contract->descriptor->execution : LOOM_REGION_EXECUTION_ONCE,
+      &graph,
+      saved_region_scope.current ? saved_region_scope.index : UINT32_MAX,
+      &region_index));
   state->region_scope.current = region;
-  state->region_scope.parent = &saved_region_scope;
-  state->region_scope.owner = contract ? contract->op : NULL;
-  state->region_scope.execution =
-      contract ? contract->descriptor->execution : LOOM_REGION_EXECUTION_ONCE;
-  if (region->block_count > 1) {
-    loom_consumption_region_query_initialize_with_cfg_graph(
-        state->module, region, &graph, NULL, NULL, &state->arena,
-        &consumption_query);
-  } else {
-    loom_consumption_region_query_initialize(state->module, region,
-                                             &state->arena, &consumption_query);
-  }
-  state->region_scope.consumption_query = &consumption_query;
+  state->region_scope.index = region_index;
   if (contract && iree_any_bit_set(contract->descriptor->flags,
                                    LOOM_REGION_COMMAND_EFFECTS_ONLY)) {
     state->region_scope.command_effects_only = true;
@@ -590,6 +585,10 @@ IREE_ATTRIBUTE_ALWAYS_INLINE static inline iree_status_t loom_verify_op(
     IREE_RETURN_IF_ERROR(loom_verify_pending_diagnostic_status(state));
   }
 
+  if (state->result->error_count == initial_error_count) {
+    IREE_RETURN_IF_ERROR(loom_verify_consumption_record_aliases(state, op));
+  }
+
   // Define result values. Must happen after all checks on this op
   // so that a result cannot appear to dominate its own defining op.
   if (has_signature_scope) {
@@ -826,6 +825,14 @@ iree_status_t loom_verify_module(const loom_module_t* module,
     }
   }
 
+  if (out_result->error_count == 0) {
+    diagnostic_status = loom_verify_consumption_check(&state);
+    if (!iree_status_is_ok(diagnostic_status)) {
+      loom_verify_state_deinitialize(&state);
+      return diagnostic_status;
+    }
+  }
+
   // Static encoding aliases may be authored without an operation or type use.
   // Diagnose only those malformed records not already attributed during the
   // operation walk.
@@ -892,6 +899,9 @@ iree_status_t loom_verify_functions(const loom_module_t* module,
     }
   }
 
+  if (iree_status_is_ok(verify_status) && out_result->error_count == 0) {
+    verify_status = loom_verify_consumption_check(&state);
+  }
   loom_verify_state_deinitialize(&state);
   return verify_status;
 }

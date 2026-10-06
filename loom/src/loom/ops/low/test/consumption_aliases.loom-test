@@ -1,0 +1,320 @@
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @parent_consumed_alias_reused(%seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %seed
+  // ERROR@+1: DOMINANCE/002 {value_name="alias"}
+  return %alias
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @alias_consumed_parent_reused(%seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %alias
+  // ERROR@+1: DOMINANCE/002 {value_name="seed"}
+  return %seed
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @sibling_alias_reused(%seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %first = low.assume %seed [range(%seed, 0, 1024)] : reg<test.i32>
+  %second = low.assume %seed [range(%seed, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %first
+  // ERROR@+1: DOMINANCE/002 {value_name="second"}
+  return %second
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @alias_chain_parent_reused(%seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %first = low.assume %seed [range(%seed, 0, 1024)] : reg<test.i32>
+  %second = low.assume %first [range(%first, 0, 1024)] : reg<test.i32>
+  %third = low.assume %second [range(%second, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %third
+  // ERROR@+1: DOMINANCE/002 {value_name="seed"}
+  return %seed
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @alias_created_after_direct_consumption(%seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %changed = test.tied.any %seed
+  // ERROR@+1: DOMINANCE/002 {value_name="seed"}
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<test.i32>
+  return %alias
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @capture_before_consumption(%seed: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<test.i32>
+  %saved = slice %alias[0] : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %seed
+  return %saved, %changed
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @independent_captures(%seed: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %first = slice %seed[0] : reg<test.i32> -> reg<test.i32>
+  %second = slice %seed[0] : reg<test.i32> -> reg<test.i32>
+  %alias = low.assume %first [range(%first, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %alias
+  return %second, %changed
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @fresh_tied_result(%seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %alias
+  %fresh = low.assume %changed [range(%changed, 0, 1024)] : reg<test.i32>
+  %again = test.tied.any %fresh
+  return %again
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @exclusive_consumers(%condition: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<test.i32>
+  low.cond_br %condition, ^left, ^right : reg<test.i32>
+^left:
+  %left_changed = test.tied.any %seed
+  return %left_changed
+^right:
+  %right_changed = test.tied.any %alias
+  return %right_changed
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @successor_alias_reuse(%seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %seed
+  low.br ^observe
+^observe:
+  // ERROR@+1: DOMINANCE/002 {value_name="alias"}
+  return %alias
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @recreated_block_argument(%condition: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  low.br ^loop(%seed: reg<test.i32>)
+^loop(%state: reg<test.i32>):
+  %alias = low.assume %state [range(%state, 0, 1024)] : reg<test.i32>
+  low.cond_br %condition, ^body, ^exit : reg<test.i32>
+^body:
+  %next = test.tied.any %alias
+  low.br ^loop(%next: reg<test.i32>)
+^exit:
+  return %state
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @recreated_independent_copy(%condition: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  low.br ^loop
+^loop:
+  %owner = copy %seed : reg<test.i32> -> reg<test.i32>
+  %alias = low.assume %owner [range(%owner, 0, 1024)] : reg<test.i32>
+  %next = test.tied.any %alias
+  low.cond_br %condition, ^loop, ^exit : reg<test.i32>
+^exit:
+  return %next
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @alias_recreation_keeps_outer_owner(%condition: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  low.br ^loop
+^loop:
+  // ERROR@+1: DOMINANCE/002 {value_name="seed"}
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<test.i32>
+  %next = test.tied.any %alias
+  low.cond_br %condition, ^loop, ^exit : reg<test.i32>
+^exit:
+  return %next
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @exclusive_structured_alias_consumers(%condition: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<test.i32>
+  %result = low.scf.if %condition -> (reg<test.i32>) {
+    %left = test.tied.any %seed
+    low.scf.yield %left : reg<test.i32>
+  } else {
+    %right = test.tied.any %alias
+    low.scf.yield %right : reg<test.i32>
+  }
+  return %result
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @structured_outer_alias_reconsumed(%lower: reg<test.i32>, %upper: reg<test.i32>, %step: reg<test.i32>, %seed: reg<test.i32>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<test.i32>
+  low.scf.for signed [%lower to %upper step %step] do(%iv: reg<test.i32>) {
+    // ERROR@+1: DOMINANCE/002 {value_name="alias"}
+    %changed = test.tied.any %alias
+  }
+  return
+}
+
+// ====
+
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @structured_recreated_alias_capture(%lower: reg<test.i32>, %upper: reg<test.i32>, %step: reg<test.i32>, %seed: reg<test.i32>) asm {
+  low.scf.for signed [%lower to %upper step %step] do(%iv: reg<test.i32>) {
+    %owner = copy %seed : reg<test.i32> -> reg<test.i32>
+    %alias = low.assume %owner [range(%owner, 0, 1024)] : reg<test.i32>
+    %changed = test.tied.any %alias
+  }
+  return
+}
+
+// ====
+// Variadic identities keep each corresponding owner independent.
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @distinct_result_owners(%first: reg<test.i32>, %second: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %left, %right = low.assume %first, %second [] : reg<test.i32>, reg<test.i32>
+  %changed = test.tied.any %left
+  return %changed, %right
+}
+
+// ====
+// Repeated operands publish two members of the same owner, not separate owners.
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @repeated_result_owner(%seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %left, %right = low.assume %seed, %seed [] : reg<test.i32>, reg<test.i32>
+  %changed = test.tied.any %left
+  // ERROR@+1: DOMINANCE/002 {value_name="right"}
+  return %right
+}
+
+// ====
+// Moved results consume the same alias family as destructive tied results.
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @move_consumes_alias_family(%seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %alias = low.assume %seed [] : reg<test.i32>
+  %moved = move %alias : reg<test.i32> -> reg<test.i32>
+  // ERROR@+1: DOMINANCE/002 {value_name="seed"}
+  return %seed
+}
+
+// ====
+// A moved result starts a fresh owner even when physical storage is reused.
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @move_creates_owner(%seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %alias = low.assume %seed [] : reg<test.i32>
+  %moved = move %alias : reg<test.i32> -> reg<test.i32>
+  %fresh = low.assume %moved [] : reg<test.i32>
+  %changed = test.tied.any %fresh
+  return %changed
+}
+
+// ====
+// A dead consumer cannot invalidate an observation on the live path, even
+// when the dead block has an edge to the live observer.
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @unreachable_consumer(%seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %alias = low.assume %seed [] : reg<test.i32>
+  low.br ^live
+^live:
+  return %seed
+^dead:
+  %changed = test.tied.any %alias
+  low.br ^live
+}
+
+// ====
+// Both DFS orders of disjoint consumers and observations are valid.
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @disjoint_observer_first(%condition: reg<test.i32>, %first: reg<test.i32>, %second: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %left, %right = low.assume %first, %second [] : reg<test.i32>, reg<test.i32>
+  low.cond_br %condition, ^observe, ^consume_first : reg<test.i32>
+^observe:
+  return %first, %second
+^consume_first:
+  %changed_first = test.tied.any %left
+  low.br ^consume_second
+^consume_second:
+  %changed_second = test.tied.any %right
+  return %changed_first, %changed_second
+}
+
+// ====
+// A structurally invalid alias is diagnosed before publishing its owner.
+// RUN: verify
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @unavailable_alias_source(%condition: reg<test.i32>, %seed: reg<test.i32>) asm {
+  low.cond_br %condition, ^left, ^right : reg<test.i32>
+^left:
+  %independent = copy %seed : reg<test.i32> -> reg<test.i32>
+  return
+^right:
+  // ERROR@+1: DOMINANCE/001 {value_name="independent"}
+  %alias = low.assume %independent [] : reg<test.i32>
+  return
+}

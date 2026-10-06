@@ -42,3 +42,29 @@ func.def @optional_branch_owner(%condition: i1, %resource: pool<16>) {
   }
   func.return
 }
+
+// ====
+// Numeric fact identity does not require shared physical ownership.
+// RUN: verify
+test.decl @consume_index(%input: index) -> (%input as index)
+
+test.func @independent_numeric_identity(%input: index) {
+  %identity = index.assume %input [] : index
+  %changed = test.invoke @consume_index(%input) : (index) -> (%input as index)
+  test.use %identity, %changed : index, index
+  test.yield
+}
+
+// ====
+// Managed aliases borrow the resource referent, not a physical register owner.
+// Moving the owning reference preserves the referent for both borrowed forms.
+// RUN: verify
+test.func @managed_referent_survives_move(%resource: pool<16>) {
+  %alias = test.resource.alias %resource : pool<16> -> pool<16>
+  %borrowed = test.resource.borrowed %resource : pool<16> -> pool<16>
+  %moved = test.resource.move %resource : pool<16> -> pool<16>
+  test.resource.borrow %alias : pool<16>
+  test.resource.borrow %borrowed : pool<16>
+  test.resource.borrow %moved : pool<16>
+  test.yield
+}

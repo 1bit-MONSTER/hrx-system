@@ -8,12 +8,12 @@
 #define LOOM_VERIFY_VERIFY_STATE_H_
 
 #include "iree/base/internal/arena.h"
-#include "loom/analysis/consumption.h"
 #include "loom/error/source.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/special_values.h"
 #include "loom/verify/verify.h"
+#include "loom/verify/verify_consumption.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -83,17 +83,8 @@ typedef struct loom_verify_region_scope_t {
   // Region currently being verified.
   const loom_region_t* current;
 
-  // Reusable consumed-value query for current.
-  loom_consumption_region_query_t* consumption_query;
-
-  // Enclosing active region scope, borrowed from the recursive verifier walk.
-  const struct loom_verify_region_scope_t* parent;
-
-  // Operation owning current, or NULL for the module region.
-  const loom_op_t* owner;
-
-  // Declared recurrence and continuation of the current region.
-  loom_region_execution_t execution;
+  // Region index retained by the ownership verification analysis.
+  uint32_t index;
 
   // True when observable effects must be explicit command effects.
   bool command_effects_only;
@@ -170,6 +161,9 @@ typedef struct loom_verify_state_t {
 
   // State inherited through the current nested region traversal.
   loom_verify_region_scope_t region_scope;
+
+  // Arena-owned canonical storage identities and grouped consumption state.
+  loom_verify_consumption_t* consumption;
 
   // Stack of value IDs defined during the current scoped walk.
   uint32_t* defined_stack;
