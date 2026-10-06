@@ -1,3 +1,4 @@
+load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
 load("//build_tools/testing:build_defs.bzl", "iree_execution_test_suite")
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
@@ -237,6 +238,7 @@ loom_cc_library(
         "//loom/src/loom/target:math_policy",
         "//loom/src/loom/target:pipeline",
         "//loom/src/loom/target:predicate",
+        "//loom/src/loom/target:provider",
         "//loom/src/loom/target:selection",
         "//loom/src/loom/target:types",
         "//loom/src/loom/target/reporting:format",
@@ -402,7 +404,6 @@ loom_cc_library(
         "//loom/src/loom/link:linker",
         "//loom/src/loom/target:entry_selection",
         "//loom/src/loom/target:profile",
-        "//loom/src/loom/tooling/compile:configured",
         "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tooling/config",
         "//runtime/src/iree/base",
@@ -440,6 +441,7 @@ loom_cc_test(
     deps = [
         ":file",
         "//loom/src/loom/ir",
+        "//loom/src/loom/target:provider",
         "//loom/src/loom/testing:context",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
@@ -469,7 +471,6 @@ loom_cc_library(
         "//loom/src/loom/sanitizer:options",
         "//loom/src/loom/target:selection",
         "//loom/src/loom/tooling/cli:help",
-        "//loom/src/loom/tooling/compile:configured",
         "//loom/src/loom/tooling/config",
         "//loom/src/loom/tooling/context",
         "//runtime/src/iree/base",
@@ -490,6 +491,12 @@ loom_cc_library(
         "//loom/src/loom/transforms/cleanup:configured",
         "//runtime/src/iree/base",
     ],
+)
+
+iree_assert_dependency_boundary(
+    name = "provider_has_no_configured_target_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/target/configured/..."],
+    target = ":provider",
 )
 
 loom_cc_library(
@@ -544,6 +551,7 @@ loom_cc_binary(
     deps = [
         ":provider",
         "//loom/src/loom/target/arch/cmd/check:check_provider",
+        "//loom/src/loom/target/configured:compiler_provider_set",
         "//loom/src/loom/tooling/input:configured",
         "//runtime/src/iree/base",
     ] + _LOOM_CHECK_PROVIDER_DEPS,
@@ -558,6 +566,7 @@ loom_cc_binary(
         ":provider",
         ":test_provider",
         "//loom/src/loom/target/arch/cmd/check:check_provider",
+        "//loom/src/loom/target/configured:compiler_provider_set",
         "//loom/src/loom/tooling/input:configured",
         "//runtime/src/iree/base",
     ] + _LOOM_CHECK_PROVIDER_DEPS,

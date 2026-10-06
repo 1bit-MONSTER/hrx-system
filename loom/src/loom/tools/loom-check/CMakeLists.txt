@@ -111,6 +111,7 @@ loom_cc_library(
     loom::target::math_policy
     loom::target::pipeline
     loom::target::predicate
+    loom::target::provider
     loom::target::reporting::format
     loom::target::reporting::low
     loom::target::selection
@@ -297,7 +298,6 @@ loom_cc_library(
     loom::link::linker
     loom::target::entry_selection
     loom::target::profile
-    loom::tooling::compile::configured
     loom::tooling::compile::pipeline
     loom::tooling::config
   PUBLIC
@@ -345,6 +345,7 @@ loom_cc_test(
     iree::testing::gtest_main
     iree::testing::temp_file
     loom::ir
+    loom::target::provider
     loom::testing::context
 )
 
@@ -377,7 +378,6 @@ loom_cc_library(
     loom::sanitizer::options
     loom::target::selection
     loom::tooling::cli::help
-    loom::tooling::compile::configured
     loom::tooling::config
     loom::tooling::context
   PUBLIC
@@ -506,6 +506,7 @@ loom_cc_binary(
     ::provider
     iree::base
     loom::target::arch::cmd::check::check_provider
+    loom::target::configured::compiler_provider_set
     loom::tooling::input::configured
     ${_loom_check_platform_deps}
 )
@@ -573,6 +574,7 @@ loom_cc_binary(
     ::test_provider
     iree::base
     loom::target::arch::cmd::check::check_provider
+    loom::target::configured::compiler_provider_set
     loom::tooling::input::configured
     ${_loom_check_test_platform_deps}
   TESTONLY

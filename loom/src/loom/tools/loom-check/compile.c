@@ -173,7 +173,7 @@ iree_status_t loom_check_execute_compile(
   loom_target_low_descriptor_registry_t low_registry = {0};
   iree_status_t status =
       loom_target_environment_initialize_low_descriptor_registry(
-          options->environment->target_environment, &low_registry);
+          environment->target_environment, &low_registry);
   loom_text_parse_options_t parse_options = {
       .diagnostic_sink = {.fn = loom_check_diagnostic_collector_sink,
                           .user_data = &collector},
@@ -195,11 +195,10 @@ iree_status_t loom_check_execute_compile(
   collector.module = input.module;
   loom_compile_pipeline_options_t pipeline_options;
   loom_compile_pipeline_options_initialize(&pipeline_options);
-  pipeline_options.target_environment =
-      options->environment->target_environment;
+  pipeline_options.target_environment = environment->target_environment;
   pipeline_options.low_descriptor_registry = &low_registry;
   pipeline_options.cleanup_pattern_provider_set =
-      options->environment->cleanup_pattern_provider_set;
+      environment->cleanup_pattern_provider_set;
   pipeline_options.diagnostic_sink = parse_options.diagnostic_sink;
   pipeline_options.source_resolver = loom_input_module_source_resolver(&input);
   pipeline_options.max_errors = parse_options.max_errors;
@@ -221,9 +220,9 @@ iree_status_t loom_check_execute_compile(
     const loom_compile_request_options_t request_options = {
         .target_profile = options->target_profile,
     };
-    status = loom_compile_request_resolve(
-        input.module, &request_options,
-        options->environment->target_environment, &arena, &request);
+    status = loom_compile_request_resolve(input.module, &request_options,
+                                          environment->target_environment,
+                                          &arena, &request);
     if (iree_status_is_ok(status)) {
       pipeline_options.target_pipeline_options =
           request.target_emitter->default_pipeline_options;

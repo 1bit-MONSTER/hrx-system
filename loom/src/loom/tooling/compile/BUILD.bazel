@@ -33,38 +33,6 @@ loom_cc_library(
 )
 
 loom_cc_library(
-    name = "configured",
-    srcs = ["configured.c"],
-    hdrs = ["configured.h"],
-    deps = [
-        "//loom/src/loom/target:provider",
-        "//loom/src/loom/target/configured:compiler_provider_set",
-        "//loom/src/loom/target/configured:provider_set",
-        "//loom/src/loom/transforms/cleanup:configured",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/threading",
-    ],
-)
-
-iree_assert_dependency_boundary(
-    name = "configured_has_no_tooling_target_dependencies",
-    forbidden_subtrees = ["//loom/src/loom/tooling/target/..."],
-    target = ":configured",
-)
-
-loom_cc_test(
-    name = "configured_test",
-    srcs = ["configured_test.cc"],
-    deps = [
-        ":configured",
-        "//loom/src/loom/target/configured:compiler_provider_set",
-        "//loom/src/loom/target/configured:provider_set",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
-    ],
-)
-
-loom_cc_library(
     name = "report_capture",
     srcs = ["report_capture.c"],
     hdrs = ["report_capture.h"],

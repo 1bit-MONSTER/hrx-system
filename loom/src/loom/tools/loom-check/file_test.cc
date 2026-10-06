@@ -12,6 +12,7 @@
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "iree/testing/temp_file.h"
+#include "loom/target/provider.h"
 #include "loom/testing/context.h"
 
 namespace loom {
@@ -37,13 +38,6 @@ iree_status_t RegisterFileTestContext(void* user_data,
   return loom_testing_context_register_all_dialects(context);
 }
 
-iree_status_t InitializeFileTestLowDescriptorRegistry(
-    void* user_data, loom_target_low_descriptor_registry_t* out_registry) {
-  (void)user_data;
-  *out_registry = {};
-  return iree_ok_status();
-}
-
 struct CaseCounts {
   iree_host_size_t pass_count = 0;
   iree_host_size_t fail_count = 0;
@@ -55,17 +49,20 @@ class FileTest : public ::testing::Test {
   void SetUp() override {
     iree_arena_block_pool_initialize(4096, iree_allocator_system(),
                                      &block_pool_);
+    target_provider_set_ = loom_target_provider_set_make(nullptr, 0);
+    IREE_ASSERT_OK(loom_target_environment_initialize(&target_provider_set_,
+                                                      &target_environment_));
     loom_context_initialize(iree_allocator_system(), &context_);
     environment_ = {};
     environment_.register_context.fn = RegisterFileTestContext;
-    environment_.initialize_low_descriptor_registry.fn =
-        InitializeFileTestLowDescriptorRegistry;
+    environment_.target_environment = &target_environment_;
     IREE_ASSERT_OK(
         loom_check_context_register_and_finalize(&environment_, &context_));
   }
 
   void TearDown() override {
     loom_context_deinitialize(&context_);
+    loom_target_environment_deinitialize(&target_environment_);
     iree_arena_block_pool_deinitialize(&block_pool_);
   }
 
@@ -109,6 +106,8 @@ class FileTest : public ::testing::Test {
   const std::string template_root_ = ::testing::TempDir();
   iree_arena_block_pool_t block_pool_;
   loom_context_t context_;
+  loom_target_provider_set_t target_provider_set_;
+  loom_target_environment_t target_environment_;
   loom_check_environment_t environment_;
 };
 

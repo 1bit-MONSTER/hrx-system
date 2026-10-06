@@ -19,8 +19,8 @@
 // result aggregates them into a test-framework report.
 //
 // The execution engine does not own the loom_context_t or block pool. A
-// loom_check_environment_t supplies the dialect registration and target-low
-// descriptor registry package selected by each test runner binary or embedding.
+// loom_check_environment_t supplies dialect registration and the target
+// environment selected by each test runner binary or embedding.
 
 #ifndef LOOM_TOOLS_LOOM_CHECK_EXECUTE_H_
 #define LOOM_TOOLS_LOOM_CHECK_EXECUTE_H_
@@ -146,48 +146,6 @@ typedef struct loom_check_register_context_callback_t {
   void* user_data;
 } loom_check_register_context_callback_t;
 
-// Initializes a linked target-low descriptor registry package.
-typedef iree_status_t (*loom_check_initialize_low_descriptor_registry_fn_t)(
-    void* user_data, loom_target_low_descriptor_registry_t* out_registry);
-
-// Callback for the descriptor registry package used by low asm parsing,
-// target-record resolution, descriptor-local verification, scheduling, and
-// allocation table emission.
-typedef struct loom_check_initialize_low_descriptor_registry_callback_t {
-  // Function that initializes the selected linked target-low registry package.
-  loom_check_initialize_low_descriptor_registry_fn_t fn;
-  // Opaque callback state forwarded to |fn|.
-  void* user_data;
-} loom_check_initialize_low_descriptor_registry_callback_t;
-
-// Initializes a linked source-to-target-low lowering policy registry package.
-typedef iree_status_t (*loom_check_initialize_low_lower_policy_registry_fn_t)(
-    void* user_data, loom_low_lower_policy_registry_t* out_registry);
-
-// Callback for the lowering policy registry package used by RUN: pass tests
-// that explicitly execute source-to-low. The policy package is intentionally
-// separate from descriptor tables: tools may want low parsing/scheduling
-// without linking source lowering.
-typedef struct loom_check_initialize_low_lower_policy_registry_callback_t {
-  // Function that initializes the selected linked lowering policy package.
-  loom_check_initialize_low_lower_policy_registry_fn_t fn;
-  // Opaque callback state forwarded to |fn|.
-  void* user_data;
-} loom_check_initialize_low_lower_policy_registry_callback_t;
-
-// Initializes a linked target math legalization policy registry package.
-typedef iree_status_t (*loom_check_initialize_math_policy_registry_fn_t)(
-    void* user_data, loom_target_math_policy_registry_t* out_registry);
-
-// Callback for the math policy registry package used by RUN: pass tests that
-// explicitly execute legalize-math.
-typedef struct loom_check_initialize_math_policy_registry_callback_t {
-  // Function that initializes the selected linked math policy package.
-  loom_check_initialize_math_policy_registry_fn_t fn;
-  // Opaque callback state forwarded to |fn|.
-  void* user_data;
-} loom_check_initialize_math_policy_registry_callback_t;
-
 typedef struct loom_check_environment_t loom_check_environment_t;
 typedef struct loom_check_emit_provider_t loom_check_emit_provider_t;
 typedef struct loom_check_requirement_provider_t
@@ -312,20 +270,10 @@ struct loom_check_environment_t {
   loom_input_provider_list_t input_providers;
   // Dialect registration callback for the IR surface accepted by this runner.
   loom_check_register_context_callback_t register_context;
-  // Optional composed target environment used by compile-pipeline-backed modes.
+  // Composed target environment used by target-aware check modes.
   const loom_target_environment_t* target_environment;
   // Cleanup rewrite providers linked into this runner.
   const loom_cleanup_pattern_provider_set_t* cleanup_pattern_provider_set;
-  // Target-low registry callback for descriptor-backed low IR operations.
-  loom_check_initialize_low_descriptor_registry_callback_t
-      initialize_low_descriptor_registry;
-  // Source-to-low lowering policy callback for emit modes that lower source IR
-  // into descriptor-backed low IR.
-  loom_check_initialize_low_lower_policy_registry_callback_t
-      initialize_low_lower_policy_registry;
-  // Target math legalization policy callback for math rewrite passes.
-  loom_check_initialize_math_policy_registry_callback_t
-      initialize_math_policy_registry;
   // Optional target-owned pass descriptors linked into this runner.
   const loom_pass_registry_t* pass_registry;
   // Optional target-low source legality providers linked into this runner.
