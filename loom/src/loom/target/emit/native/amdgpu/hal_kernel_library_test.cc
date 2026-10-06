@@ -678,29 +678,22 @@ TEST_F(AmdgpuHalKernelLibraryTest, EmitsGfx942Kernel) {
 }
 
 TEST_F(AmdgpuHalKernelLibraryTest, RetainsRequestedArtifactMetadata) {
-  const loom_amdgpu_target_info_t* target = nullptr;
-  const iree_host_size_t target_count = loom_amdgpu_target_info_target_count();
-  for (iree_host_size_t i = 0; i < target_count; ++i) {
-    const loom_amdgpu_target_info_t* candidate =
-        loom_amdgpu_target_info_target_at(i);
-    if (candidate != nullptr && IsTargetDescriptorSetLinked(candidate)) {
-      target = candidate;
-      break;
-    }
-  }
-  if (target == nullptr) {
-    GTEST_SKIP() << "no AMDGPU target descriptor set is linked";
-  }
-
   loom_module_t* module = nullptr;
-  ASSERT_NO_FATAL_FAILURE(ParseKernelForTarget(target, &module));
+  ASSERT_NO_FATAL_FAILURE(ParseGfx11KernelWithArguments(&module));
 
   iree_arena_allocator_t scratch_arena;
   iree_arena_initialize(&block_pool_, &scratch_arena);
+  loom_target_compile_report_t report = {};
+  loom_target_compile_report_initialize(&report, iree_allocator_system());
+  report.requested_detail_flags =
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_PRESSURE_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_SPILL_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_SOURCE_LOW_ROWS;
   loom_target_emit_request_t request = {};
   request.module = module;
   request.flags = LOOM_TARGET_EMIT_REQUEST_FLAG_RETAIN_TARGET_BUNDLE |
                   LOOM_TARGET_EMIT_REQUEST_FLAG_TARGET_LISTING;
+  request.compile_report = &report;
   request.scratch_arena = &scratch_arena;
   request.allocator = iree_allocator_system();
   loom_target_emit_artifact_t artifact = {};
@@ -723,8 +716,12 @@ TEST_F(AmdgpuHalKernelLibraryTest, RetainsRequestedArtifactMetadata) {
                                      IREE_SV("amdgpu-assembly")));
   ASSERT_NE(artifact.target_listing_contents, nullptr);
   EXPECT_GT(iree_byte_sequence_length(artifact.target_listing_contents), 0u);
+  EXPECT_EQ(report.source_low_rows.count, 0u);
+  EXPECT_GT(report.pressure_rows.count, 0u);
+  EXPECT_NE(report.pressure_rows.head, nullptr);
 
   loom_target_emit_artifact_release(&artifact);
+  loom_target_compile_report_deinitialize(&report);
   iree_arena_deinitialize(&scratch_arena);
   loom_module_free(module);
 }

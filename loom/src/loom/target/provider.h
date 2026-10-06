@@ -7,9 +7,9 @@
 // Target provider composition shared by tools and compile drivers.
 //
 // A target provider owns the target dialects, descriptor registries, lowering
-// policies, and diagnostic providers linked into a binary. Tool-specific layers
-// may add execution, checking, or artifact-emission providers around this core
-// target contribution, but those layers should not duplicate target registry
+// policies, diagnostics, and emitters linked into a binary. Tool-specific
+// layers may select and invoke these capabilities for execution or checking;
+// they do not own alternate artifact compilers or duplicate target registry
 // aggregation.
 
 #ifndef LOOM_TARGET_PROVIDER_H_
@@ -234,6 +234,10 @@ typedef struct loom_target_emit_request_t {
   // result.
   iree_diagnostic_emitter_t diagnostic_emitter;
 
+  // Maximum diagnostics to emit before the active target subsystem stops
+  // walking. Zero uses the emitter's conservative default.
+  uint32_t max_errors;
+
   // Invocation-local scratch arena.
   iree_arena_allocator_t* scratch_arena;
 
@@ -392,8 +396,8 @@ struct loom_target_provider_t {
   loom_target_provider_select_profile_fn_t select_profile;
   // Target fact representation accepted by |canonical_module_emitter|. This
   // association is independent of target fact ownership so architecture and
-  // artifact emission providers can be linked separately. Must be NULL if and
-  // only if |canonical_module_emitter| is NULL.
+  // emitter contributions can be linked separately. Must be NULL if and only
+  // if |canonical_module_emitter| is NULL.
   const loom_target_fact_type_t* canonical_module_fact_type;
   // Default emitter for kernel products compiled for a target family, or NULL
   // when callers must select an explicit format. The emitter must appear in
@@ -401,8 +405,8 @@ struct loom_target_provider_t {
   const loom_target_emitter_t* canonical_kernel_emitter;
   // Target fact representation accepted by |canonical_kernel_emitter|. This
   // association is independent of target fact ownership so architecture and
-  // artifact emission providers can be linked separately. Must be NULL if and
-  // only if |canonical_kernel_emitter| is NULL.
+  // emitter contributions can be linked separately. Must be NULL if and only
+  // if |canonical_kernel_emitter| is NULL.
   const loom_target_fact_type_t* canonical_kernel_fact_type;
 };
 

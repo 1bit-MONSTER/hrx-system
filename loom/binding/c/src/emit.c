@@ -863,6 +863,7 @@ loomc_status_t loomc_emit_transaction_emit(
               .fn = loomc_diagnostic_capture_emission,
               .user_data = &capture,
           },
+      .max_errors = 20,
       .scratch_arena = &scratch_arena,
       .allocator = iree_allocator_from_loomc(loomc_result_allocator(result)),
   };

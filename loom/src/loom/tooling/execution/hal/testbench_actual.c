@@ -648,7 +648,7 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
                                   export_symbol)
           : entry_symbol;
 
-  if (provider->compile_device_target.artifact_target.target_profile == NULL) {
+  if (provider->compile_device_target.target_profile == NULL) {
     const loom_device_provider_t* device_provider =
         provider->context->device_provider;
     const iree_string_view_t target_specification =
@@ -682,14 +682,13 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
         provider->pipeline_snapshot.pipeline_op;
   }
   pipeline_options.target_pipeline_options =
-      provider->context->device_provider->artifact_provider->target_emitter
+      provider->context->device_provider->target_emitter
           ->default_pipeline_options;
   pipeline_options.target_pipeline_options.sanitizer = provider->sanitizer;
   pipeline_options.target_environment = provider->session->target_environment;
   const loom_target_specialization_request_t specialization_request = {
       .function_name = entry_symbol,
-      .target_profile =
-          provider->compile_device_target.artifact_target.target_profile,
+      .target_profile = provider->compile_device_target.target_profile,
   };
   pipeline_options.target_specializations =
       (loom_target_specialization_request_list_t){
@@ -758,7 +757,7 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
   const iree_host_size_t emit_error_count = provider->diagnostic_error_count;
   iree_status_t status = loom_run_hal_candidate_emit_target(
       provider->context->device_provider, &provider->compile_device_target,
-      &provider->compile_module, &compile_options,
+      provider->session, &provider->compile_module, &compile_options,
       provider->context->host_allocator, &provider->candidate);
   provider->compile_report_available = true;
   if (!iree_status_is_ok(status)) {
@@ -774,12 +773,12 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
         "device provider '%.*s' did not emit an artifact or diagnostics",
-        (int)provider->context->device_provider->artifact_provider->name.size,
-        provider->context->device_provider->artifact_provider->name.data);
+        (int)provider->context->device_provider->name.size,
+        provider->context->device_provider->name.data);
   }
 
   const loom_device_artifact_t device_artifact = {
-      .executable_target = provider->candidate.device_target.executable_target,
+      .executable_target = provider->candidate.executable_target,
       .artifact = &provider->candidate.artifact,
   };
   status = loom_run_hal_prepared_candidate_prepare(

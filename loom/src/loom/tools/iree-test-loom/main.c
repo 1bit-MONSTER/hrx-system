@@ -1011,7 +1011,7 @@ int iree_test_loom_main(int argc, char** argv,
             };
         loom_run_hal_testbench_scenario_profile_initialize(
             iree_string_view_is_empty(target)
-                ? hal_context.device_provider->artifact_provider->name
+                ? hal_context.device_provider->name
                 : target,
             &provider_options, &hal_scenario_profile);
         scenario_execution_options.target =

@@ -1202,7 +1202,7 @@ static iree_status_t loom_amdgpu_hal_kernel_library_emit(
   const loom_amdgpu_hal_kernel_library_options_t library_options = {
       .function_versions = request->function_versions,
       .diagnostic_emitter = request->diagnostic_emitter,
-      .max_errors = 20,
+      .max_errors = request->max_errors,
       .report = request->compile_report,
       .capture_target_listing = iree_any_bit_set(
           request->flags, LOOM_TARGET_EMIT_REQUEST_FLAG_TARGET_LISTING),

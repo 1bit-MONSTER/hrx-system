@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-// Projects a Vulkan HAL device into the offline SPIR-V artifact provider.
+// Pairs a Vulkan HAL device target with the core SPIR-V emitter.
 extern const loom_device_provider_t loom_spirv_vulkan_device_provider;
 
 #ifdef __cplusplus

@@ -161,11 +161,7 @@ loom_cc_library(
   DEPS
     iree::base
     iree::hal
-    loom::ir
-    loom::target::profile
     loom::target::provider
-    loom::target::types
-    loom::tooling::compile::options
   PUBLIC
 )
 
@@ -177,11 +173,11 @@ loom_cc_library(
   SRCS
     "device_provider.c"
   DEPS
-    ::artifact
     ::runtime
     iree::base
     iree::hal
     loom::target::profile
+    loom::target::provider
     loom::target::selection
   PUBLIC
 )
@@ -214,9 +210,10 @@ loom_cc_library(
   SRCS
     "candidate.c"
   DEPS
-    ::artifact
     ::device_provider
     iree::base
+    loom::target::entry_selection
+    loom::target::provider
     loom::tooling::compile::options
     loom::tooling::execution::session
   PUBLIC
@@ -405,6 +402,7 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::ops::test
+    loom::target::function_version
     loom::target::low_descriptor_registry_core_test
     loom::target::provider
     loom::target::test::target_record_table

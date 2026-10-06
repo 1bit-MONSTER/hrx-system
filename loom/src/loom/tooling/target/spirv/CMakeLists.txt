@@ -46,28 +46,6 @@ loom_cc_library(
 )
 endif()
 
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-loom_cc_library(
-  NAME
-    artifact_provider
-  HDRS
-    "artifact_provider.h"
-  SRCS
-    "artifact_provider.c"
-  DEPS
-    iree::base
-    loom::target::arch::spirv::descriptors::low_registry
-    loom::target::arch::spirv::profile
-    loom::target::emit::spirv::module_compiler
-    loom::target::entry_selection
-    loom::target::function_contract
-    loom::target::low_descriptor_registry
-    loom::target::types
-    loom::tooling::execution::hal::artifact
-  PUBLIC
-)
-endif()
-
 if(LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
 loom_cc_library(
   NAME
@@ -77,11 +55,11 @@ loom_cc_library(
   SRCS
     "device_provider.c"
   DEPS
-    ::artifact_provider
     ::vulkan_profile
     iree::base
     loom::target::arch::spirv::facts
     loom::target::arch::spirv::profile
+    loom::target::emit::spirv::module_compiler
     loom::tooling::execution::hal::device_provider
     loom::tooling::execution::hal::runtime
   PUBLIC
@@ -148,33 +126,6 @@ loom_cc_library(
 )
 endif()
 
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-loom_cc_test(
-  NAME
-    artifact_provider_test
-  SRCS
-    "artifact_provider_test.cc"
-  DEPS
-    ::artifact_provider
-    iree::base
-    iree::base::internal::arena
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::codegen::low::text_asm
-    loom::format::text::parser
-    loom::ir
-    loom::ops::op_registry
-    loom::target::arch::spirv::descriptors::low_registry
-    loom::target::arch::spirv::ops
-    loom::target::arch::spirv::profile
-    loom::testing::byte_sequence
-    loom::testing::module_ptr
-  LABELS
-    "iree-build-requirement=loom.target.arch.spirv"
-    "iree-build-requirement=loom.emit.spirv"
-)
-endif()
-
 if(LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
 loom_cc_test(
   NAME
@@ -194,42 +145,6 @@ loom_cc_test(
     loom::target::arch::spirv::features
     loom::target::arch::spirv::profile
     loom::tooling::execution::hal::runtime
-  LABELS
-    "iree-build-requirement=loom.target.arch.spirv"
-    "iree-build-requirement=loom.emit.spirv"
-)
-endif()
-
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-loom_cc_test(
-  NAME
-    module_compiler_test
-  SRCS
-    "module_compiler_test.cc"
-  DEPS
-    iree::base::internal::arena
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::analysis::symbol_facts
-    loom::codegen::low::text_asm
-    loom::format::text::parser
-    loom::ir
-    loom::ops::func_symbol_facts
-    loom::ops::op_defs
-    loom::ops::op_registry
-    loom::ops::target
-    loom::target::arch::spirv::descriptors::low_registry
-    loom::target::arch::spirv::features
-    loom::target::arch::spirv::ops
-    loom::target::arch::spirv::profile
-    loom::target::emit::spirv::module_compiler
-    loom::target::facts_builder
-    loom::target::function_contract
-    loom::target::function_version
-    loom::target::profile
-    loom::target::types
-    loom::testing::byte_sequence
-    loom::testing::module_ptr
   LABELS
     "iree-build-requirement=loom.target.arch.spirv"
     "iree-build-requirement=loom.emit.spirv"

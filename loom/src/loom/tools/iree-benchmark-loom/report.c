@@ -367,12 +367,10 @@ iree_status_t iree_benchmark_loom_write_hal_context_identity_fields_json(
       object, IREE_SV("driver"),
       context->execution.device_provider->driver_name));
   IREE_RETURN_IF_ERROR(loom_json_object_write_string_field(
-      object, IREE_SV("provider"),
-      context->execution.device_provider->artifact_provider->name));
+      object, IREE_SV("provider"), context->execution.device_provider->name));
   IREE_RETURN_IF_ERROR(loom_json_object_write_string_field(
       object, IREE_SV("target_family"),
-      context->execution.device_provider->artifact_provider->target_profile_type
-          ->name));
+      context->execution.device_provider->target_profile_type->name));
   if (context->execution.runtime_initialized &&
       context->execution.runtime.device != NULL) {
     IREE_RETURN_IF_ERROR(loom_json_object_write_string_field(
@@ -1675,7 +1673,7 @@ static iree_status_t iree_benchmark_loom_write_candidate_byte_artifact(
 }
 
 static iree_status_t iree_benchmark_loom_find_artifact_manifest_sidecar(
-    const loom_artifact_t* artifact,
+    const loom_target_emit_artifact_t* artifact,
     const loom_target_emit_sidecar_artifact_t** out_sidecar) {
   *out_sidecar = NULL;
   for (iree_host_size_t i = 0; i < artifact->sidecar_count; ++i) {
@@ -1709,7 +1707,8 @@ iree_status_t iree_benchmark_loom_write_compiled_artifacts(
 
   iree_string_builder_t leaf;
   iree_string_builder_initialize(allocator, &leaf);
-  const loom_artifact_t* artifact = &provider->execution.candidate.artifact;
+  const loom_target_emit_artifact_t* artifact =
+      &provider->execution.candidate.artifact;
   iree_status_t status = iree_benchmark_loom_append_candidate_artifact_stem(
       run, candidate, provider, &leaf);
   if (iree_status_is_ok(status)) {
@@ -1723,8 +1722,7 @@ iree_status_t iree_benchmark_loom_write_compiled_artifacts(
     status = iree_benchmark_loom_write_candidate_byte_artifact(
         bundle, IREE_BENCHMARK_LOOM_BUNDLE_FILE_TARGET_ARTIFACT,
         bundle->target_artifact_dir, iree_string_builder_view(&leaf),
-        artifact->target_artifact_data, allocator,
-        &provider->target_artifact_path_storage,
+        artifact->contents, allocator, &provider->target_artifact_path_storage,
         &provider->target_artifact_path);
   }
 
@@ -1744,7 +1742,7 @@ iree_status_t iree_benchmark_loom_write_compiled_artifacts(
     status = iree_benchmark_loom_write_candidate_byte_artifact(
         bundle, IREE_BENCHMARK_LOOM_BUNDLE_FILE_TARGET_LISTING,
         bundle->target_listing_dir, iree_string_builder_view(&leaf),
-        artifact->target_listing_data, allocator,
+        artifact->target_listing_contents, allocator,
         &provider->target_listing_path_storage, &provider->target_listing_path);
   }
 
@@ -1760,8 +1758,8 @@ iree_status_t iree_benchmark_loom_write_compiled_artifacts(
     status = iree_benchmark_loom_write_candidate_byte_artifact(
         bundle, IREE_BENCHMARK_LOOM_BUNDLE_FILE_HAL_EXECUTABLE,
         bundle->hal_executable_dir, iree_string_builder_view(&leaf),
-        artifact->executable_data, allocator,
-        &provider->hal_executable_path_storage, &provider->hal_executable_path);
+        artifact->contents, allocator, &provider->hal_executable_path_storage,
+        &provider->hal_executable_path);
   }
 
   const loom_target_emit_sidecar_artifact_t* artifact_manifest = NULL;

@@ -7,9 +7,8 @@
 // Live device projection for Loom execution tools.
 //
 // Device providers create no artifacts themselves. They select target facts
-// from an active HAL device and project those facts into a loadable artifact
-// target. The shared execution layer then emits through the nested artifact
-// provider and loads the resulting bytes into that same device.
+// from an active HAL device and pair those facts with the core target emitter
+// used by the shared execution layer.
 
 #ifndef LOOM_TOOLING_EXECUTION_HAL_DEVICE_PROVIDER_H_
 #define LOOM_TOOLING_EXECUTION_HAL_DEVICE_PROVIDER_H_
@@ -17,7 +16,7 @@
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
 #include "loom/target/profile.h"
-#include "loom/tooling/execution/hal/artifact.h"
+#include "loom/target/provider.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,19 +25,13 @@ extern "C" {
 typedef struct loom_device_provider_t loom_device_provider_t;
 struct loom_run_hal_runtime_t;
 
-// Artifact target selected from one active HAL device.
+// Compilation target selected from one active HAL device.
 typedef struct loom_device_target_t {
   // Exact executable target row borrowed from the active device spec.
   const iree_hal_executable_target_t* executable_target;
-  // Loadable artifact target projected from the device.
-  loom_artifact_target_t artifact_target;
+  // Immutable structured target profile selected for compilation.
+  const loom_target_profile_t* target_profile;
 } loom_device_target_t;
-
-// Returns the target-neutral bundle projected by |target|, or NULL.
-static inline const loom_target_bundle_t* loom_device_target_bundle(
-    const loom_device_target_t* target) {
-  return target ? loom_artifact_target_bundle(&target->artifact_target) : NULL;
-}
 
 typedef iree_status_t (*loom_device_provider_select_compatible_target_fn_t)(
     const loom_device_provider_t* provider,
@@ -56,10 +49,14 @@ typedef void (*loom_device_provider_deinitialize_target_fn_t)(
     const loom_device_provider_t* provider, loom_device_target_t* target,
     iree_allocator_t allocator);
 
-// Live device adapter for one artifact provider and HAL driver.
+// Live device adapter for one target family, core emitter, and HAL driver.
 struct loom_device_provider_t {
-  // Provider used to emit artifacts after device target selection.
-  const loom_artifact_provider_t* artifact_provider;
+  // Stable provider name surfaced in diagnostics and execution results.
+  iree_string_view_t name;
+  // Required target-family profile representation.
+  const loom_target_profile_type_t* target_profile_type;
+  // Non-NULL core target emitter used after target selection and compilation.
+  const loom_target_emitter_t* target_emitter;
   // IREE HAL driver name used to create the runtime device.
   iree_string_view_t driver_name;
   // Selects the most specific concrete device target satisfying an immutable

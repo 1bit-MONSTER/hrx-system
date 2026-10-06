@@ -8,8 +8,8 @@
 
 #include "loom/target/arch/spirv/facts.h"
 #include "loom/target/arch/spirv/profile.h"
+#include "loom/target/emit/spirv/module_compiler.h"
 #include "loom/tooling/execution/hal/runtime.h"
-#include "loom/tooling/target/spirv/artifact_provider.h"
 #include "loom/tooling/target/spirv/vulkan_profile.h"
 
 static iree_status_t loom_spirv_device_provider_select_executable_target(
@@ -99,8 +99,7 @@ static iree_status_t loom_spirv_device_provider_select_target(
   }
 
   out_target->executable_target = executable_target;
-  out_target->artifact_target.target_profile = &profile_storage->profile.base;
-  out_target->artifact_target.target_key = executable_target->target_key;
+  out_target->target_profile = &profile_storage->profile.base;
   return iree_ok_status();
 }
 
@@ -138,11 +137,7 @@ static iree_status_t loom_spirv_device_provider_select_profile_target(
       runtime, &executable_target));
   *out_target = (loom_device_target_t){
       .executable_target = executable_target,
-      .artifact_target =
-          {
-              .target_profile = base_profile,
-              .target_key = executable_target->target_key,
-          },
+      .target_profile = base_profile,
   };
   return iree_ok_status();
 }
@@ -172,10 +167,9 @@ static void loom_spirv_device_provider_deinitialize_target(
   if (target == NULL) {
     return;
   }
-  if (target->artifact_target.target_profile != NULL) {
+  if (target->target_profile != NULL) {
     loom_spirv_vulkan_hal_target_profile_storage_t* storage =
-        (loom_spirv_vulkan_hal_target_profile_storage_t*)
-            target->artifact_target.target_profile;
+        (loom_spirv_vulkan_hal_target_profile_storage_t*)target->target_profile;
     loom_spirv_vulkan_hal_target_profile_storage_deinitialize(storage,
                                                               allocator);
     iree_allocator_free(allocator, storage);
@@ -184,7 +178,9 @@ static void loom_spirv_device_provider_deinitialize_target(
 }
 
 const loom_device_provider_t loom_spirv_vulkan_device_provider = {
-    .artifact_provider = &loom_spirv_vulkan_artifact_provider,
+    .name = IREE_SVL("spirv-vulkan-hal"),
+    .target_profile_type = &loom_spirv_target_profile_type,
+    .target_emitter = &loom_spirv_module_emitter,
     .driver_name = IREE_SVL("vulkan"),
     .select_compatible_target =
         loom_spirv_device_provider_select_compatible_target_from_facts,

@@ -12,23 +12,18 @@
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
-#include "loom/analysis/symbol_facts.h"
 #include "loom/codegen/low/text_asm.h"
 #include "loom/format/text/parser.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
-#include "loom/ops/func_symbol_facts.h"
 #include "loom/ops/op_defs.h"
 #include "loom/ops/op_registry.h"
-#include "loom/ops/target/facts.h"
-#include "loom/target/arch/spirv/descriptors/low_registry.h"
+#include "loom/target/arch/spirv/descriptors/descriptors.h"
 #include "loom/target/arch/spirv/features.h"
-#include "loom/target/arch/spirv/ops/registry.h"
-#include "loom/target/arch/spirv/profile.h"
+#include "loom/target/arch/spirv/records/target_records.h"
 #include "loom/target/facts_builder.h"
-#include "loom/target/function_contract.h"
 #include "loom/target/function_version.h"
-#include "loom/target/profile.h"
+#include "loom/target/low_descriptor_registry.h"
 #include "loom/testing/byte_sequence.h"
 #include "loom/testing/module_ptr.h"
 
@@ -39,6 +34,11 @@ using ::loom::testing::ByteSequenceClone;
 using ::loom::testing::ModulePtr;
 
 static constexpr iree_host_size_t kSpirvHeaderWordCount = 5;
+
+static const loom_target_fact_type_t kSpirvCompilerTestTargetFactType = {
+    /*.name=*/IREE_SVL("spirv-test"),
+    /*.storage_size=*/sizeof(loom_target_facts_t),
+};
 
 static bool SpirvModuleHasCapability(const loom_spirv_module_binary_t& module,
                                      uint32_t capability) {
@@ -72,9 +72,14 @@ class SpirvModuleCompilerTest : public ::testing::Test {
     iree_arena_initialize(&block_pool_, &arena_);
     loom_context_initialize(iree_allocator_system(), &context_);
     IREE_ASSERT_OK(loom_op_registry_register_all_dialects(&context_));
-    IREE_ASSERT_OK(loom_spirv_ops_register_dialect(&context_));
     IREE_ASSERT_OK(loom_context_finalize(&context_));
-    loom_spirv_low_descriptor_registry_initialize(&low_registry_);
+    static const loom_low_descriptor_set_provider_t kDescriptorSetProviders[] =
+        {
+            loom_spirv_logical_core_descriptor_set,
+        };
+    loom_target_low_descriptor_registry_initialize_from_tables(
+        &low_registry_, kDescriptorSetProviders,
+        IREE_ARRAYSIZE(kDescriptorSetProviders));
   }
 
   void TearDown() override {
@@ -103,6 +108,26 @@ class SpirvModuleCompilerTest : public ::testing::Test {
     return symbol_id;
   }
 
+  void InitializeTargetFacts(const loom_target_bundle_t* bundle,
+                             loom_target_facts_t* out_facts) {
+    loom_target_facts_builder_initialize(&kSpirvCompilerTestTargetFactType,
+                                         bundle, out_facts);
+  }
+
+  loom_target_function_version_t MakeFunctionVersion(
+      loom_module_t* module, iree_string_view_t function_name,
+      const loom_target_facts_t* target_facts) {
+    loom_op_t* function_op =
+        module->symbols.entries[FindSymbol(module, function_name)].defining_op;
+    loom_func_like_t function = loom_func_like_cast(module, function_op);
+    IREE_ASSERT(loom_func_like_isa(function));
+    loom_target_function_version_t version = {};
+    version.base.type = &loom_target_function_version_type;
+    version.base.function = function;
+    version.function_target_facts = target_facts;
+    return version;
+  }
+
   iree_arena_block_pool_t block_pool_;
   iree_arena_allocator_t arena_;
   loom_context_t context_ = {};
@@ -112,9 +137,7 @@ class SpirvModuleCompilerTest : public ::testing::Test {
 TEST_F(SpirvModuleCompilerTest,
        FunctionTargetFactsSelectCapabilitiesWithoutMutatingIR) {
   ModulePtr module = ParseModule(IREE_SV(R"(
-spirv.target<vulkan1_3> @generic
-
-low.func.def target<spirv.logical.core>(@generic) abi(shader_entry_point) @kernel() asm {
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @kernel() asm {
   return
 }
 )"));
@@ -126,48 +149,23 @@ low.func.def target<spirv.logical.core>(@generic) abi(shader_entry_point) @kerne
   const loom_symbol_ref_t authored_target = loom_func_like_target(function);
   const iree_host_size_t authored_symbol_count = module->symbols.count;
 
-  loom_symbol_fact_table_t symbol_facts = {};
-  loom_symbol_fact_table_initialize(&symbol_facts, &arena_);
-  const loom_symbol_facts_base_t* base_function_facts = nullptr;
-  IREE_ASSERT_OK(loom_symbol_fact_table_lookup(
-      &symbol_facts, module.get(), function_symbol_id, &base_function_facts));
-  const loom_func_symbol_facts_t* function_facts =
-      loom_func_symbol_facts_cast(base_function_facts);
-  ASSERT_NE(function_facts, nullptr);
-  const loom_symbol_facts_base_t* base_target_facts = nullptr;
-  IREE_ASSERT_OK(loom_symbol_fact_table_lookup_ref(
-      &symbol_facts, module.get(), function_facts->target_symbol,
-      &base_target_facts));
-  const loom_target_symbol_facts_t* target_facts =
-      loom_target_symbol_facts_cast(base_target_facts);
-  ASSERT_NE(target_facts, nullptr);
-
-  const loom_spirv_target_profile_t* exact_profile = nullptr;
-  IREE_ASSERT_OK(loom_spirv_target_profile_select(
-      IREE_SV("vulkan1.3+bda+extended-types"), &exact_profile));
-  loom_target_facts_t* profile_facts = nullptr;
-  IREE_ASSERT_OK(loom_target_profile_project_facts(&exact_profile->base,
-                                                   &arena_, &profile_facts));
-  ASSERT_TRUE(loom_target_facts_satisfy_specialization_requirement(
-      profile_facts, target_facts->projection));
-  loom_target_facts_builder_apply_requirement(target_facts->projection,
-                                              profile_facts);
-
-  bool contract_valid = false;
-  const loom_target_facts_t* function_target_facts = nullptr;
-  IREE_ASSERT_OK(loom_target_function_contract_refine_facts(
-      module.get(), function_facts,
-      loom_target_facts_identity_name(profile_facts), profile_facts,
-      iree_diagnostic_emitter_t{}, &arena_, &contract_valid,
-      &function_target_facts));
-  ASSERT_TRUE(contract_valid);
-  ASSERT_NE(function_target_facts, nullptr);
+  loom_target_facts_t generic_target_facts = {};
+  InitializeTargetFacts(&loom_spirv_low_target_bundle_vulkan1_3,
+                        &generic_target_facts);
+  loom_target_function_version_t function_version = MakeFunctionVersion(
+      module.get(), IREE_SV("kernel"), &generic_target_facts);
+  loom_function_version_t* version_values[] = {&function_version.base};
+  loom_function_version_list_t function_versions = {};
+  function_versions.values = version_values;
+  function_versions.count = IREE_ARRAYSIZE(version_values);
+  loom_spirv_compile_options_t options = {};
+  options.function_versions = &function_versions;
 
   loom_spirv_module_binary_t generic_module = {};
   bool generic_emitted = false;
   IREE_ASSERT_OK(loom_spirv_compile_module_binary(
       module.get(), &low_registry_.registry, iree_diagnostic_emitter_t{},
-      &arena_, /*options=*/nullptr, iree_allocator_system(), &generic_emitted,
+      &arena_, &options, iree_allocator_system(), &generic_emitted,
       &generic_module));
   ASSERT_TRUE(generic_emitted);
   EXPECT_FALSE(
@@ -179,18 +177,10 @@ low.func.def target<spirv.logical.core>(@generic) abi(shader_entry_point) @kerne
   loom_spirv_module_binary_deinitialize(&generic_module,
                                         iree_allocator_system());
 
-  loom_target_function_version_t function_version = {};
-  function_version.base.type = &loom_target_function_version_type;
-  function_version.base.function = function;
-  function_version.authored_target_name = target_facts->name;
-  function_version.target_requirement_facts = target_facts->projection;
-  function_version.function_target_facts = function_target_facts;
-  loom_function_version_t* version_values[] = {&function_version.base};
-  loom_function_version_list_t function_versions = {};
-  function_versions.values = version_values;
-  function_versions.count = IREE_ARRAYSIZE(version_values);
-  loom_spirv_compile_options_t options = {};
-  options.function_versions = &function_versions;
+  loom_target_facts_t exact_target_facts = {};
+  InitializeTargetFacts(&loom_spirv_low_target_bundle_extended_types,
+                        &exact_target_facts);
+  function_version.function_target_facts = &exact_target_facts;
 
   loom_spirv_module_binary_t exact_module = {};
   bool exact_emitted = false;
@@ -215,16 +205,26 @@ low.func.def target<spirv.logical.core>(@generic) abi(shader_entry_point) @kerne
 
 TEST_F(SpirvModuleCompilerTest, RetainsRequestedArtifactMetadata) {
   ModulePtr module = ParseModule(IREE_SV(R"(
-spirv.target<vulkan1_3> @hal_target {abi = hal_kernel}
-
-low.kernel.def target<spirv.logical.core>(@hal_target) workgroup_size(1, 1, 1) @loom_kernel() asm {
+low.kernel.def target<spirv.logical.core> workgroup_size(1, 1, 1) @loom_kernel() asm {
   return
 }
 )"));
 
+  loom_target_facts_t target_facts = {};
+  InitializeTargetFacts(&loom_spirv_low_target_bundle_hal_kernel,
+                        &target_facts);
+  loom_target_function_version_t function_version =
+      MakeFunctionVersion(module.get(), IREE_SV("loom_kernel"), &target_facts);
+  loom_function_version_t* version_values[] = {&function_version.base};
+  const loom_function_version_list_t function_versions = {
+      /*.values=*/version_values,
+      /*.count=*/IREE_ARRAYSIZE(version_values),
+  };
+
   loom_target_emit_request_t request = {};
   request.low_descriptor_registry = &low_registry_.registry;
   request.module = module.get();
+  request.function_versions = &function_versions;
   request.identifier = IREE_SV("module.spv");
   request.scratch_arena = &arena_;
   request.allocator = iree_allocator_system();
