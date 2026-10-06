@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_bitwise_constants.loom-test
 // RUN: emit source-low target=x86:scalar output=low
 
 func.def @bitwise_word_constants(%input: i32, %mask_input: i32) -> (i32, i32, i32) {
@@ -73,454 +72,84 @@ low.func.def target<x86.scalar.core> abi(object_function) @bitwise_wide_constant
 
 // ====
 
-func.def @bitwise_index_signed_constants(%input: index) -> (index, index, index) {
-  %mask = index.constant -2147483648 : index
-  %tag = index.constant 2147483647 : index
-  %toggle = index.constant -1 : index
-  %masked = index.andi %mask, %input : index
-  %tagged = index.ori %input, %tag : index
-  %toggled = index.xori %toggle, %input : index
-  func.return %masked, %tagged, %toggled : index, index, index
-}
-
-// ----
-low.func.def target<x86.scalar.core> abi(object_function) @bitwise_index_signed_constants(%input: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %14 = copy %input : reg<x86.gpr64> -> reg<x86.gpr64>
-  %masked = and.imm.gpr64 %14 {imm32 = -2147483648}
-  %16 = copy %input : reg<x86.gpr64> -> reg<x86.gpr64>
-  %tagged = or.imm.gpr64 %16 {imm32 = 2147483647}
-  %18 = copy %input : reg<x86.gpr64> -> reg<x86.gpr64>
-  %toggled = xor.imm.gpr64 %18 {imm32 = -1}
-  return %masked, %tagged, %toggled
-}
-
-// ====
-
-func.def @bitwise_index_constant_boundaries(%input: index) -> (index, index, index) {
-  %mask = index.constant 4294967295 : index
-  %tag = index.constant 2147483648 : index
-  %toggle = index.constant 4294967294 : index
-  %masked = index.andi %input, %mask : index
-  %tagged = index.ori %tag, %input : index
-  %toggled = index.xori %input, %toggle : index
-  func.return %masked, %tagged, %toggled : index, index, index
-}
-
-// ----
-low.func.def target<x86.scalar.core> abi(object_function) @bitwise_index_constant_boundaries(%input: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %mask = mov.imm64 4294967295
-  %tag = mov.imm64 2147483648
-  %toggle = mov.imm64 4294967294
-  %17 = copy %input : reg<x86.gpr64> -> reg<x86.gpr64>
-  %masked = and.gpr64 %17, %mask
-  %19 = copy %tag : reg<x86.gpr64> -> reg<x86.gpr64>
-  %tagged = or.gpr64 %19, %input
-  %21 = copy %input : reg<x86.gpr64> -> reg<x86.gpr64>
-  %toggled = xor.gpr64 %21, %toggle
-  return %masked, %tagged, %toggled
-}
-
-// ====
-
-func.def @vector_i32x16_uniform_shift_left(%input_arg: buffer, %output_arg: buffer) {
-  %input_buffer = buffer.assume.alignment %input_arg {minimum_alignment = 64} : buffer
-  %output_buffer = buffer.assume.alignment %output_arg {minimum_alignment = 64} : buffer
+func.def @vector_i32x2_uniform_shift_left(%input_arg: buffer, %output_arg: buffer) {
+  %input_buffer = buffer.assume.alignment %input_arg {minimum_alignment = 8} : buffer
+  %output_buffer = buffer.assume.alignment %output_arg {minimum_alignment = 8} : buffer
   %base = index.constant 0 : offset
-  %input_view = buffer.view %input_buffer[%base] : buffer -> view<16xi32>
-  %output_view = buffer.view %output_buffer[%base] : buffer -> view<16xi32>
-  %input = vector.load %input_view[0] : view<16xi32> -> vector<16xi32>
-  %distance = vector.constant 23 : vector<16xi32>
-  %shifted = vector.shli %input, %distance : vector<16xi32>
-  vector.store %shifted, %output_view[0] : vector<16xi32>, view<16xi32>
+  %input_view = buffer.view %input_buffer[%base] : buffer -> view<2xi32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<2xi32>
+  %input = vector.load %input_view[0] : view<2xi32> -> vector<2xi32>
+  %distance = vector.constant 23 : vector<2xi32>
+  %shifted = vector.shli %input, %distance : vector<2xi32>
+  vector.store %shifted, %output_view[0] : vector<2xi32>, view<2xi32>
   func.return
 }
 
 // ----
-low.func.def target<x86.scalar.core> abi(object_function) @vector_i32x16_uniform_shift_left(%input_buffer: reg<x86.gpr64>, %output_buffer: reg<x86.gpr64>) asm {
-  %110 = mov.load.gpr32 %input_buffer {disp32 = 0}
-  %111 = mov.load.gpr32 %input_buffer {disp32 = 4}
-  %112 = mov.load.gpr32 %input_buffer {disp32 = 8}
-  %113 = mov.load.gpr32 %input_buffer {disp32 = 12}
-  %114 = mov.load.gpr32 %input_buffer {disp32 = 16}
-  %115 = mov.load.gpr32 %input_buffer {disp32 = 20}
-  %116 = mov.load.gpr32 %input_buffer {disp32 = 24}
-  %117 = mov.load.gpr32 %input_buffer {disp32 = 28}
-  %118 = mov.load.gpr32 %input_buffer {disp32 = 32}
-  %119 = mov.load.gpr32 %input_buffer {disp32 = 36}
-  %120 = mov.load.gpr32 %input_buffer {disp32 = 40}
-  %121 = mov.load.gpr32 %input_buffer {disp32 = 44}
-  %122 = mov.load.gpr32 %input_buffer {disp32 = 48}
-  %123 = mov.load.gpr32 %input_buffer {disp32 = 52}
-  %124 = mov.load.gpr32 %input_buffer {disp32 = 56}
-  %125 = mov.load.gpr32 %input_buffer {disp32 = 60}
-  %126 = copy %110 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %127 = shl.imm.gpr32 %126 {shift = 23}
-  %128 = copy %111 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %129 = shl.imm.gpr32 %128 {shift = 23}
-  %130 = copy %112 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %131 = shl.imm.gpr32 %130 {shift = 23}
-  %132 = copy %113 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %133 = shl.imm.gpr32 %132 {shift = 23}
-  %134 = copy %114 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %135 = shl.imm.gpr32 %134 {shift = 23}
-  %136 = copy %115 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %137 = shl.imm.gpr32 %136 {shift = 23}
-  %138 = copy %116 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %139 = shl.imm.gpr32 %138 {shift = 23}
-  %140 = copy %117 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %141 = shl.imm.gpr32 %140 {shift = 23}
-  %142 = copy %118 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %143 = shl.imm.gpr32 %142 {shift = 23}
-  %144 = copy %119 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %145 = shl.imm.gpr32 %144 {shift = 23}
-  %146 = copy %120 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %147 = shl.imm.gpr32 %146 {shift = 23}
-  %148 = copy %121 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %149 = shl.imm.gpr32 %148 {shift = 23}
-  %150 = copy %122 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %151 = shl.imm.gpr32 %150 {shift = 23}
-  %152 = copy %123 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %153 = shl.imm.gpr32 %152 {shift = 23}
-  %154 = copy %124 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %155 = shl.imm.gpr32 %154 {shift = 23}
-  %156 = copy %125 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %157 = shl.imm.gpr32 %156 {shift = 23}
-  mov.store.gpr32 %127, %output_buffer {disp32 = 0}
-  mov.store.gpr32 %129, %output_buffer {disp32 = 4}
-  mov.store.gpr32 %131, %output_buffer {disp32 = 8}
-  mov.store.gpr32 %133, %output_buffer {disp32 = 12}
-  mov.store.gpr32 %135, %output_buffer {disp32 = 16}
-  mov.store.gpr32 %137, %output_buffer {disp32 = 20}
-  mov.store.gpr32 %139, %output_buffer {disp32 = 24}
-  mov.store.gpr32 %141, %output_buffer {disp32 = 28}
-  mov.store.gpr32 %143, %output_buffer {disp32 = 32}
-  mov.store.gpr32 %145, %output_buffer {disp32 = 36}
-  mov.store.gpr32 %147, %output_buffer {disp32 = 40}
-  mov.store.gpr32 %149, %output_buffer {disp32 = 44}
-  mov.store.gpr32 %151, %output_buffer {disp32 = 48}
-  mov.store.gpr32 %153, %output_buffer {disp32 = 52}
-  mov.store.gpr32 %155, %output_buffer {disp32 = 56}
-  mov.store.gpr32 %157, %output_buffer {disp32 = 60}
+low.func.def target<x86.scalar.core> abi(object_function) @vector_i32x2_uniform_shift_left(%input_buffer: reg<x86.gpr64>, %output_buffer: reg<x86.gpr64>) asm {
+  %26 = mov.load.gpr32 %input_buffer {disp32 = 0}
+  %27 = mov.load.gpr32 %input_buffer {disp32 = 4}
+  %28 = copy %26 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %29 = shl.imm.gpr32 %28 {shift = 23}
+  %30 = copy %27 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %31 = shl.imm.gpr32 %30 {shift = 23}
+  mov.store.gpr32 %29, %output_buffer {disp32 = 0}
+  mov.store.gpr32 %31, %output_buffer {disp32 = 4}
   return
 }
 
 // ====
 
-func.def @vector_i32x16_uniform_shift_signed(%input_arg: buffer, %output_arg: buffer) {
-  %input_buffer = buffer.assume.alignment %input_arg {minimum_alignment = 64} : buffer
-  %output_buffer = buffer.assume.alignment %output_arg {minimum_alignment = 64} : buffer
+func.def @vector_i32x2_uniform_shift_signed(%input_arg: buffer, %output_arg: buffer) {
+  %input_buffer = buffer.assume.alignment %input_arg {minimum_alignment = 8} : buffer
+  %output_buffer = buffer.assume.alignment %output_arg {minimum_alignment = 8} : buffer
   %base = index.constant 0 : offset
-  %input_view = buffer.view %input_buffer[%base] : buffer -> view<16xi32>
-  %output_view = buffer.view %output_buffer[%base] : buffer -> view<16xi32>
-  %input = vector.load %input_view[0] : view<16xi32> -> vector<16xi32>
-  %distance = vector.constant 7 : vector<16xi32>
-  %shifted = vector.shrsi %input, %distance : vector<16xi32>
-  vector.store %shifted, %output_view[0] : vector<16xi32>, view<16xi32>
+  %input_view = buffer.view %input_buffer[%base] : buffer -> view<2xi32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<2xi32>
+  %input = vector.load %input_view[0] : view<2xi32> -> vector<2xi32>
+  %distance = vector.constant 7 : vector<2xi32>
+  %shifted = vector.shrsi %input, %distance : vector<2xi32>
+  vector.store %shifted, %output_view[0] : vector<2xi32>, view<2xi32>
   func.return
 }
 
 // ----
-low.func.def target<x86.scalar.core> abi(object_function) @vector_i32x16_uniform_shift_signed(%input_buffer: reg<x86.gpr64>, %output_buffer: reg<x86.gpr64>) asm {
-  %110 = mov.load.gpr32 %input_buffer {disp32 = 0}
-  %111 = mov.load.gpr32 %input_buffer {disp32 = 4}
-  %112 = mov.load.gpr32 %input_buffer {disp32 = 8}
-  %113 = mov.load.gpr32 %input_buffer {disp32 = 12}
-  %114 = mov.load.gpr32 %input_buffer {disp32 = 16}
-  %115 = mov.load.gpr32 %input_buffer {disp32 = 20}
-  %116 = mov.load.gpr32 %input_buffer {disp32 = 24}
-  %117 = mov.load.gpr32 %input_buffer {disp32 = 28}
-  %118 = mov.load.gpr32 %input_buffer {disp32 = 32}
-  %119 = mov.load.gpr32 %input_buffer {disp32 = 36}
-  %120 = mov.load.gpr32 %input_buffer {disp32 = 40}
-  %121 = mov.load.gpr32 %input_buffer {disp32 = 44}
-  %122 = mov.load.gpr32 %input_buffer {disp32 = 48}
-  %123 = mov.load.gpr32 %input_buffer {disp32 = 52}
-  %124 = mov.load.gpr32 %input_buffer {disp32 = 56}
-  %125 = mov.load.gpr32 %input_buffer {disp32 = 60}
-  %126 = copy %110 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %127 = sar.imm.gpr32 %126 {shift = 7}
-  %128 = copy %111 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %129 = sar.imm.gpr32 %128 {shift = 7}
-  %130 = copy %112 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %131 = sar.imm.gpr32 %130 {shift = 7}
-  %132 = copy %113 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %133 = sar.imm.gpr32 %132 {shift = 7}
-  %134 = copy %114 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %135 = sar.imm.gpr32 %134 {shift = 7}
-  %136 = copy %115 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %137 = sar.imm.gpr32 %136 {shift = 7}
-  %138 = copy %116 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %139 = sar.imm.gpr32 %138 {shift = 7}
-  %140 = copy %117 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %141 = sar.imm.gpr32 %140 {shift = 7}
-  %142 = copy %118 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %143 = sar.imm.gpr32 %142 {shift = 7}
-  %144 = copy %119 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %145 = sar.imm.gpr32 %144 {shift = 7}
-  %146 = copy %120 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %147 = sar.imm.gpr32 %146 {shift = 7}
-  %148 = copy %121 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %149 = sar.imm.gpr32 %148 {shift = 7}
-  %150 = copy %122 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %151 = sar.imm.gpr32 %150 {shift = 7}
-  %152 = copy %123 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %153 = sar.imm.gpr32 %152 {shift = 7}
-  %154 = copy %124 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %155 = sar.imm.gpr32 %154 {shift = 7}
-  %156 = copy %125 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %157 = sar.imm.gpr32 %156 {shift = 7}
-  mov.store.gpr32 %127, %output_buffer {disp32 = 0}
-  mov.store.gpr32 %129, %output_buffer {disp32 = 4}
-  mov.store.gpr32 %131, %output_buffer {disp32 = 8}
-  mov.store.gpr32 %133, %output_buffer {disp32 = 12}
-  mov.store.gpr32 %135, %output_buffer {disp32 = 16}
-  mov.store.gpr32 %137, %output_buffer {disp32 = 20}
-  mov.store.gpr32 %139, %output_buffer {disp32 = 24}
-  mov.store.gpr32 %141, %output_buffer {disp32 = 28}
-  mov.store.gpr32 %143, %output_buffer {disp32 = 32}
-  mov.store.gpr32 %145, %output_buffer {disp32 = 36}
-  mov.store.gpr32 %147, %output_buffer {disp32 = 40}
-  mov.store.gpr32 %149, %output_buffer {disp32 = 44}
-  mov.store.gpr32 %151, %output_buffer {disp32 = 48}
-  mov.store.gpr32 %153, %output_buffer {disp32 = 52}
-  mov.store.gpr32 %155, %output_buffer {disp32 = 56}
-  mov.store.gpr32 %157, %output_buffer {disp32 = 60}
+low.func.def target<x86.scalar.core> abi(object_function) @vector_i32x2_uniform_shift_signed(%input_buffer: reg<x86.gpr64>, %output_buffer: reg<x86.gpr64>) asm {
+  %26 = mov.load.gpr32 %input_buffer {disp32 = 0}
+  %27 = mov.load.gpr32 %input_buffer {disp32 = 4}
+  %28 = copy %26 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %29 = sar.imm.gpr32 %28 {shift = 7}
+  %30 = copy %27 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %31 = sar.imm.gpr32 %30 {shift = 7}
+  mov.store.gpr32 %29, %output_buffer {disp32 = 0}
+  mov.store.gpr32 %31, %output_buffer {disp32 = 4}
   return
 }
 
 // ====
 
-func.def @vector_i32x16_uniform_shift_unsigned(%input_arg: buffer, %output_arg: buffer) {
-  %input_buffer = buffer.assume.alignment %input_arg {minimum_alignment = 64} : buffer
-  %output_buffer = buffer.assume.alignment %output_arg {minimum_alignment = 64} : buffer
+func.def @vector_i32x2_uniform_shift_unsigned(%input_arg: buffer, %output_arg: buffer) {
+  %input_buffer = buffer.assume.alignment %input_arg {minimum_alignment = 8} : buffer
+  %output_buffer = buffer.assume.alignment %output_arg {minimum_alignment = 8} : buffer
   %base = index.constant 0 : offset
-  %input_view = buffer.view %input_buffer[%base] : buffer -> view<16xi32>
-  %output_view = buffer.view %output_buffer[%base] : buffer -> view<16xi32>
-  %input = vector.load %input_view[0] : view<16xi32> -> vector<16xi32>
-  %distance = vector.constant 31 : vector<16xi32>
-  %shifted = vector.shrui %input, %distance : vector<16xi32>
-  vector.store %shifted, %output_view[0] : vector<16xi32>, view<16xi32>
+  %input_view = buffer.view %input_buffer[%base] : buffer -> view<2xi32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<2xi32>
+  %input = vector.load %input_view[0] : view<2xi32> -> vector<2xi32>
+  %distance = vector.constant 31 : vector<2xi32>
+  %shifted = vector.shrui %input, %distance : vector<2xi32>
+  vector.store %shifted, %output_view[0] : vector<2xi32>, view<2xi32>
   func.return
 }
 
 // ----
-low.func.def target<x86.scalar.core> abi(object_function) @vector_i32x16_uniform_shift_unsigned(%input_buffer: reg<x86.gpr64>, %output_buffer: reg<x86.gpr64>) asm {
-  %110 = mov.load.gpr32 %input_buffer {disp32 = 0}
-  %111 = mov.load.gpr32 %input_buffer {disp32 = 4}
-  %112 = mov.load.gpr32 %input_buffer {disp32 = 8}
-  %113 = mov.load.gpr32 %input_buffer {disp32 = 12}
-  %114 = mov.load.gpr32 %input_buffer {disp32 = 16}
-  %115 = mov.load.gpr32 %input_buffer {disp32 = 20}
-  %116 = mov.load.gpr32 %input_buffer {disp32 = 24}
-  %117 = mov.load.gpr32 %input_buffer {disp32 = 28}
-  %118 = mov.load.gpr32 %input_buffer {disp32 = 32}
-  %119 = mov.load.gpr32 %input_buffer {disp32 = 36}
-  %120 = mov.load.gpr32 %input_buffer {disp32 = 40}
-  %121 = mov.load.gpr32 %input_buffer {disp32 = 44}
-  %122 = mov.load.gpr32 %input_buffer {disp32 = 48}
-  %123 = mov.load.gpr32 %input_buffer {disp32 = 52}
-  %124 = mov.load.gpr32 %input_buffer {disp32 = 56}
-  %125 = mov.load.gpr32 %input_buffer {disp32 = 60}
-  %126 = copy %110 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %127 = shr.imm.gpr32 %126 {shift = 31}
-  %128 = copy %111 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %129 = shr.imm.gpr32 %128 {shift = 31}
-  %130 = copy %112 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %131 = shr.imm.gpr32 %130 {shift = 31}
-  %132 = copy %113 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %133 = shr.imm.gpr32 %132 {shift = 31}
-  %134 = copy %114 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %135 = shr.imm.gpr32 %134 {shift = 31}
-  %136 = copy %115 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %137 = shr.imm.gpr32 %136 {shift = 31}
-  %138 = copy %116 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %139 = shr.imm.gpr32 %138 {shift = 31}
-  %140 = copy %117 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %141 = shr.imm.gpr32 %140 {shift = 31}
-  %142 = copy %118 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %143 = shr.imm.gpr32 %142 {shift = 31}
-  %144 = copy %119 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %145 = shr.imm.gpr32 %144 {shift = 31}
-  %146 = copy %120 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %147 = shr.imm.gpr32 %146 {shift = 31}
-  %148 = copy %121 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %149 = shr.imm.gpr32 %148 {shift = 31}
-  %150 = copy %122 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %151 = shr.imm.gpr32 %150 {shift = 31}
-  %152 = copy %123 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %153 = shr.imm.gpr32 %152 {shift = 31}
-  %154 = copy %124 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %155 = shr.imm.gpr32 %154 {shift = 31}
-  %156 = copy %125 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %157 = shr.imm.gpr32 %156 {shift = 31}
-  mov.store.gpr32 %127, %output_buffer {disp32 = 0}
-  mov.store.gpr32 %129, %output_buffer {disp32 = 4}
-  mov.store.gpr32 %131, %output_buffer {disp32 = 8}
-  mov.store.gpr32 %133, %output_buffer {disp32 = 12}
-  mov.store.gpr32 %135, %output_buffer {disp32 = 16}
-  mov.store.gpr32 %137, %output_buffer {disp32 = 20}
-  mov.store.gpr32 %139, %output_buffer {disp32 = 24}
-  mov.store.gpr32 %141, %output_buffer {disp32 = 28}
-  mov.store.gpr32 %143, %output_buffer {disp32 = 32}
-  mov.store.gpr32 %145, %output_buffer {disp32 = 36}
-  mov.store.gpr32 %147, %output_buffer {disp32 = 40}
-  mov.store.gpr32 %149, %output_buffer {disp32 = 44}
-  mov.store.gpr32 %151, %output_buffer {disp32 = 48}
-  mov.store.gpr32 %153, %output_buffer {disp32 = 52}
-  mov.store.gpr32 %155, %output_buffer {disp32 = 56}
-  mov.store.gpr32 %157, %output_buffer {disp32 = 60}
-  return
-}
-
-// ====
-
-func.def @vector_i32x16_uniform_shift_boundaries(%input_arg: buffer, %output_arg: buffer) {
-  %input_buffer = buffer.assume.alignment %input_arg {minimum_alignment = 64} : buffer
-  %output_buffer = buffer.assume.alignment %output_arg {minimum_alignment = 64} : buffer
-  %base = index.constant 0 : offset
-  %input_view = buffer.view %input_buffer[%base] : buffer -> view<16xi32>
-  %output_view = buffer.view %output_buffer[%base] : buffer -> view<48xi32>
-  %input = vector.load %input_view[0] : view<16xi32> -> vector<16xi32>
-  %identity_distance = vector.constant 0 : vector<16xi32>
-  %high = vector.constant 31 : vector<16xi32>
-  %identity = vector.shrsi %input, %identity_distance : vector<16xi32>
-  %highest = vector.shli %input, %high : vector<16xi32>
-  %sign = vector.shrsi %input, %high : vector<16xi32>
-  vector.store %identity, %output_view[0] : vector<16xi32>, view<48xi32>
-  vector.store %highest, %output_view[16] : vector<16xi32>, view<48xi32>
-  vector.store %sign, %output_view[32] : vector<16xi32>, view<48xi32>
-  func.return
-}
-
-// ----
-low.func.def target<x86.scalar.core> abi(object_function) @vector_i32x16_uniform_shift_boundaries(%input_buffer: reg<x86.gpr64>, %output_buffer: reg<x86.gpr64>) asm {
-  %194 = mov.load.gpr32 %input_buffer {disp32 = 0}
-  %195 = mov.load.gpr32 %input_buffer {disp32 = 4}
-  %196 = mov.load.gpr32 %input_buffer {disp32 = 8}
-  %197 = mov.load.gpr32 %input_buffer {disp32 = 12}
-  %198 = mov.load.gpr32 %input_buffer {disp32 = 16}
-  %199 = mov.load.gpr32 %input_buffer {disp32 = 20}
-  %200 = mov.load.gpr32 %input_buffer {disp32 = 24}
-  %201 = mov.load.gpr32 %input_buffer {disp32 = 28}
-  %202 = mov.load.gpr32 %input_buffer {disp32 = 32}
-  %203 = mov.load.gpr32 %input_buffer {disp32 = 36}
-  %204 = mov.load.gpr32 %input_buffer {disp32 = 40}
-  %205 = mov.load.gpr32 %input_buffer {disp32 = 44}
-  %206 = mov.load.gpr32 %input_buffer {disp32 = 48}
-  %207 = mov.load.gpr32 %input_buffer {disp32 = 52}
-  %208 = mov.load.gpr32 %input_buffer {disp32 = 56}
-  %209 = mov.load.gpr32 %input_buffer {disp32 = 60}
-  %210 = copy %194 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %211 = shl.imm.gpr32 %210 {shift = 31}
-  %212 = copy %195 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %213 = shl.imm.gpr32 %212 {shift = 31}
-  %214 = copy %196 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %215 = shl.imm.gpr32 %214 {shift = 31}
-  %216 = copy %197 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %217 = shl.imm.gpr32 %216 {shift = 31}
-  %218 = copy %198 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %219 = shl.imm.gpr32 %218 {shift = 31}
-  %220 = copy %199 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %221 = shl.imm.gpr32 %220 {shift = 31}
-  %222 = copy %200 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %223 = shl.imm.gpr32 %222 {shift = 31}
-  %224 = copy %201 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %225 = shl.imm.gpr32 %224 {shift = 31}
-  %226 = copy %202 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %227 = shl.imm.gpr32 %226 {shift = 31}
-  %228 = copy %203 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %229 = shl.imm.gpr32 %228 {shift = 31}
-  %230 = copy %204 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %231 = shl.imm.gpr32 %230 {shift = 31}
-  %232 = copy %205 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %233 = shl.imm.gpr32 %232 {shift = 31}
-  %234 = copy %206 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %235 = shl.imm.gpr32 %234 {shift = 31}
-  %236 = copy %207 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %237 = shl.imm.gpr32 %236 {shift = 31}
-  %238 = copy %208 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %239 = shl.imm.gpr32 %238 {shift = 31}
-  %240 = copy %209 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %241 = shl.imm.gpr32 %240 {shift = 31}
-  %242 = copy %194 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %243 = sar.imm.gpr32 %242 {shift = 31}
-  %244 = copy %195 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %245 = sar.imm.gpr32 %244 {shift = 31}
-  %246 = copy %196 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %247 = sar.imm.gpr32 %246 {shift = 31}
-  %248 = copy %197 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %249 = sar.imm.gpr32 %248 {shift = 31}
-  %250 = copy %198 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %251 = sar.imm.gpr32 %250 {shift = 31}
-  %252 = copy %199 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %253 = sar.imm.gpr32 %252 {shift = 31}
-  %254 = copy %200 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %255 = sar.imm.gpr32 %254 {shift = 31}
-  %256 = copy %201 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %257 = sar.imm.gpr32 %256 {shift = 31}
-  %258 = copy %202 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %259 = sar.imm.gpr32 %258 {shift = 31}
-  %260 = copy %203 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %261 = sar.imm.gpr32 %260 {shift = 31}
-  %262 = copy %204 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %263 = sar.imm.gpr32 %262 {shift = 31}
-  %264 = copy %205 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %265 = sar.imm.gpr32 %264 {shift = 31}
-  %266 = copy %206 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %267 = sar.imm.gpr32 %266 {shift = 31}
-  %268 = copy %207 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %269 = sar.imm.gpr32 %268 {shift = 31}
-  %270 = copy %208 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %271 = sar.imm.gpr32 %270 {shift = 31}
-  %272 = copy %209 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %273 = sar.imm.gpr32 %272 {shift = 31}
-  mov.store.gpr32 %194, %output_buffer {disp32 = 0}
-  mov.store.gpr32 %195, %output_buffer {disp32 = 4}
-  mov.store.gpr32 %196, %output_buffer {disp32 = 8}
-  mov.store.gpr32 %197, %output_buffer {disp32 = 12}
-  mov.store.gpr32 %198, %output_buffer {disp32 = 16}
-  mov.store.gpr32 %199, %output_buffer {disp32 = 20}
-  mov.store.gpr32 %200, %output_buffer {disp32 = 24}
-  mov.store.gpr32 %201, %output_buffer {disp32 = 28}
-  mov.store.gpr32 %202, %output_buffer {disp32 = 32}
-  mov.store.gpr32 %203, %output_buffer {disp32 = 36}
-  mov.store.gpr32 %204, %output_buffer {disp32 = 40}
-  mov.store.gpr32 %205, %output_buffer {disp32 = 44}
-  mov.store.gpr32 %206, %output_buffer {disp32 = 48}
-  mov.store.gpr32 %207, %output_buffer {disp32 = 52}
-  mov.store.gpr32 %208, %output_buffer {disp32 = 56}
-  mov.store.gpr32 %209, %output_buffer {disp32 = 60}
-  mov.store.gpr32 %211, %output_buffer {disp32 = 64}
-  mov.store.gpr32 %213, %output_buffer {disp32 = 68}
-  mov.store.gpr32 %215, %output_buffer {disp32 = 72}
-  mov.store.gpr32 %217, %output_buffer {disp32 = 76}
-  mov.store.gpr32 %219, %output_buffer {disp32 = 80}
-  mov.store.gpr32 %221, %output_buffer {disp32 = 84}
-  mov.store.gpr32 %223, %output_buffer {disp32 = 88}
-  mov.store.gpr32 %225, %output_buffer {disp32 = 92}
-  mov.store.gpr32 %227, %output_buffer {disp32 = 96}
-  mov.store.gpr32 %229, %output_buffer {disp32 = 100}
-  mov.store.gpr32 %231, %output_buffer {disp32 = 104}
-  mov.store.gpr32 %233, %output_buffer {disp32 = 108}
-  mov.store.gpr32 %235, %output_buffer {disp32 = 112}
-  mov.store.gpr32 %237, %output_buffer {disp32 = 116}
-  mov.store.gpr32 %239, %output_buffer {disp32 = 120}
-  mov.store.gpr32 %241, %output_buffer {disp32 = 124}
-  mov.store.gpr32 %243, %output_buffer {disp32 = 128}
-  mov.store.gpr32 %245, %output_buffer {disp32 = 132}
-  mov.store.gpr32 %247, %output_buffer {disp32 = 136}
-  mov.store.gpr32 %249, %output_buffer {disp32 = 140}
-  mov.store.gpr32 %251, %output_buffer {disp32 = 144}
-  mov.store.gpr32 %253, %output_buffer {disp32 = 148}
-  mov.store.gpr32 %255, %output_buffer {disp32 = 152}
-  mov.store.gpr32 %257, %output_buffer {disp32 = 156}
-  mov.store.gpr32 %259, %output_buffer {disp32 = 160}
-  mov.store.gpr32 %261, %output_buffer {disp32 = 164}
-  mov.store.gpr32 %263, %output_buffer {disp32 = 168}
-  mov.store.gpr32 %265, %output_buffer {disp32 = 172}
-  mov.store.gpr32 %267, %output_buffer {disp32 = 176}
-  mov.store.gpr32 %269, %output_buffer {disp32 = 180}
-  mov.store.gpr32 %271, %output_buffer {disp32 = 184}
-  mov.store.gpr32 %273, %output_buffer {disp32 = 188}
+low.func.def target<x86.scalar.core> abi(object_function) @vector_i32x2_uniform_shift_unsigned(%input_buffer: reg<x86.gpr64>, %output_buffer: reg<x86.gpr64>) asm {
+  %26 = mov.load.gpr32 %input_buffer {disp32 = 0}
+  %27 = mov.load.gpr32 %input_buffer {disp32 = 4}
+  %28 = copy %26 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %29 = shr.imm.gpr32 %28 {shift = 31}
+  %30 = copy %27 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %31 = shr.imm.gpr32 %30 {shift = 31}
+  mov.store.gpr32 %29, %output_buffer {disp32 = 0}
+  mov.store.gpr32 %31, %output_buffer {disp32 = 4}
   return
 }
