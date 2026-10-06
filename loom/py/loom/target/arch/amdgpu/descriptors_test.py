@@ -3361,6 +3361,121 @@ def test_cdna_excludes_unsupported_vop3_literal_integer_forms() -> None:
         assert unsupported_keys.issubset(overlay.descriptor_key for overlay in overlays)
 
 
+def test_float_classification_descriptors_follow_target_literal_support() -> None:
+    base_keys = {f"amdgpu.v_cmp_class_f{bit_width}" for bit_width in (16, 32, 64)}
+    inline_keys = {f"{key}.classes_inline" for key in base_keys}
+    literal_keys = {f"{key}.classes_lit" for key in base_keys}
+    high_base_key = "amdgpu.v_cmp_class_f16.input_high"
+    high_inline_key = f"{high_base_key}.classes_inline"
+    high_literal_key = f"{high_base_key}.classes_lit"
+
+    for descriptor_set in (_gfx940_core_overlays(), _gfx950_core_overlays()):
+        descriptors = {
+            descriptor.descriptor_key: descriptor for descriptor in descriptor_set
+        }
+        assert (
+            base_keys
+            | inline_keys
+            | {
+                high_base_key,
+                high_inline_key,
+            }
+            <= descriptors.keys()
+        )
+        assert (literal_keys | {high_literal_key}).isdisjoint(descriptors.keys())
+        for key in base_keys:
+            assert tuple(
+                form.replacement_descriptor for form in descriptors[key].operand_forms
+            ) == (f"{key}.classes_inline",)
+        assert tuple(
+            form.replacement_descriptor
+            for form in descriptors[high_base_key].operand_forms
+        ) == (high_inline_key,)
+        assert (
+            descriptors["amdgpu.v_cmp_class_f16"]
+            .operands[1]
+            .descriptor_operand.reg_alts[0]
+            .register_part
+            == _REG_PART_VGPR_LOW16
+        )
+        for key in (high_base_key, high_inline_key):
+            descriptor = descriptors[key]
+            assert descriptor.encoding_name == "VOPC_VOP_SDWA_SDST_ENC"
+            assert (
+                descriptor.operands[1].descriptor_operand.reg_alts[0].register_part
+                == _REG_PART_VGPR_HIGH16
+            )
+            assert dict(descriptor.fixed_encoding_fields) == {
+                "SRC0": 249,
+                "S0": 0,
+                "S1": 1,
+                "SD": 1,
+                "SRC0_ABS": 0,
+                "SRC0_NEG": 0,
+                "SRC0_SEL": 5,
+                "SRC0_SEXT": 0,
+                "SRC1_ABS": 0,
+                "SRC1_NEG": 0,
+                "SRC1_SEL": 6,
+                "SRC1_SEXT": 0,
+            }
+        assert descriptors[high_inline_key].immediate_fields == ("VSRC1",)
+
+    for descriptor_set, op_sel_field in (
+        (_gfx11_core_overlays(), "OP_SEL"),
+        (_gfx115x_core_overlays(), "OP_SEL"),
+        (_gfx12_core_overlays(), "OPSEL"),
+        (_gfx125x_core_overlays(), "OPSEL"),
+    ):
+        descriptors = {
+            descriptor.descriptor_key: descriptor for descriptor in descriptor_set
+        }
+        assert (
+            base_keys
+            | inline_keys
+            | literal_keys
+            | {
+                high_base_key,
+                high_inline_key,
+                high_literal_key,
+            }
+            <= descriptors.keys()
+        )
+        for key in base_keys:
+            assert tuple(
+                form.replacement_descriptor for form in descriptors[key].operand_forms
+            ) == (f"{key}.classes_inline", f"{key}.classes_lit")
+        for key in inline_keys:
+            assert descriptors[key].immediate_fields == ("SRC1",)
+            assert descriptors[key].immediates[0].field_name == "classes"
+            assert descriptors[key].immediates[0].unsigned_max == 64
+        for key in literal_keys:
+            descriptor = descriptors[key]
+            assert descriptor.encoding_format_id == AMDGPU_ENCODING_FORMAT_VOP3_LITERAL
+            assert tuple(
+                immediate.field_name for immediate in descriptor.immediates
+            ) == ("imm32",)
+            field, value = descriptor.fixed_encoding_fields[0]
+            assert field == "SRC1"
+            assert isinstance(value, AmdgpuOperandPredefinedValueRef)
+            assert value.value_name == "SRC_LITERAL"
+        assert tuple(
+            form.replacement_descriptor
+            for form in descriptors[high_base_key].operand_forms
+        ) == (high_inline_key, high_literal_key)
+        for key in (high_base_key, high_inline_key, high_literal_key):
+            descriptor = descriptors[key]
+            assert (
+                descriptor.operands[1].descriptor_operand.reg_alts[0].register_part
+                == _REG_PART_VGPR_HIGH16
+            )
+            assert descriptor.fixed_encoding_fields[0] == (op_sel_field, 1)
+        field, value = descriptors[high_literal_key].fixed_encoding_fields[1]
+        assert field == "SRC1"
+        assert isinstance(value, AmdgpuOperandPredefinedValueRef)
+        assert value.value_name == "SRC_LITERAL"
+
+
 def test_sop2_bfe_literal_forms_fix_control_to_literal_source() -> None:
     for descriptor_set in (
         _gfx940_core_overlays(),

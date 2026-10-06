@@ -33,6 +33,7 @@ NUMERIC_CORPUS = loom_corpus_manifest(
         "conversion/scalar_float.loom",
         "float/approximate_extended.loom",
         "float/arithmetic.loom",
+        "float/classification.loom",
         "float/clamp.loom",
         "float/comparison.loom",
         "float/exponential.loom",

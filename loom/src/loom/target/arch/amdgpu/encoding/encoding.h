@@ -159,6 +159,8 @@ typedef enum loom_amdgpu_encoding_format_e {
   LOOM_AMDGPU_ENCODING_FORMAT_VOPC_DPP16 = 64,
   // Vector compare instruction format with DPP8 lane selectors.
   LOOM_AMDGPU_ENCODING_FORMAT_VOPC_DPP8 = 65,
+  // Vector compare instruction format with CDNA SDWA source selectors.
+  LOOM_AMDGPU_ENCODING_FORMAT_VOPC_SDWA = 66,
   // Wave32 dual-VALU packet format without a literal payload.
   LOOM_AMDGPU_ENCODING_FORMAT_VOPDXY = 67,
   // Wave32 dual-VALU packet format with a shared literal payload.

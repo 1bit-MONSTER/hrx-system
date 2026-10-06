@@ -950,6 +950,7 @@ loom_corpus_test(
     "numeric/conversion/narrow_arithmetic.loom"
     "numeric/conversion/narrow_widening.loom"
     "numeric/conversion/scalar_float.loom"
+    "numeric/float/classification.loom"
     "numeric/float/clamp.loom"
     "numeric/float/scalar_f32.loom"
     "numeric/float/sign.loom"

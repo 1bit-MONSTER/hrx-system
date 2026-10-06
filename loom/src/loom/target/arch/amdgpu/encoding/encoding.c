@@ -291,6 +291,8 @@ iree_string_view_t loom_amdgpu_encoding_format_name(uint16_t encoding_format) {
       return IREE_SV("vopc_dpp16");
     case LOOM_AMDGPU_ENCODING_FORMAT_VOPC_DPP8:
       return IREE_SV("vopc_dpp8");
+    case LOOM_AMDGPU_ENCODING_FORMAT_VOPC_SDWA:
+      return IREE_SV("vopc_sdwa");
     case LOOM_AMDGPU_ENCODING_FORMAT_VOPDXY:
       return IREE_SV("vopdxy");
     case LOOM_AMDGPU_ENCODING_FORMAT_VOPDXY_LITERAL:

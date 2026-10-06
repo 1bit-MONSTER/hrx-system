@@ -19,6 +19,12 @@ from loom.target.arch.spirv.ordinary_vector import (
     OrdinaryVectorComponentType,
     OrdinaryVectorType,
 )
+from loom.target.arch.spirv.ordinary_vector_bit_layout import (
+    ORDINARY_VECTOR_BIT_LAYOUT_ALIAS_CASES,
+    ORDINARY_VECTOR_BIT_LAYOUT_DIRECT_CASES,
+    OrdinaryVectorBitLayoutCase,
+    OrdinaryVectorBitLayoutType,
+)
 from loom.target.contracts import (
     AttrProject,
     ContractCase,
@@ -173,6 +179,42 @@ def _vector_pattern(vector_type: OrdinaryVectorType) -> TypePattern:
     return Vector(
         vector_type.component_type.source_types,
         lanes=vector_type.lane_count,
+    )
+
+
+def _bit_layout_pattern(layout_type: OrdinaryVectorBitLayoutType) -> TypePattern:
+    return Vector(layout_type.element_type, lanes=layout_type.lane_count)
+
+
+def _bitcast_alias_rule(case: OrdinaryVectorBitLayoutCase) -> ValueAliasRule:
+    return ValueAliasRule(
+        source_op=vector.vector_bitcast,
+        source=ValueRef.operand("input"),
+        result=ValueRef.result("result"),
+        guards=(
+            Guard.value_type("input", _bit_layout_pattern(case.source)),
+            Guard.value_type("result", _bit_layout_pattern(case.result)),
+        ),
+    )
+
+
+def _bitcast_rule(case: OrdinaryVectorBitLayoutCase) -> DescriptorRule:
+    descriptor = _descriptor(case.key)
+    return DescriptorRule(
+        source_op=vector.vector_bitcast,
+        descriptor=descriptor,
+        guards=(
+            Guard.value_type("input", _bit_layout_pattern(case.source)),
+            Guard.value_type("result", _bit_layout_pattern(case.result)),
+            *_feature_guards(descriptor),
+        ),
+        emit=(
+            _emit(
+                descriptor,
+                operands={"input": ValueRef.operand("input")},
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
     )
 
 
@@ -526,6 +568,8 @@ def _native_rules() -> tuple[DescriptorRule, ...]:
 
 SPIRV_ORDINARY_VECTOR_CONTRACT_CASES: tuple[ContractCase, ...] = (
     *_singleton_rules(),
+    *(_bitcast_alias_rule(case) for case in ORDINARY_VECTOR_BIT_LAYOUT_ALIAS_CASES),
+    *(_bitcast_rule(case) for case in ORDINARY_VECTOR_BIT_LAYOUT_DIRECT_CASES),
     *(
         _singleton_select_rule(component_type)
         for component_type in ORDINARY_VECTOR_COMPONENT_TYPES

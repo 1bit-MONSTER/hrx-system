@@ -123,6 +123,200 @@ iree_status_t loom_amdgpu_select_vector_cmpf_plan(
       out_selected);
 }
 
+static bool loom_amdgpu_vector_float_classification_values(
+    const loom_op_t* source_op, loom_value_id_t* out_input,
+    loom_value_id_t* out_result, uint32_t* out_class_mask) {
+  switch (source_op->kind) {
+    case LOOM_OP_VECTOR_ISNANF:
+      *out_input = loom_vector_isnanf_input(source_op);
+      *out_result = loom_vector_isnanf_result(source_op);
+      *out_class_mask = 0x003u;
+      return true;
+    case LOOM_OP_VECTOR_ISINFF:
+      *out_input = loom_vector_isinff_input(source_op);
+      *out_result = loom_vector_isinff_result(source_op);
+      *out_class_mask = 0x204u;
+      return true;
+    case LOOM_OP_VECTOR_ISFINITEF:
+      *out_input = loom_vector_isfinitef_input(source_op);
+      *out_result = loom_vector_isfinitef_result(source_op);
+      *out_class_mask = 0x1F8u;
+      return true;
+    default:
+      return false;
+  }
+}
+
+static bool loom_amdgpu_float_classification_descriptor_refs(
+    loom_scalar_type_t element_type,
+    loom_amdgpu_float_classification_form_t form,
+    loom_amdgpu_descriptor_ref_t* out_low_descriptor_ref,
+    loom_amdgpu_descriptor_ref_t* out_high_descriptor_ref) {
+  *out_low_descriptor_ref = LOOM_AMDGPU_DESCRIPTOR_REF_NONE;
+  *out_high_descriptor_ref = LOOM_AMDGPU_DESCRIPTOR_REF_NONE;
+  switch (element_type) {
+    case LOOM_SCALAR_TYPE_F16:
+      switch (form) {
+        case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_INLINE:
+          *out_low_descriptor_ref =
+              LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_CLASS_F16_CLASSES_INLINE;
+          *out_high_descriptor_ref =
+              LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_CLASS_F16_INPUT_HIGH_CLASSES_INLINE;
+          return true;
+        case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_LITERAL:
+          *out_low_descriptor_ref =
+              LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_CLASS_F16_CLASSES_LIT;
+          *out_high_descriptor_ref =
+              LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_CLASS_F16_INPUT_HIGH_CLASSES_LIT;
+          return true;
+        case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_REGISTER:
+          *out_low_descriptor_ref = LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_CLASS_F16;
+          *out_high_descriptor_ref =
+              LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_CLASS_F16_INPUT_HIGH;
+          return true;
+        case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_NONE:
+          return false;
+      }
+      return false;
+    case LOOM_SCALAR_TYPE_F32:
+      switch (form) {
+        case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_INLINE:
+          *out_low_descriptor_ref =
+              LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_CLASS_F32_CLASSES_INLINE;
+          return true;
+        case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_LITERAL:
+          *out_low_descriptor_ref =
+              LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_CLASS_F32_CLASSES_LIT;
+          return true;
+        case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_REGISTER:
+          *out_low_descriptor_ref = LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_CLASS_F32;
+          return true;
+        case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_NONE:
+          return false;
+      }
+      return false;
+    case LOOM_SCALAR_TYPE_F64:
+      switch (form) {
+        case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_INLINE:
+          *out_low_descriptor_ref =
+              LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_CLASS_F64_CLASSES_INLINE;
+          return true;
+        case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_LITERAL:
+          *out_low_descriptor_ref =
+              LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_CLASS_F64_CLASSES_LIT;
+          return true;
+        case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_REGISTER:
+          *out_low_descriptor_ref = LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_CLASS_F64;
+          return true;
+        case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_NONE:
+          return false;
+      }
+      return false;
+    default:
+      return false;
+  }
+}
+
+static iree_status_t loom_amdgpu_resolve_float_classification_descriptors(
+    loom_low_lower_context_t* context, loom_scalar_type_t element_type,
+    loom_amdgpu_float_classification_form_t form,
+    loom_low_lower_resolved_descriptor_t* out_low_descriptor,
+    loom_low_lower_resolved_descriptor_t* out_high_descriptor,
+    bool* out_present) {
+  *out_low_descriptor = (loom_low_lower_resolved_descriptor_t){0};
+  *out_high_descriptor = (loom_low_lower_resolved_descriptor_t){0};
+  *out_present = false;
+  loom_amdgpu_descriptor_ref_t low_descriptor_ref =
+      LOOM_AMDGPU_DESCRIPTOR_REF_NONE;
+  loom_amdgpu_descriptor_ref_t high_descriptor_ref =
+      LOOM_AMDGPU_DESCRIPTOR_REF_NONE;
+  if (!loom_amdgpu_float_classification_descriptor_refs(
+          element_type, form, &low_descriptor_ref, &high_descriptor_ref)) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(loom_amdgpu_resolve_descriptor_ref_if_present(
+      context, low_descriptor_ref, out_low_descriptor, out_present));
+  if (!*out_present || high_descriptor_ref == LOOM_AMDGPU_DESCRIPTOR_REF_NONE) {
+    return iree_ok_status();
+  }
+  return loom_amdgpu_resolve_descriptor_ref_if_present(
+      context, high_descriptor_ref, out_high_descriptor, out_present);
+}
+
+iree_status_t loom_amdgpu_select_vector_float_classification_plan(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_amdgpu_vector_float_classification_plan_t* out_plan,
+    bool* out_selected) {
+  *out_plan = (loom_amdgpu_vector_float_classification_plan_t){0};
+  *out_selected = false;
+  loom_value_id_t input = LOOM_VALUE_ID_INVALID;
+  loom_value_id_t result = LOOM_VALUE_ID_INVALID;
+  uint32_t class_mask = 0;
+  if (!loom_amdgpu_vector_float_classification_values(source_op, &input,
+                                                      &result, &class_mask)) {
+    return iree_ok_status();
+  }
+
+  const loom_module_t* module = loom_low_lower_context_module(context);
+  loom_amdgpu_vector_storage_t input_storage = {0};
+  if (!loom_amdgpu_type_vector_storage(loom_module_value_type(module, input),
+                                       &input_storage) ||
+      (input_storage.element_type != LOOM_SCALAR_TYPE_F16 &&
+       input_storage.element_type != LOOM_SCALAR_TYPE_F32 &&
+       input_storage.element_type != LOOM_SCALAR_TYPE_F64) ||
+      input_storage.register_count > LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES ||
+      loom_amdgpu_vector_i1_lane_count(loom_module_value_type(
+          module, result)) != input_storage.element_count) {
+    return iree_ok_status();
+  }
+  bool input_materializable = false;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_value_can_materialize_as_vgpr_registers(
+      context, source_op, input, &input_materializable));
+  if (!input_materializable) {
+    return iree_ok_status();
+  }
+
+  loom_amdgpu_float_classification_form_t form =
+      class_mask <= LOOM_AMDGPU_SOURCE_INLINE_U32_MAX
+          ? LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_INLINE
+          : LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_LITERAL;
+  loom_low_lower_resolved_descriptor_t low_descriptor = {0};
+  loom_low_lower_resolved_descriptor_t high_descriptor = {0};
+  bool descriptors_present = false;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_resolve_float_classification_descriptors(
+      context, input_storage.element_type, form, &low_descriptor,
+      &high_descriptor, &descriptors_present));
+  if (!descriptors_present &&
+      form == LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_LITERAL) {
+    form = LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_REGISTER;
+    IREE_RETURN_IF_ERROR(loom_amdgpu_resolve_float_classification_descriptors(
+        context, input_storage.element_type, form, &low_descriptor,
+        &high_descriptor, &descriptors_present));
+    if (descriptors_present &&
+        !loom_amdgpu_descriptor_set_has_ref(
+            loom_low_lower_context_descriptor_set(context),
+            LOOM_AMDGPU_DESCRIPTOR_REF_S_MOV_B32)) {
+      descriptors_present = false;
+    }
+  }
+  if (!descriptors_present) {
+    return iree_ok_status();
+  }
+
+  *out_plan = (loom_amdgpu_vector_float_classification_plan_t){
+      .input = input,
+      .low_descriptor = low_descriptor,
+      .high_descriptor = high_descriptor,
+      .result = result,
+      .class_mask = class_mask,
+      .lane_count = input_storage.element_count,
+      .element_type = input_storage.element_type,
+      .form = form,
+  };
+  *out_selected = true;
+  return iree_ok_status();
+}
+
 static_assert((uint8_t)LOOM_SCALAR_CMPF_PREDICATE_OLT ==
                   (uint8_t)LOOM_VECTOR_CMPF_PREDICATE_OLT,
               "scalar and vector cmpf ordered-lt predicates must align");
@@ -634,6 +828,128 @@ iree_status_t loom_amdgpu_lower_vector_cmpf(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_vector_compare_plan_t* plan) {
   return loom_amdgpu_lower_vector_compare(context, source_op, plan);
+}
+
+static iree_status_t loom_amdgpu_extract_float_classification_lane(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_vector_float_classification_plan_t* plan,
+    loom_value_id_t low_input, uint32_t lane, loom_type_t vgpr_type,
+    loom_type_t vgpr_x2_type, loom_value_id_t* out_lane) {
+  uint32_t input_register_count = 0;
+  uint32_t register_offset = 0;
+  loom_type_t lane_type = vgpr_type;
+  switch (plan->element_type) {
+    case LOOM_SCALAR_TYPE_F16:
+      input_register_count = (plan->lane_count + 1u) / 2u;
+      register_offset = lane / 2u;
+      break;
+    case LOOM_SCALAR_TYPE_F32:
+      input_register_count = plan->lane_count;
+      register_offset = lane;
+      break;
+    case LOOM_SCALAR_TYPE_F64:
+      input_register_count = plan->lane_count * 2u;
+      register_offset = lane * 2u;
+      lane_type = vgpr_x2_type;
+      break;
+    default:
+      IREE_ASSERT_UNREACHABLE("unselected AMDGPU float classification type");
+      IREE_BUILTIN_UNREACHABLE();
+  }
+  if (register_offset == 0 &&
+      input_register_count == loom_low_register_type_unit_count(lane_type)) {
+    *out_lane = low_input;
+    return iree_ok_status();
+  }
+  return loom_amdgpu_emit_low_slice(context, source_op, low_input,
+                                    register_offset, lane_type, out_lane);
+}
+
+static iree_status_t loom_amdgpu_emit_float_classification_lane(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_vector_float_classification_plan_t* plan,
+    const loom_low_lower_resolved_descriptor_t* descriptor,
+    loom_value_id_t input, loom_value_id_t classes, loom_type_t mask_type,
+    loom_value_id_t* out_result) {
+  loom_named_attr_t attrs[1] = {0};
+  iree_host_size_t attr_count = 0;
+  loom_value_id_t operands[2] = {input, LOOM_VALUE_ID_INVALID};
+  iree_host_size_t operand_count = 1;
+  switch (plan->form) {
+    case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_INLINE: {
+      IREE_RETURN_IF_ERROR(loom_amdgpu_append_i64_attr(
+          context, IREE_SV("classes"), plan->class_mask, attrs,
+          IREE_ARRAYSIZE(attrs), &attr_count));
+      break;
+    }
+    case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_LITERAL: {
+      IREE_RETURN_IF_ERROR(loom_amdgpu_append_i64_attr(
+          context, IREE_SV("imm32"), plan->class_mask, attrs,
+          IREE_ARRAYSIZE(attrs), &attr_count));
+      break;
+    }
+    case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_REGISTER:
+      operands[1] = classes;
+      operand_count = 2;
+      break;
+    case LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_NONE:
+      IREE_ASSERT_UNREACHABLE("unselected AMDGPU float classification form");
+      IREE_BUILTIN_UNREACHABLE();
+  }
+
+  loom_op_t* classify_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_emit_resolved_descriptor_op(
+      context, descriptor, operands, operand_count,
+      loom_make_named_attr_slice(attrs, attr_count), &mask_type, 1,
+      /*tied_results=*/NULL, /*tied_result_count=*/0, source_op->location,
+      &classify_op));
+  *out_result = loom_value_slice_get(loom_low_op_results(classify_op), 0);
+  return iree_ok_status();
+}
+
+iree_status_t loom_amdgpu_lower_vector_float_classification(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_vector_float_classification_plan_t* plan) {
+  loom_value_id_t low_input = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_lookup_or_materialize_vgpr_registers(
+      context, source_op, plan->input, &low_input));
+
+  loom_type_t vgpr_type = loom_type_none();
+  IREE_RETURN_IF_ERROR(loom_amdgpu_make_vgpr_type(context, &vgpr_type));
+  loom_type_t vgpr_x2_type = loom_type_none();
+  if (plan->element_type == LOOM_SCALAR_TYPE_F64) {
+    IREE_RETURN_IF_ERROR(
+        loom_amdgpu_make_vgpr_range_type(context, 2, &vgpr_x2_type));
+  }
+  loom_type_t mask_type = loom_type_none();
+  IREE_RETURN_IF_ERROR(
+      loom_amdgpu_make_sgpr_range_type(context, 2, &mask_type));
+
+  loom_value_id_t classes = LOOM_VALUE_ID_INVALID;
+  if (plan->form == LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_REGISTER) {
+    loom_type_t sgpr_type = loom_type_none();
+    IREE_RETURN_IF_ERROR(loom_amdgpu_make_sgpr_type(context, &sgpr_type));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_const_u32(
+        context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_MOV_B32,
+        plan->class_mask, sgpr_type, &classes));
+  }
+
+  loom_value_id_t lane_results[LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES];
+  for (uint32_t i = 0; i < plan->lane_count; ++i) {
+    loom_value_id_t lane_input = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_amdgpu_extract_float_classification_lane(
+        context, source_op, plan, low_input, i, vgpr_type, vgpr_x2_type,
+        &lane_input));
+    const loom_low_lower_resolved_descriptor_t* descriptor =
+        plan->element_type == LOOM_SCALAR_TYPE_F16 && (i & 1u) != 0
+            ? &plan->high_descriptor
+            : &plan->low_descriptor;
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_float_classification_lane(
+        context, source_op, plan, descriptor, lane_input, classes, mask_type,
+        &lane_results[i]));
+  }
+  return loom_amdgpu_bind_low_register_range(context, source_op, plan->result,
+                                             lane_results, plan->lane_count);
 }
 
 static iree_status_t loom_amdgpu_emit_clampf_select_lane(
