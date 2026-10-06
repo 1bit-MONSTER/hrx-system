@@ -68,6 +68,7 @@ class ValueTypeProjectKind(Enum):
 
     STATIC_DIM_SCALED = "static_dim_scaled"
     LITERAL_MINUS_STATIC_DIM_SCALED = "literal_minus_static_dim_scaled"
+    STATIC_DIM_LOW_BITS_MASK = "static_dim_low_bits_mask"
 
 
 _I32_WORD_VALUE_PROJECT_KINDS = (
@@ -835,6 +836,25 @@ class ValueTypeProject:
             scale=scale,
             dimension=dimension,
             literal_i64=literal,
+        )
+
+    @classmethod
+    def static_dim_low_bits_mask(
+        cls,
+        source: ValueRef,
+        *,
+        scale: int = 1,
+        dimension: int = 0,
+        addend: int = 0,
+    ) -> Self:
+        """Projects a low-bit mask whose width comes from a static dimension."""
+
+        return cls(
+            kind=ValueTypeProjectKind.STATIC_DIM_LOW_BITS_MASK,
+            source=source,
+            scale=scale,
+            dimension=dimension,
+            literal_i64=addend,
         )
 
     def __post_init__(self) -> None:

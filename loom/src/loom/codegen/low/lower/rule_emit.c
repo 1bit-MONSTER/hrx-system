@@ -299,7 +299,7 @@ static int64_t loom_low_lower_rule_attr_copy_exact_i64(
   return value;
 }
 
-static int64_t loom_low_lower_rule_attr_copy_static_dim_scaled(
+static int64_t loom_low_lower_rule_attr_copy_static_dim_projected(
     loom_low_lower_context_t* context,
     const loom_low_lower_rule_set_t* rule_set,
     const loom_low_lower_rule_emit_state_t* state,
@@ -325,12 +325,20 @@ static int64_t loom_low_lower_rule_attr_copy_static_dim_scaled(
     IREE_ASSERT_GE(attr_copy->literal_i64, 0);
     return attr_copy->literal_i64 - scaled_dimension;
   }
-  IREE_ASSERT_EQ(attr_copy->kind,
-                 LOOM_LOW_LOWER_ATTR_COPY_VALUE_TYPE_STATIC_DIM_SCALED);
   if (attr_copy->literal_i64 > 0) {
     IREE_ASSERT_LE(scaled_dimension, INT64_MAX - attr_copy->literal_i64);
   }
-  return scaled_dimension + attr_copy->literal_i64;
+  const int64_t projected_dimension = scaled_dimension + attr_copy->literal_i64;
+  if (attr_copy->kind ==
+      LOOM_LOW_LOWER_ATTR_COPY_VALUE_TYPE_STATIC_DIM_LOW_BITS_MASK) {
+    IREE_ASSERT_GE(projected_dimension, 0);
+    IREE_ASSERT_LE(projected_dimension, 32);
+    return (int64_t)(int32_t)iree_math_mask_low_bits_u32(
+        UINT32_MAX, (int32_t)projected_dimension);
+  }
+  IREE_ASSERT_EQ(attr_copy->kind,
+                 LOOM_LOW_LOWER_ATTR_COPY_VALUE_TYPE_STATIC_DIM_SCALED);
+  return projected_dimension;
 }
 
 static void loom_low_lower_rule_set_projected_bits_attr(
@@ -649,8 +657,9 @@ static iree_status_t loom_low_lower_rule_build_attrs(
         break;
       case LOOM_LOW_LOWER_ATTR_COPY_VALUE_TYPE_STATIC_DIM_SCALED:
       case LOOM_LOW_LOWER_ATTR_COPY_VALUE_TYPE_LITERAL_MINUS_STATIC_DIM_SCALED:
+      case LOOM_LOW_LOWER_ATTR_COPY_VALUE_TYPE_STATIC_DIM_LOW_BITS_MASK:
         attrs[i].value =
-            loom_attr_i64(loom_low_lower_rule_attr_copy_static_dim_scaled(
+            loom_attr_i64(loom_low_lower_rule_attr_copy_static_dim_projected(
                 context, rule_set, state, attr_copy));
         break;
       case LOOM_LOW_LOWER_ATTR_COPY_VALUE_EXACT_I64: {

@@ -304,6 +304,10 @@ typedef enum loom_low_lower_attr_copy_kind_e {
   // Emits literal_i64 minus the source value static dimension selected by
   // source_element_index, multiplied by source_element_count.
   LOOM_LOW_LOWER_ATTR_COPY_VALUE_TYPE_LITERAL_MINUS_STATIC_DIM_SCALED = 34,
+  // Emits an i32 low-bit mask whose width is the source value static dimension
+  // selected by source_element_index, multiplied by source_element_count, then
+  // offset by literal_i64.
+  LOOM_LOW_LOWER_ATTR_COPY_VALUE_TYPE_STATIC_DIM_LOW_BITS_MASK = 35,
 } loom_low_lower_attr_copy_kind_t;
 
 typedef struct loom_low_lower_attr_copy_t {
