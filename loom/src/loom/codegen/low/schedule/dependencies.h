@@ -127,6 +127,17 @@ typedef struct loom_low_schedule_dependency_graph_t {
   loom_segmented_storage_t segments;
 } loom_low_schedule_dependency_graph_t;
 
+// Contiguous dependency rows retained by one semantic construction phase.
+typedef struct loom_low_schedule_dependency_range_t {
+  // First dependency row in the range.
+  uint32_t start;
+  // Number of dependency rows in the range.
+  uint32_t count;
+} loom_low_schedule_dependency_range_t;
+
+static_assert(sizeof(loom_low_schedule_dependency_range_t) == 8,
+              "dependency range must remain a compact graph view");
+
 // Applies a signed event separation, saturating at the issue-cycle limits.
 static inline uint32_t loom_low_schedule_add_signed_issue_separation(
     uint32_t producer_issue_cycle, int32_t minimum_separation_cycles) {
@@ -170,6 +181,15 @@ loom_low_schedule_dependency_graph_at(
               dependency_index >> LOOM_LOW_SCHEDULE_DEPENDENCY_SEGMENT_SHIFT);
   return &segment->rows[dependency_index &
                         LOOM_LOW_SCHEDULE_DEPENDENCY_SEGMENT_MASK];
+}
+
+// Returns one dependency from a retained semantic range.
+static inline const loom_low_schedule_dependency_t*
+loom_low_schedule_dependency_range_at(
+    const loom_low_schedule_dependency_graph_t* graph,
+    loom_low_schedule_dependency_range_t range, uint32_t ordinal) {
+  IREE_ASSERT_LT(ordinal, range.count);
+  return loom_low_schedule_dependency_graph_at(graph, range.start + ordinal);
 }
 
 #ifdef __cplusplus

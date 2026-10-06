@@ -828,6 +828,8 @@ typedef struct loom_low_schedule_table_t {
   // Stable ordering dependency graph consumed by scheduling and target
   // planning.
   loom_low_schedule_dependency_graph_t dependencies;
+  // Exact contiguous range of memory-effect dependency rows.
+  loom_low_schedule_dependency_range_t effect_dependencies;
   // Immutable outgoing groups owned by the scheduling arena. Present only
   // when RETAIN_DEPENDENCY_INDEX was requested; construction never rebuilds it.
   const loom_low_schedule_dependency_index_t* dependency_index;

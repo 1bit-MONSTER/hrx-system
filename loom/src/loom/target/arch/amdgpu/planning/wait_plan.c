@@ -2126,10 +2126,11 @@ static iree_status_t loom_amdgpu_wait_plan_build_dependency_links(
       }
     }
   }
-  for (uint32_t i = 0; i < schedule->dependencies.count; ++i) {
+  for (uint32_t i = 0; i < schedule->effect_dependencies.count; ++i) {
     IREE_RETURN_IF_ERROR(loom_amdgpu_wait_plan_visit_effect_dependency_link(
         builder,
-        loom_low_schedule_dependency_graph_at(&schedule->dependencies, i)));
+        loom_low_schedule_dependency_range_at(
+            &schedule->dependencies, schedule->effect_dependencies, i)));
   }
   // Physical reuse closes the same completion epoch as a payload consumer.
   // Carry the allocator's exact release points into loop analysis before it

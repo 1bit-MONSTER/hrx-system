@@ -165,12 +165,21 @@ class AmdgpuWaitPlanTest : public ::testing::Test {
   }
 
   void MemoryDependency(uint32_t producer, uint32_t consumer) {
+    if (schedule_.effect_dependencies.count == 0) {
+      schedule_.effect_dependencies.start =
+          static_cast<uint32_t>(schedule_.dependencies.count);
+    } else {
+      IREE_ASSERT_EQ(schedule_.dependencies.count,
+                     schedule_.effect_dependencies.start +
+                         schedule_.effect_dependencies.count);
+    }
     loom_low_schedule_dependency_t dependency = {};
     dependency.producer_node = producer;
     dependency.consumer_node = consumer;
     dependency.kind = LOOM_LOW_SCHEDULE_DEPENDENCY_EFFECT;
     IREE_ASSERT_OK(loom_low_schedule_dependency_graph_append(
         &schedule_.dependencies, dependency, &module_->arena));
+    ++schedule_.effect_dependencies.count;
   }
 
   void FinalizeSchedule() {

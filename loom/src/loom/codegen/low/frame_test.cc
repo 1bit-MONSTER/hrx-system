@@ -820,12 +820,14 @@ low.func.def target<test.low.core> @directional_effect(%address: reg<test.ptr>, 
 
   const loom_low_schedule_dependency_t* store_to_barrier = nullptr;
   const loom_low_schedule_dependency_t* barrier_to_load = nullptr;
-  for (iree_host_size_t i = 0; i < frame.schedule.dependencies.count; ++i) {
+  for (uint32_t i = 0; i < frame.schedule.effect_dependencies.count; ++i) {
     const loom_low_schedule_dependency_t* dependency =
-        loom_low_schedule_dependency_graph_at(&frame.schedule.dependencies, i);
-    if (dependency->kind != LOOM_LOW_SCHEDULE_DEPENDENCY_EFFECT ||
-        dependency->separation_source !=
-            LOOM_LOW_SCHEDULE_SEPARATION_SOURCE_EVENT_PAIR) {
+        loom_low_schedule_dependency_range_at(
+            &frame.schedule.dependencies, frame.schedule.effect_dependencies,
+            i);
+    EXPECT_EQ(dependency->kind, LOOM_LOW_SCHEDULE_DEPENDENCY_EFFECT);
+    if (dependency->separation_source !=
+        LOOM_LOW_SCHEDULE_SEPARATION_SOURCE_EVENT_PAIR) {
       continue;
     }
     if (dependency->producer_node == 0 && dependency->consumer_node == 1) {
@@ -864,11 +866,13 @@ low.func.def target<test.low.core> @direct_effect_edge(%address: reg<test.ptr>, 
   EXPECT_EQ(frame.schedule.nodes[2].issue_cycle, 0u);
 
   const loom_low_schedule_dependency_t* boundary_dependency = nullptr;
-  for (iree_host_size_t i = 0; i < frame.schedule.dependencies.count; ++i) {
+  for (uint32_t i = 0; i < frame.schedule.effect_dependencies.count; ++i) {
     const loom_low_schedule_dependency_t* dependency =
-        loom_low_schedule_dependency_graph_at(&frame.schedule.dependencies, i);
+        loom_low_schedule_dependency_range_at(
+            &frame.schedule.dependencies, frame.schedule.effect_dependencies,
+            i);
+    EXPECT_EQ(dependency->kind, LOOM_LOW_SCHEDULE_DEPENDENCY_EFFECT);
     if (dependency->producer_node == 0 && dependency->consumer_node == 1 &&
-        dependency->kind == LOOM_LOW_SCHEDULE_DEPENDENCY_EFFECT &&
         dependency->separation_source ==
             LOOM_LOW_SCHEDULE_SEPARATION_SOURCE_EVENT_PAIR) {
       boundary_dependency = dependency;
@@ -909,11 +913,13 @@ low.func.def target<test.low.core> @diamond_effect_edge(%condition: reg<test.i32
 
   bool found_read_requirement = false;
   bool found_write_requirement = false;
-  for (iree_host_size_t i = 0; i < frame.schedule.dependencies.count; ++i) {
+  for (uint32_t i = 0; i < frame.schedule.effect_dependencies.count; ++i) {
     const loom_low_schedule_dependency_t* dependency =
-        loom_low_schedule_dependency_graph_at(&frame.schedule.dependencies, i);
+        loom_low_schedule_dependency_range_at(
+            &frame.schedule.dependencies, frame.schedule.effect_dependencies,
+            i);
+    EXPECT_EQ(dependency->kind, LOOM_LOW_SCHEDULE_DEPENDENCY_EFFECT);
     if (dependency->producer_node != 0 || dependency->consumer_node != 1 ||
-        dependency->kind != LOOM_LOW_SCHEDULE_DEPENDENCY_EFFECT ||
         dependency->separation_source !=
             LOOM_LOW_SCHEDULE_SEPARATION_SOURCE_EVENT_PAIR) {
       continue;
@@ -947,11 +953,13 @@ low.func.def target<test.low.core> @loop_effect_edge(%condition: reg<test.i32>, 
             frame.schedule.nodes[2].issue_cycle + 2u);
 
   const loom_low_schedule_dependency_t* backedge_dependency = nullptr;
-  for (iree_host_size_t i = 0; i < frame.schedule.dependencies.count; ++i) {
+  for (uint32_t i = 0; i < frame.schedule.effect_dependencies.count; ++i) {
     const loom_low_schedule_dependency_t* dependency =
-        loom_low_schedule_dependency_graph_at(&frame.schedule.dependencies, i);
+        loom_low_schedule_dependency_range_at(
+            &frame.schedule.dependencies, frame.schedule.effect_dependencies,
+            i);
+    EXPECT_EQ(dependency->kind, LOOM_LOW_SCHEDULE_DEPENDENCY_EFFECT);
     if (dependency->producer_node == 2 && dependency->consumer_node == 3 &&
-        dependency->kind == LOOM_LOW_SCHEDULE_DEPENDENCY_EFFECT &&
         dependency->separation_source ==
             LOOM_LOW_SCHEDULE_SEPARATION_SOURCE_EVENT_PAIR) {
       backedge_dependency = dependency;
