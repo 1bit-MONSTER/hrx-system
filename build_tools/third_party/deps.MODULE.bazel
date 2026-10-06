@@ -48,9 +48,9 @@ http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_
 http_archive(
     name = "cxx",
     build_file = "//build_tools/third_party/cxx:cxx.BUILD.bazel",
-    sha256 = "9082533aca291f30ae6a9bce491733473a671e03a46ef4efac3bad072610b1e3",
-    strip_prefix = "cplusplus-9bb8130d193896c9647bbf75d943a23b72672431",
-    url = "https://github.com/benvanik/cplusplus/archive/9bb8130d193896c9647bbf75d943a23b72672431.tar.gz",
+    sha256 = "6432087170c2a22547b801620e0b800cbf2fd933c6972e8df9275c3638d42c89",
+    strip_prefix = "cplusplus-87ac2f8c90dafe0fc95a72bdb90643a207e08f42",
+    url = "https://github.com/benvanik/cplusplus/archive/87ac2f8c90dafe0fc95a72bdb90643a207e08f42.tar.gz",
 )
 
 rocm_repository = use_repo_rule("//build_tools/third_party/rocm:repository.bzl", "rocm_repository")
