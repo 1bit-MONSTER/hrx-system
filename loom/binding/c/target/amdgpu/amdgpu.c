@@ -7,6 +7,7 @@
 #include "loomc/target/amdgpu.h"
 
 #include "iree/base/api.h"
+#include "loom/binding/c/target/provider_set.h"
 #include "loom/target/arch/amdgpu/amdhsa_target_id.h"
 #include "loom/target/arch/amdgpu/artifact_key.h"
 #include "loom/target/arch/amdgpu/profile.h"
@@ -167,16 +168,20 @@ static const loom_target_provider_t* const kLoomcAmdgpuTargetProviders[] = {
     &loom_amdgpu_hal_kernel_library_provider,
 };
 
-static const loom_target_provider_set_t loomc_amdgpu_target_provider_set = {
+static const loom_target_provider_set_t kLoomcAmdgpuProviderSet = {
     .providers = kLoomcAmdgpuTargetProviders,
     .provider_count = IREE_ARRAYSIZE(kLoomcAmdgpuTargetProviders),
 };
+
+const loom_target_provider_set_t* loomc_amdgpu_provider_set(void) {
+  return &kLoomcAmdgpuProviderSet;
+}
 
 loomc_status_t loomc_target_environment_create_amdgpu(
     loomc_allocator_t allocator,
     loomc_target_environment_t** out_target_environment) {
   return loomc_target_environment_create_from_provider_set(
-      &loomc_amdgpu_target_provider_set, allocator, out_target_environment);
+      loomc_amdgpu_provider_set(), allocator, out_target_environment);
 }
 
 loomc_status_t loomc_target_profile_create_amdgpu(

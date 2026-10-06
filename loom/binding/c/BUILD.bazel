@@ -44,6 +44,7 @@ LOOMC_PUBLIC_HDRS = [
     "include/loomc/loomc.h",
     "include/loomc/module.h",
     "include/loomc/pass.h",
+    "include/loomc/pass_trace.h",
     "include/loomc/product.h",
     "include/loomc/result.h",
     "include/loomc/sanitizer.h",
@@ -85,6 +86,10 @@ LOOMC_TARGET_WASM_PUBLIC_HDRS = [
     "include/loomc/target/wasm.h",
 ]
 
+LOOMC_TARGET_CONFIGURED_PUBLIC_HDRS = [
+    "include/loomc/target/configured.h",
+]
+
 LOOMC_TARGET_CMD_PUBLIC_HDRS = [
     "include/loomc/target/cmd.h",
     "include/loomc/target/cmd/program.h",
@@ -123,6 +128,7 @@ exports_files(
     LOOMC_TARGET_AMDGPU_IREE_HAL_PUBLIC_HDRS +
     LOOMC_TARGET_AMDGPU_PUBLIC_HDRS +
     LOOMC_TARGET_CMD_PUBLIC_HDRS +
+    LOOMC_TARGET_CONFIGURED_PUBLIC_HDRS +
     LOOMC_TARGET_IREE_HAL_PUBLIC_HDRS +
     LOOMC_TARGET_SPIRV_PUBLIC_HDRS +
     LOOMC_TARGET_SPIRV_IREE_HAL_PUBLIC_HDRS +
@@ -162,6 +168,7 @@ loom_cc_library(
         "src/module_text.c",
         "src/option_chain.c",
         "src/pass_program.c",
+        "src/pass_trace.c",
         "src/product.c",
         "src/request_index_overlay.c",
         "src/result.c",
@@ -175,12 +182,14 @@ loom_cc_library(
         "src/config.h",
         "src/context.h",
         "src/diagnostic.h",
+        "src/emit.h",
         "src/link_index.h",
         "src/link_materialization.h",
         "src/module.h",
         "src/module_bytecode.h",
         "src/option_chain.h",
         "src/pass_program.h",
+        "src/pass_trace.h",
         "src/product.h",
         "src/request_index_overlay.h",
         "src/result.h",
@@ -203,8 +212,10 @@ loom_cc_library(
         "//loom/src/loom/codegen/low:text_asm",
         "//loom/src/loom/codegen/low:verify",
         "//loom/src/loom/codegen/low/pipeline:legalizer_registry",
+        "//loom/src/loom/compile:request",
         "//loom/src/loom/error:diagnostic",
         "//loom/src/loom/error:error_defs",
+        "//loom/src/loom/error:json_sink",
         "//loom/src/loom/error:renderer",
         "//loom/src/loom/error:source",
         "//loom/src/loom/format/bytecode:format",
@@ -235,6 +246,7 @@ loom_cc_library(
         "//loom/src/loom/pass:program",
         "//loom/src/loom/pass:registry",
         "//loom/src/loom/pass:tooling",
+        "//loom/src/loom/pass:trace",
         "//loom/src/loom/pass:value_facts",
         "//loom/src/loom/sanitizer:options",
         "//loom/src/loom/target:function_version",

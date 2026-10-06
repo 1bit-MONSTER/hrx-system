@@ -170,6 +170,19 @@ static loomc_status_t loomc_target_specialization_validate_profile_environment(
   return loomc_ok_status();
 }
 
+loomc_status_t loomc_target_profile_validate_environment(
+    const loomc_target_profile_t* profile,
+    const loomc_target_environment_t* target_environment) {
+  if (profile == NULL) {
+    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                             "target profile must not be NULL");
+  }
+  return loomc_target_specialization_validate_profile_environment(
+      target_environment, profile,
+      "target profile was created for an incompatible target environment",
+      "target profile is incomplete");
+}
+
 static loomc_status_t loomc_target_pass_environment_initialize(
     const loomc_target_environment_t* target_environment,
     loomc_target_pass_environment_t* out_environment) {
@@ -185,6 +198,11 @@ static loomc_status_t loomc_target_pass_environment_initialize(
   LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(
       loom_target_environment_initialize_low_descriptor_registry(
           internal_environment, &out_environment->low_descriptor_registry)));
+  out_environment->diagnostic_type_print_options.flags =
+      LOOM_TEXT_PRINT_DEFAULT;
+  loom_low_descriptor_text_asm_environment_initialize(
+      &out_environment->low_descriptor_registry.registry,
+      &out_environment->diagnostic_type_print_options.low_asm_environment);
   LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(
       loom_target_environment_initialize_low_lower_policy_registry(
           internal_environment, &out_environment->low_lower_policy_registry)));
@@ -445,9 +463,11 @@ loom_pass_environment_t loomc_codegen_pass_environment_storage_initialize(
     const loomc_target_pass_environment_t* target_environment,
     const loom_cleanup_pattern_registry_t* cleanup_pattern_registry,
     loom_function_version_owner_t* function_version_owner,
+    loom_target_compile_report_t* compile_report,
     loom_codegen_pass_environment_storage_t* out_storage) {
   loom_codegen_pass_environment_options_t options = {
       .cleanup_pattern_registry = cleanup_pattern_registry,
+      .compile_report = compile_report,
   };
   if (target_environment != NULL) {
     options.descriptor_registry =

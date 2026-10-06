@@ -136,6 +136,13 @@ typedef struct loom_pass_trace_t {
   iree_host_size_t next_event_ordinal;
 } loom_pass_trace_t;
 
+// Returns the stable text name for one trace boundary point.
+iree_string_view_t loom_pass_trace_point_name(loom_pass_trace_point_t point);
+
+// Returns the invoked pass key for |event| or "<unknown>" when unavailable.
+iree_string_view_t loom_pass_trace_event_pass_key(
+    const loom_pass_trace_event_t* event);
+
 // Initializes trace options with human-readable text output. Target Low regions
 // use their compact assembly forms when available and fall back losslessly to
 // canonical IR. The caller must still provide a stream and dump requests.

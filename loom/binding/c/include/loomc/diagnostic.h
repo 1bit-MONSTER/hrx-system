@@ -95,6 +95,15 @@ typedef struct loomc_diagnostic_t {
   /// Human-readable rendered message.
   loomc_string_view_t message;
 
+  /// Canonical human-readable rendering of the complete diagnostic.
+  ///
+  /// This includes source excerpts, carets, fix hints, and related locations
+  /// when available, and ends with a newline. It is intended for terminal and
+  /// log presentation; tools requiring stable data should consume the
+  /// structured fields instead. The view is empty when no canonical rendering
+  /// is available.
+  loomc_string_view_t formatted_text;
+
   /// Primary source range.
   loomc_source_range_t range;
 

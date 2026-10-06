@@ -104,29 +104,6 @@ static bool loom_tooling_pass_trace_path_is_stream(iree_string_view_t path) {
          iree_string_view_equal(path, IREE_SV("stderr"));
 }
 
-static iree_string_view_t loom_tooling_pass_trace_point_name(
-    loom_pass_trace_point_t point) {
-  switch (point) {
-    case LOOM_PASS_TRACE_POINT_BEFORE:
-      return IREE_SV("before");
-    case LOOM_PASS_TRACE_POINT_AFTER:
-      return IREE_SV("after");
-    default:
-      return IREE_SV("unknown");
-  }
-}
-
-static iree_string_view_t loom_tooling_pass_trace_pass_key(
-    const loom_pass_trace_event_t* event) {
-  const loom_pass_program_instruction_t* instruction = event->instruction;
-  if (!instruction ||
-      instruction->kind != LOOM_PASS_PROGRAM_INSTRUCTION_INVOKE ||
-      !instruction->invoke.descriptor) {
-    return IREE_SV("unknown");
-  }
-  return instruction->invoke.descriptor->key;
-}
-
 static bool loom_tooling_pass_trace_safe_path_char(char c) {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
          (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
@@ -154,19 +131,17 @@ static iree_status_t loom_tooling_pass_trace_append_sanitized_path_fragment(
 }
 
 static iree_status_t loom_tooling_pass_trace_build_artifact_relative_path(
-    const loom_pass_trace_event_t* event, iree_host_size_t event_ordinal,
-    iree_allocator_t allocator, char** out_path) {
+    iree_host_size_t event_ordinal, iree_string_view_t point,
+    iree_string_view_t pass_key, iree_allocator_t allocator, char** out_path) {
   *out_path = NULL;
   iree_string_builder_t builder;
   iree_string_builder_initialize(allocator, &builder);
-  const iree_string_view_t point =
-      loom_tooling_pass_trace_point_name(event->point);
   iree_status_t status = iree_string_builder_append_format(
       &builder, "ir/%06" PRIhsz "-%.*s-", event_ordinal, (int)point.size,
       point.data);
   if (iree_status_is_ok(status)) {
-    status = loom_tooling_pass_trace_append_sanitized_path_fragment(
-        &builder, loom_tooling_pass_trace_pass_key(event));
+    status = loom_tooling_pass_trace_append_sanitized_path_fragment(&builder,
+                                                                    pass_key);
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_cstring(&builder, ".loom");
@@ -178,17 +153,18 @@ static iree_status_t loom_tooling_pass_trace_build_artifact_relative_path(
   return status;
 }
 
-static iree_status_t loom_tooling_pass_trace_open_bundle_artifact(
-    void* user_data, const loom_pass_trace_event_t* event,
-    iree_host_size_t event_ordinal, loom_pass_trace_artifact_t* out_artifact) {
-  loom_tooling_pass_trace_t* trace = (loom_tooling_pass_trace_t*)user_data;
-  *out_artifact = (loom_pass_trace_artifact_t){0};
+iree_status_t loom_tooling_pass_trace_open_artifact(
+    loom_tooling_pass_trace_t* trace, iree_host_size_t event_ordinal,
+    iree_string_view_t point, iree_string_view_t pass_key,
+    loom_output_stream_t** out_stream, iree_string_view_t* out_reference) {
+  *out_stream = NULL;
+  *out_reference = iree_string_view_empty();
   if (trace->bundle_artifact_path || trace->bundle_artifact_relative_path) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "pass trace bundle artifact is already open");
   }
   IREE_RETURN_IF_ERROR(loom_tooling_pass_trace_build_artifact_relative_path(
-      event, event_ordinal, trace->host_allocator,
+      event_ordinal, point, pass_key, trace->host_allocator,
       &trace->bundle_artifact_relative_path));
   iree_status_t status = loom_tooling_file_path_join(
       iree_make_cstring_view(trace->bundle_directory),
@@ -207,17 +183,13 @@ static iree_status_t loom_tooling_pass_trace_open_bundle_artifact(
     trace->bundle_artifact_path = NULL;
     return status;
   }
-  *out_artifact = (loom_pass_trace_artifact_t){
-      .stream = &trace->bundle_artifact_output.stream,
-      .path = iree_make_cstring_view(trace->bundle_artifact_relative_path),
-  };
+  *out_stream = &trace->bundle_artifact_output.stream;
+  *out_reference = iree_make_cstring_view(trace->bundle_artifact_relative_path);
   return iree_ok_status();
 }
 
-static iree_status_t loom_tooling_pass_trace_close_bundle_artifact(
-    void* user_data, loom_pass_trace_artifact_t* artifact) {
-  (void)artifact;
-  loom_tooling_pass_trace_t* trace = (loom_tooling_pass_trace_t*)user_data;
+iree_status_t loom_tooling_pass_trace_close_artifact(
+    loom_tooling_pass_trace_t* trace) {
   iree_status_t status =
       loom_tooling_output_stream_close(&trace->bundle_artifact_output);
   iree_allocator_free(trace->host_allocator,
@@ -254,7 +226,7 @@ static iree_status_t loom_tooling_pass_trace_open_bundle(
   }
 
   const iree_string_view_t index_leaf =
-      trace->pass_options.format == LOOM_PASS_TRACE_FORMAT_JSONL
+      trace->format == LOOM_TOOLING_PASS_TRACE_FORMAT_JSONL
           ? IREE_SV("trace.jsonl")
           : IREE_SV("trace.txt");
   if (iree_status_is_ok(status)) {
@@ -270,16 +242,26 @@ static iree_status_t loom_tooling_pass_trace_open_bundle(
         iree_make_cstring_view(trace->bundle_index_path), allocator,
         &trace->output);
   }
-  if (iree_status_is_ok(status)) {
-    trace->pass_options.artifact_sink = (loom_pass_trace_artifact_sink_t){
-        .open = loom_tooling_pass_trace_open_bundle_artifact,
-        .close = loom_tooling_pass_trace_close_bundle_artifact,
-        .user_data = trace,
-    };
-  } else {
+  if (!iree_status_is_ok(status)) {
     loom_tooling_pass_trace_release_bundle_paths(trace);
   }
   return status;
+}
+
+static iree_status_t loom_tooling_pass_trace_parse_format(
+    iree_string_view_t value, loom_tooling_pass_trace_format_t* out_format) {
+  if (iree_string_view_equal(value, IREE_SV("text"))) {
+    *out_format = LOOM_TOOLING_PASS_TRACE_FORMAT_TEXT;
+    return iree_ok_status();
+  }
+  if (iree_string_view_equal(value, IREE_SV("jsonl"))) {
+    *out_format = LOOM_TOOLING_PASS_TRACE_FORMAT_JSONL;
+    return iree_ok_status();
+  }
+  return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                          "unsupported IR dump format '%.*s'; expected 'text' "
+                          "or 'jsonl'",
+                          (int)value.size, value.data);
 }
 
 iree_status_t loom_tooling_pass_trace_open_from_flags(
@@ -292,18 +274,14 @@ iree_status_t loom_tooling_pass_trace_open_from_flags(
     return iree_ok_status();
   }
 
-  loom_pass_trace_options_initialize(&out_trace->pass_options);
-  out_trace->pass_options.dump_before =
-      loom_tooling_pass_trace_dump_ir_before_list();
-  out_trace->pass_options.dump_after =
-      loom_tooling_pass_trace_dump_ir_after_list();
-  out_trace->pass_options.dump_before_all = FLAG_dump_ir_before_all;
-  out_trace->pass_options.dump_after_all = FLAG_dump_ir_after_all;
-  out_trace->pass_options.tool_name = options->tool_name;
-  out_trace->pass_options.input_path = options->input_path;
-  IREE_RETURN_IF_ERROR(
-      loom_pass_trace_parse_format(iree_make_cstring_view(FLAG_dump_ir_format),
-                                   &out_trace->pass_options.format));
+  out_trace->dump_before = loom_tooling_pass_trace_dump_ir_before_list();
+  out_trace->dump_after = loom_tooling_pass_trace_dump_ir_after_list();
+  out_trace->dump_before_all = FLAG_dump_ir_before_all;
+  out_trace->dump_after_all = FLAG_dump_ir_after_all;
+  out_trace->tool_name = options->tool_name;
+  out_trace->input_path = options->input_path;
+  IREE_RETURN_IF_ERROR(loom_tooling_pass_trace_parse_format(
+      iree_make_cstring_view(FLAG_dump_ir_format), &out_trace->format));
   bool output_is_directory = false;
   IREE_RETURN_IF_ERROR(loom_tooling_file_path_is_directory(
       output_path.path, allocator, &output_is_directory));
@@ -316,7 +294,6 @@ iree_status_t loom_tooling_pass_trace_open_from_flags(
     IREE_RETURN_IF_ERROR(loom_tooling_output_stream_open(
         output_path.path, allocator, &out_trace->output));
   }
-  out_trace->pass_options.stream = &out_trace->output.stream;
   out_trace->enabled = true;
   return iree_ok_status();
 }
@@ -331,7 +308,7 @@ iree_status_t loom_tooling_pass_trace_close(loom_tooling_pass_trace_t* trace) {
   return status;
 }
 
-const loom_pass_trace_options_t* loom_tooling_pass_trace_options(
+bool loom_tooling_pass_trace_has_artifact_sink(
     const loom_tooling_pass_trace_t* trace) {
-  return trace && trace->enabled ? &trace->pass_options : NULL;
+  return trace && trace->enabled && trace->bundle_directory != NULL;
 }

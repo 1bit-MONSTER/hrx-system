@@ -14,7 +14,14 @@
         }
       },
       "exit": 1,
-      "stderr": {"contains": ["STRUCTURE/014", "input module failed verification"]},
+      "stderr": {
+        "contains": [
+          "STRUCTURE/014",
+          "= note: current IR",
+          "1 | %value = scalar.constant 2147483648 : i32",
+          "= help: Choose an attribute value satisfying 'element type domain'"
+        ]
+      },
       "files": [{"path": "{tmp}/invalid.bin", "exists": false}]
     },
     {
@@ -59,8 +66,7 @@
       "stderr": {
         "contains": [
           "TYPE/001",
-          "'result' type tile<2xi32> does not match 'sender' type tile<1xi32>",
-          "input module failed Low verification"
+          "'result' type tile<2xi32> does not match 'sender' type tile<1xi32>"
         ]
       },
       "files": [{"path": "{tmp}/invalid.xdna", "exists": false}]

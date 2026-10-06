@@ -1074,10 +1074,12 @@ TEST(CompileTest, EmissionNotesUseTheirOwnModuleAndCountOnlyResolvedOmissions) {
                                         loomc_allocator_system(), &captured));
     result.reset(captured);
     LOOMC_ASSERT_OK(loomc_result_add_loom_diagnostic_emission(
-        result.get(), active_module, LOOM_EMITTER_VERIFIER, &emission));
+        result.get(), active_module, LOOM_EMITTER_VERIFIER, &emission,
+        /*type_printer=*/nullptr));
     emission.op = nullptr;
     LOOMC_ASSERT_OK(loomc_result_add_loom_diagnostic_emission(
-        result.get(), active_module, LOOM_EMITTER_VERIFIER, &emission));
+        result.get(), active_module, LOOM_EMITTER_VERIFIER, &emission,
+        /*type_printer=*/nullptr));
   }
   const auto* diagnostic = loomc_result_diagnostic_at(result.get(), 0);
   ASSERT_NE(diagnostic, nullptr);

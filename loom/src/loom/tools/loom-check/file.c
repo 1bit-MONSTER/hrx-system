@@ -139,7 +139,7 @@ static iree_status_t loom_check_process_file(
     iree_host_size_t* pass_count, iree_host_size_t* fail_count,
     iree_host_size_t* skip_count) {
   loom_test_file_t file = {0};
-  const bool compile = !iree_string_view_is_empty(options->compile.target);
+  const bool compile = options->compile.target_profile != NULL;
   const bool update = options->mode == LOOM_CHECK_PROCESS_UPDATE;
   // Binary modules cannot contain case directives. Textual provider selection
   // happens after splitting so each case's INPUT can override the filename.

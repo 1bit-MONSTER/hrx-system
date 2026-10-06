@@ -59,10 +59,13 @@ TEST(ResultTest, OwnsDiagnosticsAndArtifacts) {
 
   char code[] = "PARSE/001";
   char message[] = "expected a thing";
+  char formatted[] = "bad.loom:1:1: error [PARSE/001]: expected a thing\n";
   loomc_diagnostic_t diagnostic = {
       /*.severity=*/LOOMC_DIAGNOSTIC_SEVERITY_ERROR,
       /*.code=*/loomc_make_string_view(code, sizeof(code) - 1),
       /*.message=*/loomc_make_string_view(message, sizeof(message) - 1),
+      /*.formatted_text=*/
+      loomc_make_string_view(formatted, sizeof(formatted) - 1),
       /*.range=*/
       {
           /*.source=*/source,
@@ -109,6 +112,7 @@ TEST(ResultTest, OwnsDiagnosticsAndArtifacts) {
 
   code[0] = 'X';
   message[0] = 'X';
+  formatted[0] = 'X';
   label[0] = 'X';
   related.range = {};
   format[0] = 'X';
@@ -125,6 +129,8 @@ TEST(ResultTest, OwnsDiagnosticsAndArtifacts) {
   EXPECT_EQ(stored_diagnostic->severity, LOOMC_DIAGNOSTIC_SEVERITY_ERROR);
   EXPECT_EQ(ToString(stored_diagnostic->code), "PARSE/001");
   EXPECT_EQ(ToString(stored_diagnostic->message), "expected a thing");
+  EXPECT_EQ(ToString(stored_diagnostic->formatted_text),
+            "bad.loom:1:1: error [PARSE/001]: expected a thing\n");
   EXPECT_EQ(ToString(loomc_source_identifier(stored_diagnostic->range.source)),
             "bad.loom");
   ASSERT_EQ(stored_diagnostic->related_location_count, 1u);
@@ -157,6 +163,7 @@ TEST(ResultTest, EmptyDiagnosticNeedsNoMetadataPayload) {
   const auto* stored = loomc_result_diagnostic_at(result, 0);
   EXPECT_EQ(stored->code.size, 0u);
   EXPECT_EQ(stored->message.size, 0u);
+  EXPECT_EQ(stored->formatted_text.size, 0u);
   EXPECT_EQ(stored->related_locations, nullptr);
   EXPECT_EQ(stored->related_location_count, 0u);
 }

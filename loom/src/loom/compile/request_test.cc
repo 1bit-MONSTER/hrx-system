@@ -61,17 +61,6 @@ static const loom_target_profile_t kTargetProfile = {
     /*.target_bundle=*/&kTargetBundle,
 };
 
-static iree_status_t SelectTargetProfile(
-    iree_string_view_t selector, const loom_target_profile_t** out_profile) {
-  *out_profile = nullptr;
-  if (!iree_string_view_equal(selector, IREE_SV("Target456"))) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "unknown synthetic target selector");
-  }
-  *out_profile = &kTargetProfile;
-  return iree_ok_status();
-}
-
 static iree_status_t EmitDiagnosticFormat(
     const loom_target_emit_request_t* request, bool* out_emitted,
     loom_target_emit_artifact_t* out_artifact) {
@@ -113,7 +102,6 @@ class CompileRequestTest : public ::testing::Test {
     IREE_ASSERT_OK(loom_context_finalize(&context_));
     target_provider_.profile_type = &kTargetProfileType;
     target_provider_.target_fact_type = &loom_target_generic_fact_type;
-    target_provider_.select_profile = SelectTargetProfile;
     emission_provider_.emitter_list = loom_target_emitter_list_make(
         kTargetEmitters, IREE_ARRAYSIZE(kTargetEmitters));
     emission_provider_.canonical_kernel_emitter = &kDiagnosticEmitter;
@@ -223,7 +211,7 @@ TEST_F(CompileRequestTest, InfersKernelAndCanonicalFormat) {
                              IREE_SV("DiagnosticFormat123")));
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
   EXPECT_EQ(request.selection.target_fact_type, &loom_target_generic_fact_type);
-  EXPECT_EQ(request.explicit_target.profile, nullptr);
+  EXPECT_EQ(request.target_profile, nullptr);
   ASSERT_EQ(request.selection.roots.count, 1u);
   EXPECT_TRUE(iree_string_view_equal(request.selection.roots.values[0],
                                      IREE_SV("Kernel123")));
@@ -311,7 +299,7 @@ func.def public @second() {
   loom_compile_request_options_t options = {};
   options.roots = {IREE_ARRAYSIZE(roots), roots};
   options.format = IREE_SV("DiagnosticFormat123");
-  options.target = IREE_SV("TargetFamily123:Target456");
+  options.target_profile = &kTargetProfile;
   const loom_compile_request_t request = Resolve(module.get(), options);
 
   loom_target_specialization_request_list_t specializations = {};
@@ -336,7 +324,7 @@ func.def public abi(array_program) @entry() {
 )");
   const iree_string_view_t roots[] = {IREE_SV("entry")};
   loom_compile_request_options_t options = {};
-  options.target = IREE_SV("TargetFamily123:Target456");
+  options.target_profile = &kTargetProfile;
   for (iree_host_size_t root_count : {0, 1}) {
     options.roots = {root_count, roots};
     const loom_compile_request_t request = Resolve(module.get(), options);
@@ -412,7 +400,7 @@ kernel.def @excluded() {
 )");
   const iree_string_view_t excluded_roots[] = {IREE_SV("excluded")};
   loom_compile_request_options_t options = {};
-  options.target = IREE_SV("TargetFamily123:Target456");
+  options.target_profile = &kTargetProfile;
   options.excluded_roots = {IREE_ARRAYSIZE(excluded_roots), excluded_roots};
   const loom_compile_request_t request = Resolve(module.get(), options);
 
@@ -540,7 +528,7 @@ func.def abi(array_program) @entry() {
 )");
   const iree_string_view_t roots[] = {IREE_SV("entry")};
   loom_compile_request_options_t options = {};
-  options.target = IREE_SV("TargetFamily123:Target456");
+  options.target_profile = &kTargetProfile;
   loom_compile_request_t rejected_request = {};
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
@@ -692,13 +680,13 @@ kernel.def @Kernel123() {
   const loom_compile_request_options_t options = {
       /*.roots=*/{},
       /*.format=*/{},
-      /*.target=*/IREE_SV("TargetFamily123:Target456"),
+      /*.target_profile=*/&kTargetProfile,
   };
   const loom_compile_request_t request = Resolve(module.get(), options);
 
   EXPECT_EQ(request.selection.kind, LOOM_COMPILE_ENTRY_KIND_KERNEL);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
-  EXPECT_EQ(request.explicit_target.profile, &kTargetProfile);
+  EXPECT_EQ(request.target_profile, &kTargetProfile);
   ASSERT_EQ(request.selection.roots.count, 1u);
   EXPECT_TRUE(iree_string_view_equal(request.selection.roots.values[0],
                                      IREE_SV("Kernel123")));
@@ -724,7 +712,7 @@ func.def public @Function123() {
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
 
   options.format = iree_string_view_empty();
-  options.target = IREE_SV("TargetFamily123:Target456");
+  options.target_profile = &kTargetProfile;
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
       loom_compile_request_resolve(module.get(), &options, &environment_,
@@ -740,7 +728,7 @@ func.def public @Function123() {
       module.get(), &options, &environment_, &request_arena_, &request));
   EXPECT_EQ(request.selection.kind, LOOM_COMPILE_ENTRY_KIND_MODULE);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
-  EXPECT_EQ(request.explicit_target.profile, &kTargetProfile);
+  EXPECT_EQ(request.target_profile, &kTargetProfile);
   EXPECT_TRUE(
       iree_string_view_equal(request.target_emitter->public_artifact_format,
                              IREE_SV("DiagnosticFormat123")));
@@ -767,13 +755,11 @@ kernel.def @Untargeted() {
   const loom_compile_request_options_t options = {
       /*.roots=*/{},
       /*.format=*/{},
-      /*.target=*/IREE_SV("TargetFamily123:Target456"),
+      /*.target_profile=*/&kTargetProfile,
   };
   const loom_compile_request_t request = Resolve(module.get(), options);
 
-  EXPECT_EQ(request.explicit_target.profile, &kTargetProfile);
-  EXPECT_TRUE(iree_string_view_equal(
-      request.explicit_target.specification.selector, IREE_SV("Target456")));
+  EXPECT_EQ(request.target_profile, &kTargetProfile);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
   EXPECT_EQ(request.selection.target_fact_type, &loom_target_generic_fact_type);
   EXPECT_EQ(request.selection.untargeted_kernel_count, 1u);

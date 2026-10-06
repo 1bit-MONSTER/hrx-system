@@ -25,6 +25,7 @@
 #include "loom/pass/registry.h"
 #include "loom/pass/report.h"
 #include "loom/pass/tooling.h"
+#include "loom/pass/trace.h"
 #include "loom/target/configured/provider.h"
 #include "loom/target/pipeline.h"
 #include "loom/target/predicate.h"
@@ -156,6 +157,49 @@ static iree_status_t loom_opt_diagnostic_sink(
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "unsupported diagnostic format");
   }
+}
+
+static iree_status_t loom_opt_pass_trace_open_artifact(
+    void* user_data, const loom_pass_trace_event_t* event,
+    iree_host_size_t event_ordinal, loom_pass_trace_artifact_t* out_artifact) {
+  return loom_tooling_pass_trace_open_artifact(
+      (loom_tooling_pass_trace_t*)user_data, event_ordinal,
+      loom_pass_trace_point_name(event->point),
+      loom_pass_trace_event_pass_key(event), &out_artifact->stream,
+      &out_artifact->path);
+}
+
+static iree_status_t loom_opt_pass_trace_close_artifact(
+    void* user_data, loom_pass_trace_artifact_t* artifact) {
+  (void)artifact;
+  return loom_tooling_pass_trace_close_artifact(
+      (loom_tooling_pass_trace_t*)user_data);
+}
+
+static const loom_pass_trace_options_t* loom_opt_bind_pass_trace_options(
+    loom_tooling_pass_trace_t* trace, loom_pass_trace_options_t* out_options) {
+  if (!trace->enabled) {
+    return NULL;
+  }
+  loom_pass_trace_options_initialize(out_options);
+  out_options->stream = &trace->output.stream;
+  out_options->format = trace->format == LOOM_TOOLING_PASS_TRACE_FORMAT_JSONL
+                            ? LOOM_PASS_TRACE_FORMAT_JSONL
+                            : LOOM_PASS_TRACE_FORMAT_TEXT;
+  out_options->tool_name = trace->tool_name;
+  out_options->input_path = trace->input_path;
+  out_options->dump_before = trace->dump_before;
+  out_options->dump_after = trace->dump_after;
+  out_options->dump_before_all = trace->dump_before_all;
+  out_options->dump_after_all = trace->dump_after_all;
+  if (loom_tooling_pass_trace_has_artifact_sink(trace)) {
+    out_options->artifact_sink = (loom_pass_trace_artifact_sink_t){
+        .open = loom_opt_pass_trace_open_artifact,
+        .close = loom_opt_pass_trace_close_artifact,
+        .user_data = trace,
+    };
+  }
+  return out_options;
 }
 
 static const char* loom_opt_pass_kind_name(loom_pass_kind_t kind) {
@@ -1324,6 +1368,8 @@ int main(int argc, char** argv) {
   loom_pass_report_t pass_report = {0};
   bool pass_report_initialized = false;
   loom_tooling_pass_trace_t pass_trace = {0};
+  loom_pass_trace_options_t pass_trace_options = {0};
+  const loom_pass_trace_options_t* pass_trace_options_ptr = NULL;
   bool pass_execution_started = false;
   loom_tooling_config_materialize_result_t config_materialize_result = {0};
   loom_pass_run_result_t pass_run_result = {0};
@@ -1463,10 +1509,14 @@ int main(int argc, char** argv) {
             .input_path = filename,
         },
         allocator, &pass_trace);
-    if (iree_status_is_ok(status) && pass_trace.enabled) {
+    if (iree_status_is_ok(status)) {
+      pass_trace_options_ptr =
+          loom_opt_bind_pass_trace_options(&pass_trace, &pass_trace_options);
+    }
+    if (pass_trace_options_ptr) {
       loom_low_descriptor_text_asm_environment_initialize(
           &loom_run_session_low_descriptor_registry(&run_session)->registry,
-          &pass_trace.pass_options.print_options.low_asm_environment);
+          &pass_trace_options.print_options.low_asm_environment);
     }
   }
   if (iree_status_is_ok(status) && !metadata_only) {
@@ -1476,8 +1526,8 @@ int main(int argc, char** argv) {
         loom_run_session_cleanup_pattern_provider_set(&run_session),
         pass_registry, loom_run_session_block_pool(&run_session), &run_module,
         diagnostic_sink, pass_report_initialized ? &pass_report : NULL,
-        loom_tooling_pass_trace_options(&pass_trace), &pass_execution_started,
-        &pass_run_result, allocator);
+        pass_trace_options_ptr, &pass_execution_started, &pass_run_result,
+        allocator);
     status = pass_pipeline_status;
   }
   bool pass_pipeline_failed = !iree_status_is_ok(pass_pipeline_status) ||

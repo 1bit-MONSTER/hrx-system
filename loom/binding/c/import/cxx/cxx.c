@@ -181,7 +181,8 @@ static iree_status_t loomc_cxx_capture_diagnostic(
     void* user_data, const loom_diagnostic_t* diagnostic) {
   loomc_cxx_invocation_t* invocation = (loomc_cxx_invocation_t*)user_data;
   return iree_status_from_loomc(
-      loomc_result_add_loom_diagnostic(invocation->result, NULL, diagnostic));
+      loomc_result_add_loom_diagnostic(invocation->result, NULL, diagnostic,
+                                       /*type_printer=*/NULL));
 }
 
 loomc_status_t loomc_module_import_cxx(

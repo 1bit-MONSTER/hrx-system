@@ -431,20 +431,19 @@ static iree_status_t loom_spirv_module_attach_artifact_manifest(
   return status;
 }
 
-static iree_status_t loom_spirv_module_emit(
-    const loom_target_emit_request_t* request, bool* out_emitted,
+iree_status_t loom_spirv_compile_module_artifact(
+    const loom_target_emit_request_t* request,
+    const loom_spirv_compile_options_t* options, bool* out_emitted,
     loom_target_emit_artifact_t* out_artifact) {
   *out_emitted = false;
   *out_artifact = (loom_target_emit_artifact_t){0};
 
-  loom_spirv_compile_options_t options = {0};
-  options.function_versions = request->function_versions;
   loom_spirv_program_plan_t program = {0};
   loom_spirv_module_binary_t binary = {0};
   bool module_emitted = false;
   iree_status_t status = loom_spirv_program_compile(
       request->module, request->low_descriptor_registry,
-      request->diagnostic_emitter, request->scratch_arena, &options,
+      request->diagnostic_emitter, request->scratch_arena, options,
       request->allocator, &module_emitted, &program, &binary);
   loom_target_emit_artifact_t artifact = {0};
   if (iree_status_is_ok(status) && module_emitted) {
@@ -487,6 +486,16 @@ static iree_status_t loom_spirv_module_emit(
   loom_target_emit_artifact_release(&artifact);
   loom_spirv_module_binary_deinitialize(&binary, request->allocator);
   return status;
+}
+
+static iree_status_t loom_spirv_module_emit(
+    const loom_target_emit_request_t* request, bool* out_emitted,
+    loom_target_emit_artifact_t* out_artifact) {
+  const loom_spirv_compile_options_t options = {
+      .function_versions = request->function_versions,
+  };
+  return loom_spirv_compile_module_artifact(request, &options, out_emitted,
+                                            out_artifact);
 }
 
 const loom_target_emitter_t loom_spirv_module_emitter = {

@@ -43,7 +43,7 @@
       "exit": 1,
       "stderr": {
         "contains": [
-          "--artifact-manifest is only valid for loadable kernel formats"
+          "artifact manifests are only valid for loadable kernel formats"
         ]
       },
       "files": [

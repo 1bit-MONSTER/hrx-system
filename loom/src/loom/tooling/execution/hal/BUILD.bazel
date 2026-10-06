@@ -98,6 +98,7 @@ loom_cc_library(
     deps = [
         ":runtime",
         "//loom/src/loom/target:profile",
+        "//loom/src/loom/target:selection",
         "//loom/src/loom/tooling/compile:artifact",
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
@@ -310,6 +311,7 @@ loom_cc_test(
         ":device_provider",
         ":runtime",
         "//loom/src/loom/target:profile",
+        "//loom/src/loom/target:provider",
         "//loom/src/loom/tooling/compile:artifact",
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",

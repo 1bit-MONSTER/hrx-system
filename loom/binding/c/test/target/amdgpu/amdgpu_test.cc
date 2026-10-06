@@ -523,6 +523,7 @@ ResultPtr EmitModule(loomc_target_environment_t* target_environment,
       /*.structure_size=*/sizeof(compile_report_options),
       /*.next=*/nullptr,
       /*.mode=*/compile_report_mode,
+      /*.format=*/LOOMC_COMPILE_REPORT_FORMAT_JSON,
       /*.identifier=*/loomc_string_view_empty(),
   };
   loomc_artifact_manifest_options_t artifact_manifest_options = {

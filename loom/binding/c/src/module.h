@@ -86,6 +86,13 @@ LOOMC_API_PRIVATE void loomc_module_set_loom_module(
     loomc_module_t* module, loom_module_t* internal_module,
     loomc_module_input_state_t input_state);
 
+// Adopts the pointer returned by an internal replacing transform. The
+// transform owns the previous pointer's release contract; this only updates
+// the public handle and its verification state.
+LOOMC_API_PRIVATE void loomc_module_adopt_loom_module_replacement(
+    loomc_module_t* module, loom_module_t* internal_module,
+    loomc_module_input_state_t input_state);
+
 // Returns the internal module owned by a public module handle.
 LOOMC_API_PRIVATE loom_module_t* loomc_module_loom_module(
     loomc_module_t* module);

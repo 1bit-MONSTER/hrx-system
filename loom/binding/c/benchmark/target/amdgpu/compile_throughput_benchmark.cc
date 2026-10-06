@@ -112,6 +112,7 @@ static iree_status_t EmitAmdgpuBenchmarkArtifact(
       /*.structure_size=*/sizeof(report_options),
       /*.next=*/nullptr,
       /*.mode=*/report_mode,
+      /*.format=*/LOOMC_COMPILE_REPORT_FORMAT_JSON,
   };
   const loomc_emit_options_t emit_options = {
       /*.type=*/LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS,

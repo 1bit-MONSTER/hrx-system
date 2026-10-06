@@ -53,7 +53,6 @@ static iree_status_t loom_amdgpu_artifact_provider_emit_artifact(
       &storage->kernel_library);
   if (iree_status_is_ok(status) && library_emitted) {
     *out_artifact = (loom_artifact_t){
-        .target_key = storage->kernel_library.target_key,
         .target_bundle = &storage->kernel_library.target_bundle_storage.bundle,
         .target_artifact_format = LOOM_TARGET_ARTIFACT_FORMAT_ELF,
         .target_artifact_data = storage->kernel_library.hsaco_data,

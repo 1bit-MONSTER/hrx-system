@@ -395,8 +395,17 @@ static iree_status_t loomc_cmd_program_product_capture_diagnostic(
     void* user_data, const loom_diagnostic_emission_t* emission) {
   loomc_cmd_program_product_invocation_t* invocation =
       (loomc_cmd_program_product_invocation_t*)user_data;
+  const loomc_target_pass_environment_t* pass_environment =
+      loomc_context_target_pass_environment(invocation->request.context);
+  loomc_diagnostic_type_printer_t type_printer;
+  loomc_diagnostic_type_printer_initialize(
+      emission->module,
+      pass_environment ? &pass_environment->diagnostic_type_print_options
+                       : NULL,
+      &type_printer);
   return iree_status_from_loomc(loomc_result_add_loom_diagnostic_emission(
-      invocation->result, /*module=*/NULL, LOOM_EMITTER_PASS, emission));
+      invocation->result, /*module=*/NULL, LOOM_EMITTER_PASS, emission,
+      emission->module ? &type_printer : NULL));
 }
 
 static loomc_status_t loomc_cmd_program_product_translate_plan_status(

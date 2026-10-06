@@ -15,9 +15,12 @@
 extern "C" {
 #endif
 
-// Composes the native object emitter with x86 target identity. Source dialect,
-// profiles, and lowering remain separately selectable through provider.h.
+// Native x86 object-emission contribution.
 extern const loom_target_provider_t loom_x86_compiler_provider;
+
+// Complete x86 compiler capability containing target identity and native
+// object emission.
+extern const loom_target_provider_set_t loom_x86_compiler_provider_set;
 
 #ifdef __cplusplus
 }  // extern "C"

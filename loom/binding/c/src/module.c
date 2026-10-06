@@ -73,14 +73,6 @@ typedef struct loomc_module_ir_projection_t {
   iree_arena_block_pool_t block_pool;
 } loomc_module_ir_projection_t;
 
-typedef struct loomc_module_diagnostic_capture_t {
-  // Result receiving converted diagnostics.
-  loomc_result_t* result;
-
-  // Source associated with emitted diagnostics.
-  const loomc_source_t* source;
-} loomc_module_diagnostic_capture_t;
-
 typedef struct loomc_module_deserialize_state_t {
   // Result receiving deserialization diagnostics.
   loomc_result_t* result;
@@ -306,14 +298,6 @@ static loomc_status_t loomc_module_resolve_deserialize_options(
   return loomc_ok_status();
 }
 
-static iree_status_t loomc_module_capture_diagnostic(
-    void* user_data, const loom_diagnostic_t* diagnostic) {
-  loomc_module_diagnostic_capture_t* capture =
-      (loomc_module_diagnostic_capture_t*)user_data;
-  return iree_status_from_loomc(loomc_result_add_loom_diagnostic(
-      capture->result, capture->source, diagnostic));
-}
-
 static loomc_status_t loomc_module_mark_deserialize_failed(
     loomc_result_t* result, const loomc_source_t* source,
     loomc_host_size_t before_diagnostic_count) {
@@ -409,12 +393,12 @@ loomc_status_t loomc_module_deserialize_explicit_source(
   loomc_status_t status = loomc_module_deserialize_initialize(
       context, workspace, allocator, &state);
   if (loomc_status_is_ok(status)) {
-    loomc_module_diagnostic_capture_t capture = {
-        .result = state.result,
-        .source = source,
-    };
+    loomc_diagnostic_capture_t capture;
+    loomc_diagnostic_capture_initialize(state.result, source, /*module=*/NULL,
+                                        LOOM_EMITTER_PARSER,
+                                        /*text_print_options=*/NULL, &capture);
     const loom_diagnostic_sink_t diagnostic_sink = {
-        .fn = loomc_module_capture_diagnostic,
+        .fn = loomc_diagnostic_capture,
         .user_data = &capture,
     };
     status = decoder(context, source, &resolved_options, diagnostic_sink,
@@ -513,9 +497,19 @@ void loomc_module_set_loom_module(loomc_module_t* module,
                                   loom_module_t* internal_module,
                                   loomc_module_input_state_t input_state) {
   IREE_ASSERT(!module->module, "module storage can only be transferred once");
+  loomc_module_adopt_loom_module_replacement(module, internal_module,
+                                             input_state);
+}
+
+void loomc_module_adopt_loom_module_replacement(
+    loomc_module_t* module, loom_module_t* internal_module,
+    loomc_module_input_state_t input_state) {
+  IREE_ASSERT_ARGUMENT(module);
+  IREE_ASSERT_ARGUMENT(internal_module);
   module->module = internal_module;
   module->verification.structural =
       input_state == LOOMC_MODULE_INPUT_STRUCTURALLY_VERIFIED;
+  module->verification.context_target = false;
 }
 
 loom_module_t* loomc_module_loom_module(loomc_module_t* module) {
@@ -525,20 +519,6 @@ loom_module_t* loomc_module_loom_module(loomc_module_t* module) {
 const loom_module_t* loomc_module_const_loom_module(
     const loomc_module_t* module) {
   return module ? module->module : NULL;
-}
-
-typedef struct loomc_module_verify_capture_t {
-  // Result receiving verification diagnostics.
-  loomc_result_t* result;
-  // Borrowed module owning operation locations during verification.
-  const loom_module_t* module;
-} loomc_module_verify_capture_t;
-
-static iree_status_t loomc_module_capture_verify_emission(
-    void* user_data, const loom_diagnostic_emission_t* emission) {
-  const loomc_module_verify_capture_t* capture = user_data;
-  return iree_status_from_loomc(loomc_result_add_loom_diagnostic_emission(
-      capture->result, capture->module, LOOM_EMITTER_VERIFIER, emission));
 }
 
 loomc_status_t loomc_module_verify(
@@ -562,14 +542,18 @@ loomc_status_t loomc_module_verify(
 
   const loomc_target_pass_environment_t* pass_environment =
       loomc_target_environment_pass_environment(target_environment);
-  loomc_module_verify_capture_t capture = {.result = result,
-                                           .module = module->module};
+  loomc_diagnostic_capture_t capture;
+  loomc_diagnostic_capture_initialize(
+      result, /*source=*/NULL, module->module, LOOM_EMITTER_VERIFIER,
+      pass_environment ? &pass_environment->diagnostic_type_print_options
+                       : NULL,
+      &capture);
   const loom_low_verify_options_t options = {
       .descriptor_registry =
           pass_environment ? &pass_environment->low_descriptor_registry.registry
                            : NULL,
       .function_versions = loomc_module_function_versions(module),
-      .emitter = {.fn = loomc_module_capture_verify_emission,
+      .emitter = {.fn = loomc_diagnostic_capture_emission,
                   .user_data = &capture},
       .provider_list = pass_environment
                            ? loom_target_environment_low_verify_provider_list(

@@ -19,6 +19,7 @@ loom_cc_library(
     "wasm.c"
   DEPS
     loom::binding::c::loomc
+    loom::binding::c::target::provider_set
     loom::target::emit::wasm::module_compiler
   ALWAYSLINK
   PUBLIC

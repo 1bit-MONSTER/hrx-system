@@ -1,0 +1,136 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
+load(
+    "//loom/build_tools/bazel:build_defs.bzl",
+    "iree_select",
+    "loom_cc_library",
+    "loom_cc_test",
+)
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+_CONFIGURED_TARGET_COPTS = (
+    iree_select({
+        "//loom/config/target:amdgpu_artifacts": [
+            "-DLOOMC_CONFIGURED_HAVE_AMDGPU=1",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target:spirv_artifacts": [
+            "-DLOOMC_CONFIGURED_HAVE_SPIRV=1",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target/arch:vm": [
+            "-DLOOMC_CONFIGURED_HAVE_VM=1",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target:wasm_artifacts": [
+            "-DLOOMC_CONFIGURED_HAVE_WASM=1",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target:xdna_artifacts": [
+            "-DLOOMC_CONFIGURED_HAVE_XDNA=1",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target/arch:x86": [
+            "-DLOOMC_CONFIGURED_HAVE_X86=1",
+        ],
+        "//conditions:default": [],
+    })
+)
+
+_CONFIGURED_TARGET_DEPS = (
+    iree_select({
+        "//loom/config/target:amdgpu_artifacts": [
+            "//loom/binding/c/target/amdgpu",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target:spirv_artifacts": [
+            "//loom/binding/c/target/spirv",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target/arch:vm": [
+            "//loom/binding/c/target/vm",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target:wasm_artifacts": [
+            "//loom/binding/c/target/wasm",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target:xdna_artifacts": [
+            "//loom/binding/c/target/amd/xdna",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target/arch:x86": [
+            "//loom/src/loom/target/arch/x86:compiler_provider",
+        ],
+        "//conditions:default": [],
+    })
+)
+
+loom_cc_library(
+    name = "configured",
+    srcs = ["configured.c"],
+    hdrs = ["//loom/binding/c:include/loomc/target/configured.h"],
+    copts = _CONFIGURED_TARGET_COPTS,
+    linkstatic = True,
+    deps = [
+        "//loom/binding/c:loomc",
+        "//loom/binding/c/target:provider_set",
+        "//loom/src/loom/target:provider",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+    ] + _CONFIGURED_TARGET_DEPS,
+    alwayslink = True,
+)
+
+iree_assert_dependency_boundary(
+    name = "configured_has_no_tooling_dependencies",
+    forbidden_subtrees = [
+        "//loom/src/loom/tooling/compile/...",
+        "//loom/src/loom/tooling/target/...",
+    ],
+    message = "The configured LoomC target package must not depend on legacy compile or target adapters",
+    target = ":configured",
+)
+
+loom_cc_test(
+    name = "configured_test",
+    srcs = ["configured_test.cc"],
+    copts = _CONFIGURED_TARGET_COPTS,
+    deps = [
+        ":configured",
+        "//loom/binding/c:loomc",
+        "//loom/src/loom/target:provider",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)

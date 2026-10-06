@@ -45,8 +45,6 @@ static inline const loom_target_bundle_t* loom_artifact_target_bundle(
 
 // Loadable artifact bytes produced for an already-selected target.
 typedef struct loom_artifact_t {
-  // Provider-facing target key used to emit the artifact.
-  iree_string_view_t target_key;
   // Durable target-neutral bundle resolved for the artifact.
   const loom_target_bundle_t* target_bundle;
   // Target-native artifact format.
@@ -99,41 +97,6 @@ struct loom_artifact_provider_t {
   // Releases storage owned by an artifact returned from |emit_artifact|.
   loom_artifact_provider_deinitialize_artifact_fn_t deinitialize_artifact;
 };
-
-// Selects a borrowed artifact target from |target_environment|.
-//
-// |target_specification| must use `family:selector` syntax and select the
-// target family required by |provider|. The returned profile has process
-// lifetime and |out_target->target_key| borrows the selector portion of
-// |target_specification|. Selection performs no allocation and requires no
-// teardown. On failure |out_target| remains empty.
-iree_status_t loom_artifact_target_select(
-    const loom_artifact_provider_t* provider,
-    const loom_target_environment_t* target_environment,
-    iree_string_view_t target_specification,
-    loom_artifact_target_t* out_target);
-
-// Artifact candidate produced for live execution.
-typedef struct loom_artifact_candidate_t {
-  // Host allocator used for owned candidate storage.
-  iree_allocator_t host_allocator;
-  // Artifact provider that produced |artifact|.
-  const loom_artifact_provider_t* provider;
-  // True when artifact bytes were produced.
-  bool compiled;
-  // Artifact bytes produced by |provider|.
-  loom_artifact_t artifact;
-} loom_artifact_candidate_t;
-
-// Emits |module| using a caller-owned explicit target.
-iree_status_t loom_artifact_candidate_emit_target(
-    const loom_artifact_provider_t* provider,
-    const loom_artifact_target_t* target, loom_module_t* module,
-    const loom_compile_options_t* options, iree_allocator_t allocator,
-    loom_artifact_candidate_t* out_candidate);
-
-// Releases all artifact storage owned by |candidate|.
-void loom_artifact_candidate_deinitialize(loom_artifact_candidate_t* candidate);
 
 #ifdef __cplusplus
 }  // extern "C"

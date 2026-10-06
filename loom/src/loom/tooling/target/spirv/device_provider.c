@@ -186,7 +186,6 @@ static void loom_spirv_device_provider_deinitialize_target(
 const loom_device_provider_t loom_spirv_vulkan_device_provider = {
     .artifact_provider = &loom_spirv_vulkan_artifact_provider,
     .driver_name = IREE_SVL("vulkan"),
-    .select_target = loom_spirv_device_provider_select_target,
     .select_compatible_target =
         loom_spirv_device_provider_select_compatible_target_from_facts,
     .select_profile_target = loom_spirv_device_provider_select_profile_target,

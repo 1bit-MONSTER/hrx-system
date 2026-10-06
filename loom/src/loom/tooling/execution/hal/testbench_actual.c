@@ -661,13 +661,10 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
           provider->context->host_allocator, &provider->compile_device_target));
       provider->owns_compile_device_target = true;
     } else {
-      loom_artifact_target_t artifact_target = {0};
-      IREE_RETURN_IF_ERROR(loom_artifact_target_select(
-          device_provider->artifact_provider, provider->target_environment,
-          target_specification, &artifact_target));
-      IREE_RETURN_IF_ERROR(loom_device_provider_select_profile_target(
+      IREE_RETURN_IF_ERROR(loom_device_provider_select_explicit_target(
           device_provider, &provider->context->runtime,
-          artifact_target.target_profile, &provider->compile_device_target));
+          provider->target_environment, target_specification,
+          &provider->compile_device_target));
     }
   }
 
@@ -768,7 +765,7 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
   if (!iree_status_is_ok(status)) {
     return status;
   }
-  if (!provider->candidate.artifact_candidate.compiled) {
+  if (!provider->candidate.compiled) {
     if (provider->diagnostic_error_count != emit_error_count) {
       loom_run_hal_testbench_record_compile_rejection(
           provider, IREE_SV("emit"), IREE_SV("emit_diagnostics"),
@@ -784,7 +781,7 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
 
   const loom_device_artifact_t device_artifact = {
       .executable_target = provider->candidate.device_target.executable_target,
-      .artifact = &provider->candidate.artifact_candidate.artifact,
+      .artifact = &provider->candidate.artifact,
   };
   status = loom_run_hal_prepared_candidate_prepare(
       &provider->context->runtime, &device_artifact,

@@ -22,6 +22,7 @@ loom_cc_library(
   DEPS
     iree::base
     loom::binding::c::loomc
+    loom::binding::c::target::provider_set
     loom::ir
     loom::ops::kernel
     loom::ops::op_defs

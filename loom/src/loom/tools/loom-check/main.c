@@ -14,6 +14,7 @@
 #include "iree/base/internal/arena.h"
 #include "iree/base/tooling/flags.h"
 #include "loom/sanitizer/options.h"
+#include "loom/target/selection.h"
 #include "loom/tooling/cli/help.h"
 #include "loom/tooling/compile/configured.h"
 #include "loom/tooling/context/context.h"
@@ -420,7 +421,8 @@ int loom_check_main(int argc, char** argv,
   loom_context_initialize(host_allocator, &context);
   loom_tooling_config_set_t config_set;
   loom_tooling_config_set_initialize(host_allocator, &config_set);
-  const iree_string_view_t target = iree_make_cstring_view(FLAG_target);
+  const iree_string_view_t target =
+      iree_string_view_trim(iree_make_cstring_view(FLAG_target));
   const loom_tooling_compile_environment_t* compile_environment =
       iree_string_view_is_empty(target)
           ? NULL
@@ -454,6 +456,16 @@ int loom_check_main(int argc, char** argv,
       status =
           loom_check_context_register_and_finalize(base_environment, &context);
     }
+  }
+  loom_target_specification_t target_specification = {0};
+  const loom_target_profile_t* target_profile = NULL;
+  if (iree_status_is_ok(status) && compile_environment != NULL) {
+    status = loom_target_specification_parse(target, &target_specification);
+  }
+  if (iree_status_is_ok(status) && compile_environment != NULL) {
+    status = loom_target_environment_select_profile(
+        compile_environment->target_environment, &target_specification,
+        &target_profile);
   }
   const iree_flag_string_list_t config_files = FLAG_config_file_list();
   const iree_flag_string_list_t configs = FLAG_config_list();
@@ -489,7 +501,7 @@ int loom_check_main(int argc, char** argv,
   iree_host_size_t fail_count = 0;
   iree_host_size_t skip_count = 0;
   const loom_check_process_options_t process_options = {
-      .compile = {.target = target,
+      .compile = {.target_profile = target_profile,
                   .environment = compile_environment,
                   .config_set = &config_set,
                   .sanitizer = sanitizer},

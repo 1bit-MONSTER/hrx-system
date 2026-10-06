@@ -14,7 +14,7 @@
 #include "loom/error/source.h"
 #include "loom/ir/module.h"
 #include "loom/target/entry_selection.h"
-#include "loom/target/selection.h"
+#include "loom/target/provider.h"
 #include "loom/target/specialization.h"
 
 #ifdef __cplusplus
@@ -42,22 +42,14 @@ typedef struct loom_compile_entry_selection_t {
   iree_host_size_t untargeted_kernel_count;
 } loom_compile_entry_selection_t;
 
-// Explicit target selected for one compile request.
-typedef struct loom_compile_target_selection_t {
-  // Immutable structured target profile selected from the environment.
-  const loom_target_profile_t* profile;
-  // Borrowed family and selector spelling supplied by the caller.
-  loom_target_specification_t specification;
-} loom_compile_target_selection_t;
-
 // User constraints applied while resolving one compilation request.
 typedef struct loom_compile_request_options_t {
   // Explicit root names, or an empty list to derive selection from the module.
   iree_string_view_list_t roots;
   // Optional exact artifact format.
   iree_string_view_t format;
-  // Optional family-qualified target profile.
-  iree_string_view_t target;
+  // Optional immutable target profile selected from the target environment.
+  const loom_target_profile_t* target_profile;
   // Canonical root names to exclude after entry-category inference and before
   // specialization and materialization. Cannot be combined with |roots|.
   iree_string_view_list_t excluded_roots;
@@ -69,18 +61,18 @@ typedef struct loom_compile_request_t {
   loom_compile_entry_selection_t selection;
   // Target-owned artifact emitter for the resolved kernel or module entries.
   const loom_target_emitter_t* target_emitter;
-  // Explicit target selected by the caller, or empty for authored targets.
-  loom_compile_target_selection_t explicit_target;
+  // Explicit target selected by the caller, or NULL for authored targets.
+  const loom_target_profile_t* target_profile;
 } loom_compile_request_t;
 
 // Resolves one homogeneous entry category and its compile roots, an optional
-// explicit target, and a target emitter. Explicit roots are borrowed. Otherwise
-// the module must expose at most one category of default entry; mixed
-// categories require explicit roots. Command-program roots are rejected because
-// they require the LoomC command-program transaction. Exclusions apply after
-// inference and derived names are copied into |arena|. Emitter resolution never
-// probes an emitter by compiling. An omitted format selects the target family's
-// unique canonical kernel or module emitter.
+// explicit target profile, and a target emitter. Explicit roots are borrowed.
+// Otherwise the module must expose at most one category of default entry;
+// mixed categories require explicit roots. Command-program roots are rejected
+// because they require the LoomC command-program transaction. Exclusions apply
+// after inference and derived names are copied into |arena|. Emitter resolution
+// never probes an emitter by compiling. An omitted format selects the target
+// family's unique canonical kernel or module emitter.
 iree_status_t loom_compile_request_resolve(
     const loom_module_t* module, const loom_compile_request_options_t* options,
     const loom_target_environment_t* target_environment,

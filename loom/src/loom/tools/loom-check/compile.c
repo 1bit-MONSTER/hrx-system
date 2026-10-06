@@ -219,7 +219,7 @@ iree_status_t loom_check_execute_compile(
   if (iree_status_is_ok(status) && input.module != NULL &&
       collector.error_count == 0) {
     const loom_compile_request_options_t request_options = {
-        .target = options->target,
+        .target_profile = options->target_profile,
     };
     status = loom_compile_request_resolve(
         input.module, &request_options,

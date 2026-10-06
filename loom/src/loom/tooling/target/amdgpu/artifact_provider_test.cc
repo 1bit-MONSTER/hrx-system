@@ -136,8 +136,6 @@ class AmdgpuArtifactProviderTest : public ::testing::Test {
         &loom_amdgpu_artifact_provider, module.get(), &target, &options,
         iree_allocator_system(), &emitted, &artifact));
     EXPECT_TRUE(emitted);
-    EXPECT_NE(iree_string_view_find(artifact.target_key, target_name, 0),
-              IREE_STRING_VIEW_NPOS);
     EXPECT_EQ(artifact.target_artifact_format, LOOM_TARGET_ARTIFACT_FORMAT_ELF);
     EXPECT_EQ(artifact.target_artifact_data, artifact.executable_data);
     ASSERT_NE(artifact.target_artifact_data, nullptr);

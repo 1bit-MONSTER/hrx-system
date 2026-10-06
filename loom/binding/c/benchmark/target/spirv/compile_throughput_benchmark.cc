@@ -134,6 +134,7 @@ static iree_status_t EmitSpirvBenchmarkArtifact(
       /*.structure_size=*/sizeof(report_options),
       /*.next=*/nullptr,
       /*.mode=*/report_mode,
+      /*.format=*/LOOMC_COMPILE_REPORT_FORMAT_JSON,
   };
   const loomc_spirv_emit_options_t spirv_options = {
       /*.type=*/LOOMC_STRUCTURE_TYPE_SPIRV_EMIT_OPTIONS,

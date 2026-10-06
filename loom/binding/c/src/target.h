@@ -10,6 +10,7 @@
 #include "iree/base/internal/arena.h"
 #include "loom/codegen/low/pipeline/legalizer_registry.h"
 #include "loom/codegen/pass_environment.h"
+#include "loom/format/text/printer.h"
 #include "loom/pass/registry.h"
 #include "loom/target/function_version.h"
 #include "loom/target/profile.h"
@@ -38,6 +39,9 @@ typedef struct loomc_target_pass_environment_t {
 
   // Target-low descriptor registry used by target-low passes and emitters.
   loom_target_low_descriptor_registry_t low_descriptor_registry;
+
+  // Canonical target-aware type printer options for diagnostics.
+  loom_text_print_options_t diagnostic_type_print_options;
 
   // Source-to-target-low lowering policy registry used by source-to-low.
   loom_low_lower_policy_registry_t low_lower_policy_registry;
@@ -120,6 +124,12 @@ loomc_target_profile_loom_target_profile(const loomc_target_profile_t* profile);
 LOOMC_API_PRIVATE loomc_target_environment_t*
 loomc_target_profile_target_environment(const loomc_target_profile_t* profile);
 
+// Validates that a complete profile belongs to a compatible target
+// environment.
+LOOMC_API_PRIVATE loomc_status_t loomc_target_profile_validate_environment(
+    const loomc_target_profile_t* profile,
+    const loomc_target_environment_t* target_environment);
+
 // Returns the stable diagnostic identifier owned by a public profile.
 LOOMC_API_PRIVATE loomc_string_view_t
 loomc_target_profile_identifier(const loomc_target_profile_t* profile);
@@ -138,6 +148,7 @@ loomc_codegen_pass_environment_storage_initialize(
     const loomc_target_pass_environment_t* target_environment,
     const loom_cleanup_pattern_registry_t* cleanup_pattern_registry,
     loom_function_version_owner_t* function_version_owner,
+    loom_target_compile_report_t* compile_report,
     loom_codegen_pass_environment_storage_t* out_storage);
 
 // Initializes a target-aware text low-asm environment over prepared target

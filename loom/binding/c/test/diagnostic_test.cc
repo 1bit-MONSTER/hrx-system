@@ -31,8 +31,8 @@ ResultPtr Capture(const loom_source_range_t& range,
   diagnostic.params = &param;
   diagnostic.param_count = 1;
   diagnostic.source_location = range;
-  LOOMC_EXPECT_OK(
-      loomc_result_add_loom_diagnostic(result, source, &diagnostic));
+  LOOMC_EXPECT_OK(loomc_result_add_loom_diagnostic(result, source, &diagnostic,
+                                                   /*type_printer=*/nullptr));
   return ResultPtr(result);
 }
 
@@ -127,6 +127,47 @@ TEST(DiagnosticTest, RetainsMatchingSourceOwner) {
   EXPECT_EQ(loomc_source_contents(stored.source).data, contents.data);
 }
 
+TEST(DiagnosticTest, RetainsCanonicalFormatting) {
+  auto source = CreateSource("source.loom", "duplicate");
+  const auto contents = loomc_source_contents(source.get());
+  loom_source_range_t range = {};
+  range.provenance = LOOM_SOURCE_PROVENANCE_EXACT_SOURCE;
+  range.filename = IREE_SV("source.loom");
+  range.source = iree_make_string_view(
+      reinterpret_cast<const char*>(contents.data), contents.data_length);
+  range.start_line = range.end_line = 1;
+  range.start_column = 1;
+  range.end_column = 10;
+  range.end = contents.data_length;
+  loom_diagnostic_param_t param = loom_param_string(IREE_SV("value"));
+  loom_diagnostic_t diagnostic = {};
+  diagnostic.error = loom_error_def_lookup(LOOM_ERROR_DOMAIN_PARSE, 2);
+  diagnostic.severity = LOOM_DIAGNOSTIC_ERROR;
+  diagnostic.emitter = LOOM_EMITTER_PARSER;
+  diagnostic.params = &param;
+  diagnostic.param_count = 1;
+  diagnostic.origin = range;
+  diagnostic.source_location = range;
+
+  loomc_result_t* raw_result = nullptr;
+  LOOMC_ASSERT_OK(loomc_result_create(LOOMC_RESULT_STATE_FAILED,
+                                      loomc_allocator_system(), &raw_result));
+  ResultPtr result(raw_result);
+  LOOMC_ASSERT_OK(loomc_result_add_loom_diagnostic(
+      result.get(), source.get(), &diagnostic, /*type_printer=*/nullptr));
+  source.reset();
+
+  const auto* stored = loomc_result_diagnostic_at(result.get(), 0);
+  ASSERT_NE(stored, nullptr);
+  EXPECT_EQ(
+      std::string(stored->formatted_text.data, stored->formatted_text.size),
+      "source.loom:1:1: error [PARSE/002]: SSA value '%value' is already "
+      "defined\n"
+      " 1 | duplicate\n"
+      "   | ^^^^^^^^^\n"
+      "   = help: Each SSA value name must be unique within its scope\n");
+}
+
 TEST(DiagnosticTest, RelatedLocationsOwnLabelsAndShareOnlyMatchingSnapshots) {
   for (bool has_contents : {false, true}) {
     SCOPED_TRACE(has_contents);
@@ -186,8 +227,8 @@ TEST(DiagnosticTest, RelatedLocationsOwnLabelsAndShareOnlyMatchingSnapshots) {
     LOOMC_ASSERT_OK(loomc_result_create(LOOMC_RESULT_STATE_FAILED,
                                         loomc_allocator_system(), &raw_result));
     ResultPtr result(raw_result);
-    LOOMC_ASSERT_OK(loomc_result_add_loom_diagnostic(result.get(), input.get(),
-                                                     &diagnostic));
+    LOOMC_ASSERT_OK(loomc_result_add_loom_diagnostic(
+        result.get(), input.get(), &diagnostic, /*type_printer=*/nullptr));
     input.reset();
     filename.assign("released");
     text.assign("released");
@@ -301,8 +342,8 @@ TEST(DiagnosticTest,
       &baseline_result));
   ResultPtr baseline_owner(baseline_result);
   baseline.allocation_count = 0;
-  LOOMC_ASSERT_OK(
-      loomc_result_add_loom_diagnostic(baseline_result, nullptr, &diagnostic));
+  LOOMC_ASSERT_OK(loomc_result_add_loom_diagnostic(
+      baseline_result, nullptr, &diagnostic, /*type_printer=*/nullptr));
   const size_t allocation_count = baseline.allocation_count;
   baseline_owner.reset();
   EXPECT_EQ(baseline.live_count, 0u);
@@ -318,11 +359,12 @@ TEST(DiagnosticTest,
     failing.failure_at = i;
     LOOMC_EXPECT_STATUS_IS(
         LOOMC_STATUS_RESOURCE_EXHAUSTED,
-        loomc_result_add_loom_diagnostic(result, nullptr, &diagnostic));
+        loomc_result_add_loom_diagnostic(result, nullptr, &diagnostic,
+                                         /*type_printer=*/nullptr));
     EXPECT_EQ(loomc_result_diagnostic_count(result), 0u);
     failing.failure_at = LOOMC_HOST_SIZE_MAX;
-    LOOMC_ASSERT_OK(
-        loomc_result_add_loom_diagnostic(result, nullptr, &diagnostic));
+    LOOMC_ASSERT_OK(loomc_result_add_loom_diagnostic(
+        result, nullptr, &diagnostic, /*type_printer=*/nullptr));
     ASSERT_EQ(loomc_result_diagnostic_count(result), 1u);
     EXPECT_EQ(loomc_result_diagnostic_at(result, 0)->related_location_count,
               2u);
