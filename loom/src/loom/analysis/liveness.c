@@ -921,15 +921,13 @@ static iree_status_t loom_liveness_pressure_find_or_add(
     }
   }
   if (pressure->count >= pressure->capacity) {
-    iree_host_size_t old_capacity = pressure->capacity;
-    iree_host_size_t new_capacity = old_capacity == 0 ? 8 : old_capacity * 2;
-    IREE_RETURN_IF_ERROR(
-        iree_arena_grow_array(state->scratch_arena, old_capacity, new_capacity,
-                              sizeof(*pressure->summaries), &new_capacity,
-                              (void**)&pressure->summaries));
+    const iree_host_size_t old_capacity = pressure->capacity;
+    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+        state->scratch_arena, old_capacity,
+        /*minimum_capacity=*/8, sizeof(*pressure->summaries),
+        &pressure->capacity, (void**)&pressure->summaries));
     memset(pressure->summaries + old_capacity, 0,
-           (new_capacity - old_capacity) * sizeof(*pressure->summaries));
-    pressure->capacity = new_capacity;
+           (pressure->capacity - old_capacity) * sizeof(*pressure->summaries));
   }
   *out_index = pressure->count++;
   pressure->summaries[*out_index].value_class = value_class;
@@ -967,14 +965,13 @@ static iree_status_t loom_liveness_pressure_sweep_bucket(
     }
   }
   if (sweep->count >= sweep->capacity) {
-    iree_host_size_t old_capacity = sweep->capacity;
-    iree_host_size_t new_capacity = old_capacity == 0 ? 8 : old_capacity * 2;
-    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-        sweep->build_state->scratch_arena, old_capacity, new_capacity,
-        sizeof(*sweep->buckets), &new_capacity, (void**)&sweep->buckets));
+    const iree_host_size_t old_capacity = sweep->capacity;
+    IREE_RETURN_IF_ERROR(
+        iree_arena_grow_array(sweep->build_state->scratch_arena, old_capacity,
+                              /*minimum_capacity=*/8, sizeof(*sweep->buckets),
+                              &sweep->capacity, (void**)&sweep->buckets));
     memset(sweep->buckets + old_capacity, 0,
-           (new_capacity - old_capacity) * sizeof(*sweep->buckets));
-    sweep->capacity = new_capacity;
+           (sweep->capacity - old_capacity) * sizeof(*sweep->buckets));
   }
   *out_bucket = &sweep->buckets[sweep->count++];
   **out_bucket = (loom_liveness_pressure_bucket_t){
