@@ -17,7 +17,6 @@
 #include "loom/error/source.h"
 #include "loom/format/location.h"
 #include "loom/import/cxx/import.h"
-#include "loom/import/cxx/source/catalog.h"
 #include "loom/import/cxx/tooling/source_capture_test_data.h"
 #include "loom/ops/func/location.h"
 #include "loom/ops/func/location_capture.h"
@@ -206,6 +205,8 @@ TEST_F(InputTest, HeaderSnapshotsSurviveFrontendAndFilesystemChanges) {
   request.source_path_options.prefix_maps = {IREE_ARRAYSIZE(maps), maps};
   IREE_ASSERT_OK(Load(request));
   ASSERT_NE(input_.module, nullptr);
+  EXPECT_EQ(String(input_.filename),
+            "/logical" + main.path().substr(directory.size()));
   source.assign(source.size(), '?');
   IREE_ASSERT_OK(Write(header.path(), "#error source changed after import\n"));
 
@@ -274,41 +275,51 @@ TEST_F(InputTest, OptionsAndFailuresUseNativeAdmission) {
   }
 }
 
-TEST_F(InputTest, NativeSourceObserverCoversBuiltinsAndPropagatesFailure) {
+TEST_F(InputTest, NativeSourceObserverRetainsIdsAndPropagatesFailure) {
   loom_cxx_import_options_t options;
   loom_cxx_import_options_initialize(&options);
   struct Capture {
-    // Whether the main translation unit was observed.
-    bool main = false;
-    // Whether an embedded facade header was observed.
-    bool header = false;
+    // Number of translated sources observed.
+    iree_host_size_t count = 0;
+    // Module-local source ID assigned before the callback.
+    loom_source_id_t source_id = LOOM_SOURCE_ID_INVALID;
   } capture;
+  options.flags = LOOM_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES;
+  options.source_provider = {
+      [](void*, iree_string_view_t path, bool* out_found,
+         iree_string_view_t* out_source) {
+        *out_found = iree_string_view_ends_with(path, IREE_SV("unused.h"));
+        *out_source = *out_found ? IREE_SV("#define UNUSED_HEADER 1\n")
+                                 : iree_string_view_empty();
+        return iree_ok_status();
+      },
+      nullptr};
   options.source_observer = {
-      [](void* user_data, iree_string_view_t filename,
-         iree_string_view_t source) {
+      [](void* user_data, loom_source_id_t source_id,
+         iree_string_view_t filename, iree_string_view_t source) {
         auto* capture = static_cast<Capture*>(user_data);
+        ++capture->count;
         if (iree_string_view_equal(filename, IREE_SV("source.cxx-test"))) {
-          capture->main = true;
-        } else if (iree_string_view_ends_with(filename,
-                                              IREE_SV("loomcxx/scalar.h"))) {
-          capture->header = !iree_string_view_is_empty(source);
+          EXPECT_FALSE(iree_string_view_is_empty(source));
+          capture->source_id = source_id;
         }
         return iree_ok_status();
       },
       &capture};
-  const bool has_builtins = !loom::cxx_import::builtin_include_root().empty();
   IREE_ASSERT_OK(loom_cxx_import(
-      has_builtins
-          ? IREE_SV("#include <loomcxx/scalar.h>\nint entry() { return 1; }\n")
-          : IREE_SV("int entry() { return 1; }\n"),
+      IREE_SV("#include \"unused.h\"\nint entry() { return 1; }\n"),
       IREE_SV("source.cxx-test"), &context_, &pool_, &options,
       iree_allocator_system(), &input_.module));
   ASSERT_NE(input_.module, nullptr);
-  EXPECT_TRUE(capture.main);
-  EXPECT_EQ(capture.header, has_builtins);
+  EXPECT_EQ(capture.count, 1u);
+  EXPECT_EQ(input_.module->sources.count, 1u);
+  ASSERT_NE(capture.source_id, LOOM_SOURCE_ID_INVALID);
+  EXPECT_TRUE(
+      iree_string_view_equal(input_.module->sources.entries[capture.source_id],
+                             IREE_SV("source.cxx-test")));
   loom_module_free(input_.module);
   input_.module = nullptr;
-  options.source_observer.fn = [](void*, iree_string_view_t,
+  options.source_observer.fn = [](void*, loom_source_id_t, iree_string_view_t,
                                   iree_string_view_t) {
     return iree_status_from_code(IREE_STATUS_RESOURCE_EXHAUSTED);
   };

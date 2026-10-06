@@ -20,8 +20,12 @@ namespace loom::cxx_import {
 class Locations {
  public:
   Locations(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
-            loom_module_t* module)
-      : unit_(unit), diagnostics_(diagnostics), module_(module) {}
+            loom_module_t* module,
+            loom_cxx_source_observer_t source_observer = {})
+      : unit_(unit),
+        diagnostics_(diagnostics),
+        module_(module),
+        source_observer_(source_observer) {}
 
   // Returns the retained location, diagnosing unrepresentable source ranges.
   loom_location_id_t get(cxx::AST* ast);
@@ -33,6 +37,8 @@ class Locations {
   Diagnostics& diagnostics_;
   // Owns copied source identities and resulting location records.
   loom_module_t* module_;
+  // Optional consumer of exact sources retained by translated locations.
+  loom_cxx_source_observer_t source_observer_;
   // Retained results keyed by source identity, valid until AST destruction.
   std::unordered_map<cxx::AST*, loom_location_id_t> locations_;
 };

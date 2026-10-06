@@ -26,7 +26,6 @@ loom_cc_library(
     loom::format::low_repr
     loom::format::text::parser
     loom::ir
-    loom::tooling::io::source
     loom::tooling::io::source_path
   PUBLIC
 )
@@ -77,6 +76,8 @@ loom_cc_test(
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::ir
+    loom::ops::op_registry
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

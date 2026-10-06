@@ -300,6 +300,56 @@ static loomc_status_t loomc_link_translate_operation_status(
   return loomc_link_result_set_failed(result);
 }
 
+// Copies exact text-provider snapshots through the source-ID projection
+// produced by linking. Bytecode providers have no source projection because
+// their container does not carry authored source contents.
+static loomc_status_t loomc_link_capture_source_snapshots(
+    const loomc_link_index_t* link_index,
+    const loom_link_plan_materialization_t* materialization,
+    loomc_module_t* target_module) {
+  if (loomc_context_source_retention(loomc_link_index_context(link_index)) ==
+      LOOMC_SOURCE_RETENTION_METADATA_ONLY) {
+    return loomc_ok_status();
+  }
+
+  const loom_link_module_index_t* module_index =
+      loomc_link_index_module_index(link_index);
+  for (iree_host_size_t i = 0; i < materialization->target_sources.count; ++i) {
+    const loom_link_source_projection_t* projection =
+        &materialization->target_sources.values[i];
+    if (projection->count == 0) {
+      continue;
+    }
+    const loom_link_module_index_module_t* indexed_module =
+        loom_link_module_index_module_at(module_index, i);
+    if (indexed_module == NULL || indexed_module->materialized_module == NULL) {
+      continue;
+    }
+    const loomc_source_t* source = loomc_link_index_source_for_provider(
+        link_index, indexed_module->provider_ordinal);
+    if (source == NULL) {
+      continue;
+    }
+
+    if (indexed_module->primary_source_id == LOOM_SOURCE_ID_INVALID) {
+      continue;
+    }
+    const loom_source_id_t target_source_id =
+        projection->values[indexed_module->primary_source_id];
+    if (target_source_id == LOOM_SOURCE_ID_INVALID) {
+      continue;
+    }
+    const iree_string_view_t identifier =
+        iree_string_view_from_loomc(loomc_source_identifier(source));
+    const loomc_byte_span_t contents = loomc_source_contents(source);
+    LOOMC_RETURN_IF_ERROR(loomc_module_insert_source_snapshot(
+        target_module, target_source_id, identifier,
+        iree_make_string_view((const char*)contents.data,
+                              contents.data_length)));
+  }
+  return loomc_ok_status();
+}
+
 loomc_status_t loomc_linker_create(loomc_context_t* context,
                                    const loomc_linker_options_t* options,
                                    loomc_allocator_t allocator,
@@ -367,8 +417,10 @@ loomc_status_t loomc_link_module(loomc_linker_t* linker,
                                                     &target_specialization));
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
-                                            linker->allocator, &result));
+  LOOMC_RETURN_IF_ERROR(
+      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
+                          loomc_context_source_retention(linker->context),
+                          linker->allocator, &result));
 
   iree_arena_allocator_t arena = {0};
   iree_arena_initialize(loomc_workspace_block_pool(workspace), &arena);
@@ -435,6 +487,10 @@ loomc_status_t loomc_link_module(loomc_linker_t* linker,
                                        linker->allocator, &module);
   }
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
+    status = loomc_link_capture_source_snapshots(
+        options->link_index, &index_materialization.product, module);
+  }
+  if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
     loomc_module_set_loom_module(module, index_materialization.product.module,
                                  LOOMC_MODULE_INPUT_UNVERIFIED);
     index_materialization.product.module = NULL;
@@ -475,8 +531,9 @@ loomc_status_t loomc_link_request(loomc_linker_t* linker,
       &target_specialization));
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(
-      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator, &result));
+  LOOMC_RETURN_IF_ERROR(loomc_result_create(
+      LOOMC_RESULT_STATE_SUCCEEDED,
+      loomc_context_source_retention(linker->context), allocator, &result));
 
   const loomc_config_options_t empty_config = {0};
   const loomc_config_options_t* config =

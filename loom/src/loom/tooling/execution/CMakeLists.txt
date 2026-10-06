@@ -97,7 +97,6 @@ loom_cc_library(
     loom::target::provider
     loom::tooling::context
     loom::tooling::input
-    loom::tooling::io::source
   PUBLIC
 )
 

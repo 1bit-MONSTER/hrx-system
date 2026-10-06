@@ -16,9 +16,9 @@
       "exit": 1,
       "stderr": {
         "contains": [
+          "<stdin>:2:3",
           "STRUCTURE/014",
-          "= note: current IR",
-          "1 | %value = scalar.constant 2147483648 : i32",
+          "2 |   %value = scalar.constant 2147483648 : i32",
           "= help: Choose an attribute value satisfying 'element type domain'"
         ]
       },
@@ -135,7 +135,8 @@
       "stderr": {
         "contains": [
           "XDNA/021",
-          "AIE2P worker 0 cannot occupy tile (0, 0): the coordinate is not a compute tile"
+          "AIE2P worker 0 cannot occupy tile (0, 0): the coordinate is not a compute tile",
+          "15 |   constrain.location %worker, %zero, %zero"
         ],
         "not_contains": ["INVALID_ARGUMENT", "stack:"]
       },

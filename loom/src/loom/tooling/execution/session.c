@@ -150,9 +150,9 @@ static iree_status_t loom_run_module_import_source(
   if (iree_status_is_ok(status)) {
     out_module->module = input.module;
     input.module = NULL;
-    loom_tooling_source_storage_deinitialize(&out_module->sources);
+    loom_source_storage_deinitialize(&out_module->sources);
     out_module->sources = input.sources;
-    input.sources = (loom_tooling_source_storage_t){0};
+    input.sources = (loom_source_storage_t){0};
   }
   loom_input_module_deinitialize(&input);
   return status;
@@ -191,8 +191,7 @@ iree_status_t loom_run_module_parse(
       .filename = options->filename,
   };
 
-  loom_tooling_source_storage_initialize(&session->block_pool,
-                                         &out_module->sources);
+  loom_source_storage_initialize(session->host_allocator, &out_module->sources);
 
   iree_status_t status =
       loom_run_module_input_is_bytecode(options->source)
@@ -204,31 +203,14 @@ iree_status_t loom_run_module_parse(
   return status;
 }
 
-typedef struct loom_run_module_clone_sources_t {
-  // Original snapshots borrowed for the duration of linking.
-  const loom_source_table_resolver_t* source;
-  // Destination storage owned by the cloned module.
-  loom_tooling_source_storage_t* target;
-} loom_run_module_clone_sources_t;
-
-static iree_status_t loom_run_module_clone_sources(
-    void* user_data, const loom_module_t* source_module,
-    const loom_module_t* target_module,
-    const loom_source_id_t* target_sources) {
-  const loom_run_module_clone_sources_t* sources = user_data;
-  return loom_tooling_source_storage_project(sources->target, target_module,
-                                             sources->source, target_sources);
-}
-
 iree_status_t loom_run_module_clone(loom_run_session_t* session,
                                     const loom_run_module_t* source,
                                     iree_string_view_list_t root_symbols,
                                     loom_run_module_t* out_module) {
   *out_module = (loom_run_module_t){.filename = source->filename};
-  loom_tooling_source_storage_initialize(&session->block_pool,
-                                         &out_module->sources);
+  loom_source_storage_initialize(session->host_allocator, &out_module->sources);
   const loom_module_t* const source_modules[] = {source->module};
-  loom_run_module_clone_sources_t sources = {
+  loom_source_storage_projection_t sources = {
       .source = &source->sources.table,
       .target = &out_module->sources,
   };
@@ -238,7 +220,7 @@ iree_status_t loom_run_module_clone(loom_run_session_t* session,
                                                  source->module->name_id)
                          : iree_string_view_empty(),
       .root_symbols = root_symbols,
-      .source_callback = {.fn = loom_run_module_clone_sources,
+      .source_callback = {.fn = loom_source_storage_project,
                           .user_data = &sources},
   };
   iree_status_t status = loom_link_materialized_modules(
@@ -255,7 +237,7 @@ void loom_run_module_deinitialize(loom_run_module_t* run_module) {
     return;
   }
   loom_module_free(run_module->module);
-  loom_tooling_source_storage_deinitialize(&run_module->sources);
+  loom_source_storage_deinitialize(&run_module->sources);
   *run_module = (loom_run_module_t){0};
 }
 
@@ -264,5 +246,5 @@ loom_source_resolver_t loom_run_module_source_resolver(
   if (run_module == NULL) {
     return (loom_source_resolver_t){0};
   }
-  return loom_tooling_source_storage_resolver(&run_module->sources);
+  return loom_source_storage_resolver(&run_module->sources);
 }

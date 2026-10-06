@@ -16,6 +16,7 @@
 #include "loomc/diagnostic.h"
 #include "loomc/result.h"
 #include "loomc/source.h"
+#include "module.h"
 #include "test/util.h"
 
 namespace {
@@ -32,10 +33,17 @@ using ModulePtr = HandlePtr<loomc_module_t, loomc_module_release>;
 
 using ResultPtr = HandlePtr<loomc_result_t, loomc_result_release>;
 
-ContextPtr CreateContext() {
+ContextPtr CreateContext(
+    loomc_source_retention_t source_retention = LOOMC_SOURCE_RETENTION_EXACT) {
+  const loomc_context_options_t options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_CONTEXT_OPTIONS,
+      /*.structure_size=*/sizeof(options),
+      /*.next=*/nullptr,
+      /*.source_retention=*/source_retention,
+  };
   loomc_context_t* context = nullptr;
   loomc_status_t status =
-      loomc_context_create(nullptr, loomc_allocator_system(), &context);
+      loomc_context_create(&options, loomc_allocator_system(), &context);
   LOOMC_EXPECT_OK(status);
   return ContextPtr(context);
 }
@@ -279,6 +287,37 @@ TEST(ModuleTest, ParseDiagnosticRetainsRemappedIdentityAndText) {
   EXPECT_EQ(range.start_column, 1u);
 }
 
+TEST(ModuleTest, ParseDiagnosticCanRetainLocationWithoutText) {
+  auto context = CreateContext(LOOMC_SOURCE_RETENTION_METADATA_ONLY);
+  auto workspace = CreateWorkspace();
+  auto source = CreateTextSource("physical.loom", "?");
+  loomc_module_deserialize_options_t options = {};
+  options.identifier = loomc_make_cstring_view("virtual/main.loom");
+  loomc_module_t* module = nullptr;
+  loomc_result_t* result = nullptr;
+  LOOMC_ASSERT_OK(loomc_module_deserialize_text_from_source(
+      context.get(), workspace.get(), source.get(), &options,
+      loomc_allocator_system(), &module, &result));
+  ModulePtr module_owner(module);
+  ResultPtr result_owner(result);
+  EXPECT_FALSE(loomc_result_succeeded(result));
+  module_owner.reset();
+  source.reset();
+  context.reset();
+  workspace.reset();
+
+  ASSERT_NE(loomc_result_diagnostic_count(result), 0u);
+  const auto& range = loomc_result_diagnostic_at(result, 0)->range;
+  ASSERT_NE(range.source, nullptr);
+  EXPECT_EQ(ToString(loomc_source_identifier(range.source)),
+            "virtual/main.loom");
+  EXPECT_EQ(loomc_source_contents(range.source).data_length, 0u);
+  EXPECT_EQ(range.start, 0u);
+  EXPECT_EQ(range.end, 1u);
+  EXPECT_EQ(range.start_line, 1u);
+  EXPECT_EQ(range.start_column, 1u);
+}
+
 TEST(ModuleTest, BytecodeReaderDiagnosticRetainsContainerAndOffsets) {
   for (const char* identifier : {"invalid.loombc", "virtual/input.loombc"}) {
     SCOPED_TRACE(identifier);
@@ -320,6 +359,39 @@ TEST(ModuleTest, BytecodeReaderDiagnosticRetainsContainerAndOffsets) {
     EXPECT_EQ(range.end, 4u);
     EXPECT_EQ(range.start_line, 0u);
   }
+}
+
+TEST(ModuleTest, BytecodeReaderDiagnosticCanRetainIdentityWithoutContainer) {
+  auto context = CreateContext(LOOMC_SOURCE_RETENTION_METADATA_ONLY);
+  auto workspace = CreateWorkspace();
+  std::string bytes(64, '?');
+  auto source = CreateSource(LOOMC_SOURCE_FORMAT_BYTECODE,
+                             "virtual/input.loombc", bytes.c_str());
+  loomc_module_t* module = nullptr;
+  loomc_result_t* result = nullptr;
+  LOOMC_ASSERT_OK(loomc_module_deserialize_bytecode_from_source(
+      context.get(), workspace.get(), source.get(), nullptr,
+      loomc_allocator_system(), &module, &result));
+  ModulePtr module_owner(module);
+  ResultPtr result_owner(result);
+  EXPECT_FALSE(loomc_result_succeeded(result));
+  module_owner.reset();
+  source.reset();
+  context.reset();
+  workspace.reset();
+
+  ASSERT_NE(loomc_result_diagnostic_count(result), 0u);
+  const auto* diagnostic = loomc_result_diagnostic_at(result, 0);
+  EXPECT_EQ(ToString(diagnostic->code), "BYTECODE/001");
+  const auto& range = diagnostic->range;
+  ASSERT_NE(range.source, nullptr);
+  EXPECT_EQ(ToString(loomc_source_identifier(range.source)),
+            "virtual/input.loombc");
+  EXPECT_EQ(loomc_source_format(range.source), LOOMC_SOURCE_FORMAT_BYTECODE);
+  EXPECT_EQ(loomc_source_contents(range.source).data_length, 0u);
+  EXPECT_EQ(range.start, 0u);
+  EXPECT_EQ(range.end, 4u);
+  EXPECT_EQ(range.start_line, 0u);
 }
 
 TEST(ModuleTest, RejectsMalformedSerializeIdentifier) {
@@ -480,34 +552,53 @@ TEST(ModuleTest, LooksUpFunctionNamesWithOrWithoutSigil) {
   EXPECT_EQ(by_symbol_name.kind, LOOMC_MODULE_FUNCTION_KIND_KERNEL);
 }
 
-TEST(ModuleTest, CloneCopiesModuleIntoTargetWorkspace) {
-  ContextPtr context = CreateContext();
-  WorkspacePtr source_workspace = CreateWorkspace();
-  ModulePtr source =
-      CreateMixedSymbolModule(context.get(), source_workspace.get());
-  source_workspace.reset();
+TEST(ModuleTest, ClonePreservesContextSourceRetention) {
+  for (loomc_source_retention_t source_retention : {
+           LOOMC_SOURCE_RETENTION_EXACT,
+           LOOMC_SOURCE_RETENTION_METADATA_ONLY,
+       }) {
+    SCOPED_TRACE(source_retention);
+    ContextPtr context = CreateContext(source_retention);
+    WorkspacePtr source_workspace = CreateWorkspace();
+    ModulePtr source =
+        CreateMixedSymbolModule(context.get(), source_workspace.get());
+    source_workspace.reset();
 
-  WorkspacePtr clone_workspace = CreateWorkspace();
-  loomc_module_t* raw_clone = nullptr;
-  loomc_status_t status =
-      loomc_module_clone(source.get(), clone_workspace.get(),
-                         loomc_allocator_system(), &raw_clone);
-  LOOMC_ASSERT_OK(status);
-  ModulePtr clone(raw_clone);
-  clone_workspace.reset();
-  source.reset();
+    WorkspacePtr clone_workspace = CreateWorkspace();
+    loomc_module_t* raw_clone = nullptr;
+    loomc_status_t status =
+        loomc_module_clone(source.get(), clone_workspace.get(),
+                           loomc_allocator_system(), &raw_clone);
+    LOOMC_ASSERT_OK(status);
+    ModulePtr clone(raw_clone);
+    clone_workspace.reset();
+    source.reset();
 
-  loomc_module_function_t function = {};
-  status = loomc_module_lookup_function(
-      clone.get(), loomc_make_cstring_view("@entry"), &function);
-  LOOMC_ASSERT_OK(status);
-  EXPECT_EQ(function.kind, LOOMC_MODULE_FUNCTION_KIND_KERNEL);
+    loomc_module_function_t function = {};
+    status = loomc_module_lookup_function(
+        clone.get(), loomc_make_cstring_view("@entry"), &function);
+    LOOMC_ASSERT_OK(status);
+    EXPECT_EQ(function.kind, LOOMC_MODULE_FUNCTION_KIND_KERNEL);
 
-  loomc_module_global_t global = {};
-  status = loomc_module_lookup_global(
-      clone.get(), loomc_make_cstring_view("@answer"), &global);
-  LOOMC_ASSERT_OK(status);
-  EXPECT_EQ(global.kind, LOOMC_MODULE_GLOBAL_KIND_CONSTANT);
+    loomc_module_global_t global = {};
+    status = loomc_module_lookup_global(
+        clone.get(), loomc_make_cstring_view("@answer"), &global);
+    LOOMC_ASSERT_OK(status);
+    EXPECT_EQ(global.kind, LOOMC_MODULE_GLOBAL_KIND_CONSTANT);
+
+    const loom_source_table_resolver_t* source_table =
+        loomc_module_source_table(clone.get());
+    ASSERT_NE(source_table, nullptr);
+    if (source_retention == LOOMC_SOURCE_RETENTION_EXACT) {
+      ASSERT_GT(source_table->count, 0u);
+      EXPECT_EQ(std::string(source_table->entries[0].filename.data,
+                            source_table->entries[0].filename.size),
+                "mixed_symbols.loom");
+      EXPECT_GT(source_table->entries[0].source.size, 0u);
+    } else {
+      EXPECT_EQ(source_table->count, 0u);
+    }
+  }
 }
 
 TEST(ModuleTest, GetsFunctionsByPublicOrdinal) {

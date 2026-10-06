@@ -250,10 +250,6 @@ static void parse_source(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
                               string(options.defines[i].value));
   }
   Sources sources(options.source_provider, root);
-  if (options.source_observer.fn) {
-    check(options.source_observer.fn(options.source_observer.user_data,
-                                     filename, source));
-  }
   unit.beginPreprocessing(string(source), string(filename));
   for (;;) {
     auto state = unit.continuePreprocessing();
@@ -274,11 +270,6 @@ static void parse_source(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
       include->resolveWith(resolved, system);
     } else if (auto* content = std::get_if<cxx::PendingFileContent>(&state)) {
       const auto& contents = sources.lookup(content->fileName);
-      if (contents && options.source_observer.fn) {
-        check(options.source_observer.fn(options.source_observer.user_data,
-                                         view(content->fileName),
-                                         view(*contents)));
-      }
       content->setContent(contents);
     } else if (auto* query = std::get_if<cxx::PendingHasIncludes>(&state)) {
       for (const auto& request : query->requests) {

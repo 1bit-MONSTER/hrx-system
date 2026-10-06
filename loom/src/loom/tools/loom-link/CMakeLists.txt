@@ -43,7 +43,6 @@ loom_cc_binary(
     loom::tooling::input::configured
     loom::tooling::input::flags
     loom::tooling::io::file
-    loom::tooling::io::source
     loom::tools::loom-format::convert
     loom::util::stream
     loom::verify

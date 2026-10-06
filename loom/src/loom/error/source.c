@@ -6,6 +6,8 @@
 
 #include "loom/error/source.h"
 
+#include <string.h>
+
 #include "iree/base/internal/unicode.h"
 #include "loom/ir/module.h"
 
@@ -127,6 +129,123 @@ iree_status_t loom_source_table_project(
   return iree_ok_status();
 }
 
+void loom_source_storage_initialize(iree_allocator_t allocator,
+                                    loom_source_storage_t* out_storage) {
+  *out_storage = (loom_source_storage_t){.allocator = allocator};
+}
+
+void loom_source_storage_deinitialize(loom_source_storage_t* storage) {
+  for (iree_host_size_t i = 0; i < storage->table.count; ++i) {
+    const loom_source_entry_t* entry = &storage->table.entries[i];
+    if (entry->source_id != LOOM_SOURCE_ID_INVALID) {
+      iree_allocator_free(storage->allocator, (void*)entry->filename.data);
+    }
+  }
+  iree_allocator_free(storage->allocator, (void*)storage->table.entries);
+  *storage = (loom_source_storage_t){0};
+}
+
+static iree_status_t loom_source_storage_allocate_entry(
+    loom_source_storage_t* storage, loom_source_id_t source_id,
+    iree_string_view_t filename, iree_string_view_t source,
+    loom_source_entry_t* out_entry) {
+  iree_host_size_t filename_capacity = 0;
+  iree_host_size_t allocation_size = 0;
+  if (!iree_host_size_checked_add(filename.size, 1, &filename_capacity) ||
+      !iree_host_size_checked_add(filename_capacity, source.size,
+                                  &allocation_size) ||
+      !iree_host_size_checked_add(allocation_size, 1, &allocation_size)) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "source snapshot allocation size overflow");
+  }
+  char* storage_ptr = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_uninitialized(
+      storage->allocator, allocation_size, (void**)&storage_ptr));
+  if (filename.size) {
+    memcpy(storage_ptr, filename.data, filename.size);
+  }
+  storage_ptr[filename.size] = 0;
+  char* source_ptr = storage_ptr + filename_capacity;
+  if (source.size) {
+    memcpy(source_ptr, source.data, source.size);
+  }
+  source_ptr[source.size] = 0;
+  *out_entry = (loom_source_entry_t){
+      .source_id = source_id,
+      .source = iree_make_string_view(source_ptr, source.size),
+      .filename = iree_make_string_view(storage_ptr, filename.size),
+  };
+  return iree_ok_status();
+}
+
+iree_status_t loom_source_storage_insert(loom_source_storage_t* storage,
+                                         loom_source_id_t source_id,
+                                         iree_string_view_t filename,
+                                         iree_string_view_t source) {
+  if (source_id == LOOM_SOURCE_ID_INVALID) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "cannot capture an invalid source ID");
+  }
+  iree_host_size_t required_count = (iree_host_size_t)source_id + 1;
+  if (required_count > storage->capacity) {
+    const iree_host_size_t old_capacity = storage->capacity;
+    loom_source_entry_t* entries = (loom_source_entry_t*)storage->table.entries;
+    IREE_RETURN_IF_ERROR(iree_allocator_grow_array(
+        storage->allocator, required_count, sizeof(*entries),
+        &storage->capacity, (void**)&entries));
+    for (iree_host_size_t i = old_capacity; i < storage->capacity; ++i) {
+      entries[i] = (loom_source_entry_t){.source_id = LOOM_SOURCE_ID_INVALID};
+    }
+    storage->table.entries = entries;
+  }
+  loom_source_entry_t* entry =
+      (loom_source_entry_t*)&storage->table.entries[source_id];
+  if (entry->source_id != LOOM_SOURCE_ID_INVALID) {
+    if (!iree_string_view_equal(entry->filename, filename) ||
+        !iree_string_view_equal(entry->source, source)) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "conflicting source snapshots for '%.*s'",
+                              (int)filename.size, filename.data);
+    }
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(loom_source_storage_allocate_entry(
+      storage, source_id, filename, source, entry));
+  storage->table.count = iree_max(storage->table.count, required_count);
+  return iree_ok_status();
+}
+
+iree_status_t loom_source_storage_project(
+    void* user_data, const loom_module_t* source_module,
+    const loom_module_t* target_module,
+    const loom_source_id_t* target_sources) {
+  loom_source_storage_projection_t* projection = user_data;
+  loom_source_storage_t* storage = projection->target;
+  const loom_source_table_resolver_t* source_table = projection->source;
+  storage->table.module = target_module;
+  for (iree_host_size_t i = 0; i < source_table->count; ++i) {
+    const loom_source_entry_t* entry = &source_table->entries[i];
+    if (entry->source_id == LOOM_SOURCE_ID_INVALID) {
+      continue;
+    }
+    loom_source_id_t target_id = target_sources[entry->source_id];
+    if (target_id == LOOM_SOURCE_ID_INVALID) {
+      continue;
+    }
+    IREE_RETURN_IF_ERROR(loom_source_storage_insert(
+        storage, target_id, entry->filename, entry->source));
+  }
+  return iree_ok_status();
+}
+
+loom_source_resolver_t loom_source_storage_resolver(
+    const loom_source_storage_t* storage) {
+  return (loom_source_resolver_t){
+      .fn = loom_source_table_resolve,
+      .user_data = (void*)&storage->table,
+  };
+}
+
 bool loom_source_table_resolve(void* user_data, const loom_module_t* module,
                                loom_location_id_t location,
                                loom_source_range_t* out_range) {
@@ -141,12 +260,19 @@ bool loom_source_table_resolve(void* user_data, const loom_module_t* module,
     return false;
   }
 
-  // Find the matching source buffer by source_id.
+  // Owned tables are indexed by source ID. Preserve the general resolver
+  // contract for callers that provide unordered tables.
   const loom_source_entry_t* source_entry = NULL;
-  for (iree_host_size_t i = 0; i < table->count; ++i) {
-    if (table->entries[i].source_id == entry->file.source_id) {
-      source_entry = &table->entries[i];
-      break;
+  if (entry->file.source_id < table->count &&
+      table->entries[entry->file.source_id].source_id ==
+          entry->file.source_id) {
+    source_entry = &table->entries[entry->file.source_id];
+  } else {
+    for (iree_host_size_t i = 0; i < table->count; ++i) {
+      if (table->entries[i].source_id == entry->file.source_id) {
+        source_entry = &table->entries[i];
+        break;
+      }
     }
   }
   if (!source_entry) {

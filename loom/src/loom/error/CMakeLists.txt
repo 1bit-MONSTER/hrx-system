@@ -77,6 +77,7 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::ir
+    loom::link::linker
 )
 
 loom_generated_cc_library(

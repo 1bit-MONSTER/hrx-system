@@ -53,6 +53,7 @@ static iree_status_t loomc_link_materialization_prepare_module(
   const loomc_config_apply_text_to_module_options_t apply_options = {
       .config = state->specialization.config,
       .module = *inout_module,
+      .source_resolver = (loom_source_resolver_t){0},
       .result = state->diagnostics.result,
       .diagnostic_code = loomc_make_cstring_view("CONFIG/INVALID"),
       .block_pool = block_pool,
@@ -85,7 +86,7 @@ static iree_status_t loomc_link_materialization_prepare_module(
   loomc_diagnostic_capture_t capture;
   loomc_diagnostic_capture_initialize(
       state->diagnostics.result, /*source=*/NULL, *inout_module,
-      LOOM_EMITTER_PASS,
+      (loom_source_resolver_t){0}, LOOM_EMITTER_PASS,
       pass_environment ? &pass_environment->diagnostic_type_print_options
                        : NULL,
       &capture);

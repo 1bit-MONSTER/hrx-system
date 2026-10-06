@@ -133,32 +133,53 @@ iree_status_t loom_input_provider_select(
   return iree_ok_status();
 }
 
-typedef struct loom_input_snapshot_t {
-  // Next source admitted by this invocation.
-  struct loom_input_snapshot_t* next;
+typedef struct loom_input_source_path_t {
+  // Next source path retained by this invocation.
+  struct loom_input_source_path_t* next;
   // Physical identity used by the frontend and include lookup.
   iree_string_view_t path;
   // Logical identity used by diagnostics and the output module.
   iree_string_view_t filename;
-  // Owned copy of the exact admitted source bytes.
-  iree_string_view_t source;
-} loom_input_snapshot_t;
+  // True when a frontend admitted source bytes under this physical identity.
+  bool is_admitted;
+} loom_input_source_path_t;
 
 typedef struct loom_input_capture_t {
-  // Output whose arena owns captured strings and records.
+  // Output owning captured source snapshots.
   loom_input_module_t* input;
   // Caller options borrowed during admission.
   const loom_input_request_t* request;
-  // Sources already captured, including the main source.
-  loom_input_snapshot_t* snapshots;
+  // Physical-to-logical source names already resolved.
+  loom_input_source_path_t* paths;
+  // Temporary path-remapping and diagnostic storage.
+  iree_arena_allocator_t* scratch_arena;
 } loom_input_capture_t;
 
-static iree_status_t loom_input_copy_string(iree_arena_allocator_t* arena,
-                                            iree_string_view_t value,
-                                            iree_string_view_t* out_value) {
+static iree_status_t loom_input_copy_arena_string(
+    iree_arena_allocator_t* arena, iree_string_view_t value,
+    iree_string_view_t* out_value) {
   char* storage = NULL;
   IREE_RETURN_IF_ERROR(
       iree_arena_allocate(arena, value.size + 1, (void**)&storage));
+  if (value.size) {
+    memcpy(storage, value.data, value.size);
+  }
+  storage[value.size] = 0;
+  *out_value = iree_make_string_view(storage, value.size);
+  return iree_ok_status();
+}
+
+static iree_status_t loom_input_clone_string(iree_allocator_t allocator,
+                                             iree_string_view_t value,
+                                             iree_string_view_t* out_value) {
+  iree_host_size_t allocation_size = 0;
+  if (!iree_host_size_checked_add(value.size, 1, &allocation_size)) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "input filename length overflow");
+  }
+  char* storage = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_uninitialized(
+      allocator, allocation_size, (void**)&storage));
   if (value.size) {
     memcpy(storage, value.data, value.size);
   }
@@ -174,55 +195,74 @@ static iree_status_t loom_input_remap_path(loom_input_capture_t* capture,
     *out_filename = iree_string_view_empty();
     return iree_ok_status();
   }
-  for (loom_input_snapshot_t* snapshot = capture->snapshots; snapshot;
-       snapshot = snapshot->next) {
-    if (iree_string_view_equal(snapshot->path, path)) {
-      *out_filename = snapshot->filename;
-      return iree_ok_status();
-    }
-  }
-  char* storage = NULL;
-  return loom_tooling_source_path_remap(
-      path, &capture->request->source_path_options,
-      iree_arena_allocator(&capture->input->sources.arena), out_filename,
-      &storage);
-}
-
-static iree_status_t loom_input_capture_source(void* user_data,
-                                               iree_string_view_t path,
-                                               iree_string_view_t source) {
-  loom_input_capture_t* capture = (loom_input_capture_t*)user_data;
-  for (loom_input_snapshot_t* snapshot = capture->snapshots; snapshot;
-       snapshot = snapshot->next) {
-    if (iree_string_view_equal(snapshot->path, path)) {
+  for (loom_input_source_path_t* source_path = capture->paths;
+       source_path != NULL; source_path = source_path->next) {
+    if (iree_string_view_equal(source_path->path, path)) {
+      *out_filename = source_path->filename;
       return iree_ok_status();
     }
   }
   iree_string_view_t filename = iree_string_view_empty();
-  IREE_RETURN_IF_ERROR(loom_input_remap_path(capture, path, &filename));
-  for (loom_input_snapshot_t* snapshot = capture->snapshots; snapshot;
-       snapshot = snapshot->next) {
-    if (iree_string_view_equal(snapshot->filename, filename)) {
+  char* filename_storage = NULL;
+  IREE_RETURN_IF_ERROR(loom_tooling_source_path_remap(
+      path, &capture->request->source_path_options,
+      iree_arena_allocator(capture->scratch_arena), &filename,
+      &filename_storage));
+  iree_arena_allocator_t* arena = capture->scratch_arena;
+  loom_input_source_path_t* source_path = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate(arena, sizeof(*source_path), (void**)&source_path));
+  IREE_RETURN_IF_ERROR(
+      loom_input_copy_arena_string(arena, path, &source_path->path));
+  if (filename_storage != NULL) {
+    source_path->filename = filename;
+  } else {
+    IREE_RETURN_IF_ERROR(
+        loom_input_copy_arena_string(arena, filename, &source_path->filename));
+  }
+  source_path->is_admitted = false;
+  source_path->next = capture->paths;
+  capture->paths = source_path;
+  *out_filename = source_path->filename;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_input_admit_source_path(
+    loom_input_capture_t* capture, iree_string_view_t path,
+    iree_string_view_t* out_filename) {
+  IREE_RETURN_IF_ERROR(loom_input_remap_path(capture, path, out_filename));
+  if (iree_string_view_is_empty(path)) {
+    return iree_ok_status();
+  }
+  loom_input_source_path_t* admitted_path = NULL;
+  for (loom_input_source_path_t* source_path = capture->paths;
+       source_path != NULL; source_path = source_path->next) {
+    if (iree_string_view_equal(source_path->path, path)) {
+      admitted_path = source_path;
+    } else if (source_path->is_admitted &&
+               iree_string_view_equal(source_path->filename, *out_filename)) {
       return iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
           "source path remapping gives distinct sources '%.*s' and '%.*s' "
           "the same filename '%.*s'",
-          (int)snapshot->path.size, snapshot->path.data, (int)path.size,
-          path.data, (int)filename.size, filename.data);
+          (int)source_path->path.size, source_path->path.data, (int)path.size,
+          path.data, (int)out_filename->size, out_filename->data);
     }
   }
-  iree_arena_allocator_t* arena = &capture->input->sources.arena;
-  loom_input_snapshot_t* snapshot = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_arena_allocate(arena, sizeof(*snapshot), (void**)&snapshot));
-  IREE_RETURN_IF_ERROR(loom_input_copy_string(arena, path, &snapshot->path));
-  IREE_RETURN_IF_ERROR(
-      loom_input_copy_string(arena, filename, &snapshot->filename));
-  IREE_RETURN_IF_ERROR(
-      loom_input_copy_string(arena, source, &snapshot->source));
-  snapshot->next = capture->snapshots;
-  capture->snapshots = snapshot;
+  IREE_ASSERT(admitted_path);
+  admitted_path->is_admitted = true;
   return iree_ok_status();
+}
+
+static iree_status_t loom_input_capture_source(void* user_data,
+                                               loom_source_id_t source_id,
+                                               iree_string_view_t path,
+                                               iree_string_view_t source) {
+  loom_input_capture_t* capture = (loom_input_capture_t*)user_data;
+  iree_string_view_t filename = iree_string_view_empty();
+  IREE_RETURN_IF_ERROR(loom_input_admit_source_path(capture, path, &filename));
+  return loom_source_storage_insert(&capture->input->sources, source_id,
+                                    filename, source);
 }
 
 static iree_status_t loom_input_capture_diagnostic(
@@ -237,7 +277,7 @@ static iree_status_t loom_input_capture_diagnostic(
   if (diagnostic->related_location_count) {
     loom_diagnostic_related_location_t* related = NULL;
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        &capture->input->sources.arena, diagnostic->related_location_count,
+        capture->scratch_arena, diagnostic->related_location_count,
         sizeof(*related), (void**)&related));
     for (iree_host_size_t i = 0; i < diagnostic->related_location_count; ++i) {
       related[i] = diagnostic->related_locations[i];
@@ -255,32 +295,18 @@ static iree_status_t loom_input_bind_sources(loom_input_capture_t* capture) {
   loom_input_module_t* input = capture->input;
   loom_module_t* module = input->module;
   input->sources.table.module = module;
-  loom_source_entry_t* entries = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_arena_allocate_array(&input->sources.arena, module->sources.count,
-                                sizeof(*entries), (void**)&entries));
-  input->sources.table.entries = entries;
-  input->sources.table.count = module->sources.count;
-  input->sources.capacity = module->sources.count;
   for (iree_host_size_t i = 0; i < module->sources.count; ++i) {
-    entries[i] = (loom_source_entry_t){.source_id = LOOM_SOURCE_ID_INVALID};
     iree_string_view_t path = module->sources.entries[i];
     iree_string_view_t filename = iree_string_view_empty();
     IREE_RETURN_IF_ERROR(loom_input_remap_path(capture, path, &filename));
-    // Locations keep their IDs; only the source table's displayed names change.
-    IREE_RETURN_IF_ERROR(loom_input_copy_string(&module->arena, filename,
-                                                &module->sources.entries[i]));
-    for (loom_input_snapshot_t* snapshot = capture->snapshots; snapshot;
-         snapshot = snapshot->next) {
-      if (iree_string_view_equal(snapshot->path, path)) {
-        entries[i] = (loom_source_entry_t){
-            .source_id = (loom_source_id_t)i,
-            .source = snapshot->source,
-            .filename = snapshot->filename,
-        };
-        break;
-      }
+    if (iree_string_view_equal(path, capture->request->path)) {
+      IREE_RETURN_IF_ERROR(
+          loom_source_storage_insert(&input->sources, (loom_source_id_t)i,
+                                     filename, capture->request->source));
     }
+    // Locations keep their IDs; only the source table's displayed names change.
+    IREE_RETURN_IF_ERROR(loom_input_copy_arena_string(
+        &module->arena, filename, &module->sources.entries[i]));
   }
   return iree_ok_status();
 }
@@ -291,35 +317,49 @@ iree_status_t loom_input_module_load(const loom_input_provider_t* provider,
                                      iree_arena_block_pool_t* block_pool,
                                      iree_allocator_t host_allocator,
                                      loom_input_module_t* out_input) {
-  *out_input = (loom_input_module_t){0};
-  loom_tooling_source_storage_initialize(block_pool, &out_input->sources);
-  loom_input_capture_t capture = {.input = out_input, .request = request};
-  IREE_RETURN_IF_ERROR(
-      loom_input_capture_source(&capture, request->path, request->source));
-  out_input->filename = capture.snapshots->filename;
+  *out_input = (loom_input_module_t){.host_allocator = host_allocator};
+  loom_source_storage_initialize(host_allocator, &out_input->sources);
+  iree_arena_allocator_t scratch_arena;
+  iree_arena_initialize(block_pool, &scratch_arena);
+  loom_input_capture_t capture = {
+      .input = out_input,
+      .request = request,
+      .scratch_arena = &scratch_arena,
+  };
+  iree_string_view_t filename = iree_string_view_empty();
+  iree_status_t status =
+      loom_input_admit_source_path(&capture, request->path, &filename);
+  if (iree_status_is_ok(status)) {
+    status =
+        loom_input_clone_string(host_allocator, filename, &out_input->filename);
+  }
   loom_input_request_t frontend_request = *request;
   if (request->parse_options.diagnostic_sink.fn) {
     frontend_request.parse_options.diagnostic_sink = (loom_diagnostic_sink_t){
         .fn = loom_input_capture_diagnostic, .user_data = &capture};
   }
-  IREE_RETURN_IF_ERROR(provider->load(
-      &frontend_request,
-      (loom_input_source_capture_t){.fn = loom_input_capture_source,
-                                    .user_data = &capture},
-      context, block_pool, host_allocator, &out_input->module));
-  if (out_input->module) {
-    IREE_RETURN_IF_ERROR(loom_input_bind_sources(&capture));
+  if (iree_status_is_ok(status)) {
+    status = provider->load(
+        &frontend_request,
+        (loom_input_source_capture_t){.fn = loom_input_capture_source,
+                                      .user_data = &capture},
+        context, block_pool, host_allocator, &out_input->module);
   }
-  return iree_ok_status();
+  if (iree_status_is_ok(status) && out_input->module) {
+    status = loom_input_bind_sources(&capture);
+  }
+  iree_arena_deinitialize(&scratch_arena);
+  return status;
 }
 
 loom_source_resolver_t loom_input_module_source_resolver(
     loom_input_module_t* input) {
-  return loom_tooling_source_storage_resolver(&input->sources);
+  return loom_source_storage_resolver(&input->sources);
 }
 
 void loom_input_module_deinitialize(loom_input_module_t* input) {
   loom_module_free(input->module);
-  loom_tooling_source_storage_deinitialize(&input->sources);
+  loom_source_storage_deinitialize(&input->sources);
+  iree_allocator_free(input->host_allocator, (void*)input->filename.data);
   memset(input, 0, sizeof(*input));
 }

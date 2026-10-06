@@ -84,7 +84,6 @@ loom_cc_library(
         "//loom/src/loom/target:provider",
         "//loom/src/loom/tooling/context",
         "//loom/src/loom/tooling/input",
-        "//loom/src/loom/tooling/io:source",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
     ],

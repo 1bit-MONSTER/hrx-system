@@ -15,7 +15,6 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/tooling/input/input.h"
-#include "loom/tooling/io/source.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -103,7 +102,7 @@ typedef struct loom_run_module_t {
   // Diagnostic source filenames are owned separately in sources.
   iree_string_view_t filename;
   // Owned source snapshots for text inputs and linked dependencies.
-  loom_tooling_source_storage_t sources;
+  loom_source_storage_t sources;
 } loom_run_module_t;
 
 // Initializes parse options with stderr diagnostics and a small error cap.

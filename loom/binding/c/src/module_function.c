@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "context.h"
 #include "diagnostic.h"
 #include "iree/base/api.h"
 #include "loom/ir/attribute.h"
@@ -450,8 +451,10 @@ loomc_status_t loomc_module_query_functions(
       loomc_module_function_resolve_query_options(options, &resolved_options));
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(
-      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator, &result));
+  LOOMC_RETURN_IF_ERROR(loomc_result_create(
+      LOOMC_RESULT_STATE_SUCCEEDED,
+      loomc_context_source_retention(loomc_module_context(module)), allocator,
+      &result));
 
   loomc_status_t status = loomc_ok_status();
   if (loomc_string_view_is_empty(resolved_options.function_symbol)) {

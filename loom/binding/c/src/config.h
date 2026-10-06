@@ -9,6 +9,7 @@
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
+#include "loom/error/source.h"
 #include "loom/ir/module.h"
 #include "loom/tooling/config/config.h"
 #include "loomc/config.h"
@@ -55,8 +56,14 @@ typedef struct loomc_config_apply_module_options_t {
   // Typed config definitions to overlay, or NULL to apply only policy.
   const loom_module_t* config_module;
 
+  // Exact source resolver for diagnostics in |config_module|.
+  loom_source_resolver_t config_source_resolver;
+
   // Module receiving exact config values.
   loom_module_t* target_module;
+
+  // Exact source resolver for diagnostics in |target_module|.
+  loom_source_resolver_t target_source_resolver;
 
   // Receives applied bindings for the compiled module's retained identity.
   loom_tooling_config_binding_sink_t binding_sink;
@@ -81,6 +88,9 @@ typedef struct loomc_config_apply_text_to_module_options_t {
 
   // Module receiving config materialization.
   loom_module_t* module;
+
+  // Exact source resolver for diagnostics in |module|.
+  loom_source_resolver_t source_resolver;
 
   // Receives applied bindings for compiler-owned reporting state.
   loom_tooling_config_binding_sink_t binding_sink;

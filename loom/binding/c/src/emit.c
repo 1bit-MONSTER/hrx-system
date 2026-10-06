@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "context.h"
 #include "diagnostic.h"
 #include "iree/base/internal/arena.h"
 #include "loom/error/json_sink.h"
@@ -811,7 +812,8 @@ loomc_status_t loomc_emit_transaction_emit(
       loomc_target_environment_pass_environment(target_environment);
   loomc_diagnostic_capture_t capture;
   loomc_diagnostic_capture_initialize(
-      result, /*source=*/NULL, internal_module, LOOM_EMITTER_VERIFIER,
+      result, /*source=*/NULL, internal_module,
+      loomc_module_source_resolver(module), LOOM_EMITTER_VERIFIER,
       pass_environment ? &pass_environment->diagnostic_type_print_options
                        : NULL,
       &capture);
@@ -970,8 +972,10 @@ loomc_status_t loomc_emit_module(loomc_target_environment_t* target_environment,
   }
 
   loomc_result_t* result = NULL;
-  loomc_status_t status =
-      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator, &result);
+  loomc_status_t status = loomc_result_create(
+      LOOMC_RESULT_STATE_SUCCEEDED,
+      loomc_context_source_retention(loomc_module_context(module)), allocator,
+      &result);
   loomc_emit_transaction_t transaction = {0};
   if (loomc_status_is_ok(status)) {
     status = loomc_emit_transaction_initialize(options, result, &transaction);

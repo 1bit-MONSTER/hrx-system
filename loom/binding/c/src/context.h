@@ -23,6 +23,10 @@ extern "C" {
 LOOMC_API_PRIVATE loom_context_t* loomc_context_loom_context(
     loomc_context_t* context);
 
+// Returns the source-content retention policy owned by the context.
+LOOMC_API_PRIVATE loomc_source_retention_t
+loomc_context_source_retention(const loomc_context_t* context);
+
 // Returns the target environment retained by the context, or NULL.
 LOOMC_API_PRIVATE loomc_target_environment_t* loomc_context_target_environment(
     const loomc_context_t* context);

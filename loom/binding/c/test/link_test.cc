@@ -20,6 +20,7 @@
 #include "iree/io/vec_stream.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/temp_file.h"
+#include "link_index.h"
 #include "loom/binding/c/test/testdata/link_target_specialization_testdata.h"
 #include "loom/format/bytecode/writer.h"
 #include "loom/format/text/parser.h"
@@ -240,10 +241,17 @@ ModulePtr DeserializeModuleFromPath(loomc_context_t* context,
   return ModulePtr(module);
 }
 
-ContextPtr CreateContext() {
+ContextPtr CreateContext(
+    loomc_source_retention_t source_retention = LOOMC_SOURCE_RETENTION_EXACT) {
+  loomc_context_options_t options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_CONTEXT_OPTIONS,
+      /*.structure_size=*/sizeof(options),
+      /*.next=*/nullptr,
+      /*.source_retention=*/source_retention,
+  };
   loomc_context_t* context = nullptr;
   loomc_status_t status =
-      loomc_context_create(nullptr, loomc_allocator_system(), &context);
+      loomc_context_create(&options, loomc_allocator_system(), &context);
   LOOMC_EXPECT_OK(status);
   return ContextPtr(context);
 }
@@ -259,6 +267,7 @@ ContextPtr CreateContext(loomc_target_environment_t* target_environment) {
       /*.type=*/LOOMC_STRUCTURE_TYPE_CONTEXT_OPTIONS,
       /*.structure_size=*/sizeof(options),
       /*.next=*/&target_options,
+      /*.source_retention=*/LOOMC_SOURCE_RETENTION_EXACT,
   };
   loomc_context_t* context = nullptr;
   loomc_status_t status =
@@ -1547,13 +1556,120 @@ func.def public @entry(%x: i32) -> (i32) {
   ASSERT_GT(loomc_result_diagnostic_count(result.get()), 0u);
 }
 
-TEST(LinkTest, LinksBytecodeAfterSourceRelease) {
+TEST(LinkTest, SourceRetentionProjectsOnlySelectedTextProviders) {
+  static constexpr char kSelectedSource[] = R"(
+func.def public @selected(%x: i32) -> (i32) {
+  func.return %x : i32
+}
+)";
+  static constexpr char kUnusedSource[] = R"(
+func.def public @unused(%x: i32) -> (i32) {
+  func.return %x : i32
+}
+)";
+  for (loomc_source_retention_t source_retention : {
+           LOOMC_SOURCE_RETENTION_EXACT,
+           LOOMC_SOURCE_RETENTION_METADATA_ONLY,
+       }) {
+    SCOPED_TRACE(source_retention);
+    const bool retain_exact_source =
+        source_retention == LOOMC_SOURCE_RETENTION_EXACT;
+    ContextPtr context = CreateContext(source_retention);
+    BuilderPtr builder = CreateBuilder(context.get());
+    SourcePtr selected_source =
+        CreateTextSource("selected.loom", kSelectedSource);
+    SourcePtr unused_source = CreateTextSource("unused.loom", kUnusedSource);
+    AddSource(builder.get(), selected_source.get(), "selected",
+              LOOMC_LINK_PROVIDER_ROLE_INPUT);
+    AddSource(builder.get(), unused_source.get(), "unused",
+              LOOMC_LINK_PROVIDER_ROLE_LIBRARY);
+
+    LinkIndexPtr link_index;
+    FinishIndex(builder.get(), &link_index);
+    const loomc_source_t* indexed_selected =
+        loomc_link_index_source_for_provider(link_index.get(), 0);
+    const loomc_source_t* indexed_unused =
+        loomc_link_index_source_for_provider(link_index.get(), 1);
+    ASSERT_NE(indexed_selected, nullptr);
+    ASSERT_NE(indexed_unused, nullptr);
+    EXPECT_EQ(loomc_source_contents(indexed_selected).data_length,
+              retain_exact_source ? strlen(kSelectedSource) : 0u);
+    EXPECT_EQ(loomc_source_contents(indexed_unused).data_length,
+              retain_exact_source ? strlen(kUnusedSource) : 0u);
+    selected_source.reset();
+    unused_source.reset();
+
+    LinkerPtr linker = CreateLinker(context.get());
+    WorkspacePtr workspace = CreateWorkspace();
+    const loomc_string_view_t roots[] = {
+        loomc_make_cstring_view("@selected"),
+    };
+    const loomc_link_options_t options = {
+        /*.type=*/LOOMC_STRUCTURE_TYPE_NONE,
+        /*.structure_size=*/0,
+        /*.next=*/nullptr,
+        /*.link_index=*/nullptr,
+        /*.module_name=*/loomc_string_view_empty(),
+        /*.mode=*/LOOMC_LINK_MODE_LINK,
+        /*.root_symbols=*/roots,
+        /*.root_symbol_count=*/IREE_ARRAYSIZE(roots),
+    };
+    ResultPtr result;
+    ModulePtr module = LinkIndex(linker.get(), workspace.get(),
+                                 link_index.get(), &options, &result);
+    ASSERT_TRUE(loomc_result_succeeded(result.get()));
+    ASSERT_NE(module.get(), nullptr);
+    link_index.reset();
+    builder.reset();
+
+    const loom_module_t* internal_module =
+        loomc_module_const_loom_module(module.get());
+    ASSERT_NE(internal_module, nullptr);
+    const loom_symbol_t* selected_symbol =
+        FindModuleSymbol(internal_module, "selected");
+    ASSERT_NE(selected_symbol, nullptr);
+    loom_source_range_t range = {};
+    ASSERT_TRUE(loom_source_resolve(
+        loomc_module_source_resolver(module.get()), internal_module,
+        selected_symbol->defining_op->location, &range));
+    EXPECT_EQ(std::string(range.filename.data, range.filename.size),
+              "selected.loom");
+    EXPECT_GT(range.start_line, 0u);
+    if (retain_exact_source) {
+      EXPECT_EQ(range.provenance, LOOM_SOURCE_PROVENANCE_EXACT_SOURCE);
+      EXPECT_EQ(std::string(range.source.data, range.source.size),
+                kSelectedSource);
+    } else {
+      EXPECT_EQ(range.provenance, LOOM_SOURCE_PROVENANCE_UNAVAILABLE_SOURCE);
+      EXPECT_EQ(range.source.size, 0u);
+    }
+
+    const loom_source_table_resolver_t* source_table =
+        loomc_module_source_table(module.get());
+    ASSERT_NE(source_table, nullptr);
+    if (retain_exact_source) {
+      ASSERT_GT(source_table->count, 0u);
+      for (iree_host_size_t i = 0; i < source_table->count; ++i) {
+        const loom_source_entry_t& entry = source_table->entries[i];
+        if (entry.source_id == LOOM_SOURCE_ID_INVALID) {
+          continue;
+        }
+        EXPECT_NE(std::string(entry.filename.data, entry.filename.size),
+                  "unused.loom");
+      }
+    } else {
+      EXPECT_EQ(source_table->count, 0u);
+    }
+  }
+}
+
+TEST(LinkTest, MetadataModeRetainsOperationalBytecodeAfterSourceRelease) {
   std::vector<uint8_t> bytecode = WriteBytecodeModule(R"(
 func.def public @from_bytecode(%x: i32) -> (i32) {
   func.return %x : i32
 }
 )");
-  ContextPtr context = CreateContext();
+  ContextPtr context = CreateContext(LOOMC_SOURCE_RETENTION_METADATA_ONLY);
   BuilderPtr builder = CreateBuilder(context.get());
   SourcePtr source = CreateSource(LOOMC_SOURCE_FORMAT_BYTECODE, "module.loombc",
                                   bytecode.data(), bytecode.size());
@@ -1562,6 +1678,10 @@ func.def public @from_bytecode(%x: i32) -> (i32) {
 
   LinkIndexPtr link_index;
   FinishIndex(builder.get(), &link_index);
+  const loomc_source_t* indexed_source =
+      loomc_link_index_source_for_provider(link_index.get(), 0);
+  ASSERT_NE(indexed_source, nullptr);
+  EXPECT_EQ(loomc_source_contents(indexed_source).data_length, bytecode.size());
   source.reset();
   bytecode.clear();
 
