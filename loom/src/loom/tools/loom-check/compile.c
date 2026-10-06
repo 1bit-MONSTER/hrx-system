@@ -170,10 +170,9 @@ iree_status_t loom_check_execute_compile(
       .filename = filename,
       .result = result,
   };
-  loom_target_low_descriptor_registry_t low_registry = {0};
-  iree_status_t status =
-      loom_target_environment_initialize_low_descriptor_registry(
-          environment->target_environment, &low_registry);
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          environment->target_environment);
   loom_text_parse_options_t parse_options = {
       .diagnostic_sink = {.fn = loom_check_diagnostic_collector_sink,
                           .user_data = &collector},
@@ -181,17 +180,15 @@ iree_status_t loom_check_execute_compile(
   };
   loom_input_request_t load_request = *input_request;
   loom_input_module_t input = {0};
-  if (iree_status_is_ok(status)) {
-    loom_low_descriptor_text_print_context_initialize(
-        &low_registry.registry, &collector.type_print_context);
-    loom_low_descriptor_text_asm_environment_initialize(
-        &low_registry.registry, &parse_options.low_asm_environment);
-    loom_low_repr_environment_initialize(&low_registry.registry,
-                                         &load_request.low_repr_environment);
-    status =
-        loom_check_load_input(test_case, &load_request, environment, context,
-                              block_pool, &parse_options, allocator, &input);
-  }
+  loom_low_descriptor_text_print_context_initialize(
+      &low_registry.registry, &collector.type_print_context);
+  loom_low_descriptor_text_asm_environment_initialize(
+      &low_registry.registry, &parse_options.low_asm_environment);
+  loom_low_repr_environment_initialize(&low_registry.registry,
+                                       &load_request.low_repr_environment);
+  iree_status_t status =
+      loom_check_load_input(test_case, &load_request, environment, context,
+                            block_pool, &parse_options, allocator, &input);
   collector.module = input.module;
   loom_compile_pipeline_options_t pipeline_options;
   loom_compile_pipeline_options_initialize(&pipeline_options);

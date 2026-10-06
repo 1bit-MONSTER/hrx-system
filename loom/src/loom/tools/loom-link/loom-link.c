@@ -445,10 +445,9 @@ static iree_status_t loom_link_cli_read_input(
   };
   IREE_RETURN_IF_ERROR(loom_input_options_for_provider(
       options.provider_options, provider->name, &request.options));
-  loom_target_low_descriptor_registry_t low_registry = {0};
-  IREE_RETURN_IF_ERROR(
-      loom_target_environment_initialize_low_descriptor_registry(
-          loom_configured_target_environment(), &low_registry));
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          loom_configured_target_environment());
   loom_low_descriptor_text_asm_environment_initialize(
       &low_registry.registry, &request.parse_options.low_asm_environment);
   IREE_RETURN_IF_ERROR(loom_input_module_load(
@@ -915,10 +914,9 @@ static iree_status_t loom_link_cli_capture_sources(
 static iree_status_t loom_link_cli_write_text_output(
     const loom_module_t* module, loom_format_output_t* out_output,
     iree_allocator_t allocator) {
-  loom_target_low_descriptor_registry_t low_registry = {0};
-  IREE_RETURN_IF_ERROR(
-      loom_target_environment_initialize_low_descriptor_registry(
-          loom_configured_target_environment(), &low_registry));
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          loom_configured_target_environment());
   loom_low_descriptor_text_print_context_t print_context;
   loom_low_descriptor_text_print_context_initialize(&low_registry.registry,
                                                     &print_context);
@@ -951,11 +949,9 @@ static iree_status_t loom_link_cli_write_bytecode_output(
       .producer = IREE_SV("loom-link"),
       .location_mode = LOOM_BYTECODE_LOCATION_MODE_SOURCE_LOCATIONS,
   };
-  loom_target_low_descriptor_registry_t low_registry = {0};
-  if (iree_status_is_ok(status)) {
-    status = loom_target_environment_initialize_low_descriptor_registry(
-        loom_configured_target_environment(), &low_registry);
-  }
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          loom_configured_target_environment());
   loom_low_repr_environment_initialize(&low_registry.registry,
                                        &write_options.low_repr_environment);
   if (iree_status_is_ok(status)) {
@@ -1324,14 +1320,12 @@ int main(int argc, char** argv) {
   };
   if (iree_status_is_ok(status) && dependency_analysis_succeeded &&
       !FLAG_list_symbols) {
-    loom_target_low_descriptor_registry_t low_registry = {0};
-    status = loom_target_environment_initialize_low_descriptor_registry(
-        loom_configured_target_environment(), &low_registry);
+    const loom_target_low_descriptor_registry_t low_registry =
+        loom_target_environment_low_descriptor_registry(
+            loom_configured_target_environment());
     loom_low_repr_environment_t low_repr_environment = {0};
-    if (iree_status_is_ok(status)) {
-      loom_low_repr_environment_initialize(&low_registry.registry,
-                                           &low_repr_environment);
-    }
+    loom_low_repr_environment_initialize(&low_registry.registry,
+                                         &low_repr_environment);
     loom_link_cli_prepare_state_t prepare_state = {
         .config_set = &config_set,
         .target_environment = loom_configured_target_environment(),

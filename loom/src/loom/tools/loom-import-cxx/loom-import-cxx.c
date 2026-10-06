@@ -244,10 +244,8 @@ int main(int argc, char** argv) {
             &target_environment, &context);
   }
   if (iree_status_is_ok(status)) {
-    status = loom_target_environment_initialize_low_descriptor_registry(
-        &target_environment, &low_registry);
-  }
-  if (iree_status_is_ok(status)) {
+    low_registry =
+        loom_target_environment_low_descriptor_registry(&target_environment);
     loom_low_descriptor_text_asm_environment_initialize(&low_registry.registry,
                                                         &low_asm_environment);
   }

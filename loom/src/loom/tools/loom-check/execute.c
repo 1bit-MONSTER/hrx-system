@@ -213,27 +213,6 @@ iree_status_t loom_check_context_register_and_finalize(
   return loom_context_finalize(context);
 }
 
-iree_status_t loom_check_environment_initialize_low_descriptor_registry(
-    const loom_check_environment_t* environment,
-    loom_target_low_descriptor_registry_t* out_registry) {
-  return loom_target_environment_initialize_low_descriptor_registry(
-      environment->target_environment, out_registry);
-}
-
-iree_status_t loom_check_environment_initialize_low_lower_policy_registry(
-    const loom_check_environment_t* environment,
-    loom_low_lower_policy_registry_t* out_registry) {
-  return loom_target_environment_initialize_low_lower_policy_registry(
-      environment->target_environment, out_registry);
-}
-
-iree_status_t loom_check_environment_initialize_math_policy_registry(
-    const loom_check_environment_t* environment,
-    loom_target_math_policy_registry_t* out_registry) {
-  return loom_target_environment_initialize_math_policy_registry(
-      environment->target_environment, out_registry);
-}
-
 //===----------------------------------------------------------------------===//
 // Execution
 //===----------------------------------------------------------------------===//
@@ -349,10 +328,9 @@ static iree_status_t loom_check_verify_pass_module(
     return iree_ok_status();
   }
 
-  loom_target_low_descriptor_registry_t low_registry;
-  IREE_RETURN_IF_ERROR(
-      loom_check_environment_initialize_low_descriptor_registry(environment,
-                                                                &low_registry));
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          environment->target_environment);
   loom_check_diagnostic_emitter_capture_t low_diagnostic_capture = {
       .diagnostic_collector = diagnostic_collector,
       .module = module,
@@ -501,25 +479,20 @@ static iree_status_t loom_check_execute_pass_with_output(
       .max_errors = 20,
   };
   loom_low_descriptor_text_asm_environment_storage_t low_asm_storage = {0};
-  loom_target_low_descriptor_registry_t low_registry;
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          environment->target_environment);
+  loom_low_descriptor_text_print_context_initialize(
+      &low_registry.registry, &diagnostic_collector.type_print_context);
+  loom_low_descriptor_text_asm_environment_initialize_with_diagnostics(
+      &low_registry.registry,
+      loom_target_environment_low_asm_diagnostic_provider_list(
+          environment->target_environment),
+      &low_asm_storage, &parse_options.low_asm_environment);
   iree_status_t status =
-      loom_check_environment_initialize_low_descriptor_registry(environment,
-                                                                &low_registry);
-  if (iree_status_is_ok(status)) {
-    loom_low_descriptor_text_print_context_initialize(
-        &low_registry.registry, &diagnostic_collector.type_print_context);
-    loom_low_descriptor_text_asm_environment_initialize_with_diagnostics(
-        &low_registry.registry,
-        loom_target_environment_low_asm_diagnostic_provider_list(
-            environment->target_environment),
-        &low_asm_storage, &parse_options.low_asm_environment);
-  }
-  if (iree_status_is_ok(status)) {
-    status =
-        loom_check_load_input(test_case, input_request, environment, context,
-                              block_pool, &parse_options, allocator, &input);
-    module = input.module;
-  }
+      loom_check_load_input(test_case, input_request, environment, context,
+                            block_pool, &parse_options, allocator, &input);
+  module = input.module;
   diagnostic_collector.module = module;
   if (!module) {
     if (iree_status_is_ok(status)) {
@@ -621,23 +594,12 @@ static iree_status_t loom_check_execute_pass_with_output(
     compile_report_ref = &compile_report;
   }
   if (iree_status_is_ok(status) && run_result.error_count == 0) {
-    loom_low_lower_policy_registry_t low_lower_policy_registry = {0};
-    const loom_low_lower_policy_registry_t* low_lower_policy_registry_ref =
-        NULL;
-    status = loom_check_environment_initialize_low_lower_policy_registry(
-        environment, &low_lower_policy_registry);
-    if (iree_status_is_ok(status)) {
-      low_lower_policy_registry_ref = &low_lower_policy_registry;
-    }
-    loom_target_math_policy_registry_t math_policy_registry = {0};
-    const loom_target_math_policy_registry_t* math_policy_registry_ref = NULL;
-    if (iree_status_is_ok(status)) {
-      status = loom_check_environment_initialize_math_policy_registry(
-          environment, &math_policy_registry);
-      if (iree_status_is_ok(status)) {
-        math_policy_registry_ref = &math_policy_registry;
-      }
-    }
+    const loom_low_lower_policy_registry_t low_lower_policy_registry =
+        loom_target_environment_low_lower_policy_registry(
+            environment->target_environment);
+    const loom_target_math_policy_registry_t math_policy_registry =
+        loom_target_environment_math_policy_registry(
+            environment->target_environment);
     loom_codegen_pass_environment_storage_t codegen_environment_storage;
     loom_target_pass_predicate_provider_storage_t predicate_storage;
     loom_target_pass_predicate_provider_storage_initialize(block_pool,
@@ -688,11 +650,11 @@ static iree_status_t loom_check_execute_pass_with_output(
             environment->target_environment);
     const loom_codegen_pass_environment_options_t environment_options = {
         .descriptor_registry = &low_registry.registry,
-        .lower_policy_registry = low_lower_policy_registry_ref,
+        .lower_policy_registry = &low_lower_policy_registry,
         .legality_provider_list = &low_legality_provider_list,
         .legalizer_registry = loom_target_legalizer_registry_storage_registry(
             &legalizer_registry_storage),
-        .math_policy_registry = math_policy_registry_ref,
+        .math_policy_registry = &math_policy_registry,
         .compile_report = compile_report_ref,
         .target_environment = environment->target_environment,
         .cleanup_pattern_registry = cleanup_pattern_registry,
@@ -866,26 +828,20 @@ iree_status_t loom_check_execute_format(
   IREE_RETURN_IF_ERROR(loom_module_format_parse(test_case->format_target,
                                                 /*allow_auto=*/false, &format));
 
-  iree_status_t status = iree_ok_status();
-
   loom_check_diagnostic_capture_t diagnostic_capture = {
       .detail = &result->detail,
       .result = result,
   };
-  loom_target_low_descriptor_registry_t low_registry = {0};
-  if (iree_status_is_ok(status)) {
-    status = loom_check_environment_initialize_low_descriptor_registry(
-        environment, &low_registry);
-  }
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          environment->target_environment);
   loom_text_low_asm_environment_t low_asm_environment = {0};
   loom_low_descriptor_text_asm_environment_storage_t low_asm_storage = {0};
-  if (iree_status_is_ok(status)) {
-    loom_low_descriptor_text_asm_environment_initialize_with_diagnostics(
-        &low_registry.registry,
-        loom_target_environment_low_asm_diagnostic_provider_list(
-            environment->target_environment),
-        &low_asm_storage, &low_asm_environment);
-  }
+  loom_low_descriptor_text_asm_environment_initialize_with_diagnostics(
+      &low_registry.registry,
+      loom_target_environment_low_asm_diagnostic_provider_list(
+          environment->target_environment),
+      &low_asm_storage, &low_asm_environment);
   const loom_text_parse_options_t parse_options = {
       .diagnostic_sink = {.fn = loom_check_diagnostic_capture_sink,
                           .user_data = &diagnostic_capture},
@@ -893,11 +849,9 @@ iree_status_t loom_check_execute_format(
       .max_errors = 20,
   };
   loom_input_module_t input = {0};
-  if (iree_status_is_ok(status)) {
-    status =
-        loom_check_load_input(test_case, input_request, environment, context,
-                              block_pool, &parse_options, allocator, &input);
-  }
+  iree_status_t status =
+      loom_check_load_input(test_case, input_request, environment, context,
+                            block_pool, &parse_options, allocator, &input);
   if (iree_status_is_ok(status) && !input.module) {
     status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "input failed to produce a module");

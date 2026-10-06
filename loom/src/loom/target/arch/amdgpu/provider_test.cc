@@ -509,9 +509,8 @@ TEST_F(AmdgpuProviderTest, ContributesHalKernelAbiMaterialization) {
 }
 
 TEST_F(AmdgpuProviderTest, ProvidesLoweringPolicyForEveryDescriptorSet) {
-  loom_low_lower_policy_registry_t registry = {0};
-  IREE_ASSERT_OK(loom_target_environment_initialize_low_lower_policy_registry(
-      &target_environment_, &registry));
+  loom_low_lower_policy_registry_t registry =
+      loom_target_environment_low_lower_policy_registry(&target_environment_);
 
   const iree_host_size_t descriptor_set_count =
       loom_amdgpu_target_info_descriptor_set_count();

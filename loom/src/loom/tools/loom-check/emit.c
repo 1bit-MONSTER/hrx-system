@@ -1527,13 +1527,11 @@ iree_status_t loom_check_execute_emit(
     };
   }
   if (request.format == LOOM_CHECK_EMIT_TARGET_LOW_REGISTRY_MANIFEST) {
-    loom_target_low_descriptor_registry_t registry = {0};
-    status = loom_check_environment_initialize_low_descriptor_registry(
-        environment, &registry);
-    if (iree_status_is_ok(status)) {
-      status = loom_check_target_low_registry_format_manifest_json(
-          &registry, &result->actual_output);
-    }
+    const loom_target_low_descriptor_registry_t registry =
+        loom_target_environment_low_descriptor_registry(
+            environment->target_environment);
+    status = loom_check_target_low_registry_format_manifest_json(
+        &registry, &result->actual_output);
     if (!iree_status_is_ok(status)) {
       status = loom_check_emit_finish_status_failure(
           status, request.emit_target_name, result);
@@ -1555,13 +1553,11 @@ iree_status_t loom_check_execute_emit(
 
   loom_input_module_t input = {0};
   loom_module_t* module = NULL;
-  loom_target_low_descriptor_registry_t low_registry = {0};
-  status = loom_check_environment_initialize_low_descriptor_registry(
-      environment, &low_registry);
-  if (iree_status_is_ok(status)) {
-    loom_low_descriptor_text_print_context_initialize(
-        &low_registry.registry, &diagnostic_collector.type_print_context);
-  }
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          environment->target_environment);
+  loom_low_descriptor_text_print_context_initialize(
+      &low_registry.registry, &diagnostic_collector.type_print_context);
   loom_text_parse_options_t parse_options = {
       .diagnostic_sink = {.fn = loom_check_diagnostic_collector_sink,
                           .user_data = &diagnostic_collector},

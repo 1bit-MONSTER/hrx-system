@@ -437,9 +437,8 @@ class VMSourceCaptureTest : public VMImportsTest {
     const loom_target_profile_t* profile = nullptr;
     IREE_ASSERT_OK(loom_target_environment_select_profile(
         &environment, &specification, &profile));
-    loom_target_low_descriptor_registry_t registry;
-    IREE_ASSERT_OK(loom_target_environment_initialize_low_descriptor_registry(
-        &environment, &registry));
+    loom_target_low_descriptor_registry_t registry =
+        loom_target_environment_low_descriptor_registry(&environment);
     loom_target_specialization_request_t specialization = {};
     specialization.function_name = root;
     specialization.target_profile = profile;

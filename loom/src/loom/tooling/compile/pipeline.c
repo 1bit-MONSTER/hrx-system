@@ -288,16 +288,11 @@ iree_status_t loom_compile_run_pipeline(
   status = loom_compile_pipeline_registry_initialize(
       options->target_environment, &pass_registry_storage, &pass_registry);
 
-  loom_low_lower_policy_registry_t low_lower_policy_registry = {0};
-  if (iree_status_is_ok(status)) {
-    status = loom_target_environment_initialize_low_lower_policy_registry(
-        options->target_environment, &low_lower_policy_registry);
-  }
-  loom_target_math_policy_registry_t math_policy_registry = {0};
-  if (iree_status_is_ok(status)) {
-    status = loom_target_environment_initialize_math_policy_registry(
-        options->target_environment, &math_policy_registry);
-  }
+  const loom_low_lower_policy_registry_t low_lower_policy_registry =
+      loom_target_environment_low_lower_policy_registry(
+          options->target_environment);
+  const loom_target_math_policy_registry_t math_policy_registry =
+      loom_target_environment_math_policy_registry(options->target_environment);
   const loom_target_low_legality_provider_list_t low_legality_provider_list =
       loom_target_environment_low_legality_provider_list(
           options->target_environment);

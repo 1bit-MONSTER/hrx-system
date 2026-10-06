@@ -78,8 +78,9 @@ loom_run_execution_environment_initialize_low_descriptor_registry(
     void* user_data, loom_target_low_descriptor_registry_t* out_registry) {
   loom_run_execution_environment_t* environment =
       (loom_run_execution_environment_t*)user_data;
-  return loom_target_environment_initialize_low_descriptor_registry(
-      &environment->target_environment, out_registry);
+  *out_registry = loom_target_environment_low_descriptor_registry(
+      &environment->target_environment);
+  return iree_ok_status();
 }
 
 loom_run_initialize_low_descriptor_registry_callback_t

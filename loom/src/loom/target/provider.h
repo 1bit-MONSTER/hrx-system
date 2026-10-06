@@ -514,20 +514,22 @@ void loom_target_environment_deinitialize(
 iree_status_t loom_target_environment_register_context(
     const loom_target_environment_t* environment, loom_context_t* context);
 
-// Initializes a composed target-low descriptor registry package.
-iree_status_t loom_target_environment_initialize_low_descriptor_registry(
-    const loom_target_environment_t* environment,
-    loom_target_low_descriptor_registry_t* out_registry);
+// Returns the composed target-low descriptor registry package. The returned
+// view borrows tables owned by |environment|.
+loom_target_low_descriptor_registry_t
+loom_target_environment_low_descriptor_registry(
+    const loom_target_environment_t* environment);
 
-// Initializes a composed source-to-target-low lowering policy registry package.
-iree_status_t loom_target_environment_initialize_low_lower_policy_registry(
-    const loom_target_environment_t* environment,
-    loom_low_lower_policy_registry_t* out_registry);
+// Returns the composed source-to-target-low lowering policy registry package.
+// The returned view borrows tables owned by |environment|.
+loom_low_lower_policy_registry_t
+loom_target_environment_low_lower_policy_registry(
+    const loom_target_environment_t* environment);
 
-// Initializes a composed target math legalization policy registry package.
-iree_status_t loom_target_environment_initialize_math_policy_registry(
-    const loom_target_environment_t* environment,
-    loom_target_math_policy_registry_t* out_registry);
+// Returns the composed target math legalization policy registry package. The
+// returned view borrows tables owned by |environment|.
+loom_target_math_policy_registry_t loom_target_environment_math_policy_registry(
+    const loom_target_environment_t* environment);
 
 // Returns target-low source legality providers linked into |environment|.
 loom_target_low_legality_provider_list_t

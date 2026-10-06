@@ -461,8 +461,8 @@ class PacketPlanFixture {
     AbortOnError(loom_target_environment_register_context(&target_environment_,
                                                           &context_));
     AbortOnError(loom_context_finalize(&context_));
-    AbortOnError(loom_target_environment_initialize_low_descriptor_registry(
-        &target_environment_, &target_registry_));
+    target_registry_ =
+        loom_target_environment_low_descriptor_registry(&target_environment_);
 
     std::string generated_source;
     iree_string_view_t source = iree_string_view_empty();

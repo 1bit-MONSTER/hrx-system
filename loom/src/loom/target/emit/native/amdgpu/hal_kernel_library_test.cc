@@ -391,8 +391,8 @@ class AmdgpuHalKernelLibraryTest : public ::testing::Test {
     IREE_ASSERT_OK(loom_target_environment_initialize(
         &loom_amdgpu_target_provider_set, &target_environment_));
     IREE_ASSERT_OK(InitializeAmdgpuContext(&target_environment_, &context_));
-    IREE_ASSERT_OK(loom_target_environment_initialize_low_descriptor_registry(
-        &target_environment_, &low_registry_));
+    low_registry_ =
+        loom_target_environment_low_descriptor_registry(&target_environment_);
   }
 
   void TearDown() override {

@@ -76,8 +76,7 @@ class VMEmissionTest : public ::testing::Test {
     IREE_ASSERT_OK(
         loom_target_environment_register_context(&environment_, &context_));
     IREE_ASSERT_OK(loom_context_finalize(&context_));
-    IREE_ASSERT_OK(loom_target_environment_initialize_low_descriptor_registry(
-        &environment_, &registry_));
+    registry_ = loom_target_environment_low_descriptor_registry(&environment_);
   }
 
   void TearDown() override {

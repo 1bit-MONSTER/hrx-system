@@ -266,8 +266,8 @@ static iree_status_t loom_wasm_testbench_compile_product(
   }
   loom_target_low_descriptor_registry_t low_registry = {0};
   if (iree_status_is_ok(status)) {
-    status = loom_target_environment_initialize_low_descriptor_registry(
-        testbench->target_environment, &low_registry);
+    low_registry = loom_target_environment_low_descriptor_registry(
+        testbench->target_environment);
   }
   loom_compile_pipeline_options_t pipeline_options;
   loom_compile_pipeline_options_initialize(&pipeline_options);

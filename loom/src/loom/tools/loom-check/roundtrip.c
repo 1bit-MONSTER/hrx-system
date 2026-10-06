@@ -85,24 +85,18 @@ iree_status_t loom_check_execute_roundtrip(
                           .user_data = &diagnostic_capture},
       .max_errors = 20,
   };
-  loom_target_low_descriptor_registry_t low_registry = {0};
-  iree_status_t registry_status =
-      loom_check_environment_initialize_low_descriptor_registry(environment,
-                                                                &low_registry);
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          environment->target_environment);
   loom_low_descriptor_text_asm_environment_storage_t low_asm_storage = {0};
-  if (iree_status_is_ok(registry_status)) {
-    loom_low_descriptor_text_asm_environment_initialize_with_diagnostics(
-        &low_registry.registry,
-        loom_target_environment_low_asm_diagnostic_provider_list(
-            environment->target_environment),
-        &low_asm_storage, &parse_options.low_asm_environment);
-  }
-  iree_status_t parse_status = registry_status;
-  if (iree_status_is_ok(parse_status)) {
-    parse_status =
-        loom_check_load_input(test_case, input_request, environment, context,
-                              block_pool, &parse_options, allocator, &input);
-  }
+  loom_low_descriptor_text_asm_environment_initialize_with_diagnostics(
+      &low_registry.registry,
+      loom_target_environment_low_asm_diagnostic_provider_list(
+          environment->target_environment),
+      &low_asm_storage, &parse_options.low_asm_environment);
+  iree_status_t parse_status =
+      loom_check_load_input(test_case, input_request, environment, context,
+                            block_pool, &parse_options, allocator, &input);
   if (!iree_status_is_ok(parse_status) || !input.module) {
     result->raw_outcome = LOOM_CHECK_FAIL;
     loom_input_module_deinitialize(&input);

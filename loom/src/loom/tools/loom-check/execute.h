@@ -32,7 +32,6 @@
 #include "loom/format/text/printer.h"
 #include "loom/ir/context.h"
 #include "loom/target/low_descriptor_registry.h"
-#include "loom/target/math_policy.h"
 #include "loom/testing/test_file.h"
 #include "loom/tooling/compile/pipeline.h"
 #include "loom/tooling/input/input.h"
@@ -44,8 +43,6 @@
 extern "C" {
 #endif
 
-typedef struct loom_low_lower_policy_registry_t
-    loom_low_lower_policy_registry_t;
 typedef struct loom_cleanup_pattern_provider_set_t
     loom_cleanup_pattern_provider_set_t;
 typedef struct loom_target_environment_t loom_target_environment_t;
@@ -315,23 +312,6 @@ iree_status_t loom_check_result_append_annotation_edit(
 // calling this.
 iree_status_t loom_check_context_register_and_finalize(
     const loom_check_environment_t* environment, loom_context_t* context);
-
-// Initializes the target-low descriptor registry selected by |environment|.
-iree_status_t loom_check_environment_initialize_low_descriptor_registry(
-    const loom_check_environment_t* environment,
-    loom_target_low_descriptor_registry_t* out_registry);
-
-// Initializes the source-to-target-low lowering policy registry selected by
-// |environment|.
-iree_status_t loom_check_environment_initialize_low_lower_policy_registry(
-    const loom_check_environment_t* environment,
-    loom_low_lower_policy_registry_t* out_registry);
-
-// Initializes the target math legalization policy registry selected by
-// |environment|.
-iree_status_t loom_check_environment_initialize_math_policy_registry(
-    const loom_check_environment_t* environment,
-    loom_target_math_policy_registry_t* out_registry);
 
 // Executes a single test case: checks declared environment requirements,
 // dispatches to the mode-specific function, then applies XFAIL inversion to
