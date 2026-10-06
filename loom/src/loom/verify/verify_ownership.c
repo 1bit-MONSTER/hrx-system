@@ -171,30 +171,62 @@ static void loom_verify_emit_consumed_value_use(loom_verify_state_t* state,
 }
 
 static iree_status_t loom_verify_consume_value_after_op(
-    loom_verify_state_t* state, const loom_op_t* op,
-    loom_value_id_t consumed_id) {
-  const loom_region_t* parent_region =
-      op->parent_block ? op->parent_block->parent_region : NULL;
-  if (parent_region &&
-      iree_any_bit_set(parent_region->flags, LOOM_REGION_INSTANCE_FLAG_CFG)) {
-    if (!state->region_scope.consumption_query) {
-      return iree_make_status(
-          IREE_STATUS_FAILED_PRECONDITION,
-          "verifier CFG consumed-value checks require a consumption query");
-    }
+    loom_verify_state_t* state, const loom_op_t* op, uint16_t operand_index) {
+  const loom_value_id_t consumed_id = loom_op_const_operands(op)[operand_index];
+  // Operand dominance owns invalid IDs and unavailable definitions. Do not
+  // query dynamic instances for an operand already rejected at that boundary.
+  if (consumed_id == LOOM_VALUE_ID_INVALID ||
+      consumed_id >= state->module->values.count ||
+      !loom_verify_value_is_visible(state, consumed_id)) {
+    return iree_ok_status();
+  }
+  const loom_value_t* value = loom_module_value(state->module, consumed_id);
+  const loom_block_t* definition_block =
+      loom_value_is_block_arg(value) ? loom_value_def_block(value)
+                                     : loom_value_def_op(value)->parent_block;
+  const loom_region_t* definition_region = definition_block->parent_region;
+  const loom_verify_region_scope_t* scope = &state->region_scope;
+  const loom_op_t* boundary = op;
+  iree_status_t status = iree_ok_status();
+  while (iree_status_is_ok(status) && scope->current) {
     loom_consumption_use_t use = {0};
     bool found_use = false;
-    IREE_RETURN_IF_ERROR(
-        loom_consumption_find_use_after(state->region_scope.consumption_query,
-                                        op, consumed_id, &use, &found_use));
+    status = loom_consumption_find_use_after(scope->consumption_query, boundary,
+                                             consumed_id, &use, &found_use);
+    if (!iree_status_is_ok(status)) {
+      break;
+    }
     if (found_use) {
       loom_verify_emit_consumed_value_use(state, use.op, use.operand_index,
                                           consumed_id, op);
+      break;
     }
-  } else {
-    loom_verify_consume_value(state, consumed_id, op);
+    // Reentering the defining region starts a new instance. Only captured
+    // owners can remain consumed when control leaves the current region.
+    if (scope->current == definition_region || !scope->owner ||
+        scope->execution == LOOM_REGION_EXECUTION_EXIT) {
+      break;
+    }
+    const loom_consumption_region_query_t* region_query =
+        scope->consumption_query;
+    if (region_query->cfg_graph_ready &&
+        (region_query->cfg_graph.malformed ||
+         !region_query->cfg_graph.blocks[boundary->parent_block->region_index]
+              .can_reach_exit)) {
+      break;
+    }
+    if (scope->execution == LOOM_REGION_EXECUTION_REPEATED) {
+      // Repeating the region can execute this consumer again without
+      // recreating its captured owner. Region arguments stop at the boundary
+      // above instead: each entry owns a fresh argument instance.
+      loom_verify_emit_consumed_value_use(state, op, operand_index, consumed_id,
+                                          op);
+      break;
+    }
+    boundary = scope->owner;
+    scope = scope->parent;
   }
-  return iree_ok_status();
+  return status;
 }
 
 void loom_verify_operand_dominance(loom_verify_state_t* state,
@@ -226,11 +258,6 @@ void loom_verify_operand_dominance(loom_verify_state_t* state,
       };
       loom_verify_emit_structured(state, op, LOOM_ERR_DOMINANCE_001, params,
                                   IREE_ARRAYSIZE(params));
-    }
-    if (loom_bitset_test(state->consumed_bits, state->consumed_word_count,
-                         value_id)) {
-      loom_verify_emit_consumed_value_use(state, op, i, value_id,
-                                          state->consuming_ops[value_id]);
     }
   }
 }
@@ -475,7 +502,7 @@ iree_status_t loom_verify_tied_results(loom_verify_state_t* state,
     // validated as tie targets but not marked consumed at function entry.
     if (!has_signature_ties) {
       IREE_RETURN_IF_ERROR(
-          loom_verify_consume_value_after_op(state, op, consumed_id));
+          loom_verify_consume_value_after_op(state, op, tied[i].operand_index));
     }
   }
 
@@ -494,7 +521,7 @@ iree_status_t loom_verify_moved_results(loom_verify_state_t* state,
                    "generated moved-result source index must reference a "
                    "verified operand");
     IREE_RETURN_IF_ERROR(loom_verify_consume_value_after_op(
-        state, op, loom_op_const_operands(op)[effect.source_operand_index]));
+        state, op, effect.source_operand_index));
   }
   return iree_ok_status();
 }

@@ -273,13 +273,13 @@ static iree_status_t loom_verify_region(
           (void**)&block_scope_ends));
     }
   }
-  const loom_region_t* saved_region = state->region_scope.current;
-  loom_consumption_region_query_t* saved_consumption_query =
-      state->region_scope.consumption_query;
-  const bool saved_command_effects_only =
-      state->region_scope.command_effects_only;
+  const loom_verify_region_scope_t saved_region_scope = state->region_scope;
   loom_consumption_region_query_t consumption_query;
   state->region_scope.current = region;
+  state->region_scope.parent = &saved_region_scope;
+  state->region_scope.owner = contract ? contract->op : NULL;
+  state->region_scope.execution =
+      contract ? contract->descriptor->execution : LOOM_REGION_EXECUTION_ONCE;
   if (region->block_count > 1) {
     loom_consumption_region_query_initialize_with_cfg_graph(
         state->module, region, &graph, NULL, NULL, &state->arena,
@@ -430,9 +430,7 @@ static iree_status_t loom_verify_region(
   if (scope_pushed) {
     loom_verify_pop_scope(state);
   }
-  state->region_scope.current = saved_region;
-  state->region_scope.consumption_query = saved_consumption_query;
-  state->region_scope.command_effects_only = saved_command_effects_only;
+  state->region_scope = saved_region_scope;
   return status;
 }
 
@@ -575,7 +573,7 @@ IREE_ATTRIBUTE_ALWAYS_INLINE static inline iree_status_t loom_verify_op(
   loom_verify_semantic_constraints(state, op, vtable);
   IREE_RETURN_IF_ERROR(loom_verify_pending_diagnostic_status(state));
 
-  // Tied result validation and linear tied/moved source consume marking.
+  // Tied result validation and path-sensitive tied/moved source consumption.
   IREE_RETURN_IF_ERROR(loom_verify_tied_results(state, op, vtable));
   IREE_RETURN_IF_ERROR(loom_verify_pending_diagnostic_status(state));
   IREE_RETURN_IF_ERROR(loom_verify_moved_results(state, op));
@@ -670,39 +668,20 @@ static iree_status_t loom_verify_state_initialize(
 
   iree_host_size_t value_count = module->values.count;
   iree_host_size_t value_capacity = value_count > 0 ? value_count : 1;
-  // Ensure at least 1 word so we always have valid pointers.
-  state->consumed_word_count = (value_capacity + 63) / 64;
   state->visibility.minimum_depth = 1;
 
   // Initialize scratch arena from the module's block pool. All
   // verification-time allocations go here; bulk O(1) free on exit.
   iree_arena_initialize(module->arena.block_pool, &state->arena);
 
-  // Allocate visibility, consumption and definition storage. Arena allocation
+  // Allocate visibility and definition storage. Arena allocation
   // uses checked multiplication (overflow → RESOURCE_EXHAUSTED).
   // On any failure, deinitialize returns all arena blocks to the pool.
   iree_status_t status =
       iree_arena_allocate_array(&state->arena, value_capacity, sizeof(uint8_t),
                                 (void**)&state->visibility.definition_depths);
   if (iree_status_is_ok(status)) {
-    status = iree_arena_allocate_array(
-        &state->arena, state->consumed_word_count, sizeof(uint64_t),
-        (void**)&state->consumed_bits);
-  }
-  if (iree_status_is_ok(status)) {
-    iree_host_size_t consuming_op_count = value_count > 0 ? value_count : 1;
-    status = iree_arena_allocate_array(&state->arena, consuming_op_count,
-                                       sizeof(state->consuming_ops[0]),
-                                       (void**)&state->consuming_ops);
-    if (iree_status_is_ok(status)) {
-      memset(state->consuming_ops, 0,
-             consuming_op_count * sizeof(state->consuming_ops[0]));
-    }
-  }
-  if (iree_status_is_ok(status)) {
     memset(state->visibility.definition_depths, 0, value_capacity);
-    memset(state->consumed_bits, 0,
-           state->consumed_word_count * sizeof(uint64_t));
   }
   if (iree_status_is_ok(status)) {
     // Allocate defined stack. Start with value_count/4 capacity (most

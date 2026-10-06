@@ -86,6 +86,15 @@ typedef struct loom_verify_region_scope_t {
   // Reusable consumed-value query for current.
   loom_consumption_region_query_t* consumption_query;
 
+  // Enclosing active region scope, borrowed from the recursive verifier walk.
+  const struct loom_verify_region_scope_t* parent;
+
+  // Operation owning current, or NULL for the module region.
+  const loom_op_t* owner;
+
+  // Declared recurrence and continuation of the current region.
+  loom_region_execution_t execution;
+
   // True when observable effects must be explicit command effects.
   bool command_effects_only;
 } loom_verify_region_scope_t;
@@ -143,15 +152,6 @@ typedef struct loom_verify_state_t {
     // Inherited minimum to restore when each region/signature scope exits.
     uint8_t scope_minimum_depths[LOOM_VERIFY_MAX_SCOPE_DEPTH];
   } visibility;
-
-  // Bitset indexed by value_id; a set bit means the value was consumed.
-  uint64_t* consumed_bits;
-
-  // Number of uint64_t words in consumed_bits.
-  iree_host_size_t consumed_word_count;
-
-  // First op that consumed each value_id through an ownership transfer.
-  const loom_op_t** consuming_ops;
 
   // Reusable per-op scratch for tied-result uniqueness checks.
   loom_verify_tied_table_t tied_table;
@@ -254,10 +254,6 @@ void loom_verify_restore_definitions(loom_verify_state_t* state,
                                      iree_host_size_t watermark);
 iree_status_t loom_verify_define_value(loom_verify_state_t* state,
                                        loom_value_id_t value_id);
-void loom_verify_consume_value(loom_verify_state_t* state,
-                               loom_value_id_t value_id,
-                               const loom_op_t* consuming_op);
-
 bool loom_verify_at_error_limit(const loom_verify_state_t* state);
 const loom_op_vtable_t* loom_verify_lookup_vtable(
     const loom_verify_state_t* state, loom_op_kind_t kind);

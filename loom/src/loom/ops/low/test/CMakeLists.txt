@@ -17,6 +17,7 @@ loom_check_test_suite(
     "assume.loom-test"
     "call_types.loom-test"
     "canonicalize.loom-test"
+    "consumption.loom-test"
     "facts.loom-test"
     "imports.loom-test"
     "memory_access_flags.loom-test"

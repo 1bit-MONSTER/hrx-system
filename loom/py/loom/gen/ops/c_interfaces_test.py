@@ -37,6 +37,7 @@ from loom.dsl import (
     Reads,
     RegionBranchInterface,
     RegionDef,
+    RegionExecution,
     Result,
     TargetFactSpecialization,
     TargetLikeInterface,
@@ -170,14 +171,26 @@ def _make_counted_loop_op(
     )
 
 
-def _generate_counted_loop_tables(op: Op) -> None:
+def _generate_counted_loop_tables(op: Op) -> str:
     yield_op = Op(
         "test.yield",
         group=Dialect("test"),
         operands=[Operand("values", ANY, variadic=True)],
         traits=[TERMINATOR],
     )
-    generate_tables_c("test", 0, [yield_op, op])
+    return generate_tables_c("test", 0, [yield_op, op])
+
+
+def test_loop_like_retains_repeated_region_execution() -> None:
+    source = _generate_counted_loop_tables(_make_counted_loop_op())
+    assert "LOOM_REGION_EXECUTION_REPEATED" in source
+
+
+def test_loop_like_rejects_region_execution_override() -> None:
+    op = _make_counted_loop_op()
+    op = replace(op, regions=(replace(op.regions[0], execution=RegionExecution.ONCE),))
+    with pytest.raises(ValueError, match="LoopLike owns region execution"):
+        _generate_counted_loop_tables(op)
 
 
 def test_generate_tables_rejects_loop_like_missing_yield_constraint() -> None:

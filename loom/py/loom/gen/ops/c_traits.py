@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from loom.dsl import CallLikeInterface, EffectKind, FuncLikeInterface, Op, RegionDef, TypeConstraint
+from loom.dsl import CallLikeInterface, EffectKind, FuncLikeInterface, LoopLikeInterface, Op, RegionBranchInterface, RegionDef, RegionExecution, TypeConstraint
 from loom.fields import compute_layout
 from loom.gen.ops.c_enums import TRAIT_MAP
 from loom.gen.ops.c_names import c_enum_name
@@ -46,6 +46,23 @@ def region_terminator_kind(op: Op, region: RegionDef, ops_by_name: dict[str, Op]
     if not any(trait.name == "Terminator" for trait in terminator_op.traits):
         raise ValueError(f"Op '{op.name}' region '{region.name}': terminator '{region.terminator}' is not marked with the Terminator trait")
     return c_enum_name(terminator_op)
+
+
+def region_execution(op: Op, region: RegionDef) -> str:
+    """Retains the declared region execution contract for generic consumers."""
+    loop = next((interface for interface in op.interfaces if isinstance(interface, LoopLikeInterface)), None)
+    if loop is not None:
+        if region.execution is not None:
+            raise ValueError(f"Op '{op.name}' region '{region.name}': LoopLike owns region execution")
+        return RegionExecution.REPEATED.c_name
+    if (len(op.regions) > 1 or region.variadic) and not op.has_trait("IsolatedFromAbove") and not any(isinstance(interface, RegionBranchInterface) for interface in op.interfaces):
+        raise ValueError(f"Op '{op.name}': capturing multiple regions requires a control-flow interface")
+    execution = region.execution if region.execution is not None else RegionExecution.ONCE
+    if not isinstance(execution, RegionExecution):
+        raise ValueError(f"Op '{op.name}' region '{region.name}': invalid region execution {execution!r}")
+    if execution is RegionExecution.REPEATED and any(isinstance(interface, RegionBranchInterface) for interface in op.interfaces):
+        raise ValueError(f"Op '{op.name}' region '{region.name}': RegionBranch alternatives cannot repeat")
+    return execution.c_name
 
 
 def trait_op_kinds(

@@ -123,6 +123,7 @@ __all__ = [
     "ATTR_TYPE_PARAMETERIZED",
     "ATTR_TYPE_PARAMETERIZED_ARRAY",
     "RegionDef",
+    "RegionExecution",
     # Symbol support.
     "SymbolDefinition",
     "SymbolDefinitionFlag",
@@ -1036,6 +1037,19 @@ class AttrDef:
             )
 
 
+@unique
+class RegionExecution(Enum):
+    """Dynamic execution of a region within one owning-op invocation."""
+
+    ONCE = "LOOM_REGION_EXECUTION_ONCE"
+    REPEATED = "LOOM_REGION_EXECUTION_REPEATED"
+    EXIT = "LOOM_REGION_EXECUTION_EXIT"
+
+    @property
+    def c_name(self) -> str:
+        return str(self.value)
+
+
 @dataclass(frozen=True, slots=True)
 class RegionDef:
     """A nested region on an op.
@@ -1069,6 +1083,11 @@ class RegionDef:
         in this region or a nested region must be carried by an operation with
         the CommandEffect trait. Pure computation and identity-producing
         operations remain valid.
+    execution: Dynamic execution relative to the owning operation. ONCE allows
+        zero or one execution before continuing after the owner; REPEATED
+        allows recurrence without reentering the owner; EXIT never continues
+        after the owner. LoopLike supplies REPEATED for its regions and does
+        not permit an override. Other regions default to ONCE.
     """
 
     name: str
@@ -1082,6 +1101,7 @@ class RegionDef:
     buffer_arg_memory_space: str | None = None
     arg_uniform_scope: str | None = None
     command_effects_only: bool = False
+    execution: RegionExecution | None = None
 
 
 # ============================================================================

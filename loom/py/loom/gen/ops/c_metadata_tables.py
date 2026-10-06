@@ -1050,7 +1050,8 @@ def generate_tables_c(
                     region_flags.append("LOOM_REGION_COMMAND_EFFECTS_ONLY")
                 flags = " | ".join(region_flags) if region_flags else "0"
                 terminator = c_traits.region_terminator_kind(op, region_def, ops_by_name)
-                lines.append(f"    {{{terminator}, {implicit_terminator}, {flags}}},")
+                execution = c_traits.region_execution(op, region_def)
+                lines.append(f"    {{{terminator}, {implicit_terminator}, {flags}, {execution}}},")
             lines.append("};")
 
         # Constraint table.
