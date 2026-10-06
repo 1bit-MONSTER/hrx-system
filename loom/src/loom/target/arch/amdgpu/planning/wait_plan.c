@@ -167,8 +167,6 @@ typedef enum loom_amdgpu_wait_sgpr_read_flag_bits_e {
   LOOM_AMDGPU_WAIT_SGPR_READ_FLAG_TRACKED = 1u << 0,
   LOOM_AMDGPU_WAIT_SGPR_READ_FLAG_SALU_HAZARD = 1u << 1,
   LOOM_AMDGPU_WAIT_SGPR_READ_FLAG_VALU_HAZARD = 1u << 2,
-  // GFX11 wave64: some VALU in the function reads this SGPR as a lane mask.
-  LOOM_AMDGPU_WAIT_SGPR_READ_FLAG_MASK_LATCH = 1u << 3,
 } loom_amdgpu_wait_sgpr_read_flag_bits_t;
 typedef uint8_t loom_amdgpu_wait_sgpr_read_flags_t;
 
@@ -343,14 +341,6 @@ typedef struct loom_amdgpu_wait_plan_builder_t {
   iree_host_size_t active_trans_result_vgpr_count;
   // Per-physical-SGPR state for GFX12 VALU/SALU SGPR-read hazards.
   loom_amdgpu_wait_sgpr_read_register_t* sgpr_read_registers;
-  // GFX11 wave64 lane-mask storage reuse tracking (see
-  // LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_MASK_WRITE_DEPCTR). When set, the
-  // SGPR read state tracks lane-mask latches instead of GFX12 SGPR reads.
-  bool mask_write_mode;
-  // VCC is read as a lane mask somewhere in the function.
-  bool mask_write_vcc_latched;
-  // An ALU wrote latched storage; the next packet must drain ALU dependencies.
-  bool mask_write_pending;
   // Number of entries in |sgpr_read_registers|.
   iree_host_size_t sgpr_read_register_count;
 } loom_amdgpu_wait_plan_builder_t;
@@ -606,25 +596,11 @@ static bool loom_amdgpu_wait_plan_needs_trans_result_state(
   return builder->trans_result_node_count != 0;
 }
 
-static bool loom_amdgpu_wait_plan_needs_mask_write_state(
-    const loom_amdgpu_wait_plan_builder_t* builder) {
-  if (!loom_amdgpu_processor_properties_have_scheduling(
-          builder->processor_properties,
-          LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_MASK_WRITE_DEPCTR)) {
-    return false;
-  }
-  const loom_target_bundle_t* bundle =
-      loom_low_resolved_target_bundle(&builder->schedule->target);
-  return bundle != NULL && bundle->snapshot != NULL &&
-         bundle->snapshot->subgroup_size == 64;
-}
-
 static bool loom_amdgpu_wait_plan_needs_sgpr_read_state(
     const loom_amdgpu_wait_plan_builder_t* builder) {
   return loom_amdgpu_processor_properties_have_scheduling(
-             builder->processor_properties,
-             LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_SGPR_READ_DEPCTR) ||
-         loom_amdgpu_wait_plan_needs_mask_write_state(builder);
+      builder->processor_properties,
+      LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_SGPR_READ_DEPCTR);
 }
 
 static bool loom_amdgpu_wait_plan_needs_vmem_result_state(
@@ -646,8 +622,6 @@ static iree_status_t loom_amdgpu_wait_plan_allocate_physical_state(
       loom_amdgpu_wait_plan_needs_trans_result_state(builder);
   const bool needs_sgpr_read_state =
       loom_amdgpu_wait_plan_needs_sgpr_read_state(builder);
-  builder->mask_write_mode =
-      loom_amdgpu_wait_plan_needs_mask_write_state(builder);
   const bool needs_vmem_result_state =
       loom_amdgpu_wait_plan_needs_vmem_result_state(builder);
   if (!needs_trans_result_state && !needs_sgpr_read_state &&
@@ -3453,17 +3427,6 @@ static bool loom_amdgpu_wait_plan_node_uses_vector_alu(
 
 static iree_status_t loom_amdgpu_wait_plan_handle_sgpr_read_hazard(
     loom_amdgpu_wait_plan_builder_t* builder, uint32_t node_index) {
-  if (builder->mask_write_mode) {
-    if (!builder->mask_write_pending) {
-      return iree_ok_status();
-    }
-    // Drain right after the overwrite, before whatever packet comes next.
-    builder->mask_write_pending = false;
-    return loom_amdgpu_wait_plan_drain_counter(
-        builder, LOOM_AMDGPU_WAIT_PLAN_ACTION_PLANNED,
-        LOOM_AMDGPU_WAIT_PLAN_REASON_VALU_SGPR_READ, node_index,
-        LOOM_LOW_SCHEDULE_NODE_NONE, LOOM_AMDGPU_WAIT_COUNTER_ALU);
-  }
   if (!loom_amdgpu_wait_plan_has_sgpr_read_state(builder)) {
     return iree_ok_status();
   }
@@ -3493,63 +3456,10 @@ static iree_status_t loom_amdgpu_wait_plan_handle_sgpr_read_hazard(
   return iree_ok_status();
 }
 
-// GFX11 wave64 lane-mask latch: SGPR storage (or VCC) a VALU reads as a lane
-// mask. Upstream (ROCm/hrx-system 336037562) releases the latch when a VALU
-// reads an ordinary SGPR, VCC or M0 and propagates it over the CFG; this
-// planner has no CFG summaries, so latches are collected for the whole
-// function before planning and never released (more waits, never fewer).
-static void loom_amdgpu_wait_plan_track_mask_reads(
-    loom_amdgpu_wait_plan_builder_t* builder, uint32_t node_index) {
-  const loom_low_packet_view_t packet =
-      loom_low_packet_at_node(builder->schedule, node_index);
-  if (packet.descriptor == NULL) {
-    return;
-  }
-  const loom_low_descriptor_set_t* descriptor_set =
-      builder->schedule->target.descriptor_set;
-  for (uint16_t i = packet.descriptor->result_count;
-       i < packet.descriptor->operand_count; ++i) {
-    const loom_low_operand_t* operand =
-        &descriptor_set->operands[packet.descriptor->operand_start + i];
-    if (operand->role != LOOM_LOW_OPERAND_ROLE_PREDICATE ||
-        !loom_low_descriptor_operand_maps_to_packet_operand(
-            descriptor_set, packet.descriptor, i)) {
-      continue;
-    }
-    const loom_low_allocation_assignment_t* assignment =
-        loom_low_packet_descriptor_operand_assignment(builder->allocation,
-                                                      &packet, i);
-    if (assignment == NULL || assignment->location_kind !=
-                                  LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER) {
-      continue;
-    }
-    if (assignment->descriptor_reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_SGPR) {
-      const uint64_t end =
-          (uint64_t)assignment->location_base + assignment->location_count;
-      if (end > builder->sgpr_read_register_count) {
-        continue;
-      }
-      for (uint32_t r = 0; r < assignment->location_count; ++r) {
-        builder->sgpr_read_registers[assignment->location_base + r].flags |=
-            LOOM_AMDGPU_WAIT_SGPR_READ_FLAG_MASK_LATCH;
-      }
-    } else if (iree_any_bit_set(
-                   loom_amdgpu_reg_class_traits(
-                       descriptor_set, assignment->descriptor_reg_class_id),
-                   LOOM_AMDGPU_REG_CLASS_TRAIT_VCC)) {
-      builder->mask_write_vcc_latched = true;
-    }
-  }
-}
-
 static void loom_amdgpu_wait_plan_track_sgpr_reads(
     loom_amdgpu_wait_plan_builder_t* builder, uint32_t node_index) {
   if (!loom_amdgpu_wait_plan_has_sgpr_read_state(builder) ||
       !loom_amdgpu_wait_plan_node_uses_vector_alu(builder, node_index)) {
-    return;
-  }
-  if (builder->mask_write_mode) {
-    loom_amdgpu_wait_plan_track_mask_reads(builder, node_index);
     return;
   }
   const loom_low_packet_view_t packet =
@@ -3561,109 +3471,9 @@ static void loom_amdgpu_wait_plan_track_sgpr_reads(
   }
 }
 
-static void loom_amdgpu_wait_plan_note_mask_write_range(
-    loom_amdgpu_wait_plan_builder_t* builder, uint32_t node_index,
-    loom_low_allocation_location_kind_t location_kind,
-    uint16_t descriptor_reg_class_id, uint32_t location_base,
-    uint32_t location_count) {
-  if (location_kind != LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER ||
-      location_count == 0) {
-    return;
-  }
-  bool hit = false;
-  if (descriptor_reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_SGPR) {
-    for (uint32_t i = 0; i < location_count; ++i) {
-      const uint64_t index = (uint64_t)location_base + i;
-      if (index < builder->sgpr_read_register_count &&
-          iree_any_bit_set(builder->sgpr_read_registers[index].flags,
-                           LOOM_AMDGPU_WAIT_SGPR_READ_FLAG_MASK_LATCH)) {
-        hit = true;
-      }
-    }
-  } else if (builder->mask_write_vcc_latched &&
-             iree_any_bit_set(
-                 loom_amdgpu_reg_class_traits(
-                     builder->schedule->target.descriptor_set,
-                     descriptor_reg_class_id),
-                 LOOM_AMDGPU_REG_CLASS_TRAIT_VCC)) {
-    hit = true;
-  }
-  if (hit) {
-    builder->mask_write_pending = true;
-  }
-}
-
-// GFX11 wave64: every physical write of latched lane-mask storage by this
-// packet (results, its allocator moves and the edge copies placed with it)
-// requests an ALU dependency drain before the next packet.
-static void loom_amdgpu_wait_plan_record_mask_writes(
-    loom_amdgpu_wait_plan_builder_t* builder, uint32_t node_index) {
-  const loom_low_allocation_table_t* allocation = builder->allocation;
-  const loom_low_schedule_node_t* node = &builder->schedule->nodes[node_index];
-  const loom_low_packet_view_t packet =
-      loom_low_packet_at_node(builder->schedule, node_index);
-  for (uint16_t i = 0; i < node->result_count; ++i) {
-    const loom_low_allocation_assignment_t* assignment =
-        loom_low_packet_result_assignment(allocation, &packet, i);
-    if (assignment == NULL) {
-      continue;
-    }
-    loom_amdgpu_wait_plan_note_mask_write_range(
-        builder, node_index, assignment->location_kind,
-        assignment->descriptor_reg_class_id, assignment->location_base,
-        assignment->location_count);
-  }
-  if (node->op != NULL &&
-      (loom_low_copy_isa(node->op) || loom_low_move_isa(node->op) ||
-       loom_low_slice_isa(node->op) || loom_low_concat_isa(node->op))) {
-    const loom_low_allocation_packet_move_group_t* group =
-        loom_low_allocation_find_packet_move_group_by_source_ordinal(
-            allocation, node->source_ordinal);
-    if (group != NULL) {
-      for (iree_host_size_t i = 0; i < group->move_group.moves.count; ++i) {
-        const loom_low_move_location_t* destination =
-            &allocation->moves[group->move_group.moves.start + i].destination;
-        loom_amdgpu_wait_plan_note_mask_write_range(
-            builder, node_index, destination->location_kind,
-            destination->descriptor_reg_class_id, destination->location, 1);
-      }
-    }
-  }
-  const loom_low_allocation_edge_copy_group_t* edge_group =
-      loom_amdgpu_wait_plan_edge_copy_group(builder, node_index);
-  if (edge_group != NULL) {
-    for (iree_host_size_t i = 0; i < edge_group->copy_count; ++i) {
-      const loom_low_allocation_edge_copy_t* edge_copy =
-          &allocation->edge_copies[edge_group->copy_start + i];
-      if (edge_copy->kind == LOOM_LOW_ALLOCATION_COPY_COALESCED) {
-        continue;
-      }
-      const loom_low_allocation_assignment_t* destination =
-          &allocation->assignments[edge_copy->destination_assignment_index];
-      loom_amdgpu_wait_plan_note_mask_write_range(
-          builder, node_index, destination->location_kind,
-          destination->descriptor_reg_class_id,
-          destination->location_base + edge_copy->destination_unit_offset,
-          edge_copy->unit_count);
-    }
-    for (iree_host_size_t i = 0; i < edge_group->move_group.moves.count; ++i) {
-      const loom_low_move_location_t* destination =
-          &allocation->moves[edge_group->move_group.moves.start + i]
-               .destination;
-      loom_amdgpu_wait_plan_note_mask_write_range(
-          builder, node_index, destination->location_kind,
-          destination->descriptor_reg_class_id, destination->location, 1);
-    }
-  }
-}
-
 static void loom_amdgpu_wait_plan_record_sgpr_read_writes(
     loom_amdgpu_wait_plan_builder_t* builder, uint32_t node_index) {
   if (!loom_amdgpu_wait_plan_has_sgpr_read_state(builder)) {
-    return;
-  }
-  if (builder->mask_write_mode) {
-    loom_amdgpu_wait_plan_record_mask_writes(builder, node_index);
     return;
   }
   const bool is_vector_alu =
@@ -4106,11 +3916,6 @@ static iree_status_t loom_amdgpu_wait_plan_process_node(
   return iree_ok_status();
 }
 
-static bool loom_amdgpu_wait_plan_node_uses_vector_alu(
-    const loom_amdgpu_wait_plan_builder_t* builder, uint32_t node_index);
-static void loom_amdgpu_wait_plan_track_mask_reads(
-    loom_amdgpu_wait_plan_builder_t* builder, uint32_t node_index);
-
 static iree_status_t loom_amdgpu_wait_plan_build_actions(
     loom_amdgpu_wait_plan_builder_t* builder) {
   const loom_low_schedule_table_t* schedule = builder->schedule;
@@ -4121,17 +3926,6 @@ static iree_status_t loom_amdgpu_wait_plan_build_actions(
     return iree_make_status(
         IREE_STATUS_RESOURCE_EXHAUSTED,
         "AMDGPU wait-plan progress event count exceeds host size");
-  }
-  if (builder->mask_write_mode && builder->sgpr_read_register_count != 0) {
-    // Function-wide lane-mask latch set: a VALU lane-mask read anywhere may
-    // reach any later overwrite along some CFG path (including loop back
-    // edges), so every ALU overwrite of such storage is followed by a drain.
-    for (iree_host_size_t i = 0; i < schedule->scheduled_node_count; ++i) {
-      const uint32_t node_index = schedule->scheduled_node_indices[i];
-      if (loom_amdgpu_wait_plan_node_uses_vector_alu(builder, node_index)) {
-        loom_amdgpu_wait_plan_track_mask_reads(builder, node_index);
-      }
-    }
   }
   for (iree_host_size_t block_index = 0; block_index < schedule->block_count;
        ++block_index) {
@@ -4155,20 +3949,9 @@ static iree_status_t loom_amdgpu_wait_plan_build_actions(
            sizeof(builder->outstanding_workgroup_access_counts));
     builder->active_trans_result_vgpr_count = 0;
     if (builder->sgpr_read_register_count != 0) {
-      if (builder->mask_write_mode) {
-        // Lane-mask latches are function-wide (collected before planning).
-        for (iree_host_size_t r = 0; r < builder->sgpr_read_register_count;
-             ++r) {
-          builder->sgpr_read_registers[r].flags &=
-              LOOM_AMDGPU_WAIT_SGPR_READ_FLAG_MASK_LATCH;
-          builder->sgpr_read_registers[r].producer_node =
-              LOOM_LOW_SCHEDULE_NODE_NONE;
-        }
-      } else {
-        memset(builder->sgpr_read_registers, 0,
-               builder->sgpr_read_register_count *
-                   sizeof(*builder->sgpr_read_registers));
-      }
+      memset(builder->sgpr_read_registers, 0,
+             builder->sgpr_read_register_count *
+                 sizeof(*builder->sgpr_read_registers));
     }
     loom_amdgpu_wait_plan_seed_cyclic_frontiers(builder, (uint16_t)block_index);
     loom_amdgpu_wait_frontier_begin_block(&builder->frontier,
