@@ -1,8 +1,21 @@
 // Thirteen 512-bit broadcasts exceed the 24 vector-register units at the
 // block boundary. The repaired native program streams each broadcast into
 // the running sum instead of retaining the entire invariant set.
-// RUN: with-checks emit aie2p-leaf @broadcast_pressure report=emission
+// RUN: emit aie2p-leaf @broadcast_pressure diagnostics=predicted-spills
 
+// REMARK@+13: BACKEND/045 {function_name="broadcast_pressure", value_name="vector12", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+12: BACKEND/045 {function_name="broadcast_pressure", value_name="vector11", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+11: BACKEND/045 {function_name="broadcast_pressure", value_name="vector10", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+10: BACKEND/045 {function_name="broadcast_pressure", value_name="vector9", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+9: BACKEND/045 {function_name="broadcast_pressure", value_name="vector8", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+8: BACKEND/045 {function_name="broadcast_pressure", value_name="vector7", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+7: BACKEND/045 {function_name="broadcast_pressure", value_name="vector6", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+6: BACKEND/045 {function_name="broadcast_pressure", value_name="vector5", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+5: BACKEND/045 {function_name="broadcast_pressure", value_name="vector4", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+4: BACKEND/045 {function_name="broadcast_pressure", value_name="vector3", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+3: BACKEND/045 {function_name="broadcast_pressure", value_name="vector2", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+2: BACKEND/045 {function_name="broadcast_pressure", value_name="vector1", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+1: BACKEND/045 {function_name="broadcast_pressure", value_name="vector0", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
 low.func.def target<amd.xdna.aie2p.core> @broadcast_pressure(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>) asm {
   %scalar0 = mov.i32 1
   %vector0 = vbcst.32 %scalar0
@@ -51,16 +64,56 @@ low.func.def target<amd.xdna.aie2p.core> @broadcast_pressure(%input: reg<aie2p.e
 }
 
 // ----
-CHECK: issue cycles: 50
-CHECK: code bytes: 210
 
 // ====
 
 // Both vector and accumulator materializations exceed their physical classes.
 // Repair accumulator consumers before broadcasts so cloned consumers receive
 // their own short-lived vector setup within the same allocation repair.
-// RUN: with-checks emit aie2p-leaf @dependent_cross_block report=emission
+// RUN: emit aie2p-leaf @dependent_cross_block diagnostics=predicted-spills
 
+// REMARK@+42: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator20", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+41: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator19", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+40: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator18", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+39: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator17", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+38: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator16", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+37: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator15", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+36: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator14", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+35: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator13", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+34: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator12", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+33: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator11", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+32: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator10", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+31: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator9", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+30: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator8", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+29: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator7", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+28: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator6", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+27: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator5", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+26: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator4", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+25: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator3", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+24: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator2", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+23: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator1", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+22: BACKEND/045 {function_name="dependent_cross_block", value_name="accumulator0", value_class="aie2p.mbms", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+21: BACKEND/045 {function_name="dependent_cross_block", value_name="vector20", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+20: BACKEND/045 {function_name="dependent_cross_block", value_name="vector19", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+19: BACKEND/045 {function_name="dependent_cross_block", value_name="vector18", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+18: BACKEND/045 {function_name="dependent_cross_block", value_name="vector17", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+17: BACKEND/045 {function_name="dependent_cross_block", value_name="vector16", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+16: BACKEND/045 {function_name="dependent_cross_block", value_name="vector15", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+15: BACKEND/045 {function_name="dependent_cross_block", value_name="vector14", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+14: BACKEND/045 {function_name="dependent_cross_block", value_name="vector13", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+13: BACKEND/045 {function_name="dependent_cross_block", value_name="vector12", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+12: BACKEND/045 {function_name="dependent_cross_block", value_name="vector11", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+11: BACKEND/045 {function_name="dependent_cross_block", value_name="vector10", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+10: BACKEND/045 {function_name="dependent_cross_block", value_name="vector9", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+9: BACKEND/045 {function_name="dependent_cross_block", value_name="vector8", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+8: BACKEND/045 {function_name="dependent_cross_block", value_name="vector7", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+7: BACKEND/045 {function_name="dependent_cross_block", value_name="vector6", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+6: BACKEND/045 {function_name="dependent_cross_block", value_name="vector5", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+5: BACKEND/045 {function_name="dependent_cross_block", value_name="vector4", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+4: BACKEND/045 {function_name="dependent_cross_block", value_name="vector3", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+3: BACKEND/045 {function_name="dependent_cross_block", value_name="vector2", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+2: BACKEND/045 {function_name="dependent_cross_block", value_name="vector1", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+1: BACKEND/045 {function_name="dependent_cross_block", value_name="vector0", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
 low.func.def target<amd.xdna.aie2p.core> @dependent_cross_block(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>) asm {
   %scalar0 = mov.i32 1
   %vector0 = vbcst.32 %scalar0
@@ -177,16 +230,27 @@ low.func.def target<amd.xdna.aie2p.core> @dependent_cross_block(%input: reg<aie2
 }
 
 // ----
-CHECK: issue cycles: 112
-CHECK: code bytes: 482
 
 // ====
 
 // Shared zero padding has multiple consumers on both sides of an ownership
 // move. Setup ordering must preserve that fan-out and the source-order boundary
 // while keeping the rematerialized broadcasts out of persistent vector storage.
-// RUN: emit aie2p-leaf @bounded_padding report=emission
+// RUN: emit aie2p-leaf @bounded_padding diagnostics=predicted-spills
 
+// REMARK@+13: BACKEND/045 {function_name="bounded_padding", value_name="vector12", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+12: BACKEND/045 {function_name="bounded_padding", value_name="vector11", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+11: BACKEND/045 {function_name="bounded_padding", value_name="vector10", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+10: BACKEND/045 {function_name="bounded_padding", value_name="vector9", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+9: BACKEND/045 {function_name="bounded_padding", value_name="vector8", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+8: BACKEND/045 {function_name="bounded_padding", value_name="vector7", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+7: BACKEND/045 {function_name="bounded_padding", value_name="vector6", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+6: BACKEND/045 {function_name="bounded_padding", value_name="vector5", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+5: BACKEND/045 {function_name="bounded_padding", value_name="vector4", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+4: BACKEND/045 {function_name="bounded_padding", value_name="vector3", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+3: BACKEND/045 {function_name="bounded_padding", value_name="vector2", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+2: BACKEND/045 {function_name="bounded_padding", value_name="vector1", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+1: BACKEND/045 {function_name="bounded_padding", value_name="vector0", value_class="aie2p.vec256", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
 low.func.def target<amd.xdna.aie2p.core> @bounded_padding(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>) asm {
   %zeros = acc.clear.f32x64
   %mode = mova.i32 60
@@ -317,10 +381,6 @@ low.func.def target<amd.xdna.aie2p.core> @bounded_padding(%input: reg<aie2p.ep>,
 }
 
 // ----
-issue cycles: 187
-code bytes: 750
-coissued bundles: 12
-coissued components: 25
 
 // ====
 
@@ -489,88 +549,6 @@ low.func.def target<amd.xdna.aie2p.core> @retained_scalar_stream(%record_input: 
 %index5 -> st.i32.index operand=2 (%scaled5, %stream_output, %index5)
 %index6 -> lda.i32.index operand=1 (%stream_input, %index6)
 %index6 -> st.i32.index operand=2 (%scaled6, %stream_output, %index6)
-
-// ====
-
-// These source-adjacent store indices can move ahead of the load's address
-// prerequisites while memory ordering keeps their stores blocked. Allocation
-// repair retains their private placement without cloning unchanged producers.
-// Four resident accumulator fragments keep the loaded-C storage shape intact.
-// RUN: emit aie2p-leaf @effect_blocked_store_indices report=emission
-
-low.func.def target<amd.xdna.aie2p.core> @effect_blocked_store_indices(%source: reg<aie2p.ep>, %destination: reg<aie2p.ep>, %cell: reg<aie2p.er>, %position0: reg<aie2p.er>, %position1: reg<aie2p.er>, %position2: reg<aie2p.er>, %position3: reg<aie2p.er>, %position4: reg<aie2p.er>, %position5: reg<aie2p.er>, %position6: reg<aie2p.er>, %position7: reg<aie2p.er>, %position8: reg<aie2p.er>, %accumulator00: reg<aie2p.mbms x4>, %accumulator01: reg<aie2p.mbms x4>, %accumulator10: reg<aie2p.mbms x4>, %accumulator11: reg<aie2p.mbms x4>, %resident_piece: reg<aie2p.mbms>) -> (reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>) asm {
-  %cell_offset = mov.static-byte-offset 256
-  %cell_stride = mov.i32 256
-  %load_position = mac %cell_offset, %cell, %cell_stride
-  %load_index = mov.address-index %load_position
-  %loaded_piece = vlda.acc.index %source, %load_index
-  vst.acc %loaded_piece, %destination, 0
-  %store_index0 = mov.address-index %position0
-  vst.acc.index %resident_piece, %destination, %store_index0
-  %store_index1 = mov.address-index %position1
-  vst.acc.index %resident_piece, %destination, %store_index1
-  %store_index2 = mov.address-index %position2
-  vst.acc.index %resident_piece, %destination, %store_index2
-  %store_index3 = mov.address-index %position3
-  vst.acc.index %resident_piece, %destination, %store_index3
-  %store_index4 = mov.address-index %position4
-  vst.acc.index %resident_piece, %destination, %store_index4
-  %store_index5 = mov.address-index %position5
-  vst.acc.index %resident_piece, %destination, %store_index5
-  %store_index6 = mov.address-index %position6
-  vst.acc.index %resident_piece, %destination, %store_index6
-  %store_index7 = mov.address-index %position7
-  vst.acc.index %resident_piece, %destination, %store_index7
-  %store_index8 = mov.address-index %position8
-  vst.acc.index %resident_piece, %destination, %store_index8
-  return %accumulator00, %accumulator01, %accumulator10, %accumulator11
-}
-
-// ----
-issue cycles: 30
-code bytes: 118
-coissued bundles: 4
-coissued components: 8
-
-// ====
-
-// Loading the store payload leaves a feasible initial schedule. Private
-// indices retain normal latency scheduling until allocation requires repair.
-// Eagerly forcing every index next to its store would serialize this control.
-// RUN: emit aie2p-leaf @payload_dependent_store_indices report=emission
-
-low.func.def target<amd.xdna.aie2p.core> @payload_dependent_store_indices(%source: reg<aie2p.ep>, %destination: reg<aie2p.ep>, %cell: reg<aie2p.er>, %position0: reg<aie2p.er>, %position1: reg<aie2p.er>, %position2: reg<aie2p.er>, %position3: reg<aie2p.er>, %position4: reg<aie2p.er>, %position5: reg<aie2p.er>, %position6: reg<aie2p.er>, %position7: reg<aie2p.er>, %position8: reg<aie2p.er>) asm {
-  %cell_offset = mov.static-byte-offset 256
-  %cell_stride = mov.i32 256
-  %load_position = mac %cell_offset, %cell, %cell_stride
-  %load_index = mov.address-index %load_position
-  %payload = vlda.acc.index %source, %load_index
-  %store_index0 = mov.address-index %position0
-  vst.acc.index %payload, %destination, %store_index0
-  %store_index1 = mov.address-index %position1
-  vst.acc.index %payload, %destination, %store_index1
-  %store_index2 = mov.address-index %position2
-  vst.acc.index %payload, %destination, %store_index2
-  %store_index3 = mov.address-index %position3
-  vst.acc.index %payload, %destination, %store_index3
-  %store_index4 = mov.address-index %position4
-  vst.acc.index %payload, %destination, %store_index4
-  %store_index5 = mov.address-index %position5
-  vst.acc.index %payload, %destination, %store_index5
-  %store_index6 = mov.address-index %position6
-  vst.acc.index %payload, %destination, %store_index6
-  %store_index7 = mov.address-index %position7
-  vst.acc.index %payload, %destination, %store_index7
-  %store_index8 = mov.address-index %position8
-  vst.acc.index %payload, %destination, %store_index8
-  return
-}
-
-// ----
-issue cycles: 27
-code bytes: 110
-coissued bundles: 5
-coissued components: 10
 
 // ====
 
