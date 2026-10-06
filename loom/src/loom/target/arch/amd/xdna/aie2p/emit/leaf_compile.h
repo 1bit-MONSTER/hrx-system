@@ -12,6 +12,7 @@
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/symbol_facts.h"
+#include "loom/codegen/low/allocation/diagnostics.h"
 #include "loom/codegen/low/allocation/target_constraints.h"
 #include "loom/codegen/low/descriptors.h"
 #include "loom/ir/ir.h"
@@ -37,6 +38,8 @@ typedef struct loom_aie2p_leaf_compile_options_t {
   const loom_low_allocation_fixed_value_t* allocation_fixed_values;
   // Number of records in |allocation_fixed_values|.
   iree_host_size_t allocation_fixed_value_count;
+  // Optional structured allocation and repair feedback to emit.
+  loom_low_allocation_diagnostic_flags_t allocation_diagnostic_flags;
   // Diagnostic emitter receiving scheduling and allocation failures.
   iree_diagnostic_emitter_t diagnostic_emitter;
   // Optional compile report receiving exact Low planning evidence.

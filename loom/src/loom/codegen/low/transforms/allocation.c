@@ -53,8 +53,15 @@ static iree_status_t loom_low_materialize_allocation_emit_rematerialization(
   if (!state || !state->emit_spill_diagnostics) {
     return iree_ok_status();
   }
-  return loom_low_allocation_rematerialization_emit_decision(
-      table, trigger, result, pass->diagnostic_emitter);
+  const loom_low_rematerialization_batch_result_t batch = {
+      .repaired_value_count = 1,
+      .cloned_packet_count = result->value.cloned_packet_count,
+      .rewritten_operand_count = result->value.rewritten_operand_count,
+      .retained_placement_count = result->value.retained_placement_count,
+  };
+  return loom_low_allocation_rematerialization_emit_summary(
+      table, trigger, result->descriptor_reg_class_id, &batch,
+      pass->diagnostic_emitter);
 }
 
 static const loom_pass_option_def_t kLowMaterializeAllocationOptions[] = {

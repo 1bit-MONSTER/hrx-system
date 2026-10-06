@@ -467,3 +467,78 @@ low.func.def target<amd.xdna.aie2p.core> @shared_x_packing(%first_lower_bf16: re
 
 // ----
 code: 54 31 60 0f 80 06 18 08 35 00 18 10 0c 03 62 29 e0 10 66 80 22 00 62 69 e4 11 e6 8a 01 02 78 84 22 18 f8 8a 81 1a 78 80 b3 18 02 70 c5 01 01 c0 26 01 78 84 b3 18 f8 8a 83 1a 78 80 44 19 02 30 42 e2 00 c0 26 11 f8 8a 05 1a f8 8a 87 1a 00 00 62 69 f5 12 02 c0 26 21 18 00 28 10 00 00 00 00 00 00 00 00 00 00
+
+// ====
+
+// Memory ordering delays nine indexed stores behind the initial load/store
+// pair. Resource scheduling must keep their address indices within the
+// architectural eight-register EDJ bank while four accumulators stay live.
+// RUN: emit low-schedule-query @effect_blocked_store_indices strategy=resource-stall scheduled-pressure-limit=aie2p.edj:8
+
+low.func.def target<amd.xdna.aie2p.core> @effect_blocked_store_indices(%source: reg<aie2p.ep>, %destination: reg<aie2p.ep>, %cell: reg<aie2p.er>, %position0: reg<aie2p.er>, %position1: reg<aie2p.er>, %position2: reg<aie2p.er>, %position3: reg<aie2p.er>, %position4: reg<aie2p.er>, %position5: reg<aie2p.er>, %position6: reg<aie2p.er>, %position7: reg<aie2p.er>, %position8: reg<aie2p.er>, %accumulator00: reg<aie2p.mbms x4>, %accumulator01: reg<aie2p.mbms x4>, %accumulator10: reg<aie2p.mbms x4>, %accumulator11: reg<aie2p.mbms x4>, %resident_piece: reg<aie2p.mbms>) -> (reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>) asm {
+  %cell_offset = mov.static-byte-offset 256
+  %cell_stride = mov.i32 256
+  %load_position = mac %cell_offset, %cell, %cell_stride
+  %load_index = mov.address-index %load_position
+  %loaded_piece = vlda.acc.index %source, %load_index
+  vst.acc %loaded_piece, %destination, 0
+  %store_index0 = mov.address-index %position0
+  vst.acc.index %resident_piece, %destination, %store_index0
+  %store_index1 = mov.address-index %position1
+  vst.acc.index %resident_piece, %destination, %store_index1
+  %store_index2 = mov.address-index %position2
+  vst.acc.index %resident_piece, %destination, %store_index2
+  %store_index3 = mov.address-index %position3
+  vst.acc.index %resident_piece, %destination, %store_index3
+  %store_index4 = mov.address-index %position4
+  vst.acc.index %resident_piece, %destination, %store_index4
+  %store_index5 = mov.address-index %position5
+  vst.acc.index %resident_piece, %destination, %store_index5
+  %store_index6 = mov.address-index %position6
+  vst.acc.index %resident_piece, %destination, %store_index6
+  %store_index7 = mov.address-index %position7
+  vst.acc.index %resident_piece, %destination, %store_index7
+  %store_index8 = mov.address-index %position8
+  vst.acc.index %resident_piece, %destination, %store_index8
+  return %accumulator00, %accumulator01, %accumulator10, %accumulator11
+}
+
+// ----
+scheduled pressure aie2p.edj: peak-live-units<=8
+
+// ====
+
+// A load-dependent payload delays nine indexed stores. Resource scheduling
+// must interleave their address setup with the stores so the live indices fit
+// the architectural eight-register EDJ bank.
+// RUN: emit low-schedule-query @payload_dependent_store_indices strategy=resource-stall scheduled-pressure-limit=aie2p.edj:8
+
+low.func.def target<amd.xdna.aie2p.core> @payload_dependent_store_indices(%source: reg<aie2p.ep>, %destination: reg<aie2p.ep>, %cell: reg<aie2p.er>, %position0: reg<aie2p.er>, %position1: reg<aie2p.er>, %position2: reg<aie2p.er>, %position3: reg<aie2p.er>, %position4: reg<aie2p.er>, %position5: reg<aie2p.er>, %position6: reg<aie2p.er>, %position7: reg<aie2p.er>, %position8: reg<aie2p.er>) asm {
+  %cell_offset = mov.static-byte-offset 256
+  %cell_stride = mov.i32 256
+  %load_position = mac %cell_offset, %cell, %cell_stride
+  %load_index = mov.address-index %load_position
+  %payload = vlda.acc.index %source, %load_index
+  %store_index0 = mov.address-index %position0
+  vst.acc.index %payload, %destination, %store_index0
+  %store_index1 = mov.address-index %position1
+  vst.acc.index %payload, %destination, %store_index1
+  %store_index2 = mov.address-index %position2
+  vst.acc.index %payload, %destination, %store_index2
+  %store_index3 = mov.address-index %position3
+  vst.acc.index %payload, %destination, %store_index3
+  %store_index4 = mov.address-index %position4
+  vst.acc.index %payload, %destination, %store_index4
+  %store_index5 = mov.address-index %position5
+  vst.acc.index %payload, %destination, %store_index5
+  %store_index6 = mov.address-index %position6
+  vst.acc.index %payload, %destination, %store_index6
+  %store_index7 = mov.address-index %position7
+  vst.acc.index %payload, %destination, %store_index7
+  %store_index8 = mov.address-index %position8
+  vst.acc.index %payload, %destination, %store_index8
+  return
+}
+
+// ----
+scheduled pressure aie2p.edj: peak-live-units<=8
