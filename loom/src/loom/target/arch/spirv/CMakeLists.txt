@@ -248,6 +248,7 @@ loom_cc_library(
     "compiler_provider.c"
   DEPS
     ::facts
+    ::provider
     loom::target::emit::spirv::module_compiler
     loom::target::provider
   PUBLIC

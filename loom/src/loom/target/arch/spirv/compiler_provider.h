@@ -18,6 +18,10 @@ extern "C" {
 // SPIR-V binary emission associated with the SPIR-V target family.
 extern const loom_target_provider_t loom_spirv_compiler_provider;
 
+// Complete SPIR-V compiler provider set containing the target architecture and
+// canonical SPIR-V module emitter.
+extern const loom_target_provider_set_t loom_spirv_compiler_provider_set;
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

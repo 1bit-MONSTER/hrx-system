@@ -101,6 +101,10 @@ extern const loom_target_emitter_t loom_amdgpu_hal_kernel_library_emitter;
 // Optional AMDGPU HAL kernel-library emission for a target environment.
 extern const loom_target_provider_t loom_amdgpu_hal_kernel_library_provider;
 
+// Complete AMDGPU compiler provider set containing the target architecture and
+// canonical HAL kernel-library emitter.
+extern const loom_target_provider_set_t loom_amdgpu_compiler_provider_set;
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif
