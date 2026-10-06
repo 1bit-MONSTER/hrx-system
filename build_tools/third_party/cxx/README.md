@@ -5,7 +5,7 @@ changes live in the maintained fork rather than as patches in this directory:
 
 - Upstream: <https://github.com/robertoraggi/cplusplus>
 - Maintained fork: <https://github.com/benvanik/cplusplus>
-- Current stack: [`hrx-upstream/62-reference-pack-normalization`](https://github.com/benvanik/cplusplus/commits/hrx-upstream/62-reference-pack-normalization/)
+- Current stack: [`hrx-upstream/63-portable-wide-integer-limits`](https://github.com/benvanik/cplusplus/commits/hrx-upstream/63-portable-wide-integer-limits/)
 
 `../deps.MODULE.bazel` owns the archive commit and checksum. The generated root
 `MODULE.cmake.lock` carries the same identity for CMake. `cxx.BUILD.bazel` and
@@ -38,8 +38,8 @@ git remote get-url upstream >/dev/null 2>&1 || \
   git remote add upstream https://github.com/robertoraggi/cplusplus.git
 git fetch origin --prune
 git fetch upstream --prune
-git switch hrx-upstream/62-reference-pack-normalization
-git switch -c hrx-upstream/63-short-description
+git switch hrx-upstream/63-portable-wide-integer-limits
+git switch -c hrx-upstream/64-short-description
 ```
 
 Update the terminal branch named in this README whenever the stack grows. A
@@ -114,7 +114,7 @@ Update the URL, `strip_prefix`, and SHA-256 in
 CMake lock from the HRX repository root:
 
 ```sh
-.venv/bin/python -B build_tools/bazel_to_cmake/bazel_to_cmake.py
+.venv/bin/python -B build_tools/bazel_to_cmake/deps.py
 .venv/bin/python -B build_tools/bazel_to_cmake/deps.py --check
 ```
 
