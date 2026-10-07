@@ -604,23 +604,15 @@ static iree_status_t loom_check_execute_pass_with_output(
     loom_target_pass_predicate_provider_storage_t predicate_storage;
     loom_target_pass_predicate_provider_storage_initialize(block_pool,
                                                            &predicate_storage);
-    const loom_pass_registry_t* pass_registry = loom_pass_builtin_registry();
     const loom_pass_registry_t* target_pass_registry =
         loom_target_environment_pass_registry(environment->target_environment);
     loom_pass_registry_storage_t pass_registry_storage = {0};
-    if (iree_status_is_ok(status) && target_pass_registry != NULL) {
-      const loom_pass_registry_t* pass_registries[] = {
-          loom_pass_builtin_registry(),
-          target_pass_registry,
-      };
-      status = loom_pass_registry_storage_initialize_from_registries(
-          pass_registries, IREE_ARRAYSIZE(pass_registries),
-          &pass_registry_storage);
-      if (iree_status_is_ok(status)) {
-        pass_registry =
-            loom_pass_registry_storage_registry(&pass_registry_storage);
-      }
+    if (iree_status_is_ok(status)) {
+      status = loom_pass_registry_storage_initialize_with_builtins(
+          target_pass_registry, &pass_registry_storage);
     }
+    const loom_pass_registry_t* pass_registry =
+        loom_pass_registry_storage_registry(&pass_registry_storage);
     loom_target_legalizer_registry_storage_t legalizer_registry_storage = {0};
     if (iree_status_is_ok(status)) {
       const loom_target_legalizer_provider_list_t legalizer_provider_list =

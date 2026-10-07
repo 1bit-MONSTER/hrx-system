@@ -441,17 +441,13 @@ loomc_status_t loomc_target_pass_registry_initialize(
   }
   *out_storage = (loom_pass_registry_storage_t){0};
   *out_registry = NULL;
-  const loom_pass_registry_t* registries[2] = {
-      loom_pass_builtin_registry(),
-  };
-  iree_host_size_t registry_count = 1;
-  if (target_environment != NULL) {
-    registries[registry_count++] =
-        loom_target_environment_pass_registry(&target_environment->environment);
-  }
+  const loom_pass_registry_t* extension_registry =
+      target_environment != NULL ? loom_target_environment_pass_registry(
+                                       &target_environment->environment)
+                                 : NULL;
   LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(
-      loom_pass_registry_storage_initialize_from_registries(
-          registries, registry_count, out_storage)));
+      loom_pass_registry_storage_initialize_with_builtins(extension_registry,
+                                                          out_storage)));
   *out_registry = loom_pass_registry_storage_registry(out_storage);
   return loomc_ok_status();
 }
