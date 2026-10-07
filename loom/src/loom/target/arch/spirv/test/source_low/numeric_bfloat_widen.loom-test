@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_bfloat_widen.loom
 // RUN: emit source-low target=spirv:vulkan1.3+bda+extended-types output=low
 
 func.def @widen_bfloat(%input: bf16) -> (f32) {
