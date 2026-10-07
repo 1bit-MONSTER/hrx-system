@@ -13,6 +13,7 @@ loom_check_test_suite(
   NAME
     test
   SRCS
+    "grouped_product_evaluation.loom-test"
     "legalize.loom-test"
     "widen_f32_round.loom-test"
 )

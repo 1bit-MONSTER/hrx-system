@@ -15,6 +15,8 @@ loom_cc_library(
   HDRS
     "legalize.h"
   SRCS
+    "evaluation.c"
+    "evaluation.h"
     "legalize.c"
     "patterns.c"
     "patterns.h"
