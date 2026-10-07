@@ -21,3 +21,30 @@ COMPILE-REPORT: source_low[1] function=scalar_arithmetic_expansion source_op=sca
 COMPILE-REPORT: source_low[2] function=scalar_arithmetic_expansion source_op=scalar.mulf selection=rule plan_key=exact_binary32 descriptor_key=amd.xdna.aie2p.select.nonzero.i32 descriptor_semantic_tag=integer.select.nonzero.i32 emitted_ops=163
 COMPILE-REPORT: source_low[3] function=scalar_arithmetic_expansion source_op=scalar.fmaf selection=rule plan_key=exact_binary32_fma descriptor_key=amd.xdna.aie2p.select.nonzero.i32 descriptor_semantic_tag=integer.select.nonzero.i32 emitted_ops=352
 COMPILE-REPORT: source_low[4] function=scalar_arithmetic_expansion source_op=scalar.addi selection=rule descriptor_key=amd.xdna.aie2p.add.i32 descriptor_semantic_tag=integer.add.i32 emitted_ops=1
+
+// ====
+
+// Conversion scenarios own FP8 numerical behavior, including exhaustive input
+// spaces where they are tractable. Keep the rule identities and expansion
+// sizes here so changes to the scalar implementation remain visible without
+// snapshotting hundreds of Low instructions.
+func.def @scalar_float8_conversion_expansion(%e4m3: f8E4M3, %e5m2: f8E5M2, %f32_e4m3: f32, %f32_e5m2: f32, %f16: f16, %bf16: bf16) -> (f32, f32, f8E4M3, f8E5M2, f8E4M3, f8E5M2) {
+  %e4m3_f32 = scalar.extf %e4m3 : f8E4M3 to f32
+  %e5m2_f32 = scalar.extf %e5m2 : f8E5M2 to f32
+  %f32_e4m3_result = scalar.fptrunc %f32_e4m3 : f32 to f8E4M3
+  %f32_e5m2_result = scalar.fptrunc %f32_e5m2 : f32 to f8E5M2
+  %f16_e4m3_result = scalar.fptrunc %f16 : f16 to f8E4M3
+  %bf16_e5m2_result = scalar.fptrunc %bf16 : bf16 to f8E5M2
+  func.return %e4m3_f32, %e5m2_f32, %f32_e4m3_result, %f32_e5m2_result, %f16_e4m3_result, %bf16_e5m2_result : f32, f32, f8E4M3, f8E5M2, f8E4M3, f8E5M2
+}
+
+// ----
+COMPILE-REPORT: summary artifact=none status=OK function=- backend=- bundle=- export=- export_symbol=- config=- lowered=-
+COMPILE-REPORT: source_low selected_ops=6 emitted_ops=374 rows=6 unkeyed_maximum_emitted_ops=0
+COMPILE-REPORT: source_low_target[0] function=scalar_float8_conversion_expansion source=specialization target=- bundle=aie2p-core config=amd.xdna.aie2p.core
+COMPILE-REPORT: source_low[0] function=scalar_float8_conversion_expansion source_op=scalar.extf selection=rule plan_key=exact_f8e4m3_to_f32 descriptor_key=amd.xdna.aie2p.select.nonzero.i32 descriptor_semantic_tag=integer.select.nonzero.i32 emitted_ops=43
+COMPILE-REPORT: source_low[1] function=scalar_float8_conversion_expansion source_op=scalar.extf selection=rule plan_key=exact_f8e5m2_to_f32 descriptor_key=amd.xdna.aie2p.select.nonzero.i32 descriptor_semantic_tag=integer.select.nonzero.i32 emitted_ops=47
+COMPILE-REPORT: source_low[2] function=scalar_float8_conversion_expansion source_op=scalar.fptrunc selection=rule plan_key=exact_f32_to_f8e4m3 descriptor_key=amd.xdna.aie2p.or.i32 descriptor_semantic_tag=integer.or.i32 emitted_ops=63
+COMPILE-REPORT: source_low[3] function=scalar_float8_conversion_expansion source_op=scalar.fptrunc selection=rule plan_key=exact_f32_to_f8e5m2 descriptor_key=amd.xdna.aie2p.or.i32 descriptor_semantic_tag=integer.or.i32 emitted_ops=64
+COMPILE-REPORT: source_low[4] function=scalar_float8_conversion_expansion source_op=scalar.fptrunc selection=rule plan_key=exact_f16_to_f8e4m3 descriptor_key=amd.xdna.aie2p.or.i32 descriptor_semantic_tag=integer.or.i32 emitted_ops=91
+COMPILE-REPORT: source_low[5] function=scalar_float8_conversion_expansion source_op=scalar.fptrunc selection=rule plan_key=exact_bf16_to_f8e5m2 descriptor_key=amd.xdna.aie2p.or.i32 descriptor_semantic_tag=integer.or.i32 emitted_ops=66
