@@ -15,6 +15,15 @@
 extern "C" {
 #endif  // __cplusplus
 
+// Requires an external tool dependency to be declared by the test case.
+//
+// Missing declarations set |result| to FAIL and return OK with
+// |out_continue_execution| false. This is a final outcome: callers must not
+// apply XFAIL inversion after this helper stops execution.
+iree_status_t loom_check_require_declared_requirement(
+    const loom_test_case_t* test_case, iree_string_view_t requirement,
+    loom_check_result_t* result, bool* out_continue_execution);
+
 // Checks a test case's // REQUIRES declarations before executing its IR body.
 //
 // Unavailable declared requirements set |result| to SKIP and return OK with

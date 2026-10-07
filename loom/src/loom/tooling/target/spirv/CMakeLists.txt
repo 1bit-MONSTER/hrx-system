@@ -19,7 +19,6 @@ loom_cc_library(
     "check/loom_check.c"
   DEPS
     iree::base
-    loom::target::emit::spirv::module_compiler
     loom::target::entry_selection
     loom::target::provider
     loom::target::tool::spirv
@@ -77,7 +76,7 @@ loom_cc_library(
   DEPS
     ::device_provider
     iree::base
-    loom::target::arch::spirv::provider
+    loom::target::arch::spirv::compiler_provider
     loom::tooling::execution::execution_provider
     loom::tooling::execution::hal::execution_backend
   PUBLIC

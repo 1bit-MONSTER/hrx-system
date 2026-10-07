@@ -1062,9 +1062,10 @@ loomc_status_t loomc_compile_artifact(
     status = loomc_status_from_iree(loom_compile_request_materialize(
         &request,
         loomc_target_environment_loom_target_environment(target_environment),
-        &entry_options, &sources, function_versions->arena,
-        loomc_module_block_pool(module), &internal_module,
-        &target_specializations, &error_count));
+        &entry_options, internal_module,
+        LOOM_COMPILE_REQUEST_SOURCE_TRANSFERRED, &sources,
+        function_versions->arena, loomc_module_block_pool(module),
+        &internal_module, &target_specializations, &error_count));
     loomc_status_t source_status = loomc_module_replace_source_table(
         module, internal_module, &sources.table);
     if (!loomc_status_is_ok(source_status)) {

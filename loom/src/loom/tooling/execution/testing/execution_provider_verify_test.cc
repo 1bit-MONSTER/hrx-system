@@ -69,9 +69,51 @@ const loom_target_provider_t kCoreTestTargetProvider = {
     loom_target_core_test_low_descriptor_registry_initialize,
 };
 
+iree_status_t FakeTargetEmit(const loom_target_emit_request_t* request,
+                             bool* out_emitted,
+                             loom_target_emit_artifact_t* out_artifact) {
+  (void)request;
+  *out_emitted = false;
+  *out_artifact = {};
+  return iree_ok_status();
+}
+
+const loom_target_emitter_t kFakeTargetEmitter = {
+    /*.name=*/IREE_SVL("fake-target-emitter"),
+    /*.public_artifact_format=*/IREE_SVL("fake-target-format"),
+    /*.default_identifier=*/IREE_SVL("fake.bin"),
+    /*.target_artifact_format=*/{},
+    /*.default_pipeline_options=*/{},
+    /*.emit=*/FakeTargetEmit,
+};
+
+const loom_target_emitter_t* const kFakeTargetEmitters[] = {
+    &kFakeTargetEmitter,
+};
+
+loom_target_provider_t MakeSupplementalTestTargetProvider() {
+  loom_target_provider_t provider = {};
+  provider.emitter_list = loom_target_emitter_list_make(
+      kFakeTargetEmitters, IREE_ARRAYSIZE(kFakeTargetEmitters));
+  return provider;
+}
+
+const loom_target_provider_t kSupplementalTestTargetProvider =
+    MakeSupplementalTestTargetProvider();
+
+const loom_target_provider_t* const kCoreTestTargetProviders[] = {
+    &kCoreTestTargetProvider,
+    &kSupplementalTestTargetProvider,
+};
+
+const loom_target_provider_set_t kCoreTestTargetProviderSet = {
+    /*.providers=*/kCoreTestTargetProviders,
+    /*.provider_count=*/IREE_ARRAYSIZE(kCoreTestTargetProviders),
+};
+
 const loom_run_execution_provider_t kCoreTestProvider = {
     /*.name=*/IREE_SVL("core-test"),
-    /*.target_provider=*/&kCoreTestTargetProvider,
+    /*.compiler_provider_set=*/&kCoreTestTargetProviderSet,
     /*.execution_backends=*/kFakeExecutionBackends,
     /*.execution_backend_count=*/IREE_ARRAYSIZE(kFakeExecutionBackends),
 };
@@ -82,7 +124,7 @@ const loom_run_execution_provider_t kDuplicateCoreTestProvider = {
 
 const loom_run_execution_provider_t kDuplicateExecutionProvider = {
     /*.name=*/IREE_SVL("duplicate-execution"),
-    /*.target_provider=*/{},
+    /*.compiler_provider_set=*/{},
     /*.execution_backends=*/kDuplicateFakeExecutionBackends,
     /*.execution_backend_count=*/
     IREE_ARRAYSIZE(kDuplicateFakeExecutionBackends),
@@ -90,7 +132,7 @@ const loom_run_execution_provider_t kDuplicateExecutionProvider = {
 
 const loom_run_execution_provider_t kDuplicateDriverExecutionProvider = {
     /*.name=*/IREE_SVL("duplicate-driver"),
-    /*.target_provider=*/{},
+    /*.compiler_provider_set=*/{},
     /*.execution_backends=*/kDuplicateDriverExecutionBackends,
     /*.execution_backend_count=*/
     IREE_ARRAYSIZE(kDuplicateDriverExecutionBackends),
@@ -120,6 +162,10 @@ TEST(ExecutionProviderTest, ComposesDescriptorRegistryAndExecutionBackends) {
 
   const loom_target_environment_t* target_environment =
       loom_run_execution_environment_target_environment(&environment);
+  EXPECT_EQ(target_environment->provider_set->provider_count, 2u);
+  EXPECT_EQ(loom_target_environment_lookup_emitter(
+                target_environment, IREE_SV("fake-target-format")),
+            &kFakeTargetEmitter);
   const loom_target_low_descriptor_registry_t low_registry =
       loom_target_environment_low_descriptor_registry(target_environment);
   const loom_low_descriptor_set_t* descriptor_set =

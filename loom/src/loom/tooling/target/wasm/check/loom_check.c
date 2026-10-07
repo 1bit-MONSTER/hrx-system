@@ -6,43 +6,10 @@
 
 #include "loom/tooling/target/wasm/check/loom_check.h"
 
-#include "loom/target/emit/wasm/module_compiler.h"
+#include "loom/target/provider.h"
 #include "loom/target/tool/wasm.h"
 #include "loom/tools/loom-check/diagnostics.h"
-
-static bool loom_wasm_loom_check_case_has_requirement(
-    const loom_test_case_t* test_case, iree_string_view_t requirement) {
-  for (iree_host_size_t i = 0; i < test_case->requirement_count; ++i) {
-    if (iree_string_view_equal(test_case->requirements[i], requirement)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-static iree_status_t loom_wasm_loom_check_fail_missing_requirement(
-    iree_string_view_t emit_target, iree_string_view_t requirement,
-    loom_check_result_t* result) {
-  result->raw_outcome = LOOM_CHECK_FAIL;
-  result->final_outcome = LOOM_CHECK_FAIL;
-  return iree_string_builder_append_format(
-      &result->detail,
-      "RUN: emit %.*s requires '// REQUIRES: %.*s'; external tool "
-      "dependencies must be declared even when they are available\n",
-      (int)emit_target.size, emit_target.data, (int)requirement.size,
-      requirement.data);
-}
-
-static iree_status_t loom_wasm_loom_check_require_declared_requirement(
-    const loom_test_case_t* test_case, iree_string_view_t requirement,
-    loom_check_result_t* result, bool* out_continue_execution) {
-  if (loom_wasm_loom_check_case_has_requirement(test_case, requirement)) {
-    return iree_ok_status();
-  }
-  *out_continue_execution = false;
-  return loom_wasm_loom_check_fail_missing_requirement(test_case->emit_target,
-                                                       requirement, result);
-}
+#include "loom/tools/loom-check/requirements.h"
 
 static bool loom_wasm_loom_check_emit_provider_matches(
     const loom_check_emit_provider_t* provider,
@@ -64,24 +31,8 @@ static iree_status_t loom_wasm_loom_check_emit_provider_check_requirements(
   if (!iree_string_view_equal(target_name, IREE_SV("wasm-dis"))) {
     return iree_ok_status();
   }
-  return loom_wasm_loom_check_require_declared_requirement(
+  return loom_check_require_declared_requirement(
       test_case, IREE_SV("wasm-objdump"), result, out_continue_execution);
-}
-
-static iree_string_view_t loom_wasm_loom_check_consume_line(
-    iree_string_view_t* remaining) {
-  iree_host_size_t newline_position =
-      iree_string_view_find(*remaining, IREE_SV("\n"), 0);
-  if (newline_position == IREE_STRING_VIEW_NPOS) {
-    iree_string_view_t line = *remaining;
-    *remaining = iree_string_view_empty();
-    return line;
-  }
-  iree_string_view_t line =
-      iree_string_view_substr(*remaining, 0, newline_position);
-  *remaining = iree_string_view_substr(*remaining, newline_position + 1,
-                                       IREE_HOST_SIZE_MAX);
-  return line;
 }
 
 static bool loom_wasm_loom_check_is_hex_digit(char value) {
@@ -176,7 +127,8 @@ static iree_status_t loom_wasm_loom_check_strip_objdump_preamble(
   iree_string_view_t remaining = input;
   bool found_disassembly = false;
   while (!iree_string_view_is_empty(remaining)) {
-    iree_string_view_t line = loom_wasm_loom_check_consume_line(&remaining);
+    iree_string_view_t line = iree_string_view_empty();
+    iree_string_view_split(remaining, '\n', &line, &remaining);
     if (!found_disassembly) {
       found_disassembly = iree_string_view_starts_with(
           line, IREE_SV("Disassembly of section "));
@@ -201,7 +153,6 @@ static iree_status_t loom_wasm_loom_check_emit_provider_execute(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "wasm-dis does not accept options");
   }
-
   loom_check_diagnostic_emitter_capture_t capture = {
       .diagnostic_collector = request->diagnostic_collector,
       .module = request->module,
@@ -212,28 +163,55 @@ static iree_status_t loom_wasm_loom_check_emit_provider_execute(
       .fn = loom_check_diagnostic_emitter_capture_emit,
       .user_data = &capture,
   };
-  loom_wasm_module_binary_t module = {0};
-  bool module_emitted = false;
-  iree_status_t status = loom_wasm_compile_module_binary(
-      request->module, &request->low_registry->registry, diagnostic_emitter,
-      request->case_arena, request->host_allocator, &module_emitted, &module);
+  const loom_target_emitter_t* emitter = loom_target_environment_lookup_emitter(
+      request->environment->target_environment, IREE_SV("wasm-binary"));
+  loom_target_emit_artifact_t artifact = {0};
+  bool emitted = false;
+  iree_status_t status = iree_ok_status();
+  if (emitter == NULL) {
+    status = iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                              "Wasm emitter is not linked");
+  }
+  if (iree_status_is_ok(status)) {
+    const loom_target_emit_request_t emit_request = {
+        .target_environment = request->environment->target_environment,
+        .low_descriptor_registry = &request->low_registry->registry,
+        .module = request->module,
+        .identifier = emitter->default_identifier,
+        .diagnostic_emitter = diagnostic_emitter,
+        .scratch_arena = request->case_arena,
+        .allocator = request->host_allocator,
+    };
+    status = emitter->emit(&emit_request, &emitted, &artifact);
+  }
+  iree_const_byte_span_t contents = iree_const_byte_span_empty();
+  iree_byte_span_t owned_contents = iree_byte_span_empty();
+  if (iree_status_is_ok(status) && emitted) {
+    if (!iree_byte_sequence_try_get_contiguous_span(artifact.contents,
+                                                    &contents)) {
+      status = iree_byte_sequence_clone(
+          artifact.contents, request->host_allocator, &owned_contents);
+      contents = iree_make_const_byte_span(owned_contents.data,
+                                           owned_contents.data_length);
+    }
+  }
 
   loom_wasm_toolchain_t toolchain;
   loom_wasm_toolchain_initialize_from_environment(&toolchain);
   loom_tool_output_t disassembly = {0};
-  if (iree_status_is_ok(status) && module_emitted) {
+  if (iree_status_is_ok(status) && emitted) {
     status = loom_wasm_tool_disassemble_binary(
-        &toolchain, iree_make_const_byte_span(module.data, module.data_length),
-        request->host_allocator, &disassembly);
+        &toolchain, contents, request->host_allocator, &disassembly);
   }
-  if (iree_status_is_ok(status) && module_emitted) {
+  if (iree_status_is_ok(status) && emitted) {
     status = loom_wasm_loom_check_strip_objdump_preamble(
         iree_make_string_view(disassembly.data, disassembly.length),
         &request->result->actual_output);
   }
 
   loom_tool_output_deinitialize(&disassembly, request->host_allocator);
-  loom_wasm_module_binary_deinitialize(&module, request->host_allocator);
+  iree_allocator_free(request->host_allocator, owned_contents.data);
+  loom_target_emit_artifact_release(&artifact);
   return status;
 }
 

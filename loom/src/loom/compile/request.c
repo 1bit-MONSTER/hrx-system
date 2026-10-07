@@ -699,20 +699,16 @@ static iree_status_t loom_compile_request_build_specializations(
 static iree_status_t loom_compile_request_materialize_roots(
     const loom_compile_request_t* request,
     loom_linker_target_symbol_list_t root_targets,
-    loom_source_table_projection_t* sources,
-    iree_arena_block_pool_t* block_pool, loom_module_t** inout_module) {
-  loom_module_t* module = *inout_module;
-  if (request->selection.roots.count == 0) {
-    return iree_ok_status();
-  }
-
-  const loom_module_t* const source_modules[] = {module};
+    const loom_module_t* source_module, loom_source_table_projection_t* sources,
+    iree_arena_block_pool_t* block_pool, loom_module_t** out_module) {
+  *out_module = NULL;
+  const loom_module_t* const source_modules[] = {source_module};
   iree_string_view_t module_name = iree_string_view_empty();
-  if (module->name_id < module->strings.count) {
-    module_name = loom_string_table_get(&module->strings, module->name_id);
+  if (source_module->name_id < source_module->strings.count) {
+    module_name =
+        loom_string_table_get(&source_module->strings, source_module->name_id);
   }
   const loom_source_table_resolver_t input_sources = sources->table;
-  loom_module_t* linked_module = NULL;
   iree_status_t status = loom_link_materialized_modules(
       source_modules, IREE_ARRAYSIZE(source_modules),
       &(loom_link_options_t){
@@ -722,31 +718,52 @@ static iree_status_t loom_compile_request_materialize_roots(
           .source_callback = {.fn = loom_source_table_project,
                               .user_data = sources},
       },
-      block_pool, module->allocator, &linked_module);
-  if (iree_status_is_ok(status)) {
-    loom_module_free(module);
-    *inout_module = linked_module;
-  } else {
+      block_pool, source_module->allocator, out_module);
+  if (!iree_status_is_ok(status)) {
     sources->table = input_sources;
   }
   return status;
+}
+
+static void loom_compile_request_publish_module_roots(
+    loom_module_t* module, loom_linker_target_symbol_list_t root_targets) {
+  for (iree_host_size_t i = 0; i < root_targets.count; ++i) {
+    const loom_symbol_ref_t root = root_targets.values[i];
+    IREE_ASSERT_EQ(root.module_id, 0u);
+    IREE_ASSERT_LT(root.symbol_id, module->symbols.count);
+    loom_symbol_t* symbol = &module->symbols.entries[root.symbol_id];
+    loom_func_like_t function =
+        loom_func_like_cast(module, symbol->defining_op);
+    IREE_ASSERT(loom_func_like_isa(function));
+    loom_op_attrs(function.op)[function.vtable->visibility_attr_index] =
+        loom_attr_enum(/*public=*/1);
+    symbol->flags |= LOOM_SYMBOL_FLAG_PUBLIC;
+  }
 }
 
 iree_status_t loom_compile_request_materialize(
     const loom_compile_request_t* request,
     const loom_target_environment_t* target_environment,
     const loom_target_entry_options_t* entry_options,
+    const loom_module_t* source_module,
+    loom_compile_request_source_ownership_t source_ownership,
     loom_source_table_projection_t* sources, iree_arena_allocator_t* arena,
-    iree_arena_block_pool_t* block_pool, loom_module_t** inout_module,
+    iree_arena_block_pool_t* block_pool, loom_module_t** out_module,
     loom_target_specialization_request_list_t* out_target_specializations,
     uint32_t* out_error_count) {
+  *out_module = source_ownership == LOOM_COMPILE_REQUEST_SOURCE_TRANSFERRED
+                    ? (loom_module_t*)source_module
+                    : NULL;
   *out_target_specializations = (loom_target_specialization_request_list_t){0};
   *out_error_count = 0;
 
   iree_arena_allocator_t scratch_arena;
   iree_arena_initialize(block_pool, &scratch_arena);
+  const bool requires_root_targets =
+      request->target_profile != NULL ||
+      request->selection.kind == LOOM_COMPILE_ENTRY_KIND_MODULE;
   const iree_host_size_t root_target_count =
-      request->target_profile != NULL ? request->selection.roots.count : 0;
+      requires_root_targets ? request->selection.roots.count : 0;
   loom_symbol_ref_t* root_target_values = NULL;
   iree_status_t status = iree_arena_allocate_array(
       &scratch_arena, root_target_count, sizeof(*root_target_values),
@@ -755,9 +772,24 @@ iree_status_t loom_compile_request_materialize(
       .count = root_target_count,
       .values = root_target_values,
   };
-  if (iree_status_is_ok(status)) {
+  const bool must_link =
+      source_ownership == LOOM_COMPILE_REQUEST_SOURCE_BORROWED ||
+      request->selection.roots.count != 0;
+  if (iree_status_is_ok(status) && must_link) {
+    loom_module_t* materialized_module = NULL;
     status = loom_compile_request_materialize_roots(
-        request, root_targets, sources, block_pool, inout_module);
+        request, root_targets, source_module, sources, block_pool,
+        &materialized_module);
+    if (iree_status_is_ok(status)) {
+      if (source_ownership == LOOM_COMPILE_REQUEST_SOURCE_TRANSFERRED) {
+        loom_module_free(*out_module);
+      }
+      *out_module = materialized_module;
+    }
+  }
+  if (iree_status_is_ok(status) && root_targets.count != 0 &&
+      request->selection.kind == LOOM_COMPILE_ENTRY_KIND_MODULE) {
+    loom_compile_request_publish_module_roots(*out_module, root_targets);
   }
 
   loom_target_specialization_request_list_t specializations = {0};
@@ -767,7 +799,7 @@ iree_status_t loom_compile_request_materialize(
             ? &scratch_arena
             : arena;
     status = loom_compile_request_build_specializations(
-        *inout_module, root_targets, request->target_profile,
+        *out_module, root_targets, request->target_profile,
         specialization_arena, &specializations);
   }
   if (iree_status_is_ok(status) &&
@@ -775,13 +807,13 @@ iree_status_t loom_compile_request_materialize(
       request->target_profile != NULL) {
     loom_target_entry_diagnostic_emitter_t diagnostic_emitter;
     loom_target_entry_diagnostic_emitter_initialize(
-        *inout_module, entry_options, LOOM_EMITTER_PASS, &diagnostic_emitter);
+        *out_module, entry_options, LOOM_EMITTER_PASS, &diagnostic_emitter);
     status = loom_target_specialize_module(
         target_environment, specializations,
         (loom_target_declaration_binding_list_t){0},
         loom_target_entry_emitter(&diagnostic_emitter), block_pool,
-        (*inout_module)->allocator, inout_module, out_error_count);
-    sources->table.module = *inout_module;
+        (*out_module)->allocator, out_module, out_error_count);
+    sources->table.module = *out_module;
   } else if (iree_status_is_ok(status) &&
              request->selection.kind == LOOM_COMPILE_ENTRY_KIND_MODULE) {
     *out_target_specializations = specializations;

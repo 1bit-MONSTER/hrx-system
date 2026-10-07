@@ -6,7 +6,7 @@
 
 #include "loom/tooling/target/spirv/execution_provider.h"
 
-#include "loom/target/arch/spirv/provider.h"
+#include "loom/target/arch/spirv/compiler_provider.h"
 #include "loom/tooling/execution/hal/execution_backend.h"
 #include "loom/tooling/target/spirv/device_provider.h"
 
@@ -29,7 +29,7 @@ static const loom_run_execution_backend_t* const kLoomSpirvExecutionBackends[] =
 
 const loom_run_execution_provider_t loom_spirv_vulkan_execution_provider = {
     .name = IREE_SVL("spirv"),
-    .target_provider = &loom_spirv_target_provider,
+    .compiler_provider_set = &loom_spirv_compiler_provider_set,
     .execution_backends = kLoomSpirvExecutionBackends,
     .execution_backend_count = IREE_ARRAYSIZE(kLoomSpirvExecutionBackends),
 };

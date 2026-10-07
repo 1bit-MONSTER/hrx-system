@@ -28,18 +28,21 @@ iree_status_t loom_run_execution_environment_initialize(
       .provider_set = provider_set,
   };
   loom_target_provider_set_storage_initialize(
-      &out_environment->target_provider_storage);
+      &out_environment->compiler_provider_storage);
 
   for (iree_host_size_t i = 0; i < provider_set->provider_count; ++i) {
     const loom_run_execution_provider_t* provider = provider_set->providers[i];
-    IREE_RETURN_IF_ERROR(loom_target_provider_set_storage_append(
-        &out_environment->target_provider_storage, provider->target_provider));
+    if (provider->compiler_provider_set != NULL) {
+      IREE_RETURN_IF_ERROR(loom_target_provider_set_storage_append_set(
+          &out_environment->compiler_provider_storage,
+          provider->compiler_provider_set));
+    }
     IREE_RETURN_IF_ERROR(
         loom_run_execution_environment_append_execution_backends(
             out_environment, provider));
   }
   IREE_RETURN_IF_ERROR(loom_target_environment_initialize(
-      &out_environment->target_provider_storage.provider_set,
+      &out_environment->compiler_provider_storage.provider_set,
       &out_environment->target_environment));
   loom_run_execution_backend_registry_initialize_from_entries(
       out_environment->execution_backends,
