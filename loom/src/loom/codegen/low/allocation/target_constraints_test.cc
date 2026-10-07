@@ -6,6 +6,7 @@
 
 #include "loom/codegen/low/allocation/target_constraints.h"
 
+#include <algorithm>
 #include <vector>
 
 #include "iree/base/internal/arena.h"
@@ -537,8 +538,8 @@ TEST_F(LowAllocationTargetConstraintsTest,
                                       nullptr, iree_allocator_system(),
                                       &module));
   // Placement retains one origin for the required chain 1 -> 2 -> 0,
-  // independently of local value registration order. Only its final value has
-  // an explicit fixed binding.
+  // independently of local value registration order. Exercise every nonempty
+  // subset and ordering of explicit bindings, including an inferred origin.
   constexpr uint32_t kValueCount = 3;
   loom_value_id_t values[kValueCount];
   loom_liveness_interval_t intervals[kValueCount] = {};
@@ -603,39 +604,62 @@ TEST_F(LowAllocationTargetConstraintsTest,
   placement.relation_count = IREE_ARRAYSIZE(relations);
   const loom_value_ordinal_t tied_storage_origins[] = {1, 1, 1};
   placement.tied_storage_origins_by_value_ordinal = tied_storage_origins;
-  const loom_low_allocation_fixed_value_t fixed = {
-      values[0], LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 6, 1};
-  loom_low_allocation_target_constraints_t constraints = {};
-  IREE_ASSERT_OK(loom_low_allocation_target_constraints_initialize(
-      module, &function_op_, &target_, nullptr, 0, nullptr, 0, {}, &arena_,
-      &constraints));
-  IREE_ASSERT_OK(loom_low_allocation_target_constraints_resolve_fixed_values(
-      &constraints, &liveness, &domain, &unit_liveness, &placement, &fixed, 1,
-      &arena_));
-  ASSERT_EQ(constraints.error_count, 0u);
-  EXPECT_EQ(constraints.preassigned_fixed_value_count, kValueCount);
-  EXPECT_NE(constraints.fixed_index.subtree_tied_roots, nullptr);
-  for (auto value : values) {
-    const auto* binding =
-        loom_low_allocation_target_constraints_preassigned_fixed_value_for_value(
-            &constraints, value);
-    ASSERT_NE(binding, nullptr);
-    EXPECT_EQ(binding->tied_root_ordinal, 1u);
-    EXPECT_EQ(binding->assignment.location_base, 6u);
-    EXPECT_FALSE(loom_low_allocation_target_constraints_fixed_storage_conflicts(
-        &constraints, &unit_liveness, &binding->assignment,
-        /*ignored_value_ids=*/nullptr, /*ignored_value_count=*/0));
-    // A temporary may overlap the component only after its owner is excluded.
-    // Excluding any required alias releases the same complete reservation.
-    loom_low_allocation_assignment_t temporary = binding->assignment;
-    temporary.value_id = LOOM_VALUE_ID_INVALID;
-    temporary.start_point = 0;
-    temporary.end_point = 3;
-    temporary.unit_point_start = 3;
-    EXPECT_TRUE(loom_low_allocation_target_constraints_fixed_storage_conflicts(
-        &constraints, &unit_liveness, &temporary, nullptr, 0));
-    EXPECT_FALSE(loom_low_allocation_target_constraints_fixed_storage_conflicts(
-        &constraints, &unit_liveness, &temporary, &value, 1));
+  for (uint32_t mask = 1; mask < (1u << kValueCount); ++mask) {
+    uint32_t order[] = {0, 1, 2};
+    do {
+      SCOPED_TRACE(::testing::Message() << "mask=" << mask << " order="
+                                        << order[0] << order[1] << order[2]);
+      std::vector<loom_low_allocation_fixed_value_t> fixed;
+      for (uint32_t i : order) {
+        if (mask & (1u << i)) {
+          fixed.push_back({values[i],
+                           LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 6,
+                           1});
+        }
+      }
+      loom_low_allocation_target_constraints_t constraints = {};
+      IREE_ASSERT_OK(loom_low_allocation_target_constraints_initialize(
+          module, &function_op_, &target_, nullptr, 0, nullptr, 0, {}, &arena_,
+          &constraints));
+      IREE_ASSERT_OK(
+          loom_low_allocation_target_constraints_resolve_fixed_values(
+              &constraints, &liveness, &domain, &unit_liveness, &placement,
+              fixed.data(), fixed.size(), &arena_));
+      ASSERT_EQ(constraints.error_count, 0u);
+      EXPECT_EQ(constraints.fixed_value_count, kValueCount);
+      EXPECT_EQ(constraints.preassigned_fixed_value_count, kValueCount);
+      EXPECT_NE(constraints.fixed_index.subtree_tied_roots, nullptr);
+      for (size_t i = 0; i < fixed.size(); ++i) {
+        EXPECT_EQ(constraints.fixed_values[i].assignment.value_id,
+                  fixed[i].value_id);
+      }
+      for (auto value : values) {
+        const auto* binding =
+            loom_low_allocation_target_constraints_preassigned_fixed_value_for_value(
+                &constraints, value);
+        ASSERT_NE(binding, nullptr);
+        EXPECT_EQ(binding->assignment.value_id, value);
+        EXPECT_EQ(binding->tied_root_ordinal, 1u);
+        EXPECT_EQ(binding->assignment.location_base, 6u);
+        EXPECT_FALSE(
+            loom_low_allocation_target_constraints_fixed_storage_conflicts(
+                &constraints, &unit_liveness, &binding->assignment,
+                /*ignored_value_ids=*/nullptr, /*ignored_value_count=*/0));
+        // A temporary may overlap the component only after its owner is
+        // excluded. Every required alias releases the same reservation.
+        loom_low_allocation_assignment_t temporary = binding->assignment;
+        temporary.value_id = LOOM_VALUE_ID_INVALID;
+        temporary.start_point = 0;
+        temporary.end_point = 3;
+        temporary.unit_point_start = 3;
+        EXPECT_TRUE(
+            loom_low_allocation_target_constraints_fixed_storage_conflicts(
+                &constraints, &unit_liveness, &temporary, nullptr, 0));
+        EXPECT_FALSE(
+            loom_low_allocation_target_constraints_fixed_storage_conflicts(
+                &constraints, &unit_liveness, &temporary, &value, 1));
+      }
+    } while (std::next_permutation(std::begin(order), std::end(order)));
   }
   loom_local_value_domain_release(&domain);
   loom_module_free(module);

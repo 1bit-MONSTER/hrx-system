@@ -1011,44 +1011,51 @@ loom_low_allocation_target_constraints_resolve_tied_fixed_values(
     const loom_liveness_analysis_t* liveness,
     const loom_low_allocation_unit_liveness_t* unit_liveness,
     const loom_low_placement_table_t* placement,
-    iree_arena_allocator_t* scratch_arena, iree_arena_allocator_t* arena) {
+    iree_arena_allocator_t* arena) {
   const loom_value_ordinal_t* roots =
       placement->tied_storage_origins_by_value_ordinal;
   if (roots == NULL) {
     return iree_ok_status();
   }
-  uint32_t* bindings = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_arena_allocate_array(scratch_arena, liveness->value_count,
-                                sizeof(*bindings), (void**)&bindings));
-  for (loom_value_ordinal_t i = 0; i < liveness->value_count; ++i) {
-    bindings[i] = UINT32_MAX;
+  // Construction exclusively owns the value index. Root slots first select
+  // component bindings in input order; immutable fixed rows restore direct
+  // entries before inferred members are counted and published.
+  uint32_t* fixed_indices = constraints->fixed_value_indices_by_ordinal;
+  for (uint32_t i = 0; i < constraints->fixed_value_count; ++i) {
+    fixed_indices[roots[constraints->fixed_values[i].value_ordinal]] = 0;
   }
   for (uint32_t i = 0; i < constraints->fixed_value_count; ++i) {
     loom_low_allocation_resolved_fixed_value_t* fixed =
         &constraints->fixed_values[i];
     fixed->tied_root_ordinal = roots[fixed->value_ordinal];
-    uint32_t* binding = &bindings[fixed->tied_root_ordinal];
-    if (*binding == UINT32_MAX) {
-      *binding = i;
+    uint32_t* binding = &fixed_indices[fixed->tied_root_ordinal];
+    if (*binding == 0) {
+      *binding = i + 1;
     } else if (!loom_low_allocation_storage_assignment_ranges_equal(
                    constraints->target->descriptor_set,
-                   &constraints->fixed_values[*binding].assignment,
+                   &constraints->fixed_values[*binding - 1].assignment,
                    &fixed->assignment)) {
       IREE_RETURN_IF_ERROR(
           loom_low_allocation_target_constraints_emit_conflicting_tied_fixed_values(
-              constraints, &constraints->fixed_values[*binding].assignment,
+              constraints, &constraints->fixed_values[*binding - 1].assignment,
               &fixed->assignment));
     }
+  }
+  for (uint32_t i = 0; i < constraints->fixed_value_count; ++i) {
+    fixed_indices[constraints->fixed_values[i].value_ordinal] = i + 1;
   }
   if (constraints->error_count != 0) {
     return iree_ok_status();
   }
 
-  uint32_t* fixed_indices = constraints->fixed_value_indices_by_ordinal;
+  // Unbound origins still name another member's binding. Comparing the
+  // indexed row's ordinal distinguishes those entries from direct requests.
   iree_host_size_t inferred_count = 0;
   for (loom_value_ordinal_t i = 0; i < liveness->value_count; ++i) {
-    if (bindings[roots[i]] != UINT32_MAX && fixed_indices[i] == 0) {
+    const uint32_t index = fixed_indices[i];
+    if (fixed_indices[roots[i]] != 0 &&
+        (index == 0 ||
+         constraints->fixed_values[index - 1].value_ordinal != i)) {
       ++inferred_count;
     }
   }
@@ -1066,12 +1073,15 @@ loom_low_allocation_target_constraints_resolve_tied_fixed_values(
          preassigned_count * sizeof(*expanded));
   iree_host_size_t next_index = preassigned_count;
   for (loom_value_ordinal_t i = 0; i < liveness->value_count; ++i) {
-    const uint32_t binding = bindings[roots[i]];
-    if (binding == UINT32_MAX || fixed_indices[i] != 0) {
+    const uint32_t binding = fixed_indices[roots[i]];
+    const uint32_t index = fixed_indices[i];
+    if (binding == 0 ||
+        (index != 0 &&
+         constraints->fixed_values[index - 1].value_ordinal == i)) {
       continue;
     }
     const loom_low_allocation_assignment_t* reference =
-        &constraints->fixed_values[binding].assignment;
+        &constraints->fixed_values[binding - 1].assignment;
     const loom_liveness_interval_t* interval =
         loom_liveness_interval_for_value_ordinal(liveness, i);
     expanded[next_index] =
@@ -1309,14 +1319,9 @@ iree_status_t loom_low_allocation_target_constraints_resolve_fixed_values(
   }
   if (constraints->error_count == 0 && constraints->fixed_value_count != 0 &&
       placement->relation_count != 0) {
-    iree_arena_allocator_t scratch_arena;
-    iree_arena_initialize(arena->block_pool, &scratch_arena);
-    iree_status_t status =
+    IREE_RETURN_IF_ERROR(
         loom_low_allocation_target_constraints_resolve_tied_fixed_values(
-            constraints, liveness, unit_liveness, placement, &scratch_arena,
-            arena);
-    iree_arena_deinitialize(&scratch_arena);
-    IREE_RETURN_IF_ERROR(status);
+            constraints, liveness, unit_liveness, placement, arena));
   }
   for (iree_host_size_t i = 0; i < constraints->fixed_value_count; ++i) {
     const loom_low_allocation_assignment_t* assignment =

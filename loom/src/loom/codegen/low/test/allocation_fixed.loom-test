@@ -76,6 +76,36 @@ low.func.def target<test.low.core>(@target) @conflicting_fixed_chain(%seed: reg<
 
 // ====
 
+// Binding diagnostics preserve request order even when the origin is last.
+// RUN: emit low-allocation-json @conflicting_origin_last fixed=%last:target_id:6:1 fixed=%first:target_id:6:1 fixed=%seed:target_id:7:1 output=none
+
+test.target<low_core> @target
+
+// ERROR@+1: BACKEND/049 {first_value_name="last", first_location_base="6", second_value_name="seed", second_location_base="7"}
+low.func.def target<test.low.core>(@target) @conflicting_origin_last(%seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %first = test.tied.any %seed
+  %last = test.tied.any %first
+  return %last
+}
+
+// ====
+
+// Each conflicting member is compared against the first request, not the
+// required storage origin's later request.
+// RUN: emit low-allocation-json @conflicting_members fixed=%last:target_id:6:1 fixed=%seed:target_id:7:1 fixed=%first:target_id:8:1 output=none
+
+test.target<low_core> @target
+
+// ERROR@+1: BACKEND/049 {first_value_name="last", first_location_base="6", second_value_name="seed", second_location_base="7"}
+low.func.def target<test.low.core>(@target) @conflicting_members(%seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  // ERROR@+1: BACKEND/049 {first_value_name="last", first_location_base="6", second_value_name="first", second_location_base="8"}
+  %first = test.tied.any %seed
+  %last = test.tied.any %first
+  return %last
+}
+
+// ====
+
 // An optional copy does not authorize overwriting its still-live input.
 // RUN: emit low-allocation-json @fixed_copy_live_conflict fixed=%source:target_id:2:1 fixed=%last:target_id:2:1 output=none
 
