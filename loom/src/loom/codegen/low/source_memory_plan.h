@@ -440,6 +440,19 @@ bool loom_low_source_memory_access_plan_lane_byte_envelope(
     const loom_low_source_memory_access_plan_t* plan, int64_t* out_begin_offset,
     int64_t* out_end_offset);
 
+// Returns source operation semantics that must survive target-low lowering.
+static inline loom_low_memory_access_source_flags_t
+loom_low_source_memory_access_plan_source_flags(
+    const loom_low_source_memory_access_plan_t* plan) {
+  switch (plan->operation_kind) {
+    case LOOM_LOW_SOURCE_MEMORY_OPERATION_ATOMIC_LOAD:
+    case LOOM_LOW_SOURCE_MEMORY_OPERATION_ATOMIC_STORE:
+      return LOOM_LOW_MEMORY_ACCESS_SOURCE_FLAG_ATOMIC_OBSERVATION;
+    default:
+      return 0;
+  }
+}
+
 // Builds a dependency/scheduling summary from an already selected source
 // memory access plan. |out_interval| is caller-owned and may be borrowed by the
 // returned summary when interval precision is available.

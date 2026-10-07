@@ -1319,6 +1319,37 @@ TEST_F(SourceMemoryPlanTest, SummaryCapturesStridedPacketSlot) {
       &preceding_summary, &summary, LOOM_LOW_MEMORY_COMPARISON_INDEPENDENT));
 }
 
+TEST(SourceMemoryPlan, SummaryRetainsAtomicObservationSemantics) {
+  const loom_low_source_memory_operation_kind_t atomic_observations[] = {
+      LOOM_LOW_SOURCE_MEMORY_OPERATION_ATOMIC_LOAD,
+      LOOM_LOW_SOURCE_MEMORY_OPERATION_ATOMIC_STORE,
+  };
+  for (const auto operation_kind : atomic_observations) {
+    loom_low_source_memory_access_plan_t plan = {};
+    plan.operation_kind = operation_kind;
+    loom_low_byte_interval_t interval = {};
+    loom_low_memory_access_summary_t summary = {};
+    loom_low_source_memory_access_plan_make_summary(&plan, &interval, &summary);
+    EXPECT_EQ(summary.source_flags,
+              LOOM_LOW_MEMORY_ACCESS_SOURCE_FLAG_ATOMIC_OBSERVATION);
+  }
+
+  const loom_low_source_memory_operation_kind_t non_observations[] = {
+      LOOM_LOW_SOURCE_MEMORY_OPERATION_LOAD,
+      LOOM_LOW_SOURCE_MEMORY_OPERATION_STORE,
+      LOOM_LOW_SOURCE_MEMORY_OPERATION_ATOMIC_RMW,
+      LOOM_LOW_SOURCE_MEMORY_OPERATION_ATOMIC_CMPXCHG,
+  };
+  for (const auto operation_kind : non_observations) {
+    loom_low_source_memory_access_plan_t plan = {};
+    plan.operation_kind = operation_kind;
+    loom_low_byte_interval_t interval = {};
+    loom_low_memory_access_summary_t summary = {};
+    loom_low_source_memory_access_plan_make_summary(&plan, &interval, &summary);
+    EXPECT_EQ(summary.source_flags, 0);
+  }
+}
+
 TEST(SourceMemoryPlan, DynamicPacketOffsetsPreserveDivisibility) {
   loom_low_source_memory_access_plan_t plan = {};
   plan.operation_kind = LOOM_LOW_SOURCE_MEMORY_OPERATION_LOAD;

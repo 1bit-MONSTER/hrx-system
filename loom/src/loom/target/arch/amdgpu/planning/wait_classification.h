@@ -59,6 +59,8 @@ typedef enum loom_amdgpu_wait_node_state_flag_bits_e {
   LOOM_AMDGPU_WAIT_NODE_STATE_UNORDERED_FLAT_COMPLETION = 1u << 16,
   // An asynchronous result preserves the tied source's disjoint register part.
   LOOM_AMDGPU_WAIT_NODE_STATE_PRESERVES_RESULT_PART = 1u << 17,
+  // GFX12.0 ordinary SYSTEM store drains prior asynchronous memory work.
+  LOOM_AMDGPU_WAIT_NODE_STATE_SYSTEM_SCOPE_STORE_DRAIN = 1u << 18,
 } loom_amdgpu_wait_node_state_flag_bits_t;
 typedef uint32_t loom_amdgpu_wait_node_state_flags_t;
 

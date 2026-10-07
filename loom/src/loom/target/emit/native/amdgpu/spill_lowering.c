@@ -122,7 +122,8 @@ loom_amdgpu_spill_lowering_scratch_descriptor_ref(
 
   const loom_amdgpu_descriptor_immediate_slots_t immediate_slots =
       loom_amdgpu_descriptor_immediate_slots(descriptor_set, descriptor);
-  IREE_ASSERT(immediate_slots.address_offset != LOOM_LOW_ID_NONE,
+  IREE_ASSERT(immediate_slots.address_offset !=
+                  LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE,
               "generated spill descriptor must have an address offset");
   IREE_ASSERT(immediate_slots.address_offset < descriptor->immediate_count,
               "generated address offset slot must be descriptor-local");

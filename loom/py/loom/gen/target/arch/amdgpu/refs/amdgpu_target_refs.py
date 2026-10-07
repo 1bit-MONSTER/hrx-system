@@ -201,6 +201,7 @@ _DESTINATION_OP_SEL_MASK = 1 << 3
 _LITERAL_ENCODING_FIELD_ID = AMDGPU_ENCODING_FIELD_IDS["LITERAL"]
 _REL32_SYMBOL_IMMEDIATE_SLOT = 0
 _REL32_BYTE_OFFSET_IMMEDIATE_SLOT = 1
+_DESCRIPTOR_IMMEDIATE_SLOT_NONE = (1 << 8) - 1
 _REL32_DESCRIPTOR_KEYS = (
     "amdgpu.s_add_u32.rhs_symbol_rel32_lo",
     "amdgpu.s_addc_u32.rhs_symbol_rel32_hi",
@@ -218,6 +219,7 @@ class _DescriptorSetRefTable:
     sdwa_dst_sel_immediate_slots: list[int | None]
     literal_immediate_slots: list[int | None]
     address_offset_immediate_slots: list[int | None]
+    cache_scope_immediate_slots: list[int | None]
     reg_class_traits: list[tuple[str, ...]]
 
 
@@ -607,6 +609,8 @@ def _descriptor_immediate_slot(
             continue
         if slot_index is not None:
             raise ValueError(f"AMDGPU descriptor set '{descriptor_set.key}' descriptor '{descriptor.key}' has multiple {slot_name} immediates")
+        if index >= _DESCRIPTOR_IMMEDIATE_SLOT_NONE:
+            raise ValueError(f"AMDGPU descriptor set '{descriptor_set.key}' descriptor '{descriptor.key}' {slot_name} immediate slot {index} does not fit compact target refs")
         slot_index = index
     return slot_index
 
@@ -648,6 +652,18 @@ def _descriptor_address_offset_immediate_slot(
         descriptor,
         "address offset",
         lambda immediate: immediate.field_name == "offset",
+    )
+
+
+def _descriptor_cache_scope_immediate_slot(
+    descriptor_set: DescriptorSet,
+    descriptor: Descriptor,
+) -> int | None:
+    return _descriptor_immediate_slot(
+        descriptor_set,
+        descriptor,
+        "cache scope",
+        lambda immediate: immediate.field_name == "scope",
     )
 
 
@@ -705,6 +721,7 @@ def _materialize_descriptor_ref_tables(
         ]
         literal_immediate_slots = [_descriptor_literal_immediate_slot(descriptor_set, descriptor) for descriptor in descriptor_set.descriptors]
         address_offset_immediate_slots = [_descriptor_address_offset_immediate_slot(descriptor_set, descriptor) for descriptor in descriptor_set.descriptors]
+        cache_scope_immediate_slots = [_descriptor_cache_scope_immediate_slot(descriptor_set, descriptor) for descriptor in descriptor_set.descriptors]
         descriptor_set_tables.append(
             _DescriptorSetRefTable(
                 descriptor_set_ordinal=amdgpu_descriptor_set_ordinal(descriptor_set_info.key),
@@ -716,6 +733,7 @@ def _materialize_descriptor_ref_tables(
                 sdwa_dst_sel_immediate_slots=sdwa_dst_sel_immediate_slots,
                 literal_immediate_slots=literal_immediate_slots,
                 address_offset_immediate_slots=address_offset_immediate_slots,
+                cache_scope_immediate_slots=cache_scope_immediate_slots,
                 reg_class_traits=[_reg_class_trait_names(reg_class.name) for reg_class in descriptor_set.reg_classes],
             )
         )
@@ -829,18 +847,21 @@ def _emit_source(
             immediate_slot_table_name,
             [
                 [
-                    f".sdwa_dst_sel = {'LOOM_LOW_ID_NONE' if sdwa_dst_sel_slot is None else f'UINT16_C({sdwa_dst_sel_slot})'},",
-                    f".literal = {'LOOM_LOW_ID_NONE' if literal_slot is None else f'UINT16_C({literal_slot})'},",
-                    f".address_offset = {'LOOM_LOW_ID_NONE' if address_offset_slot is None else f'UINT16_C({address_offset_slot})'},",
+                    f".sdwa_dst_sel = {'LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE' if sdwa_dst_sel_slot is None else f'UINT8_C({sdwa_dst_sel_slot})'},",
+                    f".literal = {'LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE' if literal_slot is None else f'UINT8_C({literal_slot})'},",
+                    f".address_offset = {'LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE' if address_offset_slot is None else f'UINT8_C({address_offset_slot})'},",
+                    f".cache_scope = {'LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE' if cache_scope_slot is None else f'UINT8_C({cache_scope_slot})'},",
                 ]
                 for (
                     sdwa_dst_sel_slot,
                     literal_slot,
                     address_offset_slot,
+                    cache_scope_slot,
                 ) in zip(
                     descriptor_set_table.sdwa_dst_sel_immediate_slots,
                     descriptor_set_table.literal_immediate_slots,
                     descriptor_set_table.address_offset_immediate_slots,
+                    descriptor_set_table.cache_scope_immediate_slots,
                     strict=True,
                 )
             ],
