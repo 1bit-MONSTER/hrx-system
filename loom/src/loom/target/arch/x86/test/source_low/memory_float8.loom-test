@@ -1,5 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_float8.loom
-// TEMPLATE-EXCLUDE: @extend_float8 The target lacks a scalar F32 view.store contract.
 // RUN: emit source-low target=x86:avx2 output=low
 
 // Both FP8 formats retain their bytes, including NaN payloads, through storage.
