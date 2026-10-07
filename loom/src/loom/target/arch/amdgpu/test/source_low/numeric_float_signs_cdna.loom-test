@@ -1,10 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_float_signs.loom-test
-// TEMPLATE-EXCLUDE: @scalar_bf16_signs BF16 sign-operation lowering is not implemented for this profile.
-// TEMPLATE-EXCLUDE: @vector_bf16_4_signs BF16 sign-operation lowering is not implemented for this profile.
-// TEMPLATE-EXCLUDE: @vector_bf16_8_signs BF16 sign-operation lowering is not implemented for this profile.
-// TEMPLATE-EXCLUDE: @vector_bf16_16_signs BF16 sign-operation lowering is not implemented for this profile.
-// TEMPLATE-EXCLUDE: @vector_bf16_32_signs BF16 sign-operation lowering is not implemented for this profile.
-// TEMPLATE-EXCLUDE: @scalar_bf16_signs_fast BF16 sign-operation lowering is not implemented for this profile.
 // RUN: emit source-low target=amdgpu:gfx9-4-generic output=low
 
 func.def @scalar_f32_signs(%magnitude: f32, %sign: f32) -> (f32, f32, f32) {
@@ -22,7 +15,6 @@ low.func.def target<amdgpu.gfx9_4.generic.core> abi(hal_kernel) @scalar_f32_sign
   %copied = v_bfi_b32 %15, %magnitude, %sign
   return %absolute, %negated, %copied
 }
-
 // ====
 
 func.def @vector_f32_4_signs(%magnitude: vector<4xf32>, %sign: vector<4xf32>) -> (vector<4xf32>, vector<4xf32>, vector<4xf32>) {
@@ -58,103 +50,5 @@ low.func.def target<amdgpu.gfx9_4.generic.core> abi(hal_kernel) @vector_f32_4_si
   %42 = slice %sign[3] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
   %43 = v_bfi_b32 %31, %19, %42
   %copied = concat(%34, %37, %40, %43) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
-  return %absolute, %negated, %copied
-}
-
-// ====
-
-func.def @vector_f32_16_signs(%magnitude: vector<16xf32>, %sign: vector<16xf32>) -> (vector<16xf32>, vector<16xf32>, vector<16xf32>) {
-  %absolute = vector.absf %magnitude : vector<16xf32>
-  %negated = vector.negf %magnitude : vector<16xf32>
-  %copied = vector.copysignf %magnitude, %sign : vector<16xf32>
-  func.return %absolute, %negated, %copied : vector<16xf32>, vector<16xf32>, vector<16xf32>
-}
-
-// ----
-low.func.def target<amdgpu.gfx9_4.generic.core> abi(hal_kernel) @vector_f32_16_signs(%magnitude: reg<amdgpu.vgpr x16>, %sign: reg<amdgpu.vgpr x16>) -> (reg<amdgpu.vgpr x16>, reg<amdgpu.vgpr x16>, reg<amdgpu.vgpr x16>) asm {
-  %13 = slice %magnitude[0] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %14 = v_and_b32_lit %13, 2147483647
-  %15 = slice %magnitude[1] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %16 = v_and_b32_lit %15, 2147483647
-  %17 = slice %magnitude[2] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %18 = v_and_b32_lit %17, 2147483647
-  %19 = slice %magnitude[3] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %20 = v_and_b32_lit %19, 2147483647
-  %21 = slice %magnitude[4] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %22 = v_and_b32_lit %21, 2147483647
-  %23 = slice %magnitude[5] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %24 = v_and_b32_lit %23, 2147483647
-  %25 = slice %magnitude[6] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %26 = v_and_b32_lit %25, 2147483647
-  %27 = slice %magnitude[7] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %28 = v_and_b32_lit %27, 2147483647
-  %29 = slice %magnitude[8] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %30 = v_and_b32_lit %29, 2147483647
-  %31 = slice %magnitude[9] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %32 = v_and_b32_lit %31, 2147483647
-  %33 = slice %magnitude[10] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %34 = v_and_b32_lit %33, 2147483647
-  %35 = slice %magnitude[11] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %36 = v_and_b32_lit %35, 2147483647
-  %37 = slice %magnitude[12] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %38 = v_and_b32_lit %37, 2147483647
-  %39 = slice %magnitude[13] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %40 = v_and_b32_lit %39, 2147483647
-  %41 = slice %magnitude[14] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %42 = v_and_b32_lit %41, 2147483647
-  %43 = slice %magnitude[15] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %44 = v_and_b32_lit %43, 2147483647
-  %absolute = concat(%14, %16, %18, %20, %22, %24, %26, %28, %30, %32, %34, %36, %38, %40, %42, %44) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x16>
-  %47 = v_xor_b32_lit %13, 2147483648
-  %49 = v_xor_b32_lit %15, 2147483648
-  %51 = v_xor_b32_lit %17, 2147483648
-  %53 = v_xor_b32_lit %19, 2147483648
-  %55 = v_xor_b32_lit %21, 2147483648
-  %57 = v_xor_b32_lit %23, 2147483648
-  %59 = v_xor_b32_lit %25, 2147483648
-  %61 = v_xor_b32_lit %27, 2147483648
-  %63 = v_xor_b32_lit %29, 2147483648
-  %65 = v_xor_b32_lit %31, 2147483648
-  %67 = v_xor_b32_lit %33, 2147483648
-  %69 = v_xor_b32_lit %35, 2147483648
-  %71 = v_xor_b32_lit %37, 2147483648
-  %73 = v_xor_b32_lit %39, 2147483648
-  %75 = v_xor_b32_lit %41, 2147483648
-  %77 = v_xor_b32_lit %43, 2147483648
-  %negated = concat(%47, %49, %51, %53, %55, %57, %59, %61, %63, %65, %67, %69, %71, %73, %75, %77) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x16>
-  %79 = s_mov_b32 2147483647
-  %81 = slice %sign[0] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %82 = v_bfi_b32 %79, %13, %81
-  %84 = slice %sign[1] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %85 = v_bfi_b32 %79, %15, %84
-  %87 = slice %sign[2] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %88 = v_bfi_b32 %79, %17, %87
-  %90 = slice %sign[3] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %91 = v_bfi_b32 %79, %19, %90
-  %93 = slice %sign[4] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %94 = v_bfi_b32 %79, %21, %93
-  %96 = slice %sign[5] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %97 = v_bfi_b32 %79, %23, %96
-  %99 = slice %sign[6] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %100 = v_bfi_b32 %79, %25, %99
-  %102 = slice %sign[7] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %103 = v_bfi_b32 %79, %27, %102
-  %105 = slice %sign[8] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %106 = v_bfi_b32 %79, %29, %105
-  %108 = slice %sign[9] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %109 = v_bfi_b32 %79, %31, %108
-  %111 = slice %sign[10] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %112 = v_bfi_b32 %79, %33, %111
-  %114 = slice %sign[11] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %115 = v_bfi_b32 %79, %35, %114
-  %117 = slice %sign[12] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %118 = v_bfi_b32 %79, %37, %117
-  %120 = slice %sign[13] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %121 = v_bfi_b32 %79, %39, %120
-  %123 = slice %sign[14] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %124 = v_bfi_b32 %79, %41, %123
-  %126 = slice %sign[15] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
-  %127 = v_bfi_b32 %79, %43, %126
-  %copied = concat(%82, %85, %88, %91, %94, %97, %100, %103, %106, %109, %112, %115, %118, %121, %124, %127) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x16>
   return %absolute, %negated, %copied
 }

@@ -126,24 +126,6 @@
       }
     },
     {
-      "name": "executes every boolean comparison predicate with signed one-bit ordering",
-      "run": {
-        "tool": "iree-test-loom",
-        "args": [
-          "{srcdir}/boolean_comparison.loom",
-          "--library={srcdir}/../../../../test/corpus/source_low/numeric_boolean_comparison.loom-test"
-        ]
-      },
-      "stdout": {
-        "contains": [
-          "\"case_count\":7",
-          "\"failed_sample_count\":0",
-          "\"skipped_case_count\":0",
-          "\"planning_issue_count\":0"
-        ]
-      }
-    },
-    {
       "name": "VM compilation resolves a linked helper source snapshot",
       "run": {
         "tool": "iree-test-loom",

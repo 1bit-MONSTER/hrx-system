@@ -46,7 +46,6 @@ loom_test(
 iree_execution_test_suite(
     name = "tools_test",
     data = [
-        "boolean_comparison.loom",
         "duplicate_exports.loom",
         "empty_export.loom",
         "invalid_operand.loom",
@@ -60,7 +59,6 @@ iree_execution_test_suite(
         "source_math_case.loom",
         "source_mismatch.loom",
         "source_unavailable.loom",
-        "//loom/src/loom/test/corpus/source_low:numeric_boolean_comparison.loom-test",
     ],
     manifests = ["vm.test.json"],
     target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),

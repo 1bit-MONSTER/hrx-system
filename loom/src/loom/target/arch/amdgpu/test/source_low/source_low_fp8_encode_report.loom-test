@@ -186,3 +186,39 @@ func.def target(@target) @report_schema_f16_to_bf8_software(%input: vector<4xf16
 
 // ----
 CHECK: COMPILE-REPORT: source_low[*] * source_op=vector.encode selection=plan plan_key=amdgpu.fp8_encode.strategy.f16_e5m2_software *
+
+// ====
+
+// Three-lane conversions exercise the partial packed carrier separately from
+// the full-width software plan above.
+amdgpu.target<gfx1100> @target
+
+func.def target(@target) @report_gfx1100_f32x3_to_f8e4m3_partial_encode(%first: f32, %second: f32, %third: f32) -> (f8E4M3, f8E4M3, f8E4M3) {
+  %input = vector.from_elements %first, %second, %third : vector<3xf32>
+  %converted = vector.fptrunc %input : vector<3xf32> to vector<3xf8E4M3>
+  %first_result = vector.extract %converted[0] : vector<3xf8E4M3> -> f8E4M3
+  %second_result = vector.extract %converted[1] : vector<3xf8E4M3> -> f8E4M3
+  %third_result = vector.extract %converted[2] : vector<3xf8E4M3> -> f8E4M3
+  func.return %first_result, %second_result, %third_result : f8E4M3, f8E4M3, f8E4M3
+}
+
+// ----
+CHECK: COMPILE-REPORT: source_low selected_ops=5 emitted_ops=53 rows=5 unkeyed_maximum_emitted_ops=1
+CHECK: COMPILE-REPORT: source_low[*] function=report_gfx1100_f32x3_to_f8e4m3_partial_encode source_op=vector.fptrunc selection=plan plan_key=amdgpu.fp8_encode.strategy.f32_software emitted_ops=50
+
+// ====
+
+amdgpu.target<gfx1100> @target
+
+func.def target(@target) @report_gfx1100_f16x3_to_f8e5m2_partial_encode(%first: f16, %second: f16, %third: f16) -> (f8E5M2, f8E5M2, f8E5M2) {
+  %input = vector.from_elements %first, %second, %third : vector<3xf16>
+  %converted = vector.fptrunc %input : vector<3xf16> to vector<3xf8E5M2>
+  %first_result = vector.extract %converted[0] : vector<3xf8E5M2> -> f8E5M2
+  %second_result = vector.extract %converted[1] : vector<3xf8E5M2> -> f8E5M2
+  %third_result = vector.extract %converted[2] : vector<3xf8E5M2> -> f8E5M2
+  func.return %first_result, %second_result, %third_result : f8E5M2, f8E5M2, f8E5M2
+}
+
+// ----
+CHECK: COMPILE-REPORT: source_low selected_ops=5 emitted_ops=38 rows=5 unkeyed_maximum_emitted_ops=6
+CHECK: COMPILE-REPORT: source_low[*] function=report_gfx1100_f16x3_to_f8e5m2_partial_encode source_op=vector.fptrunc selection=plan plan_key=amdgpu.fp8_encode.strategy.f16_e5m2_software emitted_ops=30
