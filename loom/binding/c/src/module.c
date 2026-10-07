@@ -42,6 +42,9 @@ struct loomc_module_t {
   // Internal linked, parsed, or optimized module.
   loom_module_t* module;
 
+  // Exact source snapshots indexed by the active module's source IDs.
+  loom_source_storage_t sources;
+
   // Products retained across result release and separate artifact emission.
   struct {
     // Arena owning applied configuration and live concrete function versions.
@@ -73,14 +76,6 @@ typedef struct loomc_module_ir_projection_t {
   iree_arena_block_pool_t block_pool;
 } loomc_module_ir_projection_t;
 
-typedef struct loomc_module_diagnostic_capture_t {
-  // Result receiving converted diagnostics.
-  loomc_result_t* result;
-
-  // Source associated with emitted diagnostics.
-  const loomc_source_t* source;
-} loomc_module_diagnostic_capture_t;
-
 typedef struct loomc_module_deserialize_state_t {
   // Result receiving deserialization diagnostics.
   loomc_result_t* result;
@@ -95,8 +90,23 @@ typedef struct loomc_module_deserialize_state_t {
   loomc_host_size_t before_diagnostic_count;
 } loomc_module_deserialize_state_t;
 
+static loomc_status_t loomc_module_capture_source(
+    loomc_module_t* module, loomc_string_view_t identifier,
+    loomc_byte_span_t contents) {
+  if (loomc_string_view_is_empty(identifier)) {
+    return loomc_ok_status();
+  }
+  loom_source_id_t source_id = LOOM_SOURCE_ID_INVALID;
+  LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(loom_module_register_source(
+      module->module, iree_string_view_from_loomc(identifier), &source_id)));
+  return loomc_module_insert_source_snapshot(
+      module, source_id, iree_string_view_from_loomc(identifier),
+      iree_make_string_view((const char*)contents.data, contents.data_length));
+}
+
 static void loomc_module_destroy(loomc_module_t* module) {
   loomc_allocator_t allocator = module->allocator;
+  loom_source_storage_deinitialize(&module->sources);
   iree_arena_deinitialize(&module->compilation.arena);
   loom_module_free(module->module);
   loomc_workspace_release(module->workspace);
@@ -306,14 +316,6 @@ static loomc_status_t loomc_module_resolve_deserialize_options(
   return loomc_ok_status();
 }
 
-static iree_status_t loomc_module_capture_diagnostic(
-    void* user_data, const loom_diagnostic_t* diagnostic) {
-  loomc_module_diagnostic_capture_t* capture =
-      (loomc_module_diagnostic_capture_t*)user_data;
-  return iree_status_from_loomc(loomc_result_add_loom_diagnostic(
-      capture->result, capture->source, diagnostic));
-}
-
 static loomc_status_t loomc_module_mark_deserialize_failed(
     loomc_result_t* result, const loomc_source_t* source,
     loomc_host_size_t before_diagnostic_count) {
@@ -334,8 +336,9 @@ static loomc_status_t loomc_module_deserialize_initialize(
     loomc_context_t* context, loomc_workspace_t* workspace,
     loomc_allocator_t allocator, loomc_module_deserialize_state_t* out_state) {
   *out_state = (loomc_module_deserialize_state_t){0};
-  LOOMC_RETURN_IF_ERROR(loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
-                                            allocator, &out_state->result));
+  LOOMC_RETURN_IF_ERROR(loomc_result_create(
+      LOOMC_RESULT_STATE_SUCCEEDED, loomc_context_source_retention(context),
+      allocator, &out_state->result));
   loomc_status_t status = loomc_module_create_empty(
       context, workspace, allocator, &out_state->module);
   out_state->before_diagnostic_count =
@@ -344,9 +347,10 @@ static loomc_status_t loomc_module_deserialize_initialize(
 }
 
 static loomc_status_t loomc_module_deserialize_complete(
-    const loomc_source_t* source, loomc_status_t status,
-    loomc_module_deserialize_state_t* state, loomc_module_t** out_module,
-    loomc_result_t** out_result) {
+    const loomc_source_t* source,
+    const loomc_module_resolved_deserialize_options_t* options,
+    loomc_status_t status, loomc_module_deserialize_state_t* state,
+    loomc_module_t** out_module, loomc_result_t** out_result) {
   if (loomc_status_is_ok(status) && state->internal_module == NULL) {
     status = loomc_module_mark_deserialize_failed(
         state->result, source, state->before_diagnostic_count);
@@ -355,6 +359,11 @@ static loomc_status_t loomc_module_deserialize_complete(
     loomc_module_set_loom_module(state->module, state->internal_module,
                                  LOOMC_MODULE_INPUT_UNVERIFIED);
     state->internal_module = NULL;
+  }
+  if (loomc_status_is_ok(status) && loomc_result_succeeded(state->result) &&
+      options->format == LOOMC_SOURCE_FORMAT_TEXT) {
+    status = loomc_module_capture_source(state->module, options->identifier,
+                                         loomc_source_contents(source));
   }
   if (loomc_status_is_ok(status)) {
     if (loomc_result_succeeded(state->result)) {
@@ -409,19 +418,20 @@ loomc_status_t loomc_module_deserialize_explicit_source(
   loomc_status_t status = loomc_module_deserialize_initialize(
       context, workspace, allocator, &state);
   if (loomc_status_is_ok(status)) {
-    loomc_module_diagnostic_capture_t capture = {
-        .result = state.result,
-        .source = source,
-    };
+    loomc_diagnostic_capture_t capture;
+    loomc_diagnostic_capture_initialize(state.result, source, /*module=*/NULL,
+                                        (loom_source_resolver_t){0},
+                                        LOOM_EMITTER_PARSER,
+                                        /*text_print_options=*/NULL, &capture);
     const loom_diagnostic_sink_t diagnostic_sink = {
-        .fn = loomc_module_capture_diagnostic,
+        .fn = loomc_diagnostic_capture,
         .user_data = &capture,
     };
     status = decoder(context, source, &resolved_options, diagnostic_sink,
                      allocator, state.module, &state.internal_module);
   }
-  return loomc_module_deserialize_complete(source, status, &state, out_module,
-                                           out_result);
+  return loomc_module_deserialize_complete(source, &resolved_options, status,
+                                           &state, out_module, out_result);
 }
 
 static loomc_status_t loomc_module_require_internal(
@@ -487,6 +497,8 @@ loomc_status_t loomc_module_create_empty(loomc_context_t* context,
   loomc_context_retain(context);
   module->workspace = workspace;
   loomc_workspace_retain(workspace);
+  loom_source_storage_initialize(iree_allocator_from_loomc(allocator),
+                                 &module->sources);
   iree_arena_initialize(loomc_workspace_block_pool(workspace),
                         &module->compilation.arena);
   loom_function_version_owner_initialize(
@@ -509,13 +521,37 @@ iree_arena_block_pool_t* loomc_module_block_pool(loomc_module_t* module) {
   return module ? loomc_workspace_block_pool(module->workspace) : NULL;
 }
 
+loomc_status_t loomc_module_insert_source_snapshot(loomc_module_t* module,
+                                                   loom_source_id_t source_id,
+                                                   iree_string_view_t filename,
+                                                   iree_string_view_t source) {
+  IREE_ASSERT_ARGUMENT(module);
+  if (loomc_context_source_retention(module->context) ==
+      LOOMC_SOURCE_RETENTION_METADATA_ONLY) {
+    return loomc_ok_status();
+  }
+  return loomc_status_from_iree(loom_source_storage_insert(
+      &module->sources, source_id, filename, source));
+}
+
 void loomc_module_set_loom_module(loomc_module_t* module,
                                   loom_module_t* internal_module,
                                   loomc_module_input_state_t input_state) {
   IREE_ASSERT(!module->module, "module storage can only be transferred once");
+  loomc_module_adopt_loom_module_replacement(module, internal_module,
+                                             input_state);
+}
+
+void loomc_module_adopt_loom_module_replacement(
+    loomc_module_t* module, loom_module_t* internal_module,
+    loomc_module_input_state_t input_state) {
+  IREE_ASSERT_ARGUMENT(module);
+  IREE_ASSERT_ARGUMENT(internal_module);
   module->module = internal_module;
+  module->sources.table.module = internal_module;
   module->verification.structural =
       input_state == LOOMC_MODULE_INPUT_STRUCTURALLY_VERIFIED;
+  module->verification.context_target = false;
 }
 
 loom_module_t* loomc_module_loom_module(loomc_module_t* module) {
@@ -527,18 +563,58 @@ const loom_module_t* loomc_module_const_loom_module(
   return module ? module->module : NULL;
 }
 
-typedef struct loomc_module_verify_capture_t {
-  // Result receiving verification diagnostics.
-  loomc_result_t* result;
-  // Borrowed module owning operation locations during verification.
-  const loom_module_t* module;
-} loomc_module_verify_capture_t;
+loom_source_resolver_t loomc_module_source_resolver(
+    const loomc_module_t* module) {
+  return module ? loom_source_storage_resolver(&module->sources)
+                : (loom_source_resolver_t){0};
+}
 
-static iree_status_t loomc_module_capture_verify_emission(
-    void* user_data, const loom_diagnostic_emission_t* emission) {
-  const loomc_module_verify_capture_t* capture = user_data;
-  return iree_status_from_loomc(loomc_result_add_loom_diagnostic_emission(
-      capture->result, capture->module, LOOM_EMITTER_VERIFIER, emission));
+const loom_source_table_resolver_t* loomc_module_source_table(
+    const loomc_module_t* module) {
+  return module ? &module->sources.table : NULL;
+}
+
+loomc_status_t loomc_module_replace_source_table(
+    loomc_module_t* module, const loom_module_t* internal_module,
+    const loom_source_table_resolver_t* source_table) {
+  if (loomc_context_source_retention(module->context) ==
+      LOOMC_SOURCE_RETENTION_METADATA_ONLY) {
+    loomc_module_clear_sources(module, internal_module);
+    return loomc_ok_status();
+  }
+  if (source_table->entries == module->sources.table.entries) {
+    module->sources.table.module = internal_module;
+    module->sources.table.count = source_table->count;
+    return loomc_ok_status();
+  }
+  loom_source_storage_t replacement;
+  loom_source_storage_initialize(module->sources.allocator, &replacement);
+  replacement.table.module = internal_module;
+  loomc_status_t status = loomc_ok_status();
+  for (iree_host_size_t i = 0;
+       i < source_table->count && loomc_status_is_ok(status); ++i) {
+    const loom_source_entry_t* entry = &source_table->entries[i];
+    if (entry->source_id == LOOM_SOURCE_ID_INVALID) {
+      continue;
+    }
+    status = loomc_status_from_iree(loom_source_storage_insert(
+        &replacement, entry->source_id, entry->filename, entry->source));
+  }
+  if (loomc_status_is_ok(status)) {
+    loom_source_storage_deinitialize(&module->sources);
+    module->sources = replacement;
+    replacement = (loom_source_storage_t){0};
+  }
+  loom_source_storage_deinitialize(&replacement);
+  return status;
+}
+
+void loomc_module_clear_sources(loomc_module_t* module,
+                                const loom_module_t* internal_module) {
+  loom_source_storage_deinitialize(&module->sources);
+  loom_source_storage_initialize(iree_allocator_from_loomc(module->allocator),
+                                 &module->sources);
+  module->sources.table.module = internal_module;
 }
 
 loomc_status_t loomc_module_verify(
@@ -552,8 +628,8 @@ loomc_status_t loomc_module_verify(
   }
 
   if (!module->verification.structural) {
-    LOOMC_RETURN_IF_ERROR(
-        loomc_result_verify_loom_module(module->module, result));
+    LOOMC_RETURN_IF_ERROR(loomc_result_verify_loom_module(
+        module->module, loomc_module_source_resolver(module), result));
     if (!loomc_result_succeeded(result)) {
       return loomc_ok_status();
     }
@@ -562,14 +638,19 @@ loomc_status_t loomc_module_verify(
 
   const loomc_target_pass_environment_t* pass_environment =
       loomc_target_environment_pass_environment(target_environment);
-  loomc_module_verify_capture_t capture = {.result = result,
-                                           .module = module->module};
+  loomc_diagnostic_capture_t capture;
+  loomc_diagnostic_capture_initialize(
+      result, /*source=*/NULL, module->module,
+      loomc_module_source_resolver(module), LOOM_EMITTER_VERIFIER,
+      pass_environment ? &pass_environment->diagnostic_type_print_options
+                       : NULL,
+      &capture);
   const loom_low_verify_options_t options = {
       .descriptor_registry =
           pass_environment ? &pass_environment->low_descriptor_registry.registry
                            : NULL,
       .function_versions = loomc_module_function_versions(module),
-      .emitter = {.fn = loomc_module_capture_verify_emission,
+      .emitter = {.fn = loomc_diagnostic_capture_emission,
                   .user_data = &capture},
       .provider_list = pass_environment
                            ? loom_target_environment_low_verify_provider_list(
@@ -682,6 +763,11 @@ loomc_status_t loomc_module_clone(const loomc_module_t* source_module,
             loomc_module_block_pool(module),
             iree_allocator_from_loomc(allocator),
             &module->compilation.function_versions, &cloned_internal_module));
+  }
+  if (loomc_status_is_ok(status)) {
+    status = loomc_module_replace_source_table(
+        module, cloned_internal_module,
+        loomc_module_source_table(source_module));
   }
   if (loomc_status_is_ok(status)) {
     loomc_module_set_loom_module(module, cloned_internal_module,

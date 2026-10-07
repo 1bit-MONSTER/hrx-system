@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum, unique
 
 from loom.target.contracts import (
@@ -43,6 +43,7 @@ class NarrowFloatSubnormalRounding(Enum):
 
     RNE_FLOAT_ADD = "rne_float_add"
     INTEGER = "integer"
+    INTEGER_SOURCE_SUBNORMALS = "integer_source_subnormals"
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,13 +132,42 @@ F8E5M2_FORMAT = NarrowFloatFormat(
     nan=NarrowFloatNan.CANONICAL,
 )
 
+F16_SOURCE_FORMAT = BinaryFloatFormat(
+    bit_width=F16_FORMAT.bit_width,
+    exponent_bits=F16_FORMAT.exponent_bits,
+    mantissa_bits=F16_FORMAT.mantissa_bits,
+    exponent_bias=F16_FORMAT.exponent_bias,
+)
+
+BF16_SOURCE_FORMAT = BinaryFloatFormat(
+    bit_width=BF16_FORMAT.bit_width,
+    exponent_bits=BF16_FORMAT.exponent_bits,
+    mantissa_bits=BF16_FORMAT.mantissa_bits,
+    exponent_bias=BF16_FORMAT.exponent_bias,
+)
+
 
 @dataclass(frozen=True, slots=True)
-class FloatNarrowingDescriptors:
-    """Concrete target descriptors required by exact narrowing recipes."""
+class IntegerNarrowingImmediateForms:
+    """Optional immediate descriptors for literal recipe operands."""
 
+    add: Descriptor | None = None
+    subtract: Descriptor | None = None
+    shift_left: Descriptor | None = None
+    shift_right_logical: Descriptor | None = None
+    bitwise_and: Descriptor | None = None
+    bitwise_or: Descriptor | None = None
+    less_than_nonnegative: Descriptor | None = None
+    greater_than_equal_nonnegative: Descriptor | None = None
+    greater_than_nonnegative: Descriptor | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class IntegerNarrowingDescriptors:
+    """Integer-carrier target descriptors required by exact narrowing."""
+
+    integer_bit_width: int
     integer_constant: Descriptor
-    float_constant: Descriptor
     integer_add: Descriptor
     integer_subtract: Descriptor
     integer_shift_left: Descriptor
@@ -147,16 +177,29 @@ class FloatNarrowingDescriptors:
     integer_less_than_nonnegative: Descriptor
     integer_greater_than_equal_nonnegative: Descriptor
     integer_greater_than_nonnegative: Descriptor
+    integer_select: Descriptor
+    immediate_forms: IntegerNarrowingImmediateForms | None = None
+
+    def __post_init__(self) -> None:
+        if self.integer_bit_width < 2:
+            raise ValueError("integer narrowing carrier must have at least two bits")
+
+
+@dataclass(frozen=True, slots=True)
+class FloatNarrowingDescriptors:
+    """Floating-source target descriptors required by exact narrowing."""
+
+    integer: IntegerNarrowingDescriptors
+    float_constant: Descriptor
     float_add: Descriptor
     reinterpret_float_as_integer: Descriptor
     reinterpret_integer_as_float: Descriptor
-    integer_select: Descriptor
 
 
 class _ScalarRecipe:
     """Builds one compact straight-line scalar descriptor recipe."""
 
-    def __init__(self, descriptors: FloatNarrowingDescriptors) -> None:
+    def __init__(self, descriptors: IntegerNarrowingDescriptors) -> None:
         self.descriptors = descriptors
         self.emits: list[EmitDescriptorOp] = []
 
@@ -180,13 +223,164 @@ class _ScalarRecipe:
         return result
 
     @staticmethod
-    def _constant_immediate(descriptor: Descriptor, value: int) -> dict[str, int]:
+    def _try_constant_immediate(
+        descriptor: Descriptor, value: int
+    ) -> dict[str, int] | None:
         (immediate,) = descriptor.immediates
         modulus = 1 << immediate.bit_width
         encoded_value = value & (modulus - 1)
         if encoded_value > immediate.unsigned_max:
             encoded_value -= modulus
+        if not immediate.signed_min <= encoded_value <= immediate.unsigned_max:
+            return None
+        if encoded_value % immediate.value_step:
+            return None
         return {immediate.field_name: encoded_value}
+
+    @classmethod
+    def _constant_immediate(cls, descriptor: Descriptor, value: int) -> dict[str, int]:
+        immediates = cls._try_constant_immediate(descriptor, value)
+        if immediates is None:
+            raise ValueError(
+                f"value {value} is not representable by descriptor '{descriptor.key}'"
+            )
+        return immediates
+
+    def finish(self) -> tuple[EmitDescriptorOp, ...]:
+        """Selects declared literal forms and returns the completed recipe."""
+
+        immediate_forms = self.descriptors.immediate_forms
+        if immediate_forms is None:
+            return tuple(self.emits)
+
+        immediate_by_descriptor_key = {
+            descriptor.key: (immediate, commutative)
+            for descriptor, immediate, commutative in (
+                (self.descriptors.integer_add, immediate_forms.add, True),
+                (
+                    self.descriptors.integer_subtract,
+                    immediate_forms.subtract,
+                    False,
+                ),
+                (
+                    self.descriptors.integer_shift_left,
+                    immediate_forms.shift_left,
+                    False,
+                ),
+                (
+                    self.descriptors.integer_shift_right_logical,
+                    immediate_forms.shift_right_logical,
+                    False,
+                ),
+                (
+                    self.descriptors.integer_bitwise_and,
+                    immediate_forms.bitwise_and,
+                    True,
+                ),
+                (
+                    self.descriptors.integer_bitwise_or,
+                    immediate_forms.bitwise_or,
+                    True,
+                ),
+                (
+                    self.descriptors.integer_less_than_nonnegative,
+                    immediate_forms.less_than_nonnegative,
+                    False,
+                ),
+                (
+                    self.descriptors.integer_greater_than_equal_nonnegative,
+                    immediate_forms.greater_than_equal_nonnegative,
+                    False,
+                ),
+                (
+                    self.descriptors.integer_greater_than_nonnegative,
+                    immediate_forms.greater_than_nonnegative,
+                    False,
+                ),
+            )
+            if immediate is not None
+        }
+        if not immediate_by_descriptor_key:
+            return tuple(self.emits)
+
+        constant_values: dict[str, int] = {}
+        for emit in self.emits:
+            if (
+                emit.descriptor.key != self.descriptors.integer_constant.key
+                or emit.form is not DescriptorEmitForm.CONST
+            ):
+                continue
+            (result,) = emit.results.values()
+            (value,) = emit.immediates.values()
+            if result.kind is not SourceValueKind.TEMPORARY or not isinstance(
+                value, int
+            ):
+                raise ValueError(
+                    "integer recipe constants must define literal temporaries"
+                )
+            if result.field in constant_values:
+                raise ValueError(
+                    f"integer recipe temporary '{result.field}' is defined twice"
+                )
+            constant_values[result.field] = value
+
+        rewritten_emits: list[EmitDescriptorOp] = []
+        for emit in self.emits:
+            immediate_form = immediate_by_descriptor_key.get(emit.descriptor.key)
+            lhs = emit.operands.get("lhs")
+            rhs = emit.operands.get("rhs")
+            if immediate_form is None or lhs is None or rhs is None:
+                rewritten_emits.append(emit)
+                continue
+            immediate_descriptor, commutative = immediate_form
+            literal = rhs
+            value = lhs
+            if (
+                rhs.kind is not SourceValueKind.TEMPORARY
+                or rhs.field not in constant_values
+            ):
+                if (
+                    not commutative
+                    or lhs.kind is not SourceValueKind.TEMPORARY
+                    or lhs.field not in constant_values
+                ):
+                    rewritten_emits.append(emit)
+                    continue
+                literal = lhs
+                value = rhs
+            immediates = self._try_constant_immediate(
+                immediate_descriptor, constant_values[literal.field]
+            )
+            if immediates is None:
+                rewritten_emits.append(emit)
+                continue
+            operands = dict(emit.operands)
+            operands["lhs"] = value
+            del operands["rhs"]
+            rewritten_emits.append(
+                replace(
+                    emit,
+                    descriptor=immediate_descriptor,
+                    operands=operands,
+                    immediates=immediates,
+                )
+            )
+
+        used_temporaries = {
+            operand.field
+            for emit in rewritten_emits
+            for operand in emit.operands.values()
+            if operand.kind is SourceValueKind.TEMPORARY
+        }
+        return tuple(
+            emit
+            for emit in rewritten_emits
+            if not (
+                emit.descriptor.key == self.descriptors.integer_constant.key
+                and emit.form is DescriptorEmitForm.CONST
+                and next(iter(emit.results.values())).field not in used_temporaries
+            )
+        )
 
     def integer_constant(self, result_name: str, value: int) -> ValueRef:
         result = ValueRef.temporary(result_name)
@@ -202,9 +396,10 @@ class _ScalarRecipe:
         )
         return result
 
-    def float_constant(self, result_name: str, bits: int) -> ValueRef:
+    def float_constant(
+        self, result_name: str, bits: int, descriptor: Descriptor
+    ) -> ValueRef:
         result = ValueRef.temporary(result_name)
-        descriptor = self.descriptors.float_constant
         self.emits.append(
             EmitDescriptorOp(
                 descriptor=descriptor,
@@ -238,28 +433,34 @@ class _ScalarRecipe:
     ) -> ValueRef:
         return self._operation(result, descriptor, {"lhs": lhs, "rhs": rhs})
 
-    def float_add(self, result_name: str, lhs: ValueRef, rhs: ValueRef) -> ValueRef:
+    def float_add(
+        self,
+        result_name: str,
+        descriptor: Descriptor,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef:
         return self._operation(
             ValueRef.temporary(result_name),
-            self.descriptors.float_add,
+            descriptor,
             {"lhs": lhs, "rhs": rhs},
         )
 
     def reinterpret_float_as_integer(
-        self, result_name: str, value: ValueRef
+        self, result_name: str, descriptor: Descriptor, value: ValueRef
     ) -> ValueRef:
         return self._operation(
             ValueRef.temporary(result_name),
-            self.descriptors.reinterpret_float_as_integer,
+            descriptor,
             {"input": value},
         )
 
     def reinterpret_integer_as_float(
-        self, result_name: str, value: ValueRef
+        self, result_name: str, descriptor: Descriptor, value: ValueRef
     ) -> ValueRef:
         return self._operation(
             ValueRef.temporary(result_name),
-            self.descriptors.reinterpret_integer_as_float,
+            descriptor,
             {"input": value},
         )
 
@@ -307,50 +508,91 @@ def build_f32_to_bf16_emits(
 ) -> tuple[EmitDescriptorOp, ...]:
     """Rounds F32 to BF16 while preserving every source NaN as a NaN."""
 
-    recipe = _ScalarRecipe(descriptors)
-    input_bits = recipe.reinterpret_float_as_integer("input_bits", input_ref)
+    integer_descriptors = descriptors.integer
+    recipe = _ScalarRecipe(integer_descriptors)
+    input_bits = recipe.reinterpret_float_as_integer(
+        "input_bits", descriptors.reinterpret_float_as_integer, input_ref
+    )
+    return _build_f32_bits_to_bf16_emits(
+        recipe,
+        input_bits,
+        result_ref,
+        preserve_nan=preserve_nan,
+    )
+
+
+def build_f32_bits_to_bf16_emits(
+    descriptors: IntegerNarrowingDescriptors,
+    input_bits_ref: ValueRef,
+    result_ref: ValueRef,
+    *,
+    preserve_nan: bool = True,
+) -> tuple[EmitDescriptorOp, ...]:
+    """Rounds integer-carried F32 bits to BF16."""
+
+    return _build_f32_bits_to_bf16_emits(
+        _ScalarRecipe(descriptors),
+        input_bits_ref,
+        result_ref,
+        preserve_nan=preserve_nan,
+    )
+
+
+def _build_f32_bits_to_bf16_emits(
+    recipe: _ScalarRecipe,
+    input_bits: ValueRef,
+    result_ref: ValueRef,
+    *,
+    preserve_nan: bool,
+) -> tuple[EmitDescriptorOp, ...]:
+    """Builds exact BF16 rounding after F32 bits have been materialized."""
+
+    integer_descriptors = recipe.descriptors
     shift = recipe.integer_constant("shift", 16)
     upper = recipe.integer_binary(
-        "upper", descriptors.integer_shift_right_logical, input_bits, shift
+        "upper", integer_descriptors.integer_shift_right_logical, input_bits, shift
     )
     one = recipe.integer_constant("one", 1)
     retained_lsb = recipe.integer_binary(
-        "retained_lsb", descriptors.integer_bitwise_and, upper, one
+        "retained_lsb", integer_descriptors.integer_bitwise_and, upper, one
     )
     rounding_bias = recipe.integer_constant("rounding_bias", 0x7FFF)
     bias = recipe.integer_binary(
-        "bias", descriptors.integer_add, rounding_bias, retained_lsb
+        "bias", integer_descriptors.integer_add, rounding_bias, retained_lsb
     )
     rounded = recipe.integer_binary(
-        "rounded", descriptors.integer_add, input_bits, bias
+        "rounded", integer_descriptors.integer_add, input_bits, bias
     )
     finite = recipe.integer_binary_to(
         ValueRef.temporary("finite") if preserve_nan else result_ref,
-        descriptors.integer_shift_right_logical,
+        integer_descriptors.integer_shift_right_logical,
         rounded,
         shift,
     )
 
     if not preserve_nan:
-        return tuple(recipe.emits)
+        return recipe.finish()
 
     nonsign_mask = recipe.integer_constant("nonsign_mask", 0x7FFFFFFF)
     magnitude = recipe.integer_binary(
-        "magnitude", descriptors.integer_bitwise_and, input_bits, nonsign_mask
+        "magnitude",
+        integer_descriptors.integer_bitwise_and,
+        input_bits,
+        nonsign_mask,
     )
     infinity_bits = recipe.integer_constant("infinity_bits", 0x7F800000)
     is_nan = recipe.integer_binary(
         "is_nan",
-        descriptors.integer_greater_than_nonnegative,
+        integer_descriptors.integer_greater_than_nonnegative,
         magnitude,
         infinity_bits,
     )
     quiet_nan_bit = recipe.integer_constant("quiet_nan_bit", 0x0040)
     nan = recipe.integer_binary(
-        "nan", descriptors.integer_bitwise_or, upper, quiet_nan_bit
+        "nan", integer_descriptors.integer_bitwise_or, upper, quiet_nan_bit
     )
     recipe.integer_select_to(result_ref, nan, finite, is_nan)
-    return tuple(recipe.emits)
+    return recipe.finish()
 
 
 def build_float_to_narrow_float_emits(
@@ -365,12 +607,72 @@ def build_float_to_narrow_float_emits(
 ) -> tuple[EmitDescriptorOp, ...]:
     """Rounds a binary float using same-width arithmetic and integer carriers."""
 
+    recipe = _ScalarRecipe(descriptors.integer)
+    input_bits = recipe.reinterpret_float_as_integer(
+        "input_bits", descriptors.reinterpret_float_as_integer, input_ref
+    )
+    return _build_float_bits_to_narrow_float_emits(
+        recipe,
+        source_format,
+        narrow_format,
+        input_bits,
+        result_ref,
+        subnormal_rounding=subnormal_rounding,
+        preserve_nan=preserve_nan,
+        float_descriptors=descriptors,
+    )
+
+
+def build_integer_bits_to_narrow_float_emits(
+    descriptors: IntegerNarrowingDescriptors,
+    source_format: BinaryFloatFormat,
+    narrow_format: NarrowFloatFormat,
+    input_bits_ref: ValueRef,
+    result_ref: ValueRef,
+    *,
+    subnormal_rounding: NarrowFloatSubnormalRounding,
+    preserve_nan: bool = True,
+) -> tuple[EmitDescriptorOp, ...]:
+    """Rounds integer-carried source bits without materializing a wider float."""
+
+    if subnormal_rounding is NarrowFloatSubnormalRounding.RNE_FLOAT_ADD:
+        raise ValueError("integer-carried narrowing requires integer rounding")
+    recipe = _ScalarRecipe(descriptors)
+    return _build_float_bits_to_narrow_float_emits(
+        recipe,
+        source_format,
+        narrow_format,
+        input_bits_ref,
+        result_ref,
+        subnormal_rounding=subnormal_rounding,
+        preserve_nan=preserve_nan,
+        float_descriptors=None,
+    )
+
+
+def _build_float_bits_to_narrow_float_emits(
+    recipe: _ScalarRecipe,
+    source_format: BinaryFloatFormat,
+    narrow_format: NarrowFloatFormat,
+    input_bits: ValueRef,
+    result_ref: ValueRef,
+    *,
+    subnormal_rounding: NarrowFloatSubnormalRounding,
+    preserve_nan: bool,
+    float_descriptors: FloatNarrowingDescriptors | None,
+) -> tuple[EmitDescriptorOp, ...]:
+    """Builds exact narrowing after the source bits have been materialized."""
+
+    descriptors = recipe.descriptors
+
     if source_format.bit_width <= narrow_format.bit_width:
         raise ValueError("float narrowing requires a smaller destination bit width")
     if source_format.mantissa_bits <= narrow_format.mantissa_bits:
         raise ValueError("float narrowing requires lower destination precision")
     if source_format.exponent_bias < narrow_format.exponent_bias:
         raise ValueError("float narrowing cannot increase the destination range")
+    if source_format.bit_width > descriptors.integer_bit_width:
+        raise ValueError("source format does not fit the integer carrier")
     if (
         subnormal_rounding is NarrowFloatSubnormalRounding.INTEGER
         and source_format.exponent_bias
@@ -380,9 +682,6 @@ def build_float_to_narrow_float_emits(
             "integer subnormal rounding requires every source subnormal to "
             "round to destination zero"
         )
-
-    recipe = _ScalarRecipe(descriptors)
-    input_bits = recipe.reinterpret_float_as_integer("input_bits", input_ref)
 
     sign_mask_value = 1 << (source_format.bit_width - 1)
     sign_mask = recipe.integer_constant("sign_mask", sign_mask_value)
@@ -415,16 +714,33 @@ def build_float_to_narrow_float_emits(
         + 1
     )
     if subnormal_rounding is NarrowFloatSubnormalRounding.RNE_FLOAT_ADD:
+        if float_descriptors is None:
+            raise ValueError(
+                "floating-point subnormal rounding requires float descriptors"
+            )
         # The ULP of this power of two equals the destination minimum
         # subnormal. A guaranteed-RNE same-width addition performs the complete
         # rounding operation; subtracting the magic encoding exposes its
         # narrow payload.
         magic_bits_value = magic_exponent << source_format.mantissa_bits
-        magic = recipe.float_constant("subnormal_magic", magic_bits_value)
-        magnitude_float = recipe.reinterpret_integer_as_float("magnitude", magnitude)
-        biased_subnormal = recipe.float_add("biased_subnormal", magnitude_float, magic)
+        magic = recipe.float_constant(
+            "subnormal_magic", magic_bits_value, float_descriptors.float_constant
+        )
+        magnitude_float = recipe.reinterpret_integer_as_float(
+            "magnitude",
+            float_descriptors.reinterpret_integer_as_float,
+            magnitude,
+        )
+        biased_subnormal = recipe.float_add(
+            "biased_subnormal",
+            float_descriptors.float_add,
+            magnitude_float,
+            magic,
+        )
         biased_subnormal_bits = recipe.reinterpret_float_as_integer(
-            "biased_subnormal_bits", biased_subnormal
+            "biased_subnormal_bits",
+            float_descriptors.reinterpret_float_as_integer,
+            biased_subnormal,
         )
         magic_bits = recipe.integer_constant("subnormal_magic_bits", magic_bits_value)
         subnormal = recipe.integer_binary(
@@ -435,9 +751,10 @@ def build_float_to_narrow_float_emits(
         )
     else:
         # Compute the destination subnormal payload without inheriting a
-        # target's ambient floating-point rounding mode. Values that can affect
-        # the result are normal in the source format; the format precondition
-        # above proves every source subnormal rounds to zero.
+        # target's ambient floating-point rounding mode. The compact mode uses
+        # an implicit source leading bit because its precondition proves every
+        # source subnormal rounds to zero. The general mode selects the source
+        # subnormal significand and effective exponent explicitly.
         fraction_mask = recipe.integer_constant(
             "source_fraction_mask", (1 << source_format.mantissa_bits) - 1
         )
@@ -450,8 +767,8 @@ def build_float_to_narrow_float_emits(
         hidden_bit = recipe.integer_constant(
             "source_hidden_bit", 1 << source_format.mantissa_bits
         )
-        significand = recipe.integer_binary(
-            "source_significand",
+        normal_significand = recipe.integer_binary(
+            "source_normal_significand",
             descriptors.integer_bitwise_or,
             source_fraction,
             hidden_bit,
@@ -465,20 +782,50 @@ def build_float_to_narrow_float_emits(
             magnitude,
             exponent_shift,
         )
+        if subnormal_rounding is NarrowFloatSubnormalRounding.INTEGER_SOURCE_SUBNORMALS:
+            source_exponent_one = recipe.integer_constant("source_exponent_one", 1)
+            source_is_subnormal = recipe.integer_binary(
+                "source_is_subnormal",
+                descriptors.integer_less_than_nonnegative,
+                source_exponent,
+                source_exponent_one,
+            )
+            significand = recipe.integer_select(
+                "source_significand",
+                source_fraction,
+                normal_significand,
+                source_is_subnormal,
+            )
+            effective_source_exponent = recipe.integer_select(
+                "effective_source_exponent",
+                source_exponent_one,
+                source_exponent,
+                source_is_subnormal,
+            )
+            maximum_subnormal_exponent_value = max(
+                source_format.exponent_bias - narrow_format.exponent_bias,
+                1,
+            )
+        else:
+            significand = normal_significand
+            effective_source_exponent = source_exponent
+            maximum_subnormal_exponent_value = (
+                source_format.exponent_bias - narrow_format.exponent_bias
+            )
         maximum_subnormal_exponent = recipe.integer_constant(
             "maximum_subnormal_exponent",
-            source_format.exponent_bias - narrow_format.exponent_bias,
+            maximum_subnormal_exponent_value,
         )
         exponent_above_subnormal = recipe.integer_binary(
             "exponent_above_subnormal",
             descriptors.integer_greater_than_nonnegative,
-            source_exponent,
+            effective_source_exponent,
             maximum_subnormal_exponent,
         )
         bounded_exponent = recipe.integer_select(
             "bounded_subnormal_exponent",
             maximum_subnormal_exponent,
-            source_exponent,
+            effective_source_exponent,
             exponent_above_subnormal,
         )
         magic_exponent_value = recipe.integer_constant(
@@ -491,7 +838,7 @@ def build_float_to_narrow_float_emits(
             bounded_exponent,
         )
         maximum_shift = recipe.integer_constant(
-            "maximum_subnormal_shift", source_format.bit_width - 1
+            "maximum_subnormal_shift", descriptors.integer_bit_width - 1
         )
         shift_too_large = recipe.integer_binary(
             "subnormal_shift_too_large",
@@ -676,4 +1023,4 @@ def build_float_to_narrow_float_emits(
     recipe.integer_binary_to(
         result_ref, descriptors.integer_bitwise_or, sign, unsigned_result
     )
-    return tuple(recipe.emits)
+    return recipe.finish()

@@ -404,7 +404,7 @@ low.func.def target<test.low.core>(@test_target) @unsupported_stack_spill_space(
 
 test.target<low_core> @test_target
 
-// REMARK@+1: BACKEND/045 {function_name="rematerialize_live_frontier", value_name="literal", value_class="test.packed.narrow", trigger_kind="allocation-failure", cloned_packet_count="2", rewritten_operand_count="2", reason_key="descriptor-rematerializable"}
+// REMARK@+1: BACKEND/045 {function_name="rematerialize_live_frontier", trigger_value_class="test.packed.narrow", trigger_kind="allocation-failure", repaired_value_count="1", cloned_packet_count="2", rewritten_operand_count="2", retained_placement_count="0", reason_key="descriptor-rematerializable"}
 low.func.def target<test.low.core>(@test_target) @rematerialize_live_frontier(%blocker: reg<test.packed.narrow>) -> (reg<test.i32>) asm {
   %literal = test.const.packed.narrow 7
   %seed = copy %literal : reg<test.packed.narrow> -> reg<test.i32>
@@ -525,7 +525,7 @@ low.func.def target<test.low.core>(@test_target) @do_not_rematerialize_consumed_
 
 test.target<low_core> @test_target
 
-// REMARK@+1: BACKEND/045 {function_name="rematerialize_spill_plan_diagnostics", value_name="literal", value_class="test.i32", trigger_kind="spill-plan", cloned_packet_count="2", rewritten_operand_count="2", reason_key="descriptor-rematerializable"}
+// REMARK@+1: BACKEND/045 {function_name="rematerialize_spill_plan_diagnostics", trigger_value_class="test.i32", trigger_kind="spill-plan", repaired_value_count="1", cloned_packet_count="2", rewritten_operand_count="2", retained_placement_count="0", reason_key="descriptor-rematerializable"}
 low.func.def target<test.low.core>(@test_target) @rematerialize_spill_plan_diagnostics(%a: reg<test.i32>, %b: reg<test.i32>, %c: reg<test.i32>) -> (reg<test.i32>) asm {
   %literal = test.const.i32 7
   %ab = test.add.i32 %a, %b
@@ -726,9 +726,9 @@ low.func.def target<test.low.core>(@test_target) @rematerialize_overlapping_view
 
 test.target<low_core> @test_target
 
-// REMARK@+3: BACKEND/045 {value_name="first", cloned_packet_count="1", rewritten_operand_count="1"}
-// REMARK@+2: BACKEND/045 {value_name="second", cloned_packet_count="1", rewritten_operand_count="1"}
-// REMARK@+1: BACKEND/045 {value_name="third", cloned_packet_count="1", rewritten_operand_count="1"}
+// REMARK@+3: BACKEND/045 {repaired_value_count="1", cloned_packet_count="1", rewritten_operand_count="1", retained_placement_count="0"}
+// REMARK@+2: BACKEND/045 {repaired_value_count="1", cloned_packet_count="1", rewritten_operand_count="1", retained_placement_count="0"}
+// REMARK@+1: BACKEND/045 {repaired_value_count="1", cloned_packet_count="1", rewritten_operand_count="1", retained_placement_count="0"}
 low.func.def target<test.low.core>(@test_target) @irreducible_constants() -> (reg<test.packed.narrow>, reg<test.packed.narrow>, reg<test.packed.narrow>) asm {
   %first = test.const.packed.narrow 7
   %second = test.const.packed.narrow 11
@@ -900,4 +900,28 @@ low.func.def target<test.low.core>(@target) @cross_block_constants() -> (reg<tes
   %abcd = test.add.i32 %ab, %cd
   %result = test.add.i32 %abcd, %e
   return %result
+}
+
+// ====
+
+// Materialization cannot replace an authored assignment without receiving the
+// retained allocation table that defines it.
+// RUN: pass low-materialize-allocation
+
+test.target<low_core> @target
+
+// ERROR@+1: BACKEND/051 {function_name="assigned_input", allocation_mode="assigned"}
+low.func.def allocation(assigned) target<test.low.core>(@target) @assigned_input() asm {
+  return
+}
+
+// ====
+
+// RUN: pass low-materialize-allocation
+
+test.target<low_core> @target
+
+// ERROR@+1: BACKEND/051 {function_name="fixed_input", allocation_mode="fixed"}
+low.func.def allocation(fixed) target<test.low.core>(@target) @fixed_input() asm {
+  return
 }

@@ -37,8 +37,9 @@ typedef enum loomc_diagnostic_severity_e {
 /// Byte offsets are zero-based and line/column values are one-based when
 /// available. A zero line or column means the location was not computed or is
 /// not meaningful for the source format. A source can retain its identifier
-/// without contents; recorded line/column values remain valid in that case.
-/// Unknown byte offsets are zero.
+/// without contents; recorded byte offsets and line/column values remain valid
+/// against a caller-owned copy of the identified source. Unknown byte offsets
+/// are zero.
 ///
 /// @lifetime
 /// The source pointer is retained by the owning result when present. The range
@@ -94,6 +95,15 @@ typedef struct loomc_diagnostic_t {
 
   /// Human-readable rendered message.
   loomc_string_view_t message;
+
+  /// Canonical human-readable rendering of the complete diagnostic.
+  ///
+  /// This includes source excerpts, carets, fix hints, and related locations
+  /// when available, and ends with a newline. It is intended for terminal and
+  /// log presentation; tools requiring stable data should consume the
+  /// structured fields instead. The view is empty when no canonical rendering
+  /// is available.
+  loomc_string_view_t formatted_text;
 
   /// Primary source range.
   loomc_source_range_t range;

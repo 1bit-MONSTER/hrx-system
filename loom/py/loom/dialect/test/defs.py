@@ -129,6 +129,7 @@ from loom.dsl import (
     ReferenceTypeKey,
     RegionBranchInterface,
     RegionDef,
+    RegionExecution,
     Release,
     Result,
     Retain,
@@ -1341,6 +1342,7 @@ test_map = Op(
             "body",
             doc="Element-wise body.",
             single_block=True,
+            execution=RegionExecution.REPEATED,
             terminator="test.yield",
         )
     ],
@@ -1915,6 +1917,13 @@ test_optional_region = Op(
         ),
     ],
     traits=[ImplicitTerminator("test.implicit_yield")],
+    interfaces=[
+        RegionBranchInterface(
+            selector="condition",
+            true_region="body",
+            false_region="else_region",
+        ),
+    ],
     format=[
         Ref("condition"),
         Region("body"),

@@ -694,10 +694,23 @@ static inline loom_symbol_kind_t loom_symbol_bytecode_kind(
   return symbol->definition ? symbol->definition->bytecode_kind : symbol->kind;
 }
 
+// Dynamic execution of a region within one invocation of its owning op.
+enum loom_region_execution_e {
+  // Executes zero or one time, then may continue after the owning op.
+  LOOM_REGION_EXECUTION_ONCE = 0,
+  // May repeat without reentering the owning op. Each entry recreates local
+  // definitions, but captured values retain their original dynamic instance.
+  LOOM_REGION_EXECUTION_REPEATED = 1,
+  // Executing the region never continues after its owning op. For example,
+  // the body of a conditional kernel exit returns from the kernel instead.
+  LOOM_REGION_EXECUTION_EXIT = 2,
+};
+typedef uint8_t loom_region_execution_t;
+
 // Per-region metadata in the op vtable.
 typedef struct loom_region_descriptor_t {
-  // Required explicit terminator kind, or LOOM_OP_KIND_UNKNOWN if any
-  // terminator kind is allowed.
+  // Required explicit terminator kind. The implicit kind below is also valid.
+  // LOOM_OP_KIND_UNKNOWN allows any terminator kind.
   loom_op_kind_t terminator;
 
   // Op kind that the text parser may synthesize and the text printer may elide,
@@ -707,10 +720,25 @@ typedef struct loom_region_descriptor_t {
 
   // Region structure flags such as single-block enforcement.
   loom_region_flags_t flags;
+
+  // Recurrence and continuation contract supplied by the region declaration
+  // or its owning control-flow interface.
+  loom_region_execution_t execution;
 } loom_region_descriptor_t;
 
 static_assert(sizeof(loom_region_descriptor_t) == 6,
               "loom_region_descriptor_t must be 6 bytes");
+
+// Matches a materialized terminator against a region's declared kinds. Whether
+// authored or synthesized, an implicit terminator obeys the same yield tuple
+// constraints as the explicit kind. The caller establishes the Terminator
+// trait.
+static inline bool loom_region_descriptor_matches_terminator(
+    const loom_region_descriptor_t* descriptor, loom_op_kind_t kind) {
+  return descriptor->terminator == LOOM_OP_KIND_UNKNOWN ||
+         kind == descriptor->terminator ||
+         kind == descriptor->implicit_terminator;
+}
 
 // Generated structural placement metadata for an op kind.
 typedef struct loom_op_placement_descriptor_t {

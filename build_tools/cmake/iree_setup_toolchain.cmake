@@ -272,5 +272,3 @@ macro(iree_setup_toolchain)
     endif()
   endif()
 endmacro()
-
-iree_setup_toolchain()

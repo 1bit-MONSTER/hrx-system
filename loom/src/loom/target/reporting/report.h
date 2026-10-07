@@ -1302,6 +1302,8 @@ typedef struct loom_target_compile_report_source_low_selection_summary_t {
   uint64_t selected_op_count;
   // Number of low operations emitted by this lowering shape.
   uint64_t emitted_low_op_count;
+  // Largest low operation count emitted by one source operation in this shape.
+  uint32_t maximum_emitted_low_op_count;
   // Number of source operations with exact dynamic execution evidence.
   uint64_t exact_dynamic_op_count;
   // Number of source operations without exact dynamic execution evidence.
@@ -1850,6 +1852,8 @@ typedef struct loom_target_compile_report_legalization_row_t {
   loom_target_compile_report_legalization_policy_t policy;
   // Legalization decision recorded for this source operation.
   loom_target_compile_report_legalization_action_t action;
+  // Whether the rewrite expanded vector semantics into scalar lane operations.
+  bool scalarized;
   // Terminal outcome after applying the selected legalization action.
   loom_target_compile_report_legalization_outcome_t legalization_outcome;
   // Read-only target-contract query outcome observed before rewriting.
@@ -2016,10 +2020,16 @@ typedef struct loom_target_compile_report_t {
   uint64_t source_low_selected_op_count;
   // Number of low operations emitted during source-to-low lowering.
   uint64_t source_low_emitted_op_count;
+  // Largest expansion without a plan/descriptor key for a selection summary.
+  uint32_t source_low_unkeyed_maximum_emitted_op_count;
   // Number of source ops already accepted by target legalization.
   uint64_t target_legalization_legal_op_count;
   // Number of source ops rewritten by target legalization.
   uint64_t target_legalization_rewritten_op_count;
+  // Largest number of source operations created by one target rewrite.
+  uint64_t target_legalization_maximum_created_op_count;
+  // Number of source vector ops expanded into scalar lane operations.
+  uint64_t target_legalization_scalarized_op_count;
   // Number of target-specific native-path rewrites.
   uint64_t target_legalization_target_rewritten_op_count;
   // Number of portable reference fallback rewrites.
@@ -2034,6 +2044,8 @@ typedef struct loom_target_compile_report_t {
   uint64_t target_legalization_unhandled_op_count;
   // Number of source math ops rewritten by target math legalization.
   uint64_t math_legalization_rewritten_op_count;
+  // Largest number of source operations created by one math recipe.
+  uint64_t math_legalization_maximum_created_op_count;
   // Number of source math ops rejected by target math legalization.
   uint64_t math_legalization_rejected_op_count;
   // Number of source math ops without a target math policy.
@@ -2370,7 +2382,8 @@ iree_status_t loom_target_compile_report_record_math_row(
 void loom_target_compile_report_record_legalization_summary(
     loom_target_compile_report_t* report,
     loom_target_compile_report_legalization_action_t action,
-    loom_target_compile_report_legalizer_strategy_t legalizer_strategy);
+    loom_target_compile_report_legalizer_strategy_t legalizer_strategy,
+    bool scalarized, uint64_t created_op_count);
 
 // Records one target-legalization row.
 iree_status_t loom_target_compile_report_record_legalization_row(

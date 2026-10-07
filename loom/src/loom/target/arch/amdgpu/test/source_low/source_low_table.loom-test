@@ -133,8 +133,7 @@ func.def @i8_table_lookup_fact_known_codes(%grid: vector<4xi8>) -> (vector<4xi8>
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @i8_table_lookup_fact_known_codes(%grid: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
-  %codes = v_mov_b32 16973826
-  %decoded = v_perm_b32 %grid, %grid, %codes
+  %decoded = v_perm_b32_src2_lit %grid, %grid, 84345862
   return %decoded
 }
 
@@ -158,8 +157,7 @@ func.def @i8_table_lookup_constant_table() -> (vector<4xi8>) {
 // ----
 low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @i8_table_lookup_constant_table() -> (reg<amdgpu.vgpr>) asm {
   %grid = v_mov_b32 117637116
-  %codes = v_mov_b32 66051
-  %decoded = v_perm_b32 %grid, %grid, %codes
+  %decoded = v_perm_b32_src2_lit %grid, %grid, 67438087
   return %decoded
 }
 

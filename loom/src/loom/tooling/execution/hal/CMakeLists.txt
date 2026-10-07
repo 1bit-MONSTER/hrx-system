@@ -159,8 +159,9 @@ loom_cc_library(
   HDRS
     "artifact.h"
   DEPS
+    iree::base
     iree::hal
-    loom::tooling::compile::artifact
+    loom::target::provider
   PUBLIC
 )
 
@@ -176,7 +177,8 @@ loom_cc_library(
     iree::base
     iree::hal
     loom::target::profile
-    loom::tooling::compile::artifact
+    loom::target::provider
+    loom::target::selection
   PUBLIC
 )
 
@@ -210,7 +212,8 @@ loom_cc_library(
   DEPS
     ::device_provider
     iree::base
-    loom::tooling::compile::artifact
+    loom::target::entry_selection
+    loom::target::provider
     loom::tooling::compile::options
     loom::tooling::execution::session
   PUBLIC
@@ -267,6 +270,7 @@ loom_cc_library(
     iree::tooling::device_util
     loom::analysis::kernel_launch_config
     loom::analysis::symbol_facts
+    loom::codegen::low::launch_config_program
     loom::error::diagnostic
     loom::ir
     loom::ir::facts
@@ -278,7 +282,6 @@ loom_cc_library(
     loom::ops::target
     loom::pass::pipeline_snapshot
     loom::sanitizer::options
-    loom::target::function_version
     loom::target::provider
     loom::target::types
     loom::tooling::compile::options
@@ -287,7 +290,6 @@ loom_cc_library(
     loom::tooling::config
     loom::tooling::execution::execution_backend
     loom::tooling::execution::session
-    loom::tooling::io::source
     loom::tooling::testbench
     loom::tooling::testbench::api
     loom::tooling::testbench::invocation
@@ -310,6 +312,9 @@ loom_cc_library(
     ::testbench_staging
     iree::base
     iree::hal
+    loom::error::diagnostic
+    loom::error::error_defs
+    loom::error::source
     loom::ir
     loom::ops::func
     loom::ops::index
@@ -396,8 +401,8 @@ loom_cc_test(
     iree::hal
     iree::testing::gtest
     iree::testing::gtest_main
-    loom::ops::op_registry
     loom::ops::test
+    loom::target::function_version
     loom::target::low_descriptor_registry_core_test
     loom::target::provider
     loom::target::test::target_record_table
@@ -413,6 +418,7 @@ loom_cc_test(
   SRCS
     "device_provider_test.cc"
   DEPS
+    ::artifact
     ::device_provider
     ::runtime
     iree::base
@@ -420,7 +426,7 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::target::profile
-    loom::tooling::compile::artifact
+    loom::target::provider
 )
 
 loom_cc_test(
@@ -433,9 +439,9 @@ loom_cc_test(
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
-    loom::ops::func
     loom::target::low_descriptor_registry_core_test
     loom::target::profile
+    loom::target::provider
     loom::target::types
     loom::testing::byte_sequence
     loom::tooling::execution::session

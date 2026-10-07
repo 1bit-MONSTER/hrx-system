@@ -12,6 +12,7 @@
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/scf/ops.h"
 #include "loom/rewrite/rewriter.h"
+#include "loom/util/numeric_format.h"
 
 bool loom_scalar_match_multiply_add(
     const loom_module_t* module, const loom_op_t* multiply_op,
@@ -190,6 +191,52 @@ static iree_status_t loom_scalar_legalize_build_or_i32(
       builder, location, LOOM_OP_SCALAR_ORI, lhs, rhs, out_value);
 }
 
+typedef struct loom_scalar_fp8_result_format_t {
+  // Scalar type represented by the format.
+  loom_scalar_type_t type;
+  // Total number of encoded bits.
+  uint8_t bit_width;
+  // Number of encoded exponent bits.
+  uint8_t exponent_bits;
+  // Number of encoded mantissa bits.
+  uint8_t mantissa_bits;
+  // Exponent bias used by the encoded type.
+  uint8_t exponent_bias;
+} loom_scalar_fp8_result_format_t;
+
+static loom_scalar_fp8_result_format_t loom_scalar_fp8_result_format(
+    loom_scalar_type_t type) {
+  switch (type) {
+    case LOOM_SCALAR_TYPE_F16:
+      return (loom_scalar_fp8_result_format_t){
+          .type = type,
+          .bit_width = 16,
+          .exponent_bits = 5,
+          .mantissa_bits = 10,
+          .exponent_bias = 15,
+      };
+    case LOOM_SCALAR_TYPE_BF16:
+      return (loom_scalar_fp8_result_format_t){
+          .type = type,
+          .bit_width = 16,
+          .exponent_bits = 8,
+          .mantissa_bits = 7,
+          .exponent_bias = 127,
+      };
+    case LOOM_SCALAR_TYPE_F32:
+      return (loom_scalar_fp8_result_format_t){
+          .type = type,
+          .bit_width = 32,
+          .exponent_bits = 8,
+          .mantissa_bits = 23,
+          .exponent_bias = 127,
+      };
+    default:
+      IREE_ASSERT_UNREACHABLE("unsupported FP8 extension result type");
+      IREE_BUILTIN_UNREACHABLE();
+  }
+}
+
 static iree_status_t loom_scalar_legalize_build_fp8_leading_index(
     loom_builder_t* builder, loom_location_id_t location,
     const loom_scalar_type_fp8_format_t* format, loom_value_id_t mantissa,
@@ -218,21 +265,44 @@ static iree_status_t loom_scalar_legalize_build_fp8_leading_index(
 static iree_status_t loom_scalar_legalize_build_fp8_subnormal_bits(
     loom_builder_t* builder, loom_location_id_t location,
     const loom_scalar_type_fp8_format_t* format, loom_value_id_t sign_bits,
+    const loom_scalar_fp8_result_format_t* result_format,
     loom_value_id_t mantissa, loom_value_id_t* out_value) {
+  const int32_t source_min_exponent =
+      1 - format->exponent_bias - format->mantissa_bits;
+  const int32_t source_max_subnormal_exponent = -format->exponent_bias;
+  const int32_t result_min_normal_exponent = 1 - result_format->exponent_bias;
+  if (source_max_subnormal_exponent < result_min_normal_exponent) {
+    // Every source subnormal remains subnormal in the result. All supported
+    // result formats represent the source exactly, so this shift is integral.
+    const int32_t shift = result_format->exponent_bias +
+                          result_format->mantissa_bits - format->exponent_bias -
+                          format->mantissa_bits;
+    loom_value_id_t fraction_bits = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_binary_i32_const_rhs(
+        builder, location, LOOM_OP_SCALAR_SHLI, mantissa, shift,
+        &fraction_bits));
+    return loom_scalar_legalize_build_or_i32(builder, location, sign_bits,
+                                             fraction_bits, out_value);
+  }
+  IREE_ASSERT(source_min_exponent >= result_min_normal_exponent,
+              "FP8 subnormal range must not straddle the result normal range");
+
   loom_value_id_t leading_index = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_fp8_leading_index(
       builder, location, format, mantissa, &leading_index));
   loom_value_id_t exponent_bits = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_binary_i32_const_rhs(
       builder, location, LOOM_OP_SCALAR_ADDI, leading_index,
-      128 - format->exponent_bias - format->mantissa_bits, &exponent_bits));
-  IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_binary_i32_const_rhs(
-      builder, location, LOOM_OP_SCALAR_SHLI, exponent_bits, 23,
+      result_format->exponent_bias + 1 - format->exponent_bias -
+          format->mantissa_bits,
       &exponent_bits));
+  IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_binary_i32_const_rhs(
+      builder, location, LOOM_OP_SCALAR_SHLI, exponent_bits,
+      result_format->mantissa_bits, &exponent_bits));
 
   loom_value_id_t mantissa_shift = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_i32_constant(
-      builder, location, 23, &mantissa_shift));
+      builder, location, result_format->mantissa_bits, &mantissa_shift));
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_binary_i32(
       builder, location, LOOM_OP_SCALAR_SUBI, mantissa_shift, leading_index,
       &mantissa_shift));
@@ -241,8 +311,8 @@ static iree_status_t loom_scalar_legalize_build_fp8_subnormal_bits(
       builder, location, LOOM_OP_SCALAR_SHLI, mantissa, mantissa_shift,
       &fraction_bits));
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_binary_i32_const_rhs(
-      builder, location, LOOM_OP_SCALAR_ANDI, fraction_bits, 0x007FFFFF,
-      &fraction_bits));
+      builder, location, LOOM_OP_SCALAR_ANDI, fraction_bits,
+      (INT64_C(1) << result_format->mantissa_bits) - 1, &fraction_bits));
 
   loom_value_id_t nonzero_bits = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_or_i32(
@@ -256,9 +326,10 @@ static iree_status_t loom_scalar_legalize_build_fp8_subnormal_bits(
       builder, location, is_zero, sign_bits, nonzero_bits, out_value);
 }
 
-static iree_status_t loom_scalar_legalize_build_fp8_to_f32(
+static iree_status_t loom_scalar_legalize_build_fp8_to_float(
     loom_builder_t* builder, loom_location_id_t location,
     loom_value_id_t byte_value, const loom_scalar_type_fp8_format_t* format,
+    const loom_scalar_fp8_result_format_t* result_format,
     loom_value_id_t* out_value) {
   const int32_t sign_shift = format->exponent_bits + format->mantissa_bits;
   const int32_t sign_mask = 1 << sign_shift;
@@ -278,8 +349,8 @@ static iree_status_t loom_scalar_legalize_build_fp8_to_f32(
       builder, location, LOOM_OP_SCALAR_ANDI, source_i32, sign_mask,
       &sign_bits));
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_binary_i32_const_rhs(
-      builder, location, LOOM_OP_SCALAR_SHLI, sign_bits, 31 - sign_shift,
-      &sign_bits));
+      builder, location, LOOM_OP_SCALAR_SHLI, sign_bits,
+      result_format->bit_width - 1 - sign_shift, &sign_bits));
 
   loom_value_id_t exponent = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_binary_i32_const_rhs(
@@ -297,14 +368,14 @@ static iree_status_t loom_scalar_legalize_build_fp8_to_f32(
   loom_value_id_t normal_exponent = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_binary_i32_const_rhs(
       builder, location, LOOM_OP_SCALAR_ADDI, exponent,
-      127 - format->exponent_bias, &normal_exponent));
+      result_format->exponent_bias - format->exponent_bias, &normal_exponent));
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_binary_i32_const_rhs(
-      builder, location, LOOM_OP_SCALAR_SHLI, normal_exponent, 23,
-      &normal_exponent));
+      builder, location, LOOM_OP_SCALAR_SHLI, normal_exponent,
+      result_format->mantissa_bits, &normal_exponent));
   loom_value_id_t normal_mantissa = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_binary_i32_const_rhs(
       builder, location, LOOM_OP_SCALAR_SHLI, mantissa,
-      23 - format->mantissa_bits, &normal_mantissa));
+      result_format->mantissa_bits - format->mantissa_bits, &normal_mantissa));
   loom_value_id_t normal_bits = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_or_i32(
       builder, location, sign_bits, normal_exponent, &normal_bits));
@@ -313,7 +384,8 @@ static iree_status_t loom_scalar_legalize_build_fp8_to_f32(
 
   loom_value_id_t subnormal_bits = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_fp8_subnormal_bits(
-      builder, location, format, sign_bits, mantissa, &subnormal_bits));
+      builder, location, format, sign_bits, result_format, mantissa,
+      &subnormal_bits));
   loom_value_id_t exponent_is_zero = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_cmpi_i32_const_rhs(
       builder, location, LOOM_SCALAR_CMPI_PREDICATE_EQ, exponent, 0,
@@ -330,11 +402,18 @@ static iree_status_t loom_scalar_legalize_build_fp8_to_f32(
       exponent_all_ones, &exponent_is_top));
   loom_value_id_t quiet_nan_bits = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_i32_constant(
-      builder, location, 0x7FC00000, &quiet_nan_bits));
+      builder, location,
+      (((INT64_C(1) << result_format->exponent_bits) - 1)
+       << result_format->mantissa_bits) |
+          (INT64_C(1) << (result_format->mantissa_bits - 1)),
+      &quiet_nan_bits));
   if (format->special_policy == LOOM_SCALAR_TYPE_FP8_SPECIAL_POLICY_IEEE) {
     loom_value_id_t infinity_bits = LOOM_VALUE_ID_INVALID;
     IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_i32_constant(
-        builder, location, 0x7F800000, &infinity_bits));
+        builder, location,
+        ((INT64_C(1) << result_format->exponent_bits) - 1)
+            << result_format->mantissa_bits,
+        &infinity_bits));
     IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_or_i32(
         builder, location, sign_bits, infinity_bits, &infinity_bits));
     loom_value_id_t mantissa_is_zero = LOOM_VALUE_ID_INVALID;
@@ -365,10 +444,20 @@ static iree_status_t loom_scalar_legalize_build_fp8_to_f32(
         builder, location, is_nan, quiet_nan_bits, finite_bits, &result_bits));
   }
 
+  loom_value_id_t carrier = result_bits;
+  loom_type_t carrier_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
+  if (result_format->bit_width == 16) {
+    carrier_type = loom_type_scalar(LOOM_SCALAR_TYPE_I16);
+    loom_op_t* truncate_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_trunci_build(
+        builder, result_bits, loom_type_scalar(LOOM_SCALAR_TYPE_I32),
+        carrier_type, location, &truncate_op));
+    carrier = loom_scalar_trunci_result(truncate_op);
+  }
   loom_op_t* bitcast_op = NULL;
   IREE_RETURN_IF_ERROR(loom_scalar_bitcast_build(
-      builder, result_bits, loom_type_scalar(LOOM_SCALAR_TYPE_I32),
-      loom_type_scalar(LOOM_SCALAR_TYPE_F32), location, &bitcast_op));
+      builder, carrier, carrier_type, loom_type_scalar(result_format->type),
+      location, &bitcast_op));
   *out_value = loom_scalar_bitcast_result(bitcast_op);
   return iree_ok_status();
 }
@@ -382,6 +471,53 @@ static iree_status_t loom_scalar_legalize_build_fp8_storage_byte(
       builder, fp8_value, fp8_type, loom_type_scalar(LOOM_SCALAR_TYPE_I8),
       location, &bitcast_op));
   *out_byte_value = loom_scalar_bitcast_result(bitcast_op);
+  return iree_ok_status();
+}
+
+bool loom_scalar_match_float8_to_bfloat_extension(
+    const loom_target_legalizer_entry_t* entry,
+    const loom_target_legalization_context_t* context, const loom_op_t* op) {
+  (void)entry;
+  const loom_value_id_t input = loom_scalar_extf_input(op);
+  const loom_type_t input_type = loom_module_value_type(context->module, input);
+  const loom_type_t result_type =
+      loom_module_value_type(context->module, loom_scalar_extf_result(op));
+  return loom_type_is_scalar(input_type) &&
+         loom_scalar_type_set_contains(
+             LOOM_SCALAR_TYPE_SET_F8E4M3 | LOOM_SCALAR_TYPE_SET_F8E5M2,
+             loom_type_element_type(input_type)) &&
+         loom_type_is_scalar(result_type) &&
+         loom_type_element_type(result_type) == LOOM_SCALAR_TYPE_BF16;
+}
+
+iree_status_t loom_scalar_rewrite_float8_extension(
+    loom_target_legalization_context_t* context, loom_op_t* op) {
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  const loom_value_id_t input = loom_scalar_extf_input(op);
+  const loom_type_t input_type = loom_module_value_type(context->module, input);
+  const loom_type_t result_type =
+      loom_module_value_type(context->module, loom_scalar_extf_result(op));
+  loom_scalar_type_fp8_format_t input_format = {0};
+  const bool is_fp8 = loom_scalar_type_fp8_format(
+      loom_type_element_type(input_type), &input_format);
+  IREE_ASSERT(is_fp8, "matched FP8 extension must have an FP8 input");
+  (void)is_fp8;
+  const loom_scalar_fp8_result_format_t result_format =
+      loom_scalar_fp8_result_format(loom_type_element_type(result_type));
+  loom_value_id_t byte_value = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_fp8_storage_byte(
+      builder, op->location, input, input_type, &byte_value));
+  loom_value_id_t replacement = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_fp8_to_float(
+      builder, op->location, byte_value, &input_format, &result_format,
+      &replacement));
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
   return iree_ok_status();
 }
 
@@ -414,38 +550,28 @@ static iree_status_t loom_scalar_legalize_extf(
     return iree_ok_status();
   }
 
+  if (!widen_to_f64) {
+    IREE_RETURN_IF_ERROR(loom_scalar_rewrite_float8_extension(context, op));
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+    return iree_ok_status();
+  }
+
   loom_rewriter_t* rewriter = context->rewriter;
   loom_builder_set_before(&rewriter->builder, op);
   const loom_value_id_t value_checkpoint =
       loom_rewriter_value_checkpoint(rewriter);
-  loom_value_id_t replacement = LOOM_VALUE_ID_INVALID;
   const loom_type_t f32_type = loom_type_scalar(LOOM_SCALAR_TYPE_F32);
-  if (loom_type_equal(result_type, f32_type)) {
-    loom_value_id_t byte_value = LOOM_VALUE_ID_INVALID;
-    IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_fp8_storage_byte(
-        &rewriter->builder, op->location, loom_scalar_extf_input(op),
-        input_type, &byte_value));
-    IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_fp8_to_f32(
-        &rewriter->builder, op->location, byte_value, &format, &replacement));
-  } else {
-    // F32 represents every narrow source value exactly. Keep this edge as an
-    // ordinary extension so the target can select its native F32 conversion.
-    loom_op_t* widened = NULL;
-    IREE_RETURN_IF_ERROR(
-        loom_scalar_extf_build(&rewriter->builder, loom_scalar_extf_input(op),
-                               input_type, f32_type, op->location, &widened));
-    loom_op_t* converted = NULL;
-    if (widen_to_f64) {
-      IREE_RETURN_IF_ERROR(loom_scalar_extf_build(
-          &rewriter->builder, loom_scalar_extf_result(widened), f32_type,
-          result_type, op->location, &converted));
-    } else {
-      IREE_RETURN_IF_ERROR(loom_scalar_fptrunc_build(
-          &rewriter->builder, loom_scalar_extf_result(widened), f32_type,
-          result_type, op->location, &converted));
-    }
-    replacement = loom_op_results(converted)[0];
-  }
+  // F32 represents every narrow source value exactly. Keep these edges as
+  // ordinary extensions so the target can select its native F32/F64 paths.
+  loom_op_t* widened = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_scalar_extf_build(&rewriter->builder, loom_scalar_extf_input(op),
+                             input_type, f32_type, op->location, &widened));
+  loom_op_t* converted = NULL;
+  IREE_RETURN_IF_ERROR(loom_scalar_extf_build(
+      &rewriter->builder, loom_scalar_extf_result(widened), f32_type,
+      result_type, op->location, &converted));
+  const loom_value_id_t replacement = loom_scalar_extf_result(converted);
   IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
       rewriter, op, &replacement, 1, value_checkpoint));
   IREE_RETURN_IF_ERROR(
@@ -715,6 +841,74 @@ static iree_status_t loom_scalar_legalize_narrow_binary(
   return iree_ok_status();
 }
 
+// Count the source bits, not the carrier bits. The CTZ sentinel both supplies
+// the narrow zero result and proves that the widened count input is nonzero.
+static iree_status_t loom_scalar_legalize_narrow_bit_count(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  const loom_value_id_t input = loom_op_operands(op)[0];
+  const loom_type_t type = loom_module_value_type(context->module, input);
+  const int32_t width = loom_scalar_type_bitwidth(loom_type_element_type(type));
+  loom_value_id_t replacement = input;
+  if (width == 1) {
+    // A predicate has population count equal to itself; both zero counts are
+    // its complement. No wider arithmetic or target count instruction is
+    // needed.
+    if (op->kind != LOOM_OP_SCALAR_CTPOPI) {
+      loom_value_id_t zero = LOOM_VALUE_ID_INVALID;
+      IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_scalar_constant(
+          builder, op->location, type, 0, &zero));
+      loom_op_t* comparison = NULL;
+      IREE_RETURN_IF_ERROR(
+          loom_scalar_cmpi_build(builder, LOOM_SCALAR_CMPI_PREDICATE_EQ, input,
+                                 zero, op->location, &comparison));
+      replacement = loom_scalar_cmpi_result(comparison);
+    }
+  } else {
+    const loom_type_t working_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
+    loom_op_t* extension = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_extui_build(
+        builder, input, type, working_type, op->location, &extension));
+    loom_value_id_t operand = loom_scalar_extui_result(extension);
+    if (op->kind == LOOM_OP_SCALAR_CTTZI) {
+      IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_binary_i32_const_rhs(
+          builder, op->location, LOOM_OP_SCALAR_ORI, operand,
+          INT64_C(1) << width, &operand));
+    }
+    loom_op_t* count = NULL;
+    IREE_RETURN_IF_ERROR(loom_builder_allocate_op(builder, op->kind, 1, 1, 0, 0,
+                                                  0, op->location, &count));
+    loom_op_operands(count)[0] = operand;
+    IREE_RETURN_IF_ERROR(loom_builder_define_result(
+        builder, working_type, &loom_op_results(count)[0]));
+    IREE_RETURN_IF_ERROR(loom_builder_finalize_op(builder, count));
+    replacement = loom_op_results(count)[0];
+    if (op->kind == LOOM_OP_SCALAR_CTLZI) {
+      IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_binary_i32_const_rhs(
+          builder, op->location, LOOM_OP_SCALAR_SUBI, replacement, 32 - width,
+          &replacement));
+    }
+    loom_op_t* truncation = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_trunci_build(
+        builder, replacement, working_type, type, op->location, &truncation));
+    replacement = loom_scalar_trunci_result(truncation);
+  }
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN,
+  };
+  return iree_ok_status();
+}
+
 static iree_status_t loom_scalar_legalize_narrow_cmpi(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
@@ -891,7 +1085,99 @@ static iree_status_t loom_scalar_legalize_ieee_extrema(
   return iree_ok_status();
 }
 
+static iree_status_t loom_scalar_legalize_float_classification(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  const loom_value_id_t input = loom_op_operands(op)[0];
+  const loom_type_t float_type = loom_module_value_type(context->module, input);
+  loom_numeric_float_encoding_t encoding = {0};
+  if (!loom_numeric_float_encoding(loom_type_element_type(float_type),
+                                   &encoding)) {
+    return iree_ok_status();
+  }
+
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  loom_value_id_t replacement = LOOM_VALUE_ID_INVALID;
+  if (op->kind == LOOM_OP_SCALAR_ISINFF &&
+      encoding.special_layout == LOOM_NUMERIC_FLOAT_SPECIAL_LAYOUT_FINITE_NAN) {
+    IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_scalar_constant(
+        builder, op->location, loom_type_scalar(LOOM_SCALAR_TYPE_I1), 0,
+        &replacement));
+  } else {
+    const loom_type_t integer_type = loom_type_scalar(encoding.integer_type);
+    loom_op_t* bitcast_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_bitcast_build(
+        builder, input, float_type, integer_type, op->location, &bitcast_op));
+    loom_value_id_t magnitude_mask = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_scalar_constant(
+        builder, op->location, integer_type, (int64_t)encoding.magnitude_mask,
+        &magnitude_mask));
+    loom_op_t* magnitude_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_andi_build(
+        builder, loom_scalar_bitcast_result(bitcast_op), magnitude_mask,
+        integer_type, op->location, &magnitude_op));
+    loom_value_id_t special_magnitude = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_scalar_constant(
+        builder, op->location, integer_type,
+        (int64_t)encoding.special_magnitude, &special_magnitude));
+
+    loom_scalar_cmpi_predicate_t predicate = LOOM_SCALAR_CMPI_PREDICATE_EQ;
+    if (op->kind == LOOM_OP_SCALAR_ISNANF) {
+      predicate =
+          encoding.special_layout == LOOM_NUMERIC_FLOAT_SPECIAL_LAYOUT_IEEE
+              ? LOOM_SCALAR_CMPI_PREDICATE_UGT
+              : LOOM_SCALAR_CMPI_PREDICATE_EQ;
+    } else if (op->kind == LOOM_OP_SCALAR_ISFINITEF) {
+      predicate =
+          encoding.special_layout == LOOM_NUMERIC_FLOAT_SPECIAL_LAYOUT_IEEE
+              ? LOOM_SCALAR_CMPI_PREDICATE_ULT
+              : LOOM_SCALAR_CMPI_PREDICATE_NE;
+    }
+    loom_op_t* comparison_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_cmpi_build(
+        builder, predicate, loom_scalar_andi_result(magnitude_op),
+        special_magnitude, op->location, &comparison_op));
+    replacement = loom_scalar_cmpi_result(comparison_op);
+  }
+
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  return iree_ok_status();
+}
+
 static const loom_target_legalizer_rule_t kScalarLegalizerRules[] = {
+    {
+        .root_kind = LOOM_OP_SCALAR_CTLZI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I1 |
+                                       LOOM_SCALAR_TYPE_SET_I8 |
+                                       LOOM_SCALAR_TYPE_SET_I16,
+        .legalize = loom_scalar_legalize_narrow_bit_count,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_CTTZI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I1 |
+                                       LOOM_SCALAR_TYPE_SET_I8 |
+                                       LOOM_SCALAR_TYPE_SET_I16,
+        .legalize = loom_scalar_legalize_narrow_bit_count,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_CTPOPI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I1 |
+                                       LOOM_SCALAR_TYPE_SET_I8 |
+                                       LOOM_SCALAR_TYPE_SET_I16,
+        .legalize = loom_scalar_legalize_narrow_bit_count,
+    },
     {
         .root_kind = LOOM_OP_SCALAR_MINSI,
         .legalize = loom_scalar_legalize_integer_extrema,
@@ -953,6 +1239,21 @@ static const loom_target_legalizer_rule_t kScalarLegalizerRules[] = {
                                        LOOM_SCALAR_TYPE_SET_F64,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .legalize = loom_scalar_legalize_ieee_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_ISNANF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT,
+        .legalize = loom_scalar_legalize_float_classification,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_ISINFF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT,
+        .legalize = loom_scalar_legalize_float_classification,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_ISFINITEF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT,
+        .legalize = loom_scalar_legalize_float_classification,
     },
     {
         .root_kind = LOOM_OP_SCALAR_MAXIMUMF,

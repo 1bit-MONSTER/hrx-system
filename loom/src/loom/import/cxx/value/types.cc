@@ -139,7 +139,7 @@ const EncodingPartition* Types::encoding(const cxx::ClassType* input,
         unit_, owner,
         "encoding values require a complete trivial class without bases");
   }
-  auto arguments = cxx::class_template_arguments(source);
+  auto arguments = source->templateArguments();
   if (arguments.size() != 2) {
     diagnostics_.reject(unit_, owner,
                         "encoding values require role and rank arguments");
@@ -187,7 +187,7 @@ const ViewPartition* Types::view(const cxx::ClassType* input, cxx::AST* owner) {
                         "view values require a complete trivial class without "
                         "bases");
   }
-  auto arguments = cxx::class_template_arguments(source);
+  auto arguments = source->templateArguments();
   if (arguments.size() != 3) {
     diagnostics_.reject(
         unit_, owner,
@@ -267,7 +267,7 @@ const TensorPartition* Types::tensor(const cxx::ClassType* input,
                         "tensor values require a complete trivial class "
                         "without bases");
   }
-  auto arguments = cxx::class_template_arguments(source);
+  auto arguments = source->templateArguments();
   if (arguments.size() != 2) {
     diagnostics_.reject(unit_, owner,
                         "rank-one tensor values require an element and extent "

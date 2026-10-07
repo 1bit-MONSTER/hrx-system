@@ -8,6 +8,8 @@
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/ir/module.h"
+#include "loom/ops/op_registry.h"
 
 namespace {
 
@@ -51,6 +53,44 @@ TEST(InputOptionsTest, KeepsLanguageOptionsIndependent) {
       IREE_STATUS_INVALID_ARGUMENT,
       loom_input_options_for_provider({IREE_ARRAYSIZE(malformed), malformed},
                                       IREE_SV("cxx"), &options));
+}
+
+TEST(InputModuleTest, AllowsLogicalLocationsMatchingRemappedMainSource) {
+  iree_arena_block_pool_t block_pool;
+  iree_arena_block_pool_initialize(4096, iree_allocator_system(), &block_pool);
+  loom_context_t context;
+  loom_context_initialize(iree_allocator_system(), &context);
+  IREE_ASSERT_OK(loom_op_registry_register_all_dialects(&context));
+  IREE_ASSERT_OK(loom_context_finalize(&context));
+
+  const iree_string_view_t prefix_maps[] = {IREE_SV("/workspace/=")};
+  loom_input_request_t request = {};
+  request.source = IREE_SV(R"(
+func.def @entry() {
+  func.return loc("logical/source.loom":2:3)
+} loc("logical/source.loom":1:1 to 3:2)
+)");
+  request.path = IREE_SV("/workspace/logical/source.loom");
+  request.source_path_options.prefix_maps = {IREE_ARRAYSIZE(prefix_maps),
+                                             prefix_maps};
+  loom_input_module_t input = {};
+  IREE_ASSERT_OK(loom_input_module_load(&loom_input_text_provider, &request,
+                                        &context, &block_pool,
+                                        iree_allocator_system(), &input));
+  ASSERT_NE(input.module, nullptr);
+  ASSERT_EQ(input.module->sources.count, 2u);
+  EXPECT_TRUE(iree_string_view_equal(input.module->sources.entries[0],
+                                     IREE_SV("logical/source.loom")));
+  EXPECT_TRUE(iree_string_view_equal(input.module->sources.entries[1],
+                                     IREE_SV("logical/source.loom")));
+  ASSERT_EQ(input.sources.table.count, 1u);
+  EXPECT_EQ(input.sources.table.entries[0].source_id, 0u);
+  EXPECT_TRUE(iree_string_view_equal(input.sources.table.entries[0].source,
+                                     request.source));
+
+  loom_input_module_deinitialize(&input);
+  loom_context_deinitialize(&context);
+  iree_arena_block_pool_deinitialize(&block_pool);
 }
 
 }  // namespace

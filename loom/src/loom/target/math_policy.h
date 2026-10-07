@@ -105,7 +105,28 @@ typedef enum loom_target_math_recipe_e {
   LOOM_TARGET_MATH_RECIPE_TANH_LOGISTIC_F32 = 13,
   LOOM_TARGET_MATH_RECIPE_POW_LOG2_EXP2_F32 = 14,
   LOOM_TARGET_MATH_RECIPE_ROUND_AWAY = 15,
+  LOOM_TARGET_MATH_RECIPE_LOGISTIC_TANH_F32 = 16,
 } loom_target_math_recipe_t;
+
+// Representation used to evaluate a target-neutral math recipe.
+typedef enum loom_target_math_evaluation_kind_e {
+  // Evaluate every value in the authored scalar or vector representation.
+  LOOM_TARGET_MATH_EVALUATION_SOURCE = 0,
+  // Evaluate one vector packet with narrow grouped products accumulated into
+  // wider lanes. Products use vector.dot2f's two-input grouping.
+  LOOM_TARGET_MATH_EVALUATION_GROUPED_PRODUCT = 1,
+} loom_target_math_evaluation_kind_t;
+
+typedef struct loom_target_math_evaluation_t {
+  // Evaluation mechanism selected for the recipe.
+  loom_target_math_evaluation_kind_t kind;
+  // Element type to which multiplication operands are rounded.
+  loom_scalar_type_t product_element_type;
+  // Element type used for constants, sums, and nonlinear primitives.
+  loom_scalar_type_t accumulator_element_type;
+  // Physical accumulator lanes carried by one evaluation packet.
+  uint16_t packet_lane_count;
+} loom_target_math_evaluation_t;
 
 typedef struct loom_target_math_query_t {
   // Semantic math operation requested by the source op.
@@ -129,6 +150,9 @@ typedef struct loom_target_math_policy_decision_t {
   // Recipe builders apply these only to generated operations covered by the
   // recipe's error contract.
   loom_target_math_fastmath_flags_t recipe_fastmath_flags;
+  // Representation used while evaluating the selected recipe. A zero-
+  // initialized descriptor preserves the authored source representation.
+  loom_target_math_evaluation_t evaluation;
   // Stable structured constraint key for diagnostics.
   iree_string_view_t constraint_key;
 } loom_target_math_policy_decision_t;

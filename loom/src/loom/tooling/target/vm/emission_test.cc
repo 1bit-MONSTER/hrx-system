@@ -10,6 +10,7 @@
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/codegen/low/text_asm.h"
 #include "loom/ir/context.h"
 #include "loom/ops/func/ops.h"
 #include "loom/ops/op_registry.h"
@@ -76,8 +77,7 @@ class VMEmissionTest : public ::testing::Test {
     IREE_ASSERT_OK(
         loom_target_environment_register_context(&environment_, &context_));
     IREE_ASSERT_OK(loom_context_finalize(&context_));
-    IREE_ASSERT_OK(loom_target_environment_initialize_low_descriptor_registry(
-        &environment_, &registry_));
+    registry_ = loom_target_environment_low_descriptor_registry(&environment_);
   }
 
   void TearDown() override {
@@ -92,6 +92,8 @@ class VMEmissionTest : public ::testing::Test {
     loom_input_request_t request = {};
     request.source = source;
     request.path = IREE_SV("emission.loom");
+    loom_low_descriptor_text_asm_environment_initialize(
+        &registry_.registry, &request.parse_options.low_asm_environment);
     IREE_ASSERT_OK(loom_input_module_load(&loom_input_text_provider, &request,
                                           &context_, &pool_,
                                           iree_allocator_system(), &input_));
@@ -123,7 +125,6 @@ class VMEmissionTest : public ::testing::Test {
     loom_compile_pipeline_options_t options;
     loom_compile_pipeline_options_initialize(&options);
     options.target_environment = &environment_;
-    options.low_descriptor_registry = &registry_;
     options.cleanup_pattern_provider_set =
         loom_cleanup_configured_pattern_provider_set();
     options.target_specializations = {specializations.data(),

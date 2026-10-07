@@ -72,22 +72,37 @@ bool loom_loop_domain_trip_count(loom_loop_bound_flags_t bound_flags,
                                  uint64_t upper_bound, uint64_t step,
                                  uint64_t* out_trip_count);
 
-// Facts for the controlling value of a finite-width, header-tested recurrence.
+// Source-integer facts for an additive recurrence over a finite loop domain.
 typedef struct loom_loop_recurrence_facts_t {
-  // Inclusive range of all header observations, including the terminal value.
-  // Unknown when the recurrence crosses the signed source representation.
+  // Inclusive range of all header observations, including the exit state.
+  // Unknown when the source-integer recurrence is unproven.
   loom_value_facts_t values;
   // Inclusive range observed on entry to the body, excluding the terminal
   // value. Unknown for zero trips or an unproven source-integer recurrence.
   loom_value_facts_t body_values;
-  // Exact value observed at the false guard, including zero-trip exits.
-  // Unknown when the source-integer recurrence is unproven.
+  // Range of exit states, including zero-trip exits. Exact for an exact seed;
+  // unknown when the source-integer recurrence is unproven.
   loom_value_facts_t exit_value;
   // Exact body execution count when trip_count_known is true; zero otherwise.
   uint64_t trip_count;
-  // True when the recurrence reaches its exit without wrapping in guard order.
+  // True when the exact body execution count is supplied or proven.
   bool trip_count_known;
 } loom_loop_recurrence_facts_t;
+
+// Evaluates initial_values + iteration * step for the supplied exact trip
+// count. |initial_values| contains integer range and divisibility facts. The
+// header includes iterations [0, trip_count], the body [0, trip_count), and
+// the exit only trip_count. A zero-trip body has unknown facts.
+//
+// Returns true when every represented initial value and every resulting state
+// fit the mathematical signed i64 source domain. On failure all three ranges
+// are unknown; the supplied trip count remains known. The result retains only
+// numeric range and divisibility facts, not context-local extensions or
+// distribution. This proof neither establishes a loop's trip count nor selects
+// overflow semantics. Target-carrier representability remains with the caller.
+bool loom_loop_domain_additive_recurrence_facts(
+    loom_value_facts_t initial_values, int64_t step, uint64_t trip_count,
+    loom_loop_recurrence_facts_t* out_facts);
 
 // Proves the same recurrence as trip_count, retaining a source-integer range
 // when its initial value and positive increments remain representable in the

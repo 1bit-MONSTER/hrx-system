@@ -35,9 +35,22 @@ typedef struct loom_liveness_operation_use_segment_t {
 static_assert(sizeof(loom_liveness_operation_use_segment_t) == 4096,
               "liveness operation uses must occupy 4 KiB segments");
 
-struct loom_liveness_operation_use_table_t {
-  // Stable arena-backed operation-use segments.
-  loom_segmented_storage_t segments;
+#define LOOM_LIVENESS_OPERATIONS_PER_SEGMENT 128u
+#define LOOM_LIVENESS_OPERATION_SEGMENT_SHIFT 7u
+#define LOOM_LIVENESS_OPERATION_SEGMENT_MASK \
+  (LOOM_LIVENESS_OPERATIONS_PER_SEGMENT - 1u)
+
+static_assert(LOOM_LIVENESS_OPERATIONS_PER_SEGMENT <= UINT8_MAX,
+              "operation span counts must cover a complete segment");
+static_assert((UINT32_MAX >> LOOM_LIVENESS_OPERATION_SEGMENT_SHIFT) <
+                  LOOM_SEGMENTED_STORAGE_MAX_SEGMENT_COUNT,
+              "operation segments must cover the full operation index domain");
+
+struct loom_liveness_operation_table_t {
+  // Stable operation rows, including parents completed after their children.
+  loom_segmented_storage_t points;
+  // Stable local value ordinals grouped by operation and semantic-use kind.
+  loom_segmented_storage_t uses;
   // Bitset of direct uses that include an operand/result type reference.
   const uint64_t* type_reference_words;
 };
@@ -137,14 +150,12 @@ typedef struct loom_liveness_build_state_t {
   bool collecting_segments;
   // Region-local value ordinal to interval-index table.
   uint32_t* value_interval_indices;
-  // Operations recorded in increasing accepted program-point order.
-  loom_liveness_operation_point_t* operation_points;
+  // Stable accepted-order operation rows and their semantic-use ordinals.
+  loom_liveness_operation_table_t* operations;
   // Number of initialized operation-point rows.
   iree_host_size_t operation_count;
   // Number of operation-point rows allocated.
   iree_host_size_t operation_capacity;
-  // Segmented semantic operation-use ordinals.
-  loom_liveness_operation_use_table_t* operation_uses;
   // Number of appended semantic operation uses.
   iree_host_size_t operation_use_count;
   // Reusable set deduplicating one operation-use range.
@@ -510,13 +521,42 @@ typedef struct loom_liveness_point_use_state_t {
   uint32_t point;
 } loom_liveness_point_use_state_t;
 
+static iree_status_t loom_liveness_initialize_operations(
+    loom_liveness_build_state_t* state) {
+  IREE_RETURN_IF_ERROR(iree_arena_allocate(state->result_arena,
+                                           sizeof(*state->operations),
+                                           (void**)&state->operations));
+  state->operations->type_reference_words = NULL;
+  loom_segmented_storage_initialize(
+      iree_min(state->operation_capacity,
+               LOOM_LIVENESS_OPERATIONS_PER_SEGMENT) *
+          sizeof(loom_liveness_operation_point_t),
+      iree_alignof(loom_liveness_operation_point_t),
+      &state->operations->points);
+  loom_segmented_storage_initialize(
+      sizeof(loom_liveness_operation_use_segment_t),
+      iree_alignof(loom_liveness_operation_use_segment_t),
+      &state->operations->uses);
+  const iree_host_size_t segment_count =
+      (state->operation_capacity - 1) / LOOM_LIVENESS_OPERATIONS_PER_SEGMENT +
+      1;
+  iree_status_t status = iree_ok_status();
+  for (iree_host_size_t i = 0; i < segment_count && iree_status_is_ok(status);
+       ++i) {
+    void* segment = NULL;
+    status = loom_segmented_storage_append(&state->operations->points,
+                                           state->result_arena, &segment);
+  }
+  return status;
+}
+
 static loom_value_ordinal_t loom_liveness_operation_use_table_ordinal(
-    const loom_liveness_operation_use_table_t* table, uint32_t use_index) {
+    const loom_liveness_operation_table_t* table, uint32_t use_index) {
   const uint32_t segment_index =
       use_index >> LOOM_LIVENESS_OPERATION_USE_SEGMENT_SHIFT;
   const loom_liveness_operation_use_segment_t* segment =
       (const loom_liveness_operation_use_segment_t*)
-          loom_segmented_storage_const_segment(&table->segments, segment_index);
+          loom_segmented_storage_const_segment(&table->uses, segment_index);
   return segment
       ->ordinals[use_index & LOOM_LIVENESS_OPERATION_USE_SEGMENT_MASK];
 }
@@ -553,13 +593,12 @@ static iree_status_t loom_liveness_append_operation_use(
   if ((use_index & LOOM_LIVENESS_OPERATION_USE_SEGMENT_MASK) == 0) {
     void* segment = NULL;
     IREE_RETURN_IF_ERROR(loom_segmented_storage_append(
-        &state->operation_uses->segments, state->result_arena, &segment));
-    IREE_ASSERT_EQ(segment_index,
-                   state->operation_uses->segments.segment_count - 1u);
+        &state->operations->uses, state->result_arena, &segment));
+    IREE_ASSERT_EQ(segment_index, state->operations->uses.segment_count - 1u);
   }
   loom_liveness_operation_use_segment_t* segment =
       (loom_liveness_operation_use_segment_t*)loom_segmented_storage_segment(
-          &state->operation_uses->segments, segment_index);
+          &state->operations->uses, segment_index);
   segment->ordinals[use_index & LOOM_LIVENESS_OPERATION_USE_SEGMENT_MASK] =
       value_ordinal;
   ++state->operation_use_count;
@@ -570,7 +609,7 @@ static void loom_liveness_reset_operation_use_range(
     loom_liveness_build_state_t* state, uint32_t use_start) {
   for (iree_host_size_t i = use_start; i < state->operation_use_count; ++i) {
     const loom_value_ordinal_t value_ordinal =
-        loom_liveness_operation_use_table_ordinal(state->operation_uses,
+        loom_liveness_operation_use_table_ordinal(state->operations,
                                                   (uint32_t)i);
     const bool was_set =
         loom_liveness_bitset_reset(state->operation_use_seen, value_ordinal);
@@ -646,8 +685,12 @@ static loom_liveness_operation_point_t* loom_liveness_append_operation_point(
     uint32_t* out_operation_index) {
   IREE_ASSERT_LT(state->operation_count, state->operation_capacity);
   const uint32_t operation_index = (uint32_t)state->operation_count++;
+  loom_liveness_operation_point_t* segment =
+      (loom_liveness_operation_point_t*)loom_segmented_storage_segment(
+          &state->operations->points,
+          operation_index >> LOOM_LIVENESS_OPERATION_SEGMENT_SHIFT);
   loom_liveness_operation_point_t* operation_point =
-      &state->operation_points[operation_index];
+      &segment[operation_index & LOOM_LIVENESS_OPERATION_SEGMENT_MASK];
   *operation_point = (loom_liveness_operation_point_t){
       .op = op,
       .parent_operation_index = parent_operation_index,
@@ -687,7 +730,7 @@ static iree_status_t loom_liveness_finalize_op_intervals(
     for (uint32_t use_index = operation_point->use_start; use_index < use_end;
          ++use_index) {
       const loom_value_ordinal_t value_ordinal =
-          loom_liveness_operation_use_table_ordinal(state->operation_uses,
+          loom_liveness_operation_use_table_ordinal(state->operations,
                                                     use_index);
       if (loom_liveness_bitset_reset(state->operation_type_reference_seen,
                                      value_ordinal)) {
@@ -732,7 +775,7 @@ static iree_status_t loom_liveness_finalize_op_intervals(
            i < operation_point->use_count; ++i) {
         const loom_value_ordinal_t ordinal =
             loom_liveness_operation_use_table_ordinal(
-                state->operation_uses, operation_point->use_start + i);
+                state->operations, operation_point->use_start + i);
         IREE_RETURN_IF_ERROR(loom_liveness_note_live_point(
             state, state->value_ids[ordinal], backedge_point));
       }
@@ -878,15 +921,13 @@ static iree_status_t loom_liveness_pressure_find_or_add(
     }
   }
   if (pressure->count >= pressure->capacity) {
-    iree_host_size_t old_capacity = pressure->capacity;
-    iree_host_size_t new_capacity = old_capacity == 0 ? 8 : old_capacity * 2;
-    IREE_RETURN_IF_ERROR(
-        iree_arena_grow_array(state->scratch_arena, old_capacity, new_capacity,
-                              sizeof(*pressure->summaries), &new_capacity,
-                              (void**)&pressure->summaries));
+    const iree_host_size_t old_capacity = pressure->capacity;
+    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+        state->scratch_arena, old_capacity,
+        /*minimum_capacity=*/8, sizeof(*pressure->summaries),
+        &pressure->capacity, (void**)&pressure->summaries));
     memset(pressure->summaries + old_capacity, 0,
-           (new_capacity - old_capacity) * sizeof(*pressure->summaries));
-    pressure->capacity = new_capacity;
+           (pressure->capacity - old_capacity) * sizeof(*pressure->summaries));
   }
   *out_index = pressure->count++;
   pressure->summaries[*out_index].value_class = value_class;
@@ -924,14 +965,13 @@ static iree_status_t loom_liveness_pressure_sweep_bucket(
     }
   }
   if (sweep->count >= sweep->capacity) {
-    iree_host_size_t old_capacity = sweep->capacity;
-    iree_host_size_t new_capacity = old_capacity == 0 ? 8 : old_capacity * 2;
-    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-        sweep->build_state->scratch_arena, old_capacity, new_capacity,
-        sizeof(*sweep->buckets), &new_capacity, (void**)&sweep->buckets));
+    const iree_host_size_t old_capacity = sweep->capacity;
+    IREE_RETURN_IF_ERROR(
+        iree_arena_grow_array(sweep->build_state->scratch_arena, old_capacity,
+                              /*minimum_capacity=*/8, sizeof(*sweep->buckets),
+                              &sweep->capacity, (void**)&sweep->buckets));
     memset(sweep->buckets + old_capacity, 0,
-           (new_capacity - old_capacity) * sizeof(*sweep->buckets));
-    sweep->capacity = new_capacity;
+           (sweep->capacity - old_capacity) * sizeof(*sweep->buckets));
   }
   *out_bucket = &sweep->buckets[sweep->count++];
   **out_bucket = (loom_liveness_pressure_bucket_t){
@@ -1432,20 +1472,7 @@ loom_liveness_analyze_local_value_domain_with_dataflow_impl(
                                                 &block_infos);
   }
   if (iree_status_is_ok(status) && state.operation_capacity > 0) {
-    status = iree_arena_allocate_array(result_arena, state.operation_capacity,
-                                       sizeof(*state.operation_points),
-                                       (void**)&state.operation_points);
-  }
-  if (iree_status_is_ok(status) && state.operation_capacity > 0) {
-    status = iree_arena_allocate(result_arena, sizeof(*state.operation_uses),
-                                 (void**)&state.operation_uses);
-  }
-  if (iree_status_is_ok(status) && state.operation_capacity > 0) {
-    state.operation_uses->type_reference_words = NULL;
-    loom_segmented_storage_initialize(
-        sizeof(loom_liveness_operation_use_segment_t),
-        iree_alignof(loom_liveness_operation_use_segment_t),
-        &state.operation_uses->segments);
+    status = loom_liveness_initialize_operations(&state);
   }
   if (iree_status_is_ok(status) && state.operation_capacity > 0) {
     status = loom_liveness_bitset_allocate(scratch_arena, state.word_count,
@@ -1503,7 +1530,7 @@ loom_liveness_analyze_local_value_domain_with_dataflow_impl(
           word_count, state.operation_use_type_reference_word_capacity);
       memcpy(type_reference_words, state.operation_use_type_reference_words,
              populated_word_count * sizeof(*type_reference_words));
-      state.operation_uses->type_reference_words = type_reference_words;
+      state.operations->type_reference_words = type_reference_words;
     }
   }
 
@@ -1526,9 +1553,8 @@ loom_liveness_analyze_local_value_domain_with_dataflow_impl(
         .value_segment_ranges = value_segment_ranges,
         .pressure_summaries = pressure_summaries,
         .pressure_summary_count = state.pressure_state.count,
-        .operation_points = state.operation_points,
+        .operations = state.operations,
         .operation_count = state.operation_count,
-        .operation_uses = state.operation_uses,
         .operation_use_count = state.operation_use_count,
     };
     if (loom_liveness_build_includes_region_tree(&state)) {
@@ -1589,12 +1615,34 @@ iree_status_t loom_liveness_analyze_local_value_domain_with_dataflow(
   return status;
 }
 
+const loom_liveness_operation_point_t* loom_liveness_operation_at(
+    const loom_liveness_analysis_t* analysis, uint32_t operation_index) {
+  const loom_liveness_operation_point_t* segment =
+      (const loom_liveness_operation_point_t*)
+          loom_segmented_storage_const_segment(
+              &analysis->operations->points,
+              operation_index >> LOOM_LIVENESS_OPERATION_SEGMENT_SHIFT);
+  return &segment[operation_index & LOOM_LIVENESS_OPERATION_SEGMENT_MASK];
+}
+
+loom_liveness_operation_span_t loom_liveness_operation_span(
+    const loom_liveness_analysis_t* analysis, uint32_t operation_index,
+    uint32_t operation_end) {
+  const uint32_t remaining =
+      LOOM_LIVENESS_OPERATIONS_PER_SEGMENT -
+      (operation_index & LOOM_LIVENESS_OPERATION_SEGMENT_MASK);
+  return (loom_liveness_operation_span_t){
+      .rows = loom_liveness_operation_at(analysis, operation_index),
+      .count = (uint8_t)iree_min(operation_end - operation_index, remaining),
+  };
+}
+
 loom_value_ordinal_t loom_liveness_operation_use_ordinal(
     const loom_liveness_analysis_t* analysis, uint32_t use_index) {
   IREE_ASSERT_ARGUMENT(analysis);
   IREE_ASSERT_LT(use_index, analysis->operation_use_count);
-  IREE_ASSERT_ARGUMENT(analysis->operation_uses);
-  return loom_liveness_operation_use_table_ordinal(analysis->operation_uses,
+  IREE_ASSERT_ARGUMENT(analysis->operations);
+  return loom_liveness_operation_use_table_ordinal(analysis->operations,
                                                    use_index);
 }
 
@@ -1602,8 +1650,8 @@ bool loom_liveness_operation_use_has_type_reference(
     const loom_liveness_analysis_t* analysis, uint32_t use_index) {
   IREE_ASSERT_ARGUMENT(analysis);
   IREE_ASSERT_LT(use_index, analysis->operation_use_count);
-  IREE_ASSERT_ARGUMENT(analysis->operation_uses);
-  const uint64_t* words = analysis->operation_uses->type_reference_words;
+  IREE_ASSERT_ARGUMENT(analysis->operations);
+  const uint64_t* words = analysis->operations->type_reference_words;
   return words != NULL &&
          (words[use_index / 64u] & (UINT64_C(1) << (use_index % 64u))) != 0;
 }

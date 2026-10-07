@@ -283,6 +283,7 @@ def test_target_ref_tables_use_prebuilt_descriptor_sets() -> None:
     assert len(tables) == 1
     assert tables[0].descriptor_set_key == descriptor_set_info.key
     assert tables[0].descriptor_set_ordinal == amdgpu_descriptor_set_ordinal(descriptor_set_info.key)
+    assert len(tables[0].cache_scope_immediate_slots) == len(descriptor_set.descriptors)
 
 
 def test_exact_target_materialization_includes_compatible_portable_view() -> None:
@@ -309,6 +310,9 @@ def test_target_ref_source_shares_exact_tables() -> None:
         descriptor_set_infos=descriptor_set_infos,
         descriptor_sets_by_key=descriptor_sets_by_key,
     )
+
+    assert ".cache_scope = LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE" in source
+    assert ".literal = UINT8_C(" in source
 
     first_info, second_info = sorted(
         descriptor_set_infos,
@@ -749,6 +753,65 @@ def test_descriptor_immediate_slots_publish_address_offset() -> None:
         )
         == 1
     )
+
+
+def test_descriptor_immediate_slots_publish_cache_scope() -> None:
+    descriptor_set = _descriptor_set(
+        _descriptor(
+            "amdgpu.global_store_b32",
+            immediates=(
+                Immediate("offset", ImmediateKind.UNSIGNED),
+                Immediate("scope", ImmediateKind.UNSIGNED),
+            ),
+        )
+    )
+
+    assert (
+        amdgpu_target_refs._descriptor_cache_scope_immediate_slot(
+            descriptor_set,
+            descriptor_set.descriptors[0],
+        )
+        == 1
+    )
+
+
+def test_descriptor_immediate_slots_reject_duplicate_cache_scope() -> None:
+    descriptor_set = _descriptor_set(
+        _descriptor(
+            "amdgpu.bad_global_store_b32",
+            immediates=(
+                Immediate("scope", ImmediateKind.UNSIGNED),
+                Immediate("scope", ImmediateKind.UNSIGNED),
+            ),
+        )
+    )
+
+    with _raises_value_error("descriptor 'amdgpu.bad_global_store_b32' has multiple cache scope immediates"):
+        amdgpu_target_refs._descriptor_cache_scope_immediate_slot(
+            descriptor_set,
+            descriptor_set.descriptors[0],
+        )
+
+
+def test_descriptor_immediate_slots_reject_unrepresentable_slot() -> None:
+    descriptor_set = _descriptor_set(
+        _descriptor(
+            "amdgpu.bad_global_store_b32",
+            immediates=tuple(
+                Immediate(
+                    "scope" if index == 255 else f"unused{index}",
+                    ImmediateKind.UNSIGNED,
+                )
+                for index in range(256)
+            ),
+        )
+    )
+
+    with _raises_value_error("cache scope immediate slot 255 does not fit compact target refs"):
+        amdgpu_target_refs._descriptor_cache_scope_immediate_slot(
+            descriptor_set,
+            descriptor_set.descriptors[0],
+        )
 
 
 def test_descriptor_immediate_slots_reject_duplicate_literal() -> None:

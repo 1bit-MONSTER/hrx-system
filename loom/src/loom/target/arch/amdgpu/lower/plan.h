@@ -60,18 +60,21 @@ typedef struct loom_amdgpu_constant_plan_t {
   bool i1_value;
 } loom_amdgpu_constant_plan_t;
 
-typedef enum loom_amdgpu_i8_pack_permute_kind_e {
-  LOOM_AMDGPU_I8_PACK_PERMUTE_KIND_NONE = 0,
-  LOOM_AMDGPU_I8_PACK_PERMUTE_KIND_LITERAL_SELECTOR = 1,
-  LOOM_AMDGPU_I8_PACK_PERMUTE_KIND_REGISTER_SELECTOR = 2,
-} loom_amdgpu_i8_pack_permute_kind_t;
+typedef uint8_t loom_amdgpu_byte_permute_kind_t;
+enum loom_amdgpu_byte_permute_kind_e {
+  LOOM_AMDGPU_BYTE_PERMUTE_KIND_NONE = 0,
+  LOOM_AMDGPU_BYTE_PERMUTE_KIND_LITERAL_SELECTOR = 1,
+  LOOM_AMDGPU_BYTE_PERMUTE_KIND_REGISTER_SELECTOR = 2,
+};
 
-typedef struct loom_amdgpu_i8_pack_permute_plan_t {
+typedef struct loom_amdgpu_byte_permute_plan_t {
   // Representation selected for V_PERM_B32 byte selector operands.
-  loom_amdgpu_i8_pack_permute_kind_t kind;
+  loom_amdgpu_byte_permute_kind_t kind;
   // Descriptor selected for each byte permutation packet.
   loom_amdgpu_descriptor_ref_t descriptor_ref;
-} loom_amdgpu_i8_pack_permute_plan_t;
+} loom_amdgpu_byte_permute_plan_t;
+static_assert(sizeof(loom_amdgpu_byte_permute_plan_t) == 4,
+              "AMDGPU byte permutation plans must stay cache dense");
 
 typedef enum loom_amdgpu_fp8_encode_kind_e {
   LOOM_AMDGPU_FP8_ENCODE_KIND_NONE = 0,
@@ -112,8 +115,21 @@ typedef struct loom_amdgpu_fp8_encode_plan_t {
   // Optional descriptor inserting encoded sign bits into a result word.
   loom_amdgpu_descriptor_ref_t sign_insert_descriptor_ref;
   // Byte permutation plan selected for encoded bytes or packed sign bits.
-  loom_amdgpu_i8_pack_permute_plan_t packed_i8_permute;
+  loom_amdgpu_byte_permute_plan_t packed_i8_permute;
 } loom_amdgpu_fp8_encode_plan_t;
+
+typedef enum loom_amdgpu_f64_narrow_kind_e {
+  LOOM_AMDGPU_F64_NARROW_KIND_NONE = 0,
+  LOOM_AMDGPU_F64_NARROW_KIND_BF16,
+  LOOM_AMDGPU_F64_NARROW_KIND_F8E4M3,
+  LOOM_AMDGPU_F64_NARROW_KIND_F8E5M2,
+  LOOM_AMDGPU_F64_NARROW_KIND_COUNT_,
+} loom_amdgpu_f64_narrow_kind_t;
+
+typedef struct loom_amdgpu_f64_narrow_plan_t {
+  // Exact destination format selected for split-word integer rounding.
+  loom_amdgpu_f64_narrow_kind_t kind;
+} loom_amdgpu_f64_narrow_plan_t;
 
 // Per-value facts that can simplify FP8 decode emission. These describe the
 // actual value being decoded, not the full source FP8 type.
@@ -493,6 +509,7 @@ typedef enum loom_amdgpu_scalar_conversion_kind_e {
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_UITOFP_NARROW_TO_F32,
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FP8_TO_BF16,
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FP8_ENCODE,
+  LOOM_AMDGPU_SCALAR_CONVERSION_KIND_F64_NARROW,
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FPTOI_F32_TO_I32,
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FPTOI_F32_TO_NARROW,
 } loom_amdgpu_scalar_conversion_kind_t;
@@ -512,8 +529,12 @@ typedef struct loom_amdgpu_scalar_conversion_plan_t {
   loom_amdgpu_descriptor_ref_t convert_descriptor_ref;
   // Planned physical representation of a narrow source or result.
   loom_low_representation_id_t narrow_representation;
-  // Native packed FP8 encode strategy for an FP8-result truncation.
-  loom_amdgpu_fp8_encode_plan_t fp8_encode;
+  union {
+    // Native packed FP8 encode strategy for an FP8-result truncation.
+    loom_amdgpu_fp8_encode_plan_t fp8_encode;
+    // Exact split-word strategy for narrowing an F64 source.
+    loom_amdgpu_f64_narrow_plan_t f64_narrow;
+  };
 } loom_amdgpu_scalar_conversion_plan_t;
 
 typedef enum loom_amdgpu_vector_conversion_kind_e {
@@ -556,7 +577,7 @@ typedef struct loom_amdgpu_vector_conversion_plan_t {
   // Descriptor for lane conversion, or high-word construction for i64 results.
   loom_amdgpu_descriptor_ref_t convert_descriptor_ref;
   // Byte permutation plan selected for full-register i8 result assembly.
-  loom_amdgpu_i8_pack_permute_plan_t packed_i8_permute;
+  loom_amdgpu_byte_permute_plan_t packed_i8_permute;
   // True when integer source lanes require sign extension.
   bool sign_extend_source;
 } loom_amdgpu_vector_conversion_plan_t;
@@ -573,7 +594,7 @@ typedef struct loom_amdgpu_bitpack_plan_t {
   // Number of packed 32-bit registers in the result.
   uint32_t result_register_count;
   // Byte permutation plan selected for full i8 register packs.
-  loom_amdgpu_i8_pack_permute_plan_t i8_permute;
+  loom_amdgpu_byte_permute_plan_t i8_permute;
 } loom_amdgpu_bitpack_plan_t;
 
 typedef enum loom_amdgpu_bitunpack_result_kind_e {
@@ -597,6 +618,8 @@ typedef struct loom_amdgpu_bitunpack_plan_t {
   uint32_t result_register_count;
   // Number of unpacked result lanes.
   uint32_t lane_count;
+  // Byte permutation plan for complete unsigned nibble words, or NONE.
+  loom_amdgpu_byte_permute_plan_t i8_permute;
   // True when unpacked lanes are sign-extended.
   bool is_signed;
 } loom_amdgpu_bitunpack_plan_t;
@@ -719,27 +742,45 @@ typedef struct loom_amdgpu_vector_register_map_plan_t {
   uint32_t source_register_indices[LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES];
 } loom_amdgpu_vector_register_map_plan_t;
 
-typedef enum loom_amdgpu_vector_even_odd_kind_e {
+typedef uint8_t loom_amdgpu_vector_even_odd_kind_t;
+enum loom_amdgpu_vector_even_odd_kind_e {
   LOOM_AMDGPU_VECTOR_EVEN_ODD_KIND_NONE = 0,
-  LOOM_AMDGPU_VECTOR_EVEN_ODD_KIND_32BIT_LANES = 1,
-  LOOM_AMDGPU_VECTOR_EVEN_ODD_KIND_PACKED_16BIT_FLOAT = 2,
-} loom_amdgpu_vector_even_odd_kind_t;
+  LOOM_AMDGPU_VECTOR_EVEN_ODD_KIND_REGISTER_UNITS = 1,
+  LOOM_AMDGPU_VECTOR_EVEN_ODD_KIND_PACKED_BYTES = 2,
+};
+
+typedef struct loom_amdgpu_vector_even_odd_layout_t {
+  // Best available V_PERM_B32 form for packed sub-dword payloads.
+  loom_amdgpu_byte_permute_plan_t byte_permute;
+  // Storage-level lowering strategy selected for this layout.
+  loom_amdgpu_vector_even_odd_kind_t kind;
+  // Product of dimensions preceding the interleave axis.
+  uint8_t outer_group_count;
+  // Extent of the smaller input/result along the interleave axis.
+  uint8_t axis_group_count;
+  // Product of dimensions following the interleave axis.
+  uint8_t inner_group_count;
+  // Number of 32-bit register units occupied by one logical element.
+  uint8_t element_register_count;
+  // Number of payload bits occupied by one logical element.
+  uint8_t element_bit_count;
+  // Number of backing registers in each smaller input/result.
+  uint8_t half_register_count;
+  // Number of backing registers in the combined input/result.
+  uint8_t combined_register_count;
+} loom_amdgpu_vector_even_odd_layout_t;
+static_assert(sizeof(loom_amdgpu_vector_even_odd_layout_t) == 12,
+              "AMDGPU even/odd layouts must stay cache dense");
+static_assert(LOOM_AMDGPU_MAX_VECTOR_STORAGE_REGISTER_UNITS <= UINT8_MAX,
+              "AMDGPU even/odd storage counts must fit compact plans");
 
 typedef struct loom_amdgpu_vector_deinterleave_plan_t {
   // Source vector value split into even and odd lane payloads.
   loom_value_id_t source;
   // Even-position result vector followed by odd-position result vector.
   loom_value_id_t results[2];
-  // Selected lowering strategy for source/result storage.
-  loom_amdgpu_vector_even_odd_kind_t kind;
-  // Static logical lane count for each result vector.
-  uint32_t result_lane_count;
-  // Static 32-bit backing register count for the source vector.
-  uint32_t source_register_count;
-  // Static 32-bit backing register count for each result vector.
-  uint32_t result_register_count;
-  // Optional literal-selector byte permute descriptor for packed 16-bit lanes.
-  loom_low_lower_resolved_descriptor_t packed_permute_descriptor;
+  // Static storage layout shared by source and results.
+  loom_amdgpu_vector_even_odd_layout_t layout;
 } loom_amdgpu_vector_deinterleave_plan_t;
 
 typedef struct loom_amdgpu_vector_interleave_plan_t {
@@ -747,15 +788,13 @@ typedef struct loom_amdgpu_vector_interleave_plan_t {
   loom_value_id_t sources[2];
   // Result vector value receiving the interleaved payload.
   loom_value_id_t result;
-  // Selected lowering strategy for source/result storage.
-  loom_amdgpu_vector_even_odd_kind_t kind;
-  // Static 32-bit backing register count for each source vector.
-  uint32_t source_register_count;
-  // Static 32-bit backing register count for the result vector.
-  uint32_t result_register_count;
-  // Optional literal-selector byte permute descriptor for packed 16-bit lanes.
-  loom_low_lower_resolved_descriptor_t packed_permute_descriptor;
+  // Static storage layout shared by sources and result.
+  loom_amdgpu_vector_even_odd_layout_t layout;
 } loom_amdgpu_vector_interleave_plan_t;
+static_assert(sizeof(loom_amdgpu_vector_deinterleave_plan_t) == 24,
+              "AMDGPU vector deinterleave plans must stay cache dense");
+static_assert(sizeof(loom_amdgpu_vector_interleave_plan_t) == 24,
+              "AMDGPU vector interleave plans must stay cache dense");
 
 enum loom_amdgpu_vector_extract_flag_bits_e {
   // Logical elements occupy sub-32-bit fields in ordinary payload registers.
@@ -876,6 +915,32 @@ typedef struct loom_amdgpu_vector_compare_plan_t {
   // Static number of payload and mask lanes compared.
   uint32_t lane_count;
 } loom_amdgpu_vector_compare_plan_t;
+
+typedef enum loom_amdgpu_float_classification_form_e {
+  LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_NONE = 0,
+  LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_INLINE = 1,
+  LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_LITERAL = 2,
+  LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_REGISTER = 3,
+} loom_amdgpu_float_classification_form_t;
+
+typedef struct loom_amdgpu_vector_float_classification_plan_t {
+  // Floating-point payload vector being classified.
+  loom_value_id_t input;
+  // Descriptor selected for low halves or whole-width lanes.
+  loom_low_lower_resolved_descriptor_t low_descriptor;
+  // Descriptor selected for packed F16 high halves.
+  loom_low_lower_resolved_descriptor_t high_descriptor;
+  // Result mask vector receiving one native lane mask per input lane.
+  loom_value_id_t result;
+  // Exact ten-bit hardware class mask for the source operation.
+  uint32_t class_mask;
+  // Static number of logical input and result lanes.
+  uint32_t lane_count;
+  // Floating-point type carried by each logical input lane.
+  loom_scalar_type_t element_type;
+  // Selected class-mask operand representation.
+  loom_amdgpu_float_classification_form_t form;
+} loom_amdgpu_vector_float_classification_plan_t;
 
 typedef uint32_t loom_amdgpu_cndmask_b32_descriptor_flags_t;
 

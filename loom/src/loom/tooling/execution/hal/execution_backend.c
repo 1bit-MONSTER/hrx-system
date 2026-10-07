@@ -86,12 +86,12 @@ static iree_status_t loom_run_hal_write_candidate_artifacts(
     const loom_run_hal_candidate_t* candidate) {
   IREE_RETURN_IF_ERROR(loom_run_hal_write_artifact(
       request->options->hal_target_artifact_output_path,
-      candidate->artifact_candidate.artifact.target_artifact_data,
-      IREE_SV("target-native"), request->host_allocator));
+      candidate->artifact.contents, IREE_SV("target-native"),
+      request->host_allocator));
   return loom_run_hal_write_artifact(
       request->options->hal_executable_output_path,
-      candidate->artifact_candidate.artifact.executable_data,
-      IREE_SV("executable"), request->host_allocator);
+      candidate->artifact.contents, IREE_SV("executable"),
+      request->host_allocator);
 }
 
 static iree_status_t loom_run_hal_execution_backend_select_device_target(
@@ -113,17 +113,14 @@ static iree_status_t loom_run_hal_execution_backend_select_device_target(
     return iree_ok_status();
   }
 
-  if (request->target_environment == NULL) {
+  if (request->session->target_environment == NULL) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
         "explicit HAL target selection requires a target environment");
   }
-  loom_artifact_target_t artifact_target = {0};
-  IREE_RETURN_IF_ERROR(loom_artifact_target_select(
-      device_provider->artifact_provider, request->target_environment,
-      target_specification, &artifact_target));
-  return loom_device_provider_select_profile_target(
-      device_provider, runtime, artifact_target.target_profile, out_target);
+  return loom_device_provider_select_explicit_target(
+      device_provider, runtime, request->session->target_environment,
+      target_specification, out_target);
 }
 
 static iree_status_t loom_run_hal_execution_backend_run_pipeline(
@@ -135,7 +132,7 @@ static iree_status_t loom_run_hal_execution_backend_run_pipeline(
     loom_compile_pipeline_result_t* out_result) {
   const loom_target_specialization_request_t specialization_request = {
       .function_name = entry->func_name,
-      .target_profile = device_target->artifact_target.target_profile,
+      .target_profile = device_target->target_profile,
   };
   loom_compile_pipeline_options_t pipeline_options = {0};
   loom_compile_pipeline_options_initialize(&pipeline_options);
@@ -147,14 +144,12 @@ static iree_status_t loom_run_hal_execution_backend_run_pipeline(
   }
   pipeline_options.target_pipeline_options =
       compile_options->target_pipeline_options;
-  pipeline_options.target_environment = request->target_environment;
+  pipeline_options.target_environment = request->session->target_environment;
   pipeline_options.target_specializations =
       (loom_target_specialization_request_list_t){
           .values = &specialization_request,
           .count = 1,
       };
-  pipeline_options.low_descriptor_registry =
-      loom_run_session_low_descriptor_registry(request->session);
   pipeline_options.cleanup_pattern_provider_set =
       loom_run_session_cleanup_pattern_provider_set(request->session);
   pipeline_options.source_resolver =
@@ -171,13 +166,6 @@ iree_status_t loom_run_hal_execution_backend_probe(
     const loom_run_one_shot_probe_request_t* request) {
   const loom_device_provider_t* device_provider =
       loom_run_hal_execution_backend_device_provider(backend);
-  if (device_provider->select_target == NULL) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "device provider '%.*s' is missing required target "
-                            "selection hook",
-                            (int)device_provider->artifact_provider->name.size,
-                            device_provider->artifact_provider->name.data);
-  }
 
   loom_run_hal_runtime_t runtime = {0};
   loom_device_target_t target = {0};
@@ -188,25 +176,25 @@ iree_status_t loom_run_hal_execution_backend_probe(
   iree_status_t status = loom_run_hal_runtime_initialize(
       &runtime_options, request->host_allocator, &runtime);
   if (iree_status_is_ok(status)) {
-    status = device_provider->select_target(device_provider, &runtime,
-                                            request->host_allocator, &target);
+    status = loom_device_provider_select_compatible_target(
+        device_provider, &runtime, /*target_requirement=*/NULL,
+        request->host_allocator, &target);
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_format(
         &request->result->output,
         "backend: %.*s\ndevice provider: %.*s\nhal driver: %.*s\n",
         (int)backend->name.size, backend->name.data,
-        (int)device_provider->artifact_provider->name.size,
-        device_provider->artifact_provider->name.data,
+        (int)device_provider->name.size, device_provider->name.data,
         (int)device_provider->driver_name.size,
         device_provider->driver_name.data);
   }
-  if (iree_status_is_ok(status) &&
-      !iree_string_view_is_empty(target.artifact_target.target_key)) {
+  if (iree_status_is_ok(status) && target.executable_target != NULL &&
+      !iree_string_view_is_empty(target.executable_target->target_key)) {
     status = iree_string_builder_append_format(
         &request->result->output, "device target key: %.*s\n",
-        (int)target.artifact_target.target_key.size,
-        target.artifact_target.target_key.data);
+        (int)target.executable_target->target_key.size,
+        target.executable_target->target_key.data);
   }
 
   if (device_provider->deinitialize_target != NULL) {
@@ -220,7 +208,8 @@ iree_status_t loom_run_hal_execution_backend_probe(
 iree_status_t loom_run_hal_execution_backend_run_one_shot(
     const loom_run_execution_backend_t* backend,
     const loom_run_one_shot_request_t* request) {
-  if (request->session == NULL || request->target_environment == NULL) {
+  if (request->session == NULL ||
+      request->session->target_environment == NULL) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
         "HAL compilation requires a session and target environment");
@@ -231,7 +220,7 @@ iree_status_t loom_run_hal_execution_backend_run_one_shot(
   const loom_sanitizer_options_t sanitizer =
       compile_options.target_pipeline_options.sanitizer;
   compile_options.target_pipeline_options =
-      device_provider->artifact_provider->default_pipeline_options;
+      device_provider->target_emitter->default_pipeline_options;
   compile_options.target_pipeline_options.sanitizer = sanitizer;
 
   loom_run_hal_runtime_t runtime = {0};
@@ -317,22 +306,21 @@ iree_status_t loom_run_hal_execution_backend_run_one_shot(
       pipeline_result.pass.error_count == 0) {
     compile_options.function_versions = &pipeline_result.function_versions.list;
     status = loom_run_hal_candidate_emit_target(
-        device_provider, &device_target, &compile_module, &compile_options,
-        request->host_allocator, &candidate);
+        device_provider, &device_target, request->session, &compile_module,
+        &compile_options, request->host_allocator, &candidate);
   }
   if (iree_status_is_ok(status) && entry_selected &&
-      pipeline_result.pass.error_count == 0 &&
-      !candidate.artifact_candidate.compiled) {
+      pipeline_result.pass.error_count == 0 && !candidate.compiled) {
     request->result->exit_code = 1;
   }
-  if (iree_status_is_ok(status) && candidate.artifact_candidate.compiled) {
+  if (iree_status_is_ok(status) && candidate.compiled) {
     status = loom_run_hal_write_candidate_artifacts(request, &candidate);
   }
-  if (iree_status_is_ok(status) && candidate.artifact_candidate.compiled &&
+  if (iree_status_is_ok(status) && candidate.compiled &&
       !request->options->hal_emit_only) {
     const loom_device_artifact_t device_artifact = {
-        .executable_target = candidate.device_target.executable_target,
-        .artifact = &candidate.artifact_candidate.artifact,
+        .executable_target = candidate.executable_target,
+        .artifact = &candidate.artifact,
     };
     loom_run_hal_invocation_request_t invocation_request = {0};
     loom_run_hal_invocation_request_initialize(&invocation_request);
@@ -374,7 +362,7 @@ iree_status_t loom_run_hal_execution_backend_run_one_shot(
           &invocation_request, request->host_allocator, &invocation_result);
     }
   }
-  if (iree_status_is_ok(status) && candidate.artifact_candidate.compiled &&
+  if (iree_status_is_ok(status) && candidate.compiled &&
       !request->options->hal_emit_only) {
     request->result->exit_code = invocation_result.exit_code;
     status = iree_string_builder_append_string(

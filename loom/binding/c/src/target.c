@@ -11,7 +11,6 @@
 #include "iree/base/internal/atomics.h"
 #include "loom/codegen/low/repr.h"
 #include "loom/codegen/low/text_asm.h"
-#include "loom/pass/builtin_registry.h"
 #include "loom/target/selection.h"
 #include "loomc/iree.h"
 #include "option_chain.h"
@@ -170,6 +169,19 @@ static loomc_status_t loomc_target_specialization_validate_profile_environment(
   return loomc_ok_status();
 }
 
+loomc_status_t loomc_target_profile_validate_environment(
+    const loomc_target_profile_t* profile,
+    const loomc_target_environment_t* target_environment) {
+  if (profile == NULL) {
+    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                             "target profile must not be NULL");
+  }
+  return loomc_target_specialization_validate_profile_environment(
+      target_environment, profile,
+      "target profile was created for an incompatible target environment",
+      "target profile is incomplete");
+}
+
 static loomc_status_t loomc_target_pass_environment_initialize(
     const loomc_target_environment_t* target_environment,
     loomc_target_pass_environment_t* out_environment) {
@@ -182,15 +194,17 @@ static loomc_status_t loomc_target_pass_environment_initialize(
   const loom_target_environment_t* internal_environment =
       &target_environment->environment;
   out_environment->target_environment = internal_environment;
-  LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(
-      loom_target_environment_initialize_low_descriptor_registry(
-          internal_environment, &out_environment->low_descriptor_registry)));
-  LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(
-      loom_target_environment_initialize_low_lower_policy_registry(
-          internal_environment, &out_environment->low_lower_policy_registry)));
-  LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(
-      loom_target_environment_initialize_math_policy_registry(
-          internal_environment, &out_environment->math_policy_registry)));
+  out_environment->low_descriptor_registry =
+      loom_target_environment_low_descriptor_registry(internal_environment);
+  out_environment->diagnostic_type_print_options.flags =
+      LOOM_TEXT_PRINT_DEFAULT;
+  loom_low_descriptor_text_asm_environment_initialize(
+      &out_environment->low_descriptor_registry.registry,
+      &out_environment->diagnostic_type_print_options.low_asm_environment);
+  out_environment->low_lower_policy_registry =
+      loom_target_environment_low_lower_policy_registry(internal_environment);
+  out_environment->math_policy_registry =
+      loom_target_environment_math_policy_registry(internal_environment);
   out_environment->low_legality_provider_list =
       loom_target_environment_low_legality_provider_list(internal_environment);
   LOOMC_RETURN_IF_ERROR(
@@ -416,38 +430,17 @@ loomc_status_t loomc_target_specialization_options_make_lists(
   return loomc_ok_status();
 }
 
-loomc_status_t loomc_target_pass_registry_initialize(
-    const loomc_target_environment_t* target_environment,
-    loom_pass_registry_storage_t* out_storage,
-    const loom_pass_registry_t** out_registry) {
-  if (out_storage == NULL || out_registry == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_storage and out_registry must not be NULL");
-  }
-  *out_storage = (loom_pass_registry_storage_t){0};
-  *out_registry = NULL;
-  const loom_pass_registry_t* registries[2] = {
-      loom_pass_builtin_registry(),
-  };
-  iree_host_size_t registry_count = 1;
-  if (target_environment != NULL) {
-    registries[registry_count++] =
-        loom_target_environment_pass_registry(&target_environment->environment);
-  }
-  LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(
-      loom_pass_registry_storage_initialize_from_registries(
-          registries, registry_count, out_storage)));
-  *out_registry = loom_pass_registry_storage_registry(out_storage);
-  return loomc_ok_status();
-}
-
 loom_pass_environment_t loomc_codegen_pass_environment_storage_initialize(
     const loomc_target_pass_environment_t* target_environment,
     const loom_cleanup_pattern_registry_t* cleanup_pattern_registry,
     loom_function_version_owner_t* function_version_owner,
+    const loom_pass_environment_capability_t* launch_config_capability,
+    loom_target_compile_report_t* compile_report,
     loom_codegen_pass_environment_storage_t* out_storage) {
   loom_codegen_pass_environment_options_t options = {
       .cleanup_pattern_registry = cleanup_pattern_registry,
+      .compile_report = compile_report,
+      .launch_config_capability = launch_config_capability,
   };
   if (target_environment != NULL) {
     options.descriptor_registry =

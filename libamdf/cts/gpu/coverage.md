@@ -17,11 +17,17 @@ identity, independent observation and checked retirement.
 | SDMA transfers | [copy](sdma/copy_test.cc), [fill](sdma/fill_test.cc) | Linear copies, byte tails/page crossings, DWORD fills, NOP-separated dependent copies and fence-visible output. |
 | SDMA inline updates | [write](sdma/write_test.cc) | Command-carried DWORD values, NOP-separated copy consumers, page crossings, final output before command retirement, and complete backing across changing epochs. |
 | SDMA rectangular transfers | [rectangles](sdma/rectangular_copy_test.cc) | All five element sizes, independent source/destination coordinates and pitches, page crossings, the advertised Z-coordinate/depth widths, and complete source/destination/control backing across changed epochs. |
+| SDMA completion-value dependencies | [memory waits](sdma/wait_test.cc) | Full-width equality and greater-or-equal waits, prepublished and CPU-after-arrival operands, changing dependent-copy output, full backing guards and completed-use reuse. Ordered values stay below bit 31; signed ordering, wrap and partial masks are separate contracts. |
 | SDMA data visibility | [cache commands](sdma/cache_test.cc), [SDMA/AQL](recipes/copy_dispatch_test.cc), [PM4/SDMA](recipes/pm4_sdma_test.cc) | Explicit USER_GCR acquire/release, changing payloads, immutable commands, and queried cache operations at upload and download boundaries. |
 | AQL publication and dependencies | [publication](aql/publication_test.cc), [barriers](aql/barrier_test.cc), [epochs](aql/epoch_test.cc), [fan-in](aql/fanin_test.cc), [scope](aql/scope_test.cc) | Slot reuse, independent producer publication, AND/OR/value dependencies, complete shader payloads and AGENT-to-SYSTEM scope composition. |
 | AQL execution and resources | [dispatch](aql/dispatch_test.cc), [geometry](aql/geometry_test.cc), [scratch](aql/private_test.cc), [LDS](aql/lds_test.cc), [resource changes](aql/resource_test.cc) | Complete/partial multidimensional grids, caller-owned private storage, fixed group storage and resource rebinding. |
 | AQL transfer and reuse | [carriers](aql/transfer_test.cc), [byte copy](aql/byte_copy_test.cc), [pattern fill](aql/pattern_fill_test.cc), [executable reuse](aql/executable_test.cc), [worksets](aql/workset_test.cc) | PM4-carried copies, shader subspan operations, completed-use code replacement and independent final-use obligations. |
-| CPU/GPU and cross-engine memory edges | [memory pairs](recipes/memory_pair_test.cc), [SDMA/AQL](recipes/copy_dispatch_test.cc), [PM4/SDMA](recipes/pm4_sdma_test.cc) | Queried concrete/profile policies, coherent SYSTEM and staged LOCAL payloads, upload/compute/download and final consumer output. |
+| CPU/GPU and cross-engine memory edges | [memory pairs](recipes/memory_pair_test.cc), [SDMA/AQL](recipes/copy_dispatch_test.cc), [PM4/SDMA](recipes/pm4_sdma_test.cc) | Queried concrete/profile policies, coherent SYSTEM and staged LOCAL payloads, upload/compute/download and final consumer output. PM4/SDMA also covers device-driven batches with shared or independent upload/download queues, full barriers or ordered data acquisition, and immutable code reuse. |
+| Bounded CPU/GPU streaming and closure | [PM4/SDMA host streams](recipes/pm4_sdma_streaming_test.cc) | Reusable payload and command storage, source/readback acknowledgments, retained outputs, 32-bit control-token boundaries, and exact per-slot/native retirement. Closure preserves pending accepted ingress and distinguishes unused preparation from submitted work. |
+| Physical peer construction and SDMA | [joint memory](peer/memory_group_test.cc), [SYSTEM round trips](peer/sdma_system_test.cc) | Explicit endpoint selection, joint attachment, changing bidirectional device-driven payloads and complete backing/command checks before retirement. |
+| Physical peer AQL | [native signals and peer-local memory](peer/aql/local_memory_test.cc) | Both signal directions, both LOCAL memory owners and producers, queried SYSTEM scopes, consumer-first dependency, changing transforms and complete output before independent joins. |
+| GPU initiated file transfers | [Linux io_uring](linux/io_uring/README.md) | One-credit causal round trips and three-credit concurrent gathers, key-based deduplication, retained final readers, independent peer slot reuse, CQ ticket identity, scattered write/reload, short reads/EOF and stop-and-drain errors. Complete file/payload/guard oracles cover buffered/direct paths. Logical consumers share one invocation; durability and independently dispatched matmuls are separate contracts. |
+| Matched file I/O latency | [Completion-driven comparison](linux/io_uring/file_latency_test.cc) | Identical native/host-relayed programs, one/four causal streams, 4 KiB through 4 MiB transfers, sparse arrivals, payload/file oracles and shader/DRM clock brackets. Optimized broker-managed samples are distinct from CTS timing. |
 | CPU/NPU execution | [CPU/XDNA recipes](../xdna/recipes/README.md) | Allocated/registered backing, queried host publication/acquisition, changed arithmetic outputs, full guards and native retirement. |
 | Finite GPU/NPU execution | [GPU/XDNA recipes](../interop/gpu/xdna/recipes/README.md#finite-recipes) | GPU transfers or shaders produce NPU inputs and consume its output; native phases are joined on the host without intermediate CPU payload access. |
 | Resident GPU/NPU execution | [resident recipes](../interop/gpu/xdna/recipes/README.md#resident-exchange) | Both dataflow initiators, one/two credits, independently progressing workers, complete per-generation transcripts, backing/payload layouts, startup abort and final drain. The host does not relay intermediate work. |
@@ -75,13 +81,20 @@ large layouts. Overlapping backing, tiled images and optional placement hints
 need different cases.
 
 Windows compilation does not establish a USER queue service or native execution
-result. Physical peer-GPU execution has
-[no compiled cases](peer/README.md).
+result. [Physical peer-GPU conformance](peer/README.md) has separate corpora
+with explicit primary/peer selection and a two-GPU run requirement. Its SYSTEM
+SDMA round trips use changing data, stable one-writer completion cells and full
+backing/command checks before retirement. The shader-bearing AQL corpus covers
+device-only peer-local memory with both placements and producer directions,
+native signal dependencies and independently selected images and addresses. Joint
+allocation and address queries remain distinct from those executed dataflows;
+generic atomic RMW reach and SDMA access to another GPU's LOCAL memory require
+their own cases.
 
 Per-dispatch LDS capacity changes, additional packet fields, SDMA atomics,
 general poll/cache controls, command-buffer variants,
-physical peers and hardware-counter collection need their own native witnesses.
-The corresponding
+additional physical-peer routes and hardware-counter collection need their own
+native witnesses. The corresponding
 [hardware reference](../../../docs/reference/amd/gpu/README.md) has a broader
 semantic scope than the implemented CTS. A new HAL recipe is qualified by its
 complete producer/dependency/consumer/reuse behavior, not by finding its opcode
@@ -98,6 +111,9 @@ Ordinary GPU corpora have the following process-lifetime test targets. Appending
 | SDMA | `//libamdf/cts/gpu/sdma:sdma_dynamic` |
 | AQL | `//libamdf/cts/gpu/aql:aql_dynamic` |
 | Single-GPU recipes | `//libamdf/cts/gpu/recipes:recipes_dynamic` |
+| Peer construction and SDMA | `//libamdf/cts/gpu/peer:peer_dynamic` |
+| Peer AQL | `//libamdf/cts/gpu/peer/aql:aql_dynamic` |
+| Linux GPU file transfers | `//libamdf/cts/gpu/linux/io_uring:file_io_dynamic` |
 | CPU/NPU recipes | `//libamdf/cts/xdna/recipes:execution_dynamic` |
 | GPU/NPU recipes | `//libamdf/cts/interop/gpu/xdna/recipes:execution_dynamic` |
 

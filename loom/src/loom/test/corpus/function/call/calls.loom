@@ -1,105 +1,37 @@
-func.def public @arithmetic(%a: i32, %b: i32, %c: i32) -> (i32) {
+func.def @arithmetic(%a: i32, %b: i32, %c: i32) -> (i32) {
   %sum = scalar.addi %a, %b : i32
   %scaled = scalar.muli %sum, %c : i32
   %result = scalar.subi %scaled, %b : i32
   func.return %result : i32
 }
 
-check.case @arithmetic_case {
-  %a = check.literal value(6) : i32
-  %b = check.literal value(7) : i32
-  %c = check.literal value(9) : i32
-  %result = func.call @arithmetic(%a, %b, %c) : (i32, i32, i32) -> (i32)
-  %expected = check.literal value(110) : i32
-  check.expect.equal actual(%result) expected(%expected) : i32
-  check.return
-}
-
-check.benchmark<@arithmetic_case> @arithmetic_benchmark
-
-func.def public @swap(%a: i64, %b: i64) -> (i64, i64) {
+func.def @swap(%a: i64, %b: i64) -> (i64, i64) {
   func.return %b, %a : i64, i64
-}
-
-check.case @swap_case {
-  %a = check.literal value(4294967297) : i64
-  %b = check.literal value(-9) : i64
-  %first, %second = func.call @swap(%a, %b) : (i64, i64) -> (i64, i64)
-  check.expect.equal actual(%first) expected(%b) : i64
-  check.expect.equal actual(%second) expected(%a) : i64
-  %again_first, %again_second = func.call @swap(%first, %second) : (i64, i64) -> (i64, i64)
-  check.expect.equal actual(%again_first) expected(%a) : i64
-  check.expect.equal actual(%again_second) expected(%b) : i64
-  check.return
 }
 
 // A return cycle must preserve values already in their ABI destination. The
 // parallel-move solver elides identity moves before requesting cycle scratch.
-func.def public @swap_preserving_middle(%a: i64, %b: i64, %c: i64) -> (i64, i64, i64) {
+func.def @swap_preserving_middle(%a: i64, %b: i64, %c: i64) -> (i64, i64, i64) {
   func.return %c, %b, %a : i64, i64, i64
 }
 
-check.case @swap_preserving_middle_case {
-  %a = check.literal value(4294967297) : i64
-  %b = check.literal value(-9) : i64
-  %c = check.literal value(7) : i64
-  %first, %middle, %last = func.call @swap_preserving_middle(%a, %b, %c) : (i64, i64, i64) -> (i64, i64, i64)
-  check.expect.equal actual(%first) expected(%c) : i64
-  check.expect.equal actual(%middle) expected(%b) : i64
-  check.expect.equal actual(%last) expected(%a) : i64
-  check.return
-}
-
-func.def public @passthrough(%a: i64, %b: i64) -> (i64, i64) {
+func.def @passthrough(%a: i64, %b: i64) -> (i64, i64) {
   func.return %a, %b : i64, i64
 }
 
-check.case @passthrough_case {
-  %a = check.param.choice values([0, -1, 4294967297]) : i64
-  %b = check.param.choice values([3, -9]) : i64
-  %first, %second = func.call @passthrough(%a, %b) : (i64, i64) -> (i64, i64)
-  check.expect.equal actual(%first) expected(%a) : i64
-  check.expect.equal actual(%second) expected(%b) : i64
-  check.return
-}
-
-func.def public @empty() {
+func.def @empty() {
   func.return
 }
 
-check.case @empty_case {
-  func.call @empty() : ()
-  check.return
-}
-
-func.def public @mixed(%a: i32, %b: i64) -> (i64, i32) {
+func.def @mixed(%a: i32, %b: i64) -> (i64, i32) {
   func.return %b, %a : i64, i32
 }
 
-check.case @mixed_case {
-  %a = check.literal value(-12) : i32
-  %b = check.literal value(4294967297) : i64
-  %first, %second = func.call @mixed(%a, %b) : (i32, i64) -> (i64, i32)
-  check.expect.equal actual(%first) expected(%b) : i64
-  check.expect.equal actual(%second) expected(%a) : i32
-  check.return
-}
-
-func.def public @fanout(%a: i64, %b: i64) -> (i64, i64, i64) {
+func.def @fanout(%a: i64, %b: i64) -> (i64, i64, i64) {
   func.return %a, %a, %b : i64, i64, i64
 }
 
-check.case @fanout_case {
-  %a = check.literal value(-12) : i64
-  %b = check.literal value(4294967297) : i64
-  %first, %second, %third = func.call @fanout(%a, %b) : (i64, i64) -> (i64, i64, i64)
-  check.expect.equal actual(%first) expected(%a) : i64
-  check.expect.equal actual(%second) expected(%a) : i64
-  check.expect.equal actual(%third) expected(%b) : i64
-  check.return
-}
-
-func.def public @constant_bits() -> (i32, i64, i64, i32) {
+func.def @constant_bits() -> (i32, i64, i64, i32) {
   %narrow = scalar.constant -1 : i32
   %wide = scalar.constant 4294967297 : i64
   %minimum = scalar.constant -9223372036854775808 : i64
@@ -107,15 +39,45 @@ func.def public @constant_bits() -> (i32, i64, i64, i32) {
   func.return %narrow, %wide, %minimum, %c0 : i32, i64, i64, i32
 }
 
-check.case @constant_bits_case {
-  %narrow, %wide, %minimum, %zero = func.call @constant_bits() : () -> (i32, i64, i64, i32)
-  %expected_narrow = check.literal value(-1) : i32
-  %expected_wide = check.literal value(4294967297) : i64
-  %expected_minimum = check.literal value(-9223372036854775808) : i64
-  %expected_zero = check.literal value(0) : i32
-  check.expect.equal actual(%narrow) expected(%expected_narrow) : i32
-  check.expect.equal actual(%wide) expected(%expected_wide) : i64
-  check.expect.equal actual(%minimum) expected(%expected_minimum) : i64
-  check.expect.equal actual(%zero) expected(%expected_zero) : i32
+// Observes scalar arithmetic and the full family of ordinary call signatures
+// without exposing any trial values to target specialization.
+func.def @call_value_observations(%a: i64, %b: i64, %c: i64, %word_output: buffer, %wide_output: buffer) {
+  %a_word = scalar.trunci %a : i64 to i32
+  %b_word = scalar.trunci %b : i64 to i32
+  %c_word = scalar.trunci %c : i64 to i32
+  %arithmetic = func.call @arithmetic(%a_word, %b_word, %c_word) : (i32, i32, i32) -> (i32)
+  %swap0, %swap1 = func.call @swap(%a, %b) : (i64, i64) -> (i64, i64)
+  %again0, %again1 = func.call @swap(%swap0, %swap1) : (i64, i64) -> (i64, i64)
+  %middle0, %middle1, %middle2 = func.call @swap_preserving_middle(%a, %b, %c) : (i64, i64, i64) -> (i64, i64, i64)
+  %pass0, %pass1 = func.call @passthrough(%a, %b) : (i64, i64) -> (i64, i64)
+  func.call @empty() : ()
+  %mixed0, %mixed1 = func.call @mixed(%a_word, %b) : (i32, i64) -> (i64, i32)
+  %fanout0, %fanout1, %fanout2 = func.call @fanout(%a, %b) : (i64, i64) -> (i64, i64, i64)
+  %constant0, %constant1, %constant2, %constant3 = func.call @constant_bits() : () -> (i32, i64, i64, i32)
+  %word_values = vector.from_elements %arithmetic, %mixed1, %constant0, %constant3 : vector<4xi32>
+  %wide_values = vector.from_elements %swap0, %swap1, %again0, %again1, %middle0, %middle1, %middle2, %pass0, %pass1, %mixed0, %fanout0, %fanout1, %fanout2, %constant1, %constant2 : vector<15xi64>
+  %origin = index.constant 0 : offset
+  %word_results = buffer.view %word_output[%origin] : buffer -> view<4xi32>
+  %wide_results = buffer.view %wide_output[%origin] : buffer -> view<15xi64>
+  vector.store %word_values, %word_results[0] : vector<4xi32>, view<4xi32>
+  vector.store %wide_values, %wide_results[0] : vector<15xi64>, view<15xi64>
+  func.return
+}
+
+check.scenario @call_values {
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %a_source = check.entropy.fork %entropy name("a") : check.entropy
+    %b_source = check.entropy.fork %entropy name("b") : check.entropy
+    %c_source = check.entropy.fork %entropy name("c") : check.entropy
+    %a = check.entropy.read %a_source[%trial] : check.entropy -> i64
+    %b = check.entropy.read %b_source[%trial] : check.entropy -> i64
+    %c = check.entropy.read %c_source[%trial] : check.entropy -> i64
+    %word_output = check.generate.fill value(0) : tensor<4xi32>
+    %wide_output = check.generate.fill value(0) : tensor<15xi64>
+    check.compare<@call_value_observations>(%a, %b, %c, %word_output, %wide_output) : (i64, i64, i64, tensor<4xi32>, tensor<15xi64>) -> () {
+      check.expect.bitwise actual(%word_output) expected(%word_output) : tensor<4xi32>
+      check.expect.bitwise actual(%wide_output) expected(%wide_output) : tensor<15xi64>
+    }
+  }
   check.return
 }

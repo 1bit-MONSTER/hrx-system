@@ -14,7 +14,14 @@
         }
       },
       "exit": 1,
-      "stderr": {"contains": ["STRUCTURE/014", "input module failed verification"]},
+      "stderr": {
+        "contains": [
+          "<stdin>:2:3",
+          "STRUCTURE/014",
+          "2 |   %value = scalar.constant 2147483648 : i32",
+          "= help: Choose an attribute value satisfying 'element type domain'"
+        ]
+      },
       "files": [{"path": "{tmp}/invalid.bin", "exists": false}]
     },
     {
@@ -59,8 +66,7 @@
       "stderr": {
         "contains": [
           "TYPE/001",
-          "'result' type tile<2xi32> does not match 'sender' type tile<1xi32>",
-          "input module failed Low verification"
+          "'result' type tile<2xi32> does not match 'sender' type tile<1xi32>"
         ]
       },
       "files": [{"path": "{tmp}/invalid.xdna", "exists": false}]
@@ -129,7 +135,8 @@
       "stderr": {
         "contains": [
           "XDNA/021",
-          "AIE2P worker 0 cannot occupy tile (0, 0): the coordinate is not a compute tile"
+          "AIE2P worker 0 cannot occupy tile (0, 0): the coordinate is not a compute tile",
+          "15 |   constrain.location %worker, %zero, %zero"
         ],
         "not_contains": ["INVALID_ARGUMENT", "stack:"]
       },

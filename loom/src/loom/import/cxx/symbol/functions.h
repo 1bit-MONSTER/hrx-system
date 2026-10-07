@@ -7,6 +7,7 @@
 #ifndef LOOM_IMPORT_CXX_SYMBOL_FUNCTIONS_H_
 #define LOOM_IMPORT_CXX_SYMBOL_FUNCTIONS_H_
 
+#include <optional>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -17,13 +18,22 @@
 #include "loom/import/cxx/binding/intrinsics.h"
 #include "loom/import/cxx/binding/launch.h"
 #include "loom/import/cxx/binding/parameter_contracts.h"
+#include "loom/import/cxx/binding/target_definitions.h"
+#include "loom/import/cxx/binding/template_definitions.h"
 #include "loom/import/cxx/source/locations.h"
 #include "loom/import/cxx/symbol/names.h"
 #include "loom/import/cxx/value/types.h"
 
 namespace loom::cxx_import {
 
-enum class FunctionKind { Ordinary, Kernel, CheckCase };
+enum class FunctionKind {
+  Ordinary,
+  Kernel,
+  TemplateDefinition,
+  LaunchConfiguration,
+  ClusteredLaunchConfiguration,
+  CheckCase,
+};
 
 // Admitted definition ready for recursive body construction. The source owns
 // AST/types and the module owns native IR; both outlive this borrowed contract.
@@ -32,7 +42,7 @@ struct FunctionBody {
   cxx::FunctionDefinitionAST* source;
   // Source statements to translate, without a second function-body lookup.
   cxx::CompoundStatementAST* body;
-  // Native function, kernel, or check definition owning the body region.
+  // Native function, kernel, template, or check definition owning the region.
   loom_op_t* operation;
   // Entry region with projected parameter types, ready for source bindings.
   loom_region_t* region;
@@ -44,6 +54,15 @@ struct FunctionBody {
   std::span<const ParameterContract> parameter_contracts;
 };
 
+// Native definition and any source-owned launch configuration body that must
+// be projected before its ordinary body.
+struct DefinedFunction {
+  // Function, kernel, or check body selected by the pending worklist.
+  FunctionBody body;
+  // Kernel configuration projected into the definition's config region.
+  std::optional<FunctionBody> configuration;
+};
+
 // Owns root selection, native symbol identities and reachable function order.
 // Binding admission sees every concrete declaration once during selection;
 // concrete template instances are admitted when reached. The source and output
@@ -52,13 +71,17 @@ class Functions {
  public:
   Functions(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
             loom_module_t* module, Intrinsics& intrinsics,
-            LaunchContracts& launches, Configs& configs, SymbolNames& names)
+            LaunchContracts& launches, Configs& configs,
+            TargetDefinitions& target_definitions,
+            TemplateDefinitions& template_definitions, SymbolNames& names)
       : unit_(unit),
         diagnostics_(diagnostics),
         module_(module),
         intrinsics_(intrinsics),
         launches_(launches),
         configs_(configs),
+        target_definitions_(target_definitions),
+        template_definitions_(template_definitions),
         names_(names),
         parameter_contracts_(unit, diagnostics) {}
 
@@ -68,7 +91,8 @@ class Functions {
   // Retains one identity and queues a newly reached source function exactly
   // once. The caller has admitted a concrete definition through selection or
   // definition().
-  loom_symbol_ref_t declare(cxx::FunctionSymbol* function);
+  loom_symbol_ref_t declare(cxx::FunctionSymbol* function,
+                            cxx::AST* owner = nullptr);
   // Returns the concrete definition retained for a semantic declaration, or
   // the frontend-owned definition of a reached concrete template instance.
   cxx::FunctionSymbol* definition(cxx::FunctionSymbol* function) const;
@@ -81,8 +105,8 @@ class Functions {
   std::span<cxx::FunctionSymbol* const> pending() const { return pending_; }
   // Builds the selected native definition and launch contract at the caller's
   // module insertion point. The caller then enters and fills the returned body.
-  FunctionBody define(cxx::FunctionSymbol* symbol, Types& types,
-                      Locations& locations, loom_builder_t* builder);
+  DefinedFunction define(cxx::FunctionSymbol* symbol, Types& types,
+                         Locations& locations, loom_builder_t* builder);
 
  private:
   enum class DeclarationScope { Namespace, Nested };
@@ -94,6 +118,7 @@ class Functions {
                     cxx::List<cxx::AttributeSpecifierAST*>* attributes);
   loom_symbol_ref_t create_symbol(cxx::FunctionSymbol* function,
                                   cxx::AST* source);
+  loom_symbol_ref_t retain(cxx::FunctionSymbol* function, cxx::AST* owner);
   void collect(cxx::List<cxx::DeclarationAST*>* declarations,
                DeclarationScope scope,
                std::vector<cxx::FunctionSymbol*>& definitions);
@@ -113,6 +138,10 @@ class Functions {
   LaunchContracts& launches_;
   // Reconciles named scalar settings before root selection and body lowering.
   Configs& configs_;
+  // Owns source target definitions and function-like bindings to them.
+  TargetDefinitions& target_definitions_;
+  // Owns target-selected template family provider contracts.
+  TemplateDefinitions& template_definitions_;
   // Exact callable/configuration names and generated private names.
   SymbolNames& names_;
   // Pointer entry preconditions reconciled before body construction.

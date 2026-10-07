@@ -33,6 +33,14 @@ _SCALAR_COUNTERPART_EXCLUSIONS = frozenset(
     }
 )
 
+# Decomposable operations with explicit lane materialization in
+# to_scalar_lanes.c instead of a scalar-dialect counterpart.
+_EXPLICIT_VECTOR_LANE_PROGRAMS = _SCALAR_COUNTERPART_EXCLUSIONS | frozenset(
+    {
+        "vector.splat",
+    }
+)
+
 # Accumulator-style operations prefer their addend as the dynamic aggregate
 # seed. Other multi-operand elementwise ops use their first result-compatible
 # operand, while unary ops deliberately use no source seed so producer chains

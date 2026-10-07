@@ -20,6 +20,12 @@
 extern "C" {
 #endif
 
+// Maps a generated register class's spill space to its function-local storage
+// domain. The slot space must be known, as established by descriptor
+// generation.
+loom_storage_space_t loom_low_allocation_storage_space_for_spill_slot(
+    loom_low_spill_slot_space_t slot_space);
+
 // Returns the allocation location kind used for values in |reg_class|.
 loom_low_allocation_location_kind_t
 loom_low_allocation_storage_reg_class_location_kind(

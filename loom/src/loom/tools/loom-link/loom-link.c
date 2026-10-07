@@ -39,7 +39,6 @@
 #include "loom/tooling/input/configured.h"
 #include "loom/tooling/input/flags.h"
 #include "loom/tooling/io/file.h"
-#include "loom/tooling/io/source.h"
 #include "loom/tools/loom-format/convert.h"
 #include "loom/util/stream.h"
 #include "loom/verify/verify.h"
@@ -445,10 +444,9 @@ static iree_status_t loom_link_cli_read_input(
   };
   IREE_RETURN_IF_ERROR(loom_input_options_for_provider(
       options.provider_options, provider->name, &request.options));
-  loom_target_low_descriptor_registry_t low_registry = {0};
-  IREE_RETURN_IF_ERROR(
-      loom_target_environment_initialize_low_descriptor_registry(
-          loom_configured_target_environment(), &low_registry));
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          loom_configured_target_environment());
   loom_low_descriptor_text_asm_environment_initialize(
       &low_registry.registry, &request.parse_options.low_asm_environment);
   IREE_RETURN_IF_ERROR(loom_input_module_load(
@@ -894,7 +892,7 @@ static iree_status_t loom_link_cli_verify_output(
 static iree_status_t loom_link_cli_capture_sources(
     const loom_link_cli_index_t* index,
     const loom_link_plan_materialization_t* product,
-    loom_tooling_source_storage_t* sources) {
+    loom_source_storage_t* sources) {
   for (iree_host_size_t i = 0; i < product->target_sources.count; ++i) {
     const loom_link_source_projection_t* projection =
         &product->target_sources.values[i];
@@ -905,9 +903,13 @@ static iree_status_t loom_link_cli_capture_sources(
         loom_link_module_index_module_at(index->module_index, i);
     const loom_link_cli_input_t* input =
         index->provider_inputs[module->provider_ordinal];
-    IREE_RETURN_IF_ERROR(loom_tooling_source_storage_project(
-        sources, product->module, &input->source.sources.table,
-        projection->values));
+    loom_source_storage_projection_t source_projection = {
+        .source = &input->source.sources.table,
+        .target = sources,
+    };
+    IREE_RETURN_IF_ERROR(
+        loom_source_storage_project(&source_projection, input->source.module,
+                                    product->module, projection->values));
   }
   return iree_ok_status();
 }
@@ -915,10 +917,9 @@ static iree_status_t loom_link_cli_capture_sources(
 static iree_status_t loom_link_cli_write_text_output(
     const loom_module_t* module, loom_format_output_t* out_output,
     iree_allocator_t allocator) {
-  loom_target_low_descriptor_registry_t low_registry = {0};
-  IREE_RETURN_IF_ERROR(
-      loom_target_environment_initialize_low_descriptor_registry(
-          loom_configured_target_environment(), &low_registry));
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          loom_configured_target_environment());
   loom_low_descriptor_text_print_context_t print_context;
   loom_low_descriptor_text_print_context_initialize(&low_registry.registry,
                                                     &print_context);
@@ -951,11 +952,9 @@ static iree_status_t loom_link_cli_write_bytecode_output(
       .producer = IREE_SV("loom-link"),
       .location_mode = LOOM_BYTECODE_LOCATION_MODE_SOURCE_LOCATIONS,
   };
-  loom_target_low_descriptor_registry_t low_registry = {0};
-  if (iree_status_is_ok(status)) {
-    status = loom_target_environment_initialize_low_descriptor_registry(
-        loom_configured_target_environment(), &low_registry);
-  }
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          loom_configured_target_environment());
   loom_low_repr_environment_initialize(&low_registry.registry,
                                        &write_options.low_repr_environment);
   if (iree_status_is_ok(status)) {
@@ -1200,8 +1199,8 @@ int main(int argc, char** argv) {
   iree_host_size_t input_count = 0;
   loom_link_cli_index_t link_index = {0};
   loom_link_index_materialization_t materialization = {0};
-  loom_tooling_source_storage_t sources;
-  loom_tooling_source_storage_initialize(&block_pool, &sources);
+  loom_source_storage_t sources;
+  loom_source_storage_initialize(allocator, &sources);
 
   loom_module_format_t input_format = LOOM_MODULE_FORMAT_AUTO;
   loom_module_format_t output_format = LOOM_MODULE_FORMAT_TEXT;
@@ -1324,14 +1323,12 @@ int main(int argc, char** argv) {
   };
   if (iree_status_is_ok(status) && dependency_analysis_succeeded &&
       !FLAG_list_symbols) {
-    loom_target_low_descriptor_registry_t low_registry = {0};
-    status = loom_target_environment_initialize_low_descriptor_registry(
-        loom_configured_target_environment(), &low_registry);
+    const loom_target_low_descriptor_registry_t low_registry =
+        loom_target_environment_low_descriptor_registry(
+            loom_configured_target_environment());
     loom_low_repr_environment_t low_repr_environment = {0};
-    if (iree_status_is_ok(status)) {
-      loom_low_repr_environment_initialize(&low_registry.registry,
-                                           &low_repr_environment);
-    }
+    loom_low_repr_environment_initialize(&low_registry.registry,
+                                         &low_repr_environment);
     loom_link_cli_prepare_state_t prepare_state = {
         .config_set = &config_set,
         .target_environment = loom_configured_target_environment(),
@@ -1369,8 +1366,8 @@ int main(int argc, char** argv) {
     status = loom_tooling_config_require_resolved_module(linked_module, NULL);
   }
   if (iree_status_is_ok(status) && linked_module && FLAG_verify) {
-    status = loom_link_cli_verify_output(
-        loom_tooling_source_storage_resolver(&sources), linked_module);
+    status = loom_link_cli_verify_output(loom_source_storage_resolver(&sources),
+                                         linked_module);
   }
   if (iree_status_is_ok(status) && linked_module) {
     if (FLAG_print_config_schema) {
@@ -1392,7 +1389,7 @@ int main(int argc, char** argv) {
     exit_code = 1;
   }
 
-  loom_tooling_source_storage_deinitialize(&sources);
+  loom_source_storage_deinitialize(&sources);
   loom_link_index_materialization_deinitialize(&materialization);
   loom_link_cli_index_deinitialize(&link_index, allocator);
   loom_link_cli_inputs_deinitialize(inputs, input_count, allocator);

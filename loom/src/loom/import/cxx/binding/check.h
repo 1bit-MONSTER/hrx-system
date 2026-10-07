@@ -16,6 +16,8 @@
 
 namespace loom::cxx_import {
 
+class LaunchContracts;
+
 // Source contracts for the shared check runner's generation, invocation and
 // observation operations. Declaration admission retains their concrete types
 // and kernel identity; check-body translation owns constant arguments and IR.
@@ -24,6 +26,7 @@ struct CheckIntrinsic {
     Equal,
     Close,
     Fill,
+    Iota,
     Slice,
     Bitwise,
     Requires,
@@ -32,12 +35,10 @@ struct CheckIntrinsic {
   };
 
   static std::optional<Operation> parse_operation(std::string_view name);
-  static std::optional<CheckIntrinsic> resolve(cxx::TranslationUnit& unit,
-                                               Diagnostics& diagnostics,
-                                               Types& types,
-                                               cxx::FunctionSymbol* function,
-                                               const cxx::Attribute& attribute,
-                                               cxx::AST* owner);
+  static std::optional<CheckIntrinsic> resolve(
+      cxx::TranslationUnit& unit, Diagnostics& diagnostics, Types& types,
+      LaunchContracts& launches, cxx::FunctionSymbol* function,
+      const cxx::Attribute& attribute, cxx::AST* owner);
 
   bool equivalent(const CheckIntrinsic& other) const;
   bool is_observation() const {
@@ -55,6 +56,8 @@ struct CheckIntrinsic {
   const TensorPartition* result_tensor = nullptr;
   // Statically selected kernel declaration, borrowed from the source unit.
   cxx::FunctionSymbol* kernel = nullptr;
+  // Kernel-owned launch configuration, if one supplies this launch's geometry.
+  cxx::FunctionSymbol* configuration = nullptr;
 };
 
 }  // namespace loom::cxx_import

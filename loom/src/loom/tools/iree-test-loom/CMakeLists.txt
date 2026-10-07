@@ -22,7 +22,6 @@ loom_cc_library(
     loom::link::linker
     loom::tooling::execution::session
     loom::tooling::io::file
-    loom::tooling::io::source
   PUBLIC
 )
 
@@ -38,6 +37,7 @@ loom_cc_test(
     iree::testing::gtest_main
     iree::testing::temp_file
     loom::error::source
+    loom::target::provider
     loom::tooling::execution::session
     loom::tooling::io::file
   LABELS
@@ -79,7 +79,6 @@ loom_cc_library(
     loom::target::provider
     loom::tooling::cli::help
     loom::tooling::config
-    loom::tooling::context
     loom::tooling::execution::hal::device_provider
     loom::tooling::execution::hal::scenario_profile
     loom::tooling::execution::hal::testbench_actual
@@ -116,21 +115,19 @@ if(LOOM_TARGET_ARCH_WASM)
 endif()
 set(_iree_test_loom_platform_deps "")
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-  list(APPEND _iree_test_loom_platform_deps loom::target::arch::amdgpu::provider)
   list(APPEND _iree_test_loom_platform_deps loom::tooling::target::amdgpu::device_provider)
+  list(APPEND _iree_test_loom_platform_deps loom::tooling::target::amdgpu::execution_provider)
   list(APPEND _iree_test_loom_platform_deps loom::tooling::target::amdgpu::testbench_requirements)
 endif()
 if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN)
-  list(APPEND _iree_test_loom_platform_deps loom::target::arch::spirv::provider)
   list(APPEND _iree_test_loom_platform_deps loom::tooling::target::spirv::device_provider)
+  list(APPEND _iree_test_loom_platform_deps loom::tooling::target::spirv::execution_provider)
   list(APPEND _iree_test_loom_platform_deps loom::tooling::target::spirv::testbench_requirements)
 endif()
 if(LOOM_TARGET_ARCH_VM)
-  list(APPEND _iree_test_loom_platform_deps loom::target::arch::vm::provider)
   list(APPEND _iree_test_loom_platform_deps loom::tooling::target::vm::testbench)
 endif()
 if(LOOM_TARGET_ARCH_WASM)
-  list(APPEND _iree_test_loom_platform_deps loom::target::arch::wasm::provider)
   list(APPEND _iree_test_loom_platform_deps loom::tooling::target::wasm::testbench)
 endif()
 loom_cc_binary(

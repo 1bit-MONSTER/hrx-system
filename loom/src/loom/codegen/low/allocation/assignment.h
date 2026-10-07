@@ -27,6 +27,14 @@ typedef enum loom_low_allocation_location_kind_e {
   LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID = 2,
   // Interval must be spilled into a stack, scratch, or private slot.
   LOOM_LOW_ALLOCATION_LOCATION_SPILL_SLOT = 3,
+  // Final invocation-owned cell used by transport. The location indexes the
+  // allocation's move-storage cells, never a provisional spill request or an
+  // SSA assignment. Its lifetime is one sequential move group.
+  LOOM_LOW_ALLOCATION_LOCATION_MOVE_STORAGE = 4,
+  // Final cell in the invocation's retained storage-transport plan. This value
+  // is consumed or produced directly by a callable boundary, without a
+  // simultaneous register occurrence at that boundary.
+  LOOM_LOW_ALLOCATION_LOCATION_STORAGE = 5,
 } loom_low_allocation_location_kind_t;
 
 enum loom_low_allocation_assignment_flag_bits_e {
@@ -35,13 +43,14 @@ enum loom_low_allocation_assignment_flag_bits_e {
 };
 typedef uint16_t loom_low_allocation_assignment_flags_t;
 
-// Assignment for one liveness interval.
+// Assignment for one register liveness interval in the allocation's resolved
+// target. Class identity is local to that target's descriptor set; the generic
+// liveness type and descriptor-set identity are not repeated per assignment.
 typedef struct loom_low_allocation_assignment_t {
   // SSA value represented by this assignment.
   loom_value_id_t value_id;
-  // Pressure/allocation class for |value_id|.
-  loom_liveness_value_class_t value_class;
-  // Descriptor-set-local register class ID for |value_class|.
+  // Register class in the allocation's target descriptor set, including when
+  // the value resides in a spill slot instead of registers.
   uint16_t descriptor_reg_class_id;
   // Assignment behavior flags.
   loom_low_allocation_assignment_flags_t flags;
@@ -56,8 +65,9 @@ typedef struct loom_low_allocation_assignment_t {
   uint32_t unit_count;
   // Assigned location kind.
   loom_low_allocation_location_kind_t location_kind;
-  // Base physical register, target ID, or spill slot ordinal. Explicit
-  // physical-register classes store one descriptor-set register-view ID here.
+  // Physical register, target ID, spill slot, move cell, or storage binding
+  // ordinal, selected by |location_kind|. Explicit physical-register classes
+  // store one descriptor-set register-view ID here.
   uint32_t location_base;
   // Number of logical class units assigned at |location_base|. Linear
   // assignments use a contiguous numeric span; explicit physical-register

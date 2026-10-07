@@ -183,12 +183,12 @@ vm.module core(0.0) {
     ^bb2:
       control.block
       %v3 = integer.add.i64 %v3, %v4
-      %r2 = ref.retain %r0
-      %r0 = ref.retain %r1
-      %r1 = ref.retain %r2
-      %v5 = value.copy %v0
-      %v0 = value.copy %v1
-      %v1 = value.copy %v5
+      %r2 = ref.retain %r1
+      %r1 = ref.retain %r0
+      %r0 = ref.retain %r2
+      %v5 = value.copy %v1
+      %v1 = value.copy %v0
+      %v0 = value.copy %v5
       control.branch.s32 ^bb1
     ^bb3:
       control.block

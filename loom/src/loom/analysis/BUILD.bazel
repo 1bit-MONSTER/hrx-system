@@ -85,6 +85,8 @@ loom_cc_library(
     hdrs = ["storage_interference.h"],
     deps = [
         ":control_uniformity",
+        ":liveness",
+        ":liveness_events",
         ":value_relation",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
@@ -95,25 +97,6 @@ loom_cc_library(
         "//loom/src/loom/util:walk",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
-    ],
-)
-
-loom_cc_test(
-    name = "storage_interference_test",
-    srcs = ["storage_interference_test.cc"],
-    deps = [
-        ":storage_interference",
-        "//loom/src/loom/format/text:parser",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/ops:op_defs",
-        "//loom/src/loom/ops:type_registry",
-        "//loom/src/loom/ops/buffer",
-        "//loom/src/loom/testing:context",
-        "//loom/src/loom/testing:module_ptr",
-        "//loom/src/loom/util:fact_table",
-        "//runtime/src/iree/base/internal:arena",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 
@@ -664,15 +647,11 @@ loom_cc_library(
     srcs = ["kernel_launch_config.c"],
     hdrs = ["kernel_launch_config.h"],
     deps = [
-        ":symbol_facts",
-        "//loom/src/loom/error:emitter",
+        ":symbol_value_constraints",
         "//loom/src/loom/ir",
         "//loom/src/loom/ir:facts",
-        "//loom/src/loom/ops:func_symbol_facts",
-        "//loom/src/loom/ops/kernel",
+        "//loom/src/loom/ops/func",
         "//loom/src/loom/pass:value_facts",
-        "//loom/src/loom/target:facts",
-        "//loom/src/loom/target:function_contract",
         "//loom/src/loom/target:types",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
@@ -686,8 +665,6 @@ loom_cc_test(
         ":kernel_launch_config",
         "//loom/src/loom/format/text:parser",
         "//loom/src/loom/ir",
-        "//loom/src/loom/target:facts",
-        "//loom/src/loom/target:types",
         "//loom/src/loom/testing:context",
         "//loom/src/loom/testing:module_ptr",
         "//runtime/src/iree/base",

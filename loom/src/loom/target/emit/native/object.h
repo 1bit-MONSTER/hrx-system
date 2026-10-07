@@ -45,7 +45,9 @@ typedef enum loom_native_object_symbol_kind_e {
 typedef struct loom_native_object_symbol_t {
   // Symbol name emitted into the final object symbol table.
   iree_string_view_t name;
-  // Section contribution containing the symbol definition.
+  // Section contribution containing the definition, or IREE_HOST_SIZE_MAX for
+  // an imported symbol whose definition is supplied by the linker. Imports
+  // have zero offset and size, and global or weak binding.
   iree_host_size_t section_contribution_index;
   // Byte offset of the symbol within the referenced section contribution.
   uint64_t section_offset;
@@ -60,7 +62,7 @@ typedef struct loom_native_object_symbol_t {
 } loom_native_object_symbol_t;
 
 typedef struct loom_native_object_symbol_layout_t {
-  // Final assembled section containing the symbol definition.
+  // Final assembled section, or IREE_HOST_SIZE_MAX for an imported symbol.
   iree_host_size_t section_index;
   // Byte offset of the symbol within the final assembled section.
   uint64_t section_offset;

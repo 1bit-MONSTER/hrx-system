@@ -1,3 +1,21 @@
+// Register and signed-byte additions retain their DJ destination encoding.
+// RUN: emit aie2p-leaf @address_indices report=code
+
+low.func.def target<amd.xdna.aie2p.core> @address_indices(%pointer: reg<aie2p.ep>, %origin: reg<aie2p.er>, %bias: reg<aie2p.er>, %value: reg<aie2p.er>) asm {
+  %lower = add.address-index.immediate %origin, -128
+  %upper = add.address-index.immediate %origin, 127
+  %dynamic = add.address-index %origin, %bias
+  st.i8.index.volatile %value, %pointer, %lower
+  st.i8.index.volatile %value, %pointer, %upper
+  st.i8.index.volatile %value, %pointer, %dynamic
+  return
+}
+
+// ----
+code: 18 40 80 18 14 7f 00 e1 08 00 58 05 80 19 00 00 00 00 00 00 00 00 00 00 18 47 00 00 00 00 00 00 00 00 00 00 00 00 00 00 18 47 20 00 00 00 00 00 00 00 18 00 28 10 00 00 00 00 00 00 00 00 00 00
+
+// ====
+
 // Distinct control fields must retain their binding through native encoding.
 // RUN: emit aie2p-leaf @control report=code
 

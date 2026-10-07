@@ -1,0 +1,777 @@
+// RUN: pass canonicalize
+
+// Selected carriers: signed INDEX32 and unsigned OFFSET64.
+test.target<quirky> @mixed_width
+
+// All four operand orders produce coordinate + 8.
+func.def target(@mixed_width) @index32_permutations(%coordinate_input: index) -> (index, index, index, index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, -32, 32)] : index
+  %inner_step = index.constant 3 : index
+  %outer_step = index.constant 5 : index
+  %left = index.add %coordinate, %inner_step : index
+  %right = index.add %inner_step, %coordinate : index
+  %left_left = index.add %left, %outer_step : index
+  %left_right = index.add %outer_step, %left : index
+  %right_left = index.add %right, %outer_step : index
+  %right_right = index.add %outer_step, %right : index
+  func.return %left_left, %left_right, %right_left, %right_right : index, index, index, index
+}
+// ----
+test.target<quirky> @mixed_width
+
+func.def target(@mixed_width) @index32_permutations(%coordinate_input: index) -> (index, index, index, index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, -32, 32)] : index
+  %20 = index.constant 8 : index
+  %left_left = index.add %coordinate, %20 : index
+  %18 = index.constant 8 : index
+  %left_right = index.add %coordinate, %18 : index
+  %16 = index.constant 8 : index
+  %right_left = index.add %coordinate, %16 : index
+  %14 = index.constant 8 : index
+  %right_right = index.add %coordinate, %14 : index
+  func.return %left_left, %left_right, %right_left, %right_right : index, index, index, index
+}
+
+// ====
+
+// Selected carriers: signed INDEX32 and unsigned OFFSET64.
+test.target<quirky> @mixed_width
+
+// The results become coordinate - 14, coordinate - 5, and coordinate.
+func.def target(@mixed_width) @index32_signed_combinations(%coordinate_input: index) -> (index, index, index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, -100, 100)] : index
+  %inner_step = index.constant -9 : index
+  %negative_step = index.constant -5 : index
+  %forward_step = index.constant 4 : index
+  %reverse_step = index.constant 9 : index
+  %inner = index.add %coordinate, %inner_step : index
+  %negative = index.add %inner, %negative_step : index
+  %mixed = index.add %inner, %forward_step : index
+  %cancelled = index.add %inner, %reverse_step : index
+  func.return %negative, %mixed, %cancelled : index, index, index
+}
+// ----
+test.target<quirky> @mixed_width
+
+func.def target(@mixed_width) @index32_signed_combinations(%coordinate_input: index) -> (index, index, index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, -100, 100)] : index
+  %15 = index.constant -14 : index
+  %negative = index.add %coordinate, %15 : index
+  %13 = index.constant -5 : index
+  %mixed = index.add %coordinate, %13 : index
+  func.return %negative, %mixed, %coordinate : index, index, index
+}
+
+// ====
+
+// Selected carriers: signed INDEX32 and unsigned OFFSET64.
+test.target<quirky> @mixed_width
+
+// The original coordinate + 7 stays observable beside coordinate + 18.
+func.def target(@mixed_width) @index32_multiple_users(%coordinate_input: index) -> (index, index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, -100, 100)] : index
+  %inner_step = index.constant 7 : index
+  %outer_step = index.constant 11 : index
+  %inner = index.add %coordinate, %inner_step : index
+  %outer = index.add %inner, %outer_step : index
+  func.return %inner, %outer : index, index
+}
+// ----
+test.target<quirky> @mixed_width
+
+func.def target(@mixed_width) @index32_multiple_users(%coordinate_input: index) -> (index, index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, -100, 100)] : index
+  %inner_step = index.constant 7 : index
+  %inner = index.add %coordinate, %inner_step : index
+  %8 = index.constant 18 : index
+  %outer = index.add %coordinate, %8 : index
+  func.return %inner, %outer : index, index
+}
+
+// ====
+
+// Selected carriers: signed INDEX32 and unsigned OFFSET64.
+test.target<quirky> @mixed_width
+
+// Ordinary greedy revisiting combines this chain to coordinate + 15.
+func.def target(@mixed_width) @index32_chain(%coordinate_input: index) -> (index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, 0, 100)] : index
+  %first_step = index.constant 3 : index
+  %middle_step = index.constant 5 : index
+  %last_step = index.constant 7 : index
+  %first = index.add %coordinate, %first_step : index
+  %second = index.add %first, %middle_step : index
+  %third = index.add %second, %last_step : index
+  func.return %third : index
+}
+// ----
+test.target<quirky> @mixed_width
+
+func.def target(@mixed_width) @index32_chain(%coordinate_input: index) -> (index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, 0, 100)] : index
+  %11 = index.constant 15 : index
+  %third = index.add %coordinate, %11 : index
+  func.return %third : index
+}
+
+// ====
+
+// Selected carriers: signed INDEX32 and unsigned OFFSET64.
+test.target<quirky> @mixed_width
+
+// The producer cannot be wholly constant-folded: coordinate is not exact.
+// The outer add becomes coordinate + 10 using the exact inner_step fact.
+func.def target(@mixed_width) @index32_exact_fact_constant(%coordinate_input: index, %inner_step_input: index) -> (index) {
+  %coordinate, %inner_step = index.assume %coordinate_input, %inner_step_input [range(%coordinate_input, -10, 10), range(%inner_step_input, 7, 7)] : index, index
+  %outer_step = index.constant 3 : index
+  %inner = index.add %coordinate, %inner_step : index
+  %outer = index.add %inner, %outer_step : index
+  func.return %outer : index
+}
+// ----
+test.target<quirky> @mixed_width
+
+func.def target(@mixed_width) @index32_exact_fact_constant(%coordinate_input: index, %inner_step_input: index) -> (index) {
+  %coordinate, %inner_step = index.assume %coordinate_input, %inner_step_input [range(%coordinate_input, -10, 10), range(%inner_step_input, 7, 7)] : index, index
+  %8 = index.constant 10 : index
+  %outer = index.add %coordinate, %8 : index
+  func.return %outer : index
+}
+
+// ====
+
+test.target<quirky> @mixed_width
+
+// Inclusive signed limits are valid: both outer additions fold.
+func.def target(@mixed_width) @index32_inclusive_bounds(%upper_input: index, %lower_input: index) -> (index, index) {
+  %upper_root = index.assume %upper_input [range(%upper_input, 2147483644, 2147483645)] : index
+  %lower_root = index.assume %lower_input [range(%lower_input, -2147483646, -2147483645)] : index
+  %upper_step = index.constant 1 : index
+  %lower_step = index.constant -1 : index
+  %upper_inner = index.add %upper_root, %upper_step : index
+  %upper_outer = index.add %upper_inner, %upper_step : index
+  %lower_inner = index.add %lower_root, %lower_step : index
+  %lower_outer = index.add %lower_inner, %lower_step : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+// ----
+test.target<quirky> @mixed_width
+
+func.def target(@mixed_width) @index32_inclusive_bounds(%upper_input: index, %lower_input: index) -> (index, index) {
+  %upper_root = index.assume %upper_input [range(%upper_input, 2147483644, 2147483645)] : index
+  %lower_root = index.assume %lower_input [range(%lower_input, -2147483646, -2147483645)] : index
+  %14 = index.constant 2 : index
+  %upper_outer = index.add %upper_root, %14 : index
+  %12 = index.constant -2 : index
+  %lower_outer = index.add %lower_root, %12 : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+
+// ====
+
+test.target<quirky> @mixed_width
+
+// Final cancellation fits, but each original intermediate can cross a bound.
+func.def target(@mixed_width) @index32_intermediate_overflow(%upper_input: index, %lower_input: index) -> (index, index) {
+  %upper_root = index.assume %upper_input [range(%upper_input, 2147483646, 2147483647)] : index
+  %lower_root = index.assume %lower_input [range(%lower_input, -2147483648, -2147483647)] : index
+  %upper_step = index.constant 2 : index
+  %lower_step = index.constant -2 : index
+  %upper_inner = index.add %upper_root, %upper_step : index
+  %upper_outer = index.add %upper_inner, %lower_step : index
+  %lower_inner = index.add %lower_root, %lower_step : index
+  %lower_outer = index.add %lower_inner, %upper_step : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+// ----
+test.target<quirky> @mixed_width
+
+func.def target(@mixed_width) @index32_intermediate_overflow(%upper_input: index, %lower_input: index) -> (index, index) {
+  %upper_root = index.assume %upper_input [range(%upper_input, 2147483646, 2147483647)] : index
+  %lower_root = index.assume %lower_input [range(%lower_input, -2147483648, -2147483647)] : index
+  %upper_step = index.constant 2 : index
+  %lower_step = index.constant -2 : index
+  %upper_inner = index.add %upper_root, %upper_step : index
+  %upper_outer = index.add %upper_inner, %lower_step : index
+  %lower_inner = index.add %lower_root, %lower_step : index
+  %lower_outer = index.add %lower_inner, %upper_step : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+
+// ====
+
+test.target<quirky> @mixed_width
+
+// Each first addition fits; only the original final addition crosses a bound.
+func.def target(@mixed_width) @index32_final_overflow(%upper_input: index, %lower_input: index) -> (index, index) {
+  %upper_root = index.assume %upper_input [range(%upper_input, 2147483645, 2147483646)] : index
+  %lower_root = index.assume %lower_input [range(%lower_input, -2147483647, -2147483646)] : index
+  %upper_inner_step = index.constant 1 : index
+  %upper_outer_step = index.constant 2 : index
+  %lower_inner_step = index.constant -1 : index
+  %lower_outer_step = index.constant -2 : index
+  %upper_inner = index.add %upper_root, %upper_inner_step : index
+  %upper_outer = index.add %upper_inner, %upper_outer_step : index
+  %lower_inner = index.add %lower_root, %lower_inner_step : index
+  %lower_outer = index.add %lower_inner, %lower_outer_step : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+// ----
+test.target<quirky> @mixed_width
+
+func.def target(@mixed_width) @index32_final_overflow(%upper_input: index, %lower_input: index) -> (index, index) {
+  %upper_root = index.assume %upper_input [range(%upper_input, 2147483645, 2147483646)] : index
+  %lower_root = index.assume %lower_input [range(%lower_input, -2147483647, -2147483646)] : index
+  %upper_inner_step = index.constant 1 : index
+  %upper_outer_step = index.constant 2 : index
+  %lower_inner_step = index.constant -1 : index
+  %lower_outer_step = index.constant -2 : index
+  %upper_inner = index.add %upper_root, %upper_inner_step : index
+  %upper_outer = index.add %upper_inner, %upper_outer_step : index
+  %lower_inner = index.add %lower_root, %lower_inner_step : index
+  %lower_outer = index.add %lower_inner, %lower_outer_step : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+
+// ====
+
+test.target<quirky> @mixed_width
+
+// All original arithmetic fits, but neither combined constant fits INDEX32.
+func.def target(@mixed_width) @index32_combined_constant_overflow(%negative_input: index, %positive_input: index) -> (index, index) {
+  %negative_root = index.assume %negative_input [range(%negative_input, -2, -1)] : index
+  %positive_root = index.assume %positive_input [range(%positive_input, 1, 2)] : index
+  %upper_limit = index.constant 2147483647 : index
+  %lower_limit = index.constant -2147483648 : index
+  %upper_boundary_step = index.constant 1 : index
+  %lower_boundary_step = index.constant -1 : index
+  %upper_inner = index.add %negative_root, %upper_limit : index
+  %upper_outer = index.add %upper_inner, %upper_boundary_step : index
+  %lower_inner = index.add %positive_root, %lower_limit : index
+  %lower_outer = index.add %lower_inner, %lower_boundary_step : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+// ----
+test.target<quirky> @mixed_width
+
+func.def target(@mixed_width) @index32_combined_constant_overflow(%negative_input: index, %positive_input: index) -> (index, index) {
+  %negative_root = index.assume %negative_input [range(%negative_input, -2, -1)] : index
+  %positive_root = index.assume %positive_input [range(%positive_input, 1, 2)] : index
+  %upper_limit = index.constant 2147483647 : index
+  %lower_limit = index.constant -2147483648 : index
+  %upper_boundary_step = index.constant 1 : index
+  %lower_boundary_step = index.constant -1 : index
+  %upper_inner = index.add %negative_root, %upper_limit : index
+  %upper_outer = index.add %upper_inner, %upper_boundary_step : index
+  %lower_inner = index.add %positive_root, %lower_limit : index
+  %lower_outer = index.add %lower_inner, %lower_boundary_step : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+
+// ====
+
+test.target<quirky> @mixed_width
+
+// A valid replacement cannot erase an unrepresentable original operand.
+func.def target(@mixed_width) @index32_original_operand_outside_carrier(%negative_input: index, %high_input: index) -> (index, index) {
+  %negative_root = index.assume %negative_input [range(%negative_input, -2, -1)] : index
+  %high_root = index.assume %high_input [range(%high_input, 2147483648, 2147483649)] : index
+  %outside_carrier_step = index.constant 2147483648 : index
+  %constant_correction = index.constant -1 : index
+  %root_correction = index.constant -3 : index
+  %root_final_step = index.constant 1 : index
+  %constant_inner = index.add %negative_root, %outside_carrier_step : index
+  %constant_outer = index.add %constant_inner, %constant_correction : index
+  %root_inner = index.add %high_root, %root_correction : index
+  %root_outer = index.add %root_inner, %root_final_step : index
+  func.return %constant_outer, %root_outer : index, index
+}
+// ----
+test.target<quirky> @mixed_width
+
+func.def target(@mixed_width) @index32_original_operand_outside_carrier(%negative_input: index, %high_input: index) -> (index, index) {
+  %negative_root = index.assume %negative_input [range(%negative_input, -2, -1)] : index
+  %high_root = index.assume %high_input [range(%high_input, 2147483648, 2147483649)] : index
+  %outside_carrier_step = index.constant 2147483648 : index
+  %constant_correction = index.constant -1 : index
+  %root_correction = index.constant -3 : index
+  %root_final_step = index.constant 1 : index
+  %constant_inner = index.add %negative_root, %outside_carrier_step : index
+  %constant_outer = index.add %constant_inner, %constant_correction : index
+  %root_inner = index.add %high_root, %root_correction : index
+  %root_outer = index.add %root_inner, %root_final_step : index
+  func.return %constant_outer, %root_outer : index, index
+}
+
+// ====
+
+// Both selected address carriers are 64 bits.
+test.target<low_core> @wide
+
+// All four orders fold to coordinate + 4 above the signed 32-bit range.
+func.def target(@wide) @index64_permutations(%coordinate_input: index) -> (index, index, index, index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, 4294967296, 4294967311)] : index
+  %inner_step = index.constant -9 : index
+  %outer_step = index.constant 13 : index
+  %left = index.add %coordinate, %inner_step : index
+  %right = index.add %inner_step, %coordinate : index
+  %left_left = index.add %left, %outer_step : index
+  %left_right = index.add %outer_step, %left : index
+  %right_left = index.add %right, %outer_step : index
+  %right_right = index.add %outer_step, %right : index
+  func.return %left_left, %left_right, %right_left, %right_right : index, index, index, index
+}
+// ----
+test.target<low_core> @wide
+
+func.def target(@wide) @index64_permutations(%coordinate_input: index) -> (index, index, index, index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, 4294967296, 4294967311)] : index
+  %20 = index.constant 4 : index
+  %left_left = index.add %coordinate, %20 : index
+  %18 = index.constant 4 : index
+  %left_right = index.add %coordinate, %18 : index
+  %16 = index.constant 4 : index
+  %right_left = index.add %coordinate, %16 : index
+  %14 = index.constant 4 : index
+  %right_right = index.add %coordinate, %14 : index
+  func.return %left_left, %left_right, %right_left, %right_right : index, index, index, index
+}
+
+// ====
+
+// Both selected address carriers are 64 bits.
+test.target<low_core> @wide
+
+// Negative 64-bit roots admit negative increments and safe cancellation.
+func.def target(@wide) @index64_negative_and_cancellation(%coordinate_input: index) -> (index, index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, -4294967311, -4294967296)] : index
+  %inner_step = index.constant -9 : index
+  %negative_step = index.constant -5 : index
+  %reverse_step = index.constant 9 : index
+  %inner = index.add %coordinate, %inner_step : index
+  %negative = index.add %inner, %negative_step : index
+  %cancelled = index.add %inner, %reverse_step : index
+  func.return %negative, %cancelled : index, index
+}
+// ----
+test.target<low_core> @wide
+
+func.def target(@wide) @index64_negative_and_cancellation(%coordinate_input: index) -> (index, index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, -4294967311, -4294967296)] : index
+  %10 = index.constant -14 : index
+  %negative = index.add %coordinate, %10 : index
+  func.return %negative, %coordinate : index, index
+}
+
+// ====
+
+// Both selected address carriers are 64 bits.
+test.target<low_core> @wide
+
+func.def target(@wide) @index64_inclusive_bounds(%upper_input: index, %lower_input: index) -> (index, index) {
+  %upper_root = index.assume %upper_input [range(%upper_input, 9223372036854775804, 9223372036854775805)] : index
+  %lower_root = index.assume %lower_input [range(%lower_input, -9223372036854775806, -9223372036854775805)] : index
+  %upper_step = index.constant 1 : index
+  %lower_step = index.constant -1 : index
+  %upper_inner = index.add %upper_root, %upper_step : index
+  %upper_outer = index.add %upper_inner, %upper_step : index
+  %lower_inner = index.add %lower_root, %lower_step : index
+  %lower_outer = index.add %lower_inner, %lower_step : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+// ----
+test.target<low_core> @wide
+
+func.def target(@wide) @index64_inclusive_bounds(%upper_input: index, %lower_input: index) -> (index, index) {
+  %upper_root = index.assume %upper_input [range(%upper_input, 9223372036854775804, 9223372036854775805)] : index
+  %lower_root = index.assume %lower_input [range(%lower_input, -9223372036854775806, -9223372036854775805)] : index
+  %14 = index.constant 2 : index
+  %upper_outer = index.add %upper_root, %14 : index
+  %12 = index.constant -2 : index
+  %lower_outer = index.add %lower_root, %12 : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+
+// ====
+
+test.target<low_core> @wide
+
+// The cancellation result fits, but checked i64 intermediate translation fails.
+func.def target(@wide) @index64_intermediate_overflow(%upper_input: index, %lower_input: index) -> (index, index) {
+  %upper_root = index.assume %upper_input [range(%upper_input, 9223372036854775806, 9223372036854775807)] : index
+  %lower_root = index.assume %lower_input [range(%lower_input, -9223372036854775808, -9223372036854775807)] : index
+  %upper_step = index.constant 2 : index
+  %lower_step = index.constant -2 : index
+  %upper_inner = index.add %upper_root, %upper_step : index
+  %upper_outer = index.add %upper_inner, %lower_step : index
+  %lower_inner = index.add %lower_root, %lower_step : index
+  %lower_outer = index.add %lower_inner, %upper_step : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+// ----
+test.target<low_core> @wide
+
+func.def target(@wide) @index64_intermediate_overflow(%upper_input: index, %lower_input: index) -> (index, index) {
+  %upper_root = index.assume %upper_input [range(%upper_input, 9223372036854775806, 9223372036854775807)] : index
+  %lower_root = index.assume %lower_input [range(%lower_input, -9223372036854775808, -9223372036854775807)] : index
+  %upper_step = index.constant 2 : index
+  %lower_step = index.constant -2 : index
+  %upper_inner = index.add %upper_root, %upper_step : index
+  %upper_outer = index.add %upper_inner, %lower_step : index
+  %lower_inner = index.add %lower_root, %lower_step : index
+  %lower_outer = index.add %lower_inner, %upper_step : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+
+// ====
+
+test.target<low_core> @wide
+
+// Each first addition fits; checked i64 final translation fails.
+func.def target(@wide) @index64_final_overflow(%upper_input: index, %lower_input: index) -> (index, index) {
+  %upper_root = index.assume %upper_input [range(%upper_input, 9223372036854775805, 9223372036854775806)] : index
+  %lower_root = index.assume %lower_input [range(%lower_input, -9223372036854775807, -9223372036854775806)] : index
+  %upper_inner_step = index.constant 1 : index
+  %upper_outer_step = index.constant 2 : index
+  %lower_inner_step = index.constant -1 : index
+  %lower_outer_step = index.constant -2 : index
+  %upper_inner = index.add %upper_root, %upper_inner_step : index
+  %upper_outer = index.add %upper_inner, %upper_outer_step : index
+  %lower_inner = index.add %lower_root, %lower_inner_step : index
+  %lower_outer = index.add %lower_inner, %lower_outer_step : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+// ----
+test.target<low_core> @wide
+
+func.def target(@wide) @index64_final_overflow(%upper_input: index, %lower_input: index) -> (index, index) {
+  %upper_root = index.assume %upper_input [range(%upper_input, 9223372036854775805, 9223372036854775806)] : index
+  %lower_root = index.assume %lower_input [range(%lower_input, -9223372036854775807, -9223372036854775806)] : index
+  %upper_inner_step = index.constant 1 : index
+  %upper_outer_step = index.constant 2 : index
+  %lower_inner_step = index.constant -1 : index
+  %lower_outer_step = index.constant -2 : index
+  %upper_inner = index.add %upper_root, %upper_inner_step : index
+  %upper_outer = index.add %upper_inner, %upper_outer_step : index
+  %lower_inner = index.add %lower_root, %lower_inner_step : index
+  %lower_outer = index.add %lower_inner, %lower_outer_step : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+
+// ====
+
+test.target<low_core> @wide
+
+// Original intermediates and results fit; the combined i64 constants do not.
+func.def target(@wide) @index64_combined_constant_overflow(%negative_input: index, %positive_input: index) -> (index, index) {
+  %negative_root = index.assume %negative_input [range(%negative_input, -2, -1)] : index
+  %positive_root = index.assume %positive_input [range(%positive_input, 1, 2)] : index
+  %upper_limit = index.constant 9223372036854775807 : index
+  %lower_limit = index.constant -9223372036854775808 : index
+  %upper_boundary_step = index.constant 1 : index
+  %lower_boundary_step = index.constant -1 : index
+  %upper_inner = index.add %negative_root, %upper_limit : index
+  %upper_outer = index.add %upper_inner, %upper_boundary_step : index
+  %lower_inner = index.add %positive_root, %lower_limit : index
+  %lower_outer = index.add %lower_inner, %lower_boundary_step : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+// ----
+test.target<low_core> @wide
+
+func.def target(@wide) @index64_combined_constant_overflow(%negative_input: index, %positive_input: index) -> (index, index) {
+  %negative_root = index.assume %negative_input [range(%negative_input, -2, -1)] : index
+  %positive_root = index.assume %positive_input [range(%positive_input, 1, 2)] : index
+  %upper_limit = index.constant 9223372036854775807 : index
+  %lower_limit = index.constant -9223372036854775808 : index
+  %upper_boundary_step = index.constant 1 : index
+  %lower_boundary_step = index.constant -1 : index
+  %upper_inner = index.add %negative_root, %upper_limit : index
+  %upper_outer = index.add %upper_inner, %upper_boundary_step : index
+  %lower_inner = index.add %positive_root, %lower_limit : index
+  %lower_outer = index.add %lower_inner, %lower_boundary_step : index
+  func.return %upper_outer, %lower_outer : index, index
+}
+
+// ====
+
+test.target<low_core> @wide
+
+// The typed combined constant is OFFSET 384, not INDEX 384.
+func.def target(@wide) @offset64_permutations(%byte_offset_input: offset) -> (offset, offset, offset, offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 4294967296, 4294967311)] : offset
+  %inner_step = index.constant 128 : offset
+  %outer_step = index.constant 256 : offset
+  %left = index.add %byte_offset, %inner_step : offset
+  %right = index.add %inner_step, %byte_offset : offset
+  %left_left = index.add %left, %outer_step : offset
+  %left_right = index.add %outer_step, %left : offset
+  %right_left = index.add %right, %outer_step : offset
+  %right_right = index.add %outer_step, %right : offset
+  func.return %left_left, %left_right, %right_left, %right_right : offset, offset, offset, offset
+}
+// ----
+test.target<low_core> @wide
+
+func.def target(@wide) @offset64_permutations(%byte_offset_input: offset) -> (offset, offset, offset, offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 4294967296, 4294967311)] : offset
+  %20 = index.constant 384 : offset
+  %left_left = index.add %byte_offset, %20 : offset
+  %18 = index.constant 384 : offset
+  %left_right = index.add %byte_offset, %18 : offset
+  %16 = index.constant 384 : offset
+  %right_left = index.add %byte_offset, %16 : offset
+  %14 = index.constant 384 : offset
+  %right_right = index.add %byte_offset, %14 : offset
+  func.return %left_left, %left_right, %right_left, %right_right : offset, offset, offset, offset
+}
+
+// ====
+
+test.target<low_core> @wide
+
+// The source domain ends at INT64_MAX even with an unsigned 64-bit carrier.
+func.def target(@wide) @offset64_source_bound(%safe_input: offset, %overflow_input: offset) -> (offset, offset) {
+  %safe_root = index.assume %safe_input [range(%safe_input, 9223372036854775804, 9223372036854775805)] : offset
+  %overflow_root = index.assume %overflow_input [range(%overflow_input, 9223372036854775805, 9223372036854775806)] : offset
+  %boundary_step = index.constant 1 : offset
+  %cross_boundary_step = index.constant 2 : offset
+  %safe_inner = index.add %safe_root, %boundary_step : offset
+  %safe_outer = index.add %safe_inner, %boundary_step : offset
+  %overflow_inner = index.add %overflow_root, %boundary_step : offset
+  %overflow_outer = index.add %overflow_inner, %cross_boundary_step : offset
+  func.return %safe_outer, %overflow_outer : offset, offset
+}
+// ----
+test.target<low_core> @wide
+
+func.def target(@wide) @offset64_source_bound(%safe_input: offset, %overflow_input: offset) -> (offset, offset) {
+  %safe_root = index.assume %safe_input [range(%safe_input, 9223372036854775804, 9223372036854775805)] : offset
+  %overflow_root = index.assume %overflow_input [range(%overflow_input, 9223372036854775805, 9223372036854775806)] : offset
+  %boundary_step = index.constant 1 : offset
+  %cross_boundary_step = index.constant 2 : offset
+  %12 = index.constant 2 : offset
+  %safe_outer = index.add %safe_root, %12 : offset
+  %overflow_inner = index.add %overflow_root, %boundary_step : offset
+  %overflow_outer = index.add %overflow_inner, %cross_boundary_step : offset
+  func.return %safe_outer, %overflow_outer : offset, offset
+}
+
+// ====
+
+test.target<low_core> @wide
+
+// A retained exact OFFSET fact also supplies a correctly typed constant.
+func.def target(@wide) @offset64_exact_fact_constant(%byte_offset_input: offset, %inner_step_input: offset) -> (offset) {
+  %byte_offset, %inner_step = index.assume %byte_offset_input, %inner_step_input [range(%byte_offset_input, 0, 256), range(%inner_step_input, 128, 128)] : offset, offset
+  %outer_step = index.constant 256 : offset
+  %inner = index.add %byte_offset, %inner_step : offset
+  %outer = index.add %inner, %outer_step : offset
+  func.return %outer : offset
+}
+// ----
+test.target<low_core> @wide
+
+func.def target(@wide) @offset64_exact_fact_constant(%byte_offset_input: offset, %inner_step_input: offset) -> (offset) {
+  %byte_offset, %inner_step = index.assume %byte_offset_input, %inner_step_input [range(%byte_offset_input, 0, 256), range(%inner_step_input, 128, 128)] : offset, offset
+  %8 = index.constant 384 : offset
+  %outer = index.add %byte_offset, %8 : offset
+  func.return %outer : offset
+}
+
+// ====
+
+// The same snapshot selects INDEX32 and OFFSET64 independently.
+test.target<quirky> @mixed_width
+
+func.def target(@mixed_width) @independent_address_widths(%coordinate_input: index, %byte_offset_input: offset) -> (index, offset) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, 4294967296, 4294967311)] : index
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 4294967296, 4294967311)] : offset
+  %coordinate_inner_step = index.constant 1 : index
+  %coordinate_outer_step = index.constant 2 : index
+  %byte_inner_step = index.constant 1 : offset
+  %byte_outer_step = index.constant 2 : offset
+  %coordinate_inner = index.add %coordinate, %coordinate_inner_step : index
+  %coordinate_outer = index.add %coordinate_inner, %coordinate_outer_step : index
+  %bytes_inner = index.add %byte_offset, %byte_inner_step : offset
+  %bytes_outer = index.add %bytes_inner, %byte_outer_step : offset
+  func.return %coordinate_outer, %bytes_outer : index, offset
+}
+// ----
+test.target<quirky> @mixed_width
+
+func.def target(@mixed_width) @independent_address_widths(%coordinate_input: index, %byte_offset_input: offset) -> (index, offset) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, 4294967296, 4294967311)] : index
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 4294967296, 4294967311)] : offset
+  %coordinate_inner_step = index.constant 1 : index
+  %coordinate_outer_step = index.constant 2 : index
+  %coordinate_inner = index.add %coordinate, %coordinate_inner_step : index
+  %coordinate_outer = index.add %coordinate_inner, %coordinate_outer_step : index
+  %14 = index.constant 3 : offset
+  %bytes_outer = index.add %byte_offset, %14 : offset
+  func.return %coordinate_outer, %bytes_outer : index, offset
+}
+
+// ====
+
+test.target<quirky> @mixed_width
+
+// Carrier knowledge alone supplies no sufficient root range.
+func.def target(@mixed_width) @index32_unknown_range(%coordinate: index) -> (index) {
+  %inner_step = index.constant 3 : index
+  %outer_step = index.constant 5 : index
+  %inner = index.add %coordinate, %inner_step : index
+  %outer = index.add %inner, %outer_step : index
+  func.return %outer : index
+}
+// ----
+test.target<quirky> @mixed_width
+
+func.def target(@mixed_width) @index32_unknown_range(%coordinate: index) -> (index) {
+  %inner_step = index.constant 3 : index
+  %outer_step = index.constant 5 : index
+  %inner = index.add %coordinate, %inner_step : index
+  %outer = index.add %inner, %outer_step : index
+  func.return %outer : index
+}
+
+// ====
+
+test.target<low_core> @wide
+
+func.def target(@wide) @index64_unknown_range(%coordinate: index) -> (index, index) {
+  %inner_step = index.constant 3 : index
+  %outer_step = index.constant 5 : index
+  %reverse_step = index.constant -3 : index
+  %inner = index.add %coordinate, %inner_step : index
+  %outer = index.add %inner, %outer_step : index
+  %cancelled = index.add %inner, %reverse_step : index
+  func.return %outer, %cancelled : index, index
+}
+// ----
+test.target<low_core> @wide
+
+func.def target(@wide) @index64_unknown_range(%coordinate: index) -> (index, index) {
+  %inner_step = index.constant 3 : index
+  %outer_step = index.constant 5 : index
+  %reverse_step = index.constant -3 : index
+  %inner = index.add %coordinate, %inner_step : index
+  %outer = index.add %inner, %outer_step : index
+  %cancelled = index.add %inner, %reverse_step : index
+  func.return %outer, %cancelled : index, index
+}
+
+// ====
+
+test.target<low_core> @wide
+
+func.def target(@wide) @offset64_unknown_range(%byte_offset: offset) -> (offset) {
+  %inner_step = index.constant 128 : offset
+  %outer_step = index.constant 256 : offset
+  %inner = index.add %byte_offset, %inner_step : offset
+  %outer = index.add %inner, %outer_step : offset
+  func.return %outer : offset
+}
+// ----
+test.target<low_core> @wide
+
+func.def target(@wide) @offset64_unknown_range(%byte_offset: offset) -> (offset) {
+  %inner_step = index.constant 128 : offset
+  %outer_step = index.constant 256 : offset
+  %inner = index.add %byte_offset, %inner_step : offset
+  %outer = index.add %inner, %outer_step : offset
+  func.return %outer : offset
+}
+
+// ====
+
+test.target<quirky> @mixed_width
+
+// Neither a varying increment nor a different arithmetic op is an add chain.
+func.def target(@mixed_width) @index32_nonmatching_operations(%coordinate_input: index, %increment_input: index) -> (index, index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, -10, 10)] : index
+  %varying_increment = index.assume %increment_input [range(%increment_input, 1, 9)] : index
+  %subtracted_step = index.constant 3 : index
+  %outer_step = index.constant 5 : index
+  %varying_inner = index.add %coordinate, %varying_increment : index
+  %varying_outer = index.add %varying_inner, %outer_step : index
+  %subtracted = index.sub %coordinate, %subtracted_step : index
+  %after_subtraction = index.add %subtracted, %outer_step : index
+  func.return %varying_outer, %after_subtraction : index, index
+}
+// ----
+test.target<quirky> @mixed_width
+
+func.def target(@mixed_width) @index32_nonmatching_operations(%coordinate_input: index, %increment_input: index) -> (index, index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, -10, 10)] : index
+  %varying_increment = index.assume %increment_input [range(%increment_input, 1, 9)] : index
+  %subtracted_step = index.constant 3 : index
+  %outer_step = index.constant 5 : index
+  %varying_inner = index.add %coordinate, %varying_increment : index
+  %varying_outer = index.add %varying_inner, %outer_step : index
+  %subtracted = index.sub %coordinate, %subtracted_step : index
+  %after_subtraction = index.add %subtracted, %outer_step : index
+  func.return %varying_outer, %after_subtraction : index, index
+}
+
+// ====
+
+test.target<quirky> @mixed_width
+
+// The local match does not cross an address-domain cast.
+func.def target(@mixed_width) @cast_separates_additions(%coordinate_input: index) -> (offset) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, 0, 10)] : index
+  %coordinate_step = index.constant 3 : index
+  %byte_step = index.constant 5 : offset
+  %inner = index.add %coordinate, %coordinate_step : index
+  %byte_offset = index.cast %inner : index to offset
+  %outer = index.add %byte_offset, %byte_step : offset
+  func.return %outer : offset
+}
+// ----
+test.target<quirky> @mixed_width
+
+func.def target(@mixed_width) @cast_separates_additions(%coordinate_input: index) -> (offset) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, 0, 10)] : index
+  %coordinate_step = index.constant 3 : index
+  %byte_step = index.constant 5 : offset
+  %inner = index.add %coordinate, %coordinate_step : index
+  %byte_offset = index.cast %inner : index to offset
+  %outer = index.add %byte_offset, %byte_step : offset
+  func.return %outer : offset
+}
+
+// ====
+
+// No target binding: bounded values alone do not select a carrier width.
+func.def @targetless_bounded_addresses(%coordinate_input: index, %byte_offset_input: offset) -> (index, index, offset) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, -10, 10)] : index
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 0, 10)] : offset
+  %coordinate_inner_step = index.constant 3 : index
+  %coordinate_outer_step = index.constant 5 : index
+  %coordinate_reverse_step = index.constant -3 : index
+  %byte_inner_step = index.constant 3 : offset
+  %byte_outer_step = index.constant 5 : offset
+  %coordinate_inner = index.add %coordinate, %coordinate_inner_step : index
+  %coordinate_outer = index.add %coordinate_inner, %coordinate_outer_step : index
+  %coordinate_cancelled = index.add %coordinate_inner, %coordinate_reverse_step : index
+  %bytes_inner = index.add %byte_offset, %byte_inner_step : offset
+  %bytes_outer = index.add %bytes_inner, %byte_outer_step : offset
+  func.return %coordinate_outer, %coordinate_cancelled, %bytes_outer : index, index, offset
+}
+// ----
+func.def @targetless_bounded_addresses(%coordinate_input: index, %byte_offset_input: offset) -> (index, index, offset) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, -10, 10)] : index
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 0, 10)] : offset
+  %coordinate_inner_step = index.constant 3 : index
+  %coordinate_outer_step = index.constant 5 : index
+  %coordinate_reverse_step = index.constant -3 : index
+  %byte_inner_step = index.constant 3 : offset
+  %byte_outer_step = index.constant 5 : offset
+  %coordinate_inner = index.add %coordinate, %coordinate_inner_step : index
+  %coordinate_outer = index.add %coordinate_inner, %coordinate_outer_step : index
+  %coordinate_cancelled = index.add %coordinate_inner, %coordinate_reverse_step : index
+  %bytes_inner = index.add %byte_offset, %byte_inner_step : offset
+  %bytes_outer = index.add %bytes_inner, %byte_outer_step : offset
+  func.return %coordinate_outer, %coordinate_cancelled, %bytes_outer : index, index, offset
+}

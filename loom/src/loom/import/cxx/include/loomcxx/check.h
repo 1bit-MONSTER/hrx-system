@@ -18,6 +18,23 @@
 #define LOOM_CHECK_BENCHMARK(name, case_name) \
   [[loom::check_benchmark(case_name)]] void name()
 
+namespace loom::kernel {
+
+// Syntax-only bundle separating launch workloads from kernel ABI arguments.
+// Workloads must appear directly as the first argument of check::launch and
+// match the kernel's configuration function parameters exactly.
+namespace detail {
+
+template <class... Args>
+struct [[loom::workload]] workload_values {};
+
+}  // namespace detail
+
+template <class... Args>
+[[loom::workload]] detail::workload_values<Args...> workload(Args... args);
+
+}  // namespace loom::kernel
+
 namespace loom::check {
 
 // A dense rank-one tensor handle. Copies share storage owned by the check
@@ -33,6 +50,14 @@ class [[loom::type("tensor")]] tensor {
 template <class T, __SIZE_TYPE__ Count>
 [[loom::op("check.generate.fill")]] tensor<T, Count> fill(T value);
 
+// Generates offset + step * index for Count elements. A positive period wraps
+// the linear index before applying the step.
+template <class T, __SIZE_TYPE__ Count>
+[[loom::op("check.generate.iota")]] tensor<T, Count> iota(T offset, T step);
+template <class T, __SIZE_TYPE__ Count>
+[[loom::op("check.generate.iota")]] tensor<T, Count> iota(T offset, T step,
+                                                          __SIZE_TYPE__ period);
+
 // Aliases Count elements beginning at a compile-time element offset. The
 // selected range must lie within source; no data is copied.
 template <__SIZE_TYPE__ Count, class T, __SIZE_TYPE__ SourceCount>
@@ -40,7 +65,9 @@ template <__SIZE_TYPE__ Count, class T, __SIZE_TYPE__ SourceCount>
     tensor<T, SourceCount> source, __SIZE_TYPE__ element_offset);
 
 // Launches a statically named kernel using its declared geometry and configs.
-// Tensors bind buffer parameters; scalars retain the kernel's ABI types.
+// A configured kernel's typed workloads precede its ABI arguments in one
+// loom::kernel::workload(...) bundle. Tensors bind buffer parameters; scalars
+// retain the kernel's ABI types.
 template <auto Kernel, class... Args>
 [[loom::op("kernel.launch")]] void launch(Args... args);
 

@@ -17,6 +17,7 @@ from loom.target.arch.amdgpu.contracts.materializers import (
 )
 from loom.target.contracts import (
     DescriptorEmitForm,
+    DescriptorResultType,
     DescriptorRule,
     EmitDescriptorOp,
     Guard,
@@ -226,7 +227,7 @@ def _magic_division_sgpr_descriptors(
 def _magic_division_vgpr_emits(
     descriptor_set: DescriptorSet,
     *,
-    materializer: ValueMaterializer = ADDRESS_VGPR_MATERIALIZER,
+    materializer: ValueMaterializer,
     is_add: bool,
     result: ValueRef,
 ) -> tuple[EmitDescriptorOp, ...]:
@@ -327,15 +328,19 @@ def _magic_division_vgpr_descriptors(
 
 
 def _magic_division_sgpr_rule(
-    descriptor_set: DescriptorSet, *, is_add: bool
+    descriptor_set: DescriptorSet,
+    source_op: Op,
+    type_pattern: TypePattern,
+    *,
+    is_add: bool,
 ) -> DescriptorRule:
     multiply_hi = descriptor_by_key(descriptor_set, "amdgpu.s_mul_hi_u32")
     return DescriptorRule(
-        source_op=index.index_div,
+        source_op=source_op,
         descriptor=multiply_hi,
         guards=(
             *_magic_division_guards(
-                _INDEX,
+                type_pattern,
                 register_class="amdgpu.sgpr",
                 is_add=is_add,
             ),
@@ -348,15 +353,22 @@ def _magic_division_sgpr_rule(
 
 
 def _magic_division_vgpr_rule(
-    descriptor_set: DescriptorSet, *, is_add: bool
+    descriptor_set: DescriptorSet,
+    source_op: Op,
+    type_pattern: TypePattern,
+    *,
+    is_add: bool,
 ) -> DescriptorRule:
+    materializer = (
+        ADDRESS_VGPR_MATERIALIZER if type_pattern == _INDEX else I32_VGPR_MATERIALIZER
+    )
     multiply_hi = descriptor_by_key(descriptor_set, "amdgpu.v_mul_hi_u32")
     return DescriptorRule(
-        source_op=index.index_div,
+        source_op=source_op,
         descriptor=multiply_hi,
         guards=(
             *_magic_division_guards(
-                _INDEX,
+                type_pattern,
                 register_class="amdgpu.vgpr",
                 is_add=is_add,
             ),
@@ -364,7 +376,9 @@ def _magic_division_vgpr_rule(
                 *_magic_division_vgpr_descriptors(descriptor_set, is_add=is_add)
             ),
         ),
-        emit=_magic_division_vgpr_emits(descriptor_set, is_add=is_add, result=_RESULT),
+        emit=_magic_division_vgpr_emits(
+            descriptor_set, materializer=materializer, is_add=is_add, result=_RESULT
+        ),
     )
 
 
@@ -490,8 +504,9 @@ def _magic_remainder_vgpr_rule(
     )
 
 
-def _high_bit_remainder_rule(
+def _high_bit_division_rule(
     descriptor_set: DescriptorSet,
+    source_op: Op,
     register_class: str,
     divisor_range: tuple[int, int],
 ) -> DescriptorRule:
@@ -516,7 +531,50 @@ def _high_bit_remainder_rule(
         )
     )
     prefix = "s" if scalar_register else "v"
-    if divisor_range[0] == divisor_range[1]:
+    if source_op is scalar_arithmetic.scalar_divui:
+        # For d >= 2^31, the quotient is exactly the unsigned predicate n >= d.
+        compare = descriptor_by_key(
+            descriptor_set,
+            "amdgpu.s_cmp_ge_u32" if scalar_register else "amdgpu.v_cmp_uge_u32",
+        )
+        move = descriptor_by_key(descriptor_set, f"amdgpu.{prefix}_mov_b32")
+        descriptor = descriptor_by_key(
+            descriptor_set,
+            "amdgpu.s_cselect_b32" if scalar_register else "amdgpu.v_cndmask_b32",
+        )
+        condition_result = "scc" if scalar_register else "mask"
+        condition_operand = "condition" if scalar_register else "mask"
+        descriptors = (compare, move, descriptor)
+        emit = (
+            EmitDescriptorOp(
+                descriptor=compare,
+                operands={"lhs": operands[0], "rhs": operands[1]},
+                results={condition_result: ValueRef.temporary("condition")},
+                result_types={condition_result: DescriptorResultType()},
+            ),
+            EmitDescriptorOp(
+                descriptor=move,
+                results={"dst": ValueRef.temporary("zero")},
+                result_types={"dst": _RESULT},
+                immediates={"imm32": 0},
+            ),
+            EmitDescriptorOp(
+                descriptor=move,
+                results={"dst": ValueRef.temporary("one")},
+                result_types={"dst": _RESULT},
+                immediates={"imm32": 1},
+            ),
+            EmitDescriptorOp(
+                descriptor=descriptor,
+                operands={
+                    "true_value": ValueRef.temporary("one"),
+                    "false_value": ValueRef.temporary("zero"),
+                    condition_operand: ValueRef.temporary("condition"),
+                },
+                results={"dst": _RESULT},
+            ),
+        )
+    elif divisor_range[0] == divisor_range[1]:
         descriptor = descriptor_by_key(descriptor_set, f"amdgpu.{prefix}_and_b32.lit")
         descriptors = (descriptor,)
         emit = (
@@ -547,7 +605,7 @@ def _high_bit_remainder_rule(
             ),
         )
     return DescriptorRule(
-        source_op=scalar_arithmetic.scalar_remui,
+        source_op=source_op,
         descriptor=descriptor,
         guards=(
             *(Guard.value_type(field, _I32) for field in ("lhs", "rhs", "result")),
@@ -562,7 +620,7 @@ def _high_bit_remainder_rule(
 
 
 def integer_division_rules(descriptor_set: DescriptorSet) -> tuple[DescriptorRule, ...]:
-    """Builds index division/remainder and scalar u32 constant remainder rules."""
+    """Builds index and scalar u32 constant division/remainder rules."""
     rules = [
         _magic_remainder_vgpr_rule(
             descriptor_set, source_op, type_pattern, is_add=False, product_shift=1
@@ -573,32 +631,50 @@ def integer_division_rules(descriptor_set: DescriptorSet) -> tuple[DescriptorRul
         )
     ]
     for is_add in (False, True):
-        rules.extend(
-            (
-                _magic_division_sgpr_rule(descriptor_set, is_add=is_add),
-                _magic_division_vgpr_rule(descriptor_set, is_add=is_add),
-                _magic_remainder_sgpr_rule(
-                    descriptor_set, index.index_rem, _INDEX, is_add=is_add
-                ),
-                _magic_remainder_vgpr_rule(
-                    descriptor_set, index.index_rem, _INDEX, is_add=is_add
-                ),
+        for source_op, type_pattern in (
+            (index.index_div, _INDEX),
+            (scalar_arithmetic.scalar_divui, _I32),
+        ):
+            rules.extend(
+                (
+                    _magic_division_sgpr_rule(
+                        descriptor_set, source_op, type_pattern, is_add=is_add
+                    ),
+                    _magic_division_vgpr_rule(
+                        descriptor_set, source_op, type_pattern, is_add=is_add
+                    ),
+                )
             )
-        )
-    for is_add in (False, True):
-        rules.extend(
-            (
-                _magic_remainder_sgpr_rule(
-                    descriptor_set, scalar_arithmetic.scalar_remui, _I32, is_add=is_add
-                ),
-                _magic_remainder_vgpr_rule(
-                    descriptor_set, scalar_arithmetic.scalar_remui, _I32, is_add=is_add
-                ),
+        for source_op, type_pattern in (
+            (index.index_rem, _INDEX),
+            (scalar_arithmetic.scalar_remui, _I32),
+        ):
+            rules.extend(
+                (
+                    _magic_remainder_sgpr_rule(
+                        descriptor_set, source_op, type_pattern, is_add=is_add
+                    ),
+                    _magic_remainder_vgpr_rule(
+                        descriptor_set, source_op, type_pattern, is_add=is_add
+                    ),
+                )
             )
-        )
     for register_class in ("amdgpu.sgpr", "amdgpu.vgpr"):
+        rules.append(
+            _high_bit_division_rule(
+                descriptor_set,
+                scalar_arithmetic.scalar_divui,
+                register_class,
+                (-(2**31), -1),
+            )
+        )
         rules.extend(
-            _high_bit_remainder_rule(descriptor_set, register_class, divisor_range)
+            _high_bit_division_rule(
+                descriptor_set,
+                scalar_arithmetic.scalar_remui,
+                register_class,
+                divisor_range,
+            )
             for divisor_range in (
                 (-(2**31), -(2**31)),
                 (-(2**31) + 1, -1),

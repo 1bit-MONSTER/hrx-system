@@ -1,0 +1,78 @@
+// RUN: emit source-low target=wasm:simd128 output=low
+
+func.def @index_bit_operations(%input: index, %amount: index) -> (index, index, index, index, index) {
+  %left = index.rotli %input, %amount : index
+  %right = index.rotri %input, %amount : index
+  %leading = index.ctlzi %input : index
+  %trailing = index.cttzi %input : index
+  %population = index.ctpopi %input : index
+  func.return %left, %right, %leading, %trailing, %population : index, index, index, index, index
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @index_bit_operations(%input: reg<wasm.i32>, %amount: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) asm {
+  %left = i32.rotl %input, %amount
+  %right = i32.rotr %input, %amount
+  %leading = i32.clz %input
+  %trailing = i32.ctz %input
+  %population = i32.popcnt %input
+  return %left, %right, %leading, %trailing, %population
+}
+
+// ====
+
+func.def @word_bit_operations(%input: i32, %amount: i32) -> (i32, i32, i32, i32, i32, i32, i32) {
+  %left = scalar.rotli %input, %amount : i32
+  %right = scalar.rotri %input, %amount : i32
+  %leading = scalar.ctlzi %input : i32
+  %trailing = scalar.cttzi %input : i32
+  %population = scalar.ctpopi %input : i32
+  %negated = scalar.negi %input : i32
+  %absolute = scalar.absi %input : i32
+  func.return %left, %right, %leading, %trailing, %population, %negated, %absolute : i32, i32, i32, i32, i32, i32, i32
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @word_bit_operations(%input: reg<wasm.i32>, %amount: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) asm {
+  %left = i32.rotl %input, %amount
+  %right = i32.rotr %input, %amount
+  %leading = i32.clz %input
+  %trailing = i32.ctz %input
+  %population = i32.popcnt %input
+  %30 = i32.const 0
+  %negated = i32.sub %30, %input
+  %32 = i32.const 31
+  %33 = i32.shr_s %input, %32
+  %34 = i32.xor %input, %33
+  %absolute = i32.sub %34, %33
+  return %left, %right, %leading, %trailing, %population, %negated, %absolute
+}
+
+// ====
+
+func.def @wide_bit_operations(%input: i64, %amount: i64) -> (i64, i64, i64, i64, i64, i64, i64) {
+  %left = scalar.rotli %input, %amount : i64
+  %right = scalar.rotri %input, %amount : i64
+  %leading = scalar.ctlzi %input : i64
+  %trailing = scalar.cttzi %input : i64
+  %population = scalar.ctpopi %input : i64
+  %negated = scalar.negi %input : i64
+  %absolute = scalar.absi %input : i64
+  func.return %left, %right, %leading, %trailing, %population, %negated, %absolute : i64, i64, i64, i64, i64, i64, i64
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @wide_bit_operations(%input: reg<wasm.i64>, %amount: reg<wasm.i64>) -> (reg<wasm.i64>, reg<wasm.i64>, reg<wasm.i64>, reg<wasm.i64>, reg<wasm.i64>, reg<wasm.i64>, reg<wasm.i64>) asm {
+  %left = i64.rotl %input, %amount
+  %right = i64.rotr %input, %amount
+  %leading = i64.clz %input
+  %trailing = i64.ctz %input
+  %population = i64.popcnt %input
+  %30 = i64.const 0
+  %negated = i64.sub %30, %input
+  %32 = i64.const 63
+  %33 = i64.shr_s %input, %32
+  %34 = i64.xor %input, %33
+  %absolute = i64.sub %34, %33
+  return %left, %right, %leading, %trailing, %population, %negated, %absolute
+}

@@ -112,7 +112,7 @@ class ConfigTest(unittest.TestCase):
                 self.assertIn('"${CMAKE_CURRENT_BINARY_DIR}/mul.xdna"', converter.body)
                 self.assertNotIn("$<TARGET_FILE:", converter.body)
 
-    def test_loom_binary_rules_are_available_to_other_project_converters(self):
+    def test_loom_rules_are_available_to_other_project_converters(self):
         repo_cfg = SimpleNamespace(
             PROJECTS=[],
             REPO_MAP={"@hrx": ""},
@@ -120,16 +120,20 @@ class ConfigTest(unittest.TestCase):
         )
         output = bazel_to_cmake_converter.convert_build_file(
             """
-load("//loom/build_tools/bazel:defs.bzl", "loom_target_profile", "loom_kernel_binary")
+load("//loom/build_tools/bazel:defs.bzl", "loom_kernel_binary", "loom_library", "loom_target_profile")
+loom_library(name="support", srcs=["support.cxx"])
 loom_target_profile(name="profile", family="amd.xdna.aie2p", selector="exact")
-loom_kernel_binary(name="program", srcs=["program.loom"], target=":profile")
+loom_kernel_binary(name="program", srcs=["program.loom"], deps=[":support"], target=":profile")
 """,
             repo_cfg,
             "/repo/consumer",
             repo_root="/repo",
         )
+        self.assertIn("loom_module(", output)
+        self.assertIn("  NAME\n    support", output)
         self.assertIn("loom_target_profile(", output)
         self.assertIn("loom_kernel_binary(", output)
+        self.assertIn("  LIBRARIES\n    ::support", output)
         self.assertIn('OUTPUT\n    "program"', output)
 
     def test_selects_longest_matching_project_for_build_path(self):
@@ -628,24 +632,52 @@ cc_library(
         self.assertIn('"generated_kernel.bin"', converter.body)
         self.assertNotIn("$<TARGET_FILE:", converter.body)
 
-    def test_c_embed_data_srcs_preserve_source_file_labels(self):
-        repo_root = Path(__file__).resolve().parents[2]
+    def test_c_embed_data_preserves_strip_prefix(self):
         converter = SimpleNamespace(body="")
         functions = bazel_to_cmake_converter.BuildFileFunctions(
             converter=converter,
             targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
-            build_dir="runtime/src/iree/hal/drivers/task/executable/elf/testdata",
-            repo_root=str(repo_root),
+            build_dir="runtime/src/example",
+            repo_root="/repo",
         )
 
         functions.iree_c_embed_data(
-            name="elementwise_mul_source",
-            srcs=[":elementwise_mul_library.c"],
-            c_file_output="elementwise_mul_source.c",
-            h_file_output="elementwise_mul_source.h",
-            testonly=True,
-            flatten=True,
+            name="headers",
+            srcs=["include/nested/header.h"],
+            c_file_output="headers.c",
+            h_file_output="headers.h",
+            strip_prefix="runtime/src/example/include/",
         )
+
+        self.assertIn(
+            "  STRIP_PREFIX\n"
+            '    "${PROJECT_SOURCE_DIR}/runtime/src/example/include/"\n',
+            converter.body,
+        )
+
+    def test_c_embed_data_srcs_preserve_source_file_labels(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repo_root = Path(temporary_directory)
+            package = "runtime/src/iree/hal/drivers/task/executable/elf/testdata"
+            source_directory = repo_root / package
+            source_directory.mkdir(parents=True)
+            (source_directory / "elementwise_mul_library.c").touch()
+            converter = SimpleNamespace(body="")
+            functions = bazel_to_cmake_converter.BuildFileFunctions(
+                converter=converter,
+                targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
+                build_dir=package,
+                repo_root=str(repo_root),
+            )
+
+            functions.iree_c_embed_data(
+                name="elementwise_mul_source",
+                srcs=[":elementwise_mul_library.c"],
+                c_file_output="elementwise_mul_source.c",
+                h_file_output="elementwise_mul_source.h",
+                testonly=True,
+                flatten=True,
+            )
 
         self.assertIn(
             '"${PROJECT_SOURCE_DIR}/runtime/src/iree/hal/drivers/task/executable/elf/testdata/'

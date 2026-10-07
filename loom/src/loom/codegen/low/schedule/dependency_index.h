@@ -57,8 +57,8 @@ typedef struct loom_low_schedule_dependency_group_t {
   uint32_t dependency_count;
   // Strongest signed issue-separation requirement in this relation.
   int32_t minimum_issue_separation_cycles;
-  // Reserved for future grouped dependency timing facts.
-  uint32_t reserved;
+  // Producer node index retained for incoming frontier queries.
+  uint32_t producer_node;
 } loom_low_schedule_dependency_group_t;
 
 static_assert(LOOM_LOW_SCHEDULE_DEPENDENCY_GROUP_SEGMENT_CAPACITY *
@@ -103,8 +103,8 @@ typedef struct loom_low_schedule_dependency_detail_index_t {
 typedef struct loom_low_schedule_dependency_frontier_t {
   // Remaining producer-group count indexed by consumer node.
   uint32_t* remaining_producer_counts;
-  // XOR of remaining producer node indices indexed by consumer node.
-  uint32_t* remaining_producer_xors;
+  // XOR of remaining dependency group indices indexed by consumer node.
+  uint32_t* remaining_group_xors;
   // Number of represented consumer nodes.
   uint32_t node_count;
   // Number of producer groups consumed since initialization.
@@ -183,22 +183,22 @@ iree_status_t loom_low_schedule_dependency_frontier_initialize(
     iree_arena_allocator_t* arena,
     loom_low_schedule_dependency_frontier_t* out_frontier);
 
-// Returns the sole remaining producer for |consumer_node|, or GROUP_NONE when
+// Returns the sole remaining group for |consumer_node|, or GROUP_NONE when
 // the consumer has zero or multiple remaining producers.
-static inline uint32_t loom_low_schedule_dependency_frontier_remaining_producer(
+static inline uint32_t loom_low_schedule_dependency_frontier_remaining_group(
     const loom_low_schedule_dependency_frontier_t* frontier,
     uint32_t consumer_node) {
   IREE_ASSERT_LT(consumer_node, frontier->node_count);
   return frontier->remaining_producer_counts[consumer_node] == 1
-             ? frontier->remaining_producer_xors[consumer_node]
+             ? frontier->remaining_group_xors[consumer_node]
              : LOOM_LOW_SCHEDULE_DEPENDENCY_GROUP_NONE;
 }
 
 // Removes one producer group after its producer is scheduled. Returns the sole
-// remaining producer when this removal transitions the consumer from two
+// remaining group when this removal transitions the consumer from two
 // producers to one, or GROUP_NONE otherwise.
 uint32_t loom_low_schedule_dependency_frontier_consume_group(
-    loom_low_schedule_dependency_frontier_t* frontier, uint32_t producer_node,
+    loom_low_schedule_dependency_frontier_t* frontier, uint32_t group_index,
     const loom_low_schedule_dependency_group_t* group);
 
 #ifdef __cplusplus

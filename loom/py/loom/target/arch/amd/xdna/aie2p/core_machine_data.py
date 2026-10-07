@@ -1248,10 +1248,10 @@ def _derive_el_subregister_adapters(
 
     These adapters are Loom-owned derivatives of the physical subregister table
     above, not additional llvm-aie source records. The direct pair encodes
-    scalar-register fields by architectural register number. The mLdaCg variant
-    composes the high-half projection with that operand's source adapter. This
-    lets descriptors use one allocatable predicate value with either encoding
-    domain.
+    scalar-register fields by architectural register number. The instruction
+    operand variants compose each projection with the corresponding source
+    adapter. This lets descriptors use one allocatable predicate value with
+    either encoding domain.
     """
 
     registers = {register.name: register for register in physical_registers}
@@ -1260,7 +1260,11 @@ def _derive_el_subregister_adapters(
     expected_subregister_indices = ("sub_l_even", "sub_l_odd")
     projected_maps: list[list[tuple[str, int]]] = [[], []]
     lda_values = dict(adapters["OP_mLdaCg"].effective_register_encodings)
+    scalar_constant_values = dict(
+        adapters["OP_mMvSclDstCg"].effective_register_encodings
+    )
     lda_high_map: list[tuple[str, int]] = []
+    scalar_constant_maps: list[list[tuple[str, int]]] = [[], []]
     for register_name in el_class.candidates:
         register = registers[register_name]
         if register.subregister_indices != expected_subregister_indices:
@@ -1274,6 +1278,12 @@ def _derive_el_subregister_adapters(
         ):
             projected_map.append(
                 (register_name, registers[subregister_name].hardware_encoding)
+            )
+        for scalar_constant_map, subregister_name in zip(
+            scalar_constant_maps, register.subregisters, strict=True
+        ):
+            scalar_constant_map.append(
+                (register_name, scalar_constant_values[subregister_name])
             )
         lda_high_map.append((register_name, lda_values[register.subregisters[1]]))
     return (
@@ -1291,6 +1301,16 @@ def _derive_el_subregister_adapters(
             name="LOOM_eL_high32_OP_mLdaCg",
             register_class="eLPredicate",
             register_encodings=tuple(lda_high_map),
+        ),
+        RegisterAdapter(
+            name="LOOM_eL_low32_OP_mMvSclDstCg",
+            register_class="eLPredicate",
+            register_encodings=tuple(scalar_constant_maps[0]),
+        ),
+        RegisterAdapter(
+            name="LOOM_eL_high32_OP_mMvSclDstCg",
+            register_class="eLPredicate",
+            register_encodings=tuple(scalar_constant_maps[1]),
         ),
     )
 

@@ -236,6 +236,8 @@ static iree_status_t loom_cfg_graph_build_traversal(
         stack_blocks[stack_count] = successor_index;
         stack_successor_positions[stack_count++] = 0;
       } else {
+        graph->blocks[block_index].can_reach_exit |=
+            graph->blocks[successor_index].can_reach_exit;
         // Discovered blocks have a zero subtree end until their DFS frame
         // finishes. A completed block may still be on the Tarjan stack.
         if (graph->blocks[successor_index].preorder_end == 0) {
@@ -256,14 +258,17 @@ static iree_status_t loom_cfg_graph_build_traversal(
       }
       continue;
     }
+    graph->blocks[block_index].can_reach_exit |= successors.count == 0;
     graph->blocks[block_index].preorder_end = preorder_count;
     if (lowlinks[block_index] == graph->blocks[block_index].preorder) {
       const iree_host_size_t component_end = component_stack_count;
       uint16_t reachability_root = graph->blocks[block_index].reachability_root;
+      bool can_reach_exit = false;
       uint16_t member_index;
       do {
         member_index = component_stack[--component_stack_count];
         graph->blocks[member_index].component = component_count;
+        can_reach_exit |= graph->blocks[member_index].can_reach_exit;
         const uint16_t member_root =
             graph->blocks[member_index].reachability_root;
         if (graph->blocks[member_root].preorder <
@@ -276,6 +281,7 @@ static iree_status_t loom_cfg_graph_build_traversal(
       for (iree_host_size_t i = component_stack_count; i < component_end; ++i) {
         graph->blocks[component_stack[i]].component_is_cyclic = cyclic;
         graph->blocks[component_stack[i]].reachability_root = reachability_root;
+        graph->blocks[component_stack[i]].can_reach_exit = can_reach_exit;
       }
       ++component_count;
     }
@@ -283,6 +289,8 @@ static iree_status_t loom_cfg_graph_build_traversal(
     --stack_count;
     if (stack_count != 0) {
       uint16_t parent_index = (uint16_t)stack_blocks[stack_count - 1];
+      graph->blocks[parent_index].can_reach_exit |=
+          graph->blocks[block_index].can_reach_exit;
       lowlinks[parent_index] =
           iree_min(lowlinks[parent_index], lowlinks[block_index]);
       const uint16_t child_root = graph->blocks[block_index].reachability_root;

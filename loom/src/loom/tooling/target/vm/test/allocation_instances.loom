@@ -1,0 +1,40 @@
+// Each allocation creates fresh bytes even when the previous instance remains
+// reachable. The VM's runtime allocation and reference transport preserve both.
+func.def @sum_previous_instances(%count: i32) -> (i32) {
+  %limit = index.cast %count : i32 to index
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %seed = scalar.constant 0 : i32
+  %increment = scalar.constant 1 : i32
+  %initial_storage = buffer.alloca<private> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial_storage[%origin] : buffer -> view<1xi32>
+  view.store %seed, %initial_view[0] : i32, view<1xi32>
+  %sum, %value, %last = scf.for %i = [%begin to %limit step %step](%accumulator = %seed : i32, %previous_value = %seed : i32, %previous = %initial_view : view<1xi32>) -> (i32, i32, view<1xi32>) {
+    %storage = buffer.alloca<private> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    %next_value = scalar.addi %previous_value, %increment : i32
+    view.store %next_value, %slot[0] : i32, view<1xi32>
+    %old_value = view.load %previous[0] : view<1xi32> -> i32
+    %next_sum = scalar.addi %accumulator, %old_value : i32
+    scf.yield %next_sum, %next_value, %slot : i32, i32, view<1xi32>
+  }
+  func.return %sum : i32
+}
+
+check.case @distinct_dynamic_instances {
+  %none = check.literal value(0) : i32
+  %two = check.literal value(2) : i32
+  %nine = check.literal value(9) : i32
+  %empty_sum = func.call @sum_previous_instances(%none) : (i32) -> (i32)
+  %short_sum = func.call @sum_previous_instances(%two) : (i32) -> (i32)
+  %long_sum = func.call @sum_previous_instances(%nine) : (i32) -> (i32)
+  %seed = check.literal value(0) : i32
+  %increment = check.literal value(1) : i32
+  %thirty_six = check.literal value(36) : i32
+  check.expect.equal actual(%empty_sum) expected(%seed) : i32
+  check.expect.equal actual(%short_sum) expected(%increment) : i32
+  check.expect.equal actual(%long_sum) expected(%thirty_six) : i32
+  check.return
+}

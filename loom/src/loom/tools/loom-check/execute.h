@@ -19,27 +19,19 @@
 // result aggregates them into a test-framework report.
 //
 // The execution engine does not own the loom_context_t or block pool. A
-// loom_check_environment_t supplies the dialect registration and target-low
-// descriptor registry package selected by each test runner binary or embedding.
+// loom_check_environment_t supplies dialect registration and the target
+// environment selected by each test runner binary or embedding.
 
 #ifndef LOOM_TOOLS_LOOM_CHECK_EXECUTE_H_
 #define LOOM_TOOLS_LOOM_CHECK_EXECUTE_H_
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
-#include "loom/codegen/low/verify.h"
 #include "loom/error/diagnostic.h"
 #include "loom/error/source.h"
 #include "loom/format/text/printer.h"
 #include "loom/ir/context.h"
-#include "loom/pass/registry.h"
-#include "loom/target/legalization.h"
-#include "loom/target/low_asm_diagnostics.h"
 #include "loom/target/low_descriptor_registry.h"
-#include "loom/target/low_legality.h"
-#include "loom/target/low_packet_diagnostics.h"
-#include "loom/target/math_policy.h"
-#include "loom/target/pipeline.h"
 #include "loom/testing/test_file.h"
 #include "loom/tooling/compile/pipeline.h"
 #include "loom/tooling/input/input.h"
@@ -51,8 +43,6 @@
 extern "C" {
 #endif
 
-typedef struct loom_low_lower_policy_registry_t
-    loom_low_lower_policy_registry_t;
 typedef struct loom_cleanup_pattern_provider_set_t
     loom_cleanup_pattern_provider_set_t;
 typedef struct loom_target_environment_t loom_target_environment_t;
@@ -145,48 +135,6 @@ typedef struct loom_check_register_context_callback_t {
   // Opaque callback state forwarded to |fn|.
   void* user_data;
 } loom_check_register_context_callback_t;
-
-// Initializes a linked target-low descriptor registry package.
-typedef iree_status_t (*loom_check_initialize_low_descriptor_registry_fn_t)(
-    void* user_data, loom_target_low_descriptor_registry_t* out_registry);
-
-// Callback for the descriptor registry package used by low asm parsing,
-// target-record resolution, descriptor-local verification, scheduling, and
-// allocation table emission.
-typedef struct loom_check_initialize_low_descriptor_registry_callback_t {
-  // Function that initializes the selected linked target-low registry package.
-  loom_check_initialize_low_descriptor_registry_fn_t fn;
-  // Opaque callback state forwarded to |fn|.
-  void* user_data;
-} loom_check_initialize_low_descriptor_registry_callback_t;
-
-// Initializes a linked source-to-target-low lowering policy registry package.
-typedef iree_status_t (*loom_check_initialize_low_lower_policy_registry_fn_t)(
-    void* user_data, loom_low_lower_policy_registry_t* out_registry);
-
-// Callback for the lowering policy registry package used by RUN: pass tests
-// that explicitly execute source-to-low. The policy package is intentionally
-// separate from descriptor tables: tools may want low parsing/scheduling
-// without linking source lowering.
-typedef struct loom_check_initialize_low_lower_policy_registry_callback_t {
-  // Function that initializes the selected linked lowering policy package.
-  loom_check_initialize_low_lower_policy_registry_fn_t fn;
-  // Opaque callback state forwarded to |fn|.
-  void* user_data;
-} loom_check_initialize_low_lower_policy_registry_callback_t;
-
-// Initializes a linked target math legalization policy registry package.
-typedef iree_status_t (*loom_check_initialize_math_policy_registry_fn_t)(
-    void* user_data, loom_target_math_policy_registry_t* out_registry);
-
-// Callback for the math policy registry package used by RUN: pass tests that
-// explicitly execute legalize-math.
-typedef struct loom_check_initialize_math_policy_registry_callback_t {
-  // Function that initializes the selected linked math policy package.
-  loom_check_initialize_math_policy_registry_fn_t fn;
-  // Opaque callback state forwarded to |fn|.
-  void* user_data;
-} loom_check_initialize_math_policy_registry_callback_t;
 
 typedef struct loom_check_environment_t loom_check_environment_t;
 typedef struct loom_check_emit_provider_t loom_check_emit_provider_t;
@@ -312,35 +260,10 @@ struct loom_check_environment_t {
   loom_input_provider_list_t input_providers;
   // Dialect registration callback for the IR surface accepted by this runner.
   loom_check_register_context_callback_t register_context;
-  // Optional composed target environment used by compile-pipeline-backed modes.
+  // Composed target environment used by target-aware check modes.
   const loom_target_environment_t* target_environment;
   // Cleanup rewrite providers linked into this runner.
   const loom_cleanup_pattern_provider_set_t* cleanup_pattern_provider_set;
-  // Target-low registry callback for descriptor-backed low IR operations.
-  loom_check_initialize_low_descriptor_registry_callback_t
-      initialize_low_descriptor_registry;
-  // Source-to-low lowering policy callback for emit modes that lower source IR
-  // into descriptor-backed low IR.
-  loom_check_initialize_low_lower_policy_registry_callback_t
-      initialize_low_lower_policy_registry;
-  // Target math legalization policy callback for math rewrite passes.
-  loom_check_initialize_math_policy_registry_callback_t
-      initialize_math_policy_registry;
-  // Optional target-owned pass descriptors linked into this runner.
-  const loom_pass_registry_t* pass_registry;
-  // Optional target-low source legality providers linked into this runner.
-  loom_target_low_legality_provider_list_t low_legality_provider_list;
-  // Optional target source legalizer providers linked into this runner.
-  loom_target_legalizer_provider_list_t legalizer_provider_list;
-  // Optional target-low packet diagnostic providers linked into this runner.
-  loom_target_low_packet_diagnostic_provider_list_t
-      low_packet_diagnostic_provider_list;
-  // Optional target-owned text low-asm diagnostic providers linked into this
-  // runner.
-  loom_target_low_asm_diagnostic_provider_list_t
-      low_asm_diagnostic_provider_list;
-  // Optional target-owned low verifier providers linked into this runner.
-  loom_low_verify_provider_list_t low_verify_provider_list;
   // Optional emit providers linked into this runner.
   loom_check_emit_provider_registry_t emit_providers;
   // Optional requirement providers linked into this runner.
@@ -389,23 +312,6 @@ iree_status_t loom_check_result_append_annotation_edit(
 // calling this.
 iree_status_t loom_check_context_register_and_finalize(
     const loom_check_environment_t* environment, loom_context_t* context);
-
-// Initializes the target-low descriptor registry selected by |environment|.
-iree_status_t loom_check_environment_initialize_low_descriptor_registry(
-    const loom_check_environment_t* environment,
-    loom_target_low_descriptor_registry_t* out_registry);
-
-// Initializes the source-to-target-low lowering policy registry selected by
-// |environment|.
-iree_status_t loom_check_environment_initialize_low_lower_policy_registry(
-    const loom_check_environment_t* environment,
-    loom_low_lower_policy_registry_t* out_registry);
-
-// Initializes the target math legalization policy registry selected by
-// |environment|.
-iree_status_t loom_check_environment_initialize_math_policy_registry(
-    const loom_check_environment_t* environment,
-    loom_target_math_policy_registry_t* out_registry);
 
 // Executes a single test case: checks declared environment requirements,
 // dispatches to the mode-specific function, then applies XFAIL inversion to

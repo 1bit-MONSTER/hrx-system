@@ -6,18 +6,45 @@
 
 #include "loom/import/cxx/binding/launch.h"
 
+#include <cxx/ast.h>
 #include <cxx/ast_interpreter.h>
 #include <cxx/symbols.h>
+#include <cxx/types.h>
+
+#include <span>
+#include <utility>
 
 #include "loom/import/cxx/source/attributes.h"
 #include "loom/import/cxx/source/error.h"
 #include "loom/import/cxx/symbol/names.h"
+#include "loom/import/cxx/value/types.h"
 #include "loom/ir/module.h"
 #include "loom/ops/config/ops.h"
 #include "loom/ops/index/ops.h"
 #include "loom/ops/kernel/ops.h"
 
 namespace loom::cxx_import {
+namespace {
+
+bool has_unsigned_scalar_leaves(const RecordPartition& record, Types& types) {
+  for (const auto& member : record.members) {
+    if (member.partition->kind == ValueKind::Record) {
+      if (!has_unsigned_scalar_leaves(
+              static_cast<const RecordPartition&>(*member.partition), types)) {
+        return false;
+      }
+      continue;
+    }
+    if (member.partition->kind != ValueKind::SSA ||
+        member.partition->component_count != 1 ||
+        !types.is_unsigned(types.unqualified(member.field->type()))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+}  // namespace
 
 LaunchContracts::Dimensions LaunchContracts::parse(
     Form form, cxx::AttributeAST* attribute) {
@@ -30,13 +57,14 @@ LaunchContracts::Dimensions LaunchContracts::parse(
     for (auto* expression : cxx::ListView{clause->expressionList}) {
       auto evaluated = interpreter.evaluate(expression);
       auto* value =
-          evaluated ? std::get_if<std::intmax_t>(&*evaluated) : nullptr;
-      if (count == expected || !value || *value <= 0 || *value > INT32_MAX) {
+          evaluated ? std::get_if<cxx::ConstInt>(&*evaluated) : nullptr;
+      if (count == expected || !value || value->isNegative() ||
+          value->isZero() || value->toUWide() > INT32_MAX) {
         diagnostics_.reject(unit_, attribute,
                             "launch dimensions require positive i32 integer "
                             "constant expressions");
       }
-      values[count++] = static_cast<int32_t>(*value);
+      values[count++] = static_cast<int32_t>(value->toUIntMax());
     }
   }
   if (count != expected) {
@@ -73,16 +101,56 @@ void LaunchContracts::merge(std::optional<Dimensions>& previous,
   previous = next;
 }
 
+cxx::FunctionSymbol* LaunchContracts::parse_configuration(
+    cxx::AttributeAST* attribute) {
+  auto* clause = attribute->attributeArgumentClause;
+  auto* arguments = clause ? clause->expressionList : nullptr;
+  auto* id = arguments && !arguments->next
+                 ? cxx::ast_cast<cxx::IdExpressionAST>(arguments->value)
+                 : nullptr;
+  auto* function =
+      id ? cxx::symbol_cast<cxx::FunctionSymbol>(id->symbol) : nullptr;
+  if (id) {
+    if (auto* overloads =
+            cxx::symbol_cast<cxx::OverloadSetSymbol>(id->symbol)) {
+      auto functions = overloads->functions();
+      if (functions.size() == 1) {
+        function = functions.front();
+      }
+    }
+  }
+  if (!function) {
+    diagnostics_.reject(
+        unit_, attribute,
+        "kernel configuration requires one unambiguous function name");
+  }
+  return function->canonical();
+}
+
 void LaunchContracts::declaration(
     cxx::FunctionSymbol* function,
     cxx::List<cxx::AttributeSpecifierAST*>* attributes) {
   Contract contract;
+  bool found_kernel = false;
   visit_loom_attributes(
       unit_, attributes,
       [&](std::string_view name, cxx::AttributeAST* attribute) {
         std::optional<Dimensions>* dimensions = nullptr;
         Form form = Form::Exact;
-        if (name == "workgroup_count" || name == "workgroup_count_range") {
+        if (name == "kernel") {
+          if (found_kernel) {
+            diagnostics_.reject(
+                unit_, attribute,
+                "one kernel annotation is allowed on a declaration");
+          }
+          found_kernel = true;
+          if (attribute->attributeArgumentClause) {
+            contract.configuration = parse_configuration(attribute);
+            contract.configuration_source = attribute;
+          }
+          return;
+        } else if (name == "workgroup_count" ||
+                   name == "workgroup_count_range") {
           dimensions = &contract.count;
           form = name == "workgroup_count" ? Form::Exact : Form::Range;
         } else if (name == "workgroup_size" || name == "workgroup_size_range") {
@@ -104,6 +172,30 @@ void LaunchContracts::declaration(
     merge(previous.count, contract.count);
     merge(previous.size, contract.size);
   }
+  if (contract.configuration) {
+    auto& previous = contracts_[function->canonical()];
+    if (previous.configuration &&
+        previous.configuration != contract.configuration) {
+      diagnostics_.reject(
+          unit_, contract.configuration_source,
+          "conflicting kernel configuration functions across declarations");
+    }
+    previous.configuration = contract.configuration;
+    previous.configuration_source = contract.configuration_source;
+    configurations_.insert(contract.configuration);
+  }
+  const auto found = contracts_.find(function->canonical());
+  if (found != contracts_.end() && found->second.configuration &&
+      (found->second.count || found->second.size)) {
+    diagnostics_.reject(
+        unit_,
+        contract.configuration_source
+            ? static_cast<cxx::AST*>(contract.configuration_source)
+            : static_cast<cxx::AST*>((contract.count ? contract.count->source
+                                                     : contract.size->source)),
+        "kernel configuration functions cannot be combined with launch "
+        "dimension annotations");
+  }
 }
 
 void LaunchContracts::reject_ordinary_function(cxx::FunctionSymbol* function) {
@@ -111,6 +203,122 @@ void LaunchContracts::reject_ordinary_function(cxx::FunctionSymbol* function) {
     diagnostics_.reject(unit_, function->declaration(),
                         "launch contracts require a kernel function");
   }
+}
+
+cxx::FunctionSymbol* LaunchContracts::configuration_function(
+    cxx::FunctionSymbol* function) const {
+  auto found = contracts_.find(function->canonical());
+  return found == contracts_.end() ? nullptr : found->second.configuration;
+}
+
+LaunchConfiguration LaunchContracts::bind_configuration(
+    cxx::FunctionSymbol* function, Types& types) {
+  auto* definition = function->declaration();
+  if (!cxx::has_internal_linkage(function) || function->isTemplatePattern() ||
+      !function->templateArguments().empty() ||
+      !cxx::symbol_cast<cxx::NamespaceSymbol>(function->parent()) ||
+      annotated(function, "kernel") || annotated(function, "device") ||
+      annotated(function, "op") || annotated(function, "check_case") ||
+      annotated(function, "check_benchmark")) {
+    diagnostics_.reject(
+        unit_, definition,
+        "kernel configuration requires an internal non-template "
+        "namespace-scope ordinary function");
+  }
+  auto* source_body = cxx::ast_cast<cxx::CompoundStatementFunctionBodyAST>(
+      definition->functionBody);
+  auto* body = source_body ? source_body->statement : nullptr;
+  if (!body) {
+    diagnostics_.reject(unit_, definition,
+                        "kernel configuration requires an ordinary compound "
+                        "function body");
+  }
+  auto* signature = cxx::type_cast<cxx::FunctionType>(function->type());
+  if (!signature || signature->isVariadic()) {
+    diagnostics_.reject(unit_, definition,
+                        "kernel configuration requires a fixed function "
+                        "signature");
+  }
+  std::vector<loom_type_t> arguments;
+  for (auto* parameter : function->parameters()) {
+    auto* parameter_type = types.unqualified(parameter->type());
+    if (!unit_.typeTraits().is_integral(parameter_type) ||
+        parameter_type->kind() == cxx::TypeKind::kBool ||
+        unit_.typeTraits().is_reference(parameter->type()) ||
+        unit_.typeTraits().is_volatile(parameter->type())) {
+      diagnostics_.reject(
+          unit_, definition,
+          "kernel configuration workloads require non-volatile non-boolean "
+          "integer value parameters");
+    }
+    arguments.push_back(types.get(parameter_type, definition));
+  }
+
+  auto* result_type = signature->returnType();
+  auto* result_class =
+      cxx::type_cast<cxx::ClassType>(types.unqualified(result_type));
+  auto* result_symbol = result_class ? result_class->definition() : nullptr;
+  bool ordinary = annotated(result_symbol, "launch_config");
+  bool clustered = annotated(result_symbol, "clustered_launch_config");
+  if (ordinary == clustered) {
+    diagnostics_.reject(
+        unit_, definition,
+        "kernel configuration must return loom::kernel::configuration or "
+        "loom::kernel::clustered_configuration");
+  }
+  const auto& result_partition = types.partition(result_type, definition);
+  auto* record = result_partition.kind == ValueKind::Record
+                     ? static_cast<const RecordPartition*>(&result_partition)
+                     : nullptr;
+  static constexpr std::string_view ordinary_names[] = {
+      "workgroup_count_x", "workgroup_count_y", "workgroup_count_z",
+      "workgroup_size_x",  "workgroup_size_y",  "workgroup_size_z",
+  };
+  static constexpr std::string_view clustered_names[] = {
+      "workgroup_count_x",        "workgroup_count_y",
+      "workgroup_count_z",        "workgroup_size_x",
+      "workgroup_size_y",         "workgroup_size_z",
+      "workgroup_cluster_size_x", "workgroup_cluster_size_y",
+      "workgroup_cluster_size_z",
+  };
+  auto expected_names = clustered
+                            ? std::span<const std::string_view>(clustered_names)
+                            : std::span<const std::string_view>(ordinary_names);
+  bool valid_result = record &&
+                      record->component_names.size() == expected_names.size() &&
+                      has_unsigned_scalar_leaves(*record, types);
+  if (valid_result) {
+    for (size_t i = 0; i < expected_names.size(); ++i) {
+      valid_result &= record->component_names[i] == expected_names[i];
+    }
+  }
+  std::vector<loom_type_t> result_types;
+  if (valid_result) {
+    types.append(result_type, definition, result_types);
+    valid_result = result_types.size() == expected_names.size();
+    for (auto type : result_types) {
+      valid_result &=
+          loom_type_equal(type, loom_type_scalar(LOOM_SCALAR_TYPE_I32));
+    }
+  }
+  if (!valid_result) {
+    diagnostics_.reject(
+        unit_, definition,
+        "kernel launch configuration aggregates require unsigned x, y, and "
+        "z fields for each dimension group");
+  }
+  return {
+      definition,
+      body,
+      result_type,
+      std::move(arguments),
+      clustered ? LaunchConfigurationKind::Clustered
+                : LaunchConfigurationKind::Standard,
+  };
+}
+
+bool LaunchContracts::is_configuration(cxx::FunctionSymbol* function) const {
+  return configurations_.contains(function->canonical());
 }
 
 std::array<loom_value_id_t, 3> LaunchContracts::build_dimensions(
@@ -178,6 +386,9 @@ void LaunchContracts::build(cxx::FunctionSymbol* function,
   const auto found = contracts_.find(function->canonical());
   const Contract absent;
   const auto& contract = found == contracts_.end() ? absent : found->second;
+  if (contract.configuration) {
+    return;
+  }
   auto count =
       build_dimensions(contract.count, symbol, "workgroup_count", names,
                        function->declaration(), builder, location);

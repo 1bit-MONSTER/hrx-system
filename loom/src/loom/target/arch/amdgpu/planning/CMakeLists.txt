@@ -353,6 +353,35 @@ endif()
 if(LOOM_TARGET_ARCH_AMDGPU)
 loom_cc_library(
   NAME
+    wait_classification
+  HDRS
+    "wait_classification.h"
+  SRCS
+    "wait_classification.c"
+  DEPS
+    ::structural_packet
+    ::wait_completion
+    ::wait_frontier
+    ::wait_packet_tables
+    iree::base
+    iree::base::internal::arena
+    loom::codegen::low::allocation::table
+    loom::codegen::low::descriptors
+    loom::codegen::low::memory_access
+    loom::codegen::low::packet
+    loom::codegen::low::schedule
+    loom::ops::cache
+    loom::ops::low
+    loom::target::arch::amdgpu::facts
+    loom::target::arch::amdgpu::refs::target_refs
+    loom::target::arch::amdgpu::target_info
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_cc_library(
+  NAME
     wait_plan
   HDRS
     "wait_plan.h"
@@ -360,7 +389,7 @@ loom_cc_library(
     "wait_plan.c"
   DEPS
     ::address_state
-    ::structural_packet
+    ::wait_classification
     ::wait_completion
     ::wait_counters
     ::wait_frontier

@@ -12,6 +12,32 @@ iree_add_all_subdirs()
 if(LOOM_TARGET_ARCH_VM)
 loom_test_module(
   NAME
+    allocation_instances_test_module
+  SRCS
+    "allocation_instances.loom"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+if(LOOM_TARGET_ARCH_VM)
+loom_execution_test(
+  NAME
+    allocation_instances_test_execute_vm_reference_test
+  MODULE
+    "::allocation_instances_test_module"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+    "loom-execution-profile=vm_reference"
+    "loom-target-family=vm"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+)
+endif()
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_test_module(
+  NAME
     buffer_selection_test_module
   SRCS
     "buffer_selection.loom"
@@ -62,6 +88,32 @@ endif()
 endif()
 
 if(LOOM_TARGET_ARCH_VM)
+loom_test_module(
+  NAME
+    callable_storage_test_module
+  SRCS
+    "callable_storage.loom"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+if(LOOM_TARGET_ARCH_VM)
+loom_execution_test(
+  NAME
+    callable_storage_test_execute_vm_reference_test
+  MODULE
+    "::callable_storage_test_module"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+    "loom-execution-profile=vm_reference"
+    "loom-target-family=vm"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+)
+endif()
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
 iree_execution_test_suite(
   NAME
     tools_test
@@ -73,8 +125,6 @@ iree_execution_test_suite(
     "loom-compile=loom::tools::loom-compile"
     "vm-dis=iree::tools::vm::vm-dis"
   DATA
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_boolean_comparison.loom-test"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/vm/test/boolean_comparison.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/vm/test/duplicate_exports.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/vm/test/empty_export.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/vm/test/invalid_operand.loom"

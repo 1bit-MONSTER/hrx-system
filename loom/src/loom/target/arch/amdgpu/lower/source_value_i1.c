@@ -294,6 +294,18 @@ static bool loom_amdgpu_i1_compare_has_vgpr_operand(
              module, fact_table, view_regions, analysis, values->rhs);
 }
 
+static bool loom_amdgpu_source_producer_result_is_native_i1_mask(
+    loom_op_kind_t op_kind, uint16_t result_index) {
+  const loom_amdgpu_source_producer_flags_t flags =
+      loom_amdgpu_source_producer_flags(op_kind);
+  return (result_index == 0 &&
+          iree_any_bit_set(
+              flags, LOOM_AMDGPU_SOURCE_PRODUCER_RESULT0_NATIVE_I1_MASK)) ||
+         (result_index == 1 &&
+          iree_any_bit_set(flags,
+                           LOOM_AMDGPU_SOURCE_PRODUCER_RESULT1_NATIVE_I1_MASK));
+}
+
 static bool loom_amdgpu_source_value_is_direct_native_i1_mask_except(
     const loom_module_t* module, loom_value_id_t source_value_id,
     loom_value_id_t excluded_value_id) {
@@ -323,9 +335,8 @@ static bool loom_amdgpu_source_value_is_direct_native_i1_mask_except(
                                                           excluded_value_id);
   }
 
-  return iree_any_bit_set(loom_amdgpu_source_producer_flags(defining_op->kind),
-                          LOOM_AMDGPU_SOURCE_PRODUCER_RESULT1_NATIVE_I1_MASK) &&
-         loom_value_def_index(value) == 1;
+  return loom_amdgpu_source_producer_result_is_native_i1_mask(
+      defining_op->kind, loom_value_def_index(value));
 }
 
 static bool loom_amdgpu_cond_br_targets_block(const loom_op_t* terminator,
@@ -870,9 +881,8 @@ static bool loom_amdgpu_source_value_is_native_i1_mask_excluding(
                                next_excluded_value_id));
   }
 
-  return iree_any_bit_set(loom_amdgpu_source_producer_flags(defining_op->kind),
-                          LOOM_AMDGPU_SOURCE_PRODUCER_RESULT1_NATIVE_I1_MASK) &&
-         loom_value_def_index(value) == 1;
+  return loom_amdgpu_source_producer_result_is_native_i1_mask(
+      defining_op->kind, loom_value_def_index(value));
 }
 
 bool loom_amdgpu_analyzed_source_value_can_lower_as_sgpr_i1_bool(

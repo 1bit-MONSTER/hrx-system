@@ -58,6 +58,8 @@ typedef struct loom_local_value_domain_t {
 // The definition prefix describes the acquired source topology; moving or
 // inserting definitions does not update that snapshot. Ordinals remain stable
 // from acquisition until release, including across later registration.
+// The first block's arguments occupy the ordinal prefix in argument order,
+// including unused arguments and arguments with dependent types.
 iree_status_t loom_local_value_domain_acquire_for_region(
     loom_module_t* module, const loom_region_t* region,
     iree_arena_allocator_t* arena, loom_local_value_domain_t* out_domain);

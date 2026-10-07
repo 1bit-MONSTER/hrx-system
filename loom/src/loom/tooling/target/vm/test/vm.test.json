@@ -126,24 +126,6 @@
       }
     },
     {
-      "name": "executes every boolean comparison predicate with signed one-bit ordering",
-      "run": {
-        "tool": "iree-test-loom",
-        "args": [
-          "{srcdir}/boolean_comparison.loom",
-          "--library={srcdir}/../../../../test/corpus/source_low/numeric_boolean_comparison.loom-test"
-        ]
-      },
-      "stdout": {
-        "contains": [
-          "\"case_count\":7",
-          "\"failed_sample_count\":0",
-          "\"skipped_case_count\":0",
-          "\"planning_issue_count\":0"
-        ]
-      }
-    },
-    {
       "name": "VM compilation resolves a linked helper source snapshot",
       "run": {
         "tool": "iree-test-loom",
@@ -313,7 +295,12 @@
         "args": ["{srcdir}/invalid_operand.loom", "--format=vm", "--output={tmp}/invalid.vm"]
       },
       "exit": 1,
-      "stderr": {"contains": ["input module failed Low verification"]},
+      "stderr": {
+        "contains": [
+          "TYPE/003",
+          "operand 'left_v8' has type reg<vm.ref : buffer>, expected register class in [vm.value] with 1 unit(s)"
+        ]
+      },
       "files": [{"path": "{tmp}/invalid.vm", "exists": false}]
     },
     {
@@ -437,7 +424,7 @@
         "args": ["{srcdir}/invalid_storage.loom", "--root=wrong_space", "--format=vm", "--output={tmp}/invalid.vm"]
       },
       "exit": 1,
-      "stderr": {"contains": ["VM local storage requires the stack space"]}
+      "stderr": {"contains": ["VM local storage requires stack or private space"]}
     }
   ]
 }

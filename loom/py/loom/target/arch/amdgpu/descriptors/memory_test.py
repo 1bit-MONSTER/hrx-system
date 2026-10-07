@@ -12,6 +12,30 @@ from loom.target.arch.amdgpu.descriptors.common import (
     _REG_PART_VGPR_LOW16,
     _REG_VGPR,
 )
+from loom.target.arch.amdgpu.descriptors.sets import _gfx12_core_overlays
+
+
+def test_gfx12_vector_store_family_exposes_cache_scope() -> None:
+    prefixes = (
+        "amdgpu.global_store_",
+        "amdgpu.buffer_store_",
+        "amdgpu.flat_store_",
+    )
+    stores = tuple(
+        overlay
+        for overlay in _gfx12_core_overlays()
+        if overlay.descriptor_key.startswith(prefixes)
+    )
+    assert stores
+    assert {
+        prefix
+        for prefix in prefixes
+        if any(store.descriptor_key.startswith(prefix) for store in stores)
+    } == set(prefixes)
+    for store in stores:
+        assert "scope" in {immediate.field_name for immediate in store.immediates}, (
+            store.descriptor_key
+        )
 
 
 @pytest.mark.parametrize("target", _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS)

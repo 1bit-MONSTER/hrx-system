@@ -23,6 +23,7 @@ iree_py_library(
         "config.py",
         "dispatch_ownership.py",
         "dot.py",
+        "index_bitwise.py",
         "integer.py",
         "integer_division.py",
         "materializers.py",
@@ -53,11 +54,13 @@ iree_py_test(
     name = "contracts_test",
     srcs = [
         "arithmetic_test.py",
+        "compare_test.py",
         "dispatch_ownership_test.py",
         "//loom/py/loom/tools:pytest_style_runner.py",
     ],
     args = [
         "loom.target.arch.amdgpu.contracts.arithmetic_test",
+        "loom.target.arch.amdgpu.contracts.compare_test",
         "loom.target.arch.amdgpu.contracts.dispatch_ownership_test",
     ],
     data = [

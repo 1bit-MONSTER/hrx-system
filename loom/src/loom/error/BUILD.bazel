@@ -65,6 +65,7 @@ loom_cc_test(
     deps = [
         ":source",
         "//loom/src/loom/ir",
+        "//loom/src/loom/link:linker",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",

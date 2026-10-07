@@ -10,14 +10,18 @@
 #include <string.h>
 
 #include "iree/hal/buffer.h"
-#include "loom/link/linker.h"
-#include "loom/ops/op_defs.h"
+#include "loom/compile/request.h"
 #include "loom/target/emit/wasm/module_compiler.h"
 #include "loom/target/entry_selection.h"
 #include "loom/target/selection.h"
 #include "loom/tooling/compile/pipeline.h"
 #include "loom/tooling/config/config.h"
 #include "loom/tooling/target/wasm/host.h"
+
+const loom_run_execution_provider_t loom_wasm_execution_provider = {
+    .name = IREE_SVL("wasm"),
+    .compiler_provider_set = &loom_wasm_compiler_provider_set,
+};
 
 enum {
   LOOM_WASM_TESTBENCH_ROOT_ALIGNMENT = 16,
@@ -105,33 +109,6 @@ static iree_status_t loom_wasm_testbench_resolve_source_function(
   *out_name =
       loom_string_table_get(&invocation->module->strings, symbol->name_id);
   *out_function = function;
-  return iree_ok_status();
-}
-
-static iree_status_t loom_wasm_testbench_publish_function(
-    loom_module_t* module, iree_string_view_t function_name) {
-  const loom_string_id_t name_id =
-      loom_module_lookup_string(module, function_name);
-  const loom_symbol_id_t symbol_id =
-      name_id == LOOM_STRING_ID_INVALID
-          ? LOOM_SYMBOL_ID_INVALID
-          : loom_module_find_symbol(module, name_id);
-  if (symbol_id == LOOM_SYMBOL_ID_INVALID) {
-    return iree_make_status(IREE_STATUS_NOT_FOUND,
-                            "Wasm scenario subject '%.*s' was not linked",
-                            (int)function_name.size, function_name.data);
-  }
-  loom_symbol_t* symbol = &module->symbols.entries[symbol_id];
-  const loom_func_like_t function =
-      loom_func_like_cast(module, symbol->defining_op);
-  if (!loom_func_like_isa(function)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "Wasm scenario subject '%.*s' is not a function",
-                            (int)function_name.size, function_name.data);
-  }
-  loom_op_attrs(function.op)[function.vtable->visibility_attr_index] =
-      loom_attr_enum(LOOM_FUNC_VISIBILITY_PUBLIC);
-  symbol->flags |= LOOM_SYMBOL_FLAG_PUBLIC;
   return iree_ok_status();
 }
 
@@ -229,18 +206,33 @@ static iree_status_t loom_wasm_testbench_compile_product(
       .table = *testbench->sources,
       .arena = &arena,
   };
-  const loom_module_t* source_modules[] = {invocation->module};
   const iree_string_view_t roots[] = {function_name};
+  const loom_target_profile_t* target_profile = NULL;
+  iree_status_t status =
+      loom_target_environment_select_profile(testbench->target_environment,
+                                             &(loom_target_specification_t){
+                                                 .family = IREE_SV("wasm"),
+                                                 .selector = IREE_SV("simd128"),
+                                             },
+                                             &target_profile);
+  loom_compile_request_t compile_request = {0};
+  if (iree_status_is_ok(status)) {
+    status = loom_compile_request_resolve(
+        invocation->module,
+        &(loom_compile_request_options_t){
+            .roots = {.count = IREE_ARRAYSIZE(roots), .values = roots},
+            .target_profile = target_profile,
+        },
+        testbench->target_environment, &arena, &compile_request);
+  }
   loom_module_t* module = NULL;
-  iree_status_t status = loom_link_materialized_modules(
-      source_modules, IREE_ARRAYSIZE(source_modules),
-      &(loom_link_options_t){
-          .module_name = IREE_SV("wasm_test"),
-          .root_symbols = {.count = IREE_ARRAYSIZE(roots), .values = roots},
-          .source_callback = {.fn = loom_source_table_project,
-                              .user_data = &sources},
-      },
-      &block_pool, testbench->host_allocator, &module);
+  loom_target_specialization_request_list_t target_specializations = {0};
+  if (iree_status_is_ok(status)) {
+    status = loom_compile_request_materialize(
+        &compile_request, testbench->target_environment, NULL,
+        invocation->module, LOOM_COMPILE_REQUEST_SOURCE_BORROWED, &sources,
+        &arena, &block_pool, &module, &target_specializations, &(uint32_t){0});
+  }
   if (iree_status_is_ok(status)) {
     loom_tooling_config_materialize_options_t config_options;
     loom_tooling_config_materialize_options_initialize(&config_options);
@@ -251,40 +243,20 @@ static iree_status_t loom_wasm_testbench_compile_product(
   if (iree_status_is_ok(status)) {
     status = loom_tooling_config_require_resolved_module(module, NULL);
   }
-  if (iree_status_is_ok(status)) {
-    status = loom_wasm_testbench_publish_function(module, function_name);
-  }
-
-  const loom_target_profile_t* target_profile = NULL;
-  if (iree_status_is_ok(status)) {
-    const loom_target_specification_t specification = {
-        .family = IREE_SV("wasm"),
-        .selector = IREE_SV("simd128"),
-    };
-    status = loom_target_environment_select_profile(
-        testbench->target_environment, &specification, &target_profile);
-  }
   loom_target_low_descriptor_registry_t low_registry = {0};
   if (iree_status_is_ok(status)) {
-    status = loom_target_environment_initialize_low_descriptor_registry(
-        testbench->target_environment, &low_registry);
+    low_registry = loom_target_environment_low_descriptor_registry(
+        testbench->target_environment);
   }
   loom_compile_pipeline_options_t pipeline_options;
   loom_compile_pipeline_options_initialize(&pipeline_options);
   pipeline_options.diagnostic_sink = testbench->diagnostic_sink;
-  pipeline_options.target_pipeline_options =
-      loom_wasm_module_emitter.default_pipeline_options;
+  if (compile_request.target_emitter != NULL) {
+    pipeline_options.target_pipeline_options =
+        compile_request.target_emitter->default_pipeline_options;
+  }
   pipeline_options.target_environment = testbench->target_environment;
-  const loom_target_specialization_request_t target_specialization = {
-      .function_name = function_name,
-      .target_profile = target_profile,
-  };
-  pipeline_options.target_specializations =
-      (loom_target_specialization_request_list_t){
-          .values = &target_specialization,
-          .count = 1,
-      };
-  pipeline_options.low_descriptor_registry = &low_registry;
+  pipeline_options.target_specializations = target_specializations;
   pipeline_options.cleanup_pattern_provider_set =
       testbench->cleanup_pattern_provider_set;
   pipeline_options.source_resolver = (loom_source_resolver_t){

@@ -16,6 +16,9 @@
 
 static iree_status_t loom_check_compile_verify_input(
     loom_module_t* module, const loom_compile_pipeline_options_t* options) {
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          options->target_environment);
   const loom_target_entry_options_t entry_options = {
       .diagnostic_sink = options->diagnostic_sink,
       .source_resolver = options->source_resolver,
@@ -34,9 +37,8 @@ static iree_status_t loom_check_compile_verify_input(
       loom_low_verify_scratch_for_module(module);
   loom_low_verify_result_t low_result = {0};
   return loom_target_entry_verify_low_module(
-      module, options->low_descriptor_registry, &entry_options, &emitter,
-      options->max_errors, loom_low_verify_provider_list_empty(), &scratch,
-      &low_result);
+      module, &low_registry, &entry_options, &emitter, options->max_errors,
+      loom_low_verify_provider_list_empty(), &scratch, &low_result);
 }
 
 static iree_status_t loom_check_compile_emit(
@@ -61,14 +63,17 @@ static iree_status_t loom_check_compile_emit(
   // alias.
   iree_arena_allocator_t scratch_arena;
   iree_arena_initialize(block_pool, &scratch_arena);
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          pipeline_options->target_environment);
   const loom_target_emit_request_t emit_request = {
       .target_environment = pipeline_options->target_environment,
-      .low_descriptor_registry =
-          &pipeline_options->low_descriptor_registry->registry,
+      .low_descriptor_registry = &low_registry.registry,
       .module = module,
       .function_versions = &pipeline_result->function_versions.list,
       .identifier = emitter->default_identifier,
       .diagnostic_emitter = loom_target_entry_emitter(&diagnostic_emitter),
+      .max_errors = pipeline_options->max_errors,
       .scratch_arena = &scratch_arena,
       .allocator = allocator,
   };
@@ -119,9 +124,10 @@ static iree_status_t loom_check_compile_request(
         .max_errors = pipeline_options->max_errors,
     };
     status = loom_compile_request_materialize(
-        request, pipeline_options->target_environment, &entry_options,
-        &source_projection, collector->arena, block_pool, &module,
-        &target_specializations, &error_count);
+        request, pipeline_options->target_environment, &entry_options, module,
+        LOOM_COMPILE_REQUEST_SOURCE_TRANSFERRED, &source_projection,
+        collector->arena, block_pool, &module, &target_specializations,
+        &error_count);
     collector->module = module;
     projected_options.target_specializations = target_specializations;
   }
@@ -170,10 +176,9 @@ iree_status_t loom_check_execute_compile(
       .filename = filename,
       .result = result,
   };
-  loom_target_low_descriptor_registry_t low_registry = {0};
-  iree_status_t status =
-      loom_target_environment_initialize_low_descriptor_registry(
-          options->environment->target_environment, &low_registry);
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          environment->target_environment);
   loom_text_parse_options_t parse_options = {
       .diagnostic_sink = {.fn = loom_check_diagnostic_collector_sink,
                           .user_data = &collector},
@@ -181,25 +186,21 @@ iree_status_t loom_check_execute_compile(
   };
   loom_input_request_t load_request = *input_request;
   loom_input_module_t input = {0};
-  if (iree_status_is_ok(status)) {
-    loom_low_descriptor_text_print_context_initialize(
-        &low_registry.registry, &collector.type_print_context);
-    loom_low_descriptor_text_asm_environment_initialize(
-        &low_registry.registry, &parse_options.low_asm_environment);
-    loom_low_repr_environment_initialize(&low_registry.registry,
-                                         &load_request.low_repr_environment);
-    status =
-        loom_check_load_input(test_case, &load_request, environment, context,
-                              block_pool, &parse_options, allocator, &input);
-  }
+  loom_low_descriptor_text_print_context_initialize(
+      &low_registry.registry, &collector.type_print_context);
+  loom_low_descriptor_text_asm_environment_initialize(
+      &low_registry.registry, &parse_options.low_asm_environment);
+  loom_low_repr_environment_initialize(&low_registry.registry,
+                                       &load_request.low_repr_environment);
+  iree_status_t status =
+      loom_check_load_input(test_case, &load_request, environment, context,
+                            block_pool, &parse_options, allocator, &input);
   collector.module = input.module;
   loom_compile_pipeline_options_t pipeline_options;
   loom_compile_pipeline_options_initialize(&pipeline_options);
-  pipeline_options.target_environment =
-      options->environment->target_environment;
-  pipeline_options.low_descriptor_registry = &low_registry;
+  pipeline_options.target_environment = environment->target_environment;
   pipeline_options.cleanup_pattern_provider_set =
-      options->environment->cleanup_pattern_provider_set;
+      environment->cleanup_pattern_provider_set;
   pipeline_options.diagnostic_sink = parse_options.diagnostic_sink;
   pipeline_options.source_resolver = loom_input_module_source_resolver(&input);
   pipeline_options.max_errors = parse_options.max_errors;
@@ -219,11 +220,11 @@ iree_status_t loom_check_execute_compile(
   if (iree_status_is_ok(status) && input.module != NULL &&
       collector.error_count == 0) {
     const loom_compile_request_options_t request_options = {
-        .target = options->target,
+        .target_profile = options->target_profile,
     };
-    status = loom_compile_request_resolve(
-        input.module, &request_options,
-        options->environment->target_environment, &arena, &request);
+    status = loom_compile_request_resolve(input.module, &request_options,
+                                          environment->target_environment,
+                                          &arena, &request);
     if (iree_status_is_ok(status)) {
       pipeline_options.target_pipeline_options =
           request.target_emitter->default_pipeline_options;

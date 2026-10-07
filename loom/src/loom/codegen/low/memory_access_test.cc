@@ -21,6 +21,7 @@ static loom_low_memory_access_summary_t MakeStridedSummary(
     uint64_t end_bytes) {
   return (loom_low_memory_access_summary_t){
       /*.memory_space=*/LOOM_LOW_MEMORY_SPACE_WORKGROUP,
+      /*.source_flags=*/0,
       /*.alias_root_id=*/alias_root_id,
       /*.alias_group_id=*/LOOM_LOW_MEMORY_ALIAS_ID_NONE,
       /*.precision_flags=*/LOOM_LOW_MEMORY_ACCESS_PRECISION_SPACE |
@@ -48,6 +49,7 @@ static loom_low_memory_access_summary_t MakeIntervalSummary(
   };
   return (loom_low_memory_access_summary_t){
       /*.memory_space=*/LOOM_LOW_MEMORY_SPACE_WORKGROUP,
+      /*.source_flags=*/0,
       /*.alias_root_id=*/alias_root_id,
       /*.alias_group_id=*/LOOM_LOW_MEMORY_ALIAS_ID_NONE,
       /*.precision_flags=*/LOOM_LOW_MEMORY_ACCESS_PRECISION_SPACE |
@@ -210,6 +212,18 @@ TEST(MemoryAccessTest, EqualSummariesIgnoreAbsentIdentityPayloads) {
   EXPECT_FALSE(loom_low_memory_access_summaries_equal(&group, &other));
 }
 
+TEST(MemoryAccessTest, EqualAliasSummariesIgnoreSourceSemantics) {
+  const auto* space =
+      loom_low_memory_access_summary_for_space(LOOM_LOW_MEMORY_SPACE_GLOBAL);
+  auto atomic_observation = *space;
+  atomic_observation.source_flags =
+      LOOM_LOW_MEMORY_ACCESS_SOURCE_FLAG_ATOMIC_OBSERVATION;
+  EXPECT_TRUE(
+      loom_low_memory_access_summaries_equal(space, &atomic_observation));
+  EXPECT_TRUE(loom_low_memory_access_summaries_may_alias(
+      space, &atomic_observation, LOOM_LOW_MEMORY_COMPARISON_INDEPENDENT));
+}
+
 TEST(MemoryAccessTest, DisjointStorageRequiresOneCapturedEvaluation) {
   const int scopes[2] = {};
   loom_low_memory_relative_interval_t intervals[2] = {};
@@ -328,6 +342,7 @@ TEST_F(MemoryAccessMapTest,
   interval.upper = 16;
   loom_low_memory_access_summary_t access = {};
   access.memory_space = LOOM_LOW_MEMORY_SPACE_WORKGROUP;
+  access.source_flags = LOOM_LOW_MEMORY_ACCESS_SOURCE_FLAG_ATOMIC_OBSERVATION;
   access.relative_interval = &interval;
   IREE_ASSERT_OK(
       loom_low_memory_access_map_insert(source, &packets[0], 0, &access));
@@ -362,6 +377,8 @@ TEST_F(MemoryAccessMapTest,
   ASSERT_NE(left, nullptr);
   ASSERT_NE(right, nullptr);
   ASSERT_NE(other_call, nullptr);
+  EXPECT_EQ(left->source_flags,
+            LOOM_LOW_MEMORY_ACCESS_SOURCE_FLAG_ATOMIC_OBSERVATION);
   EXPECT_EQ(left->relative_interval->origin.terms[0].coefficient, 4);
   EXPECT_EQ(
       left->relative_interval->origin.congruence->expression.terms[0].value_id,

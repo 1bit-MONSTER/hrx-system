@@ -1,0 +1,232 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/vector_shuffle.loom-test
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @shuffle_i1_family(%value: vector<3xi1>) -> (vector<3xi1>) {
+  %result = vector.shuffle<[1, 0, 1]> %value : vector<3xi1>
+  func.return %result : vector<3xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @shuffle_i1_family(%value: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>) asm {
+  %5 = mov.short 1
+  %6 = vbcst.8 %5
+  %7 = vsub.8 %6, %6
+  %8 = vsel.8 %7, %6, %value
+  %9 = vextbcst.8 %8, 1
+  %10 = vextbcst.8 %8, 0
+  %11 = predicate.constant.low32 2
+  %12 = predicate.complete.zero.high32 %11, 0
+  %13 = vsel.8 %9, %10, %12
+  %result = vlt.u8x64 %7, %13
+  return %result
+}
+
+// ====
+
+func.def @shuffle_i8_family(%integer: vector<3xi8>, %e4m3: vector<3xf8E4M3>, %e5m2: vector<3xf8E5M2>) -> (vector<3xi8>, vector<3xf8E4M3>, vector<3xf8E5M2>) {
+  %integer_result = vector.shuffle<[1, 0, 1]> %integer : vector<3xi8>
+  %e4m3_result = vector.shuffle<[1, 0, 1]> %e4m3 : vector<3xf8E4M3>
+  %e5m2_result = vector.shuffle<[1, 0, 1]> %e5m2 : vector<3xf8E5M2>
+  func.return %integer_result, %e4m3_result, %e5m2_result : vector<3xi8>, vector<3xf8E4M3>, vector<3xf8E5M2>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @shuffle_i8_family(%integer: reg<aie2p.vec256 x2>, %e4m3: reg<aie2p.vec256 x2>, %e5m2: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
+  %15 = vextbcst.8 %integer, 1
+  %16 = vextbcst.8 %integer, 0
+  %17 = predicate.constant.low32 2
+  %18 = predicate.complete.zero.high32 %17, 0
+  %integer_result = vsel.8 %15, %16, %18
+  %20 = vextbcst.8 %e4m3, 1
+  %21 = vextbcst.8 %e4m3, 0
+  %22 = predicate.constant.low32 2
+  %23 = predicate.complete.zero.high32 %22, 0
+  %e4m3_result = vsel.8 %20, %21, %23
+  %25 = vextbcst.8 %e5m2, 1
+  %26 = vextbcst.8 %e5m2, 0
+  %27 = predicate.constant.low32 2
+  %28 = predicate.complete.zero.high32 %27, 0
+  %e5m2_result = vsel.8 %25, %26, %28
+  return %integer_result, %e4m3_result, %e5m2_result
+}
+
+// ====
+
+func.def @shuffle_i16_family(%integer: vector<3xi16>, %half: vector<3xf16>, %bfloat: vector<3xbf16>) -> (vector<3xi16>, vector<3xf16>, vector<3xbf16>) {
+  %integer_result = vector.shuffle<[1, 0, 1]> %integer : vector<3xi16>
+  %half_result = vector.shuffle<[1, 0, 1]> %half : vector<3xf16>
+  %bfloat_result = vector.shuffle<[1, 0, 1]> %bfloat : vector<3xbf16>
+  func.return %integer_result, %half_result, %bfloat_result : vector<3xi16>, vector<3xf16>, vector<3xbf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @shuffle_i16_family(%integer: reg<aie2p.vec256 x2>, %half: reg<aie2p.vec256 x2>, %bfloat: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
+  %15 = vextbcst.16 %integer, 1
+  %16 = vextbcst.16 %integer, 0
+  %17 = predicate.constant.low32 2
+  %integer_result = vsel.16.mask64 %15, %16, %17
+  %19 = vextbcst.16 %half, 1
+  %20 = vextbcst.16 %half, 0
+  %half_result = vsel.16.mask64 %19, %20, %17
+  %23 = vextbcst.16 %bfloat, 1
+  %24 = vextbcst.16 %bfloat, 0
+  %bfloat_result = vsel.16.mask64 %23, %24, %17
+  return %integer_result, %half_result, %bfloat_result
+}
+
+// ====
+
+func.def @shuffle_i32_family(%integer: vector<3xi32>, %float: vector<3xf32>) -> (vector<3xi32>, vector<3xf32>) {
+  %integer_result = vector.shuffle<[1, 0, 1]> %integer : vector<3xi32>
+  %float_result = vector.shuffle<[1, 0, 1]> %float : vector<3xf32>
+  func.return %integer_result, %float_result : vector<3xi32>, vector<3xf32>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @shuffle_i32_family(%integer: reg<aie2p.vec256 x2>, %float: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
+  %10 = vextbcst.32 %integer, 1
+  %11 = vextbcst.32 %integer, 0
+  %12 = predicate.constant.low32 2
+  %integer_result = vsel.32.mask64 %10, %11, %12
+  %14 = vextbcst.32 %float, 1
+  %15 = vextbcst.32 %float, 0
+  %float_result = vsel.32.mask64 %14, %15, %12
+  return %integer_result, %float_result
+}
+
+// ====
+
+func.def @shuffle_i64_family(%integer: vector<3xi64>, %float: vector<3xf64>, %indices: vector<3xindex>, %offsets: vector<3xoffset>) -> (vector<3xi64>, vector<3xf64>, vector<3xindex>, vector<3xoffset>) {
+  %integer_result = vector.shuffle<[1, 0, 1]> %integer : vector<3xi64>
+  %float_result = vector.shuffle<[1, 0, 1]> %float : vector<3xf64>
+  %index_result = vector.shuffle<[1, 0, 1]> %indices : vector<3xindex>
+  %offset_result = vector.shuffle<[1, 0, 1]> %offsets : vector<3xoffset>
+  func.return %integer_result, %float_result, %index_result, %offset_result : vector<3xi64>, vector<3xf64>, vector<3xindex>, vector<3xoffset>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @shuffle_i64_family(%integer: reg<aie2p.vec256 x2>, %float: reg<aie2p.vec256 x2>, %indices: reg<aie2p.vec256 x2>, %offsets: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
+  %20 = vextbcst.64 %integer, 1
+  %21 = vextbcst.64 %integer, 0
+  %22 = predicate.constant.low32 12
+  %integer_result = vsel.32.mask64 %20, %21, %22
+  %24 = vextbcst.64 %float, 1
+  %25 = vextbcst.64 %float, 0
+  %float_result = vsel.32.mask64 %24, %25, %22
+  %28 = vextbcst.64 %indices, 1
+  %29 = vextbcst.64 %indices, 0
+  %index_result = vsel.32.mask64 %28, %29, %22
+  %32 = vextbcst.64 %offsets, 1
+  %33 = vextbcst.64 %offsets, 0
+  %offset_result = vsel.32.mask64 %32, %33, %22
+  return %integer_result, %float_result, %index_result, %offset_result
+}
+
+// ====
+
+// Each maximum result swaps two complete 512-bit payload packets. The partial
+// result crosses the carrier boundary by one lane and composes that final lane.
+func.def @shuffle_ordinary_packet_boundaries(%bytes: vector<128xi8>, %halves: vector<64xi16>, %words: vector<32xi32>, %wide: vector<16xi64>, %partial: vector<17xi32>) -> (vector<128xi8>, vector<64xi16>, vector<32xi32>, vector<16xi64>, vector<17xi32>) {
+  %byte_result = vector.shuffle<[64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]> %bytes : vector<128xi8>
+  %half_result = vector.shuffle<[32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]> %halves : vector<64xi16>
+  %word_result = vector.shuffle<[16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]> %words : vector<32xi32>
+  %wide_result = vector.shuffle<[8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7]> %wide : vector<16xi64>
+  %partial_result = vector.shuffle<[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 1]> %partial : vector<17xi32>
+  func.return %byte_result, %half_result, %word_result, %wide_result, %partial_result : vector<128xi8>, vector<64xi16>, vector<32xi32>, vector<16xi64>, vector<17xi32>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @shuffle_ordinary_packet_boundaries(%bytes: reg<aie2p.vec256 x4>, %halves: reg<aie2p.vec256 x4>, %words: reg<aie2p.vec256 x4>, %wide: reg<aie2p.vec256 x4>, %partial: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>, reg<aie2p.vec256 x4>, reg<aie2p.vec256 x4>, reg<aie2p.vec256 x4>, reg<aie2p.vec256 x4>) asm {
+  %25 = slice %bytes[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %26 = slice %bytes[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %byte_result = concat(%25, %26) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %28 = slice %halves[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %29 = slice %halves[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %half_result = concat(%28, %29) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %31 = slice %words[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %32 = slice %words[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %word_result = concat(%31, %32) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %34 = slice %wide[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %35 = slice %wide[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %wide_result = concat(%34, %35) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %37 = slice %partial[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %38 = vextbcst.32 %37, 1
+  %partial_result = concat(%37, %38) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %byte_result, %half_result, %word_result, %wide_result, %partial_result
+}
+
+// ====
+
+// The first result packet crosses both predicate packets and requires both
+// halves of the 64-bit select mask. The second packet aliases the source.
+func.def @shuffle_predicate_cross_packet(%value: vector<128xi1>) -> (vector<128xi1>) {
+  %result = vector.shuffle<[64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 64, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]> %value : vector<128xi1>
+  func.return %result : vector<128xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @shuffle_predicate_cross_packet(%value: reg<aie2p.elpredicate x2>) -> (reg<aie2p.elpredicate x2>) asm {
+  %5 = slice %value[1] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
+  %6 = mov.short 1
+  %7 = vbcst.8 %6
+  %8 = vsub.8 %7, %7
+  %9 = vsel.8 %8, %7, %5
+  %10 = vextbcst.8 %9, 0
+  %11 = slice %value[0] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
+  %12 = vsel.8 %8, %7, %11
+  %13 = vextbcst.8 %12, 0
+  %14 = predicate.constant.low32 -1431655766
+  %15 = predicate.complete.constant.high32 %14, -1431655766
+  %16 = vsel.8 %10, %13, %15
+  %17 = vlt.u8x64 %8, %16
+  %result = concat(%17, %11) : (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) -> reg<aie2p.elpredicate x2>
+  return %result
+}
+
+// ====
+
+// Accumulator carriers cover i32, f32, and i64 payloads. The two-unit f32
+// special case has no padding; both four-unit cases leave one physical unit
+// beyond their three logical packets and repeat the final packet into it.
+func.def @shuffle_accumulator_carriers(%integer: vector<48xi32>, %float: vector<32xf32>, %wide: vector<24xi64>) -> (vector<48xi32>, vector<32xf32>, vector<24xi64>) {
+  %integer_result = vector.shuffle<[16, 0, 16, 0, 16, 0, 16, 0, 16, 0, 16, 0, 16, 0, 16, 0, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]> %integer : vector<48xi32>
+  %float_result = vector.shuffle<[16, 0, 16, 0, 16, 0, 16, 0, 16, 0, 16, 0, 16, 0, 16, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]> %float : vector<32xf32>
+  %wide_result = vector.shuffle<[8, 0, 8, 0, 8, 0, 8, 0, 16, 17, 18, 19, 20, 21, 22, 23, 8, 9, 10, 11, 12, 13, 14, 15]> %wide : vector<24xi64>
+  func.return %integer_result, %float_result, %wide_result : vector<48xi32>, vector<32xf32>, vector<24xi64>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @shuffle_accumulator_carriers(%integer: reg<aie2p.mbms x4>, %float: reg<aie2p.mbms x2>, %wide: reg<aie2p.mbms x4>) -> (reg<aie2p.mbms x4>, reg<aie2p.mbms x2>, reg<aie2p.mbms x4>) asm {
+  %15 = slice %integer[1] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %16 = vmov.accumulator512.to.vector512 %15
+  %17 = vextbcst.32 %16, 0
+  %18 = slice %integer[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %19 = vmov.accumulator512.to.vector512 %18
+  %20 = vextbcst.32 %19, 0
+  %21 = predicate.constant.low32 43690
+  %22 = vsel.32.mask64 %17, %20, %21
+  %23 = vmov.vector512.to.accumulator512 %22
+  %24 = slice %integer[2] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %integer_result = concat(%23, %24, %15, %15) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %26 = slice %float[1] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
+  %27 = vmov.accumulator512.to.vector512 %26
+  %28 = vextbcst.32 %27, 0
+  %29 = slice %float[0] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
+  %30 = vmov.accumulator512.to.vector512 %29
+  %31 = vextbcst.32 %30, 0
+  %33 = vsel.32.mask64 %28, %31, %21
+  %34 = vmov.vector512.to.accumulator512 %33
+  %float_result = concat(%34, %29) : (reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x2>
+  %36 = slice %wide[1] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %37 = vmov.accumulator512.to.vector512 %36
+  %38 = vextbcst.64 %37, 0
+  %39 = slice %wide[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %40 = vmov.accumulator512.to.vector512 %39
+  %41 = vextbcst.64 %40, 0
+  %42 = predicate.constant.low32 52428
+  %43 = vsel.32.mask64 %38, %41, %42
+  %44 = vmov.vector512.to.accumulator512 %43
+  %45 = slice %wide[2] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %wide_result = concat(%44, %45, %36, %36) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  return %integer_result, %float_result, %wide_result
+}

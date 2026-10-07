@@ -129,8 +129,10 @@ class LoomBuildFileFunctions(
         return {
             **super()._declarative_load_bindings(),
             "loom_corpus_catalog": self.loom_corpus_catalog,
+            "loom_legacy_case_corpus": self.loom_legacy_case_corpus,
             "loom_corpus_manifest": self.loom_corpus_manifest,
             "loom_execution_profile": self.loom_execution_profile,
+            "loom_scenario_corpus": self.loom_scenario_corpus,
         }
 
     def _custom_initialize(self):
@@ -633,24 +635,6 @@ class LoomBuildFileFunctions(
         self._emit_platform_guard_begin(policy.cmake_conditions())
         self._converter.body += "loom_execution_test(\n" + "".join(blocks) + ")\n\n"
         self._emit_platform_guard_end(policy.cmake_conditions())
-
-    def _convert_loom_module_inputs(self, block_name, inputs):
-        if inputs is None:
-            return ""
-        converted_inputs = []
-        for input_value in inputs:
-            if input_value.startswith(":") or input_value.startswith("//"):
-                label = self._canonical_location_label(input_value)
-                if self._is_source_data_label(input_value) or (
-                    label in self._target_file_paths
-                    and label not in self._loom_module_targets
-                ):
-                    converted_inputs.extend(self._cmake_location_paths(input_value))
-                else:
-                    converted_inputs.append(self._convert_single_target(input_value))
-            else:
-                converted_inputs.append(input_value)
-        return self._convert_string_list_block(block_name, converted_inputs, sort=False)
 
     def loom_amdgpu_target_selectors_flag(self, **kwargs):
         return None

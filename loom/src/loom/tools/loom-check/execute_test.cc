@@ -56,20 +56,6 @@ iree_status_t RegisterTestContext(void* user_data, loom_context_t* context) {
   return loom_testing_context_register_all_dialects(context);
 }
 
-iree_status_t InitializeTestLowDescriptorRegistry(
-    void* user_data, loom_target_low_descriptor_registry_t* out_registry) {
-  (void)user_data;
-  loom_target_core_test_low_descriptor_registry_initialize(out_registry);
-  return iree_ok_status();
-}
-
-iree_status_t InitializeTestLowLowerPolicyRegistry(
-    void* user_data, loom_low_lower_policy_registry_t* out_registry) {
-  (void)user_data;
-  loom_test_low_lower_policy_registry_initialize(out_registry);
-  return iree_ok_status();
-}
-
 void InitializeTestLowDescriptorRegistryForProvider(
     loom_target_low_descriptor_registry_t* out_registry) {
   loom_target_core_test_low_descriptor_registry_initialize(out_registry);
@@ -211,16 +197,6 @@ const loom_check_environment_t kExecuteTestEnvironment = {
     /*.target_environment=*/{},
     /*.cleanup_pattern_provider_set=*/
     loom_cleanup_configured_pattern_provider_set(),
-    /*.initialize_low_descriptor_registry=*/
-    {
-        /*.fn=*/InitializeTestLowDescriptorRegistry,
-        /*.user_data=*/nullptr,
-    },
-    /*.initialize_low_lower_policy_registry=*/
-    {
-        /*.fn=*/InitializeTestLowLowerPolicyRegistry,
-        /*.user_data=*/nullptr,
-    },
 };
 
 const loom_check_environment_t kExecuteTestProviderEnvironment = {
@@ -233,19 +209,6 @@ const loom_check_environment_t kExecuteTestProviderEnvironment = {
     /*.target_environment=*/{},
     /*.cleanup_pattern_provider_set=*/
     loom_cleanup_configured_pattern_provider_set(),
-    /*.initialize_low_descriptor_registry=*/
-    {
-        /*.fn=*/InitializeTestLowDescriptorRegistry,
-        /*.user_data=*/nullptr,
-    },
-    /*.initialize_low_lower_policy_registry=*/{},
-    /*.initialize_math_policy_registry=*/{},
-    /*.pass_registry=*/{},
-    /*.low_legality_provider_list=*/{},
-    /*.legalizer_provider_list=*/{},
-    /*.low_packet_diagnostic_provider_list=*/{},
-    /*.low_asm_diagnostic_provider_list=*/{},
-    /*.low_verify_provider_list=*/{},
     /*.emit_providers=*/
     {
         /*.providers=*/kTestEmitProviders,

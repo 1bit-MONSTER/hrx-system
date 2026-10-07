@@ -638,7 +638,7 @@ TEST_F(GreedyRewriteTest, CyclicFactsNarrowAfterSemanticUpdates) {
   };
   // Non-CFG region context must not be exposed as a structural snapshot.
   IREE_ASSERT_OK(loom_value_fact_table_set_region_temporal_scope(
-      facts, module_->body, loom_value_facts_unknown()));
+      facts, module_->body, loom_value_facts_unknown(), /*may_repeat=*/false));
   IREE_ASSERT_OK(loom_rewriter_refresh_cfg_facts(&rewriter, body));
   IREE_ASSERT_OK(loom_rewriter_refresh_cfg_facts(&rewriter, body));
   EXPECT_NE(loom_value_fact_table_lookup_cfg_graph(facts, body), nullptr);
@@ -665,6 +665,7 @@ TEST_F(GreedyRewriteTest, CyclicFactsNarrowAfterSemanticUpdates) {
 
 TEST_F(GreedyRewriteTest, InductionFactsTrackSemanticAndTopologyEdits) {
   const auto type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
+  const auto offset_type = loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET);
   auto* region = loom_func_like_body(function_);
   region->flags |= LOOM_REGION_INSTANCE_FLAG_CFG;
   loom_op_t* initial = nullptr;
@@ -676,6 +677,18 @@ TEST_F(GreedyRewriteTest, InductionFactsTrackSemanticAndTopologyEdits) {
                                            LOOM_LOCATION_UNKNOWN, &upper));
   IREE_ASSERT_OK(loom_index_constant_build(&builder_, loom_attr_i64(1), type,
                                            LOOM_LOCATION_UNKNOWN, &step));
+  loom_op_t* cursor_initial = nullptr;
+  loom_op_t* first_increment = nullptr;
+  loom_op_t* second_increment = nullptr;
+  IREE_ASSERT_OK(loom_index_constant_build(&builder_, loom_attr_i64(0),
+                                           offset_type, LOOM_LOCATION_UNKNOWN,
+                                           &cursor_initial));
+  IREE_ASSERT_OK(loom_index_constant_build(&builder_, loom_attr_i64(64),
+                                           offset_type, LOOM_LOCATION_UNKNOWN,
+                                           &first_increment));
+  IREE_ASSERT_OK(loom_index_constant_build(&builder_, loom_attr_i64(64),
+                                           offset_type, LOOM_LOCATION_UNKNOWN,
+                                           &second_increment));
   loom_block_t* header = nullptr;
   loom_block_t* body = nullptr;
   loom_block_t* exit = nullptr;
@@ -685,9 +698,15 @@ TEST_F(GreedyRewriteTest, InductionFactsTrackSemanticAndTopologyEdits) {
   loom_value_id_t counter = LOOM_VALUE_ID_INVALID;
   IREE_ASSERT_OK(
       loom_builder_define_block_arg(&builder_, header, type, &counter));
-  auto initial_value = loom_index_constant_result(initial);
+  loom_value_id_t cursor = LOOM_VALUE_ID_INVALID;
+  IREE_ASSERT_OK(
+      loom_builder_define_block_arg(&builder_, header, offset_type, &cursor));
+  loom_value_id_t initial_values[] = {
+      loom_index_constant_result(initial),
+      loom_index_constant_result(cursor_initial),
+  };
   loom_op_t* entry = nullptr;
-  IREE_ASSERT_OK(loom_cfg_br_build(&builder_, header, &initial_value, 1,
+  IREE_ASSERT_OK(loom_cfg_br_build(&builder_, header, initial_values, 2,
                                    LOOM_LOCATION_UNKNOWN, &entry));
   loom_builder_set_block(&builder_, header);
   loom_op_t* compare = nullptr;
@@ -704,8 +723,19 @@ TEST_F(GreedyRewriteTest, InductionFactsTrackSemanticAndTopologyEdits) {
                                       loom_index_constant_result(step), type,
                                       LOOM_LOCATION_UNKNOWN, &add));
   auto next = loom_index_add_result(add);
+  loom_op_t* first_add = nullptr;
+  loom_op_t* second_add = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(
+      &builder_, cursor, loom_index_constant_result(first_increment),
+      offset_type, LOOM_LOCATION_UNKNOWN, &first_add));
+  const auto cursor_middle = loom_index_add_result(first_add);
+  IREE_ASSERT_OK(loom_index_add_build(
+      &builder_, cursor_middle, loom_index_constant_result(second_increment),
+      offset_type, LOOM_LOCATION_UNKNOWN, &second_add));
+  const auto cursor_next = loom_index_add_result(second_add);
+  loom_value_id_t next_values[] = {next, cursor_next};
   loom_op_t* backedge = nullptr;
-  IREE_ASSERT_OK(loom_cfg_br_build(&builder_, header, &next, 1,
+  IREE_ASSERT_OK(loom_cfg_br_build(&builder_, header, next_values, 2,
                                    LOOM_LOCATION_UNKNOWN, &backedge));
   loom_builder_set_block(&builder_, exit);
   loom_op_t* return_op = nullptr;
@@ -736,7 +766,9 @@ TEST_F(GreedyRewriteTest, InductionFactsTrackSemanticAndTopologyEdits) {
     IREE_ASSERT_OK(loom_pass_value_fact_owner_acquire(
         &fresh_owner, module_, loom_pass_value_fact_scope_function(function_),
         &fresh));
-    for (auto value : {counter, next, loom_index_cmp_result(compare)}) {
+    for (auto value : {counter, next, cursor, cursor_middle, cursor_next,
+                       loom_index_cmp_result(compare)}) {
+      SCOPED_TRACE(value);
       const auto value_type = loom_module_value_type(module_, value);
       EXPECT_TRUE(loom_value_fact_table_facts_equal_for_type(
           module_, value_type, facts,
@@ -762,15 +794,59 @@ TEST_F(GreedyRewriteTest, InductionFactsTrackSemanticAndTopologyEdits) {
     loom_pass_value_fact_owner_deinitialize(&fresh_owner);
   };
   check(0, 4);
+  EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor).range_hi, 512);
+  EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor_middle).range_lo, 64);
+  EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor_middle).range_hi, 576);
+  EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor_next).range_lo, 128);
+  EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor_next).range_hi, 640);
+
+  // The branch payload is unchanged: edits inside the two-add chain must
+  // replace its retained equation, including cached literal semantics.
+  for (int64_t increment : {96, 64}) {
+    IREE_ASSERT_OK(loom_index_constant_rewrite_value(&rewriter, first_increment,
+                                                     loom_attr_i64(increment)));
+    check(0, 4);
+    EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor).range_hi,
+              4 * (increment + 64));
+  }
+  IREE_ASSERT_OK(loom_rewriter_set_operand(
+      &rewriter, first_add, 1, loom_index_constant_result(second_increment)));
+  check(0, 4);
+  EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor).range_hi, 512);
+  IREE_ASSERT_OK(loom_index_constant_rewrite_value(&rewriter, second_increment,
+                                                   loom_attr_i64(96)));
+  check(0, 4);
+  EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor).range_hi, 768);
+  IREE_ASSERT_OK(loom_rewriter_set_operand(&rewriter, first_add, 1, cursor));
+  check(0, 4);
+  EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor).range_lo, 0);
+  EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor).range_hi, INT64_MAX);
+  IREE_ASSERT_OK(loom_rewriter_set_operand(
+      &rewriter, first_add, 1, loom_index_constant_result(first_increment)));
+  check(0, 4);
+  EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor).range_hi, 640);
+  EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor_middle).range_lo, 64);
+  EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor_middle).range_hi, 704);
+  EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor_next).range_lo, 160);
+  EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor_next).range_hi, 800);
+  IREE_ASSERT_OK(loom_index_constant_rewrite_value(&rewriter, second_increment,
+                                                   loom_attr_i64(64)));
+  check(0, 4);
+  EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor).range_hi, 512);
+
   for (int64_t bound : {5, 4}) {
     IREE_ASSERT_OK(loom_index_constant_rewrite_value(&rewriter, upper,
                                                      loom_attr_i64(bound)));
     check(0, bound);
+    EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor).range_hi,
+              128 * bound);
   }
   for (int64_t value : {3, 1, 2, 1}) {
     IREE_ASSERT_OK(loom_index_constant_rewrite_value(&rewriter, step,
                                                      loom_attr_i64(value)));
     check(0, value == 3 ? 6 : 4);
+    EXPECT_EQ(loom_value_fact_table_lookup(facts, cursor).range_hi,
+              128 * ((4 + value - 1) / value));
   }
   IREE_ASSERT_OK(
       loom_index_constant_rewrite_value(&rewriter, initial, loom_attr_i64(-2)));

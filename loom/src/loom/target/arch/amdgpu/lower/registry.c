@@ -53,6 +53,7 @@
 #include "loom/target/arch/amdgpu/lower/fragment_memory/emit.h"
 #include "loom/target/arch/amdgpu/lower/fragment_memory/packet.h"
 #include "loom/target/arch/amdgpu/lower/fragment_memory/plan.h"
+#include "loom/target/arch/amdgpu/lower/kinds.h"
 #include "loom/target/arch/amdgpu/lower/legality.h"
 #include "loom/target/arch/amdgpu/lower/mask.h"
 #include "loom/target/arch/amdgpu/lower/matrix.h"
@@ -70,12 +71,14 @@
 #include "loom/target/arch/amdgpu/lower/types.h"
 #include "loom/target/arch/amdgpu/lower/value/bit_count.h"
 #include "loom/target/arch/amdgpu/lower/value/integer64.h"
+#include "loom/target/arch/amdgpu/lower/value/integer_division.h"
 #include "loom/target/arch/amdgpu/lower/value/scalar_conversion.h"
 #include "loom/target/arch/amdgpu/lower/value/storage.h"
 #include "loom/target/arch/amdgpu/lower/value/vector_construct.h"
 #include "loom/target/arch/amdgpu/lower/value/vector_conversion.h"
 #include "loom/target/arch/amdgpu/lower/value/vector_transform.h"
 #include "loom/target/arch/amdgpu/lower/workgroup.h"
+#include "loom/target/contract.h"
 
 typedef struct loom_amdgpu_lower_dispatch_row_t
     loom_amdgpu_lower_dispatch_row_t;
@@ -318,6 +321,15 @@ LOOM_AMDGPU_DEFINE_DATA_SELECT(loom_amdgpu_select_scalar_i64_alu_dispatch,
 LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_scalar_i64_alu_dispatch,
                              loom_amdgpu_scalar_i64_alu_plan_t,
                              loom_amdgpu_lower_scalar_i64_alu)
+
+LOOM_AMDGPU_DEFINE_DATA_SELECT(
+    loom_amdgpu_select_unsigned_i64_division_dispatch,
+    loom_amdgpu_unsigned_i64_division_plan_t,
+    loom_amdgpu_select_unsigned_i64_division_plan)
+
+LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_unsigned_i64_division_dispatch,
+                             loom_amdgpu_unsigned_i64_division_plan_t,
+                             loom_amdgpu_lower_unsigned_i64_division)
 
 LOOM_AMDGPU_DEFINE_DATA_SELECT(loom_amdgpu_select_scalar_i64_ctpop_dispatch,
                                loom_amdgpu_scalar_i64_ctpop_plan_t,
@@ -610,6 +622,16 @@ LOOM_AMDGPU_DEFINE_DATA_SELECT(loom_amdgpu_select_vector_cmpf_dispatch,
 LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_vector_cmpf_dispatch,
                              loom_amdgpu_vector_compare_plan_t,
                              loom_amdgpu_lower_vector_cmpf)
+
+LOOM_AMDGPU_DEFINE_DATA_SELECT(
+    loom_amdgpu_select_vector_float_classification_dispatch,
+    loom_amdgpu_vector_float_classification_plan_t,
+    loom_amdgpu_select_vector_float_classification_plan)
+
+LOOM_AMDGPU_DEFINE_DATA_EMIT(
+    loom_amdgpu_emit_vector_float_classification_dispatch,
+    loom_amdgpu_vector_float_classification_plan_t,
+    loom_amdgpu_lower_vector_float_classification)
 
 LOOM_AMDGPU_DEFINE_DATA_SELECT(loom_amdgpu_select_vector_dotf_dispatch,
                                loom_amdgpu_dotf_plan_t,
@@ -1255,6 +1277,8 @@ LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_scalar_i64_alu_plan_t, rhs,
                                         1);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_scalar_i64_ctpop_plan_t,
                                         source, 0);
+LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(
+    loom_amdgpu_unsigned_i64_division_plan_t, source, 0);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_scalar_cttz_plan_t, source,
                                         0);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_scalar_conversion_plan_t,
@@ -1273,6 +1297,8 @@ LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_vector_compare_plan_t, lhs,
                                         0);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_vector_compare_plan_t, rhs,
                                         1);
+LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(
+    loom_amdgpu_vector_float_classification_plan_t, input, 0);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_vector_select_plan_t,
                                         condition, 0);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_vector_select_plan_t,
@@ -1801,9 +1827,29 @@ static iree_status_t loom_amdgpu_low_legality_try_verify_op(
 
 #include "loom/target/arch/amdgpu/contracts/tables.inl"
 
+static const uint16_t kAmdgpuVectorPacketBitCounts[] = {
+    LOOM_AMDGPU_MAX_MEMORY_32BIT_LANES * 32u,
+};
+
+static const loom_target_vector_packet_policy_t kAmdgpuVectorPacketPolicy = {
+    .native_bit_counts = kAmdgpuVectorPacketBitCounts,
+    .maximum_unpacketized_bit_count =
+        LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES * 32u,
+    .native_bit_count_count = IREE_ARRAYSIZE(kAmdgpuVectorPacketBitCounts),
+};
+
+static iree_status_t loom_amdgpu_materialize_vop3_operands(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t* low_operands, iree_host_size_t operand_count) {
+  IREE_ASSERT_EQ(operand_count, 3);
+  return loom_amdgpu_legalize_vop3_scalar_sources(context, source_op,
+                                                  low_operands);
+}
+
 static const loom_low_lower_policy_t kAmdgpuLowLowerPolicy = {
     .name = IREE_SVL("amdgpu-register-lower"),
     .error_catalog = &loom_amdgpu_error_catalog,
+    .vector_packet_policy = &kAmdgpuVectorPacketPolicy,
     .map_type = {.fn = loom_amdgpu_map_type, .user_data = NULL},
     .source_type_supported = {.fn = loom_amdgpu_source_type_supported,
                               .user_data = NULL},
@@ -1820,6 +1866,7 @@ static const loom_low_lower_policy_t kAmdgpuLowLowerPolicy = {
                                .user_data = NULL},
     .materialize_structural_operand =
         {.fn = loom_amdgpu_materialize_structural_operand, .user_data = NULL},
+    .materialize_descriptor_operands = loom_amdgpu_materialize_vop3_operands,
     .emit_cond_branch = {.fn = loom_amdgpu_emit_cond_branch, .user_data = NULL},
     .contract = LOOM_AMDGPU_CONTRACT,
     .descriptor_matrix =

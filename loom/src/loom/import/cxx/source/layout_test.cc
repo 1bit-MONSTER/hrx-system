@@ -8,6 +8,7 @@
 #include <cxx/ast.h>
 #include <cxx/ast_interpreter.h>
 #include <cxx/ast_visitor.h>
+#include <cxx/attributes.h>
 #include <cxx/private/semantic_codec.h>
 #include <cxx/symbols.h>
 #include <cxx/type_traits.h>
@@ -143,7 +144,7 @@ TEST_P(LayoutTest, PackedRequestsAndResolvedLayoutSurviveSemanticArchives) {
   ASSERT_FALSE(records.begin() == records.end());
   auto* record = cxx::symbol_cast<cxx::ClassSymbol>(*records.begin());
   ASSERT_NE(record, nullptr);
-  EXPECT_TRUE(record->isPacked());
+  EXPECT_NE(cxx::findAttribute(record->attributes(), "packed"), nullptr);
   EXPECT_EQ(record->packAlignment(), 0);
   EXPECT_EQ(record->minimumAlignment(), 64);
   EXPECT_EQ(record->sizeInBytes(), 64);

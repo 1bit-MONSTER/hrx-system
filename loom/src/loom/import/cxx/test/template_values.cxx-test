@@ -1,0 +1,146 @@
+// RUN: verify
+struct Descriptor {
+  unsigned elements = 32;
+  unsigned words = elements / 8;
+};
+template <Descriptor Spec>
+struct Tag {};
+static_assert(__is_same(Tag<Descriptor{}>, Tag<Descriptor{32, 4}>));
+static_assert(__is_same(Tag<(Descriptor())>, Tag<Descriptor{.elements = 32}>));
+static_assert(!__is_same(Tag<Descriptor{}>, Tag<Descriptor{64}>));
+static_assert(!__is_same(Tag<Descriptor{}>, Tag<Descriptor{32, 8}>));
+static constexpr Descriptor make() { return {32}; }
+static_assert(__is_same(Tag<make()>, Tag<Descriptor{}>));
+constexpr Descriptor saved{};
+static_assert(__is_same(Tag<saved>, Tag<make()>));
+
+// ====
+// Template equivalence uses stored values, independently of operator==.
+struct Descriptor {
+  unsigned elements;
+  constexpr bool operator==(const Descriptor&) const { return true; }
+};
+template <Descriptor Spec>
+struct Tag {};
+static_assert(__is_same(Tag<Descriptor{32}>, Tag<Descriptor{32}>));
+static_assert(!__is_same(Tag<Descriptor{32}>, Tag<Descriptor{64}>));
+
+// ====
+// Every base subobject and array position participates in equivalence.
+struct Base { unsigned mode; };
+struct Descriptor : Base { unsigned shape[2][2]; };
+template <Descriptor Spec>
+struct Tag {};
+static_assert(__is_same(Tag<Descriptor{{1}, {{2, 3}, {4, 5}}}>,
+                       Tag<Descriptor{{1}, {{2, 3}, {4, 5}}}>));
+static_assert(!__is_same(Tag<Descriptor{{1}, {{2, 3}, {4, 5}}}>,
+                        Tag<Descriptor{{2}, {{2, 3}, {4, 5}}}>));
+static_assert(!__is_same(Tag<Descriptor{{1}, {{2, 3}, {4, 5}}}>,
+                        Tag<Descriptor{{1}, {{2, 3}, {5, 4}}}>));
+
+// ====
+struct Group { unsigned elements = 32; };
+struct Descriptor { Group groups[2]; };
+template <Descriptor Spec>
+struct Tag {};
+static_assert(__is_same(Tag<Descriptor{}>, Tag<Descriptor{{{32}, {32}}}>));
+static_assert(!__is_same(Tag<Descriptor{}>, Tag<Descriptor{{{32}, {64}}}>));
+
+// ====
+// Structurally identical types still identify different template arguments.
+struct First { unsigned elements; };
+struct Second { unsigned elements; };
+template <auto Spec>
+struct Tag {};
+static_assert(!__is_same(Tag<First{32}>, Tag<Second{32}>));
+
+// ====
+// A union's active member is part of its value identity.
+union Choice { unsigned first; unsigned second; };
+template <Choice Spec>
+struct Tag {};
+static_assert(__is_same(Tag<Choice{.first = 5}>, Tag<Choice{.first = 5}>));
+static_assert(!__is_same(Tag<Choice{.first = 5}>, Tag<Choice{.second = 5}>));
+static_assert(!__is_same(Tag<Choice{.first = 5}>, Tag<Choice{.first = 7}>));
+struct Empty {};
+template <Empty Spec>
+struct EmptyTag {};
+static_assert(__is_same(EmptyTag<Empty{}>, EmptyTag<Empty{}>));
+
+// ====
+// Pointer fields compare the addressed storage, never its contents.
+constexpr unsigned table[2] = {5, 5};
+constexpr unsigned other[2] = {5, 5};
+struct Descriptor { const unsigned* address; };
+template <Descriptor Spec>
+struct Tag {};
+static_assert(__is_same(Tag<Descriptor{table + 1}>, Tag<Descriptor{&table[1]}>));
+static_assert(!__is_same(Tag<Descriptor{table}>, Tag<Descriptor{table + 1}>));
+static_assert(!__is_same(Tag<Descriptor{table}>, Tag<Descriptor{other}>));
+static_assert(__is_same(Tag<Descriptor{nullptr}>, Tag<Descriptor{}>));
+
+// ====
+// Floating value identity preserves signed zero and NaN payload bits.
+struct Descriptor { float scale; };
+template <Descriptor Spec>
+struct Tag {};
+static_assert(__is_same(Tag<Descriptor{1.5f}>, Tag<Descriptor{3.0f / 2.0f}>));
+static_assert(!__is_same(Tag<Descriptor{0.0f}>, Tag<Descriptor{-0.0f}>));
+constexpr float nan = __builtin_bit_cast(float, 0x7fc00001u);
+constexpr float same_nan = __builtin_bit_cast(float, 0x7fc00001u);
+constexpr float other_nan = __builtin_bit_cast(float, 0x7fc00002u);
+static_assert(__is_same(Tag<Descriptor{nan}>, Tag<Descriptor{same_nan}>));
+static_assert(!__is_same(Tag<Descriptor{nan}>, Tag<Descriptor{other_nan}>));
+
+// ====
+struct Descriptor { _Float16 half; double wide; };
+template <Descriptor Spec>
+struct Tag {};
+static_assert(__is_same(Tag<Descriptor{1.0f, 2.0}>,
+                       Tag<Descriptor{1.0f, 2.0}>));
+static_assert(!__is_same(Tag<Descriptor{0.0f, 2.0}>,
+                        Tag<Descriptor{-0.0f, 2.0}>));
+static_assert(!__is_same(Tag<Descriptor{1.0f, 0.0}>,
+                        Tag<Descriptor{1.0f, -0.0}>));
+
+// ====
+// Value-based matching finds an explicit specialization from a new argument.
+struct Descriptor { unsigned elements = 32; };
+template <Descriptor Spec>
+struct Policy { static constexpr unsigned width = 1; };
+template <>
+struct Policy<Descriptor{32}> { static constexpr unsigned width = 4; };
+static_assert(Policy<Descriptor{}>::width == 4);
+static_assert(Policy<Descriptor{64}>::width == 1);
+
+// ====
+// Complex constants compare both represented components.
+struct Descriptor { __complex__ float scale; };
+template <Descriptor Spec>
+struct Tag {};
+static_assert(__is_same(Tag<Descriptor{{1.0f, 2.0f}}>,
+                       Tag<Descriptor{{1.0f, 2.0f}}>));
+static_assert(!__is_same(Tag<Descriptor{{1.0f, 2.0f}}>,
+                        Tag<Descriptor{{1.0f, 3.0f}}>));
+static_assert(!__is_same(Tag<Descriptor{{1.0f, 2.0f}}>,
+                        Tag<Descriptor{{3.0f, 2.0f}}>));
+
+// ====
+// Native long-double constants retain signed zero in template identity.
+struct Descriptor { long double scale; };
+template <Descriptor Spec>
+struct Tag {};
+static_assert(__is_same(Tag<Descriptor{1.0L}>, Tag<Descriptor{1.0L}>));
+static_assert(!__is_same(Tag<Descriptor{0.0L}>, Tag<Descriptor{-0.0L}>));
+
+// ====
+// Specialization and template-name lookup both honor floating equivalence.
+template <long double Value>
+struct Tag {};
+static_assert(__is_same(Tag<1.0L>, Tag<1.0L>));
+static_assert(!__is_same(Tag<0.0L>, Tag<-0.0L>));
+constexpr long double nan = __builtin_bit_cast(double, 0x7ff8000000000001ULL);
+constexpr long double same_nan = __builtin_bit_cast(double, 0x7ff8000000000001ULL);
+constexpr long double other_nan = __builtin_bit_cast(double, 0x7ff8000000000002ULL);
+static_assert(__is_same(Tag<nan>, Tag<same_nan>));
+static_assert(!__is_same(Tag<nan>, Tag<other_nan>));

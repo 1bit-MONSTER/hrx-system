@@ -8,6 +8,7 @@
 // Test builds may additionally enable the synthetic test provider.
 
 #include "loom/target/arch/cmd/check/provider.h"
+#include "loom/target/configured/compiler_provider_set.h"
 #include "loom/tooling/input/configured.h"
 #include "loom/tools/loom-check/provider.h"
 
@@ -100,16 +101,16 @@ static const loom_check_provider_t* const kLoomCheckProviders[] = {
 #endif  // LOOM_CHECK_HAVE_TARGET_XDNA
 };
 
-static const loom_check_provider_set_t kLoomCheckProviderSet = {
-    .providers = kLoomCheckProviders,
-    .provider_count = IREE_ARRAYSIZE(kLoomCheckProviders),
-};
-
 int main(int argc, char** argv) {
   IREE_TRACE_APP_ENTER();
   IREE_TRACE_ZONE_BEGIN(z0);
+  const loom_check_provider_set_t provider_set = {
+      .providers = kLoomCheckProviders,
+      .provider_count = IREE_ARRAYSIZE(kLoomCheckProviders),
+      .target_provider_set = loom_configured_emitter_provider_set(),
+  };
   const int exit_code = loom_check_provider_main(
-      argc, argv, &kLoomCheckProviderSet, loom_configured_input_providers());
+      argc, argv, &provider_set, loom_configured_input_providers());
   IREE_TRACE_ZONE_END(z0);
   IREE_TRACE_APP_EXIT(exit_code);
   return exit_code;

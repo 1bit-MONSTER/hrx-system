@@ -128,7 +128,8 @@ static iree_status_t loom_low_allocation_packet_move_record_group(
 
   loom_low_move_group_t move_group = {0};
   IREE_RETURN_IF_ERROR(loom_low_allocation_move_plan_append_group(
-      context->move_plan, operation_point, raw_move_count, &move_group));
+      context->move_plan, op, operation_point->start_point,
+      operation_point->end_point, raw_move_count, &move_group));
   builder->plan.move_count += move_group.moves.count;
   if (move_group.moves.count != 0) {
     builder->plan.groups[builder->plan.group_count++] =

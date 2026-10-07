@@ -340,8 +340,9 @@ class NativeReferencesTest : public ::testing::Test {
   iree_vm_program_t* program_ = nullptr;
   // Process executing ordinary compiled calls and control flow.
   iree_vm_process_t* process_ = nullptr;
-  // Host-owned reusable invocation storage.
-  alignas(iree_max_align_t) std::array<uint8_t, 16384> storage_ = {};
+  // Host-owned invocation storage for nested full reference banks and their
+  // argument/result overflow packets (about 26 KiB at the deepest call).
+  alignas(iree_max_align_t) std::array<uint8_t, 32768> storage_ = {};
   // Invocation borrowing storage_ while the VM is live.
   iree_vm_invocation_t* invocation_ = nullptr;
 };
@@ -493,6 +494,124 @@ TEST_F(NativeReferencesTest, NativeFailureUnwindsAliasesAndKeepsCallerResults) {
   ExpectLocation(site, 73);
   iree_vm_variant_reset(&site);
   iree_vm_variant_reset(&result);
+}
+
+TEST_F(NativeReferencesTest, PrivateStoragePreservesReplacedAndRepeatedOwners) {
+  for (bool use_null : {false, true}) {
+    SCOPED_TRACE(use_null);
+    HalAllocation left;
+    HalAllocation right;
+    auto* original = left.view;
+    auto* replacement = use_null ? nullptr : right.view;
+    iree_vm_variant_t arguments[] = {
+        iree_hal_buffer_view_variant_from_ptr_move(&hal_, &left.view),
+        use_null
+            ? iree_hal_buffer_view_variant_from_ptr_borrowed(&hal_, nullptr)
+            : iree_hal_buffer_view_variant_from_ptr_move(&hal_, &right.view)};
+    left.ReleaseOwners();
+    right.ReleaseOwners();
+    iree_vm_variant_t results[3] = {};
+    IREE_ASSERT_OK(Invoke(IREE_SV("reference_storage"),
+                          iree_vm_variant_span_from_array(arguments),
+                          iree_vm_variant_span_from_array(results)));
+    EXPECT_EQ(View(results[0]), original);
+    EXPECT_EQ(View(results[1]), replacement);
+    EXPECT_EQ(View(results[2]), replacement);
+    left.ExpectView(View(results[0]));
+    if (!use_null) {
+      right.ExpectView(View(results[1]));
+    }
+    iree_vm_variant_reset(&results[1]);
+    EXPECT_EQ(right.releases, use_null ? 1 : 0);
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+    EXPECT_EQ(left.releases, 1);
+    EXPECT_EQ(right.releases, 1);
+  }
+}
+
+TEST_F(NativeReferencesTest, NativeFailureReleasesPrivateStorageOwners) {
+  HalAllocation input;
+  iree_vm_variant_t arguments[] = {
+      iree_hal_buffer_view_variant_from_ptr_move(&hal_, &input.view),
+      iree_vm_buffer_variant_from_ptr_borrowed(&core_, nullptr)};
+  input.ReleaseOwners();
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_ABORTED,
+                        Invoke(IREE_SV("reference_storage_failure"),
+                               iree_vm_variant_span_from_array(arguments), {}));
+  EXPECT_EQ(input.releases, 1);
+}
+
+TEST_F(NativeReferencesTest, SaturatedPermutationRetainsAndReleasesOwners) {
+  for (int32_t count : {0, 1, 2, 3}) {
+    for (bool use_null : {false, true}) {
+      SCOPED_TRACE(count);
+      SCOPED_TRACE(use_null);
+      HalAllocation left;
+      HalAllocation right;
+      auto* first = left.view;
+      auto* second = use_null ? nullptr : right.view;
+      iree_vm_variant_t arguments[257] = {};
+      for (size_t i = 0; i < 256; ++i) {
+        arguments[i] = iree_hal_buffer_view_variant_from_ptr_retained(
+            &hal_, i % 2 ? second : first);
+      }
+      arguments[256] = iree_vm_variant_from_i32(count);
+      left.ReleaseOwners();
+      right.ReleaseOwners();
+      iree_vm_variant_t results[2] = {};
+      IREE_ASSERT_OK(Invoke(IREE_SV("reference_permutation"),
+                            iree_vm_variant_span_from_array(arguments),
+                            iree_vm_variant_span_from_array(results)));
+      EXPECT_EQ(View(results[0]), count % 2 ? second : first);
+      EXPECT_EQ(View(results[1]), count % 2 ? first : second);
+      iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+      EXPECT_EQ(left.releases, 1);
+      EXPECT_EQ(right.releases, 1);
+    }
+  }
+}
+
+TEST_F(NativeReferencesTest, StoredCallBoundariesPreserveAndUnwindOwners) {
+  constexpr size_t kCount = 257;
+  for (int32_t count : {0, 1, 3}) {
+    SCOPED_TRACE(count);
+    for (bool should_fail : {false, true}) {
+      SCOPED_TRACE(should_fail);
+      std::array<HalAllocation, 17> allocations;
+      std::array<iree_hal_buffer_view_t*, kCount> expected;
+      iree_vm_variant_t arguments[kCount + 2] = {};
+      for (size_t i = 0; i < kCount; ++i) {
+        expected[i] =
+            i % 11 ? allocations[i % allocations.size()].view : nullptr;
+        arguments[i] =
+            iree_hal_buffer_view_variant_from_ptr_retained(&hal_, expected[i]);
+      }
+      arguments[kCount] = iree_vm_variant_from_i32(count);
+      arguments[kCount + 1] = iree_vm_variant_from_i32(should_fail);
+      for (auto& allocation : allocations) {
+        allocation.ReleaseOwners();
+      }
+      iree_vm_variant_t results[kCount] = {};
+      if (should_fail) {
+        IREE_EXPECT_STATUS_IS(IREE_STATUS_ABORTED,
+                              Invoke(IREE_SV("many_owners"),
+                                     iree_vm_variant_span_from_array(arguments),
+                                     iree_vm_variant_span_from_array(results)));
+      } else {
+        IREE_ASSERT_OK(Invoke(IREE_SV("many_owners"),
+                              iree_vm_variant_span_from_array(arguments),
+                              iree_vm_variant_span_from_array(results)));
+        for (size_t i = 0; i < kCount; ++i) {
+          EXPECT_EQ(View(results[i]),
+                    expected[(kCount - 1 - i + 19 * count) % kCount]);
+        }
+      }
+      iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+      for (const auto& allocation : allocations) {
+        EXPECT_EQ(allocation.releases, 1);
+      }
+    }
+  }
 }
 
 TEST_F(NativeReferencesTest, RejectsWrongReferenceAtPublicInvocation) {

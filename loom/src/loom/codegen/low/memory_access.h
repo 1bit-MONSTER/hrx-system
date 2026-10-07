@@ -78,6 +78,12 @@ typedef enum loom_low_memory_access_precision_bits_e {
 } loom_low_memory_access_precision_bits_t;
 typedef uint32_t loom_low_memory_access_precision_flags_t;
 
+typedef enum loom_low_memory_access_source_flag_bits_e {
+  // Source atomic load/store lowered through an ordinary target load/store.
+  LOOM_LOW_MEMORY_ACCESS_SOURCE_FLAG_ATOMIC_OBSERVATION = 1u << 0,
+} loom_low_memory_access_source_flag_bits_t;
+typedef uint8_t loom_low_memory_access_source_flags_t;
+
 // One non-wrapping byte interval repeated at a fixed positive stride relative
 // to an alias root. The interval is half-open within [0, stride_bytes).
 typedef struct loom_low_strided_byte_interval_t {
@@ -117,7 +123,9 @@ typedef enum loom_low_memory_comparison_e {
 
 typedef struct loom_low_memory_access_summary_t {
   // Normalized target-low memory space touched by this summary.
-  loom_low_memory_space_t memory_space;
+  uint8_t memory_space;
+  // Source operation semantics retained across target-low lowering.
+  loom_low_memory_access_source_flags_t source_flags;
   // Comparable alias root identifier, or NONE when unknown.
   uint32_t alias_root_id;
   // Comparable disjoint alias group identifier, or NONE when unknown.
@@ -131,6 +139,12 @@ typedef struct loom_low_memory_access_summary_t {
   // Optional captured relative footprint, independent of numeric alias labels.
   const loom_low_memory_relative_interval_t* relative_interval;
 } loom_low_memory_access_summary_t;
+
+static_assert(LOOM_LOW_MEMORY_SPACE_WASM_MEMORY <= UINT8_MAX,
+              "memory spaces must fit compact access summaries");
+static_assert(sizeof(loom_low_memory_access_summary_t) ==
+                  40 + 2 * sizeof(void*),
+              "memory access summaries must remain compact");
 
 // Compiler-owned packet/effect bindings. The arena and operations outlive the
 // map; it contains no IR attributes and never infers an address from Low IR.
@@ -201,9 +215,10 @@ bool loom_low_memory_access_summaries_may_alias(
     loom_low_memory_comparison_t comparison);
 
 // Returns true when the summaries have identical conservative alias facts.
-// This proves equivalent may-alias queries, not identical runtime addresses or
-// full overwrite. Retiring an access additionally requires an established
-// completion dependency through an intervening opposite-kind access.
+// Source flags do not participate. This proves equivalent may-alias queries,
+// not identical runtime addresses or full overwrite. Retiring an access
+// additionally requires an established completion dependency through an
+// intervening opposite-kind access.
 bool loom_low_memory_access_summaries_equal(
     const loom_low_memory_access_summary_t* left,
     const loom_low_memory_access_summary_t* right);

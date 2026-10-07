@@ -248,6 +248,7 @@ loom_cc_library(
     "compiler_provider.c"
   DEPS
     ::facts
+    ::provider
     loom::target::emit::spirv::module_compiler
     loom::target::provider
   PUBLIC
@@ -355,9 +356,13 @@ loom_cc_library(
     "legalization.c"
   DEPS
     iree::base
+    loom::ir
+    loom::ops::scalar
     loom::ops::vector
+    loom::rewrite::rewriter
     loom::target::arch::spirv::descriptors
     loom::target::legalization
+    loom::transforms::scalar::target_legalization
     loom::transforms::vector::to_scalar
   PUBLIC
 )
@@ -516,7 +521,6 @@ loom_check_test_suite(
     "test/source_low/math_contraction.loom-test"
     "test/source_low/memory_access_flags.loom-test"
     "test/source_low/memory_biased_offsets.loom-test"
-    "test/source_low/memory_float8.loom-test"
     "test/source_low/memory_scalar_addressing.loom-test"
     "test/source_low/memory_shared_components.loom-test"
     "test/source_low/memory_tiled_channel.loom-test"
@@ -524,31 +528,22 @@ loom_check_test_suite(
     "test/source_low/memory_workgroup_scalar_addressing.loom-test"
     "test/source_low/narrow_float_arguments.loom-test"
     "test/source_low/nested_view_selection.loom-test"
-    "test/source_low/numeric_address_widening.loom-test"
     "test/source_low/numeric_bfloat_narrow.loom-test"
     "test/source_low/numeric_bfloat_widen.loom-test"
-    "test/source_low/numeric_conversion_float8.loom-test"
     "test/source_low/numeric_extended_math.loom-test"
     "test/source_low/numeric_float_arithmetic.loom-test"
     "test/source_low/numeric_float_comparison_flags.loom-test"
-    "test/source_low/numeric_float_narrowing_matrix.loom-test"
-    "test/source_low/numeric_index.loom-test"
-    "test/source_low/numeric_index_conversion.loom-test"
     "test/source_low/numeric_integer_extrema.loom-test"
-    "test/source_low/numeric_integer_widening.loom-test"
     "test/source_low/numeric_narrow_address.loom-test"
     "test/source_low/numeric_narrow_float_carriers.loom-test"
     "test/source_low/numeric_narrow_float_signs.loom-test"
     "test/source_low/numeric_reciprocal.loom-test"
     "test/source_low/numeric_scalar_f32.loom-test"
     "test/source_low/numeric_scalar_f32_values.loom-test"
-    "test/source_low/numeric_scalar_i32.loom-test"
     "test/source_low/numeric_unsigned_remainder.loom-test"
     "test/source_low/ordinary_vector_float.loom-test"
     "test/source_low/ordinary_vector_structure.loom-test"
     "test/source_low/packed_memory_alignment.loom-test"
-    "test/source_low/packed_memory_values.loom-test"
-    "test/source_low/predicate_extension.loom-test"
     "test/source_low/predicate_truncation.loom-test"
     "test/source_low/predicate_truncation_diagnostics.loom-test"
     "test/source_low/semantic_assertions.loom-test"

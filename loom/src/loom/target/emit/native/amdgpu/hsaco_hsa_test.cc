@@ -704,8 +704,8 @@ class LowKernelEmitter {
     IREE_CHECK_OK(loom_target_environment_initialize(
         &loom_amdgpu_target_provider_set, &target_environment_));
     InitializeLowKernelContext(&target_environment_, &context_);
-    IREE_CHECK_OK(loom_target_environment_initialize_low_descriptor_registry(
-        &target_environment_, &target_registry_));
+    target_registry_ =
+        loom_target_environment_low_descriptor_registry(&target_environment_);
   }
 
   LowKernelEmitter(const LowKernelEmitter&) = delete;

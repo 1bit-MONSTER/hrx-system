@@ -32,6 +32,7 @@ loom_cc_binary(
     loom::pass::registry
     loom::pass::report
     loom::pass::tooling
+    loom::pass::trace
     loom::target::configured::provider
     loom::target::math_policy
     loom::target::pipeline
@@ -39,7 +40,6 @@ loom_cc_binary(
     loom::target::provider
     loom::tooling::cli::help
     loom::tooling::config
-    loom::tooling::context
     loom::tooling::execution::session
     loom::tooling::io::file
     loom::tooling::pass::trace_cli

@@ -66,6 +66,7 @@ from loom.target.low_descriptors import (
     RegClassAltFlag,
     RegClassFlag,
     RegisterPackingResource,
+    RegisterPackingResourceFlag,
     RegisterPackingResourceMember,
     StorageLease,
     StorageLeaseAttachment,
@@ -708,6 +709,10 @@ def test_compiler_emits_register_packing_resources() -> None:
     assert resource.source.capacity == 2
     assert resource.member_start == 0
     assert resource.member_count == 2
+    assert resource.flags == (
+        RegisterPackingResourceFlag.UNSPILLABLE,
+        RegisterPackingResourceFlag.HAS_AGGREGATE_MEMBER,
+    )
     assert [compiled.reg_classes[member.reg_class_id].name for member in compiled.register_packing_resource_members] == ["test.packed.narrow", "test.packed.wide"]
     assert [(member.register_unit_count, member.resource_unit_count) for member in compiled.register_packing_resource_members] == [(1, 1), (2, 1)]
 
@@ -715,6 +720,30 @@ def test_compiler_emits_register_packing_resources() -> None:
     assert "kTestLowCoreRegisterPackingResources" in generated.source
     assert "kTestLowCoreRegisterPackingResourceMembers" in generated.source
     assert ".register_packing_resource_count = IREE_ARRAYSIZE(" in generated.source
+
+
+@pytest.mark.parametrize("spillable_members", [(), ("test.packed.narrow",), ("test.packed.wide",), ("test.packed.narrow", "test.packed.wide")])
+@pytest.mark.parametrize("member_names", [("test.packed.narrow",), ("test.packed.wide",), ("test.packed.narrow", "test.packed.wide")])
+def test_compiler_derives_register_packing_flags(spillable_members: tuple[str, ...], member_names: tuple[str, ...]) -> None:
+    source = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(TEST_LOW_ADD_I32_DESCRIPTOR,))
+    resource = source.register_packing_resources[0]
+    resource = replace(resource, members=tuple(member for member in resource.members if member.register_class in member_names))
+    source = replace(
+        source,
+        reg_classes=tuple(
+            replace(register_class, flags=tuple(flag for flag in register_class.flags if flag != RegClassFlag.UNSPILLABLE)) if register_class.name in spillable_members else register_class
+            for register_class in source.reg_classes
+        ),
+        register_packing_resources=(resource,),
+    )
+    compiled = compiler.compile_descriptor_set(source)
+    flags = compiled.register_packing_resources[0].flags
+    assert (RegisterPackingResourceFlag.UNSPILLABLE in flags) == set(member_names).isdisjoint(spillable_members)
+    assert (RegisterPackingResourceFlag.HAS_AGGREGATE_MEMBER in flags) == ("test.packed.wide" in member_names)
+    generated = generate_descriptor_set(source)
+    resource_source = generated.source.split(f".name_string_ref = {compiled.string_pool.ref('register_packing_resource_test.pair_slots')},", 1)[1].split("\n  }", 1)[0]
+    expected_flags = " | ".join(flag.value for flag in flags) or "0"
+    assert f".flags = {expected_flags}," in resource_source
 
 
 def test_compiler_rejects_invalid_register_packing_resources() -> None:
@@ -1287,10 +1316,41 @@ def test_compiler_rejects_contradictory_memory_instruction_classes() -> None:
         compiler.compile_descriptor_set(descriptor_set)
 
 
+@pytest.mark.parametrize(
+    ("effect", "expected_memory_class"),
+    [
+        (Effect(EffectKind.READ), False),
+        (Effect(EffectKind.WRITE), False),
+        (Effect(EffectKind.READ, memory_space=MemorySpace.GLOBAL), True),
+        (Effect(EffectKind.WRITE, memory_space=MemorySpace.STACK), True),
+    ],
+)
+def test_compiler_derives_memory_class_only_from_attached_effects(
+    effect: Effect,
+    expected_memory_class: bool,
+) -> None:
+    descriptor = replace(
+        TEST_LOW_ADD_I32_DESCRIPTOR,
+        effects=(effect,),
+        semantic_tag=None,
+    )
+    schedule_classes = {schedule_class.name: schedule_class for schedule_class in TEST_LOW_CORE_DESCRIPTOR_SET.schedule_classes}
+    resources = {resource.name: resource for resource in TEST_LOW_CORE_DESCRIPTOR_SET.resources}
+
+    classes = compiler.derive_instruction_classes(
+        descriptor,
+        schedule_classes[descriptor.schedule_class],
+        resources,
+    )
+
+    assert (InstructionClass.GENERIC_MEMORY in classes) is expected_memory_class
+
+
 def test_compiler_rejects_load_instruction_class_without_read_effect() -> None:
     descriptor = replace(
         TEST_LOW_ADD_I32_DESCRIPTOR,
         semantic_tag=None,
+        effects=(Effect(EffectKind.READ),),
         instruction_classes=(InstructionClass.GLOBAL_LOAD,),
     )
     descriptor_set = replace(
@@ -1300,7 +1360,7 @@ def test_compiler_rejects_load_instruction_class_without_read_effect() -> None:
 
     with pytest.raises(
         ValueError,
-        match=re.escape("descriptor 'test.add.i32' has a load instruction class without a read effect"),
+        match=re.escape("descriptor 'test.add.i32' has a load instruction class without a memory read effect"),
     ):
         compiler.compile_descriptor_set(descriptor_set)
 

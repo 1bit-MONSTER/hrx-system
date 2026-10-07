@@ -463,6 +463,7 @@ TEST(SpirvModuleBuilderTest, EmitsRawBdaHalKernelPreamble) {
   const loom_target_export_plan_t export_plan = {
       /*.name=*/IREE_SVL("hal-kernel"),
       /*.export_symbol=*/{},
+      /*.calling_convention=*/{},
       /*.abi_kind=*/LOOM_TARGET_ABI_HAL_KERNEL,
   };
   const loom_target_config_t config = {
@@ -529,6 +530,7 @@ TEST(SpirvModuleBuilderTest, EmitsVulkanMemoryModelForDeviceScopeRawBda) {
   const loom_target_export_plan_t export_plan = {
       /*.name=*/IREE_SVL("hal-kernel"),
       /*.export_symbol=*/{},
+      /*.calling_convention=*/{},
       /*.abi_kind=*/LOOM_TARGET_ABI_HAL_KERNEL,
   };
   const loom_target_config_t config = {
@@ -577,6 +579,7 @@ TEST(SpirvModuleBuilderTest, EmitsCooperativeMatrixRawBdaHalKernelPreamble) {
   const loom_target_export_plan_t export_plan = {
       /*.name=*/IREE_SVL("hal-kernel"),
       /*.export_symbol=*/{},
+      /*.calling_convention=*/{},
       /*.abi_kind=*/LOOM_TARGET_ABI_HAL_KERNEL,
   };
   const loom_target_config_t config = {
@@ -701,6 +704,7 @@ TEST(SpirvModuleBuilderTest, RejectsNonSpirvTargetBundle) {
   const loom_target_export_plan_t export_plan = {
       /*.name=*/IREE_SVL("shader-entry"),
       /*.export_symbol=*/{},
+      /*.calling_convention=*/{},
       /*.abi_kind=*/LOOM_TARGET_ABI_SHADER_ENTRY_POINT,
   };
   const loom_target_config_t config = {

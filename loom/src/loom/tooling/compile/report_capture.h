@@ -10,12 +10,9 @@
 #define LOOM_TOOLING_COMPILE_REPORT_CAPTURE_H_
 
 #include "iree/base/api.h"
-#include "loom/error/diagnostic.h"
-#include "loom/error/renderer.h"
 #include "loom/target/reporting/format.h"
 #include "loom/tooling/compile/options.h"
 #include "loom/tooling/config/config.h"
-#include "loom/util/json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,17 +37,8 @@ typedef struct loom_compile_report_capture_options_t {
 typedef struct loom_compile_report_capture_t {
   // Capture options used to configure and format |report|.
   loom_compile_report_capture_options_t options;
-  // Host allocator used for optional detail rows.
-  iree_allocator_t host_allocator;
   // Compile report populated by candidate compilation.
   loom_target_compile_report_t report;
-  // Compiler diagnostics captured for report output.
-  struct {
-    // Canonical diagnostic objects for structured JSON detail reports.
-    loom_json_value_list_t json_values;
-    // Total number of diagnostics, including summary-only captures.
-    iree_host_size_t count;
-  } diagnostics;
 } loom_compile_report_capture_t;
 
 // Initializes capture options with report output disabled.
@@ -75,7 +63,7 @@ bool loom_compile_report_capture_is_enabled(
     const loom_compile_report_capture_t* capture);
 
 // Initializes |out_capture| and its allocator-owned report.
-iree_status_t loom_compile_report_capture_initialize(
+void loom_compile_report_capture_initialize(
     const loom_compile_report_capture_options_t* options,
     iree_allocator_t host_allocator,
     loom_compile_report_capture_t* out_capture);
@@ -91,17 +79,6 @@ void loom_compile_report_capture_configure_compile_options(
 loom_tooling_config_binding_sink_t loom_compile_report_config_binding_sink(
     loom_target_compile_report_t* report);
 
-// Records one compiler diagnostic for report output using the canonical
-// loom_diagnostic_json_write_object() shape.
-iree_status_t loom_compile_report_capture_record_diagnostic(
-    loom_compile_report_capture_t* capture, const loom_diagnostic_t* diagnostic,
-    loom_type_formatter_t type_formatter);
-
-// Appends the captured report to |builder| when capture is enabled.
-iree_status_t loom_compile_report_capture_append_text(
-    const loom_compile_report_capture_t* capture,
-    iree_string_builder_t* builder);
-
 // Appends the captured report as one JSON object when capture is enabled.
 iree_status_t loom_compile_report_capture_append_json(
     const loom_compile_report_capture_t* capture, loom_output_stream_t* stream);
@@ -115,11 +92,6 @@ iree_status_t loom_compile_report_capture_append_json(
 iree_status_t loom_compile_report_capture_append_output(
     const loom_compile_report_capture_t* capture,
     iree_string_builder_t* builder);
-
-// Writes the captured report to |stream| using the configured sink format.
-iree_status_t loom_compile_report_capture_write_output(
-    const loom_compile_report_capture_t* capture, loom_output_stream_t* stream,
-    iree_allocator_t host_allocator);
 
 // Releases storage owned by |capture|.
 void loom_compile_report_capture_deinitialize(

@@ -44,6 +44,17 @@ iree_status_t loom_storage_interference_analyze_function(
 bool loom_storage_interference_root_may_be_accessed(
     const loom_storage_interference_t* analysis, loom_value_id_t root_value_id);
 
+// Returns true when one static storage instance can represent every execution
+// of the allocation. Acyclic allocations are single instances. Repeated roots
+// require complete provenance, no older live alias at allocation entry, and no
+// asynchronous access crossing that boundary. Accessed workgroup roots require
+// either a single-invocation launch or a uniform workgroup rendezvous at a
+// quiescent point in the allocation block, separating reuse across invocations.
+// The proof is retained during construction; this query neither traverses IR
+// nor computes liveness.
+bool loom_storage_interference_root_has_single_live_instance(
+    const loom_storage_interference_t* analysis, loom_value_id_t root_value_id);
+
 // Proves that two workgroup buffer.alloca roots never require their bytes at
 // the same time. The proof accepts workgroup-uniform mutually exclusive
 // control or a verified workgroup acq_rel barrier separating all synchronous

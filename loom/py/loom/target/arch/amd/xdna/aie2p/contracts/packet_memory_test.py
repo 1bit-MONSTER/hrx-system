@@ -24,6 +24,7 @@ from loom.target.contracts import (
     EmitRegisterSlice,
     Guard,
     SourceMemoryAddressLayout,
+    SourceMemoryDynamicIndexSource,
     SourceMemoryOperation,
     SourceMemoryProject,
     SourceMemoryProjectKind,
@@ -62,13 +63,27 @@ def _source_memory_emit(rule) -> EmitDescriptorOp:
     )
 
 
-def _fused_address_cases(width_bits: int):
+def _fused_address_cases(width_bits: int, *, maximum_chunk_offset: int = 0):
+    no_index = SourceMemoryDynamicIndexSource.NONE
+    value_index = SourceMemoryDynamicIndexSource.VALUE
+    full_static_maximum = _I32_MAX - maximum_chunk_offset
     return (
-        ("immediate", -width_bits, width_bits - width_bits // 8, 0, 0, False),
-        ("register", _I32_MIN, _I32_MAX, 0, 0, False),
-        ("register", 0, 0, None, 1, True),
-        ("register", -64, 63, None, 1, True),
-        ("register", _I32_MIN, _I32_MAX, None, 1, True),
+        (
+            "immediate",
+            -width_bits,
+            width_bits - width_bits // 8 - maximum_chunk_offset,
+            0,
+            0,
+            no_index,
+            0,
+            False,
+        ),
+        ("register", _I32_MIN, full_static_maximum, 0, 0, no_index, 0, False),
+        ("register", 0, 0, None, 1, no_index, 0, True),
+        ("register", -64, 63, None, 1, no_index, 0, True),
+        ("register", -128, 127, 1, 0, value_index, 1, False),
+        ("register", _I32_MIN, full_static_maximum, 1, 0, value_index, 1, False),
+        ("register", _I32_MIN, full_static_maximum, None, 1, no_index, 0, True),
     )
 
 
@@ -93,6 +108,8 @@ def _fused_rule_identity(rule):
         source_memory.static_byte_offset_maximum,
         source_memory.dynamic_term_count,
         source_memory.dynamic_term_count_minimum,
+        source_memory.dynamic_index_source,
+        source_memory.dynamic_byte_stride,
         source_memory.allow_dynamic_stride_values,
     )
 
@@ -216,6 +233,8 @@ def test_fused_packet_memory_rules_cover_the_native_shape_matrix() -> None:
                     static_maximum,
                     dynamic_count,
                     dynamic_minimum,
+                    dynamic_index_source,
+                    dynamic_byte_stride,
                     dynamic_strides,
                 ) in _fused_address_cases(width_bits):
                     expected_identities.add(
@@ -238,6 +257,8 @@ def test_fused_packet_memory_rules_cover_the_native_shape_matrix() -> None:
                             static_maximum,
                             dynamic_count,
                             dynamic_minimum,
+                            dynamic_index_source,
+                            dynamic_byte_stride,
                             dynamic_strides,
                         )
                     )
@@ -249,14 +270,10 @@ def test_fused_packet_memory_rules_cover_the_native_shape_matrix() -> None:
                 static_maximum,
                 dynamic_count,
                 dynamic_minimum,
+                dynamic_index_source,
+                dynamic_byte_stride,
                 dynamic_strides,
-            ) in (
-                ("immediate", -512, 384, 0, 0, False),
-                ("register", _I32_MIN, _I32_MAX - 64, 0, 0, False),
-                ("register", 0, 0, None, 1, True),
-                ("register", -64, 63, None, 1, True),
-                ("register", _I32_MIN, _I32_MAX - 64, None, 1, True),
-            ):
+            ) in _fused_address_cases(512, maximum_chunk_offset=64):
                 expected_identities.add(
                     (
                         vector.vector_load.name,
@@ -279,6 +296,8 @@ def test_fused_packet_memory_rules_cover_the_native_shape_matrix() -> None:
                         static_maximum,
                         dynamic_count,
                         dynamic_minimum,
+                        dynamic_index_source,
+                        dynamic_byte_stride,
                         dynamic_strides,
                     )
                 )
@@ -350,7 +369,7 @@ def test_bfp_load_rules_preserve_two_native_chunks() -> None:
         for rule in AIE2P_PACKET_MEMORY_RULES
         if rule.source_nodes[0].source_op is vector.vector_encode
     ]
-    assert len(rules) == len(_MEMORY_ROOTS) * 2 * 5
+    assert len(rules) == len(_MEMORY_ROOTS) * 2 * 7
     for rule in rules:
         memory_emits = [
             emit

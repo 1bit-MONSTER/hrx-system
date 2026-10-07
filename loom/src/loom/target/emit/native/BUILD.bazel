@@ -45,8 +45,14 @@ loom_cc_library(
 
 loom_cc_library(
     name = "elf",
-    srcs = ["elf.c"],
-    hdrs = ["elf.h"],
+    srcs = [
+        "elf.c",
+        "elf_symbols.c",
+    ],
+    hdrs = [
+        "elf.h",
+        "elf_symbols.h",
+    ],
     visibility = _NATIVE_AMDGPU_VISIBILITY + _NATIVE_XDNA_VISIBILITY,
     deps = [
         "//runtime/src/iree/base",
@@ -61,9 +67,20 @@ loom_cc_library(
     hdrs = ["contribution.h"],
     visibility = _NATIVE_AIE2P_VISIBILITY,
     deps = [
-        ":elf",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
+    name = "elf_sections",
+    srcs = ["elf_sections.c"],
+    hdrs = ["elf_sections.h"],
+    visibility = _NATIVE_AIE2P_VISIBILITY,
+    deps = [
+        ":contribution",
+        ":elf",
+        "//runtime/src/iree/base",
     ],
 )
 
@@ -71,10 +88,44 @@ loom_cc_library(
     name = "object",
     srcs = ["object.c"],
     hdrs = ["object.h"],
-    visibility = _NATIVE_AIE2P_VISIBILITY,
+    visibility = _NATIVE_AIE2P_VISIBILITY + _NATIVE_X86_VISIBILITY,
     deps = [
         ":contribution",
         "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "object_elf",
+    srcs = [
+        "image_elf.c",
+        "object_elf.c",
+    ],
+    hdrs = [
+        "image_elf.h",
+        "object_elf.h",
+    ],
+    visibility = _NATIVE_X86_VISIBILITY,
+    deps = [
+        ":contribution",
+        ":elf",
+        ":elf_sections",
+        ":object",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/io:stream",
+    ],
+)
+
+loom_cc_test(
+    name = "elf_symbols_test",
+    srcs = ["elf_symbols_test.cc"],
+    deps = [
+        ":elf",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 
@@ -109,7 +160,29 @@ loom_cc_test(
     srcs = ["contribution_test.cc"],
     deps = [
         ":contribution",
-        ":elf",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "elf_sections_test",
+    srcs = ["elf_sections_test.cc"],
+    deps = [
+        ":elf_sections",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "object_elf_test",
+    srcs = ["object_elf_test.cc"],
+    deps = [
+        ":object_elf",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/io:stream",

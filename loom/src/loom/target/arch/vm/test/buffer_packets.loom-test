@@ -91,9 +91,9 @@ vm.module core(0.0) {
       buffer.atomic.reduce %r0, %v0, %v1 {carrier = i64, kind = add.integer, ordering = release, scope = system}
       %v1 = buffer.atomic.rmw %r0, %v0, %v1 {carrier = i64, kind = add.integer, ordering = acquire, scope = device}
       %v0 = buffer.atomic.cmpxchg %r0, %v0, %v1, %v2 {carrier = i64, success_ordering = acq_rel, failure_ordering = acquire, scope = system}
-      %v2 = value.copy %v0
-      %v0 = value.copy %v1
-      %v1 = value.copy %v2
+      %v2 = value.copy %v1
+      %v1 = value.copy %v0
+      %v0 = value.copy %v2
       control.return
     }
   }

@@ -58,10 +58,25 @@ static iree_status_t loom_low_lower_source_query_map_value(
     void* user_data, const loom_low_lower_rule_match_context_t* match_context,
     const loom_op_t* source_op, loom_value_id_t source_value_id,
     loom_low_lower_rule_mapped_value_t* out_mapped_value) {
-  (void)match_context;
   *out_mapped_value = loom_low_lower_rule_mapped_value_none();
   loom_low_lower_contract_query_state_t* state =
       (loom_low_lower_contract_query_state_t*)user_data;
+  const loom_type_t actual_type =
+      loom_module_value_type(state->context->module, source_value_id);
+  const loom_type_t query_type =
+      loom_low_lower_rule_match_value_type(match_context, source_value_id);
+  if (!loom_type_equal(actual_type, query_type)) {
+    loom_type_t low_type = loom_type_none();
+    IREE_RETURN_IF_ERROR(state->context->policy->map_type.fn(
+        state->context->policy->map_type.user_data, state->context, source_op,
+        query_type, &low_type));
+    if (loom_type_kind(low_type) != LOOM_TYPE_NONE) {
+      *out_mapped_value = loom_low_lower_rule_mapped_value_register(
+          loom_low_register_type_class_id(low_type),
+          loom_low_register_type_unit_count(low_type));
+    }
+    return iree_ok_status();
+  }
   const loom_low_lower_map_contract_value_callback_t map_contract_value =
       state->context->policy->map_contract_value;
   if (map_contract_value.fn != NULL) {

@@ -1,0 +1,10 @@
+// RUN: with-checks compile-report target=amd.xdna.aie2p:core target-legalize{mode=final}
+
+func.def @packet_report(%input: vector<64xbf16>) -> (vector<64xbf16>) {
+  %result = vector.negf %input : vector<64xbf16>
+  func.return %result : vector<64xbf16>
+}
+
+// ----
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=0 target_rewritten=1 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=1 *
+CHECK: COMPILE-REPORT: target_legalization[0] function=packet_report source_op=vector.negf * action=rewritten outcome=target-rewrite contract=unsupported legalizer=vector-packet strategy=target * scalarized=false * created_ops=5 erased_ops=1

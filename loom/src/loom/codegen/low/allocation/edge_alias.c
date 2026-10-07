@@ -110,8 +110,9 @@ static iree_status_t loom_low_allocation_edge_alias_storage_range_used_after(
       node = observation->next_node;
       if (loom_consumption_use_after_query_observes_operation(
               &use_after_query,
-              context->liveness->operation_points[observation->operation_index]
-                  .op)) {
+              loom_liveness_operation_at(context->liveness,
+                                         observation->operation_index)
+                  ->op)) {
         *out_used_after = true;
         return iree_ok_status();
       }

@@ -7,6 +7,8 @@
 #include "loom/target/arch/wasm/provider.h"
 
 #include "loom/ir/module.h"
+#include "loom/ops/scalar/ops.h"
+#include "loom/target/arch/wasm/descriptors/descriptors.h"
 #include "loom/target/arch/wasm/descriptors/low_registry.h"
 #include "loom/target/arch/wasm/low_verify.h"
 #include "loom/target/arch/wasm/math_policy.h"
@@ -14,6 +16,7 @@
 #include "loom/target/arch/wasm/ops/registry.h"
 #include "loom/target/arch/wasm/records/target_records.h"
 #include "loom/target/emit/wasm/lower/lower.h"
+#include "loom/transforms/scalar/target_legalization.h"
 
 static iree_status_t loom_wasm_profile_project_facts(
     const loom_target_profile_t* profile, iree_arena_allocator_t* arena,
@@ -101,6 +104,46 @@ static const loom_low_verify_provider_t* const kLoomWasmLowVerifyProviders[] = {
     &loom_wasm_low_verify_provider,
 };
 
+static iree_status_t loom_wasm_legalize_float8_to_bfloat_extension(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (context->descriptor_set == NULL ||
+      context->descriptor_set->target_stable_id !=
+          loom_wasm_core_simd128_descriptor_set()->target_stable_id) {
+    return iree_ok_status();
+  }
+  (void)entry;
+  IREE_RETURN_IF_ERROR(loom_scalar_rewrite_float8_extension(context, op));
+  out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  return iree_ok_status();
+}
+
+static const loom_target_legalizer_rule_t kLoomWasmLegalizerRules[] = {
+    {
+        .root_kind = LOOM_OP_SCALAR_EXTF,
+        .first_operand_element_types =
+            LOOM_SCALAR_TYPE_SET_F8E4M3 | LOOM_SCALAR_TYPE_SET_F8E5M2,
+        .match = loom_scalar_match_float8_to_bfloat_extension,
+        .legalize = loom_wasm_legalize_float8_to_bfloat_extension,
+    },
+};
+
+static const loom_target_legalizer_provider_t kLoomWasmLegalizerProvider = {
+    .name = IREE_SVL("wasm"),
+    .strategy = LOOM_TARGET_LEGALIZER_STRATEGY_TARGET,
+    .rules = kLoomWasmLegalizerRules,
+    .rule_count = IREE_ARRAYSIZE(kLoomWasmLegalizerRules),
+};
+
+static const loom_target_legalizer_provider_t* const
+    kLoomWasmLegalizerProviders[] = {
+        &kLoomWasmLegalizerProvider,
+};
+
 const loom_target_provider_t loom_wasm_target_provider = {
     .profile_type = &kProfileType,
     .select_profile = loom_wasm_select_profile,
@@ -113,6 +156,11 @@ const loom_target_provider_t loom_wasm_target_provider = {
         loom_wasm_low_lower_policy_registry_initialize,
     .initialize_math_policy_registry =
         loom_wasm_math_policy_registry_initialize,
+    .legalizer_provider_list =
+        {
+            .count = IREE_ARRAYSIZE(kLoomWasmLegalizerProviders),
+            .values = kLoomWasmLegalizerProviders,
+        },
     .low_verify_provider_list =
         {
             .count = IREE_ARRAYSIZE(kLoomWasmLowVerifyProviders),

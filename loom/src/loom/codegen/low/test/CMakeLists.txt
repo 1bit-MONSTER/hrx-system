@@ -17,11 +17,13 @@ loom_check_test_suite(
     "allocation_aliases.loom-test"
     "allocation_arguments.loom-test"
     "allocation_concat.loom-test"
+    "allocation_copy_sources.loom-test"
     "allocation_destructive_concat.loom-test"
     "allocation_destructive_paths.loom-test"
     "allocation_fixed.loom-test"
     "allocation_fragmentation.loom-test"
     "allocation_identity_edges.loom-test"
+    "allocation_modes.loom-test"
     "allocation_physical_domains.loom-test"
     "allocation_preferences.loom-test"
     "allocation_reachability.loom-test"
@@ -31,6 +33,7 @@ loom_check_test_suite(
     "hazard_plan.loom-test"
     "packet.loom-test"
     "register_parts.loom-test"
+    "storage_transport.loom-test"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

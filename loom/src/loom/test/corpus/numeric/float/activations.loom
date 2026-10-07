@@ -1,0 +1,164 @@
+// Exercises the common activation family at its origin, transition, and
+// saturation regions. The oracle expands each semantic operation through
+// full-f32 arithmetic so targets may use lower-precision approximations within
+// the shared accuracy envelope.
+
+func.def @activation_observations(%scalar_input: f32, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<16xf32>
+  %output_view = buffer.view %output[%base] : buffer -> view<85xf32>
+  %values = vector.load %input_view[0] : view<16xf32> -> vector<16xf32>
+
+  %scalar_erf = scalar.geluf<erf, afn> %scalar_input : f32
+  %scalar_tanh = scalar.geluf<tanh, afn> %scalar_input : f32
+  %scalar_gelu_logistic = scalar.geluf<logistic, afn> %scalar_input {scale = 1.702} : f32
+  %scalar_logistic = scalar.logisticf<afn> %scalar_input : f32
+  %scalar_silu = scalar.siluf<afn> %scalar_input : f32
+  view.store %scalar_erf, %output_view[0] : f32, view<85xf32>
+  view.store %scalar_tanh, %output_view[1] : f32, view<85xf32>
+  view.store %scalar_gelu_logistic, %output_view[2] : f32, view<85xf32>
+  view.store %scalar_logistic, %output_view[3] : f32, view<85xf32>
+  view.store %scalar_silu, %output_view[4] : f32, view<85xf32>
+
+  %vector_erf = vector.geluf<erf, afn> %values : vector<16xf32>
+  %vector_tanh = vector.geluf<tanh, afn> %values : vector<16xf32>
+  %vector_gelu_logistic = vector.geluf<logistic, afn> %values {scale = 1.702} : vector<16xf32>
+  %vector_logistic = vector.logisticf<afn> %values : vector<16xf32>
+  %vector_silu = vector.siluf<afn> %values : vector<16xf32>
+  vector.store %vector_erf, %output_view[5] : vector<16xf32>, view<85xf32>
+  vector.store %vector_tanh, %output_view[21] : vector<16xf32>, view<85xf32>
+  vector.store %vector_gelu_logistic, %output_view[37] : vector<16xf32>, view<85xf32>
+  vector.store %vector_logistic, %output_view[53] : vector<16xf32>, view<85xf32>
+  vector.store %vector_silu, %output_view[69] : vector<16xf32>, view<85xf32>
+  func.return
+}
+
+func.def inline @activation_logistic_reference(%input: f32) -> (f32) {
+  %c1 = scalar.constant 1.0 : f32
+  %negative = scalar.negf %input : f32
+  %exponent = scalar.expf<afn> %negative : f32
+  %denominator = scalar.addf %c1, %exponent : f32
+  %result = scalar.divf %c1, %denominator : f32
+  func.return %result : f32
+}
+
+func.def inline @activation_erf_reference(%input: f32) -> (f32) {
+  %c1 = scalar.constant 1.0 : f32
+  %p = scalar.constant 0.32759110000000002 : f32
+  %a1 = scalar.constant 0.25482959199999999 : f32
+  %a2 = scalar.constant -0.28449673599999997 : f32
+  %a3 = scalar.constant 1.4214137410000001 : f32
+  %a4 = scalar.constant -1.453152027 : f32
+  %a5 = scalar.constant 1.0614054289999999 : f32
+  %magnitude = scalar.absf %input : f32
+  %scaled_magnitude = scalar.mulf %p, %magnitude : f32
+  %denominator = scalar.addf %c1, %scaled_magnitude : f32
+  %t = scalar.divf %c1, %denominator : f32
+  %p4 = scalar.mulf %a5, %t : f32
+  %p3_sum = scalar.addf %p4, %a4 : f32
+  %p3 = scalar.mulf %p3_sum, %t : f32
+  %p2_sum = scalar.addf %p3, %a3 : f32
+  %p2 = scalar.mulf %p2_sum, %t : f32
+  %p1_sum = scalar.addf %p2, %a2 : f32
+  %p1 = scalar.mulf %p1_sum, %t : f32
+  %p0_sum = scalar.addf %p1, %a1 : f32
+  %polynomial = scalar.mulf %p0_sum, %t : f32
+  %squared = scalar.mulf %magnitude, %magnitude : f32
+  %negative_squared = scalar.negf %squared : f32
+  %exponent = scalar.expf<afn> %negative_squared : f32
+  %tail = scalar.mulf %polynomial, %exponent : f32
+  %unsigned_result = scalar.subf %c1, %tail : f32
+  %result = scalar.copysignf %unsigned_result, %input : f32
+  func.return %result : f32
+}
+
+func.def inline @activation_reference(%input: f32) -> (f32, f32, f32, f32, f32) {
+  %half = scalar.constant 0.5 : f32
+  %c1 = scalar.constant 1.0 : f32
+  %c2 = scalar.constant 2.0 : f32
+  %inverse_sqrt_two = scalar.constant 0.70710678118654757 : f32
+  %sqrt_two_over_pi = scalar.constant 0.79788456080286541 : f32
+  %cubic_coefficient = scalar.constant 0.044714999999999998 : f32
+  %logistic_scale = scalar.constant 1.702 : f32
+
+  %erf_input = scalar.mulf %input, %inverse_sqrt_two : f32
+  %erf = func.call @activation_erf_reference(%erf_input) : (f32) -> (f32)
+  %one_plus_erf = scalar.addf %c1, %erf : f32
+  %half_input = scalar.mulf %half, %input : f32
+  %gelu_erf = scalar.mulf %half_input, %one_plus_erf : f32
+
+  %squared = scalar.mulf %input, %input : f32
+  %cubed = scalar.mulf %squared, %input : f32
+  %cubic_term = scalar.mulf %cubic_coefficient, %cubed : f32
+  %inner = scalar.addf %input, %cubic_term : f32
+  %tanh_input = scalar.mulf %sqrt_two_over_pi, %inner : f32
+  %doubled_tanh_input = scalar.mulf %c2, %tanh_input : f32
+  %tanh_logistic = func.call @activation_logistic_reference(%doubled_tanh_input) : (f32) -> (f32)
+  %doubled_logistic = scalar.mulf %c2, %tanh_logistic : f32
+  %tanh = scalar.subf %doubled_logistic, %c1 : f32
+  %one_plus_tanh = scalar.addf %c1, %tanh : f32
+  %gelu_tanh = scalar.mulf %half_input, %one_plus_tanh : f32
+
+  %scaled_logistic_input = scalar.mulf %logistic_scale, %input : f32
+  %gelu_logistic_factor = func.call @activation_logistic_reference(%scaled_logistic_input) : (f32) -> (f32)
+  %gelu_logistic = scalar.mulf %input, %gelu_logistic_factor : f32
+  %logistic = func.call @activation_logistic_reference(%input) : (f32) -> (f32)
+  %silu = scalar.mulf %input, %logistic : f32
+  func.return %gelu_erf, %gelu_tanh, %gelu_logistic, %logistic, %silu : f32, f32, f32, f32, f32
+}
+
+func.def @activation_observations_oracle(%scalar_input: f32, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<16xf32>
+  %output_view = buffer.view %output[%base] : buffer -> view<85xf32>
+  %scalar_erf, %scalar_tanh, %scalar_gelu_logistic, %scalar_logistic, %scalar_silu = func.call @activation_reference(%scalar_input) : (f32) -> (f32, f32, f32, f32, f32)
+  view.store %scalar_erf, %output_view[0] : f32, view<85xf32>
+  view.store %scalar_tanh, %output_view[1] : f32, view<85xf32>
+  view.store %scalar_gelu_logistic, %output_view[2] : f32, view<85xf32>
+  view.store %scalar_logistic, %output_view[3] : f32, view<85xf32>
+  view.store %scalar_silu, %output_view[4] : f32, view<85xf32>
+
+  %begin = index.constant 0 : index
+  %end = index.constant 16 : index
+  %step = index.constant 1 : index
+  %erf_base = index.constant 5 : index
+  %tanh_base = index.constant 21 : index
+  %gelu_logistic_base = index.constant 37 : index
+  %logistic_base = index.constant 53 : index
+  %silu_base = index.constant 69 : index
+  scf.for %i = [%begin to %end step %step] {
+    %value = view.load %input_view[%i] : view<16xf32> -> f32
+    %erf, %tanh, %gelu_logistic, %logistic, %silu = func.call @activation_reference(%value) : (f32) -> (f32, f32, f32, f32, f32)
+    %erf_position = index.add %erf_base, %i : index
+    %tanh_position = index.add %tanh_base, %i : index
+    %gelu_logistic_position = index.add %gelu_logistic_base, %i : index
+    %logistic_position = index.add %logistic_base, %i : index
+    %silu_position = index.add %silu_base, %i : index
+    view.store %erf, %output_view[%erf_position] : f32, view<85xf32>
+    view.store %tanh, %output_view[%tanh_position] : f32, view<85xf32>
+    view.store %gelu_logistic, %output_view[%gelu_logistic_position] : f32, view<85xf32>
+    view.store %logistic, %output_view[%logistic_position] : f32, view<85xf32>
+    view.store %silu, %output_view[%silu_position] : f32, view<85xf32>
+  }
+  func.return
+}
+
+check.scenario @activation_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %scalar_input = check.literal value(0.5) : f32
+    %input = check.generate.iota offset(-8.0) step(1.0) : tensor<16xf32>
+    %output = check.generate.fill value(0.0) : tensor<85xf32>
+    check.compare<@activation_observations, @activation_observations_oracle>(%scalar_input, %input, %output) : (f32, tensor<16xf32>, tensor<85xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.02) rtol(0.01) nan(same) : tensor<85xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %scalar_input = check.literal value(-0.5) : f32
+    %input = check.generate.iota offset(-3.75) step(0.5) : tensor<16xf32>
+    %output = check.generate.fill value(0.0) : tensor<85xf32>
+    check.compare<@activation_observations, @activation_observations_oracle>(%scalar_input, %input, %output) : (f32, tensor<16xf32>, tensor<85xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.02) rtol(0.01) nan(same) : tensor<85xf32>
+    }
+  }
+  check.return
+}

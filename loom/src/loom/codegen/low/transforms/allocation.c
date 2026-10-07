@@ -11,6 +11,7 @@
 #include "loom/codegen/low/allocation.h"
 #include "loom/codegen/low/allocation_live_range_splitting.h"
 #include "loom/codegen/low/allocation_materialization.h"
+#include "loom/codegen/low/diagnostics.h"
 #include "loom/codegen/low/function.h"
 #include "loom/codegen/low/function_model.h"
 #include "loom/codegen/low/pipeline/pass_environment.h"
@@ -53,8 +54,15 @@ static iree_status_t loom_low_materialize_allocation_emit_rematerialization(
   if (!state || !state->emit_spill_diagnostics) {
     return iree_ok_status();
   }
-  return loom_low_allocation_rematerialization_emit_decision(
-      table, trigger, result, pass->diagnostic_emitter);
+  const loom_low_rematerialization_batch_result_t batch = {
+      .repaired_value_count = 1,
+      .cloned_packet_count = result->value.cloned_packet_count,
+      .rewritten_operand_count = result->value.rewritten_operand_count,
+      .retained_placement_count = result->value.retained_placement_count,
+  };
+  return loom_low_allocation_rematerialization_emit_summary(
+      table, trigger, result->descriptor_reg_class_id, &batch,
+      pass->diagnostic_emitter);
 }
 
 static const loom_pass_option_def_t kLowMaterializeAllocationOptions[] = {
@@ -387,6 +395,13 @@ iree_status_t loom_low_materialize_allocation_run(loom_pass_t* pass,
                                                   loom_module_t* module,
                                                   loom_func_like_t function) {
   if (!loom_low_function_def_isa(function.op)) {
+    return iree_ok_status();
+  }
+
+  bool synthesis_admitted = false;
+  IREE_RETURN_IF_ERROR(loom_low_diagnostic_admit_allocation_synthesis(
+      module, function.op, pass->diagnostic_emitter, &synthesis_admitted));
+  if (!synthesis_admitted) {
     return iree_ok_status();
   }
 

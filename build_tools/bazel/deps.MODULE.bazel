@@ -21,8 +21,8 @@ single_version_override(
     version = "2.1.0",
 )
 
-# Windows toolchains expose compiler-owned sanitizer artifacts and declare
-# whether the linker supports Bazel's automatic DLL export helper.
+# Windows toolchains expose compiler-owned builtins and sanitizer artifacts and
+# declare whether the linker supports Bazel's automatic DLL export helper.
 # Sanitizer debug information uses compiler-specific feature flags on all hosts.
 # Flattened static archives retain the selected objects and their link metadata.
 single_version_override(

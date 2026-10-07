@@ -102,99 +102,42 @@ func.def @rotate_distinct_views(%count: index) -> (i32) {
   func.return %result : i32
 }
 
-check.case @call_view_argument_case {
-  %seed = check.literal value(47) : i32
-  %actual = func.call @call_view_argument(%seed) : (i32) -> (i32)
-  check.expect.equal actual(%actual) expected(%seed) : i32
-  check.return
+func.def @boundary_transport_observations(%ordinal: index, %left_entropy: i64, %middle_entropy: i64, %right_entropy: i64, %output: buffer) {
+  %left = scalar.trunci %left_entropy : i64 to i32
+  %middle = scalar.trunci %middle_entropy : i64 to i32
+  %right = scalar.trunci %right_entropy : i64 to i32
+  %ordinal_value = index.cast %ordinal : index to i32
+  %inactive = scalar.constant 0 : i32
+  %right_mask = scalar.constant 1 : i32
+  %middle_mask = scalar.constant 2 : i32
+  %right_bits = scalar.andi %ordinal_value, %right_mask : i32
+  %middle_bits = scalar.andi %ordinal_value, %middle_mask : i32
+  %choose_right = scalar.cmpi ne, %right_bits, %inactive : i32
+  %choose_middle = scalar.cmpi ne, %middle_bits, %inactive : i32
+  %argument = func.call @call_view_argument(%left) : (i32) -> (i32)
+  %selected = func.call @call_view_result(%left, %right, %choose_right) : (i32, i32, i1) -> (i32)
+  %nested = func.call @call_nested_view_result(%left, %middle, %right, %choose_middle, %choose_right) : (i32, i32, i32, i1, i1) -> (i32)
+  %carry = func.call @carry_distinct_view(%ordinal) : (index) -> (i32)
+  %rotation = func.call @rotate_distinct_views(%ordinal) : (index) -> (i32)
+  %values = vector.from_elements %argument, %selected, %nested, %carry, %rotation : vector<5xi32>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<5xi32>
+  vector.store %values, %results[0] : vector<5xi32>, view<5xi32>
+  func.return
 }
 
-check.case @call_view_result_left_case {
-  %left = check.literal value(13) : i32
-  %right = check.literal value(31) : i32
-  %choose_right = check.literal value(false) : i1
-  %actual = func.call @call_view_result(%left, %right, %choose_right) : (i32, i32, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%left) : i32
-  check.return
-}
-
-check.case @call_view_result_right_case {
-  %left = check.literal value(13) : i32
-  %right = check.literal value(31) : i32
-  %choose_right = check.literal value(true) : i1
-  %actual = func.call @call_view_result(%left, %right, %choose_right) : (i32, i32, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%right) : i32
-  check.return
-}
-
-check.case @call_nested_view_result_left_case {
-  %left = check.literal value(13) : i32
-  %middle = check.literal value(23) : i32
-  %right = check.literal value(31) : i32
-  %false = check.literal value(false) : i1
-  %actual = func.call @call_nested_view_result(%left, %middle, %right, %false, %false) : (i32, i32, i32, i1, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%left) : i32
-  check.return
-}
-
-check.case @call_nested_view_result_middle_case {
-  %left = check.literal value(13) : i32
-  %middle = check.literal value(23) : i32
-  %right = check.literal value(31) : i32
-  %false = check.literal value(false) : i1
-  %true = check.literal value(true) : i1
-  %actual = func.call @call_nested_view_result(%left, %middle, %right, %true, %false) : (i32, i32, i32, i1, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%middle) : i32
-  check.return
-}
-
-check.case @call_nested_view_result_right_case {
-  %left = check.literal value(13) : i32
-  %middle = check.literal value(23) : i32
-  %right = check.literal value(31) : i32
-  %false = check.literal value(false) : i1
-  %true = check.literal value(true) : i1
-  %actual = func.call @call_nested_view_result(%left, %middle, %right, %false, %true) : (i32, i32, i32, i1, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%right) : i32
-  check.return
-}
-
-check.case @carry_distinct_view_zero_case {
-  %count = check.literal value(0) : index
-  %actual = func.call @carry_distinct_view(%count) : (index) -> (i32)
-  %expected = check.literal value(11) : i32
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @carry_distinct_view_positive_case {
-  %count = check.literal value(3) : index
-  %actual = func.call @carry_distinct_view(%count) : (index) -> (i32)
-  %expected = check.literal value(29) : i32
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @rotate_distinct_views_zero_case {
-  %count = check.literal value(0) : index
-  %actual = func.call @rotate_distinct_views(%count) : (index) -> (i32)
-  %expected = check.literal value(1129) : i32
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @rotate_distinct_views_odd_case {
-  %count = check.literal value(3) : index
-  %actual = func.call @rotate_distinct_views(%count) : (index) -> (i32)
-  %expected = check.literal value(2911) : i32
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @rotate_distinct_views_even_case {
-  %count = check.literal value(4) : index
-  %actual = func.call @rotate_distinct_views(%count) : (index) -> (i32)
-  %expected = check.literal value(1129) : i32
-  check.expect.equal actual(%actual) expected(%expected) : i32
+check.scenario @boundary_transport_values {
+  check.trial[32](%trial: index, %entropy: check.entropy) {
+    %left_source = check.entropy.fork %entropy name("left") : check.entropy
+    %middle_source = check.entropy.fork %entropy name("middle") : check.entropy
+    %right_source = check.entropy.fork %entropy name("right") : check.entropy
+    %left = check.entropy.read %left_source[%trial] : check.entropy -> i64
+    %middle = check.entropy.read %middle_source[%trial] : check.entropy -> i64
+    %right = check.entropy.read %right_source[%trial] : check.entropy -> i64
+    %output = check.generate.fill value(0) : tensor<5xi32>
+    check.compare<@boundary_transport_observations>(%trial, %left, %middle, %right, %output) : (index, i64, i64, i64, tensor<5xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<5xi32>
+    }
+  }
   check.return
 }

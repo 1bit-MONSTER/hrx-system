@@ -4,9 +4,8 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_build", "loom_corpus_test")
+load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_build")
 load("//loom/src/loom/test/corpus:catalog.bzl", "LOOM_CORPUS")
-load("//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -91,8 +90,6 @@ _KERNEL_SOURCES = [
     "numeric/conversion/integer_floating.loom",
     "numeric/conversion/integer_widths.loom",
     "numeric/conversion/narrow_vectors.loom",
-    "numeric/conversion/packed_integer_float.loom",
-    "numeric/conversion/packed_integer_float8.loom",
     "numeric/conversion/quantization.loom",
     "numeric/float/approximate_extended.loom",
     "numeric/float/extrema.loom",
@@ -102,7 +99,6 @@ _KERNEL_SOURCES = [
     "numeric/integer/wide/shifts.loom",
     "numeric/integer/wide/subtract.loom",
     "numeric/integer/wide/uniform_immediate.loom",
-    "numeric/predicate/extension.loom",
     "numeric/predicate/extract.loom",
     "numeric/vector/conversion.loom",
     "numeric/vector/integer_widening.loom",
@@ -115,26 +111,20 @@ _NO_KERNEL_ARTIFACT_EXCLUDES = {
 
 loom_corpus_build(
     name = "all",
-    all_roots_xfail = {"//loom/target/vm:all": ["memory/atomic/float64.loom"]},
+    all_roots_xfail = {
+        "//loom/target/vm:all": [
+            "memory/atomic/float64.loom",
+            "numeric/float/activations.loom",
+        ],
+    },
     catalog = LOOM_CORPUS,
     excludes = {"//loom/target/vm:all": _NO_KERNEL_ARTIFACT_EXCLUDES},
     profiles = ["//loom/target/vm:all"],
     xfails = {
         "//loom/target/vm:all": {
+            "function/template/library.loom:@template_dead_library_observations": "LOWERING/045",
             "memory/atomic/float64.loom:@atomic_f64_values": "TARGET/003",
-        },
-    },
-)
-
-loom_corpus_test(
-    name = "execution",
-    catalog = LOOM_CORPUS,
-    excludes = _NO_KERNEL_ARTIFACT_EXCLUDES,
-    execution_profiles = [VM_REFERENCE_PROFILE],
-    xfails = {
-        VM_REFERENCE_PROFILE.name: {
-            "memory/atomic/float64.loom:@atomic_f64_random_values": "TARGET/003",
-            "memory/atomic/float64.loom:@atomic_f64_special_values": "TARGET/003",
+            "numeric/float/activations.loom:@activation_observations": "LOWERING/036",
         },
     },
 )

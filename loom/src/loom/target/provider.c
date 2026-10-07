@@ -13,6 +13,7 @@ void loom_target_emit_artifact_release(loom_target_emit_artifact_t* artifact) {
   IREE_ASSERT(artifact->sidecar_count == 0 || artifact->sidecars != NULL);
   IREE_ASSERT(artifact->storage == NULL || artifact->release_storage != NULL);
   iree_byte_sequence_release(artifact->contents);
+  iree_byte_sequence_release(artifact->target_listing_contents);
   if (artifact->sidecars != NULL) {
     for (iree_host_size_t i = 0; i < artifact->sidecar_count; ++i) {
       iree_byte_sequence_release(artifact->sidecars[i].contents);
@@ -414,37 +415,36 @@ iree_status_t loom_target_environment_register_context(
   return iree_ok_status();
 }
 
-iree_status_t loom_target_environment_initialize_low_descriptor_registry(
-    const loom_target_environment_t* environment,
-    loom_target_low_descriptor_registry_t* out_registry) {
+loom_target_low_descriptor_registry_t
+loom_target_environment_low_descriptor_registry(
+    const loom_target_environment_t* environment) {
   IREE_ASSERT_ARGUMENT(environment);
-  IREE_ASSERT_ARGUMENT(out_registry);
+  loom_target_low_descriptor_registry_t registry;
   loom_target_low_descriptor_registry_initialize_from_tables(
-      out_registry, environment->descriptor_set_providers,
+      &registry, environment->descriptor_set_providers,
       environment->descriptor_set_provider_count);
-  return iree_ok_status();
+  return registry;
 }
 
-iree_status_t loom_target_environment_initialize_low_lower_policy_registry(
-    const loom_target_environment_t* environment,
-    loom_low_lower_policy_registry_t* out_registry) {
+loom_low_lower_policy_registry_t
+loom_target_environment_low_lower_policy_registry(
+    const loom_target_environment_t* environment) {
   IREE_ASSERT_ARGUMENT(environment);
-  IREE_ASSERT_ARGUMENT(out_registry);
+  loom_low_lower_policy_registry_t registry;
   loom_low_lower_policy_registry_initialize_from_entries(
-      out_registry, environment->low_lower_policy_entries,
+      &registry, environment->low_lower_policy_entries,
       environment->low_lower_policy_entry_count);
-  return iree_ok_status();
+  return registry;
 }
 
-iree_status_t loom_target_environment_initialize_math_policy_registry(
-    const loom_target_environment_t* environment,
-    loom_target_math_policy_registry_t* out_registry) {
+loom_target_math_policy_registry_t loom_target_environment_math_policy_registry(
+    const loom_target_environment_t* environment) {
   IREE_ASSERT_ARGUMENT(environment);
-  IREE_ASSERT_ARGUMENT(out_registry);
+  loom_target_math_policy_registry_t registry;
   loom_target_math_policy_registry_initialize_from_entries(
-      out_registry, environment->math_policy_entries,
+      &registry, environment->math_policy_entries,
       environment->math_policy_entry_count);
-  return iree_ok_status();
+  return registry;
 }
 
 loom_target_low_legality_provider_list_t

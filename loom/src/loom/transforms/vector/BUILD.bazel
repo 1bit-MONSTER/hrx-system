@@ -175,6 +175,22 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "component_packet_legalization",
+    srcs = ["component_packet_legalization.c"],
+    hdrs = ["component_packet_legalization.h"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/target:legalization",
+        "//loom/src/loom/util:walk",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "packet_legalization",
     srcs = ["packet_legalization.c"],
     hdrs = ["packet_legalization.h"],
@@ -212,6 +228,7 @@ loom_cc_library(
     hdrs = ["shape_legalization.h"],
     deps = [
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops/index",
         "//loom/src/loom/ops/vector",
         "//loom/src/loom/rewrite:rewriter",
         "//loom/src/loom/target:legalization",
@@ -230,6 +247,7 @@ loom_cc_library(
         "//loom/src/loom/ops/scf",
         "//loom/src/loom/ops/vector",
         "//loom/src/loom/target:legalization",
+        "//loom/src/loom/util:numeric_format",
         "//runtime/src/iree/base",
     ],
 )

@@ -37,18 +37,13 @@ static iree_status_t loom_amdgpu_hal_testbench_query_descriptor_set_requirement(
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(loom_run_hal_testbench_context_ensure_runtime(context));
-  if (context->device_provider->select_target == NULL) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "AMDGPU requirement provider is missing a device "
-                            "target selection hook");
-  }
 
   loom_device_target_t target = {0};
-  IREE_RETURN_IF_ERROR(context->device_provider->select_target(
-      context->device_provider, &context->runtime, context->host_allocator,
-      &target));
+  IREE_RETURN_IF_ERROR(loom_device_provider_select_compatible_target(
+      context->device_provider, &context->runtime,
+      /*target_requirement=*/NULL, context->host_allocator, &target));
   const loom_amdgpu_target_profile_t* target_profile =
-      loom_amdgpu_target_profile_cast(target.artifact_target.target_profile);
+      loom_amdgpu_target_profile_cast(target.target_profile);
   const bool satisfied =
       target_profile != NULL &&
       iree_string_view_equal(

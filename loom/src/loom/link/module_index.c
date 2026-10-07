@@ -763,6 +763,7 @@ static iree_status_t loom_link_index_append_module(
       .name = name,
       .materialized_module = materialized_module,
       .owns_materialized_module = owns_materialized_module,
+      .primary_source_id = LOOM_SOURCE_ID_INVALID,
       .symbol_start_ordinal = loom_link_module_index_symbol_count(index),
       .symbol_count = 0,
   };
@@ -1593,6 +1594,14 @@ iree_status_t loom_link_module_index_add_text(
         loom_link_materialized_module_name(module), module,
         /*owns_materialized_module=*/true, &indexed_module);
     module_owned_by_index = iree_status_is_ok(status);
+    if (iree_status_is_ok(status) && !iree_string_view_is_empty(filename)) {
+      // The text parser registers its primary filename before parsing any
+      // authored or aliased locations. Preserve that producer-assigned ID so
+      // source projection never has to recover it by filename later.
+      IREE_ASSERT(module->sources.count != 0);
+      IREE_ASSERT(iree_string_view_equal(module->sources.entries[0], filename));
+      indexed_module->primary_source_id = 0;
+    }
     if (iree_status_is_ok(status)) {
       status = loom_link_index_module_materialized_symbols(
           index, indexed_module, module);

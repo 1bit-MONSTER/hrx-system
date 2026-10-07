@@ -22,7 +22,7 @@ func.def target(@target) @condition_body_exit_counts(%value: i32) -> (i32) {
 }
 
 // ----
-CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.addi * selected_ops=3 emitted_ops=3 exact_dynamic_ops=3 unknown_dynamic_ops=0 dynamic_selected_ops=10 dynamic_emitted_ops=10
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.addi * selected_ops=3 emitted_ops=3 exact_dynamic_ops=3 unknown_dynamic_ops=0 dynamic_selected_ops=10 dynamic_emitted_ops=10 *
 CHECK: COMPILE-REPORT: source_low[*] * source_op=scalar.addi * emitted_ops=1 execution_count=5
 CHECK: COMPILE-REPORT: source_low[*] * source_op=scalar.addi * emitted_ops=1 execution_count=4
 
@@ -50,7 +50,7 @@ func.def target(@target) @cfg_condition_body_exit_counts(%value: i32) -> (i32) {
 }
 
 // ----
-CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.addi * selected_ops=3 emitted_ops=3 exact_dynamic_ops=3 unknown_dynamic_ops=0 dynamic_selected_ops=10 dynamic_emitted_ops=10
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.addi * selected_ops=3 emitted_ops=3 exact_dynamic_ops=3 unknown_dynamic_ops=0 dynamic_selected_ops=10 dynamic_emitted_ops=10 *
 CHECK: COMPILE-REPORT: source_low[*] * source_op=scalar.addi * emitted_ops=1 execution_count=5
 CHECK: COMPILE-REPORT: source_low[*] * source_op=scalar.addi * emitted_ops=1 execution_count=4
 
@@ -91,7 +91,7 @@ func.def target(@target) @conditional_loop_counts(%enabled: i1, %value: i32) -> 
 }
 
 // ----
-CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.addi * selected_ops=3 emitted_ops=3 exact_dynamic_ops=1 unknown_dynamic_ops=2 dynamic_selected_ops=4 dynamic_emitted_ops=4
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.addi * selected_ops=3 emitted_ops=3 exact_dynamic_ops=1 unknown_dynamic_ops=2 dynamic_selected_ops=4 dynamic_emitted_ops=4 *
 
 // ====
 // RUN: with-checks compile-report scf-to-cfg,source-to-low,low-dce
@@ -120,7 +120,7 @@ func.def target(@target) @switch_loop_counts(%selector: index, %value: i32) -> (
 }
 
 // ----
-CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.addi * selected_ops=2 emitted_ops=2 exact_dynamic_ops=0 unknown_dynamic_ops=2 dynamic_selected_ops=0 dynamic_emitted_ops=0
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.addi * selected_ops=2 emitted_ops=2 exact_dynamic_ops=0 unknown_dynamic_ops=2 dynamic_selected_ops=0 dynamic_emitted_ops=0 *
 
 // ====
 // RUN: with-checks compile-report source-to-low,low-dce
@@ -154,9 +154,9 @@ func.def target(@target) @diamond_then_counted_loop(%enabled: i1, %value: i32) -
 }
 
 // ----
-CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.addi * exact_dynamic_ops=0 unknown_dynamic_ops=1 dynamic_selected_ops=0 dynamic_emitted_ops=0
-CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.subi * exact_dynamic_ops=0 unknown_dynamic_ops=1 dynamic_selected_ops=0 dynamic_emitted_ops=0
-CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.muli * exact_dynamic_ops=1 unknown_dynamic_ops=0 dynamic_selected_ops=4 dynamic_emitted_ops=4
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.addi * exact_dynamic_ops=0 unknown_dynamic_ops=1 dynamic_selected_ops=0 dynamic_emitted_ops=0 *
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.subi * exact_dynamic_ops=0 unknown_dynamic_ops=1 dynamic_selected_ops=0 dynamic_emitted_ops=0 *
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.muli * exact_dynamic_ops=1 unknown_dynamic_ops=0 dynamic_selected_ops=4 dynamic_emitted_ops=4 *
 CHECK: COMPILE-REPORT: source_low[*] * source_op=scalar.muli * execution_count=4
 
 // ====
@@ -191,7 +191,7 @@ func.def target(@target) @counted_loop_with_inner_diamond(%enabled: i1, %value: 
 }
 
 // ----
-CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.addi * exact_dynamic_ops=0 unknown_dynamic_ops=1 dynamic_selected_ops=0 dynamic_emitted_ops=0
-CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.subi * exact_dynamic_ops=0 unknown_dynamic_ops=1 dynamic_selected_ops=0 dynamic_emitted_ops=0
-CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.muli * exact_dynamic_ops=1 unknown_dynamic_ops=0 dynamic_selected_ops=4 dynamic_emitted_ops=4
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.addi * exact_dynamic_ops=0 unknown_dynamic_ops=1 dynamic_selected_ops=0 dynamic_emitted_ops=0 *
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.subi * exact_dynamic_ops=0 unknown_dynamic_ops=1 dynamic_selected_ops=0 dynamic_emitted_ops=0 *
+CHECK: COMPILE-REPORT: source_low_selection[*] * source_op=scalar.muli * exact_dynamic_ops=1 unknown_dynamic_ops=0 dynamic_selected_ops=4 dynamic_emitted_ops=4 *
 CHECK: COMPILE-REPORT: source_low[*] * source_op=scalar.muli * execution_count=4

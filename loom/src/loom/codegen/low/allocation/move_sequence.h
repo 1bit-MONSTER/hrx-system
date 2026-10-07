@@ -23,6 +23,8 @@ typedef struct loom_low_move_sequence_location_entry_t
     loom_low_move_sequence_location_entry_t;
 typedef struct loom_low_move_sequence_location_set_t
     loom_low_move_sequence_location_set_t;
+typedef struct loom_low_move_sequence_temporary_t
+    loom_low_move_sequence_temporary_t;
 
 // Reusable arena-backed state for sequencing one parallel move group at a
 // time. |moves| is caller-populated. Solver arrays are allocated once at the
@@ -50,7 +52,7 @@ typedef struct loom_low_move_sequence_scratch_t {
   uint32_t explicit_atomic_unit_epoch;
   // Cycle temporaries resolved for the current move group. Storage is bounded
   // by the smaller of half the move capacity and the descriptor class count.
-  loom_low_move_location_t* temporaries;
+  loom_low_move_sequence_temporary_t* temporaries;
   // Number of initialized entries in |temporaries| for the current group.
   iree_host_size_t temporary_count;
 } loom_low_move_sequence_scratch_t;
@@ -91,8 +93,9 @@ typedef struct loom_low_move_sequence_options_t {
 } loom_low_move_sequence_options_t;
 
 // Returns true when |location| overlaps a source or destination in the current
-// parallel move group. |occupied_locations| is valid only during the temporary
-// resolver callback that received it.
+// parallel move group, including identity moves that emit no instruction.
+// |occupied_locations| is valid only during the temporary resolver callback
+// that received it.
 bool loom_low_move_sequence_location_set_contains(
     const loom_low_move_sequence_location_set_t* occupied_locations,
     const loom_low_move_location_t* location);
@@ -105,8 +108,11 @@ iree_status_t loom_low_move_sequence_scratch_initialize(
 
 // Resolves the first |move_count| caller-populated rows in |scratch->moves| to
 // an ordered move list in |out_moves|. Identity moves are elided and each
-// cycle adds one scratch-save move. |out_complete| is false only when the
-// temporary resolver emitted an allocation diagnostic.
+// cycle adds one scratch-save move. Non-identity transfers retain their source
+// and destination register views; aliased views need not have the same width.
+// Scratch saves use the source view whose contents must survive the cycle.
+// |out_complete| is false only when the temporary resolver emitted an
+// allocation diagnostic.
 // All groups sharing |scratch| use the same descriptor set and its resolved
 // storage classes.
 iree_status_t loom_low_move_sequence_resolve(

@@ -30,7 +30,7 @@ loom_cc_library(
         "//loom/src/loom/target:entry_selection",
         "//loom/src/loom/target:module_specialization",
         "//loom/src/loom/target:projection",
-        "//loom/src/loom/target:selection",
+        "//loom/src/loom/target:provider",
         "//loom/src/loom/target:specialization",
         "//loom/src/loom/target:types",
         "//runtime/src/iree/base",

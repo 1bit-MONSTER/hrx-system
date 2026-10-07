@@ -23,6 +23,9 @@ set(IREE_DEPENDENCY_IDS
   "linux_kfd_sysfs_header"
   "linux_const_header"
   "linux_stddef_header"
+  "linux_io_uring_header"
+  "linux_io_uring_zcrx_header"
+  "linux_stat_header"
   "linux_xdna_header"
   "amdf_wkmi_header"
   "amdf_wkmi_library"
@@ -128,60 +131,13 @@ set(IREE_DEP_CXX_VERSION "")
 set(IREE_DEP_CXX_DEV_DEPENDENCY "FALSE")
 set(IREE_DEP_CXX_SOURCE_URL "")
 set(IREE_DEP_CXX_URLS
-  "https://github.com/robertoraggi/cplusplus/archive/bccf4d1e2d266b3d5d770c49e9eac59a2eab34b9.tar.gz"
+  "https://github.com/benvanik/cplusplus/archive/87ac2f8c90dafe0fc95a72bdb90643a207e08f42.tar.gz"
 )
-set(IREE_DEP_CXX_SHA256 "39e18971b03f3b5ae2afc8cb9313bcccaf6a51176a94eb57cb8fa4e683ef290b")
-set(IREE_DEP_CXX_STRIP_PREFIX "cplusplus-bccf4d1e2d266b3d5d770c49e9eac59a2eab34b9")
+set(IREE_DEP_CXX_SHA256 "6432087170c2a22547b801620e0b800cbf2fd933c6972e8df9275c3638d42c89")
+set(IREE_DEP_CXX_STRIP_PREFIX "cplusplus-87ac2f8c90dafe0fc95a72bdb90643a207e08f42")
 set(IREE_DEP_CXX_BUILD_FILE "//build_tools/third_party/cxx:cxx.BUILD.bazel")
-set(IREE_DEP_CXX_PATCHES
-  "//build_tools/third_party/cxx:braced_vector_initialization.patch"
-  "//build_tools/third_party/cxx:builtin_macro_locations.patch"
-  "//build_tools/third_party/cxx:constant_arithmetic.patch"
-  "//build_tools/third_party/cxx:enum_semantics.patch"
-  "//build_tools/third_party/cxx:include_continuation.patch"
-  "//build_tools/third_party/cxx:include_paths.patch"
-  "//build_tools/third_party/cxx:macro_operator_locations.patch"
-  "//build_tools/third_party/cxx:member_definition_attributes.patch"
-  "//build_tools/third_party/cxx:packed_bitfields.patch"
-  "//build_tools/third_party/cxx:packed_records.patch"
-  "//build_tools/third_party/cxx:aligned_records.patch"
-  "//build_tools/third_party/cxx:packed_enums.patch"
-  "//build_tools/third_party/cxx:bitfield_attributes.patch"
-  "//build_tools/third_party/cxx:record_layout_owner.patch"
-  "//build_tools/third_party/cxx:compound_offsetof.patch"
-  "//build_tools/third_party/cxx:template_lookahead.patch"
-  "//build_tools/third_party/cxx:constexpr_branches.patch"
-  "//build_tools/third_party/cxx:qualified_template_calls.patch"
-  "//build_tools/third_party/cxx:initializer_dependencies.patch"
-  "//build_tools/third_party/cxx:condition_declarations.patch"
-  "//build_tools/third_party/cxx:unsigned_complement.patch"
-  "//build_tools/third_party/cxx:float16_semantics.patch"
-  "//build_tools/third_party/cxx:bfloat16_semantics.patch"
-  "//build_tools/third_party/cxx:float8_semantics.patch"
-  "//build_tools/third_party/cxx:vector_constants.patch"
-  "//build_tools/third_party/cxx:vector_conversion.patch"
-  "//build_tools/third_party/cxx:auto_deduction.patch"
-  "//build_tools/third_party/cxx:vector_list_conversion.patch"
-  "//build_tools/third_party/cxx:using_directive_attributes.patch"
-  "//build_tools/third_party/cxx:constant_archive.patch"
-  "//build_tools/third_party/cxx:constexpr_bitcast.patch"
-  "//build_tools/third_party/cxx:list_initialization_diagnostics.patch"
-  "//build_tools/third_party/cxx:builtin_class_conversions.patch"
-  "//build_tools/third_party/cxx:constant_template_conversions.patch"
-  "//build_tools/third_party/cxx:reference_template_arguments.patch"
-  "//build_tools/third_party/cxx:interpreter_frame_stability.patch"
-  "//build_tools/third_party/cxx:semantic_model_generation.patch"
-  "//build_tools/third_party/cxx:reference_parameter_binding.patch"
-  "//build_tools/third_party/cxx:rooted_subobject_addresses.patch"
-  "//build_tools/third_party/cxx:selected_subobject_paths.patch"
-  "//build_tools/third_party/cxx:aggregate_member_defaults.patch"
-  "//build_tools/third_party/cxx:aggregate_initialization_failures.patch"
-  "//build_tools/third_party/cxx:constant_object_initialization.patch"
-  "//build_tools/third_party/cxx:const_default_initialization.patch"
-)
-set(IREE_DEP_CXX_PATCH_ARGS
-  "-p1"
-)
+set(IREE_DEP_CXX_PATCHES "")
+set(IREE_DEP_CXX_PATCH_ARGS "")
 
 set(IREE_DEP_RDMA_CORE_HEADERS_KIND "http_archive")
 set(IREE_DEP_RDMA_CORE_HEADERS_OWNER "shared")
@@ -223,7 +179,7 @@ set(IREE_DEP_LINUX_KFD_IOCTL_HEADER_VERSION "")
 set(IREE_DEP_LINUX_KFD_IOCTL_HEADER_DEV_DEPENDENCY "FALSE")
 set(IREE_DEP_LINUX_KFD_IOCTL_HEADER_SOURCE_URL "")
 set(IREE_DEP_LINUX_KFD_IOCTL_HEADER_URLS
-  "https://raw.githubusercontent.com/torvalds/linux/f6e7b42bf05b2427fb8a7a1d1c387a86638bb413/include/uapi/linux/kfd_ioctl.h"
+  "https://raw.githubusercontent.com/torvalds/linux/a90ee4305c4a5df72c11b31dacfdc76e00fcf78a/include/uapi/linux/kfd_ioctl.h"
 )
 set(IREE_DEP_LINUX_KFD_IOCTL_HEADER_SHA256 "db48398039c14702df2b51b2461d80d36f7160479d45700b7e826051b1d2a997")
 set(IREE_DEP_LINUX_KFD_IOCTL_HEADER_STRIP_PREFIX "")
@@ -240,7 +196,7 @@ set(IREE_DEP_LINUX_KFD_SYSFS_HEADER_VERSION "")
 set(IREE_DEP_LINUX_KFD_SYSFS_HEADER_DEV_DEPENDENCY "FALSE")
 set(IREE_DEP_LINUX_KFD_SYSFS_HEADER_SOURCE_URL "")
 set(IREE_DEP_LINUX_KFD_SYSFS_HEADER_URLS
-  "https://raw.githubusercontent.com/torvalds/linux/f6e7b42bf05b2427fb8a7a1d1c387a86638bb413/include/uapi/linux/kfd_sysfs.h"
+  "https://raw.githubusercontent.com/torvalds/linux/a90ee4305c4a5df72c11b31dacfdc76e00fcf78a/include/uapi/linux/kfd_sysfs.h"
 )
 set(IREE_DEP_LINUX_KFD_SYSFS_HEADER_SHA256 "1f26e1ea4a679b80605a4da221bc55e9f570f94f8eeccc53fb826dd0a7dedb00")
 set(IREE_DEP_LINUX_KFD_SYSFS_HEADER_STRIP_PREFIX "")
@@ -257,7 +213,7 @@ set(IREE_DEP_LINUX_CONST_HEADER_VERSION "")
 set(IREE_DEP_LINUX_CONST_HEADER_DEV_DEPENDENCY "FALSE")
 set(IREE_DEP_LINUX_CONST_HEADER_SOURCE_URL "")
 set(IREE_DEP_LINUX_CONST_HEADER_URLS
-  "https://raw.githubusercontent.com/torvalds/linux/f6e7b42bf05b2427fb8a7a1d1c387a86638bb413/include/uapi/linux/const.h"
+  "https://raw.githubusercontent.com/torvalds/linux/a90ee4305c4a5df72c11b31dacfdc76e00fcf78a/include/uapi/linux/const.h"
 )
 set(IREE_DEP_LINUX_CONST_HEADER_SHA256 "806c87c44e0a1a267b996c669ef36faeec94fee46bc4513f0d332d2169718855")
 set(IREE_DEP_LINUX_CONST_HEADER_STRIP_PREFIX "")
@@ -274,7 +230,7 @@ set(IREE_DEP_LINUX_STDDEF_HEADER_VERSION "")
 set(IREE_DEP_LINUX_STDDEF_HEADER_DEV_DEPENDENCY "FALSE")
 set(IREE_DEP_LINUX_STDDEF_HEADER_SOURCE_URL "")
 set(IREE_DEP_LINUX_STDDEF_HEADER_URLS
-  "https://raw.githubusercontent.com/torvalds/linux/f6e7b42bf05b2427fb8a7a1d1c387a86638bb413/include/uapi/linux/stddef.h"
+  "https://raw.githubusercontent.com/torvalds/linux/a90ee4305c4a5df72c11b31dacfdc76e00fcf78a/include/uapi/linux/stddef.h"
 )
 set(IREE_DEP_LINUX_STDDEF_HEADER_SHA256 "3703ea363b0f4d3b75a3a1f59b7daaa0b81f2e18cc459fedd6b1df331e8662b8")
 set(IREE_DEP_LINUX_STDDEF_HEADER_STRIP_PREFIX "")
@@ -282,6 +238,57 @@ set(IREE_DEP_LINUX_STDDEF_HEADER_BUILD_FILE "")
 set(IREE_DEP_LINUX_STDDEF_HEADER_DOWNLOADED_FILE_PATH "linux/stddef.h")
 set(IREE_DEP_LINUX_STDDEF_HEADER_PATCHES "")
 set(IREE_DEP_LINUX_STDDEF_HEADER_PATCH_ARGS "")
+
+set(IREE_DEP_LINUX_IO_URING_HEADER_KIND "http_file")
+set(IREE_DEP_LINUX_IO_URING_HEADER_OWNER "shared")
+set(IREE_DEP_LINUX_IO_URING_HEADER_MODULE_NAME "linux_io_uring_header")
+set(IREE_DEP_LINUX_IO_URING_HEADER_REPO_NAME "linux_io_uring_header")
+set(IREE_DEP_LINUX_IO_URING_HEADER_VERSION "")
+set(IREE_DEP_LINUX_IO_URING_HEADER_DEV_DEPENDENCY "FALSE")
+set(IREE_DEP_LINUX_IO_URING_HEADER_SOURCE_URL "")
+set(IREE_DEP_LINUX_IO_URING_HEADER_URLS
+  "https://raw.githubusercontent.com/torvalds/linux/a90ee4305c4a5df72c11b31dacfdc76e00fcf78a/include/uapi/linux/io_uring.h"
+)
+set(IREE_DEP_LINUX_IO_URING_HEADER_SHA256 "8488b223988fe798a9c1c81d13a550a27cac1f096bdd016ef9eb5e51adaf46a7")
+set(IREE_DEP_LINUX_IO_URING_HEADER_STRIP_PREFIX "")
+set(IREE_DEP_LINUX_IO_URING_HEADER_BUILD_FILE "")
+set(IREE_DEP_LINUX_IO_URING_HEADER_DOWNLOADED_FILE_PATH "linux/io_uring.h")
+set(IREE_DEP_LINUX_IO_URING_HEADER_PATCHES "")
+set(IREE_DEP_LINUX_IO_URING_HEADER_PATCH_ARGS "")
+
+set(IREE_DEP_LINUX_IO_URING_ZCRX_HEADER_KIND "http_file")
+set(IREE_DEP_LINUX_IO_URING_ZCRX_HEADER_OWNER "shared")
+set(IREE_DEP_LINUX_IO_URING_ZCRX_HEADER_MODULE_NAME "linux_io_uring_zcrx_header")
+set(IREE_DEP_LINUX_IO_URING_ZCRX_HEADER_REPO_NAME "linux_io_uring_zcrx_header")
+set(IREE_DEP_LINUX_IO_URING_ZCRX_HEADER_VERSION "")
+set(IREE_DEP_LINUX_IO_URING_ZCRX_HEADER_DEV_DEPENDENCY "FALSE")
+set(IREE_DEP_LINUX_IO_URING_ZCRX_HEADER_SOURCE_URL "")
+set(IREE_DEP_LINUX_IO_URING_ZCRX_HEADER_URLS
+  "https://raw.githubusercontent.com/torvalds/linux/a90ee4305c4a5df72c11b31dacfdc76e00fcf78a/include/uapi/linux/io_uring/zcrx.h"
+)
+set(IREE_DEP_LINUX_IO_URING_ZCRX_HEADER_SHA256 "820d8642160740bff5ba1d8d12d5d0464d0e3a765a7e454b901d134bf4b94ec0")
+set(IREE_DEP_LINUX_IO_URING_ZCRX_HEADER_STRIP_PREFIX "")
+set(IREE_DEP_LINUX_IO_URING_ZCRX_HEADER_BUILD_FILE "")
+set(IREE_DEP_LINUX_IO_URING_ZCRX_HEADER_DOWNLOADED_FILE_PATH "linux/io_uring/zcrx.h")
+set(IREE_DEP_LINUX_IO_URING_ZCRX_HEADER_PATCHES "")
+set(IREE_DEP_LINUX_IO_URING_ZCRX_HEADER_PATCH_ARGS "")
+
+set(IREE_DEP_LINUX_STAT_HEADER_KIND "http_file")
+set(IREE_DEP_LINUX_STAT_HEADER_OWNER "shared")
+set(IREE_DEP_LINUX_STAT_HEADER_MODULE_NAME "linux_stat_header")
+set(IREE_DEP_LINUX_STAT_HEADER_REPO_NAME "linux_stat_header")
+set(IREE_DEP_LINUX_STAT_HEADER_VERSION "")
+set(IREE_DEP_LINUX_STAT_HEADER_DEV_DEPENDENCY "FALSE")
+set(IREE_DEP_LINUX_STAT_HEADER_SOURCE_URL "")
+set(IREE_DEP_LINUX_STAT_HEADER_URLS
+  "https://raw.githubusercontent.com/torvalds/linux/a90ee4305c4a5df72c11b31dacfdc76e00fcf78a/include/uapi/linux/stat.h"
+)
+set(IREE_DEP_LINUX_STAT_HEADER_SHA256 "c900a05e031d999074db5ac3567f651ce2cf2f9f9e0a686810d6453c9f8b9526")
+set(IREE_DEP_LINUX_STAT_HEADER_STRIP_PREFIX "")
+set(IREE_DEP_LINUX_STAT_HEADER_BUILD_FILE "")
+set(IREE_DEP_LINUX_STAT_HEADER_DOWNLOADED_FILE_PATH "linux/stat.h")
+set(IREE_DEP_LINUX_STAT_HEADER_PATCHES "")
+set(IREE_DEP_LINUX_STAT_HEADER_PATCH_ARGS "")
 
 set(IREE_DEP_LINUX_XDNA_HEADER_KIND "http_file")
 set(IREE_DEP_LINUX_XDNA_HEADER_OWNER "shared")

@@ -1,687 +1,279 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_conversion_float8.loom-test
 // RUN: emit source-low target=amd.xdna.aie2p:core output=low
 
-func.def @scalar_extf_f8e4m3_to_f32(%input: f8E4M3) -> (f32) {
-  %converted = scalar.extf %input : f8E4M3 to f32
-  func.return %converted : f32
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_extf_f8e4m3_to_f32(%input: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
-  %5 = mov.short 128
-  %6 = mov.short 127
-  %7 = mov.short 7
-  %8 = mov.short 120
-  %9 = mov.short -3
-  %10 = mov.short 24
-  %11 = mov.short 20
-  %12 = mov.short 23
-  %13 = mov.short 255
-  %14 = and %input, %13
-  %15 = and %14, %5
-  %16 = lshl %15, %10
-  %17 = and %14, %6
-  %18 = and %14, %8
-  %19 = lshl %18, %9
-  %20 = and %14, %7
-  %22 = add.rr %19, %8
-  %23 = lshl %22, %12
-  %24 = lshl %20, %11
-  %25 = or %23, %24
-  %26 = or %16, %25
-  %27 = clz %20
-  %28 = mov.short -28
-  %29 = add.rr %27, %28
-  %30 = lshl %20, %29
-  %31 = and %30, %7
-  %32 = lshl %31, %11
-  %33 = mov.short 121
-  %34 = sub %33, %29
-  %35 = lshl %34, %12
-  %36 = or %35, %32
-  %37 = or %16, %36
-  %38 = copy %20 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %39 = sel.nez %37, %16, %38
-  %40 = eqz %19
-  %41 = copy %40 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %42 = sel.nez %39, %26, %41
-  %43 = mov.i32 2143289344
-  %45 = eq %17, %6
-  %46 = copy %45 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %converted = sel.nez %43, %42, %46
-  return %converted
-}
-
-// ====
-
-func.def @scalar_extf_f8e5m2_to_f32(%input: f8E5M2) -> (f32) {
-  %converted = scalar.extf %input : f8E5M2 to f32
-  func.return %converted : f32
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_extf_f8e5m2_to_f32(%input: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
-  %5 = mov.short 128
-  %7 = mov.short 3
-  %8 = mov.short 124
-  %9 = mov.short -2
-  %10 = mov.short 24
-  %11 = mov.short 21
-  %12 = mov.short 23
-  %13 = mov.short 255
-  %14 = and %input, %13
-  %15 = and %14, %5
-  %16 = lshl %15, %10
-  %18 = and %14, %8
-  %19 = lshl %18, %9
-  %20 = and %14, %7
-  %21 = mov.short 112
-  %22 = add.rr %19, %21
-  %23 = lshl %22, %12
-  %24 = lshl %20, %11
-  %25 = or %23, %24
-  %26 = or %16, %25
-  %27 = clz %20
-  %28 = mov.short -29
-  %29 = add.rr %27, %28
-  %30 = lshl %20, %29
-  %31 = and %30, %7
-  %32 = lshl %31, %11
-  %33 = mov.short 113
-  %34 = sub %33, %29
-  %35 = lshl %34, %12
-  %36 = or %35, %32
-  %37 = or %16, %36
-  %38 = copy %20 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %39 = sel.nez %37, %16, %38
-  %40 = eqz %19
-  %41 = copy %40 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %42 = sel.nez %39, %26, %41
-  %43 = mov.i32 2143289344
-  %44 = mov.short 31
-  %45 = eq %19, %44
-  %46 = mov.i32 2139095040
-  %47 = or %16, %46
-  %48 = copy %20 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %49 = sel.nez %43, %47, %48
-  %50 = copy %45 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %converted = sel.nez %49, %42, %50
-  return %converted
-}
-
-// ====
-
-func.def @vector_extf_f8e4m3x3_to_bf16x3(%input: vector<3xf8E4M3>) -> (vector<3xbf16>) {
+func.def @vector_extf_f8e4m3x3_to_bf16x3(%first: f8E4M3, %second: f8E4M3, %third: f8E4M3) -> (bf16, bf16, bf16) {
+  %input = vector.from_elements %first, %second, %third : vector<3xf8E4M3>
   %converted = vector.extf %input : vector<3xf8E4M3> to vector<3xbf16>
-  func.return %converted : vector<3xbf16>
+  %first_result = vector.extract %converted[0] : vector<3xbf16> -> bf16
+  %second_result = vector.extract %converted[1] : vector<3xbf16> -> bf16
+  %third_result = vector.extract %converted[2] : vector<3xbf16> -> bf16
+  func.return %first_result, %second_result, %third_result : bf16, bf16, bf16
 }
 
 // ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_extf_f8e4m3x3_to_bf16x3(%input: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
-  %5 = vsub.8 %input, %input
-  %6 = mova.i32 20
-  %7 = vshuffle %input, %5, %6
-  %8 = vshuffle %5, %input, %6
-  %9 = mov.i32 32895
-  %10 = vbcst.16 %9
-  %11 = vband %7, %10
-  %12 = vband %8, %10
-  %13 = vadd.16 %11, %11
-  %14 = vadd.16 %13, %13
-  %15 = vadd.16 %14, %14
-  %16 = vadd.16 %15, %15
-  %17 = vadd.16 %16, %16
-  %18 = vadd.16 %17, %17
-  %19 = mov.short 128
-  %20 = vbcst.16 %19
-  %21 = mov.i32 15360
-  %22 = vbcst.16 %21
-  %23 = vadd.16 %16, %22
-  %24 = vsub.16 %22, %20
-  %25 = vsub.16 %24, %20
-  %26 = veqz.16.el.low32 %11
-  %27 = predicate.complete.zero.high32 %26, 0
-  %28 = vsel.16.mask64 %25, %5, %27
-  %29 = vadd.16 %18, %25
-  %30 = vlt.u16x32.el.low32 %18, %20
-  %31 = predicate.complete.zero.high32 %30, 0
-  %32 = vsel.16.mask64 %29, %28, %31
-  %33 = vadd.16 %25, %20
-  %34 = vadd.16 %17, %33
-  %35 = vlt.u16x32.el.low32 %17, %20
-  %36 = predicate.complete.zero.high32 %35, 0
-  %37 = vsel.16.mask64 %34, %32, %36
-  %38 = vlt.u16x32.el.low32 %16, %20
-  %39 = predicate.complete.zero.high32 %38, 0
-  %40 = vsel.16.mask64 %23, %37, %39
-  %41 = vbor %40, %12
-  %42 = mov.i32 32704
-  %43 = vbcst.16 %42
-  %44 = mov.short 127
-  %45 = vbcst.16 %44
-  %46 = vsub.16 %11, %45
-  %47 = veqz.16.el.low32 %46
-  %48 = predicate.complete.zero.high32 %47, 0
-  %converted = vsel.16.mask64 %41, %43, %48
-  return %converted
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_extf_f8e4m3x3_to_bf16x3(%first: reg<aie2p.er>, %second: reg<aie2p.er>, %third: reg<aie2p.er>) -> (reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>) asm {
+  %20 = vbcst.8 %first
+  %21 = mov.short 1
+  %22 = copy %21 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %23 = vinsert.8.reg %20, %22, %second
+  %24 = mov.short 2
+  %25 = copy %24 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %input = vinsert.8.reg %23, %25, %third
+  %27 = vsub.8 %input, %input
+  %28 = mova.i32 20
+  %29 = vshuffle %input, %27, %28
+  %30 = vshuffle %27, %input, %28
+  %31 = mov.i32 32895
+  %32 = vbcst.16 %31
+  %33 = vband %29, %32
+  %34 = vband %30, %32
+  %35 = vadd.16 %33, %33
+  %36 = vadd.16 %35, %35
+  %37 = vadd.16 %36, %36
+  %38 = vadd.16 %37, %37
+  %39 = vadd.16 %38, %38
+  %40 = vadd.16 %39, %39
+  %41 = mov.short 128
+  %42 = vbcst.16 %41
+  %43 = mov.i32 15360
+  %44 = vbcst.16 %43
+  %45 = vadd.16 %38, %44
+  %46 = vsub.16 %44, %42
+  %47 = vsub.16 %46, %42
+  %48 = veqz.16.el.low32 %33
+  %49 = predicate.complete.zero.high32 %48, 0
+  %50 = vsel.16.mask64 %47, %27, %49
+  %51 = vadd.16 %40, %47
+  %52 = vlt.u16x32.el.low32 %40, %42
+  %53 = predicate.complete.zero.high32 %52, 0
+  %54 = vsel.16.mask64 %51, %50, %53
+  %55 = vadd.16 %47, %42
+  %56 = vadd.16 %39, %55
+  %57 = vlt.u16x32.el.low32 %39, %42
+  %58 = predicate.complete.zero.high32 %57, 0
+  %59 = vsel.16.mask64 %56, %54, %58
+  %60 = vlt.u16x32.el.low32 %38, %42
+  %61 = predicate.complete.zero.high32 %60, 0
+  %62 = vsel.16.mask64 %45, %59, %61
+  %63 = vbor %62, %34
+  %64 = mov.i32 32704
+  %65 = vbcst.16 %64
+  %66 = mov.short 127
+  %67 = vbcst.16 %66
+  %68 = vsub.16 %33, %67
+  %69 = veqz.16.el.low32 %68
+  %70 = predicate.complete.zero.high32 %69, 0
+  %converted = vsel.16.mask64 %63, %65, %70
+  %first_result = vextract.16.imm %converted, 0
+  %second_result = vextract.16.imm %converted, 1
+  %third_result = vextract.16.imm %converted, 2
+  return %first_result, %second_result, %third_result
 }
 
 // ====
 
-func.def @vector_extf_f8e5m2x3_to_f16x3(%input: vector<3xf8E5M2>) -> (vector<3xf16>) {
+func.def @vector_extf_f8e5m2x3_to_f16x3(%first: f8E5M2, %second: f8E5M2, %third: f8E5M2) -> (f16, f16, f16) {
+  %input = vector.from_elements %first, %second, %third : vector<3xf8E5M2>
   %converted = vector.extf %input : vector<3xf8E5M2> to vector<3xf16>
-  func.return %converted : vector<3xf16>
+  %first_result = vector.extract %converted[0] : vector<3xf16> -> f16
+  %second_result = vector.extract %converted[1] : vector<3xf16> -> f16
+  %third_result = vector.extract %converted[2] : vector<3xf16> -> f16
+  func.return %first_result, %second_result, %third_result : f16, f16, f16
 }
 
 // ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_extf_f8e5m2x3_to_f16x3(%input: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
-  %15 = vextract.8.imm %input, 0
-  %16 = mov.short 255
-  %17 = and %15, %16
-  %18 = mov.short 8
-  %19 = lshl %17, %18
-  %20 = vextract.8.imm %input, 1
-  %22 = and %20, %16
-  %24 = lshl %22, %18
-  %25 = vextract.8.imm %input, 2
-  %27 = and %25, %16
-  %29 = lshl %27, %18
-  %30 = vbcst.16 %19
-  %31 = mov.short 1
-  %32 = copy %31 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %33 = vinsert.16.reg %30, %32, %24
-  %34 = mov.short 2
-  %35 = copy %34 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %converted = vinsert.16.reg %33, %35, %29
-  return %converted
-}
-
-// ====
-
-func.def @scalar_fptrunc_f32_to_f8e4m3(%input: f32) -> (f8E4M3) {
-  %converted = scalar.fptrunc %input : f32 to f8E4M3
-  func.return %converted : f8E4M3
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_fptrunc_f32_to_f8e4m3(%input: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
-  %5 = mov.i32 -2147483648
-  %6 = mov.i32 2147483647
-  %7 = mov.i32 8388607
-  %8 = mov.i32 8388608
-  %9 = mov.short 1
-  %10 = mov.short 0
-  %11 = mov.short -24
-  %12 = mov.short -23
-  %13 = mov.short -20
-  %14 = and %input, %5
-  %15 = lshl %14, %11
-  %16 = and %input, %6
-  %17 = lshl %16, %12
-  %18 = and %16, %7
-  %19 = lshl %18, %13
-  %20 = and %19, %9
-  %21 = mov.i32 524287
-  %22 = add.rr %21, %20
-  %23 = add.rr %18, %22
-  %24 = lshl %23, %13
-  %25 = mov.short -120
-  %26 = add.rr %17, %25
-  %27 = mov.short 3
-  %28 = lshl %26, %27
-  %29 = add.rr %28, %24
-  %30 = mov.short 117
-  %31 = mov.short 121
-  %32 = mov.short 120
-  %33 = ltu %17, %30
-  %34 = copy %33 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %35 = sel.nez %30, %17, %34
-  %36 = geu %35, %31
-  %37 = copy %36 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %38 = sel.nez %32, %35, %37
-  %39 = mov.short 141
-  %40 = sub %38, %39
-  %41 = or %18, %8
-  %42 = lshl %41, %40
-  %43 = and %42, %9
-  %44 = mov.short 140
-  %45 = sub %44, %38
-  %46 = lshl %9, %45
-  %47 = sub %46, %9
-  %48 = add.rr %47, %43
-  %49 = add.rr %41, %48
-  %50 = lshl %49, %40
-  %51 = copy %33 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %52 = sel.nez %10, %50, %51
-  %53 = ltu %17, %31
-  %54 = copy %53 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %55 = sel.nez %52, %29, %54
-  %56 = mov.short 127
-  %57 = mov.short 126
-  %58 = geu %55, %56
-  %59 = copy %58 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %60 = sel.nez %57, %55, %59
-  %61 = copy %18 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %62 = sel.nez %56, %57, %61
-  %63 = mov.short 255
-  %64 = eq %17, %63
-  %65 = copy %64 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %66 = sel.nez %62, %60, %65
-  %converted = or %15, %66
-  return %converted
-}
-
-// ====
-
-func.def @scalar_fptrunc_f32_to_f8e5m2(%input: f32) -> (f8E5M2) {
-  %converted = scalar.fptrunc %input : f32 to f8E5M2
-  func.return %converted : f8E5M2
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_fptrunc_f32_to_f8e5m2(%input: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
-  %5 = mov.i32 -2147483648
-  %6 = mov.i32 2147483647
-  %7 = mov.i32 8388607
-  %8 = mov.i32 8388608
-  %9 = mov.short 1
-  %10 = mov.short 0
-  %11 = mov.short -24
-  %12 = mov.short -23
-  %13 = mov.short -21
-  %14 = and %input, %5
-  %15 = lshl %14, %11
-  %16 = and %input, %6
-  %17 = lshl %16, %12
-  %18 = and %16, %7
-  %19 = lshl %18, %13
-  %20 = and %19, %9
-  %21 = mov.i32 1048575
-  %22 = add.rr %21, %20
-  %23 = add.rr %18, %22
-  %24 = lshl %23, %13
-  %25 = mov.short -112
-  %26 = add.rr %17, %25
-  %27 = mov.short 2
-  %28 = lshl %26, %27
-  %29 = add.rr %28, %24
-  %30 = mov.short 110
-  %31 = mov.short 113
-  %32 = mov.short 112
-  %33 = ltu %17, %30
-  %34 = copy %33 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %35 = sel.nez %30, %17, %34
-  %36 = geu %35, %31
-  %37 = copy %36 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %38 = sel.nez %32, %35, %37
-  %39 = mov.short 134
-  %40 = sub %38, %39
-  %41 = or %18, %8
-  %42 = lshl %41, %40
-  %43 = and %42, %9
-  %44 = mov.short 133
-  %45 = sub %44, %38
-  %46 = lshl %9, %45
-  %47 = sub %46, %9
-  %48 = add.rr %47, %43
-  %49 = add.rr %41, %48
-  %50 = lshl %49, %40
-  %51 = copy %33 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %52 = sel.nez %10, %50, %51
-  %53 = ltu %17, %31
-  %54 = copy %53 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %55 = sel.nez %52, %29, %54
-  %56 = mov.short 127
-  %57 = mov.short 124
-  %58 = mov.short 143
-  %59 = geu %17, %58
-  %60 = copy %59 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %61 = sel.nez %57, %55, %60
-  %62 = copy %18 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %63 = sel.nez %56, %57, %62
-  %64 = mov.short 255
-  %65 = eq %17, %64
-  %66 = copy %65 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %67 = sel.nez %63, %61, %66
-  %converted = or %15, %67
-  return %converted
-}
-
-// ====
-
-func.def @scalar_fptrunc_f16_to_f8e4m3(%input: f16) -> (f8E4M3) {
-  %converted = scalar.fptrunc %input : f16 to f8E4M3
-  func.return %converted : f8E4M3
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_fptrunc_f16_to_f8e4m3(%input: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
-  %5 = mov.i32 32768
-  %6 = mov.i32 32767
-  %7 = mov.short 16
-  %8 = and %input, %5
-  %9 = lshl %8, %7
-  %10 = and %input, %6
-  %11 = clz %10
-  %12 = add %11, -21
-  %13 = mov.short 0
-  %14 = lt %12, %13
-  %15 = copy %14 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %16 = sel.nez %13, %12, %15
-  %17 = lshl %10, %16
-  %18 = mov.short 13
-  %19 = lshl %17, %18
-  %20 = mov.i32 31744
-  %21 = geu %10, %20
-  %22 = mov.short 112
-  %23 = mov.short 224
-  %24 = copy %21 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %25 = sel.nez %23, %22, %24
-  %26 = sub %25, %16
-  %27 = mov.short 23
-  %28 = lshl %26, %27
-  %29 = add.rr %19, %28
-  %30 = copy %10 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %31 = sel.nez %29, %13, %30
-  %32 = or %9, %31
-  %33 = mov.i32 -2147483648
-  %34 = mov.i32 2147483647
-  %35 = mov.i32 8388607
-  %36 = mov.i32 8388608
-  %37 = mov.short 1
-  %39 = mov.short -24
-  %40 = mov.short -23
-  %41 = mov.short -20
-  %42 = and %32, %33
-  %43 = lshl %42, %39
-  %44 = and %32, %34
-  %45 = lshl %44, %40
-  %46 = and %44, %35
-  %47 = lshl %46, %41
-  %48 = and %47, %37
-  %49 = mov.i32 524287
-  %50 = add.rr %49, %48
-  %51 = add.rr %46, %50
-  %52 = lshl %51, %41
-  %53 = mov.short -120
-  %54 = add.rr %45, %53
-  %55 = mov.short 3
-  %56 = lshl %54, %55
-  %57 = add.rr %56, %52
-  %58 = mov.short 117
-  %59 = mov.short 121
-  %60 = mov.short 120
-  %61 = ltu %45, %58
-  %62 = copy %61 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %63 = sel.nez %58, %45, %62
-  %64 = geu %63, %59
-  %65 = copy %64 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %66 = sel.nez %60, %63, %65
-  %67 = mov.short 141
-  %68 = sub %66, %67
-  %69 = or %46, %36
-  %70 = lshl %69, %68
-  %71 = and %70, %37
-  %72 = mov.short 140
-  %73 = sub %72, %66
-  %74 = lshl %37, %73
-  %75 = sub %74, %37
-  %76 = add.rr %75, %71
-  %77 = add.rr %69, %76
-  %78 = lshl %77, %68
-  %79 = copy %61 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %80 = sel.nez %13, %78, %79
-  %81 = ltu %45, %59
-  %82 = copy %81 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %83 = sel.nez %80, %57, %82
-  %84 = mov.short 127
-  %85 = mov.short 126
-  %86 = geu %83, %84
-  %87 = copy %86 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %88 = sel.nez %85, %83, %87
-  %89 = copy %46 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %90 = sel.nez %84, %85, %89
-  %91 = mov.short 255
-  %92 = eq %45, %91
-  %93 = copy %92 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %94 = sel.nez %90, %88, %93
-  %converted = or %43, %94
-  return %converted
-}
-
-// ====
-
-func.def @scalar_fptrunc_bf16_to_f8e5m2(%input: bf16) -> (f8E5M2) {
-  %converted = scalar.fptrunc %input : bf16 to f8E5M2
-  func.return %converted : f8E5M2
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_fptrunc_bf16_to_f8e5m2(%input: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
-  %5 = mov.short 16
-  %6 = lshl %input, %5
-  %7 = mov.i32 -2147483648
-  %8 = mov.i32 2147483647
-  %9 = mov.i32 8388607
-  %10 = mov.i32 8388608
-  %11 = mov.short 1
-  %12 = mov.short 0
-  %13 = mov.short -24
-  %14 = mov.short -23
-  %15 = mov.short -21
-  %16 = and %6, %7
-  %17 = lshl %16, %13
-  %18 = and %6, %8
-  %19 = lshl %18, %14
-  %20 = and %18, %9
-  %21 = lshl %20, %15
-  %22 = and %21, %11
-  %23 = mov.i32 1048575
-  %24 = add.rr %23, %22
-  %25 = add.rr %20, %24
-  %26 = lshl %25, %15
-  %27 = mov.short -112
-  %28 = add.rr %19, %27
-  %29 = mov.short 2
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_extf_f8e5m2x3_to_f16x3(%first: reg<aie2p.er>, %second: reg<aie2p.er>, %third: reg<aie2p.er>) -> (reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>) asm {
+  %27 = mov.short 255
+  %28 = and %first, %27
+  %29 = mov.short 8
   %30 = lshl %28, %29
-  %31 = add.rr %30, %26
-  %32 = mov.short 110
-  %33 = mov.short 113
-  %34 = mov.short 112
-  %35 = ltu %19, %32
-  %36 = copy %35 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %37 = sel.nez %32, %19, %36
-  %38 = geu %37, %33
-  %39 = copy %38 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %40 = sel.nez %34, %37, %39
-  %41 = mov.short 134
-  %42 = sub %40, %41
-  %43 = or %20, %10
-  %44 = lshl %43, %42
-  %45 = and %44, %11
-  %46 = mov.short 133
-  %47 = sub %46, %40
-  %48 = lshl %11, %47
-  %49 = sub %48, %11
-  %50 = add.rr %49, %45
-  %51 = add.rr %43, %50
-  %52 = lshl %51, %42
-  %53 = copy %35 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %54 = sel.nez %12, %52, %53
-  %55 = ltu %19, %33
-  %56 = copy %55 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %57 = sel.nez %54, %31, %56
-  %58 = mov.short 127
-  %59 = mov.short 124
-  %60 = mov.short 143
-  %61 = geu %19, %60
-  %62 = copy %61 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %63 = sel.nez %59, %57, %62
-  %64 = copy %20 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %65 = sel.nez %58, %59, %64
-  %66 = mov.short 255
-  %67 = eq %19, %66
-  %68 = copy %67 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %69 = sel.nez %65, %63, %68
-  %converted = or %17, %69
-  return %converted
+  %32 = and %second, %27
+  %34 = lshl %32, %29
+  %36 = and %third, %27
+  %38 = lshl %36, %29
+  return %30, %34, %38
 }
 
 // ====
 
-func.def @vector_fptrunc_f32x3_to_f8e4m3x3(%input: vector<3xf32>) -> (vector<3xf8E4M3>) {
+func.def @vector_fptrunc_f32x3_to_f8e4m3x3(%first: f32, %second: f32, %third: f32) -> (f8E4M3, f8E4M3, f8E4M3) {
+  %input = vector.from_elements %first, %second, %third : vector<3xf32>
   %converted = vector.fptrunc %input : vector<3xf32> to vector<3xf8E4M3>
-  func.return %converted : vector<3xf8E4M3>
+  %first_result = vector.extract %converted[0] : vector<3xf8E4M3> -> f8E4M3
+  %second_result = vector.extract %converted[1] : vector<3xf8E4M3> -> f8E4M3
+  %third_result = vector.extract %converted[2] : vector<3xf8E4M3> -> f8E4M3
+  func.return %first_result, %second_result, %third_result : f8E4M3, f8E4M3, f8E4M3
 }
 
 // ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_fptrunc_f32x3_to_f8e4m3x3(%input: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_fptrunc_f32x3_to_f8e4m3x3(%first: reg<aie2p.er>, %second: reg<aie2p.er>, %third: reg<aie2p.er>) -> (reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>) asm {
+  %20 = vbcst.32 %first
+  %21 = mov.short 1
+  %22 = copy %21 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %23 = vinsert.32.reg %20, %22, %second
+  %24 = mov.short 2
+  %25 = copy %24 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %input = vinsert.32.reg %23, %25, %third
   set.saturation 1
   set.rounding 12
   set.srs-mode 0
   set.pack-size 1
-  %5 = mov.i32 2147483647
-  %6 = vbcst.32 %5
-  %7 = mov.i32 -2147483648
-  %8 = vbcst.32 %7
-  %9 = mov.i32 2139095040
-  %10 = vbcst.32 %9
-  %11 = mov.short 126
-  %12 = vbcst.16 %11
-  %13 = mov.short 1
-  %14 = vbcst.16 %13
-  %15 = vsub.16 %14, %14
-  %16 = mov.i32 8388607
-  %17 = vbcst.32 %16
-  %18 = mov.i32 8388608
-  %19 = vbcst.32 %18
-  %20 = mov.i32 1006632960
-  %21 = vbcst.32 %20
-  %22 = mov.i32 981467136
-  %23 = vbcst.32 %22
-  %24 = mov.i32 989855744
-  %25 = vbcst.32 %24
-  %26 = mov.i32 998244352
-  %27 = vbcst.32 %26
-  %30 = vband %input, %6
-  %31 = vband %input, %8
-  %32 = slice %31[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
-  %33 = vmov.vector512.to.accumulator512 %31
-  %34 = mov.shift 24
-  %35 = vsrs.2x.b-to-w.unsigned %33, %34
-  %36 = concat(%35, %32) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
-  %37 = vsub.32 %30, %21
-  %38 = slice %37[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
-  %39 = vmov.vector512.to.accumulator512 %37
-  %40 = mov.shift 20
-  %41 = vsrs.2x.b-to-w.signed %39, %40
-  %42 = concat(%41, %38) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
-  %43 = max.s16x32 %42, %15
-  %44 = vband %30, %17
-  %45 = vbor %44, %19
-  %46 = slice %45[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
-  %47 = vmov.vector512.to.accumulator512 %45
-  %48 = vsrs.2x.b-to-w.unsigned %47, %34
-  %49 = concat(%48, %46) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
-  %50 = vge.u32x16.el.low32 %30, %23
-  %51 = predicate.complete.zero.high32 %50, 0
-  %52 = vsel.16.mask64 %15, %49, %51
-  %53 = mov.shift 23
-  %54 = vsrs.2x.b-to-w.unsigned %47, %53
-  %55 = concat(%54, %46) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
-  %56 = vge.u32x16.el.low32 %30, %25
-  %57 = predicate.complete.zero.high32 %56, 0
-  %58 = vsel.16.mask64 %52, %55, %57
-  %59 = mov.shift 22
-  %60 = vsrs.2x.b-to-w.unsigned %47, %59
-  %61 = concat(%60, %46) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
-  %62 = vge.u32x16.el.low32 %30, %27
-  %63 = predicate.complete.zero.high32 %62, 0
-  %64 = vsel.16.mask64 %58, %61, %63
-  %65 = mov.shift 21
-  %66 = vsrs.2x.b-to-w.unsigned %47, %65
-  %67 = concat(%66, %46) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
-  %68 = vge.u32x16.el.low32 %30, %21
-  %69 = predicate.complete.zero.high32 %68, 0
-  %70 = vsel.16.mask64 %64, %67, %69
-  %71 = max.u16x32 %43, %70
-  %72 = min.u16x32 %71, %12
-  %73 = vsub.32 %30, %10
-  %74 = slice %73[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
-  %75 = vmov.vector512.to.accumulator512 %73
-  %76 = mov.shift 0
-  %77 = vsrs.2x.b-to-w.signed %75, %76
-  %78 = concat(%77, %74) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
-  %79 = max.s16x32 %78, %15
-  %80 = min.u16x32 %79, %14
-  %81 = vadd.16 %72, %80
-  %82 = vbor %81, %36
-  %83 = slice %82[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
-  %84 = slice %82[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
-  %85 = concat(%83, %84) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %27 = mov.i32 2147483647
+  %28 = vbcst.32 %27
+  %29 = mov.i32 -2147483648
+  %30 = vbcst.32 %29
+  %31 = mov.i32 2139095040
+  %32 = vbcst.32 %31
+  %33 = mov.short 126
+  %34 = vbcst.16 %33
+  %36 = vbcst.16 %21
+  %37 = vsub.16 %36, %36
+  %38 = mov.i32 8388607
+  %39 = vbcst.32 %38
+  %40 = mov.i32 8388608
+  %41 = vbcst.32 %40
+  %42 = mov.i32 1006632960
+  %43 = vbcst.32 %42
+  %44 = mov.i32 981467136
+  %45 = vbcst.32 %44
+  %46 = mov.i32 989855744
+  %47 = vbcst.32 %46
+  %48 = mov.i32 998244352
+  %49 = vbcst.32 %48
+  %52 = vband %input, %28
+  %53 = vband %input, %30
+  %54 = slice %53[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %55 = vmov.vector512.to.accumulator512 %53
+  %56 = mov.shift 24
+  %57 = vsrs.2x.b-to-w.unsigned %55, %56
+  %58 = concat(%57, %54) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %59 = vsub.32 %52, %43
+  %60 = slice %59[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %61 = vmov.vector512.to.accumulator512 %59
+  %62 = mov.shift 20
+  %63 = vsrs.2x.b-to-w.signed %61, %62
+  %64 = concat(%63, %60) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %65 = max.s16x32 %64, %37
+  %66 = vband %52, %39
+  %67 = vbor %66, %41
+  %68 = slice %67[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %69 = vmov.vector512.to.accumulator512 %67
+  %70 = vsrs.2x.b-to-w.unsigned %69, %56
+  %71 = concat(%70, %68) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %72 = vge.u32x16.el.low32 %52, %45
+  %73 = predicate.complete.zero.high32 %72, 0
+  %74 = vsel.16.mask64 %37, %71, %73
+  %75 = mov.shift 23
+  %76 = vsrs.2x.b-to-w.unsigned %69, %75
+  %77 = concat(%76, %68) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %78 = vge.u32x16.el.low32 %52, %47
+  %79 = predicate.complete.zero.high32 %78, 0
+  %80 = vsel.16.mask64 %74, %77, %79
+  %81 = mov.shift 22
+  %82 = vsrs.2x.b-to-w.unsigned %69, %81
+  %83 = concat(%82, %68) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %84 = vge.u32x16.el.low32 %52, %49
+  %85 = predicate.complete.zero.high32 %84, 0
+  %86 = vsel.16.mask64 %80, %83, %85
+  %87 = mov.shift 21
+  %88 = vsrs.2x.b-to-w.unsigned %69, %87
+  %89 = concat(%88, %68) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %90 = vge.u32x16.el.low32 %52, %43
+  %91 = predicate.complete.zero.high32 %90, 0
+  %92 = vsel.16.mask64 %86, %89, %91
+  %93 = max.u16x32 %65, %92
+  %94 = min.u16x32 %93, %34
+  %95 = vsub.32 %52, %32
+  %96 = slice %95[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %97 = vmov.vector512.to.accumulator512 %95
+  %98 = mov.shift 0
+  %99 = vsrs.2x.b-to-w.signed %97, %98
+  %100 = concat(%99, %96) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %101 = max.s16x32 %100, %37
+  %102 = min.u16x32 %101, %36
+  %103 = vadd.16 %94, %102
+  %104 = vbor %103, %58
+  %105 = slice %104[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %106 = slice %104[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %107 = concat(%105, %106) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
   set.saturation 0
-  %86 = vpack.w.trunc %85
-  %converted = concat(%86, %84) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
-  return %converted
+  %108 = vpack.w.trunc %107
+  %converted = concat(%108, %106) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %first_result = vextract.8.imm %converted, 0
+  %second_result = vextract.8.imm %converted, 1
+  %third_result = vextract.8.imm %converted, 2
+  return %first_result, %second_result, %third_result
 }
 
 // ====
 
-func.def @vector_fptrunc_f16x3_to_f8e5m2x3(%input: vector<3xf16>) -> (vector<3xf8E5M2>) {
+func.def @vector_fptrunc_f16x3_to_f8e5m2x3(%first: f16, %second: f16, %third: f16) -> (f8E5M2, f8E5M2, f8E5M2) {
+  %input = vector.from_elements %first, %second, %third : vector<3xf16>
   %converted = vector.fptrunc %input : vector<3xf16> to vector<3xf8E5M2>
-  func.return %converted : vector<3xf8E5M2>
+  %first_result = vector.extract %converted[0] : vector<3xf8E5M2> -> f8E5M2
+  %second_result = vector.extract %converted[1] : vector<3xf8E5M2> -> f8E5M2
+  %third_result = vector.extract %converted[2] : vector<3xf8E5M2> -> f8E5M2
+  func.return %first_result, %second_result, %third_result : f8E5M2, f8E5M2, f8E5M2
 }
 
 // ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_fptrunc_f16x3_to_f8e5m2x3(%input: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_fptrunc_f16x3_to_f8e5m2x3(%first: reg<aie2p.er>, %second: reg<aie2p.er>, %third: reg<aie2p.er>) -> (reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>) asm {
+  %20 = vbcst.16 %first
+  %21 = mov.short 1
+  %22 = copy %21 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %23 = vinsert.16.reg %20, %22, %second
+  %24 = mov.short 2
+  %25 = copy %24 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %input = vinsert.16.reg %23, %25, %third
   set.saturation 1
   set.ups-mode 0
   set.rounding 12
   set.srs-mode 0
   set.pack-size 1
-  %5 = slice %input[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
-  %6 = mov.shift 0
-  %7 = vups.2x.w-to-b.unsigned %5, %6
-  %8 = vmov.accumulator512.to.vector512 %7
-  %9 = mov.i32 32767
-  %10 = vbcst.32 %9
-  %11 = mov.i32 32768
-  %12 = vbcst.32 %11
-  %13 = mov.i32 31744
-  %14 = vbcst.32 %13
-  %15 = mov.short 124
-  %16 = vbcst.16 %15
-  %17 = mov.short 1
-  %18 = vbcst.16 %17
-  %19 = vsub.16 %18, %18
-  %20 = vband %8, %10
-  %21 = vband %8, %12
-  %22 = slice %21[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
-  %23 = vmov.vector512.to.accumulator512 %21
-  %24 = mov.shift 8
-  %25 = vsrs.2x.b-to-w.unsigned %23, %24
-  %26 = concat(%25, %22) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
-  %27 = slice %20[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
-  %28 = vmov.vector512.to.accumulator512 %20
-  %29 = vsrs.2x.b-to-w.unsigned %28, %24
-  %30 = concat(%29, %27) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
-  %31 = min.u16x32 %30, %16
-  %32 = vsub.32 %20, %14
-  %33 = slice %32[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
-  %34 = vmov.vector512.to.accumulator512 %32
-  %35 = vsrs.2x.b-to-w.signed %34, %6
-  %36 = concat(%35, %33) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
-  %37 = max.s16x32 %36, %19
-  %38 = min.u16x32 %37, %18
-  %39 = vadd.16 %31, %38
-  %40 = vadd.16 %39, %38
-  %41 = vadd.16 %40, %38
-  %42 = vbor %41, %26
-  %43 = slice %42[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
-  %44 = slice %42[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
-  %45 = concat(%43, %44) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %27 = slice %input[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %28 = mov.shift 0
+  %29 = vups.2x.w-to-b.unsigned %27, %28
+  %30 = vmov.accumulator512.to.vector512 %29
+  %31 = mov.i32 32767
+  %32 = vbcst.32 %31
+  %33 = mov.i32 32768
+  %34 = vbcst.32 %33
+  %35 = mov.i32 31744
+  %36 = vbcst.32 %35
+  %37 = mov.short 124
+  %38 = vbcst.16 %37
+  %40 = vbcst.16 %21
+  %41 = vsub.16 %40, %40
+  %42 = vband %30, %32
+  %43 = vband %30, %34
+  %44 = slice %43[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %45 = vmov.vector512.to.accumulator512 %43
+  %46 = mov.shift 8
+  %47 = vsrs.2x.b-to-w.unsigned %45, %46
+  %48 = concat(%47, %44) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %49 = slice %42[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %50 = vmov.vector512.to.accumulator512 %42
+  %51 = vsrs.2x.b-to-w.unsigned %50, %46
+  %52 = concat(%51, %49) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %53 = min.u16x32 %52, %38
+  %54 = vsub.32 %42, %36
+  %55 = slice %54[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %56 = vmov.vector512.to.accumulator512 %54
+  %57 = vsrs.2x.b-to-w.signed %56, %28
+  %58 = concat(%57, %55) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %59 = max.s16x32 %58, %41
+  %60 = min.u16x32 %59, %40
+  %61 = vadd.16 %53, %60
+  %62 = vadd.16 %61, %60
+  %63 = vadd.16 %62, %60
+  %64 = vbor %63, %48
+  %65 = slice %64[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %66 = slice %64[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %67 = concat(%65, %66) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
   set.saturation 0
-  %46 = vpack.w.trunc %45
-  %converted = concat(%46, %44) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
-  return %converted
+  %68 = vpack.w.trunc %67
+  %converted = concat(%68, %66) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %first_result = vextract.8.imm %converted, 0
+  %second_result = vextract.8.imm %converted, 1
+  %third_result = vextract.8.imm %converted, 2
+  return %first_result, %second_result, %third_result
 }

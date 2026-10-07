@@ -245,6 +245,32 @@ loom_cc_library(
     ],
 )
 
+loom_cc_test(
+    name = "module_compiler_test",
+    srcs = ["module_compiler_test.cc"],
+    target_compatible_with = _SPIRV_COMPILE_COMPATIBLE_WITH,
+    deps = [
+        ":module_compiler",
+        "//loom/src/loom/codegen/low:text_asm",
+        "//loom/src/loom/format/text:parser",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops:op_registry",
+        "//loom/src/loom/target:facts_builder",
+        "//loom/src/loom/target:function_version",
+        "//loom/src/loom/target:low_descriptor_registry",
+        "//loom/src/loom/target:types",
+        "//loom/src/loom/target/arch/spirv:features",
+        "//loom/src/loom/target/arch/spirv/descriptors",
+        "//loom/src/loom/target/arch/spirv/records:target_records",
+        "//loom/src/loom/testing:byte_sequence",
+        "//loom/src/loom/testing:module_ptr",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
 iree_assert_dependency_boundary(
     name = "module_compiler_has_no_tooling_dependencies",
     forbidden_subtrees = ["//loom/src/loom/tooling/..."],
@@ -306,7 +332,6 @@ loom_check_test_suite(
         "test/scalar_operations.loom-test",
         "test/schedule_scopes.loom-test",
         "test/source_low/buffer_selection.loom-test",
-        "test/source_low/index_numeric.loom-test",
         "test/source_low/memory_scalar_addressing.loom-test",
         "test/source_low/memory_workgroup_scalar_addressing.loom-test",
         "test/source_low/numeric_bfloat_narrow.loom-test",

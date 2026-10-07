@@ -6,10 +6,10 @@
 
 // HAL kernel-launch bridge for Loom check testbench actual-candidate execution.
 //
-// This layer is target-neutral: tools inject a composed target environment and
-// linked device providers, while this bridge owns HAL runtime selection,
-// candidate compilation, dispatch input conversion, and the callback shape used
-// by the testbench executor.
+// This layer is target-neutral: tools inject an execution session with its
+// composed target environment and linked device providers, while this bridge
+// owns HAL runtime selection, candidate compilation, dispatch input conversion,
+// and the callback shape used by the testbench executor.
 
 #ifndef LOOM_TOOLING_EXECUTION_HAL_TESTBENCH_ACTUAL_H_
 #define LOOM_TOOLING_EXECUTION_HAL_TESTBENCH_ACTUAL_H_
@@ -22,7 +22,6 @@
 #include "loom/target/provider.h"
 #include "loom/tooling/compile/options.h"
 #include "loom/tooling/compile/pipeline.h"
-#include "loom/tooling/execution/hal/artifact.h"
 #include "loom/tooling/execution/hal/candidate.h"
 #include "loom/tooling/execution/hal/device_provider.h"
 #include "loom/tooling/execution/hal/invocation.h"
@@ -111,8 +110,6 @@ typedef struct loom_run_hal_testbench_actual_provider_options_t {
   loom_run_hal_testbench_context_t* context;
   // Execution session used to clone and compile the private module copy.
   loom_run_session_t* session;
-  // Target environment used by the source-to-low pipeline.
-  const loom_target_environment_t* target_environment;
   // Canonical parsed module that owns |kernel_launch|. Borrowed through
   // provider deinitialization.
   const loom_run_module_t* run_module;
@@ -143,8 +140,6 @@ typedef struct loom_run_hal_testbench_actual_provider_t {
   loom_run_hal_testbench_context_t* context;
   // Execution session used to clone and compile the private module copy.
   loom_run_session_t* session;
-  // Target environment used by the source-to-low pipeline.
-  const loom_target_environment_t* target_environment;
   // Canonical parsed module that owns |kernel_launch|. Borrowed through
   // provider deinitialization.
   const loom_run_module_t* run_module;
@@ -172,14 +167,14 @@ typedef struct loom_run_hal_testbench_actual_provider_t {
   loom_compile_artifact_manifest_options_t artifact_manifest;
   // Private compile module owned by this provider.
   loom_run_module_t compile_module;
-  // Config-materialized source kernel retained for launch evaluation.
+  // Compiler-produced host launch program retained for repeated evaluation.
   loom_module_t* launch_config_module;
-  // Launch-module snapshots borrowing bytes from compile_module.sources.
-  loom_source_table_resolver_t launch_config_sources;
-  // Exact target facts used to expand and evaluate the launch region.
-  const loom_target_facts_t* launch_config_target_facts;
-  // Reusable signed workload arguments used during launch evaluation.
-  int64_t* workload_arguments;
+  // Exported function bound from |launch_config_module|.
+  loom_kernel_launch_config_function_t launch_config_function;
+  // Reusable fact storage for launch-function evaluation.
+  loom_pass_value_fact_owner_t launch_config_fact_owner;
+  // Reusable raw workload argument bits used during launch evaluation.
+  uint64_t* workload_argument_bits;
   // Backend-produced HAL executable candidate.
   loom_run_hal_candidate_t candidate;
   // Target selected before the compile pipeline runs.
@@ -192,17 +187,12 @@ typedef struct loom_run_hal_testbench_actual_provider_t {
   // Number of entries in |function_parameters|. Zero means the backend did
   // not publish logical parameter reflection.
   iree_host_size_t function_parameter_count;
-  // Source kernel symbol borrowed from the run module for launch evaluation.
-  iree_string_view_t entry_symbol;
   // Dispatch options derived from the compiled source entry.
   loom_run_hal_invocation_options_t invocation_options;
-  // Most recently resolved source launch configuration. This is refreshed
-  // from the exact workload values before each invocation is submitted.
+  // Most recently evaluated compiled launch configuration.
   loom_kernel_launch_config_t resolved_launch_config;
   // Compiler products retained through artifact emission.
   loom_compile_pipeline_result_t pipeline_result;
-  // Expanded-source products retained through launch evaluation.
-  loom_compile_pipeline_result_t launch_config_pipeline_result;
   // Product stage that rejected the compile, when |compile_rejected| is true.
   iree_string_view_t compile_failure_stage;
   // Stable diagnostic category for |compile_rejected|.
@@ -220,6 +210,8 @@ typedef struct loom_run_hal_testbench_actual_provider_t {
   bool compile_rejected;
   // True when |compile_module| has been initialized.
   bool compile_module_initialized;
+  // True when |launch_config_fact_owner| has been initialized.
+  bool launch_config_evaluation_initialized;
   // True when |candidate| has been initialized.
   bool candidate_initialized;
   // True when |compile_device_target| owns provider-selected target storage.
@@ -238,8 +230,6 @@ typedef struct loom_run_hal_testbench_actual_sequence_options_t {
   loom_run_hal_testbench_context_t* context;
   // Execution session used to clone and compile each private module copy.
   loom_run_session_t* session;
-  // Target environment used by the source-to-low pipeline.
-  const loom_target_environment_t* target_environment;
   // Canonical parsed module that owns |case_plan|. Borrowed through sequence
   // deinitialization.
   const loom_run_module_t* run_module;

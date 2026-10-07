@@ -309,12 +309,12 @@ iree_status_t loom_check_low_emit_find_low_function_def(
   return iree_ok_status();
 }
 
-static iree_status_t loom_check_low_emit_consider_fixed_value_match(
+static void loom_check_low_emit_consider_value_match(
     const loom_module_t* module, loom_value_id_t value_id,
-    iree_string_view_t value_name, bool* found, bool* ambiguous,
-    loom_value_id_t* out_value_id, loom_value_id_t* out_ambiguous_value_id) {
+    iree_string_view_t value_name,
+    loom_check_low_emit_value_resolution_t* resolution) {
   if (value_id >= module->values.count) {
-    return iree_ok_status();
+    return;
   }
 
   bool matches = false;
@@ -332,32 +332,31 @@ static iree_status_t loom_check_low_emit_consider_fixed_value_match(
     matches = true;
   }
   if (!matches) {
-    return iree_ok_status();
+    return;
   }
 
-  if (*found && *out_value_id != value_id) {
-    *ambiguous = true;
-    *out_ambiguous_value_id = value_id;
-    return iree_ok_status();
+  if (resolution->kind == LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_RESOLVED &&
+      resolution->value_id != value_id) {
+    resolution->kind = LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_AMBIGUOUS;
+    resolution->ambiguous_value_id = value_id;
+    return;
   }
-  *found = true;
-  *out_value_id = value_id;
-  return iree_ok_status();
+  resolution->kind = LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_RESOLVED;
+  resolution->value_id = value_id;
 }
 
-static iree_status_t loom_check_low_emit_find_value_in_region(
+static void loom_check_low_emit_resolve_value_in_region(
     const loom_module_t* module, const loom_region_t* region,
-    iree_string_view_t value_name, bool* found, bool* ambiguous,
-    loom_value_id_t* out_value_id, loom_value_id_t* out_ambiguous_value_id) {
+    iree_string_view_t value_name,
+    loom_check_low_emit_value_resolution_t* resolution) {
   for (iree_host_size_t block_index = 0; block_index < region->block_count;
        ++block_index) {
     const loom_block_t* block = loom_region_const_block(region, block_index);
     for (uint16_t arg_index = 0; arg_index < block->arg_count; ++arg_index) {
-      IREE_RETURN_IF_ERROR(loom_check_low_emit_consider_fixed_value_match(
-          module, loom_block_arg_id(block, arg_index), value_name, found,
-          ambiguous, out_value_id, out_ambiguous_value_id));
-      if (*ambiguous) {
-        return iree_ok_status();
+      loom_check_low_emit_consider_value_match(
+          module, loom_block_arg_id(block, arg_index), value_name, resolution);
+      if (resolution->kind == LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_AMBIGUOUS) {
+        return;
       }
     }
     const loom_op_t* op = NULL;
@@ -365,26 +364,39 @@ static iree_status_t loom_check_low_emit_find_value_in_region(
       const loom_value_id_t* results = loom_op_const_results(op);
       for (uint16_t result_index = 0; result_index < op->result_count;
            ++result_index) {
-        IREE_RETURN_IF_ERROR(loom_check_low_emit_consider_fixed_value_match(
-            module, results[result_index], value_name, found, ambiguous,
-            out_value_id, out_ambiguous_value_id));
-        if (*ambiguous) {
-          return iree_ok_status();
+        loom_check_low_emit_consider_value_match(module, results[result_index],
+                                                 value_name, resolution);
+        if (resolution->kind ==
+            LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_AMBIGUOUS) {
+          return;
         }
       }
       loom_region_t** regions = loom_op_regions(op);
       for (uint8_t region_index = 0; region_index < op->region_count;
            ++region_index) {
-        IREE_RETURN_IF_ERROR(loom_check_low_emit_find_value_in_region(
-            module, regions[region_index], value_name, found, ambiguous,
-            out_value_id, out_ambiguous_value_id));
-        if (*ambiguous) {
-          return iree_ok_status();
+        loom_check_low_emit_resolve_value_in_region(
+            module, regions[region_index], value_name, resolution);
+        if (resolution->kind ==
+            LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_AMBIGUOUS) {
+          return;
         }
       }
     }
   }
-  return iree_ok_status();
+}
+
+void loom_check_low_emit_resolve_function_value(
+    const loom_module_t* module, const loom_op_t* low_function,
+    iree_string_view_t value_name,
+    loom_check_low_emit_value_resolution_t* out_resolution) {
+  *out_resolution = (loom_check_low_emit_value_resolution_t){
+      .kind = LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_NOT_FOUND,
+      .value_id = LOOM_VALUE_ID_INVALID,
+      .ambiguous_value_id = LOOM_VALUE_ID_INVALID,
+  };
+  loom_check_low_emit_resolve_value_in_region(
+      module, loom_low_function_const_body(low_function), value_name,
+      out_resolution);
 }
 
 static iree_status_t loom_check_low_emit_emit_unresolved_fixed_value_selector(
@@ -430,22 +442,19 @@ static iree_status_t loom_check_low_emit_find_value_in_low_function(
     loom_value_id_t* out_value_id, bool* out_resolved) {
   *out_value_id = LOOM_VALUE_ID_INVALID;
   *out_resolved = false;
-  const loom_region_t* body = loom_low_function_const_body(low_function);
-  bool found = false;
-  bool ambiguous = false;
-  loom_value_id_t ambiguous_value_id = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_check_low_emit_find_value_in_region(
-      module, body, value_name, &found, &ambiguous, out_value_id,
-      &ambiguous_value_id));
-  if (ambiguous) {
+  loom_check_low_emit_value_resolution_t resolution;
+  loom_check_low_emit_resolve_function_value(module, low_function, value_name,
+                                             &resolution);
+  if (resolution.kind == LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_AMBIGUOUS) {
     return loom_check_low_emit_emit_ambiguous_fixed_value_selector(
-        module, low_function, value_name, *out_value_id, ambiguous_value_id,
-        emitter);
+        module, low_function, value_name, resolution.value_id,
+        resolution.ambiguous_value_id, emitter);
   }
-  if (!found) {
+  if (resolution.kind == LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_NOT_FOUND) {
     return loom_check_low_emit_emit_unresolved_fixed_value_selector(
         module, low_function, value_name, emitter);
   }
+  *out_value_id = resolution.value_id;
   *out_resolved = true;
   return iree_ok_status();
 }
@@ -501,18 +510,9 @@ iree_status_t loom_check_low_emit_resolve_fixed_value_specs(
 iree_status_t loom_check_low_emit_packetize_function(
     const loom_check_emit_provider_request_t* request,
     iree_string_view_t function_symbol_name,
-    loom_low_schedule_strategy_t schedule_strategy,
-    loom_low_schedule_diagnostic_flags_t schedule_diagnostic_flags,
-    loom_low_allocation_diagnostic_flags_t allocation_diagnostic_flags,
-    const loom_low_allocation_budget_t* allocation_budgets,
-    iree_host_size_t allocation_budget_count,
+    const loom_low_emission_frame_options_t* options,
     const loom_check_low_emit_fixed_value_spec_t* allocation_fixed_specs,
     iree_host_size_t allocation_fixed_spec_count,
-    loom_low_emission_frame_residency_query_fn_t residency_query,
-    loom_low_schedule_pair_affinity_list_t schedule_pair_affinities,
-    loom_low_schedule_structural_state_read_list_t
-        schedule_structural_state_reads,
-    const loom_low_storage_lease_provider_t* storage_lease_provider,
     const loom_low_emission_frame_spill_free_options_t* spill_free_options,
     loom_low_emission_frame_t* out_frame, bool* out_accepted) {
   *out_accepted = false;
@@ -548,20 +548,10 @@ iree_status_t loom_check_low_emit_packetize_function(
     return iree_ok_status();
   }
 
-  loom_low_emission_frame_options_t frame_options = {
-      .descriptor_registry = &request->low_registry->registry,
-      .schedule_strategy = schedule_strategy,
-      .schedule_diagnostic_flags = schedule_diagnostic_flags,
-      .allocation_diagnostic_flags = allocation_diagnostic_flags,
-      .residency_query = residency_query,
-      .schedule_pair_affinities = schedule_pair_affinities,
-      .schedule_structural_state_reads = schedule_structural_state_reads,
-      .allocation_budgets = allocation_budgets,
-      .allocation_budget_count = allocation_budget_count,
-      .allocation_fixed_values = fixed_values,
-      .allocation_fixed_value_count = fixed_value_count,
-      .storage_lease_provider = storage_lease_provider,
-  };
+  loom_low_emission_frame_options_t frame_options = *options;
+  frame_options.descriptor_registry = &request->low_registry->registry;
+  frame_options.allocation_fixed_values = fixed_values;
+  frame_options.allocation_fixed_value_count = fixed_value_count;
   frame_options.emitter = emitter;
   *out_frame = (loom_low_emission_frame_t){0};
   if (spill_free_options != NULL) {

@@ -294,21 +294,21 @@ func.def target(@target) @scalar_gelu_tanh(%input: f32) -> (f32) {
 }
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @scalar_gelu_tanh(%input: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
-  %29 = v_mul_f32 %input, %input
-  %30 = v_mul_f32 %29, %input
-  %31 = v_mul_f32_lit %30, 1027024659
-  %32 = v_add_f32 %input, %31
-  %33 = v_mul_f32_lit %32, 1061962282
-  %34 = v_mul_f32_src0_inline %33, "f32_2_0"
-  %35 = v_mul_f32_lit %34, 3216550459
-  %36 = v_exp_f32 %35
-  %37 = v_add_f32_src0_inline %36, "f32_1_0"
-  %38 = v_rcp_f32 %37
-  %39 = v_mul_f32_src0_inline %38, "f32_2_0"
-  %40 = v_add_f32_src0_inline %39, "f32_n1_0"
-  %41 = v_add_f32_src0_inline %40, "f32_1_0"
-  %42 = v_mul_f32_src0_inline %input, "f32_0_5"
-  %result = v_mul_f32 %42, %41
+  %30 = v_mul_f32 %input, %input
+  %31 = v_mul_f32 %30, %input
+  %32 = v_mul_f32_lit %31, 1027024659
+  %33 = v_add_f32 %input, %32
+  %34 = v_mul_f32_lit %33, 1061962282
+  %35 = v_mul_f32_src0_inline %34, "f32_2_0"
+  %36 = v_mul_f32_lit %35, 3216550459
+  %37 = v_exp_f32 %36
+  %38 = v_add_f32_src0_inline %37, "f32_1_0"
+  %39 = v_rcp_f32 %38
+  %40 = v_mul_f32_src0_inline %39, "f32_2_0"
+  %41 = v_add_f32_src0_inline %40, "f32_n1_0"
+  %42 = v_add_f32_src0_inline %41, "f32_1_0"
+  %43 = v_mul_f32_src0_inline %input, "f32_0_5"
+  %result = v_mul_f32 %43, %42
   return %result
 }
 
@@ -881,21 +881,21 @@ func.def target(@target) @scalar_gelu_tanh_source_low(%input: f32) -> (f32) {
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @scalar_gelu_tanh_source_low(%input: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
-  %29 = v_mul_f32 %input, %input
-  %30 = v_mul_f32 %29, %input
-  %31 = v_mul_f32_lit %30, 1027024659
-  %32 = v_add_f32 %input, %31
-  %33 = v_mul_f32_lit %32, 1061962282
-  %34 = v_mul_f32_src0_inline %33, "f32_2_0"
-  %35 = v_mul_f32_lit %34, 3216550459
-  %36 = v_exp_f32 %35
-  %37 = v_add_f32_src0_inline %36, "f32_1_0"
-  %38 = v_rcp_f32 %37
-  %39 = v_mul_f32_src0_inline %38, "f32_2_0"
-  %40 = v_add_f32_src0_inline %39, "f32_n1_0"
-  %41 = v_add_f32_src0_inline %40, "f32_1_0"
-  %42 = v_mul_f32_src0_inline %input, "f32_0_5"
-  %result = v_mul_f32 %42, %41
+  %30 = v_mul_f32 %input, %input
+  %31 = v_mul_f32 %30, %input
+  %32 = v_mul_f32_lit %31, 1027024659
+  %33 = v_add_f32 %input, %32
+  %34 = v_mul_f32_lit %33, 1061962282
+  %35 = v_mul_f32_src0_inline %34, "f32_2_0"
+  %36 = v_mul_f32_lit %35, 3216550459
+  %37 = v_exp_f32 %36
+  %38 = v_add_f32_src0_inline %37, "f32_1_0"
+  %39 = v_rcp_f32 %38
+  %40 = v_mul_f32_src0_inline %39, "f32_2_0"
+  %41 = v_add_f32_src0_inline %40, "f32_n1_0"
+  %42 = v_add_f32_src0_inline %41, "f32_1_0"
+  %43 = v_mul_f32_src0_inline %input, "f32_0_5"
+  %result = v_mul_f32 %43, %42
   return %result
 }
 

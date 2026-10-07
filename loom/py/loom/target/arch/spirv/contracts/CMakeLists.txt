@@ -41,6 +41,7 @@ iree_py_library(
     loom::py::loom::target::arch::spirv::descriptors
     loom::py::loom::target::arch::spirv::extended_math
     loom::py::loom::target::arch::spirv::ordinary_vector
+    loom::py::loom::target::arch::spirv::ordinary_vector_bit_layout
     loom::py::loom::target::arch::spirv::scalar_alu
     loom::py::loom::target::arch::spirv::scalar_constant
     loom::py::loom::target::arch::spirv::scalar_conversion
@@ -85,6 +86,8 @@ iree_py_test(
     "loom.target.arch.spirv.contracts.ordinary_vector_test"
   DEPS
     loom::py::loom::target::arch::spirv::contracts::contracts
+    loom::py::loom::target::arch::spirv::ordinary_vector_bit_layout
+    loom::py::loom::target::contracts::contracts
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"

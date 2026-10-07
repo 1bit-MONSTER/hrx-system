@@ -304,6 +304,10 @@ typedef enum loom_low_lower_attr_copy_kind_e {
   // Emits literal_i64 minus the source value static dimension selected by
   // source_element_index, multiplied by source_element_count.
   LOOM_LOW_LOWER_ATTR_COPY_VALUE_TYPE_LITERAL_MINUS_STATIC_DIM_SCALED = 34,
+  // Emits an i32 low-bit mask whose width is the source value static dimension
+  // selected by source_element_index, multiplied by source_element_count, then
+  // offset by literal_i64.
+  LOOM_LOW_LOWER_ATTR_COPY_VALUE_TYPE_STATIC_DIM_LOW_BITS_MASK = 35,
 } loom_low_lower_attr_copy_kind_t;
 
 typedef struct loom_low_lower_attr_copy_t {
@@ -868,6 +872,16 @@ typedef uint8_t loom_low_lower_emit_flags_t;
 // effects. Address arithmetic consumes the plan without recording an access.
 #define LOOM_LOW_LOWER_EMIT_FLAG_RECORD_SOURCE_MEMORY ((uint8_t)1u << 7)
 
+typedef uint8_t loom_low_lower_operand_materialization_t;
+
+enum loom_low_lower_operand_materialization_e {
+  // Emits descriptor operands exactly as resolved by the rule.
+  LOOM_LOW_LOWER_OPERAND_MATERIALIZATION_DIRECT = 0,
+  // Lets the target materialize relationships across the complete operand
+  // group after copies, lane projection, and operand permutation.
+  LOOM_LOW_LOWER_OPERAND_MATERIALIZATION_TARGET = 1,
+};
+
 typedef struct loom_low_lower_emit_t {
   // Emit action to perform.
   loom_low_lower_emit_kind_t kind;
@@ -928,6 +942,8 @@ typedef struct loom_low_lower_emit_t {
   uint8_t attr_copy_count;
   // Number of tied-result rows forwarded to the low packet builder.
   uint8_t tied_result_count;
+  // Operand-group materialization applied before descriptor emission.
+  loom_low_lower_operand_materialization_t operand_materialization;
 } loom_low_lower_emit_t;
 static_assert(sizeof(loom_low_lower_emit_t) == 24,
               "loom_low_lower_emit_t must be 24 bytes");
@@ -960,8 +976,7 @@ typedef struct loom_low_lower_rule_t {
   // One-based report-key table ordinal. Zero means the selected rule has no
   // stable strategy key for compile reports.
   uint16_t report_key_ordinal;
-  // Number of rule-local temporary low values available while emitting this
-  // rule.
+  // Number of liveness-packed rule-local temporary slots.
   uint16_t temporary_count;
   // Packed first related source-node row and row count. The root source op is
   // implicit node zero.

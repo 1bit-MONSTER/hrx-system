@@ -47,6 +47,23 @@ typedef struct loom_check_low_emit_fixed_value_spec_list_t {
   iree_host_size_t count;
 } loom_check_low_emit_fixed_value_spec_list_t;
 
+// Outcome of resolving one authored value selector in a low function body.
+typedef enum loom_check_low_emit_value_resolution_kind_e {
+  LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_NOT_FOUND = 0,
+  LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_RESOLVED,
+  LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_AMBIGUOUS,
+} loom_check_low_emit_value_resolution_kind_t;
+
+// Resolution of one authored value selector in a low function body.
+typedef struct loom_check_low_emit_value_resolution_t {
+  // Whether the selector was absent, unique, or ambiguous.
+  loom_check_low_emit_value_resolution_kind_t kind;
+  // Unique value or first value with the selected name.
+  loom_value_id_t value_id;
+  // Second value with the selected name when |kind| is ambiguous.
+  loom_value_id_t ambiguous_value_id;
+} loom_check_low_emit_value_resolution_t;
+
 // Reserves the fixed-location requests in |options| before its parser runs.
 iree_status_t loom_check_low_emit_fixed_value_spec_list_initialize(
     iree_string_view_t options, iree_arena_allocator_t* arena,
@@ -94,6 +111,13 @@ iree_status_t loom_check_low_emit_find_low_function_def(
     loom_check_diagnostic_collector_t* diagnostic_collector,
     iree_diagnostic_emitter_t emitter, loom_op_t** out_low_function);
 
+// Resolves an SSA name or numeric value ID within |low_function|. The function
+// must be a target-low definition with a body.
+void loom_check_low_emit_resolve_function_value(
+    const loom_module_t* module, const loom_op_t* low_function,
+    iree_string_view_t value_name,
+    loom_check_low_emit_value_resolution_t* out_resolution);
+
 // Resolves parsed fixed-location specs against the selected low function body.
 // The returned fixed value array is allocated from |arena|.
 iree_status_t loom_check_low_emit_resolve_fixed_value_specs(
@@ -106,22 +130,15 @@ iree_status_t loom_check_low_emit_resolve_fixed_value_specs(
 
 // Packetizes the selected low function through the registry linked into the
 // emit provider request. |out_frame| stores table pointers allocated
-// from request->case_arena.
+// from request->case_arena. The request supplies the descriptor registry and
+// diagnostic emitter; authored fixed specs supply the fixed allocation values.
+// All other frame options, including reserved ranges, pass through unchanged.
 iree_status_t loom_check_low_emit_packetize_function(
     const loom_check_emit_provider_request_t* request,
     iree_string_view_t function_symbol_name,
-    loom_low_schedule_strategy_t schedule_strategy,
-    loom_low_schedule_diagnostic_flags_t schedule_diagnostic_flags,
-    loom_low_allocation_diagnostic_flags_t allocation_diagnostic_flags,
-    const loom_low_allocation_budget_t* allocation_budgets,
-    iree_host_size_t allocation_budget_count,
+    const loom_low_emission_frame_options_t* frame_options,
     const loom_check_low_emit_fixed_value_spec_t* allocation_fixed_specs,
     iree_host_size_t allocation_fixed_spec_count,
-    loom_low_emission_frame_residency_query_fn_t residency_query,
-    loom_low_schedule_pair_affinity_list_t schedule_pair_affinities,
-    loom_low_schedule_structural_state_read_list_t
-        schedule_structural_state_reads,
-    const loom_low_storage_lease_provider_t* storage_lease_provider,
     const loom_low_emission_frame_spill_free_options_t* spill_free_options,
     loom_low_emission_frame_t* out_frame, bool* out_accepted);
 

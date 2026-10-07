@@ -14,6 +14,7 @@ iree_c_embed_data(
   NAME
     embedded_standard_headers
   SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/initializer_list"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/stdfloat"
   C_FILE_OUTPUT
     "embedded_standard_headers.c"
@@ -40,6 +41,8 @@ iree_c_embed_data(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/math.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/numeric.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/scalar.h"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/target.h"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/target/amdgpu.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/vector.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/view.h"
   C_FILE_OUTPUT
@@ -48,7 +51,8 @@ iree_c_embed_data(
     "embedded_loomcxx_headers.h"
   IDENTIFIER
     "loom_cxx_embedded_loomcxx_headers"
-  FLATTEN
+  STRIP_PREFIX
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/"
   PUBLIC
 )
 endif()
@@ -174,28 +178,6 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_cc_test(
   NAME
-    constant_bits_test
-  SRCS
-    "constant_bits_test.cc"
-  CXX_STANDARD
-    23
-  CXX_FEATURES
-    "exceptions"
-    "rtti"
-  DEPS
-    ::options
-    ::source
-    iree::testing::gtest
-    iree::testing::gtest_main
-    iree::third_party::cxx_parser
-  LABELS
-    "iree-build-requirement=loom.import.cxx"
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_cc_test(
-  NAME
     constexpr_test
   SRCS
     "constexpr_test.cc"
@@ -205,6 +187,7 @@ loom_cc_test(
     "exceptions"
     "rtti"
   DEPS
+    ::expressions
     ::options
     ::source
     iree::testing::gtest
@@ -294,6 +277,25 @@ loom_cc_library(
     "constants.h"
   SRCS
     "constants.cc"
+  DEPS
+    iree::third_party::cxx_parser
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
+    expressions
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "expressions.h"
+  SRCS
+    "expressions.cc"
   DEPS
     iree::third_party::cxx_parser
   PUBLIC

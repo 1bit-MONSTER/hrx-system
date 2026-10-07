@@ -48,56 +48,9 @@ http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_
 http_archive(
     name = "cxx",
     build_file = "//build_tools/third_party/cxx:cxx.BUILD.bazel",
-    patch_args = ["-p1"],
-    patches = [
-        "//build_tools/third_party/cxx:braced_vector_initialization.patch",
-        "//build_tools/third_party/cxx:builtin_macro_locations.patch",
-        "//build_tools/third_party/cxx:constant_arithmetic.patch",
-        "//build_tools/third_party/cxx:enum_semantics.patch",
-        "//build_tools/third_party/cxx:include_continuation.patch",
-        "//build_tools/third_party/cxx:include_paths.patch",
-        "//build_tools/third_party/cxx:macro_operator_locations.patch",
-        "//build_tools/third_party/cxx:member_definition_attributes.patch",
-        "//build_tools/third_party/cxx:packed_bitfields.patch",
-        "//build_tools/third_party/cxx:packed_records.patch",
-        "//build_tools/third_party/cxx:aligned_records.patch",
-        "//build_tools/third_party/cxx:packed_enums.patch",
-        "//build_tools/third_party/cxx:bitfield_attributes.patch",
-        "//build_tools/third_party/cxx:record_layout_owner.patch",
-        "//build_tools/third_party/cxx:compound_offsetof.patch",
-        "//build_tools/third_party/cxx:template_lookahead.patch",
-        "//build_tools/third_party/cxx:constexpr_branches.patch",
-        "//build_tools/third_party/cxx:qualified_template_calls.patch",
-        "//build_tools/third_party/cxx:initializer_dependencies.patch",
-        "//build_tools/third_party/cxx:condition_declarations.patch",
-        "//build_tools/third_party/cxx:unsigned_complement.patch",
-        "//build_tools/third_party/cxx:float16_semantics.patch",
-        "//build_tools/third_party/cxx:bfloat16_semantics.patch",
-        "//build_tools/third_party/cxx:float8_semantics.patch",
-        "//build_tools/third_party/cxx:vector_constants.patch",
-        "//build_tools/third_party/cxx:vector_conversion.patch",
-        "//build_tools/third_party/cxx:auto_deduction.patch",
-        "//build_tools/third_party/cxx:vector_list_conversion.patch",
-        "//build_tools/third_party/cxx:using_directive_attributes.patch",
-        "//build_tools/third_party/cxx:constant_archive.patch",
-        "//build_tools/third_party/cxx:constexpr_bitcast.patch",
-        "//build_tools/third_party/cxx:list_initialization_diagnostics.patch",
-        "//build_tools/third_party/cxx:builtin_class_conversions.patch",
-        "//build_tools/third_party/cxx:constant_template_conversions.patch",
-        "//build_tools/third_party/cxx:reference_template_arguments.patch",
-        "//build_tools/third_party/cxx:interpreter_frame_stability.patch",
-        "//build_tools/third_party/cxx:semantic_model_generation.patch",
-        "//build_tools/third_party/cxx:reference_parameter_binding.patch",
-        "//build_tools/third_party/cxx:rooted_subobject_addresses.patch",
-        "//build_tools/third_party/cxx:selected_subobject_paths.patch",
-        "//build_tools/third_party/cxx:aggregate_member_defaults.patch",
-        "//build_tools/third_party/cxx:aggregate_initialization_failures.patch",
-        "//build_tools/third_party/cxx:constant_object_initialization.patch",
-        "//build_tools/third_party/cxx:const_default_initialization.patch",
-    ],
-    sha256 = "39e18971b03f3b5ae2afc8cb9313bcccaf6a51176a94eb57cb8fa4e683ef290b",
-    strip_prefix = "cplusplus-bccf4d1e2d266b3d5d770c49e9eac59a2eab34b9",
-    url = "https://github.com/robertoraggi/cplusplus/archive/bccf4d1e2d266b3d5d770c49e9eac59a2eab34b9.tar.gz",
+    sha256 = "6432087170c2a22547b801620e0b800cbf2fd933c6972e8df9275c3638d42c89",
+    strip_prefix = "cplusplus-87ac2f8c90dafe0fc95a72bdb90643a207e08f42",
+    url = "https://github.com/benvanik/cplusplus/archive/87ac2f8c90dafe0fc95a72bdb90643a207e08f42.tar.gz",
 )
 
 rocm_repository = use_repo_rule("//build_tools/third_party/rocm:repository.bzl", "rocm_repository")
@@ -120,32 +73,56 @@ http_archive(
     url = "https://dri.freedesktop.org/libdrm/libdrm-2.4.134.tar.xz",
 )
 
+# Linux 7.3-rc6 public protocol headers share one source revision.
+_LINUX_UAPI_URL = "https://raw.githubusercontent.com/torvalds/linux/a90ee4305c4a5df72c11b31dacfdc76e00fcf78a/include/uapi/linux/"
+
 http_file(
     name = "linux_kfd_ioctl_header",
     downloaded_file_path = "linux/kfd_ioctl.h",
     sha256 = "db48398039c14702df2b51b2461d80d36f7160479d45700b7e826051b1d2a997",
-    url = "https://raw.githubusercontent.com/torvalds/linux/f6e7b42bf05b2427fb8a7a1d1c387a86638bb413/include/uapi/linux/kfd_ioctl.h",
+    url = _LINUX_UAPI_URL + "kfd_ioctl.h",
 )
 
 http_file(
     name = "linux_kfd_sysfs_header",
     downloaded_file_path = "linux/kfd_sysfs.h",
     sha256 = "1f26e1ea4a679b80605a4da221bc55e9f570f94f8eeccc53fb826dd0a7dedb00",
-    url = "https://raw.githubusercontent.com/torvalds/linux/f6e7b42bf05b2427fb8a7a1d1c387a86638bb413/include/uapi/linux/kfd_sysfs.h",
+    url = _LINUX_UAPI_URL + "kfd_sysfs.h",
 )
 
 http_file(
     name = "linux_const_header",
     downloaded_file_path = "linux/const.h",
     sha256 = "806c87c44e0a1a267b996c669ef36faeec94fee46bc4513f0d332d2169718855",
-    url = "https://raw.githubusercontent.com/torvalds/linux/f6e7b42bf05b2427fb8a7a1d1c387a86638bb413/include/uapi/linux/const.h",
+    url = _LINUX_UAPI_URL + "const.h",
 )
 
 http_file(
     name = "linux_stddef_header",
     downloaded_file_path = "linux/stddef.h",
     sha256 = "3703ea363b0f4d3b75a3a1f59b7daaa0b81f2e18cc459fedd6b1df331e8662b8",
-    url = "https://raw.githubusercontent.com/torvalds/linux/f6e7b42bf05b2427fb8a7a1d1c387a86638bb413/include/uapi/linux/stddef.h",
+    url = _LINUX_UAPI_URL + "stddef.h",
+)
+
+http_file(
+    name = "linux_io_uring_header",
+    downloaded_file_path = "linux/io_uring.h",
+    sha256 = "8488b223988fe798a9c1c81d13a550a27cac1f096bdd016ef9eb5e51adaf46a7",
+    url = _LINUX_UAPI_URL + "io_uring.h",
+)
+
+http_file(
+    name = "linux_io_uring_zcrx_header",
+    downloaded_file_path = "linux/io_uring/zcrx.h",
+    sha256 = "820d8642160740bff5ba1d8d12d5d0464d0e3a765a7e454b901d134bf4b94ec0",
+    url = _LINUX_UAPI_URL + "io_uring/zcrx.h",
+)
+
+http_file(
+    name = "linux_stat_header",
+    downloaded_file_path = "linux/stat.h",
+    sha256 = "c900a05e031d999074db5ac3567f651ce2cf2f9f9e0a686810d6453c9f8b9526",
+    url = _LINUX_UAPI_URL + "stat.h",
 )
 
 http_file(

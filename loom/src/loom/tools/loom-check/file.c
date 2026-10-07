@@ -10,6 +10,7 @@
 
 #include "iree/io/file_contents.h"
 #include "loom/codegen/low/text_asm.h"
+#include "loom/target/provider.h"
 #include "loom/testing/test_file.h"
 #include "loom/testing/test_file_format.h"
 #include "loom/tooling/io/file.h"
@@ -88,16 +89,16 @@ static iree_status_t loom_check_build_template_source(
         file->template_path, context, block_pool, arena, allocator,
         &materialized_source, out_changed);
   }
-  loom_target_low_descriptor_registry_t low_registry = {0};
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          environment->target_environment);
   loom_low_descriptor_text_asm_environment_storage_t low_asm_storage = {0};
   loom_text_low_asm_environment_t low_asm_environment = {0};
   if (iree_status_is_ok(status)) {
-    status = loom_check_environment_initialize_low_descriptor_registry(
-        environment, &low_registry);
-  }
-  if (iree_status_is_ok(status)) {
     loom_low_descriptor_text_asm_environment_initialize_with_diagnostics(
-        &low_registry.registry, environment->low_asm_diagnostic_provider_list,
+        &low_registry.registry,
+        loom_target_environment_low_asm_diagnostic_provider_list(
+            environment->target_environment),
         &low_asm_storage, &low_asm_environment);
     status = loom_test_file_format(
         iree_string_builder_view(&materialized_source), filename, context,
@@ -139,7 +140,7 @@ static iree_status_t loom_check_process_file(
     iree_host_size_t* pass_count, iree_host_size_t* fail_count,
     iree_host_size_t* skip_count) {
   loom_test_file_t file = {0};
-  const bool compile = !iree_string_view_is_empty(options->compile.target);
+  const bool compile = options->compile.target_profile != NULL;
   const bool update = options->mode == LOOM_CHECK_PROCESS_UPDATE;
   // Binary modules cannot contain case directives. Textual provider selection
   // happens after splitting so each case's INPUT can override the filename.

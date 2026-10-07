@@ -23,11 +23,12 @@ static bool loom_low_move_locations_share_target_storage(
       rhs->descriptor_reg_class_id);
 }
 
-static bool loom_low_move_locations_share_storage_class(
-    const loom_low_move_location_t* lhs, const loom_low_move_location_t* rhs) {
-  return lhs->location_kind == rhs->location_kind &&
-         lhs->descriptor_reg_class_id == rhs->descriptor_reg_class_id;
-}
+struct loom_low_move_sequence_temporary_t {
+  // Kind requested by the cycle, which may differ from the selected storage.
+  uint16_t requested_kind;
+  // Resolved unit in the requested register class.
+  loom_low_move_location_t location;
+};
 
 #define LOOM_LOW_MOVE_SEQUENCE_INDEX_NONE IREE_HOST_SIZE_MAX
 
@@ -77,7 +78,7 @@ typedef struct loom_low_move_sequence_state_t {
   loom_low_move_sequence_scratch_t* scratch;
   // Options controlling target storage aliasing and cycle scratch resolution.
   const loom_low_move_sequence_options_t* options;
-  // Number of active, non-identity moves in |scratch->moves|.
+  // Number of input moves, including identities whose locations stay occupied.
   iree_host_size_t move_count;
   // Number of moves that have not been emitted yet.
   iree_host_size_t active_count;
@@ -374,9 +375,12 @@ static iree_status_t loom_low_move_sequence_resolve_temporary(
   *out_first_use = false;
   loom_low_move_sequence_scratch_t* scratch = state->scratch;
   for (iree_host_size_t i = 0; i < scratch->temporary_count; ++i) {
-    if (loom_low_move_locations_share_storage_class(&scratch->temporaries[i],
-                                                    storage_class)) {
-      *out_temporary = &scratch->temporaries[i];
+    const loom_low_move_sequence_temporary_t* temporary =
+        &scratch->temporaries[i];
+    if (temporary->requested_kind == storage_class->location_kind &&
+        temporary->location.descriptor_reg_class_id ==
+            storage_class->descriptor_reg_class_id) {
+      *out_temporary = &temporary->location;
       return iree_ok_status();
     }
   }
@@ -391,7 +395,7 @@ static iree_status_t loom_low_move_sequence_resolve_temporary(
         scratch->arena, temporary_capacity, sizeof(*scratch->temporaries),
         (void**)&scratch->temporaries));
   }
-  loom_low_move_location_t* temporary =
+  loom_low_move_sequence_temporary_t* temporary =
       &scratch->temporaries[scratch->temporary_count];
   const loom_low_move_sequence_location_set_t occupied_locations = {
       .scratch = scratch,
@@ -401,13 +405,14 @@ static iree_status_t loom_low_move_sequence_resolve_temporary(
   bool resolved = false;
   IREE_RETURN_IF_ERROR(state->options->resolve_temporary.fn(
       state->options->resolve_temporary.user_data, storage_class,
-      &occupied_locations, temporary, &resolved));
+      &occupied_locations, &temporary->location, &resolved));
   if (!resolved) {
     state->complete = false;
     return iree_ok_status();
   }
   ++scratch->temporary_count;
-  *out_temporary = temporary;
+  temporary->requested_kind = storage_class->location_kind;
+  *out_temporary = &temporary->location;
   *out_first_use = true;
   return iree_ok_status();
 }
@@ -417,29 +422,30 @@ static iree_status_t loom_low_move_sequence_prepare(
   loom_low_move_sequence_scratch_t* scratch = state->scratch;
   IREE_ASSERT_LE(state->move_count, scratch->move_capacity);
   iree_host_size_t active_move_count = 0;
+  iree_host_size_t active_move_index = 0;
   for (iree_host_size_t i = 0; i < state->move_count; ++i) {
     const loom_low_move_t move = scratch->moves[i];
     if (loom_low_move_locations_share_target_storage(
             state->options->descriptor_set, &move.destination, &move.source)) {
       continue;
     }
-    scratch->moves[active_move_count++] = move;
+    active_move_index = i;
+    ++active_move_count;
   }
-  state->move_count = active_move_count;
   state->active_count = active_move_count;
   scratch->temporary_count = 0;
   if (active_move_count == 0) {
     return iree_ok_status();
   }
   if (active_move_count == 1) {
-    state->out_moves[0] = scratch->moves[0];
+    state->out_moves[0] = scratch->moves[active_move_index];
     state->out_move_count = 1;
     state->active_count = 0;
     return iree_ok_status();
   }
 
   IREE_RETURN_IF_ERROR(loom_low_move_sequence_prepare_solver_scratch(state));
-  memset(scratch->nodes, 0, active_move_count * sizeof(*scratch->nodes));
+  memset(scratch->nodes, 0, state->move_count * sizeof(*scratch->nodes));
   memset(scratch->location_entries, 0,
          state->location_entry_count * sizeof(*scratch->location_entries));
   if (++scratch->explicit_atomic_unit_epoch == 0) {
@@ -451,8 +457,10 @@ static iree_status_t loom_low_move_sequence_prepare(
     scratch->explicit_atomic_unit_epoch = 1;
   }
 
-  for (iree_host_size_t i = 0; i < active_move_count; ++i) {
-    scratch->nodes[i].flags = LOOM_LOW_MOVE_SEQUENCE_NODE_FLAG_ACTIVE;
+  // Identity destinations still own their contents throughout the parallel
+  // transfer. Keep them in the occupied set even though they emit no move,
+  // so a cycle cannot borrow their storage as a temporary.
+  for (iree_host_size_t i = 0; i < state->move_count; ++i) {
     loom_low_move_sequence_location_entry_t* destination_entry =
         loom_low_move_sequence_insert_location(state,
                                                &scratch->moves[i].destination);
@@ -463,14 +471,22 @@ static iree_status_t loom_low_move_sequence_prepare(
     loom_low_move_sequence_location_entry_t* source_entry =
         loom_low_move_sequence_insert_location(state,
                                                &scratch->moves[i].source);
-    ++source_entry->source_use_count;
+    if (!loom_low_move_locations_share_target_storage(
+            state->options->descriptor_set, &scratch->moves[i].destination,
+            &scratch->moves[i].source)) {
+      scratch->nodes[i].flags = LOOM_LOW_MOVE_SEQUENCE_NODE_FLAG_ACTIVE;
+      ++source_entry->source_use_count;
+    }
     IREE_RETURN_IF_ERROR(loom_low_move_sequence_mark_explicit_location(
         state, &scratch->moves[i].destination));
     IREE_RETURN_IF_ERROR(loom_low_move_sequence_mark_explicit_location(
         state, &scratch->moves[i].source));
   }
 
-  for (iree_host_size_t i = 0; i < active_move_count; ++i) {
+  for (iree_host_size_t i = 0; i < state->move_count; ++i) {
+    if (!loom_low_move_sequence_node_is_active(state, i)) {
+      continue;
+    }
     loom_low_move_sequence_location_entry_t* destination_entry =
         loom_low_move_sequence_require_location(state,
                                                 &scratch->moves[i].destination);
@@ -519,8 +535,10 @@ static iree_host_size_t loom_low_move_sequence_next_active_move(
 static iree_status_t loom_low_move_sequence_emit_cycle(
     loom_low_move_sequence_state_t* state, iree_host_size_t first_move_index) {
   loom_low_move_sequence_scratch_t* scratch = state->scratch;
+  // Save a source using the view that reads its original contents. The view
+  // about to overwrite this storage may be narrower (for example EDX vs RDX).
   const loom_low_move_location_t saved_location =
-      scratch->moves[first_move_index].destination;
+      scratch->moves[first_move_index].source;
   const loom_low_move_location_t* temporary_location = NULL;
   bool first_temporary_use = false;
   IREE_RETURN_IF_ERROR(loom_low_move_sequence_resolve_temporary(
@@ -535,33 +553,28 @@ static iree_status_t loom_low_move_sequence_emit_cycle(
         state->options->record_scratch.user_data, scratch_move_index));
   }
 
-  loom_low_move_location_t destination =
-      scratch->moves[first_move_index].destination;
-  loom_low_move_location_t source = scratch->moves[first_move_index].source;
+  const loom_low_move_sequence_location_entry_t* destination_entry =
+      loom_low_move_sequence_require_location(state, &saved_location);
   for (;;) {
-    loom_low_move_sequence_location_entry_t* destination_entry =
-        loom_low_move_sequence_require_location(state, &destination);
     IREE_ASSERT_NE(destination_entry->destination_move_index,
                    LOOM_LOW_MOVE_SEQUENCE_INDEX_NONE);
     IREE_ASSERT(loom_low_move_sequence_node_is_active(
         state, destination_entry->destination_move_index));
     const iree_host_size_t move_index =
         destination_entry->destination_move_index;
+    const loom_low_move_t move = scratch->moves[move_index];
     if (loom_low_move_locations_share_target_storage(
-            state->options->descriptor_set, &source, &saved_location)) {
-      loom_low_move_sequence_append(state, &destination, temporary_location);
+            state->options->descriptor_set, &move.source, &saved_location)) {
+      loom_low_move_sequence_append(state, &move.destination,
+                                    temporary_location);
       loom_low_move_sequence_deactivate_move(state, move_index);
       return iree_ok_status();
     }
 
-    loom_low_move_sequence_append(state, &destination, &source);
+    loom_low_move_sequence_append(state, &move.destination, &move.source);
     loom_low_move_sequence_deactivate_move(state, move_index);
-    destination = source;
     destination_entry =
-        loom_low_move_sequence_require_location(state, &destination);
-    IREE_ASSERT_NE(destination_entry->destination_move_index,
-                   LOOM_LOW_MOVE_SEQUENCE_INDEX_NONE);
-    source = scratch->moves[destination_entry->destination_move_index].source;
+        loom_low_move_sequence_require_location(state, &move.source);
   }
 }
 

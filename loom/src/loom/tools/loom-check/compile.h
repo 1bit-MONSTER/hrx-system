@@ -9,7 +9,7 @@
 #ifndef LOOM_TOOLS_LOOM_CHECK_COMPILE_H_
 #define LOOM_TOOLS_LOOM_CHECK_COMPILE_H_
 
-#include "loom/tooling/compile/configured.h"
+#include "loom/target/profile.h"
 #include "loom/tooling/config/config.h"
 #include "loom/tools/loom-check/execute.h"
 
@@ -18,10 +18,8 @@ extern "C" {
 #endif
 
 typedef struct loom_check_compile_options_t {
-  // Family-qualified compiler profile; empty when qualification is disabled.
-  iree_string_view_t target;
-  // Configured offline providers, borrowed for the entire check invocation.
-  const loom_tooling_compile_environment_t* environment;
+  // Selected compiler profile, or NULL when qualification is disabled.
+  const loom_target_profile_t* target_profile;
   // Compile-time bindings applied before resolving roots and specializing.
   const loom_tooling_config_set_t* config_set;
   // Instrumentation applied to the independently compiled artifact.

@@ -753,7 +753,7 @@ TEST(AmdgpuEncodingTest, NamesVopdFormats) {
                              IREE_SV("vopdxy_literal")));
 }
 
-TEST(AmdgpuEncodingTest, NamesDppFormats) {
+TEST(AmdgpuEncodingTest, NamesDppAndSdwaFormats) {
   EXPECT_TRUE(iree_string_view_equal(
       loom_amdgpu_encoding_format_name(LOOM_AMDGPU_ENCODING_FORMAT_VOP1_DPP),
       IREE_SV("vop1_dpp")));
@@ -782,6 +782,9 @@ TEST(AmdgpuEncodingTest, NamesDppFormats) {
   EXPECT_TRUE(iree_string_view_equal(
       loom_amdgpu_encoding_format_name(LOOM_AMDGPU_ENCODING_FORMAT_VOP1_SDWA),
       IREE_SV("vop1_sdwa")));
+  EXPECT_TRUE(iree_string_view_equal(
+      loom_amdgpu_encoding_format_name(LOOM_AMDGPU_ENCODING_FORMAT_VOPC_SDWA),
+      IREE_SV("vopc_sdwa")));
 }
 
 TEST(AmdgpuEncodingTest, NamesScalarLiteralFormats) {
@@ -1242,6 +1245,36 @@ TEST(AmdgpuEncodingTest, PacksCdna4VMovB32SdwaSignedByteExtract) {
   EXPECT_EQ(packet.bit_count, 64u);
   EXPECT_EQ(packet.words[0], UINT32_C(0x7e0202f9));
   EXPECT_EQ(packet.words[1], UINT32_C(0x00090602));
+}
+
+TEST(AmdgpuEncodingTest, PacksCdna3VCompareClassF16HighSdwa) {
+  LOOM_AMDGPU_REQUIRE_ENCODING_TABLE(
+      table, LOOM_AMDGPU_DESCRIPTOR_SET_ORDINAL_CDNA3, "amdgpu.cdna3.core");
+  const loom_amdgpu_encoding_field_value_t field_values[] = {
+      {LOOM_AMDGPU_ENCODING_FIELD_SDST, {}, 0},
+      {LOOM_AMDGPU_ENCODING_FIELD_SRC0, {}, 249},
+      {LOOM_AMDGPU_ENCODING_FIELD_VSRC0, {}, 0},
+      {LOOM_AMDGPU_ENCODING_FIELD_VSRC1, {}, 131},
+      {LOOM_AMDGPU_ENCODING_FIELD_S0, {}, 0},
+      {LOOM_AMDGPU_ENCODING_FIELD_S1, {}, 1},
+      {LOOM_AMDGPU_ENCODING_FIELD_SD, {}, 1},
+      {LOOM_AMDGPU_ENCODING_FIELD_SRC0_ABS, {}, 0},
+      {LOOM_AMDGPU_ENCODING_FIELD_SRC0_NEG, {}, 0},
+      {LOOM_AMDGPU_ENCODING_FIELD_SRC0_SEL, {}, 5},
+      {LOOM_AMDGPU_ENCODING_FIELD_SRC0_SEXT, {}, 0},
+      {LOOM_AMDGPU_ENCODING_FIELD_SRC1_ABS, {}, 0},
+      {LOOM_AMDGPU_ENCODING_FIELD_SRC1_NEG, {}, 0},
+      {LOOM_AMDGPU_ENCODING_FIELD_SRC1_SEL, {}, 6},
+      {LOOM_AMDGPU_ENCODING_FIELD_SRC1_SEXT, {}, 0},
+  };
+  loom_amdgpu_encoding_packet_t packet = {};
+  IREE_ASSERT_OK(loom_amdgpu_encoding_pack(
+      table, LOOM_AMDGPU_ENCODING_FORMAT_VOPC_SDWA, /*opcode=*/20, field_values,
+      IREE_ARRAYSIZE(field_values), &packet));
+  ASSERT_EQ(packet.word_count, 2u);
+  EXPECT_EQ(packet.bit_count, 64u);
+  EXPECT_EQ(packet.words[0], UINT32_C(0x7c2906f9));
+  EXPECT_EQ(packet.words[1], UINT32_C(0x86058000));
 }
 
 TEST(AmdgpuEncodingTest, PacksVopdxyDualFmacPair) {

@@ -22,6 +22,7 @@ from loom.target.contracts import (
     LOWER_SOURCE_MEMORY_NONE,
     CompiledLowerRuleSet,
     ContractFragment,
+    DescriptorOperandMaterialization,
     GuardKind,
     LowerAttrCopy,
     LowerAttrCopyKind,
@@ -105,6 +106,7 @@ _ATTR_COPY_VALUE_REF_KINDS = frozenset(
         LowerAttrCopyKind.VALUE_FLOAT_AS_F64_I32_WORD,
         LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_SCALED,
         LowerAttrCopyKind.VALUE_TYPE_LITERAL_MINUS_STATIC_DIM_SCALED,
+        LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_LOW_BITS_MASK,
     )
 )
 
@@ -748,6 +750,7 @@ def attr_copy_row(
         LowerAttrCopyKind.VALUE_FLOAT_AS_F64_I32_WORD,
         LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_SCALED,
         LowerAttrCopyKind.VALUE_TYPE_LITERAL_MINUS_STATIC_DIM_SCALED,
+        LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_LOW_BITS_MASK,
     ):
         _append_field(
             fields,
@@ -761,6 +764,7 @@ def attr_copy_row(
         LowerAttrCopyKind.I64_ARRAY_LANE_BYTE,
         LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_SCALED,
         LowerAttrCopyKind.VALUE_TYPE_LITERAL_MINUS_STATIC_DIM_SCALED,
+        LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_LOW_BITS_MASK,
     ):
         _append_field(
             fields,
@@ -795,6 +799,7 @@ def attr_copy_row(
         LowerAttrCopyKind.VALUE_U32_DIVISOR_MAGIC_MULTIPLIER,
         LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_SCALED,
         LowerAttrCopyKind.VALUE_TYPE_LITERAL_MINUS_STATIC_DIM_SCALED,
+        LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_LOW_BITS_MASK,
     ):
         _append_field(
             fields,
@@ -826,6 +831,13 @@ def emit_row(descriptor_refs: Mapping[str, int], row: LowerEmit) -> list[str]:
     flags = lower_rule_spelling.emit_flags(row.flags)
     _append_field(fields, "kind", lower_rule_spelling.EMIT_KIND_C_NAMES[row.kind], always=True)
     _append_field(fields, "flags", flags)
+    if row.operand_materialization is not DescriptorOperandMaterialization.DIRECT:
+        _append_field(
+            fields,
+            "operand_materialization",
+            lower_rule_spelling.OPERAND_MATERIALIZATION_C_NAMES[row.operand_materialization],
+            always=True,
+        )
     _append_field(
         fields,
         "descriptor_ref",

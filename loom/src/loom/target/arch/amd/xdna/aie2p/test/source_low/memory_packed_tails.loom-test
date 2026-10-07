@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_packed_tails.loom
 // RUN: emit source-low target=amd.xdna.aie2p:core output=low
 
 // Packed tails touch only their authored bytes, including the last register.

@@ -8,12 +8,12 @@
 #define LOOM_VERIFY_VERIFY_STATE_H_
 
 #include "iree/base/internal/arena.h"
-#include "loom/analysis/consumption.h"
 #include "loom/error/source.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/special_values.h"
 #include "loom/verify/verify.h"
+#include "loom/verify/verify_consumption.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -83,8 +83,8 @@ typedef struct loom_verify_region_scope_t {
   // Region currently being verified.
   const loom_region_t* current;
 
-  // Reusable consumed-value query for current.
-  loom_consumption_region_query_t* consumption_query;
+  // Region index retained by the ownership verification analysis.
+  uint32_t index;
 
   // True when observable effects must be explicit command effects.
   bool command_effects_only;
@@ -144,15 +144,6 @@ typedef struct loom_verify_state_t {
     uint8_t scope_minimum_depths[LOOM_VERIFY_MAX_SCOPE_DEPTH];
   } visibility;
 
-  // Bitset indexed by value_id; a set bit means the value was consumed.
-  uint64_t* consumed_bits;
-
-  // Number of uint64_t words in consumed_bits.
-  iree_host_size_t consumed_word_count;
-
-  // First op that consumed each value_id through an ownership transfer.
-  const loom_op_t** consuming_ops;
-
   // Reusable per-op scratch for tied-result uniqueness checks.
   loom_verify_tied_table_t tied_table;
 
@@ -170,6 +161,9 @@ typedef struct loom_verify_state_t {
 
   // State inherited through the current nested region traversal.
   loom_verify_region_scope_t region_scope;
+
+  // Arena-owned canonical storage identities and grouped consumption state.
+  loom_verify_consumption_t* consumption;
 
   // Stack of value IDs defined during the current scoped walk.
   uint32_t* defined_stack;
@@ -254,10 +248,6 @@ void loom_verify_restore_definitions(loom_verify_state_t* state,
                                      iree_host_size_t watermark);
 iree_status_t loom_verify_define_value(loom_verify_state_t* state,
                                        loom_value_id_t value_id);
-void loom_verify_consume_value(loom_verify_state_t* state,
-                               loom_value_id_t value_id,
-                               const loom_op_t* consuming_op);
-
 bool loom_verify_at_error_limit(const loom_verify_state_t* state);
 const loom_op_vtable_t* loom_verify_lookup_vtable(
     const loom_verify_state_t* state, loom_op_kind_t kind);

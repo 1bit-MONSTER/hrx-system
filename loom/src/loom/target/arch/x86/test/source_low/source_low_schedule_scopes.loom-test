@@ -2,7 +2,7 @@
 
 x86.target<scalar> @target
 
-low.func.def schedule(phased) target<x86.scalar.core>(@target) @scoped_double(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+low.func.def inline schedule(phased) target<x86.scalar.core>(@target) @scoped_double(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
   %value_copy = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
   %first = add.gpr32 %value_copy, %value
   low.schedule.phase
@@ -72,7 +72,7 @@ low.func.def public target<x86.scalar.core>(@target) abi(object_function) @unrol
 
 x86.target<scalar> @target
 
-low.func.def schedule(phased) target<x86.scalar.core>(@target) @scoped_double(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+low.func.def inline schedule(phased) target<x86.scalar.core>(@target) @scoped_double(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
   %value_copy = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
   %first = add.gpr32 %value_copy, %value
   low.schedule.phase

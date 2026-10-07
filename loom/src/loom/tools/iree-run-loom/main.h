@@ -26,11 +26,6 @@ typedef struct iree_run_loom_configuration_t {
   loom_input_provider_list_t input_providers;
   // Null-terminated executable name used in help and diagnostics.
   const char* tool_name;
-  // Target-owned dialect registration selected by linked providers.
-  loom_run_register_context_callback_t register_context;
-  // Target-low descriptor registry package linked into this runner.
-  loom_run_initialize_low_descriptor_registry_callback_t
-      initialize_low_descriptor_registry;
   // Target environment linked into this runner and used for pass pipelines.
   const loom_target_environment_t* target_environment;
   // Cleanup rewrite providers linked into this runner.

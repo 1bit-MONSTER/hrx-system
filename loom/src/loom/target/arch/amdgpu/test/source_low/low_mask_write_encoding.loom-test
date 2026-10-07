@@ -68,7 +68,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reuse(%value
 // ====
 // RUN: emit amdgpu-native-words @swap strategy=source fixed=%lhs:physical_register:1:1 fixed=%rhs:physical_register:0:1 fixed=%returned:physical_register:0:2
 
-// A reversed pair requires a resolved parallel-copy cycle on its return edge.
+// Saved mask units break the reversed return pair's physical copy cycle.
 amdgpu.target<gfx1151> @target {subgroup_size = 64}
 
 low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @swap(%value: reg<amdgpu.vgpr>, %lhs: reg<amdgpu.sgpr>, %rhs: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>) asm {
@@ -81,11 +81,10 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @swap(%value:
 }
 
 // ----
-0xBE840000
-0xBE850001
-0xD5010000
-0x00120080
 0xBE820000
-0xBE800001
+0xBE830001
+0xD5010000
+0x000A0080
+0xBE800003
 0xBE810002
 0xBFB00000

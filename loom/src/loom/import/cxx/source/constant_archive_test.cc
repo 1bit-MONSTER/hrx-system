@@ -14,6 +14,7 @@
 #include <cxx/views/symbols.h>
 
 #include <array>
+#include <memory>
 #include <vector>
 
 #include "iree/testing/gtest.h"
@@ -65,11 +66,41 @@ bool hasBasePath(const std::vector<std::vector<cxx::Symbol*>>& paths,
   return false;
 }
 
+TEST(ConstantArchiveTest, RejectsAutomaticInvocationStorage) {
+  loom_cxx_import_options_t options;
+  loom_cxx_import_options_initialize(&options);
+  Source source(IREE_SV("constexpr unsigned value = 9;"),
+                IREE_SV("automatic_storage.cxx"), options);
+
+  auto symbols = source.unit().globalScope()->find("value");
+  ASSERT_FALSE(symbols.begin() == symbols.end());
+  auto* variable = cxx::symbol_cast<cxx::VariableSymbol>(*symbols.begin());
+  ASSERT_NE(variable, nullptr);
+
+  cxx::ConstValue slot{std::intmax_t{9}};
+  auto storage = std::make_shared<cxx::ConstStorage>(&slot);
+  auto address = std::make_shared<cxx::ConstAddress>(variable);
+  address->setStorage(std::move(storage));
+  variable->setConstValue(cxx::ConstValue{std::move(address)});
+
+  cxx::ArchiveWriter writer;
+  cxx::SemanticArchiveRoots roots;
+  roots.ast = source.unit().ast();
+  roots.globalScope = source.unit().globalScope();
+  cxx::SemanticEncoder encoder(&source.unit());
+  EXPECT_FALSE(encoder(roots, writer));
+  ASSERT_EQ(encoder.errors().size(), 1u);
+  EXPECT_EQ(encoder.errors().front(),
+            "constant address refers to automatic invocation storage");
+}
+
 TEST(ConstantArchiveTest, PreservesComplexAndIndeterminateValues) {
   loom_cxx_import_options_t options;
   loom_cxx_import_options_initialize(&options);
   const std::array<cxx::ConstValue, 2> values = {
-      std::make_shared<cxx::ConstComplex>(1.25f, -2.5f),
+      std::make_shared<cxx::ConstComplex>(
+          cxx::ConstFloat::fromValue(cxx::ConstFloat::Format::kFloat, 1.25f),
+          cxx::ConstFloat::fromValue(cxx::ConstFloat::Format::kFloat, -2.5f)),
       cxx::IndeterminateValue{},
   };
   for (const auto& value : values) {
@@ -109,8 +140,12 @@ TEST(ConstantArchiveTest, PreservesComplexAndIndeterminateValues) {
     if (auto* complex = std::get_if<std::shared_ptr<cxx::ConstComplex>>(
             &*variable->constValue())) {
       ASSERT_NE(*complex, nullptr);
-      EXPECT_EQ(std::get<float>((*complex)->real()), 1.25f);
-      EXPECT_EQ(std::get<float>((*complex)->imag()), -2.5f);
+      EXPECT_EQ(
+          std::get<cxx::ConstFloat>((*complex)->real()),
+          cxx::ConstFloat::fromValue(cxx::ConstFloat::Format::kFloat, 1.25f));
+      EXPECT_EQ(
+          std::get<cxx::ConstFloat>((*complex)->imag()),
+          cxx::ConstFloat::fromValue(cxx::ConstFloat::Format::kFloat, -2.5f));
     }
   }
 }
@@ -215,7 +250,7 @@ TEST(ConstantArchiveTest, EvaluatesAggregateDefaultsAfterSourceDestruction) {
     SCOPED_TRACE(elements);
     auto value = interpreter.evaluateCall(function, {elements});
     ASSERT_TRUE(value);
-    EXPECT_EQ(std::get<std::intmax_t>(*value), elements + 3 * elements / 8);
+    EXPECT_EQ(interpreter.toInt(*value), elements + 3 * elements / 8);
   }
 }
 
@@ -265,7 +300,7 @@ TEST(ConstantArchiveTest, ExecutesNestedConstructorsAfterSourceDestruction) {
     SCOPED_TRACE(extra);
     auto value = interpreter.evaluateCall(*functions.begin(), {extra});
     ASSERT_TRUE(value);
-    EXPECT_EQ(std::get<std::intmax_t>(*value), 12 + extra);
+    EXPECT_EQ(interpreter.toInt(*value), 12 + extra);
   }
 
   // Construction retains every element's initialized fields across the archive.
@@ -286,8 +321,87 @@ TEST(ConstantArchiveTest, ExecutesNestedConstructorsAfterSourceDestruction) {
     for (const auto& [column, column_type] : columns->elements) {
       auto format = std::get<std::shared_ptr<cxx::ConstObject>>(column);
       ASSERT_EQ(format->members().size(), 2u);
-      EXPECT_EQ(std::get<std::intmax_t>(format->members()[0].value), 32);
-      EXPECT_EQ(std::get<std::intmax_t>(format->members()[1].value), 4);
+      EXPECT_EQ(interpreter.toInt(format->members()[0].value), 32);
+      EXPECT_EQ(interpreter.toInt(format->members()[1].value), 4);
+    }
+  }
+}
+
+TEST(ConstantArchiveTest, FindsStructuralSpecializationsAfterRestoration) {
+  loom_cxx_import_options_t options;
+  loom_cxx_import_options_initialize(&options);
+  std::vector<std::uint8_t> bytes;
+  {
+    Source source(
+        IREE_SV("constexpr unsigned table[2] = {5, 5};"
+                "struct Base { unsigned mode = 1; };"
+                "struct Descriptor : Base {"
+                "  unsigned shape[2] = {2, 3};"
+                "  float scale = 0.0f;"
+                "  const unsigned* address = table;"
+                "};"
+                "template<Descriptor Spec> struct Tag {};"
+                "using Default = Tag<Descriptor{}>;"
+                "using Negative = Tag<Descriptor{{1}, {2, 3}, -0.0f}>;"
+                "using Second = Tag<Descriptor{{1}, {2, 3}, 0.0f, table + 1}>;"
+                "constexpr Descriptor make(unsigned selection) {"
+                "  if (selection == 1) return {{1}, {2, 3}, -0.0f};"
+                "  if (selection == 2) return {{1}, {2, 3}, 0.0f, table + 1};"
+                "  if (selection == 3) return {{2}};"
+                "  if (selection == 4) return {{1}, {3, 2}};"
+                "  return {};"
+                "}"),
+        IREE_SV("structural.cxx"), options);
+    cxx::ArchiveWriter writer;
+    cxx::SemanticArchiveRoots roots;
+    roots.ast = source.unit().ast();
+    roots.globalScope = source.unit().globalScope();
+    cxx::SemanticEncoder encoder(&source.unit());
+    ASSERT_TRUE(encoder(roots, writer));
+    bytes = writer();
+  }
+
+  Source destination(IREE_SV(""), IREE_SV("restored.cxx"), options);
+  cxx::ArchiveReader reader;
+  ASSERT_TRUE(reader(bytes)) << reader.error();
+  cxx::SemanticArchiveRoots restored;
+  {
+    cxx::SemanticDecoder decoder(&destination.unit());
+    ASSERT_TRUE(decoder(reader, restored)) << decoder.error();
+  }
+
+  auto templates = restored.globalScope->find("Tag");
+  ASSERT_FALSE(templates.begin() == templates.end());
+  auto* primary = cxx::symbol_cast<cxx::ClassSymbol>(*templates.begin());
+  ASSERT_NE(primary, nullptr);
+  ASSERT_EQ(primary->specializations().size(), 3u);
+  auto symbols = restored.globalScope->find("make");
+  ASSERT_FALSE(symbols.begin() == symbols.end());
+  auto functions = cxx::views::each_function(*symbols.begin());
+  ASSERT_EQ(std::ranges::distance(functions), 1);
+
+  cxx::ASTInterpreter interpreter(&destination.unit());
+  for (std::intmax_t selection = 0; selection < 5; ++selection) {
+    SCOPED_TRACE(selection);
+    // Build a fresh value after the source and decoder have been destroyed.
+    // It must find the restored specialization without sharing its allocation.
+    auto value = interpreter.evaluateCall(*functions.begin(), {selection});
+    ASSERT_TRUE(value);
+    const std::vector<cxx::TemplateArgument> arguments = {*value};
+    auto* specialization =
+        primary->findSpecialization(&destination.unit(), arguments);
+    if (selection < 3) {
+      const auto& expected = primary->specializations()[selection];
+      EXPECT_EQ(specialization, expected.symbol);
+      auto key = cxx::template_argument_value(expected.arguments.front());
+      ASSERT_TRUE(key);
+      EXPECT_NE(std::get<std::shared_ptr<cxx::ConstObject>>(*key),
+                std::get<std::shared_ptr<cxx::ConstObject>>(*value));
+      auto* control = destination.unit().control();
+      EXPECT_EQ(control->getTemplateId(primary->name(), {*key}),
+                control->getTemplateId(primary->name(), arguments));
+    } else {
+      EXPECT_EQ(specialization, nullptr);
     }
   }
 }
@@ -498,6 +612,108 @@ TEST(ConstantArchiveTest, PreservesSelectedSubobjectPaths) {
   cloned_paths.accept(cloned);
   EXPECT_TRUE(hasBasePath(cloned_paths.member_paths, {left, base}));
   EXPECT_TRUE(hasBasePath(cloned_paths.cast_paths, {left}));
+}
+
+TEST(ConstantArchiveTest, PreservesTypedAggregateReadsAfterDecoderDestruction) {
+  loom_cxx_import_options_t options;
+  loom_cxx_import_options_initialize(&options);
+  std::vector<std::uint8_t> bytes;
+  {
+    Source source(
+        IREE_SV("using Int4 = int __attribute__((ext_vector_type(4)));"
+                "struct Data { int array[4]; Int4 vector; };"
+                "constexpr int evaluate(int value) {"
+                "  Data data{{3, 5, 7, 9}, {11, 13, 17, 19}};"
+                "  int (&array)[4] = data.array;"
+                "  array[1] = value;"
+                "  Int4* pointer = &data.vector;"
+                "  Int4& vector = *pointer;"
+                "  vector[2] = value + 2;"
+                "  return data.array[1] + (*pointer)[2] + data.array[3];"
+                "}"),
+        IREE_SV("aggregate_reads.cxx"), options);
+    cxx::ArchiveWriter writer;
+    cxx::SemanticArchiveRoots roots;
+    roots.ast = source.unit().ast();
+    roots.globalScope = source.unit().globalScope();
+    cxx::SemanticEncoder encoder(&source.unit());
+    ASSERT_TRUE(encoder(roots, writer));
+    bytes = writer();
+  }
+
+  Source destination(IREE_SV(""), IREE_SV("restored.cxx"), options);
+  cxx::SemanticArchiveRoots restored;
+  {
+    cxx::ArchiveReader reader;
+    ASSERT_TRUE(reader(bytes)) << reader.error();
+    cxx::SemanticDecoder decoder(&destination.unit());
+    ASSERT_TRUE(decoder(reader, restored)) << decoder.error();
+  }
+  auto symbols = restored.globalScope->find("evaluate");
+  ASSERT_FALSE(symbols.begin() == symbols.end());
+  auto functions = cxx::views::each_function(*symbols.begin());
+  ASSERT_EQ(std::ranges::distance(functions), 1);
+  for (std::intmax_t input : {3, 5, 7}) {
+    SCOPED_TRACE(input);
+    cxx::ASTInterpreter interpreter(&destination.unit());
+    auto value = interpreter.evaluateCall(*functions.begin(), {input});
+    ASSERT_TRUE(value);
+    EXPECT_EQ(interpreter.toInt(*value), 2 * input + 11);
+  }
+}
+
+TEST(ConstantArchiveTest, ExecutesDestructorsAfterDecoderDestruction) {
+  loom_cxx_import_options_t options;
+  loom_cxx_import_options_initialize(&options);
+  std::vector<std::uint8_t> bytes;
+  {
+    Source source(
+        IREE_SV(
+            "constexpr void append_digit(unsigned* output, unsigned digit) {"
+            "  *output = *output * 10 + digit;"
+            "}"
+            "struct Guard {"
+            "  unsigned* output;"
+            "  unsigned digit;"
+            "  constexpr ~Guard() { append_digit(output, digit); }"
+            "};"
+            "constexpr unsigned evaluate(unsigned seed) {"
+            "  unsigned output = seed;"
+            "  {"
+            "    Guard outer{&output, 2};"
+            "    { Guard inner{&output, 3}; }"
+            "  }"
+            "  return output;"
+            "}"),
+        IREE_SV("destructors.cxx"), options);
+    cxx::ArchiveWriter writer;
+    cxx::SemanticArchiveRoots roots;
+    roots.ast = source.unit().ast();
+    roots.globalScope = source.unit().globalScope();
+    cxx::SemanticEncoder encoder(&source.unit());
+    ASSERT_TRUE(encoder(roots, writer));
+    bytes = writer();
+  }
+
+  Source destination(IREE_SV(""), IREE_SV("restored.cxx"), options);
+  cxx::SemanticArchiveRoots restored;
+  {
+    cxx::ArchiveReader reader;
+    ASSERT_TRUE(reader(bytes)) << reader.error();
+    cxx::SemanticDecoder decoder(&destination.unit());
+    ASSERT_TRUE(decoder(reader, restored)) << decoder.error();
+  }
+  auto symbols = restored.globalScope->find("evaluate");
+  ASSERT_FALSE(symbols.begin() == symbols.end());
+  auto functions = cxx::views::each_function(*symbols.begin());
+  ASSERT_EQ(std::ranges::distance(functions), 1);
+  for (std::intmax_t input : {1, 4, 7}) {
+    SCOPED_TRACE(input);
+    cxx::ASTInterpreter interpreter(&destination.unit());
+    auto value = interpreter.evaluateCall(*functions.begin(), {input});
+    ASSERT_TRUE(value);
+    EXPECT_EQ(interpreter.toInt(*value), input * 100 + 32);
+  }
 }
 
 }  // namespace

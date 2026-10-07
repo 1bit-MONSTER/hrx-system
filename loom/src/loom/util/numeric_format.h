@@ -173,6 +173,32 @@ typedef uint8_t loom_numeric_format_flag_bits_t;
 // Bitset of loom_numeric_format_flag_bits_t values.
 typedef uint8_t loom_numeric_format_flags_t;
 
+enum loom_numeric_float_special_layout_e {
+  // The all-ones exponent with a zero mantissa encodes infinity; larger
+  // magnitudes encode NaNs.
+  LOOM_NUMERIC_FLOAT_SPECIAL_LAYOUT_IEEE = 0,
+  // The maximum magnitude encodes NaN and every smaller magnitude is finite.
+  LOOM_NUMERIC_FLOAT_SPECIAL_LAYOUT_FINITE_NAN = 1,
+};
+typedef uint8_t loom_numeric_float_special_layout_t;
+
+typedef struct loom_numeric_float_encoding_t {
+  // Same-width integer scalar used to inspect the encoded bits.
+  loom_scalar_type_t integer_type;
+
+  // Special-value layout used by the represented floating-point format.
+  loom_numeric_float_special_layout_t special_layout;
+
+  // Mask retaining every encoded bit except the sign bit.
+  uint64_t magnitude_mask;
+
+  // Infinity magnitude for IEEE formats or NaN magnitude for finite formats.
+  uint64_t special_magnitude;
+
+  // Quiet-NaN bit for IEEE formats or zero for finite-only formats.
+  uint64_t quiet_nan_bit;
+} loom_numeric_float_encoding_t;
+
 typedef struct loom_numeric_format_info_t {
   // Single-bit numeric-format fact represented by this row.
   loom_value_fact_numeric_format_flags_t format;
@@ -230,6 +256,12 @@ bool loom_numeric_format_uses_unsigned_integer_semantics(
 // scalar type, or NONE when no single numeric-format fact exists.
 loom_value_fact_numeric_format_flags_t loom_numeric_format_from_scalar_type(
     loom_scalar_type_t type);
+
+// Returns the exact bit encoding used to classify a directly represented Loom
+// floating-point scalar type. Returns false for non-floating and encoded-only
+// formats.
+bool loom_numeric_float_encoding(loom_scalar_type_t type,
+                                 loom_numeric_float_encoding_t* out_encoding);
 
 #ifdef __cplusplus
 }

@@ -9,23 +9,6 @@
 
 iree_add_all_subdirs()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_cc_library(
-  NAME
-    artifact_provider
-  HDRS
-    "artifact_provider.h"
-  SRCS
-    "artifact_provider.c"
-  DEPS
-    iree::base
-    loom::target::arch::amdgpu::profile
-    loom::target::emit::native::amdgpu::hal_kernel_library
-    loom::tooling::compile::artifact
-  PUBLIC
-)
-endif()
-
 if(LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_cc_library(
   NAME
@@ -35,12 +18,12 @@ loom_cc_library(
   SRCS
     "device_provider.c"
   DEPS
-    ::artifact_provider
     iree::base
     iree::hal
     loom::target::arch::amdgpu::facts
     loom::target::arch::amdgpu::profile
     loom::target::arch::amdgpu::target_info
+    loom::target::emit::native::amdgpu::hal_kernel_library
     loom::tooling::execution::hal::device_provider
     loom::tooling::execution::hal::runtime
   PUBLIC
@@ -58,7 +41,7 @@ loom_cc_library(
   DEPS
     ::device_provider
     iree::base
-    loom::target::arch::amdgpu::provider
+    loom::target::emit::native::amdgpu::hal_kernel_library
     loom::tooling::execution::execution_provider
     loom::tooling::execution::hal::execution_backend
   PUBLIC
@@ -80,35 +63,6 @@ loom_cc_library(
     loom::tooling::execution::hal::testbench_actual
     loom::tooling::testbench::requirements
   PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_cc_test(
-  NAME
-    artifact_provider_test
-  SRCS
-    "artifact_provider_test.cc"
-  DEPS
-    ::artifact_provider
-    iree::base
-    iree::base::internal::arena
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::codegen::low::text_asm
-    loom::format::text::parser
-    loom::ir
-    loom::ops::op_registry
-    loom::target::arch::amdgpu::artifact_key
-    loom::target::arch::amdgpu::descriptors::low_registry
-    loom::target::arch::amdgpu::ops
-    loom::target::arch::amdgpu::profile
-    loom::target::arch::amdgpu::target_info
-    loom::target::reporting::report
-    loom::testing::module_ptr
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
 )
 endif()
 

@@ -780,5 +780,36 @@ TEST(CompileReportFormatTest, ParsesModes) {
       loom_target_compile_report_format_mode_parse(IREE_SV("verbose"), &mode));
 }
 
+TEST(CompileReportFormatTest, SelectsRequestedDetailsForMode) {
+  const loom_target_compile_report_detail_flags_t summary_flags =
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_RESIDENCY_CONSTRAINTS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_CONFIG_BINDING_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_SCHEDULE_BAND_SUMMARY_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_SOURCE_LOW_ROWS;
+  const loom_target_compile_report_detail_flags_t detail_flags =
+      summary_flags | LOOM_TARGET_COMPILE_REPORT_DETAIL_PRESSURE_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_PRESSURE_ORIGIN_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_SCHEDULE_BAND_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_SPILL_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_ALLOCATION_FAILURE_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_ALLOCATION_HIGH_WATER_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_MATH_LEGALIZATION_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_TARGET_LEGALIZATION_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_WAIT_PLAN |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_TARGET_CAPABILITY_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_TARGET_INSERTION_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_PIPELINE_PLAN_ROWS;
+
+  EXPECT_EQ(loom_target_compile_report_requested_detail_flags(
+                LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_NONE),
+            LOOM_TARGET_COMPILE_REPORT_DETAIL_NONE);
+  EXPECT_EQ(loom_target_compile_report_requested_detail_flags(
+                LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_SUMMARY),
+            summary_flags);
+  EXPECT_EQ(loom_target_compile_report_requested_detail_flags(
+                LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_DETAILS),
+            detail_flags);
+}
+
 }  // namespace
 }  // namespace loom

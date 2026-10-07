@@ -530,6 +530,14 @@ static const loom_pass_descriptor_t kBuiltinPassDescriptors[] = {
             IREE_ARRAYSIZE(kMutableFunctionVersionRequirements),
     },
     {
+        .key = IREE_SVL("project-loop-boundary-representations"),
+        .info = loom_project_loop_boundary_representations_pass_info,
+        .module_run = loom_project_loop_boundary_representations_run,
+        .requirement_defs = kMutableFunctionVersionRequirements,
+        .requirement_count =
+            IREE_ARRAYSIZE(kMutableFunctionVersionRequirements),
+    },
+    {
         .key = IREE_SVL("promote-private-fragments"),
         .info = loom_promote_private_fragments_pass_info,
         .function_run = loom_promote_private_fragments_run,
@@ -666,4 +674,15 @@ static const loom_pass_registry_t kBuiltinPassRegistry = {
 
 const loom_pass_registry_t* loom_pass_builtin_registry(void) {
   return &kBuiltinPassRegistry;
+}
+
+iree_status_t loom_pass_registry_storage_initialize_with_builtins(
+    const loom_pass_registry_t* extension_registry,
+    loom_pass_registry_storage_t* out_storage) {
+  const loom_pass_registry_t* registries[] = {
+      loom_pass_builtin_registry(),
+      extension_registry,
+  };
+  return loom_pass_registry_storage_initialize_from_registries(
+      registries, IREE_ARRAYSIZE(registries), out_storage);
 }

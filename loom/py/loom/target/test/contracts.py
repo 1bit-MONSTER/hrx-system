@@ -229,7 +229,7 @@ def _source_memory_constraint(
 ) -> SourceMemoryConstraint:
     return SourceMemoryConstraint(
         operation=operation,
-        memory_spaces=("unknown", "generic", "global"),
+        memory_spaces=("unknown", "generic", "global", "private", "workgroup"),
         element_byte_count=4,
         vector_lane_count=4,
         vector_lane_byte_stride=4,
@@ -461,8 +461,13 @@ TEST_LOW_CORE_CONTRACT_FRAGMENT = ContractFragment(
                 ),
                 EmitRegisterMove(
                     source=ValueRef.temporary("reclassified"),
-                    result=ValueRef.result("result"),
+                    result=ValueRef.temporary("moved"),
                     result_type=ValueRef.temporary("reclassified"),
+                ),
+                EmitRegisterMove(
+                    source=ValueRef.temporary("moved"),
+                    result=ValueRef.result("result"),
+                    result_type=ValueRef.temporary("moved"),
                 ),
             ),
         ),
@@ -634,6 +639,7 @@ TEST_LOW_CORE_CONTRACT_FRAGMENT = ContractFragment(
         _const_i32_rule(index.index_constant, _INDEX),
         _const_i32_rule(index.index_constant, _OFFSET),
         _binary_rule(index.index_add, TEST_LOW_ADD_I32_DESCRIPTOR, _INDEX),
+        _binary_rule(index.index_add, TEST_LOW_ADD_I32_DESCRIPTOR, _OFFSET),
         _compare_rule(
             index.index_cmp,
             TEST_LOW_CMP_SLT_I32_DESCRIPTOR,

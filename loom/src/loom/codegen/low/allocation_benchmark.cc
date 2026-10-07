@@ -24,8 +24,11 @@
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/liveness.h"
 #include "loom/codegen/low/allocation.h"
+#include "loom/codegen/low/allocation/placement.h"
 #include "loom/codegen/low/allocation/unit_liveness.h"
 #include "loom/codegen/low/placement.h"
+#include "loom/codegen/low/schedule/run.h"
+#include "loom/codegen/low/storage_lease.h"
 #include "loom/codegen/low/text_asm.h"
 #include "loom/codegen/low/verify.h"
 #include "loom/format/text/parser.h"
@@ -36,6 +39,7 @@
 #include "loom/ops/target/ops.h"
 #include "loom/ops/test/ops.h"
 #include "loom/target/test/low_registry.h"
+#include "loom/verify/verify.h"
 
 namespace {
 
@@ -109,7 +113,10 @@ enum class Shape {
   kMoveScratch,
   kBranch,
   kTied,
-  kFanout
+  kFanout,
+  kFutureFixed,
+  kReservedPrefix,
+  kLeasedPrefix,
 };
 enum class Phase {
   kModel,
@@ -144,7 +151,7 @@ std::string MakeSource(uint32_t chain_length, uint32_t component_count,
     return source + "  return %cycle_pair, %sum" +
            std::to_string(component_count - 1) + "\n}\n";
   }
-  if (shape == Shape::kFanout) {
+  if (shape == Shape::kFanout || shape == Shape::kReservedPrefix) {
     const uint32_t count = chain_length * component_count;
     std::string source =
         "test.target<low_core> @target\n"
@@ -181,6 +188,83 @@ std::string MakeSource(uint32_t chain_length, uint32_t component_count,
       source += "%next" + std::to_string(i);
     }
     return source + "\n}\n";
+  }
+  if (shape == Shape::kFutureFixed) {
+    Require(width == 1, "Future-fixed shape requires scalar registers");
+    const uint32_t count = chain_length * component_count;
+    std::string source =
+        "test.target<low_core> @target\n"
+        "low.func.def target<test.low.core>(@target) @kernel(";
+    for (uint32_t i = 0; i < component_count; ++i) {
+      if (i != 0) {
+        source += ", ";
+      }
+      source += "%seed" + std::to_string(i) + ": " + type;
+    }
+    source += ") -> (";
+    for (uint32_t i = 0; i < count; ++i) {
+      if (i != 0) {
+        source += ", ";
+      }
+      source += type;
+    }
+    source += ", reg<test.i32 x" + std::to_string(count) + ">";
+    source += ") asm {\n";
+    for (uint32_t i = 0; i < count; ++i) {
+      source += "  %copy" + std::to_string(i) + " = copy %seed" +
+                std::to_string(i / chain_length) + " : " + type + " -> " +
+                type + "\n";
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+      source += "  %fixed" + std::to_string(i) + " = test.const.i32 " +
+                std::to_string(i) + "\n";
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+      source += "  %next" + std::to_string(i) + " = test.tied.any %copy" +
+                std::to_string(i) + "\n";
+    }
+    source += "  %fixed_pack = concat(";
+    for (uint32_t i = 0; i < count; ++i) {
+      if (i != 0) {
+        source += ", ";
+      }
+      source += "%fixed" + std::to_string(i);
+    }
+    source += ") : (";
+    for (uint32_t i = 0; i < count; ++i) {
+      if (i != 0) {
+        source += ", ";
+      }
+      source += type;
+    }
+    source += ") -> reg<test.i32 x" + std::to_string(count) + ">\n";
+    source += "  return ";
+    for (uint32_t i = 0; i < count; ++i) {
+      if (i != 0) {
+        source += ", ";
+      }
+      source += "%next" + std::to_string(i);
+    }
+    source += ", %fixed_pack";
+    return source + "\n}\n";
+  }
+  if (shape == Shape::kLeasedPrefix) {
+    Require(width == 1, "Leased-prefix shape requires scalar registers");
+    const uint32_t count = chain_length * component_count;
+    std::string source =
+        "test.target<low_core> @target\n"
+        "low.func.def schedule(locked) target<test.low.core>(@target) "
+        "@kernel() -> (reg<test.i32>) asm {\n";
+    for (uint32_t i = 0; i < count; ++i) {
+      source += "  %leased" + std::to_string(i) + " = test.const.issued.i32 " +
+                std::to_string(i) + "\n";
+      source += "  test.leased.consume.i32 %leased" + std::to_string(i) + "\n";
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+      source += "  %result" + std::to_string(i) + " = test.const.issued.i32 " +
+                std::to_string(i) + "\n";
+    }
+    return source + "  return %result" + std::to_string(count - 1u) + "\n}\n";
   }
   if (shape == Shape::kLoopRelocation) {
     std::string source =
@@ -375,6 +459,12 @@ struct RunResult {
   uint64_t scratch_move_count = 0;
   // First cycle-scratch location selected for the forced cyclic group.
   uint64_t scratch_location = UINT64_MAX;
+  // Materialized asynchronous storage leases.
+  uint64_t storage_lease_count = 0;
+  // Allocator-requested early release actions.
+  uint64_t storage_release_action_count = 0;
+  // Largest assigned target-ID endpoint.
+  uint64_t assigned_target_id_extent = 0;
 };
 
 class AllocationBenchmark {
@@ -401,13 +491,16 @@ class AllocationBenchmark {
                         IREE_SV("allocation_benchmark.loom"), &context_,
                         &source_pool_, &parse_options, &module_));
     Require(module_ != nullptr, "Parsing failed");
-    loom_low_verify_options_t verify_options = {};
-    verify_options.descriptor_registry = &registry_.registry;
+    loom_verify_result_t structure = {};
+    IREE_CHECK_OK(loom_verify_module(module_, nullptr, &structure));
+    Require(structure.error_count == 0, "Generic verification failed");
+    loom_low_verify_options_t low_verify_options = {};
+    low_verify_options.descriptor_registry = &registry_.registry;
     auto scratch = loom_low_verify_scratch_for_module(module_);
-    loom_low_verify_result_t verified = {};
-    IREE_CHECK_OK(
-        loom_low_verify_module(module_, &verify_options, &scratch, &verified));
-    Require(verified.error_count == 0, "Low verification failed");
+    loom_low_verify_result_t low_verified = {};
+    IREE_CHECK_OK(loom_low_verify_module(module_, &low_verify_options, &scratch,
+                                         &low_verified));
+    Require(low_verified.error_count == 0, "Low verification failed");
     auto name = loom_module_lookup_string(module_, IREE_SV("kernel"));
     auto symbol = loom_module_find_symbol(module_, name);
     Require(symbol != LOOM_SYMBOL_ID_INVALID, "Kernel symbol missing");
@@ -499,8 +592,62 @@ class AllocationBenchmark {
                           [](uint8_t value) { return value != 0; }),
               "Dense relocation source values missing");
     }
+    if (shape == Shape::kFutureFixed) {
+      const uint32_t count = chain_length * component_count;
+      fixed_values_.resize(count);
+      std::vector<uint8_t> found(count);
+      for (loom_value_id_t value_id = 0; value_id < module_->values.count;
+           ++value_id) {
+        const iree_string_view_t name =
+            loom_module_value_name(module_, value_id);
+        constexpr iree_host_size_t kPrefixLength = sizeof("fixed") - 1;
+        if (name.size <= kPrefixLength ||
+            std::memcmp(name.data, "fixed", kPrefixLength) != 0) {
+          continue;
+        }
+        uint32_t fixed_index = 0;
+        const auto parsed = std::from_chars(name.data + kPrefixLength,
+                                            name.data + name.size, fixed_index);
+        if (parsed.ec != std::errc{} || parsed.ptr != name.data + name.size ||
+            fixed_index >= count) {
+          continue;
+        }
+        fixed_values_[fixed_index] = {
+            value_id,
+            LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID,
+            fixed_index,
+            1,
+        };
+        found[fixed_index] = 1;
+      }
+      Require(std::all_of(found.begin(), found.end(),
+                          [](uint8_t value) { return value != 0; }),
+              "Future-fixed source values missing");
+    }
+    if (shape == Shape::kReservedPrefix) {
+      reserved_ranges_.push_back({
+          IREE_SV("test.i32"),
+          LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID,
+          /*location_base=*/0,
+          /*location_count=*/chain_length * component_count,
+      });
+    }
     if (phase_ != Phase::kModel) {
       InitializeModel(&base_arena_, &model_);
+    }
+    if (shape == Shape::kLeasedPrefix) {
+      loom_low_schedule_options_t schedule_options = {};
+      IREE_CHECK_OK(loom_low_schedule_function(&model_, &schedule_options,
+                                               &base_arena_, &schedule_));
+      Require(schedule_.error_count == 0, "Scheduling failed");
+      const loom_low_storage_lease_provider_t provider = {
+          /*.user_data=*/{},
+          /*.query=*/loom_low_storage_lease_query_descriptor_rows,
+      };
+      IREE_CHECK_OK(loom_low_storage_lease_build(
+          &schedule_, &provider, &base_arena_, &storage_leases_));
+      Require(storage_leases_.record_count == chain_length * component_count,
+              "Leased-prefix records missing");
     }
     if (phase_ == Phase::kPlacement || phase_ == Phase::kUnitLiveness) {
       IREE_CHECK_OK(loom_liveness_analyze_local_value_domain_with_dataflow(
@@ -509,9 +656,14 @@ class AllocationBenchmark {
     }
     if (phase_ == Phase::kUnitLiveness) {
       loom_low_placement_preference_index_t preferences = {};
-      IREE_CHECK_OK(loom_low_placement_analyze_region(
-          module_, model_.body, model_.target.descriptor_set,
-          &model_.value_domain, &liveness_,
+      loom_low_allocation_target_constraints_t constraints = {};
+      IREE_CHECK_OK(loom_low_allocation_target_constraints_initialize(
+          module_, function_, &model_.target, nullptr, 0,
+          reserved_ranges_.data(), reserved_ranges_.size(), {}, &base_arena_,
+          &constraints));
+      IREE_CHECK_OK(loom_low_allocation_placement_build(
+          &constraints, model_.body, &model_.value_domain, &liveness_,
+          fixed_values_.data(), fixed_values_.size(),
           loom_low_placement_pair_use_list_empty(), {}, &base_arena_,
           &base_arena_, &placement_, &preferences));
     }
@@ -550,9 +702,14 @@ class AllocationBenchmark {
     } else if (phase_ == Phase::kPlacement) {
       loom_low_placement_table_t placement = {};
       loom_low_placement_preference_index_t preferences = {};
-      IREE_CHECK_OK(loom_low_placement_analyze_region(
-          module_, model_.body, model_.target.descriptor_set,
-          &model_.value_domain, &liveness_,
+      loom_low_allocation_target_constraints_t constraints = {};
+      IREE_CHECK_OK(loom_low_allocation_target_constraints_initialize(
+          module_, function_, &model_.target, nullptr, 0,
+          reserved_ranges_.data(), reserved_ranges_.size(), {}, &arena,
+          &constraints));
+      IREE_CHECK_OK(loom_low_allocation_placement_build(
+          &constraints, model_.body, &model_.value_domain, &liveness_,
+          fixed_values_.data(), fixed_values_.size(),
           loom_low_placement_pair_use_list_empty(), {}, &arena, &arena,
           &placement, &preferences));
       result.value_count = placement.value_count;
@@ -563,7 +720,7 @@ class AllocationBenchmark {
       loom_low_allocation_unit_liveness_t unit_liveness = {};
       IREE_CHECK_OK(loom_low_allocation_unit_liveness_initialize(
           &model_.target, &placement_, &model_.value_domain, &liveness_,
-          &model_.cfg_graph, &arena, &decision_arena, &unit_liveness));
+          &model_.cfg_graph, {}, &arena, &decision_arena, &unit_liveness));
       result.value_count = liveness_.value_count;
       benchmark::DoNotOptimize(unit_liveness.end_points);
       iree_arena_deinitialize(&decision_arena);
@@ -571,6 +728,12 @@ class AllocationBenchmark {
       loom_low_allocation_options_t options = {};
       options.fixed_values = fixed_values_.data();
       options.fixed_value_count = fixed_values_.size();
+      options.reserved_ranges = reserved_ranges_.data();
+      options.reserved_range_count = reserved_ranges_.size();
+      if (storage_leases_.record_count != 0) {
+        options.schedule = &schedule_;
+        options.storage_leases = storage_leases_;
+      }
       loom_low_allocation_table_t allocation = {};
       IREE_CHECK_OK(
           loom_low_allocate_function(&model_, &options, &arena, &allocation));
@@ -579,6 +742,19 @@ class AllocationBenchmark {
       result.value_count = model_.value_domain.value_count;
       result.copy_count = allocation.copy_decision_count;
       result.materialized_copy_count = allocation.materialized_copy_count;
+      result.storage_lease_count = allocation.storage_lease_instance_count;
+      result.storage_release_action_count =
+          allocation.storage_release_action_count;
+      for (iree_host_size_t i = 0; i < allocation.assignment_count; ++i) {
+        const auto& assignment = allocation.assignments[i];
+        if (assignment.location_kind ==
+            LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID) {
+          result.assigned_target_id_extent =
+              std::max(result.assigned_target_id_extent,
+                       static_cast<uint64_t>(assignment.location_base) +
+                           assignment.location_count);
+        }
+      }
       if (backedge_terminator_ != nullptr) {
         result.backedge_move_count = UINT64_MAX;
         for (iree_host_size_t i = 0; i < allocation.edge_copy_group_count;
@@ -687,8 +863,14 @@ class AllocationBenchmark {
   loom_liveness_analysis_t liveness_ = {};
   // Retained placement facts for unit-liveness-only measurements.
   loom_low_placement_table_t placement_ = {};
+  // Retained locked schedule used by the descriptor-driven lease witness.
+  loom_low_schedule_table_t schedule_ = {};
+  // Descriptor-provided storage leases over |schedule_|.
+  loom_low_storage_lease_table_t storage_leases_ = {};
   // Dense relocation source colors fixed outside the header destination set.
   std::vector<loom_low_allocation_fixed_value_t> fixed_values_;
+  // Whole-function reservation used by the prefix-scaling witness.
+  std::vector<loom_low_allocation_reserved_range_t> reserved_ranges_;
   // Generated loop backedge used to validate final edge-copy materialization.
   const loom_op_t* backedge_terminator_ = nullptr;
   // Whether the generated packet-local cycle must use scratch storage.
@@ -771,7 +953,7 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
   if (phase == Phase::kAllocation) {
     const uint32_t expected_copy_count =
         shape == Shape::kTied || shape == Shape::kLoopRelocation ||
-                shape == Shape::kMoveScratch
+                shape == Shape::kMoveScratch || shape == Shape::kLeasedPrefix
             ? 0
             : chain_length * component_count *
                   (shape == Shape::kBranch ? 2 : 1);
@@ -780,10 +962,20 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
       Require(result.backedge_move_count == 0,
               "Loop-edge relocation left branch copies");
     }
-    if (shape == Shape::kFanout) {
+    if (shape == Shape::kFanout || shape == Shape::kFutureFixed ||
+        shape == Shape::kReservedPrefix) {
       Require(result.materialized_copy_count >=
                   expected_copy_count - component_count,
               "Independently live copies were incorrectly coalesced");
+    }
+    if (shape == Shape::kLeasedPrefix) {
+      const uint64_t count = chain_length * component_count;
+      Require(result.storage_lease_count == count,
+              "Storage leases were not materialized");
+      Require(result.storage_release_action_count == 0,
+              "Leased prefix requested an unexpected early release");
+      Require(result.assigned_target_id_extent == count + 1u,
+              "Leased prefix did not retain its physical locations");
     }
   }
   state.counters["value_count"] = result.value_count;
@@ -793,6 +985,11 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
   state.counters["scratch_group_move_count"] = result.scratch_group_move_count;
   state.counters["scratch_move_count"] = result.scratch_move_count;
   state.counters["scratch_location"] = result.scratch_location;
+  state.counters["storage_lease_count"] = result.storage_lease_count;
+  state.counters["storage_release_action_count"] =
+      result.storage_release_action_count;
+  state.counters["assigned_target_id_extent"] =
+      result.assigned_target_id_extent;
   state.counters["arena_used_bytes"] = result.used_bytes;
   state.counters["arena_owned_bytes"] = result.owned_bytes;
   state.counters["setup_live_requested_bytes"] = memory.setup_live_bytes;
@@ -809,13 +1006,23 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
 [[maybe_unused]] const bool kBenchmarksRegistered = [] {
   for (auto shape :
        {Shape::kLinear, Shape::kLoop, Shape::kLoopRelocation,
-        Shape::kMoveScratch, Shape::kBranch, Shape::kTied, Shape::kFanout}) {
+        Shape::kMoveScratch, Shape::kBranch, Shape::kTied, Shape::kFanout,
+        Shape::kFutureFixed, Shape::kReservedPrefix, Shape::kLeasedPrefix}) {
     for (auto phase : {Phase::kModel, Phase::kLiveness, Phase::kPlacement,
                        Phase::kUnitLiveness, Phase::kAllocation}) {
       if (shape == Shape::kLoopRelocation && phase != Phase::kAllocation) {
         continue;
       }
       if (shape == Shape::kMoveScratch && phase != Phase::kAllocation) {
+        continue;
+      }
+      if (shape == Shape::kFutureFixed && phase != Phase::kAllocation) {
+        continue;
+      }
+      if (shape == Shape::kReservedPrefix && phase != Phase::kAllocation) {
+        continue;
+      }
+      if (shape == Shape::kLeasedPrefix && phase != Phase::kAllocation) {
         continue;
       }
       const std::string name =
@@ -826,7 +1033,10 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
                       : shape == Shape::kMoveScratch    ? "move_scratch/"
                       : shape == Shape::kBranch         ? "branch/"
                       : shape == Shape::kTied           ? "tied/"
-                                                        : "fanout/") +
+                      : shape == Shape::kFanout         ? "fanout/"
+                      : shape == Shape::kFutureFixed    ? "future_fixed/"
+                      : shape == Shape::kReservedPrefix ? "reserved_prefix/"
+                                                        : "leased_prefix/") +
           (phase == Phase::kModel          ? "model"
            : phase == Phase::kLiveness     ? "liveness"
            : phase == Phase::kPlacement    ? "placement"
@@ -848,6 +1058,24 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
       if (shape == Shape::kMoveScratch) {
         for (int64_t blockers : {32, 64, 128, 256, 512, 1024, 2048}) {
           registration->Args({1, blockers, 1});
+        }
+        continue;
+      }
+      if (shape == Shape::kFutureFixed) {
+        for (int64_t count : {32, 64, 128, 256, 512, 1024, 2048}) {
+          registration->Args({count, 1, 1});
+        }
+        continue;
+      }
+      if (shape == Shape::kReservedPrefix) {
+        for (int64_t count : {32, 64, 128, 256, 512, 1024, 2048}) {
+          registration->Args({count, 1, 1});
+        }
+        continue;
+      }
+      if (shape == Shape::kLeasedPrefix) {
+        for (int64_t count : {32, 64, 128, 256, 512, 1024, 2048}) {
+          registration->Args({count, 1, 1});
         }
         continue;
       }

@@ -70,6 +70,7 @@ typedef enum loom_native_elf_section_type_e {
   LOOM_NATIVE_ELF_SECTION_TYPE_PROGBITS = 1,
   LOOM_NATIVE_ELF_SECTION_TYPE_SYMTAB = 2,
   LOOM_NATIVE_ELF_SECTION_TYPE_STRTAB = 3,
+  LOOM_NATIVE_ELF_SECTION_TYPE_RELA = 4,
   LOOM_NATIVE_ELF_SECTION_TYPE_HASH = 5,
   LOOM_NATIVE_ELF_SECTION_TYPE_DYNAMIC = 6,
   LOOM_NATIVE_ELF_SECTION_TYPE_NOTE = 7,
@@ -83,6 +84,18 @@ typedef enum loom_native_elf_section_flag_bits_e {
   LOOM_NATIVE_ELF_SECTION_FLAG_EXECINSTR = 0x4,
   LOOM_NATIVE_ELF_SECTION_FLAG_STRINGS = 0x20,
 } loom_native_elf_section_flag_bits_t;
+
+typedef enum loom_native_elf_dynamic_tag_e {
+  LOOM_NATIVE_ELF_DYNAMIC_NULL = 0,
+  LOOM_NATIVE_ELF_DYNAMIC_HASH = 4,
+  LOOM_NATIVE_ELF_DYNAMIC_STRTAB = 5,
+  LOOM_NATIVE_ELF_DYNAMIC_SYMTAB = 6,
+  LOOM_NATIVE_ELF_DYNAMIC_RELA = 7,
+  LOOM_NATIVE_ELF_DYNAMIC_RELASZ = 8,
+  LOOM_NATIVE_ELF_DYNAMIC_RELAENT = 9,
+  LOOM_NATIVE_ELF_DYNAMIC_STRSZ = 10,
+  LOOM_NATIVE_ELF_DYNAMIC_SYMENT = 11,
+} loom_native_elf_dynamic_tag_t;
 
 typedef enum loom_native_elf_amdgpu_flag_bits_e {
   LOOM_NATIVE_ELF_AMDGPU_FLAG_MACH_MASK = 0x0ff,
@@ -120,8 +133,8 @@ typedef struct loom_native_elf_section_t {
   uint32_t info;
   // Section bytes written into the file.
   iree_const_byte_span_t contents;
-  // Logical zero-filled byte length for SHT_NOBITS sections. This must be
-  // zero for every content-backed section.
+  // Address-space extent for SHT_NOBITS sections; zero for content-backed
+  // sections. The target's loading contract determines initialization.
   uint64_t zero_fill_length;
 } loom_native_elf_section_t;
 
@@ -205,30 +218,68 @@ typedef struct loom_native_elf64le_file_t {
   iree_host_size_t segment_count;
 } loom_native_elf64le_file_t;
 
-// Writes |file| as a complete ELF32 little-endian object to |stream|.
-//
-// The writer emits bytes sequentially. It computes all layout metadata before
-// writing and does not patch or seek backward, making it suitable for ordinary
-// output streams. All public and computed ELF32 fields are range-checked before
-// any bytes are written. Temporary layout and `.shstrtab` storage use
-// |scratch_arena|, which must remain live until this call returns. On failure
-// the arena may contain abandoned transient allocations that will be reclaimed
-// by the next arena reset.
-iree_status_t loom_native_elf32le_write_file(
-    const loom_native_elf32le_file_t* file, iree_io_stream_t* stream,
-    iree_arena_allocator_t* scratch_arena);
+typedef struct loom_native_elf_section_layout_t {
+  // Section-name offset within the generated `.shstrtab`.
+  uint32_t name_offset;
+  // Byte offset of the section contents in the output file.
+  uint64_t file_offset;
+  // Byte length of the section contents in the output file; zero for NOBITS.
+  uint64_t file_size;
+  // Logical section byte length recorded in sh_size.
+  uint64_t section_size;
+  // Normalized power-of-two section alignment in bytes.
+  uint64_t alignment;
+} loom_native_elf_section_layout_t;
 
-// Writes |file| as a complete ELF64 little-endian object to |stream|.
+// Canonical file placement retained between payload preparation and writing.
+typedef struct loom_native_elf_layout_t {
+  // Arena-owned rows: null section, caller sections, and generated `.shstrtab`.
+  // Caller section i has ELF index i + 1 and layout sections[i + 1].
+  const loom_native_elf_section_layout_t* sections;
+  // Number of entries in |sections|, including both generated sections.
+  iree_host_size_t section_count;
+  // Arena-owned section-name string table bytes.
+  iree_string_view_t string_table;
+  // Byte offset of the ELF program-header table, or zero when absent.
+  uint64_t program_header_offset;
+  // Byte length of the ELF program-header table.
+  uint64_t program_header_size;
+  // Byte offset of the ELF section-header table.
+  uint64_t section_header_offset;
+  // Complete serialized file byte size.
+  uint64_t file_size;
+} loom_native_elf_layout_t;
+
+// Places the sections and tables of |file| without writing any bytes.
 //
-// The writer emits bytes sequentially. It computes all layout metadata before
-// writing and does not patch or seek backward, making it suitable for ordinary
-// output streams. Temporary layout and `.shstrtab` storage use
-// |scratch_arena|, which must remain live until this call returns. On failure
-// the arena may contain abandoned transient allocations that will be reclaimed
-// by the next arena reset.
+// Section order, names, alignments, storage kinds, and lengths, and the program
+// header count are fixed by this call. The producer may then finalize
+// addresses, segment ranges, entry points, and payload bytes against these
+// offsets without changing that shape. The returned storage belongs to |arena|
+// and remains live through writing. Failed construction leaves allocations for
+// the arena reset.
+iree_status_t loom_native_elf32le_build_layout(
+    const loom_native_elf32le_file_t* file,
+    loom_native_elf_layout_t* out_layout, iree_arena_allocator_t* arena);
+
+// ELF64 variant of loom_native_elf32le_build_layout with the same shape and
+// arena ownership contract.
+iree_status_t loom_native_elf64le_build_layout(
+    const loom_native_elf64le_file_t* file,
+    loom_native_elf_layout_t* out_layout, iree_arena_allocator_t* arena);
+
+// Writes a complete ELF file using its retained |layout|. The file must satisfy
+// the build_layout shape contract. Writing allocates no layout storage, emits
+// bytes sequentially from stream offset zero, and never seeks backward. ELF32
+// field limits, including finalized addresses, are checked before writing.
+iree_status_t loom_native_elf32le_write_file(
+    const loom_native_elf32le_file_t* file,
+    const loom_native_elf_layout_t* layout, iree_io_stream_t* stream);
+
+// ELF64 variant of loom_native_elf32le_write_file using retained placement.
 iree_status_t loom_native_elf64le_write_file(
-    const loom_native_elf64le_file_t* file, iree_io_stream_t* stream,
-    iree_arena_allocator_t* scratch_arena);
+    const loom_native_elf64le_file_t* file,
+    const loom_native_elf_layout_t* layout, iree_io_stream_t* stream);
 
 #ifdef __cplusplus
 }  // extern "C"

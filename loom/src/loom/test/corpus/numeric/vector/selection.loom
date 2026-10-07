@@ -1,6 +1,6 @@
 // A scalar condition chooses an entire vector, preserving every lane's bits.
 // Scalar inputs/results isolate selection from aggregate callable lowering.
-func.def public @whole_vector_select(%condition: i1, %a: i32, %b: i32) -> (i32, i32) {
+func.def @whole_vector_select(%condition: i1, %a: i32, %b: i32) -> (i32, i32) {
   %af = scalar.bitcast %a : i32 to f32
   %bf = scalar.bitcast %b : i32 to f32
   %true_value = vector.from_elements %af, %bf, %bf, %af : vector<2x2xf32>
@@ -13,28 +13,8 @@ func.def public @whole_vector_select(%condition: i1, %a: i32, %b: i32) -> (i32, 
   func.return %first_bits, %second_bits : i32, i32
 }
 
-check.case @whole_vector_select_true {
-  %condition = check.literal value(true) : i1
-  %a = check.param.choice values([-2147483648, 2143289345, 1]) : i32
-  %b = check.param.choice values([0, -4194303]) : i32
-  %first, %second = func.call @whole_vector_select(%condition, %a, %b) : (i1, i32, i32) -> (i32, i32)
-  check.expect.bitwise actual(%first) expected(%a) : i32
-  check.expect.bitwise actual(%second) expected(%b) : i32
-  check.return
-}
-
-check.case @whole_vector_select_false {
-  %condition = check.literal value(false) : i1
-  %a = check.param.choice values([-2147483648, 2143289345, 1]) : i32
-  %b = check.param.choice values([0, -4194303]) : i32
-  %first, %second = func.call @whole_vector_select(%condition, %a, %b) : (i1, i32, i32) -> (i32, i32)
-  check.expect.bitwise actual(%first) expected(%b) : i32
-  check.expect.bitwise actual(%second) expected(%a) : i32
-  check.return
-}
-
 // Yield-only branches canonicalize into the same whole-value selection.
-func.def public @whole_vector_if(%condition: i1, %a: i64, %b: i64) -> (i64, i64) {
+func.def @whole_vector_if(%condition: i1, %a: i64, %b: i64) -> (i64, i64) {
   %true_value = vector.from_elements %a, %b : vector<2xi64>
   %false_value = vector.from_elements %b, %a : vector<2xi64>
   %selected = scf.if %condition -> (vector<2xi64>) {
@@ -47,29 +27,9 @@ func.def public @whole_vector_if(%condition: i1, %a: i64, %b: i64) -> (i64, i64)
   func.return %first, %second : i64, i64
 }
 
-check.case @whole_vector_if_true {
-  %condition = check.literal value(true) : i1
-  %a = check.param.choice values([-9223372036854775808, 4294967296]) : i64
-  %b = check.param.choice values([-1, 0, 9223372036854775807]) : i64
-  %first, %second = func.call @whole_vector_if(%condition, %a, %b) : (i1, i64, i64) -> (i64, i64)
-  check.expect.equal actual(%first) expected(%a) : i64
-  check.expect.equal actual(%second) expected(%b) : i64
-  check.return
-}
-
-check.case @whole_vector_if_false {
-  %condition = check.literal value(false) : i1
-  %a = check.param.choice values([-9223372036854775808, 4294967296]) : i64
-  %b = check.param.choice values([-1, 0, 9223372036854775807]) : i64
-  %first, %second = func.call @whole_vector_if(%condition, %a, %b) : (i1, i64, i64) -> (i64, i64)
-  check.expect.equal actual(%first) expected(%b) : i64
-  check.expect.equal actual(%second) expected(%a) : i64
-  check.return
-}
-
 // Bits 0 and 8 select the first lane of each 8-lane i64 packet. Bits 7 and 15
 // remain clear, exercising both select arms in each packet.
-func.def public @lane_select_i64x16(%condition_word: i32, %true_value: i64, %false_value: i64) -> (i64, i64, i64, i64) {
+func.def @lane_select_i64x16(%condition_word: i32, %true_value: i64, %false_value: i64) -> (i64, i64, i64, i64) {
   %start = scalar.constant 0 : i32
   %step = scalar.constant 1 : i32
   %c1 = vector.constant 1 : vector<16xi32>
@@ -89,14 +49,43 @@ func.def public @lane_select_i64x16(%condition_word: i32, %true_value: i64, %fal
   func.return %lane0, %lane7, %lane8, %lane15 : i64, i64, i64, i64
 }
 
-check.case @lane_select_i64x16_packet_boundaries {
-  %condition_word = check.literal value(257) : i32
-  %true_value = check.literal value(-9223372036854775808) : i64
-  %false_value = check.literal value(9223372036854775807) : i64
-  %lane0, %lane7, %lane8, %lane15 = func.call @lane_select_i64x16(%condition_word, %true_value, %false_value) : (i32, i64, i64) -> (i64, i64, i64, i64)
-  check.expect.equal actual(%lane0) expected(%true_value) : i64
-  check.expect.equal actual(%lane7) expected(%false_value) : i64
-  check.expect.equal actual(%lane8) expected(%true_value) : i64
-  check.expect.equal actual(%lane15) expected(%false_value) : i64
+// Observes whole-vector and lane-wise selection from the same independent
+// full-width input tuple.
+func.def @vector_selection_observations(%control: i64, %a: i64, %b: i64, %word_output: buffer, %wide_output: buffer) {
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %control_word = scalar.trunci %control : i64 to i32
+  %condition_word = scalar.andi %control_word, %c1 : i32
+  %condition = scalar.cmpi ne, %condition_word, %c0 : i32
+  %a_word = scalar.trunci %a : i64 to i32
+  %b_word = scalar.trunci %b : i64 to i32
+  %selected0, %selected1 = func.call @whole_vector_select(%condition, %a_word, %b_word) : (i1, i32, i32) -> (i32, i32)
+  %branch0, %branch1 = func.call @whole_vector_if(%condition, %a, %b) : (i1, i64, i64) -> (i64, i64)
+  %lane0, %lane7, %lane8, %lane15 = func.call @lane_select_i64x16(%control_word, %a, %b) : (i32, i64, i64) -> (i64, i64, i64, i64)
+  %word_observations = vector.from_elements %selected0, %selected1 : vector<2xi32>
+  %wide_observations = vector.from_elements %branch0, %branch1, %lane0, %lane7, %lane8, %lane15 : vector<6xi64>
+  %origin = index.constant 0 : offset
+  %word_results = buffer.view %word_output[%origin] : buffer -> view<2xi32>
+  %wide_results = buffer.view %wide_output[%origin] : buffer -> view<6xi64>
+  vector.store %word_observations, %word_results[0] : vector<2xi32>, view<2xi32>
+  vector.store %wide_observations, %wide_results[0] : vector<6xi64>, view<6xi64>
+  func.return
+}
+
+check.scenario @vector_selection_values {
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %control_entropy = check.entropy.fork %entropy name("control") : check.entropy
+    %a_entropy = check.entropy.fork %entropy name("a") : check.entropy
+    %b_entropy = check.entropy.fork %entropy name("b") : check.entropy
+    %control = check.entropy.read %control_entropy[%trial] : check.entropy -> i64
+    %a = check.entropy.read %a_entropy[%trial] : check.entropy -> i64
+    %b = check.entropy.read %b_entropy[%trial] : check.entropy -> i64
+    %word_output = check.generate.fill value(0) : tensor<2xi32>
+    %wide_output = check.generate.fill value(0) : tensor<6xi64>
+    check.compare<@vector_selection_observations>(%control, %a, %b, %word_output, %wide_output) : (i64, i64, i64, tensor<2xi32>, tensor<6xi64>) -> () {
+      check.expect.bitwise actual(%word_output) expected(%word_output) : tensor<2xi32>
+      check.expect.bitwise actual(%wide_output) expected(%wide_output) : tensor<6xi64>
+    }
+  }
   check.return
 }

@@ -1629,14 +1629,16 @@ static iree_status_t loom_amdgpu_append_mubuf_load_lds_packet(
 static bool loom_amdgpu_descriptor_uses_global_scalar_base_format(
     const loom_native_assembly_packet_context_t* context) {
   const loom_low_descriptor_t* descriptor = context->packet->descriptor;
-  const uint16_t address_operand_index = descriptor->result_count;
-  if (address_operand_index >= descriptor->operand_count) {
-    return false;
-  }
   const loom_low_descriptor_set_t* descriptor_set =
       context->schedule->target.descriptor_set;
   const loom_low_operand_t* operands =
       &descriptor_set->operands[descriptor->operand_start];
+  // A partial load's implicit tied source carries the preserved register part;
+  // the following operand, not that source, determines the address format.
+  const uint16_t address_operand_index =
+      descriptor->result_count +
+      iree_any_bit_set(operands[descriptor->result_count].flags,
+                       LOOM_LOW_OPERAND_FLAG_STORAGE_CONTINUATION);
   return operands[address_operand_index].unit_count == 1;
 }
 
@@ -2600,8 +2602,8 @@ static iree_status_t loom_amdgpu_append_storage_address_packet(
   const loom_op_t* op = context->packet->node->op;
   loom_amdgpu_storage_layout_reference_t reference;
   loom_amdgpu_storage_layout_lookup_reference(
-      emit_state->storage_layout, context->schedule->module,
-      loom_low_storage_address_storage(op), &reference);
+      emit_state->storage_layout, loom_low_storage_address_storage(op),
+      &reference);
   const uint64_t offset = (uint64_t)loom_low_storage_address_offset(op);
   uint64_t byte_offset = reference.reservation.byte_offset;
   if (byte_offset > UINT32_MAX ||

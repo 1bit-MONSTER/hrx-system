@@ -10,7 +10,7 @@
 #define LOOM_TOOLING_EXECUTION_HAL_CANDIDATE_H_
 
 #include "iree/base/api.h"
-#include "loom/tooling/compile/artifact.h"
+#include "loom/target/provider.h"
 #include "loom/tooling/compile/options.h"
 #include "loom/tooling/execution/hal/device_provider.h"
 #include "loom/tooling/execution/session.h"
@@ -20,23 +20,22 @@ extern "C" {
 #endif
 
 typedef struct loom_run_hal_candidate_t {
-  // Host allocator used for owned candidate storage.
-  iree_allocator_t host_allocator;
-  // Device provider used for artifact emission.
-  const loom_device_provider_t* provider;
-  // Device target selected by the caller for artifact emission.
-  loom_device_target_t device_target;
-  // Offline compiler candidate emitted through |provider|.
-  loom_artifact_candidate_t artifact_candidate;
+  // Exact executable target row accepted by the emitted artifact.
+  const iree_hal_executable_target_t* executable_target;
+  // True when artifact bytes were produced.
+  bool compiled;
+  // Artifact bytes produced by the provider's core target emitter.
+  loom_target_emit_artifact_t artifact;
 } loom_run_hal_candidate_t;
 
-// Emits |run_module| to a HAL artifact candidate using |target| as the
-// selected target overlay. The caller retains ownership of |target| storage and
-// must keep it live until |out_candidate| is deinitialized.
+// Emits |run_module| to a HAL artifact candidate using the selected |target|
+// and |session| target registries. Both are required and borrowed only for the
+// duration of this call.
 iree_status_t loom_run_hal_candidate_emit_target(
     const loom_device_provider_t* provider, const loom_device_target_t* target,
-    loom_run_module_t* run_module, const loom_compile_options_t* options,
-    iree_allocator_t allocator, loom_run_hal_candidate_t* out_candidate);
+    loom_run_session_t* session, loom_run_module_t* run_module,
+    const loom_compile_options_t* options, iree_allocator_t allocator,
+    loom_run_hal_candidate_t* out_candidate);
 
 // Releases all artifact storage owned by |candidate|.
 void loom_run_hal_candidate_deinitialize(loom_run_hal_candidate_t* candidate);

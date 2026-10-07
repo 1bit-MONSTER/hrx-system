@@ -1,0 +1,238 @@
+// Every byte and halfword bit pattern crosses a callable boundary. Scalar
+// counts and four-lane counts share the same observations; the oracle scans
+// individual bits and never executes a count instruction.
+
+func.def inline @scan_bits(%value: i32, %width: index) -> (i32, i32, i32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %width_value = index.cast %width : index to i32
+  %last = scalar.subi %width_value, %c1 : i32
+  %leading, %trailing, %population = scf.for %position = [%begin to %width step %step](%leading_count = %width_value : i32, %trailing_count = %width_value : i32, %population_count = %c0 : i32) -> (i32, i32, i32) {
+    %shift = index.cast %position : index to i32
+    %shifted = scalar.shrui %value, %shift : i32
+    %bit = scalar.andi %shifted, %c1 : i32
+    %set = scalar.cmpi ne, %bit, %c0 : i32
+    %leading_position = scalar.subi %last, %shift : i32
+    %next_leading = scf.select %set, %leading_position, %leading_count : i32
+    %first = scalar.cmpi eq, %population_count, %c0 : i32
+    %first_set = scalar.andi %first, %set : i1
+    %next_trailing = scf.select %first_set, %shift, %trailing_count : i32
+    %next_population = scalar.addi %population_count, %bit : i32
+    scf.yield %next_leading, %next_trailing, %next_population : i32, i32, i32
+  }
+  func.return %leading, %trailing, %population : i32, i32, i32
+}
+
+func.def @bit_counts_i8(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<256xi8>
+  %results = buffer.view %output[%base] : buffer -> view<1536xi8>
+  %begin = index.constant 0 : index
+  %end = index.constant 256 : index
+  %step = index.constant 4 : index
+  %trailing_base = index.constant 256 : index
+  %population_base = index.constant 512 : index
+  %scalar_leading_base = index.constant 768 : index
+  %scalar_trailing_base = index.constant 1024 : index
+  %scalar_population_base = index.constant 1280 : index
+  scf.for %position = [%begin to %end step %step] {
+    %values = vector.load %source[%position] : view<256xi8> -> vector<4xi8>
+    %leading = vector.ctlzi %values : vector<4xi8>
+    %trailing = vector.cttzi %values : vector<4xi8>
+    %population = vector.ctpopi %values : vector<4xi8>
+    %trailing_position = index.add %position, %trailing_base : index
+    %population_position = index.add %position, %population_base : index
+    vector.store %leading, %results[%position] : vector<4xi8>, view<1536xi8>
+    vector.store %trailing, %results[%trailing_position] : vector<4xi8>, view<1536xi8>
+    vector.store %population, %results[%population_position] : vector<4xi8>, view<1536xi8>
+  }
+  %scalar_step = index.constant 1 : index
+  scf.for %position = [%begin to %end step %scalar_step] {
+    %value = view.load %source[%position] : view<256xi8> -> i8
+    %leading = scalar.ctlzi %value : i8
+    %trailing = scalar.cttzi %value : i8
+    %population = scalar.ctpopi %value : i8
+    %leading_position = index.add %position, %scalar_leading_base : index
+    %trailing_position = index.add %position, %scalar_trailing_base : index
+    %population_position = index.add %position, %scalar_population_base : index
+    view.store %leading, %results[%leading_position] : i8, view<1536xi8>
+    view.store %trailing, %results[%trailing_position] : i8, view<1536xi8>
+    view.store %population, %results[%population_position] : i8, view<1536xi8>
+  }
+  func.return
+}
+
+func.def @bit_counts_i8_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<256xi8>
+  %results = buffer.view %output[%base] : buffer -> view<1536xi8>
+  %begin = index.constant 0 : index
+  %end = index.constant 256 : index
+  %step = index.constant 1 : index
+  %width = index.constant 8 : index
+  %trailing_base = index.constant 256 : index
+  %population_base = index.constant 512 : index
+  %scalar_leading_base = index.constant 768 : index
+  %scalar_trailing_base = index.constant 1024 : index
+  %scalar_population_base = index.constant 1280 : index
+  scf.for %position = [%begin to %end step %step] {
+    %value = view.load %source[%position] : view<256xi8> -> i8
+    %word = scalar.extui %value : i8 to i32
+    %leading_word, %trailing_word, %population_word = func.call @scan_bits(%word, %width) : (i32, index) -> (i32, i32, i32)
+    %leading = scalar.trunci %leading_word : i32 to i8
+    %trailing = scalar.trunci %trailing_word : i32 to i8
+    %population = scalar.trunci %population_word : i32 to i8
+    %trailing_position = index.add %position, %trailing_base : index
+    %population_position = index.add %position, %population_base : index
+    %scalar_leading_position = index.add %position, %scalar_leading_base : index
+    %scalar_trailing_position = index.add %position, %scalar_trailing_base : index
+    %scalar_population_position = index.add %position, %scalar_population_base : index
+    view.store %leading, %results[%position] : i8, view<1536xi8>
+    view.store %trailing, %results[%trailing_position] : i8, view<1536xi8>
+    view.store %population, %results[%population_position] : i8, view<1536xi8>
+    view.store %leading, %results[%scalar_leading_position] : i8, view<1536xi8>
+    view.store %trailing, %results[%scalar_trailing_position] : i8, view<1536xi8>
+    view.store %population, %results[%scalar_population_position] : i8, view<1536xi8>
+  }
+  func.return
+}
+
+check.scenario @bit_counts_i8_all_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+    %output = check.generate.fill value(-1) : tensor<1536xi8>
+    check.compare<@bit_counts_i8, @bit_counts_i8_oracle>(%input, %output) : (tensor<256xi8>, tensor<1536xi8>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<1536xi8>
+    }
+  }
+  check.return
+}
+
+func.def @bit_counts_i16(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<65536xi16>
+  %results = buffer.view %output[%base] : buffer -> view<393216xi16>
+  %begin = index.constant 0 : index
+  %end = index.constant 65536 : index
+  %step = index.constant 4 : index
+  %trailing_base = index.constant 65536 : index
+  %population_base = index.constant 131072 : index
+  %scalar_leading_base = index.constant 196608 : index
+  %scalar_trailing_base = index.constant 262144 : index
+  %scalar_population_base = index.constant 327680 : index
+  scf.for %position = [%begin to %end step %step] {
+    %values = vector.load %source[%position] : view<65536xi16> -> vector<4xi16>
+    %leading = vector.ctlzi %values : vector<4xi16>
+    %trailing = vector.cttzi %values : vector<4xi16>
+    %population = vector.ctpopi %values : vector<4xi16>
+    %trailing_position = index.add %position, %trailing_base : index
+    %population_position = index.add %position, %population_base : index
+    vector.store %leading, %results[%position] : vector<4xi16>, view<393216xi16>
+    vector.store %trailing, %results[%trailing_position] : vector<4xi16>, view<393216xi16>
+    vector.store %population, %results[%population_position] : vector<4xi16>, view<393216xi16>
+  }
+  %scalar_step = index.constant 1 : index
+  scf.for %position = [%begin to %end step %scalar_step] {
+    %value = view.load %source[%position] : view<65536xi16> -> i16
+    %leading = scalar.ctlzi %value : i16
+    %trailing = scalar.cttzi %value : i16
+    %population = scalar.ctpopi %value : i16
+    %leading_position = index.add %position, %scalar_leading_base : index
+    %trailing_position = index.add %position, %scalar_trailing_base : index
+    %population_position = index.add %position, %scalar_population_base : index
+    view.store %leading, %results[%leading_position] : i16, view<393216xi16>
+    view.store %trailing, %results[%trailing_position] : i16, view<393216xi16>
+    view.store %population, %results[%population_position] : i16, view<393216xi16>
+  }
+  func.return
+}
+
+func.def @bit_counts_i16_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<65536xi16>
+  %results = buffer.view %output[%base] : buffer -> view<393216xi16>
+  %begin = index.constant 0 : index
+  %end = index.constant 65536 : index
+  %step = index.constant 1 : index
+  %width = index.constant 16 : index
+  %trailing_base = index.constant 65536 : index
+  %population_base = index.constant 131072 : index
+  %scalar_leading_base = index.constant 196608 : index
+  %scalar_trailing_base = index.constant 262144 : index
+  %scalar_population_base = index.constant 327680 : index
+  scf.for %position = [%begin to %end step %step] {
+    %value = view.load %source[%position] : view<65536xi16> -> i16
+    %word = scalar.extui %value : i16 to i32
+    %leading_word, %trailing_word, %population_word = func.call @scan_bits(%word, %width) : (i32, index) -> (i32, i32, i32)
+    %leading = scalar.trunci %leading_word : i32 to i16
+    %trailing = scalar.trunci %trailing_word : i32 to i16
+    %population = scalar.trunci %population_word : i32 to i16
+    %trailing_position = index.add %position, %trailing_base : index
+    %population_position = index.add %position, %population_base : index
+    %scalar_leading_position = index.add %position, %scalar_leading_base : index
+    %scalar_trailing_position = index.add %position, %scalar_trailing_base : index
+    %scalar_population_position = index.add %position, %scalar_population_base : index
+    view.store %leading, %results[%position] : i16, view<393216xi16>
+    view.store %trailing, %results[%trailing_position] : i16, view<393216xi16>
+    view.store %population, %results[%population_position] : i16, view<393216xi16>
+    view.store %leading, %results[%scalar_leading_position] : i16, view<393216xi16>
+    view.store %trailing, %results[%scalar_trailing_position] : i16, view<393216xi16>
+    view.store %population, %results[%scalar_population_position] : i16, view<393216xi16>
+  }
+  func.return
+}
+
+check.scenario @bit_counts_i16_all_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %output = check.generate.fill value(-1) : tensor<393216xi16>
+    check.compare<@bit_counts_i16, @bit_counts_i16_oracle>(%input, %output) : (tensor<65536xi16>, tensor<393216xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<393216xi16>
+    }
+  }
+  check.return
+}
+
+func.def @predicate_counts(%trial: index, %output: buffer) {
+  %word = index.cast %trial : index to i32
+  %c0 = scalar.constant 0 : i32
+  %value = scalar.cmpi ne, %word, %c0 : i32
+  %leading = scalar.ctlzi %value : i1
+  %trailing = scalar.cttzi %value : i1
+  %population = scalar.ctpopi %value : i1
+  %leading_word = scalar.extui %leading : i1 to i32
+  %trailing_word = scalar.extui %trailing : i1 to i32
+  %population_word = scalar.extui %population : i1 to i32
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<3xi32>
+  view.store %leading_word, %results[0] : i32, view<3xi32>
+  view.store %trailing_word, %results[1] : i32, view<3xi32>
+  view.store %population_word, %results[2] : i32, view<3xi32>
+  func.return
+}
+
+// The two runtime trials are the complete predicate domain. Integer arithmetic
+// supplies the independent zero-count complement and population-count identity.
+func.def @predicate_counts_oracle(%trial: index, %output: buffer) {
+  %value = index.cast %trial : index to i32
+  %c1 = scalar.constant 1 : i32
+  %complement = scalar.subi %c1, %value : i32
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<3xi32>
+  view.store %complement, %results[0] : i32, view<3xi32>
+  view.store %complement, %results[1] : i32, view<3xi32>
+  view.store %value, %results[2] : i32, view<3xi32>
+  func.return
+}
+
+check.scenario @bit_counts_i1_all_bits {
+  check.trial[2](%trial: index, %entropy: check.entropy) {
+    %output = check.generate.fill value(-1) : tensor<3xi32>
+    check.compare<@predicate_counts, @predicate_counts_oracle>(%trial, %output) : (index, tensor<3xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<3xi32>
+    }
+  }
+  check.return
+}

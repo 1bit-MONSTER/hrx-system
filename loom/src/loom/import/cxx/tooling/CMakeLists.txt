@@ -27,13 +27,13 @@ loom_cc_test(
     loom::error::source
     loom::format::location
     loom::import::cxx
-    loom::import::cxx::source::catalog
     loom::import::cxx::source::options
     loom::ir
     loom::ops::func
     loom::ops::func::location_capture
     loom::ops::op_defs
     loom::ops::op_registry
+    loom::target::provider
     loom::testing::test_file
     loom::tooling::input
     loom::tools::loom-check::execute

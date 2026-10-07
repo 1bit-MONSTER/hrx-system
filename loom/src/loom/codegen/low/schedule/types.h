@@ -732,6 +732,9 @@ typedef struct loom_low_schedule_options_t {
   // Optional source-derived memory summaries for the modeled function. Empty
   // uses conservative descriptor effect summaries.
   const loom_low_memory_access_map_t* memory_accesses;
+  // Physical spill traffic incorporated into callable boundaries. The plan
+  // adds boundary memory effects without mutating semantic operation traits.
+  const struct loom_low_storage_transport_t* storage_transport;
   // Function-local view of the immutable target residency policy.
   loom_target_residency_view_t residency;
   // Optional explicit allocation budgets. These are interpreted as hard
@@ -825,6 +828,8 @@ typedef struct loom_low_schedule_table_t {
   // Stable ordering dependency graph consumed by scheduling and target
   // planning.
   loom_low_schedule_dependency_graph_t dependencies;
+  // Exact contiguous range of memory-effect dependency rows.
+  loom_low_schedule_dependency_range_t effect_dependencies;
   // Immutable outgoing groups owned by the scheduling arena. Present only
   // when RETAIN_DEPENDENCY_INDEX was requested; construction never rebuilds it.
   const loom_low_schedule_dependency_index_t* dependency_index;

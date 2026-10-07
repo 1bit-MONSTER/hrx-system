@@ -453,6 +453,38 @@ low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @concat_a
 
 aie2p.target<core> @target
 
+func.def target(@target) @transpose_flat_i8_4x4(%values: vector<16xi8>) -> (vector<16xi8>) {
+  %result = vector.shuffle<[0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15]> %values : vector<16xi8>
+  func.return %result : vector<16xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @transpose_flat_i8_4x4(%values: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %8 = mova.i32 0
+  %9 = mova.i32 1
+  %10 = vshuffle %values, %values, %8
+  %11 = vshuffle %values, %values, %9
+  %12 = vshuffle %10, %10, %8
+  %13 = vshuffle %10, %10, %9
+  %14 = vshuffle %11, %11, %8
+  %15 = vshuffle %11, %11, %9
+  %16 = mova.i32 4
+  %17 = mova.i32 60
+  %18 = mova.i32 8
+  %19 = mova.i32 56
+  %20 = vshift %12, %12, %16
+  %21 = vshift %20, %14, %17
+  %22 = vshift %13, %13, %16
+  %23 = vshift %22, %15, %17
+  %24 = vshift %21, %21, %18
+  %result = vshift %24, %23, %19
+  return %result
+}
+
+// ====
+
+aie2p.target<core> @target
+
 func.def target(@target) @transpose_bf16_8x8(%values: vector<8x8xbf16>) -> (vector<8x8xbf16>) {
   %result = vector.transpose<[1, 0]> %values : vector<8x8xbf16> -> vector<8x8xbf16>
   func.return %result : vector<8x8xbf16>

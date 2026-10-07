@@ -114,13 +114,15 @@ loomc_status_t loomc_config_apply_text_to_module(
     loom_tooling_config_materialize_options_t materialize_options;
     loom_tooling_config_materialize_options_initialize(&materialize_options);
     materialize_options.config_set = &config_set;
+    materialize_options.binding_sink = options->binding_sink;
     status = loomc_status_from_iree(loom_tooling_config_materialize_module(
         options->module, &materialize_options, options->block_pool,
         &materialize_result));
   }
   if (loomc_status_is_ok(status) &&
       materialize_result.materialized_count != 0) {
-    status = loomc_result_verify_loom_module(options->module, options->result);
+    status = loomc_result_verify_loom_module(
+        options->module, options->source_resolver, options->result);
   }
   if (loomc_status_is_ok(status) && loomc_result_succeeded(options->result) &&
       iree_any_bit_set(options->config->flags,
@@ -138,7 +140,6 @@ loomc_status_t loomc_config_apply_text_to_module(
         options->result, NULL, LOOMC_DIAGNOSTIC_SEVERITY_ERROR, diagnostic_code,
         status);
   }
-
   loom_tooling_config_set_deinitialize(&config_set);
   return status;
 }

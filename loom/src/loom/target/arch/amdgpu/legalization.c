@@ -192,17 +192,6 @@ static loom_target_legalizer_action_t loom_amdgpu_defer_or_reject_final(
              : LOOM_TARGET_LEGALIZER_ACTION_DEFER;
 }
 
-static const uint16_t kAmdgpuVectorPacketBitCounts[] = {
-    LOOM_AMDGPU_MAX_MEMORY_32BIT_LANES * 32u,
-};
-
-static const loom_vector_packet_policy_t kAmdgpuVectorPacketPolicy = {
-    .native_bit_counts = kAmdgpuVectorPacketBitCounts,
-    .native_bit_count_count = IREE_ARRAYSIZE(kAmdgpuVectorPacketBitCounts),
-    .maximum_unpacketized_bit_count =
-        LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES * 32u,
-};
-
 static bool loom_amdgpu_static_shape_carrier_type(
     const loom_module_t* module, const loom_op_t* op,
     loom_type_t* out_carrier_type) {
@@ -214,6 +203,10 @@ static bool loom_amdgpu_static_shape_carrier_type(
     case LOOM_OP_VECTOR_INSERT:
       *out_carrier_type =
           loom_module_value_type(module, loom_vector_insert_dest(op));
+      return true;
+    case LOOM_OP_VECTOR_SLICE:
+      *out_carrier_type =
+          loom_module_value_type(module, loom_vector_slice_source(op));
       return true;
     default:
       return false;
@@ -294,7 +287,7 @@ static iree_status_t loom_amdgpu_legalize_oversized_vector_store(
   }
   bool rewritten = false;
   IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_store(
-      context, op, &kAmdgpuVectorPacketPolicy, &rewritten));
+      context, op, context->vector_packet_policy, &rewritten));
   // AMDGPU memory lowering owns stores that do not need packetization here.
   // Retain them for that lowering instead of invoking scalar reference stores.
   out_result->action = rewritten ? LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN
@@ -317,7 +310,7 @@ static iree_status_t loom_amdgpu_legalize_oversized_vector_reduce(
   loom_vector_packet_reduce_result_t packet_result =
       LOOM_VECTOR_PACKET_REDUCE_RESULT_NONE;
   IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_reduce(
-      context, op, &kAmdgpuVectorPacketPolicy, &packet_result));
+      context, op, context->vector_packet_policy, &packet_result));
   bool rewritten = packet_result == LOOM_VECTOR_PACKET_REDUCE_RESULT_REWRITTEN;
   if (packet_result == LOOM_VECTOR_PACKET_REDUCE_RESULT_CAPTURE_INPUT) {
     IREE_RETURN_IF_ERROR(loom_vector_reduce_captured_to_scalar_rewrite_op(
@@ -815,6 +808,10 @@ static const loom_target_legalizer_rule_t kAmdgpuLegalizerRules[] = {
     },
     {
         .root_kind = LOOM_OP_VECTOR_INSERT,
+        .legalize = loom_amdgpu_legalize_static_vector_shape,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_SLICE,
         .legalize = loom_amdgpu_legalize_static_vector_shape,
     },
     {

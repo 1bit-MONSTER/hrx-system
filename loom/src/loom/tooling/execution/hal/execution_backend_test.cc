@@ -8,9 +8,8 @@
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
-#include "loom/ops/op_registry.h"
 #include "loom/ops/test/ops.h"
-#include "loom/ops/test/registry.h"
+#include "loom/target/function_version.h"
 #include "loom/target/low_descriptor_registry_core_test.h"
 #include "loom/target/provider.h"
 #include "loom/target/test/target_records.h"
@@ -31,20 +30,18 @@ typedef struct SelectionObservation {
   iree_host_size_t selection_event_ordinal;
   // Event ordinal at which the selected profile was projected for compilation.
   iree_host_size_t projection_event_ordinal;
-  // Event ordinal at which the artifact provider received the target.
+  // Event ordinal at which the core emitter received the prepared module.
   iree_host_size_t emission_event_ordinal;
   // Static profile received by the device provider.
   const loom_target_profile_t* selected_profile;
   // Static profile projected by the compiler pipeline.
   const loom_target_profile_t* projected_profile;
-  // Static profile received by artifact emission.
-  const loom_target_profile_t* emitted_profile;
   // Device-spec row selected for executable loading.
   const iree_hal_executable_target_t* executable_target;
-  // Number of function versions visible to artifact emission.
+  // Number of function versions visible to core target emission.
   iree_host_size_t emitted_function_version_count;
-  // True when artifact emission retained the selected executable target key.
-  bool emission_target_key_matches_selection;
+  // Exact function target facts consumed by core target emission.
+  const loom_target_facts_t* emitted_target_facts;
 } SelectionObservation;
 
 static SelectionObservation g_observation;
@@ -97,6 +94,8 @@ static iree_status_t SelectFakeTargetProfile(
 
 static loom_target_provider_t MakeFakeTargetProvider() {
   loom_target_provider_t provider = {};
+  provider.initialize_low_descriptor_registry =
+      loom_target_core_test_low_descriptor_registry_initialize;
   provider.profile_type = &kFakeTargetProfileType;
   provider.select_profile = SelectFakeTargetProfile;
   return provider;
@@ -143,72 +142,54 @@ static iree_status_t SelectFakeDeviceProfileTarget(
   g_observation.executable_target = result.target;
   *out_target = (loom_device_target_t){
       /*.executable_target=*/result.target,
-      /*.artifact_target=*/
-      {
-          /*.target_profile=*/target_profile,
-          /*.target_key=*/result.target->target_key,
-      },
+      /*.target_profile=*/target_profile,
   };
   return iree_ok_status();
 }
 
-static iree_status_t EmitFakeArtifact(const loom_artifact_provider_t* provider,
-                                      loom_module_t* module,
-                                      const loom_artifact_target_t* target,
-                                      const loom_compile_options_t* options,
-                                      iree_allocator_t allocator,
-                                      bool* out_emitted,
-                                      loom_artifact_t* out_artifact) {
-  (void)provider;
-  (void)module;
-  (void)allocator;
+static iree_status_t EmitFakeTargetArtifact(
+    const loom_target_emit_request_t* request, bool* out_emitted,
+    loom_target_emit_artifact_t* out_artifact) {
   g_observation.emission_event_ordinal = ++g_observation.next_event_ordinal;
-  g_observation.emitted_profile = target->target_profile;
   g_observation.emitted_function_version_count =
-      options->function_versions != nullptr ? options->function_versions->count
+      request->function_versions != nullptr ? request->function_versions->count
                                             : 0;
-  g_observation.emission_target_key_matches_selection =
-      g_observation.executable_target != nullptr &&
-      iree_string_view_equal(target->target_key,
-                             g_observation.executable_target->target_key);
+  if (g_observation.emitted_function_version_count == 1) {
+    g_observation.emitted_target_facts =
+        loom_target_function_version_target_facts(
+            request->function_versions->values[0]);
+  }
   *out_emitted = false;
-  *out_artifact = (loom_artifact_t){};
+  *out_artifact = {};
   return iree_ok_status();
 }
 
-static iree_status_t RegisterContext(void* user_data, loom_context_t* context) {
-  (void)user_data;
-  IREE_RETURN_IF_ERROR(loom_op_registry_register_all_dialects(context));
-  return loom_test_dialect_register(context);
-}
-
-static iree_status_t InitializeLowDescriptorRegistry(
-    void* user_data, loom_target_low_descriptor_registry_t* out_registry) {
-  (void)user_data;
-  loom_target_core_test_low_descriptor_registry_initialize(out_registry);
-  return iree_ok_status();
-}
+static const loom_target_emitter_t kFakeTargetEmitter = {
+    /*.name=*/IREE_SVL("fake-hal"),
+    /*.public_artifact_format=*/IREE_SVL("fake-hal"),
+    /*.default_identifier=*/IREE_SVL("fake.bin"),
+    /*.target_artifact_format=*/LOOM_TARGET_ARTIFACT_FORMAT_ELF,
+    /*.default_pipeline_options=*/
+    {
+        /*.source_to_low_max_errors=*/73,
+    },
+    /*.emit=*/EmitFakeTargetArtifact,
+};
 
 class HalExecutionBackendTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    loom_run_session_options_t session_options = {};
-    loom_run_session_options_initialize(&session_options);
-    session_options.register_context = (loom_run_register_context_callback_t){
-        /*.fn=*/RegisterContext,
-    };
-    session_options.initialize_low_descriptor_registry =
-        (loom_run_initialize_low_descriptor_registry_callback_t){
-            /*.fn=*/InitializeLowDescriptorRegistry,
-        };
-    session_options.cleanup_pattern_provider_set =
-        loom_cleanup_configured_pattern_provider_set();
-    IREE_ASSERT_OK(loom_run_session_initialize(&session_options, &session_));
-
     target_providers_[0] = &kFakeTargetProvider;
     target_provider_set_ = loom_target_provider_set_make(target_providers_, 1);
     IREE_ASSERT_OK(loom_target_environment_initialize(&target_provider_set_,
                                                       &target_environment_));
+
+    loom_run_session_options_t session_options = {};
+    loom_run_session_options_initialize(&session_options);
+    session_options.target_environment = &target_environment_;
+    session_options.cleanup_pattern_provider_set =
+        loom_cleanup_configured_pattern_provider_set();
+    IREE_ASSERT_OK(loom_run_session_initialize(&session_options, &session_));
   }
 
   void TearDown() override {
@@ -252,15 +233,10 @@ pass.pipeline<module> @debug pipeline {
   loom_run_module_t run_module = {};
   IREE_ASSERT_OK(Parse(IREE_SV(kSource), &run_module));
 
-  loom_artifact_provider_t artifact_provider = {};
-  artifact_provider.name = IREE_SV("fake-hal");
-  artifact_provider.target_profile_type = &kFakeTargetProfileType;
-  artifact_provider.artifact_kind =
-      LOOM_TARGET_COMPILE_ARTIFACT_KIND_HAL_EXECUTABLE;
-  artifact_provider.emit_artifact = EmitFakeArtifact;
-
   loom_device_provider_t device_provider = {};
-  device_provider.artifact_provider = &artifact_provider;
+  device_provider.name = IREE_SV("fake-task-hal");
+  device_provider.target_profile_type = &kFakeTargetProfileType;
+  device_provider.target_emitter = &kFakeTargetEmitter;
   device_provider.driver_name = IREE_SV("task");
   device_provider.select_profile_target = SelectFakeDeviceProfileTarget;
 
@@ -281,7 +257,6 @@ pass.pipeline<module> @debug pipeline {
   loom_run_one_shot_result_initialize(iree_allocator_system(), &result);
   const loom_run_one_shot_request_t request = {
       /*.session=*/&session_,
-      /*.target_environment=*/&target_environment_,
       /*.pipeline=*/IREE_SV("@debug"),
       /*.target=*/IREE_SV("fake:forced"),
       /*.run_module=*/&run_module,
@@ -303,9 +278,15 @@ pass.pipeline<module> @debug pipeline {
   EXPECT_EQ(g_observation.emission_event_ordinal, 3u);
   EXPECT_EQ(g_observation.selected_profile, &kFakeTargetProfile.base);
   EXPECT_EQ(g_observation.projected_profile, &kFakeTargetProfile.base);
-  EXPECT_EQ(g_observation.emitted_profile, &kFakeTargetProfile.base);
   EXPECT_EQ(g_observation.emitted_function_version_count, 1u);
-  EXPECT_TRUE(g_observation.emission_target_key_matches_selection);
+  ASSERT_NE(g_observation.emitted_target_facts, nullptr);
+  EXPECT_EQ(g_observation.emitted_target_facts->fact_type,
+            kFakeTargetProfileType.fact_type);
+  EXPECT_EQ(g_observation.emitted_target_facts->selector,
+            LOOM_TEST_TARGET_KIND_LOW_CORE);
+  EXPECT_EQ(loom_target_facts_bundle(g_observation.emitted_target_facts)
+                ->export_plan->abi_kind,
+            LOOM_TARGET_ABI_HAL_KERNEL);
 
   loom_run_one_shot_result_deinitialize(&result);
   loom_run_module_deinitialize(&run_module);

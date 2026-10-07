@@ -21,6 +21,15 @@ extern "C" {
 typedef struct loom_low_allocation_storage_lease_index_node_t
     loom_low_allocation_storage_lease_index_node_t;
 
+// Definite lease conflicts represented by an ordered spatial query.
+typedef enum loom_low_allocation_storage_lease_conflict_class_e {
+  // Every temporally overlapping lease blocks the queried unit.
+  LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL = 0,
+  // Pressure-releasable leases require the full release predicate; only the
+  // remaining leases are definite conflicts.
+  LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_NON_PRESSURE = 1,
+} loom_low_allocation_storage_lease_conflict_class_t;
+
 // Physical-unit and temporal radix indexes over materialized register leases.
 // Construction and endpoint updates belong to allocation. After allocation,
 // the index and its borrowed instances are immutable and support independent
@@ -95,7 +104,7 @@ iree_status_t loom_low_allocation_storage_lease_unit_index_initialize(
 void loom_low_allocation_storage_lease_unit_index_insert(
     loom_low_allocation_storage_lease_unit_index_t* index,
     const loom_low_descriptor_set_t* descriptor_set,
-    uint32_t storage_lease_index);
+    uint32_t storage_lease_index, loom_low_storage_lease_flags_t lease_flags);
 
 // Reindexes completed instances after a bijective physical renumbering. The
 // set of units and their lease membership are unchanged, so the original
@@ -111,6 +120,35 @@ void loom_low_allocation_storage_lease_unit_index_rebuild(
 void loom_low_allocation_storage_lease_unit_index_update(
     loom_low_allocation_storage_lease_unit_index_t* index,
     uint32_t storage_lease_index);
+
+// Refreshes ordered spatial summaries for every physical unit owned by one
+// lease at |start_point|. The temporal index must already contain the lease.
+// Calls are monotone in |start_point| at the owning allocation boundary.
+void loom_low_allocation_storage_lease_unit_index_refresh_availability(
+    loom_low_allocation_storage_lease_unit_index_t* index,
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint32_t storage_lease_index, uint32_t start_point);
+
+// Finds the first location in the inclusive range that is not a definite
+// conflict under |conflict_class| for a candidate ending at
+// |candidate_end_point|. These queries cover one scalar linear storage space;
+// the caller retains candidate-shape and policy eligibility.
+bool loom_low_allocation_storage_lease_unit_index_find_next_available_location(
+    const loom_low_allocation_storage_lease_unit_index_t* index,
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint16_t descriptor_reg_class_id,
+    loom_low_allocation_location_kind_t location_kind,
+    uint32_t candidate_end_point,
+    loom_low_allocation_storage_lease_conflict_class_t conflict_class,
+    uint32_t minimum_base, uint32_t maximum_base, uint32_t* out_base);
+bool loom_low_allocation_storage_lease_unit_index_find_previous_available_location(
+    const loom_low_allocation_storage_lease_unit_index_t* index,
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint16_t descriptor_reg_class_id,
+    loom_low_allocation_location_kind_t location_kind,
+    uint32_t candidate_end_point,
+    loom_low_allocation_storage_lease_conflict_class_t conflict_class,
+    uint32_t minimum_base, uint32_t maximum_base, uint32_t* out_base);
 
 // Returns true when storage exists for physical-unit queries.
 bool loom_low_allocation_storage_lease_unit_index_is_enabled(

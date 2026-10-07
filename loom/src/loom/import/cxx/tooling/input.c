@@ -177,8 +177,10 @@ static iree_status_t loom_cxx_input_load(const loom_input_request_t* request,
   loom_cxx_import_options_initialize(&options);
   options.diagnostic_sink = request->parse_options.diagnostic_sink;
   options.low_asm_environment = request->parse_options.low_asm_environment;
-  options.source_observer = (loom_cxx_source_observer_t){
-      .fn = capture.fn, .user_data = capture.user_data};
+  if (capture.fn) {
+    options.source_observer = (loom_cxx_source_observer_t){
+        .fn = capture.fn, .user_data = capture.user_data};
+  }
   iree_status_t status =
       loom_cxx_input_options(request, &arena, host_allocator, &options);
   if (iree_status_is_ok(status)) {

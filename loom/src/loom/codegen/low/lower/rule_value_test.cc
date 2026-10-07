@@ -287,7 +287,8 @@ TEST_F(LowLowerRuleValueTest,
   rule_set.value_ref_count = 1;
   loom_value_id_t resolved = LOOM_VALUE_ID_INVALID;
   ASSERT_TRUE(loom_low_lower_rule_resolve_source_value_from_nodes(
-      module_, &fact_table_, &rule_set, vector_consumer_op_,
+      module_, &fact_table_, (loom_target_contract_vector_lane_projection_t){0},
+      &rule_set, vector_consumer_op_,
       /*source_nodes=*/nullptr, /*source_node_count=*/1,
       /*value_ref_index=*/0, &resolved));
   EXPECT_EQ(resolved, truncated);
@@ -311,7 +312,8 @@ TEST_F(LowLowerRuleValueTest, ResolvesExactUniformElementOrigins) {
   rule_set.value_ref_count = 1;
   loom_value_id_t resolved = LOOM_VALUE_ID_INVALID;
   ASSERT_TRUE(loom_low_lower_rule_resolve_source_value_from_nodes(
-      module_, &fact_table_, &rule_set, vector_consumer_op_,
+      module_, &fact_table_, (loom_target_contract_vector_lane_projection_t){0},
+      &rule_set, vector_consumer_op_,
       /*source_nodes=*/nullptr, /*source_node_count=*/1,
       /*value_ref_index=*/0, &resolved));
   EXPECT_EQ(resolved, scalar);
@@ -361,7 +363,7 @@ TEST_F(LowLowerRuleValueTest, DerivesExactUnsignedDivisorRecipes) {
   for (uint32_t divisor : divisors) {
     IREE_ASSERT_OK(loom_value_fact_table_define(
         &fact_table_, value_id, loom_value_facts_exact_i64(divisor)));
-    loom_low_lower_u32_divisor_magic_info_t info = {};
+    loom_low_lower_unsigned_divisor_magic_info_t info = {};
     ASSERT_TRUE(loom_low_lower_rule_value_facts_u32_divisor_magic_info(
         module_, &fact_table_, value_id, &info));
     const uint64_t high_multiplier =
@@ -423,6 +425,67 @@ TEST(U32DivisorReciprocalTest, PreservesQuotientAndRemainder) {
       iree_math_mul_u64_to_u128(low, divisor, &high, &low);
       ASSERT_EQ(high, numerator % divisor)
           << "numerator=" << numerator << " divisor=" << divisor;
+    }
+  }
+}
+
+TEST(UnsignedDivisorMagicTest, ExactAcrossWidthsAndUnsignedBoundaries) {
+  uint64_t random = UINT64_C(0x362b48f137159da3);
+  for (uint32_t bit_width = 2; bit_width <= 64; ++bit_width) {
+    const uint64_t mask = UINT64_MAX >> (64 - bit_width);
+    const uint64_t half = UINT64_C(1) << (bit_width - 1);
+    auto check_divisor = [&](uint64_t divisor) {
+      const auto info =
+          loom_low_lower_unsigned_divisor_magic_info(divisor, bit_width);
+      auto check_numerator = [&](uint64_t numerator) {
+        uint64_t high = 0, low = 0;
+        iree_math_mul_u64_to_u128(numerator, info.multiplier, &high, &low);
+        uint64_t quotient =
+            bit_width == 64 ? high
+                            : (low >> bit_width) | (high << (64 - bit_width));
+        if (info.is_add) {
+          quotient = ((numerator - quotient) >> 1) + quotient;
+        }
+        quotient >>= info.post_shift;
+        ASSERT_EQ(quotient, numerator / divisor)
+            << "width=" << bit_width << " numerator=" << numerator
+            << " divisor=" << divisor;
+        ASSERT_EQ(numerator - quotient * divisor, numerator % divisor)
+            << "width=" << bit_width << " numerator=" << numerator
+            << " divisor=" << divisor;
+      };
+      if (bit_width <= 8) {
+        for (uint64_t numerator = 0; numerator <= mask; ++numerator) {
+          check_numerator(numerator);
+        }
+      } else {
+        const uint64_t multiple = (mask / divisor) * divisor;
+        for (uint64_t numerator :
+             {UINT64_C(0), UINT64_C(1), divisor - 1, divisor,
+              (divisor + 1) & mask, multiple - 1, multiple,
+              (multiple + 1) & mask, half - 1, half, half + 1, mask}) {
+          check_numerator(numerator);
+        }
+        for (uint32_t sample = 0; sample < 32; ++sample) {
+          random ^= random << 13;
+          random ^= random >> 7;
+          random ^= random << 17;
+          check_numerator(random & mask);
+        }
+      }
+    };
+    const uint64_t exhaustive_limit = bit_width <= 8 ? mask : 256;
+    for (uint64_t divisor = 2; divisor <= exhaustive_limit; ++divisor) {
+      check_divisor(divisor);
+    }
+    for (uint32_t sample = 0; sample < 256; ++sample) {
+      random ^= random << 13;
+      random ^= random >> 7;
+      random ^= random << 17;
+      check_divisor((random & mask) | 2);
+    }
+    for (uint64_t divisor : {half, half + 1, mask}) {
+      check_divisor(divisor);
     }
   }
 }

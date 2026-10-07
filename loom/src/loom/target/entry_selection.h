@@ -30,7 +30,18 @@
 extern "C" {
 #endif
 
+enum loom_target_entry_selection_flag_bits_e {
+  // Include private definitions when selecting all compatible functions.
+  // Concrete-version preparation owns reachability and specialization.
+  LOOM_TARGET_ENTRY_SELECTION_INCLUDE_PRIVATE = 1u << 0,
+  // Include declarations for artifacts whose linker resolves external symbols.
+  LOOM_TARGET_ENTRY_SELECTION_INCLUDE_DECLARATIONS = 1u << 1,
+};
+typedef uint32_t loom_target_entry_selection_flags_t;
+
 typedef struct loom_target_entry_options_t {
+  // Artifact membership flags for all-entry selection.
+  loom_target_entry_selection_flags_t flags;
   // Optional func symbol to select. Empty requires exactly one compatible func
   // with a target record. A leading '@' is accepted for command-line
   // ergonomics.
@@ -155,8 +166,9 @@ iree_status_t loom_target_entry_select_entry(
     iree_string_view_t entry_kind, iree_arena_allocator_t* arena,
     bool* out_selected, loom_target_entry_t* out_entry);
 
-// Selects every exported compatible func entry according to |predicate| in
-// top-level module operation order.
+// Selects compatible functions in top-level module operation order. By default
+// only exported definitions participate; |options->flags| may include private
+// definitions and declarations for an artifact's complete callable inventory.
 iree_status_t loom_target_entry_select_all_entries(
     const loom_module_t* module, const loom_target_entry_options_t* options,
     loom_target_entry_predicate_t predicate,

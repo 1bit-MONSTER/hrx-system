@@ -11,12 +11,17 @@ from dataclasses import replace
 from loom.dialect.vector import defs as vector
 from loom.dialect.view import defs as view
 from loom.target.arch.amd.xdna.aie2p.contracts.memory import AIE2P_MEMORY_RULES
+from loom.target.arch.amd.xdna.aie2p.contracts.packet_memory import (
+    AIE2P_PACKET_MEMORY_RULES,
+)
 from loom.target.contracts import (
+    DescriptorResultType,
     EmitDescriptorOp,
     EmitRegisterConcat,
     EmitRegisterSlice,
     GuardKind,
     SourceMemoryAddressLayout,
+    SourceMemoryDynamicIndexSource,
     SourceMemoryOperation,
     SourceMemoryProject,
     SourceMemoryProjectKind,
@@ -144,7 +149,7 @@ def _assert_address_forms(
         ]
         for rule in rules
     ]
-    assert [len(emits) for emits in descriptor_emits] == [1, 3, 2, 3, 2]
+    assert [len(emits) for emits in descriptor_emits] == [1, 3, 2, 2, 2, 3, 2]
     assert [
         (
             _source_memory_emit(rule).source_memory.static_byte_offset_minimum,
@@ -159,22 +164,30 @@ def _assert_address_forms(
         (_I32_MIN, _I32_MAX, 0, 0, False),
         (0, 0, None, 1, True),
         (-64, 63, None, 1, True),
+        (-128, 127, 1, 0, False),
+        (_I32_MIN, _I32_MAX, 1, 0, False),
         (_I32_MIN, _I32_MAX, None, 1, True),
     ]
     assert [
         sum(guard.kind is GuardKind.OPERAND_SEGMENT_COUNT for guard in rule.guards)
         for rule in rules
-    ] == [0, 0, 0, 0, 0]
+    ] == [0, 0, 0, 0, 0, 0, 0]
     immediate = descriptor_emits[0][0].immediates["imm"]
     assert isinstance(immediate, SourceMemoryProject)
     assert immediate.kind is SourceMemoryProjectKind.STATIC_BYTE_OFFSET
-    for emits in descriptor_emits[1:]:
-        assert emits[-2].descriptor.key == ("amd.xdna.aie2p.move.to.address-index")
+    assert [emits[-2].descriptor.key for emits in descriptor_emits[1:]] == [
+        "amd.xdna.aie2p.move.to.address-index",
+        "amd.xdna.aie2p.move.to.address-index",
+        "amd.xdna.aie2p.address.index.add.immediate",
+        "amd.xdna.aie2p.address.index.add.immediate",
+        "amd.xdna.aie2p.address.index.add.register",
+        "amd.xdna.aie2p.move.to.address-index",
+    ]
     dynamic_offset_emit = descriptor_emits[2][-2]
     assert dynamic_offset_emit.operands["src"].kind is (
         SourceValueKind.SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET
     )
-    complete_offset_emit = descriptor_emits[4][-2]
+    complete_offset_emit = descriptor_emits[6][-2]
     assert complete_offset_emit.operands["src"].kind is (
         SourceValueKind.SOURCE_MEMORY_BYTE_OFFSET
     )
@@ -186,6 +199,133 @@ def _assert_address_forms(
     assert materializer.static_bias.key == (
         "amd.xdna.aie2p.materialize.static-byte-offset.i32"
     )
+
+
+def test_all_memory_families_project_dynamic_offsets_directly_into_dj() -> None:
+    no_index = SourceMemoryDynamicIndexSource.NONE
+    value_index = SourceMemoryDynamicIndexSource.VALUE
+    expected_dynamic_constraints = (
+        (0, 0, no_index, 0, False),
+        (0, 0, no_index, 0, False),
+        (None, 1, no_index, 0, True),
+        (None, 1, no_index, 0, True),
+        (1, 0, value_index, 1, False),
+        (1, 0, value_index, 1, False),
+        (None, 1, no_index, 0, True),
+    )
+    # Both tables include their volatile variants. Raw buffers, fragment stores,
+    # scalarized accesses and fused packets use the same addressing contract.
+    for rules in (AIE2P_MEMORY_RULES, AIE2P_PACKET_MEMORY_RULES):
+        assert len(rules) % len(expected_dynamic_constraints) == 0
+        for start in range(0, len(rules), len(expected_dynamic_constraints)):
+            family = rules[start : start + len(expected_dynamic_constraints)]
+            constraints = [_source_memory_emit(rule).source_memory for rule in family]
+            assert [
+                (
+                    constraint.dynamic_term_count,
+                    constraint.dynamic_term_count_minimum,
+                    constraint.dynamic_index_source,
+                    constraint.dynamic_byte_stride,
+                    constraint.allow_dynamic_stride_values,
+                )
+                for constraint in constraints
+            ] == list(expected_dynamic_constraints)
+            projects = [
+                emit.immediates["imm"]
+                for emit in family[0].emit
+                if isinstance(emit, EmitDescriptorOp)
+                and emit.descriptor == family[0].descriptor
+            ]
+            assert projects
+            maximum_chunk_offset = max(project.literal_i64 for project in projects)
+            assert [
+                (
+                    constraint.static_byte_offset_minimum,
+                    constraint.static_byte_offset_maximum,
+                )
+                for constraint in constraints[4:6]
+            ] == [(-128, 127), (_I32_MIN, _I32_MAX - maximum_chunk_offset)]
+
+            complete_offset = next(
+                emit
+                for emit in family[6].emit
+                if isinstance(emit, EmitDescriptorOp)
+                and emit.descriptor.key == "amd.xdna.aie2p.move.to.address-index"
+            )
+            assert complete_offset.operands["src"].kind is (
+                SourceValueKind.SOURCE_MEMORY_BYTE_OFFSET
+            )
+            materializer = complete_offset.source_memory_byte_offset_materializer
+            assert materializer is not None
+            assert materializer.add.key == "amd.xdna.aie2p.add.i32"
+            assert materializer.multiply.key == "amd.xdna.aie2p.mul.i32"
+            assert materializer.multiply_add is not None
+            assert materializer.multiply_add.key == "amd.xdna.aie2p.madd.i32"
+            assert [
+                (conversion.source_type, conversion.descriptor.key)
+                for conversion in materializer.integer_conversions
+            ] == [
+                (source_type, f"amd.xdna.aie2p.extend.signed.{source_type}")
+                for source_type in ("i8", "i16")
+            ]
+
+            for address_form, rule in enumerate(family[1:], start=1):
+                producers = {
+                    result: emit
+                    for emit in rule.emit
+                    if isinstance(emit, EmitDescriptorOp)
+                    for result in emit.results.values()
+                }
+                memory_emits = [
+                    emit
+                    for emit in rule.emit
+                    if isinstance(emit, EmitDescriptorOp)
+                    and emit.descriptor == rule.descriptor
+                ]
+                for memory_emit, project in zip(memory_emits, projects, strict=True):
+                    address = producers[memory_emit.operands["dj"]]
+                    if address_form == 1 or (
+                        address_form in (2, 6) and project.literal_i64 == 0
+                    ):
+                        assert address.descriptor.key == (
+                            "amd.xdna.aie2p.move.to.address-index"
+                        )
+                        continue
+                    constraint = memory_emit.source_memory
+                    fits_immediate = (
+                        constraint.static_byte_offset_minimum + project.literal_i64
+                        >= -128
+                        and constraint.static_byte_offset_maximum + project.literal_i64
+                        <= 127
+                    )
+                    addressing = "immediate" if fits_immediate else "register"
+                    assert address.descriptor.key == (
+                        f"amd.xdna.aie2p.address.index.add.{addressing}"
+                    )
+                    assert address.result_types == {"dst": DescriptorResultType()}
+                    assert [
+                        alternative.reg_class
+                        for operand in address.descriptor.operands
+                        if operand.field_name == "dst"
+                        for alternative in operand.reg_alts
+                    ] == ["aie2p.edj"]
+                    assert address.source_memory == constraint
+                    assert (
+                        address.source_memory_byte_offset_materializer == materializer
+                    )
+                    assert address.operands["s0"].kind is (
+                        SourceValueKind.SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET
+                    )
+                    if fits_immediate:
+                        assert set(address.operands) == {"s0"}
+                        assert address.immediates == {"imm": project}
+                    else:
+                        assert set(address.operands) == {"s0", "s1"}
+                        assert not address.immediates
+                        static_offset = producers[address.operands["s1"]]
+                        assert static_offset.descriptor == materializer.static_bias
+                        assert static_offset.immediates == {"i": project}
+                        assert static_offset.source_memory == constraint
 
 
 def test_scalar_memory_rules_cover_every_address_form() -> None:
@@ -215,15 +355,15 @@ def test_scalar_memory_rules_cover_every_address_form() -> None:
                     (SourceMemoryOperation.LOAD, view.view_load),
                     (SourceMemoryOperation.STORE, view.view_store),
                 ):
-                    operation_rules = rules[rule_index : rule_index + 5]
-                    rule_index += 5
+                    operation_rules = rules[rule_index : rule_index + 7]
+                    rule_index += 7
                     descriptor_prefix = (
                         f"amd.xdna.aie2p.{operation.name.lower()}.scalar."
                         f"{descriptor_type}.indexed"
                     )
                     assert [rule.descriptor.key for rule in operation_rules] == [
                         f"{descriptor_prefix}.immediate",
-                        *(f"{descriptor_prefix}.register",) * 4,
+                        *(f"{descriptor_prefix}.register",) * 6,
                     ]
                     _assert_address_forms(
                         operation_rules,
@@ -261,13 +401,13 @@ def test_pair_scalar_memory_rules_use_two_native_32bit_accesses() -> None:
         for operation_index, operation in enumerate(
             (SourceMemoryOperation.LOAD, SourceMemoryOperation.STORE)
         ):
-            operation_rules = rules[operation_index * 5 : operation_index * 5 + 5]
+            operation_rules = rules[operation_index * 7 : operation_index * 7 + 7]
             descriptor_prefix = (
                 f"amd.xdna.aie2p.{operation.name.lower()}.scalar.i32.indexed"
             )
             assert [rule.descriptor.key for rule in operation_rules] == [
                 f"{descriptor_prefix}.immediate",
-                *(f"{descriptor_prefix}.register",) * 4,
+                *(f"{descriptor_prefix}.register",) * 6,
             ]
             for rule in operation_rules:
                 assert rule.guards[0].type_pattern.elements == ("i64", "f64")
@@ -338,6 +478,14 @@ def test_bytewise_scalar_memory_rules_preserve_unknown_alignment() -> None:
                 ),
                 (0, 0, None, 1, True),
                 (-64, 63, None, 1, True),
+                (-128, 127, 1, 0, False),
+                (
+                    _I32_MIN,
+                    _I32_MAX - (element_byte_count - 1),
+                    1,
+                    0,
+                    False,
+                ),
                 (
                     _I32_MIN,
                     _I32_MAX - (element_byte_count - 1),
@@ -350,8 +498,8 @@ def test_bytewise_scalar_memory_rules_preserve_unknown_alignment() -> None:
                 SourceMemoryOperation.LOAD,
                 SourceMemoryOperation.STORE,
             ):
-                operation_rules = rules[rule_index : rule_index + 5]
-                rule_index += 5
+                operation_rules = rules[rule_index : rule_index + 7]
+                rule_index += 7
                 descriptor_family = operation.name.lower()
                 assert [rule.descriptor.key for rule in operation_rules] == [
                     f"amd.xdna.aie2p.{descriptor_family}.scalar.i8.indexed.immediate",
@@ -359,7 +507,7 @@ def test_bytewise_scalar_memory_rules_preserve_unknown_alignment() -> None:
                         (
                             f"amd.xdna.aie2p.{descriptor_family}.scalar.i8.indexed.register",
                         )
-                        * 4
+                        * 6
                     ),
                 ]
                 for address_index, rule in enumerate(operation_rules):
@@ -445,6 +593,8 @@ def test_two_lane_16bit_load_rules_preserve_exact_access_bounds() -> None:
         (_I32_MIN, _I32_MAX - 2, 0, 0, False),
         (0, 0, None, 1, True),
         (-64, 63, None, 1, True),
+        (-128, 127, 1, 0, False),
+        (_I32_MIN, _I32_MAX - 2, 1, 0, False),
         (_I32_MIN, _I32_MAX - 2, None, 1, True),
     )
     for root_kind, memory_spaces in _MEMORY_ROOTS:
@@ -453,12 +603,12 @@ def test_two_lane_16bit_load_rules_preserve_exact_access_bounds() -> None:
             vector.vector_load,
             scalarized_vector_load=True,
         )
-        assert len(rules) == 15
+        assert len(rules) == 21
         for element_index, element_type in enumerate(("i16", "f16", "bf16")):
-            operation_rules = rules[element_index * 5 : element_index * 5 + 5]
+            operation_rules = rules[element_index * 7 : element_index * 7 + 7]
             assert [rule.descriptor.key for rule in operation_rules] == [
                 "amd.xdna.aie2p.load.scalar.i16.indexed.immediate",
-                *("amd.xdna.aie2p.load.scalar.i16.indexed.register",) * 4,
+                *("amd.xdna.aie2p.load.scalar.i16.indexed.register",) * 6,
             ]
             for address_index, rule in enumerate(operation_rules):
                 assert rule.guards[0].type_pattern.elements == (element_type,)
@@ -616,7 +766,7 @@ def test_vector_memory_rules_cover_every_native_width_and_address_form() -> None
             expected_descriptor_keys.extend(
                 [
                     f"{descriptor_prefix}.immediate",
-                    *(f"{descriptor_prefix}.register",) * 4,
+                    *(f"{descriptor_prefix}.register",) * 6,
                 ]
             )
         assert [rule.descriptor.key for rule in rules] == expected_descriptor_keys
@@ -628,7 +778,7 @@ def test_vector_memory_rules_cover_every_native_width_and_address_form() -> None
             vector_lane_count,
             operation,
         ) in enumerate(expected_families):
-            operation_rules = rules[family_index * 5 : family_index * 5 + 5]
+            operation_rules = rules[family_index * 7 : family_index * 7 + 7]
             shape = f"{descriptor_element_type}x{vector_lane_count}"
             descriptor_prefix = (
                 f"amd.xdna.aie2p.load.a.{shape}.indexed"
@@ -637,7 +787,7 @@ def test_vector_memory_rules_cover_every_native_width_and_address_form() -> None
             )
             assert [rule.descriptor.key for rule in operation_rules] == [
                 f"{descriptor_prefix}.immediate",
-                *(f"{descriptor_prefix}.register",) * 4,
+                *(f"{descriptor_prefix}.register",) * 6,
             ]
             _assert_address_forms(
                 operation_rules,
@@ -695,6 +845,8 @@ def test_256bit_vector_loads_split_at_16_byte_alignment() -> None:
         (_I32_MIN, _I32_MAX - 16, 0, 0, False),
         (0, 0, None, 1, True),
         (-64, 63, None, 1, True),
+        (-128, 127, 1, 0, False),
+        (_I32_MIN, _I32_MAX - 16, 1, 0, False),
         (_I32_MIN, _I32_MAX - 16, None, 1, True),
     )
 
@@ -706,16 +858,16 @@ def test_256bit_vector_loads_split_at_16_byte_alignment() -> None:
             split_vector_load=True,
             wide_vector=False,
         )
-        assert len(rules) == len(expected_shapes) * 5
+        assert len(rules) == len(expected_shapes) * 7
         for shape_index, (
             element_types,
             element_byte_count,
             vector_lane_count,
         ) in enumerate(expected_shapes):
-            shape_rules = rules[shape_index * 5 : shape_index * 5 + 5]
+            shape_rules = rules[shape_index * 7 : shape_index * 7 + 7]
             assert [rule.descriptor.key for rule in shape_rules] == [
                 "amd.xdna.aie2p.load.a.i8x16.indexed.immediate",
-                *("amd.xdna.aie2p.load.a.i8x16.indexed.register",) * 4,
+                *("amd.xdna.aie2p.load.a.i8x16.indexed.register",) * 6,
             ]
             for address_index, rule in enumerate(shape_rules):
                 assert rule.guards[-1].type_pattern.elements == element_types
@@ -804,13 +956,15 @@ def test_wide_vector_memory_rules_preserve_two_native_chunks() -> None:
         (_I32_MIN, _I32_MAX - 64, 0, 0, False),
         (0, 0, None, 1, True),
         (-64, 63, None, 1, True),
+        (-128, 127, 1, 0, False),
+        (_I32_MIN, _I32_MAX - 64, 1, 0, False),
         (_I32_MIN, _I32_MAX - 64, None, 1, True),
     )
     for root_kind, memory_spaces in _MEMORY_ROOTS:
         rules = _rules_for(
             root_kind, vector.vector_load, vector.vector_store, wide_vector=True
         )
-        assert len(rules) == len(expected_shapes) * 2 * 5
+        assert len(rules) == len(expected_shapes) * 2 * 7
         for shape_index, (
             element_type,
             descriptor_type,
@@ -820,8 +974,8 @@ def test_wide_vector_memory_rules_preserve_two_native_chunks() -> None:
             for operation_index, operation in enumerate(
                 (SourceMemoryOperation.LOAD, SourceMemoryOperation.STORE)
             ):
-                start = (shape_index * 2 + operation_index) * 5
-                operation_rules = rules[start : start + 5]
+                start = (shape_index * 2 + operation_index) * 7
+                operation_rules = rules[start : start + 7]
                 descriptor_family = (
                     "load.a" if operation is SourceMemoryOperation.LOAD else "store"
                 )
@@ -831,7 +985,7 @@ def test_wide_vector_memory_rules_preserve_two_native_chunks() -> None:
                 )
                 assert [rule.descriptor.key for rule in operation_rules] == [
                     f"{prefix}.immediate",
-                    *(f"{prefix}.register",) * 4,
+                    *(f"{prefix}.register",) * 6,
                 ]
                 for address_index, rule in enumerate(operation_rules):
                     assert rule.guards[-1].type_pattern.elements == (element_type,)
@@ -908,7 +1062,9 @@ def test_wide_vector_memory_rules_preserve_two_native_chunks() -> None:
                     (1, (0, 64)),
                     (2, (64,)),
                     (3, (0, 64)),
-                    (4, (64,)),
+                    (4, (0, 64)),
+                    (5, (0, 64)),
+                    (6, (64,)),
                 ):
                     static_projects = [
                         project
@@ -936,6 +1092,8 @@ def test_accumulator_memory_rules_decompose_raw_payloads_into_native_chunks() ->
         (_I32_MIN, _I32_MAX - 192, 0, 0, False),
         (0, 0, None, 1, True),
         (-64, 63, None, 1, True),
+        (-128, 127, 1, 0, False),
+        (_I32_MIN, _I32_MAX - 192, 1, 0, False),
         (_I32_MIN, _I32_MAX - 192, None, 1, True),
     )
 
@@ -958,9 +1116,9 @@ def test_accumulator_memory_rules_decompose_raw_payloads_into_native_chunks() ->
             ]
             assert [rule.descriptor.key for rule in rules] == [
                 "amd.xdna.aie2p.load.accumulator.indexed.immediate",
-                *("amd.xdna.aie2p.load.accumulator.indexed.register",) * 4,
+                *("amd.xdna.aie2p.load.accumulator.indexed.register",) * 6,
                 "amd.xdna.aie2p.store.accumulator.indexed.immediate",
-                *("amd.xdna.aie2p.store.accumulator.indexed.register",) * 4,
+                *("amd.xdna.aie2p.store.accumulator.indexed.register",) * 6,
             ]
             assert all(
                 rule.guards[-1].type_pattern.elements == element_types for rule in rules
@@ -969,7 +1127,7 @@ def test_accumulator_memory_rules_decompose_raw_payloads_into_native_chunks() ->
             for operation_index, operation in enumerate(
                 (SourceMemoryOperation.LOAD, SourceMemoryOperation.STORE)
             ):
-                operation_rules = rules[operation_index * 5 : operation_index * 5 + 5]
+                operation_rules = rules[operation_index * 7 : operation_index * 7 + 7]
                 for address_index, rule in enumerate(operation_rules):
                     constraint = _source_memory_emit(rule).source_memory
                     assert constraint is not None
@@ -1043,7 +1201,9 @@ def test_accumulator_memory_rules_decompose_raw_payloads_into_native_chunks() ->
                     (1, expected_chunk_offsets),
                     (2, expected_chunk_offsets[1:]),
                     (3, expected_chunk_offsets),
-                    (4, expected_chunk_offsets[1:]),
+                    (4, expected_chunk_offsets),
+                    (5, expected_chunk_offsets),
+                    (6, expected_chunk_offsets[1:]),
                 ):
                     static_projects = [
                         project

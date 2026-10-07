@@ -13,6 +13,7 @@
 #include "loom/target/arch/amdgpu/target_info.h"
 #include "loom/target/emit/native/amdgpu/descriptor.h"
 #include "loom/target/emit/native/elf.h"
+#include "loom/target/emit/native/elf_symbols.h"
 
 //===----------------------------------------------------------------------===//
 // AMDGPU code-object layout constants
@@ -30,15 +31,6 @@ enum {
   LOOM_AMDGPU_HSACO_SECTION_SYMTAB = 8,
   LOOM_AMDGPU_HSACO_SECTION_STRTAB = 9,
   LOOM_AMDGPU_HSACO_SECTION_COUNT = 10,
-};
-
-enum {
-  LOOM_AMDGPU_HSACO_DYN_NULL = 0,
-  LOOM_AMDGPU_HSACO_DYN_HASH = 4,
-  LOOM_AMDGPU_HSACO_DYN_STRTAB = 5,
-  LOOM_AMDGPU_HSACO_DYN_SYMTAB = 6,
-  LOOM_AMDGPU_HSACO_DYN_STRSZ = 10,
-  LOOM_AMDGPU_HSACO_DYN_SYMENT = 11,
 };
 
 enum {
@@ -221,22 +213,6 @@ loom_amdgpu_hsaco_find_data_symbol(const loom_amdgpu_hsaco_input_t* input,
   return NULL;
 }
 
-static iree_status_t loom_amdgpu_hsaco_append_u32(
-    iree_byte_span_t target, iree_host_size_t* inout_offset, uint32_t value) {
-  if (*inout_offset > target.data_length ||
-      target.data_length - *inout_offset < 4u) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "AMDGPU HSACO u32 payload write overflow");
-  }
-  uint8_t* data = target.data + *inout_offset;
-  data[0] = (uint8_t)value;
-  data[1] = (uint8_t)(value >> 8);
-  data[2] = (uint8_t)(value >> 16);
-  data[3] = (uint8_t)(value >> 24);
-  *inout_offset += 4u;
-  return iree_ok_status();
-}
-
 static iree_status_t loom_amdgpu_hsaco_store_u32(iree_byte_span_t target,
                                                  iree_host_size_t byte_offset,
                                                  uint32_t value) {
@@ -293,19 +269,6 @@ static iree_status_t loom_amdgpu_hsaco_write_symbol(
     entry[16 + i] = (uint8_t)(size >> (i * 8u));
   }
   return iree_ok_status();
-}
-
-static uint32_t loom_amdgpu_hsaco_elf_hash(iree_string_view_t name) {
-  uint32_t hash = 0;
-  for (iree_host_size_t i = 0; i < name.size; ++i) {
-    hash = (hash << 4u) + (uint8_t)name.data[i];
-    const uint32_t high = hash & UINT32_C(0xf0000000);
-    if (high != 0) {
-      hash ^= high >> 24u;
-      hash &= ~high;
-    }
-  }
-  return hash;
 }
 
 static bool loom_amdgpu_hsaco_symbol_start_char(char c) {
@@ -1015,70 +978,23 @@ static iree_status_t loom_amdgpu_hsaco_build_symbol_table(
 static iree_status_t loom_amdgpu_hsaco_build_sysv_hash(
     const loom_amdgpu_hsaco_input_t* input, iree_host_size_t symbol_count,
     iree_const_byte_span_t* out_hash, iree_arena_allocator_t* arena) {
-  *out_hash = iree_make_const_byte_span(NULL, 0);
-
-  const iree_host_size_t bucket_count = symbol_count;
-  iree_host_size_t hash_word_count = 0;
-  if (!iree_host_size_checked_add(2u, bucket_count, &hash_word_count) ||
-      !iree_host_size_checked_add(hash_word_count, symbol_count,
-                                  &hash_word_count)) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "AMDGPU HSACO hash table word count overflow");
-  }
-  iree_host_size_t hash_size = 0;
-  if (!iree_host_size_checked_mul(hash_word_count, sizeof(uint32_t),
-                                  &hash_size)) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "AMDGPU HSACO hash table size overflow");
-  }
-  iree_byte_span_t hash = iree_make_byte_span(NULL, 0);
+  *out_hash = iree_const_byte_span_empty();
+  loom_native_elf_hash_t hash;
   IREE_RETURN_IF_ERROR(
-      loom_amdgpu_hsaco_allocate_zeroed(arena, hash_size, &hash));
-
-  uint32_t* buckets = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      arena, bucket_count, sizeof(buckets[0]), (void**)&buckets));
-  memset(buckets, 0, bucket_count * sizeof(buckets[0]));
-  uint32_t* chains = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      arena, symbol_count, sizeof(chains[0]), (void**)&chains));
-  memset(chains, 0, symbol_count * sizeof(chains[0]));
-  iree_host_size_t write_offset = 0;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u32(hash, &write_offset,
-                                                    (uint32_t)bucket_count));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u32(hash, &write_offset,
-                                                    (uint32_t)symbol_count));
-  iree_host_size_t symbol_index = 1u;
+      loom_native_elf_hash_initialize(symbol_count, &hash, arena));
+  uint32_t symbol_index = 1;
   for (iree_host_size_t i = 0; i < input->kernel_count; ++i) {
-    const uint32_t entry_bucket =
-        loom_amdgpu_hsaco_elf_hash(input->kernels[i].metadata.name) %
-        (uint32_t)bucket_count;
-    chains[symbol_index] = buckets[entry_bucket];
-    buckets[entry_bucket] = (uint32_t)symbol_index++;
-
-    const uint32_t descriptor_bucket =
-        loom_amdgpu_hsaco_elf_hash(
-            input->kernels[i].metadata.descriptor_symbol) %
-        (uint32_t)bucket_count;
-    chains[symbol_index] = buckets[descriptor_bucket];
-    buckets[descriptor_bucket] = (uint32_t)symbol_index++;
+    loom_native_elf_hash_insert(&hash, input->kernels[i].metadata.name,
+                                symbol_index++);
+    loom_native_elf_hash_insert(
+        &hash, input->kernels[i].metadata.descriptor_symbol, symbol_index++);
   }
   for (iree_host_size_t i = 0; i < input->data_symbol_count; ++i) {
-    const uint32_t symbol_bucket =
-        loom_amdgpu_hsaco_elf_hash(input->data_symbols[i].name) %
-        (uint32_t)bucket_count;
-    chains[symbol_index] = buckets[symbol_bucket];
-    buckets[symbol_bucket] = (uint32_t)symbol_index++;
+    loom_native_elf_hash_insert(&hash, input->data_symbols[i].name,
+                                symbol_index++);
   }
-  for (iree_host_size_t i = 0; i < bucket_count; ++i) {
-    IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_store_u32(
-        hash, (2u + i) * sizeof(uint32_t), buckets[i]));
-  }
-  for (iree_host_size_t i = 0; i < symbol_count; ++i) {
-    IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_store_u32(
-        hash, (2u + bucket_count + i) * sizeof(uint32_t), chains[i]));
-  }
-  *out_hash = iree_make_const_byte_span(hash.data, hash.data_length);
+  *out_hash =
+      iree_make_const_byte_span(hash.contents.data, hash.contents.data_length);
   return iree_ok_status();
 }
 
@@ -1100,27 +1016,27 @@ static iree_status_t loom_amdgpu_hsaco_build_dynamic_table(
       &dynamic_table));
   iree_host_size_t offset = 0;
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
-      dynamic_table, &offset, LOOM_AMDGPU_HSACO_DYN_HASH));
+      dynamic_table, &offset, LOOM_NATIVE_ELF_DYNAMIC_HASH));
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_hsaco_append_u64(dynamic_table, &offset, hash->address));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
-      dynamic_table, &offset, LOOM_AMDGPU_HSACO_DYN_STRTAB));
+      dynamic_table, &offset, LOOM_NATIVE_ELF_DYNAMIC_STRTAB));
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_hsaco_append_u64(dynamic_table, &offset, dynstr->address));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
-      dynamic_table, &offset, LOOM_AMDGPU_HSACO_DYN_SYMTAB));
+      dynamic_table, &offset, LOOM_NATIVE_ELF_DYNAMIC_SYMTAB));
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_hsaco_append_u64(dynamic_table, &offset, dynsym->address));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
-      dynamic_table, &offset, LOOM_AMDGPU_HSACO_DYN_STRSZ));
+      dynamic_table, &offset, LOOM_NATIVE_ELF_DYNAMIC_STRSZ));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
       dynamic_table, &offset, dynstr->contents.data_length));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
-      dynamic_table, &offset, LOOM_AMDGPU_HSACO_DYN_SYMENT));
+      dynamic_table, &offset, LOOM_NATIVE_ELF_DYNAMIC_SYMENT));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
       dynamic_table, &offset, LOOM_AMDGPU_HSACO_SYMBOL_ENTRY_SIZE));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(
-      dynamic_table, &offset, LOOM_AMDGPU_HSACO_DYN_NULL));
+      dynamic_table, &offset, LOOM_NATIVE_ELF_DYNAMIC_NULL));
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_append_u64(dynamic_table, &offset, 0));
   *out_dynamic_table =
       iree_make_const_byte_span(dynamic_table.data, dynamic_table.data_length);

@@ -1,7 +1,7 @@
 // RUN: verify
 // Constexpr contents do not give an automatic object static storage duration.
 template <const unsigned& value>
-// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a constant expression"
 constexpr unsigned choose() { return 3; }
 unsigned entry() {
   constexpr unsigned local = 5;
@@ -12,7 +12,7 @@ unsigned entry() {
 // ====
 // Pointer arguments use the same referent-lifetime validation.
 template <const unsigned* value>
-// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a constant expression"
 constexpr unsigned choose() { return 3; }
 unsigned entry() {
   constexpr unsigned local = 5;
@@ -23,7 +23,7 @@ unsigned entry() {
 // ====
 // A parameter's address is not a static template argument.
 template <const unsigned& value>
-// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a constant expression"
 constexpr unsigned choose() { return 3; }
 unsigned entry(unsigned input) {
   // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
@@ -65,7 +65,7 @@ unsigned entry() {
 // ====
 // String literals are excluded even though their storage is static.
 template <const char* value>
-// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a constant expression"
 constexpr unsigned choose() { return 3; }
 unsigned entry() {
   // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
@@ -76,7 +76,7 @@ unsigned entry() {
 // Thread storage is not a permitted static template referent.
 extern thread_local unsigned object;
 template <const unsigned& value>
-// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a constant expression"
 constexpr unsigned choose() { return 3; }
 unsigned entry() {
   // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
@@ -87,7 +87,7 @@ unsigned entry() {
 // A template pointer cannot designate an element outside the static array.
 constexpr unsigned table[3] = {3, 5, 7};
 template <const unsigned* value>
-// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a constant expression"
 constexpr unsigned choose() { return 3; }
 unsigned entry() {
   // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
@@ -98,7 +98,7 @@ unsigned entry() {
 // A template pointer cannot designate an element outside the static array.
 constexpr unsigned table[3] = {3, 5, 7};
 template <const unsigned* value>
-// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a constant expression"
 constexpr unsigned choose() { return 3; }
 unsigned entry() {
   // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
@@ -109,7 +109,7 @@ unsigned entry() {
 // One-past pointers are valid values, but cannot supply an object reference.
 constexpr unsigned table[3] = {3, 5, 7};
 template <const unsigned& value>
-// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a constant expression"
 constexpr unsigned choose() { return 3; }
 unsigned entry() {
   // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
@@ -120,7 +120,7 @@ unsigned entry() {
 // An array with unknown extent cannot prove an element beyond its base.
 extern unsigned table[];
 template <const unsigned* value>
-// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a constant expression"
 constexpr unsigned choose() { return 3; }
 unsigned entry() {
   // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
@@ -222,7 +222,7 @@ static_assert(evaluate() == 6);
 // Forwarding a reference preserves its automatic storage duration.
 static constexpr const unsigned& forward(const unsigned& value) { return value; }
 template <const unsigned& value>
-// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a constant expression"
 constexpr unsigned choose() { return 3; }
 unsigned entry() {
   constexpr unsigned local = 5;

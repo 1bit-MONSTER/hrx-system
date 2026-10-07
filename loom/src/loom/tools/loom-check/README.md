@@ -95,6 +95,24 @@ contract retain precise diagnostic coverage in the shared-corpus fixture.
 
 ### Focused Output Checks
 
+The test runner's `emit low-schedule-query @function` selects scheduler facts
+without snapshotting the complete analysis. `order=0,1,2` reports the relative
+scheduled order of those source nodes, `issue=0,1,2` reports their issue cycles,
+and `descriptor=0,1` reports their selected descriptors. Dependency queries use
+`kind=state consumer=7,8` for exact predecessor sets or `kind=state timing=0:7`
+for one edge's separation and timing model. The node indices refer to source
+order, before scheduling. `scheduled-pressure=test.i32` runs the production
+liveness analysis in the selected schedule order and reports that register
+class's exact peak live units and values. These compact outputs use ordinary
+exact goldens.
+
+Schedule queries build the production function model and scheduler directly.
+Tests of unavoidable register debt or explicit residency cliffs use
+`emit low-schedule-json ... diagnostics=candidates output=none` with inline
+decision annotations. `emit low-allocation ... diagnostics=placement-decisions`
+similarly checks storage affinities directly instead of pinning incidental
+value IDs, interval endpoints, and physical register choices in JSON.
+
 Focused lowering examples use exact goldens. When a case lowers one operation
 and the output is small, the complete before/after IR is the assertion and
 `--update` maintains it. `with-checks` is for large transforms and reports whose

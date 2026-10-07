@@ -77,6 +77,7 @@ loom_cc_library(
     loom::ops::scf
     loom::rewrite::rewriter
     loom::target::legalization
+    loom::util::numeric_format
   PUBLIC
 )
 

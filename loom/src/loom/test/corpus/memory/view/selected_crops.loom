@@ -71,16 +71,60 @@ func.def @expected_crops(%position: i64, %choice: i32) -> (i32, i32, i32, i32) {
   func.return %seed, %expected_middle, %expected_last, %expected_other : i32, i32, i32, i32
 }
 
-check.case @selected_crops_case {
-  %left_base = check.param.choice values([0, 4, 16]) : i64
-  %right_base = check.param.choice values([0, 12]) : i64
-  %position = check.param.choice values([0, 2, 5]) : i64
-  %choice = check.param.choice values([0, 1]) : i32
+func.def inline @selected_crop_configuration(%config: i64) -> (i64, i64, i64, i32) {
+  %selector_mask = scalar.constant 3 : i64
+  %left_selector = scalar.andi %config, %selector_mask : i64
+  %left_shift = scalar.constant 2 : i64
+  %left_scaled = scalar.shli %left_selector, %left_shift : i64
+  %last_selector = scalar.cmpi eq, %left_selector, %selector_mask : i64
+  %left_last = scalar.constant 16 : i64
+  %left_base = scf.select %last_selector, %left_last, %left_scaled : i64
+  %right_shifted = scalar.shrui %config, %left_shift : i64
+  %bit_mask = scalar.constant 1 : i64
+  %right_selector = scalar.andi %right_shifted, %bit_mask : i64
+  %right_scale = scalar.constant 12 : i64
+  %right_base = scalar.muli %right_selector, %right_scale : i64
+  %position_shift = scalar.constant 3 : i64
+  %position_shifted = scalar.shrui %config, %position_shift : i64
+  %position_mask = scalar.constant 7 : i64
+  %position_selector = scalar.andi %position_shifted, %position_mask : i64
+  %position_limit = scalar.constant 5 : i64
+  %position = scalar.minui %position_selector, %position_limit : i64
+  %choice_shift = scalar.constant 6 : i64
+  %choice_shifted = scalar.shrui %config, %choice_shift : i64
+  %choice_bit = scalar.andi %choice_shifted, %bit_mask : i64
+  %choice = scalar.trunci %choice_bit : i64 to i32
+  func.return %left_base, %right_base, %position, %choice : i64, i64, i64, i32
+}
+
+func.def @selected_crop_observations(%config: i64, %output: buffer) {
+  %left_base, %right_base, %position, %choice = func.call @selected_crop_configuration(%config) : (i64) -> (i64, i64, i64, i32)
   %first, %middle, %last, %other = func.call @call_selected_crops(%left_base, %right_base, %position, %choice) : (i64, i64, i64, i32) -> (i32, i32, i32, i32)
-  %expected_first, %expected_middle, %expected_last, %expected_other = func.call @expected_crops(%position, %choice) : (i64, i32) -> (i32, i32, i32, i32)
-  check.expect.equal actual(%first) expected(%expected_first) : i32
-  check.expect.equal actual(%middle) expected(%expected_middle) : i32
-  check.expect.equal actual(%last) expected(%expected_last) : i32
-  check.expect.equal actual(%other) expected(%expected_other) : i32
+  %values = vector.from_elements %first, %middle, %last, %other : vector<4xi32>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<4xi32>
+  vector.store %values, %results[0] : vector<4xi32>, view<4xi32>
+  func.return
+}
+
+func.def @expected_crop_observations(%config: i64, %output: buffer) {
+  %left_base, %right_base, %position, %choice = func.call @selected_crop_configuration(%config) : (i64) -> (i64, i64, i64, i32)
+  %first, %middle, %last, %other = func.call @expected_crops(%position, %choice) : (i64, i32) -> (i32, i32, i32, i32)
+  %values = vector.from_elements %first, %middle, %last, %other : vector<4xi32>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<4xi32>
+  vector.store %values, %results[0] : vector<4xi32>, view<4xi32>
+  func.return
+}
+
+check.scenario @selected_crop_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %config_source = check.entropy.fork %entropy name("config") : check.entropy
+    %config = check.entropy.read %config_source[%trial] : check.entropy -> i64
+    %output = check.generate.fill value(0) : tensor<4xi32>
+    check.compare<@selected_crop_observations, @expected_crop_observations>(%config, %output) : (i64, tensor<4xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<4xi32>
+    }
+  }
   check.return
 }

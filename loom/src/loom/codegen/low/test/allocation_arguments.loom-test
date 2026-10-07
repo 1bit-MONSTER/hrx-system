@@ -120,3 +120,138 @@ test.target<low_core> @target
 low.func.def target<test.low.core>(@target) @unused_fixed(%unused: reg<test.i32>) asm {
   return
 }
+
+// ====
+
+// RUN: emit low-allocation @entry_identity entry=0:target_id:7 entry=1:target_id:2 test.i32=3
+
+test.target<low_core> @target
+
+// Incoming positions include unused arguments. A legal live input stays put;
+// the unused input does not consume the deliberately smaller body budget.
+low.func.def target<test.low.core>(@target) @entry_identity(%unused: reg<test.i32>, %value: reg<test.i32>) -> (reg<test.i32>) asm {
+  return %value
+}
+
+// ----
+low-allocation @entry_identity
+target: target
+descriptor_set: test.low.core
+mode: virtual
+assignments: 1
+remarks: 0
+spills: 0
+copies: coalesced=0 materialized=0
+entry moves: 0
+classes:
+  test.i32: assignments=1 units=1 target_ids=3 physical=0 spill_slots=0 unassigned=0
+
+// ====
+
+// RUN: emit low-allocation @entry_budget entry=0:physical_register:7 test.phys=2
+
+test.target<low_core> @target
+
+// The ABI can deliver an input outside the body allocation budget. Transport
+// brings it into an allocatable register instead of treating it as precolored.
+low.func.def target<test.low.core>(@target) @entry_budget(%value: reg<test.phys>) -> (reg<test.phys>) asm {
+  return %value
+}
+
+// ----
+low-allocation @entry_budget
+target: target
+descriptor_set: test.low.core
+mode: virtual
+assignments: 1
+remarks: 0
+spills: 0
+copies: coalesced=0 materialized=0
+entry moves: 1
+  test.phys:physical_register:0 <- test.phys:physical_register:7
+classes:
+  test.phys: assignments=1 units=1 target_ids=0 physical=1 spill_slots=0 unassigned=0
+
+// ====
+
+// RUN: emit low-allocation @entry_cycle entry=0:physical_register:0 entry=1:physical_register:1 entry=2:physical_register:2 fixed=%first:physical_register:1:1 fixed=%second:physical_register:0:1 test.phys=4
+
+test.target<low_core> @target
+
+// The body requires swapped locations. Parallel entry transport uses scratch
+// and preserves the identity input in register 2 while resolving the cycle.
+low.func.def target<test.low.core>(@target) @entry_cycle(%first: reg<test.phys>, %second: reg<test.phys>, %guard: reg<test.phys>) -> (reg<test.phys>, reg<test.phys>, reg<test.phys>) asm {
+  return %first, %second, %guard
+}
+
+// ----
+low-allocation @entry_cycle
+target: target
+descriptor_set: test.low.core
+mode: virtual
+assignments: 3
+remarks: 0
+spills: 0
+copies: coalesced=0 materialized=0
+entry moves: 3
+  test.phys:physical_register:3 <- test.phys:physical_register:0
+  test.phys:physical_register:0 <- test.phys:physical_register:1
+  test.phys:physical_register:1 <- test.phys:physical_register:3
+classes:
+  test.phys: assignments=3 units=3 target_ids=0 physical=3 spill_slots=0 unassigned=0
+
+// ====
+
+// RUN: emit low-allocation @entry_alias_cycle entry=0:physical_register:0 entry=1:physical_register:1 fixed=%narrow:physical_register:1:1 fixed=%wide:physical_register:0:1
+
+test.target<low_core> @target
+
+// Distinct register classes alias the same storage. Each transfer, including
+// cycle scratch, must retain the source view's width throughout the swap.
+low.func.def target<test.low.core>(@target) @entry_alias_cycle(%narrow: reg<test.pressure.alias32>, %wide: reg<test.pressure.alias64>) -> (reg<test.pressure.alias32>, reg<test.pressure.alias64>) asm {
+  return %narrow, %wide
+}
+
+// ----
+low-allocation @entry_alias_cycle
+target: target
+descriptor_set: test.low.core
+mode: virtual
+assignments: 2
+remarks: 0
+spills: 0
+copies: coalesced=0 materialized=0
+entry moves: 3
+  test.pressure.alias32:physical_register:2 <- test.pressure.alias32:physical_register:0
+  test.pressure.alias64:physical_register:0 <- test.pressure.alias64:physical_register:1
+  test.pressure.alias32:physical_register:1 <- test.pressure.alias32:physical_register:2
+classes:
+  test.pressure.alias32: assignments=1 units=1 target_ids=0 physical=2 spill_slots=0 unassigned=0
+  test.pressure.alias64: assignments=1 units=1 target_ids=0 physical=1 spill_slots=0 unassigned=0
+
+// ====
+
+// RUN: emit low-allocation @entry_view entry=0:physical_register:4 fixed=%pair:physical_register:5:2
+
+test.target<low_core> @target
+
+// Declared views have noncontiguous units: l0 is r0/r2 and l1 is r1/r3.
+// Entry transport uses the descriptor's unit mapping, not base-plus-index.
+low.func.def target<test.low.core>(@target) @entry_view(%pair: reg<test.explicit32 x2>) -> (reg<test.explicit32 x2>) asm {
+  return %pair
+}
+
+// ----
+low-allocation @entry_view
+target: target
+descriptor_set: test.low.core
+mode: virtual
+assignments: 1
+remarks: 0
+spills: 0
+copies: coalesced=0 materialized=0
+entry moves: 2
+  test.explicit32:physical_register:1 <- test.explicit32:physical_register:0
+  test.explicit32:physical_register:3 <- test.explicit32:physical_register:2
+classes:
+  test.explicit32: assignments=1 units=2 target_ids=0 physical=7 spill_slots=0 unassigned=0

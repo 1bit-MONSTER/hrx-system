@@ -109,9 +109,8 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @signed_varying_by
   %view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
   %signed = lda %source, 0
   %17 = mov.static-byte-offset 256
-  %18 = add.rr %signed, %17
-  %19 = mov.address-index %18
-  %value = lda.i8.index %view, %19
+  %18 = add.address-index %signed, %17
+  %value = lda.i8.index %view, %18
   return %value
 }
 
@@ -267,9 +266,8 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @negative_uniform_
   %view = resource<native_pointer> {index = 2, source_type = buffer} : reg<aie2p.ep>
   %13 = mov.i32 -4
   %14 = mul %selector, %13
-  %15 = add %14, 4
-  %16 = mov.address-index %15
-  st.i32.index %value, %view, %16
+  %15 = add.address-index.immediate %14, 4
+  st.i32.index %value, %view, %15
   return
 }
 

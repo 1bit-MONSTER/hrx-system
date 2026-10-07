@@ -134,6 +134,9 @@ loom_target_compile_report_format_source_low_selection_summary_row_json(
       &object, IREE_SV("selected_op_count"), row->selected_op_count));
   IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
       &object, IREE_SV("emitted_low_op_count"), row->emitted_low_op_count));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
+      &object, IREE_SV("maximum_emitted_low_op_count"),
+      row->maximum_emitted_low_op_count));
   const bool has_dynamic_delta =
       row->unknown_dynamic_op_count != 0 ||
       row->dynamic_selected_op_count != row->selected_op_count ||
@@ -1900,6 +1903,9 @@ static iree_status_t loom_target_compile_report_format_source_low_json(
   IREE_RETURN_IF_ERROR(
       loom_json_object_write_uint64_field(&object, IREE_SV("emitted_op_count"),
                                           report->source_low_emitted_op_count));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
+      &object, IREE_SV("unkeyed_maximum_emitted_op_count"),
+      report->source_low_unkeyed_maximum_emitted_op_count));
   IREE_RETURN_IF_ERROR(loom_json_object_write_host_size_field(
       &object, IREE_SV("count"), report->source_low_rows.count));
   if (report->source_low_target_rows.count != 0) {
@@ -2049,6 +2055,9 @@ static iree_status_t loom_target_compile_report_format_math_json(
       &object, IREE_SV("rewritten_op_count"),
       report->math_legalization_rewritten_op_count));
   IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
+      &object, IREE_SV("maximum_created_op_count"),
+      report->math_legalization_maximum_created_op_count));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
       &object, IREE_SV("rejected_op_count"),
       report->math_legalization_rejected_op_count));
   IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
@@ -2119,6 +2128,8 @@ static iree_status_t loom_target_compile_report_format_legalization_row_json(
   IREE_RETURN_IF_ERROR(loom_json_object_write_string_field(
       &object, IREE_SV("action"),
       loom_target_compile_report_legalization_action_name(row->action)));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_bool_field(
+      &object, IREE_SV("scalarized"), row->scalarized));
   IREE_RETURN_IF_ERROR(loom_json_object_write_string_field(
       &object, IREE_SV("legalization_outcome"),
       loom_target_compile_report_legalization_outcome_name(
@@ -2159,6 +2170,12 @@ static iree_status_t loom_target_compile_report_format_legalization_json(
   IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
       &object, IREE_SV("rewritten_op_count"),
       report->target_legalization_rewritten_op_count));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
+      &object, IREE_SV("maximum_created_op_count"),
+      report->target_legalization_maximum_created_op_count));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
+      &object, IREE_SV("scalarized_op_count"),
+      report->target_legalization_scalarized_op_count));
   IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
       &object, IREE_SV("target_rewritten_op_count"),
       report->target_legalization_target_rewritten_op_count));

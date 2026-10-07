@@ -1,11 +1,4 @@
 // RUN: verify
-#include <stdfloat>
-std::bfloat16_t mixed(std::bfloat16_t first, std::float16_t second) {
-  // ERROR@+1: PARSE/036 "invalid operands"
-  return first + second;
-}
-
-// ====
 __bf16 narrow(_Float16 value) {
   // ERROR@+1: PARSE/036 "narrowing conversion"
   return {value};

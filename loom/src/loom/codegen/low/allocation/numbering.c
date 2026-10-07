@@ -295,6 +295,21 @@ static void loom_low_numbering_constrain_blocks(
                                     fixed->location_kind, fixed->location_base,
                                     fixed->location_count);
   }
+  for (iree_host_size_t i = 0; i < context->entry_location_count; ++i) {
+    const loom_low_allocation_abi_location_t* entry =
+        &context->entry_locations[i];
+    const uint32_t assignment_index =
+        allocation->assignment_indices_by_value_ordinal[i];
+    if (entry->location_kind == LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED ||
+        assignment_index == UINT32_MAX) {
+      continue;
+    }
+    const loom_low_allocation_assignment_t* argument =
+        &allocation->assignments[assignment_index];
+    loom_low_numbering_anchor_range(state, argument->descriptor_reg_class_id,
+                                    entry->location_kind, entry->location_base,
+                                    argument->location_count);
+  }
   for (iree_host_size_t i = 0; i < target->reserved_range_count; ++i) {
     const loom_low_allocation_resolved_reserved_range_t* range =
         &target->reserved_ranges[i];

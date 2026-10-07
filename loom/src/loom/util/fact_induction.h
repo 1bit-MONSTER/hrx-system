@@ -11,6 +11,7 @@
 
 #include "loom/analysis/loop_domain.h"
 #include "loom/ir/ir.h"
+#include "loom/util/fact_recurrence.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,12 +26,12 @@ typedef struct loom_value_fact_induction_t {
   // Header argument, or INVALID for an unrecognized or literal-false guard.
   loom_value_id_t value;
   // Value entering the header from outside the loop.
-  loom_value_id_t initial_value;
+  loom_value_fact_recurrence_operand_t initial_value;
   // Invariant upper bound tested by the header guard.
-  loom_value_id_t upper_bound;
-  // Invariant increment added by the backedge, or INVALID. A missing
-  // increment can still establish zero trips from a false entry guard.
-  loom_value_id_t step;
+  loom_value_fact_recurrence_operand_t upper_bound;
+  // Invariant increment added by the backedge. An absent operand can still
+  // establish zero trips from a false entry guard.
+  loom_value_fact_recurrence_operand_t step;
   // Signedness and inclusivity of the guard.
   loom_loop_bound_flags_t bound_flags;
   // True when the header condition is a literal false. No backedge executes,
@@ -50,6 +51,14 @@ loom_loop_recurrence_facts_t loom_value_fact_induction_facts(
 loom_value_fact_induction_t loom_value_fact_condition_loop_induction(
     const loom_value_fact_table_t* table, const loom_module_t* module,
     loom_loop_like_t loop);
+
+// Builds additive state equations after the loop body has established its SSA
+// identities. Counted loops use the body boundary; condition loops use the
+// header boundary and its declared forwarding into the body.
+iree_status_t loom_value_fact_loop_build_recurrences(
+    const loom_value_fact_table_t* table, const loom_module_t* module,
+    loom_loop_like_t loop, iree_arena_allocator_t* arena,
+    loom_value_fact_recurrence_set_t* out_set);
 
 // Publishes the current equation with the condition region's fact-scope
 // lifetime. Recomputing a structured summary replaces the previous equation.

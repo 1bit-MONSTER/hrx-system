@@ -1,0 +1,471 @@
+// RUN: emit storage-interference @test
+
+// Distinguishes unused and accessed roots.
+func.def @test() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %value = scalar.constant 1 : i32
+  %unused = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %unused_view = buffer.view %unused[%base] : buffer -> view<1xi32>
+  %accessed = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %accessed_view = buffer.view %accessed[%base] : buffer -> view<1xi32>
+  view.store %value, %accessed_view[0] : i32, view<1xi32>
+  func.return
+}
+
+// ----
+unused: accessed=no single_instance=yes
+accessed: accessed=yes single_instance=yes
+unused / accessed: workgroup_nonoverlap=yes
+
+// ====
+
+// Incomplete root may be accessed.
+func.def @test() {
+  %bytes = index.constant 256 : offset
+  %root = buffer.alloca<workgroup> align(16) %bytes : buffer
+  test.use %root : buffer
+  func.return
+}
+
+// ----
+root: accessed=yes single_instance=yes
+
+// ====
+
+// Workgroup barrier separates sequential phases.
+func.def @test() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %first_value = scalar.constant 1 : i32
+  %second_value = scalar.constant 2 : i32
+  %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  view.store %first_value, %first_view[0] : i32, view<1xi32>
+  %first_read = view.load %first_view[0] : view<1xi32> -> i32
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  view.store %second_value, %second_view[0] : i32, view<1xi32>
+  %second_read = view.load %second_view[0] : view<1xi32> -> i32
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=yes
+
+// ====
+
+// Barrier before final read does not end lifetime.
+func.def @test() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %first_value = scalar.constant 1 : i32
+  %second_value = scalar.constant 2 : i32
+  %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  view.store %first_value, %first_view[0] : i32, view<1xi32>
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %first_read = view.load %first_view[0] : view<1xi32> -> i32
+  %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  view.store %second_value, %second_view[0] : i32, view<1xi32>
+  %second_read = view.load %second_view[0] : view<1xi32> -> i32
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=unproven
+
+// ====
+
+// Subgroup barrier does not end workgroup lifetime.
+func.def @test() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %value = scalar.constant 1 : i32
+  %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  view.store %value, %first_view[0] : i32, view<1xi32>
+  %first_read = view.load %first_view[0] : view<1xi32> -> i32
+  kernel.barrier<workgroup> scope(subgroup) ordering(acq_rel)
+  %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  view.store %value, %second_view[0] : i32, view<1xi32>
+  %second_read = view.load %second_view[0] : view<1xi32> -> i32
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=unproven
+
+// ====
+
+// Global memory barrier does not end LDS lifetime.
+func.def @test() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %value = scalar.constant 1 : i32
+  %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  view.store %value, %first_view[0] : i32, view<1xi32>
+  %first_read = view.load %first_view[0] : view<1xi32> -> i32
+  kernel.barrier<global> scope(workgroup) ordering(acq_rel)
+  %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  view.store %value, %second_view[0] : i32, view<1xi32>
+  %second_read = view.load %second_view[0] : view<1xi32> -> i32
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=unproven
+
+// ====
+
+// Workgroup uniform branches do not interfere.
+func.def @test() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %condition = scalar.constant 1 : i1
+  %value = scalar.constant 7 : i32
+  cfg.cond_br %condition, ^first_arm, ^second_arm
+^first_arm:
+  %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  view.store %value, %first_view[0] : i32, view<1xi32>
+  %first_read = view.load %first_view[0] : view<1xi32> -> i32
+  cfg.br ^done
+^second_arm:
+  %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  view.store %value, %second_view[0] : i32, view<1xi32>
+  %second_read = view.load %second_view[0] : view<1xi32> -> i32
+  cfg.br ^done
+^done:
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=yes
+
+// ====
+
+// Workgroup uniform structured branches do not interfere.
+func.def @test() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %condition = scalar.constant 1 : i1
+  %value = scalar.constant 7 : i32
+  scf.if %condition {
+    %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+    %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+    view.store %value, %first_view[0] : i32, view<1xi32>
+    %first_read = view.load %first_view[0] : view<1xi32> -> i32
+  } else {
+    %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+    %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+    view.store %value, %second_view[0] : i32, view<1xi32>
+    %second_read = view.load %second_view[0] : view<1xi32> -> i32
+  }
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=yes
+
+// ====
+
+// Divergent structured branches may interfere.
+func.def @test(%condition: i1) {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %value = scalar.constant 7 : i32
+  scf.if %condition {
+    %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+    %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+    view.store %value, %first_view[0] : i32, view<1xi32>
+    %first_read = view.load %first_view[0] : view<1xi32> -> i32
+  } else {
+    %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+    %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+    view.store %value, %second_view[0] : i32, view<1xi32>
+    %second_read = view.load %second_view[0] : view<1xi32> -> i32
+  }
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=unproven
+
+// ====
+
+// Barrier separates across CFG blocks.
+func.def @test() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %value = scalar.constant 1 : i32
+  %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  view.store %value, %first_view[0] : i32, view<1xi32>
+  %first_read = view.load %first_view[0] : view<1xi32> -> i32
+  cfg.br ^cut
+^cut:
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  cfg.br ^second_phase
+^second_phase:
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  view.store %value, %second_view[0] : i32, view<1xi32>
+  %second_read = view.load %second_view[0] : view<1xi32> -> i32
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=yes
+
+// ====
+
+// Cyclic phase reversal remains interfering.
+func.def @test(%continue: i1) {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %value = scalar.constant 1 : i32
+  %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  cfg.br ^loop
+^loop:
+  view.store %value, %first_view[0] : i32, view<1xi32>
+  %first_read = view.load %first_view[0] : view<1xi32> -> i32
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  view.store %value, %second_view[0] : i32, view<1xi32>
+  %second_read = view.load %second_view[0] : view<1xi32> -> i32
+  cfg.cond_br %continue, ^loop, ^done
+^done:
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=unproven
+
+// ====
+
+// CFG loop final barrier separates following phase.
+func.def @test() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  %value = scalar.constant 1 : i32
+  %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  cfg.br ^loop(%begin: index)
+^loop(%iteration: index):
+  %continue = index.cmp slt, %iteration, %end : index
+  cfg.cond_br %continue, ^body, ^done
+^body:
+  view.store %value, %first_view[0] : i32, view<1xi32>
+  %first_read = view.load %first_view[0] : view<1xi32> -> i32
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %next = index.add %iteration, %step : index
+  cfg.br ^loop(%next: index)
+^done:
+  view.store %value, %second_view[0] : i32, view<1xi32>
+  %second_read = view.load %second_view[0] : view<1xi32> -> i32
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=yes
+
+// ====
+
+// Nested loop final barrier separates following phase.
+func.def @test() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  %value = scalar.constant 1 : i32
+  %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  scf.for %outer = [%begin to %end step %step] {
+    scf.for %inner = [%begin to %end step %step] {
+      view.store %value, %first_view[0] : i32, view<1xi32>
+      %first_read = view.load %first_view[0] : view<1xi32> -> i32
+    }
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  }
+  view.store %value, %second_view[0] : i32, view<1xi32>
+  %second_read = view.load %second_view[0] : view<1xi32> -> i32
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=yes
+
+// ====
+
+// Structured loop phase reversal remains interfering.
+func.def @test() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  %value = scalar.constant 1 : i32
+  %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  scf.for %iteration = [%begin to %end step %step] {
+    view.store %value, %first_view[0] : i32, view<1xi32>
+    %first_read = view.load %first_view[0] : view<1xi32> -> i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    view.store %value, %second_view[0] : i32, view<1xi32>
+    %second_read = view.load %second_view[0] : view<1xi32> -> i32
+  }
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=unproven
+
+// ====
+
+// CFG joined reference retains every possible root.
+func.def @test() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %condition = scalar.constant 1 : i1
+  %value = scalar.constant 7 : i32
+  %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+  cfg.cond_br %condition, ^first_arm, ^second_arm
+^first_arm:
+  cfg.br ^join(%first: buffer)
+^second_arm:
+  cfg.br ^join(%second: buffer)
+^join(%selected: buffer):
+  %selected_view = buffer.view %selected[%base] : buffer -> view<1xi32>
+  view.store %value, %selected_view[0] : i32, view<1xi32>
+  %selected_read = view.load %selected_view[0] : view<1xi32> -> i32
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=unproven
+
+// ====
+
+// Unknown memory effects remain interfering.
+func.def @test() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %value = scalar.constant 1 : i32
+  %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<1xi32>
+  view.store %value, %first_view[0] : i32, view<1xi32>
+  test.use %first : buffer
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  view.store %value, %second_view[0] : i32, view<1xi32>
+  %second_read = view.load %second_view[0] : view<1xi32> -> i32
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=unproven
+
+// ====
+
+// Async transfer remains live until completing wait.
+func.def @test(%input: buffer) {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 16 : offset
+  %layout = encoding.layout.dense : encoding<layout>
+  %global = buffer.assume.memory_space<global> %input : buffer
+  %source = buffer.view %global[%base] : buffer -> view<16xi8, %layout>
+  %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<16xi8, %layout>
+  %copy = kernel.async.copy %source to %first_view {cache_scope = cu, cache_temporal = regular, direction = global_to_workgroup} : view<16xi8, %layout> to view<16xi8, %layout> -> kernel.async.token
+  %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  kernel.async.wait %group {newer_groups = 0} : kernel.async.group
+  %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  %value = scalar.constant 1 : i32
+  view.store %value, %second_view[0] : i32, view<1xi32>
+  %second_read = view.load %second_view[0] : view<1xi32> -> i32
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=unproven
+
+// ====
+
+// Barrier after async wait ends lifetime.
+func.def @test(%input: buffer) {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 16 : offset
+  %layout = encoding.layout.dense : encoding<layout>
+  %global = buffer.assume.memory_space<global> %input : buffer
+  %source = buffer.view %global[%base] : buffer -> view<16xi8, %layout>
+  %first = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %first_view = buffer.view %first[%base] : buffer -> view<16xi8, %layout>
+  %copy = kernel.async.copy %source to %first_view {cache_scope = cu, cache_temporal = regular, direction = global_to_workgroup} : view<16xi8, %layout> to view<16xi8, %layout> -> kernel.async.token
+  %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
+  kernel.async.wait %group {newer_groups = 0} : kernel.async.group
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %second = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %second_view = buffer.view %second[%base] : buffer -> view<1xi32>
+  %value = scalar.constant 1 : i32
+  view.store %value, %second_view[0] : i32, view<1xi32>
+  %second_read = view.load %second_view[0] : view<1xi32> -> i32
+  func.return
+}
+
+// ----
+first: accessed=yes single_instance=yes
+second: accessed=yes single_instance=yes
+first / second: workgroup_nonoverlap=yes

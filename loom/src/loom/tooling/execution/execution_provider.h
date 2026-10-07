@@ -12,7 +12,6 @@
 #include "iree/base/api.h"
 #include "loom/target/provider.h"
 #include "loom/tooling/execution/execution_backend.h"
-#include "loom/tooling/execution/session.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,8 +21,8 @@ extern "C" {
 typedef struct loom_run_execution_provider_t {
   // Stable provider name used in diagnostics and help text.
   iree_string_view_t name;
-  // Optional target provider contribution reused by compile and check tools.
-  const loom_target_provider_t* target_provider;
+  // Optional complete compiler capability set used by source execution.
+  const loom_target_provider_set_t* compiler_provider_set;
   // Optional execution backend table contributed by this provider.
   const loom_run_execution_backend_t* const* execution_backends;
   // Number of entries in |execution_backends|.
@@ -46,9 +45,9 @@ enum {
 typedef struct loom_run_execution_environment_t {
   // Provider table selected by the linked binary or embedding.
   const loom_run_execution_provider_set_t* provider_set;
-  // Core target provider set assembled once for the environment.
-  loom_target_provider_set_storage_t target_provider_storage;
-  // Core target environment composed from |target_provider_storage|.
+  // Compiler provider set assembled once for the environment.
+  loom_target_provider_set_storage_t compiler_provider_storage;
+  // Core target environment composed from |compiler_provider_storage|.
   loom_target_environment_t target_environment;
   // Execution backend table assembled once for the environment.
   const loom_run_execution_backend_t* execution_backends
@@ -66,18 +65,6 @@ iree_status_t loom_run_execution_environment_initialize(
 
 // Resets |environment| to an empty state. No provider-owned storage is freed.
 void loom_run_execution_environment_deinitialize(
-    loom_run_execution_environment_t* environment);
-
-// Returns a session context-registration callback backed by |environment|.
-loom_run_register_context_callback_t
-loom_run_execution_environment_register_context_callback(
-    loom_run_execution_environment_t* environment);
-
-// Returns a session descriptor-registry callback backed by |environment|. The
-// returned registry view borrows immutable tables owned by |environment| and
-// remains valid until |environment| deinitialization.
-loom_run_initialize_low_descriptor_registry_callback_t
-loom_run_execution_environment_low_descriptor_registry_callback(
     loom_run_execution_environment_t* environment);
 
 // Returns the target environment composed from |environment|'s providers.

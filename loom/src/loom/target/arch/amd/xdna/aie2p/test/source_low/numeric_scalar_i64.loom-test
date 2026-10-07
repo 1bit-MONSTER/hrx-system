@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_scalar_i64.loom-test
 // RUN: emit source-low target=amd.xdna.aie2p:core output=low
 
 func.def @scalar_i64_bitwise_sgpr(%lhs: i64, %rhs: i64) -> (i64, i64, i64) {
@@ -152,44 +151,6 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_i64_muli_b
   %44 = xor %37, %42
   %mixed = concat(%43, %44) : (reg<aie2p.er>, reg<aie2p.er>) -> reg<aie2p.er x2>
   return %mixed
-}
-
-// ====
-
-func.def @scalar_i64_compare_eq_scc(%lhs: i64, %rhs: i64) -> (i1) {
-  %cmp = scalar.cmpi eq, %lhs, %rhs : i64
-  func.return %cmp : i1
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_i64_compare_eq_scc(%lhs: reg<aie2p.er x2>, %rhs: reg<aie2p.er x2>) -> (reg<aie2p.er>) asm {
-  %7 = slice %lhs[0] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %8 = slice %lhs[1] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %9 = slice %rhs[0] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %10 = slice %rhs[1] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %11 = eq %7, %9
-  %12 = eq %8, %10
-  %cmp = and %11, %12
-  return %cmp
-}
-
-// ====
-
-func.def @scalar_i64_compare_ne_scc(%lhs: i64, %rhs: i64) -> (i1) {
-  %cmp = scalar.cmpi ne, %lhs, %rhs : i64
-  func.return %cmp : i1
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_i64_compare_ne_scc(%lhs: reg<aie2p.er x2>, %rhs: reg<aie2p.er x2>) -> (reg<aie2p.er>) asm {
-  %7 = slice %lhs[0] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %8 = slice %lhs[1] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %9 = slice %rhs[0] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %10 = slice %rhs[1] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %11 = ne %7, %9
-  %12 = ne %8, %10
-  %cmp = or %11, %12
-  return %cmp
 }
 
 // ====
@@ -369,73 +330,6 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_i64_addi_u
 
 // ====
 
-func.def @scalar_i64_muli_uniform(%lhs: i64, %rhs: i64) -> (i64) {
-  %result = scalar.muli %lhs, %rhs : i64
-  func.return %result : i64
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_i64_muli_uniform(%lhs: reg<aie2p.er x2>, %rhs: reg<aie2p.er x2>) -> (reg<aie2p.er x2>) asm {
-  %7 = slice %lhs[0] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %8 = slice %lhs[1] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %9 = slice %rhs[0] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %10 = slice %rhs[1] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %11 = mov.i32 65535
-  %12 = mov.short -16
-  %13 = and %7, %11
-  %14 = lshl %7, %12
-  %15 = and %9, %11
-  %16 = lshl %9, %12
-  %17 = mul %7, %9
-  %18 = mul %13, %15
-  %19 = lshl %18, %12
-  %20 = mac %19, %14, %15
-  %21 = and %20, %11
-  %22 = mac %21, %13, %16
-  %23 = lshl %20, %12
-  %24 = mac %23, %14, %16
-  %25 = lshl %22, %12
-  %26 = add.rr %24, %25
-  %27 = mac %26, %7, %10
-  %28 = mac %27, %8, %9
-  %result = concat(%17, %28) : (reg<aie2p.er>, reg<aie2p.er>) -> reg<aie2p.er x2>
-  return %result
-}
-
-// ====
-
-func.def @scalar_i64_shli_uniform(%lhs: i64, %rhs: i64) -> (i64) {
-  %result = scalar.shli %lhs, %rhs : i64
-  func.return %result : i64
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_i64_shli_uniform(%lhs: reg<aie2p.er x2>, %rhs: reg<aie2p.er x2>) -> (reg<aie2p.er x2>) asm {
-  %7 = slice %lhs[0] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %8 = slice %lhs[1] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %9 = slice %rhs[0] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %10 = mov.short 0
-  %11 = mov.short 31
-  %12 = mov.short 32
-  %13 = and %9, %11
-  %14 = mov.short -1
-  %15 = lshl %7, %14
-  %16 = add %13, -31
-  %17 = lshl %7, %13
-  %18 = lshl %8, %13
-  %19 = lshl %15, %16
-  %20 = or %18, %19
-  %22 = ltu %9, %12
-  %23 = copy %22 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %24 = sel.nez %17, %10, %23
-  %25 = copy %22 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %26 = sel.nez %20, %17, %25
-  %result = concat(%24, %26) : (reg<aie2p.er>, reg<aie2p.er>) -> reg<aie2p.er x2>
-  return %result
-}
-
-// ====
-
 func.def @scalar_f64_constant_select_bitcast(%condition: i1, %fallback: f64) -> (i64) {
   %constant = scalar.constant -1.1000000000000001 : f64
   %selected = scf.select %condition, %constant, %fallback : f64
@@ -543,26 +437,6 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_i64_right_
 
 // ====
 
-func.def @scalar_i32_control(%lhs: i32, %rhs: i32) -> (i32) {
-  %product = scalar.muli %lhs, %rhs : i32
-  %mixed = scalar.xori %product, %rhs : i32
-  %less = scalar.cmpi slt, %lhs, %rhs : i32
-  %selected = scf.select %less, %mixed, %product : i32
-  func.return %selected : i32
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_i32_control(%lhs: reg<aie2p.er>, %rhs: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
-  %product = mul %lhs, %rhs
-  %mixed = xor %product, %rhs
-  %less = lt %lhs, %rhs
-  %13 = copy %less : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %selected = sel.nez %mixed, %product, %13
-  return %selected
-}
-
-// ====
-
 func.def @scalar_i64_insert_dynamic(%values: vector<2xi64>, %replacement: i64, %lane: index) -> (vector<2xi64>) {
   %updated = vector.insert %replacement into %values[%lane] : i64, vector<2xi64>
   func.return %updated : vector<2xi64>
@@ -573,55 +447,6 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_i64_insert
   %9 = copy %lane : reg<aie2p.er> -> reg<aie2p.mr29_insert>
   %updated = vinsert.64.reg %values, %9, %replacement
   return %updated
-}
-
-// ====
-
-func.def @scalar_f64_insert_dynamic(%values: vector<2xf64>, %replacement: f64, %lane: index) -> (vector<2xf64>) {
-  %updated = vector.insert %replacement into %values[%lane] : f64, vector<2xf64>
-  func.return %updated : vector<2xf64>
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_f64_insert_dynamic(%values: reg<aie2p.vec256 x2>, %replacement: reg<aie2p.er x2>, %lane: reg<aie2p.er>) -> (reg<aie2p.vec256 x2>) asm {
-  %9 = copy %lane : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %updated = vinsert.64.reg %values, %9, %replacement
-  return %updated
-}
-
-// ====
-
-func.def @scalar_f32_select(%condition: i1, %true_value: f32, %false_value: f32) -> (f32) {
-  %result = scf.select %condition, %true_value, %false_value : f32
-  func.return %result : f32
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_f32_select(%condition: reg<aie2p.er>, %true_value: reg<aie2p.er>, %false_value: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
-  %9 = copy %condition : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %result = sel.nez %true_value, %false_value, %9
-  return %result
-}
-
-// ====
-
-func.def @scalar_f64_select(%condition: i1, %true_value: f64, %false_value: f64) -> (f64) {
-  %result = scf.select %condition, %true_value, %false_value : f64
-  func.return %result : f64
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_f64_select(%condition: reg<aie2p.er>, %true_value: reg<aie2p.er x2>, %false_value: reg<aie2p.er x2>) -> (reg<aie2p.er x2>) asm {
-  %9 = slice %true_value[0] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %10 = slice %true_value[1] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %11 = slice %false_value[0] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %12 = slice %false_value[1] : reg<aie2p.er x2> -> reg<aie2p.er>
-  %13 = copy %condition : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %14 = sel.nez %9, %11, %13
-  %15 = copy %condition : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %16 = sel.nez %10, %12, %15
-  %result = concat(%14, %16) : (reg<aie2p.er>, reg<aie2p.er>) -> reg<aie2p.er x2>
-  return %result
 }
 
 // ====

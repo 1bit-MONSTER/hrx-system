@@ -7,7 +7,7 @@
 """Native vector comparisons, fused extrema and predicate storage views."""
 
 from loom.target.arch.amd.xdna.aie2p.core_descriptor_spec import _DescriptorSpec
-from loom.target.low_descriptors import RegisterPart
+from loom.target.low_descriptors import DescriptorOpKind, RegisterPart
 
 _TARGET_KEY = "amd.xdna.aie2p"
 _EL_LOW32_PART = "aie2p.elpredicate.low32"
@@ -37,6 +37,32 @@ INTEGER_EXTREMA_DESCRIPTOR_SPECS = (
 )
 
 PREDICATE_DESCRIPTOR_SPECS = (
+    # MOVXM can define either scalar word of an allocatable predicate carrier.
+    # The low word begins the value; the high word completes it while retaining
+    # the low word as a tied storage continuation.
+    _DescriptorSpec(
+        "MOVXM",
+        f"{_TARGET_KEY}.constant.i32.predicate.low32",
+        "integer.const.i32.predicate.low32",
+        "II_MOVXM_eR",
+        storage_overrides=(("dst", "eLPredicate"),),
+        op_kind=DescriptorOpKind.CONST,
+        asm_mnemonic="predicate.constant.low32",
+        operand_register_parts=(("dst", _EL_LOW32_PART),),
+        encoding_adapter_overrides=(("dst", "LOOM_eL_low32_OP_mMvSclDstCg"),),
+    ),
+    _DescriptorSpec(
+        "MOVXM",
+        f"{_TARGET_KEY}.predicate.complete.constant.high32",
+        "integer.predicate.complete.constant.high32",
+        "II_MOVXM_eR",
+        storage_overrides=(("dst", "eLPredicate"),),
+        asm_mnemonic="predicate.complete.constant.high32",
+        operand_register_parts=(("dst", _EL_HIGH32_PART),),
+        encoding_adapter_overrides=(("dst", "LOOM_eL_high32_OP_mMvSclDstCg"),),
+        storage_continuation_part=_EL_LOW32_PART,
+        rematerializable=True,
+    ),
     # Scalar AND reads either 32-bit word through its physical eR alias.
     *(
         _DescriptorSpec(
@@ -48,6 +74,33 @@ PREDICATE_DESCRIPTOR_SPECS = (
             asm_mnemonic=f"predicate.mask.{word}",
             operand_register_parts=(("s0", register_part),),
             encoding_adapter_overrides=(("s0", f"LOOM_eL_{word}"),),
+        )
+        for word, register_part in (
+            ("low32", _EL_LOW32_PART),
+            ("high32", _EL_HIGH32_PART),
+        )
+    ),
+    # Scalar AND projects either source predicate word into the low word of a
+    # fresh carrier when trimming undefined tail bits before composition.
+    *(
+        _DescriptorSpec(
+            "AND",
+            f"{_TARGET_KEY}.predicate.mask.{word}.to.low32",
+            f"integer.predicate.mask.{word}",
+            "II_AND",
+            storage_overrides=(
+                ("d0", "eLPredicate"),
+                ("s0", "eLPredicate"),
+            ),
+            asm_mnemonic=f"predicate.mask.{word}.to.low32",
+            operand_register_parts=(
+                ("d0", _EL_LOW32_PART),
+                ("s0", register_part),
+            ),
+            encoding_adapter_overrides=(
+                ("d0", "LOOM_eL_low32"),
+                ("s0", f"LOOM_eL_{word}"),
+            ),
         )
         for word, register_part in (
             ("low32", _EL_LOW32_PART),
@@ -81,6 +134,60 @@ PREDICATE_DESCRIPTOR_SPECS = (
             ("low32", _EL_LOW32_PART),
             ("high32", _EL_HIGH32_PART),
         )
+    ),
+    # The same scalar shift can write the odd scalar register backing the high
+    # predicate word. The low word is an explicit storage continuation so the
+    # result remains one complete eL carrier.
+    *(
+        _DescriptorSpec(
+            "LSHL",
+            f"{_TARGET_KEY}.predicate.shift.{word}.to.high32",
+            "integer.lshl.i32",
+            "II_LSHL",
+            storage_overrides=(
+                ("d0", "eLPredicate"),
+                ("s0", "eLPredicate"),
+            ),
+            asm_mnemonic=f"predicate.shift.{word}.to.high32",
+            operand_register_parts=(
+                ("d0", _EL_HIGH32_PART),
+                ("s0", register_part),
+            ),
+            encoding_adapter_overrides=(
+                ("d0", "LOOM_eL_high32"),
+                ("s0", f"LOOM_eL_{word}"),
+            ),
+            storage_continuation_part=_EL_LOW32_PART,
+        )
+        for word, register_part in (
+            ("low32", _EL_LOW32_PART),
+            ("high32", _EL_HIGH32_PART),
+        )
+    ),
+    # Scalar OR can compose two independently shifted low predicate words into
+    # the high word while consuming the low-word storage exactly once.
+    _DescriptorSpec(
+        "OR",
+        f"{_TARGET_KEY}.predicate.or.low32.to.high32",
+        "integer.predicate.or.low32.to.high32",
+        "II_OR",
+        storage_overrides=(
+            ("d0", "eLPredicate"),
+            ("s0", "eLPredicate"),
+            ("s1", "eLPredicate"),
+        ),
+        asm_mnemonic="predicate.or.low32.to.high32",
+        operand_register_parts=(
+            ("d0", _EL_HIGH32_PART),
+            ("s0", _EL_LOW32_PART),
+            ("s1", _EL_LOW32_PART),
+        ),
+        encoding_adapter_overrides=(
+            ("d0", "LOOM_eL_high32"),
+            ("s0", "LOOM_eL_low32"),
+            ("s1", "LOOM_eL_low32"),
+        ),
+        storage_continuation_part=_EL_LOW32_PART,
     ),
     _DescriptorSpec(
         "VEQZ_8",

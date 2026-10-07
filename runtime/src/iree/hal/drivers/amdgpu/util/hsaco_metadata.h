@@ -120,7 +120,8 @@ typedef struct iree_hal_amdgpu_hsaco_metadata_t {
   iree_allocator_t host_allocator;
   // Borrowed ELF bytes used as the source of all string views.
   iree_const_byte_span_t elf_data;
-  // Borrowed AMDGPU MessagePack note descriptor payload.
+  // Borrowed descriptor payload of the first AMDGPU MessagePack metadata note.
+  // Kernel and argument records include all metadata notes in the ELF.
   iree_const_byte_span_t message_pack_data;
   // Borrowed target ISA string from `amdhsa.target`, if present.
   iree_string_view_t target;
@@ -145,7 +146,7 @@ typedef struct iree_hal_amdgpu_hsaco_metadata_t {
 
 // Initializes |out_metadata| from a raw AMDGPU ELF code object.
 //
-// This locates the `AMDGPU`/`NT_AMDGPU_METADATA` note and decodes only the
+// This locates all `AMDGPU`/`NT_AMDGPU_METADATA` notes and decodes only the
 // fields needed for kernel argument reflection. The parser accepts a normal
 // LLVM-produced 64-bit little-endian AMDGPU ELF. It intentionally does not
 // implement HIP fat binary, clang offload bundle, or compressed code object

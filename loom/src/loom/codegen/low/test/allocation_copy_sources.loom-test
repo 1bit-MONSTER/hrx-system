@@ -1,0 +1,39 @@
+// Ordered physical views, not numeric base arithmetic, define aligned units.
+// RUN: emit low-allocation-json @aligned_view diagnostics=placement-decisions fixed=%left:physical_register:0:1 fixed=%right:physical_register:2:1 fixed=%saved_left:physical_register:1:1 fixed=%saved_right:physical_register:3:1 fixed=%returned:physical_register:4:2 output=none
+
+test.target<low_core> @target
+
+low.func.def schedule(locked) target<test.low.core>(@target) @aligned_view(%left: reg<test.explicit32>, %right: reg<test.explicit32>) -> (reg<test.explicit32 x2>, reg<test.explicit32>, reg<test.explicit32>) asm {
+  // REMARK@+1: BACKEND/043 {source_value_name="left", result_value_name="saved_left"}
+  %saved_left = copy %left : reg<test.explicit32> -> reg<test.explicit32>
+  // REMARK@+1: BACKEND/043 {source_value_name="right", result_value_name="saved_right"}
+  %saved_right = copy %right : reg<test.explicit32> -> reg<test.explicit32>
+  // REMARK@+2: BACKEND/043 {source_value_name="left", result_value_name="pair", source_unit_offset="0", result_unit_offset="0", unit_count="1"}
+  // REMARK@+1: BACKEND/043 {source_value_name="right", result_value_name="pair", source_unit_offset="0", result_unit_offset="1", unit_count="1"}
+  %pair = concat(%left, %right) : (reg<test.explicit32>, reg<test.explicit32>) -> reg<test.explicit32 x2>
+  // REMARK@+1: BACKEND/043 {source_value_name="pair", result_value_name="returned"}
+  low.br ^exit(%pair: reg<test.explicit32 x2>)
+^exit(%returned: reg<test.explicit32 x2>):
+  return %returned, %saved_left, %saved_right
+}
+
+// ====
+
+// The same declared view requires transfers when its component order differs.
+// RUN: emit low-allocation-json @swapped_view diagnostics=placement-decisions fixed=%left:physical_register:2:1 fixed=%right:physical_register:0:1 fixed=%saved_left:physical_register:1:1 fixed=%saved_right:physical_register:3:1 fixed=%returned:physical_register:4:2 output=none
+
+test.target<low_core> @target
+
+low.func.def schedule(locked) target<test.low.core>(@target) @swapped_view(%left: reg<test.explicit32>, %right: reg<test.explicit32>) -> (reg<test.explicit32 x2>, reg<test.explicit32>, reg<test.explicit32>) asm {
+  // REMARK@+1: BACKEND/043 {source_value_name="left", result_value_name="saved_left"}
+  %saved_left = copy %left : reg<test.explicit32> -> reg<test.explicit32>
+  // REMARK@+1: BACKEND/043 {source_value_name="right", result_value_name="saved_right"}
+  %saved_right = copy %right : reg<test.explicit32> -> reg<test.explicit32>
+  // REMARK@+2: BACKEND/043 {source_value_name="saved_left", result_value_name="pair", source_unit_offset="0", result_unit_offset="0", unit_count="1"}
+  // REMARK@+1: BACKEND/043 {source_value_name="saved_right", result_value_name="pair", source_unit_offset="0", result_unit_offset="1", unit_count="1"}
+  %pair = concat(%left, %right) : (reg<test.explicit32>, reg<test.explicit32>) -> reg<test.explicit32 x2>
+  // REMARK@+1: BACKEND/043 {source_value_name="pair", result_value_name="returned"}
+  low.br ^exit(%pair: reg<test.explicit32 x2>)
+^exit(%returned: reg<test.explicit32 x2>):
+  return %returned, %saved_left, %saved_right
+}

@@ -20,6 +20,14 @@ const loom_pass_info_t* loom_project_boundary_representations_pass_info(void);
 iree_status_t loom_project_boundary_representations_run(loom_pass_t* pass,
                                                         loom_module_t* module);
 
+// Projects structured loop state before CFG conversion removes LoopLike
+// boundaries.
+const loom_pass_info_t* loom_project_loop_boundary_representations_pass_info(
+    void);
+
+iree_status_t loom_project_loop_boundary_representations_run(
+    loom_pass_t* pass, loom_module_t* module);
+
 #ifdef __cplusplus
 }
 #endif

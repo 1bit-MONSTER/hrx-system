@@ -10,14 +10,14 @@
 
 void loom_configured_low_descriptor_registry_initialize(
     loom_target_low_descriptor_registry_t* out_registry) {
-  IREE_CHECK_OK(loom_target_environment_initialize_low_descriptor_registry(
-      loom_configured_target_environment(), out_registry));
+  *out_registry = loom_target_environment_low_descriptor_registry(
+      loom_configured_target_environment());
 }
 
 void loom_configured_low_lower_policy_registry_initialize(
     loom_low_lower_policy_registry_t* out_registry) {
-  IREE_CHECK_OK(loom_target_environment_initialize_low_lower_policy_registry(
-      loom_configured_target_environment(), out_registry));
+  *out_registry = loom_target_environment_low_lower_policy_registry(
+      loom_configured_target_environment());
 }
 
 loom_target_low_legality_provider_list_t

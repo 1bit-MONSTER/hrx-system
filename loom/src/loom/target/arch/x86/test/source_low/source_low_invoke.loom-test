@@ -1,7 +1,7 @@
 // RUN: emit source-low output=low
 
-// x86 has no Low call ABI, so its target policy flattens an ordinary
-// low.invoke after source-to-Low normalizes the edge to low.func.call.
+// Source invocation preserves the native callable boundary after translating
+// semantic operands to the callee's Low register representation.
 x86.target<scalar> @target
 
 low.func.def target<x86.scalar.core>(@target) @identity(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
@@ -14,14 +14,18 @@ func.def target(@target) @caller(%value: i32) -> (i32) {
 }
 
 // ----
-low.func.def target<x86.scalar.core>(@target) abi(object_function) @caller(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+low.func.def target<x86.scalar.core>(@target) @identity(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
   return %value
+}
+
+low.func.def target<x86.scalar.core>(@target) abi(object_function) @caller(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %result = low.func.call @identity(%value) : (reg<x86.gpr32>) -> (reg<x86.gpr32>)
+  return %result
 }
 
 // ====
 
-// A user-authored noinline boundary conflicts with x86 emission rather than
-// silently leaving an unsupported Low call in the output.
+// An authored noinline boundary survives source normalization unchanged.
 x86.target<scalar> @target
 
 low.func.def target<x86.scalar.core>(@target) @identity(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
@@ -29,7 +33,16 @@ low.func.def target<x86.scalar.core>(@target) @identity(%value: reg<x86.gpr32>) 
 }
 
 func.def target(@target) @noinline_caller(%value: i32) -> (i32) {
-  // ERROR@+1: LOWERING/044 {op_name="low.func.call", phase_name="inline-callables", callee_name="identity", failure_code="target_requires_inline"}
   %result = low.invoke noinline @identity(%value) : (i32) -> (i32)
   func.return %result : i32
+}
+
+// ----
+low.func.def target<x86.scalar.core>(@target) @identity(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  return %value
+}
+
+low.func.def target<x86.scalar.core>(@target) abi(object_function) @noinline_caller(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %result = low.func.call noinline @identity(%value) : (reg<x86.gpr32>) -> (reg<x86.gpr32>)
+  return %result
 }

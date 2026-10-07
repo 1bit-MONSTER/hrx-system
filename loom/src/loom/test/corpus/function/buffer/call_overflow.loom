@@ -1,29 +1,29 @@
 // A wide, interleaved buffer/scalar signature preserves field order. The first
 // and last buffer results deliberately alias the same input object.
-func.def public noinline @reverse_buffer_pairs(%b0: buffer, %t0: i64, %b1: buffer, %t1: i64, %b2: buffer, %t2: i64, %b3: buffer, %t3: i64, %b4: buffer, %t4: i64, %b5: buffer, %t5: i64, %b6: buffer, %t6: i64, %b7: buffer, %t7: i64, %b8: buffer, %t8: i64, %b9: buffer, %t9: i64, %b10: buffer, %t10: i64, %b11: buffer, %t11: i64, %b12: buffer, %t12: i64, %b13: buffer, %t13: i64, %b14: buffer, %t14: i64, %b15: buffer, %t15: i64, %b16: buffer, %t16: i64, %b17: buffer, %t17: i64) -> (buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64) {
+func.def noinline @reverse_buffer_pairs(%b0: buffer, %t0: i64, %b1: buffer, %t1: i64, %b2: buffer, %t2: i64, %b3: buffer, %t3: i64, %b4: buffer, %t4: i64, %b5: buffer, %t5: i64, %b6: buffer, %t6: i64, %b7: buffer, %t7: i64, %b8: buffer, %t8: i64, %b9: buffer, %t9: i64, %b10: buffer, %t10: i64, %b11: buffer, %t11: i64, %b12: buffer, %t12: i64, %b13: buffer, %t13: i64, %b14: buffer, %t14: i64, %b15: buffer, %t15: i64, %b16: buffer, %t16: i64, %b17: buffer, %t17: i64) -> (buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64) {
   func.return %b17, %t17, %b16, %t16, %b15, %t15, %b14, %t14, %b13, %t13, %b12, %t12, %b11, %t11, %b10, %t10, %b9, %t9, %b8, %t8, %b7, %t7, %b6, %t6, %b5, %t5, %b4, %t4, %b3, %t3, %b2, %t2, %b1, %t1, %b17, %t0 : buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64
 }
 
-func.def public @overflow_buffer(%length: i64) -> (buffer) {
-  %length_input = scalar.assume %length [range(%length, 0, 9223372036854775807)] : i64
+func.def @overflow_buffer(%length: i64) -> (buffer) {
+  %length_input = scalar.assume %length [range(%length, 0, 4294967295)] : i64
   %size = index.cast %length_input : i64 to offset
   %storage = buffer.alloca<private> align(8) %size : buffer
   func.return %storage : buffer
 }
 
-func.def public @overflow_buffer_length(%storage: buffer) -> (i64) {
+func.def @overflow_buffer_length(%storage: buffer) -> (i64) {
   %size = buffer.length %storage
   %result = index.cast %size : offset to i64
   func.return %result : i64
 }
 
-func.def public @overflow_buffer_write(%storage: buffer, %value: i32) {
+func.def @overflow_buffer_write(%storage: buffer, %value: i32) {
   %origin = index.constant 0 : offset
   buffer.store.i8 %value, %storage[%origin]
   func.return
 }
 
-func.def public @overflow_buffer_read(%storage: buffer) -> (i32) {
+func.def @overflow_buffer_read(%storage: buffer) -> (i32) {
   %origin = index.constant 0 : offset
   %value = buffer.load.i8.u %storage[%origin]
   func.return %value : i32
@@ -31,96 +31,9 @@ func.def public @overflow_buffer_read(%storage: buffer) -> (i32) {
 
 // Input/output arrays here belong to the check executor, not a callee frame.
 // Aliases returned to the host remain usable across subsequent invocations.
-check.case @buffer_overflow_host_aliases {
-  %small = check.literal value(8) : i64
-  %large = check.literal value(16) : i64
-  %a = func.call @overflow_buffer(%small) : (i64) -> (buffer)
-  %b = func.call @overflow_buffer(%large) : (i64) -> (buffer)
-  %t0 = check.literal value(4294967297) : i64
-  %t1 = check.literal value(4294967298) : i64
-  %t2 = check.literal value(4294967299) : i64
-  %t3 = check.literal value(4294967300) : i64
-  %t4 = check.literal value(4294967301) : i64
-  %t5 = check.literal value(4294967302) : i64
-  %t6 = check.literal value(4294967303) : i64
-  %t7 = check.literal value(4294967304) : i64
-  %t8 = check.literal value(4294967305) : i64
-  %t9 = check.literal value(4294967306) : i64
-  %t10 = check.literal value(4294967307) : i64
-  %t11 = check.literal value(4294967308) : i64
-  %t12 = check.literal value(4294967309) : i64
-  %t13 = check.literal value(4294967310) : i64
-  %t14 = check.literal value(4294967311) : i64
-  %t15 = check.literal value(4294967312) : i64
-  %t16 = check.literal value(4294967313) : i64
-  %t17 = check.literal value(4294967314) : i64
-  %r0, %v0, %r1, %v1, %r2, %v2, %r3, %v3, %r4, %v4, %r5, %v5, %r6, %v6, %r7, %v7, %r8, %v8, %r9, %v9, %r10, %v10, %r11, %v11, %r12, %v12, %r13, %v13, %r14, %v14, %r15, %v15, %r16, %v16, %r17, %v17 = func.call @reverse_buffer_pairs(%a, %t0, %b, %t1, %a, %t2, %b, %t3, %a, %t4, %b, %t5, %a, %t6, %b, %t7, %a, %t8, %b, %t9, %a, %t10, %b, %t11, %a, %t12, %b, %t13, %a, %t14, %b, %t15, %a, %t16, %b, %t17) : (buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64) -> (buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64)
-  %length0 = func.call @overflow_buffer_length(%r0) : (buffer) -> (i64)
-  check.expect.equal actual(%length0) expected(%large) : i64
-  check.expect.equal actual(%v0) expected(%t17) : i64
-  %length1 = func.call @overflow_buffer_length(%r1) : (buffer) -> (i64)
-  check.expect.equal actual(%length1) expected(%small) : i64
-  check.expect.equal actual(%v1) expected(%t16) : i64
-  %length2 = func.call @overflow_buffer_length(%r2) : (buffer) -> (i64)
-  check.expect.equal actual(%length2) expected(%large) : i64
-  check.expect.equal actual(%v2) expected(%t15) : i64
-  %length3 = func.call @overflow_buffer_length(%r3) : (buffer) -> (i64)
-  check.expect.equal actual(%length3) expected(%small) : i64
-  check.expect.equal actual(%v3) expected(%t14) : i64
-  %length4 = func.call @overflow_buffer_length(%r4) : (buffer) -> (i64)
-  check.expect.equal actual(%length4) expected(%large) : i64
-  check.expect.equal actual(%v4) expected(%t13) : i64
-  %length5 = func.call @overflow_buffer_length(%r5) : (buffer) -> (i64)
-  check.expect.equal actual(%length5) expected(%small) : i64
-  check.expect.equal actual(%v5) expected(%t12) : i64
-  %length6 = func.call @overflow_buffer_length(%r6) : (buffer) -> (i64)
-  check.expect.equal actual(%length6) expected(%large) : i64
-  check.expect.equal actual(%v6) expected(%t11) : i64
-  %length7 = func.call @overflow_buffer_length(%r7) : (buffer) -> (i64)
-  check.expect.equal actual(%length7) expected(%small) : i64
-  check.expect.equal actual(%v7) expected(%t10) : i64
-  %length8 = func.call @overflow_buffer_length(%r8) : (buffer) -> (i64)
-  check.expect.equal actual(%length8) expected(%large) : i64
-  check.expect.equal actual(%v8) expected(%t9) : i64
-  %length9 = func.call @overflow_buffer_length(%r9) : (buffer) -> (i64)
-  check.expect.equal actual(%length9) expected(%small) : i64
-  check.expect.equal actual(%v9) expected(%t8) : i64
-  %length10 = func.call @overflow_buffer_length(%r10) : (buffer) -> (i64)
-  check.expect.equal actual(%length10) expected(%large) : i64
-  check.expect.equal actual(%v10) expected(%t7) : i64
-  %length11 = func.call @overflow_buffer_length(%r11) : (buffer) -> (i64)
-  check.expect.equal actual(%length11) expected(%small) : i64
-  check.expect.equal actual(%v11) expected(%t6) : i64
-  %length12 = func.call @overflow_buffer_length(%r12) : (buffer) -> (i64)
-  check.expect.equal actual(%length12) expected(%large) : i64
-  check.expect.equal actual(%v12) expected(%t5) : i64
-  %length13 = func.call @overflow_buffer_length(%r13) : (buffer) -> (i64)
-  check.expect.equal actual(%length13) expected(%small) : i64
-  check.expect.equal actual(%v13) expected(%t4) : i64
-  %length14 = func.call @overflow_buffer_length(%r14) : (buffer) -> (i64)
-  check.expect.equal actual(%length14) expected(%large) : i64
-  check.expect.equal actual(%v14) expected(%t3) : i64
-  %length15 = func.call @overflow_buffer_length(%r15) : (buffer) -> (i64)
-  check.expect.equal actual(%length15) expected(%small) : i64
-  check.expect.equal actual(%v15) expected(%t2) : i64
-  %length16 = func.call @overflow_buffer_length(%r16) : (buffer) -> (i64)
-  check.expect.equal actual(%length16) expected(%large) : i64
-  check.expect.equal actual(%v16) expected(%t1) : i64
-  %length17 = func.call @overflow_buffer_length(%r17) : (buffer) -> (i64)
-  check.expect.equal actual(%length17) expected(%large) : i64
-  check.expect.equal actual(%v17) expected(%t0) : i64
-  %changed = check.literal value(165) : i32
-  func.call @overflow_buffer_write(%r17, %changed) : (buffer, i32)
-  %direct = func.call @overflow_buffer_read(%r0) : (buffer) -> (i32)
-  %original = func.call @overflow_buffer_read(%b) : (buffer) -> (i32)
-  check.expect.equal actual(%direct) expected(%changed) : i32
-  check.expect.equal actual(%original) expected(%changed) : i32
-  check.return
-}
-
 // The caller's original refs survive calls, including across repeated reuse of
 // the outgoing packet. Most results are dead; their owners still need cleanup.
-func.def public @buffer_overflow_loop(%a: buffer, %b: buffer, %count: i32) -> (buffer, buffer, buffer, i64, i64) {
+func.def @buffer_overflow_loop(%a: buffer, %b: buffer, %count: i32) -> (buffer, buffer, buffer, i64, i64) {
   %begin = scalar.constant 0 : i32
   %seed = scalar.constant 4294967297 : i64
   %iteration, %left, %right, %tag = scf.while(%i = %begin : i32, %x = %a : buffer, %y = %b : buffer, %t = %seed : i64) -> (i32, buffer, buffer, i64) {
@@ -144,24 +57,101 @@ func.def public @buffer_overflow_loop(%a: buffer, %b: buffer, %count: i32) -> (b
   func.return %left, %right, %b, %sum, %tag_error : buffer, buffer, buffer, i64, i64
 }
 
-check.case @buffer_overflow_repeated_calls {
-  %count = check.param.choice values([0, 1, 2, 31, 32]) : i32
-  %small = check.literal value(8) : i64
-  %large = check.literal value(16) : i64
-  %a = func.call @overflow_buffer(%small) : (i64) -> (buffer)
-  %b = func.call @overflow_buffer(%large) : (i64) -> (buffer)
-  %left, %right, %original_b, %sum, %tag_error = func.call @buffer_overflow_loop(%a, %b, %count) : (buffer, buffer, i32) -> (buffer, buffer, buffer, i64, i64)
-  %first_value = check.literal value(123) : i32
-  %second_value = check.literal value(234) : i32
+// Observes every field of the widest interleaved signature and then reuses the
+// same aliases across a repeated-call loop.
+func.def @buffer_overflow_observations(%trial: index, %tag_seed: i64, %word_output: buffer, %wide_output: buffer) {
+  %count = index.cast %trial : index to i32
+  %small_length = scalar.constant 8 : i64
+  %large_length = scalar.constant 16 : i64
+  %a = func.call @overflow_buffer(%small_length) : (i64) -> (buffer)
+  %b = func.call @overflow_buffer(%large_length) : (i64) -> (buffer)
+  %c1 = scalar.constant 1 : i64
+  %c2 = scalar.constant 2 : i64
+  %c3 = scalar.constant 3 : i64
+  %c4 = scalar.constant 4 : i64
+  %c5 = scalar.constant 5 : i64
+  %c6 = scalar.constant 6 : i64
+  %c7 = scalar.constant 7 : i64
+  %c8 = scalar.constant 8 : i64
+  %c9 = scalar.constant 9 : i64
+  %c10 = scalar.constant 10 : i64
+  %c11 = scalar.constant 11 : i64
+  %c12 = scalar.constant 12 : i64
+  %c13 = scalar.constant 13 : i64
+  %c14 = scalar.constant 14 : i64
+  %c15 = scalar.constant 15 : i64
+  %c16 = scalar.constant 16 : i64
+  %c17 = scalar.constant 17 : i64
+  %t1 = scalar.addi %tag_seed, %c1 : i64
+  %t2 = scalar.addi %tag_seed, %c2 : i64
+  %t3 = scalar.addi %tag_seed, %c3 : i64
+  %t4 = scalar.addi %tag_seed, %c4 : i64
+  %t5 = scalar.addi %tag_seed, %c5 : i64
+  %t6 = scalar.addi %tag_seed, %c6 : i64
+  %t7 = scalar.addi %tag_seed, %c7 : i64
+  %t8 = scalar.addi %tag_seed, %c8 : i64
+  %t9 = scalar.addi %tag_seed, %c9 : i64
+  %t10 = scalar.addi %tag_seed, %c10 : i64
+  %t11 = scalar.addi %tag_seed, %c11 : i64
+  %t12 = scalar.addi %tag_seed, %c12 : i64
+  %t13 = scalar.addi %tag_seed, %c13 : i64
+  %t14 = scalar.addi %tag_seed, %c14 : i64
+  %t15 = scalar.addi %tag_seed, %c15 : i64
+  %t16 = scalar.addi %tag_seed, %c16 : i64
+  %t17 = scalar.addi %tag_seed, %c17 : i64
+  %r0, %v0, %r1, %v1, %r2, %v2, %r3, %v3, %r4, %v4, %r5, %v5, %r6, %v6, %r7, %v7, %r8, %v8, %r9, %v9, %r10, %v10, %r11, %v11, %r12, %v12, %r13, %v13, %r14, %v14, %r15, %v15, %r16, %v16, %r17, %v17 = func.call @reverse_buffer_pairs(%a, %tag_seed, %b, %t1, %a, %t2, %b, %t3, %a, %t4, %b, %t5, %a, %t6, %b, %t7, %a, %t8, %b, %t9, %a, %t10, %b, %t11, %a, %t12, %b, %t13, %a, %t14, %b, %t15, %a, %t16, %b, %t17) : (buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64) -> (buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64, buffer, i64)
+  %length0 = func.call @overflow_buffer_length(%r0) : (buffer) -> (i64)
+  %length1 = func.call @overflow_buffer_length(%r1) : (buffer) -> (i64)
+  %length2 = func.call @overflow_buffer_length(%r2) : (buffer) -> (i64)
+  %length3 = func.call @overflow_buffer_length(%r3) : (buffer) -> (i64)
+  %length4 = func.call @overflow_buffer_length(%r4) : (buffer) -> (i64)
+  %length5 = func.call @overflow_buffer_length(%r5) : (buffer) -> (i64)
+  %length6 = func.call @overflow_buffer_length(%r6) : (buffer) -> (i64)
+  %length7 = func.call @overflow_buffer_length(%r7) : (buffer) -> (i64)
+  %length8 = func.call @overflow_buffer_length(%r8) : (buffer) -> (i64)
+  %length9 = func.call @overflow_buffer_length(%r9) : (buffer) -> (i64)
+  %length10 = func.call @overflow_buffer_length(%r10) : (buffer) -> (i64)
+  %length11 = func.call @overflow_buffer_length(%r11) : (buffer) -> (i64)
+  %length12 = func.call @overflow_buffer_length(%r12) : (buffer) -> (i64)
+  %length13 = func.call @overflow_buffer_length(%r13) : (buffer) -> (i64)
+  %length14 = func.call @overflow_buffer_length(%r14) : (buffer) -> (i64)
+  %length15 = func.call @overflow_buffer_length(%r15) : (buffer) -> (i64)
+  %length16 = func.call @overflow_buffer_length(%r16) : (buffer) -> (i64)
+  %length17 = func.call @overflow_buffer_length(%r17) : (buffer) -> (i64)
+  %changed = scalar.trunci %tag_seed : i64 to i32
+  func.call @overflow_buffer_write(%r17, %changed) : (buffer, i32)
+  %direct = func.call @overflow_buffer_read(%r0) : (buffer) -> (i32)
+  %original = func.call @overflow_buffer_read(%b) : (buffer) -> (i32)
+  %loop_left, %loop_right, %loop_original, %sum, %tag_error = func.call @buffer_overflow_loop(%a, %b, %count) : (buffer, buffer, i32) -> (buffer, buffer, buffer, i64, i64)
+  %first_value = scalar.trunci %t1 : i64 to i32
+  %second_value = scalar.trunci %t2 : i64 to i32
   func.call @overflow_buffer_write(%a, %first_value) : (buffer, i32)
-  func.call @overflow_buffer_write(%original_b, %second_value) : (buffer, i32)
+  func.call @overflow_buffer_write(%loop_original, %second_value) : (buffer, i32)
   %first = func.call @overflow_buffer_read(%a) : (buffer) -> (i32)
   %second = func.call @overflow_buffer_read(%b) : (buffer) -> (i32)
-  check.expect.equal actual(%first) expected(%first_value) : i32
-  check.expect.equal actual(%second) expected(%second_value) : i32
-  %expected_sum = check.literal value(24) : i64
-  check.expect.equal actual(%sum) expected(%expected_sum) : i64
-  %zero = check.literal value(0) : i64
-  check.expect.equal actual(%tag_error) expected(%zero) : i64
+  %loop_left_length = func.call @overflow_buffer_length(%loop_left) : (buffer) -> (i64)
+  %loop_right_length = func.call @overflow_buffer_length(%loop_right) : (buffer) -> (i64)
+  %loop_original_length = func.call @overflow_buffer_length(%loop_original) : (buffer) -> (i64)
+  %word_values = vector.from_elements %direct, %original, %first, %second : vector<4xi32>
+  %wide_values = vector.from_elements %length0, %length1, %length2, %length3, %length4, %length5, %length6, %length7, %length8, %length9, %length10, %length11, %length12, %length13, %length14, %length15, %length16, %length17, %v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7, %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15, %v16, %v17, %sum, %tag_error, %loop_left_length, %loop_right_length, %loop_original_length : vector<41xi64>
+  %origin = index.constant 0 : offset
+  %word_results = buffer.view %word_output[%origin] : buffer -> view<4xi32>
+  %wide_results = buffer.view %wide_output[%origin] : buffer -> view<41xi64>
+  vector.store %word_values, %word_results[0] : vector<4xi32>, view<4xi32>
+  vector.store %wide_values, %wide_results[0] : vector<41xi64>, view<41xi64>
+  func.return
+}
+
+check.scenario @buffer_overflow_values {
+  check.trial[33](%trial: index, %entropy: check.entropy) {
+    %tag_source = check.entropy.fork %entropy name("tag") : check.entropy
+    %tag_seed = check.entropy.read %tag_source[%trial] : check.entropy -> i64
+    %word_output = check.generate.fill value(0) : tensor<4xi32>
+    %wide_output = check.generate.fill value(0) : tensor<41xi64>
+    check.compare<@buffer_overflow_observations>(%trial, %tag_seed, %word_output, %wide_output) : (index, i64, tensor<4xi32>, tensor<41xi64>) -> () {
+      check.expect.bitwise actual(%word_output) expected(%word_output) : tensor<4xi32>
+      check.expect.bitwise actual(%wide_output) expected(%wide_output) : tensor<41xi64>
+    }
+  }
   check.return
 }

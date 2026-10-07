@@ -117,6 +117,13 @@ typedef struct loom_target_legalization_context_t {
   const loom_target_facts_t* target_facts;
   // Low descriptor set selected by the target bundle.
   const loom_low_descriptor_set_t* descriptor_set;
+  // Target packet candidates selected for |descriptor_set|, or NULL.
+  const loom_target_vector_packet_policy_t* vector_packet_policy;
+  // Complete target admission query for authored source vector carriers.
+  // Semantic rewrites that consume an aggregate may precede this admission;
+  // scalar fallback must not.
+  loom_target_source_vector_carrier_supported_callback_t
+      source_vector_carrier_supported;
   // Source value facts visible to legalizers.
   const loom_value_fact_table_t* fact_table;
   // Analyzed view-region table visible to legalizers.
@@ -336,6 +343,19 @@ loom_target_legalizer_registry_storage_registry(
 iree_status_t loom_target_legalization_query_contract(
     loom_target_legalization_context_t* context, const loom_op_t* op,
     loom_target_contract_query_result_t* out_result);
+
+// Queries |op| through a scoped vector lane-count projection. The projection
+// applies only for this query and does not mutate authored IR or context state.
+iree_status_t
+loom_target_legalization_query_contract_with_vector_lane_projection(
+    loom_target_legalization_context_t* context, const loom_op_t* op,
+    loom_target_contract_vector_lane_projection_t vector_lane_projection,
+    loom_target_contract_query_result_t* out_result);
+
+// Returns true when every vector operand and result of |op| has a source
+// carrier under the selected target lowering policy.
+bool loom_target_legalization_op_has_source_vector_carriers(
+    const loom_target_legalization_context_t* context, const loom_op_t* op);
 
 #ifdef __cplusplus
 }  // extern "C"

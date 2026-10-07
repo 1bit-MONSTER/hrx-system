@@ -124,7 +124,8 @@ static void loom_low_write_constraint_complete(
 }
 
 // The constant index split keeps payloads bounded and rows directly
-// addressable.
+// addressable. Full-table scans resolve each segment once and advance through
+// its populated prefix without repeating the directory lookup for each row.
 #define LOOM_LOW_WRITE_CONSTRAINT_SEGMENT_SHIFT 7u
 #define LOOM_LOW_WRITE_CONSTRAINTS_PER_SEGMENT \
   (1u << LOOM_LOW_WRITE_CONSTRAINT_SEGMENT_SHIFT)
@@ -154,15 +155,21 @@ struct loom_low_allocation_write_interference_t {
   loom_low_write_access_t* accesses;
   // Number of initialized accesses.
   iree_host_size_t access_count;
-  // Capacity of |accesses| during collection.
+  // Logical capacity of |accesses|, at most UINT32_MAX.
   iree_host_size_t access_capacity;
-  // Number of bits in the compact retained allocation-unit domain.
-  uint32_t retained_unit_count;
+  // Construction units and query inference have disjoint lifetimes.
+  union {
+    // Number of bits in the compact retained allocation-unit domain, a subset
+    // of the producer-bounded unit-liveness domain. Retires at finalization.
+    uint32_t retained_unit_count;
+    // Origins in the current successful query witness, or zero when empty.
+    uint32_t inferred_count;
+  };
   // Immutable retained-range snapshots shared by events with unchanged state.
   loom_low_write_retained_t* retained;
   // Number of initialized retained ranges.
   iree_host_size_t retained_count;
-  // Capacity of |retained| during finalization.
+  // Logical capacity of |retained|, at most UINT32_MAX.
   iree_host_size_t retained_capacity;
   // Stable bounded segments of final conditional physical-write exclusions.
   loom_segmented_storage_t constraints;
@@ -171,9 +178,9 @@ struct loom_low_allocation_write_interference_t {
   // Immutable row addresses grouped by any participating storage origin.
   // The stable segments share this table's complete decision lifetime.
   const loom_low_write_constraint_t** indexed_constraints;
-  // Reusable candidate-local equality propagation workspace.
+  // Inferred bases in the current witness; other entries are UINT32_MAX.
   uint32_t* inferred_bases;
-  // Origins reached by candidate-local zero-copy implications.
+  // Origins reached by the current zero-copy implication witness.
   loom_value_ordinal_t* inferred_origins;
 };
 
@@ -201,6 +208,12 @@ iree_status_t loom_low_allocation_write_interference_create(
       liveness->operation_count == 0) {
     return iree_ok_status();
   }
+  const uint32_t end_point =
+      liveness->blocks[liveness->block_count - 1].end_point;
+  if (end_point == UINT32_MAX) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "retained-write events exceed u32 index capacity");
+  }
   loom_low_allocation_write_interference_t* table = NULL;
   IREE_RETURN_IF_ERROR(
       iree_arena_allocate(arena, sizeof(*table), (void**)&table));
@@ -208,7 +221,7 @@ iree_status_t loom_low_allocation_write_interference_create(
       .rule = rule,
       .register_class = LOOM_LOW_REGISTER_CLASS_ID_INVALID,
       .value_count = liveness->value_count,
-      .point_count = liveness->blocks[liveness->block_count - 1].end_point + 1,
+      .point_count = end_point + 1,
   };
   const loom_low_descriptor_set_t* descriptors = target->descriptor_set;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
@@ -257,14 +270,30 @@ iree_status_t loom_low_allocation_write_interference_create(
   return iree_ok_status();
 }
 
+// Called only for full construction arrays. Limiting logical capacity makes
+// the next growth fail before an append can use UINT32_MAX as a row index.
+static iree_status_t loom_low_write_grow_array(iree_arena_allocator_t* arena,
+                                               iree_host_size_t count,
+                                               iree_host_size_t element_size,
+                                               iree_host_size_t* inout_capacity,
+                                               void** inout_values) {
+  if (count == UINT32_MAX) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "retained-write rows exceed u32 index capacity");
+  }
+  IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+      arena, count, count + 1, element_size, inout_capacity, inout_values));
+  *inout_capacity = iree_min(*inout_capacity, UINT32_MAX);
+  return iree_ok_status();
+}
+
 static iree_status_t loom_low_write_append_access(
     loom_low_allocation_write_interference_t* table, uint32_t point,
     loom_low_write_access_t access, iree_arena_allocator_t* arena) {
   if (table->access_count == table->access_capacity) {
-    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-        arena, table->access_count, table->access_count + 1,
-        sizeof(*table->accesses), &table->access_capacity,
-        (void**)&table->accesses));
+    IREE_RETURN_IF_ERROR(loom_low_write_grow_array(
+        arena, table->access_count, sizeof(*table->accesses),
+        &table->access_capacity, (void**)&table->accesses));
   }
   access.next = table->events[point].access;
   table->events[point].access = (uint32_t)table->access_count;
@@ -448,10 +477,9 @@ static iree_status_t loom_low_write_snapshot(
       ++bit;
     }
     if (table->retained_count == table->retained_capacity) {
-      IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-          arena, table->retained_count, table->retained_count + 1,
-          sizeof(*table->retained), &table->retained_capacity,
-          (void**)&table->retained));
+      IREE_RETURN_IF_ERROR(loom_low_write_grow_array(
+          arena, table->retained_count, sizeof(*table->retained),
+          &table->retained_capacity, (void**)&table->retained));
     }
     table->retained[table->retained_count++] = range;
     ++out_snapshot->count;
@@ -647,46 +675,51 @@ static iree_status_t loom_low_write_classify_copy_chains(
       unit->point = relation->write_point;
     }
   }
-  for (uint32_t c = 0; c < table->constraint_count; ++c) {
+  for (uint32_t c = 0; c < table->constraint_count;) {
+    const uint32_t segment_end =
+        c + iree_min(table->constraint_count - c,
+                     LOOM_LOW_WRITE_CONSTRAINTS_PER_SEGMENT);
     loom_low_write_constraint_t* row = loom_low_write_constraint_at(table, c);
-    int64_t delta = 0;
-    if (row->source == LOOM_VALUE_ORDINAL_INVALID ||
-        !loom_low_write_known_delta(table, row->destination,
-                                    row->retained.value, &delta) ||
-        !loom_low_write_ranges_overlap(
-            delta + row->destination_offset - row->retained.offset, 1,
-            row->retained.count)) {
-      continue;
-    }
-    const int64_t position = delta + row->destination_offset;
-    uint32_t current = starts[row->source] + row->units.source_offset;
-    while (current != UINT32_MAX) {
-      const loom_low_write_copy_unit_t* unit = &units[current];
-      if (loom_low_write_known_delta(table, unit->value, row->retained.value,
-                                     &delta)) {
-        if (delta + unit->offset != position) {
-          loom_low_write_constraint_complete(row);
-          --*inout_seed_count;
+    for (; c < segment_end; ++c, ++row) {
+      int64_t delta = 0;
+      if (row->source == LOOM_VALUE_ORDINAL_INVALID ||
+          !loom_low_write_known_delta(table, row->destination,
+                                      row->retained.value, &delta) ||
+          !loom_low_write_ranges_overlap(
+              delta + row->destination_offset - row->retained.offset, 1,
+              row->retained.count)) {
+        continue;
+      }
+      const int64_t position = delta + row->destination_offset;
+      uint32_t current = starts[row->source] + row->units.source_offset;
+      while (current != UINT32_MAX) {
+        const loom_low_write_copy_unit_t* unit = &units[current];
+        if (loom_low_write_known_delta(table, unit->value, row->retained.value,
+                                       &delta)) {
+          if (delta + unit->offset != position) {
+            loom_low_write_constraint_complete(row);
+            --*inout_seed_count;
+          }
+          break;
         }
-        break;
+        if (unit->source == UINT32_MAX) {
+          break;
+        }
+        const loom_low_write_range_t retained =
+            table->events[unit->point].retained;
+        bool active = false;
+        for (uint32_t i = 0; i < retained.count; ++i) {
+          const loom_low_write_retained_t* range =
+              &table->retained[retained.start + i];
+          active |= range->value == row->retained.value &&
+                    position >= range->offset &&
+                    position < range->offset + range->count;
+        }
+        if (!active) {
+          break;
+        }
+        current = unit->source;
       }
-      if (unit->source == UINT32_MAX) {
-        break;
-      }
-      const loom_low_write_range_t retained =
-          table->events[unit->point].retained;
-      bool active = false;
-      for (uint32_t i = 0; i < retained.count; ++i) {
-        const loom_low_write_retained_t* range =
-            &table->retained[retained.start + i];
-        active |= range->value == row->retained.value &&
-                  position >= range->offset &&
-                  position < range->offset + range->count;
-      }
-      if (!active) {
-        break;
-      }
-      current = unit->source;
     }
   }
   return iree_ok_status();
@@ -698,20 +731,26 @@ static iree_status_t loom_low_write_classify_copy_chains(
 static uint32_t loom_low_write_seed_completion(
     loom_low_allocation_write_interference_t* table) {
   uint32_t seed_count = 0;
-  for (uint32_t c = 0; c < table->constraint_count; ++c) {
+  for (uint32_t c = 0; c < table->constraint_count;) {
+    const uint32_t segment_end =
+        c + iree_min(table->constraint_count - c,
+                     LOOM_LOW_WRITE_CONSTRAINTS_PER_SEGMENT);
     loom_low_write_constraint_t* row = loom_low_write_constraint_at(table, c);
-    int64_t delta = 0;
-    if (!loom_low_write_known_delta(table, row->destination,
-                                    row->retained.value, &delta) ||
-        !loom_low_write_ranges_overlap(
-            delta + row->destination_offset - row->retained.offset,
-            loom_low_write_constraint_write_count(row), row->retained.count)) {
-      continue;
-    }
-    if (row->source == LOOM_VALUE_ORDINAL_INVALID) {
-      loom_low_write_constraint_complete(row);
-    } else {
-      ++seed_count;
+    for (; c < segment_end; ++c, ++row) {
+      int64_t delta = 0;
+      if (!loom_low_write_known_delta(table, row->destination,
+                                      row->retained.value, &delta) ||
+          !loom_low_write_ranges_overlap(
+              delta + row->destination_offset - row->retained.offset,
+              loom_low_write_constraint_write_count(row),
+              row->retained.count)) {
+        continue;
+      }
+      if (row->source == LOOM_VALUE_ORDINAL_INVALID) {
+        loom_low_write_constraint_complete(row);
+      } else {
+        ++seed_count;
+      }
     }
   }
   return seed_count;
@@ -788,16 +827,22 @@ static iree_status_t loom_low_write_completion_initialize(
       }
     }
   }
-  for (uint32_t c = 0; c < table->constraint_count; ++c) {
+  for (uint32_t c = 0; c < table->constraint_count;) {
+    const uint32_t segment_end =
+        c + iree_min(table->constraint_count - c,
+                     LOOM_LOW_WRITE_CONSTRAINTS_PER_SEGMENT);
     const loom_low_write_constraint_t* row =
         loom_low_write_constraint_at(table, c);
-    if (row->source == LOOM_VALUE_ORDINAL_INVALID || row->retained.count == 0) {
-      continue;
-    }
-    if (identities[row->destination].parent !=
-        identities[row->retained.value].parent) {
-      ++table->values[row->destination].constraints.count;
-      ++table->values[row->retained.value].constraints.count;
+    for (; c < segment_end; ++c, ++row) {
+      if (row->source == LOOM_VALUE_ORDINAL_INVALID ||
+          row->retained.count == 0) {
+        continue;
+      }
+      if (identities[row->destination].parent !=
+          identities[row->retained.value].parent) {
+        ++table->values[row->destination].constraints.count;
+        ++table->values[row->retained.value].constraints.count;
+      }
     }
   }
   uint64_t incidence_count = 0;
@@ -823,32 +868,39 @@ static iree_status_t loom_low_write_completion_initialize(
       (void**)&completion->pending.words));
   memset(completion->pending.words, 0,
          word_count * sizeof(*completion->pending.words));
-  for (uint32_t c = 0; c < table->constraint_count; ++c) {
+  for (uint32_t c = 0; c < table->constraint_count;) {
+    const uint32_t segment_end =
+        c + iree_min(table->constraint_count - c,
+                     LOOM_LOW_WRITE_CONSTRAINTS_PER_SEGMENT);
     const loom_low_write_constraint_t* row =
         loom_low_write_constraint_at(table, c);
-    if (row->source == LOOM_VALUE_ORDINAL_INVALID || row->retained.count == 0) {
-      continue;
-    }
-    const loom_low_write_identity_t destination = identities[row->destination];
-    const loom_low_write_identity_t retained = identities[row->retained.value];
-    if (destination.parent == retained.parent) {
-      if (loom_low_write_ranges_overlap(
-              destination.offset + row->destination_offset - retained.offset -
-                  row->retained.offset,
-              1, row->retained.count)) {
-        loom_index_set_insert(&completion->pending.layout,
-                              completion->pending.words, c);
+    for (; c < segment_end; ++c, ++row) {
+      if (row->source == LOOM_VALUE_ORDINAL_INVALID ||
+          row->retained.count == 0) {
+        continue;
       }
-    } else {
-      loom_low_write_range_t* destination_range =
-          &table->values[row->destination].constraints;
-      completion
-          ->incidences[destination_range->start + destination_range->count++] =
-          c;
-      loom_low_write_range_t* retained_range =
-          &table->values[row->retained.value].constraints;
-      completion->incidences[retained_range->start + retained_range->count++] =
-          c;
+      const loom_low_write_identity_t destination =
+          identities[row->destination];
+      const loom_low_write_identity_t retained =
+          identities[row->retained.value];
+      if (destination.parent == retained.parent) {
+        if (loom_low_write_ranges_overlap(
+                destination.offset + row->destination_offset - retained.offset -
+                    row->retained.offset,
+                1, row->retained.count)) {
+          loom_index_set_insert(&completion->pending.layout,
+                                completion->pending.words, c);
+        }
+      } else {
+        loom_low_write_range_t* destination_range =
+            &table->values[row->destination].constraints;
+        completion->incidences[destination_range->start +
+                               destination_range->count++] = c;
+        loom_low_write_range_t* retained_range =
+            &table->values[row->retained.value].constraints;
+        completion
+            ->incidences[retained_range->start + retained_range->count++] = c;
+      }
     }
   }
   return iree_ok_status();
@@ -945,21 +997,27 @@ static iree_status_t loom_low_write_classify_completion(
                                       required);
     }
   }
-  for (iree_host_size_t c = 0; c < table->constraint_count; ++c) {
+  for (uint32_t c = 0; c < table->constraint_count;) {
+    const uint32_t segment_end =
+        c + iree_min(table->constraint_count - c,
+                     LOOM_LOW_WRITE_CONSTRAINTS_PER_SEGMENT);
     loom_low_write_constraint_t* row = loom_low_write_constraint_at(table, c);
-    if (row->source != LOOM_VALUE_ORDINAL_INVALID || row->retained.count == 0) {
-      continue;
-    }
-    const loom_low_write_identity_t destination =
-        loom_low_write_identity_root(identities, row->destination);
-    const loom_low_write_identity_t retained =
-        loom_low_write_identity_root(identities, row->retained.value);
-    if (destination.parent == retained.parent &&
-        loom_low_write_ranges_overlap(
-            destination.offset + row->destination_offset - retained.offset -
-                row->retained.offset,
-            row->units.count, row->retained.count)) {
-      loom_low_write_constraint_complete(row);
+    for (; c < segment_end; ++c, ++row) {
+      if (row->source != LOOM_VALUE_ORDINAL_INVALID ||
+          row->retained.count == 0) {
+        continue;
+      }
+      const loom_low_write_identity_t destination =
+          loom_low_write_identity_root(identities, row->destination);
+      const loom_low_write_identity_t retained =
+          loom_low_write_identity_root(identities, row->retained.value);
+      if (destination.parent == retained.parent &&
+          loom_low_write_ranges_overlap(
+              destination.offset + row->destination_offset - retained.offset -
+                  row->retained.offset,
+              row->units.count, row->retained.count)) {
+        loom_low_write_constraint_complete(row);
+      }
     }
   }
   return iree_ok_status();
@@ -971,24 +1029,29 @@ static iree_status_t loom_low_write_index_constraints(
   for (uint32_t v = 0; v < table->value_count; ++v) {
     table->values[v].constraints = (loom_low_write_range_t){0};
   }
-  for (iree_host_size_t c = 0; c < table->constraint_count; ++c) {
+  for (uint32_t c = 0; c < table->constraint_count;) {
+    const uint32_t segment_end =
+        c + iree_min(table->constraint_count - c,
+                     LOOM_LOW_WRITE_CONSTRAINTS_PER_SEGMENT);
     const loom_low_write_constraint_t* row =
         loom_low_write_constraint_at(table, c);
-    if (loom_low_write_constraint_is_complete(row)) {
-      continue;
-    }
-    if (row->retained.count == 0) {
-      ++table->values[row->destination].constraints.count;
-      ++table->values[row->source].constraints.count;
-    } else {
-      ++table->values[row->destination].constraints.count;
-      if (row->retained.value != row->destination) {
-        ++table->values[row->retained.value].constraints.count;
+    for (; c < segment_end; ++c, ++row) {
+      if (loom_low_write_constraint_is_complete(row)) {
+        continue;
       }
-      if (row->source != LOOM_VALUE_ORDINAL_INVALID &&
-          row->source != row->destination &&
-          row->source != row->retained.value) {
+      if (row->retained.count == 0) {
+        ++table->values[row->destination].constraints.count;
         ++table->values[row->source].constraints.count;
+      } else {
+        ++table->values[row->destination].constraints.count;
+        if (row->retained.value != row->destination) {
+          ++table->values[row->retained.value].constraints.count;
+        }
+        if (row->source != LOOM_VALUE_ORDINAL_INVALID &&
+            row->source != row->destination &&
+            row->source != row->retained.value) {
+          ++table->values[row->source].constraints.count;
+        }
       }
     }
   }
@@ -1006,25 +1069,30 @@ static iree_status_t loom_low_write_index_constraints(
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       arena, count, sizeof(*table->indexed_constraints),
       (void**)&table->indexed_constraints));
-  for (uint32_t c = 0; c < table->constraint_count; ++c) {
+  for (uint32_t c = 0; c < table->constraint_count;) {
+    const uint32_t segment_end =
+        c + iree_min(table->constraint_count - c,
+                     LOOM_LOW_WRITE_CONSTRAINTS_PER_SEGMENT);
     const loom_low_write_constraint_t* row =
         loom_low_write_constraint_at(table, c);
-    if (loom_low_write_constraint_is_complete(row)) {
-      continue;
-    }
-    const loom_value_ordinal_t values[] = {
-        row->destination,
-        row->retained.count == 0 ? row->source : row->retained.value,
-        row->retained.count == 0 ? LOOM_VALUE_ORDINAL_INVALID : row->source,
-    };
-    for (uint32_t i = 0; i < IREE_ARRAYSIZE(values); ++i) {
-      if (values[i] == LOOM_VALUE_ORDINAL_INVALID ||
-          (i > 0 && values[i] == values[0]) ||
-          (i > 1 && values[i] == values[1])) {
+    for (; c < segment_end; ++c, ++row) {
+      if (loom_low_write_constraint_is_complete(row)) {
         continue;
       }
-      loom_low_write_range_t* range = &table->values[values[i]].constraints;
-      table->indexed_constraints[range->start + range->count++] = row;
+      const loom_value_ordinal_t values[] = {
+          row->destination,
+          row->retained.count == 0 ? row->source : row->retained.value,
+          row->retained.count == 0 ? LOOM_VALUE_ORDINAL_INVALID : row->source,
+      };
+      for (uint32_t i = 0; i < IREE_ARRAYSIZE(values); ++i) {
+        if (values[i] == LOOM_VALUE_ORDINAL_INVALID ||
+            (i > 0 && values[i] == values[0]) ||
+            (i > 1 && values[i] == values[1])) {
+          continue;
+        }
+        loom_low_write_range_t* range = &table->values[values[i]].constraints;
+        table->indexed_constraints[range->start + range->count++] = row;
+      }
     }
   }
   return iree_ok_status();
@@ -1186,6 +1254,7 @@ static iree_status_t loom_low_write_finalize_impl(
   IREE_RETURN_IF_ERROR(loom_low_write_index_constraints(table, arena));
   memset(table->inferred_bases, 0xFF,
          table->value_count * sizeof(*table->inferred_bases));
+  table->inferred_count = 0;
   return iree_ok_status();
 }
 
@@ -1210,20 +1279,36 @@ iree_status_t loom_low_allocation_write_interference_finalize(
 #define LOOM_LOW_WRITE_LOCATION_UNKNOWN ((int64_t)UINT32_MAX)
 #define LOOM_LOW_WRITE_LOCATION_SPILLED ((int64_t)UINT32_MAX + 1)
 
-static int64_t loom_low_write_location(
+void loom_low_allocation_write_interference_reset_inference(
+    loom_low_allocation_write_interference_t* table) {
+  if (table == NULL) {
+    return;
+  }
+  for (uint32_t i = 0; i < table->inferred_count; ++i) {
+    table->inferred_bases[table->inferred_origins[i]] = UINT32_MAX;
+  }
+  table->inferred_count = 0;
+}
+
+void loom_low_allocation_write_interference_note_assignment(
+    loom_low_allocation_write_interference_t* table,
+    loom_value_ordinal_t ordinal,
+    const loom_low_allocation_assignment_t* assignment) {
+  if (table == NULL || table->inferred_count == 0 ||
+      !loom_low_allocation_assignment_is_physical_register_class(
+          assignment, table->register_class)) {
+    return;
+  }
+  const loom_value_ordinal_t origin = table->values[ordinal].origin;
+  if (table->inferred_bases[origin] != assignment->location_base) {
+    loom_low_allocation_write_interference_reset_inference(table);
+  }
+}
+
+static int64_t loom_low_write_committed_location(
     const loom_low_allocation_write_interference_t* table,
     const loom_low_allocation_assignment_map_t* assignments,
-    loom_value_ordinal_t value, loom_value_ordinal_t candidate, uint32_t base,
-    const loom_low_allocation_write_proposal_t* proposal) {
-  if (value == candidate) {
-    return base;
-  }
-  if (proposal != NULL && proposal->bases[value] != UINT32_MAX) {
-    return proposal->bases[value];
-  }
-  if (table->inferred_bases[value] != UINT32_MAX) {
-    return table->inferred_bases[value];
-  }
+    loom_value_ordinal_t value) {
   // Constraint endpoints and retained ranges already name valid local values.
   // The assignment owner publishes an index only after its record exists.
   const uint32_t assignment_index =
@@ -1240,6 +1325,23 @@ static int64_t loom_low_write_location(
     }
   }
   return table->values[value].fixed_base;
+}
+
+static int64_t loom_low_write_location(
+    const loom_low_allocation_write_interference_t* table,
+    const loom_low_allocation_assignment_map_t* assignments,
+    loom_value_ordinal_t value, loom_value_ordinal_t candidate, uint32_t base,
+    const loom_low_allocation_write_proposal_t* proposal) {
+  if (value == candidate) {
+    return base;
+  }
+  if (proposal != NULL && proposal->bases[value] != UINT32_MAX) {
+    return proposal->bases[value];
+  }
+  if (table->inferred_bases[value] != UINT32_MAX) {
+    return table->inferred_bases[value];
+  }
+  return loom_low_write_committed_location(table, assignments, value);
 }
 
 // Records a new candidate-local implication after its prior location was
@@ -1325,9 +1427,7 @@ static loom_value_ordinal_t loom_low_write_origin_conflicting_read(
       }
     }
   }
-  for (uint32_t i = 0; i < pending_count; ++i) {
-    table->inferred_bases[table->inferred_origins[i]] = UINT32_MAX;
-  }
+  table->inferred_count = pending_count;
   return retained_origin;
 }
 
@@ -1344,15 +1444,32 @@ loom_value_ordinal_t loom_low_allocation_write_interference_conflicting_read(
     loom_low_allocation_write_interference_t* table,
     const loom_low_allocation_assignment_map_t* assignments,
     const loom_low_allocation_assignment_t* candidate) {
-  if (table == NULL || table->constraint_count == 0 ||
+  if (table->constraint_count == 0 ||
       !loom_low_allocation_assignment_is_physical_register_class(
           candidate, table->register_class)) {
     return LOOM_VALUE_ORDINAL_INVALID;
   }
   const loom_value_ordinal_t origin =
       loom_low_write_assignment_origin(table, assignments, candidate);
-  return loom_low_write_origin_conflicting_read(table, assignments, origin,
-                                                candidate->location_base, NULL);
+  if (table->inferred_bases[origin] == candidate->location_base) {
+    return LOOM_VALUE_ORDINAL_INVALID;
+  }
+  loom_low_allocation_write_interference_reset_inference(table);
+  const loom_value_ordinal_t retained = loom_low_write_origin_conflicting_read(
+      table, assignments, origin, candidate->location_base, NULL);
+  if (retained != LOOM_VALUE_ORDINAL_INVALID) {
+    loom_low_allocation_write_interference_reset_inference(table);
+  } else if (table->inferred_count > 1) {
+    // A query may hypothetically recolor an assigned root. Another inferred
+    // origin cannot reuse that proof against the root's unchanged location.
+    const int64_t committed =
+        loom_low_write_committed_location(table, assignments, origin);
+    if (committed < LOOM_LOW_WRITE_LOCATION_UNKNOWN &&
+        committed != candidate->location_base) {
+      loom_low_allocation_write_interference_reset_inference(table);
+    }
+  }
+  return retained;
 }
 
 iree_status_t loom_low_allocation_write_proposal_initialize(
@@ -1404,11 +1521,14 @@ bool loom_low_allocation_write_proposal_conflicts(
     loom_low_allocation_write_interference_t* table,
     const loom_low_allocation_assignment_map_t* assignments,
     const loom_low_allocation_write_proposal_t* proposal) {
+  loom_low_allocation_write_interference_reset_inference(table);
   for (iree_host_size_t i = 0; i < proposal->count; ++i) {
     const loom_value_ordinal_t origin = proposal->origins[i];
-    if (loom_low_write_origin_conflicting_read(
-            table, assignments, origin, proposal->bases[origin], proposal) !=
-        LOOM_VALUE_ORDINAL_INVALID) {
+    const loom_value_ordinal_t retained =
+        loom_low_write_origin_conflicting_read(
+            table, assignments, origin, proposal->bases[origin], proposal);
+    loom_low_allocation_write_interference_reset_inference(table);
+    if (retained != LOOM_VALUE_ORDINAL_INVALID) {
       return true;
     }
   }

@@ -14,6 +14,59 @@ import pytest
 from loom.tools.compile_report import main
 
 
+@pytest.mark.parametrize(
+    "target_family", ["amdgpu", "amd.xdna.aie2p", "spirv", "vm", "wasm"]
+)
+def test_failed_compilation_keeps_source_expansion_warnings(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    target_family: str,
+) -> None:
+    report_path = tmp_path / "failed.report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "kind": "loom.compile_report",
+                "schema_version": 0,
+                "mode": "summary",
+                "target_family": target_family,
+                "status": {"code": 9, "name": "FAILED_PRECONDITION"},
+                "entries": {"count": 0, "rows": []},
+                "source_low": {
+                    "selection_summaries": {
+                        "count": 1,
+                        "rows": [
+                            {
+                                "index": 0,
+                                "function": "multiply",
+                                "source_op": "scalar.mulf",
+                                "plan_key": "exact_binary32",
+                                "selected_op_count": 16,
+                                "emitted_low_op_count": 2608,
+                                "maximum_emitted_low_op_count": 163,
+                            }
+                        ],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert main(["show", str(report_path)]) == 0
+    assert (
+        "WARNING: multiply scalar.mulf: up to 163 Low operations"
+        in capsys.readouterr().out
+    )
+    assert main(["suggest", str(report_path), "--format=json"]) == 0
+    view = json.loads(capsys.readouterr().out)
+    assert view["status"] == "available"
+    assert view["provider"] == "source"
+    assert view["target_unavailable_reason"] == "compile_status_not_ok"
+    assert [finding["id"] for finding in view["findings"]] == [
+        "lowering.reduce_expansion"
+    ]
+
+
 def _write_report(
     path: Path,
     *,
@@ -23,6 +76,7 @@ def _write_report(
     target_record: str = "gfx11-generic",
     experimental_bank_conflict: bool = False,
     subgroup_size: int | None = None,
+    scalarized: bool = False,
 ) -> None:
     workload = {
         "workgroup_size": {"x": 64, "y": 1, "z": 1, "flat": 64},
@@ -69,6 +123,46 @@ def _write_report(
         report["target_resources"] = {"subgroup_size": subgroup_size}
         report["entries"]["rows"][0]["target_resources"] = {
             "subgroup_size": subgroup_size
+        }
+    if scalarized:
+        report["mode"] = "details"
+        report["target_legalization"] = {
+            "legal_op_count": 0,
+            "rewritten_op_count": 1,
+            "scalarized_op_count": 1,
+            "target_rewritten_op_count": 0,
+            "reference_rewritten_op_count": 1,
+            "deferred_op_count": 0,
+            "invalid_ir_op_count": 0,
+            "unsupported_op_count": 0,
+            "unhandled_op_count": 0,
+            "count": 1,
+            "rows": [
+                {
+                    "index": 0,
+                    "function": "kernel",
+                    "source_op": "vector.gather",
+                    "source_op_kind": 3611,
+                    "target_bundle": target_record,
+                    "target_config": target_record,
+                    "legalizer": "vector",
+                    "legalizer_strategy": "reference",
+                    "mode": "eager",
+                    "policy": "prefer-native",
+                    "action": "rewritten",
+                    "scalarized": True,
+                    "legalization_outcome": "reference-fallback",
+                    "contract_outcome": "unhandled",
+                    "descriptor_key": None,
+                    "source_rejection_bits": 0,
+                    "source_rejection_detail": 0,
+                    "target_rejection_bits": 0,
+                    "missing_feature_bits": 0,
+                    "missing_fact_bits": 0,
+                    "created_op_count": 81,
+                    "erased_op_count": 1,
+                }
+            ],
         }
     if experimental_bank_conflict:
         bank_service = {
@@ -530,6 +624,34 @@ def test_pipeline_show_and_suggest_preserve_target_availability(
     assert finding["evidence"]["source_low.loop_pipelines.rows[0].depth"] == 4
     assert finding["evidence"]["entries.rows[0].code_byte_count"] == 512
     assert "9 queued SSA values" in finding["action"]
+
+
+def test_scalarization_stands_out_in_show_and_suggest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    report_path = tmp_path / "scalarized.json"
+    _write_report(
+        report_path,
+        target_family="spirv",
+        target_key="vulkan",
+        target_record="vulkan",
+        scalarized=True,
+    )
+
+    assert main(["show", str(report_path)]) == 0
+    show_text = capsys.readouterr().out
+    assert "Scalar lane expansion" in show_text
+    assert "vector.gather: 81 created, 1 erased (+80 net)" in show_text
+
+    assert main(["suggest", str(report_path), "--format=json"]) == 0
+    view = json.loads(capsys.readouterr().out)
+    assert view["provider"] == "source"
+    assert view["target_unavailable_reason"] == "unsupported_target_family"
+    expansion, finding = view["findings"]
+    assert expansion["id"] == "lowering.reduce_expansion"
+    assert expansion["evidence"]["target_legalization.rows[0].created_op_count"] == 81
+    assert finding["id"] == "vector.eliminate_scalarization"
+    assert finding["evidence"]["target_legalization.rows[0].created_op_count"] == 81
 
 
 def test_boundary_projection_show_and_suggest_explain_source_experiment(

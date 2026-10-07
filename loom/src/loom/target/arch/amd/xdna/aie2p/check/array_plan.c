@@ -34,22 +34,25 @@ static bool loom_aie2p_array_plan_check_matches(
   return iree_string_view_equal(target_name, IREE_SV("aie2p-array-plan"));
 }
 
-static iree_status_t loom_aie2p_array_plan_check_parse_symbol(
-    iree_string_view_t target_options, iree_string_view_t* out_symbol_name) {
+static iree_status_t loom_aie2p_array_plan_check_parse_options(
+    iree_string_view_t target_options, iree_string_view_t* out_symbol_name,
+    bool* out_low_only) {
   target_options = iree_string_view_trim(target_options);
-  if (!iree_string_view_starts_with(target_options, IREE_SV("@")) ||
-      target_options.size == 1) {
+  iree_string_view_t symbol = iree_string_view_empty();
+  iree_string_view_t remaining = iree_string_view_empty();
+  iree_string_view_split(target_options, ' ', &symbol, &remaining);
+  if (!iree_string_view_starts_with(symbol, IREE_SV("@")) || symbol.size == 1) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "aie2p-array-plan requires one array function symbol");
   }
-  iree_string_view_t symbol = iree_string_view_empty();
-  iree_string_view_t remaining = iree_string_view_empty();
-  iree_string_view_split(target_options, ' ', &symbol, &remaining);
-  if (!iree_string_view_is_empty(iree_string_view_trim(remaining))) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "aie2p-array-plan accepts no options after the "
-                            "array function symbol");
+  remaining = iree_string_view_trim(remaining);
+  *out_low_only = iree_string_view_equal(remaining, IREE_SV("output=low"));
+  if (!iree_string_view_is_empty(remaining) && !*out_low_only) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "aie2p-array-plan accepts only 'output=low' after the array function "
+        "symbol");
   }
   *out_symbol_name = iree_string_view_substr(symbol, 1, IREE_HOST_SIZE_MAX);
   return iree_ok_status();
@@ -651,14 +654,16 @@ static iree_status_t loom_aie2p_array_program_check_format(
 static iree_status_t loom_aie2p_array_plan_check_resident_program_in_module(
     const loom_check_emit_provider_request_t* request,
     loom_module_t* resident_module, const loom_aie2p_array_plan_t* plan,
-    iree_diagnostic_emitter_t diagnostic_emitter) {
+    bool low_only, iree_diagnostic_emitter_t diagnostic_emitter) {
   loom_aie2p_array_resident_program_t program = {0};
   IREE_RETURN_IF_ERROR(loom_aie2p_array_materialize_resident_programs(
       request->module, resident_module, plan, /*plan_count=*/1,
       request->case_arena, &program));
-  IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
-      &request->result->actual_output,
-      "\nresident-program workers=%" PRIhsz "\n", program.worker_count));
+  if (!low_only) {
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+        &request->result->actual_output,
+        "\nresident-program workers=%" PRIhsz "\n", program.worker_count));
+  }
 
   for (iree_host_size_t i = 0; i < program.worker_count; ++i) {
     const loom_aie2p_array_resident_worker_t* resident = &program.workers[i];
@@ -681,20 +686,22 @@ static iree_status_t loom_aie2p_array_plan_check_resident_program_in_module(
           IREE_STATUS_FAILED_PRECONDITION,
           "materialized AIE2P resident worker retains resource imports");
     }
-    const loom_xdna_tile_coordinate_t coordinate =
-        plan->worker_plans[resident->worker_index].coordinate;
-    const iree_string_view_t entry_name =
-        loom_low_diagnostic_symbol_name(resident_module, resident->entry);
-    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
-        &request->result->actual_output,
-        "resident worker=%" PRIu32
-        " entry=@%.*s tile=(%u,%u) code-bytes=%" PRIu64 " resources=%" PRIhsz
-        " fixups=%" PRIhsz "\n",
-        resident->worker_index, (int)entry_name.size, entry_name.data,
-        coordinate.column, coordinate.row,
-        contribution.realization.code.byte_length,
-        contribution.realization.resource_import_count,
-        contribution.object.fixup_count));
+    if (!low_only) {
+      const loom_xdna_tile_coordinate_t coordinate =
+          plan->worker_plans[resident->worker_index].coordinate;
+      const iree_string_view_t entry_name =
+          loom_low_diagnostic_symbol_name(resident_module, resident->entry);
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+          &request->result->actual_output,
+          "resident worker=%" PRIu32
+          " entry=@%.*s tile=(%u,%u) code-bytes=%" PRIu64 " resources=%" PRIhsz
+          " fixups=%" PRIhsz "\n",
+          resident->worker_index, (int)entry_name.size, entry_name.data,
+          coordinate.column, coordinate.row,
+          contribution.realization.code.byte_length,
+          contribution.realization.resource_import_count,
+          contribution.object.fixup_count));
+    }
   }
 
   loom_text_low_asm_environment_t low_asm_environment = {0};
@@ -705,8 +712,10 @@ static iree_status_t loom_aie2p_array_plan_check_resident_program_in_module(
       .low_asm_environment = low_asm_environment,
   };
   for (iree_host_size_t i = 0; i < program.worker_count; ++i) {
-    IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(
-        &request->result->actual_output, "\n"));
+    if (!low_only || i != 0) {
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(
+          &request->result->actual_output, "\n"));
+    }
     IREE_RETURN_IF_ERROR(loom_text_print_operation_to_builder_with_options(
         resident_module, program.workers[i].function_op,
         &request->result->actual_output, &print_options));
@@ -716,7 +725,7 @@ static iree_status_t loom_aie2p_array_plan_check_resident_program_in_module(
 
 static iree_status_t loom_aie2p_array_plan_check_resident_program(
     const loom_check_emit_provider_request_t* request,
-    const loom_aie2p_array_plan_t* plan,
+    const loom_aie2p_array_plan_t* plan, bool low_only,
     iree_diagnostic_emitter_t diagnostic_emitter) {
   loom_module_t* resident_module = NULL;
   iree_status_t status = loom_module_allocate(
@@ -725,7 +734,7 @@ static iree_status_t loom_aie2p_array_plan_check_resident_program(
       &resident_module);
   if (iree_status_is_ok(status)) {
     status = loom_aie2p_array_plan_check_resident_program_in_module(
-        request, resident_module, plan, diagnostic_emitter);
+        request, resident_module, plan, low_only, diagnostic_emitter);
   }
   loom_module_free(resident_module);
   return status;
@@ -736,8 +745,9 @@ static iree_status_t loom_aie2p_array_plan_check_execute(
     const loom_check_emit_provider_request_t* request) {
   (void)provider;
   iree_string_view_t function_symbol_name = iree_string_view_empty();
-  IREE_RETURN_IF_ERROR(loom_aie2p_array_plan_check_parse_symbol(
-      request->target_options, &function_symbol_name));
+  bool low_only = false;
+  IREE_RETURN_IF_ERROR(loom_aie2p_array_plan_check_parse_options(
+      request->target_options, &function_symbol_name, &low_only));
 
   loom_check_prepare_source_low_options_t prepare_options = {0};
   loom_check_prepare_source_low_options_initialize(&prepare_options);
@@ -745,9 +755,9 @@ static iree_status_t loom_aie2p_array_plan_check_execute(
       LOOM_TARGET_CONTROL_FLOW_LOWERING_STRUCTURED_LOW;
   loom_compile_pipeline_result_t pipeline_result = {0};
   iree_status_t status = loom_check_prepare_source_low_module(
-      request->module, &prepare_options, request->low_registry,
-      request->environment, request->source_resolver,
-      request->diagnostic_collector, request->block_pool, &pipeline_result);
+      request->module, &prepare_options, request->environment,
+      request->source_resolver, request->diagnostic_collector,
+      request->block_pool, &pipeline_result);
   loom_compile_pipeline_result_deinitialize(&pipeline_result);
   IREE_RETURN_IF_ERROR(status);
   if (request->diagnostic_collector->count != 0) {
@@ -808,14 +818,18 @@ static iree_status_t loom_aie2p_array_plan_check_execute(
   if (!valid) {
     return iree_ok_status();
   }
-  IREE_RETURN_IF_ERROR(loom_aie2p_array_plan_check_format(
-      request->module, &plan, &request->result->actual_output));
+  if (!low_only) {
+    IREE_RETURN_IF_ERROR(loom_aie2p_array_plan_check_format(
+        request->module, &plan, &request->result->actual_output));
+  }
   loom_aie2p_array_program_t array_program = {0};
   IREE_RETURN_IF_ERROR(loom_aie2p_array_program_build(
       &plan, request->case_arena, &array_program));
-  IREE_RETURN_IF_ERROR(loom_aie2p_array_program_check_format(
-      &array_program, &request->result->actual_output));
-  return loom_aie2p_array_plan_check_resident_program(request, &plan,
+  if (!low_only) {
+    IREE_RETURN_IF_ERROR(loom_aie2p_array_program_check_format(
+        &array_program, &request->result->actual_output));
+  }
+  return loom_aie2p_array_plan_check_resident_program(request, &plan, low_only,
                                                       diagnostic_emitter);
 }
 

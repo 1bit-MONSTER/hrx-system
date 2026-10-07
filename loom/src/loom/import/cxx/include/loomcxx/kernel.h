@@ -9,10 +9,13 @@
 
 #include <loomcxx/atomic.h>
 
-// Launch geometry belongs on the entry with loom::workgroup_size(x, y, z) and
-// loom::workgroup_count(x, y, z). Unspecified dimensions remain Loom configs.
-// The corresponding *_range attributes take xmin, xmax, ymin, ymax, zmin, zmax
-// and constrain those required config values with inclusive positive bounds.
+// Fixed launch geometry belongs on the entry with
+// loom::workgroup_size(x, y, z) and loom::workgroup_count(x, y, z).
+// Unspecified dimensions remain Loom configs. The corresponding *_range
+// attributes take xmin, xmax, ymin, ymax, zmin, zmax and constrain those
+// required config values with inclusive positive bounds. A
+// [[loom::kernel(configuration)]] entry instead computes complete geometry from
+// explicit workload arguments and immutable target properties.
 // Counted unsigned for loops accept loom::unroll(factor),
 // loom::pipeline(depth), and
 // loom::schedule("linear"|"interleaved"|"recurrence"). Factors and depths are
@@ -32,6 +35,15 @@
 // by every invocation in the enclosing kernel workgroup.
 #define LOOM_WORKGROUP [[loom::workgroup]]
 #define LOOM_FORCE_INLINE [[loom::force_inline]] inline
+// Declares an ordinary C++ function whose calls apply the named link-selected
+// Loom template family. The declaration has no C++ definition; its parameters
+// and result define the semantic family signature at each call site.
+#define LOOM_TEMPLATE_DECL(FAMILY) [[loom::op("template.apply", FAMILY)]]
+// Defines one bodyful implementation of a LOOM_TEMPLATE_DECL family. Linking
+// selects among providers using optional loom::target(object) and
+// loom::priority(constant) attributes. Providers inherit the family's calling
+// convention and are retained without becoming ordinary callable C++ symbols.
+#define LOOM_TEMPLATE_DEF(FAMILY) [[loom::template_def(FAMILY)]]
 
 namespace loom {
 
@@ -43,6 +55,41 @@ struct uint3 {
   // Coordinate along the z axis.
   unsigned z;
 };
+
+namespace kernel {
+
+// Complete launch geometry computed from explicit workload values and target
+// properties. A function returning this aggregate may be referenced by
+// [[loom::kernel(function)]]. Its body becomes the kernel's pure launch
+// configuration region rather than an independently callable function.
+struct [[loom::launch_config]] configuration {
+  // Number of workgroups to launch in each dimension.
+  uint3 workgroup_count;
+  // Required workgroup size in each dimension.
+  uint3 workgroup_size;
+};
+
+// Launch geometry with an additional workgroup-cluster size. The selected
+// target must support the requested cluster dimensions.
+struct [[loom::clustered_launch_config]] clustered_configuration {
+  // Number of workgroups to launch in each dimension.
+  uint3 workgroup_count;
+  // Required workgroup size in each dimension.
+  uint3 workgroup_size;
+  // Number of cooperating workgroups in each cluster dimension.
+  uint3 workgroup_cluster_size;
+};
+
+}  // namespace kernel
+
+namespace target {
+
+// Reads the selected target's subgroup width while computing launch geometry.
+// This is a compilation input, unlike loom::subgroup_size(), which queries the
+// executing kernel topology.
+[[loom::op("target.subgroup.size")]] unsigned subgroup_size();
+
+}  // namespace target
 
 // Topology queries and subgroup intrinsics require a kernel body or a
 // force-inline helper. Other helpers receive topology values as arguments.

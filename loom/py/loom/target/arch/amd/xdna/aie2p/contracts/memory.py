@@ -28,6 +28,7 @@ from loom.target.contracts import (
     SourceMemoryAddressLayout,
     SourceMemoryByteOffsetMaterializer,
     SourceMemoryConstraint,
+    SourceMemoryDynamicIndexSource,
     SourceMemoryIntegerConversion,
     SourceMemoryOperation,
     SourceMemoryProject,
@@ -163,6 +164,8 @@ class _MemoryAddressForm(Enum):
     MATERIALIZED_STATIC = "materialized_static"
     DYNAMIC_ZERO_STATIC = "dynamic_zero_static"
     DYNAMIC_SMALL_STATIC = "dynamic_small_static"
+    DYNAMIC_UNSCALED_SMALL_STATIC = "dynamic_unscaled_small_static"
+    DYNAMIC_UNSCALED_FULL_STATIC = "dynamic_unscaled_full_static"
     DYNAMIC_FULL_STATIC = "dynamic_full_static"
 
 
@@ -187,7 +190,15 @@ def _memory_constraint(
     dynamic = address_form in (
         _MemoryAddressForm.DYNAMIC_ZERO_STATIC,
         _MemoryAddressForm.DYNAMIC_SMALL_STATIC,
+        _MemoryAddressForm.DYNAMIC_UNSCALED_SMALL_STATIC,
+        _MemoryAddressForm.DYNAMIC_UNSCALED_FULL_STATIC,
         _MemoryAddressForm.DYNAMIC_FULL_STATIC,
+    )
+    # A unit byte term cannot fuse a multiply with the static bias. Scaled
+    # terms retain the complete-offset materializer's multiply-add recipe.
+    unscaled = address_form in (
+        _MemoryAddressForm.DYNAMIC_UNSCALED_SMALL_STATIC,
+        _MemoryAddressForm.DYNAMIC_UNSCALED_FULL_STATIC,
     )
     if address_form is _MemoryAddressForm.IMMEDIATE:
         static_minimum = immediate_offset_minimum
@@ -198,6 +209,8 @@ def _memory_constraint(
         static_minimum = static_maximum = 0
     elif address_form is _MemoryAddressForm.DYNAMIC_SMALL_STATIC:
         static_minimum, static_maximum = -64, 63
+    elif address_form is _MemoryAddressForm.DYNAMIC_UNSCALED_SMALL_STATIC:
+        static_minimum, static_maximum = -128, 127
     else:
         static_minimum, static_maximum = _I32_MIN, _I32_MAX
     static_maximum = min(
@@ -215,9 +228,15 @@ def _memory_constraint(
         static_byte_offset_minimum=static_minimum,
         static_byte_offset_maximum=static_maximum,
         minimum_alignment=minimum_alignment,
-        dynamic_term_count=None if dynamic else 0,
-        dynamic_term_count_minimum=1 if dynamic else 0,
-        allow_dynamic_stride_values=dynamic,
+        dynamic_term_count=1 if unscaled else (None if dynamic else 0),
+        dynamic_term_count_minimum=1 if dynamic and not unscaled else 0,
+        dynamic_index_source=(
+            SourceMemoryDynamicIndexSource.VALUE
+            if unscaled
+            else SourceMemoryDynamicIndexSource.NONE
+        ),
+        dynamic_byte_stride=1 if unscaled else 0,
+        allow_dynamic_stride_values=dynamic and not unscaled,
         byte_offset_unsigned_bit_count=32,
         cache_policy_build_flags=None,
     )
@@ -250,6 +269,7 @@ def _register_address_emits(
 ) -> tuple[tuple[EmitDescriptorOp, ...], ValueRef]:
     emits: list[EmitDescriptorOp] = []
     byte_offset = ValueRef.temporary(f"byte_offset{temporary_suffix}")
+    address_index = ValueRef.temporary(f"address_index{temporary_suffix}")
     static_byte_offset = (
         SourceMemoryProject.static_byte_offset_plus(additional_static_byte_offset)
         if additional_static_byte_offset
@@ -274,30 +294,29 @@ def _register_address_emits(
     ):
         byte_offset = ValueRef.source_memory_dynamic_byte_offset()
     elif (
-        address_form is _MemoryAddressForm.DYNAMIC_SMALL_STATIC
-        and additional_static_byte_offset == 0
-    ):
-        emits.append(
-            EmitDescriptorOp(
-                descriptor=_descriptor("amd.xdna.aie2p.add.i32.immediate"),
-                operands={"s0": ValueRef.source_memory_dynamic_byte_offset()},
-                results={"d0": byte_offset},
-                result_types={"d0": _OFFSET},
-                immediates={"imm": static_byte_offset},
-                source_memory=source_memory,
-                source_memory_byte_offset_materializer=_byte_offset_materializer(),
-                form=DescriptorEmitForm.OP,
-            )
-        )
-    elif (
         address_form is _MemoryAddressForm.DYNAMIC_FULL_STATIC
         and additional_static_byte_offset == 0
     ):
         byte_offset = ValueRef.source_memory_byte_offset()
     else:
-        static_offset = ValueRef.temporary(f"static_byte_offset{temporary_suffix}")
-        emits.extend(
-            (
+        # Project the final byte sum directly into DJ: low20(low32(x + bias))
+        # equals low20(x + bias). Only the final projection uses this carrier;
+        # the shared materializer still owns dynamic arithmetic in ER.
+        operands = {"s0": ValueRef.source_memory_dynamic_byte_offset()}
+        immediates = {}
+        if (
+            source_memory.static_byte_offset_minimum + additional_static_byte_offset
+            >= -128
+            and source_memory.static_byte_offset_maximum + additional_static_byte_offset
+            <= 127
+        ):
+            addressing = "immediate"
+            immediates["imm"] = static_byte_offset
+        else:
+            addressing = "register"
+            static_offset = ValueRef.temporary(f"static_byte_offset{temporary_suffix}")
+            operands["s1"] = static_offset
+            emits.append(
                 EmitDescriptorOp(
                     descriptor=_descriptor(
                         "amd.xdna.aie2p.materialize.static-byte-offset.i32"
@@ -307,25 +326,24 @@ def _register_address_emits(
                     immediates={"i": static_byte_offset},
                     source_memory=source_memory,
                     form=DescriptorEmitForm.OP,
+                )
+            )
+        emits.append(
+            EmitDescriptorOp(
+                descriptor=_descriptor(
+                    f"amd.xdna.aie2p.address.index.add.{addressing}"
                 ),
-                EmitDescriptorOp(
-                    descriptor=_descriptor("amd.xdna.aie2p.add.i32"),
-                    operands={
-                        "s0": ValueRef.source_memory_dynamic_byte_offset(),
-                        "s1": static_offset,
-                    },
-                    results={"d0": byte_offset},
-                    result_types={"d0": _OFFSET},
-                    source_memory=source_memory,
-                    source_memory_byte_offset_materializer=(
-                        _byte_offset_materializer()
-                    ),
-                    form=DescriptorEmitForm.OP,
-                ),
+                operands=operands,
+                results={"dst": address_index},
+                result_types={"dst": DescriptorResultType()},
+                immediates=immediates,
+                source_memory=source_memory,
+                source_memory_byte_offset_materializer=_byte_offset_materializer(),
+                form=DescriptorEmitForm.OP,
             )
         )
+        return tuple(emits), address_index
 
-    address_index = ValueRef.temporary(f"address_index{temporary_suffix}")
     materialize_byte_offset = (
         address_form
         in (

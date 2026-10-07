@@ -1,0 +1,161 @@
+// A missing terminator materializes the declared implicit kind in both branches.
+// RUN: verify
+test.func @implicit_branches(%condition: i1) {
+  test.optional_region %condition {
+  } else {
+  }
+  test.yield
+}
+
+// ====
+// Omitted optional regions have no terminator obligation.
+test.func @absent_optional_branch(%condition: i1) {
+  test.optional_region %condition {
+  }
+  test.yield
+}
+
+// ====
+// Explicit and implicit terminators can appear in sibling regions.
+test.func @mixed_branch_terminators(%condition: i1) {
+  test.optional_region %condition {
+  } else {
+    test.yield
+  }
+  test.yield
+}
+
+// ====
+// The same descriptor contract applies to required branch pairs.
+test.func @required_branches(%condition: i1) {
+  test.branch %condition {
+  } else {
+  }
+  test.yield
+}
+
+// ====
+// Loops without carried results can synthesize the zero-operand terminator.
+test.func @implicit_loop(%lower: index, %upper: index, %step: index) {
+  test.loop %iteration = %lower to %upper step %step {
+  }
+  test.yield
+}
+
+// ====
+// Accepting the implicit kind must not skip the loop's result-count contract.
+test.func @missing_loop_result(%lower: index, %upper: index, %step: index, %initial: f32) {
+  // ERROR@+1: STRUCTURE/008 {actual_count="0", expected_count="1"}
+  %result = test.loop %iteration = %lower to %upper step %step iter_args(%carried = %initial : f32) -> (f32) {
+  }
+  test.yield
+}
+
+// ====
+test.func @explicit_missing_loop_result(%lower: index, %upper: index, %step: index, %initial: f32) {
+  // ERROR@+1: STRUCTURE/008 {actual_count="0", expected_count="1"}
+  %result = test.loop %iteration = %lower to %upper step %step iter_args(%carried = %initial : f32) -> (f32) {
+    test.implicit_yield
+  }
+  test.yield
+}
+
+// ====
+// An explicit yield still checks the result's type.
+test.func @wrong_loop_result_type(%lower: index, %upper: index, %step: index, %initial: f32) {
+  // ERROR@+1: TYPE/009 {yield_type="index", expected_type="f32"}
+  %result = test.loop %iteration = %lower to %upper step %step iter_args(%carried = %initial : f32) -> (f32) {
+    test.yield %iteration : index
+  }
+  test.yield
+}
+
+// ====
+// Elementwise bodies still have to produce their result element.
+test.func @missing_map_result(%input: tile<4xf32>) {
+  // ERROR@+1: STRUCTURE/008 {actual_count="0", expected_count="1"}
+  %result = test.map(%element = %input : tile<4xf32>) {
+  } -> (tile<4xf32>)
+  test.yield
+}
+
+// ====
+test.func @implicit_block_arguments(%input: i32) {
+  test.block_args %input : i32 do(%argument: i32) {
+    test.use %argument : i32
+  }
+  test.block_arg_groups actual(%actual: f32) expected(%expected: f32) {
+    test.use %actual, %expected : f32, f32
+  }
+  test.yield
+}
+
+// ====
+test.func @alternate_region_syntax() {
+  test.region_syntax do {
+  }
+  test.yield
+}
+
+// ====
+// An implicit kind is allowed only by a region that declares it.
+// ERROR@+1: STRUCTURE/018 {expected_terminator="test.yield", actual_terminator="test.implicit_yield"}
+test.func @undeclared_implicit_terminator() {
+  test.implicit_yield
+}
+
+// ====
+// A branch elsewhere in the region does not terminate the entry block.
+// ERROR@+1: STRUCTURE/005 {op_name="test.func", region_index="0"}
+test.func @missing_cfg_entry_terminator() {
+  %entry_value = test.constant 0 : i32
+^unreachable:
+  test.br ^exit
+^exit:
+  test.yield
+}
+
+// ====
+// An empty successor block still requires its own terminator.
+// ERROR@+1: STRUCTURE/005 {op_name="test.func", region_index="0"}
+test.func @empty_cfg_successor() {
+  test.br ^empty
+^empty:
+}
+
+// ====
+// A CFG branch permits continuation, not an unrelated region exit kind.
+// ERROR@+1: STRUCTURE/018 {expected_terminator="test.yield", actual_terminator="test.implicit_yield"}
+test.func @wrong_cfg_exit() {
+  test.br ^exit
+^exit:
+  test.implicit_yield
+}
+
+// ====
+// Branches and the declared exit kind remain valid in a CFG-capable region.
+test.func @declared_cfg_exit() {
+  test.br ^exit
+^exit:
+  test.yield
+}
+
+// ====
+// Single-block structured regions cannot substitute a branch for their yield.
+test.func @structured_region_branch(%condition: i1) {
+  // ERROR@+1: STRUCTURE/018 {expected_terminator="test.yield", actual_terminator="test.br"}
+  test.optional_region %condition {
+  ^repeat:
+    test.br ^repeat
+  }
+  test.yield
+}
+
+// ====
+// An unspecified terminator kind admits alternatives, not a missing operation.
+check.scenario @missing_trial_terminator {
+  // ERROR@+1: STRUCTURE/005 {op_name="check.trial", region_index="0"}
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+  }
+  check.return
+}

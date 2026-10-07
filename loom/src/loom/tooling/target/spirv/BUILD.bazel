@@ -47,7 +47,7 @@ loom_cc_library(
     hdrs = ["check/loom_check.h"],
     deps = [
         "//loom/src/loom/target:entry_selection",
-        "//loom/src/loom/target/emit/spirv:module_compiler",
+        "//loom/src/loom/target:provider",
         "//loom/src/loom/target/tool:spirv",
         "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tools/loom-check:execute",
@@ -69,35 +69,15 @@ loom_cc_library(
 )
 
 loom_cc_library(
-    name = "artifact_provider",
-    srcs = ["artifact_provider.c"],
-    hdrs = ["artifact_provider.h"],
-    target_compatible_with = _SPIRV_COMPILE_COMPATIBLE_WITH,
-    deps = [
-        "//loom/src/loom/target:entry_selection",
-        "//loom/src/loom/target:function_contract",
-        "//loom/src/loom/target:low_descriptor_registry",
-        "//loom/src/loom/target:types",
-        "//loom/src/loom/target/arch/spirv:profile",
-        "//loom/src/loom/target/arch/spirv/descriptors:low_registry",
-        "//loom/src/loom/target/emit/spirv:module_compiler",
-        "//loom/src/loom/target/reporting:artifact_manifest_collect",
-        "//loom/src/loom/target/reporting:report",
-        "//loom/src/loom/tooling/compile:artifact",
-        "//runtime/src/iree/base",
-    ],
-)
-
-loom_cc_library(
     name = "device_provider",
     srcs = ["device_provider.c"],
     hdrs = ["device_provider.h"],
     target_compatible_with = _SPIRV_VULKAN_HAL_COMPATIBLE_WITH,
     deps = [
-        ":artifact_provider",
         ":vulkan_profile",
         "//loom/src/loom/target/arch/spirv:facts",
         "//loom/src/loom/target/arch/spirv:profile",
+        "//loom/src/loom/target/emit/spirv:module_compiler",
         "//loom/src/loom/tooling/execution/hal:device_provider",
         "//loom/src/loom/tooling/execution/hal:runtime",
         "//runtime/src/iree/base",
@@ -111,7 +91,7 @@ loom_cc_library(
     target_compatible_with = _SPIRV_VULKAN_HAL_COMPATIBLE_WITH,
     deps = [
         ":device_provider",
-        "//loom/src/loom/target/arch/spirv:provider",
+        "//loom/src/loom/target/arch/spirv:compiler_provider",
         "//loom/src/loom/tooling/execution:execution_provider",
         "//loom/src/loom/tooling/execution/hal:execution_backend",
         "//runtime/src/iree/base",
@@ -153,28 +133,6 @@ loom_cc_library(
 )
 
 loom_cc_test(
-    name = "artifact_provider_test",
-    srcs = ["artifact_provider_test.cc"],
-    target_compatible_with = _SPIRV_COMPILE_COMPATIBLE_WITH,
-    deps = [
-        ":artifact_provider",
-        "//loom/src/loom/codegen/low:text_asm",
-        "//loom/src/loom/format/text:parser",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/ops:op_registry",
-        "//loom/src/loom/target/arch/spirv:profile",
-        "//loom/src/loom/target/arch/spirv/descriptors:low_registry",
-        "//loom/src/loom/target/arch/spirv/ops",
-        "//loom/src/loom/testing:byte_sequence",
-        "//loom/src/loom/testing:module_ptr",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
-    ],
-)
-
-loom_cc_test(
     name = "device_provider_test",
     srcs = ["device_provider_test.cc"],
     target_compatible_with = _SPIRV_VULKAN_HAL_COMPATIBLE_WITH,
@@ -191,36 +149,6 @@ loom_cc_test(
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
         "//third_party:vulkan_headers",
-    ],
-)
-
-loom_cc_test(
-    name = "module_compiler_test",
-    srcs = ["module_compiler_test.cc"],
-    target_compatible_with = _SPIRV_COMPILE_COMPATIBLE_WITH,
-    deps = [
-        "//loom/src/loom/analysis:symbol_facts",
-        "//loom/src/loom/codegen/low:text_asm",
-        "//loom/src/loom/format/text:parser",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/ops:func_symbol_facts",
-        "//loom/src/loom/ops:op_defs",
-        "//loom/src/loom/ops:op_registry",
-        "//loom/src/loom/ops/target",
-        "//loom/src/loom/target:facts_builder",
-        "//loom/src/loom/target:function_contract",
-        "//loom/src/loom/target:function_version",
-        "//loom/src/loom/target:profile",
-        "//loom/src/loom/target:types",
-        "//loom/src/loom/target/arch/spirv:features",
-        "//loom/src/loom/target/arch/spirv:profile",
-        "//loom/src/loom/target/arch/spirv/descriptors:low_registry",
-        "//loom/src/loom/target/arch/spirv/ops",
-        "//loom/src/loom/target/emit/spirv:module_compiler",
-        "//loom/src/loom/testing:module_ptr",
-        "//runtime/src/iree/base/internal:arena",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 
@@ -264,6 +192,7 @@ loom_test(
         "packed_float8_conversion",
         "pointer_origins",
         "vector_lookup",
+        "workload_configuration",
     ]
 ]
 

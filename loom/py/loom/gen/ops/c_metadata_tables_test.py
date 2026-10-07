@@ -15,6 +15,7 @@ from loom.dsl import (
     ATTR_TYPE_PREDICATE_LIST,
     ATTR_TYPE_SYMBOL,
     INTEGER,
+    ISOLATED_FROM_ABOVE,
     SYMBOL_DEFINE,
     AttrDef,
     Dialect,
@@ -24,12 +25,49 @@ from loom.dsl import (
     Op,
     Operand,
     RegionDef,
+    RegionExecution,
     Result,
     SameType,
     SymbolDefinition,
     SymbolValueContract,
 )
 from loom.gen.ops.c_metadata_tables import generate_tables_c
+
+
+@pytest.mark.parametrize("execution", [None, *RegionExecution])
+def test_region_execution_metadata(execution: RegionExecution | None) -> None:
+    op = Op(
+        "test.region",
+        group=Dialect("test"),
+        regions=[RegionDef("body", execution=execution)],
+        format=[Region("body")],
+    )
+    expected = execution if execution is not None else RegionExecution.ONCE
+    source = generate_tables_c("test", 0, [op])
+    assert f"{{LOOM_OP_KIND_UNKNOWN, LOOM_OP_KIND_UNKNOWN, 0, {expected.c_name}}}" in source
+
+
+def test_capturing_multiple_regions_requires_declared_control_flow() -> None:
+    op = Op(
+        "test.regions",
+        group=Dialect("test"),
+        regions=[RegionDef("first"), RegionDef("second")],
+        format=[Region("first"), Region("second")],
+    )
+    with pytest.raises(ValueError, match="capturing multiple regions requires a control-flow interface"):
+        generate_tables_c("test", 0, [op])
+
+
+def test_isolated_regions_have_independent_dynamic_owners() -> None:
+    op = Op(
+        "test.regions",
+        group=Dialect("test"),
+        regions=[RegionDef("first"), RegionDef("second")],
+        traits=[ISOLATED_FROM_ABOVE],
+        format=[Region("first"), Region("second")],
+    )
+    source = generate_tables_c("test", 0, [op])
+    assert source.count("LOOM_REGION_EXECUTION_ONCE") == 2
 
 
 def test_generate_tables_rejects_variadic_symbol_value_contract_result() -> None:

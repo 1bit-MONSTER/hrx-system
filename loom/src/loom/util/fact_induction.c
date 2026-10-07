@@ -116,21 +116,24 @@ static loom_value_fact_induction_t loom_value_fact_induction_recognize(
   if (!loom_cfg_br_isa(entry_branch) || !loom_cfg_br_isa(backedge_branch)) {
     return unknown;
   }
-  const loom_value_id_t upper_bound =
-      loom_value_fact_table_query_identity(table, loom_index_cmp_rhs(compare));
-  const loom_value_id_t initial_value = loom_value_fact_table_query_identity(
-      table, loom_cfg_br_args(entry_branch).values[argument_index]);
-  if (!loom_value_fact_induction_is_invariant(module, loops, loop_index,
-                                              initial_value) ||
-      !loom_value_fact_induction_is_invariant(module, loops, loop_index,
-                                              upper_bound)) {
+  const loom_value_id_t upper_bound = loom_index_cmp_rhs(compare);
+  const loom_value_id_t initial_value =
+      loom_cfg_br_args(entry_branch).values[argument_index];
+  if (!loom_value_fact_induction_is_invariant(
+          module, loops, loop_index,
+          loom_value_fact_table_query_identity(table, initial_value)) ||
+      !loom_value_fact_induction_is_invariant(
+          module, loops, loop_index,
+          loom_value_fact_table_query_identity(table, upper_bound))) {
     return unknown;
   }
   loom_value_fact_induction_t induction = {
       .value = counter,
-      .initial_value = initial_value,
-      .upper_bound = upper_bound,
-      .step = LOOM_VALUE_ID_INVALID,
+      .initial_value =
+          loom_value_fact_recurrence_operand_make(table, module, initial_value),
+      .upper_bound =
+          loom_value_fact_recurrence_operand_make(table, module, upper_bound),
+      .step = {.value = LOOM_VALUE_ID_INVALID},
       .bound_flags = bound_flags,
   };
   // A false entry guard proves an empty loop even when its dead increment has
@@ -145,19 +148,23 @@ static loom_value_fact_induction_t loom_value_fact_induction_recognize(
       loom_value_fact_table_query_identity(table, loom_index_add_lhs(add));
   const loom_value_id_t rhs =
       loom_value_fact_table_query_identity(table, loom_index_add_rhs(add));
-  const loom_value_id_t step = lhs == counter ? rhs : lhs;
+  const loom_value_id_t step =
+      lhs == counter ? loom_index_add_rhs(add) : loom_index_add_lhs(add);
   if ((lhs == counter || rhs == counter) &&
-      loom_value_fact_induction_is_invariant(module, loops, loop_index, step)) {
-    induction.step = step;
+      loom_value_fact_induction_is_invariant(
+          module, loops, loop_index,
+          loom_value_fact_table_query_identity(table, step))) {
+    induction.step =
+        loom_value_fact_recurrence_operand_make(table, module, step);
   }
   return induction;
 }
 
 // A value visible at this single-block boundary is either a local definition
 // or a dominating capture. Literal constants remain invariant inside a region.
-static bool loom_value_fact_condition_loop_is_invariant(
-    const loom_module_t* module, loom_loop_like_t loop,
-    loom_value_id_t value_id) {
+static bool loom_value_fact_loop_is_invariant(const loom_module_t* module,
+                                              loom_loop_like_t loop,
+                                              loom_value_id_t value_id) {
   const loom_value_t* value = loom_module_value(module, value_id);
   const loom_block_t* block = NULL;
   if (loom_value_is_block_arg(value)) {
@@ -229,16 +236,18 @@ loom_value_fact_induction_t loom_value_fact_condition_loop_induction(
     return unknown;
   }
   const uint16_t index = loom_value_def_index(value);
-  const loom_value_id_t upper =
-      loom_value_fact_table_query_identity(table, loom_index_cmp_rhs(compare));
-  if (!loom_value_fact_condition_loop_is_invariant(module, loop, upper)) {
+  const loom_value_id_t upper = loom_index_cmp_rhs(compare);
+  if (!loom_value_fact_loop_is_invariant(
+          module, loop, loom_value_fact_table_query_identity(table, upper))) {
     return unknown;
   }
   loom_value_fact_induction_t induction = {
       .value = counter,
-      .initial_value = initial.values[index],
-      .upper_bound = upper,
-      .step = LOOM_VALUE_ID_INVALID,
+      .initial_value = loom_value_fact_recurrence_operand_make(
+          table, module, initial.values[index]),
+      .upper_bound =
+          loom_value_fact_recurrence_operand_make(table, module, upper),
+      .step = {.value = LOOM_VALUE_ID_INVALID},
       .bound_flags = bound_flags,
   };
   const loom_value_id_t next = loom_value_fact_table_query_identity(
@@ -254,16 +263,126 @@ loom_value_fact_induction_t loom_value_fact_condition_loop_induction(
   loom_value_id_t step = LOOM_VALUE_ID_INVALID;
   if (loom_value_fact_condition_forwards_counter(module, table, condition, body,
                                                  lhs, counter)) {
-    step = rhs;
+    step = loom_index_add_rhs(add);
   } else if (loom_value_fact_condition_forwards_counter(
                  module, table, condition, body, rhs, counter)) {
-    step = lhs;
+    step = loom_index_add_lhs(add);
   }
   if (step != LOOM_VALUE_ID_INVALID &&
-      loom_value_fact_condition_loop_is_invariant(module, loop, step)) {
-    induction.step = step;
+      loom_value_fact_loop_is_invariant(
+          module, loop, loom_value_fact_table_query_identity(table, step))) {
+    induction.step =
+        loom_value_fact_recurrence_operand_make(table, module, step);
   }
   return induction;
+}
+
+typedef struct loom_value_fact_loop_scope_t {
+  // Module defining the queried values.
+  const loom_module_t* module;
+  // Structured loop whose captures are invariant.
+  loom_loop_like_t loop;
+} loom_value_fact_loop_scope_t;
+
+static bool loom_value_fact_loop_scope_is_invariant(void* user_data,
+                                                    loom_value_id_t value) {
+  const loom_value_fact_loop_scope_t* scope = user_data;
+  return loom_value_fact_loop_is_invariant(scope->module, scope->loop, value);
+}
+
+iree_status_t loom_value_fact_loop_build_recurrences(
+    const loom_value_fact_table_t* table, const loom_module_t* module,
+    loom_loop_like_t loop, iree_arena_allocator_t* arena,
+    loom_value_fact_recurrence_set_t* out_set) {
+  *out_set = (loom_value_fact_recurrence_set_t){0};
+  const loom_block_t* body =
+      loom_region_const_entry_block(loom_loop_like_body(loop));
+  const loom_region_t* condition_region = loom_loop_like_condition_region(loop);
+  const loom_block_t* header =
+      condition_region ? loom_region_const_entry_block(condition_region) : body;
+  const loom_value_slice_t initial = loom_loop_like_iter_args(loop);
+  loom_op_t* yield = body->last_op;
+  loom_op_t* condition = condition_region ? header->last_op : NULL;
+  // A rewriter can publish a loop shell before completing its terminators.
+  if (!yield || yield->operand_count != initial.count ||
+      (condition_region &&
+       (!condition || condition->operand_count != body->arg_count + 1))) {
+    return iree_ok_status();
+  }
+  loom_value_fact_loop_scope_t owner = {.module = module, .loop = loop};
+  const loom_value_fact_recurrence_scope_t scope = {
+      .user_data = &owner,
+      .is_invariant = loom_value_fact_loop_scope_is_invariant,
+      .forwarding_block = condition ? body : NULL,
+      .forwarding_values =
+          condition ? (loom_value_slice_t){loom_op_operands(condition) + 1,
+                                           body->arg_count}
+                    : (loom_value_slice_t){0},
+  };
+  const uint16_t argument_offset =
+      loop.vtable->iv_block_arg_index == LOOM_BLOCK_ARG_INDEX_NONE
+          ? 0
+          : (uint16_t)loop.vtable->iv_block_arg_index + 1;
+  return loom_value_fact_recurrence_set_build(
+      table, module, header, argument_offset, initial,
+      (loom_value_slice_t){loom_op_operands(yield), initial.count}, &scope,
+      arena, out_set);
+}
+
+typedef struct loom_value_fact_cfg_loop_scope_t {
+  // Module defining the queried values.
+  const loom_module_t* module;
+  // Natural-loop membership established by the CFG owner.
+  const loom_cfg_loop_nest_t* loops;
+  // Loop whose captures are invariant.
+  uint16_t loop_index;
+} loom_value_fact_cfg_loop_scope_t;
+
+static bool loom_value_fact_cfg_loop_scope_is_invariant(void* user_data,
+                                                        loom_value_id_t value) {
+  const loom_value_fact_cfg_loop_scope_t* scope = user_data;
+  return loom_value_fact_induction_is_invariant(scope->module, scope->loops,
+                                                scope->loop_index, value);
+}
+
+iree_status_t loom_value_fact_cfg_build_recurrences(
+    const loom_value_fact_table_t* table, const loom_module_t* module,
+    const loom_value_fact_cfg_region_t* region, uint16_t block_index,
+    iree_arena_allocator_t* arena) {
+  const uint16_t loop_index =
+      loom_cfg_loop_nest_innermost(&region->loops, block_index);
+  if (loop_index == LOOM_CFG_LOOP_NEST_NONE ||
+      region->loops.loops[loop_index].header_index != block_index) {
+    return iree_ok_status();
+  }
+  loom_value_fact_recurrence_set_t* set = &region->recurrences[loop_index];
+  *set = (loom_value_fact_recurrence_set_t){0};
+  region->inductions[loop_index] = loom_value_fact_induction_recognize(
+      table, module, &region->loops, loop_index);
+  if (region->inductions[loop_index].value == LOOM_VALUE_ID_INVALID) {
+    return iree_ok_status();
+  }
+  const loom_cfg_natural_loop_t* loop = &region->loops.loops[loop_index];
+  const loom_cfg_edge_info_t* entry =
+      &region->graph.edges[loop->entries.unique_index];
+  const loom_cfg_edge_info_t* backedge =
+      &region->graph.edges[loop->backedges.unique_index];
+  loom_value_fact_cfg_loop_scope_t owner = {
+      .module = module,
+      .loops = &region->loops,
+      .loop_index = loop_index,
+  };
+  const loom_value_fact_recurrence_scope_t scope = {
+      .user_data = &owner,
+      .is_invariant = loom_value_fact_cfg_loop_scope_is_invariant,
+  };
+  return loom_value_fact_recurrence_set_build(
+      table, module, region->graph.blocks[block_index].block, 0,
+      loom_cfg_br_args(
+          region->graph.blocks[entry->source_block_index].block->last_op),
+      loom_cfg_br_args(
+          region->graph.blocks[backedge->source_block_index].block->last_op),
+      &scope, arena, set);
 }
 
 void loom_value_fact_cfg_update_induction(
@@ -299,11 +418,11 @@ loom_loop_recurrence_facts_t loom_value_fact_induction_facts(
     return unknown;
   }
   const loom_value_facts_t initial =
-      loom_value_fact_table_lookup(table, induction->initial_value);
+      loom_value_fact_recurrence_operand_facts(table, induction->initial_value);
   const loom_value_facts_t upper =
-      loom_value_fact_table_lookup(table, induction->upper_bound);
+      loom_value_fact_recurrence_operand_facts(table, induction->upper_bound);
   const loom_value_facts_t step =
-      loom_value_fact_table_lookup(table, induction->step);
+      loom_value_fact_recurrence_operand_facts(table, induction->step);
   if (!loom_value_facts_is_exact(initial) ||
       !loom_value_facts_is_exact(upper)) {
     return unknown;

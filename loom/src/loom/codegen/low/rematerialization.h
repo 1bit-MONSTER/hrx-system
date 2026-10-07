@@ -50,12 +50,14 @@ typedef struct loom_low_value_rematerialization_result_t {
 typedef struct loom_low_allocation_rematerialization_result_t {
   // Descriptor-guided value rematerialization performed by the repair.
   loom_low_value_rematerialization_result_t value;
-  // Original allocation or liveness pressure class for a repaired value.
-  // Owned by the analysis snapshot; valid until that snapshot is discarded.
-  const loom_liveness_value_class_t* value_class;
+  // Original register class in the allocation's target descriptor set.
+  // Retained by value across IR rewrites and analysis snapshot retirement.
+  uint16_t descriptor_reg_class_id;
 } loom_low_allocation_rematerialization_result_t;
 
 typedef struct loom_low_rematerialization_batch_result_t {
+  // Number of values repaired by cloning or retained placement.
+  uint32_t repaired_value_count;
   // Total descriptor packets cloned across the repaired values.
   uint32_t cloned_packet_count;
   // Total operand uses rewritten across the repaired values.
@@ -115,8 +117,8 @@ iree_status_t loom_low_rematerialize_value_uses(
 // as one consumer-first batch. When no batch applies, repairs the terminal
 // failure frontier: private placements accumulate while the snapshot remains
 // unchanged, stopping before a clone once placement warrants a new schedule.
-// Otherwise one genuine rewrite ends use of that snapshot. Each cloned source
-// emits its own optional decision.
+// Otherwise one genuine rewrite ends use of that snapshot. One optional
+// diagnostic summarizes the complete batch.
 // |schedule| is the completed order that failed allocation when the caller
 // will rebuild scheduling with retained placement. Source-order allocation
 // callers pass NULL and only consume IR-rewriting repairs.
@@ -142,11 +144,14 @@ iree_status_t loom_low_allocation_rematerialize_spill_plan(
     loom_low_rematerialization_state_t* state, iree_arena_allocator_t* arena,
     loom_low_allocation_rematerialization_result_t* out_result);
 
-// Emits a structured remark describing a successful rematerialization result.
-iree_status_t loom_low_allocation_rematerialization_emit_decision(
+// Emits one structured remark summarizing a successful rematerialization
+// batch. |trigger_reg_class_id| names the trigger value class; a failure
+// repair batch may also cover other simultaneously over-budget classes.
+iree_status_t loom_low_allocation_rematerialization_emit_summary(
     const loom_low_allocation_table_t* table,
     loom_low_allocation_rematerialization_trigger_t trigger,
-    const loom_low_allocation_rematerialization_result_t* result,
+    uint16_t trigger_reg_class_id,
+    const loom_low_rematerialization_batch_result_t* result,
     iree_diagnostic_emitter_t emitter);
 
 #ifdef __cplusplus

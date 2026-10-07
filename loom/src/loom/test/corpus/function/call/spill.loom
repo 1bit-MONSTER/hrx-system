@@ -24,7 +24,7 @@ func.def noinline @sum(%v0: i64, %v1: i64, %v2: i64, %v3: i64, %v4: i64, %v5: i6
   func.return %s15 : i64
 }
 
-func.def public @pressure(%a: i64, %count: i32) -> (i64) {
+func.def @pressure(%a: i64, %count: i32) -> (i64) {
   %c0 = scalar.constant 0 : i64
   %a0 = scalar.addi %a, %c0 : i64
   %r0_0, %r0_1, %r0_2, %r0_3, %r0_4, %r0_5, %r0_6, %r0_7, %r0_8, %r0_9, %r0_10, %r0_11, %r0_12, %r0_13, %r0_14, %r0_15 = func.call @fanout(%a0) : (i64) -> (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)
@@ -123,20 +123,28 @@ func.def public @pressure(%a: i64, %count: i32) -> (i64) {
   func.return %result : i64
 }
 
-check.case @spilled_call_results {
-  %a = check.literal value(4294967297) : i64
-  %count = check.literal value(3) : i32
-  %actual = func.call @pressure(%a, %count) : (i64, i32) -> (i64)
-  %expected = check.literal value(3504693320880) : i64
-  check.expect.equal actual(%actual) expected(%expected) : i64
-  check.return
+func.def @spill_observations(%value: i64, %control: i64, %output: buffer) {
+  %control_word = scalar.trunci %control : i64 to i32
+  %mask = scalar.constant 3 : i32
+  %count = scalar.andi %control_word, %mask : i32
+  %result = func.call @pressure(%value, %count) : (i64, i32) -> (i64)
+  %values = vector.from_elements %result : vector<1xi64>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<1xi64>
+  vector.store %values, %results[0] : vector<1xi64>, view<1xi64>
+  func.return
 }
 
-check.case @skip_spill_consumers {
-  %a = check.literal value(-7) : i64
-  %count = check.literal value(0) : i32
-  %actual = func.call @pressure(%a, %count) : (i64, i32) -> (i64)
-  %expected = check.literal value(0) : i64
-  check.expect.equal actual(%actual) expected(%expected) : i64
+check.scenario @spill_values {
+  check.trial[32](%trial: index, %entropy: check.entropy) {
+    %value_source = check.entropy.fork %entropy name("value") : check.entropy
+    %control_source = check.entropy.fork %entropy name("control") : check.entropy
+    %value = check.entropy.read %value_source[%trial] : check.entropy -> i64
+    %control = check.entropy.read %control_source[%trial] : check.entropy -> i64
+    %output = check.generate.fill value(0) : tensor<1xi64>
+    check.compare<@spill_observations>(%value, %control, %output) : (i64, i64, tensor<1xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<1xi64>
+    }
+  }
   check.return
 }

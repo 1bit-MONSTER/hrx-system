@@ -182,6 +182,25 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    component_packet_legalization
+  HDRS
+    "component_packet_legalization.h"
+  SRCS
+    "component_packet_legalization.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::ops::op_defs
+    loom::ops::vector
+    loom::rewrite::rewriter
+    loom::target::legalization
+    loom::util::walk
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     packet_legalization
   HDRS
     "packet_legalization.h"
@@ -228,6 +247,7 @@ loom_cc_library(
   DEPS
     iree::base
     loom::ir
+    loom::ops::index
     loom::ops::vector
     loom::rewrite::rewriter
     loom::target::legalization
@@ -249,6 +269,7 @@ loom_cc_library(
     loom::ops::scf
     loom::ops::vector
     loom::target::legalization
+    loom::util::numeric_format
   PUBLIC
 )
 

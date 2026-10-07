@@ -19,8 +19,8 @@ loom_cc_library(
     "check/loom_check.c"
   DEPS
     iree::base
-    loom::target::emit::spirv::module_compiler
     loom::target::entry_selection
+    loom::target::provider
     loom::target::tool::spirv
     loom::tooling::compile::pipeline
     loom::tools::loom-check::execute
@@ -45,30 +45,6 @@ loom_cc_library(
 )
 endif()
 
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-loom_cc_library(
-  NAME
-    artifact_provider
-  HDRS
-    "artifact_provider.h"
-  SRCS
-    "artifact_provider.c"
-  DEPS
-    iree::base
-    loom::target::arch::spirv::descriptors::low_registry
-    loom::target::arch::spirv::profile
-    loom::target::emit::spirv::module_compiler
-    loom::target::entry_selection
-    loom::target::function_contract
-    loom::target::low_descriptor_registry
-    loom::target::reporting::artifact_manifest_collect
-    loom::target::reporting::report
-    loom::target::types
-    loom::tooling::compile::artifact
-  PUBLIC
-)
-endif()
-
 if(LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
 loom_cc_library(
   NAME
@@ -78,11 +54,11 @@ loom_cc_library(
   SRCS
     "device_provider.c"
   DEPS
-    ::artifact_provider
     ::vulkan_profile
     iree::base
     loom::target::arch::spirv::facts
     loom::target::arch::spirv::profile
+    loom::target::emit::spirv::module_compiler
     loom::tooling::execution::hal::device_provider
     loom::tooling::execution::hal::runtime
   PUBLIC
@@ -100,7 +76,7 @@ loom_cc_library(
   DEPS
     ::device_provider
     iree::base
-    loom::target::arch::spirv::provider
+    loom::target::arch::spirv::compiler_provider
     loom::tooling::execution::execution_provider
     loom::tooling::execution::hal::execution_backend
   PUBLIC
@@ -149,33 +125,6 @@ loom_cc_library(
 )
 endif()
 
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-loom_cc_test(
-  NAME
-    artifact_provider_test
-  SRCS
-    "artifact_provider_test.cc"
-  DEPS
-    ::artifact_provider
-    iree::base
-    iree::base::internal::arena
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::codegen::low::text_asm
-    loom::format::text::parser
-    loom::ir
-    loom::ops::op_registry
-    loom::target::arch::spirv::descriptors::low_registry
-    loom::target::arch::spirv::ops
-    loom::target::arch::spirv::profile
-    loom::testing::byte_sequence
-    loom::testing::module_ptr
-  LABELS
-    "iree-build-requirement=loom.target.arch.spirv"
-    "iree-build-requirement=loom.emit.spirv"
-)
-endif()
-
 if(LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
 loom_cc_test(
   NAME
@@ -195,41 +144,6 @@ loom_cc_test(
     loom::target::arch::spirv::features
     loom::target::arch::spirv::profile
     loom::tooling::execution::hal::runtime
-  LABELS
-    "iree-build-requirement=loom.target.arch.spirv"
-    "iree-build-requirement=loom.emit.spirv"
-)
-endif()
-
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-loom_cc_test(
-  NAME
-    module_compiler_test
-  SRCS
-    "module_compiler_test.cc"
-  DEPS
-    iree::base::internal::arena
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::analysis::symbol_facts
-    loom::codegen::low::text_asm
-    loom::format::text::parser
-    loom::ir
-    loom::ops::func_symbol_facts
-    loom::ops::op_defs
-    loom::ops::op_registry
-    loom::ops::target
-    loom::target::arch::spirv::descriptors::low_registry
-    loom::target::arch::spirv::features
-    loom::target::arch::spirv::ops
-    loom::target::arch::spirv::profile
-    loom::target::emit::spirv::module_compiler
-    loom::target::facts_builder
-    loom::target::function_contract
-    loom::target::function_version
-    loom::target::profile
-    loom::target::types
-    loom::testing::module_ptr
   LABELS
     "iree-build-requirement=loom.target.arch.spirv"
     "iree-build-requirement=loom.emit.spirv"
@@ -396,6 +310,33 @@ loom_execution_test(
     cxx_vector_lookup_test_execute_spirv_vulkan_hardware_test
   MODULE
     "loom::import::cxx::test::vector_lookup_module"
+  RUNNER_ARGS
+    "--device=vulkan"
+    "--vulkan_validation_layers=false"
+  LABELS
+    "iree-build-requirement=loom.target.arch.spirv"
+    "iree-build-requirement=loom.emit.spirv"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.vulkan"
+    "iree-run-requirement=vulkan.resource.device"
+    "runtime-resource=vulkan-device"
+    "loom-execution-profile=spirv_vulkan_hardware"
+    "loom-target-family=spirv"
+    "loom-target-class=gpu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+endif()
+
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN)
+loom_execution_test(
+  NAME
+    cxx_workload_configuration_test_execute_spirv_vulkan_hardware_test
+  MODULE
+    "loom::import::cxx::test::workload_configuration_module"
   RUNNER_ARGS
     "--device=vulkan"
     "--vulkan_validation_layers=false"

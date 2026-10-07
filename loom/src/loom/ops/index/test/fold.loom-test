@@ -1074,6 +1074,32 @@ func.def @rem_offset_residue_wrap_is_preserved(%x: index) -> (index) {
 
 // ====
 
+// A negative radix-aligned bias preserves signed remainder. For coordinate 1,
+// the shifted dividend is -959 and its remainder is -63, not coordinate 1.
+func.def @rem_negative_aligned_offset_is_preserved(%coordinate_input: index) -> (index, index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, 0, 31)] : index
+  %negative_bias = index.constant -960 : index
+  %radix = index.constant 64 : index
+  %biased_left = index.add %negative_bias, %coordinate : index
+  %biased_right = index.add %coordinate, %negative_bias : index
+  %left_remainder = index.rem %biased_left, %radix : index
+  %right_remainder = index.rem %biased_right, %radix : index
+  func.return %left_remainder, %right_remainder : index, index
+}
+// ----
+func.def @rem_negative_aligned_offset_is_preserved(%coordinate_input: index) -> (index, index) {
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, 0, 31)] : index
+  %negative_bias = index.constant -960 : index
+  %radix = index.constant 64 : index
+  %biased_left = index.add %negative_bias, %coordinate : index
+  %biased_right = index.add %coordinate, %negative_bias : index
+  %left_remainder = index.rem %biased_left, %radix : index
+  %right_remainder = index.rem %biased_right, %radix : index
+  func.return %left_remainder, %right_remainder : index, index
+}
+
+// ====
+
 // Without non-negative dividend facts, remainder by a positive literal stays
 // conservative.
 func.def @rem_maybe_negative_is_preserved(%x: index) -> (index) {

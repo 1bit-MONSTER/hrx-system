@@ -17,6 +17,7 @@ from loom.errors import ErrorDef
 from loom.target.contracts.diagnostics import (
     DiagnosticParamKind,
 )
+from loom.target.contracts.emits import DescriptorOperandMaterialization
 from loom.target.contracts.guards import GuardKind
 from loom.target.contracts.kinds import SourceValueKind
 from loom.target.contracts.patterns import TypePattern
@@ -79,6 +80,7 @@ class LowerAttrCopyKind(Enum):
     VALUE_TYPE_LITERAL_MINUS_STATIC_DIM_SCALED = (
         "value_type_literal_minus_static_dim_scaled"
     )
+    VALUE_TYPE_STATIC_DIM_LOW_BITS_MASK = "value_type_static_dim_low_bits_mask"
     I64_ARRAY_LANE_BYTE = "i64_array_lane_byte"
     SOURCE_MEMORY_STATIC_BYTE_OFFSET = "source_memory_static_byte_offset"
     SOURCE_MEMORY_STATIC_BYTE_OFFSET_PLUS_LITERAL = (
@@ -276,6 +278,9 @@ class LowerEmit:
 
     kind: LowerEmitKind
     descriptor: Descriptor | None = None
+    operand_materialization: DescriptorOperandMaterialization = (
+        DescriptorOperandMaterialization.DIRECT
+    )
     flags: int = 0
     operand_ref_start: int = 0
     operand_ref_count: int = 0

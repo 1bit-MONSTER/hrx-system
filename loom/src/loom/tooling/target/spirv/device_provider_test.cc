@@ -235,9 +235,9 @@ class SpirvDeviceProviderTest : public ::testing::Test {
 
   iree_status_t SelectBaselineTarget() {
     IREE_RETURN_IF_ERROR(InitializeRuntime());
-    IREE_RETURN_IF_ERROR(loom_spirv_vulkan_device_provider.select_target(
-        &loom_spirv_vulkan_device_provider, &runtime_, iree_allocator_system(),
-        &target_));
+    IREE_RETURN_IF_ERROR(loom_device_provider_select_compatible_target(
+        &loom_spirv_vulkan_device_provider, &runtime_,
+        /*target_requirement=*/nullptr, iree_allocator_system(), &target_));
     target_owned_ = true;
     return iree_ok_status();
   }
@@ -262,14 +262,23 @@ class SpirvDeviceProviderTest : public ::testing::Test {
 
 TEST_F(SpirvDeviceProviderTest, SelectsRawBdaTarget) {
   IREE_ASSERT_OK(SelectBaselineTarget());
+  EXPECT_TRUE(iree_string_view_equal(loom_spirv_vulkan_device_provider.name,
+                                     IREE_SV("spirv-vulkan-hal")));
+  ASSERT_NE(loom_spirv_vulkan_device_provider.target_emitter, nullptr);
+  EXPECT_TRUE(iree_string_view_equal(
+      loom_spirv_vulkan_device_provider.target_emitter->name,
+      IREE_SV("spirv")));
+  EXPECT_EQ(
+      loom_spirv_vulkan_device_provider.target_emitter->target_artifact_format,
+      LOOM_TARGET_ARTIFACT_FORMAT_SPIRV_BINARY);
 
   const loom_spirv_target_profile_t* target_profile =
-      loom_spirv_target_profile_cast(target_.artifact_target.target_profile);
+      loom_spirv_target_profile_cast(target_.target_profile);
   ASSERT_NE(target_profile, nullptr);
   const loom_target_bundle_t* target_bundle =
-      loom_device_target_bundle(&target_);
+      loom_target_profile_bundle(target_.target_profile);
   ASSERT_NE(target_bundle, nullptr);
-  EXPECT_TRUE(iree_string_view_equal(target_.artifact_target.target_key,
+  EXPECT_TRUE(iree_string_view_equal(target_.executable_target->target_key,
                                      IREE_SV("vulkan1.3+bda")));
   EXPECT_EQ(target_bundle->snapshot->codegen_format,
             LOOM_TARGET_CODEGEN_FORMAT_SPIRV);
@@ -294,8 +303,8 @@ TEST_F(SpirvDeviceProviderTest, SelectsForcedStaticBdaTarget) {
       &loom_spirv_vulkan_device_provider, &runtime_, &requested_profile->base,
       &target_));
 
-  EXPECT_EQ(target_.artifact_target.target_profile, &requested_profile->base);
-  EXPECT_TRUE(iree_string_view_equal(target_.artifact_target.target_key,
+  EXPECT_EQ(target_.target_profile, &requested_profile->base);
+  EXPECT_TRUE(iree_string_view_equal(target_.executable_target->target_key,
                                      IREE_SV("vulkan1.3+bda")));
   EXPECT_EQ(target_.executable_target,
             &iree_hal_device_spec_executables(device_spec_.get())->targets[0]);
@@ -313,7 +322,7 @@ TEST_F(SpirvDeviceProviderTest, RejectsForcedTargetMissingRequiredFeature) {
                         loom_device_provider_select_profile_target(
                             &loom_spirv_vulkan_device_provider, &runtime_,
                             &requested_profile->base, &target_));
-  EXPECT_EQ(target_.artifact_target.target_profile, nullptr);
+  EXPECT_EQ(target_.target_profile, nullptr);
   EXPECT_EQ(target_.executable_target, nullptr);
 }
 

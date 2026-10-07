@@ -1,0 +1,108 @@
+// RUN: emit source-low target=x86:scalar output=low
+
+// Private roots support scalar memory and view transport across control flow.
+func.def @select_local(%first: i64, %second: i64, %condition: i1) -> (i64) {
+  %bytes = index.constant 8 : offset
+  %base = index.constant 0 : offset
+  %first_storage = buffer.alloca<private> align(8) %bytes : buffer
+  %second_storage = buffer.alloca<private> align(64) %bytes : buffer
+  %first_view = buffer.view %first_storage[%base] : buffer -> view<1xi64>
+  %second_view = buffer.view %second_storage[%base] : buffer -> view<1xi64>
+  view.store %first, %first_view[0] : i64, view<1xi64>
+  view.store %second, %second_view[0] : i64, view<1xi64>
+  cfg.cond_br %condition, ^first, ^second
+^first:
+  cfg.br ^join(%first_view: view<1xi64>)
+^second:
+  cfg.br ^join(%second_view: view<1xi64>)
+^join(%selected: view<1xi64>):
+  %result = view.load %selected[0] : view<1xi64> -> i64
+  func.return %result : i64
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i64, i64, i1) -> (i64)}) @select_local(%first: reg<x86.gpr64>, %second: reg<x86.gpr64>, %condition: reg<x86.gpr32>) -> (reg<x86.gpr64>) asm {
+  %17 = storage {byte_alignment = 8, byte_length = 8} : low.storage<private>
+  %first_storage = storage_address %17 : low.storage<private> -> reg<x86.gpr64>
+  %19 = storage {byte_alignment = 64, byte_length = 8} : low.storage<private>
+  %second_storage = storage_address %19 : low.storage<private> -> reg<x86.gpr64>
+  %first_view = lea.disp %first_storage {disp32 = 0}
+  %second_view = lea.disp %second_storage {disp32 = 0}
+  mov.store.gpr64 %first, %first_storage {disp32 = 0}
+  mov.store.gpr64 %second, %second_storage {disp32 = 0}
+  low.cond_br %condition, ^first, ^second : reg<x86.gpr32>
+^first:
+  low.br ^join(%first_view: reg<x86.gpr64>)
+^second:
+  low.br ^join(%second_view: reg<x86.gpr64>)
+^join(%selected: reg<x86.gpr64>):
+  %result = mov.load.gpr64 %selected {disp32 = 0}
+  return %result
+}
+
+// ====
+// RUN: emit source-low target=x86:avx2 output=low
+
+// Vector profiles share the allocation policy and keep their native transfers.
+func.def @local_vector(%input: vector<8xi32>) -> (vector<8xi32>) {
+  %bytes = index.constant 32 : offset
+  %base = index.constant 0 : offset
+  %storage = buffer.alloca<private> align(32) %bytes : buffer
+  %view = buffer.view %storage[%base] : buffer -> view<8xi32>
+  vector.store %input, %view[0] : vector<8xi32>, view<8xi32>
+  %result = vector.load %view[0] : view<8xi32> -> vector<8xi32>
+  func.return %result : vector<8xi32>
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (vector<8xi32>) -> (vector<8xi32>)}) @local_vector(%input: reg<x86.ymm>) -> (reg<x86.ymm>) asm {
+  %9 = storage {byte_alignment = 32, byte_length = 32} : low.storage<private>
+  %storage = storage_address %9 : low.storage<private> -> reg<x86.gpr64>
+  vmovdqu32.store.ymm %input, %storage {disp32 = 0}
+  %result = vmovdqu32.load.ymm %storage {disp32 = 0}
+  return %result
+}
+
+// ====
+// RUN: emit source-low target=x86:avx512 output=low
+
+func.def @local_vector(%input: vector<16xi32>) -> (vector<16xi32>) {
+  %bytes = index.constant 64 : offset
+  %base = index.constant 0 : offset
+  %storage = buffer.alloca<private> align(64) %bytes : buffer
+  %view = buffer.view %storage[%base] : buffer -> view<16xi32>
+  vector.store %input, %view[0] : vector<16xi32>, view<16xi32>
+  %result = vector.load %view[0] : view<16xi32> -> vector<16xi32>
+  func.return %result : vector<16xi32>
+}
+
+// ----
+low.func.def target<x86.avx512.core> abi(object_function) abi_layout({signature = (vector<16xi32>) -> (vector<16xi32>)}) @local_vector(%input: reg<x86.zmm>) -> (reg<x86.zmm>) asm {
+  %9 = storage {byte_alignment = 64, byte_length = 64} : low.storage<private>
+  %storage = storage_address %9 : low.storage<private> -> reg<x86.gpr64>
+  vmovdqu32.store %input, %storage {disp32 = 0}
+  %result = vmovdqu32.load %storage {disp32 = 0}
+  return %result
+}
+
+// ====
+// RUN: emit source-low target=x86:avx512_packed_dot output=low
+
+func.def @local_vector(%input: vector<16xi32>) -> (vector<16xi32>) {
+  %bytes = index.constant 64 : offset
+  %base = index.constant 0 : offset
+  %storage = buffer.alloca<private> align(64) %bytes : buffer
+  %view = buffer.view %storage[%base] : buffer -> view<16xi32>
+  vector.store %input, %view[0] : vector<16xi32>, view<16xi32>
+  %result = vector.load %view[0] : view<16xi32> -> vector<16xi32>
+  func.return %result : vector<16xi32>
+}
+
+// ----
+low.func.def target<x86.avx512_packed_dot.core> abi(object_function) abi_layout({signature = (vector<16xi32>) -> (vector<16xi32>)}) @local_vector(%input: reg<x86.zmm>) -> (reg<x86.zmm>) asm {
+  %9 = storage {byte_alignment = 64, byte_length = 64} : low.storage<private>
+  %storage = storage_address %9 : low.storage<private> -> reg<x86.gpr64>
+  vmovdqu32.store %input, %storage {disp32 = 0}
+  %result = vmovdqu32.load %storage {disp32 = 0}
+  return %result
+}

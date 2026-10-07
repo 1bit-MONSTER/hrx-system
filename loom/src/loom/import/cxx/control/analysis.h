@@ -84,10 +84,6 @@ class ControlFlow final : private cxx::ASTVisitor {
   bool storage_backed(cxx::MemberExpressionAST* expression) const;
   // Null retains ordinary while semantics; a result permits scf.for lowering.
   const CountedLoop* counted(cxx::ForStatementAST* loop) const;
-  // Declaration for a nonnull decisionVariable retained by a statement in this
-  // function. The returned syntax is borrowed from the source arena.
-  cxx::ConditionExpressionAST* condition_declaration(
-      cxx::VariableSymbol* variable) const;
   // Retained return/fallthrough summary, including nested statements.
   ExitFlow returns(cxx::StatementAST* statement) const;
   // Continues escaping this statement to its enclosing loop. A nested loop
@@ -100,7 +96,6 @@ class ControlFlow final : private cxx::ASTVisitor {
   bool preVisit(cxx::AST* ast) override;
   void postVisit(cxx::AST* ast) override;
   void visit(cxx::IfStatementAST* ast) override;
-  void visit(cxx::ConditionExpressionAST* ast) override;
   void visit(cxx::AssignmentExpressionAST* ast) override;
   void visit(cxx::CompoundAssignmentExpressionAST* ast) override;
   void visit(cxx::PostIncrExpressionAST* ast) override;
@@ -133,9 +128,6 @@ class ControlFlow final : private cxx::ASTVisitor {
   std::unordered_set<cxx::ExpressionAST*> storage_expressions_;
   // Proven intervals retained after each source loop's children are visited.
   std::unordered_map<cxx::ForStatementAST*, CountedLoop> counted_;
-  // Declaration syntax indexed by the statement's retained decision variable.
-  std::unordered_map<cxx::VariableSymbol*, cxx::ConditionExpressionAST*>
-      conditions_;
   // Sparse path sets retain statements with function or iteration exits.
   std::unordered_map<cxx::StatementAST*, unsigned> paths_;
 };

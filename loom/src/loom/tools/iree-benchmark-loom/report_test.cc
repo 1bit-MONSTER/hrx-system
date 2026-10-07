@@ -298,8 +298,7 @@ TEST(BenchmarkReportTest, WritesCanonicalCompileReportTree) {
   capture_options.sink_format = LOOM_COMPILE_REPORT_SINK_FORMAT_JSON;
   capture_options.detail_mode = LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_SUMMARY;
   loom_compile_report_capture_t capture = {};
-  IREE_ASSERT_OK(loom_compile_report_capture_initialize(&capture_options,
-                                                        allocator, &capture));
+  loom_compile_report_capture_initialize(&capture_options, allocator, &capture);
 
   loom_target_compile_report_t* report = &capture.report;
   report->artifact_kind = LOOM_TARGET_COMPILE_ARTIFACT_KIND_TARGET_ARTIFACT;
@@ -631,9 +630,11 @@ TEST(BenchmarkReportTest, WritesExactWorkloadAndResolvedLaunchConfig) {
           /*.fields=*/
           LOOM_KERNEL_LAUNCH_CONFIG_FIELD_FLAG_WORKGROUP_COUNT |
               LOOM_KERNEL_LAUNCH_CONFIG_FIELD_FLAG_WORKGROUP_SIZE |
+              LOOM_KERNEL_LAUNCH_CONFIG_FIELD_FLAG_WORKGROUP_CLUSTER_SIZE |
               LOOM_KERNEL_LAUNCH_CONFIG_FIELD_FLAG_SUBGROUP_SIZE,
           /*.workgroup_count=*/{65, 2, 1},
           /*.workgroup_size=*/{64, 1, 1},
+          /*.workgroup_cluster_size=*/{2, 1, 1},
           /*.subgroup_size=*/32,
       },
   };
@@ -690,6 +691,9 @@ TEST(BenchmarkReportTest, WritesExactWorkloadAndResolvedLaunchConfig) {
   const iree_string_view_t workgroup_size =
       LookupObject(launch_config, IREE_SV("workgroup_size"));
   ExpectObjectValueEquals(workgroup_size, IREE_SV("x"), IREE_SV("64"));
+  const iree_string_view_t workgroup_cluster_size =
+      LookupObject(launch_config, IREE_SV("workgroup_cluster_size"));
+  ExpectObjectValueEquals(workgroup_cluster_size, IREE_SV("x"), IREE_SV("2"));
   ExpectObjectValueEquals(launch_config, IREE_SV("subgroup_size"),
                           IREE_SV("32"));
 
@@ -914,9 +918,9 @@ TEST(BenchmarkReportTest, WritesArtifactManifestSidecarPath) {
   iree_benchmark_loom_hal_actual_provider_t provider = {};
   provider.context = &context;
   provider.execution.candidate_initialized = true;
-  provider.execution.candidate.artifact_candidate.compiled = true;
-  provider.execution.candidate.artifact_candidate.artifact.sidecars = &sidecar;
-  provider.execution.candidate.artifact_candidate.artifact.sidecar_count = 1;
+  provider.execution.candidate.compiled = true;
+  provider.execution.candidate.artifact.sidecars = &sidecar;
+  provider.execution.candidate.artifact.sidecar_count = 1;
 
   iree_benchmark_loom_run_identity_t run = {};
   run.run_id = IREE_SV("run");

@@ -172,6 +172,23 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_benchmark(
+  NAME
+    canonicalizer_low_benchmark
+  SRCS
+    "canonicalizer_low_benchmark.cc"
+  DEPS
+    ::canonicalizer
+    iree::base::internal::arena
+    iree::testing::benchmark_main
+    loom::ir
+    loom::ops::low
+    loom::ops::test
+    loom::pass::value_facts
+    loom::target::registers
+  TESTONLY
+)
+
 loom_cc_test(
   NAME
     canonicalizer_test

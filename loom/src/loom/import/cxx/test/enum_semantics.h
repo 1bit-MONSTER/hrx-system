@@ -18,7 +18,7 @@ enum Wide { wide = 1ULL << 40 };
 enum Mixed { minimum = -1, maximum = 0xffffffffu };
 enum Full { full = 0xffffffffffffffffULL };
 static_assert(__is_same(__underlying_type(Empty), int));
-static_assert(__is_same(__underlying_type(Small), int));
+static_assert(__is_same(__underlying_type(Small), unsigned int));
 static_assert(__is_same(decltype(+one), int));
 static_assert(sizeof(Signed) == 4 && negative < 0);
 static_assert(sizeof(Unsigned) == 4 && high > 0);
@@ -27,8 +27,17 @@ static_assert(sizeof(Mixed) == 8 && minimum < 0);
 static_assert(maximum > 0 && maximum == 0xffffffffULL);
 static_assert(sizeof(Full) == 8 && full > 0);
 static_assert(full == 0xffffffffffffffffULL);
-static_assert(__is_same(decltype(+wide), __underlying_type(Wide)));
-static_assert(__is_same(decltype(+full), __underlying_type(Full)));
+#if __SIZEOF_LONG__ == 8
+static_assert(__is_same(__underlying_type(Wide), unsigned long));
+static_assert(__is_same(decltype(+wide), long));
+static_assert(__is_same(__underlying_type(Full), unsigned long));
+static_assert(__is_same(decltype(+full), unsigned long));
+#else
+static_assert(__is_same(__underlying_type(Wide), unsigned long long));
+static_assert(__is_same(decltype(+wide), long long));
+static_assert(__is_same(__underlying_type(Full), unsigned long long));
+static_assert(__is_same(decltype(+full), unsigned long long));
+#endif
 }  // namespace inferred_storage
 
 namespace preliminary_values {

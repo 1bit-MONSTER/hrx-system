@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "loom/codegen/low/allocation.h"
+#include "loom/codegen/low/diagnostics.h"
 #include "loom/codegen/low/function_model.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
@@ -206,7 +207,14 @@ static iree_status_t loom_wasm_program_build_function_allocation(
     const loom_low_descriptor_registry_t* descriptor_registry,
     iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
     loom_low_allocation_table_t* out_allocation, bool* out_accepted) {
+  *out_allocation = (loom_low_allocation_table_t){0};
   *out_accepted = false;
+  bool synthesis_admitted = false;
+  IREE_RETURN_IF_ERROR(loom_low_diagnostic_admit_allocation_synthesis(
+      module, function_op, diagnostic_emitter, &synthesis_admitted));
+  if (!synthesis_admitted) {
+    return iree_ok_status();
+  }
   loom_low_function_model_t model = {0};
   iree_status_t status = loom_low_function_model_initialize(
       module, function_op,
@@ -286,12 +294,6 @@ static iree_status_t loom_wasm_program_assignment_value_type(
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
         "Wasm value %u uses a multi-unit target-id assignment",
-        (unsigned)assignment->value_id);
-  }
-  if (assignment->value_class.type_kind != LOOM_TYPE_REGISTER) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "Wasm value %u is not allocated as a register value",
         (unsigned)assignment->value_id);
   }
   return loom_wasm_value_type_from_descriptor_register_class(

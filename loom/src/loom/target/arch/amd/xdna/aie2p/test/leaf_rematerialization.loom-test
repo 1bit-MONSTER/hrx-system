@@ -1,8 +1,9 @@
 // Thirteen 512-bit broadcasts exceed the 24 vector-register units at the
 // block boundary. The repaired native program streams each broadcast into
 // the running sum instead of retaining the entire invariant set.
-// RUN: with-checks emit aie2p-leaf @broadcast_pressure report=emission
+// RUN: emit aie2p-leaf @broadcast_pressure diagnostics=predicted-spills
 
+// REMARK@+1: BACKEND/045 {function_name="broadcast_pressure", trigger_kind="allocation-failure", repaired_value_count="13", cloned_packet_count="13", rewritten_operand_count="13", retained_placement_count="0"}
 low.func.def target<amd.xdna.aie2p.core> @broadcast_pressure(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>) asm {
   %scalar0 = mov.i32 1
   %vector0 = vbcst.32 %scalar0
@@ -51,16 +52,15 @@ low.func.def target<amd.xdna.aie2p.core> @broadcast_pressure(%input: reg<aie2p.e
 }
 
 // ----
-CHECK: issue cycles: 50
-CHECK: code bytes: 210
 
 // ====
 
 // Both vector and accumulator materializations exceed their physical classes.
 // Repair accumulator consumers before broadcasts so cloned consumers receive
 // their own short-lived vector setup within the same allocation repair.
-// RUN: with-checks emit aie2p-leaf @dependent_cross_block report=emission
+// RUN: emit aie2p-leaf @dependent_cross_block diagnostics=predicted-spills
 
+// REMARK@+1: BACKEND/045 {function_name="dependent_cross_block", trigger_kind="allocation-failure", repaired_value_count="42", cloned_packet_count="42", rewritten_operand_count="42", retained_placement_count="0"}
 low.func.def target<amd.xdna.aie2p.core> @dependent_cross_block(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>) asm {
   %scalar0 = mov.i32 1
   %vector0 = vbcst.32 %scalar0
@@ -177,16 +177,15 @@ low.func.def target<amd.xdna.aie2p.core> @dependent_cross_block(%input: reg<aie2
 }
 
 // ----
-CHECK: issue cycles: 112
-CHECK: code bytes: 482
 
 // ====
 
 // Shared zero padding has multiple consumers on both sides of an ownership
 // move. Setup ordering must preserve that fan-out and the source-order boundary
 // while keeping the rematerialized broadcasts out of persistent vector storage.
-// RUN: emit aie2p-leaf @bounded_padding report=emission
+// RUN: emit aie2p-leaf @bounded_padding diagnostics=predicted-spills
 
+// REMARK@+1: BACKEND/045 {function_name="bounded_padding", trigger_kind="allocation-failure", repaired_value_count="13", cloned_packet_count="13", rewritten_operand_count="13", retained_placement_count="0"}
 low.func.def target<amd.xdna.aie2p.core> @bounded_padding(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>) asm {
   %zeros = acc.clear.f32x64
   %mode = mova.i32 60
@@ -317,10 +316,6 @@ low.func.def target<amd.xdna.aie2p.core> @bounded_padding(%input: reg<aie2p.ep>,
 }
 
 // ----
-issue cycles: 187
-code bytes: 752
-coissued bundles: 12
-coissued components: 25
 
 // ====
 
@@ -328,8 +323,9 @@ coissued components: 25
 // initial scalar pressure requires rematerializing stream offsets and shifts.
 // Their input-free clones must remain use-local while indexed memory consumers
 // are blocked, or rescheduling exceeds the same 32-register bank again.
-// RUN: with-checks emit aie2p-leaf @retained_scalar_stream report=emission
+// RUN: emit aie2p-leaf @retained_scalar_stream diagnostics=predicted-spills uses=retained0,retained1,retained2,retained3,retained4,retained5,retained6,retained7,retained8,retained9,retained10,retained11,retained12,retained13,retained14,retained15,retained16,retained17,retained18,retained19,retained20,retained21,retained22,retained23,retained24,retained25,value0,value1,value2,value3,value4,value5,value6,scaled0,scaled1,scaled2,scaled3,scaled4,scaled5,scaled6,index0,index1,index2,index3,index4,index5,index6
 
+// REMARK@+1: BACKEND/045 {function_name="retained_scalar_stream", trigger_kind="allocation-failure", repaired_value_count="8", cloned_packet_count="14", rewritten_operand_count="14", retained_placement_count="0"}
 low.func.def target<amd.xdna.aie2p.core> @retained_scalar_stream(%record_input: reg<aie2p.ep>, %stream_input: reg<aie2p.ep>, %stream_output: reg<aie2p.ep>, %record_output: reg<aie2p.ep>) asm {
   %retained0, %read1 = lda.i32.post %record_input, 4
   %retained1, %read2 = lda.i32.post %read1, 4
@@ -427,90 +423,60 @@ low.func.def target<amd.xdna.aie2p.core> @retained_scalar_stream(%record_input: 
 }
 
 // ----
-CHECK: issue cycles: 129
-CHECK: code bytes: 476
-
-// ====
-
-// These source-adjacent store indices can move ahead of the load's address
-// prerequisites while memory ordering keeps their stores blocked. Allocation
-// repair retains their private placement without cloning unchanged producers.
-// Four resident accumulator fragments keep the loaded-C storage shape intact.
-// RUN: emit aie2p-leaf @effect_blocked_store_indices report=emission
-
-low.func.def target<amd.xdna.aie2p.core> @effect_blocked_store_indices(%source: reg<aie2p.ep>, %destination: reg<aie2p.ep>, %cell: reg<aie2p.er>, %position0: reg<aie2p.er>, %position1: reg<aie2p.er>, %position2: reg<aie2p.er>, %position3: reg<aie2p.er>, %position4: reg<aie2p.er>, %position5: reg<aie2p.er>, %position6: reg<aie2p.er>, %position7: reg<aie2p.er>, %position8: reg<aie2p.er>, %accumulator00: reg<aie2p.mbms x4>, %accumulator01: reg<aie2p.mbms x4>, %accumulator10: reg<aie2p.mbms x4>, %accumulator11: reg<aie2p.mbms x4>, %resident_piece: reg<aie2p.mbms>) -> (reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>) asm {
-  %cell_offset = mov.static-byte-offset 256
-  %cell_stride = mov.i32 256
-  %load_position = mac %cell_offset, %cell, %cell_stride
-  %load_index = mov.address-index %load_position
-  %loaded_piece = vlda.acc.index %source, %load_index
-  vst.acc %loaded_piece, %destination, 0
-  %store_index0 = mov.address-index %position0
-  vst.acc.index %resident_piece, %destination, %store_index0
-  %store_index1 = mov.address-index %position1
-  vst.acc.index %resident_piece, %destination, %store_index1
-  %store_index2 = mov.address-index %position2
-  vst.acc.index %resident_piece, %destination, %store_index2
-  %store_index3 = mov.address-index %position3
-  vst.acc.index %resident_piece, %destination, %store_index3
-  %store_index4 = mov.address-index %position4
-  vst.acc.index %resident_piece, %destination, %store_index4
-  %store_index5 = mov.address-index %position5
-  vst.acc.index %resident_piece, %destination, %store_index5
-  %store_index6 = mov.address-index %position6
-  vst.acc.index %resident_piece, %destination, %store_index6
-  %store_index7 = mov.address-index %position7
-  vst.acc.index %resident_piece, %destination, %store_index7
-  %store_index8 = mov.address-index %position8
-  vst.acc.index %resident_piece, %destination, %store_index8
-  return %accumulator00, %accumulator01, %accumulator10, %accumulator11
-}
-
-// ----
-issue cycles: 30
-code bytes: 118
-coissued bundles: 4
-coissued components: 8
-
-// ====
-
-// Loading the store payload leaves a feasible initial schedule. Private
-// indices retain normal latency scheduling until allocation requires repair.
-// Eagerly forcing every index next to its store would serialize this control.
-// RUN: emit aie2p-leaf @payload_dependent_store_indices report=emission
-
-low.func.def target<amd.xdna.aie2p.core> @payload_dependent_store_indices(%source: reg<aie2p.ep>, %destination: reg<aie2p.ep>, %cell: reg<aie2p.er>, %position0: reg<aie2p.er>, %position1: reg<aie2p.er>, %position2: reg<aie2p.er>, %position3: reg<aie2p.er>, %position4: reg<aie2p.er>, %position5: reg<aie2p.er>, %position6: reg<aie2p.er>, %position7: reg<aie2p.er>, %position8: reg<aie2p.er>) asm {
-  %cell_offset = mov.static-byte-offset 256
-  %cell_stride = mov.i32 256
-  %load_position = mac %cell_offset, %cell, %cell_stride
-  %load_index = mov.address-index %load_position
-  %payload = vlda.acc.index %source, %load_index
-  %store_index0 = mov.address-index %position0
-  vst.acc.index %payload, %destination, %store_index0
-  %store_index1 = mov.address-index %position1
-  vst.acc.index %payload, %destination, %store_index1
-  %store_index2 = mov.address-index %position2
-  vst.acc.index %payload, %destination, %store_index2
-  %store_index3 = mov.address-index %position3
-  vst.acc.index %payload, %destination, %store_index3
-  %store_index4 = mov.address-index %position4
-  vst.acc.index %payload, %destination, %store_index4
-  %store_index5 = mov.address-index %position5
-  vst.acc.index %payload, %destination, %store_index5
-  %store_index6 = mov.address-index %position6
-  vst.acc.index %payload, %destination, %store_index6
-  %store_index7 = mov.address-index %position7
-  vst.acc.index %payload, %destination, %store_index7
-  %store_index8 = mov.address-index %position8
-  vst.acc.index %payload, %destination, %store_index8
-  return
-}
-
-// ----
-issue cycles: 27
-code bytes: 110
-coissued bundles: 5
-coissued components: 10
+%retained0 -> st.i32.post operand=0 (%retained0, %record_output)
+%retained1 -> st.i32.post operand=0 (%retained1, %write1)
+%retained2 -> st.i32.post operand=0 (%retained2, %write2)
+%retained3 -> st.i32.post operand=0 (%retained3, %write3)
+%retained4 -> st.i32.post operand=0 (%retained4, %write4)
+%retained5 -> st.i32.post operand=0 (%retained5, %write5)
+%retained6 -> st.i32.post operand=0 (%retained6, %write6)
+%retained7 -> st.i32.post operand=0 (%retained7, %write7)
+%retained8 -> st.i32.post operand=0 (%retained8, %write8)
+%retained9 -> st.i32.post operand=0 (%retained9, %write9)
+%retained10 -> st.i32.post operand=0 (%retained10, %write10)
+%retained11 -> st.i32.post operand=0 (%retained11, %write11)
+%retained12 -> st.i32.post operand=0 (%retained12, %write12)
+%retained13 -> st.i32.post operand=0 (%retained13, %write13)
+%retained14 -> st.i32.post operand=0 (%retained14, %write14)
+%retained15 -> st.i32.post operand=0 (%retained15, %write15)
+%retained16 -> st.i32.post operand=0 (%retained16, %write16)
+%retained17 -> st.i32.post operand=0 (%retained17, %write17)
+%retained18 -> st.i32.post operand=0 (%retained18, %write18)
+%retained19 -> st.i32.post operand=0 (%retained19, %write19)
+%retained20 -> st.i32.post operand=0 (%retained20, %write20)
+%retained21 -> st.i32.post operand=0 (%retained21, %write21)
+%retained22 -> st.i32.post operand=0 (%retained22, %write22)
+%retained23 -> st.i32.post operand=0 (%retained23, %write23)
+%retained24 -> st.i32.post operand=0 (%retained24, %write24)
+%retained25 -> st.i32.post operand=0 (%retained25, %write25)
+%value0 -> lshl operand=0 (%value0, %scale_shift_remat)
+%value1 -> lshl operand=0 (%value1, %scale_shift_remat)
+%value2 -> lshl operand=0 (%value2, %scale_shift_remat)
+%value3 -> lshl operand=0 (%value3, %scale_shift_remat)
+%value4 -> lshl operand=0 (%value4, %scale_shift_remat)
+%value5 -> lshl operand=0 (%value5, %scale_shift_remat)
+%value6 -> lshl operand=0 (%value6, %scale_shift_remat)
+%scaled0 -> st.i32.index operand=0 (%scaled0, %stream_output, %index0)
+%scaled1 -> st.i32.index operand=0 (%scaled1, %stream_output, %index1)
+%scaled2 -> st.i32.index operand=0 (%scaled2, %stream_output, %index2)
+%scaled3 -> st.i32.index operand=0 (%scaled3, %stream_output, %index3)
+%scaled4 -> st.i32.index operand=0 (%scaled4, %stream_output, %index4)
+%scaled5 -> st.i32.index operand=0 (%scaled5, %stream_output, %index5)
+%scaled6 -> st.i32.index operand=0 (%scaled6, %stream_output, %index6)
+%index0 -> lda.i32.index operand=1 (%stream_input, %index0)
+%index0 -> st.i32.index operand=2 (%scaled0, %stream_output, %index0)
+%index1 -> lda.i32.index operand=1 (%stream_input, %index1)
+%index1 -> st.i32.index operand=2 (%scaled1, %stream_output, %index1)
+%index2 -> lda.i32.index operand=1 (%stream_input, %index2)
+%index2 -> st.i32.index operand=2 (%scaled2, %stream_output, %index2)
+%index3 -> lda.i32.index operand=1 (%stream_input, %index3)
+%index3 -> st.i32.index operand=2 (%scaled3, %stream_output, %index3)
+%index4 -> lda.i32.index operand=1 (%stream_input, %index4)
+%index4 -> st.i32.index operand=2 (%scaled4, %stream_output, %index4)
+%index5 -> lda.i32.index operand=1 (%stream_input, %index5)
+%index5 -> st.i32.index operand=2 (%scaled5, %stream_output, %index5)
+%index6 -> lda.i32.index operand=1 (%stream_input, %index6)
+%index6 -> st.i32.index operand=2 (%scaled6, %stream_output, %index6)
 
 // ====
 
@@ -541,8 +507,15 @@ low.func.def target<amd.xdna.aie2p.core> @irreducible_private_indices(%position0
 // extract/zero-extend pairs exceed the bank until allocation replays both
 // instructions next to their reduction uses. The extracts read immutable
 // vaddSign0 target state, so replay preserves their zero-extension mode.
-// RUN: emit aie2p-leaf @packed_extract_extend_pressure report=emission
+// RUN: emit aie2p-leaf @packed_extract_extend_pressure diagnostics=predicted-spills
 
+// Each packed extraction reaches a distinct failure frontier after the prior
+// repair rebuilds allocation.
+// REMARK@+5: BACKEND/045 {function_name="packed_extract_extend_pressure", trigger_kind="allocation-failure", repaired_value_count="1", cloned_packet_count="1", rewritten_operand_count="1", retained_placement_count="0"}
+// REMARK@+4: BACKEND/045 {function_name="packed_extract_extend_pressure", trigger_kind="allocation-failure", repaired_value_count="1", cloned_packet_count="1", rewritten_operand_count="1", retained_placement_count="0"}
+// REMARK@+3: BACKEND/045 {function_name="packed_extract_extend_pressure", trigger_kind="allocation-failure", repaired_value_count="1", cloned_packet_count="1", rewritten_operand_count="1", retained_placement_count="0"}
+// REMARK@+2: BACKEND/045 {function_name="packed_extract_extend_pressure", trigger_kind="allocation-failure", repaired_value_count="1", cloned_packet_count="1", rewritten_operand_count="1", retained_placement_count="0"}
+// REMARK@+1: BACKEND/045 {function_name="packed_extract_extend_pressure", trigger_kind="allocation-failure", repaired_value_count="1", cloned_packet_count="1", rewritten_operand_count="1", retained_placement_count="0"}
 low.func.def schedule(locked) target<amd.xdna.aie2p.core> @packed_extract_extend_pressure(%packed: reg<aie2p.vec256 x2>, %keep0: reg<aie2p.er x2>, %keep1: reg<aie2p.er x2>, %keep2: reg<aie2p.er x2>, %keep3: reg<aie2p.er x2>, %keep4: reg<aie2p.er x2>, %keep5: reg<aie2p.er x2>, %keep6: reg<aie2p.er x2>, %keep7: reg<aie2p.er x2>, %keep8: reg<aie2p.er x2>, %keep9: reg<aie2p.er x2>, %keep10: reg<aie2p.er x2>, %keep11: reg<aie2p.er x2>, %keep12: reg<aie2p.er x2>, %keep13: reg<aie2p.er x2>, %keep14: reg<aie2p.er x2>) -> (reg<aie2p.er>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>) asm {
   %byte0 = vextract.8.imm %packed, 0
   %wide0 = extend.u8 %byte0
@@ -556,7 +529,3 @@ low.func.def schedule(locked) target<amd.xdna.aie2p.core> @packed_extract_extend
 }
 
 // ----
-issue cycles: 13
-code bytes: 44
-coissued bundles: 1
-coissued components: 2

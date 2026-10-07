@@ -91,6 +91,27 @@ glibc. Native Windows retains upstream `local_config_cc` discovery and its
 installation paths. Shared remote caching and execution additionally require
 a specified execution environment; these local configurations do not define one.
 
+### Optimized builds
+
+Ordinary Bazel commands use `fastbuild` without link-time optimization. This is
+the intended mode for edit/build/test iteration. Use the checked-in optimized
+profile when producing release artifacts or performance measurements:
+
+```bash
+iree-bazel-build --config=opt //loom/src/loom/tools/loom-compile
+```
+
+`--config=opt` selects Bazel's optimized compilation mode, `-O3` for target and
+host tools, and ThinLTO for target links as one reproducible configuration. Use
+this profile instead of spelling those options independently so builds share
+action and test cache entries across worktrees and agents.
+
+The profile deliberately excludes `-march=native`. A binary compiled that way
+describes the CPU of the selected compiler worker, which need not be the CPU
+that executes it. Target platforms and toolchains own portable ISA selection;
+local benchmark runs may add an explicit architecture flag only when the build
+and execution machine are intentionally the same.
+
 Cross-built executables run on their destination OS. Transfer the executable,
 dependent libraries, debug artifacts, and consumer runfiles to that host.
 Linux `bazel run` and `bazel test` cannot execute Windows or macOS binaries.
@@ -114,9 +135,12 @@ selected Linux LLVM installation.
 
 #### Cross-compilation from Linux
 
-Provide a Linux LLVM installation and a Windows SDK/MSVC sysroot. The Bazel
-repository reads `LLVM_ROOT` and `WINSDK_ROOT` from the environment or explicit
-`--repo_env` options; acquisition is independent of the build configuration.
+Provide a Linux LLVM installation with the x86-64 Windows compiler runtime and
+a Windows SDK/MSVC sysroot. The LLVM resource directory must contain
+`lib/windows/clang_rt.builtins-x86_64.lib`; the compiler can emit calls to
+these helpers for ordinary C and C++ operations. The Bazel repository reads
+`LLVM_ROOT` and `WINSDK_ROOT` from the environment or explicit `--repo_env`
+options; acquisition is independent of the build configuration.
 For example, [xwin](https://github.com/Jake-Shadle/xwin) can prepare a sysroot
 with the required versioned MSVC/Windows Kits layout and case-correction
 symlinks:

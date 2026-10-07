@@ -761,7 +761,7 @@ func.def @report_rejected_component_limit(%initial: vector<256x256xi8>, %end: in
 
 // ----
 COMPILE-REPORT: summary artifact=none status=OK function=- backend=- bundle=- export=- export_symbol=- config=- lowered=-
-COMPILE-REPORT: source_low selected_ops=0 emitted_ops=0 rows=0
+COMPILE-REPORT: source_low selected_ops=0 emitted_ops=0 rows=0 unkeyed_maximum_emitted_ops=0
 COMPILE-REPORT: source_boundary_projections rows=10 selected=1 preserved=2 rejected=7
 COMPILE-REPORT: source_boundary_projection[0] function=report_selected_static_bank source_op=scf.for projection=loop-vector-bank boundary=loop_state outcome=selected reason=static_component_accesses operation=0 source_value=0 source_type=vector<2x2xf32> prefix_rank=2 component_type=f32 components=4
 COMPILE-REPORT: source_boundary_projection[1] function=report_preserved_whole_vector source_op=scf.for projection=loop-vector-bank boundary=loop_state outcome=preserved reason=whole_value_use operation=0 source_value=0 source_type=vector<4xf32>

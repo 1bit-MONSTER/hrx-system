@@ -181,19 +181,6 @@ iree_status_t loom_verify_define_value(loom_verify_state_t* state,
   return iree_ok_status();
 }
 
-void loom_verify_consume_value(loom_verify_state_t* state,
-                               loom_value_id_t value_id,
-                               const loom_op_t* consuming_op) {
-  if (value_id == LOOM_VALUE_ID_INVALID ||
-      value_id >= state->module->values.count) {
-    return;
-  }
-  if (!loom_bitset_test(state->consumed_bits, state->consumed_word_count,
-                        value_id)) {
-    state->consuming_ops[value_id] = consuming_op;
-  }
-  loom_bitset_set(state->consumed_bits, state->consumed_word_count, value_id);
-}
 iree_string_view_t loom_verify_value_name(const loom_verify_state_t* state,
                                           loom_value_id_t value_id) {
   if (value_id == LOOM_VALUE_ID_INVALID ||

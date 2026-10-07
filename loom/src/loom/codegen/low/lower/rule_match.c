@@ -285,9 +285,9 @@ static bool loom_low_lower_rule_vector_extract_shape_matches(
   const loom_value_id_t result_value_id = loom_low_lower_rule_source_value(
       match_context->module, rule_set, source_op, guard->other_value_ref_index);
   const loom_type_t source_type =
-      loom_module_value_type(match_context->module, source_value_id);
+      loom_low_lower_rule_match_value_type(match_context, source_value_id);
   const loom_type_t result_type =
-      loom_module_value_type(match_context->module, result_value_id);
+      loom_low_lower_rule_match_value_type(match_context, result_value_id);
   if (!loom_type_is_vector(source_type)) {
     return false;
   }
@@ -597,7 +597,7 @@ static bool loom_low_lower_rule_value_facts_u32_divisor_magic_is_add(
     uint16_t value_ref_index, bool expected_is_add) {
   const loom_value_id_t value_id = loom_low_lower_rule_source_value(
       match_context->module, rule_set, source_op, value_ref_index);
-  loom_low_lower_u32_divisor_magic_info_t info = {0};
+  loom_low_lower_unsigned_divisor_magic_info_t info = {0};
   return loom_low_lower_rule_value_facts_u32_divisor_magic_info(
              match_context->module, match_context->fact_table, value_id,
              &info) &&
@@ -718,7 +718,7 @@ static bool loom_low_lower_rule_value_storage_schema(
     }
   }
   const loom_type_t type =
-      loom_module_value_type(match_context->module, value_id);
+      loom_low_lower_rule_match_value_type(match_context, value_id);
   const loom_fact_context_t* fact_context =
       match_context->fact_table != NULL ? &match_context->fact_table->context
                                         : NULL;
@@ -823,8 +823,8 @@ static bool loom_low_lower_rule_packed_integer_payload_from_lanes_matches(
       match_context->module, rule_set, source_op, guard->other_value_ref_index);
   loom_vector_packed_integer_payload_from_lanes_match_t match = {0};
   if (!loom_vector_packed_integer_payload_from_lanes_match(
-          loom_module_value_type(match_context->module, lane_value_id),
-          loom_module_value_type(match_context->module, storage_value_id),
+          loom_low_lower_rule_match_value_type(match_context, lane_value_id),
+          loom_low_lower_rule_match_value_type(match_context, storage_value_id),
           width, storage_unit_bit_count, UINT32_MAX, &match)) {
     return false;
   }
@@ -849,9 +849,9 @@ static bool loom_low_lower_rule_packed_integer_lanes_from_payload_matches(
   const loom_value_id_t lane_value_id = loom_low_lower_rule_source_value(
       match_context->module, rule_set, source_op, guard->other_value_ref_index);
   if (!loom_vector_packed_integer_lanes_from_payload_match(
-          loom_module_value_type(match_context->module, storage_value_id),
-          loom_module_value_type(match_context->module, lane_value_id), width,
-          storage_unit_bit_count,
+          loom_low_lower_rule_match_value_type(match_context, storage_value_id),
+          loom_low_lower_rule_match_value_type(match_context, lane_value_id),
+          width, storage_unit_bit_count,
           guard->payload.packed_integer.storage_payload_multiple,
           guard->payload.packed_integer.maximum_lane_count, NULL)) {
     return false;
@@ -868,13 +868,14 @@ static iree_status_t loom_low_lower_rule_guard_matches(
     case LOOM_LOW_LOWER_GUARD_VALUE_TYPE: {
       loom_value_id_t value_id = LOOM_VALUE_ID_INVALID;
       if (!loom_low_lower_rule_resolve_source_value_from_nodes(
-              match_context->module, match_context->fact_table, rule_set,
-              source_op, /*source_nodes=*/NULL, /*source_node_count=*/1,
+              match_context->module, match_context->fact_table,
+              match_context->vector_lane_projection, rule_set, source_op,
+              /*source_nodes=*/NULL, /*source_node_count=*/1,
               guard->value_ref_index, &value_id)) {
         return iree_ok_status();
       }
-      loom_type_t type =
-          loom_module_value_type(match_context->module, value_id);
+      const loom_type_t type =
+          loom_low_lower_rule_match_value_type(match_context, value_id);
       *out_matches = loom_low_lower_rule_type_matches(
           &rule_set->type_patterns[guard->index.type_pattern_index], type);
       return iree_ok_status();
@@ -980,8 +981,8 @@ static iree_status_t loom_low_lower_rule_guard_matches(
       IREE_ASSERT_GT(guard->payload.u64, 0);
       loom_value_id_t value_id = loom_low_lower_rule_source_value(
           match_context->module, rule_set, source_op, guard->value_ref_index);
-      loom_type_t type =
-          loom_module_value_type(match_context->module, value_id);
+      const loom_type_t type =
+          loom_low_lower_rule_match_value_type(match_context, value_id);
       if (loom_type_rank(type) == 0 || loom_type_dim_is_dynamic_at(type, 0)) {
         return iree_ok_status();
       }
@@ -1020,10 +1021,10 @@ static iree_status_t loom_low_lower_rule_guard_matches(
       uint64_t lhs_count = 0;
       uint64_t rhs_count = 0;
       if (!loom_type_static_element_count(
-              loom_module_value_type(match_context->module, lhs_id),
+              loom_low_lower_rule_match_value_type(match_context, lhs_id),
               &lhs_count) ||
           !loom_type_static_element_count(
-              loom_module_value_type(match_context->module, rhs_id),
+              loom_low_lower_rule_match_value_type(match_context, rhs_id),
               &rhs_count)) {
         return iree_ok_status();
       }
@@ -1800,7 +1801,7 @@ void loom_low_lower_rule_materialize_diagnostic_params(
             match_context->module, rule_set, source_op,
             row->value.value_ref_index);
         out_params[param_index] = loom_param_type(
-            loom_module_value_type(match_context->module, value_id));
+            loom_low_lower_rule_match_value_type(match_context, value_id));
         break;
       }
       case LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_I64_LITERAL:

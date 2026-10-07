@@ -504,6 +504,9 @@ def aie2p_core_cases() -> Sequence[ContractCase]:
             1,
             "amd.xdna.aie2p.extract.predicate64.immediate",
         ),
+        core_rules._vector_predicate_insert_rule(dynamic_index=False, zero_index=True),
+        core_rules._vector_predicate_insert_rule(dynamic_index=False),
+        core_rules._vector_predicate_insert_rule(dynamic_index=True),
         *(
             rule
             for scalar_type, vector_type, maximum_index, zero_key, register_key in (
@@ -892,6 +895,7 @@ def aie2p_core_cases() -> Sequence[ContractCase]:
             )
         ),
         core_rules._buffer_select_rule(),
+        *core_rules._whole_predicate_select_rules(),
         *(
             core_rules._whole_vector_select_rule(result_type)
             for result_type in core_rules._BITCAST_VECTOR_TYPES

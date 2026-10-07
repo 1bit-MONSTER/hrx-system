@@ -21,7 +21,10 @@ _EMBED_COMPATIBLE_WITH = loom_config_compatible_with([
 
 iree_c_embed_data(
     name = "embedded_standard_headers",
-    srcs = ["//loom/src/loom/import/cxx:include/stdfloat"],
+    srcs = [
+        "//loom/src/loom/import/cxx:include/initializer_list",
+        "//loom/src/loom/import/cxx:include/stdfloat",
+    ],
     c_file_output = "embedded_standard_headers.c",
     flatten = True,
     h_file_output = "embedded_standard_headers.h",
@@ -41,13 +44,16 @@ iree_c_embed_data(
         "//loom/src/loom/import/cxx:include/loomcxx/math.h",
         "//loom/src/loom/import/cxx:include/loomcxx/numeric.h",
         "//loom/src/loom/import/cxx:include/loomcxx/scalar.h",
+        "//loom/src/loom/import/cxx:include/loomcxx/target.h",
+        "//loom/src/loom/import/cxx:include/loomcxx/target/amdgpu.h",
         "//loom/src/loom/import/cxx:include/loomcxx/vector.h",
         "//loom/src/loom/import/cxx:include/loomcxx/view.h",
     ],
     c_file_output = "embedded_loomcxx_headers.c",
-    flatten = True,
+    flatten = False,
     h_file_output = "embedded_loomcxx_headers.h",
     identifier = "loom_cxx_embedded_loomcxx_headers",
+    strip_prefix = "loom/src/loom/import/cxx/include/loomcxx/",
     target_compatible_with = _EMBED_COMPATIBLE_WITH,
 )
 
@@ -129,25 +135,12 @@ loom_cc_test(
 )
 
 loom_cc_test(
-    name = "constant_bits_test",
-    srcs = ["constant_bits_test.cc"],
-    cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
-    cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
-    deps = [
-        ":options",
-        ":source",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
-        "//third_party:cxx_parser",
-    ],
-)
-
-loom_cc_test(
     name = "constexpr_test",
     srcs = ["constexpr_test.cc"],
     cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
     cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
     deps = [
+        ":expressions",
         ":options",
         ":source",
         "//runtime/src/iree/testing:gtest",
@@ -202,6 +195,15 @@ loom_cc_library(
     name = "constants",
     srcs = ["constants.cc"],
     hdrs = ["constants.h"],
+    cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
+    cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
+    deps = ["//third_party:cxx_parser"],
+)
+
+loom_cc_library(
+    name = "expressions",
+    srcs = ["expressions.cc"],
+    hdrs = ["expressions.h"],
     cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
     cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
     deps = ["//third_party:cxx_parser"],

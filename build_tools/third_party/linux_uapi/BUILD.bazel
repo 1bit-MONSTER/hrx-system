@@ -74,6 +74,27 @@ copy_file(
 )
 
 copy_file(
+    name = "_linux_io_uring_header",
+    src = "@linux_io_uring_header//file:linux/io_uring.h",
+    out = "include/linux/io_uring.h",
+    tags = ["manual"],
+)
+
+copy_file(
+    name = "_linux_io_uring_zcrx_header",
+    src = "@linux_io_uring_zcrx_header//file:linux/io_uring/zcrx.h",
+    out = "include/linux/io_uring/zcrx.h",
+    tags = ["manual"],
+)
+
+copy_file(
+    name = "_linux_stat_header",
+    src = "@linux_stat_header//file:linux/stat.h",
+    out = "include/linux/stat.h",
+    tags = ["manual"],
+)
+
+copy_file(
     name = "_linux_drm_header_libdrm",
     src = "@libdrm_headers//:include/drm/drm.h",
     out = "include/libdrm/drm.h",
@@ -136,4 +157,18 @@ cc_library(
     target_compatible_with = ["@platforms//os:linux"],
     visibility = ["//third_party:__pkg__"],
     deps = [":linux_drm_uapi"],
+)
+
+cc_library(
+    name = "linux_io_uapi",
+    hdrs = [
+        ":_linux_io_uring_header",
+        ":_linux_io_uring_zcrx_header",
+        ":_linux_stat_header",
+        ":_linux_stddef_header",
+    ],
+    includes = ["include"],
+    tags = ["manual"],
+    target_compatible_with = ["@platforms//os:linux"],
+    visibility = ["//third_party:__pkg__"],
 )

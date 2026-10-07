@@ -22,14 +22,23 @@
 extern "C" {
 #endif
 
-typedef struct loom_low_lower_u32_divisor_magic_info_t {
+typedef struct loom_low_lower_unsigned_divisor_magic_info_t {
   // Multiplication constant consumed by the unsigned quotient recipe.
-  uint32_t multiplier;
+  uint64_t multiplier;
   // Final logical right shift applied after the high-half multiply.
   uint8_t post_shift;
   // Whether the quotient recipe needs the unsigned add-adjustment step.
   bool is_add;
-} loom_low_lower_u32_divisor_magic_info_t;
+} loom_low_lower_unsigned_divisor_magic_info_t;
+
+// Derives an exact unsigned constant-divisor recipe for a |bit_width|-bit
+// numerator. The width is in [2, 64] and divisor is in [2, 2^bit_width - 1].
+// With q = high_bit_width(n * multiplier), the quotient is q >> post_shift,
+// or (((n - q) >> 1) + q) >> post_shift when is_add is set. Every numerator
+// bit participates; no narrower range or floating-point approximation is used.
+loom_low_lower_unsigned_divisor_magic_info_t
+loom_low_lower_unsigned_divisor_magic_info(uint64_t divisor,
+                                           uint32_t bit_width);
 
 // Returns ceil(2^64 / divisor), for a divisor in [2, UINT32_MAX]. For a u32
 // numerator n, high64(n * reciprocal) is n / divisor and
@@ -62,9 +71,12 @@ loom_value_id_t loom_low_lower_rule_source_value_from_nodes(
 // Resolves a source-backed value-ref across a selected source graph. Direct
 // operand and result refs always resolve. Fact-derived refs return false when
 // their producer-owned relation is unavailable or does not describe the whole
-// referenced value.
+// referenced value. |vector_lane_projection| tests whole-value relations using
+// the candidate representation without mutating source IR; an empty projection
+// reads authored types.
 bool loom_low_lower_rule_resolve_source_value_from_nodes(
     const loom_module_t* module, const loom_value_fact_table_t* fact_table,
+    loom_target_contract_vector_lane_projection_t vector_lane_projection,
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
     const loom_op_t* const* source_nodes, uint8_t source_node_count,
     uint16_t value_ref_index, loom_value_id_t* out_source_value_id);
@@ -104,7 +116,7 @@ bool loom_low_lower_rule_float_immediate_facts(
 bool loom_low_lower_rule_value_facts_u32_divisor_magic_info(
     const loom_module_t* module, const loom_value_fact_table_t* fact_table,
     loom_value_id_t value_id,
-    loom_low_lower_u32_divisor_magic_info_t* out_info);
+    loom_low_lower_unsigned_divisor_magic_info_t* out_info);
 
 #ifdef __cplusplus
 }  // extern "C"

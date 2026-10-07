@@ -31,8 +31,13 @@ iree_status_t loom_low_write_flow_build(
   *out_flow = (loom_low_write_flow_t){0};
   // Every structured operation contributes at most two explicit outgoing
   // edges. Ordinary instructions remain inside linear spans.
-  const iree_host_size_t edge_capacity =
-      cfg_graph->edge_count + 2 * liveness->operation_count;
+  const uint64_t edge_capacity =
+      (uint64_t)cfg_graph->edge_count + 2ull * liveness->operation_count;
+  if (edge_capacity > UINT32_MAX) {
+    return iree_make_status(
+        IREE_STATUS_RESOURCE_EXHAUSTED,
+        "retained-write flow edges exceed u32 index capacity");
+  }
   loom_low_write_flow_edge_t* edges = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       arena, edge_capacity, sizeof(*edges), (void**)&edges));
@@ -62,12 +67,13 @@ iree_status_t loom_low_write_flow_build(
   memset(regions, 0, liveness->operation_count * sizeof(*regions));
   for (uint32_t i = 0; i < liveness->operation_count; ++i) {
     const loom_liveness_operation_point_t* point =
-        &liveness->operation_points[i];
+        loom_liveness_operation_at(liveness, i);
     if (point->parent_operation_index == UINT32_MAX) {
       continue;
     }
     const uint32_t parent = point->parent_operation_index;
-    const loom_op_t* parent_op = liveness->operation_points[parent].op;
+    const loom_op_t* parent_op =
+        loom_liveness_operation_at(liveness, parent)->op;
     const loom_region_t* region = point->op->parent_block->parent_region;
     uint32_t* first = region == loom_op_regions(parent_op)[0]
                           ? &regions[parent].first
@@ -79,7 +85,7 @@ iree_status_t loom_low_write_flow_build(
 
   for (uint32_t i = 0; i < liveness->operation_count; ++i) {
     const loom_liveness_operation_point_t* point =
-        &liveness->operation_points[i];
+        loom_liveness_operation_at(liveness, i);
     const loom_op_t* op = point->op;
     const uint32_t entry = point->start_point + 1;
     if (loom_low_scf_if_isa(op) || loom_low_scf_for_isa(op) ||
@@ -95,7 +101,7 @@ iree_status_t loom_low_write_flow_build(
     } else if (loom_low_scf_yield_isa(op) || loom_low_scf_condition_isa(op)) {
       const uint32_t parent = point->parent_operation_index;
       const loom_liveness_operation_point_t* parent_point =
-          &liveness->operation_points[parent];
+          loom_liveness_operation_at(liveness, parent);
       exits[point->end_point] = 1;
       if (loom_low_scf_condition_isa(op)) {
         edges[edge_count++] = (loom_low_write_flow_edge_t){
@@ -149,18 +155,25 @@ iree_status_t loom_low_write_flow_build(
     blocks_by_point[point] = block;
   }
   out_flow->blocks[block].end = point_count;
+  uint64_t successor_count = edge_count;
   for (uint32_t b = 0; b < block_count; ++b) {
     const uint32_t last = out_flow->blocks[b].end - 1;
     out_flow->blocks[b].successor_count = !exits[last] && b + 1 < block_count;
+    successor_count += out_flow->blocks[b].successor_count;
+  }
+  if (successor_count > UINT32_MAX) {
+    return iree_make_status(
+        IREE_STATUS_RESOURCE_EXHAUSTED,
+        "retained-write flow successors exceed u32 index capacity");
   }
   for (uint32_t e = 0; e < edge_count; ++e) {
     ++out_flow->blocks[blocks_by_point[edges[e].source]].successor_count;
   }
-  uint32_t successor_count = 0;
+  uint32_t successor_start = 0;
   for (uint32_t b = 0; b < block_count; ++b) {
     loom_low_write_flow_block_t* span = &out_flow->blocks[b];
-    span->successor_start = successor_count;
-    successor_count += span->successor_count;
+    span->successor_start = successor_start;
+    successor_start += span->successor_count;
     span->successor_count = 0;
   }
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(

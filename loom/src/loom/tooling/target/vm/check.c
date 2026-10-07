@@ -8,7 +8,7 @@
 
 #include "iree/vm/bytecode/disassembler.h"
 #include "loom/target/arch/vm/provider.h"
-#include "loom/target/emit/vm/module_compiler.h"
+#include "loom/target/provider.h"
 #include "loom/tools/loom-check/diagnostics.h"
 #include "loom/tools/loom-check/execute.h"
 #include "loom/tools/loom-check/source_low.h"
@@ -46,9 +46,9 @@ static iree_status_t loom_vm_check_emit(
   }
   loom_compile_pipeline_result_t pipeline_result = {0};
   iree_status_t status = loom_check_prepare_source_low_module(
-      request->module, &prepare_options, request->low_registry,
-      request->environment, request->source_resolver,
-      request->diagnostic_collector, request->block_pool, &pipeline_result);
+      request->module, &prepare_options, request->environment,
+      request->source_resolver, request->diagnostic_collector,
+      request->block_pool, &pipeline_result);
 
   if (!iree_status_is_ok(status) || request->diagnostic_collector->count) {
     loom_compile_pipeline_result_deinitialize(&pipeline_result);
@@ -61,33 +61,49 @@ static iree_status_t loom_vm_check_emit(
       .source_resolver = request->source_resolver,
       .emitter = LOOM_EMITTER_PASS,
   };
-  const loom_target_emit_request_t emit_request = {
-      .low_descriptor_registry = &request->low_registry->registry,
-      .module = request->module,
-      .function_versions = &pipeline_result.function_versions.list,
-      .diagnostic_emitter = {.fn = loom_check_diagnostic_emitter_capture_emit,
-                             .user_data = &capture},
-      .scratch_arena = request->case_arena,
-      .allocator = request->host_allocator,
-  };
+  const loom_target_emitter_t* emitter = loom_target_environment_lookup_emitter(
+      request->environment->target_environment, IREE_SV("vm"));
   loom_target_emit_artifact_t artifact = {0};
   bool emitted = false;
-  status = loom_vm_module_emitter.emit(&emit_request, &emitted, &artifact);
-  iree_byte_span_t contents = iree_byte_span_empty();
-  if (iree_status_is_ok(status) && emitted) {
-    status = iree_byte_sequence_clone(artifact.contents,
-                                      request->host_allocator, &contents);
+  if (emitter == NULL) {
+    status = iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                              "VM emitter is not linked");
   }
-  loom_target_emit_artifact_release(&artifact);
+  if (iree_status_is_ok(status)) {
+    const loom_target_emit_request_t emit_request = {
+        .target_environment = request->environment->target_environment,
+        .low_descriptor_registry = &request->low_registry->registry,
+        .module = request->module,
+        .function_versions = &pipeline_result.function_versions.list,
+        .identifier = emitter->default_identifier,
+        .diagnostic_emitter = {.fn = loom_check_diagnostic_emitter_capture_emit,
+                               .user_data = &capture},
+        .scratch_arena = request->case_arena,
+        .allocator = request->host_allocator,
+    };
+    status = emitter->emit(&emit_request, &emitted, &artifact);
+  }
+  iree_const_byte_span_t contents = iree_const_byte_span_empty();
+  iree_byte_span_t owned_contents = iree_byte_span_empty();
+  if (iree_status_is_ok(status) && emitted) {
+    if (!iree_byte_sequence_try_get_contiguous_span(artifact.contents,
+                                                    &contents)) {
+      status = iree_byte_sequence_clone(
+          artifact.contents, request->host_allocator, &owned_contents);
+      contents = iree_make_const_byte_span(owned_contents.data,
+                                           owned_contents.data_length);
+    }
+  }
   if (iree_status_is_ok(status) && emitted) {
     status = iree_vm_bytecode_disassemble_module(
-        iree_make_const_byte_span(contents.data, contents.data_length),
+        contents,
         (iree_vm_bytecode_disassembler_write_callback_t){
             .fn = loom_vm_check_write,
             .user_data = &request->result->actual_output},
         request->host_allocator);
   }
-  iree_allocator_free(request->host_allocator, contents.data);
+  iree_allocator_free(request->host_allocator, owned_contents.data);
+  loom_target_emit_artifact_release(&artifact);
   loom_compile_pipeline_result_deinitialize(&pipeline_result);
   return status;
 }

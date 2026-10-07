@@ -641,6 +641,29 @@ TEST_F(VerifyTest, RejectsPredicateArityMismatch) {
   ExpectU32Param(*entry, 4, 2u);
 }
 
+TEST_F(VerifyTest, ZeroBlockFunctionBodyFails) {
+  const loom_op_vtable_t* vtable = TestVtable(LOOM_OP_TEST_FUNC);
+  loom_op_t* function_op = nullptr;
+  IREE_ASSERT_OK(loom_builder_allocate_op(
+      &builder_, LOOM_OP_TEST_FUNC, /*operand_count=*/0, /*result_count=*/0,
+      /*region_count=*/1, /*tied_result_count=*/0, vtable->attribute_count,
+      LOOM_LOCATION_UNKNOWN, &function_op));
+  loom_op_attrs(function_op)[0] = loom_attr_symbol(DefineTestCallee());
+  IREE_ASSERT_OK(loom_module_allocate_region(module_, 0,
+                                             &loom_op_regions(function_op)[0]));
+  IREE_ASSERT_OK(loom_builder_finalize_op(&builder_, function_op));
+
+  DiagnosticCapture capture;
+  auto result = VerifyStructured(&capture);
+  EXPECT_EQ(result.error_count, 1u);
+  const CapturedDiagnostic* entry = FindDiagnostic(
+      capture, loom_error_def_lookup(LOOM_ERROR_DOMAIN_STRUCTURE, 5));
+  ASSERT_NE(entry, nullptr)
+      << "Expected STRUCTURE/005 missing-terminator diagnostic";
+  EXPECT_EQ(GetStringParam(*entry, 0), "test.func");
+  ExpectU32Param(*entry, 1, 0);
+}
+
 TEST_F(VerifyTest, LoopBodyMissingMaterializedTerminatorFails) {
   loom_type_t index_type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
   loom_type_t arg_types[] = {index_type, index_type, index_type};

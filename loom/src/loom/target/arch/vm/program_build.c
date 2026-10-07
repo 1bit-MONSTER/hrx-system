@@ -14,6 +14,7 @@
 #include "loom/ir/module.h"
 #include "loom/ops/global/ops.h"
 #include "loom/ops/low/ops.h"
+#include "loom/target/arch/vm/descriptors/descriptors.h"
 #include "loom/target/arch/vm/function_plan.h"
 #include "loom/target/arch/vm/reference_plan.h"
 
@@ -260,9 +261,22 @@ static iree_status_t loom_vm_program_collect(
   IREE_RETURN_IF_ERROR(
       iree_arena_allocate_array(plan_arena, iree_max(descriptor_count, 1),
                                 sizeof(*descriptors), (void**)&descriptors));
+  loom_low_allocation_abi_location_t* registers = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate_array(plan_arena, iree_max(descriptor_count, 1),
+                                sizeof(*registers), (void**)&registers));
   for (uint32_t i = 0; i < count; ++i) {
     functions[i].signature.fields = descriptors;
+    functions[i].signature.registers = registers;
+    functions[i].call_contract = (loom_low_call_contract_t){
+        .arguments = registers,
+        .argument_count = functions[i].argument_count,
+        .results = registers + functions[i].argument_count,
+        .result_count = functions[i].results.count,
+        .clobbers = {functions[i].call_clobbers, 2},
+    };
     descriptors += functions[i].argument_count + functions[i].results.count;
+    registers += functions[i].argument_count + functions[i].results.count;
   }
   *out_program = (loom_vm_program_build_t){
       .values = functions,
@@ -312,9 +326,28 @@ static iree_status_t loom_vm_program_resolve_signatures(
                            ? &row->argument_value_count_u16
                            : &row->result_value_count_u16;
         }
+        entry->signature.registers[j] = (loom_low_allocation_abi_location_t){
+            .location_kind =
+                *bank_count < 16
+                    ? LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER
+                    : LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED,
+            .location_base = *bank_count,
+        };
         ++(*bank_count);
       }
     }
+    const iree_vm_bytecode_v0_signature_row_t* row = &entry->signature.row;
+    entry->call_clobbers[VM_CORE_REG_CLASS_ID_VALUE] =
+        (loom_low_call_clobber_t){
+            .register_class = VM_CORE_REG_CLASS_ID_VALUE,
+            .count = iree_min(16, iree_max(row->argument_value_count_u16,
+                                           row->result_value_count_u16)),
+        };
+    entry->call_clobbers[VM_CORE_REG_CLASS_ID_REF] = (loom_low_call_clobber_t){
+        .register_class = VM_CORE_REG_CLASS_ID_REF,
+        .count = iree_min(16, iree_max(row->argument_ref_count_u16,
+                                       row->result_ref_count_u16)),
+    };
   }
   if (iree_status_is_ok(status) &&
       loom_vm_reference_plan_finalize(references)) {

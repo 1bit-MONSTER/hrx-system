@@ -108,6 +108,8 @@ enum loom_amdgpu_source_producer_flag_bits_e {
   LOOM_AMDGPU_SOURCE_PRODUCER_SCALAR_FLOAT_COMPARE = 1u << 21,
   // A subgroup-uniform i32 result can retain its native scalar exchange bank.
   LOOM_AMDGPU_SOURCE_PRODUCER_RESULT0_UNIFORM_I32 = 1u << 22,
+  // The first result is produced directly as an EXEC-width SGPR lane mask.
+  LOOM_AMDGPU_SOURCE_PRODUCER_RESULT0_NATIVE_I1_MASK = 1u << 23,
 };
 
 bool loom_amdgpu_scalar_type_naturally_prefers_vgpr(loom_type_t source_type);

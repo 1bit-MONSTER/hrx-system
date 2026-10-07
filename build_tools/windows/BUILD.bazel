@@ -5,6 +5,7 @@
 # bazel-to-cmake: skip
 
 load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load(":cc_toolchain.bzl", "windows_toolchains")
 
 package(default_visibility = ["//visibility:public"])
@@ -40,3 +41,8 @@ platform(
 )
 
 exports_files(["toolchain.bzl"])
+
+cc_test(
+    name = "compiler_runtime_test",
+    srcs = ["compiler_runtime_test.cc"],
+)

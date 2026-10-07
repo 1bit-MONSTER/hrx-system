@@ -307,13 +307,37 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "wait_classification",
+    srcs = ["wait_classification.c"],
+    hdrs = ["wait_classification.h"],
+    deps = [
+        ":structural_packet",
+        ":wait_completion",
+        ":wait_frontier",
+        ":wait_packet_tables",
+        "//loom/src/loom/codegen/low:descriptors",
+        "//loom/src/loom/codegen/low:memory_access",
+        "//loom/src/loom/codegen/low:packet",
+        "//loom/src/loom/codegen/low/allocation:table",
+        "//loom/src/loom/codegen/low/schedule",
+        "//loom/src/loom/ops:cache",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target/arch/amdgpu:facts",
+        "//loom/src/loom/target/arch/amdgpu:target_info",
+        "//loom/src/loom/target/arch/amdgpu/refs:target_refs",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "wait_plan",
     srcs = ["wait_plan.c"],
     hdrs = ["wait_plan.h"],
     visibility = _AMDGPU_ROOT_VISIBILITY + _AMDGPU_LOWER_VISIBILITY,
     deps = [
         ":address_state",
-        ":structural_packet",
+        ":wait_classification",
         ":wait_completion",
         ":wait_counters",
         ":wait_frontier",

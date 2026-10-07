@@ -344,6 +344,67 @@ loom_value_fact_numeric_format_flags_t loom_numeric_format_from_scalar_type(
                                          : LOOM_VALUE_FACT_NUMERIC_FORMAT_NONE;
 }
 
+bool loom_numeric_float_encoding(loom_scalar_type_t type,
+                                 loom_numeric_float_encoding_t* out_encoding) {
+  *out_encoding = (loom_numeric_float_encoding_t){0};
+  const loom_value_fact_numeric_format_flags_t format =
+      loom_numeric_format_from_scalar_type(type);
+  const loom_numeric_format_info_t* info = NULL;
+  if (!loom_numeric_format_info(format, &info) ||
+      info->kind != LOOM_NUMERIC_FORMAT_KIND_FLOAT ||
+      !iree_all_bits_set(info->flags, LOOM_NUMERIC_FORMAT_FLAG_SIGNED) ||
+      !iree_all_bits_set(info->flags, LOOM_NUMERIC_FORMAT_FLAG_HAS_NAN)) {
+    return false;
+  }
+
+  loom_scalar_type_t integer_type = LOOM_SCALAR_TYPE_NONE;
+  switch (info->storage_bit_count) {
+    case 8:
+      integer_type = LOOM_SCALAR_TYPE_I8;
+      break;
+    case 16:
+      integer_type = LOOM_SCALAR_TYPE_I16;
+      break;
+    case 32:
+      integer_type = LOOM_SCALAR_TYPE_I32;
+      break;
+    case 64:
+      integer_type = LOOM_SCALAR_TYPE_I64;
+      break;
+    default:
+      return false;
+  }
+
+  const uint64_t magnitude_mask =
+      (UINT64_C(1) << (info->storage_bit_count - 1)) - 1;
+  loom_numeric_float_special_layout_t special_layout =
+      LOOM_NUMERIC_FLOAT_SPECIAL_LAYOUT_IEEE;
+  uint64_t special_magnitude = 0;
+  uint64_t quiet_nan_bit = 0;
+  if (iree_all_bits_set(info->flags, LOOM_NUMERIC_FORMAT_FLAG_HAS_INFINITY)) {
+    special_magnitude = ((UINT64_C(1) << info->exponent_bit_count) - 1)
+                        << info->mantissa_bit_count;
+    quiet_nan_bit = UINT64_C(1) << (info->mantissa_bit_count - 1);
+  } else if (iree_all_bits_set(info->flags,
+                               LOOM_NUMERIC_FORMAT_FLAG_FINITE_ONLY) &&
+             !iree_any_bit_set(info->flags,
+                               LOOM_NUMERIC_FORMAT_FLAG_UNSIGNED_ZERO)) {
+    special_layout = LOOM_NUMERIC_FLOAT_SPECIAL_LAYOUT_FINITE_NAN;
+    special_magnitude = magnitude_mask;
+  } else {
+    return false;
+  }
+
+  *out_encoding = (loom_numeric_float_encoding_t){
+      .integer_type = integer_type,
+      .special_layout = special_layout,
+      .magnitude_mask = magnitude_mask,
+      .special_magnitude = special_magnitude,
+      .quiet_nan_bit = quiet_nan_bit,
+  };
+  return true;
+}
+
 #undef LOOM_NUMERIC_FORMAT_FINITE_NAN_UNSIGNED_ZERO_SELECTOR_FLAGS
 #undef LOOM_NUMERIC_FORMAT_FINITE_NAN_SELECTOR_FLAGS
 #undef LOOM_NUMERIC_FORMAT_FINITE_SELECTOR_FLAGS

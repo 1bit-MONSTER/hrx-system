@@ -22,6 +22,7 @@
 #include "loom/analysis/native_layout.h"
 #include "loom/analysis/symbolic_expr.h"
 #include "loom/codegen/low/descriptors.h"
+#include "loom/codegen/low/lower/function_storage.h"
 #include "loom/codegen/low/lower/module_state.h"
 #include "loom/codegen/low/lower/report.h"
 #include "loom/codegen/low/lower/visibility.h"
@@ -306,6 +307,10 @@ typedef struct loom_low_lower_materialize_structural_operand_callback_t {
   void* user_data;
 } loom_low_lower_materialize_structural_operand_callback_t;
 
+typedef iree_status_t (*loom_low_lower_materialize_descriptor_operands_fn_t)(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t* low_operands, iree_host_size_t operand_count);
+
 typedef iree_status_t (*loom_low_lower_emit_cond_branch_fn_t)(
     void* user_data, loom_low_lower_context_t* context,
     const loom_op_t* source_op, loom_value_id_t low_condition,
@@ -425,8 +430,8 @@ iree_status_t loom_low_lower_descriptor_matrix_reject(
 typedef struct loom_low_lower_selected_plan_view_t {
   // Source op this selected plan lowers.
   const loom_op_t* source_op;
-  // Target-owned plan selected during planning. Table-driven rule rows return
-  // an empty plan because their rule data is owned by core lowering.
+  // Target-owned plan selected during planning. Shared rules and function
+  // storage return an empty plan because their data is owned by core lowering.
   loom_low_lower_plan_t plan;
   // True when demand analysis proved the source op has no required low storage.
   bool elided;
@@ -817,11 +822,23 @@ typedef struct loom_low_lower_policy_t {
   // Catalog resolving compact diagnostic refs carried by this policy's
   // generated rules and contract fragments.
   const loom_error_catalog_t* error_catalog;
+  // Optional target representation widths consumed by shared vector
+  // legalization before source-to-Low lowering.
+  const loom_target_vector_packet_policy_t* vector_packet_policy;
+  // Source allocation spaces backed by bounded structural function storage.
+  // Empty leaves allocation selection to ordinary rules or target callbacks.
+  loom_low_lower_function_storage_config_t function_storage;
   // Maps source semantic types to target-low register types.
   loom_low_lower_map_type_callback_t map_type;
   // Optionally reports source types accepted by target-low legality because
   // |map_type| can map them to target-low values.
   loom_target_low_legality_type_supported_callback_t source_type_supported;
+  // Optionally reports the complete source-vector carrier domain accepted by
+  // |map_type|. Target legalizers use it to prevent scalar fallback from
+  // expanding unmappable aggregates, and final target-low legality uses it to
+  // report carrier failures.
+  loom_target_source_vector_carrier_supported_callback_t
+      source_vector_carrier_supported;
   // Optionally maps concrete source SSA values to target-low register types
   // when type alone does not determine the target register class.
   loom_low_lower_map_value_callback_t map_value;
@@ -856,6 +873,12 @@ typedef struct loom_low_lower_policy_t {
   // and target storage contract, including the selected callable result type.
   loom_low_lower_materialize_structural_operand_callback_t
       materialize_structural_operand;
+  // Optionally materializes relationships across a complete descriptor
+  // operand group after copies, lane projection, and operand permutation when
+  // an emit row explicitly selects target materialization. Replacements do not
+  // change canonical source value mappings.
+  loom_low_lower_materialize_descriptor_operands_fn_t
+      materialize_descriptor_operands;
   // Optionally emits conditional branches that need target-specific structural
   // control packets instead of plain low.cond_br.
   loom_low_lower_emit_cond_branch_callback_t emit_cond_branch;
@@ -1179,6 +1202,14 @@ iree_status_t loom_low_lower_context_view_regions(
     loom_low_lower_context_t* context,
     const loom_view_region_table_t** out_view_regions);
 
+typedef struct loom_storage_interference_t loom_storage_interference_t;
+
+// Returns function-owned source storage analysis, constructing it once on
+// demand. Static allocation selection and physical packing share this result.
+iree_status_t loom_low_lower_context_storage_interference(
+    loom_low_lower_context_t* context,
+    loom_storage_interference_t** out_interference);
+
 // Returns the number of non-structural source-op lowering plans selected during
 // planning. Preamble callbacks may inspect these plans before body emission.
 iree_host_size_t loom_low_lower_context_selected_plan_count(
@@ -1243,9 +1274,9 @@ iree_status_t loom_low_lower_allocate_emission_array(
     loom_low_lower_context_t* context, iree_host_size_t count,
     iree_host_size_t element_size, void** out_ptr);
 
-// Allocates one target-owned selected-plan payload from the current lowering
+// Allocates one selected-plan payload from the current lowering
 // arena. The returned storage remains valid until the current
-// loom_low_lower_function call returns. Targets should populate the payload in
+// loom_low_lower_function call returns. Producers populate the payload in
 // place during planning and treat it as immutable during emission.
 iree_status_t loom_low_lower_allocate_plan_data(
     loom_low_lower_context_t* context, iree_host_size_t data_length,
@@ -1457,10 +1488,16 @@ iree_status_t loom_low_lower_emit_source_type_unsupported(
     iree_string_view_t field_name,
     loom_type_t actual_type) IREE_ATTRIBUTE_COLD IREE_ATTRIBUTE_NOINLINE;
 
-// Emits ERR_TARGET_073 when function storage has no finite positive maximum.
+// Emits ERR_TARGET_080 when function storage has no finite positive maximum.
 iree_status_t loom_low_lower_emit_function_storage_extent_unsupported(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_storage_space_t storage_space, loom_value_id_t byte_length_value);
+
+// Emits ERR_TARGET_092 when a fixed slot cannot prove allocation-instance
+// lifetimes disjoint. The source allocation remains semantically valid.
+iree_status_t loom_low_lower_emit_function_storage_lifetime_unsupported(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t allocation_value);
 
 // Emits ERR_TARGET_066 when generic lowering would need to change the carrier
 // width of a typed register without a target-defined semantic relation.

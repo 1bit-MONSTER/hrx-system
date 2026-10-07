@@ -31,19 +31,19 @@ func.def @i8x128_compare_select(%lhs: vector<128xi8>, %rhs: vector<128xi8>, %tru
 
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i8x128_compare_select(%lhs: reg<aie2p.vec256 x4>, %rhs: reg<aie2p.vec256 x4>, %true_value: reg<aie2p.vec256 x4>, %false_value: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
-  %28 = slice %lhs[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %29 = slice %rhs[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %30 = vlt.s8x64 %28, %29
+  %25 = slice %lhs[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %26 = slice %rhs[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %27 = vlt.s8x64 %25, %26
+  %28 = slice %true_value[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %29 = slice %false_value[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %30 = vsel.8 %29, %28, %27
   %31 = slice %lhs[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
   %32 = slice %rhs[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
   %33 = vlt.s8x64 %31, %32
-  %36 = slice %true_value[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %37 = slice %false_value[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %38 = vsel.8 %37, %36, %30
-  %40 = slice %true_value[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %41 = slice %false_value[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %42 = vsel.8 %41, %40, %33
-  %selected = concat(%38, %42) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %34 = slice %true_value[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %35 = slice %false_value[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %36 = vsel.8 %35, %34, %33
+  %selected = concat(%30, %36) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
   return %selected
 }
 
@@ -148,40 +148,40 @@ func.def @f64x3x3_vector_select(%condition: vector<3x3xi1>, %true_value: vector<
 
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @f64x3x3_vector_select(%condition: reg<aie2p.elpredicate>, %true_value: reg<aie2p.vec256 x4>, %false_value: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x4>) asm {
-  %23 = slice %true_value[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %24 = slice %false_value[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %25 = mov.short 255
-  %26 = predicate.mask.low32 %condition, %25
-  %27 = mov.short 4
-  %28 = lshl %26, %27
-  %29 = or %26, %28
-  %30 = mov.i32 3855
-  %31 = and %29, %30
-  %32 = mov.short 2
-  %33 = lshl %31, %32
-  %34 = or %31, %33
-  %35 = mov.i32 13107
-  %36 = and %34, %35
-  %37 = mov.short 1
-  %38 = lshl %36, %37
-  %39 = or %36, %38
-  %40 = mov.i32 21845
-  %41 = and %39, %40
-  %42 = lshl %41, %37
-  %43 = or %41, %42
-  %44 = copy %43 : reg<aie2p.er> -> reg<aie2p.ers16>
-  %45 = vsel.32 %24, %23, %44
-  %46 = mov.short -8
-  %47 = predicate.shift.low32 %condition, %46
-  %48 = predicate.complete.zero.high32 %47, 0
-  %49 = slice %true_value[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %50 = slice %false_value[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %52 = predicate.mask.low32 %48, %37
-  %53 = lshl %52, %37
-  %54 = or %52, %53
-  %55 = copy %54 : reg<aie2p.er> -> reg<aie2p.ers16>
-  %56 = vsel.32 %50, %49, %55
-  %selected = concat(%45, %56) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  %22 = slice %true_value[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %23 = slice %false_value[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %24 = mov.short 255
+  %25 = predicate.mask.low32 %condition, %24
+  %26 = mov.short 4
+  %27 = lshl %25, %26
+  %28 = or %25, %27
+  %29 = mov.i32 3855
+  %30 = and %28, %29
+  %31 = mov.short 2
+  %32 = lshl %30, %31
+  %33 = or %30, %32
+  %34 = mov.i32 13107
+  %35 = and %33, %34
+  %36 = mov.short 1
+  %37 = lshl %35, %36
+  %38 = or %35, %37
+  %39 = mov.i32 21845
+  %40 = and %38, %39
+  %41 = lshl %40, %36
+  %42 = or %40, %41
+  %43 = copy %42 : reg<aie2p.er> -> reg<aie2p.ers16>
+  %44 = vsel.32 %23, %22, %43
+  %45 = mov.short -8
+  %46 = predicate.shift.low32 %condition, %45
+  %47 = predicate.complete.zero.high32 %46, 0
+  %48 = slice %true_value[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %49 = slice %false_value[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %51 = predicate.mask.low32 %47, %36
+  %52 = lshl %51, %36
+  %53 = or %51, %52
+  %54 = copy %53 : reg<aie2p.er> -> reg<aie2p.ers16>
+  %55 = vsel.32 %49, %48, %54
+  %selected = concat(%44, %55) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
   return %selected
 }
 

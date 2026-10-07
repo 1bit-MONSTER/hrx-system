@@ -29,6 +29,7 @@ loom_cc_library(
   NAME
     execute
   HDRS
+    "analysis.h"
     "comparison.h"
     "diagnostics.h"
     "execute.h"
@@ -38,6 +39,7 @@ loom_cc_library(
     "requirements.h"
     "source_low.h"
   SRCS
+    "analysis.c"
     "comparison.c"
     "diagnostics.c"
     "emit.c"
@@ -60,6 +62,7 @@ loom_cc_library(
     loom::analysis::liveness
     loom::analysis::liveness_json
     loom::analysis::pipeline_plan
+    loom::analysis::storage_interference
     loom::codegen::low::allocation
     loom::codegen::low::allocation_json
     loom::codegen::low::descriptors
@@ -84,12 +87,14 @@ loom_cc_library(
     loom::format::text::parser
     loom::format::text::printer
     loom::ir
+    loom::ops::buffer
     loom::ops::func
     loom::ops::kernel
     loom::ops::low
     loom::ops::op_defs
     loom::ops::pipeline
     loom::ops::target
+    loom::ops::type_registry
     loom::pass::builtin_registry
     loom::pass::pipeline
     loom::pass::registry
@@ -106,6 +111,7 @@ loom_cc_library(
     loom::target::math_policy
     loom::target::pipeline
     loom::target::predicate
+    loom::target::provider
     loom::target::reporting::format
     loom::target::reporting::low
     loom::target::selection
@@ -291,7 +297,7 @@ loom_cc_library(
     loom::compile::request
     loom::link::linker
     loom::target::entry_selection
-    loom::tooling::compile::configured
+    loom::target::profile
     loom::tooling::compile::pipeline
     loom::tooling::config
   PUBLIC
@@ -317,6 +323,7 @@ loom_cc_library(
     iree::io::file_handle
     loom::codegen::low::text_asm
     loom::ir
+    loom::target::provider
     loom::testing::test_file
     loom::testing::test_file_format
     loom::tooling::io::file
@@ -339,6 +346,7 @@ loom_cc_test(
     iree::testing::gtest_main
     iree::testing::temp_file
     loom::ir
+    loom::target::provider
     loom::testing::context
 )
 
@@ -369,8 +377,8 @@ loom_cc_library(
     iree::base::internal::arena
     iree::base::tooling::flags
     loom::sanitizer::options
+    loom::target::selection
     loom::tooling::cli::help
-    loom::tooling::compile::configured
     loom::tooling::config
     loom::tooling::context
   PUBLIC
@@ -398,16 +406,24 @@ loom_cc_library(
     test_provider
   HDRS
     "test_provider.h"
+    "test_schedule_provider.h"
   SRCS
     "test_provider.c"
+    "test_schedule_provider.c"
   DEPS
     ::execute
     ::provider
     iree::base
     loom::codegen::low::allocation
+    loom::codegen::low::descriptors
+    loom::codegen::low::function_model
     loom::codegen::low::packet_hazard_plan
     loom::codegen::low::packet_hazard_plan_json
     loom::codegen::low::packet_progress
+    loom::codegen::low::schedule
+    loom::codegen::low::schedule::dependencies
+    loom::codegen::low::storage_layout
+    loom::codegen::low::storage_transport
     loom::ir
     loom::target::test::provider
   TESTONLY
@@ -493,6 +509,7 @@ loom_cc_binary(
     ::provider
     iree::base
     loom::target::arch::cmd::check::check_provider
+    loom::target::configured::compiler_provider_set
     loom::tooling::input::configured
     ${_loom_check_platform_deps}
 )
@@ -560,6 +577,7 @@ loom_cc_binary(
     ::test_provider
     iree::base
     loom::target::arch::cmd::check::check_provider
+    loom::target::configured::compiler_provider_set
     loom::tooling::input::configured
     ${_loom_check_test_platform_deps}
   TESTONLY

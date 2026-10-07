@@ -79,9 +79,13 @@ loom_cc_library(
     "legalization.c"
   DEPS
     iree::base
+    loom::ir
+    loom::ops::scalar
     loom::ops::vector
     loom::target::arch::x86::records::target_records
     loom::target::legalization
+    loom::transforms::scalar::target_legalization
+    loom::transforms::vector::to_scalar
   PUBLIC
 )
 endif()
@@ -109,10 +113,28 @@ loom_cc_library(
 endif()
 
 if(LOOM_TARGET_ARCH_X86)
+loom_cc_library(
+  NAME
+    compiler_provider
+  HDRS
+    "compiler_provider.h"
+  SRCS
+    "compiler_provider.c"
+  DEPS
+    ::provider
+    loom::target::arch::x86::ops
+    loom::target::emit::native::x86::module
+    loom::target::provider
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86)
 loom_check_test_suite(
   NAME
     loom_check_file_test
   SRCS
+    "test/instruction_immediates.loom-test"
     "test/register_classes.loom-test"
     "test/source_low/allocation.loom-test"
     "test/source_low/buffer_bulk.loom-test"
@@ -121,6 +143,8 @@ loom_check_test_suite(
     "test/source_low/callable_returns.loom-test"
     "test/source_low/callable_values.loom-test"
     "test/source_low/carried_counter_store.loom-test"
+    "test/source_low/function_boundary.loom-test"
+    "test/source_low/function_storage.loom-test"
     "test/source_low/loop_counter_offset.loom-test"
     "test/source_low/math_contraction.loom-test"
     "test/source_low/memory_access_flags.loom-test"

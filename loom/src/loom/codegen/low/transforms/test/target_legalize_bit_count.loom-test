@@ -1,0 +1,148 @@
+// RUN: pass target-legalize{mode=eager,policy=reference-only},dce
+
+test.target<low_core> @test_target
+
+func.def target(@test_target) @predicate_counts(%value: i1) -> (i1, i1, i1) {
+  %leading = scalar.ctlzi %value : i1
+  %trailing = scalar.cttzi %value : i1
+  %population = scalar.ctpopi %value : i1
+  func.return %leading, %trailing, %population : i1, i1, i1
+}
+
+func.def target(@test_target) @byte_counts(%value: i8) -> (i8, i8, i8) {
+  %leading = scalar.ctlzi %value : i8
+  %trailing = scalar.cttzi %value : i8
+  %population = scalar.ctpopi %value : i8
+  func.return %leading, %trailing, %population : i8, i8, i8
+}
+
+func.def target(@test_target) @halfword_counts(%value: i16) -> (i16, i16, i16) {
+  %leading = scalar.ctlzi %value : i16
+  %trailing = scalar.cttzi %value : i16
+  %population = scalar.ctpopi %value : i16
+  func.return %leading, %trailing, %population : i16, i16, i16
+}
+
+// Native-width operations remain available to target selection.
+func.def target(@test_target) @native_counts(%word: i32, %wide: i64) -> (i32, i32, i32, i64, i64, i64) {
+  %word_leading = scalar.ctlzi %word : i32
+  %word_trailing = scalar.cttzi %word : i32
+  %word_population = scalar.ctpopi %word : i32
+  %wide_leading = scalar.ctlzi %wide : i64
+  %wide_trailing = scalar.cttzi %wide : i64
+  %wide_population = scalar.ctpopi %wide : i64
+  func.return %word_leading, %word_trailing, %word_population, %wide_leading, %wide_trailing, %wide_population : i32, i32, i32, i64, i64, i64
+}
+
+// ----
+test.target<low_core> @test_target
+
+func.def target(@test_target) @predicate_counts(%value: i1) -> (i1, i1, i1) {
+  %37 = scalar.constant 0 : i1
+  %leading = scalar.cmpi eq, %value, %37 : i1
+  %35 = scalar.constant 0 : i1
+  %trailing = scalar.cmpi eq, %value, %35 : i1
+  func.return %leading, %trailing, %value : i1, i1, i1
+}
+
+func.def target(@test_target) @byte_counts(%value: i8) -> (i8, i8, i8) {
+  %47 = scalar.extui %value : i8 to i32
+  %48 = scalar.ctlzi %47 : i32
+  %49 = scalar.constant 24 : i32
+  %50 = scalar.subi %48, %49 : i32
+  %leading = scalar.trunci %50 : i32 to i8
+  %42 = scalar.extui %value : i8 to i32
+  %43 = scalar.constant 256 : i32
+  %44 = scalar.ori %42, %43 : i32
+  %45 = scalar.cttzi %44 : i32
+  %trailing = scalar.trunci %45 : i32 to i8
+  %39 = scalar.extui %value : i8 to i32
+  %40 = scalar.ctpopi %39 : i32
+  %population = scalar.trunci %40 : i32 to i8
+  func.return %leading, %trailing, %population : i8, i8, i8
+}
+
+func.def target(@test_target) @halfword_counts(%value: i16) -> (i16, i16, i16) {
+  %60 = scalar.extui %value : i16 to i32
+  %61 = scalar.ctlzi %60 : i32
+  %62 = scalar.constant 16 : i32
+  %63 = scalar.subi %61, %62 : i32
+  %leading = scalar.trunci %63 : i32 to i16
+  %55 = scalar.extui %value : i16 to i32
+  %56 = scalar.constant 65536 : i32
+  %57 = scalar.ori %55, %56 : i32
+  %58 = scalar.cttzi %57 : i32
+  %trailing = scalar.trunci %58 : i32 to i16
+  %52 = scalar.extui %value : i16 to i32
+  %53 = scalar.ctpopi %52 : i32
+  %population = scalar.trunci %53 : i32 to i16
+  func.return %leading, %trailing, %population : i16, i16, i16
+}
+
+func.def target(@test_target) @native_counts(%word: i32, %wide: i64) -> (i32, i32, i32, i64, i64, i64) {
+  %word_leading = scalar.ctlzi %word : i32
+  %word_trailing = scalar.cttzi %word : i32
+  %word_population = scalar.ctpopi %word : i32
+  %wide_leading = scalar.ctlzi %wide : i64
+  %wide_trailing = scalar.cttzi %wide : i64
+  %wide_population = scalar.ctpopi %wide : i64
+  func.return %word_leading, %word_trailing, %word_population, %wide_leading, %wide_trailing, %wide_population : i32, i32, i32, i64, i64, i64
+}
+
+// ====
+
+// RUN: pass target-legalize{mode=eager,policy=reference-only},dce
+
+test.target<low_core> @test_target
+
+func.def target(@test_target) @vector_counts(%value: vector<2xi8>) -> (vector<2xi8>, vector<2xi8>, vector<2xi8>) {
+  %leading = vector.ctlzi %value : vector<2xi8>
+  %trailing = vector.cttzi %value : vector<2xi8>
+  %population = vector.ctpopi %value : vector<2xi8>
+  func.return %leading, %trailing, %population : vector<2xi8>, vector<2xi8>, vector<2xi8>
+}
+
+// ----
+test.target<low_core> @test_target
+
+func.def target(@test_target) @vector_counts(%value: vector<2xi8>) -> (vector<2xi8>, vector<2xi8>, vector<2xi8>) {
+  %37 = vector.extract %value[0] : vector<2xi8> -> i8
+  %49 = scalar.extui %37 : i8 to i32
+  %50 = scalar.ctlzi %49 : i32
+  %51 = scalar.constant 24 : i32
+  %52 = scalar.subi %50, %51 : i32
+  %53 = scalar.trunci %52 : i32 to i8
+  %39 = vector.extract %value[1] : vector<2xi8> -> i8
+  %44 = scalar.extui %39 : i8 to i32
+  %45 = scalar.ctlzi %44 : i32
+  %46 = scalar.constant 24 : i32
+  %47 = scalar.subi %45, %46 : i32
+  %48 = scalar.trunci %47 : i32 to i8
+  %42 = vector.splat %53 : vector<2xi8>
+  %leading = vector.insert %48 into %42[1] : i8, vector<2xi8>
+  %20 = vector.extract %value[0] : vector<2xi8> -> i8
+  %32 = scalar.extui %20 : i8 to i32
+  %33 = scalar.constant 256 : i32
+  %34 = scalar.ori %32, %33 : i32
+  %35 = scalar.cttzi %34 : i32
+  %36 = scalar.trunci %35 : i32 to i8
+  %22 = vector.extract %value[1] : vector<2xi8> -> i8
+  %27 = scalar.extui %22 : i8 to i32
+  %28 = scalar.constant 256 : i32
+  %29 = scalar.ori %27, %28 : i32
+  %30 = scalar.cttzi %29 : i32
+  %31 = scalar.trunci %30 : i32 to i8
+  %25 = vector.splat %36 : vector<2xi8>
+  %trailing = vector.insert %31 into %25[1] : i8, vector<2xi8>
+  %7 = vector.extract %value[0] : vector<2xi8> -> i8
+  %17 = scalar.extui %7 : i8 to i32
+  %18 = scalar.ctpopi %17 : i32
+  %19 = scalar.trunci %18 : i32 to i8
+  %9 = vector.extract %value[1] : vector<2xi8> -> i8
+  %14 = scalar.extui %9 : i8 to i32
+  %15 = scalar.ctpopi %14 : i32
+  %16 = scalar.trunci %15 : i32 to i8
+  %12 = vector.splat %19 : vector<2xi8>
+  %population = vector.insert %16 into %12[1] : i8, vector<2xi8>
+  func.return %leading, %trailing, %population : vector<2xi8>, vector<2xi8>, vector<2xi8>
+}

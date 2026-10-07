@@ -1063,6 +1063,10 @@ static iree_status_t loom_low_lower_emit_selected_plan(
         context, source_op,
         (const loom_low_lower_descriptor_matrix_plan_t*)
             selected_plan.data.target_plan.target_data));
+  } else if (selected_plan.kind ==
+             LOOM_LOW_LOWER_SELECTED_PLAN_FUNCTION_STORAGE) {
+    IREE_RETURN_IF_ERROR(loom_low_lower_function_storage_emit(
+        context, source_op, selected_plan.data.function_storage));
   } else {
     IREE_ASSERT_FALSE(
         loom_low_lower_plan_is_empty(selected_plan.data.target_plan));
@@ -1430,6 +1434,8 @@ iree_status_t loom_low_lower_function(loom_module_t* module,
         .provider_list = options->legality_provider_list,
         .contract_query = loom_low_lower_source_query_callback(&context),
         .type_supported = context.policy->source_type_supported,
+        .source_vector_carrier_supported =
+            context.policy->source_vector_carrier_supported,
         .structural_legality_flags =
             loom_low_lower_source_plan_uses_structured_control_flow(&context)
                 ? LOOM_TARGET_LOW_STRUCTURAL_LEGALITY_ALLOW_SOURCE_SCF

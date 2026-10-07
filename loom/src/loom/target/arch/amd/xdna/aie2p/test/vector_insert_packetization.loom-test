@@ -1,0 +1,330 @@
+// RUN: pass target=amd.xdna.aie2p:core target-legalize{mode=final}
+
+func.def @i1x128_insert_static_boundary(%values: vector<128xi1>, %value: i1) -> (vector<128xi1>) {
+  %result = vector.insert %value into %values[64] : i1, vector<128xi1>
+  func.return %result : vector<128xi1>
+}
+
+// ----
+func.def @i1x128_insert_static_boundary(%values: vector<128xi1>, %value: i1) -> (vector<128xi1>) {
+  %4 = vector.slice %values[0] : vector<128xi1> -> vector<64xi1>
+  %5 = vector.slice %values[64] : vector<128xi1> -> vector<64xi1>
+  %6 = vector.insert %value into %5[0] : i1, vector<64xi1>
+  %result = vector.concat<0> %4, %6 : vector<64xi1>, vector<64xi1> -> vector<128xi1>
+  func.return %result : vector<128xi1>
+}
+
+// ====
+
+// RUN: pass target=amd.xdna.aie2p:core target-legalize{mode=final}
+
+func.def @i32x64_insert_static_boundary(%values: vector<64xi32>, %value: i32) -> (vector<64xi32>) {
+  %result = vector.insert %value into %values[32] : i32, vector<64xi32>
+  func.return %result : vector<64xi32>
+}
+
+// ----
+func.def @i32x64_insert_static_boundary(%values: vector<64xi32>, %value: i32) -> (vector<64xi32>) {
+  %4 = vector.slice %values[0] : vector<64xi32> -> vector<16xi32>
+  %5 = vector.slice %values[16] : vector<64xi32> -> vector<16xi32>
+  %6 = vector.slice %values[32] : vector<64xi32> -> vector<16xi32>
+  %7 = vector.insert %value into %6[0] : i32, vector<16xi32>
+  %8 = vector.slice %values[48] : vector<64xi32> -> vector<16xi32>
+  %10 = vector.concat<0> %4, %5 : vector<16xi32>, vector<16xi32> -> vector<32xi32>
+  %11 = vector.concat<0> %7, %8 : vector<16xi32>, vector<16xi32> -> vector<32xi32>
+  %result = vector.concat<0> %10, %11 : vector<32xi32>, vector<32xi32> -> vector<64xi32>
+  func.return %result : vector<64xi32>
+}
+
+// ====
+
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @f32x32_insert_static_boundary(%values: vector<32xf32>, %value: f32) -> (vector<32xf32>) {
+  %result = vector.insert %value into %values[16] : f32, vector<32xf32>
+  func.return %result : vector<32xf32>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @f32x32_insert_static_boundary(%values: reg<aie2p.mbms x2>, %value: reg<aie2p.er>) -> (reg<aie2p.mbms x2>) asm {
+  %11 = slice %values[0] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
+  %12 = vmov.accumulator512.to.vector512 %11
+  %13 = slice %values[1] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
+  %14 = vmov.accumulator512.to.vector512 %13
+  %15 = vinsert.32.zero %14, %value
+  %16 = vmov.vector512.to.accumulator512 %12
+  %17 = vmov.vector512.to.accumulator512 %15
+  %result = concat(%16, %17) : (reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x2>
+  return %result
+}
+
+// ====
+
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @i32x64_insert_dynamic(%values: vector<64xi32>, %value: i32, %position: index) -> (vector<64xi32>) {
+  %result = vector.insert %value into %values[%position] : i32, vector<64xi32>
+  func.return %result : vector<64xi32>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i32x64_insert_dynamic(%values: reg<aie2p.mbms x4>, %value: reg<aie2p.er>, %position: reg<aie2p.er>) -> (reg<aie2p.mbms x4>) asm {
+  %36 = mov.short 16
+  %37 = ltu %position, %36
+  %38 = mov.short 32
+  %39 = ltu %position, %38
+  %40 = mov.short 48
+  %41 = ltu %position, %40
+  %42 = slice %values[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %43 = vmov.accumulator512.to.vector512 %42
+  %44 = copy %position : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %45 = vinsert.32.reg %43, %44, %value
+  %46 = select.mask %37, -1
+  %47 = vsel.32 %45, %43, %46
+  %48 = slice %values[1] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %49 = vmov.accumulator512.to.vector512 %48
+  %50 = sub %position, %36
+  %51 = copy %50 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %52 = vinsert.32.reg %49, %51, %value
+  %53 = select.mask %37, -1
+  %54 = vsel.32 %49, %52, %53
+  %55 = select.mask %39, -1
+  %56 = vsel.32 %54, %49, %55
+  %57 = slice %values[2] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %58 = vmov.accumulator512.to.vector512 %57
+  %59 = sub %position, %38
+  %60 = copy %59 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %61 = vinsert.32.reg %58, %60, %value
+  %62 = select.mask %39, -1
+  %63 = vsel.32 %58, %61, %62
+  %64 = select.mask %41, -1
+  %65 = vsel.32 %63, %58, %64
+  %66 = slice %values[3] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %67 = vmov.accumulator512.to.vector512 %66
+  %68 = sub %position, %40
+  %69 = copy %68 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %70 = vinsert.32.reg %67, %69, %value
+  %71 = select.mask %41, -1
+  %72 = vsel.32 %67, %70, %71
+  %76 = vmov.vector512.to.accumulator512 %47
+  %78 = vmov.vector512.to.accumulator512 %56
+  %80 = vmov.vector512.to.accumulator512 %65
+  %82 = vmov.vector512.to.accumulator512 %72
+  %result = concat(%76, %78, %80, %82) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  return %result
+}
+
+// ====
+
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @i1x128_insert_dynamic(%values: vector<128xi1>, %value: i1, %position: index) -> (vector<128xi1>) {
+  %result = vector.insert %value into %values[%position] : i1, vector<128xi1>
+  func.return %result : vector<128xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i1x128_insert_dynamic(%values: reg<aie2p.elpredicate x2>, %value: reg<aie2p.er>, %position: reg<aie2p.er>) -> (reg<aie2p.elpredicate x2>) asm {
+  %19 = mov.short 64
+  %20 = ltu %position, %19
+  %21 = slice %values[0] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
+  %22 = mov.short 1
+  %23 = vbcst.8 %22
+  %24 = vsub.8 %23, %23
+  %25 = vsel.8 %24, %23, %21
+  %26 = copy %position : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %27 = vinsert.8.reg %25, %26, %value
+  %28 = vlt.u8x64 %24, %27
+  %29 = vbcst.8 %20
+  %30 = vsub.8 %29, %29
+  %31 = vlt.u8x64 %30, %29
+  %32 = predicate.xor.low32.rhs_tied %21, %28
+  %33 = predicate.xor.high32.rhs_tied %21, %32
+  %34 = predicate.and.low32.rhs_tied %31, %33
+  %35 = predicate.and.high32.rhs_tied %31, %34
+  %36 = predicate.xor.low32.rhs_tied %21, %35
+  %37 = predicate.xor.high32.rhs_tied %21, %36
+  %38 = slice %values[1] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
+  %39 = sub %position, %19
+  %43 = vsel.8 %24, %23, %38
+  %44 = copy %39 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %45 = vinsert.8.reg %43, %44, %value
+  %46 = vlt.u8x64 %24, %45
+  %50 = predicate.xor.low32.rhs_tied %46, %38
+  %51 = predicate.xor.high32.rhs_tied %46, %50
+  %52 = predicate.and.low32.rhs_tied %31, %51
+  %53 = predicate.and.high32.rhs_tied %31, %52
+  %54 = predicate.xor.low32.rhs_tied %46, %53
+  %55 = predicate.xor.high32.rhs_tied %46, %54
+  %result = concat(%37, %55) : (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) -> reg<aie2p.elpredicate x2>
+  return %result
+}
+
+// ====
+
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @i16x2x2x16_insert_dynamic(%values: vector<2x2x16xi16>, %value: i16, %plane: index, %lane: index) -> (vector<2x2x16xi16>) {
+  %result = vector.insert %value into %values[%plane, 1, %lane] : i16, vector<2x2x16xi16>
+  func.return %result : vector<2x2x16xi16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i16x2x2x16_insert_dynamic(%values: reg<aie2p.vec256 x4>, %value: reg<aie2p.er>, %plane: reg<aie2p.er>, %lane: reg<aie2p.er>) -> (reg<aie2p.vec256 x4>) asm {
+  %28 = mov.short 32
+  %29 = copy %lane : reg<aie2p.er> -> reg<aie2p.er>
+  %30 = mac %29, %plane, %28
+  %31 = mov.short 16
+  %32 = add.rr %30, %31
+  %33 = ltu %32, %28
+  %34 = slice %values[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %35 = copy %32 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %36 = vinsert.16.reg %34, %35, %value
+  %37 = select.mask %33, -1
+  %38 = vsel.32 %36, %34, %37
+  %39 = slice %values[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %40 = sub %32, %28
+  %41 = copy %40 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %42 = vinsert.16.reg %39, %41, %value
+  %43 = select.mask %33, -1
+  %44 = vsel.32 %39, %42, %43
+  %result = concat(%38, %44) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %result
+}
+
+// ====
+
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @bf16x3x16_insert_dynamic_row(%row: vector<16xbf16>, %values: vector<3x16xbf16>, %position: index) -> (vector<3x16xbf16>) {
+  %result = vector.insert %row into %values[%position] : vector<16xbf16>, vector<3x16xbf16>
+  func.return %result : vector<3x16xbf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @bf16x3x16_insert_dynamic_row(%row: reg<aie2p.vec256 x2>, %values: reg<aie2p.vec256 x4>, %position: reg<aie2p.er>) -> (reg<aie2p.vec256 x4>) asm {
+  %32 = slice %values[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %33 = mov.short 0
+  %34 = eq %position, %33
+  %35 = select.mask %34, -1
+  %36 = vsel.32 %row, %32, %35
+  %38 = slice %values[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %39 = mova.i32 32
+  %40 = vshift %32, %38, %39
+  %41 = mov.short 1
+  %42 = eq %position, %41
+  %43 = select.mask %42, -1
+  %44 = vsel.32 %row, %40, %43
+  %46 = mov.short 2
+  %47 = eq %position, %46
+  %48 = select.mask %47, -1
+  %49 = vsel.32 %row, %38, %48
+  %50 = slice %36[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %51 = slice %44[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %52 = concat(%50, %51) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %result = concat(%52, %49) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %result
+}
+
+// ====
+
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @i8x64x2_insert_dynamic_pair(%pair: vector<2xi8>, %values: vector<64x2xi8>, %position: index) -> (vector<64x2xi8>) {
+  %result = vector.insert %pair into %values[%position] : vector<2xi8>, vector<64x2xi8>
+  func.return %result : vector<64x2xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i8x64x2_insert_dynamic_pair(%pair: reg<aie2p.vec256 x2>, %values: reg<aie2p.vec256 x4>, %position: reg<aie2p.er>) -> (reg<aie2p.vec256 x4>) asm {
+  %42 = mov.short 2
+  %43 = mov.short 1
+  %44 = lshl %position, %43
+  %45 = vextract.8.imm %pair, 0
+  %46 = mov.short 64
+  %47 = ltu %44, %46
+  %48 = slice %values[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %49 = copy %44 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %50 = vinsert.8.reg %48, %49, %45
+  %51 = select.mask %47, -1
+  %52 = vsel.32 %50, %48, %51
+  %53 = slice %values[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %54 = sub %44, %46
+  %55 = copy %54 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %56 = vinsert.8.reg %53, %55, %45
+  %57 = select.mask %47, -1
+  %58 = vsel.32 %53, %56, %57
+  %60 = copy %43 : reg<aie2p.er> -> reg<aie2p.er>
+  %61 = mac %60, %position, %42
+  %62 = vextract.8.imm %pair, 1
+  %63 = ltu %61, %46
+  %65 = copy %61 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %66 = vinsert.8.reg %52, %65, %62
+  %67 = select.mask %63, -1
+  %68 = vsel.32 %66, %52, %67
+  %70 = sub %61, %46
+  %71 = copy %70 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %72 = vinsert.8.reg %58, %71, %62
+  %73 = select.mask %63, -1
+  %74 = vsel.32 %58, %72, %73
+  %result = concat(%68, %74) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %result
+}
+
+// ====
+
+// RUN: pass target=amd.xdna.aie2p:core target-legalize{mode=eager}
+
+func.def @unsupported_shaped_insert(%values: vector<2x3x16xi16>, %value: i16, %plane: index, %lane: index) -> (vector<2x3x16xi16>) {
+  %result = vector.insert %value into %values[%plane, 1, %lane] : i16, vector<2x3x16xi16>
+  func.return %result : vector<2x3x16xi16>
+}
+
+// ----
+func.def @unsupported_shaped_insert(%values: vector<2x3x16xi16>, %value: i16, %plane: index, %lane: index) -> (vector<2x3x16xi16>) {
+  %result = vector.insert %value into %values[%plane, 1, %lane] : i16, vector<2x3x16xi16>
+  func.return %result : vector<2x3x16xi16>
+}
+
+// ====
+
+// RUN: pass target=amd.xdna.aie2p:core target-legalize{mode=eager}
+
+func.def @unsupported_vector_scalar_fallback(%values: vector<129xi1>) -> (vector<2x129xi1>) {
+  %result = vector.broadcast %values : vector<129xi1> -> vector<2x129xi1>
+  func.return %result : vector<2x129xi1>
+}
+
+// ----
+func.def @unsupported_vector_scalar_fallback(%values: vector<129xi1>) -> (vector<2x129xi1>) {
+  %result = vector.broadcast %values : vector<129xi1> -> vector<2x129xi1>
+  func.return %result : vector<2x129xi1>
+}
+
+// ====
+
+// RUN: emit source-low target=amd.xdna.aie2p:core output=none
+
+func.def @bounded_broadcast_rejects_scalar_expansion(%values: vector<32x1xi8>) -> (vector<32x2xi8>) {
+  // ERROR@+1: TARGET/007
+  %result = vector.broadcast %values : vector<32x1xi8> -> vector<32x2xi8>
+  func.return %result : vector<32x2xi8>
+}
+
+// ====
+
+// RUN: emit source-low target=amd.xdna.aie2p:core output=none
+
+// ERROR@+1: TARGET/031 {op_name="func.def", type_constraint="vector.target_carrier"}
+func.def @unsupported_vector_carrier(%value: vector<2x3x16xi16>) {
+  func.return
+}
+
+// ====
+
+// RUN: emit source-low target=amd.xdna.aie2p:core output=none
+
+// ERROR@+1: TARGET/031 {op_name="func.def", type_constraint="vector.target_carrier"}
+func.def @unsupported_wide_predicate(%value: vector<129xi1>) {
+  func.return
+}

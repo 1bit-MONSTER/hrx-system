@@ -125,6 +125,13 @@ class SpillSlotSpace(CEnum):
     LDS = "LOOM_LOW_SPILL_SLOT_SPACE_LDS"
 
 
+class RegisterPackingResourceFlag(CEnum):
+    UNSPILLABLE = "LOOM_LOW_REGISTER_PACKING_RESOURCE_FLAG_UNSPILLABLE"
+    HAS_AGGREGATE_MEMBER = (
+        "LOOM_LOW_REGISTER_PACKING_RESOURCE_FLAG_HAS_AGGREGATE_MEMBER"
+    )
+
+
 class ImmediateKind(CEnum):
     SIGNED = "LOOM_LOW_IMMEDIATE_KIND_SIGNED"
     UNSIGNED = "LOOM_LOW_IMMEDIATE_KIND_UNSIGNED"
@@ -586,6 +593,15 @@ class Effect:
     width_bits: int = 0
     producer_event: str | None = None
     consumer_event: str | None = None
+
+    @property
+    def is_memory_access(self) -> bool:
+        """Returns whether this read or write has a memory attachment."""
+
+        return (
+            self.kind in (EffectKind.READ, EffectKind.WRITE)
+            and self.memory_space is not MemorySpace.NONE
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -10,6 +10,7 @@
 #include "loom/codegen/low/allocation/active_capacity.h"
 #include "loom/codegen/low/allocation/active_set.h"
 #include "loom/codegen/low/allocation/coalescing.h"
+#include "loom/codegen/low/allocation/fixed_storage_index.h"
 #include "loom/codegen/low/allocation/interval_order.h"
 #include "loom/codegen/low/allocation/live_range.h"
 #include "loom/codegen/low/allocation/physical_domains.h"
@@ -18,6 +19,7 @@
 #include "loom/codegen/low/allocation/spill_plan.h"
 #include "loom/codegen/low/allocation/spill_traffic.h"
 #include "loom/codegen/low/allocation/storage.h"
+#include "loom/codegen/low/allocation/write_interference.h"
 #include "loom/codegen/low/descriptors.h"
 #include "loom/codegen/low/diagnostics.h"
 #include "loom/ir/local_value_domain.h"
@@ -46,6 +48,8 @@ typedef struct loom_low_allocation_interval_assignment_state_t {
   loom_consumption_region_query_t nested_consumption_query;
   // Assignment-index window still live at the current interval start.
   loom_low_allocation_active_set_t active;
+  // Monotone fixed-claim availability cursor for this assignment attempt.
+  loom_low_allocation_fixed_availability_t fixed_availability;
   // Victim-search arrays reused after each selected set has been consumed.
   loom_low_allocation_search_workspace_t search_workspace;
   // Cached predicted spill traffic, dense by liveness value ordinal.
@@ -76,7 +80,6 @@ loom_low_allocation_interval_assignment_max_unit_end_point_for_interval(
     loom_value_ordinal_t value_ordinal) {
   const loom_low_allocation_assignment_t candidate = {
       .value_id = interval->value_id,
-      .value_class = interval->value_class,
       .start_point = state->context->unit_liveness->values[value_ordinal]
                          .acquisition_start_point,
       .end_point =
@@ -107,6 +110,9 @@ loom_low_allocation_interval_assignment_search_context(
       .preferences = state->context->preferences,
       .preference_workspace = &state->preference_workspace,
       .active_set = &state->active,
+      .fixed_availability = state->fixed_availability.group_count != 0
+                                ? &state->fixed_availability
+                                : NULL,
       .storage_leases = state->context->storage_leases,
       .required_register_values = state->context->required_register_values,
       .spill_traffic_by_value_ordinal = state->spill_traffic_by_value_ordinal,
@@ -126,6 +132,64 @@ static uint32_t loom_low_allocation_interval_assignment_peak_live_units(
     }
   }
   return fallback_units;
+}
+
+// Incoming locations are preferences for the complete interval, not fixed
+// storage. In particular, implicit instruction writes can force entry transport
+// even when no other SSA value occupies the incoming register.
+static bool loom_low_allocation_interval_assignment_find_entry_location(
+    loom_low_allocation_interval_assignment_state_t* state,
+    loom_low_allocation_search_context_t* search_context,
+    const loom_liveness_interval_t* interval,
+    loom_value_ordinal_t value_ordinal,
+    const loom_low_allocation_class_capacity_t* capacity, uint32_t* out_base) {
+  const loom_low_allocation_interval_assignment_context_t* context =
+      state->context;
+  if (value_ordinal >= context->entry_location_count) {
+    return false;
+  }
+  const loom_low_allocation_abi_location_t* entry =
+      &context->entry_locations[value_ordinal];
+  if (entry->location_kind != capacity->location_kind) {
+    return false;
+  }
+  const loom_low_descriptor_set_t* descriptors =
+      context->target->descriptor_set;
+  const loom_low_reg_class_t* reg_class =
+      &descriptors->reg_classes[capacity->descriptor_reg_class_id];
+  if (loom_low_reg_class_uses_explicit_physical_registers(reg_class)) {
+    uint32_t first_candidate_ordinal = 0;
+    uint32_t pressure_extent = 0;
+    if (!loom_low_allocation_storage_explicit_physical_register_view(
+            descriptors, capacity->descriptor_reg_class_id,
+            entry->location_base, interval->unit_count,
+            &first_candidate_ordinal, &pressure_extent) ||
+        (capacity->is_bounded && pressure_extent > capacity->max_units)) {
+      return false;
+    }
+  } else {
+    const uint32_t alignment =
+        loom_low_allocation_live_range_interval_alignment(
+            descriptors, context->liveness,
+            context->placement->operand_constraints_by_interval, interval);
+    if (entry->location_base % alignment != 0 ||
+        (capacity->is_bounded &&
+         (uint64_t)entry->location_base + interval->unit_count >
+             capacity->max_units)) {
+      return false;
+    }
+  }
+  if (loom_low_allocation_search_location_conflicts(
+          search_context, interval, capacity->descriptor_reg_class_id,
+          entry->location_kind, entry->location_base, interval->unit_count,
+          /*ignored_value_ids=*/NULL, /*ignored_value_count=*/0,
+          /*ignored_storage_lease_value_ids=*/NULL,
+          /*ignored_storage_lease_value_count=*/0,
+          LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FORBIDDEN)) {
+    return false;
+  }
+  *out_base = entry->location_base;
+  return true;
 }
 
 static bool loom_low_allocation_interval_assignment_align_up_u32(
@@ -160,7 +224,6 @@ loom_low_allocation_interval_assignment_failure_candidate(
           value_ordinal);
   loom_low_allocation_assignment_t candidate = {
       .value_id = interval->value_id,
-      .value_class = interval->value_class,
       .descriptor_reg_class_id = capacity->descriptor_reg_class_id,
       .start_point = state->context->unit_liveness->values[value_ordinal]
                          .acquisition_start_point,
@@ -240,7 +303,7 @@ static iree_status_t loom_low_allocation_interval_assignment_record_failure(
 
   const uint32_t alignment = loom_low_allocation_live_range_interval_alignment(
       state->context->target->descriptor_set, state->context->liveness,
-      state->context->placement, interval);
+      state->context->placement->operand_constraints_by_interval, interval);
   const loom_low_reg_class_t* reg_class =
       &state->context->target->descriptor_set
            ->reg_classes[capacity->descriptor_reg_class_id];
@@ -558,6 +621,9 @@ static uint32_t loom_low_allocation_interval_assignment_publish_assignment(
       state->result.assignment_count;
   state->result.assignment_indices_by_value_ordinal[value_ordinal] =
       assignment_index;
+  loom_low_allocation_write_interference_note_assignment(
+      state->context->unit_liveness->write_interference, value_ordinal,
+      assignment);
   loom_low_allocation_target_constraints_record_location_extent(
       state->context->target_constraints, assignment->descriptor_reg_class_id,
       assignment->location_kind, assignment->location_base,
@@ -676,8 +742,12 @@ loom_low_allocation_interval_assignment_initialize_result_storage(
         state->context->unit_liveness, state->context->placement,
         state->scratch_arena->block_pool, &capacity));
     IREE_RETURN_IF_ERROR(loom_low_allocation_active_set_initialize(
-        order->interval_count, capacity.program_point_count,
-        capacity.unit_count, state->scratch_arena, &state->active));
+        state->context->target->descriptor_set, order->interval_count,
+        capacity.program_point_count, capacity.unit_count, state->scratch_arena,
+        &state->active));
+    IREE_RETURN_IF_ERROR(loom_low_allocation_fixed_availability_initialize(
+        state->context->target_constraints, state->scratch_arena,
+        &state->fixed_availability));
   }
 
   state->result.assignment_map = (loom_low_allocation_assignment_map_t){
@@ -760,6 +830,30 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
       continue;
     }
 
+    const uint32_t storage_index =
+        context->storage_transport
+            ? context->storage_transport
+                  ->bindings_by_value_ordinal[value_ordinal]
+            : UINT32_MAX;
+    if (storage_index != UINT32_MAX) {
+      const loom_low_allocation_assignment_t stored = {
+          .value_id = interval->value_id,
+          .descriptor_reg_class_id = interval->value_class.register_class_id,
+          .start_point = entry->acquisition_start_point,
+          .end_point = interval->end_point,
+          .unit_count = interval->unit_count,
+          .location_kind = LOOM_LOW_ALLOCATION_LOCATION_STORAGE,
+          .location_base = storage_index,
+          .location_count = interval->unit_count,
+      };
+      const loom_low_allocation_assignment_t assignment =
+          loom_low_allocation_interval_assignment_prepare_assignment(
+              state, &stored, value_ordinal);
+      loom_low_allocation_interval_assignment_publish_assignment(
+          state, &assignment, value_ordinal);
+      continue;
+    }
+
     const loom_low_allocation_assignment_t* tied_source =
         loom_low_allocation_interval_assignment_tied_source_assignment(
             state, value_ordinal);
@@ -769,7 +863,6 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
       // Verified ties preserve the source's complete register class and width.
       const loom_low_allocation_assignment_t inherited_assignment = {
           .value_id = interval->value_id,
-          .value_class = interval->value_class,
           .descriptor_reg_class_id = tied_source->descriptor_reg_class_id,
           .start_point = entry->acquisition_start_point,
           .end_point =
@@ -856,8 +949,11 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
     }
 
     uint32_t location_base = 0;
-    bool assigned = loom_low_allocation_search_find_free_location(
-        &search_context, interval, capacity, &location_base);
+    bool assigned = loom_low_allocation_interval_assignment_find_entry_location(
+                        state, &search_context, interval, value_ordinal,
+                        &capacity, &location_base) ||
+                    loom_low_allocation_search_find_free_location(
+                        &search_context, interval, capacity, &location_base);
     const uint32_t retained_fixed_value_index_plus_one =
         search_context.retained_fixed_value_index_plus_one;
     const bool requires_register =
@@ -906,7 +1002,6 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
 
     const loom_low_allocation_assignment_t assignment = {
         .value_id = interval->value_id,
-        .value_class = interval->value_class,
         .descriptor_reg_class_id = capacity.descriptor_reg_class_id,
         .start_point = entry->acquisition_start_point,
         .end_point =
@@ -984,6 +1079,8 @@ iree_status_t loom_low_allocation_interval_assignment_build(
   if (iree_status_is_ok(status)) {
     *out_result = state.result;
   }
+  loom_low_allocation_write_interference_reset_inference(
+      context->unit_liveness->write_interference);
   iree_arena_checkpoint_restore(&scratch_checkpoint);
   return status;
 }

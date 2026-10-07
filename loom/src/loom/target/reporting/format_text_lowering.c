@@ -475,6 +475,9 @@ loom_target_compile_report_format_source_low_selection_summary_rows(
           " dynamic_selected_ops=%" PRIu64 " dynamic_emitted_ops=%" PRIu64,
           row->exact_dynamic_op_count, row->unknown_dynamic_op_count,
           row->dynamic_selected_op_count, row->dynamic_emitted_low_op_count));
+      IREE_RETURN_IF_ERROR(
+          iree_string_builder_append_format(builder, " maximum_emitted_ops=%u",
+                                            row->maximum_emitted_low_op_count));
       IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(builder, "\n"));
     }
   }
@@ -1438,7 +1441,7 @@ static iree_status_t loom_target_compile_report_format_legalization_rows(
           "COMPILE-REPORT: target_legalization[%" PRIhsz
           "] function=%.*s source_op=%.*s mode=%.*s policy=%.*s "
           "action=%.*s outcome=%.*s contract=%.*s legalizer=%.*s strategy=%.*s "
-          "bundle=%.*s config=%.*s",
+          "bundle=%.*s config=%.*s scalarized=%s",
           row_index, (int)function_name.size, function_name.data,
           (int)source_op_name.size, source_op_name.data, (int)mode_name.size,
           mode_name.data, (int)policy_name.size, policy_name.data,
@@ -1447,7 +1450,8 @@ static iree_status_t loom_target_compile_report_format_legalization_rows(
           (int)outcome_name.size, outcome_name.data, (int)legalizer_name.size,
           legalizer_name.data, (int)strategy_name.size, strategy_name.data,
           (int)target_bundle_name.size, target_bundle_name.data,
-          (int)target_config_name.size, target_config_name.data));
+          (int)target_config_name.size, target_config_name.data,
+          row->scalarized ? "true" : "false"));
       if (!iree_string_view_is_empty(row->descriptor_key)) {
         IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
             builder, " descriptor_key=%.*s", (int)row->descriptor_key.size,

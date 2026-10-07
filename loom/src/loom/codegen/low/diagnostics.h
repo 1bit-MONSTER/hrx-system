@@ -45,6 +45,14 @@ iree_string_view_t loom_low_diagnostic_config_key(
 iree_string_view_t loom_low_diagnostic_function_name(
     const loom_module_t* module, const loom_op_t* function_op);
 
+// Admits |function_op| to an allocation-synthesis path. Functions with an
+// absent or virtual allocation mode set |out_admitted| true. Other modes emit
+// LOOM_ERR_BACKEND_051 and leave it false because synthesis has no retained
+// physical assignment to consume.
+iree_status_t loom_low_diagnostic_admit_allocation_synthesis(
+    const loom_module_t* module, const loom_op_t* function_op,
+    iree_diagnostic_emitter_t emitter, bool* out_admitted);
+
 // Emits LOOM_ERR_TARGET_026 for a target-dependent use of |function_op|.
 iree_status_t loom_low_diagnostic_emit_missing_target(
     const loom_module_t* module, const loom_op_t* function_op,
@@ -65,6 +73,11 @@ iree_string_view_t loom_low_diagnostic_operation_name(
 // Returns the SSA value name for |value_id|, or a diagnostic placeholder.
 iree_string_view_t loom_low_diagnostic_value_name(const loom_module_t* module,
                                                   loom_value_id_t value_id);
+
+// Returns the display name of a resolved register class in |descriptor_set|.
+iree_string_view_t loom_low_diagnostic_reg_class_name(
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint16_t descriptor_reg_class_id);
 
 // Returns a descriptor-local display name for |value_class|, or "<unknown>".
 iree_string_view_t loom_low_diagnostic_value_class_name(

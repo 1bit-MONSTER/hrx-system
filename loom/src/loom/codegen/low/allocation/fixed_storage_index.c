@@ -28,6 +28,32 @@ struct loom_low_allocation_fixed_storage_record_t {
   uint32_t fixed_value_index;
 };
 
+// One location's ordered immutable record span and attempt-local cursor.
+struct loom_low_allocation_fixed_location_entry_t {
+  // Atomic location within the owning storage group.
+  uint32_t location;
+  // One past the last fixed-storage record for this location.
+  uint32_t record_end;
+  // First record whose end point exceeds the attempt's current start point.
+  uint32_t current_record;
+  // Start point of |current_record|, or UINT32_MAX when none remains.
+  uint32_t next_conflict_start;
+  // Maximum |next_conflict_start| in this implicit balanced subtree.
+  uint32_t subtree_max_conflict_start;
+};
+
+// Contiguous location entries sharing one storage identity and location kind.
+struct loom_low_allocation_fixed_location_group_t {
+  // Descriptor-defined namespace shared by aliasing register classes.
+  uint32_t storage_key;
+  // First entry belonging to this group.
+  uint32_t entry_start;
+  // Number of entries belonging to this group.
+  uint32_t entry_count;
+  // Register-like location-kind ordinal used by the fixed record index.
+  uint32_t kind_ordinal;
+};
+
 static uint32_t loom_low_allocation_fixed_storage_sort_word(
     const loom_low_allocation_fixed_storage_record_t* record,
     uint32_t word_ordinal) {
@@ -406,6 +432,543 @@ iree_status_t loom_low_allocation_fixed_storage_index_initialize(
   }
   iree_arena_deinitialize(&build_arena);
   return status;
+}
+
+static uint32_t loom_low_allocation_fixed_availability_build_subtree(
+    loom_low_allocation_fixed_location_entry_t* entries, uint32_t begin,
+    uint32_t end) {
+  if (begin == end) {
+    return 0;
+  }
+  const uint32_t middle = begin + (end - begin) / 2u;
+  const uint32_t left_max =
+      loom_low_allocation_fixed_availability_build_subtree(entries, begin,
+                                                           middle);
+  const uint32_t right_max =
+      loom_low_allocation_fixed_availability_build_subtree(entries, middle + 1,
+                                                           end);
+  entries[middle].subtree_max_conflict_start = iree_max(
+      entries[middle].next_conflict_start, iree_max(left_max, right_max));
+  return entries[middle].subtree_max_conflict_start;
+}
+
+static uint32_t loom_low_allocation_fixed_availability_current_end(
+    const loom_low_allocation_fixed_availability_t* availability,
+    uint32_t entry_index) {
+  const loom_low_allocation_fixed_location_entry_t* entry =
+      &availability->entries[entry_index];
+  IREE_ASSERT_LT(entry->current_record, entry->record_end);
+  return availability->constraints->fixed_index.records[entry->current_record]
+      .end_point;
+}
+
+static bool loom_low_allocation_fixed_availability_heap_less(
+    const loom_low_allocation_fixed_availability_t* availability,
+    uint32_t lhs_entry_index, uint32_t rhs_entry_index) {
+  const uint32_t lhs_end = loom_low_allocation_fixed_availability_current_end(
+      availability, lhs_entry_index);
+  const uint32_t rhs_end = loom_low_allocation_fixed_availability_current_end(
+      availability, rhs_entry_index);
+  return lhs_end < rhs_end ||
+         (lhs_end == rhs_end && lhs_entry_index < rhs_entry_index);
+}
+
+static void loom_low_allocation_fixed_availability_heap_sift_down(
+    loom_low_allocation_fixed_availability_t* availability,
+    uint32_t heap_index) {
+  while (true) {
+    const uint32_t left = heap_index * 2u + 1u;
+    if (left >= availability->expiration_heap_count) {
+      return;
+    }
+    const uint32_t right = left + 1u;
+    uint32_t selected = left;
+    if (right < availability->expiration_heap_count &&
+        loom_low_allocation_fixed_availability_heap_less(
+            availability, availability->expiration_heap[right],
+            availability->expiration_heap[left])) {
+      selected = right;
+    }
+    if (!loom_low_allocation_fixed_availability_heap_less(
+            availability, availability->expiration_heap[selected],
+            availability->expiration_heap[heap_index])) {
+      return;
+    }
+    const uint32_t swap = availability->expiration_heap[heap_index];
+    availability->expiration_heap[heap_index] =
+        availability->expiration_heap[selected];
+    availability->expiration_heap[selected] = swap;
+    heap_index = selected;
+  }
+}
+
+static uint32_t loom_low_allocation_fixed_availability_subtree_max(
+    const loom_low_allocation_fixed_location_entry_t* entries, uint32_t begin,
+    uint32_t end) {
+  if (begin == end) {
+    return 0;
+  }
+  return entries[begin + (end - begin) / 2u].subtree_max_conflict_start;
+}
+
+static uint32_t loom_low_allocation_fixed_availability_update_subtree(
+    loom_low_allocation_fixed_location_entry_t* entries, uint32_t begin,
+    uint32_t end, uint32_t entry_index) {
+  IREE_ASSERT_LT(begin, end);
+  const uint32_t middle = begin + (end - begin) / 2u;
+  if (entry_index < middle) {
+    loom_low_allocation_fixed_availability_update_subtree(entries, begin,
+                                                          middle, entry_index);
+  } else if (entry_index > middle) {
+    loom_low_allocation_fixed_availability_update_subtree(entries, middle + 1u,
+                                                          end, entry_index);
+  }
+  entries[middle].subtree_max_conflict_start =
+      iree_max(entries[middle].next_conflict_start,
+               iree_max(loom_low_allocation_fixed_availability_subtree_max(
+                            entries, begin, middle),
+                        loom_low_allocation_fixed_availability_subtree_max(
+                            entries, middle + 1u, end)));
+  return entries[middle].subtree_max_conflict_start;
+}
+
+static const loom_low_allocation_fixed_location_group_t*
+loom_low_allocation_fixed_availability_group_for_entry(
+    const loom_low_allocation_fixed_availability_t* availability,
+    uint32_t entry_index) {
+  uint32_t begin = 0;
+  uint32_t end = availability->group_count;
+  while (begin < end) {
+    const uint32_t middle = begin + (end - begin) / 2u;
+    const loom_low_allocation_fixed_location_group_t* group =
+        &availability->groups[middle];
+    if (entry_index < group->entry_start) {
+      end = middle;
+    } else if (entry_index >= group->entry_start + group->entry_count) {
+      begin = middle + 1u;
+    } else {
+      return group;
+    }
+  }
+  IREE_ASSERT_UNREACHABLE("fixed availability entry has no storage group");
+  return NULL;
+}
+
+static void loom_low_allocation_fixed_availability_update_entry(
+    loom_low_allocation_fixed_availability_t* availability,
+    uint32_t entry_index) {
+  const loom_low_allocation_fixed_location_group_t* group =
+      loom_low_allocation_fixed_availability_group_for_entry(availability,
+                                                             entry_index);
+  loom_low_allocation_fixed_availability_update_subtree(
+      availability->entries, group->entry_start,
+      group->entry_start + group->entry_count, entry_index);
+}
+
+static void loom_low_allocation_fixed_availability_advance(
+    loom_low_allocation_fixed_availability_t* availability,
+    uint32_t start_point) {
+  IREE_ASSERT_GE(start_point, availability->start_point);
+  const loom_low_allocation_fixed_storage_record_t* records =
+      availability->constraints->fixed_index.records;
+  while (availability->expiration_heap_count != 0) {
+    const uint32_t entry_index = availability->expiration_heap[0];
+    loom_low_allocation_fixed_location_entry_t* entry =
+        &availability->entries[entry_index];
+    if (records[entry->current_record].end_point > start_point) {
+      break;
+    }
+    do {
+      ++entry->current_record;
+    } while (entry->current_record < entry->record_end &&
+             records[entry->current_record].end_point <= start_point);
+    if (entry->current_record == entry->record_end) {
+      entry->next_conflict_start = UINT32_MAX;
+      --availability->expiration_heap_count;
+      if (availability->expiration_heap_count != 0) {
+        availability->expiration_heap[0] =
+            availability->expiration_heap[availability->expiration_heap_count];
+        loom_low_allocation_fixed_availability_heap_sift_down(availability, 0);
+      }
+    } else {
+      entry->next_conflict_start = records[entry->current_record].start_point;
+      loom_low_allocation_fixed_availability_heap_sift_down(availability, 0);
+    }
+    loom_low_allocation_fixed_availability_update_entry(availability,
+                                                        entry_index);
+  }
+  availability->start_point = start_point;
+}
+
+iree_status_t loom_low_allocation_fixed_availability_initialize(
+    const loom_low_allocation_target_constraints_t* constraints,
+    iree_arena_allocator_t* arena,
+    loom_low_allocation_fixed_availability_t* out_availability) {
+  IREE_ASSERT_ARGUMENT(constraints);
+  IREE_ASSERT_ARGUMENT(arena);
+  IREE_ASSERT_ARGUMENT(out_availability);
+  *out_availability = (loom_low_allocation_fixed_availability_t){
+      .constraints = constraints,
+  };
+  const loom_low_allocation_fixed_storage_index_t* index =
+      &constraints->fixed_index;
+  if (index->records == NULL) {
+    return iree_ok_status();
+  }
+
+  uint32_t entry_count = 0;
+  uint32_t group_count = 0;
+  for (uint32_t kind_ordinal = 0; kind_ordinal < 2; ++kind_ordinal) {
+    const uint32_t begin = index->record_starts[kind_ordinal];
+    const uint32_t end = begin + index->record_counts[kind_ordinal];
+    uint32_t record_index = begin;
+    while (record_index < end) {
+      const loom_low_allocation_fixed_storage_record_t* record =
+          &index->records[record_index];
+      ++group_count;
+      const uint32_t storage_key = record->storage_key;
+      while (record_index < end &&
+             index->records[record_index].storage_key == storage_key) {
+        const uint32_t location = index->records[record_index].location;
+        ++entry_count;
+        do {
+          ++record_index;
+        } while (record_index < end &&
+                 index->records[record_index].storage_key == storage_key &&
+                 index->records[record_index].location == location);
+      }
+    }
+  }
+  IREE_ASSERT_NE(entry_count, 0u);
+  IREE_ASSERT_NE(group_count, 0u);
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, entry_count, sizeof(*out_availability->entries),
+      (void**)&out_availability->entries));
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, group_count, sizeof(*out_availability->groups),
+      (void**)&out_availability->groups));
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, entry_count, sizeof(*out_availability->expiration_heap),
+      (void**)&out_availability->expiration_heap));
+
+  uint32_t next_entry = 0;
+  uint32_t next_group = 0;
+  for (uint32_t kind_ordinal = 0; kind_ordinal < 2; ++kind_ordinal) {
+    const uint32_t begin = index->record_starts[kind_ordinal];
+    const uint32_t end = begin + index->record_counts[kind_ordinal];
+    uint32_t record_index = begin;
+    while (record_index < end) {
+      const uint32_t storage_key = index->records[record_index].storage_key;
+      loom_low_allocation_fixed_location_group_t* group =
+          &out_availability->groups[next_group++];
+      *group = (loom_low_allocation_fixed_location_group_t){
+          .storage_key = storage_key,
+          .entry_start = next_entry,
+          .kind_ordinal = kind_ordinal,
+      };
+      while (record_index < end &&
+             index->records[record_index].storage_key == storage_key) {
+        const uint32_t location = index->records[record_index].location;
+        const uint32_t record_start = record_index;
+        do {
+          ++record_index;
+        } while (record_index < end &&
+                 index->records[record_index].storage_key == storage_key &&
+                 index->records[record_index].location == location);
+        out_availability->entries[next_entry] =
+            (loom_low_allocation_fixed_location_entry_t){
+                .location = location,
+                .record_end = record_index,
+                .current_record = record_start,
+                .next_conflict_start = index->records[record_start].start_point,
+            };
+        out_availability->expiration_heap[next_entry] = next_entry;
+        ++next_entry;
+        ++group->entry_count;
+      }
+      loom_low_allocation_fixed_availability_build_subtree(
+          out_availability->entries, group->entry_start,
+          group->entry_start + group->entry_count);
+    }
+  }
+  IREE_ASSERT_EQ(next_entry, entry_count);
+  IREE_ASSERT_EQ(next_group, group_count);
+  out_availability->group_count = group_count;
+  out_availability->expiration_heap_count = entry_count;
+  for (uint32_t i = entry_count / 2u; i > 0; --i) {
+    loom_low_allocation_fixed_availability_heap_sift_down(out_availability,
+                                                          i - 1u);
+  }
+  return iree_ok_status();
+}
+
+static const loom_low_allocation_fixed_location_group_t*
+loom_low_allocation_fixed_availability_find_group(
+    const loom_low_allocation_fixed_availability_t* availability,
+    uint32_t kind_ordinal, uint32_t storage_key) {
+  uint32_t begin = 0;
+  uint32_t end = availability->group_count;
+  while (begin < end) {
+    const uint32_t middle = begin + (end - begin) / 2u;
+    const loom_low_allocation_fixed_location_group_t* group =
+        &availability->groups[middle];
+    if (group->kind_ordinal < kind_ordinal ||
+        (group->kind_ordinal == kind_ordinal &&
+         group->storage_key < storage_key)) {
+      begin = middle + 1u;
+    } else if (group->kind_ordinal > kind_ordinal ||
+               group->storage_key > storage_key) {
+      end = middle;
+    } else {
+      return group;
+    }
+  }
+  return NULL;
+}
+
+static bool loom_low_allocation_fixed_availability_location_is_available(
+    const loom_low_allocation_fixed_availability_t* availability,
+    const loom_low_allocation_fixed_location_group_t* group, uint32_t location,
+    uint32_t candidate_end_point) {
+  uint32_t begin = group->entry_start;
+  uint32_t end = begin + group->entry_count;
+  while (begin < end) {
+    const uint32_t middle = begin + (end - begin) / 2u;
+    const loom_low_allocation_fixed_location_entry_t* entry =
+        &availability->entries[middle];
+    if (entry->location < location) {
+      begin = middle + 1u;
+    } else if (entry->location > location) {
+      end = middle;
+    } else {
+      return entry->next_conflict_start >= candidate_end_point;
+    }
+  }
+  return true;
+}
+
+static bool loom_low_allocation_fixed_availability_find_first(
+    const loom_low_allocation_fixed_availability_t* availability,
+    uint32_t begin, uint32_t end, uint64_t maximum,
+    uint32_t candidate_end_point, uint64_t* cursor, uint64_t* out_location) {
+  if (begin == end || *cursor > maximum) {
+    return false;
+  }
+  const loom_low_allocation_fixed_location_entry_t* entries =
+      availability->entries;
+  const uint64_t subtree_minimum = entries[begin].location;
+  const uint64_t subtree_maximum = entries[end - 1u].location;
+  if (subtree_maximum < *cursor || subtree_minimum > maximum) {
+    return false;
+  }
+  if (subtree_minimum > *cursor) {
+    *out_location = *cursor;
+    return true;
+  }
+  const uint32_t middle = begin + (end - begin) / 2u;
+  const bool subtree_is_dense =
+      subtree_maximum - subtree_minimum + 1u == end - begin;
+  if (subtree_is_dense && *cursor >= subtree_minimum &&
+      *cursor <= subtree_maximum &&
+      entries[middle].subtree_max_conflict_start < candidate_end_point) {
+    *cursor = subtree_maximum + 1u;
+    return false;
+  }
+  if (loom_low_allocation_fixed_availability_find_first(
+          availability, begin, middle, maximum, candidate_end_point, cursor,
+          out_location)) {
+    return true;
+  }
+  if (*cursor > maximum) {
+    return false;
+  }
+  const loom_low_allocation_fixed_location_entry_t* entry = &entries[middle];
+  if (*cursor < entry->location) {
+    *out_location = *cursor;
+    return true;
+  }
+  if (*cursor == entry->location) {
+    if (entry->next_conflict_start >= candidate_end_point) {
+      *out_location = *cursor;
+      return true;
+    }
+    ++*cursor;
+  }
+  return loom_low_allocation_fixed_availability_find_first(
+      availability, middle + 1u, end, maximum, candidate_end_point, cursor,
+      out_location);
+}
+
+static bool loom_low_allocation_fixed_availability_find_last(
+    const loom_low_allocation_fixed_availability_t* availability,
+    uint32_t begin, uint32_t end, uint64_t minimum,
+    uint32_t candidate_end_point, uint64_t* cursor, uint64_t* out_location) {
+  if (begin == end || *cursor < minimum) {
+    return false;
+  }
+  const loom_low_allocation_fixed_location_entry_t* entries =
+      availability->entries;
+  const uint64_t subtree_minimum = entries[begin].location;
+  const uint64_t subtree_maximum = entries[end - 1u].location;
+  if (subtree_maximum < minimum || subtree_minimum > *cursor) {
+    return false;
+  }
+  if (subtree_maximum < *cursor) {
+    *out_location = *cursor;
+    return true;
+  }
+  const uint32_t middle = begin + (end - begin) / 2u;
+  const bool subtree_is_dense =
+      subtree_maximum - subtree_minimum + 1u == end - begin;
+  if (subtree_is_dense && *cursor >= subtree_minimum &&
+      *cursor <= subtree_maximum &&
+      entries[middle].subtree_max_conflict_start < candidate_end_point) {
+    if (subtree_minimum == 0) {
+      *cursor = 0;
+      return false;
+    }
+    *cursor = subtree_minimum - 1u;
+    return false;
+  }
+  if (loom_low_allocation_fixed_availability_find_last(
+          availability, middle + 1u, end, minimum, candidate_end_point, cursor,
+          out_location)) {
+    return true;
+  }
+  if (*cursor < minimum) {
+    return false;
+  }
+  const loom_low_allocation_fixed_location_entry_t* entry = &entries[middle];
+  if (*cursor > entry->location) {
+    *out_location = *cursor;
+    return true;
+  }
+  if (*cursor == entry->location) {
+    if (entry->next_conflict_start >= candidate_end_point) {
+      *out_location = *cursor;
+      return true;
+    }
+    if (*cursor == 0) {
+      return false;
+    }
+    --*cursor;
+  }
+  return loom_low_allocation_fixed_availability_find_last(
+      availability, begin, middle, minimum, candidate_end_point, cursor,
+      out_location);
+}
+
+static const loom_low_allocation_fixed_location_group_t*
+loom_low_allocation_fixed_availability_prepare_query(
+    loom_low_allocation_fixed_availability_t* availability,
+    const loom_low_allocation_assignment_t* candidate) {
+  IREE_ASSERT_ARGUMENT(availability);
+  IREE_ASSERT_ARGUMENT(candidate);
+  IREE_ASSERT_TRUE(loom_low_allocation_fixed_availability_can_order_candidate(
+      availability, candidate));
+  loom_low_allocation_fixed_availability_advance(availability,
+                                                 candidate->start_point);
+  uint32_t storage_key = 0;
+  uint32_t ignored_location = 0;
+  IREE_ASSERT_EQ(
+      loom_low_allocation_storage_assignment_atomic_unit_count(
+          availability->constraints->target->descriptor_set, candidate),
+      1u);
+  loom_low_allocation_storage_assignment_atomic_unit(
+      availability->constraints->target->descriptor_set, candidate,
+      /*atomic_unit_ordinal=*/0, &storage_key, &ignored_location);
+  return loom_low_allocation_fixed_availability_find_group(
+      availability,
+      loom_low_allocation_fixed_storage_kind_ordinal(candidate->location_kind),
+      storage_key);
+}
+
+bool loom_low_allocation_fixed_availability_can_order_candidate(
+    const loom_low_allocation_fixed_availability_t* availability,
+    const loom_low_allocation_assignment_t* candidate) {
+  IREE_ASSERT_ARGUMENT(availability);
+  IREE_ASSERT_ARGUMENT(candidate);
+  const loom_low_allocation_target_constraints_t* constraints =
+      availability->constraints;
+  if (availability->group_count == 0 || constraints == NULL ||
+      candidate->descriptor_reg_class_id >=
+          constraints->target->descriptor_set->reg_class_count ||
+      !loom_low_allocation_assignment_is_register_like(candidate) ||
+      candidate->unit_count != 1 || candidate->location_count != 1 ||
+      candidate->liveness_segments.count != 0 ||
+      iree_any_bit_set(
+          candidate->flags,
+          LOOM_LOW_ALLOCATION_ASSIGNMENT_FLAG_REFINED_UNIT_STARTS) ||
+      loom_low_allocation_storage_assignment_uses_explicit_physical_register(
+          constraints->target->descriptor_set, candidate)) {
+    return false;
+  }
+  return loom_low_allocation_target_constraints_fixed_value_for_value(
+             constraints, candidate->value_id) == NULL;
+}
+
+bool loom_low_allocation_fixed_availability_find_next_location(
+    loom_low_allocation_fixed_availability_t* availability,
+    const loom_low_allocation_assignment_t* candidate, uint32_t minimum_base,
+    uint32_t maximum_base, uint32_t* out_base) {
+  IREE_ASSERT_ARGUMENT(out_base);
+  const loom_low_allocation_fixed_location_group_t* group =
+      loom_low_allocation_fixed_availability_prepare_query(availability,
+                                                           candidate);
+  if (minimum_base > maximum_base) {
+    return false;
+  }
+  if (group == NULL) {
+    *out_base = minimum_base;
+    return true;
+  }
+  uint64_t cursor = minimum_base;
+  uint64_t result = 0;
+  bool found = loom_low_allocation_fixed_availability_find_first(
+      availability, group->entry_start, group->entry_start + group->entry_count,
+      maximum_base, candidate->end_point, &cursor, &result);
+  if (!found && cursor <= maximum_base &&
+      loom_low_allocation_fixed_availability_location_is_available(
+          availability, group, (uint32_t)cursor, candidate->end_point)) {
+    result = cursor;
+    found = true;
+  }
+  if (found) {
+    *out_base = (uint32_t)result;
+  }
+  return found;
+}
+
+bool loom_low_allocation_fixed_availability_find_previous_location(
+    loom_low_allocation_fixed_availability_t* availability,
+    const loom_low_allocation_assignment_t* candidate, uint32_t minimum_base,
+    uint32_t maximum_base, uint32_t* out_base) {
+  IREE_ASSERT_ARGUMENT(out_base);
+  const loom_low_allocation_fixed_location_group_t* group =
+      loom_low_allocation_fixed_availability_prepare_query(availability,
+                                                           candidate);
+  if (minimum_base > maximum_base) {
+    return false;
+  }
+  if (group == NULL) {
+    *out_base = maximum_base;
+    return true;
+  }
+  uint64_t cursor = maximum_base;
+  uint64_t result = 0;
+  bool found = loom_low_allocation_fixed_availability_find_last(
+      availability, group->entry_start, group->entry_start + group->entry_count,
+      minimum_base, candidate->end_point, &cursor, &result);
+  if (!found && cursor >= minimum_base &&
+      loom_low_allocation_fixed_availability_location_is_available(
+          availability, group, (uint32_t)cursor, candidate->end_point)) {
+    result = cursor;
+    found = true;
+  }
+  if (found) {
+    *out_base = (uint32_t)result;
+  }
+  return found;
 }
 
 static int loom_low_allocation_fixed_storage_record_key_compare(

@@ -230,9 +230,8 @@ static iree_status_t loom_index_replace_single_result_with_binary_op(
       break;
     }
     default:
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "unsupported replacement index op kind %u",
-                              (unsigned)kind);
+      IREE_ASSERT_UNREACHABLE("unsupported replacement index op kind");
+      IREE_BUILTIN_UNREACHABLE();
   }
 
   loom_value_id_t replacement = loom_op_const_results(replacement_op)[0];
@@ -253,9 +252,11 @@ static iree_status_t loom_index_materialize_or_reuse_index_constant(
   }
 
   loom_op_t* constant_op = NULL;
-  IREE_RETURN_IF_ERROR(loom_index_constant_build(
-      &rewriter->builder, loom_attr_i64(value),
-      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX), op->location, &constant_op));
+  loom_type_t result_type =
+      loom_module_value_type(rewriter->module, loom_op_const_results(op)[0]);
+  IREE_RETURN_IF_ERROR(
+      loom_index_constant_build(&rewriter->builder, loom_attr_i64(value),
+                                result_type, op->location, &constant_op));
   *out_value = loom_index_constant_result(constant_op);
   return iree_ok_status();
 }
@@ -403,9 +404,10 @@ static bool loom_index_match_madd_with_exact_positive_factor(
   return loom_index_query_exact_i64(rewriter, *out_addend, out_addend_value);
 }
 
-static bool loom_index_match_add_with_exact_non_negative_offset(
-    loom_rewriter_t* rewriter, loom_op_t* add_op, loom_value_id_t* out_value,
-    int64_t* out_offset) {
+static bool loom_index_match_add_with_exact_offset(loom_rewriter_t* rewriter,
+                                                   loom_op_t* add_op,
+                                                   loom_value_id_t* out_value,
+                                                   int64_t* out_offset) {
   if (!add_op || !loom_index_add_isa(add_op)) {
     return false;
   }
@@ -413,20 +415,79 @@ static bool loom_index_match_add_with_exact_non_negative_offset(
   loom_value_id_t lhs = loom_index_add_lhs(add_op);
   loom_value_id_t rhs = loom_index_add_rhs(add_op);
   int64_t lhs_offset = 0;
-  if (loom_index_query_exact_i64(rewriter, lhs, &lhs_offset) &&
-      lhs_offset >= 0) {
+  if (loom_index_query_exact_i64(rewriter, lhs, &lhs_offset)) {
     *out_value = rhs;
     *out_offset = lhs_offset;
     return true;
   }
   int64_t rhs_offset = 0;
-  if (loom_index_query_exact_i64(rewriter, rhs, &rhs_offset) &&
-      rhs_offset >= 0) {
+  if (loom_index_query_exact_i64(rewriter, rhs, &rhs_offset)) {
     *out_value = lhs;
     *out_offset = rhs_offset;
     return true;
   }
   return false;
+}
+
+// Combines one adjacent constant addition only when both original additions
+// and the replacement fit the source domain and selected physical carrier.
+// Root facts must prove both translations: domain-clamped intermediate facts
+// can hide an overflowing endpoint and are not a proof for reassociation.
+static bool loom_index_match_bounded_add_chain(loom_rewriter_t* rewriter,
+                                               loom_value_id_t inner_value,
+                                               int64_t outer_offset,
+                                               loom_value_id_t* out_root,
+                                               int64_t* out_combined_offset) {
+  loom_value_id_t root = LOOM_VALUE_ID_INVALID;
+  int64_t inner_offset = 0;
+  if (!loom_index_match_add_with_exact_offset(
+          rewriter, loom_index_defining_op(rewriter, inner_value), &root,
+          &inner_offset)) {
+    return false;
+  }
+
+  loom_scalar_type_t scalar_type = loom_type_element_type(
+      loom_module_value_type(rewriter->module, inner_value));
+  int32_t bitwidth = loom_index_target_carrier_bitwidth(
+      loom_index_rewriter_fact_context(rewriter), scalar_type);
+  if (bitwidth <= 0) {
+    return false;
+  }
+  // OFFSET has an unsigned carrier but retains its nonnegative i64 source
+  // domain. INDEX also reserves the selected carrier's sign bit.
+  const int32_t magnitude_bits =
+      scalar_type == LOOM_SCALAR_TYPE_OFFSET ? bitwidth : bitwidth - 1;
+  const int64_t maximum =
+      magnitude_bits >= 63 ? INT64_MAX : (INT64_C(1) << magnitude_bits) - 1;
+  const int64_t minimum =
+      scalar_type == LOOM_SCALAR_TYPE_OFFSET ? 0 : -maximum - 1;
+  loom_value_facts_t root_facts = loom_rewriter_value_facts(rewriter, root);
+  if (root_facts.range_lo < minimum || root_facts.range_hi > maximum ||
+      inner_offset < minimum || inner_offset > maximum ||
+      outer_offset < minimum || outer_offset > maximum) {
+    return false;
+  }
+
+  int64_t combined_offset = 0;
+  if (!iree_checked_add_i64(inner_offset, outer_offset, &combined_offset) ||
+      combined_offset < minimum || combined_offset > maximum) {
+    return false;
+  }
+  int64_t inner_lo = 0;
+  int64_t inner_hi = 0;
+  int64_t result_lo = 0;
+  int64_t result_hi = 0;
+  if (!iree_checked_add_i64(root_facts.range_lo, inner_offset, &inner_lo) ||
+      !iree_checked_add_i64(root_facts.range_hi, inner_offset, &inner_hi) ||
+      inner_lo < minimum || inner_hi > maximum ||
+      !iree_checked_add_i64(inner_lo, outer_offset, &result_lo) ||
+      !iree_checked_add_i64(inner_hi, outer_offset, &result_hi) ||
+      result_lo < minimum || result_hi > maximum) {
+    return false;
+  }
+  *out_root = root;
+  *out_combined_offset = combined_offset;
+  return true;
 }
 
 typedef enum loom_index_radix_term_kind_e {
@@ -851,11 +912,31 @@ iree_status_t loom_index_add_canonicalize(loom_op_t* op,
                                           loom_rewriter_t* rewriter) {
   loom_value_id_t lhs = loom_index_add_lhs(op);
   loom_value_id_t rhs = loom_index_add_rhs(op);
-  if (loom_index_value_facts_are_exact_i64(rewriter, lhs, 0)) {
+  int64_t lhs_offset = 0;
+  bool lhs_is_exact = loom_index_query_exact_i64(rewriter, lhs, &lhs_offset);
+  if (lhs_is_exact && lhs_offset == 0) {
     return loom_index_replace_single_result_with_value(op, rewriter, rhs);
   }
-  if (loom_index_value_facts_are_exact_i64(rewriter, rhs, 0)) {
+  int64_t rhs_offset = 0;
+  bool rhs_is_exact = loom_index_query_exact_i64(rewriter, rhs, &rhs_offset);
+  if (rhs_is_exact && rhs_offset == 0) {
     return loom_index_replace_single_result_with_value(op, rewriter, lhs);
+  }
+
+  loom_value_id_t root = LOOM_VALUE_ID_INVALID;
+  int64_t combined_offset = 0;
+  if ((lhs_is_exact &&
+       loom_index_match_bounded_add_chain(rewriter, rhs, lhs_offset, &root,
+                                          &combined_offset)) ||
+      (rhs_is_exact &&
+       loom_index_match_bounded_add_chain(rewriter, lhs, rhs_offset, &root,
+                                          &combined_offset))) {
+    if (combined_offset == 0) {
+      return loom_index_replace_single_result_with_value(op, rewriter, root);
+    }
+    return loom_index_replace_single_result_with_binary_constant_op(
+        op, rewriter, LOOM_OP_INDEX_ADD, root, combined_offset,
+        LOOM_VALUE_ID_INVALID);
   }
 
   loom_type_t result_type =
@@ -1069,8 +1150,9 @@ iree_status_t loom_index_rem_canonicalize(loom_op_t* op,
     loom_value_id_t offset_value = LOOM_VALUE_ID_INVALID;
     int64_t offset = 0;
     loom_op_t* lhs_def = loom_index_defining_op(rewriter, lhs);
-    if (loom_index_match_add_with_exact_non_negative_offset(
-            rewriter, lhs_def, &offset_value, &offset)) {
+    if (loom_index_match_add_with_exact_offset(rewriter, lhs_def, &offset_value,
+                                               &offset) &&
+        offset >= 0) {
       const int64_t residual_offset = offset % divisor;
       loom_value_facts_t value_facts =
           loom_rewriter_value_facts(rewriter, offset_value);

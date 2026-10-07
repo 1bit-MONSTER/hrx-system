@@ -12,13 +12,14 @@
 /// @file
 /// Compile report emission controls.
 ///
-/// Compile reports are optional machine-readable sidecars for target emission.
-/// They describe the selected backend, target, terminal status, artifact size,
-/// and target-provided compiler analysis facts available at the selected
-/// verbosity. Summary and detail reports include configuration bindings applied
-/// by the module's last successful compilation. These bindings survive release
-/// of the configuration module and compile result, workspace trimming, and
-/// module cloning. IR serialization alone does not carry invocation bindings.
+/// Compile reports are optional structured or human-readable sidecars for
+/// target emission. They describe the selected backend, target, terminal
+/// status, artifact size, and target-provided compiler analysis facts available
+/// at the selected verbosity. Summary and detail reports include configuration
+/// bindings applied by the module's last successful compilation. These bindings
+/// survive release of the configuration module and compile result, workspace
+/// trimming, and module cloning. IR serialization alone does not carry
+/// invocation bindings.
 ///
 /// Report generation is opt-in. Omitting this descriptor, or setting `mode` to
 /// `LOOMC_COMPILE_REPORT_MODE_NONE`, keeps emission on the normal artifact
@@ -30,6 +31,18 @@ extern "C" {
 
 /// Loom compile report JSON artifact format.
 #define LOOMC_ARTIFACT_FORMAT_COMPILE_REPORT_JSON "loom-compile-report-json"
+
+/// Loom compile report text artifact format.
+#define LOOMC_ARTIFACT_FORMAT_COMPILE_REPORT_TEXT "loom-compile-report-text"
+
+/// Compile report serialization format.
+typedef enum loomc_compile_report_format_e {
+  /// Emits the stable structured JSON representation.
+  LOOMC_COMPILE_REPORT_FORMAT_JSON = 0,
+
+  /// Emits bounded human-readable text.
+  LOOMC_COMPILE_REPORT_FORMAT_TEXT = 1,
+} loomc_compile_report_format_t;
 
 /// Compile report detail mode.
 typedef enum loomc_compile_report_mode_e {
@@ -46,8 +59,9 @@ typedef enum loomc_compile_report_mode_e {
 /// Compile report emission options.
 ///
 /// Attach this descriptor through `loomc_emit_options_t::next`. The descriptor
-/// controls JSON report production for the emitted target artifact. It does not
-/// run compilation passes, force target analyses, or write filesystem paths.
+/// controls report production for the target-artifact transaction, including
+/// transactions rejected before emission. It does not run compilation passes,
+/// force target analyses, or write filesystem paths.
 typedef struct loomc_compile_report_options_t {
   /// Structure type. Must be `LOOMC_STRUCTURE_TYPE_COMPILE_REPORT_OPTIONS`
   /// when nonzero.
@@ -62,8 +76,14 @@ typedef struct loomc_compile_report_options_t {
   /// Selected report detail mode.
   loomc_compile_report_mode_t mode;
 
-  /// Result artifact identifier for the compile report JSON. Empty derives
-  /// from the emitted artifact identifier by appending `.compile-report.json`.
+  /// Report serialization format. Zero selects structured JSON.
+  loomc_compile_report_format_t format;
+
+  /// Result artifact identifier for the compile report. Empty derives from the
+  /// emitted artifact identifier by appending `.compile-report.json` or
+  /// `.compile-report.txt` according to `format`. It remains empty when
+  /// compilation fails before selecting an emitter and no artifact identifier
+  /// was provided.
   loomc_string_view_t identifier;
 } loomc_compile_report_options_t;
 

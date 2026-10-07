@@ -8,9 +8,9 @@
 
 #include <string.h>
 
-#include "loom/analysis/consumption.h"
 #include "loom/analysis/ownership.h"
 #include "loom/error/error_catalog.h"
+#include "loom/verify/verify_consumption.h"
 #include "loom/verify/verify_diagnostics.h"
 
 // Prepares the reusable tied-result scratch tables for an op with
@@ -137,66 +137,6 @@ static bool loom_verify_tied_table_claim_operand(
   return false;
 }
 
-static void loom_verify_emit_consumed_value_use(loom_verify_state_t* state,
-                                                const loom_op_t* use_op,
-                                                uint16_t operand_index,
-                                                loom_value_id_t value_id,
-                                                const loom_op_t* consuming_op) {
-  const loom_op_vtable_t* consuming_vtable =
-      consuming_op ? loom_verify_lookup_vtable(state, consuming_op->kind)
-                   : NULL;
-  iree_string_view_t consuming_op_name =
-      consuming_vtable ? loom_op_vtable_name(consuming_vtable)
-                       : IREE_SV("<unknown op>");
-  iree_string_view_t value_name = loom_verify_value_name(state, value_id);
-  loom_diagnostic_field_ref_t operand_ref =
-      loom_diagnostic_field_ref(LOOM_DIAGNOSTIC_FIELD_OPERAND, operand_index);
-  loom_diagnostic_param_t params[] = {
-      loom_param_with_field_ref(loom_param_string(value_name), operand_ref),
-      loom_param_string(consuming_op_name),
-  };
-  loom_diagnostic_related_op_t related_ops[] = {{
-      .label = IREE_SV("consumed here"),
-      .op = consuming_op,
-  }};
-  loom_diagnostic_emission_t emission = {
-      .op = use_op,
-      .error = LOOM_ERR_DOMINANCE_002,
-      .params = params,
-      .param_count = IREE_ARRAYSIZE(params),
-      .related_ops = related_ops,
-      .related_op_count = IREE_ARRAYSIZE(related_ops),
-  };
-  loom_verify_emit_diagnostic(state, &emission);
-}
-
-static iree_status_t loom_verify_consume_value_after_op(
-    loom_verify_state_t* state, const loom_op_t* op,
-    loom_value_id_t consumed_id) {
-  const loom_region_t* parent_region =
-      op->parent_block ? op->parent_block->parent_region : NULL;
-  if (parent_region &&
-      iree_any_bit_set(parent_region->flags, LOOM_REGION_INSTANCE_FLAG_CFG)) {
-    if (!state->region_scope.consumption_query) {
-      return iree_make_status(
-          IREE_STATUS_FAILED_PRECONDITION,
-          "verifier CFG consumed-value checks require a consumption query");
-    }
-    loom_consumption_use_t use = {0};
-    bool found_use = false;
-    IREE_RETURN_IF_ERROR(
-        loom_consumption_find_use_after(state->region_scope.consumption_query,
-                                        op, consumed_id, &use, &found_use));
-    if (found_use) {
-      loom_verify_emit_consumed_value_use(state, use.op, use.operand_index,
-                                          consumed_id, op);
-    }
-  } else {
-    loom_verify_consume_value(state, consumed_id, op);
-  }
-  return iree_ok_status();
-}
-
 void loom_verify_operand_dominance(loom_verify_state_t* state,
                                    const loom_op_t* op,
                                    const loom_op_vtable_t* vtable) {
@@ -226,11 +166,6 @@ void loom_verify_operand_dominance(loom_verify_state_t* state,
       };
       loom_verify_emit_structured(state, op, LOOM_ERR_DOMINANCE_001, params,
                                   IREE_ARRAYSIZE(params));
-    }
-    if (loom_bitset_test(state->consumed_bits, state->consumed_word_count,
-                         value_id)) {
-      loom_verify_emit_consumed_value_use(state, op, i, value_id,
-                                          state->consuming_ops[value_id]);
     }
   }
 }
@@ -475,7 +410,7 @@ iree_status_t loom_verify_tied_results(loom_verify_state_t* state,
     // validated as tie targets but not marked consumed at function entry.
     if (!has_signature_ties) {
       IREE_RETURN_IF_ERROR(
-          loom_verify_consume_value_after_op(state, op, consumed_id));
+          loom_verify_consumption_record(state, op, tied[i].operand_index));
     }
   }
 
@@ -493,8 +428,8 @@ iree_status_t loom_verify_moved_results(loom_verify_state_t* state,
     IREE_ASSERT_LT(effect.source_operand_index, op->operand_count,
                    "generated moved-result source index must reference a "
                    "verified operand");
-    IREE_RETURN_IF_ERROR(loom_verify_consume_value_after_op(
-        state, op, loom_op_const_operands(op)[effect.source_operand_index]));
+    IREE_RETURN_IF_ERROR(
+        loom_verify_consumption_record(state, op, effect.source_operand_index));
   }
   return iree_ok_status();
 }

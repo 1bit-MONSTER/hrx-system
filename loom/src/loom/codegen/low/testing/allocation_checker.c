@@ -189,15 +189,14 @@ static iree_status_t loom_low_allocation_checker_schedule(
         operation_index + liveness_block->operation_count;
     for (uint32_t ordinal = 0; ordinal < schedule_block->scheduled_node_count;
          ++ordinal) {
-      while (
-          operation_index < operation_end &&
-          liveness->operation_points[operation_index].parent_operation_index !=
-              UINT32_MAX) {
+      while (operation_index < operation_end &&
+             loom_liveness_operation_at(liveness, operation_index)
+                     ->parent_operation_index != UINT32_MAX) {
         ++operation_index;
       }
       const loom_liveness_operation_point_t* operation_point =
           operation_index < operation_end
-              ? &liveness->operation_points[operation_index++]
+              ? loom_liveness_operation_at(liveness, operation_index++)
               : NULL;
       const uint32_t program_point =
           operation_point != NULL ? operation_point->start_point : UINT32_MAX;
@@ -225,8 +224,8 @@ static iree_status_t loom_low_allocation_checker_schedule(
       checker->node_program_points[node_index] = program_point;
     }
     while (operation_index < operation_end &&
-           liveness->operation_points[operation_index].parent_operation_index !=
-               UINT32_MAX) {
+           loom_liveness_operation_at(liveness, operation_index)
+                   ->parent_operation_index != UINT32_MAX) {
       ++operation_index;
     }
     if (operation_index != operation_end) {
@@ -346,8 +345,9 @@ static iree_status_t loom_low_allocation_checker_assignments(
             loom_low_allocation_checker_storage_end_point(interval) ||
         assignment->unit_count != interval->unit_count ||
         assignment->location_count != assignment->unit_count ||
-        !loom_liveness_value_class_equal(assignment->value_class,
-                                         interval->value_class) ||
+        interval->value_class.type_kind != LOOM_TYPE_REGISTER ||
+        interval->value_class.register_descriptor_set_stable_id !=
+            allocation->target.descriptor_set->stable_id ||
         assignment->descriptor_reg_class_id !=
             interval->value_class.register_class_id ||
         !loom_low_allocation_location_kind_is_known(

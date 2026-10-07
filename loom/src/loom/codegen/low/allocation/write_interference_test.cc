@@ -11,8 +11,8 @@
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/analysis/liveness.h"
+#include "loom/codegen/low/allocation/placement.h"
 #include "loom/codegen/low/builder.h"
-#include "loom/codegen/low/placement.h"
 #include "loom/codegen/low/read_retention.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
@@ -132,12 +132,22 @@ class WriteInterferenceTest : public ::testing::Test {
 
     loom_type_t type = loom_low_register_type(1, 0, width);
     IREE_ASSERT_OK(loom_module_intern_type(module_, type, &type));
-    IREE_ASSERT_OK(loom_module_define_value(module_, type, &values_[0]));
-    IREE_ASSERT_OK(
-        loom_block_add_arg(module_, loom_module_block(module_), values_[0]));
     loom_builder_t builder;
     loom_builder_initialize(module_, &module_->arena,
                             loom_module_block(module_), &builder);
+    loom_string_id_t name;
+    IREE_ASSERT_OK(
+        loom_builder_intern_string(&builder, IREE_SV("kernel"), &name));
+    loom_symbol_id_t symbol;
+    IREE_ASSERT_OK(loom_module_add_symbol(module_, name, &symbol));
+    loom_op_t* function = nullptr;
+    IREE_ASSERT_OK(loom_low_func_def_build(
+        &builder, 0, 0, 0, 0, 0, 0, 0, 0, name, {}, 0, {}, {},
+        LOOM_STRING_ID_INVALID, {}, loom_symbol_ref_t{0, symbol}, &type, 1,
+        nullptr, 0, nullptr, 0, nullptr, 0, LOOM_LOCATION_UNKNOWN, &function));
+    loom_region_t* body = loom_low_func_def_body(function);
+    loom_builder_enter_region(&builder, function, body);
+    values_[0] = loom_region_entry_arg_id(body, 0);
     IREE_ASSERT_OK(loom_low_build_resolved_descriptor_op(
         &builder, &descriptor_set_, &descriptors_[0], 0, values_, 1, {},
         nullptr, 0, nullptr, 0, LOOM_LOCATION_UNKNOWN, &reader_));
@@ -160,15 +170,22 @@ class WriteInterferenceTest : public ::testing::Test {
     if (writer) {
       values_[value_count - 1] = loom_op_results(writer)[0];
     }
+    loom_op_t* return_op = nullptr;
+    IREE_ASSERT_OK(loom_low_return_build(&builder, nullptr, 0,
+                                         LOOM_LOCATION_UNKNOWN, &return_op));
     IREE_ASSERT_OK(loom_local_value_domain_acquire_for_region(
-        module_, module_->body, &module_->arena, &domain_));
+        module_, body, &module_->arena, &domain_));
     IREE_ASSERT_OK(loom_liveness_analyze_local_value_domain(
         &domain_, loom_liveness_order_empty(), &module_->arena, &liveness_));
     IREE_ASSERT_OK(
-        loom_cfg_graph_build(module_, module_->body, &module_->arena, &graph_));
+        loom_cfg_graph_build(module_, body, &module_->arena, &graph_));
     loom_low_placement_preference_index_t preferences = {};
-    IREE_ASSERT_OK(loom_low_placement_analyze_region(
-        module_, module_->body, &descriptor_set_, &domain_, &liveness_, {}, {},
+    loom_low_allocation_target_constraints_t constraints = {};
+    IREE_ASSERT_OK(loom_low_allocation_target_constraints_initialize(
+        module_, function, &target_, nullptr, 0, nullptr, 0, {},
+        &module_->arena, &constraints));
+    IREE_ASSERT_OK(loom_low_allocation_placement_build(
+        &constraints, body, &domain_, &liveness_, nullptr, 0, {}, {},
         &module_->arena, &module_->arena, &placement_, &preferences));
     if (kind == WriteKind::Copy) {
       ASSERT_EQ(placement_.relation_count, 1u);
@@ -182,7 +199,8 @@ class WriteInterferenceTest : public ::testing::Test {
       ASSERT_NE(interval, nullptr);
       auto& assignment = assignments_[i];
       assignment.value_id = values_[i];
-      assignment.value_class = interval->value_class;
+      assignment.descriptor_reg_class_id =
+          interval->value_class.register_class_id;
       assignment.start_point = interval->start_point;
       assignment.end_point = interval->end_point + 1;
       assignment.unit_count = assignment.location_count = width;
@@ -218,13 +236,15 @@ class WriteInterferenceTest : public ::testing::Test {
         &target_, &placement_, &liveness_, &decision_, &table_));
     IREE_RETURN_IF_ERROR(loom_low_allocation_write_interference_note_operand(
         table_, &domain_, &descriptor_set_, &descriptors_[0], reader_, 0,
-        liveness_.operation_points[0].start_point + 1, &decision_));
+        loom_liveness_operation_at(&liveness_, 0)->start_point + 1,
+        &decision_));
     if (kind_ != WriteKind::None) {
       const auto* descriptor = &descriptors_[kind_ == WriteKind::Copy ? 2 : 1];
       IREE_RETURN_IF_ERROR(loom_low_allocation_write_interference_note_operand(
           table_, &domain_, &descriptor_set_, descriptor,
-          liveness_.operation_points[1].op, 0,
-          liveness_.operation_points[1].start_point + 1, &decision_));
+          loom_liveness_operation_at(&liveness_, 1)->op, 0,
+          loom_liveness_operation_at(&liveness_, 1)->start_point + 1,
+          &decision_));
     }
     if (binding != BindingKind::Free) {
       assignments_[2].location_base = assignments_[0].location_base;
@@ -260,6 +280,13 @@ class WriteInterferenceTest : public ::testing::Test {
     candidate.location_base = base;
     return loom_low_allocation_write_interference_conflicting_read(
         table_, &map_, &candidate);
+  }
+
+  void Publish(uint32_t ordinal, uint32_t base) {
+    assignment_indices_[ordinal] = ordinal;
+    assignments_[ordinal].location_base = base;
+    loom_low_allocation_write_interference_note_assignment(
+        table_, ordinal, &assignments_[ordinal]);
   }
 
   // Source module and value-domain lifetime, independent of injected failures.
@@ -347,7 +374,7 @@ TEST_P(WriteInterferenceBoundaryTest,
   EXPECT_EQ(Query(2, 10), LOOM_VALUE_ORDINAL_INVALID);
   // Equal locations remove the write even where the last unit overlaps the
   // retained range. This observes the source offset in that final row.
-  assignments_[1].location_base = 11;
+  Publish(1, 11);
   EXPECT_EQ(Query(2, 11), LOOM_VALUE_ORDINAL_INVALID);
 }
 
@@ -370,21 +397,23 @@ TEST_F(WriteInterferenceTest, UnconditionalWriteKeepsItsFullExtent) {
   EXPECT_EQ(Query(1, 10), LOOM_VALUE_ORDINAL_INVALID);
 }
 
-TEST_F(WriteInterferenceTest, ForcedAliasRetainsBidirectionalCopyEquation) {
-  Initialize(129, WriteKind::Copy);
+TEST_P(WriteInterferenceBoundaryTest,
+       ForcedAliasRetainsBidirectionalCopyEquation) {
+  Initialize(GetParam(), WriteKind::Copy);
   ResetArenas();
   IREE_ASSERT_OK(BuildTable(BindingKind::AliasedDestination));
   ExpectScratchPreserved();
   EXPECT_EQ(Query(1, assignments_[0].location_base),
             LOOM_VALUE_ORDINAL_INVALID);
   EXPECT_EQ(Query(1, assignments_[0].location_base + 1), 0u);
+  loom_low_allocation_write_interference_reset_inference(table_);
   assignment_indices_[1] = UINT32_MAX;
   EXPECT_EQ(Query(2, assignments_[0].location_base),
             LOOM_VALUE_ORDINAL_INVALID);
 }
 
-TEST_F(WriteInterferenceTest, CompletedCopiesDoNotEnterTheFinalIndex) {
-  Initialize(129, WriteKind::Copy);
+TEST_P(WriteInterferenceBoundaryTest, CompletedCopiesDoNotEnterTheFinalIndex) {
+  Initialize(GetParam(), WriteKind::Copy);
   ResetArenas();
   IREE_ASSERT_OK(BuildTable(BindingKind::ForcedWrite));
   ExpectScratchPreserved();
@@ -412,6 +441,106 @@ TEST_F(WriteInterferenceTest, SimultaneousProposalUsesTheCompleteLocationSet) {
   loom_low_allocation_write_proposal_reset(&proposal);
   EXPECT_EQ(proposal.count, 0u);
   EXPECT_EQ(Query(2, 11), 0u);
+}
+
+TEST_F(WriteInterferenceTest, PublicationInvalidatesAnIncompatibleWitness) {
+  Initialize(2, WriteKind::Copy);
+  ResetArenas();
+  IREE_ASSERT_OK(BuildTable());
+  assignment_indices_[1] = UINT32_MAX;
+  assignment_indices_[2] = UINT32_MAX;
+  const uint32_t retained_base = assignments_[0].location_base;
+  EXPECT_EQ(Query(2, retained_base), LOOM_VALUE_ORDINAL_INVALID);
+  // The unknown source was inferred at the destination. Publishing a distinct
+  // source invalidates that witness even when the candidate itself repeats.
+  Publish(1, retained_base + 1);
+  EXPECT_EQ(Query(2, retained_base), 0u);
+}
+
+TEST_F(WriteInterferenceTest, RecoloringProofDoesNotReplaceCommittedLocation) {
+  Initialize(16, WriteKind::Copy);
+  ResetArenas();
+  IREE_ASSERT_OK(BuildTable());
+  assignment_indices_[1] = UINT32_MAX;
+  Publish(0, 0);
+  Publish(2, 2);
+  // Both destination locations overlap the retained range. The first query
+  // proves source=4 only under destination=4, without committing that move.
+  EXPECT_EQ(Query(2, 4), LOOM_VALUE_ORDINAL_INVALID);
+  EXPECT_EQ(Query(1, 4), 0u);
+  EXPECT_EQ(Query(1, 2), LOOM_VALUE_ORDINAL_INVALID);
+}
+
+TEST_F(WriteInterferenceTest,
+       RecoloringProofDoesNotReplaceFutureFixedLocation) {
+  Initialize(2, WriteKind::Copy);
+  ResetArenas();
+  IREE_ASSERT_OK(BuildTable(BindingKind::AliasedDestination));
+  assignment_indices_[1] = UINT32_MAX;
+  assignment_indices_[2] = UINT32_MAX;
+  const uint32_t retained_base = assignments_[0].location_base;
+  EXPECT_EQ(Query(2, retained_base + 2), LOOM_VALUE_ORDINAL_INVALID);
+  // The destination is not yet assigned, but its fixed binding still governs
+  // a later query that is no longer hypothetically moving that destination.
+  EXPECT_EQ(Query(1, retained_base + 2), 0u);
+  EXPECT_EQ(Query(1, retained_base), LOOM_VALUE_ORDINAL_INVALID);
+}
+
+TEST_F(WriteInterferenceTest, ProposalDiscardsASeparateCandidateWitness) {
+  Initialize(2, WriteKind::Copy);
+  ResetArenas();
+  IREE_ASSERT_OK(BuildTable());
+  Publish(1, 1);
+  EXPECT_EQ(Query(2, 10), LOOM_VALUE_ORDINAL_INVALID);
+  // Moving only the retained input must inspect the actual destination at 0,
+  // not the speculative destination at 10 in the preceding candidate query.
+  loom_low_allocation_write_proposal_t proposal = {};
+  IREE_ASSERT_OK(loom_low_allocation_write_proposal_initialize(
+      table_, &decision_, &proposal));
+  loom_low_allocation_write_proposal_add(table_, &map_, &assignments_[0], 0,
+                                         &proposal);
+  EXPECT_TRUE(
+      loom_low_allocation_write_proposal_conflicts(table_, &map_, &proposal));
+  EXPECT_EQ(Query(2, 0), LOOM_VALUE_ORDINAL_INVALID);
+}
+
+TEST_F(WriteInterferenceTest, MatchingPublicationAndSpillsPreserveFeasibility) {
+  Initialize(2, WriteKind::Copy);
+  ResetArenas();
+  IREE_ASSERT_OK(BuildTable());
+  assignment_indices_[1] = UINT32_MAX;
+  assignment_indices_[2] = UINT32_MAX;
+  const uint32_t retained_base = assignments_[0].location_base;
+  EXPECT_EQ(Query(2, retained_base), LOOM_VALUE_ORDINAL_INVALID);
+  Publish(1, retained_base);
+  EXPECT_EQ(Query(1, retained_base), LOOM_VALUE_ORDINAL_INVALID);
+  assignments_[1].location_kind = LOOM_LOW_ALLOCATION_LOCATION_SPILL_SLOT;
+  Publish(1, 0);
+  EXPECT_EQ(Query(2, retained_base), LOOM_VALUE_ORDINAL_INVALID);
+}
+
+TEST_F(WriteInterferenceTest, RetainedPublicationActivatesAConditionalWrite) {
+  Initialize(2, WriteKind::Copy);
+  ResetArenas();
+  IREE_ASSERT_OK(BuildTable());
+  assignment_indices_[0] = UINT32_MAX;
+  EXPECT_EQ(Query(2, 10), LOOM_VALUE_ORDINAL_INVALID);
+  // An endpoint outside the prior inference can activate an incident row.
+  Publish(0, 10);
+  EXPECT_EQ(Query(2, 10), 0u);
+}
+
+TEST_F(WriteInterferenceTest, NewAssignmentAttemptDoesNotInheritInference) {
+  Initialize(2, WriteKind::Copy);
+  ResetArenas();
+  IREE_ASSERT_OK(BuildTable());
+  assignment_indices_[1] = UINT32_MAX;
+  assignment_indices_[2] = UINT32_MAX;
+  const uint32_t retained_base = assignments_[0].location_base;
+  EXPECT_EQ(Query(2, retained_base), LOOM_VALUE_ORDINAL_INVALID);
+  loom_low_allocation_write_interference_reset_inference(table_);
+  assignment_indices_[1] = 1;
+  EXPECT_EQ(Query(2, retained_base), 0u);
 }
 
 TEST_F(WriteInterferenceTest, EveryBackingFailureRestoresScratchAndReclaims) {

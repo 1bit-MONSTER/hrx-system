@@ -12,23 +12,20 @@
 #include "iree/testing/status_matchers.h"
 #include "iree/testing/temp_file.h"
 #include "loom/error/source.h"
+#include "loom/target/provider.h"
 #include "loom/tooling/io/file.h"
 
 namespace loom {
 namespace {
 
 TEST(LibraryLinkerTest, ResolvesOwnedMainAndLibraryBytesAfterLinking) {
+  const loom_target_provider_set_t target_provider_set = {};
+  loom_target_environment_t target_environment = {};
+  IREE_ASSERT_OK(loom_target_environment_initialize(&target_provider_set,
+                                                    &target_environment));
   loom_run_session_options_t options;
   loom_run_session_options_initialize(&options);
-  options.register_context.fn = [](void*, loom_context_t*) {
-    return iree_ok_status();
-  };
-  options.initialize_low_descriptor_registry.fn =
-      [](void*, loom_target_low_descriptor_registry_t* registry) {
-        loom_target_low_descriptor_registry_initialize_from_tables(registry,
-                                                                   nullptr, 0);
-        return iree_ok_status();
-      };
+  options.target_environment = &target_environment;
   loom_run_session_t session;
   IREE_ASSERT_OK(loom_run_session_initialize(&options, &session));
   std::string main_source = "// main snapshot\n";
@@ -69,6 +66,7 @@ TEST(LibraryLinkerTest, ResolvesOwnedMainAndLibraryBytesAfterLinking) {
   }
   loom_run_module_deinitialize(&module);
   loom_run_session_deinitialize(&session);
+  loom_target_environment_deinitialize(&target_environment);
 }
 
 }  // namespace

@@ -1,0 +1,37 @@
+// RUN: roundtrip
+// Independently constructed equal values share one imported function, while a
+// different descriptor retains its own specialization and scalar constant.
+struct Descriptor { unsigned elements; };
+template <Descriptor Spec>
+unsigned scale(unsigned value) { return value * Spec.elements; }
+unsigned same(unsigned value) {
+  return scale<Descriptor{32}>(value) + scale<Descriptor{32}>(value);
+}
+unsigned different(unsigned value) {
+  return scale<Descriptor{64}>(value);
+}
+
+// ----
+func.def public @same(%value: i32) -> (i32) {
+  %2 = func.call @scale__const_object_(%value) : (i32) -> (i32)
+  %3 = func.call @scale__const_object_(%value) : (i32) -> (i32)
+  %4 = scalar.addi %2, %3 : i32
+  func.return %4 : i32
+}
+
+func.def public @different(%value: i32) -> (i32) {
+  %7 = func.call @scale__const_object__1(%value) : (i32) -> (i32)
+  func.return %7 : i32
+}
+
+func.def @scale__const_object_(%value: i32) -> (i32) {
+  %10 = scalar.constant 32 : i32
+  %11 = scalar.muli %value, %10 : i32
+  func.return %11 : i32
+}
+
+func.def @scale__const_object__1(%value: i32) -> (i32) {
+  %14 = scalar.constant 64 : i32
+  %15 = scalar.muli %value, %14 : i32
+  func.return %15 : i32
+}

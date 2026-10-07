@@ -1,0 +1,57 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
+load(
+    "//loom/build_tools/bazel:build_defs.bzl",
+    "loom_cc_library",
+    "loom_cc_test",
+)
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+loom_cc_library(
+    name = "configured",
+    srcs = ["configured.c"],
+    hdrs = ["//loom/binding/c:include/loomc/target/configured.h"],
+    linkstatic = True,
+    deps = [
+        "//loom/binding/c:loomc",
+        "//loom/src/loom/target/configured:compiler_provider_set",
+    ],
+    alwayslink = True,
+)
+
+iree_assert_dependency_boundary(
+    name = "configured_has_only_core_target_dependencies",
+    forbidden_subtrees = [
+        "//loom/binding/c/target/amd/xdna/...",
+        "//loom/binding/c/target/amdgpu/...",
+        "//loom/binding/c/target/spirv/...",
+        "//loom/binding/c/target/vm/...",
+        "//loom/binding/c/target/wasm/...",
+        "//loom/src/loom/tooling/compile/...",
+        "//loom/src/loom/tooling/target/...",
+    ],
+    message = "The configured LoomC target package must depend on core target composition instead of target bindings or tooling adapters",
+    target = ":configured",
+)
+
+loom_cc_test(
+    name = "configured_test",
+    srcs = ["configured_test.cc"],
+    deps = [
+        ":configured",
+        "//loom/binding/c:loomc",
+        "//loom/src/loom/target/configured:compiler_provider_set",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)

@@ -62,6 +62,7 @@ loom_cc_library(
     "atomic_subword.h"
     "bitpack.h"
     "buffer.h"
+    "byte_permute.h"
     "cluster_preamble.h"
     "collective_combine.h"
     "collective_payload.h"
@@ -76,6 +77,7 @@ loom_cc_library(
     "emit.h"
     "encoding/e8m0_scale.h"
     "encoding/float16.h"
+    "encoding/float64_narrow.h"
     "encoding/fp4.h"
     "encoding/fp8.h"
     "encoding/fp8_encode.h"
@@ -128,6 +130,7 @@ loom_cc_library(
     "types.h"
     "value/bit_count.h"
     "value/integer64.h"
+    "value/integer_division.h"
     "value/scalar_conversion.h"
     "value/storage.h"
     "value/vector_construct.h"
@@ -156,6 +159,7 @@ loom_cc_library(
     "atomic_subword.c"
     "bitpack.c"
     "buffer.c"
+    "byte_permute.c"
     "cluster_preamble.c"
     "collective_combine.c"
     "collective_payload.c"
@@ -172,6 +176,7 @@ loom_cc_library(
     "emit_support.c"
     "encoding/e8m0_scale.c"
     "encoding/float16.c"
+    "encoding/float64_narrow.c"
     "encoding/fp4.c"
     "encoding/fp8.c"
     "encoding/fp8_descriptors.c"
@@ -240,6 +245,7 @@ loom_cc_library(
     "value/bit_count.c"
     "value/integer64.c"
     "value/integer64_emit.c"
+    "value/integer_division.c"
     "value/scalar_conversion.c"
     "value/storage.c"
     "value/vector_construct.c"
@@ -310,6 +316,7 @@ loom_cc_library(
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::arch::amdgpu::target_info
     loom::target::arch::amdgpu::target_info_defs
+    loom::target::contract
     loom::target::low_legality
     loom::target::registers
     loom::util::cfg_dominance

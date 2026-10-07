@@ -19,6 +19,7 @@ iree_cc_library(
     "fill_test.cc"
     "rectangular_copy_test.cc"
     "timestamp_test.cc"
+    "wait_test.cc"
     "write_test.cc"
   DEPS
     amdf::headers

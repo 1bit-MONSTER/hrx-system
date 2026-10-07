@@ -27,6 +27,7 @@ loom_cc_library(
     loom::import::cxx::source
     loom::import::cxx::source::attributes
     loom::import::cxx::source::constants
+    loom::import::cxx::source::expressions
     loom::import::cxx::value::types
   PUBLIC
 )
@@ -49,6 +50,7 @@ loom_cc_test(
     iree::testing::gtest_main
     iree::third_party::cxx_parser
     loom::import::cxx::source
+    loom::import::cxx::source::expressions
     loom::import::cxx::source::options
     loom::import::cxx::value::types
   LABELS

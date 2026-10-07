@@ -461,8 +461,8 @@ class PacketPlanFixture {
     AbortOnError(loom_target_environment_register_context(&target_environment_,
                                                           &context_));
     AbortOnError(loom_context_finalize(&context_));
-    AbortOnError(loom_target_environment_initialize_low_descriptor_registry(
-        &target_environment_, &target_registry_));
+    target_registry_ =
+        loom_target_environment_low_descriptor_registry(&target_environment_);
 
     std::string generated_source;
     iree_string_view_t source = iree_string_view_empty();
@@ -490,7 +490,6 @@ class PacketPlanFixture {
       loom_compile_pipeline_options_t pipeline_options = {};
       loom_compile_pipeline_options_initialize(&pipeline_options);
       pipeline_options.target_environment = &target_environment_;
-      pipeline_options.low_descriptor_registry = &target_registry_;
       pipeline_options.cleanup_pattern_provider_set =
           loom_cleanup_configured_pattern_provider_set();
       pipeline_options.diagnostic_sink = {

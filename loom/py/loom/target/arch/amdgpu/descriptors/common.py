@@ -2625,8 +2625,6 @@ def _ds_crosslane_effects(width_bits: int) -> tuple[Effect, Effect]:
     return (
         Effect(
             EffectKind.READ,
-            memory_space=MemorySpace.GENERIC,
-            flags=(EffectFlag.DEPENDENCY,),
             counter_id=_COUNTER_LDS,
             width_bits=width_bits,
         ),

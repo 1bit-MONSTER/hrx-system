@@ -122,9 +122,8 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @observe_dynamic_a
   %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %13 = mov.address-index %base
   %first = lda.i32.index.volatile<volatile> %source, %13
-  %15 = add %base, 4
-  %16 = mov.address-index %15
-  %second = lda.i32.index.volatile<volatile> %source, %16
+  %15 = add.address-index.immediate %base, 4
+  %second = lda.i32.index.volatile<volatile> %source, %15
   return %first, %second
 }
 

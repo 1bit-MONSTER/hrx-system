@@ -28,8 +28,8 @@ _AMDGPU_TARGET_COPTS = iree_select({
 
 _AMDGPU_TARGET_DEPS = iree_select({
     "//loom/config/execute:amdgpu_hal": [
-        "//loom/src/loom/target/arch/amdgpu:provider",
         "//loom/src/loom/tooling/target/amdgpu:device_provider",
+        "//loom/src/loom/tooling/target/amdgpu:execution_provider",
         "//loom/src/loom/tooling/target/amdgpu:testbench_requirements",
     ],
     "//conditions:default": [],
@@ -44,8 +44,8 @@ _SPIRV_VULKAN_TARGET_COPTS = iree_select({
 
 _SPIRV_VULKAN_TARGET_DEPS = iree_select({
     "//loom/config/execute:spirv_vulkan_hal": [
-        "//loom/src/loom/target/arch/spirv:provider",
         "//loom/src/loom/tooling/target/spirv:device_provider",
+        "//loom/src/loom/tooling/target/spirv:execution_provider",
         "//loom/src/loom/tooling/target/spirv:testbench_requirements",
     ],
     "//conditions:default": [],
@@ -58,7 +58,6 @@ _VM_TARGET_COPTS = iree_select({
 
 _VM_TARGET_DEPS = iree_select({
     "//loom/config/target/arch:vm": [
-        "//loom/src/loom/target/arch/vm:provider",
         "//loom/src/loom/tooling/target/vm:testbench",
     ],
     "//conditions:default": [],
@@ -151,7 +150,6 @@ loom_cc_library(
         "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tooling/compile:report_capture",
         "//loom/src/loom/tooling/config",
-        "//loom/src/loom/tooling/context",
         "//loom/src/loom/tooling/execution:benchmark",
         "//loom/src/loom/tooling/execution:one_shot",
         "//loom/src/loom/tooling/execution:session",
@@ -281,7 +279,7 @@ loom_cc_test(
     srcs = ["run_test.cc"],
     deps = [
         ":main",
-        "//loom/src/loom/target:low_descriptor_registry_core_test",
+        "//loom/src/loom/target:provider",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:json",
         "//runtime/src/iree/testing:gtest",

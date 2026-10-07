@@ -1,29 +1,29 @@
 // RUN: verify
 union Choice { unsigned first; unsigned second; };
-// ERROR@+1: PARSE/036 "requires a const-default-constructible type"
+// ERROR@+1: PARSE/036 "not const-default-constructible"
 constexpr Choice value;
 
 // ====
 union Choice { unsigned first; unsigned second; };
 struct Configuration { Choice choice; };
-// ERROR@+1: PARSE/036 "requires a const-default-constructible type"
+// ERROR@+1: PARSE/036 "not const-default-constructible"
 constexpr Configuration value;
 
 // ====
 union Choice { unsigned first; unsigned second; constexpr Choice() = default; };
-// ERROR@+1: PARSE/036 "requires a const-default-constructible type"
+// ERROR@+1: PARSE/036 "not const-default-constructible"
 constexpr Choice value;
 
 // ====
 union Choice { unsigned first; unsigned second; };
 struct Configuration { Choice choices[2]; };
-// ERROR@+1: PARSE/036 "requires a const-default-constructible type"
+// ERROR@+1: PARSE/036 "not const-default-constructible"
 constexpr Configuration value;
 
 // ====
 struct Base { unsigned value; };
 struct Derived : Base {};
-// ERROR@+1: PARSE/036 "requires a const-default-constructible type"
+// ERROR@+1: PARSE/036 "not const-default-constructible"
 constexpr Derived value;
 
 // ====
@@ -64,7 +64,7 @@ static_assert(compute() == 9);
 // Const automatic storage has the same declaration requirement.
 union Choice { unsigned first; unsigned second; };
 static void invalid() {
-  // ERROR@+1: PARSE/036 "requires a const-default-constructible type"
+  // ERROR@+1: PARSE/036 "not const-default-constructible"
   const Choice value;
 }
 

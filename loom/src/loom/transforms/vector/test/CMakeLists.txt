@@ -28,6 +28,7 @@ loom_check_test_suite(
     "sink_single_use_reads.loom-test"
     "to_scalar.loom-test"
     "to_scalar_e8m0.loom-test"
+    "to_scalar_float_formats.loom-test"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

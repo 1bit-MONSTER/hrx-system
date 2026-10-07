@@ -14,6 +14,7 @@
 #include "loom/target/arch/amdgpu/lower/constants.h"
 #include "loom/target/arch/amdgpu/lower/descriptor_ref.h"
 #include "loom/target/arch/amdgpu/lower/emit.h"
+#include "loom/target/arch/amdgpu/lower/encoding/float64_narrow.h"
 #include "loom/target/arch/amdgpu/lower/encoding/fp8.h"
 #include "loom/target/arch/amdgpu/lower/encoding/fp8_encode.h"
 #include "loom/target/arch/amdgpu/lower/legality.h"
@@ -520,6 +521,19 @@ static bool loom_amdgpu_select_scalar_conversion_plan_impl(
   if (source_type == LOOM_SCALAR_TYPE_NONE ||
       result_type == LOOM_SCALAR_TYPE_NONE) {
     return false;
+  }
+
+  loom_amdgpu_f64_narrow_plan_t f64_narrow = {0};
+  if (source_op->kind == LOOM_OP_SCALAR_FPTRUNC &&
+      loom_amdgpu_select_f64_narrow_plan(descriptor_set, source_type,
+                                         result_type, &f64_narrow)) {
+    *out_plan = (loom_amdgpu_scalar_conversion_plan_t){
+        .kind = LOOM_AMDGPU_SCALAR_CONVERSION_KIND_F64_NARROW,
+        .source = source,
+        .result = result,
+        .f64_narrow = f64_narrow,
+    };
+    return true;
   }
 
   loom_amdgpu_fp8_encode_plan_t fp8_encode = {0};
@@ -1069,6 +1083,9 @@ iree_status_t loom_amdgpu_lower_scalar_conversion(
       return loom_amdgpu_emit_scalar_fp8_to_bf16(context, source_op, plan);
     case LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FP8_ENCODE:
       return loom_amdgpu_emit_scalar_fp8_encode(context, source_op, plan);
+    case LOOM_AMDGPU_SCALAR_CONVERSION_KIND_F64_NARROW:
+      return loom_amdgpu_emit_f64_narrow(context, source_op, plan->source,
+                                         plan->result, &plan->f64_narrow);
     case LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FPTOI_F32_TO_I32: {
       loom_value_id_t low_source = LOOM_VALUE_ID_INVALID;
       IREE_RETURN_IF_ERROR(loom_amdgpu_lookup_or_materialize_vgpr_f32(

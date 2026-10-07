@@ -56,6 +56,7 @@ from loom.dsl import (
     ATTR_TYPE_PREDICATE_LIST,
     COMMUTATIVE,
     CONSTANT_LIKE,
+    DECOMPOSABLE,
     ELEMENTWISE,
     ENCODING_SCHEMA,
     ENCODING_TRANSFORM,
@@ -540,7 +541,7 @@ vector_splat = Op(
     constraints=[SameElementType("scalar", "result")],
     facts="loom_vector_splat_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
-    traits=[PURE, REFINABLE_RESULT_TYPE_REFS],
+    traits=[PURE, DECOMPOSABLE, REFINABLE_RESULT_TYPE_REFS],
     format=[Ref("scalar"), COLON, ResultType("result")],
     examples=[
         "%vec = vector.splat %scalar : vector<16xf32>",
@@ -2715,7 +2716,8 @@ vector_fmaf = Op(
     doc=(
         "Lanewise fused multiply-add of same-typed floating-point vectors. "
         "Each result lane computes a*b + c with one final rounding; use "
-        "separate vector.mulf/vector.addf when unfused rounding is required."
+        "separate vector.mulf/vector.addf when unfused rounding is required. "
+        "AFN permits target-native fused forms with weaker subnormal handling."
     ),
     operands=[
         Operand("a", VECTOR),

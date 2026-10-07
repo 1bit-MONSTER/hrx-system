@@ -16,6 +16,7 @@
 #include "loom/ops/op_defs.h"
 #include "loom/target/entry_selection.h"
 #include "loom/target/function_version_projection.h"
+#include "loom/target/provider.h"
 #include "loom/tools/loom-check/diagnostics.h"
 #include "loom/verify/verify.h"
 
@@ -330,19 +331,11 @@ void loom_check_prepare_source_low_options_initialize(
 iree_status_t loom_check_prepare_source_low_module(
     loom_module_t* module,
     const loom_check_prepare_source_low_options_t* options,
-    const loom_target_low_descriptor_registry_t* low_registry,
     const loom_check_environment_t* environment,
     loom_source_resolver_t source_resolver,
     loom_check_diagnostic_collector_t* diagnostic_collector,
     iree_arena_block_pool_t* block_pool,
     loom_compile_pipeline_result_t* out_pipeline_result) {
-  IREE_ASSERT_ARGUMENT(module);
-  IREE_ASSERT_ARGUMENT(options);
-  IREE_ASSERT_ARGUMENT(low_registry);
-  IREE_ASSERT_ARGUMENT(environment);
-  IREE_ASSERT_ARGUMENT(diagnostic_collector);
-  IREE_ASSERT_ARGUMENT(block_pool);
-
   loom_target_entry_options_t entry_options = {
       .diagnostic_sink = {.fn = loom_check_diagnostic_collector_sink,
                           .user_data = diagnostic_collector},
@@ -353,6 +346,9 @@ iree_status_t loom_check_prepare_source_low_module(
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "source-low emit requires a target environment");
   }
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          environment->target_environment);
 
   loom_compile_pipeline_options_t compile_options = {0};
   loom_compile_pipeline_options_initialize(&compile_options);
@@ -366,7 +362,6 @@ iree_status_t loom_check_prepare_source_low_module(
   compile_options.target_pipeline_options.sanitizer = options->sanitizer;
   compile_options.target_environment = environment->target_environment;
   compile_options.target_specializations = options->target_specializations;
-  compile_options.low_descriptor_registry = low_registry;
   compile_options.cleanup_pattern_provider_set =
       environment->cleanup_pattern_provider_set;
   compile_options.diagnostic_sink =
@@ -393,9 +388,10 @@ iree_status_t loom_check_prepare_source_low_module(
       loom_low_verify_scratch_t low_verify_scratch =
           loom_low_verify_scratch_for_module(module);
       status = loom_target_entry_verify_low_module(
-          module, low_registry, &entry_options, &verifier_emitter, 20,
-          environment->low_verify_provider_list, &low_verify_scratch,
-          &low_verify_result);
+          module, &low_registry, &entry_options, &verifier_emitter, 20,
+          loom_target_environment_low_verify_provider_list(
+              environment->target_environment),
+          &low_verify_scratch, &low_verify_result);
     }
   }
   return status;
@@ -502,7 +498,6 @@ static iree_status_t loom_check_emit_write_source_low(
 
 iree_status_t loom_check_source_low_emit(
     loom_module_t* module, const loom_check_source_low_request_t* request,
-    const loom_target_low_descriptor_registry_t* low_registry,
     const loom_check_environment_t* environment,
     loom_source_resolver_t source_resolver,
     loom_check_diagnostic_collector_t* diagnostic_collector,
@@ -511,6 +506,9 @@ iree_status_t loom_check_source_low_emit(
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "source-low emit requires a target environment");
   }
+  const loom_target_low_descriptor_registry_t low_registry =
+      loom_target_environment_low_descriptor_registry(
+          environment->target_environment);
   if (request->output == LOOM_CHECK_EMIT_SOURCE_LOW_OUTPUT_PIPELINE ||
       request->output == LOOM_CHECK_EMIT_SOURCE_LOW_OUTPUT_PREPARED_PIPELINE) {
     return loom_check_emit_write_source_low_pipeline_text(
@@ -559,7 +557,7 @@ iree_status_t loom_check_source_low_emit(
   }
   loom_compile_pipeline_result_t pipeline_result = {0};
   iree_status_t status = loom_check_prepare_source_low_module(
-      module, &prepare_options, low_registry, environment, source_resolver,
+      module, &prepare_options, environment, source_resolver,
       diagnostic_collector, block_pool, &pipeline_result);
   loom_module_t* projected_module = NULL;
   if (iree_status_is_ok(status) &&
@@ -575,7 +573,7 @@ iree_status_t loom_check_source_low_emit(
     if (iree_status_is_ok(status)) {
       status = loom_check_emit_write_source_low(
           projected_module != NULL ? projected_module : module, request,
-          low_registry, source_resolver, diagnostic_collector, result);
+          &low_registry, source_resolver, diagnostic_collector, result);
     }
   }
   if (projected_module != NULL) {

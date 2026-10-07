@@ -1,0 +1,235 @@
+// RUN: pass canonicalize
+
+// Existing native target: signed INDEX32 and unsigned OFFSET32.
+aie2p.target<core> @native32
+
+// All four operand orders produce an OFFSET 384 constant.
+func.def target(@native32) @offset32_permutations(%byte_offset_input: offset) -> (offset, offset, offset, offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 0, 4096)] : offset
+  %inner_step = index.constant 128 : offset
+  %outer_step = index.constant 256 : offset
+  %left = index.add %byte_offset, %inner_step : offset
+  %right = index.add %inner_step, %byte_offset : offset
+  %left_left = index.add %left, %outer_step : offset
+  %left_right = index.add %outer_step, %left : offset
+  %right_left = index.add %right, %outer_step : offset
+  %right_right = index.add %outer_step, %right : offset
+  func.return %left_left, %left_right, %right_left, %right_right : offset, offset, offset, offset
+}
+
+// Unsigned carrier facts above INT32_MAX remain valid, including UINT32_MAX.
+func.def target(@native32) @offset32_unsigned_boundaries(%high_input: offset, %limit_input: offset) -> (offset, offset) {
+  %high_root = index.assume %high_input [range(%high_input, 2147483648, 2147483663)] : offset
+  %limit_root = index.assume %limit_input [range(%limit_input, 4294967292, 4294967293)] : offset
+  %boundary_step = index.constant 1 : offset
+  %outer_step = index.constant 2 : offset
+  %high_inner = index.add %high_root, %boundary_step : offset
+  %high_outer = index.add %high_inner, %outer_step : offset
+  %limit_inner = index.add %limit_root, %boundary_step : offset
+  %limit_outer = index.add %limit_inner, %boundary_step : offset
+  func.return %high_outer, %limit_outer : offset, offset
+}
+
+// The combined constant itself may exceed INT32_MAX while fitting OFFSET32.
+func.def target(@native32) @offset32_large_combined_constant(%byte_offset_input: offset) -> (offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 0, 1)] : offset
+  %inner_step = index.constant 2147483648 : offset
+  %outer_step = index.constant 2147483646 : offset
+  %inner = index.add %byte_offset, %inner_step : offset
+  %outer = index.add %inner, %outer_step : offset
+  func.return %outer : offset
+}
+
+// Final updates become a_root + 256 and b_root + 512; first updates escape.
+func.def target(@native32) @offset32_multiple_users(%a_offset_input: offset, %b_offset_input: offset) -> (offset, offset, offset, offset) {
+  %a_root = index.assume %a_offset_input [range(%a_offset_input, 0, 768)] : offset
+  %b_root = index.assume %b_offset_input [range(%b_offset_input, 0, 1536)] : offset
+  %a_cursor_step = index.constant 128 : offset
+  %b_cursor_step = index.constant 256 : offset
+  %a_first = index.add %a_root, %a_cursor_step : offset
+  %a_final = index.add %a_first, %a_cursor_step : offset
+  %b_first = index.add %b_root, %b_cursor_step : offset
+  %b_final = index.add %b_first, %b_cursor_step : offset
+  func.return %a_first, %a_final, %b_first, %b_final : offset, offset, offset, offset
+}
+
+func.def target(@native32) @offset32_chain(%byte_offset_input: offset) -> (offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 0, 1024)] : offset
+  %cursor_step = index.constant 128 : offset
+  %first = index.add %byte_offset, %cursor_step : offset
+  %second = index.add %first, %cursor_step : offset
+  %third = index.add %second, %cursor_step : offset
+  func.return %third : offset
+}
+
+// ----
+aie2p.target<core> @native32
+
+func.def target(@native32) @offset32_permutations(%byte_offset_input: offset) -> (offset, offset, offset, offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 0, 4096)] : offset
+  %60 = index.constant 384 : offset
+  %left_left = index.add %byte_offset, %60 : offset
+  %58 = index.constant 384 : offset
+  %left_right = index.add %byte_offset, %58 : offset
+  %56 = index.constant 384 : offset
+  %right_left = index.add %byte_offset, %56 : offset
+  %54 = index.constant 384 : offset
+  %right_right = index.add %byte_offset, %54 : offset
+  func.return %left_left, %left_right, %right_left, %right_right : offset, offset, offset, offset
+}
+
+func.def target(@native32) @offset32_unsigned_boundaries(%high_input: offset, %limit_input: offset) -> (offset, offset) {
+  %high_root = index.assume %high_input [range(%high_input, 2147483648, 2147483663)] : offset
+  %limit_root = index.assume %limit_input [range(%limit_input, 4294967292, 4294967293)] : offset
+  %64 = index.constant 3 : offset
+  %high_outer = index.add %high_root, %64 : offset
+  %62 = index.constant 2 : offset
+  %limit_outer = index.add %limit_root, %62 : offset
+  func.return %high_outer, %limit_outer : offset, offset
+}
+
+func.def target(@native32) @offset32_large_combined_constant(%byte_offset_input: offset) -> (offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 0, 1)] : offset
+  %66 = index.constant 4294967294 : offset
+  %outer = index.add %byte_offset, %66 : offset
+  func.return %outer : offset
+}
+
+func.def target(@native32) @offset32_multiple_users(%a_offset_input: offset, %b_offset_input: offset) -> (offset, offset, offset, offset) {
+  %a_root = index.assume %a_offset_input [range(%a_offset_input, 0, 768)] : offset
+  %b_root = index.assume %b_offset_input [range(%b_offset_input, 0, 1536)] : offset
+  %a_cursor_step = index.constant 128 : offset
+  %b_cursor_step = index.constant 256 : offset
+  %a_first = index.add %a_root, %a_cursor_step : offset
+  %70 = index.constant 256 : offset
+  %a_final = index.add %a_root, %70 : offset
+  %b_first = index.add %b_root, %b_cursor_step : offset
+  %68 = index.constant 512 : offset
+  %b_final = index.add %b_root, %68 : offset
+  func.return %a_first, %a_final, %b_first, %b_final : offset, offset, offset, offset
+}
+
+func.def target(@native32) @offset32_chain(%byte_offset_input: offset) -> (offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 0, 1024)] : offset
+  %74 = index.constant 384 : offset
+  %third = index.add %byte_offset, %74 : offset
+  func.return %third : offset
+}
+
+// ====
+
+aie2p.target<core> @native32
+
+// First addition fits; final addition exceeds the unsigned 32-bit carrier.
+func.def target(@native32) @offset32_final_overflow(%byte_offset_input: offset) -> (offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 4294967293, 4294967294)] : offset
+  %inner_step = index.constant 1 : offset
+  %outer_step = index.constant 2 : offset
+  %inner = index.add %byte_offset, %inner_step : offset
+  %outer = index.add %inner, %outer_step : offset
+  func.return %outer : offset
+}
+
+// OFFSET has no negative increment with which to recover an overflowing prefix.
+func.def target(@native32) @offset32_intermediate_overflow(%byte_offset_input: offset) -> (offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 4294967294, 4294967295)] : offset
+  %inner_step = index.constant 2 : offset
+  %outer_step = index.constant 1 : offset
+  %inner = index.add %byte_offset, %inner_step : offset
+  %outer = index.add %inner, %outer_step : offset
+  func.return %outer : offset
+}
+
+// Each original constant fits, but the combined constant does not.
+func.def target(@native32) @offset32_combined_constant_overflow(%byte_offset_input: offset) -> (offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 0, 1)] : offset
+  %carrier_limit = index.constant 4294967295 : offset
+  %overflow_step = index.constant 1 : offset
+  %inner = index.add %byte_offset, %carrier_limit : offset
+  %outer = index.add %inner, %overflow_step : offset
+  func.return %outer : offset
+}
+
+// This source-domain constant is not representable by the selected carrier.
+func.def target(@native32) @offset32_original_constant_outside_carrier(%byte_offset_input: offset) -> (offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 0, 1)] : offset
+  %outside_carrier_step = index.constant 4294967296 : offset
+  %outer_step = index.constant 1 : offset
+  %inner = index.add %byte_offset, %outside_carrier_step : offset
+  %outer = index.add %inner, %outer_step : offset
+  func.return %outer : offset
+}
+
+// The same range and increments fold under quirky's independent OFFSET64.
+func.def target(@native32) @offset32_root_outside_carrier(%byte_offset_input: offset) -> (offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 4294967296, 4294967311)] : offset
+  %inner_step = index.constant 1 : offset
+  %outer_step = index.constant 2 : offset
+  %inner = index.add %byte_offset, %inner_step : offset
+  %outer = index.add %inner, %outer_step : offset
+  func.return %outer : offset
+}
+
+func.def target(@native32) @offset32_unknown_range(%byte_offset: offset) -> (offset) {
+  %inner_step = index.constant 128 : offset
+  %outer_step = index.constant 256 : offset
+  %inner = index.add %byte_offset, %inner_step : offset
+  %outer = index.add %inner, %outer_step : offset
+  func.return %outer : offset
+}
+
+// ----
+aie2p.target<core> @native32
+
+func.def target(@native32) @offset32_final_overflow(%byte_offset_input: offset) -> (offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 4294967293, 4294967294)] : offset
+  %inner_step = index.constant 1 : offset
+  %outer_step = index.constant 2 : offset
+  %inner = index.add %byte_offset, %inner_step : offset
+  %outer = index.add %inner, %outer_step : offset
+  func.return %outer : offset
+}
+
+func.def target(@native32) @offset32_intermediate_overflow(%byte_offset_input: offset) -> (offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 4294967294, 4294967295)] : offset
+  %inner_step = index.constant 2 : offset
+  %outer_step = index.constant 1 : offset
+  %inner = index.add %byte_offset, %inner_step : offset
+  %outer = index.add %inner, %outer_step : offset
+  func.return %outer : offset
+}
+
+func.def target(@native32) @offset32_combined_constant_overflow(%byte_offset_input: offset) -> (offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 0, 1)] : offset
+  %carrier_limit = index.constant 4294967295 : offset
+  %overflow_step = index.constant 1 : offset
+  %inner = index.add %byte_offset, %carrier_limit : offset
+  %outer = index.add %inner, %overflow_step : offset
+  func.return %outer : offset
+}
+
+func.def target(@native32) @offset32_original_constant_outside_carrier(%byte_offset_input: offset) -> (offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 0, 1)] : offset
+  %outside_carrier_step = index.constant 4294967296 : offset
+  %outer_step = index.constant 1 : offset
+  %inner = index.add %byte_offset, %outside_carrier_step : offset
+  %outer = index.add %inner, %outer_step : offset
+  func.return %outer : offset
+}
+
+func.def target(@native32) @offset32_root_outside_carrier(%byte_offset_input: offset) -> (offset) {
+  %byte_offset = index.assume %byte_offset_input [range(%byte_offset_input, 4294967296, 4294967311)] : offset
+  %inner_step = index.constant 1 : offset
+  %outer_step = index.constant 2 : offset
+  %inner = index.add %byte_offset, %inner_step : offset
+  %outer = index.add %inner, %outer_step : offset
+  func.return %outer : offset
+}
+
+func.def target(@native32) @offset32_unknown_range(%byte_offset: offset) -> (offset) {
+  %inner_step = index.constant 128 : offset
+  %outer_step = index.constant 256 : offset
+  %inner = index.add %byte_offset, %inner_step : offset
+  %outer = index.add %inner, %outer_step : offset
+  func.return %outer : offset
+}

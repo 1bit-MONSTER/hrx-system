@@ -248,6 +248,9 @@ _OP_F32_LT = 0x5D
 _OP_F32_GT = 0x5E
 _OP_F32_LE = 0x5F
 _OP_F32_GE = 0x60
+_OP_I32_CLZ = 0x67
+_OP_I32_CTZ = 0x68
+_OP_I32_POPCNT = 0x69
 _OP_I32_ADD = 0x6A
 _OP_I32_SUB = 0x6B
 _OP_I32_MUL = 0x6C
@@ -261,6 +264,11 @@ _OP_I32_XOR = 0x73
 _OP_I32_SHL = 0x74
 _OP_I32_SHR_S = 0x75
 _OP_I32_SHR_U = 0x76
+_OP_I32_ROTL = 0x77
+_OP_I32_ROTR = 0x78
+_OP_I64_CLZ = 0x79
+_OP_I64_CTZ = 0x7A
+_OP_I64_POPCNT = 0x7B
 _OP_I64_ADD = 0x7C
 _OP_I64_SUB = 0x7D
 _OP_I64_MUL = 0x7E
@@ -274,6 +282,8 @@ _OP_I64_XOR = 0x85
 _OP_I64_SHL = 0x86
 _OP_I64_SHR_S = 0x87
 _OP_I64_SHR_U = 0x88
+_OP_I64_ROTL = 0x89
+_OP_I64_ROTR = 0x8A
 _OP_F32_ABS = 0x8B
 _OP_F32_NEG = 0x8C
 _OP_F32_CEIL = 0x8D
@@ -295,10 +305,12 @@ _OP_F32_CONVERT_I32_S = 0xB2
 _OP_F32_CONVERT_I32_U = 0xB3
 _OP_F32_CONVERT_I64_S = 0xB4
 _OP_F32_CONVERT_I64_U = 0xB5
+_OP_F32_DEMOTE_F64 = 0xB6
 _OP_F64_CONVERT_I32_S = 0xB7
 _OP_F64_CONVERT_I32_U = 0xB8
 _OP_F64_CONVERT_I64_S = 0xB9
 _OP_F64_CONVERT_I64_U = 0xBA
+_OP_F64_PROMOTE_F32 = 0xBB
 _OP_I32_REINTERPRET_F32 = 0xBC
 _OP_I64_REINTERPRET_F64 = 0xBD
 _OP_F32_REINTERPRET_I32 = 0xBE
@@ -419,6 +431,27 @@ def _scalar_binary_descriptor(
     )
 
 
+def _scalar_unary_descriptor(
+    type_name: str, operation: str, semantic: str, encoding_id: int
+) -> Descriptor:
+    register_class = _REG_I32 if type_name == "i32" else _REG_I64
+    return Descriptor(
+        key=f"wasm.{type_name}.{operation}",
+        mnemonic=f"{type_name}.{operation}",
+        semantic_tag=f"integer.{semantic}.{type_name}",
+        encoding_id=encoding_id,
+        operands=(
+            Operand("dst", OperandRole.RESULT, (RegClassAlt(register_class),)),
+            Operand("input", OperandRole.OPERAND, (RegClassAlt(register_class),)),
+        ),
+        asm_forms=_asm(results=("dst",), operands=("input",)),
+        schedule_class=_SCHEDULE_SCALAR_I32
+        if type_name == "i32"
+        else _SCHEDULE_SCALAR_I64,
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
 def _f32_unary_descriptor(
     operation: str, semantic: str, encoding_id: int
 ) -> Descriptor:
@@ -514,6 +547,31 @@ def _integer_to_float_descriptor(
         ),
         encoding_id=encoding_id,
         operands=(result, integer_operand),
+        asm_forms=_asm(results=("dst",), operands=("input",)),
+        schedule_class=schedule_class,
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
+def _float_width_descriptor(
+    source_type: str,
+    result_type: str,
+    operation: str,
+    encoding_id: int,
+) -> Descriptor:
+    source = _f32_operand("input") if source_type == "f32" else _f64_operand("input")
+    if result_type == "f32":
+        result = _f32_result()
+        schedule_class = _SCHEDULE_SCALAR_F32
+    else:
+        result = _f64_result()
+        schedule_class = _SCHEDULE_SCALAR_F64
+    return Descriptor(
+        key=f"wasm.{result_type}.{operation}_{source_type}",
+        mnemonic=f"{result_type}.{operation}_{source_type}",
+        semantic_tag=f"convert.float.{source_type}.{result_type}",
+        encoding_id=encoding_id,
+        operands=(result, source),
         asm_forms=_asm(results=("dst",), operands=("input",)),
         schedule_class=schedule_class,
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
@@ -850,6 +908,8 @@ WASM_CORE_SIMD128_DESCRIPTOR_SET = DescriptorSet(
                 ("shl", "shl", _OP_I32_SHL),
                 ("shr_s", "shrs", _OP_I32_SHR_S),
                 ("shr_u", "shru", _OP_I32_SHR_U),
+                ("rotl", "rotl", _OP_I32_ROTL),
+                ("rotr", "rotr", _OP_I32_ROTR),
             )
         ),
         *(
@@ -887,6 +947,8 @@ WASM_CORE_SIMD128_DESCRIPTOR_SET = DescriptorSet(
                 ("shl", "shl", _OP_I64_SHL),
                 ("shr_s", "shrs", _OP_I64_SHR_S),
                 ("shr_u", "shru", _OP_I64_SHR_U),
+                ("rotl", "rotl", _OP_I64_ROTL),
+                ("rotr", "rotr", _OP_I64_ROTR),
             )
         ),
         *(
@@ -904,6 +966,18 @@ WASM_CORE_SIMD128_DESCRIPTOR_SET = DescriptorSet(
                 ("le_u", "le.u64", _OP_I64_LE_U),
                 ("ge_s", "ge.s64", _OP_I64_GE_S),
                 ("ge_u", "ge.u64", _OP_I64_GE_U),
+            )
+        ),
+        *(
+            _scalar_unary_descriptor(type_name, operation, semantic, encoding)
+            for type_name, encodings in (
+                ("i32", (_OP_I32_CLZ, _OP_I32_CTZ, _OP_I32_POPCNT)),
+                ("i64", (_OP_I64_CLZ, _OP_I64_CTZ, _OP_I64_POPCNT)),
+            )
+            for (operation, semantic), encoding in zip(
+                (("clz", "ctlz"), ("ctz", "cttz"), ("popcnt", "ctpop")),
+                encodings,
+                strict=True,
             )
         ),
         *(
@@ -994,6 +1068,8 @@ WASM_CORE_SIMD128_DESCRIPTOR_SET = DescriptorSet(
                 ("i64", "f64", "u", _OP_F64_CONVERT_I64_U),
             )
         ),
+        _float_width_descriptor("f64", "f32", "demote", _OP_F32_DEMOTE_F64),
+        _float_width_descriptor("f32", "f64", "promote", _OP_F64_PROMOTE_F32),
         Descriptor(
             key="wasm.i64.reinterpret_f64",
             mnemonic="i64.reinterpret_f64",

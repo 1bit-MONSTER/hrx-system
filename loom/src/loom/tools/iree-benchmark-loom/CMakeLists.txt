@@ -97,7 +97,6 @@ loom_cc_library(
     loom::tooling::compile::pipeline
     loom::tooling::compile::report_capture
     loom::tooling::config
-    loom::tooling::context
     loom::tooling::execution::benchmark
     loom::tooling::execution::hal::artifact
     loom::tooling::execution::hal::benchmark
@@ -230,7 +229,7 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     iree::testing::temp_file
-    loom::target::low_descriptor_registry_core_test
+    loom::target::provider
 )
 
 set(_iree_benchmark_loom_platform_copts "")
@@ -245,17 +244,16 @@ if(LOOM_TARGET_ARCH_VM)
 endif()
 set(_iree_benchmark_loom_platform_deps "")
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-  list(APPEND _iree_benchmark_loom_platform_deps loom::target::arch::amdgpu::provider)
   list(APPEND _iree_benchmark_loom_platform_deps loom::tooling::target::amdgpu::device_provider)
+  list(APPEND _iree_benchmark_loom_platform_deps loom::tooling::target::amdgpu::execution_provider)
   list(APPEND _iree_benchmark_loom_platform_deps loom::tooling::target::amdgpu::testbench_requirements)
 endif()
 if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN)
-  list(APPEND _iree_benchmark_loom_platform_deps loom::target::arch::spirv::provider)
   list(APPEND _iree_benchmark_loom_platform_deps loom::tooling::target::spirv::device_provider)
+  list(APPEND _iree_benchmark_loom_platform_deps loom::tooling::target::spirv::execution_provider)
   list(APPEND _iree_benchmark_loom_platform_deps loom::tooling::target::spirv::testbench_requirements)
 endif()
 if(LOOM_TARGET_ARCH_VM)
-  list(APPEND _iree_benchmark_loom_platform_deps loom::target::arch::vm::provider)
   list(APPEND _iree_benchmark_loom_platform_deps loom::tooling::target::vm::testbench)
 endif()
 loom_cc_binary(

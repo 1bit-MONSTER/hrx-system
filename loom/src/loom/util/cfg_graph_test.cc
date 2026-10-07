@@ -349,32 +349,33 @@ TEST_F(CfgGraphTest, NestedLoopsRetainBothBackedgeTargets) {
   EXPECT_FALSE(graph.blocks[4].is_dfs_backedge_target);
 }
 
-TEST_F(CfgGraphTest, TraversalFactsForAllThreeBlockBinaryGraphs) {
+TEST_F(CfgGraphTest, TraversalFactsForThreeBinaryBranchesAndExit) {
   loom_block_t* blocks[] = {loom_region_entry_block(body_), AppendBlock(),
-                            AppendBlock()};
+                            AppendBlock(), AppendBlock()};
   loom_op_t* branches[3];
   for (unsigned i = 0; i < 3; ++i) {
     SetBlock(blocks[i]);
     branches[i] = BuildConditionalBranch(blocks[0], blocks[0]);
   }
-  // All 3^6 successor assignments include irreducible cycles, self-edges,
-  // parallel edges, reconvergence, and entry-unreachable components. Rebuild
-  // the graph after each retargeting, just as an invalidated analysis does.
-  for (unsigned topology = 0; topology < 729; ++topology) {
+  // All 4^6 successor assignments include irreducible cycles, self-edges,
+  // parallel edges, reconvergence, entry-unreachable components, and paths
+  // to the fourth block's exit. Rebuild after each retargeting, just as an
+  // invalidated analysis does.
+  for (unsigned topology = 0; topology < 4096; ++topology) {
     SCOPED_TRACE(topology);
-    bool reaches[3][3] = {};
+    bool reaches[4][4] = {};
     unsigned remaining = topology;
     for (unsigned source = 0; source < 3; ++source) {
       for (unsigned edge = 0; edge < 2; ++edge) {
-        const unsigned target = remaining % 3;
-        remaining /= 3;
+        const unsigned target = remaining % 4;
+        remaining /= 4;
         loom_op_successors(branches[source])[edge] = blocks[target];
         reaches[source][target] = true;
       }
     }
-    for (unsigned via = 0; via < 3; ++via) {
-      for (unsigned source = 0; source < 3; ++source) {
-        for (unsigned target = 0; target < 3; ++target) {
+    for (unsigned via = 0; via < 4; ++via) {
+      for (unsigned source = 0; source < 4; ++source) {
+        for (unsigned target = 0; target < 4; ++target) {
           reaches[source][target] |=
               reaches[source][via] && reaches[via][target];
         }
@@ -385,14 +386,16 @@ TEST_F(CfgGraphTest, TraversalFactsForAllThreeBlockBinaryGraphs) {
     loom_cfg_graph_t graph = {};
     BuildGraph(&graph);
     ASSERT_FALSE(graph.malformed);
-    unsigned reverse_postorder[3] = {};
+    unsigned reverse_postorder[4] = {};
     for (unsigned i = 0; i < graph.reverse_postorder.count; ++i) {
       reverse_postorder[graph.reverse_postorder.values[i]] = i;
     }
     bool has_reachable_cycle = false;
-    for (unsigned source = 0; source < 3; ++source) {
+    for (unsigned source = 0; source < 4; ++source) {
       const auto& info = graph.blocks[source];
       EXPECT_EQ(info.reachable, source == 0 || reaches[0][source]);
+      EXPECT_EQ(info.can_reach_exit,
+                info.reachable && (source == 3 || reaches[source][3]));
       if (!info.reachable) {
         EXPECT_EQ(info.component, UINT16_MAX);
         EXPECT_FALSE(info.is_dfs_backedge_target);
@@ -413,7 +416,7 @@ TEST_F(CfgGraphTest, TraversalFactsForAllThreeBlockBinaryGraphs) {
       EXPECT_EQ(info.component_is_cyclic, reaches[source][source]);
       has_reachable_cycle |= reaches[source][source];
       unsigned earliest = source;
-      for (unsigned target = 0; target < 3; ++target) {
+      for (unsigned target = 0; target < 4; ++target) {
         const auto& target_info = graph.blocks[target];
         if (reaches[source][target] &&
             target_info.preorder < graph.blocks[earliest].preorder) {

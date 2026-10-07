@@ -18,9 +18,9 @@
 #include "loom/error/diagnostic.h"
 #include "loom/error/source.h"
 #include "loom/ir/ir.h"
+#include "loom/pass/environment.h"
 #include "loom/pass/interpreter.h"
 #include "loom/pass/trace.h"
-#include "loom/target/low_descriptor_registry.h"
 #include "loom/target/pipeline.h"
 #include "loom/target/reporting/report.h"
 #include "loom/target/specialization.h"
@@ -73,8 +73,6 @@ typedef struct loom_compile_pipeline_options_t {
   const loom_target_environment_t* target_environment;
   // Per-function target specialization requests for this invocation.
   loom_target_specialization_request_list_t target_specializations;
-  // Target-low descriptor registry package initialized for this session.
-  const loom_target_low_descriptor_registry_t* low_descriptor_registry;
   // Cleanup pattern providers linked into this compile front door.
   const loom_cleanup_pattern_provider_set_t* cleanup_pattern_provider_set;
   // Diagnostic sink used by pass execution.
@@ -88,6 +86,10 @@ typedef struct loom_compile_pipeline_options_t {
   loom_target_compile_report_t* report;
   // Optional caller-owned trace configuration for selected pass boundaries.
   const loom_pass_trace_options_t* trace_options;
+
+  // Optional compiler-owned launch-config capability populated by
+  // source-to-Low.
+  const loom_pass_environment_capability_t* launch_config_capability;
 } loom_compile_pipeline_options_t;
 
 // Compiler products retained after running a compile pipeline.

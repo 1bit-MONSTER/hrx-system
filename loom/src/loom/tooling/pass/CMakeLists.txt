@@ -19,8 +19,8 @@ loom_cc_library(
   DEPS
     iree::base
     iree::base::tooling::flags
-    loom::pass::trace
     loom::tooling::io::file
+    loom::util::stream
   PUBLIC
 )
 

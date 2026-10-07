@@ -1,0 +1,80 @@
+// Each vector crosses one 512-bit payload boundary. The last lane of the
+// first packet and the first lane of the tail deliberately have opposite
+// results so predicate reconstruction cannot swap, drop, or duplicate them.
+func.def @integer_comparison_packet_boundaries(%output: buffer) {
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<8xi32>
+
+  %i8_low = scalar.constant 0 : i8
+  %i8_high = scalar.constant 2 : i8
+  %i8_limit = scalar.constant 1 : i8
+  %i8_lhs_base = vector.splat %i8_low : vector<65xi8>
+  %i8_lhs = vector.insert %i8_high into %i8_lhs_base[64] : i8, vector<65xi8>
+  %i8_rhs = vector.splat %i8_limit : vector<65xi8>
+  %i8_mask = vector.cmpi slt, %i8_lhs, %i8_rhs : vector<65xi8> -> vector<65xi1>
+  %i8_before = vector.extract %i8_mask[63] : vector<65xi1> -> i1
+  %i8_after = vector.extract %i8_mask[64] : vector<65xi1> -> i1
+  %i8_before_word = scalar.extui %i8_before : i1 to i32
+  %i8_after_word = scalar.extui %i8_after : i1 to i32
+  view.store %i8_before_word, %results[0] : i32, view<8xi32>
+  view.store %i8_after_word, %results[1] : i32, view<8xi32>
+
+  %i16_low = scalar.constant 0 : i16
+  %i16_high = scalar.constant 2 : i16
+  %i16_limit = scalar.constant 1 : i16
+  %i16_lhs_base = vector.splat %i16_low : vector<33xi16>
+  %i16_lhs = vector.insert %i16_high into %i16_lhs_base[32] : i16, vector<33xi16>
+  %i16_rhs = vector.splat %i16_limit : vector<33xi16>
+  %i16_mask = vector.cmpi sgt, %i16_lhs, %i16_rhs : vector<33xi16> -> vector<33xi1>
+  %i16_before = vector.extract %i16_mask[31] : vector<33xi1> -> i1
+  %i16_after = vector.extract %i16_mask[32] : vector<33xi1> -> i1
+  %i16_before_word = scalar.extui %i16_before : i1 to i32
+  %i16_after_word = scalar.extui %i16_after : i1 to i32
+  view.store %i16_before_word, %results[2] : i32, view<8xi32>
+  view.store %i16_after_word, %results[3] : i32, view<8xi32>
+
+  %i32_low = scalar.constant 0 : i32
+  %i32_high = scalar.constant 2 : i32
+  %i32_limit = scalar.constant 1 : i32
+  %i32_lhs_base = vector.splat %i32_low : vector<17xi32>
+  %i32_lhs = vector.insert %i32_high into %i32_lhs_base[16] : i32, vector<17xi32>
+  %i32_rhs = vector.splat %i32_limit : vector<17xi32>
+  %i32_mask = vector.cmpi ule, %i32_lhs, %i32_rhs : vector<17xi32> -> vector<17xi1>
+  %i32_before = vector.extract %i32_mask[15] : vector<17xi1> -> i1
+  %i32_after = vector.extract %i32_mask[16] : vector<17xi1> -> i1
+  %i32_before_word = scalar.extui %i32_before : i1 to i32
+  %i32_after_word = scalar.extui %i32_after : i1 to i32
+  view.store %i32_before_word, %results[4] : i32, view<8xi32>
+  view.store %i32_after_word, %results[5] : i32, view<8xi32>
+
+  %i64_low = scalar.constant 0 : i64
+  %i64_high = scalar.constant 2 : i64
+  %i64_limit = scalar.constant 1 : i64
+  %i64_lhs_base = vector.splat %i64_low : vector<9xi64>
+  %i64_lhs = vector.insert %i64_high into %i64_lhs_base[8] : i64, vector<9xi64>
+  %i64_rhs = vector.splat %i64_limit : vector<9xi64>
+  %i64_mask = vector.cmpi uge, %i64_lhs, %i64_rhs : vector<9xi64> -> vector<9xi1>
+  %i64_before = vector.extract %i64_mask[7] : vector<9xi1> -> i1
+  %i64_after = vector.extract %i64_mask[8] : vector<9xi1> -> i1
+  %i64_before_word = scalar.extui %i64_before : i1 to i32
+  %i64_after_word = scalar.extui %i64_after : i1 to i32
+  view.store %i64_before_word, %results[6] : i32, view<8xi32>
+  view.store %i64_after_word, %results[7] : i32, view<8xi32>
+  func.return
+}
+
+check.scenario @integer_comparison_packet_boundary_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(-123) : tensor<16xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<16xi32> -> tensor<8xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<16xi32> -> tensor<4xi32>
+    %suffix = check.tensor.view %storage offset(48) : tensor<16xi32> -> tensor<4xi32>
+    %guard = check.generate.fill value(-123) : tensor<4xi32>
+    check.compare<@integer_comparison_packet_boundaries>(%output) : (tensor<8xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<8xi32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi32>
+    }
+  }
+  check.return
+}

@@ -23,8 +23,11 @@ struct loom_value_fact_region_entry_t {
   const loom_region_t* region;
   // Distribution inherited from enclosing CFG cycles, excluding this region.
   uint32_t temporal_distribution;
-  // Boolean selector truth established upon entry to this region.
-  loom_region_branch_truth_t branch_truth;
+  // Boolean selector truth on region entry, stored as
+  // loom_region_branch_truth_t.
+  uint8_t branch_truth;
+  // Whether enclosing control may execute this region repeatedly.
+  bool may_repeat;
   // CFG and forwarding components retained for the populated fact scope.
   const loom_value_fact_cfg_region_t* structure;
   // Condition-loop equation retained for the populated fact scope, when
@@ -37,6 +40,9 @@ struct loom_value_fact_region_entry_t {
   // Next entry in the complete cache entry list.
   loom_value_fact_region_entry_t* next_entry;
 };
+
+static_assert(sizeof(loom_value_fact_region_entry_t) <= 56,
+              "region execution facts must retain a compact cache footprint");
 
 struct loom_value_fact_exact_lane_origin_entry_t {
   // Aggregate value carrying the exact origin.
@@ -323,6 +329,21 @@ iree_status_t loom_value_fact_table_initialize_with_arenas(
                                                          initial_capacity);
 }
 
+iree_status_t loom_value_fact_table_reserve(loom_value_fact_table_t* table,
+                                            iree_host_size_t minimum_capacity) {
+  if (minimum_capacity <= table->capacity) {
+    return iree_ok_status();
+  }
+  iree_host_size_t capacity =
+      table->capacity ? table->capacity : minimum_capacity;
+  while (capacity < minimum_capacity) {
+    if (!iree_host_size_checked_mul(capacity, 2, &capacity)) {
+      return iree_make_status(IREE_STATUS_OUT_OF_RANGE, "capacity overflow");
+    }
+  }
+  return loom_value_fact_table_ensure_capacity(table, capacity);
+}
+
 void loom_value_fact_table_clear_scope(loom_value_fact_table_t* table) {
   table->has_conditioned_results = false;
   table->has_boolean_branch_regions = false;
@@ -513,6 +534,7 @@ static iree_status_t loom_value_fact_table_ensure_region_entry(
                                              sizeof(*entry), (void**)&entry));
     memset(entry, 0, sizeof(*entry));
     entry->region = region;
+    entry->may_repeat = true;
     const iree_host_size_t bucket_index =
         loom_value_fact_table_region_hash(region) &
         (table->regions.bucket_count - 1);
@@ -528,12 +550,13 @@ static iree_status_t loom_value_fact_table_ensure_region_entry(
 
 iree_status_t loom_value_fact_table_set_region_temporal_scope(
     loom_value_fact_table_t* table, const loom_region_t* region,
-    loom_value_facts_t scope) {
+    loom_value_facts_t scope, bool may_repeat) {
   loom_value_fact_region_entry_t* entry = NULL;
   IREE_RETURN_IF_ERROR(
       loom_value_fact_table_ensure_region_entry(table, region, &entry));
   entry->temporal_distribution =
       scope.flags & LOOM_VALUE_FACT_DISTRIBUTION_MASK;
+  entry->may_repeat = may_repeat;
   return iree_ok_status();
 }
 
@@ -568,6 +591,27 @@ loom_value_facts_t loom_value_fact_table_block_temporal_scope(
   return scope;
 }
 
+bool loom_value_fact_table_block_may_repeat(
+    const loom_value_fact_table_t* table, const loom_block_t* block) {
+  const loom_value_fact_region_entry_t* entry =
+      block && block->parent_region ? loom_value_fact_table_lookup_region_entry(
+                                          table, block->parent_region)
+                                    : NULL;
+  if (!entry || entry->may_repeat) {
+    return true;
+  }
+  if (!iree_any_bit_set(block->parent_region->flags,
+                        LOOM_REGION_INSTANCE_FLAG_CFG)) {
+    return false;
+  }
+  const loom_value_fact_cfg_region_t* structure = entry->structure;
+  const iree_host_size_t block_index =
+      structure ? loom_cfg_graph_block_index(&structure->graph, block)
+                : IREE_HOST_SIZE_MAX;
+  return block_index == IREE_HOST_SIZE_MAX ||
+         structure->graph.blocks[block_index].component_is_cyclic;
+}
+
 iree_status_t loom_value_fact_table_set_region_condition_projection(
     loom_value_fact_table_t* table, const loom_region_t* region,
     loom_condition_edge_projection_t* projection) {
@@ -584,7 +628,7 @@ iree_status_t loom_value_fact_table_set_region_branch_truth(
   loom_value_fact_region_entry_t* entry = NULL;
   IREE_RETURN_IF_ERROR(
       loom_value_fact_table_ensure_region_entry(table, region, &entry));
-  entry->branch_truth = truth;
+  entry->branch_truth = (uint8_t)truth;
   table->has_boolean_branch_regions |=
       truth != LOOM_REGION_BRANCH_TRUTH_UNKNOWN;
   return iree_ok_status();
@@ -594,7 +638,8 @@ loom_region_branch_truth_t loom_value_fact_table_lookup_region_branch_truth(
     const loom_value_fact_table_t* table, const loom_region_t* region) {
   const loom_value_fact_region_entry_t* entry =
       loom_value_fact_table_lookup_region_entry(table, region);
-  return entry ? entry->branch_truth : LOOM_REGION_BRANCH_TRUTH_UNKNOWN;
+  return entry ? (loom_region_branch_truth_t)entry->branch_truth
+               : LOOM_REGION_BRANCH_TRUTH_UNKNOWN;
 }
 
 const loom_condition_edge_projection_t*

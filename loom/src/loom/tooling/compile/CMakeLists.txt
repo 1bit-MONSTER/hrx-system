@@ -29,119 +29,6 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
-    artifact
-  HDRS
-    "artifact.h"
-  SRCS
-    "artifact.c"
-  DEPS
-    ::options
-    iree::base
-    loom::ir
-    loom::target::pipeline_options
-    loom::target::profile
-    loom::target::provider
-    loom::target::reporting::report
-    loom::target::selection
-    loom::target::types
-  PUBLIC
-)
-
-set(_configured_platform_copts "")
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
-  list(APPEND _configured_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-  list(APPEND _configured_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS=1")
-endif()
-if(LOOM_TARGET_ARCH_VM)
-  list(APPEND _configured_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-  list(APPEND _configured_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
-  list(APPEND _configured_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS=1")
-endif()
-set(_configured_platform_deps "")
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
-  list(APPEND _configured_platform_deps loom::target::emit::native::amdgpu::hal_kernel_library)
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-  list(APPEND _configured_platform_deps loom::target::arch::spirv::compiler_provider)
-endif()
-if(LOOM_TARGET_ARCH_VM)
-  list(APPEND _configured_platform_deps loom::target::emit::vm::module_compiler)
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-  list(APPEND _configured_platform_deps loom::target::emit::wasm::module_compiler)
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
-  list(APPEND _configured_platform_deps loom::target::arch::amd::xdna::aie2p::artifact)
-endif()
-loom_cc_library(
-  NAME
-    configured
-  COPTS
-    ${_configured_platform_copts}
-  HDRS
-    "configured.h"
-  SRCS
-    "configured.c"
-  DEPS
-    iree::base
-    iree::base::threading
-    loom::target::configured::provider_set
-    loom::target::provider
-    loom::transforms::cleanup::configured
-    ${_configured_platform_deps}
-  PUBLIC
-)
-
-set(_configured_test_platform_copts "")
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
-  list(APPEND _configured_test_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-  list(APPEND _configured_test_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS=1")
-endif()
-if(LOOM_TARGET_ARCH_VM)
-  list(APPEND _configured_test_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-  list(APPEND _configured_test_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
-  list(APPEND _configured_test_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS=1")
-endif()
-loom_cc_test(
-  NAME
-    configured_test
-  SRCS
-    "configured_test.cc"
-  COPTS
-    ${_configured_test_platform_copts}
-  DEPS
-    ::configured
-    iree::testing::gtest
-    iree::testing::gtest_main
-)
-
-loom_cc_test(
-  NAME
-    artifact_test
-  SRCS
-    "artifact_test.cc"
-  DEPS
-    ::artifact
-    iree::base
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::target::provider
-)
-
-loom_cc_library(
-  NAME
     report_capture
   HDRS
     "report_capture.h"
@@ -150,13 +37,9 @@ loom_cc_library(
   DEPS
     ::options
     iree::base
-    loom::error::diagnostic
-    loom::error::json_sink
-    loom::error::renderer
     loom::target::reporting::format
     loom::target::reporting::report
     loom::tooling::config
-    loom::util::json
   PUBLIC
 )
 
@@ -176,6 +59,7 @@ loom_cc_library(
     loom::error::source
     loom::ir
     loom::pass::builtin_registry
+    loom::pass::environment
     loom::pass::interpreter
     loom::pass::registry
     loom::pass::tooling
@@ -206,8 +90,6 @@ loom_cc_test(
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
-    loom::error::error_defs
-    loom::error::json_sink
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

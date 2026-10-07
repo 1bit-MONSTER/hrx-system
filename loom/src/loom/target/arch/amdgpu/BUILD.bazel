@@ -55,7 +55,6 @@ _AMDGPU_PROVIDER_VISIBILITY = [
     "//loom/src/loom/target/emit/native/amdgpu:__pkg__",
     "//loom/src/loom/tools/iree-benchmark-loom:__pkg__",
     "//loom/src/loom/tools/iree-test-loom:__pkg__",
-    "//loom/src/loom/tools/loom-compile:__pkg__",
     "//loom/src/loom/tooling/target/amdgpu:__pkg__",
 ] + _AMDGPU_BINDING_VISIBILITY + _AMDGPU_CHECK_VISIBILITY
 
@@ -459,6 +458,7 @@ loom_cc_library(
         "//loom/src/loom/target/arch/amdgpu/descriptors:low_registry",
         "//loom/src/loom/target/arch/amdgpu/diagnostics:packet_diagnostics",
         "//loom/src/loom/target/arch/amdgpu/lower",
+        "//loom/src/loom/target/arch/amdgpu/lower:kinds",
         "//loom/src/loom/target/arch/amdgpu/ops",
         "//runtime/src/iree/base",
     ],
@@ -559,6 +559,10 @@ loom_check_test_suite(
         ],
     ),
     compile_targets = {
+        "test/source_low/float64_narrow.loom-test": [
+            "//loom/target/amdgpu:" + target
+            for target in LOOM_AMDGPU_SUPPORTED_TARGETS
+        ],
         "test/source_low/narrow_float_arguments.loom-test": [
             "//loom/target/amdgpu:gfx942",
             "//loom/target/amdgpu:gfx950",
@@ -586,6 +590,15 @@ loom_check_test_suite(
             "//loom/target/amdgpu:gfx9-4-generic",
             "//loom/target/amdgpu:gfx942",
             "//loom/target/amdgpu:gfx950",
+        ],
+        "test/source_low/source_low_system_scope_store_wait.loom-test": [
+            "//loom/target/amdgpu:gfx1200",
+            "//loom/target/amdgpu:gfx1201",
+            "//loom/target/amdgpu:gfx12-generic",
+        ],
+        "test/source_low/source_low_uniform_vector_extract.loom-test": [
+            "//loom/target/amdgpu:" + target
+            for target in LOOM_AMDGPU_SUPPORTED_TARGETS
         ],
         "test/source_low/uniform_packed_memory.loom-test": [
             "//loom/target/amdgpu:" + target

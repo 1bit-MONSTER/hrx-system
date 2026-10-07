@@ -55,14 +55,18 @@ TEST(ResultTest, OwnsDiagnosticsAndArtifacts) {
 
   loomc_result_t* result = nullptr;
   LOOMC_ASSERT_OK(loomc_result_create(LOOMC_RESULT_STATE_FAILED,
+                                      LOOMC_SOURCE_RETENTION_EXACT,
                                       loomc_allocator_system(), &result));
 
   char code[] = "PARSE/001";
   char message[] = "expected a thing";
+  char formatted[] = "bad.loom:1:1: error [PARSE/001]: expected a thing\n";
   loomc_diagnostic_t diagnostic = {
       /*.severity=*/LOOMC_DIAGNOSTIC_SEVERITY_ERROR,
       /*.code=*/loomc_make_string_view(code, sizeof(code) - 1),
       /*.message=*/loomc_make_string_view(message, sizeof(message) - 1),
+      /*.formatted_text=*/
+      loomc_make_string_view(formatted, sizeof(formatted) - 1),
       /*.range=*/
       {
           /*.source=*/source,
@@ -109,6 +113,7 @@ TEST(ResultTest, OwnsDiagnosticsAndArtifacts) {
 
   code[0] = 'X';
   message[0] = 'X';
+  formatted[0] = 'X';
   label[0] = 'X';
   related.range = {};
   format[0] = 'X';
@@ -125,6 +130,8 @@ TEST(ResultTest, OwnsDiagnosticsAndArtifacts) {
   EXPECT_EQ(stored_diagnostic->severity, LOOMC_DIAGNOSTIC_SEVERITY_ERROR);
   EXPECT_EQ(ToString(stored_diagnostic->code), "PARSE/001");
   EXPECT_EQ(ToString(stored_diagnostic->message), "expected a thing");
+  EXPECT_EQ(ToString(stored_diagnostic->formatted_text),
+            "bad.loom:1:1: error [PARSE/001]: expected a thing\n");
   EXPECT_EQ(ToString(loomc_source_identifier(stored_diagnostic->range.source)),
             "bad.loom");
   ASSERT_EQ(stored_diagnostic->related_location_count, 1u);
@@ -147,9 +154,87 @@ TEST(ResultTest, OwnsDiagnosticsAndArtifacts) {
   loomc_result_release(result);
 }
 
+TEST(ResultTest, MetadataDiagnosticsRetainLocationWithoutSourceContents) {
+  const char source_text[] = "bad";
+  const loomc_source_options_t source_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_SOURCE_OPTIONS,
+      /*.structure_size=*/sizeof(source_options),
+      /*.next=*/nullptr,
+      /*.format=*/LOOMC_SOURCE_FORMAT_TEXT,
+      /*.identifier=*/loomc_make_cstring_view("bad.loom"),
+      /*.contents=*/
+      loomc_make_byte_span(source_text, sizeof(source_text) - 1),
+      /*.storage=*/LOOMC_SOURCE_STORAGE_BORROWED,
+  };
+  loomc_source_t* source = nullptr;
+  LOOMC_ASSERT_OK(
+      loomc_source_create(&source_options, loomc_allocator_system(), &source));
+
+  loomc_result_t* result = nullptr;
+  LOOMC_ASSERT_OK(loomc_result_create(LOOMC_RESULT_STATE_FAILED,
+                                      LOOMC_SOURCE_RETENTION_METADATA_ONLY,
+                                      loomc_allocator_system(), &result));
+  ResultPtr result_owner(result);
+  loomc_diagnostic_t diagnostic = {
+      /*.severity=*/LOOMC_DIAGNOSTIC_SEVERITY_ERROR,
+      /*.code=*/loomc_make_cstring_view("PARSE/001"),
+      /*.message=*/loomc_make_cstring_view("expected a thing"),
+      /*.formatted_text=*/loomc_string_view_empty(),
+      /*.range=*/
+      {
+          /*.source=*/source,
+          /*.start=*/1,
+          /*.end=*/2,
+          /*.start_line=*/5,
+          /*.start_column=*/6,
+          /*.end_line=*/5,
+          /*.end_column=*/7,
+      },
+  };
+  const loomc_diagnostic_related_location_t related_location = {
+      /*.label=*/loomc_make_cstring_view("declared here"),
+      /*.range=*/diagnostic.range,
+  };
+  diagnostic.related_locations = &related_location;
+  diagnostic.related_location_count = 1;
+  LOOMC_ASSERT_OK(loomc_result_add_diagnostic(result, &diagnostic));
+  loomc_source_release(source);
+
+  const loomc_diagnostic_t* stored = loomc_result_diagnostic_at(result, 0);
+  ASSERT_NE(stored, nullptr);
+  ASSERT_NE(stored->range.source, nullptr);
+  EXPECT_EQ(ToString(loomc_source_identifier(stored->range.source)),
+            "bad.loom");
+  EXPECT_EQ(loomc_source_contents(stored->range.source).data_length, 0u);
+  EXPECT_EQ(stored->range.start, 1u);
+  EXPECT_EQ(stored->range.end, 2u);
+  EXPECT_EQ(stored->range.start_line, 5u);
+  EXPECT_EQ(stored->range.start_column, 6u);
+  EXPECT_EQ(stored->range.end_line, 5u);
+  EXPECT_EQ(stored->range.end_column, 7u);
+  ASSERT_EQ(stored->related_location_count, 1u);
+  EXPECT_EQ(ToString(stored->related_locations[0].label), "declared here");
+  EXPECT_EQ(stored->related_locations[0].range.source, stored->range.source);
+  EXPECT_EQ(stored->related_locations[0].range.start, 1u);
+}
+
+TEST(ResultTest, RejectsDiagnosticWithMissingRelatedLocations) {
+  loomc_result_t* result = nullptr;
+  LOOMC_ASSERT_OK(loomc_result_create(LOOMC_RESULT_STATE_FAILED,
+                                      LOOMC_SOURCE_RETENTION_EXACT,
+                                      loomc_allocator_system(), &result));
+  ResultPtr result_owner(result);
+  loomc_diagnostic_t diagnostic = {};
+  diagnostic.related_location_count = 1;
+  LOOMC_EXPECT_STATUS_IS(LOOMC_STATUS_INVALID_ARGUMENT,
+                         loomc_result_add_diagnostic(result, &diagnostic));
+  EXPECT_EQ(loomc_result_diagnostic_count(result), 0u);
+}
+
 TEST(ResultTest, EmptyDiagnosticNeedsNoMetadataPayload) {
   loomc_result_t* result = nullptr;
   LOOMC_ASSERT_OK(loomc_result_create(LOOMC_RESULT_STATE_FAILED,
+                                      LOOMC_SOURCE_RETENTION_EXACT,
                                       loomc_allocator_system(), &result));
   ResultPtr owner(result);
   const loomc_diagnostic_t diagnostic = {};
@@ -157,6 +242,7 @@ TEST(ResultTest, EmptyDiagnosticNeedsNoMetadataPayload) {
   const auto* stored = loomc_result_diagnostic_at(result, 0);
   EXPECT_EQ(stored->code.size, 0u);
   EXPECT_EQ(stored->message.size, 0u);
+  EXPECT_EQ(stored->formatted_text.size, 0u);
   EXPECT_EQ(stored->related_locations, nullptr);
   EXPECT_EQ(stored->related_location_count, 0u);
 }
@@ -164,6 +250,7 @@ TEST(ResultTest, EmptyDiagnosticNeedsNoMetadataPayload) {
 TEST(ResultTest, RejectsMalformedArtifact) {
   loomc_result_t* result = nullptr;
   LOOMC_ASSERT_OK(loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
+                                      LOOMC_SOURCE_RETENTION_EXACT,
                                       loomc_allocator_system(), &result));
 
   loomc_artifact_t artifact = {

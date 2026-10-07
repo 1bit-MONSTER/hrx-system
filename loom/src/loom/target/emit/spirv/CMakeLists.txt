@@ -250,6 +250,37 @@ loom_cc_library(
 )
 endif()
 
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+loom_cc_test(
+  NAME
+    module_compiler_test
+  SRCS
+    "module_compiler_test.cc"
+  DEPS
+    ::module_compiler
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::codegen::low::text_asm
+    loom::format::text::parser
+    loom::ir
+    loom::ops::op_defs
+    loom::ops::op_registry
+    loom::target::arch::spirv::descriptors
+    loom::target::arch::spirv::features
+    loom::target::arch::spirv::records::target_records
+    loom::target::facts_builder
+    loom::target::function_version
+    loom::target::low_descriptor_registry
+    loom::target::types
+    loom::testing::byte_sequence
+    loom::testing::module_ptr
+  LABELS
+    "iree-build-requirement=loom.target.arch.spirv"
+    "iree-build-requirement=loom.emit.spirv"
+)
+endif()
+
 if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
 loom_cc_test(
   NAME
@@ -318,7 +349,6 @@ loom_check_test_suite(
     "test/scalar_operations.loom-test"
     "test/schedule_scopes.loom-test"
     "test/source_low/buffer_selection.loom-test"
-    "test/source_low/index_numeric.loom-test"
     "test/source_low/memory_scalar_addressing.loom-test"
     "test/source_low/memory_workgroup_scalar_addressing.loom-test"
     "test/source_low/numeric_bfloat_narrow.loom-test"

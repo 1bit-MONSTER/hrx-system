@@ -1,0 +1,78 @@
+// RUN: roundtrip
+#include <loomcxx/kernel.h>
+#include <loomcxx/target/amdgpu.h>
+
+constexpr loom::amdgpu::target feature_target{
+    .kind = "gfx942",
+    .subgroup_size = 64,
+    .features = {
+        .sramecc = loom::target::feature::enabled,
+        .xnack = loom::target::feature::disabled,
+    },
+};
+
+[[loom::kernel, loom::target(feature_target),
+  loom::workgroup_size(64, 1, 1)]] void feature_kernel() {}
+
+// ----
+amdgpu.target<gfx942> @feature_target {features = [sramecc, -xnack], subgroup_size = 64}
+
+kernel.def target(@feature_target) @feature_kernel() {
+  %workgroup_count_x = config.get @feature_kernel.workgroup_count.x : index
+  %workgroup_count_y = config.get @feature_kernel.workgroup_count.y : index
+  %workgroup_count_z = config.get @feature_kernel.workgroup_count.z : index
+  %6 = index.constant 64 : index
+  %7 = index.constant 1 : index
+  %8 = index.constant 1 : index
+  kernel.launch.config workgroups(%workgroup_count_x, %workgroup_count_y, %workgroup_count_z) workgroup_size(%6, %7, %8) : index
+} launch() {
+  kernel.return
+}
+
+config.decl @feature_kernel.workgroup_count.x : index
+
+config.decl @feature_kernel.workgroup_count.y : index
+
+config.decl @feature_kernel.workgroup_count.z : index
+
+// ====
+// RUN: emit source-low @select_target target=amdgpu:gfx1200 output=low
+#include <loomcxx/kernel.h>
+#include <loomcxx/target/amdgpu.h>
+
+LOOM_TEMPLATE_DECL("test.target_value") unsigned target_value();
+
+constexpr loom::amdgpu::target gfx11{.kind = "gfx11-generic"};
+constexpr loom::amdgpu::target gfx12{.kind = "gfx12-generic"};
+
+struct Gfx11 {};
+struct Gfx12 {};
+
+template <class Target>
+unsigned target_value_provider();
+
+template <>
+LOOM_TEMPLATE_DEF(target_value)
+[[loom::target(gfx11)]] unsigned target_value_provider<Gfx11>() {
+  return 11;
+}
+
+template <>
+LOOM_TEMPLATE_DEF(target_value)
+[[loom::target(gfx12)]] unsigned target_value_provider<Gfx12>() {
+  return 12;
+}
+
+[[loom::kernel, loom::workgroup_size(1, 1, 1),
+  loom::workgroup_count(1, 1, 1)]] void select_target(unsigned* output) {
+  output[0] = target_value();
+}
+
+// ----
+low.kernel.def target<amdgpu.rdna4.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @select_target() asm {
+  %output = resource<hal_binding> {extent = 4, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %27 = v_mov_b32 12
+  %28 = v_mov_b32 0
+  global_store_b32_saddr %28, %27, %output
+  return
+}

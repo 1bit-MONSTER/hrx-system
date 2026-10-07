@@ -31,8 +31,10 @@ loom_cc_library(
     elf
   HDRS
     "elf.h"
+    "elf_symbols.h"
   SRCS
     "elf.c"
+    "elf_symbols.c"
   DEPS
     iree::base
     iree::base::internal::arena
@@ -48,9 +50,22 @@ loom_cc_library(
   SRCS
     "contribution.c"
   DEPS
-    ::elf
     iree::base
     iree::base::internal::arena
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    elf_sections
+  HDRS
+    "elf_sections.h"
+  SRCS
+    "elf_sections.c"
+  DEPS
+    ::contribution
+    ::elf
+    iree::base
   PUBLIC
 )
 
@@ -65,6 +80,39 @@ loom_cc_library(
     ::contribution
     iree::base
   PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    object_elf
+  HDRS
+    "image_elf.h"
+    "object_elf.h"
+  SRCS
+    "image_elf.c"
+    "object_elf.c"
+  DEPS
+    ::contribution
+    ::elf
+    ::elf_sections
+    ::object
+    iree::base
+    iree::base::internal::arena
+    iree::io::stream
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    elf_symbols_test
+  SRCS
+    "elf_symbols_test.cc"
+  DEPS
+    ::elf
+    iree::base
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
 )
 
 loom_cc_test(
@@ -102,7 +150,31 @@ loom_cc_test(
     "contribution_test.cc"
   DEPS
     ::contribution
-    ::elf
+    iree::base
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_test(
+  NAME
+    elf_sections_test
+  SRCS
+    "elf_sections_test.cc"
+  DEPS
+    ::elf_sections
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_test(
+  NAME
+    object_elf_test
+  SRCS
+    "object_elf_test.cc"
+  DEPS
+    ::object_elf
     iree::base
     iree::base::internal::arena
     iree::io::stream

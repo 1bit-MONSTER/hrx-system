@@ -52,6 +52,16 @@ iree_status_t loom_spirv_compile_module_binary(
     const loom_spirv_compile_options_t* options, iree_allocator_t allocator,
     bool* out_emitted, loom_spirv_module_binary_t* out_module);
 
+// Plans and emits one SPIR-V artifact through the production boundary.
+// |options| may restrict emission to compiler-selected entries. Structured
+// semantic rejection returns OK with |out_emitted| false and no artifact. The
+// caller releases a successfully emitted artifact with
+// loom_target_emit_artifact_release.
+iree_status_t loom_spirv_compile_module_artifact(
+    const loom_target_emit_request_t* request,
+    const loom_spirv_compile_options_t* options, bool* out_emitted,
+    loom_target_emit_artifact_t* out_artifact);
+
 // SPIR-V binary module emitter composed by target-owned provider joins.
 extern const loom_target_emitter_t loom_spirv_module_emitter;
 

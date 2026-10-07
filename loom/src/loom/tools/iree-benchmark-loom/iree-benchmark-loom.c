@@ -32,50 +32,30 @@
   (IREE_BENCHMARK_LOOM_HAVE_AMDGPU || IREE_BENCHMARK_LOOM_HAVE_SPIRV)
 
 #if IREE_BENCHMARK_LOOM_HAVE_AMDGPU
-#include "loom/target/arch/amdgpu/provider.h"
 #include "loom/tooling/target/amdgpu/device_provider.h"
+#include "loom/tooling/target/amdgpu/execution_provider.h"
 #include "loom/tooling/target/amdgpu/testbench_requirements.h"
 #endif  // IREE_BENCHMARK_LOOM_HAVE_AMDGPU
 #if IREE_BENCHMARK_LOOM_HAVE_SPIRV
-#include "loom/target/arch/spirv/provider.h"
 #include "loom/tooling/target/spirv/device_provider.h"
+#include "loom/tooling/target/spirv/execution_provider.h"
 #include "loom/tooling/target/spirv/testbench_requirements.h"
 #endif  // IREE_BENCHMARK_LOOM_HAVE_SPIRV
 #if IREE_BENCHMARK_LOOM_HAVE_VM
-#include "loom/target/arch/vm/provider.h"
 #include "loom/tooling/target/vm/testbench.h"
-
-static const loom_run_execution_provider_t kIreeBenchmarkLoomVmProvider = {
-    .name = IREE_SVL("vm"),
-    .target_provider = &loom_vm_target_provider,
-};
 #endif  // IREE_BENCHMARK_LOOM_HAVE_VM
-
-#if IREE_BENCHMARK_LOOM_HAVE_AMDGPU
-static const loom_run_execution_provider_t kIreeBenchmarkLoomAmdgpuProvider = {
-    .name = IREE_SVL("amdgpu"),
-    .target_provider = &loom_amdgpu_target_provider,
-};
-#endif  // IREE_BENCHMARK_LOOM_HAVE_AMDGPU
-
-#if IREE_BENCHMARK_LOOM_HAVE_SPIRV
-static const loom_run_execution_provider_t kIreeBenchmarkLoomSpirvProvider = {
-    .name = IREE_SVL("spirv"),
-    .target_provider = &loom_spirv_target_provider,
-};
-#endif  // IREE_BENCHMARK_LOOM_HAVE_SPIRV
 
 #if IREE_BENCHMARK_LOOM_HAVE_ANY_PROVIDER
 static const loom_run_execution_provider_t* const
     kIreeBenchmarkLoomProviders[] = {
 #if IREE_BENCHMARK_LOOM_HAVE_VM
-        &kIreeBenchmarkLoomVmProvider,
+        &loom_vm_execution_provider,
 #endif  // IREE_BENCHMARK_LOOM_HAVE_VM
 #if IREE_BENCHMARK_LOOM_HAVE_AMDGPU
-        &kIreeBenchmarkLoomAmdgpuProvider,
+        &loom_amdgpu_execution_provider,
 #endif  // IREE_BENCHMARK_LOOM_HAVE_AMDGPU
 #if IREE_BENCHMARK_LOOM_HAVE_SPIRV
-        &kIreeBenchmarkLoomSpirvProvider,
+        &loom_spirv_vulkan_execution_provider,
 #endif  // IREE_BENCHMARK_LOOM_HAVE_SPIRV
 };
 #endif  // IREE_BENCHMARK_LOOM_HAVE_ANY_PROVIDER
@@ -178,9 +158,6 @@ int main(int argc, char** argv) {
   iree_benchmark_loom_configuration_t configuration = {
       .input_providers = loom_configured_input_providers(),
       .tool_name = "iree-benchmark-loom",
-      .register_context =
-          loom_run_execution_environment_register_context_callback(
-              &environment),
       .target_environment =
           loom_run_execution_environment_target_environment(&environment),
       .cleanup_pattern_provider_set =
@@ -190,9 +167,6 @@ int main(int argc, char** argv) {
           {
               .fn = iree_benchmark_loom_populate_requirement_providers,
           },
-      .initialize_low_descriptor_registry =
-          loom_run_execution_environment_low_descriptor_registry_callback(
-              &environment),
   };
 #if IREE_BENCHMARK_LOOM_HAVE_VM
   loom_vm_testbench_t vm_testbench;

@@ -430,34 +430,6 @@ static iree_status_t loom_aie2p_bundle_plan_analyze(
   *out_analysis = (loom_aie2p_bundle_plan_analysis_t){0};
   const loom_low_descriptor_set_t* descriptor_set =
       loom_aie2p_core_descriptor_set();
-  if (frame->target.descriptor_set != descriptor_set ||
-      frame->schedule.target.descriptor_set != descriptor_set ||
-      frame->allocation.target.descriptor_set != descriptor_set) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "AIE2P bundle planning requires the amd.xdna.aie2p.core descriptor "
-        "set");
-  }
-  if (frame->schedule.error_count != 0 || frame->allocation.error_count != 0) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "AIE2P bundle planning requires a successful "
-                            "schedule and allocation");
-  }
-  if (frame->allocation.spill_count != 0 ||
-      frame->allocation.spill_plan_count != 0) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "AIE2P bundle planning requires a spill-free "
-                            "allocation");
-  }
-  if (frame->schedule.block_count == 0) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "AIE2P Low leaf has no blocks");
-  }
-  if (frame->schedule.block_count > UINT32_MAX) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "AIE2P block count exceeds target index range");
-  }
-
   loom_aie2p_block_analysis_t* blocks = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       arena, frame->schedule.block_count, sizeof(*blocks), (void**)&blocks));
@@ -541,22 +513,11 @@ static iree_status_t loom_aie2p_bundle_plan_analyze(
             "operations");
         IREE_BUILTIN_UNREACHABLE();
       }
-      if (block_analysis->terminator != LOOM_AIE2P_BLOCK_TERMINATOR_NONE) {
-        return iree_make_status(
-            IREE_STATUS_INVALID_ARGUMENT,
-            "AIE2P Low block %zu has more than one structural terminator",
-            block_index);
-      }
       block_analysis->terminator = terminator;
       block_analysis->terminator_packet_index = (uint32_t)packet.packet_index;
       block_analysis->terminator_issue_cycle = packet.node->issue_cycle;
     }
 
-    if (block_analysis->terminator == LOOM_AIE2P_BLOCK_TERMINATOR_NONE) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "AIE2P Low block %zu has no terminator",
-                              block_index);
-    }
     const loom_low_packet_view_t terminator_packet = loom_low_packet_at(
         &frame->schedule, block_analysis->terminator_packet_index);
     const uint32_t next_block_index =
@@ -570,11 +531,6 @@ static iree_status_t loom_aie2p_bundle_plan_analyze(
             descriptor_set, AIE2P_CORE_DESCRIPTOR_REF_BRANCH_DIRECT);
         const uint32_t target_block_index = loom_low_packet_block_index(
             &frame->schedule, loom_low_br_dest(terminator_packet.node->op));
-        if (target_block_index == LOOM_LOW_PACKET_INDEX_NONE) {
-          return iree_make_status(
-              IREE_STATUS_FAILED_PRECONDITION,
-              "AIE2P branch target is outside its function");
-        }
         if (target_block_index != next_block_index) {
           block_analysis->branches.values[block_analysis->branches.count++] =
               (loom_aie2p_block_branch_t){
@@ -598,12 +554,6 @@ static iree_status_t loom_aie2p_bundle_plan_analyze(
         const uint32_t false_block_index = loom_low_packet_block_index(
             &frame->schedule,
             loom_low_cond_br_false_dest(terminator_packet.node->op));
-        if (true_block_index == LOOM_LOW_PACKET_INDEX_NONE ||
-            false_block_index == LOOM_LOW_PACKET_INDEX_NONE) {
-          return iree_make_status(
-              IREE_STATUS_FAILED_PRECONDITION,
-              "AIE2P conditional branch target is outside its function");
-        }
         if (true_block_index == false_block_index) {
           if (true_block_index != next_block_index) {
             block_analysis->branches.values[block_analysis->branches.count++] =
@@ -782,11 +732,12 @@ static iree_status_t loom_aie2p_bundle_plan_encode_storage_address(
       AIE2P_CORE_DESCRIPTOR_REF_MATERIALIZE_LOCAL_ADDRESS_I32,
       operand_assignments, immediate_values);
 
+  const loom_low_storage_layout_t* layout =
+      &builder->frame->schedule.requirements.storage_layout;
   loom_low_storage_layout_reference_t reference;
   loom_low_storage_layout_lookup_reference(
-      &builder->frame->schedule.requirements.storage_layout,
-      builder->frame->module, loom_low_storage_address_storage(node->op),
-      &reference);
+      &layout->index, layout->records,
+      loom_low_storage_address_storage(node->op), &reference);
   const int64_t operation_offset = loom_low_storage_address_offset(node->op);
   IREE_ASSERT_GE(operation_offset, 0);
   uint64_t byte_offset = 0;

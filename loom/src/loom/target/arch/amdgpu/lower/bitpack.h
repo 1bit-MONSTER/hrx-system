@@ -38,16 +38,11 @@ iree_status_t loom_amdgpu_pack_lane_bits_into_register(
     loom_value_id_t source_lane, uint32_t width, uint32_t bit_offset,
     loom_type_t lane_type, loom_value_id_t* inout_packed);
 
-// Selects the best available full-register i8 byte permutation plan.
-void loom_amdgpu_select_i8_pack_permute_plan(
-    const loom_low_descriptor_set_t* descriptor_set,
-    loom_amdgpu_i8_pack_permute_plan_t* out_plan);
-
 // Packs complete groups of four 32-bit source lanes to i8 bytes using
 // the selected byte permutation plan.
 iree_status_t loom_amdgpu_pack_i8_lanes_with_permute(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
-    const loom_amdgpu_i8_pack_permute_plan_t* plan,
+    const loom_amdgpu_byte_permute_plan_t* plan,
     const loom_value_id_t* source_lanes, uint32_t source_lane_count,
     loom_type_t lane_type, loom_value_id_t* out_packed_registers);
 
@@ -60,10 +55,11 @@ typedef enum loom_amdgpu_bitfield_extract_mode_e {
   LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_SIGN_EXTEND,
 } loom_amdgpu_bitfield_extract_mode_t;
 
-// Extracts a bitfield from an SGPR or VGPR word into a VGPR of |lane_type|.
-// Packet forms accepting scalar sources use them directly; vector-only forms
-// materialize the source in a VGPR before extraction.
-iree_status_t loom_amdgpu_extract_vgpr_bitfield(
+// Extracts a bitfield from an SGPR or VGPR word into |lane_type|. SGPR results
+// retain uniform values in SALU instructions. VGPR results use packet forms
+// accepting scalar sources directly when available and otherwise materialize
+// the source in a VGPR before extraction.
+iree_status_t loom_amdgpu_extract_register_bitfield(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t low_source, uint32_t bit_offset, uint32_t bit_count,
     loom_amdgpu_bitfield_extract_mode_t mode, loom_type_t lane_type,

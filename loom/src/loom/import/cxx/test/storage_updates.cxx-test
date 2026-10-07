@@ -225,10 +225,10 @@ CHECK: *vector.load*
 
 // ====
 // RUN: verify
-// Workgroup lifetime belongs to a kernel body.
+// Workgroup lifetime belongs to a kernel or selected template body.
 #include <loomcxx/kernel.h>
 void helper() {
-  // ERROR@+1: LOWERING/059 "workgroup storage requires a kernel body"
+  // ERROR@+1: LOWERING/059 "requires a kernel or template definition body"
   LOOM_WORKGROUP unsigned slot;
 }
 

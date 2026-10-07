@@ -12,7 +12,9 @@ from loom.reporting.compile_report import CompileReportDocument
 from loom.reporting.compile_report_boundary_projections import (
     suggest_boundary_projections,
 )
+from loom.reporting.compile_report_expansions import suggest_expansions
 from loom.reporting.compile_report_loop_pipelines import suggest_loop_pipelines
+from loom.reporting.compile_report_scalarization import suggest_scalarization
 from loom.reporting.compile_report_suggestions import (
     CompileReportSuggestionOptions,
     CompileReportSuggestionProvider,
@@ -38,14 +40,12 @@ def suggest_compile_report(
     """Combines shared source evidence with the exact target-family provider."""
     if options is None:
         options = CompileReportSuggestionOptions()
-    if document.status_code != 0:
-        return CompileReportSuggestionResult(
-            provider_name=None,
-            unavailable_reason="compile_status_not_ok",
-        )
-    source_suggestions = suggest_loop_pipelines(
-        document
-    ) + suggest_boundary_projections(document)
+    source_suggestions = (
+        suggest_expansions(document)
+        + suggest_scalarization(document)
+        + suggest_loop_pipelines(document)
+        + suggest_boundary_projections(document)
+    )
     target_result = _suggest_target(document, options)
     if not source_suggestions:
         return target_result
@@ -65,6 +65,11 @@ def _suggest_target(
     document: CompileReportDocument,
     options: CompileReportSuggestionOptions,
 ) -> CompileReportSuggestionResult:
+    if document.status_code != 0:
+        return CompileReportSuggestionResult(
+            provider_name=None,
+            unavailable_reason="compile_status_not_ok",
+        )
     target_family = document.report.get("target_family")
     if target_family is None:
         return CompileReportSuggestionResult(

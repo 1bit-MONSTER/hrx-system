@@ -64,7 +64,7 @@ class LocationCaptureTest : public ::testing::Test {
         &scratch_, &nodes));
     // Captured payloads are independent of both scratch and admitted sources.
     iree_arena_reset(&scratch_);
-    loom_tooling_source_storage_deinitialize(&input_.sources);
+    loom_source_storage_deinitialize(&input_.sources);
     iree_const_byte_span_t bytes;
     IREE_CHECK_OK(
         loom_func_location_encode(input_.module, nodes, &scratch_, &bytes));
@@ -280,7 +280,7 @@ TEST_F(LocationCaptureTest, PresentEmptySourceIsDistinctFromUnavailableText) {
   loom_source_id_t source_id;
   IREE_ASSERT_OK(loom_module_register_source(
       input_.module, IREE_SV("empty.loom"), &source_id));
-  IREE_ASSERT_OK(loom_tooling_source_storage_insert(
+  IREE_ASSERT_OK(loom_source_storage_insert(
       &input_.sources, source_id, IREE_SV("empty.loom"), IREE_SV("")));
   loom_location_id_t location;
   IREE_ASSERT_OK(loom_module_add_location(

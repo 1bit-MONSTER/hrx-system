@@ -6,6 +6,7 @@
 
 #include "loom/import/cxx/binding/kernel.h"
 
+#include <cxx/const_value.h>
 #include <cxx/names.h>
 #include <cxx/symbols.h>
 #include <cxx/types.h>
@@ -232,14 +233,15 @@ std::optional<BarrierIntrinsic> BarrierIntrinsic::resolve(
       nullptr)[loom_op_dialect_index(LOOM_OP_KERNEL_BARRIER)];
   for (size_t index = 0; index < selectors.size(); ++index) {
     auto value = cxx::template_argument_value(arguments[index]);
-    auto* number = value ? std::get_if<std::intmax_t>(&*value) : nullptr;
-    if (!number || *number < 0 || *number > UINT8_MAX ||
+    auto* number = value ? std::get_if<cxx::ConstInt>(&*value) : nullptr;
+    if (!number || number->isNegative() || number->toUWide() > UINT8_MAX ||
         !loom_attr_descriptor_has_enum_case(
-            &operation->attr_descriptors[fields[index].index], *number)) {
+            &operation->attr_descriptors[fields[index].index],
+            number->toUIntMax())) {
       diagnostics.reject(
           unit, owner, "kernel.barrier selector is not a permitted enum value");
     }
-    selectors[index] = static_cast<uint8_t>(*number);
+    selectors[index] = static_cast<uint8_t>(number->toUIntMax());
   }
   return BarrierIntrinsic(
       static_cast<loom_value_fact_memory_space_t>(selectors[0]),

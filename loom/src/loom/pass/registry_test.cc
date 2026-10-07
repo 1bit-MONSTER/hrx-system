@@ -81,17 +81,18 @@ TEST(PassRegistryStorageTest, MergesSortedRegistries) {
       loom_pass_registry_storage_registry(&storage);
 
   ASSERT_EQ(registry->descriptor_count, 3);
-  EXPECT_TRUE(
-      iree_string_view_equal(registry->descriptors[0].key, IREE_SV("alpha")));
-  EXPECT_TRUE(
-      iree_string_view_equal(registry->descriptors[1].key, IREE_SV("beta")));
-  EXPECT_TRUE(
-      iree_string_view_equal(registry->descriptors[2].key, IREE_SV("gamma")));
+  EXPECT_TRUE(iree_string_view_equal(loom_pass_registry_at(registry, 0)->key,
+                                     IREE_SV("alpha")));
+  EXPECT_TRUE(iree_string_view_equal(loom_pass_registry_at(registry, 1)->key,
+                                     IREE_SV("beta")));
+  EXPECT_TRUE(iree_string_view_equal(loom_pass_registry_at(registry, 2)->key,
+                                     IREE_SV("gamma")));
 
   const loom_pass_descriptor_t* descriptor = nullptr;
   IREE_ASSERT_OK(
       loom_pass_registry_lookup(registry, IREE_SV("beta"), &descriptor));
   ASSERT_NE(descriptor, nullptr);
+  EXPECT_EQ(descriptor, &kSecondDescriptors[0]);
   EXPECT_EQ(descriptor->info, &BetaPassInfo);
 }
 

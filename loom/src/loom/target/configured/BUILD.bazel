@@ -8,6 +8,7 @@ load(
     "//loom/build_tools/bazel:build_defs.bzl",
     "iree_select",
     "loom_cc_library",
+    "loom_cc_test",
 )
 
 package(
@@ -90,13 +91,90 @@ _CONFIGURED_TARGET_DEPS = (
     })
 )
 
+_CONFIGURED_COMPILER_COPTS = (
+    iree_select({
+        "//loom/config/target/arch:x86": [
+            "-DLOOM_CONFIG_COMPILER_HAVE_X86=1",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target:amdgpu_artifacts": [
+            "-DLOOM_CONFIG_COMPILER_HAVE_AMDGPU=1",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target:spirv_artifacts": [
+            "-DLOOM_CONFIG_COMPILER_HAVE_SPIRV=1",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target/arch:vm": [
+            "-DLOOM_CONFIG_COMPILER_HAVE_VM=1",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target:wasm_artifacts": [
+            "-DLOOM_CONFIG_COMPILER_HAVE_WASM=1",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target:xdna_artifacts": [
+            "-DLOOM_CONFIG_COMPILER_HAVE_XDNA=1",
+        ],
+        "//conditions:default": [],
+    })
+)
+
+_CONFIGURED_COMPILER_DEPS = (
+    iree_select({
+        "//loom/config/target/arch:x86": [
+            "//loom/src/loom/target/arch/x86:compiler_provider",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target:amdgpu_artifacts": [
+            "//loom/src/loom/target/emit/native/amdgpu:hal_kernel_library",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target:spirv_artifacts": [
+            "//loom/src/loom/target/arch/spirv:compiler_provider",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target/arch:vm": [
+            "//loom/src/loom/target/emit/vm:module_compiler",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target:wasm_artifacts": [
+            "//loom/src/loom/target/emit/wasm:module_compiler",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target:xdna_artifacts": [
+            "//loom/src/loom/target/arch/amd/xdna/aie2p:artifact",
+        ],
+        "//conditions:default": [],
+    })
+)
+
 loom_cc_library(
     name = "provider_set",
     srcs = ["provider_set.c"],
     hdrs = ["provider_set.h"],
     copts = _CONFIGURED_TARGET_COPTS,
     visibility = [
-        "//loom/src/loom/tooling/compile:__pkg__",
         "//loom/src/loom/tools:__subpackages__",
     ],
     deps = [
@@ -105,6 +183,34 @@ loom_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/threading",
     ] + _CONFIGURED_TARGET_DEPS,
+)
+
+loom_cc_library(
+    name = "compiler_provider_set",
+    srcs = ["compiler_provider_set.c"],
+    hdrs = ["compiler_provider_set.h"],
+    copts = _CONFIGURED_COMPILER_COPTS,
+    visibility = [
+        "//loom/binding/c/target/configured:__pkg__",
+        "//loom/src/loom/tools/loom-check:__pkg__",
+    ],
+    deps = [
+        "//loom/src/loom/target:provider",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+    ] + _CONFIGURED_COMPILER_DEPS,
+)
+
+loom_cc_test(
+    name = "compiler_provider_set_test",
+    srcs = ["compiler_provider_set_test.cc"],
+    copts = _CONFIGURED_COMPILER_COPTS,
+    deps = [
+        ":compiler_provider_set",
+        "//loom/src/loom/target:provider",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
 )
 
 loom_cc_library(

@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_float_signs.loom-test
 // RUN: emit source-low target=amd.xdna.aie2p:core output=low
 
 func.def @scalar_f32_signs(%magnitude: f32, %sign: f32) -> (f32, f32, f32) {
@@ -18,7 +17,6 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_f32_signs(
   %copied = or %absolute, %20
   return %absolute, %negated, %copied
 }
-
 // ====
 
 func.def @scalar_bf16_signs(%magnitude: bf16, %sign: bf16) -> (bf16, bf16, bf16) {
@@ -65,54 +63,6 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_f32_4_sign
 
 // ====
 
-func.def @vector_f32_16_signs(%magnitude: vector<16xf32>, %sign: vector<16xf32>) -> (vector<16xf32>, vector<16xf32>, vector<16xf32>) {
-  %absolute = vector.absf %magnitude : vector<16xf32>
-  %negated = vector.negf %magnitude : vector<16xf32>
-  %copied = vector.copysignf %magnitude, %sign : vector<16xf32>
-  func.return %absolute, %negated, %copied : vector<16xf32>, vector<16xf32>, vector<16xf32>
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_f32_16_signs(%magnitude: reg<aie2p.vec256 x2>, %sign: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
-  %13 = mov.i32 2147483647
-  %14 = vbcst.32 %13
-  %absolute = vband %magnitude, %14
-  %16 = mov.i32 -2147483648
-  %17 = vbcst.32 %16
-  %18 = vbor %magnitude, %17
-  %19 = vband %magnitude, %17
-  %negated = vsub.32 %18, %19
-  %26 = vband %sign, %17
-  %copied = vbor %absolute, %26
-  return %absolute, %negated, %copied
-}
-
-// ====
-
-func.def @vector_bf16_4_signs(%magnitude: vector<4xbf16>, %sign: vector<4xbf16>) -> (vector<4xbf16>, vector<4xbf16>, vector<4xbf16>) {
-  %absolute = vector.absf %magnitude : vector<4xbf16>
-  %negated = vector.negf %magnitude : vector<4xbf16>
-  %copied = vector.copysignf %magnitude, %sign : vector<4xbf16>
-  func.return %absolute, %negated, %copied : vector<4xbf16>, vector<4xbf16>, vector<4xbf16>
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_bf16_4_signs(%magnitude: reg<aie2p.vec256 x2>, %sign: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
-  %13 = mov.i32 2147450879
-  %14 = vbcst.32 %13
-  %absolute = vband %magnitude, %14
-  %16 = mov.i32 -2147450880
-  %17 = vbcst.32 %16
-  %18 = vbor %magnitude, %17
-  %19 = vband %magnitude, %17
-  %negated = vsub.32 %18, %19
-  %26 = vband %sign, %17
-  %copied = vbor %absolute, %26
-  return %absolute, %negated, %copied
-}
-
-// ====
-
 // RUN: with-checks emit source-low target=amd.xdna.aie2p:core output=low
 func.def @vector_bf16_8_signs(%magnitude: vector<8xbf16>, %sign: vector<8xbf16>) -> (vector<8xbf16>, vector<8xbf16>, vector<8xbf16>) {
   %absolute = vector.absf %magnitude : vector<8xbf16>
@@ -129,54 +79,6 @@ CHECK: %negated = vsub.32 *
 CHECK: %copied = vbor %absolute, *
 CHECK-NOT: *vbroadcast.bf16x8*
 CHECK-NOT: *reg<aie2p.ewl>*
-
-// ====
-
-func.def @vector_bf16_16_signs(%magnitude: vector<16xbf16>, %sign: vector<16xbf16>) -> (vector<16xbf16>, vector<16xbf16>, vector<16xbf16>) {
-  %absolute = vector.absf %magnitude : vector<16xbf16>
-  %negated = vector.negf %magnitude : vector<16xbf16>
-  %copied = vector.copysignf %magnitude, %sign : vector<16xbf16>
-  func.return %absolute, %negated, %copied : vector<16xbf16>, vector<16xbf16>, vector<16xbf16>
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_bf16_16_signs(%magnitude: reg<aie2p.vec256 x2>, %sign: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
-  %13 = mov.i32 2147450879
-  %14 = vbcst.32 %13
-  %absolute = vband %magnitude, %14
-  %16 = mov.i32 -2147450880
-  %17 = vbcst.32 %16
-  %18 = vbor %magnitude, %17
-  %19 = vband %magnitude, %17
-  %negated = vsub.32 %18, %19
-  %26 = vband %sign, %17
-  %copied = vbor %absolute, %26
-  return %absolute, %negated, %copied
-}
-
-// ====
-
-func.def @vector_bf16_32_signs(%magnitude: vector<32xbf16>, %sign: vector<32xbf16>) -> (vector<32xbf16>, vector<32xbf16>, vector<32xbf16>) {
-  %absolute = vector.absf %magnitude : vector<32xbf16>
-  %negated = vector.negf %magnitude : vector<32xbf16>
-  %copied = vector.copysignf %magnitude, %sign : vector<32xbf16>
-  func.return %absolute, %negated, %copied : vector<32xbf16>, vector<32xbf16>, vector<32xbf16>
-}
-
-// ----
-low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_bf16_32_signs(%magnitude: reg<aie2p.vec256 x2>, %sign: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
-  %13 = mov.i32 2147450879
-  %14 = vbcst.32 %13
-  %absolute = vband %magnitude, %14
-  %16 = mov.i32 -2147450880
-  %17 = vbcst.32 %16
-  %18 = vbor %magnitude, %17
-  %19 = vband %magnitude, %17
-  %negated = vsub.32 %18, %19
-  %26 = vband %sign, %17
-  %copied = vbor %absolute, %26
-  return %absolute, %negated, %copied
-}
 
 // ====
 

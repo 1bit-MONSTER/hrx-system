@@ -1,0 +1,109 @@
+// RUN: verify
+// ERROR@+1: LOWERING/059 "one target operation name"
+struct [[loom::target]] missing_operation {
+  const char* kind;
+};
+constexpr missing_operation target{.kind = "reference"};
+
+// ====
+struct [[loom::target("func.def")]] ordinary_operation {
+  const char* kind;
+};
+// ERROR@+1: LOWERING/059 "registered attribute-only TargetLike operation"
+constexpr ordinary_operation target{.kind = "reference"};
+
+// ====
+struct [[loom::target("target.generic")]] generic_target {
+  const char* kind;
+};
+// ERROR@+1: LOWERING/059 "namespace-scope constexpr objects"
+const generic_target target{.kind = "reference"};
+
+// ====
+struct [[loom::target("target.generic")]] generic_target {
+  const char* kind;
+};
+// ERROR@+1: LOWERING/059 "declared target keyword"
+constexpr generic_target target{.kind = "fictional"};
+
+// ====
+struct [[loom::target("target.generic")]] generic_target {
+  const char* kind;
+  unsigned surprise;
+};
+// ERROR@+1: LOWERING/059 "unknown target field 'surprise'"
+constexpr generic_target target{.kind = "reference", .surprise = 1};
+
+// ====
+struct [[loom::target("target.generic")]] generic_target {
+  unsigned subgroup_size;
+};
+// ERROR@+1: LOWERING/059 "requires its selector field"
+constexpr generic_target target{.subgroup_size = 32};
+
+// ====
+namespace loom::target {
+template <typename T>
+class optional {
+ public:
+  constexpr optional(T value) : value_(value), engaged_(true) {}
+
+ private:
+  T value_{};
+  bool engaged_ = false;
+};
+}  // namespace loom::target
+struct [[loom::target("target.generic")]] generic_target {
+  const char* kind;
+  loom::target::optional<unsigned> subgroup_size;
+};
+// ERROR@+1: LOWERING/059 "invalid constant representation"
+constexpr generic_target target{
+    .kind = "reference",
+    .subgroup_size = 32,
+};
+
+// ====
+#include <loomcxx/target.h>
+struct [[loom::target("target.generic")]] generic_target {
+  loom::target::optional<const char*> kind;
+};
+// ERROR@+1: LOWERING/059 "required target field 'kind'"
+constexpr generic_target target{.kind = "reference"};
+
+// ====
+struct [[loom::target("target.generic")]] generic_target {
+  const char* kind;
+};
+constexpr generic_target target{.kind = "reference"};
+// ERROR@+1: LOWERING/059 "namespace-scope kernels or template definitions"
+[[loom::target(target)]] void ordinary() {}
+
+// ====
+// ERROR@+1: LOWERING/059 "namespace-scope kernels or template definitions"
+[[loom::target(0)]] constexpr unsigned value = 0;
+
+// ====
+constexpr unsigned ordinary_target = 0;
+// ERROR@+1: LOWERING/059 "constexpr target object"
+[[loom::kernel, loom::target(ordinary_target)]] void missing_target() {}
+
+// ====
+struct [[loom::target("target.generic")]] generic_target {
+  const char* kind;
+};
+constexpr generic_target first{.kind = "reference"};
+constexpr generic_target second{.kind = "reference"};
+[[loom::kernel, loom::target(first)]] void conflicting();
+// ERROR@+1: LOWERING/059 "conflicting target bindings"
+[[loom::kernel, loom::target(second)]] void conflicting() {}
+
+// ====
+// ERROR@+1: LOWERING/059 "one target binding"
+[[loom::kernel, loom::target(first), loom::target(second)]] void duplicate() {}
+
+// ====
+[[loom::kernel]] void kernel() {
+  // ERROR@+1: LOWERING/059 "leading attribute"
+  [[loom::target(kernel)]] unsigned value = 0;
+}

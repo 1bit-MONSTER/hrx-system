@@ -156,9 +156,7 @@ iree_status_t loom_low_lower_report_record_selected_plan(
       .selection_kind = LOOM_LOW_LOWER_REPORT_SELECTION_PLAN,
       .rule_set_index = UINT16_MAX,
       .rule_index = UINT16_MAX,
-      .plan_id = selected_plan->kind == LOOM_LOW_LOWER_SELECTED_PLAN_RULE
-                     ? LOOM_LOW_LOWER_PLAN_ID_NONE
-                     : selected_plan->data.target_plan.id,
+      .plan_id = LOOM_LOW_LOWER_PLAN_ID_NONE,
       .plan_key = iree_string_view_empty(),
       .native_contraction_facts = NULL,
       .native_transition_facts = NULL,
@@ -168,6 +166,10 @@ iree_status_t loom_low_lower_report_record_selected_plan(
       .execution_count_plus_one =
           LOOM_LOW_LOWER_REPORT_EXECUTION_COUNT_PLUS_ONE_UNKNOWN,
   };
+  if (selected_plan->kind == LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK ||
+      selected_plan->kind == LOOM_LOW_LOWER_SELECTED_PLAN_DESCRIPTOR_MATRIX) {
+    row.plan_id = selected_plan->data.target_plan.id;
+  }
   if (selected_plan->rule != NULL) {
     row.selection_kind = LOOM_LOW_LOWER_REPORT_SELECTION_RULE;
     row.rule_set_index = selected_plan->rule_set_index;
@@ -204,8 +206,12 @@ iree_status_t loom_low_lower_report_record_selected_plan(
     loom_low_lower_report_populate_descriptor(
         context, plan->descriptor.descriptor, &row);
     row.native_contraction_facts = plan->native_contraction_facts;
+  } else if (selected_plan->kind ==
+             LOOM_LOW_LOWER_SELECTED_PLAN_FUNCTION_STORAGE) {
+    row.plan_key = IREE_SV("function-storage.alloca");
   }
-  if (selected_plan->rule == NULL &&
+  if ((selected_plan->kind == LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK ||
+       selected_plan->kind == LOOM_LOW_LOWER_SELECTED_PLAN_DESCRIPTOR_MATRIX) &&
       context->policy->describe_plan.fn != NULL) {
     loom_low_lower_plan_report_t plan_report = {0};
     context->policy->describe_plan.fn(context->policy->describe_plan.user_data,

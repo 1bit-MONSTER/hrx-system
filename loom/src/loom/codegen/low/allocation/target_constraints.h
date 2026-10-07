@@ -13,6 +13,7 @@
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/liveness.h"
 #include "loom/codegen/low/allocation/assignment.h"
+#include "loom/codegen/low/allocation/call.h"
 #include "loom/codegen/low/allocation/fixed_storage_index.h"
 #include "loom/codegen/low/allocation/unit_liveness.h"
 #include "loom/codegen/low/descriptors.h"
@@ -60,7 +61,8 @@ typedef struct loom_low_allocation_fixed_value_t {
 // Reserved ranges model architectural state that is never allocatable for
 // ordinary values in the current low function, such as special registers or
 // permanently reserved target IDs. Use fixed values instead for ABI live-ins
-// whose registers can be reused after their last use.
+// whose registers can be reused after their last use. Reservations obey target
+// location limits independently of the budget for ordinary allocations.
 typedef struct loom_low_allocation_reserved_range_t {
   // Stable register-class name.
   iree_string_view_t register_class;
@@ -90,15 +92,19 @@ typedef struct loom_low_allocation_resolved_reserved_range_t {
   uint32_t location_count;
 } loom_low_allocation_resolved_reserved_range_t;
 
+typedef struct loom_low_allocation_reserved_range_index_entry_t
+    loom_low_allocation_reserved_range_index_entry_t;
+
 // Target-validated fixed value prepared for allocation.
 //
-// |assignment| contains the propagated sparse and per-unit storage lifetime
-// used by conflict searches. Explicit bindings extend to all required tied
-// values. They constrain both coalescing and direct interval assignment;
-// target-implied locations reserve storage until ordinary allocation selects
-// it.
+// Construction first resolves the location and extends it to required tied
+// values. Finalization attaches propagated sparse and per-unit storage
+// lifetimes before assignments or fixed-storage conflict queries are published.
+// Explicit bindings constrain coalescing and direct assignment; target-implied
+// locations reserve storage until ordinary allocation selects them.
 typedef struct loom_low_allocation_resolved_fixed_value_t {
-  // Complete assignment at the required target-visible location.
+  // Validated location during construction; complete storage assignment after
+  // finalize_fixed_values attaches refined lifetimes.
   loom_low_allocation_assignment_t assignment;
   // Liveness-local ordinal for |assignment.value_id|.
   loom_value_ordinal_t value_ordinal;
@@ -232,6 +238,8 @@ typedef struct loom_low_allocation_target_constraints_t {
   loom_low_allocation_resolved_reserved_range_t* reserved_ranges;
   // Number of entries in |reserved_ranges|.
   iree_host_size_t reserved_range_count;
+  // Spatially ordered immutable reservation ranges for linear storage queries.
+  loom_low_allocation_reserved_range_index_entry_t* reserved_range_index;
   // Maximum allocated value or move-scratch location end indexed by
   // descriptor register class ID.
   uint32_t* max_assigned_location_end_by_reg_class;
@@ -251,18 +259,28 @@ iree_status_t loom_low_allocation_target_constraints_initialize(
     iree_arena_allocator_t* arena,
     loom_low_allocation_target_constraints_t* out_constraints);
 
-// Resolves fixed values into complete assignments after |unit_liveness| has
-// been initialized and propagated for |liveness|. Required ties in |placement|
-// propagate explicit bindings; contradictory bindings diagnose at this
-// boundary.
-iree_status_t loom_low_allocation_target_constraints_resolve_fixed_values(
+// Validates fixed requests and propagates locations through required ties.
+// Collected operand constraints and flattened origins precede placement
+// indexing. Only location facts are available until finalize_fixed_values
+// attaches the refined lifetimes and publishes the fixed-storage conflict
+// index.
+iree_status_t loom_low_allocation_target_constraints_resolve_fixed_locations(
     loom_low_allocation_target_constraints_t* constraints,
     const loom_liveness_analysis_t* liveness,
     const loom_local_value_domain_t* value_domain,
-    const loom_low_allocation_unit_liveness_t* unit_liveness,
-    const loom_low_placement_table_t* placement,
+    const loom_low_placement_operand_constraints_t*
+        operand_constraints_by_interval,
+    const loom_value_ordinal_t* tied_storage_origins_by_value_ordinal,
     const loom_low_allocation_fixed_value_t* fixed_values,
     iree_host_size_t fixed_value_count, iree_arena_allocator_t* arena);
+
+// Attaches propagated storage lifetimes to normalized fixed locations and
+// publishes their complete assignments and fixed-storage conflict index.
+iree_status_t loom_low_allocation_target_constraints_finalize_fixed_values(
+    loom_low_allocation_target_constraints_t* constraints,
+    const loom_liveness_analysis_t* liveness,
+    const loom_low_allocation_unit_liveness_t* unit_liveness,
+    iree_arena_allocator_t* arena);
 
 // Diagnoses a fixed binding whose required storage conflicts with another
 // live value, asynchronous lease, reserved range, or implicit physical write.
@@ -359,6 +377,29 @@ bool loom_low_allocation_target_constraints_reserved_range_conflicts(
     const loom_low_allocation_target_constraints_t* constraints,
     uint16_t reg_class_id, loom_low_allocation_location_kind_t location_kind,
     uint32_t location_base, uint32_t location_count);
+
+// Returns true when static reservations can provide ordered availability for
+// |candidate|. Eligible candidates use one continuous unit in a linear
+// register class; every other constraint still requires its normal query.
+bool loom_low_allocation_target_constraints_can_order_reserved_candidate(
+    const loom_low_allocation_target_constraints_t* constraints,
+    const loom_low_allocation_assignment_t* candidate);
+
+// Finds the first location at or after |minimum_base| outside every static
+// reservation, bounded by |maximum_base|. |candidate| must satisfy the ordered
+// reservation predicate above.
+bool loom_low_allocation_target_constraints_find_next_unreserved_location(
+    const loom_low_allocation_target_constraints_t* constraints,
+    const loom_low_allocation_assignment_t* candidate, uint32_t minimum_base,
+    uint32_t maximum_base, uint32_t* out_base);
+
+// Finds the last location at or before |maximum_base| outside every static
+// reservation, bounded by |minimum_base|. Preconditions match the forward
+// query above.
+bool loom_low_allocation_target_constraints_find_previous_unreserved_location(
+    const loom_low_allocation_target_constraints_t* constraints,
+    const loom_low_allocation_assignment_t* candidate, uint32_t minimum_base,
+    uint32_t maximum_base, uint32_t* out_base);
 
 #ifdef __cplusplus
 }  // extern "C"

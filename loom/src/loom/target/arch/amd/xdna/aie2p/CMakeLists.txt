@@ -170,6 +170,20 @@ endif()
 if(LOOM_TARGET_ARCH_XDNA)
 loom_cc_library(
   NAME
+    vector_carrier
+  HDRS
+    "vector_carrier.h"
+  SRCS
+    "vector_carrier.c"
+  DEPS
+    loom::ir
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+loom_cc_library(
+  NAME
     gather
   HDRS
     "gather.h"
@@ -215,15 +229,16 @@ loom_cc_library(
     legalization
   HDRS
     "legalization.h"
-    "legalization_compare.h"
+    "legalization_float.h"
     "legalization_table.h"
   SRCS
     "legalization.c"
-    "legalization_compare.c"
+    "legalization_float.c"
     "legalization_table.c"
   DEPS
     ::core_descriptors
     ::gather
+    ::vector_carrier
     iree::base
     loom::codegen::low::source_memory_plan
     loom::ir
@@ -237,6 +252,7 @@ loom_cc_library(
     loom::transforms::vector::target_legalization
     loom::transforms::vector::to_scalar
     loom::util::fact_table
+    loom::util::numeric_format
   PUBLIC
 )
 endif()
@@ -435,7 +451,7 @@ loom_cc_library(
     "lower/lower.h"
     "lower/matrix.h"
     "lower/rodata.h"
-    "lower/storage.h"
+    "lower/shuffle.h"
   TEXTUAL_HDRS
     "${IREE_BINARY_DIR}/loom/src/loom/target/arch/amd/xdna/aie2p/contracts/core_index.inl"
   SRCS
@@ -443,10 +459,11 @@ loom_cc_library(
     "lower/matrix.c"
     "lower/registry.c"
     "lower/rodata.c"
-    "lower/storage.c"
+    "lower/shuffle.c"
   DEPS
     ::core_descriptors
     ::gather
+    ::vector_carrier
     iree::base
     loom::analysis::contract_vector
     loom::codegen::low::lower
@@ -460,6 +477,7 @@ loom_cc_library(
     loom::target::arch::amd::xdna::aie2p::contracts::core
     loom::target::arch::amd::xdna::aie2p::contracts::core_lower_rules
     loom::target::arch::amd::xdna::error_defs
+    loom::target::contract
     loom::util::fact_table
   PUBLIC
 )
@@ -565,6 +583,7 @@ loom_cc_library(
     ::array_plan
     ::array_program
     ::array_resident
+    ::core_descriptors
     ::leaf_compile
     ::machine
     ::provider
@@ -631,6 +650,7 @@ loom_check_test_suite(
     "test/array_plan/record_contracts.loom-test"
     "test/array_plan/ring_wrap.loom-test"
     "test/array_plan/route_capacity.loom-test"
+    "test/array_plan/schedule_contracts.loom-test"
     "test/array_plan/shim_resource_admission.loom-test"
     "test/array_plan/strided_transfer.loom-test"
     "test/array_plan/temporal_fold.loom-test"
@@ -641,6 +661,7 @@ loom_check_test_suite(
     "test/array_plan/worker_interface_admission.loom-test"
     "test/array_plan/worker_rate_admission.loom-test"
     "test/array_plan/worker_storage_admission.loom-test"
+    "test/canonicalize/adjacent_add.loom-test"
     "test/descriptors/bf16_comparison.loom-test"
     "test/descriptors/bfp_move.loom-test"
     "test/descriptors/cascade.loom-test"
@@ -661,6 +682,7 @@ loom_check_test_suite(
     "test/descriptors/scalar_immediates.loom-test"
     "test/descriptors/scalar_nonlinear.loom-test"
     "test/descriptors/scalar_stream.loom-test"
+    "test/expansion_report.loom-test"
     "test/leaf_alignment.loom-test"
     "test/leaf_allocation.loom-test"
     "test/leaf_expansion_timing.loom-test"
@@ -670,6 +692,7 @@ loom_check_test_suite(
     "test/leaf_schedule.loom-test"
     "test/leaf_state_read_timing.loom-test"
     "test/math_contraction.loom-test"
+    "test/math_policy_activations.loom-test"
     "test/module_contracts.loom-test"
     "test/pipeline_composition.loom-test"
     "test/pipeline_ports.loom-test"
@@ -682,11 +705,14 @@ loom_check_test_suite(
     "test/source_low/callable_returns.loom-test"
     "test/source_low/callable_values.loom-test"
     "test/source_low/carried_counter_store.loom-test"
+    "test/source_low/component_packetization.loom-test"
+    "test/source_low/component_packetization_report.loom-test"
     "test/source_low/function_storage.loom-test"
     "test/source_low/fused_packet_memory.loom-test"
     "test/source_low/immutable_gather.loom-test"
     "test/source_low/index_conversion.loom-test"
     "test/source_low/integer_float_conversion.loom-test"
+    "test/source_low/integer_narrowing.loom-test"
     "test/source_low/lookup_table.loom-test"
     "test/source_low/lookup_table_vector.loom-test"
     "test/source_low/loop_counter_offset.loom-test"
@@ -694,6 +720,7 @@ loom_check_test_suite(
     "test/source_low/matrix_multiply.loom-test"
     "test/source_low/matrix_store.loom-test"
     "test/source_low/memory_access_flags.loom-test"
+    "test/source_low/memory_address_bias_boundaries.loom-test"
     "test/source_low/memory_biased_offsets.loom-test"
     "test/source_low/memory_chunked_vector.loom-test"
     "test/source_low/memory_float8.loom-test"
@@ -721,7 +748,7 @@ loom_check_test_suite(
     "test/source_low/numeric_conversion_fp8_packet.loom-test"
     "test/source_low/numeric_conversion_materialized.loom-test"
     "test/source_low/numeric_conversion_wide.loom-test"
-    "test/source_low/numeric_decode_mxfp8.loom-test"
+    "test/source_low/numeric_decode_mx.loom-test"
     "test/source_low/numeric_f32.loom-test"
     "test/source_low/numeric_f32_packetization.loom-test"
     "test/source_low/numeric_float8_constants.loom-test"
@@ -750,6 +777,7 @@ loom_check_test_suite(
     "test/source_low/numeric_scalar_i64_subtract.loom-test"
     "test/source_low/numeric_unsigned_constant_division.loom-test"
     "test/source_low/numeric_unsigned_remainder.loom-test"
+    "test/source_low/numeric_vector_i64_bitwise.loom-test"
     "test/source_low/packed_bitfield.loom-test"
     "test/source_low/packed_bitpack.loom-test"
     "test/source_low/packed_concat_tail.loom-test"
@@ -760,6 +788,7 @@ loom_check_test_suite(
     "test/source_low/packed_vector_select.loom-test"
     "test/source_low/packet_snapshot_staging.loom-test"
     "test/source_low/packet_source_reads.loom-test"
+    "test/source_low/predicate_concat.loom-test"
     "test/source_low/predicate_extension.loom-test"
     "test/source_low/predicate_extract.loom-test"
     "test/source_low/predicate_storage_reuse.loom-test"
@@ -768,12 +797,14 @@ loom_check_test_suite(
     "test/source_low/semantic_assertions.loom-test"
     "test/source_low/shared_conditional_values.loom-test"
     "test/source_low/split_barrier.loom-test"
+    "test/source_low/static_vector_shape.loom-test"
     "test/source_low/table_quantize.loom-test"
     "test/source_low/target_legalize_scalar_multiply_add.loom-test"
     "test/source_low/uniform_predicate_control.loom-test"
     "test/source_low/vector_accumulator_slice.loom-test"
     "test/source_low/vector_bitcast.loom-test"
     "test/source_low/vector_comparison.loom-test"
+    "test/source_low/vector_comparison_packetization.loom-test"
     "test/source_low/vector_concat.loom-test"
     "test/source_low/vector_concat_accumulator.loom-test"
     "test/source_low/vector_constant.loom-test"
@@ -785,9 +816,14 @@ loom_check_test_suite(
     "test/source_low/vector_partial_carriers.loom-test"
     "test/source_low/vector_predicate.loom-test"
     "test/source_low/vector_select_packetization.loom-test"
+    "test/source_low/vector_shuffle.loom-test"
+    "test/source_low/vector_shuffle_report.loom-test"
     "test/source_low/vector_slice.loom-test"
     "test/source_low/vector_splat.loom-test"
     "test/source_low/vector_structural.loom-test"
+    "test/target_legalize_report.loom-test"
+    "test/vector_float_extrema.loom-test"
+    "test/vector_insert_packetization.loom-test"
   RUNNER
     ::loom-check
   TEST_NAME_PREFIX_TO_STRIP
@@ -874,7 +910,6 @@ loom_cc_library(
     ::relocation
     iree::base
     iree::base::internal::arena
-    iree::schemas::xdna_executable
     loom::target::emit::native::object
   PUBLIC
 )
@@ -895,6 +930,7 @@ loom_cc_library(
     iree::base
     iree::base::internal::arena
     loom::analysis::symbol_facts
+    loom::codegen::low::allocation::diagnostics
     loom::codegen::low::allocation::target_constraints
     loom::codegen::low::descriptors
     loom::codegen::low::frame
@@ -942,6 +978,7 @@ loom_cc_library(
     iree::schemas::xdna_executable
     loom::target::arch::amd::xdna::device_profile
     loom::target::emit::native::elf
+    loom::target::emit::native::elf_sections
   PUBLIC
 )
 endif()
@@ -961,6 +998,7 @@ loom_cc_library(
     ::array_program
     ::array_resident
     ::leaf_compile
+    ::provider
     ::target_facts
     ::target_profile
     ::tile_link

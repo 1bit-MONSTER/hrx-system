@@ -188,8 +188,9 @@ class AmdgpuNativePreflightTest : public ::testing::Test {
     schedule.module = module_;
     schedule.function_op = function_op_;
     schedule.target = ResolvedTarget(descriptor_set);
-    loom_low_storage_layout_builder_finish(
-        &storage_layout_builder_, &schedule.requirements.storage_layout);
+    IREE_CHECK_OK(loom_low_storage_layout_builder_finish(
+        &storage_layout_builder_, &table_arena_,
+        &schedule.requirements.storage_layout));
     return schedule;
   }
 
@@ -234,10 +235,6 @@ TEST_F(AmdgpuNativePreflightTest,
 
   loom_low_allocation_assignment_t assignment = {};
   assignment.value_id = 0;
-  assignment.value_class.type_kind = LOOM_TYPE_REGISTER;
-  assignment.value_class.register_descriptor_set_stable_id =
-      descriptor_set->stable_id;
-  assignment.value_class.register_class_id = agpr_reg_class_id;
   assignment.descriptor_reg_class_id = agpr_reg_class_id;
   assignment.unit_count = 4;
   assignment.location_kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER;
@@ -276,10 +273,6 @@ TEST_F(AmdgpuNativePreflightTest, UsesCompleteRetainedRegisterExtents) {
   loom_low_schedule_table_t schedule = Schedule(descriptor_set);
   loom_low_allocation_assignment_t assignments[2] = {};
   for (loom_low_allocation_assignment_t& assignment : assignments) {
-    assignment.value_class.type_kind = LOOM_TYPE_REGISTER;
-    assignment.value_class.register_descriptor_set_stable_id =
-        descriptor_set->stable_id;
-    assignment.value_class.register_class_id = LOOM_AMDGPU_REG_CLASS_ID_SGPR;
     assignment.descriptor_reg_class_id = LOOM_AMDGPU_REG_CLASS_ID_SGPR;
     assignment.unit_count = 1;
     assignment.location_kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER;

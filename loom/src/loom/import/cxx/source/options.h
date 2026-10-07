@@ -48,15 +48,17 @@ typedef struct loom_cxx_source_provider_t {
   void* user_data;
 } loom_cxx_source_provider_t;
 
-// Observes source bytes immediately before preprocessing admits them. This
-// includes the main source and headers from every lookup mechanism, including
-// embedded headers. Views are borrowed for the callback; consumers retaining
-// source text for later diagnostics copy it here. A failure aborts import.
+// Observes exact source bytes when translation first retains a location from
+// them. |source_id| is the stable ID already assigned in the output module.
+// Headers that contribute no retained IR location are not observed. Views are
+// borrowed for the callback; consumers retaining source text copy it here. A
+// failure aborts import.
 typedef iree_status_t (*loom_cxx_source_observer_fn_t)(
-    void* user_data, iree_string_view_t filename, iree_string_view_t source);
+    void* user_data, loom_source_id_t source_id, iree_string_view_t filename,
+    iree_string_view_t source);
 
 typedef struct loom_cxx_source_observer_t {
-  // Optional source admission callback.
+  // Optional translated-source retention callback.
   loom_cxx_source_observer_fn_t fn;
   // Caller-owned state borrowed for the duration of import.
   void* user_data;

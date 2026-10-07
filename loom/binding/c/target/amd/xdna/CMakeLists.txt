@@ -22,7 +22,6 @@ loom_cc_library(
   DEPS
     loom::binding::c::loomc
     loom::target::arch::amd::xdna::aie2p::artifact
-    loom::target::arch::amd::xdna::aie2p::provider
     loom::target::arch::amd::xdna::aie2p::target_profile
   ALWAYSLINK
   PUBLIC

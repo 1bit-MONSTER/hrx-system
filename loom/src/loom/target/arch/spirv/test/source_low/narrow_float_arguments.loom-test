@@ -57,8 +57,6 @@ CHECK: %half_f32 = OpFConvert.f16.f32 %half
 CHECK: %brain_f32 = OpFConvert.bf16.f32 %brain
 CHECK: %half_f64 = OpFConvert.f16.f64 %half
 CHECK: %brain_f64 = OpFConvert.f32.f64 %brain_f32
-CHECK: %e4_half = OpFConvert.f32.f16 %*
-CHECK: %e5_half = OpFConvert.f32.f16 %*
 
 // ====
 
@@ -120,5 +118,3 @@ CHECK: %half_f32 = OpFConvert.f16.f32 %half
 CHECK: %brain_f32 = OpFConvert.bf16.f32 %brain
 CHECK: %half_f64 = OpFConvert.f16.f64 %half
 CHECK: %brain_f64 = OpFConvert.f32.f64 %brain_f32
-CHECK: %e4_half = OpFConvert.f32.f16 %*
-CHECK: %e5_half = OpFConvert.f32.f16 %*

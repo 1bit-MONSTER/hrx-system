@@ -1755,8 +1755,8 @@ static iree_status_t loom_amdgpu_encode_storage_address_packet(
   const loom_op_t* op = packet->node->op;
   loom_amdgpu_storage_layout_reference_t reference;
   loom_amdgpu_storage_layout_lookup_reference(
-      state->inputs.storage_layout, state->inputs.schedule->module,
-      loom_low_storage_address_storage(op), &reference);
+      state->inputs.storage_layout, loom_low_storage_address_storage(op),
+      &reference);
   const uint64_t offset = (uint64_t)loom_low_storage_address_offset(op);
   uint64_t byte_offset = reference.reservation.byte_offset;
   if (byte_offset > UINT32_MAX ||

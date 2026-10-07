@@ -1402,6 +1402,78 @@ static bool loom_vector_bitcast_element_facts(
          loom_value_facts_is_nan(*out_facts);
 }
 
+// Reinterprets exact small integer vectors whose bitcast changes lane width.
+// Vector lane zero owns the low bits of the packed value, and successively
+// wider lanes retain that order. Integer widths are powers of two, so each
+// result lane either partitions one source lane or joins consecutive source
+// lanes without crossing both kinds of boundary.
+static iree_status_t loom_vector_bitcast_reshaped_integer_facts(
+    loom_fact_context_t* context, loom_type_t source_type,
+    loom_type_t result_type, loom_value_facts_t source_facts,
+    loom_value_facts_t* out_facts, bool* out_handled) {
+  *out_handled = false;
+  int32_t source_width = 0;
+  int32_t result_width = 0;
+  iree_host_size_t source_count = 0;
+  iree_host_size_t result_count = 0;
+  if (!loom_vector_integer_element_bitwidth(source_type, &source_width) ||
+      !loom_vector_integer_element_bitwidth(result_type, &result_width) ||
+      !loom_vector_type_static_lane_count(source_type, &source_count) ||
+      !loom_vector_type_static_lane_count(result_type, &result_count) ||
+      source_count == result_count ||
+      source_count > LOOM_VALUE_FACT_SMALL_STATIC_LANE_LIMIT ||
+      result_count > LOOM_VALUE_FACT_SMALL_STATIC_LANE_LIMIT ||
+      source_count * (iree_host_size_t)source_width !=
+          result_count * (iree_host_size_t)result_width ||
+      (source_width % result_width != 0 && result_width % source_width != 0)) {
+    return iree_ok_status();
+  }
+
+  uint64_t source_bits[LOOM_VALUE_FACT_SMALL_STATIC_LANE_LIMIT] = {0};
+  for (iree_host_size_t lane = 0; lane < source_count; ++lane) {
+    loom_value_facts_t lane_facts = {0};
+    if (!loom_vector_facts_query_lane(context, source_facts, lane,
+                                      &lane_facts) ||
+        !loom_value_facts_as_exact_raw_bits(lane_facts, source_width,
+                                            &source_bits[lane])) {
+      return iree_ok_status();
+    }
+  }
+
+  loom_value_facts_t result_lanes[LOOM_VALUE_FACT_SMALL_STATIC_LANE_LIMIT] = {
+      {0}};
+  if (source_width > result_width) {
+    const iree_host_size_t results_per_source =
+        (iree_host_size_t)(source_width / result_width);
+    for (iree_host_size_t lane = 0; lane < result_count; ++lane) {
+      const iree_host_size_t source_lane = lane / results_per_source;
+      const uint32_t shift =
+          (uint32_t)(lane % results_per_source) * (uint32_t)result_width;
+      const uint64_t raw_bits = iree_math_mask_low_bits_u64(
+          source_bits[source_lane] >> shift, result_width);
+      result_lanes[lane] = loom_vector_make_integer_raw_bit_facts(
+          raw_bits, loom_type_element_type(result_type));
+    }
+  } else {
+    const iree_host_size_t sources_per_result =
+        (iree_host_size_t)(result_width / source_width);
+    for (iree_host_size_t lane = 0; lane < result_count; ++lane) {
+      uint64_t raw_bits = 0;
+      const iree_host_size_t source_base = lane * sources_per_result;
+      for (iree_host_size_t part = 0; part < sources_per_result; ++part) {
+        const uint32_t shift = (uint32_t)part * (uint32_t)source_width;
+        raw_bits |= source_bits[source_base + part] << shift;
+      }
+      result_lanes[lane] = loom_vector_make_integer_raw_bit_facts(
+          raw_bits, loom_type_element_type(result_type));
+    }
+  }
+
+  *out_handled = true;
+  return loom_vector_make_small_static_lane_facts(context, result_lanes,
+                                                  result_count, out_facts);
+}
+
 static bool loom_vector_transform_eval_float_binary(
     loom_scalar_type_t scalar_type, loom_value_facts_t lhs,
     loom_value_facts_t rhs, loom_float_binary_f32_fn_t f32_fn,
@@ -2308,6 +2380,7 @@ iree_status_t loom_vector_slice_facts(loom_fact_context_t* context,
   const loom_value_id_t result = loom_vector_slice_result(op);
   if (rank == 1 && static_offsets.i64_array[0] >= 0 &&
       static_offsets.i64_array[0] <= UINT32_MAX) {
+    const uint32_t slice_offset = (uint32_t)static_offsets.i64_array[0];
     loom_value_fact_static_lane_origin_t source_origin = {
         .source_value_id = source,
         .source_lane_offset = 0,
@@ -2320,8 +2393,7 @@ iree_status_t loom_vector_slice_facts(loom_fact_context_t* context,
     }
     const uint64_t source_lane_offset =
         (uint64_t)source_origin.source_lane_offset +
-        (uint64_t)(uint32_t)static_offsets.i64_array[0] *
-            (uint64_t)source_origin.source_lane_stride;
+        (uint64_t)slice_offset * (uint64_t)source_origin.source_lane_stride;
     if (source_lane_offset <= UINT32_MAX) {
       IREE_RETURN_IF_ERROR(loom_value_fact_table_define_static_lane_origin(
           context->table, result,
@@ -2331,6 +2403,51 @@ iree_status_t loom_vector_slice_facts(loom_fact_context_t* context,
               .source_lane_stride = source_origin.source_lane_stride,
           }));
     }
+
+    loom_value_fact_exact_lane_origin_t exact_source_origin = {
+        .source_value_id = source,
+        .source_lane_offset = 0,
+        .source_lane_stride = 1,
+    };
+    loom_value_fact_exact_lane_origin_t existing_exact_origin = {0};
+    if (loom_value_fact_table_query_exact_lane_origin(
+            context->table, module, source, &existing_exact_origin)) {
+      exact_source_origin = existing_exact_origin;
+    }
+    const uint64_t exact_source_lane_offset =
+        (uint64_t)exact_source_origin.source_lane_offset +
+        (uint64_t)slice_offset *
+            (uint64_t)exact_source_origin.source_lane_stride;
+    if (exact_source_lane_offset <= UINT32_MAX) {
+      IREE_RETURN_IF_ERROR(loom_value_fact_table_define_exact_lane_origin(
+          context->table, result,
+          (loom_value_fact_exact_lane_origin_t){
+              .source_value_id = exact_source_origin.source_value_id,
+              .source_lane_offset = (uint32_t)exact_source_lane_offset,
+              .source_lane_stride = exact_source_origin.source_lane_stride,
+          }));
+    }
+
+    loom_value_id_t scalar_origin = LOOM_VALUE_ID_INVALID;
+    loom_value_id_t exact_scalar_origin = LOOM_VALUE_ID_INVALID;
+    if (loom_value_fact_table_query_uniform_element_origin(
+            context->table, module, source, &scalar_origin) &&
+        loom_value_fact_table_query_exact_uniform_element_origin(
+            context->table, module, source, &exact_scalar_origin)) {
+      IREE_RETURN_IF_ERROR(loom_value_fact_table_define_uniform_element_origin(
+          context->table, result, scalar_origin, exact_scalar_origin));
+    }
+  }
+
+  // Slicing a uniform vector preserves its element value regardless of the
+  // result lane count. Keep this path independent of the bounded per-lane
+  // representation below so large vectors do not discard an exact fact that
+  // needs no lane enumeration.
+  loom_value_facts_t uniform_element = {0};
+  if (loom_vector_facts_query_uniform_element(context, operand_facts[0],
+                                              &uniform_element)) {
+    return loom_value_facts_make_uniform_element(context, uniform_element,
+                                                 &result_facts[0]);
   }
 
   iree_host_size_t result_lane_count = 0;
@@ -3133,8 +3250,17 @@ static iree_status_t loom_vector_try_define_exact_same_lane_origin(
   };
   loom_value_fact_exact_lane_origin_t existing_origin = {0};
   if (loom_value_fact_table_query_exact_lane_origin(context->table, module,
-                                                    source, &existing_origin)) {
-    source_origin = existing_origin;
+                                                    source, &existing_origin) &&
+      existing_origin.source_lane_offset == 0 &&
+      existing_origin.source_lane_stride == 1) {
+    iree_host_size_t existing_source_lane_count = 0;
+    const loom_type_t existing_source_type =
+        loom_module_value_type(module, existing_origin.source_value_id);
+    if (loom_vector_type_static_lane_count(existing_source_type,
+                                           &existing_source_lane_count) &&
+        existing_source_lane_count == source_lane_count) {
+      source_origin = existing_origin;
+    }
   }
   return loom_value_fact_table_define_exact_lane_origin(context->table, result,
                                                         source_origin);
@@ -3930,6 +4056,13 @@ iree_status_t loom_vector_bitcast_facts(loom_fact_context_t* context,
   iree_host_size_t lane_count = 0;
   if (!loom_vector_same_static_lane_count(source_type, result_type,
                                           &lane_count)) {
+    bool handled = false;
+    IREE_RETURN_IF_ERROR(loom_vector_bitcast_reshaped_integer_facts(
+        context, source_type, result_type, operand_facts[0], &result_facts[0],
+        &handled));
+    if (handled) {
+      return iree_ok_status();
+    }
     return loom_vector_make_unknown_facts(result_facts);
   }
 

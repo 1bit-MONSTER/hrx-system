@@ -48,6 +48,8 @@ loom_cc_library(
     loom::import::cxx::binding::intrinsics
     loom::import::cxx::binding::launch
     loom::import::cxx::binding::parameter_contracts
+    loom::import::cxx::binding::target_definitions
+    loom::import::cxx::binding::template_definitions
     loom::import::cxx::source
     loom::import::cxx::source::attributes
     loom::import::cxx::source::error
@@ -58,6 +60,7 @@ loom_cc_library(
     loom::ops::check
     loom::ops::func
     loom::ops::kernel
+    loom::ops::template
   PUBLIC
 )
 endif()
@@ -78,6 +81,7 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     iree::third_party::cxx_parser
+    loom::import::cxx::binding::template_definitions
     loom::import::cxx::value::builder_test
     loom::ops::check
     loom::ops::func

@@ -80,20 +80,6 @@ bool loom_compile_pipeline_is_named(iree_string_view_t pipeline) {
   return iree_string_view_starts_with_char(pipeline, '@');
 }
 
-static iree_status_t loom_compile_pipeline_registry_initialize(
-    const loom_target_environment_t* target_environment,
-    loom_pass_registry_storage_t* out_storage,
-    const loom_pass_registry_t** out_registry) {
-  const loom_pass_registry_t* registries[] = {
-      loom_pass_builtin_registry(),
-      loom_target_environment_pass_registry(target_environment),
-  };
-  IREE_RETURN_IF_ERROR(loom_pass_registry_storage_initialize_from_registries(
-      registries, IREE_ARRAYSIZE(registries), out_storage));
-  *out_registry = loom_pass_registry_storage_registry(out_storage);
-  return iree_ok_status();
-}
-
 static iree_status_t loom_compile_build_default_pipeline(
     loom_module_t* pipeline_module,
     const loom_compile_pipeline_options_t* options,
@@ -216,16 +202,16 @@ iree_status_t loom_compile_run_pipeline(
                             "require a target environment");
   }
   if (!loom_compile_pipeline_is_disabled(pipeline) &&
-      options->low_descriptor_registry == NULL) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "Loom compile pass pipelines require a target-low "
-                            "descriptor registry");
-  }
-  if (!loom_compile_pipeline_is_disabled(pipeline) &&
       options->cleanup_pattern_provider_set == NULL) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
         "Loom compile pass pipelines require cleanup pattern providers");
+  }
+
+  loom_target_low_descriptor_registry_t low_descriptor_registry = {0};
+  if (options->target_environment != NULL) {
+    low_descriptor_registry = loom_target_environment_low_descriptor_registry(
+        options->target_environment);
   }
 
   const loom_target_entry_options_t entry_options = {
@@ -250,8 +236,10 @@ iree_status_t loom_compile_run_pipeline(
       loom_low_verify_scratch_for_module(module);
   loom_low_verify_result_t low_verify_result = {0};
   IREE_RETURN_IF_ERROR(loom_target_entry_verify_low_module(
-      module, options->low_descriptor_registry, &entry_options,
-      &verifier_emitter, LOOM_COMPILE_DEFAULT_MAX_PIPELINE_ERRORS,
+      module,
+      options->target_environment != NULL ? &low_descriptor_registry : NULL,
+      &entry_options, &verifier_emitter,
+      LOOM_COMPILE_DEFAULT_MAX_PIPELINE_ERRORS,
       options->target_environment
           ? loom_target_environment_low_verify_provider_list(
                 options->target_environment)
@@ -284,20 +272,17 @@ iree_status_t loom_compile_run_pipeline(
   }
 
   loom_pass_registry_storage_t pass_registry_storage = {0};
-  const loom_pass_registry_t* pass_registry = NULL;
-  status = loom_compile_pipeline_registry_initialize(
-      options->target_environment, &pass_registry_storage, &pass_registry);
+  status = loom_pass_registry_storage_initialize_with_builtins(
+      loom_target_environment_pass_registry(options->target_environment),
+      &pass_registry_storage);
+  const loom_pass_registry_t* pass_registry =
+      loom_pass_registry_storage_registry(&pass_registry_storage);
 
-  loom_low_lower_policy_registry_t low_lower_policy_registry = {0};
-  if (iree_status_is_ok(status)) {
-    status = loom_target_environment_initialize_low_lower_policy_registry(
-        options->target_environment, &low_lower_policy_registry);
-  }
-  loom_target_math_policy_registry_t math_policy_registry = {0};
-  if (iree_status_is_ok(status)) {
-    status = loom_target_environment_initialize_math_policy_registry(
-        options->target_environment, &math_policy_registry);
-  }
+  const loom_low_lower_policy_registry_t low_lower_policy_registry =
+      loom_target_environment_low_lower_policy_registry(
+          options->target_environment);
+  const loom_target_math_policy_registry_t math_policy_registry =
+      loom_target_environment_math_policy_registry(options->target_environment);
   const loom_target_low_legality_provider_list_t low_legality_provider_list =
       loom_target_environment_low_legality_provider_list(
           options->target_environment);
@@ -348,7 +333,7 @@ iree_status_t loom_compile_run_pipeline(
     trace_ptr = &trace;
   }
   const loom_codegen_pass_environment_options_t environment_options = {
-      .descriptor_registry = &options->low_descriptor_registry->registry,
+      .descriptor_registry = &low_descriptor_registry.registry,
       .lower_policy_registry = &low_lower_policy_registry,
       .legality_provider_list = &low_legality_provider_list,
       .legalizer_registry = loom_target_legalizer_registry_storage_registry(
@@ -359,12 +344,15 @@ iree_status_t loom_compile_run_pipeline(
       .cleanup_pattern_registry =
           loom_cleanup_pattern_registry_storage_registry(
               &cleanup_pattern_registry_storage),
+      .launch_config_capability = options->launch_config_capability,
   };
+  const loom_pass_environment_t pass_environment =
+      loom_codegen_pass_environment_storage_initialize_mutable(
+          &environment_options, &out_result->function_versions,
+          &codegen_environment_storage);
   loom_pass_tool_run_options_t run_options = {
       .registry = pass_registry,
-      .environment = loom_codegen_pass_environment_storage_initialize_mutable(
-          &environment_options, &out_result->function_versions,
-          &codegen_environment_storage),
+      .environment = pass_environment,
       .function_versions = &out_result->function_versions.list,
       .predicate_provider =
           loom_target_pass_predicate_provider(&predicate_storage),

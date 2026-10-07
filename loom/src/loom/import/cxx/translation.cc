@@ -31,10 +31,13 @@
 #include "loom/import/cxx/binding/intrinsics.h"
 #include "loom/import/cxx/binding/launch.h"
 #include "loom/import/cxx/binding/loop_schedule.h"
+#include "loom/import/cxx/binding/target_definitions.h"
+#include "loom/import/cxx/binding/template_definitions.h"
 #include "loom/import/cxx/check.h"
 #include "loom/import/cxx/control/analysis.h"
 #include "loom/import/cxx/source/attributes.h"
 #include "loom/import/cxx/source/error.h"
+#include "loom/import/cxx/source/expressions.h"
 #include "loom/import/cxx/source/locations.h"
 #include "loom/import/cxx/source/source.h"
 #include "loom/import/cxx/symbol/functions.h"
@@ -51,6 +54,7 @@
 #include "loom/ops/kernel/ops.h"
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/scf/ops.h"
+#include "loom/ops/template/ops.h"
 #include "loom/ops/vector/ops.h"
 
 namespace loom::cxx_import {
@@ -62,17 +66,20 @@ class Translator {
       : unit_(unit),
         diagnostics_(diagnostics),
         module_(module),
-        locations_(unit, diagnostics, module),
+        locations_(unit, diagnostics, module, options.source_observer),
         types_(unit, diagnostics),
         scalars_(unit, diagnostics, types_, locations_, builder_),
         names_(unit, diagnostics),
         configs_(unit, diagnostics, types_, scalars_, locations_, names_),
+        target_definitions_(unit, diagnostics, locations_, names_, module),
+        template_definitions_(unit, diagnostics),
         vectors_(unit, diagnostics, types_, scalars_, locations_, builder_),
         storage_(unit, diagnostics, types_, scalars_, locations_, builder_),
-        intrinsics_(unit, diagnostics, types_, module),
         launches_(unit, diagnostics),
+        intrinsics_(unit, diagnostics, types_, locations_, names_, launches_,
+                    module),
         functions_(unit, diagnostics, module, intrinsics_, launches_, configs_,
-                   names_),
+                   target_definitions_, template_definitions_, names_),
         options_(options),
         math_flags_(iree_any_bit_set(options.flags,
                                      LOOM_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS)
@@ -99,12 +106,21 @@ class Translator {
   void require_kernel_context(cxx::AST* owner) {
     // Required inlining defers the IR ancestor requirement until expansion.
     if (current_function_.kind == FunctionKind::Kernel ||
+        current_function_.kind == FunctionKind::TemplateDefinition ||
         (current_function_.kind == FunctionKind::Ordinary &&
          loom_func_def_inline_policy(current_function_.operation) ==
              LOOM_INLINE_POLICY_INLINE)) {
       return;
     }
     fail(owner, "kernel intrinsic requires a kernel or force-inline helper");
+  }
+
+  void require_launch_configuration_context(cxx::AST* owner) {
+    if (current_function_.kind != FunctionKind::LaunchConfiguration &&
+        current_function_.kind != FunctionKind::ClusteredLaunchConfiguration) {
+      fail(owner,
+           "target launch query requires a kernel configuration function");
+    }
   }
 
   Value convert(cxx::ExpressionAST* input_ast, const cxx::Type* output_type,
@@ -158,7 +174,8 @@ class Translator {
 
   loom_value_id_t name(loom_value_id_t value, const std::string& hint) {
     // A C++ alias of an existing SSA value keeps the original value's name.
-    if (loom_module_value(module_, value)->name_id == LOOM_STRING_ID_INVALID) {
+    if (!hint.empty() &&
+        loom_module_value(module_, value)->name_id == LOOM_STRING_ID_INVALID) {
       check(loom_module_set_value_name(module_, value, string(hint)));
     }
     return value;
@@ -224,8 +241,23 @@ class Translator {
   };
 
   void function(cxx::FunctionSymbol* symbol) {
-    current_function_ =
-        functions_.define(symbol, types_, locations_, &builder_);
+    auto defined = functions_.define(symbol, types_, locations_, &builder_);
+    if (defined.configuration) {
+      function_body(*defined.configuration);
+      auto* region = defined.configuration->region;
+      if (loom_region_has_read_effects(region) ||
+          loom_region_has_write_effects(region) ||
+          loom_region_has_convergent_effects(region) ||
+          loom_region_has_observable_effects(region)) {
+        fail(defined.configuration->source,
+             "kernel configuration body must be pure");
+      }
+    }
+    function_body(defined.body);
+  }
+
+  void function_body(const FunctionBody& body_contract) {
+    current_function_ = body_contract;
     const auto& defined = current_function_;
     auto* body = defined.body;
     auto* op = defined.operation;
@@ -237,7 +269,7 @@ class Translator {
       loom_builder_restore(&builder_, saved);
       return;
     }
-    auto parameters = symbol->parameters();
+    auto parameters = defined.source->symbol->parameters();
     control_.emplace(unit_, diagnostics_, types_, body);
     auto saved = loom_builder_enter_region(&builder_, op, region);
     values_.clear();
@@ -247,8 +279,8 @@ class Translator {
     size_t parameter_index = 0;
     for (auto* parameter : parameters) {
       bool kernel = defined.kind == FunctionKind::Kernel;
-      const auto& partition =
-          types_.partition(parameter->type(), defined.source);
+      auto* value_type = types_.unqualified(parameter->type());
+      const auto& partition = types_.partition(value_type, defined.source);
       auto value = region_value(region, argument_index,
                                 kernel ? kSSAPartition : partition);
       if (partition.kind == ValueKind::Pointer && kernel) {
@@ -261,7 +293,16 @@ class Translator {
         value = storage_.root(buffer, defined.source);
       }
       value = name(value, cxx::to_string(parameter->name()));
-      if (control_->addressed(parameter)) {
+      if (control_->addressed(parameter) ||
+          unit_.typeTraits().is_volatile(parameter->type())) {
+        if (partition.kind != ValueKind::SSA) {
+          // Diagnose the missing object representation before assuming that a
+          // multi-component callable value can initialize one memory access.
+          types_.storage_size(parameter->type(), defined.source);
+          fail(defined.source,
+               "addressable record parameters require aggregate object "
+               "initialization");
+        }
         auto access = allocate_local(parameter, 0, defined.source);
         storage_.store(access, value.ssa(), parameter->type(), defined.source);
       } else {
@@ -274,6 +315,34 @@ class Translator {
     if (defined.kind == FunctionKind::Kernel) {
       check(loom_kernel_return_build(&builder_, locations_.get(returned.source),
                                      &terminator));
+    } else if (defined.kind == FunctionKind::TemplateDefinition) {
+      check(loom_template_return_build(
+          &builder_, returned.values.data(), returned.values.size(),
+          locations_.get(returned.source), &terminator));
+    } else if (defined.kind == FunctionKind::LaunchConfiguration ||
+               defined.kind == FunctionKind::ClusteredLaunchConfiguration) {
+      auto source = locations_.get(returned.source);
+      std::array<loom_value_id_t, 9> dimensions = {};
+      auto index_type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
+      for (size_t i = 0; i < returned.values.size(); ++i) {
+        check(loom_index_cast_build(&builder_, returned.values[i],
+                                    value_type(returned.values[i]), index_type,
+                                    source, &terminator));
+        dimensions[i] = result(terminator);
+      }
+      bool clustered =
+          defined.kind == FunctionKind::ClusteredLaunchConfiguration;
+      loom_kernel_launch_config_build_flags_t flags =
+          clustered
+              ? LOOM_KERNEL_LAUNCH_CONFIG_BUILD_FLAG_HAS_WORKGROUP_CLUSTER_SIZE_X |
+                    LOOM_KERNEL_LAUNCH_CONFIG_BUILD_FLAG_HAS_WORKGROUP_CLUSTER_SIZE_Y |
+                    LOOM_KERNEL_LAUNCH_CONFIG_BUILD_FLAG_HAS_WORKGROUP_CLUSTER_SIZE_Z
+              : 0;
+      check(loom_kernel_launch_config_build(
+          &builder_, flags, dimensions[0], dimensions[1], dimensions[2],
+          dimensions[3], dimensions[4], dimensions[5],
+          clustered ? dimensions[6] : 0, clustered ? dimensions[7] : 0,
+          clustered ? dimensions[8] : 0, source, &terminator));
     } else {
       check(loom_func_return_build(
           &builder_, returned.values.data(), returned.values.size(),
@@ -337,27 +406,26 @@ class Translator {
       if (!initializer) {
         return;
       }
-      auto* elements = cxx::Initializer(initializer).expressionListSlot();
-      if (!elements) {
+      cxx::Initializer source(initializer);
+      if (source.form() != cxx::InitializerForm::kList &&
+          source.form() != cxx::InitializerForm::kParen) {
         fail(owner, "automatic arrays require element-wise initialization");
       }
+      auto elements = source.arguments();
       auto* element_type =
           unit_.typeTraits().get_element_type(variable->type());
-      auto* next = *elements;
       // The source frontend supplies conversions and explicit element order.
       // Each store precedes the next clause, which may read this same array.
       // Omitted trivial elements are value-initialized, unlike a declaration
       // without an initializer.
       for (size_t index = 0; index < array->size(); ++index) {
         auto value =
-            next ? expression(next->value).ssa()
-                 : initialize(array->elementType(), nullptr, owner).ssa();
+            index < elements.size()
+                ? expression(elements[index]).ssa()
+                : initialize(array->elementType(), nullptr, owner).ssa();
         access.index = scalars_.integer(index, LOOM_SCALAR_TYPE_INDEX,
                                         locations_.get(owner));
         storage_.store(access, value, element_type, owner);
-        if (next) {
-          next = next->next;
-        }
       }
       return;
     }
@@ -380,11 +448,12 @@ class Translator {
         name(expression(initializer), cxx::to_string(variable->name()));
   }
 
-  void initialize_condition(cxx::VariableSymbol* variable) {
-    if (!variable) {
+  void initialize_condition(cxx::ExpressionAST* expression) {
+    auto* declaration = condition_declaration(expression);
+    if (!declaration) {
       return;
     }
-    auto* declaration = control_->condition_declaration(variable);
+    auto* variable = declaration->symbol;
     reject_misplaced_binding_attributes(unit_, diagnostics_,
                                         declaration->attributeList);
     reject_misplaced_binding_declarator(unit_, diagnostics_,
@@ -406,7 +475,7 @@ class Translator {
       if (branch->initializer) {
         statement(branch->initializer);
       }
-      initialize_condition(branch->decisionVariable);
+      initialize_condition(branch->condition);
       ast = *branch->constexprValue ? branch->statement : branch->elseStatement;
     }
     return ast;
@@ -416,7 +485,7 @@ class Translator {
     if (branch->initializer) {
       statement(branch->initializer);
     }
-    initialize_condition(branch->decisionVariable);
+    initialize_condition(branch->condition);
     return expression(branch->condition).ssa();
   }
 
@@ -514,7 +583,7 @@ class Translator {
   }
 
   StorageProjection pointer_expression(cxx::ExpressionAST* ast) {
-    auto* source = cxx::Initializer::stripImplicitCasts(ast);
+    auto* source = strip_implicit_casts(ast);
     if (unit_.typeTraits().is_array(source->type)) {
       // Direct array indexing retains its enclosing lvalue's alignment. An
       // actual pointer value, including an explicit cast or call result, starts
@@ -579,7 +648,7 @@ class Translator {
   }
 
   StorageProjection object_address(cxx::ExpressionAST* ast) {
-    ast = cxx::Initializer::stripImplicitCasts(ast);
+    ast = strip_implicit_casts(ast);
     if (auto* nested = cxx::ast_cast<cxx::NestedExpressionAST>(ast)) {
       return object_address(nested->expression);
     }
@@ -1032,8 +1101,15 @@ class Translator {
             !unit_.typeTraits().is_volatile(variable->type()) &&
             (variable->isConstexpr() ||
              unit_.typeTraits().is_const(variable->type()))) {
-          return name(constant(*variable->constValue(), ast),
-                      cxx::to_string(variable->name()));
+          cxx::ASTInterpreter interpreter(&unit_);
+          if (auto value = interpreter.evaluate(ast)) {
+            auto result = constant(*value, ast);
+            // A reference parameter names its source object, not the value
+            // produced by reading that object in this expression.
+            return unit_.typeTraits().is_reference(variable->type())
+                       ? result
+                       : name(result, cxx::to_string(variable->name()));
+          }
         }
       }
       if (cxx::symbol_cast<cxx::FieldSymbol>(id->symbol)) {
@@ -1189,10 +1265,10 @@ class Translator {
                          ast);
       }
       if (unary->op == cxx::TokenKind::T_AMP) {
-        auto* operand = cxx::Initializer::stripImplicitCasts(unary->expression);
+        auto* operand = strip_implicit_casts(unary->expression);
         while (auto* nested =
                    cxx::ast_cast<cxx::NestedExpressionAST>(operand)) {
-          operand = cxx::Initializer::stripImplicitCasts(nested->expression);
+          operand = strip_implicit_casts(nested->expression);
         }
         if (auto* dereference = cxx::ast_cast<cxx::UnaryExpressionAST>(operand);
             dereference && !dereference->symbol &&
@@ -1287,6 +1363,9 @@ class Translator {
       if (binding && std::holds_alternative<SubgroupIntrinsic>(*binding)) {
         require_kernel_context(ast);
       }
+      if (binding && std::holds_alternative<TargetIntrinsic>(*binding)) {
+        require_launch_configuration_context(ast);
+      }
       auto* assembly =
           binding ? std::get_if<AssemblyIntrinsic>(binding) : nullptr;
       loom_symbol_ref_t fragment = {};
@@ -1338,7 +1417,7 @@ class Translator {
             ast,
             "call must resolve to an owned intrinsic or defined device helper");
       }
-      auto symbol = functions_.declare(function);
+      auto symbol = functions_.declare(function, ast);
       auto arguments = flatten_arguments();
       std::array<const cxx::Type*, 1> result_sources = {ast->type};
       auto results = bind_signature(types_, result_sources, ast, &builder_);
@@ -1543,8 +1622,11 @@ class Translator {
           fail(ast, "local storage duration must be automatic or __shared__");
         }
         if (variable->symbol && annotated(variable->symbol, "workgroup")) {
-          if (current_function_.kind != FunctionKind::Kernel) {
-            fail(variable, "workgroup storage requires a kernel body");
+          if (current_function_.kind != FunctionKind::Kernel &&
+              current_function_.kind != FunctionKind::TemplateDefinition) {
+            fail(variable,
+                 "workgroup storage requires a kernel or template definition "
+                 "body");
           }
           if (variable->initializer) {
             fail(variable, "workgroup storage cannot have an initializer");
@@ -1628,7 +1710,7 @@ class Translator {
             "loop scheduling requires a nonwrapping unsigned counted for loop");
       }
       conditional_loop(ast, loop->condition, loop->statement, loop->expression,
-                       LoopTest::BeforeBody, loop->decisionVariable);
+                       LoopTest::BeforeBody);
       return;
     }
     if (auto* loop = cxx::ast_cast<cxx::WhileStatementAST>(ast)) {
@@ -1636,7 +1718,7 @@ class Translator {
         fail(ast, "loop scheduling requires a counted for loop");
       }
       conditional_loop(ast, loop->condition, loop->statement, nullptr,
-                       LoopTest::BeforeBody, loop->decisionVariable);
+                       LoopTest::BeforeBody);
       return;
     }
     if (auto* loop = cxx::ast_cast<cxx::DoStatementAST>(ast)) {
@@ -1644,7 +1726,7 @@ class Translator {
         fail(ast, "loop scheduling requires a counted for loop");
       }
       conditional_loop(ast, loop->expression, loop->statement, nullptr,
-                       LoopTest::AfterBody, nullptr);
+                       LoopTest::AfterBody);
       return;
     }
     if (auto* expression_statement =
@@ -1666,8 +1748,10 @@ class Translator {
   void conditional_loop(cxx::StatementAST* ast,
                         cxx::ExpressionAST* condition_expression,
                         cxx::StatementAST* body, cxx::ExpressionAST* step,
-                        LoopTest test, cxx::VariableSymbol* decision) {
-    initialize_condition(decision);
+                        LoopTest test) {
+    auto* declaration = condition_declaration(condition_expression);
+    auto* decision = declaration ? declaration->symbol : nullptr;
+    initialize_condition(declaration);
     auto written = live_mutations(ast);
     if (decision && values_.contains(decision)) {
       std::erase(written, decision);
@@ -1706,7 +1790,7 @@ class Translator {
     // A decision object is recreated after the body and for-loop increment.
     // The preheader supplied its first value, so every check sees a real value.
     if (decision) {
-      auto value = expression(decision->initializer());
+      auto value = expression(declaration->initializer);
       if (auto found = locals_.find(decision); found != locals_.end()) {
         storage_.store({found->second.view, std::nullopt}, value.ssa(),
                        decision->type(), ast);
@@ -1949,7 +2033,7 @@ class Translator {
         for (auto* argument : cxx::ListView{call->expressionList}) {
           expression(argument).append_to(arguments);
         }
-        auto callee = functions_.declare(function);
+        auto callee = functions_.declare(function, ast);
         loom_op_t* op;
         check(loom_func_call_build(&builder_, 0, 0, 0, 0, callee,
                                    arguments.data(), arguments.size(), nullptr,
@@ -1993,16 +2077,21 @@ class Translator {
   SymbolNames names_;
   // Namespace-scope scalar configs retain key identity across source aliases.
   Configs configs_;
+  // Source target definitions bind function-like operations without
+  // target-specific importer code.
+  TargetDefinitions target_definitions_;
+  // Bodyful template providers retain late linker selection contracts.
+  TemplateDefinitions template_definitions_;
   // Explicit vector builders retain lane widths and full-width source masks.
   Vectors vectors_;
   // Memory representations retain declared array extents and access shape.
   Storage storage_;
+  // Admitted launch contracts, including bounds from function redeclarations.
+  LaunchContracts launches_;
   // Retained generated operation bindings for reached source declarations.
   Intrinsics intrinsics_;
   // Literal admission records one batch for source-boundary verification.
   AssemblyFragments assembly_fragments_;
-  // Admitted launch contracts, including bounds from function redeclarations.
-  LaunchContracts launches_;
   // Root selection, native definition contracts and reachable identities.
   Functions functions_;
   // Borrowed source configuration for this invocation.

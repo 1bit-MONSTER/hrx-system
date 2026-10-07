@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-// Projects an AMDGPU HAL device into the offline AMDGPU artifact provider.
+// Pairs an AMDGPU HAL device target with the core AMDGPU emitter.
 extern const loom_device_provider_t loom_amdgpu_device_provider;
 
 #ifdef __cplusplus

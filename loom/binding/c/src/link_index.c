@@ -326,21 +326,6 @@ static loomc_status_t loomc_link_index_add_missing_source_diagnostic(
   return loomc_ok_status();
 }
 
-typedef struct loomc_link_index_diagnostic_capture_t {
-  // Result receiving converted diagnostics.
-  loomc_result_t* result;
-  // Source associated with emitted diagnostics.
-  const loomc_source_t* source;
-} loomc_link_index_diagnostic_capture_t;
-
-static iree_status_t loomc_link_index_capture_diagnostic(
-    void* user_data, const loom_diagnostic_t* diagnostic) {
-  loomc_link_index_diagnostic_capture_t* capture =
-      (loomc_link_index_diagnostic_capture_t*)user_data;
-  return iree_status_from_loomc(loomc_result_add_loom_diagnostic(
-      capture->result, capture->source, diagnostic));
-}
-
 static loomc_status_t loomc_link_index_mark_failed(loomc_result_t* result) {
   return loomc_result_set_state(result, LOOMC_RESULT_STATE_FAILED);
 }
@@ -352,10 +337,11 @@ loomc_status_t loomc_link_index_add_source_to_module_index(
     loomc_result_t* result, iree_host_size_t* out_provider_ordinal) {
   const iree_host_size_t before_diagnostics =
       loomc_result_diagnostic_count(result);
-  loomc_link_index_diagnostic_capture_t capture = {
-      .result = result,
-      .source = source,
-  };
+  loomc_diagnostic_capture_t capture;
+  loomc_diagnostic_capture_initialize(result, source, /*module=*/NULL,
+                                      (loom_source_resolver_t){0},
+                                      LOOM_EMITTER_PARSER,
+                                      /*text_print_options=*/NULL, &capture);
   loom_link_module_index_add_options_t options = {
       .provider_name =
           iree_string_view_from_loomc(source_options->provider_name),
@@ -373,7 +359,7 @@ loomc_status_t loomc_link_index_add_source_to_module_index(
     loom_bytecode_index_options_t index_options = {
         .diagnostic_sink =
             {
-                .fn = loomc_link_index_capture_diagnostic,
+                .fn = loomc_diagnostic_capture,
                 .user_data = &capture,
             },
     };
@@ -386,7 +372,7 @@ loomc_status_t loomc_link_index_add_source_to_module_index(
     loom_text_parse_options_t parse_options = {
         .diagnostic_sink =
             {
-                .fn = loomc_link_index_capture_diagnostic,
+                .fn = loomc_diagnostic_capture,
                 .user_data = &capture,
             },
     };
@@ -522,8 +508,9 @@ loomc_status_t loomc_link_index_builder_create(
   }
 
   if (loomc_status_is_ok(status)) {
-    status = loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator,
-                                 &builder->result);
+    status = loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
+                                 loomc_context_source_retention(context),
+                                 allocator, &builder->result);
   }
   if (loomc_status_is_ok(status)) {
     status = loomc_status_from_iree(loom_link_module_index_allocate(
@@ -633,6 +620,30 @@ loomc_status_t loomc_link_index_builder_add_source(
   return loomc_ok_status();
 }
 
+// Text providers are fully materialized while indexing and need only their
+// identity for later diagnostics. Bytecode providers retain their complete
+// container because selective materialization reads it on demand.
+static loomc_status_t loomc_link_index_builder_discard_text_source_contents(
+    loomc_link_index_builder_t* builder) {
+  if (loomc_context_source_retention(builder->context) ==
+      LOOMC_SOURCE_RETENTION_EXACT) {
+    return loomc_ok_status();
+  }
+  for (loomc_host_size_t i = 0; i < builder->sources.count; ++i) {
+    loomc_link_index_builder_source_t* record = &builder->sources.values[i];
+    if (record->source == NULL ||
+        loomc_link_index_source_is_bytecode(record->source)) {
+      continue;
+    }
+    loomc_source_t* identity_source = NULL;
+    LOOMC_RETURN_IF_ERROR(loomc_source_clone_identity(
+        record->source, builder->allocator, &identity_source));
+    loomc_source_release(record->source);
+    record->source = identity_source;
+  }
+  return loomc_ok_status();
+}
+
 loomc_status_t loomc_link_index_builder_finish(
     loomc_link_index_builder_t* builder, loomc_link_index_t** out_link_index,
     loomc_result_t** out_result) {
@@ -668,6 +679,8 @@ loomc_status_t loomc_link_index_builder_finish(
     builder->result = NULL;
     return loomc_ok_status();
   }
+  LOOMC_RETURN_IF_ERROR(
+      loomc_link_index_builder_discard_text_source_contents(builder));
 
   loomc_link_index_t* link_index = NULL;
   loomc_status_t status = loomc_allocator_malloc(

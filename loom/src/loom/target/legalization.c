@@ -194,7 +194,8 @@ iree_status_t loom_target_legalizer_registry_storage_initialize(
     return iree_ok_status();
   }
 
-  const uint16_t dialect_count_u16 = dialect_limit - dialect_base_id;
+  const uint16_t dialect_count_u16 =
+      entry_count == 0 ? 0 : dialect_limit - dialect_base_id;
   if (dialect_count_u16 > UINT8_MAX) {
     return iree_make_status(
         IREE_STATUS_RESOURCE_EXHAUSTED,
@@ -225,11 +226,17 @@ iree_status_t loom_target_legalizer_registry_storage_initialize(
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_uninitialized(
       allocator, allocation_size, (void**)&allocation));
   loom_target_legalizer_dialect_table_t* dialects =
-      (loom_target_legalizer_dialect_table_t*)(allocation + dialects_offset);
+      dialect_count ? (loom_target_legalizer_dialect_table_t*)(allocation +
+                                                               dialects_offset)
+                    : NULL;
   loom_target_legalizer_op_entry_t* op_entries =
-      (loom_target_legalizer_op_entry_t*)(allocation + op_entries_offset);
+      op_entry_count
+          ? (loom_target_legalizer_op_entry_t*)(allocation + op_entries_offset)
+          : NULL;
   loom_target_legalizer_entry_t* entries =
-      (loom_target_legalizer_entry_t*)(allocation + entries_offset);
+      entry_count
+          ? (loom_target_legalizer_entry_t*)(allocation + entries_offset)
+          : NULL;
   loom_target_legalizer_op_entry_t* op_entries_by_dialect[UINT8_MAX + 1] = {0};
   loom_target_legalizer_registry_initialize_dialects(
       dialect_op_counts, dialect_base_id, dialect_count, dialects, op_entries,
@@ -275,6 +282,16 @@ loom_target_legalizer_registry_storage_registry(
 iree_status_t loom_target_legalization_query_contract(
     loom_target_legalization_context_t* context, const loom_op_t* op,
     loom_target_contract_query_result_t* out_result) {
+  return loom_target_legalization_query_contract_with_vector_lane_projection(
+      context, op, (loom_target_contract_vector_lane_projection_t){0},
+      out_result);
+}
+
+iree_status_t
+loom_target_legalization_query_contract_with_vector_lane_projection(
+    loom_target_legalization_context_t* context, const loom_op_t* op,
+    loom_target_contract_vector_lane_projection_t vector_lane_projection,
+    loom_target_contract_query_result_t* out_result) {
   *out_result = loom_target_contract_query_result_empty();
   if (loom_target_contract_query_callback_is_empty(context->contract_query)) {
     return iree_ok_status();
@@ -285,9 +302,39 @@ iree_status_t loom_target_legalization_query_contract(
       .target_facts = context->target_facts,
       .descriptor_set = context->descriptor_set,
       .fact_table = context->fact_table,
+      .vector_lane_projection = vector_lane_projection,
+      .value_domain = context->value_domain,
       .view_regions = context->view_regions,
       .arena = context->arena,
   };
   return context->contract_query.fn(context->contract_query.user_data,
                                     &environment, op, out_result);
+}
+
+bool loom_target_legalization_op_has_source_vector_carriers(
+    const loom_target_legalization_context_t* context, const loom_op_t* op) {
+  const loom_target_source_vector_carrier_supported_callback_t callback =
+      context->source_vector_carrier_supported;
+  if (callback.fn == NULL) {
+    return true;
+  }
+  const loom_value_id_t* operands = loom_op_const_operands(op);
+  for (uint16_t i = 0; i < op->operand_count; ++i) {
+    const loom_type_t type =
+        loom_module_value_type(context->module, operands[i]);
+    if (loom_type_is_vector(type) &&
+        !callback.fn(callback.user_data, context->module, type)) {
+      return false;
+    }
+  }
+  const loom_value_id_t* results = loom_op_const_results(op);
+  for (uint16_t i = 0; i < op->result_count; ++i) {
+    const loom_type_t type =
+        loom_module_value_type(context->module, results[i]);
+    if (loom_type_is_vector(type) &&
+        !callback.fn(callback.user_data, context->module, type)) {
+      return false;
+    }
+  }
+  return true;
 }

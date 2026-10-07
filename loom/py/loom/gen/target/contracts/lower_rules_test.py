@@ -50,6 +50,7 @@ from loom.target.contracts import (
     DescriptorAccumulatorSeed,
     DescriptorAccumulatorTree,
     DescriptorEmitForm,
+    DescriptorOperandMaterialization,
     DescriptorRule,
     EmitDescriptorOp,
     Guard,
@@ -561,6 +562,19 @@ def test_emit_row_overlays_descriptor_table_ranges() -> None:
 
     assert ".payload.descriptor.attr_copy_start = 2" in row
     assert ".payload.descriptor.tied_result_start = 5" in row
+
+
+def test_emit_row_spells_target_operand_materialization() -> None:
+    row = emit_row(
+        {TEST_LOW_ADD_F32_DESCRIPTOR.key: 1},
+        LowerEmit(
+            kind=LowerEmitKind.DESCRIPTOR_OP,
+            descriptor=TEST_LOW_ADD_F32_DESCRIPTOR,
+            operand_materialization=DescriptorOperandMaterialization.TARGET,
+        ),
+    )
+
+    assert (".operand_materialization = LOOM_LOW_LOWER_OPERAND_MATERIALIZATION_TARGET") in row
 
 
 def test_emit_row_overlays_result_type_ranges() -> None:
@@ -1342,6 +1356,23 @@ def test_attr_copy_row_emits_static_dimension_projection_payload() -> None:
     assert ".source_element_count = 8" in fields
     assert ".literal_i64 = INT64_C(64)" in fields
     assert not any("source_attr_index" in field for field in fields)
+
+    mask_fields = attr_copy_row(
+        LowerAttrCopy(
+            kind=LowerAttrCopyKind.VALUE_TYPE_STATIC_DIM_LOW_BITS_MASK,
+            target_name="mask",
+            value_ref_index=3,
+            source_element_index=1,
+            source_element_count=1,
+            literal_i64=-1,
+        ),
+        target_name_string_ref="TEST_STRING_MASK",
+    )
+    assert ".kind = LOOM_LOW_LOWER_ATTR_COPY_VALUE_TYPE_STATIC_DIM_LOW_BITS_MASK" in mask_fields
+    assert ".value_ref_index = 3" in mask_fields
+    assert ".source_element_index = 1" in mask_fields
+    assert ".source_element_count = 1" in mask_fields
+    assert ".literal_i64 = (-INT64_C(1))" in mask_fields
 
 
 def test_diagnostic_param_row_emits_portable_signed_i64_literal() -> None:

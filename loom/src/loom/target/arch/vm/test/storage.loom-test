@@ -7,7 +7,7 @@ low.func.def target<vm.core>(@vm) abi(vm_function) @identity(%a: reg<vm.value : 
 }
 
 // A view owns no storage. Its offset and the spill's relative offset select a
-// whole cell in the reservation; calls use separate scratch beyond that span.
+// whole cell in the reservation; call transport preserves its contents.
 low.func.def public target<vm.core>(@vm) abi(vm_function) @local(%a: reg<vm.value : i64>, %b: reg<vm.value : i64>) -> (reg<vm.value : i64>, reg<vm.value : i64>) asm {
   %storage = storage {byte_alignment = 8, byte_length = 32} : low.storage<stack>
   %view = storage_view %storage {byte_length = 16, offset = 8} : low.storage<stack> -> low.storage<stack>
@@ -43,19 +43,72 @@ vm.module core(0.0) {
       control.block
       control.return
     }
-    func @function1 : @callable1 flags([has_call]) frame(local_bytes = 40, value_registers = 3, ref_registers = 0, function_registers = 0, local_refs = 0, local_functions = 0) {
+    func @function1 : @callable1 flags([has_call]) frame(local_bytes = 32, value_registers = 2, ref_registers = 0, function_registers = 0, local_refs = 0, local_functions = 0) {
     ^bb0:
       control.block
       stack.store.i64 #v16, %v0.x1
-      stack.store.i64 #v32, %v0.x1
       %v0 = value.copy %v1
       control.call @function0 {direct_ref_move_mask = 0x0000}
-      stack.store.i64 #v32, %v0.x1
-      %v0.x1 = stack.load.i64 #v32
-      %v1.x1 = stack.load.i64 #v16
-      %v2 = value.copy %v0
-      %v0 = value.copy %v1
-      %v1 = value.copy %v2
+      %v1 = value.copy %v0
+      %v0.x1 = stack.load.i64 #v16
+      control.return
+    }
+  }
+
+}
+
+// ====
+
+vm.target<core> @vm
+
+// Each private cell is a full descriptor-sized owned reference. Views flatten
+// before the target maps byte coordinates to reference-slot ordinals.
+low.func.def public target<vm.core>(@vm) abi(vm_function) @reference_storage(%left: reg<vm.ref : hal.buffer_view>, %right: reg<vm.ref : hal.buffer_view>) -> (reg<vm.ref : hal.buffer_view>, reg<vm.ref : hal.buffer_view>, reg<vm.ref : hal.buffer_view>) asm {
+  %storage = storage {byte_alignment = 16, byte_length = 32} : low.storage<private>
+  %cell = storage_view %storage {byte_length = 16, offset = 16} : low.storage<private> -> low.storage<private>
+  low.spill %left, %cell : reg<vm.ref : hal.buffer_view>, low.storage<private>
+  %original = low.reload %cell : low.storage<private> -> reg<vm.ref : hal.buffer_view>
+  low.spill %right, %cell : reg<vm.ref : hal.buffer_view>, low.storage<private>
+  %replacement = low.reload %cell : low.storage<private> -> reg<vm.ref : hal.buffer_view>
+  %alias = low.reload %cell : low.storage<private> -> reg<vm.ref : hal.buffer_view>
+  return %original, %replacement, %alias
+}
+
+// ----
+vm.module core(0.0) {
+  section strings alignment(8) {
+    string @string0 = "reference_storage"
+    string @string1 = "hal"
+    string @string2 = "buffer_view"
+  }
+
+  section ref_types alignment(8) {
+    namespace @ref_group0 name(@string1) {
+      ref_type @ref_type0 name(@string2)
+    }
+  }
+
+  section signatures alignment(8) {
+    signature @signature0 (ref(@ref_type0), ref(@ref_type0)) -> (ref(@ref_type0), ref(@ref_type0), ref(@ref_type0))
+  }
+
+  section callable_types alignment(8) {
+    callable @callable0 flags([]) depth(0) : @signature0
+  }
+
+  section exports alignment(8) {
+    export @export0 name(@string0) : @callable0 = @function0
+  }
+
+  section functions alignment(8) {
+    func @function0 : @callable0 flags([]) frame(local_bytes = 0, value_registers = 0, ref_registers = 3, function_registers = 0, local_refs = 2, local_functions = 0) {
+    ^bb0:
+      control.block
+      ref.stack.store.retain %r0, #r1
+      %r0 = ref.stack.load.retain #r1
+      ref.stack.store.retain %r1, #r1
+      %r1 = ref.stack.load.retain #r1
+      %r2 = ref.stack.load.retain #r1
       control.return
     }
   }

@@ -126,8 +126,10 @@ TEST(NativeElfTest, WritesAieElf32ExecutableEnvelope) {
 
   StreamPtr stream = CreateStream();
   TestArena arena;
+  loom_native_elf_layout_t layout = {};
   IREE_ASSERT_OK(
-      loom_native_elf32le_write_file(&file, stream.get(), arena.arena()));
+      loom_native_elf32le_build_layout(&file, &layout, arena.arena()));
+  IREE_ASSERT_OK(loom_native_elf32le_write_file(&file, &layout, stream.get()));
   const std::string bytes = StreamBytes(stream.get());
 
   constexpr size_t kProgramHeaderOffset = 52;
@@ -240,8 +242,10 @@ TEST(NativeElfTest, WritesNobitsMemoryWithoutFilePayload) {
 
   StreamPtr stream = CreateStream();
   TestArena arena;
+  loom_native_elf_layout_t layout = {};
   IREE_ASSERT_OK(
-      loom_native_elf32le_write_file(&file, stream.get(), arena.arena()));
+      loom_native_elf32le_build_layout(&file, &layout, arena.arena()));
+  IREE_ASSERT_OK(loom_native_elf32le_write_file(&file, &layout, stream.get()));
   const std::string bytes = StreamBytes(stream.get());
 
   constexpr size_t kProgramHeaderOffset = 52;
@@ -288,19 +292,17 @@ TEST(NativeElfTest, RejectsMixedPayloadAndZeroFillSectionStates) {
       /*.section_count=*/1,
   };
 
-  StreamPtr stream = CreateStream();
   TestArena arena;
+  loom_native_elf_layout_t layout = {};
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
-      loom_native_elf32le_write_file(&file, stream.get(), arena.arena()));
-  EXPECT_EQ(iree_io_stream_length(stream.get()), 0);
+      loom_native_elf32le_build_layout(&file, &layout, arena.arena()));
 
   section.type = LOOM_NATIVE_ELF_SECTION_TYPE_PROGBITS;
   section.contents = iree_const_byte_span_empty();
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
-      loom_native_elf32le_write_file(&file, stream.get(), arena.arena()));
-  EXPECT_EQ(iree_io_stream_length(stream.get()), 0);
+      loom_native_elf32le_build_layout(&file, &layout, arena.arena()));
 }
 
 TEST(NativeElfTest, RejectsElf32FieldOverflowBeforeWriting) {
@@ -329,9 +331,12 @@ TEST(NativeElfTest, RejectsElf32FieldOverflowBeforeWriting) {
 
   StreamPtr stream = CreateStream();
   TestArena arena;
+  loom_native_elf_layout_t layout = {};
+  IREE_ASSERT_OK(
+      loom_native_elf32le_build_layout(&file, &layout, arena.arena()));
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_OUT_OF_RANGE,
-      loom_native_elf32le_write_file(&file, stream.get(), arena.arena()));
+      loom_native_elf32le_write_file(&file, &layout, stream.get()));
   EXPECT_EQ(iree_io_stream_length(stream.get()), 0);
 }
 
@@ -382,8 +387,10 @@ TEST(NativeElfTest, WritesAmdgpuNoteElfEnvelope) {
 
   StreamPtr stream = CreateStream();
   TestArena arena;
+  loom_native_elf_layout_t layout = {};
   IREE_ASSERT_OK(
-      loom_native_elf64le_write_file(&file, stream.get(), arena.arena()));
+      loom_native_elf64le_build_layout(&file, &layout, arena.arena()));
+  IREE_ASSERT_OK(loom_native_elf64le_write_file(&file, &layout, stream.get()));
   const std::string bytes = StreamBytes(stream.get());
   const size_t note_offset = 120;
   const size_t string_table_offset = note_offset + note.size();
@@ -454,6 +461,54 @@ TEST(NativeElfTest, WritesAmdgpuNoteElfEnvelope) {
   EXPECT_EQ(LoadLeU64(bytes, kStringTableSectionHeaderOffset + 48), 1u);
 }
 
+TEST(NativeElfTest, FinalizesAddressesAndPayloadAfterLayout) {
+  uint8_t contents[8] = {};
+  loom_native_elf_section_t section = {};
+  section.name = IREE_SV(".data");
+  section.type = LOOM_NATIVE_ELF_SECTION_TYPE_PROGBITS;
+  section.flags = LOOM_NATIVE_ELF_SECTION_FLAG_ALLOC;
+  section.alignment = 16;
+  section.contents = iree_make_const_byte_span(contents, sizeof(contents));
+  loom_native_elf_segment_t segment = {};
+  segment.type = LOOM_NATIVE_ELF_PROGRAM_TYPE_LOAD;
+  segment.flags = LOOM_NATIVE_ELF_PROGRAM_FLAG_READ;
+  segment.section_count = 1;
+  segment.alignment = 16;
+  loom_native_elf64le_file_t file = {};
+  file.type = LOOM_NATIVE_ELF_FILE_TYPE_DYN;
+  file.machine = LOOM_NATIVE_ELF_MACHINE_X86_64;
+  file.sections = &section;
+  file.section_count = 1;
+  file.segments = &segment;
+  file.segment_count = 1;
+
+  TestArena arena;
+  loom_native_elf_layout_t layout = {};
+  IREE_ASSERT_OK(
+      loom_native_elf64le_build_layout(&file, &layout, arena.arena()));
+  ASSERT_EQ(layout.section_count, 3u);
+  EXPECT_EQ(layout.program_header_offset, 64u);
+  EXPECT_EQ(layout.program_header_size, 56u);
+  EXPECT_EQ(layout.sections[1].file_offset, 128u);
+
+  // The producer assigns a load address and fills a pointer using the retained
+  // section position; the serializer consumes the same placement afterward.
+  section.address = 0x1000 + layout.sections[1].file_offset;
+  segment.virtual_address = section.address;
+  segment.physical_address = section.address;
+  file.entry = section.address;
+  iree_unaligned_store_le_u64(contents, section.address + 4);
+  StreamPtr stream = CreateStream();
+  IREE_ASSERT_OK(loom_native_elf64le_write_file(&file, &layout, stream.get()));
+  const std::string bytes = StreamBytes(stream.get());
+  EXPECT_EQ(bytes.size(), layout.file_size);
+  EXPECT_EQ(LoadLeU64(bytes, 24), 0x1080u);
+  EXPECT_EQ(LoadLeU64(bytes, 64 + 8), 128u);
+  EXPECT_EQ(LoadLeU64(bytes, 64 + 16), 0x1080u);
+  EXPECT_EQ(LoadLeU64(bytes, 128), 0x1084u);
+  EXPECT_EQ(LoadLeU64(bytes, layout.section_header_offset + 64 + 16), 0x1080u);
+}
+
 TEST(NativeElfTest, RejectsInvalidSectionAlignment) {
   const uint8_t contents[] = {0};
   const loom_native_elf_section_t sections[] = {{
@@ -478,11 +533,11 @@ TEST(NativeElfTest, RejectsInvalidSectionAlignment) {
       /*.section_count=*/IREE_ARRAYSIZE(sections),
   };
 
-  StreamPtr stream = CreateStream();
   TestArena arena;
+  loom_native_elf_layout_t layout = {};
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
-      loom_native_elf64le_write_file(&file, stream.get(), arena.arena()));
+      loom_native_elf64le_build_layout(&file, &layout, arena.arena()));
 }
 
 TEST(NativeElfTest, RejectsInvalidSegmentRange) {
@@ -523,11 +578,11 @@ TEST(NativeElfTest, RejectsInvalidSegmentRange) {
       /*.segment_count=*/IREE_ARRAYSIZE(segments),
   };
 
-  StreamPtr stream = CreateStream();
   TestArena arena;
+  loom_native_elf_layout_t layout = {};
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_OUT_OF_RANGE,
-      loom_native_elf64le_write_file(&file, stream.get(), arena.arena()));
+      loom_native_elf64le_build_layout(&file, &layout, arena.arena()));
 }
 
 TEST(NativeElfTest, RejectsSectionBackedSegmentMemoryUnderflow) {
@@ -570,9 +625,12 @@ TEST(NativeElfTest, RejectsSectionBackedSegmentMemoryUnderflow) {
 
   StreamPtr stream = CreateStream();
   TestArena arena;
+  loom_native_elf_layout_t layout = {};
+  IREE_ASSERT_OK(
+      loom_native_elf32le_build_layout(&file, &layout, arena.arena()));
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
-      loom_native_elf32le_write_file(&file, stream.get(), arena.arena()));
+      loom_native_elf32le_write_file(&file, &layout, stream.get()));
   EXPECT_EQ(iree_io_stream_length(stream.get()), 0);
 }
 

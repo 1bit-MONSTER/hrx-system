@@ -29,7 +29,7 @@ typedef unsigned Value __attribute__((aligned(16)));
 
 // ====
 // INPUT: cxx triple=x86_64-w64-windows-gnu data-model=llp64
-// ERROR@+1: PARSE/036 "Microsoft bitfield layout is not supported"
+// ERROR@+1: PARSE/036 "Microsoft ABI bit-field layout is not supported"
 struct Packet { unsigned bits : 3; };
 
 // ====
@@ -82,6 +82,16 @@ struct [[gnu::packed]] Packet : Base { unsigned char tag; };
 
 // ====
 // INPUT: cxx
+// ERROR@+1: PARSE/036 "packed base classes and virtual members are not supported"
+struct [[gnu::packed]] Packet { virtual void call(); };
+
+// ====
+// INPUT: cxx
+// ERROR@+1: PARSE/036 "record layout exceeds the supported size range"
+struct Packet { unsigned char values[1ull << 31]; };
+
+// ====
+// INPUT: cxx
 struct Packet { unsigned value : 3; };
 // ERROR@+1: PARSE/036 "offsetof requires an addressable data member"
 unsigned offset() { return __builtin_offsetof(Packet, value); }
@@ -89,12 +99,11 @@ unsigned offset() { return __builtin_offsetof(Packet, value); }
 // ====
 // INPUT: cxx
 struct Packet { unsigned value; };
-// ERROR@+1: PARSE/036 "'packed' attribute must precede record completion"
+// WARNING@+1: PARSE/036 "'packed' attribute declaration must precede definition"
 struct __attribute__((packed)) Packet;
 
 // ====
 // INPUT: cxx
-// ERROR@+1: PARSE/036 "'aligned' attribute requires an explicit alignment argument"
 struct [[gnu::aligned]] Packet { unsigned value; };
 
 // ====
@@ -155,7 +164,7 @@ struct Packet { [[gnu::aligned(8)]] static unsigned value; };
 // ====
 // INPUT: cxx
 struct Packet { unsigned value; };
-// ERROR@+1: PARSE/036 "'aligned' attribute must precede record completion"
+// WARNING@+1: PARSE/036 "'aligned' attribute declaration must precede definition"
 struct __attribute__((aligned(16))) Packet;
 
 // ====

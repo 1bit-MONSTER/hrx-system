@@ -17,6 +17,46 @@ iree_status_t loom_low_lower_record_memory_effect(
                                            low_op, effect_ordinal, summary);
 }
 
+static iree_status_t loom_low_lower_record_memory_packet_effects(
+    loom_low_lower_context_t* context, const loom_op_t* low_op,
+    const loom_low_descriptor_t* descriptor,
+    loom_low_memory_access_source_flags_t source_flags,
+    const loom_low_memory_relative_interval_t* relative_interval,
+    int64_t lane_byte_count) {
+  if (relative_interval == NULL && source_flags == 0) {
+    return iree_ok_status();
+  }
+  for (uint16_t i = 0; i < descriptor->effect_count; ++i) {
+    const loom_low_effect_t* effect =
+        &context->descriptor_set->effects[descriptor->effect_start + i];
+    if (!loom_low_effect_is_memory_access(effect) ||
+        !iree_any_bit_set(effect->flags, LOOM_LOW_EFFECT_FLAG_DEPENDENCY)) {
+      continue;
+    }
+    // Unknown descriptor width cannot license a narrower footprint. Packet
+    // selectors publish a geometry at least as wide as the issued effect.
+    const bool has_relative_interval =
+        relative_interval != NULL && effect->width_bits != 0 &&
+        effect->width_bits % 8 == 0 &&
+        effect->width_bits / 8 <= lane_byte_count;
+    if (!has_relative_interval && source_flags == 0) {
+      continue;
+    }
+    loom_low_memory_access_summary_t summary = {0};
+    if (has_relative_interval) {
+      summary.memory_space = effect->memory_space;
+      summary.source_flags = source_flags;
+      summary.relative_interval = relative_interval;
+    } else {
+      summary = *loom_low_memory_access_summary_for_space(effect->memory_space);
+      summary.source_flags = source_flags;
+    }
+    IREE_RETURN_IF_ERROR(
+        loom_low_lower_record_memory_effect(context, low_op, i, &summary));
+  }
+  return iree_ok_status();
+}
+
 // Reduce participant-varying contributions to an envelope while retaining
 // correlations only between workgroup-uniform values. A lane's SSA identity
 // never licenses canceling the value observed by another lane.
@@ -25,21 +65,26 @@ iree_status_t loom_low_lower_record_memory_packet(
     const loom_low_descriptor_t* descriptor,
     const loom_low_source_memory_access_plan_t* source_plan,
     loom_value_facts_t additional_offset) {
+  const loom_low_memory_access_source_flags_t source_flags =
+      loom_low_source_memory_access_plan_source_flags(source_plan);
   if (source_plan->root_value_id == LOOM_VALUE_ID_INVALID ||
       source_plan->root_uniform_scope <
           LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP ||
       source_plan->vector_offset_kind ==
           LOOM_LOW_SOURCE_MEMORY_VECTOR_OFFSET_OTHER) {
-    return iree_ok_status();
+    return loom_low_lower_record_memory_packet_effects(
+        context, low_op, descriptor, source_flags, NULL, 0);
   }
   int64_t lane_begin = 0, lane_end = 0;
   if (!loom_low_source_memory_access_plan_lane_byte_envelope(
           source_plan, &lane_begin, &lane_end)) {
-    return iree_ok_status();
+    return loom_low_lower_record_memory_packet_effects(
+        context, low_op, descriptor, source_flags, NULL, 0);
   }
   int64_t lane_bytes = 0;
   if (!iree_checked_sub_i64(lane_end, lane_begin, &lane_bytes)) {
-    return iree_ok_status();
+    return loom_low_lower_record_memory_packet_effects(
+        context, low_op, descriptor, source_flags, NULL, 0);
   }
   loom_low_memory_relative_interval_t relative = {
       .scope = context->source_function.op,
@@ -53,7 +98,8 @@ iree_status_t loom_low_lower_record_memory_packet(
   if (!iree_checked_sub_i64(source_plan->static_byte_offset,
                             source_plan->physical_root_byte_offset,
                             &root_relative_byte_offset)) {
-    return iree_ok_status();
+    return loom_low_lower_record_memory_packet_effects(
+        context, low_op, descriptor, source_flags, NULL, 0);
   }
   loom_symbolic_expr_constant(root_relative_byte_offset, &relative.origin);
   loom_value_facts_t varying = additional_offset;
@@ -79,28 +125,9 @@ iree_status_t loom_low_lower_record_memory_packet(
   }
   if (!iree_checked_add_i64(varying.range_lo, lane_begin, &relative.lower) ||
       !iree_checked_add_i64(varying.range_hi, lane_end, &relative.upper)) {
-    return iree_ok_status();
+    return loom_low_lower_record_memory_packet_effects(
+        context, low_op, descriptor, source_flags, NULL, 0);
   }
-  for (uint16_t i = 0; i < descriptor->effect_count; ++i) {
-    const loom_low_effect_t* effect =
-        &context->descriptor_set->effects[descriptor->effect_start + i];
-    if ((effect->kind != LOOM_LOW_EFFECT_KIND_READ &&
-         effect->kind != LOOM_LOW_EFFECT_KIND_WRITE) ||
-        !iree_any_bit_set(effect->flags, LOOM_LOW_EFFECT_FLAG_DEPENDENCY)) {
-      continue;
-    }
-    // Unknown descriptor width cannot license a narrower footprint. Packet
-    // selectors publish a geometry at least as wide as the issued effect.
-    if (effect->width_bits == 0 || effect->width_bits % 8 != 0 ||
-        effect->width_bits / 8 > lane_bytes) {
-      continue;
-    }
-    const loom_low_memory_access_summary_t summary = {
-        .memory_space = effect->memory_space,
-        .relative_interval = &relative,
-    };
-    IREE_RETURN_IF_ERROR(
-        loom_low_lower_record_memory_effect(context, low_op, i, &summary));
-  }
-  return iree_ok_status();
+  return loom_low_lower_record_memory_packet_effects(
+      context, low_op, descriptor, source_flags, &relative, lane_bytes);
 }

@@ -53,12 +53,51 @@ func.def @expected_window_recurrence(%position_value: i64, %count_value: i64) ->
   func.return %forward, %backward : i32, i32
 }
 
-check.case @window_recurrence_case {
-  %position = check.param.choice values([0, 1, 2]) : i64
-  %count = check.param.choice values([0, 1, 3]) : i64
+func.def inline @window_recurrence_configuration(%ordinal: index) -> (i64, i64) {
+  %c3 = index.constant 3 : index
+  %c6 = index.constant 6 : index
+  %first_group = index.cmp ult, %ordinal, %c3 : index
+  %second_group = index.cmp ult, %ordinal, %c6 : index
+  %middle_position = index.sub %ordinal, %c3 : index
+  %last_position = index.sub %ordinal, %c6 : index
+  %later_position = scf.select %second_group, %middle_position, %last_position : index
+  %position = scf.select %first_group, %ordinal, %later_position : index
+  %count0 = index.constant 0 : index
+  %count1 = index.constant 1 : index
+  %count3 = index.constant 3 : index
+  %later_count = scf.select %second_group, %count1, %count3 : index
+  %count = scf.select %first_group, %count0, %later_count : index
+  %position_value = index.cast %position : index to i64
+  %count_value = index.cast %count : index to i64
+  func.return %position_value, %count_value : i64, i64
+}
+
+func.def @window_recurrence_observations(%ordinal: index, %output: buffer) {
+  %position, %count = func.call @window_recurrence_configuration(%ordinal) : (index) -> (i64, i64)
   %forward, %backward = func.call @call_window_recurrence(%position, %count) : (i64, i64) -> (i32, i32)
-  %expected_forward, %expected_backward = func.call @expected_window_recurrence(%position, %count) : (i64, i64) -> (i32, i32)
-  check.expect.equal actual(%forward) expected(%expected_forward) : i32
-  check.expect.equal actual(%backward) expected(%expected_backward) : i32
+  %values = vector.from_elements %forward, %backward : vector<2xi32>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<2xi32>
+  vector.store %values, %results[0] : vector<2xi32>, view<2xi32>
+  func.return
+}
+
+func.def @expected_window_recurrence_observations(%ordinal: index, %output: buffer) {
+  %position, %count = func.call @window_recurrence_configuration(%ordinal) : (index) -> (i64, i64)
+  %forward, %backward = func.call @expected_window_recurrence(%position, %count) : (i64, i64) -> (i32, i32)
+  %values = vector.from_elements %forward, %backward : vector<2xi32>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<2xi32>
+  vector.store %values, %results[0] : vector<2xi32>, view<2xi32>
+  func.return
+}
+
+check.scenario @window_recurrence_values {
+  check.trial[9](%trial: index, %entropy: check.entropy) {
+    %output = check.generate.fill value(0) : tensor<2xi32>
+    check.compare<@window_recurrence_observations, @expected_window_recurrence_observations>(%trial, %output) : (index, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2xi32>
+    }
+  }
   check.return
 }

@@ -34,6 +34,7 @@ loom_cc_library(
     "include/loomc/loomc.h"
     "include/loomc/module.h"
     "include/loomc/pass.h"
+    "include/loomc/pass_trace.h"
     "include/loomc/product.h"
     "include/loomc/result.h"
     "include/loomc/sanitizer.h"
@@ -45,12 +46,14 @@ loom_cc_library(
     "src/config.h"
     "src/context.h"
     "src/diagnostic.h"
+    "src/emit.h"
     "src/link_index.h"
     "src/link_materialization.h"
     "src/module.h"
     "src/module_bytecode.h"
     "src/option_chain.h"
     "src/pass_program.h"
+    "src/pass_trace.h"
     "src/product.h"
     "src/request_index_overlay.h"
     "src/result.h"
@@ -84,6 +87,7 @@ loom_cc_library(
     "src/module_text.c"
     "src/option_chain.c"
     "src/pass_program.c"
+    "src/pass_trace.c"
     "src/product.c"
     "src/request_index_overlay.c"
     "src/result.c"
@@ -98,7 +102,7 @@ loom_cc_library(
     iree::base::internal::arena
     iree::io::file_handle
     iree::io::stream
-    loom::analysis::symbol_value_constraints
+    loom::analysis::kernel_launch_config
     loom::codegen::low::launch_config_program
     loom::codegen::low::pipeline::legalizer_registry
     loom::codegen::low::repr
@@ -106,8 +110,10 @@ loom_cc_library(
     loom::codegen::low::text_asm
     loom::codegen::low::verify
     loom::codegen::pass_environment
+    loom::compile::request
     loom::error::diagnostic
     loom::error::error_defs
+    loom::error::json_sink
     loom::error::renderer
     loom::error::source
     loom::format::bytecode::format
@@ -118,7 +124,6 @@ loom_cc_library(
     loom::format::text::parser
     loom::format::text::printer
     loom::ir
-    loom::ir::facts
     loom::link::dependency_analysis
     loom::link::dependency_report
     loom::link::index_materializer
@@ -138,6 +143,7 @@ loom_cc_library(
     loom::pass::program
     loom::pass::registry
     loom::pass::tooling
+    loom::pass::trace
     loom::pass::value_facts
     loom::sanitizer::options
     loom::target::function_version
@@ -192,6 +198,7 @@ loom_cc_library(
     "include/loomc/loomc.h"
     "include/loomc/module.h"
     "include/loomc/pass.h"
+    "include/loomc/pass_trace.h"
     "include/loomc/product.h"
     "include/loomc/result.h"
     "include/loomc/sanitizer.h"

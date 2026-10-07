@@ -10,6 +10,7 @@
 #include "config.h"
 #include "iree/base/internal/arena.h"
 #include "loom/error/diagnostic.h"
+#include "loom/error/source.h"
 #include "loom/ir/function_version.h"
 #include "loom/ir/module.h"
 #include "loomc/context.h"
@@ -73,6 +74,11 @@ LOOMC_API_PRIVATE loomc_context_t* loomc_module_context(
 LOOMC_API_PRIVATE iree_arena_block_pool_t* loomc_module_block_pool(
     loomc_module_t* module);
 
+// Copies an exact source snapshot at its producer-assigned module source ID.
+LOOMC_API_PRIVATE loomc_status_t loomc_module_insert_source_snapshot(
+    loomc_module_t* module, loom_source_id_t source_id,
+    iree_string_view_t filename, iree_string_view_t source);
+
 // Structural admission already established by the native producer.
 typedef enum loomc_module_input_state_e {
   LOOMC_MODULE_INPUT_UNVERIFIED = 0,
@@ -86,6 +92,13 @@ LOOMC_API_PRIVATE void loomc_module_set_loom_module(
     loomc_module_t* module, loom_module_t* internal_module,
     loomc_module_input_state_t input_state);
 
+// Adopts the pointer returned by an internal replacing transform. The
+// transform owns the previous pointer's release contract; this only updates
+// the public handle and its verification state.
+LOOMC_API_PRIVATE void loomc_module_adopt_loom_module_replacement(
+    loomc_module_t* module, loom_module_t* internal_module,
+    loomc_module_input_state_t input_state);
+
 // Returns the internal module owned by a public module handle.
 LOOMC_API_PRIVATE loom_module_t* loomc_module_loom_module(
     loomc_module_t* module);
@@ -93,6 +106,23 @@ LOOMC_API_PRIVATE loom_module_t* loomc_module_loom_module(
 // Returns the internal module owned by a public module handle.
 LOOMC_API_PRIVATE const loom_module_t* loomc_module_const_loom_module(
     const loomc_module_t* module);
+
+// Returns the exact-source resolver owned by |module|.
+LOOMC_API_PRIVATE loom_source_resolver_t
+loomc_module_source_resolver(const loomc_module_t* module);
+
+// Returns source snapshots indexed by the current internal module's source IDs.
+LOOMC_API_PRIVATE const loom_source_table_resolver_t* loomc_module_source_table(
+    const loomc_module_t* module);
+
+// Replaces owned snapshots with a copied source table for |internal_module|.
+LOOMC_API_PRIVATE loomc_status_t loomc_module_replace_source_table(
+    loomc_module_t* module, const loom_module_t* internal_module,
+    const loom_source_table_resolver_t* source_table);
+
+// Clears exact source snapshots after an unsuccessful replacing mutation.
+LOOMC_API_PRIVATE void loomc_module_clear_sources(
+    loomc_module_t* module, const loom_module_t* internal_module);
 
 // Establishes structural and target-Low input invariants before compilation or
 // direct emission. Successful verification against the module context is

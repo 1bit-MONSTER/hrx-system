@@ -27,6 +27,17 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_test(
+  NAME
+    descriptors_test
+  SRCS
+    "descriptors_test.cc"
+  DEPS
+    ::descriptors
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
 loom_cc_library(
   NAME
     read_retention
@@ -319,6 +330,24 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_library(
+  NAME
+    storage_transport
+  HDRS
+    "storage_transport.h"
+  SRCS
+    "storage_transport.c"
+  DEPS
+    ::function_model
+    ::storage_layout
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::ops::low
+    loom::target::registers
+  PUBLIC
+)
+
 loom_cc_test(
   NAME
     function_requirements_test
@@ -367,6 +396,7 @@ loom_cc_library(
     ::storage_layout
     iree::base
     iree::base::internal::arena
+    loom::analysis::kernel_launch_config
     loom::ir
     loom::ops::func
     loom::ops::kernel
@@ -528,14 +558,11 @@ loom_cc_library(
   DEPS
     ::descriptors
     ::placement_recipe
-    ::representation_binding
-    ::storage_relation
     iree::base
     iree::base::internal
     iree::base::internal::arena
     loom::analysis::liveness
     loom::ir
-    loom::ops::low
   PUBLIC
 )
 
@@ -545,14 +572,9 @@ loom_cc_test(
   SRCS
     "placement_test.cc"
   DEPS
-    ::builder
     ::placement
-    iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
-    loom::ir
-    loom::ops::low
-    loom::target::registers
 )
 
 loom_cc_library(
@@ -564,11 +586,12 @@ loom_cc_library(
     "allocation.c"
   DEPS
     ::descriptors
-    ::diagnostics
     ::function
     ::function_model
     ::placement
+    ::storage_layout
     ::storage_lease
+    ::storage_transport
     ::target_binding
     iree::base
     iree::base::internal::arena
@@ -578,6 +601,7 @@ loom_cc_library(
     loom::codegen::low::allocation::active_unit
     loom::codegen::low::allocation::assignment
     loom::codegen::low::allocation::assignment_map
+    loom::codegen::low::allocation::call
     loom::codegen::low::allocation::coalescing
     loom::codegen::low::allocation::copy_decision
     loom::codegen::low::allocation::destructive_reuse
@@ -591,6 +615,7 @@ loom_cc_library(
     loom::codegen::low::allocation::move_topology
     loom::codegen::low::allocation::numbering
     loom::codegen::low::allocation::packet_move
+    loom::codegen::low::allocation::placement
     loom::codegen::low::allocation::search
     loom::codegen::low::allocation::spill_plan
     loom::codegen::low::allocation::spill_traffic
@@ -620,13 +645,17 @@ loom_cc_benchmark(
     ::allocation
     ::function_model
     ::placement
+    ::storage_lease
     ::text_asm
     ::verify
     iree::base
     iree::base::internal::arena
     iree::testing::benchmark_main
     loom::analysis::liveness
+    loom::codegen::low::allocation::placement
+    loom::codegen::low::allocation::target_constraints
     loom::codegen::low::allocation::unit_liveness
+    loom::codegen::low::schedule
     loom::format::text::parser
     loom::ir
     loom::ops::func
@@ -634,6 +663,7 @@ loom_cc_benchmark(
     loom::ops::target
     loom::ops::test
     loom::target::test::low_registry
+    loom::verify
   ARGS
     "--benchmark_filter=.*/length:(8|64)/components:(1|16)/width:(1|4)"
   TESTONLY
@@ -655,6 +685,7 @@ loom_cc_library(
     iree::base
     iree::base::internal::arena
     loom::codegen::low::allocation::spill_plan
+    loom::codegen::low::allocation::storage
     loom::error::error_defs
     loom::ir
     loom::ops::low
@@ -967,6 +998,7 @@ loom_cc_library(
     ::rematerialization
     ::storage_layout
     ::storage_lease
+    ::storage_transport
     iree::base
     iree::base::internal::arena
     loom::codegen::low::schedule

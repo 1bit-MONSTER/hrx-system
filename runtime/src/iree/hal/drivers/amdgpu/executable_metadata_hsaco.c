@@ -596,6 +596,10 @@ iree_status_t iree_hal_amdgpu_executable_metadata_populate_from_hsaco(
     const iree_host_size_t export_ordinal = hsaco_metadata->kernel_count + i;
     const iree_hal_amdgpu_hsaco_metadata_elf_kernel_symbol_t* symbol =
         &hsaco_metadata->elf_kernel_symbols[i];
+    // ELF-only exports have empty parameter ranges at the end of the reflected
+    // parameters. Export queries use the next export's offset as the range end.
+    metadata->reflection[export_ordinal].parameter_offset =
+        (uint32_t)parameter_offset;
     IREE_RETURN_IF_ERROR(
         iree_hal_amdgpu_hsaco_loaded_code_object_rebase_string_view(
             &rebase, "ELF-only reflection name", symbol->name,

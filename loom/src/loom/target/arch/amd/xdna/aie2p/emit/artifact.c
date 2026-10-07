@@ -23,6 +23,7 @@
 #include "loom/target/arch/amd/xdna/aie2p/emit/xdna_product.h"
 #include "loom/target/arch/amd/xdna/aie2p/facts.h"
 #include "loom/target/arch/amd/xdna/aie2p/profile.h"
+#include "loom/target/arch/amd/xdna/aie2p/provider.h"
 #include "loom/target/arch/amd/xdna/device/profile.h"
 #include "loom/target/function_version.h"
 #include "loom/target/reporting/low.h"
@@ -678,4 +679,14 @@ const loom_target_provider_t loom_aie2p_xdna_artifact_provider = {
         },
     .canonical_kernel_emitter = &loom_aie2p_xdna_artifact_emitter,
     .canonical_kernel_fact_type = &loom_aie2p_target_fact_type,
+};
+
+static const loom_target_provider_t* const kAie2pCompilerProviders[] = {
+    &loom_aie2p_target_provider,
+    &loom_aie2p_xdna_artifact_provider,
+};
+
+const loom_target_provider_set_t loom_aie2p_compiler_provider_set = {
+    .providers = kAie2pCompilerProviders,
+    .provider_count = IREE_ARRAYSIZE(kAie2pCompilerProviders),
 };

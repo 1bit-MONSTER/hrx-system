@@ -57,6 +57,11 @@ iree_status_t loom_target_compile_report_format_mode_parse(
 iree_string_view_t loom_target_compile_report_format_mode_name(
     loom_target_compile_report_format_mode_t mode);
 
+// Returns the compiler evidence retained for reports formatted in |mode|.
+loom_target_compile_report_detail_flags_t
+loom_target_compile_report_requested_detail_flags(
+    loom_target_compile_report_format_mode_t mode);
+
 // Formats |report| as bounded line-oriented text into |builder|.
 iree_status_t loom_target_compile_report_format_text(
     const loom_target_compile_report_t* report,

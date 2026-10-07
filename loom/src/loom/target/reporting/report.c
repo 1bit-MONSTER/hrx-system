@@ -806,6 +806,15 @@ static void loom_target_compile_report_merge_entry_summary(
       entry_report->source_low_memory_summary.packet_count != 0;
   report->detail_flags |=
       entry_report->detail_flags | LOOM_TARGET_COMPILE_REPORT_DETAIL_ENTRIES;
+  report->source_low_unkeyed_maximum_emitted_op_count =
+      iree_max(report->source_low_unkeyed_maximum_emitted_op_count,
+               entry_report->source_low_unkeyed_maximum_emitted_op_count);
+  report->target_legalization_maximum_created_op_count =
+      iree_max(report->target_legalization_maximum_created_op_count,
+               entry_report->target_legalization_maximum_created_op_count);
+  report->math_legalization_maximum_created_op_count =
+      iree_max(report->math_legalization_maximum_created_op_count,
+               entry_report->math_legalization_maximum_created_op_count);
   if (first_entry) {
     report->function_name = entry_report->function_name;
     report->lowered_symbol = entry_report->lowered_symbol;
@@ -1123,10 +1132,9 @@ loom_target_compile_report_entry_from_report(
 
 static bool loom_target_compile_report_source_low_row_has_summary_key(
     const loom_target_compile_report_source_low_row_t* row) {
-  return row->emitted_low_op_count != 0 &&
-         (!iree_string_view_is_empty(row->plan_key) ||
-          !iree_string_view_is_empty(row->descriptor_key) ||
-          !iree_string_view_is_empty(row->descriptor_semantic_tag));
+  return !iree_string_view_is_empty(row->plan_key) ||
+         !iree_string_view_is_empty(row->descriptor_key) ||
+         !iree_string_view_is_empty(row->descriptor_semantic_tag);
 }
 
 static loom_target_compile_report_source_low_selection_summary_t
@@ -1142,6 +1150,7 @@ loom_target_compile_report_source_low_selection_summary_from_row(
       .descriptor_semantic_tag = row->descriptor_semantic_tag,
       .selected_op_count = 1,
       .emitted_low_op_count = row->emitted_low_op_count,
+      .maximum_emitted_low_op_count = row->emitted_low_op_count,
   };
   if (row->execution_count_plus_one ==
       LOOM_TARGET_COMPILE_REPORT_SOURCE_LOW_EXECUTION_COUNT_PLUS_ONE_UNKNOWN) {
@@ -1205,6 +1214,9 @@ loom_target_compile_report_record_source_low_selection_summary_row(
   if (summary != NULL) {
     summary->selected_op_count += row->selected_op_count;
     summary->emitted_low_op_count += row->emitted_low_op_count;
+    summary->maximum_emitted_low_op_count =
+        iree_max(summary->maximum_emitted_low_op_count,
+                 row->maximum_emitted_low_op_count);
     summary->exact_dynamic_op_count += row->exact_dynamic_op_count;
     summary->unknown_dynamic_op_count += row->unknown_dynamic_op_count;
     summary->dynamic_selected_op_count += row->dynamic_selected_op_count;
@@ -1499,7 +1511,13 @@ iree_status_t loom_target_compile_report_record_source_low_row(
   report->detail_flags |= LOOM_TARGET_COMPILE_REPORT_DETAIL_SOURCE_LOW_ROWS;
   IREE_RETURN_IF_ERROR(loom_target_compile_report_row_list_append(
       &report->source_low_rows, sizeof(*row), report->allocator, row));
+  if (row->emitted_low_op_count == 0) {
+    return iree_ok_status();
+  }
   if (!loom_target_compile_report_source_low_row_has_summary_key(row)) {
+    report->source_low_unkeyed_maximum_emitted_op_count =
+        iree_max(report->source_low_unkeyed_maximum_emitted_op_count,
+                 row->emitted_low_op_count);
     return iree_ok_status();
   }
   const loom_target_compile_report_source_low_selection_summary_t summary =
@@ -1561,6 +1579,9 @@ iree_status_t loom_target_compile_report_record_math_row(
   report->detail_flags |=
       LOOM_TARGET_COMPILE_REPORT_DETAIL_MATH_LEGALIZATION_ROWS;
   loom_target_compile_report_count_math_action(report, row->action);
+  report->math_legalization_maximum_created_op_count =
+      iree_max(report->math_legalization_maximum_created_op_count,
+               row->created_op_count);
   if (!loom_target_compile_report_wants_details(
           report, LOOM_TARGET_COMPILE_REPORT_DETAIL_MATH_LEGALIZATION_ROWS)) {
     return iree_ok_status();
@@ -1572,7 +1593,11 @@ iree_status_t loom_target_compile_report_record_math_row(
 static void loom_target_compile_report_count_legalization_action(
     loom_target_compile_report_t* report,
     loom_target_compile_report_legalization_action_t action,
-    loom_target_compile_report_legalizer_strategy_t legalizer_strategy) {
+    loom_target_compile_report_legalizer_strategy_t legalizer_strategy,
+    bool scalarized) {
+  if (scalarized) {
+    ++report->target_legalization_scalarized_op_count;
+  }
   switch (action) {
     case LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_LEGAL:
       ++report->target_legalization_legal_op_count;
@@ -1612,18 +1637,22 @@ static void loom_target_compile_report_count_legalization_action(
 void loom_target_compile_report_record_legalization_summary(
     loom_target_compile_report_t* report,
     loom_target_compile_report_legalization_action_t action,
-    loom_target_compile_report_legalizer_strategy_t legalizer_strategy) {
+    loom_target_compile_report_legalizer_strategy_t legalizer_strategy,
+    bool scalarized, uint64_t created_op_count) {
   report->detail_flags |=
       LOOM_TARGET_COMPILE_REPORT_DETAIL_TARGET_LEGALIZATION_ROWS;
-  loom_target_compile_report_count_legalization_action(report, action,
-                                                       legalizer_strategy);
+  loom_target_compile_report_count_legalization_action(
+      report, action, legalizer_strategy, scalarized);
+  report->target_legalization_maximum_created_op_count = iree_max(
+      report->target_legalization_maximum_created_op_count, created_op_count);
 }
 
 iree_status_t loom_target_compile_report_record_legalization_row(
     loom_target_compile_report_t* report,
     const loom_target_compile_report_legalization_row_t* row) {
   loom_target_compile_report_record_legalization_summary(
-      report, row->action, row->legalizer_strategy);
+      report, row->action, row->legalizer_strategy, row->scalarized,
+      row->created_op_count);
   return loom_target_compile_report_row_list_append(
       &report->target_legalization_rows, sizeof(*row), report->allocator, row);
 }

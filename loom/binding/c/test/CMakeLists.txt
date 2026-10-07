@@ -306,6 +306,7 @@ loom_cc_test(
     iree::testing::gtest_main
     iree::testing::temp_file
     loom::binding::c::loomc
+    loom::error::error_defs
     loom::ops::op_defs
     loom::ops::test
     loom::target::function_version

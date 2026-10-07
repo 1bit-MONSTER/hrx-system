@@ -34,6 +34,15 @@ bool loom_scalar_match_multiply_add(
 iree_status_t loom_scalar_fuse_multiply_add_match(
     loom_rewriter_t* rewriter, const loom_scalar_multiply_add_match_t* match);
 
+// Matches an FP8-to-BF16 scalar extension.
+bool loom_scalar_match_float8_to_bfloat_extension(
+    const loom_target_legalizer_entry_t* entry,
+    const loom_target_legalization_context_t* context, const loom_op_t* op);
+
+// Rewrites a matched FP8 extension with an exact integer-carried decode.
+iree_status_t loom_scalar_rewrite_float8_extension(
+    loom_target_legalization_context_t* context, loom_op_t* op);
+
 // Returns the generic scalar legalizer provider. Pipelines should compose this
 // after target-specific providers so native target rewrites win before scalar
 // reference decomposition.

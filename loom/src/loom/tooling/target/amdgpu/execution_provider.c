@@ -6,7 +6,7 @@
 
 #include "loom/tooling/target/amdgpu/execution_provider.h"
 
-#include "loom/target/arch/amdgpu/provider.h"
+#include "loom/target/emit/native/amdgpu/hal_kernel_library.h"
 #include "loom/tooling/execution/hal/execution_backend.h"
 #include "loom/tooling/target/amdgpu/device_provider.h"
 
@@ -29,7 +29,7 @@ static const loom_run_execution_backend_t* const
 
 const loom_run_execution_provider_t loom_amdgpu_execution_provider = {
     .name = IREE_SVL("amdgpu"),
-    .target_provider = &loom_amdgpu_target_provider,
+    .compiler_provider_set = &loom_amdgpu_compiler_provider_set,
     .execution_backends = kLoomAmdgpuExecutionBackends,
     .execution_backend_count = IREE_ARRAYSIZE(kLoomAmdgpuExecutionBackends),
 };

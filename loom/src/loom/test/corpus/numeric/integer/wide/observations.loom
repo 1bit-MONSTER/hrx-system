@@ -3,7 +3,7 @@
 func.def @wide_scalar_observations(%uniform_lhs: i64, %uniform_rhs: i64, %input: buffer, %output: buffer) {
   %base = index.constant 0 : offset
   %inputs = buffer.view %input[%base] : buffer -> view<5xi64>
-  %results = buffer.view %output[%base] : buffer -> view<50xi64>
+  %results = buffer.view %output[%base] : buffer -> view<57xi64>
   %lhs = view.load %inputs[0] : view<5xi64> -> i64
   %rhs = view.load %inputs[1] : view<5xi64> -> i64
   %replacement = view.load %inputs[2] : view<5xi64> -> i64
@@ -11,6 +11,7 @@ func.def @wide_scalar_observations(%uniform_lhs: i64, %uniform_rhs: i64, %input:
   %condition_bits = view.load %inputs[4] : view<5xi64> -> i64
   %c0 = scalar.constant 0 : i64
   %c1 = scalar.constant 1 : i64
+  %c31 = scalar.constant 31 : i64
   %c32 = scalar.constant 32 : i64
   %c63 = scalar.constant 63 : i64
   %condition_bit = scalar.andi %condition_bits, %c1 : i64
@@ -32,25 +33,29 @@ func.def @wide_scalar_observations(%uniform_lhs: i64, %uniform_rhs: i64, %input:
   %uniform_eq_bit = scalar.extui %uniform_eq : i1 to i64
   %uniform_ne_bit = scalar.extui %uniform_ne : i1 to i64
   %uniform_slt_bit = scalar.extui %uniform_slt : i1 to i64
-  view.store %uniform_and, %results[0] : i64, view<50xi64>
-  view.store %uniform_or, %results[1] : i64, view<50xi64>
-  view.store %uniform_xor, %results[2] : i64, view<50xi64>
-  view.store %uniform_sum, %results[3] : i64, view<50xi64>
-  view.store %uniform_product, %results[4] : i64, view<50xi64>
-  view.store %uniform_shift, %results[5] : i64, view<50xi64>
-  view.store %uniform_eq_bit, %results[6] : i64, view<50xi64>
-  view.store %uniform_ne_bit, %results[7] : i64, view<50xi64>
-  view.store %uniform_slt_bit, %results[8] : i64, view<50xi64>
+  view.store %uniform_and, %results[0] : i64, view<57xi64>
+  view.store %uniform_or, %results[1] : i64, view<57xi64>
+  view.store %uniform_xor, %results[2] : i64, view<57xi64>
+  view.store %uniform_sum, %results[3] : i64, view<57xi64>
+  view.store %uniform_product, %results[4] : i64, view<57xi64>
+  view.store %uniform_shift, %results[5] : i64, view<57xi64>
+  view.store %uniform_eq_bit, %results[6] : i64, view<57xi64>
+  view.store %uniform_ne_bit, %results[7] : i64, view<57xi64>
+  view.store %uniform_slt_bit, %results[8] : i64, view<57xi64>
 
   %sum = scalar.addi %lhs, %rhs : i64
   %difference = scalar.subi %lhs, %rhs : i64
   %shifted = scalar.shli %lhs, %count : i64
+  %dynamic_logical = scalar.shrui %lhs, %count : i64
+  %dynamic_signed = scalar.shrsi %lhs, %count : i64
   %product = scalar.muli %lhs, %rhs : i64
   %mixed_product = scalar.xori %product, %replacement : i64
-  view.store %sum, %results[9] : i64, view<50xi64>
-  view.store %difference, %results[10] : i64, view<50xi64>
-  view.store %shifted, %results[11] : i64, view<50xi64>
-  view.store %mixed_product, %results[12] : i64, view<50xi64>
+  view.store %sum, %results[9] : i64, view<57xi64>
+  view.store %difference, %results[10] : i64, view<57xi64>
+  view.store %shifted, %results[11] : i64, view<57xi64>
+  view.store %mixed_product, %results[12] : i64, view<57xi64>
+  view.store %dynamic_logical, %results[50] : i64, view<57xi64>
+  view.store %dynamic_signed, %results[51] : i64, view<57xi64>
 
   %eq = scalar.cmpi eq, %lhs, %rhs : i64
   %ne = scalar.cmpi ne, %lhs, %rhs : i64
@@ -72,33 +77,43 @@ func.def @wide_scalar_observations(%uniform_lhs: i64, %uniform_rhs: i64, %input:
   %ule_result = scf.select %ule, %lhs, %rhs : i64
   %ugt_result = scf.select %ugt, %lhs, %rhs : i64
   %uge_result = scf.select %uge, %lhs, %rhs : i64
-  view.store %eq_result, %results[13] : i64, view<50xi64>
-  view.store %ne_result, %results[14] : i64, view<50xi64>
-  view.store %slt_result, %results[15] : i64, view<50xi64>
-  view.store %sle_result, %results[16] : i64, view<50xi64>
-  view.store %sgt_result, %results[17] : i64, view<50xi64>
-  view.store %sge_result, %results[18] : i64, view<50xi64>
-  view.store %ult_result, %results[19] : i64, view<50xi64>
-  view.store %ule_result, %results[20] : i64, view<50xi64>
-  view.store %ugt_result, %results[21] : i64, view<50xi64>
-  view.store %uge_result, %results[22] : i64, view<50xi64>
+  view.store %eq_result, %results[13] : i64, view<57xi64>
+  view.store %ne_result, %results[14] : i64, view<57xi64>
+  view.store %slt_result, %results[15] : i64, view<57xi64>
+  view.store %sle_result, %results[16] : i64, view<57xi64>
+  view.store %sgt_result, %results[17] : i64, view<57xi64>
+  view.store %sge_result, %results[18] : i64, view<57xi64>
+  view.store %ult_result, %results[19] : i64, view<57xi64>
+  view.store %ule_result, %results[20] : i64, view<57xi64>
+  view.store %ugt_result, %results[21] : i64, view<57xi64>
+  view.store %uge_result, %results[22] : i64, view<57xi64>
   %branch_result = scf.if %slt -> (i64) {
     scf.yield %lhs : i64
   } else {
     scf.yield %rhs : i64
   }
-  view.store %branch_result, %results[23] : i64, view<50xi64>
+  view.store %branch_result, %results[23] : i64, view<57xi64>
 
+  %left_low = scalar.shli %lhs, %c31 : i64
+  %left_word = scalar.shli %lhs, %c32 : i64
+  %left_sign = scalar.shli %lhs, %c63 : i64
+  %logical_low = scalar.shrui %lhs, %c31 : i64
+  %signed_low = scalar.shrsi %lhs, %c31 : i64
   %logical_word = scalar.shrui %lhs, %c32 : i64
   %signed_word = scalar.shrsi %lhs, %c32 : i64
   %logical_sign = scalar.shrui %lhs, %c63 : i64
   %signed_sign = scalar.shrsi %lhs, %c63 : i64
   %selected_shift = scf.select %condition, %logical_word, %signed_word : i64
-  view.store %logical_word, %results[24] : i64, view<50xi64>
-  view.store %signed_word, %results[25] : i64, view<50xi64>
-  view.store %logical_sign, %results[26] : i64, view<50xi64>
-  view.store %signed_sign, %results[27] : i64, view<50xi64>
-  view.store %selected_shift, %results[28] : i64, view<50xi64>
+  view.store %logical_word, %results[24] : i64, view<57xi64>
+  view.store %signed_word, %results[25] : i64, view<57xi64>
+  view.store %logical_sign, %results[26] : i64, view<57xi64>
+  view.store %signed_sign, %results[27] : i64, view<57xi64>
+  view.store %selected_shift, %results[28] : i64, view<57xi64>
+  view.store %left_low, %results[52] : i64, view<57xi64>
+  view.store %left_word, %results[53] : i64, view<57xi64>
+  view.store %left_sign, %results[54] : i64, view<57xi64>
+  view.store %logical_low, %results[55] : i64, view<57xi64>
+  view.store %signed_low, %results[56] : i64, view<57xi64>
 
   %lhs_word = scalar.trunci %lhs : i64 to i32
   %rhs_word = scalar.trunci %rhs : i64 to i32
@@ -109,10 +124,10 @@ func.def @wide_scalar_observations(%uniform_lhs: i64, %uniform_rhs: i64, %input:
   %selected_f32_bits = scalar.extui %selected_f32_word : i32 to i64
   %lhs_f32_bits = scalar.extui %lhs_word : i32 to i64
   %rhs_f32_bits = scalar.extui %rhs_word : i32 to i64
-  view.store %selected_f32_bits, %results[29] : i64, view<50xi64>
-  view.store %lhs_f32_bits, %results[30] : i64, view<50xi64>
-  view.store %rhs_f32_bits, %results[31] : i64, view<50xi64>
-  view.store %condition_bit, %results[32] : i64, view<50xi64>
+  view.store %selected_f32_bits, %results[29] : i64, view<57xi64>
+  view.store %lhs_f32_bits, %results[30] : i64, view<57xi64>
+  view.store %rhs_f32_bits, %results[31] : i64, view<57xi64>
+  view.store %condition_bit, %results[32] : i64, view<57xi64>
 
   %lhs_f64 = scalar.bitcast %lhs : i64 to f64
   %rhs_f64 = scalar.bitcast %rhs : i64 to f64
@@ -122,21 +137,21 @@ func.def @wide_scalar_observations(%uniform_lhs: i64, %uniform_rhs: i64, %input:
   %selected_f64 = scf.select %condition, %lhs_f64, %rhs_f64 : f64
   %constant_selected_f64_bits = scalar.bitcast %constant_selected_f64 : f64 to i64
   %selected_f64_bits = scalar.bitcast %selected_f64 : f64 to i64
-  view.store %constant_selected_f64_bits, %results[33] : i64, view<50xi64>
-  view.store %selected_f64_bits, %results[34] : i64, view<50xi64>
-  view.store %lhs, %results[35] : i64, view<50xi64>
-  view.store %rhs, %results[36] : i64, view<50xi64>
-  view.store %condition_bit, %results[37] : i64, view<50xi64>
+  view.store %constant_selected_f64_bits, %results[33] : i64, view<57xi64>
+  view.store %selected_f64_bits, %results[34] : i64, view<57xi64>
+  view.store %lhs, %results[35] : i64, view<57xi64>
+  view.store %rhs, %results[36] : i64, view<57xi64>
+  view.store %condition_bit, %results[37] : i64, view<57xi64>
 
   %integer_values = vector.from_elements %lhs, %rhs : vector<2xi64>
   %integer_first = vector.extract %integer_values[0] : vector<2xi64> -> i64
   %integer_second = vector.extract %integer_values[1] : vector<2xi64> -> i64
   %integer_replace_first = vector.insert %replacement into %integer_values[0] : i64, vector<2xi64>
   %integer_replace_second = vector.insert %replacement into %integer_values[1] : i64, vector<2xi64>
-  view.store %integer_first, %results[38] : i64, view<50xi64>
-  view.store %integer_second, %results[39] : i64, view<50xi64>
-  vector.store %integer_replace_first, %results[40] : vector<2xi64>, view<50xi64>
-  vector.store %integer_replace_second, %results[42] : vector<2xi64>, view<50xi64>
+  view.store %integer_first, %results[38] : i64, view<57xi64>
+  view.store %integer_second, %results[39] : i64, view<57xi64>
+  vector.store %integer_replace_first, %results[40] : vector<2xi64>, view<57xi64>
+  vector.store %integer_replace_second, %results[42] : vector<2xi64>, view<57xi64>
 
   %float_values = vector.from_elements %lhs_f64, %rhs_f64 : vector<2xf64>
   %float_first = vector.extract %float_values[0] : vector<2xf64> -> f64
@@ -153,12 +168,12 @@ func.def @wide_scalar_observations(%uniform_lhs: i64, %uniform_rhs: i64, %input:
   %float_replace_first_1_bits = scalar.bitcast %float_replace_first_1 : f64 to i64
   %float_replace_second_0_bits = scalar.bitcast %float_replace_second_0 : f64 to i64
   %float_replace_second_1_bits = scalar.bitcast %float_replace_second_1 : f64 to i64
-  view.store %float_first_bits, %results[44] : i64, view<50xi64>
-  view.store %float_second_bits, %results[45] : i64, view<50xi64>
-  view.store %float_replace_first_0_bits, %results[46] : i64, view<50xi64>
-  view.store %float_replace_first_1_bits, %results[47] : i64, view<50xi64>
-  view.store %float_replace_second_0_bits, %results[48] : i64, view<50xi64>
-  view.store %float_replace_second_1_bits, %results[49] : i64, view<50xi64>
+  view.store %float_first_bits, %results[44] : i64, view<57xi64>
+  view.store %float_second_bits, %results[45] : i64, view<57xi64>
+  view.store %float_replace_first_0_bits, %results[46] : i64, view<57xi64>
+  view.store %float_replace_first_1_bits, %results[47] : i64, view<57xi64>
+  view.store %float_replace_second_0_bits, %results[48] : i64, view<57xi64>
+  view.store %float_replace_second_1_bits, %results[49] : i64, view<57xi64>
   func.return
 }
 
@@ -205,14 +220,14 @@ check.scenario @wide_scalar_values {
     %input_seed = check.entropy.read %input_entropy[%trial] : check.entropy -> i64
     %input = check.generate.random.uniform seed(%input_seed) range(-9223372036854775808 to 9223372036854775807) : tensor<5xi64>
     %unchanged_input = check.generate.random.uniform seed(%input_seed) range(-9223372036854775808 to 9223372036854775807) : tensor<5xi64>
-    %storage = check.generate.fill value(-7777) : tensor<66xi64>
-    %prefix = check.tensor.view %storage offset(0) : tensor<66xi64> -> tensor<8xi64>
-    %output = check.tensor.view %storage offset(64) : tensor<66xi64> -> tensor<50xi64>
-    %suffix = check.tensor.view %storage offset(464) : tensor<66xi64> -> tensor<8xi64>
+    %storage = check.generate.fill value(-7777) : tensor<73xi64>
+    %prefix = check.tensor.view %storage offset(0) : tensor<73xi64> -> tensor<8xi64>
+    %output = check.tensor.view %storage offset(64) : tensor<73xi64> -> tensor<57xi64>
+    %suffix = check.tensor.view %storage offset(520) : tensor<73xi64> -> tensor<8xi64>
     %guard = check.generate.fill value(-7777) : tensor<8xi64>
-    check.compare<@wide_scalar_observations>(%uniform_lhs, %uniform_rhs, %input, %output) : (i64, i64, tensor<5xi64>, tensor<50xi64>) -> () {
+    check.compare<@wide_scalar_observations>(%uniform_lhs, %uniform_rhs, %input, %output) : (i64, i64, tensor<5xi64>, tensor<57xi64>) -> () {
       check.expect.bitwise actual(%input) expected(%unchanged_input) : tensor<5xi64>
-      check.expect.bitwise actual(%output) expected(%output) : tensor<50xi64>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<57xi64>
       check.expect.bitwise actual(%prefix) expected(%guard) : tensor<8xi64>
       check.expect.bitwise actual(%suffix) expected(%guard) : tensor<8xi64>
     }

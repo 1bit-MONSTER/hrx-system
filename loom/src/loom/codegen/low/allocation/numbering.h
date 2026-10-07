@@ -33,6 +33,11 @@ typedef struct loom_low_allocation_numbering_context_t {
   // Original class extents and fixed/reserved locations, unchanged by
   // numbering.
   const loom_low_allocation_target_constraints_t* target_constraints;
+  // External source coordinates indexed by formal-argument ordinal. Numbering
+  // preserves these even when entry transport was an elided identity.
+  const loom_low_allocation_abi_location_t* entry_locations;
+  // Number of entries in |entry_locations|.
+  iree_host_size_t entry_location_count;
   // Retained implicit physical uses anchoring architectural locations.
   const loom_low_allocation_unit_liveness_t* unit_liveness;
   // Completed assignments and ordinal lookup, updated in place.

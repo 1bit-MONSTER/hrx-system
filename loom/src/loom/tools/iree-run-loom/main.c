@@ -19,7 +19,6 @@
 #include "loom/sanitizer/options.h"
 #include "loom/tooling/cli/help.h"
 #include "loom/tooling/compile/report_capture.h"
-#include "loom/tooling/context/context.h"
 #include "loom/tooling/execution/execution_backend.h"
 #include "loom/tooling/execution/one_shot.h"
 #include "loom/tooling/execution/session.h"
@@ -197,18 +196,6 @@ IREE_FLAG_CALLBACK_NAMED(
     expected_kernel_buffer, "expected-kernel-buffer",
     "Appends an expected HAL binding after dispatch. When present, one "
     "expected binding must be provided for every binding.");
-
-static iree_status_t iree_run_loom_register_context(void* user_data,
-                                                    loom_context_t* context) {
-  const iree_run_loom_configuration_t* configuration =
-      (const iree_run_loom_configuration_t*)user_data;
-  IREE_RETURN_IF_ERROR(loom_tooling_context_register_tool_dialects(context));
-  if (configuration->register_context.fn == NULL) {
-    return iree_ok_status();
-  }
-  return configuration->register_context.fn(
-      configuration->register_context.user_data, context);
-}
 
 static iree_status_t iree_run_loom_parse_workgroup_count(
     iree_string_view_t value, uint32_t* out_workgroup_count) {
@@ -487,12 +474,7 @@ int iree_run_loom_main(int argc, char** argv,
     loom_run_session_options_initialize(&session_options);
     session_options.host_allocator = allocator;
     session_options.input_providers = configuration->input_providers;
-    session_options.register_context = (loom_run_register_context_callback_t){
-        .fn = iree_run_loom_register_context,
-        .user_data = (void*)configuration,
-    };
-    session_options.initialize_low_descriptor_registry =
-        configuration->initialize_low_descriptor_registry;
+    session_options.target_environment = configuration->target_environment;
     session_options.cleanup_pattern_provider_set =
         configuration->cleanup_pattern_provider_set;
     status = loom_run_session_initialize(&session_options, &session);
@@ -523,10 +505,8 @@ int iree_run_loom_main(int argc, char** argv,
         &compile_report_options);
   }
   if (iree_status_is_ok(status)) {
-    status = loom_compile_report_capture_initialize(
-        &compile_report_options, allocator, &compile_report_capture);
-  }
-  if (iree_status_is_ok(status)) {
+    loom_compile_report_capture_initialize(&compile_report_options, allocator,
+                                           &compile_report_capture);
     loom_compile_report_capture_configure_compile_options(
         &compile_report_capture, &compile_options);
   }
@@ -558,7 +538,6 @@ int iree_run_loom_main(int argc, char** argv,
   if (iree_status_is_ok(status)) {
     const loom_run_one_shot_request_t run_request = {
         .session = &session,
-        .target_environment = configuration->target_environment,
         .pipeline = iree_make_cstring_view(FLAG_pipeline),
         .target = iree_make_cstring_view(FLAG_target),
         .run_module = &run_module,
