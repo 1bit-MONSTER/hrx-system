@@ -97,13 +97,14 @@ typedef struct loom_low_allocation_reserved_range_index_entry_t
 
 // Target-validated fixed value prepared for allocation.
 //
-// |assignment| contains the propagated sparse and per-unit storage lifetime
-// used by conflict searches. Explicit bindings extend to all required tied
-// values. They constrain both coalescing and direct interval assignment;
-// target-implied locations reserve storage until ordinary allocation selects
-// it.
+// Construction first resolves the location and extends it to required tied
+// values. Finalization attaches propagated sparse and per-unit storage
+// lifetimes before assignments or fixed-storage conflict queries are published.
+// Explicit bindings constrain coalescing and direct assignment; target-implied
+// locations reserve storage until ordinary allocation selects them.
 typedef struct loom_low_allocation_resolved_fixed_value_t {
-  // Complete assignment at the required target-visible location.
+  // Validated location during construction; complete storage assignment after
+  // finalize_fixed_values attaches refined lifetimes.
   loom_low_allocation_assignment_t assignment;
   // Liveness-local ordinal for |assignment.value_id|.
   loom_value_ordinal_t value_ordinal;
@@ -258,18 +259,28 @@ iree_status_t loom_low_allocation_target_constraints_initialize(
     iree_arena_allocator_t* arena,
     loom_low_allocation_target_constraints_t* out_constraints);
 
-// Resolves fixed values into complete assignments after |unit_liveness| has
-// been initialized and propagated for |liveness|. Required ties in |placement|
-// propagate explicit bindings; contradictory bindings diagnose at this
-// boundary.
-iree_status_t loom_low_allocation_target_constraints_resolve_fixed_values(
+// Validates fixed requests and propagates locations through required ties.
+// Collected operand constraints and flattened origins precede placement
+// indexing. Only location facts are available until finalize_fixed_values
+// attaches the refined lifetimes and publishes the fixed-storage conflict
+// index.
+iree_status_t loom_low_allocation_target_constraints_resolve_fixed_locations(
     loom_low_allocation_target_constraints_t* constraints,
     const loom_liveness_analysis_t* liveness,
     const loom_local_value_domain_t* value_domain,
-    const loom_low_allocation_unit_liveness_t* unit_liveness,
-    const loom_low_placement_table_t* placement,
+    const loom_low_placement_operand_constraints_t*
+        operand_constraints_by_interval,
+    const loom_value_ordinal_t* tied_storage_origins_by_value_ordinal,
     const loom_low_allocation_fixed_value_t* fixed_values,
     iree_host_size_t fixed_value_count, iree_arena_allocator_t* arena);
+
+// Attaches propagated storage lifetimes to normalized fixed locations and
+// publishes their complete assignments and fixed-storage conflict index.
+iree_status_t loom_low_allocation_target_constraints_finalize_fixed_values(
+    loom_low_allocation_target_constraints_t* constraints,
+    const loom_liveness_analysis_t* liveness,
+    const loom_low_allocation_unit_liveness_t* unit_liveness,
+    iree_arena_allocator_t* arena);
 
 // Diagnoses a fixed binding whose required storage conflicts with another
 // live value, asynchronous lease, reserved range, or implicit physical write.

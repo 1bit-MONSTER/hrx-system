@@ -23,6 +23,47 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    placement
+  HDRS
+    "placement.h"
+  SRCS
+    "placement.c"
+  DEPS
+    ::target_constraints
+    ::unit_location
+    iree::base
+    iree::base::internal
+    iree::base::internal::arena
+    loom::analysis::liveness
+    loom::codegen::low::descriptors
+    loom::codegen::low::placement
+    loom::codegen::low::representation_binding
+    loom::codegen::low::storage_relation
+    loom::ir
+    loom::ops::low
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    placement_test
+  SRCS
+    "placement_test.cc"
+  DEPS
+    ::placement
+    ::target_constraints
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::codegen::low::builder
+    loom::codegen::low::placement
+    loom::ir
+    loom::ops::low
+    loom::target::registers
+)
+
+loom_cc_library(
+  NAME
     active_capacity
   HDRS
     "active_capacity.h"
@@ -867,6 +908,8 @@ loom_cc_test(
   SRCS
     "write_interference_test.cc"
   DEPS
+    ::placement
+    ::target_constraints
     ::write_interference
     iree::base::internal::arena
     iree::testing::gtest

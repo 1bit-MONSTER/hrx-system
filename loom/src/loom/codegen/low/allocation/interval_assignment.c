@@ -170,7 +170,8 @@ static bool loom_low_allocation_interval_assignment_find_entry_location(
   } else {
     const uint32_t alignment =
         loom_low_allocation_live_range_interval_alignment(
-            descriptors, context->liveness, context->placement, interval);
+            descriptors, context->liveness,
+            context->placement->operand_constraints_by_interval, interval);
     if (entry->location_base % alignment != 0 ||
         (capacity->is_bounded &&
          (uint64_t)entry->location_base + interval->unit_count >
@@ -302,7 +303,7 @@ static iree_status_t loom_low_allocation_interval_assignment_record_failure(
 
   const uint32_t alignment = loom_low_allocation_live_range_interval_alignment(
       state->context->target->descriptor_set, state->context->liveness,
-      state->context->placement, interval);
+      state->context->placement->operand_constraints_by_interval, interval);
   const loom_low_reg_class_t* reg_class =
       &state->context->target->descriptor_set
            ->reg_classes[capacity->descriptor_reg_class_id];

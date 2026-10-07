@@ -42,11 +42,13 @@ uint32_t loom_low_allocation_live_range_interval_initial_unit_end_point(
 
 // Returns the required base alignment from the register class and retained
 // packet constraints. |interval| belongs to |liveness|, which owns the interval
-// indexing used by |placement|. Packing preferences do not restrict legality.
+// indexing used by |operand_constraints_by_interval|. Packing preferences do
+// not restrict legality.
 uint32_t loom_low_allocation_live_range_interval_alignment(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_liveness_analysis_t* liveness,
-    const loom_low_placement_table_t* placement,
+    const loom_low_placement_operand_constraints_t*
+        operand_constraints_by_interval,
     const loom_liveness_interval_t* interval);
 
 // Returns the one-past-last live program point for one assigned unit. Unit

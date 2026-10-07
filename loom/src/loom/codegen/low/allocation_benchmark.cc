@@ -24,6 +24,7 @@
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/liveness.h"
 #include "loom/codegen/low/allocation.h"
+#include "loom/codegen/low/allocation/placement.h"
 #include "loom/codegen/low/allocation/unit_liveness.h"
 #include "loom/codegen/low/placement.h"
 #include "loom/codegen/low/schedule/run.h"
@@ -655,9 +656,14 @@ class AllocationBenchmark {
     }
     if (phase_ == Phase::kUnitLiveness) {
       loom_low_placement_preference_index_t preferences = {};
-      IREE_CHECK_OK(loom_low_placement_analyze_region(
-          module_, model_.body, model_.target.descriptor_set,
-          &model_.value_domain, &liveness_,
+      loom_low_allocation_target_constraints_t constraints = {};
+      IREE_CHECK_OK(loom_low_allocation_target_constraints_initialize(
+          module_, function_, &model_.target, nullptr, 0,
+          reserved_ranges_.data(), reserved_ranges_.size(), {}, &base_arena_,
+          &constraints));
+      IREE_CHECK_OK(loom_low_allocation_placement_build(
+          &constraints, model_.body, &model_.value_domain, &liveness_,
+          fixed_values_.data(), fixed_values_.size(),
           loom_low_placement_pair_use_list_empty(), {}, &base_arena_,
           &base_arena_, &placement_, &preferences));
     }
@@ -696,9 +702,14 @@ class AllocationBenchmark {
     } else if (phase_ == Phase::kPlacement) {
       loom_low_placement_table_t placement = {};
       loom_low_placement_preference_index_t preferences = {};
-      IREE_CHECK_OK(loom_low_placement_analyze_region(
-          module_, model_.body, model_.target.descriptor_set,
-          &model_.value_domain, &liveness_,
+      loom_low_allocation_target_constraints_t constraints = {};
+      IREE_CHECK_OK(loom_low_allocation_target_constraints_initialize(
+          module_, function_, &model_.target, nullptr, 0,
+          reserved_ranges_.data(), reserved_ranges_.size(), {}, &arena,
+          &constraints));
+      IREE_CHECK_OK(loom_low_allocation_placement_build(
+          &constraints, model_.body, &model_.value_domain, &liveness_,
+          fixed_values_.data(), fixed_values_.size(),
           loom_low_placement_pair_use_list_empty(), {}, &arena, &arena,
           &placement, &preferences));
       result.value_count = placement.value_count;

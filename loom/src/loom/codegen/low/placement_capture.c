@@ -9,7 +9,6 @@
 #include <string.h>
 
 #include "loom/codegen/low/placement.h"
-#include "loom/ops/low/ops.h"
 
 typedef struct loom_low_placement_capture_writes_t {
   // Write-point range starts by required storage origin, with a sentinel.
@@ -104,19 +103,6 @@ static bool loom_low_placement_capture_required(
   return false;
 }
 
-static bool loom_low_placement_capture_has_packet_uses(
-    const loom_low_placement_table_t* placement, loom_value_ordinal_t value) {
-  const loom_value_t* result =
-      loom_module_value(placement->module, placement->value_ids[value]);
-  const loom_use_t* use = NULL;
-  loom_value_for_each_use(result, use) {
-    if (!loom_low_br_isa(loom_use_user_op(*use))) {
-      return true;
-    }
-  }
-  return false;
-}
-
 static bool loom_low_placement_capture_has_edge_uses(
     const loom_low_placement_table_t* placement, loom_value_ordinal_t value) {
   const loom_low_placement_relation_range_t range =
@@ -157,8 +143,8 @@ iree_status_t loom_low_placement_captures_build(
     }
     if (aggregate != relation->result_ordinal) {
       aggregate = relation->result_ordinal;
-      has_packet_uses =
-          loom_low_placement_capture_has_packet_uses(placement, aggregate);
+      has_packet_uses = iree_any_bit_set(
+          relation->flags, LOOM_LOW_PLACEMENT_RELATION_FLAG_MATERIALIZE_PART);
       has_edge_uses =
           loom_low_placement_capture_has_edge_uses(placement, aggregate);
       if (has_edge_uses && writes.offsets == NULL &&
@@ -166,9 +152,6 @@ iree_status_t loom_low_placement_captures_build(
         IREE_RETURN_IF_ERROR(loom_low_placement_capture_writes_initialize(
             placement, scratch_arena, &writes));
       }
-    }
-    if (has_packet_uses) {
-      relation->flags |= LOOM_LOW_PLACEMENT_RELATION_FLAG_MATERIALIZE_PART;
     }
     const loom_value_ordinal_t origin =
         loom_low_placement_capture_storage_origin(placement,

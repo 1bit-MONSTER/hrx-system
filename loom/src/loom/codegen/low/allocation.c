@@ -16,6 +16,7 @@
 #include "loom/codegen/low/allocation/loop_edge_relocation.h"
 #include "loom/codegen/low/allocation/numbering.h"
 #include "loom/codegen/low/allocation/packet_move.h"
+#include "loom/codegen/low/allocation/placement.h"
 #include "loom/codegen/low/allocation/storage_lease.h"
 #include "loom/codegen/low/allocation/target_constraints.h"
 #include "loom/codegen/low/allocation/unit_liveness.h"
@@ -499,10 +500,11 @@ iree_status_t loom_low_allocate_function(
     const loom_low_placement_pair_use_list_t placement_pair_uses =
         options->schedule != NULL ? options->schedule->placement_pair_uses
                                   : loom_low_placement_pair_use_list_empty();
-    status = loom_low_placement_analyze_region(
-        model->module, state.body, state.target.descriptor_set, value_domain,
-        &state.liveness, placement_pair_uses, options->instruction_preferences,
-        arena, &decision_arena, &state.placement, &state.preferences);
+    status = loom_low_allocation_placement_build(
+        &state.target_constraints, state.body, value_domain, &state.liveness,
+        options->fixed_values, options->fixed_value_count, placement_pair_uses,
+        options->instruction_preferences, arena, &decision_arena,
+        &state.placement, &state.preferences);
   }
   if (iree_status_is_ok(status) && state.target_constraints.error_count == 0) {
     status = loom_low_allocation_unit_liveness_initialize(
@@ -524,10 +526,9 @@ iree_status_t loom_low_allocate_function(
         &state.unit_liveness, &state.placement);
   }
   if (iree_status_is_ok(status) && state.target_constraints.error_count == 0) {
-    status = loom_low_allocation_target_constraints_resolve_fixed_values(
-        &state.target_constraints, &state.liveness, value_domain,
-        &state.unit_liveness, &state.placement, options->fixed_values,
-        options->fixed_value_count, arena);
+    status = loom_low_allocation_target_constraints_finalize_fixed_values(
+        &state.target_constraints, &state.liveness, &state.unit_liveness,
+        arena);
   }
   if (iree_status_is_ok(status) && state.target_constraints.error_count == 0) {
     for (iree_host_size_t i = 0; i < state.target_constraints.fixed_value_count;

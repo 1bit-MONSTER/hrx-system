@@ -27,6 +27,43 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "placement",
+    srcs = ["placement.c"],
+    hdrs = ["placement.h"],
+    deps = [
+        ":target_constraints",
+        ":unit_location",
+        "//loom/src/loom/analysis:liveness",
+        "//loom/src/loom/codegen/low:descriptors",
+        "//loom/src/loom/codegen/low:placement",
+        "//loom/src/loom/codegen/low:representation_binding",
+        "//loom/src/loom/codegen/low:storage_relation",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_test(
+    name = "placement_test",
+    srcs = ["placement_test.cc"],
+    deps = [
+        ":placement",
+        ":target_constraints",
+        "//loom/src/loom/codegen/low:builder",
+        "//loom/src/loom/codegen/low:placement",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target:registers",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "active_capacity",
     srcs = ["active_capacity.c"],
     hdrs = ["active_capacity.h"],
@@ -771,6 +808,8 @@ loom_cc_test(
     name = "write_interference_test",
     srcs = ["write_interference_test.cc"],
     deps = [
+        ":placement",
+        ":target_constraints",
         ":write_interference",
         "//loom/src/loom/analysis:liveness",
         "//loom/src/loom/codegen/low:builder",

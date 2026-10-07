@@ -422,7 +422,8 @@ static iree_status_t loom_low_allocation_loop_edge_relocation_group_supported(
         proposed.location_base %
                 loom_low_allocation_live_range_interval_alignment(
                     context->descriptor_set, context->liveness,
-                    context->placement, interval) !=
+                    context->placement->operand_constraints_by_interval,
+                    interval) !=
             0) {
       return iree_ok_status();
     }
@@ -1094,7 +1095,8 @@ static bool loom_low_allocation_loop_edge_relocation_eviction_location_is_legal(
   }
   const uint32_t required_alignment =
       loom_low_allocation_live_range_interval_alignment(
-          context->descriptor_set, context->liveness, context->placement,
+          context->descriptor_set, context->liveness,
+          context->placement->operand_constraints_by_interval,
           eviction->interval);
   if (assignment.location_base % required_alignment != 0) {
     return false;

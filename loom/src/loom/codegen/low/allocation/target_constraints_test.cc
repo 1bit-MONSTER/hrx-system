@@ -622,9 +622,16 @@ TEST_F(LowAllocationTargetConstraintsTest,
           module, &function_op_, &target_, nullptr, 0, nullptr, 0, {}, &arena_,
           &constraints));
       IREE_ASSERT_OK(
-          loom_low_allocation_target_constraints_resolve_fixed_values(
-              &constraints, &liveness, &domain, &unit_liveness, &placement,
-              fixed.data(), fixed.size(), &arena_));
+          loom_low_allocation_target_constraints_resolve_fixed_locations(
+              &constraints, &liveness, &domain,
+              placement.operand_constraints_by_interval,
+              placement.tied_storage_origins_by_value_ordinal, fixed.data(),
+              fixed.size(), &arena_));
+      if (constraints.error_count == 0) {
+        IREE_ASSERT_OK(
+            loom_low_allocation_target_constraints_finalize_fixed_values(
+                &constraints, &liveness, &unit_liveness, &arena_));
+      }
       ASSERT_EQ(constraints.error_count, 0u);
       EXPECT_EQ(constraints.fixed_value_count, kValueCount);
       EXPECT_EQ(constraints.preassigned_fixed_value_count, kValueCount);
@@ -728,9 +735,17 @@ TEST_F(LowAllocationTargetConstraintsTest,
         &arena_, &constraints));
     const loom_low_allocation_fixed_value_t fixed = {
         value, LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, location, 1};
-    IREE_ASSERT_OK(loom_low_allocation_target_constraints_resolve_fixed_values(
-        &constraints, &liveness, &domain, &unit_liveness, &placement, &fixed, 1,
-        &arena_));
+    IREE_ASSERT_OK(
+        loom_low_allocation_target_constraints_resolve_fixed_locations(
+            &constraints, &liveness, &domain,
+            placement.operand_constraints_by_interval,
+            placement.tied_storage_origins_by_value_ordinal, &fixed, 1,
+            &arena_));
+    if (constraints.error_count == 0) {
+      IREE_ASSERT_OK(
+          loom_low_allocation_target_constraints_finalize_fixed_values(
+              &constraints, &liveness, &unit_liveness, &arena_));
+    }
     EXPECT_EQ(constraints.error_count, location < 8 ? 0u : 1u);
     EXPECT_EQ(constraints.fixed_value_count, location < 8 ? 1u : 0u);
     if (location >= 8) {
@@ -835,9 +850,15 @@ TEST_F(LowAllocationTargetConstraintsTest,
       module, &function_op_, &target_, nullptr, 0, nullptr, 0, {}, &arena_,
       &constraints));
   const loom_low_placement_table_t placement = {};
-  IREE_ASSERT_OK(loom_low_allocation_target_constraints_resolve_fixed_values(
-      &constraints, &liveness, &domain, &unit_liveness, &placement,
-      fixed_values, kFixedCount, &arena_));
+  IREE_ASSERT_OK(loom_low_allocation_target_constraints_resolve_fixed_locations(
+      &constraints, &liveness, &domain,
+      placement.operand_constraints_by_interval,
+      placement.tied_storage_origins_by_value_ordinal, fixed_values,
+      kFixedCount, &arena_));
+  if (constraints.error_count == 0) {
+    IREE_ASSERT_OK(loom_low_allocation_target_constraints_finalize_fixed_values(
+        &constraints, &liveness, &unit_liveness, &arena_));
+  }
   ASSERT_EQ(constraints.error_count, 0u);
   EXPECT_EQ(constraints.fixed_index.subtree_tied_roots, nullptr);
   EXPECT_EQ(
@@ -1052,9 +1073,15 @@ TEST_F(LowAllocationTargetConstraintsTest,
       module, &function_op_, &target_, nullptr, 0, nullptr, 0, {}, &arena_,
       &constraints));
   const loom_low_placement_table_t placement = {};
-  IREE_ASSERT_OK(loom_low_allocation_target_constraints_resolve_fixed_values(
-      &constraints, &liveness, &domain, &unit_liveness, &placement,
-      &fixed_value, /*fixed_value_count=*/1, &arena_));
+  IREE_ASSERT_OK(loom_low_allocation_target_constraints_resolve_fixed_locations(
+      &constraints, &liveness, &domain,
+      placement.operand_constraints_by_interval,
+      placement.tied_storage_origins_by_value_ordinal, &fixed_value,
+      /*fixed_value_count=*/1, &arena_));
+  if (constraints.error_count == 0) {
+    IREE_ASSERT_OK(loom_low_allocation_target_constraints_finalize_fixed_values(
+        &constraints, &liveness, &unit_liveness, &arena_));
+  }
   ASSERT_EQ(constraints.error_count, 0u);
 
   loom_low_allocation_assignment_t candidate = {};
