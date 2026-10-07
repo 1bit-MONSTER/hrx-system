@@ -558,14 +558,11 @@ loom_cc_library(
   DEPS
     ::descriptors
     ::placement_recipe
-    ::representation_binding
-    ::storage_relation
     iree::base
     iree::base::internal
     iree::base::internal::arena
     loom::analysis::liveness
     loom::ir
-    loom::ops::low
   PUBLIC
 )
 
@@ -575,14 +572,9 @@ loom_cc_test(
   SRCS
     "placement_test.cc"
   DEPS
-    ::builder
     ::placement
-    iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
-    loom::ir
-    loom::ops::low
-    loom::target::registers
 )
 
 loom_cc_library(
@@ -623,6 +615,7 @@ loom_cc_library(
     loom::codegen::low::allocation::move_topology
     loom::codegen::low::allocation::numbering
     loom::codegen::low::allocation::packet_move
+    loom::codegen::low::allocation::placement
     loom::codegen::low::allocation::search
     loom::codegen::low::allocation::spill_plan
     loom::codegen::low::allocation::spill_traffic
@@ -659,6 +652,8 @@ loom_cc_benchmark(
     iree::base::internal::arena
     iree::testing::benchmark_main
     loom::analysis::liveness
+    loom::codegen::low::allocation::placement
+    loom::codegen::low::allocation::target_constraints
     loom::codegen::low::allocation::unit_liveness
     loom::codegen::low::schedule
     loom::format::text::parser

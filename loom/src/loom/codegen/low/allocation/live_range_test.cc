@@ -147,14 +147,16 @@ TEST(LowAllocationLiveRangeTest, SeparatesRequiredAndPreferredAlignment) {
     liveness.intervals = &interval;
     liveness.interval_count = 1;
     EXPECT_EQ(loom_low_allocation_live_range_interval_alignment(
-                  &descriptor_set, &liveness, &placement, &interval),
+                  &descriptor_set, &liveness,
+                  placement.operand_constraints_by_interval, &interval),
               1u);
     EXPECT_EQ(loom_low_reg_class_preferred_unit_alignment(&reg_classes[0],
                                                           interval.unit_count),
               unaligned[i]);
     interval.value_class.register_class_id = 1;
     EXPECT_EQ(loom_low_allocation_live_range_interval_alignment(
-                  &descriptor_set, &liveness, &placement, &interval),
+                  &descriptor_set, &liveness,
+                  placement.operand_constraints_by_interval, &interval),
               interval.unit_count > 1 ? 2u : 1u);
     EXPECT_EQ(loom_low_reg_class_preferred_unit_alignment(&reg_classes[1],
                                                           interval.unit_count),
@@ -182,7 +184,8 @@ TEST(LowAllocationLiveRangeTest, CombinesRetainedOperandAndClassAlignment) {
   const uint32_t expected[] = {2, 2, 8};
   for (size_t i = 0; i < IREE_ARRAYSIZE(intervals); ++i) {
     EXPECT_EQ(loom_low_allocation_live_range_interval_alignment(
-                  &descriptor_set, &liveness, &placement, &intervals[i]),
+                  &descriptor_set, &liveness,
+                  placement.operand_constraints_by_interval, &intervals[i]),
               expected[i]);
   }
 }

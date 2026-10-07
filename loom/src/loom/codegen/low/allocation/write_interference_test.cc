@@ -11,8 +11,8 @@
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/analysis/liveness.h"
+#include "loom/codegen/low/allocation/placement.h"
 #include "loom/codegen/low/builder.h"
-#include "loom/codegen/low/placement.h"
 #include "loom/codegen/low/read_retention.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
@@ -132,12 +132,22 @@ class WriteInterferenceTest : public ::testing::Test {
 
     loom_type_t type = loom_low_register_type(1, 0, width);
     IREE_ASSERT_OK(loom_module_intern_type(module_, type, &type));
-    IREE_ASSERT_OK(loom_module_define_value(module_, type, &values_[0]));
-    IREE_ASSERT_OK(
-        loom_block_add_arg(module_, loom_module_block(module_), values_[0]));
     loom_builder_t builder;
     loom_builder_initialize(module_, &module_->arena,
                             loom_module_block(module_), &builder);
+    loom_string_id_t name;
+    IREE_ASSERT_OK(
+        loom_builder_intern_string(&builder, IREE_SV("kernel"), &name));
+    loom_symbol_id_t symbol;
+    IREE_ASSERT_OK(loom_module_add_symbol(module_, name, &symbol));
+    loom_op_t* function = nullptr;
+    IREE_ASSERT_OK(loom_low_func_def_build(
+        &builder, 0, 0, 0, 0, 0, 0, 0, 0, name, {}, 0, {}, {},
+        LOOM_STRING_ID_INVALID, {}, loom_symbol_ref_t{0, symbol}, &type, 1,
+        nullptr, 0, nullptr, 0, nullptr, 0, LOOM_LOCATION_UNKNOWN, &function));
+    loom_region_t* body = loom_low_func_def_body(function);
+    loom_builder_enter_region(&builder, function, body);
+    values_[0] = loom_region_entry_arg_id(body, 0);
     IREE_ASSERT_OK(loom_low_build_resolved_descriptor_op(
         &builder, &descriptor_set_, &descriptors_[0], 0, values_, 1, {},
         nullptr, 0, nullptr, 0, LOOM_LOCATION_UNKNOWN, &reader_));
@@ -160,15 +170,22 @@ class WriteInterferenceTest : public ::testing::Test {
     if (writer) {
       values_[value_count - 1] = loom_op_results(writer)[0];
     }
+    loom_op_t* return_op = nullptr;
+    IREE_ASSERT_OK(loom_low_return_build(&builder, nullptr, 0,
+                                         LOOM_LOCATION_UNKNOWN, &return_op));
     IREE_ASSERT_OK(loom_local_value_domain_acquire_for_region(
-        module_, module_->body, &module_->arena, &domain_));
+        module_, body, &module_->arena, &domain_));
     IREE_ASSERT_OK(loom_liveness_analyze_local_value_domain(
         &domain_, loom_liveness_order_empty(), &module_->arena, &liveness_));
     IREE_ASSERT_OK(
-        loom_cfg_graph_build(module_, module_->body, &module_->arena, &graph_));
+        loom_cfg_graph_build(module_, body, &module_->arena, &graph_));
     loom_low_placement_preference_index_t preferences = {};
-    IREE_ASSERT_OK(loom_low_placement_analyze_region(
-        module_, module_->body, &descriptor_set_, &domain_, &liveness_, {}, {},
+    loom_low_allocation_target_constraints_t constraints = {};
+    IREE_ASSERT_OK(loom_low_allocation_target_constraints_initialize(
+        module_, function, &target_, nullptr, 0, nullptr, 0, {},
+        &module_->arena, &constraints));
+    IREE_ASSERT_OK(loom_low_allocation_placement_build(
+        &constraints, body, &domain_, &liveness_, nullptr, 0, {}, {},
         &module_->arena, &module_->arena, &placement_, &preferences));
     if (kind == WriteKind::Copy) {
       ASSERT_EQ(placement_.relation_count, 1u);
