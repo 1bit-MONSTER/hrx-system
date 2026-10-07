@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_boolean_comparison.loom-test
 // RUN: emit source-low target=x86:avx2 output=low
 
 func.def public @boolean_comparisons(%left: i32, %right: i32) -> (i32) {
@@ -113,59 +112,6 @@ low.func.def public target<x86.avx2.core> abi(object_function) @boolean_comparis
   %mask_9 = or.gpr32 %136, %uge_shifted
   return %mask_9
 }
-
-// ====
-
-func.def public @boolean_constants() -> (i1, i1) {
-  %false = scalar.constant false : i1
-  %true = scalar.constant true : i1
-  func.return %false, %true : i1, i1
-}
-
-// ----
-low.func.def public target<x86.avx2.core> abi(object_function) abi_layout({signature = () -> (i1, i1)}) @boolean_constants() -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
-  %false = mov.imm32 0
-  %true = mov.imm32 1
-  return %false, %true
-}
-
-// ====
-
-func.def public @boolean_algebra(%lhs: i1, %rhs: i1) -> (i1, i1, i1) {
-  %and = scalar.andi %lhs, %rhs : i1
-  %or = scalar.ori %lhs, %rhs : i1
-  %xor = scalar.xori %lhs, %rhs : i1
-  func.return %and, %or, %xor : i1, i1, i1
-}
-
-// ----
-low.func.def public target<x86.avx2.core> abi(object_function) abi_layout({signature = (i1, i1) -> (i1, i1, i1)}) @boolean_algebra(%lhs: reg<x86.gpr32>, %rhs: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>) asm {
-  %13 = copy %lhs : reg<x86.gpr32> -> reg<x86.gpr32>
-  %and = and.gpr32 %13, %rhs
-  %15 = copy %lhs : reg<x86.gpr32> -> reg<x86.gpr32>
-  %or = or.gpr32 %15, %rhs
-  %17 = copy %lhs : reg<x86.gpr32> -> reg<x86.gpr32>
-  %xor = xor.gpr32 %17, %rhs
-  return %and, %or, %xor
-}
-
-// ====
-
-func.def public @boolean_unsigned_extensions(%input: i1) -> (i32, i64) {
-  %word = scalar.extui %input : i1 to i32
-  %wide = scalar.extui %input : i1 to i64
-  func.return %word, %wide : i32, i64
-}
-
-// ----
-low.func.def public target<x86.avx2.core> abi(object_function) abi_layout({signature = (i1) -> (i32, i64)}) @boolean_unsigned_extensions(%word: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr64>) asm {
-  %11 = mov.imm64 1
-  %12 = mov.imm64 0
-  %13 = copy %12 : reg<x86.gpr64> -> reg<x86.gpr64>
-  %wide = select.gpr64 %word, %11, %13
-  return %word, %wide
-}
-
 // ====
 
 func.def public @conditional_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {

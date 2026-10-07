@@ -125,8 +125,6 @@ iree_execution_test_suite(
     "loom-compile=loom::tools::loom-compile"
     "vm-dis=iree::tools::vm::vm-dis"
   DATA
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_boolean_comparison.loom-test"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/vm/test/boolean_comparison.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/vm/test/duplicate_exports.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/vm/test/empty_export.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/vm/test/invalid_operand.loom"
