@@ -21,7 +21,7 @@ loom_cc_library(
     iree::base
     iree::vm::bytecode::disassembler
     loom::target::arch::vm::provider
-    loom::target::emit::vm::module_compiler
+    loom::target::provider
     loom::tools::loom-check::execute
     loom::tools::loom-check::provider
   PUBLIC

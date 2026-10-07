@@ -21,8 +21,8 @@ loom_cc_library(
     hdrs = ["check.h"],
     visibility = _VM_CHECK_VISIBILITY,
     deps = [
+        "//loom/src/loom/target:provider",
         "//loom/src/loom/target/arch/vm:provider",
-        "//loom/src/loom/target/emit/vm:module_compiler",
         "//loom/src/loom/tools/loom-check:execute",
         "//loom/src/loom/tools/loom-check:provider",
         "//runtime/src/iree/base",

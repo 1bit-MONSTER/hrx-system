@@ -71,7 +71,7 @@ loom_cc_library(
     srcs = ["check/loom_check.c"],
     hdrs = ["check/loom_check.h"],
     deps = [
-        "//loom/src/loom/target/emit/wasm:module_compiler",
+        "//loom/src/loom/target:provider",
         "//loom/src/loom/target/tool:wasm",
         "//loom/src/loom/tools/loom-check:execute",
         "//runtime/src/iree/base",

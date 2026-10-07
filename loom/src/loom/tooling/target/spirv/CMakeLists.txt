@@ -19,7 +19,6 @@ loom_cc_library(
     "check/loom_check.c"
   DEPS
     iree::base
-    loom::target::emit::spirv::module_compiler
     loom::target::entry_selection
     loom::target::provider
     loom::target::tool::spirv

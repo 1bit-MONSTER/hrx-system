@@ -72,7 +72,7 @@ loom_cc_library(
     "check/loom_check.c"
   DEPS
     iree::base
-    loom::target::emit::wasm::module_compiler
+    loom::target::provider
     loom::target::tool::wasm
     loom::tools::loom-check::execute
   PUBLIC
