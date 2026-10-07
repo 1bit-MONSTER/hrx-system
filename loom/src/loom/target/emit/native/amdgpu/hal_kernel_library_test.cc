@@ -677,6 +677,55 @@ TEST_F(AmdgpuHalKernelLibraryTest, EmitsGfx942Kernel) {
   EXPECT_TRUE(capture.diagnostics.empty()) << DiagnosticSummary(capture);
 }
 
+TEST_F(AmdgpuHalKernelLibraryTest, RetainsRequestedArtifactMetadata) {
+  loom_module_t* module = nullptr;
+  ASSERT_NO_FATAL_FAILURE(ParseGfx11KernelWithArguments(&module));
+
+  iree_arena_allocator_t scratch_arena;
+  iree_arena_initialize(&block_pool_, &scratch_arena);
+  loom_target_compile_report_t report = {};
+  loom_target_compile_report_initialize(&report, iree_allocator_system());
+  report.requested_detail_flags =
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_PRESSURE_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_SPILL_ROWS |
+      LOOM_TARGET_COMPILE_REPORT_DETAIL_SOURCE_LOW_ROWS;
+  loom_target_emit_request_t request = {};
+  request.module = module;
+  request.flags = LOOM_TARGET_EMIT_REQUEST_FLAG_RETAIN_TARGET_BUNDLE |
+                  LOOM_TARGET_EMIT_REQUEST_FLAG_TARGET_LISTING;
+  request.compile_report = &report;
+  request.scratch_arena = &scratch_arena;
+  request.allocator = iree_allocator_system();
+  loom_target_emit_artifact_t artifact = {};
+  bool emitted = false;
+  IREE_ASSERT_OK(loom_amdgpu_hal_kernel_library_emitter.emit(&request, &emitted,
+                                                             &artifact));
+
+  ASSERT_TRUE(emitted);
+  ASSERT_NE(artifact.target_bundle, nullptr);
+  EXPECT_EQ(artifact.target_bundle->snapshot->codegen_format,
+            LOOM_TARGET_CODEGEN_FORMAT_LOW_NATIVE);
+  EXPECT_EQ(artifact.target_bundle->snapshot->artifact_format,
+            LOOM_TARGET_ARTIFACT_FORMAT_ELF);
+  EXPECT_EQ(artifact.target_bundle->export_plan->abi_kind,
+            LOOM_TARGET_ABI_HAL_KERNEL);
+  EXPECT_EQ(artifact.target_artifact_format, LOOM_TARGET_ARTIFACT_FORMAT_ELF);
+  ASSERT_NE(artifact.contents, nullptr);
+  EXPECT_GT(iree_byte_sequence_length(artifact.contents), 0u);
+  EXPECT_TRUE(iree_string_view_equal(artifact.target_listing_format,
+                                     IREE_SV("amdgpu-assembly")));
+  ASSERT_NE(artifact.target_listing_contents, nullptr);
+  EXPECT_GT(iree_byte_sequence_length(artifact.target_listing_contents), 0u);
+  EXPECT_EQ(report.source_low_rows.count, 0u);
+  EXPECT_GT(report.pressure_rows.count, 0u);
+  EXPECT_NE(report.pressure_rows.head, nullptr);
+
+  loom_target_emit_artifact_release(&artifact);
+  loom_target_compile_report_deinitialize(&report);
+  iree_arena_deinitialize(&scratch_arena);
+  loom_module_free(module);
+}
+
 TEST_F(AmdgpuHalKernelLibraryTest,
        EmitsGenericGfx11RepresentationForGfx1151Version) {
   const loom_amdgpu_target_info_t* gfx1151 = nullptr;

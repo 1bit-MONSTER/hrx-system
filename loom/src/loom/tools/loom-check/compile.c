@@ -73,6 +73,7 @@ static iree_status_t loom_check_compile_emit(
       .function_versions = &pipeline_result->function_versions.list,
       .identifier = emitter->default_identifier,
       .diagnostic_emitter = loom_target_entry_emitter(&diagnostic_emitter),
+      .max_errors = pipeline_options->max_errors,
       .scratch_arena = &scratch_arena,
       .allocator = allocator,
   };

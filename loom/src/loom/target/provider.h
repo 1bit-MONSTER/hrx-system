@@ -7,9 +7,9 @@
 // Target provider composition shared by tools and compile drivers.
 //
 // A target provider owns the target dialects, descriptor registries, lowering
-// policies, and diagnostic providers linked into a binary. Tool-specific layers
-// may add execution, checking, or artifact-emission providers around this core
-// target contribution, but those layers should not duplicate target registry
+// policies, diagnostics, and emitters linked into a binary. Tool-specific
+// layers may select and invoke these capabilities for execution or checking;
+// they do not own alternate artifact compilers or duplicate target registry
 // aggregation.
 
 #ifndef LOOM_TARGET_PROVIDER_H_
@@ -122,6 +122,18 @@ loom_target_select_low_call_policy_require_inline(
 // Target emission artifact storage release callback.
 typedef void (*loom_target_emit_artifact_storage_release_fn_t)(void* storage);
 
+// Optional metadata and debug products requested during target emission.
+typedef enum loom_target_emit_request_flag_bits_e {
+  LOOM_TARGET_EMIT_REQUEST_FLAG_NONE = 0u,
+  // Retains the exact target bundle selected by emission in the artifact.
+  LOOM_TARGET_EMIT_REQUEST_FLAG_RETAIN_TARGET_BUNDLE = 1u << 0,
+  // Captures a target-owned textual listing when the emitter supports one.
+  LOOM_TARGET_EMIT_REQUEST_FLAG_TARGET_LISTING = 1u << 1,
+} loom_target_emit_request_flag_bits_t;
+
+// Bitfield of loom_target_emit_request_flag_bits_t values.
+typedef uint32_t loom_target_emit_request_flags_t;
+
 typedef enum loom_target_emit_sidecar_artifact_kind_e {
   // Machine-readable artifact manifest for the primary artifact.
   LOOM_TARGET_EMIT_SIDECAR_ARTIFACT_KIND_ARTIFACT_MANIFEST = 0,
@@ -143,12 +155,24 @@ typedef struct loom_target_emit_sidecar_artifact_t {
 
 // One target artifact produced by an emitter.
 typedef struct loom_target_emit_artifact_t {
+  // Exact target bundle selected by emission when requested by the caller.
+  // The pointer is owned by |storage| and lives until artifact release.
+  const loom_target_bundle_t* target_bundle;
+
   // Target-neutral artifact format produced by the emitter.
   loom_target_artifact_format_t target_artifact_format;
 
   // Immutable primary artifact contents. The artifact owns one reference;
   // callers may retain the sequence when they need it to outlive the artifact.
   iree_byte_sequence_t* contents;
+
+  // Target-owned textual listing format, such as `amdgpu-assembly`.
+  iree_string_view_t target_listing_format;
+
+  // Optional immutable textual target listing. The artifact owns one
+  // reference; callers may retain the sequence when they need it to outlive
+  // the artifact.
+  iree_byte_sequence_t* target_listing_contents;
 
   // Optional emitter-owned sidecar artifacts.
   const loom_target_emit_sidecar_artifact_t* sidecars;
@@ -200,12 +224,19 @@ typedef struct loom_target_emit_request_t {
   // Optional artifact manifest request.
   loom_target_emit_artifact_manifest_request_t artifact_manifest;
 
+  // Optional metadata and debug artifacts to retain in the emitted artifact.
+  loom_target_emit_request_flags_t flags;
+
   // Optional caller-owned structured compile report to populate.
   loom_target_compile_report_t* compile_report;
 
   // Diagnostic emitter that reports target diagnostics into the operation
   // result.
   iree_diagnostic_emitter_t diagnostic_emitter;
+
+  // Maximum diagnostics to emit before the active target subsystem stops
+  // walking. Zero uses the emitter's conservative default.
+  uint32_t max_errors;
 
   // Invocation-local scratch arena.
   iree_arena_allocator_t* scratch_arena;
@@ -365,8 +396,8 @@ struct loom_target_provider_t {
   loom_target_provider_select_profile_fn_t select_profile;
   // Target fact representation accepted by |canonical_module_emitter|. This
   // association is independent of target fact ownership so architecture and
-  // artifact emission providers can be linked separately. Must be NULL if and
-  // only if |canonical_module_emitter| is NULL.
+  // emitter contributions can be linked separately. Must be NULL if and only
+  // if |canonical_module_emitter| is NULL.
   const loom_target_fact_type_t* canonical_module_fact_type;
   // Default emitter for kernel products compiled for a target family, or NULL
   // when callers must select an explicit format. The emitter must appear in
@@ -374,8 +405,8 @@ struct loom_target_provider_t {
   const loom_target_emitter_t* canonical_kernel_emitter;
   // Target fact representation accepted by |canonical_kernel_emitter|. This
   // association is independent of target fact ownership so architecture and
-  // artifact emission providers can be linked separately. Must be NULL if and
-  // only if |canonical_kernel_emitter| is NULL.
+  // emitter contributions can be linked separately. Must be NULL if and only
+  // if |canonical_kernel_emitter| is NULL.
   const loom_target_fact_type_t* canonical_kernel_fact_type;
 };
 

@@ -232,12 +232,12 @@ static void ExpectSelectedTarget(
     iree_hal_executable_target_kind_t expected_kind,
     iree_string_view_t expected_target_key) {
   const loom_amdgpu_target_profile_t* target_profile =
-      loom_amdgpu_target_profile_cast(target.artifact_target.target_profile);
+      loom_amdgpu_target_profile_cast(target.target_profile);
   ASSERT_NE(target_profile, nullptr);
   ASSERT_NE(target.executable_target, nullptr);
-  EXPECT_NE(loom_device_target_bundle(&target), nullptr);
+  EXPECT_NE(loom_target_profile_bundle(target.target_profile), nullptr);
   EXPECT_EQ(target.executable_target->kind, expected_kind);
-  EXPECT_TRUE(iree_string_view_equal(target.artifact_target.target_key,
+  EXPECT_TRUE(iree_string_view_equal(target.executable_target->target_key,
                                      expected_target_key));
   EXPECT_TRUE(iree_string_view_equal(target_profile->identity.target->name,
                                      expected_target_key));
@@ -308,6 +308,13 @@ class AmdgpuDeviceProviderTest : public ::testing::Test {
 
 TEST_F(AmdgpuDeviceProviderTest, PrefersExactDeviceTarget) {
   IREE_ASSERT_OK(Initialize(AmdgpuDeviceTargetSet::kGenericAndExact));
+  EXPECT_TRUE(iree_string_view_equal(loom_amdgpu_device_provider.name,
+                                     IREE_SV("amdgpu-hal")));
+  ASSERT_NE(loom_amdgpu_device_provider.target_emitter, nullptr);
+  EXPECT_TRUE(iree_string_view_equal(
+      loom_amdgpu_device_provider.target_emitter->name, IREE_SV("amdgpu-hal")));
+  EXPECT_EQ(loom_amdgpu_device_provider.target_emitter->target_artifact_format,
+            LOOM_TARGET_ARTIFACT_FORMAT_ELF);
   loom_device_target_t target = {};
   IREE_ASSERT_OK(loom_device_provider_select_compatible_target(
       &loom_amdgpu_device_provider, &runtime_, /*target_requirement=*/nullptr,
@@ -335,7 +342,7 @@ TEST_F(AmdgpuDeviceProviderTest, ForcesGenericTargetOnExactCapableDevice) {
 
   ExpectSelectedTarget(target, IREE_HAL_EXECUTABLE_TARGET_KIND_GENERIC,
                        IREE_SV("gfx11-generic"));
-  EXPECT_EQ(target.artifact_target.target_profile, &requested_profile->base);
+  EXPECT_EQ(target.target_profile, &requested_profile->base);
 }
 
 TEST_F(AmdgpuDeviceProviderTest, ForcesExactTarget) {
@@ -347,7 +354,7 @@ TEST_F(AmdgpuDeviceProviderTest, ForcesExactTarget) {
 
   ExpectSelectedTarget(target, IREE_HAL_EXECUTABLE_TARGET_KIND_EXACT,
                        IREE_SV("gfx1151"));
-  EXPECT_EQ(target.artifact_target.target_profile, &requested_profile->base);
+  EXPECT_EQ(target.target_profile, &requested_profile->base);
 }
 
 TEST_F(AmdgpuDeviceProviderTest, RejectsUnsupportedForcedTarget) {
@@ -355,7 +362,7 @@ TEST_F(AmdgpuDeviceProviderTest, RejectsUnsupportedForcedTarget) {
   loom_device_target_t target = {};
   IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
                         SelectProfileTarget(IREE_SV("gfx1150"), &target));
-  EXPECT_EQ(target.artifact_target.target_profile, nullptr);
+  EXPECT_EQ(target.target_profile, nullptr);
   EXPECT_EQ(target.executable_target, nullptr);
 }
 
@@ -364,7 +371,7 @@ TEST_F(AmdgpuDeviceProviderTest, RejectsAmbiguousForcedTarget) {
   loom_device_target_t target = {};
   IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
                         SelectProfileTarget(IREE_SV("gfx11-generic"), &target));
-  EXPECT_EQ(target.artifact_target.target_profile, nullptr);
+  EXPECT_EQ(target.target_profile, nullptr);
   EXPECT_EQ(target.executable_target, nullptr);
 }
 
@@ -373,7 +380,7 @@ TEST_F(AmdgpuDeviceProviderTest, RejectsForcedTargetOutsideQueueAffinity) {
   loom_device_target_t target = {};
   IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
                         SelectProfileTarget(IREE_SV("gfx11-generic"), &target));
-  EXPECT_EQ(target.artifact_target.target_profile, nullptr);
+  EXPECT_EQ(target.target_profile, nullptr);
   EXPECT_EQ(target.executable_target, nullptr);
 }
 
@@ -424,7 +431,7 @@ TEST_F(AmdgpuDeviceProviderTest, PreservesTargetOverlay) {
   ExpectSelectedTarget(target, IREE_HAL_EXECUTABLE_TARGET_KIND_EXACT,
                        IREE_SV("gfx1250-a0"));
   const loom_amdgpu_target_profile_t* profile =
-      loom_amdgpu_target_profile_cast(target.artifact_target.target_profile);
+      loom_amdgpu_target_profile_cast(target.target_profile);
   ASSERT_NE(profile, nullptr);
   EXPECT_EQ(profile->identity.target, target_info);
 }
@@ -437,7 +444,7 @@ TEST_F(AmdgpuDeviceProviderTest, RejectsTargetOverlayMismatch) {
   loom_device_target_t target = {};
   IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
                         SelectCompatibleTarget(requirement, &target));
-  EXPECT_EQ(target.artifact_target.target_profile, nullptr);
+  EXPECT_EQ(target.target_profile, nullptr);
   EXPECT_EQ(target.executable_target, nullptr);
 }
 
@@ -448,7 +455,7 @@ TEST_F(AmdgpuDeviceProviderTest, RejectsIncompatibleAuthoredExactTarget) {
   loom_device_target_t target = {};
   IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
                         SelectCompatibleTarget(requirement, &target));
-  EXPECT_EQ(target.artifact_target.target_profile, nullptr);
+  EXPECT_EQ(target.target_profile, nullptr);
   EXPECT_EQ(target.executable_target, nullptr);
 }
 
@@ -461,7 +468,7 @@ TEST_F(AmdgpuDeviceProviderTest, RejectsTargetKindKeyMismatch) {
       loom_device_provider_select_compatible_target(
           &loom_amdgpu_device_provider, &runtime_,
           /*target_requirement=*/nullptr, iree_allocator_system(), &target));
-  EXPECT_EQ(target.artifact_target.target_profile, nullptr);
+  EXPECT_EQ(target.target_profile, nullptr);
   EXPECT_EQ(target.executable_target, nullptr);
 }
 
@@ -484,7 +491,7 @@ TEST_F(AmdgpuDeviceProviderTest, RejectsOnlyUnknownTarget) {
       loom_device_provider_select_compatible_target(
           &loom_amdgpu_device_provider, &runtime_,
           /*target_requirement=*/nullptr, iree_allocator_system(), &target));
-  EXPECT_EQ(target.artifact_target.target_profile, nullptr);
+  EXPECT_EQ(target.target_profile, nullptr);
   EXPECT_EQ(target.executable_target, nullptr);
 }
 

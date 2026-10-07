@@ -111,8 +111,7 @@ static iree_status_t iree_benchmark_loom_scenario_ensure_profile(
   };
   loom_run_hal_testbench_scenario_profile_initialize(
       iree_string_view_is_empty(target)
-          ? options->hal_context->execution.device_provider->artifact_provider
-                ->name
+          ? options->hal_context->execution.device_provider->name
           : target,
       &provider_options, &execution->profile);
   loom_testbench_scenario_execution_options_initialize(

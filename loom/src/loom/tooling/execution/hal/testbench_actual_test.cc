@@ -219,13 +219,7 @@ static iree_status_t FakeHalSelectDeviceTarget(
           : nullptr;
   *out_target = (loom_device_target_t){
       /*.executable_target=*/executable_target,
-      /*.artifact_target=*/
-      {
-          /*.target_profile=*/&kFakeTargetProfile,
-          /*.target_key=*/executable_target != nullptr
-              ? executable_target->target_key
-              : IREE_SV("fake"),
-      },
+      /*.target_profile=*/&kFakeTargetProfile,
   };
   return iree_ok_status();
 }
@@ -263,7 +257,8 @@ static iree_status_t EmitFakeTargetArtifact(
   (void)request;
   *out_emitted = false;
   *out_artifact = {};
-  return iree_ok_status();
+  return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                          "fake target emitter rejects emission");
 }
 
 static const loom_target_emitter_t kFakeTargetEmitter = {
@@ -275,14 +270,10 @@ static const loom_target_emitter_t kFakeTargetEmitter = {
     /*.emit=*/EmitFakeTargetArtifact,
 };
 
-static const loom_artifact_provider_t kFakeArtifactProvider = {
+static const loom_device_provider_t kFakeDeviceProvider = {
     /*.name=*/IREE_SVL("fake-hal"),
     /*.target_profile_type=*/&kFakeTargetProfileType,
     /*.target_emitter=*/&kFakeTargetEmitter,
-};
-
-static const loom_device_provider_t kFakeDeviceProvider = {
-    /*.artifact_provider=*/&kFakeArtifactProvider,
     /*.driver_name=*/IREE_SVL("fake"),
     /*.select_compatible_target=*/FakeHalSelectCompatibleDeviceTarget,
     /*.select_profile_target=*/FakeHalSelectProfileDeviceTarget,
@@ -408,8 +399,7 @@ pass.pipeline<module> @debug pipeline {
             expects_explicit_selection ? 1u : 0u);
   EXPECT_EQ(g_compatible_target_selection_count,
             expects_explicit_selection ? 0u : 1u);
-  EXPECT_EQ(provider.compile_device_target.artifact_target.target_profile,
-            &kFakeTargetProfile);
+  EXPECT_EQ(provider.compile_device_target.target_profile, &kFakeTargetProfile);
   EXPECT_EQ(provider.owns_compile_device_target, !expects_explicit_selection);
   EXPECT_EQ(g_projected_target_profile, &kFakeTargetProfile);
 
@@ -1105,8 +1095,8 @@ func.def inline @linked_identity(%value: index) -> (index) {
 
   loom_run_hal_testbench_context_t context = {};
   context.device_provider = &kFakeDeviceProvider;
-  // The fake artifact provider rejects emission after the rooted module has
-  // been cloned. Disable transforms so this test can inspect that clone.
+  // The fake target emitter rejects emission after the rooted module has been
+  // cloned. Disable transforms so this test can inspect that clone.
   context.runtime_initialized = true;
   context.host_allocator = iree_allocator_system();
 

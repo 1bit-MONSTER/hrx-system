@@ -255,6 +255,7 @@ static iree_status_t loom_vm_testbench_compile(
                 .fn = loom_vm_testbench_capture_emission_diagnostic,
                 .user_data = &emission_diagnostic,
             },
+        .max_errors = options.max_errors,
         .scratch_arena = &arena,
         .allocator = testbench->host_allocator,
     };

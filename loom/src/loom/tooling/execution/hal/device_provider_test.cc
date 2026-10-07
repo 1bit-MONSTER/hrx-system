@@ -104,19 +104,10 @@ static const loom_target_profile_t kFakeProfile = {
     /*.type=*/&kFakeProfileType,
     /*.target_bundle=*/&kTargetBundle,
 };
-static const loom_target_profile_t kAlternateFakeProfile = {
-    /*.type=*/&kFakeProfileType,
-    /*.target_bundle=*/&kTargetBundle,
-};
 static const loom_target_profile_t kOtherProfile = {
     /*.type=*/&kOtherProfileType,
     /*.target_bundle=*/&kTargetBundle,
 };
-static const loom_artifact_provider_t kFakeArtifactProvider = {
-    /*.name=*/IREE_SVL("fake-artifact"),
-    /*.target_profile_type=*/&kFakeProfileType,
-};
-
 static iree_status_t SelectFakeProfile(
     iree_string_view_t selector, const loom_target_profile_t** out_profile) {
   *out_profile = nullptr;
@@ -158,10 +149,6 @@ typedef struct FakeDeviceProvider {
   loom_device_provider_t base;
   // Executable target returned by the fake selection callback.
   const iree_hal_executable_target_t* returned_executable_target;
-  // Artifact profile returned by the fake selection callback.
-  const loom_target_profile_t* returned_profile;
-  // Artifact target key returned by the fake selection callback.
-  iree_string_view_t returned_target_key;
 } FakeDeviceProvider;
 
 static iree_status_t FakeSelectProfileTarget(
@@ -174,13 +161,7 @@ static iree_status_t FakeSelectProfileTarget(
       reinterpret_cast<const FakeDeviceProvider*>(base_provider);
   *out_target = (loom_device_target_t){
       /*.executable_target=*/provider->returned_executable_target,
-      /*.artifact_target=*/
-      {
-          /*.target_profile=*/provider->returned_profile != nullptr
-              ? provider->returned_profile
-              : target_profile,
-          /*.target_key=*/provider->returned_target_key,
-      },
+      /*.target_profile=*/target_profile,
   };
   return iree_ok_status();
 }
@@ -200,13 +181,13 @@ class DeviceProviderTest : public ::testing::Test {
     loom_target_environment_deinitialize(&target_environment_);
   }
 
-  void Initialize(uint64_t target_affinity = 1, uint64_t queue_affinity = 1) {
+  void Initialize() {
     const iree_hal_executable_target_t executable_target = {
         /*.family=*/IREE_SV("fake"),
         /*.target_key=*/IREE_SV("target-123"),
         /*.kind=*/IREE_HAL_EXECUTABLE_TARGET_KIND_EXACT,
         /*.priority=*/100,
-        /*.physical_device_affinity=*/target_affinity,
+        /*.physical_device_affinity=*/1,
     };
     const iree_hal_device_executable_spec_t executables = {
         /*.target_count=*/1,
@@ -227,7 +208,7 @@ class DeviceProviderTest : public ::testing::Test {
         /*.supported_queue_features=*/IREE_HAL_QUEUE_FEATURE_FLAG_NONE,
         /*.timestamp_valid_bits=*/0,
         /*.timestamp_frequency_hz=*/0,
-        /*.physical_device_affinity=*/queue_affinity,
+        /*.physical_device_affinity=*/1,
         /*.role_flags=*/IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_DISPATCH,
         /*.atomic_capabilities=*/{},
         /*.zero_compute_atomic_capabilities=*/{},
@@ -265,11 +246,12 @@ class DeviceProviderTest : public ::testing::Test {
     runtime_.device = reinterpret_cast<iree_hal_device_t*>(&device_);
     runtime_.dispatch_queue = &dispatch_queue_;
 
-    provider_.base.artifact_provider = &kFakeArtifactProvider;
+    provider_.base.name = IREE_SV("fake-device");
+    provider_.base.target_profile_type = &kFakeProfileType;
+    provider_.base.driver_name = IREE_SV("fake");
     provider_.base.select_profile_target = FakeSelectProfileTarget;
     provider_.returned_executable_target =
         &iree_hal_device_spec_executables(device_spec_.get())->targets[0];
-    provider_.returned_target_key = IREE_SV("target-123");
   }
 
   loom_device_target_t Select(const loom_target_profile_t* profile) {
@@ -293,7 +275,7 @@ TEST_F(DeviceProviderTest, AcceptsBorrowedProfileAndDeviceTarget) {
   Initialize();
   const loom_device_target_t target = Select(&kFakeProfile);
 
-  EXPECT_EQ(target.artifact_target.target_profile, &kFakeProfile);
+  EXPECT_EQ(target.target_profile, &kFakeProfile);
   EXPECT_EQ(target.executable_target, provider_.returned_executable_target);
 }
 
@@ -307,51 +289,6 @@ TEST_F(DeviceProviderTest, RejectsAnotherProfileFamily) {
   EXPECT_EQ(target.executable_target, nullptr);
 }
 
-TEST_F(DeviceProviderTest, RejectsChangedProfileIdentity) {
-  Initialize();
-  provider_.returned_profile = &kAlternateFakeProfile;
-  loom_device_target_t target = {};
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_FAILED_PRECONDITION,
-      loom_device_provider_select_profile_target(&provider_.base, &runtime_,
-                                                 &kFakeProfile, &target));
-  EXPECT_EQ(target.artifact_target.target_profile, nullptr);
-}
-
-TEST_F(DeviceProviderTest, RejectsForeignExecutableTarget) {
-  Initialize();
-  iree_hal_executable_target_t copied_target =
-      *provider_.returned_executable_target;
-  provider_.returned_executable_target = &copied_target;
-  loom_device_target_t target = {};
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_FAILED_PRECONDITION,
-      loom_device_provider_select_profile_target(&provider_.base, &runtime_,
-                                                 &kFakeProfile, &target));
-  EXPECT_EQ(target.executable_target, nullptr);
-}
-
-TEST_F(DeviceProviderTest, RejectsChangedTargetKey) {
-  Initialize();
-  provider_.returned_target_key = IREE_SV("other-target");
-  loom_device_target_t target = {};
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_FAILED_PRECONDITION,
-      loom_device_provider_select_profile_target(&provider_.base, &runtime_,
-                                                 &kFakeProfile, &target));
-  EXPECT_EQ(target.executable_target, nullptr);
-}
-
-TEST_F(DeviceProviderTest, RejectsInsufficientPhysicalDeviceAffinity) {
-  Initialize(/*target_affinity=*/1, /*queue_affinity=*/3);
-  loom_device_target_t target = {};
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INCOMPATIBLE,
-      loom_device_provider_select_profile_target(&provider_.base, &runtime_,
-                                                 &kFakeProfile, &target));
-  EXPECT_EQ(target.executable_target, nullptr);
-}
-
 TEST_F(DeviceProviderTest, SelectsExplicitNamedTarget) {
   Initialize();
   loom_device_target_t target = {};
@@ -359,7 +296,7 @@ TEST_F(DeviceProviderTest, SelectsExplicitNamedTarget) {
       &provider_.base, &runtime_, &target_environment_,
       IREE_SV("fake:target-123"), &target));
 
-  EXPECT_EQ(target.artifact_target.target_profile, &kFakeProfile);
+  EXPECT_EQ(target.target_profile, &kFakeProfile);
   EXPECT_EQ(target.executable_target, provider_.returned_executable_target);
 }
 

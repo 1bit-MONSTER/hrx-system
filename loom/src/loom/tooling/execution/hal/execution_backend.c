@@ -86,11 +86,11 @@ static iree_status_t loom_run_hal_write_candidate_artifacts(
     const loom_run_hal_candidate_t* candidate) {
   IREE_RETURN_IF_ERROR(loom_run_hal_write_artifact(
       request->options->hal_target_artifact_output_path,
-      candidate->artifact.target_artifact_data, IREE_SV("target-native"),
+      candidate->artifact.contents, IREE_SV("target-native"),
       request->host_allocator));
   return loom_run_hal_write_artifact(
       request->options->hal_executable_output_path,
-      candidate->artifact.executable_data, IREE_SV("executable"),
+      candidate->artifact.contents, IREE_SV("executable"),
       request->host_allocator);
 }
 
@@ -132,7 +132,7 @@ static iree_status_t loom_run_hal_execution_backend_run_pipeline(
     loom_compile_pipeline_result_t* out_result) {
   const loom_target_specialization_request_t specialization_request = {
       .function_name = entry->func_name,
-      .target_profile = device_target->artifact_target.target_profile,
+      .target_profile = device_target->target_profile,
   };
   loom_compile_pipeline_options_t pipeline_options = {0};
   loom_compile_pipeline_options_initialize(&pipeline_options);
@@ -185,17 +185,16 @@ iree_status_t loom_run_hal_execution_backend_probe(
         &request->result->output,
         "backend: %.*s\ndevice provider: %.*s\nhal driver: %.*s\n",
         (int)backend->name.size, backend->name.data,
-        (int)device_provider->artifact_provider->name.size,
-        device_provider->artifact_provider->name.data,
+        (int)device_provider->name.size, device_provider->name.data,
         (int)device_provider->driver_name.size,
         device_provider->driver_name.data);
   }
-  if (iree_status_is_ok(status) &&
-      !iree_string_view_is_empty(target.artifact_target.target_key)) {
+  if (iree_status_is_ok(status) && target.executable_target != NULL &&
+      !iree_string_view_is_empty(target.executable_target->target_key)) {
     status = iree_string_builder_append_format(
         &request->result->output, "device target key: %.*s\n",
-        (int)target.artifact_target.target_key.size,
-        target.artifact_target.target_key.data);
+        (int)target.executable_target->target_key.size,
+        target.executable_target->target_key.data);
   }
 
   if (device_provider->deinitialize_target != NULL) {
@@ -221,8 +220,7 @@ iree_status_t loom_run_hal_execution_backend_run_one_shot(
   const loom_sanitizer_options_t sanitizer =
       compile_options.target_pipeline_options.sanitizer;
   compile_options.target_pipeline_options =
-      device_provider->artifact_provider->target_emitter
-          ->default_pipeline_options;
+      device_provider->target_emitter->default_pipeline_options;
   compile_options.target_pipeline_options.sanitizer = sanitizer;
 
   loom_run_hal_runtime_t runtime = {0};
@@ -308,8 +306,8 @@ iree_status_t loom_run_hal_execution_backend_run_one_shot(
       pipeline_result.pass.error_count == 0) {
     compile_options.function_versions = &pipeline_result.function_versions.list;
     status = loom_run_hal_candidate_emit_target(
-        device_provider, &device_target, &compile_module, &compile_options,
-        request->host_allocator, &candidate);
+        device_provider, &device_target, request->session, &compile_module,
+        &compile_options, request->host_allocator, &candidate);
   }
   if (iree_status_is_ok(status) && entry_selected &&
       pipeline_result.pass.error_count == 0 && !candidate.compiled) {
@@ -321,7 +319,7 @@ iree_status_t loom_run_hal_execution_backend_run_one_shot(
   if (iree_status_is_ok(status) && candidate.compiled &&
       !request->options->hal_emit_only) {
     const loom_device_artifact_t device_artifact = {
-        .executable_target = candidate.device_target.executable_target,
+        .executable_target = candidate.executable_target,
         .artifact = &candidate.artifact,
     };
     loom_run_hal_invocation_request_t invocation_request = {0};

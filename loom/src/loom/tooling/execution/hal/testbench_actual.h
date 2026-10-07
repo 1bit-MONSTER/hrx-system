@@ -22,7 +22,6 @@
 #include "loom/target/provider.h"
 #include "loom/tooling/compile/options.h"
 #include "loom/tooling/compile/pipeline.h"
-#include "loom/tooling/execution/hal/artifact.h"
 #include "loom/tooling/execution/hal/candidate.h"
 #include "loom/tooling/execution/hal/device_provider.h"
 #include "loom/tooling/execution/hal/invocation.h"
