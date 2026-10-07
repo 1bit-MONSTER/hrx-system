@@ -1720,5 +1720,11 @@ iree_status_t loom_low_schedule_build_dependencies(
     }
     loom_low_schedule_reset_storage_reads(state);
   }
-  return loom_low_schedule_build_effect_dependencies(state);
+  IREE_ASSERT_LE(state->dependencies.count, UINT32_MAX);
+  state->effect_dependencies.start = (uint32_t)state->dependencies.count;
+  IREE_RETURN_IF_ERROR(loom_low_schedule_build_effect_dependencies(state));
+  IREE_ASSERT_LE(state->dependencies.count, UINT32_MAX);
+  state->effect_dependencies.count =
+      (uint32_t)state->dependencies.count - state->effect_dependencies.start;
+  return iree_ok_status();
 }

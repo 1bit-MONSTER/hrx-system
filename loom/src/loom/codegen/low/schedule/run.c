@@ -1789,6 +1789,7 @@ static iree_status_t loom_low_schedule_build(
         .scopes = state.scopes,
         .call_node_indices = state.call_node_indices,
         .call_node_count = state.call_node_count,
+        .effect_dependencies = state.effect_dependencies,
         .dependency_group_count = state.dependency_index.group_count,
         .dependency_index = dependency_index,
         .unlock_summary_publication_count =
