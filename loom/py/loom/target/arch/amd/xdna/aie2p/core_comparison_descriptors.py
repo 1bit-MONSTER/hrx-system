@@ -7,7 +7,7 @@
 """Native vector comparisons, fused extrema and predicate storage views."""
 
 from loom.target.arch.amd.xdna.aie2p.core_descriptor_spec import _DescriptorSpec
-from loom.target.low_descriptors import RegisterPart
+from loom.target.low_descriptors import DescriptorOpKind, RegisterPart
 
 _TARGET_KEY = "amd.xdna.aie2p"
 _EL_LOW32_PART = "aie2p.elpredicate.low32"
@@ -37,6 +37,32 @@ INTEGER_EXTREMA_DESCRIPTOR_SPECS = (
 )
 
 PREDICATE_DESCRIPTOR_SPECS = (
+    # MOVXM can define either scalar word of an allocatable predicate carrier.
+    # The low word begins the value; the high word completes it while retaining
+    # the low word as a tied storage continuation.
+    _DescriptorSpec(
+        "MOVXM",
+        f"{_TARGET_KEY}.constant.i32.predicate.low32",
+        "integer.const.i32.predicate.low32",
+        "II_MOVXM_eR",
+        storage_overrides=(("dst", "eLPredicate"),),
+        op_kind=DescriptorOpKind.CONST,
+        asm_mnemonic="predicate.constant.low32",
+        operand_register_parts=(("dst", _EL_LOW32_PART),),
+        encoding_adapter_overrides=(("dst", "LOOM_eL_low32_OP_mMvSclDstCg"),),
+    ),
+    _DescriptorSpec(
+        "MOVXM",
+        f"{_TARGET_KEY}.predicate.complete.constant.high32",
+        "integer.predicate.complete.constant.high32",
+        "II_MOVXM_eR",
+        storage_overrides=(("dst", "eLPredicate"),),
+        asm_mnemonic="predicate.complete.constant.high32",
+        operand_register_parts=(("dst", _EL_HIGH32_PART),),
+        encoding_adapter_overrides=(("dst", "LOOM_eL_high32_OP_mMvSclDstCg"),),
+        storage_continuation_part=_EL_LOW32_PART,
+        rematerializable=True,
+    ),
     # Scalar AND reads either 32-bit word through its physical eR alias.
     *(
         _DescriptorSpec(
