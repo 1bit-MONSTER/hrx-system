@@ -115,6 +115,7 @@ class AmdfBuildFileFunctions(
         entry_point,
         namespace,
         data=None,
+        deps=None,
         input_format="",
         inputopts=None,
         visibility=None,
@@ -154,6 +155,7 @@ class AmdfBuildFileFunctions(
             + self._convert_string_arg_block("NAME", name)
             + srcs_block
             + self._convert_data_srcs_block(data, block_name="DATA", sort=False)
+            + self._convert_loom_module_inputs("LIBRARIES", deps)
             + self._convert_string_arg_block("INPUT_FORMAT", input_format or None)
             + self._convert_string_list_block(
                 "INPUTOPTS", self._convert_location_args(inputopts), sort=False

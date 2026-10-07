@@ -48,6 +48,14 @@ struct IntrinsicCallResult {
 // consume the resulting trusted signature.
 class Intrinsics {
  public:
+  struct TemplateFamily {
+    // Module-local reference shared by declarations, applications, and
+    // providers.
+    loom_symbol_ref_t reference;
+    // Canonical source declaration owning the exact C++ signature.
+    cxx::FunctionSymbol* function;
+  };
+
   struct ScalarOperation {
     // Immutable generated binding for this source declaration.
     const loom_cxx_scalar_binding_t* scalar;
@@ -100,6 +108,11 @@ class Intrinsics {
   // NULL means an ordinary source function rather than an owned operation.
   Binding* lookup(cxx::FunctionSymbol* function, cxx::AST* owner);
 
+  // Resolves and materializes a LOOM_TEMPLATE_DECL family for a bodyful
+  // provider. Other source functions diagnose at the provider annotation.
+  TemplateFamily bind_template_family(cxx::FunctionSymbol* function,
+                                      cxx::AST* owner, loom_builder_t* builder);
+
   // Emits an ordinary concrete operation using source-preserving values.
   // Assembly literals and check expectations are handled by their source
   // owners.
@@ -128,8 +141,8 @@ class Intrinsics {
   ScalarBinding resolve_scalar(ScalarOperation operation,
                                const cxx::FunctionType* signature,
                                cxx::AST* owner);
-  TemplateApplyIntrinsic::Family* template_family(std::string_view spelling,
-                                                  cxx::AST* owner);
+  TemplateApplyIntrinsic::Family* intern_template_family(
+      std::string_view spelling, cxx::AST* owner);
   Binding* concrete_binding(cxx::FunctionSymbol* function, cxx::AST* owner);
 
   // Invocation-owned frontend supplying canonical semantic types.

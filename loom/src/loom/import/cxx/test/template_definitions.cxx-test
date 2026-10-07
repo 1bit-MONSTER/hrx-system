@@ -1,0 +1,68 @@
+// INPUT: cxx root=entry
+// RUN: roundtrip
+#include <loomcxx/kernel.h>
+#include <loomcxx/target.h>
+
+struct Pair {
+  unsigned count;
+  float scale;
+};
+
+LOOM_DEVICE LOOM_TEMPLATE_DECL("test.transform") Pair transform(Pair value);
+LOOM_TEMPLATE_DECL("test.observe") void observe(unsigned value);
+
+struct [[loom::target("target.generic")]] generic_target {
+  const char* kind;
+};
+constexpr generic_target native_target{
+    .kind = "reference",
+};
+
+LOOM_TEMPLATE_DEF(transform)
+[[loom::priority(1)]] Pair transform_fallback(Pair value) { return value; }
+
+template <class T>
+T transform_native(T value);
+
+template <>
+LOOM_TEMPLATE_DEF(transform)
+[[loom::target(native_target), loom::priority(20)]]
+Pair transform_native<Pair>(Pair value) {
+  return {value.count + 1, value.scale * 2.0f};
+}
+
+LOOM_TEMPLATE_DEF(observe)
+[[loom::priority(3)]] static void observe_provider(unsigned value);
+
+LOOM_TEMPLATE_DEF(observe)
+[[loom::priority(3)]] static void observe_provider(unsigned value) {}
+
+Pair entry(Pair value) { return transform(value); }
+
+// ----
+target.generic<reference> @native_target
+
+func.def public @entry(%value_count: i32, %value_scale: f32) -> (i32, f32) {
+  %8, %9 = template.apply<@test.transform>(%value_count, %value_scale) : (i32, f32) -> (i32, f32)
+  func.return %8, %9 : i32, f32
+}
+
+template.decl device @test.transform(%4: i32, %5: f32) -> (i32, f32)
+
+template.def<@test.transform> device priority(1) @transform_fallback(%value_count: i32, %value_scale: f32) -> (i32, f32) {
+  template.return %value_count, %value_scale : i32, f32
+}
+
+template.def<@test.transform> device target(@native_target) priority(20) @transform_native______Pair(%value_count: i32, %value_scale: f32) -> (i32, f32) {
+  %18 = scalar.constant 1 : i32
+  %19 = scalar.addi %value_count, %18 : i32
+  %20 = scalar.constant 2.0 : f32
+  %21 = scalar.mulf %value_scale, %20 : f32
+  template.return %19, %21 : i32, f32
+}
+
+template.decl @test.observe(%22: i32)
+
+template.def<@test.observe> priority(3) @observe_provider(%value: i32) {
+  template.return
+}

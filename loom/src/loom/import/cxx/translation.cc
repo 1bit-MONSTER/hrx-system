@@ -32,6 +32,7 @@
 #include "loom/import/cxx/binding/launch.h"
 #include "loom/import/cxx/binding/loop_schedule.h"
 #include "loom/import/cxx/binding/target_definitions.h"
+#include "loom/import/cxx/binding/template_definitions.h"
 #include "loom/import/cxx/check.h"
 #include "loom/import/cxx/control/analysis.h"
 #include "loom/import/cxx/source/attributes.h"
@@ -53,6 +54,7 @@
 #include "loom/ops/kernel/ops.h"
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/scf/ops.h"
+#include "loom/ops/template/ops.h"
 #include "loom/ops/vector/ops.h"
 
 namespace loom::cxx_import {
@@ -70,13 +72,14 @@ class Translator {
         names_(unit, diagnostics),
         configs_(unit, diagnostics, types_, scalars_, locations_, names_),
         target_definitions_(unit, diagnostics, locations_, names_, module),
+        template_definitions_(unit, diagnostics),
         vectors_(unit, diagnostics, types_, scalars_, locations_, builder_),
         storage_(unit, diagnostics, types_, scalars_, locations_, builder_),
         launches_(unit, diagnostics),
         intrinsics_(unit, diagnostics, types_, locations_, names_, launches_,
                     module),
         functions_(unit, diagnostics, module, intrinsics_, launches_, configs_,
-                   target_definitions_, names_),
+                   target_definitions_, template_definitions_, names_),
         options_(options),
         math_flags_(iree_any_bit_set(options.flags,
                                      LOOM_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS)
@@ -103,6 +106,7 @@ class Translator {
   void require_kernel_context(cxx::AST* owner) {
     // Required inlining defers the IR ancestor requirement until expansion.
     if (current_function_.kind == FunctionKind::Kernel ||
+        current_function_.kind == FunctionKind::TemplateDefinition ||
         (current_function_.kind == FunctionKind::Ordinary &&
          loom_func_def_inline_policy(current_function_.operation) ==
              LOOM_INLINE_POLICY_INLINE)) {
@@ -311,6 +315,10 @@ class Translator {
     if (defined.kind == FunctionKind::Kernel) {
       check(loom_kernel_return_build(&builder_, locations_.get(returned.source),
                                      &terminator));
+    } else if (defined.kind == FunctionKind::TemplateDefinition) {
+      check(loom_template_return_build(
+          &builder_, returned.values.data(), returned.values.size(),
+          locations_.get(returned.source), &terminator));
     } else if (defined.kind == FunctionKind::LaunchConfiguration ||
                defined.kind == FunctionKind::ClusteredLaunchConfiguration) {
       auto source = locations_.get(returned.source);
@@ -1614,8 +1622,11 @@ class Translator {
           fail(ast, "local storage duration must be automatic or __shared__");
         }
         if (variable->symbol && annotated(variable->symbol, "workgroup")) {
-          if (current_function_.kind != FunctionKind::Kernel) {
-            fail(variable, "workgroup storage requires a kernel body");
+          if (current_function_.kind != FunctionKind::Kernel &&
+              current_function_.kind != FunctionKind::TemplateDefinition) {
+            fail(variable,
+                 "workgroup storage requires a kernel or template definition "
+                 "body");
           }
           if (variable->initializer) {
             fail(variable, "workgroup storage cannot have an initializer");
@@ -2066,9 +2077,11 @@ class Translator {
   SymbolNames names_;
   // Namespace-scope scalar configs retain key identity across source aliases.
   Configs configs_;
-  // Source target definitions bind kernels without target-specific importer
-  // code.
+  // Source target definitions bind function-like operations without
+  // target-specific importer code.
   TargetDefinitions target_definitions_;
+  // Bodyful template providers retain late linker selection contracts.
+  TemplateDefinitions template_definitions_;
   // Explicit vector builders retain lane widths and full-width source masks.
   Vectors vectors_;
   // Memory representations retain declared array extents and access shape.

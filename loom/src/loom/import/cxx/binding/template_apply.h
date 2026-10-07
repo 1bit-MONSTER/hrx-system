@@ -63,6 +63,15 @@ class TemplateApplyIntrinsic {
                             loom_builder_t* builder,
                             loom_location_id_t location) const;
 
+  // Materializes the stable family declaration independently of applications
+  // and returns its module-local symbol. Providers use this path even when the
+  // current source module contains no template.apply operation.
+  loom_symbol_ref_t materialize(Types& types, cxx::AST* owner,
+                                loom_builder_t* builder) const;
+
+  // Canonical source declaration owning the family's C++ signature.
+  cxx::FunctionSymbol* source_function() const { return family_->function; }
+
   bool equivalent(const TemplateApplyIntrinsic& other) const {
     return family_ == other.family_;
   }

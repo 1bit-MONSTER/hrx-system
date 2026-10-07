@@ -54,6 +54,7 @@ def amdf_cts_gpu_kernel_set(
         entry_point,
         namespace,
         data = [],
+        deps = [],
         input_format = "",
         inputopts = [],
         visibility = None,
@@ -71,6 +72,7 @@ def amdf_cts_gpu_kernel_set(
       entry_point: Exported kernel symbol to extract.
       namespace: C++ namespace containing the kKernels set.
       data: Declared inputs used while admitting the authored sources.
+      deps: Reusable Loom libraries linked with the source module.
       input_format: Optional source provider override.
       inputopts: Provider-scoped source admission options.
       visibility: Visibility of the generated kernel library.
@@ -81,6 +83,7 @@ def amdf_cts_gpu_kernel_set(
     loom_library(
         name = source_name,
         srcs = srcs,
+        deps = deps,
         data = data,
         input_format = input_format,
         inputopts = inputopts,

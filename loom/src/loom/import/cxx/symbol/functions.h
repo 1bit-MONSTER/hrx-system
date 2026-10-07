@@ -19,6 +19,7 @@
 #include "loom/import/cxx/binding/launch.h"
 #include "loom/import/cxx/binding/parameter_contracts.h"
 #include "loom/import/cxx/binding/target_definitions.h"
+#include "loom/import/cxx/binding/template_definitions.h"
 #include "loom/import/cxx/source/locations.h"
 #include "loom/import/cxx/symbol/names.h"
 #include "loom/import/cxx/value/types.h"
@@ -28,6 +29,7 @@ namespace loom::cxx_import {
 enum class FunctionKind {
   Ordinary,
   Kernel,
+  TemplateDefinition,
   LaunchConfiguration,
   ClusteredLaunchConfiguration,
   CheckCase,
@@ -40,7 +42,7 @@ struct FunctionBody {
   cxx::FunctionDefinitionAST* source;
   // Source statements to translate, without a second function-body lookup.
   cxx::CompoundStatementAST* body;
-  // Native function, kernel, or check definition owning the body region.
+  // Native function, kernel, template, or check definition owning the region.
   loom_op_t* operation;
   // Entry region with projected parameter types, ready for source bindings.
   loom_region_t* region;
@@ -70,7 +72,8 @@ class Functions {
   Functions(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
             loom_module_t* module, Intrinsics& intrinsics,
             LaunchContracts& launches, Configs& configs,
-            TargetDefinitions& target_definitions, SymbolNames& names)
+            TargetDefinitions& target_definitions,
+            TemplateDefinitions& template_definitions, SymbolNames& names)
       : unit_(unit),
         diagnostics_(diagnostics),
         module_(module),
@@ -78,6 +81,7 @@ class Functions {
         launches_(launches),
         configs_(configs),
         target_definitions_(target_definitions),
+        template_definitions_(template_definitions),
         names_(names),
         parameter_contracts_(unit, diagnostics) {}
 
@@ -114,6 +118,7 @@ class Functions {
                     cxx::List<cxx::AttributeSpecifierAST*>* attributes);
   loom_symbol_ref_t create_symbol(cxx::FunctionSymbol* function,
                                   cxx::AST* source);
+  loom_symbol_ref_t retain(cxx::FunctionSymbol* function, cxx::AST* owner);
   void collect(cxx::List<cxx::DeclarationAST*>* declarations,
                DeclarationScope scope,
                std::vector<cxx::FunctionSymbol*>& definitions);
@@ -133,8 +138,10 @@ class Functions {
   LaunchContracts& launches_;
   // Reconciles named scalar settings before root selection and body lowering.
   Configs& configs_;
-  // Owns source target definitions and the kernel bindings that reference them.
+  // Owns source target definitions and function-like bindings to them.
   TargetDefinitions& target_definitions_;
+  // Owns target-selected template family provider contracts.
+  TemplateDefinitions& template_definitions_;
   // Exact callable/configuration names and generated private names.
   SymbolNames& names_;
   // Pointer entry preconditions reconciled before body construction.

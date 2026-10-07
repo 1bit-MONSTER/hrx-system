@@ -174,8 +174,8 @@ Intrinsics::Binding Intrinsics::resolve(cxx::FunctionSymbol* function,
   if (auto family = TemplateApplyIntrinsic::admit(unit_, diagnostics_,
                                                   attribute, owner)) {
     return TemplateApplyIntrinsic::resolve(
-        unit_, diagnostics_, types_, function, template_family(*family, owner),
-        locations_.get(owner), owner);
+        unit_, diagnostics_, types_, function,
+        intern_template_family(*family, owner), locations_.get(owner), owner);
   }
   if (auto decode = DecodeIntrinsic::resolve(
           unit_, diagnostics_, types_, signature, attribute, module_, owner)) {
@@ -279,7 +279,7 @@ Intrinsics::ScalarBinding Intrinsics::resolve_scalar(
   return {operation, types_.get(return_type, owner)};
 }
 
-TemplateApplyIntrinsic::Family* Intrinsics::template_family(
+TemplateApplyIntrinsic::Family* Intrinsics::intern_template_family(
     std::string_view spelling, cxx::AST* owner) {
   if (auto found = template_families_.find(std::string(spelling));
       found != template_families_.end()) {
@@ -343,6 +343,22 @@ Intrinsics::Binding* Intrinsics::concrete_binding(cxx::FunctionSymbol* function,
 Intrinsics::Binding* Intrinsics::lookup(cxx::FunctionSymbol* function,
                                         cxx::AST* owner) {
   return concrete_binding(function, owner);
+}
+
+Intrinsics::TemplateFamily Intrinsics::bind_template_family(
+    cxx::FunctionSymbol* function, cxx::AST* owner, loom_builder_t* builder) {
+  auto* binding = concrete_binding(function, owner);
+  auto* application =
+      binding ? std::get_if<TemplateApplyIntrinsic>(binding) : nullptr;
+  if (!application) {
+    diagnostics_.reject(
+        unit_, owner,
+        "template definition family requires a LOOM_TEMPLATE_DECL declaration");
+  }
+  return {
+      application->materialize(types_, owner, builder),
+      application->source_function(),
+  };
 }
 
 const CheckIntrinsic* Intrinsics::check_binding(cxx::FunctionSymbol* function,
