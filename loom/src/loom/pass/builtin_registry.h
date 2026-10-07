@@ -24,6 +24,13 @@ extern "C" {
 // the standard Loom compiler/tool build.
 const loom_pass_registry_t* loom_pass_builtin_registry(void);
 
+// Initializes a complete compiler pass registry from the builtin passes and an
+// optional extension registry. Duplicate pass keys are rejected so linked
+// target packages cannot replace builtin compiler behavior.
+iree_status_t loom_pass_registry_storage_initialize_with_builtins(
+    const loom_pass_registry_t* extension_registry,
+    loom_pass_registry_storage_t* out_storage);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

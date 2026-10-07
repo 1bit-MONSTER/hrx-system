@@ -1107,7 +1107,8 @@ static iree_status_t loom_opt_print_config_schema(
 static iree_status_t loom_opt_print_pass_list(
     const loom_pass_registry_t* registry) {
   for (iree_host_size_t i = 0; i < registry->descriptor_count; ++i) {
-    const loom_pass_descriptor_t* descriptor = &registry->descriptors[i];
+    const loom_pass_descriptor_t* descriptor =
+        loom_pass_registry_at(registry, i);
     const loom_pass_info_t* info = descriptor->info();
     if (!info) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -1335,7 +1336,8 @@ int main(int argc, char** argv) {
   const loom_target_low_descriptor_registry_t low_descriptor_registry =
       loom_target_environment_low_descriptor_registry(target_environment);
   loom_pass_registry_storage_t pass_registry_storage = {0};
-  const loom_pass_registry_t* pass_registry = NULL;
+  const loom_pass_registry_t* pass_registry =
+      loom_pass_registry_storage_registry(&pass_registry_storage);
   iree_string_view_t source = iree_string_view_empty();
   loom_opt_pass_report_mode_t pass_report_mode = LOOM_OPT_PASS_REPORT_NONE;
   loom_opt_diagnostic_format_t diagnostic_format =
@@ -1357,15 +1359,9 @@ int main(int argc, char** argv) {
   loom_pass_run_result_t pass_run_result = {0};
   iree_status_t pass_pipeline_status = iree_ok_status();
 
-  const loom_pass_registry_t* pass_registries[] = {
-      loom_pass_builtin_registry(),
+  iree_status_t status = loom_pass_registry_storage_initialize_with_builtins(
       loom_target_environment_pass_registry(target_environment),
-  };
-  iree_status_t status = loom_pass_registry_storage_initialize_from_registries(
-      pass_registries, IREE_ARRAYSIZE(pass_registries), &pass_registry_storage);
-  if (iree_status_is_ok(status)) {
-    pass_registry = loom_pass_registry_storage_registry(&pass_registry_storage);
-  }
+      &pass_registry_storage);
   if (iree_status_is_ok(status)) {
     status = loom_opt_parse_pass_report_mode(
         iree_make_cstring_view(FLAG_pass_report), &pass_report_mode);

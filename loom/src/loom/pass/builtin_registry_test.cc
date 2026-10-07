@@ -72,6 +72,53 @@ TEST(PassBuiltinRegistryTest, LookupKnownAndUnknownPasses) {
   EXPECT_EQ(descriptor, nullptr);
 }
 
+TEST(PassBuiltinRegistryTest, ComposesOptionalExtensionRegistry) {
+  loom_pass_registry_storage_t builtin_storage = {};
+  IREE_ASSERT_OK(loom_pass_registry_storage_initialize_with_builtins(
+      /*extension_registry=*/nullptr, &builtin_storage));
+  const loom_pass_registry_t* builtin_registry =
+      loom_pass_registry_storage_registry(&builtin_storage);
+  EXPECT_EQ(builtin_registry->descriptor_count,
+            loom_pass_builtin_registry()->descriptor_count);
+
+  static const loom_pass_descriptor_t kExtensionDescriptors[] = {
+      {/*.key=*/IREE_SVL("zz-test-extension")},
+  };
+  static const loom_pass_registry_t kExtensionRegistry = {
+      /*.descriptors=*/kExtensionDescriptors,
+      /*.descriptor_count=*/IREE_ARRAYSIZE(kExtensionDescriptors),
+  };
+  loom_pass_registry_storage_t extended_storage = {};
+  IREE_ASSERT_OK(loom_pass_registry_storage_initialize_with_builtins(
+      &kExtensionRegistry, &extended_storage));
+  const loom_pass_registry_t* extended_registry =
+      loom_pass_registry_storage_registry(&extended_storage);
+  EXPECT_EQ(extended_registry->descriptor_count,
+            loom_pass_builtin_registry()->descriptor_count + 1);
+
+  const loom_pass_descriptor_t* descriptor = nullptr;
+  IREE_ASSERT_OK(loom_pass_registry_lookup(
+      extended_registry, IREE_SV("canonicalize"), &descriptor));
+  ASSERT_NE(descriptor, nullptr);
+  IREE_ASSERT_OK(loom_pass_registry_lookup(
+      extended_registry, IREE_SV("zz-test-extension"), &descriptor));
+  ASSERT_NE(descriptor, nullptr);
+}
+
+TEST(PassBuiltinRegistryTest, RejectsBuiltinKeyReplacement) {
+  static const loom_pass_descriptor_t kDuplicateDescriptors[] = {
+      {/*.key=*/IREE_SVL("canonicalize")},
+  };
+  static const loom_pass_registry_t kDuplicateRegistry = {
+      /*.descriptors=*/kDuplicateDescriptors,
+      /*.descriptor_count=*/IREE_ARRAYSIZE(kDuplicateDescriptors),
+  };
+  loom_pass_registry_storage_t storage = {};
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_ALREADY_EXISTS,
+                        loom_pass_registry_storage_initialize_with_builtins(
+                            &kDuplicateRegistry, &storage));
+}
+
 TEST(PassBuiltinRegistryTest, CleanupPassesShareIterationBudget) {
   for (const char* name : {"canonicalize", "combine"}) {
     SCOPED_TRACE(name);

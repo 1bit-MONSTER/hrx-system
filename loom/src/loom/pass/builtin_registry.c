@@ -675,3 +675,14 @@ static const loom_pass_registry_t kBuiltinPassRegistry = {
 const loom_pass_registry_t* loom_pass_builtin_registry(void) {
   return &kBuiltinPassRegistry;
 }
+
+iree_status_t loom_pass_registry_storage_initialize_with_builtins(
+    const loom_pass_registry_t* extension_registry,
+    loom_pass_registry_storage_t* out_storage) {
+  const loom_pass_registry_t* registries[] = {
+      loom_pass_builtin_registry(),
+      extension_registry,
+  };
+  return loom_pass_registry_storage_initialize_from_registries(
+      registries, IREE_ARRAYSIZE(registries), out_storage);
+}

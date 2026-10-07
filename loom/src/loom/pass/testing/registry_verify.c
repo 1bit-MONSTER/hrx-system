@@ -330,12 +330,19 @@ iree_status_t loom_pass_registry_verify(const loom_pass_registry_t* registry) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "pass registry is required");
   }
-  if (registry->descriptor_count > 0 && !registry->descriptors) {
+  if (registry->descriptor_count > 0 &&
+      (registry->descriptors == NULL) == (registry->descriptor_refs == NULL)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "pass registry descriptors are required");
+                            "pass registry requires exactly one descriptor "
+                            "representation");
   }
   for (iree_host_size_t i = 0; i < registry->descriptor_count; ++i) {
-    const loom_pass_descriptor_t* descriptor = &registry->descriptors[i];
+    const loom_pass_descriptor_t* descriptor =
+        loom_pass_registry_at(registry, i);
+    if (descriptor == NULL) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "pass descriptor %zu is required", i);
+    }
     if (iree_string_view_is_empty(descriptor->key)) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "pass descriptor %zu has no key", i);
@@ -402,7 +409,8 @@ iree_status_t loom_pass_registry_verify(const loom_pass_registry_t* registry) {
                                 (int)info->kind);
     }
     if (i > 0) {
-      const loom_pass_descriptor_t* previous = &registry->descriptors[i - 1];
+      const loom_pass_descriptor_t* previous =
+          loom_pass_registry_at(registry, i - 1);
       int comparison = iree_string_view_compare(previous->key, descriptor->key);
       if (comparison >= 0) {
         return iree_make_status(

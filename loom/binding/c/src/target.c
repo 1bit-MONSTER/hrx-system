@@ -11,7 +11,6 @@
 #include "iree/base/internal/atomics.h"
 #include "loom/codegen/low/repr.h"
 #include "loom/codegen/low/text_asm.h"
-#include "loom/pass/builtin_registry.h"
 #include "loom/target/selection.h"
 #include "loomc/iree.h"
 #include "option_chain.h"
@@ -428,31 +427,6 @@ loomc_status_t loomc_target_specialization_options_make_lists(
         .count = options->target_binding_count,
     };
   }
-  return loomc_ok_status();
-}
-
-loomc_status_t loomc_target_pass_registry_initialize(
-    const loomc_target_environment_t* target_environment,
-    loom_pass_registry_storage_t* out_storage,
-    const loom_pass_registry_t** out_registry) {
-  if (out_storage == NULL || out_registry == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_storage and out_registry must not be NULL");
-  }
-  *out_storage = (loom_pass_registry_storage_t){0};
-  *out_registry = NULL;
-  const loom_pass_registry_t* registries[2] = {
-      loom_pass_builtin_registry(),
-  };
-  iree_host_size_t registry_count = 1;
-  if (target_environment != NULL) {
-    registries[registry_count++] =
-        loom_target_environment_pass_registry(&target_environment->environment);
-  }
-  LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(
-      loom_pass_registry_storage_initialize_from_registries(
-          registries, registry_count, out_storage)));
-  *out_registry = loom_pass_registry_storage_registry(out_storage);
   return loomc_ok_status();
 }
 

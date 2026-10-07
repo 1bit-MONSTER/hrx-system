@@ -80,20 +80,6 @@ bool loom_compile_pipeline_is_named(iree_string_view_t pipeline) {
   return iree_string_view_starts_with_char(pipeline, '@');
 }
 
-static iree_status_t loom_compile_pipeline_registry_initialize(
-    const loom_target_environment_t* target_environment,
-    loom_pass_registry_storage_t* out_storage,
-    const loom_pass_registry_t** out_registry) {
-  const loom_pass_registry_t* registries[] = {
-      loom_pass_builtin_registry(),
-      loom_target_environment_pass_registry(target_environment),
-  };
-  IREE_RETURN_IF_ERROR(loom_pass_registry_storage_initialize_from_registries(
-      registries, IREE_ARRAYSIZE(registries), out_storage));
-  *out_registry = loom_pass_registry_storage_registry(out_storage);
-  return iree_ok_status();
-}
-
 static iree_status_t loom_compile_build_default_pipeline(
     loom_module_t* pipeline_module,
     const loom_compile_pipeline_options_t* options,
@@ -286,9 +272,11 @@ iree_status_t loom_compile_run_pipeline(
   }
 
   loom_pass_registry_storage_t pass_registry_storage = {0};
-  const loom_pass_registry_t* pass_registry = NULL;
-  status = loom_compile_pipeline_registry_initialize(
-      options->target_environment, &pass_registry_storage, &pass_registry);
+  status = loom_pass_registry_storage_initialize_with_builtins(
+      loom_target_environment_pass_registry(options->target_environment),
+      &pass_registry_storage);
+  const loom_pass_registry_t* pass_registry =
+      loom_pass_registry_storage_registry(&pass_registry_storage);
 
   const loom_low_lower_policy_registry_t low_lower_policy_registry =
       loom_target_environment_low_lower_policy_registry(

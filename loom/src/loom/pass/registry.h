@@ -143,11 +143,22 @@ typedef struct loom_pass_decoded_options_t {
 
 // A sorted registry of pass descriptors.
 typedef struct loom_pass_registry_t {
-  // Descriptors sorted by canonical key.
+  // Optional contiguous descriptors sorted by canonical key. Static registries
+  // use this representation; composed registries leave it NULL.
   const loom_pass_descriptor_t* descriptors;
-  // Number of descriptors in |descriptors|.
+  // Number of descriptors in the active representation.
   iree_host_size_t descriptor_count;
+  // Optional sorted references to canonical descriptors. Composed registries
+  // use this representation; static registries leave it NULL.
+  const loom_pass_descriptor_t* const* descriptor_refs;
 } loom_pass_registry_t;
+
+// Returns descriptor |index| from either registry representation.
+static inline const loom_pass_descriptor_t* loom_pass_registry_at(
+    const loom_pass_registry_t* registry, iree_host_size_t index) {
+  return registry->descriptor_refs != NULL ? registry->descriptor_refs[index]
+                                           : &registry->descriptors[index];
+}
 
 enum {
   LOOM_PASS_REGISTRY_STORAGE_DESCRIPTOR_CAPACITY = 256,
@@ -155,10 +166,10 @@ enum {
 
 // Storage for a composed pass registry assembled from static registries.
 typedef struct loom_pass_registry_storage_t {
-  // Sorted descriptor storage copied from source registries.
-  loom_pass_descriptor_t
-      descriptors[LOOM_PASS_REGISTRY_STORAGE_DESCRIPTOR_CAPACITY];
-  // Registry view over |descriptors|.
+  // Sorted references to canonical descriptors owned by source registries.
+  const loom_pass_descriptor_t*
+      descriptor_refs[LOOM_PASS_REGISTRY_STORAGE_DESCRIPTOR_CAPACITY];
+  // Registry view over |descriptor_refs|.
   loom_pass_registry_t registry;
 } loom_pass_registry_storage_t;
 
@@ -170,9 +181,10 @@ iree_status_t loom_pass_registry_lookup(
 
 // Builds a sorted registry from zero or more sorted source registries.
 //
-// Descriptors are copied by value and their callback/data pointers continue to
-// reference static storage owned by the source registry packages. Duplicate
-// pass keys are rejected so every textual pass.run key has a single owner.
+// Descriptor references remain owned by the source registry packages, which
+// must outlive |out_storage| and all consumers of descriptors returned from it.
+// Duplicate pass keys are rejected so every textual pass.run key has a single
+// owner.
 iree_status_t loom_pass_registry_storage_initialize_from_registries(
     const loom_pass_registry_t* const* registries,
     iree_host_size_t registry_count, loom_pass_registry_storage_t* out_storage);
