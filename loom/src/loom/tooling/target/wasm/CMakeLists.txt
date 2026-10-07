@@ -48,15 +48,15 @@ loom_cc_library(
     iree::base
     iree::base::internal::arena
     iree::hal
+    loom::compile::request
     loom::error::source
-    loom::link::linker
-    loom::ops::op_defs
     loom::target::emit::wasm::module_compiler
     loom::target::entry_selection
     loom::target::provider
     loom::target::selection
     loom::tooling::compile::pipeline
     loom::tooling::config
+    loom::tooling::execution::execution_provider
     loom::tooling::testbench::scenario::executor
   PUBLIC
 )

@@ -12,6 +12,7 @@
 #include "iree/vm/process.h"
 #include "loom/error/source.h"
 #include "loom/target/provider.h"
+#include "loom/tooling/execution/execution_provider.h"
 #include "loom/tooling/testbench/invocation.h"
 #include "loom/tooling/testbench/scenario/executor.h"
 
@@ -21,6 +22,9 @@ extern "C" {
 
 typedef struct loom_cleanup_pattern_provider_set_t
     loom_cleanup_pattern_provider_set_t;
+
+// Complete VM compiler capabilities contributed to execution tools.
+extern const loom_run_execution_provider_t loom_vm_execution_provider;
 
 // Executes semantic functions through the VM. The check.case provider compiles
 // all selected function roots on its first call and reuses one process. The

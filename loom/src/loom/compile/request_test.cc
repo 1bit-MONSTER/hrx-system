@@ -152,7 +152,8 @@ class CompileRequestTest : public ::testing::Test {
     loom_target_specialization_request_list_t specializations = {};
     uint32_t error_count = 0;
     iree_status_t status = loom_compile_request_materialize(
-        &request, &environment_, &entry_options, &sources, &request_arena_,
+        &request, &environment_, &entry_options, materialized_module,
+        LOOM_COMPILE_REQUEST_SOURCE_TRANSFERRED, &sources, &request_arena_,
         &block_pool_, &materialized_module, &specializations, &error_count);
     module.reset(materialized_module);
     IREE_EXPECT_OK(status);
@@ -167,6 +168,21 @@ class CompileRequestTest : public ::testing::Test {
     const loom_string_id_t name_id = loom_module_lookup_string(module, name);
     return name_id != LOOM_STRING_ID_INVALID &&
            loom_module_find_symbol(module, name_id) != LOOM_SYMBOL_ID_INVALID;
+  }
+
+  static bool IsPublic(const loom_module_t* module, iree_string_view_t name) {
+    const loom_string_id_t name_id = loom_module_lookup_string(module, name);
+    if (name_id == LOOM_STRING_ID_INVALID) {
+      return false;
+    }
+    const loom_symbol_id_t symbol_id = loom_module_find_symbol(module, name_id);
+    if (symbol_id == LOOM_SYMBOL_ID_INVALID) {
+      return false;
+    }
+    const loom_symbol_t* symbol = &module->symbols.entries[symbol_id];
+    return iree_any_bit_set(symbol->flags, LOOM_SYMBOL_FLAG_PUBLIC) &&
+           loom_func_like_is_exported(
+               loom_func_like_const_cast(module, symbol->defining_op));
   }
 
   static ModulePtr ParseKernel(CompileRequestTest* test, bool with_target) {
@@ -251,6 +267,48 @@ func.def public @excluded(%value: i32) -> (i32) {
   EXPECT_TRUE(HasSymbol(module.get(), IREE_SV("shared")));
   EXPECT_FALSE(HasSymbol(module.get(), IREE_SV("excluded")));
   EXPECT_FALSE(HasSymbol(module.get(), IREE_SV("excluded_only")));
+}
+
+TEST_F(CompileRequestTest, BorrowedPrivateModuleRootBecomesDeploymentExport) {
+  ModulePtr source = Parse(R"(
+func.def @helper(%value: i32) -> (i32) {
+  func.return %value : i32
+}
+func.def @selected(%value: i32) -> (i32) {
+  %result = func.call @helper(%value) : (i32) -> (i32)
+  func.return %result : i32
+}
+func.def public @excluded(%value: i32) -> (i32) {
+  func.return %value : i32
+}
+)");
+  const iree_string_view_t roots[] = {IREE_SV("selected")};
+  loom_compile_request_options_t options = {};
+  options.roots = {IREE_ARRAYSIZE(roots), roots};
+  options.format = IREE_SV("DiagnosticFormat123");
+  const loom_compile_request_t request = Resolve(source.get(), options);
+
+  loom_source_table_projection_t sources = {};
+  sources.table.module = source.get();
+  sources.arena = &request_arena_;
+  const loom_target_entry_options_t entry_options = {};
+  loom_module_t* materialized_module = nullptr;
+  loom_target_specialization_request_list_t specializations = {};
+  uint32_t error_count = 0;
+  IREE_ASSERT_OK(loom_compile_request_materialize(
+      &request, &environment_, &entry_options, source.get(),
+      LOOM_COMPILE_REQUEST_SOURCE_BORROWED, &sources, &request_arena_,
+      &block_pool_, &materialized_module, &specializations, &error_count));
+  ModulePtr materialized(materialized_module);
+
+  EXPECT_EQ(error_count, 0u);
+  EXPECT_TRUE(HasSymbol(source.get(), IREE_SV("excluded")));
+  EXPECT_FALSE(IsPublic(source.get(), IREE_SV("selected")));
+  EXPECT_TRUE(HasSymbol(materialized.get(), IREE_SV("selected")));
+  EXPECT_TRUE(IsPublic(materialized.get(), IREE_SV("selected")));
+  EXPECT_TRUE(HasSymbol(materialized.get(), IREE_SV("helper")));
+  EXPECT_FALSE(IsPublic(materialized.get(), IREE_SV("helper")));
+  EXPECT_FALSE(HasSymbol(materialized.get(), IREE_SV("excluded")));
 }
 
 TEST_F(CompileRequestTest, MaterializesSelectedKernelRootAlone) {

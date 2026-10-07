@@ -10,16 +10,19 @@
 #include "iree/vm/bytecode/module.h"
 #include "iree/vm/execution.h"
 #include "iree/vm/sync.h"
+#include "loom/compile/request.h"
 #include "loom/error/error_defs.h"
 #include "loom/error/source.h"
-#include "loom/link/linker.h"
-#include "loom/ops/func/ops.h"
-#include "loom/ops/op_defs.h"
 #include "loom/target/arch/vm/provider.h"
 #include "loom/target/emit/vm/module_compiler.h"
 #include "loom/target/entry_selection.h"
 #include "loom/tooling/compile/pipeline.h"
 #include "loom/tooling/config/config.h"
+
+const loom_run_execution_provider_t loom_vm_execution_provider = {
+    .name = IREE_SVL("vm"),
+    .compiler_provider_set = &loom_vm_compiler_provider_set,
+};
 
 void loom_vm_testbench_initialize(
     const loom_target_environment_t* target_environment,
@@ -148,19 +151,26 @@ static iree_status_t loom_vm_testbench_compile(
       }
     }
   }
+
+  loom_compile_request_t compile_request = {0};
+  if (iree_status_is_ok(status)) {
+    status = loom_compile_request_resolve(
+        source,
+        &(loom_compile_request_options_t){
+            .roots = {.count = root_count, .values = roots},
+            .target_profile = profile,
+        },
+        testbench->target_environment, &arena, &compile_request);
+  }
   loom_source_table_projection_t sources = {.table = *testbench->sources,
                                             .arena = &arena};
   loom_module_t* module = NULL;
+  loom_target_specialization_request_list_t target_specializations = {0};
   if (iree_status_is_ok(status)) {
-    status = loom_link_materialized_modules(
-        &source, 1,
-        &(loom_link_options_t){
-            .module_name = IREE_SV("test"),
-            .root_symbols = {.count = root_count, .values = roots},
-            .source_callback = {.fn = loom_source_table_project,
-                                .user_data = &sources},
-        },
-        &pool, testbench->host_allocator, &module);
+    status = loom_compile_request_materialize(
+        &compile_request, testbench->target_environment, NULL, source,
+        LOOM_COMPILE_REQUEST_SOURCE_BORROWED, &sources, &arena, &pool, &module,
+        &target_specializations, &(uint32_t){0});
   }
   if (iree_status_is_ok(status)) {
     loom_tooling_config_materialize_result_t result;
@@ -170,33 +180,6 @@ static iree_status_t loom_vm_testbench_compile(
             .config_set = testbench->config_set,
         },
         &pool, &result);
-  }
-  loom_target_specialization_request_t* requests = NULL;
-  iree_host_size_t request_count = 0;
-  if (iree_status_is_ok(status)) {
-    status = iree_arena_allocate_array(&arena, root_count, sizeof(*requests),
-                                       (void**)&requests);
-  }
-  if (iree_status_is_ok(status)) {
-    // Root retention is produced by the linker. Dependencies have had their
-    // public/export/retain surface closed by that same selection boundary.
-    // Publish retained invocation roots for VM lookup, including private roots.
-    for (iree_host_size_t i = 0; i < module->symbols.count; ++i) {
-      loom_symbol_t* symbol = &module->symbols.entries[i];
-      if (!iree_any_bit_set(symbol->flags, LOOM_SYMBOL_FLAG_RETAIN)) {
-        continue;
-      }
-      const loom_func_like_t function =
-          loom_func_like_cast(module, symbol->defining_op);
-      loom_op_attrs(function.op)[function.vtable->visibility_attr_index] =
-          loom_attr_enum(LOOM_FUNC_VISIBILITY_PUBLIC);
-      symbol->flags |= LOOM_SYMBOL_FLAG_PUBLIC;
-      requests[request_count++] = (loom_target_specialization_request_t){
-          .function_name =
-              loom_string_table_get(&module->strings, symbol->name_id),
-          .target_profile = profile,
-      };
-    }
   }
   loom_target_low_descriptor_registry_t registry = {0};
   if (iree_status_is_ok(status)) {
@@ -209,8 +192,11 @@ static iree_status_t loom_vm_testbench_compile(
   options.target_environment = testbench->target_environment;
   options.source_resolver = (loom_source_resolver_t){
       .fn = loom_source_table_resolve, .user_data = &sources.table};
-  options.target_specializations =
-      (loom_target_specialization_request_list_t){requests, request_count};
+  options.target_specializations = target_specializations;
+  if (compile_request.target_emitter != NULL) {
+    options.target_pipeline_options =
+        compile_request.target_emitter->default_pipeline_options;
+  }
   options.cleanup_pattern_provider_set =
       testbench->cleanup_pattern_provider_set;
   loom_vm_testbench_pipeline_diagnostic_capture_t pipeline_diagnostic = {
@@ -245,11 +231,12 @@ static iree_status_t loom_vm_testbench_compile(
     loom_target_entry_diagnostic_emitter_initialize(
         module, &entry_options, LOOM_EMITTER_VERIFIER, &entry_emitter);
     emission_diagnostic.downstream = loom_target_entry_emitter(&entry_emitter);
-    const loom_target_emit_request_t request = {
+    const loom_target_emit_request_t emit_request = {
         .target_environment = testbench->target_environment,
         .low_descriptor_registry = &registry.registry,
         .module = module,
         .function_versions = &pipeline.function_versions.list,
+        .identifier = compile_request.target_emitter->default_identifier,
         .diagnostic_emitter =
             {
                 .fn = loom_vm_testbench_capture_emission_diagnostic,
@@ -259,8 +246,8 @@ static iree_status_t loom_vm_testbench_compile(
         .scratch_arena = &arena,
         .allocator = testbench->host_allocator,
     };
-    status =
-        loom_vm_module_emitter.emit(&request, &artifact_emitted, &artifact);
+    status = compile_request.target_emitter->emit(&emit_request,
+                                                  &artifact_emitted, &artifact);
   }
   if (iree_status_is_ok(status) && !testbench->compile_rejected &&
       !artifact_emitted) {

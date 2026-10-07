@@ -124,9 +124,10 @@ static iree_status_t loom_check_compile_request(
         .max_errors = pipeline_options->max_errors,
     };
     status = loom_compile_request_materialize(
-        request, pipeline_options->target_environment, &entry_options,
-        &source_projection, collector->arena, block_pool, &module,
-        &target_specializations, &error_count);
+        request, pipeline_options->target_environment, &entry_options, module,
+        LOOM_COMPILE_REQUEST_SOURCE_TRANSFERRED, &source_projection,
+        collector->arena, block_pool, &module, &target_specializations,
+        &error_count);
     collector->module = module;
     projected_options.target_specializations = target_specializations;
   }

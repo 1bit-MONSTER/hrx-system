@@ -34,64 +34,36 @@
   (IREE_TEST_LOOM_HAVE_AMDGPU || IREE_TEST_LOOM_HAVE_SPIRV)
 
 #if IREE_TEST_LOOM_HAVE_AMDGPU
-#include "loom/target/arch/amdgpu/provider.h"
 #include "loom/tooling/target/amdgpu/device_provider.h"
+#include "loom/tooling/target/amdgpu/execution_provider.h"
 #include "loom/tooling/target/amdgpu/testbench_requirements.h"
 #endif  // IREE_TEST_LOOM_HAVE_AMDGPU
 #if IREE_TEST_LOOM_HAVE_SPIRV
-#include "loom/target/arch/spirv/provider.h"
 #include "loom/tooling/target/spirv/device_provider.h"
+#include "loom/tooling/target/spirv/execution_provider.h"
 #include "loom/tooling/target/spirv/testbench_requirements.h"
 #endif  // IREE_TEST_LOOM_HAVE_SPIRV
 #if IREE_TEST_LOOM_HAVE_VM
-#include "loom/target/arch/vm/provider.h"
 #include "loom/tooling/target/vm/testbench.h"
-
-static const loom_run_execution_provider_t kIreeTestLoomVmProvider = {
-    .name = IREE_SVL("vm"),
-    .target_provider = &loom_vm_target_provider,
-};
 #endif  // IREE_TEST_LOOM_HAVE_VM
 
 #if IREE_TEST_LOOM_HAVE_WASM
-#include "loom/target/arch/wasm/provider.h"
-#if defined(IREE_PLATFORM_WASM)
 #include "loom/tooling/target/wasm/testbench.h"
-#endif  // IREE_PLATFORM_WASM
-
-static const loom_run_execution_provider_t kIreeTestLoomWasmProvider = {
-    .name = IREE_SVL("wasm"),
-    .target_provider = &loom_wasm_target_provider,
-};
 #endif  // IREE_TEST_LOOM_HAVE_WASM
-
-#if IREE_TEST_LOOM_HAVE_AMDGPU
-static const loom_run_execution_provider_t kIreeTestLoomAmdgpuProvider = {
-    .name = IREE_SVL("amdgpu"),
-    .target_provider = &loom_amdgpu_target_provider,
-};
-#endif  // IREE_TEST_LOOM_HAVE_AMDGPU
-
-#if IREE_TEST_LOOM_HAVE_SPIRV
-static const loom_run_execution_provider_t kIreeTestLoomSpirvProvider = {
-    .name = IREE_SVL("spirv"),
-    .target_provider = &loom_spirv_target_provider,
-};
-#endif  // IREE_TEST_LOOM_HAVE_SPIRV
 
 #if IREE_TEST_LOOM_HAVE_ANY_PROVIDER
 static const loom_run_execution_provider_t* const kIreeTestLoomProviders[] = {
 #if IREE_TEST_LOOM_HAVE_VM
-    &kIreeTestLoomVmProvider,
+    &loom_vm_execution_provider,
 #endif  // IREE_TEST_LOOM_HAVE_VM
 #if IREE_TEST_LOOM_HAVE_WASM
-    &kIreeTestLoomWasmProvider,
+    &loom_wasm_execution_provider,
 #endif  // IREE_TEST_LOOM_HAVE_WASM
 #if IREE_TEST_LOOM_HAVE_AMDGPU
-    &kIreeTestLoomAmdgpuProvider,
+    &loom_amdgpu_execution_provider,
 #endif  // IREE_TEST_LOOM_HAVE_AMDGPU
 #if IREE_TEST_LOOM_HAVE_SPIRV
-    &kIreeTestLoomSpirvProvider,
+    &loom_spirv_vulkan_execution_provider,
 #endif  // IREE_TEST_LOOM_HAVE_SPIRV
 };
 #endif  // IREE_TEST_LOOM_HAVE_ANY_PROVIDER

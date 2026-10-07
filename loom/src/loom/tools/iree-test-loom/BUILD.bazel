@@ -30,8 +30,8 @@ _AMDGPU_TARGET_COPTS = iree_select({
 
 _AMDGPU_TARGET_DEPS = iree_select({
     "//loom/config/execute:amdgpu_hal": [
-        "//loom/src/loom/target/arch/amdgpu:provider",
         "//loom/src/loom/tooling/target/amdgpu:device_provider",
+        "//loom/src/loom/tooling/target/amdgpu:execution_provider",
         "//loom/src/loom/tooling/target/amdgpu:testbench_requirements",
     ],
     "//conditions:default": [],
@@ -46,8 +46,8 @@ _SPIRV_VULKAN_TARGET_COPTS = iree_select({
 
 _SPIRV_VULKAN_TARGET_DEPS = iree_select({
     "//loom/config/execute:spirv_vulkan_hal": [
-        "//loom/src/loom/target/arch/spirv:provider",
         "//loom/src/loom/tooling/target/spirv:device_provider",
+        "//loom/src/loom/tooling/target/spirv:execution_provider",
         "//loom/src/loom/tooling/target/spirv:testbench_requirements",
     ],
     "//conditions:default": [],
@@ -60,7 +60,6 @@ _VM_TARGET_COPTS = iree_select({
 
 _VM_TARGET_DEPS = iree_select({
     "//loom/config/target/arch:vm": [
-        "//loom/src/loom/target/arch/vm:provider",
         "//loom/src/loom/tooling/target/vm:testbench",
     ],
     "//conditions:default": [],
@@ -73,7 +72,6 @@ _WASM_TARGET_COPTS = iree_select({
 
 _WASM_TARGET_DEPS = iree_select({
     "//loom/config/target/arch:wasm": [
-        "//loom/src/loom/target/arch/wasm:provider",
         "//loom/src/loom/tooling/target/wasm:testbench",
     ],
     "//conditions:default": [],

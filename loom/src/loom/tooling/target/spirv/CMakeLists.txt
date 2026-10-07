@@ -76,7 +76,7 @@ loom_cc_library(
   DEPS
     ::device_provider
     iree::base
-    loom::target::arch::spirv::provider
+    loom::target::arch::spirv::compiler_provider
     loom::tooling::execution::execution_provider
     loom::tooling::execution::hal::execution_backend
   PUBLIC
