@@ -10,7 +10,7 @@ func.def @unsigned_remainder_i32(%value: i32, %divisor: i32) -> (i32) {
 // ====
 
 func.def @unsigned_remainder_i64(%value: i64, %divisor: i64) -> (i64) {
-  // ERROR@+1: TARGET/002 {op_name="scalar.remui"}
+  // ERROR@+1: AMDGPU/023 {constraint_key="unsigned_i64_division.constant_nonzero_divisor"}
   %remainder = scalar.remui %value, %divisor : i64
   func.return %remainder : i64
 }

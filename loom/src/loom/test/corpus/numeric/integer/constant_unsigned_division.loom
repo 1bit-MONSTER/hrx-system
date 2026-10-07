@@ -659,6 +659,160 @@ check.scenario @constant_index_division_values {
   check.return
 }
 
+// The same full-width payload is observed through uniform scalar operations
+// and shaped, loaded lanes. Divisors cross word and sign-bit boundaries.
+func.def @constant_wide_division(%dynamic_zero: i64, %uniform: i64, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %values = buffer.view %input[%base] : buffer -> view<4x4xi64>
+  %results = buffer.view %output[%base] : buffer -> view<36xi64>
+  %c1 = scalar.constant 1 : i64
+  %c2 = scalar.constant 2 : i64
+  %c3 = scalar.constant 3 : i64
+  %c7 = scalar.constant 7 : i64
+  %c20 = scalar.constant 20 : i64
+  %c31 = scalar.constant 31 : i64
+  %c32 = scalar.constant 32 : i64
+  %prime = scalar.constant 20000003 : i64
+  %other_prime = scalar.constant 20000171 : i64
+  %below_word = scalar.constant 4294967295 : i64
+  %word = scalar.constant 4294967296 : i64
+  %above_word = scalar.constant 4294967297 : i64
+  %below_sign = scalar.constant 9223372036854775807 : i64
+  %sign = scalar.constant -9223372036854775808 : i64
+  %above_sign = scalar.constant -9223372036854775807 : i64
+  %maximum = scalar.constant -1 : i64
+  %third = scalar.divui %uniform, %c3 : i64
+  %seventh = scalar.remui %uniform, %c7 : i64
+  %high_quotient = scalar.divui %uniform, %above_sign : i64
+  %wide_remainder = scalar.remui %uniform, %above_word : i64
+  view.store %third, %results[0] : i64, view<36xi64>
+  view.store %seventh, %results[1] : i64, view<36xi64>
+  view.store %high_quotient, %results[2] : i64, view<36xi64>
+  view.store %wide_remainder, %results[3] : i64, view<36xi64>
+  %loaded = vector.load %values[0, 0] : view<4x4xi64> -> vector<4x4xi64>
+  %divisors = vector.from_elements %c1, %c2, %c3, %c7, %c20, %c31, %c32, %prime, %other_prime, %below_word, %word, %above_word, %below_sign, %sign, %above_sign, %maximum : vector<4x4xi64>
+  %quotients = vector.divui %loaded, %divisors : vector<4x4xi64>
+  %remainders = vector.remui %loaded, %divisors : vector<4x4xi64>
+  %flat_quotients = vector.bitcast %quotients : vector<4x4xi64> to vector<16xi64>
+  %flat_remainders = vector.bitcast %remainders : vector<4x4xi64> to vector<16xi64>
+  vector.store %flat_quotients, %results[4] : vector<16xi64>, view<36xi64>
+  vector.store %flat_remainders, %results[20] : vector<16xi64>, view<36xi64>
+  func.return
+}
+
+// Runtime addition prevents the reference from specializing its divisors.
+func.def @dynamic_wide_division(%dynamic_zero: i64, %uniform: i64, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %values = buffer.view %input[%base] : buffer -> view<4x4xi64>
+  %results = buffer.view %output[%base] : buffer -> view<36xi64>
+  %c1 = scalar.constant 1 : i64
+  %c2 = scalar.constant 2 : i64
+  %c3 = scalar.constant 3 : i64
+  %c7 = scalar.constant 7 : i64
+  %c20 = scalar.constant 20 : i64
+  %c31 = scalar.constant 31 : i64
+  %c32 = scalar.constant 32 : i64
+  %prime = scalar.constant 20000003 : i64
+  %other_prime = scalar.constant 20000171 : i64
+  %below_word = scalar.constant 4294967295 : i64
+  %word = scalar.constant 4294967296 : i64
+  %above_word = scalar.constant 4294967297 : i64
+  %below_sign = scalar.constant 9223372036854775807 : i64
+  %sign = scalar.constant -9223372036854775808 : i64
+  %above_sign = scalar.constant -9223372036854775807 : i64
+  %maximum = scalar.constant -1 : i64
+  %d3 = scalar.addi %dynamic_zero, %c3 : i64
+  %d7 = scalar.addi %dynamic_zero, %c7 : i64
+  %high_divisor = scalar.addi %dynamic_zero, %above_sign : i64
+  %wide_divisor = scalar.addi %dynamic_zero, %above_word : i64
+  %third = scalar.divui %uniform, %d3 : i64
+  %seventh = scalar.remui %uniform, %d7 : i64
+  %high_quotient = scalar.divui %uniform, %high_divisor : i64
+  %wide_remainder = scalar.remui %uniform, %wide_divisor : i64
+  view.store %third, %results[0] : i64, view<36xi64>
+  view.store %seventh, %results[1] : i64, view<36xi64>
+  view.store %high_quotient, %results[2] : i64, view<36xi64>
+  view.store %wide_remainder, %results[3] : i64, view<36xi64>
+  %loaded = vector.load %values[0, 0] : view<4x4xi64> -> vector<4x4xi64>
+  %constants = vector.from_elements %c1, %c2, %c3, %c7, %c20, %c31, %c32, %prime, %other_prime, %below_word, %word, %above_word, %below_sign, %sign, %above_sign, %maximum : vector<4x4xi64>
+  %zero = vector.splat %dynamic_zero : vector<4x4xi64>
+  %divisors = vector.addi %zero, %constants : vector<4x4xi64>
+  %quotients = vector.divui %loaded, %divisors : vector<4x4xi64>
+  %remainders = vector.remui %loaded, %divisors : vector<4x4xi64>
+  %flat_quotients = vector.bitcast %quotients : vector<4x4xi64> to vector<16xi64>
+  %flat_remainders = vector.bitcast %remainders : vector<4x4xi64> to vector<16xi64>
+  vector.store %flat_quotients, %results[4] : vector<16xi64>, view<36xi64>
+  vector.store %flat_remainders, %results[20] : vector<16xi64>, view<36xi64>
+  func.return
+}
+
+check.scenario @constant_wide_division_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %zero = check.literal value(0) : i64
+    %uniform = check.literal value(-1) : i64
+    %input = check.generate.fill value(-1) : tensor<16xi64>
+    %output = check.generate.fill value(-123) : tensor<36xi64>
+    check.compare<@constant_wide_division, @dynamic_wide_division>(%zero, %uniform, %input, %output) : (i64, i64, tensor<16xi64>, tensor<36xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<36xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %zero = check.literal value(0) : i64
+    %uniform = check.literal value(0) : i64
+    %input = check.generate.iota offset(0) step(1) : tensor<16xi64>
+    %output = check.generate.fill value(-123) : tensor<36xi64>
+    check.compare<@constant_wide_division, @dynamic_wide_division>(%zero, %uniform, %input, %output) : (i64, i64, tensor<16xi64>, tensor<36xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<36xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %zero = check.literal value(0) : i64
+    %uniform = check.literal value(4294967297) : i64
+    %input = check.generate.iota offset(4294967288) step(1) : tensor<16xi64>
+    %output = check.generate.fill value(-123) : tensor<36xi64>
+    check.compare<@constant_wide_division, @dynamic_wide_division>(%zero, %uniform, %input, %output) : (i64, i64, tensor<16xi64>, tensor<36xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<36xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %zero = check.literal value(0) : i64
+    %uniform = check.literal value(9223372036854775807) : i64
+    %input = check.generate.iota offset(9223372036854775792) step(1) : tensor<16xi64>
+    %output = check.generate.fill value(-123) : tensor<36xi64>
+    check.compare<@constant_wide_division, @dynamic_wide_division>(%zero, %uniform, %input, %output) : (i64, i64, tensor<16xi64>, tensor<36xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<36xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %zero = check.literal value(0) : i64
+    %uniform = check.literal value(-9223372036854775807) : i64
+    %input = check.generate.iota offset(-9223372036854775808) step(1) : tensor<16xi64>
+    %output = check.generate.fill value(-123) : tensor<36xi64>
+    check.compare<@constant_wide_division, @dynamic_wide_division>(%zero, %uniform, %input, %output) : (i64, i64, tensor<16xi64>, tensor<36xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<36xi64>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %uniform_entropy = check.entropy.fork %entropy name("uniform") : check.entropy
+    %input_entropy = check.entropy.fork %entropy name("input") : check.entropy
+    %uniform = check.entropy.read %uniform_entropy[%trial] : check.entropy -> i64
+    %seed = check.entropy.read %input_entropy[%trial] : check.entropy -> i64
+    %zero = check.literal value(0) : i64
+    %input = check.generate.random.uniform seed(%seed) range(-9223372036854775808 to 9223372036854775807) : tensor<16xi64>
+    %storage = check.generate.fill value(-123) : tensor<44xi64>
+    %prefix = check.tensor.view %storage offset(0) : tensor<44xi64> -> tensor<4xi64>
+    %output = check.tensor.view %storage offset(32) : tensor<44xi64> -> tensor<36xi64>
+    %suffix = check.tensor.view %storage offset(320) : tensor<44xi64> -> tensor<4xi64>
+    %guard = check.generate.fill value(-123) : tensor<4xi64>
+    check.compare<@constant_wide_division, @dynamic_wide_division>(%zero, %uniform, %input, %output) : (i64, i64, tensor<16xi64>, tensor<36xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<36xi64>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi64>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi64>
+    }
+  }
+  check.return
+}
+
 check.scenario @constant_index_boundary_division_values {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %zero = check.literal value(0) : index
