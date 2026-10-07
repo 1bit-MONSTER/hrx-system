@@ -111,7 +111,12 @@ _NO_KERNEL_ARTIFACT_EXCLUDES = {
 
 loom_corpus_build(
     name = "all",
-    all_roots_xfail = {"//loom/target/vm:all": ["memory/atomic/float64.loom"]},
+    all_roots_xfail = {
+        "//loom/target/vm:all": [
+            "memory/atomic/float64.loom",
+            "numeric/float/activations.loom",
+        ],
+    },
     catalog = LOOM_CORPUS,
     excludes = {"//loom/target/vm:all": _NO_KERNEL_ARTIFACT_EXCLUDES},
     profiles = ["//loom/target/vm:all"],
@@ -119,6 +124,7 @@ loom_corpus_build(
         "//loom/target/vm:all": {
             "function/template/library.loom:@template_dead_library_observations": "LOWERING/045",
             "memory/atomic/float64.loom:@atomic_f64_values": "TARGET/003",
+            "numeric/float/activations.loom:@activation_observations": "LOWERING/036",
         },
     },
 )

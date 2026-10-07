@@ -1,0 +1,180 @@
+// The policy rows define a Cartesian family: five semantic operations, five
+// source element types, and both scalar and vector domains. This report drives
+// every cell through the public legalization path without repeating lowered IR.
+// RUN: compile-report target=amd.xdna.aie2p:core legalize-math
+
+func.def @activation_family(%scalar_f8e4m3: f8E4M3, %vector_f8e4m3: vector<2x8xf8E4M3>, %scalar_f8e5m2: f8E5M2, %vector_f8e5m2: vector<2x8xf8E5M2>, %scalar_f16: f16, %vector_f16: vector<2x8xf16>, %scalar_bf16: bf16, %vector_bf16: vector<2x8xbf16>, %scalar_f32: f32, %vector_f32: vector<2x8xf32>) {
+  %scalar_f8e4m3_erf = scalar.geluf<erf, afn> %scalar_f8e4m3 : f8E4M3
+  %scalar_f8e4m3_tanh = scalar.geluf<tanh, afn> %scalar_f8e4m3 : f8E4M3
+  %scalar_f8e4m3_gelu_logistic = scalar.geluf<logistic, afn> %scalar_f8e4m3 {scale = 1.702} : f8E4M3
+  %scalar_f8e4m3_logistic = scalar.logisticf<afn> %scalar_f8e4m3 : f8E4M3
+  %scalar_f8e4m3_silu = scalar.siluf<afn> %scalar_f8e4m3 : f8E4M3
+  %vector_f8e4m3_erf = vector.geluf<erf, afn> %vector_f8e4m3 : vector<2x8xf8E4M3>
+  %vector_f8e4m3_tanh = vector.geluf<tanh, afn> %vector_f8e4m3 : vector<2x8xf8E4M3>
+  %vector_f8e4m3_gelu_logistic = vector.geluf<logistic, afn> %vector_f8e4m3 {scale = 1.702} : vector<2x8xf8E4M3>
+  %vector_f8e4m3_logistic = vector.logisticf<afn> %vector_f8e4m3 : vector<2x8xf8E4M3>
+  %vector_f8e4m3_silu = vector.siluf<afn> %vector_f8e4m3 : vector<2x8xf8E4M3>
+  %scalar_f8e5m2_erf = scalar.geluf<erf, afn> %scalar_f8e5m2 : f8E5M2
+  %scalar_f8e5m2_tanh = scalar.geluf<tanh, afn> %scalar_f8e5m2 : f8E5M2
+  %scalar_f8e5m2_gelu_logistic = scalar.geluf<logistic, afn> %scalar_f8e5m2 {scale = 1.702} : f8E5M2
+  %scalar_f8e5m2_logistic = scalar.logisticf<afn> %scalar_f8e5m2 : f8E5M2
+  %scalar_f8e5m2_silu = scalar.siluf<afn> %scalar_f8e5m2 : f8E5M2
+  %vector_f8e5m2_erf = vector.geluf<erf, afn> %vector_f8e5m2 : vector<2x8xf8E5M2>
+  %vector_f8e5m2_tanh = vector.geluf<tanh, afn> %vector_f8e5m2 : vector<2x8xf8E5M2>
+  %vector_f8e5m2_gelu_logistic = vector.geluf<logistic, afn> %vector_f8e5m2 {scale = 1.702} : vector<2x8xf8E5M2>
+  %vector_f8e5m2_logistic = vector.logisticf<afn> %vector_f8e5m2 : vector<2x8xf8E5M2>
+  %vector_f8e5m2_silu = vector.siluf<afn> %vector_f8e5m2 : vector<2x8xf8E5M2>
+  %scalar_f16_erf = scalar.geluf<erf, afn> %scalar_f16 : f16
+  %scalar_f16_tanh = scalar.geluf<tanh, afn> %scalar_f16 : f16
+  %scalar_f16_gelu_logistic = scalar.geluf<logistic, afn> %scalar_f16 {scale = 1.702} : f16
+  %scalar_f16_logistic = scalar.logisticf<afn> %scalar_f16 : f16
+  %scalar_f16_silu = scalar.siluf<afn> %scalar_f16 : f16
+  %vector_f16_erf = vector.geluf<erf, afn> %vector_f16 : vector<2x8xf16>
+  %vector_f16_tanh = vector.geluf<tanh, afn> %vector_f16 : vector<2x8xf16>
+  %vector_f16_gelu_logistic = vector.geluf<logistic, afn> %vector_f16 {scale = 1.702} : vector<2x8xf16>
+  %vector_f16_logistic = vector.logisticf<afn> %vector_f16 : vector<2x8xf16>
+  %vector_f16_silu = vector.siluf<afn> %vector_f16 : vector<2x8xf16>
+  %scalar_bf16_erf = scalar.geluf<erf, afn> %scalar_bf16 : bf16
+  %scalar_bf16_tanh = scalar.geluf<tanh, afn> %scalar_bf16 : bf16
+  %scalar_bf16_gelu_logistic = scalar.geluf<logistic, afn> %scalar_bf16 {scale = 1.702} : bf16
+  %scalar_bf16_logistic = scalar.logisticf<afn> %scalar_bf16 : bf16
+  %scalar_bf16_silu = scalar.siluf<afn> %scalar_bf16 : bf16
+  %vector_bf16_erf = vector.geluf<erf, afn> %vector_bf16 : vector<2x8xbf16>
+  %vector_bf16_tanh = vector.geluf<tanh, afn> %vector_bf16 : vector<2x8xbf16>
+  %vector_bf16_gelu_logistic = vector.geluf<logistic, afn> %vector_bf16 {scale = 1.702} : vector<2x8xbf16>
+  %vector_bf16_logistic = vector.logisticf<afn> %vector_bf16 : vector<2x8xbf16>
+  %vector_bf16_silu = vector.siluf<afn> %vector_bf16 : vector<2x8xbf16>
+  %scalar_f32_erf = scalar.geluf<erf, afn> %scalar_f32 : f32
+  %scalar_f32_tanh = scalar.geluf<tanh, afn> %scalar_f32 : f32
+  %scalar_f32_gelu_logistic = scalar.geluf<logistic, afn> %scalar_f32 {scale = 1.702} : f32
+  %scalar_f32_logistic = scalar.logisticf<afn> %scalar_f32 : f32
+  %scalar_f32_silu = scalar.siluf<afn> %scalar_f32 : f32
+  %vector_f32_erf = vector.geluf<erf, afn> %vector_f32 : vector<2x8xf32>
+  %vector_f32_tanh = vector.geluf<tanh, afn> %vector_f32 : vector<2x8xf32>
+  %vector_f32_gelu_logistic = vector.geluf<logistic, afn> %vector_f32 {scale = 1.702} : vector<2x8xf32>
+  %vector_f32_logistic = vector.logisticf<afn> %vector_f32 : vector<2x8xf32>
+  %vector_f32_silu = vector.siluf<afn> %vector_f32 : vector<2x8xf32>
+  func.return
+}
+
+// ----
+COMPILE-REPORT: summary artifact=none status=OK function=- backend=- bundle=- export=- export_symbol=- config=- lowered=-
+COMPILE-REPORT: math_legalization rewritten=70 rejected=0 missing_policy=0 missing_recipe=0 rows=70 maximum_created_ops=37
+COMPILE-REPORT: math_legalization[0] function=activation_family source_op=vector.siluf action=rewritten policy=aie2p-math math_op=siluf domain=vector element=f32 recipe=silu-logistic-f32 constraint=math.recipe.silu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=10 erased_ops=1
+COMPILE-REPORT: math_legalization[1] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[2] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=16 erased_ops=1
+COMPILE-REPORT: math_legalization[3] function=activation_family source_op=vector.geluf action=rewritten policy=aie2p-math math_op=geluf.logistic domain=vector element=f32 recipe=gelu-logistic-f32 constraint=math.recipe.gelu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[4] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[5] function=activation_family source_op=vector.geluf action=rewritten policy=aie2p-math math_op=geluf.tanh domain=vector element=f32 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=35 erased_ops=1
+COMPILE-REPORT: math_legalization[6] function=activation_family source_op=vector.geluf action=rewritten policy=aie2p-math math_op=geluf.erf domain=vector element=f32 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_erf_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=35 erased_ops=1
+COMPILE-REPORT: math_legalization[7] function=activation_family source_op=scalar.siluf action=rewritten policy=aie2p-math math_op=siluf domain=scalar element=f32 recipe=silu-logistic-f32 constraint=math.recipe.silu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=10 erased_ops=1
+COMPILE-REPORT: math_legalization[8] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[9] function=activation_family source_op=scalar.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=scalar element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=16 erased_ops=1
+COMPILE-REPORT: math_legalization[10] function=activation_family source_op=scalar.geluf action=rewritten policy=aie2p-math math_op=geluf.logistic domain=scalar element=f32 recipe=gelu-logistic-f32 constraint=math.recipe.gelu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[11] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[12] function=activation_family source_op=scalar.geluf action=rewritten policy=aie2p-math math_op=geluf.tanh domain=scalar element=f32 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=35 erased_ops=1
+COMPILE-REPORT: math_legalization[13] function=activation_family source_op=scalar.geluf action=rewritten policy=aie2p-math math_op=geluf.erf domain=scalar element=f32 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_erf_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=35 erased_ops=1
+COMPILE-REPORT: math_legalization[14] function=activation_family source_op=vector.siluf action=rewritten policy=aie2p-math math_op=siluf domain=vector element=bf16 recipe=silu-logistic-f32 constraint=math.recipe.silu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=12 erased_ops=1
+COMPILE-REPORT: math_legalization[15] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[16] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=bf16 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=18 erased_ops=1
+COMPILE-REPORT: math_legalization[17] function=activation_family source_op=vector.geluf action=rewritten policy=aie2p-math math_op=geluf.logistic domain=vector element=bf16 recipe=gelu-logistic-f32 constraint=math.recipe.gelu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=16 erased_ops=1
+COMPILE-REPORT: math_legalization[18] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[19] function=activation_family source_op=vector.geluf action=rewritten policy=aie2p-math math_op=geluf.tanh domain=vector element=bf16 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+COMPILE-REPORT: math_legalization[20] function=activation_family source_op=vector.geluf action=rewritten policy=aie2p-math math_op=geluf.erf domain=vector element=bf16 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_erf_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+COMPILE-REPORT: math_legalization[21] function=activation_family source_op=scalar.siluf action=rewritten policy=aie2p-math math_op=siluf domain=scalar element=bf16 recipe=silu-logistic-f32 constraint=math.recipe.silu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=12 erased_ops=1
+COMPILE-REPORT: math_legalization[22] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[23] function=activation_family source_op=scalar.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=scalar element=bf16 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=18 erased_ops=1
+COMPILE-REPORT: math_legalization[24] function=activation_family source_op=scalar.geluf action=rewritten policy=aie2p-math math_op=geluf.logistic domain=scalar element=bf16 recipe=gelu-logistic-f32 constraint=math.recipe.gelu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=16 erased_ops=1
+COMPILE-REPORT: math_legalization[25] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[26] function=activation_family source_op=scalar.geluf action=rewritten policy=aie2p-math math_op=geluf.tanh domain=scalar element=bf16 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+COMPILE-REPORT: math_legalization[27] function=activation_family source_op=scalar.geluf action=rewritten policy=aie2p-math math_op=geluf.erf domain=scalar element=bf16 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_erf_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+COMPILE-REPORT: math_legalization[28] function=activation_family source_op=vector.siluf action=rewritten policy=aie2p-math math_op=siluf domain=vector element=f16 recipe=silu-logistic-f32 constraint=math.recipe.silu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=12 erased_ops=1
+COMPILE-REPORT: math_legalization[29] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[30] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f16 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=18 erased_ops=1
+COMPILE-REPORT: math_legalization[31] function=activation_family source_op=vector.geluf action=rewritten policy=aie2p-math math_op=geluf.logistic domain=vector element=f16 recipe=gelu-logistic-f32 constraint=math.recipe.gelu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=16 erased_ops=1
+COMPILE-REPORT: math_legalization[32] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[33] function=activation_family source_op=vector.geluf action=rewritten policy=aie2p-math math_op=geluf.tanh domain=vector element=f16 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+COMPILE-REPORT: math_legalization[34] function=activation_family source_op=vector.geluf action=rewritten policy=aie2p-math math_op=geluf.erf domain=vector element=f16 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_erf_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+COMPILE-REPORT: math_legalization[35] function=activation_family source_op=scalar.siluf action=rewritten policy=aie2p-math math_op=siluf domain=scalar element=f16 recipe=silu-logistic-f32 constraint=math.recipe.silu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=12 erased_ops=1
+COMPILE-REPORT: math_legalization[36] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[37] function=activation_family source_op=scalar.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=scalar element=f16 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=18 erased_ops=1
+COMPILE-REPORT: math_legalization[38] function=activation_family source_op=scalar.geluf action=rewritten policy=aie2p-math math_op=geluf.logistic domain=scalar element=f16 recipe=gelu-logistic-f32 constraint=math.recipe.gelu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=16 erased_ops=1
+COMPILE-REPORT: math_legalization[39] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[40] function=activation_family source_op=scalar.geluf action=rewritten policy=aie2p-math math_op=geluf.tanh domain=scalar element=f16 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+COMPILE-REPORT: math_legalization[41] function=activation_family source_op=scalar.geluf action=rewritten policy=aie2p-math math_op=geluf.erf domain=scalar element=f16 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_erf_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+COMPILE-REPORT: math_legalization[42] function=activation_family source_op=vector.siluf action=rewritten policy=aie2p-math math_op=siluf domain=vector element=f8E5M2 recipe=silu-logistic-f32 constraint=math.recipe.silu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=12 erased_ops=1
+COMPILE-REPORT: math_legalization[43] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[44] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f8E5M2 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=18 erased_ops=1
+COMPILE-REPORT: math_legalization[45] function=activation_family source_op=vector.geluf action=rewritten policy=aie2p-math math_op=geluf.logistic domain=vector element=f8E5M2 recipe=gelu-logistic-f32 constraint=math.recipe.gelu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=16 erased_ops=1
+COMPILE-REPORT: math_legalization[46] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[47] function=activation_family source_op=vector.geluf action=rewritten policy=aie2p-math math_op=geluf.tanh domain=vector element=f8E5M2 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+COMPILE-REPORT: math_legalization[48] function=activation_family source_op=vector.geluf action=rewritten policy=aie2p-math math_op=geluf.erf domain=vector element=f8E5M2 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_erf_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+COMPILE-REPORT: math_legalization[49] function=activation_family source_op=scalar.siluf action=rewritten policy=aie2p-math math_op=siluf domain=scalar element=f8E5M2 recipe=silu-logistic-f32 constraint=math.recipe.silu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=12 erased_ops=1
+COMPILE-REPORT: math_legalization[50] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[51] function=activation_family source_op=scalar.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=scalar element=f8E5M2 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=18 erased_ops=1
+COMPILE-REPORT: math_legalization[52] function=activation_family source_op=scalar.geluf action=rewritten policy=aie2p-math math_op=geluf.logistic domain=scalar element=f8E5M2 recipe=gelu-logistic-f32 constraint=math.recipe.gelu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=16 erased_ops=1
+COMPILE-REPORT: math_legalization[53] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[54] function=activation_family source_op=scalar.geluf action=rewritten policy=aie2p-math math_op=geluf.tanh domain=scalar element=f8E5M2 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+COMPILE-REPORT: math_legalization[55] function=activation_family source_op=scalar.geluf action=rewritten policy=aie2p-math math_op=geluf.erf domain=scalar element=f8E5M2 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_erf_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+COMPILE-REPORT: math_legalization[56] function=activation_family source_op=vector.siluf action=rewritten policy=aie2p-math math_op=siluf domain=vector element=f8E4M3 recipe=silu-logistic-f32 constraint=math.recipe.silu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=12 erased_ops=1
+COMPILE-REPORT: math_legalization[57] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[58] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f8E4M3 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=18 erased_ops=1
+COMPILE-REPORT: math_legalization[59] function=activation_family source_op=vector.geluf action=rewritten policy=aie2p-math math_op=geluf.logistic domain=vector element=f8E4M3 recipe=gelu-logistic-f32 constraint=math.recipe.gelu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=16 erased_ops=1
+COMPILE-REPORT: math_legalization[60] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[61] function=activation_family source_op=vector.geluf action=rewritten policy=aie2p-math math_op=geluf.tanh domain=vector element=f8E4M3 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+COMPILE-REPORT: math_legalization[62] function=activation_family source_op=vector.geluf action=rewritten policy=aie2p-math math_op=geluf.erf domain=vector element=f8E4M3 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_erf_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+COMPILE-REPORT: math_legalization[63] function=activation_family source_op=scalar.siluf action=rewritten policy=aie2p-math math_op=siluf domain=scalar element=f8E4M3 recipe=silu-logistic-f32 constraint=math.recipe.silu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=12 erased_ops=1
+COMPILE-REPORT: math_legalization[64] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[65] function=activation_family source_op=scalar.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=scalar element=f8E4M3 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=18 erased_ops=1
+COMPILE-REPORT: math_legalization[66] function=activation_family source_op=scalar.geluf action=rewritten policy=aie2p-math math_op=geluf.logistic domain=scalar element=f8E4M3 recipe=gelu-logistic-f32 constraint=math.recipe.gelu_logistic_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=16 erased_ops=1
+COMPILE-REPORT: math_legalization[67] function=activation_family source_op=vector.logisticf action=rewritten policy=aie2p-math math_op=logisticf domain=vector element=f32 recipe=logistic-tanh-f32 constraint=math.recipe.logistic_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=14 erased_ops=1
+COMPILE-REPORT: math_legalization[68] function=activation_family source_op=scalar.geluf action=rewritten policy=aie2p-math math_op=geluf.tanh domain=scalar element=f8E4M3 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_tanh_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+COMPILE-REPORT: math_legalization[69] function=activation_family source_op=scalar.geluf action=rewritten policy=aie2p-math math_op=geluf.erf domain=scalar element=f8E4M3 recipe=gelu-tanh-f32 constraint=math.recipe.gelu_erf_grouped_product bundle=aie2p-core config=amd.xdna.aie2p.core source_fastmath=0x40 recipe_fastmath=0x00 created_ops=37 erased_ops=1
+
+// ====
+
+// RUN: emit source-low target=amd.xdna.aie2p:core output=none
+
+// This orthogonal basis carries every source representation and semantic
+// recipe through complete source lowering. The single-lane vector also covers
+// the lower packet boundary; the policy matrix above covers the full Cartesian
+// selection family without duplicating lowered IR.
+func.def @activation_lowering_basis(%f8e4m3: vector<16xf8E4M3>, %f8e5m2: vector<16xf8E5M2>, %f16: vector<16xf16>, %bf16: vector<16xbf16>, %f32: vector<16xf32>, %minimum: vector<1xf32>) -> (vector<16xf8E4M3>, vector<16xf8E5M2>, vector<16xf16>, vector<16xbf16>, vector<16xf32>, vector<1xf32>) {
+  %erf = vector.geluf<erf, afn> %f8e4m3 : vector<16xf8E4M3>
+  %tanh = vector.geluf<tanh, afn> %f8e5m2 : vector<16xf8E5M2>
+  %gelu_logistic = vector.geluf<logistic, afn> %f16 {scale = 1.702} : vector<16xf16>
+  %logistic = vector.logisticf<afn> %bf16 : vector<16xbf16>
+  %silu = vector.siluf<afn> %f32 : vector<16xf32>
+  %minimum_silu = vector.siluf<afn> %minimum : vector<1xf32>
+  func.return %erf, %tanh, %gelu_logistic, %logistic, %silu, %minimum_silu : vector<16xf8E4M3>, vector<16xf8E5M2>, vector<16xf16>, vector<16xbf16>, vector<16xf32>, vector<1xf32>
+}
+
+// ====
+
+// RUN: pass target=amd.xdna.aie2p:core legalize-math
+
+func.def @gelu_tanh_f64(%input: f64) {
+  // ERROR@+1: LOWERING/036 {op_name="scalar.geluf", phase_name="legalize-math", policy_name="aie2p-math", math_op="geluf.tanh", lane_domain="scalar", element_type="f64", constraint_key="math.element.aie2p_approximate_activation"}
+  %result = scalar.geluf<tanh, afn> %input : f64
+  func.return
+}
+
+// ====
+
+// RUN: pass target=amd.xdna.aie2p:core legalize-math
+
+func.def @gelu_tanh_packet_overflow(%input: vector<17xf32>) {
+  // ERROR@+1: LOWERING/036 {op_name="vector.geluf", phase_name="legalize-math", policy_name="aie2p-math", math_op="geluf.tanh", lane_domain="vector", element_type="f32", constraint_key="math.shape.aie2p_approximate_activation_packet"}
+  %result = vector.geluf<tanh, afn> %input : vector<17xf32>
+  func.return
+}
+
+// ====
+
+// RUN: pass target=amd.xdna.aie2p:core legalize-math
+
+func.def @gelu_tanh_requires_approximation(%input: vector<16xf32>) {
+  // ERROR@+1: LOWERING/036 {op_name="vector.geluf", phase_name="legalize-math", policy_name="aie2p-math", math_op="geluf.tanh", lane_domain="vector", element_type="f32", constraint_key="math.gelu.tanh.exact"}
+  %result = vector.geluf<tanh> %input : vector<16xf32>
+  func.return
+}

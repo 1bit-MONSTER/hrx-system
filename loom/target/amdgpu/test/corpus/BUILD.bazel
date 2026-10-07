@@ -68,6 +68,7 @@ _ADAPTER_ONLY_SCENARIOS = [
     "numeric/conversion/narrow_integer_float.loom",
     "numeric/conversion/narrow_widening.loom",
     "numeric/conversion/scalar_float.loom",
+    "numeric/float/activations.loom",
     "numeric/float/clamp.loom",
     "numeric/float/classification.loom",
     "numeric/float/exponential.loom",

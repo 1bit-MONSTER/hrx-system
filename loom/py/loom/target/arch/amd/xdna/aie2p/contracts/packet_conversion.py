@@ -310,16 +310,18 @@ class _MxBf16PayloadProgram:
 
 
 @dataclass(frozen=True, slots=True)
-class FloatPacketSourceFormat:
-    """One floating-point encoding narrowed through native i32 packets."""
+class FloatPacketFormat:
+    """One IEEE-like floating-point encoding carried in native i32 packets."""
 
-    # Source vector element type.
+    # IR vector element type.
     element: str
-    # Number of explicit source significand bits.
+    # Stable type spelling used by compile reports.
+    report_name: str
+    # Number of explicit significand bits.
     mantissa_bits: int
-    # Source exponent bias.
+    # Encoded exponent bias.
     exponent_bias: int
-    # Number of source exponent bits.
+    # Number of encoded exponent bits.
     exponent_bits: int
 
     @property
@@ -336,40 +338,48 @@ class FloatPacketSourceFormat:
 
     @property
     def nonsign_mask(self) -> int:
-        """Mask retaining the source exponent and fraction."""
+        """Mask retaining the encoded exponent and fraction."""
 
         return self.sign_bit - 1
 
     @property
     def fraction_mask(self) -> int:
-        """Mask retaining the explicit source significand bits."""
+        """Mask retaining the explicit significand bits."""
 
         return (1 << self.mantissa_bits) - 1
 
     @property
     def hidden_bit(self) -> int:
-        """Implicit leading bit of a normal source significand."""
+        """Implicit leading bit of a normal significand."""
 
         return 1 << self.mantissa_bits
 
     @property
     def infinity_bits(self) -> int:
-        """Unsigned source infinity encoding."""
+        """Unsigned infinity encoding."""
 
         return ((1 << self.exponent_bits) - 1) << self.mantissa_bits
 
     @property
-    def report_name(self) -> str:
-        """Stable source type spelling used by compile reports."""
+    def maximum_exponent(self) -> int:
+        """Largest finite unbiased exponent."""
 
-        return {
-            "f16": "binary16",
-            "bf16": "bfloat16",
-            "f32": "binary32",
-        }[self.element]
+        return (1 << self.exponent_bits) - 2 - self.exponent_bias
+
+    @property
+    def minimum_normal_exponent(self) -> int:
+        """Smallest normal unbiased exponent."""
+
+        return 1 - self.exponent_bias
+
+    @property
+    def minimum_rounding_exponent(self) -> int:
+        """Smallest exponent that can round to a nonzero value."""
+
+        return self.minimum_normal_exponent - self.mantissa_bits - 1
 
     def exponent_bits_for(self, unbiased_exponent: int) -> int:
-        """Returns the normal source encoding for an unbiased exponent."""
+        """Returns the normal encoding for an unbiased exponent."""
 
         return (unbiased_exponent + self.exponent_bias) << self.mantissa_bits
 
@@ -778,11 +788,19 @@ _F8E4M3_PACKET_FORMAT = Float8PacketFormat("f8E4M3", 3, 7, False)
 _F8E5M2_PACKET_FORMAT = Float8PacketFormat("f8E5M2", 2, 15, True)
 FLOAT8_PACKET_FORMATS = (_F8E4M3_PACKET_FORMAT, _F8E5M2_PACKET_FORMAT)
 
-FLOAT_PACKET_SOURCE_FORMATS = (
-    FloatPacketSourceFormat("f16", 10, 15, 5),
-    FloatPacketSourceFormat("bf16", 7, 127, 8),
-    FloatPacketSourceFormat("f32", 23, 127, 8),
+_F16_PACKET_FORMAT = FloatPacketFormat("f16", "binary16", 10, 15, 5)
+_BF16_PACKET_FORMAT = FloatPacketFormat("bf16", "bfloat16", 7, 127, 8)
+_F32_PACKET_FORMAT = FloatPacketFormat("f32", "binary32", 23, 127, 8)
+FLOAT_PACKET_FORMATS = (
+    _F16_PACKET_FORMAT,
+    _BF16_PACKET_FORMAT,
+    _F32_PACKET_FORMAT,
 )
+
+# Sixteen-bit formats without native conversion instructions use the generic
+# IEEE packet programs below. Native rows remain separate so targets keep the
+# shortest available sequence without changing the conversion algorithm.
+_SOFTWARE_FLOAT16_PACKET_FORMATS = (_F16_PACKET_FORMAT,)
 
 _FP8_PAYLOAD_AND_SIGN_MASK = 0x807F
 _FP8_SUBNORMAL_THRESHOLD = 0x0080
@@ -933,7 +951,10 @@ class _PacketProgram:
         self.emits: list[ContractEmit] = []
         self.element_bits = element_bits
         self.temporary_prefix = temporary_prefix
+        # Constants already materialized in the shift-register class.
         self.shift_values: dict[int, ValueRef] = {}
+        # Last emitted value of each persistent instruction-state field.
+        self.state_values: dict[str, int] = {}
 
     def temporary(self, name: str) -> ValueRef:
         return ValueRef.temporary(f"{self.temporary_prefix}{name}")
@@ -992,6 +1013,8 @@ class _PacketProgram:
     def state(self, descriptor_key: str, value: int) -> None:
         """Sets one instruction-state field consumed by later descriptors."""
 
+        if self.state_values.get(descriptor_key) == value:
+            return
         self.emits.append(
             EmitDescriptorOp(
                 descriptor=_descriptor(
@@ -1001,6 +1024,7 @@ class _PacketProgram:
                 form=DescriptorEmitForm.OP,
             )
         )
+        self.state_values[descriptor_key] = value
 
     def splat(
         self,
@@ -1131,6 +1155,36 @@ class _PacketProgram:
             s2=true_value,
             sel=condition,
         )
+
+
+def _shift_i32_packet(
+    program: _PacketProgram,
+    name: str,
+    source: ValueRef,
+    amount: int,
+) -> ValueRef:
+    """Shifts one i32 packet by a fixed signed amount without scalar lanes."""
+
+    if not -31 <= amount <= 31:
+        raise ValueError("i32 packet shift must fit the native shift interval")
+    program.state("saturation", 0)
+    program.state("ups-mode", 1)
+    program.state("srs-mode", 1)
+    program.state("rounding", 0)
+    wide = program.operation(
+        f"{name}_wide",
+        "widen.2x.x-to-c.unsigned.configured",
+        "dst",
+        src=source,
+        su=program.shift(max(amount, 0)),
+    )
+    return program.operation(
+        name,
+        "narrow.2x.c-to-x.unsigned.configured",
+        "dst",
+        src=wide,
+        su=program.shift(max(-amount, 0)),
+    )
 
 
 def integer_widen_state_emits(
@@ -1648,6 +1702,502 @@ def _bf16_to_f32_vector_rule(
         report_key=(
             f"native_bfloat16x{rule_shape.report_lane_range}_to_"
             f"binary32x{rule_shape.report_lane_range}"
+        ),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _Float16WideningState:
+    """Shared constants for widening one IEEE-like 16-bit packet."""
+
+    # Source format defining exponent and significand geometry.
+    source_format: FloatPacketFormat
+    # Mask selecting the source sign bit.
+    sign_mask: ValueRef
+    # Mask selecting the unsigned source payload.
+    nonsign_mask: ValueRef
+    # Smallest normal unsigned source payload.
+    minimum_normal: ValueRef
+    # Unsigned source infinity payload.
+    infinity: ValueRef
+    # Encoded exponent delta from finite source values to binary32.
+    normal_bias: ValueRef
+    # Encoded exponent delta from source special values to binary32.
+    special_bias: ValueRef
+    # Zero binary32 payload.
+    zero: ValueRef
+
+
+@dataclass(frozen=True, slots=True)
+class _Float16NarrowingState:
+    """Shared constants for narrowing binary32 to one IEEE-like 16-bit packet."""
+
+    # Destination format defining exponent and significand geometry.
+    result_format: FloatPacketFormat
+    # Mask selecting the binary32 sign bit.
+    sign_mask: ValueRef
+    # Mask selecting the unsigned binary32 payload.
+    nonsign_mask: ValueRef
+    # Mask selecting the explicit binary32 significand bits.
+    fraction_mask: ValueRef
+    # Implicit leading bit of a normal binary32 significand.
+    hidden_bit: ValueRef
+    # Encoded exponent delta from binary32 to normal destination values.
+    normal_bias: ValueRef
+    # Smallest binary32 payload that maps to a normal destination value.
+    minimum_normal: ValueRef
+    # First binary32 exponent whose values all overflow the destination.
+    overflow_exponent: ValueRef
+    # Unsigned binary32 infinity payload.
+    source_infinity: ValueRef
+    # Unsigned destination infinity payload.
+    result_infinity: ValueRef
+    # Destination quiet-NaN payload bit.
+    quiet_nan_bit: ValueRef
+    # Zero destination payload.
+    zero: ValueRef
+    # One binary32 integer lane.
+    one: ValueRef
+
+
+def _float16_chunk_to_f32(
+    program: _PacketProgram,
+    source: ValueRef,
+    chunk_index: int,
+    *,
+    result_name: str | None,
+    state: _Float16WideningState,
+) -> ValueRef:
+    """Widens one sixteen-lane IEEE-like bit packet to binary32 bits."""
+
+    source_format = state.source_format
+    position_shift = _F32_PACKET_FORMAT.mantissa_bits - source_format.mantissa_bits
+    prefix = f"chunk_{chunk_index}"
+    sign = program.binary(f"{prefix}_sign", "and.bits512", source, state.sign_mask)
+    sign = _shift_i32_packet(
+        program,
+        f"{prefix}_positioned_sign",
+        sign,
+        _F32_PACKET_FORMAT.bit_width - source_format.bit_width,
+    )
+    payload = program.binary(
+        f"{prefix}_payload", "and.bits512", source, state.nonsign_mask
+    )
+
+    positioned_payload = _shift_i32_packet(
+        program, f"{prefix}_positioned_payload", payload, position_shift
+    )
+    normal = program.binary(
+        f"{prefix}_normal", "add.i32x16", positioned_payload, state.normal_bias
+    )
+    special = program.binary(
+        f"{prefix}_special", "add.i32x16", positioned_payload, state.special_bias
+    )
+    is_special = program.compare_unsigned_greater_equal(
+        f"{prefix}_is_special", payload, state.infinity
+    )
+    normal_or_special = program.select(
+        f"{prefix}_normal_or_special", special, normal, is_special
+    )
+
+    subnormal = state.zero
+    for normalization_shift in range(source_format.mantissa_bits, 0, -1):
+        threshold = program.splat(
+            f"{prefix}_subnormal_{normalization_shift}_threshold",
+            1 << (source_format.mantissa_bits - normalization_shift),
+        )
+        active = program.compare_unsigned_greater_equal(
+            f"{prefix}_subnormal_{normalization_shift}_active",
+            payload,
+            threshold,
+        )
+        positioned = _shift_i32_packet(
+            program,
+            f"{prefix}_subnormal_{normalization_shift}_positioned",
+            payload,
+            position_shift + normalization_shift,
+        )
+        bias = program.splat(
+            f"{prefix}_subnormal_{normalization_shift}_bias",
+            (
+                _F32_PACKET_FORMAT.exponent_bias
+                - source_format.exponent_bias
+                - normalization_shift
+            )
+            << _F32_PACKET_FORMAT.mantissa_bits,
+        )
+        candidate = program.binary(
+            f"{prefix}_subnormal_{normalization_shift}",
+            "add.i32x16",
+            positioned,
+            bias,
+        )
+        subnormal = program.select(
+            f"{prefix}_subnormal_through_{normalization_shift}",
+            candidate,
+            subnormal,
+            active,
+        )
+
+    is_normal = program.compare_unsigned_greater_equal(
+        f"{prefix}_is_normal", payload, state.minimum_normal
+    )
+    magnitude = program.select(
+        f"{prefix}_magnitude", normal_or_special, subnormal, is_normal
+    )
+    return program.operation(
+        result_name,
+        "or.bits512",
+        "d",
+        s1=magnitude,
+        s2=sign,
+    )
+
+
+def _float16_to_f32_emits(
+    source_format: FloatPacketFormat,
+    rule_shape: FloatPacketRuleShape,
+) -> tuple[ContractEmit, ...]:
+    """Widens one source-visible IEEE-like 16-bit packet to binary32."""
+
+    if source_format.bit_width != 16:
+        raise ValueError("software float widening requires a 16-bit source")
+    program = _PacketProgram(32, f"{source_format.element}_widen_")
+    program.state("saturation", 1)
+    program.state("ups-mode", 0)
+    chunks = _float_source_i32_chunks(program, source_format, rule_shape)
+
+    state = _Float16WideningState(
+        source_format=source_format,
+        sign_mask=program.splat("sign_mask", source_format.sign_bit),
+        nonsign_mask=program.splat("nonsign_mask", source_format.nonsign_mask),
+        minimum_normal=program.splat("minimum_normal", source_format.hidden_bit),
+        infinity=program.splat("infinity", source_format.infinity_bits),
+        normal_bias=program.splat(
+            "normal_bias",
+            (_F32_PACKET_FORMAT.exponent_bias - source_format.exponent_bias)
+            << _F32_PACKET_FORMAT.mantissa_bits,
+        ),
+        special_bias=program.splat(
+            "special_bias",
+            (
+                (1 << _F32_PACKET_FORMAT.exponent_bits)
+                - (1 << source_format.exponent_bits)
+            )
+            << _F32_PACKET_FORMAT.mantissa_bits,
+        ),
+        zero=program.splat("zero", 0),
+    )
+
+    direct_result = len(chunks) == 1
+    results = tuple(
+        _float16_chunk_to_f32(
+            program,
+            chunk,
+            index,
+            result_name=None if direct_result else f"chunk_{index}_result",
+            state=state,
+        )
+        for index, chunk in enumerate(chunks)
+    )
+    if direct_result:
+        return tuple(program.emits)
+
+    if rule_shape.minimum_lane_count == rule_shape.maximum_lane_count == 32:
+        accumulator_results = tuple(
+            program.operation(
+                f"chunk_{index}_accumulator",
+                "move.vector512.to.accumulator512",
+                "dst",
+                src=result,
+            )
+            for index, result in enumerate(results)
+        )
+        program.emits.append(
+            EmitRegisterConcat(
+                sources=accumulator_results,
+                result=ValueRef.result("result"),
+                result_type=_exact_vector("f32", 32),
+            )
+        )
+    else:
+        program.emits.append(
+            EmitRegisterConcat(sources=results, result=ValueRef.result("result"))
+        )
+    return tuple(program.emits)
+
+
+def _float16_to_f32_vector_rule(
+    source_format: FloatPacketFormat,
+    rule_shape: FloatPacketRuleShape,
+) -> DescriptorRule:
+    return DescriptorRule(
+        source_op=vector.vector_extf,
+        descriptor=_descriptor("amd.xdna.aie2p.narrow.2x.c-to-x.unsigned.configured"),
+        guards=(
+            Guard.value_type("input", rule_shape.vector_type(source_format.element)),
+            Guard.value_type("result", rule_shape.vector_type("f32")),
+        ),
+        emit=_float16_to_f32_emits(source_format, rule_shape),
+        report_key=(
+            f"native_{source_format.report_name}x{rule_shape.report_lane_range}_to_"
+            f"binary32x{rule_shape.report_lane_range}"
+        ),
+    )
+
+
+def _f32_chunk_to_float16(
+    program: _PacketProgram,
+    source: ValueRef,
+    chunk_index: int,
+    *,
+    result_name: str | None,
+    state: _Float16NarrowingState,
+) -> ValueRef:
+    """Narrows one sixteen-lane binary32 bit packet to a 16-bit format."""
+
+    result_format = state.result_format
+    mantissa_shift = _F32_PACKET_FORMAT.mantissa_bits - result_format.mantissa_bits
+    prefix = f"chunk_{chunk_index}"
+    sign_bits = program.binary(
+        f"{prefix}_sign_bits", "and.bits512", source, state.sign_mask
+    )
+    sign_accumulator, sign_filler = _i32_packet_accumulator(
+        program, f"{prefix}_sign", sign_bits
+    )
+    sign = _round_i32_packet_to_i16(
+        program,
+        f"{prefix}_sign",
+        sign_accumulator,
+        sign_filler,
+        _F32_PACKET_FORMAT.bit_width - result_format.bit_width,
+    )
+
+    absolute = program.binary(
+        f"{prefix}_absolute", "and.bits512", source, state.nonsign_mask
+    )
+    normal_adjusted = program.binary(
+        f"{prefix}_normal_adjusted", "sub.i32x16", absolute, state.normal_bias
+    )
+    normal_accumulator, normal_filler = _i32_packet_accumulator(
+        program, f"{prefix}_normal", normal_adjusted
+    )
+    normal = _round_i32_packet_to_i16(
+        program,
+        f"{prefix}_normal",
+        normal_accumulator,
+        normal_filler,
+        mantissa_shift,
+    )
+
+    fraction = program.binary(
+        f"{prefix}_fraction", "and.bits512", absolute, state.fraction_mask
+    )
+    significand = program.binary(
+        f"{prefix}_significand", "or.bits512", fraction, state.hidden_bit
+    )
+    significand_accumulator, significand_filler = _i32_packet_accumulator(
+        program, f"{prefix}_significand", significand
+    )
+    subnormal = state.zero
+    for unbiased_exponent in range(
+        result_format.minimum_rounding_exponent,
+        result_format.minimum_normal_exponent,
+    ):
+        source_exponent = unbiased_exponent + _F32_PACKET_FORMAT.exponent_bias
+        candidate = _round_i32_packet_to_i16(
+            program,
+            f"{prefix}_subnormal_{source_exponent}",
+            significand_accumulator,
+            significand_filler,
+            (
+                _F32_PACKET_FORMAT.mantissa_bits
+                + 1
+                - result_format.exponent_bias
+                - result_format.mantissa_bits
+                - unbiased_exponent
+            ),
+        )
+        threshold = program.splat(
+            f"{prefix}_exponent_{source_exponent}_threshold",
+            _F32_PACKET_FORMAT.exponent_bits_for(unbiased_exponent),
+        )
+        active = program.compare_unsigned_greater_equal(
+            f"{prefix}_at_exponent_{source_exponent}", absolute, threshold
+        )
+        subnormal = program.select(
+            f"{prefix}_subnormal_through_{source_exponent}",
+            candidate,
+            subnormal,
+            active,
+            element_bits=result_format.bit_width,
+        )
+
+    has_normal_exponent = program.compare_unsigned_greater_equal(
+        f"{prefix}_has_normal_exponent", absolute, state.minimum_normal
+    )
+    finite = program.select(
+        f"{prefix}_finite",
+        normal,
+        subnormal,
+        has_normal_exponent,
+        element_bits=result_format.bit_width,
+    )
+    overflows = program.compare_unsigned_greater_equal(
+        f"{prefix}_overflows", absolute, state.overflow_exponent
+    )
+    finite = program.select(
+        f"{prefix}_finite_or_infinity",
+        state.result_infinity,
+        finite,
+        overflows,
+        element_bits=result_format.bit_width,
+    )
+
+    shifted_nan_payload = _shift_i32_packet(
+        program, f"{prefix}_nan_payload_shifted", fraction, -mantissa_shift
+    )
+    program.state("saturation", 1)
+    program.state("rounding", BF16_CONVERSION_ROUNDING)
+    program.state("srs-mode", 0)
+    nan_accumulator, nan_filler = _i32_packet_accumulator(
+        program, f"{prefix}_nan", shifted_nan_payload
+    )
+    nan_payload = _round_i32_packet_to_i16(
+        program, f"{prefix}_nan_payload", nan_accumulator, nan_filler, 0
+    )
+    nan_payload = program.binary(
+        f"{prefix}_quiet_nan_payload",
+        "or.bits512",
+        nan_payload,
+        state.quiet_nan_bit,
+    )
+    nan = program.binary(
+        f"{prefix}_nan", "or.bits512", nan_payload, state.result_infinity
+    )
+    is_nan = program.compare_unsigned_greater_equal(
+        f"{prefix}_is_nan", fraction, state.one
+    )
+    special = program.select(
+        f"{prefix}_special",
+        nan,
+        state.result_infinity,
+        is_nan,
+        element_bits=result_format.bit_width,
+    )
+    is_special = program.compare_unsigned_greater_equal(
+        f"{prefix}_is_special", absolute, state.source_infinity
+    )
+    magnitude = program.select(
+        f"{prefix}_magnitude",
+        special,
+        finite,
+        is_special,
+        element_bits=result_format.bit_width,
+    )
+    return program.operation(
+        result_name,
+        "or.bits512",
+        "d",
+        s1=magnitude,
+        s2=sign,
+    )
+
+
+def _f32_to_float16_emits(
+    result_format: FloatPacketFormat,
+    rule_shape: FloatPacketRuleShape,
+) -> tuple[ContractEmit, ...]:
+    """Narrows one source-visible binary32 packet to a 16-bit format."""
+
+    if result_format.bit_width != 16:
+        raise ValueError("software float narrowing requires a 16-bit result")
+    program = _PacketProgram(32, f"{result_format.element}_narrow_")
+    chunks = _float_source_i32_chunks(program, _F32_PACKET_FORMAT, rule_shape)
+    program.state("saturation", 1)
+    program.state("rounding", BF16_CONVERSION_ROUNDING)
+    program.state("srs-mode", 0)
+
+    state = _Float16NarrowingState(
+        result_format=result_format,
+        sign_mask=program.splat("sign_mask", -_F32_PACKET_FORMAT.sign_bit),
+        nonsign_mask=program.splat("nonsign_mask", _F32_PACKET_FORMAT.nonsign_mask),
+        fraction_mask=program.splat("fraction_mask", _F32_PACKET_FORMAT.fraction_mask),
+        hidden_bit=program.splat("hidden_bit", _F32_PACKET_FORMAT.hidden_bit),
+        normal_bias=program.splat(
+            "normal_bias",
+            (_F32_PACKET_FORMAT.exponent_bias - result_format.exponent_bias)
+            << _F32_PACKET_FORMAT.mantissa_bits,
+        ),
+        minimum_normal=program.splat(
+            "minimum_normal",
+            _F32_PACKET_FORMAT.exponent_bits_for(result_format.minimum_normal_exponent),
+        ),
+        overflow_exponent=program.splat(
+            "overflow_exponent",
+            _F32_PACKET_FORMAT.exponent_bits_for(result_format.maximum_exponent + 1),
+        ),
+        source_infinity=program.splat(
+            "source_infinity", _F32_PACKET_FORMAT.infinity_bits
+        ),
+        result_infinity=program.splat(
+            "result_infinity",
+            result_format.infinity_bits,
+            element_bits=result_format.bit_width,
+        ),
+        quiet_nan_bit=program.splat(
+            "quiet_nan_bit",
+            1 << (result_format.mantissa_bits - 1),
+            element_bits=result_format.bit_width,
+        ),
+        zero=program.splat("zero", 0, element_bits=result_format.bit_width),
+        one=program.splat("one", 1),
+    )
+
+    direct_result = len(chunks) == 1
+    results = tuple(
+        _f32_chunk_to_float16(
+            program,
+            chunk,
+            index,
+            result_name=None if direct_result else f"chunk_{index}_result",
+            state=state,
+        )
+        for index, chunk in enumerate(chunks)
+    )
+    if direct_result:
+        return tuple(program.emits)
+
+    result_words = []
+    for index, result in enumerate(results):
+        result_word = program.temporary(f"chunk_{index}_result_w")
+        program.emits.append(
+            EmitRegisterSlice(source=result, result=result_word, unit_count=1)
+        )
+        result_words.append(result_word)
+    program.emits.append(
+        EmitRegisterConcat(
+            sources=tuple(result_words), result=ValueRef.result("result")
+        )
+    )
+    return tuple(program.emits)
+
+
+def _f32_to_float16_vector_rule(
+    result_format: FloatPacketFormat,
+    rule_shape: FloatPacketRuleShape,
+) -> DescriptorRule:
+    return DescriptorRule(
+        source_op=vector.vector_fptrunc,
+        descriptor=_descriptor("amd.xdna.aie2p.narrow.2x.b-to-w.unsigned.configured"),
+        guards=(
+            Guard.value_type("input", rule_shape.vector_type("f32")),
+            Guard.value_type("result", rule_shape.vector_type(result_format.element)),
+        ),
+        emit=_f32_to_float16_emits(result_format, rule_shape),
+        report_key=(
+            f"native_binary32x{rule_shape.report_lane_range}_to_"
+            f"{result_format.report_name}x{rule_shape.report_lane_range}"
         ),
     )
 
@@ -2465,7 +3015,7 @@ def _fp8_to_f32_vector_rule(
 
 
 def _fp8_narrow_state_emits(
-    source_format: FloatPacketSourceFormat,
+    source_format: FloatPacketFormat,
 ) -> tuple[ContractEmit, ...]:
     """Builds the shared packet-conversion state for one narrowing rule."""
 
@@ -2491,7 +3041,7 @@ def _fp8_narrow_state_emits(
 
 def _float_source_i32_chunks(
     program: _PacketProgram,
-    source_format: FloatPacketSourceFormat,
+    source_format: FloatPacketFormat,
     rule_shape: FloatPacketRuleShape,
 ) -> tuple[ValueRef, ...]:
     """Returns native X carriers containing sixteen source bit patterns each."""
@@ -2661,7 +3211,7 @@ type _Float8NarrowingStrategy = _DirectFloat8Narrowing | _RebiasedFloat8Narrowin
 def _float_chunk_to_fp8_i16(
     program: _PacketProgram,
     source: ValueRef,
-    source_format: FloatPacketSourceFormat,
+    source_format: FloatPacketFormat,
     fp8_format: Float8PacketFormat,
     chunk_index: int,
     *,
@@ -2805,7 +3355,7 @@ def _float_chunk_to_fp8_i16(
 
 
 def _float_to_fp8_emits(
-    source_format: FloatPacketSourceFormat,
+    source_format: FloatPacketFormat,
     fp8_format: Float8PacketFormat,
     rule_shape: FloatPacketRuleShape,
 ) -> tuple[ContractEmit, ...]:
@@ -2934,7 +3484,7 @@ def _float_to_fp8_emits(
 
 
 def _float_to_fp8_vector_rule(
-    source_format: FloatPacketSourceFormat,
+    source_format: FloatPacketFormat,
     fp8_format: Float8PacketFormat,
     rule_shape: FloatPacketRuleShape,
 ) -> DescriptorRule:
@@ -3217,7 +3767,7 @@ AIE2P_PACKET_CONVERSION_RULES = (
     *(_integer_pack_rule(rule_shape) for rule_shape in INTEGER_PACK_RULE_SHAPES),
     *(
         _float_to_fp8_vector_rule(source_format, fp8_format, rule_shape)
-        for source_format in FLOAT_PACKET_SOURCE_FORMATS
+        for source_format in FLOAT_PACKET_FORMATS
         for fp8_format in FLOAT8_PACKET_FORMATS
         for rule_shape in (
             _FLOAT8_NARROW_16BIT_RULE_SHAPES
@@ -3236,4 +3786,13 @@ AIE2P_PACKET_CONVERSION_RULES = (
     ),
     *(_f32_to_bf16_vector_rule(rule_shape) for rule_shape in FLOAT_PACKET_RULE_SHAPES),
     *(_bf16_to_f32_vector_rule(rule_shape) for rule_shape in FLOAT_PACKET_RULE_SHAPES),
+    *(
+        rule
+        for float16_format in _SOFTWARE_FLOAT16_PACKET_FORMATS
+        for rule_shape in FLOAT_PACKET_RULE_SHAPES
+        for rule in (
+            _float16_to_f32_vector_rule(float16_format, rule_shape),
+            _f32_to_float16_vector_rule(float16_format, rule_shape),
+        )
+    ),
 )
