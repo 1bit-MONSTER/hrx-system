@@ -176,3 +176,32 @@ check.scenario @vector_float_reductions_case {
   }
   check.return
 }
+
+func.def public @vector_float_extrema_reductions(%input_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %input = buffer.view %input_buffer[%base] : buffer -> view<4xf32>
+  %output = buffer.view %output_buffer[%base] : buffer -> view<2xf32>
+  %values = vector.load %input[0] : view<4xf32> -> vector<4xf32>
+  %minimum_initial = scalar.constant 1000.0 : f32
+  %minimum = vector.reduce<minnumf, reassoc|nnan|nsz> %values, %minimum_initial : vector<4xf32>, f32
+  %maximum_initial = scalar.constant -1000.0 : f32
+  %maximum = vector.reduce<maxnumf, reassoc|nnan|nsz> %values, %maximum_initial : vector<4xf32>, f32
+  %results = vector.from_elements %minimum, %maximum : vector<2xf32>
+  vector.store %results, %output[0] : vector<2xf32>, view<2xf32>
+  func.return
+}
+
+check.scenario @vector_float_extrema_reduction_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %input_entropy = check.entropy.fork %entropy name("input") : check.entropy
+    %input_seed = check.entropy.read %input_entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%input_seed) range(-999.0 to 999.0) : tensor<4xf32>
+    %expected_input = check.generate.random.uniform seed(%input_seed) range(-999.0 to 999.0) : tensor<4xf32>
+    %output = check.generate.fill value(0.0) : tensor<2xf32>
+    check.compare<@vector_float_extrema_reductions>(%input, %output) : (tensor<4xf32>, tensor<2xf32>) -> () {
+      check.expect.close actual(%input) expected(%expected_input) atol(0.0) rtol(0.0) nan(same) : tensor<4xf32>
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<2xf32>
+    }
+  }
+  check.return
+}
