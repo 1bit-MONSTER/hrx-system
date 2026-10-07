@@ -215,14 +215,60 @@ TEST(PassRegistryCoreTest, SyntheticRegistryVerifies) {
   IREE_ASSERT_OK(loom_pass_registry_verify(loom_test_pass_registry()));
 }
 
+TEST(PassRegistryCoreTest, ComposedRegistryVerifies) {
+  const loom_pass_registry_t* source_registries[] = {
+      loom_test_pass_registry(),
+  };
+  loom_pass_registry_storage_t storage = {};
+  IREE_ASSERT_OK(loom_pass_registry_storage_initialize_from_registries(
+      source_registries, IREE_ARRAYSIZE(source_registries), &storage));
+  IREE_ASSERT_OK(
+      loom_pass_registry_verify(loom_pass_registry_storage_registry(&storage)));
+}
+
+TEST(PassRegistryCoreTest, RejectsInvalidDescriptorRepresentations) {
+  const loom_pass_descriptor_t* descriptor =
+      LookupTestPass(IREE_SV("test.module-noop"));
+  const loom_pass_descriptor_t* descriptor_refs[] = {descriptor};
+  const loom_pass_descriptor_t* null_descriptor_refs[] = {nullptr};
+  const loom_pass_registry_t registries[] = {
+      {
+          /*.descriptors=*/nullptr,
+          /*.descriptor_count=*/1,
+          /*.descriptor_refs=*/nullptr,
+      },
+      {
+          /*.descriptors=*/descriptor,
+          /*.descriptor_count=*/1,
+          /*.descriptor_refs=*/descriptor_refs,
+      },
+      {
+          /*.descriptors=*/nullptr,
+          /*.descriptor_count=*/1,
+          /*.descriptor_refs=*/null_descriptor_refs,
+      },
+  };
+
+  for (const loom_pass_registry_t& registry : registries) {
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                          loom_pass_registry_verify(&registry));
+  }
+}
+
 TEST(PassRegistryCoreTest, FormatsRegistryMetadataJson) {
   iree_string_builder_t builder;
   iree_string_builder_initialize(iree_allocator_system(), &builder);
   loom_output_stream_t stream;
   loom_output_stream_for_builder(&builder, &stream);
 
+  const loom_pass_registry_t* source_registries[] = {
+      loom_test_pass_registry(),
+  };
+  loom_pass_registry_storage_t storage = {};
+  IREE_ASSERT_OK(loom_pass_registry_storage_initialize_from_registries(
+      source_registries, IREE_ARRAYSIZE(source_registries), &storage));
   IREE_EXPECT_OK(loom_pass_report_format_registry_json(
-      loom_test_pass_registry(), &stream));
+      loom_pass_registry_storage_registry(&storage), &stream));
 
   iree_string_view_t json = iree_string_builder_view(&builder);
   std::string text(json.data, json.size);

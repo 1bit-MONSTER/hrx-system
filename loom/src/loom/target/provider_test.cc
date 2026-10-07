@@ -370,9 +370,9 @@ TEST_F(TargetProviderTest, ComposesTargetPassRegistries) {
   const loom_pass_registry_t* registry =
       loom_target_environment_pass_registry(&environment);
   ASSERT_EQ(registry->descriptor_count, 2u);
-  EXPECT_TRUE(iree_string_view_equal(registry->descriptors[0].key,
+  EXPECT_TRUE(iree_string_view_equal(loom_pass_registry_at(registry, 0)->key,
                                      IREE_SV("target-alpha")));
-  EXPECT_TRUE(iree_string_view_equal(registry->descriptors[1].key,
+  EXPECT_TRUE(iree_string_view_equal(loom_pass_registry_at(registry, 1)->key,
                                      IREE_SV("target-beta")));
 
   const loom_pass_descriptor_t* descriptor = nullptr;

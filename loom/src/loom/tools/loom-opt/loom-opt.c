@@ -1107,7 +1107,8 @@ static iree_status_t loom_opt_print_config_schema(
 static iree_status_t loom_opt_print_pass_list(
     const loom_pass_registry_t* registry) {
   for (iree_host_size_t i = 0; i < registry->descriptor_count; ++i) {
-    const loom_pass_descriptor_t* descriptor = &registry->descriptors[i];
+    const loom_pass_descriptor_t* descriptor =
+        loom_pass_registry_at(registry, i);
     const loom_pass_info_t* info = descriptor->info();
     if (!info) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,

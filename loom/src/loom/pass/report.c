@@ -509,7 +509,7 @@ iree_status_t loom_pass_report_format_registry_json(
   for (iree_host_size_t i = 0; i < registry->descriptor_count; ++i) {
     IREE_RETURN_IF_ERROR(loom_json_array_begin_element(&passes));
     IREE_RETURN_IF_ERROR(loom_pass_report_format_descriptor_json(
-        &registry->descriptors[i], stream));
+        loom_pass_registry_at(registry, i), stream));
   }
   IREE_RETURN_IF_ERROR(loom_json_array_end(&passes));
   IREE_RETURN_IF_ERROR(loom_json_object_end(&object));

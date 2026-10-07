@@ -11,7 +11,6 @@
 #include "loom/codegen/low/pipeline/legalizer_registry.h"
 #include "loom/codegen/pass_environment.h"
 #include "loom/format/text/printer.h"
-#include "loom/pass/registry.h"
 #include "loom/target/function_version.h"
 #include "loom/target/profile.h"
 #include "loom/target/provider.h"
@@ -133,13 +132,6 @@ LOOMC_API_PRIVATE loomc_status_t loomc_target_profile_validate_environment(
 // Returns the stable diagnostic identifier owned by a public profile.
 LOOMC_API_PRIVATE loomc_string_view_t
 loomc_target_profile_identifier(const loomc_target_profile_t* profile);
-
-// Initializes a stable pass registry combining builtin and target-owned pass
-// descriptors. The returned registry points into out_storage.
-LOOMC_API_PRIVATE loomc_status_t loomc_target_pass_registry_initialize(
-    const loomc_target_environment_t* target_environment,
-    loom_pass_registry_storage_t* out_storage,
-    const loom_pass_registry_t** out_registry);
 
 // Initializes codegen pass capability storage over optional target tables,
 // compiler products, and the context-owned cleanup registry, then returns its
