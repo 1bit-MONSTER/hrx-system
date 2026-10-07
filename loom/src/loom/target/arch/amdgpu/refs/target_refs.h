@@ -91,14 +91,23 @@ typedef enum loom_amdgpu_reg_class_trait_bit_e {
 } loom_amdgpu_reg_class_trait_bit_t;
 typedef uint8_t loom_amdgpu_reg_class_traits_t;
 
+#define LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE UINT8_MAX
+
 typedef struct loom_amdgpu_descriptor_immediate_slots_t {
-  // Descriptor-local SDWA destination-selector immediate, or LOOM_LOW_ID_NONE.
-  uint16_t sdwa_dst_sel;
-  // Descriptor-local literal payload immediate, or LOOM_LOW_ID_NONE.
-  uint16_t literal;
-  // Descriptor-local address offset immediate, or LOOM_LOW_ID_NONE.
-  uint16_t address_offset;
+  // Descriptor-local SDWA destination-selector immediate, or the NONE
+  // sentinel.
+  uint8_t sdwa_dst_sel;
+  // Descriptor-local literal payload immediate, or the NONE sentinel.
+  uint8_t literal;
+  // Descriptor-local address offset immediate, or the NONE sentinel.
+  uint8_t address_offset;
+  // Descriptor-local vector-memory cache-scope immediate, or the NONE
+  // sentinel.
+  uint8_t cache_scope;
 } loom_amdgpu_descriptor_immediate_slots_t;
+
+static_assert(sizeof(loom_amdgpu_descriptor_immediate_slots_t) == 4,
+              "descriptor immediate slots must remain compact");
 
 uint32_t loom_amdgpu_descriptor_ref_ordinal(
     const loom_low_descriptor_set_t* descriptor_set,

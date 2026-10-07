@@ -194,18 +194,20 @@ loom_amdgpu_descriptor_immediate_slots_t loom_amdgpu_descriptor_immediate_slots(
       loom_amdgpu_descriptor_immediate_slot_table(descriptor_set);
   if (slot_table == NULL) {
     return (loom_amdgpu_descriptor_immediate_slots_t){
-        .sdwa_dst_sel = LOOM_LOW_ID_NONE,
-        .literal = LOOM_LOW_ID_NONE,
-        .address_offset = LOOM_LOW_ID_NONE,
+        .sdwa_dst_sel = LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE,
+        .literal = LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE,
+        .address_offset = LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE,
+        .cache_scope = LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE,
     };
   }
   const uint32_t descriptor_ordinal =
       loom_low_descriptor_set_descriptor_ordinal(descriptor_set, descriptor);
   if (descriptor_ordinal == LOOM_LOW_DESCRIPTOR_ORDINAL_NONE) {
     return (loom_amdgpu_descriptor_immediate_slots_t){
-        .sdwa_dst_sel = LOOM_LOW_ID_NONE,
-        .literal = LOOM_LOW_ID_NONE,
-        .address_offset = LOOM_LOW_ID_NONE,
+        .sdwa_dst_sel = LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE,
+        .literal = LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE,
+        .address_offset = LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE,
+        .cache_scope = LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE,
     };
   }
   return slot_table[descriptor_ordinal];

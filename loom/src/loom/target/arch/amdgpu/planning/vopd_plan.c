@@ -1064,7 +1064,7 @@ static bool loom_amdgpu_vopd_literal_immediate_index(
   const loom_amdgpu_descriptor_immediate_slots_t immediate_slots =
       loom_amdgpu_descriptor_immediate_slots(
           builder->schedule->target.descriptor_set, packet->descriptor);
-  if (immediate_slots.literal == LOOM_LOW_ID_NONE) {
+  if (immediate_slots.literal == LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE) {
     return false;
   }
   *out_immediate_index = immediate_slots.literal;
