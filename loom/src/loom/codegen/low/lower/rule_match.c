@@ -597,7 +597,7 @@ static bool loom_low_lower_rule_value_facts_u32_divisor_magic_is_add(
     uint16_t value_ref_index, bool expected_is_add) {
   const loom_value_id_t value_id = loom_low_lower_rule_source_value(
       match_context->module, rule_set, source_op, value_ref_index);
-  loom_low_lower_u32_divisor_magic_info_t info = {0};
+  loom_low_lower_unsigned_divisor_magic_info_t info = {0};
   return loom_low_lower_rule_value_facts_u32_divisor_magic_info(
              match_context->module, match_context->fact_table, value_id,
              &info) &&

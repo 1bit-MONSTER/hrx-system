@@ -22,51 +22,57 @@ loom_low_lower_rule_value_materializer(
   return &rule_set->materializers[materializer_index];
 }
 
-static loom_low_lower_u32_divisor_magic_info_t
-loom_low_lower_u32_divisor_magic_info(uint32_t divisor) {
+loom_low_lower_unsigned_divisor_magic_info_t
+loom_low_lower_unsigned_divisor_magic_info(uint64_t divisor,
+                                           uint32_t bit_width) {
+  IREE_ASSERT_GE(bit_width, 2u);
+  IREE_ASSERT_LE(bit_width, 64u);
   IREE_ASSERT_GT(divisor, 1u);
-  const uint64_t u32_mask = UINT32_MAX;
-  const uint64_t two31 = ((uint64_t)1) << 31;
-  const uint64_t two31_minus_one = two31 - 1;
+  const uint64_t mask = UINT64_MAX >> (64 - bit_width);
+  IREE_ASSERT_LE(divisor, mask);
+  const uint64_t half = UINT64_C(1) << (bit_width - 1);
+  const uint64_t half_minus_one = half - 1;
 
-  const uint64_t nc = u32_mask - ((u32_mask + 1u - divisor) % divisor);
-  uint32_t p = 31;
-  uint64_t q1 = two31 / nc;
-  uint64_t r1 = two31 % nc;
-  uint64_t q2 = two31_minus_one / divisor;
-  uint64_t r2 = two31_minus_one % divisor;
+  // The recurrence stays in the numerator's unsigned domain. Forming
+  // 2^bit_width - divisor as mask - divisor + 1 also works at width 64.
+  const uint64_t nc = mask - ((mask - divisor + 1) % divisor);
+  uint32_t p = bit_width - 1;
+  uint64_t q1 = half / nc;
+  uint64_t r1 = half % nc;
+  uint64_t q2 = half_minus_one / divisor;
+  uint64_t r2 = half_minus_one % divisor;
   bool is_add = false;
   for (;;) {
     ++p;
     if (r1 >= nc - r1) {
-      q1 = ((q1 << 1) + 1) & u32_mask;
-      r1 = ((r1 << 1) - nc) & u32_mask;
+      q1 = ((q1 << 1) + 1) & mask;
+      r1 = ((r1 << 1) - nc) & mask;
     } else {
-      q1 = (q1 << 1) & u32_mask;
-      r1 = (r1 << 1) & u32_mask;
+      q1 = (q1 << 1) & mask;
+      r1 = (r1 << 1) & mask;
     }
     if (r2 + 1 >= divisor - r2) {
-      if (q2 >= two31_minus_one) {
+      if (q2 >= half_minus_one) {
         is_add = true;
       }
-      q2 = ((q2 << 1) + 1) & u32_mask;
-      r2 = ((r2 << 1) + 1 - divisor) & u32_mask;
+      q2 = ((q2 << 1) + 1) & mask;
+      r2 = ((r2 << 1) + 1 - divisor) & mask;
     } else {
-      if (q2 >= two31) {
+      if (q2 >= half) {
         is_add = true;
       }
-      q2 = (q2 << 1) & u32_mask;
-      r2 = ((r2 << 1) + 1) & u32_mask;
+      q2 = (q2 << 1) & mask;
+      r2 = ((r2 << 1) + 1) & mask;
     }
-    const uint64_t delta = (divisor - 1 - r2) & u32_mask;
-    if (!(p < 64 && (q1 < delta || (q1 == delta && r1 == 0)))) {
+    const uint64_t delta = (divisor - 1 - r2) & mask;
+    if (!(p < 2 * bit_width && (q1 < delta || (q1 == delta && r1 == 0)))) {
       break;
     }
   }
 
-  loom_low_lower_u32_divisor_magic_info_t info = {
-      .multiplier = (uint32_t)((q2 + 1) & u32_mask),
-      .post_shift = (uint8_t)(p - 32),
+  loom_low_lower_unsigned_divisor_magic_info_t info = {
+      .multiplier = (q2 + 1) & mask,
+      .post_shift = (uint8_t)(p - bit_width),
       .is_add = is_add,
   };
   if (info.is_add) {
@@ -333,8 +339,8 @@ bool loom_low_lower_rule_float_immediate_facts(
 bool loom_low_lower_rule_value_facts_u32_divisor_magic_info(
     const loom_module_t* module, const loom_value_fact_table_t* fact_table,
     loom_value_id_t value_id,
-    loom_low_lower_u32_divisor_magic_info_t* out_info) {
-  *out_info = (loom_low_lower_u32_divisor_magic_info_t){0};
+    loom_low_lower_unsigned_divisor_magic_info_t* out_info) {
+  *out_info = (loom_low_lower_unsigned_divisor_magic_info_t){0};
   loom_value_facts_t facts = loom_value_facts_unknown();
   if (!loom_low_lower_rule_integer_immediate_facts(module, fact_table, value_id,
                                                    &facts)) {
@@ -345,6 +351,7 @@ bool loom_low_lower_rule_value_facts_u32_divisor_magic_info(
       exact_value > UINT32_MAX) {
     return false;
   }
-  *out_info = loom_low_lower_u32_divisor_magic_info((uint32_t)exact_value);
+  *out_info = loom_low_lower_unsigned_divisor_magic_info((uint32_t)exact_value,
+                                                         /*bit_width=*/32);
   return true;
 }

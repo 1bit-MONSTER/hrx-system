@@ -23,10 +23,10 @@ func.def target(@target) @dynamic_divisor(%value: i32, %divisor: i32) -> (i32) {
 
 amdgpu.target<gfx11-generic> @target
 
-func.def target(@target) @wide_divisor(%value: i64) -> (i64) {
-  %c3 = scalar.constant 3 : i64
-  // ERROR@+1: TARGET/002 {op_name="scalar.remui"}
-  %result = scalar.remui %value, %c3 : i64
+func.def target(@target) @wide_zero_divisor(%value: i64) -> (i64) {
+  %c0 = scalar.constant 0 : i64
+  // ERROR@+1: AMDGPU/023 {constraint_key="unsigned_i64_division.constant_nonzero_divisor"}
+  %result = scalar.remui %value, %c0 : i64
   func.return %result : i64
 }
 
@@ -35,7 +35,7 @@ func.def target(@target) @wide_divisor(%value: i64) -> (i64) {
 amdgpu.target<gfx11-generic> @target
 
 func.def target(@target) @wide_dynamic_divisor(%value: i64, %divisor: i64) -> (i64) {
-  // ERROR@+1: TARGET/002 {op_name="scalar.remui"}
+  // ERROR@+1: AMDGPU/023 {constraint_key="unsigned_i64_division.constant_nonzero_divisor"}
   %result = scalar.remui %value, %divisor : i64
   func.return %result : i64
 }
@@ -75,9 +75,19 @@ func.def target(@target) @zero_unsigned_quotient(%value: i32) -> (i32) {
 
 amdgpu.target<gfx11-generic> @target
 
-func.def target(@target) @wide_unsigned_quotient(%value: i64) -> (i64) {
-  %c3 = scalar.constant 3 : i64
-  // ERROR@+1: TARGET/002 {op_name="scalar.divui"}
-  %result = scalar.divui %value, %c3 : i64
+func.def target(@target) @wide_zero_unsigned_quotient(%value: i64) -> (i64) {
+  %c0 = scalar.constant 0 : i64
+  // ERROR@+1: AMDGPU/023 {constraint_key="unsigned_i64_division.constant_nonzero_divisor"}
+  %result = scalar.divui %value, %c0 : i64
+  func.return %result : i64
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @wide_dynamic_unsigned_quotient(%value: i64, %divisor: i64) -> (i64) {
+  // ERROR@+1: AMDGPU/023 {constraint_key="unsigned_i64_division.constant_nonzero_divisor"}
+  %result = scalar.divui %value, %divisor : i64
   func.return %result : i64
 }
