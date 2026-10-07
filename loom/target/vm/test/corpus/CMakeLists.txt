@@ -29,9 +29,15 @@ loom_corpus_build(
     "memory/atomic/float64.loom"
     "@atomic_f64_values"
     "TARGET/003"
+    "loom::target::vm::all"
+    "numeric/float/activations.loom"
+    "@activation_observations"
+    "LOWERING/036"
   ALL_ROOTS_XFAIL
     "loom::target::vm::all"
     "memory/atomic/float64.loom"
+    "loom::target::vm::all"
+    "numeric/float/activations.loom"
   EXCLUDES
     "loom::target::vm::all"
     "control/branch/cfg.loom"

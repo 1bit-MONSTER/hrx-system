@@ -27,6 +27,7 @@ NUMERIC_CORPUS = loom_corpus_manifest(
         "conversion/narrow_widening.loom",
         "conversion/quantization.loom",
         "conversion/scalar_float.loom",
+        "float/activations.loom",
         "float/classification.loom",
         "float/clamp.loom",
         "float/exponential.loom",

@@ -603,6 +603,7 @@ loom_check_test_suite(
         "test/leaf_schedule.loom-test",
         "test/leaf_state_read_timing.loom-test",
         "test/math_contraction.loom-test",
+        "test/math_policy_activations.loom-test",
         "test/module_contracts.loom-test",
         "test/pipeline_composition.loom-test",
         "test/pipeline_ports.loom-test",
