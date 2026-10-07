@@ -376,6 +376,8 @@ iree_string_view_t loom_amdgpu_wait_plan_reason_name(
       return IREE_SV("amdgpu.loop_carried_conservative_ssa_use");
     case LOOM_AMDGPU_WAIT_PLAN_REASON_TENSOR_ISSUE_DRAIN:
       return IREE_SV("amdgpu.tensor_issue_drain");
+    case LOOM_AMDGPU_WAIT_PLAN_REASON_SYSTEM_SCOPE_STORE:
+      return IREE_SV("amdgpu.system_scope_store");
     case LOOM_AMDGPU_WAIT_PLAN_REASON_UNKNOWN:
     default:
       return IREE_SV("amdgpu.unknown");
@@ -408,6 +410,7 @@ static bool loom_amdgpu_wait_plan_reason_has_consumer(
     case LOOM_AMDGPU_WAIT_PLAN_REASON_LOOP_CARRIED_DERIVED_SSA_USE:
     case LOOM_AMDGPU_WAIT_PLAN_REASON_LOOP_CARRIED_CONSERVATIVE_SSA_USE:
     case LOOM_AMDGPU_WAIT_PLAN_REASON_TENSOR_ISSUE_DRAIN:
+    case LOOM_AMDGPU_WAIT_PLAN_REASON_SYSTEM_SCOPE_STORE:
       return true;
     default:
       return false;
@@ -3116,9 +3119,13 @@ static iree_status_t loom_amdgpu_wait_plan_handle_barrier(
   if (outstanding_counter_mask == 0) {
     return iree_ok_status();
   }
+  const loom_amdgpu_wait_plan_reason_t reason =
+      iree_any_bit_set(node_state->flags,
+                       LOOM_AMDGPU_WAIT_NODE_STATE_SYSTEM_SCOPE_STORE_DRAIN)
+          ? LOOM_AMDGPU_WAIT_PLAN_REASON_SYSTEM_SCOPE_STORE
+          : LOOM_AMDGPU_WAIT_PLAN_REASON_BARRIER;
   return loom_amdgpu_wait_plan_drain_mask(
-      builder, LOOM_AMDGPU_WAIT_PLAN_ACTION_PLANNED,
-      LOOM_AMDGPU_WAIT_PLAN_REASON_BARRIER, node_index,
+      builder, LOOM_AMDGPU_WAIT_PLAN_ACTION_PLANNED, reason, node_index,
       LOOM_LOW_SCHEDULE_NODE_NONE, outstanding_counter_mask);
 }
 

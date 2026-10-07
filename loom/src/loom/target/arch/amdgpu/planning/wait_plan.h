@@ -84,6 +84,8 @@ typedef enum loom_amdgpu_wait_plan_reason_e {
   // A tensor issue must bound outstanding tensor work independently of
   // aliasing.
   LOOM_AMDGPU_WAIT_PLAN_REASON_TENSOR_ISSUE_DRAIN = 16,
+  // A GFX12.0 ordinary SYSTEM store must follow prior memory completion.
+  LOOM_AMDGPU_WAIT_PLAN_REASON_SYSTEM_SCOPE_STORE = 17,
   // Total number of wait-plan reason values.
   LOOM_AMDGPU_WAIT_PLAN_REASON_COUNT,
 } loom_amdgpu_wait_plan_reason_t;

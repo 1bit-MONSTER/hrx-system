@@ -31,6 +31,7 @@ from loom.target.arch.amdgpu.target_info import (
     AMDGPU_DESCRIPTOR_SET_INFO_FLAG_NATIVE_SCALAR_FLOAT_CONVERSION,
     AMDGPU_DESCRIPTOR_SET_INFO_FLAG_VOPD_DUAL_MOV_SRC2_CACHE,
     AMDGPU_DESCRIPTOR_SET_INFO_FLAG_VOPD_NUMERIC_MINMAX_MNEMONICS,
+    AMDGPU_DESCRIPTOR_SET_INFO_FLAG_WAITS_BEFORE_SYSTEM_SCOPE_STORES,
     AMDGPU_DESCRIPTOR_SET_INFOS,
     AMDGPU_GENERIC_MATRIX_FEATURE_EXCLUSIONS,
     AMDGPU_INSTRUCTION_CONSTRAINT_DS_PAIRED_ADDRESS_ALIGNMENT,
@@ -113,6 +114,15 @@ def test_noncanonical_native_fp8_nan_is_scoped_to_gfx12_descriptor_sets() -> Non
         info.generator_target
         for info in AMDGPU_DESCRIPTOR_SET_INFOS
         if info.flags & AMDGPU_DESCRIPTOR_SET_INFO_FLAG_NATIVE_OCP_FP8_NONCANONICAL_NAN
+    }
+    assert flagged_generator_targets == {"rdna4", "gfx12_generic"}
+
+
+def test_system_scope_store_waits_are_scoped_to_gfx120x() -> None:
+    flagged_generator_targets = {
+        info.generator_target
+        for info in AMDGPU_DESCRIPTOR_SET_INFOS
+        if info.flags & AMDGPU_DESCRIPTOR_SET_INFO_FLAG_WAITS_BEFORE_SYSTEM_SCOPE_STORES
     }
     assert flagged_generator_targets == {"rdna4", "gfx12_generic"}
 

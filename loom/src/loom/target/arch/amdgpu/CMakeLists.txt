@@ -724,6 +724,21 @@ endif()
 if(LOOM_TARGET_ARCH_AMDGPU)
 loom_check_compile_tests(
   NAME
+    "source_low_system_scope_store_wait"
+  SRC
+    "test/source_low/source_low_system_scope_store_wait.loom-test"
+  REGISTERED_SRCS
+    "${_GLOB_TEST_SOURCE_LOW_X_LOOM_TEST_49E0437B}"
+  TARGETS
+    loom::target::amdgpu::gfx12-generic
+    loom::target::amdgpu::gfx1200
+    loom::target::amdgpu::gfx1201
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_check_compile_tests(
+  NAME
     "source_low_uniform_vector_extract"
   SRC
     "test/source_low/source_low_uniform_vector_extract.loom-test"

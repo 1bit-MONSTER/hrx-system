@@ -9,10 +9,13 @@
 #include <string.h>
 
 #include "iree/base/bitfield.h"
+#include "loom/codegen/low/memory_access.h"
 #include "loom/codegen/low/packet.h"
+#include "loom/ops/cache.h"
 #include "loom/ops/low/ops.h"
 #include "loom/target/arch/amdgpu/planning/structural_packet.h"
 #include "loom/target/arch/amdgpu/refs/target_refs.h"
+#include "loom/target/arch/amdgpu/target_info.h"
 
 static iree_status_t loom_amdgpu_wait_classification_allocate(
     const loom_low_schedule_table_t* schedule, iree_arena_allocator_t* arena,
@@ -63,6 +66,54 @@ static uint32_t loom_amdgpu_wait_effect_counter_mask(
   return loom_amdgpu_wait_counter_mask(effect->counter_id);
 }
 
+static bool loom_amdgpu_wait_effect_requires_system_scope_store_drain(
+    const loom_low_schedule_table_t* schedule,
+    const loom_low_schedule_effect_use_t* effect) {
+  if (effect->memory_space != LOOM_LOW_MEMORY_SPACE_GLOBAL &&
+      effect->memory_space != LOOM_LOW_MEMORY_SPACE_GENERIC) {
+    return false;
+  }
+  const loom_low_schedule_node_t* node = &schedule->nodes[effect->node_index];
+  const loom_low_descriptor_t* descriptor = node->descriptor;
+  if (descriptor == NULL) {
+    return false;
+  }
+  const loom_low_descriptor_set_t* descriptor_set =
+      schedule->target.descriptor_set;
+  const loom_low_descriptor_view_t* descriptor_view =
+      loom_low_descriptor_set_descriptor_view(descriptor_set, descriptor);
+  if (iree_any_bit_set(descriptor_view->instruction_class_flags,
+                       LOOM_LOW_INSTRUCTION_CLASS_FLAG_ATOMIC)) {
+    return false;
+  }
+  const loom_low_memory_access_summary_t* access =
+      loom_low_memory_access_map_lookup(schedule->memory_accesses, node->op,
+                                        effect->effect_ordinal);
+  if (access != NULL &&
+      iree_any_bit_set(access->source_flags,
+                       LOOM_LOW_MEMORY_ACCESS_SOURCE_FLAG_ATOMIC_OBSERVATION)) {
+    return false;
+  }
+  const loom_amdgpu_descriptor_immediate_slots_t immediate_slots =
+      loom_amdgpu_descriptor_immediate_slots(descriptor_set, descriptor);
+  if (immediate_slots.cache_scope ==
+      LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE) {
+    return false;
+  }
+  IREE_ASSERT_LT(immediate_slots.cache_scope, descriptor->immediate_count);
+  const loom_low_immediate_t* immediate =
+      &descriptor_set->immediates[descriptor->immediate_start +
+                                  immediate_slots.cache_scope];
+  const loom_low_packet_view_t packet =
+      loom_low_packet_at_node(schedule, effect->node_index);
+  const loom_attribute_t scope_attr =
+      loom_low_packet_immediate_attr(&packet, immediate);
+  const int64_t scope = loom_attr_is_absent(scope_attr)
+                            ? immediate->default_value
+                            : scope_attr.i64;
+  return scope == LOOM_CACHE_SCOPE_SYSTEM;
+}
+
 static loom_amdgpu_structural_packet_flags_t
 loom_amdgpu_wait_classification_classify_structural_node(
     const loom_low_schedule_table_t* schedule,
@@ -104,6 +155,13 @@ loom_amdgpu_wait_classification_classify_hazards(
 static void loom_amdgpu_wait_classification_classify_effects(
     const loom_low_schedule_table_t* schedule,
     loom_amdgpu_wait_classification_t* classification) {
+  const loom_amdgpu_descriptor_set_info_t* descriptor_set_info =
+      loom_amdgpu_target_info_descriptor_set_at(
+          schedule->target.descriptor_set->descriptor_set_ordinal);
+  const bool waits_before_system_scope_stores =
+      loom_amdgpu_descriptor_set_info_has_flags(
+          descriptor_set_info,
+          LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_WAITS_BEFORE_SYSTEM_SCOPE_STORES);
   const loom_low_schedule_effect_use_t* effect_uses = schedule->effect_uses;
   const iree_host_size_t effect_use_count = schedule->effect_use_count;
   for (iree_host_size_t i = 0; i < effect_use_count; ++i) {
@@ -140,6 +198,16 @@ static void loom_amdgpu_wait_classification_classify_effects(
         break;
       }
       case LOOM_LOW_EFFECT_KIND_WRITE: {
+        if (waits_before_system_scope_stores &&
+            loom_amdgpu_wait_effect_requires_system_scope_store_drain(schedule,
+                                                                      effect)) {
+          node_state->flags |=
+              LOOM_AMDGPU_WAIT_NODE_STATE_SYSTEM_SCOPE_STORE_DRAIN;
+          node_state->barrier_counter_mask |=
+              LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_LOAD |
+              LOOM_AMDGPU_WAIT_COUNTER_MASK_SMEM |
+              LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_STORE;
+        }
         if (!loom_amdgpu_wait_effect_is_dependency_memory(effect)) {
           frontier_node->write_counter_mask |=
               loom_amdgpu_wait_effect_counter_mask(effect);

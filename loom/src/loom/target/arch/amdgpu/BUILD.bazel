@@ -591,6 +591,11 @@ loom_check_test_suite(
             "//loom/target/amdgpu:gfx942",
             "//loom/target/amdgpu:gfx950",
         ],
+        "test/source_low/source_low_system_scope_store_wait.loom-test": [
+            "//loom/target/amdgpu:gfx1200",
+            "//loom/target/amdgpu:gfx1201",
+            "//loom/target/amdgpu:gfx12-generic",
+        ],
         "test/source_low/source_low_uniform_vector_extract.loom-test": [
             "//loom/target/amdgpu:" + target
             for target in LOOM_AMDGPU_SUPPORTED_TARGETS

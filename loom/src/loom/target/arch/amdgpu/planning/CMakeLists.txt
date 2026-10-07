@@ -367,11 +367,14 @@ loom_cc_library(
     iree::base::internal::arena
     loom::codegen::low::allocation::table
     loom::codegen::low::descriptors
+    loom::codegen::low::memory_access
     loom::codegen::low::packet
     loom::codegen::low::schedule
+    loom::ops::cache
     loom::ops::low
     loom::target::arch::amdgpu::facts
     loom::target::arch::amdgpu::refs::target_refs
+    loom::target::arch::amdgpu::target_info
   PUBLIC
 )
 endif()
