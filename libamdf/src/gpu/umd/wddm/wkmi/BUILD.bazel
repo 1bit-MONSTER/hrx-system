@@ -70,6 +70,11 @@ amdf_cc_binary(
     deps = [":bridge_api"],
 )
 
+exports_files(
+    ["dxcore_loader_compatibility.cc"],
+    visibility = ["//libamdf/src/gpu/umd/wddm:__pkg__"],
+)
+
 amdf_windows_sidecar_test(
     name = "allocation_test",
     srcs = [

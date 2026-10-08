@@ -4,8 +4,10 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//build_tools/bazel:test_resources.bzl", "GPU_DEVICE_RESOURCE_GROUP")
 load("//libamdf/build_tools/bazel:cc.bzl", "amdf_cc_library")
 load("//libamdf/build_tools/bazel:cc_test.bzl", "amdf_cc_test")
+load("//libamdf/build_tools/bazel:windows_sidecar.bzl", "amdf_windows_sidecar_library")
 
 package(
     default_visibility = ["//visibility:private"],
@@ -121,6 +123,47 @@ amdf_cc_library(
         ":kernel_queue",
         ":memory",
         ":user_queue",
+    ],
+)
+
+amdf_windows_sidecar_library(
+    name = "sparse_mapping_queue_test_helper",
+    testonly = True,
+    srcs = [
+        "sparse_mapping_queue_test.cc",
+        "sparse_mapping_queue_test.h",
+        "//libamdf/src/gpu/umd/wddm/wkmi:dxcore_loader_compatibility.cc",
+    ],
+    linkopts = ["gdi32.lib"],
+    deps = ["//third_party:amdf_wkmi"],
+)
+
+amdf_cc_test(
+    name = "sparse_mapping_test",
+    size = "medium",
+    srcs = [
+        "sparse_mapping_queue_test.h",
+        "sparse_mapping_test.cc",
+    ],
+    data = [":sparse_mapping_queue_test_helper"],
+    env = {
+        "AMDF_SPARSE_MAPPING_QUEUE_TEST_PATH": "$(location :sparse_mapping_queue_test_helper)",
+    },
+    resource_group = GPU_DEVICE_RESOURCE_GROUP,
+    tags = ["iree-run-requirement=libamdf.resource.amd_gpu"],
+    target_compatible_with = ["@platforms//os:windows"],
+    deps = [
+        ":device_state",
+        "//libamdf:amdf_static",
+        "//libamdf/src:allocator",
+        "//libamdf/src:wait",
+        "//libamdf/src/gpu/umd:endpoint_profile",
+        "//libamdf/src/gpu/umd:kernel_queue",
+        "//libamdf/src/gpu/umd:sparse_mapping_test_support",
+        "//libamdf/src/platform",
+        "//libamdf/src/platform/windows:endpoint",
+        "//third_party:google_test",
+        "//third_party:google_test_main",
     ],
 )
 
