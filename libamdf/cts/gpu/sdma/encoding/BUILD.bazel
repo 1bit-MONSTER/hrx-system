@@ -18,6 +18,10 @@ amdf_cc_library(
     testonly = True,
     srcs = ["commands.cc"],
     hdrs = ["commands.h"],
+    visibility = [
+        "//libamdf/cts:__subpackages__",
+        "//libamdf/src/gpu/umd:__pkg__",
+    ],
 )
 
 amdf_cc_test(

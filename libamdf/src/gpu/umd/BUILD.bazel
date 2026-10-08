@@ -14,6 +14,20 @@ package(
 )
 
 amdf_cc_library(
+    name = "sparse_mapping_test_support",
+    testonly = True,
+    hdrs = ["sparse_mapping_test.h"],
+    visibility = [
+        "//libamdf/src/gpu/umd/kfd:__pkg__",
+        "//libamdf/src/gpu/umd/wddm:__pkg__",
+    ],
+    deps = [
+        "//libamdf/cts/gpu/sdma/encoding:commands",
+        "//third_party:google_test",
+    ],
+)
+
+amdf_cc_library(
     name = "instance",
     hdrs = ["instance.h"],
     visibility = [
