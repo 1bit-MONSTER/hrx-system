@@ -44,8 +44,8 @@ def _clang_tidy_compile_args(compile_args, compiler):
         if arg not in _CLANG_TIDY_UNSUPPORTED_COMPILE_ARGS and arg not in resource_includes
     ]
 
-    # The fixed compilation database replaces argv[0], losing the driver mode
-    # normally selected by clang-cl or cl.exe. Keep MSVC-style options active.
+    # The analysis command uses a synthetic compiler name, losing the driver
+    # mode normally selected by clang-cl or cl.exe. Keep MSVC options active.
     if compiler in ["clang-cl", "msvc-cl"]:
         filtered_args.append("--driver-mode=cl")
 

@@ -8,10 +8,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shlex
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -70,19 +72,37 @@ def main(argv: list[str]) -> int:
         command.append(f"--export-fixes={args.export_fixes}")
     if args.line_filter:
         command.append(f"--line-filter={args.line_filter}")
-    command += ["--", *compile_args]
     environment = os.environ.copy()
     if args.recursion_summary:
         environment["IREE_CLANG_TIDY_RECURSION_SUMMARY"] = str(args.recursion_summary)
     if args.suppress_recursion_diagnostics:
         environment["IREE_CLANG_TIDY_RECURSION_DIAGNOSTICS"] = "0"
-    completed = subprocess.run(
-        command,
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
+    # Preserve the compiler's complete input spelling. FixedCompilationDatabase
+    # strips positional inputs and appends an absolute path; clang-cl can parse
+    # a POSIX path beginning with /w as a warning option instead of a source.
+    # A command database retains the relative input from the native build action.
+    with tempfile.TemporaryDirectory(prefix="iree-clang-tidy-") as directory:
+        database = Path(directory) / "compile_commands.json"
+        database.write_text(
+            json.dumps(
+                [
+                    {
+                        "directory": str(Path.cwd()),
+                        "file": str(args.source),
+                        "arguments": ["clang-tool", *compile_args],
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        command.append(f"-p={directory}")
+        completed = subprocess.run(
+            command,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
     output = completed.stdout
     args.output.write_text(output, encoding="utf-8")
     if (
@@ -96,6 +116,11 @@ def main(argv: list[str]) -> int:
             return 0
         print("clang-tidy command failed:", file=sys.stderr)
         print(shlex.join(command), file=sys.stderr)
+        print(
+            "compiler command:",
+            shlex.join(["clang-tool", *compile_args]),
+            file=sys.stderr,
+        )
         if output:
             print(output, file=sys.stderr, end="" if output.endswith("\n") else "\n")
         return completed.returncode

@@ -60,6 +60,33 @@ py_binary(
 )
 
 py_test(
+    name = "action_runner_test",
+    srcs = [
+        "run_clang_tidy_action.py",
+        "test/action_runner_test.py",
+    ],
+    args = [
+        "--clang-tidy=$(location @iree_clang_tidy_llvm//:clang-tidy)",
+        "--plugin=$(location :test_plugin)",
+        "--config-file=$(location :clang_tidy_config.yaml)",
+        "--vfsoverlay=$(location @iree_clang_tidy_llvm//:clang_resource_overlay)",
+        "--source=$(location test/smoke.c)",
+    ],
+    data = [
+        "clang_tidy_config.yaml",
+        "test/smoke.c",
+        ":test_plugin",
+        "@iree_clang_tidy_llvm//:clang-tidy",
+        "@iree_clang_tidy_llvm//:clang_resource_headers",
+        "@iree_clang_tidy_llvm//:clang_resource_overlay",
+    ],
+    imports = ["."],
+    main = "test/action_runner_test.py",
+    tags = ["manual"],
+    target_compatible_with = CLANG_TIDY_LLVM_TARGET_COMPATIBLE_WITH,
+)
+
+py_test(
     name = "aggregate_recursion_summaries_test",
     srcs = [
         "aggregate_recursion_summaries.py",
@@ -323,6 +350,7 @@ test_suite(
     name = "plugin_tests",
     tags = ["manual"],
     tests = [
+        ":action_runner_test",
         ":aggregate_recursion_summaries_test",
         ":extent_checks_test",
         ":lifecycle_checks_test",

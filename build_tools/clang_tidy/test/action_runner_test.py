@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+from __future__ import annotations
+
+import argparse
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+import run_clang_tidy_action
+
+
+def parse_arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--clang-tidy", required=True)
+    parser.add_argument("--plugin", required=True)
+    parser.add_argument("--config-file", required=True)
+    parser.add_argument("--vfsoverlay", required=True)
+    parser.add_argument("--source", required=True)
+    args, unittest_args = parser.parse_known_args()
+    sys.argv = [sys.argv[0], *unittest_args]
+    return args
+
+
+_ARGS = parse_arguments()
+
+
+class ActionRunnerTest(unittest.TestCase):
+    def run_analysis(self, compiler_args: list[str]) -> tuple[int, str]:
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "diagnostics.txt"
+            result = run_clang_tidy_action.main(
+                [
+                    "--clang-tidy",
+                    _ARGS.clang_tidy,
+                    "--plugin",
+                    _ARGS.plugin,
+                    "--config-file",
+                    _ARGS.config_file,
+                    "--vfsoverlay",
+                    _ARGS.vfsoverlay,
+                    "--source",
+                    _ARGS.source,
+                    "--output",
+                    str(report),
+                    "--checks=-*,iree-smoke",
+                    "--",
+                    *compiler_args,
+                    _ARGS.source,
+                ]
+            )
+            return result, report.read_text(encoding="utf-8")
+
+    def test_native_compiler_inputs_reach_analysis(self):
+        # The input is the build action's relative path. Analysis must preserve
+        # that spelling when the MSVC driver runs on a POSIX build worker.
+        for compiler_args in (
+            ["-x", "c", "-std=c11"],
+            ["-x", "c++", "-std=c++20"],
+            ["--driver-mode=cl", "--target=x86_64-pc-windows-msvc", "/TC", "/std:c11"],
+            [
+                "--driver-mode=cl",
+                "--target=x86_64-pc-windows-msvc",
+                "/TP",
+                "/std:c++20",
+            ],
+        ):
+            with self.subTest(compiler_args=compiler_args):
+                result, output = self.run_analysis(compiler_args)
+                self.assertEqual(result, 0, output)
+                self.assertIn(
+                    "IREE clang-tidy plugin smoke diagnostic [iree-smoke]", output
+                )
+
+    def test_compiler_failure_reaches_the_caller_and_report(self):
+        result, output = self.run_analysis(
+            ["-include", "__iree_missing_action_runner_test_header__.h"]
+        )
+        self.assertNotEqual(result, 0, output)
+        self.assertIn("__iree_missing_action_runner_test_header__.h", output)
+        self.assertIn("file not found", output)
+
+
+if __name__ == "__main__":
+    unittest.main()
