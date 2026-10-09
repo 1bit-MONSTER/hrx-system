@@ -92,14 +92,12 @@ static iree_status_t iree_benchmark_loom_scenario_ensure_profile(
 
   execution->materializer_options =
       options->case_execution_options->materializer;
-  execution->materializer_options.device_allocator =
-      iree_hal_device_allocator(options->hal_context->execution.runtime.device);
-  execution->materializer_options.device =
-      options->hal_context->execution.runtime.device;
+  execution->materializer_options.target_pool =
+      options->hal_context->execution.runtime.staging_pool;
+  execution->materializer_options.staging_pool =
+      options->hal_context->execution.runtime.staging_pool;
   execution->materializer_options.transfer_queue =
       options->hal_context->execution.runtime.transfer_queue;
-  execution->materializer_options.buffer_params =
-      loom_run_hal_testbench_host_visible_buffer_params();
 
   const iree_string_view_t target = options->benchmark_options->target;
   const iree_benchmark_loom_hal_compilation_options_t* compilation =

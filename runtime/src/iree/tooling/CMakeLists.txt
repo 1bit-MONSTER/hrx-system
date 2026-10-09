@@ -138,6 +138,7 @@ iree_cc_test(
     ::value_io
     iree::base
     iree::hal
+    iree::hal::memory::heap_pool
     iree::io::file_handle
     iree::testing::gtest
     iree::testing::gtest_main
@@ -166,10 +167,8 @@ iree_cc_test(
   SRCS
     "numpy_io_test.cc"
   DEPS
-    ::device_util
     ::numpy_io
-    iree::async::util::proactor_pool
-    iree::base::threading
+    iree::hal::memory::heap_pool
     iree::io::stream
     iree::testing::gtest
     iree::testing::gtest_main

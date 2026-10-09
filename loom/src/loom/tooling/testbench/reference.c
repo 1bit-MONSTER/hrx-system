@@ -1145,9 +1145,8 @@ static iree_status_t loom_testbench_reference_allocate_matmul_result(
       .data_length = data_length,
   };
   return iree_hal_buffer_view_generate(
-      options->device_allocator, options->result_buffer_params,
-      IREE_ARRAYSIZE(shape), shape, element_type,
-      IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR,
+      options->result_pool, options->min_alignment, IREE_ARRAYSIZE(shape),
+      shape, element_type, IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR,
       loom_testbench_reference_fill_matmul_result, &result, out_buffer_view);
 }
 
@@ -1168,9 +1167,8 @@ static iree_status_t loom_testbench_reference_allocate_tiled_matmul_result(
       .data_length = data_length,
   };
   return iree_hal_buffer_view_generate(
-      options->device_allocator, options->result_buffer_params,
-      IREE_ARRAYSIZE(shape), shape, element_type,
-      IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR,
+      options->result_pool, options->min_alignment, IREE_ARRAYSIZE(shape),
+      shape, element_type, IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR,
       loom_testbench_reference_fill_matmul_result, &result, out_buffer_view);
 }
 
@@ -1213,10 +1211,10 @@ static iree_status_t loom_testbench_reference_matmul_invoke(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "reference.matmul expects 3 inputs and 1 result");
   }
-  if (options->device_allocator == NULL) {
+  if (options->result_pool == NULL) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
-        "reference.matmul requires a configured HAL allocator");
+        "reference.matmul requires a configured result pool");
   }
 
   iree_hal_buffer_view_t* lhs_view = NULL;
@@ -1308,10 +1306,10 @@ static iree_status_t loom_testbench_reference_tiled_matmul_invoke(
         IREE_STATUS_INVALID_ARGUMENT,
         "reference.tiled_matmul expects 3 inputs and 1 result");
   }
-  if (options->device_allocator == NULL) {
+  if (options->result_pool == NULL) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
-        "reference.tiled_matmul requires a configured HAL allocator");
+        "reference.tiled_matmul requires a configured result pool");
   }
 
   iree_hal_buffer_view_t* lhs_view = NULL;

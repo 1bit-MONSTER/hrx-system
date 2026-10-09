@@ -15,6 +15,7 @@
 #include "iree/base/internal/arena.h"
 #include "iree/base/internal/path.h"
 #include "iree/base/tooling/flags.h"
+#include "iree/hal/memory/heap_pool.h"
 #include "iree/io/stdio_stream.h"
 #include "loom/config/text_binding.h"
 #include "loom/sanitizer/options.h"
@@ -438,10 +439,12 @@ static iree_status_t iree_test_loom_configure_hal_actual_sequence(
   IREE_RETURN_IF_ERROR(
       loom_run_hal_testbench_context_ensure_runtime(hal_context));
 
-  execution_options->materializer.device_allocator =
-      iree_hal_device_allocator(hal_context->runtime.device);
-  execution_options->materializer.buffer_params =
-      loom_run_hal_testbench_host_visible_buffer_params();
+  execution_options->materializer.target_pool =
+      hal_context->runtime.staging_pool;
+  execution_options->materializer.staging_pool =
+      hal_context->runtime.staging_pool;
+  execution_options->materializer.transfer_queue =
+      hal_context->runtime.transfer_queue;
 
   const loom_run_hal_testbench_actual_sequence_options_t sequence_options = {
       .context = hal_context,
@@ -526,10 +529,7 @@ static iree_status_t iree_test_loom_run_case_samples(
         &execution_options, &hal_actual_sequence);
     hal_actual_sequence_initialized = iree_status_is_ok(status);
     if (iree_status_is_ok(status)) {
-      matmul_oracle_options.device_allocator =
-          iree_hal_device_allocator(hal_context->runtime.device);
-      matmul_oracle_options.result_buffer_params =
-          loom_run_hal_testbench_host_visible_buffer_params();
+      matmul_oracle_options.result_pool = hal_context->runtime.staging_pool;
       matmul_oracle_options.host_allocator =
           execution_options.materializer.host_allocator;
       loom_testbench_reference_matmul_oracle_provider_initialize(
@@ -903,7 +903,7 @@ int iree_test_loom_main(int argc, char** argv,
   loom_run_hal_testbench_scenario_profile_t hal_scenario_profile = {0};
   iree_test_loom_xfail_list_t xfails = {0};
   iree_test_loom_diagnostic_capture_t diagnostic_capture = {0};
-  iree_hal_allocator_t* host_device_allocator = NULL;
+  iree_hal_pool_t* host_pool = NULL;
   loom_testbench_device_event_capture_t device_event_capture = {0};
   bool device_event_capture_initialized = false;
   iree_arena_allocator_t plan_arena;
@@ -1287,6 +1287,12 @@ int iree_test_loom_main(int argc, char** argv,
         !iree_string_view_is_empty(hal_context.driver_name)) {
       status = loom_run_hal_testbench_context_ensure_runtime(&hal_context);
       if (iree_status_is_ok(status)) {
+        execution_options.materializer.target_pool =
+            hal_context.runtime.staging_pool;
+        execution_options.materializer.staging_pool =
+            hal_context.runtime.staging_pool;
+        execution_options.materializer.transfer_queue =
+            hal_context.runtime.transfer_queue;
         const iree_string_view_t target = iree_make_cstring_view(FLAG_target);
         const loom_run_hal_testbench_actual_provider_options_t
             provider_options = {
@@ -1312,14 +1318,18 @@ int iree_test_loom_main(int argc, char** argv,
       }
     }
     if (iree_status_is_ok(status) && selected_scenario_count != 0 &&
-        execution_options.materializer.device_allocator == NULL) {
+        execution_options.materializer.target_pool == NULL) {
       // Scenario values are shared with host oracles. Each execution profile
       // stages those values into its own device storage as needed.
-      status =
-          iree_hal_allocator_create_heap(IREE_SV("iree-test-loom"), allocator,
-                                         allocator, &host_device_allocator);
+      const iree_hal_pool_host_access_t host_access = {
+          .access = IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+          .modes =
+              IREE_HAL_MAPPING_MODE_SCOPED | IREE_HAL_MAPPING_MODE_PERSISTENT,
+      };
+      status = iree_hal_heap_pool_create(host_access, allocator, allocator,
+                                         &host_pool);
       if (iree_status_is_ok(status)) {
-        execution_options.materializer.device_allocator = host_device_allocator;
+        execution_options.materializer.target_pool = host_pool;
       }
     }
     iree_host_size_t sample_count = 0;
@@ -1515,7 +1525,7 @@ int iree_test_loom_main(int argc, char** argv,
   iree_string_builder_deinitialize(&sample_output);
   iree_arena_deinitialize(&execution_arena);
   iree_arena_deinitialize(&plan_arena);
-  iree_hal_allocator_release(host_device_allocator);
+  iree_hal_pool_release(host_pool);
   loom_run_hal_testbench_context_deinitialize(&hal_context);
   loom_config_text_binding_set_deinitialize(&config_set);
   if (device_event_capture_initialized) {

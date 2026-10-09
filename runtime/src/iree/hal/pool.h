@@ -698,9 +698,10 @@ IREE_API_EXPORT void iree_hal_pool_trim(iree_hal_pool_t* pool,
                                         iree_hal_pool_trim_flags_t flags,
                                         iree_device_size_t min_bytes_to_keep);
 
-// Returns the notification for this pool's local capacity changes. Backing
-// pools may publish independent capacity changes; allocation retries use the
-// common pool_wait helper to observe every captured source.
+// Returns the notification for this pool's local capacity changes, or NULL for
+// an unbounded source that reports allocation failures directly as statuses.
+// Backing pools may publish independent capacity changes; allocation retries
+// use the common pool_wait helper to observe every captured source.
 //
 // The notification is advisory over pool state. Callers must observe the
 // notification epoch before checking the pool state, and then wait on that
@@ -864,11 +865,13 @@ struct iree_hal_pool_t {
 };
 
 // Initializes |out_pool| with one owning reference. Captures and retains the
-// local |notification| and immutable, distinct |backing_sources|. Single-source
-// pools use inline storage. Retains |memory_contract| when provided.
-// Borrows the non-NULL |frontier_tracker|; all
-// reservation frontiers use the tracker's registered axes. On failure no
-// references are retained and the output requires no deinitialization.
+// local |notification| and immutable, distinct |backing_sources|. An unbounded
+// pool that can never report EXHAUSTED or OVER_BUDGET may pass NULL and no
+// backing sources. Single-source pools use inline storage. Retains
+// |memory_contract| when provided. Borrows |frontier_tracker| when non-NULL;
+// pools without one must never return a reservation carrying a reuse frontier.
+// On failure no references are retained and the output requires no
+// deinitialization.
 IREE_API_EXPORT iree_status_t iree_hal_pool_initialize(
     const iree_hal_pool_vtable_t* vtable,
     iree_hal_memory_contract_t* memory_contract,

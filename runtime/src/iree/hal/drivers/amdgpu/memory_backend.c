@@ -43,6 +43,8 @@ typedef struct iree_hal_amdgpu_slab_pool_plan_t {
   } progress;
   // Owned immutable exact-family and public mapping contract.
   iree_hal_memory_contract_t* contract;
+  // Device-selected sanitizer allocation policy for this native source.
+  iree_hal_asan_pool_options_t asan;
   // Whether the created pool may allocate new HSA slabs.
   iree_hal_slab_pool_owned_mode_t owned_mode;
   // Constructor-borrowed import classes copied by synchronous pool creation.
@@ -80,6 +82,7 @@ static iree_status_t iree_hal_amdgpu_slab_pool_plan_create(
     const iree_hal_passthrough_pool_options_t options = {
         .memory_contract = plan->contract,
         .epoch_query = plan->progress.epoch_query,
+        .asan = plan->asan,
         .owned_mode = plan->owned_mode,
         .imports =
             {
@@ -412,6 +415,7 @@ static iree_status_t iree_hal_amdgpu_slab_pool_query_memory(
       IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
   plan->provider_options.access.agents = plan->agents;
   plan->provider_options.asan_state = backend->asan_state;
+  plan->asan = physical_device->default_pool_options.asan;
   plan->owned_mode = options->owned.mode;
   plan->imports.class_count = options->imports.class_count;
   plan->imports.classes = options->imports.classes;

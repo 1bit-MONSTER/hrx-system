@@ -112,15 +112,14 @@ typedef struct loom_testbench_file_open_callback_t {
 
 // Runtime resources used while materializing values.
 typedef struct loom_testbench_value_materializer_options_t {
-  // Optional device used to synchronize staged transfers.
-  iree_hal_device_t* device;
-  // HAL allocator used for shaped generated and file-backed values.
-  iree_hal_allocator_t* device_allocator;
-  // Optional queue used to stage non-host-visible shaped values.
+  // Borrowed pool owning final shaped generated and file-backed values.
+  iree_hal_pool_t* target_pool;
+  // Borrowed host-writable pool used when |target_pool| is not host-writable.
+  iree_hal_pool_t* staging_pool;
+  // Borrowed queue used with |staging_pool| for non-host-writable targets.
   iree_hal_queue_t* transfer_queue;
-  // Optional buffer placement for generated and file-backed shaped values. When
-  // zero-initialized, generated values use host-local placement.
-  iree_hal_buffer_params_t buffer_params;
+  // Minimum byte alignment of shaped value allocations.
+  iree_device_size_t min_alignment;
   // Callback used to open check.file.read.* paths.
   loom_testbench_file_open_callback_t open_read_file;
   // Callback used to open check.file.write.* paths.

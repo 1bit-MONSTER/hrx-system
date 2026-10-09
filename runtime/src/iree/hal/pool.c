@@ -31,12 +31,14 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_initialize(
     iree_allocator_t host_allocator, iree_hal_pool_t* out_pool) {
   IREE_ASSERT_ARGUMENT(vtable);
   IREE_ASSERT_ARGUMENT(out_pool);
-  iree_host_size_t source_count = 1;
+  iree_host_size_t source_count = notification ? 1 : 0;
   for (iree_host_size_t i = 0; i < backing_sources.count; ++i) {
-    source_count += backing_sources.values[i] != notification;
+    source_count +=
+        backing_sources.values[i] && backing_sources.values[i] != notification;
   }
-  iree_async_notification_t** sources = &out_pool->notification;
-  if (source_count > 1) {
+  iree_async_notification_t** sources =
+      notification ? &out_pool->notification : NULL;
+  if (source_count > (notification ? 1 : 0)) {
     IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
         host_allocator, source_count, sizeof(*sources), (void**)&sources));
   }
@@ -44,11 +46,14 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_initialize(
   out_pool->memory_contract = memory_contract;
   iree_hal_memory_contract_retain(memory_contract);
   out_pool->notification = notification;
-  sources[0] = notification;
   iree_async_notification_retain(notification);
-  iree_host_size_t source_index = 1;
+  iree_host_size_t source_index = 0;
+  if (notification) {
+    sources[source_index++] = notification;
+  }
   for (iree_host_size_t i = 0; i < backing_sources.count; ++i) {
-    if (backing_sources.values[i] != notification) {
+    if (backing_sources.values[i] &&
+        backing_sources.values[i] != notification) {
       sources[source_index++] = backing_sources.values[i];
       iree_async_notification_retain(backing_sources.values[i]);
     }
@@ -70,7 +75,8 @@ IREE_API_EXPORT void iree_hal_pool_deinitialize(iree_hal_pool_t* pool) {
   for (iree_host_size_t i = 0; i < pool->wait_sources.count; ++i) {
     iree_async_notification_release(pool->wait_sources.values[i]);
   }
-  if (pool->wait_sources.values != &pool->notification) {
+  if (pool->wait_sources.values &&
+      pool->wait_sources.values != &pool->notification) {
     iree_allocator_free(pool->host_allocator, (void*)pool->wait_sources.values);
   }
 }

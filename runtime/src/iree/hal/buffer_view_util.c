@@ -168,15 +168,14 @@ IREE_API_EXPORT iree_status_t iree_hal_buffer_compute_view_range(
 //===----------------------------------------------------------------------===//
 
 IREE_API_EXPORT iree_status_t iree_hal_buffer_view_create_uninitialized(
-    iree_hal_allocator_t* allocator, iree_hal_buffer_params_t buffer_params,
+    iree_hal_pool_t* pool, iree_device_size_t min_alignment,
     iree_host_size_t shape_rank, const iree_hal_dim_t* shape,
     iree_hal_element_type_t element_type,
     iree_hal_encoding_type_t encoding_type,
     iree_hal_buffer_view_t** out_buffer_view) {
-  IREE_ASSERT_ARGUMENT(allocator);
+  IREE_ASSERT_ARGUMENT(pool);
   IREE_ASSERT_ARGUMENT(out_buffer_view);
   IREE_TRACE_ZONE_BEGIN(z0);
-  iree_hal_buffer_params_canonicalize(&buffer_params);
 
   iree_device_size_t allocation_size = 0;
   iree_status_t status = iree_hal_buffer_compute_view_size(
@@ -184,15 +183,18 @@ IREE_API_EXPORT iree_status_t iree_hal_buffer_view_create_uninitialized(
 
   iree_hal_buffer_t* buffer = NULL;
   if (iree_status_is_ok(status)) {
-    status = iree_hal_allocator_allocate_buffer(allocator, buffer_params,
-                                                allocation_size, &buffer);
+    const iree_device_size_t reservation_size = iree_max(allocation_size, 1u);
+    status = iree_hal_pool_allocate_buffer(
+        pool,
+        iree_hal_make_pool_reservation_request(reservation_size, min_alignment),
+        iree_infinite_timeout(), &buffer);
   }
 
   iree_hal_buffer_view_t* buffer_view = NULL;
   if (iree_status_is_ok(status)) {
     status = iree_hal_buffer_view_create(
         buffer, shape_rank, shape, element_type, encoding_type,
-        iree_hal_allocator_host_allocator(allocator), &buffer_view);
+        iree_hal_pool_host_allocator(pool), &buffer_view);
   }
 
   iree_hal_buffer_release(buffer);
@@ -206,39 +208,43 @@ IREE_API_EXPORT iree_status_t iree_hal_buffer_view_create_uninitialized(
 }
 
 IREE_API_EXPORT iree_status_t iree_hal_buffer_view_create_uninitialized_like(
-    iree_hal_allocator_t* allocator, iree_hal_buffer_params_t buffer_params,
+    iree_hal_pool_t* pool, iree_device_size_t min_alignment,
     const iree_hal_buffer_view_t* source_buffer_view,
     iree_hal_buffer_view_t** out_buffer_view) {
   IREE_ASSERT_ARGUMENT(source_buffer_view);
   return iree_hal_buffer_view_create_uninitialized(
-      allocator, buffer_params,
-      iree_hal_buffer_view_shape_rank(source_buffer_view),
+      pool, min_alignment, iree_hal_buffer_view_shape_rank(source_buffer_view),
       iree_hal_buffer_view_shape_dims(source_buffer_view),
       iree_hal_buffer_view_element_type(source_buffer_view),
       iree_hal_buffer_view_encoding_type(source_buffer_view), out_buffer_view);
 }
 
 IREE_API_EXPORT iree_status_t iree_hal_buffer_view_generate(
-    iree_hal_allocator_t* allocator, iree_hal_buffer_params_t buffer_params,
+    iree_hal_pool_t* pool, iree_device_size_t min_alignment,
     iree_host_size_t shape_rank, const iree_hal_dim_t* shape,
     iree_hal_element_type_t element_type,
     iree_hal_encoding_type_t encoding_type,
     iree_hal_buffer_view_generator_fn_t generator, void* user_data,
     iree_hal_buffer_view_t** out_buffer_view) {
-  IREE_ASSERT_ARGUMENT(allocator);
+  IREE_ASSERT_ARGUMENT(pool);
   IREE_ASSERT_ARGUMENT(generator);
   IREE_ASSERT_ARGUMENT(out_buffer_view);
   IREE_TRACE_ZONE_BEGIN(z0);
 
-  iree_hal_buffer_params_canonicalize(&buffer_params);
-  buffer_params.type |= IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
-  buffer_params.access |= IREE_HAL_MEMORY_ACCESS_WRITE;
-  buffer_params.usage |= IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED |
-                         IREE_HAL_BUFFER_USAGE_MAPPING_ACCESS_SEQUENTIAL_WRITE;
+  const iree_hal_pool_host_access_t host_access =
+      iree_hal_pool_query_host_access(pool);
+  if (!iree_all_bits_set(host_access.access, IREE_HAL_MEMORY_ACCESS_WRITE) ||
+      !iree_all_bits_set(host_access.modes, IREE_HAL_MAPPING_MODE_SCOPED)) {
+    IREE_TRACE_ZONE_END(z0);
+    return iree_make_status(
+        IREE_STATUS_FAILED_PRECONDITION,
+        "buffer view generation requires a pool with scoped host write "
+        "access");
+  }
 
   iree_hal_buffer_view_t* buffer_view = NULL;
   iree_status_t status = iree_hal_buffer_view_create_uninitialized(
-      allocator, buffer_params, shape_rank, shape, element_type, encoding_type,
+      pool, min_alignment, shape_rank, shape, element_type, encoding_type,
       &buffer_view);
 
   iree_hal_buffer_mapping_t mapping = {{0}};
@@ -294,8 +300,8 @@ static iree_status_t iree_hal_buffer_view_parse_into(
 }
 
 static iree_status_t iree_hal_buffer_view_parse_impl(
-    iree_string_view_t value, iree_hal_allocator_t* allocator,
-    iree_hal_buffer_params_t buffer_params,
+    iree_string_view_t value, iree_hal_pool_t* pool,
+    iree_device_size_t min_alignment,
     iree_hal_buffer_view_t** out_buffer_view) {
   // Strip whitespace that may come along (linefeeds/etc).
   value = iree_string_view_trim(value);
@@ -360,19 +366,19 @@ static iree_status_t iree_hal_buffer_view_parse_impl(
       .element_type = element_type,
   };
   return iree_hal_buffer_view_generate(
-      allocator, buffer_params, shape_rank, shape, element_type, encoding_type,
+      pool, min_alignment, shape_rank, shape, element_type, encoding_type,
       iree_hal_buffer_view_parse_into, &parse_params, out_buffer_view);
 }
 
-IREE_API_EXPORT iree_status_t iree_hal_buffer_view_parse(
-    iree_string_view_t value, iree_hal_allocator_t* allocator,
-    iree_hal_buffer_params_t buffer_params,
-    iree_hal_buffer_view_t** out_buffer_view) {
-  IREE_ASSERT_ARGUMENT(allocator);
+IREE_API_EXPORT iree_status_t
+iree_hal_buffer_view_parse(iree_string_view_t value, iree_hal_pool_t* pool,
+                           iree_device_size_t min_alignment,
+                           iree_hal_buffer_view_t** out_buffer_view) {
+  IREE_ASSERT_ARGUMENT(pool);
   IREE_ASSERT_ARGUMENT(out_buffer_view);
   IREE_TRACE_ZONE_BEGIN(z0);
   iree_status_t status = iree_hal_buffer_view_parse_impl(
-      value, allocator, buffer_params, out_buffer_view);
+      value, pool, min_alignment, out_buffer_view);
   IREE_TRACE_ZONE_END(z0);
   return status;
 }

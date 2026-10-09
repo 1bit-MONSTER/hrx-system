@@ -184,35 +184,54 @@ TEST_P(QueueTransferTest, TransferExecutesMixedBatch) {
 }
 
 TEST_P(QueueTransferTest, BufferViewStagingRoundTrip) {
-  const iree_hal_queue_family_ordinal_t transfer_family_ordinal =
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(transfer_queue_));
-  const iree_hal_queue_family_affinity_t transfer_family_affinity =
-      iree_hal_make_queue_family_affinity(transfer_family_ordinal);
   const iree_hal_dim_t shape[] = {2, 2};
   int32_t source_values[] = {1, 2, 3, 4};
 
-  const iree_hal_buffer_params_t staging_params = {
+  const iree_hal_pool_family_access_t staging_family = {
+      /*.family=*/iree_hal_queue_family(transfer_queue_),
       /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.type=*/
-      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-      /*.queue_family_affinity=*/transfer_family_affinity,
   };
+  const iree_hal_pool_scope_t staging_scope = {
+      /*.family_count=*/1,
+      /*.families=*/&staging_family,
+      /*.host=*/
+      {
+          /*.access=*/
+          IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+          /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+      },
+  };
+  iree_hal_slab_pool_options_t staging_options;
+  iree_hal_slab_pool_options_initialize(&staging_options);
+  Ref<iree_hal_pool_t> staging_pool;
+  IREE_ASSERT_OK(
+      iree_hal_slab_pool_create(device_group_, staging_scope, &staging_options,
+                                iree_allocator_system(), staging_pool.out()));
+
   Ref<iree_hal_buffer_view_t> staging_view;
   IREE_ASSERT_OK(iree_hal_buffer_view_generate(
-      device_allocator_, staging_params, IREE_ARRAYSIZE(shape), shape,
+      staging_pool, /*min_alignment=*/0, IREE_ARRAYSIZE(shape), shape,
       IREE_HAL_ELEMENT_TYPE_INT_32, IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR,
       GenerateI32Contents, source_values, staging_view.out()));
 
-  const iree_hal_buffer_params_t device_params = {
+  const iree_hal_pool_family_access_t device_family = {
+      /*.family=*/iree_hal_queue_family(transfer_queue_),
       /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.type=*/IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
-      /*.queue_family_affinity=*/transfer_family_affinity,
   };
+  const iree_hal_pool_scope_t device_scope = {
+      /*.family_count=*/1,
+      /*.families=*/&device_family,
+  };
+  iree_hal_slab_pool_options_t device_options;
+  iree_hal_slab_pool_options_initialize(&device_options);
+  Ref<iree_hal_pool_t> device_pool;
+  IREE_ASSERT_OK(
+      iree_hal_slab_pool_create(device_group_, device_scope, &device_options,
+                                iree_allocator_system(), device_pool.out()));
+
   Ref<iree_hal_buffer_view_t> device_view;
   IREE_ASSERT_OK(iree_hal_buffer_view_create_uninitialized_like(
-      device_allocator_, device_params, staging_view, device_view.out()));
+      device_pool, /*min_alignment=*/0, staging_view, device_view.out()));
 
   SemaphoreList empty_wait;
   SemaphoreList copy_signal(device_, {0}, {1});

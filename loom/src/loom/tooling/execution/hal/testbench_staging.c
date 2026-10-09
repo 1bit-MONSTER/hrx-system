@@ -156,7 +156,6 @@ iree_status_t loom_run_hal_testbench_staging_initialize(
       .runtime = runtime,
       .host_allocator = host_allocator,
   };
-
   bool requires_staging = false;
   for (iree_host_size_t i = 0; i < binding_count; ++i) {
     requires_staging |=
@@ -193,17 +192,9 @@ iree_status_t loom_run_hal_testbench_staging_initialize(
                   },
           };
       out_staging->copies.requests[transfer_index] =
-          (iree_hal_pool_reservation_request_t){
-              .params =
-                  {
-                      .usage = IREE_HAL_BUFFER_USAGE_DEFAULT,
-                      .access = IREE_HAL_MEMORY_ACCESS_ALL,
-                      .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
-                      .queue_family_affinity =
-                          IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-                  },
-              .allocation_size = iree_hal_buffer_byte_length(allocation),
-          };
+          iree_hal_make_pool_reservation_request(
+              iree_max(iree_hal_buffer_byte_length(allocation), 1u),
+              /*min_alignment=*/0);
       ++out_staging->copies.count;
     }
   }
@@ -229,7 +220,7 @@ iree_status_t loom_run_hal_testbench_staging_initialize(
             .semaphores = &out_staging->allocation.progress_semaphore,
             .payload_values = &allocation_value,
         },
-        runtime->staging_pool, out_staging->copies.count,
+        runtime->device_pool, out_staging->copies.count,
         out_staging->copies.requests, out_staging->copies.buffers);
     out_staging->allocation.live = iree_status_is_ok(status);
   }
@@ -252,7 +243,8 @@ iree_status_t loom_run_hal_testbench_staging_initialize(
         ++transfer_index;
       }
       IREE_ASSERT(transfer_index < out_staging->copies.count);
-      binding->offset += iree_hal_buffer_byte_offset(binding->buffer);
+      binding->offset += iree_hal_buffer_byte_offset(binding->buffer) -
+                         iree_hal_buffer_byte_offset(allocation);
       binding->buffer = out_staging->copies.buffers[transfer_index];
     }
     status = loom_run_hal_testbench_staging_upload(out_staging);

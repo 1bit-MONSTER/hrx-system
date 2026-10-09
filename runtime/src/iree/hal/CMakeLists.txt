@@ -220,6 +220,7 @@ iree_cc_test(
     iree::base
     iree::base::internal::fpu_state
     iree::base::internal::span
+    iree::hal::memory::heap_pool
     iree::testing::gtest
     iree::testing::gtest_main
 )

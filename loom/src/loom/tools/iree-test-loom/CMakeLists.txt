@@ -41,6 +41,7 @@ loom_cc_library(
     iree::base::internal::arena
     iree::base::internal::path
     iree::base::tooling::flags
+    iree::hal::memory::heap_pool
     iree::io::stream
     loom::binding::c::interop
     loom::binding::c::loomc

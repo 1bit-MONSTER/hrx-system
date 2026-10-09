@@ -11,8 +11,8 @@
 #include <stdio.h>
 
 #include "iree/base/api.h"
-#include "iree/hal/allocator.h"
 #include "iree/hal/buffer_view.h"
+#include "iree/hal/pool.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,11 +51,12 @@ IREE_API_EXPORT iree_status_t iree_hal_buffer_compute_view_range(
 // Buffer view allocation and generation
 //===----------------------------------------------------------------------===//
 
-// Creates a buffer view over an uninitialized buffer allocated from |allocator|
-// using |buffer_params|. On success, |out_buffer_view| is assigned one owning
+// Creates a buffer view over uninitialized storage allocated from |pool| with
+// at least |min_alignment| byte alignment. Memory placement and permissions
+// are fixed by the pool. On success, |out_buffer_view| is assigned one owning
 // reference. It is unchanged on failure.
 IREE_API_EXPORT iree_status_t iree_hal_buffer_view_create_uninitialized(
-    iree_hal_allocator_t* allocator, iree_hal_buffer_params_t buffer_params,
+    iree_hal_pool_t* pool, iree_device_size_t min_alignment,
     iree_host_size_t shape_rank, const iree_hal_dim_t* shape,
     iree_hal_element_type_t element_type,
     iree_hal_encoding_type_t encoding_type,
@@ -66,7 +67,7 @@ IREE_API_EXPORT iree_status_t iree_hal_buffer_view_create_uninitialized(
 // |out_buffer_view| is assigned one owning reference. It is unchanged on
 // failure.
 IREE_API_EXPORT iree_status_t iree_hal_buffer_view_create_uninitialized_like(
-    iree_hal_allocator_t* allocator, iree_hal_buffer_params_t buffer_params,
+    iree_hal_pool_t* pool, iree_device_size_t min_alignment,
     const iree_hal_buffer_view_t* source_buffer_view,
     iree_hal_buffer_view_t** out_buffer_view);
 
@@ -75,21 +76,16 @@ IREE_API_EXPORT iree_status_t iree_hal_buffer_view_create_uninitialized_like(
 typedef iree_status_t(IREE_API_PTR* iree_hal_buffer_view_generator_fn_t)(
     void* user_data, iree_byte_span_t contents);
 
-// Allocates a host-visible buffer view and produces its initial contents with
-// |generator|. After successful allocation and mapping the generator is called
-// exactly once with the logical view byte span; allocator padding is not
-// exposed.
-//
-// IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
-// IREE_HAL_MEMORY_ACCESS_WRITE,
-// IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED, and
-// IREE_HAL_BUFFER_USAGE_MAPPING_ACCESS_SEQUENTIAL_WRITE are added to
-// |buffer_params|. Non-coherent host writes are flushed before returning.
-// No device queue operations or staging transfers are performed.
+// Allocates a buffer view from |pool| and produces its initial contents with
+// |generator|. The pool must grant scoped host write mapping. After successful
+// allocation and mapping the generator is called exactly once with the logical
+// view byte span; allocator padding is not exposed. Non-coherent host writes
+// are flushed before returning. No device queue operations or staging
+// transfers are performed.
 // On success, |out_buffer_view| is assigned one owning reference. It is
 // unchanged on failure.
 IREE_API_EXPORT iree_status_t iree_hal_buffer_view_generate(
-    iree_hal_allocator_t* allocator, iree_hal_buffer_params_t buffer_params,
+    iree_hal_pool_t* pool, iree_device_size_t min_alignment,
     iree_host_size_t shape_rank, const iree_hal_dim_t* shape,
     iree_hal_element_type_t element_type,
     iree_hal_encoding_type_t encoding_type,
@@ -102,13 +98,13 @@ IREE_API_EXPORT iree_status_t iree_hal_buffer_view_generate(
 
 // Parses a serialized set of buffer elements in the canonical tensor format
 // (the same as produced by iree_hal_buffer_view_format). The underlying buffer
-// is allocated with |allocator| and |buffer_params| as by
-// iree_hal_buffer_view_generate. On success, |out_buffer_view| is assigned one
-// owning reference. It is unchanged on failure.
+// is allocated from |pool| with |min_alignment| as by
+// iree_hal_buffer_view_generate. The pool must grant scoped host write mapping.
+// On success, |out_buffer_view| is assigned one owning reference. It is
+// unchanged on failure.
 IREE_API_EXPORT iree_status_t iree_hal_buffer_view_parse(
-    iree_string_view_t value, iree_hal_allocator_t* allocator,
-    iree_hal_buffer_params_t buffer_params,
-    iree_hal_buffer_view_t** out_buffer_view);
+    iree_string_view_t value, iree_hal_pool_t* pool,
+    iree_device_size_t min_alignment, iree_hal_buffer_view_t** out_buffer_view);
 
 // TODO(#5413): enum for printing mode (include shape, precision).
 

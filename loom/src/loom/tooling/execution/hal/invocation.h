@@ -66,8 +66,6 @@ typedef struct loom_run_hal_invocation_plan_t {
   loom_run_hal_binding_list_t expected_bindings;
   // True when |expected_bindings| should be compared after dispatch.
   bool has_expected_bindings;
-  // Plan-owned heap HAL allocator backing expected host binding buffers.
-  iree_hal_allocator_t* expected_binding_allocator;
   // Maximum number of output elements to format.
   iree_host_size_t max_output_element_count;
 } loom_run_hal_invocation_plan_t;

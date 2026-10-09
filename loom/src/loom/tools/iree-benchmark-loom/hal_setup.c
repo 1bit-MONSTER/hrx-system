@@ -12,18 +12,6 @@
 #include "loom/tools/iree-benchmark-loom/report.h"
 #include "loom/tools/iree-benchmark-loom/testbench.h"
 
-static iree_hal_buffer_params_t iree_benchmark_loom_device_local_buffer_params(
-    void) {
-  return (iree_hal_buffer_params_t){
-      .usage = IREE_HAL_BUFFER_USAGE_DEFAULT,
-      .access = IREE_HAL_MEMORY_ACCESS_ALL,
-      .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
-              IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-      .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-      .min_alignment = 0,
-  };
-}
-
 static iree_status_t iree_benchmark_loom_initialize_sequence_compile_context(
     const iree_benchmark_loom_hal_setup_options_t* options,
     const iree_benchmark_loom_selected_benchmark_t* selection,
@@ -48,15 +36,12 @@ static iree_status_t iree_benchmark_loom_initialize_sequence_compile_context(
   }
 
   if (iree_status_is_ok(status)) {
-    context->execution_options.materializer.device_allocator =
-        iree_hal_device_allocator(
-            options->hal_context->execution.runtime.device);
-    context->execution_options.materializer.device =
-        options->hal_context->execution.runtime.device;
+    context->execution_options.materializer.target_pool =
+        options->hal_context->execution.runtime.staging_pool;
+    context->execution_options.materializer.staging_pool =
+        options->hal_context->execution.runtime.staging_pool;
     context->execution_options.materializer.transfer_queue =
         options->hal_context->execution.runtime.transfer_queue;
-    context->execution_options.materializer.buffer_params =
-        loom_run_hal_testbench_host_visible_buffer_params();
     status = iree_benchmark_loom_hal_actual_sequence_initialize(
         options->hal_context, options->compilation, case_plan,
         &context->hal_sequence);
@@ -71,8 +56,8 @@ static iree_status_t iree_benchmark_loom_initialize_sequence_compile_context(
         context->execution_options.materializer.host_allocator,
         &context->reference_oracles, &context->execution_options);
     context->benchmark_materializer = context->execution_options.materializer;
-    context->benchmark_materializer.buffer_params =
-        iree_benchmark_loom_device_local_buffer_params();
+    context->benchmark_materializer.target_pool =
+        options->hal_context->execution.runtime.device_pool;
     status =
         iree_benchmark_loom_hal_actual_sequence_compile(&context->hal_sequence);
   }
@@ -145,15 +130,12 @@ static iree_status_t iree_benchmark_loom_initialize_single_compile_context(
         options->hal_context, options->compilation, kernel_launch,
         iree_string_view_empty(), &context->hal_provider);
     context->hal_provider_initialized = true;
-    context->execution_options.materializer.device_allocator =
-        iree_hal_device_allocator(
-            options->hal_context->execution.runtime.device);
-    context->execution_options.materializer.device =
-        options->hal_context->execution.runtime.device;
+    context->execution_options.materializer.target_pool =
+        options->hal_context->execution.runtime.staging_pool;
+    context->execution_options.materializer.staging_pool =
+        options->hal_context->execution.runtime.staging_pool;
     context->execution_options.materializer.transfer_queue =
         options->hal_context->execution.runtime.transfer_queue;
-    context->execution_options.materializer.buffer_params =
-        loom_run_hal_testbench_host_visible_buffer_params();
     context->execution_options.invocation.kernel_launch =
         (loom_testbench_invocation_provider_t){
             .invoke = loom_run_hal_testbench_actual_invoke,
@@ -164,8 +146,8 @@ static iree_status_t iree_benchmark_loom_initialize_single_compile_context(
         context->execution_options.materializer.host_allocator,
         &context->reference_oracles, &context->execution_options);
     context->benchmark_materializer = context->execution_options.materializer;
-    context->benchmark_materializer.buffer_params =
-        iree_benchmark_loom_device_local_buffer_params();
+    context->benchmark_materializer.target_pool =
+        options->hal_context->execution.runtime.device_pool;
     status =
         iree_benchmark_loom_hal_actual_provider_compile(&context->hal_provider);
   }

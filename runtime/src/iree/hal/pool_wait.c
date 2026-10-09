@@ -206,6 +206,11 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_wait_create(
     iree_hal_pool_t* pool, iree_allocator_t host_allocator,
     iree_hal_pool_wait_t** out_wait) {
   *out_wait = NULL;
+  if (!pool->wait_sources.count) {
+    return iree_make_status(
+        IREE_STATUS_FAILED_PRECONDITION,
+        "pool reported unavailable capacity without a notification source");
+  }
   iree_host_size_t allocation_size = 0;
   IREE_RETURN_IF_ERROR(
       IREE_STRUCT_LAYOUT(sizeof(iree_hal_pool_wait_t), &allocation_size,
@@ -221,7 +226,7 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_wait_create(
     wait->slots[i].wait = wait;
     wait->slots[i].operation.notification = pool->wait_sources.values[i];
   }
-  wait->timer.proactor = pool->notification->proactor;
+  wait->timer.proactor = pool->wait_sources.values[0]->proactor;
   wait->timer.control.base.completion_fn = iree_hal_pool_wait_timer_control;
   iree_async_cancel_request_initialize(
       (iree_async_cancel_callback_t){

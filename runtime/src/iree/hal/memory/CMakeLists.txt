@@ -235,6 +235,33 @@ iree_cc_library(
 
 iree_cc_library(
   NAME
+    heap_pool
+  HDRS
+    "heap_pool.h"
+  SRCS
+    "heap_pool.c"
+  DEPS
+    iree::base
+    iree::base::internal
+    iree::hal
+  PUBLIC
+)
+
+iree_cc_test(
+  NAME
+    heap_pool_test
+  SRCS
+    "heap_pool_test.cc"
+  DEPS
+    ::heap_pool
+    iree::base
+    iree::hal
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+iree_cc_library(
+  NAME
     maintenance
   HDRS
     "maintenance.h"

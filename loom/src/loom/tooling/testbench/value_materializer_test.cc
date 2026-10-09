@@ -12,6 +12,7 @@
 #include "iree/base/internal/arena.h"
 #include "iree/base/internal/math.h"
 #include "iree/hal/api.h"
+#include "iree/hal/memory/heap_pool.h"
 #include "iree/io/memory_stream.h"
 #include "iree/io/vec_stream.h"
 #include "iree/testing/gtest.h"
@@ -37,14 +38,18 @@ class ValueMaterializerTest : public ::testing::Test {
     RegisterDialect(LOOM_DIALECT_CHECK, loom_check_dialect_vtables);
     IREE_ASSERT_OK(loom_context_finalize(&context_));
 
-    IREE_ASSERT_OK(
-        iree_hal_allocator_create_heap(IREE_SV("testbench"), host_allocator_,
-                                       host_allocator_, &device_allocator_));
+    const iree_hal_pool_host_access_t host_access = {
+        /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+        /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED |
+            IREE_HAL_MAPPING_MODE_PERSISTENT,
+    };
+    IREE_ASSERT_OK(iree_hal_heap_pool_create(host_access, host_allocator_,
+                                             host_allocator_, &pool_));
   }
 
   void TearDown() override {
     iree_io_stream_release(written_stream_);
-    iree_hal_allocator_release(device_allocator_);
+    iree_hal_pool_release(pool_);
     iree_arena_deinitialize(&plan_arena_);
     loom_context_deinitialize(&context_);
     iree_arena_block_pool_deinitialize(&block_pool_);
@@ -81,7 +86,7 @@ class ValueMaterializerTest : public ::testing::Test {
   loom_testbench_value_materializer_options_t MaterializerOptions() {
     loom_testbench_value_materializer_options_t options = {};
     loom_testbench_value_materializer_options_initialize(&options);
-    options.device_allocator = device_allocator_;
+    options.target_pool = pool_;
     options.open_read_file.fn = ValueMaterializerTest::OpenReadFile;
     options.open_read_file.user_data = this;
     options.open_write_file.fn = ValueMaterializerTest::OpenWriteFile;
@@ -179,7 +184,7 @@ class ValueMaterializerTest : public ::testing::Test {
   iree_arena_block_pool_t block_pool_;
   iree_arena_allocator_t plan_arena_;
   loom_context_t context_;
-  iree_hal_allocator_t* device_allocator_ = nullptr;
+  iree_hal_pool_t* pool_ = nullptr;
   iree_io_stream_t* written_stream_ = nullptr;
   std::string written_path_;
 };
@@ -645,13 +650,9 @@ check.case @file_io {
   IREE_ASSERT_OK(
       iree_io_stream_seek(written_stream_, IREE_IO_STREAM_SEEK_SET, 0));
   iree_hal_buffer_view_t* written_buffer_view = nullptr;
-  iree_hal_buffer_params_t buffer_params = {};
-  buffer_params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  buffer_params.access = IREE_HAL_MEMORY_ACCESS_READ;
-  buffer_params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
   IREE_ASSERT_OK(iree_numpy_npy_load_ndarray(
-      written_stream_, IREE_NUMPY_NPY_LOAD_OPTION_DEFAULT, buffer_params,
-      device_allocator_, &written_buffer_view));
+      written_stream_, IREE_NUMPY_NPY_LOAD_OPTION_DEFAULT, pool_,
+      /*min_alignment=*/0, &written_buffer_view));
   ExpectBufferViewContents<float>(written_buffer_view, {3},
                                   IREE_HAL_ELEMENT_TYPE_FLOAT_32,
                                   {1.1f, 2.2f, 3.3f});

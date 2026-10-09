@@ -87,6 +87,7 @@ loom_cc_test(
     iree::base
     iree::base::internal::arena
     iree::hal
+    iree::hal::memory::heap_pool
     iree::testing::gtest
     iree::testing::gtest_main
     loom::format::text::parser
@@ -110,6 +111,7 @@ loom_cc_test(
     iree::base
     iree::base::internal::arena
     iree::hal
+    iree::hal::memory::heap_pool
     iree::testing::gtest
     iree::testing::gtest_main
     loom::format::text::parser

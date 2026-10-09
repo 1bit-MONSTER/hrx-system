@@ -237,6 +237,7 @@ iree_runtime_cc_test(
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:fpu_state",
         "//runtime/src/iree/base/internal:span",
+        "//runtime/src/iree/hal/memory:heap_pool",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],
