@@ -763,8 +763,20 @@ iree_hal_amdgpu_physical_device_initialize_default_pool_resources(
       .memory_pool = coarse_block_memory_pool,
       .vmem_memory_type = IREE_HAL_AMDGPU_VMEM_MEMORY_TYPE_DEFAULT,
       .asan_state = asan_state,
-      .memory_type = properties.memory_type,
-      .supported_usage = properties.supported_usage,
+      .owned =
+          {
+              .memory_type = properties.memory_type,
+              .supported_usage = properties.supported_usage,
+          },
+      .exposed =
+          {
+              .memory_type = properties.memory_type,
+              .supported_usage = properties.supported_usage,
+              .atomic_operations =
+                  iree_hal_amdgpu_atomic_memory_expand_capabilities(
+                      iree_hal_amdgpu_atomic_memory_select_device_cells(
+                          &atomic_source_masks, family_affinity)),
+          },
       .access =
           {
               .queue_family_affinity = family_affinity,
@@ -777,9 +789,10 @@ iree_hal_amdgpu_physical_device_initialize_default_pool_resources(
           },
   };
   IREE_RETURN_IF_ERROR(iree_hal_amdgpu_slab_provider_create(
-      logical_device, libhsa, default_slab_options, device_ordinal,
-      &out_physical_device->materialized_buffer_pool, slab_trace_name,
-      host_allocator, &out_physical_device->default_slab_provider));
+      logical_device, /*import_allocator=*/NULL, libhsa, default_slab_options,
+      device_ordinal, &out_physical_device->materialized_buffer_pool,
+      slab_trace_name, host_allocator,
+      &out_physical_device->default_slab_provider));
 
   if (properties.allocation_alignment < options->default_pool.alignment) {
     return iree_make_status(
@@ -840,11 +853,26 @@ iree_hal_amdgpu_physical_device_initialize_default_pool_resources(
       .memory_pool = out_physical_device->host_memory_pools.fine_pool,
       .vmem_memory_type = IREE_HAL_AMDGPU_VMEM_MEMORY_TYPE_DEFAULT,
       .asan_state = asan_state,
-      .memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-                     IREE_HAL_MEMORY_TYPE_HOST_COHERENT |
-                     IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-      .supported_usage =
-          iree_hal_amdgpu_physical_device_mappable_pool_supported_usage(),
+      .owned =
+          {
+              .memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
+                             IREE_HAL_MEMORY_TYPE_HOST_COHERENT |
+                             IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
+              .supported_usage =
+                  iree_hal_amdgpu_physical_device_mappable_pool_supported_usage(),
+          },
+      .exposed =
+          {
+              .memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
+                             IREE_HAL_MEMORY_TYPE_HOST_COHERENT |
+                             IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
+              .supported_usage =
+                  iree_hal_amdgpu_physical_device_mappable_pool_supported_usage(),
+              .atomic_operations =
+                  iree_hal_amdgpu_atomic_memory_expand_capabilities(
+                      iree_hal_amdgpu_atomic_memory_select_device_cells(
+                          &atomic_source_masks, family_affinity)),
+          },
       .access =
           {
               .queue_family_affinity = family_affinity,
@@ -854,9 +882,10 @@ iree_hal_amdgpu_physical_device_initialize_default_pool_resources(
           },
   };
   IREE_RETURN_IF_ERROR(iree_hal_amdgpu_slab_provider_create(
-      logical_device, libhsa, host_slab_options, device_ordinal,
-      &out_physical_device->materialized_buffer_pool, host_slab_trace_name,
-      host_allocator, &out_physical_device->default_host_slab_provider));
+      logical_device, /*import_allocator=*/NULL, libhsa, host_slab_options,
+      device_ordinal, &out_physical_device->materialized_buffer_pool,
+      host_slab_trace_name, host_allocator,
+      &out_physical_device->default_host_slab_provider));
   return iree_ok_status();
 }
 

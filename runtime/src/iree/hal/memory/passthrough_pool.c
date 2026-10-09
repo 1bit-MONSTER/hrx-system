@@ -717,9 +717,9 @@ static iree_status_t iree_hal_passthrough_pool_import_buffer(
       iree_hal_slab_buffer_backing_initialize(
           pool->slab_provider, &allocation->slab,
           &call.imported_slab.properties, maintenance_range,
-          inout_storage->physical_backing_id, pool->base.notification,
-          pool->base.frontier_tracker, pool->maintenance,
-          &allocation->buffer_backing);
+          inout_storage->host_cacheability, inout_storage->physical_backing_id,
+          pool->base.notification, pool->base.frontier_tracker,
+          pool->maintenance, &allocation->buffer_backing);
       allocation->maintenance_entry.fn =
           iree_hal_passthrough_pool_retire_allocation;
       const iree_hal_buffer_release_callback_t release_callback = {
@@ -862,6 +862,10 @@ static iree_status_t iree_hal_passthrough_pool_acquire_one_reservation(
   iree_hal_slab_buffer_backing_initialize(
       pool->slab_provider, &allocation->slab, &slab_properties,
       iree_hal_make_buffer_range(0, slab.length),
+      iree_any_bit_set(slab_properties.memory_type,
+                       IREE_HAL_MEMORY_TYPE_HOST_CACHED)
+          ? IREE_HAL_HOST_CACHEABILITY_WRITE_BACK
+          : IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
       (iree_hal_physical_memory_id_t){0}, pool->base.notification,
       pool->base.frontier_tracker, pool->maintenance,
       &allocation->buffer_backing);

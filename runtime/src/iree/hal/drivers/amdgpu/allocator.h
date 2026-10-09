@@ -33,4 +33,18 @@ iree_status_t iree_hal_amdgpu_allocator_create(
     const iree_hal_amdgpu_topology_t* topology, iree_allocator_t host_allocator,
     iree_hal_allocator_t** out_allocator);
 
+// Attaches typed external storage as one complete AMDGPU root buffer.
+//
+// The returned buffer owns only the native ROCr attachment and never consumes
+// or releases |storage|'s transport owner. |storage| must remain alive until
+// the returned buffer is released. Explicit pool providers use this primitive
+// to preserve their separate transport and native attachment lifetimes.
+// |access_agents| is the exact group-qualified native access set and is copied
+// by the synchronous attachment calls.
+iree_status_t iree_hal_amdgpu_allocator_import_direct_buffer(
+    iree_hal_allocator_t* allocator, const iree_hal_buffer_params_t* params,
+    const iree_hal_external_storage_t* storage,
+    iree_host_size_t access_agent_count, const hsa_agent_t* access_agents,
+    iree_hal_buffer_t** out_buffer);
+
 #endif  // IREE_HAL_DRIVERS_AMDGPU_ALLOCATOR_H_

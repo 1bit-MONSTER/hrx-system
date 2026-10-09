@@ -2837,6 +2837,7 @@ static iree_status_t iree_hal_amdgpu_logical_device_assign_topology_info(
     iree_async_frontier_tracker_retain(logical_device->frontier_tracker);
     logical_device->memory_backend = (iree_hal_amdgpu_memory_backend_t){
         .device = base_device,
+        .allocator = logical_device->device_allocator,
         .libhsa = &system->libhsa,
         .topology = &system->topology,
         .physical_devices = logical_device->physical_devices,

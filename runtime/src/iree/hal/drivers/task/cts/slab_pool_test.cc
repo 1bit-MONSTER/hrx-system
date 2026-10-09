@@ -312,6 +312,8 @@ TEST_P(TaskSlabPoolTest, ImportsFiniteExternalRangeWithExactOwnership) {
   EXPECT_EQ(memory.backing->maintenance_range.byte_offset, 0u);
   EXPECT_EQ(memory.backing->maintenance_range.byte_length,
             storage_bytes.size());
+  EXPECT_EQ(memory.backing->host_cacheability,
+            IREE_HAL_HOST_CACHEABILITY_WRITE_BACK);
   EXPECT_EQ(memory.backing->physical_backing_id.words[0], 0x1234u);
   EXPECT_EQ(memory.backing->physical_backing_id.words[1], 0x5678u);
 
@@ -327,6 +329,7 @@ TEST_P(TaskSlabPoolTest, ImportsFiniteExternalRangeWithExactOwnership) {
       host_pointer_class, &exported, &exported_range));
   EXPECT_EQ(exported.payload.host_pointer, storage_bytes.data());
   EXPECT_EQ(exported.byte_length, storage_bytes.size());
+  EXPECT_EQ(exported.host_cacheability, IREE_HAL_HOST_CACHEABILITY_WRITE_BACK);
   EXPECT_EQ(exported_range.byte_offset, 12u);
   EXPECT_EQ(exported_range.byte_length, 8u);
   EXPECT_EQ(exported.physical_backing_id.words[0], 0x1234u);

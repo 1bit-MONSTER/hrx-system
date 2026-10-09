@@ -113,19 +113,25 @@ TEST_F(SlabProviderTest, CapturesAccessBeforeNativeAcquisition) {
         &topology_, family_affinity, &agents));
     iree_hal_amdgpu_slab_provider_options_t options = {};
     options.memory_pool = memory_pool;
-    options.memory_type = properties.memory_type;
-    options.supported_usage = properties.supported_usage;
+    options.owned.memory_type = properties.memory_type;
+    options.owned.supported_usage = properties.supported_usage;
+    options.exposed.memory_type = properties.memory_type;
+    options.exposed.supported_usage = properties.supported_usage;
     options.access.queue_family_affinity = family_affinity;
     options.access.agent_count = agents.count;
     options.access.agents = agents.values;
     IREE_ASSERT_OK(iree_hal_amdgpu_atomic_memory_query_source_masks(
         &libhsa_, &topology_, memory_pool, HSA_AMD_MEMORY_POOL_STANDARD_FLAG,
         &options.access.atomic_source_masks));
+    options.exposed.atomic_operations =
+        iree_hal_amdgpu_atomic_memory_expand_capabilities(
+            iree_hal_amdgpu_atomic_memory_select_device_cells(
+                &options.access.atomic_source_masks, family_affinity));
     iree_hal_slab_provider_t* provider = nullptr;
     IREE_ASSERT_OK(iree_hal_amdgpu_slab_provider_create(
-        test_device.hal_device(), &libhsa_, options, 0,
-        &physical_device->materialized_buffer_pool, IREE_SV("captured-access"),
-        host_allocator_, &provider));
+        test_device.hal_device(), /*import_allocator=*/nullptr, &libhsa_,
+        options, 0, &physical_device->materialized_buffer_pool,
+        IREE_SV("captured-access"), host_allocator_, &provider));
     // Construction inputs can be reused before the first payload acquisition.
     memset(&agents, 0, sizeof(agents));
     memset(&options, 0, sizeof(options));

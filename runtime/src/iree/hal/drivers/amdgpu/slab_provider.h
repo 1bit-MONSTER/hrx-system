@@ -65,11 +65,26 @@ typedef struct iree_hal_amdgpu_slab_provider_options_t {
   // ASAN state used when ASAN shadow support is enabled.
   iree_hal_amdgpu_asan_state_t* asan_state;
 
-  // HAL memory type bits reported for buffers materialized from slabs.
-  iree_hal_memory_type_t memory_type;
+  // Facts for slabs allocated from |memory_pool|.
+  struct {
+    // HAL memory type bits of provider-owned HSA allocations.
+    iree_hal_memory_type_t memory_type;
+    // HAL buffer usage bits supported by provider-owned HSA allocations.
+    iree_hal_buffer_usage_t supported_usage;
+  } owned;
 
-  // HAL buffer usage bits supported by buffers materialized from slabs.
-  iree_hal_buffer_usage_t supported_usage;
+  // Common facts guaranteed by every owned or imported slab route.
+  struct {
+    // HAL memory type bits common to every admitted route.
+    iree_hal_memory_type_t memory_type;
+    // HAL buffer usage bits common to every admitted route.
+    iree_hal_buffer_usage_t supported_usage;
+    // Atomic operations common to every admitted route.
+    iree_hal_atomic_operation_capabilities_t atomic_operations;
+    // Guaranteed base alignment common to every admitted route. Zero inherits
+    // the alignment of provider-owned HSA allocations.
+    iree_device_size_t allocation_alignment;
+  } exposed;
 
   // Qualified native access captured before provider construction.
   struct {
@@ -104,11 +119,14 @@ iree_status_t iree_hal_amdgpu_slab_provider_query_memory_pool_properties(
 // owning the slab. View wrappers are allocated from |buffer_pool|, which must
 // be in the same physical-device lifetime domain as the backing HSA memory.
 // No topology is retained or queried during acquisition.
-// The provider borrows |device|, |libhsa|,
-// |options.asan_state|, and |buffer_pool|; the owning physical/logical device
-// must outlive the provider and every pool/buffer created from it.
+// |import_allocator| is an optional borrowed native attachment service. It is
+// required only when the provider admits external storage. The provider
+// borrows |device|, |import_allocator|, |libhsa|, |options.asan_state|, and
+// |buffer_pool|; the owning physical/logical device must outlive the provider
+// and every pool/buffer created from it.
 iree_status_t iree_hal_amdgpu_slab_provider_create(
-    iree_hal_device_t* device, const iree_hal_amdgpu_libhsa_t* libhsa,
+    iree_hal_device_t* device, iree_hal_allocator_t* import_allocator,
+    const iree_hal_amdgpu_libhsa_t* libhsa,
     iree_hal_amdgpu_slab_provider_options_t options,
     iree_host_size_t physical_device_ordinal,
     iree_hal_amdgpu_buffer_pool_t* buffer_pool, iree_string_view_t trace_name,

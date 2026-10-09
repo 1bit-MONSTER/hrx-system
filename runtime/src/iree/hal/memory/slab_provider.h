@@ -284,6 +284,7 @@ void iree_hal_slab_buffer_backing_initialize(
     iree_hal_slab_provider_t* provider, const iree_hal_slab_t* slab,
     const iree_hal_slab_provider_properties_t* properties,
     iree_hal_buffer_range_t maintenance_range,
+    iree_hal_host_cacheability_t host_cacheability,
     iree_hal_physical_memory_id_t physical_backing_id,
     iree_async_notification_t* notification,
     iree_async_frontier_tracker_t* tracker,

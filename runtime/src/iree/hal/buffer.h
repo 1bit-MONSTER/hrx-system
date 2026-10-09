@@ -983,6 +983,8 @@ typedef struct iree_hal_buffer_backing_facts_t {
   // Source-owned envelope available for cache maintenance and registration in
   // backing coordinates.
   iree_hal_buffer_range_t maintenance_range;
+  // Source-established host cacheability of the backing storage.
+  iree_hal_host_cacheability_t host_cacheability;
   // Physical identity established by the storage source, when available.
   iree_hal_physical_memory_id_t physical_backing_id;
   // Guaranteed power-of-two alignment of byte zero in native coordinates.
