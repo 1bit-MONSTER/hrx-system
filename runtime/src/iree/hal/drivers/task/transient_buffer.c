@@ -93,10 +93,11 @@ static iree_status_t iree_hal_task_transient_buffer_retain_host_backing(
 }
 
 iree_status_t iree_hal_task_transient_buffer_create(
-    iree_hal_buffer_placement_t placement, iree_hal_buffer_params_t params,
-    iree_device_size_t allocation_size, iree_device_size_t byte_length,
-    iree_hal_pool_t* source_pool, iree_allocator_t host_allocator,
-    iree_hal_buffer_t** out_buffer) {
+    iree_hal_buffer_placement_t placement, iree_hal_memory_type_t memory_type,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage, iree_device_size_t allocation_size,
+    iree_device_size_t byte_length, iree_hal_pool_t* source_pool,
+    iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer) {
   IREE_ASSERT_ARGUMENT(source_pool);
   IREE_ASSERT_ARGUMENT(out_buffer);
   if (IREE_UNLIKELY(byte_length > allocation_size)) {
@@ -117,8 +118,8 @@ iree_status_t iree_hal_task_transient_buffer_create(
 
   iree_hal_buffer_initialize(
       placement, /*allocated_buffer=*/&buffer->base, allocation_size,
-      /*byte_offset=*/0, byte_length, params.type, params.access, params.usage,
-      &iree_hal_task_transient_buffer_vtable, &buffer->base);
+      /*byte_offset=*/0, byte_length, memory_type, allowed_access,
+      allowed_usage, &iree_hal_task_transient_buffer_vtable, &buffer->base);
   buffer->base.memory.bindings = buffer->bindings;
   buffer->base.memory.contract = source_pool->memory_contract;
   buffer->base.host_binding_index = binding_layout->host_binding_index;

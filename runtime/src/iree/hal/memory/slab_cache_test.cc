@@ -102,12 +102,6 @@ class SlabCacheTest : public ::testing::Test {
     IREE_ASSERT_OK(
         iree_hal_passthrough_pool_create({}, provider_, notification_, tracker_,
                                          maintenance_, allocator_, &native_));
-    params_.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-    params_.access = IREE_HAL_MEMORY_ACCESS_ALL;
-    params_.usage =
-        IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-    params_.queue_family_affinity = iree_hal_make_queue_family_affinity(0);
-    params_.min_alignment = 16;
     IREE_ASSERT_OK(CreateCache(native_, 4096, 0, 4, &cache_));
   }
 
@@ -133,7 +127,8 @@ class SlabCacheTest : public ::testing::Test {
                             iree_hal_pool_t** out_pool) {
     iree_hal_slab_cache_options_t options;
     iree_hal_slab_cache_options_initialize(&options);
-    options.slab = {params_, length};
+    options.slab =
+        iree_hal_make_pool_reservation_request(length, kMinAlignment);
     options.target_count = target;
     options.max_count = maximum;
     return iree_hal_slab_cache_create(parent, &options, allocator_, out_pool);
@@ -170,7 +165,8 @@ class SlabCacheTest : public ::testing::Test {
                         iree_hal_pool_reservation_t* reservation,
                         iree_hal_pool_acquire_info_t* info,
                         iree_hal_pool_acquire_result_t* result) {
-    const iree_hal_pool_reservation_request_t request = {params_, length};
+    const iree_hal_pool_reservation_request_t request =
+        iree_hal_make_pool_reservation_request(length, kMinAlignment);
     return iree_hal_pool_acquire_reservations(pool, 1, &request, requester,
                                               flags, reservation, info, result);
   }
@@ -178,8 +174,9 @@ class SlabCacheTest : public ::testing::Test {
   iree_status_t CheckBytes(iree_hal_pool_t* pool,
                            const iree_hal_pool_reservation_t& reservation,
                            uint8_t pattern, uintptr_t* out_address) {
-    const iree_hal_pool_reservation_request_t request = {
-        params_, reservation.byte_length};
+    const iree_hal_pool_reservation_request_t request =
+        iree_hal_make_pool_reservation_request(reservation.byte_length,
+                                               kMinAlignment);
     iree_hal_buffer_t* buffer = nullptr;
     IREE_RETURN_IF_ERROR(iree_hal_pool_materialize_reservations(
         pool, 1, &request, &reservation, IREE_HAL_POOL_MATERIALIZE_FLAG_NONE,
@@ -227,8 +224,7 @@ class SlabCacheTest : public ::testing::Test {
   iree_hal_pool_t* cache_ = nullptr;
   // Child allocator policies released in reverse creation order.
   std::vector<iree_hal_pool_t*> children_;
-  // User-visible geometry and permissions.
-  iree_hal_buffer_params_t params_ = {};
+  static constexpr iree_device_size_t kMinAlignment = 16;
 };
 
 TEST_F(SlabCacheTest, IndependentChildrenReuseOneNativeAllocation) {
@@ -329,7 +325,8 @@ TEST_F(SlabCacheTest, NativePoolRequiresMaterialization) {
 
 TEST_F(SlabCacheTest, PendingReturnPreservesExactHistoryAndPrefersReady) {
   std::array<iree_hal_pool_reservation_request_t, 2> requests = {
-      {{params_, 4096}, {params_, 4096}}};
+      {iree_hal_make_pool_reservation_request(4096, kMinAlignment),
+       iree_hal_make_pool_reservation_request(4096, kMinAlignment)}};
   std::array<iree_hal_pool_reservation_t, 2> reservations;
   std::array<iree_hal_pool_acquire_info_t, 2> infos;
   iree_hal_pool_acquire_result_t result;
@@ -380,7 +377,8 @@ TEST_F(SlabCacheTest, FailedBatchRestoresIdleCapacityWithoutNotification) {
                          &reservation, &info, &result));
   iree_hal_pool_release_reservations(cache_, 1, &reservation, nullptr);
   const std::array<iree_hal_pool_reservation_request_t, 2> requests = {
-      {{params_, 4096}, {params_, 4096}}};
+      {iree_hal_make_pool_reservation_request(4096, kMinAlignment),
+       iree_hal_make_pool_reservation_request(4096, kMinAlignment)}};
   std::array<iree_hal_pool_reservation_t, 2> reservations;
   memset(reservations.data(), 0xA5, sizeof(reservations));
   const auto original = reservations;
@@ -435,10 +433,11 @@ TEST_F(SlabCacheTest, ExplicitPrefillAndTrimRetainPolicyAndByteFloor) {
 
 TEST_F(SlabCacheTest, OversizedAndAlignmentBypassUseSameParent) {
   for (const auto& request : std::array<iree_hal_pool_reservation_request_t, 2>{
-           {{params_, 8192}, {params_, 256}}}) {
+           {iree_hal_make_pool_reservation_request(8192, kMinAlignment),
+            iree_hal_make_pool_reservation_request(256, kMinAlignment)}}) {
     auto aligned_request = request;
     if (aligned_request.allocation_size == 256) {
-      aligned_request.params.min_alignment = 256;
+      aligned_request.min_alignment = 256;
     }
     iree_hal_pool_reservation_t reservation;
     iree_hal_pool_acquire_info_t info;
@@ -448,7 +447,7 @@ TEST_F(SlabCacheTest, OversizedAndAlignmentBypassUseSameParent) {
         &reservation, &info, &result));
     uintptr_t address = 0;
     IREE_ASSERT_OK(CheckBytes(cache_, reservation, 0x2A, &address));
-    EXPECT_EQ(address % aligned_request.params.min_alignment, 0u);
+    EXPECT_EQ(address % aligned_request.min_alignment, 0u);
     iree_hal_pool_release_reservations(cache_, 1, &reservation, nullptr);
   }
   Drain();
@@ -464,7 +463,8 @@ TEST_F(SlabCacheTest, OversizedAndAlignmentBypassUseSameParent) {
 TEST_F(SlabCacheTest, OwningMaterializationReturnsWholeEntry) {
   iree_hal_buffer_t* buffer = nullptr;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      cache_, params_, 256, iree_infinite_timeout(), &buffer));
+      cache_, iree_hal_make_pool_reservation_request(256, kMinAlignment),
+      iree_infinite_timeout(), &buffer));
   EXPECT_EQ(iree_hal_buffer_byte_length(buffer), 4096u);
   const uint8_t pattern = 0x3B;
   IREE_ASSERT_OK(
@@ -613,21 +613,21 @@ TEST_F(SlabCacheTest, AsyncPreparationFailurePropagatesAndCanBeRetried) {
   iree_hal_pool_release_reservations(cache_, 1, &reservation, nullptr);
 }
 
-TEST_F(SlabCacheTest, FailedOwningMaterializationKeepsEveryReservation) {
+TEST_F(SlabCacheTest, InvalidOwningMaterializationKeepsEveryReservation) {
   std::array<iree_hal_pool_reservation_request_t, 2> requests = {
-      {{params_, 256}, {params_, 256}}};
+      {iree_hal_make_pool_reservation_request(256, kMinAlignment),
+       iree_hal_make_pool_reservation_request(256, kMinAlignment)}};
   std::array<iree_hal_pool_reservation_t, 2> reservations;
   std::array<iree_hal_pool_acquire_info_t, 2> infos;
   iree_hal_pool_acquire_result_t result;
   IREE_ASSERT_OK(iree_hal_pool_acquire_reservations(
       cache_, 2, requests.data(), nullptr, IREE_HAL_POOL_RESERVE_FLAG_NONE,
       reservations.data(), infos.data(), &result));
-  // The first staged view succeeds. The second requests a usage bit that
-  // the prepared native view does not grant.
-  requests[1].params.usage = static_cast<iree_hal_buffer_usage_t>(1u << 31);
+  // One invalid member rejects the complete ownership-transfer transaction.
+  requests[1].allocation_size = reservations[1].byte_length + 1;
   std::array<iree_hal_buffer_t*, 2> buffers = {};
   IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_PERMISSION_DENIED,
+      IREE_STATUS_INVALID_ARGUMENT,
       iree_hal_pool_materialize_reservations(
           cache_, 2, requests.data(), reservations.data(),
           IREE_HAL_POOL_MATERIALIZE_FLAG_TRANSFER_RESERVATION_OWNERSHIP,
@@ -656,7 +656,8 @@ TEST_F(SlabCacheTest, ConcurrentOwningAllocationsAndReturns) {
       for (size_t iteration = 0; iteration < 128; ++iteration) {
         iree_hal_buffer_t* buffer = nullptr;
         IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-            cache_, params_, 256, iree_infinite_timeout(), &buffer));
+            cache_, iree_hal_make_pool_reservation_request(256, kMinAlignment),
+            iree_infinite_timeout(), &buffer));
         const uint8_t pattern = static_cast<uint8_t>(thread_index + iteration);
         IREE_EXPECT_OK(iree_hal_buffer_map_fill(
             buffer, 0, IREE_HAL_WHOLE_BUFFER, &pattern, 1));
@@ -684,7 +685,8 @@ TEST_F(SlabCacheTest, ConcurrentOwningAllocationsAndReturns) {
 TEST_F(SlabCacheTest, InteriorRangePreparationPreservesNeighbors) {
   iree_hal_buffer_t* backing = nullptr;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      native_, params_, 8192, iree_infinite_timeout(), &backing));
+      native_, iree_hal_make_pool_reservation_request(8192, kMinAlignment),
+      iree_infinite_timeout(), &backing));
   const uint8_t pattern = 0x6D;
   IREE_ASSERT_OK(
       iree_hal_buffer_map_fill(backing, 0, IREE_HAL_WHOLE_BUFFER, &pattern, 1));

@@ -289,13 +289,17 @@ TEST_F(PM4CommandDispatchTest, WritesInteriorOfNestedQueuedArena) {
   params.queue_family_affinity = iree_hal_make_queue_family_affinity(0);
   Ref<iree_hal_buffer_t> backing;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, params, 8192, iree_infinite_timeout(), backing.out()));
+      source,
+      iree_hal_make_pool_reservation_request(8192, (params).min_alignment),
+      iree_infinite_timeout(), backing.out()));
   iree_hal_tlsf_pool_options_t options = {};
   options.tlsf_options.frontier_capacity = 4;
   Ref<iree_hal_pool_t> arena_pool;
   IREE_ASSERT_OK(iree_hal_tlsf_pool_create_from_buffer(
       backing, 256, 7168, &options, host_allocator_, arena_pool.out()));
-  const iree_hal_pool_reservation_request_t arena_request = {params, 4096};
+  const iree_hal_pool_reservation_request_t arena_request =
+      iree_hal_make_pool_reservation_request(/*allocation_size=*/4096,
+                                             params.min_alignment);
   Ref<iree_hal_buffer_t> arena;
   SemaphoreList arena_ready(test_device_.base_device(), {0}, {1});
   IREE_ASSERT_OK(iree_hal_queue_alloca(queue, iree_hal_semaphore_list_empty(),
@@ -306,7 +310,9 @@ TEST_F(PM4CommandDispatchTest, WritesInteriorOfNestedQueuedArena) {
   Ref<iree_hal_pool_t> pool;
   IREE_ASSERT_OK(iree_hal_tlsf_pool_create_from_buffer(
       arena, 256, 3584, &options, host_allocator_, pool.out()));
-  const iree_hal_pool_reservation_request_t request = {params, 256};
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(/*allocation_size=*/256,
+                                             params.min_alignment);
   Ref<iree_hal_buffer_t> root;
   SemaphoreList allocated(test_device_.base_device(), {0}, {1});
   IREE_ASSERT_OK(iree_hal_queue_alloca(queue, iree_hal_semaphore_list_empty(),

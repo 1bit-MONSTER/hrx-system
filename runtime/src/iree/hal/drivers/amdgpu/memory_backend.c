@@ -375,12 +375,9 @@ static iree_status_t iree_hal_amdgpu_slab_pool_query_memory(
   if (iree_status_is_ok(status) && supported) {
     iree_hal_memory_contract_t* contract = plan->contract;
     contract->host = host;
-    contract->buffer_params = (iree_hal_buffer_params_t){
-        .usage = usage | iree_hal_amdgpu_memory_mapping_usage(host),
-        .access = IREE_HAL_MEMORY_ACCESS_ALL,
-        .type = memory_type,
-        .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-    };
+    contract->allowed_access = IREE_HAL_MEMORY_ACCESS_ALL;
+    contract->allowed_usage =
+        usage | iree_hal_amdgpu_memory_mapping_usage(host);
     if (host.access) {
       contract->scopes[1].interfaces = 1u << IREE_HAL_BUFFER_INTERFACE_HOST;
       contract->scopes[1].bindings[IREE_HAL_BUFFER_INTERFACE_HOST] =

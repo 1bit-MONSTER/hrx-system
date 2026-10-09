@@ -1369,11 +1369,8 @@ static iree_status_t iree_hal_replay_recorder_queue_allocate_alloca_storage(
       status = iree_hal_replay_recorder_reserve_object_id(
           queue->recorder, &request_payload->buffer_id);
       if (iree_status_is_ok(status)) {
-        iree_hal_buffer_params_t canonical_params = requests[i].params;
-        iree_hal_buffer_params_canonicalize(&canonical_params);
-        iree_hal_replay_recorder_allocator_make_allocate_buffer_payload(
-            &canonical_params, requests[i].allocation_size,
-            &request_payload->allocation);
+        request_payload->allocation_size = requests[i].allocation_size;
+        request_payload->min_alignment = requests[i].min_alignment;
       }
     }
   }

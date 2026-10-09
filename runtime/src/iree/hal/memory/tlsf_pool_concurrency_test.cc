@@ -121,14 +121,7 @@ class GatedAllocator {
 };
 
 static iree_hal_pool_reservation_request_t Request(iree_device_size_t length) {
-  iree_hal_pool_reservation_request_t request = {};
-  request.params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  request.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  request.params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-  request.params.min_alignment = 16;
-  request.allocation_size = length;
-  return request;
+  return iree_hal_make_pool_reservation_request(length, 16);
 }
 
 class TLSFPoolConcurrencyTest : public ::testing::Test {
@@ -349,8 +342,7 @@ class FiniteTLSFPoolConcurrencyTest : public TLSFPoolConcurrencyTest {
   iree_status_t CreatePool(iree_hal_tlsf_pool_options_t options) override {
     const auto request = Request(options.tlsf_options.range_length);
     IREE_RETURN_IF_ERROR(iree_hal_pool_allocate_buffer(
-        backing_pool_, request.params, request.allocation_size,
-        iree_infinite_timeout(), &finite_backing_));
+        backing_pool_, request, iree_infinite_timeout(), &finite_backing_));
     options.tlsf_options.range_length = 0;
     return iree_hal_tlsf_pool_create_from_buffer(
         finite_backing_, 0, IREE_HAL_WHOLE_BUFFER, &options,
@@ -395,10 +387,12 @@ TEST_F(TLSFPoolConcurrencyTest,
          ++iteration) {
       const iree_device_size_t length = 64u << ((iteration + worker_index) % 7);
       auto request = Request(length);
-      request.params.min_alignment = 64;
+      request.min_alignment = 64;
       iree_hal_buffer_t* buffer = nullptr;
-      status = iree_hal_pool_allocate_buffer(pool_, request.params, length,
-                                             iree_immediate_timeout(), &buffer);
+      status = iree_hal_pool_allocate_buffer(
+          pool_,
+          iree_hal_make_pool_reservation_request(length, request.min_alignment),
+          iree_immediate_timeout(), &buffer);
       const uint32_t pattern =
           static_cast<uint32_t>(worker_index * kIterationCount + iteration);
       if (iree_status_is_ok(status)) {

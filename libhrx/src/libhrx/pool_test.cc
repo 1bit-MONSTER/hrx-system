@@ -87,7 +87,8 @@ TEST_F(CpuPoolTest, ExactPoolDefersNativeAllocationUntilGrowthIsAllowed) {
   for (iree_host_size_t request_count : {1u, 9u}) {
     iree_hal_pool_reservation_request_t requests[9];
     for (iree_host_size_t i = 0; i < request_count; ++i) {
-      requests[i] = {params, 128 + i * 16};
+      requests[i] = iree_hal_make_pool_reservation_request(
+          128 + i * 16, params.min_alignment);
     }
     iree_hal_pool_reservation_t reservations[9];
     memset(reservations, 0xA5, sizeof(reservations));
@@ -173,8 +174,10 @@ TEST_F(CpuPoolTest, BatchedReservationsRetainPoolUntilRelease) {
       backend_.frontier_tracker, iree_allocator_system(), &pool));
 
   const iree_hal_pool_reservation_request_t requests[2] = {
-      {/*.params=*/params, /*.allocation_size=*/4096},
-      {/*.params=*/params, /*.allocation_size=*/8192},
+      iree_hal_make_pool_reservation_request(/*allocation_size=*/4096,
+                                             params.min_alignment),
+      iree_hal_make_pool_reservation_request(/*allocation_size=*/8192,
+                                             params.min_alignment),
   };
   iree_hal_pool_reservation_t reservations[2];
   iree_hal_pool_acquire_info_t acquire_infos[2];
@@ -213,9 +216,11 @@ TEST_F(CpuPoolTest, TransferredReservationOwnsBackingBuffer) {
       backend_.frontier_tracker, iree_allocator_system(), &pool));
 
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(
-      iree_hal_pool_allocate_buffer(pool, params, /*allocation_size=*/4096,
-                                    iree_infinite_timeout(), &buffer));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool,
+      iree_hal_make_pool_reservation_request(
+          /*allocation_size=*/4096, (params).min_alignment),
+      iree_infinite_timeout(), &buffer));
 
   iree_hal_buffer_release(buffer);
   iree_hal_pool_release(pool);
@@ -229,36 +234,35 @@ TEST_F(CpuPoolTest, AcceptsWeakerAndRejectsInvalidOrStrongerAlignment) {
       device_->allocator.hal_allocator, params, backend_.notification,
       backend_.frontier_tracker, iree_allocator_system(), &pool));
 
-  iree_hal_pool_reservation_request_t request = {
-      /*.params=*/params,
-      /*.allocation_size=*/4096,
-  };
+  iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(/*allocation_size=*/4096,
+                                             params.min_alignment);
   iree_hal_pool_reservation_t reservation;
   iree_hal_pool_acquire_info_t acquire_info;
   iree_hal_pool_acquire_result_t result;
 
-  request.params.min_alignment = 0;
+  request.min_alignment = 0;
   IREE_ASSERT_OK(iree_hal_pool_acquire_reservations(
       pool, 1, &request, /*requester_frontier=*/nullptr,
       IREE_HAL_POOL_RESERVE_FLAG_NONE, &reservation, &acquire_info, &result));
   iree_hal_pool_release_reservations(pool, 1, &reservation,
                                      /*death_frontier=*/nullptr);
 
-  request.params.min_alignment = 3;
+  request.min_alignment = 3;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         iree_hal_pool_acquire_reservations(
                             pool, 1, &request, /*requester_frontier=*/nullptr,
                             IREE_HAL_POOL_RESERVE_FLAG_NONE, &reservation,
                             &acquire_info, &result));
 
-  request.params.min_alignment = 16;
+  request.min_alignment = 16;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         iree_hal_pool_acquire_reservations(
                             pool, 1, &request, /*requester_frontier=*/nullptr,
                             IREE_HAL_POOL_RESERVE_FLAG_NONE, &reservation,
                             &acquire_info, &result));
 
-  request.params.min_alignment = 8;
+  request.min_alignment = 8;
   IREE_ASSERT_OK(iree_hal_pool_acquire_reservations(
       pool, 1, &request, /*requester_frontier=*/nullptr,
       IREE_HAL_POOL_RESERVE_FLAG_NONE, &reservation, &acquire_info, &result));

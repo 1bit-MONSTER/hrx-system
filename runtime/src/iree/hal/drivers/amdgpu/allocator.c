@@ -1456,9 +1456,32 @@ static iree_status_t iree_hal_amdgpu_allocator_allocate_asan_pool_buffer(
   const iree_device_size_t pool_allocation_size =
       byte_length == 0 ? 4 : byte_length;
   iree_hal_buffer_t* allocation_buffer = NULL;
-  iree_status_t status = iree_hal_pool_set_allocate_buffer(
-      &physical_device->default_pool_set, params, pool_allocation_size,
-      iree_infinite_timeout(), &allocation_buffer);
+  iree_hal_pool_t* pool = iree_hal_pool_set_select(
+      &physical_device->default_pool_set, params, pool_allocation_size);
+  if (!pool) {
+    return iree_make_status(IREE_STATUS_NOT_FOUND,
+                            "no AMDGPU ASAN pool can satisfy a %" PRIdsz
+                            "-byte allocation",
+                            pool_allocation_size);
+  }
+  if (pool->memory_contract) {
+    return iree_make_status(
+        IREE_STATUS_FAILED_PRECONDITION,
+        "legacy AMDGPU allocations cannot override a fixed pool contract");
+  }
+  const iree_hal_pool_reservation_request_t request = {
+      .allocation_size = pool_allocation_size,
+      .min_alignment = params.min_alignment,
+  };
+  iree_status_t status = iree_hal_pool_allocate_buffer(
+      pool, request, iree_infinite_timeout(), &allocation_buffer);
+  if (iree_status_is_ok(status)) {
+    iree_hal_buffer_params_canonicalize(&params);
+    allocation_buffer->allowed_access = params.access;
+    allocation_buffer->allowed_usage = params.usage;
+    allocation_buffer->placement.queue_family_affinity =
+        params.queue_family_affinity;
+  }
   if (iree_status_is_ok(status) &&
       iree_hal_buffer_byte_length(allocation_buffer) != byte_length) {
     status = iree_hal_buffer_subspan(allocation_buffer, /*byte_offset=*/0,

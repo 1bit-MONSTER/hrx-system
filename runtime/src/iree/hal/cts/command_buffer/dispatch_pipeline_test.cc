@@ -264,16 +264,9 @@ TEST_P(DispatchPipelineTest, TransientInputPipeline) {
   // Allocate a transient buffer for input.
   SemaphoreList alloca_signal(device_, {0}, {1});
   SemaphoreList empty_wait;
-  iree_hal_buffer_params_t alloca_params = {0};
-  alloca_params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  alloca_params.usage =
-      IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
-  alloca_params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(transfer_queue_)));
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/alloca_params,
-      /*.allocation_size=*/kBufferSize,
-  };
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(kBufferSize,
+                                             /*min_alignment=*/0);
   iree_hal_buffer_t* raw = nullptr;
   IREE_ASSERT_OK(iree_hal_queue_alloca(transfer_queue_, empty_wait,
                                        alloca_signal, transient_pool_,

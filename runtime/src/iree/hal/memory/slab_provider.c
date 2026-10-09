@@ -41,7 +41,8 @@ void iree_hal_slab_provider_release_slab(iree_hal_slab_provider_t* provider,
 iree_status_t iree_hal_slab_provider_wrap_buffer(
     iree_hal_slab_provider_t* provider, const iree_hal_slab_t* slab,
     iree_device_size_t slab_offset, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t params,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** out_buffer) {
   IREE_ASSERT_ARGUMENT(provider);
@@ -56,9 +57,9 @@ iree_status_t iree_hal_slab_provider_wrap_buffer(
                             " is outside slab length %" PRIdsz,
                             slab_offset, allocation_size, slab->length);
   }
-  return provider->vtable->wrap_buffer(provider, slab, slab_offset,
-                                       allocation_size, params,
-                                       release_callback, out_buffer);
+  return provider->vtable->wrap_buffer(
+      provider, slab, slab_offset, allocation_size, allowed_access,
+      allowed_usage, release_callback, out_buffer);
 }
 
 static bool iree_hal_slab_provider_asan_range_is_valid(

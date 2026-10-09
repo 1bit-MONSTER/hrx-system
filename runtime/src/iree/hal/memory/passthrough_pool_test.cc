@@ -183,7 +183,8 @@ static void iree_hal_test_opaque_slab_provider_release_slab(
 static iree_status_t iree_hal_test_opaque_slab_provider_wrap_buffer(
     iree_hal_slab_provider_t* base_provider, const iree_hal_slab_t* slab,
     iree_device_size_t slab_offset, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t params,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** out_buffer) {
   iree_hal_test_opaque_slab_provider_t* provider =
@@ -198,10 +199,12 @@ static iree_status_t iree_hal_test_opaque_slab_provider_wrap_buffer(
   iree_byte_span_t data = iree_make_byte_span(
       (uint8_t*)(uintptr_t)slab->provider_handle + slab_offset,
       (iree_host_size_t)allocation_size);
-  return iree_hal_heap_buffer_wrap(iree_hal_buffer_placement_undefined(),
-                                   params.type, params.access, params.usage,
-                                   allocation_size, data, release_callback,
-                                   provider->host_allocator, out_buffer);
+  return iree_hal_heap_buffer_wrap(
+      iree_hal_buffer_placement_undefined(),
+      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
+          IREE_HAL_MEMORY_TYPE_HOST_COHERENT | IREE_HAL_MEMORY_TYPE_HOST_CACHED,
+      allowed_access, allowed_usage, allocation_size, data, release_callback,
+      provider->host_allocator, out_buffer);
 }
 
 static iree_status_t iree_hal_test_opaque_slab_provider_validate_asan_options(
@@ -327,13 +330,7 @@ class PassthroughPoolTest : public ::testing::Test {
 
 static iree_hal_pool_reservation_request_t MakeReservationRequest(
     iree_device_size_t allocation_size, iree_device_size_t min_alignment) {
-  iree_hal_pool_reservation_request_t request = {};
-  request.params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  request.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  request.params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  request.params.min_alignment = min_alignment;
-  request.allocation_size = allocation_size;
-  return request;
+  return iree_hal_make_pool_reservation_request(allocation_size, min_alignment);
 }
 
 static iree_status_t AcquireOneReservation(
@@ -358,13 +355,10 @@ static void ReleaseOneReservation(
 }
 
 static iree_status_t MaterializeOneReservation(
-    iree_hal_pool_t* pool, iree_hal_buffer_params_t params,
-    const iree_hal_pool_reservation_t* reservation,
+    iree_hal_pool_t* pool, const iree_hal_pool_reservation_t* reservation,
     iree_hal_pool_materialize_flags_t flags, iree_hal_buffer_t** out_buffer) {
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/params,
-      /*.allocation_size=*/reservation->byte_length,
-  };
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(reservation->byte_length, 1);
   return iree_hal_pool_materialize_reservations(pool, 1, &request, reservation,
                                                 flags, out_buffer);
 }
@@ -397,11 +391,9 @@ TEST_F(PassthroughPoolTest, ReserveRelease) {
 
 TEST_F(PassthroughPoolTest, AlignmentStrengthensNativeBackingGuarantee) {
   auto request = MakeReservationRequest(256, 4096);
-  request.params.usage |= IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
   iree_hal_buffer_t* buffer = nullptr;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      pool_, request.params, request.allocation_size, iree_infinite_timeout(),
-      &buffer));
+      pool_, request, iree_infinite_timeout(), &buffer));
   EXPECT_EQ(iree_hal_buffer_memory_view(buffer).backing->allocation_alignment,
             4096u);
   iree_hal_buffer_mapping_t mapping = {};
@@ -465,7 +457,6 @@ TEST(PassthroughPool, NoGrowthDefersWholeTransactionBeforeAllocating) {
     memset(infos, 0x5A, sizeof(infos));
     for (iree_host_size_t i = 0; i < request_count; ++i) {
       requests[i] = MakeReservationRequest(128 + i * 16, 16);
-      requests[i].params.usage |= IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
     }
     const size_t allocation_count = allocations.allocation_count;
     const uint32_t token = iree_async_notification_begin_observe(notification);
@@ -548,7 +539,6 @@ TEST_F(PassthroughPoolTest, NativeGrowthReentersCapturedOwner) {
   IREE_ASSERT_OK(call.status);
   EXPECT_NE(call.owner_thread, std::this_thread::get_id());
   auto request = MakeReservationRequest(256, 16);
-  request.params.usage |= IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
   iree_hal_buffer_t* buffer = nullptr;
   IREE_ASSERT_OK(iree_hal_pool_materialize_reservations(
       pool_, 1, &request, &call.reservation,
@@ -797,7 +787,7 @@ TEST_F(PassthroughPoolTest, WrapReservationCreatesBuffer) {
 
   iree_hal_buffer_t* buffer = NULL;
   IREE_ASSERT_OK(MaterializeOneReservation(
-      pool_, params, &reservation,
+      pool_, &reservation,
       IREE_HAL_POOL_MATERIALIZE_FLAG_TRANSFER_RESERVATION_OWNERSHIP, &buffer));
   ASSERT_NE(buffer, nullptr);
   EXPECT_EQ(iree_hal_buffer_allocation_size(buffer), 4096u);
@@ -830,9 +820,8 @@ TEST_F(PassthroughPoolTest, BorrowedMaterializationKeepsSlabUntilViewRelease) {
   params.access = IREE_HAL_MEMORY_ACCESS_ALL;
 
   iree_hal_buffer_t* buffer = NULL;
-  IREE_ASSERT_OK(MaterializeOneReservation(pool_, params, &reservation,
-                                           IREE_HAL_POOL_MATERIALIZE_FLAG_NONE,
-                                           &buffer));
+  IREE_ASSERT_OK(MaterializeOneReservation(
+      pool_, &reservation, IREE_HAL_POOL_MATERIALIZE_FLAG_NONE, &buffer));
 
   ReleaseOneReservation(pool_, &reservation,
                         /*death_frontier=*/NULL);
@@ -907,7 +896,6 @@ TEST_F(PassthroughPoolTest,
 
 TEST_F(PassthroughPoolTest, ReturnedTokenAndViewsBothPrecedeRetirement) {
   auto request = MakeReservationRequest(256, 16);
-  request.params.usage |= IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
   iree_hal_pool_reservation_t reservation;
   iree_hal_pool_acquire_info_t info;
   iree_hal_pool_acquire_result_t result;
@@ -915,9 +903,8 @@ TEST_F(PassthroughPoolTest, ReturnedTokenAndViewsBothPrecedeRetirement) {
       pool_, 1, &request, nullptr, IREE_HAL_POOL_RESERVE_FLAG_NONE,
       &reservation, &info, &result));
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(MaterializeOneReservation(pool_, request.params, &reservation,
-                                           IREE_HAL_POOL_MATERIALIZE_FLAG_NONE,
-                                           &buffer));
+  IREE_ASSERT_OK(MaterializeOneReservation(
+      pool_, &reservation, IREE_HAL_POOL_MATERIALIZE_FLAG_NONE, &buffer));
   const uint32_t pattern = 0xABCDEF10u;
   IREE_ASSERT_OK(
       iree_hal_buffer_map_fill(buffer, 0, 256, &pattern, sizeof(pattern)));
@@ -1036,9 +1023,8 @@ TEST_F(PassthroughPoolTest, MaintenanceDrainDoesNotJoinPendingRetirement) {
       pool, 1, &request, nullptr, IREE_HAL_POOL_RESERVE_FLAG_NONE, &reservation,
       &info, &result));
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(MaterializeOneReservation(pool, request.params, &reservation,
-                                           IREE_HAL_POOL_MATERIALIZE_FLAG_NONE,
-                                           &buffer));
+  IREE_ASSERT_OK(MaterializeOneReservation(
+      pool, &reservation, IREE_HAL_POOL_MATERIALIZE_FLAG_NONE, &buffer));
   ReleaseOneReservation(pool, &reservation,
                         iree_async_fixed_frontier_as_const_frontier(&frontier));
   iree_hal_buffer_release(buffer);
@@ -1141,7 +1127,7 @@ TEST(PassthroughPool, UsesProviderHooks) {
 
   iree_hal_buffer_t* buffer = NULL;
   IREE_ASSERT_OK(MaterializeOneReservation(
-      pool, params, &reservation,
+      pool, &reservation,
       IREE_HAL_POOL_MATERIALIZE_FLAG_TRANSFER_RESERVATION_OWNERSHIP, &buffer));
 
   // All trim modes preserve this live buffer and reach its native source.
@@ -1262,7 +1248,7 @@ TEST(PassthroughPool, ASANAdvisesBackingRangeAndExposesUserRange) {
 
   iree_hal_buffer_t* buffer = NULL;
   IREE_ASSERT_OK(MaterializeOneReservation(
-      pool, params, &reservation,
+      pool, &reservation,
       IREE_HAL_POOL_MATERIALIZE_FLAG_TRANSFER_RESERVATION_OWNERSHIP, &buffer));
   ASSERT_NE(buffer, nullptr);
   EXPECT_EQ(iree_hal_buffer_allocation_size(buffer), 13u);
@@ -1347,7 +1333,7 @@ TEST_F(PassthroughPoolTest, BufferMemoryAccess) {
 
   iree_hal_buffer_t* buffer = NULL;
   IREE_ASSERT_OK(MaterializeOneReservation(
-      pool_, params, &reservation,
+      pool_, &reservation,
       IREE_HAL_POOL_MATERIALIZE_FLAG_TRANSFER_RESERVATION_OWNERSHIP, &buffer));
 
   // Map, write, read back.
@@ -1419,7 +1405,9 @@ TEST_F(PassthroughPoolTest, AllocateBuffer) {
 
   iree_hal_buffer_t* buffer = NULL;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      pool_, params, 2048, iree_make_timeout_ms(0), &buffer));
+      pool_,
+      iree_hal_make_pool_reservation_request(2048, (params).min_alignment),
+      iree_make_timeout_ms(0), &buffer));
   ASSERT_NE(buffer, nullptr);
   EXPECT_EQ(iree_hal_buffer_allocation_size(buffer), 2048u);
   EXPECT_EQ(iree_hal_buffer_byte_length(buffer), 2048u);
@@ -1443,7 +1431,9 @@ TEST_F(PassthroughPoolTest, WrappedBuffersBorrowPool) {
 
   iree_hal_buffer_t* buffer = NULL;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      pool_, params, 512, iree_make_timeout_ms(0), &buffer));
+      pool_,
+      iree_hal_make_pool_reservation_request(512, (params).min_alignment),
+      iree_make_timeout_ms(0), &buffer));
 
   // Wrapped buffers borrow the pool. Use the buffer while the pool is still
   // alive, then release the buffer before releasing the pool.

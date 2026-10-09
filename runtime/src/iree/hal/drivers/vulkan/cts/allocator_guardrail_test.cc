@@ -71,12 +71,9 @@ TEST_P(VulkanAllocatorGuardrailTest, QueueAllocaAcceptsSparseSizedAllocation) {
       options, backend.slab_provider, backend.notification,
       backend.frontier_tracker, backend.maintenance, iree_allocator_system(),
       pool.out()));
-  params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(transfer_queue_)));
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/params,
-      /*.allocation_size=*/allocation_size,
-  };
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(allocation_size,
+                                             params.min_alignment);
 
   Ref<iree_hal_buffer_t> buffer;
   SemaphoreList empty_wait;
@@ -130,13 +127,9 @@ TEST_P(VulkanAllocatorGuardrailTest,
                                        iree_allocator_system(),
                                        backing_pool.out(), pool.out()));
 
-  iree_hal_pool_reservation_request_t request = {};
-  request.allocation_size = kBlockSize;
-  request.params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  request.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  request.params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  request.params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(transfer_queue_)));
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(kBlockSize,
+                                             /*min_alignment=*/0);
   Ref<iree_hal_buffer_t> transient_buffer;
   SemaphoreList empty_wait;
   SemaphoreList allocated(device_, {0}, {1});
@@ -210,10 +203,9 @@ TEST_P(VulkanAllocatorGuardrailTest, QueueAllocaRejectsAnotherNativeOwner) {
   // The semantic capabilities match, but a VkBuffer from a different VkDevice
   // cannot be published as a local native binding. Every acquired reservation
   // returns to its original pool when materialization exposes that mismatch.
-  iree_hal_pool_reservation_request_t request = {};
-  request.params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  request.params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  request.allocation_size = 4096;
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(/*allocation_size=*/4096,
+                                             /*min_alignment=*/0);
   Ref<iree_hal_buffer_t> buffer;
   SemaphoreList allocated(device_, {0}, {1});
   status =

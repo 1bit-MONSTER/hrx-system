@@ -121,12 +121,24 @@ typedef struct iree_hal_pool_reservation_t {
 
 // Describes one allocation in a pool reservation transaction.
 typedef struct iree_hal_pool_reservation_request_t {
-  // Requested memory type, access, usage, placement, and alignment.
-  iree_hal_buffer_params_t params;
-
   // Minimum number of user-visible bytes required.
   iree_device_size_t allocation_size;
+
+  // Minimum power-of-two alignment of every native address promised by the
+  // pool's memory contract. Zero is treated as one byte.
+  iree_device_size_t min_alignment;
 } iree_hal_pool_reservation_request_t;
+
+// Constructs an allocation request with only per-allocation geometry. Memory
+// placement and permissions are fixed by the selected pool.
+static inline iree_hal_pool_reservation_request_t
+iree_hal_make_pool_reservation_request(iree_device_size_t allocation_size,
+                                       iree_device_size_t min_alignment) {
+  return (iree_hal_pool_reservation_request_t){
+      /*.allocation_size=*/allocation_size,
+      /*.min_alignment=*/min_alignment,
+  };
+}
 
 // Flags controlling pool reservation acquisition.
 typedef uint32_t iree_hal_pool_reserve_flags_t;
@@ -695,9 +707,8 @@ IREE_API_EXPORT iree_async_notification_t* iree_hal_pool_notification(
 // A failed frontier wait returns the reservation with its original dependency
 // intact. |out_buffer| is assigned only on success and is otherwise unchanged.
 IREE_API_EXPORT iree_status_t iree_hal_pool_allocate_buffer(
-    iree_hal_pool_t* pool, iree_hal_buffer_params_t params,
-    iree_device_size_t allocation_size, iree_timeout_t timeout,
-    iree_hal_buffer_t** out_buffer);
+    iree_hal_pool_t* pool, iree_hal_pool_reservation_request_t request,
+    iree_timeout_t timeout, iree_hal_buffer_t** out_buffer);
 
 //===----------------------------------------------------------------------===//
 // iree_hal_pool_t implementation details

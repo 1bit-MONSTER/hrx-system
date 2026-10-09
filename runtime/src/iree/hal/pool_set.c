@@ -34,15 +34,6 @@ static bool iree_hal_pool_set_supports_queue_families(
          iree_all_bits_set(supported_affinity, requested_affinity);
 }
 
-static void iree_hal_pool_set_apply_optimal_memory_type(
-    const iree_hal_pool_capabilities_t* capabilities,
-    iree_hal_buffer_params_t* params) {
-  if (iree_any_bit_set(params->type, IREE_HAL_MEMORY_TYPE_OPTIMAL)) {
-    params->type &= ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
-    params->type |= capabilities->memory_type;
-  }
-}
-
 iree_status_t iree_hal_pool_set_initialize(iree_host_size_t initial_capacity,
                                            iree_allocator_t host_allocator,
                                            iree_hal_pool_set_t* out_pool_set) {
@@ -170,28 +161,4 @@ iree_hal_pool_t* iree_hal_pool_set_select(const iree_hal_pool_set_t* pool_set,
   }
 
   return NULL;
-}
-
-iree_status_t iree_hal_pool_set_allocate_buffer(
-    iree_hal_pool_set_t* pool_set, iree_hal_buffer_params_t params,
-    iree_device_size_t allocation_size, iree_timeout_t timeout,
-    iree_hal_buffer_t** out_buffer) {
-  IREE_ASSERT_ARGUMENT(pool_set);
-  IREE_ASSERT_ARGUMENT(out_buffer);
-  *out_buffer = NULL;
-
-  iree_hal_pool_t* pool =
-      iree_hal_pool_set_select(pool_set, params, allocation_size);
-  if (!pool) {
-    return iree_make_status(
-        IREE_STATUS_NOT_FOUND,
-        "no registered pool can satisfy allocation of %" PRIdsz
-        " bytes with the requested buffer parameters",
-        allocation_size);
-  }
-  iree_hal_pool_capabilities_t capabilities;
-  iree_hal_pool_query_capabilities(pool, &capabilities);
-  iree_hal_pool_set_apply_optimal_memory_type(&capabilities, &params);
-  return iree_hal_pool_allocate_buffer(pool, params, allocation_size, timeout,
-                                       out_buffer);
 }

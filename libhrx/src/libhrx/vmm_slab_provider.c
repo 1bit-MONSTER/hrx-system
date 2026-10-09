@@ -282,7 +282,8 @@ static void hrx_vmm_slab_provider_release_slab(
 static iree_status_t hrx_vmm_slab_provider_wrap_buffer(
     iree_hal_slab_provider_t* base_provider, const iree_hal_slab_t* slab,
     iree_device_size_t slab_offset, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t params,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** out_buffer) {
   IREE_ASSERT_ARGUMENT(slab);
@@ -296,17 +297,12 @@ static iree_status_t hrx_vmm_slab_provider_wrap_buffer(
                             "VMM slab has no virtual reservation");
   }
 
-  const iree_hal_memory_type_t required_type =
-      params.type & ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
-  IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_memory_type(
-      iree_hal_buffer_memory_type(virtual_slab->virtual_buffer),
-      required_type));
   IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_access(
       iree_hal_buffer_allowed_access(virtual_slab->virtual_buffer),
-      params.access));
+      allowed_access));
   IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_usage(
       iree_hal_buffer_allowed_usage(virtual_slab->virtual_buffer),
-      params.usage));
+      allowed_usage));
 
   // The callback returns this range to the pool. Tie it to the final subspan
   // reference so TLSF cannot reuse the range while a caller still owns it.

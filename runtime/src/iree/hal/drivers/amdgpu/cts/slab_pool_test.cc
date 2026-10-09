@@ -166,7 +166,8 @@ TEST_P(AmdgpuSlabPoolTest, CapturesExactFamiliesWithoutPayload) {
   }
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, {}, sizeof(uint32_t), iree_infinite_timeout(), buffer.out()));
+      source, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+      iree_infinite_timeout(), buffer.out()));
   uint32_t value = 42;
   SemaphoreList filled(devices_[0], {0}, {1});
   IREE_EXPECT_STATUS_IS(
@@ -240,7 +241,8 @@ TEST_P(AmdgpuSlabPoolTest, PublicHostGrantsAndNativeClassRequirements) {
       EXPECT_EQ(host.modes, mode);
       Ref<iree_hal_buffer_t> buffer;
       IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-          source, {}, sizeof(uint32_t), iree_infinite_timeout(), buffer.out()));
+          source, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+          iree_infinite_timeout(), buffer.out()));
       const uint32_t value = 0xAABBCCDD;
       SemaphoreList filled(devices_[0], {0}, {1});
       IREE_ASSERT_OK(iree_hal_queue_fill(
@@ -377,7 +379,8 @@ TEST_P(AmdgpuSlabPoolTest, HostOnlySourceDoesNotGrantQueueAccess) {
   IREE_ASSERT_OK(CreateSource(scope, source.out()));
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, {}, sizeof(uint32_t), iree_infinite_timeout(), buffer.out()));
+      source, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+      iree_infinite_timeout(), buffer.out()));
   const uint32_t value = 42;
   iree_hal_buffer_mapping_t mapping = {};
   IREE_ASSERT_OK(iree_hal_buffer_map_range(
@@ -456,8 +459,7 @@ TEST_P(AmdgpuSlabPoolTest, SharedCacheFeedsBothPoliciesAcrossNativeOwners) {
   iree_hal_slab_cache_options_t cache_options;
   iree_hal_slab_cache_options_initialize(&cache_options);
   cache_options.slab.allocation_size = 65536;
-  cache_options.slab.params.min_alignment =
-      capabilities.max_allocation_alignment;
+  cache_options.slab.min_alignment = capabilities.max_allocation_alignment;
   Ref<iree_hal_pool_t> cache;
   IREE_ASSERT_OK(iree_hal_slab_cache_create(
       source, &cache_options, iree_allocator_system(), cache.out()));

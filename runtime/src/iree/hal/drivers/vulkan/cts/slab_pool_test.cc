@@ -127,7 +127,10 @@ TEST_P(VulkanSlabPoolTest, CapturesExactFamiliesWithoutAllocatingBacking) {
   iree_hal_buffer_params_t params = {};
   params.min_alignment = capabilities.max_allocation_alignment;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, params, sizeof(uint32_t), iree_infinite_timeout(), buffer.out()));
+      source,
+      iree_hal_make_pool_reservation_request(sizeof(uint32_t),
+                                             (params).min_alignment),
+      iree_infinite_timeout(), buffer.out()));
   EXPECT_EQ(iree_hal_buffer_allowed_usage(buffer),
             IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET);
   const uint32_t value = 0xAABBCCDD;
@@ -171,7 +174,8 @@ TEST_P(VulkanSlabPoolTest, RequiredAndPreferredHostGrants) {
       EXPECT_EQ(host.modes, modes);
       Ref<iree_hal_buffer_t> buffer;
       IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-          source, {}, sizeof(uint32_t), iree_infinite_timeout(), buffer.out()));
+          source, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+          iree_infinite_timeout(), buffer.out()));
       const uint32_t value = 0x1234ABCD;
       SemaphoreList filled(device_, {0}, {1});
       IREE_ASSERT_OK(iree_hal_queue_fill(
@@ -250,7 +254,8 @@ TEST_P(VulkanSlabPoolTest, CachedHostAccessIsAnExactNativeClass) {
             IREE_HAL_HOST_CACHEABILITY_WRITE_BACK);
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      required, {}, sizeof(uint32_t), iree_infinite_timeout(), buffer.out()));
+      required, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+      iree_infinite_timeout(), buffer.out()));
   const uint32_t value = 0xABCD1234;
   SemaphoreList filled(device_, {0}, {1});
   IREE_ASSERT_OK(
@@ -280,7 +285,8 @@ TEST_P(VulkanSlabPoolTest, NativeOnlyAndHostOnlyDoNotGrantQueueOperations) {
   IREE_ASSERT_OK(CreateSource(Scope(), source.out()));
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, {}, 64, iree_infinite_timeout(), buffer.out()));
+      source, iree_hal_make_pool_reservation_request(64, 0),
+      iree_infinite_timeout(), buffer.out()));
   EXPECT_EQ(iree_hal_buffer_allowed_usage(buffer), IREE_HAL_BUFFER_USAGE_NONE);
   iree_hal_memory_scope_t scope;
   const iree_hal_memory_site_t site = {IREE_HAL_MEMORY_SITE_PROGRAM,
@@ -312,7 +318,8 @@ TEST_P(VulkanSlabPoolTest, NativeOnlyAndHostOnlyDoNotGrantQueueOperations) {
   Ref<iree_hal_pool_t> host_source;
   IREE_ASSERT_OK(CreateSource(host_scope, host_source.out()));
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      host_source, {}, 64, iree_infinite_timeout(), buffer.out()));
+      host_source, iree_hal_make_pool_reservation_request(64, 0),
+      iree_infinite_timeout(), buffer.out()));
   iree_hal_buffer_mapping_t mapping = {};
   IREE_ASSERT_OK(iree_hal_buffer_map_range(
       buffer, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_ALL,
@@ -421,8 +428,7 @@ TEST_P(VulkanSlabPoolTest, SharedBackingAcrossFamiliesAndAllocationPolicies) {
   iree_hal_slab_cache_options_t cache_options;
   iree_hal_slab_cache_options_initialize(&cache_options);
   cache_options.slab.allocation_size = 65536;
-  cache_options.slab.params.min_alignment =
-      capabilities.max_allocation_alignment;
+  cache_options.slab.min_alignment = capabilities.max_allocation_alignment;
   Ref<iree_hal_pool_t> cache;
   IREE_ASSERT_OK(iree_hal_slab_cache_create(
       source, &cache_options, iree_allocator_system(), cache.out()));

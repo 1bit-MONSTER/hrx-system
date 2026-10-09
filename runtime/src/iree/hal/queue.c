@@ -830,18 +830,13 @@ iree_hal_queue_alloca(iree_hal_queue_t* queue,
                                " has a zero allocation size",
                                i));
     }
-    if (pool->memory_contract) {
-      continue;
-    }
-    const iree_hal_queue_family_affinity_t request_affinity =
-        requests[i].params.queue_family_affinity
-            ? requests[i].params.queue_family_affinity
-            : IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
-    iree_status_t status =
-        iree_hal_queue_validate_family_access(queue, request_affinity);
-    if (!iree_status_is_ok(status)) {
+    if (IREE_UNLIKELY(
+            !iree_device_size_is_valid_alignment(requests[i].min_alignment))) {
       IREE_RETURN_AND_END_ZONE_IF_ERROR(
-          z0, iree_status_annotate_f(status, "allocation request %" PRIhsz, i));
+          z0, iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                               "allocation request %" PRIhsz
+                               " has an invalid alignment",
+                               i));
     }
   }
   iree_status_t status = (_VTABLE_DISPATCH(queue, alloca))(

@@ -840,12 +840,8 @@ static iree_status_t iree_hal_replay_executor_queue_alloca(
         break;
       }
     }
-    if (iree_status_is_ok(status)) {
-      status = iree_hal_replay_executor_make_buffer_params(
-          &request_payloads[i].allocation, &requests[i].params);
-      requests[i].allocation_size =
-          request_payloads[i].allocation.allocation_size;
-    }
+    requests[i].allocation_size = request_payloads[i].allocation_size;
+    requests[i].min_alignment = request_payloads[i].min_alignment;
   }
   iree_hal_replay_queue_completion_t* completion = NULL;
   if (iree_status_is_ok(status)) {

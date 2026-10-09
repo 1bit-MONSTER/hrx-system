@@ -213,12 +213,6 @@ class TaskQueueAllocaTest : public ::testing::TestWithParam<iree_host_size_t> {
     std::array<iree_hal_pool_reservation_request_t, 2> requests = {};
     for (auto& request : requests) {
       request.allocation_size = kBlockSize;
-      request.params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-      request.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-      request.params.usage =
-          IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-      request.params.queue_family_affinity =
-          iree_hal_make_queue_family_affinity(0);
     }
     uint64_t allocated_value = 1;
     uint64_t filled_value = 2;
@@ -317,12 +311,6 @@ TEST_P(TaskQueueAllocaTest, SharedPoolResumesThroughNotificationOwner) {
   std::array<iree_hal_pool_reservation_request_t, 2> requests = {};
   for (auto& request : requests) {
     request.allocation_size = kBlockSize;
-    request.params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-    request.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-    request.params.usage =
-        IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-    request.params.queue_family_affinity =
-        iree_hal_make_queue_family_affinity(0);
   }
   uint64_t allocated_value = 1;
   uint64_t filled_value = 2;
@@ -408,14 +396,8 @@ TEST_P(TaskQueueAllocaTest, SiblingPoolResumesThroughBackingNotificationOwner) {
   cache_options.slab.allocation_size = 65536;
   iree_hal_pool_capabilities_t capabilities;
   iree_hal_pool_query_capabilities(source, &capabilities);
-  cache_options.slab.params.min_alignment =
+  cache_options.slab.min_alignment =
       iree_min(4096, capabilities.max_allocation_alignment);
-  cache_options.slab.params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  cache_options.slab.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  cache_options.slab.params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-  cache_options.slab.params.queue_family_affinity =
-      iree_hal_make_queue_family_affinity(0);
   Ref<iree_hal_pool_t> cache;
   IREE_ASSERT_OK(iree_hal_slab_cache_create(
       source, &cache_options, iree_allocator_system(), cache.out()));
@@ -437,9 +419,9 @@ TEST_P(TaskQueueAllocaTest, SiblingPoolResumesThroughBackingNotificationOwner) {
   auto* consumer_notification = iree_hal_pool_notification(consumer);
   auto* cache_notification = iree_hal_pool_notification(cache);
   ASSERT_NE(consumer_notification, cache_notification);
-  iree_hal_pool_reservation_request_t request = {cache_options.slab.params,
-                                                 kBlockSize};
-  request.params.min_alignment = 16;
+  iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(kBlockSize,
+                                             /*min_alignment=*/16);
   uint64_t allocated_value = 1;
   uint64_t filled_value = 2;
   uint64_t released_value = 3;
@@ -502,12 +484,6 @@ TEST_P(TaskQueueAllocaTest, CompletedDeallocationIsImmediatelyReusable) {
   std::array<iree_hal_pool_reservation_request_t, 2> requests = {};
   for (auto& request : requests) {
     request.allocation_size = kBlockSize;
-    request.params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-    request.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-    request.params.usage =
-        IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-    request.params.queue_family_affinity =
-        iree_hal_make_queue_family_affinity(0);
   }
   uint64_t allocated_value = 1;
   uint64_t released_value = 2;
@@ -715,11 +691,6 @@ TEST_P(TaskQueueNativeRetirementTest, QueueBytesRetireOnCapturedOwner) {
 
   iree_hal_pool_reservation_request_t request = {};
   request.allocation_size = kBlockSize;
-  request.params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  request.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  request.params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-  request.params.queue_family_affinity = iree_hal_make_queue_family_affinity(0);
   backing_.ObserveNextAllocation();
   const iree_hal_semaphore_list_t allocated = {1, &semaphores_[1],
                                                &first_value};
@@ -767,9 +738,6 @@ TEST_P(TaskQueueNativeRetirementTest,
   ASSERT_NO_FATAL_FAILURE(UseNativePool());
   iree_hal_pool_reservation_request_t request = {};
   request.allocation_size = kBlockSize;
-  request.params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  request.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  request.params.usage = IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT;
   backing_.ObserveNextAllocation();
   iree_hal_pool_reservation_t reservation;
   iree_hal_pool_acquire_info_t info;
@@ -870,9 +838,11 @@ TEST_P(TaskQueueNativeRetirementTest, CompletionCanDestroyItsPool) {
       IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
   params.queue_family_affinity = iree_hal_make_queue_family_affinity(0);
   backing_.ObserveNextAllocation();
-  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(pool_, params, kBlockSize,
-                                               iree_infinite_timeout(),
-                                               &initial_buffers_[0]));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool_,
+      iree_hal_make_pool_reservation_request(kBlockSize,
+                                             (params).min_alignment),
+      iree_infinite_timeout(), &initial_buffers_[0]));
 
   const uint32_t pattern = 0xDCBA9876u;
   uint64_t completed_value = 1;

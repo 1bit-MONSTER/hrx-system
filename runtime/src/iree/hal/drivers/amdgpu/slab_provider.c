@@ -682,75 +682,16 @@ static void iree_hal_amdgpu_slab_provider_borrowed_buffer_release(
 static iree_status_t iree_hal_amdgpu_slab_provider_wrap_buffer(
     iree_hal_slab_provider_t* base_provider, const iree_hal_slab_t* slab,
     iree_device_size_t slab_offset, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t params,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** out_buffer) {
   iree_hal_amdgpu_slab_provider_t* provider =
       iree_hal_amdgpu_slab_provider_cast(base_provider);
 
-  iree_hal_memory_type_t resolved_type = params.type;
-  if (iree_any_bit_set(resolved_type, IREE_HAL_MEMORY_TYPE_OPTIMAL)) {
-    resolved_type &= ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
-    resolved_type |= provider->properties.memory_type;
-  }
-  if (IREE_UNLIKELY(!iree_all_bits_set(provider->properties.memory_type,
-                                       resolved_type))) {
-#if IREE_STATUS_MODE
-    iree_bitfield_string_temp_t actual_temp;
-    iree_bitfield_string_temp_t requested_temp;
-    iree_string_view_t actual_string = iree_hal_memory_type_format(
-        provider->properties.memory_type, &actual_temp);
-    iree_string_view_t requested_string =
-        iree_hal_memory_type_format(resolved_type, &requested_temp);
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "AMDGPU slab provider memory type %.*s does not satisfy requested "
-        "buffer type %.*s",
-        (int)actual_string.size, actual_string.data, (int)requested_string.size,
-        requested_string.data);
-#else
-    return iree_status_from_code(IREE_STATUS_INVALID_ARGUMENT);
-#endif  // IREE_STATUS_MODE
-  }
-  if (IREE_UNLIKELY(!iree_all_bits_set(provider->properties.supported_usage,
-                                       params.usage))) {
-#if IREE_STATUS_MODE
-    iree_bitfield_string_temp_t actual_temp;
-    iree_bitfield_string_temp_t requested_temp;
-    iree_string_view_t actual_string = iree_hal_buffer_usage_format(
-        provider->properties.supported_usage, &actual_temp);
-    iree_string_view_t requested_string =
-        iree_hal_buffer_usage_format(params.usage, &requested_temp);
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "AMDGPU slab provider usage %.*s does not satisfy requested buffer "
-        "usage %.*s",
-        (int)actual_string.size, actual_string.data, (int)requested_string.size,
-        requested_string.data);
-#else
-    return iree_status_from_code(IREE_STATUS_INVALID_ARGUMENT);
-#endif  // IREE_STATUS_MODE
-  }
-
-  iree_hal_queue_family_affinity_t queue_family_affinity =
-      params.queue_family_affinity;
-  if (iree_hal_queue_family_affinity_is_any(queue_family_affinity)) {
-    queue_family_affinity = provider->supported_queue_family_affinity;
-  } else if (IREE_UNLIKELY(
-                 iree_hal_queue_family_affinity_is_empty(
-                     queue_family_affinity) ||
-                 !iree_all_bits_set(provider->supported_queue_family_affinity,
-                                    queue_family_affinity))) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "AMDGPU slab provider family affinity 0x%016" PRIx64
-        " does not cover requested buffer family affinity 0x%016" PRIx64,
-        provider->supported_queue_family_affinity, queue_family_affinity);
-  }
-
   const iree_hal_buffer_placement_t placement = {
       .device = provider->device,
-      .queue_family_affinity = queue_family_affinity,
+      .queue_family_affinity = provider->supported_queue_family_affinity,
       .flags = IREE_HAL_BUFFER_PLACEMENT_FLAG_NONE,
   };
   if (!release_callback.fn) {
@@ -759,12 +700,14 @@ static iree_status_t iree_hal_amdgpu_slab_provider_wrap_buffer(
   const iree_hal_amdgpu_atomic_memory_cell_flags_t atomic_memory_cells =
       iree_hal_amdgpu_atomic_memory_select_device_cells(
           &provider->atomic_memory_source_masks,
-          (iree_hal_amdgpu_gpu_agent_mask_t)queue_family_affinity);
+          (iree_hal_amdgpu_gpu_agent_mask_t)
+              provider->supported_queue_family_affinity);
   return iree_hal_amdgpu_buffer_create_pooled(
-      provider->libhsa, placement, resolved_type, params.access, params.usage,
-      atomic_memory_cells, allocation_size, allocation_size,
-      slab->base_ptr + slab_offset,
-      iree_any_bit_set(resolved_type, IREE_HAL_MEMORY_TYPE_HOST_VISIBLE)
+      provider->libhsa, placement, provider->properties.memory_type,
+      allowed_access, allowed_usage, atomic_memory_cells, allocation_size,
+      allocation_size, slab->base_ptr + slab_offset,
+      iree_any_bit_set(provider->properties.memory_type,
+                       IREE_HAL_MEMORY_TYPE_HOST_VISIBLE)
           ? slab->base_ptr + slab_offset
           : NULL,
       release_callback, provider->buffer_pool, provider->host_allocator,

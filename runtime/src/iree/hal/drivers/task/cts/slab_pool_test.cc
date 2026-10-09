@@ -270,7 +270,8 @@ TEST_P(TaskSlabPoolTest, PublicHostGrantsRemainIndependentOfExecution) {
       group_, scope, &options, iree_allocator_system(), source.out()));
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, {}, sizeof(uint32_t), iree_infinite_timeout(), buffer.out()));
+      source, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+      iree_infinite_timeout(), buffer.out()));
   SemaphoreList filled(devices_[0], {0}, {1});
   const uint32_t value = 0xAABBCCDD;
   IREE_ASSERT_OK(
@@ -300,7 +301,8 @@ TEST_P(TaskSlabPoolTest, NativeOnlyScopeDoesNotInventSemanticPermissions) {
   IREE_ASSERT_OK(CreateSource(source.out()));
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, {}, sizeof(uint32_t), iree_infinite_timeout(), buffer.out()));
+      source, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+      iree_infinite_timeout(), buffer.out()));
   EXPECT_EQ(iree_hal_buffer_allowed_usage(buffer), IREE_HAL_BUFFER_USAGE_NONE);
   uint32_t value = 42;
   IREE_EXPECT_STATUS_IS(
@@ -318,7 +320,8 @@ TEST_P(TaskSlabPoolTest, InteriorArenasInheritTheCompleteScope) {
   IREE_ASSERT_OK(CreateSource(source.out()));
   Ref<iree_hal_buffer_t> backing;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, {}, 8192, iree_infinite_timeout(), backing.out()));
+      source, iree_hal_make_pool_reservation_request(8192, 0),
+      iree_infinite_timeout(), backing.out()));
   Ref<iree_hal_pool_t> blocks;
   iree_hal_fixed_block_pool_options_t block_options = {};
   block_options.block_size = 1024;
@@ -328,7 +331,8 @@ TEST_P(TaskSlabPoolTest, InteriorArenasInheritTheCompleteScope) {
       blocks.out()));
   Ref<iree_hal_buffer_t> region;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      blocks, {}, 1024, iree_infinite_timeout(), region.out()));
+      blocks, iree_hal_make_pool_reservation_request(1024, 0),
+      iree_infinite_timeout(), region.out()));
   Ref<iree_hal_pool_t> arena;
   iree_hal_tlsf_pool_options_t options = {};
   options.tlsf_options.alignment = IREE_HAL_MEMORY_TLSF_MIN_ALIGNMENT;
@@ -337,7 +341,8 @@ TEST_P(TaskSlabPoolTest, InteriorArenasInheritTheCompleteScope) {
       region, 64, 768, &options, iree_allocator_system(), arena.out()));
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      arena, {}, sizeof(uint32_t), iree_infinite_timeout(), buffer.out()));
+      arena, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+      iree_infinite_timeout(), buffer.out()));
   const auto memory = iree_hal_buffer_memory_view(buffer);
   EXPECT_EQ(memory.contract, source.get()->memory_contract);
   EXPECT_EQ(memory.backing, iree_hal_buffer_memory_view(backing).backing);
@@ -410,7 +415,8 @@ TEST_P(TaskSlabPoolTest, RecordedBindingsValidateTheAdmittedFamily) {
   IREE_ASSERT_OK(CreateSource(source.out()));
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, {}, 16, iree_infinite_timeout(), buffer.out()));
+      source, iree_hal_make_pool_reservation_request(16, 0),
+      iree_infinite_timeout(), buffer.out()));
   for (bool indirect : {false, true}) {
     Ref<iree_hal_command_buffer_t> commands;
     IREE_ASSERT_OK(iree_hal_command_buffer_create(
@@ -464,7 +470,7 @@ TEST_P(TaskSlabPoolTest, SharedBackingAcrossDevicesAndAllocationPolicies) {
   iree_hal_slab_cache_options_t cache_options;
   iree_hal_slab_cache_options_initialize(&cache_options);
   cache_options.slab.allocation_size = 65536;
-  cache_options.slab.params.min_alignment =
+  cache_options.slab.min_alignment =
       iree_min(4096, capabilities.max_allocation_alignment);
   Ref<iree_hal_pool_t> cache;
   IREE_ASSERT_OK(iree_hal_slab_cache_create(

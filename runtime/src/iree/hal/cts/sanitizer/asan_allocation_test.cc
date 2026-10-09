@@ -380,13 +380,9 @@ TEST_P(AsanAllocationTest, QueueDeallocaReleaseReportsAfterSignal) {
   IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
       device(), iree_hal_queue_family(queue), &backend));
 
-  iree_hal_buffer_params_t params = AsanQueueAllocaBufferParams();
-  params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(queue)));
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/params,
-      /*.allocation_size=*/kAsanAllocationBufferLength,
-  };
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(kAsanAllocationBufferLength,
+                                             /*min_alignment=*/0);
   enum class PoolKind { kNative, kTLSF, kFixedBlock };
   for (auto kind :
        {PoolKind::kNative, PoolKind::kTLSF, PoolKind::kFixedBlock}) {
@@ -485,11 +481,9 @@ TEST_P(AsanAllocationTest, GuardedFiniteAllocaWaitsForInheritedHostUse) {
     IREE_ASSERT_OK(
         CreateFiniteBlockPool(backend, source_options, iree_allocator_system(),
                               backing_pool.out(), source_pool.out()));
-    iree_hal_pool_reservation_request_t source_request = {
-        AsanQueueAllocaBufferParams(), 65536};
-    source_request.params.queue_family_affinity =
-        iree_hal_make_queue_family_affinity(
-            iree_hal_queue_family_ordinal(iree_hal_queue_family(queue())));
+    const iree_hal_pool_reservation_request_t source_request =
+        iree_hal_make_pool_reservation_request(/*allocation_size=*/65536,
+                                               /*min_alignment=*/0);
     iree_hal_pool_reservation_t source_reservation;
     iree_hal_pool_acquire_info_t source_info;
     iree_hal_pool_acquire_result_t result;
@@ -528,8 +522,9 @@ TEST_P(AsanAllocationTest, GuardedFiniteAllocaWaitsForInheritedHostUse) {
           source, 0, IREE_HAL_WHOLE_BUFFER, &options, iree_allocator_system(),
           pool.out()));
     }
-    const iree_hal_pool_reservation_request_t request = {
-        source_request.params, kAsanAllocationBufferLength};
+    const iree_hal_pool_reservation_request_t request =
+        iree_hal_make_pool_reservation_request(kAsanAllocationBufferLength,
+                                               /*min_alignment=*/0);
     Ref<iree_hal_buffer_t> buffer;
     SemaphoreList allocated(device(), {0}, {1});
     IREE_ASSERT_OK(

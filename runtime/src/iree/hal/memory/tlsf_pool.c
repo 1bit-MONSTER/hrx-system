@@ -637,18 +637,9 @@ static iree_status_t iree_hal_tlsf_pool_prepare_slab(
   iree_hal_pool_acquire_info_t info = {0};
   if (pool->backing_pool) {
     const iree_hal_pool_reservation_request_t request = {
-        .params =
-            {
-                .type = pool->capabilities.memory_type,
-                .access = pool->capabilities.allowed_access,
-                .usage = pool->capabilities.supported_usage,
-                .queue_family_affinity =
-                    pool->capabilities.queue_family_affinity,
-                .min_alignment =
-                    iree_min(pool->slab_options.alignment,
-                             pool->capabilities.max_allocation_alignment),
-            },
         .allocation_size = pool->backing_slab_length,
+        .min_alignment = iree_min(pool->slab_options.alignment,
+                                  pool->capabilities.max_allocation_alignment),
     };
     status = iree_hal_pool_acquire_reservations(
         pool->backing_pool, 1, &request, requester_frontier, flags,
@@ -667,7 +658,7 @@ static iree_status_t iree_hal_tlsf_pool_prepare_slab(
     }
     if (iree_status_is_ok(status)) {
       status = iree_hal_pool_buffer_range_initialize(
-          buffer, 0, IREE_HAL_WHOLE_BUFFER, request.params.min_alignment,
+          buffer, 0, IREE_HAL_WHOLE_BUFFER, request.min_alignment,
           &pool->asan_options, &slab->range);
       slab->range.memory.reuse_frontier = info.reuse_frontier;
     }
@@ -1044,15 +1035,8 @@ static iree_status_t iree_hal_tlsf_pool_resolve_backing_request(
                             "TLSF slab size exceeds backing pool support");
   }
   *out_request = (iree_hal_pool_reservation_request_t){
-      .params =
-          {
-              .type = capabilities->memory_type,
-              .access = capabilities->allowed_access,
-              .usage = capabilities->supported_usage,
-              .queue_family_affinity = capabilities->queue_family_affinity,
-              .min_alignment = alignment,
-          },
       .allocation_size = length,
+      .min_alignment = alignment,
   };
   return iree_ok_status();
 }
@@ -1109,8 +1093,8 @@ static iree_status_t iree_hal_tlsf_pool_create_impl(
     IREE_RETURN_AND_END_ZONE_IF_ERROR(
         z0, iree_hal_tlsf_pool_resolve_backing_request(&capabilities, &options,
                                                        &request));
-    tlsf_options.alignment = iree_max(request.params.min_alignment,
-                                      capabilities.maintenance_alignment);
+    tlsf_options.alignment =
+        iree_max(request.min_alignment, capabilities.maintenance_alignment);
     backing_slab_length = request.allocation_size;
   } else {
     IREE_RETURN_AND_END_ZONE_IF_ERROR(
@@ -1417,7 +1401,7 @@ static bool iree_hal_tlsf_pool_request_is_dedicated(
     const iree_hal_pool_reservation_request_t* request) {
   return pool->backing_pool &&
          (request->allocation_size > pool->slab_options.range_length ||
-          request->params.min_alignment > pool->slab_options.alignment);
+          request->min_alignment > pool->slab_options.alignment);
 }
 
 static void iree_hal_tlsf_pool_acquire_one_reservation_locked(
@@ -1819,18 +1803,10 @@ static iree_status_t iree_hal_tlsf_pool_acquire_reservations(
     if (iree_status_is_ok(status) && needs_dedicated) {
       iree_hal_tlsf_pool_acquire_element_t* element = &elements[acquired_count];
       const iree_hal_pool_reservation_request_t backing_request = {
-          .params =
-              {
-                  .type = pool->capabilities.memory_type,
-                  .access = pool->capabilities.allowed_access,
-                  .usage = pool->capabilities.supported_usage,
-                  .queue_family_affinity =
-                      pool->capabilities.queue_family_affinity,
-                  .min_alignment =
-                      iree_min(element->geometry.alignment,
-                               pool->capabilities.max_allocation_alignment),
-              },
           .allocation_size = element->geometry.length,
+          .min_alignment =
+              iree_min(element->geometry.alignment,
+                       pool->capabilities.max_allocation_alignment),
       };
       status = iree_hal_tlsf_pool_dedicated_acquire(
           pool->backing_pool, &backing_request, &pool->asan_options,

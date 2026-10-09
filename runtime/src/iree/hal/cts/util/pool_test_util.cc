@@ -26,8 +26,7 @@ iree_status_t CreateFiniteBlockPool(
       backing_pool, &options, &request);
   iree_hal_buffer_t* buffer = nullptr;
   if (iree_status_is_ok(status)) {
-    status = iree_hal_pool_allocate_buffer(backing_pool, request.params,
-                                           request.allocation_size,
+    status = iree_hal_pool_allocate_buffer(backing_pool, request,
                                            iree_infinite_timeout(), &buffer);
   }
   if (iree_status_is_ok(status)) {

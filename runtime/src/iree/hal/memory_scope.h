@@ -158,8 +158,10 @@ typedef struct iree_hal_memory_contract_t {
   uint32_t transition_row_shift;
   // Complete native publication format, with types owned by this contract.
   iree_hal_buffer_binding_layout_t binding_layout;
-  // Global permission projection consumed by native buffer wrappers.
-  iree_hal_buffer_params_t buffer_params;
+  // HAL API access permissions allowed on every buffer from the contract.
+  iree_hal_memory_access_t allowed_access;
+  // HAL operation usages allowed on every buffer from the contract.
+  iree_hal_buffer_usage_t allowed_usage;
   // Achieved owned-backing guarantee, independent of the original preference.
   iree_hal_pool_placement_t placement;
   // Achieved public host mapping contract.

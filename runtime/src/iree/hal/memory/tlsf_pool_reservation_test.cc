@@ -66,14 +66,7 @@ class TLSFPoolReservationTest : public ::testing::Test {
 
   static iree_hal_pool_reservation_request_t Request(
       iree_device_size_t size, iree_device_size_t alignment = 16) {
-    iree_hal_pool_reservation_request_t request = {};
-    request.params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-    request.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-    request.params.usage =
-        IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-    request.params.min_alignment = alignment;
-    request.allocation_size = size;
-    return request;
+    return iree_hal_make_pool_reservation_request(size, alignment);
   }
 
   iree_status_t Create(iree_hal_pool_t* parent, iree_device_size_t budget,
@@ -160,7 +153,7 @@ TEST_F(TLSFPoolReservationTest, MixedSmallLargeAndAlignedBatchUsesOneSource) {
       buffers.data()));
   for (size_t i = 0; i < requests.size(); ++i) {
     CheckBytes(buffers[i], static_cast<uint8_t>(0x31 + i),
-               requests[i].params.min_alignment);
+               requests[i].min_alignment);
   }
   iree_hal_pool_stats_t stats;
   iree_hal_pool_query_stats(pool, &stats);
@@ -269,8 +262,11 @@ TEST_F(TLSFPoolReservationTest,
 TEST_F(TLSFPoolReservationTest, MixedRollbackPreservesDedicatedParentHistory) {
   const auto parent_request = Request(8192);
   iree_hal_buffer_t* backing = nullptr;
-  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      native_, parent_request.params, 8192, iree_infinite_timeout(), &backing));
+  IREE_ASSERT_OK(
+      iree_hal_pool_allocate_buffer(native_,
+                                    iree_hal_make_pool_reservation_request(
+                                        8192, parent_request.min_alignment),
+                                    iree_infinite_timeout(), &backing));
   iree_hal_fixed_block_pool_options_t parent_options = {};
   parent_options.block_size = 8192;
   parent_options.frontier_capacity = 2;
@@ -383,10 +379,8 @@ TEST_F(TLSFPoolReservationTest, ConcurrentDedicatedReturnAndRegularGrowth) {
         const auto request = Request(i % 2 ? 8192 : 512, i % 2 ? 128 : 16);
         iree_hal_buffer_t* buffer = nullptr;
         IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-            pool, request.params, request.allocation_size,
-            iree_infinite_timeout(), &buffer));
-        CheckBytes(buffer, static_cast<uint8_t>(i + j),
-                   request.params.min_alignment);
+            pool, request, iree_infinite_timeout(), &buffer));
+        CheckBytes(buffer, static_cast<uint8_t>(i + j), request.min_alignment);
         iree_hal_buffer_release(buffer);
       }
     });

@@ -20,7 +20,7 @@ extern "C" {
 #define IREE_HAL_REPLAY_FILE_MAGIC 0x50525249u
 
 // Major version of the IREE HAL replay file format.
-#define IREE_HAL_REPLAY_FILE_VERSION_MAJOR 9u
+#define IREE_HAL_REPLAY_FILE_VERSION_MAJOR 10u
 
 // Minor version of the IREE HAL replay file format. Minor version 5 adds
 // explicit memory transition recipes to barrier records.
@@ -768,11 +768,13 @@ static_assert(sizeof(iree_hal_replay_queue_alloca_payload_t) == 32,
 typedef struct iree_hal_replay_queue_alloca_request_payload_t {
   // Session-local object id assigned to the returned allocation root.
   iree_hal_replay_object_id_t buffer_id;
-  // Canonical allocation request submitted to the queue.
-  iree_hal_replay_allocator_allocate_buffer_payload_t allocation;
+  // Requested allocation size, in bytes.
+  uint64_t allocation_size;
+  // Requested minimum alignment, in bytes.
+  uint64_t min_alignment;
 } iree_hal_replay_queue_alloca_request_payload_t;
-static_assert(sizeof(iree_hal_replay_queue_alloca_request_payload_t) == 48,
-              "queue alloca replay request must be 48 bytes");
+static_assert(sizeof(iree_hal_replay_queue_alloca_request_payload_t) == 24,
+              "queue alloca replay request must be 24 bytes");
 
 // Header for an exact-queue deallocation transaction followed by semaphore
 // timepoints and allocation-root object ids.

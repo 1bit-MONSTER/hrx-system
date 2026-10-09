@@ -308,17 +308,12 @@ static iree_status_t iree_hal_pool_wait_for_capacity(
 }
 
 IREE_API_EXPORT iree_status_t iree_hal_pool_allocate_buffer(
-    iree_hal_pool_t* pool, iree_hal_buffer_params_t params,
-    iree_device_size_t allocation_size, iree_timeout_t timeout,
-    iree_hal_buffer_t** out_buffer) {
+    iree_hal_pool_t* pool, iree_hal_pool_reservation_request_t request,
+    iree_timeout_t timeout, iree_hal_buffer_t** out_buffer) {
   IREE_ASSERT_ARGUMENT(pool);
   IREE_ASSERT_ARGUMENT(out_buffer);
   IREE_TRACE_ZONE_BEGIN(z0);
 
-  const iree_hal_pool_reservation_request_t request = {
-      .params = params,
-      .allocation_size = allocation_size,
-  };
   iree_hal_buffer_t* buffer = NULL;
 
   // Capacity retries and exact-range completion share one deadline.

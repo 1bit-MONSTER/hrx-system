@@ -178,12 +178,14 @@ void iree_hal_slab_provider_release_slab(iree_hal_slab_provider_t* provider,
 // buffer implementation for that slab's memory.
 //
 // |slab_offset| and |allocation_size| define the byte range relative to the
-// slab's base. The range must lie fully inside [0, slab->length). |params|
-// carries the owner's resolved permissions; zero usage grants no operations.
+// slab's base. The range must lie fully inside [0, slab->length).
+// |allowed_access| and |allowed_usage| are the permissions captured by the
+// owning pool's memory contract; zero usage grants no operations.
 iree_status_t iree_hal_slab_provider_wrap_buffer(
     iree_hal_slab_provider_t* provider, const iree_hal_slab_t* slab,
     iree_device_size_t slab_offset, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t params,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** out_buffer);
 
@@ -301,7 +303,8 @@ struct iree_hal_slab_provider_vtable_t {
   iree_status_t (*wrap_buffer)(
       iree_hal_slab_provider_t* provider, const iree_hal_slab_t* slab,
       iree_device_size_t slab_offset, iree_device_size_t allocation_size,
-      iree_hal_buffer_params_t params,
+      iree_hal_memory_access_t allowed_access,
+      iree_hal_buffer_usage_t allowed_usage,
       iree_hal_buffer_release_callback_t release_callback,
       iree_hal_buffer_t** out_buffer);
 

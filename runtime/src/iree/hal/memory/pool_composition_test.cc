@@ -46,15 +46,10 @@ class PoolCompositionTest : public ::testing::TestWithParam<
     IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
         {}, provider_, notification_, tracker_, maintenance_, allocator_,
         &native_pool_));
-    params_.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-    params_.access = IREE_HAL_MEMORY_ACCESS_ALL;
-    params_.usage =
-        IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-    params_.queue_family_affinity = iree_hal_make_queue_family_affinity(0) |
-                                    iree_hal_make_queue_family_affinity(3);
-    params_.min_alignment = 16;
     IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-        native_pool_, params_, 4096, iree_infinite_timeout(), &backing_));
+        native_pool_,
+        iree_hal_make_pool_reservation_request(4096, kMinAlignment),
+        iree_infinite_timeout(), &backing_));
   }
 
   void TearDown() override {
@@ -148,7 +143,8 @@ class PoolCompositionTest : public ::testing::TestWithParam<
                         iree_hal_pool_reservation_t* out_reservation,
                         iree_hal_pool_acquire_info_t* out_info,
                         iree_hal_pool_acquire_result_t* out_result) {
-    const iree_hal_pool_reservation_request_t request = {params_, length};
+    const iree_hal_pool_reservation_request_t request =
+        iree_hal_make_pool_reservation_request(length, kMinAlignment);
     return iree_hal_pool_acquire_reservations(pool, 1, &request, frontier,
                                               flags, out_reservation, out_info,
                                               out_result);
@@ -159,15 +155,16 @@ class PoolCompositionTest : public ::testing::TestWithParam<
   iree_status_t CheckBytes(iree_hal_pool_t* pool,
                            const iree_hal_pool_reservation_t& reservation,
                            uint8_t pattern, uintptr_t* out_address) {
-    const iree_hal_pool_reservation_request_t request = {
-        params_, reservation.byte_length};
+    const iree_hal_pool_reservation_request_t request =
+        iree_hal_make_pool_reservation_request(reservation.byte_length,
+                                               kMinAlignment);
     iree_hal_buffer_t* buffer = nullptr;
     IREE_RETURN_IF_ERROR(iree_hal_pool_materialize_reservations(
         pool, 1, &request, &reservation, IREE_HAL_POOL_MATERIALIZE_FLAG_NONE,
         &buffer));
     EXPECT_EQ(
         iree_hal_buffer_allocation_placement(buffer).queue_family_affinity,
-        params_.queue_family_affinity);
+        iree_hal_buffer_allocation_placement(backing_).queue_family_affinity);
     iree_hal_buffer_mapping_t mapping;
     iree_status_t status = iree_hal_buffer_map_range(
         buffer, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_ALL,
@@ -209,8 +206,7 @@ class PoolCompositionTest : public ::testing::TestWithParam<
   iree_hal_buffer_t* backing_ = nullptr;
   // Pools in creation order; teardown releases children before parents.
   std::vector<iree_hal_pool_t*> pools_;
-  // Permissions and family scope carried from native backing to child views.
-  iree_hal_buffer_params_t params_ = {};
+  static constexpr iree_device_size_t kMinAlignment = 16;
 };
 
 TEST_P(PoolCompositionTest, ReusesBackingAfterFirstChildIsDestroyed) {
@@ -453,9 +449,9 @@ TEST_P(PoolCompositionTest, ParentPreparesAdvertisedChildAlignment) {
   IREE_ASSERT_OK(CreateChild(source, 512, 2, &child, 64));
   iree_hal_pool_capabilities_t capabilities;
   iree_hal_pool_query_capabilities(child, &capabilities);
-  iree_hal_pool_reservation_request_t request = {params_, 64};
-  request.params.min_alignment =
-      iree_min(4096, capabilities.max_allocation_alignment);
+  iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(64, kMinAlignment);
+  request.min_alignment = iree_min(4096, capabilities.max_allocation_alignment);
   iree_hal_pool_reservation_t reservation;
   IREE_ASSERT_OK(iree_hal_pool_acquire_reservations(
       child, 1, &request, nullptr, IREE_HAL_POOL_RESERVE_FLAG_NONE,
@@ -466,7 +462,7 @@ TEST_P(PoolCompositionTest, ParentPreparesAdvertisedChildAlignment) {
       child, 1, &request, &reservation, IREE_HAL_POOL_MATERIALIZE_FLAG_NONE,
       &buffer));
   const auto memory = iree_hal_buffer_memory_view(buffer);
-  EXPECT_EQ(memory.offset % request.params.min_alignment, 0u);
+  EXPECT_EQ(memory.offset % request.min_alignment, 0u);
   iree_hal_buffer_release(buffer);
   iree_hal_pool_release_reservations(child, 1, &reservation, nullptr);
   iree_hal_pool_release_reservations(source, 1, &anchor, nullptr);
@@ -478,7 +474,7 @@ TEST_P(PoolCompositionTest, BatchGrowthRollsBackAndReturnsWholeRanges) {
   iree_hal_pool_t* child = nullptr;
   IREE_ASSERT_OK(CreateChild(source, 512, 2, &child));
   std::array<iree_hal_pool_reservation_request_t, 7> requests;
-  requests.fill({params_, 256});
+  requests.fill(iree_hal_make_pool_reservation_request(256, kMinAlignment));
   std::array<iree_hal_pool_reservation_t, 7> reservations;
   memset(reservations.data(), 0xA5, sizeof(reservations));
   const auto unchanged = reservations;
@@ -540,7 +536,8 @@ TEST_P(PoolCompositionTest, ConcurrentGrowthAndReturnPreserveLiveBytes) {
       for (uint32_t iteration = 0; iteration < 100; ++iteration) {
         iree_hal_buffer_t* buffer = nullptr;
         IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-            child, params_, 256, iree_infinite_timeout(), &buffer));
+            child, iree_hal_make_pool_reservation_request(256, kMinAlignment),
+            iree_infinite_timeout(), &buffer));
         const uint8_t pattern = i * 100 + iteration;
         IREE_EXPECT_OK(iree_hal_buffer_map_fill(buffer, 0, 256, &pattern, 1));
         std::this_thread::yield();
@@ -648,10 +645,11 @@ TEST_P(FixedBlockPoolCompositionTest,
 
   iree_hal_slab_cache_options_t cache_options;
   iree_hal_slab_cache_options_initialize(&cache_options);
-  cache_options.slab = {params_, 1024};
+  cache_options.slab =
+      iree_hal_make_pool_reservation_request(1024, kMinAlignment);
   iree_hal_pool_capabilities_t source_capabilities;
   iree_hal_pool_query_capabilities(source, &source_capabilities);
-  cache_options.slab.params.min_alignment =
+  cache_options.slab.min_alignment =
       iree_min(4096, source_capabilities.max_allocation_alignment);
   iree_hal_pool_t* cache = nullptr;
   IREE_ASSERT_OK(
@@ -663,7 +661,7 @@ TEST_P(FixedBlockPoolCompositionTest,
   iree_hal_pool_t* child = nullptr;
   IREE_ASSERT_OK(CreateChild(cache, 1024, 2, &child, 192));
   std::array<iree_hal_pool_reservation_request_t, 5> requests;
-  requests.fill({params_, 192});
+  requests.fill(iree_hal_make_pool_reservation_request(192, kMinAlignment));
   std::array<iree_hal_pool_reservation_t, 5> reservations;
   std::array<iree_hal_pool_acquire_info_t, 5> infos;
   IREE_ASSERT_OK(iree_hal_pool_acquire_reservations(
@@ -705,7 +703,7 @@ TEST_P(FixedBlockPoolCompositionTest,
   iree_hal_pool_t* child = nullptr;
   IREE_ASSERT_OK(CreateChild(source, 512, 1, &child));
   std::array<iree_hal_pool_reservation_request_t, 2> requests;
-  requests.fill({params_, 256});
+  requests.fill(iree_hal_make_pool_reservation_request(256, kMinAlignment));
   std::array<iree_hal_pool_reservation_t, 2> reservations;
   std::array<iree_hal_pool_acquire_info_t, 2> infos;
   iree_hal_pool_acquire_result_t result;

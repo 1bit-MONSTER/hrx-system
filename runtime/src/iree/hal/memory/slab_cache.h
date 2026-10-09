@@ -16,9 +16,9 @@ extern "C" {
 
 // Explicit retention and preparation policy for one reusable slab class.
 typedef struct iree_hal_slab_cache_options_t {
-  // Geometry and permissions acquired from the backing pool. Compatible
-  // requests receive the entire entry; larger or more aligned requests use
-  // the same backing pool without entering the idle cache.
+  // Geometry acquired from the backing pool. Compatible requests receive the
+  // entire entry; larger or more aligned requests use the same backing pool
+  // without entering the idle cache.
   iree_hal_pool_reservation_request_t slab;
   // Ready idle entries proactively prepared on the captured memory owner.
   // Zero disables prefill. Pending entries also consume the idle limit.

@@ -145,7 +145,9 @@ TEST_P(BdaDispatchValidationTest, QueueDispatchRejectsGrantsFromAnotherGroup) {
   params.min_alignment = capabilities.max_allocation_alignment;
   Ref<iree_hal_buffer_t> foreign_buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, params, 32, iree_infinite_timeout(), foreign_buffer.out()));
+      source,
+      iree_hal_make_pool_reservation_request(32, (params).min_alignment),
+      iree_infinite_timeout(), foreign_buffer.out()));
   params = {};
   params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
   params.usage = IREE_HAL_BUFFER_USAGE_STORAGE;

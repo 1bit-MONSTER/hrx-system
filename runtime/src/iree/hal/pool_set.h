@@ -115,15 +115,6 @@ iree_hal_pool_t* iree_hal_pool_set_select(const iree_hal_pool_set_t* pool_set,
                                           iree_hal_buffer_params_t params,
                                           iree_device_size_t allocation_size);
 
-// Selects a pool and allocates a buffer from it.
-//
-// Equivalent to iree_hal_pool_set_select() + iree_hal_pool_allocate_buffer().
-// Returns IREE_STATUS_NOT_FOUND if no pool matches the parameters.
-iree_status_t iree_hal_pool_set_allocate_buffer(
-    iree_hal_pool_set_t* pool_set, iree_hal_buffer_params_t params,
-    iree_device_size_t allocation_size, iree_timeout_t timeout,
-    iree_hal_buffer_t** out_buffer);
-
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

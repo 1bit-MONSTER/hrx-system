@@ -530,8 +530,8 @@ static iree_status_t iree_io_parameter_op_batch_enqueue_alloca(
                                         batch, /*op_byte_length=*/0, &step));
 
   const iree_hal_pool_reservation_request_t request = {
-      .params = params,
       .allocation_size = allocation_size,
+      .min_alignment = params.min_alignment,
   };
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
       z0, iree_hal_queue_alloca(batch->queue, step.wait_semaphore_list,

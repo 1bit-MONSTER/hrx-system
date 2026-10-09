@@ -136,15 +136,11 @@ TEST_F(SlabProviderTest, CapturesAccessBeforeNativeAcquisition) {
     values.fill(0xA5A5A5A5u);
     IREE_ASSERT_OK(iree_hsa_memory_copy(IREE_LIBHSA(&libhsa_), slab.base_ptr,
                                         values.data(), sizeof(values)));
-    iree_hal_buffer_params_t params = {};
-    params.type = properties.memory_type;
-    params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-    params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-    params.queue_family_affinity = family_affinity;
     iree::hal::cts::Ref<iree_hal_buffer_t> view;
     IREE_ASSERT_OK(iree_hal_slab_provider_wrap_buffer(
-        provider, &slab, 32, 64, params,
-        iree_hal_buffer_release_callback_null(), view.out()));
+        provider, &slab, 32, 64, IREE_HAL_MEMORY_ACCESS_ALL,
+        IREE_HAL_BUFFER_USAGE_TRANSFER, iree_hal_buffer_release_callback_null(),
+        view.out()));
     iree::hal::cts::SemaphoreList filled(test_device.hal_device(), {0}, {1});
     const uint32_t pattern = 0x12345678u;
     IREE_ASSERT_OK(iree_hal_queue_fill(
@@ -193,8 +189,10 @@ TEST_F(SlabProviderTest,
 
   iree_hal_buffer_t* buffer = NULL;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      default_pool, params, /*allocation_size=*/128, iree_make_timeout_ms(0),
-      &buffer));
+      default_pool,
+      iree_hal_make_pool_reservation_request(
+          /*allocation_size=*/128, (params).min_alignment),
+      iree_make_timeout_ms(0), &buffer));
   ASSERT_NE(buffer, nullptr);
   EXPECT_GE(iree_hal_buffer_allocation_size(buffer), 128u);
   EXPECT_GE(iree_hal_buffer_byte_length(buffer), 128u);
@@ -245,10 +243,9 @@ TEST_F(SlabProviderTest, SelectedQueuePoolServesLargeRequests) {
   iree_hal_pool_t* pool = iree_hal_pool_set_select(
       &physical_device->default_pool_set, params, allocation_size);
   ASSERT_EQ(pool, physical_device->default_pool);
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/params,
-      /*.allocation_size=*/allocation_size,
-  };
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(allocation_size,
+                                             params.min_alignment);
 
   iree_hal_buffer_t* buffer = NULL;
   IREE_ASSERT_OK(iree_hal_queue_alloca(queue, iree_hal_semaphore_list_empty(),
@@ -300,13 +297,11 @@ TEST_F(SlabProviderTest, DefaultPhysicalDevicePoolGrowsAdditionalSlabs) {
   iree_hal_pool_reservation_t first_reservation = {0};
   iree_hal_pool_acquire_info_t first_info = {0};
   iree_hal_pool_acquire_result_t first_result = IREE_HAL_POOL_ACQUIRE_EXHAUSTED;
-  iree_hal_buffer_params_t params = {};
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/params,
-      /*.allocation_size=*/
-      device->physical_devices[0]
-          ->default_pool_options.tlsf_options.range_length,
-  };
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(
+          device->physical_devices[0]
+              ->default_pool_options.tlsf_options.range_length,
+          /*min_alignment=*/0);
   iree::Status first_status(iree_hal_pool_acquire_reservations(
       default_pool, 1, &request, /*requester_frontier=*/NULL,
       IREE_HAL_POOL_RESERVE_FLAG_NONE, &first_reservation, &first_info,

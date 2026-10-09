@@ -107,7 +107,9 @@ class VmmSlabProviderTest : public ::testing::Test {
 TEST_F(VmmSlabProviderTest, OwnedRangeSurvivesUntilItsFinalSubspan) {
   iree_hal_buffer_t* owner = nullptr;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      pool_, params_, 4096, iree_infinite_timeout(), &owner));
+      pool_,
+      iree_hal_make_pool_reservation_request(4096, (params_).min_alignment),
+      iree_infinite_timeout(), &owner));
   iree_hal_buffer_t* root = iree_hal_buffer_allocated_buffer(owner);
   ASSERT_NE(owner, root);
   iree_hal_buffer_t* intermediate = nullptr;
@@ -146,7 +148,9 @@ TEST_F(VmmSlabProviderTest, OwnedRangeSurvivesUntilItsFinalSubspan) {
 }
 
 TEST_F(VmmSlabProviderTest, BorrowedSubspanDoesNotOwnTheReservation) {
-  const iree_hal_pool_reservation_request_t request = {params_, 4096};
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(/*allocation_size=*/4096,
+                                             params_.min_alignment);
   iree_hal_pool_reservation_t reservation;
   iree_hal_pool_acquire_info_t info;
   iree_hal_pool_acquire_result_t result;

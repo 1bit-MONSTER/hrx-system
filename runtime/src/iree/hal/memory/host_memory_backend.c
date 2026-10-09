@@ -163,12 +163,8 @@ static iree_status_t iree_hal_host_slab_pool_query(
     if (iree_any_bit_set(host.modes, IREE_HAL_MAPPING_MODE_PERSISTENT)) {
       usage |= IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT;
     }
-    contract->buffer_params = (iree_hal_buffer_params_t){
-        .usage = usage,
-        .access = IREE_HAL_MEMORY_ACCESS_ALL,
-        .type = properties.memory_type,
-        .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-    };
+    contract->allowed_access = IREE_HAL_MEMORY_ACCESS_ALL;
+    contract->allowed_usage = usage;
     if (host.access) {
       contract->scopes[1].interfaces = 1u << IREE_HAL_BUFFER_INTERFACE_HOST;
       contract->scopes[1].bindings[IREE_HAL_BUFFER_INTERFACE_HOST] = 0;

@@ -38,10 +38,11 @@ typedef struct iree_hal_vulkan_transient_buffer_t
 // may be queried before queue ordering allows a physical reservation to be
 // acquired.
 iree_status_t iree_hal_vulkan_transient_buffer_create(
-    iree_hal_buffer_placement_t placement, iree_hal_buffer_params_t params,
-    iree_device_size_t allocation_size, iree_device_size_t byte_length,
-    iree_hal_pool_t* source_pool, iree_allocator_t host_allocator,
-    iree_hal_buffer_t** out_buffer);
+    iree_hal_buffer_placement_t placement, iree_hal_memory_type_t memory_type,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage, iree_device_size_t allocation_size,
+    iree_device_size_t byte_length, iree_hal_pool_t* source_pool,
+    iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
 
 // Returns true if |buffer| is a Vulkan transient buffer wrapper.
 bool iree_hal_vulkan_transient_buffer_isa(const iree_hal_buffer_t* buffer);

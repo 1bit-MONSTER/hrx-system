@@ -7,7 +7,7 @@
 #include <array>
 
 #include "iree/hal/cts/util/test_base.h"
-#include "iree/hal/memory/passthrough_pool.h"
+#include "iree/hal/slab_pool.h"
 
 namespace iree::hal::cts {
 namespace {
@@ -181,16 +181,23 @@ TEST_P(TaskBufferAccessTest, ExecutionOnlyNestedViews) {
   iree_hal_queue_t* queue = QueueForCommandCategories(
       IREE_HAL_COMMAND_CATEGORY_DISPATCH | IREE_HAL_COMMAND_CATEGORY_TRANSFER);
   ASSERT_NE(queue, nullptr);
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-      device_, iree_hal_queue_family(queue), &backend));
+  iree_hal_buffer_params_t params = {};
+  params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
+  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
+  params.usage = IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
+  const iree_hal_pool_family_access_t family_access = {
+      /*.family=*/iree_hal_queue_family(queue),
+      /*.usage=*/params.usage,
+  };
+  const iree_hal_pool_scope_t scope = {
+      /*.family_count=*/1,
+      /*.families=*/&family_access,
+  };
+  iree_hal_slab_pool_options_t options;
+  iree_hal_slab_pool_options_initialize(&options);
   Ref<iree_hal_pool_t> pool;
-  iree_hal_passthrough_pool_options_t options = {};
-  options.asan = backend.asan;
-  IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
-      options, backend.slab_provider, backend.notification,
-      backend.frontier_tracker, backend.maintenance, iree_allocator_system(),
-      pool.out()));
+  IREE_ASSERT_OK(iree_hal_slab_pool_create(
+      device_group_, scope, &options, iree_allocator_system(), pool.out()));
 
   for (bool transient : {false, true}) {
     SCOPED_TRACE(transient ? "queue allocation" : "immediate allocation");
@@ -210,15 +217,13 @@ TEST_P(TaskBufferAccessTest, ExecutionOnlyNestedViews) {
       SemaphoreList executed(device_, {0}, {1});
       SemaphoreList downloaded(device_, {0}, {1});
       AllocationGate release_gate(gate.semaphores[0]);
-      iree_hal_buffer_params_t params = {};
-      params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-      params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-      params.usage =
-          IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
       const iree_hal_pool_reservation_request_t requests[] = {
-          {params, sizeof(inputs[0])},
-          {params, sizeof(inputs[1])},
-          {params, sizeof(inputs[2])},
+          iree_hal_make_pool_reservation_request(sizeof(inputs[0]),
+                                                 params.min_alignment),
+          iree_hal_make_pool_reservation_request(sizeof(inputs[1]),
+                                                 params.min_alignment),
+          iree_hal_make_pool_reservation_request(sizeof(inputs[2]),
+                                                 params.min_alignment),
       };
       if (transient) {
         iree_hal_buffer_t* buffers[3] = {};

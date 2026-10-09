@@ -965,7 +965,9 @@ TEST_P(BdaSpirvTest, NativeBindingsExecuteFromInteriorPoolRanges) {
   const iree_hal_buffer_params_t params = {};
   Ref<iree_hal_buffer_t> backing;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, params, 8192, iree_infinite_timeout(), backing.out()));
+      source,
+      iree_hal_make_pool_reservation_request(8192, (params).min_alignment),
+      iree_infinite_timeout(), backing.out()));
   iree_hal_tlsf_pool_options_t options = {};
   options.tlsf_options.frontier_capacity = 4;
   Ref<iree_hal_pool_t> arena_pool;
@@ -975,7 +977,9 @@ TEST_P(BdaSpirvTest, NativeBindingsExecuteFromInteriorPoolRanges) {
     SCOPED_TRACE(::testing::Message() << "queued arena: " << queued_arena);
     Ref<iree_hal_buffer_t> arena;
     if (queued_arena) {
-      const iree_hal_pool_reservation_request_t request = {params, 4096};
+      const iree_hal_pool_reservation_request_t request =
+          iree_hal_make_pool_reservation_request(/*allocation_size=*/4096,
+                                                 params.min_alignment);
       SemaphoreList allocated(device_, {0}, {1});
       IREE_ASSERT_OK(iree_hal_queue_alloca(
           transfer_queue_, iree_hal_semaphore_list_empty(), allocated,
@@ -984,7 +988,9 @@ TEST_P(BdaSpirvTest, NativeBindingsExecuteFromInteriorPoolRanges) {
           allocated, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
     } else {
       IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-          arena_pool, params, 4096, iree_infinite_timeout(), arena.out()));
+          arena_pool,
+          iree_hal_make_pool_reservation_request(4096, (params).min_alignment),
+          iree_infinite_timeout(), arena.out()));
     }
     Ref<iree_hal_pool_t> pool;
     IREE_ASSERT_OK(iree_hal_tlsf_pool_create_from_buffer(
@@ -1013,8 +1019,8 @@ TEST_P(BdaSpirvTest, NativeBindingsExecuteFromInteriorPoolRanges) {
         if (queued) {
           std::array<iree_hal_pool_reservation_request_t, 3> requests = {};
           for (auto& request : requests) {
-            request.params = params;
             request.allocation_size = sizeof(input);
+            request.min_alignment = params.min_alignment;
           }
           iree_hal_buffer_t* buffers[3] = {};
           IREE_ASSERT_OK(iree_hal_queue_alloca(transfer_queue_, gate, allocated,
@@ -1026,8 +1032,10 @@ TEST_P(BdaSpirvTest, NativeBindingsExecuteFromInteriorPoolRanges) {
         } else {
           for (auto& root : roots) {
             IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-                pool, params, sizeof(input), iree_infinite_timeout(),
-                root.out()));
+                pool,
+                iree_hal_make_pool_reservation_request(sizeof(input),
+                                                       (params).min_alignment),
+                iree_infinite_timeout(), root.out()));
           }
         }
         // The unsignaled gate keeps queued storage uncommitted while both

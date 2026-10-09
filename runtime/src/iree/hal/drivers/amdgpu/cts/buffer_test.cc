@@ -76,7 +76,9 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
                                 iree_allocator_system(), source.out()));
   Ref<iree_hal_buffer_t> backing;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, params, 8192, iree_infinite_timeout(), backing.out()));
+      source,
+      iree_hal_make_pool_reservation_request(8192, (params).min_alignment),
+      iree_infinite_timeout(), backing.out()));
   iree_hal_tlsf_pool_options_t options = {};
   options.tlsf_options.frontier_capacity = 4;
   Ref<iree_hal_pool_t> arena_pool;
@@ -86,7 +88,9 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
     SCOPED_TRACE(::testing::Message() << "queued arena: " << queued_arena);
     Ref<iree_hal_buffer_t> arena;
     if (queued_arena) {
-      const iree_hal_pool_reservation_request_t request = {params, 4096};
+      const iree_hal_pool_reservation_request_t request =
+          iree_hal_make_pool_reservation_request(/*allocation_size=*/4096,
+                                                 params.min_alignment);
       SemaphoreList allocated(device_, {0}, {1});
       IREE_ASSERT_OK(iree_hal_queue_alloca(
           transfer_queue_, iree_hal_semaphore_list_empty(), allocated,
@@ -95,7 +99,9 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
           allocated, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
     } else {
       IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-          arena_pool, params, 4096, iree_infinite_timeout(), arena.out()));
+          arena_pool,
+          iree_hal_make_pool_reservation_request(4096, (params).min_alignment),
+          iree_infinite_timeout(), arena.out()));
     }
     Ref<iree_hal_pool_t> pool;
     IREE_ASSERT_OK(iree_hal_tlsf_pool_create_from_buffer(
@@ -125,8 +131,8 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
         if (queued) {
           std::array<iree_hal_pool_reservation_request_t, 3> requests = {};
           for (auto& request : requests) {
-            request.params = params;
             request.allocation_size = sizeof(input);
+            request.min_alignment = params.min_alignment;
           }
           iree_hal_buffer_t* buffers[3] = {};
           IREE_ASSERT_OK(iree_hal_queue_alloca(transfer_queue_, gate, allocated,
@@ -138,8 +144,10 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
         } else {
           for (auto& root : roots) {
             IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-                pool, params, sizeof(input), iree_infinite_timeout(),
-                root.out()));
+                pool,
+                iree_hal_make_pool_reservation_request(sizeof(input),
+                                                       (params).min_alignment),
+                iree_infinite_timeout(), root.out()));
           }
         }
         // The unsignaled gate keeps queued storage uncommitted while both
@@ -294,13 +302,9 @@ TEST_P(AmdgpuBufferTest, QueueAllocationRejectsUnregisteredHostStorage) {
       backend.maintenance, iree_allocator_system(), source.out());
   iree_hal_slab_provider_release(provider);
   IREE_ASSERT_OK(status);
-  iree_hal_pool_reservation_request_t request = {};
-  request.params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  request.params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  request.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  request.params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(transfer_queue_)));
-  request.allocation_size = 256;
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(/*allocation_size=*/256,
+                                             /*min_alignment=*/0);
   Ref<iree_hal_buffer_t> buffer;
   SemaphoreList allocated(device_, {0}, {1});
   // Native growth executes asynchronously on the captured maintenance owner.

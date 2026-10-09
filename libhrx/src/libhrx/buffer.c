@@ -126,8 +126,8 @@ hrx_status_t hrx_buffer_allocate(hrx_stream_t stream, size_t size,
   }
   if (iree_status_is_ok(status)) {
     const iree_hal_pool_reservation_request_t request = {
-        .params = params,
         .allocation_size = (iree_device_size_t)size,
+        .min_alignment = params.min_alignment,
     };
     status = iree_hal_queue_alloca(
         stream->device->transfer_queue, wait_list, signal_list, buf->hal_pool,

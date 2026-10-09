@@ -315,12 +315,8 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
       iree_hal_memory_contract_t* contract = plan->contract;
       contract->host = host;
       contract->placement = placement;
-      contract->buffer_params = (iree_hal_buffer_params_t){
-          .usage = usage | mapping_usage,
-          .access = IREE_HAL_MEMORY_ACCESS_ALL,
-          .type = plan->provider_options.memory_type,
-          .queue_family_affinity = families,
-      };
+      contract->allowed_access = IREE_HAL_MEMORY_ACCESS_ALL;
+      contract->allowed_usage = usage | mapping_usage;
       for (iree_host_size_t j = 0; j < scope.family_count; ++j) {
         const uint32_t queue_scope_id =
             scope.families[j].family->memory.queue_scope_id;

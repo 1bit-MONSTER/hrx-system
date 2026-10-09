@@ -204,9 +204,9 @@ class PoolFrontierWaitTest : public ::testing::Test {
     IREE_ASSERT_OK(iree_hal_fixed_block_pool_query_backing_request(
         backing_pool_, &options, &backing_request));
     iree_hal_buffer_t* backing_buffer = nullptr;
-    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-        backing_pool_, backing_request.params, backing_request.allocation_size,
-        iree_infinite_timeout(), &backing_buffer));
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(backing_pool_, backing_request,
+                                                 iree_infinite_timeout(),
+                                                 &backing_buffer));
     options.blocks_per_slab = 0;
     iree_status_t status = iree_hal_fixed_block_pool_create_from_buffer(
         backing_buffer, 0, IREE_HAL_WHOLE_BUFFER, &options,
@@ -216,11 +216,7 @@ class PoolFrontierWaitTest : public ::testing::Test {
     // Exercise the generic waiter's completion handling without the pool's
     // optional early completion probe resolving the prerequisite first.
     pool_->epoch_query = iree_hal_pool_epoch_query_null();
-    request_.allocation_size = kByteLength;
-    request_.params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-    request_.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-    request_.params.usage =
-        IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
+    request_ = iree_hal_make_pool_reservation_request(kByteLength, 0);
   }
 
   void TearDown() override {
@@ -281,8 +277,11 @@ class PoolFrontierWaitTest : public ::testing::Test {
 
   iree_status_t Allocate(iree_timeout_t timeout,
                          iree_hal_buffer_t** out_buffer) {
-    return iree_hal_pool_allocate_buffer(pool_, request_.params, kByteLength,
-                                         timeout, out_buffer);
+    return iree_hal_pool_allocate_buffer(
+        pool_,
+        iree_hal_make_pool_reservation_request(kByteLength,
+                                               request_.min_alignment),
+        timeout, out_buffer);
   }
 
   iree_hal_pool_stats_t Stats() {

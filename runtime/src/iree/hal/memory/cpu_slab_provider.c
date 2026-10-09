@@ -86,7 +86,8 @@ static void iree_hal_cpu_slab_provider_release_slab(
 static iree_status_t iree_hal_cpu_slab_provider_wrap_buffer(
     iree_hal_slab_provider_t* base_provider, const iree_hal_slab_t* slab,
     iree_device_size_t slab_offset, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t params,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** out_buffer) {
   iree_hal_cpu_slab_provider_t* provider =
@@ -95,15 +96,12 @@ static iree_status_t iree_hal_cpu_slab_provider_wrap_buffer(
       .data = slab->base_ptr + slab_offset,
       .data_length = (iree_host_size_t)allocation_size,
   };
-  IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_memory_type(
-      IREE_HAL_CPU_SLAB_PROVIDER_MEMORY_TYPE,
-      params.type & ~IREE_HAL_MEMORY_TYPE_OPTIMAL));
   const iree_hal_buffer_placement_t placement = {
-      .queue_family_affinity = params.queue_family_affinity,
+      .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
   };
   return iree_hal_heap_buffer_wrap(
-      placement, IREE_HAL_CPU_SLAB_PROVIDER_MEMORY_TYPE, params.access,
-      params.usage, allocation_size, data, release_callback,
+      placement, IREE_HAL_CPU_SLAB_PROVIDER_MEMORY_TYPE, allowed_access,
+      allowed_usage, allocation_size, data, release_callback,
       provider->host_allocator, out_buffer);
 }
 

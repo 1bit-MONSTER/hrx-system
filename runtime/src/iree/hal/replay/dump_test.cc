@@ -947,11 +947,8 @@ TEST(ReplayDumpTest, EmitsQueueAllocaSemaphoreRanges) {
   signal.value = 7;
   iree_hal_replay_queue_alloca_request_payload_t request = {};
   request.buffer_id = 9;
-  request.allocation.allocation_size = 4096;
-  request.allocation.queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
-  request.allocation.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  request.allocation.type = IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
-  request.allocation.access = IREE_HAL_MEMORY_ACCESS_ALL;
+  request.allocation_size = 4096;
+  request.min_alignment = 64;
   iree_const_byte_span_t iovecs[3] = {
       iree_make_const_byte_span(&payload, sizeof(payload)),
       iree_make_const_byte_span(&signal, sizeof(signal)),

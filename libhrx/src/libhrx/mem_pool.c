@@ -339,8 +339,10 @@ static iree_status_t hrx_mem_pool_allocate_hal_buffer(
     return status;
   }
 
-  const iree_hal_buffer_params_t params = {0};
-  status = iree_hal_pool_allocate_buffer(hal_pool, params, size,
+  const iree_hal_pool_reservation_request_t request = {
+      .allocation_size = size,
+  };
+  status = iree_hal_pool_allocate_buffer(hal_pool, request,
                                          iree_immediate_timeout(), out_buffer);
   if (!iree_status_is_ok(status) &&
       iree_status_code(status) == IREE_STATUS_DEADLINE_EXCEEDED) {

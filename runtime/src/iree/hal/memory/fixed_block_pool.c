@@ -568,19 +568,11 @@ static iree_status_t iree_hal_fixed_block_pool_resolve_geometry(
 
 static iree_hal_pool_reservation_request_t
 iree_hal_fixed_block_pool_backing_request(
-    const iree_hal_pool_capabilities_t* capabilities,
     const iree_hal_fixed_block_pool_geometry_t* geometry) {
   return (iree_hal_pool_reservation_request_t){
-      .params =
-          {
-              .type = capabilities->memory_type,
-              .access = capabilities->allowed_access,
-              .usage = capabilities->supported_usage,
-              .queue_family_affinity = capabilities->queue_family_affinity,
-              .min_alignment = geometry->alignment,
-          },
       .allocation_size =
           geometry->blocks_per_slab * geometry->backing_block_size,
+      .min_alignment = geometry->alignment,
   };
 }
 
@@ -600,8 +592,7 @@ iree_status_t iree_hal_fixed_block_pool_query_backing_request(
   iree_hal_fixed_block_pool_geometry_t geometry;
   IREE_RETURN_IF_ERROR(iree_hal_fixed_block_pool_resolve_geometry(
       options, &capabilities, 0, &geometry));
-  *out_request =
-      iree_hal_fixed_block_pool_backing_request(&capabilities, &geometry);
+  *out_request = iree_hal_fixed_block_pool_backing_request(&geometry);
   return iree_ok_status();
 }
 
@@ -678,8 +669,7 @@ static iree_status_t iree_hal_fixed_block_pool_create_impl(
   pool->host_allocator = host_allocator;
   pool->capabilities = capabilities;
   pool->geometry = geometry;
-  pool->backing_request =
-      iree_hal_fixed_block_pool_backing_request(&capabilities, &geometry);
+  pool->backing_request = iree_hal_fixed_block_pool_backing_request(&geometry);
   pool->asan_options = options->asan;
   pool->budget_limit = options->budget_limit;
   iree_slim_mutex_initialize(&pool->acquisition_mutex);
@@ -789,7 +779,7 @@ static iree_status_t iree_hal_fixed_block_pool_validate_reservation_request(
     iree_hal_asan_allocation_layout_t* out_layout) {
   const iree_device_size_t size = request->allocation_size;
   const iree_device_size_t alignment =
-      request->params.min_alignment ? request->params.min_alignment : 1;
+      request->min_alignment ? request->min_alignment : 1;
   if (size == 0) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "reservation size must be > 0");
@@ -1337,7 +1327,6 @@ static iree_status_t iree_hal_fixed_block_pool_materialize_reservations(
     status = iree_hal_pool_buffer_range_materialize(
         &slab->range, reservations[materialized_count].offset,
         reservations[materialized_count].byte_length,
-        requests[materialized_count].params,
         iree_hal_memory_fixed_block_allocator_block_death_frontier(
             slab->allocator, (uint32_t)(block - slab->blocks)),
         release_callback, pool->host_allocator, staged_buffer);

@@ -476,18 +476,13 @@ static void iree_hal_task_queue_profile_record_memory_event(
   iree_hal_task_queue_profile_populate_memory_event_pool_stats(pool, &event);
   for (iree_host_size_t i = 0; i < buffer_count; ++i) {
     iree_hal_buffer_t* buffer = buffers[i];
-    const iree_hal_buffer_params_t params =
-        is_alloca ? operation->alloca.requests[i].params
-                  : (iree_hal_buffer_params_t){
-                        .type = iree_hal_buffer_memory_type(buffer),
-                        .access = iree_hal_buffer_allowed_access(buffer),
-                        .usage = iree_hal_buffer_allowed_usage(buffer),
-                    };
     event.allocation_id = iree_hal_buffer_allocation_profile(buffer).id;
-    event.memory_type = params.type;
-    event.buffer_usage = params.usage;
+    event.memory_type = iree_hal_buffer_memory_type(buffer);
+    event.buffer_usage = iree_hal_buffer_allowed_usage(buffer);
     event.length = iree_hal_buffer_byte_length(buffer);
-    event.alignment = params.min_alignment ? params.min_alignment : 1;
+    event.alignment = is_alloca && operation->alloca.requests[i].min_alignment
+                          ? operation->alloca.requests[i].min_alignment
+                          : 1;
     if (reservations) {
       event.flags |= IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_POOL_RESERVATION;
       event.backing_id = reservations[i].block_handle;
@@ -4640,61 +4635,9 @@ static iree_status_t iree_hal_task_queue_transfer(
       signal_semaphore_list, operation_count, operations, barriers);
 }
 
-static bool iree_hal_task_pool_supports_queue_families(
-    iree_hal_queue_family_affinity_t supported_affinity,
-    iree_hal_queue_family_affinity_t requested_affinity) {
-  if (iree_hal_queue_family_affinity_is_any(supported_affinity)) {
-    return true;
-  }
-  return !iree_hal_queue_family_affinity_is_any(requested_affinity) &&
-         iree_all_bits_set(supported_affinity, requested_affinity);
-}
-
 static iree_status_t iree_hal_task_queue_validate_alloca_request(
-    iree_hal_task_queue_t* queue, const iree_hal_pool_t* pool,
     const iree_hal_pool_capabilities_t* capabilities, iree_host_size_t index,
-    iree_hal_pool_reservation_request_t* request) {
-  if (!pool->memory_contract) {
-    if (iree_any_bit_set(request->params.type, IREE_HAL_MEMORY_TYPE_OPTIMAL)) {
-      request->params.type &= ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
-      request->params.type |= capabilities->memory_type;
-    }
-    const iree_hal_buffer_compatibility_t compatibility =
-        iree_hal_allocator_query_buffer_compatibility(
-            queue->device_allocator, request->params, request->allocation_size,
-            &request->params, /*out_allocation_size=*/NULL);
-    if (IREE_UNLIKELY(!iree_all_bits_set(
-            compatibility, IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE))) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "allocation request %" PRIhsz
-                              " is not allocatable on this device",
-                              index);
-    }
-    if (IREE_UNLIKELY(!iree_all_bits_set(capabilities->memory_type,
-                                         request->params.type))) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "allocation request %" PRIhsz
-          " memory type is not supported by the source pool",
-          index);
-    }
-    if (IREE_UNLIKELY(!iree_all_bits_set(capabilities->supported_usage,
-                                         request->params.usage))) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "allocation request %" PRIhsz
-                              " usage is not supported by the source pool",
-                              index);
-    }
-    if (IREE_UNLIKELY(!iree_hal_task_pool_supports_queue_families(
-            capabilities->queue_family_affinity,
-            request->params.queue_family_affinity))) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "allocation request %" PRIhsz
-          " queue family affinity is not supported by the source pool",
-          index);
-    }
-  }
+    const iree_hal_pool_reservation_request_t* request) {
   if (IREE_UNLIKELY(capabilities->max_allocation_size != 0 &&
                     request->allocation_size >
                         capabilities->max_allocation_size)) {
@@ -4703,6 +4646,15 @@ static iree_status_t iree_hal_task_queue_validate_alloca_request(
                             " exceeds source pool maximum %" PRIdsz,
                             index, request->allocation_size,
                             capabilities->max_allocation_size);
+  }
+  if (IREE_UNLIKELY(
+          !iree_device_size_is_valid_alignment(request->min_alignment) ||
+          request->min_alignment > capabilities->max_allocation_alignment)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "allocation request %" PRIhsz " alignment %" PRIdsz
+                            " exceeds source pool maximum %" PRIdsz,
+                            index, request->min_alignment,
+                            capabilities->max_allocation_alignment);
   }
   return iree_ok_status();
 }
@@ -4738,27 +4690,27 @@ static iree_status_t iree_hal_task_queue_alloca(
   for (iree_host_size_t i = 0; i < request_count && iree_status_is_ok(status);
        ++i) {
     canonical_requests[i] = requests[i];
-    if (pool->memory_contract) {
-      canonical_requests[i].params = pool->memory_contract->buffer_params;
-      canonical_requests[i].params.min_alignment =
-          requests[i].params.min_alignment;
-    }
     status = iree_hal_task_queue_validate_alloca_request(
-        queue, pool, &pool_capabilities, i, &canonical_requests[i]);
+        &pool_capabilities, i, &canonical_requests[i]);
     if (!iree_status_is_ok(status)) {
       break;
     }
 
     const iree_hal_buffer_placement_t placement = {
         .device = queue->device,
-        .queue_family_affinity =
-            canonical_requests[i].params.queue_family_affinity,
+        .queue_family_affinity = pool_capabilities.queue_family_affinity,
         .flags = IREE_HAL_BUFFER_PLACEMENT_FLAG_ASYNCHRONOUS,
     };
+    const iree_hal_memory_access_t allowed_access =
+        pool->memory_contract ? pool->memory_contract->allowed_access
+                              : pool_capabilities.allowed_access;
+    const iree_hal_buffer_usage_t allowed_usage =
+        pool->memory_contract ? pool->memory_contract->allowed_usage
+                              : pool_capabilities.supported_usage;
     status = iree_hal_task_transient_buffer_create(
-        placement, canonical_requests[i].params, requests[i].allocation_size,
-        requests[i].allocation_size, pool, host_allocator,
-        &transient_buffers[i]);
+        placement, pool_capabilities.memory_type, allowed_access, allowed_usage,
+        requests[i].allocation_size, requests[i].allocation_size, pool,
+        host_allocator, &transient_buffers[i]);
   }
 
   if (iree_status_is_ok(status)) {

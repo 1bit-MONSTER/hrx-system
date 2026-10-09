@@ -124,7 +124,7 @@ class HeterogeneousSlabPoolTest : public CtsTestBase<> {
     iree_hal_pool_capabilities_t capabilities;
     iree_hal_pool_query_capabilities(pool, &capabilities);
     iree_hal_pool_reservation_request_t request = {};
-    request.params.min_alignment =
+    request.min_alignment =
         iree_min(4096, capabilities.max_allocation_alignment);
     request.allocation_size = 256;
     return request;
@@ -165,7 +165,7 @@ TEST_P(HeterogeneousSlabPoolTest, BothQueuesPublishSharedNativeStorage) {
   iree_hal_slab_cache_options_t cache_options;
   iree_hal_slab_cache_options_initialize(&cache_options);
   cache_options.slab.allocation_size = 65536;
-  cache_options.slab.params.min_alignment =
+  cache_options.slab.min_alignment =
       iree_min(4096, capabilities.max_allocation_alignment);
   Ref<iree_hal_pool_t> cache;
   IREE_ASSERT_OK(iree_hal_slab_cache_create(
@@ -637,9 +637,10 @@ TEST_P(HeterogeneousSlabPoolTest, DispatchRequiresItsOwnFamilyGrants) {
   iree_hal_buffer_params_t params = {};
   params.min_alignment = iree_min(4096, capabilities.max_allocation_alignment);
   Ref<iree_hal_buffer_t> allowed_buffer;
-  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(allowed_source, params, 32,
-                                               iree_infinite_timeout(),
-                                               allowed_buffer.out()));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      allowed_source,
+      iree_hal_make_pool_reservation_request(32, (params).min_alignment),
+      iree_infinite_timeout(), allowed_buffer.out()));
 
   // A CPU grant never authorizes GPU execution, whether the GPU is excluded
   // entirely or admitted with a narrower usage mask.
@@ -659,9 +660,10 @@ TEST_P(HeterogeneousSlabPoolTest, DispatchRequiresItsOwnFamilyGrants) {
     params.min_alignment =
         iree_min(4096, capabilities.max_allocation_alignment);
     Ref<iree_hal_buffer_t> restricted_buffer;
-    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(restricted_source, params, 32,
-                                                 iree_infinite_timeout(),
-                                                 restricted_buffer.out()));
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        restricted_source,
+        iree_hal_make_pool_reservation_request(32, (params).min_alignment),
+        iree_infinite_timeout(), restricted_buffer.out()));
     EXPECT_TRUE(iree_all_bits_set(
         iree_hal_buffer_allowed_usage(restricted_buffer),
         IREE_HAL_BUFFER_USAGE_STORAGE |

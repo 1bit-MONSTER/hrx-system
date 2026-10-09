@@ -33,10 +33,10 @@ static void iree_hal_amdgpu_host_queue_record_memory_event(
     iree_hal_amdgpu_host_queue_t* queue,
     iree_hal_profile_memory_event_type_t type,
     iree_hal_profile_memory_event_flags_t flags, uint32_t result,
-    iree_hal_pool_t* pool, iree_hal_buffer_params_t params,
-    iree_hal_buffer_t* buffer, const iree_hal_pool_reservation_t* reservation,
-    iree_device_size_t length, uint64_t submission_id,
-    uint32_t frontier_entry_count) {
+    iree_hal_pool_t* pool, iree_hal_buffer_t* buffer,
+    iree_device_size_t alignment,
+    const iree_hal_pool_reservation_t* reservation, iree_device_size_t length,
+    uint64_t submission_id, uint32_t frontier_entry_count) {
   if (!iree_hal_amdgpu_logical_device_should_record_profile_memory_events(
           queue->logical_device)) {
     return;
@@ -56,10 +56,10 @@ static void iree_hal_amdgpu_host_queue_record_memory_event(
       iree_hal_amdgpu_host_queue_profile_device_ordinal(queue);
   event.queue_ordinal = iree_hal_amdgpu_host_queue_profile_queue_ordinal(queue);
   event.frontier_entry_count = frontier_entry_count;
-  event.memory_type = params.type;
-  event.buffer_usage = params.usage;
+  event.memory_type = iree_hal_buffer_memory_type(buffer);
+  event.buffer_usage = iree_hal_buffer_allowed_usage(buffer);
   event.length = length;
-  event.alignment = params.min_alignment ? params.min_alignment : 1;
+  event.alignment = alignment ? alignment : 1;
   if (reservation) {
     event.flags |= IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_POOL_RESERVATION;
     event.backing_id = reservation->block_handle;
@@ -192,71 +192,24 @@ static void iree_hal_amdgpu_host_queue_release_transient_reservations(
                                      state->reservations, queue_frontier);
   for (iree_host_size_t i = 0; i < state->buffer_count; ++i) {
     iree_hal_buffer_t* buffer = state->buffers[i];
-    const iree_hal_buffer_params_t params = {
-        .type = iree_hal_buffer_memory_type(buffer),
-        .access = iree_hal_buffer_allowed_access(buffer),
-        .usage = iree_hal_buffer_allowed_usage(buffer),
-    };
     iree_hal_amdgpu_host_queue_record_memory_event(
         state->queue, IREE_HAL_PROFILE_MEMORY_EVENT_TYPE_POOL_RELEASE,
         IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_QUEUE_OPERATION, UINT32_MAX,
-        state->pool, params, buffer, &state->reservations[i],
+        state->pool, buffer, /*alignment=*/1, &state->reservations[i],
         iree_hal_buffer_byte_length(buffer), submission_id,
         queue_frontier ? queue_frontier->entry_count : 0);
     iree_hal_amdgpu_host_queue_record_memory_event(
         state->queue, IREE_HAL_PROFILE_MEMORY_EVENT_TYPE_QUEUE_DEALLOCA,
         IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_QUEUE_OPERATION, UINT32_MAX,
-        state->pool, params, buffer, &state->reservations[i],
+        state->pool, buffer, /*alignment=*/1, &state->reservations[i],
         iree_hal_buffer_byte_length(buffer), submission_id,
         /*frontier_entry_count=*/0);
   }
 }
 
-static void iree_hal_amdgpu_host_queue_apply_pool_optimal_memory_type(
-    const iree_hal_pool_capabilities_t* capabilities,
-    iree_hal_buffer_params_t* params) {
-  if (iree_any_bit_set(params->type, IREE_HAL_MEMORY_TYPE_OPTIMAL)) {
-    params->type &= ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
-    params->type |= capabilities->memory_type;
-  }
-}
-
-static bool iree_hal_amdgpu_pool_supports_queue_families(
-    iree_hal_queue_family_affinity_t supported_affinity,
-    iree_hal_queue_family_affinity_t requested_affinity) {
-  if (iree_hal_queue_family_affinity_is_any(supported_affinity)) {
-    return true;
-  }
-  return !iree_hal_queue_family_affinity_is_any(requested_affinity) &&
-         iree_all_bits_set(supported_affinity, requested_affinity);
-}
-
 static iree_status_t iree_hal_amdgpu_host_queue_validate_alloca_request(
     const iree_hal_pool_capabilities_t* capabilities, iree_host_size_t index,
-    iree_hal_pool_reservation_request_t* request) {
-  if (IREE_UNLIKELY(!iree_all_bits_set(capabilities->memory_type,
-                                       request->params.type))) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "allocation request %" PRIhsz
-                            " memory type is not supported by the source pool",
-                            index);
-  }
-  if (IREE_UNLIKELY(!iree_all_bits_set(capabilities->supported_usage,
-                                       request->params.usage))) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "allocation request %" PRIhsz
-                            " usage is not supported by the source pool",
-                            index);
-  }
-  if (IREE_UNLIKELY(!iree_hal_amdgpu_pool_supports_queue_families(
-          capabilities->queue_family_affinity,
-          request->params.queue_family_affinity))) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "allocation request %" PRIhsz
-        " queue family affinity is not supported by the source pool",
-        index);
-  }
+    const iree_hal_pool_reservation_request_t* request) {
   if (IREE_UNLIKELY(capabilities->max_allocation_size != 0 &&
                     request->allocation_size >
                         capabilities->max_allocation_size)) {
@@ -265,6 +218,15 @@ static iree_status_t iree_hal_amdgpu_host_queue_validate_alloca_request(
                             " exceeds source pool maximum %" PRIdsz,
                             index, request->allocation_size,
                             capabilities->max_allocation_size);
+  }
+  if (IREE_UNLIKELY(
+          !iree_device_size_is_valid_alignment(request->min_alignment) ||
+          request->min_alignment > capabilities->max_allocation_alignment)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "allocation request %" PRIhsz " alignment %" PRIdsz
+                            " exceeds source pool maximum %" PRIdsz,
+                            index, request->min_alignment,
+                            capabilities->max_allocation_alignment);
   }
   return iree_ok_status();
 }
@@ -282,17 +244,6 @@ iree_status_t iree_hal_amdgpu_host_queue_prepare_alloca_buffers(
   iree_host_size_t prepared_count = 0;
   while (prepared_count < request_count && iree_status_is_ok(status)) {
     out_canonical_requests[prepared_count] = requests[prepared_count];
-    if (pool->memory_contract) {
-      out_canonical_requests[prepared_count].params =
-          pool->memory_contract->buffer_params;
-      out_canonical_requests[prepared_count].params.min_alignment =
-          requests[prepared_count].params.min_alignment;
-    } else {
-      iree_hal_buffer_params_canonicalize(
-          &out_canonical_requests[prepared_count].params);
-      iree_hal_amdgpu_host_queue_apply_pool_optimal_memory_type(
-          &capabilities, &out_canonical_requests[prepared_count].params);
-    }
     status = iree_hal_amdgpu_host_queue_validate_alloca_request(
         &capabilities, prepared_count, &out_canonical_requests[prepared_count]);
     if (!iree_status_is_ok(status)) {
@@ -301,12 +252,17 @@ iree_status_t iree_hal_amdgpu_host_queue_prepare_alloca_buffers(
 
     const iree_hal_buffer_placement_t placement = {
         .device = queue->logical_device,
-        .queue_family_affinity =
-            out_canonical_requests[prepared_count].params.queue_family_affinity,
+        .queue_family_affinity = capabilities.queue_family_affinity,
         .flags = IREE_HAL_BUFFER_PLACEMENT_FLAG_ASYNCHRONOUS,
     };
+    const iree_hal_memory_access_t allowed_access =
+        pool->memory_contract ? pool->memory_contract->allowed_access
+                              : capabilities.allowed_access;
+    const iree_hal_buffer_usage_t allowed_usage =
+        pool->memory_contract ? pool->memory_contract->allowed_usage
+                              : capabilities.supported_usage;
     status = iree_hal_amdgpu_transient_buffer_create(
-        placement, out_canonical_requests[prepared_count].params,
+        placement, capabilities.memory_type, allowed_access, allowed_usage,
         out_canonical_requests[prepared_count].allocation_size,
         out_canonical_requests[prepared_count].allocation_size, pool,
         queue->transient_buffer_pool, &out_buffers[prepared_count]);
@@ -357,7 +313,7 @@ static void iree_hal_amdgpu_host_queue_record_alloca_pool_events(
         transaction->acquire_infos[i].reuse_frontier;
     iree_hal_amdgpu_host_queue_record_memory_event(
         queue, type, flags, transaction->acquire_result, pool,
-        transaction->requests[i].params, transaction->buffers[i],
+        transaction->buffers[i], transaction->requests[i].min_alignment,
         has_reservations ? &transaction->reservations[i] : NULL,
         transaction->requests[i].allocation_size, submission_id,
         item_frontier ? item_frontier->entry_count : 0);
@@ -737,15 +693,10 @@ static void iree_hal_amdgpu_sanitized_dealloca_committed(
   state->submission_id = submission_id;
   for (iree_host_size_t i = 0; i < state->buffer_count; ++i) {
     iree_hal_buffer_t* buffer = state->buffers[i];
-    const iree_hal_buffer_params_t params = {
-        .type = iree_hal_buffer_memory_type(buffer),
-        .access = iree_hal_buffer_allowed_access(buffer),
-        .usage = iree_hal_buffer_allowed_usage(buffer),
-    };
     iree_hal_amdgpu_host_queue_record_memory_event(
         state->queue, IREE_HAL_PROFILE_MEMORY_EVENT_TYPE_QUEUE_DEALLOCA,
         IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_QUEUE_OPERATION, UINT32_MAX,
-        state->pool, params, buffer, /*reservation=*/NULL,
+        state->pool, buffer, /*alignment=*/1, /*reservation=*/NULL,
         iree_hal_buffer_byte_length(buffer), submission_id,
         /*frontier_entry_count=*/0);
   }
@@ -777,15 +728,10 @@ static void iree_hal_amdgpu_sanitized_dealloca_complete(
         source_pool, 1, &reservation, IREE_HAL_ASAN_RANGE_ADVICE_FLAG_RELEASED);
     iree_hal_pool_release_reservations(source_pool, 1, &reservation,
                                        /*death_frontier=*/NULL);
-    const iree_hal_buffer_params_t params = {
-        .type = iree_hal_buffer_memory_type(buffer),
-        .access = iree_hal_buffer_allowed_access(buffer),
-        .usage = iree_hal_buffer_allowed_usage(buffer),
-    };
     iree_hal_amdgpu_host_queue_record_memory_event(
         state->queue, IREE_HAL_PROFILE_MEMORY_EVENT_TYPE_POOL_RELEASE,
         IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_QUEUE_OPERATION, UINT32_MAX,
-        source_pool, params, buffer, &reservation,
+        source_pool, buffer, /*alignment=*/1, &reservation,
         iree_hal_buffer_byte_length(buffer), state->submission_id,
         /*frontier_entry_count=*/0);
   }

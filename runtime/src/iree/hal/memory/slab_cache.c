@@ -174,43 +174,23 @@ static bool iree_hal_slab_cache_request_is_cacheable(
     const iree_hal_slab_cache_t* cache,
     const iree_hal_pool_reservation_request_t* request) {
   return request->allocation_size <= cache->slab.allocation_size &&
-         request->params.min_alignment <= cache->slab.params.min_alignment;
+         request->min_alignment <= cache->slab.min_alignment;
 }
 
 static iree_status_t iree_hal_slab_cache_validate_request(
     const iree_hal_slab_cache_t* cache,
     const iree_hal_pool_reservation_request_t* request) {
   if (!request->allocation_size ||
-      !iree_device_size_is_valid_alignment(request->params.min_alignment)) {
+      !iree_device_size_is_valid_alignment(request->min_alignment)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "cache request requires a nonzero size and "
                             "power-of-two alignment");
   }
   if ((cache->capabilities.max_allocation_size &&
        request->allocation_size > cache->capabilities.max_allocation_size) ||
-      request->params.min_alignment >
-          cache->capabilities.max_allocation_alignment) {
+      request->min_alignment > cache->capabilities.max_allocation_alignment) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "cache request exceeds backing pool geometry");
-  }
-  iree_hal_buffer_params_t params = request->params;
-  if (cache->base.memory_contract) {
-    params = cache->base.memory_contract->buffer_params;
-  } else {
-    iree_hal_buffer_params_canonicalize(&params);
-  }
-  IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_memory_type(
-      cache->capabilities.memory_type,
-      params.type & ~IREE_HAL_MEMORY_TYPE_OPTIMAL));
-  IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_access(
-      cache->capabilities.allowed_access, params.access));
-  IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_usage(
-      cache->capabilities.supported_usage, params.usage));
-  if (!iree_hal_queue_family_affinity_is_any(params.queue_family_affinity) &&
-      !iree_all_bits_set(cache->capabilities.queue_family_affinity,
-                         params.queue_family_affinity)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "cache request exceeds backing queue families");
   }
   return iree_ok_status();
 }
@@ -590,9 +570,7 @@ iree_status_t iree_hal_slab_cache_create(
   cache->host_allocator = host_allocator;
   cache->base.asan_enabled = iree_hal_pool_requires_asan_advice(backing_pool);
   cache->slab = options->slab;
-  cache->slab.params.min_alignment =
-      iree_max(1, cache->slab.params.min_alignment);
-  iree_hal_buffer_params_canonicalize(&cache->slab.params);
+  cache->slab.min_alignment = iree_max(1, cache->slab.min_alignment);
   cache->target_count = options->target_count;
   cache->max_count = options->max_count;
   cache->maintenance_entry.fn = iree_hal_slab_cache_maintain;
@@ -602,13 +580,6 @@ iree_status_t iree_hal_slab_cache_create(
   iree_hal_pool_query_capabilities(backing_pool, &cache->capabilities);
   status = iree_hal_slab_cache_validate_request(cache, &cache->slab);
   if (iree_status_is_ok(status)) {
-    // Cached views must serve every request accepted by the cache. The class
-    // inherits the source's complete access scope; per-request views narrow it.
-    cache->slab.params.type = cache->capabilities.memory_type;
-    cache->slab.params.access = cache->capabilities.allowed_access;
-    cache->slab.params.usage = cache->capabilities.supported_usage;
-    cache->slab.params.queue_family_affinity =
-        cache->capabilities.queue_family_affinity;
     status = iree_hal_memory_trace_initialize_pool(
         options->trace_name, "iree-hal-slab-cache", host_allocator,
         &cache->trace);
@@ -1067,7 +1038,6 @@ static iree_status_t iree_hal_slab_cache_materialize_reservations(
     };
     status = iree_hal_pool_buffer_range_materialize(
         &entry->range, 0, reservations[materialized].byte_length,
-        requests[materialized].params,
         iree_hal_slab_cache_entry_frontier(entry), callback,
         cache->host_allocator, &buffers[materialized]);
     if (iree_status_is_ok(status)) {

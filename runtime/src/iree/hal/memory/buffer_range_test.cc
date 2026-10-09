@@ -53,9 +53,9 @@ class BufferRangeTest : public ::testing::TestWithParam<bool> {
     IREE_ASSERT_OK(iree_hal_fixed_block_pool_query_backing_request(
         native_pool, &options, &backing_request));
     iree_hal_buffer_t* backing_buffer = nullptr;
-    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-        native_pool, backing_request.params, backing_request.allocation_size,
-        iree_infinite_timeout(), &backing_buffer));
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(native_pool, backing_request,
+                                                 iree_infinite_timeout(),
+                                                 &backing_buffer));
     options.blocks_per_slab = 0;
     iree_status_t status = iree_hal_fixed_block_pool_create_from_buffer(
         backing_buffer, 0, IREE_HAL_WHOLE_BUFFER, &options, allocator_,
@@ -90,7 +90,9 @@ class BufferRangeTest : public ::testing::TestWithParam<bool> {
   iree_status_t Allocate(iree_hal_pool_t* pool, iree_device_size_t size,
                          iree_hal_buffer_t** out_buffer) {
     iree_status_t status = iree_hal_pool_allocate_buffer(
-        pool, params_, size, iree_immediate_timeout(), out_buffer);
+        pool,
+        iree_hal_make_pool_reservation_request(size, params_.min_alignment),
+        iree_immediate_timeout(), out_buffer);
     if (iree_status_is_ok(status)) {
       buffers_.push_back(*out_buffer);
     }
@@ -178,7 +180,8 @@ TEST_P(BufferRangeTest, InheritsExactHistoryThroughSplitsAndRollback) {
   iree_async_frontier_initialize(history, 2);
   history->entries[0] = {Axis(0), 7};
   history->entries[1] = {Axis(1), 11};
-  const iree_hal_pool_reservation_request_t source_request = {params_, 4096};
+  const iree_hal_pool_reservation_request_t source_request =
+      iree_hal_make_pool_reservation_request(4096, params_.min_alignment);
   iree_hal_pool_reservation_t source_reservation;
   iree_hal_pool_acquire_info_t source_info;
   iree_hal_pool_acquire_result_t result;
@@ -208,7 +211,8 @@ TEST_P(BufferRangeTest, InheritsExactHistoryThroughSplitsAndRollback) {
                         CreateChild(source, 128, 1024, 1, &child));
   EXPECT_EQ(nullptr, child);
   IREE_ASSERT_OK(CreateChild(source, 128, 1024, 2, &child));
-  const iree_hal_pool_reservation_request_t request = {params_, 256};
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(256, params_.min_alignment);
   iree_hal_pool_reservation_t reservation;
   iree_hal_pool_acquire_info_t info;
   IREE_ASSERT_OK(iree_hal_pool_acquire_reservations(
@@ -265,7 +269,7 @@ TEST_P(BufferRangeTest, InheritsExactHistoryThroughSplitsAndRollback) {
   EXPECT_EQ(value, actual);
 }
 
-TEST_P(BufferRangeTest, EnforcesVisibleRangeAndPermissions) {
+TEST_P(BufferRangeTest, EnforcesVisibleRange) {
   iree_hal_buffer_t* source = nullptr;
   IREE_ASSERT_OK(Allocate(source_pool_, 4096, &source));
   iree_hal_pool_t* child = nullptr;
@@ -275,17 +279,7 @@ TEST_P(BufferRangeTest, EnforcesVisibleRangeAndPermissions) {
       IREE_STATUS_OUT_OF_RANGE,
       CreateChild(source, 4096, IREE_HAL_WHOLE_BUFFER, 2, &child));
   IREE_ASSERT_OK(CreateChild(source, 128, 512, 2, &child));
-  auto unsupported = params_;
-  unsupported.usage |= IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT;
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_PERMISSION_DENIED,
-      iree_hal_pool_allocate_buffer(child, unsupported, 64,
-                                    iree_immediate_timeout(), &buffer));
-  EXPECT_EQ(nullptr, buffer);
-  iree_hal_pool_stats_t stats;
-  iree_hal_pool_query_stats(child, &stats);
-  EXPECT_EQ(0u, stats.reservation_count);
   IREE_ASSERT_OK(Allocate(child, 64, &buffer));
   EXPECT_EQ(128u, iree_hal_buffer_memory_view(buffer).offset);
 }
@@ -433,7 +427,7 @@ TEST_P(BufferRangeTest, MaintenanceGranulesSurviveGrowableChildren) {
         iree_hal_fixed_block_pool_create(parent, &options, allocator_, &child));
   }
   pools_.push_back(child);
-  EXPECT_EQ(backing_request.params.min_alignment, 64u);
+  EXPECT_EQ(backing_request.min_alignment, 64u);
   EXPECT_EQ(backing_request.allocation_size, 512u);
   params_.min_alignment = 128;
   iree_hal_buffer_t* invalid = nullptr;

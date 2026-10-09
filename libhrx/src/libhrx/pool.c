@@ -29,18 +29,6 @@ static const hrx_iree_exact_pool_t* hrx_iree_exact_pool_const_cast(
   return (const hrx_iree_exact_pool_t*)base;
 }
 
-static bool hrx_iree_buffer_params_are_compatible(
-    iree_hal_buffer_params_t pool_params,
-    iree_hal_buffer_params_t request_params) {
-  iree_hal_buffer_params_canonicalize(&pool_params);
-  iree_hal_buffer_params_canonicalize(&request_params);
-  return pool_params.type == request_params.type &&
-         pool_params.access == request_params.access &&
-         pool_params.usage == request_params.usage &&
-         pool_params.queue_family_affinity ==
-             request_params.queue_family_affinity;
-}
-
 iree_status_t hrx_iree_exact_pool_create(
     iree_hal_allocator_t* allocator, iree_hal_buffer_params_t params,
     iree_async_notification_t* notification,
@@ -81,7 +69,7 @@ static iree_status_t hrx_iree_exact_pool_validate_request(
                             "pool reservations must be non-empty");
   }
   const iree_device_size_t alignment =
-      request->params.min_alignment ? request->params.min_alignment : 1;
+      request->min_alignment ? request->min_alignment : 1;
   if (!iree_device_size_is_power_of_two(alignment)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "reservation alignment (%" PRIdsz
@@ -95,11 +83,6 @@ static iree_status_t hrx_iree_exact_pool_validate_request(
                             "reservation alignment %" PRIdsz
                             " exceeds exact pool alignment %" PRIdsz,
                             alignment, pool_alignment);
-  }
-  if (!hrx_iree_buffer_params_are_compatible(pool->params, request->params)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "hrx exact pools require allocation params to match pool creation");
   }
   return iree_ok_status();
 }

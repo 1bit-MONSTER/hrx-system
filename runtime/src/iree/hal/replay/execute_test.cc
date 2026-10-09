@@ -2228,17 +2228,9 @@ TEST(ReplayExecuteTest, ExecutesRecordedQueueAlloca) {
       signal_values,
   };
 
-  iree_hal_buffer_params_t params = {0};
-  params.type =
-      IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL | IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(wrapped_queue)));
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/params,
-      /*.allocation_size=*/16,
-  };
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(/*allocation_size=*/16,
+                                             /*min_alignment=*/0);
   iree_hal_buffer_t* buffer = nullptr;
   IREE_ASSERT_OK(iree_hal_queue_alloca(
       wrapped_queue, iree_hal_semaphore_list_empty(), signal_list, pool,

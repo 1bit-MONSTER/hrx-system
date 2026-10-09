@@ -518,7 +518,7 @@ static iree_status_t iree_hal_passthrough_pool_validate_reservation_request(
     const iree_hal_pool_reservation_request_t* request) {
   const iree_device_size_t size = request->allocation_size;
   const iree_device_size_t alignment =
-      request->params.min_alignment ? request->params.min_alignment : 1;
+      request->min_alignment ? request->min_alignment : 1;
   if (size == 0) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "reservation size must be > 0");
@@ -552,7 +552,7 @@ static iree_status_t iree_hal_passthrough_pool_acquire_one_reservation(
   iree_hal_passthrough_pool_t* pool = (iree_hal_passthrough_pool_t*)base_pool;
   const iree_device_size_t size = request->allocation_size;
   const iree_device_size_t alignment =
-      request->params.min_alignment ? request->params.min_alignment : 1;
+      request->min_alignment ? request->min_alignment : 1;
 
   iree_hal_asan_allocation_layout_t asan_layout = {0};
   iree_device_size_t backing_length = size;
@@ -894,18 +894,18 @@ static iree_status_t iree_hal_passthrough_pool_materialize_reservations(
       release_callback.user_data = &state->elements[materialized_count];
       staged_buffer = &state->elements[materialized_count].buffer;
     }
-    iree_hal_buffer_params_t params;
+    iree_hal_memory_access_t allowed_access = IREE_HAL_MEMORY_ACCESS_ALL;
+    iree_hal_buffer_usage_t allowed_usage =
+        pool->slab_properties.supported_usage;
     if (base_pool->memory_contract) {
-      params = base_pool->memory_contract->buffer_params;
-    } else {
-      params = requests[materialized_count].params;
-      iree_hal_buffer_params_canonicalize(&params);
+      allowed_access = base_pool->memory_contract->allowed_access;
+      allowed_usage = base_pool->memory_contract->allowed_usage;
     }
     status = iree_hal_slab_provider_wrap_buffer(
         pool->slab_provider, &reservation_state->slab,
         reservations[materialized_count].offset,
-        reservations[materialized_count].byte_length, params, release_callback,
-        staged_buffer);
+        reservations[materialized_count].byte_length, allowed_access,
+        allowed_usage, release_callback, staged_buffer);
     if (iree_status_is_ok(status)) {
       (*staged_buffer)->memory.contract = base_pool->memory_contract;
       (*staged_buffer)->memory.backing =
@@ -962,8 +962,10 @@ static void iree_hal_passthrough_pool_query_capabilities(
   out_capabilities->maintenance_alignment =
       pool->slab_properties.maintenance_alignment;
   if (base_pool->memory_contract) {
+    out_capabilities->allowed_access =
+        base_pool->memory_contract->allowed_access;
     out_capabilities->supported_usage =
-        base_pool->memory_contract->buffer_params.usage;
+        base_pool->memory_contract->allowed_usage;
   }
 }
 

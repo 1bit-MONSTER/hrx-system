@@ -1625,17 +1625,9 @@ TEST(ReplayExecutorLifecycleTest,
   uint64_t signal_values[] = {1};
   const iree_hal_semaphore_list_t signal_list = {
       IREE_ARRAYSIZE(signal_semaphores), signal_semaphores, signal_values};
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/
-      {
-          /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
-          /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-          /*.type=*/IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
-              IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
-          /*.queue_family_affinity=*/iree_hal_make_queue_family_affinity(0),
-      },
-      /*.allocation_size=*/16,
-  };
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(/*allocation_size=*/16,
+                                             /*min_alignment=*/0);
   iree_hal_buffer_t* buffer = nullptr;
   IREE_ASSERT_OK(iree_hal_queue_alloca(queue, iree_hal_semaphore_list_empty(),
                                        signal_list, pool,

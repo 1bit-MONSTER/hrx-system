@@ -79,15 +79,11 @@ class DispatchReuseTest : public CtsTestBase<> {
 
   iree_status_t QueueAlloca(iree_hal_semaphore_list_t wait_semaphore_list,
                             iree_hal_semaphore_list_t signal_semaphore_list,
-                            iree_hal_buffer_params_t params,
                             iree_device_size_t allocation_size,
                             iree_hal_buffer_t** out_buffer) {
-    params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-        iree_hal_queue_family_ordinal(iree_hal_queue_family(transfer_queue_)));
-    const iree_hal_pool_reservation_request_t request = {
-        /*.params=*/params,
-        /*.allocation_size=*/allocation_size,
-    };
+    const iree_hal_pool_reservation_request_t request =
+        iree_hal_make_pool_reservation_request(allocation_size,
+                                               /*min_alignment=*/0);
     return iree_hal_queue_alloca(transfer_queue_, wait_semaphore_list,
                                  signal_semaphore_list, transient_pool_,
                                  /*request_count=*/1, &request, out_buffer);
@@ -614,11 +610,6 @@ TEST_P(DispatchReuseTest, AllocaExecuteDeallocaCycle) {
   Ref<iree_hal_command_buffer_t> command_buffer;
   RecordWorkgroupIdDispatch(kWorkgroupCount, command_buffer.out());
 
-  iree_hal_buffer_params_t alloca_params = {0};
-  alloca_params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  alloca_params.usage =
-      IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
-
   // Run the alloca → execute → verify → dealloca cycle 3 times.
   // The dealloca must be deferred until AFTER host readback because the
   // dealloca decommits the transient buffer's backing. Since the dealloca
@@ -629,8 +620,8 @@ TEST_P(DispatchReuseTest, AllocaExecuteDeallocaCycle) {
     SemaphoreList alloca_signal(device_, {0}, {1});
     SemaphoreList empty_wait;
     iree_hal_buffer_t* transient_buffer = nullptr;
-    IREE_ASSERT_OK(QueueAlloca(empty_wait, alloca_signal, alloca_params,
-                               buffer_size, &transient_buffer));
+    IREE_ASSERT_OK(
+        QueueAlloca(empty_wait, alloca_signal, buffer_size, &transient_buffer));
     Ref<iree_hal_buffer_t> transient(transient_buffer);
 
     // Step 2: execute — waits on alloca, signals execute.
@@ -669,18 +660,12 @@ TEST_P(DispatchReuseTest, PipelinedAllocaExecuteDealloca) {
   Ref<iree_hal_command_buffer_t> command_buffer;
   RecordWorkgroupIdDispatch(kWorkgroupCount, command_buffer.out());
 
-  iree_hal_buffer_params_t alloca_params = {0};
-  alloca_params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  alloca_params.usage =
-      IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
-
   SemaphoreList empty_wait;
 
   // Phase 1: alloca + execute for buffer A.
   SemaphoreList alloca_a_signal(device_, {0}, {1});
   iree_hal_buffer_t* raw_a = nullptr;
-  IREE_ASSERT_OK(QueueAlloca(empty_wait, alloca_a_signal, alloca_params,
-                             buffer_size, &raw_a));
+  IREE_ASSERT_OK(QueueAlloca(empty_wait, alloca_a_signal, buffer_size, &raw_a));
   Ref<iree_hal_buffer_t> buffer_a(raw_a);
 
   SemaphoreList execute_a_signal(device_, {0}, {1});
@@ -693,8 +678,7 @@ TEST_P(DispatchReuseTest, PipelinedAllocaExecuteDealloca) {
   // Phase 2: alloca + execute for buffer B (independent of phase 1).
   SemaphoreList alloca_b_signal(device_, {0}, {1});
   iree_hal_buffer_t* raw_b = nullptr;
-  IREE_ASSERT_OK(QueueAlloca(empty_wait, alloca_b_signal, alloca_params,
-                             buffer_size, &raw_b));
+  IREE_ASSERT_OK(QueueAlloca(empty_wait, alloca_b_signal, buffer_size, &raw_b));
   Ref<iree_hal_buffer_t> buffer_b(raw_b);
 
   SemaphoreList execute_b_signal(device_, {0}, {1});

@@ -781,13 +781,9 @@ class QueueBenchmark : public benchmark::Fixture {
         /*semaphores=*/&signal_semaphore,
         /*payload_values=*/&signal_payload_value,
     };
-    iree_hal_buffer_params_t params = kQueueAllocaBufferParams;
-    params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-        iree_hal_queue_family_ordinal(iree_hal_queue_family(queue0_)));
-    const iree_hal_pool_reservation_request_t request = {
-        /*.params=*/params,
-        /*.allocation_size=*/allocation_size,
-    };
+    const iree_hal_pool_reservation_request_t request =
+        iree_hal_make_pool_reservation_request(
+            allocation_size, kQueueAllocaBufferParams.min_alignment);
     iree_hal_buffer_t* buffer = nullptr;
     IREE_RETURN_IF_ERROR(iree_hal_queue_alloca(
         queue0_, iree_hal_semaphore_list_empty(), signal_semaphore_list, pool,
