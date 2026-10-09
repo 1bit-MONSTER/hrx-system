@@ -77,20 +77,20 @@ iree_status_t ResolveDescriptorFromArray(
 }
 
 const loom_target_config_t kTargetConfig = {
-    /*.name=*/IREE_SV("test-config"),
-    /*.contract_set_key=*/{},
-    /*.contract_feature_bits=*/0,
+    .name = IREE_SV("test-config"),
+    .contract_set_key = {},
+    .contract_feature_bits = 0,
 };
 
 const loom_target_export_plan_t kTargetExportPlan = {
-    /*.name=*/IREE_SV("test-export"),
+    .name = IREE_SV("test-export"),
 };
 
 const loom_target_bundle_t kTargetBundle = {
-    /*.name=*/IREE_SV("test-target"),
-    /*.snapshot=*/nullptr,
-    /*.export_plan=*/&kTargetExportPlan,
-    /*.config=*/&kTargetConfig,
+    .name = IREE_SV("test-target"),
+    .snapshot = nullptr,
+    .export_plan = &kTargetExportPlan,
+    .config = &kTargetConfig,
 };
 
 loom_target_facts_t MakeTargetFacts() {
@@ -294,10 +294,10 @@ TEST_F(LowContractQuerySourceMemoryTest,
   const loom_low_lower_diagnostic_param_ref_t diagnostic_param_refs[] = {0, 1,
                                                                          2};
   const loom_low_lower_diagnostic_t diagnostic = {
-      /*.error_ref=*/LOOM_ERR_TARGET_003_REF,
-      /*.param_start=*/0,
-      /*.param_count=*/8,
-      /*.flags=*/LOOM_LOW_LOWER_DIAGNOSTIC_FLAG_IMPLICIT_TARGET_CONTEXT,
+      .error_ref = LOOM_ERR_TARGET_003_REF,
+      .param_start = 0,
+      .param_count = 8,
+      .flags = LOOM_LOW_LOWER_DIAGNOSTIC_FLAG_IMPLICIT_TARGET_CONTEXT,
   };
   loom_low_lower_rule_set_t rule_set = {};
   rule_set.string_pool = kRuleStringPool;
@@ -347,10 +347,11 @@ TEST(LowContractQueryTest, ContractIndexDescriptorRuleSelectsLegalCase) {
 
   const loom_low_lower_contract_query_options_t options = {
       .contract_index = contract.index(),
-      .rule_sets = {
-          /*.count=*/IREE_ARRAYSIZE(rule_sets),
-          /*.values=*/rule_sets,
-      },
+      .rule_sets =
+          {
+              .count = IREE_ARRAYSIZE(rule_sets),
+              .values = rule_sets,
+          },
       .map_value = {},
       .can_materialize = {},
       .descriptor_ref =
@@ -516,7 +517,7 @@ TEST(LowContractQueryTest, IndexedMissReplaysCompleteOrderForBestRejection) {
   rules[1].guard_start = 1;
   rules[1].guard_count = 1;
   const loom_low_lower_diagnostic_t diagnostic = {
-      /*.error_ref=*/LOOM_ERR_TARGET_003_REF,
+      .error_ref = LOOM_ERR_TARGET_003_REF,
   };
   loom_low_lower_rule_set_t rule_set = {};
   rule_set.rules = rules;
@@ -571,10 +572,11 @@ TEST(LowContractQueryTest, IndexedMissReplaysCompleteOrderForBestRejection) {
   };
   const loom_low_lower_contract_query_options_t options = {
       .contract_index = &index,
-      .rule_sets = {
-          /*.count=*/IREE_ARRAYSIZE(rule_sets),
-          /*.values=*/rule_sets,
-      },
+      .rule_sets =
+          {
+              .count = IREE_ARRAYSIZE(rule_sets),
+              .values = rule_sets,
+          },
   };
   const loom_target_facts_t target_facts = MakeTargetFacts();
   loom_target_contract_query_environment_t environment = {
@@ -706,10 +708,11 @@ TEST_F(LowContractQuerySourceMemoryTest,
   };
   const loom_low_lower_contract_query_options_t options = {
       .contract_index = &contract_index,
-      .rule_sets = {
-          /*.count=*/IREE_ARRAYSIZE(rule_sets),
-          /*.values=*/rule_sets,
-      },
+      .rule_sets =
+          {
+              .count = IREE_ARRAYSIZE(rule_sets),
+              .values = rule_sets,
+          },
   };
   const loom_target_facts_t target_facts = MakeTargetFacts();
   loom_target_contract_query_environment_t environment = {};
@@ -777,10 +780,11 @@ TEST(LowContractQueryTest, TargetSubgroupSizeRangeRequiresKnownInRangeSize) {
   SingleOpContract<kSourceOpKind> contract;
   const loom_low_lower_contract_query_options_t options = {
       .contract_index = contract.index(),
-      .rule_sets = {
-          /*.count=*/IREE_ARRAYSIZE(rule_sets),
-          /*.values=*/rule_sets,
-      },
+      .rule_sets =
+          {
+              .count = IREE_ARRAYSIZE(rule_sets),
+              .values = rule_sets,
+          },
       .map_value = {},
       .can_materialize = {},
       .descriptor_ref =
@@ -888,10 +892,11 @@ TEST(LowContractQueryTest, ContractIndexDescriptorRuleReportsRejectedCase) {
 
   const loom_low_lower_contract_query_options_t options = {
       .contract_index = contract.index(),
-      .rule_sets = {
-          /*.count=*/IREE_ARRAYSIZE(rule_sets),
-          /*.values=*/rule_sets,
-      },
+      .rule_sets =
+          {
+              .count = IREE_ARRAYSIZE(rule_sets),
+              .values = rule_sets,
+          },
   };
   const loom_target_facts_t target_facts = MakeTargetFacts();
   loom_target_contract_query_environment_t environment = {
@@ -1021,10 +1026,11 @@ TEST_F(LowContractQuerySourceMemoryTest,
 
   const loom_low_lower_contract_query_options_t options = {
       .contract_index = contract.index(),
-      .rule_sets = {
-          /*.count=*/IREE_ARRAYSIZE(rule_sets),
-          /*.values=*/rule_sets,
-      },
+      .rule_sets =
+          {
+              .count = IREE_ARRAYSIZE(rule_sets),
+              .values = rule_sets,
+          },
   };
   const loom_target_facts_t target_facts = MakeTargetFacts();
   loom_target_contract_query_environment_t environment = {
