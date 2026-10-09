@@ -73,6 +73,7 @@ from loom.target.emit.wasm.predicate import predicate_rules
 from loom.target.emit.wasm.vector_integer_arithmetic import (
     integer_arithmetic_rules,
 )
+from loom.target.emit.wasm.vector_integer_extension import integer_extension_rules
 from loom.target.emit.wasm.vector_shifts import (
     uniform_shift_rules,
     varying_shift_rules,
@@ -1726,6 +1727,7 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
             )
         ),
         *integer_arithmetic_rules(_descriptor, _value_type),
+        *integer_extension_rules(_descriptor, _value_type),
         _const_i32_rule(index.index_constant, _INDEX),
         _const_i32_rule(index.index_constant, _OFFSET),
         *(
