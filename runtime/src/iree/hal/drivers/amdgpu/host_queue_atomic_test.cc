@@ -152,7 +152,7 @@ class HostQueueAtomicTest
     IREE_RETURN_IF_ERROR(iree_hal_command_buffer_atomic_store(
         command_buffer, IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE,
         IREE_HAL_EXECUTION_STAGE_ATOMIC, static_target,
-        (iree_hal_atomic_store_params_t){
+        iree_hal_atomic_store_params_t{
             .value = 10,
             .flags = atomic_flags,
             .width = IREE_HAL_ATOMIC_WIDTH_32,
@@ -160,7 +160,7 @@ class HostQueueAtomicTest
     IREE_RETURN_IF_ERROR(iree_hal_command_buffer_atomic_rmw(
         command_buffer, IREE_HAL_EXECUTION_STAGE_ATOMIC,
         IREE_HAL_EXECUTION_STAGE_ATOMIC, static_target,
-        (iree_hal_atomic_rmw_params_t){
+        iree_hal_atomic_rmw_params_t{
             .operand = 5,
             .flags = atomic_flags,
             .width = IREE_HAL_ATOMIC_WIDTH_32,
@@ -173,7 +173,7 @@ class HostQueueAtomicTest
     IREE_RETURN_IF_ERROR(iree_hal_command_buffer_atomic_wait(
         command_buffer, IREE_HAL_EXECUTION_STAGE_ATOMIC,
         IREE_HAL_EXECUTION_STAGE_ATOMIC, dynamic_wait_target,
-        (iree_hal_atomic_wait_params_t){
+        iree_hal_atomic_wait_params_t{
             .value = 5,
             .mask = UINT32_MAX,
             .flags = atomic_flags,
@@ -187,7 +187,7 @@ class HostQueueAtomicTest
     IREE_RETURN_IF_ERROR(iree_hal_command_buffer_atomic_store(
         command_buffer, IREE_HAL_EXECUTION_STAGE_ATOMIC,
         IREE_HAL_EXECUTION_STAGE_ATOMIC, dynamic_target,
-        (iree_hal_atomic_store_params_t){
+        iree_hal_atomic_store_params_t{
             .value = 20,
             .flags = atomic_flags,
             .width = IREE_HAL_ATOMIC_WIDTH_32,
@@ -195,7 +195,7 @@ class HostQueueAtomicTest
     IREE_RETURN_IF_ERROR(iree_hal_command_buffer_atomic_rmw(
         command_buffer, IREE_HAL_EXECUTION_STAGE_ATOMIC,
         IREE_HAL_EXECUTION_STAGE_HOST, dynamic_target,
-        (iree_hal_atomic_rmw_params_t){
+        iree_hal_atomic_rmw_params_t{
             .operand = 3,
             .flags = atomic_flags,
             .width = IREE_HAL_ATOMIC_WIDTH_32,
@@ -221,7 +221,7 @@ class HostQueueAtomicTest
         IREE_HAL_EXECUTION_STAGE_HOST,
         iree_hal_make_indirect_buffer_ref(
             /*binding=*/0, /*offset=*/0, /*length=*/sizeof(uint32_t)),
-        (iree_hal_atomic_store_params_t){
+        iree_hal_atomic_store_params_t{
             .value = 77,
             .flags = IREE_HAL_ATOMIC_FLAG_RELEASE |
                      IREE_HAL_ATOMIC_FLAG_SYSTEM_SCOPE,
@@ -313,7 +313,7 @@ TEST_F(HostQueueAtomicTest,
           return iree_hal_queue_atomic_store(queue,
                                              iree_hal_semaphore_list_empty(),
                                              signal_list, buffer, target_offset,
-                                             (iree_hal_atomic_store_params_t){
+                                             iree_hal_atomic_store_params_t{
                                                  .value = 10,
                                                  .flags = atomic_flags,
                                                  .width = width,
@@ -325,7 +325,7 @@ TEST_F(HostQueueAtomicTest,
           return iree_hal_queue_atomic_rmw(
               queue, iree_hal_semaphore_list_empty(), signal_list, buffer,
               target_offset,
-              (iree_hal_atomic_rmw_params_t){
+              iree_hal_atomic_rmw_params_t{
                   .operand = 5,
                   .flags = atomic_flags,
                   .width = width,
@@ -346,7 +346,7 @@ TEST_F(HostQueueAtomicTest,
             return iree_hal_queue_atomic_wait(
                 queue, iree_hal_semaphore_list_empty(), signal_list, buffer,
                 target_offset,
-                (iree_hal_atomic_wait_params_t){
+                iree_hal_atomic_wait_params_t{
                     .value = wait_values[i],
                     .mask = wait_mask,
                     .flags = atomic_flags,
@@ -370,7 +370,7 @@ TEST_F(HostQueueAtomicTest,
             return iree_hal_queue_atomic_rmw(queue,
                                              iree_hal_semaphore_list_empty(),
                                              signal_list, buffer, target_offset,
-                                             (iree_hal_atomic_rmw_params_t){
+                                             iree_hal_atomic_rmw_params_t{
                                                  .operand = rmw_operands[i],
                                                  .flags = atomic_flags,
                                                  .width = width,
@@ -422,7 +422,7 @@ TEST_F(HostQueueAtomicTest, HostWaitForEarlierValueIgnoresLaterProducerEpoch) {
   IREE_ASSERT_OK(iree_hal_queue_atomic_wait(
       queue, iree_hal_semaphore_list_empty(), first_signal_list, buffer,
       /*target_offset=*/0,
-      (iree_hal_atomic_wait_params_t){
+      iree_hal_atomic_wait_params_t{
           .value = 1,
           .mask = UINT32_MAX,
           .flags =
@@ -441,7 +441,7 @@ TEST_F(HostQueueAtomicTest, HostWaitForEarlierValueIgnoresLaterProducerEpoch) {
   IREE_ASSERT_OK(iree_hal_queue_atomic_wait(
       queue, iree_hal_semaphore_list_empty(), second_signal_list, buffer,
       /*target_offset=*/sizeof(wait_values[0]),
-      (iree_hal_atomic_wait_params_t){
+      iree_hal_atomic_wait_params_t{
           .value = 1,
           .mask = UINT32_MAX,
           .flags =
@@ -514,7 +514,7 @@ TEST_F(HostQueueAtomicTest, DirectWaitBeforeStoreOnIndependentQueue) {
   IREE_ASSERT_OK(iree_hal_queue_atomic_wait(
       wait_queue, iree_hal_semaphore_list_empty(), wait_signal_list, buffer,
       /*target_offset=*/0,
-      (iree_hal_atomic_wait_params_t){
+      iree_hal_atomic_wait_params_t{
           .value = 1,
           .mask = UINT32_MAX,
           .flags = IREE_HAL_ATOMIC_FLAG_SYSTEM_SCOPE,
@@ -536,7 +536,7 @@ TEST_F(HostQueueAtomicTest, DirectWaitBeforeStoreOnIndependentQueue) {
   IREE_ASSERT_OK(iree_hal_queue_atomic_store(
       store_queue, iree_hal_semaphore_list_empty(), store_signal_list, buffer,
       /*target_offset=*/0,
-      (iree_hal_atomic_store_params_t){
+      iree_hal_atomic_store_params_t{
           .value = 1,
           .flags = IREE_HAL_ATOMIC_FLAG_SYSTEM_SCOPE,
           .width = IREE_HAL_ATOMIC_WIDTH_32,
@@ -602,7 +602,7 @@ TEST_F(HostQueueAtomicTest, DeferredDirectOperationsRetainTarget) {
   };
   IREE_ASSERT_OK(iree_hal_queue_atomic_wait(
       queue, gate_wait_list, wait_signal_list, buffer, /*target_offset=*/0,
-      (iree_hal_atomic_wait_params_t){
+      iree_hal_atomic_wait_params_t{
           .value = 1,
           .mask = UINT32_MAX,
           .flags = atomic_flags,
@@ -618,7 +618,7 @@ TEST_F(HostQueueAtomicTest, DeferredDirectOperationsRetainTarget) {
   IREE_ASSERT_OK(iree_hal_queue_atomic_store(
       queue, gate_wait_list, store_signal_list, buffer,
       /*target_offset=*/sizeof(uint32_t),
-      (iree_hal_atomic_store_params_t){
+      iree_hal_atomic_store_params_t{
           .value = 7,
           .flags = atomic_flags,
           .width = IREE_HAL_ATOMIC_WIDTH_32,
@@ -632,7 +632,7 @@ TEST_F(HostQueueAtomicTest, DeferredDirectOperationsRetainTarget) {
   IREE_ASSERT_OK(iree_hal_queue_atomic_rmw(
       queue, gate_wait_list, rmw_signal_list, buffer,
       /*target_offset=*/2 * sizeof(uint32_t),
-      (iree_hal_atomic_rmw_params_t){
+      iree_hal_atomic_rmw_params_t{
           .operand = 3,
           .flags = atomic_flags,
           .width = IREE_HAL_ATOMIC_WIDTH_32,
@@ -703,7 +703,7 @@ TEST_F(HostQueueAtomicTest, DeferredDirectMisalignmentFailsAndQueueRecovers) {
   IREE_ASSERT_OK(iree_hal_queue_atomic_store(
       queue, wait_list, failed_signal_list, misaligned_buffer,
       /*target_offset=*/0,
-      (iree_hal_atomic_store_params_t){
+      iree_hal_atomic_store_params_t{
           .value = 1,
           .flags =
               IREE_HAL_ATOMIC_FLAG_RELEASE | IREE_HAL_ATOMIC_FLAG_SYSTEM_SCOPE,
@@ -744,7 +744,7 @@ TEST_F(HostQueueAtomicTest, DeferredDirectMisalignmentFailsAndQueueRecovers) {
   IREE_ASSERT_OK(iree_hal_queue_atomic_store(
       queue, iree_hal_semaphore_list_empty(), valid_signal_list, valid_buffer,
       /*target_offset=*/0,
-      (iree_hal_atomic_store_params_t){
+      iree_hal_atomic_store_params_t{
           .value = 77,
           .flags =
               IREE_HAL_ATOMIC_FLAG_RELEASE | IREE_HAL_ATOMIC_FLAG_SYSTEM_SCOPE,
@@ -1149,7 +1149,7 @@ TEST_P(HostQueueAtomicTest, SupportsWidthsConditionsAndRmwOperations) {
     IREE_RETURN_IF_ERROR(iree_hal_command_buffer_atomic_store(
         command_buffer, IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE,
         IREE_HAL_EXECUTION_STAGE_ATOMIC, target,
-        (iree_hal_atomic_store_params_t){
+        iree_hal_atomic_store_params_t{
             .value = 10,
             .flags = atomic_flags,
             .width = width,
@@ -1157,7 +1157,7 @@ TEST_P(HostQueueAtomicTest, SupportsWidthsConditionsAndRmwOperations) {
     IREE_RETURN_IF_ERROR(iree_hal_command_buffer_atomic_rmw(
         command_buffer, IREE_HAL_EXECUTION_STAGE_ATOMIC,
         IREE_HAL_EXECUTION_STAGE_ATOMIC, target,
-        (iree_hal_atomic_rmw_params_t){
+        iree_hal_atomic_rmw_params_t{
             .operand = 5,
             .flags = atomic_flags,
             .width = width,
@@ -1166,7 +1166,7 @@ TEST_P(HostQueueAtomicTest, SupportsWidthsConditionsAndRmwOperations) {
     IREE_RETURN_IF_ERROR(iree_hal_command_buffer_atomic_wait(
         command_buffer, IREE_HAL_EXECUTION_STAGE_ATOMIC,
         IREE_HAL_EXECUTION_STAGE_ATOMIC, target,
-        (iree_hal_atomic_wait_params_t){
+        iree_hal_atomic_wait_params_t{
             .value = 15,
             .mask = wait_mask,
             .flags = atomic_flags,
@@ -1176,7 +1176,7 @@ TEST_P(HostQueueAtomicTest, SupportsWidthsConditionsAndRmwOperations) {
     IREE_RETURN_IF_ERROR(iree_hal_command_buffer_atomic_wait(
         command_buffer, IREE_HAL_EXECUTION_STAGE_ATOMIC,
         IREE_HAL_EXECUTION_STAGE_ATOMIC, target,
-        (iree_hal_atomic_wait_params_t){
+        iree_hal_atomic_wait_params_t{
             .value = 14,
             .mask = wait_mask,
             .flags = atomic_flags,
@@ -1186,7 +1186,7 @@ TEST_P(HostQueueAtomicTest, SupportsWidthsConditionsAndRmwOperations) {
     IREE_RETURN_IF_ERROR(iree_hal_command_buffer_atomic_wait(
         command_buffer, IREE_HAL_EXECUTION_STAGE_ATOMIC,
         IREE_HAL_EXECUTION_STAGE_ATOMIC, target,
-        (iree_hal_atomic_wait_params_t){
+        iree_hal_atomic_wait_params_t{
             .value = 15,
             .mask = wait_mask,
             .flags = atomic_flags,
@@ -1206,7 +1206,7 @@ TEST_P(HostQueueAtomicTest, SupportsWidthsConditionsAndRmwOperations) {
           i + 1 == IREE_ARRAYSIZE(operations) ? IREE_HAL_EXECUTION_STAGE_HOST
                                               : IREE_HAL_EXECUTION_STAGE_ATOMIC,
           target,
-          (iree_hal_atomic_rmw_params_t){
+          iree_hal_atomic_rmw_params_t{
               .operand = operands[i],
               .flags = atomic_flags,
               .width = width,
