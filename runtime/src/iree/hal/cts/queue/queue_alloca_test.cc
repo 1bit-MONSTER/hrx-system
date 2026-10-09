@@ -790,13 +790,17 @@ TEST_P(QueueAllocaTest, ExportFollowsAllocationLifetime) {
   IREE_ASSERT_OK(iree_hal_buffer_subspan(
       buffer, 64, 64, iree_allocator_system(), subspan.out()));
 
-  iree_hal_external_buffer_t external_buffer = {};
+  iree_hal_external_storage_t external_buffer = {};
+  iree_hal_buffer_range_t logical_range = {};
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_FAILED_PRECONDITION,
       iree_hal_buffer_export(
-          subspan, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-          IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer));
-  EXPECT_EQ(IREE_HAL_EXTERNAL_BUFFER_TYPE_NONE, external_buffer.type);
+          subspan, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+          iree_hal_make_external_storage_class(
+              IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+          &external_buffer, &logical_range));
+  EXPECT_EQ(IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE,
+            external_buffer.storage_class.type);
   IREE_ASSERT_OK(
       iree_hal_semaphore_list_signal(alloca_wait, /*frontier=*/nullptr));
   Wait(alloca_signal);
@@ -804,25 +808,35 @@ TEST_P(QueueAllocaTest, ExportFollowsAllocationLifetime) {
   constexpr uint32_t kPattern = 0xA11CA7EDu;
   FillAndWait(transfer_queue_, buffer, kPattern);
   iree_status_t export_status = iree_hal_buffer_export(
-      subspan, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer);
+      subspan, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      &external_buffer, &logical_range);
   if (iree_status_is_ok(export_status)) {
-    EXPECT_EQ(IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-              external_buffer.type);
-    EXPECT_EQ(64u, external_buffer.size);
-    iree_hal_external_buffer_t root_export = {};
+    EXPECT_EQ(IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS,
+              external_buffer.storage_class.type);
+    EXPECT_EQ(64u, logical_range.byte_length);
+    iree_hal_external_storage_t root_export = {};
+    iree_hal_buffer_range_t root_range = {};
     IREE_ASSERT_OK(iree_hal_buffer_export(
-        buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-        IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &root_export));
-    EXPECT_EQ(root_export.handle.device_allocation.ptr + 64,
-              external_buffer.handle.device_allocation.ptr);
+        buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+        iree_hal_make_external_storage_class(
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+        &root_export, &root_range));
+    EXPECT_EQ(root_export.payload.device_address,
+              external_buffer.payload.device_address);
+    EXPECT_EQ(root_range.byte_offset + 64, logical_range.byte_offset);
+    EXPECT_EQ(root_export.byte_length, external_buffer.byte_length);
     for (uint32_t value : ReadBufferData<uint32_t>(subspan)) {
       EXPECT_EQ(kPattern, value);
     }
+    iree_hal_external_storage_release(&root_export);
+    iree_hal_external_storage_release(&external_buffer);
   } else {
     // External pointer support is optional; allocation readiness is not.
     IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE, export_status);
-    EXPECT_EQ(IREE_HAL_EXTERNAL_BUFFER_TYPE_NONE, external_buffer.type);
+    EXPECT_EQ(IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE,
+              external_buffer.storage_class.type);
   }
 
   iree_hal_buffer_t* buffers[] = {buffer.get()};
@@ -833,11 +847,15 @@ TEST_P(QueueAllocaTest, ExportFollowsAllocationLifetime) {
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_FAILED_PRECONDITION,
       iree_hal_buffer_export(
-          subspan, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-          IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer));
-  EXPECT_EQ(IREE_HAL_EXTERNAL_BUFFER_TYPE_NONE, external_buffer.type);
-  EXPECT_EQ(0u, external_buffer.size);
-  EXPECT_EQ(nullptr, external_buffer.handle.host_allocation.ptr);
+          subspan, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+          iree_hal_make_external_storage_class(
+              IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+          &external_buffer, &logical_range));
+  EXPECT_EQ(IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE,
+            external_buffer.storage_class.type);
+  EXPECT_EQ(0u, external_buffer.byte_length);
+  EXPECT_EQ(nullptr, external_buffer.payload.host_pointer);
+  EXPECT_EQ(0u, logical_range.byte_length);
 }
 
 TEST_P(QueueAllocaTest, ValidationFailureLeavesOutputsUntouched) {

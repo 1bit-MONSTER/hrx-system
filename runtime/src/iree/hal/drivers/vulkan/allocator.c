@@ -1730,27 +1730,29 @@ static void iree_hal_vulkan_allocator_normalize_host_allocation_import_params(
 static iree_status_t iree_hal_vulkan_allocator_validate_host_allocation_import(
     const iree_hal_vulkan_allocator_t* allocator,
     const iree_hal_buffer_params_t* params,
-    const iree_hal_external_buffer_t* external_buffer) {
-  if (external_buffer->flags != IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "unsupported Vulkan external buffer flags: 0x%x",
-                            external_buffer->flags);
+    const iree_hal_external_storage_t* external_buffer) {
+  if (external_buffer->storage_class.provenance[0] ||
+      external_buffer->storage_class.provenance[1]) {
+    return iree_make_status(
+        IREE_STATUS_UNAVAILABLE,
+        "Vulkan host pointer import has no matching opaque provenance");
   }
-  if (external_buffer->type != IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION) {
+  if (external_buffer->storage_class.type !=
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER) {
     return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                            "Vulkan external buffer type is unsupported");
+                            "Vulkan external storage type is unsupported");
   }
   if (!iree_hal_vulkan_allocator_supports_host_allocation_import(allocator)) {
     return iree_make_status(
         IREE_STATUS_UNAVAILABLE,
         "Vulkan host allocation import requires VK_EXT_external_memory_host");
   }
-  if (!external_buffer->handle.host_allocation.ptr) {
+  if (!external_buffer->payload.host_pointer) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "Vulkan host allocation import requires a "
                             "non-null pointer");
   }
-  if (external_buffer->size == 0) {
+  if (external_buffer->byte_length == 0) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "Vulkan host allocation import requires a "
                             "non-zero size");
@@ -1763,7 +1765,7 @@ static iree_status_t iree_hal_vulkan_allocator_validate_host_allocation_import(
   }
   if (params->min_alignment != 0 &&
       (params->min_alignment > IREE_HOST_SIZE_MAX ||
-       !iree_host_ptr_has_alignment(external_buffer->handle.host_allocation.ptr,
+       !iree_host_ptr_has_alignment(external_buffer->payload.host_pointer,
                                     (iree_host_size_t)params->min_alignment))) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
@@ -1784,7 +1786,7 @@ static iree_status_t iree_hal_vulkan_allocator_validate_host_allocation_import(
   }
   if (import_alignment != 0 &&
       (import_alignment > IREE_HOST_SIZE_MAX ||
-       !iree_host_ptr_has_alignment(external_buffer->handle.host_allocation.ptr,
+       !iree_host_ptr_has_alignment(external_buffer->payload.host_pointer,
                                     (iree_host_size_t)import_alignment))) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
@@ -1793,13 +1795,13 @@ static iree_status_t iree_hal_vulkan_allocator_validate_host_allocation_import(
         (uint64_t)import_alignment);
   }
   if (import_alignment != 0 &&
-      !iree_device_size_has_alignment(external_buffer->size,
+      !iree_device_size_has_alignment(external_buffer->byte_length,
                                       (iree_device_size_t)import_alignment)) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "host allocation import size %" PRIu64
         " does not satisfy Vulkan minImportedHostPointerAlignment %" PRIu64,
-        (uint64_t)external_buffer->size, (uint64_t)import_alignment);
+        (uint64_t)external_buffer->byte_length, (uint64_t)import_alignment);
   }
   return iree_ok_status();
 }
@@ -1836,7 +1838,7 @@ static iree_status_t iree_hal_vulkan_allocator_allocate_imported_host_memory(
 static iree_status_t iree_hal_vulkan_allocator_import_buffer(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
     const iree_hal_buffer_params_t* IREE_RESTRICT params,
-    iree_hal_external_buffer_t* IREE_RESTRICT external_buffer,
+    const iree_hal_external_storage_t* IREE_RESTRICT external_buffer,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
   IREE_ASSERT_ARGUMENT(out_buffer);
@@ -1844,7 +1846,7 @@ static iree_status_t iree_hal_vulkan_allocator_import_buffer(
   IREE_ASSERT_ARGUMENT(params);
   IREE_ASSERT_ARGUMENT(external_buffer);
   IREE_TRACE_ZONE_BEGIN(z0);
-  IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, (int64_t)external_buffer->size);
+  IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, (int64_t)external_buffer->byte_length);
 
   iree_hal_vulkan_allocator_t* allocator =
       iree_hal_vulkan_allocator_cast(base_allocator);
@@ -1852,7 +1854,7 @@ static iree_status_t iree_hal_vulkan_allocator_import_buffer(
       iree_hal_vulkan_allocator_validate_host_allocation_import(
           allocator, params, external_buffer);
 
-  iree_device_size_t allocation_size = external_buffer->size;
+  iree_device_size_t allocation_size = external_buffer->byte_length;
   if (iree_status_is_ok(status)) {
     status = iree_hal_vulkan_allocator_align_allocation_size(&allocation_size);
   }
@@ -1898,7 +1900,7 @@ static iree_status_t iree_hal_vulkan_allocator_import_buffer(
     status = iree_vkGetMemoryHostPointerPropertiesEXT(
         IREE_VULKAN_DEVICE(&allocator->syms), allocator->logical_device,
         VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT,
-        external_buffer->handle.host_allocation.ptr, &host_pointer_properties);
+        external_buffer->payload.host_pointer, &host_pointer_properties);
   }
 
   VkExternalMemoryBufferCreateInfo external_create_info = {
@@ -1919,12 +1921,13 @@ static iree_status_t iree_hal_vulkan_allocator_import_buffer(
                                        &memory_requirements);
   }
   if (iree_status_is_ok(status) &&
-      memory_requirements.size > external_buffer->size) {
+      memory_requirements.size > external_buffer->byte_length) {
     status = iree_make_status(
         IREE_STATUS_OUT_OF_RANGE,
         "Vulkan host allocation import requires %" PRIu64
         " bytes but the external allocation only provides %" PRIu64,
-        (uint64_t)memory_requirements.size, (uint64_t)external_buffer->size);
+        (uint64_t)memory_requirements.size,
+        (uint64_t)external_buffer->byte_length);
   }
 
   iree_hal_vulkan_allocator_memory_placement_t memory_placement;
@@ -1947,7 +1950,7 @@ static iree_status_t iree_hal_vulkan_allocator_import_buffer(
   if (iree_status_is_ok(status)) {
     status = iree_hal_vulkan_allocator_allocate_imported_host_memory(
         allocator, &memory_placement, compat_params.usage,
-        memory_requirements.size, external_buffer->handle.host_allocation.ptr,
+        memory_requirements.size, external_buffer->payload.host_pointer,
         &device_memory);
   }
   if (iree_status_is_ok(status)) {
@@ -1973,7 +1976,7 @@ static iree_status_t iree_hal_vulkan_allocator_import_buffer(
     status = iree_hal_vulkan_buffer_create(
         &allocator->syms, allocator->logical_device, placement,
         imported_memory_type, compat_params.access, compat_params.usage,
-        allocation_size, external_buffer->size,
+        allocation_size, external_buffer->byte_length,
         memory_placement.memory_property_flags,
         allocator->properties2.properties.limits.nonCoherentAtomSize,
         device_memory, /*device_memory_offset=*/0, memory_requirements.size,

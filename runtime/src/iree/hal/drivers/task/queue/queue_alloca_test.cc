@@ -748,10 +748,17 @@ TEST_P(TaskQueueNativeRetirementTest,
   IREE_ASSERT_OK(iree_hal_pool_materialize_reservations(
       pool_, 1, &request, &reservation, IREE_HAL_POOL_MATERIALIZE_FLAG_NONE,
       &initial_buffers_[0]));
-  iree_hal_external_buffer_t external = {};
+  iree_hal_external_storage_t external = {};
+  iree_hal_buffer_range_t logical_range = {};
   IREE_ASSERT_OK(iree_hal_buffer_export(
-      initial_buffers_[0], IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external));
+      initial_buffers_[0], iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      &external, &logical_range));
+  uint8_t* logical_pointer =
+      static_cast<uint8_t*>(external.payload.host_pointer) +
+      logical_range.byte_offset;
+  iree_hal_external_storage_release(&external);
 
   // These host kernels receive borrowed addresses, as native/custom dispatch
   // arguments can. Their caller explicitly supplies the complete lifetime
@@ -788,9 +795,8 @@ TEST_P(TaskQueueNativeRetirementTest,
     // each, so completion epoch one identifies these two specific host calls.
     ASSERT_EQ(iree_atomic_load(&queue->epoch, iree_memory_order_acquire), 0);
     frontier.entries[i] = {queue->axis, 1};
-    const uint64_t args[4] = {
-        reinterpret_cast<uintptr_t>(external.handle.host_allocation.ptr), i, 0,
-        0};
+    const uint64_t args[4] = {reinterpret_cast<uintptr_t>(logical_pointer), i,
+                              0, 0};
     iree_hal_semaphore_t* wait_semaphores[] = {semaphores_[i], semaphores_[2]};
     uint64_t wait_values[] = {1, 1};
     const iree_hal_semaphore_list_t waits = {i + 1, wait_semaphores,

@@ -475,15 +475,14 @@ static void iree_hal_amdgpu_buffer_destroy(iree_hal_buffer_t* base_buffer) {
 static iree_status_t iree_hal_amdgpu_buffer_export_range(
     iree_hal_buffer_t* base_buffer, iree_device_size_t local_byte_offset,
     iree_device_size_t local_byte_length,
-    iree_hal_external_buffer_type_t requested_type,
-    iree_hal_external_buffer_flags_t requested_flags,
-    iree_hal_external_buffer_t* out_external_buffer) {
+    iree_hal_external_storage_class_t requested_class,
+    iree_hal_external_storage_t* out_storage,
+    iree_hal_buffer_range_t* out_logical_range) {
   iree_hal_amdgpu_buffer_t* buffer = iree_hal_amdgpu_buffer_cast(base_buffer);
-  if (IREE_UNLIKELY(requested_flags != IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "unsupported AMDGPU external buffer export flags: "
-                            "0x%x",
-                            requested_flags);
+  if (requested_class.provenance[0] || requested_class.provenance[1]) {
+    return iree_make_status(
+        IREE_STATUS_UNAVAILABLE,
+        "legacy AMDGPU pointer export has no matching opaque provenance");
   }
   if (IREE_UNLIKELY(
           !buffer->native
@@ -493,8 +492,8 @@ static iree_status_t iree_hal_amdgpu_buffer_export_range(
         IREE_STATUS_UNAVAILABLE,
         "AMDGPU buffer has no HSA allocation pointer to export");
   }
-  switch (requested_type) {
-    case IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION:
+  switch (requested_class.type) {
+    case IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS:
       // The stored pointer is the HSA agent address, including the address
       // returned when registering host memory. Visibility, not placement,
       // determines whether it can be exported as a device allocation.
@@ -506,12 +505,11 @@ static iree_status_t iree_hal_amdgpu_buffer_export_range(
             "AMDGPU buffer memory type is not supported for export as an "
             "external device allocation");
       }
-      out_external_buffer->handle.device_allocation.ptr =
+      out_storage->payload.device_address =
           buffer->native.bindings[IREE_HAL_AMDGPU_BUFFER_BINDING_DEVICE_ADDRESS]
-              .device_address +
-          local_byte_offset;
+              .device_address;
       break;
-    case IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION:
+    case IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER:
       if (IREE_UNLIKELY(
               !iree_all_bits_set(iree_hal_buffer_memory_type(base_buffer),
                                  IREE_HAL_MEMORY_TYPE_HOST_LOCAL))) {
@@ -520,24 +518,36 @@ static iree_status_t iree_hal_amdgpu_buffer_export_range(
             "AMDGPU buffer memory type is not supported for export as an "
             "external host allocation");
       }
-      out_external_buffer->handle.host_allocation.ptr =
+      out_storage->payload.host_pointer =
           buffer->native.bindings[IREE_HAL_AMDGPU_BUFFER_BINDING_HOST]
-              .host_pointer +
-          local_byte_offset;
+              .host_pointer;
       break;
-    case IREE_HAL_EXTERNAL_BUFFER_TYPE_OPAQUE_FD:
-    case IREE_HAL_EXTERNAL_BUFFER_TYPE_OPAQUE_WIN32:
+    case IREE_HAL_EXTERNAL_STORAGE_TYPE_DMA_BUF_FD:
+    case IREE_HAL_EXTERNAL_STORAGE_TYPE_OPAQUE_FD:
+    case IREE_HAL_EXTERNAL_STORAGE_TYPE_VULKAN_OPAQUE_WIN32:
+    case IREE_HAL_EXTERNAL_STORAGE_TYPE_D3D12_RESOURCE:
       return iree_make_status(
           IREE_STATUS_UNAVAILABLE,
-          "AMDGPU buffer export does not support the requested external buffer "
-          "type");
+          "AMDGPU buffer export does not support the requested external "
+          "storage type");
     default:
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "invalid AMDGPU external buffer export type");
+                              "invalid AMDGPU external storage export type");
   }
-  out_external_buffer->type = requested_type;
-  out_external_buffer->flags = requested_flags;
-  out_external_buffer->size = local_byte_length;
+  out_storage->storage_class = requested_class;
+  out_storage->byte_length = base_buffer->allocation_size;
+  out_storage->host_cacheability =
+      iree_all_bits_set(iree_hal_buffer_memory_type(base_buffer),
+                        IREE_HAL_MEMORY_TYPE_HOST_CACHED)
+          ? IREE_HAL_HOST_CACHEABILITY_WRITE_BACK
+          : IREE_HAL_HOST_CACHEABILITY_UNKNOWN;
+  out_storage->maintenance_range = (iree_hal_buffer_range_t){
+      .byte_length = base_buffer->allocation_size,
+  };
+  *out_logical_range = (iree_hal_buffer_range_t){
+      .byte_offset = local_byte_offset,
+      .byte_length = local_byte_length,
+  };
   return iree_ok_status();
 }
 

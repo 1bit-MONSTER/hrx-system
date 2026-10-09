@@ -102,17 +102,19 @@ hrx_status_t hrx_allocator_import_buffer(hrx_allocator_t allocator,
       .queue_family_affinity = queue_family_affinity,
   };
 
-  iree_hal_external_buffer_t ext = {
-      .type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION,
-      .flags = 0,
-      .size = (iree_device_size_t)size,
-      .handle.host_allocation.ptr = host_ptr,
+  iree_hal_external_storage_t ext = {
+      .storage_class.type = IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER,
+      .byte_length = (iree_device_size_t)size,
+      .payload.host_pointer = host_ptr,
+      .host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+      .maintenance_range =
+          iree_hal_make_buffer_range(0, (iree_device_size_t)size),
   };
 
   iree_hal_buffer_t* hal_buffer = NULL;
   status = iree_hal_allocator_import_buffer(
       allocator->hal_allocator, hal_params, &ext,
-      iree_hal_buffer_release_callback_null(), &hal_buffer);
+      iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &hal_buffer);
   if (!iree_status_is_ok(status)) {
     HRX_RETURN_AND_END_ZONE(z0, hrx_status_from_iree(status));
   }

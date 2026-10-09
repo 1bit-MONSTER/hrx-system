@@ -51,13 +51,14 @@ TEST_P(TaskBufferAccessTest, DirectionalStorageBindings) {
         i == 2 ? IREE_HAL_MEMORY_ACCESS_WRITE : IREE_HAL_MEMORY_ACCESS_READ;
     params.usage = i == 2 ? IREE_HAL_BUFFER_USAGE_STORAGE_WRITE
                           : IREE_HAL_BUFFER_USAGE_STORAGE_READ;
-    iree_hal_external_buffer_t external = {};
-    external.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION;
-    external.size = sizeof(values[i]);
-    external.handle.host_allocation.ptr = values[i].data();
+    iree_hal_external_storage_t external = {};
+    external.storage_class.type = IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
+    external.byte_length = sizeof(values[i]);
+    external.payload.host_pointer = values[i].data();
     IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
         device_allocator_, params, &external,
-        iree_hal_buffer_release_callback_null(), buffers[i].out()));
+        iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+        buffers[i].out()));
     EXPECT_EQ(iree_hal_buffer_allowed_usage(buffers[i]), params.usage);
     iree_hal_buffer_mapping_t mapping = {};
     IREE_EXPECT_STATUS_IS(
@@ -129,14 +130,16 @@ TEST_P(TaskBufferAccessTest, DirectionalStorageBindings) {
                       IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
         params.usage = IREE_HAL_BUFFER_USAGE_STORAGE_READ;
         params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-        iree_hal_external_buffer_t external = {};
-        external.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION;
-        external.size = sizeof(values[2]);
-        external.handle.host_allocation.ptr = values[2].data();
+        iree_hal_external_storage_t external = {};
+        external.storage_class.type =
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
+        external.byte_length = sizeof(values[2]);
+        external.payload.host_pointer = values[2].data();
         Ref<iree_hal_buffer_t> storage_read_only;
         IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
             device_allocator_, params, &external,
-            iree_hal_buffer_release_callback_null(), storage_read_only.out()));
+            iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+            storage_read_only.out()));
         entries[2].buffer = storage_read_only;
         IREE_EXPECT_STATUS_IS(
             IREE_STATUS_PERMISSION_DENIED,

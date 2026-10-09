@@ -469,9 +469,9 @@ iree_status_t iree_hal_vulkan_sparse_buffer_memory_requirements(
 static iree_status_t iree_hal_vulkan_sparse_buffer_export_range(
     iree_hal_buffer_t* base_buffer, iree_device_size_t local_byte_offset,
     iree_device_size_t local_byte_length,
-    iree_hal_external_buffer_type_t requested_type,
-    iree_hal_external_buffer_flags_t requested_flags,
-    iree_hal_external_buffer_t* out_external_buffer) {
+    iree_hal_external_storage_class_t requested_class,
+    iree_hal_external_storage_t* out_storage,
+    iree_hal_buffer_range_t* out_logical_range) {
   return iree_make_status(
       IREE_STATUS_UNAVAILABLE,
       "Vulkan sparse buffer does not support external export");

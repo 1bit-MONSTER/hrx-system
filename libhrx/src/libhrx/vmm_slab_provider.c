@@ -226,14 +226,23 @@ static iree_status_t hrx_vmm_slab_provider_acquire_slab(
         IREE_HAL_MEMORY_PROTECTION_READ_WRITE);
   }
 
-  iree_hal_external_buffer_t external_buffer;
+  iree_hal_external_storage_t external_buffer = {0};
+  iree_hal_buffer_range_t logical_range = {0};
   if (iree_status_is_ok(status)) {
     status = iree_hal_buffer_export(
-        slab->virtual_buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-        IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer);
+        slab->virtual_buffer,
+        iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+        iree_hal_make_external_storage_class(
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+        &external_buffer, &logical_range);
   }
-  if (iree_status_is_ok(status) &&
-      !external_buffer.handle.device_allocation.ptr) {
+  uint64_t device_address = 0;
+  if (iree_status_is_ok(status)) {
+    device_address =
+        external_buffer.payload.device_address + logical_range.byte_offset;
+  }
+  iree_hal_external_storage_release(&external_buffer);
+  if (iree_status_is_ok(status) && !device_address) {
     status = iree_make_status(
         IREE_STATUS_UNAVAILABLE,
         "VMM allocator returned a reservation without a device address");
@@ -250,8 +259,7 @@ static iree_status_t hrx_vmm_slab_provider_acquire_slab(
   }
 
   slab->is_published = true;
-  out_slab->base_ptr =
-      (uint8_t*)(uintptr_t)external_buffer.handle.device_allocation.ptr;
+  out_slab->base_ptr = (uint8_t*)(uintptr_t)device_address;
   out_slab->length = allocation_size;
   out_slab->provider_handle = (uint64_t)(uintptr_t)slab;
   iree_atomic_fetch_add(&provider->total_acquired, 1,

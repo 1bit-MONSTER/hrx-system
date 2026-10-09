@@ -104,13 +104,14 @@ class HostQueueHostMemoryTest : public ::testing::Test {
                   IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
     params.access = access;
     params.usage = usage;
-    iree_hal_external_buffer_t external_buffer = {};
-    external_buffer.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION;
-    external_buffer.size = data->size();
-    external_buffer.handle.host_allocation.ptr = data->data();
+    iree_hal_external_storage_t external_buffer = {};
+    external_buffer.storage_class.type =
+        IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
+    external_buffer.byte_length = data->size();
+    external_buffer.payload.host_pointer = data->data();
     return iree_hal_allocator_import_buffer(
         iree_hal_device_allocator(device), params, &external_buffer,
-        iree_hal_buffer_release_callback_null(), out_buffer);
+        iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), out_buffer);
   }
 
   iree_status_t CreatePatternedDeviceBuffer(iree_hal_device_t* device,

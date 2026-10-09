@@ -217,12 +217,12 @@ static void iree_hal_subspan_buffer_destroy(iree_hal_buffer_t* base_buffer) {
 static iree_status_t iree_hal_subspan_buffer_export_range(
     iree_hal_buffer_t* buffer, iree_device_size_t local_byte_offset,
     iree_device_size_t local_byte_length,
-    iree_hal_external_buffer_type_t requested_type,
-    iree_hal_external_buffer_flags_t requested_flags,
-    iree_hal_external_buffer_t* out_external_buffer) {
+    iree_hal_external_storage_class_t requested_class,
+    iree_hal_external_storage_t* out_storage,
+    iree_hal_buffer_range_t* out_logical_range) {
   return _VTABLE_DISPATCH(buffer->allocated_buffer, export_range)(
       buffer->allocated_buffer, local_byte_offset, local_byte_length,
-      requested_type, requested_flags, out_external_buffer);
+      requested_class, out_storage, out_logical_range);
 }
 
 static iree_status_t iree_hal_subspan_buffer_map_range(
@@ -690,18 +690,41 @@ IREE_API_EXPORT iree_status_t iree_hal_buffer_subspan(
                                         host_allocator, out_buffer);
 }
 
-IREE_API_EXPORT iree_status_t iree_hal_buffer_export(
-    iree_hal_buffer_t* buffer, iree_hal_external_buffer_type_t requested_type,
-    iree_hal_external_buffer_flags_t requested_flags,
-    iree_hal_external_buffer_t* out_external_buffer) {
+IREE_API_EXPORT void iree_hal_external_storage_release(
+    iree_hal_external_storage_t* storage) {
+  IREE_ASSERT_ARGUMENT(storage);
+  iree_hal_external_storage_t value = *storage;
+  memset(storage, 0, sizeof(*storage));
+  if (value.release) {
+    value.release(value.release_user_data, value.storage_class, value.payload);
+  }
+}
+
+IREE_API_EXPORT iree_status_t
+iree_hal_buffer_export(iree_hal_buffer_t* buffer, iree_hal_buffer_range_t range,
+                       iree_hal_external_storage_class_t requested_class,
+                       iree_hal_external_storage_t* out_storage,
+                       iree_hal_buffer_range_t* out_logical_range) {
   IREE_ASSERT_ARGUMENT(buffer);
-  IREE_ASSERT_ARGUMENT(out_external_buffer);
-  memset(out_external_buffer, 0, sizeof(*out_external_buffer));
+  IREE_ASSERT_ARGUMENT(out_storage);
+  IREE_ASSERT_ARGUMENT(out_logical_range);
+  memset(out_storage, 0, sizeof(*out_storage));
+  memset(out_logical_range, 0, sizeof(*out_logical_range));
   IREE_TRACE_ZONE_BEGIN(z0);
-  iree_status_t status = _VTABLE_DISPATCH(buffer, export_range)(
-      buffer, iree_hal_buffer_byte_offset(buffer),
-      iree_hal_buffer_byte_length(buffer), requested_type, requested_flags,
-      out_external_buffer);
+  iree_device_size_t byte_offset = 0;
+  iree_device_size_t byte_length = 0;
+  iree_status_t status = iree_hal_buffer_calculate_range(
+      iree_hal_buffer_byte_offset(buffer), iree_hal_buffer_byte_length(buffer),
+      range.byte_offset, range.byte_length, &byte_offset, &byte_length);
+  if (iree_status_is_ok(status)) {
+    status = _VTABLE_DISPATCH(buffer, export_range)(
+        buffer, byte_offset, byte_length, requested_class, out_storage,
+        out_logical_range);
+  }
+  if (!iree_status_is_ok(status)) {
+    iree_hal_external_storage_release(out_storage);
+    memset(out_logical_range, 0, sizeof(*out_logical_range));
+  }
   IREE_TRACE_ZONE_END(z0);
   return status;
 }

@@ -468,113 +468,135 @@ enum iree_hal_buffer_map_flag_bits_e {
 typedef uint16_t iree_hal_buffer_map_flags_t;
 
 //===----------------------------------------------------------------------===//
-// External buffers
+// External storage
 //===----------------------------------------------------------------------===//
 
-// Defines the type of an external buffer handle.
-// Each type may only be usable in a subset of implementations and platforms and
-// may even vary based on the runtime device properties or buffer instance.
+// A byte range in one storage coordinate system.
+typedef struct iree_hal_buffer_range_t {
+  // Offset of the first logical byte in the storage.
+  iree_device_size_t byte_offset;
+  // Number of logical bytes in the range.
+  iree_device_size_t byte_length;
+} iree_hal_buffer_range_t;
+
+// Constructs a buffer range. IREE_HAL_WHOLE_BUFFER is accepted as |byte_length|
+// by APIs that resolve ranges against a known containing extent.
+static inline iree_hal_buffer_range_t iree_hal_make_buffer_range(
+    iree_device_size_t byte_offset, iree_device_size_t byte_length) {
+  return (iree_hal_buffer_range_t){
+      /*.byte_offset=*/byte_offset,
+      /*.byte_length=*/byte_length,
+  };
+}
+
+// Host cache behavior established by the owner of a mapped storage extent.
+// Device coherence is an independent property of each device access path.
+typedef enum iree_hal_host_cacheability_e {
+  IREE_HAL_HOST_CACHEABILITY_UNKNOWN = 0,
+  IREE_HAL_HOST_CACHEABILITY_WRITE_BACK = 1,
+  IREE_HAL_HOST_CACHEABILITY_WRITE_COMBINED = 2,
+  IREE_HAL_HOST_CACHEABILITY_UNCACHED = 3,
+} iree_hal_host_cacheability_t;
+
+// Native representation carried by an external storage value. Equal payload
+// bits with different types are different transports and are never silently
+// reinterpreted.
+typedef enum iree_hal_external_storage_type_e {
+  // No payload. The all-zero external storage value has this type.
+  IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE = 0,
+  // Host virtual address with a caller-defined lifetime.
+  IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER = 1,
+  // Device virtual address in the exact domain named by provenance.
+  IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS = 2,
+  // Linux DMA-BUF file descriptor.
+  IREE_HAL_EXTERNAL_STORAGE_TYPE_DMA_BUF_FD = 3,
+  // File descriptor whose interpretation is identified by provenance.
+  IREE_HAL_EXTERNAL_STORAGE_TYPE_OPAQUE_FD = 4,
+  // Vulkan opaque Win32 memory handle identified by provenance.
+  IREE_HAL_EXTERNAL_STORAGE_TYPE_VULKAN_OPAQUE_WIN32 = 5,
+  // NT handle to a committed D3D12 buffer resource.
+  IREE_HAL_EXTERNAL_STORAGE_TYPE_D3D12_RESOURCE = 6,
+} iree_hal_external_storage_type_t;
+
+// Exact native interpretation of an external storage payload. Portable,
+// self-describing transports use an all-zero provenance identity. Opaque
+// handles and raw device addresses require the importing pool to advertise the
+// same nonzero identity.
+typedef struct iree_hal_external_storage_class_t {
+  // Native payload representation.
+  iree_hal_external_storage_type_t type;
+  // Provider-defined interpretation identity.
+  uint64_t provenance[2];
+} iree_hal_external_storage_class_t;
+
+// Constructs a portable or process-local storage class without opaque
+// provider provenance.
+static inline iree_hal_external_storage_class_t
+iree_hal_make_external_storage_class(iree_hal_external_storage_type_t type) {
+  return (iree_hal_external_storage_class_t){
+      /*.type=*/type,
+      /*.provenance=*/{0, 0},
+  };
+}
+
+// Opaque identity of live physical backing within one provider instance.
+// Equal nonzero identities prove that two attachments name the same physical
+// bytes. An all-zero identity means that the exporter cannot establish
+// identity. This is never a native handle and is meaningful only while the
+// provider that produced it remains live.
+typedef struct iree_hal_physical_memory_id_t {
+  // Provider-defined identity words.
+  uint64_t words[2];
+} iree_hal_physical_memory_id_t;
+
+// Payload selected by iree_hal_external_storage_class_t::type.
+typedef union iree_hal_external_storage_payload_t {
+  // First host byte of HOST_POINTER storage.
+  void* host_pointer;
+  // First device byte of DEVICE_ADDRESS storage.
+  uint64_t device_address;
+  // Nonnegative DMA_BUF_FD or OPAQUE_FD descriptor.
+  int64_t file_descriptor;
+  // VULKAN_OPAQUE_WIN32 or D3D12_RESOURCE handle.
+  void* win32_handle;
+} iree_hal_external_storage_payload_t;
+
+// Infallibly releases one external storage payload. The callback is thread-safe
+// and must not unwind across the C ABI.
+typedef void(IREE_API_PTR* iree_hal_external_storage_release_fn_t)(
+    void* user_data, iree_hal_external_storage_class_t storage_class,
+    iree_hal_external_storage_payload_t payload);
+
+// Move-owned transport for one physical storage extent. The all-zero value is
+// empty. A nonempty value with a null release callback borrows its payload;
+// the caller keeps the native owner alive through import or explicit release.
+// Copying a nonempty value does not duplicate ownership.
 //
-// See the notes on each type for requirements; compatibility often requires
-// the handle to check and trying to import/export is the most reliable way to
-// check for support.
-//
-// The Vulkan documentation on external memory covers a lot of the design
-// decisions made here:
-// https://www.khronos.org/registry/vulkan/specs/1.3-extensions/man/html/VK_KHR_external_memory.html
-typedef enum iree_hal_external_buffer_type_e {
-  IREE_HAL_EXTERNAL_BUFFER_TYPE_NONE = 0,
+// Transport ownership does not extend a queue allocation epoch. Exporters of
+// asynchronously allocated memory order queue_dealloca after all foreign uses.
+typedef struct iree_hal_external_storage_t {
+  // Exact native interpretation of |payload|.
+  iree_hal_external_storage_class_t storage_class;
+  // Typed native payload.
+  iree_hal_external_storage_payload_t payload;
+  // Usable extent in this storage coordinate system.
+  iree_device_size_t byte_length;
+  // Source-established host mapping class for HOST_POINTER.
+  iree_hal_host_cacheability_t host_cacheability;
+  // Source-owned envelope available for cache maintenance and registration.
+  iree_hal_buffer_range_t maintenance_range;
+  // Physical identity established by the exporter, when available.
+  iree_hal_physical_memory_id_t physical_backing_id;
+  // Optional infallible payload release callback.
+  iree_hal_external_storage_release_fn_t release;
+  // Opaque value passed to |release|.
+  void* release_user_data;
+} iree_hal_external_storage_t;
 
-  // A host pointer allocated from an external allocator.
-  // This is a borrowed pointer: the caller keeps the source allocation live
-  // while an imported buffer or exported pointer is in use.
-  //
-  // CPU:
-  //  When using the default heap allocator this is just a host pointer.
-  //
-  // Vulkan:
-  //  Requires VK_EXT_external_memory_host.
-  //  Uses VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT.
-  IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION,
-
-  // A device pointer allocated from an external allocator.
-  // This is a borrowed pointer: the caller keeps the source allocation live
-  // while an imported buffer or exported pointer is in use.
-  //
-  // CPU:
-  //  When using the default heap allocator this is just a host pointer.
-  //
-  // Vulkan:
-  //  Requires VK_KHR_buffer_device_address.
-  //  Treats the pointer as VkDeviceAddress.
-  IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-
-  // A driver/device-specific POSIX file descriptor handle.
-  // The handle supports dup, dup2, close, and transport using the SCM_RIGHTS
-  // control message. All other usage with system APIs is undefined.
-  // An imported/exported handle owns a reference to the underlying allocator
-  // memory. May only be shared with the same underlying driver and device.
-  //
-  // Vulkan:
-  //  Requires device support.
-  //  Uses VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT.
-  IREE_HAL_EXTERNAL_BUFFER_TYPE_OPAQUE_FD,
-
-  // A driver/device-specific Win32 HANDLE.
-  // The handle supports DuplicateHandle, CompareObjectHandles, CloseHandle, and
-  // Get/SetHandleInformation. All other usage with system APIs is undefined.
-  // An imported/exported handle owns a reference to the underlying allocator
-  // memory. Must only be shared with the same underlying driver and device.
-  //
-  // Vulkan:
-  //  Requires device support.
-  //  Uses VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT.
-  IREE_HAL_EXTERNAL_BUFFER_TYPE_OPAQUE_WIN32,
-} iree_hal_external_buffer_type_t;
-
-// Flags for controlling iree_hal_external_buffer_t implementation details.
-enum iree_hal_external_buffer_flag_bits_t {
-  IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE = 0u,
-};
-typedef uint32_t iree_hal_external_buffer_flags_t;
-
-// Handle to a typed external buffer.
-// The caller manages its lifetime according to iree_hal_external_buffer_type_t.
-// Pointer values borrow the source allocation; native handles may own a
-// reference to its backing. Neither extends a queue allocation's lifetime:
-// queue_dealloca must be ordered after all external uses of the allocation.
-typedef struct iree_hal_external_buffer_t {
-  // Type of the resource used to interpret the handle.
-  iree_hal_external_buffer_type_t type;
-  // Flags indicating buffer compatibility.
-  iree_hal_external_buffer_flags_t flags;
-  // Size of the external resource view in bytes.
-  iree_device_size_t size;
-  // Native representation selected by |type|.
-  union {
-    // IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION.
-    struct {
-      // Host memory pointer.
-      void* ptr;
-    } host_allocation;
-    // IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION.
-    struct {
-      // Device memory pointer. Pointer width may vary across devices so it is
-      // always treated as a 64-bit integer here.
-      uint64_t ptr;
-    } device_allocation;
-    // IREE_HAL_EXTERNAL_BUFFER_TYPE_OPAQUE_FD.
-    struct {
-      // POSIX file descriptor referencing the backing memory.
-      int fd;
-    } opaque_fd;
-    // IREE_HAL_EXTERNAL_BUFFER_TYPE_OPAQUE_WIN32.
-    struct {
-      // Win32 handle referencing the backing memory.
-      void* handle;
-    } opaque_win32;
-  } handle;
-} iree_hal_external_buffer_t;
+// Releases and zeros a move-owned external storage value. This does not wait,
+// flush, or extend the lifetime of a separately managed logical allocation.
+IREE_API_EXPORT void iree_hal_external_storage_release(
+    iree_hal_external_storage_t* storage);
 
 //===----------------------------------------------------------------------===//
 // iree_hal_buffer_placement_t
@@ -1223,12 +1245,15 @@ IREE_API_EXPORT
 iree_hal_buffer_usage_t iree_hal_buffer_allowed_usage(
     const iree_hal_buffer_t* buffer);
 
-// Exports the logical view of |buffer| to an external buffer handle.
-// Pointer exports include the buffer's byte offset and report its byte length,
-// not the entire underlying allocation. See iree_hal_external_buffer_type_t for
-// ownership and driver/device compatibility requirements. The caller is
-// responsible for the exported value's lifetime, including keeping the source
-// allocation live while a borrowed pointer is in use.
+// Exports a view-relative |range| of |buffer| as typed external storage. The
+// returned |out_logical_range| locates the requested bytes in the exported
+// storage's coordinate system. Exporting nested or imported views accumulates
+// their offsets instead of discarding the source coordinates.
+//
+// See iree_hal_external_storage_type_t for ownership and driver/device
+// compatibility requirements. The caller is responsible for both the returned
+// transport and source allocation lifetimes. A borrowed pointer has no release
+// callback and requires the source allocation to remain live.
 //
 // Export does not synchronize, retain |buffer|, or preserve its pool
 // allocation. An asynchronously allocated buffer must be committed before
@@ -1239,11 +1264,13 @@ iree_hal_buffer_usage_t iree_hal_buffer_allowed_usage(
 // Fails with IREE_STATUS_UNAVAILABLE if the buffer cannot be represented by the
 // requested type, or IREE_STATUS_FAILED_PRECONDITION if its backing has not
 // been committed or has already been deallocated. On failure
-// |out_external_buffer| is empty. No ownership transfers on failure.
-IREE_API_EXPORT iree_status_t iree_hal_buffer_export(
-    iree_hal_buffer_t* buffer, iree_hal_external_buffer_type_t requested_type,
-    iree_hal_external_buffer_flags_t requested_flags,
-    iree_hal_external_buffer_t* out_external_buffer);
+// |out_storage| and |out_logical_range| are empty. No ownership transfers on
+// failure.
+IREE_API_EXPORT iree_status_t
+iree_hal_buffer_export(iree_hal_buffer_t* buffer, iree_hal_buffer_range_t range,
+                       iree_hal_external_storage_class_t requested_class,
+                       iree_hal_external_storage_t* out_storage,
+                       iree_hal_buffer_range_t* out_logical_range);
 
 // Sets a range of the buffer to binary zero.
 //
@@ -1484,9 +1511,9 @@ typedef struct iree_hal_buffer_vtable_t {
   iree_status_t(IREE_API_PTR* export_range)(
       iree_hal_buffer_t* buffer, iree_device_size_t local_byte_offset,
       iree_device_size_t local_byte_length,
-      iree_hal_external_buffer_type_t requested_type,
-      iree_hal_external_buffer_flags_t requested_flags,
-      iree_hal_external_buffer_t* out_external_buffer);
+      iree_hal_external_storage_class_t requested_class,
+      iree_hal_external_storage_t* out_storage,
+      iree_hal_buffer_range_t* out_logical_range);
 
   iree_status_t(IREE_API_PTR* map_range)(iree_hal_buffer_t* buffer,
                                          iree_hal_mapping_mode_t mapping_mode,

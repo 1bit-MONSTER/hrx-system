@@ -248,8 +248,11 @@ IREE_API_EXPORT iree_status_t iree_hal_memory_file_contents(
 }
 
 // Releases the underlying file storage after the buffer using it is released.
-static void iree_hal_memory_file_buffer_release(void* user_data,
-                                                iree_hal_buffer_t* buffer) {
+static void iree_hal_memory_file_buffer_release(
+    void* user_data, iree_hal_external_storage_class_t storage_class,
+    iree_hal_external_storage_payload_t payload) {
+  (void)storage_class;
+  (void)payload;
   iree_hal_memory_file_storage_release(
       (iree_hal_memory_file_storage_t*)user_data);
 }
@@ -279,32 +282,28 @@ static iree_status_t iree_hal_memory_file_try_import_buffer(
                     : 0),
   };
 
-  iree_hal_external_buffer_t external_buffer = {
-      .type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION,
-      .flags = 0,
-      .size = (iree_device_size_t)contents.data_length,
-      .handle =
-          {
-              .host_allocation =
-                  {
-                      .ptr = contents.data,
-                  },
-          },
+  iree_hal_external_storage_t external_buffer = {
+      .storage_class = iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      .payload.host_pointer = contents.data,
+      .byte_length = (iree_device_size_t)contents.data_length,
+      .host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+      .maintenance_range = iree_hal_make_buffer_range(
+          0, (iree_device_size_t)contents.data_length),
+      .release = iree_hal_memory_file_buffer_release,
+      .release_user_data = file->storage,
   };
 
   // NOTE: we make the buffer retain the underlying storage.
   // We have to handle the case where the import fails and we need to balance
   // the retain we did below.
-  iree_hal_buffer_release_callback_t imported_release_callback = {
-      .fn = iree_hal_memory_file_buffer_release,
-      .user_data = file->storage,
-  };
   iree_hal_memory_file_storage_retain(file->storage);
   iree_status_t status = iree_hal_allocator_import_buffer(
       device_allocator, storage_buffer_params, &external_buffer,
-      imported_release_callback, &file->imported_buffer);
+      iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      &file->imported_buffer);
   if (!iree_status_is_ok(status)) {
-    iree_hal_memory_file_storage_release(file->storage);
+    iree_hal_external_storage_release(&external_buffer);
   }
 
   IREE_TRACE({

@@ -22,35 +22,48 @@ TEST(HeapAllocatorTest, ImportsByteAlignedStorageWithExplicitAlignment) {
   alignas(64) uint8_t storage[18] = {};
   storage[0] = 0xA5;
   storage[17] = 0x5A;
-  iree_hal_external_buffer_t external_buffer = {};
-  external_buffer.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION;
-  external_buffer.size = 16;
-  external_buffer.handle.host_allocation.ptr = storage + 1;
   iree_hal_buffer_params_t params = {};
   params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
   params.access = IREE_HAL_MEMORY_ACCESS_ALL;
   params.usage = IREE_HAL_BUFFER_USAGE_MAPPING;
   int release_count = 0;
-  const iree_hal_buffer_release_callback_t release_callback = {
-      [](void* user_data, iree_hal_buffer_t*) {
+  const iree_hal_external_storage_release_fn_t release =
+      [](void* user_data, iree_hal_external_storage_class_t,
+         iree_hal_external_storage_payload_t) {
         ++*static_cast<int*>(user_data);
-      },
-      &release_count,
-  };
+      };
   for (iree_device_size_t alignment : {0, 1, 2, 3, 64}) {
     SCOPED_TRACE(alignment);
     params.min_alignment = alignment;
     const int releases_before_import = release_count;
+    iree_hal_external_storage_t storage_value = {
+        /*.storage_class=*/iree_hal_make_external_storage_class(
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+        /*.payload=*/{/*.host_pointer=*/storage + 1},
+        /*.byte_length=*/16,
+        /*.host_cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+        /*.maintenance_range=*/iree_hal_make_buffer_range(0, 16),
+        /*.physical_backing_id=*/{},
+        /*.release=*/release,
+        /*.release_user_data=*/&release_count,
+    };
     iree_hal_buffer_t* buffer = nullptr;
     iree_status_t status = iree_hal_allocator_import_buffer(
-        allocator, params, &external_buffer, release_callback, &buffer);
+        allocator, params, &storage_value,
+        iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &buffer);
     if (alignment > 1) {
       IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT, status);
       EXPECT_EQ(nullptr, buffer);
       EXPECT_EQ(releases_before_import, release_count);
+      EXPECT_EQ(IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER,
+                storage_value.storage_class.type);
+      iree_hal_external_storage_release(&storage_value);
+      EXPECT_EQ(releases_before_import + 1, release_count);
       continue;
     }
     IREE_ASSERT_OK(status);
+    EXPECT_EQ(IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE,
+              storage_value.storage_class.type);
     iree_hal_buffer_mapping_t mapping = {};
     IREE_ASSERT_OK(iree_hal_buffer_map_range(
         buffer, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_ALL,
@@ -64,10 +77,72 @@ TEST(HeapAllocatorTest, ImportsByteAlignedStorageWithExplicitAlignment) {
     IREE_ASSERT_OK(iree_hal_buffer_map_read(buffer, 0, values, sizeof(values)));
     EXPECT_THAT(values, ::testing::Each(pattern));
     iree_hal_buffer_release(buffer);
+    EXPECT_EQ(releases_before_import + 1, release_count);
     EXPECT_EQ(0xA5, storage[0]);
     EXPECT_EQ(0x5A, storage[17]);
   }
-  EXPECT_EQ(2, release_count);
+  EXPECT_EQ(5, release_count);
+  iree_hal_allocator_release(allocator);
+}
+
+TEST(HeapAllocatorTest, ImportedLogicalRangePreservesStorageCoordinates) {
+  iree_hal_allocator_t* allocator = nullptr;
+  IREE_ASSERT_OK(
+      iree_hal_allocator_create_heap(IREE_SV("test"), iree_allocator_system(),
+                                     iree_allocator_system(), &allocator));
+
+  alignas(64) uint8_t source_storage[64] = {};
+  int release_count = 0;
+  iree_hal_external_storage_t storage = {
+      /*.storage_class=*/iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      /*.payload=*/{/*.host_pointer=*/source_storage},
+      /*.byte_length=*/sizeof(source_storage),
+      /*.host_cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+      /*.maintenance_range=*/
+      iree_hal_make_buffer_range(0, sizeof(source_storage)),
+      /*.physical_backing_id=*/{},
+      /*.release=*/
+      [](void* user_data, iree_hal_external_storage_class_t,
+         iree_hal_external_storage_payload_t) {
+        ++*static_cast<int*>(user_data);
+      },
+      /*.release_user_data=*/&release_count,
+  };
+  const iree_hal_buffer_params_t params = {
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_MAPPING |
+          IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT,
+      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL,
+  };
+  iree_hal_buffer_t* imported_buffer = nullptr;
+  IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
+      allocator, params, &storage, iree_hal_make_buffer_range(8, 24),
+      &imported_buffer));
+  EXPECT_EQ(IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE, storage.storage_class.type);
+  EXPECT_EQ(24u, iree_hal_buffer_byte_length(imported_buffer));
+
+  iree_hal_buffer_t* nested_buffer = nullptr;
+  IREE_ASSERT_OK(iree_hal_buffer_subspan(
+      imported_buffer, 4, 8, iree_allocator_system(), &nested_buffer));
+  iree_hal_buffer_release(imported_buffer);
+  EXPECT_EQ(0, release_count);
+
+  iree_hal_external_storage_t exported_storage = {};
+  iree_hal_buffer_range_t exported_range = {};
+  IREE_ASSERT_OK(iree_hal_buffer_export(
+      nested_buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      &exported_storage, &exported_range));
+  EXPECT_EQ(source_storage, exported_storage.payload.host_pointer);
+  EXPECT_EQ(sizeof(source_storage), exported_storage.byte_length);
+  EXPECT_EQ(12u, exported_range.byte_offset);
+  EXPECT_EQ(8u, exported_range.byte_length);
+  iree_hal_external_storage_release(&exported_storage);
+
+  iree_hal_buffer_release(nested_buffer);
+  EXPECT_EQ(1, release_count);
   iree_hal_allocator_release(allocator);
 }
 

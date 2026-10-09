@@ -284,7 +284,7 @@ static void iree_hal_replay_recorder_allocator_deallocate_buffer(
 static iree_status_t iree_hal_replay_recorder_allocator_import_buffer(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
     const iree_hal_buffer_params_t* IREE_RESTRICT params,
-    iree_hal_external_buffer_t* IREE_RESTRICT external_buffer,
+    const iree_hal_external_storage_t* IREE_RESTRICT external_buffer,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
   iree_hal_replay_recorder_allocator_t* allocator =
@@ -301,22 +301,23 @@ static iree_status_t iree_hal_replay_recorder_allocator_import_buffer(
   iree_hal_replay_payload_type_t operation_payload_type =
       IREE_HAL_REPLAY_PAYLOAD_TYPE_NONE;
   const bool capture_host_allocation =
-      external_buffer->type == IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION &&
-      external_buffer->size <= IREE_HOST_SIZE_MAX &&
-      (external_buffer->size == 0 ||
-       external_buffer->handle.host_allocation.ptr != NULL);
+      external_buffer->storage_class.type ==
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER &&
+      external_buffer->byte_length <= IREE_HOST_SIZE_MAX &&
+      (external_buffer->byte_length == 0 ||
+       external_buffer->payload.host_pointer != NULL);
   if (capture_host_allocation) {
     iree_hal_replay_recorder_allocator_make_allocate_buffer_payload(
-        params, external_buffer->size, &operation_payload.allocation);
-    operation_payload.external_type = external_buffer->type;
-    operation_payload.external_flags = external_buffer->flags;
-    operation_payload.data_length = external_buffer->size;
+        params, external_buffer->byte_length, &operation_payload.allocation);
+    operation_payload.storage_type = external_buffer->storage_class.type;
+    operation_payload.reserved0 = 0;
+    operation_payload.data_length = external_buffer->byte_length;
     operation_iovecs[operation_iovec_count++] = iree_make_const_byte_span(
         (const uint8_t*)&operation_payload, sizeof(operation_payload));
-    if (external_buffer->size != 0) {
+    if (external_buffer->byte_length != 0) {
       operation_iovecs[operation_iovec_count++] = iree_make_const_byte_span(
-          (const uint8_t*)external_buffer->handle.host_allocation.ptr,
-          (iree_host_size_t)external_buffer->size);
+          (const uint8_t*)external_buffer->payload.host_pointer,
+          (iree_host_size_t)external_buffer->byte_length);
     }
     operation_payload_type =
         IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_IMPORT_BUFFER;

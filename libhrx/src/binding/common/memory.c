@@ -59,8 +59,10 @@ typedef struct iree_hal_streaming_owned_host_allocation_t {
 } iree_hal_streaming_owned_host_allocation_t;
 
 static void iree_hal_streaming_owned_host_allocation_release(
-    void* user_data, iree_hal_buffer_t* buffer) {
-  (void)buffer;
+    void* user_data, iree_hal_external_storage_class_t storage_class,
+    iree_hal_external_storage_payload_t payload) {
+  (void)storage_class;
+  (void)payload;
   iree_hal_streaming_owned_host_allocation_t* allocation =
       (iree_hal_streaming_owned_host_allocation_t*)user_data;
   const iree_allocator_t allocator = allocation->allocator;
@@ -346,7 +348,8 @@ static iree_status_t iree_hal_streaming_buffer_wrap_hrx_buffer(
   wrapper->last_prefetch_location = -2;  // Never prefetched.
   wrapper->coherency_mode = 0;           // Fine-grain by default.
 
-  iree_hal_external_buffer_t external_ptr;
+  iree_hal_external_storage_t external_ptr = {0};
+  iree_hal_buffer_range_t logical_range = {0};
   iree_status_t status = iree_ok_status();
   bool have_device_ptr = false;
 
@@ -354,11 +357,14 @@ static iree_status_t iree_hal_streaming_buffer_wrap_hrx_buffer(
   // and mapped host memory).
   if (wrapper->buffer) {
     status = iree_hal_buffer_export(
-        wrapper->buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-        IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_ptr);
+        wrapper->buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+        iree_hal_make_external_storage_class(
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+        &external_ptr, &logical_range);
     if (iree_status_is_ok(status)) {
-      wrapper->device_ptr = (iree_hal_streaming_deviceptr_t)
-                                external_ptr.handle.device_allocation.ptr;
+      wrapper->device_ptr =
+          (iree_hal_streaming_deviceptr_t)(external_ptr.payload.device_address +
+                                           logical_range.byte_offset);
       have_device_ptr = true;
     } else if (iree_status_is_unavailable(status) && !imported_host_ptr) {
       // The HAL reports unsupported native export as UNAVAILABLE. Such buffers
@@ -366,6 +372,7 @@ static iree_status_t iree_hal_streaming_buffer_wrap_hrx_buffer(
       iree_status_free(status);
       status = iree_ok_status();
     }
+    iree_hal_external_storage_release(&external_ptr);
   }
 
   if (imported_host_ptr) {
@@ -847,23 +854,25 @@ iree_status_t iree_hal_streaming_memory_buffer_for_context(
       .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
       .min_alignment = 0,
   };
-  iree_hal_external_buffer_t external_buffer = {
-      .type = import_host_allocation
-                  ? IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION
-                  : IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-      .flags = IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE,
-      .size = buffer->size,
+  iree_hal_external_storage_t external_buffer = {
+      .storage_class = iree_hal_make_external_storage_class(
+          import_host_allocation
+              ? IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER
+              : IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      .byte_length = buffer->size,
+      .maintenance_range = iree_hal_make_buffer_range(0, buffer->size),
   };
   if (import_host_allocation) {
-    external_buffer.handle.host_allocation.ptr = buffer->host_ptr;
+    external_buffer.payload.host_pointer = buffer->host_ptr;
+    external_buffer.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
   } else {
-    external_buffer.handle.device_allocation.ptr = buffer->device_ptr;
+    external_buffer.payload.device_address = buffer->device_ptr;
   }
 
   iree_hal_buffer_t* imported_buffer = NULL;
   status = iree_hal_allocator_import_buffer(
       execution_context->device_allocator, params, &external_buffer,
-      iree_hal_buffer_release_callback_null(), &imported_buffer);
+      iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &imported_buffer);
   iree_hal_streaming_context_import_t* import = NULL;
   if (iree_status_is_ok(status)) {
     status = iree_allocator_malloc(buffer->context->host_allocator,
@@ -2233,19 +2242,19 @@ iree_hal_streaming_memory_allocate_owned_host_import_with_context_mode(
         .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
         .min_alignment = host_alignment,
     };
-    iree_hal_external_buffer_t external_buffer = {
-        .type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION,
-        .flags = IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE,
-        .size = allocation_size,
-        .handle.host_allocation.ptr = host_ptr,
+    iree_hal_external_storage_t external_buffer = {
+        .storage_class = iree_hal_make_external_storage_class(
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+        .payload.host_pointer = host_ptr,
+        .byte_length = allocation_size,
+        .host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+        .maintenance_range = iree_hal_make_buffer_range(0, allocation_size),
+        .release = iree_hal_streaming_owned_host_allocation_release,
+        .release_user_data = owned_allocation,
     };
-    const iree_hal_buffer_release_callback_t release_callback = {
-        .fn = iree_hal_streaming_owned_host_allocation_release,
-        .user_data = owned_allocation,
-    };
-    status = iree_hal_allocator_import_buffer(context->device_allocator, params,
-                                              &external_buffer,
-                                              release_callback, &buffer);
+    status = iree_hal_allocator_import_buffer(
+        context->device_allocator, params, &external_buffer,
+        iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &buffer);
     if (iree_status_is_ok(status)) {
       owned_allocation = NULL;
       host_allocation_transferred = true;
@@ -2512,16 +2521,19 @@ static iree_status_t iree_hal_streaming_memory_register_host_with_context_mode(
           IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
       .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
   };
-  iree_hal_external_buffer_t external_buffer = {
-      .type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION,
-      .flags = IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE,
-      .size = (iree_device_size_t)size,
-      .handle.host_allocation.ptr = ptr,
+  iree_hal_external_storage_t external_buffer = {
+      .storage_class = iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      .payload.host_pointer = ptr,
+      .byte_length = (iree_device_size_t)size,
+      .host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+      .maintenance_range =
+          iree_hal_make_buffer_range(0, (iree_device_size_t)size),
   };
   iree_hal_buffer_t* buffer = NULL;
   iree_status_t status = iree_hal_allocator_import_buffer(
       context->device_allocator, params, &external_buffer,
-      iree_hal_buffer_release_callback_null(), &buffer);
+      iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &buffer);
 
   iree_hal_streaming_buffer_t* wrapper = NULL;
   if (iree_status_is_ok(status)) {

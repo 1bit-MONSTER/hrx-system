@@ -419,7 +419,7 @@ static void iree_hal_webgpu_allocator_deallocate_buffer(
 static iree_status_t iree_hal_webgpu_allocator_import_buffer(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
     const iree_hal_buffer_params_t* IREE_RESTRICT params,
-    iree_hal_external_buffer_t* IREE_RESTRICT external_buffer,
+    const iree_hal_external_storage_t* IREE_RESTRICT external_buffer,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
   // WebGPU does not support importing external buffer handles.

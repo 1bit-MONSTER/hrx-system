@@ -366,16 +366,27 @@ TEST(AmdgpuBufferNativeTest, HostMappingAndExportUseIndependentHostAddress) {
   for (size_t i = 0; i < host_storage.size(); ++i) {
     EXPECT_EQ(host_storage[i], i >= 52 && i < 68 ? 0xAB : 0);
   }
-  iree_hal_external_buffer_t exported = {};
+  iree_hal_external_storage_t exported = {};
+  iree_hal_buffer_range_t logical_range = {};
   IREE_ASSERT_OK(iree_hal_buffer_export(
-      view, IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &exported));
-  EXPECT_EQ(exported.handle.host_allocation.ptr, host_storage.data() + 48);
-  EXPECT_EQ(exported.size, 64u);
+      view, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      &exported, &logical_range));
+  EXPECT_EQ(exported.payload.host_pointer, host_storage.data());
+  EXPECT_EQ(exported.byte_length, host_storage.size());
+  EXPECT_EQ(logical_range.byte_offset, 48u);
+  EXPECT_EQ(logical_range.byte_length, 64u);
+  iree_hal_external_storage_release(&exported);
   IREE_ASSERT_OK(iree_hal_buffer_export(
-      view, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &exported));
-  EXPECT_EQ(exported.handle.device_allocation.ptr, kAgentAddress + 48);
+      view, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      &exported, &logical_range));
+  EXPECT_EQ(exported.payload.device_address, kAgentAddress);
+  EXPECT_EQ(logical_range.byte_offset, 48u);
+  EXPECT_EQ(logical_range.byte_length, 64u);
+  iree_hal_external_storage_release(&exported);
   EXPECT_EQ(iree_hal_amdgpu_buffer_atomic_memory_cells(view),
             IREE_HAL_AMDGPU_ATOMIC_MEMORY_CELL_FLAGS_ALL);
   view.reset();

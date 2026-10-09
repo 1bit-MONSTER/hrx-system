@@ -307,12 +307,10 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_allocate_buffer(
 // usage modes and it'd be nice to have a single function for it to keep the
 // interface slimmer.
 
-// Imports an externally-owned |external_buffer| to a buffer handle.
-// See notes on iree_hal_external_buffer_type_t for ownership information;
-// depending on the type the caller may be responsible for ensuring the external
-// buffer remains valid for the duration it is in use by the returned
-// iree_hal_buffer_t. The returned external buffer may only be usable with the
-// same driver/device.
+// Imports a |logical_range| of typed external storage to a buffer handle.
+// This legacy allocator entry point remains only while allocation owners move
+// to iree_hal_pool_import_buffer. See iree_hal_external_storage_t for transport
+// ownership and native compatibility requirements.
 //
 // iree_hal_allocator_query_buffer_compatibility can be used to query whether a
 // buffer can be imported when using the given memory type and usage. A
@@ -321,20 +319,18 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_allocate_buffer(
 // supported mode (no read access, etc) this call will fail with
 // IREE_STATUS_OUT_OF_RANGE.
 //
-// An optional |release_callback| can be provided to allow the caller to listen
-// for when the underlying resource is no longer in use by the HAL. This can
-// be used to perform lifetime management or flushing.
-//
 // |out_buffer| must be released by the caller.
+// Success consumes and zeros |inout_storage|. Failure leaves it unchanged and
+// publishes no buffer. Any storage release callback runs after the imported
+// root and its dependent views are destroyed.
 // Fails with IREE_STATUS_UNAVAILABLE if the allocator cannot import the buffer
 // into the given memory type. This may be due to unavailable device/platform
 // capabilities or the memory type the external buffer was allocated with.
 IREE_API_EXPORT iree_status_t iree_hal_allocator_import_buffer(
     iree_hal_allocator_t* IREE_RESTRICT allocator,
     iree_hal_buffer_params_t params,
-    iree_hal_external_buffer_t* IREE_RESTRICT external_buffer,
-    iree_hal_buffer_release_callback_t release_callback,
-    iree_hal_buffer_t** out_buffer);
+    iree_hal_external_storage_t* IREE_RESTRICT inout_storage,
+    iree_hal_buffer_range_t logical_range, iree_hal_buffer_t** out_buffer);
 
 //===----------------------------------------------------------------------===//
 // Virtual Memory Management
@@ -562,7 +558,7 @@ typedef struct iree_hal_allocator_vtable_t {
   iree_status_t(IREE_API_PTR* import_buffer)(
       iree_hal_allocator_t* IREE_RESTRICT allocator,
       const iree_hal_buffer_params_t* IREE_RESTRICT params,
-      iree_hal_external_buffer_t* IREE_RESTRICT external_buffer,
+      const iree_hal_external_storage_t* IREE_RESTRICT storage,
       iree_hal_buffer_release_callback_t release_callback,
       iree_hal_buffer_t** IREE_RESTRICT out_buffer);
 

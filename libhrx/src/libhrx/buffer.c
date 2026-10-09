@@ -297,14 +297,18 @@ hrx_status_t hrx_buffer_get_device_ptr(hrx_buffer_t buffer, void** device_ptr) {
 
   // A scoped mapping grants access only to its interval and cannot provide a
   // whole-buffer device address. Native export leaves any active map untouched.
-  iree_hal_external_buffer_t external_buffer;
+  iree_hal_external_storage_t external_buffer = {0};
+  iree_hal_buffer_range_t logical_range = {0};
   iree_status_t status = iree_hal_buffer_export(
-      buffer->hal_buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer);
+      buffer->hal_buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      &external_buffer, &logical_range);
   if (iree_status_is_ok(status)) {
-    *device_ptr =
-        (void*)(uintptr_t)external_buffer.handle.device_allocation.ptr;
+    *device_ptr = (void*)(uintptr_t)(external_buffer.payload.device_address +
+                                     logical_range.byte_offset);
   }
+  iree_hal_external_storage_release(&external_buffer);
   HRX_RETURN_AND_END_ZONE(z0, hrx_status_from_iree(status));
 }
 

@@ -263,14 +263,19 @@ static void iree_hal_heap_buffer_destroy(iree_hal_buffer_t* base_buffer) {
 static iree_status_t iree_hal_heap_buffer_export_range(
     iree_hal_buffer_t* base_buffer, iree_device_size_t local_byte_offset,
     iree_device_size_t local_byte_length,
-    iree_hal_external_buffer_type_t requested_type,
-    iree_hal_external_buffer_flags_t requested_flags,
-    iree_hal_external_buffer_t* out_external_buffer) {
+    iree_hal_external_storage_class_t requested_class,
+    iree_hal_external_storage_t* out_storage,
+    iree_hal_buffer_range_t* out_logical_range) {
   iree_hal_heap_buffer_t* buffer = (iree_hal_heap_buffer_t*)base_buffer;
-  if (requested_type != IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION &&
-      requested_type != IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION) {
+  if (requested_class.type != IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER &&
+      requested_class.type != IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS) {
     return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                            "external buffer type not supported");
+                            "external storage type not supported");
+  }
+  if (requested_class.provenance[0] || requested_class.provenance[1]) {
+    return iree_make_status(
+        IREE_STATUS_UNAVAILABLE,
+        "heap pointer export has no matching opaque provenance");
   }
 
   // Heap storage is already mapped. Preserve the persistent-mapping contract
@@ -282,16 +287,22 @@ static iree_status_t iree_hal_heap_buffer_export_range(
       iree_hal_buffer_validate_usage(iree_hal_buffer_allowed_usage(base_buffer),
                                      IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT));
 
-  void* pointer = buffer->native_binding.host_pointer + local_byte_offset;
-  out_external_buffer->type = requested_type;
-  out_external_buffer->flags = requested_flags;
-  out_external_buffer->size = local_byte_length;
-  if (requested_type == IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION) {
-    out_external_buffer->handle.host_allocation.ptr = pointer;
+  out_storage->storage_class = requested_class;
+  out_storage->byte_length = base_buffer->allocation_size;
+  out_storage->host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+  out_storage->maintenance_range = (iree_hal_buffer_range_t){
+      .byte_length = base_buffer->allocation_size,
+  };
+  if (requested_class.type == IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER) {
+    out_storage->payload.host_pointer = buffer->native_binding.host_pointer;
   } else {
-    out_external_buffer->handle.device_allocation.ptr =
-        (uint64_t)(uintptr_t)pointer;
+    out_storage->payload.device_address =
+        (uint64_t)(uintptr_t)buffer->native_binding.host_pointer;
   }
+  *out_logical_range = (iree_hal_buffer_range_t){
+      .byte_offset = local_byte_offset,
+      .byte_length = local_byte_length,
+  };
   return iree_ok_status();
 }
 

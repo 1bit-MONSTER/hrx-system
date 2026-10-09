@@ -65,13 +65,6 @@ enum iree_hal_pool_access_requirement_bits_e {
   IREE_HAL_POOL_ACCESS_REQUIRE_UNCACHED = 1u << 1,
 };
 
-typedef enum iree_hal_host_cacheability_e {
-  IREE_HAL_HOST_CACHEABILITY_UNKNOWN = 0,
-  IREE_HAL_HOST_CACHEABILITY_WRITE_BACK = 1,
-  IREE_HAL_HOST_CACHEABILITY_WRITE_COMBINED = 2,
-  IREE_HAL_HOST_CACHEABILITY_UNCACHED = 3,
-} iree_hal_host_cacheability_t;
-
 typedef enum iree_hal_pool_placement_mode_e {
   IREE_HAL_POOL_PLACEMENT_AUTOMATIC = 0,
   IREE_HAL_POOL_PLACEMENT_PREFERRED = 1,

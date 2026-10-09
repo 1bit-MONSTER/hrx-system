@@ -19,8 +19,11 @@ namespace iree::hal::cts {
 
 using iree::testing::status::StatusIs;
 
-static void NotifyBufferReleased(void* user_data,
-                                 iree_hal_buffer_t* /*buffer*/) {
+static void NotifyBufferReleased(
+    void* user_data, iree_hal_external_storage_class_t storage_class,
+    iree_hal_external_storage_payload_t payload) {
+  (void)storage_class;
+  (void)payload;
   static_cast<std::promise<void>*>(user_data)->set_value();
 }
 
@@ -139,22 +142,24 @@ class QueueAtomicTest : public CtsTestBase<> {
 
     std::promise<void> released;
     std::future<void> released_future = released.get_future();
-    iree_hal_buffer_release_callback_t release_callback = {
-        /*.fn=*/NotifyBufferReleased,
-        /*.user_data=*/&released,
-    };
-    iree_hal_external_buffer_t external_buffer = {};
-    external_buffer.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION;
-    external_buffer.size = kBufferSize;
-    external_buffer.handle.host_allocation.ptr = misaligned_ptr;
+    iree_hal_external_storage_t external_buffer = {};
+    external_buffer.storage_class = iree_hal_make_external_storage_class(
+        IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+    external_buffer.byte_length = kBufferSize;
+    external_buffer.payload.host_pointer = misaligned_ptr;
+    external_buffer.maintenance_range =
+        iree_hal_make_buffer_range(0, kBufferSize);
+    external_buffer.release = NotifyBufferReleased;
+    external_buffer.release_user_data = &released;
 
     iree_hal_buffer_params_t buffer_params = configuration.buffer_params;
     buffer_params.min_alignment = 1;
     Ref<iree_hal_buffer_t> buffer;
     Status import_status(iree_hal_allocator_import_buffer(
-        device_allocator_, buffer_params, &external_buffer, release_callback,
-        buffer.out()));
+        device_allocator_, buffer_params, &external_buffer,
+        iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), buffer.out()));
     if (!import_status.ok()) {
+      iree_hal_external_storage_release(&external_buffer);
       GTEST_SKIP() << "Allocator cannot import an explicitly unaligned host "
                       "allocation: "
                    << import_status.ToString();

@@ -1071,8 +1071,11 @@ static iree_status_t iree_io_parameter_transfer_batch_end(
   return status;
 }
 
-static void iree_io_file_handle_buffer_release(void* user_data,
-                                               iree_hal_buffer_t* buffer) {
+static void iree_io_file_handle_buffer_release(
+    void* user_data, iree_hal_external_storage_class_t storage_class,
+    iree_hal_external_storage_payload_t payload) {
+  (void)storage_class;
+  (void)payload;
   iree_io_file_handle_release((iree_io_file_handle_t*)user_data);
 }
 
@@ -1145,31 +1148,27 @@ static iree_status_t iree_io_parameter_index_provider_load(
         iree_byte_span_t host_allocation =
             iree_io_file_handle_primitive(source_entry->storage.file.handle)
                 .value.host_allocation;
-        iree_hal_external_buffer_t external_buffer = {
-            .type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION,
-            .flags = IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE,
-            .size = host_allocation.data_length,
-            .handle =
-                {
-                    .host_allocation =
-                        {
-                            .ptr = host_allocation.data +
-                                   source_entry->storage.file.offset,
-                        },
-                },
-        };
-        iree_hal_buffer_release_callback_t release_callback = {
-            .fn = iree_io_file_handle_buffer_release,
-            .user_data = source_entry->storage.file.handle,
+        iree_hal_external_storage_t external_buffer = {
+            .storage_class = iree_hal_make_external_storage_class(
+                IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+            .payload.host_pointer = host_allocation.data,
+            .byte_length = host_allocation.data_length,
+            .host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+            .maintenance_range =
+                iree_hal_make_buffer_range(0, host_allocation.data_length),
+            .release = iree_io_file_handle_buffer_release,
+            .release_user_data = source_entry->storage.file.handle,
         };
         iree_io_file_handle_retain(source_entry->storage.file.handle);
         status = iree_hal_allocator_import_buffer(
-            allocator, target_params, &external_buffer, release_callback,
+            allocator, target_params, &external_buffer,
+            iree_hal_make_buffer_range(source_entry->storage.file.offset,
+                                       span.length),
             &target_buffer);
         if (iree_status_is_ok(status)) {
           IREE_TRACE_ZONE_APPEND_TEXT(z_entry, "import succeeded");
         } else {
-          iree_io_file_handle_release(source_entry->storage.file.handle);
+          iree_hal_external_storage_release(&external_buffer);
         }
       }
     }

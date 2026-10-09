@@ -233,6 +233,11 @@ static iree_status_t iree_hal_replay_dump_append_text_payload(
       }
       iree_hal_replay_allocator_import_buffer_payload_t payload;
       memcpy(&payload, record->payload.data, sizeof(payload));
+      if (IREE_UNLIKELY(payload.reserved0 != 0)) {
+        return iree_make_status(IREE_STATUS_DATA_LOSS,
+                                "replay import buffer reserved metadata is "
+                                "nonzero");
+      }
       if (payload.data_length >
           record->payload.data_length -
               sizeof(iree_hal_replay_allocator_import_buffer_payload_t)) {
@@ -247,15 +252,13 @@ static iree_status_t iree_hal_replay_dump_append_text_payload(
           builder,
           " allocation_size=%" PRIu64 " queue_family_affinity=%" PRIu64
           " min_alignment=%" PRIu64 " usage=0x%08" PRIx32 " type=0x%08" PRIx32
-          " access=0x%04" PRIx16 " external_type=%" PRIu32
-          " external_flags=0x%08" PRIx32 " data_range=[%" PRIu64 ", +%" PRIu64
-          "]",
+          " access=0x%04" PRIx16 " storage_type=%" PRIu32
+          " data_range=[%" PRIu64 ", +%" PRIu64 "]",
           payload.allocation.allocation_size,
           payload.allocation.queue_family_affinity,
           payload.allocation.min_alignment, payload.allocation.usage,
           payload.allocation.type, payload.allocation.access,
-          payload.external_type, payload.external_flags, data_offset,
-          payload.data_length);
+          payload.storage_type, data_offset, payload.data_length);
     }
     case IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_RESERVE: {
       IREE_RETURN_IF_ERROR(iree_hal_replay_dump_payload_length_check(

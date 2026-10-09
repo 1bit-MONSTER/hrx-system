@@ -1153,12 +1153,17 @@ static iree_status_t iree_hal_replay_executor_import_buffer(
       sizeof(iree_hal_replay_allocator_import_buffer_payload_t)));
   iree_hal_replay_allocator_import_buffer_payload_t payload;
   memcpy(&payload, record->payload.data, sizeof(payload));
-  if (IREE_UNLIKELY(payload.external_type !=
-                    IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION)) {
+  if (IREE_UNLIKELY(payload.storage_type !=
+                    IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER)) {
     return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                            "replay import buffer external type %" PRIu32
+                            "replay import buffer storage type %" PRIu32
                             " is not supported",
-                            payload.external_type);
+                            payload.storage_type);
+  }
+  if (IREE_UNLIKELY(payload.reserved0 != 0)) {
+    return iree_make_status(
+        IREE_STATUS_DATA_LOSS,
+        "replay import buffer reserved metadata is nonzero");
   }
   if (IREE_UNLIKELY(payload.data_length > IREE_HOST_SIZE_MAX ||
                     sizeof(payload) + (iree_host_size_t)payload.data_length !=

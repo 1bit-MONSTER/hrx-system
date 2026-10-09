@@ -336,9 +336,9 @@ static void iree_hal_task_transient_buffer_destroy(
 static iree_status_t iree_hal_task_transient_buffer_export_range(
     iree_hal_buffer_t* base_buffer, iree_device_size_t local_byte_offset,
     iree_device_size_t local_byte_length,
-    iree_hal_external_buffer_type_t requested_type,
-    iree_hal_external_buffer_flags_t requested_flags,
-    iree_hal_external_buffer_t* out_external_buffer) {
+    iree_hal_external_storage_class_t requested_class,
+    iree_hal_external_storage_t* out_storage,
+    iree_hal_buffer_range_t* out_logical_range) {
   iree_hal_task_transient_buffer_t* buffer =
       iree_hal_task_transient_buffer_cast(base_buffer);
   iree_hal_buffer_t* committed = NULL;
@@ -347,8 +347,7 @@ static iree_status_t iree_hal_task_transient_buffer_export_range(
   iree_status_t status =
       iree_hal_task_transient_buffer_committed_vtable(committed)->export_range(
           committed, iree_hal_buffer_byte_offset(committed) + local_byte_offset,
-          local_byte_length, requested_type, requested_flags,
-          out_external_buffer);
+          local_byte_length, requested_class, out_storage, out_logical_range);
   iree_hal_buffer_release(committed);
   return status;
 }

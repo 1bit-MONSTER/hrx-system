@@ -13,7 +13,11 @@ constexpr iree_device_size_t kAllocationSize = 1024;
 
 // Release callback that counts how many times it has been invoked.
 // Used to verify that chained caller callbacks fire exactly once.
-static void CountingReleaseCallback(void* user_data, iree_hal_buffer_t*) {
+static void CountingReleaseCallback(
+    void* user_data, iree_hal_external_storage_class_t storage_class,
+    iree_hal_external_storage_payload_t payload) {
+  (void)storage_class;
+  (void)payload;
   ++*static_cast<int*>(user_data);
 }
 }  // namespace
@@ -146,25 +150,33 @@ TEST_P(AllocatorTest, ImportHostAllocationNullCallback) {
       iree_allocator_system(), static_cast<iree_host_size_t>(compat_size),
       host_alignment, /*offset=*/0, &host_ptr));
 
-  iree_hal_external_buffer_t ext = {};
-  ext.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION;
-  ext.size = compat_size;
-  ext.handle.host_allocation.ptr = host_ptr;
+  auto make_external_storage = [&]() {
+    iree_hal_external_storage_t storage = {};
+    storage.storage_class = iree_hal_make_external_storage_class(
+        IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+    storage.payload.host_pointer = host_ptr;
+    storage.byte_length = compat_size;
+    storage.maintenance_range = iree_hal_make_buffer_range(0, compat_size);
+    return storage;
+  };
 
+  iree_hal_external_storage_t ext = make_external_storage();
   iree_hal_buffer_t* buffer = nullptr;
   IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
-      device_allocator_, params, &ext, iree_hal_buffer_release_callback_null(),
-      &buffer));
+      device_allocator_, params, &ext,
+      iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &buffer));
   ASSERT_NE(nullptr, buffer);
+  EXPECT_EQ(IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE, ext.storage_class.type);
 
   iree_hal_buffer_release(buffer);
   buffer = nullptr;
 
   // Re-import the same pointer.  On backends where double-register fails, this
   // would fail without the fix because the pointer is still registered.
+  ext = make_external_storage();
   IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
-      device_allocator_, params, &ext, iree_hal_buffer_release_callback_null(),
-      &buffer));
+      device_allocator_, params, &ext,
+      iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &buffer));
   ASSERT_NE(nullptr, buffer);
 
   iree_hal_buffer_release(buffer);
@@ -204,18 +216,19 @@ TEST_P(AllocatorTest, ImportHostAllocationWithCallback) {
       host_alignment, /*offset=*/0, &host_ptr));
 
   int release_count = 0;
-  iree_hal_buffer_release_callback_t callback = {};
-  callback.fn = CountingReleaseCallback;
-  callback.user_data = &release_count;
-
-  iree_hal_external_buffer_t ext = {};
-  ext.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION;
-  ext.size = compat_size;
-  ext.handle.host_allocation.ptr = host_ptr;
+  iree_hal_external_storage_t ext = {};
+  ext.storage_class = iree_hal_make_external_storage_class(
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+  ext.byte_length = compat_size;
+  ext.payload.host_pointer = host_ptr;
+  ext.maintenance_range = iree_hal_make_buffer_range(0, compat_size);
+  ext.release = CountingReleaseCallback;
+  ext.release_user_data = &release_count;
 
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_import_buffer(device_allocator_, params,
-                                                  &ext, callback, &buffer));
+  IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
+      device_allocator_, params, &ext,
+      iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &buffer));
   ASSERT_NE(nullptr, buffer);
   EXPECT_EQ(0, release_count);
 
@@ -228,9 +241,14 @@ TEST_P(AllocatorTest, ImportHostAllocationWithCallback) {
   // Re-import to verify that the unregister fired even when a non-null caller
   // callback was provided.  On backends where double-register fails, this would
   // fail without the fix because the pointer is still registered.
+  ext.storage_class = iree_hal_make_external_storage_class(
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+  ext.byte_length = compat_size;
+  ext.payload.host_pointer = host_ptr;
+  ext.maintenance_range = iree_hal_make_buffer_range(0, compat_size);
   IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
-      device_allocator_, params, &ext, iree_hal_buffer_release_callback_null(),
-      &buffer));
+      device_allocator_, params, &ext,
+      iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &buffer));
   ASSERT_NE(nullptr, buffer);
 
   iree_hal_buffer_release(buffer);

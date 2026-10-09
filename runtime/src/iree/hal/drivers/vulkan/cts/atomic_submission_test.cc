@@ -16,8 +16,11 @@ namespace iree::hal::cts {
 
 using iree::testing::status::StatusIs;
 
-static void NotifyForeignBufferReleased(void* user_data,
-                                        iree_hal_buffer_t* /*buffer*/) {
+static void NotifyForeignBufferReleased(
+    void* user_data, iree_hal_external_storage_class_t storage_class,
+    iree_hal_external_storage_payload_t payload) {
+  (void)storage_class;
+  (void)payload;
   static_cast<std::promise<void>*>(user_data)->set_value();
 }
 
@@ -54,16 +57,17 @@ TEST_P(VulkanAtomicSubmissionTest,
 
   alignas(IREE_HAL_HEAP_BUFFER_ALIGNMENT) std::array<uint8_t, sizeof(uint32_t)>
       storage = {};
-  iree_hal_external_buffer_t external_buffer = {};
-  external_buffer.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION;
-  external_buffer.size = storage.size();
-  external_buffer.handle.host_allocation.ptr = storage.data();
+  iree_hal_external_storage_t external_buffer = {};
+  external_buffer.storage_class = iree_hal_make_external_storage_class(
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+  external_buffer.byte_length = storage.size();
+  external_buffer.payload.host_pointer = storage.data();
+  external_buffer.maintenance_range =
+      iree_hal_make_buffer_range(0, storage.size());
   std::promise<void> released;
   std::future<void> released_future = released.get_future();
-  const iree_hal_buffer_release_callback_t release_callback = {
-      /*.fn=*/NotifyForeignBufferReleased,
-      /*.user_data=*/&released,
-  };
+  external_buffer.release = NotifyForeignBufferReleased;
+  external_buffer.release_user_data = &released;
   const iree_hal_buffer_params_t buffer_params = {
       /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE,
       /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
@@ -73,7 +77,8 @@ TEST_P(VulkanAtomicSubmissionTest,
   };
   Ref<iree_hal_buffer_t> target_buffer;
   IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
-      heap_allocator, buffer_params, &external_buffer, release_callback,
+      heap_allocator, buffer_params, &external_buffer,
+      iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
       target_buffer.out()));
 
   enum class AtomicKind { kWait, kStore, kRmw };

@@ -109,11 +109,16 @@ static iree_status_t DispatchAsanAllocationRawAddress(
 static iree_status_t ExportDeviceAddress(iree_hal_buffer_t* buffer,
                                          uint64_t* out_address) {
   *out_address = 0;
-  iree_hal_external_buffer_t external_buffer = {};
+  iree_hal_external_storage_t external_buffer = {};
+  iree_hal_buffer_range_t logical_range = {};
   IREE_RETURN_IF_ERROR(iree_hal_buffer_export(
-      buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer));
-  *out_address = external_buffer.handle.device_allocation.ptr;
+      buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      &external_buffer, &logical_range));
+  *out_address =
+      external_buffer.payload.device_address + logical_range.byte_offset;
+  iree_hal_external_storage_release(&external_buffer);
   return iree_ok_status();
 }
 

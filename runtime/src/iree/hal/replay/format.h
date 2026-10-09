@@ -19,8 +19,9 @@ extern "C" {
 // Magic header bytes for IREE HAL replay files: "IRRP".
 #define IREE_HAL_REPLAY_FILE_MAGIC 0x50525249u
 
-// Major version of the IREE HAL replay file format.
-#define IREE_HAL_REPLAY_FILE_VERSION_MAJOR 10u
+// Major version of the IREE HAL replay file format. Version 11 replaces legacy
+// external-buffer flags with an exact external-storage transport type.
+#define IREE_HAL_REPLAY_FILE_VERSION_MAJOR 11u
 
 // Minor version of the IREE HAL replay file format. Minor version 5 adds
 // explicit memory transition recipes to barrier records.
@@ -313,13 +314,15 @@ typedef struct iree_hal_replay_allocator_allocate_buffer_payload_t {
 typedef struct iree_hal_replay_allocator_import_buffer_payload_t {
   // Allocation parameters used to materialize the imported buffer on replay.
   iree_hal_replay_allocator_allocate_buffer_payload_t allocation;
-  // External buffer type captured from the import request.
-  uint32_t external_type;
-  // External buffer flags captured from the import request.
-  uint32_t external_flags;
+  // External storage transport type captured from the import request.
+  uint32_t storage_type;
+  // Reserved for future storage class metadata; must be zero.
+  uint32_t reserved0;
   // Captured byte length following this payload header.
   uint64_t data_length;
 } iree_hal_replay_allocator_import_buffer_payload_t;
+static_assert(sizeof(iree_hal_replay_allocator_import_buffer_payload_t) == 56,
+              "allocator import replay payload must be 56 bytes");
 
 // Payload describing a virtual address reservation request.
 typedef struct iree_hal_replay_allocator_virtual_memory_reserve_payload_t {

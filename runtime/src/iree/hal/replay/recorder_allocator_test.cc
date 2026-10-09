@@ -88,18 +88,24 @@ class ReplayRecorderAllocatorTest : public ::testing::Test {
     iree_hal_buffer_params_t params = {};
     params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
     params.usage = IREE_HAL_BUFFER_USAGE_MAPPING;
-    iree_hal_external_buffer_t external_buffer = {};
-    external_buffer.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION;
-    external_buffer.size = sizeof(storage_);
-    external_buffer.handle.host_allocation.ptr = storage_;
-    iree_hal_buffer_release_callback_t release_callback = {
-        [](void* user_data, iree_hal_buffer_t*) {
+    iree_hal_external_storage_t external_buffer = {};
+    external_buffer.storage_class = iree_hal_make_external_storage_class(
+        IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+    external_buffer.byte_length = sizeof(storage_);
+    external_buffer.payload.host_pointer = storage_;
+    external_buffer.maintenance_range =
+        iree_hal_make_buffer_range(0, sizeof(storage_));
+    external_buffer.release =
+        [](void* user_data, iree_hal_external_storage_class_t storage_class,
+           iree_hal_external_storage_payload_t payload) {
+          (void)storage_class;
+          (void)payload;
           ++*static_cast<int*>(user_data);
-        },
-        &release_count_,
-    };
+        };
+    external_buffer.release_user_data = &release_count_;
     return iree_hal_allocator_import_buffer(
-        allocator_, params, &external_buffer, release_callback, out_buffer);
+        allocator_, params, &external_buffer,
+        iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), out_buffer);
   }
 
   void VerifySuccessfulImport() {
@@ -146,7 +152,9 @@ TEST_F(ReplayRecorderAllocatorTest, ProxyFailurePreservesCallerOwnership) {
   IREE_EXPECT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED, Import(&buffer));
   EXPECT_EQ(nullptr, buffer);
   EXPECT_EQ(0, release_count_);
-  EXPECT_EQ(native_attempt_count, native_state_.allocation_attempt_count);
+  // The public import boundary first allocates the move owner that would hold
+  // the external storage. Proxy construction then fails before native import.
+  EXPECT_EQ(native_attempt_count + 1, native_state_.allocation_attempt_count);
   EXPECT_EQ(proxy_live_count, proxy_state_.live_allocation_count);
   proxy_state_.fail_allocations = false;
   VerifySuccessfulImport();

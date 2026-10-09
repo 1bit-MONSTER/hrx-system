@@ -224,7 +224,7 @@ static void iree_hal_heap_allocator_deallocate_buffer(
 static iree_status_t iree_hal_heap_allocator_import_buffer(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
     const iree_hal_buffer_params_t* IREE_RESTRICT params,
-    iree_hal_external_buffer_t* IREE_RESTRICT external_buffer,
+    const iree_hal_external_storage_t* IREE_RESTRICT storage,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
   iree_hal_heap_allocator_t* allocator =
@@ -232,7 +232,7 @@ static iree_status_t iree_hal_heap_allocator_import_buffer(
 
   // Coerce options into those required for use by heap-based devices.
   iree_hal_buffer_params_t compat_params = *params;
-  iree_device_size_t allocation_size = external_buffer->size;
+  iree_device_size_t allocation_size = storage->byte_length;
   if (!iree_all_bits_set(iree_hal_heap_allocator_query_buffer_compatibility(
                              base_allocator, &compat_params, &allocation_size),
                          IREE_HAL_BUFFER_COMPATIBILITY_IMPORTABLE)) {
@@ -242,16 +242,26 @@ static iree_status_t iree_hal_heap_allocator_import_buffer(
   }
 
   void* ptr = NULL;
-  switch (external_buffer->type) {
-    case IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION:
-      ptr = external_buffer->handle.host_allocation.ptr;
+  switch (storage->storage_class.type) {
+    case IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER:
+      ptr = storage->payload.host_pointer;
       break;
-    case IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION:
-      ptr = (void*)((intptr_t)external_buffer->handle.device_allocation.ptr);
+    case IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS:
+      ptr = (void*)(uintptr_t)storage->payload.device_address;
       break;
     default:
       return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                              "external buffer type not supported");
+                              "external storage type not supported");
+  }
+  if (storage->storage_class.provenance[0] ||
+      storage->storage_class.provenance[1]) {
+    return iree_make_status(
+        IREE_STATUS_UNAVAILABLE,
+        "heap pointer import has no matching opaque provenance");
+  }
+  if (!ptr || storage->byte_length > IREE_HOST_SIZE_MAX) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "invalid heap pointer storage extent");
   }
 
   if (params->min_alignment &&
@@ -273,7 +283,8 @@ static iree_status_t iree_hal_heap_allocator_import_buffer(
   };
   return iree_hal_heap_buffer_wrap(
       placement, compat_params.type, compat_params.access, compat_params.usage,
-      external_buffer->size, iree_make_byte_span(ptr, external_buffer->size),
+      storage->byte_length,
+      iree_make_byte_span(ptr, (iree_host_size_t)storage->byte_length),
       release_callback, allocator->host_allocator, out_buffer);
 }
 

@@ -30,17 +30,16 @@ class ReleaseLatch {
   explicit ReleaseLatch(int release_count)
       : future_(promise_.get_future()), remaining_(release_count) {}
 
-  static void Notify(void* user_data, iree_hal_buffer_t* buffer) {
-    (void)buffer;
+  static void Notify(void* user_data,
+                     iree_hal_external_storage_class_t storage_class,
+                     iree_hal_external_storage_payload_t payload) {
+    (void)storage_class;
+    (void)payload;
     ReleaseLatch* latch = static_cast<ReleaseLatch*>(user_data);
     const int previous = latch->remaining_.fetch_sub(1);
     if (previous == 1) {
       latch->promise_.set_value();
     }
-  }
-
-  iree_hal_buffer_release_callback_t callback() {
-    return {/*.fn=*/Notify, /*.user_data=*/this};
   }
 
   int remaining() const { return remaining_.load(); }
@@ -85,13 +84,17 @@ class HostQueueAtomicTest
   static iree_status_t ImportHostAtomicBuffer(
       TestLogicalDevice* test_device, iree_host_size_t physical_device_ordinal,
       void* host_pointer, iree_device_size_t byte_length,
-      iree_device_size_t minimum_alignment,
-      iree_hal_buffer_release_callback_t release_callback,
+      iree_device_size_t minimum_alignment, ReleaseLatch* release_latch,
       iree_hal_buffer_t** out_buffer) {
-    iree_hal_external_buffer_t external_buffer = {};
-    external_buffer.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION;
-    external_buffer.size = byte_length;
-    external_buffer.handle.host_allocation.ptr = host_pointer;
+    iree_hal_external_storage_t external_buffer = {};
+    external_buffer.storage_class = iree_hal_make_external_storage_class(
+        IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+    external_buffer.byte_length = byte_length;
+    external_buffer.payload.host_pointer = host_pointer;
+    external_buffer.maintenance_range =
+        iree_hal_make_buffer_range(0, byte_length);
+    external_buffer.release = ReleaseLatch::Notify;
+    external_buffer.release_user_data = release_latch;
 
     iree_hal_buffer_params_t params = {};
     params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
@@ -101,9 +104,13 @@ class HostQueueAtomicTest
     params.queue_family_affinity = iree_hal_make_queue_family_affinity(
         (iree_hal_queue_family_ordinal_t)physical_device_ordinal);
     params.min_alignment = minimum_alignment;
-    return iree_hal_allocator_import_buffer(test_device->allocator(), params,
-                                            &external_buffer, release_callback,
-                                            out_buffer);
+    iree_status_t status = iree_hal_allocator_import_buffer(
+        test_device->allocator(), params, &external_buffer,
+        iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), out_buffer);
+    if (!iree_status_is_ok(status)) {
+      iree_hal_external_storage_release(&external_buffer);
+    }
+    return status;
   }
 
   static iree_status_t CreateReusableAtomicProgram(
@@ -257,8 +264,7 @@ TEST_F(HostQueueAtomicTest,
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(ImportHostAtomicBuffer(
       &test_device, /*physical_device_ordinal=*/0, storage.data(),
-      sizeof(storage), /*minimum_alignment=*/64, release_latch.callback(),
-      buffer.out()));
+      sizeof(storage), /*minimum_alignment=*/64, &release_latch, buffer.out()));
 
   Ref<iree_hal_semaphore_t> completion;
   IREE_ASSERT_OK(CreateSemaphore(test_device.base_device(), completion.out()));
@@ -383,7 +389,7 @@ TEST_F(HostQueueAtomicTest, HostWaitForEarlierValueIgnoresLaterProducerEpoch) {
   IREE_ASSERT_OK(ImportHostAtomicBuffer(
       &test_device, /*physical_device_ordinal=*/0, wait_values.data(),
       sizeof(wait_values),
-      /*minimum_alignment=*/64, release_latch.callback(), buffer.out()));
+      /*minimum_alignment=*/64, &release_latch, buffer.out()));
 
   Ref<iree_hal_semaphore_t> timeline;
   IREE_ASSERT_OK(CreateSemaphore(test_device.base_device(), timeline.out()));
@@ -464,7 +470,7 @@ TEST_F(HostQueueAtomicTest, DirectWaitBeforeStoreOnIndependentQueue) {
   IREE_ASSERT_OK(ImportHostAtomicBuffer(
       &test_device, /*physical_device_ordinal=*/0, storage.data(),
       sizeof(storage),
-      /*minimum_alignment=*/64, release_latch.callback(), buffer.out()));
+      /*minimum_alignment=*/64, &release_latch, buffer.out()));
 
   const iree_hal_barrier_list_t empty = {};
   iree_hal_barrier_t acquire = {};
@@ -546,8 +552,7 @@ TEST_F(HostQueueAtomicTest, DeferredDirectOperationsRetainTarget) {
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(ImportHostAtomicBuffer(
       &test_device, /*physical_device_ordinal=*/0, storage.data(),
-      sizeof(storage), /*minimum_alignment=*/64, release_latch.callback(),
-      buffer.out()));
+      sizeof(storage), /*minimum_alignment=*/64, &release_latch, buffer.out()));
 
   Ref<iree_hal_semaphore_t> gate;
   IREE_ASSERT_OK(CreateSemaphore(test_device.base_device(), gate.out()));
@@ -646,7 +651,7 @@ TEST_F(HostQueueAtomicTest, DeferredDirectMisalignmentFailsAndQueueRecovers) {
   IREE_ASSERT_OK(ImportHostAtomicBuffer(
       &test_device, /*physical_device_ordinal=*/0,
       misaligned_storage.data() + 1, misaligned_storage.size() - 1,
-      /*minimum_alignment=*/1, misaligned_release_latch.callback(),
+      /*minimum_alignment=*/1, &misaligned_release_latch,
       misaligned_buffer.out()));
   ASSERT_NE(reinterpret_cast<uintptr_t>(misaligned_storage.data() + 1) %
                 alignof(uint32_t),
@@ -703,8 +708,7 @@ TEST_F(HostQueueAtomicTest, DeferredDirectMisalignmentFailsAndQueueRecovers) {
   IREE_ASSERT_OK(ImportHostAtomicBuffer(
       &test_device, /*physical_device_ordinal=*/0, valid_storage.data(),
       sizeof(valid_storage),
-      /*minimum_alignment=*/64, valid_release_latch.callback(),
-      valid_buffer.out()));
+      /*minimum_alignment=*/64, &valid_release_latch, valid_buffer.out()));
   Ref<iree_hal_semaphore_t> valid_completion;
   IREE_ASSERT_OK(
       CreateSemaphore(test_device.base_device(), valid_completion.out()));
@@ -763,17 +767,17 @@ TEST_P(HostQueueAtomicTest, ReusableProgramRetainsAndRebindsResources) {
   IREE_ASSERT_OK(ImportHostAtomicBuffer(
       &test_device, /*physical_device_ordinal=*/0, static_storage.data(),
       sizeof(static_storage),
-      /*minimum_alignment=*/64, release_latch.callback(), static_buffer.out()));
+      /*minimum_alignment=*/64, &release_latch, static_buffer.out()));
   Ref<iree_hal_buffer_t> first_buffer;
   IREE_ASSERT_OK(ImportHostAtomicBuffer(
       &test_device, /*physical_device_ordinal=*/0, first_storage.data(),
       sizeof(first_storage),
-      /*minimum_alignment=*/64, release_latch.callback(), first_buffer.out()));
+      /*minimum_alignment=*/64, &release_latch, first_buffer.out()));
   Ref<iree_hal_buffer_t> second_buffer;
   IREE_ASSERT_OK(ImportHostAtomicBuffer(
       &test_device, /*physical_device_ordinal=*/0, second_storage.data(),
       sizeof(second_storage),
-      /*minimum_alignment=*/64, release_latch.callback(), second_buffer.out()));
+      /*minimum_alignment=*/64, &release_latch, second_buffer.out()));
   EXPECT_EQ(iree_hal_amdgpu_buffer_atomic_memory_cells(static_buffer),
             IREE_HAL_AMDGPU_ATOMIC_MEMORY_CELL_FLAGS_ALL);
   EXPECT_EQ(iree_hal_amdgpu_buffer_atomic_memory_cells(first_buffer),
@@ -935,7 +939,7 @@ TEST_P(HostQueueAtomicTest, DeferredResolvedMisalignmentFailsAndQueueRecovers) {
   IREE_ASSERT_OK(ImportHostAtomicBuffer(
       &test_device, /*physical_device_ordinal=*/0,
       misaligned_storage.data() + 1, misaligned_storage.size() - 1,
-      /*minimum_alignment=*/1, misaligned_release_latch.callback(),
+      /*minimum_alignment=*/1, &misaligned_release_latch,
       misaligned_buffer.out()));
   ASSERT_NE(reinterpret_cast<uintptr_t>(misaligned_storage.data() + 1) %
                 alignof(uint32_t),
@@ -992,7 +996,7 @@ TEST_P(HostQueueAtomicTest, DeferredResolvedMisalignmentFailsAndQueueRecovers) {
   IREE_ASSERT_OK(ImportHostAtomicBuffer(
       &test_device, /*physical_device_ordinal=*/0,
       misaligned_storage.data() + 1, misaligned_storage.size() - 1,
-      /*minimum_alignment=*/1, incompatible_release_latch.callback(),
+      /*minimum_alignment=*/1, &incompatible_release_latch,
       incompatible_buffer.out()));
   Ref<iree_hal_semaphore_t> incompatible_completion;
   IREE_ASSERT_OK(CreateSemaphore(test_device.base_device(),
@@ -1046,8 +1050,7 @@ TEST_P(HostQueueAtomicTest, DeferredResolvedMisalignmentFailsAndQueueRecovers) {
   IREE_ASSERT_OK(ImportHostAtomicBuffer(
       &test_device, /*physical_device_ordinal=*/0, valid_storage.data(),
       sizeof(valid_storage),
-      /*minimum_alignment=*/64, valid_release_latch.callback(),
-      valid_buffer.out()));
+      /*minimum_alignment=*/64, &valid_release_latch, valid_buffer.out()));
   Ref<iree_hal_semaphore_t> valid_completion;
   IREE_ASSERT_OK(
       CreateSemaphore(test_device.base_device(), valid_completion.out()));
@@ -1102,8 +1105,7 @@ TEST_P(HostQueueAtomicTest, SupportsWidthsConditionsAndRmwOperations) {
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(ImportHostAtomicBuffer(
       &test_device, /*physical_device_ordinal=*/0, storage.data(),
-      sizeof(storage), /*minimum_alignment=*/64, release_latch.callback(),
-      buffer.out()));
+      sizeof(storage), /*minimum_alignment=*/64, &release_latch, buffer.out()));
 
   Ref<iree_hal_command_buffer_t> command_buffer;
   IREE_ASSERT_OK(iree_hal_command_buffer_create(

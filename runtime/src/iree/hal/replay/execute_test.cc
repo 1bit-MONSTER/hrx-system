@@ -2312,10 +2312,11 @@ TEST(ReplayExecuteTest, ExecutesHostAllocationImportedBufferRecord) {
       0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
       0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
   };
-  iree_hal_external_buffer_t external_buffer = {};
-  external_buffer.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION;
-  external_buffer.size = sizeof(imported_storage);
-  external_buffer.handle.host_allocation.ptr = imported_storage;
+  iree_hal_external_storage_t external_buffer = {};
+  external_buffer.storage_class.type =
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
+  external_buffer.byte_length = sizeof(imported_storage);
+  external_buffer.payload.host_pointer = imported_storage;
 
   iree_hal_buffer_params_t params = {0};
   params.type = IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
@@ -2324,7 +2325,7 @@ TEST(ReplayExecuteTest, ExecutesHostAllocationImportedBufferRecord) {
   iree_hal_buffer_t* imported_buffer = nullptr;
   IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
       allocator, params, &external_buffer,
-      iree_hal_buffer_release_callback_null(), &imported_buffer));
+      iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &imported_buffer));
 
   iree_hal_buffer_t* target_buffer = nullptr;
   IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
@@ -2410,9 +2411,9 @@ TEST(ReplayExecuteTest, SkipsFailedUnsupportedImportedBufferRecord) {
   iree_hal_allocator_t* allocator = iree_hal_device_allocator(wrapped_device);
   ASSERT_NE(nullptr, allocator);
 
-  iree_hal_external_buffer_t external_buffer = {};
-  external_buffer.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_OPAQUE_FD;
-  external_buffer.size = 16;
+  iree_hal_external_storage_t external_buffer = {};
+  external_buffer.storage_class.type = IREE_HAL_EXTERNAL_STORAGE_TYPE_OPAQUE_FD;
+  external_buffer.byte_length = 16;
 
   iree_hal_buffer_params_t params = {};
   params.type = IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
@@ -2421,9 +2422,10 @@ TEST(ReplayExecuteTest, SkipsFailedUnsupportedImportedBufferRecord) {
   iree_hal_buffer_t* imported_buffer = nullptr;
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_UNAVAILABLE,
-      iree_hal_allocator_import_buffer(allocator, params, &external_buffer,
-                                       iree_hal_buffer_release_callback_null(),
-                                       &imported_buffer));
+      iree_hal_allocator_import_buffer(
+          allocator, params, &external_buffer,
+          iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+          &imported_buffer));
   EXPECT_EQ(nullptr, imported_buffer);
 
   IREE_ASSERT_OK(iree_hal_replay_recorder_close(recorder));
