@@ -69,7 +69,9 @@ class LowAllocationIntervalAssignmentTest : public ::testing::Test {
 };
 
 loom_liveness_value_class_t RegisterValueClass(uint64_t descriptor_set_id) {
-  loom_liveness_value_class_t value_class = {};
+  loom_liveness_value_class_t value_class =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment order
+           // differs from declaration order.
   value_class.type_kind = LOOM_TYPE_REGISTER;
   value_class.register_descriptor_set_stable_id = descriptor_set_id;
   value_class.register_class_id = 0;
@@ -153,7 +155,9 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   loom_low_descriptor_set_t descriptor_set = {.stable_id = descriptor_set_id,
                                               .reg_classes = &reg_class,
                                               .reg_class_count = 1};
-  loom_low_resolved_target_t target = {};
+  loom_low_resolved_target_t target =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment order
+           // differs from declaration order.
   target.descriptor_set = &descriptor_set;
   target.descriptor_set_key = IREE_SV("test");
   loom_op_t function_op = {};
@@ -327,7 +331,9 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   placement.ranges_by_result_ordinal = placement_ranges;
   placement.ranges_by_source_ordinal = placement_ranges;
 
-  loom_low_reg_class_t reg_class = {};
+  loom_low_reg_class_t reg_class =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment order
+           // differs from declaration order.
   reg_class.flags = LOOM_LOW_REG_CLASS_FLAG_PHYSICAL |
                     LOOM_LOW_REG_CLASS_FLAG_EXPLICIT_PHYSICAL_REGISTERS;
   reg_class.physical_atomic_unit_count = 2;
@@ -391,7 +397,9 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   const uint16_t physical_register_view_unit_candidate_ordinals[] = {1, 0, 0,
                                                                      1};
   const uint16_t allocation_ordinals[] = {0, 1};
-  loom_low_descriptor_set_t descriptor_set = {};
+  loom_low_descriptor_set_t descriptor_set =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment order
+           // differs from declaration order.
   descriptor_set.stable_id = descriptor_set_id;
   descriptor_set.reg_classes = &reg_class;
   descriptor_set.reg_class_count = 1;
@@ -416,7 +424,9 @@ TEST_F(LowAllocationIntervalAssignmentTest,
       physical_register_view_unit_candidate_ordinals;
   descriptor_set.physical_register_view_unit_candidate_ordinal_count =
       IREE_ARRAYSIZE(physical_register_view_unit_candidate_ordinals);
-  loom_low_resolved_target_t target = {};
+  loom_low_resolved_target_t target =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment order
+           // differs from declaration order.
   target.descriptor_set = &descriptor_set;
   target.descriptor_set_key = IREE_SV("test");
   loom_op_t function_op = {};
@@ -558,7 +568,9 @@ TEST_F(LowAllocationIntervalAssignmentTest,
           /*.count=*/0,
       },
   };
-  loom_low_placement_table_t placement = {};
+  loom_low_placement_table_t placement =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment sequencing
+           // spans intervening work.
   placement.module = module;
   placement.value_ids = value_ids;
   placement.value_count = IREE_ARRAYSIZE(value_ids);
@@ -581,7 +593,9 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   loom_low_descriptor_set_t descriptor_set = {.stable_id = descriptor_set_id,
                                               .reg_classes = &reg_class,
                                               .reg_class_count = 1};
-  loom_low_resolved_target_t target = {};
+  loom_low_resolved_target_t target =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment order
+           // differs from declaration order.
   target.descriptor_set = &descriptor_set;
   target.descriptor_set_key = IREE_SV("test");
   loom_op_t function_op = {};

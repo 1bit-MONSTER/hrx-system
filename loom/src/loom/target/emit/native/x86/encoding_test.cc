@@ -50,7 +50,9 @@ constexpr uint16_t VectorRecipe(uint8_t reg, uint8_t middle, uint8_t rm,
 }
 
 TEST(EncodingTest, VectorRegisterPrefixesAndBehaviors) {
-  loom_x86_encoding_operands_t operands = {};
+  loom_x86_encoding_operands_t operands =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment sequencing
+           // spans intervening work.
   operands.result = 1;
   operands.inputs[0] = 2;
   operands.inputs[1] = 3;
@@ -213,7 +215,9 @@ TEST(EncodingTest, AvxVnniInt8FamilyHasExactReferenceBytes) {
 }
 
 TEST(EncodingTest, AvxNeConvertFamilyHasExactReferenceBytes) {
-  loom_x86_encoding_operands_t operands = {};
+  loom_x86_encoding_operands_t operands =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment sequencing
+           // spans intervening work.
   operands.result = 4;
   operands.inputs[0] = 8;
   operands.inputs[1] = 9;
@@ -256,7 +260,9 @@ TEST(EncodingTest, AvxNeConvertFamilyHasExactReferenceBytes) {
 }
 
 TEST(EncodingTest, VectorMemoryDisplacementsAndCanonicalSib) {
-  loom_x86_encoding_operands_t operands = {};
+  loom_x86_encoding_operands_t operands =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment sequencing
+           // spans intervening work.
   operands.result = 1;
   operands.inputs[0] = 0;
   operands.immediate = 16;
@@ -435,7 +441,9 @@ TEST(EncodingTest, ByteRegisterPrefixAndFullWidthDefinition) {
 }
 
 TEST(EncodingTest, AddressDisplacementAndSib) {
-  loom_x86_encoding_operands_t operands = {};
+  loom_x86_encoding_operands_t operands =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment sequencing
+           // spans intervening work.
   operands.result = 9;
   operands.inputs[0] = 13;
   // [r13] needs an explicit zero displacement, unlike [r12].
@@ -454,7 +462,9 @@ TEST(EncodingTest, AddressDisplacementAndSib) {
 }
 
 TEST(EncodingTest, PcRelativeAddressUsesNoBaseRegisterOrSib) {
-  loom_x86_encoding_operands_t operands = {};
+  loom_x86_encoding_operands_t operands =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment order
+           // differs from declaration order.
   operands.result = 13;
   operands.immediate = -4;
   ExpectEncoding(LOOM_X86_ENCODING_FORM_ADDRESS_PC_RELATIVE,
@@ -486,7 +496,9 @@ TEST(EncodingTest, IndexedByteStoreAndNoBaseAddress) {
 }
 
 TEST(EncodingTest, PredicateSequenceAndImplicitWrites) {
-  loom_x86_encoding_operands_t operands = {};
+  loom_x86_encoding_operands_t operands =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment sequencing
+           // spans intervening work.
   operands.result = 7;
   operands.inputs[0] = 8;
   operands.inputs[1] = 9;
@@ -503,7 +515,9 @@ TEST(EncodingTest, PredicateSequenceAndImplicitWrites) {
 }
 
 TEST(EncodingTest, ImmediateAndStackEncoding) {
-  loom_x86_encoding_operands_t operands = {};
+  loom_x86_encoding_operands_t operands =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment order
+           // differs from declaration order.
   operands.result = 8;
   operands.immediate = INT64_C(0x123456789abcdef0);
   ExpectEncoding(
@@ -517,7 +531,9 @@ TEST(EncodingTest, ImmediateAndStackEncoding) {
 }
 
 TEST(EncodingTest, ImmediateWidthsAndCountRegister) {
-  loom_x86_encoding_operands_t operands = {};
+  loom_x86_encoding_operands_t operands =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment sequencing
+           // spans intervening work.
   operands.result = 9;
   operands.inputs[0] = 9;
   operands.inputs[1] = 1;
@@ -547,7 +563,9 @@ TEST(EncodingTest, ImmediateWidthsAndCountRegister) {
 }
 
 TEST(EncodingTest, ConditionalSequences) {
-  loom_x86_encoding_operands_t operands = {};
+  loom_x86_encoding_operands_t operands =
+      {};  // NOLINT(iree-cpp-designated-initializer) -- Assignment sequencing
+           // spans intervening work.
   operands.result = 8;
   operands.inputs[0] = 1;
   operands.inputs[1] = 9;
