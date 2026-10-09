@@ -522,17 +522,27 @@ static iree_status_t iree_hal_amdgpu_slab_pool_query_memory(
     }
   }
   if (iree_status_is_ok(status) && supported) {
-    plan->provider_options.access.atomic_source_masks =
-        iree_hal_amdgpu_memory_atomic_source_masks(cells);
-    plan->provider_options.exposed.atomic_operations =
+    const iree_hal_atomic_operation_capabilities_t atomic_operations =
         options->imports.class_count
             ? (iree_hal_atomic_operation_capabilities_t){0}
             : iree_hal_amdgpu_atomic_memory_expand_capabilities(cells);
-    status = iree_hal_memory_contract_create(
-        iree_hal_device_group_memory_domain(group),
-        iree_hal_device_group_memory_scope_count(group),
-        iree_hal_amdgpu_buffer_binding_layout(), host_allocator,
-        &plan->contract);
+    for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
+      if (!iree_hal_atomic_operation_capabilities_support(
+              atomic_operations, scope.families[i].atomic_operations)) {
+        supported = false;
+        break;
+      }
+    }
+    plan->provider_options.access.atomic_source_masks =
+        iree_hal_amdgpu_memory_atomic_source_masks(cells);
+    plan->provider_options.exposed.atomic_operations = atomic_operations;
+    if (supported) {
+      status = iree_hal_memory_contract_create(
+          iree_hal_device_group_memory_domain(group),
+          iree_hal_device_group_memory_scope_count(group),
+          iree_hal_amdgpu_buffer_binding_layout(), host_allocator,
+          &plan->contract);
+    }
   }
   if (iree_status_is_ok(status) && supported) {
     iree_hal_memory_contract_t* contract = plan->contract;

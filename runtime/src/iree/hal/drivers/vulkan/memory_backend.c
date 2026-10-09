@@ -228,6 +228,8 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
           IREE_HAL_VULKAN_FEATURE_ENABLE_BUFFER_DEVICE_ADDRESSES)) {
     interfaces |= 1u << IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS;
   }
+  const iree_hal_atomic_operation_capabilities_t atomic_operations =
+      iree_hal_vulkan_atomic_capabilities(backend->enabled_features).operations;
   iree_hal_buffer_usage_t usage = IREE_HAL_BUFFER_USAGE_NONE;
   iree_hal_queue_family_affinity_t families = 0;
   for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
@@ -235,7 +237,9 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
     if (iree_hal_device_memory_backend(
             iree_hal_queue_family_device(access->family)) != &backend->base ||
         (access->interfaces & ~((uint64_t)interfaces)) ||
-        access->requirements) {
+        access->requirements ||
+        !iree_hal_atomic_operation_capabilities_support(
+            atomic_operations, access->atomic_operations)) {
       // HOST_COHERENT alone does not establish automatic device visibility.
       // This native owner does not enable device_coherent_memory, so neither
       // full host/device coherence nor an uncached device route is available.
@@ -361,9 +365,7 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
         .memory_property_flags = flags,
         .memory_type = memory_type,
         .supported_usage = native_usage | mapping_usage,
-        .atomic_operations =
-            iree_hal_vulkan_atomic_capabilities(backend->enabled_features)
-                .operations,
+        .atomic_operations = atomic_operations,
         .queue_family_affinity_mask = families,
         .min_alignment = min_alignment,
         .non_coherent_atom_size = limits->nonCoherentAtomSize,

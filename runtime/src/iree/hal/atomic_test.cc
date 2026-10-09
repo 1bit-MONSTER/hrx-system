@@ -115,6 +115,31 @@ TEST(AtomicTest, HostCapabilitiesFollowLockFreeWidths) {
   EXPECT_EQ(capabilities.system_scope_64, expected_64);
 }
 
+TEST(AtomicTest, CapabilitySetsValidateAndContainRequiredCells) {
+  const iree_hal_atomic_operation_capabilities_t available = {
+      /*.device_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_STORE |
+          IREE_HAL_ATOMIC_OPERATION_FLAG_RMW_ADD,
+      /*.device_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAG_STORE,
+      /*.system_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_WAIT,
+  };
+  const iree_hal_atomic_operation_capabilities_t required = {
+      /*.device_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_RMW_ADD,
+      /*.device_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAG_STORE,
+  };
+  EXPECT_TRUE(iree_hal_atomic_operation_capabilities_are_valid(available));
+  EXPECT_TRUE(
+      iree_hal_atomic_operation_capabilities_support(available, required));
+
+  iree_hal_atomic_operation_capabilities_t unsupported = required;
+  unsupported.system_scope_64 = IREE_HAL_ATOMIC_OPERATION_FLAG_WAIT;
+  EXPECT_FALSE(
+      iree_hal_atomic_operation_capabilities_support(available, unsupported));
+
+  iree_hal_atomic_operation_capabilities_t invalid = available;
+  invalid.system_scope_64 = UINT32_C(1) << 31;
+  EXPECT_FALSE(iree_hal_atomic_operation_capabilities_are_valid(invalid));
+}
+
 TEST(AtomicTest, ValidatesWaitParameters) {
   iree_hal_atomic_wait_params_t params = {
       /*.value=*/1,

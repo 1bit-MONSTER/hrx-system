@@ -647,15 +647,8 @@ static iree_status_t iree_hal_passthrough_pool_validate_imported_slab(
       pool->slab_properties.atomic_operations;
   const iree_hal_atomic_operation_capabilities_t actual_atomics =
       properties->atomic_operations;
-  const bool supports_atomics =
-      iree_all_bits_set(actual_atomics.device_scope_32,
-                        required_atomics.device_scope_32) &&
-      iree_all_bits_set(actual_atomics.device_scope_64,
-                        required_atomics.device_scope_64) &&
-      iree_all_bits_set(actual_atomics.system_scope_32,
-                        required_atomics.system_scope_32) &&
-      iree_all_bits_set(actual_atomics.system_scope_64,
-                        required_atomics.system_scope_64);
+  const bool supports_atomics = iree_hal_atomic_operation_capabilities_support(
+      actual_atomics, required_atomics);
   const iree_hal_buffer_usage_t required_usage =
       pool->base.memory_contract ? pool->base.memory_contract->allowed_usage
                                  : pool->slab_properties.supported_usage;

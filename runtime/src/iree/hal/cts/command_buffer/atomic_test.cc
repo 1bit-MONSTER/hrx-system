@@ -39,31 +39,43 @@ class CommandBufferAtomicTest : public CtsTestBase<> {
     const AtomicTestRequirements requirements = {
         /*.operation_flags=*/operation_flags,
         /*.wait_condition_flags=*/wait_condition_flags,
-        /*.memory_type=*/IREE_HAL_MEMORY_TYPE_NONE,
         /*.buffer_usage=*/IREE_HAL_BUFFER_USAGE_STORAGE |
             IREE_HAL_BUFFER_USAGE_TRANSFER,
-        /*.memory_access=*/IREE_HAL_MEMORY_ACCESS_READ |
-            IREE_HAL_MEMORY_ACCESS_WRITE,
         /*.width=*/width,
         /*.atomic_flags=*/IREE_HAL_ATOMIC_FLAG_ACQUIRE |
             IREE_HAL_ATOMIC_FLAG_RELEASE,
     };
-    if (!SelectAtomicTestConfiguration(iree_hal_device_spec(device_),
-                                       requirements, out_configuration)) {
+    if (!SelectAtomicTestConfiguration(device_, requirements,
+                                       out_configuration)) {
       return false;
     }
     atomic_queue_ =
         iree_hal_device_queue(device_, out_configuration->queue_family_ordinal,
                               /*queue_ordinal=*/0);
-    return atomic_queue_ != nullptr;
+    if (!atomic_queue_) {
+      return false;
+    }
+    Ref<iree_hal_pool_t> pool;
+    Status pool_status(
+        CreateAtomicTestPool(device_group_, *out_configuration, pool.out()));
+    if (!pool_status.ok()) {
+      if (pool_status.code() != StatusCode::kUnavailable) {
+        ADD_FAILURE() << pool_status.ToString();
+      }
+      return false;
+    }
+    atomic_pool_ = std::move(pool);
+    return true;
   }
 
   iree_status_t AllocateAtomicBuffer(
       const AtomicTestConfiguration& configuration,
       iree_hal_buffer_t** out_buffer) {
-    return iree_hal_allocator_allocate_buffer(device_allocator_,
-                                              configuration.buffer_params,
-                                              kBufferSize, out_buffer);
+    return iree_hal_pool_allocate_buffer(
+        atomic_pool_,
+        iree_hal_make_pool_reservation_request(kBufferSize,
+                                               configuration.min_alignment),
+        iree_infinite_timeout(), out_buffer);
   }
 
   iree_status_t CreateAtomicCommandBuffer(
@@ -153,26 +165,32 @@ class CommandBufferAtomicTest : public CtsTestBase<> {
 
     std::promise<void> released;
     std::future<void> released_future = released.get_future();
+    Ref<iree_hal_pool_t> import_pool;
+    Status import_pool_status(CreateAtomicTestHostImportPool(
+        device_group_, configuration, import_pool.out()));
+    if (import_pool_status.code() == StatusCode::kUnavailable) {
+      GTEST_SKIP() << "Pool cannot import host storage for target validation";
+    }
+    IREE_ASSERT_OK(import_pool_status.release());
     iree_hal_external_storage_t external_buffer = {};
     external_buffer.storage_class = iree_hal_make_external_storage_class(
         IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
     external_buffer.byte_length = kBufferSize;
     external_buffer.payload.host_pointer = misaligned_ptr;
+    external_buffer.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
     external_buffer.maintenance_range =
         iree_hal_make_buffer_range(0, kBufferSize);
     external_buffer.release = NotifyBufferReleased;
     external_buffer.release_user_data = &released;
 
-    iree_hal_buffer_params_t buffer_params = configuration.buffer_params;
-    buffer_params.min_alignment = 1;
     Ref<iree_hal_buffer_t> buffer;
-    Status import_status(iree_hal_allocator_import_buffer(
-        device_allocator_, buffer_params, &external_buffer,
+    Status import_status(iree_hal_pool_import_buffer(
+        import_pool, &external_buffer,
         iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), buffer.out()));
     if (!import_status.ok()) {
       iree_hal_external_storage_release(&external_buffer);
-      GTEST_SKIP() << "Allocator cannot import an explicitly unaligned host "
-                      "allocation: "
+      GTEST_SKIP() << "Pool cannot import an explicitly unaligned host "
+                      "allocation for target validation: "
                    << import_status.ToString();
     }
 
@@ -469,6 +487,7 @@ class CommandBufferAtomicTest : public CtsTestBase<> {
     }
   }
 
+  Ref<iree_hal_pool_t> atomic_pool_;
   iree_hal_queue_t* atomic_queue_ = nullptr;
 };
 

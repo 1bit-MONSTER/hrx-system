@@ -133,7 +133,9 @@ static iree_status_t iree_hal_slab_pool_validate_scope(
         (access->interfaces >> 8) ||
         iree_any_bit_set(access->requirements,
                          ~(IREE_HAL_POOL_ACCESS_REQUIRE_COHERENT_WITH_HOST |
-                           IREE_HAL_POOL_ACCESS_REQUIRE_UNCACHED))) {
+                           IREE_HAL_POOL_ACCESS_REQUIRE_UNCACHED)) ||
+        !iree_hal_atomic_operation_capabilities_are_valid(
+            access->atomic_operations)) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "invalid family access flags");
     }

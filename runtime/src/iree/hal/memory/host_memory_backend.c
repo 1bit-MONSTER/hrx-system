@@ -167,6 +167,11 @@ static iree_status_t iree_hal_host_slab_pool_query(
   iree_hal_slab_provider_query_properties(owner->slab_provider, &properties);
   iree_hal_buffer_usage_t usage = 0;
   for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
+    if (!iree_hal_atomic_operation_capabilities_support(
+            properties.atomic_operations,
+            scope.families[i].atomic_operations)) {
+      return iree_ok_status();
+    }
     usage |= scope.families[i].usage;
   }
   bool requires_export = options->owned.exports.class_count != 0;

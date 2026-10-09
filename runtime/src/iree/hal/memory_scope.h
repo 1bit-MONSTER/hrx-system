@@ -88,6 +88,9 @@ typedef struct iree_hal_pool_family_access_t {
   iree_hal_buffer_interfaces_t interfaces;
   // Hard access properties qualified together with every other participant.
   iree_hal_pool_access_requirements_t requirements;
+  // Atomic operations required at this family, partitioned by access width and
+  // coherence domain. Zero cells do not require atomic access.
+  iree_hal_atomic_operation_capabilities_t atomic_operations;
 } iree_hal_pool_family_access_t;
 
 typedef struct iree_hal_pool_host_access_t {

@@ -200,6 +200,27 @@ TEST_P(TaskSlabPoolTest, CapturesExactFamiliesWithoutAllocatingBacking) {
                                     IREE_HAL_BUFFER_INTERFACE_HOST, &slot));
 }
 
+TEST_P(TaskSlabPoolTest, QualifiesRequiredAtomicCapabilities) {
+  const iree_hal_atomic_operation_capabilities_t required =
+      iree_hal_atomic_operation_capabilities_for_host(
+          IREE_HAL_ATOMIC_OPERATION_FLAG_STORE |
+          IREE_HAL_ATOMIC_OPERATION_FLAG_RMW_ADD);
+  families_[1].atomic_operations = required;
+  Ref<iree_hal_pool_t> source;
+  IREE_ASSERT_OK(CreateSource(source.out()));
+  iree_hal_pool_capabilities_t capabilities;
+  iree_hal_pool_query_capabilities(source, &capabilities);
+  EXPECT_TRUE(iree_hal_atomic_operation_capabilities_support(
+      capabilities.atomic_operations, required));
+}
+
+TEST_P(TaskSlabPoolTest, RejectsInvalidAtomicRequirements) {
+  families_[0].atomic_operations.device_scope_32 = UINT32_C(1) << 31;
+  Ref<iree_hal_pool_t> source;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        CreateSource(source.out()));
+}
+
 TEST_P(TaskSlabPoolTest, DerivesPublicAccessFromDeclaredUses) {
   families_[0].usage = IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE;
   families_[1].usage = IREE_HAL_BUFFER_USAGE_STORAGE_READ;

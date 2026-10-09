@@ -16,11 +16,9 @@ namespace iree::hal::cts {
 
 using iree::testing::status::StatusIs;
 
-static void NotifyForeignBufferReleased(
-    void* user_data, iree_hal_external_storage_class_t storage_class,
-    iree_hal_external_storage_payload_t payload) {
-  (void)storage_class;
-  (void)payload;
+static void NotifyForeignBufferReleased(void* user_data,
+                                        iree_hal_buffer_t* buffer) {
+  (void)buffer;
   static_cast<std::promise<void>*>(user_data)->set_value();
 }
 
@@ -33,53 +31,42 @@ TEST_P(VulkanAtomicSubmissionTest,
           IREE_HAL_ATOMIC_OPERATION_FLAG_STORE |
           IREE_HAL_ATOMIC_OPERATION_FLAG_RMW_ADD,
       /*.wait_condition_flags=*/IREE_HAL_ATOMIC_WAIT_CONDITION_FLAG_EQUAL,
-      /*.memory_type=*/IREE_HAL_MEMORY_TYPE_NONE,
       /*.buffer_usage=*/IREE_HAL_BUFFER_USAGE_STORAGE,
-      /*.memory_access=*/IREE_HAL_MEMORY_ACCESS_READ |
-          IREE_HAL_MEMORY_ACCESS_WRITE,
       /*.width=*/IREE_HAL_ATOMIC_WIDTH_32,
       /*.atomic_flags=*/IREE_HAL_ATOMIC_FLAG_ACQUIRE |
           IREE_HAL_ATOMIC_FLAG_RELEASE,
   };
   AtomicTestConfiguration configuration;
-  if (!SelectAtomicTestConfiguration(iree_hal_device_spec(device_),
-                                     requirements, &configuration)) {
+  if (!SelectAtomicTestConfiguration(device_, requirements, &configuration)) {
     GTEST_SKIP() << "Device does not advertise the tested atomic operation set";
   }
+  Ref<iree_hal_pool_t> atomic_pool;
+  Status pool_status(
+      CreateAtomicTestPool(device_group_, configuration, atomic_pool.out()));
+  if (pool_status.code() == StatusCode::kUnavailable) {
+    GTEST_SKIP() << "Device has no memory satisfying the tested atomic set";
+  }
+  IREE_ASSERT_OK(pool_status.release());
   iree_hal_queue_t* atomic_queue = iree_hal_device_queue(
       device_, configuration.queue_family_ordinal, /*queue_ordinal=*/0);
   ASSERT_NE(atomic_queue, nullptr);
 
-  iree_hal_allocator_t* heap_allocator = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_create_heap(
-      IREE_SV("foreign"), iree_allocator_system(), iree_allocator_system(),
-      &heap_allocator));
-
   alignas(IREE_HAL_HEAP_BUFFER_ALIGNMENT) std::array<uint8_t, sizeof(uint32_t)>
       storage = {};
-  iree_hal_external_storage_t external_buffer = {};
-  external_buffer.storage_class = iree_hal_make_external_storage_class(
-      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
-  external_buffer.byte_length = storage.size();
-  external_buffer.payload.host_pointer = storage.data();
-  external_buffer.maintenance_range =
-      iree_hal_make_buffer_range(0, storage.size());
   std::promise<void> released;
   std::future<void> released_future = released.get_future();
-  external_buffer.release = NotifyForeignBufferReleased;
-  external_buffer.release_user_data = &released;
-  const iree_hal_buffer_params_t buffer_params = {
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
-      /*.type=*/IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
-      /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-      /*.min_alignment=*/alignof(uint32_t),
+  const iree_hal_buffer_release_callback_t release_callback = {
+      /*.fn=*/NotifyForeignBufferReleased,
+      /*.user_data=*/&released,
   };
   Ref<iree_hal_buffer_t> target_buffer;
-  IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
-      heap_allocator, buffer_params, &external_buffer,
-      iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
-      target_buffer.out()));
+  IREE_ASSERT_OK(iree_hal_heap_buffer_wrap(
+      iree_hal_buffer_placement_undefined(),
+      IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL | IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
+          IREE_HAL_MEMORY_TYPE_HOST_COHERENT | IREE_HAL_MEMORY_TYPE_HOST_CACHED,
+      IREE_HAL_MEMORY_ACCESS_ALL, IREE_HAL_BUFFER_USAGE_STORAGE, storage.size(),
+      iree_make_byte_span(storage.data(), storage.size()), release_callback,
+      iree_allocator_system(), target_buffer.out()));
 
   enum class AtomicKind { kWait, kStore, kRmw };
   const AtomicKind kinds[] = {AtomicKind::kWait, AtomicKind::kStore,
@@ -221,7 +208,6 @@ TEST_P(VulkanAtomicSubmissionTest,
 
   target_buffer.reset();
   released_future.wait();
-  iree_hal_allocator_release(heap_allocator);
 }
 
 CTS_REGISTER_TEST_SUITE(VulkanAtomicSubmissionTest);
