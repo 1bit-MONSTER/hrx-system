@@ -424,14 +424,12 @@ TEST_F(ParameterIndexProviderTest, GatherBatchPreservesGroupSignals) {
   ParameterRequest first_request = {
       /*.key=*/IREE_SV("first"),
       /*.span=*/
-      {/*.parameter_offset=*/0, /*.buffer_offset=*/0,
-       /*.length=*/4},
+      {.parameter_offset = 0, .buffer_offset = 0, .length = 4},
   };
   ParameterRequest second_request = {
       /*.key=*/IREE_SV("second"),
       /*.span=*/
-      {/*.parameter_offset=*/0, /*.buffer_offset=*/0,
-       /*.length=*/4},
+      {.parameter_offset = 0, .buffer_offset = 0, .length = 4},
   };
 
   uint64_t first_signal_value = 1;
@@ -445,15 +443,15 @@ TEST_F(ParameterIndexProviderTest, GatherBatchPreservesGroupSignals) {
           /*.count=*/1,
           /*.enumerator=*/
           {
-              /*.fn=*/EnumerateParameterRequest,
-              /*.user_data=*/&first_request,
+              .fn = EnumerateParameterRequest,
+              .user_data = &first_request,
           },
           /*.wait_semaphore_list=*/iree_hal_semaphore_list_empty(),
           /*.signal_semaphore_list=*/
           {
-              /*.count=*/1,
-              /*.semaphores=*/&first_signal_ptr,
-              /*.payload_values=*/&first_signal_value,
+              .count = 1,
+              .semaphores = &first_signal_ptr,
+              .payload_values = &first_signal_value,
           },
       },
       {
@@ -462,15 +460,15 @@ TEST_F(ParameterIndexProviderTest, GatherBatchPreservesGroupSignals) {
           /*.count=*/1,
           /*.enumerator=*/
           {
-              /*.fn=*/EnumerateParameterRequest,
-              /*.user_data=*/&second_request,
+              .fn = EnumerateParameterRequest,
+              .user_data = &second_request,
           },
           /*.wait_semaphore_list=*/iree_hal_semaphore_list_empty(),
           /*.signal_semaphore_list=*/
           {
-              /*.count=*/1,
-              /*.semaphores=*/&second_signal_ptr,
-              /*.payload_values=*/&second_signal_value,
+              .count = 1,
+              .semaphores = &second_signal_ptr,
+              .payload_values = &second_signal_value,
           },
       },
   };
@@ -531,17 +529,17 @@ TEST_F(ParameterIndexProviderTest, GatherBatchReadsAdjacentFileSpans) {
       {
           /*.key=*/IREE_SV("first"),
           /*.span=*/
-          {/*.parameter_offset=*/0, /*.buffer_offset=*/0, /*.length=*/4},
+          {.parameter_offset = 0, .buffer_offset = 0, .length = 4},
       },
       {
           /*.key=*/IREE_SV("second"),
           /*.span=*/
-          {/*.parameter_offset=*/0, /*.buffer_offset=*/4, /*.length=*/4},
+          {.parameter_offset = 0, .buffer_offset = 4, .length = 4},
       },
       {
           /*.key=*/IREE_SV("third"),
           /*.span=*/
-          {/*.parameter_offset=*/0, /*.buffer_offset=*/8, /*.length=*/4},
+          {.parameter_offset = 0, .buffer_offset = 8, .length = 4},
       },
   };
 
@@ -553,15 +551,15 @@ TEST_F(ParameterIndexProviderTest, GatherBatchReadsAdjacentFileSpans) {
       /*.count=*/IREE_ARRAYSIZE(requests),
       /*.enumerator=*/
       {
-          /*.fn=*/EnumerateParameterRequest,
-          /*.user_data=*/requests,
+          .fn = EnumerateParameterRequest,
+          .user_data = requests,
       },
       /*.wait_semaphore_list=*/iree_hal_semaphore_list_empty(),
       /*.signal_semaphore_list=*/
       {
-          /*.count=*/1,
-          /*.semaphores=*/&signal_ptr,
-          /*.payload_values=*/&signal_value,
+          .count = 1,
+          .semaphores = &signal_ptr,
+          .payload_values = &signal_value,
       },
   };
 
@@ -627,12 +625,12 @@ TEST_F(ParameterIndexProviderTest, ScatterBatchPreservesGroupSemaphores) {
   ParameterRequest first_request = {
       /*.key=*/IREE_SV("first"),
       /*.span=*/
-      {/*.parameter_offset=*/0, /*.buffer_offset=*/0, /*.length=*/4},
+      {.parameter_offset = 0, .buffer_offset = 0, .length = 4},
   };
   ParameterRequest second_request = {
       /*.key=*/IREE_SV("second"),
       /*.span=*/
-      {/*.parameter_offset=*/0, /*.buffer_offset=*/0, /*.length=*/4},
+      {.parameter_offset = 0, .buffer_offset = 0, .length = 4},
   };
 
   uint64_t first_wait_value = 1;
@@ -650,20 +648,20 @@ TEST_F(ParameterIndexProviderTest, ScatterBatchPreservesGroupSemaphores) {
           /*.count=*/1,
           /*.enumerator=*/
           {
-              /*.fn=*/EnumerateParameterRequest,
-              /*.user_data=*/&first_request,
+              .fn = EnumerateParameterRequest,
+              .user_data = &first_request,
           },
           /*.wait_semaphore_list=*/
           {
-              /*.count=*/1,
-              /*.semaphores=*/&first_wait_ptr,
-              /*.payload_values=*/&first_wait_value,
+              .count = 1,
+              .semaphores = &first_wait_ptr,
+              .payload_values = &first_wait_value,
           },
           /*.signal_semaphore_list=*/
           {
-              /*.count=*/1,
-              /*.semaphores=*/&first_signal_ptr,
-              /*.payload_values=*/&first_signal_value,
+              .count = 1,
+              .semaphores = &first_signal_ptr,
+              .payload_values = &first_signal_value,
           },
       },
       {
@@ -672,20 +670,20 @@ TEST_F(ParameterIndexProviderTest, ScatterBatchPreservesGroupSemaphores) {
           /*.count=*/1,
           /*.enumerator=*/
           {
-              /*.fn=*/EnumerateParameterRequest,
-              /*.user_data=*/&second_request,
+              .fn = EnumerateParameterRequest,
+              .user_data = &second_request,
           },
           /*.wait_semaphore_list=*/
           {
-              /*.count=*/1,
-              /*.semaphores=*/&second_wait_ptr,
-              /*.payload_values=*/&second_wait_value,
+              .count = 1,
+              .semaphores = &second_wait_ptr,
+              .payload_values = &second_wait_value,
           },
           /*.signal_semaphore_list=*/
           {
-              /*.count=*/1,
-              /*.semaphores=*/&second_signal_ptr,
-              /*.payload_values=*/&second_signal_value,
+              .count = 1,
+              .semaphores = &second_signal_ptr,
+              .payload_values = &second_signal_value,
           },
       },
   };
@@ -770,17 +768,17 @@ TEST_F(ParameterIndexProviderTest, ScatterBatchWritesAdjacentFileSpans) {
       {
           /*.key=*/IREE_SV("first"),
           /*.span=*/
-          {/*.parameter_offset=*/0, /*.buffer_offset=*/0, /*.length=*/4},
+          {.parameter_offset = 0, .buffer_offset = 0, .length = 4},
       },
       {
           /*.key=*/IREE_SV("second"),
           /*.span=*/
-          {/*.parameter_offset=*/0, /*.buffer_offset=*/4, /*.length=*/4},
+          {.parameter_offset = 0, .buffer_offset = 4, .length = 4},
       },
       {
           /*.key=*/IREE_SV("third"),
           /*.span=*/
-          {/*.parameter_offset=*/0, /*.buffer_offset=*/8, /*.length=*/4},
+          {.parameter_offset = 0, .buffer_offset = 8, .length = 4},
       },
   };
 
@@ -792,15 +790,15 @@ TEST_F(ParameterIndexProviderTest, ScatterBatchWritesAdjacentFileSpans) {
       /*.count=*/IREE_ARRAYSIZE(requests),
       /*.enumerator=*/
       {
-          /*.fn=*/EnumerateParameterRequest,
-          /*.user_data=*/requests,
+          .fn = EnumerateParameterRequest,
+          .user_data = requests,
       },
       /*.wait_semaphore_list=*/iree_hal_semaphore_list_empty(),
       /*.signal_semaphore_list=*/
       {
-          /*.count=*/1,
-          /*.semaphores=*/&signal_ptr,
-          /*.payload_values=*/&signal_value,
+          .count = 1,
+          .semaphores = &signal_ptr,
+          .payload_values = &signal_value,
       },
   };
 
