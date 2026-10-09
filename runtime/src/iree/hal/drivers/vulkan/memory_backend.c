@@ -386,7 +386,8 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
       iree_hal_memory_contract_t* contract = plan->contract;
       contract->host = host;
       contract->placement = placement;
-      contract->allowed_access = IREE_HAL_MEMORY_ACCESS_ALL;
+      contract->allowed_access =
+          iree_hal_buffer_usage_access(usage) | host.access;
       contract->allowed_usage = usage | mapping_usage;
       for (iree_host_size_t j = 0; j < scope.family_count; ++j) {
         const uint32_t queue_scope_id =

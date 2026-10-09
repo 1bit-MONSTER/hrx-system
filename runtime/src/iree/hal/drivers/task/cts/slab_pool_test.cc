@@ -200,6 +200,31 @@ TEST_P(TaskSlabPoolTest, CapturesExactFamiliesWithoutAllocatingBacking) {
                                     IREE_HAL_BUFFER_INTERFACE_HOST, &slot));
 }
 
+TEST_P(TaskSlabPoolTest, DerivesPublicAccessFromDeclaredUses) {
+  families_[0].usage = IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE;
+  families_[1].usage = IREE_HAL_BUFFER_USAGE_STORAGE_READ;
+  Ref<iree_hal_pool_t> source;
+  IREE_ASSERT_OK(CreateSource(source.out()));
+
+  iree_hal_pool_capabilities_t capabilities;
+  iree_hal_pool_query_capabilities(source, &capabilities);
+  EXPECT_EQ(capabilities.allowed_access, IREE_HAL_MEMORY_ACCESS_READ);
+  EXPECT_EQ(capabilities.supported_usage,
+            IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE |
+                IREE_HAL_BUFFER_USAGE_STORAGE_READ);
+
+  Ref<iree_hal_buffer_t> buffer;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      source,
+      iree_hal_make_pool_reservation_request(
+          /*allocation_size=*/64, /*min_alignment=*/1),
+      iree_infinite_timeout(), buffer.out()));
+  EXPECT_EQ(iree_hal_buffer_allowed_access(buffer),
+            IREE_HAL_MEMORY_ACCESS_READ);
+  EXPECT_EQ(iree_hal_buffer_allowed_usage(buffer),
+            capabilities.supported_usage);
+}
+
 TEST_P(TaskSlabPoolTest, RejectsIncompleteConstructionRoutes) {
   iree_hal_slab_pool_options_t options;
   iree_hal_slab_pool_options_initialize(&options);

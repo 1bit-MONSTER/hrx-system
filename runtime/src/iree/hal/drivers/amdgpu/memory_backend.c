@@ -537,7 +537,8 @@ static iree_status_t iree_hal_amdgpu_slab_pool_query_memory(
   if (iree_status_is_ok(status) && supported) {
     iree_hal_memory_contract_t* contract = plan->contract;
     contract->host = host;
-    contract->allowed_access = IREE_HAL_MEMORY_ACCESS_ALL;
+    contract->allowed_access =
+        iree_hal_buffer_usage_access(usage) | host.access;
     contract->allowed_usage =
         usage | iree_hal_amdgpu_memory_mapping_usage(host);
     if (host.access) {

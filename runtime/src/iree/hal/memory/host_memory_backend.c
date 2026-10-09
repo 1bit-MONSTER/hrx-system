@@ -217,7 +217,8 @@ static iree_status_t iree_hal_host_slab_pool_query(
     if (iree_any_bit_set(host.modes, IREE_HAL_MAPPING_MODE_PERSISTENT)) {
       usage |= IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT;
     }
-    contract->allowed_access = IREE_HAL_MEMORY_ACCESS_ALL;
+    contract->allowed_access =
+        iree_hal_buffer_usage_access(usage) | host.access;
     contract->allowed_usage = usage;
     if (host.access) {
       contract->scopes[1].interfaces = 1u << IREE_HAL_BUFFER_INTERFACE_HOST;

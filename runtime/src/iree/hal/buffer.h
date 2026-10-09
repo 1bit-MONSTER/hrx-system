@@ -411,6 +411,28 @@ enum iree_hal_buffer_usage_bits_t {
 };
 typedef uint32_t iree_hal_buffer_usage_t;
 
+// Returns the aggregate read/write permission implied by |usage|. The result
+// describes HAL execution operations only; public host mapping permissions are
+// declared independently by iree_hal_pool_host_access_t.
+static inline iree_hal_memory_access_t iree_hal_buffer_usage_access(
+    iree_hal_buffer_usage_t usage) {
+  iree_hal_memory_access_t access = IREE_HAL_MEMORY_ACCESS_NONE;
+  if (iree_any_bit_set(usage,
+                       IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE |
+                           IREE_HAL_BUFFER_USAGE_STORAGE_READ |
+                           IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS |
+                           IREE_HAL_BUFFER_USAGE_DISPATCH_UNIFORM_READ |
+                           IREE_HAL_BUFFER_USAGE_DISPATCH_IMAGE_READ)) {
+    access |= IREE_HAL_MEMORY_ACCESS_READ;
+  }
+  if (iree_any_bit_set(usage, IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET |
+                                  IREE_HAL_BUFFER_USAGE_STORAGE_WRITE |
+                                  IREE_HAL_BUFFER_USAGE_DISPATCH_IMAGE_WRITE)) {
+    access |= IREE_HAL_MEMORY_ACCESS_WRITE;
+  }
+  return access;
+}
+
 // Parses a buffer usage bitfield from a string.
 // See iree_bitfield_parse for usage.
 IREE_API_EXPORT iree_status_t iree_hal_buffer_usage_parse(
