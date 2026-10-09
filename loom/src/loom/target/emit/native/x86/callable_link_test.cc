@@ -135,6 +135,10 @@ extern "C" void native_scalar_stack(double* output, float f0, double d0,
 }
 extern "C" float identity_f32(float value);
 extern "C" double identity_f64(double value);
+extern "C" float copy_scalar_f32(const uint32_t* input, uint32_t* output,
+                                 uint64_t base, uint64_t row, uint64_t column);
+extern "C" double copy_scalar_f64(const uint64_t* input, uint64_t* output,
+                                  uint64_t base, uint64_t row, uint64_t column);
 extern "C" uint32_t widen_i1(bool value);
 extern "C" uint32_t widen_i8(uint8_t value);
 extern "C" uint32_t widen_i16(uint16_t value);
@@ -443,6 +447,51 @@ TEST(NativeCallableTest, Avx2VectorFunctionUsesOrdinaryCLinkage) {
   EXPECT_EQ(exact_qwords,
             (std::array<int64_t, 4>{INT64_C(0x0123456789abcdef), -2,
                                     INT64_C(0x0123456789abcdef), -2}));
+}
+
+template <typename Bits, typename Copy>
+void CheckScalarMemory(const std::array<Bits, 8>& patterns, Copy copy) {
+  constexpr Bits kGuard = static_cast<Bits>(0xDEADBEEFCAFE1234ull);
+  std::array<Bits, 64> input;
+  for (size_t rotation = 0; rotation < patterns.size(); ++rotation) {
+    for (size_t i = 0; i < input.size(); ++i) {
+      input[i] = patterns[(i + rotation) % patterns.size()];
+    }
+    const auto original = input;
+    for (size_t base = 0; base < 4; ++base) {
+      for (size_t row = 0; row < 2; ++row) {
+        for (size_t column = 0; column < 5; ++column) {
+          std::array<Bits, 64> output;
+          output.fill(kGuard);
+          auto expected = output;
+          const size_t position = base + (row + 1) * 13 + column + 1;
+          expected[base] = input[base];
+          expected[position] = input[position];
+          auto returned = copy(input.data(), output.data(), base * sizeof(Bits),
+                               row, column);
+          Bits returned_bits;
+          static_assert(sizeof(returned_bits) == sizeof(returned));
+          std::memcpy(&returned_bits, &returned, sizeof(returned_bits));
+          EXPECT_EQ(returned_bits, input[position]);
+          EXPECT_EQ(output, expected);
+          EXPECT_EQ(input, original);
+        }
+      }
+    }
+  }
+}
+
+TEST(NativeCallableTest, ScalarFloatingMemoryPreservesBitsAndNeighbors) {
+  // Signed zero, infinities, quiet/signaling NaNs, subnormals, and arbitrary
+  // finite payloads are compared as bits, including the native scalar return.
+  CheckScalarMemory<uint32_t>({0x00000000, 0x80000000, 0x7F800000, 0xFF800000,
+                               0x7FC12345, 0x7F812345, 0x00000001, 0x12345678},
+                              copy_scalar_f32);
+  CheckScalarMemory<uint64_t>(
+      {0x0000000000000000ull, 0x8000000000000000ull, 0x7FF0000000000000ull,
+       0xFFF0000000000000ull, 0x7FF8123456789ABCull, 0x7FF0123456789ABCull,
+       0x0000000000000001ull, 0x123456789ABCDEFull},
+      copy_scalar_f64);
 }
 
 TEST(NativeCallableTest, MixedPrivateResultsOverflowIndependentBanks) {

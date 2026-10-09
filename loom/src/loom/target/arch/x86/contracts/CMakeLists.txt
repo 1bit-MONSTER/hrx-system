@@ -79,6 +79,7 @@ loom_target_contract_cc_libraries(
     loom::ops::scalar
     loom::ops::scf
     loom::ops::vector
+    loom::ops::view
 )
 endif()
 
