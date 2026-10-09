@@ -4570,15 +4570,12 @@ static iree_status_t iree_hal_vulkan_queue_record_fill_native(
 }
 
 static void iree_hal_vulkan_queue_complete_operation(
-    iree_hal_vulkan_queue_t* queue,
     iree_hal_vulkan_queue_pending_submission_t* submission,
     const iree_status_t completion_status) {
   iree_hal_semaphore_list_t signal_semaphore_list =
       submission->signal_semaphore_list;
   const iree_async_frontier_t* frontier =
       iree_async_fixed_frontier_as_const_frontier(&submission->frontier);
-  iree_hal_vulkan_queue_release_native_replay(queue, submission);
-  iree_hal_vulkan_queue_release_operation_resources(queue, submission);
   if (iree_status_is_ok(completion_status)) {
     iree_hal_vulkan_queue_signal_list_or_fail(signal_semaphore_list, frontier);
   } else {
@@ -5118,6 +5115,22 @@ static void iree_hal_vulkan_queue_complete_submission(
     }
   }
 
+  switch (submission->kind) {
+    case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_FILL:
+    case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_UPDATE:
+    case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_COPY:
+    case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_TRANSFER:
+    case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_EXECUTE:
+    case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_DISPATCH:
+    case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_ATOMIC:
+      // Completion actions may publish a larger operation's terminal
+      // semaphores. Release this submission's caller resources first.
+      iree_hal_vulkan_queue_release_native_replay(queue, submission);
+      iree_hal_vulkan_queue_release_operation_resources(queue, submission);
+      break;
+    default:
+      break;
+  }
   iree_hal_vulkan_queue_consume_completion_action(submission, terminal_status);
 
   switch (submission->kind) {
@@ -5144,8 +5157,7 @@ static void iree_hal_vulkan_queue_complete_submission(
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_EXECUTE:
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_DISPATCH:
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_ATOMIC:
-      iree_hal_vulkan_queue_complete_operation(queue, submission,
-                                               terminal_status);
+      iree_hal_vulkan_queue_complete_operation(submission, terminal_status);
       break;
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_ALLOCA:
       iree_hal_vulkan_queue_complete_alloca(queue, submission, terminal_status);
@@ -5179,8 +5191,6 @@ static void iree_hal_vulkan_queue_fail_unsubmitted_submission(
   IREE_ASSERT(!iree_status_is_ok(status),
               "unsubmitted queue failure status must be non-OK");
   iree_status_t completion_status = iree_status_clone(status);
-  iree_hal_vulkan_queue_consume_completion_action(submission,
-                                                  completion_status);
   switch (submission->kind) {
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_ALLOCA:
       iree_hal_vulkan_queue_profile_record_alloca_memory_events(
@@ -5215,6 +5225,8 @@ static void iree_hal_vulkan_queue_fail_unsubmitted_submission(
   }
   iree_hal_vulkan_queue_release_native_replay(queue, submission);
   iree_hal_vulkan_queue_release_operation_resources(queue, submission);
+  iree_hal_vulkan_queue_consume_completion_action(submission,
+                                                  completion_status);
   iree_hal_vulkan_queue_fail_signal_list(submission->signal_semaphore_list,
                                          status);
   iree_status_free(completion_status);
@@ -7813,6 +7825,20 @@ static void iree_hal_vulkan_staged_transfer_pump(
 static void iree_hal_vulkan_staged_transfer_try_finish(
     iree_hal_vulkan_staged_transfer_t* transfer);
 
+// Releases caller-owned endpoints once all transfer chunks are terminal. The
+// staged object may remain live through an async callback or terminal signal
+// barrier, but neither path may extend the caller's buffer, file, or borrowed
+// host-range lifetime beyond terminal semaphore publication.
+static void iree_hal_vulkan_staged_transfer_release_captures(
+    iree_hal_vulkan_staged_transfer_t* transfer) {
+  iree_hal_buffer_release(transfer->buffer);
+  transfer->buffer = NULL;
+  iree_hal_file_release(transfer->file);
+  transfer->file = NULL;
+  transfer->async_file = NULL;
+  transfer->host_contents = iree_byte_span_empty();
+}
+
 static void iree_hal_vulkan_staged_transfer_destroy(
     iree_hal_resource_t* resource) {
   iree_hal_vulkan_staged_transfer_t* transfer =
@@ -7822,8 +7848,7 @@ static void iree_hal_vulkan_staged_transfer_destroy(
                                  transfer->host_allocator);
   }
   iree_hal_resource_release(transfer->completion_action.resource);
-  iree_hal_buffer_release(transfer->buffer);
-  iree_hal_file_release(transfer->file);
+  iree_hal_vulkan_staged_transfer_release_captures(transfer);
   iree_slim_mutex_deinitialize(&transfer->mutex);
   iree_allocator_free(transfer->host_allocator, transfer);
 }
@@ -7876,6 +7901,7 @@ static void iree_hal_vulkan_staged_transfer_complete(
   iree_hal_vulkan_queue_completion_action_t completion_action =
       transfer->completion_action;
   transfer->completion_action = iree_hal_vulkan_queue_completion_action_null();
+  iree_hal_vulkan_staged_transfer_release_captures(transfer);
   if (completion_action.fn) {
     completion_action.fn(completion_action.user_data, status);
     iree_hal_resource_release(completion_action.resource);
@@ -8230,6 +8256,7 @@ static void iree_hal_vulkan_staged_transfer_start(
   iree_hal_vulkan_staged_transfer_t* transfer =
       (iree_hal_vulkan_staged_transfer_t*)user_data;
   if (!iree_status_is_ok(completion_status)) {
+    iree_hal_vulkan_staged_transfer_release_captures(transfer);
     iree_hal_vulkan_staged_transfer_fail_signals(
         transfer, iree_status_clone(completion_status));
     return;
@@ -8437,10 +8464,6 @@ static iree_status_t iree_hal_vulkan_queue_submit_staged_transfer(
           .user_data = transfer,
           .resource = &transfer->resource,
       });
-  if (!iree_status_is_ok(status)) {
-    iree_hal_vulkan_staged_transfer_fail_signals(transfer,
-                                                 iree_status_clone(status));
-  }
   iree_hal_resource_release(&transfer->resource);
   return status;
 }
@@ -8471,10 +8494,6 @@ static iree_status_t iree_hal_vulkan_queue_submit_staged_update(
           .user_data = transfer,
           .resource = &transfer->resource,
       });
-  if (!iree_status_is_ok(status)) {
-    iree_hal_vulkan_staged_transfer_fail_signals(transfer,
-                                                 iree_status_clone(status));
-  }
   iree_hal_resource_release(&transfer->resource);
   return status;
 }

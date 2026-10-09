@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <future>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -26,6 +27,24 @@ struct FileHandleDeleter {
 };
 
 using FileHandlePtr = std::unique_ptr<iree_io_file_handle_t, FileHandleDeleter>;
+
+struct ResourceRefCountObservation {
+  // Borrowed resource kept live by the test until observation completes.
+  iree_hal_resource_t* resource = nullptr;
+  // Result published by the terminal semaphore callback.
+  std::promise<uint32_t> result;
+};
+
+static void ObserveResourceRefCount(void* user_data,
+                                    iree_async_semaphore_timepoint_t* timepoint,
+                                    iree_status_t status) {
+  (void)timepoint;
+  auto* observation = static_cast<ResourceRefCountObservation*>(user_data);
+  const uint32_t ref_count =
+      iree_atomic_ref_count_load(&observation->resource->ref_count);
+  iree_status_free(status);
+  observation->result.set_value(ref_count);
+}
 
 }  // namespace
 
@@ -137,10 +156,19 @@ TEST_P(VulkanFileTest, NativeFileShortReadExceedsStagingRingFails) {
 
   SemaphoreList empty_wait;
   SemaphoreList read_signal(device_, {0}, {1});
+  ResourceRefCountObservation observation = {&target_buffer.get()->resource};
+  std::future<uint32_t> observed_ref_count = observation.result.get_future();
+  iree_async_semaphore_timepoint_t timepoint = {};
+  timepoint.callback = ObserveResourceRefCount;
+  timepoint.user_data = &observation;
+  IREE_ASSERT_OK(iree_async_semaphore_acquire_timepoint(
+      reinterpret_cast<iree_async_semaphore_t*>(read_signal.semaphores[0]), 1,
+      &timepoint));
   IREE_ASSERT_OK(iree_hal_queue_read(
       transfer_queue_, empty_wait, read_signal, file.get(),
       /*source_offset=*/0, target_buffer.get(), /*target_offset=*/0,
       import_length, /*barriers=*/NULL, IREE_HAL_READ_FLAG_NONE));
+  EXPECT_EQ(observed_ref_count.get(), 1u);
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_OUT_OF_RANGE,
       iree_hal_semaphore_list_wait(read_signal, iree_infinite_timeout(),
