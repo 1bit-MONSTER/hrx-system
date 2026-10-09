@@ -539,6 +539,15 @@ iree_hal_make_external_storage_class(iree_hal_external_storage_type_t type) {
   };
 }
 
+// Returns whether two storage classes have the same exact native
+// interpretation.
+static inline bool iree_hal_external_storage_class_equal(
+    iree_hal_external_storage_class_t lhs,
+    iree_hal_external_storage_class_t rhs) {
+  return lhs.type == rhs.type && lhs.provenance[0] == rhs.provenance[0] &&
+         lhs.provenance[1] == rhs.provenance[1];
+}
+
 // Opaque identity of live physical backing within one provider instance.
 // Equal nonzero identities prove that two attachments name the same physical
 // bytes. An all-zero identity means that the exporter cannot establish
@@ -971,6 +980,11 @@ typedef struct iree_hal_buffer_backing_facts_t {
   iree_hal_memory_maintenance_t* maintenance;
   // Native range lifecycle operations; NULL when unavailable.
   const iree_hal_buffer_range_advice_t* advice;
+  // Source-owned envelope available for cache maintenance and registration in
+  // backing coordinates.
+  iree_hal_buffer_range_t maintenance_range;
+  // Physical identity established by the storage source, when available.
+  iree_hal_physical_memory_id_t physical_backing_id;
   // Guaranteed power-of-two alignment of byte zero in native coordinates.
   iree_device_size_t allocation_alignment;
   // Minimum independently maintained byte granule; one for coherent storage.

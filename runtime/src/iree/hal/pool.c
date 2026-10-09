@@ -163,6 +163,52 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_materialize_reservations(
   return status;
 }
 
+IREE_API_EXPORT iree_status_t iree_hal_pool_import_buffer(
+    iree_hal_pool_t* pool, iree_hal_external_storage_t* inout_storage,
+    iree_hal_buffer_range_t logical_range, iree_hal_buffer_t** out_buffer) {
+  IREE_ASSERT_ARGUMENT(pool);
+  IREE_ASSERT_ARGUMENT(inout_storage);
+  IREE_ASSERT_ARGUMENT(out_buffer);
+  *out_buffer = NULL;
+  IREE_TRACE_ZONE_BEGIN(z0);
+  if (inout_storage->storage_class.type ==
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE ||
+      inout_storage->byte_length == 0) {
+    IREE_TRACE_ZONE_END(z0);
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "external storage must be nonempty");
+  }
+
+  iree_hal_buffer_range_t resolved_range = {0};
+  iree_status_t status = iree_hal_buffer_calculate_range(
+      0, inout_storage->byte_length, logical_range.byte_offset,
+      logical_range.byte_length, &resolved_range.byte_offset,
+      &resolved_range.byte_length);
+  if (iree_status_is_ok(status)) {
+    iree_device_size_t maintenance_offset = 0;
+    iree_device_size_t maintenance_length = 0;
+    status = iree_hal_buffer_calculate_range(
+        0, inout_storage->byte_length,
+        inout_storage->maintenance_range.byte_offset,
+        inout_storage->maintenance_range.byte_length, &maintenance_offset,
+        &maintenance_length);
+  }
+  if (iree_status_is_ok(status)) {
+    const iree_hal_pool_vtable_t* vtable =
+        (const iree_hal_pool_vtable_t*)pool->resource.vtable;
+    if (!vtable->import_buffer) {
+      status = iree_make_status(
+          IREE_STATUS_UNAVAILABLE,
+          "pool does not admit caller-selected external backing");
+    } else {
+      status = vtable->import_buffer(pool, inout_storage, resolved_range,
+                                     out_buffer);
+    }
+  }
+  IREE_TRACE_ZONE_END(z0);
+  return status;
+}
+
 IREE_API_EXPORT void iree_hal_pool_query_capabilities(
     const iree_hal_pool_t* pool,
     iree_hal_pool_capabilities_t* out_capabilities) {

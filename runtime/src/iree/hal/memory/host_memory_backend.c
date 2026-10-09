@@ -21,6 +21,15 @@ typedef struct iree_hal_host_slab_pool_plan_t {
   iree_async_frontier_tracker_t* frontier_tracker;
   // Owned qualified access facts, retained by the created pool.
   iree_hal_memory_contract_t* contract;
+  // Whether the created pool may allocate new host slabs.
+  iree_hal_slab_pool_owned_mode_t owned_mode;
+  // Constructor-borrowed import classes copied by synchronous pool creation.
+  struct {
+    // Number of admitted input classes.
+    iree_host_size_t class_count;
+    // Source classes and correlated export requirements.
+    const iree_hal_pool_import_class_t* classes;
+  } imports;
   // Borrowed diagnostic name until synchronous creation returns.
   iree_string_view_t trace_name;
 } iree_hal_host_slab_pool_plan_t;
@@ -39,6 +48,12 @@ static iree_status_t iree_hal_host_slab_pool_plan_create(
   const iree_hal_passthrough_pool_options_t options = {
       .memory_contract = plan->contract,
       .epoch_query = plan->backend->epoch_query,
+      .owned_mode = plan->owned_mode,
+      .imports =
+          {
+              .class_count = plan->imports.class_count,
+              .classes = plan->imports.classes,
+          },
       .trace_name = plan->trace_name,
   };
   return iree_hal_passthrough_pool_create(
@@ -57,6 +72,23 @@ static bool iree_hal_host_memory_access_is_supported(
     iree_hal_pool_host_access_t access) {
   return access.cacheability == IREE_HAL_HOST_CACHEABILITY_UNKNOWN ||
          access.cacheability == IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+}
+
+static bool iree_hal_host_external_storage_class_is_supported(
+    iree_hal_external_storage_class_t storage_class) {
+  return storage_class.type == IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER &&
+         storage_class.provenance[0] == 0 && storage_class.provenance[1] == 0;
+}
+
+static bool iree_hal_host_export_classes_are_supported(
+    iree_hal_pool_export_classes_t exports) {
+  for (iree_host_size_t i = 0; i < exports.class_count; ++i) {
+    if (!iree_hal_host_external_storage_class_is_supported(
+            exports.classes[i])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 static iree_status_t iree_hal_host_memory_query_pair(
@@ -88,8 +120,18 @@ static iree_status_t iree_hal_host_slab_pool_query(
   // An affined malloc caller does not establish physical placement of pages
   // reused by the host allocator. This source promises only its native policy.
   if (options->placement.mode == IREE_HAL_POOL_PLACEMENT_REQUIRED ||
-      !iree_hal_host_memory_access_is_supported(scope.host)) {
+      !iree_hal_host_memory_access_is_supported(scope.host) ||
+      !iree_hal_host_export_classes_are_supported(options->owned.exports)) {
     return iree_ok_status();
+  }
+  for (iree_host_size_t i = 0; i < options->imports.class_count; ++i) {
+    const iree_hal_pool_import_class_t* import_class =
+        &options->imports.classes[i];
+    if (!iree_hal_host_external_storage_class_is_supported(
+            import_class->storage_class) ||
+        !iree_hal_host_export_classes_are_supported(import_class->exports)) {
+      return iree_ok_status();
+    }
   }
   for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
     const iree_hal_pool_family_access_t* access = &scope.families[i];
@@ -127,6 +169,14 @@ static iree_status_t iree_hal_host_slab_pool_query(
   for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
     usage |= scope.families[i].usage;
   }
+  bool requires_export = options->owned.exports.class_count != 0;
+  for (iree_host_size_t i = 0; i < options->imports.class_count; ++i) {
+    requires_export |= options->imports.classes[i].exports.class_count != 0;
+  }
+  if (requires_export) {
+    usage |= IREE_HAL_BUFFER_USAGE_SHARING_EXPORT |
+             IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT;
+  }
   if (!iree_all_bits_set(properties.supported_usage, usage)) {
     return iree_ok_status();
   }
@@ -143,11 +193,15 @@ static iree_status_t iree_hal_host_slab_pool_query(
   iree_hal_host_slab_pool_plan_t* plan = NULL;
   IREE_RETURN_IF_ERROR(
       iree_allocator_malloc(host_allocator, sizeof(*plan), (void**)&plan));
+  memset(plan, 0, sizeof(*plan));
   plan->base.vtable = &iree_hal_host_slab_pool_plan_vtable;
   plan->base.info.host = host;
   plan->host_allocator = host_allocator;
   plan->backend = owner;
   plan->frontier_tracker = frontier_tracker;
+  plan->owned_mode = options->owned.mode;
+  plan->imports.class_count = options->imports.class_count;
+  plan->imports.classes = options->imports.classes;
   plan->trace_name = options->trace_name;
   iree_status_t status = iree_hal_memory_contract_create(
       iree_hal_device_group_memory_domain(group),

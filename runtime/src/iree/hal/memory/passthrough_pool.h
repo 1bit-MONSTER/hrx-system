@@ -11,6 +11,7 @@
 #include "iree/hal/memory/maintenance.h"
 #include "iree/hal/memory/slab_provider.h"
 #include "iree/hal/pool.h"
+#include "iree/hal/slab_pool.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,6 +31,18 @@ typedef struct iree_hal_passthrough_pool_options_t {
 
   // ASAN policy used to shape hidden backing ranges for reservations.
   iree_hal_asan_pool_options_t asan;
+
+  // Whether new provider-owned slabs may be acquired.
+  iree_hal_slab_pool_owned_mode_t owned_mode;
+
+  // Exact external storage classes admitted for native import. Arrays are
+  // borrowed for this call and copied by the pool.
+  struct {
+    // Number of admitted classes.
+    iree_host_size_t class_count;
+    // Constructor-borrowed class descriptors.
+    const iree_hal_pool_import_class_t* classes;
+  } imports;
 
   // Optional named-memory trace identifier for logical reservations returned by
   // this pool. Empty uses a generic process-stable identifier.

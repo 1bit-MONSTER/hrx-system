@@ -21,6 +21,9 @@ typedef struct iree_hal_cpu_slab_provider_t {
   iree_host_size_t allocation_alignment;
 } iree_hal_cpu_slab_provider_t;
 
+// Marks a borrowed external pointer attachment. Owned CPU slabs use zero.
+#define IREE_HAL_CPU_SLAB_PROVIDER_IMPORTED_HANDLE UINT64_MAX
+
 static const iree_hal_slab_provider_vtable_t iree_hal_cpu_slab_provider_vtable;
 
 iree_status_t iree_hal_cpu_slab_provider_create(
@@ -76,11 +79,58 @@ static iree_status_t iree_hal_cpu_slab_provider_acquire_slab(
   return iree_ok_status();
 }
 
+static iree_status_t iree_hal_cpu_slab_provider_import_slab(
+    iree_hal_slab_provider_t* base_provider,
+    const iree_hal_external_storage_t* storage,
+    iree_hal_imported_slab_t* out_import) {
+  iree_hal_cpu_slab_provider_t* provider =
+      (iree_hal_cpu_slab_provider_t*)base_provider;
+  if (storage->storage_class.type !=
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER ||
+      storage->storage_class.provenance[0] ||
+      storage->storage_class.provenance[1]) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "CPU slabs import portable host pointers only");
+  }
+  if (!storage->payload.host_pointer ||
+      storage->byte_length > IREE_HOST_SIZE_MAX) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "invalid host pointer storage extent");
+  }
+  if (storage->host_cacheability != IREE_HAL_HOST_CACHEABILITY_WRITE_BACK) {
+    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                            "CPU slab import requires write-back host storage");
+  }
+
+  const uintptr_t address = (uintptr_t)storage->payload.host_pointer;
+  const iree_device_size_t exact_alignment =
+      (iree_device_size_t)(address & (~address + 1));
+  out_import->slab = (iree_hal_slab_t){
+      .base_ptr = storage->payload.host_pointer,
+      .length = storage->byte_length,
+      .provider_handle = IREE_HAL_CPU_SLAB_PROVIDER_IMPORTED_HANDLE,
+  };
+  out_import->properties = (iree_hal_slab_provider_properties_t){
+      .memory_type = IREE_HAL_CPU_SLAB_PROVIDER_MEMORY_TYPE,
+      .supported_usage = IREE_HAL_CPU_SLAB_PROVIDER_BUFFER_USAGE,
+      .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+      .allocation_alignment = exact_alignment,
+      .max_allocation_alignment = exact_alignment,
+      .maintenance_alignment = 1,
+      .atomic_operations = iree_hal_atomic_operation_capabilities_for_host(
+          IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL),
+  };
+  (void)provider;
+  return iree_ok_status();
+}
+
 static void iree_hal_cpu_slab_provider_release_slab(
     iree_hal_slab_provider_t* base_provider, const iree_hal_slab_t* slab) {
   iree_hal_cpu_slab_provider_t* provider =
       (iree_hal_cpu_slab_provider_t*)base_provider;
-  iree_allocator_free_aligned(provider->host_allocator, slab->base_ptr);
+  if (slab->provider_handle != IREE_HAL_CPU_SLAB_PROVIDER_IMPORTED_HANDLE) {
+    iree_allocator_free_aligned(provider->host_allocator, slab->base_ptr);
+  }
 }
 
 static iree_status_t iree_hal_cpu_slab_provider_wrap_buffer(
@@ -93,16 +143,23 @@ static iree_status_t iree_hal_cpu_slab_provider_wrap_buffer(
   iree_hal_cpu_slab_provider_t* provider =
       (iree_hal_cpu_slab_provider_t*)base_provider;
   iree_byte_span_t data = {
-      .data = slab->base_ptr + slab_offset,
-      .data_length = (iree_host_size_t)allocation_size,
+      .data = slab->base_ptr,
+      .data_length = (iree_host_size_t)slab->length,
   };
   const iree_hal_buffer_placement_t placement = {
       .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
   };
-  return iree_hal_heap_buffer_wrap(
+  iree_status_t status = iree_hal_heap_buffer_wrap(
       placement, IREE_HAL_CPU_SLAB_PROVIDER_MEMORY_TYPE, allowed_access,
-      allowed_usage, allocation_size, data, release_callback,
+      allowed_usage, slab->length, data, release_callback,
       provider->host_allocator, out_buffer);
+  if (iree_status_is_ok(status)) {
+    (*out_buffer)->byte_offset = slab_offset;
+    (*out_buffer)->byte_length = allocation_size;
+    (*out_buffer)->memory.binding_offset = slab_offset;
+    (*out_buffer)->memory.offset = slab_offset;
+  }
+  return status;
 }
 
 static iree_status_t iree_hal_cpu_slab_provider_validate_asan_options(
@@ -192,6 +249,7 @@ static const iree_hal_slab_provider_vtable_t iree_hal_cpu_slab_provider_vtable =
     {
         .destroy = iree_hal_cpu_slab_provider_destroy,
         .acquire_slab = iree_hal_cpu_slab_provider_acquire_slab,
+        .import_slab = iree_hal_cpu_slab_provider_import_slab,
         .release_slab = iree_hal_cpu_slab_provider_release_slab,
         .wrap_buffer = iree_hal_cpu_slab_provider_wrap_buffer,
         .validate_asan_options =

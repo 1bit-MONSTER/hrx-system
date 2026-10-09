@@ -416,6 +416,10 @@ static iree_status_t iree_hal_amdgpu_slab_pool_query(
   if (options->placement.mode == IREE_HAL_POOL_PLACEMENT_REQUIRED) {
     return iree_ok_status();
   }
+  if (options->owned.mode != IREE_HAL_SLAB_POOL_OWNED_ENABLED ||
+      options->owned.exports.class_count || options->imports.class_count) {
+    return iree_ok_status();
+  }
   bool has_native_family = false;
   for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
     const iree_hal_pool_family_access_t* access = &scope.families[i];

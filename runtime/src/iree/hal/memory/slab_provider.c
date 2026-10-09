@@ -33,6 +33,21 @@ iree_status_t iree_hal_slab_provider_acquire_slab(
                                         out_slab);
 }
 
+iree_status_t iree_hal_slab_provider_import_slab(
+    iree_hal_slab_provider_t* provider,
+    const iree_hal_external_storage_t* storage,
+    iree_hal_imported_slab_t* out_import) {
+  IREE_ASSERT_ARGUMENT(provider);
+  IREE_ASSERT_ARGUMENT(storage);
+  IREE_ASSERT_ARGUMENT(out_import);
+  memset(out_import, 0, sizeof(*out_import));
+  if (!provider->vtable->import_slab) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "slab provider cannot import external storage");
+  }
+  return provider->vtable->import_slab(provider, storage, out_import);
+}
+
 void iree_hal_slab_provider_release_slab(iree_hal_slab_provider_t* provider,
                                          const iree_hal_slab_t* slab) {
   provider->vtable->release_slab(provider, slab);
@@ -207,12 +222,13 @@ static void iree_hal_slab_buffer_prefault(void* user_data,
 
 void iree_hal_slab_buffer_backing_initialize(
     iree_hal_slab_provider_t* provider, const iree_hal_slab_t* slab,
-    iree_device_size_t min_alignment, iree_async_notification_t* notification,
+    const iree_hal_slab_provider_properties_t* properties,
+    iree_hal_buffer_range_t maintenance_range,
+    iree_hal_physical_memory_id_t physical_backing_id,
+    iree_async_notification_t* notification,
     iree_async_frontier_tracker_t* tracker,
     iree_hal_memory_maintenance_t* maintenance,
     iree_hal_slab_buffer_backing_t* out_backing) {
-  iree_hal_slab_provider_properties_t properties;
-  iree_hal_slab_provider_query_properties(provider, &properties);
   out_backing->provider = provider;
   out_backing->slab = slab;
   out_backing->advice = (iree_hal_buffer_range_advice_t){
@@ -226,9 +242,10 @@ void iree_hal_slab_buffer_backing_initialize(
       .tracker = tracker,
       .maintenance = maintenance,
       .advice = &out_backing->advice,
-      .allocation_alignment =
-          iree_max(properties.allocation_alignment, min_alignment),
-      .maintenance_alignment = properties.maintenance_alignment,
-      .atomic_operations = properties.atomic_operations,
+      .maintenance_range = maintenance_range,
+      .physical_backing_id = physical_backing_id,
+      .allocation_alignment = properties->allocation_alignment,
+      .maintenance_alignment = properties->maintenance_alignment,
+      .atomic_operations = properties->atomic_operations,
   };
 }

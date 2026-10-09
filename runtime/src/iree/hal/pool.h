@@ -627,6 +627,22 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_materialize_reservations(
     const iree_hal_pool_reservation_t* reservations,
     iree_hal_pool_materialize_flags_t flags, iree_hal_buffer_t** out_buffers);
 
+// Imports one logical range of external storage into a native leaf pool.
+//
+// The storage class must have been admitted when the pool was constructed.
+// Import bypasses caches and suballocators: pools without a native import route
+// return UNAVAILABLE. The logical range is relative to the external storage
+// extent and is preserved in the returned buffer's native coordinates.
+//
+// On success the pool consumes and zeros |inout_storage| and owns its optional
+// release callback until the imported buffer is destroyed. Native attachments
+// are released before the callback runs. On failure |inout_storage| is
+// unchanged and |out_buffer| remains NULL. Import performs no copy, execution
+// wait, or cache transition.
+IREE_API_EXPORT iree_status_t iree_hal_pool_import_buffer(
+    iree_hal_pool_t* pool, iree_hal_external_storage_t* inout_storage,
+    iree_hal_buffer_range_t logical_range, iree_hal_buffer_t** out_buffer);
+
 // Queries the memory capabilities of the pool. O(1); reads cached fields
 // computed at pool creation time.
 IREE_API_EXPORT void iree_hal_pool_query_capabilities(
@@ -773,6 +789,12 @@ typedef struct iree_hal_pool_vtable_t {
       iree_hal_pool_t* pool, iree_host_size_t reservation_count,
       const iree_hal_pool_reservation_t* reservations,
       iree_hal_asan_range_advice_flags_t flags);
+
+  // Imports external storage through a native leaf pool. NULL for pool layers
+  // that cannot preserve the caller-selected backing.
+  iree_status_t(IREE_API_PTR* import_buffer)(
+      iree_hal_pool_t* pool, iree_hal_external_storage_t* inout_storage,
+      iree_hal_buffer_range_t logical_range, iree_hal_buffer_t** out_buffer);
 } iree_hal_pool_vtable_t;
 IREE_HAL_ASSERT_VTABLE_LAYOUT(iree_hal_pool_vtable_t);
 

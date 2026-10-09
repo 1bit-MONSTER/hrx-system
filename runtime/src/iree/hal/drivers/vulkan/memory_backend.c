@@ -346,6 +346,10 @@ static iree_status_t iree_hal_vulkan_slab_pool_query(
     iree_hal_slab_pool_plan_callback_t callback,
     iree_allocator_t host_allocator) {
   (void)self;
+  if (options->owned.mode != IREE_HAL_SLAB_POOL_OWNED_ENABLED ||
+      options->owned.exports.class_count || options->imports.class_count) {
+    return iree_ok_status();
+  }
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0; i < iree_hal_device_group_device_count(group) &&
                                iree_status_is_ok(status);

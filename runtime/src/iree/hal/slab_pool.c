@@ -34,6 +34,79 @@ static iree_status_t iree_hal_slab_pool_validate_host_access(
   return iree_ok_status();
 }
 
+static bool iree_hal_slab_pool_storage_class_is_valid(
+    iree_hal_external_storage_class_t storage_class) {
+  return storage_class.type >= IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER &&
+         storage_class.type <= IREE_HAL_EXTERNAL_STORAGE_TYPE_D3D12_RESOURCE;
+}
+
+static iree_status_t iree_hal_slab_pool_validate_export_classes(
+    iree_hal_pool_export_classes_t exports) {
+  if (exports.class_count && !exports.classes) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "pool export class array is null");
+  }
+  for (iree_host_size_t i = 0; i < exports.class_count; ++i) {
+    if (!iree_hal_slab_pool_storage_class_is_valid(exports.classes[i])) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "pool export class is invalid");
+    }
+    for (iree_host_size_t j = 0; j < i; ++j) {
+      if (iree_hal_external_storage_class_equal(exports.classes[j],
+                                                exports.classes[i])) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "pool export class is repeated");
+      }
+    }
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t iree_hal_slab_pool_validate_external_storage_options(
+    const iree_hal_slab_pool_options_t* options) {
+  if ((uint32_t)options->owned.mode > IREE_HAL_SLAB_POOL_IMPORT_ONLY) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "invalid owned storage mode");
+  }
+  IREE_RETURN_IF_ERROR(
+      iree_hal_slab_pool_validate_export_classes(options->owned.exports));
+  if (options->owned.mode == IREE_HAL_SLAB_POOL_IMPORT_ONLY &&
+      options->owned.exports.class_count) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "an import-only pool cannot require owned-allocation exports");
+  }
+  if (options->owned.mode == IREE_HAL_SLAB_POOL_IMPORT_ONLY &&
+      options->imports.class_count == 0) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "an import-only pool must admit external storage");
+  }
+  if (options->imports.class_count && !options->imports.classes) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "pool import class array is null");
+  }
+  for (iree_host_size_t i = 0; i < options->imports.class_count; ++i) {
+    const iree_hal_pool_import_class_t* import_class =
+        &options->imports.classes[i];
+    if (!iree_hal_slab_pool_storage_class_is_valid(
+            import_class->storage_class)) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "pool import class is invalid");
+    }
+    IREE_RETURN_IF_ERROR(
+        iree_hal_slab_pool_validate_export_classes(import_class->exports));
+    for (iree_host_size_t j = 0; j < i; ++j) {
+      if (iree_hal_external_storage_class_equal(
+              options->imports.classes[j].storage_class,
+              import_class->storage_class)) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "pool import class is repeated");
+      }
+    }
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t iree_hal_slab_pool_validate_scope(
     iree_hal_device_group_t* group, iree_hal_pool_scope_t scope) {
   if (!group || (!scope.family_count && !scope.host.access)) {
@@ -155,6 +228,8 @@ IREE_API_EXPORT iree_status_t iree_hal_slab_pool_create(
   IREE_RETURN_IF_ERROR(iree_hal_slab_pool_validate_scope(group, scope));
   IREE_RETURN_IF_ERROR(
       iree_hal_slab_pool_validate_host_access(options->preferences.host));
+  IREE_RETURN_IF_ERROR(
+      iree_hal_slab_pool_validate_external_storage_options(options));
   if ((uint32_t)options->placement.mode > IREE_HAL_POOL_PLACEMENT_REQUIRED ||
       (options->placement.mode != IREE_HAL_POOL_PLACEMENT_AUTOMATIC &&
        options->placement.node >= iree_hal_topology_node_count(
