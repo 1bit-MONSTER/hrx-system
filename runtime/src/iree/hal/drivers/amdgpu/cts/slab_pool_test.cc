@@ -311,10 +311,37 @@ TEST_P(AmdgpuSlabPoolTest, PublicHostGrantsAndNativeClassRequirements) {
     }
   }
   families_[1].requirements = IREE_HAL_POOL_ACCESS_REQUIRE_UNCACHED;
-  Ref<iree_hal_pool_t> rejected;
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
-                        CreateSource(Scope(), rejected.out()));
+  bool uncached_available = false;
+  for (size_t i = 0; i < families_.size(); ++i) {
+    std::array<iree_hal_allocator_memory_heap_t, 4> heaps;
+    iree_host_size_t heap_count = 0;
+    IREE_ASSERT_OK(iree_hal_allocator_query_memory_heaps(
+        iree_hal_device_allocator(devices_[i]), heaps.size(), heaps.data(),
+        &heap_count));
+    for (iree_host_size_t j = 0; j < heap_count; ++j) {
+      uncached_available |= iree_all_bits_set(
+          heaps[j].type, IREE_HAL_MEMORY_TYPE_DEVICE_UNCACHED);
+    }
+  }
+  Ref<iree_hal_pool_t> uncached_source;
+  iree_status_t uncached_status = CreateSource(Scope(), uncached_source.out());
+  if (uncached_available) {
+    IREE_ASSERT_OK(uncached_status);
+    Ref<iree_hal_buffer_t> buffer;
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        uncached_source,
+        iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+        iree_infinite_timeout(), buffer.out()));
+    EXPECT_TRUE(iree_all_bits_set(iree_hal_buffer_memory_type(buffer),
+                                  IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
+                                      IREE_HAL_MEMORY_TYPE_DEVICE_UNCACHED));
+    buffer.reset();
+    JoinMaintenance(uncached_source);
+  } else {
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE, uncached_status);
+  }
   families_[1].requirements = 0;
+  Ref<iree_hal_pool_t> rejected;
   for (auto cacheability : {IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
                             IREE_HAL_HOST_CACHEABILITY_WRITE_COMBINED,
                             IREE_HAL_HOST_CACHEABILITY_UNCACHED}) {
@@ -550,6 +577,10 @@ TEST_P(AmdgpuSlabPoolTest, ImportsHostStorageWithExactRangeAndOwnership) {
             IREE_HAL_HOST_CACHEABILITY_WRITE_BACK);
   EXPECT_EQ(memory.backing->physical_backing_id.words[0], 0xA11Cu);
   EXPECT_EQ(memory.backing->physical_backing_id.words[1], 0xBACCu);
+  EXPECT_EQ(memory.backing->atomic_operations.system_scope_32,
+            IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL);
+  EXPECT_EQ(memory.backing->atomic_operations.system_scope_64,
+            IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL);
 
   const uint32_t value = 0x1234ABCD;
   SemaphoreList filled(devices_[0], {0}, {1});

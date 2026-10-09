@@ -301,6 +301,28 @@ static iree_hal_amdgpu_allocator_t* iree_hal_amdgpu_allocator_cast(
   return (iree_hal_amdgpu_allocator_t*)base_value;
 }
 
+bool iree_hal_amdgpu_allocator_query_uncached_memory_pool(
+    iree_hal_allocator_t* base_allocator, uint32_t physical_device_ordinal,
+    hsa_amd_memory_pool_t* out_memory_pool, uint32_t* out_allocation_flags) {
+  IREE_ASSERT_ARGUMENT(out_memory_pool);
+  IREE_ASSERT_ARGUMENT(out_allocation_flags);
+  *out_memory_pool = (hsa_amd_memory_pool_t){0};
+  *out_allocation_flags = 0;
+  iree_hal_amdgpu_allocator_t* allocator =
+      iree_hal_amdgpu_allocator_cast(base_allocator);
+  if (physical_device_ordinal >= allocator->topology->gpu_agent_count) {
+    return false;
+  }
+  const iree_hal_amdgpu_allocator_memory_pool_t* memory_pool =
+      &allocator->memory_pools.device_uncached[physical_device_ordinal];
+  if (!memory_pool->memory_pool.handle) {
+    return false;
+  }
+  *out_memory_pool = memory_pool->memory_pool;
+  *out_allocation_flags = memory_pool->allocation_flags;
+  return true;
+}
+
 static iree_status_t iree_hal_amdgpu_allocator_query_pool_properties(
     const iree_hal_amdgpu_libhsa_t* libhsa,
     const iree_hal_amdgpu_topology_t* topology,

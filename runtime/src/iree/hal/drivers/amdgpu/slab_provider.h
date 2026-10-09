@@ -71,6 +71,8 @@ typedef struct iree_hal_amdgpu_slab_provider_options_t {
     iree_hal_memory_type_t memory_type;
     // HAL buffer usage bits supported by provider-owned HSA allocations.
     iree_hal_buffer_usage_t supported_usage;
+    // Flags passed to every HSA memory-pool allocation.
+    uint32_t allocation_flags;
   } owned;
 
   // Common facts guaranteed by every owned or imported slab route.

@@ -33,6 +33,14 @@ iree_status_t iree_hal_amdgpu_allocator_create(
     const iree_hal_amdgpu_topology_t* topology, iree_allocator_t host_allocator,
     iree_hal_allocator_t** out_allocator);
 
+// Returns the native GPU-local pool and allocation flags that implement
+// uncached device access for |physical_device_ordinal|. Returns false when the
+// native runtime exposes no such route. The returned pool is borrowed from the
+// allocator and remains valid for the allocator's lifetime.
+bool iree_hal_amdgpu_allocator_query_uncached_memory_pool(
+    iree_hal_allocator_t* allocator, uint32_t physical_device_ordinal,
+    hsa_amd_memory_pool_t* out_memory_pool, uint32_t* out_allocation_flags);
+
 // Attaches typed external storage as one complete AMDGPU root buffer.
 //
 // The returned buffer owns only the native ROCr attachment and never consumes
