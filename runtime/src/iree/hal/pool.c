@@ -57,7 +57,7 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_initialize(
       .count = source_count,
       .values = sources,
   };
-  out_pool->wait_allocator = host_allocator;
+  out_pool->host_allocator = host_allocator;
   out_pool->frontier_tracker = frontier_tracker;
   out_pool->maintenance = NULL;
   out_pool->epoch_query = iree_hal_pool_epoch_query_null();
@@ -71,7 +71,7 @@ IREE_API_EXPORT void iree_hal_pool_deinitialize(iree_hal_pool_t* pool) {
     iree_async_notification_release(pool->wait_sources.values[i]);
   }
   if (pool->wait_sources.values != &pool->notification) {
-    iree_allocator_free(pool->wait_allocator, (void*)pool->wait_sources.values);
+    iree_allocator_free(pool->host_allocator, (void*)pool->wait_sources.values);
   }
 }
 
@@ -220,6 +220,12 @@ IREE_API_EXPORT bool iree_hal_pool_supports_import_class(
       (const iree_hal_pool_vtable_t*)pool->resource.vtable;
   return vtable->supports_import_class &&
          vtable->supports_import_class(pool, storage_class);
+}
+
+IREE_API_EXPORT iree_allocator_t
+iree_hal_pool_host_allocator(const iree_hal_pool_t* pool) {
+  IREE_ASSERT_ARGUMENT(pool);
+  return pool->host_allocator;
 }
 
 IREE_API_EXPORT void iree_hal_pool_query_capabilities(
@@ -441,7 +447,7 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_allocate_buffer(
           } else if (!capacity_wait) {
             // Only a failed fast attempt allocates cold wait state. Retry with
             // every source observed before submitting any asynchronous wait.
-            status = iree_hal_pool_wait_create(pool, pool->wait_allocator,
+            status = iree_hal_pool_wait_create(pool, pool->host_allocator,
                                                &capacity_wait);
           } else {
             status = iree_hal_pool_wait_for_capacity(capacity_wait, timeout);

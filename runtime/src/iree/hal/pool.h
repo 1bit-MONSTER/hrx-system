@@ -652,6 +652,15 @@ IREE_API_EXPORT bool iree_hal_pool_supports_import_class(
     const iree_hal_pool_t* pool,
     iree_hal_external_storage_class_t storage_class);
 
+// Returns the host allocator captured when |pool| was constructed.
+//
+// The allocator owns pool and buffer metadata and must remain valid until the
+// pool and every buffer allocated from it have been released. High-level
+// allocation helpers use this allocator for metadata paired with pool-backed
+// storage.
+IREE_API_EXPORT iree_allocator_t
+iree_hal_pool_host_allocator(const iree_hal_pool_t* pool);
+
 // Queries the memory capabilities of the pool. O(1); reads cached fields
 // computed at pool creation time.
 IREE_API_EXPORT void iree_hal_pool_query_capabilities(
@@ -850,8 +859,8 @@ struct iree_hal_pool_t {
   // Captured local and backing capacity sources, with duplicates removed.
   iree_hal_pool_wait_source_list_t wait_sources;
 
-  // Allocator for captured wait sources and cold synchronous wait helpers.
-  iree_allocator_t wait_allocator;
+  // Host allocator for pool metadata and cold synchronous wait helpers.
+  iree_allocator_t host_allocator;
 };
 
 // Initializes |out_pool| with one owning reference. Captures and retains the
