@@ -1976,8 +1976,7 @@ TEST_F(AllocatorTest, DeviceAllocationExportReportsHsaPointer) {
   EXPECT_EQ(logical_range.byte_offset, 0u);
   EXPECT_EQ(logical_range.byte_length, iree_hal_buffer_byte_length(buffer));
 
-  hsa_amd_pointer_info_t pointer_info = {};
-  pointer_info.size = sizeof(pointer_info);
+  hsa_amd_pointer_info_t pointer_info = {.size = sizeof(pointer_info)};
   IREE_ASSERT_OK(iree_hsa_amd_pointer_info(
       IREE_LIBHSA(&libhsa_),
       (const void*)(uintptr_t)external_buffer.payload.device_address,
