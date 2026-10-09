@@ -26,14 +26,14 @@ namespace {
 static constexpr iree_hal_queue_priority_t kQueuePriority =
     IREE_HAL_QUEUE_PRIORITY_NORMAL;
 static const iree_hal_queue_family_spec_t kQueueFamilySpec = [] {
-  iree_hal_queue_family_spec_t spec = {};
-  spec.name = IREE_SV("test");
-  spec.priority_count = 1;
-  spec.priorities = &kQueuePriority;
-  spec.physical_device_affinity = 1;
-  spec.role_flags = IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_DISPATCH |
+  iree_hal_queue_family_spec_t spec = {
+      .name = IREE_SV("test"),
+      .priority_count = 1,
+      .priorities = &kQueuePriority,
+      .physical_device_affinity = 1,
+      .role_flags = IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_DISPATCH |
                     IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_TRANSFER |
-                    IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_ATOMIC;
+                    IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_ATOMIC};
   return spec;
 }();
 
@@ -597,9 +597,8 @@ static iree_status_t InvokeAndSummarizeDispatchBlock(
     iree_hsa_fence_scope_t payload_acquire_scope,
     PacketHeaderSummary* out_summary) {
   alignas(64) iree_hal_amdgpu_aql_packet_t packets[8] = {};
-  iree_hal_amdgpu_aql_ring_t ring = {};
-  ring.base = packets;
-  ring.mask = IREE_ARRAYSIZE(packets) - 1u;
+  iree_hal_amdgpu_aql_ring_t ring = {.base = packets,
+                                     .mask = IREE_ARRAYSIZE(packets) - 1u};
   uint16_t packet_headers[DispatchCount] = {};
   uint16_t packet_setups[DispatchCount] = {};
   iree_hal_amdgpu_kernarg_block_t kernarg_blocks[DispatchCount] = {};
@@ -805,9 +804,8 @@ TEST(AqlBlockProcessorTest,
   CooperativeDispatchBlock block =
       MakeCooperativeDispatchBlock(IREE_HAL_AMDGPU_GRID_SYNC_STRATEGY_MEMORY);
   alignas(64) iree_hal_amdgpu_aql_packet_t packets[8] = {};
-  iree_hal_amdgpu_aql_ring_t ring = {};
-  ring.base = packets;
-  ring.mask = IREE_ARRAYSIZE(packets) - 1u;
+  iree_hal_amdgpu_aql_ring_t ring = {.base = packets,
+                                     .mask = IREE_ARRAYSIZE(packets) - 1u};
   uint16_t packet_headers[1] = {};
   uint16_t packet_setups[1] = {};
   iree_hal_amdgpu_kernarg_block_t
@@ -1209,9 +1207,8 @@ TEST(AqlBlockProcessorTest,
   ASSERT_NE(second_block, nullptr);
 
   alignas(64) iree_hal_amdgpu_aql_packet_t packets[8] = {};
-  iree_hal_amdgpu_aql_ring_t ring = {};
-  ring.base = packets;
-  ring.mask = IREE_ARRAYSIZE(packets) - 1u;
+  iree_hal_amdgpu_aql_ring_t ring = {.base = packets,
+                                     .mask = IREE_ARRAYSIZE(packets) - 1u};
 
   uint16_t first_packet_headers[4] = {};
   uint16_t first_packet_setups[4] = {};
@@ -1266,9 +1263,8 @@ TEST(AqlBlockProcessorTest, IndirectDispatchEmitsPatchThenUnpublishedDispatch) {
   IndirectDispatchBlock block = MakeIndirectDispatchBlock(workgroup_count);
 
   alignas(64) iree_hal_amdgpu_aql_packet_t packets[8] = {};
-  iree_hal_amdgpu_aql_ring_t ring = {};
-  ring.base = packets;
-  ring.mask = IREE_ARRAYSIZE(packets) - 1u;
+  iree_hal_amdgpu_aql_ring_t ring = {.base = packets,
+                                     .mask = IREE_ARRAYSIZE(packets) - 1u};
   uint16_t packet_headers[2] = {};
   uint16_t packet_setups[2] = {};
   iree_hal_amdgpu_kernarg_block_t kernarg_blocks[2] = {};
@@ -1331,9 +1327,8 @@ TEST(AqlBlockProcessorTest, IndirectDispatchSplitsCommandBarrierScopes) {
           IREE_HSA_FENCE_SCOPE_SYSTEM, IREE_HSA_FENCE_SCOPE_AGENT));
 
   alignas(64) iree_hal_amdgpu_aql_packet_t packets[8] = {};
-  iree_hal_amdgpu_aql_ring_t ring = {};
-  ring.base = packets;
-  ring.mask = IREE_ARRAYSIZE(packets) - 1u;
+  iree_hal_amdgpu_aql_ring_t ring = {.base = packets,
+                                     .mask = IREE_ARRAYSIZE(packets) - 1u};
   uint16_t packet_headers[2] = {};
   uint16_t packet_setups[2] = {};
   iree_hal_amdgpu_kernarg_block_t kernarg_blocks[2] = {};
@@ -1436,9 +1431,8 @@ TEST_F(AqlBlockProcessorRecordedTest, RecordedTransfersEmitBlitPackets) {
                                                          bindings.data()};
 
   alignas(64) iree_hal_amdgpu_aql_packet_t packets[8] = {};
-  iree_hal_amdgpu_aql_ring_t ring = {};
-  ring.base = packets;
-  ring.mask = IREE_ARRAYSIZE(packets) - 1u;
+  iree_hal_amdgpu_aql_ring_t ring = {.base = packets,
+                                     .mask = IREE_ARRAYSIZE(packets) - 1u};
   uint16_t packet_headers[3] = {};
   uint16_t packet_setups[3] = {};
   iree_hal_amdgpu_kernarg_block_t kernarg_blocks[3] = {};
@@ -1565,9 +1559,8 @@ TEST_F(AqlBlockProcessorRecordedTest, RecordedAtomicsEmitKernelPackets) {
   const iree_hal_buffer_binding_table_t binding_table = {/*count=*/1, &binding};
 
   alignas(64) iree_hal_amdgpu_aql_packet_t packets[8] = {};
-  iree_hal_amdgpu_aql_ring_t ring = {};
-  ring.base = packets;
-  ring.mask = IREE_ARRAYSIZE(packets) - 1u;
+  iree_hal_amdgpu_aql_ring_t ring = {.base = packets,
+                                     .mask = IREE_ARRAYSIZE(packets) - 1u};
   uint16_t packet_headers[3] = {};
   uint16_t packet_setups[3] = {};
   iree_hal_amdgpu_kernarg_block_t kernarg_blocks[3] = {};
@@ -1832,9 +1825,8 @@ TEST(AqlBlockProcessorTest, PacketHeadersHonorExplicitExecutionBarrier) {
   DispatchBlock<3> block = MakeDispatchBlock(dispatch_command_flags);
 
   alignas(64) iree_hal_amdgpu_aql_packet_t packets[8] = {};
-  iree_hal_amdgpu_aql_ring_t ring = {};
-  ring.base = packets;
-  ring.mask = IREE_ARRAYSIZE(packets) - 1u;
+  iree_hal_amdgpu_aql_ring_t ring = {.base = packets,
+                                     .mask = IREE_ARRAYSIZE(packets) - 1u};
   uint16_t packet_headers[3] = {};
   uint16_t packet_setups[3] = {};
   iree_hal_amdgpu_kernarg_block_t kernarg_blocks[3] = {};
