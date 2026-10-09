@@ -141,6 +141,7 @@ from loom.target.contracts.rules import (
     OrdinalValueAliasRule,
     RecipeRule,
     SourceNodeRelation,
+    UnsupportedRule,
     ValueAliasRule,
     ValueElideRule,
     contract_case_priority,
@@ -366,6 +367,8 @@ class _LowerRuleSetCompiler:
                 self._append_elide_rule(authored_case_index, contract_case)
             elif isinstance(contract_case, RecipeRule):
                 self._append_recipe_rule(authored_case_index, contract_case)
+            elif isinstance(contract_case, UnsupportedRule):
+                continue
 
         guard_ranges = [(rule.guard_start, rule.guard_count) for rule in self._rules]
         guard_ranges.extend(
