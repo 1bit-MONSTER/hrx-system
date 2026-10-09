@@ -637,14 +637,6 @@ hrx_status_t hrx_status_from_iree(iree_status_t iree_status);
 // Convert hrx_status_t back to iree_status_t and consume the hrx status.
 iree_status_t hrx_status_to_iree(hrx_status_t status);
 
-// Creates an exact-allocation pool using the caller's memory and progress
-// domain. Retains allocator/notification and borrows the group's tracker.
-iree_status_t hrx_iree_exact_pool_create(
-    iree_hal_allocator_t* allocator, iree_hal_buffer_params_t params,
-    iree_async_notification_t* notification,
-    iree_async_frontier_tracker_t* frontier_tracker,
-    iree_allocator_t host_allocator, iree_hal_pool_t** out_pool);
-
 #ifdef __cplusplus
 }
 #endif

@@ -14,6 +14,7 @@
 #include "common/memory.h"
 #include "common/stream.h"
 #include "common/stream_value.h"
+#include "libhrx/src/libhrx/mem_pool_backing.h"
 
 //===----------------------------------------------------------------------===//
 // Global state
@@ -134,12 +135,19 @@ iree_status_t iree_hal_streaming_context_create(
   // Initialize buffer mapping table.
   hrx_buffer_table_initialize(&context->buffer_table);
 
-  // Initialize the device timestamp slot pool.
+  // Initialize the device timestamp slot pool from a coherent host source.
+  iree_hal_pool_t* timestamp_memory_pool = NULL;
+  iree_status_t status = hrx_mem_pool_backing_retain_allocation_source(
+      device_entry->hrx_device, HRX_MEMORY_TYPE_HOST_LOCAL,
+      &timestamp_memory_pool);
   iree_hal_streaming_event_timestamp_pool_initialize(
-      context->device_allocator, host_allocator, &context->timestamp_pool);
+      timestamp_memory_pool, host_allocator, &context->timestamp_pool);
+  iree_hal_pool_release(timestamp_memory_pool);
 
-  iree_status_t status = iree_hal_streaming_device_select_primary_queue(
-      device_entry, &context->queue);
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_streaming_device_select_primary_queue(device_entry,
+                                                            &context->queue);
+  }
 
   // Create the context-wide event record timeline. Resource-partitioned
   // binding contexts share this timeline so primary-context synchronization

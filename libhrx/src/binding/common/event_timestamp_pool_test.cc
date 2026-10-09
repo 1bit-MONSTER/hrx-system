@@ -15,6 +15,7 @@
 #include "common/hrx_bridge.h"
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
+#include "iree/hal/memory/heap_pool.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "libhrx/src/libhrx/device.h"
@@ -61,98 +62,30 @@ struct CountingAllocator {
   }
 };
 
-// Forwards every buffer allocation to a delegate and keeps the parameters it
-// was asked for. What the pool asks for is the only part of a slab's memory it
-// controls: an allocator may return a buffer with more properties than the
-// request named - the heap allocator below always reports coherent, whatever
-// it was handed - so the request is where a coherence requirement is either
-// stated or silently dropped.
-struct RecordingAllocator {
-  // Base HAL resource, first so the HAL can cast between the two.
-  iree_hal_resource_t resource;
-  // Allocator every forwarded call is served by, retained.
-  iree_hal_allocator_t* delegate;
-  // Host allocator this wrapper's own storage came from.
-  iree_allocator_t host_allocator;
-  // Parameters of the most recent allocation, as the pool passed them.
-  iree_hal_buffer_params_t last_params;
-  // Allocations forwarded so far, so an empty recording cannot read as a
-  // satisfied assertion.
-  int allocation_count;
-};
-
-void RecordingAllocatorDestroy(iree_hal_allocator_t* base_allocator) {
-  auto* allocator = reinterpret_cast<RecordingAllocator*>(base_allocator);
-  iree_allocator_t host_allocator = allocator->host_allocator;
-  iree_hal_allocator_release(allocator->delegate);
-  iree_allocator_free(host_allocator, allocator);
-}
-
-iree_allocator_t RecordingAllocatorHostAllocator(
-    const iree_hal_allocator_t* base_allocator) {
-  return reinterpret_cast<const RecordingAllocator*>(base_allocator)
-      ->host_allocator;
-}
-
-iree_status_t RecordingAllocatorAllocateBuffer(
-    iree_hal_allocator_t* base_allocator,
-    const iree_hal_buffer_params_t* params, iree_device_size_t allocation_size,
-    iree_hal_buffer_t** out_buffer) {
-  auto* allocator = reinterpret_cast<RecordingAllocator*>(base_allocator);
-  allocator->last_params = *params;
-  ++allocator->allocation_count;
-  return iree_hal_allocator_allocate_buffer(allocator->delegate, *params,
-                                            allocation_size, out_buffer);
-}
-
-const iree_hal_allocator_vtable_t kRecordingAllocatorVtable = {
-    /*.destroy=*/RecordingAllocatorDestroy,
-    /*.host_allocator=*/RecordingAllocatorHostAllocator,
-    /*.trim=*/nullptr,
-    /*.query_statistics=*/nullptr,
-    /*.query_memory_heaps=*/nullptr,
-    /*.query_buffer_compatibility=*/nullptr,
-    /*.allocate_buffer=*/RecordingAllocatorAllocateBuffer,
-};
-
-// Retains |delegate|; the caller keeps its own reference to release.
-iree_status_t RecordingAllocatorCreate(iree_hal_allocator_t* delegate,
-                                       iree_allocator_t host_allocator,
-                                       RecordingAllocator** out_allocator) {
-  RecordingAllocator* allocator = nullptr;
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc(host_allocator, sizeof(*allocator),
-                                             (void**)&allocator));
-  iree_hal_resource_initialize(&kRecordingAllocatorVtable,
-                               &allocator->resource);
-  iree_hal_allocator_retain(delegate);
-  allocator->delegate = delegate;
-  allocator->host_allocator = host_allocator;
-  allocator->last_params = iree_hal_buffer_params_t{};
-  allocator->allocation_count = 0;
-  *out_allocator = allocator;
-  return iree_ok_status();
-}
-
-// Pool backed by the heap allocator, which serves the host-visible mappable
-// buffers the pool asks for, so everything but the device write is exercised.
-// One counting allocator backs every allocation either the pool or the heap
-// allocator makes, so the count is what standing this pool up costs.
+// Pool backed by a host heap. One counting allocator backs both payload and
+// metadata so the count exposes whether the timestamp pool grows lazily.
 class EventTimestampPoolTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    IREE_ASSERT_OK(iree_hal_allocator_create_heap(
-        iree_make_cstring_view("timestamp-pool-test"), counter_.AsAllocator(),
-        counter_.AsAllocator(), &device_allocator_));
+    const iree_hal_pool_host_access_t host_access = {
+        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+        /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED |
+            IREE_HAL_MAPPING_MODE_PERSISTENT,
+        /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+    };
+    IREE_ASSERT_OK(
+        iree_hal_heap_pool_create(host_access, counter_.AsAllocator(),
+                                  counter_.AsAllocator(), &memory_pool_));
     iree_hal_streaming_event_timestamp_pool_initialize(
-        device_allocator_, counter_.AsAllocator(), &pool_);
-    // Standing the allocator up is not something the pool asked for.
+        memory_pool_, counter_.AsAllocator(), &pool_);
+    // Source construction is not timestamp slab growth.
     counter_.allocation_count.store(0, std::memory_order_relaxed);
   }
 
   void TearDown() override {
     iree_hal_streaming_event_timestamp_pool_deinitialize(&pool_);
-    iree_hal_allocator_release(device_allocator_);
-    device_allocator_ = nullptr;
+    iree_hal_pool_release(memory_pool_);
+    memory_pool_ = nullptr;
   }
 
   iree_hal_streaming_event_timestamp_slot_t* Acquire() {
@@ -187,7 +120,7 @@ class EventTimestampPoolTest : public ::testing::Test {
   }
 
   CountingAllocator counter_;
-  iree_hal_allocator_t* device_allocator_ = nullptr;
+  iree_hal_pool_t* memory_pool_ = nullptr;
   iree_hal_streaming_event_timestamp_pool_t pool_ = {};
 };
 
@@ -392,7 +325,7 @@ TEST_F(EventTimestampPoolPendingTest,
        DeinitializeReleasesTheSlabsOnceEverySlotIsBack) {
   iree_hal_streaming_event_timestamp_pool_t pool = {};
   iree_hal_streaming_event_timestamp_pool_initialize(
-      device_allocator_, counter_.AsAllocator(), &pool);
+      memory_pool_, counter_.AsAllocator(), &pool);
 
   std::vector<iree_hal_streaming_event_timestamp_slot_t*> slots;
   slots.reserve(kSlotsSpanningSeveralSlabs);
@@ -474,45 +407,20 @@ TEST_F(EventTimestampPoolTest, ConcurrentHoldersNeverShareASlot) {
   EXPECT_EQ(kThreadCount * kSlotsPerThread, total);
 }
 
-// A record has the device write a tick into a slot at a queue point and the
-// host maps that slot back with no invalidate, so the slab has to be allocated
-// device-writable, host-coherent and mappable. Asking for less returns whatever
-// the host's cache holds, which is a wrong duration rather than an error.
-TEST(EventTimestampSlabTest, SlabsAreRequestedCoherentAndMappable) {
-  iree_hal_allocator_t* heap_allocator = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_create_heap(
-      iree_make_cstring_view("timestamp-slab-test"), iree_allocator_system(),
-      iree_allocator_system(), &heap_allocator));
-  RecordingAllocator* recorder = nullptr;
-  IREE_ASSERT_OK(RecordingAllocatorCreate(heap_allocator,
-                                          iree_allocator_system(), &recorder));
-  iree_hal_allocator_release(heap_allocator);
-
-  iree_hal_streaming_event_timestamp_pool_t pool = {};
-  iree_hal_streaming_event_timestamp_pool_initialize(
-      reinterpret_cast<iree_hal_allocator_t*>(recorder),
-      iree_allocator_system(), &pool);
-  iree_hal_streaming_event_timestamp_slot_t* slot = nullptr;
-  IREE_ASSERT_OK(iree_hal_streaming_event_timestamp_pool_acquire(&pool, &slot));
-
-  ASSERT_EQ(1, recorder->allocation_count)
-      << "the pool served a slot without allocating a slab, so the parameters "
-         "read below are not ones it asked for";
+// Timestamp storage inherits its mapping contract from the selected source;
+// allocation requests carry only slab geometry.
+TEST_F(EventTimestampPoolTest, SlabsInheritConfiguredHostAccess) {
+  const iree_hal_pool_host_access_t host_access =
+      iree_hal_pool_query_host_access(memory_pool_);
+  EXPECT_EQ(IREE_HAL_MEMORY_ACCESS_ALL, host_access.access);
   EXPECT_TRUE(iree_all_bits_set(
-      recorder->last_params.type,
-      IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE | IREE_HAL_MEMORY_TYPE_HOST_COHERENT))
-      << "a slab the device cannot write, or that the host does not see "
-         "coherently, reads back a tick from before the device's write";
-  EXPECT_TRUE(iree_all_bits_set(
-      recorder->last_params.usage,
-      IREE_HAL_BUFFER_USAGE_MAPPING | IREE_HAL_BUFFER_USAGE_TRANSFER))
-      << "the tick is read by mapping the slab and written by a queue "
-         "operation, and an allocation that asked for neither is refused for "
-         "the use it was made for";
+      host_access.modes,
+      IREE_HAL_MAPPING_MODE_SCOPED | IREE_HAL_MAPPING_MODE_PERSISTENT));
+  EXPECT_EQ(IREE_HAL_HOST_CACHEABILITY_WRITE_BACK, host_access.cacheability);
 
+  auto* slot = Acquire();
+  EXPECT_NE(nullptr, iree_hal_streaming_event_timestamp_slot_buffer(slot));
   iree_hal_streaming_event_timestamp_slot_release(slot, nullptr, 0);
-  iree_hal_streaming_event_timestamp_pool_deinitialize(&pool);
-  iree_hal_allocator_release(reinterpret_cast<iree_hal_allocator_t*>(recorder));
 }
 
 }  // namespace

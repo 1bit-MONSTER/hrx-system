@@ -6,6 +6,7 @@
 
 #include "hrx_runtime.h"
 #include "iree/base/threading/mutex.h"
+#include "iree/hal/buffer.h"
 #include "iree/hal/memory/tlsf_pool.h"
 
 #ifdef __cplusplus
@@ -30,6 +31,16 @@ typedef struct hrx_mem_pool_backing_t {
   iree_slim_mutex_t mutex;
   // Retained native storage cache, created on first pool allocation.
   iree_hal_pool_t* cache;
+  // Retained owned-allocation source for ordinary device storage.
+  iree_hal_pool_t* device_source;
+  // Retained owned-allocation source for uncached device storage.
+  iree_hal_pool_t* uncached_device_source;
+  // Retained owned-allocation source with required public host access.
+  iree_hal_pool_t* host_source;
+  // Retained import-only source for caller-owned host pointers.
+  iree_hal_pool_t* host_import_source;
+  // Retained import-only source for native device addresses.
+  iree_hal_pool_t* device_import_source;
   // Immutable child policy geometry selected with the cache's slab class.
   iree_hal_tlsf_pool_options_t pool_options;
   // Borrowed list of requests embedded in live public pools.
@@ -48,6 +59,22 @@ void hrx_mem_pool_backing_deinitialize(hrx_mem_pool_backing_t* backing);
 // The caller retains the device; construction acquires no native payload.
 iree_status_t hrx_mem_pool_backing_create_pool(hrx_device_t device,
                                                iree_hal_pool_t** out_pool);
+
+// Retains the device-owned source matching |memory_type| for an ordinary
+// allocation. The caller must release the returned pool. Host-local storage
+// receives required coherent host access; device-uncached storage receives a
+// hard uncached family requirement; all other storage prefers the device's
+// physical placement.
+iree_status_t hrx_mem_pool_backing_retain_allocation_source(
+    hrx_device_t device, hrx_memory_type_t memory_type,
+    iree_hal_pool_t** out_pool);
+
+// Retains the device-owned import-only source for |storage_class|. Portable
+// host pointers and native device addresses are the supported HRX interop
+// classes. The caller must release the returned pool.
+iree_status_t hrx_mem_pool_backing_retain_import_source(
+    hrx_device_t device, iree_hal_external_storage_class_t storage_class,
+    iree_hal_pool_t** out_pool);
 
 void hrx_mem_pool_backing_attach(hrx_mem_pool_backing_t* backing,
                                  hrx_mem_pool_retention_t* retention);

@@ -42,38 +42,29 @@ hrx_status_t hrx_allocator_allocate_buffer(hrx_allocator_t allocator,
   if (!iree_status_is_ok(status)) {
     HRX_RETURN_AND_END_ZONE(z0, hrx_status_from_iree(status));
   }
-  iree_hal_buffer_params_t hal_params = {
-      .usage = hrx_buffer_usage_for_device(allocator->device, params.usage),
-      .access = (iree_hal_memory_access_t)params.access,
-      .type = (iree_hal_memory_type_t)params.type,
-      .queue_family_affinity = queue_family_affinity,
-  };
+  (void)queue_family_affinity;
 
+  iree_hal_pool_t* pool = NULL;
   iree_hal_buffer_t* hal_buffer = NULL;
-  status =
-      iree_hal_allocator_allocate_buffer(allocator->hal_allocator, hal_params,
-                                         (iree_device_size_t)size, &hal_buffer);
+  status = hrx_mem_pool_backing_retain_allocation_source(allocator->device,
+                                                         params.type, &pool);
+  if (iree_status_is_ok(status)) {
+    const iree_hal_pool_reservation_request_t request =
+        iree_hal_make_pool_reservation_request((iree_device_size_t)size,
+                                               /*min_alignment=*/0);
+    status = iree_hal_pool_allocate_buffer(
+        pool, request, iree_infinite_timeout(), &hal_buffer);
+  }
+  iree_hal_pool_release(pool);
   if (!iree_status_is_ok(status)) {
     HRX_RETURN_AND_END_ZONE(z0, hrx_status_from_iree(status));
   }
 
-  hrx_buffer_t buf = NULL;
-  iree_status_t alloc_status = iree_allocator_malloc(
-      iree_allocator_system(), sizeof(hrx_buffer_s), (void**)&buf);
-  if (!iree_status_is_ok(alloc_status)) {
-    iree_hal_buffer_release(hal_buffer);
-    HRX_RETURN_AND_END_ZONE(z0, hrx_status_from_iree(alloc_status));
-  }
-
-  memset(buf, 0, sizeof(*buf));
-  iree_atomic_ref_count_init(&buf->ref_count);
-  buf->hal_buffer = hal_buffer;
-  buf->device = allocator->device;
-  hrx_device_retain(buf->device);
-  buf->mem_type = params.type;
-  buf->size = size;
-  *buffer = buf;
-  HRX_RETURN_AND_END_ZONE(z0, hrx_ok_status());
+  status = hrx_buffer_create_from_hal(hal_buffer, allocator->device,
+                                      params.type, size,
+                                      /*device_ptr=*/NULL, buffer);
+  iree_hal_buffer_release(hal_buffer);
+  HRX_RETURN_AND_END_ZONE(z0, hrx_status_from_iree(status));
 }
 
 hrx_status_t hrx_allocator_import_buffer(hrx_allocator_t allocator,
@@ -95,12 +86,7 @@ hrx_status_t hrx_allocator_import_buffer(hrx_allocator_t allocator,
   if (!iree_status_is_ok(status)) {
     HRX_RETURN_AND_END_ZONE(z0, hrx_status_from_iree(status));
   }
-  iree_hal_buffer_params_t hal_params = {
-      .usage = hrx_buffer_usage_for_device(allocator->device, params.usage),
-      .access = (iree_hal_memory_access_t)params.access,
-      .type = (iree_hal_memory_type_t)params.type,
-      .queue_family_affinity = queue_family_affinity,
-  };
+  (void)queue_family_affinity;
 
   iree_hal_external_storage_t ext = {
       .storage_class.type = IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER,
@@ -111,31 +97,24 @@ hrx_status_t hrx_allocator_import_buffer(hrx_allocator_t allocator,
           iree_hal_make_buffer_range(0, (iree_device_size_t)size),
   };
 
+  iree_hal_pool_t* pool = NULL;
   iree_hal_buffer_t* hal_buffer = NULL;
-  status = iree_hal_allocator_import_buffer(
-      allocator->hal_allocator, hal_params, &ext,
-      iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &hal_buffer);
+  status = hrx_mem_pool_backing_retain_import_source(allocator->device,
+                                                     ext.storage_class, &pool);
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_pool_import_buffer(
+        pool, &ext, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+        &hal_buffer);
+  }
+  iree_hal_pool_release(pool);
   if (!iree_status_is_ok(status)) {
     HRX_RETURN_AND_END_ZONE(z0, hrx_status_from_iree(status));
   }
 
-  hrx_buffer_t buf = NULL;
-  iree_status_t alloc_status = iree_allocator_malloc(
-      iree_allocator_system(), sizeof(hrx_buffer_s), (void**)&buf);
-  if (!iree_status_is_ok(alloc_status)) {
-    iree_hal_buffer_release(hal_buffer);
-    HRX_RETURN_AND_END_ZONE(z0, hrx_status_from_iree(alloc_status));
-  }
-
-  memset(buf, 0, sizeof(*buf));
-  iree_atomic_ref_count_init(&buf->ref_count);
-  buf->hal_buffer = hal_buffer;
-  buf->device = allocator->device;
-  hrx_device_retain(buf->device);
-  buf->mem_type = params.type;
-  buf->size = size;
-  *buffer = buf;
-  HRX_RETURN_AND_END_ZONE(z0, hrx_ok_status());
+  status = hrx_buffer_create_from_hal(hal_buffer, allocator->device,
+                                      params.type, size, host_ptr, buffer);
+  iree_hal_buffer_release(hal_buffer);
+  HRX_RETURN_AND_END_ZONE(z0, hrx_status_from_iree(status));
 }
 
 //===----------------------------------------------------------------------===//

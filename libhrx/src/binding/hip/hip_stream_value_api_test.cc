@@ -7,6 +7,7 @@
 #include <dlfcn.h>
 
 #include <algorithm>
+#include <array>
 #include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
@@ -474,6 +475,26 @@ class HipStreamValueApiTest : public testing::Test {
 };
 
 HipRuntimeApi HipStreamValueApiTest::api_;
+
+TEST_F(HipStreamValueApiTest, UncachedAllocationCopiesThroughPublicDso) {
+  constexpr size_t kSize = 257;
+  void* allocation = nullptr;
+  ASSERT_EQ(hipSuccess, api_.ext_malloc_with_flags(&allocation, kSize,
+                                                   hipDeviceMallocUncached));
+  ASSERT_NE(nullptr, allocation);
+  allocations_.push_back(allocation);
+
+  std::array<uint8_t, kSize> expected;
+  std::array<uint8_t, kSize> observed = {};
+  for (size_t i = 0; i < expected.size(); ++i) {
+    expected[i] = static_cast<uint8_t>(i * 17 + 3);
+  }
+  ASSERT_EQ(hipSuccess, api_.memcpy(allocation, expected.data(),
+                                    expected.size(), hipMemcpyHostToDevice));
+  ASSERT_EQ(hipSuccess, api_.memcpy(observed.data(), allocation,
+                                    observed.size(), hipMemcpyDeviceToHost));
+  EXPECT_EQ(expected, observed);
+}
 
 TEST_F(HipStreamValueApiTest, ExecutesScalarWritesThroughPublicDso) {
   hipStream_t stream = CreateStream();

@@ -67,6 +67,8 @@ typedef struct iree_hal_streaming_context_import_t {
   iree_hal_streaming_context_t* context;
   // Imported HAL buffer wrapper over the original allocation.
   iree_hal_buffer_t* buffer;
+  // Explicit source retained while |buffer| borrows its native policy.
+  iree_hal_pool_t* pool;
 } iree_hal_streaming_context_import_t;
 
 // Buffer wrapper for device memory.

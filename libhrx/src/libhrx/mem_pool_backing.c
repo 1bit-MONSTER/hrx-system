@@ -75,26 +75,60 @@ static iree_status_t hrx_mem_pool_query_range_length(
   return iree_ok_status();
 }
 
-// HRX's ordinary device memory is usable on every family of its device. Host
-// mapping is required for CPU storage and optional for GPU storage. Prefer the
-// dispatch device's memory ahead of optional host mapping on system memory or
-// another GPU.
+typedef enum hrx_mem_pool_source_kind_e {
+  HRX_MEM_POOL_SOURCE_DEVICE = 0,
+  HRX_MEM_POOL_SOURCE_UNCACHED_DEVICE,
+  HRX_MEM_POOL_SOURCE_HOST,
+  HRX_MEM_POOL_SOURCE_HOST_IMPORT,
+  HRX_MEM_POOL_SOURCE_DEVICE_IMPORT,
+} hrx_mem_pool_source_kind_t;
+
+static iree_hal_pool_t** hrx_mem_pool_backing_source_slot(
+    hrx_mem_pool_backing_t* backing, hrx_mem_pool_source_kind_t kind) {
+  switch (kind) {
+    case HRX_MEM_POOL_SOURCE_DEVICE:
+      return &backing->device_source;
+    case HRX_MEM_POOL_SOURCE_UNCACHED_DEVICE:
+      return &backing->uncached_device_source;
+    case HRX_MEM_POOL_SOURCE_HOST:
+      return &backing->host_source;
+    case HRX_MEM_POOL_SOURCE_HOST_IMPORT:
+      return &backing->host_import_source;
+    case HRX_MEM_POOL_SOURCE_DEVICE_IMPORT:
+      return &backing->device_import_source;
+  }
+  return NULL;
+}
+
+// HRX sources span every family of their device. Construction selects one
+// complete native policy; allocation and import then carry only geometry or
+// external storage. No source allocates payload until used.
 static iree_status_t hrx_mem_pool_backing_create_source(
-    hrx_device_t device, iree_hal_pool_t** out_pool) {
+    hrx_device_t device, hrx_mem_pool_source_kind_t kind,
+    iree_hal_pool_t** out_pool) {
   const iree_hal_device_queue_spec_t* queues =
       iree_hal_device_spec_queues(iree_hal_device_spec(device->hal_device));
   iree_hal_pool_family_access_t* families = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       iree_allocator_system(), queues->family_count * sizeof(*families),
       (void**)&families));
+  memset(families, 0, queues->family_count * sizeof(*families));
   for (iree_host_size_t i = 0; i < queues->family_count; ++i) {
     families[i].family = iree_hal_device_queue_family(device->hal_device, i);
     families[i].usage =
         IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH;
+    if (kind == HRX_MEM_POOL_SOURCE_UNCACHED_DEVICE) {
+      families[i].requirements = IREE_HAL_POOL_ACCESS_REQUIRE_UNCACHED;
+    } else if (kind == HRX_MEM_POOL_SOURCE_HOST ||
+               kind == HRX_MEM_POOL_SOURCE_HOST_IMPORT) {
+      families[i].requirements =
+          IREE_HAL_POOL_ACCESS_REQUIRE_COHERENT_WITH_HOST;
+    }
   }
   const iree_hal_pool_host_access_t host = {
       .access = IREE_HAL_MEMORY_ACCESS_ALL,
       .modes = IREE_HAL_MAPPING_MODE_SCOPED | IREE_HAL_MAPPING_MODE_PERSISTENT,
+      .cacheability = IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
   };
   iree_hal_pool_scope_t scope = {
       .family_count = queues->family_count,
@@ -102,11 +136,29 @@ static iree_status_t hrx_mem_pool_backing_create_source(
   };
   iree_hal_slab_pool_options_t options;
   iree_hal_slab_pool_options_initialize(&options);
-  options.trace_name = iree_make_cstring_view("hrx-mem-pool-source");
-  if (device->type == HRX_ACCELERATOR_CPU) {
+  const bool imports_host = kind == HRX_MEM_POOL_SOURCE_HOST_IMPORT;
+  const bool imports_device = kind == HRX_MEM_POOL_SOURCE_DEVICE_IMPORT;
+  const bool import_only = imports_host || imports_device;
+  iree_hal_pool_import_class_t import_class = {0};
+  if (import_only) {
+    import_class.storage_class = iree_hal_make_external_storage_class(
+        imports_host ? IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER
+                     : IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS);
+    options.owned.mode = IREE_HAL_SLAB_POOL_IMPORT_ONLY;
+    options.imports.class_count = 1;
+    options.imports.classes = &import_class;
+  }
+  const bool requires_host = kind == HRX_MEM_POOL_SOURCE_HOST || imports_host ||
+                             (kind == HRX_MEM_POOL_SOURCE_DEVICE &&
+                              device->type == HRX_ACCELERATOR_CPU);
+  if (requires_host) {
     scope.host = host;
-  } else {
+  } else if (!import_only && kind != HRX_MEM_POOL_SOURCE_UNCACHED_DEVICE) {
     options.preferences.host = host;
+  }
+  if ((kind == HRX_MEM_POOL_SOURCE_DEVICE ||
+       kind == HRX_MEM_POOL_SOURCE_UNCACHED_DEVICE) &&
+      device->type != HRX_ACCELERATOR_CPU) {
     const iree_hal_device_topology_info_t* topology_info =
         iree_hal_device_topology_info(device->hal_device);
     const iree_hal_queue_family_spec_t* dispatch_family =
@@ -127,6 +179,23 @@ static iree_status_t hrx_mem_pool_backing_create_source(
         break;
       }
     }
+  }
+  switch (kind) {
+    case HRX_MEM_POOL_SOURCE_DEVICE:
+      options.trace_name = iree_make_cstring_view("hrx-device-source");
+      break;
+    case HRX_MEM_POOL_SOURCE_UNCACHED_DEVICE:
+      options.trace_name = iree_make_cstring_view("hrx-uncached-source");
+      break;
+    case HRX_MEM_POOL_SOURCE_HOST:
+      options.trace_name = iree_make_cstring_view("hrx-host-source");
+      break;
+    case HRX_MEM_POOL_SOURCE_HOST_IMPORT:
+      options.trace_name = iree_make_cstring_view("hrx-host-import-source");
+      break;
+    case HRX_MEM_POOL_SOURCE_DEVICE_IMPORT:
+      options.trace_name = iree_make_cstring_view("hrx-device-import-source");
+      break;
   }
   iree_status_t status =
       iree_hal_slab_pool_create(device->hal_device_group, scope, &options,
@@ -157,8 +226,15 @@ static iree_status_t hrx_mem_pool_backing_ensure_cache_locked(
   options.trace_name = iree_make_cstring_view("hrx-mem-pool");
 
   iree_hal_pool_t* backing_pool = NULL;
-  iree_status_t status =
-      hrx_mem_pool_backing_create_source(device, &backing_pool);
+  iree_status_t status = iree_ok_status();
+  if (!backing->device_source) {
+    status = hrx_mem_pool_backing_create_source(
+        device, HRX_MEM_POOL_SOURCE_DEVICE, &backing->device_source);
+  }
+  if (iree_status_is_ok(status)) {
+    backing_pool = backing->device_source;
+    iree_hal_pool_retain(backing_pool);
+  }
   iree_hal_pool_t* backing_cache = NULL;
   if (iree_status_is_ok(status)) {
     iree_hal_slab_cache_options_t cache_options = {.max_count = UINT32_MAX};
@@ -189,7 +265,64 @@ void hrx_mem_pool_backing_deinitialize(hrx_mem_pool_backing_t* backing) {
   // Every attached pool retains the device containing this owner.
   IREE_ASSERT(!backing->retention_head);
   iree_hal_pool_release(backing->cache);
+  iree_hal_pool_release(backing->device_source);
+  iree_hal_pool_release(backing->uncached_device_source);
+  iree_hal_pool_release(backing->host_source);
+  iree_hal_pool_release(backing->host_import_source);
+  iree_hal_pool_release(backing->device_import_source);
   iree_slim_mutex_deinitialize(&backing->mutex);
+}
+
+static iree_status_t hrx_mem_pool_backing_retain_source(
+    hrx_device_t device, hrx_mem_pool_source_kind_t kind,
+    iree_hal_pool_t** out_pool) {
+  IREE_ASSERT_ARGUMENT(out_pool);
+  *out_pool = NULL;
+  hrx_mem_pool_backing_t* backing = &device->mem_pool_backing;
+  iree_slim_mutex_lock(&backing->mutex);
+  iree_hal_pool_t** source_slot =
+      hrx_mem_pool_backing_source_slot(backing, kind);
+  iree_status_t status = iree_ok_status();
+  if (!*source_slot) {
+    status = hrx_mem_pool_backing_create_source(device, kind, source_slot);
+  }
+  if (iree_status_is_ok(status)) {
+    *out_pool = *source_slot;
+    iree_hal_pool_retain(*out_pool);
+  }
+  iree_slim_mutex_unlock(&backing->mutex);
+  return status;
+}
+
+iree_status_t hrx_mem_pool_backing_retain_allocation_source(
+    hrx_device_t device, hrx_memory_type_t memory_type,
+    iree_hal_pool_t** out_pool) {
+  hrx_mem_pool_source_kind_t kind = HRX_MEM_POOL_SOURCE_DEVICE;
+  if (iree_all_bits_set(memory_type, HRX_MEMORY_TYPE_HOST_LOCAL)) {
+    kind = HRX_MEM_POOL_SOURCE_HOST;
+  } else if (iree_any_bit_set(memory_type, HRX_MEMORY_TYPE_DEVICE_UNCACHED)) {
+    kind = HRX_MEM_POOL_SOURCE_UNCACHED_DEVICE;
+  }
+  return hrx_mem_pool_backing_retain_source(device, kind, out_pool);
+}
+
+iree_status_t hrx_mem_pool_backing_retain_import_source(
+    hrx_device_t device, iree_hal_external_storage_class_t storage_class,
+    iree_hal_pool_t** out_pool) {
+  hrx_mem_pool_source_kind_t kind;
+  switch (storage_class.type) {
+    case IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER:
+      kind = HRX_MEM_POOL_SOURCE_HOST_IMPORT;
+      break;
+    case IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS:
+      kind = HRX_MEM_POOL_SOURCE_DEVICE_IMPORT;
+      break;
+    default:
+      return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                              "HRX has no source for external storage type %u",
+                              (uint32_t)storage_class.type);
+  }
+  return hrx_mem_pool_backing_retain_source(device, kind, out_pool);
 }
 
 iree_status_t hrx_mem_pool_backing_create_pool(hrx_device_t device,

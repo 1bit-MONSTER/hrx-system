@@ -37,8 +37,8 @@ typedef struct iree_hal_streaming_event_timestamp_slab_t
 // allocators are constant from initialize onward. Initialization and teardown
 // are exclusive to the context that owns the pool, so neither takes the mutex.
 typedef struct iree_hal_streaming_event_timestamp_pool_t {
-  // Allocator slab storage comes from, retained for the life of the pool.
-  iree_hal_allocator_t* device_allocator;
+  // Explicit coherent host-visible source, retained for the pool lifetime.
+  iree_hal_pool_t* memory_pool;
   // Allocator the host-side slab and slot records come from.
   iree_allocator_t host_allocator;
   // Guards every field below, and each slot record's list linkage and
@@ -58,10 +58,10 @@ typedef struct iree_hal_streaming_event_timestamp_pool_t {
   iree_host_size_t next_slab_slot_count;
 } iree_hal_streaming_event_timestamp_pool_t;
 
-// Initializes |out_pool| against |device_allocator|, which is retained. No
+// Initializes |out_pool| against |memory_pool|, which is retained. No
 // device memory is allocated until the first slot is acquired.
 void iree_hal_streaming_event_timestamp_pool_initialize(
-    iree_hal_allocator_t* device_allocator, iree_allocator_t host_allocator,
+    iree_hal_pool_t* memory_pool, iree_allocator_t host_allocator,
     iree_hal_streaming_event_timestamp_pool_t* out_pool);
 
 // Releases every slab and slot record owned by |pool|. A slot whose device
