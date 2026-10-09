@@ -381,21 +381,18 @@ static iree_status_t iree_hal_replay_dump_append_json_payload(
               iree_hal_replay_allocator_physical_memory_allocate_payload_t)));
       iree_hal_replay_allocator_physical_memory_allocate_payload_t payload;
       memcpy(&payload, record->payload.data, sizeof(payload));
-      if (IREE_UNLIKELY(payload.allocation.reserved0 != 0 ||
-                        payload.allocation.reserved1 != 0)) {
+      if (IREE_UNLIKELY(payload.reserved0 != 0)) {
         return iree_make_status(
             IREE_STATUS_DATA_LOSS,
-            "replay physical memory allocation reserved fields must be zero");
+            "replay physical memory allocation reserved field must be zero");
       }
       return iree_string_builder_append_format(
           builder,
           ",\"payload\":{\"allocation_size\":%" PRIu64
-          ",\"queue_family_affinity\":%" PRIu64 ",\"min_alignment\":%" PRIu64
-          ",\"usage\":%" PRIu32 ",\"type\":%" PRIu32 ",\"access\":%" PRIu16 "}",
-          payload.allocation.allocation_size,
-          payload.allocation.queue_family_affinity,
-          payload.allocation.min_alignment, payload.allocation.usage,
-          payload.allocation.type, payload.allocation.access);
+          ",\"queue_family_affinity\":%" PRIu64 ",\"usage\":%" PRIu32
+          ",\"type\":%" PRIu32 "}",
+          payload.allocation_size, payload.queue_family_affinity, payload.usage,
+          payload.type);
     }
     case IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_PHYSICAL_MEMORY_FREE: {
       IREE_RETURN_IF_ERROR(iree_hal_replay_dump_payload_length_check(

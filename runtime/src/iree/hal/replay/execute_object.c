@@ -1266,14 +1266,20 @@ static iree_status_t iree_hal_replay_executor_physical_memory_allocate(
   IREE_RETURN_IF_ERROR(iree_hal_replay_executor_lookup(
       executor, record->header.object_id, IREE_HAL_REPLAY_OBJECT_TYPE_ALLOCATOR,
       &allocator_entry));
-  iree_hal_buffer_params_t params;
-  IREE_RETURN_IF_ERROR(iree_hal_replay_executor_make_buffer_params(
-      &payload.allocation, &params));
+  if (IREE_UNLIKELY(payload.reserved0 != 0)) {
+    return iree_make_status(
+        IREE_STATUS_DATA_LOSS,
+        "replay physical allocation reserved field must be zero");
+  }
+  iree_hal_physical_memory_params_t params = {
+      .type = payload.type,
+      .usage = payload.usage,
+      .queue_family_affinity = payload.queue_family_affinity,
+  };
   iree_hal_physical_memory_t* physical_memory = NULL;
   IREE_RETURN_IF_ERROR(iree_hal_allocator_physical_memory_allocate(
-      allocator_entry->value.allocator, params,
-      payload.allocation.allocation_size, executor->host_allocator,
-      &physical_memory));
+      allocator_entry->value.allocator, params, payload.allocation_size,
+      executor->host_allocator, &physical_memory));
 
   iree_hal_allocator_retain(allocator_entry->value.allocator);
   iree_hal_replay_object_entry_t entry = {

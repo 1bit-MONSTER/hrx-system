@@ -95,32 +95,30 @@ static iree_status_t QueueReadbackAndWait(iree_hal_device_t* device,
   return iree_hal_buffer_unmap_range(&readback_mapping);
 }
 
-static iree_hal_buffer_params_t DeviceLocalVirtualMemoryParams() {
-  return (iree_hal_buffer_params_t){
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+static iree_hal_physical_memory_params_t DeviceLocalVirtualMemoryParams() {
+  return (iree_hal_physical_memory_params_t){
       /*.type=*/IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
       /*.queue_family_affinity=*/kQueueFamilyAffinity0,
   };
 }
 
-static iree_hal_buffer_params_t HostLocalVirtualMemoryParams() {
-  return (iree_hal_buffer_params_t){
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+static iree_hal_physical_memory_params_t HostLocalVirtualMemoryParams() {
+  return (iree_hal_physical_memory_params_t){
       /*.type=*/
       IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
       /*.queue_family_affinity=*/kQueueFamilyAffinity0,
   };
 }
 
-static iree_hal_buffer_params_t DeviceLocalHostVisibleVirtualMemoryParams() {
-  return (iree_hal_buffer_params_t){
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+static iree_hal_physical_memory_params_t
+DeviceLocalHostVisibleVirtualMemoryParams() {
+  return (iree_hal_physical_memory_params_t){
       /*.type=*/IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
           IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
           IREE_HAL_MEMORY_TYPE_HOST_COHERENT,
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
       /*.queue_family_affinity=*/kQueueFamilyAffinity0,
   };
 }
@@ -458,7 +456,8 @@ TEST_F(AllocatorTest, VirtualMemoryLifecycleUsesNativeState) {
   iree_hal_allocator_t* allocator = test_device.allocator();
   ASSERT_TRUE(iree_hal_allocator_supports_virtual_memory(allocator));
 
-  const iree_hal_buffer_params_t params = DeviceLocalVirtualMemoryParams();
+  const iree_hal_physical_memory_params_t params =
+      DeviceLocalVirtualMemoryParams();
   iree_device_size_t minimum_page_size = 0;
   iree_device_size_t recommended_page_size = 0;
   IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_query_granularity(
@@ -608,7 +607,7 @@ TEST_F(AllocatorTest, VirtualMemoryMapsMinimumGranuleAcrossPools) {
   iree_hal_allocator_t* allocator = test_device.allocator();
   ASSERT_TRUE(iree_hal_allocator_supports_virtual_memory(allocator));
 
-  const iree_hal_buffer_params_t device_params =
+  const iree_hal_physical_memory_params_t device_params =
       DeviceLocalVirtualMemoryParams();
   iree_device_size_t device_minimum_page_size = 0;
   iree_device_size_t device_recommended_page_size = 0;
@@ -618,7 +617,7 @@ TEST_F(AllocatorTest, VirtualMemoryMapsMinimumGranuleAcrossPools) {
   ASSERT_NE(0u, device_minimum_page_size);
   ASSERT_GE(device_recommended_page_size, device_minimum_page_size);
 
-  const iree_hal_buffer_params_t host_params =
+  const iree_hal_physical_memory_params_t host_params =
       DeviceLocalHostVisibleVirtualMemoryParams();
   iree_device_size_t host_minimum_page_size = 0;
   iree_device_size_t host_recommended_page_size = 0;
@@ -725,7 +724,7 @@ TEST_F(AllocatorTest,
   IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
   iree_hal_allocator_t* allocator = test_device.allocator();
 
-  iree_hal_buffer_params_t reservation_params =
+  iree_hal_physical_memory_params_t reservation_params =
       DeviceLocalVirtualMemoryParams();
   iree_device_size_t reservation_minimum_page_size = 0;
   iree_device_size_t reservation_recommended_page_size = 0;
@@ -735,7 +734,8 @@ TEST_F(AllocatorTest,
   ASSERT_NE(0u, reservation_minimum_page_size);
   ASSERT_GE(reservation_recommended_page_size, reservation_minimum_page_size);
 
-  iree_hal_buffer_params_t backing_params = DeviceLocalVirtualMemoryParams();
+  iree_hal_physical_memory_params_t backing_params =
+      DeviceLocalVirtualMemoryParams();
   backing_params.queue_family_affinity = backing_family_affinity;
   iree_device_size_t backing_minimum_page_size = 0;
   iree_device_size_t backing_recommended_page_size = 0;
@@ -792,7 +792,7 @@ TEST_F(AllocatorTest, VirtualMemoryMapsHostLocalBacking) {
   IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
   iree_hal_allocator_t* allocator = test_device.allocator();
 
-  const iree_hal_buffer_params_t reservation_params =
+  const iree_hal_physical_memory_params_t reservation_params =
       DeviceLocalVirtualMemoryParams();
   iree_device_size_t reservation_minimum_page_size = 0;
   iree_device_size_t reservation_recommended_page_size = 0;
@@ -800,7 +800,7 @@ TEST_F(AllocatorTest, VirtualMemoryMapsHostLocalBacking) {
       allocator, reservation_params, &reservation_minimum_page_size,
       &reservation_recommended_page_size));
 
-  const iree_hal_buffer_params_t backing_params =
+  const iree_hal_physical_memory_params_t backing_params =
       HostLocalVirtualMemoryParams();
   iree_device_size_t minimum_page_size = 0;
   iree_device_size_t recommended_page_size = 0;

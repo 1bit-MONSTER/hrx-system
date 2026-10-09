@@ -1129,12 +1129,12 @@ static iree_hal_buffer_usage_t iree_hal_vulkan_allocator_virtual_buffer_usage(
   return IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH;
 }
 
-static iree_hal_buffer_params_t iree_hal_vulkan_allocator_virtual_buffer_params(
+static iree_hal_physical_memory_params_t
+iree_hal_vulkan_allocator_virtual_memory_params(
     iree_hal_queue_family_affinity_t queue_family_affinity) {
-  return (iree_hal_buffer_params_t){
+  return (iree_hal_physical_memory_params_t){
       .type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE |
               IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
-      .access = IREE_HAL_MEMORY_ACCESS_ALL,
       .usage = iree_hal_vulkan_allocator_virtual_buffer_usage(),
       .queue_family_affinity = queue_family_affinity,
   };
@@ -1142,11 +1142,18 @@ static iree_hal_buffer_params_t iree_hal_vulkan_allocator_virtual_buffer_params(
 
 static iree_status_t iree_hal_vulkan_allocator_prepare_virtual_memory_params(
     const iree_hal_vulkan_allocator_t* allocator,
-    iree_hal_buffer_params_t* params) {
+    iree_hal_physical_memory_params_t* params,
+    iree_hal_buffer_params_t* out_buffer_params) {
   IREE_RETURN_IF_ERROR(
       iree_hal_vulkan_allocator_require_virtual_memory(allocator));
-  iree_hal_buffer_params_canonicalize(params);
-  if (!iree_hal_vulkan_allocator_strip_optional_mapping(params)) {
+  iree_hal_physical_memory_params_canonicalize(params);
+  *out_buffer_params = (iree_hal_buffer_params_t){
+      .usage = params->usage,
+      .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      .type = params->type,
+      .queue_family_affinity = params->queue_family_affinity,
+  };
+  if (!iree_hal_vulkan_allocator_strip_optional_mapping(out_buffer_params)) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "Vulkan sparse virtual memory cannot satisfy required mapping usage");
@@ -2276,7 +2283,7 @@ static bool iree_hal_vulkan_allocator_supports_virtual_memory(
 
 static iree_status_t iree_hal_vulkan_allocator_virtual_memory_query_granularity(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
-    iree_hal_buffer_params_t params,
+    iree_hal_physical_memory_params_t params,
     iree_device_size_t* IREE_RESTRICT out_minimum_page_size,
     iree_device_size_t* IREE_RESTRICT out_recommended_page_size) {
   *out_minimum_page_size = 0;
@@ -2284,14 +2291,15 @@ static iree_status_t iree_hal_vulkan_allocator_virtual_memory_query_granularity(
   iree_hal_vulkan_allocator_t* allocator =
       iree_hal_vulkan_allocator_cast(base_allocator);
 
+  iree_hal_buffer_params_t buffer_params;
   iree_status_t status =
-      iree_hal_vulkan_allocator_prepare_virtual_memory_params(allocator,
-                                                              &params);
+      iree_hal_vulkan_allocator_prepare_virtual_memory_params(
+          allocator, &params, &buffer_params);
   VkBuffer handle = VK_NULL_HANDLE;
   VkMemoryRequirements memory_requirements = {0};
   if (iree_status_is_ok(status)) {
     status = iree_hal_vulkan_allocator_create_sparse_virtual_handle(
-        allocator, &params, /*allocation_size=*/4, &handle,
+        allocator, &buffer_params, /*allocation_size=*/4, &handle,
         &memory_requirements);
   }
   if (iree_status_is_ok(status)) {
@@ -2325,11 +2333,12 @@ static iree_status_t iree_hal_vulkan_allocator_virtual_memory_reserve(
         "Vulkan virtual memory reservations must be non-zero");
   }
 
-  iree_hal_buffer_params_t params =
-      iree_hal_vulkan_allocator_virtual_buffer_params(queue_family_affinity);
+  iree_hal_physical_memory_params_t params =
+      iree_hal_vulkan_allocator_virtual_memory_params(queue_family_affinity);
+  iree_hal_buffer_params_t buffer_params;
   iree_status_t status =
-      iree_hal_vulkan_allocator_prepare_virtual_memory_params(allocator,
-                                                              &params);
+      iree_hal_vulkan_allocator_prepare_virtual_memory_params(
+          allocator, &params, &buffer_params);
 
   iree_hal_vulkan_allocator_memory_placement_t memory_placement;
   memset(&memory_placement, 0, sizeof(memory_placement));
@@ -2337,7 +2346,7 @@ static iree_status_t iree_hal_vulkan_allocator_virtual_memory_reserve(
   VkMemoryRequirements memory_requirements = {0};
   if (iree_status_is_ok(status)) {
     status = iree_hal_vulkan_allocator_create_sparse_virtual_handle(
-        allocator, &params, size, &handle, &memory_requirements);
+        allocator, &buffer_params, size, &handle, &memory_requirements);
   }
   if (iree_status_is_ok(status)) {
     status = iree_hal_vulkan_allocator_validate_sparse_page_size(
@@ -2350,22 +2359,23 @@ static iree_status_t iree_hal_vulkan_allocator_virtual_memory_reserve(
   }
   if (iree_status_is_ok(status) &&
       !iree_hal_vulkan_allocator_resolve_memory_placement(
-          allocator, memory_requirements.memoryTypeBits, &params,
+          allocator, memory_requirements.memoryTypeBits, &buffer_params,
           &memory_placement)) {
-    status = iree_hal_vulkan_allocator_make_buffer_params_status(&params);
+    status =
+        iree_hal_vulkan_allocator_make_buffer_params_status(&buffer_params);
   }
 
   iree_hal_buffer_t* virtual_buffer = NULL;
   if (iree_status_is_ok(status)) {
     const iree_hal_buffer_placement_t placement = {
         .device = allocator->parent_device,
-        .queue_family_affinity = params.queue_family_affinity,
+        .queue_family_affinity = buffer_params.queue_family_affinity,
         .flags = IREE_HAL_BUFFER_PLACEMENT_FLAG_NONE,
     };
     status = iree_hal_vulkan_sparse_buffer_create_unbound(
         &allocator->syms, allocator->logical_device, placement,
-        memory_placement.memory_type, params.access, params.usage, size, size,
-        handle, memory_requirements, allocator->host_allocator,
+        memory_placement.memory_type, buffer_params.access, buffer_params.usage,
+        size, size, handle, memory_requirements, allocator->host_allocator,
         &virtual_buffer);
     if (iree_status_is_ok(status)) {
       handle = VK_NULL_HANDLE;
@@ -2412,7 +2422,7 @@ static iree_status_t iree_hal_vulkan_allocator_virtual_memory_release(
 
 static iree_status_t iree_hal_vulkan_allocator_physical_memory_allocate(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
-    iree_hal_buffer_params_t params, iree_device_size_t size,
+    iree_hal_physical_memory_params_t params, iree_device_size_t size,
     iree_allocator_t host_allocator,
     iree_hal_physical_memory_t** IREE_RESTRICT out_physical_memory) {
   *out_physical_memory = NULL;
@@ -2424,14 +2434,15 @@ static iree_status_t iree_hal_vulkan_allocator_physical_memory_allocate(
         "Vulkan physical memory allocations must be non-zero");
   }
 
+  iree_hal_buffer_params_t buffer_params;
   iree_status_t status =
-      iree_hal_vulkan_allocator_prepare_virtual_memory_params(allocator,
-                                                              &params);
+      iree_hal_vulkan_allocator_prepare_virtual_memory_params(
+          allocator, &params, &buffer_params);
   VkBuffer scratch_handle = VK_NULL_HANDLE;
   VkMemoryRequirements memory_requirements = {0};
   if (iree_status_is_ok(status)) {
     status = iree_hal_vulkan_allocator_create_sparse_virtual_handle(
-        allocator, &params, size, &scratch_handle, &memory_requirements);
+        allocator, &buffer_params, size, &scratch_handle, &memory_requirements);
   }
   if (iree_status_is_ok(status)) {
     status = iree_hal_vulkan_allocator_validate_sparse_page_size(
@@ -2448,9 +2459,10 @@ static iree_status_t iree_hal_vulkan_allocator_physical_memory_allocate(
   memset(&memory_placement, 0, sizeof(memory_placement));
   if (iree_status_is_ok(status) &&
       !iree_hal_vulkan_allocator_resolve_memory_placement(
-          allocator, memory_requirements.memoryTypeBits, &params,
+          allocator, memory_requirements.memoryTypeBits, &buffer_params,
           &memory_placement)) {
-    status = iree_hal_vulkan_allocator_make_buffer_params_status(&params);
+    status =
+        iree_hal_vulkan_allocator_make_buffer_params_status(&buffer_params);
   }
   if (scratch_handle) {
     iree_vkDestroyBuffer(IREE_VULKAN_DEVICE(&allocator->syms),

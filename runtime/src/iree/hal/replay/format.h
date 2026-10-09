@@ -19,9 +19,9 @@ extern "C" {
 // Magic header bytes for IREE HAL replay files: "IRRP".
 #define IREE_HAL_REPLAY_FILE_MAGIC 0x50525249u
 
-// Major version of the IREE HAL replay file format. Version 11 replaces legacy
-// external-buffer flags with an exact external-storage transport type.
-#define IREE_HAL_REPLAY_FILE_VERSION_MAJOR 11u
+// Major version of the IREE HAL replay file format. Version 12 separates
+// physical-memory requests from ordinary buffer-allocation policy.
+#define IREE_HAL_REPLAY_FILE_VERSION_MAJOR 12u
 
 // Minor version of the IREE HAL replay file format. Minor version 5 adds
 // explicit memory transition recipes to barrier records.
@@ -346,12 +346,20 @@ static_assert(
 
 // Payload describing a physical memory allocation request.
 typedef struct iree_hal_replay_allocator_physical_memory_allocate_payload_t {
-  // Canonical allocation parameters and requested physical allocation size.
-  iree_hal_replay_allocator_allocate_buffer_payload_t allocation;
+  // Requested physical allocation size, in bytes.
+  uint64_t allocation_size;
+  // Queue families permitted to map and access the allocation.
+  uint64_t queue_family_affinity;
+  // Intended buffer usages for mapped virtual ranges.
+  uint32_t usage;
+  // Required physical memory type bits.
+  uint32_t type;
+  // Reserved for future use; must be zero.
+  uint64_t reserved0;
 } iree_hal_replay_allocator_physical_memory_allocate_payload_t;
 static_assert(
-    sizeof(iree_hal_replay_allocator_physical_memory_allocate_payload_t) == 40,
-    "physical memory allocate replay payload must be 40 bytes");
+    sizeof(iree_hal_replay_allocator_physical_memory_allocate_payload_t) == 32,
+    "physical memory allocate replay payload must be 32 bytes");
 
 // Payload identifying a physical memory handle being freed.
 typedef struct iree_hal_replay_allocator_physical_memory_free_payload_t {

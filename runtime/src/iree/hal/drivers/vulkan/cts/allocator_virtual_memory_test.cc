@@ -13,8 +13,8 @@ namespace iree::hal::cts {
 
 class VulkanVirtualMemoryTest : public CtsTestBase<> {};
 
-static iree_hal_buffer_params_t DeviceLocalVirtualMemoryParams() {
-  iree_hal_buffer_params_t params = {0};
+static iree_hal_physical_memory_params_t DeviceLocalVirtualMemoryParams() {
+  iree_hal_physical_memory_params_t params = {0};
   params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE |
                 IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
   params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE;
@@ -22,7 +22,7 @@ static iree_hal_buffer_params_t DeviceLocalVirtualMemoryParams() {
 }
 
 static iree_device_size_t QueryRecommendedPageSize(
-    iree_hal_allocator_t* allocator, iree_hal_buffer_params_t params) {
+    iree_hal_allocator_t* allocator, iree_hal_physical_memory_params_t params) {
   iree_device_size_t minimum_page_size = 0;
   iree_device_size_t recommended_page_size = 0;
   IREE_EXPECT_OK(iree_hal_allocator_virtual_memory_query_granularity(
@@ -88,7 +88,7 @@ TEST_P(VulkanVirtualMemoryTest, ReserveMapTransferUnmap) {
     GTEST_SKIP() << "Vulkan sparse virtual memory is not available";
   }
 
-  iree_hal_buffer_params_t params = DeviceLocalVirtualMemoryParams();
+  iree_hal_physical_memory_params_t params = DeviceLocalVirtualMemoryParams();
   const iree_hal_queue_family_ordinal_t reservation_family_ordinal =
       iree_hal_queue_family_ordinal(iree_hal_queue_family(transfer_queue_));
   const iree_hal_queue_family_affinity_t reservation_family_affinity =
@@ -216,7 +216,7 @@ TEST_P(VulkanVirtualMemoryTest, MappingsMustBeUnmappedBeforeReleaseOrFree) {
     GTEST_SKIP() << "Vulkan sparse virtual memory is not available";
   }
 
-  iree_hal_buffer_params_t params = DeviceLocalVirtualMemoryParams();
+  iree_hal_physical_memory_params_t params = DeviceLocalVirtualMemoryParams();
   iree_device_size_t recommended_page_size =
       QueryRecommendedPageSize(device_allocator_, params);
   ASSERT_NE(0u, recommended_page_size);

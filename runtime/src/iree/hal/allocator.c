@@ -297,7 +297,7 @@ IREE_API_EXPORT bool iree_hal_allocator_supports_virtual_memory(
 IREE_API_EXPORT iree_status_t
 iree_hal_allocator_virtual_memory_query_granularity(
     iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_params_t params,
+    iree_hal_physical_memory_params_t params,
     iree_device_size_t* IREE_RESTRICT out_minimum_page_size,
     iree_device_size_t* IREE_RESTRICT out_recommended_page_size) {
   IREE_ASSERT_ARGUMENT(allocator);
@@ -343,7 +343,7 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_virtual_memory_release(
 
 IREE_API_EXPORT iree_status_t iree_hal_allocator_physical_memory_allocate(
     iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_params_t params, iree_device_size_t size,
+    iree_hal_physical_memory_params_t params, iree_device_size_t size,
     iree_allocator_t host_allocator,
     iree_hal_physical_memory_t** IREE_RESTRICT out_physical_memory) {
   IREE_ASSERT_ARGUMENT(allocator);

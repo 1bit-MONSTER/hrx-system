@@ -813,27 +813,35 @@ static iree_status_t iree_hal_amdgpu_allocator_require_virtual_memory(
       "enabled");
 }
 
-static iree_hal_buffer_params_t iree_hal_amdgpu_allocator_virtual_buffer_params(
+static iree_hal_physical_memory_params_t
+iree_hal_amdgpu_allocator_virtual_memory_params(
     iree_hal_queue_family_affinity_t queue_family_affinity) {
-  return (iree_hal_buffer_params_t){
+  return (iree_hal_physical_memory_params_t){
       .type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE |
               IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
-      .access = IREE_HAL_MEMORY_ACCESS_ALL,
       .usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH,
       .queue_family_affinity = queue_family_affinity,
   };
 }
 
 static iree_status_t iree_hal_amdgpu_allocator_resolve_virtual_memory_placement(
-    iree_hal_amdgpu_allocator_t* allocator, iree_hal_buffer_params_t* params,
+    iree_hal_amdgpu_allocator_t* allocator,
+    iree_hal_physical_memory_params_t* params,
     iree_hal_amdgpu_virtual_memory_placement_t* out_placement) {
   IREE_RETURN_IF_ERROR(
       iree_hal_amdgpu_allocator_require_virtual_memory(allocator));
-  iree_hal_buffer_params_canonicalize(params);
+  iree_hal_physical_memory_params_canonicalize(params);
+
+  iree_hal_buffer_params_t buffer_params = {
+      .usage = params->usage,
+      .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      .type = params->type,
+      .queue_family_affinity = params->queue_family_affinity,
+  };
 
   iree_hal_amdgpu_allocator_placement_t memory_placement;
   if (!iree_hal_amdgpu_allocator_resolve_placement(
-          allocator, params, /*allow_vmm_host_access=*/true,
+          allocator, &buffer_params, /*allow_vmm_host_access=*/true,
           &memory_placement)) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
@@ -867,9 +875,9 @@ static iree_status_t iree_hal_amdgpu_allocator_resolve_virtual_memory_placement(
   *out_placement = (iree_hal_amdgpu_virtual_memory_placement_t){
       .memory_pool = memory_placement.memory_pool->memory_pool,
       .device = (iree_hal_device_t*)allocator->logical_device,
-      .queue_family_affinity = params->queue_family_affinity,
+      .queue_family_affinity = buffer_params.queue_family_affinity,
       .memory_type = memory_placement.memory_type,
-      .buffer_usage = params->usage,
+      .buffer_usage = buffer_params.usage,
       .atomic_memory_cells = memory_placement.atomic_memory_cells,
       .atomic_memory_source_masks =
           &memory_placement.memory_pool->atomic_memory_source_masks,
@@ -2152,7 +2160,7 @@ static bool iree_hal_amdgpu_allocator_supports_virtual_memory(
 
 static iree_status_t iree_hal_amdgpu_allocator_virtual_memory_query_granularity(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
-    iree_hal_buffer_params_t params,
+    iree_hal_physical_memory_params_t params,
     iree_device_size_t* IREE_RESTRICT out_minimum_page_size,
     iree_device_size_t* IREE_RESTRICT out_recommended_page_size) {
   IREE_ASSERT_ARGUMENT(out_minimum_page_size);
@@ -2179,8 +2187,8 @@ static iree_status_t iree_hal_amdgpu_allocator_virtual_memory_reserve(
   *out_virtual_buffer = NULL;
   iree_hal_amdgpu_allocator_t* allocator =
       iree_hal_amdgpu_allocator_cast(base_allocator);
-  iree_hal_buffer_params_t params =
-      iree_hal_amdgpu_allocator_virtual_buffer_params(queue_family_affinity);
+  iree_hal_physical_memory_params_t params =
+      iree_hal_amdgpu_allocator_virtual_memory_params(queue_family_affinity);
   iree_hal_amdgpu_virtual_memory_placement_t placement;
   IREE_RETURN_IF_ERROR(
       iree_hal_amdgpu_allocator_resolve_virtual_memory_placement(
@@ -2202,7 +2210,7 @@ static iree_status_t iree_hal_amdgpu_allocator_virtual_memory_release(
 
 static iree_status_t iree_hal_amdgpu_allocator_physical_memory_allocate(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
-    iree_hal_buffer_params_t params, iree_device_size_t size,
+    iree_hal_physical_memory_params_t params, iree_device_size_t size,
     iree_allocator_t host_allocator,
     iree_hal_physical_memory_t** IREE_RESTRICT out_physical_memory) {
   IREE_ASSERT_ARGUMENT(out_physical_memory);

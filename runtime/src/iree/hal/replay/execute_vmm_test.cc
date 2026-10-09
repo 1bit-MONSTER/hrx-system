@@ -47,7 +47,7 @@ typedef struct VmmAllocatorState {
   bool is_mapped = false;
   iree_hal_queue_family_affinity_t reserve_queue_family_affinity = 0;
   iree_device_size_t reserve_size = 0;
-  iree_hal_buffer_params_t physical_params = {};
+  iree_hal_physical_memory_params_t physical_params = {};
   iree_device_size_t physical_size = 0;
   iree_device_size_t map_virtual_offset = 0;
   iree_device_size_t map_physical_offset = 0;
@@ -100,7 +100,8 @@ static bool vmm_test_allocator_supports_virtual_memory(
 }
 
 static iree_status_t vmm_test_allocator_query_granularity(
-    iree_hal_allocator_t* base_allocator, iree_hal_buffer_params_t params,
+    iree_hal_allocator_t* base_allocator,
+    iree_hal_physical_memory_params_t params,
     iree_device_size_t* out_minimum_page_size,
     iree_device_size_t* out_recommended_page_size) {
   (void)base_allocator;
@@ -158,8 +159,9 @@ static iree_status_t vmm_test_allocator_virtual_memory_release(
 }
 
 static iree_status_t vmm_test_allocator_physical_memory_allocate(
-    iree_hal_allocator_t* base_allocator, iree_hal_buffer_params_t params,
-    iree_device_size_t size, iree_allocator_t host_allocator,
+    iree_hal_allocator_t* base_allocator,
+    iree_hal_physical_memory_params_t params, iree_device_size_t size,
+    iree_allocator_t host_allocator,
     iree_hal_physical_memory_t** out_physical_memory) {
   VmmAllocatorState* state = vmm_test_allocator_cast(base_allocator)->state;
   ++state->physical_allocate_attempt_count;
@@ -419,13 +421,10 @@ class ReplayVmmExecutionTest : public ::testing::Test {
 
   void AllocatePhysical(OperationRecord* record, bool unaligned = false) {
     iree_hal_replay_allocator_physical_memory_allocate_payload_t payload = {};
-    payload.allocation.allocation_size = kReservationSize;
-    payload.allocation.queue_family_affinity = kQueueFamilyAffinity;
-    payload.allocation.min_alignment = 4096;
-    payload.allocation.usage = IREE_HAL_BUFFER_USAGE_STORAGE;
-    payload.allocation.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-    payload.allocation.access =
-        IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE;
+    payload.allocation_size = kReservationSize;
+    payload.queue_family_affinity = kQueueFamilyAffinity;
+    payload.usage = IREE_HAL_BUFFER_USAGE_STORAGE;
+    payload.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
     record->Reset(
         IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,
         IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,
@@ -656,7 +655,7 @@ TEST_F(ReplayVmmExecutionTest, BackendFailuresRetainRetryableObjects) {
   state_.fail_physical_allocate = true;
   iree_hal_replay_allocator_physical_memory_allocate_payload_t
       allocate_payload = {};
-  allocate_payload.allocation.allocation_size = kReservationSize;
+  allocate_payload.allocation_size = kReservationSize;
   record.Reset(
       IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,
       IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,

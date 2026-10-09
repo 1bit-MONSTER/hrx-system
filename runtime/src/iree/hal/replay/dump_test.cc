@@ -542,12 +542,10 @@ static std::vector<uint8_t> MakeVmmReplayFileStorage() {
       release);
 
   iree_hal_replay_allocator_physical_memory_allocate_payload_t allocate = {};
-  allocate.allocation.allocation_size = 8192;
-  allocate.allocation.queue_family_affinity = 5;
-  allocate.allocation.min_alignment = 4096;
-  allocate.allocation.usage = 0x10;
-  allocate.allocation.type = 0x20;
-  allocate.allocation.access = 0x3;
+  allocate.allocation_size = 8192;
+  allocate.queue_family_affinity = 5;
+  allocate.usage = 0x10;
+  allocate.type = 0x20;
   builder.Append(
       MakeAllocatorOperationMetadata(
           3, IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,
@@ -654,7 +652,7 @@ TEST(ReplayDumpTest, EmitsJsonlWithPayloadRanges) {
   EXPECT_THAT(output, HasSubstr("\"allocation_size\":256"));
 }
 
-TEST(ReplayDumpTest, DefinesV71VmmWireSchema) {
+TEST(ReplayDumpTest, DefinesVmmWireSchema) {
   EXPECT_EQ(9u, IREE_HAL_REPLAY_OBJECT_TYPE_PHYSICAL_MEMORY);
   EXPECT_STREQ("physical_memory",
                iree_hal_replay_object_type_string(
@@ -728,7 +726,7 @@ TEST(ReplayDumpTest, DefinesV71VmmWireSchema) {
   EXPECT_EQ(8u,
             sizeof(iree_hal_replay_allocator_virtual_memory_release_payload_t));
   EXPECT_EQ(
-      40u,
+      32u,
       sizeof(iree_hal_replay_allocator_physical_memory_allocate_payload_t));
   EXPECT_EQ(8u,
             sizeof(iree_hal_replay_allocator_physical_memory_free_payload_t));
@@ -1727,14 +1725,7 @@ TEST(ReplayDumpTest, RejectsReservedVmmPayloadFields) {
   };
 
   iree_hal_replay_allocator_physical_memory_allocate_payload_t allocate = {};
-  allocate.allocation.reserved0 = 1;
-  expect_rejected(
-      IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,
-      IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,
-      allocate);
-
-  allocate.allocation.reserved0 = 0;
-  allocate.allocation.reserved1 = 1;
+  allocate.reserved0 = 1;
   expect_rejected(
       IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,
       IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,

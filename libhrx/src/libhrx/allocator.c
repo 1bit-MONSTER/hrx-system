@@ -163,10 +163,9 @@ hrx_status_t hrx_allocator_query_virtual_memory(hrx_allocator_t allocator,
     return hrx_ok_status();
   }
 
-  iree_hal_buffer_params_t hal_params = {
-      .usage = IREE_HAL_BUFFER_USAGE_DEFAULT,
-      .access = IREE_HAL_MEMORY_ACCESS_ALL,
+  iree_hal_physical_memory_params_t hal_params = {
       .type = (iree_hal_memory_type_t)mem_type,
+      .usage = IREE_HAL_BUFFER_USAGE_DEFAULT,
   };
   iree_device_size_t hal_minimum_page_size = 0;
   iree_device_size_t hal_recommended_page_size = 0;
@@ -260,10 +259,9 @@ hrx_status_t hrx_allocator_physical_memory_allocate(
   if (!allocator || !physical) {
     return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT, "NULL argument");
   }
-  iree_hal_buffer_params_t hal_params = {
-      .usage = IREE_HAL_BUFFER_USAGE_DEFAULT,
-      .access = IREE_HAL_MEMORY_ACCESS_ALL,
+  iree_hal_physical_memory_params_t hal_params = {
       .type = (iree_hal_memory_type_t)mem_type,
+      .usage = IREE_HAL_BUFFER_USAGE_DEFAULT,
   };
   return hrx_status_from_iree(iree_hal_allocator_physical_memory_allocate(
       allocator->hal_allocator, hal_params, (iree_device_size_t)size,

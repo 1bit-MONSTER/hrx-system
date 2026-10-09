@@ -322,8 +322,8 @@ class BdaSpirvTest : public CtsTestBase<> {
   iree_hal_executable_t* executable_ = nullptr;
 };
 
-static iree_hal_buffer_params_t SparseDispatchBufferParams() {
-  iree_hal_buffer_params_t params = {0};
+static iree_hal_physical_memory_params_t SparseDispatchMemoryParams() {
+  iree_hal_physical_memory_params_t params = {0};
   params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE |
                 IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
   params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE;
@@ -1159,7 +1159,7 @@ TEST_P(BdaSpirvTest, CommandBufferExecutesBdaShaderWithSparseBindings) {
     GTEST_SKIP() << "Vulkan sparse virtual memory is not available";
   }
 
-  iree_hal_buffer_params_t params = SparseDispatchBufferParams();
+  iree_hal_physical_memory_params_t params = SparseDispatchMemoryParams();
   iree_device_size_t minimum_page_size = 0;
   iree_device_size_t recommended_page_size = 0;
   IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_query_granularity(

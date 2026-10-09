@@ -123,6 +123,41 @@ iree_hal_buffer_compatibility_format(iree_hal_buffer_compatibility_t value,
 // mapped to a virtual address space.
 typedef struct iree_hal_physical_memory_t iree_hal_physical_memory_t;
 
+// Describes physical memory selected for virtual-memory mappings.
+//
+// Physical memory has no independently accessible HAL buffer range. Access
+// permissions are assigned to mapped virtual ranges with
+// iree_hal_allocator_virtual_memory_protect(), and allocation alignment is the
+// page granularity returned by
+// iree_hal_allocator_virtual_memory_query_granularity().
+typedef struct iree_hal_physical_memory_params_t {
+  // Memory type requirements used to select physical placement.
+  // Zero selects IREE_HAL_MEMORY_TYPE_OPTIMAL.
+  iree_hal_memory_type_t type;
+
+  // Intended buffer usages for virtual ranges backed by the allocation.
+  // Zero selects IREE_HAL_BUFFER_USAGE_DEFAULT.
+  iree_hal_buffer_usage_t usage;
+
+  // Queue families that may map and access the physical allocation.
+  // Zero selects IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY.
+  iree_hal_queue_family_affinity_t queue_family_affinity;
+} iree_hal_physical_memory_params_t;
+
+// Canonicalizes zero-initialized physical-memory parameters.
+static inline void iree_hal_physical_memory_params_canonicalize(
+    iree_hal_physical_memory_params_t* params) {
+  if (!params->type) {
+    params->type = IREE_HAL_MEMORY_TYPE_OPTIMAL;
+  }
+  if (!params->usage) {
+    params->usage = IREE_HAL_BUFFER_USAGE_DEFAULT;
+  }
+  if (!params->queue_family_affinity) {
+    params->queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
+  }
+}
+
 // Bitfield selecting the execution domains whose access permissions are
 // updated by a virtual-memory protection operation. Queue family affinity
 // restricts the selected domains to the topology associated with those
@@ -358,7 +393,7 @@ IREE_API_EXPORT bool iree_hal_allocator_supports_virtual_memory(
 IREE_API_EXPORT iree_status_t
 iree_hal_allocator_virtual_memory_query_granularity(
     iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_params_t params,
+    iree_hal_physical_memory_params_t params,
     iree_device_size_t* IREE_RESTRICT out_minimum_page_size,
     iree_device_size_t* IREE_RESTRICT out_recommended_page_size);
 
@@ -408,7 +443,7 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_virtual_memory_release(
 // Returns IREE_STATUS_UNAVAILABLE if virtual memory is not supported.
 IREE_API_EXPORT iree_status_t iree_hal_allocator_physical_memory_allocate(
     iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_params_t params, iree_device_size_t size,
+    iree_hal_physical_memory_params_t params, iree_device_size_t size,
     iree_allocator_t host_allocator,
     iree_hal_physical_memory_t** IREE_RESTRICT out_physical_memory);
 
@@ -567,7 +602,7 @@ typedef struct iree_hal_allocator_vtable_t {
       iree_hal_allocator_t* IREE_RESTRICT allocator);
   iree_status_t(IREE_API_PTR* virtual_memory_query_granularity)(
       iree_hal_allocator_t* IREE_RESTRICT allocator,
-      iree_hal_buffer_params_t params,
+      iree_hal_physical_memory_params_t params,
       iree_device_size_t* IREE_RESTRICT out_minimum_page_size,
       iree_device_size_t* IREE_RESTRICT out_recommended_page_size);
   iree_status_t(IREE_API_PTR* virtual_memory_reserve)(
@@ -580,7 +615,7 @@ typedef struct iree_hal_allocator_vtable_t {
       iree_hal_buffer_t* IREE_RESTRICT virtual_buffer);
   iree_status_t(IREE_API_PTR* physical_memory_allocate)(
       iree_hal_allocator_t* IREE_RESTRICT allocator,
-      iree_hal_buffer_params_t params, iree_device_size_t size,
+      iree_hal_physical_memory_params_t params, iree_device_size_t size,
       iree_allocator_t host_allocator,
       iree_hal_physical_memory_t** IREE_RESTRICT out_physical_memory);
   iree_status_t(IREE_API_PTR* physical_memory_free)(

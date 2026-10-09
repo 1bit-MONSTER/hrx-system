@@ -29,7 +29,6 @@ class VmmSlabProviderTest : public ::testing::Test {
       GTEST_SKIP() << "The device allocator does not support virtual memory.";
     }
     params_.usage = IREE_HAL_BUFFER_USAGE_DEFAULT;
-    params_.access = IREE_HAL_MEMORY_ACCESS_ALL;
     params_.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
     params_.queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
     IREE_ASSERT_OK(
@@ -95,7 +94,7 @@ class VmmSlabProviderTest : public ::testing::Test {
   // Whether the fixture owns an initialized GPU runtime.
   bool initialized_ = false;
   // Device-local parameters matching the production VMM pool configuration.
-  iree_hal_buffer_params_t params_ = {};
+  iree_hal_physical_memory_params_t params_ = {};
   // Production provider owning the native virtual reservation and mapping.
   iree_hal_slab_provider_t* provider_ = nullptr;
   // Real TLSF pool whose reservation and slab lifetimes are observed.
@@ -108,7 +107,7 @@ TEST_F(VmmSlabProviderTest, OwnedRangeSurvivesUntilItsFinalSubspan) {
   iree_hal_buffer_t* owner = nullptr;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
       pool_,
-      iree_hal_make_pool_reservation_request(4096, (params_).min_alignment),
+      iree_hal_make_pool_reservation_request(4096, /*min_alignment=*/256),
       iree_infinite_timeout(), &owner));
   iree_hal_buffer_t* root = iree_hal_buffer_allocated_buffer(owner);
   ASSERT_NE(owner, root);
@@ -150,7 +149,7 @@ TEST_F(VmmSlabProviderTest, OwnedRangeSurvivesUntilItsFinalSubspan) {
 TEST_F(VmmSlabProviderTest, BorrowedSubspanDoesNotOwnTheReservation) {
   const iree_hal_pool_reservation_request_t request =
       iree_hal_make_pool_reservation_request(/*allocation_size=*/4096,
-                                             params_.min_alignment);
+                                             /*min_alignment=*/256);
   iree_hal_pool_reservation_t reservation;
   iree_hal_pool_acquire_info_t info;
   iree_hal_pool_acquire_result_t result;

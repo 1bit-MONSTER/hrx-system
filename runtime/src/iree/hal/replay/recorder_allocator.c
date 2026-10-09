@@ -382,7 +382,7 @@ static bool iree_hal_replay_recorder_allocator_supports_virtual_memory(
 static iree_status_t
 iree_hal_replay_recorder_allocator_virtual_memory_query_granularity(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
-    iree_hal_buffer_params_t params,
+    iree_hal_physical_memory_params_t params,
     iree_device_size_t* IREE_RESTRICT out_minimum_page_size,
     iree_device_size_t* IREE_RESTRICT out_recommended_page_size) {
   iree_hal_replay_recorder_allocator_t* allocator =
@@ -499,7 +499,7 @@ static iree_status_t iree_hal_replay_recorder_allocator_virtual_memory_release(
 static iree_status_t
 iree_hal_replay_recorder_allocator_physical_memory_allocate(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
-    iree_hal_buffer_params_t params, iree_device_size_t size,
+    iree_hal_physical_memory_params_t params, iree_device_size_t size,
     iree_allocator_t host_allocator,
     iree_hal_physical_memory_t** IREE_RESTRICT out_physical_memory) {
   iree_hal_replay_recorder_allocator_t* allocator =
@@ -511,9 +511,13 @@ iree_hal_replay_recorder_allocator_physical_memory_allocate(
   IREE_RETURN_IF_ERROR(iree_hal_replay_recorder_reserve_object_id(
       allocator->recorder, &physical_memory_id));
 
-  iree_hal_replay_allocator_physical_memory_allocate_payload_t payload;
-  iree_hal_replay_recorder_allocator_make_allocate_buffer_payload(
-      &params, size, &payload.allocation);
+  iree_hal_physical_memory_params_canonicalize(&params);
+  const iree_hal_replay_allocator_physical_memory_allocate_payload_t payload = {
+      .allocation_size = size,
+      .queue_family_affinity = params.queue_family_affinity,
+      .usage = params.usage,
+      .type = params.type,
+  };
   const iree_const_byte_span_t operation_iovec =
       iree_make_const_byte_span((const uint8_t*)&payload, sizeof(payload));
   iree_hal_replay_pending_record_t pending_record;
