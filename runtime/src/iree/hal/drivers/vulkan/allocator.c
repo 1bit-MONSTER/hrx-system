@@ -1079,7 +1079,7 @@ static bool iree_hal_vulkan_allocator_supports_sparse_virtual_memory(
          allocator->sparse_binding_queue != NULL;
 }
 
-static bool iree_hal_vulkan_allocator_supports_host_allocation_import(
+bool iree_hal_vulkan_allocator_supports_host_allocation_import(
     const iree_hal_vulkan_allocator_t* allocator) {
   if (!iree_all_bits_set(
           allocator->enabled_extensions,
@@ -1835,8 +1835,10 @@ static iree_status_t iree_hal_vulkan_allocator_allocate_imported_host_memory(
                                /*pAllocator=*/NULL, out_device_memory);
 }
 
-static iree_status_t iree_hal_vulkan_allocator_import_buffer(
-    iree_hal_allocator_t* IREE_RESTRICT base_allocator,
+static iree_status_t
+iree_hal_vulkan_allocator_import_buffer_with_memory_type_bits(
+    iree_hal_vulkan_allocator_t* IREE_RESTRICT allocator,
+    uint32_t allowed_memory_type_bits,
     const iree_hal_buffer_params_t* IREE_RESTRICT params,
     const iree_hal_external_storage_t* IREE_RESTRICT external_buffer,
     iree_hal_buffer_release_callback_t release_callback,
@@ -1848,8 +1850,6 @@ static iree_status_t iree_hal_vulkan_allocator_import_buffer(
   IREE_TRACE_ZONE_BEGIN(z0);
   IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, (int64_t)external_buffer->byte_length);
 
-  iree_hal_vulkan_allocator_t* allocator =
-      iree_hal_vulkan_allocator_cast(base_allocator);
   iree_status_t status =
       iree_hal_vulkan_allocator_validate_host_allocation_import(
           allocator, params, external_buffer);
@@ -1867,7 +1867,7 @@ static iree_status_t iree_hal_vulkan_allocator_import_buffer(
       IREE_HAL_BUFFER_COMPATIBILITY_NONE;
   if (iree_status_is_ok(status)) {
     compatibility = iree_hal_vulkan_allocator_query_buffer_compatibility(
-        base_allocator, &query_params, &allocation_size);
+        (iree_hal_allocator_t*)allocator, &query_params, &allocation_size);
     if (!iree_all_bits_set(compatibility,
                            IREE_HAL_BUFFER_COMPATIBILITY_IMPORTABLE)) {
 #if IREE_STATUS_MODE
@@ -1935,7 +1935,7 @@ static iree_status_t iree_hal_vulkan_allocator_import_buffer(
       !iree_hal_vulkan_allocator_resolve_memory_placement(
           allocator,
           memory_requirements.memoryTypeBits &
-              host_pointer_properties.memoryTypeBits,
+              host_pointer_properties.memoryTypeBits & allowed_memory_type_bits,
           &compat_params, &memory_placement)) {
     status = iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
@@ -2013,6 +2013,43 @@ static iree_status_t iree_hal_vulkan_allocator_import_buffer(
 
   IREE_TRACE_ZONE_END(z0);
   return status;
+}
+
+iree_status_t iree_hal_vulkan_allocator_import_direct_buffer_from_type(
+    iree_hal_vulkan_allocator_t* allocator, uint32_t memory_type_index,
+    const iree_hal_buffer_params_t* params,
+    const iree_hal_external_storage_t* storage,
+    iree_hal_buffer_t** out_buffer) {
+  IREE_ASSERT_ARGUMENT(allocator);
+  IREE_ASSERT_ARGUMENT(params);
+  IREE_ASSERT_ARGUMENT(storage);
+  IREE_ASSERT_ARGUMENT(out_buffer);
+  *out_buffer = NULL;
+  if (memory_type_index >=
+      allocator->memory_properties2.memoryProperties.memoryTypeCount) {
+    return iree_make_status(
+        IREE_STATUS_OUT_OF_RANGE,
+        "Vulkan memory type index %u exceeds physical-device memory type "
+        "count %u",
+        memory_type_index,
+        allocator->memory_properties2.memoryProperties.memoryTypeCount);
+  }
+  return iree_hal_vulkan_allocator_import_buffer_with_memory_type_bits(
+      allocator, 1u << memory_type_index, params, storage,
+      iree_hal_buffer_release_callback_null(), out_buffer);
+}
+
+static iree_status_t iree_hal_vulkan_allocator_import_buffer(
+    iree_hal_allocator_t* IREE_RESTRICT base_allocator,
+    const iree_hal_buffer_params_t* IREE_RESTRICT params,
+    const iree_hal_external_storage_t* IREE_RESTRICT external_buffer,
+    iree_hal_buffer_release_callback_t release_callback,
+    iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
+  iree_hal_vulkan_allocator_t* allocator =
+      iree_hal_vulkan_allocator_cast(base_allocator);
+  return iree_hal_vulkan_allocator_import_buffer_with_memory_type_bits(
+      allocator, UINT32_MAX, params, external_buffer, release_callback,
+      out_buffer);
 }
 
 static iree_status_t iree_hal_vulkan_allocator_validate_sparse_range(

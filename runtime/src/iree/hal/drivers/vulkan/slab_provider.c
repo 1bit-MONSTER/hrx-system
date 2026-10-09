@@ -80,6 +80,23 @@ iree_hal_vulkan_slab_provider_const_cast(
   return (const iree_hal_vulkan_slab_provider_t*)base_provider;
 }
 
+static void iree_hal_vulkan_slab_provider_populate_properties(
+    const iree_hal_vulkan_slab_provider_t* provider,
+    iree_hal_slab_provider_properties_t* out_properties) {
+  *out_properties = provider->properties;
+  out_properties->allocation_alignment =
+      provider->min_alignment ? provider->min_alignment : 1;
+  out_properties->max_allocation_alignment =
+      out_properties->allocation_alignment;
+  out_properties->maintenance_alignment =
+      iree_any_bit_set(provider->memory_property_flags,
+                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) &&
+              !iree_any_bit_set(provider->memory_property_flags,
+                                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+          ? provider->non_coherent_atom_size
+          : 1;
+}
+
 iree_status_t iree_hal_vulkan_slab_provider_create(
     iree_hal_vulkan_allocator_t* allocator,
     iree_hal_vulkan_slab_provider_options_t options,
@@ -226,6 +243,50 @@ static iree_status_t iree_hal_vulkan_slab_provider_acquire_slab(
   return status;
 }
 
+static iree_status_t iree_hal_vulkan_slab_provider_import_slab(
+    iree_hal_slab_provider_t* base_provider,
+    const iree_hal_external_storage_t* storage,
+    iree_hal_imported_slab_t* out_import) {
+  iree_hal_vulkan_slab_provider_t* provider =
+      iree_hal_vulkan_slab_provider_cast(base_provider);
+  IREE_TRACE_ZONE_BEGIN(z0);
+
+  const iree_hal_buffer_params_t params = {
+      .type = provider->properties.memory_type,
+      .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      .usage = provider->properties.supported_usage,
+      .queue_family_affinity = provider->queue_family_affinity_mask,
+      .min_alignment = provider->min_alignment,
+  };
+  iree_hal_buffer_t* buffer = NULL;
+  iree_status_t status =
+      iree_hal_vulkan_allocator_import_direct_buffer_from_type(
+          provider->allocator, provider->memory_type_index, &params, storage,
+          &buffer);
+
+  VkDeviceAddress device_address = 0;
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_vulkan_buffer_device_address(buffer, &device_address);
+  }
+
+  if (iree_status_is_ok(status)) {
+    out_import->slab.base_ptr = (uint8_t*)(uintptr_t)device_address;
+    out_import->slab.length = storage->byte_length;
+    out_import->slab.provider_handle = (uint64_t)(uintptr_t)buffer;
+    iree_hal_vulkan_slab_provider_populate_properties(provider,
+                                                      &out_import->properties);
+    iree_hal_memory_trace_alloc(&provider->trace, out_import->slab.base_ptr,
+                                out_import->slab.length);
+    iree_atomic_fetch_add(&provider->total_acquired, 1,
+                          iree_memory_order_relaxed);
+  } else {
+    iree_hal_buffer_release(buffer);
+  }
+
+  IREE_TRACE_ZONE_END(z0);
+  return status;
+}
+
 static void iree_hal_vulkan_slab_provider_release_slab(
     iree_hal_slab_provider_t* base_provider, const iree_hal_slab_t* slab) {
   IREE_ASSERT_ARGUMENT(slab);
@@ -335,18 +396,7 @@ static void iree_hal_vulkan_slab_provider_query_properties(
     iree_hal_slab_provider_properties_t* out_properties) {
   const iree_hal_vulkan_slab_provider_t* provider =
       iree_hal_vulkan_slab_provider_const_cast(base_provider);
-  *out_properties = provider->properties;
-  out_properties->allocation_alignment =
-      provider->min_alignment ? provider->min_alignment : 1;
-  out_properties->max_allocation_alignment =
-      out_properties->allocation_alignment;
-  out_properties->maintenance_alignment =
-      iree_any_bit_set(provider->memory_property_flags,
-                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) &&
-              !iree_any_bit_set(provider->memory_property_flags,
-                                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
-          ? provider->non_coherent_atom_size
-          : 1;
+  iree_hal_vulkan_slab_provider_populate_properties(provider, out_properties);
 }
 
 static const iree_hal_slab_provider_vtable_t
@@ -362,4 +412,5 @@ static const iree_hal_slab_provider_vtable_t
         .trim = iree_hal_vulkan_slab_provider_trim,
         .query_stats = iree_hal_vulkan_slab_provider_query_stats,
         .query_properties = iree_hal_vulkan_slab_provider_query_properties,
+        .import_slab = iree_hal_vulkan_slab_provider_import_slab,
 };

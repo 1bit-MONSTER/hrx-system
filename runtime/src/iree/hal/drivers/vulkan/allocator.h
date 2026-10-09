@@ -70,6 +70,23 @@ iree_status_t iree_hal_vulkan_allocator_allocate_direct_buffer_from_type(
     const iree_hal_buffer_params_t* params, iree_device_size_t allocation_size,
     iree_hal_buffer_t** out_buffer);
 
+// Returns whether this allocator can attach ordinary host allocations as
+// Vulkan memory. This requires both VK_EXT_external_memory_host and a unified
+// physical-device memory model.
+bool iree_hal_vulkan_allocator_supports_host_allocation_import(
+    const iree_hal_vulkan_allocator_t* allocator);
+
+// Attaches one external host allocation through a required Vulkan memory type.
+//
+// The returned root buffer independently owns the Vulkan attachment and never
+// consumes or releases |storage|'s transport owner. |storage| must remain alive
+// until the returned buffer is released. Pool providers use this primitive so
+// construction-time memory-type selection remains exact at import time.
+iree_status_t iree_hal_vulkan_allocator_import_direct_buffer_from_type(
+    iree_hal_vulkan_allocator_t* allocator, uint32_t memory_type_index,
+    const iree_hal_buffer_params_t* params,
+    const iree_hal_external_storage_t* storage, iree_hal_buffer_t** out_buffer);
+
 // Allocates one whole Vulkan buffer directly from a compatible memory type.
 //
 // This bypasses the default pool set and gives the caller exclusive ownership
