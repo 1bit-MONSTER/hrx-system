@@ -56,6 +56,14 @@ void ReleaseAlignedAllocation(void* user_data,
 
 class FileTest : public CtsTestBase<> {
  protected:
+  void TearDown() override {
+    iree_hal_pool_release(transfer_source_pool_);
+    transfer_source_pool_ = nullptr;
+    iree_hal_pool_release(transfer_target_pool_);
+    transfer_target_pool_ = nullptr;
+    CtsTestBase::TearDown();
+  }
+
   class TestFile {
    public:
     TestFile() = default;
@@ -200,13 +208,21 @@ class FileTest : public CtsTestBase<> {
 
   Ref<iree_hal_buffer_t> CreateBufferWithAccess(iree_hal_memory_access_t access,
                                                 iree_device_size_t length) {
-    iree_hal_buffer_params_t params = {0};
-    params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-    params.access = access;
-    params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
+    iree_hal_pool_t** pool_slot = access == IREE_HAL_MEMORY_ACCESS_READ
+                                      ? &transfer_source_pool_
+                                      : &transfer_target_pool_;
+    if (!*pool_slot) {
+      const iree_hal_buffer_usage_t usage =
+          access == IREE_HAL_MEMORY_ACCESS_READ
+              ? IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE
+              : IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET;
+      IREE_CHECK_OK(CreateDevicePool(usage, pool_slot));
+    }
     Ref<iree_hal_buffer_t> buffer;
-    IREE_CHECK_OK(iree_hal_allocator_allocate_buffer(device_allocator_, params,
-                                                     length, buffer.out()));
+    IREE_CHECK_OK(iree_hal_pool_allocate_buffer(
+        *pool_slot,
+        iree_hal_make_pool_reservation_request(length, /*min_alignment=*/1),
+        iree_infinite_timeout(), buffer.out()));
     return buffer;
   }
 
@@ -285,6 +301,10 @@ class FileTest : public CtsTestBase<> {
   }
 
  private:
+  // Owned directional sources used by negative transfer-access coverage.
+  iree_hal_pool_t* transfer_source_pool_ = nullptr;
+  iree_hal_pool_t* transfer_target_pool_ = nullptr;
+
   iree_status_t CreateTestFileStatus(
       const FileProvider& provider, iree_hal_memory_access_t access,
       const std::vector<uint8_t>& initial_contents, TestFile* out_file) {

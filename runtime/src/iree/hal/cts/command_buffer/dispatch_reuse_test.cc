@@ -360,13 +360,16 @@ TEST_P(DispatchReuseTest, DirectionalStorageBindings) {
       IREE_HAL_BUFFER_USAGE_STORAGE_READ,
       IREE_HAL_BUFFER_USAGE_STORAGE_WRITE,
   };
+  Ref<iree_hal_pool_t> pools[2];
   Ref<iree_hal_buffer_t> buffers[2];
   for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(buffers); ++i) {
-    iree_hal_buffer_params_t params = {};
-    params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-    params.usage = usages[i] | IREE_HAL_BUFFER_USAGE_TRANSFER;
-    IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-        device_allocator_, params, kByteLength, buffers[i].out()));
+    IREE_ASSERT_OK(CreateDevicePool(usages[i] | IREE_HAL_BUFFER_USAGE_TRANSFER,
+                                    pools[i].out()));
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        pools[i],
+        iree_hal_make_pool_reservation_request(kByteLength,
+                                               /*min_alignment=*/1),
+        iree_infinite_timeout(), buffers[i].out()));
     EXPECT_EQ(iree_hal_buffer_allowed_usage(buffers[i]) &
                   IREE_HAL_BUFFER_USAGE_STORAGE,
               usages[i]);
@@ -498,13 +501,16 @@ TEST_P(DispatchReuseTest, MixedDirectAndIndirectBindings) {
 #if IREE_HAL_COMMAND_BUFFER_VALIDATION_ENABLE
   // An opaque dispatch binding must preserve the known WRITE requirement
   // contributed by the fill using the same indirect slot.
-  iree_hal_buffer_params_t params = {};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.access = IREE_HAL_MEMORY_ACCESS_READ;
-  params.usage = IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
+  Ref<iree_hal_pool_t> read_only_pool;
+  IREE_ASSERT_OK(CreateDevicePool(IREE_HAL_BUFFER_USAGE_STORAGE_READ |
+                                      IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE,
+                                  read_only_pool.out()));
   Ref<iree_hal_buffer_t> read_only_buffer;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      device_allocator_, params, kByteLength, read_only_buffer.out()));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      read_only_pool,
+      iree_hal_make_pool_reservation_request(kByteLength,
+                                             /*min_alignment=*/1),
+      iree_infinite_timeout(), read_only_buffer.out()));
   table_bindings[0].buffer = read_only_buffer;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_PERMISSION_DENIED,
                         iree_hal_command_buffer_validate_submission(
