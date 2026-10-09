@@ -124,6 +124,24 @@ static iree_status_t iree_hal_cpu_slab_provider_import_slab(
   return iree_ok_status();
 }
 
+static bool iree_hal_cpu_slab_provider_query_import_requirements(
+    const iree_hal_slab_provider_t* base_provider,
+    iree_hal_external_storage_class_t storage_class,
+    iree_hal_pool_import_requirements_t* out_requirements) {
+  (void)base_provider;
+  if (storage_class.type != IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER ||
+      storage_class.provenance[0] || storage_class.provenance[1]) {
+    return false;
+  }
+  *out_requirements = (iree_hal_pool_import_requirements_t){
+      .min_byte_length = 1,
+      .max_byte_length = IREE_HOST_SIZE_MAX,
+      .base_alignment = 1,
+      .byte_length_alignment = 1,
+  };
+  return true;
+}
+
 static void iree_hal_cpu_slab_provider_release_slab(
     iree_hal_slab_provider_t* base_provider, const iree_hal_slab_t* slab) {
   iree_hal_cpu_slab_provider_t* provider =
@@ -259,4 +277,6 @@ static const iree_hal_slab_provider_vtable_t iree_hal_cpu_slab_provider_vtable =
         .trim = iree_hal_cpu_slab_provider_trim,
         .query_stats = iree_hal_cpu_slab_provider_query_stats,
         .query_properties = iree_hal_cpu_slab_provider_query_properties,
+        .query_import_requirements =
+            iree_hal_cpu_slab_provider_query_import_requirements,
 };

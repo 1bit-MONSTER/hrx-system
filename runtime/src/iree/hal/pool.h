@@ -314,6 +314,25 @@ typedef struct iree_hal_pool_capabilities_t {
   iree_device_size_t maintenance_alignment;
 } iree_hal_pool_capabilities_t;
 
+// Geometry required by one external storage class admitted by a pool.
+//
+// Requirements are immutable results of native route selection. Callers that
+// allocate storage for later import use these values directly instead of
+// inferring native constraints from owned-allocation capabilities.
+typedef struct iree_hal_pool_import_requirements_t {
+  // Smallest external storage extent accepted, in bytes.
+  iree_device_size_t min_byte_length;
+
+  // Largest external storage extent accepted, or zero when unbounded.
+  iree_device_size_t max_byte_length;
+
+  // Required power-of-two alignment of the external storage base address.
+  iree_device_size_t base_alignment;
+
+  // Required power-of-two alignment of the external storage byte length.
+  iree_device_size_t byte_length_alignment;
+} iree_hal_pool_import_requirements_t;
+
 // Running statistics for a pool. All values are atomic snapshots; they may
 // be momentarily inconsistent under concurrent modifications. Querying stats
 // is O(1) with no internal walks or locks.
@@ -643,14 +662,16 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_import_buffer(
     iree_hal_pool_t* pool, iree_hal_external_storage_t* inout_storage,
     iree_hal_buffer_range_t logical_range, iree_hal_buffer_t** out_buffer);
 
-// Returns true if |pool| admits the exact external |storage_class| for import.
-// This queries the immutable construction-time contract and performs no native
-// calls. A true result means an import may be attempted; payload-specific
-// constraints such as handle validity, addressability, and cacheability are
-// checked by iree_hal_pool_import_buffer().
-IREE_API_EXPORT bool iree_hal_pool_supports_import_class(
+// Queries the immutable requirements for an exact external |storage_class|.
+// Returns false and zeros |out_requirements| when the class was not admitted by
+// the selected native route. A true result means a conforming storage extent
+// may be passed to iree_hal_pool_import_buffer(); payload-specific properties
+// such as handle validity, native addressability, and cacheability are checked
+// during import.
+IREE_API_EXPORT bool iree_hal_pool_query_import_requirements(
     const iree_hal_pool_t* pool,
-    iree_hal_external_storage_class_t storage_class);
+    iree_hal_external_storage_class_t storage_class,
+    iree_hal_pool_import_requirements_t* out_requirements);
 
 // Returns the host allocator captured when |pool| was constructed.
 //
@@ -815,11 +836,12 @@ typedef struct iree_hal_pool_vtable_t {
       iree_hal_pool_t* pool, iree_hal_external_storage_t* inout_storage,
       iree_hal_buffer_range_t logical_range, iree_hal_buffer_t** out_buffer);
 
-  // Queries the immutable set of exact external classes admitted for import.
-  // NULL indicates that the pool never preserves caller-selected backing.
-  bool(IREE_API_PTR* supports_import_class)(
+  // Queries immutable geometry for an admitted external storage class. NULL
+  // indicates that the pool never preserves caller-selected backing.
+  bool(IREE_API_PTR* query_import_requirements)(
       const iree_hal_pool_t* pool,
-      iree_hal_external_storage_class_t storage_class);
+      iree_hal_external_storage_class_t storage_class,
+      iree_hal_pool_import_requirements_t* out_requirements);
 } iree_hal_pool_vtable_t;
 IREE_HAL_ASSERT_VTABLE_LAYOUT(iree_hal_pool_vtable_t);
 

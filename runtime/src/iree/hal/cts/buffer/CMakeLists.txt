@@ -11,9 +11,9 @@ iree_add_all_subdirs()
 
 iree_cc_library(
   NAME
-    allocator_test
+    pool_test
   SRCS
-    "allocator_test.cc"
+    "pool_test.cc"
   DEPS
     iree::hal
     iree::hal::cts::util::test_base
@@ -39,8 +39,8 @@ iree_cc_library(
   NAME
     all_tests
   DEPS
-    ::allocator_test
     ::mapping_test
+    ::pool_test
   TESTONLY
   PUBLIC
 )

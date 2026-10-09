@@ -580,6 +580,20 @@ static bool iree_hal_passthrough_pool_supports_import_class(
   return false;
 }
 
+static bool iree_hal_passthrough_pool_query_import_requirements(
+    const iree_hal_pool_t* base_pool,
+    iree_hal_external_storage_class_t storage_class,
+    iree_hal_pool_import_requirements_t* out_requirements) {
+  const iree_hal_passthrough_pool_t* pool =
+      (const iree_hal_passthrough_pool_t*)base_pool;
+  if (!iree_hal_passthrough_pool_supports_import_class(base_pool,
+                                                       storage_class)) {
+    return false;
+  }
+  return iree_hal_slab_provider_query_import_requirements(
+      pool->slab_provider, storage_class, out_requirements);
+}
+
 typedef struct iree_hal_passthrough_pool_import_call_t {
   // Native pool whose placement-local owner executes attachment.
   iree_hal_passthrough_pool_t* pool;
@@ -1313,5 +1327,6 @@ static const iree_hal_pool_vtable_t iree_hal_passthrough_pool_vtable = {
     .trim = iree_hal_passthrough_pool_trim,
     .advise_asan_reservations =
         iree_hal_passthrough_pool_advise_asan_reservations,
-    .supports_import_class = iree_hal_passthrough_pool_supports_import_class,
+    .query_import_requirements =
+        iree_hal_passthrough_pool_query_import_requirements,
 };

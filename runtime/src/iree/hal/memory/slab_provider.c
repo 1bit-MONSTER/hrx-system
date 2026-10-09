@@ -48,6 +48,18 @@ iree_status_t iree_hal_slab_provider_import_slab(
   return provider->vtable->import_slab(provider, storage, out_import);
 }
 
+bool iree_hal_slab_provider_query_import_requirements(
+    const iree_hal_slab_provider_t* provider,
+    iree_hal_external_storage_class_t storage_class,
+    iree_hal_pool_import_requirements_t* out_requirements) {
+  IREE_ASSERT_ARGUMENT(provider);
+  IREE_ASSERT_ARGUMENT(out_requirements);
+  memset(out_requirements, 0, sizeof(*out_requirements));
+  return provider->vtable->query_import_requirements &&
+         provider->vtable->query_import_requirements(provider, storage_class,
+                                                     out_requirements);
+}
+
 void iree_hal_slab_provider_release_slab(iree_hal_slab_provider_t* provider,
                                          const iree_hal_slab_t* slab) {
   provider->vtable->release_slab(provider, slab);

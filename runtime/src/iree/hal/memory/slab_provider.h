@@ -189,6 +189,13 @@ iree_status_t iree_hal_slab_provider_import_slab(
     const iree_hal_external_storage_t* storage,
     iree_hal_imported_slab_t* out_import);
 
+// Queries native geometry required to import |storage_class|. Returns false
+// and zeros |out_requirements| when this provider cannot attach that class.
+bool iree_hal_slab_provider_query_import_requirements(
+    const iree_hal_slab_provider_t* provider,
+    iree_hal_external_storage_class_t storage_class,
+    iree_hal_pool_import_requirements_t* out_requirements);
+
 // Releases a previously acquired slab back to the provider.
 void iree_hal_slab_provider_release_slab(iree_hal_slab_provider_t* provider,
                                          const iree_hal_slab_t* slab);
@@ -375,6 +382,12 @@ struct iree_hal_slab_provider_vtable_t {
   iree_status_t (*import_slab)(iree_hal_slab_provider_t* provider,
                                const iree_hal_external_storage_t* storage,
                                iree_hal_imported_slab_t* out_import);
+
+  // Queries immutable external storage geometry without native calls.
+  bool (*query_import_requirements)(
+      const iree_hal_slab_provider_t* provider,
+      iree_hal_external_storage_class_t storage_class,
+      iree_hal_pool_import_requirements_t* out_requirements);
 };
 
 #ifdef __cplusplus

@@ -287,6 +287,25 @@ static iree_status_t iree_hal_vulkan_slab_provider_import_slab(
   return status;
 }
 
+static bool iree_hal_vulkan_slab_provider_query_import_requirements(
+    const iree_hal_slab_provider_t* base_provider,
+    iree_hal_external_storage_class_t storage_class,
+    iree_hal_pool_import_requirements_t* out_requirements) {
+  const iree_hal_vulkan_slab_provider_t* provider =
+      iree_hal_vulkan_slab_provider_const_cast(base_provider);
+  if (storage_class.type != IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER ||
+      storage_class.provenance[0] || storage_class.provenance[1]) {
+    return false;
+  }
+  *out_requirements = (iree_hal_pool_import_requirements_t){
+      .min_byte_length = provider->min_alignment,
+      .max_byte_length = 0,
+      .base_alignment = provider->min_alignment,
+      .byte_length_alignment = provider->min_alignment,
+  };
+  return true;
+}
+
 static void iree_hal_vulkan_slab_provider_release_slab(
     iree_hal_slab_provider_t* base_provider, const iree_hal_slab_t* slab) {
   IREE_ASSERT_ARGUMENT(slab);
@@ -413,4 +432,6 @@ static const iree_hal_slab_provider_vtable_t
         .query_stats = iree_hal_vulkan_slab_provider_query_stats,
         .query_properties = iree_hal_vulkan_slab_provider_query_properties,
         .import_slab = iree_hal_vulkan_slab_provider_import_slab,
+        .query_import_requirements =
+            iree_hal_vulkan_slab_provider_query_import_requirements,
 };

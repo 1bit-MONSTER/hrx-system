@@ -1154,10 +1154,22 @@ static iree_status_t iree_io_parameter_index_provider_load(
       const iree_hal_external_storage_class_t storage_class =
           iree_hal_make_external_storage_class(
               IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
-      if (iree_hal_pool_supports_import_class(pool, storage_class)) {
-        iree_byte_span_t host_allocation =
-            iree_io_file_handle_primitive(source_entry->storage.file.handle)
-                .value.host_allocation;
+      iree_hal_pool_import_requirements_t import_requirements;
+      iree_byte_span_t host_allocation =
+          iree_io_file_handle_primitive(source_entry->storage.file.handle)
+              .value.host_allocation;
+      if (iree_hal_pool_query_import_requirements(pool, storage_class,
+                                                  &import_requirements) &&
+          host_allocation.data_length >= import_requirements.min_byte_length &&
+          (!import_requirements.max_byte_length ||
+           host_allocation.data_length <=
+               import_requirements.max_byte_length) &&
+          iree_host_ptr_has_alignment(
+              host_allocation.data,
+              (iree_host_size_t)import_requirements.base_alignment) &&
+          iree_device_size_has_alignment(
+              host_allocation.data_length,
+              import_requirements.byte_length_alignment)) {
         iree_hal_external_storage_t external_buffer = {
             .storage_class = storage_class,
             .payload.host_pointer = host_allocation.data,

@@ -7,7 +7,7 @@
 // Base class for HAL conformance tests.
 //
 // Provides the test fixture and helper utilities shared by all HAL CTS tests.
-// Test logic lives in separate .cc files (core/allocator_test.cc, etc.)
+// Test logic lives in separate .cc files (buffer/pool_test.cc, etc.)
 // which use CTS_REGISTER_TEST_SUITE() for self-registration.
 //
 // Key design:
