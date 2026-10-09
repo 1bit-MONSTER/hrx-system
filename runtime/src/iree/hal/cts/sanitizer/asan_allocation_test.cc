@@ -42,21 +42,6 @@ constexpr uint32_t kAsanAllocationSentinelLength = 37;
 constexpr uint32_t kAsanAllocationBindingEntrypoint = 0;
 constexpr uint32_t kAsanAllocationRawAddressEntrypoint = 1;
 
-static iree_hal_buffer_params_t AsanDeviceBufferParams() {
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage = IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
-  return params;
-}
-
-static iree_hal_buffer_params_t AsanQueueAllocaBufferParams() {
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
-  return params;
-}
-
 static iree_status_t DispatchAsanAllocationSelector(
     iree_hal_device_t* device, iree_hal_queue_t* queue,
     iree_hal_executable_t* executable, iree_hal_buffer_ref_list_t bindings,
@@ -183,6 +168,16 @@ class AsanAllocationTest : public ::testing::TestWithParam<BackendInfo> {
     IREE_ASSERT_OK(iree_hal_executable_load(iree_hal_queue_family(queue()),
                                             result.target, &load_params,
                                             executable_.out()));
+
+    const iree_hal_external_storage_class_t device_address_class =
+        iree_hal_make_external_storage_class(
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS);
+    const iree_hal_pool_export_classes_t exports = {
+        /*.class_count=*/1,
+        /*.classes=*/&device_address_class,
+    };
+    IREE_ASSERT_OK(SanitizerCreateDevicePool(
+        asan_device_.device_group(), queue(), exports, allocation_pool_.out()));
   }
 
   void TearDown() override {
@@ -195,7 +190,7 @@ class AsanAllocationTest : public ::testing::TestWithParam<BackendInfo> {
 
   iree_hal_queue_t* queue() const { return asan_device_.queue(); }
 
-  iree_hal_allocator_t* allocator() const { return asan_device_.allocator(); }
+  iree_hal_pool_t* allocation_pool() const { return allocation_pool_; }
 
   SanitizerDeviceEventRecorder* recorder() const {
     return asan_device_.recorder();
@@ -225,13 +220,16 @@ class AsanAllocationTest : public ::testing::TestWithParam<BackendInfo> {
 
   SanitizerCachedBackendDevice asan_device_;
   Ref<iree_hal_executable_t> executable_;
+  Ref<iree_hal_pool_t> allocation_pool_;
 };
 
 TEST_P(AsanAllocationTest, InBoundsAccessStaysQuiet) {
   Ref<iree_hal_buffer_t> buffer;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      allocator(), AsanDeviceBufferParams(), kAsanAllocationBufferLength,
-      buffer.out()));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      allocation_pool(),
+      iree_hal_make_pool_reservation_request(kAsanAllocationBufferLength,
+                                             /*min_alignment=*/0),
+      iree_infinite_timeout(), buffer.out()));
 
   iree_hal_buffer_ref_t binding_refs[1];
   binding_refs[0] = iree_hal_make_buffer_ref(
@@ -324,9 +322,11 @@ TEST_P(AsanAllocationTest, ScopedSourcesPreserveNativeSanitizerAdvice) {
 
 TEST_P(AsanAllocationTest, AllocationRedzonesReport) {
   Ref<iree_hal_buffer_t> buffer;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      allocator(), AsanDeviceBufferParams(), kAsanAllocationBufferLength,
-      buffer.out()));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      allocation_pool(),
+      iree_hal_make_pool_reservation_request(kAsanAllocationBufferLength,
+                                             /*min_alignment=*/0),
+      iree_infinite_timeout(), buffer.out()));
 
   iree_hal_buffer_ref_t binding_refs[1];
   binding_refs[0] = iree_hal_make_buffer_ref(
@@ -359,11 +359,13 @@ TEST_P(AsanAllocationTest, AllocationRedzonesReport) {
                    2, kAsanReportExpectationFlagShadowPoisoned);
 }
 
-TEST_P(AsanAllocationTest, ReleasedAllocatorBufferReports) {
+TEST_P(AsanAllocationTest, ReleasedPoolBufferReports) {
   Ref<iree_hal_buffer_t> buffer;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      allocator(), AsanDeviceBufferParams(), kAsanAllocationBufferLength,
-      buffer.out()));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      allocation_pool(),
+      iree_hal_make_pool_reservation_request(kAsanAllocationBufferLength,
+                                             /*min_alignment=*/0),
+      iree_infinite_timeout(), buffer.out()));
 
   uint64_t stale_address = 0;
   IREE_ASSERT_OK(ExportDeviceAddress(buffer, &stale_address));

@@ -286,9 +286,14 @@ TEST_P(ManualAsanExecutableTest, ReportsCompatibleHooksThroughFeedback) {
       iree_hal_queue_family(asan_device.queue()), target_result.target,
       &load_params, executable.out()));
 
+  const iree_hal_pool_export_classes_t exports = {};
+  Ref<iree_hal_pool_t> pool;
+  IREE_ASSERT_OK(SanitizerCreateDevicePool(
+      asan_device.device_group(), asan_device.queue(), exports, pool.out()));
+
   Ref<iree_hal_buffer_t> output_buffer;
-  IREE_ASSERT_OK(SanitizerCreateDeviceBuffer(
-      asan_device.allocator(), kManualAsanBufferLength, output_buffer.out()));
+  IREE_ASSERT_OK(SanitizerCreateDeviceBuffer(pool, kManualAsanBufferLength,
+                                             output_buffer.out()));
 
   iree_hal_buffer_ref_t binding_refs[1];
   binding_refs[0] = iree_hal_make_buffer_ref(
@@ -348,8 +353,8 @@ TEST_P(ManualAsanExecutableTest, ReportsCompatibleHooksThroughFeedback) {
   EXPECT_NE(tail_report.shadow_value, 0u);
 
   Ref<iree_hal_buffer_t> stale_buffer;
-  IREE_ASSERT_OK(SanitizerCreateDeviceBuffer(
-      asan_device.allocator(), kManualAsanBufferLength, stale_buffer.out()));
+  IREE_ASSERT_OK(SanitizerCreateDeviceBuffer(pool, kManualAsanBufferLength,
+                                             stale_buffer.out()));
   const uint64_t stale_address =
       (uint64_t)(uintptr_t)iree_hal_amdgpu_buffer_device_pointer(
           iree_hal_buffer_allocated_buffer(stale_buffer)) +
