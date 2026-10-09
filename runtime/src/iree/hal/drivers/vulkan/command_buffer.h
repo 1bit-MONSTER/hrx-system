@@ -74,9 +74,10 @@ iree_hal_vulkan_command_buffer_native_descriptor_pool_requirements(
     iree_hal_command_buffer_t* command_buffer,
     iree_hal_vulkan_command_buffer_descriptor_requirements_t* out_requirements);
 
-// Returns whether recorded native commands can be cached across submissions.
-// Binding-dependent transfers encode Vulkan handles and offsets directly and
-// must be recorded independently for each binding table.
+// Returns whether recorded native commands can be cached across submissions
+// without extending caller-owned buffer allocation lifetimes. Binding-dependent
+// transfers encode Vulkan handles and offsets directly and must be recorded
+// independently for each binding table.
 bool iree_hal_vulkan_command_buffer_native_replay_compatible(
     iree_hal_command_buffer_t* command_buffer);
 

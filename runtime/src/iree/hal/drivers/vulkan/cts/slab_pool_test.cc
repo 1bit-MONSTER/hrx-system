@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <future>
 #include <vector>
 
 #include "iree/hal/cts/util/test_base.h"
@@ -28,6 +29,24 @@ struct ImportedHostAllocation {
   // True after the external transport release callback runs.
   bool released = false;
 };
+
+struct ResourceRefCountObservation {
+  // Borrowed resource kept live by the test until observation completes.
+  iree_hal_resource_t* resource = nullptr;
+  // Result published by the terminal semaphore callback.
+  std::promise<uint32_t> result;
+};
+
+static void ObserveResourceRefCount(void* user_data,
+                                    iree_async_semaphore_timepoint_t* timepoint,
+                                    iree_status_t status) {
+  (void)timepoint;
+  auto* observation = static_cast<ResourceRefCountObservation*>(user_data);
+  const uint32_t ref_count =
+      iree_atomic_ref_count_load(&observation->resource->ref_count);
+  iree_status_free(status);
+  observation->result.set_value(ref_count);
+}
 
 static void ReleaseImportedHostAllocation(
     void* user_data, iree_hal_external_storage_class_t storage_class,
@@ -177,6 +196,100 @@ TEST_P(VulkanSlabPoolTest, CapturesExactFamiliesWithoutAllocatingBacking) {
       iree_hal_queue_download(queues_[0], filled,
                               iree_hal_semaphore_list_empty(), buffer, 0,
                               &result, sizeof(result), /*barriers=*/NULL));
+  buffer.reset();
+  JoinMaintenance(source);
+}
+
+TEST_P(VulkanSlabPoolTest, QueueReleasesBuffersBeforeTerminalSignal) {
+  Ref<iree_hal_pool_t> source;
+  IREE_ASSERT_OK(CreateSource(Scope(), source.out()));
+  for (bool fail_dependency : {false, true}) {
+    SCOPED_TRACE(fail_dependency);
+    Ref<iree_hal_buffer_t> buffer;
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        source, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+        iree_infinite_timeout(), buffer.out()));
+
+    SemaphoreList ready(device_, {0}, {1});
+    SemaphoreList completed(device_, {0}, {1});
+    const uint32_t pattern = 0xA5A5A5A5u;
+    IREE_ASSERT_OK(iree_hal_queue_fill(
+        queues_[0], ready, completed, buffer, 0, sizeof(pattern), &pattern,
+        sizeof(pattern), /*barriers=*/NULL, IREE_HAL_FILL_FLAG_NONE));
+
+    ResourceRefCountObservation observation = {&buffer.get()->resource};
+    std::future<uint32_t> observed_ref_count = observation.result.get_future();
+    iree_async_semaphore_timepoint_t timepoint = {};
+    timepoint.callback = ObserveResourceRefCount;
+    timepoint.user_data = &observation;
+    IREE_ASSERT_OK(iree_async_semaphore_acquire_timepoint(
+        reinterpret_cast<iree_async_semaphore_t*>(completed.semaphores[0]), 1,
+        &timepoint));
+    if (fail_dependency) {
+      iree_hal_semaphore_fail(ready.semaphores[0],
+                              iree_status_from_code(IREE_STATUS_CANCELLED));
+    } else {
+      IREE_ASSERT_OK(iree_hal_semaphore_signal(ready.semaphores[0], 1, NULL));
+    }
+
+    EXPECT_EQ(observed_ref_count.get(), 1u);
+    if (fail_dependency) {
+      IREE_EXPECT_STATUS_IS(
+          IREE_STATUS_CANCELLED,
+          iree_hal_semaphore_list_wait(completed, iree_infinite_timeout(),
+                                       IREE_ASYNC_WAIT_FLAG_NONE));
+    } else {
+      Wait(completed);
+    }
+    EXPECT_EQ(iree_atomic_ref_count_load(&buffer.get()->resource.ref_count),
+              1u);
+    buffer.reset();
+    JoinMaintenance(source);
+  }
+}
+
+TEST_P(VulkanSlabPoolTest,
+       NativeReplayDoesNotRetainStaticBufferCommandBuffers) {
+  Ref<iree_hal_pool_t> source;
+  IREE_ASSERT_OK(CreateSource(Scope(), source.out()));
+  Ref<iree_hal_buffer_t> buffer;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      source, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+      iree_infinite_timeout(), buffer.out()));
+
+  Ref<iree_hal_command_buffer_t> command_buffer;
+  IREE_ASSERT_OK(iree_hal_command_buffer_create(
+      iree_hal_queue_family(queues_[0]), IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT,
+      IREE_HAL_COMMAND_CATEGORY_TRANSFER, /*binding_capacity=*/0,
+      command_buffer.out()));
+  IREE_ASSERT_OK(iree_hal_command_buffer_begin(command_buffer));
+  const uint32_t pattern = 0x5A5A5A5Au;
+  IREE_ASSERT_OK(iree_hal_command_buffer_fill_buffer(
+      command_buffer,
+      iree_hal_make_buffer_ref(buffer, /*offset=*/0, sizeof(pattern)), &pattern,
+      sizeof(pattern), IREE_HAL_FILL_FLAG_NONE));
+  IREE_ASSERT_OK(iree_hal_command_buffer_end(command_buffer));
+
+  SemaphoreList ready(device_, {0}, {1});
+  SemaphoreList completed(device_, {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_execute(
+      queues_[0], ready, completed, command_buffer,
+      iree_hal_buffer_binding_table_empty(), IREE_HAL_QUEUE_EXECUTE_FLAG_NONE));
+
+  ResourceRefCountObservation observation = {&command_buffer.get()->resource};
+  std::future<uint32_t> observed_ref_count = observation.result.get_future();
+  iree_async_semaphore_timepoint_t timepoint = {};
+  timepoint.callback = ObserveResourceRefCount;
+  timepoint.user_data = &observation;
+  IREE_ASSERT_OK(iree_async_semaphore_acquire_timepoint(
+      reinterpret_cast<iree_async_semaphore_t*>(completed.semaphores[0]), 1,
+      &timepoint));
+  IREE_ASSERT_OK(iree_hal_semaphore_signal(ready.semaphores[0], 1, NULL));
+
+  EXPECT_EQ(observed_ref_count.get(), 1u);
+  Wait(completed);
+  command_buffer.reset();
+  EXPECT_EQ(iree_atomic_ref_count_load(&buffer.get()->resource.ref_count), 1u);
   buffer.reset();
   JoinMaintenance(source);
 }
