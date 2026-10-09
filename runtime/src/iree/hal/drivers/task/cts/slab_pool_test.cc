@@ -285,6 +285,10 @@ TEST_P(TaskSlabPoolTest, ImportsFiniteExternalRangeWithExactOwnership) {
   Ref<iree_hal_pool_t> source;
   IREE_ASSERT_OK(iree_hal_slab_pool_create(
       group_, Scope(), &options, iree_allocator_system(), source.out()));
+  EXPECT_TRUE(iree_hal_pool_supports_import_class(source, host_pointer_class));
+  EXPECT_FALSE(iree_hal_pool_supports_import_class(
+      source, iree_hal_make_external_storage_class(
+                  IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS)));
 
   alignas(64) std::array<uint8_t, 64> storage_bytes = {};
   int release_count = 0;
@@ -358,6 +362,8 @@ TEST_P(TaskSlabPoolTest, ImportAdmissionIsExplicitAndNativeOnly) {
 
   Ref<iree_hal_pool_t> ordinary_source;
   IREE_ASSERT_OK(CreateSource(ordinary_source.out()));
+  EXPECT_FALSE(
+      iree_hal_pool_supports_import_class(ordinary_source, host_pointer_class));
   iree_hal_external_storage_t storage = make_storage();
   Ref<iree_hal_buffer_t> imported;
   IREE_EXPECT_STATUS_IS(

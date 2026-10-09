@@ -512,7 +512,7 @@ static iree_status_t iree_io_parameter_op_batch_advance_timeline(
 // operation are serialized and the wait has a higher chance of being elided.
 static iree_status_t iree_io_parameter_op_batch_enqueue_alloca(
     iree_io_parameter_op_batch_t* batch, iree_hal_pool_t* pool,
-    iree_hal_buffer_params_t params, iree_device_size_t allocation_size,
+    iree_device_size_t min_alignment, iree_device_size_t allocation_size,
     iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
   IREE_ASSERT_ARGUMENT(batch);
   IREE_ASSERT_ARGUMENT(out_buffer);
@@ -531,7 +531,7 @@ static iree_status_t iree_io_parameter_op_batch_enqueue_alloca(
 
   const iree_hal_pool_reservation_request_t request = {
       .allocation_size = allocation_size,
-      .min_alignment = params.min_alignment,
+      .min_alignment = min_alignment,
   };
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
       z0, iree_hal_queue_alloca(batch->queue, step.wait_semaphore_list,
@@ -1084,7 +1084,7 @@ static iree_status_t iree_io_parameter_index_provider_load(
     iree_hal_queue_t* queue, iree_hal_pool_t* pool,
     const iree_hal_semaphore_list_t wait_semaphore_list,
     const iree_hal_semaphore_list_t signal_semaphore_list,
-    iree_string_view_t source_scope, iree_hal_buffer_params_t target_params,
+    iree_string_view_t source_scope, iree_device_size_t target_min_alignment,
     iree_host_size_t count, iree_io_parameter_enumerator_t enumerator,
     iree_io_parameter_emitter_t emitter) {
   iree_io_parameter_index_provider_t* provider =
@@ -1117,6 +1117,18 @@ static iree_status_t iree_io_parameter_index_provider_load(
       IREE_TRACE_ZONE_APPEND_VALUE_I64(z_entry, span.length);
     }
 
+    // Each emitted buffer contains its requested span at |buffer_offset|.
+    // Validate the full output geometry before trying either import or
+    // allocation so both paths expose the same logical extent.
+    iree_device_size_t target_allocation_size = 0;
+    if (iree_status_is_ok(status) &&
+        IREE_UNLIKELY(!iree_device_size_checked_add(
+            span.buffer_offset, span.length, &target_allocation_size))) {
+      status = iree_make_status(
+          IREE_STATUS_OUT_OF_RANGE,
+          "loaded parameter buffer range exceeds the device address space");
+    }
+
     // TODO(benvanik): refactor iree_io_parameter_index_provider_resolve so that
     // it doesn't resolve the HAL file. Today if we hit the perfect case where
     // all loads are able to be imported directly then we don't end up using the
@@ -1134,23 +1146,20 @@ static iree_status_t iree_io_parameter_index_provider_load(
     // allow us to map files that we already have open via other mechanisms
     // (FILE, fd, etc).
     iree_hal_buffer_t* target_buffer = NULL;
-    if (iree_status_is_ok(status) &&
+    if (iree_status_is_ok(status) && target_min_alignment <= 1 &&
+        span.buffer_offset == 0 &&
         source_entry->type == IREE_IO_PARAMETER_INDEX_ENTRY_STORAGE_TYPE_FILE &&
         iree_io_file_handle_type(source_entry->storage.file.handle) ==
             IREE_IO_FILE_HANDLE_TYPE_HOST_ALLOCATION) {
-      iree_hal_allocator_t* allocator = iree_hal_device_allocator(device);
-      const iree_hal_buffer_compatibility_t compatibility =
-          iree_hal_allocator_query_buffer_compatibility(
-              allocator, target_params, span.length,
-              /*out_params=*/NULL, /*out_allocation_size=*/NULL);
-      if (iree_all_bits_set(compatibility,
-                            IREE_HAL_BUFFER_COMPATIBILITY_IMPORTABLE)) {
+      const iree_hal_external_storage_class_t storage_class =
+          iree_hal_make_external_storage_class(
+              IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+      if (iree_hal_pool_supports_import_class(pool, storage_class)) {
         iree_byte_span_t host_allocation =
             iree_io_file_handle_primitive(source_entry->storage.file.handle)
                 .value.host_allocation;
         iree_hal_external_storage_t external_buffer = {
-            .storage_class = iree_hal_make_external_storage_class(
-                IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+            .storage_class = storage_class,
             .payload.host_pointer = host_allocation.data,
             .byte_length = host_allocation.data_length,
             .host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
@@ -1160,10 +1169,11 @@ static iree_status_t iree_io_parameter_index_provider_load(
             .release_user_data = source_entry->storage.file.handle,
         };
         iree_io_file_handle_retain(source_entry->storage.file.handle);
-        status = iree_hal_allocator_import_buffer(
-            allocator, target_params, &external_buffer,
-            iree_hal_make_buffer_range(source_entry->storage.file.offset,
-                                       span.length),
+        status = iree_hal_pool_import_buffer(
+            pool, &external_buffer,
+            iree_hal_make_buffer_range(
+                source_entry->storage.file.offset + span.parameter_offset,
+                target_allocation_size),
             &target_buffer);
         if (iree_status_is_ok(status)) {
           IREE_TRACE_ZONE_APPEND_TEXT(z_entry, "import succeeded");
@@ -1173,12 +1183,16 @@ static iree_status_t iree_io_parameter_index_provider_load(
       }
     }
 
-    // When the import path above fails we fall back to alloca + fill/read.
+    // When no admitted zero-copy route applies, allocate and populate through
+    // the queue. A selected import route that fails is propagated: hiding a
+    // malformed handle or native attachment failure behind a copy would make
+    // the pool contract nondeterministic.
     if (iree_status_is_ok(status) && !target_buffer) {
       // Enqueue an allocation of the target buffer on a timeline.
       // The next operation we enqueue will go on the same timeline.
       status = iree_io_parameter_op_batch_enqueue_alloca(
-          &batch, pool, target_params, span.length, &target_buffer);
+          &batch, pool, target_min_alignment, target_allocation_size,
+          &target_buffer);
 
       // Enqueue the operation on the same timeline as the allocation.
       if (iree_status_is_ok(status)) {

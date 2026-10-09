@@ -566,9 +566,11 @@ static void iree_hal_passthrough_pool_destroy(iree_hal_pool_t* base_pool) {
 // External storage import
 //===----------------------------------------------------------------------===//
 
-static bool iree_hal_passthrough_pool_admits_import(
-    const iree_hal_passthrough_pool_t* pool,
+static bool iree_hal_passthrough_pool_supports_import_class(
+    const iree_hal_pool_t* base_pool,
     iree_hal_external_storage_class_t storage_class) {
+  const iree_hal_passthrough_pool_t* pool =
+      (const iree_hal_passthrough_pool_t*)base_pool;
   for (iree_host_size_t i = 0; i < pool->import_class_count; ++i) {
     if (iree_hal_external_storage_class_equal(pool->import_classes[i],
                                               storage_class)) {
@@ -674,8 +676,8 @@ static iree_status_t iree_hal_passthrough_pool_import_buffer(
     iree_hal_pool_t* base_pool, iree_hal_external_storage_t* inout_storage,
     iree_hal_buffer_range_t logical_range, iree_hal_buffer_t** out_buffer) {
   iree_hal_passthrough_pool_t* pool = (iree_hal_passthrough_pool_t*)base_pool;
-  if (!iree_hal_passthrough_pool_admits_import(pool,
-                                               inout_storage->storage_class)) {
+  if (!iree_hal_passthrough_pool_supports_import_class(
+          base_pool, inout_storage->storage_class)) {
     return iree_make_status(IREE_STATUS_UNAVAILABLE,
                             "external storage class was not admitted by pool");
   }
@@ -1318,4 +1320,5 @@ static const iree_hal_pool_vtable_t iree_hal_passthrough_pool_vtable = {
     .trim = iree_hal_passthrough_pool_trim,
     .advise_asan_reservations =
         iree_hal_passthrough_pool_advise_asan_reservations,
+    .supports_import_class = iree_hal_passthrough_pool_supports_import_class,
 };

@@ -136,10 +136,11 @@ typedef struct iree_io_parameter_scatter_t {
 // parameter and pass back the buffer backing the parameter (possibly a
 // subspan of a larger shared allocation).
 //
-// If the implementation is able to meet the expected |target_params| with an
-// existing buffer it may be returned without a new allocation. If access allows
-// implementations are allowed to return mapped memory that may be shared by
-// other users within the same process or across processes.
+// |target_min_alignment| is the minimum alignment of each returned buffer's
+// byte zero. If the selected pool admits the provider's existing storage and
+// that storage satisfies the alignment, implementations may import it without
+// allocating or copying. Imported mapped memory may be shared by other users
+// within the same process or across processes.
 //
 // |device| is used to import provider storage and must own |queue|. |pool| is
 // the exact pool used for any new allocations and is borrowed by the provider.
@@ -156,7 +157,7 @@ IREE_API_EXPORT iree_status_t iree_io_parameter_provider_load(
     iree_hal_queue_t* queue, iree_hal_pool_t* pool,
     const iree_hal_semaphore_list_t wait_semaphore_list,
     const iree_hal_semaphore_list_t signal_semaphore_list,
-    iree_string_view_t source_scope, iree_hal_buffer_params_t target_params,
+    iree_string_view_t source_scope, iree_device_size_t target_min_alignment,
     iree_host_size_t count, iree_io_parameter_enumerator_t enumerator,
     iree_io_parameter_emitter_t emitter);
 
@@ -266,7 +267,7 @@ typedef struct iree_io_parameter_provider_vtable_t {
       iree_hal_queue_t* queue, iree_hal_pool_t* pool,
       const iree_hal_semaphore_list_t wait_semaphore_list,
       const iree_hal_semaphore_list_t signal_semaphore_list,
-      iree_string_view_t source_scope, iree_hal_buffer_params_t target_params,
+      iree_string_view_t source_scope, iree_device_size_t target_min_alignment,
       iree_host_size_t count, iree_io_parameter_enumerator_t enumerator,
       iree_io_parameter_emitter_t emitter);
 

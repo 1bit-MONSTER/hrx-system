@@ -206,11 +206,184 @@ class ParameterIndexProviderTest : public ::testing::Test {
                                  /*queue_ordinal=*/0);
   }
 
+  static iree_hal_device_group_t* device_group() { return device_group_; }
+
  private:
   static iree_hal_device_group_t* device_group_;
 };
 
 iree_hal_device_group_t* ParameterIndexProviderTest::device_group_ = nullptr;
+
+static iree_status_t CreateTransferPool(iree_hal_device_group_t* device_group,
+                                        bool admit_host_imports,
+                                        iree_hal_pool_t** out_pool) {
+  iree_hal_device_t* device = iree_hal_device_group_device_at(device_group, 0);
+  iree_hal_pool_family_access_t family = {
+      /*.family=*/iree_hal_device_queue_family(device, 0),
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
+  };
+  iree_hal_pool_scope_t scope = {
+      /*.family_count=*/1,
+      /*.families=*/&family,
+      /*.host=*/
+      {
+          /*.access=*/IREE_HAL_MEMORY_ACCESS_READ,
+          /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+          /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+      },
+  };
+  const iree_hal_external_storage_class_t host_pointer_class =
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+  const iree_hal_pool_import_class_t import_class = {
+      /*.storage_class=*/host_pointer_class,
+  };
+  iree_hal_slab_pool_options_t options;
+  iree_hal_slab_pool_options_initialize(&options);
+  if (admit_host_imports) {
+    options.imports.class_count = 1;
+    options.imports.classes = &import_class;
+  }
+  options.preferences.host = scope.host;
+  return iree_hal_slab_pool_create(device_group, scope, &options,
+                                   iree_allocator_system(), out_pool);
+}
+
+static iree_status_t CaptureLoadedBuffer(void* user_data, iree_host_size_t i,
+                                         iree_hal_buffer_t* buffer) {
+  if (i != 0) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "test emitter expected one buffer");
+  }
+  iree_hal_buffer_retain(buffer);
+  *static_cast<iree_hal_buffer_t**>(user_data) = buffer;
+  return iree_ok_status();
+}
+
+TEST_F(ParameterIndexProviderTest, LoadImportsExactParameterRange) {
+  uint8_t source_data[12] = {
+      0x10, 0x11, 0x12, 0x13, 0x20, 0x21, 0x22, 0x23, 0x30, 0x31, 0x32, 0x33,
+  };
+  Ref<iree_io_file_handle_t, iree_io_file_handle_release> source_handle;
+  IREE_ASSERT_OK(iree_io_file_handle_wrap_host_allocation(
+      IREE_IO_FILE_ACCESS_READ,
+      iree_make_byte_span(source_data, sizeof(source_data)),
+      iree_io_file_handle_release_callback_null(), iree_allocator_system(),
+      source_handle.out()));
+
+  Ref<iree_io_parameter_index_t, iree_io_parameter_index_release> index;
+  IREE_ASSERT_OK(
+      iree_io_parameter_index_create(iree_allocator_system(), index.out()));
+  IREE_ASSERT_OK(AddFileEntry(index.get(), IREE_SV("weights"),
+                              /*offset=*/2, /*length=*/8, source_handle.get()));
+  Ref<iree_io_parameter_provider_t, iree_io_parameter_provider_release>
+      provider;
+  IREE_ASSERT_OK(iree_io_parameter_index_provider_create(
+      IREE_SV("model"), index.get(),
+      IREE_IO_PARAMETER_INDEX_PROVIDER_DEFAULT_MAX_CONCURRENT_OPERATIONS,
+      iree_allocator_system(), provider.out()));
+
+  Ref<iree_hal_pool_t, iree_hal_pool_release> pool;
+  IREE_ASSERT_OK(CreateTransferPool(device_group(), /*admit_host_imports=*/true,
+                                    pool.out()));
+  Ref<iree_hal_semaphore_t, iree_hal_semaphore_release> signal;
+  IREE_ASSERT_OK(iree_hal_semaphore_create(
+      device(), IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, /*initial_value=*/0,
+      IREE_HAL_SEMAPHORE_FLAG_DEFAULT, signal.out()));
+
+  ParameterRequest request = {
+      /*.key=*/IREE_SV("weights"),
+      /*.span=*/
+      {/*.parameter_offset=*/3, /*.buffer_offset=*/0, /*.length=*/4},
+  };
+  uint64_t signal_value = 1;
+  iree_hal_semaphore_t* signal_ptr = signal.get();
+  iree_hal_semaphore_list_t signal_list = {
+      /*.count=*/1,
+      /*.semaphores=*/&signal_ptr,
+      /*.payload_values=*/&signal_value,
+  };
+  Ref<iree_hal_buffer_t, iree_hal_buffer_release> loaded_buffer;
+  iree_io_parameter_emitter_t emitter = {
+      /*.fn=*/CaptureLoadedBuffer,
+      /*.user_data=*/loaded_buffer.out(),
+  };
+  IREE_ASSERT_OK(iree_io_parameter_provider_load(
+      provider.get(), device(), queue(), pool.get(),
+      iree_hal_semaphore_list_empty(), signal_list, IREE_SV("model"),
+      /*target_min_alignment=*/1, /*count=*/1,
+      {/*.fn=*/EnumerateParameterRequest, /*.user_data=*/&request}, emitter));
+  IREE_ASSERT_OK(iree_hal_semaphore_wait(signal.get(), signal_value,
+                                         iree_infinite_timeout(),
+                                         IREE_ASYNC_WAIT_FLAG_NONE));
+
+  ASSERT_NE(loaded_buffer.get(), nullptr);
+  EXPECT_EQ(iree_hal_buffer_byte_length(loaded_buffer.get()), 4u);
+  iree_hal_buffer_mapping_t mapping;
+  IREE_ASSERT_OK(iree_hal_buffer_map_range(
+      loaded_buffer.get(), IREE_HAL_MAPPING_MODE_SCOPED,
+      IREE_HAL_MEMORY_ACCESS_READ, IREE_HAL_BUFFER_MAP_FLAG_NONE, 0,
+      IREE_HAL_WHOLE_BUFFER, &mapping));
+  EXPECT_EQ(mapping.contents.data, source_data + 5);
+  EXPECT_EQ(0, std::memcmp(mapping.contents.data, source_data + 5, 4));
+  IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&mapping));
+}
+
+TEST_F(ParameterIndexProviderTest, LoadAllocatesFullTargetSpan) {
+  Ref<iree_io_parameter_index_t, iree_io_parameter_index_release> index;
+  IREE_ASSERT_OK(
+      iree_io_parameter_index_create(iree_allocator_system(), index.out()));
+  IREE_ASSERT_OK(AddSplatEntry(index.get(), IREE_SV("padding"), 4, 0xAB));
+  Ref<iree_io_parameter_provider_t, iree_io_parameter_provider_release>
+      provider;
+  IREE_ASSERT_OK(iree_io_parameter_index_provider_create(
+      IREE_SV("model"), index.get(),
+      IREE_IO_PARAMETER_INDEX_PROVIDER_DEFAULT_MAX_CONCURRENT_OPERATIONS,
+      iree_allocator_system(), provider.out()));
+
+  Ref<iree_hal_pool_t, iree_hal_pool_release> pool;
+  IREE_ASSERT_OK(CreateTransferPool(device_group(),
+                                    /*admit_host_imports=*/false, pool.out()));
+  Ref<iree_hal_semaphore_t, iree_hal_semaphore_release> signal;
+  IREE_ASSERT_OK(iree_hal_semaphore_create(
+      device(), IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, /*initial_value=*/0,
+      IREE_HAL_SEMAPHORE_FLAG_DEFAULT, signal.out()));
+
+  ParameterRequest request = {
+      /*.key=*/IREE_SV("padding"),
+      /*.span=*/
+      {/*.parameter_offset=*/0, /*.buffer_offset=*/3, /*.length=*/4},
+  };
+  uint64_t signal_value = 1;
+  iree_hal_semaphore_t* signal_ptr = signal.get();
+  iree_hal_semaphore_list_t signal_list = {
+      /*.count=*/1,
+      /*.semaphores=*/&signal_ptr,
+      /*.payload_values=*/&signal_value,
+  };
+  Ref<iree_hal_buffer_t, iree_hal_buffer_release> loaded_buffer;
+  IREE_ASSERT_OK(iree_io_parameter_provider_load(
+      provider.get(), device(), queue(), pool.get(),
+      iree_hal_semaphore_list_empty(), signal_list, IREE_SV("model"),
+      /*target_min_alignment=*/16, /*count=*/1,
+      {/*.fn=*/EnumerateParameterRequest, /*.user_data=*/&request},
+      {/*.fn=*/CaptureLoadedBuffer, /*.user_data=*/loaded_buffer.out()}));
+  IREE_ASSERT_OK(iree_hal_semaphore_wait(signal.get(), signal_value,
+                                         iree_infinite_timeout(),
+                                         IREE_ASYNC_WAIT_FLAG_NONE));
+
+  ASSERT_NE(loaded_buffer.get(), nullptr);
+  EXPECT_EQ(iree_hal_buffer_byte_length(loaded_buffer.get()), 7u);
+  iree_hal_buffer_mapping_t mapping;
+  IREE_ASSERT_OK(iree_hal_buffer_map_range(
+      loaded_buffer.get(), IREE_HAL_MAPPING_MODE_SCOPED,
+      IREE_HAL_MEMORY_ACCESS_READ, IREE_HAL_BUFFER_MAP_FLAG_NONE, 3, 4,
+      &mapping));
+  for (iree_host_size_t i = 0; i < mapping.contents.data_length; ++i) {
+    EXPECT_EQ(mapping.contents.data[i], 0xAB);
+  }
+  IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&mapping));
+}
 
 TEST_F(ParameterIndexProviderTest, GatherBatchPreservesGroupSignals) {
   iree_hal_device_t* device = this->device();

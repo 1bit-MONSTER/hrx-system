@@ -209,6 +209,19 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_import_buffer(
   return status;
 }
 
+IREE_API_EXPORT bool iree_hal_pool_supports_import_class(
+    const iree_hal_pool_t* pool,
+    iree_hal_external_storage_class_t storage_class) {
+  IREE_ASSERT_ARGUMENT(pool);
+  if (storage_class.type == IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE) {
+    return false;
+  }
+  const iree_hal_pool_vtable_t* vtable =
+      (const iree_hal_pool_vtable_t*)pool->resource.vtable;
+  return vtable->supports_import_class &&
+         vtable->supports_import_class(pool, storage_class);
+}
+
 IREE_API_EXPORT void iree_hal_pool_query_capabilities(
     const iree_hal_pool_t* pool,
     iree_hal_pool_capabilities_t* out_capabilities) {

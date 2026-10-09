@@ -643,6 +643,15 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_import_buffer(
     iree_hal_pool_t* pool, iree_hal_external_storage_t* inout_storage,
     iree_hal_buffer_range_t logical_range, iree_hal_buffer_t** out_buffer);
 
+// Returns true if |pool| admits the exact external |storage_class| for import.
+// This queries the immutable construction-time contract and performs no native
+// calls. A true result means an import may be attempted; payload-specific
+// constraints such as handle validity, addressability, and cacheability are
+// checked by iree_hal_pool_import_buffer().
+IREE_API_EXPORT bool iree_hal_pool_supports_import_class(
+    const iree_hal_pool_t* pool,
+    iree_hal_external_storage_class_t storage_class);
+
 // Queries the memory capabilities of the pool. O(1); reads cached fields
 // computed at pool creation time.
 IREE_API_EXPORT void iree_hal_pool_query_capabilities(
@@ -795,6 +804,12 @@ typedef struct iree_hal_pool_vtable_t {
   iree_status_t(IREE_API_PTR* import_buffer)(
       iree_hal_pool_t* pool, iree_hal_external_storage_t* inout_storage,
       iree_hal_buffer_range_t logical_range, iree_hal_buffer_t** out_buffer);
+
+  // Queries the immutable set of exact external classes admitted for import.
+  // NULL indicates that the pool never preserves caller-selected backing.
+  bool(IREE_API_PTR* supports_import_class)(
+      const iree_hal_pool_t* pool,
+      iree_hal_external_storage_class_t storage_class);
 } iree_hal_pool_vtable_t;
 IREE_HAL_ASSERT_VTABLE_LAYOUT(iree_hal_pool_vtable_t);
 
