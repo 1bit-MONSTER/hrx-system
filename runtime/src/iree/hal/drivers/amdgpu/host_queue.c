@@ -937,8 +937,6 @@ iree_status_t iree_hal_amdgpu_host_queue_initialize(
   out_queue->block_pool = params->memory.block_pool;
   out_queue->can_publish_frontier = true;
   out_queue->transfer_context = params->memory.transfer_context;
-  out_queue->default_pool_set = params->memory.default_pool_set;
-  out_queue->default_pool = params->memory.default_pool;
   out_queue->transient_buffer_pool = params->memory.transient_buffer_pool;
   out_queue->staging_pool = params->memory.staging_pool;
   out_queue->device_ordinal = params->identity.device_ordinal;

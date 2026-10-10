@@ -265,10 +265,6 @@ typedef struct iree_hal_amdgpu_host_queue_params_t {
     iree_hal_amdgpu_host_queue_profiling_memory_t profiling;
     // Builtin transfer kernels and target-specific transfer metadata.
     const iree_hal_amdgpu_device_buffer_transfer_context_t* transfer_context;
-    // Default pool routing table for queue allocations.
-    const iree_hal_pool_set_t* default_pool_set;
-    // Default TLSF pool used by queue allocations.
-    iree_hal_pool_t* default_pool;
     // Wrapper pool used for queue-allocation results.
     iree_hal_amdgpu_transient_buffer_pool_t* transient_buffer_pool;
     // Fixed-size staging pool used by file transfers.
@@ -702,12 +698,6 @@ typedef struct iree_hal_amdgpu_host_queue_t {
   // Borrowed logical-device feedback state drained during queue retirement.
   // NULL when feedback is disabled.
   iree_hal_amdgpu_feedback_state_t* feedback_state;
-
-  // Borrowed default pool set for this queue's physical device.
-  const iree_hal_pool_set_t* default_pool_set;
-
-  // Borrowed TLSF default pool for this queue's physical device.
-  iree_hal_pool_t* default_pool;
 
   // Borrowed transient wrapper pool for queue_alloca results.
   iree_hal_amdgpu_transient_buffer_pool_t* transient_buffer_pool;

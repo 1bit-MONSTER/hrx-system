@@ -37,16 +37,6 @@ IREE_FLAG(int64_t, amdgpu_device_block_pool_large_capacity, 0,
           "Initial large block pool block allocation count in blocks or 0 for "
           "the default.");
 
-IREE_FLAG(int64_t, amdgpu_default_pool_range_length, 0,
-          "Logical byte length of the default TLSF queue-allocation pool per "
-          "physical device or 0 for the default.");
-IREE_FLAG(int64_t, amdgpu_default_pool_alignment, 0,
-          "Minimum byte alignment for default-pool reservations. Must be a "
-          "power of two or 0 for the default.");
-IREE_FLAG(int32_t, amdgpu_default_pool_frontier_capacity, 0,
-          "Maximum death-frontier entry count stored per free default-pool "
-          "block or 0 for the default.");
-
 IREE_FLAG(int64_t, amdgpu_file_staging_slot_size, 0,
           "Byte length of each queue_read/queue_write file staging slot. Must "
           "be a power of two or 0 for the default.");
@@ -104,6 +94,9 @@ IREE_FLAG(
     "Freed ASAN allocation mapping budget in bytes kept resident and poisoned "
     "for stale-pointer checks. Set to 0 to release freed mappings "
     "immediately.");
+IREE_FLAG(int64_t, amdgpu_asan_redzone_size,
+          IREE_HAL_AMDGPU_ASAN_DEFAULT_REDZONE_SIZE,
+          "Redzone bytes added around allocations from ASAN-enabled pools.");
 IREE_FLAG(bool, amdgpu_tsan, false,
           "Enables AMDGPU TSAN runtime state and config global publication.");
 IREE_FLAG(string, amdgpu_tsan_report_policy, "fail-device",
@@ -226,33 +219,6 @@ static iree_status_t iree_hal_amdgpu_driver_factory_try_create(
         &device_options->device_block_pools.large.initial_capacity));
   }
 
-  if (FLAG_amdgpu_default_pool_range_length) {
-    IREE_RETURN_IF_ERROR(iree_hal_amdgpu_flag_int64_to_device_size(
-        "--amdgpu_default_pool_range_length",
-        FLAG_amdgpu_default_pool_range_length,
-        &device_options->default_pool.range_length));
-  }
-  if (FLAG_amdgpu_default_pool_alignment) {
-    IREE_RETURN_IF_ERROR(iree_hal_amdgpu_flag_int64_to_device_size(
-        "--amdgpu_default_pool_alignment", FLAG_amdgpu_default_pool_alignment,
-        &device_options->default_pool.alignment));
-  }
-  if (FLAG_amdgpu_default_pool_frontier_capacity) {
-    if (FLAG_amdgpu_default_pool_frontier_capacity < 0) {
-      return iree_make_status(
-          IREE_STATUS_OUT_OF_RANGE,
-          "default pool frontier capacity must be non-negative (got %d)",
-          FLAG_amdgpu_default_pool_frontier_capacity);
-    }
-    if (FLAG_amdgpu_default_pool_frontier_capacity > UINT8_MAX) {
-      return iree_make_status(
-          IREE_STATUS_OUT_OF_RANGE,
-          "default pool frontier capacity %d exceeds maximum %u",
-          FLAG_amdgpu_default_pool_frontier_capacity, UINT8_MAX);
-    }
-    device_options->default_pool.frontier_capacity =
-        (uint8_t)FLAG_amdgpu_default_pool_frontier_capacity;
-  }
   if (FLAG_amdgpu_file_staging_slot_size) {
     IREE_RETURN_IF_ERROR(iree_hal_amdgpu_flag_int64_to_host_size(
         "--amdgpu_file_staging_slot_size", FLAG_amdgpu_file_staging_slot_size,
@@ -359,6 +325,9 @@ static iree_status_t iree_hal_amdgpu_driver_factory_try_create(
   IREE_RETURN_IF_ERROR(iree_hal_amdgpu_flag_int64_to_device_size(
       "amdgpu_asan_quarantine_size", FLAG_amdgpu_asan_quarantine_size,
       &device_options->asan.quarantine_size));
+  IREE_RETURN_IF_ERROR(iree_hal_amdgpu_flag_int64_to_device_size(
+      "amdgpu_asan_redzone_size", FLAG_amdgpu_asan_redzone_size,
+      &device_options->asan.redzone_size));
   device_options->tsan.enabled =
       device_options->tsan.enabled || FLAG_amdgpu_tsan;
   if (strcmp(FLAG_amdgpu_tsan_report_policy, "report-only") == 0) {

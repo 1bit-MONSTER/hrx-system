@@ -87,6 +87,9 @@ typedef enum iree_hal_amdgpu_pm4_command_buffer_publication_mode_e {
 #define IREE_HAL_AMDGPU_ASAN_DEFAULT_SHADOW_SLAB_SIZE \
   ((iree_device_size_t)128 * 1024 * 1024)
 
+// Allocation redzone size used by ASAN-enabled memory pools by default.
+#define IREE_HAL_AMDGPU_ASAN_DEFAULT_REDZONE_SIZE ((iree_device_size_t)256)
+
 // Freed ASAN allocation mapping budget kept resident for stale-pointer checks.
 #define IREE_HAL_AMDGPU_ASAN_DEFAULT_QUARANTINE_SIZE \
   ((iree_device_size_t)256 * 1024 * 1024)
@@ -213,18 +216,6 @@ typedef struct iree_hal_amdgpu_logical_device_options_t {
     } large;
   } device_block_pools;
 
-  // Default queue-allocation pool policy.
-  struct {
-    // Logical byte length of the default TLSF pool range per physical device.
-    iree_device_size_t range_length;
-
-    // Minimum byte alignment for every default-pool reservation.
-    iree_device_size_t alignment;
-
-    // Maximum death-frontier entry count stored per free TLSF block.
-    uint8_t frontier_capacity;
-  } default_pool;
-
   // Controls where queues are placed. ANY and HOST currently select host
   // queues. DEVICE is reserved for future device-side scheduling and fails
   // loudly until that path is implemented.
@@ -302,6 +293,9 @@ typedef struct iree_hal_amdgpu_logical_device_options_t {
 
     // Physical shadow slab size in bytes.
     iree_device_size_t shadow_slab_size;
+
+    // Redzone bytes added around allocations from ASAN-enabled memory pools.
+    iree_device_size_t redzone_size;
 
     // Freed allocation mapping budget in bytes kept resident and poisoned.
     iree_device_size_t quarantine_size;

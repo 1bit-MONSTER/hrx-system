@@ -411,7 +411,7 @@ static iree_status_t iree_hal_amdgpu_slab_pool_query_memory(
   plan->libhsa = backend->libhsa;
   plan->physical_ordinal = physical_device->device_ordinal;
   plan->buffer_pool = &physical_device->materialized_buffer_pool;
-  plan->progress.notification = physical_device->default_pool_notification;
+  plan->progress.notification = physical_device->memory_notification;
   plan->progress.maintenance = physical_device->memory_maintenance;
   plan->progress.epoch_query = backend->epoch_query;
   plan->progress.tracker =
@@ -429,7 +429,7 @@ static iree_status_t iree_hal_amdgpu_slab_pool_query_memory(
       IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
   plan->provider_options.access.agents = plan->agents;
   plan->provider_options.asan_state = backend->asan_state;
-  plan->asan = physical_device->default_pool_options.asan;
+  plan->asan = physical_device->asan_pool_options;
   plan->owned_mode = options->owned.mode;
   plan->imports.class_count = options->imports.class_count;
   plan->imports.classes = options->imports.classes;

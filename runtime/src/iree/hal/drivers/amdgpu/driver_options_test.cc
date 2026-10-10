@@ -65,6 +65,8 @@ TEST(AmdgpuDriverOptionsTest, LogicalDeviceDefaultsDisableAsan) {
             IREE_HAL_AMDGPU_ASAN_DEFAULT_OWNED_APPLICATION_SIZE);
   EXPECT_EQ(options.asan.shadow_slab_size,
             IREE_HAL_AMDGPU_ASAN_DEFAULT_SHADOW_SLAB_SIZE);
+  EXPECT_EQ(options.asan.redzone_size,
+            IREE_HAL_AMDGPU_ASAN_DEFAULT_REDZONE_SIZE);
   EXPECT_EQ(options.asan.quarantine_size,
             IREE_HAL_AMDGPU_ASAN_DEFAULT_QUARANTINE_SIZE);
 }

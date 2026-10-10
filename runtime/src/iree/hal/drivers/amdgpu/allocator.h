@@ -43,10 +43,9 @@ typedef struct iree_hal_amdgpu_buffer_spec_t {
 
 // Creates a buffer allocator that allocates from HSA memory pools.
 //
-// Normal allocations are direct HSA memory-pool allocations. When the logical
-// device has HAL ASAN enabled, device-local persistent allocations route
-// through the device default pool set so redzones, shadow publication, release
-// poisoning, and quarantine follow the same policy as queue allocations.
+// Direct allocations use HSA memory pools and publish sanitizer shadow state
+// when enabled. Public allocations use explicit pools so redzone and quarantine
+// policy stays attached to the caller-selected owner.
 //
 // |logical_device| is unretained and must outlive the allocator.
 iree_status_t iree_hal_amdgpu_allocator_create(

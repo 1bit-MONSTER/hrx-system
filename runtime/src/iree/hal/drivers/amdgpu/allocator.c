@@ -1467,18 +1467,6 @@ static void iree_hal_amdgpu_allocator_record_device_buffer_import(
   release_data->profile_physical_device_ordinal = physical_device_ordinal;
 }
 
-static bool iree_hal_amdgpu_allocator_should_use_asan_pool(
-    iree_hal_amdgpu_allocator_t* allocator,
-    const iree_hal_amdgpu_allocator_placement_t* memory_placement) {
-  return iree_hal_amdgpu_asan_state_is_enabled(
-             &allocator->logical_device->asan) &&
-         iree_all_bits_set(memory_placement->memory_type,
-                           IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL) &&
-         !iree_any_bit_set(memory_placement->memory_type,
-                           IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
-                               IREE_HAL_MEMORY_TYPE_DEVICE_UNCACHED);
-}
-
 static bool iree_hal_amdgpu_allocator_should_publish_asan_allocation(
     iree_hal_amdgpu_allocator_t* allocator,
     const iree_hal_amdgpu_allocator_placement_t* memory_placement) {
@@ -1487,77 +1475,6 @@ static bool iree_hal_amdgpu_allocator_should_publish_asan_allocation(
          iree_any_bit_set(memory_placement->memory_type,
                           IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
                               IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE);
-}
-
-static iree_status_t iree_hal_amdgpu_allocator_allocate_asan_pool_buffer(
-    iree_hal_amdgpu_allocator_t* allocator,
-    const iree_hal_amdgpu_allocator_placement_t* memory_placement,
-    iree_hal_amdgpu_buffer_spec_t params, iree_device_size_t byte_length,
-    iree_hal_buffer_t** out_buffer) {
-  IREE_ASSERT_ARGUMENT(out_buffer);
-  *out_buffer = NULL;
-
-  if (IREE_UNLIKELY(memory_placement->physical_device_ordinal >=
-                    allocator->logical_device->physical_device_count)) {
-    return iree_make_status(
-        IREE_STATUS_INTERNAL,
-        "resolved AMDGPU physical device ordinal %" PRIu32
-        " exceeds logical device physical device count %" PRIhsz,
-        memory_placement->physical_device_ordinal,
-        allocator->logical_device->physical_device_count);
-  }
-  iree_hal_amdgpu_physical_device_t* physical_device =
-      allocator->logical_device
-          ->physical_devices[memory_placement->physical_device_ordinal];
-  if (IREE_UNLIKELY(!physical_device ||
-                    !physical_device->default_pool_set.entries)) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "AMDGPU ASAN persistent allocation requires assigned default pools");
-  }
-
-  const iree_device_size_t pool_allocation_size =
-      byte_length == 0 ? 4 : byte_length;
-  iree_hal_buffer_t* allocation_buffer = NULL;
-  iree_hal_buffer_params_t legacy_params;
-  iree_hal_amdgpu_allocator_update_buffer_params(&params, &legacy_params);
-  iree_hal_pool_t* pool = iree_hal_pool_set_select(
-      &physical_device->default_pool_set, legacy_params, pool_allocation_size);
-  if (!pool) {
-    return iree_make_status(IREE_STATUS_NOT_FOUND,
-                            "no AMDGPU ASAN pool can satisfy a %" PRIdsz
-                            "-byte allocation",
-                            pool_allocation_size);
-  }
-  if (pool->memory_contract) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "legacy AMDGPU allocations cannot override a fixed pool contract");
-  }
-  const iree_hal_pool_reservation_request_t request = {
-      .allocation_size = pool_allocation_size,
-      .min_alignment = params.min_alignment,
-  };
-  iree_status_t status = iree_hal_pool_allocate_buffer(
-      pool, request, iree_infinite_timeout(), &allocation_buffer);
-  if (iree_status_is_ok(status)) {
-    allocation_buffer->allowed_access = params.access;
-    allocation_buffer->allowed_usage = params.usage;
-    allocation_buffer->placement.queue_family_affinity =
-        params.queue_family_affinity;
-  }
-  if (iree_status_is_ok(status) &&
-      iree_hal_buffer_byte_length(allocation_buffer) != byte_length) {
-    status = iree_hal_buffer_subspan(allocation_buffer, /*byte_offset=*/0,
-                                     byte_length, allocator->host_allocator,
-                                     out_buffer);
-    iree_hal_buffer_release(allocation_buffer);
-  } else if (iree_status_is_ok(status)) {
-    *out_buffer = allocation_buffer;
-  } else {
-    iree_hal_buffer_release(allocation_buffer);
-  }
-  return status;
 }
 
 static void iree_hal_amdgpu_allocator_release_asan_allocation(
@@ -1633,19 +1550,6 @@ static iree_status_t iree_hal_amdgpu_allocator_allocate_buffer_spec(
         " exceeds HSA memory pool alignment %" PRIu64,
         (uint64_t)params->min_alignment,
         (uint64_t)memory_placement.memory_pool->allocation_alignment);
-  }
-
-  if (iree_hal_amdgpu_allocator_should_use_asan_pool(allocator,
-                                                     &memory_placement)) {
-    iree_status_t status = iree_hal_amdgpu_allocator_allocate_asan_pool_buffer(
-        allocator, &memory_placement, compat_params, byte_length, out_buffer);
-    if (iree_status_is_ok(status)) {
-      IREE_STATISTICS(iree_hal_allocator_statistics_record_alloc(
-          &allocator->statistics, iree_hal_buffer_memory_type(*out_buffer),
-          iree_hal_buffer_allocation_size(*out_buffer)));
-    }
-    IREE_TRACE_ZONE_END(z0);
-    return status;
   }
 
   // Guard against 0-byte allocations and align to the HSA allocation granule.
