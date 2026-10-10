@@ -1,0 +1,197 @@
+// RUN: pass canonicalize
+
+// A selected ring slot remains bounded when saved across loop iterations.
+func.def @held_slot_offset(%repeat: i1, %replace: i1) -> (i64) {
+  %begin = scalar.constant 0 : i32
+  %step = scalar.constant 1 : i32
+  %capacity = scalar.constant 3 : i32
+  %record_bytes = scalar.constant 512 : i32
+  %origin = index.constant 0 : offset
+  cfg.br ^header(%begin: i32, %origin: offset)
+^header(%position: i32, %held: offset):
+  %lower = test.fact_range_lo %held : offset -> i64
+  %upper = test.fact_range_hi %held : offset -> i64
+  test.use %lower, %upper : i64, i64
+  cfg.cond_br %repeat, ^choose, ^exit
+^choose:
+  %next = scalar.addi %position, %step : i32
+  cfg.cond_br %replace, ^replace, ^retain
+^replace:
+  %slot = scalar.remui %position, %capacity : i32
+  %byte_index = scalar.muli %slot, %record_bytes : i32
+  %byte_offset = index.cast %byte_index : i32 to offset
+  cfg.br ^header(%next: i32, %byte_offset: offset)
+^retain:
+  cfg.br ^header(%next: i32, %held: offset)
+^exit:
+  func.return %upper : i64
+}
+
+// ----
+func.def @held_slot_offset(%repeat: i1, %replace: i1) -> (i64) {
+  %begin = scalar.constant 0 : i32
+  %step = scalar.constant 1 : i32
+  %capacity = scalar.constant 3 : i32
+  %origin = index.constant 0 : offset
+  cfg.br ^header(%begin: i32, %origin: offset)
+^header(%position: i32, %held: offset):
+  %lower = scalar.constant 0 : i64
+  %upper = scalar.constant 1024 : i64
+  test.use %lower, %upper : i64, i64
+  cfg.cond_br %repeat, ^choose, ^exit
+^choose:
+  %next = scalar.addi %position, %step : i32
+  cfg.cond_br %replace, ^replace, ^retain
+^replace:
+  %slot = scalar.remui %position, %capacity : i32
+  %16 = scalar.constant 9 : i32
+  %byte_index = scalar.shli %slot, %16 : i32
+  %byte_offset = index.cast %byte_index : i32 to offset
+  cfg.br ^header(%next: i32, %byte_offset: offset)
+^retain:
+  cfg.br ^header(%next: i32, %held: offset)
+^exit:
+  func.return %upper : i64
+}
+
+// ====
+
+// RUN: pass canonicalize
+
+// The same feedback preserves a view's root, footprint and selected byte range.
+func.def @held_slot_view(%repeat: i1, %replace: i1) -> (i64) {
+  %begin = scalar.constant 0 : i32
+  %step = scalar.constant 1 : i32
+  %capacity = scalar.constant 3 : i32
+  %record_bytes = scalar.constant 512 : i32
+  %origin = index.constant 0 : offset
+  %storage_bytes = index.constant 1536 : offset
+  %storage = buffer.alloca<private> align(16) %storage_bytes : buffer
+  %initial = buffer.view %storage[%origin] : buffer -> view<128xf32>
+  cfg.br ^header(%begin: i32, %initial: view<128xf32>)
+^header(%position: i32, %held: view<128xf32>):
+  %same_root = test.fact_view_root_matches %held, %storage : view<128xf32>, buffer -> i1
+  %lower = test.fact_view_byte_offset_lo %held : view<128xf32> -> i64
+  %upper = test.fact_view_byte_offset_hi %held : view<128xf32> -> i64
+  %footprint = test.fact_view_byte_length_hi %held : view<128xf32> -> i64
+  test.use %same_root, %lower, %upper, %footprint : i1, i64, i64, i64
+  cfg.cond_br %repeat, ^choose, ^exit
+^choose:
+  %next = scalar.addi %position, %step : i32
+  cfg.cond_br %replace, ^replace, ^retain
+^replace:
+  %slot = scalar.remui %position, %capacity : i32
+  %byte_index = scalar.muli %slot, %record_bytes : i32
+  %byte_offset = index.cast %byte_index : i32 to offset
+  %selected = buffer.view %storage[%byte_offset] : buffer -> view<128xf32>
+  cfg.br ^header(%next: i32, %selected: view<128xf32>)
+^retain:
+  cfg.br ^header(%next: i32, %held: view<128xf32>)
+^exit:
+  func.return %upper : i64
+}
+
+// ----
+func.def @held_slot_view(%repeat: i1, %replace: i1) -> (i64) {
+  %begin = scalar.constant 0 : i32
+  %step = scalar.constant 1 : i32
+  %capacity = scalar.constant 3 : i32
+  %origin = index.constant 0 : offset
+  %storage_bytes = index.constant 1536 : offset
+  %storage = buffer.alloca<private> align(16) %storage_bytes : buffer
+  %initial = buffer.view %storage[%origin] : buffer -> view<128xf32>
+  cfg.br ^header(%begin: i32, %initial: view<128xf32>)
+^header(%position: i32, %held: view<128xf32>):
+  %same_root = scalar.constant true : i1
+  %lower = scalar.constant 0 : i64
+  %upper = scalar.constant 1024 : i64
+  %footprint = scalar.constant 512 : i64
+  test.use %same_root, %lower, %upper, %footprint : i1, i64, i64, i64
+  cfg.cond_br %repeat, ^choose, ^exit
+^choose:
+  %next = scalar.addi %position, %step : i32
+  cfg.cond_br %replace, ^replace, ^retain
+^replace:
+  %slot = scalar.remui %position, %capacity : i32
+  %22 = scalar.constant 9 : i32
+  %byte_index = scalar.shli %slot, %22 : i32
+  %byte_offset = index.cast %byte_index : i32 to offset
+  %selected = buffer.view %storage[%byte_offset] : buffer -> view<128xf32>
+  cfg.br ^header(%next: i32, %selected: view<128xf32>)
+^retain:
+  cfg.br ^header(%next: i32, %held: view<128xf32>)
+^exit:
+  func.return %upper : i64
+}
+
+// ====
+
+// RUN: pass canonicalize
+
+// An unknown initial offset stays possible even when later choices are bounded.
+func.def @unknown_initial_offset(%repeat: i1, %initial: offset, %position: i32) -> (i64) {
+  %capacity = scalar.constant 3 : i32
+  %record_bytes = scalar.constant 512 : i32
+  cfg.br ^header(%initial: offset)
+^header(%held: offset):
+  %upper = test.fact_range_hi %held : offset -> i64
+  cfg.cond_br %repeat, ^replace, ^exit
+^replace:
+  %slot = scalar.remui %position, %capacity : i32
+  %byte_index = scalar.muli %slot, %record_bytes : i32
+  %byte_offset = index.cast %byte_index : i32 to offset
+  cfg.br ^header(%byte_offset: offset)
+^exit:
+  func.return %upper : i64
+}
+
+// ----
+func.def @unknown_initial_offset(%repeat: i1, %initial: offset, %position: i32) -> (i64) {
+  %capacity = scalar.constant 3 : i32
+  cfg.br ^header(%initial: offset)
+^header(%held: offset):
+  %upper = scalar.constant 9223372036854775807 : i64
+  cfg.cond_br %repeat, ^replace, ^exit
+^replace:
+  %slot = scalar.remui %position, %capacity : i32
+  %11 = scalar.constant 9 : i32
+  %byte_index = scalar.shli %slot, %11 : i32
+  %byte_offset = index.cast %byte_index : i32 to offset
+  cfg.br ^header(%byte_offset: offset)
+^exit:
+  func.return %upper : i64
+}
+
+// ====
+
+// RUN: pass canonicalize
+
+// Descending evaluation cannot bound a cursor that can keep increasing.
+func.def @unbounded_offset(%repeat: i1) -> (i64) {
+  %origin = index.constant 0 : offset
+  %record_bytes = index.constant 512 : offset
+  cfg.br ^header(%origin: offset)
+^header(%cursor: offset):
+  %upper = test.fact_range_hi %cursor : offset -> i64
+  cfg.cond_br %repeat, ^advance, ^exit
+^advance:
+  %next = index.add %cursor, %record_bytes : offset
+  cfg.br ^header(%next: offset)
+^exit:
+  func.return %upper : i64
+}
+
+// ----
+func.def @unbounded_offset(%repeat: i1) -> (i64) {
+  %origin = index.constant 0 : offset
+  %record_bytes = index.constant 512 : offset
+  cfg.br ^header(%origin: offset)
+^header(%cursor: offset):
+  %upper = scalar.constant 9223372036854775807 : i64
+  cfg.cond_br %repeat, ^advance, ^exit
+^advance:
+  %next = index.add %cursor, %record_bytes : offset
+  cfg.br ^header(%next: offset)
+^exit:
+  func.return %upper : i64
+}
