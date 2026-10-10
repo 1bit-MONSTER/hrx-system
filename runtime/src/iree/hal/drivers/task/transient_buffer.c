@@ -463,7 +463,6 @@ static const iree_hal_buffer_allocation_vtable_t
 };
 
 static const iree_hal_buffer_vtable_t iree_hal_task_transient_buffer_vtable = {
-    .recycle = iree_hal_buffer_recycle,
     .destroy = iree_hal_task_transient_buffer_destroy,
     .export_range = iree_hal_task_transient_buffer_export_range,
     .map_range = iree_hal_task_transient_buffer_map_range,

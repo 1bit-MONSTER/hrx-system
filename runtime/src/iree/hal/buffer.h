@@ -1547,8 +1547,6 @@ iree_status_t iree_hal_heap_buffer_wrap(
 //===----------------------------------------------------------------------===//
 
 typedef struct iree_hal_buffer_vtable_t {
-  // Must be iree_hal_buffer_recycle.
-  void(IREE_API_PTR* recycle)(iree_hal_buffer_t* buffer);
   void(IREE_API_PTR* destroy)(iree_hal_buffer_t* buffer);
 
   // Exports an allocation-relative range already resolved from the caller's
@@ -1591,9 +1589,7 @@ typedef struct iree_hal_buffer_vtable_t {
   // Static queue allocation lifecycle, or NULL for ordinary buffer storage.
   const iree_hal_buffer_allocation_vtable_t* allocation;
 } iree_hal_buffer_vtable_t;
-static_assert(offsetof(iree_hal_buffer_vtable_t, recycle) == 0,
-              "iree_hal_resource_vtable_t expects destroy at offset 0, we want "
-              "to recycle instead");
+IREE_HAL_ASSERT_VTABLE_LAYOUT(iree_hal_buffer_vtable_t);
 
 // NOTE: this shared data structure may be a mistake. If vtables were free we
 // would not provide this and rely on each buffer implementation to implement
@@ -1628,14 +1624,6 @@ struct iree_hal_buffer_t {
   // buffers.
   iree_hal_buffer_placement_t placement;
 
-  // Hacky back reference to an allocator that should be notified when the
-  // buffer is released. This is a hack to support interception of buffers by
-  // pooling layers and is slated for removal.
-  //
-  // TODO(#19159): remove iree_hal_allocator_deallocate_buffer when pooling no
-  // longer requires the pooling_allocator on iree_hal_buffer_t.
-  iree_hal_allocator_t* pooling_allocator;
-
   // A counter indicating the number of active preservation requests.
   // This roughly translates to the number of logical "owners" of the allocation
   // and may differ from the buffer object reference count. Note that this
@@ -1667,21 +1655,7 @@ IREE_API_EXPORT void iree_hal_buffer_initialize(
     iree_hal_buffer_usage_t allowed_usage,
     const iree_hal_buffer_vtable_t* vtable, iree_hal_buffer_t* buffer);
 
-// TODO(#19159): remove iree_hal_allocator_deallocate_buffer when pooling no
-// longer requires the pooling_allocator on iree_hal_buffer_t. When buffers can
-// use their normal destroy callback to return themselves to pools then we won't
-// need this extra recycle thunk.
-//
-// Recycles |buffer| by releasing it to the origin it is associated with via the
-// release callback (or destroying it, if none was specified).
-// The |buffer| pointer may remain valid if it is returned to a pool but callers
-// must assume its contents are undefined as if it had been freed.
-IREE_API_EXPORT void iree_hal_buffer_recycle(iree_hal_buffer_t* buffer);
-
 // Destroys |buffer| and frees its memory.
-// Implementations must use iree_hal_buffer_recycle in their vtables for the
-// common iree_hal_resource_t destroy callback as this is only to be used by
-// release callbacks that want to free the buffer.
 IREE_API_EXPORT void iree_hal_buffer_destroy(iree_hal_buffer_t* buffer);
 
 #ifdef __cplusplus

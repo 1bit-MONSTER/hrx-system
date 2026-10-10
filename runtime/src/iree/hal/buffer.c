@@ -257,7 +257,6 @@ static iree_status_t iree_hal_subspan_buffer_flush_range(
 }
 
 static const iree_hal_buffer_vtable_t iree_hal_subspan_buffer_vtable = {
-    .recycle = iree_hal_buffer_recycle,
     .destroy = iree_hal_subspan_buffer_destroy,
     .export_range = iree_hal_subspan_buffer_export_range,
     .map_range = iree_hal_subspan_buffer_map_range,
@@ -388,7 +387,6 @@ IREE_API_EXPORT void iree_hal_buffer_initialize(
   buffer->byte_length = byte_length;
   memset(&buffer->memory, 0, sizeof(buffer->memory));
   buffer->placement = placement;
-  buffer->pooling_allocator = NULL;
   buffer->preserve_count = IREE_ATOMIC_VAR_INIT(1);
   buffer->memory_type = memory_type;
   buffer->allowed_access = allowed_access;
@@ -399,18 +397,6 @@ IREE_API_EXPORT void iree_hal_buffer_initialize(
   // initializing.
   if (allocated_buffer != buffer) {
     iree_hal_buffer_retain(buffer->allocated_buffer);
-  }
-}
-
-IREE_API_EXPORT void iree_hal_buffer_recycle(iree_hal_buffer_t* buffer) {
-  if (IREE_LIKELY(buffer)) {
-    IREE_TRACE_ZONE_BEGIN(z0);
-    if (buffer->pooling_allocator) {
-      iree_hal_allocator_deallocate_buffer(buffer->pooling_allocator, buffer);
-    } else {
-      iree_hal_buffer_destroy(buffer);
-    }
-    IREE_TRACE_ZONE_END(z0);
   }
 }
 
@@ -431,7 +417,7 @@ IREE_API_EXPORT void iree_hal_buffer_release(iree_hal_buffer_t* buffer) {
   if (IREE_LIKELY(buffer) &&
       iree_atomic_ref_count_dec(&((iree_hal_resource_t*)(buffer))->ref_count) ==
           1) {
-    iree_hal_buffer_recycle(buffer);
+    iree_hal_buffer_destroy(buffer);
   }
 }
 

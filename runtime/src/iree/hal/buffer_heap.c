@@ -360,7 +360,6 @@ static iree_status_t iree_hal_heap_buffer_flush_range(
 }
 
 static const iree_hal_buffer_vtable_t iree_hal_heap_buffer_vtable = {
-    .recycle = iree_hal_buffer_recycle,
     .destroy = iree_hal_heap_buffer_destroy,
     .export_range = iree_hal_heap_buffer_export_range,
     .map_range = iree_hal_heap_buffer_map_range,

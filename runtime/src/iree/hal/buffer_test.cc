@@ -643,7 +643,6 @@ struct MappedTransferBuffer : iree_hal_buffer_t {
 
   explicit MappedTransferBuffer(iree_hal_memory_type_t coherence) {
     static const iree_hal_buffer_vtable_t vtable = {
-        /*.recycle=*/iree_hal_buffer_recycle,
         /*.destroy=*/
         [](iree_hal_buffer_t* base) {
           delete static_cast<MappedTransferBuffer*>(base);
