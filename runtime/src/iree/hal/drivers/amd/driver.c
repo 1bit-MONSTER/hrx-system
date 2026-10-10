@@ -164,6 +164,39 @@ static iree_status_t iree_hal_amd_driver_create_device_by_id(
   return status;
 }
 
+static bool iree_hal_amd_driver_parse_identity(iree_string_view_t path,
+                                               amdf_endpoint_id_t* out_id) {
+  uint8_t bytes[16];
+  if (path.size != sizeof(bytes) * 2 ||
+      !iree_string_view_parse_hex_bytes(path, sizeof(bytes), bytes)) {
+    return false;
+  }
+  // The URI spells each word most-significant byte first, independently of
+  // the host representation of the native identity.
+  for (uint32_t i = 0; i < 2; ++i) {
+    uint64_t word = 0;
+    for (uint32_t j = 0; j < 8; ++j) {
+      word = (word << 8) | bytes[i * 8 + j];
+    }
+    out_id->words[i] = word;
+  }
+  return true;
+}
+
+static bool iree_hal_amd_driver_parse_ordinal(iree_string_view_t path,
+                                              uint32_t* out_ordinal) {
+  uint32_t ordinal = 0;
+  for (iree_host_size_t i = 0; i < path.size; ++i) {
+    const uint32_t digit = (uint32_t)(uint8_t)path.data[i] - '0';
+    if (digit > 9 || ordinal > (UINT32_MAX - digit) / 10) {
+      return false;
+    }
+    ordinal = ordinal * 10 + digit;
+  }
+  *out_ordinal = ordinal;
+  return true;
+}
+
 static iree_status_t iree_hal_amd_driver_create_device_by_path(
     iree_hal_driver_t* base, iree_string_view_t driver_name,
     iree_string_view_t path, iree_host_size_t param_count,
@@ -179,17 +212,12 @@ static iree_status_t iree_hal_amd_driver_create_device_by_path(
   uint32_t ordinal = 0;
   amdf_endpoint_id_t endpoint_id = {{0, 0}};
   if (by_identity) {
-    if (path.size != 32 ||
-        !iree_string_view_atoi_uint64_base(iree_string_view_substr(path, 0, 16),
-                                           16, &endpoint_id.words[0]) ||
-        !iree_string_view_atoi_uint64_base(
-            iree_string_view_substr(path, 16, 16), 16, &endpoint_id.words[1])) {
+    if (!iree_hal_amd_driver_parse_identity(path, &endpoint_id)) {
       return iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
           "AMD identity path must be id/<32 hexadecimal digits>");
     }
-  } else if (!iree_string_view_is_empty(path) &&
-             !iree_string_view_atoi_uint32_base(path, 10, &ordinal)) {
+  } else if (!iree_hal_amd_driver_parse_ordinal(path, &ordinal)) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "AMD device path must be a family ordinal or id/<identity>");

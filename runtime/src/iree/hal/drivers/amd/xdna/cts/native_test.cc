@@ -22,6 +22,77 @@
 
 namespace {
 
+class AmdDriverNativeTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    IREE_ASSERT_OK(
+        iree_hal_driver_registry_allocate(iree_allocator_system(), &registry_));
+    IREE_ASSERT_OK(iree_hal_amd_driver_module_register(registry_));
+    IREE_ASSERT_OK(iree_hal_driver_registry_get_driver(
+        registry_, IREE_SV("xdna"), &driver_));
+    IREE_ASSERT_OK(iree_async_proactor_pool_create(
+        1, nullptr, iree_async_proactor_pool_options_default(),
+        iree_allocator_system(), &pool_));
+  }
+
+  void TearDown() override {
+    iree_async_proactor_pool_release(pool_);
+    iree_hal_driver_release(driver_);
+    iree_hal_driver_registry_free(registry_);
+  }
+
+  // Explicit registry owning the discovery cache.
+  iree_hal_driver_registry_t* registry_ = nullptr;
+  // Driver used through the public URI selection boundary.
+  iree_hal_driver_t* driver_ = nullptr;
+  // Valid device-construction service supplied to every path query.
+  iree_async_proactor_pool_t* pool_ = nullptr;
+};
+
+TEST_F(AmdDriverNativeTest, RejectsMalformedDevicePaths) {
+  auto params = iree_hal_device_create_params_default();
+  params.proactor_pool = pool_;
+  const iree_string_view_t paths[] = {
+      IREE_SVL("0junk"),
+      IREE_SVL("+0"),
+      IREE_SVL("-1"),
+      IREE_SVL(" 0"),
+      IREE_SVL("0 "),
+      IREE_SVL("0\0"),
+      IREE_SVL("4294967296"),
+      IREE_SVL("18446744073709551616"),
+      IREE_SVL("id/0000000000000000000000000000000"),
+      IREE_SVL("id/000000000000000000000000000000000"),
+      IREE_SVL("id/+0000000000000000000000000000000"),
+      IREE_SVL("id/0000000000000000000000000000000g"),
+      IREE_SVL("id/000000000000000g0000000000000000"),
+      IREE_SVL("id/0000000000000000000000000000000 "),
+  };
+  for (iree_string_view_t path : paths) {
+    SCOPED_TRACE(std::string(path.data, path.size));
+    iree_hal_device_t* device = nullptr;
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                          iree_hal_driver_create_device_by_path(
+                              driver_, IREE_SV("xdna"), path, 0, nullptr,
+                              &params, iree_allocator_system(), &device));
+    EXPECT_EQ(device, nullptr);
+    iree_hal_device_release(device);
+  }
+
+  // Valid spelling with no matching endpoint has a distinct selection error.
+  for (iree_string_view_t path :
+       {IREE_SV("4294967295"),
+        IREE_SV("id/FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF")}) {
+    iree_hal_device_t* device = nullptr;
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_NOT_FOUND,
+                          iree_hal_driver_create_device_by_path(
+                              driver_, IREE_SV("xdna"), path, 0, nullptr,
+                              &params, iree_allocator_system(), &device));
+    EXPECT_EQ(device, nullptr);
+    iree_hal_device_release(device);
+  }
+}
+
 class XdnaNativeTest : public ::testing::Test {
  protected:
   enum class BinaryOperation {
