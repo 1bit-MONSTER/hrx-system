@@ -112,6 +112,10 @@ bool iree_hal_vulkan_buffer_isa(iree_hal_buffer_t* buffer);
 iree_hal_vulkan_buffer_mapping_state_t* iree_hal_vulkan_buffer_mapping_state(
     iree_hal_buffer_t* buffer);
 
+// Returns the native memory properties selected for a dense Vulkan buffer.
+VkMemoryPropertyFlags iree_hal_vulkan_buffer_memory_property_flags(
+    iree_hal_buffer_t* buffer);
+
 // Resolves |buffer| to a Vulkan-backed buffer view suitable for queue packet
 // emission. Transient queue-allocation wrappers return their staged backing
 // view even before the wrapper is committed to host-visible accessors.

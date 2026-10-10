@@ -101,14 +101,16 @@ iree_status_t iree_hal_vulkan_allocator_allocate_direct_buffer_from_type(
 bool iree_hal_vulkan_allocator_supports_host_allocation_import(
     const iree_hal_vulkan_allocator_t* allocator);
 
-// Attaches one external host allocation through a required Vulkan memory type.
+// Attaches one external host allocation through a compatible Vulkan memory
+// type selected from |allowed_memory_type_bits|.
 //
 // The returned root buffer independently owns the Vulkan attachment and never
 // consumes or releases |storage|'s transport owner. |storage| must remain alive
-// until the returned buffer is released. Pool providers use this primitive so
-// construction-time memory-type selection remains exact at import time.
-iree_status_t iree_hal_vulkan_allocator_import_direct_buffer_from_type(
-    iree_hal_vulkan_allocator_t* allocator, uint32_t memory_type_index,
+// until the returned buffer is released. Pool providers prequalify the allowed
+// types against their immutable memory contract; the actual pointer and
+// external buffer resource may further narrow the set at import time.
+iree_status_t iree_hal_vulkan_allocator_import_direct_buffer(
+    iree_hal_vulkan_allocator_t* allocator, uint32_t allowed_memory_type_bits,
     const iree_hal_vulkan_buffer_spec_t* spec,
     const iree_hal_external_storage_t* storage, iree_hal_buffer_t** out_buffer);
 

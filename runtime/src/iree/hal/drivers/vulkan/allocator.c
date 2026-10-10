@@ -1415,9 +1415,10 @@ iree_hal_vulkan_allocator_import_buffer_with_memory_type_bits(
         IREE_STATUS_INVALID_ARGUMENT,
         "allocator cannot find a Vulkan memory type compatible with the "
         "imported host pointer; buffer memory type bits=0x%08" PRIx32
-        ", host pointer memory type bits=0x%08" PRIx32,
+        ", host pointer memory type bits=0x%08" PRIx32
+        ", allowed memory type bits=0x%08" PRIx32,
         memory_requirements.memoryTypeBits,
-        host_pointer_properties.memoryTypeBits);
+        host_pointer_properties.memoryTypeBits, allowed_memory_type_bits);
   }
   if (iree_status_is_ok(status) &&
       memory_requirements.size >
@@ -1499,8 +1500,8 @@ iree_hal_vulkan_allocator_import_buffer_with_memory_type_bits(
   return status;
 }
 
-iree_status_t iree_hal_vulkan_allocator_import_direct_buffer_from_type(
-    iree_hal_vulkan_allocator_t* allocator, uint32_t memory_type_index,
+iree_status_t iree_hal_vulkan_allocator_import_direct_buffer(
+    iree_hal_vulkan_allocator_t* allocator, uint32_t allowed_memory_type_bits,
     const iree_hal_vulkan_buffer_spec_t* params,
     const iree_hal_external_storage_t* storage,
     iree_hal_buffer_t** out_buffer) {
@@ -1509,17 +1510,8 @@ iree_status_t iree_hal_vulkan_allocator_import_direct_buffer_from_type(
   IREE_ASSERT_ARGUMENT(storage);
   IREE_ASSERT_ARGUMENT(out_buffer);
   *out_buffer = NULL;
-  if (memory_type_index >=
-      allocator->memory_properties2.memoryProperties.memoryTypeCount) {
-    return iree_make_status(
-        IREE_STATUS_OUT_OF_RANGE,
-        "Vulkan memory type index %u exceeds physical-device memory type "
-        "count %u",
-        memory_type_index,
-        allocator->memory_properties2.memoryProperties.memoryTypeCount);
-  }
   return iree_hal_vulkan_allocator_import_buffer_with_memory_type_bits(
-      allocator, 1u << memory_type_index, params, storage,
+      allocator, allowed_memory_type_bits, params, storage,
       iree_hal_buffer_release_callback_null(), out_buffer);
 }
 

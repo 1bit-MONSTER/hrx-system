@@ -356,6 +356,11 @@ iree_hal_vulkan_buffer_mapping_state_t* iree_hal_vulkan_buffer_mapping_state(
   return vulkan_buffer->mapping_state;
 }
 
+VkMemoryPropertyFlags iree_hal_vulkan_buffer_memory_property_flags(
+    iree_hal_buffer_t* buffer) {
+  return iree_hal_vulkan_buffer_cast(buffer)->memory_property_flags;
+}
+
 iree_status_t iree_hal_vulkan_buffer_resolve_backing(
     iree_hal_buffer_t* buffer, iree_hal_buffer_t** out_backing_buffer) {
   IREE_ASSERT_ARGUMENT(buffer);
