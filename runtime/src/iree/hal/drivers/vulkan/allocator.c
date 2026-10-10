@@ -1223,8 +1223,10 @@ static void iree_hal_vulkan_allocator_normalize_host_allocation_import_params(
   }
   if (requires_host_local) {
     params->type &= ~IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-    params->type |=
-        IREE_HAL_MEMORY_TYPE_HOST_VISIBLE | IREE_HAL_MEMORY_TYPE_HOST_COHERENT;
+    // Imported host allocations are host-local by construction. Coherence is
+    // an independent property of the compatible Vulkan memory type and may
+    // require explicit flush and invalidate operations.
+    params->type |= IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
   }
   params->type |= IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
 }
