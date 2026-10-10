@@ -27,7 +27,6 @@ iree_status_t iree_hal_replay_recorder_command_buffer_create_proxy(
     iree_hal_replay_recorder_t* recorder, iree_hal_replay_object_id_t device_id,
     iree_hal_replay_object_id_t command_buffer_id,
     const iree_hal_queue_family_t* queue_family,
-    iree_hal_allocator_t* device_allocator,
     iree_hal_command_buffer_t* base_command_buffer,
     iree_allocator_t host_allocator,
     iree_hal_command_buffer_t** out_command_buffer);

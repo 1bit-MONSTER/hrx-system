@@ -747,8 +747,8 @@ iree_status_t iree_hal_vulkan_command_buffer_create(
   memset(command_buffer, 0, sizeof(*command_buffer) + validation_state_size);
 
   iree_hal_command_buffer_initialize(
-      device_allocator, queue_family, mode, command_categories,
-      binding_capacity, (uint8_t*)command_buffer + sizeof(*command_buffer),
+      queue_family, mode, command_categories, binding_capacity,
+      (uint8_t*)command_buffer + sizeof(*command_buffer),
       &iree_hal_vulkan_command_buffer_vtable, &command_buffer->base);
   command_buffer->host_allocator = host_allocator;
   command_buffer->device_allocator = device_allocator;

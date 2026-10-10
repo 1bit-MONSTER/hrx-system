@@ -429,9 +429,8 @@ static iree_status_t iree_hal_webgpu_device_create_command_buffer(
   iree_hal_webgpu_device_t* device = iree_hal_webgpu_device_cast(base_device);
   return iree_hal_webgpu_command_buffer_create(
       device->device_handle, device->queue.queue_handle, &device->builtins,
-      &device->queue.block_pool, iree_hal_device_allocator(base_device),
-      queue_family, mode, command_categories, binding_capacity,
-      device->host_allocator, out_command_buffer);
+      &device->queue.block_pool, queue_family, mode, command_categories,
+      binding_capacity, device->host_allocator, out_command_buffer);
 }
 
 static iree_status_t iree_hal_webgpu_device_load_executable(

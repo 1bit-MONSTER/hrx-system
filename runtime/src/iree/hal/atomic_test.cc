@@ -380,7 +380,7 @@ class AtomicTargetValidationTest : public ::testing::Test {
     iree_hal_queue_initialize(queue_family_, &queue_params, &queue_vtable_,
                               &queue_);
     iree_hal_command_buffer_initialize(
-        allocator_, queue_family_, /*mode=*/0, IREE_HAL_COMMAND_CATEGORY_ATOMIC,
+        queue_family_, /*mode=*/0, IREE_HAL_COMMAND_CATEGORY_ATOMIC,
         /*binding_capacity=*/1, validation_state_, &command_buffer_vtable_,
         &command_buffer_);
     IREE_ASSERT_OK(iree_hal_command_buffer_begin(&command_buffer_));

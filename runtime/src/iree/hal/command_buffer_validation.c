@@ -11,7 +11,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "iree/hal/allocator.h"
 #include "iree/hal/buffer.h"
 #include "iree/hal/detail.h"
 #include "iree/hal/executable.h"
@@ -52,54 +51,6 @@ static iree_status_t iree_hal_command_buffer_validate_categories(
   return iree_ok_status();
 }
 
-// Returns success iff the buffer is compatible with the device.
-static iree_status_t iree_hal_command_buffer_validate_buffer_compatibility(
-    const iree_hal_command_buffer_t* command_buffer,
-    const iree_hal_command_buffer_validation_state_t* validation_state,
-    iree_hal_buffer_t* buffer,
-    iree_hal_buffer_compatibility_t required_compatibility,
-    iree_hal_buffer_usage_t intended_usage) {
-  if (buffer->memory.contract) {
-    return iree_hal_buffer_validate_family_usage(
-        buffer, command_buffer->queue_family, IREE_HAL_BUFFER_USAGE_NONE);
-  }
-  iree_hal_buffer_compatibility_t allowed_compatibility =
-      iree_hal_allocator_query_buffer_compatibility(
-          validation_state->device_allocator,
-          (iree_hal_buffer_params_t){
-              .type = iree_hal_buffer_memory_type(buffer),
-              .usage = iree_hal_buffer_allowed_usage(buffer) & intended_usage,
-          },
-          iree_hal_buffer_allocation_size(buffer), /*out_params=*/NULL,
-          /*out_allocation_size=*/NULL);
-  if (!iree_all_bits_set(allowed_compatibility, required_compatibility)) {
-#if IREE_STATUS_MODE
-    // Buffer cannot be used on the queue for the given usage.
-    iree_bitfield_string_temp_t temp0, temp1, temp2, temp3;
-    iree_string_view_t allowed_usage_str = iree_hal_buffer_usage_format(
-        iree_hal_buffer_allowed_usage(buffer), &temp0);
-    iree_string_view_t intended_usage_str =
-        iree_hal_buffer_usage_format(intended_usage, &temp1);
-    iree_string_view_t allowed_compatibility_str =
-        iree_hal_buffer_compatibility_format(allowed_compatibility, &temp2);
-    iree_string_view_t required_compatibility_str =
-        iree_hal_buffer_compatibility_format(required_compatibility, &temp3);
-    return iree_make_status(
-        IREE_STATUS_PERMISSION_DENIED,
-        "requested buffer usage is not supported for the buffer on this queue; "
-        "buffer allows usage %.*s, operation requires %.*s (allocator "
-        "compatibility mismatch: allowed compatibility %.*s, requires %.*s)",
-        (int)allowed_usage_str.size, allowed_usage_str.data,
-        (int)intended_usage_str.size, intended_usage_str.data,
-        (int)allowed_compatibility_str.size, allowed_compatibility_str.data,
-        (int)required_compatibility_str.size, required_compatibility_str.data);
-#else
-    return iree_status_from_code(IREE_STATUS_PERMISSION_DENIED);
-#endif  // IREE_STATUS_MODE
-  }
-  return iree_ok_status();
-}
-
 static iree_status_t iree_hal_command_buffer_validate_binding_requirements(
     iree_hal_command_buffer_t* command_buffer,
     const iree_hal_command_buffer_validation_state_t* validation_state,
@@ -117,15 +68,6 @@ static iree_status_t iree_hal_command_buffer_validate_binding_requirements(
         IREE_STATUS_INVALID_ARGUMENT,
         "binding table slot requires a buffer but none was provided");
   }
-
-  // Ensure the buffer is compatible with the device.
-  // NOTE: this check is very slow! We may want to disable this outside of debug
-  // mode or try to fast path it if the buffer is known-good.
-  IREE_RETURN_IF_ERROR(iree_hal_command_buffer_validate_buffer_compatibility(
-      command_buffer, validation_state, binding.buffer,
-      requirements.required_compatibility,
-      requirements.usage |
-          (requirements.requires_storage ? IREE_HAL_BUFFER_USAGE_STORAGE : 0)));
 
   // Verify buffer compatibility.
   if (requirements.requires_storage) {
@@ -219,8 +161,6 @@ static iree_status_t iree_hal_command_buffer_validate_buffer_requirements(
   // Merge the binding requirements into the table.
   iree_hal_buffer_binding_requirements_t* table_requirements =
       &validation_state->binding_requirements[buffer_ref.buffer_slot];
-  table_requirements->required_compatibility |=
-      requirements.required_compatibility;
   table_requirements->usage |= requirements.usage;
   table_requirements->requires_storage |= requirements.requires_storage;
   table_requirements->access |= requirements.access;
@@ -247,10 +187,8 @@ static iree_status_t iree_hal_command_buffer_validate_buffer_requirements(
 }
 
 void iree_hal_command_buffer_initialize_validation(
-    iree_hal_allocator_t* device_allocator,
     iree_hal_command_buffer_t* command_buffer,
     iree_hal_command_buffer_validation_state_t* out_validation_state) {
-  out_validation_state->device_allocator = device_allocator;
   out_validation_state->has_began = false;
   out_validation_state->has_ended = false;
   out_validation_state->debug_group_depth = 0;
@@ -461,7 +399,6 @@ iree_status_t iree_hal_command_buffer_fill_buffer_validation(
   }
 
   const iree_hal_buffer_binding_requirements_t target_reqs = {
-      .required_compatibility = IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER,
       .usage = IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET,
       .access = IREE_HAL_MEMORY_ACCESS_WRITE,
       .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
@@ -483,7 +420,6 @@ iree_status_t iree_hal_command_buffer_update_buffer_validation(
       command_buffer, validation_state, IREE_HAL_COMMAND_CATEGORY_TRANSFER));
 
   const iree_hal_buffer_binding_requirements_t target_reqs = {
-      .required_compatibility = IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER,
       .usage = IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET,
       .access = IREE_HAL_MEMORY_ACCESS_WRITE,
       .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
@@ -512,7 +448,6 @@ iree_status_t iree_hal_command_buffer_copy_buffer_validation(
   }
 
   const iree_hal_buffer_binding_requirements_t source_reqs = {
-      .required_compatibility = IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER,
       .usage = IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE,
       .access = IREE_HAL_MEMORY_ACCESS_READ,
       .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
@@ -522,7 +457,6 @@ iree_status_t iree_hal_command_buffer_copy_buffer_validation(
       command_buffer, validation_state, source_ref, source_reqs));
 
   const iree_hal_buffer_binding_requirements_t target_reqs = {
-      .required_compatibility = IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER,
       .usage = IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET,
       .access = IREE_HAL_MEMORY_ACCESS_WRITE,
       .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
@@ -594,7 +528,6 @@ iree_status_t iree_hal_command_buffer_dispatch_validation(
     iree_hal_buffer_ref_t workgroup_count_ref = config.workgroup_count_ref;
     workgroup_count_ref.length = workgroup_count_length;
     const iree_hal_buffer_binding_requirements_t workgroups_reqs = {
-        .required_compatibility = IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH,
         .usage = IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS,
         .access = IREE_HAL_MEMORY_ACCESS_READ,
         .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
@@ -617,7 +550,6 @@ iree_status_t iree_hal_command_buffer_dispatch_validation(
           "a single binding must be specified when using indirect arguments");
     }
     const iree_hal_buffer_binding_requirements_t arguments_reqs = {
-        .required_compatibility = IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH,
         .usage = IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS,
         .access = IREE_HAL_MEMORY_ACCESS_READ,
         .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
@@ -633,7 +565,6 @@ iree_status_t iree_hal_command_buffer_dispatch_validation(
     // with the executable. Known accesses by other commands still contribute
     // to the combined binding requirements.
     iree_hal_buffer_binding_requirements_t binding_requirements = {
-        .required_compatibility = IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH,
         .access = IREE_HAL_MEMORY_ACCESS_NONE,
         .requires_storage = true,
         .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,

@@ -898,8 +898,8 @@ iree_status_t iree_hal_amdgpu_aql_command_buffer_create(
                                 (void**)&command_buffer));
   memset(command_buffer, 0, sizeof(*command_buffer));
   iree_hal_command_buffer_initialize(
-      device_allocator, queue_family, mode, command_categories,
-      binding_capacity, (uint8_t*)command_buffer + validation_state_offset,
+      queue_family, mode, command_categories, binding_capacity,
+      (uint8_t*)command_buffer + validation_state_offset,
       &iree_hal_amdgpu_aql_command_buffer_vtable, &command_buffer->base);
   command_buffer->host_allocator = host_allocator;
   command_buffer->device_allocator = device_allocator;

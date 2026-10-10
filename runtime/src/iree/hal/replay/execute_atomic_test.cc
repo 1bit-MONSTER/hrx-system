@@ -393,9 +393,9 @@ static iree_status_t CapturingDeviceCreateCommandBuffer(
   CapturingDevice* device = CastDevice(base_device);
   iree_hal_command_buffer_t* command_buffer = &device->command_buffer->base;
   iree_hal_command_buffer_initialize(
-      iree_hal_device_allocator(device->delegate), queue_family, mode,
-      command_categories, binding_capacity, command_buffer->validation_state,
-      device->command_buffer_vtable, command_buffer);
+      queue_family, mode, command_categories, binding_capacity,
+      command_buffer->validation_state, device->command_buffer_vtable,
+      command_buffer);
   *out_command_buffer = command_buffer;
   iree_hal_command_buffer_retain(*out_command_buffer);
   return iree_ok_status();
@@ -952,7 +952,6 @@ class ReplayAtomicExecutionTest : public ::testing::Test {
         iree_hal_queue_family_spec(iree_hal_queue_family(task_queue)),
         &capturing_device_.queue_family);
     iree_hal_command_buffer_initialize(
-        iree_hal_device_allocator(task_device_),
         &capturing_device_.queue_family, /*mode=*/0,
         IREE_HAL_COMMAND_CATEGORY_ATOMIC,
         /*binding_capacity=*/1, validation_state_, &command_buffer_vtable_,

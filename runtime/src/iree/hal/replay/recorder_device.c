@@ -385,8 +385,7 @@ static iree_status_t iree_hal_replay_device_create_command_buffer(
   if (iree_status_is_ok(status)) {
     status = iree_hal_replay_recorder_command_buffer_create_proxy(
         device->recorder, device->device_id, command_buffer_id, queue_family,
-        iree_hal_device_allocator(device->base_device), base_command_buffer,
-        device->host_allocator, &replay_command_buffer);
+        base_command_buffer, device->host_allocator, &replay_command_buffer);
   }
   status = iree_hal_replay_recorder_end_creation_operation(
       &pending_record, status, 1, &payload_iovec,

@@ -192,10 +192,29 @@ iree_hal_memory_contract_family_access(
   return access->interfaces ? access : NULL;
 }
 
+static bool iree_hal_buffer_placement_allows_family(
+    const iree_hal_buffer_t* buffer, const iree_hal_queue_family_t* family) {
+  const iree_hal_buffer_placement_t placement =
+      iree_hal_buffer_allocation_placement(buffer);
+  if (iree_hal_buffer_placement_is_undefined(placement)) {
+    return true;
+  }
+  if (placement.device != iree_hal_queue_family_device(family)) {
+    return false;
+  }
+  return iree_hal_queue_family_affinity_is_any(
+             placement.queue_family_affinity) ||
+         iree_any_bit_set(placement.queue_family_affinity,
+                          iree_hal_make_queue_family_affinity(
+                              iree_hal_queue_family_ordinal(family)));
+}
+
 IREE_API_EXPORT iree_hal_buffer_usage_t iree_hal_buffer_family_usage(
     const iree_hal_buffer_t* buffer, const iree_hal_queue_family_t* family) {
   if (!buffer->memory.contract) {
-    return buffer->allowed_usage;
+    return iree_hal_buffer_placement_allows_family(buffer, family)
+               ? buffer->allowed_usage
+               : IREE_HAL_BUFFER_USAGE_NONE;
   }
   const iree_hal_memory_scope_access_t* access =
       iree_hal_memory_contract_family_access(buffer->memory.contract, family);
@@ -206,6 +225,11 @@ IREE_API_EXPORT iree_status_t iree_hal_buffer_validate_family_usage(
     const iree_hal_buffer_t* buffer, const iree_hal_queue_family_t* family,
     iree_hal_buffer_usage_t required_usage) {
   if (!buffer->memory.contract) {
+    if (!iree_hal_buffer_placement_allows_family(buffer, family)) {
+      return iree_make_status(
+          IREE_STATUS_PERMISSION_DENIED,
+          "queue family is outside the buffer allocation placement");
+    }
     return iree_hal_buffer_validate_usage(buffer->allowed_usage,
                                           required_usage);
   }

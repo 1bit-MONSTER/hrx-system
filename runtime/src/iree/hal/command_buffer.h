@@ -11,7 +11,6 @@
 #include <stdint.h>
 
 #include "iree/base/api.h"
-#include "iree/hal/allocator.h"
 #include "iree/hal/atomic.h"
 #include "iree/hal/buffer.h"
 #include "iree/hal/executable.h"
@@ -839,7 +838,6 @@ IREE_API_EXPORT iree_host_size_t iree_hal_command_buffer_validation_state_size(
     iree_hal_command_buffer_mode_t mode, iree_host_size_t binding_capacity);
 
 IREE_API_EXPORT void iree_hal_command_buffer_initialize(
-    iree_hal_allocator_t* device_allocator,
     const iree_hal_queue_family_t* queue_family,
     iree_hal_command_buffer_mode_t mode,
     iree_hal_command_category_t command_categories,

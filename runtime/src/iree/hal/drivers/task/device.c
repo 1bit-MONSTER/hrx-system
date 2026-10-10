@@ -696,9 +696,8 @@ static iree_status_t iree_hal_task_device_create_command_buffer(
     iree_hal_command_buffer_t** out_command_buffer) {
   iree_hal_task_device_t* device = iree_hal_task_device_cast(base_device);
   return iree_hal_block_command_buffer_create(
-      iree_hal_device_allocator(base_device), queue_family, mode,
-      command_categories, binding_capacity, &device->large_block_pool,
-      device->host_allocator, out_command_buffer);
+      queue_family, mode, command_categories, binding_capacity,
+      &device->large_block_pool, device->host_allocator, out_command_buffer);
 }
 
 static iree_status_t iree_hal_task_device_load_executable(

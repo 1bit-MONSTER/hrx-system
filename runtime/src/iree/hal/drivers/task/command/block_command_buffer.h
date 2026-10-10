@@ -25,7 +25,6 @@ extern "C" {
 #endif  // __cplusplus
 
 iree_status_t iree_hal_block_command_buffer_create(
-    iree_hal_allocator_t* device_allocator,
     const iree_hal_queue_family_t* queue_family,
     iree_hal_command_buffer_mode_t mode,
     iree_hal_command_category_t command_categories,

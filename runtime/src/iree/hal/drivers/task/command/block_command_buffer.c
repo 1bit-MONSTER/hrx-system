@@ -493,7 +493,6 @@ static void iree_hal_block_command_buffer_destroy(
     iree_hal_command_buffer_t* base_command_buffer);
 
 iree_status_t iree_hal_block_command_buffer_create(
-    iree_hal_allocator_t* device_allocator,
     const iree_hal_queue_family_t* queue_family,
     iree_hal_command_buffer_mode_t mode,
     iree_hal_command_category_t command_categories,
@@ -520,8 +519,8 @@ iree_status_t iree_hal_block_command_buffer_create(
                                 (void**)&command_buffer));
   memset(command_buffer, 0, sizeof(*command_buffer));
   iree_hal_command_buffer_initialize(
-      device_allocator, queue_family, mode, command_categories,
-      binding_capacity, (uint8_t*)command_buffer + validation_state_offset,
+      queue_family, mode, command_categories, binding_capacity,
+      (uint8_t*)command_buffer + validation_state_offset,
       &iree_hal_block_command_buffer_vtable, &command_buffer->base);
   command_buffer->host_allocator = host_allocator;
   command_buffer->block_pool = block_pool;

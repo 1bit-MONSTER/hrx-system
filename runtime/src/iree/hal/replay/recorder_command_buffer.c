@@ -84,13 +84,11 @@ iree_status_t iree_hal_replay_recorder_command_buffer_create_proxy(
     iree_hal_replay_recorder_t* recorder, iree_hal_replay_object_id_t device_id,
     iree_hal_replay_object_id_t command_buffer_id,
     const iree_hal_queue_family_t* queue_family,
-    iree_hal_allocator_t* device_allocator,
     iree_hal_command_buffer_t* base_command_buffer,
     iree_allocator_t host_allocator,
     iree_hal_command_buffer_t** out_command_buffer) {
   IREE_ASSERT_ARGUMENT(recorder);
   IREE_ASSERT_ARGUMENT(queue_family);
-  IREE_ASSERT_ARGUMENT(device_allocator);
   IREE_ASSERT_ARGUMENT(base_command_buffer);
   IREE_ASSERT_ARGUMENT(out_command_buffer);
   *out_command_buffer = NULL;
@@ -116,8 +114,7 @@ iree_status_t iree_hal_replay_recorder_command_buffer_create_proxy(
       validation_state_size ? (uint8_t*)command_buffer + sizeof(*command_buffer)
                             : NULL;
   iree_hal_command_buffer_initialize(
-      device_allocator, queue_family,
-      iree_hal_command_buffer_mode(base_command_buffer),
+      queue_family, iree_hal_command_buffer_mode(base_command_buffer),
       iree_hal_command_buffer_allowed_categories(base_command_buffer),
       base_command_buffer->binding_capacity, validation_state,
       &iree_hal_replay_recorder_command_buffer_vtable, &command_buffer->base);
