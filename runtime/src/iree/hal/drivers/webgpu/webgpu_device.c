@@ -446,20 +446,20 @@ static iree_status_t iree_hal_webgpu_device_load_executable(
 }
 
 static iree_status_t iree_hal_webgpu_device_import_file(
-    iree_hal_device_t* base_device,
+    iree_hal_device_t* base_device, iree_hal_pool_t* storage_pool,
     iree_hal_queue_family_affinity_t queue_family_affinity,
     iree_hal_memory_access_t access, iree_io_file_handle_t* handle,
     iree_hal_external_file_flags_t flags, iree_hal_file_t** out_file) {
+  (void)queue_family_affinity;
+  (void)flags;
   iree_io_file_handle_primitive_t primitive =
       iree_io_file_handle_primitive(handle);
   switch (primitive.type) {
     case IREE_IO_FILE_HANDLE_TYPE_HOST_ALLOCATION:
-      // Use generic memory_file — storage_buffer() returns a HOST_LOCAL heap
-      // buffer via the heap_buffer_wrap fallback (since WebGPU cannot import
-      // host allocations as GPU buffers).
+      // Use the generic host-backed memory file. A caller-selected pool may
+      // expose storage when its WebGPU route supports host-pointer import.
       return iree_hal_memory_file_wrap(
-          iree_hal_device_allocator(base_device), queue_family_affinity, access,
-          handle, IREE_HAL_MEMORY_FILE_FLAG_NONE,
+          storage_pool, access, handle, IREE_HAL_MEMORY_FILE_FLAG_NONE,
           iree_hal_device_host_allocator(base_device), out_file);
     case IREE_IO_FILE_HANDLE_TYPE_FD: {
       // Use WebGPU FD file — the fd is a JS file object table index, not a

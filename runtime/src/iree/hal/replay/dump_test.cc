@@ -1396,6 +1396,7 @@ TEST(ReplayDumpTest, EmitsFilePayloads) {
   iree_io_file_handle_release(file_handle);
 
   iree_hal_replay_file_object_payload_t file_payload = {};
+  file_payload.storage_pool_id = 9;
   file_payload.queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
   file_payload.file_length = 4096;
   file_payload.file_device = 10;
@@ -1442,6 +1443,7 @@ TEST(ReplayDumpTest, EmitsFilePayloads) {
           "file_bytes: external=4096 inline=0 ranges=0 captured_reads=0"));
   EXPECT_THAT(text_output, HasSubstr("file_validation: identity=1"));
   EXPECT_THAT(text_output, HasSubstr("reference_type=external_path(1)"));
+  EXPECT_THAT(text_output, HasSubstr("storage_pool_id=9"));
   EXPECT_THAT(text_output, HasSubstr("validation_type=identity(1)"));
   EXPECT_THAT(text_output, HasSubstr("reference_range="));
 
@@ -1452,6 +1454,7 @@ TEST(ReplayDumpTest, EmitsFilePayloads) {
   IREE_ASSERT_OK(DumpReplayToString(MakeReplayFileContents(storage),
                                     &json_options, &json_output));
   EXPECT_THAT(json_output, HasSubstr("\"payload_type\":\"file_object\""));
+  EXPECT_THAT(json_output, HasSubstr("\"storage_pool_id\":9"));
   EXPECT_THAT(json_output, HasSubstr("\"kind\":\"summary\""));
   EXPECT_THAT(json_output, HasSubstr("\"hermetic\":false"));
   EXPECT_THAT(json_output, HasSubstr("\"environment_referenced\":true"));

@@ -6,6 +6,7 @@
 
 #include "iree/hal/replay/execute.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -129,6 +130,39 @@ static iree_const_byte_span_t GetCapturedFileContents(
   EXPECT_LE(file_header.file_length, storage.size());
   return iree_make_const_byte_span(storage.data(),
                                    (iree_host_size_t)file_header.file_length);
+}
+
+static iree_hal_replay_object_id_t FindFileStoragePoolId(
+    iree_const_byte_span_t file_contents) {
+  iree_hal_replay_file_header_t file_header;
+  iree_host_size_t offset = 0;
+  IREE_CHECK_OK(
+      iree_hal_replay_file_parse_header(file_contents, &file_header, &offset));
+  while (offset < file_header.file_length) {
+    iree_hal_replay_file_record_t record;
+    IREE_CHECK_OK(iree_hal_replay_file_parse_record(file_contents, offset,
+                                                    &record, &offset));
+    if (record.header.record_type == IREE_HAL_REPLAY_FILE_RECORD_TYPE_OBJECT &&
+        record.header.object_type == IREE_HAL_REPLAY_OBJECT_TYPE_FILE &&
+        record.header.payload_type ==
+            IREE_HAL_REPLAY_PAYLOAD_TYPE_FILE_OBJECT) {
+      if (record.payload.data_length <
+          sizeof(iree_hal_replay_file_object_payload_t)) {
+        ADD_FAILURE() << "captured file object payload is truncated";
+        return IREE_HAL_REPLAY_OBJECT_ID_NONE;
+      }
+      iree_hal_replay_file_object_payload_t payload;
+      memcpy(&payload, record.payload.data, sizeof(payload));
+      return payload.storage_pool_id;
+    }
+  }
+  return IREE_HAL_REPLAY_OBJECT_ID_NONE;
+}
+
+static void ReleaseAlignedHostAllocation(
+    void* user_data, iree_io_file_handle_primitive_t primitive) {
+  (void)primitive;
+  iree_allocator_free_aligned(iree_allocator_system(), user_data);
 }
 
 static void AppendReplayRecord(
@@ -1515,7 +1549,7 @@ static void CaptureFdBackedQueueRead(
       IREE_IO_FILE_MODE_READ | IREE_IO_FILE_MODE_RANDOM_ACCESS, source_path,
       iree_allocator_system(), &file_handle));
   iree_hal_file_t* file = nullptr;
-  IREE_ASSERT_OK(iree_hal_file_import(wrapped_device,
+  IREE_ASSERT_OK(iree_hal_file_import(wrapped_device, /*storage_pool=*/nullptr,
                                       IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
                                       IREE_HAL_MEMORY_ACCESS_READ, file_handle,
                                       IREE_HAL_EXTERNAL_FILE_FLAG_NONE, &file));
@@ -1608,24 +1642,25 @@ TEST(ReplayExecuteTest, ExecutesRecordedMappedBufferWrite) {
   iree_hal_device_group_release(wrapped_group);
   iree_hal_device_group_release(source_group);
 
+  const iree_const_byte_span_t captured_file = GetCapturedFileContents(storage);
+
   iree_hal_device_group_t* replay_group = CreateTaskDeviceGroup();
   iree_hal_replay_execute_options_t options =
       iree_hal_replay_execute_options_default();
-  IREE_EXPECT_OK(iree_hal_replay_execute_file(GetCapturedFileContents(storage),
-                                              replay_group, &options,
-                                              iree_allocator_system()));
+  IREE_EXPECT_OK(iree_hal_replay_execute_file(
+      captured_file, replay_group, &options, iree_allocator_system()));
   iree_hal_device_group_release(replay_group);
   iree_hal_replay_recorder_release(recorder);
 }
 
 TEST(ReplayExecuteTest, ExecutesRecordedHostAllocationFileRead) {
-  uint8_t file_contents[32] = {
+  const uint8_t expected_file_contents[32] = {
       0x00, 0x01, 0x02, 0x03, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
       0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21,
       0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B,
   };
 
-  std::vector<uint8_t> storage(65536, 0);
+  std::vector<uint8_t> storage(262144, 0);
   iree_hal_replay_recorder_t* recorder = CreateHostAllocationRecorder(&storage);
 
   iree_hal_device_group_t* source_group = CreateTaskDeviceGroup();
@@ -1638,30 +1673,80 @@ TEST(ReplayExecuteTest, ExecutesRecordedHostAllocationFileRead) {
   iree_hal_queue_t* queue = iree_hal_device_queue(
       wrapped_device, /*family_ordinal=*/0, /*queue_ordinal=*/0);
   ASSERT_NE(nullptr, queue);
-  iree_hal_allocator_t* allocator = iree_hal_device_allocator(wrapped_device);
-  ASSERT_NE(nullptr, allocator);
+
+  const iree_hal_pool_family_access_t family_access = {
+      /*.family=*/iree_hal_queue_family(queue),
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
+  };
+  const iree_hal_pool_scope_t pool_scope = {
+      /*.family_count=*/1,
+      /*.families=*/&family_access,
+  };
+  const iree_hal_external_storage_class_t host_pointer_class =
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+  const iree_hal_pool_import_class_t import_class = {
+      /*.storage_class=*/host_pointer_class,
+  };
+  iree_hal_slab_pool_options_t pool_options;
+  iree_hal_slab_pool_options_initialize(&pool_options);
+  pool_options.owned.mode = IREE_HAL_SLAB_POOL_IMPORT_ONLY;
+  pool_options.imports.class_count = 1;
+  pool_options.imports.classes = &import_class;
+  pool_options.trace_name = IREE_SV("replay.file.storage");
+  iree_hal_pool_t* storage_pool = nullptr;
+  IREE_ASSERT_OK(
+      iree_hal_slab_pool_create(wrapped_group, pool_scope, &pool_options,
+                                iree_allocator_system(), &storage_pool));
+
+  iree_hal_pool_import_requirements_t import_requirements;
+  ASSERT_TRUE(iree_hal_pool_query_import_requirements(
+      storage_pool, host_pointer_class, &import_requirements));
+  const iree_device_size_t file_length = iree_device_align(
+      std::max<iree_device_size_t>(sizeof(expected_file_contents),
+                                   import_requirements.min_byte_length),
+      import_requirements.byte_length_alignment);
+  ASSERT_LE(file_length, static_cast<iree_device_size_t>(IREE_HOST_SIZE_MAX));
+  ASSERT_TRUE(import_requirements.max_byte_length == 0 ||
+              file_length <= import_requirements.max_byte_length);
+  const iree_device_size_t file_alignment =
+      std::max<iree_device_size_t>(64, import_requirements.base_alignment);
+  ASSERT_LE(file_alignment,
+            static_cast<iree_device_size_t>(IREE_HOST_SIZE_MAX));
+  void* file_contents = nullptr;
+  IREE_ASSERT_OK(iree_allocator_malloc_aligned(
+      iree_allocator_system(), static_cast<iree_host_size_t>(file_length),
+      static_cast<iree_host_size_t>(file_alignment), 0, &file_contents));
+  memset(file_contents, 0, static_cast<iree_host_size_t>(file_length));
+  memcpy(file_contents, expected_file_contents, sizeof(expected_file_contents));
 
   iree_io_file_handle_t* file_handle = nullptr;
+  const iree_io_file_handle_release_callback_t release_callback = {
+      ReleaseAlignedHostAllocation,
+      file_contents,
+  };
   IREE_ASSERT_OK(iree_io_file_handle_wrap_host_allocation(
       IREE_IO_FILE_ACCESS_READ,
-      iree_make_byte_span(file_contents, sizeof(file_contents)),
-      iree_io_file_handle_release_callback_null(), iree_allocator_system(),
-      &file_handle));
+      iree_make_byte_span(file_contents,
+                          static_cast<iree_host_size_t>(file_length)),
+      release_callback, iree_allocator_system(), &file_handle));
   iree_hal_file_t* file = nullptr;
-  IREE_ASSERT_OK(iree_hal_file_import(wrapped_device,
+  IREE_ASSERT_OK(iree_hal_file_import(wrapped_device, storage_pool,
                                       IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
                                       IREE_HAL_MEMORY_ACCESS_READ, file_handle,
                                       IREE_HAL_EXTERNAL_FILE_FLAG_NONE, &file));
   iree_io_file_handle_release(file_handle);
-
-  iree_hal_buffer_params_t params = {0};
-  params.type =
-      IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL | IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING;
+  iree_hal_slab_pool_options_t target_pool_options;
+  iree_hal_slab_pool_options_initialize(&target_pool_options);
+  target_pool_options.trace_name = IREE_SV("replay.file.target");
+  iree_hal_pool_t* target_pool = nullptr;
+  IREE_ASSERT_OK(
+      iree_hal_slab_pool_create(wrapped_group, pool_scope, &target_pool_options,
+                                iree_allocator_system(), &target_pool));
   iree_hal_buffer_t* target_buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(allocator, params, 16,
-                                                    &target_buffer));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      target_pool, iree_hal_make_pool_reservation_request(16, 0),
+      iree_infinite_timeout(), &target_buffer));
 
   iree_hal_semaphore_t* signal_semaphore = nullptr;
   IREE_ASSERT_OK(iree_hal_semaphore_create(
@@ -1684,18 +1769,23 @@ TEST(ReplayExecuteTest, ExecutesRecordedHostAllocationFileRead) {
 
   iree_hal_semaphore_release(signal_semaphore);
   iree_hal_buffer_release(target_buffer);
+  iree_hal_pool_release(target_pool);
   iree_hal_file_release(file);
+  iree_hal_pool_release(storage_pool);
 
   IREE_ASSERT_OK(iree_hal_replay_recorder_close(recorder));
   iree_hal_device_group_release(wrapped_group);
   iree_hal_device_group_release(source_group);
 
+  const iree_const_byte_span_t captured_file = GetCapturedFileContents(storage);
+  EXPECT_NE(IREE_HAL_REPLAY_OBJECT_ID_NONE,
+            FindFileStoragePoolId(captured_file));
+
   iree_hal_device_group_t* replay_group = CreateTaskDeviceGroup();
   iree_hal_replay_execute_options_t options =
       iree_hal_replay_execute_options_default();
-  IREE_EXPECT_OK(iree_hal_replay_execute_file(GetCapturedFileContents(storage),
-                                              replay_group, &options,
-                                              iree_allocator_system()));
+  IREE_EXPECT_OK(iree_hal_replay_execute_file(
+      captured_file, replay_group, &options, iree_allocator_system()));
   iree_hal_device_group_release(replay_group);
   iree_hal_replay_recorder_release(recorder);
 }
@@ -1732,7 +1822,7 @@ TEST(ReplayExecuteTest, ExecutesRecordedFdBackedQueueRead) {
       IREE_IO_FILE_MODE_READ | IREE_IO_FILE_MODE_RANDOM_ACCESS,
       source_file.path_view(), iree_allocator_system(), &file_handle));
   iree_hal_file_t* file = nullptr;
-  IREE_ASSERT_OK(iree_hal_file_import(wrapped_device,
+  IREE_ASSERT_OK(iree_hal_file_import(wrapped_device, /*storage_pool=*/nullptr,
                                       IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
                                       IREE_HAL_MEMORY_ACCESS_READ, file_handle,
                                       IREE_HAL_EXTERNAL_FILE_FLAG_NONE, &file));
@@ -1888,7 +1978,7 @@ TEST(ReplayExecuteTest, ExecutesRemappedFdBackedQueueRead) {
       IREE_IO_FILE_MODE_READ | IREE_IO_FILE_MODE_RANDOM_ACCESS,
       source_file.path_view(), iree_allocator_system(), &file_handle));
   iree_hal_file_t* file = nullptr;
-  IREE_ASSERT_OK(iree_hal_file_import(wrapped_device,
+  IREE_ASSERT_OK(iree_hal_file_import(wrapped_device, /*storage_pool=*/nullptr,
                                       IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
                                       IREE_HAL_MEMORY_ACCESS_READ, file_handle,
                                       IREE_HAL_EXTERNAL_FILE_FLAG_NONE, &file));
@@ -2113,7 +2203,8 @@ TEST(ReplayExecuteTest, ExecutesRecordedFdBackedQueueWrite) {
       target_file.path_view(), iree_allocator_system(), &file_handle));
   iree_hal_file_t* file = nullptr;
   IREE_ASSERT_OK(iree_hal_file_import(
-      wrapped_device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+      wrapped_device, /*storage_pool=*/nullptr,
+      IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
       IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE, file_handle,
       IREE_HAL_EXTERNAL_FILE_FLAG_NONE, &file));
   iree_io_file_handle_release(file_handle);

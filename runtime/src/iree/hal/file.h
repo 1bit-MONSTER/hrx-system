@@ -22,6 +22,7 @@ extern "C" {
 #endif  // __cplusplus
 
 typedef struct iree_hal_device_t iree_hal_device_t;
+typedef struct iree_hal_pool_t iree_hal_pool_t;
 
 //===----------------------------------------------------------------------===//
 // Types and Enums
@@ -62,6 +63,13 @@ typedef struct iree_hal_file_t iree_hal_file_t;
 
 // Imports an external |handle| for use on |device|.
 //
+// |storage_pool| optionally supplies the contract and native route used to
+// expose memory-backed files as device-visible storage buffers. A NULL pool or
+// one that does not admit the handle's external storage class leaves the file
+// on its native I/O path. Once a pool admits the class, native attachment is a
+// selected route and attachment failures are returned to the caller. The pool
+// must outlive the returned file and all accepted operations using it.
+//
 // |queue_family_affinity| specifies the queue families that may access any
 // device-visible resources created for the imported file. It is a resource
 // accessibility domain and does not select a queue or establish ordering.
@@ -78,11 +86,12 @@ typedef struct iree_hal_file_t iree_hal_file_t;
 // their references.
 //
 // |out_file| must be released by the caller.
-// Fails with IREE_STATUS_UNAVAILABLE if the allocator cannot import the file.
+// Fails with IREE_STATUS_UNAVAILABLE if the selected implementation cannot
+// import the file.
 // This may be due to unavailable device/platform capabilities or the properties
 // of the external file handle.
 IREE_API_EXPORT iree_status_t iree_hal_file_import(
-    iree_hal_device_t* device,
+    iree_hal_device_t* device, iree_hal_pool_t* storage_pool,
     iree_hal_queue_family_affinity_t queue_family_affinity,
     iree_hal_memory_access_t access, iree_io_file_handle_t* handle,
     iree_hal_external_file_flags_t flags, iree_hal_file_t** out_file);

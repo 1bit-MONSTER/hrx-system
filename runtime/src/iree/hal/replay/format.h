@@ -20,7 +20,8 @@ extern "C" {
 #define IREE_HAL_REPLAY_FILE_MAGIC 0x50525249u
 
 // Major version of the IREE HAL replay file format. Version 13 replaces
-// implicit allocator buffer routing with explicit pool construction and use.
+// implicit allocator buffer routing with explicit pool construction and use,
+// including file storage attachment.
 #define IREE_HAL_REPLAY_FILE_VERSION_MAJOR 13u
 
 // Minor version of the IREE HAL replay file format. Minor version 5 adds
@@ -765,6 +766,8 @@ typedef struct iree_hal_replay_file_object_payload_t {
   uint64_t file_mtime_ns;
   // Byte length of the file reference following this header.
   uint64_t reference_length;
+  // Pool object used for optional storage attachment, or NONE.
+  iree_hal_replay_object_id_t storage_pool_id;
   // HAL memory access bits allowed by this imported file.
   uint32_t access;
   // External HAL file flags requested at import.
@@ -779,11 +782,11 @@ typedef struct iree_hal_replay_file_object_payload_t {
   iree_hal_replay_digest_type_t digest_type;
   // Reserved for future file validation metadata; must be zero.
   uint16_t reserved0;
-  // Reserved for future file object metadata; must be zero.
-  uint32_t reserved1;
   // Digest bytes used when |validation_type| requires content validation.
   uint8_t digest[32];
 } iree_hal_replay_file_object_payload_t;
+static_assert(sizeof(iree_hal_replay_file_object_payload_t) == 112,
+              "file replay payload must be 112 bytes");
 
 // Payload describing a replay annotation scope followed by UTF-8 name bytes.
 typedef struct iree_hal_replay_scope_payload_t {

@@ -7,18 +7,6 @@
 #include "iree/hal/utils/memory_file.h"
 
 //===----------------------------------------------------------------------===//
-// Configuration
-//===----------------------------------------------------------------------===//
-
-// TODO(benvanik): make these either compile-time configuration options so we
-// can prune code paths or flags (somehow).
-
-// When 1 a fast-path for importable memory will be used to avoid staging.
-#if !defined(IREE_HAL_MEMORY_FILE_CAN_IMPORT)
-#define IREE_HAL_MEMORY_FILE_CAN_IMPORT 1
-#endif  // !IREE_HAL_MEMORY_FILE_CAN_IMPORT
-
-//===----------------------------------------------------------------------===//
 // iree_hal_memory_file_storage_t
 //===----------------------------------------------------------------------===//
 
@@ -113,17 +101,13 @@ static iree_hal_memory_file_t* iree_hal_memory_file_cast(
 }
 
 static iree_status_t iree_hal_memory_file_try_import_buffer(
-    iree_hal_memory_file_t* file,
-    iree_hal_queue_family_affinity_t queue_family_affinity,
-    iree_hal_memory_access_t access, iree_byte_span_t contents,
-    iree_hal_allocator_t* device_allocator);
+    iree_hal_memory_file_t* file, iree_byte_span_t contents,
+    iree_hal_pool_t* storage_pool);
 
 IREE_API_EXPORT iree_status_t iree_hal_memory_file_wrap(
-    iree_hal_allocator_t* device_allocator,
-    iree_hal_queue_family_affinity_t queue_family_affinity,
-    iree_hal_memory_access_t access, iree_io_file_handle_t* handle,
-    iree_hal_memory_file_flags_t flags, iree_allocator_t host_allocator,
-    iree_hal_file_t** out_file) {
+    iree_hal_pool_t* storage_pool, iree_hal_memory_access_t access,
+    iree_io_file_handle_t* handle, iree_hal_memory_file_flags_t flags,
+    iree_allocator_t host_allocator, iree_hal_file_t** out_file) {
   IREE_ASSERT_ARGUMENT(out_file);
   *out_file = NULL;
 
@@ -173,23 +157,20 @@ IREE_API_EXPORT iree_status_t iree_hal_memory_file_wrap(
   iree_status_t status = iree_hal_memory_file_storage_create(
       handle, contents, host_allocator, &file->storage);
 
-#if !IREE_HAL_MEMORY_FILE_CAN_IMPORT
-  // Importing disabled; useful for testing the slow path.
-  device_allocator = NULL;
-#endif  // IREE_HAL_MEMORY_FILE_CAN_IMPORT
-
   // Try importing the memory file as a device-accessible storage buffer.
-  // Import is an optional fast path: the memory file remains usable as a
-  // host-backed file even when the target device cannot import this pointer.
-  if (iree_status_is_ok(status) && device_allocator) {
-    iree_status_t import_status = iree_hal_memory_file_try_import_buffer(
-        file, queue_family_affinity, access, contents, device_allocator);
-    if (iree_all_bits_set(
-            flags, IREE_HAL_MEMORY_FILE_FLAG_REQUIRE_DEVICE_VISIBLE_STORAGE)) {
-      status = import_status;
-    } else {
-      iree_status_free(import_status);
-    }
+  // Absence of an admitted route is a normal host-only result. Once the pool
+  // advertises the exact class, attachment failures are real failures and are
+  // propagated instead of silently changing the selected path.
+  const iree_hal_external_storage_class_t storage_class =
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+  iree_hal_pool_import_requirements_t import_requirements;
+  const bool can_import =
+      storage_pool && iree_hal_pool_query_import_requirements(
+                          storage_pool, storage_class, &import_requirements);
+  if (iree_status_is_ok(status) && can_import) {
+    status =
+        iree_hal_memory_file_try_import_buffer(file, contents, storage_pool);
   }
 
   if (iree_status_is_ok(status) &&
@@ -257,30 +238,19 @@ static void iree_hal_memory_file_buffer_release(
       (iree_hal_memory_file_storage_t*)user_data);
 }
 
-// Imports |contents| as a device-accessible HAL buffer.
-// A storage buffer is only exposed when the device allocator can directly
-// import the host allocation with device visibility.
+// Imports |contents| as a device-accessible HAL buffer through |storage_pool|.
 static iree_status_t iree_hal_memory_file_try_import_buffer(
-    iree_hal_memory_file_t* file,
-    iree_hal_queue_family_affinity_t queue_family_affinity,
-    iree_hal_memory_access_t access, iree_byte_span_t contents,
-    iree_hal_allocator_t* device_allocator) {
+    iree_hal_memory_file_t* file, iree_byte_span_t contents,
+    iree_hal_pool_t* storage_pool) {
   IREE_TRACE_ZONE_BEGIN(z0);
 
-  iree_hal_buffer_params_t storage_buffer_params = {
-      .access = access,
-      .queue_family_affinity = queue_family_affinity,
-      .type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_HOST |
-              IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-      .usage = IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED |
-               IREE_HAL_BUFFER_USAGE_MAPPING_ACCESS_SEQUENTIAL_WRITE |
-               (iree_any_bit_set(access, IREE_HAL_MEMORY_ACCESS_READ)
-                    ? IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE
-                    : 0) |
-               (iree_any_bit_set(access, IREE_HAL_MEMORY_ACCESS_WRITE)
-                    ? IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET
-                    : 0),
-  };
+  iree_hal_buffer_usage_t required_usage = IREE_HAL_BUFFER_USAGE_NONE;
+  if (iree_any_bit_set(file->access, IREE_HAL_MEMORY_ACCESS_READ)) {
+    required_usage |= IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE;
+  }
+  if (iree_any_bit_set(file->access, IREE_HAL_MEMORY_ACCESS_WRITE)) {
+    required_usage |= IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET;
+  }
 
   iree_hal_external_storage_t external_buffer = {
       .storage_class = iree_hal_make_external_storage_class(
@@ -298,12 +268,29 @@ static iree_status_t iree_hal_memory_file_try_import_buffer(
   // We have to handle the case where the import fails and we need to balance
   // the retain we did below.
   iree_hal_memory_file_storage_retain(file->storage);
-  iree_status_t status = iree_hal_allocator_import_buffer(
-      device_allocator, storage_buffer_params, &external_buffer,
+  iree_status_t status = iree_hal_pool_import_buffer(
+      storage_pool, &external_buffer,
       iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
       &file->imported_buffer);
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_buffer_validate_access(
+        iree_hal_buffer_allowed_access(file->imported_buffer), file->access);
+  }
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_buffer_validate_usage(
+        iree_hal_buffer_allowed_usage(file->imported_buffer), required_usage);
+  }
+  if (iree_status_is_ok(status)) {
+    file->imported_buffer->allowed_access = file->access;
+    file->imported_buffer->allowed_usage = required_usage;
+  }
   if (!iree_status_is_ok(status)) {
-    iree_hal_external_storage_release(&external_buffer);
+    iree_hal_buffer_release(file->imported_buffer);
+    file->imported_buffer = NULL;
+    if (external_buffer.storage_class.type !=
+        IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE) {
+      iree_hal_external_storage_release(&external_buffer);
+    }
   }
 
   IREE_TRACE({

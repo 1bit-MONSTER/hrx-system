@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -52,11 +53,21 @@ void ReleaseAlignedAllocation(void* user_data,
   iree_allocator_free_aligned(iree_allocator_system(), user_data);
 }
 
+struct AlignedAllocationDeleter {
+  void operator()(uint8_t* ptr) const {
+    iree_allocator_free_aligned(iree_allocator_system(), ptr);
+  }
+};
+
+using AlignedAllocation = std::unique_ptr<uint8_t, AlignedAllocationDeleter>;
+
 }  // namespace
 
 class FileTest : public CtsTestBase<> {
  protected:
   void TearDown() override {
+    iree_hal_pool_release(file_storage_pool_);
+    file_storage_pool_ = nullptr;
     iree_hal_pool_release(transfer_source_pool_);
     transfer_source_pool_ = nullptr;
     iree_hal_pool_release(transfer_target_pool_);
@@ -226,18 +237,125 @@ class FileTest : public CtsTestBase<> {
     return buffer;
   }
 
+  iree_status_t CreateHostFileStoragePool(iree_hal_pool_t** out_pool) {
+    *out_pool = nullptr;
+    const iree_hal_pool_family_access_t family_access = {
+        /*.family=*/iree_hal_queue_family(transfer_queue_),
+        /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
+    };
+    const iree_hal_pool_scope_t scope = {
+        /*.family_count=*/1,
+        /*.families=*/&family_access,
+    };
+    const iree_hal_pool_import_class_t import_class = {
+        /*.storage_class=*/iree_hal_make_external_storage_class(
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+    };
+    iree_hal_slab_pool_options_t options;
+    iree_hal_slab_pool_options_initialize(&options);
+    options.owned.mode = IREE_HAL_SLAB_POOL_IMPORT_ONLY;
+    options.imports.class_count = 1;
+    options.imports.classes = &import_class;
+    options.trace_name = IREE_SV("cts.file.storage");
+    return iree_hal_slab_pool_create(device_group_, scope, &options,
+                                     iree_allocator_system(), out_pool);
+  }
+
+  // Returns the fixture-owned host import pool when the backend exposes one.
+  // A null result is a supported outcome for devices that stage host-only
+  // memory files through another native I/O path.
+  iree_status_t GetHostFileStoragePool(iree_hal_pool_t** out_pool) {
+    *out_pool = nullptr;
+    if (!file_storage_pool_queried_) {
+      iree_status_t status = CreateHostFileStoragePool(&file_storage_pool_);
+      if (iree_status_is_unavailable(status) ||
+          iree_status_is_unimplemented(status)) {
+        iree_status_free(status);
+      } else {
+        IREE_RETURN_IF_ERROR(status);
+      }
+      file_storage_pool_queried_ = true;
+    }
+    *out_pool = file_storage_pool_;
+    return iree_ok_status();
+  }
+
+  static bool HostStorageMeetsImportRequirements(
+      iree_const_byte_span_t storage,
+      const iree_hal_pool_import_requirements_t& requirements) {
+    const uintptr_t address = reinterpret_cast<uintptr_t>(storage.data);
+    return storage.data_length >= requirements.min_byte_length &&
+           (!requirements.max_byte_length ||
+            storage.data_length <= requirements.max_byte_length) &&
+           requirements.base_alignment != 0 &&
+           address % requirements.base_alignment == 0 &&
+           requirements.byte_length_alignment != 0 &&
+           storage.data_length % requirements.byte_length_alignment == 0;
+  }
+
+  iree_status_t SelectHostFileStoragePool(iree_const_byte_span_t storage,
+                                          iree_hal_pool_t** out_pool) {
+    IREE_RETURN_IF_ERROR(GetHostFileStoragePool(out_pool));
+    if (!*out_pool) {
+      return iree_ok_status();
+    }
+    iree_hal_pool_import_requirements_t requirements;
+    if (!iree_hal_pool_query_import_requirements(
+            *out_pool,
+            iree_hal_make_external_storage_class(
+                IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+            &requirements) ||
+        !HostStorageMeetsImportRequirements(storage, requirements)) {
+      *out_pool = nullptr;
+    }
+    return iree_ok_status();
+  }
+
+  iree_status_t AllocateBorrowedHostFileStorage(
+      iree_device_size_t length, AlignedAllocation* out_allocation) {
+    out_allocation->reset();
+    iree_host_size_t alignment = kFileAlignment;
+    iree_hal_pool_t* storage_pool = nullptr;
+    IREE_RETURN_IF_ERROR(GetHostFileStoragePool(&storage_pool));
+    if (storage_pool) {
+      iree_hal_pool_import_requirements_t requirements;
+      if (iree_hal_pool_query_import_requirements(
+              storage_pool,
+              iree_hal_make_external_storage_class(
+                  IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+              &requirements)) {
+        if (requirements.base_alignment > IREE_HOST_SIZE_MAX) {
+          return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                                  "host import alignment exceeds host size");
+        }
+        alignment = std::max(alignment, static_cast<iree_host_size_t>(
+                                            requirements.base_alignment));
+      }
+    }
+    void* ptr = nullptr;
+    IREE_RETURN_IF_ERROR(iree_allocator_malloc_aligned(
+        iree_allocator_system(), static_cast<iree_host_size_t>(length),
+        alignment, 0, &ptr));
+    out_allocation->reset(static_cast<uint8_t*>(ptr));
+    return iree_ok_status();
+  }
+
   iree_status_t CreateBorrowedMemoryTestFile(iree_hal_memory_access_t access,
                                              iree_byte_span_t contents,
                                              TestFile* out_file) {
     out_file->Reset();
+    iree_hal_pool_t* storage_pool = nullptr;
+    IREE_RETURN_IF_ERROR(SelectHostFileStoragePool(
+        iree_make_const_byte_span(contents.data, contents.data_length),
+        &storage_pool));
     iree_io_file_handle_t* handle = nullptr;
     IREE_RETURN_IF_ERROR(iree_io_file_handle_wrap_host_allocation(
         IREE_IO_FILE_ACCESS_READ | IREE_IO_FILE_ACCESS_WRITE, contents,
         iree_io_file_handle_release_callback_null(), iree_allocator_system(),
         &handle));
     iree_status_t status = iree_hal_file_import(
-        device_, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, access, handle,
-        IREE_HAL_EXTERNAL_FILE_FLAG_NONE, out_file->out_file());
+        device_, storage_pool, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, access,
+        handle, IREE_HAL_EXTERNAL_FILE_FLAG_NONE, out_file->out_file());
     iree_io_file_handle_release(handle);
     if (iree_status_is_ok(status)) {
       out_file->SetMemoryContents(contents.data);
@@ -304,6 +422,11 @@ class FileTest : public CtsTestBase<> {
   // Owned directional sources used by negative transfer-access coverage.
   iree_hal_pool_t* transfer_source_pool_ = nullptr;
   iree_hal_pool_t* transfer_target_pool_ = nullptr;
+  // Owned import-only pool used when memory file storage satisfies its exact
+  // native geometry requirements.
+  iree_hal_pool_t* file_storage_pool_ = nullptr;
+  // True after the backend's host import route has been queried once.
+  bool file_storage_pool_queried_ = false;
 
   iree_status_t CreateTestFileStatus(
       const FileProvider& provider, iree_hal_memory_access_t access,
@@ -335,10 +458,36 @@ class FileTest : public CtsTestBase<> {
   iree_status_t CreateMemoryTestFile(
       iree_hal_memory_access_t access,
       const std::vector<uint8_t>& initial_contents, TestFile* out_file) {
+    iree_hal_pool_t* storage_pool = nullptr;
+    IREE_RETURN_IF_ERROR(GetHostFileStoragePool(&storage_pool));
+    iree_host_size_t allocation_alignment = kFileAlignment;
+    if (storage_pool) {
+      iree_hal_pool_import_requirements_t requirements;
+      if (!iree_hal_pool_query_import_requirements(
+              storage_pool,
+              iree_hal_make_external_storage_class(
+                  IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+              &requirements) ||
+          initial_contents.size() < requirements.min_byte_length ||
+          (requirements.max_byte_length &&
+           initial_contents.size() > requirements.max_byte_length) ||
+          requirements.byte_length_alignment == 0 ||
+          initial_contents.size() % requirements.byte_length_alignment != 0) {
+        storage_pool = nullptr;
+      } else if (requirements.base_alignment > IREE_HOST_SIZE_MAX) {
+        return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                                "host import alignment exceeds host size");
+      } else {
+        allocation_alignment = std::max(
+            allocation_alignment,
+            static_cast<iree_host_size_t>(requirements.base_alignment));
+      }
+    }
+
     void* file_contents = nullptr;
     IREE_RETURN_IF_ERROR(iree_allocator_malloc_aligned(
-        iree_allocator_system(), initial_contents.size(), kFileAlignment, 0,
-        &file_contents));
+        iree_allocator_system(), initial_contents.size(), allocation_alignment,
+        0, &file_contents));
     std::memcpy(file_contents, initial_contents.data(),
                 initial_contents.size());
 
@@ -356,8 +505,8 @@ class FileTest : public CtsTestBase<> {
     }
     if (iree_status_is_ok(status)) {
       status = iree_hal_file_import(
-          device_, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, access, handle,
-          IREE_HAL_EXTERNAL_FILE_FLAG_NONE, out_file->out_file());
+          device_, storage_pool, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, access,
+          handle, IREE_HAL_EXTERNAL_FILE_FLAG_NONE, out_file->out_file());
     }
     if (iree_status_is_ok(status)) {
       out_file->SetMemoryContents(static_cast<uint8_t*>(file_contents));
@@ -389,9 +538,10 @@ class FileTest : public CtsTestBase<> {
       EXPECT_TRUE(iree_io_file_handle_uses_async_io(handle));
     }
     if (iree_status_is_ok(status)) {
-      status = iree_hal_file_import(
-          device_, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, access, handle,
-          IREE_HAL_EXTERNAL_FILE_FLAG_NONE, out_file->out_file());
+      status = iree_hal_file_import(device_, /*storage_pool=*/nullptr,
+                                    IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, access,
+                                    handle, IREE_HAL_EXTERNAL_FILE_FLAG_NONE,
+                                    out_file->out_file());
     }
 
     if (iree_status_is_ok(status)) {
@@ -436,12 +586,74 @@ TEST_P(FileTest, ImportRejectsUnknownFlags) {
   iree_hal_file_t* file = nullptr;
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
-      iree_hal_file_import(device_, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-                           IREE_HAL_MEMORY_ACCESS_READ, handle,
-                           static_cast<iree_hal_external_file_flags_t>(1u),
-                           &file));
+      iree_hal_file_import(
+          device_, /*storage_pool=*/nullptr, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+          IREE_HAL_MEMORY_ACCESS_READ, handle,
+          static_cast<iree_hal_external_file_flags_t>(1u), &file));
   EXPECT_EQ(file, nullptr);
   iree_io_file_handle_release(handle);
+}
+
+TEST_P(FileTest, MemoryFileUsesExplicitStoragePool) {
+  Ref<iree_hal_pool_t> storage_pool;
+  iree_status_t pool_status = CreateHostFileStoragePool(storage_pool.out());
+  if (iree_status_is_unavailable(pool_status) ||
+      iree_status_is_unimplemented(pool_status)) {
+    iree_status_free(pool_status);
+    GTEST_SKIP() << "device does not support host-pointer pool imports";
+  }
+  IREE_ASSERT_OK(pool_status);
+
+  iree_hal_pool_import_requirements_t requirements;
+  ASSERT_TRUE(iree_hal_pool_query_import_requirements(
+      storage_pool,
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      &requirements));
+  const iree_device_size_t file_length = iree_device_align(
+      std::max<iree_device_size_t>(128, requirements.min_byte_length),
+      requirements.byte_length_alignment);
+  ASSERT_TRUE(requirements.max_byte_length == 0 ||
+              file_length <= requirements.max_byte_length);
+  ASSERT_LE(file_length, static_cast<iree_device_size_t>(IREE_HOST_SIZE_MAX));
+  const iree_device_size_t device_alignment =
+      std::max<iree_device_size_t>(kFileAlignment, requirements.base_alignment);
+  ASSERT_LE(device_alignment,
+            static_cast<iree_device_size_t>(IREE_HOST_SIZE_MAX));
+  const iree_host_size_t file_alignment =
+      static_cast<iree_host_size_t>(device_alignment);
+
+  void* file_contents = nullptr;
+  IREE_ASSERT_OK(iree_allocator_malloc_aligned(
+      iree_allocator_system(), static_cast<iree_host_size_t>(file_length),
+      file_alignment, 0, &file_contents));
+  const iree_io_file_handle_release_callback_t release_callback = {
+      ReleaseAlignedAllocation,
+      file_contents,
+  };
+  iree_io_file_handle_t* handle = nullptr;
+  IREE_ASSERT_OK(iree_io_file_handle_wrap_host_allocation(
+      IREE_IO_FILE_ACCESS_READ | IREE_IO_FILE_ACCESS_WRITE,
+      iree_make_byte_span(file_contents,
+                          static_cast<iree_host_size_t>(file_length)),
+      release_callback, iree_allocator_system(), &handle));
+
+  TestFile file;
+  IREE_ASSERT_OK(iree_hal_file_import(
+      device_, storage_pool, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+      IREE_HAL_MEMORY_ACCESS_READ, handle, IREE_HAL_EXTERNAL_FILE_FLAG_NONE,
+      file.out_file()));
+  iree_io_file_handle_release(handle);
+
+  iree_hal_buffer_t* storage_buffer = iree_hal_file_storage_buffer(file.get());
+  ASSERT_NE(storage_buffer, nullptr);
+  EXPECT_EQ(iree_hal_buffer_byte_length(storage_buffer), file_length);
+  EXPECT_TRUE(iree_all_bits_set(iree_hal_buffer_memory_type(storage_buffer),
+                                IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE));
+  EXPECT_EQ(iree_hal_buffer_allowed_access(storage_buffer),
+            IREE_HAL_MEMORY_ACCESS_READ);
+  EXPECT_EQ(iree_hal_buffer_allowed_usage(storage_buffer),
+            IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE);
 }
 
 TEST_P(FileTest, ImportRejectsEmptyQueueFamilyAffinity) {
@@ -456,7 +668,8 @@ TEST_P(FileTest, ImportRejectsEmptyQueueFamilyAffinity) {
   iree_hal_file_t* file = nullptr;
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
-      iree_hal_file_import(device_, /*queue_family_affinity=*/0,
+      iree_hal_file_import(device_, /*storage_pool=*/nullptr,
+                           /*queue_family_affinity=*/0,
                            IREE_HAL_MEMORY_ACCESS_READ, handle,
                            IREE_HAL_EXTERNAL_FILE_FLAG_NONE, &file));
   EXPECT_EQ(file, nullptr);
@@ -825,17 +1038,25 @@ TEST_P(AsyncFileTest, MemoryFileChainRetainsDeferredResources) {
   const iree_device_size_t target_offset = 29;
   const iree_device_size_t file_length = 512;
 
-  std::vector<uint8_t> source_contents(file_length, 0x11);
-  std::vector<uint8_t> target_contents(file_length, 0xC7);
+  AlignedAllocation source_contents;
+  IREE_ASSERT_OK(
+      AllocateBorrowedHostFileStorage(file_length, &source_contents));
+  std::memset(source_contents.get(), 0x11, static_cast<size_t>(file_length));
+  AlignedAllocation target_contents;
+  IREE_ASSERT_OK(
+      AllocateBorrowedHostFileStorage(file_length, &target_contents));
+  std::memset(target_contents.get(), 0xC7, static_cast<size_t>(file_length));
   TestFile source_file;
   IREE_ASSERT_OK(CreateBorrowedMemoryTestFile(
       IREE_HAL_MEMORY_ACCESS_READ,
-      iree_make_byte_span(source_contents.data(), source_contents.size()),
+      iree_make_byte_span(source_contents.get(),
+                          static_cast<iree_host_size_t>(file_length)),
       &source_file));
   TestFile target_file;
   IREE_ASSERT_OK(CreateBorrowedMemoryTestFile(
       IREE_HAL_MEMORY_ACCESS_WRITE,
-      iree_make_byte_span(target_contents.data(), target_contents.size()),
+      iree_make_byte_span(target_contents.get(),
+                          static_cast<iree_host_size_t>(file_length)),
       &target_file));
 
   Ref<iree_hal_buffer_t> allocation = CreateZeroedBuffer(allocation_length);
@@ -863,7 +1084,7 @@ TEST_P(AsyncFileTest, MemoryFileChainRetainsDeferredResources) {
 
   const std::vector<uint8_t> produced_contents =
       MakeDeterministicBytes(transfer_length);
-  std::memcpy(source_contents.data() + source_offset, produced_contents.data(),
+  std::memcpy(source_contents.get() + source_offset, produced_contents.data(),
               produced_contents.size());
 
   // Accepted operations retain every resource they need until terminal
@@ -881,7 +1102,9 @@ TEST_P(AsyncFileTest, MemoryFileChainRetainsDeferredResources) {
   std::vector<uint8_t> expected(file_length, 0xC7);
   std::copy(produced_contents.begin(), produced_contents.end(),
             expected.begin() + target_offset);
-  EXPECT_THAT(target_contents, ContainerEq(expected));
+  const std::vector<uint8_t> actual(target_contents.get(),
+                                    target_contents.get() + file_length);
+  EXPECT_THAT(actual, ContainerEq(expected));
 }
 
 TEST_P(FileTest, ReadSubrangeWithOffsets) {

@@ -1096,9 +1096,22 @@ static iree_status_t iree_hal_replay_executor_import_file(
 
   iree_hal_file_t* file = NULL;
   if (iree_status_is_ok(status) && import_file_handle) {
-    status = iree_hal_file_import(device_entry->value.device,
-                                  payload.queue_family_affinity, payload.access,
-                                  handle, payload.flags, &file);
+    iree_hal_pool_t* storage_pool = NULL;
+    if (payload.storage_pool_id != IREE_HAL_REPLAY_OBJECT_ID_NONE) {
+      iree_hal_replay_object_entry_t* pool_entry = NULL;
+      status = iree_hal_replay_executor_lookup(
+          executor, payload.storage_pool_id, IREE_HAL_REPLAY_OBJECT_TYPE_POOL,
+          &pool_entry);
+      if (iree_status_is_ok(status)) {
+        storage_pool = pool_entry->value.pool;
+      }
+    }
+    if (iree_status_is_ok(status)) {
+      status =
+          iree_hal_file_import(device_entry->value.device, storage_pool,
+                               payload.queue_family_affinity, payload.access,
+                               handle, payload.flags, &file);
+    }
   }
   if (iree_status_is_ok(status) &&
       payload.reference_type ==

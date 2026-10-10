@@ -830,7 +830,7 @@ typedef struct iree_hal_device_vtable_t {
       iree_hal_executable_t** out_executable);
 
   iree_status_t(IREE_API_PTR* import_file)(
-      iree_hal_device_t* device,
+      iree_hal_device_t* device, iree_hal_pool_t* storage_pool,
       iree_hal_queue_family_affinity_t queue_family_affinity,
       iree_hal_memory_access_t access, iree_io_file_handle_t* handle,
       iree_hal_external_file_flags_t flags, iree_hal_file_t** out_file);

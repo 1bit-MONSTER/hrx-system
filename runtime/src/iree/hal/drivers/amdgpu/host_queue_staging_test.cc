@@ -134,6 +134,7 @@ class HostQueueStagingTest : public ::testing::Test {
   class TestLogicalDevice {
    public:
     ~TestLogicalDevice() {
+      iree_hal_pool_release(file_storage_pool_);
       iree_hal_device_release(base_device_);
       iree_hal_device_group_release(device_group_);
     }
@@ -147,9 +148,30 @@ class HostQueueStagingTest : public ::testing::Test {
       IREE_RETURN_IF_ERROR(iree_hal_amdgpu_logical_device_create(
           IREE_SV("amdgpu"), options, libhsa, topology,
           create_context_.params(), host_allocator, &base_device_));
-      return iree_hal_device_group_create_from_device(
+      IREE_RETURN_IF_ERROR(iree_hal_device_group_create_from_device(
           base_device_, create_context_.frontier_tracker(), host_allocator,
-          &device_group_);
+          &device_group_));
+
+      const iree_hal_pool_family_access_t family_access = {
+          /*.family=*/iree_hal_queue_family(queue()),
+          /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
+      };
+      const iree_hal_pool_scope_t scope = {
+          /*.family_count=*/1,
+          /*.families=*/&family_access,
+      };
+      const iree_hal_pool_import_class_t import_class = {
+          /*.storage_class=*/iree_hal_make_external_storage_class(
+              IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      };
+      iree_hal_slab_pool_options_t pool_options;
+      iree_hal_slab_pool_options_initialize(&pool_options);
+      pool_options.owned.mode = IREE_HAL_SLAB_POOL_IMPORT_ONLY;
+      pool_options.imports.class_count = 1;
+      pool_options.imports.classes = &import_class;
+      pool_options.trace_name = IREE_SV("amdgpu.test.file.storage");
+      return iree_hal_slab_pool_create(device_group_, scope, &pool_options,
+                                       host_allocator, &file_storage_pool_);
     }
 
     iree_status_t ReinitializeFileStagingPool(
@@ -185,6 +207,8 @@ class HostQueueStagingTest : public ::testing::Test {
       return iree_hal_device_allocator(base_device_);
     }
 
+    iree_hal_pool_t* file_storage_pool() const { return file_storage_pool_; }
+
     iree_hal_amdgpu_logical_device_t* logical_device() const {
       return (iree_hal_amdgpu_logical_device_t*)base_device_;
     }
@@ -215,6 +239,9 @@ class HostQueueStagingTest : public ::testing::Test {
 
     // Device group that owns the topology assigned to |base_device_|.
     iree_hal_device_group_t* device_group_ = NULL;
+
+    // Explicit route for host-allocation files used by direct queue copies.
+    iree_hal_pool_t* file_storage_pool_ = NULL;
   };
 
   iree_hal_amdgpu_staging_pool_options_t OneSlotStagingOptions() {
@@ -305,8 +332,8 @@ class HostQueueStagingTest : public ::testing::Test {
     IREE_RETURN_IF_ERROR(iree_io_file_handle_open(
         mode, path.path_view(), iree_allocator_system(), &handle));
     iree_status_t status = iree_hal_file_import(
-        device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, access, handle,
-        IREE_HAL_EXTERNAL_FILE_FLAG_NONE, out_file);
+        device, /*storage_pool=*/nullptr, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+        access, handle, IREE_HAL_EXTERNAL_FILE_FLAG_NONE, out_file);
     iree_io_file_handle_release(handle);
     return status;
   }
@@ -356,6 +383,7 @@ class HostQueueStagingTest : public ::testing::Test {
   }
 
   iree_status_t ImportHostAllocationFile(iree_hal_device_t* device,
+                                         iree_hal_pool_t* storage_pool,
                                          std::vector<uint8_t>* data,
                                          iree_hal_file_t** out_file) {
     iree_io_file_handle_t* handle = NULL;
@@ -364,10 +392,10 @@ class HostQueueStagingTest : public ::testing::Test {
         iree_make_byte_span(data->data(), data->size()),
         iree_io_file_handle_release_callback_null(), iree_allocator_system(),
         &handle));
-    iree_status_t status =
-        iree_hal_file_import(device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-                             IREE_HAL_MEMORY_ACCESS_WRITE, handle,
-                             IREE_HAL_EXTERNAL_FILE_FLAG_NONE, out_file);
+    iree_status_t status = iree_hal_file_import(
+        device, storage_pool, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+        IREE_HAL_MEMORY_ACCESS_WRITE, handle, IREE_HAL_EXTERNAL_FILE_FLAG_NONE,
+        out_file);
     iree_io_file_handle_release(handle);
     return status;
   }
@@ -442,6 +470,7 @@ class HostQueueStagingTest : public ::testing::Test {
 
   iree_status_t ReadBufferContents(iree_hal_device_t* device,
                                    iree_hal_queue_t* queue,
+                                   iree_hal_pool_t* storage_pool,
                                    iree_hal_buffer_t* buffer,
                                    iree_device_size_t offset,
                                    iree_device_size_t length,
@@ -454,10 +483,10 @@ class HostQueueStagingTest : public ::testing::Test {
         iree_io_file_handle_release_callback_null(), iree_allocator_system(),
         &handle));
     Ref<iree_hal_file_t> file;
-    iree_status_t status =
-        iree_hal_file_import(device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-                             IREE_HAL_MEMORY_ACCESS_WRITE, handle,
-                             IREE_HAL_EXTERNAL_FILE_FLAG_NONE, file.out());
+    iree_status_t status = iree_hal_file_import(
+        device, storage_pool, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+        IREE_HAL_MEMORY_ACCESS_WRITE, handle, IREE_HAL_EXTERNAL_FILE_FLAG_NONE,
+        file.out());
     iree_io_file_handle_release(handle);
     if (iree_status_is_ok(status)) {
       status = QueueWriteAndWait(device, queue, buffer, offset, file,
@@ -668,7 +697,8 @@ TEST_F(HostQueueStagingTest, OneSlotLargeReadCompletesThroughSlotWaiter) {
 
   std::vector<uint8_t> contents;
   IREE_ASSERT_OK(
-      ReadBufferContents(test_device.base_device(), test_device.queue(), buffer,
+      ReadBufferContents(test_device.base_device(), test_device.queue(),
+                         test_device.file_storage_pool(), buffer,
                          /*offset=*/0, kMultiSlotTransferSize, &contents));
   ExpectByteRangeMatches(contents, file_data);
 }
@@ -695,6 +725,7 @@ TEST_F(HostQueueStagingTest,
   std::vector<uint8_t> output_data(kMultiSlotTransferSize, 0);
   Ref<iree_hal_file_t> output_file;
   IREE_ASSERT_OK(ImportHostAllocationFile(test_device.base_device(),
+                                          test_device.file_storage_pool(),
                                           &output_data, output_file.out()));
 
   Ref<iree_hal_semaphore_t> alloca_signal;

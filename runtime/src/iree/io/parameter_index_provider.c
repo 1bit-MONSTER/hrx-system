@@ -150,9 +150,13 @@ static iree_status_t iree_io_parameter_index_provider_resolve(
   // NOTE: file is retained!
   iree_hal_file_t* file = NULL;
   if (entry->type == IREE_IO_PARAMETER_INDEX_ENTRY_STORAGE_TYPE_FILE) {
+    // Keep the cached file on its native I/O path. Load operations select and
+    // import the exact parameter range through their caller-provided pool;
+    // attaching the entire backing allocation here would duplicate that route
+    // and give the cache a different memory contract from the emitted buffer.
     IREE_RETURN_AND_END_ZONE_IF_ERROR(
         z0, iree_hal_file_cache_lookup(
-                provider->file_cache, device,
+                provider->file_cache, device, /*storage_pool=*/NULL,
                 iree_io_parameter_queue_family_affinity(queue), access,
                 entry->storage.file.handle, IREE_HAL_EXTERNAL_FILE_FLAG_NONE,
                 &file));

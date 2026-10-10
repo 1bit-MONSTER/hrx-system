@@ -414,7 +414,7 @@ static iree_status_t iree_hal_replay_device_load_executable(
 }
 
 static iree_status_t iree_hal_replay_device_import_file(
-    iree_hal_device_t* base_device,
+    iree_hal_device_t* base_device, iree_hal_pool_t* storage_pool,
     iree_hal_queue_family_affinity_t queue_family_affinity,
     iree_hal_memory_access_t access, iree_io_file_handle_t* handle,
     iree_hal_external_file_flags_t flags, iree_hal_file_t** out_file) {
@@ -425,18 +425,39 @@ static iree_status_t iree_hal_replay_device_import_file(
   IREE_RETURN_IF_ERROR(
       iree_hal_replay_recorder_reserve_object_id(device->recorder, &file_id));
 
+  const iree_hal_replay_object_id_t storage_pool_id =
+      iree_hal_replay_recorder_find_pool_id(device->recorder, storage_pool);
+  const bool can_record =
+      !storage_pool || storage_pool_id != IREE_HAL_REPLAY_OBJECT_ID_NONE;
+
   iree_hal_replay_pending_record_t pending_record;
   IREE_RETURN_IF_ERROR(iree_hal_replay_recorder_begin_operation(
       device->recorder, device->device_id, device->device_id, file_id,
       IREE_HAL_REPLAY_OBJECT_TYPE_DEVICE,
       IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_IMPORT_FILE,
-      IREE_HAL_REPLAY_PAYLOAD_TYPE_FILE_OBJECT, &pending_record));
+      can_record ? IREE_HAL_REPLAY_PAYLOAD_TYPE_FILE_OBJECT
+                 : IREE_HAL_REPLAY_PAYLOAD_TYPE_NONE,
+      &pending_record));
+  if (!can_record) {
+    iree_hal_replay_recorder_mark_unsupported(&pending_record);
+  }
 
   iree_hal_file_t* base_file = NULL;
   iree_hal_file_t* replay_file = NULL;
-  iree_status_t status =
-      iree_hal_file_import(device->base_device, queue_family_affinity, access,
-                           handle, flags, &base_file);
+  iree_status_t status = iree_hal_file_import(
+      device->base_device,
+      iree_hal_replay_recorder_pool_base_or_self(storage_pool),
+      queue_family_affinity, access, handle, flags, &base_file);
+
+  if (!can_record) {
+    status = iree_hal_replay_device_complete_operation(&pending_record, status);
+    if (iree_status_is_ok(status)) {
+      *out_file = base_file;
+    } else {
+      iree_hal_file_release(base_file);
+    }
+    return status;
+  }
 
   char reference_storage[IREE_MAX_PATH];
   iree_byte_span_t allocated_reference_storage = iree_byte_span_empty();
@@ -447,8 +468,8 @@ static iree_status_t iree_hal_replay_device_import_file(
       iree_hal_replay_recorder_options(device->recorder);
   iree_status_t payload_status =
       iree_hal_replay_recorder_file_make_object_payload(
-          handle, queue_family_affinity, access, flags, base_file,
-          recorder_options->external_file_policy,
+          handle, storage_pool_id, queue_family_affinity, access, flags,
+          base_file, recorder_options->external_file_policy,
           recorder_options->external_file_validation, device->host_allocator,
           iree_make_byte_span((uint8_t*)reference_storage,
                               sizeof(reference_storage)),

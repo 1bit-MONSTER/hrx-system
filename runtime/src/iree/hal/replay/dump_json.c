@@ -788,29 +788,30 @@ static iree_status_t iree_hal_replay_dump_append_json_payload(
         return iree_make_status(IREE_STATUS_DATA_LOSS,
                                 "replay file object payload length mismatch");
       }
-      IREE_RETURN_IF_ERROR(
-          iree_string_builder_append_format(
-              builder,
-              ",\"payload\":{\"queue_family_affinity\":%" PRIu64
-              ",\"file_length\":%" PRIu64 ",\"file_device\":%" PRIu64
-              ",\"file_inode\":%" PRIu64 ",\"file_mtime_ns\":%" PRIu64
-              ",\"reference_length\":%" PRIu64 ",\"access\":%" PRIu32
-              ",\"flags\":%" PRIu32 ",\"handle_type\":%" PRIu32
-              ",\"reference_type\":%" PRIu32 ",\"reference_type_name\":\"%s\""
-              ",\"validation_type\":%" PRIu32 ",\"validation_type_name\":\"%s\""
-              ",\"digest_type\":%" PRIu32 ",\"digest_fnv1a64\":\"0x%016" PRIx64
-              "\"",
-              payload.queue_family_affinity, payload.file_length,
-              payload.file_device, payload.file_inode, payload.file_mtime_ns,
-              payload.reference_length, payload.access, payload.flags,
-              payload.handle_type, payload.reference_type,
-              iree_hal_replay_dump_file_reference_type_string(
-                  payload.reference_type),
-              payload.validation_type,
-              iree_hal_replay_dump_file_validation_type_string(
-                  payload.validation_type),
-              (uint32_t)payload.digest_type,
-              iree_hal_replay_digest_load_fnv1a64(payload.digest)));
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+          builder,
+          ",\"payload\":{\"storage_pool_id\":%" PRIu64
+          ",\"queue_family_affinity\":%" PRIu64 ",\"file_length\":%" PRIu64
+          ",\"file_device\":%" PRIu64 ",\"file_inode\":%" PRIu64
+          ",\"file_mtime_ns\":%" PRIu64 ",\"reference_length\":%" PRIu64
+          ",\"access\":%" PRIu32 ",\"flags\":%" PRIu32
+          ",\"handle_type\":%" PRIu32 ",\"reference_type\":%" PRIu32
+          ",\"reference_type_name\":\"%s\""
+          ",\"validation_type\":%" PRIu32
+          ",\"validation_type_name\":\"%s\""
+          ",\"digest_type\":%" PRIu32 ",\"digest_fnv1a64\":\"0x%016" PRIx64
+          "\"",
+          payload.storage_pool_id, payload.queue_family_affinity,
+          payload.file_length, payload.file_device, payload.file_inode,
+          payload.file_mtime_ns, payload.reference_length, payload.access,
+          payload.flags, payload.handle_type, payload.reference_type,
+          iree_hal_replay_dump_file_reference_type_string(
+              payload.reference_type),
+          payload.validation_type,
+          iree_hal_replay_dump_file_validation_type_string(
+              payload.validation_type),
+          (uint32_t)payload.digest_type,
+          iree_hal_replay_digest_load_fnv1a64(payload.digest)));
       iree_hal_replay_file_range_t reference_range =
           iree_hal_replay_dump_payload_subrange(
               payload_range, sizeof(payload),

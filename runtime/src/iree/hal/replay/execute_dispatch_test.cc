@@ -237,7 +237,7 @@ TEST_F(ReplayDispatchTest, FamilyConstructorsReplayNativeOutput) {
           IREE_IO_FILE_MODE_RANDOM_ACCESS,
       output_path.path_view(), iree_allocator_system(), &file_handle));
   iree_status_t status = iree_hal_file_import(
-      device_, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+      device_, /*storage_pool=*/nullptr, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
       IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE, file_handle,
       IREE_HAL_EXTERNAL_FILE_FLAG_NONE, &file_);
   iree_io_file_handle_release(file_handle);

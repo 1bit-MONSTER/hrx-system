@@ -3082,15 +3082,16 @@ static iree_status_t iree_hal_amdgpu_logical_device_load_executable(
 }
 
 static iree_status_t iree_hal_amdgpu_logical_device_import_file(
-    iree_hal_device_t* base_device,
+    iree_hal_device_t* base_device, iree_hal_pool_t* storage_pool,
     iree_hal_queue_family_affinity_t queue_family_affinity,
     iree_hal_memory_access_t access, iree_io_file_handle_t* handle,
     iree_hal_external_file_flags_t flags, iree_hal_file_t** out_file) {
+  (void)queue_family_affinity;
+  (void)flags;
   iree_hal_amdgpu_logical_device_t* logical_device =
       iree_hal_amdgpu_logical_device_cast(base_device);
   return iree_hal_file_from_handle(
-      iree_hal_device_allocator(base_device), queue_family_affinity, access,
-      handle, logical_device->proactor,
+      storage_pool, access, handle, logical_device->proactor,
       iree_hal_device_host_allocator(base_device), out_file);
 }
 

@@ -69,7 +69,7 @@ class VulkanFileTest : public CtsTestBase<> {
 
     Ref<iree_hal_file_t> file;
     IREE_ASSERT_OK(iree_hal_file_import(
-        device_, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+        device_, /*storage_pool=*/nullptr, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
         IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
         handle.get(), IREE_HAL_EXTERNAL_FILE_FLAG_NONE, file.out()));
     *out_file = std::move(file);
@@ -145,7 +145,7 @@ TEST_P(VulkanFileTest, NativeFileShortReadExceedsStagingRingFails) {
 
   Ref<iree_hal_file_t> file;
   IREE_ASSERT_OK(iree_hal_file_import(
-      device_, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+      device_, /*storage_pool=*/nullptr, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
       IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE, handle.get(),
       IREE_HAL_EXTERNAL_FILE_FLAG_NONE, file.out()));
 

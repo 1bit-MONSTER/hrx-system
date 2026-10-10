@@ -50,7 +50,7 @@ static iree_status_t iree_hal_file_validate_queue_family_affinity(
 }
 
 IREE_API_EXPORT iree_status_t iree_hal_file_import(
-    iree_hal_device_t* device,
+    iree_hal_device_t* device, iree_hal_pool_t* storage_pool,
     iree_hal_queue_family_affinity_t queue_family_affinity,
     iree_hal_memory_access_t access, iree_io_file_handle_t* handle,
     iree_hal_external_file_flags_t flags, iree_hal_file_t** out_file) {
@@ -69,7 +69,8 @@ IREE_API_EXPORT iree_status_t iree_hal_file_import(
   iree_hal_file_t* file = NULL;
   if (iree_status_is_ok(status)) {
     status = IREE_HAL_VTABLE_DISPATCH(device, iree_hal_device, import_file)(
-        device, queue_family_affinity, access, handle, flags, &file);
+        device, storage_pool, queue_family_affinity, access, handle, flags,
+        &file);
   }
   if (iree_status_is_ok(status)) {
     *out_file = file;
