@@ -113,10 +113,10 @@ class GraphBarrierTest : public ::testing::Test {
     IREE_ASSERT_OK(status);
     queue_family_ = iree_hal_device_queue_family(device_, 0);
     iree_hal_command_buffer_initialize(
-        /*device_allocator=*/nullptr, queue_family_,
-        IREE_HAL_COMMAND_BUFFER_MODE_UNVALIDATED, IREE_HAL_COMMAND_CATEGORY_ANY,
-        /*binding_capacity=*/0, /*validation_state=*/nullptr,
-        &kBarrierSpyVtable, &command_buffer_.base);
+        queue_family_, IREE_HAL_COMMAND_BUFFER_MODE_UNVALIDATED,
+        IREE_HAL_COMMAND_CATEGORY_ANY, /*binding_capacity=*/0,
+        /*validation_state=*/nullptr, &kBarrierSpyVtable,
+        &command_buffer_.base);
     hrx_graph_barrier_state_reset(&state_);
   }
 
