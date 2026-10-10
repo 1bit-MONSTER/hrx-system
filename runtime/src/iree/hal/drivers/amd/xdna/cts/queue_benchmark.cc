@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <vector>
 
+#include "iree/async/frontier_tracker.h"
 #include "iree/async/util/proactor_pool.h"
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
@@ -19,6 +20,7 @@
 #include "iree/hal/drivers/amd/xdna/image/testdata/add_i32_npu4.h"
 #include "iree/hal/drivers/amd/xdna/image/testdata/mul_i32.h"
 #include "iree/hal/drivers/amd/xdna/image/testdata/mul_i32_npu4.h"
+#include "iree/hal/slab_pool.h"
 
 namespace {
 
@@ -63,6 +65,8 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
       iree_hal_buffer_release(buffer);
       buffer = nullptr;
     }
+    iree_hal_pool_release(memory_pool_);
+    iree_hal_device_group_release(device_group_);
     for (auto*& executable : executables_) {
       iree_hal_executable_release(executable);
       executable = nullptr;
@@ -110,6 +114,34 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
       return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                               "XDNA HAL device has no queue 0");
     }
+
+    iree_async_frontier_tracker_t* tracker = nullptr;
+    IREE_RETURN_IF_ERROR(iree_async_frontier_tracker_create(
+        iree_async_frontier_tracker_options_default(), iree_allocator_system(),
+        &tracker));
+    iree_status_t status = iree_hal_device_group_create_from_device(
+        device_, tracker, iree_allocator_system(), &device_group_);
+    iree_async_frontier_tracker_release(tracker);
+    IREE_RETURN_IF_ERROR(status);
+    const iree_hal_pool_family_access_t family_access = {
+        /*.family=*/iree_hal_queue_family(queue_),
+        /*.usage=*/IREE_HAL_BUFFER_USAGE_DEFAULT,
+        /*.interfaces=*/UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
+    };
+    const iree_hal_pool_scope_t scope = {
+        /*.family_count=*/1,
+        /*.families=*/&family_access,
+        /*.host=*/
+        {
+            /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+            /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+        },
+    };
+    iree_hal_slab_pool_options_t pool_options;
+    iree_hal_slab_pool_options_initialize(&pool_options);
+    IREE_RETURN_IF_ERROR(
+        iree_hal_slab_pool_create(device_group_, scope, &pool_options,
+                                  iree_allocator_system(), &memory_pool_));
 
     IREE_RETURN_IF_ERROR(
         LoadExecutable(iree_hal_amd_xdna_test_mul_i32_create(),
@@ -161,12 +193,9 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
   }
 
   iree_status_t MakeBuffer(iree_hal_buffer_t** out_buffer) {
-    iree_hal_buffer_params_t params = {};
-    params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-    params.usage =
-        IREE_HAL_BUFFER_USAGE_DEFAULT | IREE_HAL_BUFFER_USAGE_MAPPING;
-    return iree_hal_allocator_allocate_buffer(
-        iree_hal_device_allocator(device_), params, kBufferLength, out_buffer);
+    return iree_hal_pool_allocate_buffer(
+        memory_pool_, iree_hal_make_pool_reservation_request(kBufferLength, 1),
+        iree_infinite_timeout(), out_buffer);
   }
 
   iree_status_t MakeSemaphore(iree_hal_semaphore_t** out_semaphore) {
@@ -278,6 +307,10 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
   iree_async_proactor_pool_t* pool_ = nullptr;
   // Device dominating native queue and allocation state.
   iree_hal_device_t* device_ = nullptr;
+  // Sealed topology used to qualify the benchmark's explicit memory pool.
+  iree_hal_device_group_t* device_group_ = nullptr;
+  // Family-scoped pool owning all benchmark buffers.
+  iree_hal_pool_t* memory_pool_ = nullptr;
   // Borrowed provisioned queue used by every measured dispatch.
   iree_hal_queue_t* queue_ = nullptr;
   // Independently loaded multiply and add executables.

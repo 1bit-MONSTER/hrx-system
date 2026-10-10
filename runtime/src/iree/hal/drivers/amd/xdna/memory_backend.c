@@ -101,6 +101,10 @@ static iree_hal_buffer_usage_t iree_hal_amd_xdna_memory_mapping_usage(
   if (iree_any_bit_set(host.modes, IREE_HAL_MAPPING_MODE_PERSISTENT)) {
     usage |= IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT;
   }
+  if (host.access) {
+    usage |= IREE_HAL_BUFFER_USAGE_MAPPING_ACCESS_RANDOM |
+             IREE_HAL_BUFFER_USAGE_MAPPING_ACCESS_SEQUENTIAL_WRITE;
+  }
   return usage;
 }
 
@@ -383,12 +387,9 @@ static iree_status_t iree_hal_amd_xdna_slab_pool_emit_plan(
       plan->provider_options.memory_type = memory_type;
       plan->provider_options.maintenance_alignment =
           transition_query.maintenance_alignment;
-      contract->buffer_params = (iree_hal_buffer_params_t){
-          .usage = usage | mapping_usage,
-          .access = IREE_HAL_MEMORY_ACCESS_ALL,
-          .type = memory_type,
-          .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-      };
+      contract->allowed_access =
+          iree_hal_buffer_usage_access(usage) | host.access;
+      contract->allowed_usage = usage | mapping_usage;
       plan_consumed = true;
       status = callback.fn(callback.user_data, &plan->base);
     } else if (iree_status_is_ok(status)) {
@@ -409,6 +410,8 @@ static iree_status_t iree_hal_amd_xdna_slab_pool_query(
   (void)self;
   if (!scope.family_count ||
       options->placement.mode == IREE_HAL_POOL_PLACEMENT_REQUIRED ||
+      options->owned.mode != IREE_HAL_SLAB_POOL_OWNED_ENABLED ||
+      options->owned.exports.class_count || options->imports.class_count ||
       (scope.host.access &&
        scope.host.cacheability != IREE_HAL_HOST_CACHEABILITY_UNKNOWN) ||
       scope.family_count > UINT32_MAX) {
@@ -501,7 +504,7 @@ static iree_status_t iree_hal_amd_xdna_slab_pool_query(
           base->factories[0]->query != iree_hal_amd_xdna_slab_pool_query ||
           iree_any_bit_set(scope.families[family_index].usage,
                            ~(IREE_HAL_BUFFER_USAGE_TRANSFER |
-                             IREE_HAL_BUFFER_USAGE_STORAGE)) ||
+                             IREE_HAL_BUFFER_USAGE_DISPATCH)) ||
           (scope.families[family_index].interfaces &
            ~(UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA)) ||
           iree_any_bit_set(scope.families[family_index].requirements,

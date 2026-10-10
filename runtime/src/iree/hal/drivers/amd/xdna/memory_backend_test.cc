@@ -237,17 +237,17 @@ class MemoryBackendTest : public ::testing::Test {
     iree_async_notification_release(notification_);
   }
 
-  iree_status_t CreatePool(iree_hal_buffer_usage_t usage,
-                           iree_hal_pool_t** out_pool) {
+  iree_status_t CreatePool(
+      iree_hal_buffer_usage_t usage, iree_hal_pool_t** out_pool,
+      uint64_t interfaces = UINT64_C(1)
+                            << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA) {
     iree_hal_pool_family_access_t accesses[2] = {};
     accesses[0].family = families_[1];
     accesses[0].usage = usage;
-    accesses[0].interfaces = UINT64_C(1)
-                             << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA;
+    accesses[0].interfaces = interfaces;
     accesses[1].family = families_[0];
     accesses[1].usage = usage;
-    accesses[1].interfaces = UINT64_C(1)
-                             << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA;
+    accesses[1].interfaces = interfaces;
     iree_hal_pool_scope_t scope = {};
     scope.family_count = IREE_ARRAYSIZE(accesses);
     scope.families = accesses;
@@ -409,10 +409,11 @@ TEST_F(MemoryBackendTest, RejectsProfileWithoutPrivateReadWriteMapping) {
   EXPECT_EQ(native_.pair_query_count, 0);
 }
 
-TEST_F(MemoryBackendTest, RejectsUnsupportedUsage) {
+TEST_F(MemoryBackendTest, RejectsUnsupportedDeviceAddressInterface) {
   iree_hal_pool_t* pool = nullptr;
   iree_status_t status =
-      CreatePool(IREE_HAL_BUFFER_USAGE_DISPATCH_UNIFORM_READ, &pool);
+      CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool,
+                 UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS);
   EXPECT_THAT(status, StatusIs(iree::StatusCode::kUnavailable));
   iree_status_free(status);
   EXPECT_EQ(pool, nullptr);

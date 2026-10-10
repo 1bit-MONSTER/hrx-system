@@ -604,7 +604,8 @@ TEST_P(PoolCompositionTest, ReservationViewPreservesPreparedRangeAndHistory) {
   EXPECT_EQ(view.byte_length, reservation.byte_length);
   EXPECT_EQ(view.memory.reuse_frontier, info.reuse_frontier);
 
-  const iree_hal_pool_reservation_request_t request = {params_, 64};
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(64, kMinAlignment);
   iree_hal_buffer_t* materialized = nullptr;
   IREE_ASSERT_OK(iree_hal_pool_materialize_reservations(
       child, 1, &request, &reservation, IREE_HAL_POOL_MATERIALIZE_FLAG_NONE,

@@ -282,7 +282,8 @@ TEST_F(SlabCacheTest, ReservationViewPreservesPreparedRangeAndHistory) {
   EXPECT_EQ(view.byte_length, reservation.byte_length);
   EXPECT_EQ(view.memory.reuse_frontier, info.reuse_frontier);
 
-  const iree_hal_pool_reservation_request_t request = {params_, 4096};
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(4096, kMinAlignment);
   iree_hal_buffer_t* materialized = nullptr;
   IREE_ASSERT_OK(iree_hal_pool_materialize_reservations(
       cache_, 1, &request, &reservation, IREE_HAL_POOL_MATERIALIZE_FLAG_NONE,

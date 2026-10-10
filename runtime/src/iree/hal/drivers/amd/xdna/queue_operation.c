@@ -489,67 +489,10 @@ void iree_hal_amd_xdna_operation_execute_host(
   }
 }
 
-static bool iree_hal_amd_xdna_pool_supports_queue_families(
-    iree_hal_queue_family_affinity_t supported,
-    iree_hal_queue_family_affinity_t requested) {
-  if (iree_hal_queue_family_affinity_is_any(supported)) {
-    return true;
-  }
-  return !iree_hal_queue_family_affinity_is_any(requested) &&
-         iree_all_bits_set(supported, requested);
-}
-
 static iree_status_t iree_hal_amd_xdna_validate_alloca_request(
     const iree_hal_pool_capabilities_t* capabilities, iree_host_size_t index,
     const iree_hal_pool_reservation_request_t* request) {
-  const iree_device_size_t alignment =
-      request->params.min_alignment ? request->params.min_alignment : 1;
-  if (IREE_UNLIKELY(!iree_device_size_is_power_of_two(alignment))) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "allocation request %" PRIhsz " alignment %" PRIdsz
-                            " is not a power of two",
-                            index, alignment);
-  }
-  if (IREE_UNLIKELY(!iree_all_bits_set(capabilities->memory_type,
-                                       request->params.type))) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "allocation request %" PRIhsz
-                            " memory type is not supported by the source pool",
-                            index);
-  }
-  if (IREE_UNLIKELY(!iree_all_bits_set(capabilities->allowed_access,
-                                       request->params.access))) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "allocation request %" PRIhsz
-                            " access is not supported by the source pool",
-                            index);
-  }
-  if (IREE_UNLIKELY(!iree_all_bits_set(capabilities->supported_usage,
-                                       request->params.usage))) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "allocation request %" PRIhsz
-                            " usage is not supported by the source pool",
-                            index);
-  }
-  if (IREE_UNLIKELY(!iree_hal_amd_xdna_pool_supports_queue_families(
-          capabilities->queue_family_affinity,
-          request->params.queue_family_affinity))) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "allocation request %" PRIhsz
-        " queue family affinity is not supported by the source pool",
-        index);
-  }
-  if (IREE_UNLIKELY(capabilities->min_allocation_size &&
-                    request->allocation_size <
-                        capabilities->min_allocation_size)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "allocation request %" PRIhsz " size %" PRIdsz
-                            " is smaller than source pool minimum %" PRIdsz,
-                            index, request->allocation_size,
-                            capabilities->min_allocation_size);
-  }
-  if (IREE_UNLIKELY(capabilities->max_allocation_size &&
+  if (IREE_UNLIKELY(capabilities->max_allocation_size != 0 &&
                     request->allocation_size >
                         capabilities->max_allocation_size)) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
@@ -558,12 +501,13 @@ static iree_status_t iree_hal_amd_xdna_validate_alloca_request(
                             index, request->allocation_size,
                             capabilities->max_allocation_size);
   }
-  if (IREE_UNLIKELY(capabilities->max_allocation_alignment &&
-                    alignment > capabilities->max_allocation_alignment)) {
+  if (IREE_UNLIKELY(
+          !iree_device_size_is_valid_alignment(request->min_alignment) ||
+          request->min_alignment > capabilities->max_allocation_alignment)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "allocation request %" PRIhsz " alignment %" PRIdsz
                             " exceeds source pool maximum %" PRIdsz,
-                            index, alignment,
+                            index, request->min_alignment,
                             capabilities->max_allocation_alignment);
   }
   return iree_ok_status();
@@ -671,17 +615,6 @@ iree_status_t iree_hal_amd_xdna_queue_alloca(
     iree_hal_pool_reservation_request_t* request =
         &operation->alloca.requests[i];
     *request = requests[i];
-    if (pool->memory_contract) {
-      request->params = pool->memory_contract->buffer_params;
-      request->params.min_alignment = requests[i].params.min_alignment;
-    } else {
-      iree_hal_buffer_params_canonicalize(&request->params);
-      if (iree_any_bit_set(request->params.type,
-                           IREE_HAL_MEMORY_TYPE_OPTIMAL)) {
-        request->params.type &= ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
-        request->params.type |= capabilities.memory_type;
-      }
-    }
     status =
         iree_hal_amd_xdna_validate_alloca_request(&capabilities, i, request);
     if (!iree_status_is_ok(status)) {
@@ -689,12 +622,19 @@ iree_status_t iree_hal_amd_xdna_queue_alloca(
     }
     const iree_hal_buffer_placement_t placement = {
         .device = operation->device,
-        .queue_family_affinity = request->params.queue_family_affinity,
+        .queue_family_affinity = capabilities.queue_family_affinity,
         .flags = IREE_HAL_BUFFER_PLACEMENT_FLAG_ASYNCHRONOUS,
     };
+    const iree_hal_memory_access_t allowed_access =
+        pool->memory_contract ? pool->memory_contract->allowed_access
+                              : capabilities.allowed_access;
+    const iree_hal_buffer_usage_t allowed_usage =
+        pool->memory_contract ? pool->memory_contract->allowed_usage
+                              : capabilities.supported_usage;
     status = iree_hal_amd_xdna_transient_buffer_create(
-        placement, request->params, request->allocation_size,
-        request->allocation_size, pool, operation->metadata_block_pool,
+        placement, capabilities.memory_type, allowed_access, allowed_usage,
+        request->allocation_size, request->allocation_size, pool,
+        operation->metadata_block_pool,
         &operation->alloca.transient_buffers[i]);
     if (iree_status_is_ok(status)) {
       captured_outputs[i] = operation->alloca.transient_buffers[i];

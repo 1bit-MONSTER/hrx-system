@@ -654,7 +654,6 @@ class QueueHarness {
     IREE_ASSERT_OK(iree_async_proactor_pool_create(1, nullptr, options,
                                                    host_allocator, &pool));
     IREE_ASSERT_OK(iree_async_proactor_pool_get(pool, 0, &proactor));
-    iree_hal_amd_xdna_context_t* context = nullptr;
     IREE_ASSERT_OK(iree_allocator_malloc(host_allocator, sizeof(*context),
                                          reinterpret_cast<void**>(&context)));
     context->host_allocator = host_allocator;
@@ -806,12 +805,60 @@ class QueueHarness {
 
   void MakeBuffer(
       iree_hal_buffer_t** out_buffer,
-      iree_hal_buffer_params_t params = iree_hal_buffer_params_t{}) {
-    if (!params.type) {
-      params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
+      iree_hal_memory_access_t allowed_access = IREE_HAL_MEMORY_ACCESS_ALL,
+      iree_hal_buffer_usage_t allowed_usage = IREE_HAL_BUFFER_USAGE_DEFAULT |
+                                              IREE_HAL_BUFFER_USAGE_MAPPING,
+      iree_device_size_t allocation_size = 64) {
+    *out_buffer = nullptr;
+    DirectBufferStorage* storage = nullptr;
+    IREE_ASSERT_OK(iree_allocator_malloc(host_allocator, sizeof(*storage),
+                                         reinterpret_cast<void**>(&storage)));
+    memset(storage, 0, sizeof(*storage));
+    storage->context = context;
+    storage->host_allocator = host_allocator;
+    iree_status_t status = iree_hal_amd_xdna_memory_allocate(
+        context, &context->data_source, allocation_size, /*alignment=*/1,
+        &storage->memory);
+    if (iree_status_is_ok(status)) {
+      storage->bindings[IREE_HAL_AMD_XDNA_BUFFER_BINDING_SHIM_DMA]
+          .device_address = storage->memory.device_address;
+      storage->bindings[IREE_HAL_AMD_XDNA_BUFFER_BINDING_HOST].host_pointer =
+          storage->memory.contents.data;
+      iree_hal_memory_type_t memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
+                                           IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
+                                           IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
+                                           IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
+      if (iree_any_bit_set(context->data_source.capabilities.guaranteed_flags,
+                           AMDF_MEMORY_FLAG_HOST_COHERENT)) {
+        memory_type |= IREE_HAL_MEMORY_TYPE_HOST_COHERENT;
+      }
+      if (storage->memory.host_cacheability ==
+          AMDF_HOST_CACHEABILITY_WRITE_BACK) {
+        memory_type |= IREE_HAL_MEMORY_TYPE_HOST_CACHED;
+      }
+      status = iree_hal_amd_xdna_buffer_wrap(
+          (iree_hal_buffer_placement_t){
+              /*.device=*/device,
+              /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+          },
+          context,
+          (iree_hal_amd_xdna_buffer_storage_t){
+              /*.memory=*/&storage->memory,
+              /*.bindings=*/storage->bindings,
+              /*.host_binding_index=*/IREE_HAL_AMD_XDNA_BUFFER_BINDING_HOST,
+          },
+          allocation_size, memory_type, allowed_access, allowed_usage,
+          (iree_hal_buffer_release_callback_t){
+              /*.fn=*/ReleaseDirectBufferStorage,
+              /*.user_data=*/storage,
+          },
+          host_allocator, out_buffer);
     }
-    IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-        iree_hal_device_allocator(device), params, 64, out_buffer));
+    if (!iree_status_is_ok(status)) {
+      iree_hal_amd_xdna_memory_deinitialize(context, &storage->memory);
+      iree_allocator_free(host_allocator, storage);
+    }
+    IREE_ASSERT_OK(status);
   }
 
   iree_status_t CreateSlabPool(iree_hal_buffer_usage_t usage,
@@ -945,6 +992,22 @@ class QueueHarness {
     proactor = nullptr;
   }
 
+  struct DirectBufferStorage {
+    iree_hal_amd_xdna_context_t* context;
+    iree_allocator_t host_allocator;
+    iree_hal_amd_xdna_memory_t memory;
+    iree_hal_buffer_native_binding_t
+        bindings[IREE_HAL_AMD_XDNA_BUFFER_BINDING_COUNT];
+  };
+
+  static void ReleaseDirectBufferStorage(void* user_data,
+                                         iree_hal_buffer_t* buffer) {
+    (void)buffer;
+    auto* storage = static_cast<DirectBufferStorage*>(user_data);
+    iree_hal_amd_xdna_memory_deinitialize(storage->context, &storage->memory);
+    iree_allocator_free(storage->host_allocator, storage);
+  }
+
   // Mocked native dependency; all access runs on this test's polling thread.
   NativeProvider native;
   // Allocator used by the production device and shared proactor.
@@ -955,6 +1018,8 @@ class QueueHarness {
   iree_async_proactor_t* proactor = nullptr;
   // Owned production HAL device.
   iree_hal_device_t* device = nullptr;
+  // Borrowed native context owned by |device|.
+  iree_hal_amd_xdna_context_t* context = nullptr;
   // Optional sealed group assigning exact memory scopes to |device|.
   iree_hal_device_group_t* group = nullptr;
   // Queue borrowed from the production HAL device.
@@ -1210,18 +1275,15 @@ TEST(XdnaQueueTest, DispatchValidatesImageBindingContractAtCapture) {
   IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE, dispatch({1, &binding}));
   iree_hal_buffer_release(buffer);
 
-  iree_hal_buffer_params_t params = {};
-  params.usage = IREE_HAL_BUFFER_USAGE_STORAGE_READ;
-  params.access = IREE_HAL_MEMORY_ACCESS_WRITE;
-  ASSERT_NO_FATAL_FAILURE(harness.MakeBuffer(&buffer, params));
+  ASSERT_NO_FATAL_FAILURE(
+      harness.MakeBuffer(&buffer, IREE_HAL_MEMORY_ACCESS_WRITE,
+                         IREE_HAL_BUFFER_USAGE_STORAGE_READ));
   binding = iree_hal_make_buffer_ref(buffer, 0, 16);
   IREE_EXPECT_STATUS_IS(IREE_STATUS_PERMISSION_DENIED, dispatch({1, &binding}));
   iree_hal_buffer_release(buffer);
 
-  params = {};
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  params.access = IREE_HAL_MEMORY_ACCESS_READ;
-  ASSERT_NO_FATAL_FAILURE(harness.MakeBuffer(&buffer, params));
+  ASSERT_NO_FATAL_FAILURE(harness.MakeBuffer(
+      &buffer, IREE_HAL_MEMORY_ACCESS_READ, IREE_HAL_BUFFER_USAGE_TRANSFER));
   binding = iree_hal_make_buffer_ref(buffer, 0, 16);
   IREE_EXPECT_STATUS_IS(IREE_STATUS_PERMISSION_DENIED, dispatch({1, &binding}));
   iree_hal_buffer_release(buffer);
@@ -1329,7 +1391,6 @@ TEST(XdnaQueueTest, CachedQueueAllocationPublishesContractBeforeDispatch) {
 
   std::array<iree_hal_pool_reservation_request_t, 2> requests = {};
   for (auto& request : requests) {
-    request.params.usage = IREE_HAL_BUFFER_USAGE_STORAGE_READ;
     request.allocation_size = 64;
   }
   std::array<iree_hal_buffer_t*, 2> buffers = {};
@@ -1341,9 +1402,9 @@ TEST(XdnaQueueTest, CachedQueueAllocationPublishesContractBeforeDispatch) {
   ASSERT_NE(buffers[0], nullptr);
   ASSERT_NE(buffers[1], nullptr);
   EXPECT_EQ(iree_hal_buffer_allowed_access(buffers[0]),
-            IREE_HAL_MEMORY_ACCESS_ALL);
+            IREE_HAL_MEMORY_ACCESS_READ);
   EXPECT_EQ(iree_hal_buffer_allowed_access(buffers[1]),
-            IREE_HAL_MEMORY_ACCESS_ALL);
+            IREE_HAL_MEMORY_ACCESS_READ);
   EXPECT_EQ(harness.native.memory_create_count, memory_create_count);
 
   ASSERT_NO_FATAL_FAILURE(harness.PollUntilValue(allocation_ready, value));
@@ -1426,7 +1487,6 @@ TEST(XdnaQueueTest, QueueTransfersUsePrivateCachedPoolMapping) {
   }
 
   const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/{},
       /*.allocation_size=*/64,
   };
   iree_hal_buffer_t* buffer = nullptr;
@@ -1481,12 +1541,11 @@ TEST(XdnaQueueTest, AllocationFailureLeavesEveryOutputUntouched) {
       harness.CreateSlabPool(IREE_HAL_BUFFER_USAGE_STORAGE_READ, &pool));
   std::array<iree_hal_pool_reservation_request_t, 2> requests = {};
   for (auto& request : requests) {
-    request.params.usage = IREE_HAL_BUFFER_USAGE_STORAGE_READ;
     request.allocation_size = 64;
   }
   // The first row reaches wrapper creation before validation rejects the
   // second row, exercising transaction rollback inside the driver.
-  requests[1].params.min_alignment = 3;
+  requests[1].min_alignment = 3;
 
   auto* const sentinel0 = reinterpret_cast<iree_hal_buffer_t*>(uintptr_t{1});
   auto* const sentinel1 = reinterpret_cast<iree_hal_buffer_t*>(uintptr_t{2});
@@ -1527,7 +1586,6 @@ TEST(XdnaQueueTest, QueueAllocationWaitsBeforeGrowingSourcePool) {
   }
 
   iree_hal_pool_reservation_request_t request = {};
-  request.params.usage = IREE_HAL_BUFFER_USAGE_STORAGE_READ;
   request.allocation_size = 64;
   iree_hal_buffer_t* buffer = nullptr;
   uint64_t value = 1;
@@ -1588,7 +1646,6 @@ TEST(XdnaQueueTest, WarmQueueMemoryOperationsAllocateNoHostStorage) {
     }
 
     iree_hal_pool_reservation_request_t request = {};
-    request.params.usage = IREE_HAL_BUFFER_USAGE_STORAGE_READ;
     request.allocation_size = 64;
     iree_hal_buffer_t* anchor_buffer = nullptr;
     uint64_t anchor_value = 1;
@@ -2770,12 +2827,11 @@ TEST(XdnaQueueTest, WarmQueueOperationsAllocateNoHostStorage) {
   check_steady_state("native BUSY retry", before, native_allocations_before);
 
   constexpr iree_host_size_t kLargeUpdateLength = 128 * 1024;
-  iree_hal_buffer_params_t buffer_params = {};
-  buffer_params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
   iree_hal_buffer_t* transfer_buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      iree_hal_device_allocator(harness.device), buffer_params,
-      kLargeUpdateLength, &transfer_buffer));
+  ASSERT_NO_FATAL_FAILURE(harness.MakeBuffer(
+      &transfer_buffer, IREE_HAL_MEMORY_ACCESS_ALL,
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING,
+      kLargeUpdateLength));
   std::array<uint8_t, 64> small_update;
   small_update.fill(0x5A);
   std::vector<uint8_t> large_update(kLargeUpdateLength, 0xA5);
