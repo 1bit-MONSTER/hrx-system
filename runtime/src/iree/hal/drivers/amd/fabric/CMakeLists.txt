@@ -43,4 +43,79 @@ iree_cc_test(
 )
 endif()
 
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
+    memory
+  HDRS
+    "memory.h"
+  SRCS
+    "memory.c"
+  DEPS
+    amdf::headers
+    iree::base
+    iree::hal
+    iree::hal::drivers::amd::status
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
+    buffer
+  HDRS
+    "buffer.h"
+  SRCS
+    "buffer.c"
+  DEPS
+    ::memory
+    amdf::headers
+    iree::base
+    iree::hal
+    iree::hal::drivers::amd::status
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
+    slab_provider
+  HDRS
+    "slab_provider.h"
+  SRCS
+    "slab_provider.c"
+  DEPS
+    ::buffer
+    ::memory
+    amdf::headers
+    iree::base
+    iree::base::internal
+    iree::hal
+    iree::hal::drivers::amd::status
+    iree::hal::memory::slab_provider
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_test(
+  NAME
+    slab_provider_test
+  SRCS
+    "slab_provider_test.cc"
+  DEPS
+    ::slab_provider
+    amdf::headers
+    iree::base
+    iree::hal
+    iree::hal::memory::slab_provider
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=libamdf"
+)
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

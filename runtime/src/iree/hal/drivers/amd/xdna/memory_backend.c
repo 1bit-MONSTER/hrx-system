@@ -8,9 +8,9 @@
 
 #include "iree/base/internal/math.h"
 #include "iree/hal/device_group.h"
+#include "iree/hal/drivers/amd/fabric/slab_provider.h"
 #include "iree/hal/drivers/amd/status.h"
 #include "iree/hal/drivers/amd/xdna/memory_transition.h"
-#include "iree/hal/drivers/amd/xdna/slab_provider.h"
 #include "iree/hal/memory/passthrough_pool.h"
 
 typedef struct iree_hal_amd_xdna_slab_pool_plan_t {
@@ -23,7 +23,7 @@ typedef struct iree_hal_amd_xdna_slab_pool_plan_t {
   // Borrowed native owner and diagnostic sink.
   iree_hal_amd_xdna_context_t* context;
   // Qualified native allocation policy copied by the created provider.
-  iree_hal_amd_xdna_slab_provider_options_t provider_options;
+  iree_hal_amd_fabric_slab_provider_options_t provider_options;
   // Existing native-owner progress resources captured during qualification.
   struct {
     // Placement-local capacity notification.
@@ -57,9 +57,9 @@ static iree_status_t iree_hal_amd_xdna_slab_pool_plan_create(
   iree_hal_amd_xdna_slab_pool_plan_t* plan =
       (iree_hal_amd_xdna_slab_pool_plan_t*)base;
   iree_hal_slab_provider_t* provider = NULL;
-  iree_status_t status = iree_hal_amd_xdna_slab_provider_create(
-      plan->device, plan->context, &plan->provider_options, host_allocator,
-      &provider);
+  iree_status_t status = iree_hal_amd_fabric_slab_provider_create(
+      plan->device, plan->context->api, plan->context->event_sink,
+      &plan->provider_options, host_allocator, &provider);
   if (iree_status_is_ok(status)) {
     const iree_hal_passthrough_pool_options_t options = {
         .memory_contract = plan->contract,
@@ -292,9 +292,14 @@ static iree_status_t iree_hal_amd_xdna_slab_pool_emit_plan(
       iree_hal_amd_xdna_memory_mapping_usage(host);
 
   iree_host_size_t plan_size = 0;
+  iree_host_size_t bindings_offset = 0;
   IREE_RETURN_IF_ERROR(IREE_STRUCT_LAYOUT(
       sizeof(iree_hal_amd_xdna_slab_pool_plan_t), &plan_size,
-      IREE_STRUCT_FIELD_FAM(access_count, amdf_memory_device_access_t)));
+      IREE_STRUCT_FIELD_FAM(access_count, amdf_memory_device_access_t),
+      IREE_STRUCT_FIELD_ALIGNED(
+          access_count + 1, iree_hal_amd_fabric_binding_request_t,
+          iree_alignof(iree_hal_amd_fabric_binding_request_t),
+          &bindings_offset)));
   iree_hal_amd_xdna_slab_pool_plan_t* plan = NULL;
   IREE_RETURN_IF_ERROR(
       iree_allocator_malloc(host_allocator, plan_size, (void**)&plan));
@@ -308,11 +313,27 @@ static iree_status_t iree_hal_amd_xdna_slab_pool_emit_plan(
   plan->device = owner->device;
   plan->context = owner->context;
   memcpy(plan->accesses, accesses, access_count * sizeof(*accesses));
-  plan->provider_options = (iree_hal_amd_xdna_slab_provider_options_t){
-      .scope = owner->context->data_source.scope,
-      .profile = *profile,
-      .access_count = access_count,
-      .accesses = plan->accesses,
+  iree_hal_amd_fabric_binding_request_t* binding_requests =
+      (iree_hal_amd_fabric_binding_request_t*)((uint8_t*)plan +
+                                               bindings_offset);
+  for (uint32_t i = 0; i < access_count; ++i) {
+    binding_requests[i + 1] = (iree_hal_amd_fabric_binding_request_t){
+        .access_ordinal = i, .address_kind = AMDF_MEMORY_ADDRESS_XDNA_DMA};
+  }
+  plan->provider_options = (iree_hal_amd_fabric_slab_provider_options_t){
+      .memory =
+          {
+              .scope = owner->context->data_source.scope,
+              .profile = *profile,
+              .access_count = access_count,
+              .accesses = plan->accesses,
+              .required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE,
+              .host_access =
+                  AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE,
+          },
+      .binding_count = (uint16_t)(access_count + 1),
+      .host_binding_index = 0,
+      .bindings = binding_requests,
       .memory_type = memory_type,
       .supported_usage = usage | mapping_usage,
       .maintenance_alignment = 1,

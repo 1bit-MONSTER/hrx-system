@@ -249,8 +249,8 @@ static iree_status_t iree_hal_amd_xdna_invocation_create(
       if (iree_status_is_ok(status)) {
         const iree_hal_amd_xdna_memory_t* memory = &allocation->memory;
         invocation->storage[i] = (iree_hal_amd_xdna_executable_storage_t){
-            .mapping = memory->contents,
-            .memory = memory->handle,
+            .mapping = memory->storage.contents,
+            .memory = memory->storage.handle,
             .device_address = memory->device_address,
         };
       }
@@ -265,7 +265,7 @@ static iree_status_t iree_hal_amd_xdna_invocation_create(
         &invocation->allocations[i];
     amdf_host_mapping_t* mapping = allocation->command.mapping
                                        ? allocation->command.mapping
-                                       : allocation->memory.mapping;
+                                       : allocation->memory.storage.mapping;
     if (mapping) {
       status = IREE_HAL_AMD_STATUS_FROM_AMDF(
           function->context->api->host_mapping_cache_control(
@@ -484,7 +484,7 @@ static iree_status_t iree_hal_amd_xdna_executable_capture_binding(
 
   iree_hal_buffer_native_binding_slot_t slot;
   IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_buffer_resolve_binding_slot(
-      function->context, family, buffer_ref.buffer, &slot));
+      family, buffer_ref.buffer, &slot));
   buffer_ref.offset = resource_byte_offset;
   buffer_ref.length = resource_byte_length;
   *out_binding = (iree_hal_amd_xdna_executable_binding_t){
@@ -669,7 +669,7 @@ iree_status_t iree_hal_amd_xdna_function_prepare(
             &invocation->allocations[i];
         amdf_host_mapping_t* mapping = allocation->command.mapping
                                            ? allocation->command.mapping
-                                           : allocation->memory.mapping;
+                                           : allocation->memory.storage.mapping;
         status = IREE_HAL_AMD_STATUS_FROM_AMDF(
             function->context->api->host_mapping_cache_control(
                 mapping, AMDF_HOST_CACHE_OPERATION_FLUSH,

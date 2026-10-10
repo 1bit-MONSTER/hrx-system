@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "iree/hal/drivers/amd/xdna/slab_provider.h"
+#include "iree/hal/drivers/amd/fabric/slab_provider.h"
 
 #include <cstdint>
 #include <vector>
@@ -17,17 +17,23 @@ namespace {
 struct FakeNative;
 
 struct FakeMemory {
+  // Dependency owner observing construction and release.
   FakeNative* owner;
+  // Owned bytes modeling one native backing.
   std::vector<uint8_t> bytes;
 };
 
 struct FakeMapping {
+  // Borrowed backing retained by the test storage owner.
   FakeMemory* memory;
 };
 
 struct CacheOperation {
+  // Requested native cache operation.
   amdf_host_cache_operation_t operation;
+  // Operation offset from native allocation byte zero.
   uint64_t offset;
+  // Operation extent in bytes.
   uint64_t length;
 };
 
@@ -52,7 +58,7 @@ struct FakeNative {
     auto* self = reinterpret_cast<FakeNative*>(scope);
     EXPECT_EQ(info->memory_profile_ordinal, 7u);
     EXPECT_EQ(info->access_count, 2u);
-    EXPECT_EQ(info->required_flags, AMDF_MEMORY_FLAG_HOST_VISIBLE);
+    EXPECT_EQ(info->required_flags, self->required_flags);
     EXPECT_NE(info->byte_length, 0u);
     EXPECT_EQ(info->byte_length % 64, 0u);
     EXPECT_LE(info->byte_length, 4096u);
@@ -127,67 +133,107 @@ struct FakeNative {
   MemoryQueryAddress(amdf_memory_t* base_memory, uint32_t access_ordinal,
                      amdf_memory_address_kind_t kind, uint64_t* out_address) {
     auto* memory = reinterpret_cast<FakeMemory*>(base_memory);
-    EXPECT_EQ(kind, AMDF_MEMORY_ADDRESS_XDNA_DMA);
+    EXPECT_EQ(kind, access_ordinal == 0 ? AMDF_MEMORY_ADDRESS_GPU
+                                        : AMDF_MEMORY_ADDRESS_XDNA_DMA);
     EXPECT_LT(access_ordinal, 2u);
+    if (access_ordinal == 1 && memory->owner->fail_second_address) {
+      return amdf_make_api_status(AMDF_STATUS_CODE_RESOURCE_EXHAUSTED);
+    }
     *out_address = UINT64_C(0x100000) + UINT64_C(0x10000) * access_ordinal +
                    memory->bytes.size();
     return AMDF_STATUS_OK;
   }
 
+  // Dependency API consumed by the production provider.
   amdf_api_t api = {};
+  // Requested native allocation extents.
   std::vector<uint64_t> created_lengths;
+  // Requested native allocation alignments.
   std::vector<uint64_t> created_alignments;
+  // Ordered cache-control requests.
   std::vector<CacheOperation> cache_operations;
+  // Successful native allocation count.
   int create_count = 0;
+  // Successful host-view creation count.
   int map_count = 0;
+  // Consumed host-view count.
   int unmap_count = 0;
+  // Consumed native-memory count.
   int destroy_count = 0;
+  // Whether consuming cleanup reports a native failure.
   bool fail_memory_destroy = false;
+  // Expected backing requirements for the active provider.
+  amdf_memory_flags_t required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE;
+  // Native address failure injected after memory and mapping acquisition.
+  bool fail_second_address = false;
 };
 
 class SlabProviderTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    context_.api = &native_.api;
-    context_.event_sink = iree_hal_device_event_sink_discard();
+    CreateProvider(AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE);
+  }
+
+  void CreateProvider(amdf_memory_map_flags_t host_access) {
+    iree_hal_slab_provider_release(provider_);
+    provider_ = nullptr;
     accesses_[0].device = reinterpret_cast<amdf_device_t*>(uintptr_t{1});
     accesses_[1].device = reinterpret_cast<amdf_device_t*>(uintptr_t{2});
     for (auto& access : accesses_) {
       access.requirements.access =
           AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
       access.requirements.flags = AMDF_MEMORY_FLAG_DEVICE_ADDRESS;
-      access.requirements.address_kinds = UINT64_C(1)
-                                          << AMDF_MEMORY_ADDRESS_XDNA_DMA;
+      access.requirements.address_kinds =
+          UINT64_C(1) << (&access == accesses_ ? AMDF_MEMORY_ADDRESS_GPU
+                                               : AMDF_MEMORY_ADDRESS_XDNA_DMA);
     }
-    iree_hal_amd_xdna_slab_provider_options_t options = {};
-    options.scope = native_.scope();
-    options.profile.ordinal = 7;
-    options.profile.roles =
+    iree_hal_amd_fabric_slab_provider_options_t options = {};
+    options.memory.scope = native_.scope();
+    options.memory.profile.ordinal = 7;
+    options.memory.profile.roles =
         AMDF_MEMORY_PROFILE_ROLE_CREATE | AMDF_MEMORY_PROFILE_ROLE_HOST_MAP;
-    options.profile.supported_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE;
-    options.profile.allocation.maximum_byte_length = 4096;
-    options.profile.allocation.byte_length_granularity = 64;
-    options.profile.allocation.minimum_alignment = 64;
-    options.profile.allocation.maximum_alignment = 4096;
-    options.access_count = 2;
-    options.accesses = accesses_;
+    options.memory.profile.supported_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE;
+    options.memory.profile.allocation.maximum_byte_length = 4096;
+    options.memory.profile.allocation.byte_length_granularity = 64;
+    options.memory.profile.allocation.minimum_alignment = 64;
+    options.memory.profile.allocation.maximum_alignment = 4096;
+    options.memory.access_count = 2;
+    options.memory.accesses = accesses_;
+    native_.required_flags = host_access ? AMDF_MEMORY_FLAG_HOST_VISIBLE : 0;
+    options.memory.required_flags = native_.required_flags;
+    options.memory.host_access = host_access;
+    iree_hal_amd_fabric_binding_request_t bindings[3] = {};
+    bindings[1] = {0, AMDF_MEMORY_ADDRESS_GPU};
+    bindings[2] = {1, AMDF_MEMORY_ADDRESS_XDNA_DMA};
+    options.binding_count = host_access ? 3 : 2;
+    options.host_binding_index =
+        host_access ? 0 : IREE_HAL_BUFFER_NATIVE_BINDING_INDEX_NONE;
+    options.bindings = host_access ? bindings : bindings + 1;
     options.memory_type =
         IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
         IREE_HAL_MEMORY_TYPE_HOST_VISIBLE | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
     options.supported_usage = IREE_HAL_BUFFER_USAGE_TRANSFER |
                               IREE_HAL_BUFFER_USAGE_DISPATCH |
                               IREE_HAL_BUFFER_USAGE_MAPPING;
+    if (!host_access) {
+      options.memory_type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
+                            IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
+      options.supported_usage &= ~IREE_HAL_BUFFER_USAGE_MAPPING;
+    }
     options.maintenance_alignment = 64;
-    IREE_ASSERT_OK(iree_hal_amd_xdna_slab_provider_create(
-        reinterpret_cast<iree_hal_device_t*>(uintptr_t{1}), &context_, &options,
-        iree_allocator_system(), &provider_));
+    IREE_ASSERT_OK(iree_hal_amd_fabric_slab_provider_create(
+        reinterpret_cast<iree_hal_device_t*>(uintptr_t{1}), &native_.api,
+        iree_hal_device_event_sink_discard(), &options, iree_allocator_system(),
+        &provider_));
   }
 
   void TearDown() override { iree_hal_slab_provider_release(provider_); }
 
+  // Mocked native dependency.
   FakeNative native_;
-  iree_hal_amd_xdna_context_t context_ = {};
+  // Requested accesses copied by the production provider.
   amdf_memory_device_access_t accesses_[2] = {};
+  // Owned production provider under test.
   iree_hal_slab_provider_t* provider_ = nullptr;
 };
 
@@ -228,7 +274,7 @@ TEST_F(SlabProviderTest, PublishesRangedBindingsAndCacheControl) {
       buffer, {/*index=*/0, /*type=*/IREE_HAL_BUFFER_INTERFACE_HOST});
   EXPECT_EQ(host_binding.host_pointer, slab.base_ptr + 16);
   const auto first_device_binding = iree_hal_buffer_native_binding(
-      buffer, {/*index=*/1, /*type=*/IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA});
+      buffer, {/*index=*/1, /*type=*/IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS});
   EXPECT_EQ(first_device_binding.device_address, UINT64_C(0x100000) + 128 + 16);
   const auto second_device_binding = iree_hal_buffer_native_binding(
       buffer, {/*index=*/2, /*type=*/IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA});
@@ -280,6 +326,45 @@ TEST_F(SlabProviderTest, NativeDestroyFailureLeaksWithoutAborting) {
   ASSERT_EQ(native_.created_alignments.size(), 1u);
   EXPECT_EQ(native_.created_alignments[0], 64u);
   iree_hal_slab_provider_release_slab(provider_, &slab);
+  EXPECT_EQ(native_.unmap_count, 1);
+  EXPECT_EQ(native_.destroy_count, 1);
+}
+
+TEST_F(SlabProviderTest, DeviceOnlyBackingHasNoHostMappingOrSlot) {
+  CreateProvider(0);
+  iree_hal_slab_t slab = {};
+  IREE_ASSERT_OK(iree_hal_slab_provider_acquire_slab(provider_, 64, 64, &slab));
+  EXPECT_EQ(slab.base_ptr, nullptr);
+  EXPECT_EQ(native_.map_count, 0);
+  iree_hal_buffer_t* buffer = nullptr;
+  IREE_ASSERT_OK(iree_hal_slab_provider_wrap_buffer(
+      provider_, &slab, 8, 32, IREE_HAL_MEMORY_ACCESS_ALL,
+      IREE_HAL_BUFFER_USAGE_STORAGE, iree_hal_buffer_release_callback_null(),
+      &buffer));
+  EXPECT_EQ(buffer->host_binding_index,
+            IREE_HAL_BUFFER_NATIVE_BINDING_INDEX_NONE);
+  EXPECT_EQ(iree_hal_buffer_native_binding(
+                buffer, {0, IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS})
+                .device_address,
+            UINT64_C(0x100000) + 64 + 8);
+  EXPECT_EQ(iree_hal_buffer_native_binding(
+                buffer, {1, IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA})
+                .device_address,
+            UINT64_C(0x110000) + 64 + 8);
+  iree_hal_buffer_release(buffer);
+  iree_hal_slab_provider_release_slab(provider_, &slab);
+  EXPECT_EQ(native_.unmap_count, 0);
+  EXPECT_EQ(native_.destroy_count, 1);
+}
+
+TEST_F(SlabProviderTest, FailedBindingReleasesMappingAndBacking) {
+  native_.fail_second_address = true;
+  iree_hal_slab_t slab = {};
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_RESOURCE_EXHAUSTED,
+      iree_hal_slab_provider_acquire_slab(provider_, 64, 64, &slab));
+  EXPECT_EQ(slab.provider_handle, 0u);
+  EXPECT_EQ(native_.map_count, 1);
   EXPECT_EQ(native_.unmap_count, 1);
   EXPECT_EQ(native_.destroy_count, 1);
 }
