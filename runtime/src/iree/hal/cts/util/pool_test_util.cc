@@ -13,6 +13,7 @@ namespace iree::hal::cts {
 iree_status_t CreateQueueSlabPool(iree_hal_device_group_t* device_group,
                                   const iree_hal_queue_family_t* queue_family,
                                   iree_hal_buffer_usage_t usage,
+                                  iree_hal_pool_host_access_t host_access,
                                   iree_allocator_t host_allocator,
                                   iree_hal_pool_t** out_pool) {
   const iree_hal_pool_family_access_t family_access = {
@@ -22,6 +23,7 @@ iree_status_t CreateQueueSlabPool(iree_hal_device_group_t* device_group,
   const iree_hal_pool_scope_t scope = {
       /*.family_count=*/1,
       /*.families=*/&family_access,
+      /*.host=*/host_access,
   };
   iree_hal_slab_pool_options_t options;
   iree_hal_slab_pool_options_initialize(&options);

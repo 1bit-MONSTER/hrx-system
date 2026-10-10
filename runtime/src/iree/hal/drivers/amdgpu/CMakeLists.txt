@@ -992,6 +992,7 @@ iree_cc_test(
     ::headers
     iree::base
     iree::hal
+    iree::hal::cts::util::pool_test_util
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
     iree::hal::drivers::amdgpu::cts::testdata_amdgpu
@@ -1349,6 +1350,7 @@ iree_cc_test(
     iree::async
     iree::base
     iree::hal
+    iree::hal::cts::util::pool_test_util
     iree::hal::cts::util::test_base
     iree::hal::drivers::amdgpu::util::packet
     iree::io::file_handle

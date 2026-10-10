@@ -53,9 +53,10 @@ class QueueAllocaTest : public CtsTestBase<> {
   }
 
   iree_status_t CreateSlabPool(iree_hal_pool_t** out_pool) {
-    return CreateQueueSlabPool(
-        device_group_, iree_hal_queue_family(transfer_queue_),
-        kQueueAllocationUsage, iree_allocator_system(), out_pool);
+    return CreateQueueSlabPool(device_group_,
+                               iree_hal_queue_family(transfer_queue_),
+                               kQueueAllocationUsage, /*host_access=*/{},
+                               iree_allocator_system(), out_pool);
   }
 
   iree_status_t CreateTLSFPool(iree_device_size_t range_length,

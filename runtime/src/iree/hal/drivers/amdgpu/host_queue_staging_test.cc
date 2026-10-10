@@ -17,7 +17,9 @@
 
 #include "iree/async/semaphore.h"
 #include "iree/hal/api.h"
+#include "iree/hal/cts/util/pool_test_util.h"
 #include "iree/hal/cts/util/test_base.h"
+#include "iree/hal/drivers/amdgpu/allocator.h"
 #include "iree/hal/drivers/amdgpu/host_queue.h"
 #include "iree/hal/drivers/amdgpu/logical_device.h"
 #include "iree/hal/drivers/amdgpu/physical_device.h"
@@ -198,6 +200,8 @@ class HostQueueStagingTest : public ::testing::Test {
 
     iree_hal_device_t* base_device() const { return base_device_; }
 
+    iree_hal_device_group_t* device_group() const { return device_group_; }
+
     iree_hal_queue_t* queue() const {
       return iree_hal_device_queue(base_device_, /*family_ordinal=*/0,
                                    /*queue_ordinal=*/0);
@@ -344,39 +348,26 @@ class HostQueueStagingTest : public ::testing::Test {
                                             iree_device_size_t buffer_size,
                                             uint8_t pattern,
                                             iree_hal_buffer_t** out_buffer) {
-    iree_hal_buffer_params_t params = {0};
-    params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-    params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-    params.usage =
-        IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE;
-    IREE_RETURN_IF_ERROR(iree_hal_allocator_allocate_buffer(
-        allocator, params, buffer_size, out_buffer));
+    const iree_hal_amdgpu_buffer_spec_t spec = {
+        /*.type=*/IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE,
+        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+        /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER |
+            IREE_HAL_BUFFER_USAGE_STORAGE,
+        /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+    };
+    IREE_RETURN_IF_ERROR(iree_hal_amdgpu_allocator_allocate_direct_buffer(
+        allocator, spec, buffer_size, out_buffer));
     return FillDeviceBufferRange(device, queue, *out_buffer, /*offset=*/0,
                                  buffer_size, pattern);
   }
 
   iree_status_t QueueAllocaHostVisibleTransientBuffer(
-      iree_hal_amdgpu_host_queue_t* queue, iree_device_size_t buffer_size,
-      iree_hal_semaphore_list_t signal_list, iree_hal_buffer_t** out_buffer) {
-    iree_hal_buffer_params_t params = {0};
-    params.type =
-        IREE_HAL_MEMORY_TYPE_HOST_VISIBLE | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
-    params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-    params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER |
-                   IREE_HAL_BUFFER_USAGE_STORAGE |
-                   IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-    params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-        iree_hal_queue_family_ordinal(iree_hal_queue_family(&queue->base)));
-    params.min_alignment = 16;
-    iree_hal_pool_t* pool =
-        iree_hal_pool_set_select(queue->default_pool_set, params, buffer_size);
-    if (!pool) {
-      return iree_make_status(IREE_STATUS_NOT_FOUND,
-                              "no queue pool supports the staging request");
-    }
+      iree_hal_amdgpu_host_queue_t* queue, iree_hal_pool_t* pool,
+      iree_device_size_t buffer_size, iree_hal_semaphore_list_t signal_list,
+      iree_hal_buffer_t** out_buffer) {
     const iree_hal_pool_reservation_request_t request =
         iree_hal_make_pool_reservation_request(buffer_size,
-                                               params.min_alignment);
+                                               /*min_alignment=*/16);
     return iree_hal_queue_alloca(&queue->base, iree_hal_semaphore_list_empty(),
                                  signal_list, pool,
                                  /*request_count=*/1, &request, out_buffer);
@@ -736,9 +727,19 @@ TEST_F(HostQueueStagingTest,
   iree_hal_semaphore_list_t alloca_signal_list =
       MakeSemaphoreList(&alloca_signal_ptr, &alloca_signal_value);
 
+  const iree_hal_pool_host_access_t host_access = {
+      /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+      /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+  };
+  Ref<iree_hal_pool_t> transient_pool;
+  IREE_ASSERT_OK(iree::hal::cts::CreateQueueSlabPool(
+      test_device.device_group(), iree_hal_queue_family(&queue->base),
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+      host_access, iree_allocator_system(), transient_pool.out()));
   iree_hal_buffer_t* transient_raw = NULL;
   IREE_ASSERT_OK(QueueAllocaHostVisibleTransientBuffer(
-      queue, kMultiSlotTransferSize, alloca_signal_list, &transient_raw));
+      queue, transient_pool, kMultiSlotTransferSize, alloca_signal_list,
+      &transient_raw));
   Ref<iree_hal_buffer_t> transient_buffer(transient_raw);
 
   Ref<iree_hal_semaphore_t> gate_signal;
@@ -948,16 +949,18 @@ TEST_F(HostQueueStagingTest, ShortReadReleasesBuffersBeforeFailure) {
     Ref<iree_hal_file_t> file;
     IREE_ASSERT_OK(ImportNativeFile(test_device.base_device(), path,
                                     IREE_HAL_MEMORY_ACCESS_READ, file.out()));
-    iree_hal_buffer_params_t params = {};
-    params.type = memory_type;
-    params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-    params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
+    iree_hal_amdgpu_buffer_spec_t spec = {
+        /*.type=*/memory_type,
+        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+        /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
+        /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+    };
     if (iree_all_bits_set(memory_type, IREE_HAL_MEMORY_TYPE_HOST_VISIBLE)) {
-      params.usage |= IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
+      spec.usage |= IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
     }
     Ref<iree_hal_buffer_t> buffer;
-    IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-        test_device.allocator(), params, kStagingSlotSize, buffer.out()));
+    IREE_ASSERT_OK(iree_hal_amdgpu_allocator_allocate_direct_buffer(
+        test_device.allocator(), spec, kStagingSlotSize, buffer.out()));
 
     Ref<iree_hal_semaphore_t> wait_semaphore;
     IREE_ASSERT_OK(

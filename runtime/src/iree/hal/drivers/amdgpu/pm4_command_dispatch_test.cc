@@ -276,7 +276,7 @@ TEST_F(PM4CommandDispatchTest, WritesInteriorOfNestedQueuedArena) {
   IREE_ASSERT_OK(iree::hal::cts::CreateQueueSlabPool(
       test_device_.device_group(), iree_hal_queue_family(queue),
       IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
-      host_allocator_, source.out()));
+      /*host_access=*/{}, host_allocator_, source.out()));
   Ref<iree_hal_buffer_t> backing;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
       source, iree_hal_make_pool_reservation_request(8192, /*min_alignment=*/1),

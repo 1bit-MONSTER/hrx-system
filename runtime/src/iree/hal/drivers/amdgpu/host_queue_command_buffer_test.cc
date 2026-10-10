@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "iree/hal/api.h"
+#include "iree/hal/cts/util/pool_test_util.h"
 #include "iree/hal/cts/util/registry.h"
 #include "iree/hal/cts/util/test_base.h"
 #include "iree/hal/drivers/amdgpu/aql_command_buffer.h"
@@ -246,26 +247,12 @@ static iree_status_t ImportNativeFile(iree_hal_device_t* device,
 #endif  // IREE_FILE_IO_ENABLE
 
 static iree_status_t QueueHostVisibleDispatchTransientBuffer(
-    iree_hal_amdgpu_host_queue_t* queue,
+    iree_hal_amdgpu_host_queue_t* queue, iree_hal_pool_t* pool,
     const iree_hal_semaphore_list_t signal_list, iree_device_size_t buffer_size,
     iree_hal_buffer_t** out_buffer) {
-  iree_hal_buffer_params_t params = {0};
-  params.type =
-      IREE_HAL_MEMORY_TYPE_HOST_VISIBLE | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER |
-                 IREE_HAL_BUFFER_USAGE_STORAGE |
-                 IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-  params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(&queue->base)));
-  iree_hal_pool_t* pool =
-      iree_hal_pool_set_select(queue->default_pool_set, params, buffer_size);
-  if (!pool) {
-    return iree_make_status(IREE_STATUS_NOT_FOUND,
-                            "no queue pool supports the transient request");
-  }
   const iree_hal_pool_reservation_request_t request =
-      iree_hal_make_pool_reservation_request(buffer_size, params.min_alignment);
+      iree_hal_make_pool_reservation_request(buffer_size,
+                                             /*min_alignment=*/16);
   return iree_hal_queue_alloca(&queue->base, iree_hal_semaphore_list_empty(),
                                signal_list, pool,
                                /*request_count=*/1, &request, out_buffer);
@@ -2295,9 +2282,15 @@ TEST_F(HostQueueCommandBufferTest,
       /*semaphores=*/&alloca_signal_ptr,
       /*payload_values=*/&alloca_signal_value,
   };
+  Ref<iree_hal_pool_t> transient_pool;
+  IREE_ASSERT_OK(iree::hal::cts::CreateQueueSlabPool(
+      test_device.device_group(), iree_hal_queue_family(&queue->base),
+      IREE_HAL_BUFFER_USAGE_TRANSFER, /*host_access=*/{}, host_allocator_,
+      transient_pool.out()));
   iree_hal_buffer_t* transient_raw = NULL;
-  IREE_ASSERT_OK(QueueTransientTransferBuffer(
-      queue, alloca_signal_list, sizeof(uint32_t), &transient_raw));
+  IREE_ASSERT_OK(
+      QueueTransientTransferBuffer(queue, transient_pool, alloca_signal_list,
+                                   sizeof(uint32_t), &transient_raw));
   Ref<iree_hal_buffer_t> transient_buffer(transient_raw);
   IREE_ASSERT_OK(iree_hal_semaphore_wait(alloca_signal, alloca_signal_value,
                                          iree_infinite_timeout(),
@@ -2477,9 +2470,19 @@ TEST_F(HostQueueCommandBufferTest,
   };
   static constexpr iree_device_size_t kTransientByteLength = 201326592;
   static constexpr iree_device_size_t kDispatchInputOffset = 100663296;
+  const iree_hal_pool_host_access_t host_access = {
+      /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+      /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+  };
+  Ref<iree_hal_pool_t> transient_pool;
+  IREE_ASSERT_OK(iree::hal::cts::CreateQueueSlabPool(
+      test_device.device_group(), iree_hal_queue_family(queue),
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+      host_access, host_allocator_, transient_pool.out()));
   iree_hal_buffer_t* transient_raw = NULL;
   IREE_ASSERT_OK(QueueHostVisibleDispatchTransientBuffer(
-      host_queue, alloca_signal_list, kTransientByteLength, &transient_raw));
+      host_queue, transient_pool, alloca_signal_list, kTransientByteLength,
+      &transient_raw));
   Ref<iree_hal_buffer_t> transient_buffer(transient_raw);
 
   Ref<iree_hal_command_buffer_t> command_buffer;
@@ -2611,9 +2614,15 @@ TEST_F(HostQueueCommandBufferTest,
       /*semaphores=*/&alloca_signal_ptr,
       /*payload_values=*/&alloca_signal_value,
   };
+  Ref<iree_hal_pool_t> transient_pool;
+  IREE_ASSERT_OK(iree::hal::cts::CreateQueueSlabPool(
+      test_device.device_group(), iree_hal_queue_family(&queue->base),
+      IREE_HAL_BUFFER_USAGE_TRANSFER, /*host_access=*/{}, host_allocator_,
+      transient_pool.out()));
   iree_hal_buffer_t* transient_raw = NULL;
-  IREE_ASSERT_OK(QueueTransientTransferBuffer(
-      queue, alloca_signal_list, sizeof(uint32_t), &transient_raw));
+  IREE_ASSERT_OK(
+      QueueTransientTransferBuffer(queue, transient_pool, alloca_signal_list,
+                                   sizeof(uint32_t), &transient_raw));
   Ref<iree_hal_buffer_t> transient_buffer(transient_raw);
 
   Ref<iree_hal_command_buffer_t> command_buffer;

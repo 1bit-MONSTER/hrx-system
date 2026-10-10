@@ -226,23 +226,12 @@ static iree_status_t LoadCtsExecutable(
 }
 
 static iree_status_t QueueTransientTransferBuffer(
-    iree_hal_amdgpu_host_queue_t* queue,
+    iree_hal_amdgpu_host_queue_t* queue, iree_hal_pool_t* pool,
     const iree_hal_semaphore_list_t signal_list, iree_device_size_t buffer_size,
     iree_hal_buffer_t** out_buffer) {
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(&queue->base)));
-  iree_hal_pool_t* pool =
-      iree_hal_pool_set_select(queue->default_pool_set, params, buffer_size);
-  if (!pool) {
-    return iree_make_status(IREE_STATUS_NOT_FOUND,
-                            "no queue pool supports the transient request");
-  }
   const iree_hal_pool_reservation_request_t request =
-      iree_hal_make_pool_reservation_request(buffer_size, params.min_alignment);
+      iree_hal_make_pool_reservation_request(buffer_size,
+                                             /*min_alignment=*/0);
   return iree_hal_queue_alloca(&queue->base, iree_hal_semaphore_list_empty(),
                                signal_list, pool,
                                /*request_count=*/1, &request, out_buffer);

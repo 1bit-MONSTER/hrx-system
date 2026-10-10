@@ -16,6 +16,7 @@
 #include "iree/hal/api.h"
 #include "iree/hal/cts/util/pool_test_util.h"
 #include "iree/hal/cts/util/test_base.h"
+#include "iree/hal/drivers/amdgpu/allocator.h"
 #include "iree/hal/drivers/amdgpu/host_queue.h"
 #include "iree/hal/drivers/amdgpu/host_queue_policy.h"
 #include "iree/hal/drivers/amdgpu/logical_device.h"
@@ -215,14 +216,18 @@ static bool HostQueueHasPendingOps(iree_hal_amdgpu_host_queue_t* queue) {
 static iree_status_t AllocateTimestampBufferSized(
     iree_hal_device_t* device, iree_device_size_t size,
     iree_hal_buffer_t** out_buffer) {
-  iree_hal_buffer_params_t params = {0};
   // DEVICE_LOCAL would need a fine-grained device pool only large-BAR and APU
   // GPUs expose; the host pool is device-visible, so the device still writes
   // here and the host maps it to read back.
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING;
-  return iree_hal_allocator_allocate_buffer(iree_hal_device_allocator(device),
-                                            params, size, out_buffer);
+  const iree_hal_amdgpu_buffer_spec_t spec = {
+      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
+      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER |
+          IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
+      /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+  };
+  return iree_hal_amdgpu_allocator_allocate_direct_buffer(
+      iree_hal_device_allocator(device), spec, size, out_buffer);
 }
 
 static iree_status_t AllocateTimestampBuffer(iree_hal_device_t* device,
@@ -581,12 +586,15 @@ TEST_P(HostQueueTimestampTest, TickAdvancesAcrossWork) {
 
   // Scratch buffer filled between the two captures to create measurable work.
   const iree_device_size_t kScratchBytes = 64 * 1024 * 1024;
-  iree_hal_buffer_params_t scratch_params = {0};
-  scratch_params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  scratch_params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
+  const iree_hal_amdgpu_buffer_spec_t scratch_spec = {
+      /*.type=*/IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
+      /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+  };
   Ref<iree_hal_buffer_t> scratch;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      iree_hal_device_allocator(device), scratch_params, kScratchBytes,
+  IREE_ASSERT_OK(iree_hal_amdgpu_allocator_allocate_direct_buffer(
+      iree_hal_device_allocator(device), scratch_spec, kScratchBytes,
       scratch.out()));
 
   Ref<iree_hal_semaphore_t> timeline;
@@ -682,13 +690,15 @@ TEST_P(HostQueueTimestampTest, RejectsBufferWithoutTransferTarget) {
   IREE_ASSERT_OK(InitializeDevice(&test_device));
   iree_hal_device_t* device = test_device.base_device();
 
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
-  params.usage = IREE_HAL_BUFFER_USAGE_MAPPING;
+  const iree_hal_amdgpu_buffer_spec_t spec = {
+      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
+      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
+      /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+  };
   Ref<iree_hal_buffer_t> target;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      iree_hal_device_allocator(device), params, sizeof(uint64_t),
-      target.out()));
+  IREE_ASSERT_OK(iree_hal_amdgpu_allocator_allocate_direct_buffer(
+      iree_hal_device_allocator(device), spec, sizeof(uint64_t), target.out()));
   // Pin the premise: a widened usage mask leaves this case covering nothing.
   ASSERT_FALSE(iree_all_bits_set(iree_hal_buffer_allowed_usage(target),
                                  IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET));
@@ -930,20 +940,6 @@ TEST_P(HostQueueTimestampTest, CapturesThroughAnAgentScopeSignalList) {
   EXPECT_NE(tick, 0u);
 }
 
-// Parameters for a transient capture target. MAPPING_SCOPED is what lets the
-// tick be read back and the alignment is what the capture requires of its
-// target.
-static iree_hal_buffer_params_t TransientTimestampBufferParams() {
-  iree_hal_buffer_params_t params = {0};
-  params.type =
-      IREE_HAL_MEMORY_TYPE_HOST_VISIBLE | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-  params.min_alignment = sizeof(uint64_t);
-  return params;
-}
-
 static iree_status_t QueueAlloca(iree_hal_amdgpu_host_queue_t* queue,
                                  iree_hal_pool_t* pool,
                                  iree_hal_semaphore_list_t wait_list,
@@ -994,17 +990,20 @@ TEST_P(HostQueueTimestampTest, CapturesIntoQueueAllocaTarget) {
       /*target_offset=*/0, /*barriers=*/NULL, IREE_HAL_TIMESTAMP_FLAG_NONE));
 
   uint64_t alloca_value = 2;
-  iree_hal_buffer_params_t alloca_params = TransientTimestampBufferParams();
-  alloca_params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(&queue->base)));
-  iree_hal_pool_t* pool = iree_hal_pool_set_select(
-      queue->default_pool_set, alloca_params, sizeof(uint64_t));
-  ASSERT_NE(pool, nullptr);
+  const iree_hal_pool_host_access_t host_access = {
+      /*.access=*/IREE_HAL_MEMORY_ACCESS_READ,
+      /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+  };
+  Ref<iree_hal_pool_t> pool;
+  IREE_ASSERT_OK(iree::hal::cts::CreateQueueSlabPool(
+      test_device.device_group(), iree_hal_queue_family(&queue->base),
+      IREE_HAL_BUFFER_USAGE_TRANSFER, host_access, iree_allocator_system(),
+      pool.out()));
   iree_hal_buffer_t* transient_target_ptr = NULL;
   IREE_ASSERT_OK(
       QueueAlloca(queue, pool, TimelinePoint(timeline, &before_value),
                   TimelinePoint(timeline, &alloca_value), sizeof(uint64_t),
-                  alloca_params.min_alignment, &transient_target_ptr));
+                  /*min_alignment=*/sizeof(uint64_t), &transient_target_ptr));
   Ref<iree_hal_buffer_t> transient_target(transient_target_ptr);
   // Pin the premise: an allocated buffer here covers none of the wrapper path.
   ASSERT_TRUE(iree_hal_amdgpu_transient_buffer_isa(transient_target));
@@ -1046,17 +1045,6 @@ TEST_P(HostQueueTimestampTest, CapturesIntoQueueAllocaTarget) {
                                          IREE_ASYNC_WAIT_FLAG_NONE));
 }
 
-// Parameters for a transient target drawn from an explicit device-local pool.
-// No capture ever lands in one of these, so neither mapping nor the capture
-// alignment is requested.
-static iree_hal_buffer_params_t DeviceLocalTransientBufferParams() {
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  return params;
-}
-
 // Creates a pool holding exactly one allocation of |block_size| bytes, so a
 // second allocation stays unstaged until the first one is released.
 static iree_status_t CreateSingleBlockPool(
@@ -1069,7 +1057,7 @@ static iree_status_t CreateSingleBlockPool(
   options.frontier_capacity = 2;
   IREE_RETURN_IF_ERROR(iree::hal::cts::CreateQueueSlabPool(
       device_group, queue_family, IREE_HAL_BUFFER_USAGE_TRANSFER,
-      iree_allocator_system(), out_backing_pool));
+      /*host_access=*/{}, iree_allocator_system(), out_backing_pool));
   iree_status_t status = iree::hal::cts::CreateFiniteBlockPool(
       *out_backing_pool, options, iree_allocator_system(), out_pool);
   if (!iree_status_is_ok(status)) {
@@ -1115,10 +1103,10 @@ TEST_P(HostQueueTimestampTest, RejectsUnstagedTargetWithoutAllocationWait) {
 
   uint64_t held_alloca_value = 1;
   iree_hal_buffer_t* held_target_ptr = NULL;
-  IREE_ASSERT_OK(QueueAlloca(
-      queue, pool, iree_hal_semaphore_list_empty(),
-      TimelinePoint(held_timeline, &held_alloca_value), allocation_size,
-      DeviceLocalTransientBufferParams().min_alignment, &held_target_ptr));
+  IREE_ASSERT_OK(QueueAlloca(queue, pool, iree_hal_semaphore_list_empty(),
+                             TimelinePoint(held_timeline, &held_alloca_value),
+                             allocation_size,
+                             /*min_alignment=*/0, &held_target_ptr));
   Ref<iree_hal_buffer_t> held_target(held_target_ptr);
   IREE_ASSERT_OK(iree_hal_semaphore_wait(held_timeline, held_alloca_value,
                                          iree_infinite_timeout(),
@@ -1129,7 +1117,7 @@ TEST_P(HostQueueTimestampTest, RejectsUnstagedTargetWithoutAllocationWait) {
   IREE_ASSERT_OK(QueueAlloca(
       queue, pool, iree_hal_semaphore_list_empty(),
       TimelinePoint(blocked_timeline, &blocked_alloca_value), allocation_size,
-      DeviceLocalTransientBufferParams().min_alignment, &blocked_target_ptr));
+      /*min_alignment=*/0, &blocked_target_ptr));
   Ref<iree_hal_buffer_t> blocked_target(blocked_target_ptr);
   // Pin the premise: a staged target makes this a duplicate of
   // CapturesIntoQueueAllocaTarget.

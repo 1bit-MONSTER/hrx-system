@@ -10,6 +10,7 @@
 
 #include "iree/hal/api.h"
 #include "iree/hal/cts/util/test_base.h"
+#include "iree/hal/drivers/amdgpu/allocator.h"
 #include "iree/hal/drivers/amdgpu/logical_device.h"
 #include "iree/hal/drivers/amdgpu/system.h"
 #include "iree/testing/gtest.h"
@@ -32,6 +33,7 @@ std::vector<uint8_t> MakePatternData(size_t size) {
 class TestLogicalDevice {
  public:
   ~TestLogicalDevice() {
+    iree_hal_pool_release(host_import_pool_);
     iree_hal_device_release(device_);
     iree_hal_device_group_release(device_group_);
   }
@@ -46,9 +48,29 @@ class TestLogicalDevice {
     IREE_RETURN_IF_ERROR(iree_hal_amdgpu_logical_device_create(
         IREE_SV("amdgpu"), &options, libhsa, topology, create_context_.params(),
         host_allocator, &device_));
-    return iree_hal_device_group_create_from_device(
+    IREE_RETURN_IF_ERROR(iree_hal_device_group_create_from_device(
         device_, create_context_.frontier_tracker(), host_allocator,
-        &device_group_);
+        &device_group_));
+    const iree_hal_pool_family_access_t family_access = {
+        /*.family=*/iree_hal_queue_family(queue()),
+        /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
+    };
+    const iree_hal_pool_scope_t scope = {
+        /*.family_count=*/1,
+        /*.families=*/&family_access,
+    };
+    const iree_hal_pool_import_class_t import_class = {
+        /*.storage_class=*/iree_hal_make_external_storage_class(
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+    };
+    iree_hal_slab_pool_options_t pool_options;
+    iree_hal_slab_pool_options_initialize(&pool_options);
+    pool_options.owned.mode = IREE_HAL_SLAB_POOL_IMPORT_ONLY;
+    pool_options.imports.class_count = 1;
+    pool_options.imports.classes = &import_class;
+    pool_options.trace_name = IREE_SV("amdgpu.test.host.import");
+    return iree_hal_slab_pool_create(device_group_, scope, &pool_options,
+                                     host_allocator, &host_import_pool_);
   }
 
   iree_hal_device_t* device() const { return device_; }
@@ -57,6 +79,8 @@ class TestLogicalDevice {
     return iree_hal_device_queue(device_, /*family_ordinal=*/0,
                                  /*queue_ordinal=*/0);
   }
+
+  iree_hal_pool_t* host_import_pool() const { return host_import_pool_; }
 
  private:
   // Provides the proactor pool and causal frontier tracker for the device.
@@ -67,6 +91,9 @@ class TestLogicalDevice {
 
   // Owns the topology assigned to the logical device.
   iree_hal_device_group_t* device_group_ = NULL;
+
+  // Explicit import route for caller-owned host allocations.
+  iree_hal_pool_t* host_import_pool_ = NULL;
 };
 
 class HostQueueHostMemoryTest : public ::testing::Test {
@@ -94,23 +121,16 @@ class HostQueueHostMemoryTest : public ::testing::Test {
     iree_hal_amdgpu_libhsa_deinitialize(&libhsa_);
   }
 
-  iree_status_t ImportHostAllocationBuffer(iree_hal_device_t* device,
+  iree_status_t ImportHostAllocationBuffer(iree_hal_pool_t* pool,
                                            std::vector<uint8_t>* data,
-                                           iree_hal_memory_access_t access,
-                                           iree_hal_buffer_usage_t usage,
                                            iree_hal_buffer_t** out_buffer) {
-    iree_hal_buffer_params_t params = {0};
-    params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_HOST |
-                  IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
-    params.access = access;
-    params.usage = usage;
     iree_hal_external_storage_t external_buffer = {};
-    external_buffer.storage_class.type =
-        IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
+    external_buffer.storage_class = iree_hal_make_external_storage_class(
+        IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
     external_buffer.byte_length = data->size();
     external_buffer.payload.host_pointer = data->data();
-    return iree_hal_allocator_import_buffer(
-        iree_hal_device_allocator(device), params, &external_buffer,
+    return iree_hal_pool_import_buffer(
+        pool, &external_buffer,
         iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), out_buffer);
   }
 
@@ -120,14 +140,16 @@ class HostQueueHostMemoryTest : public ::testing::Test {
                                             uint8_t pattern,
                                             iree_hal_buffer_t** out_buffer) {
     *out_buffer = NULL;
-    iree_hal_buffer_params_t params = {0};
-    params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-    params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-    params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
+    const iree_hal_amdgpu_buffer_spec_t spec = {
+        /*.type=*/IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE,
+        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+        /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
+        /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+    };
 
     iree_hal_buffer_t* buffer = NULL;
-    iree_status_t status = iree_hal_allocator_allocate_buffer(
-        iree_hal_device_allocator(device), params, buffer_size, &buffer);
+    iree_status_t status = iree_hal_amdgpu_allocator_allocate_direct_buffer(
+        iree_hal_device_allocator(device), spec, buffer_size, &buffer);
     SemaphoreList signal_list(device, {0}, {1});
     if (iree_status_is_ok(status)) {
       status = iree_hal_queue_fill(
@@ -180,12 +202,10 @@ TEST_F(HostQueueHostMemoryTest, ImportedHostCopyPublishesWritesAndOffsets) {
   std::vector<uint8_t> target_data(kHostAllocationSize, 0xC7);
   Ref<iree_hal_buffer_t> source_host_buffer;
   IREE_ASSERT_OK(ImportHostAllocationBuffer(
-      test_device.device(), &source_data, IREE_HAL_MEMORY_ACCESS_READ,
-      IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE, source_host_buffer.out()));
+      test_device.host_import_pool(), &source_data, source_host_buffer.out()));
   Ref<iree_hal_buffer_t> target_host_buffer;
   IREE_ASSERT_OK(ImportHostAllocationBuffer(
-      test_device.device(), &target_data, IREE_HAL_MEMORY_ACCESS_WRITE,
-      IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET, target_host_buffer.out()));
+      test_device.host_import_pool(), &target_data, target_host_buffer.out()));
 
   Ref<iree_hal_buffer_t> read_device_allocation;
   IREE_ASSERT_OK(CreatePatternedDeviceBuffer(
