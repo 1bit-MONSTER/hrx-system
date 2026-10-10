@@ -11,6 +11,7 @@
 
 #include "amdf/amdf.h"
 #include "iree/base/api.h"
+#include "iree/hal/device_event.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,6 +26,12 @@ iree_status_t iree_hal_amd_status_from_amdf_status(const char* file,
                                                    uint32_t line,
                                                    amdf_status_t amdf_status,
                                                    const char* operation);
+
+// Publishes a native failure without allocating an IREE status or aborting.
+// The sink and driver identifier are borrowed for this synchronous call.
+void iree_hal_amd_report_failure(iree_hal_device_event_sink_t event_sink,
+                                 iree_string_view_t driver_id,
+                                 amdf_status_t status, const char* operation);
 
 #define IREE_HAL_AMD_STATUS_FROM_AMDF(amdf_status, operation)             \
   iree_hal_amd_status_from_amdf_status(__FILE__, __LINE__, (amdf_status), \

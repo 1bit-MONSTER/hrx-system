@@ -8,7 +8,7 @@
 
 #include "iree/hal/api.h"
 #include "iree/hal/cts/util/registry.h"
-#include "iree/hal/drivers/amd/xdna/driver.h"
+#include "iree/hal/drivers/amd/driver.h"
 
 namespace iree::hal::cts {
 
@@ -17,7 +17,7 @@ static iree_status_t CreateXdnaDevice(
     iree_hal_driver_t** out_driver, iree_hal_device_t** out_device) {
   iree_hal_driver_t* driver = nullptr;
   iree_status_t status =
-      iree_hal_amd_xdna_driver_create(iree_allocator_system(), &driver);
+      iree_hal_amd_driver_create(iree_allocator_system(), &driver);
 
   iree_host_size_t device_count = 0;
   iree_hal_device_info_t* device_infos = nullptr;

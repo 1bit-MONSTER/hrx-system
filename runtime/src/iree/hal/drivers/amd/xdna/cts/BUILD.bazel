@@ -22,7 +22,7 @@ iree_runtime_cc_library(
     deps = [
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/cts/util:registry",
-        "//runtime/src/iree/hal/drivers/amd/xdna:driver",
+        "//runtime/src/iree/hal/drivers/amd:driver",
     ],
     alwayslink = True,
 )
@@ -40,7 +40,7 @@ iree_runtime_cc_test(
         "//runtime/src/iree/async/util:proactor_pool",
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
-        "//runtime/src/iree/hal/drivers/amd/xdna:driver",
+        "//runtime/src/iree/hal/drivers/amd/registration",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testdata:add_i32",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testdata:add_i32_npu4",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testdata:mul_i32",
@@ -59,7 +59,7 @@ iree_runtime_cc_benchmark(
         "//runtime/src/iree/async/util:proactor_pool",
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
-        "//runtime/src/iree/hal/drivers/amd/xdna:driver",
+        "//runtime/src/iree/hal/drivers/amd:driver",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testdata:add_i32",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testdata:add_i32_npu4",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testdata:mul_i32",

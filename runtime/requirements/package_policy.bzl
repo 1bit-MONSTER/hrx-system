@@ -31,7 +31,7 @@ load(
 
 PACKAGE_POLICIES = [
     package_policy(
-        packages = ["runtime/src/iree/hal/drivers/amd/xdna/registration"],
+        packages = ["runtime/src/iree/hal/drivers/amd/registration"],
         build_requirements = [HAL_XDNA, LIBAMDF, LIBAMDF_XDNA],
     ),
     package_policy(
@@ -43,6 +43,7 @@ PACKAGE_POLICIES = [
     package_policy(
         packages = [
             "runtime/src/iree/hal/drivers/amd",
+            "runtime/src/iree/hal/drivers/amd/fabric",
             "runtime/src/iree/hal/drivers/amd/xdna",
         ],
         build_requirements = [LIBAMDF],

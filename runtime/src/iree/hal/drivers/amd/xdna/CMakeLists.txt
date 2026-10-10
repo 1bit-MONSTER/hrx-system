@@ -53,6 +53,7 @@ iree_cc_library(
     amdf::headers
     iree::base
     iree::hal
+    iree::hal::drivers::amd::fabric
     iree::hal::drivers::amd::status
     iree::hal::drivers::amd::xdna::image::aie2p::npu2
     iree::hal::drivers::amd::xdna::image::aie2p::target
@@ -500,26 +501,6 @@ iree_cc_library(
     iree::hal
     iree::hal::memory::maintenance_thread
     iree::hal::utils::device_spec_builder
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD)
-iree_cc_library(
-  NAME
-    driver
-  HDRS
-    "driver.h"
-  SRCS
-    "driver.c"
-  DEPS
-    ::context
-    ::device
-    amdf::amdf_static
-    amdf::headers
-    iree::base
-    iree::hal
-    iree::hal::drivers::amd::status
   PUBLIC
 )
 endif()

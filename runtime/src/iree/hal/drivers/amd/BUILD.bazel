@@ -20,6 +20,7 @@ iree_runtime_cc_library(
     deps = [
         "//libamdf:headers",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
     ],
 )
 
@@ -32,5 +33,21 @@ iree_runtime_cc_test(
         "//runtime/src/iree/base",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "driver",
+    srcs = ["driver.c"],
+    hdrs = ["driver.h"],
+    deps = [
+        ":status",
+        "//libamdf:amdf_static",
+        "//libamdf:headers",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/drivers/amd/fabric",
+        "//runtime/src/iree/hal/drivers/amd/xdna:context",
+        "//runtime/src/iree/hal/drivers/amd/xdna:device",
     ],
 )

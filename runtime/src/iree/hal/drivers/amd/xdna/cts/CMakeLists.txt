@@ -18,7 +18,7 @@ iree_cc_library(
   DEPS
     iree::hal
     iree::hal::cts::util::registry
-    iree::hal::drivers::amd::xdna::driver
+    iree::hal::drivers::amd::driver
   TESTONLY
   ALWAYSLINK
   PUBLIC
@@ -50,7 +50,7 @@ iree_cc_test(
     iree::async::util::proactor_pool
     iree::base
     iree::hal
-    iree::hal::drivers::amd::xdna::driver
+    iree::hal::drivers::amd::registration
     iree::hal::drivers::amd::xdna::image::testdata::add_i32
     iree::hal::drivers::amd::xdna::image::testdata::add_i32_npu4
     iree::hal::drivers::amd::xdna::image::testdata::mul_i32
@@ -78,7 +78,7 @@ iree_cc_binary_benchmark(
     iree::async::util::proactor_pool
     iree::base
     iree::hal
-    iree::hal::drivers::amd::xdna::driver
+    iree::hal::drivers::amd::driver
     iree::hal::drivers::amd::xdna::image::testdata::add_i32
     iree::hal::drivers::amd::xdna::image::testdata::add_i32_npu4
     iree::hal::drivers::amd::xdna::image::testdata::mul_i32

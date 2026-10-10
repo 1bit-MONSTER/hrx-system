@@ -15,7 +15,7 @@
 #include "iree/async/util/proactor_pool.h"
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
-#include "iree/hal/drivers/amd/xdna/driver.h"
+#include "iree/hal/drivers/amd/driver.h"
 #include "iree/hal/drivers/amd/xdna/image/testdata/add_i32.h"
 #include "iree/hal/drivers/amd/xdna/image/testdata/add_i32_npu4.h"
 #include "iree/hal/drivers/amd/xdna/image/testdata/mul_i32.h"
@@ -85,7 +85,7 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
  protected:
   iree_status_t Initialize() {
     IREE_RETURN_IF_ERROR(
-        iree_hal_amd_xdna_driver_create(iree_allocator_system(), &driver_));
+        iree_hal_amd_driver_create(iree_allocator_system(), &driver_));
     iree_host_size_t device_count = 0;
     iree_hal_device_info_t* device_infos = nullptr;
     IREE_RETURN_IF_ERROR(iree_hal_driver_query_available_devices(

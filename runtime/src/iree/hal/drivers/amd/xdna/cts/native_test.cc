@@ -6,11 +6,12 @@
 
 #include <algorithm>
 #include <array>
+#include <string>
 #include <vector>
 
 #include "iree/async/frontier_tracker.h"
 #include "iree/async/util/proactor_pool.h"
-#include "iree/hal/drivers/amd/xdna/driver.h"
+#include "iree/hal/drivers/amd/registration/driver_module.h"
 #include "iree/hal/drivers/amd/xdna/image/testdata/add_i32.h"
 #include "iree/hal/drivers/amd/xdna/image/testdata/add_i32_npu4.h"
 #include "iree/hal/drivers/amd/xdna/image/testdata/mul_i32.h"
@@ -30,11 +31,18 @@ class XdnaNativeTest : public ::testing::Test {
 
   void SetUp() override {
     IREE_ASSERT_OK(
-        iree_hal_amd_xdna_driver_create(iree_allocator_system(), &driver_));
+        iree_hal_driver_registry_allocate(iree_allocator_system(), &registry_));
+    IREE_ASSERT_OK(iree_hal_amd_driver_module_register(registry_));
+    IREE_ASSERT_OK(iree_hal_driver_registry_get_driver(
+        registry_, IREE_SV("xdna"), &driver_));
     iree_host_size_t count = 0;
     iree_hal_device_info_t* infos = nullptr;
     IREE_ASSERT_OK(iree_hal_driver_query_available_devices(
         driver_, IREE_SV("xdna"), iree_allocator_system(), &count, &infos));
+    std::string device_path;
+    if (count) {
+      device_path.assign(infos[0].path.data, infos[0].path.size);
+    }
     iree_allocator_free(iree_allocator_system(), infos);
     if (!count) {
       GTEST_SKIP() << "No native XDNA endpoint";
@@ -45,8 +53,15 @@ class XdnaNativeTest : public ::testing::Test {
     auto params = iree_hal_device_create_params_default();
     params.proactor_pool = pool_;
     params.event_sink = iree_hal_device_event_sink_stderr();
-    IREE_ASSERT_OK(iree_hal_driver_create_default_device(
-        driver_, &params, iree_allocator_system(), &device_));
+    IREE_ASSERT_OK(iree_hal_driver_create_device_by_path(
+        driver_, IREE_SV("xdna"), iree_make_cstring_view(device_path.c_str()),
+        0, nullptr, &params, iree_allocator_system(), &device_));
+    // Native memory and execution retain the fabric without either discovery
+    // owner. Every workload below runs after these releases.
+    iree_hal_driver_release(driver_);
+    driver_ = nullptr;
+    iree_hal_driver_registry_free(registry_);
+    registry_ = nullptr;
     // The device's selected entry keeps the runner alive independently.
     iree_async_proactor_pool_release(pool_);
     pool_ = nullptr;
@@ -68,6 +83,7 @@ class XdnaNativeTest : public ::testing::Test {
     iree_hal_device_release(device_);
     iree_async_proactor_pool_release(pool_);
     iree_hal_driver_release(driver_);
+    iree_hal_driver_registry_free(registry_);
   }
 
   void LoadProgram(const iree_file_toc_t* halo_toc,
@@ -197,6 +213,8 @@ class XdnaNativeTest : public ::testing::Test {
   static constexpr size_t kBytes = 16 * sizeof(uint32_t);
   // Driver owning the native discovery instance.
   iree_hal_driver_t* driver_ = nullptr;
+  // Explicit registry released before native work begins.
+  iree_hal_driver_registry_t* registry_ = nullptr;
   // Construction-time aggregate pool, released after device creation.
   iree_async_proactor_pool_t* pool_ = nullptr;
   // Device dominating all native children.

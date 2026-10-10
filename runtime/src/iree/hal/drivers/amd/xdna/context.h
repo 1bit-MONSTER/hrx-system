@@ -10,6 +10,7 @@
 #include "amdf/amdf.h"
 #include "amdf/xdna.h"
 #include "iree/hal/api.h"
+#include "iree/hal/drivers/amd/fabric/fabric.h"
 #include "iree/hal/drivers/amd/xdna/image/aie2p/target.h"
 
 #ifdef __cplusplus
@@ -33,13 +34,13 @@ typedef struct iree_hal_amd_xdna_memory_source_t {
 
 // Cold native ownership shared by the HAL device's buffers, executables, and
 // queue. The HAL device dominates their public lifetimes. Native cleanup
-// failure retains this owner and its driver instead of invalidating remaining
+// failure retains this owner and its fabric instead of invalidating remaining
 // children.
 typedef struct iree_hal_amd_xdna_context_t {
   // Allocator owning this structure.
   iree_allocator_t host_allocator;
-  // Retained driver keeping the native instance and API tables live.
-  iree_hal_driver_t* driver;
+  // Retained shared owner keeping the native instance live.
+  iree_hal_amd_fabric_t* fabric;
   // Borrowed immutable common API table.
   const amdf_api_t* api;
   // Borrowed immutable XDNA extension table.
@@ -66,15 +67,14 @@ typedef struct iree_hal_amd_xdna_context_t {
   iree_hal_device_event_sink_t event_sink;
 } iree_hal_amd_xdna_context_t;
 
-// Opens an endpoint and admits an exact logical context. The instance and
-// system scope belong to |driver|, which is retained on success. Failure
-// publishes no output or cleanup obligation.
+// Opens an endpoint and admits an exact logical context within |fabric|,
+// which is retained on success. The engine negotiates its own extension.
+// Failure publishes no output or cleanup obligation.
 iree_status_t iree_hal_amd_xdna_context_create(
-    iree_hal_driver_t* driver, const amdf_api_t* api,
-    const amdf_xdna_api_t* xdna, amdf_instance_t* instance,
-    amdf_memory_scope_t* system_scope, const amdf_endpoint_id_t* endpoint_id,
-    uint32_t column_count, iree_hal_device_event_sink_t event_sink,
-    iree_allocator_t host_allocator, iree_hal_amd_xdna_context_t** out_context);
+    iree_hal_amd_fabric_t* fabric, const amdf_endpoint_id_t* endpoint_id,
+    iree_host_size_t param_count, const iree_string_pair_t* params,
+    iree_hal_device_event_sink_t event_sink, iree_allocator_t host_allocator,
+    iree_hal_amd_xdna_context_t** out_context);
 
 // Releases an idle context after all memory and queue users have been released.
 // Native failure is diagnosed and the remaining ownership graph is left live.

@@ -4,11 +4,11 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "iree/hal/drivers/amd/xdna/registration/driver_module.h"
+#include "iree/hal/drivers/amd/registration/driver_module.h"
 
-#include "iree/hal/drivers/amd/xdna/driver.h"
+#include "iree/hal/drivers/amd/driver.h"
 
-static iree_status_t iree_hal_amd_xdna_driver_factory_enumerate(
+static iree_status_t iree_hal_amd_driver_factory_enumerate(
     void* self, iree_host_size_t* out_count,
     const iree_hal_driver_info_t** out_infos) {
   static const iree_hal_driver_info_t info = {
@@ -21,17 +21,17 @@ static iree_status_t iree_hal_amd_xdna_driver_factory_enumerate(
   return iree_ok_status();
 }
 
-static iree_status_t iree_hal_amd_xdna_driver_factory_try_create(
+static iree_status_t iree_hal_amd_driver_factory_try_create(
     void* self, iree_hal_driver_id_t driver_id, iree_allocator_t host_allocator,
     iree_hal_driver_t** out_driver) {
-  return iree_hal_amd_xdna_driver_create(host_allocator, out_driver);
+  return iree_hal_amd_driver_create(host_allocator, out_driver);
 }
 
 IREE_API_EXPORT iree_status_t
-iree_hal_amd_xdna_driver_module_register(iree_hal_driver_registry_t* registry) {
+iree_hal_amd_driver_module_register(iree_hal_driver_registry_t* registry) {
   static const iree_hal_driver_factory_t factory = {
-      .enumerate = iree_hal_amd_xdna_driver_factory_enumerate,
-      .try_create = iree_hal_amd_xdna_driver_factory_try_create,
+      .enumerate = iree_hal_amd_driver_factory_enumerate,
+      .try_create = iree_hal_amd_driver_factory_try_create,
   };
   return iree_hal_driver_registry_register_factory(registry, &factory);
 }
