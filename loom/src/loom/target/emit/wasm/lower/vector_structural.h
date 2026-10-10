@@ -42,6 +42,11 @@ void loom_wasm_describe_vector_structural_plan(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_low_lower_plan_t plan, loom_low_lower_plan_report_t* out_report);
 
+// Publishes the native result carriers consumed by dependent plans.
+iree_status_t loom_wasm_finalize_vector_structural_plan(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_low_lower_plan_t plan);
+
 // Emits the selected tuple or byte-shuffle realization.
 iree_status_t loom_wasm_emit_vector_structural_plan(
     loom_low_lower_context_t* context, const loom_op_t* source_op,

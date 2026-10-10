@@ -241,6 +241,18 @@ static iree_status_t loom_wasm_describe_plan(
   return iree_ok_status();
 }
 
+static iree_status_t loom_wasm_finalize_plan(void* user_data,
+                                             loom_low_lower_context_t* context,
+                                             const loom_op_t* source_op,
+                                             loom_low_lower_plan_t plan) {
+  (void)user_data;
+  if (loom_wasm_vector_structural_plan_isa(plan)) {
+    return loom_wasm_finalize_vector_structural_plan(context, source_op, plan);
+  }
+  IREE_ASSERT_UNREACHABLE("Wasm finalization has unknown plan kind");
+  IREE_BUILTIN_UNREACHABLE();
+}
+
 static iree_status_t loom_wasm_emit_op(void* user_data,
                                        loom_low_lower_context_t* context,
                                        const loom_op_t* source_op,
@@ -316,6 +328,7 @@ static const loom_low_lower_policy_t kWasmLowLowerPolicy = {
             .user_data = NULL,
         },
     .describe_plan = {.fn = loom_wasm_describe_plan, .user_data = NULL},
+    .finalize_plan = {.fn = loom_wasm_finalize_plan, .user_data = NULL},
     .emit_op = {.fn = loom_wasm_emit_op, .user_data = NULL},
 };
 

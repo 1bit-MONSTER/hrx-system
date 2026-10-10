@@ -307,12 +307,6 @@ static bool loom_wasm_element_type_is_numeric_payload(
          element_type <= LOOM_SCALAR_TYPE_F64;
 }
 
-static bool loom_wasm_element_type_is_integer_payload(
-    loom_scalar_type_t element_type) {
-  return loom_scalar_type_set_contains(LOOM_SCALAR_TYPE_SET_INTEGER_PAYLOAD,
-                                       element_type);
-}
-
 static bool loom_wasm_vector_constructor_descriptors_for_element(
     loom_scalar_type_t element_type, uint16_t physical_element_bit_count,
     loom_wasm_vector_constructor_descriptors_t* out_descriptors) {
@@ -427,8 +421,12 @@ static bool loom_wasm_bitcast_has_generated_rule(
     return loom_wasm_element_type_is_numeric_payload(source_element) &&
            loom_wasm_element_type_is_numeric_payload(result_element);
   }
-  return loom_wasm_element_type_is_integer_payload(source_element) &&
-         loom_wasm_element_type_is_integer_payload(result_element);
+  const loom_scalar_type_set_t partial_bit_preserving_types =
+      LOOM_SCALAR_TYPE_SET_INTEGER_PAYLOAD | LOOM_SCALAR_TYPE_SET_FLOAT_LE16;
+  return loom_scalar_type_set_contains(partial_bit_preserving_types,
+                                       source_element) &&
+         loom_scalar_type_set_contains(partial_bit_preserving_types,
+                                       result_element);
 }
 
 static bool loom_wasm_bitcast_plan_from_op(const loom_module_t* module,
@@ -632,6 +630,21 @@ void loom_wasm_describe_vector_structural_plan(
     default:
       IREE_ASSERT_UNREACHABLE("unknown Wasm vector structural plan");
   }
+}
+
+iree_status_t loom_wasm_finalize_vector_structural_plan(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_low_lower_plan_t plan) {
+  IREE_ASSERT(loom_wasm_vector_structural_plan_isa(plan));
+  const loom_value_id_t* results = loom_op_const_results(source_op);
+  for (uint16_t i = 0; i < source_op->result_count; ++i) {
+    loom_type_t result_type = loom_type_none();
+    IREE_RETURN_IF_ERROR(
+        loom_low_lower_map_value(context, source_op, results[i], &result_type));
+    IREE_RETURN_IF_ERROR(
+        loom_low_lower_plan_value_type(context, results[i], result_type));
+  }
+  return iree_ok_status();
 }
 
 typedef struct loom_wasm_packet_byte_source_t {

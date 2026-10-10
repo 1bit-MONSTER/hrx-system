@@ -51,8 +51,10 @@ loom_cc_library(
   NAME
     provider
   HDRS
+    "legalization_float.h"
     "provider.h"
   SRCS
+    "legalization_float.c"
     "provider.c"
   DEPS
     ::low_verify
@@ -117,7 +119,7 @@ loom_check_test_suite(
     "test/source_low/numeric_bit_operations.loom-test"
     "test/source_low/numeric_f32_narrowing.loom-test"
     "test/source_low/numeric_float_extensions.loom-test"
-    "test/source_low/numeric_float_extrema_reference.loom-test"
+    "test/source_low/numeric_float_ordering_reference.loom-test"
     "test/source_low/numeric_index_extrema.loom-test"
     "test/source_low/numeric_index_operands.loom-test"
     "test/source_low/numeric_integer_arithmetic.loom-test"
@@ -147,7 +149,7 @@ loom_check_test_suite(
     "test/source_low/uniform_predicate_control.loom-test"
     "test/source_low/uniform_shifts.loom-test"
     "test/source_low/vector_from_elements.loom-test"
-    "test/source_low/vector_interleave.loom-test"
+    "test/source_low/vector_structural.loom-test"
     "test/source_low/vector_transpose.loom-test"
     "test/source_low/view_bitcast.loom-test"
     "test/source_low/view_carriers.loom-test"

@@ -475,13 +475,13 @@ def test_numeric_bitcasts_alias_every_full_width_shape_pair() -> None:
     assert actual == {(source, result) for source in shapes for result in shapes}
 
 
-def test_partial_integer_bitcasts_alias_every_element_type_pair() -> None:
+def test_partial_bitcasts_alias_every_bit_preserving_type_pair() -> None:
     actual = {
         (source, result)
         for rule in WASM_CORE_SIMD128_CONTRACT_FRAGMENT.cases
         if isinstance(rule, ValueAliasRule) and rule.source_op is vector.vector_bitcast
-        for source in _integer_vector_ranges(rule, "input")
-        for result in _integer_vector_ranges(rule, "result")
+        for source in _numeric_vector_ranges(rule, "input")
+        for result in _numeric_vector_ranges(rule, "result")
     }
     shapes = {
         (
@@ -498,6 +498,14 @@ def test_partial_integer_bitcasts_alias_every_element_type_pair() -> None:
             ScalarTypeKind.I64,
         )
     }
+    shapes.update(
+        {
+            ("f8E4M3", 1, 15),
+            ("f8E5M2", 1, 15),
+            ("f16", 1, 7),
+            ("bf16", 1, 7),
+        }
+    )
     assert actual == {(source, result) for source in shapes for result in shapes}
 
 
