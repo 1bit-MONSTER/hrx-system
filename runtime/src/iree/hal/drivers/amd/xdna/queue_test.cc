@@ -19,10 +19,10 @@
 #include "iree/async/semaphore.h"
 #include "iree/async/util/proactor_pool.h"
 #include "iree/hal/drivers/amd/fabric/buffer.h"
+#include "iree/hal/drivers/amd/fabric/memory_backend.h"
 #include "iree/hal/drivers/amd/xdna/device.h"
 #include "iree/hal/drivers/amd/xdna/image/testing/image_fixture.h"
 #include "iree/hal/drivers/amd/xdna/memory.h"
-#include "iree/hal/drivers/amd/xdna/memory_backend.h"
 #include "iree/hal/drivers/amd/xdna/queue_frontier.h"
 #include "iree/hal/drivers/amd/xdna/semaphore.h"
 #include "iree/hal/memory/slab_cache.h"
@@ -703,6 +703,8 @@ class QueueHarness {
     context->data_source.profile.allocation.minimum_alignment = 4;
     context->data_source.profile.allocation.maximum_alignment = 32768;
     context->data_source.profile.allocation.maximum_byte_length = UINT32_MAX;
+    context->data_source.capabilities.guaranteed_access =
+        AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
     context->data_source.address_kind = AMDF_MEMORY_ADDRESS_XDNA_DMA;
     context->data_source.access.device =
         reinterpret_cast<amdf_device_t*>(&native);
@@ -1188,9 +1190,10 @@ TEST(XdnaDeviceTest, PublishesMemoryProgressBackend) {
   ASSERT_NE(base, nullptr);
   EXPECT_EQ(base->type, IREE_HAL_MEMORY_BACKEND_AMDF);
   const auto* backend =
-      reinterpret_cast<const iree_hal_amd_xdna_memory_backend_t*>(base);
+      reinterpret_cast<const iree_hal_amd_fabric_memory_backend_t*>(base);
   EXPECT_EQ(backend->device, harness.device);
-  EXPECT_NE(backend->context, nullptr);
+  EXPECT_EQ(backend->native.device, harness.context->device);
+  EXPECT_EQ(backend->native.scope, harness.context->data_source.scope);
   EXPECT_NE(backend->notification, nullptr);
   EXPECT_NE(backend->maintenance, nullptr);
   ASSERT_NE(backend->epoch_query.fn, nullptr);

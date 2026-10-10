@@ -8,9 +8,9 @@
 
 #include "iree/async/notification.h"
 #include "iree/async/util/proactor_pool.h"
+#include "iree/hal/drivers/amd/fabric/memory_backend.h"
 #include "iree/hal/drivers/amd/xdna/command_arena.h"
 #include "iree/hal/drivers/amd/xdna/executable.h"
-#include "iree/hal/drivers/amd/xdna/memory_backend.h"
 #include "iree/hal/drivers/amd/xdna/queue.h"
 #include "iree/hal/drivers/amd/xdna/semaphore.h"
 #include "iree/hal/memory/maintenance_thread.h"
@@ -41,8 +41,10 @@ typedef struct iree_hal_amd_xdna_device_t {
     iree_async_notification_t* notification;
     // Cold allocation and retirement owner independent of queue lifetime.
     iree_hal_memory_maintenance_t* maintenance;
+    // Native requirements for the single XDNA execution family.
+    iree_hal_amd_fabric_memory_family_t family;
     // Borrowed factory view over the device's native and progress owners.
-    iree_hal_amd_xdna_memory_backend_t backend;
+    iree_hal_amd_fabric_memory_backend_t backend;
   } memory;
   // Group-assigned topology; the queue retains its frontier tracker.
   iree_hal_device_topology_info_t topology;
@@ -209,9 +211,31 @@ iree_status_t iree_hal_amd_xdna_device_create(
         host_allocator, &device->queue);
   }
   if (iree_status_is_ok(status)) {
-    iree_hal_amd_xdna_memory_backend_initialize(
-        (iree_hal_device_t*)device, context, device->memory.notification,
-        device->memory.maintenance,
+    static const iree_hal_amd_fabric_memory_binding_t bindings[] = {
+        {.type = IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
+         .address_kind = AMDF_MEMORY_ADDRESS_XDNA_DMA},
+    };
+    device->memory.family = (iree_hal_amd_fabric_memory_family_t){
+        .queue_family_ordinal = context->queue_family_ordinal,
+        .supported_usage =
+            IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH,
+        .minimum_access = context->data_source.capabilities.guaranteed_access,
+        .host_access = AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE,
+        .binding_count = IREE_ARRAYSIZE(bindings),
+        .bindings = bindings,
+    };
+    const iree_hal_amd_fabric_memory_backend_options_t memory_options = {
+        .api = context->api,
+        .scope = context->data_source.scope,
+        .device = context->device,
+        .memory_type =
+            IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+        .event_sink = context->event_sink,
+        .families = &device->memory.family,
+    };
+    iree_hal_amd_fabric_memory_backend_initialize(
+        (iree_hal_device_t*)device, &memory_options,
+        device->memory.notification, device->memory.maintenance,
         (iree_hal_pool_epoch_query_t){
             .fn = iree_hal_amd_xdna_device_query_pool_epoch,
             .user_data = device,

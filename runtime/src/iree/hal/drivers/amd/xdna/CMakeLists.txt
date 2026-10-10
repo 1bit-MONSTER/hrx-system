@@ -100,86 +100,6 @@ endif()
 if(AMDF_BUILD)
 iree_cc_library(
   NAME
-    memory_transition
-  HDRS
-    "memory_transition.h"
-  SRCS
-    "memory_transition.c"
-  DEPS
-    amdf::headers
-    iree::base
-    iree::base::internal
-    iree::hal
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD)
-iree_cc_test(
-  NAME
-    memory_transition_test
-  SRCS
-    "memory_transition_test.cc"
-  DEPS
-    ::memory_transition
-    amdf::headers
-    iree::base
-    iree::hal
-    iree::testing::gtest
-    iree::testing::gtest_main
-  LABELS
-    "iree-build-requirement=libamdf"
-)
-endif()
-
-if(AMDF_BUILD)
-iree_cc_library(
-  NAME
-    memory_backend
-  HDRS
-    "memory_backend.h"
-  SRCS
-    "memory_backend.c"
-  DEPS
-    ::context
-    ::memory_transition
-    amdf::headers
-    iree::base
-    iree::base::internal
-    iree::hal
-    iree::hal::drivers::amd::fabric::slab_provider
-    iree::hal::drivers::amd::status
-    iree::hal::memory::maintenance
-    iree::hal::memory::passthrough_pool
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD)
-iree_cc_test(
-  NAME
-    memory_backend_test
-  SRCS
-    "memory_backend_test.cc"
-  DEPS
-    ::memory_backend
-    amdf::headers
-    iree::async
-    iree::async::platform
-    iree::base
-    iree::hal
-    iree::hal::memory::maintenance_thread
-    iree::hal::testing::mock_device
-    iree::testing::gtest
-    iree::testing::gtest_main
-  LABELS
-    "iree-build-requirement=libamdf"
-)
-endif()
-
-if(AMDF_BUILD)
-iree_cc_library(
-  NAME
     semaphore
   HDRS
     "semaphore.h"
@@ -452,7 +372,6 @@ iree_cc_library(
     ::context
     ::executable
     ::memory
-    ::memory_backend
     ::queue
     ::semaphore
     amdf::headers
@@ -461,6 +380,7 @@ iree_cc_library(
     iree::base
     iree::base::internal
     iree::hal
+    iree::hal::drivers::amd::fabric::memory_backend
     iree::hal::memory::maintenance_thread
     iree::hal::utils::device_spec_builder
   PUBLIC
@@ -476,7 +396,6 @@ iree_cc_test(
   DEPS
     ::device
     ::memory
-    ::memory_backend
     ::queue
     ::queue_frontier
     ::semaphore
@@ -486,6 +405,7 @@ iree_cc_test(
     iree::base
     iree::hal
     iree::hal::drivers::amd::fabric::buffer
+    iree::hal::drivers::amd::fabric::memory_backend
     iree::hal::drivers::amd::xdna::image::testing::image_fixture
     iree::hal::memory::slab_cache
     iree::hal::memory::tlsf_pool

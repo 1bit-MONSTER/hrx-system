@@ -619,6 +619,18 @@ TEST_F(XdnaNativeTest, FailedDependencyFailsOnlyItsConsumer) {
                                          IREE_ASYNC_WAIT_FLAG_NONE));
 }
 
+TEST_F(XdnaNativeTest, ReadOnlyPoolPreservesNativePermissionRequirements) {
+  CreateMemoryPool(IREE_HAL_BUFFER_USAGE_STORAGE_READ);
+  iree_hal_buffer_t* buffer = nullptr;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      memory_pool_, iree_hal_make_pool_reservation_request(kBytes, 1),
+      iree_infinite_timeout(), &buffer));
+  EXPECT_EQ(iree_hal_buffer_family_usage(
+                buffer, iree_hal_device_queue_family(device_, 0)),
+            IREE_HAL_BUFFER_USAGE_STORAGE_READ);
+  iree_hal_buffer_release(buffer);
+}
+
 TEST_F(XdnaNativeTest, AllocationPublishesItsActualMemoryProperties) {
   iree_hal_buffer_t* buffer = nullptr;
   ASSERT_NO_FATAL_FAILURE(MakeBuffer(&buffer));
