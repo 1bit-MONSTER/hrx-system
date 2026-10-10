@@ -111,8 +111,6 @@ IREE_API_EXPORT const char* iree_hal_replay_operation_code_string(
       return "device.profiling_flush";
     case IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_PROFILING_END:
       return "device.profiling_end";
-    case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_TRIM:
-      return "allocator.trim";
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_QUERY_MEMORY_HEAPS:
       return "allocator.query_memory_heaps";
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_QUERY_GRANULARITY:

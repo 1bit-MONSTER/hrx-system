@@ -586,7 +586,7 @@ static iree_status_t iree_hal_vulkan_logical_device_trim(
     iree_hal_vulkan_queue_trim(&device->queues.objects[i]);
   }
   iree_arena_block_pool_trim(&device->command_buffer_block_pool);
-  return iree_hal_allocator_trim(device->device_allocator);
+  return iree_ok_status();
 }
 
 static uint64_t iree_hal_vulkan_stats_saturating_add(uint64_t lhs,

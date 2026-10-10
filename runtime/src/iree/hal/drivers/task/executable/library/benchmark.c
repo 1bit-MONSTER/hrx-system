@@ -150,9 +150,7 @@ iree_hal_executable_library_create_device(
   }
   iree_hal_allocator_t* device_allocator = NULL;
   if (iree_status_is_ok(status)) {
-    status =
-        iree_hal_allocator_create_heap(IREE_SV("benchmark"), host_allocator,
-                                       host_allocator, &device_allocator);
+    status = iree_hal_allocator_create_heap(host_allocator, &device_allocator);
   }
   if (iree_status_is_ok(status)) {
     iree_hal_task_device_params_t device_params;

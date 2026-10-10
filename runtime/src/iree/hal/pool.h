@@ -266,18 +266,14 @@ enum iree_hal_pool_trim_flag_bits_e {
   IREE_HAL_POOL_TRIM_FLAG_EXCESS = 1u << 1,
 };
 
-// Describes the memory capabilities of a pool. Computed at pool creation time
-// from the slab provider's properties and the pool's strategy constraints.
-// Used by iree_hal_pool_set_t for routing allocation requests to compatible
-// pools.
+// Describes the memory capabilities fixed when a pool is created.
 typedef struct iree_hal_pool_capabilities_t {
   // Achieved owned-backing placement. AUTOMATIC promises no particular node;
   // REQUIRED reports the node enforced by native allocation. Imported storage
   // keeps its own placement and is not relocated by this guarantee.
   iree_hal_pool_placement_t placement;
 
-  // Memory type properties provided by this pool's slab provider. Checked
-  // against the required bits in iree_hal_buffer_params_t.type.
+  // Memory type properties provided by this pool's backing storage.
   iree_hal_memory_type_t memory_type;
 
   // Access permissions available to views materialized from this pool.

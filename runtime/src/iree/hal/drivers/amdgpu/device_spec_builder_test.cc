@@ -124,8 +124,7 @@ static void ExpectUniformAtomicCapabilities(
 TEST(DeviceSpecBuilderTest, AdvertisesThePhysicalDeviceTickRate) {
   iree_hal_allocator_t* allocator = NULL;
   IREE_ASSERT_OK(
-      iree_hal_allocator_create_heap(IREE_SV("test"), iree_allocator_system(),
-                                     iree_allocator_system(), &allocator));
+      iree_hal_allocator_create_heap(iree_allocator_system(), &allocator));
 
   iree_hal_device_spec_t* device_spec = NULL;
   CreateDeviceSpecForProcessor(IREE_SV("gfx942"), kAgentTimestampFrequencyHz,
@@ -157,8 +156,7 @@ TEST(DeviceSpecBuilderTest, AdvertisesThePhysicalDeviceTickRate) {
 TEST(DeviceSpecBuilderTest, QueueFamiliesReportPerPhysicalDeviceFrequency) {
   iree_hal_allocator_t* allocator = NULL;
   IREE_ASSERT_OK(
-      iree_hal_allocator_create_heap(IREE_SV("test"), iree_allocator_system(),
-                                     iree_allocator_system(), &allocator));
+      iree_hal_allocator_create_heap(iree_allocator_system(), &allocator));
 
   iree_hal_device_spec_t* device_spec = NULL;
   IREE_ASSERT_OK(CreateTwoDeviceSpec(kAgentTimestampFrequencyHz,
@@ -189,8 +187,7 @@ TEST(DeviceSpecBuilderTest,
      AdvertisesFunctionalAndNativeAtomicCapabilitiesPerPhysicalDevice) {
   iree_hal_allocator_t* allocator = NULL;
   IREE_ASSERT_OK(
-      iree_hal_allocator_create_heap(IREE_SV("test"), iree_allocator_system(),
-                                     iree_allocator_system(), &allocator));
+      iree_hal_allocator_create_heap(iree_allocator_system(), &allocator));
 
   iree_hal_amdgpu_device_spec_physical_device_params_t physical_devices[2];
   MakePhysicalDeviceParams(IREE_SV("gfx1100"), kAgentTimestampFrequencyHz,
@@ -242,8 +239,7 @@ TEST(DeviceSpecBuilderTest,
 TEST(DeviceSpecBuilderTest, UniformPhysicalDevicesPublishOneDeviceScopeRate) {
   iree_hal_allocator_t* allocator = NULL;
   IREE_ASSERT_OK(
-      iree_hal_allocator_create_heap(IREE_SV("test"), iree_allocator_system(),
-                                     iree_allocator_system(), &allocator));
+      iree_hal_allocator_create_heap(iree_allocator_system(), &allocator));
 
   iree_hal_device_spec_t* device_spec = NULL;
   IREE_ASSERT_OK(CreateTwoDeviceSpec(kAgentTimestampFrequencyHz,
@@ -267,8 +263,7 @@ TEST(DeviceSpecBuilderTest, UniformPhysicalDevicesPublishOneDeviceScopeRate) {
 TEST(DeviceSpecBuilderTest, MismatchedTimestampFrequencyIsRejected) {
   iree_hal_allocator_t* allocator = NULL;
   IREE_ASSERT_OK(
-      iree_hal_allocator_create_heap(IREE_SV("test"), iree_allocator_system(),
-                                     iree_allocator_system(), &allocator));
+      iree_hal_allocator_create_heap(iree_allocator_system(), &allocator));
 
   iree_hal_device_spec_t* device_spec = NULL;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
@@ -285,8 +280,7 @@ TEST(DeviceSpecBuilderTest, MismatchedTimestampFrequencyIsRejected) {
 TEST(DeviceSpecBuilderTest, ZeroTimestampFrequencyIsRejected) {
   iree_hal_allocator_t* allocator = NULL;
   IREE_ASSERT_OK(
-      iree_hal_allocator_create_heap(IREE_SV("test"), iree_allocator_system(),
-                                     iree_allocator_system(), &allocator));
+      iree_hal_allocator_create_heap(iree_allocator_system(), &allocator));
 
   iree_hal_amdgpu_device_spec_physical_device_params_t physical_device;
   MakePhysicalDeviceParams(IREE_SV("gfx942"), /*timestamp_frequency_hz=*/0,
@@ -307,8 +301,7 @@ TEST(DeviceSpecBuilderTest, ZeroTimestampFrequencyIsRejected) {
 TEST(DeviceSpecBuilderTest, ZeroTimestampFrequencyOnSecondDeviceIsRejected) {
   iree_hal_allocator_t* allocator = NULL;
   IREE_ASSERT_OK(
-      iree_hal_allocator_create_heap(IREE_SV("test"), iree_allocator_system(),
-                                     iree_allocator_system(), &allocator));
+      iree_hal_allocator_create_heap(iree_allocator_system(), &allocator));
 
   iree_hal_device_spec_t* device_spec = NULL;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,

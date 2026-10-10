@@ -33,9 +33,8 @@ class TaskDeviceLocalityTest : public ::testing::Test {
     iree_task_topology_deinitialize(&topology);
     IREE_ASSERT_OK(status);
     ASSERT_EQ(iree_task_executor_numa_node(executor_), node_id_);
-    IREE_ASSERT_OK(iree_hal_allocator_create_heap(
-        IREE_SV("device_test"), iree_allocator_system(),
-        iree_allocator_system(), &device_allocator_));
+    IREE_ASSERT_OK(iree_hal_allocator_create_heap(iree_allocator_system(),
+                                                  &device_allocator_));
   }
 
   void TearDown() override {

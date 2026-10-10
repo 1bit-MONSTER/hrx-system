@@ -307,9 +307,8 @@ class VulkanCommandBufferTest : public ::testing::Test {
     iree_hal_device_spec_release(device_spec);
     IREE_ASSERT_OK(status);
     queue_family_ = iree_hal_device_queue_family(device_, 0);
-    IREE_ASSERT_OK(iree_hal_allocator_create_heap(
-        iree_make_cstring_view("vulkan_command_buffer_test"),
-        iree_allocator_system(), iree_allocator_system(), &device_allocator_));
+    IREE_ASSERT_OK(iree_hal_allocator_create_heap(iree_allocator_system(),
+                                                  &device_allocator_));
     atomic_pipelines_.pipeline_layout =
         reinterpret_cast<VkPipelineLayout>(static_cast<uintptr_t>(0x1111));
     atomic_pipelines_.pipeline_32 =

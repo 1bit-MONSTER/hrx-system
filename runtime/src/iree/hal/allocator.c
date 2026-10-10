@@ -12,38 +12,6 @@
 #include "iree/hal/detail.h"
 #include "iree/hal/resource.h"
 
-//===----------------------------------------------------------------------===//
-// String utils
-//===----------------------------------------------------------------------===//
-
-static const iree_bitfield_string_mapping_t
-    iree_hal_buffer_compatibility_mappings[] = {
-        {IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE, IREE_SVL("ALLOCATABLE")},
-        {IREE_HAL_BUFFER_COMPATIBILITY_IMPORTABLE, IREE_SVL("IMPORTABLE")},
-        {IREE_HAL_BUFFER_COMPATIBILITY_EXPORTABLE, IREE_SVL("EXPORTABLE")},
-        {IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER,
-         IREE_SVL("QUEUE_TRANSFER")},
-        {IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH,
-         IREE_SVL("QUEUE_DISPATCH")},
-        {IREE_HAL_BUFFER_COMPATIBILITY_LOW_PERFORMANCE,
-         IREE_SVL("LOW_PERFORMANCE")},
-};
-
-IREE_API_EXPORT iree_status_t iree_hal_buffer_compatibility_parse(
-    iree_string_view_t value, iree_hal_buffer_compatibility_t* out_value) {
-  return iree_bitfield_parse(
-      value, IREE_ARRAYSIZE(iree_hal_buffer_compatibility_mappings),
-      iree_hal_buffer_compatibility_mappings, out_value);
-}
-
-IREE_API_EXPORT iree_string_view_t
-iree_hal_buffer_compatibility_format(iree_hal_buffer_compatibility_t value,
-                                     iree_bitfield_string_temp_t* out_temp) {
-  return iree_bitfield_format_inline(
-      value, IREE_ARRAYSIZE(iree_hal_buffer_compatibility_mappings),
-      iree_hal_buffer_compatibility_mappings, out_temp);
-}
-
 IREE_API_EXPORT iree_status_t iree_hal_allocator_statistics_format(
     const iree_hal_allocator_statistics_t* statistics,
     iree_string_builder_t* builder) {
@@ -86,16 +54,6 @@ IREE_API_EXPORT iree_allocator_t iree_hal_allocator_host_allocator(
     const iree_hal_allocator_t* IREE_RESTRICT allocator) {
   IREE_ASSERT_ARGUMENT(allocator);
   return _VTABLE_DISPATCH(allocator, host_allocator)(allocator);
-}
-
-IREE_API_EXPORT
-iree_status_t iree_hal_allocator_trim(
-    iree_hal_allocator_t* IREE_RESTRICT allocator) {
-  IREE_ASSERT_ARGUMENT(allocator);
-  IREE_TRACE_ZONE_BEGIN(z0);
-  iree_status_t status = _VTABLE_DISPATCH(allocator, trim)(allocator);
-  IREE_TRACE_ZONE_END(z0);
-  return status;
 }
 
 IREE_API_EXPORT void iree_hal_allocator_query_statistics(
@@ -155,133 +113,6 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_query_memory_heaps(
   }
   return _VTABLE_DISPATCH(allocator, query_memory_heaps)(allocator, capacity,
                                                          heaps, out_count);
-}
-
-IREE_API_EXPORT iree_hal_buffer_compatibility_t
-iree_hal_allocator_query_buffer_compatibility(
-    iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_params_t params, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t* out_params,
-    iree_device_size_t* out_allocation_size) {
-  IREE_ASSERT_ARGUMENT(allocator);
-  iree_hal_buffer_params_canonicalize(&params);
-  iree_hal_buffer_compatibility_t result =
-      _VTABLE_DISPATCH(allocator, query_buffer_compatibility)(
-          allocator, &params, &allocation_size);
-  if (result != IREE_HAL_BUFFER_COMPATIBILITY_NONE) {
-    if (out_params) {
-      *out_params = params;
-    }
-    if (out_allocation_size) {
-      *out_allocation_size = allocation_size;
-    }
-  }
-  return result;
-}
-
-IREE_API_EXPORT iree_status_t iree_hal_allocator_allocate_buffer(
-    iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_params_t params, iree_device_size_t allocation_size,
-    iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
-  IREE_ASSERT_ARGUMENT(allocator);
-  IREE_ASSERT_ARGUMENT(out_buffer);
-  *out_buffer = NULL;
-  IREE_TRACE_ZONE_BEGIN(z0);
-  IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, (int64_t)allocation_size);
-  iree_hal_buffer_params_canonicalize(&params);
-  iree_status_t status = _VTABLE_DISPATCH(allocator, allocate_buffer)(
-      allocator, &params, allocation_size, out_buffer);
-  IREE_TRACE_ZONE_END(z0);
-  return status;
-}
-
-IREE_API_EXPORT void iree_hal_allocator_deallocate_buffer(
-    iree_hal_allocator_t* IREE_RESTRICT allocator, iree_hal_buffer_t* buffer) {
-  IREE_ASSERT_ARGUMENT(allocator);
-  IREE_ASSERT_ARGUMENT(buffer);
-  IREE_TRACE_ZONE_BEGIN(z0);
-  IREE_TRACE_ZONE_APPEND_VALUE_I64(
-      z0, (int64_t)iree_hal_buffer_allocation_size(buffer));
-  _VTABLE_DISPATCH(allocator, deallocate_buffer)(allocator, buffer);
-  IREE_TRACE_ZONE_END(z0);
-}
-
-typedef struct iree_hal_allocator_import_owner_t {
-  iree_allocator_t host_allocator;
-  iree_hal_external_storage_t storage;
-} iree_hal_allocator_import_owner_t;
-
-static void iree_hal_allocator_import_owner_release(void* user_data,
-                                                    iree_hal_buffer_t* buffer) {
-  (void)buffer;
-  iree_hal_allocator_import_owner_t* owner = user_data;
-  iree_allocator_t host_allocator = owner->host_allocator;
-  iree_hal_external_storage_release(&owner->storage);
-  iree_allocator_free(host_allocator, owner);
-}
-
-IREE_API_EXPORT iree_status_t iree_hal_allocator_import_buffer(
-    iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_params_t params,
-    iree_hal_external_storage_t* IREE_RESTRICT inout_storage,
-    iree_hal_buffer_range_t logical_range,
-    iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
-  IREE_ASSERT_ARGUMENT(allocator);
-  IREE_ASSERT_ARGUMENT(inout_storage);
-  IREE_ASSERT_ARGUMENT(out_buffer);
-  *out_buffer = NULL;
-  IREE_TRACE_ZONE_BEGIN(z0);
-  iree_device_size_t byte_offset = 0;
-  iree_device_size_t byte_length = 0;
-  iree_status_t status = iree_hal_buffer_calculate_range(
-      0, inout_storage->byte_length, logical_range.byte_offset,
-      logical_range.byte_length, &byte_offset, &byte_length);
-  if (!iree_status_is_ok(status)) {
-    IREE_TRACE_ZONE_END(z0);
-    return status;
-  }
-  iree_hal_buffer_params_canonicalize(&params);
-
-  const iree_allocator_t host_allocator =
-      iree_hal_allocator_host_allocator(allocator);
-  iree_hal_allocator_import_owner_t* owner = NULL;
-  status =
-      iree_allocator_malloc(host_allocator, sizeof(*owner), (void**)&owner);
-  if (iree_status_is_ok(status)) {
-    memset(owner, 0, sizeof(*owner));
-    owner->host_allocator = host_allocator;
-  }
-
-  iree_hal_buffer_t* root_buffer = NULL;
-  if (iree_status_is_ok(status)) {
-    const iree_hal_buffer_release_callback_t release_callback = {
-        .fn = iree_hal_allocator_import_owner_release,
-        .user_data = owner,
-    };
-    status = _VTABLE_DISPATCH(allocator, import_buffer)(
-        allocator, &params, inout_storage, release_callback, &root_buffer);
-  }
-  const bool owner_transferred = root_buffer != NULL;
-  iree_hal_buffer_t* result_buffer = root_buffer;
-  if (iree_status_is_ok(status) &&
-      (byte_offset != 0 || byte_length != inout_storage->byte_length)) {
-    result_buffer = NULL;
-    status = iree_hal_buffer_subspan(root_buffer, byte_offset, byte_length,
-                                     host_allocator, &result_buffer);
-    iree_hal_buffer_release(root_buffer);
-    root_buffer = NULL;
-  }
-  if (iree_status_is_ok(status)) {
-    owner->storage = *inout_storage;
-    memset(inout_storage, 0, sizeof(*inout_storage));
-    *out_buffer = result_buffer;
-  } else if (root_buffer) {
-    iree_hal_buffer_release(root_buffer);
-  } else if (!owner_transferred) {
-    iree_allocator_free(host_allocator, owner);
-  }
-  IREE_TRACE_ZONE_END(z0);
-  return status;
 }
 
 //===----------------------------------------------------------------------===//

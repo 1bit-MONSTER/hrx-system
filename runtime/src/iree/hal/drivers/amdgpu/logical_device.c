@@ -2239,10 +2239,6 @@ static iree_status_t iree_hal_amdgpu_logical_device_trim(
     iree_hal_amdgpu_physical_device_trim(logical_device->physical_devices[i]);
   }
 
-  // Trim the allocator pools, if any.
-  IREE_RETURN_IF_ERROR(
-      iree_hal_allocator_trim(logical_device->device_allocator));
-
   // Trim host pools.
   iree_arena_block_pool_trim(&logical_device->host_block_pools.small);
   iree_arena_block_pool_trim(&logical_device->host_block_pools.large);

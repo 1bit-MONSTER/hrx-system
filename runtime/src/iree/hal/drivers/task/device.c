@@ -517,7 +517,6 @@ static iree_status_t iree_hal_task_device_trim(iree_hal_device_t* base_device) {
   for (iree_host_size_t i = 0; i < device->queue_count; ++i) {
     iree_hal_task_queue_trim(&device->queues[i]);
   }
-  IREE_RETURN_IF_ERROR(iree_hal_allocator_trim(device->device_allocator));
 
   iree_arena_block_pool_trim(&device->small_block_pool);
   iree_arena_block_pool_trim(&device->large_block_pool);

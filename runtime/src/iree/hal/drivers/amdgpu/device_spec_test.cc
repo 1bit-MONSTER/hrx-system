@@ -59,8 +59,7 @@ static void CreateDeviceSpecForProcessor(
 TEST(DeviceSpecTest, CreatesSpecFromParams) {
   iree_hal_allocator_t* allocator = NULL;
   IREE_ASSERT_OK(
-      iree_hal_allocator_create_heap(IREE_SV("test"), iree_allocator_system(),
-                                     iree_allocator_system(), &allocator));
+      iree_hal_allocator_create_heap(iree_allocator_system(), &allocator));
 
   iree_hal_device_spec_t* device_spec = NULL;
   CreateDeviceSpecForProcessor(IREE_SV("gfx1100"), 32, allocator, &device_spec);
@@ -154,8 +153,7 @@ TEST(DeviceSpecTest, ReportsProcessorWavefrontSupport) {
 
   iree_hal_allocator_t* allocator = NULL;
   IREE_ASSERT_OK(
-      iree_hal_allocator_create_heap(IREE_SV("test"), iree_allocator_system(),
-                                     iree_allocator_system(), &allocator));
+      iree_hal_allocator_create_heap(iree_allocator_system(), &allocator));
 
   for (const Case& test_case : cases) {
     iree_hal_device_spec_t* device_spec = NULL;
@@ -181,8 +179,7 @@ TEST(DeviceSpecTest, ReportsProcessorWavefrontSupport) {
 TEST(DeviceSpecTest, AdvertisesTargetsPerPhysicalDevice) {
   iree_hal_allocator_t* allocator = NULL;
   IREE_ASSERT_OK(
-      iree_hal_allocator_create_heap(IREE_SV("test"), iree_allocator_system(),
-                                     iree_allocator_system(), &allocator));
+      iree_hal_allocator_create_heap(iree_allocator_system(), &allocator));
 
   iree_hal_amdgpu_target_identity_t identities[2];
   IREE_ASSERT_OK(iree_hal_amdgpu_target_identity_parse_artifact_key(

@@ -50,9 +50,8 @@ class TaskQueueAllocaTest : public ::testing::TestWithParam<iree_host_size_t> {
         executor_options, &topology, iree_allocator_system(), &executor_);
     iree_task_topology_deinitialize(&topology);
     IREE_ASSERT_OK(status);
-    IREE_ASSERT_OK(iree_hal_allocator_create_heap(
-        IREE_SV("shared_pool"), iree_allocator_system(),
-        iree_allocator_system(), &allocator_));
+    IREE_ASSERT_OK(
+        iree_hal_allocator_create_heap(iree_allocator_system(), &allocator_));
 
     auto progress_options = iree_async_proactor_pool_options_default();
     // The test owns polling so it can observe both waits registered on the

@@ -33,9 +33,8 @@ class TaskQueueTest : public ::testing::TestWithParam<iree_host_size_t> {
     iree_task_topology_deinitialize(&topology);
     IREE_ASSERT_OK(executor_status);
 
-    IREE_ASSERT_OK(iree_hal_allocator_create_heap(
-        IREE_SV("task_queue_test"), iree_allocator_system(),
-        iree_allocator_system(), &device_allocator_));
+    IREE_ASSERT_OK(iree_hal_allocator_create_heap(iree_allocator_system(),
+                                                  &device_allocator_));
     IREE_ASSERT_OK(iree_async_proactor_pool_create(
         /*node_count=*/1, /*node_ids=*/nullptr,
         iree_async_proactor_pool_options_default(), iree_allocator_system(),

@@ -94,9 +94,6 @@ iree_cc_library(
   SRCS
     "webgpu_allocator.c"
   DEPS
-    ::handle_table
-    ::webgpu_buffer
-    ::webgpu_imports
     iree::base
     iree::hal
   PUBLIC

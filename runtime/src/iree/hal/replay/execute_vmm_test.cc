@@ -308,13 +308,8 @@ static iree_status_t vmm_test_allocator_virtual_memory_advise(
 const iree_hal_allocator_vtable_t vmm_test_allocator_vtable = {
     /*.destroy=*/vmm_test_allocator_destroy,
     /*.host_allocator=*/vmm_test_allocator_host_allocator,
-    /*.trim=*/nullptr,
     /*.query_statistics=*/nullptr,
     /*.query_memory_heaps=*/nullptr,
-    /*.query_buffer_compatibility=*/nullptr,
-    /*.allocate_buffer=*/nullptr,
-    /*.deallocate_buffer=*/nullptr,
-    /*.import_buffer=*/nullptr,
     /*.supports_virtual_memory=*/vmm_test_allocator_supports_virtual_memory,
     /*.virtual_memory_query_granularity=*/
     vmm_test_allocator_query_granularity,

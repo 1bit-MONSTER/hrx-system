@@ -24,19 +24,13 @@ extern "C" {
 // Types and Enums
 //===----------------------------------------------------------------------===//
 
-// Describes a heap of allocatable memory of a specific type.
-// Each allocator exposes one or more heaps with differing characteristics. In
-// local CPU execution or GPUs with unified memory there may only be one heap
-// that covers all memory types and usage while in an out-of-process/sandboxed
-// or discrete GPU configuration there may be multiple heaps representing the
-// differing memory system properties.
+// Describes one native memory heap available to a device.
 //
-// Allocation requests are routed to heaps based on the provided buffer
-// properties by matching the first heap in the list that meets the
-// requirements. When enumerated the heaps will be in preferred usage order such
-// that the matching will always select the most preferred memory heap first
-// (intended to be the fastest for a given usage). If no heaps can satisfy a
-// given request then allocation will fail.
+// Heap discovery is informational: explicit pool construction selects a native
+// route and owns subsequent buffer allocation or import. Heaps are enumerated
+// in the backend's preferred order for common execution, with the most
+// preferred first. A local CPU or unified-memory device may expose one heap,
+// while a discrete or remote device may expose several distinct placements.
 typedef struct iree_hal_allocator_memory_heap_t {
   // Bits that describe the residency and behavior of the memory type.
   iree_hal_memory_type_t type;
@@ -51,68 +45,13 @@ typedef struct iree_hal_allocator_memory_heap_t {
   // and queue-family capabilities are required independently.
   iree_hal_atomic_operation_capabilities_t atomic_operations;
 
-  // Maximum size, in bytes, of any individual allocation of this type.
-  // Allocations over this size will fail. Note that due to fragmentation it's
-  // also possible for allocations under this size to fail.
+  // Maximum size, in bytes, of any individual native allocation of this type.
+  // Smaller allocations may still fail due to fragmentation or exhaustion.
   iree_device_size_t max_allocation_size;
 
-  // Minimum alignment, in bytes, of allocations of this type.
-  // Allocation requests will have their alignment rounded up to at least this.
+  // Minimum alignment, in bytes, of native allocations of this type.
   iree_device_size_t min_alignment;
 } iree_hal_allocator_memory_heap_t;
-
-// A bitfield indicating compatible behavior for buffers in an allocator.
-enum iree_hal_buffer_compatibility_bits_t {
-  // Indicates (in the absence of other bits) the buffer is not compatible with
-  // the allocator or device at all. Any attempts to use the buffer for any
-  // usage will fail. This will happen if the buffer is device-local to another
-  // device without peering and not visible to the host.
-  IREE_HAL_BUFFER_COMPATIBILITY_NONE = 0u,
-
-  // Indicates that the allocator could allocate new buffers of this type and
-  // usage natively. Allocations with the queried parameters may still fail due
-  // to runtime conditions (out of memory, fragmentation, etc) but are otherwise
-  // valid.
-  IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE = 1u << 0,
-
-  // Indicates that the allocator could import external buffers of this type and
-  // usage natively. Imports may fail due to runtime conditions (out of handles,
-  // invalid pointer address spaces/page parameters, etc) but are otherwise
-  // valid.
-  IREE_HAL_BUFFER_COMPATIBILITY_IMPORTABLE = 1u << 1,
-
-  // Indicates that buffers allocated with this type and usage can be exported
-  // natively. Exports may fail due to runtime conditions (out of handles, etc)
-  // but are otherwise valid.
-  IREE_HAL_BUFFER_COMPATIBILITY_EXPORTABLE = 1u << 2,
-
-  // Indicates that the buffer can be used as a transfer source or target on the
-  // a device queue (such as being the source or target of a DMA operation,
-  // etc). If not set then the buffer may still be usable for
-  // iree_hal_buffer_map_copy but not with queued operations.
-  IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER = 1u << 10,
-
-  // Indicates that the buffer can be used as an input/output to a dispatch.
-  IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH = 1u << 11,
-
-  // Indicates that buffers allocated this way may have much lower performance
-  // than others. An example would be a buffer that must be allocated in host
-  // memory and accessed by the device over the PCI bus as compared to device
-  // local memory that will be significantly faster.
-  IREE_HAL_BUFFER_COMPATIBILITY_LOW_PERFORMANCE = 1u << 20,
-};
-typedef uint32_t iree_hal_buffer_compatibility_t;
-
-// Parses a buffer compatibility bitfield from a string.
-// See iree_bitfield_parse for usage.
-IREE_API_EXPORT iree_status_t iree_hal_buffer_compatibility_parse(
-    iree_string_view_t value, iree_hal_buffer_compatibility_t* out_value);
-
-// Formats a buffer compatibility bitfield as a string.
-// See iree_bitfield_format for usage.
-IREE_API_EXPORT iree_string_view_t
-iree_hal_buffer_compatibility_format(iree_hal_buffer_compatibility_t value,
-                                     iree_bitfield_string_temp_t* out_temp);
 
 //===----------------------------------------------------------------------===//
 // Virtual Memory Management
@@ -262,13 +201,10 @@ IREE_API_EXPORT void iree_hal_allocator_release(
 IREE_API_EXPORT iree_allocator_t iree_hal_allocator_host_allocator(
     const iree_hal_allocator_t* IREE_RESTRICT allocator);
 
-// Trims cached/unused pooled buffers, if any.
-IREE_API_EXPORT
-iree_status_t iree_hal_allocator_trim(
-    iree_hal_allocator_t* IREE_RESTRICT allocator);
-
-// Queries the aggregate statistics from the allocator since creation.
-// Thread-safe; statistics are captured at the time the call is made.
+// Queries aggregate native backing statistics from the allocator since
+// creation. Explicit pool allocations are reported by
+// iree_hal_pool_query_stats() instead. Thread-safe; statistics are captured at
+// the time the call is made.
 //
 // NOTE: statistics may be compiled out in some configurations and this call
 // will become a memset(0).
@@ -281,9 +217,10 @@ IREE_API_EXPORT void iree_hal_allocator_query_statistics(
 IREE_API_EXPORT iree_status_t iree_hal_allocator_statistics_fprint(
     FILE* file, iree_hal_allocator_t* IREE_RESTRICT allocator);
 
-// Queries the available memory heaps used for servicing allocation requests.
+// Queries the native memory heaps visible to the allocator.
 // The resulting heaps are sorted in preferred performance order for common
-// execution with the most preferred first.
+// execution, with the most preferred first. Pool factories use this metadata
+// as one input when qualifying concrete memory routes.
 //
 // If |heaps| is NULL then the call will query the heap count. This allows for
 // preallocation of storage:
@@ -299,73 +236,6 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_query_memory_heaps(
     iree_hal_allocator_t* IREE_RESTRICT allocator, iree_host_size_t capacity,
     iree_hal_allocator_memory_heap_t* IREE_RESTRICT heaps,
     iree_host_size_t* IREE_RESTRICT out_count);
-
-// Returns a bitmask indicating what operations with buffers of the given type
-// are available on the allocator. If any parameters or the allocation size must
-// be changed by the allocator to match device requirements they will be
-// returned in the optional |out_params| and |out_allocation_size| arguments.
-//
-// For buffers allocated from the given allocator it's expected that the result
-// will always be non-NONE. For buffers that originate from another allocator
-// there may be limited support for cross-device usage.
-//
-// Returning IREE_HAL_BUFFER_COMPATIBILITY_NONE indicates that the buffer must
-// be transferred externally into a buffer compatible with the device the
-// allocator services.
-IREE_API_EXPORT iree_hal_buffer_compatibility_t
-iree_hal_allocator_query_buffer_compatibility(
-    iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_params_t params, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t* out_params,
-    iree_device_size_t* out_allocation_size);
-
-// Allocates a buffer from the allocator.
-//
-// The memory type of the buffer returned may differ from the requested value
-// if the device can provide more functionality; for example, if requesting
-// IREE_HAL_MEMORY_TYPE_HOST_VISIBLE but the memory is really host cached you
-// may get a buffer back with IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
-// IREE_HAL_MEMORY_TYPE_HOST_CACHED. The only requirement is that the buffer
-// satisfy the required bits.
-//
-// |out_buffer| must be released by the caller.
-// Fails if the memory type requested for the given usage cannot be serviced.
-// Callers can use iree_hal_allocator_query_buffer_compatibility to decide their
-// memory use strategy.
-IREE_API_EXPORT iree_status_t iree_hal_allocator_allocate_buffer(
-    iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_params_t params, iree_device_size_t allocation_size,
-    iree_hal_buffer_t** out_buffer);
-
-// TODO(benvanik): iree_hal_allocator_query_external_buffer_compatibility to
-// check for support without needing an external buffer already. There's a few
-// usage modes and it'd be nice to have a single function for it to keep the
-// interface slimmer.
-
-// Imports a |logical_range| of typed external storage to a buffer handle.
-// This legacy allocator entry point remains only while allocation owners move
-// to iree_hal_pool_import_buffer. See iree_hal_external_storage_t for transport
-// ownership and native compatibility requirements.
-//
-// iree_hal_allocator_query_buffer_compatibility can be used to query whether a
-// buffer can be imported when using the given memory type and usage. A
-// compatibility result containing IREE_HAL_BUFFER_COMPATIBILITY_IMPORTABLE
-// means the import _may_ succeed however if the pointer/page range is not in a
-// supported mode (no read access, etc) this call will fail with
-// IREE_STATUS_OUT_OF_RANGE.
-//
-// |out_buffer| must be released by the caller.
-// Success consumes and zeros |inout_storage|. Failure leaves it unchanged and
-// publishes no buffer. Any storage release callback runs after the imported
-// root and its dependent views are destroyed.
-// Fails with IREE_STATUS_UNAVAILABLE if the allocator cannot import the buffer
-// into the given memory type. This may be due to unavailable device/platform
-// capabilities or the memory type the external buffer was allocated with.
-IREE_API_EXPORT iree_status_t iree_hal_allocator_import_buffer(
-    iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_params_t params,
-    iree_hal_external_storage_t* IREE_RESTRICT inout_storage,
-    iree_hal_buffer_range_t logical_range, iree_hal_buffer_t** out_buffer);
 
 //===----------------------------------------------------------------------===//
 // Virtual Memory Management
@@ -540,17 +410,9 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_virtual_memory_advise(
 // iree_hal_heap_allocator_t
 //===----------------------------------------------------------------------===//
 
-// Creates a host-local heap allocator that can be used when buffers are
-// required that will not interact with a real hardware device (such as those
-// used in file IO or tests). Buffers allocated with this will not be compatible
-// with real device allocators and will likely incur a copy (or failure) if
-// used.
-//
-// The buffers created from the allocator will use |host_allocator| for their
-// metadata and |data_allocator| for their device storage allocations. If the
-// two are the same the buffers will be allocated in a single flat slab.
+// Creates allocator metadata describing ordinary coherent host memory.
+// Buffer storage is acquired through an explicit heap pool.
 IREE_API_EXPORT iree_status_t iree_hal_allocator_create_heap(
-    iree_string_view_t identifier, iree_allocator_t data_allocator,
     iree_allocator_t host_allocator, iree_hal_allocator_t** out_allocator);
 
 //===----------------------------------------------------------------------===//
@@ -563,9 +425,6 @@ typedef struct iree_hal_allocator_vtable_t {
   iree_allocator_t(IREE_API_PTR* host_allocator)(
       const iree_hal_allocator_t* IREE_RESTRICT allocator);
 
-  iree_status_t(IREE_API_PTR* trim)(
-      iree_hal_allocator_t* IREE_RESTRICT allocator);
-
   void(IREE_API_PTR* query_statistics)(
       iree_hal_allocator_t* IREE_RESTRICT allocator,
       iree_hal_allocator_statistics_t* IREE_RESTRICT out_statistics);
@@ -574,28 +433,6 @@ typedef struct iree_hal_allocator_vtable_t {
       iree_hal_allocator_t* IREE_RESTRICT allocator, iree_host_size_t capacity,
       iree_hal_allocator_memory_heap_t* IREE_RESTRICT heaps,
       iree_host_size_t* IREE_RESTRICT out_count);
-
-  iree_hal_buffer_compatibility_t(IREE_API_PTR* query_buffer_compatibility)(
-      iree_hal_allocator_t* IREE_RESTRICT allocator,
-      iree_hal_buffer_params_t* IREE_RESTRICT params,
-      iree_device_size_t* IREE_RESTRICT allocation_size);
-
-  iree_status_t(IREE_API_PTR* allocate_buffer)(
-      iree_hal_allocator_t* IREE_RESTRICT allocator,
-      const iree_hal_buffer_params_t* IREE_RESTRICT params,
-      iree_device_size_t allocation_size,
-      iree_hal_buffer_t** IREE_RESTRICT out_buffer);
-
-  void(IREE_API_PTR* deallocate_buffer)(
-      iree_hal_allocator_t* IREE_RESTRICT allocator,
-      iree_hal_buffer_t* IREE_RESTRICT buffer);
-
-  iree_status_t(IREE_API_PTR* import_buffer)(
-      iree_hal_allocator_t* IREE_RESTRICT allocator,
-      const iree_hal_buffer_params_t* IREE_RESTRICT params,
-      const iree_hal_external_storage_t* IREE_RESTRICT storage,
-      iree_hal_buffer_release_callback_t release_callback,
-      iree_hal_buffer_t** IREE_RESTRICT out_buffer);
 
   // Virtual memory management operations.
   bool(IREE_API_PTR* supports_virtual_memory)(
@@ -650,15 +487,9 @@ IREE_HAL_ASSERT_VTABLE_LAYOUT(iree_hal_allocator_vtable_t);
 IREE_API_EXPORT void iree_hal_allocator_destroy(
     iree_hal_allocator_t* IREE_RESTRICT allocator);
 
-// TODO(#19159): remove iree_hal_allocator_deallocate_buffer when pooling no
-// longer requires the pooling_allocator on iree_hal_buffer_t.
-IREE_API_EXPORT void iree_hal_allocator_deallocate_buffer(
-    iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_t* IREE_RESTRICT buffer);
-
 #if IREE_STATISTICS_ENABLE
 
-// Records a buffer allocation to |statistics|.
+// Records a native backing allocation to |statistics|.
 static inline void iree_hal_allocator_statistics_record_alloc(
     iree_hal_allocator_statistics_t* statistics,
     iree_hal_memory_type_t memory_type, iree_device_size_t allocation_size) {
@@ -675,7 +506,7 @@ static inline void iree_hal_allocator_statistics_record_alloc(
   }
 }
 
-// Records a buffer deallocation to |statistics|.
+// Records a native backing deallocation to |statistics|.
 static inline void iree_hal_allocator_statistics_record_free(
     iree_hal_allocator_statistics_t* statistics,
     iree_hal_memory_type_t memory_type, iree_device_size_t allocation_size) {

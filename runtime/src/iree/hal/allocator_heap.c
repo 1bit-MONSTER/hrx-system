@@ -8,8 +8,6 @@
 
 #include "iree/base/api.h"
 #include "iree/hal/allocator.h"
-#include "iree/hal/buffer.h"
-#include "iree/hal/buffer_heap_impl.h"
 #include "iree/hal/resource.h"
 
 static const iree_hal_memory_type_t iree_hal_heap_allocator_memory_type =
@@ -19,9 +17,6 @@ static const iree_hal_memory_type_t iree_hal_heap_allocator_memory_type =
 typedef struct iree_hal_heap_allocator_t {
   iree_hal_resource_t resource;
   iree_allocator_t host_allocator;
-  iree_allocator_t data_allocator;
-  iree_string_view_t identifier;
-  IREE_STATISTICS(iree_hal_heap_allocator_statistics_t statistics;)
 } iree_hal_heap_allocator_t;
 
 static const iree_hal_allocator_vtable_t iree_hal_heap_allocator_vtable;
@@ -32,31 +27,18 @@ iree_hal_heap_allocator_t* iree_hal_heap_allocator_cast(
 }
 
 IREE_API_EXPORT iree_status_t iree_hal_allocator_create_heap(
-    iree_string_view_t identifier, iree_allocator_t data_allocator,
     iree_allocator_t host_allocator, iree_hal_allocator_t** out_allocator) {
   IREE_ASSERT_ARGUMENT(out_allocator);
   *out_allocator = NULL;
   IREE_TRACE_ZONE_BEGIN(z0);
 
   iree_hal_heap_allocator_t* allocator = NULL;
-  iree_host_size_t total_size =
-      iree_sizeof_struct(*allocator) + identifier.size;
-  iree_status_t status =
-      iree_allocator_malloc(host_allocator, total_size, (void**)&allocator);
+  iree_status_t status = iree_allocator_malloc(
+      host_allocator, sizeof(*allocator), (void**)&allocator);
   if (iree_status_is_ok(status)) {
     iree_hal_resource_initialize(&iree_hal_heap_allocator_vtable,
                                  &allocator->resource);
     allocator->host_allocator = host_allocator;
-    allocator->data_allocator = data_allocator;
-    iree_string_view_append_to_buffer(
-        identifier, &allocator->identifier,
-        (char*)allocator + iree_sizeof_struct(*allocator));
-
-    IREE_STATISTICS({
-      // All start initialized to zero.
-      iree_slim_mutex_initialize(&allocator->statistics.mutex);
-    });
-
     *out_allocator = (iree_hal_allocator_t*)allocator;
   }
 
@@ -71,8 +53,6 @@ static void iree_hal_heap_allocator_destroy(
   iree_allocator_t host_allocator = allocator->host_allocator;
   IREE_TRACE_ZONE_BEGIN(z0);
 
-  IREE_STATISTICS(iree_slim_mutex_deinitialize(&allocator->statistics.mutex));
-
   iree_allocator_free(host_allocator, allocator);
 
   IREE_TRACE_ZONE_END(z0);
@@ -85,22 +65,11 @@ static iree_allocator_t iree_hal_heap_allocator_host_allocator(
   return allocator->host_allocator;
 }
 
-static iree_status_t iree_hal_heap_allocator_trim(
-    iree_hal_allocator_t* IREE_RESTRICT base_allocator) {
-  return iree_ok_status();
-}
-
 static void iree_hal_heap_allocator_query_statistics(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
     iree_hal_allocator_statistics_t* IREE_RESTRICT out_statistics) {
-  IREE_STATISTICS({
-    iree_hal_heap_allocator_t* allocator =
-        iree_hal_heap_allocator_cast(base_allocator);
-    iree_slim_mutex_lock(&allocator->statistics.mutex);
-    memcpy(out_statistics, &allocator->statistics.base,
-           sizeof(*out_statistics));
-    iree_slim_mutex_unlock(&allocator->statistics.mutex);
-  });
+  (void)base_allocator;
+  (void)out_statistics;
 }
 
 static iree_status_t iree_hal_heap_allocator_query_memory_heaps(
@@ -135,157 +104,6 @@ static iree_status_t iree_hal_heap_allocator_query_memory_heaps(
       .min_alignment = IREE_HAL_HEAP_BUFFER_ALIGNMENT,
   };
   return iree_ok_status();
-}
-
-static iree_hal_buffer_compatibility_t
-iree_hal_heap_allocator_query_buffer_compatibility(
-    iree_hal_allocator_t* IREE_RESTRICT base_allocator,
-    iree_hal_buffer_params_t* IREE_RESTRICT params,
-    iree_device_size_t* IREE_RESTRICT allocation_size) {
-  if (!iree_device_size_is_valid_alignment(params->min_alignment) ||
-      params->min_alignment > IREE_HOST_SIZE_MAX ||
-      *allocation_size > IREE_HOST_SIZE_MAX) {
-    return IREE_HAL_BUFFER_COMPATIBILITY_NONE;
-  }
-  if (iree_any_bit_set(params->type, IREE_HAL_MEMORY_TYPE_DEVICE_UNCACHED)) {
-    return IREE_HAL_BUFFER_COMPATIBILITY_NONE;
-  }
-  const iree_hal_memory_type_t required_type =
-      params->type & ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
-  if (!iree_all_bits_set(iree_hal_heap_allocator_memory_type, required_type)) {
-    return IREE_HAL_BUFFER_COMPATIBILITY_NONE;
-  }
-
-  // All buffers can be allocated on the heap and all heap-accessible buffers
-  // can be imported/exported.
-  iree_hal_buffer_compatibility_t compatibility =
-      IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE |
-      IREE_HAL_BUFFER_COMPATIBILITY_IMPORTABLE |
-      IREE_HAL_BUFFER_COMPATIBILITY_EXPORTABLE;
-
-  // Buffers can only be used on the queue if they are device visible.
-  // This is not a strict requirement of heap buffers but matches devices that
-  // have discrete memory spaces (remoting/sandboxed, GPUs, etc) and makes it
-  // much easier to find issues of buffer definition with local devices that
-  // will cause issues when used with real devices.
-  if (iree_all_bits_set(params->type, IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE)) {
-    if (iree_any_bit_set(params->usage, IREE_HAL_BUFFER_USAGE_TRANSFER)) {
-      compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER;
-    }
-    if (iree_any_bit_set(params->usage, IREE_HAL_BUFFER_USAGE_DISPATCH)) {
-      compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH;
-    }
-  }
-
-  // Heap memory is coherent cached UMA for CPU devices.
-  params->type = iree_hal_heap_allocator_memory_type;
-
-  return compatibility;
-}
-
-static iree_status_t iree_hal_heap_allocator_allocate_buffer(
-    iree_hal_allocator_t* IREE_RESTRICT base_allocator,
-    const iree_hal_buffer_params_t* IREE_RESTRICT params,
-    iree_device_size_t allocation_size,
-    iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
-  iree_hal_heap_allocator_t* allocator =
-      iree_hal_heap_allocator_cast(base_allocator);
-
-  // Coerce options into those required for use by heap-based devices.
-  iree_hal_buffer_params_t compat_params = *params;
-  if (!iree_all_bits_set(iree_hal_heap_allocator_query_buffer_compatibility(
-                             base_allocator, &compat_params, &allocation_size),
-                         IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "allocator cannot allocate a buffer with the given parameters");
-  }
-
-  // Allocate the buffer (both the wrapper and the contents).
-  iree_hal_heap_allocator_statistics_t* statistics = NULL;
-  IREE_STATISTICS(statistics = &allocator->statistics);
-  iree_hal_buffer_t* buffer = NULL;
-  IREE_RETURN_IF_ERROR(iree_hal_heap_buffer_create(
-      statistics, &compat_params, allocation_size, allocator->data_allocator,
-      allocator->host_allocator, &buffer));
-
-  *out_buffer = buffer;
-  return iree_ok_status();
-}
-
-static void iree_hal_heap_allocator_deallocate_buffer(
-    iree_hal_allocator_t* IREE_RESTRICT base_allocator,
-    iree_hal_buffer_t* IREE_RESTRICT base_buffer) {
-  // We don't do any pooling yet.
-  // TODO(benvanik): move stats tracking here.
-  iree_hal_buffer_destroy(base_buffer);
-}
-
-static iree_status_t iree_hal_heap_allocator_import_buffer(
-    iree_hal_allocator_t* IREE_RESTRICT base_allocator,
-    const iree_hal_buffer_params_t* IREE_RESTRICT params,
-    const iree_hal_external_storage_t* IREE_RESTRICT storage,
-    iree_hal_buffer_release_callback_t release_callback,
-    iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
-  iree_hal_heap_allocator_t* allocator =
-      iree_hal_heap_allocator_cast(base_allocator);
-
-  // Coerce options into those required for use by heap-based devices.
-  iree_hal_buffer_params_t compat_params = *params;
-  iree_device_size_t allocation_size = storage->byte_length;
-  if (!iree_all_bits_set(iree_hal_heap_allocator_query_buffer_compatibility(
-                             base_allocator, &compat_params, &allocation_size),
-                         IREE_HAL_BUFFER_COMPATIBILITY_IMPORTABLE)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "allocator cannot import a buffer with the given parameters");
-  }
-
-  void* ptr = NULL;
-  switch (storage->storage_class.type) {
-    case IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER:
-      ptr = storage->payload.host_pointer;
-      break;
-    case IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS:
-      ptr = (void*)(uintptr_t)storage->payload.device_address;
-      break;
-    default:
-      return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                              "external storage type not supported");
-  }
-  if (storage->storage_class.provenance[0] ||
-      storage->storage_class.provenance[1]) {
-    return iree_make_status(
-        IREE_STATUS_UNAVAILABLE,
-        "heap pointer import has no matching opaque provenance");
-  }
-  if (!ptr || storage->byte_length > IREE_HOST_SIZE_MAX) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "invalid heap pointer storage extent");
-  }
-
-  if (params->min_alignment &&
-      !iree_host_ptr_has_alignment(ptr,
-                                   (iree_host_size_t)params->min_alignment)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "imported heap buffer address does not satisfy minimum alignment "
-        "(address=%p, minimum_alignment=%" PRIdsz ")",
-        ptr, params->min_alignment);
-  }
-
-  const iree_hal_buffer_placement_t placement = {
-      .device = NULL,
-      .queue_family_affinity = compat_params.queue_family_affinity
-                                   ? compat_params.queue_family_affinity
-                                   : IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-      .flags = IREE_HAL_BUFFER_PLACEMENT_FLAG_NONE,
-  };
-  return iree_hal_heap_buffer_wrap(
-      placement, compat_params.type, compat_params.access, compat_params.usage,
-      storage->byte_length,
-      iree_make_byte_span(ptr, (iree_host_size_t)storage->byte_length),
-      release_callback, allocator->host_allocator, out_buffer);
 }
 
 static bool iree_hal_heap_allocator_supports_virtual_memory(
@@ -380,14 +198,8 @@ static iree_status_t iree_hal_heap_allocator_virtual_memory_advise(
 static const iree_hal_allocator_vtable_t iree_hal_heap_allocator_vtable = {
     .destroy = iree_hal_heap_allocator_destroy,
     .host_allocator = iree_hal_heap_allocator_host_allocator,
-    .trim = iree_hal_heap_allocator_trim,
     .query_statistics = iree_hal_heap_allocator_query_statistics,
     .query_memory_heaps = iree_hal_heap_allocator_query_memory_heaps,
-    .query_buffer_compatibility =
-        iree_hal_heap_allocator_query_buffer_compatibility,
-    .allocate_buffer = iree_hal_heap_allocator_allocate_buffer,
-    .deallocate_buffer = iree_hal_heap_allocator_deallocate_buffer,
-    .import_buffer = iree_hal_heap_allocator_import_buffer,
     .supports_virtual_memory = iree_hal_heap_allocator_supports_virtual_memory,
     .virtual_memory_query_granularity =
         iree_hal_heap_allocator_virtual_memory_query_granularity,

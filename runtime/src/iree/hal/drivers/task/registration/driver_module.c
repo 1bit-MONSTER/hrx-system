@@ -68,9 +68,7 @@ static iree_status_t iree_hal_task_driver_factory_try_create(
   // TODO(benvanik): allow this to be injected to share across drivers.
   iree_hal_allocator_t* device_allocator = NULL;
   if (iree_status_is_ok(status)) {
-    status = iree_hal_allocator_create_heap(iree_make_cstring_view("task"),
-                                            host_allocator, host_allocator,
-                                            &device_allocator);
+    status = iree_hal_allocator_create_heap(host_allocator, &device_allocator);
   }
 
   // Create a task driver that will use the given executors for scheduling work

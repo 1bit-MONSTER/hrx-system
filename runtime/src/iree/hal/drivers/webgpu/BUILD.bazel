@@ -101,9 +101,6 @@ iree_runtime_cc_library(
     srcs = ["webgpu_allocator.c"],
     hdrs = ["webgpu_allocator.h"],
     deps = [
-        ":handle_table",
-        ":webgpu_buffer",
-        ":webgpu_imports",
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
     ],

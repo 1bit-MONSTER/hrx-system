@@ -1964,13 +1964,8 @@ static iree_status_t RecorderVmmAllocatorAdvise(
 const iree_hal_allocator_vtable_t recorder_vmm_allocator_vtable = {
     /*.destroy=*/RecorderVmmAllocatorDestroy,
     /*.host_allocator=*/RecorderVmmAllocatorHostAllocator,
-    /*.trim=*/nullptr,
     /*.query_statistics=*/nullptr,
     /*.query_memory_heaps=*/nullptr,
-    /*.query_buffer_compatibility=*/nullptr,
-    /*.allocate_buffer=*/nullptr,
-    /*.deallocate_buffer=*/nullptr,
-    /*.import_buffer=*/nullptr,
     /*.supports_virtual_memory=*/RecorderVmmAllocatorSupportsVirtualMemory,
     /*.virtual_memory_query_granularity=*/
     RecorderVmmAllocatorQueryGranularity,

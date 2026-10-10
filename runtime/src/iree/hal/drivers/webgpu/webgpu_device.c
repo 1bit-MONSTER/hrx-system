@@ -274,7 +274,7 @@ iree_status_t iree_hal_webgpu_device_create(
 
   // Create the device allocator.
   if (iree_status_is_ok(status)) {
-    status = iree_hal_webgpu_allocator_create(device_handle, host_allocator,
+    status = iree_hal_webgpu_allocator_create(host_allocator,
                                               &device->device_allocator);
   }
 
@@ -388,8 +388,7 @@ static void iree_hal_webgpu_replace_channel_provider(
 
 static iree_status_t iree_hal_webgpu_device_trim(
     iree_hal_device_t* base_device) {
-  iree_hal_webgpu_device_t* device = iree_hal_webgpu_device_cast(base_device);
-  IREE_RETURN_IF_ERROR(iree_hal_allocator_trim(device->device_allocator));
+  (void)base_device;
   return iree_ok_status();
 }
 

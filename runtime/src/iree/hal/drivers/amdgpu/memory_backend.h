@@ -7,6 +7,7 @@
 #ifndef IREE_HAL_DRIVERS_AMDGPU_MEMORY_BACKEND_H_
 #define IREE_HAL_DRIVERS_AMDGPU_MEMORY_BACKEND_H_
 
+#include "iree/hal/allocator.h"
 #include "iree/hal/drivers/amdgpu/util/libhsa.h"
 #include "iree/hal/memory_backend.h"
 
