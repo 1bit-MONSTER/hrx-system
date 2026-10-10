@@ -307,6 +307,7 @@ iree_runtime_cc_library(
         "virtual_memory.h",
     ],
     hdrs = [
+        "allocator.h",
         "api.h",
     ],
     deps = [

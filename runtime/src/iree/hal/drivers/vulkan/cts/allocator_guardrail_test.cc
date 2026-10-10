@@ -38,7 +38,6 @@ TEST_P(VulkanAllocatorGuardrailTest, QueueAllocaAcceptsSparseSizedAllocation) {
       device_allocator_, heaps.size(), heaps.data(), &heap_count));
   heaps.resize(heap_count);
 
-  iree_hal_buffer_params_t params = {0};
   iree_device_size_t allocation_size = 0;
   for (const auto& heap : heaps) {
     if (!iree_all_bits_set(heap.allowed_usage,
@@ -47,8 +46,6 @@ TEST_P(VulkanAllocatorGuardrailTest, QueueAllocaAcceptsSparseSizedAllocation) {
     }
     if (iree_device_size_checked_add(heap.max_allocation_size, 1,
                                      &allocation_size)) {
-      params.type = heap.type;
-      params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
       break;
     }
   }
@@ -64,7 +61,7 @@ TEST_P(VulkanAllocatorGuardrailTest, QueueAllocaAcceptsSparseSizedAllocation) {
   IREE_ASSERT_OK(CreateDevicePool(IREE_HAL_BUFFER_USAGE_TRANSFER, pool.out()));
   const iree_hal_pool_reservation_request_t request =
       iree_hal_make_pool_reservation_request(allocation_size,
-                                             params.min_alignment);
+                                             /*min_alignment=*/1);
 
   Ref<iree_hal_buffer_t> buffer;
   SemaphoreList empty_wait;

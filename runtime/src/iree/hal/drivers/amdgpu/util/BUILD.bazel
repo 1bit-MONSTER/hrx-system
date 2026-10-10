@@ -486,6 +486,8 @@ iree_runtime_cc_benchmark(
         "//runtime/src/iree/base/threading",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/drivers/amdgpu",
+        "//runtime/src/iree/hal/drivers/amdgpu:headers",
         "//runtime/src/iree/hal/drivers/amdgpu/registration",
     ],
 )

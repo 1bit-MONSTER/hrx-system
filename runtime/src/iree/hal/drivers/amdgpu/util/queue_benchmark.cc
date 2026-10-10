@@ -18,6 +18,7 @@
 #include "iree/base/tooling/flags.h"
 #include "iree/hal/api.h"
 #include "iree/hal/cts/util/registry.h"
+#include "iree/hal/drivers/amdgpu/allocator.h"
 #include "iree/hal/drivers/amdgpu/aql_command_buffer.h"
 #include "iree/hal/drivers/amdgpu/buffer.h"
 #include "iree/hal/drivers/amdgpu/device/dispatch.h"
@@ -79,13 +80,8 @@ enum class QueueAllocaTlsfGrowthMode : int64_t {
   kForcedGrowth = 1,
 };
 
-constexpr iree_hal_buffer_params_t kQueueAllocaBufferParams = {
-    /*usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
-    /*access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-    /*type=*/IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE,
-    /*queue_family_affinity=*/0,
-    /*min_alignment=*/0,
-};
+constexpr iree_hal_buffer_usage_t kQueueAllocaBufferUsage =
+    IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE;
 
 iree_hal_device_profiling_data_families_t ProfileGuardrailDataFamilies(
     ProfileGuardrailMode mode) {
@@ -750,7 +746,7 @@ class QueueBenchmark : public benchmark::Fixture {
     options.tlsf_options.frontier_capacity = 2;
     const iree_hal_pool_family_access_t family_access = {
         /*.family=*/iree_hal_queue_family(queue0_),
-        /*.usage=*/kQueueAllocaBufferParams.usage,
+        /*.usage=*/kQueueAllocaBufferUsage,
     };
     const iree_hal_pool_scope_t scope = {
         /*.family_count=*/1,
@@ -781,8 +777,8 @@ class QueueBenchmark : public benchmark::Fixture {
         /*payload_values=*/&signal_payload_value,
     };
     const iree_hal_pool_reservation_request_t request =
-        iree_hal_make_pool_reservation_request(
-            allocation_size, kQueueAllocaBufferParams.min_alignment);
+        iree_hal_make_pool_reservation_request(allocation_size,
+                                               /*min_alignment=*/1);
     iree_hal_buffer_t* buffer = nullptr;
     IREE_RETURN_IF_ERROR(iree_hal_queue_alloca(
         queue0_, iree_hal_semaphore_list_empty(), signal_semaphore_list, pool,
@@ -1583,15 +1579,17 @@ class QueueBenchmark : public benchmark::Fixture {
     }
 
     iree_hal_allocator_t* allocator = iree_hal_device_allocator(device_);
-    iree_hal_buffer_params_t params = {0};
+    iree_hal_amdgpu_buffer_spec_t params = {0};
     params.usage = IREE_HAL_BUFFER_USAGE_STORAGE;
     params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
+    params.access = IREE_HAL_MEMORY_ACCESS_ALL;
+    params.queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
     params.min_alignment = kPayloadBufferAlignment;
     for (iree_host_size_t i = 0; i < (iree_host_size_t)binding_count; ++i) {
       if (binding_count_buffers_[i]) {
         continue;
       }
-      iree_status_t status = iree_hal_allocator_allocate_buffer(
+      iree_status_t status = iree_hal_amdgpu_allocator_allocate_direct_buffer(
           allocator, params, kPayloadBufferAlignment,
           &binding_count_buffers_[i]);
       if (!HandleStatus(state, status,
@@ -2162,22 +2160,24 @@ class QueueBenchmark : public benchmark::Fixture {
  private:
   bool AllocatePayloadBuffers(benchmark::State& state) {
     iree_hal_allocator_t* allocator = iree_hal_device_allocator(device_);
-    iree_hal_buffer_params_t params = {0};
+    iree_hal_amdgpu_buffer_spec_t params = {0};
     params.usage =
         IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
     params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
+    params.access = IREE_HAL_MEMORY_ACCESS_ALL;
+    params.queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
     params.min_alignment = kPayloadBufferAlignment;
 
     if (!HandleStatus(
             state,
-            iree_hal_allocator_allocate_buffer(
+            iree_hal_amdgpu_allocator_allocate_direct_buffer(
                 allocator, params, kPayloadBufferAlignment, &source_buffer_),
             "failed to allocate source payload buffer")) {
       return false;
     }
     if (!HandleStatus(
             state,
-            iree_hal_allocator_allocate_buffer(
+            iree_hal_amdgpu_allocator_allocate_direct_buffer(
                 allocator, params, kPayloadBufferAlignment, &target_buffer_),
             "failed to allocate target payload buffer")) {
       return false;

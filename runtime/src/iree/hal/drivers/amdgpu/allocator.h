@@ -11,6 +11,10 @@
 #include "iree/hal/api.h"
 #include "iree/hal/drivers/amdgpu/util/libhsa.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif  // __cplusplus
+
 typedef struct iree_hal_amdgpu_logical_device_t
     iree_hal_amdgpu_logical_device_t;
 typedef struct iree_hal_amdgpu_topology_t iree_hal_amdgpu_topology_t;
@@ -59,6 +63,15 @@ bool iree_hal_amdgpu_allocator_query_uncached_memory_pool(
     iree_hal_allocator_t* allocator, uint32_t physical_device_ordinal,
     hsa_amd_memory_pool_t* out_memory_pool, uint32_t* out_allocation_flags);
 
+// Allocates one AMDGPU buffer using exact backend-private native policy.
+//
+// This is used for driver-owned resources and AMDGPU implementation tests.
+// Public allocation owners construct a slab pool and issue geometry-only
+// reservations through it.
+iree_status_t iree_hal_amdgpu_allocator_allocate_direct_buffer(
+    iree_hal_allocator_t* allocator, iree_hal_amdgpu_buffer_spec_t spec,
+    iree_device_size_t allocation_size, iree_hal_buffer_t** out_buffer);
+
 // Allocates private reusable-command-buffer kernarg template storage for one
 // physical device. The returned buffer is device-local fine-grained memory
 // with direct coherent host access and queue-family reach restricted to the
@@ -80,5 +93,9 @@ iree_status_t iree_hal_amdgpu_allocator_import_direct_buffer(
     const iree_hal_external_storage_t* storage,
     iree_host_size_t access_agent_count, const hsa_agent_t* access_agents,
     iree_hal_buffer_t** out_buffer);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif  // __cplusplus
 
 #endif  // IREE_HAL_DRIVERS_AMDGPU_ALLOCATOR_H_

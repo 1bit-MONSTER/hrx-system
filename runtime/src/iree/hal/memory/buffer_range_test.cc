@@ -63,9 +63,7 @@ class BufferRangeTest : public ::testing::TestWithParam<bool> {
     iree_hal_buffer_release(backing_buffer);
     IREE_ASSERT_OK(status);
     pools_.push_back(source_pool_);
-    params_.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-    params_.access = IREE_HAL_MEMORY_ACCESS_ALL;
-    params_.usage =
+    usage_ =
         IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
   }
 
@@ -90,8 +88,7 @@ class BufferRangeTest : public ::testing::TestWithParam<bool> {
   iree_status_t Allocate(iree_hal_pool_t* pool, iree_device_size_t size,
                          iree_hal_buffer_t** out_buffer) {
     iree_status_t status = iree_hal_pool_allocate_buffer(
-        pool,
-        iree_hal_make_pool_reservation_request(size, params_.min_alignment),
+        pool, iree_hal_make_pool_reservation_request(size, min_alignment_),
         iree_immediate_timeout(), out_buffer);
     if (iree_status_is_ok(status)) {
       buffers_.push_back(*out_buffer);
@@ -138,7 +135,7 @@ class BufferRangeTest : public ::testing::TestWithParam<bool> {
         IREE_HAL_BUFFER_PLACEMENT_FLAG_NONE};
     IREE_RETURN_IF_ERROR(iree_hal_heap_buffer_wrap(
         placement, IREE_HAL_CPU_SLAB_PROVIDER_MEMORY_TYPE,
-        IREE_HAL_MEMORY_ACCESS_ALL, params_.usage, 4096,
+        IREE_HAL_MEMORY_ACCESS_ALL, usage_, 4096,
         iree_make_byte_span(maintenance_storage_.data() + 64, 4096), {},
         allocator_, out_buffer));
     (*out_buffer)->memory.backing = &maintenance_backing_;
@@ -164,8 +161,10 @@ class BufferRangeTest : public ::testing::TestWithParam<bool> {
   std::vector<iree_hal_pool_t*> pools_;
   // Owned buffer references released before pool teardown.
   std::vector<iree_hal_buffer_t*> buffers_;
-  // Common permissions used by native and child allocations.
-  iree_hal_buffer_params_t params_ = {};
+  // Common usage published by native and child allocations.
+  iree_hal_buffer_usage_t usage_ = IREE_HAL_BUFFER_USAGE_NONE;
+  // Requested alignment used by range-allocation cases.
+  iree_device_size_t min_alignment_ = 0;
   // Imported native storage with explicit padding before byte zero.
   alignas(256) std::array<uint8_t, 4096 + 64> maintenance_storage_;
   // Immutable native facts borrowed by the imported buffer and descendants.
@@ -181,7 +180,7 @@ TEST_P(BufferRangeTest, InheritsExactHistoryThroughSplitsAndRollback) {
   history->entries[0] = {Axis(0), 7};
   history->entries[1] = {Axis(1), 11};
   const iree_hal_pool_reservation_request_t source_request =
-      iree_hal_make_pool_reservation_request(4096, params_.min_alignment);
+      iree_hal_make_pool_reservation_request(4096, min_alignment_);
   iree_hal_pool_reservation_t source_reservation;
   iree_hal_pool_acquire_info_t source_info;
   iree_hal_pool_acquire_result_t result;
@@ -212,7 +211,7 @@ TEST_P(BufferRangeTest, InheritsExactHistoryThroughSplitsAndRollback) {
   EXPECT_EQ(nullptr, child);
   IREE_ASSERT_OK(CreateChild(source, 128, 1024, 2, &child));
   const iree_hal_pool_reservation_request_t request =
-      iree_hal_make_pool_reservation_request(256, params_.min_alignment);
+      iree_hal_make_pool_reservation_request(256, min_alignment_);
   iree_hal_pool_reservation_t reservation;
   iree_hal_pool_acquire_info_t info;
   IREE_ASSERT_OK(iree_hal_pool_acquire_reservations(
@@ -327,7 +326,7 @@ TEST_P(BufferRangeTest, AlignsNativeCoordinatesWithinVisibleRange) {
         view, 2, 64, &options, allocator_, &child));
   }
   pools_.push_back(child);
-  params_.min_alignment = 16;
+  min_alignment_ = 16;
   for (iree_device_size_t offset : {16, 32, 48}) {
     iree_hal_buffer_t* allocation = nullptr;
     IREE_ASSERT_OK(Allocate(child, 13, &allocation));
@@ -374,12 +373,12 @@ TEST_P(BufferRangeTest, MaintenanceGranulesPreserveFiniteNativeAlignment) {
   iree_hal_pool_query_capabilities(child, &capabilities);
   EXPECT_EQ(capabilities.max_allocation_alignment, 64u);
   EXPECT_EQ(capabilities.maintenance_alignment, 256u);
-  params_.min_alignment = 128;
+  min_alignment_ = 128;
   iree_hal_buffer_t* invalid = nullptr;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         Allocate(child, 13, &invalid));
   EXPECT_EQ(invalid, nullptr);
-  params_.min_alignment = 64;
+  min_alignment_ = 64;
   std::array<uint8_t, 4096> expected;
   expected.fill(0x11);
   for (iree_device_size_t offset : {256, 512, 768}) {
@@ -429,11 +428,11 @@ TEST_P(BufferRangeTest, MaintenanceGranulesSurviveGrowableChildren) {
   pools_.push_back(child);
   EXPECT_EQ(backing_request.min_alignment, 64u);
   EXPECT_EQ(backing_request.allocation_size, 512u);
-  params_.min_alignment = 128;
+  min_alignment_ = 128;
   iree_hal_buffer_t* invalid = nullptr;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         Allocate(child, 13, &invalid));
-  params_.min_alignment = 64;
+  min_alignment_ = 64;
   std::array<uint8_t, 4096> expected;
   expected.fill(0x11);
   for (int i = 0; i < 6; ++i) {

@@ -48,22 +48,14 @@ class AmdgpuBufferTest : public CtsTestBase<> {
 };
 
 TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
-  iree_hal_buffer_params_t params = {};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER |
-                 IREE_HAL_BUFFER_USAGE_STORAGE |
-                 IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS;
-  params.queue_family_affinity =
-      iree_hal_make_queue_family_affinity(iree_hal_queue_family_ordinal(
-          iree_hal_queue_family(transfer_queue_))) |
-      iree_hal_make_queue_family_affinity(iree_hal_queue_family_ordinal(
-          iree_hal_queue_family(dispatch_queue_)));
+  const iree_hal_buffer_usage_t usage =
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE |
+      IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS;
   std::array<iree_hal_pool_family_access_t, 2> families = {};
   families[0].family = iree_hal_queue_family(transfer_queue_);
-  families[0].usage = params.usage;
+  families[0].usage = usage;
   families[1].family = iree_hal_queue_family(dispatch_queue_);
-  families[1].usage = params.usage;
+  families[1].usage = usage;
   const iree_hal_pool_scope_t scope = {
       families[0].family == families[1].family ? 1u : 2u, families.data(), {}};
   iree_hal_slab_pool_options_t source_options;
@@ -74,8 +66,7 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
                                 iree_allocator_system(), source.out()));
   Ref<iree_hal_buffer_t> backing;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source,
-      iree_hal_make_pool_reservation_request(8192, (params).min_alignment),
+      source, iree_hal_make_pool_reservation_request(8192, /*min_alignment=*/1),
       iree_infinite_timeout(), backing.out()));
   iree_hal_tlsf_pool_options_t options = {};
   options.tlsf_options.frontier_capacity = 4;
@@ -88,7 +79,7 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
     if (queued_arena) {
       const iree_hal_pool_reservation_request_t request =
           iree_hal_make_pool_reservation_request(/*allocation_size=*/4096,
-                                                 params.min_alignment);
+                                                 /*min_alignment=*/1);
       SemaphoreList allocated(device_, {0}, {1});
       IREE_ASSERT_OK(iree_hal_queue_alloca(
           transfer_queue_, iree_hal_semaphore_list_empty(), allocated,
@@ -98,7 +89,7 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
     } else {
       IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
           arena_pool,
-          iree_hal_make_pool_reservation_request(4096, (params).min_alignment),
+          iree_hal_make_pool_reservation_request(4096, /*min_alignment=*/1),
           iree_infinite_timeout(), arena.out()));
     }
     Ref<iree_hal_pool_t> pool;
@@ -130,7 +121,7 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
           std::array<iree_hal_pool_reservation_request_t, 3> requests = {};
           for (auto& request : requests) {
             request.allocation_size = sizeof(input);
-            request.min_alignment = params.min_alignment;
+            request.min_alignment = 1;
           }
           iree_hal_buffer_t* buffers[3] = {};
           IREE_ASSERT_OK(iree_hal_queue_alloca(transfer_queue_, gate, allocated,
@@ -144,7 +135,7 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
             IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
                 pool,
                 iree_hal_make_pool_reservation_request(sizeof(input),
-                                                       (params).min_alignment),
+                                                       /*min_alignment=*/1),
                 iree_infinite_timeout(), root.out()));
           }
         }

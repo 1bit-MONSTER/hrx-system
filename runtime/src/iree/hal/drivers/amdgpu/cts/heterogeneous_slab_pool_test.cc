@@ -634,12 +634,11 @@ TEST_P(HeterogeneousSlabPoolTest, DispatchRequiresItsOwnFamilyGrants) {
                                            allowed_source.out()));
   iree_hal_pool_capabilities_t capabilities;
   iree_hal_pool_query_capabilities(allowed_source, &capabilities);
-  iree_hal_buffer_params_t params = {};
-  params.min_alignment = iree_min(4096, capabilities.max_allocation_alignment);
+  const iree_device_size_t min_alignment =
+      iree_min(4096, capabilities.max_allocation_alignment);
   Ref<iree_hal_buffer_t> allowed_buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      allowed_source,
-      iree_hal_make_pool_reservation_request(32, (params).min_alignment),
+      allowed_source, iree_hal_make_pool_reservation_request(32, min_alignment),
       iree_infinite_timeout(), allowed_buffer.out()));
 
   // A CPU grant never authorizes GPU execution, whether the GPU is excluded
@@ -657,12 +656,12 @@ TEST_P(HeterogeneousSlabPoolTest, DispatchRequiresItsOwnFamilyGrants) {
                                              iree_allocator_system(),
                                              restricted_source.out()));
     iree_hal_pool_query_capabilities(restricted_source, &capabilities);
-    params.min_alignment =
+    const iree_device_size_t restricted_min_alignment =
         iree_min(4096, capabilities.max_allocation_alignment);
     Ref<iree_hal_buffer_t> restricted_buffer;
     IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
         restricted_source,
-        iree_hal_make_pool_reservation_request(32, (params).min_alignment),
+        iree_hal_make_pool_reservation_request(32, restricted_min_alignment),
         iree_infinite_timeout(), restricted_buffer.out()));
     EXPECT_TRUE(iree_all_bits_set(
         iree_hal_buffer_allowed_usage(restricted_buffer),

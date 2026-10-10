@@ -1779,6 +1779,16 @@ static iree_status_t iree_hal_amdgpu_allocator_allocate_buffer_spec(
   return status;
 }
 
+iree_status_t iree_hal_amdgpu_allocator_allocate_direct_buffer(
+    iree_hal_allocator_t* base_allocator, iree_hal_amdgpu_buffer_spec_t spec,
+    iree_device_size_t allocation_size, iree_hal_buffer_t** out_buffer) {
+  IREE_ASSERT_ARGUMENT(base_allocator);
+  IREE_ASSERT_ARGUMENT(out_buffer);
+  *out_buffer = NULL;
+  return iree_hal_amdgpu_allocator_allocate_buffer_spec(
+      base_allocator, &spec, allocation_size, out_buffer);
+}
+
 static iree_status_t iree_hal_amdgpu_allocator_allocate_buffer(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
     const iree_hal_buffer_params_t* IREE_RESTRICT params,
@@ -1786,8 +1796,8 @@ static iree_status_t iree_hal_amdgpu_allocator_allocate_buffer(
     iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
   const iree_hal_amdgpu_buffer_spec_t spec =
       iree_hal_amdgpu_allocator_spec_from_buffer_params(params);
-  return iree_hal_amdgpu_allocator_allocate_buffer_spec(
-      base_allocator, &spec, allocation_size, out_buffer);
+  return iree_hal_amdgpu_allocator_allocate_direct_buffer(
+      base_allocator, spec, allocation_size, out_buffer);
 }
 
 iree_status_t iree_hal_amdgpu_allocator_allocate_prepublished_kernarg_buffer(
@@ -1810,8 +1820,8 @@ iree_status_t iree_hal_amdgpu_allocator_allocate_prepublished_kernarg_buffer(
       .queue_family_affinity =
           iree_hal_make_queue_family_affinity(physical_device_ordinal),
   };
-  return iree_hal_amdgpu_allocator_allocate_buffer_spec(
-      base_allocator, &params, allocation_size, out_buffer);
+  return iree_hal_amdgpu_allocator_allocate_direct_buffer(
+      base_allocator, params, allocation_size, out_buffer);
 }
 
 static void iree_hal_amdgpu_allocator_deallocate_buffer(

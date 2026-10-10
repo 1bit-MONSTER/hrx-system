@@ -167,12 +167,11 @@ TEST_P(VulkanSlabPoolTest, CapturesExactFamiliesWithoutAllocatingBacking) {
   Ref<iree_hal_buffer_t> buffer;
   iree_hal_pool_capabilities_t capabilities;
   iree_hal_pool_query_capabilities(source, &capabilities);
-  iree_hal_buffer_params_t params = {};
-  params.min_alignment = capabilities.max_allocation_alignment;
+  const iree_device_size_t min_alignment =
+      capabilities.max_allocation_alignment;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
       source,
-      iree_hal_make_pool_reservation_request(sizeof(uint32_t),
-                                             (params).min_alignment),
+      iree_hal_make_pool_reservation_request(sizeof(uint32_t), min_alignment),
       iree_infinite_timeout(), buffer.out()));
   EXPECT_EQ(iree_hal_buffer_allowed_usage(buffer),
             IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET);

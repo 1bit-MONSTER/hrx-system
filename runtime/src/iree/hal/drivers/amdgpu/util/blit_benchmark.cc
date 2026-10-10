@@ -17,6 +17,7 @@
 #include "iree/base/threading/numa.h"
 #include "iree/base/tooling/flags.h"
 #include "iree/hal/api.h"
+#include "iree/hal/drivers/amdgpu/allocator.h"
 #include "iree/hal/drivers/amdgpu/registration/driver_module.h"
 #include "iree/hal/drivers/amdgpu/util/benchmark_flags.h"
 
@@ -398,9 +399,11 @@ class BlitBenchmark : public benchmark::Fixture {
  private:
   bool AllocateBenchmarkBuffers(benchmark::State& state, bool needs_source) {
     iree_hal_allocator_t* allocator = iree_hal_device_allocator(device_);
-    iree_hal_buffer_params_t params = {0};
+    iree_hal_amdgpu_buffer_spec_t params = {0};
     params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
     params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
+    params.access = IREE_HAL_MEMORY_ACCESS_ALL;
+    params.queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
     params.min_alignment = kBenchmarkBufferAlignment;
 
     if (!HandleStatus(state,
@@ -415,14 +418,14 @@ class BlitBenchmark : public benchmark::Fixture {
     if (needs_source) {
       if (!HandleStatus(
               state,
-              iree_hal_allocator_allocate_buffer(
+              iree_hal_amdgpu_allocator_allocate_direct_buffer(
                   allocator, params, allocation_size_, &source_buffer_),
               "failed to allocate source buffer")) {
         return false;
       }
     }
     if (!HandleStatus(state,
-                      iree_hal_allocator_allocate_buffer(
+                      iree_hal_amdgpu_allocator_allocate_direct_buffer(
                           allocator, params, allocation_size_, &target_buffer_),
                       "failed to allocate target buffer")) {
       return false;

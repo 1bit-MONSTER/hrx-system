@@ -141,19 +141,21 @@ TEST_P(BdaDispatchValidationTest, QueueDispatchRejectsGrantsFromAnotherGroup) {
       other_group, scope, &options, iree_allocator_system(), source.out()));
   iree_hal_pool_capabilities_t capabilities;
   iree_hal_pool_query_capabilities(source, &capabilities);
-  iree_hal_buffer_params_t params = {};
-  params.min_alignment = capabilities.max_allocation_alignment;
+  const iree_device_size_t min_alignment =
+      capabilities.max_allocation_alignment;
   Ref<iree_hal_buffer_t> foreign_buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source,
-      iree_hal_make_pool_reservation_request(32, (params).min_alignment),
+      source, iree_hal_make_pool_reservation_request(32, min_alignment),
       iree_infinite_timeout(), foreign_buffer.out()));
-  params = {};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage = IREE_HAL_BUFFER_USAGE_STORAGE;
+  Ref<iree_hal_pool_t> local_source;
+  IREE_ASSERT_OK(
+      CreateDevicePool(IREE_HAL_BUFFER_USAGE_STORAGE |
+                           IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS,
+                       local_source.out()));
   Ref<iree_hal_buffer_t> local_buffer;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(device_allocator_, params,
-                                                    32, local_buffer.out()));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      local_source, iree_hal_make_pool_reservation_request(32, 1),
+      iree_infinite_timeout(), local_buffer.out()));
   for (auto flags : {IREE_HAL_DISPATCH_FLAG_NONE,
                      IREE_HAL_DISPATCH_FLAG_STATIC_INDIRECT_PARAMETERS,
                      IREE_HAL_DISPATCH_FLAG_DYNAMIC_INDIRECT_PARAMETERS}) {

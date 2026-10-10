@@ -277,15 +277,9 @@ TEST_F(PM4CommandDispatchTest, WritesInteriorOfNestedQueuedArena) {
       test_device_.device_group(), iree_hal_queue_family(queue),
       IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
       host_allocator_, source.out()));
-  iree_hal_buffer_params_t params = {};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.queue_family_affinity = iree_hal_make_queue_family_affinity(0);
   Ref<iree_hal_buffer_t> backing;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source,
-      iree_hal_make_pool_reservation_request(8192, (params).min_alignment),
+      source, iree_hal_make_pool_reservation_request(8192, /*min_alignment=*/1),
       iree_infinite_timeout(), backing.out()));
   iree_hal_tlsf_pool_options_t options = {};
   options.tlsf_options.frontier_capacity = 4;
@@ -294,7 +288,7 @@ TEST_F(PM4CommandDispatchTest, WritesInteriorOfNestedQueuedArena) {
       backing, 256, 7168, &options, host_allocator_, arena_pool.out()));
   const iree_hal_pool_reservation_request_t arena_request =
       iree_hal_make_pool_reservation_request(/*allocation_size=*/4096,
-                                             params.min_alignment);
+                                             /*min_alignment=*/1);
   Ref<iree_hal_buffer_t> arena;
   SemaphoreList arena_ready(test_device_.base_device(), {0}, {1});
   IREE_ASSERT_OK(iree_hal_queue_alloca(queue, iree_hal_semaphore_list_empty(),
@@ -307,7 +301,7 @@ TEST_F(PM4CommandDispatchTest, WritesInteriorOfNestedQueuedArena) {
       arena, 256, 3584, &options, host_allocator_, pool.out()));
   const iree_hal_pool_reservation_request_t request =
       iree_hal_make_pool_reservation_request(/*allocation_size=*/256,
-                                             params.min_alignment);
+                                             /*min_alignment=*/1);
   Ref<iree_hal_buffer_t> root;
   SemaphoreList allocated(test_device_.base_device(), {0}, {1});
   IREE_ASSERT_OK(iree_hal_queue_alloca(queue, iree_hal_semaphore_list_empty(),

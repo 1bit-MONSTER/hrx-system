@@ -962,11 +962,9 @@ TEST_P(BdaSpirvTest, NativeBindingsExecuteFromInteriorPoolRanges) {
   IREE_ASSERT_OK(
       iree_hal_slab_pool_create(device_group_, scope, &source_options,
                                 iree_allocator_system(), source.out()));
-  const iree_hal_buffer_params_t params = {};
   Ref<iree_hal_buffer_t> backing;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source,
-      iree_hal_make_pool_reservation_request(8192, (params).min_alignment),
+      source, iree_hal_make_pool_reservation_request(8192, /*min_alignment=*/1),
       iree_infinite_timeout(), backing.out()));
   iree_hal_tlsf_pool_options_t options = {};
   options.tlsf_options.frontier_capacity = 4;
@@ -979,7 +977,7 @@ TEST_P(BdaSpirvTest, NativeBindingsExecuteFromInteriorPoolRanges) {
     if (queued_arena) {
       const iree_hal_pool_reservation_request_t request =
           iree_hal_make_pool_reservation_request(/*allocation_size=*/4096,
-                                                 params.min_alignment);
+                                                 /*min_alignment=*/1);
       SemaphoreList allocated(device_, {0}, {1});
       IREE_ASSERT_OK(iree_hal_queue_alloca(
           transfer_queue_, iree_hal_semaphore_list_empty(), allocated,
@@ -989,7 +987,7 @@ TEST_P(BdaSpirvTest, NativeBindingsExecuteFromInteriorPoolRanges) {
     } else {
       IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
           arena_pool,
-          iree_hal_make_pool_reservation_request(4096, (params).min_alignment),
+          iree_hal_make_pool_reservation_request(4096, /*min_alignment=*/1),
           iree_infinite_timeout(), arena.out()));
     }
     Ref<iree_hal_pool_t> pool;
@@ -1020,7 +1018,7 @@ TEST_P(BdaSpirvTest, NativeBindingsExecuteFromInteriorPoolRanges) {
           std::array<iree_hal_pool_reservation_request_t, 3> requests = {};
           for (auto& request : requests) {
             request.allocation_size = sizeof(input);
-            request.min_alignment = params.min_alignment;
+            request.min_alignment = 1;
           }
           iree_hal_buffer_t* buffers[3] = {};
           IREE_ASSERT_OK(iree_hal_queue_alloca(transfer_queue_, gate, allocated,
@@ -1034,7 +1032,7 @@ TEST_P(BdaSpirvTest, NativeBindingsExecuteFromInteriorPoolRanges) {
             IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
                 pool,
                 iree_hal_make_pool_reservation_request(sizeof(input),
-                                                       (params).min_alignment),
+                                                       /*min_alignment=*/1),
                 iree_infinite_timeout(), root.out()));
           }
         }

@@ -226,6 +226,7 @@ iree_cc_library(
   NAME
     amdgpu
   HDRS
+    "allocator.h"
     "api.h"
   SRCS
     "allocator.c"
