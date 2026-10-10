@@ -6,6 +6,7 @@
 
 #include "iree/hal/replay/recorder.h"
 
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -1690,6 +1691,12 @@ TEST(ReplayRecorderTest, RecordsAndReplaysVersion2ExactQueueAtomicOperations) {
   iree_hal_device_group_release(replay_group);
 }
 
+constexpr iree_hal_queue_family_affinity_t kRecorderVmmQueueFamilyAffinity = 1;
+constexpr iree_device_size_t kRecorderVmmReservationSize = 16384;
+constexpr iree_device_size_t kRecorderVmmVirtualOffset = 4096;
+constexpr iree_device_size_t kRecorderVmmPhysicalOffset = 8192;
+constexpr iree_device_size_t kRecorderVmmMappingSize = 4096;
+
 // Minimal VMM allocator used to verify recorder identity and forwarding rules.
 typedef struct RecorderVmmAllocatorState {
   iree_host_size_t reserve_count = 0;
@@ -1719,6 +1726,8 @@ typedef struct RecorderVmmAllocatorState {
   iree_hal_memory_protection_t protection = 0;
   iree_hal_queue_family_affinity_t advise_queue_family_affinity = 0;
   iree_hal_memory_advice_t advice = 0;
+  alignas(4096)
+      std::array<uint8_t, kRecorderVmmReservationSize> virtual_storage = {};
 } RecorderVmmAllocatorState;
 
 typedef struct RecorderVmmPhysicalMemory {
@@ -1728,7 +1737,6 @@ typedef struct RecorderVmmPhysicalMemory {
 typedef struct RecorderVmmAllocator {
   iree_hal_resource_t resource;
   iree_allocator_t host_allocator;
-  iree_hal_allocator_t* heap_allocator;
   RecorderVmmAllocatorState* state;
 } RecorderVmmAllocator;
 
@@ -1743,7 +1751,6 @@ static RecorderVmmAllocator* RecorderVmmAllocatorCast(
 static void RecorderVmmAllocatorDestroy(iree_hal_allocator_t* base_allocator) {
   RecorderVmmAllocator* allocator = RecorderVmmAllocatorCast(base_allocator);
   iree_allocator_t host_allocator = allocator->host_allocator;
-  iree_hal_allocator_release(allocator->heap_allocator);
   iree_allocator_free(host_allocator, allocator);
 }
 
@@ -1752,15 +1759,6 @@ static iree_allocator_t RecorderVmmAllocatorHostAllocator(
   const RecorderVmmAllocator* allocator =
       reinterpret_cast<const RecorderVmmAllocator*>(base_allocator);
   return allocator->host_allocator;
-}
-
-static iree_status_t RecorderVmmAllocatorAllocateBuffer(
-    iree_hal_allocator_t* base_allocator,
-    const iree_hal_buffer_params_t* params, iree_device_size_t allocation_size,
-    iree_hal_buffer_t** out_buffer) {
-  RecorderVmmAllocator* allocator = RecorderVmmAllocatorCast(base_allocator);
-  return iree_hal_allocator_allocate_buffer(allocator->heap_allocator, *params,
-                                            allocation_size, out_buffer);
 }
 
 static bool RecorderVmmAllocatorSupportsVirtualMemory(
@@ -1788,14 +1786,24 @@ static iree_status_t RecorderVmmAllocatorReserve(
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "test allocator already has a reservation");
   }
-  iree_hal_buffer_params_t params = {};
-  params.usage = IREE_HAL_BUFFER_USAGE_STORAGE;
-  params.access = IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE;
-  params.type =
-      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.queue_family_affinity = queue_family_affinity;
-  IREE_RETURN_IF_ERROR(iree_hal_allocator_allocate_buffer(
-      allocator->heap_allocator, params, size, out_virtual_buffer));
+  if (size > state->virtual_storage.size()) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "test reservation exceeds backing storage");
+  }
+  const iree_hal_buffer_placement_t placement = {
+      /*.device=*/nullptr,
+      /*.queue_family_affinity=*/queue_family_affinity,
+      /*.flags=*/IREE_HAL_BUFFER_PLACEMENT_FLAG_NONE,
+  };
+  IREE_RETURN_IF_ERROR(iree_hal_heap_buffer_wrap(
+      placement,
+      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_HOST_COHERENT |
+          IREE_HAL_MEMORY_TYPE_HOST_CACHED | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+      IREE_HAL_MEMORY_ACCESS_ALL, IREE_HAL_BUFFER_USAGE_STORAGE, size,
+      iree_make_byte_span(state->virtual_storage.data(),
+                          static_cast<iree_host_size_t>(size)),
+      iree_hal_buffer_release_callback_null(), allocator->host_allocator,
+      out_virtual_buffer));
   state->virtual_buffer = *out_virtual_buffer;
   state->reserve_queue_family_affinity = queue_family_affinity;
   state->reserve_size = size;
@@ -1960,7 +1968,7 @@ const iree_hal_allocator_vtable_t recorder_vmm_allocator_vtable = {
     /*.query_statistics=*/nullptr,
     /*.query_memory_heaps=*/nullptr,
     /*.query_buffer_compatibility=*/nullptr,
-    /*.allocate_buffer=*/RecorderVmmAllocatorAllocateBuffer,
+    /*.allocate_buffer=*/nullptr,
     /*.deallocate_buffer=*/nullptr,
     /*.import_buffer=*/nullptr,
     /*.supports_virtual_memory=*/RecorderVmmAllocatorSupportsVirtualMemory,
@@ -1978,10 +1986,6 @@ const iree_hal_allocator_vtable_t recorder_vmm_allocator_vtable = {
 
 static iree_hal_allocator_t* CreateRecorderVmmAllocator(
     RecorderVmmAllocatorState* state) {
-  iree_hal_allocator_t* heap_allocator = nullptr;
-  IREE_CHECK_OK(iree_hal_allocator_create_heap(
-      IREE_SV("recorder-vmm-test"), iree_allocator_system(),
-      iree_allocator_system(), &heap_allocator));
   RecorderVmmAllocator* allocator = nullptr;
   IREE_CHECK_OK(iree_allocator_malloc(iree_allocator_system(),
                                       sizeof(*allocator),
@@ -1989,7 +1993,6 @@ static iree_hal_allocator_t* CreateRecorderVmmAllocator(
   iree_hal_resource_initialize(&recorder_vmm_allocator_vtable,
                                &allocator->resource);
   allocator->host_allocator = iree_allocator_system();
-  allocator->heap_allocator = heap_allocator;
   allocator->state = state;
   return reinterpret_cast<iree_hal_allocator_t*>(allocator);
 }
@@ -2003,12 +2006,6 @@ static iree_hal_allocator_t* WrapRecorderVmmAllocator(
       iree_allocator_system(), &wrapped_allocator));
   return wrapped_allocator;
 }
-
-constexpr iree_hal_queue_family_affinity_t kRecorderVmmQueueFamilyAffinity = 1;
-constexpr iree_device_size_t kRecorderVmmReservationSize = 16384;
-constexpr iree_device_size_t kRecorderVmmVirtualOffset = 4096;
-constexpr iree_device_size_t kRecorderVmmPhysicalOffset = 8192;
-constexpr iree_device_size_t kRecorderVmmMappingSize = 4096;
 
 static iree_hal_physical_memory_params_t RecorderVmmPhysicalParams() {
   iree_hal_physical_memory_params_t params = {};
@@ -2323,13 +2320,16 @@ TEST(ReplayRecorderVmmTest, RejectsForeignRawAndConsumedHandles) {
                         iree_hal_allocator_physical_memory_free(
                             allocator_a, raw_physical_memory));
 
+  std::array<uint8_t, 64> ordinary_storage = {};
   iree_hal_buffer_t* ordinary_buffer = nullptr;
-  iree_hal_buffer_params_t ordinary_buffer_params = {};
-  ordinary_buffer_params.usage = IREE_HAL_BUFFER_USAGE_STORAGE;
-  ordinary_buffer_params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  ordinary_buffer_params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      base_allocator_a, ordinary_buffer_params, /*allocation_size=*/64,
+  IREE_ASSERT_OK(iree_hal_heap_buffer_wrap(
+      iree_hal_buffer_placement_undefined(),
+      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_HOST_COHERENT |
+          IREE_HAL_MEMORY_TYPE_HOST_CACHED,
+      IREE_HAL_MEMORY_ACCESS_ALL, IREE_HAL_BUFFER_USAGE_STORAGE,
+      ordinary_storage.size(),
+      iree_make_byte_span(ordinary_storage.data(), ordinary_storage.size()),
+      iree_hal_buffer_release_callback_null(), iree_allocator_system(),
       &ordinary_buffer));
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
