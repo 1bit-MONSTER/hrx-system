@@ -41,6 +41,14 @@ bool iree_hal_amdgpu_allocator_query_uncached_memory_pool(
     iree_hal_allocator_t* allocator, uint32_t physical_device_ordinal,
     hsa_amd_memory_pool_t* out_memory_pool, uint32_t* out_allocation_flags);
 
+// Allocates private reusable-command-buffer kernarg template storage for one
+// physical device. The returned buffer is device-local fine-grained memory
+// with direct coherent host access and queue-family reach restricted to the
+// selected physical device.
+iree_status_t iree_hal_amdgpu_allocator_allocate_prepublished_kernarg_buffer(
+    iree_hal_allocator_t* allocator, uint32_t physical_device_ordinal,
+    iree_device_size_t allocation_size, iree_hal_buffer_t** out_buffer);
+
 // Attaches typed external storage as one complete AMDGPU root buffer.
 //
 // The returned buffer owns only the native ROCr attachment and never consumes

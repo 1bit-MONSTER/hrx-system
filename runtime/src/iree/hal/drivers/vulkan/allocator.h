@@ -62,9 +62,9 @@ void iree_hal_vulkan_allocator_deinitialize_default_pools(
 
 // Allocates one whole Vulkan buffer from a required memory type index.
 //
-// This is the primitive used by Vulkan slab providers. It bypasses the default
-// pool set and creates a standalone dense or fully-bound sparse buffer. Normal
-// users should call iree_hal_allocator_allocate_buffer() instead.
+// This is the primitive used by Vulkan slab providers and private staging. It
+// creates a standalone dense or fully-bound sparse buffer without consulting
+// any application pool inventory.
 iree_status_t iree_hal_vulkan_allocator_allocate_direct_buffer_from_type(
     iree_hal_vulkan_allocator_t* allocator, uint32_t memory_type_index,
     const iree_hal_buffer_params_t* params, iree_device_size_t allocation_size,

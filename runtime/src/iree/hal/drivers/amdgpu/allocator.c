@@ -1746,6 +1746,30 @@ static iree_status_t iree_hal_amdgpu_allocator_allocate_buffer(
   return status;
 }
 
+iree_status_t iree_hal_amdgpu_allocator_allocate_prepublished_kernarg_buffer(
+    iree_hal_allocator_t* base_allocator, uint32_t physical_device_ordinal,
+    iree_device_size_t allocation_size, iree_hal_buffer_t** out_buffer) {
+  if (IREE_UNLIKELY(physical_device_ordinal >= IREE_HAL_MAX_QUEUE_FAMILIES)) {
+    return iree_make_status(
+        IREE_STATUS_OUT_OF_RANGE,
+        "prepublished kernarg physical device ordinal %" PRIu32
+        " exceeds the HAL queue-family limit",
+        physical_device_ordinal);
+  }
+  const iree_hal_buffer_params_t params = {
+      .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
+              IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
+              IREE_HAL_MEMORY_TYPE_HOST_COHERENT,
+      .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      .usage = IREE_HAL_BUFFER_USAGE_DISPATCH_UNIFORM_READ |
+               IREE_HAL_BUFFER_USAGE_MAPPING,
+      .queue_family_affinity =
+          iree_hal_make_queue_family_affinity(physical_device_ordinal),
+  };
+  return iree_hal_amdgpu_allocator_allocate_buffer(base_allocator, &params,
+                                                   allocation_size, out_buffer);
+}
+
 static void iree_hal_amdgpu_allocator_deallocate_buffer(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
     iree_hal_buffer_t* IREE_RESTRICT base_buffer) {

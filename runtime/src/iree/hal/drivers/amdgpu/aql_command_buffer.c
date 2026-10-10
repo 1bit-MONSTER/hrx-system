@@ -11,6 +11,7 @@
 
 #include "iree/base/alignment.h"
 #include "iree/hal/drivers/amdgpu/abi/queue.h"
+#include "iree/hal/drivers/amdgpu/allocator.h"
 #include "iree/hal/drivers/amdgpu/aql_atomic.h"
 #include "iree/hal/drivers/amdgpu/aql_command_buffer_profile.h"
 #include "iree/hal/drivers/amdgpu/barrier.h"
@@ -745,15 +746,11 @@ iree_hal_amdgpu_aql_command_buffer_materialize_prepublished_kernargs(
   IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, allocation_length);
   IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, template_count);
 
-  iree_hal_buffer_params_t params =
-      command_buffer->prepublished_kernargs.storage.buffer_params;
-  params.queue_family_affinity =
-      iree_hal_make_queue_family_affinity(command_buffer->device_ordinal);
-
   iree_hal_buffer_t* template_buffer = NULL;
-  iree_status_t status = iree_hal_allocator_allocate_buffer(
-      command_buffer->device_allocator, params,
-      (iree_device_size_t)allocation_length, &template_buffer);
+  iree_status_t status =
+      iree_hal_amdgpu_allocator_allocate_prepublished_kernarg_buffer(
+          command_buffer->device_allocator, command_buffer->device_ordinal,
+          (iree_device_size_t)allocation_length, &template_buffer);
   iree_hal_buffer_mapping_t mapping;
   memset(&mapping, 0, sizeof(mapping));
   uint8_t* device_base = NULL;
@@ -770,7 +767,11 @@ iree_hal_amdgpu_aql_command_buffer_materialize_prepublished_kernargs(
   if (iree_status_is_ok(status)) {
     status =
         iree_hal_amdgpu_aql_command_buffer_verify_prepublished_kernarg_storage(
-            command_buffer, params.type, template_buffer);
+            command_buffer,
+            IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
+                IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
+                IREE_HAL_MEMORY_TYPE_HOST_COHERENT,
+            template_buffer);
   }
   if (iree_status_is_ok(status)) {
     status = iree_hal_buffer_map_range(

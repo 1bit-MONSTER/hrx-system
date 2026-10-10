@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "iree/base/internal/arena.h"
+#include "iree/hal/drivers/vulkan/allocator.h"
 #include "iree/hal/drivers/vulkan/barrier.h"
 #include "iree/hal/drivers/vulkan/buffer.h"
 #include "iree/hal/drivers/vulkan/executable.h"
@@ -2723,8 +2724,8 @@ iree_hal_vulkan_command_buffer_materialize_transfer_staging(
               iree_hal_command_buffer_queue_family(&command_buffer->base))),
   };
   iree_hal_buffer_t* staging_buffer = NULL;
-  iree_status_t status = iree_hal_allocator_allocate_buffer(
-      command_buffer->device_allocator, params,
+  iree_status_t status = iree_hal_vulkan_allocator_allocate_direct_buffer(
+      command_buffer->device_allocator, &params,
       command_buffer->transfer_staging_length, &staging_buffer);
 
   iree_hal_buffer_mapping_t staging_mapping = {{0}};
