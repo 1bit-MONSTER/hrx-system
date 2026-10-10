@@ -139,6 +139,14 @@ IREE_API_EXPORT const char* iree_hal_replay_operation_code_string(
       return "allocator.virtual_memory_protect";
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_ADVISE:
       return "allocator.virtual_memory_advise";
+    case IREE_HAL_REPLAY_OPERATION_CODE_POOL_CREATE_SLAB:
+      return "pool.create_slab";
+    case IREE_HAL_REPLAY_OPERATION_CODE_POOL_TRIM:
+      return "pool.trim";
+    case IREE_HAL_REPLAY_OPERATION_CODE_POOL_ALLOCATE_BUFFER:
+      return "pool.allocate_buffer";
+    case IREE_HAL_REPLAY_OPERATION_CODE_POOL_IMPORT_BUFFER:
+      return "pool.import_buffer";
     case IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_MAP_RANGE:
       return "buffer.map_range";
     case IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_UNMAP_RANGE:
@@ -259,6 +267,14 @@ IREE_API_EXPORT const char* iree_hal_replay_payload_type_string(
       return "provisioned_queue_object";
     case IREE_HAL_REPLAY_PAYLOAD_TYPE_DYNAMIC_QUEUE_OBJECT:
       return "dynamic_queue_object";
+    case IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_CREATE_SLAB:
+      return "pool_create_slab";
+    case IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_TRIM:
+      return "pool_trim";
+    case IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_ALLOCATE_BUFFER:
+      return "pool_allocate_buffer";
+    case IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_IMPORT_BUFFER:
+      return "pool_import_buffer";
     case IREE_HAL_REPLAY_PAYLOAD_TYPE_QUEUE_TRANSFER:
       return "queue_transfer";
     case IREE_HAL_REPLAY_PAYLOAD_TYPE_QUEUE_READ:

@@ -67,6 +67,8 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_initialize(
   out_pool->maintenance = NULL;
   out_pool->epoch_query = iree_hal_pool_epoch_query_null();
   out_pool->asan_enabled = false;
+  out_pool->allocation_interceptor =
+      (iree_hal_pool_allocation_interceptor_t){0};
   return iree_ok_status();
 }
 
@@ -382,13 +384,9 @@ static iree_status_t iree_hal_pool_wait_for_capacity(
   return wait.status;
 }
 
-IREE_API_EXPORT iree_status_t iree_hal_pool_allocate_buffer(
+static iree_status_t iree_hal_pool_allocate_buffer_direct(
     iree_hal_pool_t* pool, iree_hal_pool_reservation_request_t request,
     iree_timeout_t timeout, iree_hal_buffer_t** out_buffer) {
-  IREE_ASSERT_ARGUMENT(pool);
-  IREE_ASSERT_ARGUMENT(out_buffer);
-  IREE_TRACE_ZONE_BEGIN(z0);
-
   iree_hal_buffer_t* buffer = NULL;
 
   // Capacity retries and exact-range completion share one deadline.
@@ -486,6 +484,24 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_allocate_buffer(
   if (iree_status_is_ok(status)) {
     *out_buffer = buffer;
   }
+
+  return status;
+}
+
+IREE_API_EXPORT iree_status_t iree_hal_pool_allocate_buffer(
+    iree_hal_pool_t* pool, iree_hal_pool_reservation_request_t request,
+    iree_timeout_t timeout, iree_hal_buffer_t** out_buffer) {
+  IREE_ASSERT_ARGUMENT(pool);
+  IREE_ASSERT_ARGUMENT(out_buffer);
+  IREE_TRACE_ZONE_BEGIN(z0);
+
+  iree_status_t status =
+      pool->allocation_interceptor.fn
+          ? pool->allocation_interceptor.fn(
+                pool->allocation_interceptor.user_data, pool, request, timeout,
+                iree_hal_pool_allocate_buffer_direct, out_buffer)
+          : iree_hal_pool_allocate_buffer_direct(pool, request, timeout,
+                                                 out_buffer);
 
   IREE_TRACE_ZONE_END(z0);
   return status;

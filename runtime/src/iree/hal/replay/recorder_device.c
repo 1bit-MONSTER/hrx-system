@@ -16,6 +16,7 @@
 #include "iree/hal/replay/recorder_command_buffer.h"
 #include "iree/hal/replay/recorder_executable.h"
 #include "iree/hal/replay/recorder_file.h"
+#include "iree/hal/replay/recorder_pool.h"
 #include "iree/hal/replay/recorder_queue.h"
 #include "iree/hal/replay/recorder_record.h"
 
@@ -82,6 +83,26 @@ static iree_hal_device_t* iree_hal_replay_device_base_or_self(
   return iree_hal_replay_device_isa(device)
              ? iree_hal_replay_device_cast(device)->base_device
              : device;
+}
+
+iree_hal_device_t* iree_hal_replay_device_group_find_replacement(
+    iree_hal_device_group_t* group, iree_hal_device_t* base_device,
+    iree_hal_replay_object_id_t* out_device_id) {
+  IREE_ASSERT_ARGUMENT(group);
+  IREE_ASSERT_ARGUMENT(out_device_id);
+  *out_device_id = IREE_HAL_REPLAY_OBJECT_ID_NONE;
+  for (iree_host_size_t i = 0; i < iree_hal_device_group_device_count(group);
+       ++i) {
+    iree_hal_device_t* replacement = iree_hal_device_group_device_at(group, i);
+    if (iree_hal_replay_device_isa(replacement) &&
+        (replacement == base_device ||
+         iree_hal_replay_device_cast(replacement)->base_device ==
+             base_device)) {
+      *out_device_id = iree_hal_replay_device_cast(replacement)->device_id;
+      return replacement;
+    }
+  }
+  return NULL;
 }
 
 static iree_status_t iree_hal_replay_device_begin_operation(
@@ -265,6 +286,12 @@ static const iree_hal_device_topology_info_t*
 iree_hal_replay_device_topology_info(iree_hal_device_t* base_device) {
   iree_hal_replay_device_t* device = iree_hal_replay_device_cast(base_device);
   return &device->topology_info;
+}
+
+static const iree_hal_memory_backend_t* iree_hal_replay_device_memory_backend(
+    iree_hal_device_t* base_device) {
+  iree_hal_replay_device_t* device = iree_hal_replay_device_cast(base_device);
+  return iree_hal_device_memory_backend(device->base_device);
 }
 
 static iree_status_t iree_hal_replay_device_refine_topology_edge(
@@ -735,17 +762,41 @@ typedef struct iree_hal_replay_wrap_device_group_context_t {
   iree_allocator_t host_allocator;
 } iree_hal_replay_wrap_device_group_context_t;
 
+static void iree_hal_replay_wrap_device_group_destroy(void* self) {
+  iree_hal_replay_wrap_device_group_context_t* context = self;
+  iree_hal_replay_recorder_release(context->recorder);
+  iree_allocator_free(context->host_allocator, context);
+}
+
 static iree_status_t iree_hal_replay_wrap_device_group_device(
-    iree_hal_device_group_t* source_group, iree_host_size_t device_index,
-    iree_hal_device_t* source_device, void* user_data,
+    void* self, iree_hal_device_group_t* source_group,
+    iree_host_size_t device_index, iree_hal_device_t* source_device,
     iree_hal_device_t** out_replacement_device) {
   (void)device_index;
   iree_hal_replay_wrap_device_group_context_t* context =
-      (iree_hal_replay_wrap_device_group_context_t*)user_data;
+      (iree_hal_replay_wrap_device_group_context_t*)self;
   return iree_hal_replay_wrap_device(context->recorder, source_group,
                                      source_device, context->host_allocator,
                                      out_replacement_device);
 }
+
+static iree_status_t iree_hal_replay_wrap_device_group_create_slab_pool(
+    void* self, iree_hal_slab_pool_create_callback_t next,
+    iree_hal_device_group_t* request_group, const iree_hal_pool_scope_t* scope,
+    const iree_hal_slab_pool_options_t* options,
+    iree_allocator_t host_allocator, iree_hal_pool_t** out_pool) {
+  iree_hal_replay_wrap_device_group_context_t* context = self;
+  return iree_hal_replay_recorder_create_slab_pool(
+      context->recorder, next, request_group, scope, options, host_allocator,
+      out_pool);
+}
+
+static const iree_hal_device_group_wrapper_vtable_t
+    iree_hal_replay_device_group_wrapper_vtable = {
+        .destroy = iree_hal_replay_wrap_device_group_destroy,
+        .replace_device = iree_hal_replay_wrap_device_group_device,
+        .create_slab_pool = iree_hal_replay_wrap_device_group_create_slab_pool,
+};
 
 IREE_API_EXPORT iree_status_t iree_hal_replay_wrap_device_group(
     iree_hal_replay_recorder_t* recorder, iree_hal_device_group_t* base_group,
@@ -756,16 +807,19 @@ IREE_API_EXPORT iree_status_t iree_hal_replay_wrap_device_group(
   *out_group = NULL;
   IREE_TRACE_ZONE_BEGIN(z0);
 
-  iree_hal_replay_wrap_device_group_context_t context = {
-      .recorder = recorder,
-      .host_allocator = host_allocator,
+  iree_hal_replay_wrap_device_group_context_t* context = NULL;
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, iree_allocator_malloc(host_allocator, sizeof(*context),
+                                (void**)&context));
+  context->recorder = recorder;
+  iree_hal_replay_recorder_retain(context->recorder);
+  context->host_allocator = host_allocator;
+  const iree_hal_device_group_wrapper_t wrapper = {
+      .self = context,
+      .vtable = &iree_hal_replay_device_group_wrapper_vtable,
   };
-  iree_hal_device_group_replacement_callback_t replacement_callback = {
-      .fn = iree_hal_replay_wrap_device_group_device,
-      .user_data = &context,
-  };
-  iree_status_t status = iree_hal_device_group_create_with_replacements(
-      base_group, replacement_callback, host_allocator, out_group);
+  iree_status_t status = iree_hal_device_group_create_wrapped(
+      base_group, wrapper, host_allocator, out_group);
 
   IREE_TRACE_ZONE_END(z0);
   return status;
@@ -801,4 +855,5 @@ static const iree_hal_device_vtable_t iree_hal_replay_device_vtable = {
     .profiling_begin = iree_hal_replay_device_profiling_begin,
     .profiling_flush = iree_hal_replay_device_profiling_flush,
     .profiling_end = iree_hal_replay_device_profiling_end,
+    .memory_backend = iree_hal_replay_device_memory_backend,
 };

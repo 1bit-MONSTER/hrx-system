@@ -569,6 +569,7 @@ iree_status_t iree_hal_slab_cache_create(
   iree_hal_pool_retain(backing_pool);
   cache->host_allocator = host_allocator;
   cache->base.asan_enabled = iree_hal_pool_requires_asan_advice(backing_pool);
+  cache->base.allocation_interceptor = backing_pool->allocation_interceptor;
   cache->slab = options->slab;
   cache->slab.min_alignment = iree_max(1, cache->slab.min_alignment);
   cache->target_count = options->target_count;

@@ -260,6 +260,110 @@ static iree_status_t iree_hal_replay_dump_append_text_payload(
           payload.allocation.type, payload.allocation.access,
           payload.storage_type, data_offset, payload.data_length);
     }
+    case IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_CREATE_SLAB: {
+      if (record->payload.data_length <
+          sizeof(iree_hal_replay_pool_create_slab_payload_t)) {
+        return iree_make_status(IREE_STATUS_DATA_LOSS,
+                                "replay slab pool payload is short");
+      }
+      iree_hal_replay_pool_create_slab_payload_t payload;
+      memcpy(&payload, record->payload.data, sizeof(payload));
+      iree_hal_replay_dump_pool_create_slab_layout_t layout;
+      IREE_RETURN_IF_ERROR(iree_hal_replay_dump_pool_create_slab_layout(
+          record, &payload, &layout));
+      IREE_RETURN_IF_ERROR(
+          iree_string_builder_append_format(
+              builder,
+              " family_count=%" PRIu64 " owned_export_count=%" PRIu64
+              " import_count=%" PRIu64 " import_export_count=%" PRIu64
+              " placement={mode=%" PRIu32 " node=%" PRIu32 "}"
+              " owned_mode=%" PRIu32 " host={access=0x%08" PRIx32
+              " modes=0x%08" PRIx32 " cacheability=%" PRIu32 "}"
+              " preferred_host={access=0x%08" PRIx32 " modes=0x%08" PRIx32
+              " cacheability=%" PRIu32 "}"
+              " family_range=[%" PRIu64 ", +%" PRIhsz "]"
+              " owned_export_range=[%" PRIu64 ", +%" PRIhsz "]"
+              " import_range=[%" PRIu64 ", +%" PRIhsz "]"
+              " import_export_range=[%" PRIu64 ", +%" PRIhsz "]"
+              " trace_name=\"",
+              payload.family_count, payload.owned_export_count,
+              payload.import_count, payload.import_export_count,
+              payload.placement_mode, payload.placement_node,
+              payload.owned_mode, payload.host_access,
+              payload.host_mapping_modes, payload.host_cacheability,
+              payload.preferred_host_access,
+              payload.preferred_host_mapping_modes,
+              payload.preferred_host_cacheability,
+              payload_range->offset + layout.families_offset,
+              layout.families_size,
+              payload_range->offset + layout.owned_exports_offset,
+              layout.owned_exports_size,
+              payload_range->offset + layout.imports_offset,
+              layout.imports_size,
+              payload_range->offset + layout.import_exports_offset,
+              layout.import_exports_size));
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_string(
+          builder, iree_make_string_view((const char*)record->payload.data +
+                                             layout.trace_name_offset,
+                                         layout.trace_name_size)));
+      return iree_string_builder_append_cstring(builder, "\"");
+    }
+    case IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_TRIM: {
+      IREE_RETURN_IF_ERROR(iree_hal_replay_dump_payload_length_check(
+          record, sizeof(iree_hal_replay_pool_trim_payload_t)));
+      iree_hal_replay_pool_trim_payload_t payload;
+      memcpy(&payload, record->payload.data, sizeof(payload));
+      if (IREE_UNLIKELY(payload.reserved0 != 0)) {
+        return iree_make_status(IREE_STATUS_DATA_LOSS,
+                                "replay pool trim reserved field is nonzero");
+      }
+      return iree_string_builder_append_format(
+          builder, " flags=0x%08" PRIx32 " min_bytes_to_keep=%" PRIu64,
+          payload.flags, payload.min_bytes_to_keep);
+    }
+    case IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_ALLOCATE_BUFFER: {
+      IREE_RETURN_IF_ERROR(iree_hal_replay_dump_payload_length_check(
+          record, sizeof(iree_hal_replay_pool_allocate_buffer_payload_t)));
+      iree_hal_replay_pool_allocate_buffer_payload_t payload;
+      memcpy(&payload, record->payload.data, sizeof(payload));
+      return iree_string_builder_append_format(
+          builder,
+          " allocation_size=%" PRIu64 " min_alignment=%" PRIu64
+          " replay_allocation_size=%" PRIu64,
+          payload.allocation_size, payload.min_alignment,
+          payload.replay_allocation_size);
+    }
+    case IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_IMPORT_BUFFER: {
+      if (record->payload.data_length <
+          sizeof(iree_hal_replay_pool_import_buffer_payload_t)) {
+        return iree_make_status(IREE_STATUS_DATA_LOSS,
+                                "replay pool import payload is short");
+      }
+      iree_hal_replay_pool_import_buffer_payload_t payload;
+      memcpy(&payload, record->payload.data, sizeof(payload));
+      iree_host_size_t data_offset = 0;
+      IREE_RETURN_IF_ERROR(iree_hal_replay_dump_pool_import_buffer_layout(
+          record, &payload, &data_offset));
+      return iree_string_builder_append_format(
+          builder,
+          " storage_class={type=%" PRIu32 " provenance=[0x%016" PRIx64
+          ",0x%016" PRIx64 "]} byte_length=%" PRIu64 " logical_range=[%" PRIu64
+          ", +%" PRIu64
+          "]"
+          " maintenance_range=[%" PRIu64 ", +%" PRIu64
+          "]"
+          " physical_backing_id=[0x%016" PRIx64 ",0x%016" PRIx64
+          "]"
+          " host_cacheability=%" PRIu32 " data_range=[%" PRIu64 ", +%" PRIu64
+          "]",
+          payload.storage_class.type, payload.storage_class.provenance[0],
+          payload.storage_class.provenance[1], payload.byte_length,
+          payload.logical_offset, payload.logical_length,
+          payload.maintenance_offset, payload.maintenance_length,
+          payload.physical_backing_id[0], payload.physical_backing_id[1],
+          payload.host_cacheability, payload_range->offset + data_offset,
+          payload.data_length);
+    }
     case IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_RESERVE: {
       IREE_RETURN_IF_ERROR(iree_hal_replay_dump_payload_length_check(
           record,
@@ -782,7 +886,7 @@ static iree_status_t iree_hal_replay_dump_append_text_payload(
       iree_hal_replay_queue_alloca_payload_t payload;
       memcpy(&payload, record->payload.data, sizeof(payload));
       iree_host_size_t requests_size = 0;
-      if (payload.reserved0 != 0 ||
+      if (payload.pool_id == IREE_HAL_REPLAY_OBJECT_ID_NONE ||
           payload.request_count > IREE_HOST_SIZE_MAX ||
           !iree_host_size_checked_mul(
               (iree_host_size_t)payload.request_count,
@@ -797,11 +901,11 @@ static iree_status_t iree_hal_replay_dump_append_text_payload(
           payload.signal_semaphore_count, requests_size, &layout));
       IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
           builder,
-          " request_count=%" PRIu64 " wait_count=%" PRIu64
+          " pool_id=%" PRIu64 " request_count=%" PRIu64 " wait_count=%" PRIu64
           " signal_count=%" PRIu64 " wait_range=[%" PRIu64 ", +%" PRIhsz
           "] signal_range=[%" PRIu64 ", +%" PRIhsz "] request_range=[%" PRIu64
           ", +%" PRIhsz "]",
-          payload.request_count, payload.wait_semaphore_count,
+          payload.pool_id, payload.request_count, payload.wait_semaphore_count,
           payload.signal_semaphore_count,
           payload_range->offset + layout.wait_payloads_offset,
           layout.wait_payloads_size,

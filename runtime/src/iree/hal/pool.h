@@ -472,7 +472,9 @@ static inline iree_hal_pool_epoch_query_t iree_hal_pool_epoch_query_null(void) {
 //   materialize transactions with TRANSFER_RESERVATION_OWNERSHIP in a loop,
 //   waiting on the pool's notification if exhausted or its captured completion
 //   tracker if a reserved range still has a pending death frontier. This is a
-//   shared utility, not a vtable method.
+//   shared implementation used by ordinary pools. Instrumentation decorators
+//   may intercept the complete helper call through an allocation interceptor
+//   inherited by growable child pools.
 //
 // ## Death frontier integration
 //
@@ -481,6 +483,34 @@ static inline iree_hal_pool_epoch_query_t iree_hal_pool_epoch_query_null(void) {
 // death frontier for zero-sync reuse. This enables buffer recycling without
 // any device synchronization in steady-state pipelined workloads.
 typedef struct iree_hal_pool_t iree_hal_pool_t;
+
+// Direct synchronous allocation implementation supplied to an interceptor.
+// Calling this bypasses the interceptor while retaining the complete generic
+// acquire/wait/materialize protocol.
+typedef iree_status_t(IREE_API_PTR* iree_hal_pool_allocate_buffer_fn_t)(
+    iree_hal_pool_t* pool, iree_hal_pool_reservation_request_t request,
+    iree_timeout_t timeout, iree_hal_buffer_t** out_buffer);
+
+// Intercepts one complete synchronous allocation from |source_pool|.
+// |next| performs the uninstrumented generic allocation protocol when the
+// decorator does not instead delegate to its wrapped pool. Implementations may
+// replace the returned buffer. Growable child pools inherit the interceptor
+// from their retained backing pool so decorators observe the final logical
+// allocation instead of internal slab acquisitions.
+typedef iree_status_t(IREE_API_PTR* iree_hal_pool_allocation_interceptor_fn_t)(
+    void* user_data, iree_hal_pool_t* source_pool,
+    iree_hal_pool_reservation_request_t request, iree_timeout_t timeout,
+    iree_hal_pool_allocate_buffer_fn_t next, iree_hal_buffer_t** out_buffer);
+
+// Immutable synchronous allocation interception inherited through a retained
+// backing-pool chain. |user_data| is borrowed and must remain live for the
+// pool lifetime; growable pools satisfy this by retaining their backing pool.
+typedef struct iree_hal_pool_allocation_interceptor_t {
+  // Interception callback, or NULL when synchronous allocation is direct.
+  iree_hal_pool_allocation_interceptor_fn_t fn;
+  // Borrowed callback context owned by this pool or its retained backing chain.
+  void* user_data;
+} iree_hal_pool_allocation_interceptor_t;
 
 // Retains the given |pool| for the caller.
 IREE_API_EXPORT void iree_hal_pool_retain(iree_hal_pool_t* pool);
@@ -878,6 +908,11 @@ struct iree_hal_pool_t {
 
   // Immutable requirement for advice on this pool's own reservation lifetimes.
   bool asan_enabled;
+
+  // Optional synchronous allocation interception inherited from a retained
+  // backing-pool chain. Fixed-range pools leave this empty because their
+  // logical results remain views of their source allocation.
+  iree_hal_pool_allocation_interceptor_t allocation_interceptor;
 
   // Captured local and backing capacity sources, with duplicates removed.
   iree_hal_pool_wait_source_list_t wait_sources;

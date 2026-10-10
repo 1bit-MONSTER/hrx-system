@@ -1652,10 +1652,14 @@ TEST(ReplayExecutorLifecycleTest,
   iree_hal_queue_retain(queue);
   iree_hal_replay_object_entry_t queue_entry = {};
   queue_entry.value.queue = queue;
-  queue_entry.queue_allocation_pool = pool;
   IREE_ASSERT_OK(iree_hal_replay_executor_store(
       &executor, /*object_id=*/7, IREE_HAL_REPLAY_OBJECT_TYPE_QUEUE,
       queue_entry));
+  iree_hal_replay_object_entry_t pool_entry = {};
+  pool_entry.value.pool = pool;
+  IREE_ASSERT_OK(iree_hal_replay_executor_store(
+      &executor, /*object_id=*/6, IREE_HAL_REPLAY_OBJECT_TYPE_POOL,
+      pool_entry));
 
   IREE_ASSERT_OK(iree_hal_replay_executor_deinitialize(&executor));
   iree_hal_device_group_release(device_group);

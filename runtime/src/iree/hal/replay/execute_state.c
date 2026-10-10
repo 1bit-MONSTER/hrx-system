@@ -20,6 +20,9 @@ static iree_status_t iree_hal_replay_executor_release_entry(
     case IREE_HAL_REPLAY_OBJECT_TYPE_ALLOCATOR:
       iree_hal_allocator_release(entry->value.allocator);
       break;
+    case IREE_HAL_REPLAY_OBJECT_TYPE_POOL:
+      iree_hal_pool_release(entry->value.pool);
+      break;
     case IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER:
       if (entry->owning_allocator) {
         if (iree_hal_replay_executor_has_virtual_memory_mapping(executor,
@@ -52,7 +55,6 @@ static iree_status_t iree_hal_replay_executor_release_entry(
       iree_hal_file_release(entry->value.file);
       break;
     case IREE_HAL_REPLAY_OBJECT_TYPE_QUEUE:
-      iree_hal_pool_release(entry->queue_allocation_pool);
       iree_hal_queue_release(entry->value.queue);
       break;
     case IREE_HAL_REPLAY_OBJECT_TYPE_PHYSICAL_MEMORY:
@@ -114,15 +116,26 @@ iree_status_t iree_hal_replay_executor_deinitialize(
     return status;
   }
 
-  // Release leaf objects before queue, allocator, and device roots regardless
-  // of replay object id assignment. Queue-allocated buffers borrow state from
-  // the queue's replay pool and must all be gone before that pool is released.
+  // Release leaf objects before queue, pool, allocator, and device roots
+  // regardless of replay object id assignment.
   iree_status_t object_status = iree_ok_status();
   for (iree_host_size_t i = executor->object_capacity; i > 0; --i) {
     const iree_hal_replay_object_type_t type = executor->objects[i - 1].type;
     if (type == IREE_HAL_REPLAY_OBJECT_TYPE_QUEUE ||
+        type == IREE_HAL_REPLAY_OBJECT_TYPE_POOL ||
         type == IREE_HAL_REPLAY_OBJECT_TYPE_ALLOCATOR ||
         type == IREE_HAL_REPLAY_OBJECT_TYPE_DEVICE) {
+      continue;
+    }
+    object_status = iree_status_join(
+        object_status, iree_hal_replay_executor_release_entry(
+                           executor, i - 1, &executor->objects[i - 1]));
+  }
+  if (!iree_status_is_ok(object_status)) {
+    return object_status;
+  }
+  for (iree_host_size_t i = executor->object_capacity; i > 0; --i) {
+    if (executor->objects[i - 1].type != IREE_HAL_REPLAY_OBJECT_TYPE_POOL) {
       continue;
     }
     object_status = iree_status_join(

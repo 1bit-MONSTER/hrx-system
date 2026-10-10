@@ -220,25 +220,12 @@ static iree_status_t iree_hal_slab_pool_select_plan(
   return iree_ok_status();
 }
 
-IREE_API_EXPORT iree_status_t iree_hal_slab_pool_create(
-    iree_hal_device_group_t* group, iree_hal_pool_scope_t scope,
+static iree_status_t iree_hal_slab_pool_create_leaf(
+    void* user_data, iree_hal_device_group_t* group,
+    const iree_hal_pool_scope_t* scope,
     const iree_hal_slab_pool_options_t* options,
     iree_allocator_t host_allocator, iree_hal_pool_t** out_pool) {
-  IREE_ASSERT_ARGUMENT(options);
-  IREE_ASSERT_ARGUMENT(out_pool);
-  *out_pool = NULL;
-  IREE_RETURN_IF_ERROR(iree_hal_slab_pool_validate_scope(group, scope));
-  IREE_RETURN_IF_ERROR(
-      iree_hal_slab_pool_validate_host_access(options->preferences.host));
-  IREE_RETURN_IF_ERROR(
-      iree_hal_slab_pool_validate_external_storage_options(options));
-  if ((uint32_t)options->placement.mode > IREE_HAL_POOL_PLACEMENT_REQUIRED ||
-      (options->placement.mode != IREE_HAL_POOL_PLACEMENT_AUTOMATIC &&
-       options->placement.node >= iree_hal_topology_node_count(
-                                      iree_hal_device_group_topology(group)))) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "pool placement is outside the group topology");
-  }
+  (void)user_data;
   iree_hal_slab_pool_selection_t selection = {.options = options};
   const iree_hal_slab_pool_plan_callback_t callback = {
       .fn = iree_hal_slab_pool_select_plan,
@@ -260,7 +247,7 @@ IREE_API_EXPORT iree_status_t iree_hal_slab_pool_create(
         continue;
       }
       selection.factory = factory;
-      status = factory->query(factory->self, group, scope, options, callback,
+      status = factory->query(factory->self, group, *scope, options, callback,
                               host_allocator);
     }
   }
@@ -276,4 +263,29 @@ IREE_API_EXPORT iree_status_t iree_hal_slab_pool_create(
     iree_hal_slab_pool_plan_destroy(selection.plan);
   }
   return status;
+}
+
+IREE_API_EXPORT iree_status_t iree_hal_slab_pool_create(
+    iree_hal_device_group_t* group, iree_hal_pool_scope_t scope,
+    const iree_hal_slab_pool_options_t* options,
+    iree_allocator_t host_allocator, iree_hal_pool_t** out_pool) {
+  IREE_ASSERT_ARGUMENT(group);
+  IREE_ASSERT_ARGUMENT(options);
+  IREE_ASSERT_ARGUMENT(out_pool);
+  *out_pool = NULL;
+  IREE_RETURN_IF_ERROR(iree_hal_slab_pool_validate_scope(group, scope));
+  IREE_RETURN_IF_ERROR(
+      iree_hal_slab_pool_validate_host_access(options->preferences.host));
+  IREE_RETURN_IF_ERROR(
+      iree_hal_slab_pool_validate_external_storage_options(options));
+  if ((uint32_t)options->placement.mode > IREE_HAL_POOL_PLACEMENT_REQUIRED ||
+      (options->placement.mode != IREE_HAL_POOL_PLACEMENT_AUTOMATIC &&
+       options->placement.node >= iree_hal_topology_node_count(
+                                      iree_hal_device_group_topology(group)))) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "pool placement is outside the group topology");
+  }
+  return iree_hal_device_group_create_slab_pool(group, &scope, options,
+                                                iree_hal_slab_pool_create_leaf,
+                                                NULL, host_allocator, out_pool);
 }

@@ -10,9 +10,9 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "iree/hal/memory/passthrough_pool.h"
 #include "iree/hal/replay/atomic_params.h"
 #include "iree/hal/replay/execute_object.h"
+#include "iree/hal/replay/execute_pool.h"
 #include "iree/hal/replay/execute_vmm.h"
 
 static iree_status_t iree_hal_replay_executor_allocate_array(
@@ -29,37 +29,6 @@ static iree_status_t iree_hal_replay_executor_allocate_array(
   }
   return iree_allocator_malloc(executor->host_allocator, allocation_size,
                                out_ptr);
-}
-
-static iree_status_t iree_hal_replay_executor_require_queue_allocation_pool(
-    iree_hal_replay_executor_t* executor,
-    const iree_hal_replay_file_record_t* record,
-    iree_hal_replay_object_entry_t* queue_entry, iree_hal_pool_t** out_pool) {
-  if (queue_entry->queue_allocation_pool) {
-    *out_pool = queue_entry->queue_allocation_pool;
-    return iree_ok_status();
-  }
-
-  iree_hal_replay_object_entry_t* device_entry = NULL;
-  IREE_RETURN_IF_ERROR(iree_hal_replay_executor_lookup(
-      executor, record->header.device_id, IREE_HAL_REPLAY_OBJECT_TYPE_DEVICE,
-      &device_entry));
-  iree_hal_queue_pool_backend_t pool_backend;
-  IREE_RETURN_IF_ERROR(iree_hal_device_query_queue_pool_backend(
-      device_entry->value.device,
-      iree_hal_queue_family(queue_entry->value.queue), &pool_backend));
-  const iree_hal_passthrough_pool_options_t options = {
-      .asan = pool_backend.asan,
-      .trace_name = iree_make_cstring_view("iree_hal_replay_queue"),
-  };
-  iree_hal_pool_t* pool = NULL;
-  IREE_RETURN_IF_ERROR(iree_hal_passthrough_pool_create(
-      options, pool_backend.slab_provider, pool_backend.notification,
-      pool_backend.frontier_tracker, pool_backend.maintenance,
-      executor->host_allocator, &pool));
-  queue_entry->queue_allocation_pool = pool;
-  *out_pool = pool;
-  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_replay_executor_require_fixed_payload(
@@ -769,7 +738,8 @@ static iree_status_t iree_hal_replay_executor_queue_alloca(
       sizeof(iree_hal_replay_queue_alloca_payload_t)));
   iree_hal_replay_queue_alloca_payload_t payload;
   memcpy(&payload, record->payload.data, sizeof(payload));
-  if (IREE_UNLIKELY(payload.reserved0 != 0 || payload.request_count == 0 ||
+  if (IREE_UNLIKELY(payload.pool_id == IREE_HAL_REPLAY_OBJECT_ID_NONE ||
+                    payload.request_count == 0 ||
                     payload.request_count > IREE_HOST_SIZE_MAX)) {
     return iree_make_status(IREE_STATUS_DATA_LOSS,
                             "replay queue alloca header is invalid");
@@ -788,9 +758,10 @@ static iree_status_t iree_hal_replay_executor_queue_alloca(
   IREE_RETURN_IF_ERROR(iree_hal_replay_executor_lookup(
       executor, record->header.object_id, IREE_HAL_REPLAY_OBJECT_TYPE_QUEUE,
       &queue_entry));
-  iree_hal_pool_t* pool = NULL;
-  IREE_RETURN_IF_ERROR(iree_hal_replay_executor_require_queue_allocation_pool(
-      executor, record, queue_entry, &pool));
+  iree_hal_replay_object_entry_t* pool_entry = NULL;
+  IREE_RETURN_IF_ERROR(iree_hal_replay_executor_lookup(
+      executor, payload.pool_id, IREE_HAL_REPLAY_OBJECT_TYPE_POOL,
+      &pool_entry));
 
   iree_hal_replay_semaphore_list_storage_t wait_storage;
   iree_hal_replay_semaphore_list_storage_t signal_storage;
@@ -851,8 +822,8 @@ static iree_status_t iree_hal_replay_executor_queue_alloca(
   }
   if (iree_status_is_ok(status)) {
     status = iree_hal_queue_alloca(queue_entry->value.queue, wait_storage.list,
-                                   signal_storage.list, pool, request_count,
-                                   requests, buffers);
+                                   signal_storage.list, pool_entry->value.pool,
+                                   request_count, requests, buffers);
   }
   if (iree_status_is_ok(status)) {
     for (iree_host_size_t i = 0; i < request_count; ++i) {
@@ -1770,6 +1741,11 @@ static iree_status_t iree_hal_replay_executor_replay_operation_with_barriers(
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_PROTECT:
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_ADVISE:
       return iree_hal_replay_executor_replay_vmm_operation(executor, record);
+    case IREE_HAL_REPLAY_OPERATION_CODE_POOL_CREATE_SLAB:
+    case IREE_HAL_REPLAY_OPERATION_CODE_POOL_TRIM:
+    case IREE_HAL_REPLAY_OPERATION_CODE_POOL_ALLOCATE_BUFFER:
+    case IREE_HAL_REPLAY_OPERATION_CODE_POOL_IMPORT_BUFFER:
+      return iree_hal_replay_executor_replay_pool_operation(executor, record);
     case IREE_HAL_REPLAY_OPERATION_CODE_QUEUE_TRANSFER:
       return iree_hal_replay_executor_queue_transfer(executor, record,
                                                      barriers);

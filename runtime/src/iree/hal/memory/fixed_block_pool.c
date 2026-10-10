@@ -664,6 +664,9 @@ static iree_status_t iree_hal_fixed_block_pool_create_impl(
                      };
   pool->base.asan_enabled =
       iree_hal_asan_pool_options_is_enabled(&options->asan);
+  if (backing_pool) {
+    pool->base.allocation_interceptor = backing_pool->allocation_interceptor;
+  }
   pool->backing_pool = backing_pool;
   iree_hal_pool_retain(backing_pool);
   pool->host_allocator = host_allocator;

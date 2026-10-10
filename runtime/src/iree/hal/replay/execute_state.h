@@ -46,6 +46,8 @@ typedef struct iree_hal_replay_object_entry_t {
     iree_hal_device_t* device;
     // Retained HAL allocator.
     iree_hal_allocator_t* allocator;
+    // Retained HAL pool.
+    iree_hal_pool_t* pool;
     // Retained HAL buffer.
     iree_hal_buffer_t* buffer;
     // Retained HAL command buffer.
@@ -61,9 +63,6 @@ typedef struct iree_hal_replay_object_entry_t {
     // Allocator-owned opaque physical memory state.
     iree_hal_replay_physical_memory_entry_t physical_memory;
   } value;
-  // Lazily created functional-replay pool for a queue object, or NULL.
-  // Buffer entries and every other object type leave this field NULL.
-  iree_hal_pool_t* queue_allocation_pool;
 } iree_hal_replay_object_entry_t;
 
 // One live virtual-to-physical range reconstructed during replay.

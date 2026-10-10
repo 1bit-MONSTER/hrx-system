@@ -1180,6 +1180,9 @@ static iree_status_t iree_hal_tlsf_pool_create_impl(
   pool->asan_options = options.asan;
   pool->base.asan_enabled =
       iree_hal_asan_pool_options_is_enabled(&options.asan);
+  if (backing_pool) {
+    pool->base.allocation_interceptor = backing_pool->allocation_interceptor;
+  }
   iree_atomic_store(&pool->bytes_committed, 0, iree_memory_order_relaxed);
   iree_atomic_store(&pool->committed_slab_count, 0, iree_memory_order_relaxed);
 

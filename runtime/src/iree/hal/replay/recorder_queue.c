@@ -15,6 +15,7 @@
 #include "iree/hal/replay/recorder_command_buffer.h"
 #include "iree/hal/replay/recorder_executable.h"
 #include "iree/hal/replay/recorder_file.h"
+#include "iree/hal/replay/recorder_pool.h"
 #include "iree/hal/replay/recorder_record.h"
 
 typedef struct iree_hal_replay_recorder_transfer_storage_t {
@@ -1402,7 +1403,10 @@ static iree_status_t iree_hal_replay_recorder_queue_alloca(
     iree_hal_buffer_t** IREE_RESTRICT out_buffers) {
   iree_hal_replay_recorder_queue_t* queue =
       (iree_hal_replay_recorder_queue_t*)base_queue;
+  const iree_hal_replay_object_id_t pool_id =
+      iree_hal_replay_recorder_find_pool_id(queue->recorder, pool);
   const bool can_record =
+      pool_id != IREE_HAL_REPLAY_OBJECT_ID_NONE &&
       iree_hal_replay_recorder_queue_has_captured_semaphores(
           queue->recorder, wait_semaphore_list) &&
       iree_hal_replay_recorder_queue_has_captured_semaphores(
@@ -1425,9 +1429,10 @@ static iree_status_t iree_hal_replay_recorder_queue_alloca(
     iree_hal_replay_recorder_mark_unsupported(&pending_record);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_hal_queue_alloca(queue->base_queue, wait_semaphore_list,
-                                   signal_semaphore_list, pool, request_count,
-                                   requests, storage.base_buffers);
+    status = iree_hal_queue_alloca(
+        queue->base_queue, wait_semaphore_list, signal_semaphore_list,
+        iree_hal_replay_recorder_pool_base_or_self(pool), request_count,
+        requests, storage.base_buffers);
   }
   if (iree_status_is_ok(status)) {
     for (iree_host_size_t i = 0; i < request_count; ++i) {
@@ -1465,6 +1470,7 @@ static iree_status_t iree_hal_replay_recorder_queue_alloca(
           .wait_semaphore_count = wait_semaphore_list.count,
           .signal_semaphore_count = signal_semaphore_list.count,
           .request_count = request_count,
+          .pool_id = pool_id,
       };
       const iree_const_byte_span_t iovecs[] = {
           iree_make_const_byte_span(&payload, sizeof(payload)),

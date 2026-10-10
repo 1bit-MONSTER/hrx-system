@@ -106,13 +106,10 @@ static void iree_hal_replay_recorder_allocator_begin_passthrough_operation(
     iree_hal_replay_operation_code_t operation_code,
     iree_hal_replay_payload_type_t payload_type,
     iree_hal_replay_pending_record_t* out_pending_record) {
-  iree_status_t status = iree_hal_replay_recorder_allocator_begin_operation(
-      allocator, related_object_id, operation_code, payload_type,
-      out_pending_record);
-  if (!iree_status_is_ok(status)) {
-    iree_status_free(status);
-    memset(out_pending_record, 0, sizeof(*out_pending_record));
-  }
+  iree_hal_replay_recorder_try_begin_operation(
+      allocator->recorder, allocator->device_id, allocator->allocator_id,
+      related_object_id, IREE_HAL_REPLAY_OBJECT_TYPE_ALLOCATOR, operation_code,
+      payload_type, out_pending_record);
 }
 
 // Finds a physical-memory token while |virtual_memory_mutex| is held. Pointer

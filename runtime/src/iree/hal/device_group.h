@@ -44,26 +44,79 @@ extern "C" {
 // Thread safety: the group is immutable after creation and can be queried
 // concurrently from any thread without synchronization.
 typedef struct iree_hal_device_group_t iree_hal_device_group_t;
+typedef struct iree_hal_pool_t iree_hal_pool_t;
+typedef struct iree_hal_pool_scope_t iree_hal_pool_scope_t;
+typedef struct iree_hal_slab_pool_options_t iree_hal_slab_pool_options_t;
 
-// Callback function used to produce a replacement for one device in a source
-// group.
+// Synchronous continuation for one slab-pool construction layer.
 //
-// |source_device| is borrowed from |source_group| at |device_index|. On success
-// |out_replacement_device| must contain a device retained for the caller.
-// create_with_replacements consumes that reference whether group creation later
-// succeeds or fails.
-typedef iree_status_t(IREE_API_PTR* iree_hal_device_group_replacement_fn_t)(
-    iree_hal_device_group_t* source_group, iree_host_size_t device_index,
-    iree_hal_device_t* source_device, void* user_data,
-    iree_hal_device_t** out_replacement_device);
-
-// Callback used to replace devices while preserving a source group topology.
-typedef struct iree_hal_device_group_replacement_callback_t {
-  // Function called once for each source-group device in topology order.
-  iree_hal_device_group_replacement_fn_t fn;
-  // Opaque caller-owned value passed to |fn|.
+// The callback may be invoked at most once and is valid only for the duration
+// of the wrapping callback receiving it.
+typedef struct iree_hal_slab_pool_create_callback_t {
+  // Continues construction through the next wrapping layer.
+  iree_status_t(IREE_API_PTR* fn)(void* user_data,
+                                  iree_hal_device_group_t* request_group,
+                                  const iree_hal_pool_scope_t* scope,
+                                  const iree_hal_slab_pool_options_t* options,
+                                  iree_allocator_t host_allocator,
+                                  iree_hal_pool_t** out_pool);
+  // Opaque synchronous continuation state.
   void* user_data;
-} iree_hal_device_group_replacement_callback_t;
+} iree_hal_slab_pool_create_callback_t;
+
+// Stateful instrumentation around a replacement device group.
+//
+// The group consumes |self| on every create_wrapped outcome. Replacement
+// devices preserve the source topology coordinates. Pool construction receives
+// the complete public request and explicitly continues through |next|.
+typedef struct iree_hal_device_group_wrapper_vtable_t {
+  // Destroys wrapper state after all replacement devices are released.
+  void(IREE_API_PTR* destroy)(void* self);
+
+  // Produces a replacement for one source-group device.
+  //
+  // |source_device| is borrowed from |source_group| at |device_index|. On
+  // success |out_replacement_device| must contain a device retained for the
+  // caller. The group consumes that reference on every later outcome.
+  iree_status_t(IREE_API_PTR* replace_device)(
+      void* self, iree_hal_device_group_t* source_group,
+      iree_host_size_t device_index, iree_hal_device_t* source_device,
+      iree_hal_device_t** out_replacement_device);
+
+  // Observes and optionally decorates one complete slab-pool construction.
+  //
+  // |next| continues through the wrapped source group while preserving the
+  // outer |request_group| and its canonical family identities.
+  iree_status_t(IREE_API_PTR* create_slab_pool)(
+      void* self, iree_hal_slab_pool_create_callback_t next,
+      iree_hal_device_group_t* request_group,
+      const iree_hal_pool_scope_t* scope,
+      const iree_hal_slab_pool_options_t* options,
+      iree_allocator_t host_allocator, iree_hal_pool_t** out_pool);
+} iree_hal_device_group_wrapper_vtable_t;
+
+typedef struct iree_hal_device_group_wrapper_t {
+  // State consumed by iree_hal_device_group_create_wrapped.
+  void* self;
+  // Immutable callbacks that must outlive the created group.
+  const iree_hal_device_group_wrapper_vtable_t* vtable;
+} iree_hal_device_group_wrapper_t;
+
+// Callback function used by the terminal slab-pool construction layer.
+typedef iree_status_t(IREE_API_PTR* iree_hal_slab_pool_create_leaf_fn_t)(
+    void* user_data, iree_hal_device_group_t* request_group,
+    const iree_hal_pool_scope_t* scope,
+    const iree_hal_slab_pool_options_t* options,
+    iree_allocator_t host_allocator, iree_hal_pool_t** out_pool);
+
+// Invokes group instrumentation around a terminal slab-pool constructor.
+// Intended for iree_hal_slab_pool_create; ordinary callers construct pools
+// through that public API.
+IREE_API_EXPORT iree_status_t iree_hal_device_group_create_slab_pool(
+    iree_hal_device_group_t* group, const iree_hal_pool_scope_t* scope,
+    const iree_hal_slab_pool_options_t* options,
+    iree_hal_slab_pool_create_leaf_fn_t leaf_fn, void* leaf_user_data,
+    iree_allocator_t host_allocator, iree_hal_pool_t** out_pool);
 
 // Creates a single-device group.
 // Equivalent to initializing a builder, adding the device, and finalizing.
@@ -71,21 +124,18 @@ IREE_API_EXPORT iree_status_t iree_hal_device_group_create_from_device(
     iree_hal_device_t* device, iree_async_frontier_tracker_t* frontier_tracker,
     iree_allocator_t host_allocator, iree_hal_device_group_t** out_group);
 
-// Creates a device group by replacing the devices in |source_group| while
-// preserving the source topology and frontier tracker.
+// Creates an instrumented device group preserving |source_group| topology.
 //
-// |replacement_callback| is invoked once for each source device in topology
-// order. The new group retains all replacement devices and assigns topology
-// information derived from the copied source topology.
-// The source group is retained and its memory namespace is shared. Replacement
-// devices preserve canonical queue-family ordinals and their access semantics.
-//
-// This is intended for instrumentation and policy wrappers that must preserve a
-// precomputed topology while changing the device objects exposed to consumers.
-IREE_API_EXPORT iree_status_t iree_hal_device_group_create_with_replacements(
+// |wrapper.vtable|, its destroy callback, and its replace_device callback are
+// required preconditions. The group consumes |wrapper.self| on success and
+// failure, retains the source group, and owns every replacement returned by
+// |replace_device|. Replacement devices must preserve canonical queue-family
+// ordinals and access semantics. Slab-pool construction is routed through
+// |create_slab_pool| when provided.
+IREE_API_EXPORT iree_status_t iree_hal_device_group_create_wrapped(
     iree_hal_device_group_t* source_group,
-    iree_hal_device_group_replacement_callback_t replacement_callback,
-    iree_allocator_t host_allocator, iree_hal_device_group_t** out_group);
+    iree_hal_device_group_wrapper_t wrapper, iree_allocator_t host_allocator,
+    iree_hal_device_group_t** out_group);
 
 // Retains the given |group| for the caller.
 IREE_API_EXPORT void iree_hal_device_group_retain(

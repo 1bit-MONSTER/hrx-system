@@ -512,6 +512,118 @@ static iree_hal_replay_file_record_metadata_t MakeAllocatorOperationMetadata(
   return metadata;
 }
 
+static iree_hal_replay_file_record_metadata_t MakePoolOperationMetadata(
+    uint64_t sequence_ordinal, iree_hal_replay_payload_type_t payload_type,
+    iree_hal_replay_operation_code_t operation_code,
+    iree_hal_replay_object_id_t pool_id,
+    iree_hal_replay_object_id_t related_object_id) {
+  iree_hal_replay_file_record_metadata_t metadata = {};
+  metadata.sequence_ordinal = sequence_ordinal;
+  metadata.object_id = pool_id;
+  metadata.related_object_id = related_object_id;
+  metadata.record_type = IREE_HAL_REPLAY_FILE_RECORD_TYPE_OPERATION;
+  metadata.payload_type = payload_type;
+  metadata.object_type =
+      operation_code == IREE_HAL_REPLAY_OPERATION_CODE_POOL_CREATE_SLAB
+          ? IREE_HAL_REPLAY_OBJECT_TYPE_NONE
+          : IREE_HAL_REPLAY_OBJECT_TYPE_POOL;
+  metadata.operation_code = operation_code;
+  return metadata;
+}
+
+static std::vector<uint8_t> MakePoolReplayFileStorage() {
+  ReplayFileBuilder builder(/*capacity=*/8192);
+  constexpr iree_hal_replay_object_id_t kPoolId = 17;
+
+  const char trace_name[] = "shared.workspace";
+  iree_hal_replay_pool_create_slab_payload_t create = {};
+  create.family_count = 1;
+  create.owned_export_count = 1;
+  create.import_count = 1;
+  create.import_export_count = 1;
+  create.trace_name_length = sizeof(trace_name) - 1;
+  create.placement_mode = 2;
+  create.placement_node = 3;
+  create.owned_mode = 1;
+  create.host_access = IREE_HAL_MEMORY_ACCESS_READ;
+  create.host_mapping_modes = IREE_HAL_MAPPING_MODE_SCOPED;
+  create.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+  create.preferred_host_access = IREE_HAL_MEMORY_ACCESS_WRITE;
+  create.preferred_host_mapping_modes = IREE_HAL_MAPPING_MODE_PERSISTENT;
+  create.preferred_host_cacheability =
+      IREE_HAL_HOST_CACHEABILITY_WRITE_COMBINED;
+  iree_hal_replay_pool_family_access_payload_t family = {};
+  family.device_ordinal = 2;
+  family.family_ordinal = 1;
+  family.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
+  family.interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS;
+  iree_hal_replay_external_storage_class_payload_t owned_export = {};
+  owned_export.type = IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
+  owned_export.provenance[0] = 0xA0;
+  iree_hal_replay_pool_import_class_payload_t import = {};
+  import.storage_class.type = IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
+  import.storage_class.provenance[0] = 0xB0;
+  import.export_count = 1;
+  iree_hal_replay_external_storage_class_payload_t import_export = {};
+  import_export.type = IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS;
+  import_export.provenance[0] = 0xC0;
+  const iree_const_byte_span_t create_iovecs[] = {
+      iree_make_const_byte_span(&create, sizeof(create)),
+      iree_make_const_byte_span(&family, sizeof(family)),
+      iree_make_const_byte_span(&owned_export, sizeof(owned_export)),
+      iree_make_const_byte_span(&import, sizeof(import)),
+      iree_make_const_byte_span(&import_export, sizeof(import_export)),
+      iree_make_const_byte_span(trace_name, sizeof(trace_name) - 1),
+  };
+  builder.Append(MakePoolOperationMetadata(
+                     0, IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_CREATE_SLAB,
+                     IREE_HAL_REPLAY_OPERATION_CODE_POOL_CREATE_SLAB,
+                     IREE_HAL_REPLAY_OBJECT_ID_NONE, kPoolId),
+                 IREE_ARRAYSIZE(create_iovecs), create_iovecs);
+
+  iree_hal_replay_pool_allocate_buffer_payload_t allocate = {};
+  allocate.allocation_size = 4096;
+  allocate.min_alignment = 256;
+  allocate.replay_allocation_size = 16384;
+  builder.Append(
+      MakePoolOperationMetadata(
+          1, IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_ALLOCATE_BUFFER,
+          IREE_HAL_REPLAY_OPERATION_CODE_POOL_ALLOCATE_BUFFER, kPoolId, 18),
+      allocate);
+
+  iree_hal_replay_pool_trim_payload_t trim = {};
+  trim.flags = IREE_HAL_POOL_TRIM_FLAG_EXCESS;
+  trim.min_bytes_to_keep = 8192;
+  builder.Append(
+      MakePoolOperationMetadata(2, IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_TRIM,
+                                IREE_HAL_REPLAY_OPERATION_CODE_POOL_TRIM,
+                                kPoolId, IREE_HAL_REPLAY_OBJECT_ID_NONE),
+      trim);
+
+  const uint8_t imported_data[] = {1, 2, 3, 4};
+  iree_hal_replay_pool_import_buffer_payload_t imported = {};
+  imported.storage_class.type = IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
+  imported.storage_class.provenance[0] = 0xD0;
+  imported.byte_length = sizeof(imported_data);
+  imported.logical_offset = 1;
+  imported.logical_length = 2;
+  imported.maintenance_length = sizeof(imported_data);
+  imported.physical_backing_id[0] = 0x1234;
+  imported.data_length = sizeof(imported_data);
+  imported.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+  const iree_const_byte_span_t import_iovecs[] = {
+      iree_make_const_byte_span(&imported, sizeof(imported)),
+      iree_make_const_byte_span(imported_data, sizeof(imported_data)),
+  };
+  builder.Append(
+      MakePoolOperationMetadata(
+          3, IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_IMPORT_BUFFER,
+          IREE_HAL_REPLAY_OPERATION_CODE_POOL_IMPORT_BUFFER, kPoolId, 19),
+      IREE_ARRAYSIZE(import_iovecs), import_iovecs);
+
+  return builder.Finish();
+}
+
 static std::vector<uint8_t> MakeVmmReplayFileStorage() {
   ReplayFileBuilder builder(/*capacity=*/8192);
 
@@ -749,6 +861,134 @@ TEST(ReplayDumpTest, DefinesVmmWireSchema) {
                      protection));
 }
 
+TEST(ReplayDumpTest, DefinesPoolWireSchema) {
+  struct NamedPayloadType {
+    iree_hal_replay_payload_type_t type;
+    uint32_t value;
+    const char* name;
+  };
+  const NamedPayloadType payload_types[] = {
+      {IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_CREATE_SLAB, 55, "pool_create_slab"},
+      {IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_TRIM, 56, "pool_trim"},
+      {IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_ALLOCATE_BUFFER, 57,
+       "pool_allocate_buffer"},
+      {IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_IMPORT_BUFFER, 58,
+       "pool_import_buffer"},
+  };
+  for (const NamedPayloadType& payload_type : payload_types) {
+    EXPECT_EQ(payload_type.value, payload_type.type);
+    EXPECT_STREQ(payload_type.name,
+                 iree_hal_replay_payload_type_string(payload_type.type));
+  }
+
+  EXPECT_EQ(150u, IREE_HAL_REPLAY_OPERATION_CODE_POOL_CREATE_SLAB);
+  EXPECT_EQ(151u, IREE_HAL_REPLAY_OPERATION_CODE_POOL_TRIM);
+  EXPECT_EQ(152u, IREE_HAL_REPLAY_OPERATION_CODE_POOL_ALLOCATE_BUFFER);
+  EXPECT_EQ(153u, IREE_HAL_REPLAY_OPERATION_CODE_POOL_IMPORT_BUFFER);
+}
+
+TEST(ReplayDumpTest, EmitsPoolPayloads) {
+  std::vector<uint8_t> storage = MakePoolReplayFileStorage();
+  iree_hal_replay_dump_options_t options =
+      iree_hal_replay_dump_options_default();
+
+  std::string text_output;
+  IREE_ASSERT_OK(DumpReplayToString(MakeReplayFileContents(storage), &options,
+                                    &text_output));
+  EXPECT_THAT(text_output, HasSubstr("payload=pool_create_slab"));
+  EXPECT_THAT(text_output, HasSubstr("family_count=1 owned_export_count=1"));
+  EXPECT_THAT(text_output, HasSubstr("trace_name=\"shared.workspace\""));
+  EXPECT_THAT(text_output, HasSubstr("allocation_size=4096 min_alignment=256 "
+                                     "replay_allocation_size=16384"));
+  EXPECT_THAT(text_output,
+              HasSubstr("flags=0x00000002 min_bytes_to_keep=8192"));
+  EXPECT_THAT(text_output, HasSubstr("logical_range=[1, +2]"));
+  EXPECT_THAT(text_output,
+              HasSubstr("physical_backing_id=[0x0000000000001234"));
+
+  options.format = IREE_HAL_REPLAY_DUMP_FORMAT_JSONL;
+  std::string json_output;
+  IREE_ASSERT_OK(DumpReplayToString(MakeReplayFileContents(storage), &options,
+                                    &json_output));
+  EXPECT_THAT(json_output, HasSubstr("\"payload_type\":\"pool_create_slab\""));
+  EXPECT_THAT(json_output, HasSubstr("\"trace_name\":\"shared.workspace\""));
+  EXPECT_THAT(json_output, HasSubstr("\"family_range\""));
+  EXPECT_THAT(json_output,
+              HasSubstr("\"allocation_size\":4096,\"min_alignment\":256,"
+                        "\"replay_allocation_size\":16384"));
+  EXPECT_THAT(json_output, HasSubstr("\"flags\":2,\"min_bytes_to_keep\":8192"));
+  EXPECT_THAT(json_output,
+              HasSubstr("\"logical_offset\":1,\"logical_length\":2"));
+  EXPECT_THAT(json_output, HasSubstr("\"physical_backing_id\":[4660,0]"));
+  EXPECT_THAT(json_output, HasSubstr("\"data_range\""));
+}
+
+TEST(ReplayDumpTest, RejectsMalformedPoolPayloads) {
+  auto expect_rejected = [](const std::vector<uint8_t>& storage) {
+    iree_hal_replay_dump_options_t options =
+        iree_hal_replay_dump_options_default();
+    std::string output;
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_DATA_LOSS,
+        DumpReplayToString(MakeReplayFileContents(storage), &options, &output));
+    options.format = IREE_HAL_REPLAY_DUMP_FORMAT_JSONL;
+    output.clear();
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_DATA_LOSS,
+        DumpReplayToString(MakeReplayFileContents(storage), &options, &output));
+  };
+
+  struct FixedPayloadSchema {
+    iree_hal_replay_payload_type_t payload_type;
+    iree_hal_replay_operation_code_t operation_code;
+    iree_host_size_t payload_size;
+  };
+  const FixedPayloadSchema fixed_schemas[] = {
+      {IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_TRIM,
+       IREE_HAL_REPLAY_OPERATION_CODE_POOL_TRIM,
+       sizeof(iree_hal_replay_pool_trim_payload_t)},
+      {IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_ALLOCATE_BUFFER,
+       IREE_HAL_REPLAY_OPERATION_CODE_POOL_ALLOCATE_BUFFER,
+       sizeof(iree_hal_replay_pool_allocate_buffer_payload_t)},
+  };
+  for (const FixedPayloadSchema& schema : fixed_schemas) {
+    for (iree_host_size_t malformed_size :
+         {schema.payload_size - 1, schema.payload_size + 1}) {
+      SCOPED_TRACE(::testing::Message()
+                   << "payload_type=" << schema.payload_type
+                   << " payload_size=" << malformed_size);
+      ReplayFileBuilder builder(/*capacity=*/4096);
+      std::vector<uint8_t> payload(malformed_size, 0);
+      const iree_const_byte_span_t payload_span =
+          iree_make_const_byte_span(payload.data(), payload.size());
+      builder.Append(MakePoolOperationMetadata(0, schema.payload_type,
+                                               schema.operation_code, 17, 18),
+                     1, &payload_span);
+      expect_rejected(builder.Finish());
+    }
+  }
+
+  ReplayFileBuilder create_builder(/*capacity=*/4096);
+  iree_hal_replay_pool_create_slab_payload_t create = {};
+  create.family_count = 1;
+  create_builder.Append(MakePoolOperationMetadata(
+                            0, IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_CREATE_SLAB,
+                            IREE_HAL_REPLAY_OPERATION_CODE_POOL_CREATE_SLAB,
+                            IREE_HAL_REPLAY_OBJECT_ID_NONE, 17),
+                        create);
+  expect_rejected(create_builder.Finish());
+
+  ReplayFileBuilder import_builder(/*capacity=*/4096);
+  iree_hal_replay_pool_import_buffer_payload_t imported = {};
+  imported.data_length = 1;
+  import_builder.Append(
+      MakePoolOperationMetadata(
+          0, IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_IMPORT_BUFFER,
+          IREE_HAL_REPLAY_OPERATION_CODE_POOL_IMPORT_BUFFER, 17, 18),
+      imported);
+  expect_rejected(import_builder.Finish());
+}
+
 TEST(ReplayDumpTest, EmitsVmmPayloads) {
   std::vector<uint8_t> storage = MakeVmmReplayFileStorage();
   iree_hal_replay_dump_options_t options =
@@ -938,6 +1178,7 @@ TEST(ReplayDumpTest, EmitsQueueAllocaSemaphoreRanges) {
   iree_io_file_handle_release(file_handle);
 
   iree_hal_replay_queue_alloca_payload_t payload = {};
+  payload.pool_id = 7;
   payload.signal_semaphore_count = 1;
   payload.request_count = 1;
   iree_hal_replay_semaphore_timepoint_payload_t signal = {};
@@ -969,6 +1210,7 @@ TEST(ReplayDumpTest, EmitsQueueAllocaSemaphoreRanges) {
   IREE_ASSERT_OK(DumpReplayToString(MakeReplayFileContents(storage),
                                     &text_options, &text_output));
   EXPECT_THAT(text_output, HasSubstr("payload=queue_alloca"));
+  EXPECT_THAT(text_output, HasSubstr("pool_id=7"));
   EXPECT_THAT(text_output, HasSubstr("request_count=1"));
   EXPECT_THAT(text_output, HasSubstr("wait_range="));
   EXPECT_THAT(text_output, HasSubstr("signal_range="));
@@ -981,6 +1223,7 @@ TEST(ReplayDumpTest, EmitsQueueAllocaSemaphoreRanges) {
   IREE_ASSERT_OK(DumpReplayToString(MakeReplayFileContents(storage),
                                     &json_options, &json_output));
   EXPECT_THAT(json_output, HasSubstr("\"payload_type\":\"queue_alloca\""));
+  EXPECT_THAT(json_output, HasSubstr("\"pool_id\":7"));
   EXPECT_THAT(json_output, HasSubstr("\"wait_semaphores_range\""));
   EXPECT_THAT(json_output, HasSubstr("\"signal_semaphores_range\""));
   EXPECT_THAT(json_output, HasSubstr("\"requests_range\""));

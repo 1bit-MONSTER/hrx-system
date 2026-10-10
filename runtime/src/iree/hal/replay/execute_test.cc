@@ -17,10 +17,11 @@
 #include "iree/async/frontier_tracker.h"
 #include "iree/async/util/proactor_pool.h"
 #include "iree/hal/drivers/task/registration/driver_module.h"
-#include "iree/hal/memory/passthrough_pool.h"
+#include "iree/hal/memory/tlsf_pool.h"
 #include "iree/hal/replay/file_reader.h"
 #include "iree/hal/replay/file_writer.h"
 #include "iree/hal/replay/recorder.h"
+#include "iree/hal/slab_pool.h"
 #include "iree/hal/testing/mock_device.h"
 #include "iree/io/file_contents.h"
 #include "iree/io/file_handle.h"
@@ -2191,7 +2192,7 @@ TEST(ReplayExecuteTest, ExecutesRecordedFdBackedQueueWrite) {
         // IREE_PLATFORM_LINUX)
 }
 
-TEST(ReplayExecuteTest, ExecutesRecordedQueueAlloca) {
+TEST(ReplayExecuteTest, ExecutesRecordedQueueAllocaFromChildPool) {
   std::vector<uint8_t> storage(32768, 0);
   iree_hal_replay_recorder_t* recorder = CreateHostAllocationRecorder(&storage);
 
@@ -2205,16 +2206,31 @@ TEST(ReplayExecuteTest, ExecutesRecordedQueueAlloca) {
   iree_hal_queue_t* wrapped_queue = iree_hal_device_queue(wrapped_device, 0, 0);
   ASSERT_NE(wrapped_queue, nullptr);
 
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-      wrapped_device, iree_hal_queue_family(wrapped_queue), &backend));
-  iree_hal_passthrough_pool_options_t pool_options = {};
-  pool_options.asan = backend.asan;
+  const iree_hal_pool_family_access_t family_access = {
+      iree_hal_queue_family(wrapped_queue),
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+      /*interfaces=*/0,
+      /*requirements=*/0,
+      /*atomic_operations=*/{},
+  };
+  const iree_hal_pool_scope_t scope = {
+      /*family_count=*/1,
+      /*families=*/&family_access,
+      /*host=*/{},
+  };
+  iree_hal_slab_pool_options_t pool_options;
+  iree_hal_slab_pool_options_initialize(&pool_options);
+  pool_options.trace_name = IREE_SV("replay.queue_alloca");
+  iree_hal_pool_t* root_pool = nullptr;
+  IREE_ASSERT_OK(iree_hal_slab_pool_create(wrapped_group, scope, &pool_options,
+                                           iree_allocator_system(),
+                                           &root_pool));
+  iree_hal_tlsf_pool_options_t tlsf_options = {};
+  tlsf_options.tlsf_options.range_length = 4096;
+  tlsf_options.tlsf_options.alignment = 16;
   iree_hal_pool_t* pool = nullptr;
-  IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
-      pool_options, backend.slab_provider, backend.notification,
-      backend.frontier_tracker, backend.maintenance, iree_allocator_system(),
-      &pool));
+  IREE_ASSERT_OK(iree_hal_tlsf_pool_create(root_pool, &tlsf_options,
+                                           iree_allocator_system(), &pool));
 
   iree_hal_semaphore_t* signal_semaphore = nullptr;
   IREE_ASSERT_OK(iree_hal_semaphore_create(
@@ -2241,6 +2257,7 @@ TEST(ReplayExecuteTest, ExecutesRecordedQueueAlloca) {
   iree_hal_buffer_release(buffer);
   iree_hal_semaphore_release(signal_semaphore);
   iree_hal_pool_release(pool);
+  iree_hal_pool_release(root_pool);
 
   IREE_ASSERT_OK(iree_hal_replay_recorder_close(recorder));
   iree_hal_device_group_release(wrapped_group);
@@ -2290,7 +2307,7 @@ TEST(ReplayExecuteTest, RejectsUnsupportedHostCallRecord) {
   iree_hal_replay_recorder_release(recorder);
 }
 
-TEST(ReplayExecuteTest, ExecutesHostAllocationImportedBufferRecord) {
+TEST(ReplayExecuteTest, ExecutesPoolAllocationImportAndTrimRecords) {
   std::vector<uint8_t> storage(32768, 0);
   iree_hal_replay_recorder_t* recorder = CreateHostAllocationRecorder(&storage);
 
@@ -2305,31 +2322,75 @@ TEST(ReplayExecuteTest, ExecutesHostAllocationImportedBufferRecord) {
       iree_hal_device_queue(wrapped_device, /*family_ordinal=*/0,
                             /*queue_ordinal=*/0);
   ASSERT_NE(nullptr, wrapped_queue);
-  iree_hal_allocator_t* allocator = iree_hal_device_allocator(wrapped_device);
-  ASSERT_NE(nullptr, allocator);
+
+  const iree_hal_pool_family_access_t family_access = {
+      iree_hal_queue_family(wrapped_queue),
+      IREE_HAL_BUFFER_USAGE_TRANSFER,
+      /*interfaces=*/0,
+      /*requirements=*/0,
+      /*atomic_operations=*/{},
+  };
+  const iree_hal_pool_scope_t scope = {
+      /*family_count=*/1,
+      /*families=*/&family_access,
+      /*host=*/
+      {
+          IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+          IREE_HAL_MAPPING_MODE_SCOPED,
+          /*cacheability=*/IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
+      },
+  };
+  const iree_hal_external_storage_class_t host_pointer_class =
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+  const iree_hal_pool_import_class_t import_class = {
+      host_pointer_class,
+      /*exports=*/{},
+  };
+  iree_hal_slab_pool_options_t pool_options;
+  iree_hal_slab_pool_options_initialize(&pool_options);
+  pool_options.imports.class_count = 1;
+  pool_options.imports.classes = &import_class;
+  pool_options.trace_name = IREE_SV("replay.pool_operations");
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(iree_hal_slab_pool_create(wrapped_group, scope, &pool_options,
+                                           iree_allocator_system(), &pool));
+  iree_hal_tlsf_pool_options_t tlsf_options = {};
+  tlsf_options.tlsf_options.range_length = 4096;
+  tlsf_options.tlsf_options.alignment = 16;
+  iree_hal_pool_t* child_pool = nullptr;
+  IREE_ASSERT_OK(iree_hal_tlsf_pool_create(
+      pool, &tlsf_options, iree_allocator_system(), &child_pool));
 
   alignas(64) uint8_t imported_storage[16] = {
       0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
       0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
   };
   iree_hal_external_storage_t external_buffer = {};
-  external_buffer.storage_class.type =
-      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
+  external_buffer.storage_class = host_pointer_class;
   external_buffer.byte_length = sizeof(imported_storage);
   external_buffer.payload.host_pointer = imported_storage;
-
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING;
+  external_buffer.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+  external_buffer.maintenance_range =
+      iree_hal_make_buffer_range(0, sizeof(imported_storage));
   iree_hal_buffer_t* imported_buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
-      allocator, params, &external_buffer,
+  IREE_ASSERT_OK(iree_hal_pool_import_buffer(
+      pool, &external_buffer,
       iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &imported_buffer));
 
+  iree_hal_buffer_t* guard_buffer = nullptr;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      child_pool, iree_hal_make_pool_reservation_request(64, 16),
+      iree_infinite_timeout(), &guard_buffer));
   iree_hal_buffer_t* target_buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      allocator, params, sizeof(imported_storage), &target_buffer));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      child_pool,
+      iree_hal_make_pool_reservation_request(sizeof(imported_storage), 16),
+      iree_infinite_timeout(), &target_buffer));
+  EXPECT_GT(iree_hal_buffer_byte_offset(target_buffer), 0u);
+  const uint8_t initial_target[sizeof(imported_storage)] = {0xA5};
+  IREE_ASSERT_OK(iree_hal_buffer_map_write(target_buffer, 0, initial_target,
+                                           sizeof(initial_target)));
 
   iree_hal_semaphore_t* semaphore = nullptr;
   IREE_ASSERT_OK(iree_hal_semaphore_create(
@@ -2352,7 +2413,11 @@ TEST(ReplayExecuteTest, ExecutesHostAllocationImportedBufferRecord) {
 
   iree_hal_semaphore_release(semaphore);
   iree_hal_buffer_release(target_buffer);
+  iree_hal_buffer_release(guard_buffer);
   iree_hal_buffer_release(imported_buffer);
+  iree_hal_pool_release(child_pool);
+  iree_hal_pool_trim(pool, IREE_HAL_POOL_TRIM_FLAG_ALL, 0);
+  iree_hal_pool_release(pool);
 
   IREE_ASSERT_OK(iree_hal_replay_recorder_close(recorder));
   iree_hal_device_group_release(wrapped_group);
