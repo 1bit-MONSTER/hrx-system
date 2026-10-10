@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include <array>
+#include <atomic>
 
 #include "iree/async/frontier_tracker.h"
 #include "iree/async/util/proactor_pool.h"
@@ -19,11 +20,11 @@ namespace {
 
 struct PoolAllocatorState {
   // Whether new allocations fail while frees continue to reach the system.
-  bool fail_allocations = false;
+  std::atomic<bool> fail_allocations{false};
   // Number of allocation attempts, including rejected attempts.
-  iree_host_size_t allocation_attempt_count = 0;
+  std::atomic<iree_host_size_t> allocation_attempt_count{0};
   // Number of successful allocations not yet freed.
-  iree_host_size_t live_allocation_count = 0;
+  std::atomic<iree_host_size_t> live_allocation_count{0};
 };
 
 static iree_status_t PoolAllocatorCtl(void* self,
@@ -32,8 +33,8 @@ static iree_status_t PoolAllocatorCtl(void* self,
   auto* state = static_cast<PoolAllocatorState*>(self);
   if (command == IREE_ALLOCATOR_COMMAND_MALLOC ||
       command == IREE_ALLOCATOR_COMMAND_CALLOC) {
-    ++state->allocation_attempt_count;
-    if (state->fail_allocations) {
+    state->allocation_attempt_count.fetch_add(1, std::memory_order_relaxed);
+    if (state->fail_allocations.load(std::memory_order_relaxed)) {
       return iree_status_from_code(IREE_STATUS_RESOURCE_EXHAUSTED);
     }
   }
@@ -43,9 +44,9 @@ static iree_status_t PoolAllocatorCtl(void* self,
   if (iree_status_is_ok(status)) {
     if (command == IREE_ALLOCATOR_COMMAND_MALLOC ||
         command == IREE_ALLOCATOR_COMMAND_CALLOC) {
-      ++state->live_allocation_count;
+      state->live_allocation_count.fetch_add(1, std::memory_order_relaxed);
     } else if (command == IREE_ALLOCATOR_COMMAND_FREE) {
-      --state->live_allocation_count;
+      state->live_allocation_count.fetch_sub(1, std::memory_order_relaxed);
     }
   }
   return status;
@@ -142,7 +143,8 @@ class ReplayRecorderPoolTest : public ::testing::Test {
       IREE_EXPECT_OK(iree_hal_replay_recorder_close(recorder_));
       iree_hal_replay_recorder_release(recorder_);
     }
-    EXPECT_EQ(0u, allocator_state_.live_allocation_count);
+    EXPECT_EQ(0u, allocator_state_.live_allocation_count.load(
+                      std::memory_order_relaxed));
   }
 
   iree_status_t Import(iree_hal_external_storage_class_t storage_class,
@@ -215,23 +217,27 @@ class ReplayRecorderPoolTest : public ::testing::Test {
 
 TEST_F(ReplayRecorderPoolTest, ProxyFailurePreservesCallerOwnership) {
   const auto allocation_attempt_count =
-      allocator_state_.allocation_attempt_count;
-  const auto live_allocation_count = allocator_state_.live_allocation_count;
-  allocator_state_.fail_allocations = true;
+      allocator_state_.allocation_attempt_count.load(std::memory_order_relaxed);
+  const auto live_allocation_count =
+      allocator_state_.live_allocation_count.load(std::memory_order_relaxed);
+  allocator_state_.fail_allocations.store(true, std::memory_order_relaxed);
   iree_hal_buffer_t* buffer = nullptr;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED,
                         ImportHostPointer(&buffer));
   EXPECT_EQ(nullptr, buffer);
   EXPECT_EQ(0, release_count_);
   EXPECT_EQ(allocation_attempt_count + 1,
-            allocator_state_.allocation_attempt_count);
-  EXPECT_EQ(live_allocation_count, allocator_state_.live_allocation_count);
-  allocator_state_.fail_allocations = false;
+            allocator_state_.allocation_attempt_count.load(
+                std::memory_order_relaxed));
+  EXPECT_EQ(live_allocation_count, allocator_state_.live_allocation_count.load(
+                                       std::memory_order_relaxed));
+  allocator_state_.fail_allocations.store(false, std::memory_order_relaxed);
   VerifySuccessfulImport();
 }
 
 TEST_F(ReplayRecorderPoolTest, NativeFailureReleasesTentativeProxy) {
-  const auto live_allocation_count = allocator_state_.live_allocation_count;
+  const auto live_allocation_count =
+      allocator_state_.live_allocation_count.load(std::memory_order_relaxed);
   iree_hal_buffer_t* buffer = nullptr;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
                         Import(iree_hal_make_external_storage_class(
@@ -239,7 +245,8 @@ TEST_F(ReplayRecorderPoolTest, NativeFailureReleasesTentativeProxy) {
                                &buffer));
   EXPECT_EQ(nullptr, buffer);
   EXPECT_EQ(0, release_count_);
-  EXPECT_EQ(live_allocation_count, allocator_state_.live_allocation_count);
+  EXPECT_EQ(live_allocation_count, allocator_state_.live_allocation_count.load(
+                                       std::memory_order_relaxed));
   VerifySuccessfulImport();
 }
 
