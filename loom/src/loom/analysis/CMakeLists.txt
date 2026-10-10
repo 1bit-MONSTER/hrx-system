@@ -1554,11 +1554,13 @@ loom_cc_library(
     "symbolic_congruence.h"
     "symbolic_expr.h"
     "symbolic_expr_proof.h"
+    "symbolic_product.h"
     "symbolic_projection.h"
   SRCS
     "symbolic_congruence.c"
     "symbolic_expr.c"
     "symbolic_expr_proof.c"
+    "symbolic_product.c"
     "symbolic_projection.c"
     "symbolic_quotient.c"
     "symbolic_quotient.h"
@@ -1746,6 +1748,22 @@ loom_cc_test(
     loom::ops::scalar
     loom::ops::scf
     loom::util::fact_table
+)
+
+loom_cc_test(
+  NAME
+    symbolic_product_test
+  SRCS
+    "symbolic_product_test.cc"
+  DEPS
+    ::symbolic_expr
+    ::symbolic_expr_test_fixture
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::ir
+    loom::ops::index
+    loom::ops::scalar
+    loom::target::facts
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###
